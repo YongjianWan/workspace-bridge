@@ -8,9 +8,9 @@
 function sanitizeShellArg(arg) {
   if (typeof arg !== 'string') return '';
   
-  // Remove dangerous characters: ; | & $ ` \n \r
-  // Allow: alphanumeric, _ - . / \
-  return arg.replace(/[^a-zA-Z0-9_\-\.\/\\]/g, '');
+  // Remove dangerous characters: ; | & $ ` \n \r / \
+  // Allow: alphanumeric, _ - .
+  return arg.replace(/[^a-zA-Z0-9_\-\.]/g, '');
 }
 
 /**

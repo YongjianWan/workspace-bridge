@@ -1,30 +1,61 @@
 /**
- * Git tools for workspace-bridge
+ * Git tools for workspace-bridge - SECURE VERSION
+ * All commands use argument arrays to prevent injection
  */
 const path = require('path');
 const { findWorkspaceRoot } = require('../utils/path');
 const { runGit, trimOutput } = require('../utils/command');
 
-function ensureGitRepo(root) {
-  const gitRoot = runGit('rev-parse --show-toplevel', root, 15000);
-  if (!gitRoot.ok) {
+/**
+ * Validate that a file path is within the workspace root (prevent path traversal)
+ * @param {string} filePath - Path to validate
+ * @param {string} root - Workspace root
+ * @returns {string|null} - Normalized path if valid, null otherwise
+ */
+function validateWorkspacePath(filePath, root) {
+  if (!filePath || typeof filePath !== 'string') return null;
+  
+  // Resolve to absolute path
+  const resolved = path.isAbsolute(filePath) 
+    ? path.normalize(filePath) 
+    : path.normalize(path.join(root, filePath));
+  
+  // Ensure path is within workspace (prevent traversal attacks)
+  // Use case-insensitive comparison on Windows
+  const isWindows = process.platform === 'win32';
+  const checkResolved = isWindows ? resolved.toLowerCase() : resolved;
+  const checkRoot = isWindows ? path.normalize(root).toLowerCase() : path.normalize(root);
+  
+  if (!checkResolved.startsWith(checkRoot)) {
+    return null;
+  }
+  
+  return resolved;
+}
+
+async function ensureGitRepo(root) {
+  const result = await runGit(['rev-parse', '--show-toplevel'], root, 15000);
+  if (!result.ok) {
     return { ok: false, error: 'Not a git repository', workspaceRoot: root };
   }
   return null;
 }
 
-function gitDiffSummary(args, container) {
+async function gitDiffSummary(args, container) {
   const target = args?.cwd || process.cwd();
   const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const staged = Boolean(args?.staged);
-  const diffArgs = staged ? 'diff --cached --no-color' : 'diff --no-color';
 
-  const gitCheck = ensureGitRepo(root);
+  const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
 
-  const stat = runGit(`${diffArgs} --stat`, root, 30000);
-  const names = runGit(`${diffArgs} --name-only`, root, 30000);
-  const patch = runGit(`${diffArgs} --unified=0`, root, 30000);
+  const diffArgs = staged ? ['diff', '--cached', '--no-color'] : ['diff', '--no-color'];
+
+  const [stat, names, patch] = await Promise.all([
+    runGit([...diffArgs, '--stat'], root, 30000),
+    runGit([...diffArgs, '--name-only'], root, 30000),
+    runGit([...diffArgs, '--unified=0'], root, 30000),
+  ]);
 
   return {
     workspaceRoot: root,
@@ -36,28 +67,46 @@ function gitDiffSummary(args, container) {
   };
 }
 
-function gitBlame(args, container) {
+async function gitBlame(args, container) {
   const target = args?.cwd || process.cwd();
   const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const file = args?.file;
 
   if (!file) return { ok: false, error: 'file parameter is required' };
 
-  const filePath = path.isAbsolute(file) ? file : path.resolve(root, file);
-  if (!require('../utils/path').pathExists(filePath)) {
-    return { ok: false, error: `File not found: ${filePath}` };
+  // Validate path is within workspace
+  const filePath = validateWorkspacePath(file, root);
+  if (!filePath) {
+    return { ok: false, error: 'Invalid file path or path outside workspace' };
   }
 
-  const gitCheck = ensureGitRepo(root);
+  // Check file exists
+  try {
+    const fs = require('fs');
+    if (!fs.existsSync(filePath)) {
+      return { ok: false, error: `File not found: ${filePath}` };
+    }
+  } catch (e) {
+    return { ok: false, error: `Cannot access file: ${filePath}` };
+  }
+
+  const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
 
-  let lineRange = '';
-  if (Number.isFinite(args?.startLine)) {
-    const end = Number.isFinite(args?.endLine) ? args.endLine : args.startLine;
-    lineRange = ` -L ${args.startLine},${end}`;
+  // Build blame arguments securely
+  const blameArgs = ['blame', '--line-porcelain'];
+  
+  // Validate and add line range
+  if (Number.isFinite(args?.startLine) && args.startLine > 0) {
+    const endLine = Number.isFinite(args?.endLine) && args.endLine >= args.startLine 
+      ? args.endLine 
+      : args.startLine;
+    blameArgs.push('-L', `${args.startLine},${endLine}`);
   }
+  
+  blameArgs.push(filePath);
 
-  const result = runGit(`blame --line-porcelain${lineRange} "${filePath}"`, root, 30000);
+  const result = await runGit(blameArgs, root, 30000);
   if (!result.ok && !result.stdout) {
     return { ok: false, error: result.stderr, workspaceRoot: root };
   }
@@ -93,23 +142,54 @@ function gitBlame(args, container) {
   };
 }
 
-function gitHistory(args, container) {
+async function gitHistory(args, container) {
   const target = args?.cwd || process.cwd();
   const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const limit = Number.isFinite(args?.limit) ? Math.min(args.limit, 200) : 30;
 
-  const gitCheck = ensureGitRepo(root);
+  const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
 
-  const fileArg = args?.file ? `"${path.isAbsolute(args.file) ? args.file : path.resolve(root, args.file)}"` : '';
-  const authorArg = args?.author ? `--author="${args.author}"` : '';
-  const sinceArg = args?.since ? `--since="${args.since}"` : '';
-  const untilArg = args?.until ? `--until="${args.until}"` : '';
+  // Build log arguments securely
+  const logArgs = ['log', `-${limit}`];
+  
+  // Add optional filters with validation
+  if (args?.author && typeof args.author === 'string' && args.author.length < 100) {
+    // Sanitize author - only allow reasonable characters
+    const sanitizedAuthor = args.author.replace(/[<>\"\x00-\x1f]/g, '');
+    if (sanitizedAuthor) {
+      logArgs.push('--author', sanitizedAuthor);
+    }
+  }
+  
+  if (args?.since && typeof args.since === 'string' && args.since.length < 50) {
+    // Basic date format validation
+    const sanitizedSince = args.since.replace(/[;|&$`\n\r]/g, '');
+    if (sanitizedSince) {
+      logArgs.push('--since', sanitizedSince);
+    }
+  }
+  
+  if (args?.until && typeof args.until === 'string' && args.until.length < 50) {
+    const sanitizedUntil = args.until.replace(/[;|&$`\n\r]/g, '');
+    if (sanitizedUntil) {
+      logArgs.push('--until', sanitizedUntil);
+    }
+  }
 
+  // Add file filter if specified (validate path)
+  if (args?.file) {
+    const filePath = validateWorkspacePath(args.file, root);
+    if (filePath) {
+      logArgs.push('--', filePath);
+    }
+  }
+
+  // Format: null-separated fields
   const fmt = '--format=%x00%H%n%h%n%an%n%ae%n%ai%n%s';
-  const logArgs = `log -${limit} ${authorArg} ${sinceArg} ${untilArg} ${fmt} -- ${fileArg}`.trim().replace(/\s+/g, ' ');
+  logArgs.push(fmt);
 
-  const result = runGit(logArgs, root, 30000);
+  const result = await runGit(logArgs, root, 30000);
   const commits = [];
 
   for (const block of (result.stdout || '').split('\0')) {
@@ -136,22 +216,22 @@ function gitHistory(args, container) {
   };
 }
 
-function gitBranchInfo(args) {
+async function gitBranchInfo(args) {
   const target = args?.cwd || process.cwd();
   const root = findWorkspaceRoot(target);
 
-  const gitCheck = ensureGitRepo(root);
+  const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
 
   // --show-current requires Git 2.22+, fallback to rev-parse
-  let current = runGit('branch --show-current', root, 15000);
+  let current = await runGit(['branch', '--show-current'], root, 15000);
   if (!current.ok) {
-    current = runGit('rev-parse --abbrev-ref HEAD', root, 15000);
+    current = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], root, 15000);
   }
 
   // --format requires Git 2.7+, fallback to -v -a parsing
-  const formatResult = runGit(
-    'branch -a --format=%(refname:short)|%(upstream:short)|%(upstream:track)|%(objectname:short)',
+  const formatResult = await runGit(
+    ['branch', '-a', '--format=%(refname:short)|%(upstream:short)|%(upstream:track)|%(objectname:short)'],
     root, 15000
   );
 
@@ -170,7 +250,7 @@ function gitBranchInfo(args) {
     }
   } else {
     // Git < 2.7 fallback: parse `git branch -v -a`
-    const fallback = runGit('branch -v -a', root, 15000);
+    const fallback = await runGit(['branch', '-v', '-a'], root, 15000);
     if (fallback.ok && fallback.stdout.trim()) {
       for (const line of fallback.stdout.split('\n')) {
         const trimmed = line.trim();
@@ -189,7 +269,7 @@ function gitBranchInfo(args) {
     }
   }
 
-  const statusResult = runGit('status --porcelain=v1', root, 15000);
+  const statusResult = await runGit(['status', '--porcelain=v1'], root, 15000);
   const modifiedLines = (statusResult.stdout || '').split('\n').filter(l => l.trim());
 
   return {
@@ -203,16 +283,16 @@ function gitBranchInfo(args) {
   };
 }
 
-function gitStash(args) {
+async function gitStash(args) {
   const target = args?.cwd || process.cwd();
   const root = findWorkspaceRoot(target);
   const action = args?.action || 'list';
 
-  const gitCheck = ensureGitRepo(root);
+  const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
 
   if (action === 'list') {
-    const result = runGit('stash list', root, 15000);
+    const result = await runGit(['stash', 'list'], root, 15000);
     const stashes = (result.stdout || '')
       .split('\n')
       .filter(Boolean)
@@ -224,8 +304,8 @@ function gitStash(args) {
   }
 
   if (action === 'show') {
-    const index = Number.isFinite(args?.index) ? args.index : 0;
-    const result = runGit(`stash show -p stash@{${index}}`, root, 30000);
+    const index = Number.isFinite(args?.index) && args.index >= 0 ? args.index : 0;
+    const result = await runGit(['stash', 'show', '-p', `stash@{${index}}`], root, 30000);
     return {
       ok: result.ok,
       workspaceRoot: root,
@@ -239,17 +319,20 @@ function gitStash(args) {
   return { ok: false, error: `Unknown action: ${action}. Valid: 'list', 'show'.` };
 }
 
-function gitLogGraph(args) {
+async function gitLogGraph(args) {
   const target = args?.cwd || process.cwd();
   const root = findWorkspaceRoot(target);
   const limit = Number.isFinite(args?.limit) ? Math.min(args.limit, 100) : 30;
-  const allFlag = args?.allBranches ? '--all' : '';
 
-  const gitCheck = ensureGitRepo(root);
+  const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
 
-  const logArgs = `log --graph --oneline --decorate -${limit} ${allFlag}`.trim().replace(/\s+/g, ' ');
-  const result = runGit(logArgs, root, 30000);
+  const logArgs = ['log', '--graph', '--oneline', '--decorate', `-${limit}`];
+  if (args?.allBranches) {
+    logArgs.push('--all');
+  }
+
+  const result = await runGit(logArgs, root, 30000);
 
   return {
     ok: result.ok,
@@ -267,4 +350,5 @@ module.exports = {
   gitBranchInfo,
   gitStash,
   gitLogGraph,
+  validateWorkspacePath,  // Export for testing
 };

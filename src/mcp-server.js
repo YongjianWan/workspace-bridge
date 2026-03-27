@@ -1,6 +1,40 @@
 /**
  * MCP Server - Protocol handling
+ * Secure version: error message sanitization
  */
+
+/**
+ * Sanitize error message to remove sensitive information
+ * - Removes absolute paths (Windows: C:\... Unix: /home/...)
+ * - Keeps relative paths and general error info
+ */
+function sanitizeErrorMessage(message, workspaceRoot) {
+  if (!message || typeof message !== 'string') {
+    return 'Internal error';
+  }
+  
+  let sanitized = message;
+  
+  // Remove Windows absolute paths: C:\Users\name\...
+  sanitized = sanitized.replace(/[A-Za-z]:\\[^\s]+/g, '<path>');
+  
+  // Remove Unix absolute paths: /home/name/... /Users/name/...
+  sanitized = sanitized.replace(/\/[^\s]+/g, (match) => {
+    // Keep relative paths (starting with ./ or ../)
+    if (match.startsWith('./') || match.startsWith('../')) {
+      return match;
+    }
+    return '<path>';
+  });
+  
+  // Remove specific user directories
+  const userDirs = ['home', 'Users', 'user', process.env.USERNAME || process.env.USER].filter(Boolean);
+  const userDirPattern = new RegExp(`\\b(${userDirs.join('|')})\\b`, 'gi');
+  sanitized = sanitized.replace(userDirPattern, '<user>');
+  
+  return sanitized;
+}
+
 class MCPServer {
   constructor(name, version) {
     this.name = name;
@@ -29,7 +63,9 @@ class MCPServer {
   }
 
   sendError(id, code, message) {
-    this.send({ jsonrpc: '2.0', id, error: { code, message } });
+    // Sanitize error message before sending to client
+    const sanitizedMessage = sanitizeErrorMessage(message);
+    this.send({ jsonrpc: '2.0', id, error: { code, message: sanitizedMessage } });
   }
 
   handleData(chunk) {
@@ -60,15 +96,16 @@ class MCPServer {
       try {
         parsedRequest = JSON.parse(body);
       } catch (error) {
-        this.send({ jsonrpc: '2.0', error: { code: -32700, message: String(error.message || error) } });
+        this.send({ jsonrpc: '2.0', error: { code: -32700, message: 'Parse error: invalid JSON' } });
         continue;
       }
 
       this.handleRequest(parsedRequest).catch((error) => {
+        const sanitizedMessage = sanitizeErrorMessage(error.message || String(error));
         this.send({
           jsonrpc: '2.0',
           id: parsedRequest.id,
-          error: { code: -32603, message: String(error.message || error) },
+          error: { code: -32603, message: sanitizedMessage },
         });
       });
     }
@@ -114,7 +151,8 @@ class MCPServer {
           content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
         });
       } catch (error) {
-        this.sendError(message.id, -32603, String(error.message || error));
+        const sanitizedMessage = sanitizeErrorMessage(error.message || String(error));
+        this.sendError(message.id, -32603, sanitizedMessage);
       }
       return;
     }

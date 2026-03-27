@@ -1,36 +1,66 @@
 /**
  * FileIndex - Unified file indexing with incremental updates
  * Merges SymbolIndex + ContextEngine logic
+ * OPTIMIZED: Async indexing with concurrency limit for large repos
  */
 const fs = require('fs');
 const path = require('path');
+const { promisify } = require('util');
 const { detectWorkspace } = require('../utils/path');
 
+const readdir = promisify(fs.readdir);
+const stat = promisify(fs.stat);
+const readFile = promisify(fs.readFile);
+
+// Limit concurrent file operations to prevent memory exhaustion
+const DEFAULT_CONCURRENCY = 50;
+
 class FileIndex {
-  constructor(workspaceRoot, cache) {
+  constructor(workspaceRoot, cache, options = {}) {
     this.root = workspaceRoot;
     this.cache = cache;
     this.workspace = detectWorkspace(workspaceRoot);
     this.watchers = [];
     this.pendingUpdates = new Set();
     this.updateTimer = null;
+    this.concurrency = options.concurrency || DEFAULT_CONCURRENCY;
+    this.indexedCount = 0;
   }
 
   /**
    * Initial build: index all relevant files
    */
-  async build() {
+  async build(timeoutMs = 300000) {
     const startTime = Date.now();
+    this.indexedCount = 0;
     const patterns = this.getFilePatterns();
     
-    for (const pattern of patterns) {
-      await this.indexByPattern(pattern);
+    // Create overall build timeout
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`Build timeout after ${timeoutMs}ms`)), timeoutMs);
+    });
+    
+    const buildPromise = (async () => {
+      for (const pattern of patterns) {
+        await this.indexByPattern(pattern, 5, 120000); // 2 min per pattern
+      }
+    })();
+    
+    try {
+      await Promise.race([buildPromise, timeoutPromise]);
+    } catch (e) {
+      if (e.message.includes('timeout')) {
+        console.error(`[FileIndex] Build timed out after ${Date.now() - startTime}ms`);
+        // Continue with partial index
+      } else {
+        throw e;
+      }
     }
 
     // Start watching for changes
     this.startWatching();
 
-    console.error(`[FileIndex] Built in ${Date.now() - startTime}ms`);
+    console.error(`[FileIndex] Built in ${Date.now() - startTime}ms, indexed ${this.indexedCount} files`);
   }
 
   getFilePatterns() {
@@ -44,53 +74,126 @@ class FileIndex {
     return patterns.length > 0 ? patterns : ['**/*.js', '**/*.py'];
   }
 
-  async indexByPattern(pattern, maxDepth = 5) {
-    const files = this.findFiles(this.root, pattern, maxDepth);
+  /**
+   * Index files by pattern with async iteration and concurrency control
+   * Includes timeout protection for large repositories
+   */
+  async indexByPattern(pattern, maxDepth = 5, timeoutMs = 120000) {
+    const ext = pattern.replace('**/*', '');
+    const files = [];
     
-    for (const file of files) {
-      // Skip if cache has fresh data
-      const cached = this.cache.getFileMetadata(file);
-      if (cached) {
-        try {
-          const stat = fs.statSync(file);
-          if (stat.mtimeMs === cached.mtime && stat.size === cached.size) {
-            continue; // Use cached data
-          }
-        } catch (e) {
-          // File deleted, remove from cache
-          this.cache.deleteFileMetadata(file);
-          continue;
-        }
+    // Create timeout promise
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`Indexing timeout after ${timeoutMs}ms`)), timeoutMs);
+    });
+    
+    // Race between indexing and timeout
+    const indexingPromise = (async () => {
+      // Collect all matching files
+      for await (const file of this.findFilesAsync(this.root, ext, maxDepth)) {
+        files.push(file);
       }
-
-      await this.indexFile(file);
+      
+      // Process files with concurrency limit
+      await this.processFilesWithLimit(files, this.concurrency);
+    })();
+    
+    try {
+      await Promise.race([indexingPromise, timeoutPromise]);
+    } catch (e) {
+      if (e.message.includes('timeout')) {
+        console.error(`[FileIndex] Pattern ${pattern} timed out, indexed ${files.length} files`);
+        // Continue with partial results
+      } else {
+        throw e;
+      }
     }
   }
 
-  findFiles(dir, pattern, maxDepth) {
-    const results = [];
-    const ext = pattern.replace('**/*', '');
+  /**
+   * Async generator for finding files (non-blocking for large repos)
+   */
+  async* findFilesAsync(dir, ext, maxDepth) {
+    const queue = [{ path: dir, depth: 0 }];
     
-    const walk = (current, depth) => {
-      if (depth > maxDepth) return;
+    while (queue.length > 0) {
+      const { path: current, depth } = queue.shift();
+      
+      if (depth > maxDepth) continue;
+      
+      let entries;
       try {
-        const entries = fs.readdirSync(current, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = path.join(current, entry.name);
-          
-          if (this.shouldExclude(fullPath)) continue;
-          
-          if (entry.isDirectory()) {
-            walk(fullPath, depth + 1);
-          } else if (fullPath.endsWith(ext)) {
-            results.push(fullPath);
-          }
+        entries = await readdir(current, { withFileTypes: true });
+      } catch (e) {
+        // Directory read failed (permissions or deleted), skip
+        if (process.env.DEBUG) {
+          console.error(`[FileIndex] Cannot read directory ${current}: ${e.message}`);
         }
-      } catch (e) {}
-    };
+        continue;
+      }
+      
+      // Process entries in batches to allow event loop to breathe
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        const fullPath = path.join(current, entry.name);
+        
+        if (this.shouldExclude(fullPath)) continue;
+        
+        if (entry.isDirectory()) {
+          queue.push({ path: fullPath, depth: depth + 1 });
+        } else if (fullPath.endsWith(ext)) {
+          yield fullPath;
+        }
+        
+        // Yield to event loop every 100 entries to prevent blocking
+        if (i % 100 === 0) {
+          await new Promise(resolve => setImmediate(resolve));
+        }
+      }
+    }
+  }
+
+  /**
+   * Process files with concurrency limit
+   */
+  async processFilesWithLimit(files, limit) {
+    const executing = new Set();
     
-    walk(dir, 0);
-    return results;
+    for (const file of files) {
+      const promise = this.processFile(file).then(() => {
+        executing.delete(promise);
+      });
+      executing.add(promise);
+      
+      if (executing.size >= limit) {
+        await Promise.race(executing);
+      }
+    }
+    
+    await Promise.all(executing);
+  }
+
+  /**
+   * Process a single file (check cache, index if needed)
+   */
+  async processFile(file) {
+    // Skip if cache has fresh data
+    const cached = this.cache.getFileMetadata(file);
+    if (cached) {
+      try {
+        const stats = await stat(file);
+        if (stats.mtimeMs === cached.mtime && stats.size === cached.size) {
+          return; // Use cached data
+        }
+      } catch (e) {
+        // File deleted, remove from cache
+        this.cache.deleteFileMetadata(file);
+        return;
+      }
+    }
+
+    await this.indexFile(file);
+    this.indexedCount++;
   }
 
   shouldExclude(filePath) {
@@ -100,8 +203,8 @@ class FileIndex {
 
   async indexFile(filePath) {
     try {
-      const stat = fs.statSync(filePath);
-      const content = fs.readFileSync(filePath, 'utf8');
+      const stats = await stat(filePath);
+      const content = await readFile(filePath, 'utf8');
       const ext = path.extname(filePath);
       
       // Extract symbols
@@ -109,8 +212,8 @@ class FileIndex {
       
       // Update file metadata cache
       this.cache.setFileMetadata(filePath, {
-        mtime: stat.mtimeMs,
-        size: stat.size,
+        mtime: stats.mtimeMs,
+        size: stats.size,
         symbols: symbols.map(s => s.name),
         lineCount: content.split('\n').length,
       });
@@ -130,7 +233,9 @@ class FileIndex {
       }
 
     } catch (e) {
-      console.error(`[FileIndex] Failed to index ${filePath}:`, e.message);
+      if (process.env.DEBUG) {
+        console.error(`[FileIndex] Failed to index ${filePath}:`, e.message);
+      }
     }
   }
 
@@ -200,21 +305,19 @@ class FileIndex {
 
   async handleFileChange(filePath) {
     try {
-      const stat = fs.statSync(filePath);
+      const stats = await stat(filePath);
       const cached = this.cache.getFileMetadata(filePath);
       
-      if (!cached || stat.mtimeMs > cached.mtime) {
+      if (!cached || stats.mtimeMs > cached.mtime) {
         // Remove old symbols first
         if (cached) {
           for (const symName of cached.symbols) {
             const existing = this.cache.getSymbols(symName);
             const filtered = existing.filter(l => l.file !== filePath);
-            if (filtered.length === 0) {
-              // Find all keys with empty arrays and delete them
-              // Note: Map doesn't have a way to find keys by value efficiently
-              // This is a simplified approach
-            } else {
+            if (filtered.length > 0) {
               this.cache.setSymbols(symName, filtered);
+            } else {
+              this.cache.symbolIndex.delete(symName);
             }
           }
         }
@@ -225,6 +328,16 @@ class FileIndex {
     } catch (e) {
       // File deleted
       this.cache.deleteFileMetadata(filePath);
+    }
+    
+    // Phase 2: 触发外部回调（如诊断检查）
+    if (this.onFileChanged) {
+      try {
+        this.onFileChanged(filePath);
+      } catch (e) {
+        // 回调失败不应影响文件索引流程
+        console.error(`[FileIndex] onFileChanged callback failed:`, e.message);
+      }
     }
   }
 
@@ -266,7 +379,10 @@ class FileIndex {
   }
 
   getStats() {
-    return this.cache.getStats();
+    return {
+      ...this.cache.getStats(),
+      indexedCount: this.indexedCount,
+    };
   }
 }
 

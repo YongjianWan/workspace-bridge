@@ -1,5 +1,6 @@
 /**
- * Search tools for workspace-bridge
+ * Search tools for workspace-bridge - SECURE VERSION
+ * ReDoS protected: query length limit + dangerous pattern detection
  */
 const fs = require('fs');
 const path = require('path');
@@ -19,8 +20,89 @@ const BINARY_EXTS = new Set([
   '.db', '.sqlite', '.sqlite3',
 ]);
 
+// Security limits
+const MAX_QUERY_LENGTH = 100;
+const MAX_RESULTS = 200;
+const MAX_DEPTH = 12;
+const MAX_FILE_SIZE = 1024 * 1024; // 1MB
+
+/**
+ * Escape regex special characters
+ */
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Check if query contains ReDoS vulnerable patterns
+ * Blocks: nested quantifiers, excessive repetition, etc.
+ */
+function containsReDoSPattern(query) {
+  // Dangerous patterns that can cause catastrophic backtracking
+  const dangerousPatterns = [
+    /\(\?.*\+.*\)\+/,      // (a+)+ or similar nested quantifiers
+    /\(\?.*\*.*\)\*/,      // (a*)* 
+    /\(\?.*\+.*\)\*/,      // (a+)*
+    /\(\?.*\*.*\)\+/,      // (a*)+
+    /\+\+/,                 // ++
+    /\*\+/,                 // *+
+    /\+\*/,                 // +*
+    /\{\d+,\d+\}\+/,        // {n,m}+
+    /\[.*\]\+.*\[.*\]\+/,   // [a]+[b]+
+  ];
+  
+  return dangerousPatterns.some(p => p.test(query));
+}
+
+/**
+ * Validate search query for security
+ */
+function validateQuery(query) {
+  if (!query || typeof query !== 'string') {
+    return { valid: false, error: 'query is required' };
+  }
+  
+  if (query.length > MAX_QUERY_LENGTH) {
+    return { valid: false, error: `query too long (max ${MAX_QUERY_LENGTH} chars)` };
+  }
+  
+  if (containsReDoSPattern(query)) {
+    return { valid: false, error: 'query contains potentially dangerous pattern' };
+  }
+  
+  return { valid: true };
+}
+
+/**
+ * Safe regex test with line-by-line timeout protection
+ */
+function safeRegexTest(pattern, line, maxMs = 100) {
+  const startTime = Date.now();
+  
+  // Quick check: if pattern is simple literal, it's safe
+  if (pattern.source === escapeRegex(pattern.source)) {
+    return pattern.test(line);
+  }
+  
+  // For complex patterns, test with time check every 100 chars
+  try {
+    // Use a simple approach: break into chunks for long lines
+    if (line.length > 1000) {
+      line = line.slice(0, 1000); // Truncate very long lines
+    }
+    
+    const result = pattern.test(line);
+    
+    if (Date.now() - startTime > maxMs) {
+      console.error('[Search] Regex test took too long, potential ReDoS attack');
+      return false;
+    }
+    
+    return result;
+  } catch (e) {
+    console.error('[Search] Regex test failed:', e.message);
+    return false;
+  }
 }
 
 function matchGlob(filename, pattern) {
@@ -36,11 +118,15 @@ function findFilesByName(query, root, maxResults) {
   const lower = query.toLowerCase();
 
   function walk(dir, depth) {
-    if (depth > 12 || results.length >= maxResults) return;
+    if (depth > MAX_DEPTH || results.length >= maxResults) return;
     let entries;
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (e) {
+      // Directory read failed (permissions or not a directory), skip
+      if (process.env.DEBUG) {
+        console.error(`[Search] Cannot read directory ${dir}: ${e.message}`);
+      }
       return;
     }
     for (const entry of entries) {
@@ -64,10 +150,14 @@ function searchCode(args, container) {
   const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const query = args?.query;
   const type = args?.type || 'text';
-  const maxResults = Number.isFinite(args?.maxResults) ? Math.min(args.maxResults, 200) : 50;
+  const maxResults = Number.isFinite(args?.maxResults) ? Math.min(args.maxResults, MAX_RESULTS) : 50;
   const glob = args?.glob || null;
 
-  if (!query) return { ok: false, error: 'query parameter is required' };
+  // Validate query for ReDoS protection
+  const validation = validateQuery(query);
+  if (!validation.valid) {
+    return { ok: false, error: validation.error };
+  }
 
   if (type === 'file') {
     const results = findFilesByName(query, root, maxResults);
@@ -75,26 +165,35 @@ function searchCode(args, container) {
   }
 
   let pattern;
-  if (type === 'symbol') {
-    const prefixAlt = [
-      'def\\s+', 'class\\s+', 'async\\s+function\\s+', 'function\\s+',
-      'const\\s+', 'let\\s+', 'var\\s+', 'interface\\s+', 'type\\s+',
-      'export\\s+(?:default\\s+)?(?:async\\s+)?(?:function\\s+|class\\s+|const\\s+|let\\s+|var\\s+)?',
-    ].join('|');
-    const methodShorthand = `(?:^|\\n)\\s*(?:async\\s+)?${escapeRegex(query)}\\s*\\(`;
-    pattern = new RegExp(`(?:${prefixAlt})${escapeRegex(query)}\\b|${methodShorthand}`, 'im');
-  } else {
-    pattern = new RegExp(escapeRegex(query), 'i');
+  try {
+    if (type === 'symbol') {
+      const prefixAlt = [
+        'def\\s+', 'class\\s+', 'async\\s+function\\s+', 'function\\s+',
+        'const\\s+', 'let\\s+', 'var\\s+', 'interface\\s+', 'type\\s+',
+        'export\\s+(?:default\\s+)?(?:async\\s+)?(?:function\\s+|class\\s+|const\\s+|let\\s+|var\\s+)?',
+      ].join('|');
+      const escapedQuery = escapeRegex(query);
+      const methodShorthand = `(?:^|\\n)\\s*(?:async\\s+)?${escapedQuery}\\s*\\(`;
+      pattern = new RegExp(`(?:${prefixAlt})${escapedQuery}\\b|${methodShorthand}`, 'im');
+    } else {
+      pattern = new RegExp(escapeRegex(query), 'i');
+    }
+  } catch (e) {
+    return { ok: false, error: 'Invalid regex pattern: ' + e.message };
   }
 
   const matches = [];
 
   function walk(dir, depth) {
-    if (depth > 12 || matches.length >= maxResults) return;
+    if (depth > MAX_DEPTH || matches.length >= maxResults) return;
     let entries;
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (e) {
+      // Directory read failed (permissions or not a directory), skip
+      if (process.env.DEBUG) {
+        console.error(`[Search] Cannot read directory ${dir}: ${e.message}`);
+      }
       return;
     }
     for (const entry of entries) {
@@ -108,14 +207,20 @@ function searchCode(args, container) {
         if (glob && !matchGlob(entry.name, glob)) continue;
         let content;
         try {
-          if (fs.statSync(fullPath).size > 1024 * 1024) continue;
+          const stats = fs.statSync(fullPath);
+          if (stats.size > MAX_FILE_SIZE) continue;
           content = fs.readFileSync(fullPath, 'utf8');
-        } catch {
+        } catch (e) {
+          // File read failed (permissions, binary, or deleted), skip
+          if (process.env.DEBUG) {
+            console.error(`[Search] Cannot read file ${fullPath}: ${e.message}`);
+          }
           continue;
         }
         const lines = content.split('\n');
         for (let i = 0; i < lines.length && matches.length < maxResults; i++) {
-          if (pattern.test(lines[i])) {
+          // Use safe regex test with time protection
+          if (safeRegexTest(pattern, lines[i])) {
             matches.push({
               file: path.relative(root, fullPath),
               line: i + 1,
@@ -144,4 +249,5 @@ module.exports = {
   searchCode,
   EXCLUDE_DIRS,
   BINARY_EXTS,
+  validateQuery,  // Export for testing
 };

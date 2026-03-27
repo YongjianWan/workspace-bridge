@@ -1,9 +1,18 @@
 /**
  * DependencyGraph - Import relationship analysis
- * Builds graph of file dependencies, computes impact radius
+ * Builds graph of import dependencies, computes impact radius
  */
 const fs = require('fs');
 const path = require('path');
+const { promisify } = require('util');
+
+const readFile = promisify(fs.readFile);
+
+// 配置常量
+const CONFIG = {
+  DEFAULT_CONCURRENCY: 20,      // 默认并发数（内存安全考虑）
+  DEFAULT_MAX_DEPTH: 5,         // affected_tests 默认搜索深度
+};
 
 class DependencyGraph {
   constructor(workspaceRoot, cache) {
@@ -22,9 +31,8 @@ class DependencyGraph {
     // Get all files from cache
     const files = Array.from(this.cache.fileMetadata.keys());
     
-    for (const file of files) {
-      await this.analyzeFile(file);
-    }
+    // Process with concurrency limit (same pattern as FileIndex)
+    await this._processFilesWithLimit(files, CONFIG.DEFAULT_CONCURRENCY);
 
     // Build reverse graph
     this.buildReverseGraph();
@@ -33,11 +41,31 @@ class DependencyGraph {
   }
 
   /**
+   * Process files with concurrency limit (reuse FileIndex pattern)
+   */
+  async _processFilesWithLimit(files, limit) {
+    const executing = new Set();
+    
+    for (const file of files) {
+      const promise = this.analyzeFile(file).then(() => {
+        executing.delete(promise);
+      });
+      executing.add(promise);
+      
+      if (executing.size >= limit) {
+        await Promise.race(executing);
+      }
+    }
+    
+    await Promise.all(executing);
+  }
+
+  /**
    * Analyze a single file for imports/exports
    */
   async analyzeFile(filePath) {
     try {
-      const content = fs.readFileSync(filePath, 'utf8');
+      const content = await readFile(filePath, 'utf8');
       const ext = path.extname(filePath);
       
       let imports = [];
@@ -60,6 +88,7 @@ class DependencyGraph {
       });
 
     } catch (e) {
+      // 单个文件分析失败不应阻塞整个依赖图构建，记录日志后继续
       console.error(`[DepGraph] Failed to analyze ${filePath}:`, e.message);
     }
   }
@@ -276,6 +305,109 @@ class DependencyGraph {
       totalExports: Array.from(this.graph.values()).reduce((sum, i) => sum + i.exports.length, 0),
       cycles: this.findCircularDependencies().length,
     };
+  }
+
+  /**
+   * Phase 3: 查找未被引用的 exports（死代码）
+   * @returns {Array<{file: string, exports: string[], confidence: 'high'}>}
+   * @description 只报告没有任何 importer 的文件（high confidence）。
+   *   有 importer 的文件无法在没有 AST 的情况下判断符号级别的使用情况，不做猜测。
+   */
+  findDeadExports() {
+    const deadExports = [];
+
+    for (const [filePath, info] of this.graph) {
+      if (info.exports.length === 0) continue;
+      const importers = this.reverseGraph.get(filePath) || [];
+      if (importers.length === 0) {
+        deadExports.push({ file: filePath, exports: info.exports, confidence: 'high' });
+      }
+    }
+
+    return deadExports;
+  }
+
+  /**
+   * Phase 3: 查找解析失败的 imports
+   * @returns {Array<{file: string, import: string, resolvedTo: string}>}
+   * @description info.imports 已经是 analyzeFile 里 resolveImport() 处理过的绝对路径。
+   *   不在 graph 中 = 文件不存在或未被索引。无需再调 resolveImport，无同步 IO。
+   */
+  findUnresolvedImports() {
+    const unresolved = [];
+
+    for (const [filePath, info] of this.graph) {
+      for (const imp of info.imports) {
+        if (!this.graph.has(imp) && path.isAbsolute(imp)) {
+          unresolved.push({ file: filePath, import: imp, resolvedTo: imp });
+        }
+      }
+    }
+
+    return unresolved;
+  }
+
+  /**
+   * Phase 3: 查找受文件变更影响的测试文件
+   * @param {string} filePath - 起始文件路径
+   * @param {number} [maxDepth=5] - 最大搜索深度
+   * @returns {Array<{file: string, distance: number, via?: string[]}>}
+   * @description 从起始文件出发，沿反向依赖图 BFS 搜索测试文件
+   */
+  findAffectedTests(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH) {
+    const testPatterns = [
+      /\.test\./,           // *.test.*
+      /\.spec\./,           // *.spec.*
+      /^test_/,             // test_*
+      /_test\./,            // *_test.*
+    ];
+    
+    const isTestFile = (f) => {
+      const basename = path.basename(f);
+      if (testPatterns.some(p => p.test(basename))) return true;
+      // 检查是否在 tests/, test/, __tests__/ 目录下
+      const dir = path.dirname(f).toLowerCase();
+      if (dir.includes('/tests/') || dir.includes('/test/') || dir.includes('/__tests__/')) return true;
+      if (dir.endsWith('/tests') || dir.endsWith('/test') || dir.endsWith('/__tests__')) return true;
+      return false;
+    };
+    
+    // BFS 搜索
+    const visited = new Map(); // file -> {distance, via}
+    const queue = [{ file: filePath, distance: 0, via: [] }];
+    const affectedTests = [];
+    
+    while (queue.length > 0) {
+      const { file, distance, via } = queue.shift();
+      
+      if (visited.has(file)) continue;
+      visited.set(file, { distance, via });
+      
+      // 如果是测试文件且不是起始文件，记录结果
+      if (file !== filePath && isTestFile(file)) {
+        const result = { file, distance };
+        if (via.length > 0) {
+          result.via = via;
+        }
+        affectedTests.push(result);
+      }
+      
+      // 继续 BFS（限制深度）
+      if (distance < maxDepth) {
+        const dependents = this.getDependents(file);
+        for (const dep of dependents) {
+          if (!visited.has(dep)) {
+            queue.push({
+              file: dep,
+              distance: distance + 1,
+              via: [...via, file],
+            });
+          }
+        }
+      }
+    }
+    
+    return affectedTests;
   }
 }
 

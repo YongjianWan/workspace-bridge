@@ -1,10 +1,10 @@
 /**
- * Health check and auto-fix tools for workspace-bridge
+ * Health check and auto-fix tools for workspace-bridge - SECURE VERSION
+ * All commands use argument arrays to prevent injection
  */
 const path = require('path');
-const { findWorkspaceRoot, detectWorkspace, pathExists } = require('../utils/path');
-const { runCommand, trimOutput } = require('../utils/command');
-const { resolvePythonCommand } = require('../utils/path');
+const { findWorkspaceRoot, detectWorkspace, pathExists, resolvePythonCommand } = require('../utils/path');
+const { runCommandSecure, runNpx, runPythonModule, trimOutput } = require('../utils/command');
 
 function checkHealthFile(root, candidates) {
   for (const name of candidates) {
@@ -13,7 +13,7 @@ function checkHealthFile(root, candidates) {
       try {
         const stat = require('fs').statSync(filePath);
         return { found: true, file: name, sizeBytes: stat.size };
-      } catch {
+      } catch (e) {
         return { found: true, file: name };
       }
     }
@@ -61,7 +61,7 @@ function detectPackageManager(root) {
 
 function projectHealth(args, container) {
   const target = args?.cwd || process.cwd();
-    const root = container?.workspaceRoot || findWorkspaceRoot(target);
+  const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const workspace = detectWorkspace(root);
 
   const checks = {
@@ -107,7 +107,7 @@ function projectHealth(args, container) {
   };
 }
 
-function runAutoFix(args) {
+async function runAutoFix(args) {
   const target = args?.cwd || process.cwd();
   const root = findWorkspaceRoot(target);
   const workspace = detectWorkspace(root);
@@ -117,14 +117,25 @@ function runAutoFix(args) {
   const shouldRun = (name) => !fixers || fixers.includes(name);
   const results = [];
 
+  // Helper to resolve Python executable
+  const getPython = () => resolvePythonCommand(root);
+
   if (shouldRun('eslint') && workspace.hasPackageJson) {
-    const cmd = dryRun ? 'npx eslint --fix-dry-run --format=json .' : 'npx eslint --fix .';
-    const result = runCommand(cmd, root, 60000);
+    const eslintArgs = dryRun 
+      ? ['eslint', '--fix-dry-run', '--format=json', '.']
+      : ['eslint', '--fix', '.'];
+    const result = await runNpx('eslint', eslintArgs.slice(1), root, 60000);
+    
     let changedFiles = null;
     if (dryRun) {
       try {
         changedFiles = JSON.parse(result.stdout).filter(f => f.output).length;
-      } catch { /* not JSON */ }
+      } catch (e) {
+        // JSON parse failed, likely empty or invalid output
+        if (process.env.DEBUG) {
+          console.error(`[health-tools] JSON parse failed for eslint dry-run: ${e.message}`);
+        }
+      }
     }
     results.push({
       fixer: 'eslint',
@@ -144,8 +155,11 @@ function runAutoFix(args) {
     ].some(f => pathExists(path.join(root, f)));
 
     if (hasPrettierConfig) {
-      const cmd = dryRun ? 'npx prettier --list-different .' : 'npx prettier --write .';
-      const result = runCommand(cmd, root, 60000);
+      const prettierArgs = dryRun 
+        ? ['prettier', '--list-different', '.']
+        : ['prettier', '--write', '.'];
+      const result = await runNpx('prettier', prettierArgs.slice(1), root, 60000);
+      
       const filesToFormat = dryRun ? (result.stdout || '').split('\n').filter(Boolean) : null;
       results.push({
         fixer: 'prettier',
@@ -163,11 +177,15 @@ function runAutoFix(args) {
   }
 
   if (shouldRun('black') && (workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy)) {
-    const python = resolvePythonCommand(root);
-    const blackOk = runCommand(`${python} -m black --version`, root, 15000).ok;
-    if (blackOk) {
-      const cmd = dryRun ? `${python} -m black --check --diff .` : `${python} -m black .`;
-      const result = runCommand(cmd, root, 60000);
+    const python = getPython();
+    const blackVersion = await runPythonModule(python, 'black', ['--version'], root, 15000);
+    
+    if (blackVersion.ok) {
+      const blackArgs = dryRun 
+        ? ['black', '--check', '--diff', '.']
+        : ['black', '.'];
+      const result = await runPythonModule(python, blackArgs[0], blackArgs.slice(1), root, 60000);
+      
       results.push({
         fixer: 'black',
         dryRun,
@@ -182,11 +200,15 @@ function runAutoFix(args) {
   }
 
   if (shouldRun('ruff') && (workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy)) {
-    const python = resolvePythonCommand(root);
-    const ruffOk = runCommand(`${python} -m ruff --version`, root, 15000).ok;
-    if (ruffOk) {
-      const cmd = dryRun ? `${python} -m ruff check --diff .` : `${python} -m ruff check --fix .`;
-      const result = runCommand(cmd, root, 60000);
+    const python = getPython();
+    const ruffVersion = await runPythonModule(python, 'ruff', ['--version'], root, 15000);
+    
+    if (ruffVersion.ok) {
+      const ruffArgs = dryRun 
+        ? ['ruff', 'check', '--diff', '.']
+        : ['ruff', 'check', '--fix', '.'];
+      const result = await runPythonModule(python, ruffArgs[0], ruffArgs.slice(1), root, 60000);
+      
       results.push({
         fixer: 'ruff',
         dryRun,
@@ -209,14 +231,15 @@ function runAutoFix(args) {
   };
 }
 
-function checkSecurity(args) {
+async function checkSecurity(args) {
   const target = args?.cwd || process.cwd();
   const root = findWorkspaceRoot(target);
   const workspace = detectWorkspace(root);
   const results = [];
 
   if (workspace.hasPackageJson) {
-    const registryResult = runCommand('npm config get registry', root, 5000);
+    // Check registry
+    const registryResult = await runCommandSecure('npm', ['config', 'get', 'registry'], root, 5000);
     const registry = (registryResult.stdout || '').trim();
     const AUDIT_SUPPORTED = ['registry.npmjs.org', 'registry.yarnpkg.com', 'npm.pkg.github.com'];
     const registrySupportsAudit = !registry || AUDIT_SUPPORTED.some(r => registry.includes(r));
@@ -229,7 +252,7 @@ function checkSecurity(args) {
         reason: `Registry "${registry}" does not support audit.`,
       });
     } else {
-      const result = runCommand('npm audit --json', root, 60000);
+      const result = await runCommandSecure('npm', ['audit', '--json'], root, 60000);
       let summary = null;
       try {
         const parsed = JSON.parse(result.stdout);
@@ -248,8 +271,10 @@ function checkSecurity(args) {
   if (workspace.hasRequirements || workspace.hasPyproject) {
     const python = resolvePythonCommand(root);
 
-    if (runCommand(`${python} -m pip_audit --version`, root, 15000).ok) {
-      const result = runCommand(`${python} -m pip_audit --format=json`, root, 45000);
+    // Try pip-audit first
+    const pipAuditVersion = await runPythonModule(python, 'pip_audit', ['--version'], root, 15000);
+    if (pipAuditVersion.ok) {
+      const result = await runPythonModule(python, 'pip_audit', ['--format=json'], root, 45000);
       
       if (!result.ok && result.stderr?.includes('timed out')) {
         results.push({
@@ -270,22 +295,26 @@ function checkSecurity(args) {
           raw: vulns === null ? trimOutput(result.stdout + result.stderr, 3000) : null,
         });
       }
-    } else if (runCommand(`${python} -m safety --version`, root, 15000).ok) {
-      const result = runCommand(`${python} -m safety check`, root, 45000);
-      
-      if (!result.ok && result.stderr?.includes('timed out')) {
-        results.push({
-          tool: 'safety',
-          skipped: true,
-          reason: 'network timeout (vulnerability check took too long)',
-        });
-      } else {
-        results.push({
-          tool: 'safety',
-          ok: result.ok,
-          summary: null,
-          raw: trimOutput(result.stdout + result.stderr, 3000),
-        });
+    } else {
+      // Fallback to safety
+      const safetyVersion = await runPythonModule(python, 'safety', ['--version'], root, 15000);
+      if (safetyVersion.ok) {
+        const result = await runPythonModule(python, 'safety', ['check'], root, 45000);
+        
+        if (!result.ok && result.stderr?.includes('timed out')) {
+          results.push({
+            tool: 'safety',
+            skipped: true,
+            reason: 'network timeout (vulnerability check took too long)',
+          });
+        } else {
+          results.push({
+            tool: 'safety',
+            ok: result.ok,
+            summary: null,
+            raw: trimOutput(result.stdout + result.stderr, 3000),
+          });
+        }
       }
     }
   }
@@ -298,14 +327,14 @@ function checkSecurity(args) {
   };
 }
 
-function checkDependencies(args, container) {
+async function checkDependencies(args, container) {
   const target = args?.cwd || process.cwd();
-    const root = container?.workspaceRoot || findWorkspaceRoot(target);
+  const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const workspace = detectWorkspace(root);
   const results = [];
 
   if (workspace.hasPackageJson) {
-    const result = runCommand('npm outdated --json', root, 60000);
+    const result = await runCommandSecure('npm', ['outdated', '--json'], root, 60000);
     let outdated = {};
     try {
       outdated = JSON.parse(result.stdout || '{}');
@@ -323,7 +352,7 @@ function checkDependencies(args, container) {
 
   if (workspace.hasRequirements || workspace.hasPyproject) {
     const python = resolvePythonCommand(root);
-    const result = runCommand(`${python} -m pip list --outdated --format=json`, root, 15000);
+    const result = await runPythonModule(python, 'pip', ['list', '--outdated', '--format=json'], root, 15000);
     
     if (!result.ok && result.stderr?.includes('timed out')) {
       results.push({
@@ -335,7 +364,11 @@ function checkDependencies(args, container) {
       let packages = [];
       try {
         packages = JSON.parse(result.stdout || '[]');
-      } catch { /* not JSON */ }
+      } catch (e) {
+        if (process.env.DEBUG) {
+          console.error(`[health-tools] JSON parse failed for pip outdated: ${e.message}`);
+        }
+      }
       results.push({
         tool: 'pip-outdated',
         outdatedCount: packages.length,

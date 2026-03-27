@@ -7,6 +7,7 @@ const path = require('path');
 
 const CACHE_FILENAME = '.workspace-bridge-cache.json';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_VERSION = 2; // Increment when cache structure changes
 
 class WorkspaceCache {
   constructor(workspaceRoot) {
@@ -42,6 +43,12 @@ class WorkspaceCache {
 
       const data = JSON.parse(fs.readFileSync(this.cachePath, 'utf8'));
       
+      // Version check
+      if (data.version !== CACHE_VERSION) {
+        console.error(`[Cache] Version mismatch: ${data.version} != ${CACHE_VERSION}, ignoring cache`);
+        return false;
+      }
+      
       // Restore data
       this.workspaceInfo = data.workspaceInfo || null;
       this.fileMetadata = new Map(data.fileMetadata || []);
@@ -63,7 +70,7 @@ class WorkspaceCache {
   async save() {
     try {
       const data = {
-        version: 1,
+        version: CACHE_VERSION,
         timestamp: Date.now(),
         workspaceRoot: this.workspaceRoot,
         workspaceInfo: this.workspaceInfo,

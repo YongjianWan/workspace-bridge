@@ -68,7 +68,19 @@ function findNestedWorkspaceRoot(startPath) {
   return bestPath;
 }
 
-function findWorkspaceRoot(startPath) {
+function findWorkspaceRoot(startPath, options = {}) {
+  // 1. 优先使用手动指定的工作区根目录（环境变量）
+  const envWorkspaceRoot = process.env.WORKSPACE_ROOT;
+  if (envWorkspaceRoot && pathExists(envWorkspaceRoot)) {
+    return normalizePath(envWorkspaceRoot);
+  }
+
+  // 2. 优先使用参数指定的工作区根目录
+  if (options.workspaceRoot && pathExists(options.workspaceRoot)) {
+    return normalizePath(options.workspaceRoot);
+  }
+
+  // 3. 自动检测
   const originalStart = normalizePath(startPath);
   let current = normalizePath(startPath);
   

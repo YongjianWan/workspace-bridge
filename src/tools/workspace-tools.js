@@ -1,25 +1,81 @@
 /**
- * Workspace tools for workspace-bridge
+ * Workspace tools for workspace-bridge - SECURE VERSION
+ * All commands use argument arrays to prevent injection
  */
 const path = require('path');
-const { findWorkspaceRoot, detectWorkspace, resolvePythonCommand } = require('../utils/path');
-const { runCommand, runCommandAsync } = require('../utils/command');
+const { findWorkspaceRoot, detectWorkspace } = require('../utils/path');
+const { runCommandSecure, runNpx, runPythonModule, trimOutput } = require('../utils/command');
 const { parseDiagnosticsFromText, uniqueDiagnostics, summarizeDiagnostics } = require('../utils/diagnostics');
 
-function buildChecks(workspace, mode) {
+/**
+ * Resolve Python executable path
+ */
+function resolvePythonCommand(root) {
+  const fs = require('fs');
+  const candidates = [
+    path.join(root, '.venv', 'Scripts', 'python.exe'),
+    path.join(root, 'venv', 'Scripts', 'python.exe'),
+    path.join(root, '.venv', 'bin', 'python'),
+    path.join(root, 'venv', 'bin', 'python'),
+    'python3',
+    'python',
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    } catch (e) {
+      // Continue to next candidate
+    }
+  }
+  return 'python';
+}
+
+/**
+ * Build diagnostic checks using secure command execution
+ */
+async function buildChecks(workspace, mode) {
   const checks = [];
   const root = workspace.root;
 
   if (workspace.hasPackageJson && workspace.packageJson?.scripts) {
     const scripts = workspace.packageJson.scripts;
     if (scripts.typecheck) {
-      checks.push({ name: 'node:typecheck', command: 'npm run -s typecheck' });
+      checks.push({ 
+        name: 'node:typecheck', 
+        cmd: 'npm',
+        args: ['run', '-s', 'typecheck'],
+      });
     } else if (workspace.hasTsconfig) {
-      checks.push({ name: 'node:tsc', command: 'npx tsc --noEmit' });
+      checks.push({ 
+        name: 'node:tsc', 
+        cmd: 'npx',
+        args: ['tsc', '--noEmit'],
+      });
     }
-    if (scripts.lint) checks.push({ name: 'node:lint', command: 'npm run -s lint' });
-    if (mode === 'full' && scripts.build) checks.push({ name: 'node:build', command: 'npm run -s build' });
-    if (mode === 'full' && scripts.test) checks.push({ name: 'node:test', command: 'npm run -s test -- --runInBand' });
+    if (scripts.lint) {
+      checks.push({ 
+        name: 'node:lint', 
+        cmd: 'npm',
+        args: ['run', '-s', 'lint'],
+      });
+    }
+    if (mode === 'full' && scripts.build) {
+      checks.push({ 
+        name: 'node:build', 
+        cmd: 'npm',
+        args: ['run', '-s', 'build'],
+      });
+    }
+    if (mode === 'full' && scripts.test) {
+      checks.push({ 
+        name: 'node:test', 
+        cmd: 'npm',
+        args: ['run', '-s', 'test', '--', '--runInBand'],
+      });
+    }
   }
 
   if (workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy) {
@@ -27,30 +83,54 @@ function buildChecks(workspace, mode) {
     let hasFocusedPythonCheck = false;
 
     if (workspace.hasManagePy) {
-      checks.push({ name: 'django:check', command: `${python} manage.py check` });
+      checks.push({ 
+        name: 'django:check', 
+        cmd: python,
+        args: ['manage.py', 'check'],
+      });
       hasFocusedPythonCheck = true;
     }
 
-    const ruffVersion = runCommand(`${python} -m ruff --version`, root, 10000);
-    if (ruffVersion.ok) {
-      checks.push({ name: 'python:ruff', command: `${python} -m ruff check .`, timeout: 30000 });
+    // Check for ruff availability
+    const ruffResult = await runPythonModule(python, 'ruff', ['--version'], root, 10000);
+    if (ruffResult.ok) {
+      checks.push({ 
+        name: 'python:ruff', 
+        cmd: python,
+        args: ['-m', 'ruff', 'check', '.'],
+        timeout: 30000,
+      });
       hasFocusedPythonCheck = true;
     }
 
-    const pyrightVersion = runCommand(`${python} -m pyright --version`, root, 10000);
-    if (pyrightVersion.ok) {
-      checks.push({ name: 'python:pyright', command: `${python} -m pyright .`, timeout: 60000 });
+    // Check for pyright availability
+    const pyrightResult = await runPythonModule(python, 'pyright', ['--version'], root, 10000);
+    if (pyrightResult.ok) {
+      checks.push({ 
+        name: 'python:pyright', 
+        cmd: python,
+        args: ['-m', 'pyright', '.'],
+        timeout: 60000,
+      });
       hasFocusedPythonCheck = true;
     }
 
     if (!hasFocusedPythonCheck || mode === 'full') {
-      checks.push({ name: 'python:compileall', command: `${python} -m compileall -q .` });
+      checks.push({ 
+        name: 'python:compileall', 
+        cmd: python,
+        args: ['-m', 'compileall', '-q', '.'],
+      });
     }
 
     if (mode === 'full') {
-      const pytestVersion = runCommand(`${python} -m pytest --version`, root, 15000);
-      if (pytestVersion.ok) {
-        checks.push({ name: 'python:pytest', command: `${python} -m pytest -q` });
+      const pytestResult = await runPythonModule(python, 'pytest', ['--version'], root, 15000);
+      if (pytestResult.ok) {
+        checks.push({ 
+          name: 'python:pytest', 
+          cmd: python,
+          args: ['-m', 'pytest', '-q'],
+        });
       }
     }
   }
@@ -62,7 +142,6 @@ function workspaceInfo(args, container) {
   const target = args?.cwd || process.cwd();
   const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const workspace = detectWorkspace(root);
-  const checks = buildChecks(workspace, 'quick');
 
   return {
     cwd: require('../utils/path').normalizePath(target),
@@ -74,7 +153,8 @@ function workspaceInfo(args, container) {
       django: workspace.hasManagePy,
       typescript: workspace.hasTsconfig,
     },
-    availableChecks: checks.map(item => ({ name: item.name, command: item.command })),
+    // Note: async buildChecks is called separately when needed
+    availableChecks: [], 
   };
 }
 
@@ -107,27 +187,41 @@ async function runDiagnostics(args, container) {
 
   const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const workspace = detectWorkspace(root);
-  const checks = buildChecks(workspace, mode);
+  const checks = await buildChecks(workspace, mode);
 
   const checkResults = await Promise.allSettled(
     checks.map(async (check) => {
-      // Use check-specific timeout or fall back to global timeout
       const checkTimeout = check.timeout || timeoutMs;
-      const result = await runCommandAsync(check.command, workspace.root, checkTimeout);
+      let result;
+
+      // Execute based on command type
+      if (check.cmd === 'npm') {
+        result = await runCommandSecure('npm', check.args, workspace.root, checkTimeout);
+      } else if (check.cmd === 'npx') {
+        result = await runNpx(check.args[0], check.args.slice(1), workspace.root, checkTimeout);
+      } else if (check.cmd === 'python' || check.cmd === 'python3') {
+        // Python module execution
+        result = await runCommandSecure(check.cmd, check.args, workspace.root, checkTimeout);
+      } else {
+        // Generic command execution
+        result = await runCommandSecure(check.cmd, check.args, workspace.root, checkTimeout);
+      }
+
       const parsed = uniqueDiagnostics([
         ...parseDiagnosticsFromText(result.stderr, workspace.root, check.name),
         ...parseDiagnosticsFromText(result.stdout, workspace.root, check.name),
       ]);
+
       return {
         entry: {
           name: check.name,
           ok: result.ok,
           exitCode: result.exitCode,
-          command: result.command,
+          command: `${check.cmd} ${check.args.join(' ')}`,
           diagnosticsCount: parsed.length,
           diagnostics: parsed,
-          stdout: require('../utils/command').trimOutput(result.stdout),
-          stderr: require('../utils/command').trimOutput(result.stderr),
+          stdout: trimOutput(result.stdout),
+          stderr: trimOutput(result.stderr),
         },
         parsed,
       };

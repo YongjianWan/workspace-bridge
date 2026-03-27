@@ -26,10 +26,14 @@ class ServiceContainer {
   /**
    * Initialize all services. Thread-safe with mutex-like behavior.
    */
-  async initialize(cwd) {
-    // Mutex: if already initializing, wait
+  async initialize(cwd, timeoutMs = 60000) {
+    // Mutex: if already initializing, wait with timeout
     if (this.initializing) {
+      const startTime = Date.now();
       while (this.initializing) {
+        if (Date.now() - startTime > timeoutMs) {
+          throw new Error(`Initialization wait timeout after ${timeoutMs}ms`);
+        }
         await sleep(50);
       }
       return this.initialized;
@@ -46,7 +50,10 @@ class ServiceContainer {
       const { findWorkspaceRoot } = require('../utils/path');
       this.workspaceRoot = findWorkspaceRoot(cwd);
       
-      console.error(`[Container] Initializing for ${this.workspaceRoot}`);
+      // 记录工作区根目录来源
+      const envWorkspaceRoot = process.env.WORKSPACE_ROOT;
+      const source = envWorkspaceRoot ? 'WORKSPACE_ROOT env' : 'auto-detected';
+      console.error(`[Container] Initializing for ${this.workspaceRoot} (${source})`);
 
       // Initialize cache (memory + disk)
       this.cache = new WorkspaceCache(this.workspaceRoot);
@@ -65,6 +72,11 @@ class ServiceContainer {
       // Initialize dependency graph
       this.depGraph = new DependencyGraph(this.workspaceRoot, this.cache);
       await this.depGraph.build();
+
+      // Phase 2: 注册文件变更回调 → 触发后台诊断
+      this.fileIndex.onFileChanged = (filePath) => {
+        this.diagnostics?.scheduleCheck(filePath);
+      };
 
       this.initialized = true;
       console.error(`[Container] Ready: ${this.fileIndex.getStats().files} files indexed`);
@@ -102,6 +114,11 @@ class ServiceContainer {
    * Shutdown: persist cache and cleanup
    */
   async shutdown() {
+    // Phase 2: 清理待执行的诊断检查
+    if (this.diagnostics) {
+      this.diagnostics.clearScheduledChecks();
+    }
+    
     // Wait for pending updates before stopping
     if (this.fileIndex) {
       await this.fileIndex.processPending?.();

@@ -1,0 +1,38 @@
+{
+  "name": "workspace-bridge",
+  "version": "0.7.0",
+  "description": "MCP server for workspace-aware AI coding assistance",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:http": "MCP_MODE=http node server.js",
+    "test": "node test/security-test.js",
+    "test:security": "node test/security-test.js",
+    "test:mcp": "node test/mcp-test.js",
+    "test:functionality": "node test/functionality-test.js",
+    "test:analysis": "node test/analysis-test.js",
+    "test:all": "node test/mcp-test.js && node test/functionality-test.js && node test/analysis-test.js",
+    "debug": "DEBUG=1 node server.js"
+  },
+  "keywords": [
+    "mcp",
+    "ai",
+    "coding",
+    "workspace",
+    "indexing",
+    "diagnostics"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "bin": {
+    "workspace-bridge": "./server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "better-sqlite3": "^12.8.0",
+    "express": "^4.18.2"
+  }
+}

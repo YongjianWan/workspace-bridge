@@ -6,6 +6,7 @@ const gitTools = require('./tools/git-tools');
 const workspaceTools = require('./tools/workspace-tools');
 const searchTools = require('./tools/search-tools');
 const healthTools = require('./tools/health-tools');
+const depTools = require('./tools/dep-tools');
 const { sanitizeSymbolName } = require('./utils/sanitize');
 
 // Tool factory - creates tool handlers with container access
@@ -21,7 +22,10 @@ function createToolRegistry(container) {
           cwd: { type: 'string', description: 'Optional path inside the workspace.' },
         },
       },
-      handler: (args) => workspaceTools.workspaceInfo(args, container),
+      handler: async (args) => {
+        await container.ensureReady();
+        return workspaceTools.workspaceInfo(args, container);
+      },
     },
     {
       name: 'run_diagnostics',
@@ -102,7 +106,10 @@ function createToolRegistry(container) {
           maxResults: { type: 'number', description: 'Maximum results to return (default 50, max 200).' },
         },
       },
-      handler: (args) => searchTools.searchCode(args, container),
+      handler: async (args) => {
+        await container.ensureReady();
+        return searchTools.searchCode(args, container);
+      },
     },
     {
       name: 'lookup_symbol',
@@ -157,7 +164,10 @@ function createToolRegistry(container) {
           cwd: { type: 'string' },
         },
       },
-      handler: (args) => healthTools.projectHealth(args, container),
+      handler: async (args) => {
+        await container.ensureReady();
+        return healthTools.projectHealth(args, container);
+      },
     },
     {
       name: 'check_dependencies',
@@ -168,31 +178,31 @@ function createToolRegistry(container) {
           cwd: { type: 'string' },
         },
       },
-      handler: (args) => healthTools.checkDependencies(args, container),
+      handler: async (args) => {
+        await container.ensureReady();
+        return healthTools.checkDependencies(args, container);
+      },
     },
     {
       name: 'diagnostics_live',
       description: 'Get cached diagnostics for a file without re-running lint. Fast real-time results.',
       inputSchema: {
         type: 'object',
+        required: ['file'],
         properties: {
           cwd: { type: 'string' },
-          file: { type: 'string', description: 'File path (defaults to active file from editor state)' },
+          file: { type: 'string', description: 'File path (required)' },
         },
       },
       handler: async (args) => {
         await container.ensureReady();
         
-        let filePath = args?.file;
-        if (!filePath && container.editorState) {
-          filePath = await container.editorState.getActiveFile();
-        }
-        
+        const filePath = args?.file;
         if (!filePath) {
-          return { ok: false, error: 'No file specified and no active editor found' };
+          return { ok: false, error: 'file parameter is required' };
         }
 
-        // Get from cache first
+        // Phase 2: 优先返回缓存，无缓存不等待
         const cached = container.diagnostics?.getCached(filePath);
         if (cached && cached.length > 0) {
           return {
@@ -204,15 +214,18 @@ function createToolRegistry(container) {
           };
         }
 
-        // Trigger a check if not cached
+        // Phase 2: 无缓存时调度后台检查，不等待结果
         if (container.diagnostics) {
-          const diags = await container.diagnostics.checkFile(filePath);
+          // 触发后台检查（如果该文件未被调度）
+          container.diagnostics.scheduleCheck(filePath);
+          
           return {
             ok: true,
             file: filePath,
-            source: 'fresh',
-            diagnosticCount: diags.length,
-            diagnostics: diags,
+            source: 'scheduled',
+            diagnosticCount: 0,
+            diagnostics: [],
+            note: 'File not yet analyzed, check will run in background',
           };
         }
 
@@ -229,62 +242,12 @@ function createToolRegistry(container) {
           file: { type: 'string', description: 'File to analyze' },
           operation: { 
             type: 'string', 
-            enum: ['dependencies', 'dependents', 'impact', 'cycles', 'stats'],
+            enum: ['dependencies', 'dependents', 'impact', 'cycles', 'stats', 'dead_exports', 'unresolved', 'affected_tests'],
             description: 'What to analyze' 
           },
         },
       },
-      handler: async (args) => {
-        await container.ensureReady();
-        
-        if (!container.depGraph) {
-          return { ok: false, error: 'Dependency graph not available' };
-        }
-
-        const operation = args?.operation || 'stats';
-        const filePath = args?.file;
-
-        switch (operation) {
-          case 'stats':
-            return {
-              ok: true,
-              stats: container.depGraph.getStats(),
-            };
-          
-          case 'dependencies':
-            if (!filePath) return { ok: false, error: 'file is required for dependencies' };
-            return {
-              ok: true,
-              file: filePath,
-              dependencies: container.depGraph.getDependencies(filePath),
-            };
-          
-          case 'dependents':
-            if (!filePath) return { ok: false, error: 'file is required for dependents' };
-            return {
-              ok: true,
-              file: filePath,
-              dependents: container.depGraph.getDependents(filePath),
-            };
-          
-          case 'impact':
-            if (!filePath) return { ok: false, error: 'file is required for impact analysis' };
-            return {
-              ok: true,
-              file: filePath,
-              impact: container.depGraph.getImpactRadius(filePath),
-            };
-          
-          case 'cycles':
-            return {
-              ok: true,
-              cycles: container.depGraph.findCircularDependencies(),
-            };
-          
-          default:
-            return { ok: false, error: `Unknown operation: ${operation}` };
-        }
-      },
+      handler: (args) => depTools.dependencyGraph(args, container),
     },
   ];
 }
