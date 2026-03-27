@@ -20,6 +20,7 @@
  */
 
 const { MCPServer } = require('./src/mcp-server');
+const { getContainer } = require('./src/services/container');
 const { registerAllTools } = require('./src/tool-registry');
 
 // Handle unhandled rejections to prevent crash
@@ -34,18 +35,33 @@ process.on('uncaughtException', (err) => {
 
 const SERVER_INFO = {
   name: 'workspace-bridge',
-  version: '0.4.1',
-  capabilities: ['workspace-introspection', 'git-tools', 'code-search', 'diagnostics'],
+  version: '0.5.0',
+  capabilities: ['workspace-introspection', 'git-tools', 'code-search', 'diagnostics', 'symbol-index'],
 };
 
-function main() {
+async function main() {
+  const container = getContainer();
+  
+  // Initialize container (async, with gate)
+  const initSuccess = await container.initialize(process.cwd());
+  if (!initSuccess) {
+    console.error('[Server] Failed to initialize container, continuing with limited functionality');
+  }
+
   const server = new MCPServer(SERVER_INFO.name, SERVER_INFO.version);
   
-  // Register all tools
-  registerAllTools(server);
+  // Register all tools with container injection
+  registerAllTools(server, container);
   
   console.error(`[Server] ${SERVER_INFO.name} v${SERVER_INFO.version} ready`);
   console.error(`[Server] Capabilities: ${SERVER_INFO.capabilities.join(', ')}`);
+  
+  // Graceful shutdown
+  process.on('SIGINT', async () => {
+    console.error('[Server] Shutting down...');
+    await container.shutdown();
+    process.exit(0);
+  });
   
   server.start();
 }

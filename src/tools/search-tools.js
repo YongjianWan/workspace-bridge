@@ -59,9 +59,9 @@ function findFilesByName(query, root, maxResults) {
   return results;
 }
 
-function searchCode(args) {
+function searchCode(args, container) {
   const target = args?.cwd || process.cwd();
-  const root = findWorkspaceRoot(target);
+  const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const query = args?.query;
   const type = args?.type || 'text';
   const maxResults = Number.isFinite(args?.maxResults) ? Math.min(args.maxResults, 200) : 50;

@@ -58,9 +58,10 @@ function buildChecks(workspace, mode) {
   return checks;
 }
 
-function workspaceInfo(args) {
+function workspaceInfo(args, container) {
   const target = args?.cwd || process.cwd();
-  const workspace = detectWorkspace(findWorkspaceRoot(target));
+  const root = container?.workspaceRoot || findWorkspaceRoot(target);
+  const workspace = detectWorkspace(root);
   const checks = buildChecks(workspace, 'quick');
 
   return {
@@ -77,13 +78,35 @@ function workspaceInfo(args) {
   };
 }
 
-async function runDiagnostics(args) {
+async function runDiagnostics(args, container) {
   const target = args?.cwd || process.cwd();
   const mode = args?.mode === 'full' ? 'full' : 'quick';
   const timeoutMs = Number.isFinite(args?.timeoutMs) ? args.timeoutMs : 120000;
   const maxDiagnostics = Number.isFinite(args?.maxDiagnostics) ? Math.max(1, Math.floor(args.maxDiagnostics)) : 300;
 
-  const workspace = detectWorkspace(findWorkspaceRoot(target));
+  // Use container cache if available
+  if (container?.cache) {
+    const cached = container.cache.getWorkspaceInfo();
+    if (cached) {
+      // Return cached diagnostics
+      const diags = container.cache.getDiagnostics();
+      if (Object.keys(diags).length > 0) {
+        return {
+          workspaceRoot: container.workspaceRoot,
+          mode: 'cached',
+          checksRun: 0,
+          failedChecks: [],
+          diagnosticsSummary: { total: 0, error: 0, warning: 0, information: 0, hint: 0 },
+          diagnostics: [],
+          results: [],
+          cached: true,
+        };
+      }
+    }
+  }
+
+  const root = container?.workspaceRoot || findWorkspaceRoot(target);
+  const workspace = detectWorkspace(root);
   const checks = buildChecks(workspace, mode);
 
   const checkResults = await Promise.allSettled(

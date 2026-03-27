@@ -59,9 +59,9 @@ function detectPackageManager(root) {
   return null;
 }
 
-function projectHealth(args) {
+function projectHealth(args, container) {
   const target = args?.cwd || process.cwd();
-  const root = findWorkspaceRoot(target);
+    const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const workspace = detectWorkspace(root);
 
   const checks = {
@@ -298,9 +298,9 @@ function checkSecurity(args) {
   };
 }
 
-function checkDependencies(args) {
+function checkDependencies(args, container) {
   const target = args?.cwd || process.cwd();
-  const root = findWorkspaceRoot(target);
+    const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const workspace = detectWorkspace(root);
   const results = [];
 

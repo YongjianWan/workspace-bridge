@@ -13,9 +13,9 @@ function ensureGitRepo(root) {
   return null;
 }
 
-function gitDiffSummary(args) {
+function gitDiffSummary(args, container) {
   const target = args?.cwd || process.cwd();
-  const root = findWorkspaceRoot(target);
+  const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const staged = Boolean(args?.staged);
   const diffArgs = staged ? 'diff --cached --no-color' : 'diff --no-color';
 
@@ -36,9 +36,9 @@ function gitDiffSummary(args) {
   };
 }
 
-function gitBlame(args) {
+function gitBlame(args, container) {
   const target = args?.cwd || process.cwd();
-  const root = findWorkspaceRoot(target);
+  const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const file = args?.file;
 
   if (!file) return { ok: false, error: 'file parameter is required' };
@@ -93,9 +93,9 @@ function gitBlame(args) {
   };
 }
 
-function gitHistory(args) {
+function gitHistory(args, container) {
   const target = args?.cwd || process.cwd();
-  const root = findWorkspaceRoot(target);
+  const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const limit = Number.isFinite(args?.limit) ? Math.min(args.limit, 200) : 30;
 
   const gitCheck = ensureGitRepo(root);
