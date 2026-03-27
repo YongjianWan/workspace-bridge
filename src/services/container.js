@@ -4,6 +4,8 @@
  */
 const { WorkspaceCache } = require('./cache');
 const { FileIndex } = require('./file-index');
+const { DiagnosticsEngine } = require('./diagnostics-engine');
+const { EditorState } = require('./editor-state');
 
 class ServiceContainer {
   constructor() {
@@ -15,6 +17,8 @@ class ServiceContainer {
     // Services
     this.cache = null;
     this.fileIndex = null;
+    this.diagnostics = null;
+    this.editorState = null;
   }
 
   /**
@@ -50,6 +54,12 @@ class ServiceContainer {
       this.fileIndex = new FileIndex(this.workspaceRoot, this.cache);
       await this.fileIndex.build();
 
+      // Initialize diagnostics engine
+      this.diagnostics = new DiagnosticsEngine(this.workspaceRoot, this.cache);
+
+      // Initialize editor state reader
+      this.editorState = new EditorState(this.workspaceRoot);
+
       this.initialized = true;
       console.error(`[Container] Ready: ${this.fileIndex.getStats().files} files indexed`);
       
@@ -82,12 +92,14 @@ class ServiceContainer {
    * Shutdown: persist cache and cleanup
    */
   async shutdown() {
-    if (this.cache) {
-      await this.cache.save();
-    }
     if (this.fileIndex) {
       this.fileIndex.stopWatching();
     }
+    if (this.cache) {
+      await this.cache.save();
+    }
+    this.diagnostics = null;
+    this.editorState = null;
     this.initialized = false;
   }
 

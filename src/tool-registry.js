@@ -166,6 +166,55 @@ function createToolRegistry(container) {
       },
       handler: (args) => healthTools.checkDependencies(args, container),
     },
+    {
+      name: 'diagnostics_live',
+      description: 'Get cached diagnostics for a file without re-running lint. Fast real-time results.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          cwd: { type: 'string' },
+          file: { type: 'string', description: 'File path (defaults to active file from editor state)' },
+        },
+      },
+      handler: async (args) => {
+        await container.ensureReady();
+        
+        let filePath = args?.file;
+        if (!filePath && container.editorState) {
+          filePath = await container.editorState.getActiveFile();
+        }
+        
+        if (!filePath) {
+          return { ok: false, error: 'No file specified and no active editor found' };
+        }
+
+        // Get from cache first
+        const cached = container.diagnostics?.getCached(filePath);
+        if (cached && cached.length > 0) {
+          return {
+            ok: true,
+            file: filePath,
+            source: 'cache',
+            diagnosticCount: cached.length,
+            diagnostics: cached,
+          };
+        }
+
+        // Trigger a check if not cached
+        if (container.diagnostics) {
+          const diags = await container.diagnostics.checkFile(filePath);
+          return {
+            ok: true,
+            file: filePath,
+            source: 'fresh',
+            diagnosticCount: diags.length,
+            diagnostics: diags,
+          };
+        }
+
+        return { ok: true, file: filePath, diagnostics: [] };
+      },
+    },
   ];
 }
 
