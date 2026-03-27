@@ -6,6 +6,7 @@ const { WorkspaceCache } = require('./cache');
 const { FileIndex } = require('./file-index');
 const { DiagnosticsEngine } = require('./diagnostics-engine');
 const { EditorState } = require('./editor-state');
+const { DependencyGraph } = require('./dep-graph');
 
 class ServiceContainer {
   constructor() {
@@ -19,6 +20,8 @@ class ServiceContainer {
     this.fileIndex = null;
     this.diagnostics = null;
     this.editorState = null;
+    this.depGraph = null;
+    this.depGraph = null;
   }
 
   /**
@@ -59,6 +62,10 @@ class ServiceContainer {
 
       // Initialize editor state reader
       this.editorState = new EditorState(this.workspaceRoot);
+
+      // Initialize dependency graph
+      this.depGraph = new DependencyGraph(this.workspaceRoot, this.cache);
+      await this.depGraph.build();
 
       this.initialized = true;
       console.error(`[Container] Ready: ${this.fileIndex.getStats().files} files indexed`);

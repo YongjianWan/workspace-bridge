@@ -6,7 +6,6 @@ const gitTools = require('./tools/git-tools');
 const workspaceTools = require('./tools/workspace-tools');
 const searchTools = require('./tools/search-tools');
 const healthTools = require('./tools/health-tools');
-const enhancedTools = require('./tools/enhanced-tools');
 
 // Tool factory - creates tool handlers with container access
 function createToolRegistry(container) {
@@ -213,6 +212,73 @@ function createToolRegistry(container) {
         }
 
         return { ok: true, file: filePath, diagnostics: [] };
+      },
+    },
+    {
+      name: 'dependency_graph',
+      description: 'Analyze import dependencies and impact radius of file changes.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          cwd: { type: 'string' },
+          file: { type: 'string', description: 'File to analyze' },
+          operation: { 
+            type: 'string', 
+            enum: ['dependencies', 'dependents', 'impact', 'cycles', 'stats'],
+            description: 'What to analyze' 
+          },
+        },
+      },
+      handler: async (args) => {
+        await container.ensureReady();
+        
+        if (!container.depGraph) {
+          return { ok: false, error: 'Dependency graph not available' };
+        }
+
+        const operation = args?.operation || 'stats';
+        const filePath = args?.file;
+
+        switch (operation) {
+          case 'stats':
+            return {
+              ok: true,
+              stats: container.depGraph.getStats(),
+            };
+          
+          case 'dependencies':
+            if (!filePath) return { ok: false, error: 'file is required for dependencies' };
+            return {
+              ok: true,
+              file: filePath,
+              dependencies: container.depGraph.getDependencies(filePath),
+            };
+          
+          case 'dependents':
+            if (!filePath) return { ok: false, error: 'file is required for dependents' };
+            return {
+              ok: true,
+              file: filePath,
+              dependents: container.depGraph.getDependents(filePath),
+            };
+          
+          case 'impact':
+            if (!filePath) return { ok: false, error: 'file is required for impact analysis' };
+            return {
+              ok: true,
+              file: filePath,
+              impact: container.depGraph.getImpactRadius(filePath),
+            };
+          
+          case 'cycles':
+            return {
+              ok: true,
+              cycles: container.depGraph.findCircularDependencies(),
+            };
+          
+          default:
+            return { ok: false, error: `Unknown operation: ${operation}` };
+        }
       },
     },
   ];
