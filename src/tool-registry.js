@@ -6,6 +6,7 @@ const gitTools = require('./tools/git-tools');
 const workspaceTools = require('./tools/workspace-tools');
 const searchTools = require('./tools/search-tools');
 const healthTools = require('./tools/health-tools');
+const { sanitizeSymbolName } = require('./utils/sanitize');
 
 // Tool factory - creates tool handlers with container access
 function createToolRegistry(container) {
@@ -117,8 +118,12 @@ function createToolRegistry(container) {
       },
       handler: async (args) => {
         await container.ensureReady();
-        const name = args?.name;
-        if (!name) return { ok: false, error: 'name is required' };
+        const rawName = args?.name;
+        if (!rawName) return { ok: false, error: 'name is required' };
+        
+        // Sanitize symbol name to prevent injection
+        const name = sanitizeSymbolName(rawName);
+        if (!name) return { ok: false, error: 'Invalid symbol name' };
         
         const locations = container.fileIndex.findSymbol(name);
         if (locations.length === 0) {

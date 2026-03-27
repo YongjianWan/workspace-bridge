@@ -21,7 +21,6 @@ class ServiceContainer {
     this.diagnostics = null;
     this.editorState = null;
     this.depGraph = null;
-    this.depGraph = null;
   }
 
   /**
@@ -83,12 +82,16 @@ class ServiceContainer {
   /**
    * Gate: ensures initialization is complete before proceeding
    */
-  async ensureReady() {
+  async ensureReady(timeoutMs = 30000) {
     if (this.initialized) return;
     if (this.initError) throw this.initError;
     
-    // Wait for initialization
+    // Wait for initialization with timeout
+    const startTime = Date.now();
     while (!this.initialized && !this.initError) {
+      if (Date.now() - startTime > timeoutMs) {
+        throw new Error(`Initialization timeout after ${timeoutMs}ms`);
+      }
       await sleep(50);
     }
     
@@ -99,7 +102,9 @@ class ServiceContainer {
    * Shutdown: persist cache and cleanup
    */
   async shutdown() {
+    // Wait for pending updates before stopping
     if (this.fileIndex) {
+      await this.fileIndex.processPending?.();
       this.fileIndex.stopWatching();
     }
     if (this.cache) {
@@ -107,6 +112,7 @@ class ServiceContainer {
     }
     this.diagnostics = null;
     this.editorState = null;
+    this.depGraph = null;
     this.initialized = false;
   }
 

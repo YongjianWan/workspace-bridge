@@ -184,8 +184,8 @@ class DiagnosticsEngine {
    */
   getAllDiagnostics() {
     const all = [];
-    // Cache stores {mtime, diagnostics} objects
-    for (const [file, data] of this.cache.diagnostics || []) {
+    // Iterate over Map entries: [filePath, {mtime, diagnostics}]
+    for (const [file, data] of this.cache.diagnostics.entries()) {
       if (data && data.diagnostics) {
         all.push(...data.diagnostics);
       }
