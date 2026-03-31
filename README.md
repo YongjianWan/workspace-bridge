@@ -10,6 +10,8 @@
 - **🔗 依赖分析** - 分析 import 关系，计算变更影响范围
 - **💾 智能缓存** - 文件变更感知 + 磁盘持久化，热启动 <200ms
 - **🛡️ 安全加固** - 参数化命令执行，路径遍历防护
+- **📦 技术栈自动检测** - 自动识别项目技术栈并生成具体验证命令
+- **🎯 JS/TS AST 解析** - 使用 @babel/parser 提升代码分析精度
 
 ## 快速开始
 
@@ -108,15 +110,49 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 
 这样在 mixed repo 里至少能先看清“主线代码”和“非主线代码”各有多少，再决定要不要信后面的死代码和影响面结果。
 
-`audit-diff` 会返回：
+`audit-diff` 返回结构化验证计划：
+
+- `validationAdvice.changeType`: 改动类型 (docs/config/tests/scripts/code)
+- `validationAdvice.stack`: 检测到的技术栈 (packageManager, testRunner, linters, typeChecker)
+- `validationAdvice.commands`: 各阶段可执行命令 (smoke/focused/full)
+- `validationAdvice.phases`: 分阶段验证建议，包含有序 steps
+
+示例输出：
+
+```json
+{
+  "validationAdvice": {
+    "changeType": "code",
+    "stack": {
+      "packageManager": "npm",
+      "testRunner": "vitest",
+      "linters": ["eslint", "prettier"],
+      "typeChecker": "tsc"
+    },
+    "commands": {
+      "smoke": ["npm run lint"],
+      "focused": ["npm run test:unit -- src/services/dep-graph.js"],
+      "full": ["npm run test", "npm run build"]
+    },
+    "phases": [
+      { "phase": "lint", "steps": ["npm run lint"], "optional": false },
+      { "phase": "type-check", "steps": ["npx tsc --noEmit"], "optional": true },
+      { "phase": "test-focused", "steps": ["npm run test:unit -- src/services/dep-graph.js"], "optional": false },
+      { "phase": "test-full", "steps": ["npm run test"], "optional": true }
+    ]
+  }
+}
+```
+
+此外还返回：
 
 - 当前 git 变更文件列表
 - 每个文件的主线/非主线角色
 - 每个文件的 impact / affected tests
 - 每个文件的 `historyRisk`（提交频率、作者数、最近改动、回滚痕迹）
-- 聚合后的风险级别和验证建议
+- 聚合后的风险级别
 
-这玩意的目标不是替代 `git diff`，而是把“我这次改了什么，最好先测什么”直接吐给 agent。
+这玩意的目标不是替代 `git diff`，而是把"我这次改了什么，最好先测什么"直接吐给 agent。
 
 真实项目验证后，当前结果最可信的场景包括：
 
@@ -171,6 +207,7 @@ workspace-bridge CLI
 
 #### DependencyGraph
 - 解析 import/require 语句
+- **JS/TS 使用 @babel/parser AST 解析**（精确识别导入导出）
 - 构建依赖关系图和影响半径分析
 - 检测循环依赖
 
@@ -185,6 +222,19 @@ workspace-bridge CLI
 | 依赖图 | 内存 Map | 文件变更时重建受影响边 |
 
 缓存文件 5 分钟 TTL，冷启动 2-4s，热启动 ~200ms。
+
+### 技术栈检测
+
+自动检测项目技术栈并生成具体验证命令：
+
+| 检测项 | 识别文件 |
+|--------|----------|
+| packageManager | pnpm-lock.yaml / yarn.lock / package-lock.json |
+| testRunner | jest.config.* / vitest.config.* / pytest.ini |
+| linters | .eslintrc.* / .prettierrc.* / pyproject.toml |
+| typeChecker | tsconfig.json / pyright |
+
+检测到的技术栈会用于生成 `audit-diff` 中的具体验证命令。
 
 ## 安全说明
 

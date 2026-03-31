@@ -30,10 +30,12 @@
 当前还不够的地方：
 
 - 语义识别还只是目录/文件角色级，不够到“模块骨架”
-- `deadExports` 虽然已有第一版符号级判断，但还不是 AST 级精度
+- JS/TS 解析仍主要靠轻量规则，还没接现成 parser
+- Python 解析还没切到标准 `ast` 能力
+- Java / Spring Boot 还没有语言级解析策略
 - 影响面还停留在文件级
 - 测试建议还不够强
-- Git 历史和风险热区还没接入
+- Git 历史风险已接入第一版，但验证计划还不够强
 
 ---
 
@@ -59,6 +61,14 @@
 - 改完会影响谁
 - 应该跑哪些测试
 - 哪些结果只是候选，不该直接删
+
+### 5. 多语言分层，不搞一锅粥
+
+解析层按语言拆开：
+
+- JS/TS：优先接现成 parser
+- Python：优先走标准 `ast`
+- Java：等 Spring Boot 场景真实到来再接，不提前过度工程
 
 ---
 
@@ -100,7 +110,7 @@
 
 ## Milestone 2：导出使用精度
 
-状态：已完成一版轻量级 JS/TS 符号判断，足够覆盖常见 import/export 语法；AST 级精度仍未完成。
+状态：已完成一版轻量级 JS/TS 符号判断，足够覆盖常见 import/export 语法；下一步不是继续堆 regex，而是接 parser adapter。
 
 ### 目标
 
@@ -108,28 +118,53 @@
 
 ### 范围
 
-1. JS/TS AST 级 import/export 分析
-2. 识别：
+1. 抽 parser adapter 层
+   - `javascript`
+   - `python`
+   - 预留 `java`
+2. JS/TS 接 `@babel/parser`
+3. 识别：
    - `export * from ...`
    - `export { x } from ...`
    - default export
    - namespace import
-3. 区分：
+4. 区分：
    - 类型导入
    - 运行时导入
-4. Python 侧增强：
+5. Python 侧增强：
    - `__all__`
    - package exports
    - `from x import *` 降级策略
+   - 为后续 Python helper / `ast` 方案预留接口
+
+### 语言策略
+
+#### JS / TS
+
+- 首选：`@babel/parser`
+- 原因：接入成本低、生态成熟、足够支撑当前 import/export 精度需求
+
+#### Python
+
+- 方向：标准库 `ast`
+- 现实：当前仓库是 Node CLI，先抽 adapter 接口，再决定是否用 Python helper 子进程承接
+
+#### Java / Spring Boot
+
+- 暂缓
+- 原因：现在主要收益点仍在 Python + JS/TS 项目；Java parser 方案太重，不提前上
 
 ### 验收标准
 
 - `deadExports` 在典型 TS 项目上明显少于当前版本误报
+- Python 项目的 import/export 解析入口不再和 JS/TS 逻辑硬耦合
 - 候选列表能更接近“真的可删”
 
 ---
 
 ## Milestone 3：影响面与测试映射
+
+状态：`audit-diff`、历史风险、分阶段验证建议已进入第一版；下一步重点是把建议做得更像“执行计划”。
 
 ### 目标
 
@@ -145,6 +180,10 @@
    - 直接相关测试 vs 间接覆盖测试
 4. 强化 `audit-file`
 5. 增加 `audit-diff`
+6. 把验证建议升级为 staged plan：
+   - `smoke`
+   - `focused`
+   - `full`
 
 ### `audit-diff` 输出目标
 
@@ -164,6 +203,8 @@
 ---
 
 ## Milestone 4：Git 历史风险层
+
+状态：第一版已完成，下一步是把历史风险和结构影响融合得更像工程判断，而不是平铺计数。
 
 ### 目标
 
@@ -222,19 +263,22 @@
 
 1. `.workspace-bridge.json`
 2. 目录/文件角色识别
-3. AST 级导出使用分析
+3. parser adapter 层
+4. JS/TS 接 `@babel/parser`
 
 ### P2 增强
 
-4. 测试映射
-5. `audit-diff` <- 当前最值得先做
-6. Git 风险层
+5. Python 解析切向 `ast` 方案
+6. 测试映射
+7. symbol-level impact
+8. 更强的验证建议计划
 
 ### P3 全景
 
-7. 热区图
-8. 稳定性/耦合度评分
-9. 主线全景视图
+9. Java / Spring Boot parser 评估（按需）
+10. 热区图
+11. 稳定性/耦合度评分
+12. 主线全景视图
 
 ---
 

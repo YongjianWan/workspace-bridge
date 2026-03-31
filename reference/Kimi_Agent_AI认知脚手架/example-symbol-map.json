@@ -1,0 +1,112 @@
+{
+  "authenticate_user": {
+    "type": "function",
+    "file_path": "src/auth.py",
+    "line_start": 15,
+    "line_end": 45,
+    "dependencies": ["hash_password", "validate_token"],
+    "dependents": ["login_handler", "api_middleware"],
+    "exports": ["authenticate_user"],
+    "imports": ["bcrypt", "jwt"]
+  },
+  "hash_password": {
+    "type": "function",
+    "file_path": "src/auth.py",
+    "line_start": 48,
+    "line_end": 55,
+    "dependencies": ["bcrypt"],
+    "dependents": ["authenticate_user", "create_user"],
+    "exports": ["hash_password"],
+    "imports": ["bcrypt"]
+  },
+  "validate_token": {
+    "type": "function",
+    "file_path": "src/auth.py",
+    "line_start": 58,
+    "line_end": 75,
+    "dependencies": ["jwt"],
+    "dependents": ["authenticate_user", "refresh_token"],
+    "exports": ["validate_token"],
+    "imports": ["jwt", "datetime"]
+  },
+  "User": {
+    "type": "class",
+    "file_path": "src/models.py",
+    "line_start": 10,
+    "line_end": 35,
+    "dependencies": ["BaseModel"],
+    "dependents": ["authenticate_user", "create_user", "update_user"],
+    "exports": ["User"],
+    "imports": ["pydantic", "datetime"]
+  },
+  "BaseModel": {
+    "type": "class",
+    "file_path": "src/models.py",
+    "line_start": 5,
+    "line_end": 8,
+    "dependencies": [],
+    "dependents": ["User", "Post", "Comment"],
+    "exports": ["BaseModel"],
+    "imports": ["pydantic"]
+  },
+  "create_user": {
+    "type": "function",
+    "file_path": "src/user_service.py",
+    "line_start": 20,
+    "line_end": 50,
+    "dependencies": ["hash_password", "User", "save_to_db"],
+    "dependents": ["register_handler"],
+    "exports": ["create_user"],
+    "imports": ["src.auth", "src.models"]
+  },
+  "login_handler": {
+    "type": "function",
+    "file_path": "src/api.py",
+    "line_start": 30,
+    "line_end": 60,
+    "dependencies": ["authenticate_user"],
+    "dependents": [],
+    "exports": ["login_handler"],
+    "imports": ["src.auth", "fastapi"]
+  },
+  "register_handler": {
+    "type": "function",
+    "file_path": "src/api.py",
+    "line_start": 63,
+    "line_end": 90,
+    "dependencies": ["create_user"],
+    "dependents": [],
+    "exports": ["register_handler"],
+    "imports": ["src.user_service", "fastapi"]
+  },
+  "api_middleware": {
+    "type": "function",
+    "file_path": "src/middleware.py",
+    "line_start": 15,
+    "line_end": 40,
+    "dependencies": ["validate_token"],
+    "dependents": [],
+    "exports": ["api_middleware"],
+    "imports": ["src.auth", "starlette"]
+  },
+  "save_to_db": {
+    "type": "function",
+    "file_path": "src/database.py",
+    "line_start": 25,
+    "line_end": 35,
+    "dependencies": ["get_connection"],
+    "dependents": ["create_user", "update_user", "delete_user"],
+    "exports": ["save_to_db"],
+    "imports": ["sqlite3"]
+  },
+  "get_connection": {
+    "type": "function",
+    "file_path": "src/database.py",
+    "line_start": 10,
+    "line_end": 22,
+    "dependencies": [],
+    "dependents": ["save_to_db", "query_db"],
+    "exports": ["get_connection"],
+    "imports": ["sqlite3", "os"]
+  }
+}

@@ -12,6 +12,8 @@ const { dependencyGraph } = require('./src/tools/dep-tools');
 const { getChangedFiles } = require('./src/tools/git-tools');
 const { validateWorkspacePath } = require('./src/tools/git-tools');
 const { getFileHistoryRisk } = require('./src/tools/git-tools');
+const { detectStack, generateCommands } = require('./src/utils/stack-detector');
+const { buildProjectOverview } = require('./src/tools/overview-tools');
 
 function toNumber(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
@@ -132,6 +134,389 @@ function buildAuditDiffSummary(entries) {
   };
 }
 
+function classifyChangeType(entries) {
+  const types = new Set();
+  for (const entry of entries) {
+    const file = entry.file || '';
+    const ext = file.split('.').pop()?.toLowerCase();
+    const fileRole = entry.classification?.fileRole;
+
+    // 文档类型
+    if (['md', 'mdx', 'mdtxt', 'markdown', 'txt', 'rst'].includes(ext) ||
+        file.toLowerCase().includes('readme') ||
+        file.toLowerCase().includes('changelog') ||
+        file.toLowerCase().includes('contributing')) {
+      types.add('docs');
+    }
+    // 配置类型
+    else if (['json', 'yaml', 'yml', 'toml', 'ini', 'conf', 'config'].includes(ext) ||
+             fileRole === 'config' ||
+             file.includes('.env') ||
+             file.includes('tsconfig') ||
+             file.includes('vite.config') ||
+             file.includes('eslint') ||
+             file.includes('prettier') ||
+             file.includes('jest.config') ||
+             file.includes('pyproject') ||
+             file.includes('requirements')) {
+      types.add('config');
+    }
+    // 测试类型
+    else if (fileRole === 'test' ||
+             file.includes('.test.') ||
+             file.includes('.spec.') ||
+             file.includes('/test/') ||
+             file.includes('/tests/')) {
+      types.add('tests');
+    }
+    // 脚本类型
+    else if (fileRole === 'script' ||
+             file.includes('/scripts/') ||
+             file.includes('/bin/') ||
+             ext === 'sh' ||
+             ext === 'bash' ||
+             ext === 'ps1') {
+      types.add('scripts');
+    }
+    // 代码类型 (默认)
+    else {
+      types.add('code');
+    }
+  }
+
+  // 返回主要类型，优先级: code > tests > config > scripts > docs
+  if (types.has('code')) return 'code';
+  if (types.has('tests')) return 'tests';
+  if (types.has('config')) return 'config';
+  if (types.has('scripts')) return 'scripts';
+  if (types.has('docs')) return 'docs';
+  return 'code';
+}
+
+function getValidationTemplate(changeType) {
+  const templates = {
+    docs: {
+      smoke: {
+        reason: 'Documentation changes: verify formatting and obvious errors first.',
+        actions: [
+          'Preview rendered markdown for formatting issues.',
+          'Check for broken internal links.',
+          'Verify code examples in docs still match current API.',
+        ],
+      },
+      focused: {
+        reason: 'Review content accuracy and completeness.',
+        actions: [
+          'Review changed sections for technical accuracy.',
+          'Check if related docs need同步更新.',
+        ],
+      },
+      full: {
+        reason: 'Final polish before merge.',
+        actions: [
+          'Run docs linting if available (markdownlint, etc.).',
+          'Verify external links are not broken.',
+        ],
+      },
+    },
+    config: {
+      smoke: {
+        reason: 'Config changes: validate syntax and basic structure first.',
+        actions: [
+          'Validate JSON/YAML syntax.',
+          'Check config schema if available.',
+          'Verify required fields are present.',
+        ],
+      },
+      focused: {
+        reason: 'Test config consumption points.',
+        actions: [
+          'Run affected unit tests that read this config.',
+          'Start the app/service to verify config loads correctly.',
+          'Check for environment-specific values that might break.',
+        ],
+      },
+      full: {
+        reason: 'Full integration verification.',
+        actions: [
+          'Run full test suite to catch subtle config side effects.',
+          'Verify in staging environment if applicable.',
+        ],
+      },
+    },
+    tests: {
+      smoke: {
+        reason: 'Test changes: verify tests run and pass first.',
+        actions: [
+          'Run the modified tests to ensure they pass.',
+          'Check for syntax errors in new test code.',
+        ],
+      },
+      focused: {
+        reason: 'Validate test quality and coverage.',
+        actions: [
+          'Review test assertions for correctness.',
+          'Check that tests actually test what they claim.',
+          'Verify test setup/teardown is proper.',
+        ],
+      },
+      full: {
+        reason: 'Ensure no regressions in related areas.',
+        actions: [
+          'Run full test suite to catch side effects.',
+          'Check test runtime - no significant slowdowns.',
+        ],
+      },
+    },
+    scripts: {
+      smoke: {
+        reason: 'Script changes: check syntax and basic execution.',
+        actions: [
+          'Run script with --help or dry-run if supported.',
+          'Check for syntax errors (shellcheck for bash, etc.).',
+          'Verify script is executable (chmod +x).',
+        ],
+      },
+      focused: {
+        reason: 'Test script in isolated context.',
+        actions: [
+          'Run script against test data or staging environment.',
+          'Verify error handling works correctly.',
+          'Check script output format.',
+        ],
+      },
+      full: {
+        reason: 'Integration and edge case testing.',
+        actions: [
+          'Test script with various input combinations.',
+          'Verify cleanup on interruption/failure.',
+          'Check logging and observability.',
+        ],
+      },
+    },
+    code: {
+      smoke: {
+        reason: 'Always start with a cheap sanity pass over the edited surface.',
+        actions: [
+          'Open the changed files and sanity-check obvious regressions.',
+          'Run the lightest command that proves the CLI still starts and basic commands still return JSON.',
+        ],
+      },
+      focused: {
+        reason: 'These files or tests are closest to the current change and most likely to catch breakage fast.',
+        actions: [
+          'Run directly affected tests first.',
+          'Inspect history-risk and high-impact files carefully.',
+        ],
+      },
+      full: {
+        reason: 'Broaden validation once the cheap and focused checks are clean.',
+        actions: [
+          'Run indirectly affected tests next.',
+          'Re-check graph-touched modules before merge.',
+        ],
+      },
+    },
+  };
+
+  return templates[changeType] || templates.code;
+}
+
+function buildValidationAdvice(entries, workspaceRoot) {
+  const changeType = classifyChangeType(entries);
+  const template = getValidationTemplate(changeType);
+
+  const directTests = new Set();
+  const indirectTests = new Set();
+  const riskyFiles = [];
+  const turbulenceFiles = []; // 高历史风险 + 低结构影响
+  const highImpactFiles = []; // 高结构影响
+  const smokeFiles = [];
+  const graphTouchedFiles = [];
+  const nonMainlineFiles = [];
+
+  for (const entry of entries) {
+    smokeFiles.push(entry.file);
+    if (entry.graphKnown) {
+      graphTouchedFiles.push(entry.file);
+    }
+
+    if (entry.affectedTestCount > 0) {
+      for (const test of entry.affectedTests || []) {
+        if (test.distance <= 1) {
+          directTests.add(test.file);
+        } else {
+          indirectTests.add(test.file);
+        }
+      }
+    }
+
+    const isHighHistoryRisk = entry.historyRisk?.level === 'high';
+    const isHighImpact = entry.impactCount >= 5;
+
+    if (isHighHistoryRisk && !isHighImpact) {
+      // turbulence: 经常改动但影响面小
+      turbulenceFiles.push({
+        file: entry.file,
+        reason: `Changed often (${entry.historyRisk?.authorCount} authors, ${entry.historyRisk?.churn} commits) but narrow impact (${entry.impactCount} dependents)`,
+      });
+    } else if (isHighImpact) {
+      highImpactFiles.push(entry.file);
+    }
+
+    if (!entry.classification?.isMainline) {
+      nonMainlineFiles.push(entry.file);
+    }
+  }
+
+  const phases = [];
+
+  // Smoke phase
+  const smokeTargets = Array.from(new Set(smokeFiles)).sort();
+  phases.push({
+    phase: 'smoke',
+    priority: 'high',
+    reason: template.smoke.reason,
+    actions: template.smoke.actions,
+    targets: smokeTargets,
+  });
+
+  // Focused phase - 拆分成有序的 steps
+  const focusedSteps = [];
+  const uniqueHighImpact = Array.from(new Set(highImpactFiles)).sort();
+  const uniqueTurbulence = Array.from(new Set(turbulenceFiles.map(t => t.file))).sort();
+  const uniqueDirectTests = Array.from(directTests).sort();
+  const uniqueNonMainline = Array.from(new Set(nonMainlineFiles)).sort();
+
+  if (uniqueHighImpact.length > 0) {
+    focusedSteps.push({
+      step: 1,
+      name: 'review-high-impact',
+      reason: 'High-impact files affect many dependents; review carefully first.',
+      targets: uniqueHighImpact,
+    });
+  }
+
+  if (uniqueTurbulence.length > 0) {
+    focusedSteps.push({
+      step: focusedSteps.length + 1,
+      name: 'review-turbulence',
+      reason: 'These files change often but have narrow impact; check recent commits for context.',
+      targets: uniqueTurbulence,
+      notes: turbulenceFiles.map(t => ({ file: t.file, note: t.reason })),
+    });
+  }
+
+  if (uniqueDirectTests.length > 0) {
+    focusedSteps.push({
+      step: focusedSteps.length + 1,
+      name: 'run-direct-tests',
+      reason: 'Directly affected tests catch breakage fastest.',
+      targets: uniqueDirectTests,
+    });
+  }
+
+  if (uniqueNonMainline.length > 0) {
+    focusedSteps.push({
+      step: focusedSteps.length + 1,
+      name: 'verify-non-mainline',
+      reason: 'Verify non-mainline changes are intentional and properly scoped.',
+      targets: uniqueNonMainline,
+    });
+  }
+
+  if (focusedSteps.length > 0) {
+    phases.push({
+      phase: 'focused',
+      priority: 'high',
+      reason: template.focused.reason,
+      actions: template.focused.actions,
+      steps: focusedSteps,
+      targets: Array.from(new Set([
+        ...uniqueHighImpact,
+        ...uniqueTurbulence,
+        ...uniqueDirectTests,
+        ...uniqueNonMainline,
+      ])).sort(),
+    });
+  }
+
+  // Full phase
+  const fullTargets = Array.from(new Set([
+    ...Array.from(indirectTests),
+    ...graphTouchedFiles,
+  ])).sort();
+
+  phases.push({
+    phase: 'full',
+    priority: focusedSteps.length > 0 ? 'medium' : 'low',
+    reason: template.full.reason,
+    actions: template.full.actions,
+    targets: fullTargets,
+  });
+
+  // Summary - 保留原有逻辑
+  const summary = [];
+  if (directTests.size > 0) {
+    summary.push({
+      priority: 'high',
+      kind: 'tests',
+      message: 'Run directly affected tests first.',
+      targets: Array.from(directTests).sort(),
+    });
+  }
+  if (highImpactFiles.length > 0) {
+    summary.push({
+      priority: 'high',
+      kind: 'review',
+      message: 'Review high-impact files carefully before merge.',
+      targets: Array.from(new Set(highImpactFiles)).sort(),
+    });
+  }
+  if (turbulenceFiles.length > 0) {
+    summary.push({
+      priority: 'medium',
+      kind: 'review',
+      message: 'Review turbulence files - they change often but have narrow impact.',
+      targets: turbulenceFiles.map(t => t.file),
+      notes: turbulenceFiles.map(t => ({ file: t.file, reason: t.reason })),
+    });
+  }
+  if (indirectTests.size > 0) {
+    summary.push({
+      priority: 'medium',
+      kind: 'tests',
+      message: 'Then run indirectly affected tests.',
+      targets: Array.from(indirectTests).sort(),
+    });
+  }
+  if (summary.length === 0) {
+    summary.push({
+      priority: 'low',
+      kind: 'review',
+      message: 'Start with a smoke check; no narrower validation targets were detected.',
+      targets: smokeTargets,
+    });
+  }
+
+  // Generate concrete commands based on tech stack
+  const stack = detectStack(workspaceRoot);
+  const commands = generateCommands(stack, changeType, smokeTargets, focusedSteps);
+
+  return {
+    changeType,
+    stack: {
+      packageManager: stack.packageManager,
+      testRunner: stack.testRunner?.name || null,
+      linters: stack.linters,
+      typeChecker: stack.typeChecker,
+    },
+    commands,
+    phases,
+    summary,
+  };
+}
+
 function printUsage() {
   console.log(`workspace-bridge-cli
 
@@ -144,6 +529,7 @@ Commands:
   audit-summary           Aggregate health + graph findings
   audit-file --file <p>   Aggregate impact + affected tests for one file
   audit-diff             Aggregate changed files + impact + affected tests
+  audit-overview         Project panoramic view (hotspots, stability, orphans)
   health                  Summarize project health
   deps                    List outdated dependencies
   dead-exports            Find dead export candidates
@@ -272,6 +658,7 @@ function formatHuman(command, result) {
         `affectedTests: ${result.summary.counts.affectedTests}`,
         `maxImpact: ${result.summary.counts.maxImpact}`,
         `highHistoryRiskFiles: ${result.summary.counts.highHistoryRiskFiles}`,
+        `validationPhases: ${result.validationAdvice.phases.length}`,
       ].join('\n');
     case 'deps':
       return result.results.map((entry) => {
@@ -394,9 +781,12 @@ async function runCommand(parsed, container) {
         workspaceRoot: container.workspaceRoot,
         scope: container.depGraph.getScopeSummary(),
         summary: buildAuditDiffSummary(entries),
+        validationAdvice: buildValidationAdvice(entries, container.workspaceRoot),
         changedFiles: entries,
       };
     }
+    case 'audit-overview':
+      return buildProjectOverview(parsed, container);
     case 'health':
       return projectHealth({ cwd: parsed.cwd }, container);
     case 'deps':

@@ -119,6 +119,13 @@ try {
   assert.strictEqual(changed.historyRisk.revertLikeCount >= 1, true);
   assert.strictEqual(parsed.summary.counts.highHistoryRiskFiles, 1);
   assert(changed.affectedTests.some((entry) => entry.file.replace(/\\/g, '/').endsWith('/test/app.test.js')));
+  assert(Array.isArray(parsed.validationAdvice.phases));
+  assert.strictEqual(parsed.validationAdvice.phases[0].phase, 'smoke');
+  assert(parsed.validationAdvice.phases.some((item) => item.phase === 'focused'));
+  assert(parsed.validationAdvice.phases.some((item) => item.phase === 'full'));
+  assert(Array.isArray(parsed.validationAdvice.summary));
+  assert(parsed.validationAdvice.summary.some((item) => item.kind === 'tests'));
+  assert(parsed.validationAdvice.summary.some((item) => item.kind === 'review'));
 
   console.log('audit-diff-test: ok');
 } finally {

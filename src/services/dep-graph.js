@@ -5,8 +5,17 @@
 const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
+const { spawn } = require('child_process');
 
 const readFile = promisify(fs.readFile);
+
+// Optional: @babel/parser for accurate AST parsing
+let babelParser = null;
+try {
+  babelParser = require('@babel/parser');
+} catch (e) {
+  // babel parser not available, fallback to regex
+}
 
 // 配置常量
 const CONFIG = {
@@ -205,7 +214,10 @@ class DependencyGraph {
       let exportRecords = [];
 
       if (ext === '.py') {
-        ({ imports, exports } = this.parsePython(content));
+        const pyResult = await this.parsePython(content);
+        imports = pyResult.imports;
+        exports = pyResult.exports;
+        importRecords = pyResult.importRecords || [];
       } else if (['.js', '.ts', '.jsx', '.tsx'].includes(ext)) {
         ({ imports, exports, importRecords, exportRecords } = this.parseJavaScript(content));
       }
@@ -236,8 +248,87 @@ class DependencyGraph {
     }
   }
 
-  parsePython(content) {
+  async parsePythonAST(content) {
+    return new Promise((resolve) => {
+      // Find Python executable
+      const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+      const scriptPath = path.join(__dirname, '..', '..', 'scripts', 'python_ast_parser.py');
+      
+      // Check if script exists first
+      if (!fs.existsSync(scriptPath)) {
+        resolve(null);
+        return;
+      }
+      
+      const python = spawn(pythonCmd, [scriptPath], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+        timeout: 30000,
+      });
+      
+      let output = '';
+      let errorOutput = '';
+      let killed = false;
+      
+      const timer = setTimeout(() => {
+        killed = true;
+        python.kill('SIGTERM');
+      }, 30000);
+      
+      python.stdout.on('data', (data) => {
+        output += data.toString('utf8');
+        // Prevent memory exhaustion
+        if (output.length > 10 * 1024 * 1024) {
+          output = output.slice(0, 10 * 1024 * 1024) + '\n...[truncated]';
+          python.stdout.destroy();
+        }
+      });
+      
+      python.stderr.on('data', (data) => {
+        errorOutput += data.toString('utf8');
+        if (errorOutput.length > 10 * 1024 * 1024) {
+          errorOutput = errorOutput.slice(0, 10 * 1024 * 1024) + '\n...[truncated]';
+          python.stderr.destroy();
+        }
+      });
+      
+      python.on('close', (code) => {
+        clearTimeout(timer);
+        if (killed || code !== 0) {
+          if (process.env.DEBUG) {
+            console.error(`[DepGraph] Python AST parse failed: exitCode=${code}, stderr=${errorOutput}`);
+          }
+          resolve(null);
+          return;
+        }
+        try {
+          const result = JSON.parse(output);
+          resolve(result);
+        } catch (e) {
+          if (process.env.DEBUG) {
+            console.error(`[DepGraph] Python AST JSON parse failed: ${e.message}`);
+          }
+          resolve(null);
+        }
+      });
+      
+      python.on('error', (err) => {
+        clearTimeout(timer);
+        if (process.env.DEBUG) {
+          console.error(`[DepGraph] Python spawn failed: ${err.message}`);
+        }
+        resolve(null);
+      });
+      
+      // Write content to stdin
+      python.stdin.write(content, 'utf8');
+      python.stdin.end();
+    });
+  }
+
+  parsePythonWithRegex(content) {
     const imports = [];
+    const importRecords = [];
     const exports = []; // Python doesn't have exports, but we track public symbols
 
     // Match: import X, from X import Y
@@ -247,12 +338,14 @@ class DependencyGraph {
       const module = match[1] || match[2];
       if (module) {
         imports.push(module);
+        // For regex-based parsing, we don't have detailed import info
+        importRecords.push(createImportRecord(module, { usesAllExports: true }));
       }
     }
 
     // Find public classes/functions (not starting with _)
     const classRegex = /^class\s+(\w+)/gm;
-    const funcRegex = /^def\s+(\w+)/gm;
+    const funcRegex = /^(?:async\s+)?def\s+(\w+)/gm;
     
     while ((match = classRegex.exec(content)) !== null) {
       if (!match[1].startsWith('_')) exports.push(match[1]);
@@ -261,7 +354,27 @@ class DependencyGraph {
       if (!match[1].startsWith('_')) exports.push(match[1]);
     }
 
-    return { imports, exports };
+    return { imports, exports, importRecords };
+  }
+
+  async parsePython(content) {
+    // Try AST parsing first
+    const astResult = await this.parsePythonAST(content);
+    if (astResult) {
+      return {
+        imports: uniqueNames(astResult.imports),
+        exports: uniqueNames(astResult.exports),
+        importRecords: astResult.importRecords.map((record) => 
+          createImportRecord(record.source, {
+            imported: record.imported,
+            usesAllExports: record.usesAllExports
+          })
+        ),
+      };
+    }
+    
+    // Fallback to regex parsing
+    return this.parsePythonWithRegex(content);
   }
 
   resolvePythonImport(fromFile, importPath) {
@@ -312,7 +425,181 @@ class DependencyGraph {
     return null;
   }
 
-  parseJavaScript(content) {
+  parseJavaScriptAST(content, filePath = '') {
+    if (!babelParser) {
+      return null;
+    }
+
+    const imports = [];
+    const importRecords = [];
+    const exportRecords = [];
+
+    try {
+      const ext = path.extname(filePath).toLowerCase();
+      const isTS = ['.ts', '.tsx', '.mts', '.cts'].includes(ext);
+      
+      const ast = babelParser.parse(content, {
+        sourceType: 'module',
+        allowImportExportEverywhere: true,
+        allowReturnOutsideFunction: true,
+        plugins: [
+          'jsx',
+          'dynamicImport',
+          'exportDefaultFrom',
+          'exportNamespaceFrom',
+          'importMeta',
+          ...(isTS ? ['typescript'] : []),
+        ],
+      });
+
+      function visitNode(node) {
+        if (!node || typeof node !== 'object') return;
+
+        // ImportDeclaration: import { x } from 'y'
+        if (node.type === 'ImportDeclaration' && node.source?.value) {
+          const source = node.source.value;
+          imports.push(source);
+
+          const imported = [];
+          let usesAllExports = false;
+
+          for (const spec of node.specifiers || []) {
+            if (spec.type === 'ImportNamespaceSpecifier') {
+              usesAllExports = true;
+            } else if (spec.type === 'ImportDefaultSpecifier') {
+              imported.push('default');
+            } else if (spec.type === 'ImportSpecifier') {
+              const name = spec.imported?.name || spec.imported?.value;
+              if (name && name !== 'type') {
+                imported.push(name);
+              }
+            }
+          }
+
+          importRecords.push(createImportRecord(source, { imported, usesAllExports }));
+        }
+
+        // ExportAllDeclaration: export * from 'y'
+        if (node.type === 'ExportAllDeclaration' && node.source?.value) {
+          exportRecords.push({ name: '*', unknown: true });
+          imports.push(node.source.value);
+          importRecords.push(createImportRecord(node.source.value, { usesAllExports: true }));
+        }
+
+        // ExportNamedDeclaration: export { x } from 'y' or export { x }
+        if (node.type === 'ExportNamedDeclaration') {
+          if (node.source?.value) {
+            // Re-export: export { x } from 'y'
+            imports.push(node.source.value);
+            const exported = [];
+            for (const spec of node.specifiers || []) {
+              if (spec.type === 'ExportSpecifier') {
+                const name = spec.local?.name || spec.local?.value;
+                if (name && name !== 'type') {
+                  exported.push(name);
+                }
+              }
+            }
+            for (const name of exported) {
+              exportRecords.push({ name });
+            }
+            importRecords.push(createImportRecord(node.source.value, { 
+              imported: exported, 
+              usesAllExports: exported.length === 0 
+            }));
+          } else {
+            // Local export: export { x }
+            for (const spec of node.specifiers || []) {
+              if (spec.type === 'ExportSpecifier') {
+                const name = spec.local?.name || spec.local?.value;
+                if (name) {
+                  exportRecords.push({ name });
+                }
+              }
+            }
+          }
+
+          // Export declaration: export function/class/const x
+          if (node.declaration) {
+            const decl = node.declaration;
+            if (decl.id?.name) {
+              exportRecords.push({ name: decl.id.name });
+            }
+            // Handle multiple exports: export const a = 1, b = 2
+            if (decl.declarations) {
+              for (const d of decl.declarations) {
+                if (d.id?.name) {
+                  exportRecords.push({ name: d.id.name });
+                }
+              }
+            }
+          }
+        }
+
+        // ExportDefaultDeclaration: export default x
+        if (node.type === 'ExportDefaultDeclaration') {
+          exportRecords.push({ name: 'default' });
+        }
+
+        // Dynamic import: import('x')
+        if (node.type === 'ImportExpression' && node.source?.value) {
+          imports.push(node.source.value);
+          importRecords.push(createImportRecord(node.source.value, { usesAllExports: true }));
+        }
+
+        // CallExpression: require('x')
+        if (node.type === 'CallExpression' && 
+            node.callee?.type === 'Identifier' && 
+            node.callee.name === 'require' &&
+            node.arguments?.[0]?.value) {
+          const source = node.arguments[0].value;
+          imports.push(source);
+
+          // Check if it's destructured: const { x } = require('y')
+          let imported = [];
+          // We can't easily track the parent here, so mark as usesAllExports
+          importRecords.push(createImportRecord(source, { usesAllExports: true }));
+        }
+
+        // Recurse
+        for (const key of Object.keys(node)) {
+          if (key === 'type' || key === 'loc' || key === 'start' || key === 'end') continue;
+          const child = node[key];
+          if (Array.isArray(child)) {
+            for (const c of child) visitNode(c);
+          } else if (child && typeof child === 'object') {
+            visitNode(child);
+          }
+        }
+      }
+
+      visitNode(ast);
+
+      const exports = uniqueNames(exportRecords.filter((r) => !r.unknown).map((r) => r.name));
+      return {
+        imports: uniqueNames(imports),
+        exports,
+        importRecords,
+        exportRecords,
+      };
+    } catch (e) {
+      // AST parse failed, return null to fallback to regex
+      if (process.env.DEBUG) {
+        console.error(`[DepGraph] AST parse failed for ${filePath}:`, e.message);
+      }
+      return null;
+    }
+  }
+
+  parseJavaScript(content, filePath = '') {
+    // Try AST parsing first if available
+    if (babelParser) {
+      const astResult = this.parseJavaScriptAST(content, filePath);
+      if (astResult) {
+        return astResult;
+      }
+    }
+
     const imports = [];
     const importRecords = [];
     const exportRecords = [];

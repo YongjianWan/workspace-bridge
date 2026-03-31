@@ -1,0 +1,32 @@
+{
+  "name": "reuse-detection",
+  "version": "1.0.0",
+  "description": "代码复用检测工具 - 检测相似函数克隆和未使用导出",
+  "main": "reuse-detection.js",
+  "bin": {
+    "reuse-detection": "./reuse-detection.js"
+  },
+  "scripts": {
+    "scan": "node reuse-detection.js scan",
+    "check": "node reuse-detection.js check"
+  },
+  "keywords": [
+    "code-clone",
+    "ast",
+    "tree-sitter",
+    "code-reuse",
+    "static-analysis"
+  ],
+  "author": "AI Code Analysis Expert",
+  "license": "MIT",
+  "dependencies": {
+    "tree-sitter": "^0.20.0",
+    "tree-sitter-typescript": "^0.20.0",
+    "tree-sitter-python": "^0.20.0",
+    "tree-sitter-go": "^0.19.0",
+    "tree-sitter-javascript": "^0.20.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
