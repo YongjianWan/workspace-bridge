@@ -294,7 +294,43 @@ DEBUG=1 node cli.js audit-summary --cwd . --json
 1. **VS Code 集成仅限 Windows** - EditorState 目前只读取 Windows 的 `%APPDATA%/Code/User/workspaceStorage`
 2. **大仓库性能** - 文件索引使用同步递归，10k+ 文件可能阻塞
 3. **初始化忙等待** - `ensureReady()` 轮询等待，无上界超时
-4. **光标位置** - 无法获取 VS Code 的光标位置和选中文本（需扩展支持）
+4. **混合仓库误判** - `prototypes/reference` 等目录需手动 `--exclude`，否则孤儿检测误报
+5. **技术栈检测局限** - Python 项目可能识别为 `npm`，需完善技术栈检测
+6. **光标位置** - 无法获取 VS Code 的光标位置和选中文本（需扩展支持）
+
+## 生产使用建议
+
+### 适用场景
+
+| 项目规模 | 推荐度 | 注意事项 |
+|----------|--------|----------|
+| 小型（<100文件） | ✅ 推荐 | 直接使用 |
+| 中型（100-500文件） | ✅ 可用 | 使用 `--exclude` 过滤参考目录 |
+| 大型（>500文件） | ⚠️ 谨慎 | 首次索引较慢，建议定期清理缓存 |
+| 混合仓库（含参考代码） | ⚠️ 需配置 | 创建 `.workspace-bridge.json` 标注目录角色 |
+
+### 推荐配置
+
+混合仓库示例 `.workspace-bridge.json`：
+
+```json
+{
+  "directories": {
+    "reference": ["prototypes", "reference", "examples"],
+    "archive": ["archive", "legacy"],
+    "generated": ["dist", "build", ".next"]
+  }
+}
+```
+
+### 已知误报处理
+
+**孤儿文件误报** - 以下情况会产生假孤儿：
+- 入口文件（如 `manage.py`、`vite.config.ts`）未被识别
+- 框架管理的文件（Django admin.py、signals.py 等）
+- 参考/示例目录中的文件
+
+处理：检查 `orphans.samples.modules`，如为假阳性可忽略
 
 ## 路线图
 

@@ -158,6 +158,30 @@ npm run test:all
 - 忽略注释和字符串中的伪 import（相比 regex 大幅降低误报）
 - 失败自动回退到 regex 解析
 
+#### Python AST 支持 (P4)
+- 创建 `scripts/python_ast_parser.py`，使用 Python 标准库 `ast` 模块
+- 支持 `import/from...import/__all__` 解析
+- Node 子进程通信，失败自动回退 regex
+
+#### M5: 项目全景视图
+- 新增 `audit-overview` 命令
+- 热区图：基于 Git 历史和依赖耦合度识别高风险文件
+- 稳定性评分：综合测试覆盖、改动频率、循环依赖
+- 孤儿检测：发现可能未使用的文件
+- 核心模块识别：基于依赖中心性找出关键文件
+
+---
+
+## 真实项目验证结果
+
+| 项目 | 类型 | 规模 | 关键发现 |
+|------|------|------|----------|
+| kimi-agent-evolution | 混合 | 384文件 | 128 dead exports，prototypes/ 需 exclude |
+| my-factory-system | Django | 50文件 | 2 核心模块 (models.py)，38 孤儿模块待审查 |
+| pm-growth-graph | 前端 | 12文件 | 小型项目，热区检测准确 |
+
+**教训**：混合仓库必须用 `.workspace-bridge.json` 标注目录角色，否则孤儿检测严重误报。
+
 ---
 
 ## 注意事项
@@ -167,5 +191,48 @@ npm run test:all
 - `audit-diff` 是当前主战场，改动最好优先补它的测试。
 
 ---
+
+## Reference 与架构取舍
+
+`reference/Kimi_Agent_AI认知脚手架/` 是一套**完整的四层强制脚手架系统**，包含：
+- Layer 1: 全局符号地图（全局索引 + RAG）
+- Layer 2: 复用审查闸（AST 相似度 > 0.85 强制复用）
+- Layer 3: 影响预测引擎（PageRank + 风险分级）
+- Layer 4: 强制 CLI 入口（不可绕过）
+
+### 为什么没采用
+
+**与 workspace-bridge 的定位冲突**：
+| 维度 | Reference | workspace-bridge |
+|------|-----------|------------------|
+| 架构重量 | 4层完整系统 | 轻量 CLI 工具 |
+| 技术栈 | Tree-sitter + RAG + Embedding | @babel/parser + 轻量 AST |
+| 强制程度 | 强制审查，不可绕过 | 可选调用，建议性质 |
+| 适用场景 | 大型团队规范 | 个人/小团队快速分析 |
+
+**工程克制**：
+- reference 的嵌入向量、RAG 检索、强制证明文档 → **过度工程**
+- workspace-bridge 当前 AST 解析 + 依赖图分析 → **够用就好**
+
+### 可能的借鉴点
+
+**值得吸收的**（保持克制地借鉴）：
+1. **AST 相似度算法** - 用于检测相似函数（非强制，仅提示）
+2. **PageRank 中心性** - 用于核心模块识别（已部分实现）
+3. **CHANGE_PROOF.md 模板** - 用于 `audit-diff` 报告增强
+
+**明确不做的**：
+- 嵌入向量相似度（太重）
+- 强制复用闸（违背 CLI 工具定位）
+- 四层完整架构（过度设计）
+
+### 结论
+
+**reference 是思想参考，不是代码复用目标。**
+
+继续保持 workspace-bridge 的克制哲学：
+- CLI-only，不做强制脚手架
+- 够用就行，拒绝过度工程
+- 代码简短，函数 < 30 行
 
 *Last updated: 2026-03-31*
