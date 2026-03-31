@@ -1,10 +1,13 @@
 {
   "name": "workspace-bridge",
   "version": "0.7.0",
-  "description": "MCP server for workspace-aware AI coding assistance",
+  "description": "Workspace analysis engine with MCP and local CLI entrypoints",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "start:cli": "node cli.js",
+    "audit": "node cli.js audit-summary --cwd . --json --quiet",
+    "audit:file": "node cli.js audit-file --cwd . --file src\\tools\\dep-tools.js --json --quiet",
     "start:http": "MCP_MODE=http node server.js",
     "test": "node test/security-test.js",
     "test:security": "node test/security-test.js",
@@ -28,7 +31,8 @@
     "node": ">=16.0.0"
   },
   "bin": {
-    "workspace-bridge": "./server.js"
+    "workspace-bridge": "./server.js",
+    "workspace-bridge-cli": "./cli.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

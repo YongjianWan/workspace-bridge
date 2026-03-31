@@ -15,11 +15,105 @@ const CONFIG = {
 };
 
 class DependencyGraph {
-  constructor(workspaceRoot, cache) {
+  constructor(workspaceRoot, cache, options = {}) {
     this.root = workspaceRoot;
     this.cache = cache;
     this.graph = new Map(); // file -> {imports: [], exports: []}
     this.reverseGraph = new Map(); // file -> [files that import it]
+    this.packageJson = this._readPackageJson();
+    this.entryFiles = this._collectEntryFiles();
+    this.excludeDirs = options.excludeDirs || [];
+  }
+
+  shouldExclude(filePath) {
+    const normalized = String(filePath || '').replace(/\\/g, '/').toLowerCase();
+    return this.excludeDirs.some((dir) => normalized.includes(`/${String(dir).replace(/\\/g, '/').toLowerCase()}/`) || normalized.endsWith(`/${String(dir).replace(/\\/g, '/').toLowerCase()}`));
+  }
+
+  _readPackageJson() {
+    try {
+      const packageJsonPath = path.join(this.root, 'package.json');
+      if (!fs.existsSync(packageJsonPath)) return null;
+      return JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  _collectEntryFiles() {
+    const entries = new Set();
+    const packageJson = this.packageJson;
+    if (!packageJson) return entries;
+
+    const addEntry = (value) => {
+      if (typeof value !== 'string' || !value.trim()) return;
+      const resolved = path.resolve(this.root, value);
+      entries.add(resolved);
+    };
+
+    addEntry(packageJson.main);
+    if (packageJson.bin && typeof packageJson.bin === 'object') {
+      for (const value of Object.values(packageJson.bin)) {
+        addEntry(value);
+      }
+    } else {
+      addEntry(packageJson.bin);
+    }
+
+    return entries;
+  }
+
+  isTestLikeFile(filePath) {
+    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+    const base = path.basename(normalized);
+    return (
+      normalized.includes('/test/') ||
+      normalized.includes('/tests/') ||
+      normalized.includes('/__tests__/') ||
+      /\.test\./.test(base) ||
+      /\.spec\./.test(base) ||
+      /^test_/.test(base) ||
+      /_test\./.test(base)
+    );
+  }
+
+  isKnownEntryFile(filePath, exports) {
+    if (this.entryFiles.has(filePath)) return true;
+
+    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+    const base = path.basename(normalized);
+    const frameworkManagedPatterns = [
+      /\/migrations\/.*\.py$/,
+      /\/admin\.py$/,
+      /\/apps\.py$/,
+      /\/signals\.py$/,
+      /\/tests\.py$/,
+      /\/conftest\.py$/,
+      /\/settings(\..+)?\.py$/,
+      /\/urls\.py$/,
+      /\/asgi\.py$/,
+      /\/wsgi\.py$/,
+      /\/manage\.py$/,
+    ];
+    if (frameworkManagedPatterns.some((pattern) => pattern.test(normalized))) {
+      return true;
+    }
+    if (base === 'vite.config.js' || base === 'vite.config.ts' || base === 'eslint.config.js') {
+      return true;
+    }
+
+    if (!Array.isArray(exports) || exports.length === 0) {
+      return false;
+    }
+
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      if (content.startsWith('#!')) return true;
+    } catch (e) {
+      return false;
+    }
+
+    return false;
   }
 
   /**
@@ -29,7 +123,7 @@ class DependencyGraph {
     const startTime = Date.now();
     
     // Get all files from cache
-    const files = Array.from(this.cache.fileMetadata.keys());
+    const files = Array.from(this.cache.fileMetadata.keys()).filter((file) => !this.shouldExclude(file));
     
     // Process with concurrency limit (same pattern as FileIndex)
     await this._processFilesWithLimit(files, CONFIG.DEFAULT_CONCURRENCY);
@@ -121,6 +215,54 @@ class DependencyGraph {
     return { imports, exports };
   }
 
+  resolvePythonImport(fromFile, importPath) {
+    const tryPythonCandidates = (basePath) => {
+      const candidates = [
+        `${basePath}.py`,
+        path.join(basePath, '__init__.py'),
+      ];
+      for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+          return candidate;
+        }
+      }
+      return null;
+    };
+
+    if (importPath.startsWith('.')) {
+      const leadingDots = importPath.match(/^\.+/)[0].length;
+      const remainder = importPath.slice(leadingDots);
+      let currentDir = path.dirname(fromFile);
+
+      for (let i = 1; i < leadingDots; i += 1) {
+        currentDir = path.dirname(currentDir);
+      }
+
+      const basePath = remainder
+        ? path.join(currentDir, ...remainder.split('.'))
+        : currentDir;
+
+      return tryPythonCandidates(basePath) || basePath;
+    }
+
+    const modulePath = importPath.split('.').join(path.sep);
+    const searchRoots = [
+      this.root,
+      path.join(this.root, 'backend'),
+      path.join(this.root, 'src'),
+      path.join(this.root, 'app'),
+    ];
+
+    for (const root of searchRoots) {
+      const resolved = tryPythonCandidates(path.join(root, modulePath));
+      if (resolved) {
+        return resolved;
+      }
+    }
+
+    return null;
+  }
+
   parseJavaScript(content) {
     const imports = [];
     const exports = [];
@@ -138,6 +280,12 @@ class DependencyGraph {
       imports.push(match[1]);
     }
 
+    // Dynamic import: import('X')
+    const dynamicImportRegex = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+    while ((match = dynamicImportRegex.exec(content)) !== null) {
+      imports.push(match[1]);
+    }
+
     // ES6 exports: export { X }, export const X, export default X
     const exportRegex = /export\s+(?:\{[^}]*\}|(?:default\s+)?(?:class|function|const|let|var)\s+(\w+)|default\s+(\w+))/g;
     while ((match = exportRegex.exec(content)) !== null) {
@@ -148,33 +296,73 @@ class DependencyGraph {
     return { imports, exports };
   }
 
-  resolveImport(fromFile, importPath, ext) {
+  resolveJavaScriptImport(fromFile, importPath) {
     // Skip node_modules and built-ins
     if (!importPath.startsWith('.') && !importPath.startsWith('/')) {
-      return null; // External module
+      return null;
     }
 
     const fromDir = path.dirname(fromFile);
-    let resolved;
+    const resolvedBase = importPath.startsWith('.')
+      ? path.resolve(fromDir, importPath)
+      : importPath;
 
-    if (importPath.startsWith('.')) {
-      // Relative import
-      resolved = path.resolve(fromDir, importPath);
-    } else {
-      resolved = importPath;
+    const sourceExt = path.extname(fromFile).toLowerCase();
+    const importExt = path.extname(importPath).toLowerCase();
+    const isTypeScriptSource = ['.ts', '.tsx', '.mts', '.cts'].includes(sourceExt);
+
+    const candidates = new Set();
+    const addCandidate = (candidate) => {
+      if (candidate) candidates.add(candidate);
+    };
+
+    addCandidate(resolvedBase);
+
+    // TypeScript ESM commonly imports ./x.js from ./x.ts source.
+    if (isTypeScriptSource && ['.js', '.mjs', '.cjs'].includes(importExt)) {
+      const withoutImportExt = resolvedBase.slice(0, -importExt.length);
+      addCandidate(`${withoutImportExt}.ts`);
+      addCandidate(`${withoutImportExt}.tsx`);
+      addCandidate(`${withoutImportExt}.mts`);
+      addCandidate(`${withoutImportExt}.cts`);
+      addCandidate(path.join(withoutImportExt, 'index.ts'));
+      addCandidate(path.join(withoutImportExt, 'index.tsx'));
+      addCandidate(path.join(withoutImportExt, 'index.mts'));
+      addCandidate(path.join(withoutImportExt, 'index.cts'));
     }
 
-    // Try extensions
-    const extensions = ext === '.py' ? ['.py', '/__init__.py'] : ['.js', '.ts', '.jsx', '.tsx', '/index.js'];
-    
-    for (const tryExt of ['', ...extensions]) {
-      const fullPath = resolved + tryExt;
-      if (fs.existsSync(fullPath)) {
-        return fullPath;
+    if (!importExt) {
+      addCandidate(`${resolvedBase}.js`);
+      addCandidate(`${resolvedBase}.jsx`);
+      addCandidate(`${resolvedBase}.ts`);
+      addCandidate(`${resolvedBase}.tsx`);
+      addCandidate(`${resolvedBase}.mjs`);
+      addCandidate(`${resolvedBase}.cjs`);
+      addCandidate(`${resolvedBase}.json`);
+      addCandidate(`${resolvedBase}.css`);
+      addCandidate(path.join(resolvedBase, 'index.js'));
+      addCandidate(path.join(resolvedBase, 'index.jsx'));
+      addCandidate(path.join(resolvedBase, 'index.ts'));
+      addCandidate(path.join(resolvedBase, 'index.tsx'));
+      addCandidate(path.join(resolvedBase, 'index.mjs'));
+      addCandidate(path.join(resolvedBase, 'index.cjs'));
+    }
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
       }
     }
 
-    return resolved; // Return unresolved for info
+    return resolvedBase;
+  }
+
+  resolveImport(fromFile, importPath, ext) {
+    if (ext === '.py') {
+      return this.resolvePythonImport(fromFile, importPath);
+    }
+
+    return this.resolveJavaScriptImport(fromFile, importPath);
   }
 
   buildReverseGraph() {
@@ -318,6 +506,8 @@ class DependencyGraph {
 
     for (const [filePath, info] of this.graph) {
       if (info.exports.length === 0) continue;
+      if (this.isTestLikeFile(filePath)) continue;
+      if (this.isKnownEntryFile(filePath, info.exports)) continue;
       const importers = this.reverseGraph.get(filePath) || [];
       if (importers.length === 0) {
         deadExports.push({ file: filePath, exports: info.exports, confidence: 'high' });
@@ -331,14 +521,14 @@ class DependencyGraph {
    * Phase 3: 查找解析失败的 imports
    * @returns {Array<{file: string, import: string, resolvedTo: string}>}
    * @description info.imports 已经是 analyzeFile 里 resolveImport() 处理过的绝对路径。
-   *   不在 graph 中 = 文件不存在或未被索引。无需再调 resolveImport，无同步 IO。
+   *   这里只报告真实不存在的路径；静态资源（如 json/css）即使未被索引，也不应视为 unresolved。
    */
   findUnresolvedImports() {
     const unresolved = [];
 
     for (const [filePath, info] of this.graph) {
       for (const imp of info.imports) {
-        if (!this.graph.has(imp) && path.isAbsolute(imp)) {
+        if (!this.graph.has(imp) && path.isAbsolute(imp) && !fs.existsSync(imp)) {
           unresolved.push({ file: filePath, import: imp, resolvedTo: imp });
         }
       }

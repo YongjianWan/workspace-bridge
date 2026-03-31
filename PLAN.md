@@ -1,3 +1,67 @@
+# workspace-bridge v0.8.0 — CLI + skill 收敛
+
+> 当前方向：保留 MCP server 兼容层，但默认投入转向本地 CLI + skill。
+
+## v0.8.0 决策
+
+### 为什么从 MCP 转向 CLI + skill
+
+- 本地 agent 本来就能执行命令，走 MCP 只是多一层协议。
+- 现有核心价值在分析引擎，不在传输层。
+- CLI 更容易调试、组合、脚本化，也更适合 skill 直接调用。
+- 保留 MCP 兼容层，避免已有客户端接入立刻失效。
+
+### 收敛后的结构
+
+```
+cli.js
+└── 直接复用 src/tools + ServiceContainer
+
+skills/workspace-audit/SKILL.md
+└── 约定 agent 如何调用 cli.js
+
+server.js
+└── 继续提供 MCP 兼容入口
+```
+
+### v0.8.0 最小交付
+
+1. 新增 CLI 入口，不改写现有分析逻辑
+2. 暴露以下命令：
+   - `audit-summary`
+   - `audit-file --file`
+   - `health`
+   - `deps`
+   - `dead-exports`
+   - `unresolved`
+   - `cycles`
+   - `impact --file`
+   - `affected-tests --file`
+   - `diagnostics`
+3. 新增 skill 文档，优先用 `--json`
+4. README 更新为双入口说明
+
+### 已验证场景
+
+- `pm-growth-graph`
+  - 修复前：前端 `json/css` 资源会被误报为 unresolved
+  - 修复后：资源导入不再污染结果，能识别真实未接入 hook
+
+- `my-factory-system`
+  - 修复前：Django 相对导入被误报为 unresolved
+  - 修复后：`from .x import ...` / `from ..x import ...` 可正确解析，误报显著下降
+
+- `kimi-agent-evolution`
+  - 修复前：根目录审计被 `prototypes/reference` 污染
+  - 修复后：支持 `--exclude prototypes/reference`
+  - 子项目级审计中，TypeScript ESM `.js -> .ts` 映射已修复
+  - 当前子项目级结果：
+    - `vivian-memory-mcp`: `deadExports=0`, `unresolved=0`
+    - `kimi-agent-os`: `deadExports=3`, `unresolved=0`
+    - `vivian-session-tracker`: `deadExports=1`, `unresolved=0`
+
+---
+
 # workspace-bridge v0.6.0 — 跨文件静态分析引擎
 
 > 从"工具集合"到"客户端做不到的分析能力"

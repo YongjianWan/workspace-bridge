@@ -1,6 +1,6 @@
 # workspace-bridge
 
-一个用于 AI 编程助手的 MCP (Model Context Protocol) 服务器，提供工作区感知、代码索引、Git 集成和实时诊断能力。
+一个用于 AI 编程助手的工作区分析引擎，当前同时支持 MCP server 和本地 CLI 两种入口。
 
 ## 功能特性
 
@@ -23,6 +23,11 @@ cd workspace-bridge
 # 安装依赖
 npm install
 
+# 本地 CLI
+node cli.js workspace-info --cwd .
+node cli.js health --cwd . --json
+node cli.js dead-exports --cwd . --json
+
 # （可选）安装 Python 诊断工具
 pip install ruff pyright
 
@@ -31,6 +36,8 @@ npm install -g eslint typescript
 ```
 
 ### 配置 MCP 客户端
+
+如果需要跨客户端标准接入，继续使用 MCP。
 
 在 Kimi Code 或其他 MCP 客户端配置文件中添加：
 
@@ -53,7 +60,66 @@ npm install -g eslint typescript
 ```bash
 # 启动服务器并测试
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize"}' | node server.js
+
+# 或直接走 CLI
+node cli.js health --cwd . --json
 ```
+
+## CLI 命令
+
+`workspace-bridge-cli` 复用同一套分析核心，但更适合本地 agent + skill 工作流。
+
+| 命令 | 描述 |
+|------|------|
+| `workspace-info` | 检测工作区根目录和技术栈 |
+| `diagnostics` | 运行 quick/full 诊断 |
+| `audit-summary` | 聚合 health + dead exports + unresolved + cycles |
+| `audit-file --file` | 聚合 impact + affected tests |
+| `health` | 汇总项目健康度 |
+| `deps` | 检查过时依赖 |
+| `dead-exports` | 查找死导出候选 |
+| `unresolved` | 查找未解析 import |
+| `cycles` | 查找循环依赖 |
+| `impact --file` | 分析文件影响半径 |
+| `affected-tests --file` | 分析受影响测试 |
+
+示例：
+
+```bash
+node cli.js audit-summary --cwd C:\repo --json --quiet
+node cli.js audit-summary --cwd C:\repo --exclude prototypes/reference,archive --json --quiet
+node cli.js audit-file --cwd C:\repo --file src\app.ts --json --quiet
+node cli.js dead-exports --cwd C:\repo --json
+node cli.js impact --cwd C:\repo --file src\app.ts --json
+```
+
+聚合命令返回结构化摘要：
+
+- `summary.severity`: `low` / `medium` / `high`
+- `summary.counts`: 聚合计数
+- `summary.nextSteps`: 下一步建议
+
+默认建议：
+
+1. 先跑 `audit-summary`
+2. 如果任务聚焦某个文件，再跑 `audit-file --file ...`
+3. 只有需要更细信息时才调用原始子命令
+
+对于研究型工作区或多项目仓库，优先使用 `--exclude` 去掉 `reference`、`archive` 之类的目录，否则聚合结果会被非主线代码污染。
+
+真实项目验证后，当前结果最可信的场景包括：
+
+- React/Vite 项目：前端资源导入不会再误报 unresolved
+- Django/Python 项目：相对导入可正确解析
+- TypeScript ESM 项目：源码中的 `.js` 导入可回映射到 `.ts/.tsx`
+- 研究型工作区：可通过 `--exclude` 排除 reference/archive 污染
+
+当前已特别处理的常见噪音来源：
+
+- 前端静态资源导入，如 `.json`、`.css`
+- Python 相对导入，如 `from .models import ...`
+- TypeScript ESM 源码导入 `.js`，会回映射到 `.ts/.tsx`
+- 动态导入 `import('...')`
 
 ## 工具清单
 
@@ -175,7 +241,10 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize"}' | node server.js
 
 ```
 workspace-bridge/
+├── cli.js                 # 本地 CLI 入口（推荐给 skill 调用）
 ├── server.js              # 入口：初始化 + 生命周期管理
+├── skills/
+│   └── workspace-audit/   # CLI 使用说明
 ├── src/
 │   ├── mcp-server.js      # MCP 协议处理
 │   ├── tool-registry.js   # 工具注册表

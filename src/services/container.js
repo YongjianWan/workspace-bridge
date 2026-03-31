@@ -26,7 +26,7 @@ class ServiceContainer {
   /**
    * Initialize all services. Thread-safe with mutex-like behavior.
    */
-  async initialize(cwd, timeoutMs = 60000) {
+  async initialize(cwd, timeoutMs = 60000, options = {}) {
     // Mutex: if already initializing, wait with timeout
     if (this.initializing) {
       const startTime = Date.now();
@@ -60,8 +60,13 @@ class ServiceContainer {
       await this.cache.load();
 
       // Initialize file index
-      this.fileIndex = new FileIndex(this.workspaceRoot, this.cache);
-      await this.fileIndex.build();
+      this.fileIndex = new FileIndex(this.workspaceRoot, this.cache, {
+        excludeDirs: options.excludeDirs || [],
+      });
+      await this.fileIndex.build(300000, {
+        watch: options.watch !== false,
+        excludeDirs: options.excludeDirs || [],
+      });
 
       // Initialize diagnostics engine
       this.diagnostics = new DiagnosticsEngine(this.workspaceRoot, this.cache);
@@ -70,7 +75,9 @@ class ServiceContainer {
       this.editorState = new EditorState(this.workspaceRoot);
 
       // Initialize dependency graph
-      this.depGraph = new DependencyGraph(this.workspaceRoot, this.cache);
+      this.depGraph = new DependencyGraph(this.workspaceRoot, this.cache, {
+        excludeDirs: options.excludeDirs || [],
+      });
       await this.depGraph.build();
 
       // Phase 2: 注册文件变更回调 → 触发后台诊断

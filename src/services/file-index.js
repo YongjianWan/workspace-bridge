@@ -14,6 +14,7 @@ const readFile = promisify(fs.readFile);
 
 // Limit concurrent file operations to prevent memory exhaustion
 const DEFAULT_CONCURRENCY = 50;
+const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build'];
 
 class FileIndex {
   constructor(workspaceRoot, cache, options = {}) {
@@ -25,19 +26,27 @@ class FileIndex {
     this.updateTimer = null;
     this.concurrency = options.concurrency || DEFAULT_CONCURRENCY;
     this.indexedCount = 0;
+    this.excludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS, ...(options.excludeDirs || [])])];
   }
 
   /**
    * Initial build: index all relevant files
    */
-  async build(timeoutMs = 300000) {
+  async build(timeoutMs = 300000, options = {}) {
     const startTime = Date.now();
     this.indexedCount = 0;
+    const shouldWatch = options.watch !== false;
+    if (Array.isArray(options.excludeDirs)) {
+      this.excludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS, ...options.excludeDirs])];
+    }
     const patterns = this.getFilePatterns();
+    let timeoutId = null;
+
+    this.pruneExcludedCacheEntries();
     
     // Create overall build timeout
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`Build timeout after ${timeoutMs}ms`)), timeoutMs);
+      timeoutId = setTimeout(() => reject(new Error(`Build timeout after ${timeoutMs}ms`)), timeoutMs);
     });
     
     const buildPromise = (async () => {
@@ -55,10 +64,16 @@ class FileIndex {
       } else {
         throw e;
       }
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     }
 
-    // Start watching for changes
-    this.startWatching();
+    // CLI mode does not need long-lived watchers.
+    if (shouldWatch) {
+      this.startWatching();
+    }
 
     console.error(`[FileIndex] Built in ${Date.now() - startTime}ms, indexed ${this.indexedCount} files`);
   }
@@ -81,10 +96,11 @@ class FileIndex {
   async indexByPattern(pattern, maxDepth = 5, timeoutMs = 120000) {
     const ext = pattern.replace('**/*', '');
     const files = [];
+    let timeoutId = null;
     
     // Create timeout promise
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`Indexing timeout after ${timeoutMs}ms`)), timeoutMs);
+      timeoutId = setTimeout(() => reject(new Error(`Indexing timeout after ${timeoutMs}ms`)), timeoutMs);
     });
     
     // Race between indexing and timeout
@@ -106,6 +122,10 @@ class FileIndex {
         // Continue with partial results
       } else {
         throw e;
+      }
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
     }
   }
@@ -197,8 +217,28 @@ class FileIndex {
   }
 
   shouldExclude(filePath) {
-    const exclude = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build'];
-    return exclude.some(e => filePath.includes(e));
+    const normalized = String(filePath || '').replace(/\\/g, '/').toLowerCase();
+    return this.excludeDirs.some((dir) => normalized.includes(`/${String(dir).replace(/\\/g, '/').toLowerCase()}/`) || normalized.endsWith(`/${String(dir).replace(/\\/g, '/').toLowerCase()}`));
+  }
+
+  pruneExcludedCacheEntries() {
+    for (const filePath of Array.from(this.cache.fileMetadata.keys())) {
+      if (!this.shouldExclude(filePath)) continue;
+      const cached = this.cache.getFileMetadata(filePath);
+      if (cached?.symbols) {
+        for (const symName of cached.symbols) {
+          const existing = this.cache.getSymbols(symName);
+          const filtered = existing.filter((location) => location.file !== filePath);
+          if (filtered.length > 0) {
+            this.cache.setSymbols(symName, filtered);
+          } else {
+            this.cache.symbolIndex.delete(symName);
+          }
+        }
+      }
+      this.cache.deleteFileMetadata(filePath);
+      this.cache.clearDiagnostics(filePath);
+    }
   }
 
   async indexFile(filePath) {
@@ -342,6 +382,10 @@ class FileIndex {
   }
 
   stopWatching() {
+    if (this.updateTimer) {
+      clearTimeout(this.updateTimer);
+      this.updateTimer = null;
+    }
     for (const watcher of this.watchers) {
       watcher.close();
     }
