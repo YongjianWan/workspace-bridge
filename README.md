@@ -298,6 +298,26 @@ DEBUG=1 node cli.js audit-summary --cwd . --json
 5. **技术栈检测局限** - Python 项目可能识别为 `npm`，需完善技术栈检测
 6. **光标位置** - 无法获取 VS Code 的光标位置和选中文本（需扩展支持）
 
+### 边界测试发现的已知问题
+
+| 问题 | 触发条件 | 影响 | 状态 |
+|------|----------|------|------|
+| **依赖图查询失败** | `impact`/`affected-tests` 命令 | 返回空结果，依赖分析失效 | 🔴 Critical |
+| **中文解析乱码** | 文件名含非 ASCII 字符 | Import 解析失败，误报 unresolved | 🟡 High |
+| **缓存不一致** | 并发访问或快速重启 | 可能读到过期缓存 | 🟡 Medium |
+| **超长路径** | >260 字符（Windows MAX_PATH） | 文件无法创建或读取 | 🟢 Low |
+
+**依赖图查询问题详情**：
+`impact` 和 `affected-tests` 命令返回空数组，但 `depGraph.build()` 显示成功（"Built in 180ms: 25 files"）。
+可能原因：路径格式不匹配（Windows 路径大小写、相对/绝对路径混用）。
+
+**临时绕过**：
+使用 `audit-file` 替代 `impact`，它使用同一数据源但接口不同。
+
+**中文乱码详情**：
+JS 文件中的中文 import（如 `import { x } from "./模块"`）解析为乱码（`ģ��`），
+导致文件解析失败。可能是 @babel/parser 或文件读取编码问题。
+
 ## 生产使用建议
 
 ### 适用场景
