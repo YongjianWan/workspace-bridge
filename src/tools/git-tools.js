@@ -6,6 +6,69 @@ const path = require('path');
 const { findWorkspaceRoot } = require('../utils/path');
 const { runGit, trimOutput } = require('../utils/command');
 
+function parseIsoDate(value) {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? date : null;
+}
+
+function diffDays(from, to) {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.max(0, Math.floor((to.getTime() - from.getTime()) / msPerDay));
+}
+
+function computeHistoryRisk(commits) {
+  if (!Array.isArray(commits) || commits.length === 0) {
+    return {
+      level: 'low',
+      score: 0,
+      commitCount: 0,
+      authorCount: 0,
+      lastModifiedDaysAgo: null,
+      revertLikeCount: 0,
+      signals: ['No tracked history for this file.'],
+    };
+  }
+
+  const authors = new Set(commits.map((commit) => commit.email || commit.author).filter(Boolean));
+  const newestCommit = parseIsoDate(commits[0]?.date);
+  const lastModifiedDaysAgo = newestCommit ? diffDays(newestCommit, new Date()) : null;
+  const revertLikeCount = commits.filter((commit) => /\b(revert|rollback|roll back|hotfix)\b/i.test(commit.subject || '')).length;
+
+  let score = 0;
+  if (commits.length >= 8) score += 3;
+  else if (commits.length >= 4) score += 2;
+  else if (commits.length >= 2) score += 1;
+
+  if (authors.size >= 3) score += 2;
+  else if (authors.size >= 2) score += 1;
+
+  if (lastModifiedDaysAgo !== null && lastModifiedDaysAgo <= 7) score += 2;
+  else if (lastModifiedDaysAgo !== null && lastModifiedDaysAgo <= 30) score += 1;
+
+  if (revertLikeCount > 0) score += 2;
+
+  const signals = [];
+  if (commits.length >= 4) signals.push(`High churn: ${commits.length} commits in recent history window.`);
+  if (authors.size >= 2) signals.push(`Multiple authors touched this file (${authors.size}).`);
+  if (lastModifiedDaysAgo !== null && lastModifiedDaysAgo <= 7) signals.push(`Recently modified ${lastModifiedDaysAgo} day(s) ago.`);
+  if (revertLikeCount > 0) signals.push(`Found ${revertLikeCount} revert/rollback-like commit(s).`);
+  if (signals.length === 0) signals.push('History looks relatively quiet.');
+
+  let level = 'low';
+  if (score >= 6) level = 'high';
+  else if (score >= 3) level = 'medium';
+
+  return {
+    level,
+    score,
+    commitCount: commits.length,
+    authorCount: authors.size,
+    lastModifiedDaysAgo,
+    revertLikeCount,
+    signals,
+  };
+}
+
 /**
  * Validate that a file path is within the workspace root (prevent path traversal)
  * @param {string} filePath - Path to validate
@@ -64,6 +127,97 @@ async function gitDiffSummary(args, container) {
     files: names.stdout.split(/\r?\n/).map(l => l.trim()).filter(Boolean),
     stat: trimOutput(stat.stdout, 8000),
     patch: trimOutput(patch.stdout, 12000),
+  };
+}
+
+async function getChangedFiles(root, options = {}) {
+  const staged = options.staged === true;
+  const includeUntracked = options.includeUntracked !== false;
+  const gitCheck = await ensureGitRepo(root);
+  if (gitCheck) return gitCheck;
+
+  const args = ['status', '--porcelain=v1'];
+  if (!includeUntracked) {
+    args.push('--untracked-files=no');
+  }
+
+  const result = await runGit(args, root, 30000);
+  if (!result.ok) {
+    return { ok: false, error: result.stderr || 'Failed to read git status', workspaceRoot: root };
+  }
+
+  const files = new Set();
+  for (const rawLine of (result.stdout || '').split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    if (!line) continue;
+
+    const x = line[0];
+    const y = line[1];
+    let file = line.slice(3).trim();
+    if (!file) continue;
+
+    if (file.includes(' -> ')) {
+      file = file.split(' -> ').pop().trim();
+    }
+
+    const isUntracked = x === '?' && y === '?';
+    const isStaged = x !== ' ' && x !== '?';
+    const isUnstaged = y !== ' ';
+
+    if (staged) {
+      if (isStaged) files.add(file);
+      continue;
+    }
+
+    if (isUntracked || isStaged || isUnstaged) {
+      files.add(file);
+    }
+  }
+
+  return {
+    ok: true,
+    workspaceRoot: root,
+    staged,
+    changedFiles: Array.from(files),
+  };
+}
+
+async function getFileHistoryRisk(root, file, options = {}) {
+  const gitCheck = await ensureGitRepo(root);
+  if (gitCheck) return gitCheck;
+
+  const filePath = validateWorkspacePath(file, root);
+  if (!filePath) {
+    return { ok: false, error: 'Invalid file path or path outside workspace', workspaceRoot: root };
+  }
+
+  const limit = Number.isFinite(options.limit) ? Math.min(Math.max(options.limit, 1), 100) : 25;
+  const fmt = '--format=%x00%H%n%an%n%ae%n%ai%n%s';
+  const result = await runGit(['log', '--follow', `-${limit}`, fmt, '--', filePath], root, 30000);
+  if (!result.ok && !result.stdout) {
+    return { ok: false, error: result.stderr || 'Failed to read git history', workspaceRoot: root, file };
+  }
+
+  const commits = [];
+  for (const block of (result.stdout || '').split('\0')) {
+    const lines = block.split('\n').map((line) => line.trim()).filter(Boolean);
+    if (lines.length >= 5) {
+      commits.push({
+        hash: lines[0],
+        author: lines[1],
+        email: lines[2],
+        date: lines[3],
+        subject: lines[4],
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    workspaceRoot: root,
+    file: path.relative(root, filePath),
+    historyRisk: computeHistoryRisk(commits),
+    recentCommits: commits.slice(0, 10),
   };
 }
 
@@ -345,6 +499,8 @@ async function gitLogGraph(args) {
 
 module.exports = {
   gitDiffSummary,
+  getChangedFiles,
+  getFileHistoryRisk,
   gitBlame,
   gitHistory,
   gitBranchInfo,

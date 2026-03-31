@@ -2,22 +2,26 @@
 /**
  * workspace-bridge CLI
  *
- * Keeps the existing analysis engine but exposes it as a local CLI so agents
- * can call it directly without going through MCP.
+ * Keeps the existing analysis engine behind a local CLI so agents
+ * can call it directly.
  */
 const { ServiceContainer } = require('./src/services/container');
 const { workspaceInfo, runDiagnostics } = require('./src/tools/workspace-tools');
 const { projectHealth, checkDependencies } = require('./src/tools/health-tools');
 const { dependencyGraph } = require('./src/tools/dep-tools');
+const { getChangedFiles } = require('./src/tools/git-tools');
+const { validateWorkspacePath } = require('./src/tools/git-tools');
+const { getFileHistoryRisk } = require('./src/tools/git-tools');
 
 function toNumber(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
 }
 
-function buildRepoSummary(health, deadExports, unresolved, cycles) {
+function buildRepoSummary(health, deadExports, unresolved, cycles, scope) {
   const deadExportCount = toNumber(deadExports.deadExportCount);
   const unresolvedCount = toNumber(unresolved.unresolvedCount);
   const cycleCount = toNumber(cycles.cycleCount);
+  const nonMainlineFiles = toNumber(scope?.counts?.nonMainlineFiles);
 
   const scoreParts = String(health.healthScore || '0/5').split('/');
   const passedChecks = Number.parseInt(scoreParts[0] || '0', 10) || 0;
@@ -36,6 +40,7 @@ function buildRepoSummary(health, deadExports, unresolved, cycles) {
   if (cycleCount > 0) nextSteps.push('Break dependency cycles before making broad refactors.');
   if (deadExportCount > 0) nextSteps.push('Review dead exports as candidates, not automatic deletions.');
   if (missingHygieneChecks > 0) nextSteps.push('Close basic project hygiene gaps: LICENSE, CI, test config, env example, or editorconfig.');
+  if (nonMainlineFiles > 0) nextSteps.push('Review the mainline/non-mainline split before trusting structural findings in mixed repositories.');
   if (nextSteps.length === 0) nextSteps.push('No immediate structural issues detected by the aggregate audit.');
 
   return {
@@ -76,6 +81,57 @@ function buildFileSummary(impact, affectedTests) {
   };
 }
 
+function buildAuditDiffSummary(entries) {
+  const mainlineChanged = entries.filter((entry) => entry.classification?.isMainline);
+  const affectedTests = new Set();
+  let maxImpact = 0;
+  let highRiskFiles = 0;
+  let highHistoryRiskFiles = 0;
+  let maxHistoryRiskScore = 0;
+
+  for (const entry of entries) {
+    maxImpact = Math.max(maxImpact, toNumber(entry.impactCount));
+    if (toNumber(entry.impactCount) >= 10 || toNumber(entry.affectedTestCount) >= 5) {
+      highRiskFiles += 1;
+    }
+    const historyRiskScore = toNumber(entry.historyRisk?.score);
+    maxHistoryRiskScore = Math.max(maxHistoryRiskScore, historyRiskScore);
+    if (entry.historyRisk?.level === 'high') {
+      highHistoryRiskFiles += 1;
+    }
+    for (const testFile of entry.affectedTests || []) {
+      affectedTests.add(testFile.file);
+    }
+  }
+
+  let severity = 'low';
+  if (highRiskFiles > 0 || affectedTests.size >= 5 || highHistoryRiskFiles > 0) {
+    severity = 'high';
+  } else if (mainlineChanged.length > 0 && (affectedTests.size > 0 || maxImpact > 0 || maxHistoryRiskScore >= 3)) {
+    severity = 'medium';
+  }
+
+  const nextSteps = [];
+  if (mainlineChanged.length > 0) nextSteps.push('Review changed mainline files before merging.');
+  if (affectedTests.size > 0) nextSteps.push('Run the directly affected tests first.');
+  if (highHistoryRiskFiles > 0) nextSteps.push('Inspect high-history-risk files carefully; they changed often or recently.');
+  if (entries.some((entry) => !entry.classification?.isMainline)) nextSteps.push('Verify whether non-mainline changes should be excluded from the audit.');
+  if (nextSteps.length === 0) nextSteps.push('No changed files with structural impact were detected.');
+
+  return {
+    severity,
+    counts: {
+      changedFiles: entries.length,
+      mainlineChangedFiles: mainlineChanged.length,
+      affectedTests: affectedTests.size,
+      maxImpact,
+      highHistoryRiskFiles,
+      maxHistoryRiskScore,
+    },
+    nextSteps,
+  };
+}
+
 function printUsage() {
   console.log(`workspace-bridge-cli
 
@@ -87,6 +143,7 @@ Commands:
   diagnostics             Run quick/full diagnostics
   audit-summary           Aggregate health + graph findings
   audit-file --file <p>   Aggregate impact + affected tests for one file
+  audit-diff             Aggregate changed files + impact + affected tests
   health                  Summarize project health
   deps                    List outdated dependencies
   dead-exports            Find dead export candidates
@@ -192,6 +249,8 @@ function formatHuman(command, result) {
         `workspaceRoot: ${result.workspaceRoot}`,
         `severity: ${result.summary.severity}`,
         `healthScore: ${result.health.healthScore}`,
+        `mainlineFiles: ${result.scope.counts.mainlineFiles}`,
+        `nonMainlineFiles: ${result.scope.counts.nonMainlineFiles}`,
         `deadExportCount: ${result.deadExports.deadExportCount}`,
         `unresolvedCount: ${result.unresolved.unresolvedCount}`,
         `cycleCount: ${result.cycles.cycleCount}`,
@@ -203,6 +262,16 @@ function formatHuman(command, result) {
         `severity: ${result.summary.severity}`,
         `impactCount: ${result.impact.impactCount}`,
         `affectedTestCount: ${result.affectedTests.affectedTestCount}`,
+      ].join('\n');
+    case 'audit-diff':
+      return [
+        `workspaceRoot: ${result.workspaceRoot}`,
+        `severity: ${result.summary.severity}`,
+        `changedFiles: ${result.summary.counts.changedFiles}`,
+        `mainlineChangedFiles: ${result.summary.counts.mainlineChangedFiles}`,
+        `affectedTests: ${result.summary.counts.affectedTests}`,
+        `maxImpact: ${result.summary.counts.maxImpact}`,
+        `highHistoryRiskFiles: ${result.summary.counts.highHistoryRiskFiles}`,
       ].join('\n');
     case 'deps':
       return result.results.map((entry) => {
@@ -258,10 +327,12 @@ async function runCommand(parsed, container) {
         dependencyGraph({ cwd: parsed.cwd, operation: 'unresolved' }, container),
         dependencyGraph({ cwd: parsed.cwd, operation: 'cycles' }, container),
       ]);
+      const scope = container.depGraph.getScopeSummary();
       return {
         ok: [health, deadExports, unresolved, cycles].every((result) => result.ok !== false),
         workspaceRoot: container.workspaceRoot,
-        summary: buildRepoSummary(health, deadExports, unresolved, cycles),
+        scope,
+        summary: buildRepoSummary(health, deadExports, unresolved, cycles, scope),
         health,
         deadExports,
         unresolved,
@@ -287,6 +358,43 @@ async function runCommand(parsed, container) {
         summary: buildFileSummary(impact, affectedTests),
         impact,
         affectedTests,
+      };
+    }
+    case 'audit-diff': {
+      const changed = await getChangedFiles(container.workspaceRoot, { staged: false, includeUntracked: true });
+      if (changed.ok === false) {
+        return changed;
+      }
+
+      const entries = [];
+      for (const relativeFile of changed.changedFiles) {
+        const resolvedPath = validateWorkspacePath(relativeFile, container.workspaceRoot);
+        const classification = container.projectContext?.classifyFile(resolvedPath) || null;
+        const graphKnown = Boolean(resolvedPath && container.depGraph.graph.has(resolvedPath));
+        const impact = graphKnown ? container.depGraph.getImpactRadius(resolvedPath) : [];
+        const affectedTests = graphKnown ? container.depGraph.findAffectedTests(resolvedPath, Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined) : [];
+        const history = resolvedPath ? await getFileHistoryRisk(container.workspaceRoot, resolvedPath, { limit: 25 }) : { ok: false };
+
+        entries.push({
+          file: relativeFile,
+          resolvedPath,
+          classification,
+          graphKnown,
+          impactCount: impact.length,
+          impact,
+          affectedTestCount: affectedTests.length,
+          affectedTests,
+          historyRisk: history.ok ? history.historyRisk : null,
+          recentCommits: history.ok ? history.recentCommits : [],
+        });
+      }
+
+      return {
+        ok: true,
+        workspaceRoot: container.workspaceRoot,
+        scope: container.depGraph.getScopeSummary(),
+        summary: buildAuditDiffSummary(entries),
+        changedFiles: entries,
       };
     }
     case 'health':

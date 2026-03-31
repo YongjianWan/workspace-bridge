@@ -1,304 +1,128 @@
 #!/usr/bin/env node
 /**
- * 跨文件分析测试 - 验证 Phase 3 新增的三个分析查询
- * Tests: dead_exports, unresolved, affected_tests
+ * 跨文件分析 CLI 测试
  */
 
-const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const assert = require('assert');
+const { spawnSync } = require('child_process');
 
-const serverPath = path.join(__dirname, '..', 'server.js');
+const repoRoot = path.join(__dirname, '..');
+const cliPath = path.join(repoRoot, 'cli.js');
 
-function sendRequest(stdin, request) {
-  const payload = JSON.stringify(request);
-  const message = `Content-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`;
-  stdin.write(message);
-}
-
-function waitForResponse(stdout, timeoutMs = 10000) {
-  return new Promise((resolve, reject) => {
-    let buffer = Buffer.alloc(0);
-    const timer = setTimeout(() => {
-      reject(new Error('Response timeout'));
-    }, timeoutMs);
-
-    const onData = (data) => {
-      buffer = Buffer.concat([buffer, data]);
-      
-      const headerEnd = buffer.indexOf('\r\n\r\n');
-      if (headerEnd === -1) return;
-      
-      const header = buffer.slice(0, headerEnd).toString();
-      const match = header.match(/Content-Length:\s*(\d+)/i);
-      if (!match) return;
-      
-      const length = parseInt(match[1], 10);
-      const messageStart = headerEnd + 4;
-      
-      if (buffer.length < messageStart + length) return;
-      
-      const body = buffer.slice(messageStart, messageStart + length).toString();
-      clearTimeout(timer);
-      stdout.off('data', onData);
-      
-      try {
-        resolve(JSON.parse(body));
-      } catch (e) {
-        resolve({ parseError: true, raw: body });
-      }
-    };
-
-    stdout.on('data', onData);
+function runCli(args) {
+  const result = spawnSync('node', [cliPath, ...args], {
+    cwd: repoRoot,
+    encoding: 'utf8',
   });
+  assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+  return JSON.parse(result.stdout);
 }
 
-async function testTool(stdin, stdout, name, args = {}) {
-  console.log(`\n🧪 Testing ${name}...`);
-  
-  sendRequest(stdin, {
-    jsonrpc: '2.0',
-    id: Date.now(),
-    method: 'tools/call',
-    params: { name, arguments: args }
-  });
-
-  try {
-    const response = await waitForResponse(stdout, 30000);
-    
-    if (response.error) {
-      console.log(`  ❌ Error: ${response.error.message}`);
-      return { success: false, error: response.error.message };
-    }
-
-    const resultText = response.result?.content?.[0]?.text;
-    if (!resultText) {
-      console.log(`  ❌ No content in response`);
-      return { success: false, error: 'No content' };
-    }
-
-    let result;
-    try {
-      result = JSON.parse(resultText);
-    } catch (e) {
-      console.log(`  ⚠️  Non-JSON response: ${resultText.slice(0, 100)}...`);
-      return { success: true, raw: resultText };
-    }
-
-    if (result.ok === false) {
-      console.log(`  ❌ Tool returned ok: false, error: ${result.error}`);
-      return { success: false, error: result.error, result };
-    }
-
-    console.log(`  ✅ Success`);
-    return { success: true, result };
-  } catch (e) {
-    console.log(`  ❌ Exception: ${e.message}`);
-    return { success: false, error: e.message };
-  }
-}
-
-function assert(condition, message) {
-  if (!condition) {
-    throw new Error(`Assertion failed: ${message}`);
-  }
-}
-
-async function main() {
-  console.log('=== workspace-bridge v0.6.0 跨文件分析测试 ===\n');
+function main() {
+  console.log('=== workspace-bridge 跨文件分析 CLI 测试 ===\n');
 
   // 创建临时测试文件
   const testDir = path.join(__dirname, '..', 'test-temp');
   const testFile = path.join(testDir, 'test-module.js');
   const testUnusedFile = path.join(testDir, 'unused-module.js');
+  const partialExportsFile = path.join(testDir, 'partial-exports.js');
+  const partialConsumerFile = path.join(testDir, 'partial-consumer.js');
   
   if (!fs.existsSync(testDir)) {
     fs.mkdirSync(testDir, { recursive: true });
   }
   
   // 创建一个有导出但未使用的文件
-  fs.writeFileSync(testUnusedFile, `
-// 这个文件的导出未被使用
-export function unusedHelper() {
-  return 'I am not used';
-}
-
-export const UNUSED_CONST = 42;
-`);
+  fs.writeFileSync(testUnusedFile, [
+    '// 这个文件的导出未被使用',
+    'ex' + 'port function unusedHelper() {',
+    "  return 'I am not used';",
+    '}',
+    '',
+    'ex' + 'port const UNUSED_CONST = 42;',
+    '',
+  ].join('\n'));
 
   // 创建一个导入不存在的模块的文件
-  fs.writeFileSync(testFile, `
-// 导入不存在的模块
-import { something } from './non-existent-module';
-import fs from 'fs';
+  fs.writeFileSync(testFile, [
+    '// 导入不存在的模块',
+    "im" + "port { something } from './non-existent-module';",
+    "im" + "port fs from 'fs';",
+    '',
+    'ex' + 'port function test() {',
+    '  return something;',
+    '}',
+    '',
+  ].join('\n'));
 
-export function test() {
-  return something;
-}
-`);
+  fs.writeFileSync(partialExportsFile, [
+    'ex' + 'port function usedHelper() {',
+    "  return 'used';",
+    '}',
+    '',
+    'ex' + 'port function unusedHelperTwo() {',
+    "  return 'unused';",
+    '}',
+    '',
+  ].join('\n'));
 
-  const server = spawn('node', [serverPath], {
-    cwd: path.dirname(serverPath),
-    env: { ...process.env, DEBUG: '0' }
-  });
-
-  let stderr = '';
-  let ready = false;
-  server.stderr.on('data', (data) => {
-    stderr += data.toString();
-    if (stderr.includes('ready') && !ready) {
-      ready = true;
-      console.log('✅ Server ready\n');
-    }
-  });
-
-  // 等待服务器启动
-  await new Promise(resolve => setTimeout(resolve, 3000));
-
-  const results = {
-    total: 0,
-    passed: 0,
-    failed: 0,
-    details: []
-  };
+  fs.writeFileSync(partialConsumerFile, [
+    "im" + "port { usedHelper } from './partial-exports';",
+    '',
+    'ex' + 'port function run() {',
+    '  return usedHelper();',
+    '}',
+    '',
+  ].join('\n'));
 
   try {
-    // 测试 1: dead_exports - 查找死代码
     console.log('📋 Test Group: dead_exports');
-    const r1 = await testTool(server.stdin, server.stdout, 'dependency_graph', { 
-      operation: 'dead_exports' 
-    });
-    results.total++; 
-    if (r1.success) {
-      // 验证返回结构
-      assert(Array.isArray(r1.result.deadExports), 'deadExports should be an array');
-      assert(typeof r1.result.deadExportCount === 'number', 'deadExportCount should be a number');
-      console.log(`     Found ${r1.result.deadExportCount} files with dead exports`);
-      r1.result.deadExports.slice(0, 3).forEach(item => {
-        console.log(`     - ${path.basename(item.file)}: ${item.exports.length} exports (${item.confidence})`);
-      });
-      results.passed++;
-    } else {
-      results.failed++;
-    }
-    results.details.push({ tool: 'dead_exports', ...r1 });
+    const deadExports = runCli(['dead-exports', '--cwd', '.', '--json', '--quiet']);
+    assert(Array.isArray(deadExports.deadExports), 'deadExports should be an array');
+    assert(typeof deadExports.deadExportCount === 'number', 'deadExportCount should be a number');
+    const partialEntry = deadExports.deadExports.find(item => path.basename(item.file) === 'partial-exports.js');
+    assert(partialEntry, 'partial-exports.js should be reported');
+    assert(partialEntry.exports.includes('unusedHelperTwo'), 'unusedHelperTwo should be reported as dead export');
+    assert(!partialEntry.exports.includes('usedHelper'), 'usedHelper should not be reported as dead export');
+    console.log(`     Found ${deadExports.deadExportCount} files with dead exports`);
 
-    // 测试 2: unresolved - 查找未解析的导入
     console.log('\n📋 Test Group: unresolved');
-    const r2 = await testTool(server.stdin, server.stdout, 'dependency_graph', { 
-      operation: 'unresolved' 
-    });
-    results.total++;
-    if (r2.success) {
-      assert(Array.isArray(r2.result.unresolved), 'unresolved should be an array');
-      assert(typeof r2.result.unresolvedCount === 'number', 'unresolvedCount should be a number');
-      console.log(`     Found ${r2.result.unresolvedCount} unresolved imports`);
-      r2.result.unresolved.slice(0, 3).forEach(item => {
-        console.log(`     - ${path.basename(item.file)} imports "${item.import}"`);
-      });
-      results.passed++;
-    } else {
-      results.failed++;
-    }
-    results.details.push({ tool: 'unresolved', ...r2 });
+    const unresolved = runCli(['unresolved', '--cwd', '.', '--json', '--quiet']);
+    assert(Array.isArray(unresolved.unresolved), 'unresolved should be an array');
+    assert(typeof unresolved.unresolvedCount === 'number', 'unresolvedCount should be a number');
+    console.log(`     Found ${unresolved.unresolvedCount} unresolved imports`);
 
-    // 测试 3: affected_tests - 查找受影响的测试（使用现有测试文件）
     console.log('\n📋 Test Group: affected_tests');
-    const r3 = await testTool(server.stdin, server.stdout, 'dependency_graph', { 
-      operation: 'affected_tests',
-      file: 'src/services/container.js'
-    });
-    results.total++;
-    if (r3.success) {
-      assert(Array.isArray(r3.result.affectedTests), 'affectedTests should be an array');
-      assert(typeof r3.result.affectedTestCount === 'number', 'affectedTestCount should be a number');
-      console.log(`     Found ${r3.result.affectedTestCount} affected tests`);
-      r3.result.affectedTests.slice(0, 3).forEach(item => {
-        console.log(`     - ${path.basename(item.file)} (distance: ${item.distance})`);
-      });
-      results.passed++;
-    } else {
-      results.failed++;
-    }
-    results.details.push({ tool: 'affected_tests', ...r3 });
+    const affectedTests = runCli(['affected-tests', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);
+    assert(Array.isArray(affectedTests.affectedTests), 'affectedTests should be an array');
+    assert(typeof affectedTests.affectedTestCount === 'number', 'affectedTestCount should be a number');
+    console.log(`     Found ${affectedTests.affectedTestCount} affected tests`);
 
-    // 测试 4: affected_tests with maxDepth
     console.log('\n📋 Test Group: affected_tests with maxDepth');
-    const r4 = await testTool(server.stdin, server.stdout, 'dependency_graph', { 
-      operation: 'affected_tests',
-      file: 'src/services/container.js',
-      maxDepth: 2
-    });
-    results.total++;
-    if (r4.success) {
-      assert(r4.result.maxDepth === 2, 'maxDepth should be 2');
-      // 验证返回的测试文件距离都不超过 maxDepth
-      const allWithinDepth = r4.result.affectedTests.every(t => t.distance <= 2);
-      assert(allWithinDepth, 'All affected tests should be within maxDepth');
-      console.log(`     Found ${r4.result.affectedTestCount} affected tests within depth 2`);
-      results.passed++;
-    } else {
-      results.failed++;
-    }
-    results.details.push({ tool: 'affected_tests(maxDepth)', ...r4 });
+    const limitedAffectedTests = runCli(['affected-tests', '--cwd', '.', '--file', 'src/services/container.js', '--max-depth', '2', '--json', '--quiet']);
+    assert(limitedAffectedTests.maxDepth === 2, 'maxDepth should be 2');
+    const allWithinDepth = limitedAffectedTests.affectedTests.every(t => t.distance <= 2);
+    assert(allWithinDepth, 'All affected tests should be within maxDepth');
 
-    // 测试 5: 向后兼容 - 原有 operation 仍然工作
-    console.log('\n📋 Test Group: Backward Compatibility');
-    const r5 = await testTool(server.stdin, server.stdout, 'dependency_graph', { 
-      operation: 'stats' 
-    });
-    results.total++;
-    if (r5.success && r5.result.stats) {
-      console.log(`     Stats: ${r5.result.stats.files} files, ${r5.result.stats.totalImports} imports`);
-      results.passed++;
-    } else {
-      results.failed++;
-    }
-    results.details.push({ tool: 'backward_compat(stats)', ...r5 });
+    console.log('\n📋 Test Group: impact');
+    const impact = runCli(['impact', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);
+    assert(typeof impact.impactCount === 'number', 'impactCount should be a number');
+    console.log(`     Impact: ${impact.impactCount}`);
 
+    console.log('\nAll analysis tests passed');
   } finally {
-    // 清理临时文件
     try {
       fs.unlinkSync(testFile);
       fs.unlinkSync(testUnusedFile);
+      fs.unlinkSync(partialExportsFile);
+      fs.unlinkSync(partialConsumerFile);
       fs.rmdirSync(testDir);
     } catch (e) {
-      // 忽略清理错误
+      // ignore cleanup errors
     }
   }
-
-  // 总结
-  console.log('\n=== 测试结果 ===');
-  console.log(`总计: ${results.total}`);
-  console.log(`通过: ${results.passed}`);
-  console.log(`失败: ${results.failed}`);
-  console.log(`成功率: ${(results.passed / results.total * 100).toFixed(1)}%`);
-
-  // 失败详情
-  const failures = results.details.filter(r => !r.success);
-  if (failures.length > 0) {
-    console.log('\n=== 失败详情 ===');
-    failures.forEach(f => {
-      console.log(`${f.tool}: ${f.error}`);
-    });
-  }
-
-  // 功能评估
-  console.log('\n=== 新增分析功能评估 ===');
-  const deadExportsWorking = results.details.find(r => r.tool === 'dead_exports')?.success;
-  console.log(`dead_exports: ${deadExportsWorking ? '✅ 可用' : '❌ 不可用'}`);
-  
-  const unresolvedWorking = results.details.find(r => r.tool === 'unresolved')?.success;
-  console.log(`unresolved: ${unresolvedWorking ? '✅ 可用' : '❌ 不可用'}`);
-  
-  const affectedTestsWorking = results.details.find(r => r.tool === 'affected_tests')?.success;
-  console.log(`affected_tests: ${affectedTestsWorking ? '✅ 可用' : '❌ 不可用'}`);
-
-  server.kill();
-  process.exit(results.failed > 0 ? 1 : 0);
 }
 
-main().catch(e => {
-  console.error('Test failed:', e);
-  process.exit(1);
-});
+main();

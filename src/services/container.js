@@ -7,6 +7,7 @@ const { FileIndex } = require('./file-index');
 const { DiagnosticsEngine } = require('./diagnostics-engine');
 const { EditorState } = require('./editor-state');
 const { DependencyGraph } = require('./dep-graph');
+const { ProjectContext } = require('../utils/project-context');
 
 class ServiceContainer {
   constructor() {
@@ -21,6 +22,7 @@ class ServiceContainer {
     this.diagnostics = null;
     this.editorState = null;
     this.depGraph = null;
+    this.projectContext = null;
   }
 
   /**
@@ -59,9 +61,14 @@ class ServiceContainer {
       this.cache = new WorkspaceCache(this.workspaceRoot);
       await this.cache.load();
 
+      this.projectContext = new ProjectContext(this.workspaceRoot, {
+        excludeDirs: options.excludeDirs || [],
+      });
+
       // Initialize file index
       this.fileIndex = new FileIndex(this.workspaceRoot, this.cache, {
         excludeDirs: options.excludeDirs || [],
+        projectContext: this.projectContext,
       });
       await this.fileIndex.build(300000, {
         watch: options.watch !== false,
@@ -77,6 +84,7 @@ class ServiceContainer {
       // Initialize dependency graph
       this.depGraph = new DependencyGraph(this.workspaceRoot, this.cache, {
         excludeDirs: options.excludeDirs || [],
+        projectContext: this.projectContext,
       });
       await this.depGraph.build();
 
@@ -137,6 +145,7 @@ class ServiceContainer {
     this.diagnostics = null;
     this.editorState = null;
     this.depGraph = null;
+    this.projectContext = null;
     this.initialized = false;
   }
 

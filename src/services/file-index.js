@@ -21,6 +21,7 @@ class FileIndex {
     this.root = workspaceRoot;
     this.cache = cache;
     this.workspace = detectWorkspace(workspaceRoot);
+    this.projectContext = options.projectContext || null;
     this.watchers = [];
     this.pendingUpdates = new Set();
     this.updateTimer = null;
@@ -218,7 +219,13 @@ class FileIndex {
 
   shouldExclude(filePath) {
     const normalized = String(filePath || '').replace(/\\/g, '/').toLowerCase();
-    return this.excludeDirs.some((dir) => normalized.includes(`/${String(dir).replace(/\\/g, '/').toLowerCase()}/`) || normalized.endsWith(`/${String(dir).replace(/\\/g, '/').toLowerCase()}`));
+    if (this.excludeDirs.some((dir) => normalized.includes(`/${String(dir).replace(/\\/g, '/').toLowerCase()}/`) || normalized.endsWith(`/${String(dir).replace(/\\/g, '/').toLowerCase()}`))) {
+      return true;
+    }
+    if (this.projectContext && !this.projectContext.shouldIndexFile(filePath)) {
+      return true;
+    }
+    return false;
   }
 
   pruneExcludedCacheEntries() {

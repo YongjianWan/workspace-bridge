@@ -1,6 +1,6 @@
 # workspace-bridge
 
-一个用于 AI 编程助手的工作区分析引擎，当前同时支持 MCP server 和本地 CLI 两种入口。
+一个用于 AI 编程助手的工作区分析引擎，当前只保留本地 CLI + skill 工作流。
 
 ## 功能特性
 
@@ -35,33 +35,10 @@ pip install ruff pyright
 npm install -g eslint typescript
 ```
 
-### 配置 MCP 客户端
-
-如果需要跨客户端标准接入，继续使用 MCP。
-
-在 Kimi Code 或其他 MCP 客户端配置文件中添加：
-
-```json
-{
-  "mcpServers": {
-    "workspace-bridge": {
-      "command": "node",
-      "args": ["C:\\Users\\sdses\\.kimi\\mcp-runtime\\workspace-bridge\\server.js"],
-      "env": {
-        "WORKSPACE_ROOT": "${workspaceFolder}"
-      }
-    }
-  }
-}
-```
-
 ### 验证安装
 
 ```bash
-# 启动服务器并测试
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize"}' | node server.js
-
-# 或直接走 CLI
+# 直接走 CLI
 node cli.js health --cwd . --json
 ```
 
@@ -75,6 +52,7 @@ node cli.js health --cwd . --json
 | `diagnostics` | 运行 quick/full 诊断 |
 | `audit-summary` | 聚合 health + dead exports + unresolved + cycles |
 | `audit-file --file` | 聚合 impact + affected tests |
+| `audit-diff` | 聚合当前 git 变更文件 + impact + affected tests |
 | `health` | 汇总项目健康度 |
 | `deps` | 检查过时依赖 |
 | `dead-exports` | 查找死导出候选 |
@@ -89,6 +67,7 @@ node cli.js health --cwd . --json
 node cli.js audit-summary --cwd C:\repo --json --quiet
 node cli.js audit-summary --cwd C:\repo --exclude prototypes/reference,archive --json --quiet
 node cli.js audit-file --cwd C:\repo --file src\app.ts --json --quiet
+node cli.js audit-diff --cwd C:\repo --json --quiet
 node cli.js dead-exports --cwd C:\repo --json
 node cli.js impact --cwd C:\repo --file src\app.ts --json
 ```
@@ -103,9 +82,41 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 
 1. 先跑 `audit-summary`
 2. 如果任务聚焦某个文件，再跑 `audit-file --file ...`
-3. 只有需要更细信息时才调用原始子命令
+3. 如果任务是基于当前改动做验证，跑 `audit-diff`
+4. 只有需要更细信息时才调用原始子命令
 
 对于研究型工作区或多项目仓库，优先使用 `--exclude` 去掉 `reference`、`archive` 之类的目录，否则聚合结果会被非主线代码污染。
+
+也可以在仓库根目录放一个 `.workspace-bridge.json`，把目录角色固化下来，减少每次都传 `--exclude` 的麻烦：
+
+```json
+{
+  "directories": {
+    "reference": ["prototypes/reference", "docs/examples"],
+    "archive": ["archive"],
+    "generated": ["dist", "coverage"]
+  }
+}
+```
+
+`audit-summary` 会返回：
+
+- `scope.counts.mainlineFiles`
+- `scope.counts.nonMainlineFiles`
+- `scope.directoryRoles`
+- `scope.entryFiles`
+
+这样在 mixed repo 里至少能先看清“主线代码”和“非主线代码”各有多少，再决定要不要信后面的死代码和影响面结果。
+
+`audit-diff` 会返回：
+
+- 当前 git 变更文件列表
+- 每个文件的主线/非主线角色
+- 每个文件的 impact / affected tests
+- 每个文件的 `historyRisk`（提交频率、作者数、最近改动、回滚痕迹）
+- 聚合后的风险级别和验证建议
+
+这玩意的目标不是替代 `git diff`，而是把“我这次改了什么，最好先测什么”直接吐给 agent。
 
 真实项目验证后，当前结果最可信的场景包括：
 
@@ -121,67 +132,24 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 - TypeScript ESM 源码导入 `.js`，会回映射到 `.ts/.tsx`
 - 动态导入 `import('...')`
 
-## 工具清单
+当前 `dead-exports` 的精度边界：
 
-### 核心工作区工具
+- 无 importer 的文件：按整文件高置信度报告
+- 常见 JS/TS named import/default import/destructured require：按符号级判断，未使用导出会以中置信度报告
+- `export *`、namespace import、动态装配、复杂 runtime 间接引用：保守降级，不瞎报
 
-| 工具名 | 描述 |
-|--------|------|
-| `workspace_info` | 检测工作区类型（Node/Python/Git）和可用诊断检查 |
-| `run_diagnostics` | 运行项目诊断（ruff/pyright/eslint/tsc），支持 quick/full 模式 |
-| `diagnostics_live` | 获取缓存的诊断结果，无需重新运行 lint |
-
-### Git 工具
-
-| 工具名 | 描述 |
-|--------|------|
-| `git_diff_summary` | 查看 staged/unstaged 变更摘要和 patch |
-| `git_blame` | 查看文件 blame 信息，支持行号范围 |
-| `git_history` | 查看提交历史，支持按文件/作者/日期过滤 |
-| `git_branch_info` | 查看分支信息和 working tree 状态 |
-| `git_stash` | 查看 stash 列表和详情 |
-| `git_log_graph` | 查看图形化提交历史 |
-
-### 搜索工具
-
-| 工具名 | 描述 |
-|--------|------|
-| `search_code` | 搜索代码文本/符号/文件名 |
-| `lookup_symbol` | 快速符号查找（使用索引缓存）|
-
-### 分析工具
-
-| 工具名 | 描述 |
-|--------|------|
-| `dependency_graph` | 分析 import 依赖关系，计算变更影响半径 |
-| `project_health` | 检查项目健康度（README/LICENSE/CI/测试配置）|
-| `check_dependencies` | 检查过时依赖（npm/pip）|
+这玩意现在的目标是“明显减少误报”，不是假装自己已经是完整 AST 编译器。
 
 ## 架构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     MCP Client (Kimi Code)                   │
-└─────────────────────────────┬───────────────────────────────┘
-                              │ JSON-RPC 2.0 (stdio)
-┌─────────────────────────────▼───────────────────────────────┐
-│                     workspace-bridge                         │
-│  ┌─────────────┐  ┌─────────────────────────────────────┐  │
-│  │  MCPServer  │  │         ServiceContainer            │  │
-│  │  (协议层)    │◄─┤  ┌─────────┐ ┌─────────────────┐  │  │
-│  └─────────────┘  │  │Workspace│ │   FileIndex     │  │  │
-│        ▲          │  │  Cache  │ │ (符号索引+监听)  │  │  │
-│        │          │  └────┬────┘ └─────────────────┘  │  │
-│   14 个工具处理器  │       │    ┌─────────────────┐     │  │
-│  (Git/搜索/诊断)  │       └───►│ DiagnosticsEngine│     │  │
-│                   │            │   (ruff/eslint)  │     │  │
-│                   │            └─────────────────┘     │  │
-│                   │  ┌─────────────────────────────────┐ │  │
-│                   │  │ EditorState (VS Code 状态读取)   │ │  │
-│                   │  │ DependencyGraph (import 分析)    │ │  │
-│                   │  └─────────────────────────────────┘ │  │
-│                   └─────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+workspace-bridge CLI
+└── ServiceContainer
+    ├── WorkspaceCache
+    ├── FileIndex
+    ├── DiagnosticsEngine
+    ├── EditorState
+    └── DependencyGraph
 ```
 
 ### 核心组件
@@ -242,12 +210,9 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 ```
 workspace-bridge/
 ├── cli.js                 # 本地 CLI 入口（推荐给 skill 调用）
-├── server.js              # 入口：初始化 + 生命周期管理
 ├── skills/
 │   └── workspace-audit/   # CLI 使用说明
 ├── src/
-│   ├── mcp-server.js      # MCP 协议处理
-│   ├── tool-registry.js   # 工具注册表
 │   ├── services/          # 核心服务
 │   │   ├── container.js   # 服务容器
 │   │   ├── cache.js       # 缓存管理
@@ -267,35 +232,11 @@ workspace-bridge/
 │       └── sanitize.js    # 输入消毒
 ```
 
-### 添加新工具
-
-```javascript
-// src/tool-registry.js
-{
-  name: 'my_tool',
-  description: '工具描述',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      param: { type: 'string' }
-    }
-  },
-  handler: async (args, container) => {
-    await container.ensureReady();
-    // 实现逻辑
-    return { ok: true, result };
-  }
-}
-```
-
 ### 调试
 
 ```bash
 # 查看详细日志
-DEBUG=1 node server.js
-
-# 测试单个工具
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"workspace_info"}}' | node server.js
+DEBUG=1 node cli.js audit-summary --cwd . --json
 ```
 
 ## 已知限制
@@ -307,11 +248,12 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"workspace_
 
 ## 路线图
 
-- [ ] 跨平台支持（macOS/Linux）
-- [ ] 异步文件索引（支持大仓库）
-- [ ] 工具调用权限控制
-- [ ] 增量依赖图更新
-- [ ] VS Code 扩展（获取光标位置）
+- [x] CLI-first 聚合审计：`audit-summary` / `audit-file`
+- [x] 主线/非主线语义识别：`.workspace-bridge.json` + 目录角色
+- [x] `dead-exports` 基础符号级判断（JS/TS 常见 import/export 语法）
+- [ ] `audit-diff`
+- [ ] Git 风险层
+- [ ] 更深的 AST / symbol-level impact
 
 ## 许可证
 

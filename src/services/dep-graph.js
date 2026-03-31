@@ -14,6 +14,38 @@ const CONFIG = {
   DEFAULT_MAX_DEPTH: 5,         // affected_tests 默认搜索深度
 };
 
+function uniqueNames(values) {
+  return Array.from(new Set((values || []).filter(Boolean)));
+}
+
+function normalizeImportedName(name) {
+  if (!name) return null;
+  const trimmed = String(name).trim();
+  if (!trimmed || trimmed === 'type') return null;
+  return trimmed.replace(/^type\s+/, '').trim() || null;
+}
+
+function parseNamedBindings(raw) {
+  return raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const withoutType = part.replace(/^type\s+/, '').trim();
+      const [imported] = withoutType.split(/\s+as\s+/i);
+      return normalizeImportedName(imported);
+    })
+    .filter(Boolean);
+}
+
+function createImportRecord(source, options = {}) {
+  return {
+    source,
+    imported: uniqueNames(options.imported || []),
+    usesAllExports: Boolean(options.usesAllExports),
+  };
+}
+
 class DependencyGraph {
   constructor(workspaceRoot, cache, options = {}) {
     this.root = workspaceRoot;
@@ -23,6 +55,7 @@ class DependencyGraph {
     this.packageJson = this._readPackageJson();
     this.entryFiles = this._collectEntryFiles();
     this.excludeDirs = options.excludeDirs || [];
+    this.projectContext = options.projectContext || null;
   }
 
   shouldExclude(filePath) {
@@ -123,7 +156,11 @@ class DependencyGraph {
     const startTime = Date.now();
     
     // Get all files from cache
-    const files = Array.from(this.cache.fileMetadata.keys()).filter((file) => !this.shouldExclude(file));
+    const files = Array.from(this.cache.fileMetadata.keys()).filter((file) => {
+      if (this.shouldExclude(file)) return false;
+      if (this.projectContext && !this.projectContext.shouldAnalyzeFile(file)) return false;
+      return true;
+    });
     
     // Process with concurrency limit (same pattern as FileIndex)
     await this._processFilesWithLimit(files, CONFIG.DEFAULT_CONCURRENCY);
@@ -164,21 +201,33 @@ class DependencyGraph {
       
       let imports = [];
       let exports = [];
+      let importRecords = [];
+      let exportRecords = [];
 
       if (ext === '.py') {
         ({ imports, exports } = this.parsePython(content));
       } else if (['.js', '.ts', '.jsx', '.tsx'].includes(ext)) {
-        ({ imports, exports } = this.parseJavaScript(content));
+        ({ imports, exports, importRecords, exportRecords } = this.parseJavaScript(content));
       }
 
       // Resolve relative imports to absolute paths
-      const resolvedImports = imports
-        .map(imp => this.resolveImport(filePath, imp, ext))
+      const resolvedImportRecords = (importRecords.length > 0 ? importRecords : imports.map((source) => createImportRecord(source)))
+        .map((record) => {
+          const resolved = this.resolveImport(filePath, record.source, ext);
+          if (!resolved) return null;
+          return {
+            ...record,
+            resolved,
+          };
+        })
         .filter(Boolean);
+      const resolvedImports = resolvedImportRecords.map((record) => record.resolved);
 
       this.graph.set(filePath, {
         imports: resolvedImports,
         exports,
+        importRecords: resolvedImportRecords,
+        exportRecords: exportRecords.length > 0 ? exportRecords : exports.map((name) => ({ name })),
       });
 
     } catch (e) {
@@ -265,35 +314,129 @@ class DependencyGraph {
 
   parseJavaScript(content) {
     const imports = [];
-    const exports = [];
+    const importRecords = [];
+    const exportRecords = [];
 
-    // ES6 imports: import X from 'Y', import { X } from 'Y'
-    const importRegex = /import\s+(?:(?:\{[^}]*\}|\*\s+as\s+\w+|\w+)\s+from\s+)?['"]([^'"]+)['"]/g;
+    const importFromRegex = /import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g;
     let match;
-    while ((match = importRegex.exec(content)) !== null) {
-      imports.push(match[1]);
+    while ((match = importFromRegex.exec(content)) !== null) {
+      const clause = match[1].trim();
+      const source = match[2];
+      imports.push(source);
+
+      if (clause.startsWith('* as ')) {
+        importRecords.push(createImportRecord(source, { usesAllExports: true }));
+        continue;
+      }
+
+      const imported = [];
+      let usesAllExports = false;
+      const namedMatch = clause.match(/\{([^}]*)\}/);
+      if (namedMatch) {
+        imported.push(...parseNamedBindings(namedMatch[1]));
+      }
+
+      const withoutNamed = clause.replace(/\{[^}]*\}/, '').split(',').map((part) => part.trim()).filter(Boolean);
+      for (const part of withoutNamed) {
+        if (!part) continue;
+        if (part.startsWith('* as ')) {
+          usesAllExports = true;
+        } else {
+          imported.push('default');
+        }
+      }
+
+      importRecords.push(createImportRecord(source, { imported, usesAllExports }));
     }
 
-    // CommonJS: require('X')
-    const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+    const sideEffectImportRegex = /import\s+['"]([^'"]+)['"]/g;
+    while ((match = sideEffectImportRegex.exec(content)) !== null) {
+      const source = match[1];
+      imports.push(source);
+      importRecords.push(createImportRecord(source, { usesAllExports: true }));
+    }
+
+    const destructuredRequireRegex = /(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+    while ((match = destructuredRequireRegex.exec(content)) !== null) {
+      const imported = parseNamedBindings(match[1]);
+      const source = match[2];
+      imports.push(source);
+      importRecords.push(createImportRecord(source, { imported }));
+    }
+
+    const requireRegex = /(?:const|let|var)\s+[\w$]+\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)|require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
     while ((match = requireRegex.exec(content)) !== null) {
-      imports.push(match[1]);
+      const source = match[1] || match[2];
+      imports.push(source);
+      importRecords.push(createImportRecord(source, { usesAllExports: true }));
     }
 
-    // Dynamic import: import('X')
     const dynamicImportRegex = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
     while ((match = dynamicImportRegex.exec(content)) !== null) {
-      imports.push(match[1]);
+      const source = match[1];
+      imports.push(source);
+      importRecords.push(createImportRecord(source, { usesAllExports: true }));
     }
 
-    // ES6 exports: export { X }, export const X, export default X
-    const exportRegex = /export\s+(?:\{[^}]*\}|(?:default\s+)?(?:class|function|const|let|var)\s+(\w+)|default\s+(\w+))/g;
-    while ((match = exportRegex.exec(content)) !== null) {
-      const name = match[1] || match[2];
-      if (name) exports.push(name);
+    const namedReExportRegex = /export\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g;
+    while ((match = namedReExportRegex.exec(content)) !== null) {
+      const exportedNames = match[1]
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => {
+          const withoutType = part.replace(/^type\s+/, '').trim();
+          const segments = withoutType.split(/\s+as\s+/i);
+          return normalizeImportedName(segments[1] || segments[0]);
+        })
+        .filter(Boolean);
+      for (const name of exportedNames) {
+        exportRecords.push({ name });
+      }
     }
 
-    return { imports, exports };
+    const exportAllRegex = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
+    while ((match = exportAllRegex.exec(content)) !== null) {
+      exportRecords.push({ name: '*', unknown: true });
+    }
+
+    const namedExportRegex = /export\s*\{([^}]*)\}(?!\s*from)/g;
+    while ((match = namedExportRegex.exec(content)) !== null) {
+      const exportedNames = match[1]
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => {
+          const withoutType = part.replace(/^type\s+/, '').trim();
+          const segments = withoutType.split(/\s+as\s+/i);
+          return normalizeImportedName(segments[1] || segments[0]);
+        })
+        .filter(Boolean);
+      for (const name of exportedNames) {
+        exportRecords.push({ name });
+      }
+    }
+
+    const declarationExportRegex = /export\s+(?:async\s+)?(?:function|class|const|let|var)\s+(\w+)/g;
+    while ((match = declarationExportRegex.exec(content)) !== null) {
+      exportRecords.push({ name: match[1] });
+    }
+
+    const defaultNamedRegex = /export\s+default\s+(?:async\s+)?(?:function|class)\s+(\w+)/g;
+    while ((match = defaultNamedRegex.exec(content)) !== null) {
+      exportRecords.push({ name: 'default' });
+    }
+    if (/export\s+default\s+(?!async\s+function\s+\w+|function\s+\w+|class\s+\w+)/.test(content)) {
+      exportRecords.push({ name: 'default' });
+    }
+
+    const exports = uniqueNames(exportRecords.filter((record) => !record.unknown).map((record) => record.name));
+    return {
+      imports: uniqueNames(imports),
+      exports,
+      importRecords,
+      exportRecords,
+    };
   }
 
   resolveJavaScriptImport(fromFile, importPath) {
@@ -511,6 +654,40 @@ class DependencyGraph {
       const importers = this.reverseGraph.get(filePath) || [];
       if (importers.length === 0) {
         deadExports.push({ file: filePath, exports: info.exports, confidence: 'high' });
+        continue;
+      }
+
+      let usesAllExports = false;
+      const usedNames = new Set();
+
+      for (const importerPath of importers) {
+        const importerInfo = this.graph.get(importerPath);
+        if (!importerInfo?.importRecords) {
+          usesAllExports = true;
+          break;
+        }
+
+        const matchingImports = importerInfo.importRecords.filter((record) => record.resolved === filePath);
+        for (const record of matchingImports) {
+          if (record.usesAllExports) {
+            usesAllExports = true;
+            break;
+          }
+          for (const importedName of record.imported || []) {
+            usedNames.add(importedName);
+          }
+        }
+
+        if (usesAllExports) break;
+      }
+
+      if (usesAllExports) {
+        continue;
+      }
+
+      const unused = info.exports.filter((name) => !usedNames.has(name));
+      if (unused.length > 0) {
+        deadExports.push({ file: filePath, exports: unused, confidence: 'medium' });
       }
     }
 
@@ -598,6 +775,38 @@ class DependencyGraph {
     }
     
     return affectedTests;
+  }
+
+  getScopeSummary() {
+    const files = Array.from(this.cache.fileMetadata.keys()).filter((file) => !this.shouldExclude(file));
+    if (this.projectContext) {
+      return this.projectContext.summarizeFiles(files);
+    }
+
+    return {
+      configPath: null,
+      hasConfig: false,
+      counts: {
+        totalFiles: files.length,
+        mainlineFiles: files.length,
+        nonMainlineFiles: 0,
+      },
+      directoryRoles: {
+        active: files.length,
+        reference: 0,
+        archive: 0,
+        generated: 0,
+      },
+      fileRoles: {
+        entry: 0,
+        library: files.length,
+        config: 0,
+        test: 0,
+        migration: 0,
+        script: 0,
+      },
+      entryFiles: [],
+    };
   }
 }
 

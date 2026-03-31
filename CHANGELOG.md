@@ -4,6 +4,27 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 新增
+
+- **主线/非主线语义识别** - 新增 `.workspace-bridge.json` 目录角色配置，支持 `active/reference/archive/generated`
+- **聚合范围摘要** - `audit-summary` 新增 `scope` 输出，包含主线/非主线计数、目录角色统计、入口文件列表
+- **audit-diff** - 新增 CLI 聚合命令，基于当前 git 变更输出 changed files、impact、affected tests 和风险摘要
+- **Git 历史风险层** - `audit-diff` 现在会输出每个变更文件的 `historyRisk`，包含 churn、作者分散度、最近改动和回滚痕迹
+- **回归测试** - 新增 `test/role-detection-test.js`，覆盖 mixed workspace 的主线识别
+- **回归测试** - 新增 `test/audit-diff-test.js`，覆盖基于真实 git worktree 的 `audit-diff`
+
+### 变更
+
+- **CLI-only** - 删除 MCP server、协议层和相关测试，项目收口为本地 CLI + skill 工作流
+
+### 改进
+
+- **dead-exports 精度** - `DependencyGraph` 现在能对常见 JS/TS named import、default import、destructured require 做符号级判断
+- **误报控制** - 对 `export *`、namespace import、动态间接引用等复杂场景保守降级，不强行下结论
+- **测试稳定性** - `test/analysis-test.js` 调整 fixture 写法，避免测试代码字符串污染静态分析结果
+
 ## [0.6.0] - 2026-03-27
 
 ### 新增
