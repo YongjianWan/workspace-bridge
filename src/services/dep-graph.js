@@ -825,7 +825,7 @@ class DependencyGraph {
   /**
    * Calculate impact radius: how many files would be affected by changing this file
    */
-  getImpactRadius(filePath, depth = 3) {
+  getImpactRadius(filePath, depth = 3) {   
     const visited = new Set();
     const queue = [{ file: filePath, level: 0 }];
     const results = [];
