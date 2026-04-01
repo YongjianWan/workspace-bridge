@@ -153,6 +153,10 @@ function main() {
     assert(jsEntry?.symbolImpact, 'js symbolImpact should exist');
     assert(pyEntry?.symbolImpact, 'python symbolImpact should exist');
     assert(javaEntry?.symbolImpact, 'java symbolImpact should exist');
+    assert(Array.isArray(jsEntry.symbolImpact.symbolToDependents));
+    const jsSymbolRow = jsEntry.symbolImpact.symbolToDependents.find((item) => item.symbol === 'utilFn');
+    assert(jsSymbolRow, 'js symbol-to-dependent mapping should include utilFn');
+    assert(jsSymbolRow.dependentCount >= 1, 'utilFn should have at least one dependent');
     assert(polyDiff.validationAdvice.stack.java, 'java stack should exist in polyglot repo');
     assert.strictEqual(polyDiff.validationAdvice.stack.java.buildCommand, './mvnw');
     assert(jsEntry.impactCount >= 1);

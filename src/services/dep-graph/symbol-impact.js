@@ -101,6 +101,31 @@ function shouldFallbackToFileImpact(depGraph, filePath) {
   return false;
 }
 
+function buildSymbolToDependents(depGraph, filePath, sourceSymbols) {
+  if (!Array.isArray(sourceSymbols) || sourceSymbols.length === 0) return [];
+  const rows = [];
+
+  for (const symbol of sourceSymbols) {
+    const files = [];
+    for (const importerFile of depGraph.getDependents(filePath)) {
+      const records = getMatchingImportRecords(depGraph, importerFile, filePath);
+      if (records.length === 0) continue;
+      const used = records.some((record) => {
+        if (record.usesAllExports) return true;
+        return (record.imported || []).includes(symbol);
+      });
+      if (used) files.push(importerFile);
+    }
+    rows.push({
+      symbol,
+      dependentCount: files.length,
+      dependents: files,
+    });
+  }
+
+  return rows.sort((a, b) => b.dependentCount - a.dependentCount);
+}
+
 function getSymbolImpact(depGraph, filePath, maxDepth = 4) {
   const sourceInfo = depGraph.graph.get(filePath);
   if (!sourceInfo) {
@@ -120,6 +145,7 @@ function getSymbolImpact(depGraph, filePath, maxDepth = 4) {
   }
 
   const sourceSymbols = sourceInfo.exports || [];
+  const symbolToDependents = buildSymbolToDependents(depGraph, filePath, sourceSymbols);
   const direct = [];
   const reExportQueue = [];
   const seenReExportNode = new Set();
@@ -205,6 +231,7 @@ function getSymbolImpact(depGraph, filePath, maxDepth = 4) {
     mode: 'symbol',
     sourceFile: filePath,
     sourceSymbols,
+    symbolToDependents,
     directCount: uniqueDirect.length,
     directDependents: uniqueDirect,
     transitiveCount: transitive.length,
