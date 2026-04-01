@@ -141,6 +141,7 @@ function buildAuditDiffSummary(entries) {
   let maxHistoryRiskScore = 0;
   let highCompositeRiskFiles = 0;
   let maxCompositeRiskScore = 0;
+  const topCompositeRisks = [];
 
   for (const entry of entries) {
     maxImpact = Math.max(maxImpact, toNumber(entry.impactCount));
@@ -156,6 +157,14 @@ function buildAuditDiffSummary(entries) {
     maxCompositeRiskScore = Math.max(maxCompositeRiskScore, compositeScore);
     if (entry.compositeRisk?.level === 'high') {
       highCompositeRiskFiles += 1;
+    }
+    if (entry?.file && entry?.compositeRisk) {
+      topCompositeRisks.push({
+        file: entry.file,
+        score: entry.compositeRisk.score,
+        level: entry.compositeRisk.level,
+        reason: entry.compositeRisk.reasons?.[0] || 'Composite risk signal',
+      });
     }
     for (const testFile of entry.affectedTests || []) {
       affectedTests.add(testFile.file);
@@ -189,6 +198,9 @@ function buildAuditDiffSummary(entries) {
       highCompositeRiskFiles,
       maxCompositeRiskScore,
     },
+    topCompositeRisks: topCompositeRisks
+      .sort((a, b) => (b.score || 0) - (a.score || 0))
+      .slice(0, 3),
     nextSteps,
   };
 }

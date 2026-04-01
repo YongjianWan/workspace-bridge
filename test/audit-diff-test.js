@@ -129,6 +129,9 @@ try {
   assert.strictEqual(parsed.summary.counts.highHistoryRiskFiles, 1);
   assert.strictEqual(typeof parsed.summary.counts.highCompositeRiskFiles, 'number');
   assert.strictEqual(typeof parsed.summary.counts.maxCompositeRiskScore, 'number');
+  assert(Array.isArray(parsed.summary.topCompositeRisks));
+  assert(parsed.summary.topCompositeRisks.length >= 1);
+  assert.strictEqual(typeof parsed.summary.topCompositeRisks[0].score, 'number');
   assert(changed.affectedTests.some((entry) => entry.file.replace(/\\/g, '/').endsWith('/test/app.test.js')));
   assert(Array.isArray(parsed.validationAdvice.phases));
   assert.strictEqual(parsed.validationAdvice.phases[0].phase, 'smoke');
