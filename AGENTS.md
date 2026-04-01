@@ -32,6 +32,9 @@ workspace-bridge 的核心价值很直接：
 - `audit-diff`
   - 聚合当前 git worktree 改动
   - 输出 changed files、impact、affected tests、historyRisk、验证建议
+- `audit-overview`
+  - 输出项目热区、稳定性、孤儿文件、核心模块
+  - 适合第一次接手一个仓库时快速看骨架
 
 ### 关键服务
 
@@ -45,6 +48,8 @@ workspace-bridge 的核心价值很直接：
   - 后台诊断缓存
 - `ProjectContext`
   - 主线/非主线语义识别
+- `stack-detector`
+  - 技术栈检测和验证命令生成
 
 ---
 
@@ -67,8 +72,11 @@ workspace-bridge/
 │   │   ├── dep-tools.js
 │   │   ├── git-tools.js
 │   │   ├── health-tools.js
+│   │   ├── overview-tools.js
 │   │   ├── search-tools.js
 │   │   └── workspace-tools.js
+├── scripts/
+│   └── python_ast_parser.py
 │   └── utils/
 │       ├── command.js
 │       ├── diagnostics.js
@@ -131,10 +139,10 @@ npm run test:all
 
 现在最值钱的开发方向：
 
-- 强化 `audit-diff` 的验证建议层
 - 做更好的 test mapping
 - 做 symbol-level impact
 - 把历史风险和结构影响融合得更像工程判断
+- 继续打磨 mixed repo 的技术栈检测
 
 不优先的东西：
 
@@ -235,4 +243,4 @@ npm run test:all
 - 够用就行，拒绝过度工程
 - 代码简短，函数 < 30 行
 
-*Last updated: 2026-03-31*
+*Last updated: 2026-04-01*

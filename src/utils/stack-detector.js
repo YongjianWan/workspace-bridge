@@ -10,7 +10,19 @@ function detectPackageManager(root) {
   if (pathExists(path.join(root, 'yarn.lock'))) return 'yarn';
   if (pathExists(path.join(root, 'bun.lockb')) || pathExists(path.join(root, 'bun.lock'))) return 'bun';
   if (pathExists(path.join(root, 'package-lock.json'))) return 'npm';
-  return 'npm'; // default
+
+  // Python-first projects should not be mislabeled as npm
+  if (
+    pathExists(path.join(root, 'requirements.txt')) ||
+    pathExists(path.join(root, 'pyproject.toml')) ||
+    pathExists(path.join(root, 'manage.py'))
+  ) {
+    return 'pip';
+  }
+
+  // Only fall back to npm when package.json exists
+  if (pathExists(path.join(root, 'package.json'))) return 'npm';
+  return null;
 }
 
 function detectTestRunner(root) {
@@ -112,11 +124,16 @@ function getRunCommand(stack, targetFiles = []) {
   const fileArgs = targetFiles.length > 0 ? targetFiles.join(' ') : '';
 
   if (!testRunner) {
-    return packageManager === 'npm' ? `npm test` : `${packageManager} test`;
+    if (packageManager === 'npm') return 'npm test';
+    if (packageManager === 'pnpm' || packageManager === 'yarn' || packageManager === 'bun') {
+      return `${packageManager} test`;
+    }
+    return 'pytest';
   }
 
-  const pmRun = packageManager === 'npm' ? 'npm run' : `${packageManager} run`;
-  const pmExec = packageManager === 'npm' ? 'npx' : `${packageManager} exec`;
+  const isNodePm = ['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager);
+  const pmRun = packageManager === 'npm' ? 'npm run' : isNodePm ? `${packageManager} run` : null;
+  const pmExec = packageManager === 'npm' ? 'npx' : isNodePm ? `${packageManager} exec` : null;
 
   switch (testRunner.name) {
     case 'jest':
@@ -136,23 +153,24 @@ function getRunCommand(stack, targetFiles = []) {
         ? `pytest ${fileArgs}`
         : 'pytest';
     default:
-      return `${pmRun} test`;
+      return pmRun ? `${pmRun} test` : 'pytest';
   }
 }
 
 function getLintCommand(stack, targetFiles = []) {
   const { packageManager, linters } = stack;
   const fileArgs = targetFiles.length > 0 ? targetFiles.join(' ') : '.';
-  const pmExec = packageManager === 'npm' ? 'npx' : `${packageManager} exec`;
+  const isNodePm = ['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager);
+  const pmExec = packageManager === 'npm' ? 'npx' : isNodePm ? `${packageManager} exec` : null;
 
   const commands = [];
   for (const linter of linters) {
     switch (linter) {
       case 'eslint':
-        commands.push(`${pmExec} eslint ${fileArgs}`);
+        if (pmExec) commands.push(`${pmExec} eslint ${fileArgs}`);
         break;
       case 'prettier':
-        commands.push(`${pmExec} prettier --check ${fileArgs}`);
+        if (pmExec) commands.push(`${pmExec} prettier --check ${fileArgs}`);
         break;
       case 'ruff':
         commands.push(`ruff check ${fileArgs}`);
@@ -164,13 +182,14 @@ function getLintCommand(stack, targetFiles = []) {
 
 function getTypeCheckCommand(stack) {
   const { typeChecker, packageManager } = stack;
-  const pmExec = packageManager === 'npm' ? 'npx' : `${packageManager} exec`;
+  const isNodePm = ['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager);
+  const pmExec = packageManager === 'npm' ? 'npx' : isNodePm ? `${packageManager} exec` : null;
 
   switch (typeChecker) {
     case 'tsc':
-      return `${pmExec} tsc --noEmit`;
+      return pmExec ? `${pmExec} tsc --noEmit` : null;
     case 'pyright':
-      return `${pmExec} pyright`;
+      return pmExec ? `${pmExec} pyright` : 'pyright';
     default:
       return null;
   }
@@ -178,7 +197,8 @@ function getTypeCheckCommand(stack) {
 
 function getDocsCommands(stack, changeType) {
   const { docsTool, packageManager } = stack;
-  const pmRun = packageManager === 'npm' ? 'npm run' : `${packageManager} run`;
+  const isNodePm = ['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager);
+  const pmRun = packageManager === 'npm' ? 'npm run' : isNodePm ? `${packageManager} run` : null;
 
   if (changeType === 'docs') {
     switch (docsTool) {
@@ -188,11 +208,13 @@ function getDocsCommands(stack, changeType) {
           build: 'mkdocs build',
         };
       case 'docusaurus':
+        if (!pmRun) return null;
         return {
           serve: `${pmRun} start`,
           build: `${pmRun} build`,
         };
       case 'vitepress':
+        if (!pmRun) return null;
         return {
           serve: `${pmRun} docs:dev`,
           build: `${pmRun} docs:build`,
@@ -212,7 +234,8 @@ function generateCommands(stack, changeType, targets, steps = []) {
   };
 
   const { packageManager } = stack;
-  const pmRun = packageManager === 'npm' ? 'npm run' : `${packageManager} run`;
+  const isNodePm = ['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager);
+  const pmRun = packageManager === 'npm' ? 'npm run' : isNodePm ? `${packageManager} run` : null;
 
   // Smoke commands based on change type
   switch (changeType) {
@@ -284,7 +307,9 @@ function generateCommands(stack, changeType, targets, steps = []) {
     commands.focused.push({
       name: 'start-app',
       description: 'Start application to verify config loads',
-      cmd: `${pmRun} start 2>&1 | head -20 || echo "Check if app starts correctly"`,
+      cmd: pmRun
+        ? `${pmRun} start 2>&1 | head -20 || echo "Check if app starts correctly"`
+        : 'python -m pytest -q || echo "Run the app startup command manually"',
     });
   }
 

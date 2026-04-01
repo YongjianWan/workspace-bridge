@@ -100,6 +100,9 @@ class SymbolInfo:
     dependents: List[str] = field(default_factory=list)
     exports: List[str] = field(default_factory=list)
     imports: List[str] = field(default_factory=list)
+    signature: Optional[str] = None
+    parameters: List[str] = field(default_factory=list)
+    return_type: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -242,7 +245,10 @@ class SymbolMapManager:
                 dependencies=data.get("dependencies", []),
                 dependents=data.get("dependents", []),
                 exports=data.get("exports", []),
-                imports=data.get("imports", [])
+                imports=data.get("imports", []),
+                signature=data.get("signature"),
+                parameters=data.get("parameters", []),
+                return_type=data.get("return_type")
             )
         return None
     
@@ -557,6 +563,8 @@ class ReuseChecker:
         candidates = []
         symbol_map = self.symbol_manager.load_symbol_map()
         
+        proposed_profile = self._build_code_profile(proposed_code, target_language)
+        
         # 提取提议代码中的函数/类名
         proposed_symbols = self._extract_symbols(proposed_code, target_language)
         
@@ -564,7 +572,10 @@ class ReuseChecker:
             # 检查是否已存在相似符号
             for existing_name, existing_data in symbol_map.items():
                 similarity = self._calculate_similarity(
-                    symbol_name, existing_name
+                    symbol_name,
+                    existing_name,
+                    proposed_profile,
+                    existing_data
                 )
                 
                 if similarity >= similarity_threshold:
@@ -610,11 +621,130 @@ class ReuseChecker:
         
         return symbols
     
-    def _calculate_similarity(self, s1: str, s2: str) -> float:
-        """计算两个字符串的相似度"""
-        # 使用简单的编辑距离
+    def _calculate_similarity(
+        self,
+        proposed_name: str,
+        existing_name: str,
+        proposed_profile: Dict[str, Any],
+        existing_data: Dict[str, Any]
+    ) -> float:
+        """计算综合相似度
+        
+        修复点:
+        - 不再只靠名称编辑距离
+        - 对 hook / storage / validator / formatter 这类模式加语义权重
+        """
         from difflib import SequenceMatcher
-        return SequenceMatcher(None, s1.lower(), s2.lower()).ratio()
+        
+        normalized_proposed = proposed_name.lower()
+        normalized_existing = existing_name.lower()
+        name_similarity = SequenceMatcher(None, normalized_proposed, normalized_existing).ratio()
+        
+        semantic_tags_existing = self._extract_semantic_tags(
+            existing_name,
+            existing_data.get("signature", ""),
+            existing_data.get("file_path", ""),
+            existing_data.get("imports", []),
+            existing_data.get("dependencies", [])
+        )
+        semantic_tags_proposed = proposed_profile["semantic_tags"]
+        
+        shared_tags = semantic_tags_existing & semantic_tags_proposed
+        semantic_similarity = 0.0
+        if semantic_tags_existing or semantic_tags_proposed:
+            semantic_similarity = len(shared_tags) / len(semantic_tags_existing | semantic_tags_proposed)
+        
+        hook_bonus = 0.0
+        if proposed_profile["is_hook"] and normalized_existing.startswith("use"):
+            hook_bonus += 0.15
+            if "storage" in shared_tags:
+                hook_bonus += 0.15
+        
+        signature_hint_bonus = 0.0
+        existing_params = existing_data.get("parameters", [])
+        if proposed_profile["parameter_count"] > 0 and existing_params:
+            if abs(proposed_profile["parameter_count"] - len(existing_params)) <= 1:
+                signature_hint_bonus += 0.1
+        
+        score = (
+            0.45 * name_similarity +
+            0.40 * semantic_similarity +
+            hook_bonus +
+            signature_hint_bonus
+        )
+        return min(score, 1.0)
+
+    def _build_code_profile(self, code: str, language: str) -> Dict[str, Any]:
+        """从提议代码中提取轻量语义画像"""
+        symbols = self._extract_symbols(code, language)
+        primary_name = symbols[0] if symbols else ""
+        params = self._extract_parameter_list(code, language)
+        semantic_tags = self._extract_semantic_tags(
+            primary_name,
+            code,
+            "",
+            [],
+            []
+        )
+        return {
+            "primary_name": primary_name,
+            "parameter_count": len(params),
+            "parameters": params,
+            "semantic_tags": semantic_tags,
+            "is_hook": primary_name.startswith("use"),
+        }
+
+    def _extract_parameter_list(self, code: str, language: str) -> List[str]:
+        """提取函数参数名"""
+        if language in ['python', 'py']:
+            match = re.search(r'def\s+\w+\s*\(([^)]*)\)', code)
+        else:
+            match = (
+                re.search(r'function\s+\w+\s*\(([^)]*)\)', code) or
+                re.search(r'(?:const|let|var)\s+\w+\s*=\s*\(([^)]*)\)\s*=>', code)
+            )
+        if not match:
+            return []
+        return [part.strip().split(':')[0].split('=')[0].strip() for part in match.group(1).split(',') if part.strip()]
+
+    def _extract_semantic_tags(
+        self,
+        symbol_name: str,
+        text_blob: str,
+        file_path: str,
+        imports: List[str],
+        dependencies: List[str]
+    ) -> Set[str]:
+        """提取语义标签，修复 hook / storage / validator 模式识别不足"""
+        haystack = " ".join([
+            symbol_name or "",
+            text_blob or "",
+            file_path or "",
+            " ".join(imports or []),
+            " ".join(dependencies or []),
+        ]).lower()
+        
+        tag_patterns = {
+            "hook": [r'\buse[A-Z_]\w*', r'\buse[A-Z]\w*', r'\bhook\b'],
+            "storage": [r'localstorage', r'sessionstorage', r'\bstorage\b', r'\bcache\b', r'persist'],
+            "validation": [r'\bvalidate', r'\bvalidator', r'\bschema\b', r'\brule'],
+            "formatting": [r'\bformat', r'formatter', r'serialize', r'normalize'],
+            "auth": [r'\bauth', r'\btoken', r'\bjwt', r'\blogin', r'\bpassword'],
+            "api": [r'\bfetch', r'\brequest', r'\bapi\b', r'\bhttp', r'\bclient'],
+            "middleware": [r'\bmiddleware\b', r'\bguard\b', r'\binterceptor\b'],
+        }
+        
+        tags = set()
+        for tag, patterns in tag_patterns.items():
+            if any(re.search(pattern, haystack, re.IGNORECASE) for pattern in patterns):
+                tags.add(tag)
+        
+        if symbol_name.startswith("use"):
+            tags.add("hook")
+        if "localstorage" in haystack or "sessionstorage" in haystack:
+            tags.add("storage")
+        
+        return tags
     
     def _generate_reuse_suggestion(
         self,
@@ -660,6 +790,7 @@ class ImpactAnalyzer:
         for file_path in modified_files:
             # 查找文件中定义的符号
             file_symbols = self._get_symbols_in_file(file_path, symbol_map)
+            current_signatures = self._extract_current_signatures(file_path)
             
             for symbol_name in file_symbols:
                 symbol_info = self.symbol_manager.query_symbol(symbol_name)
@@ -680,6 +811,15 @@ class ImpactAnalyzer:
                             breaking_changes.append(
                                 f"{symbol_name} 的变更可能影响 {dependent}"
                             )
+                
+                if change_type == ChangeType.MODIFY:
+                    signature_change = self._detect_signature_change(
+                        symbol_name,
+                        symbol_info,
+                        current_signatures.get(symbol_name)
+                    )
+                    if signature_change:
+                        breaking_changes.append(signature_change)
                 
                 # 检查测试影响
                 test_files = self._find_related_tests(file_path, symbol_name)
@@ -720,6 +860,88 @@ class ImpactAnalyzer:
         
         self.logger.info(f"影响分析完成，风险等级: {risk_level.value}")
         return analysis
+
+    def _extract_current_signatures(self, file_path: str) -> Dict[str, Dict[str, Any]]:
+        """从当前文件提取轻量签名信息"""
+        full_path = self.project_root / file_path
+        if not full_path.exists():
+            return {}
+        
+        try:
+            content = full_path.read_text(encoding='utf-8')
+        except Exception:
+            return {}
+        
+        signatures = {}
+        
+        python_pattern = re.compile(r'def\s+(\w+)\s*\(([^)]*)\)\s*(?:->\s*([^:]+))?:', re.MULTILINE)
+        js_pattern = re.compile(
+            r'(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)|'
+            r'(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\(([^)]*)\)\s*=>',
+            re.MULTILINE
+        )
+        
+        for match in python_pattern.finditer(content):
+            name = match.group(1)
+            params = [p.strip().split(':')[0].split('=')[0].strip() for p in match.group(2).split(',') if p.strip()]
+            signatures[name] = {
+                "signature": match.group(0).strip(),
+                "parameter_count": len(params),
+                "parameters": params,
+                "return_type": match.group(3).strip() if match.group(3) else None,
+            }
+        
+        for match in js_pattern.finditer(content):
+            name = match.group(1) or match.group(3)
+            raw_params = match.group(2) if match.group(1) else match.group(4)
+            params = [p.strip().split(':')[0].split('=')[0].strip() for p in raw_params.split(',') if p.strip()]
+            if not name:
+                continue
+            signatures[name] = {
+                "signature": match.group(0).strip(),
+                "parameter_count": len(params),
+                "parameters": params,
+                "return_type": None,
+            }
+        
+        return signatures
+
+    def _detect_signature_change(
+        self,
+        symbol_name: str,
+        symbol_info: SymbolInfo,
+        current_signature: Optional[Dict[str, Any]]
+    ) -> Optional[str]:
+        """检测函数签名变化
+        
+        修复点:
+        - 捕捉参数数量变化
+        - 捕捉签名文本变化
+        - 为 RB-005 这类场景输出更明确的 breaking change 提示
+        """
+        if not current_signature:
+            return None
+        
+        previous_params = symbol_info.parameters or []
+        current_params = current_signature.get("parameters", [])
+        previous_signature = (symbol_info.signature or "").strip()
+        current_signature_text = (current_signature.get("signature") or "").strip()
+        
+        if previous_params and len(previous_params) != len(current_params):
+            return (
+                f"{symbol_name} 的参数数量从 {len(previous_params)} 变为 {len(current_params)}，"
+                f"调用方可能需要同步更新"
+            )
+        
+        if previous_signature and current_signature_text and previous_signature != current_signature_text:
+            return f"{symbol_name} 的函数签名已变化，返回值或参数契约可能不兼容"
+        
+        previous_return = (symbol_info.return_type or "").strip()
+        current_return = (current_signature.get("return_type") or "").strip()
+        if previous_return and current_return and previous_return != current_return:
+            return f"{symbol_name} 的返回类型从 {previous_return} 变为 {current_return}，调用方逻辑可能失效"
+        
+        return None
     
     def _get_symbols_in_file(
         self, 

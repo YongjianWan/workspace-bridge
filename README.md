@@ -48,20 +48,21 @@ node cli.js health --cwd . --json
 
 `workspace-bridge-cli` 复用同一套分析核心，但更适合本地 agent + skill 工作流。
 
-| 命令 | 描述 |
-|------|------|
-| `workspace-info` | 检测工作区根目录和技术栈 |
-| `diagnostics` | 运行 quick/full 诊断 |
-| `audit-summary` | 聚合 health + dead exports + unresolved + cycles |
-| `audit-file --file` | 聚合 impact + affected tests |
-| `audit-diff` | 聚合当前 git 变更文件 + impact + affected tests |
-| `health` | 汇总项目健康度 |
-| `deps` | 检查过时依赖 |
-| `dead-exports` | 查找死导出候选 |
-| `unresolved` | 查找未解析 import |
-| `cycles` | 查找循环依赖 |
-| `impact --file` | 分析文件影响半径 |
-| `affected-tests --file` | 分析受影响测试 |
+| 命令                      | 描述                                             |
+| ------------------------- | ------------------------------------------------ |
+| `workspace-info`        | 检测工作区根目录和技术栈                         |
+| `diagnostics`           | 运行 quick/full 诊断                             |
+| `audit-summary`         | 聚合 health + dead exports + unresolved + cycles |
+| `audit-file --file`     | 聚合 impact + affected tests                     |
+| `audit-diff`            | 聚合当前 git 变更文件 + impact + affected tests  |
+| `audit-overview`        | 项目全景视图（热区、稳定性、孤儿检测）           |
+| `health`                | 汇总项目健康度                                   |
+| `deps`                  | 检查过时依赖                                     |
+| `dead-exports`          | 查找死导出候选                                   |
+| `unresolved`            | 查找未解析 import                                |
+| `cycles`                | 查找循环依赖                                     |
+| `impact --file`         | 分析文件影响半径                                 |
+| `affected-tests --file` | 分析受影响测试                                   |
 
 示例：
 
@@ -70,6 +71,7 @@ node cli.js audit-summary --cwd C:\repo --json --quiet
 node cli.js audit-summary --cwd C:\repo --exclude prototypes/reference,archive --json --quiet
 node cli.js audit-file --cwd C:\repo --file src\app.ts --json --quiet
 node cli.js audit-diff --cwd C:\repo --json --quiet
+node cli.js audit-overview --cwd C:\repo --json --quiet
 node cli.js dead-exports --cwd C:\repo --json
 node cli.js impact --cwd C:\repo --file src\app.ts --json
 ```
@@ -117,7 +119,7 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 - `validationAdvice.commands`: 各阶段可执行命令 (smoke/focused/full)
 - `validationAdvice.phases`: 分阶段验证建议，包含有序 steps
 
-示例输出：
+示例输出（结构示意）：
 
 ```json
 {
@@ -130,15 +132,14 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
       "typeChecker": "tsc"
     },
     "commands": {
-      "smoke": ["npm run lint"],
-      "focused": ["npm run test:unit -- src/services/dep-graph.js"],
-      "full": ["npm run test", "npm run build"]
+      "smoke": [{ "name": "lint", "cmd": "npx eslint cli.js" }],
+      "focused": [{ "name": "run-direct-tests", "cmd": "npx vitest run test/audit-diff-test.js" }],
+      "full": [{ "name": "run-all-tests", "cmd": "npm run test" }]
     },
     "phases": [
-      { "phase": "lint", "steps": ["npm run lint"], "optional": false },
-      { "phase": "type-check", "steps": ["npx tsc --noEmit"], "optional": true },
-      { "phase": "test-focused", "steps": ["npm run test:unit -- src/services/dep-graph.js"], "optional": false },
-      { "phase": "test-full", "steps": ["npm run test"], "optional": true }
+      { "phase": "smoke", "targets": ["cli.js"] },
+      { "phase": "focused", "steps": [{ "name": "run-direct-tests", "targets": ["test/audit-diff-test.js"] }] },
+      { "phase": "full", "targets": ["cli.js", "test/audit-diff-test.js"] }
     ]
   }
 }
@@ -186,26 +187,31 @@ workspace-bridge CLI
     ├── DiagnosticsEngine
     ├── EditorState
     └── DependencyGraph
+        └── ProjectContext / stack-detector / overview-tools
 ```
 
 ### 核心组件
 
 #### ServiceContainer
+
 - 管理所有服务的生命周期
 - 提供 `ensureReady()` 门控，确保初始化完成
 - 初始化互斥锁防止并发初始化
 
 #### FileIndex
+
 - 统一文件索引（替代原有的 SymbolIndex + ContextEngine）
 - 增量更新：文件变更时只重新索引变更文件
 - 支持 Python/JS/TS 符号提取
 
 #### DiagnosticsEngine
+
 - 自动检测可用诊断工具
 - 缓存诊断结果，避免重复运行
 - 文件删除时自动清理缓存
 
 #### DependencyGraph
+
 - 解析 import/require 语句
 - **JS/TS 使用 @babel/parser AST 解析**（精确识别导入导出）
 - 构建依赖关系图和影响半径分析
@@ -213,13 +219,13 @@ workspace-bridge CLI
 
 ## 缓存策略
 
-| 数据类型 | 存储位置 | 失效策略 |
-|----------|----------|----------|
-| Workspace Root | 内存 | 进程生命周期 |
-| 文件元数据 (mtime/size) | 内存 Map | fs.watch 事件 |
-| 符号索引 | 内存 + `.workspace-bridge-cache.json` | 文件变更时增量更新 |
-| 诊断结果 | 内存 Map | 文件变更时重跑 lint |
-| 依赖图 | 内存 Map | 文件变更时重建受影响边 |
+| 数据类型                | 存储位置                               | 失效策略               |
+| ----------------------- | -------------------------------------- | ---------------------- |
+| Workspace Root          | 内存                                   | 进程生命周期           |
+| 文件元数据 (mtime/size) | 内存 Map                               | fs.watch 事件          |
+| 符号索引                | 内存 +`.workspace-bridge-cache.json` | 文件变更时增量更新     |
+| 诊断结果                | 内存 Map                               | 文件变更时重跑 lint    |
+| 依赖图                  | 内存 Map                               | 文件变更时重建受影响边 |
 
 缓存文件 5 分钟 TTL，冷启动 2-4s，热启动 ~200ms。
 
@@ -227,12 +233,12 @@ workspace-bridge CLI
 
 自动检测项目技术栈并生成具体验证命令：
 
-| 检测项 | 识别文件 |
-|--------|----------|
+| 检测项         | 识别文件                                       |
+| -------------- | ---------------------------------------------- |
 | packageManager | pnpm-lock.yaml / yarn.lock / package-lock.json |
-| testRunner | jest.config.* / vitest.config.* / pytest.ini |
-| linters | .eslintrc.* / .prettierrc.* / pyproject.toml |
-| typeChecker | tsconfig.json / pyright |
+| testRunner     | jest.config.* / vitest.config.* / pytest.ini   |
+| linters        | .eslintrc.* / .prettierrc.* / pyproject.toml   |
+| typeChecker    | tsconfig.json / pyright                        |
 
 检测到的技术栈会用于生成 `audit-diff` 中的具体验证命令。
 
@@ -240,11 +246,11 @@ workspace-bridge CLI
 
 ### 已修复的安全问题
 
-| 问题 | 修复措施 |
-|------|----------|
+| 问题     | 修复措施                                              |
+| -------- | ----------------------------------------------------- |
 | 命令注入 | 所有外部命令使用 `spawn` + 参数数组，禁止字符串拼接 |
-| 路径遍历 | 强制校验路径在工作区内 (`validateWorkspacePath`) |
-| 参数污染 | Git 日期/作者参数白名单校验 |
+| 路径遍历 | 强制校验路径在工作区内 (`validateWorkspacePath`)    |
+| 参数污染 | Git 日期/作者参数白名单校验                           |
 
 ### 安全边界
 
@@ -272,13 +278,18 @@ workspace-bridge/
 │   │   └── editor-state.js
 │   ├── tools/             # 工具实现
 │   │   ├── git-tools.js
+│   │   ├── overview-tools.js
 │   │   ├── search-tools.js
 │   │   ├── workspace-tools.js
 │   │   └── health-tools.js
+├── scripts/
+│   └── python_ast_parser.py
 │   └── utils/             # 工具函数
 │       ├── command.js     # 安全命令执行
 │       ├── path.js        # 路径处理
 │       ├── diagnostics.js # 诊断解析
+│       ├── project-context.js
+│       ├── stack-detector.js
 │       └── sanitize.js    # 输入消毒
 ```
 
@@ -292,41 +303,35 @@ DEBUG=1 node cli.js audit-summary --cwd . --json
 ## 已知限制
 
 1. **VS Code 集成仅限 Windows** - EditorState 目前只读取 Windows 的 `%APPDATA%/Code/User/workspaceStorage`
-2. **大仓库性能** - 文件索引使用同步递归，10k+ 文件可能阻塞
+2. **大仓库性能** - 虽然索引已改为异步并发，但超大仓库首次扫描仍可能较慢
 3. **初始化忙等待** - `ensureReady()` 轮询等待，无上界超时
-4. **混合仓库误判** - `prototypes/reference` 等目录需手动 `--exclude`，否则孤儿检测误报
-5. **技术栈检测局限** - Python 项目可能识别为 `npm`，需完善技术栈检测
+4. **混合仓库误判** - 未配置 `.workspace-bridge.json` 时，复杂 mixed repo 仍可能需要 `--exclude`
+5. **技术栈检测局限** - mixed repo 里 Node / Python 共存时，验证命令仍是启发式生成
 6. **光标位置** - 无法获取 VS Code 的光标位置和选中文本（需扩展支持）
 
 ### 边界测试发现的已知问题
 
-| 问题 | 触发条件 | 影响 | 状态 |
-|------|----------|------|------|
-| **依赖图查询失败** | `impact`/`affected-tests` 命令 | 返回空结果，依赖分析失效 | 🔴 Critical |
-| **中文解析乱码** | 文件名含非 ASCII 字符 | Import 解析失败，误报 unresolved | 🟡 High |
-| **缓存不一致** | 并发访问或快速重启 | 可能读到过期缓存 | 🟡 Medium |
-| **超长路径** | >260 字符（Windows MAX_PATH） | 文件无法创建或读取 | 🟢 Low |
+| 问题                            | 触发条件                      | 影响                                       | 状态      |
+| ------------------------------- | ----------------------------- | ------------------------------------------ | --------- |
+| **技术栈命令启发式**      | mixed repo / 自定义脚本       | `validationAdvice.commands` 可能不够精确 | 🟡 Medium |
+| **非 ASCII 路径回归风险** | 中文/Unicode 模块路径         | 当前最小用例正常，但需持续回归验证         | 🟢 Watch  |
+| **缓存不一致**            | 并发访问或快速重启            | 可能读到过期缓存                           | 🟡 Medium |
+| **超长路径**              | >260 字符（Windows MAX_PATH） | 文件无法创建或读取                         | 🟢 Low    |
 
-**依赖图查询问题详情**：
-`impact` 和 `affected-tests` 命令返回空数组，但 `depGraph.build()` 显示成功（"Built in 180ms: 25 files"）。
-可能原因：路径格式不匹配（Windows 路径大小写、相对/绝对路径混用）。
+**说明**：
 
-**临时绕过**：
-使用 `audit-file` 替代 `impact`，它使用同一数据源但接口不同。
-
-**中文乱码详情**：
-JS 文件中的中文 import（如 `import { x } from "./模块"`）解析为乱码（`ģ��`），
-导致文件解析失败。可能是 @babel/parser 或文件读取编码问题。
+- `impact` / `affected-tests` 当前主线版本已可工作，不再属于已知阻塞问题
+- 真正还需要继续补的是 mixed repo 技术栈判定和非 ASCII 路径的持续回归测试
 
 ## 生产使用建议
 
 ### 适用场景
 
-| 项目规模 | 推荐度 | 注意事项 |
-|----------|--------|----------|
-| 小型（<100文件） | ✅ 推荐 | 直接使用 |
-| 中型（100-500文件） | ✅ 可用 | 使用 `--exclude` 过滤参考目录 |
-| 大型（>500文件） | ⚠️ 谨慎 | 首次索引较慢，建议定期清理缓存 |
+| 项目规模               | 推荐度      | 注意事项                                     |
+| ---------------------- | ----------- | -------------------------------------------- |
+| 小型（<100文件）       | ✅ 推荐     | 直接使用                                     |
+| 中型（100-500文件）    | ✅ 可用     | 使用 `--exclude` 过滤参考目录              |
+| 大型（>500文件）       | ⚠️ 谨慎   | 首次索引较慢，建议定期清理缓存               |
 | 混合仓库（含参考代码） | ⚠️ 需配置 | 创建 `.workspace-bridge.json` 标注目录角色 |
 
 ### 推荐配置
@@ -346,6 +351,7 @@ JS 文件中的中文 import（如 `import { x } from "./模块"`）解析为乱
 ### 已知误报处理
 
 **孤儿文件误报** - 以下情况会产生假孤儿：
+
 - 入口文件（如 `manage.py`、`vite.config.ts`）未被识别
 - 框架管理的文件（Django admin.py、signals.py 等）
 - 参考/示例目录中的文件
@@ -354,12 +360,12 @@ JS 文件中的中文 import（如 `import { x } from "./模块"`）解析为乱
 
 ## 路线图
 
-- [x] CLI-first 聚合审计：`audit-summary` / `audit-file`
-- [x] 主线/非主线语义识别：`.workspace-bridge.json` + 目录角色
-- [x] `dead-exports` 基础符号级判断（JS/TS 常见 import/export 语法）
-- [ ] `audit-diff`
-- [ ] Git 风险层
+- [X] CLI-first 聚合审计：`audit-summary` / `audit-file` / `audit-diff` / `audit-overview`
+- [X] 主线/非主线语义识别：`.workspace-bridge.json` + 目录角色
+- [X] `dead-exports` 基础符号级判断（JS/TS 常见 import/export 语法）
+- [X] Git 风险层（文件级 historyRisk）
 - [ ] 更深的 AST / symbol-level impact
+- [ ] mixed repo 技术栈检测与验证命令继续打磨
 
 ## 许可证
 

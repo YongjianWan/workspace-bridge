@@ -45,6 +45,27 @@ function main() {
   assert(diffAudit.summary.counts.changedFiles >= 1);
   console.log('audit-diff: ok');
 
+  // Non-ASCII path regression check
+  {
+    const fs = require('fs');
+    const os = require('os');
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cli-cn-'));
+    const write = (rel, content) => {
+      const full = path.join(tempRoot, rel);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, content, 'utf8');
+    };
+    write('package.json', JSON.stringify({ name: 'cn-test', version: '1.0.0', main: 'src/index.js' }, null, 2));
+    write('src/模块.js', 'export function 你好() { return 42; }\n');
+    write('src/index.js', 'import { 你好 } from "./模块";\nexport function main() { return 你好(); }\n');
+    const cnUnresolved = runCli(['unresolved', '--cwd', tempRoot, '--json', '--quiet']);
+    const cnImpact = runCli(['impact', '--cwd', tempRoot, '--file', 'src/模块.js', '--json', '--quiet']);
+    assert.strictEqual(cnUnresolved.unresolvedCount, 0);
+    assert.strictEqual(cnImpact.impactCount, 1);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+    console.log('non-ascii-paths: ok');
+  }
+
   const deadExports = runCli(['dead-exports', '--cwd', '.', '--json', '--quiet']);
   assert.strictEqual(deadExports.ok, true);
   assert(Array.isArray(deadExports.deadExports));
