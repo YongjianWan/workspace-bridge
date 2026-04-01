@@ -52,7 +52,24 @@ function createImportRecord(source, options = {}) {
     source,
     imported: uniqueNames(options.imported || []),
     usesAllExports: Boolean(options.usesAllExports),
+    reExported: (options.reExported || [])
+      .map((pair) => ({
+        imported: normalizeImportedName(pair?.imported),
+        exported: normalizeImportedName(pair?.exported),
+      }))
+      .filter((pair) => pair.imported && pair.exported),
+    reExportAll: Boolean(options.reExportAll),
   };
+}
+
+function toSymbolSet(symbols) {
+  if (!Array.isArray(symbols) || symbols.length === 0) return null;
+  return new Set(symbols.filter(Boolean));
+}
+
+function symbolSetToArray(symbolSet) {
+  if (symbolSet === null) return [];
+  return Array.from(symbolSet);
 }
 
 class DependencyGraph {
@@ -212,14 +229,18 @@ class DependencyGraph {
       let exports = [];
       let importRecords = [];
       let exportRecords = [];
+      let parseMode = 'none';
 
       if (ext === '.py') {
         const pyResult = await this.parsePython(content);
         imports = pyResult.imports;
         exports = pyResult.exports;
         importRecords = pyResult.importRecords || [];
+        parseMode = pyResult.parseMode || 'regex';
       } else if (['.js', '.ts', '.jsx', '.tsx'].includes(ext)) {
-        ({ imports, exports, importRecords, exportRecords } = this.parseJavaScript(content));
+        ({ imports, exports, importRecords, exportRecords, parseMode } = this.parseJavaScript(content, filePath));
+      } else if (ext === '.java') {
+        ({ imports, exports, importRecords, exportRecords, parseMode } = this.parseJava(content));
       }
 
       // Resolve relative imports to absolute paths
@@ -240,6 +261,7 @@ class DependencyGraph {
         exports,
         importRecords: resolvedImportRecords,
         exportRecords: exportRecords.length > 0 ? exportRecords : exports.map((name) => ({ name })),
+        parseMode,
       });
 
     } catch (e) {
@@ -354,7 +376,7 @@ class DependencyGraph {
       if (!match[1].startsWith('_')) exports.push(match[1]);
     }
 
-    return { imports, exports, importRecords };
+    return { imports, exports, importRecords, parseMode: 'regex' };
   }
 
   async parsePython(content) {
@@ -370,6 +392,7 @@ class DependencyGraph {
             usesAllExports: record.usesAllExports
           })
         ),
+        parseMode: 'ast',
       };
     }
     
@@ -457,6 +480,9 @@ class DependencyGraph {
 
         // ImportDeclaration: import { x } from 'y'
         if (node.type === 'ImportDeclaration' && node.source?.value) {
+          if (node.importKind === 'type') {
+            return;
+          }
           const source = node.source.value;
           imports.push(source);
 
@@ -469,6 +495,9 @@ class DependencyGraph {
             } else if (spec.type === 'ImportDefaultSpecifier') {
               imported.push('default');
             } else if (spec.type === 'ImportSpecifier') {
+              if (spec.importKind === 'type') {
+                continue;
+              }
               const name = spec.imported?.name || spec.imported?.value;
               if (name && name !== 'type') {
                 imported.push(name);
@@ -481,37 +510,50 @@ class DependencyGraph {
 
         // ExportAllDeclaration: export * from 'y'
         if (node.type === 'ExportAllDeclaration' && node.source?.value) {
+          if (node.exportKind === 'type') {
+            return;
+          }
           exportRecords.push({ name: '*', unknown: true });
           imports.push(node.source.value);
-          importRecords.push(createImportRecord(node.source.value, { usesAllExports: true }));
+          importRecords.push(createImportRecord(node.source.value, { usesAllExports: true, reExportAll: true }));
         }
 
         // ExportNamedDeclaration: export { x } from 'y' or export { x }
         if (node.type === 'ExportNamedDeclaration') {
+          if (node.exportKind === 'type') {
+            return;
+          }
           if (node.source?.value) {
             // Re-export: export { x } from 'y'
             imports.push(node.source.value);
-            const exported = [];
+            const imported = [];
+            const reExported = [];
             for (const spec of node.specifiers || []) {
               if (spec.type === 'ExportSpecifier') {
-                const name = spec.local?.name || spec.local?.value;
-                if (name && name !== 'type') {
-                  exported.push(name);
-                }
+                if (spec.exportKind === 'type') continue;
+                const importedName = spec.local?.name || spec.local?.value;
+                const exportedName = spec.exported?.name || spec.exported?.value || importedName;
+                const normalizedImported = normalizeImportedName(importedName);
+                const normalizedExported = normalizeImportedName(exportedName);
+                if (!normalizedImported || !normalizedExported) continue;
+                imported.push(normalizedImported);
+                reExported.push({ imported: normalizedImported, exported: normalizedExported });
               }
             }
-            for (const name of exported) {
+            for (const { exported: name } of reExported) {
               exportRecords.push({ name });
             }
             importRecords.push(createImportRecord(node.source.value, { 
-              imported: exported, 
-              usesAllExports: exported.length === 0 
+              imported,
+              reExported,
+              usesAllExports: imported.length === 0 
             }));
           } else {
             // Local export: export { x }
             for (const spec of node.specifiers || []) {
               if (spec.type === 'ExportSpecifier') {
-                const name = spec.local?.name || spec.local?.value;
+                if (spec.exportKind === 'type') continue;
+                const name = spec.exported?.name || spec.exported?.value || spec.local?.name || spec.local?.value;
                 if (name) {
                   exportRecords.push({ name });
                 }
@@ -581,6 +623,7 @@ class DependencyGraph {
         exports,
         importRecords,
         exportRecords,
+        parseMode: 'ast',
       };
     } catch (e) {
       // AST parse failed, return null to fallback to regex
@@ -667,24 +710,36 @@ class DependencyGraph {
 
     const namedReExportRegex = /export\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g;
     while ((match = namedReExportRegex.exec(content)) !== null) {
-      const exportedNames = match[1]
+      const source = match[2];
+      imports.push(source);
+      const reExported = match[1]
         .split(',')
         .map((part) => part.trim())
         .filter(Boolean)
         .map((part) => {
           const withoutType = part.replace(/^type\s+/, '').trim();
           const segments = withoutType.split(/\s+as\s+/i);
-          return normalizeImportedName(segments[1] || segments[0]);
+          return {
+            imported: normalizeImportedName(segments[0]),
+            exported: normalizeImportedName(segments[1] || segments[0]),
+          };
         })
-        .filter(Boolean);
-      for (const name of exportedNames) {
-        exportRecords.push({ name });
+        .filter((pair) => pair.imported && pair.exported);
+      for (const pair of reExported) {
+        exportRecords.push({ name: pair.exported });
       }
+      importRecords.push(createImportRecord(source, {
+        imported: reExported.map((pair) => pair.imported),
+        reExported,
+        usesAllExports: reExported.length === 0,
+      }));
     }
 
     const exportAllRegex = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
     while ((match = exportAllRegex.exec(content)) !== null) {
+      imports.push(match[1]);
       exportRecords.push({ name: '*', unknown: true });
+      importRecords.push(createImportRecord(match[1], { usesAllExports: true, reExportAll: true }));
     }
 
     const namedExportRegex = /export\s*\{([^}]*)\}(?!\s*from)/g;
@@ -723,6 +778,37 @@ class DependencyGraph {
       exports,
       importRecords,
       exportRecords,
+      parseMode: 'regex',
+    };
+  }
+
+  parseJava(content) {
+    const imports = [];
+    const importRecords = [];
+    const exportRecords = [];
+
+    const importRegex = /^\s*import\s+(static\s+)?([a-zA-Z_][\w.]*(?:\.\*)?)\s*;/gm;
+    let match;
+    while ((match = importRegex.exec(content)) !== null) {
+      const source = match[2];
+      const isWildcard = source.endsWith('.*');
+      const imported = isWildcard ? [] : [source.split('.').pop()];
+      imports.push(source);
+      importRecords.push(createImportRecord(source, { imported, usesAllExports: isWildcard }));
+    }
+
+    const exportRegex = /\bpublic\s+(?:abstract\s+|final\s+)?(?:class|interface|enum|record)\s+([A-Za-z_]\w*)/g;
+    while ((match = exportRegex.exec(content)) !== null) {
+      exportRecords.push({ name: match[1] });
+    }
+
+    const exports = uniqueNames(exportRecords.map((record) => record.name));
+    return {
+      imports: uniqueNames(imports),
+      exports,
+      importRecords,
+      exportRecords,
+      parseMode: 'regex',
     };
   }
 
@@ -787,9 +873,33 @@ class DependencyGraph {
     return resolvedBase;
   }
 
+  resolveJavaImport(importPath) {
+    if (!importPath || importPath.endsWith('.*')) {
+      return null;
+    }
+    const relative = importPath.split('.').join(path.sep);
+    const candidates = [
+      path.join(this.root, relative),
+      path.join(this.root, 'src', relative),
+      path.join(this.root, 'src', 'main', 'java', relative),
+      path.join(this.root, 'src', 'test', 'java', relative),
+      path.join(this.root, 'app', relative),
+    ];
+    for (const base of candidates) {
+      const fullPath = `${base}.java`;
+      if (fs.existsSync(fullPath)) {
+        return fullPath;
+      }
+    }
+    return null;
+  }
+
   resolveImport(fromFile, importPath, ext) {
     if (ext === '.py') {
       return this.resolvePythonImport(fromFile, importPath);
+    }
+    if (ext === '.java') {
+      return this.resolveJavaImport(importPath);
     }
 
     return this.resolveJavaScriptImport(fromFile, importPath);
@@ -849,6 +959,198 @@ class DependencyGraph {
     }
 
     return results;
+  }
+
+  getMatchingImportRecords(importerFile, importedFile) {
+    const importerInfo = this.graph.get(importerFile);
+    if (!importerInfo?.importRecords) return [];
+    return importerInfo.importRecords.filter((record) => record.resolved === importedFile);
+  }
+
+  collectDirectSymbolUsage(sourceFile, importerFile, sourceSymbols) {
+    const records = this.getMatchingImportRecords(importerFile, sourceFile);
+    if (records.length === 0) {
+      return { mode: 'unknown', symbols: [] };
+    }
+
+    let usesAllExports = false;
+    const importedSymbols = new Set();
+    for (const record of records) {
+      if (record.usesAllExports) {
+        usesAllExports = true;
+      }
+      for (const importedName of record.imported || []) {
+        importedSymbols.add(importedName);
+      }
+    }
+
+    if (usesAllExports) {
+      return {
+        mode: 'all-exports',
+        symbols: sourceSymbols || [],
+      };
+    }
+
+    const incoming = toSymbolSet(sourceSymbols);
+    if (incoming === null) {
+      return {
+        mode: importedSymbols.size > 0 ? 'named' : 'unknown',
+        symbols: Array.from(importedSymbols),
+      };
+    }
+
+    const matched = Array.from(importedSymbols).filter((name) => incoming.has(name));
+    if (matched.length > 0) {
+      return { mode: 'named', symbols: matched };
+    }
+    return { mode: 'none', symbols: [] };
+  }
+
+  collectReExportedSymbols(sourceFile, reExporterFile, sourceSymbols) {
+    const records = this.getMatchingImportRecords(reExporterFile, sourceFile);
+    if (records.length === 0) {
+      return null;
+    }
+
+    const incoming = toSymbolSet(sourceSymbols);
+    let propagatedAll = false;
+    const propagated = new Set();
+
+    for (const record of records) {
+      if (record.reExportAll) {
+        propagatedAll = true;
+      }
+
+      for (const pair of record.reExported || []) {
+        if (incoming === null || incoming.has(pair.imported)) {
+          propagated.add(pair.exported);
+        }
+      }
+    }
+
+    if (propagatedAll) {
+      return incoming;
+    }
+
+    if (propagated.size === 0) {
+      return null;
+    }
+
+    return propagated;
+  }
+
+  shouldFallbackToFileImpact(filePath) {
+    const info = this.graph.get(filePath);
+    if (!info) return true;
+    const ext = path.extname(filePath).toLowerCase();
+    if (['.js', '.jsx', '.ts', '.tsx'].includes(ext)) {
+      return info.parseMode !== 'ast';
+    }
+    if (ext === '.py') {
+      return info.parseMode !== 'ast';
+    }
+    return false;
+  }
+
+  getSymbolImpact(filePath, maxDepth = 4) {
+    const sourceInfo = this.graph.get(filePath);
+    if (!sourceInfo) {
+      return {
+        mode: 'file-fallback',
+        reason: 'source-not-indexed',
+        impactedFiles: this.getImpactRadius(filePath, maxDepth),
+      };
+    }
+
+    if (this.shouldFallbackToFileImpact(filePath)) {
+      return {
+        mode: 'file-fallback',
+        reason: 'ast-unavailable',
+        impactedFiles: this.getImpactRadius(filePath, maxDepth),
+      };
+    }
+
+    const sourceSymbols = sourceInfo.exports || [];
+    const direct = [];
+    const reExportQueue = [];
+    const seenReExportNode = new Set();
+
+    for (const importerFile of this.getDependents(filePath)) {
+      const usage = this.collectDirectSymbolUsage(filePath, importerFile, sourceSymbols);
+      if (usage.mode !== 'none') {
+        direct.push({
+          file: importerFile,
+          mode: usage.mode,
+          symbols: usage.symbols,
+        });
+      }
+
+      const reExportedSymbols = this.collectReExportedSymbols(filePath, importerFile, sourceSymbols);
+      if (reExportedSymbols) {
+        reExportQueue.push({
+          file: importerFile,
+          level: 1,
+          symbols: reExportedSymbols,
+          via: [filePath],
+        });
+      }
+    }
+
+    const transitive = [];
+    while (reExportQueue.length > 0) {
+      const current = reExportQueue.shift();
+      const queueKey = `${current.file}::${symbolSetToArray(current.symbols).sort().join(',')}`;
+      if (seenReExportNode.has(queueKey)) continue;
+      seenReExportNode.add(queueKey);
+
+      transitive.push({
+        file: current.file,
+        level: current.level,
+        symbols: symbolSetToArray(current.symbols),
+        via: current.via,
+      });
+
+      if (current.level >= maxDepth) continue;
+
+      for (const importerFile of this.getDependents(current.file)) {
+        const usage = this.collectDirectSymbolUsage(current.file, importerFile, symbolSetToArray(current.symbols));
+        if (usage.mode !== 'none') {
+          direct.push({
+            file: importerFile,
+            mode: usage.mode,
+            symbols: usage.symbols,
+          });
+        }
+
+        const nextReExported = this.collectReExportedSymbols(current.file, importerFile, symbolSetToArray(current.symbols));
+        if (!nextReExported) continue;
+        reExportQueue.push({
+          file: importerFile,
+          level: current.level + 1,
+          symbols: nextReExported,
+          via: [...current.via, current.file],
+        });
+      }
+    }
+
+    const uniqueDirect = [];
+    const seenDirect = new Set();
+    for (const item of direct) {
+      const key = `${item.file}|${item.mode}|${(item.symbols || []).slice().sort().join(',')}`;
+      if (seenDirect.has(key)) continue;
+      seenDirect.add(key);
+      uniqueDirect.push(item);
+    }
+
+    return {
+      mode: 'symbol',
+      sourceFile: filePath,
+      sourceSymbols,
+      directCount: uniqueDirect.length,
+      directDependents: uniqueDirect,
+      transitiveCount: transitive.length,
+      transitiveDependents: transitive,
+    };
   }
 
   /**

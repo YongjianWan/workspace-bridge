@@ -60,12 +60,14 @@ async function dependencyGraph(args, container) {
     case 'impact':
       if (!filePath) return { ok: false, error: 'file is required for impact analysis' };
       const impact = container.depGraph.getImpactRadius(filePath);
+      const symbolImpact = container.depGraph.getSymbolImpact(filePath);
       return {
         ok: true,
         file: args.file,
         resolvedPath: filePath,
         impactCount: impact.length,
         impact,
+        symbolImpact,
       };
     
     case 'cycles':

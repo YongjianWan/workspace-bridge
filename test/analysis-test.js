@@ -109,6 +109,8 @@ function main() {
     console.log('\n📋 Test Group: impact');
     const impact = runCli(['impact', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);
     assert(typeof impact.impactCount === 'number', 'impactCount should be a number');
+    assert(impact.symbolImpact, 'symbolImpact should exist');
+    assert(['symbol', 'file-fallback'].includes(impact.symbolImpact.mode), 'symbolImpact.mode should be valid');
     console.log(`     Impact: ${impact.impactCount}`);
 
     console.log('\nAll analysis tests passed');

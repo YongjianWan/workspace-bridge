@@ -5,52 +5,56 @@ const fs = require('fs');
 const path = require('path');
 const { pathExists, readJsonSafe } = require('./path');
 
-function detectPackageManager(root) {
+function hasPythonProject(root) {
+  return (
+    pathExists(path.join(root, 'requirements.txt')) ||
+    pathExists(path.join(root, 'pyproject.toml')) ||
+    pathExists(path.join(root, 'manage.py'))
+  );
+}
+
+function hasNodeProject(root) {
+  return (
+    pathExists(path.join(root, 'package.json')) ||
+    pathExists(path.join(root, 'package-lock.json')) ||
+    pathExists(path.join(root, 'pnpm-lock.yaml')) ||
+    pathExists(path.join(root, 'yarn.lock')) ||
+    pathExists(path.join(root, 'bun.lock')) ||
+    pathExists(path.join(root, 'bun.lockb'))
+  );
+}
+
+function detectNodePackageManager(root) {
   if (pathExists(path.join(root, 'pnpm-lock.yaml'))) return 'pnpm';
   if (pathExists(path.join(root, 'yarn.lock'))) return 'yarn';
   if (pathExists(path.join(root, 'bun.lockb')) || pathExists(path.join(root, 'bun.lock'))) return 'bun';
   if (pathExists(path.join(root, 'package-lock.json'))) return 'npm';
-
-  // Python-first projects should not be mislabeled as npm
-  if (
-    pathExists(path.join(root, 'requirements.txt')) ||
-    pathExists(path.join(root, 'pyproject.toml')) ||
-    pathExists(path.join(root, 'manage.py'))
-  ) {
-    return 'pip';
-  }
-
-  // Only fall back to npm when package.json exists
   if (pathExists(path.join(root, 'package.json'))) return 'npm';
   return null;
 }
 
 function detectTestRunner(root) {
-  // Jest
   if (pathExists(path.join(root, 'jest.config.js')) ||
       pathExists(path.join(root, 'jest.config.ts')) ||
       pathExists(path.join(root, 'jest.config.mjs'))) {
     return { name: 'jest', type: 'node' };
   }
-  // Vitest
   if (pathExists(path.join(root, 'vitest.config.ts')) ||
       pathExists(path.join(root, 'vitest.config.js')) ||
       pathExists(path.join(root, 'vitest.config.mjs'))) {
     return { name: 'vitest', type: 'node' };
   }
-  // Mocha
   if (pathExists(path.join(root, '.mocharc.js')) ||
       pathExists(path.join(root, '.mocharc.yml')) ||
       pathExists(path.join(root, '.mocharc.json'))) {
     return { name: 'mocha', type: 'node' };
   }
-  // Pytest
   if (pathExists(path.join(root, 'pytest.ini')) ||
       pathExists(path.join(root, 'setup.cfg')) ||
       pathExists(path.join(root, 'pyproject.toml'))) {
     return { name: 'pytest', type: 'python' };
   }
-  // Check package.json scripts
+
   const packageJsonPath = path.join(root, 'package.json');
   if (pathExists(packageJsonPath)) {
     const pkg = readJsonSafe(packageJsonPath);
@@ -63,43 +67,70 @@ function detectTestRunner(root) {
   return null;
 }
 
-function detectLinter(root) {
-  const linters = [];
+function detectPythonTestRunner(root) {
+  if (pathExists(path.join(root, 'pytest.ini'))) return 'pytest';
+  if (pathExists(path.join(root, 'setup.cfg'))) return 'pytest';
+  if (pathExists(path.join(root, 'pyproject.toml'))) {
+    try {
+      const content = fs.readFileSync(path.join(root, 'pyproject.toml'), 'utf8');
+      if (content.includes('pytest') || content.includes('[tool.pytest')) {
+        return 'pytest';
+      }
+    } catch {
+      // ignore read errors
+    }
+  }
+  return null;
+}
+
+function detectLinters(root) {
+  const linters = {
+    node: [],
+    python: [],
+  };
+
   if (pathExists(path.join(root, '.eslintrc.js')) ||
       pathExists(path.join(root, '.eslintrc.cjs')) ||
       pathExists(path.join(root, '.eslintrc.json')) ||
       pathExists(path.join(root, 'eslint.config.js'))) {
-    linters.push('eslint');
+    linters.node.push('eslint');
   }
   if (pathExists(path.join(root, '.prettierrc')) ||
       pathExists(path.join(root, '.prettierrc.json')) ||
       pathExists(path.join(root, 'prettier.config.js'))) {
-    linters.push('prettier');
+    linters.node.push('prettier');
   }
   if (pathExists(path.join(root, 'pyproject.toml'))) {
     try {
       const content = fs.readFileSync(path.join(root, 'pyproject.toml'), 'utf8');
       if (content.includes('ruff') || content.includes('[tool.ruff]')) {
-        linters.push('ruff');
+        linters.python.push('ruff');
       }
-    } catch (e) {
+    } catch {
       // ignore read errors
     }
   }
+
   return linters;
 }
 
-function detectTypeChecker(root) {
+function detectTypeCheckers(root) {
+  const typeCheckers = {
+    node: null,
+    python: null,
+  };
+
   if (pathExists(path.join(root, 'tsconfig.json'))) {
-    return 'tsc';
+    typeCheckers.node = 'tsc';
   }
   if (pathExists(path.join(root, 'pyproject.toml'))) {
     const content = fs.readFileSync(path.join(root, 'pyproject.toml'), 'utf8');
     if (content.includes('pyright') || content.includes('[tool.pyright]')) {
-      return 'pyright';
+      typeCheckers.python = 'pyright';
     }
   }
-  return null;
+
+  return typeCheckers;
 }
 
 function detectDocsTool(root) {
@@ -110,254 +141,179 @@ function detectDocsTool(root) {
 }
 
 function detectStack(root) {
+  const hasNode = hasNodeProject(root);
+  const hasPython = hasPythonProject(root);
+  const nodePackageManager = detectNodePackageManager(root);
+  const testRunner = detectTestRunner(root);
+  const pythonTestRunner = detectPythonTestRunner(root);
+  const linters = detectLinters(root);
+  const typeCheckers = detectTypeCheckers(root);
+
+  let profile = 'unknown';
+  if (hasNode && hasPython) profile = 'mixed';
+  else if (hasNode) profile = 'node-first';
+  else if (hasPython) profile = 'python-first';
+
   return {
-    packageManager: detectPackageManager(root),
-    testRunner: detectTestRunner(root),
-    linters: detectLinter(root),
-    typeChecker: detectTypeChecker(root),
+    profile,
+    packageManager: hasNode ? nodePackageManager : hasPython ? 'pip' : null,
     docsTool: detectDocsTool(root),
+    node: hasNode ? {
+      enabled: true,
+      packageManager: nodePackageManager,
+      testRunner: testRunner?.type === 'node' ? testRunner.name : null,
+      linters: linters.node,
+      typeChecker: typeCheckers.node,
+    } : null,
+    python: hasPython ? {
+      enabled: true,
+      packageManager: 'pip',
+      testRunner: pythonTestRunner || (testRunner?.type === 'python' ? testRunner.name : null),
+      linters: linters.python,
+      typeChecker: typeCheckers.python,
+      framework: pathExists(path.join(root, 'manage.py'))
+        ? 'django'
+        : (() => {
+          if (!pathExists(path.join(root, 'requirements.txt'))) return null;
+          try {
+            const content = fs.readFileSync(path.join(root, 'requirements.txt'), 'utf8');
+            return content.toLowerCase().includes('fastapi') ? 'fastapi' : null;
+          } catch {
+            return null;
+          }
+        })(),
+    } : null,
   };
 }
 
-function getRunCommand(stack, targetFiles = []) {
-  const { packageManager, testRunner } = stack;
-  const fileArgs = targetFiles.length > 0 ? targetFiles.join(' ') : '';
-
-  if (!testRunner) {
-    if (packageManager === 'npm') return 'npm test';
-    if (packageManager === 'pnpm' || packageManager === 'yarn' || packageManager === 'bun') {
-      return `${packageManager} test`;
-    }
-    return 'pytest';
+function nodeExec(packageManager) {
+  if (packageManager === 'npm') return { run: 'npm run', exec: 'npx' };
+  if (['pnpm', 'yarn', 'bun'].includes(packageManager)) {
+    return { run: `${packageManager} run`, exec: `${packageManager} exec` };
   }
-
-  const isNodePm = ['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager);
-  const pmRun = packageManager === 'npm' ? 'npm run' : isNodePm ? `${packageManager} run` : null;
-  const pmExec = packageManager === 'npm' ? 'npx' : isNodePm ? `${packageManager} exec` : null;
-
-  switch (testRunner.name) {
-    case 'jest':
-      return targetFiles.length > 0
-        ? `${pmExec} jest ${fileArgs}`
-        : `${pmRun} test`;
-    case 'vitest':
-      return targetFiles.length > 0
-        ? `${pmExec} vitest run ${fileArgs}`
-        : `${pmRun} test`;
-    case 'mocha':
-      return targetFiles.length > 0
-        ? `${pmExec} mocha ${fileArgs}`
-        : `${pmRun} test`;
-    case 'pytest':
-      return targetFiles.length > 0
-        ? `pytest ${fileArgs}`
-        : 'pytest';
-    default:
-      return pmRun ? `${pmRun} test` : 'pytest';
-  }
+  return null;
 }
 
-function getLintCommand(stack, targetFiles = []) {
-  const { packageManager, linters } = stack;
-  const fileArgs = targetFiles.length > 0 ? targetFiles.join(' ') : '.';
-  const isNodePm = ['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager);
-  const pmExec = packageManager === 'npm' ? 'npx' : isNodePm ? `${packageManager} exec` : null;
+function getNodeCommands(nodeStack, changeType, targets) {
+  if (!nodeStack?.enabled) return { smoke: [], focused: [], full: [] };
+  const exec = nodeExec(nodeStack.packageManager);
+  if (!exec) return { smoke: [], focused: [], full: [] };
 
-  const commands = [];
-  for (const linter of linters) {
-    switch (linter) {
-      case 'eslint':
-        if (pmExec) commands.push(`${pmExec} eslint ${fileArgs}`);
-        break;
-      case 'prettier':
-        if (pmExec) commands.push(`${pmExec} prettier --check ${fileArgs}`);
-        break;
-      case 'ruff':
-        commands.push(`ruff check ${fileArgs}`);
-        break;
+  const fileArgs = targets.length > 0 ? targets.join(' ') : '.';
+  const commands = { smoke: [], focused: [], full: [] };
+
+  if (changeType === 'code' || changeType === 'tests' || changeType === 'config') {
+    if (nodeStack.linters.includes('eslint')) {
+      commands.smoke.push({ name: 'node-lint', description: 'Run ESLint on changed files', cmd: `${exec.exec} eslint ${fileArgs}` });
     }
+    if (nodeStack.typeChecker === 'tsc') {
+      commands.smoke.push({ name: 'node-type-check', description: 'Run TypeScript type check', cmd: `${exec.exec} tsc --noEmit` });
+    }
+    if (nodeStack.testRunner) {
+      const testCmd = nodeStack.testRunner === 'vitest'
+        ? `${exec.exec} vitest run ${targets.join(' ')}`
+        : nodeStack.testRunner === 'jest'
+          ? `${exec.exec} jest ${targets.join(' ')}`
+          : nodeStack.testRunner === 'mocha'
+            ? `${exec.exec} mocha ${targets.join(' ')}`
+          : `${exec.run} test`;
+      if (targets.length > 0) {
+        commands.focused.push({ name: 'node-focused-tests', description: 'Run node-side focused tests', cmd: testCmd });
+      }
+    }
+    commands.full.push({ name: 'node-all-tests', description: 'Run node-side full test suite', cmd: `${exec.run} test` });
   }
+
   return commands;
 }
 
-function getTypeCheckCommand(stack) {
-  const { typeChecker, packageManager } = stack;
-  const isNodePm = ['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager);
-  const pmExec = packageManager === 'npm' ? 'npx' : isNodePm ? `${packageManager} exec` : null;
+function getPythonCommands(pythonStack, changeType, targets) {
+  if (!pythonStack?.enabled) return { smoke: [], focused: [], full: [] };
+  if (changeType !== 'code' && changeType !== 'tests' && changeType !== 'config') {
+    return { smoke: [], focused: [], full: [] };
+  }
+  const fileArgs = targets.length > 0 ? targets.join(' ') : '.';
+  const commands = { smoke: [], focused: [], full: [] };
 
-  switch (typeChecker) {
-    case 'tsc':
-      return pmExec ? `${pmExec} tsc --noEmit` : null;
-    case 'pyright':
-      return pmExec ? `${pmExec} pyright` : 'pyright';
+  if (pythonStack.linters.includes('ruff')) {
+    commands.smoke.push({ name: 'python-lint', description: 'Run Ruff on changed files', cmd: `ruff check ${fileArgs}` });
+  }
+  if (pythonStack.typeChecker === 'pyright') {
+    commands.smoke.push({ name: 'python-type-check', description: 'Run Pyright', cmd: 'pyright' });
+  }
+  if (pythonStack.testRunner === 'pytest') {
+    if (targets.length > 0) {
+      commands.focused.push({ name: 'python-focused-tests', description: 'Run python-side focused tests', cmd: `pytest ${fileArgs}` });
+    }
+    commands.full.push({ name: 'python-all-tests', description: 'Run python-side full test suite', cmd: 'pytest' });
+  }
+  if (changeType === 'config' && pythonStack.framework === 'django') {
+    commands.focused.push({ name: 'django-check', description: 'Run Django system checks', cmd: 'python manage.py check' });
+  }
+
+  return commands;
+}
+
+function mergeCommandSets(...sets) {
+  const merged = { smoke: [], focused: [], full: [] };
+  for (const set of sets) {
+    if (!set) continue;
+    for (const phase of ['smoke', 'focused', 'full']) {
+      merged[phase].push(...(set[phase] || []));
+    }
+  }
+  return merged;
+}
+
+function getDocsCommands(stack, changeType) {
+  if (changeType !== 'docs') return null;
+  switch (stack.docsTool) {
+    case 'mkdocs':
+      return { serve: 'mkdocs serve', build: 'mkdocs build' };
+    case 'docusaurus': {
+      const exec = nodeExec(stack.node?.packageManager || stack.packageManager);
+      return exec ? { serve: `${exec.run} start`, build: `${exec.run} build` } : null;
+    }
+    case 'vitepress': {
+      const exec = nodeExec(stack.node?.packageManager || stack.packageManager);
+      return exec ? { serve: `${exec.run} docs:dev`, build: `${exec.run} docs:build` } : null;
+    }
     default:
       return null;
   }
 }
 
-function getDocsCommands(stack, changeType) {
-  const { docsTool, packageManager } = stack;
-  const isNodePm = ['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager);
-  const pmRun = packageManager === 'npm' ? 'npm run' : isNodePm ? `${packageManager} run` : null;
-
-  if (changeType === 'docs') {
-    switch (docsTool) {
-      case 'mkdocs':
-        return {
-          serve: 'mkdocs serve',
-          build: 'mkdocs build',
-        };
-      case 'docusaurus':
-        if (!pmRun) return null;
-        return {
-          serve: `${pmRun} start`,
-          build: `${pmRun} build`,
-        };
-      case 'vitepress':
-        if (!pmRun) return null;
-        return {
-          serve: `${pmRun} docs:dev`,
-          build: `${pmRun} docs:build`,
-        };
-      default:
-        return null;
-    }
-  }
-  return null;
-}
-
 function generateCommands(stack, changeType, targets, steps = []) {
-  const commands = {
-    smoke: [],
-    focused: [],
-    full: [],
-  };
-
-  const { packageManager } = stack;
-  const isNodePm = ['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager);
-  const pmRun = packageManager === 'npm' ? 'npm run' : isNodePm ? `${packageManager} run` : null;
-
-  // Smoke commands based on change type
-  switch (changeType) {
-    case 'docs': {
-      commands.smoke.push({
-        name: 'preview-docs',
-        description: 'Start docs preview server',
-        cmd: getDocsCommands(stack, changeType)?.serve || `cat ${targets[0] || 'README.md'}`,
-      });
-      break;
-    }
-    case 'config': {
-      const typeCheckCmd = getTypeCheckCommand(stack);
-      if (typeCheckCmd) {
-        commands.smoke.push({
-          name: 'type-check',
-          description: 'Run type checker on project',
-          cmd: typeCheckCmd,
-        });
-      }
-      break;
-    }
-    case 'code':
-    default: {
-      // Lint changed files
-      const lintCmds = getLintCommand(stack, targets);
-      for (const cmd of lintCmds.slice(0, 1)) {
-        commands.smoke.push({
-          name: 'lint',
-          description: 'Run linter on changed files',
-          cmd,
-        });
-      }
-      // Type check
-      const typeCheckCmd = getTypeCheckCommand(stack);
-      if (typeCheckCmd) {
-        commands.smoke.push({
-          name: 'type-check',
-          description: 'Run type checker',
-          cmd: typeCheckCmd,
-        });
-      }
-      break;
-    }
+  const docsCommands = getDocsCommands(stack, changeType);
+  if (changeType === 'docs' && docsCommands) {
+    return {
+      smoke: [{ name: 'preview-docs', description: 'Start docs preview server', cmd: docsCommands.serve }],
+      focused: [{ name: 'build-docs', description: 'Build docs to catch broken pages', cmd: docsCommands.build }],
+      full: [],
+    };
   }
 
-  // Focused commands
-  if (changeType === 'code' || changeType === 'tests') {
-    // Direct tests
-    const testFiles = steps.find(s => s.name === 'run-direct-tests')?.targets || [];
-    if (testFiles.length > 0) {
-      commands.focused.push({
-        name: 'run-direct-tests',
-        description: 'Run directly affected tests',
-        cmd: getRunCommand(stack, testFiles),
+  const nodeTargets = targets.filter((file) => /\.(js|jsx|ts|tsx|json|mjs|cjs)$/.test(file));
+  const pythonTargets = targets.filter((file) => /\.py$/.test(file));
+
+  const nodeCommands = getNodeCommands(stack.node, changeType, nodeTargets);
+  const pythonCommands = getPythonCommands(stack.python, changeType, pythonTargets);
+  const merged = mergeCommandSets(nodeCommands, pythonCommands);
+
+  if (stack.profile === 'mixed') {
+    if (!merged.full.some((entry) => entry.name === 'mixed-review')) {
+      merged.full.unshift({
+        name: 'mixed-review',
+        description: 'Review both Node and Python validation results together',
+        cmd: 'echo "Review node and python command output together before merge"',
       });
     }
   }
 
-  if (changeType === 'docs') {
-    commands.focused.push({
-      name: 'check-links',
-      description: 'Check for broken internal links',
-      cmd: getDocsCommands(stack, changeType)?.build || 'echo "Check links manually"',
-    });
-  }
-
-  if (changeType === 'config') {
-    commands.focused.push({
-      name: 'start-app',
-      description: 'Start application to verify config loads',
-      cmd: pmRun
-        ? `${pmRun} start 2>&1 | head -20 || echo "Check if app starts correctly"`
-        : 'python -m pytest -q || echo "Run the app startup command manually"',
-    });
-  }
-
-  // Full commands
-  switch (changeType) {
-    case 'docs': {
-      commands.full.push({
-        name: 'build-docs',
-        description: 'Build documentation',
-        cmd: getDocsCommands(stack, changeType)?.build || 'echo "No docs build command found"',
-      });
-      break;
-    }
-    case 'tests':
-    case 'code': {
-      commands.full.push({
-        name: 'run-all-tests',
-        description: 'Run full test suite',
-        cmd: getRunCommand(stack),
-      });
-      const lintCmds = getLintCommand(stack);
-      if (lintCmds.length > 0) {
-        commands.full.push({
-          name: 'lint-all',
-          description: 'Run linter on entire project',
-          cmd: lintCmds[0].replace(/\s+\S+$/, ' .'), // Replace file args with '.'
-        });
-      }
-      break;
-    }
-    case 'config': {
-      commands.full.push({
-        name: 'run-all-tests',
-        description: 'Run full test suite to catch config side effects',
-        cmd: getRunCommand(stack),
-      });
-      break;
-    }
-  }
-
-  return commands;
+  return merged;
 }
 
 module.exports = {
   detectStack,
-  getRunCommand,
-  getLintCommand,
-  getTypeCheckCommand,
-  getDocsCommands,
   generateCommands,
 };

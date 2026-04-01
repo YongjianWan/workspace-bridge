@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const WORKSPACE_MARKERS = ['.git', 'package.json', 'pyproject.toml', 'requirements.txt', 'manage.py'];
+const WORKSPACE_MARKERS = ['.git', 'package.json', 'pyproject.toml', 'requirements.txt', 'manage.py', 'pom.xml', 'build.gradle', 'build.gradle.kts'];
 
 function normalizePath(inputPath) {
   if (!inputPath) return process.cwd();
@@ -35,6 +35,8 @@ function scoreDirectory(candidate) {
   if (pathExists(path.join(candidate, 'pyproject.toml'))) score += 6;
   if (pathExists(path.join(candidate, 'requirements.txt'))) score += 5;
   if (pathExists(path.join(candidate, 'manage.py'))) score += 5;
+  if (pathExists(path.join(candidate, 'pom.xml'))) score += 6;
+  if (pathExists(path.join(candidate, 'build.gradle')) || pathExists(path.join(candidate, 'build.gradle.kts'))) score += 6;
   return score;
 }
 
@@ -129,6 +131,9 @@ function detectWorkspace(root) {
   const requirementsPath = path.join(root, 'requirements.txt');
   const managePyPath = path.join(root, 'manage.py');
   const tsconfigPath = path.join(root, 'tsconfig.json');
+  const pomPath = path.join(root, 'pom.xml');
+  const gradlePath = path.join(root, 'build.gradle');
+  const gradleKtsPath = path.join(root, 'build.gradle.kts');
   const packageJson = pathExists(packageJsonPath) ? readJsonSafe(packageJsonPath) : null;
 
   return {
@@ -139,6 +144,9 @@ function detectWorkspace(root) {
     hasRequirements: pathExists(requirementsPath),
     hasManagePy: pathExists(managePyPath),
     hasTsconfig: pathExists(tsconfigPath),
+    hasPom: pathExists(pomPath),
+    hasGradle: pathExists(gradlePath) || pathExists(gradleKtsPath),
+    hasJava: pathExists(pomPath) || pathExists(gradlePath) || pathExists(gradleKtsPath),
     packageJson,
   };
 }

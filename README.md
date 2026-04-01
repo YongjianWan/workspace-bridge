@@ -115,7 +115,7 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 `audit-diff` 返回结构化验证计划：
 
 - `validationAdvice.changeType`: 改动类型 (docs/config/tests/scripts/code)
-- `validationAdvice.stack`: 检测到的技术栈 (packageManager, testRunner, linters, typeChecker)
+- `validationAdvice.stack`: 检测到的技术栈概况（`python-first` / `node-first` / `mixed`）
 - `validationAdvice.commands`: 各阶段可执行命令 (smoke/focused/full)
 - `validationAdvice.phases`: 分阶段验证建议，包含有序 steps
 
@@ -126,14 +126,27 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
   "validationAdvice": {
     "changeType": "code",
     "stack": {
+      "profile": "mixed",
       "packageManager": "npm",
-      "testRunner": "vitest",
-      "linters": ["eslint", "prettier"],
-      "typeChecker": "tsc"
+      "node": {
+        "enabled": true,
+        "packageManager": "npm",
+        "testRunner": "vitest",
+        "linters": ["eslint"],
+        "typeChecker": "tsc"
+      },
+      "python": {
+        "enabled": true,
+        "packageManager": "pip",
+        "testRunner": "pytest",
+        "linters": ["ruff"],
+        "typeChecker": "pyright",
+        "framework": "fastapi"
+      }
     },
     "commands": {
       "smoke": [{ "name": "lint", "cmd": "npx eslint cli.js" }],
-      "focused": [{ "name": "run-direct-tests", "cmd": "npx vitest run test/audit-diff-test.js" }],
+      "focused": [{ "name": "run-direct-tests", "cmd": "npm run test:functionality" }],
       "full": [{ "name": "run-all-tests", "cmd": "npm run test" }]
     },
     "phases": [
@@ -235,7 +248,8 @@ workspace-bridge CLI
 
 | 检测项         | 识别文件                                       |
 | -------------- | ---------------------------------------------- |
-| packageManager | pnpm-lock.yaml / yarn.lock / package-lock.json |
+| profile        | package.json + requirements.txt / pyproject.toml / manage.py |
+| packageManager | pnpm-lock.yaml / yarn.lock / package-lock.json / Python markers |
 | testRunner     | jest.config.* / vitest.config.* / pytest.ini   |
 | linters        | .eslintrc.* / .prettierrc.* / pyproject.toml   |
 | typeChecker    | tsconfig.json / pyright                        |
@@ -282,8 +296,8 @@ workspace-bridge/
 │   │   ├── search-tools.js
 │   │   ├── workspace-tools.js
 │   │   └── health-tools.js
-├── scripts/
-│   └── python_ast_parser.py
+│   ├── scripts/
+│   │   └── python_ast_parser.py
 │   └── utils/             # 工具函数
 │       ├── command.js     # 安全命令执行
 │       ├── path.js        # 路径处理
@@ -306,14 +320,14 @@ DEBUG=1 node cli.js audit-summary --cwd . --json
 2. **大仓库性能** - 虽然索引已改为异步并发，但超大仓库首次扫描仍可能较慢
 3. **初始化忙等待** - `ensureReady()` 轮询等待，无上界超时
 4. **混合仓库误判** - 未配置 `.workspace-bridge.json` 时，复杂 mixed repo 仍可能需要 `--exclude`
-5. **技术栈检测局限** - mixed repo 里 Node / Python 共存时，验证命令仍是启发式生成
+5. **技术栈检测局限** - mixed repo 现在能分层输出 Node / Python 命令，但仍是启发式生成
 6. **光标位置** - 无法获取 VS Code 的光标位置和选中文本（需扩展支持）
 
 ### 边界测试发现的已知问题
 
 | 问题                            | 触发条件                      | 影响                                       | 状态      |
 | ------------------------------- | ----------------------------- | ------------------------------------------ | --------- |
-| **技术栈命令启发式**      | mixed repo / 自定义脚本       | `validationAdvice.commands` 可能不够精确 | 🟡 Medium |
+| **mixed repo 命令启发式** | Node/Python 共存 / 自定义脚本 | `validationAdvice.commands` 可能不够精确 | 🟡 Medium |
 | **非 ASCII 路径回归风险** | 中文/Unicode 模块路径         | 当前最小用例正常，但需持续回归验证         | 🟢 Watch  |
 | **缓存不一致**            | 并发访问或快速重启            | 可能读到过期缓存                           | 🟡 Medium |
 | **超长路径**              | >260 字符（Windows MAX_PATH） | 文件无法创建或读取                         | 🟢 Low    |
@@ -321,7 +335,7 @@ DEBUG=1 node cli.js audit-summary --cwd . --json
 **说明**：
 
 - `impact` / `affected-tests` 当前主线版本已可工作，不再属于已知阻塞问题
-- 真正还需要继续补的是 mixed repo 技术栈判定和非 ASCII 路径的持续回归测试
+- 真正还需要继续补的是 mixed repo 命令精度和非 ASCII 路径的持续回归测试
 
 ## 生产使用建议
 

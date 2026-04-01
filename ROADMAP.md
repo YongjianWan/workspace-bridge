@@ -32,6 +32,8 @@
 **验证建议**
 
 - ✅ 技术栈自动检测（packageManager/testRunner/linters/typeChecker）
+- ✅ mixed repo 技术栈分层识别（python-first / node-first / mixed）
+- ✅ mixed repo 分层命令生成（Node / Python）
 - ✅ 分阶段验证计划（smoke/focused/full）
 - ✅ 具体命令生成（可直接粘贴执行）
 - ✅ Git 历史风险权重
@@ -53,6 +55,42 @@
 ---
 
 ## 下一阶段规划
+
+## 生命周期 Roadmap
+
+### Phase 0: Core CLI 基座
+- CLI-only 入口
+- cache / file-index / dep-graph 跑通
+- `audit-summary` / `audit-file` 成型
+
+### Phase 1: 可信分析
+- 目录/文件角色识别
+- JS/TS AST
+- Python AST
+- `dead-exports` / unresolved / cycles 稳定
+
+### Phase 2: 变更验证
+- `audit-diff`
+- historyRisk
+- 分阶段验证计划
+- mixed repo 技术栈分层命令
+
+### Phase 3: 项目全景
+- `audit-overview`
+- 热区
+- 稳定性
+- 孤儿文件
+- 核心模块识别
+
+### Phase 4: 深度分析
+- symbol-level impact
+- 更精确的 test mapping
+- mixed repo 命令精度提升
+
+### Phase 5: 长期演进
+- overview 可视化输出
+- 架构重构建议
+- 大仓库性能专项优化
 
 ### P1: 稳定性与 polish
 

@@ -506,10 +506,10 @@ function buildValidationAdvice(entries, workspaceRoot) {
   return {
     changeType,
     stack: {
+      profile: stack.profile,
       packageManager: stack.packageManager,
-      testRunner: stack.testRunner?.name || null,
-      linters: stack.linters,
-      typeChecker: stack.typeChecker,
+      node: stack.node,
+      python: stack.python,
     },
     commands,
     phases,
@@ -759,6 +759,7 @@ async function runCommand(parsed, container) {
         const classification = container.projectContext?.classifyFile(resolvedPath) || null;
         const graphKnown = Boolean(resolvedPath && container.depGraph.graph.has(resolvedPath));
         const impact = graphKnown ? container.depGraph.getImpactRadius(resolvedPath) : [];
+        const symbolImpact = graphKnown ? container.depGraph.getSymbolImpact(resolvedPath) : null;
         const affectedTests = graphKnown ? container.depGraph.findAffectedTests(resolvedPath, Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined) : [];
         const history = resolvedPath ? await getFileHistoryRisk(container.workspaceRoot, resolvedPath, { limit: 25 }) : { ok: false };
 
@@ -769,6 +770,7 @@ async function runCommand(parsed, container) {
           graphKnown,
           impactCount: impact.length,
           impact,
+          symbolImpact,
           affectedTestCount: affectedTests.length,
           affectedTests,
           historyRisk: history.ok ? history.historyRisk : null,

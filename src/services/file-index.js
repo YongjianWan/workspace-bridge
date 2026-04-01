@@ -87,7 +87,10 @@ class FileIndex {
     if (this.workspace.hasRequirements || this.workspace.hasPyproject || this.workspace.hasManagePy) {
       patterns.push('**/*.py');
     }
-    return patterns.length > 0 ? patterns : ['**/*.js', '**/*.py'];
+    if (this.workspace.hasJava) {
+      patterns.push('**/*.java');
+    }
+    return patterns.length > 0 ? patterns : ['**/*.js', '**/*.py', '**/*.java'];
   }
 
   /**
@@ -315,6 +318,14 @@ class FileIndex {
           symbols.push({ name: funcMatch[1], type: 'function', line: idx + 1, signature: line.trim() });
         } else if (constMatch) {
           symbols.push({ name: constMatch[1], type: 'constant', line: idx + 1, signature: line.trim() });
+        }
+      });
+    } else if (ext === '.java') {
+      // Java: top-level class/interface/enum/record
+      lines.forEach((line, idx) => {
+        const typeMatch = line.match(/\b(?:public\s+)?(?:abstract\s+|final\s+)?(class|interface|enum|record)\s+(\w+)/);
+        if (typeMatch) {
+          symbols.push({ name: typeMatch[2], type: typeMatch[1], line: idx + 1, signature: line.trim() });
         }
       });
     }

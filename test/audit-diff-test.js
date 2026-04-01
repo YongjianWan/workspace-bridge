@@ -113,6 +113,8 @@ try {
   assert.strictEqual(changed.file.replace(/\\/g, '/'), 'src/util.js');
   assert.strictEqual(changed.classification.directoryRole, 'active');
   assert.strictEqual(changed.impactCount >= 1, true);
+  assert(changed.symbolImpact, 'symbolImpact should exist');
+  assert(['symbol', 'file-fallback'].includes(changed.symbolImpact.mode), 'symbolImpact.mode should be valid');
   assert.strictEqual(changed.affectedTestCount >= 1, true);
   assert.strictEqual(changed.historyRisk.level, 'high');
   assert.strictEqual(changed.historyRisk.authorCount >= 3, true);
