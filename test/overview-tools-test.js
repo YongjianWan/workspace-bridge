@@ -97,6 +97,7 @@ async function main() {
   assert(Array.isArray(result.summary.insights));
   assert(Array.isArray(result.summary.recommendations));
   assert(calls.length >= 1, 'history provider should be called');
+  assert(!result.orphans.samples.modules.some((item) => item.includes('.test.')), 'test files should not be reported as orphan modules');
 
   console.log('overview-tools-test: ok');
 }

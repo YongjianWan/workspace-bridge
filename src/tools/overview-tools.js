@@ -54,6 +54,7 @@ function findOrphanFiles(files, entryFiles, graph, root) {
     const relativePath = toRelative(root, file);
     const ext = path.extname(file).toLowerCase();
     const base = path.basename(file);
+    if (graph.isTestLikeFile?.(file)) continue;
     const dependents = graph.getDependents?.(file) || [];
     const isEntry = entryFiles.has?.(file) || entryFiles.includes?.(file);
     const isImported = dependents.length > 0;
