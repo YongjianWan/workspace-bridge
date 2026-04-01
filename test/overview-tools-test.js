@@ -96,6 +96,9 @@ async function main() {
   assert(typeof result.orphans.counts.total === 'number');
   assert(Array.isArray(result.summary.insights));
   assert(Array.isArray(result.summary.recommendations));
+  assert(result.aggregates, 'aggregates should exist');
+  assert.strictEqual(typeof result.aggregates.hotspotsByRisk.high, 'number');
+  assert.strictEqual(typeof result.aggregates.stabilityCounts.fragile, 'number');
   assert(calls.length >= 1, 'history provider should be called');
   assert(!result.orphans.samples.modules.some((item) => item.includes('.test.')), 'test files should not be reported as orphan modules');
 

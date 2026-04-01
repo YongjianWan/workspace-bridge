@@ -197,6 +197,24 @@ function buildOverviewSummary(hotspots, stability, orphans) {
   return { summary, orphanCount };
 }
 
+function aggregateOverviewStats(hotspots, stability) {
+  const hotspotsByRisk = { high: 0, medium: 0, low: 0 };
+  for (const item of hotspots) {
+    const level = item?.risk || 'low';
+    if (hotspotsByRisk[level] === undefined) hotspotsByRisk[level] = 0;
+    hotspotsByRisk[level] += 1;
+  }
+
+  const stabilityCounts = { stable: 0, moderate: 0, fragile: 0 };
+  for (const item of stability) {
+    const assessment = item?.assessment || 'moderate';
+    if (stabilityCounts[assessment] === undefined) stabilityCounts[assessment] = 0;
+    stabilityCounts[assessment] += 1;
+  }
+
+  return { hotspotsByRisk, stabilityCounts };
+}
+
 async function buildProjectOverview(args, container) {
   await container.ensureReady();
 
@@ -216,11 +234,13 @@ async function buildProjectOverview(args, container) {
   const stability = buildStability(root, depGraph, mainlineFiles, projectContext);
   const orphans = findOrphanFiles(allFiles, depGraph.entryFiles, depGraph, root);
   const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans);
+  const aggregates = aggregateOverviewStats(hotspots, stability);
 
   return {
     ok: true,
     workspaceRoot: root,
     summary,
+    aggregates,
     skeleton,
     hotspots: hotspots.slice(0, 10),
     stability: stability.slice(0, 10),
