@@ -46,7 +46,11 @@ try {
     name: 'audit-diff-fixture',
     version: '1.0.0',
     main: 'src/app.js',
+    scripts: {
+      test: 'vitest run',
+    },
   }, null, 2));
+  writeFile('vitest.config.js', 'export default {};\n');
   writeFile('src/util.js', [
     'ex' + 'port function helper() {',
     "  return 'ok';",
@@ -136,6 +140,11 @@ try {
   assert(typeof parsed.validationAdvice.topRiskActions[0].actions?.[0] === 'string');
   assert(parsed.validationAdvice.topRiskActions[0].evidence, 'topRiskActions should include evidence');
   assert(typeof parsed.validationAdvice.topRiskActions[0].evidence.impactCount === 'number');
+  const focusedCommandNames = parsed.validationAdvice.commands.focused.map((item) => item.name);
+  assert(
+    focusedCommandNames.includes('node-direct-tests') || focusedCommandNames.includes('node-focused-tests'),
+    'focused commands should include node direct/focused tests'
+  );
   assert(parsed.validationAdvice.summary.some((item) => item.kind === 'tests'));
   assert(parsed.validationAdvice.summary.some((item) => item.kind === 'review'));
 

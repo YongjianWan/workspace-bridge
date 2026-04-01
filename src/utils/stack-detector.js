@@ -315,6 +315,21 @@ function mergeCommandSets(...sets) {
   return merged;
 }
 
+function addUniqueCommand(commands, phase, entry) {
+  if (!entry?.cmd) return;
+  const exists = commands[phase].some((item) => item.name === entry.name || item.cmd === entry.cmd);
+  if (!exists) commands[phase].push(entry);
+}
+
+function splitTargetsByStack(targets) {
+  const list = Array.isArray(targets) ? targets : [];
+  return {
+    node: list.filter((file) => /\.(js|jsx|ts|tsx|json|mjs|cjs)$/.test(file)),
+    python: list.filter((file) => /\.py$/.test(file)),
+    java: list.filter((file) => /\.java$/.test(file)),
+  };
+}
+
 function getDocsCommands(stack, changeType) {
   if (changeType !== 'docs') return null;
   switch (stack.docsTool) {
@@ -351,6 +366,51 @@ function generateCommands(stack, changeType, targets, steps = []) {
   const pythonCommands = getPythonCommands(stack.python, changeType, pythonTargets);
   const javaCommands = getJavaCommands(stack.java, changeType, javaTargets);
   const merged = mergeCommandSets(nodeCommands, pythonCommands, javaCommands);
+
+  // Prefer direct test targets from focused steps when available.
+  const directTests = (steps || []).find((step) => step?.name === 'run-direct-tests')?.targets || [];
+  if (directTests.length > 0) {
+    const split = splitTargetsByStack(directTests);
+    const nodeExecConfig = nodeExec(stack.node?.packageManager);
+
+    if (split.node.length > 0 && stack.node?.enabled && nodeExecConfig) {
+      const nodeDirectCmd = stack.node.testRunner === 'vitest'
+        ? `${nodeExecConfig.exec} vitest run ${split.node.join(' ')}`
+        : stack.node.testRunner === 'jest'
+          ? `${nodeExecConfig.exec} jest ${split.node.join(' ')}`
+          : stack.node.testRunner === 'mocha'
+            ? `${nodeExecConfig.exec} mocha ${split.node.join(' ')}`
+            : `${nodeExecConfig.run} test`;
+      addUniqueCommand(merged, 'focused', {
+        name: 'node-direct-tests',
+        description: 'Run node direct affected tests',
+        cmd: nodeDirectCmd,
+      });
+    }
+
+    if (split.python.length > 0 && stack.python?.enabled && stack.python.testRunner === 'pytest') {
+      addUniqueCommand(merged, 'focused', {
+        name: 'python-direct-tests',
+        description: 'Run python direct affected tests',
+        cmd: `pytest ${split.python.join(' ')}`,
+      });
+    }
+
+    if (split.java.length > 0 && stack.java?.enabled) {
+      const javaCmd = stack.java.buildTool === 'maven'
+        ? `mvn -q -Dtest=*Test test`
+        : stack.java.buildTool === 'gradle'
+          ? `./gradlew -q test --tests *Test`
+          : null;
+      if (javaCmd) {
+        addUniqueCommand(merged, 'focused', {
+          name: 'java-direct-tests',
+          description: 'Run java direct affected tests',
+          cmd: javaCmd,
+        });
+      }
+    }
+  }
 
   if (stack.profile === 'mixed') {
     if (!merged.full.some((entry) => entry.name === 'mixed-review')) {
