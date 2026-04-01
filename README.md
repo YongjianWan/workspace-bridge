@@ -74,6 +74,7 @@ node cli.js audit-summary --cwd C:\repo --exclude prototypes/reference,archive -
 node cli.js audit-file --cwd C:\repo --file src\app.ts --json --quiet
 node cli.js audit-diff --cwd C:\repo --json --quiet
 node cli.js audit-overview --cwd C:\repo --json --quiet
+node cli.js audit-overview --cwd C:\repo --quiet
 node cli.js dead-exports --cwd C:\repo --json
 node cli.js impact --cwd C:\repo --file src\app.ts --json
 ```
@@ -114,6 +115,11 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 
 这样在 mixed repo 里至少能先看清“主线代码”和“非主线代码”各有多少，再决定要不要信后面的死代码和影响面结果。
 
+`audit-overview` 会返回机器可读聚合：
+
+- `aggregates.hotspotsByRisk`
+- `aggregates.stabilityCounts`
+
 `audit-diff` 返回结构化验证计划：
 
 - `validationAdvice.changeType`: 改动类型 (docs/config/tests/scripts/code)
@@ -121,6 +127,7 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 - `validationAdvice.commands`: 各阶段可执行命令 (smoke/focused/full)
 - `validationAdvice.topRiskActions`: Top 风险文件的可执行动作（含证据与建议命令）
 - `validationAdvice.phases`: 分阶段验证建议，包含有序 steps
+- `summary.topCompositeRisks`: Top 风险文件摘要（分数/级别/首要原因）
 
 示例输出（结构示意）：
 
@@ -173,6 +180,7 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 - 每个文件的 impact / affected tests
 - 每个文件的 `historyRisk`（提交频率、作者数、最近改动、回滚痕迹）
 - 每个文件的 `compositeRisk`（结构 + 测试 + 历史融合评分）
+- 每个文件的 `symbolImpact.symbolToDependents`（导出符号到依赖文件映射）
 - 聚合后的风险级别
 
 这玩意的目标不是替代 `git diff`，而是把"我这次改了什么，最好先测什么"直接吐给 agent。

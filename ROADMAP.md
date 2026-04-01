@@ -41,6 +41,11 @@
 - ✅ `compositeRisk` 融合判断（结构影响 + 测试映射 + 历史风险）
 - ✅ `topRiskAction` / `topRiskCommand`（CLI 人类可读可执行建议）
 - ✅ Top 风险证据链（impact/tests/history/symbolMode）
+- ✅ `summary.topCompositeRisks` 机器可读风险排序
+- ✅ `symbolToDependents`（导出符号到依赖文件映射）
+- ✅ `audit-overview` 聚合统计（hotspotsByRisk / stabilityCounts）
+- ✅ `audit-diff` historyRisk 限并发采集（大改动集性能优化）
+- ✅ test mapping 命名启发式兜底（无显式 import 场景）
 
 **诊断执行**
 
@@ -105,8 +110,8 @@
 
 **代码质量**
 
-- [ ] 重构 `overview-tools.js` - 拆分 146 行大函数
-- [ ] 补充自动化测试 - `overview-tools` 专项测试
+- [x] 重构 `overview-tools.js` - 拆分大函数
+- [x] 补充自动化测试 - `overview-tools` 专项测试
 - [ ] 性能压测 - 大仓库（500+ 文件）性能基准
 
 **功能完善**
