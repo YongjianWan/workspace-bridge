@@ -145,6 +145,11 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
         "linters": ["ruff"],
         "typeChecker": "pyright",
         "framework": "fastapi"
+      },
+      "java": {
+        "enabled": true,
+        "buildTool": "maven",
+        "testRunner": "surefire"
       }
     },
     "commands": {
@@ -259,6 +264,7 @@ workspace-bridge CLI
 | testRunner     | jest.config.* / vitest.config.* / pytest.ini   |
 | linters        | .eslintrc.* / .prettierrc.* / pyproject.toml   |
 | typeChecker    | tsconfig.json / pyright                        |
+| javaBuildTool  | pom.xml / build.gradle / build.gradle.kts      |
 
 检测到的技术栈会用于生成 `audit-diff` 中的具体验证命令。
 

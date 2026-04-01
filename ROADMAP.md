@@ -34,6 +34,7 @@
 - ✅ 技术栈自动检测（packageManager/testRunner/linters/typeChecker）
 - ✅ mixed repo 技术栈分层识别（python-first / node-first / mixed）
 - ✅ mixed repo 分层命令生成（Node / Python）
+- ✅ Java 技术栈检测与命令生成（Maven / Gradle）
 - ✅ 分阶段验证计划（smoke/focused/full）
 - ✅ 具体命令生成（可直接粘贴执行）
 - ✅ Git 历史风险权重
