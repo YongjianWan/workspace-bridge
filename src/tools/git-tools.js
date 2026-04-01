@@ -3,6 +3,7 @@
  * All commands use argument arrays to prevent injection
  */
 const path = require('path');
+const fs = require('fs');
 const { findWorkspaceRoot } = require('../utils/path');
 const { runGit, trimOutput } = require('../utils/command');
 
@@ -136,10 +137,7 @@ async function getChangedFiles(root, options = {}) {
   const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
 
-  const args = ['status', '--porcelain=v1'];
-  if (!includeUntracked) {
-    args.push('--untracked-files=no');
-  }
+  const args = ['status', '--porcelain=v1', includeUntracked ? '--untracked-files=all' : '--untracked-files=no'];
 
   const result = await runGit(args, root, 30000);
   if (!result.ok) {
@@ -164,12 +162,28 @@ async function getChangedFiles(root, options = {}) {
     const isStaged = x !== ' ' && x !== '?';
     const isUnstaged = y !== ' ';
 
+    // `git status` can return untracked directories like "src/new-dir/".
+    // We only want file paths in audit-diff.
+    if (isUntracked && (file.endsWith('/') || file.endsWith('\\'))) {
+      continue;
+    }
+
     if (staged) {
       if (isStaged) files.add(file);
       continue;
     }
 
     if (isUntracked || isStaged || isUnstaged) {
+      const absolute = validateWorkspacePath(file, root);
+      if (absolute) {
+        try {
+          if (fs.existsSync(absolute) && fs.statSync(absolute).isDirectory()) {
+            continue;
+          }
+        } catch {
+          // Keep path when stat is unavailable (e.g., deleted file)
+        }
+      }
       files.add(file);
     }
   }

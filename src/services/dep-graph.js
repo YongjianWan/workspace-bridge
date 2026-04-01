@@ -78,9 +78,13 @@ class DependencyGraph {
     return (
       normalized.includes('/test/') ||
       normalized.includes('/tests/') ||
+      normalized.includes('/src/test/java/') ||
       normalized.includes('/__tests__/') ||
       /\.test\./.test(base) ||
       /\.spec\./.test(base) ||
+      /(test|tests|it)\.java$/i.test(base) ||
+      /^test.*\.py$/i.test(base) ||
+      base === 'tests.py' ||
       /^test_/.test(base) ||
       /_test\./.test(base)
     );
@@ -446,11 +450,12 @@ class DependencyGraph {
     ];
     
     const isTestFile = (f) => {
+      if (this.isTestLikeFile(f)) return true;
       const basename = path.basename(f);
       if (testPatterns.some(p => p.test(basename))) return true;
-      // 检查是否在 tests/, test/, __tests__/ 目录下
-      const dir = path.dirname(f).toLowerCase();
+      const dir = path.dirname(f).replace(/\\/g, '/').toLowerCase();
       if (dir.includes('/tests/') || dir.includes('/test/') || dir.includes('/__tests__/')) return true;
+      if (dir.includes('/src/test/java/')) return true;
       if (dir.endsWith('/tests') || dir.endsWith('/test') || dir.endsWith('/__tests__')) return true;
       return false;
     };

@@ -115,6 +115,7 @@ function main() {
     write('api/app.py', 'from .util import helper\n\ndef run():\n    return helper()\n');
     write('src/main/java/com/example/Util.java', 'package com.example;\npublic class Util { public static int value() { return 1; } }\n');
     write('src/main/java/com/example/App.java', 'package com.example;\nimport com.example.Util;\npublic class App { public int run() { return Util.value(); } }\n');
+    write('src/test/java/com/example/AppTest.java', 'package com.example;\nimport com.example.App;\npublic class AppTest { public int run() { return new App().run(); } }\n');
     runInDir('git', ['init'], tempRoot);
     runInDir('git', ['config', 'user.email', 'test@example.com'], tempRoot);
     runInDir('git', ['config', 'user.name', 'Test User'], tempRoot);
@@ -136,6 +137,7 @@ function main() {
     assert(jsEntry.impactCount >= 1);
     assert(pyEntry.impactCount >= 1);
     assert(javaEntry.impactCount >= 1);
+    assert(javaEntry.affectedTestCount >= 1);
     fs.rmSync(tempRoot, { recursive: true, force: true });
     console.log('polyglot-symbol-impact: ok');
   }
