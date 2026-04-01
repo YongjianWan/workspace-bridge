@@ -63,12 +63,14 @@ function main() {
   assert.strictEqual(diffAudit.ok, true);
   assert(diffAudit.summary.counts.changedFiles >= 1);
   assert(diffAudit.validationAdvice.stack.profile);
+  assert(Array.isArray(diffAudit.validationAdvice.topRiskActions));
   assert(typeof diffAudit.summary.counts.highCompositeRiskFiles === 'number');
   assert(typeof diffAudit.summary.counts.maxCompositeRiskScore === 'number');
   console.log('audit-diff: ok');
 
   const diffHuman = runCliText(['audit-diff', '--cwd', '.', '--quiet']);
   assert(diffHuman.includes('topCompositeRisk:'), 'audit-diff human output should include topCompositeRisk');
+  assert(diffHuman.includes('topRiskAction:'), 'audit-diff human output should include topRiskAction');
 
   // Mixed repo stack detection
   {

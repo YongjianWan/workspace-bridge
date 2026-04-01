@@ -160,6 +160,9 @@ function formatHuman(command, result) {
               .filter((entry) => entry?.compositeRisk)
               .sort((a, b) => (b.compositeRisk.score || 0) - (a.compositeRisk.score || 0))[0]
           : null;
+        const topRiskAction = Array.isArray(result.validationAdvice?.topRiskActions)
+          ? result.validationAdvice.topRiskActions[0]
+          : null;
       return [
         `workspaceRoot: ${result.workspaceRoot}`,
         `severity: ${result.summary.severity}`,
@@ -170,6 +173,7 @@ function formatHuman(command, result) {
         `highHistoryRiskFiles: ${result.summary.counts.highHistoryRiskFiles}`,
         `highCompositeRiskFiles: ${result.summary.counts.highCompositeRiskFiles}`,
         `topCompositeRisk: ${topRisk ? `${topRisk.file} (score=${topRisk.compositeRisk.score}, level=${topRisk.compositeRisk.level})` : 'none'}`,
+        `topRiskAction: ${topRiskAction ? `${topRiskAction.file}: ${topRiskAction.actions[0]}` : 'none'}`,
         `validationPhases: ${result.validationAdvice.phases.length}`,
       ].join('\n');
       }

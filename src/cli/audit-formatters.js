@@ -572,6 +572,32 @@ function buildValidationAdvice(entries, workspaceRoot) {
 
   const stack = detectStack(workspaceRoot);
   const commands = generateCommands(stack, changeType, smokeTargets, focusedSteps);
+  const topRiskActions = entries
+    .filter((entry) => entry?.compositeRisk)
+    .sort((a, b) => (b.compositeRisk.score || 0) - (a.compositeRisk.score || 0))
+    .slice(0, 3)
+    .map((entry) => {
+      const actions = [];
+      if (entry.affectedTestCount > 0) {
+        actions.push(`Run mapped tests first (${entry.affectedTestCount}).`);
+      } else if (entry.impactCount > 0) {
+        actions.push(`No mapped tests; inspect dependents (${entry.impactCount}) and add focused checks.`);
+      } else {
+        actions.push('No structural impact detected; run smoke checks and review recent history.');
+      }
+      if (entry.historyRisk?.level === 'high') {
+        actions.push('Read last 3 commits for context before editing.');
+      }
+      if (entry.symbolImpact?.mode === 'file-fallback') {
+        actions.push('Symbol analysis fell back to file-level; manually verify exported symbol usage.');
+      }
+      return {
+        file: entry.file,
+        score: entry.compositeRisk.score,
+        level: entry.compositeRisk.level,
+        actions,
+      };
+    });
 
   return {
     changeType,
@@ -582,6 +608,7 @@ function buildValidationAdvice(entries, workspaceRoot) {
       python: stack.python,
     },
     commands,
+    topRiskActions,
     phases,
     summary,
   };

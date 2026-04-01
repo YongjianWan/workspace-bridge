@@ -131,6 +131,9 @@ try {
   assert(parsed.validationAdvice.phases.some((item) => item.phase === 'focused'));
   assert(parsed.validationAdvice.phases.some((item) => item.phase === 'full'));
   assert(Array.isArray(parsed.validationAdvice.summary));
+  assert(Array.isArray(parsed.validationAdvice.topRiskActions));
+  assert(parsed.validationAdvice.topRiskActions.length >= 1);
+  assert(typeof parsed.validationAdvice.topRiskActions[0].actions?.[0] === 'string');
   assert(parsed.validationAdvice.summary.some((item) => item.kind === 'tests'));
   assert(parsed.validationAdvice.summary.some((item) => item.kind === 'review'));
 
