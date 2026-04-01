@@ -193,6 +193,25 @@ function main() {
     console.log('non-ascii-paths: ok');
   }
 
+  // Heuristic test mapping: tests without explicit imports should still be suggested
+  {
+    const fs = require('fs');
+    const os = require('os');
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cli-heuristic-'));
+    const write = (rel, content) => {
+      const full = path.join(tempRoot, rel);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, content, 'utf8');
+    };
+    write('package.json', JSON.stringify({ name: 'heuristic-test', version: '1.0.0' }, null, 2));
+    write('src/order-service.js', 'export function calc() { return 1; }\n');
+    write('test/order-service.test.js', 'describe("order", () => { it("ok", () => {}); });\n');
+    const affected = runCli(['affected-tests', '--cwd', tempRoot, '--file', 'src/order-service.js', '--json', '--quiet']);
+    assert(affected.affectedTestCount >= 1, 'heuristic mapping should find same-stem test file');
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+    console.log('heuristic-test-mapping: ok');
+  }
+
   const deadExports = runCli(['dead-exports', '--cwd', '.', '--json', '--quiet']);
   assert.strictEqual(deadExports.ok, true);
   assert(Array.isArray(deadExports.deadExports));
