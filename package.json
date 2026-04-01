@@ -12,8 +12,9 @@
     "test:functionality": "node test/functionality-test.js",
     "test:analysis": "node test/analysis-test.js",
     "test:audit-diff": "node test/audit-diff-test.js",
+    "test:overview": "node test/overview-tools-test.js",
     "test:roles": "node test/role-detection-test.js",
-    "test:all": "node test/functionality-test.js && node test/analysis-test.js && node test/role-detection-test.js && node test/audit-diff-test.js",
+    "test:all": "node test/functionality-test.js && node test/analysis-test.js && node test/role-detection-test.js && node test/audit-diff-test.js && node test/overview-tools-test.js",
     "debug": "DEBUG=1 node cli.js audit-summary --cwd . --json"
   },
   "keywords": [
