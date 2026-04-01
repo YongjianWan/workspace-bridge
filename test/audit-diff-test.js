@@ -134,6 +134,8 @@ try {
   assert(Array.isArray(parsed.validationAdvice.topRiskActions));
   assert(parsed.validationAdvice.topRiskActions.length >= 1);
   assert(typeof parsed.validationAdvice.topRiskActions[0].actions?.[0] === 'string');
+  assert(parsed.validationAdvice.topRiskActions[0].evidence, 'topRiskActions should include evidence');
+  assert(typeof parsed.validationAdvice.topRiskActions[0].evidence.impactCount === 'number');
   assert(parsed.validationAdvice.summary.some((item) => item.kind === 'tests'));
   assert(parsed.validationAdvice.summary.some((item) => item.kind === 'review'));
 

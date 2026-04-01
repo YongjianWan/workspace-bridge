@@ -572,6 +572,21 @@ function buildValidationAdvice(entries, workspaceRoot) {
 
   const stack = detectStack(workspaceRoot);
   const commands = generateCommands(stack, changeType, smokeTargets, focusedSteps);
+
+  const allCommands = [
+    ...(commands.focused || []),
+    ...(commands.smoke || []),
+    ...(commands.full || []),
+  ];
+  const pickSuggestedCommand = (entry) => {
+    const names = ['focused-tests', 'all-tests', 'type-check', 'lint'];
+    for (const key of names) {
+      const hit = allCommands.find((cmd) => String(cmd.name || '').includes(key));
+      if (hit?.cmd) return hit.cmd;
+    }
+    return allCommands[0]?.cmd || null;
+  };
+
   const topRiskActions = entries
     .filter((entry) => entry?.compositeRisk)
     .sort((a, b) => (b.compositeRisk.score || 0) - (a.compositeRisk.score || 0))
@@ -595,7 +610,15 @@ function buildValidationAdvice(entries, workspaceRoot) {
         file: entry.file,
         score: entry.compositeRisk.score,
         level: entry.compositeRisk.level,
+        suggestedCommand: pickSuggestedCommand(entry),
         actions,
+        evidence: {
+          impactCount: entry.impactCount || 0,
+          affectedTestCount: entry.affectedTestCount || 0,
+          historyRiskLevel: entry.historyRisk?.level || 'low',
+          historySignals: (entry.historyRisk?.signals || []).slice(0, 2),
+          symbolMode: entry.symbolImpact?.mode || 'unknown',
+        },
       };
     });
 

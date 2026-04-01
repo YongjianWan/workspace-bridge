@@ -71,6 +71,7 @@ function main() {
   const diffHuman = runCliText(['audit-diff', '--cwd', '.', '--quiet']);
   assert(diffHuman.includes('topCompositeRisk:'), 'audit-diff human output should include topCompositeRisk');
   assert(diffHuman.includes('topRiskAction:'), 'audit-diff human output should include topRiskAction');
+  assert(diffHuman.includes('topRiskCommand:'), 'audit-diff human output should include topRiskCommand');
 
   // Mixed repo stack detection
   {

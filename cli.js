@@ -174,6 +174,7 @@ function formatHuman(command, result) {
         `highCompositeRiskFiles: ${result.summary.counts.highCompositeRiskFiles}`,
         `topCompositeRisk: ${topRisk ? `${topRisk.file} (score=${topRisk.compositeRisk.score}, level=${topRisk.compositeRisk.level})` : 'none'}`,
         `topRiskAction: ${topRiskAction ? `${topRiskAction.file}: ${topRiskAction.actions[0]}` : 'none'}`,
+        `topRiskCommand: ${topRiskAction?.suggestedCommand || 'none'}`,
         `validationPhases: ${result.validationAdvice.phases.length}`,
       ].join('\n');
       }
