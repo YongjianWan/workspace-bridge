@@ -200,6 +200,17 @@ function formatHuman(command, result) {
         `validationPhases: ${result.validationAdvice.phases.length}`,
       ].join('\n');
       }
+    case 'audit-overview':
+      return [
+        `workspaceRoot: ${result.workspaceRoot}`,
+        `severity: ${result.summary?.severity || 'low'}`,
+        `totalFiles: ${result.skeleton?.totalFiles ?? 0}`,
+        `mainlineFiles: ${result.skeleton?.mainlineFiles ?? 0}`,
+        `hotspotsHigh: ${result.aggregates?.hotspotsByRisk?.high ?? 0}`,
+        `hotspotsMedium: ${result.aggregates?.hotspotsByRisk?.medium ?? 0}`,
+        `fragileModules: ${result.aggregates?.stabilityCounts?.fragile ?? 0}`,
+        `orphansTotal: ${result.orphans?.counts?.total ?? 0}`,
+      ].join('\n');
     case 'deps':
       return result.results.map((entry) => {
         if (entry.skipped) return `${entry.tool}: skipped (${entry.reason})`;

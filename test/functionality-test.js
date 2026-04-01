@@ -178,6 +178,9 @@ function main() {
   const overview = runCli(['audit-overview', '--cwd', '.', '--json', '--quiet']);
   assert.strictEqual(overview.ok, true);
   assert(overview.skeleton.totalFiles >= 1);
+  assert(overview.aggregates, 'overview aggregates should exist');
+  const overviewHuman = runCliText(['audit-overview', '--cwd', '.', '--quiet']);
+  assert(overviewHuman.includes('hotspotsHigh:'), 'audit-overview human output should include hotspot aggregates');
   console.log('audit-overview: ok');
 
   // Non-ASCII path regression check
