@@ -13,6 +13,7 @@ const { getChangedFiles } = require('./src/tools/git-tools');
 const { validateWorkspacePath } = require('./src/tools/git-tools');
 const { getFileHistoryRisk } = require('./src/tools/git-tools');
 const {
+  buildCompositeRisk,
   buildRepoSummary,
   buildFileSummary,
   buildAuditDiffSummary,
@@ -265,8 +266,8 @@ async function runCommand(parsed, container) {
         const symbolImpact = graphKnown ? container.depGraph.getSymbolImpact(resolvedPath) : null;
         const affectedTests = graphKnown ? container.depGraph.findAffectedTests(resolvedPath, Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined) : [];
         const history = resolvedPath ? await getFileHistoryRisk(container.workspaceRoot, resolvedPath, { limit: 25 }) : { ok: false };
-
-        entries.push({
+        const historyRisk = history.ok ? history.historyRisk : null;
+        const baseEntry = {
           file: relativeFile,
           resolvedPath,
           classification,
@@ -276,8 +277,14 @@ async function runCommand(parsed, container) {
           symbolImpact,
           affectedTestCount: affectedTests.length,
           affectedTests,
-          historyRisk: history.ok ? history.historyRisk : null,
+          historyRisk,
           recentCommits: history.ok ? history.recentCommits : [],
+        };
+        const compositeRisk = buildCompositeRisk(baseEntry);
+
+        entries.push({
+          ...baseEntry,
+          compositeRisk,
         });
       }
 

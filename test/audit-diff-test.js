@@ -115,11 +115,16 @@ try {
   assert.strictEqual(changed.impactCount >= 1, true);
   assert(changed.symbolImpact, 'symbolImpact should exist');
   assert(['symbol', 'file-fallback'].includes(changed.symbolImpact.mode), 'symbolImpact.mode should be valid');
+  assert(changed.compositeRisk, 'compositeRisk should exist');
+  assert(['low', 'medium', 'high'].includes(changed.compositeRisk.level), 'compositeRisk.level should be valid');
+  assert(typeof changed.compositeRisk.score === 'number', 'compositeRisk.score should be numeric');
   assert.strictEqual(changed.affectedTestCount >= 1, true);
   assert.strictEqual(changed.historyRisk.level, 'high');
   assert.strictEqual(changed.historyRisk.authorCount >= 3, true);
   assert.strictEqual(changed.historyRisk.revertLikeCount >= 1, true);
   assert.strictEqual(parsed.summary.counts.highHistoryRiskFiles, 1);
+  assert.strictEqual(typeof parsed.summary.counts.highCompositeRiskFiles, 'number');
+  assert.strictEqual(typeof parsed.summary.counts.maxCompositeRiskScore, 'number');
   assert(changed.affectedTests.some((entry) => entry.file.replace(/\\/g, '/').endsWith('/test/app.test.js')));
   assert(Array.isArray(parsed.validationAdvice.phases));
   assert.strictEqual(parsed.validationAdvice.phases[0].phase, 'smoke');

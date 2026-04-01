@@ -4,6 +4,70 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+function buildCompositeRisk(entry) {
+  const reasons = [];
+  let score = 0;
+
+  const impactCount = toNumber(entry?.impactCount);
+  const affectedTestCount = toNumber(entry?.affectedTestCount);
+  const historyRiskScore = toNumber(entry?.historyRisk?.score);
+  const symbolMode = entry?.symbolImpact?.mode || null;
+
+  if (impactCount >= 10) {
+    score += 4;
+    reasons.push(`Large impact radius (${impactCount} dependents).`);
+  } else if (impactCount >= 5) {
+    score += 3;
+    reasons.push(`Broad impact radius (${impactCount} dependents).`);
+  } else if (impactCount >= 2) {
+    score += 1;
+    reasons.push(`Has transitive impact (${impactCount} dependents).`);
+  }
+
+  if (affectedTestCount >= 3) {
+    score += 2;
+    reasons.push(`Many mapped tests affected (${affectedTestCount}).`);
+  } else if (affectedTestCount >= 1) {
+    score += 1;
+    reasons.push(`Mapped tests affected (${affectedTestCount}).`);
+  } else if (impactCount >= 3) {
+    score += 1;
+    reasons.push('No mapped tests despite structural impact.');
+  }
+
+  if (historyRiskScore >= 6) {
+    score += 2;
+    reasons.push(`History risk is high (${historyRiskScore}).`);
+  } else if (historyRiskScore >= 3) {
+    score += 1;
+    reasons.push(`History risk is medium (${historyRiskScore}).`);
+  }
+
+  if (symbolMode === 'file-fallback') {
+    score += 1;
+    reasons.push('Symbol analysis fell back to file-level impact.');
+  }
+
+  if (entry?.classification?.isMainline === false && score > 0) {
+    score -= 1;
+    reasons.push('Non-mainline file: downgrade one point.');
+  }
+
+  let level = 'low';
+  if (score >= 6) level = 'high';
+  else if (score >= 3) level = 'medium';
+
+  if (reasons.length === 0) {
+    reasons.push('Low observed structural and historical risk.');
+  }
+
+  return {
+    level,
+    score,
+    reasons,
+  };
+}
+
 function buildRepoSummary(health, deadExports, unresolved, cycles, scope) {
   const deadExportCount = toNumber(deadExports.deadExportCount);
   const unresolvedCount = toNumber(unresolved.unresolvedCount);
@@ -75,6 +139,8 @@ function buildAuditDiffSummary(entries) {
   let highRiskFiles = 0;
   let highHistoryRiskFiles = 0;
   let maxHistoryRiskScore = 0;
+  let highCompositeRiskFiles = 0;
+  let maxCompositeRiskScore = 0;
 
   for (const entry of entries) {
     maxImpact = Math.max(maxImpact, toNumber(entry.impactCount));
@@ -86,15 +152,20 @@ function buildAuditDiffSummary(entries) {
     if (entry.historyRisk?.level === 'high') {
       highHistoryRiskFiles += 1;
     }
+    const compositeScore = toNumber(entry.compositeRisk?.score);
+    maxCompositeRiskScore = Math.max(maxCompositeRiskScore, compositeScore);
+    if (entry.compositeRisk?.level === 'high') {
+      highCompositeRiskFiles += 1;
+    }
     for (const testFile of entry.affectedTests || []) {
       affectedTests.add(testFile.file);
     }
   }
 
   let severity = 'low';
-  if (highRiskFiles > 0 || affectedTests.size >= 5 || highHistoryRiskFiles > 0) {
+  if (highRiskFiles > 0 || affectedTests.size >= 5 || highHistoryRiskFiles > 0 || highCompositeRiskFiles > 0) {
     severity = 'high';
-  } else if (mainlineChanged.length > 0 && (affectedTests.size > 0 || maxImpact > 0 || maxHistoryRiskScore >= 3)) {
+  } else if (mainlineChanged.length > 0 && (affectedTests.size > 0 || maxImpact > 0 || maxHistoryRiskScore >= 3 || maxCompositeRiskScore >= 3)) {
     severity = 'medium';
   }
 
@@ -102,6 +173,7 @@ function buildAuditDiffSummary(entries) {
   if (mainlineChanged.length > 0) nextSteps.push('Review changed mainline files before merging.');
   if (affectedTests.size > 0) nextSteps.push('Run the directly affected tests first.');
   if (highHistoryRiskFiles > 0) nextSteps.push('Inspect high-history-risk files carefully; they changed often or recently.');
+  if (highCompositeRiskFiles > 0) nextSteps.push('Prioritize high composite-risk files before broad validation.');
   if (entries.some((entry) => !entry.classification?.isMainline)) nextSteps.push('Verify whether non-mainline changes should be excluded from the audit.');
   if (nextSteps.length === 0) nextSteps.push('No changed files with structural impact were detected.');
 
@@ -114,6 +186,8 @@ function buildAuditDiffSummary(entries) {
       maxImpact,
       highHistoryRiskFiles,
       maxHistoryRiskScore,
+      highCompositeRiskFiles,
+      maxCompositeRiskScore,
     },
     nextSteps,
   };
@@ -305,6 +379,7 @@ function buildValidationAdvice(entries, workspaceRoot) {
   const indirectTests = new Set();
   const turbulenceFiles = [];
   const highImpactFiles = [];
+  const highCompositeFiles = [];
   const smokeFiles = [];
   const graphTouchedFiles = [];
   const nonMainlineFiles = [];
@@ -327,11 +402,19 @@ function buildValidationAdvice(entries, workspaceRoot) {
 
     const isHighHistoryRisk = entry.historyRisk?.level === 'high';
     const isHighImpact = entry.impactCount >= 5;
+    const isHighComposite = entry.compositeRisk?.level === 'high';
+
+    if (isHighComposite) {
+      highCompositeFiles.push({
+        file: entry.file,
+        reason: entry.compositeRisk.reasons?.[0] || `Composite risk score ${entry.compositeRisk.score}`,
+      });
+    }
 
     if (isHighHistoryRisk && !isHighImpact) {
       turbulenceFiles.push({
         file: entry.file,
-        reason: `Changed often (${entry.historyRisk?.authorCount} authors, ${entry.historyRisk?.churn} commits) but narrow impact (${entry.impactCount} dependents)`,
+        reason: `Changed often (${entry.historyRisk?.authorCount} authors, ${entry.historyRisk?.commitCount} commits) but narrow impact (${entry.impactCount} dependents)`,
       });
     } else if (isHighImpact) {
       highImpactFiles.push(entry.file);
@@ -354,13 +437,24 @@ function buildValidationAdvice(entries, workspaceRoot) {
 
   const focusedSteps = [];
   const uniqueHighImpact = Array.from(new Set(highImpactFiles)).sort();
+  const uniqueHighComposite = Array.from(new Set(highCompositeFiles.map((item) => item.file))).sort();
   const uniqueTurbulence = Array.from(new Set(turbulenceFiles.map(t => t.file))).sort();
   const uniqueDirectTests = Array.from(directTests).sort();
   const uniqueNonMainline = Array.from(new Set(nonMainlineFiles)).sort();
 
-  if (uniqueHighImpact.length > 0) {
+  if (uniqueHighComposite.length > 0) {
     focusedSteps.push({
       step: 1,
+      name: 'review-high-composite-risk',
+      reason: 'These files combine structural and history risk; review first.',
+      targets: uniqueHighComposite,
+      notes: highCompositeFiles.map((item) => ({ file: item.file, note: item.reason })),
+    });
+  }
+
+  if (uniqueHighImpact.length > 0) {
+    focusedSteps.push({
+      step: focusedSteps.length + 1,
       name: 'review-high-impact',
       reason: 'High-impact files affect many dependents; review carefully first.',
       targets: uniqueHighImpact,
@@ -441,6 +535,15 @@ function buildValidationAdvice(entries, workspaceRoot) {
       targets: Array.from(new Set(highImpactFiles)).sort(),
     });
   }
+  if (highCompositeFiles.length > 0) {
+    summary.push({
+      priority: 'high',
+      kind: 'risk',
+      message: 'Review high composite-risk files first.',
+      targets: uniqueHighComposite,
+      notes: highCompositeFiles.map((item) => ({ file: item.file, reason: item.reason })),
+    });
+  }
   if (turbulenceFiles.length > 0) {
     summary.push({
       priority: 'medium',
@@ -486,6 +589,7 @@ function buildValidationAdvice(entries, workspaceRoot) {
 
 module.exports = {
   toNumber,
+  buildCompositeRisk,
   buildRepoSummary,
   buildFileSummary,
   buildAuditDiffSummary,
