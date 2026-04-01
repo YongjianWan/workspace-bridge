@@ -21,6 +21,28 @@ const {
 } = require('./src/cli/audit-formatters');
 const { buildProjectOverview } = require('./src/tools/overview-tools');
 
+async function mapWithConcurrency(items, limit, mapper) {
+  const safeLimit = Math.max(1, Number.isFinite(limit) ? limit : 1);
+  const results = new Array(items.length);
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < items.length) {
+      const currentIndex = cursor;
+      cursor += 1;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  }
+
+  const workers = [];
+  const workerCount = Math.min(safeLimit, items.length);
+  for (let i = 0; i < workerCount; i += 1) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+  return results;
+}
+
 function printUsage() {
   console.log(`workspace-bridge-cli
 
@@ -271,8 +293,7 @@ async function runCommand(parsed, container) {
         return changed;
       }
 
-      const entries = [];
-      for (const relativeFile of changed.changedFiles) {
+      const entries = await mapWithConcurrency(changed.changedFiles, 8, async (relativeFile) => {
         const resolvedPath = validateWorkspacePath(relativeFile, container.workspaceRoot);
         const classification = container.projectContext?.classifyFile(resolvedPath) || null;
         const graphKnown = Boolean(resolvedPath && container.depGraph.graph.has(resolvedPath));
@@ -296,11 +317,11 @@ async function runCommand(parsed, container) {
         };
         const compositeRisk = buildCompositeRisk(baseEntry);
 
-        entries.push({
+        return {
           ...baseEntry,
           compositeRisk,
-        });
-      }
+        };
+      });
 
       return {
         ok: true,
