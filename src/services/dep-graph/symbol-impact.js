@@ -1,0 +1,217 @@
+const path = require('path');
+
+function toSymbolSet(symbols) {
+  if (!Array.isArray(symbols) || symbols.length === 0) return null;
+  return new Set(symbols.filter(Boolean));
+}
+
+function symbolSetToArray(symbolSet) {
+  if (symbolSet === null) return [];
+  return Array.from(symbolSet);
+}
+
+function getMatchingImportRecords(depGraph, importerFile, importedFile) {
+  const importerInfo = depGraph.graph.get(importerFile);
+  if (!importerInfo?.importRecords) return [];
+  return importerInfo.importRecords.filter((record) => record.resolved === importedFile);
+}
+
+function collectDirectSymbolUsage(depGraph, sourceFile, importerFile, sourceSymbols) {
+  const records = getMatchingImportRecords(depGraph, importerFile, sourceFile);
+  if (records.length === 0) {
+    return { mode: 'unknown', symbols: [] };
+  }
+
+  let usesAllExports = false;
+  const importedSymbols = new Set();
+  for (const record of records) {
+    if (record.usesAllExports) {
+      usesAllExports = true;
+    }
+    for (const importedName of record.imported || []) {
+      importedSymbols.add(importedName);
+    }
+  }
+
+  if (usesAllExports) {
+    return {
+      mode: 'all-exports',
+      symbols: sourceSymbols || [],
+    };
+  }
+
+  const incoming = toSymbolSet(sourceSymbols);
+  if (incoming === null) {
+    return {
+      mode: importedSymbols.size > 0 ? 'named' : 'unknown',
+      symbols: Array.from(importedSymbols),
+    };
+  }
+
+  const matched = Array.from(importedSymbols).filter((name) => incoming.has(name));
+  if (matched.length > 0) {
+    return { mode: 'named', symbols: matched };
+  }
+  return { mode: 'none', symbols: [] };
+}
+
+function collectReExportedSymbols(depGraph, sourceFile, reExporterFile, sourceSymbols) {
+  const records = getMatchingImportRecords(depGraph, reExporterFile, sourceFile);
+  if (records.length === 0) {
+    return null;
+  }
+
+  const incoming = toSymbolSet(sourceSymbols);
+  let propagatedAll = false;
+  const propagated = new Set();
+
+  for (const record of records) {
+    if (record.reExportAll) {
+      propagatedAll = true;
+    }
+
+    for (const pair of record.reExported || []) {
+      if (incoming === null || incoming.has(pair.imported)) {
+        propagated.add(pair.exported);
+      }
+    }
+  }
+
+  if (propagatedAll) {
+    return incoming;
+  }
+
+  if (propagated.size === 0) {
+    return null;
+  }
+
+  return propagated;
+}
+
+function shouldFallbackToFileImpact(depGraph, filePath) {
+  const info = depGraph.graph.get(filePath);
+  if (!info) return true;
+  const ext = path.extname(filePath).toLowerCase();
+  if (['.js', '.jsx', '.ts', '.tsx'].includes(ext)) {
+    return info.parseMode !== 'ast';
+  }
+  if (ext === '.py') {
+    return info.parseMode !== 'ast';
+  }
+  return false;
+}
+
+function getSymbolImpact(depGraph, filePath, maxDepth = 4) {
+  const sourceInfo = depGraph.graph.get(filePath);
+  if (!sourceInfo) {
+    return {
+      mode: 'file-fallback',
+      reason: 'source-not-indexed',
+      impactedFiles: depGraph.getImpactRadius(filePath, maxDepth),
+    };
+  }
+
+  if (shouldFallbackToFileImpact(depGraph, filePath)) {
+    return {
+      mode: 'file-fallback',
+      reason: 'ast-unavailable',
+      impactedFiles: depGraph.getImpactRadius(filePath, maxDepth),
+    };
+  }
+
+  const sourceSymbols = sourceInfo.exports || [];
+  const direct = [];
+  const reExportQueue = [];
+  const seenReExportNode = new Set();
+
+  for (const importerFile of depGraph.getDependents(filePath)) {
+    const usage = collectDirectSymbolUsage(depGraph, filePath, importerFile, sourceSymbols);
+    if (usage.mode !== 'none') {
+      direct.push({
+        file: importerFile,
+        mode: usage.mode,
+        symbols: usage.symbols,
+      });
+    }
+
+    const reExportedSymbols = collectReExportedSymbols(depGraph, filePath, importerFile, sourceSymbols);
+    if (reExportedSymbols) {
+      reExportQueue.push({
+        file: importerFile,
+        level: 1,
+        symbols: reExportedSymbols,
+        via: [filePath],
+      });
+    }
+  }
+
+  const transitive = [];
+  while (reExportQueue.length > 0) {
+    const current = reExportQueue.shift();
+    const queueKey = `${current.file}::${symbolSetToArray(current.symbols).sort().join(',')}`;
+    if (seenReExportNode.has(queueKey)) continue;
+    seenReExportNode.add(queueKey);
+
+    transitive.push({
+      file: current.file,
+      level: current.level,
+      symbols: symbolSetToArray(current.symbols),
+      via: current.via,
+    });
+
+    if (current.level >= maxDepth) continue;
+
+    for (const importerFile of depGraph.getDependents(current.file)) {
+      const usage = collectDirectSymbolUsage(
+        depGraph,
+        current.file,
+        importerFile,
+        symbolSetToArray(current.symbols)
+      );
+      if (usage.mode !== 'none') {
+        direct.push({
+          file: importerFile,
+          mode: usage.mode,
+          symbols: usage.symbols,
+        });
+      }
+
+      const nextReExported = collectReExportedSymbols(
+        depGraph,
+        current.file,
+        importerFile,
+        symbolSetToArray(current.symbols)
+      );
+      if (!nextReExported) continue;
+      reExportQueue.push({
+        file: importerFile,
+        level: current.level + 1,
+        symbols: nextReExported,
+        via: [...current.via, current.file],
+      });
+    }
+  }
+
+  const uniqueDirect = [];
+  const seenDirect = new Set();
+  for (const item of direct) {
+    const key = `${item.file}|${item.mode}|${(item.symbols || []).slice().sort().join(',')}`;
+    if (seenDirect.has(key)) continue;
+    seenDirect.add(key);
+    uniqueDirect.push(item);
+  }
+
+  return {
+    mode: 'symbol',
+    sourceFile: filePath,
+    sourceSymbols,
+    directCount: uniqueDirect.length,
+    directDependents: uniqueDirect,
+    transitiveCount: transitive.length,
+    transitiveDependents: transitive,
+  };
+}
+
+module.exports = {
+  getSymbolImpact,
+};
