@@ -618,6 +618,9 @@ function buildValidationAdvice(entries, workspaceRoot) {
           historyRiskLevel: entry.historyRisk?.level || 'low',
           historySignals: (entry.historyRisk?.signals || []).slice(0, 2),
           symbolMode: entry.symbolImpact?.mode || 'unknown',
+          topImpactedSymbols: (entry.symbolImpact?.symbolToDependents || [])
+            .slice(0, 3)
+            .map((item) => ({ symbol: item.symbol, dependentCount: item.dependentCount })),
         },
       };
     });

@@ -140,6 +140,7 @@ try {
   assert(typeof parsed.validationAdvice.topRiskActions[0].actions?.[0] === 'string');
   assert(parsed.validationAdvice.topRiskActions[0].evidence, 'topRiskActions should include evidence');
   assert(typeof parsed.validationAdvice.topRiskActions[0].evidence.impactCount === 'number');
+  assert(Array.isArray(parsed.validationAdvice.topRiskActions[0].evidence.topImpactedSymbols));
   const focusedCommandNames = parsed.validationAdvice.commands.focused.map((item) => item.name);
   assert(
     focusedCommandNames.includes('node-direct-tests') || focusedCommandNames.includes('node-focused-tests'),
