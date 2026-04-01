@@ -24,6 +24,20 @@ function hasNodeProject(root) {
   );
 }
 
+function hasJavaProject(root) {
+  return (
+    pathExists(path.join(root, 'pom.xml')) ||
+    pathExists(path.join(root, 'build.gradle')) ||
+    pathExists(path.join(root, 'build.gradle.kts'))
+  );
+}
+
+function detectJavaBuildTool(root) {
+  if (pathExists(path.join(root, 'pom.xml'))) return 'maven';
+  if (pathExists(path.join(root, 'build.gradle')) || pathExists(path.join(root, 'build.gradle.kts'))) return 'gradle';
+  return null;
+}
+
 function detectNodePackageManager(root) {
   if (pathExists(path.join(root, 'pnpm-lock.yaml'))) return 'pnpm';
   if (pathExists(path.join(root, 'yarn.lock'))) return 'yarn';
@@ -87,6 +101,7 @@ function detectLinters(root) {
   const linters = {
     node: [],
     python: [],
+    java: [],
   };
 
   if (pathExists(path.join(root, '.eslintrc.js')) ||
@@ -118,6 +133,7 @@ function detectTypeCheckers(root) {
   const typeCheckers = {
     node: null,
     python: null,
+    java: null,
   };
 
   if (pathExists(path.join(root, 'tsconfig.json'))) {
@@ -143,20 +159,24 @@ function detectDocsTool(root) {
 function detectStack(root) {
   const hasNode = hasNodeProject(root);
   const hasPython = hasPythonProject(root);
+  const hasJava = hasJavaProject(root);
   const nodePackageManager = detectNodePackageManager(root);
+  const javaBuildTool = detectJavaBuildTool(root);
   const testRunner = detectTestRunner(root);
   const pythonTestRunner = detectPythonTestRunner(root);
   const linters = detectLinters(root);
   const typeCheckers = detectTypeCheckers(root);
 
   let profile = 'unknown';
-  if (hasNode && hasPython) profile = 'mixed';
+  const activeStacks = [hasNode, hasPython, hasJava].filter(Boolean).length;
+  if (activeStacks >= 2) profile = 'mixed';
   else if (hasNode) profile = 'node-first';
   else if (hasPython) profile = 'python-first';
+  else if (hasJava) profile = 'java-first';
 
   return {
     profile,
-    packageManager: hasNode ? nodePackageManager : hasPython ? 'pip' : null,
+    packageManager: hasNode ? nodePackageManager : hasPython ? 'pip' : hasJava ? javaBuildTool : null,
     docsTool: detectDocsTool(root),
     node: hasNode ? {
       enabled: true,
@@ -182,6 +202,13 @@ function detectStack(root) {
             return null;
           }
         })(),
+    } : null,
+    java: hasJava ? {
+      enabled: true,
+      buildTool: javaBuildTool,
+      testRunner: javaBuildTool === 'maven' ? 'surefire' : javaBuildTool === 'gradle' ? 'junit' : null,
+      linters: linters.java,
+      typeChecker: typeCheckers.java,
     } : null,
   };
 }
@@ -254,6 +281,29 @@ function getPythonCommands(pythonStack, changeType, targets) {
   return commands;
 }
 
+function getJavaCommands(javaStack, changeType, targets) {
+  if (!javaStack?.enabled) return { smoke: [], focused: [], full: [] };
+  if (changeType !== 'code' && changeType !== 'tests' && changeType !== 'config') {
+    return { smoke: [], focused: [], full: [] };
+  }
+  const commands = { smoke: [], focused: [], full: [] };
+  const hasTargets = targets.length > 0;
+  if (javaStack.buildTool === 'maven') {
+    commands.smoke.push({ name: 'java-compile-check', description: 'Run Maven compile check', cmd: 'mvn -q -DskipTests compile' });
+    if (hasTargets) {
+      commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Maven tests', cmd: `mvn -q -Dtest=*Test test` });
+    }
+    commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: 'mvn -q test' });
+  } else if (javaStack.buildTool === 'gradle') {
+    commands.smoke.push({ name: 'java-compile-check', description: 'Run Gradle compile check', cmd: './gradlew -q classes' });
+    if (hasTargets) {
+      commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Gradle tests', cmd: './gradlew -q test --tests *Test' });
+    }
+    commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: './gradlew -q test' });
+  }
+  return commands;
+}
+
 function mergeCommandSets(...sets) {
   const merged = { smoke: [], focused: [], full: [] };
   for (const set of sets) {
@@ -295,17 +345,19 @@ function generateCommands(stack, changeType, targets, steps = []) {
 
   const nodeTargets = targets.filter((file) => /\.(js|jsx|ts|tsx|json|mjs|cjs)$/.test(file));
   const pythonTargets = targets.filter((file) => /\.py$/.test(file));
+  const javaTargets = targets.filter((file) => /\.java$/.test(file) || /(^|\/)(pom\.xml|build\.gradle|build\.gradle\.kts)$/.test(file));
 
   const nodeCommands = getNodeCommands(stack.node, changeType, nodeTargets);
   const pythonCommands = getPythonCommands(stack.python, changeType, pythonTargets);
-  const merged = mergeCommandSets(nodeCommands, pythonCommands);
+  const javaCommands = getJavaCommands(stack.java, changeType, javaTargets);
+  const merged = mergeCommandSets(nodeCommands, pythonCommands, javaCommands);
 
   if (stack.profile === 'mixed') {
     if (!merged.full.some((entry) => entry.name === 'mixed-review')) {
       merged.full.unshift({
         name: 'mixed-review',
-        description: 'Review both Node and Python validation results together',
-        cmd: 'echo "Review node and python command output together before merge"',
+        description: 'Review all stack-side validation results together',
+        cmd: 'echo "Review node/python/java command output together before merge"',
       });
     }
   }

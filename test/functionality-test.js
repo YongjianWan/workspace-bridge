@@ -152,10 +152,17 @@ function main() {
     assert(jsEntry?.symbolImpact, 'js symbolImpact should exist');
     assert(pyEntry?.symbolImpact, 'python symbolImpact should exist');
     assert(javaEntry?.symbolImpact, 'java symbolImpact should exist');
+    assert(polyDiff.validationAdvice.stack.java, 'java stack should exist in polyglot repo');
     assert(jsEntry.impactCount >= 1);
     assert(pyEntry.impactCount >= 1);
     assert(javaEntry.impactCount >= 1);
     assert(javaEntry.affectedTestCount >= 1);
+    const polyCommandNames = [
+      ...polyDiff.validationAdvice.commands.smoke.map((c) => c.name),
+      ...polyDiff.validationAdvice.commands.focused.map((c) => c.name),
+      ...polyDiff.validationAdvice.commands.full.map((c) => c.name),
+    ];
+    assert(polyCommandNames.includes('java-all-tests'));
     fs.rmSync(tempRoot, { recursive: true, force: true });
     console.log('polyglot-symbol-impact: ok');
   }

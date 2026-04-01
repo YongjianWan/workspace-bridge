@@ -629,6 +629,7 @@ function buildValidationAdvice(entries, workspaceRoot) {
       packageManager: stack.packageManager,
       node: stack.node,
       python: stack.python,
+      java: stack.java,
     },
     commands,
     topRiskActions,
