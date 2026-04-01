@@ -5,6 +5,17 @@
 const cp = require('child_process');
 const path = require('path');
 
+function resolveCommandForPlatform(command) {
+  if (process.platform !== 'win32') return command;
+  if (typeof command !== 'string' || !command) return command;
+  if (path.extname(command)) return command;
+  const lower = command.toLowerCase();
+  if (lower === 'npm' || lower === 'npx') {
+    return `${command}.cmd`;
+  }
+  return command;
+}
+
 /**
  * Securely run a command with argument array (NO shell injection possible)
  * @param {string} command - Base command
@@ -15,7 +26,14 @@ const path = require('path');
  */
 function runCommandSecure(command, args, cwd, timeoutMs = 120000) {
   return new Promise((resolve) => {
-    const child = cp.spawn(command, args, {
+    const resolvedCommand = resolveCommandForPlatform(command);
+    const useWindowsCmdShim = process.platform === 'win32' && /\.cmd$/i.test(resolvedCommand);
+    const spawnCommand = useWindowsCmdShim ? 'cmd.exe' : resolvedCommand;
+    const spawnArgs = useWindowsCmdShim
+      ? ['/d', '/s', '/c', resolvedCommand, ...args]
+      : args;
+
+    const child = cp.spawn(spawnCommand, spawnArgs, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -53,7 +71,7 @@ function runCommandSecure(command, args, cwd, timeoutMs = 120000) {
       const exitCode = killed ? 124 : (code !== null ? code : 1);
       resolve({
         ok: exitCode === 0,
-        command: `${command} ${args.join(' ')}`,
+        command: `${spawnCommand} ${spawnArgs.join(' ')}`,
         exitCode,
         stdout: stdout || '',
         stderr: stderr || '',
@@ -66,7 +84,7 @@ function runCommandSecure(command, args, cwd, timeoutMs = 120000) {
       clearTimeout(timer);
       resolve({
         ok: false,
-        command: `${command} ${args.join(' ')}`,
+        command: `${spawnCommand} ${spawnArgs.join(' ')}`,
         exitCode: 1,
         stdout: stdout || '',
         stderr: stderr || String(err.message || err),

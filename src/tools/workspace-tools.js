@@ -76,6 +76,15 @@ async function buildChecks(workspace, mode) {
         args: ['run', '-s', 'test', '--', '--runInBand'],
       });
     }
+
+    if (mode === 'quick' && checks.length === 0) {
+      checks.push({
+        name: 'node:script-list',
+        cmd: 'npm',
+        args: ['run', '-s'],
+        timeout: 15000,
+      });
+    }
   }
 
   if (workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy) {
@@ -133,6 +142,15 @@ async function buildChecks(workspace, mode) {
         });
       }
     }
+  }
+
+  if (checks.length === 0 && workspace.hasGit) {
+    checks.push({
+      name: 'workspace:git-status',
+      cmd: 'git',
+      args: ['status', '--short'],
+      timeout: 10000,
+    });
   }
 
   return checks;

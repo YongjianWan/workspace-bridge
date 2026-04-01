@@ -154,6 +154,12 @@ function formatHuman(command, result) {
         `affectedTestCount: ${result.affectedTests.affectedTestCount}`,
       ].join('\n');
     case 'audit-diff':
+      {
+        const topRisk = Array.isArray(result.changedFiles)
+          ? result.changedFiles
+              .filter((entry) => entry?.compositeRisk)
+              .sort((a, b) => (b.compositeRisk.score || 0) - (a.compositeRisk.score || 0))[0]
+          : null;
       return [
         `workspaceRoot: ${result.workspaceRoot}`,
         `severity: ${result.summary.severity}`,
@@ -162,8 +168,11 @@ function formatHuman(command, result) {
         `affectedTests: ${result.summary.counts.affectedTests}`,
         `maxImpact: ${result.summary.counts.maxImpact}`,
         `highHistoryRiskFiles: ${result.summary.counts.highHistoryRiskFiles}`,
+        `highCompositeRiskFiles: ${result.summary.counts.highCompositeRiskFiles}`,
+        `topCompositeRisk: ${topRisk ? `${topRisk.file} (score=${topRisk.compositeRisk.score}, level=${topRisk.compositeRisk.level})` : 'none'}`,
         `validationPhases: ${result.validationAdvice.phases.length}`,
       ].join('\n');
+      }
     case 'deps':
       return result.results.map((entry) => {
         if (entry.skipped) return `${entry.tool}: skipped (${entry.reason})`;

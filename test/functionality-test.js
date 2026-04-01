@@ -19,6 +19,16 @@ function runCli(args) {
   return JSON.parse(result.stdout);
 }
 
+function runCliText(args) {
+  const result = spawnSync('node', [cliPath, ...args], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  });
+
+  assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+  return result.stdout;
+}
+
 function runInDir(command, args, cwd) {
   const result = spawnSync(command, args, {
     cwd,
@@ -53,7 +63,12 @@ function main() {
   assert.strictEqual(diffAudit.ok, true);
   assert(diffAudit.summary.counts.changedFiles >= 1);
   assert(diffAudit.validationAdvice.stack.profile);
+  assert(typeof diffAudit.summary.counts.highCompositeRiskFiles === 'number');
+  assert(typeof diffAudit.summary.counts.maxCompositeRiskScore === 'number');
   console.log('audit-diff: ok');
+
+  const diffHuman = runCliText(['audit-diff', '--cwd', '.', '--quiet']);
+  assert(diffHuman.includes('topCompositeRisk:'), 'audit-diff human output should include topCompositeRisk');
 
   // Mixed repo stack detection
   {
@@ -182,6 +197,10 @@ function main() {
   assert.strictEqual(cycles.ok, true);
   assert(Array.isArray(cycles.cycles));
   console.log('cycles: ok');
+
+  const diagnosticsQuick = runCli(['diagnostics', '--cwd', '.', '--mode', 'quick', '--json', '--quiet']);
+  assert(diagnosticsQuick.checksRun >= 1, 'quick diagnostics should run at least one check');
+  console.log('diagnostics-quick: ok');
 
   console.log('\nAll CLI functionality tests passed');
 }
