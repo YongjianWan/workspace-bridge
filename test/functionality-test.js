@@ -127,6 +127,7 @@ function main() {
     write('requirements.txt', 'fastapi\npytest\n');
     write('pytest.ini', '[pytest]\n');
     write('pom.xml', '<project><modelVersion>4.0.0</modelVersion><groupId>com.example</groupId><artifactId>polyglot</artifactId><version>1.0.0</version></project>');
+    write('mvnw', '#!/bin/sh\necho mvnw\n');
     write('src/util.js', 'export function utilFn() { return 1; }\n');
     write('src/index.js', 'import { utilFn } from "./util";\nexport function run() { return utilFn(); }\n');
     write('api/util.py', 'def helper():\n    return 1\n');
@@ -153,6 +154,7 @@ function main() {
     assert(pyEntry?.symbolImpact, 'python symbolImpact should exist');
     assert(javaEntry?.symbolImpact, 'java symbolImpact should exist');
     assert(polyDiff.validationAdvice.stack.java, 'java stack should exist in polyglot repo');
+    assert.strictEqual(polyDiff.validationAdvice.stack.java.buildCommand, './mvnw');
     assert(jsEntry.impactCount >= 1);
     assert(pyEntry.impactCount >= 1);
     assert(javaEntry.impactCount >= 1);
@@ -163,6 +165,8 @@ function main() {
       ...polyDiff.validationAdvice.commands.full.map((c) => c.name),
     ];
     assert(polyCommandNames.includes('java-all-tests'));
+    const javaAllTestCmd = polyDiff.validationAdvice.commands.full.find((c) => c.name === 'java-all-tests')?.cmd || '';
+    assert(javaAllTestCmd.includes('./mvnw'), 'java commands should prefer project wrapper');
     fs.rmSync(tempRoot, { recursive: true, force: true });
     console.log('polyglot-symbol-impact: ok');
   }

@@ -38,6 +38,20 @@ function detectJavaBuildTool(root) {
   return null;
 }
 
+function detectJavaBuildCommand(root, buildTool) {
+  if (buildTool === 'maven') {
+    if (pathExists(path.join(root, 'mvnw.cmd'))) return 'mvnw.cmd';
+    if (pathExists(path.join(root, 'mvnw'))) return './mvnw';
+    return 'mvn';
+  }
+  if (buildTool === 'gradle') {
+    if (pathExists(path.join(root, 'gradlew.bat'))) return 'gradlew.bat';
+    if (pathExists(path.join(root, 'gradlew'))) return './gradlew';
+    return 'gradle';
+  }
+  return null;
+}
+
 function detectNodePackageManager(root) {
   if (pathExists(path.join(root, 'pnpm-lock.yaml'))) return 'pnpm';
   if (pathExists(path.join(root, 'yarn.lock'))) return 'yarn';
@@ -162,6 +176,7 @@ function detectStack(root) {
   const hasJava = hasJavaProject(root);
   const nodePackageManager = detectNodePackageManager(root);
   const javaBuildTool = detectJavaBuildTool(root);
+  const javaBuildCommand = detectJavaBuildCommand(root, javaBuildTool);
   const testRunner = detectTestRunner(root);
   const pythonTestRunner = detectPythonTestRunner(root);
   const linters = detectLinters(root);
@@ -206,6 +221,7 @@ function detectStack(root) {
     java: hasJava ? {
       enabled: true,
       buildTool: javaBuildTool,
+      buildCommand: javaBuildCommand,
       testRunner: javaBuildTool === 'maven' ? 'surefire' : javaBuildTool === 'gradle' ? 'junit' : null,
       linters: linters.java,
       typeChecker: typeCheckers.java,
@@ -288,18 +304,20 @@ function getJavaCommands(javaStack, changeType, targets) {
   }
   const commands = { smoke: [], focused: [], full: [] };
   const hasTargets = targets.length > 0;
+  const javaCmd = javaStack.buildCommand || (javaStack.buildTool === 'maven' ? 'mvn' : javaStack.buildTool === 'gradle' ? 'gradle' : null);
+  if (!javaCmd) return commands;
   if (javaStack.buildTool === 'maven') {
-    commands.smoke.push({ name: 'java-compile-check', description: 'Run Maven compile check', cmd: 'mvn -q -DskipTests compile' });
+    commands.smoke.push({ name: 'java-compile-check', description: 'Run Maven compile check', cmd: `${javaCmd} -q -DskipTests compile` });
     if (hasTargets) {
-      commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Maven tests', cmd: `mvn -q -Dtest=*Test test` });
+      commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Maven tests', cmd: `${javaCmd} -q -Dtest=*Test test` });
     }
-    commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: 'mvn -q test' });
+    commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: `${javaCmd} -q test` });
   } else if (javaStack.buildTool === 'gradle') {
-    commands.smoke.push({ name: 'java-compile-check', description: 'Run Gradle compile check', cmd: './gradlew -q classes' });
+    commands.smoke.push({ name: 'java-compile-check', description: 'Run Gradle compile check', cmd: `${javaCmd} -q classes` });
     if (hasTargets) {
-      commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Gradle tests', cmd: './gradlew -q test --tests *Test' });
+      commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Gradle tests', cmd: `${javaCmd} -q test --tests *Test` });
     }
-    commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: './gradlew -q test' });
+    commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: `${javaCmd} -q test` });
   }
   return commands;
 }
@@ -398,9 +416,9 @@ function generateCommands(stack, changeType, targets, steps = []) {
 
     if (split.java.length > 0 && stack.java?.enabled) {
       const javaCmd = stack.java.buildTool === 'maven'
-        ? `mvn -q -Dtest=*Test test`
+        ? `${stack.java.buildCommand || 'mvn'} -q -Dtest=*Test test`
         : stack.java.buildTool === 'gradle'
-          ? `./gradlew -q test --tests *Test`
+          ? `${stack.java.buildCommand || 'gradle'} -q test --tests *Test`
           : null;
       if (javaCmd) {
         addUniqueCommand(merged, 'focused', {
