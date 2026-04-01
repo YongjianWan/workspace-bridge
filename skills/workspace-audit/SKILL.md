@@ -84,7 +84,8 @@ node cli.js diagnostics --cwd <project> --mode quick --json
 1. Read `validationAdvice.changeType` (docs/config/tests/scripts/code)
 2. Check `validationAdvice.stack` for detected tech stack
 3. Use `validationAdvice.commands` for concrete commands to run
-4. Follow `validationAdvice.phases` in order (smoke → focused → full)
+4. Prioritize `validationAdvice.topRiskActions` for immediate actions
+5. Follow `validationAdvice.phases` in order (smoke → focused → full)
 
 **audit-overview:**
 1. Check `skeleton.coreModules` for key files to be careful with
@@ -147,7 +148,7 @@ The CLI accounts for common false-positives:
 But still may report:
 - **False orphans**: Entry files not recognized, framework-managed files
 - **Mixed repo pollution**: Reference/prototypes not excluded
-- **Python tech stack**: May identify as `npm` instead of `pytest`
+- **Mixed repo command heuristics**: Custom scripts may need manual adjustment
 
 ### Handling Mixed Repositories
 

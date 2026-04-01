@@ -37,6 +37,14 @@
 - ✅ 分阶段验证计划（smoke/focused/full）
 - ✅ 具体命令生成（可直接粘贴执行）
 - ✅ Git 历史风险权重
+- ✅ `compositeRisk` 融合判断（结构影响 + 测试映射 + 历史风险）
+- ✅ `topRiskAction` / `topRiskCommand`（CLI 人类可读可执行建议）
+- ✅ Top 风险证据链（impact/tests/history/symbolMode）
+
+**诊断执行**
+
+- ✅ Windows npm/npx 兼容（`npm.cmd` + `cmd.exe` shim）
+- ✅ quick 兜底检查（避免 `checksRun=0` 空结果）
 
 **测试与验证**
 
@@ -83,7 +91,7 @@
 - 核心模块识别
 
 ### Phase 4: 深度分析
-- symbol-level impact
+- symbol-level impact（已实现 baseline：JS/TS + Python + Java，AST 失败回退 file-level）
 - 更精确的 test mapping
 - mixed repo 命令精度提升
 
@@ -110,6 +118,7 @@
 
 **symbol-level impact**
 
+- [x] 跨文件 symbol-level impact baseline（JS/TS + Python + Java）
 - [ ] 函数级影响分析（依赖 AST）
 - [ ] 变更影响具体函数而非整个文件
 - [ ] 精确测试映射（测试具体覆盖哪些函数）
@@ -177,4 +186,4 @@
 
 ---
 
-*Last updated: 2026-04-01*
+*Last updated: 2026-04-02*

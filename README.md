@@ -12,6 +12,8 @@
 - **🛡️ 安全加固** - 参数化命令执行，路径遍历防护
 - **📦 技术栈自动检测** - 自动识别项目技术栈并生成具体验证命令
 - **🎯 JS/TS AST 解析** - 使用 @babel/parser 提升代码分析精度
+- **🧠 融合风险判断** - `compositeRisk` 融合结构影响 + 测试映射 + Git 历史风险
+- **📌 可执行风险动作** - `audit-diff` 输出 `topRiskAction` / `topRiskCommand`
 
 ## 快速开始
 
@@ -117,6 +119,7 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 - `validationAdvice.changeType`: 改动类型 (docs/config/tests/scripts/code)
 - `validationAdvice.stack`: 检测到的技术栈概况（`python-first` / `node-first` / `mixed`）
 - `validationAdvice.commands`: 各阶段可执行命令 (smoke/focused/full)
+- `validationAdvice.topRiskActions`: Top 风险文件的可执行动作（含证据与建议命令）
 - `validationAdvice.phases`: 分阶段验证建议，包含有序 steps
 
 示例输出（结构示意）：
@@ -164,6 +167,7 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 - 每个文件的主线/非主线角色
 - 每个文件的 impact / affected tests
 - 每个文件的 `historyRisk`（提交频率、作者数、最近改动、回滚痕迹）
+- 每个文件的 `compositeRisk`（结构 + 测试 + 历史融合评分）
 - 聚合后的风险级别
 
 这玩意的目标不是替代 `git diff`，而是把"我这次改了什么，最好先测什么"直接吐给 agent。
@@ -222,6 +226,8 @@ workspace-bridge CLI
 - 自动检测可用诊断工具
 - 缓存诊断结果，避免重复运行
 - 文件删除时自动清理缓存
+- Windows 下 `npm/npx` 命令兼容（`npm.cmd` + `cmd.exe` shim）
+- quick 模式最小兜底检查（避免 `checksRun=0` 空结果）
 
 #### DependencyGraph
 
@@ -289,6 +295,10 @@ workspace-bridge/
 │   │   ├── file-index.js  # 文件索引
 │   │   ├── diagnostics-engine.js
 │   │   ├── dep-graph.js
+│   │   ├── dep-graph/      # dep-graph 子模块
+│   │   │   ├── parsers.js
+│   │   │   ├── resolvers.js
+│   │   │   └── symbol-impact.js
 │   │   └── editor-state.js
 │   ├── tools/             # 工具实现
 │   │   ├── git-tools.js
