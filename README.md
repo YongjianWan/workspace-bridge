@@ -77,6 +77,7 @@ node cli.js audit-diff --cwd C:\repo --reuse-hints on --json --quiet
 node cli.js audit-overview --cwd C:\repo --json --quiet
 node cli.js audit-overview --cwd C:\repo --hotspot-data benchmark\results\hotspots.json --json --quiet
 node cli.js audit-overview --cwd C:\repo --stability-trend-data benchmark\results\stability-trend.json --trend-granularity week --json --quiet
+node cli.js audit-overview --cwd C:\repo --overview-dashboard benchmark\results\overview.html --json --quiet
 node cli.js audit-overview --cwd C:\repo --quiet
 node cli.js dead-exports --cwd C:\repo --json
 node cli.js impact --cwd C:\repo --file src\app.ts --json
@@ -126,6 +127,7 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 - `hotspotDataFile`（仅当传入 `--hotspot-data` 时返回）
 - `stabilityTrend`（稳定性趋势当前快照 + 按日/周聚合序列）
 - `stabilityTrendDataFile`（仅当传入 `--stability-trend-data` 时返回）
+- `overviewDashboardFile`（仅当传入 `--overview-dashboard` 时返回，单文件 HTML）
 - `architectureAdvice.cycleRefactorSuggestions`（循环依赖断环候选边 + 执行动作 + 验证命令）
 - `architectureAdvice.couplingSplitSuggestions`（高耦合模块拆分提示 + 验证命令）
 

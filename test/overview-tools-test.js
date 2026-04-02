@@ -156,6 +156,17 @@ async function main() {
   assert(trendParsed.history.length >= 2, 'trend history should append snapshots');
   assert(Array.isArray(trendParsed.series));
   assert(trendParsed.series.length >= 2, 'trend series should include weekly buckets');
+  const dashboardFile = path.join(outDir, 'overview.html');
+  const dashboardRun = await buildProjectOverview({
+    historyProvider,
+    overviewDashboard: dashboardFile,
+  }, container);
+  assert.strictEqual(dashboardRun.overviewDashboardFile, dashboardFile);
+  assert(fs.existsSync(dashboardFile), 'dashboard file should be written');
+  const dashboardHtml = fs.readFileSync(dashboardFile, 'utf8');
+  assert(dashboardHtml.includes('Workspace Overview Dashboard'));
+  assert(dashboardHtml.includes('Top Hotspots'));
+  assert(dashboardHtml.includes('Coupling Split Suggestions'));
   fs.rmSync(outDir, { recursive: true, force: true });
 
   console.log('overview-tools-test: ok');

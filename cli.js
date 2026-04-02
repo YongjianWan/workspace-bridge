@@ -82,6 +82,7 @@ Options:
   --hotspot-data <path>   Write audit-overview hotspot visualization JSON
   --stability-trend-data <path>  Write audit-overview stability trend JSON
   --trend-granularity <mode>  Trend bucket mode for stability trend: day|week (default: day)
+  --overview-dashboard <path>  Write audit-overview single-file HTML dashboard
   --json                  Print machine-readable JSON
   --quiet                 Suppress stderr logs during CLI execution
   --help                  Show help
@@ -107,6 +108,7 @@ function parseArgs(argv) {
     hotspotData: null,
     stabilityTrendData: null,
     trendGranularity: 'day',
+    overviewDashboard: null,
     json: false,
     quiet: false,
     help: false,
@@ -150,6 +152,9 @@ function parseArgs(argv) {
         if (!['day', 'week'].includes(parsed.trendGranularity)) {
           throw new Error(`Invalid --trend-granularity value: ${parsed.trendGranularity}. Expected day|week`);
         }
+        break;
+      case '--overview-dashboard':
+        parsed.overviewDashboard = args[++i] || null;
         break;
       case '--json':
         parsed.json = true;

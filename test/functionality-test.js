@@ -242,11 +242,13 @@ function main() {
   const overviewDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-overview-cli-'));
   const overviewDataFile = path.join(overviewDataDir, 'hotspots.json');
   const trendDataFile = path.join(overviewDataDir, 'stability-trend.json');
+  const dashboardFile = path.join(overviewDataDir, 'overview.html');
   const overview = runCli([
     'audit-overview',
     '--cwd', '.',
     '--hotspot-data', overviewDataFile,
     '--stability-trend-data', trendDataFile,
+    '--overview-dashboard', dashboardFile,
     '--trend-granularity', 'week',
     '--json',
     '--quiet',
@@ -260,10 +262,13 @@ function main() {
   assert.strictEqual(overview.options?.hotspotData?.enabled, true);
   assert.strictEqual(overview.options?.stabilityTrendData?.enabled, true);
   assert.strictEqual(overview.options?.stabilityTrendData?.granularity, 'week');
+  assert.strictEqual(overview.options?.overviewDashboard?.enabled, true);
   assert.strictEqual(overview.hotspotDataFile, overviewDataFile);
   assert.strictEqual(overview.stabilityTrendDataFile, trendDataFile);
+  assert.strictEqual(overview.overviewDashboardFile, dashboardFile);
   assert(fs.existsSync(overviewDataFile), 'audit-overview should write hotspot data file');
   assert(fs.existsSync(trendDataFile), 'audit-overview should write stability trend data file');
+  assert(fs.existsSync(dashboardFile), 'audit-overview should write dashboard html file');
   const overviewData = JSON.parse(fs.readFileSync(overviewDataFile, 'utf8'));
   assert.strictEqual(overviewData.schemaVersion, 1);
   assert(Array.isArray(overviewData.hotspots));
@@ -271,6 +276,8 @@ function main() {
   assert.strictEqual(trendData.schemaVersion, 1);
   assert.strictEqual(trendData.granularity, 'week');
   assert(Array.isArray(trendData.series));
+  const dashboardHtml = fs.readFileSync(dashboardFile, 'utf8');
+  assert(dashboardHtml.includes('Workspace Overview Dashboard'));
   assert.strictEqual(typeof overview.stabilityTrend?.latest?.stabilityScore, 'number');
   assert.strictEqual(typeof overview.stabilityTrend?.latest?.fragileCount, 'number');
   fs.rmSync(overviewDataDir, { recursive: true, force: true });
