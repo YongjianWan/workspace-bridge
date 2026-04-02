@@ -141,7 +141,7 @@
 
 - [x] AST 相似度检测 baseline（结构+命名，提示，不强制）
 - [x] 发现相似函数时给出参考实现（reuseHints suggestions）
-- [ ] 可选功能，非核心路径
+- [x] 可选功能，非核心路径 `完成于 2026-04-02，commit: pending`
 
 ### P3: 全景增强
 

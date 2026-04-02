@@ -78,6 +78,7 @@ Options:
   --mode <quick|full>     Diagnostics mode
   --file <path>           File path for file-scoped commands
   --max-depth <n>         Max depth for affected-tests
+  --reuse-hints <mode>    Reuse hints mode for audit-diff: on|off (default: off)
   --json                  Print machine-readable JSON
   --quiet                 Suppress stderr logs during CLI execution
   --help                  Show help
@@ -99,6 +100,7 @@ function parseArgs(argv) {
     mode: 'quick',
     file: null,
     maxDepth: null,
+    reuseHints: 'off',
     json: false,
     quiet: false,
     help: false,
@@ -124,6 +126,12 @@ function parseArgs(argv) {
         break;
       case '--max-depth':
         parsed.maxDepth = Number.parseInt(args[++i] || '', 10);
+        break;
+      case '--reuse-hints':
+        parsed.reuseHints = (args[++i] || parsed.reuseHints).toLowerCase();
+        if (!['on', 'off'].includes(parsed.reuseHints)) {
+          throw new Error(`Invalid --reuse-hints value: ${parsed.reuseHints}. Expected on|off`);
+        }
         break;
       case '--json':
         parsed.json = true;
@@ -325,12 +333,18 @@ async function runCommand(parsed, container) {
         const changedFunctionImpactBase = graphKnown
           ? container.depGraph.getChangedFunctionImpact(resolvedPath, changedLineRanges, { symbolImpact: baseSymbolImpact })
           : null;
-        const reuseHints = graphKnown && changedFunctionImpactBase?.mode === 'function-symbol'
-          ? container.depGraph.getFunctionReuseHints(resolvedPath, changedFunctionImpactBase.changedFunctions, {
-            minScore: 0.5,
-            maxPerFunction: 3,
-          })
-          : [];
+        let reuseHints = [];
+        if (parsed.reuseHints === 'on' && graphKnown && changedFunctionImpactBase?.mode === 'function-symbol') {
+          try {
+            reuseHints = container.depGraph.getFunctionReuseHints(resolvedPath, changedFunctionImpactBase.changedFunctions, {
+              minScore: 0.5,
+              maxPerFunction: 3,
+            });
+          } catch (e) {
+            // Non-core path: similarity hints should never block main diff analysis.
+            reuseHints = [];
+          }
+        }
         const functionLevelAffectedTests = graphKnown && changedFunctionImpactBase?.mode === 'function-symbol'
           ? container.depGraph.getFunctionLevelAffectedTests(
             resolvedPath,
@@ -400,6 +414,9 @@ async function runCommand(parsed, container) {
         scope: container.depGraph.getScopeSummary(),
         summary: buildAuditDiffSummary(safeEntries),
         validationAdvice: buildValidationAdvice(safeEntries, container.workspaceRoot),
+        options: {
+          reuseHints: parsed.reuseHints,
+        },
         changedFiles: safeEntries,
       };
     }

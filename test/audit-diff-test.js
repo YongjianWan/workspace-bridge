@@ -121,13 +121,19 @@ try {
 
   const result = run('node', [cliPath, 'audit-diff', '--cwd', tempRoot, '--json', '--quiet'], repoRoot);
   const parsed = JSON.parse(result);
+  const resultWithHints = run('node', [cliPath, 'audit-diff', '--cwd', tempRoot, '--reuse-hints', 'on', '--json', '--quiet'], repoRoot);
+  const parsedWithHints = JSON.parse(resultWithHints);
 
   assert.strictEqual(parsed.ok, true);
+  assert.strictEqual(parsed.options?.reuseHints, 'off');
+  assert.strictEqual(parsedWithHints.ok, true);
+  assert.strictEqual(parsedWithHints.options?.reuseHints, 'on');
   assert.strictEqual(parsed.summary.counts.changedFiles, 1);
   assert.strictEqual(parsed.summary.counts.mainlineChangedFiles, 1);
   assert.strictEqual(parsed.changedFiles.length, 1);
 
   const changed = parsed.changedFiles[0];
+  const changedWithHints = parsedWithHints.changedFiles[0];
   assert.strictEqual(changed.file.replace(/\\/g, '/'), 'src/util.js');
   assert.strictEqual(changed.classification.directoryRole, 'active');
   assert.strictEqual(changed.impactCount >= 1, true);
@@ -141,7 +147,9 @@ try {
   assert(changed.symbolImpact.changedFunctionImpact.changedFunctions.includes('helper'));
   assert(Array.isArray(changed.symbolImpact.changedFunctionImpact.impactedFunctionDependents));
   assert(Array.isArray(changed.symbolImpact.changedFunctionImpact.reuseHints), 'reuseHints should exist');
-  const helperHint = changed.symbolImpact.changedFunctionImpact.reuseHints.find((item) => item.function === 'helper');
+  assert.strictEqual(changed.symbolImpact.changedFunctionImpact.reuseHints.length, 0, 'reuseHints should be empty by default');
+  assert(Array.isArray(changedWithHints.symbolImpact.changedFunctionImpact.reuseHints), 'reuseHints should exist with flag on');
+  const helperHint = changedWithHints.symbolImpact.changedFunctionImpact.reuseHints.find((item) => item.function === 'helper');
   assert(helperHint, 'reuseHints should include helper');
   assert(helperHint.suggestions.some((item) => item.function === 'helperService'), 'helper should suggest helperService');
   const helperServiceHint = helperHint.suggestions.find((item) => item.function === 'helperService');
