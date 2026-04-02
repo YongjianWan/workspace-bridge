@@ -102,6 +102,7 @@ function main() {
     assert.strictEqual(mixedDiff.validationAdvice.stack.profile, 'mixed');
     assert.strictEqual(mixedDiff.validationAdvice.stack.node.testRunner, 'vitest');
     assert.strictEqual(mixedDiff.validationAdvice.stack.python.testRunner, 'pytest');
+    assert.strictEqual(mixedDiff.validationAdvice.stack.python.framework, 'fastapi');
     const commandNames = [
       ...mixedDiff.validationAdvice.commands.smoke.map((c) => c.name),
       ...mixedDiff.validationAdvice.commands.focused.map((c) => c.name),
@@ -111,6 +112,53 @@ function main() {
     assert(commandNames.includes('python-all-tests'));
     fs.rmSync(tempRoot, { recursive: true, force: true });
     console.log('mixed-stack-detection: ok');
+  }
+
+  // Python framework detection: Flask from pyproject, Django should take priority when manage.py exists
+  {
+    const fs = require('fs');
+    const os = require('os');
+
+    const flaskRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cli-flask-'));
+    const writeFlask = (rel, content) => {
+      const full = path.join(flaskRoot, rel);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, content, 'utf8');
+    };
+    writeFlask('pyproject.toml', '[project]\nname = "flask-app"\ndependencies = ["flask>=3.0", "pytest"]\n');
+    writeFlask('pytest.ini', '[pytest]\n');
+    writeFlask('app/main.py', 'def app():\n    return 1\n');
+    runInDir('git', ['init'], flaskRoot);
+    runInDir('git', ['config', 'user.email', 'test@example.com'], flaskRoot);
+    runInDir('git', ['config', 'user.name', 'Test User'], flaskRoot);
+    runInDir('git', ['add', '.'], flaskRoot);
+    runInDir('git', ['commit', '-m', 'init'], flaskRoot);
+    writeFlask('app/main.py', 'def app():\n    return 2\n');
+    const flaskDiff = runCli(['audit-diff', '--cwd', flaskRoot, '--json', '--quiet']);
+    assert.strictEqual(flaskDiff.validationAdvice.stack.profile, 'python-first');
+    assert.strictEqual(flaskDiff.validationAdvice.stack.python.framework, 'flask');
+    fs.rmSync(flaskRoot, { recursive: true, force: true });
+
+    const djangoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cli-django-'));
+    const writeDjango = (rel, content) => {
+      const full = path.join(djangoRoot, rel);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, content, 'utf8');
+    };
+    writeDjango('manage.py', '#!/usr/bin/env python\n');
+    writeDjango('requirements.txt', 'flask\npytest\n');
+    writeDjango('pytest.ini', '[pytest]\n');
+    writeDjango('app/views.py', 'def index():\n    return 1\n');
+    runInDir('git', ['init'], djangoRoot);
+    runInDir('git', ['config', 'user.email', 'test@example.com'], djangoRoot);
+    runInDir('git', ['config', 'user.name', 'Test User'], djangoRoot);
+    runInDir('git', ['add', '.'], djangoRoot);
+    runInDir('git', ['commit', '-m', 'init'], djangoRoot);
+    writeDjango('app/views.py', 'def index():\n    return 2\n');
+    const djangoDiff = runCli(['audit-diff', '--cwd', djangoRoot, '--json', '--quiet']);
+    assert.strictEqual(djangoDiff.validationAdvice.stack.python.framework, 'django');
+    fs.rmSync(djangoRoot, { recursive: true, force: true });
+    console.log('python-framework-detection: ok');
   }
 
   // Polyglot symbol-level impact (JS/Python/Java)

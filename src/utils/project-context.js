@@ -4,7 +4,7 @@ const { pathExists, readJsonSafe } = require('./path');
 const ROLE_PRIORITY = ['generated', 'archive', 'reference', 'active'];
 const DEFAULT_DIRECTORY_HINTS = {
   active: [],
-  reference: ['reference', 'references', 'example', 'examples', 'sample', 'samples', 'demo', 'demos'],
+  reference: ['reference', 'references', 'prototype', 'prototypes', 'example', 'examples', 'sample', 'samples', 'demo', 'demos'],
   archive: ['archive', 'archives', 'attic', 'deprecated', 'legacy'],
   generated: ['dist', 'build', 'coverage', '.next', 'out', 'generated', '.turbo'],
 };
@@ -32,6 +32,13 @@ function pathMatchesRule(relativePath, rulePath) {
 function inferFileRole(relativePath) {
   const normalized = normalizeRelativePath(relativePath);
   const base = path.basename(normalized);
+  const frameworkEntryFiles = new Set([
+    'manage.py',
+    'vite.config.js',
+    'vite.config.ts',
+    'vite.config.mjs',
+    'vite.config.cjs',
+  ]);
 
   if (
     normalized.startsWith('test/') ||
@@ -48,12 +55,15 @@ function inferFileRole(relativePath) {
     return 'test';
   }
 
+  if (frameworkEntryFiles.has(base)) {
+    return 'entry';
+  }
+
   if (
     base === 'package.json' ||
     base === 'tsconfig.json' ||
     base === 'pyproject.toml' ||
     base === 'requirements.txt' ||
-    base === 'manage.py' ||
     /\.config\./.test(base) ||
     /^\.env(\.|$)/.test(base)
   ) {

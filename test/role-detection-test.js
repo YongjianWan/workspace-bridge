@@ -61,6 +61,57 @@ try {
   assert(deadExportFiles.every((file) => !file.includes('/prototypes/reference/')));
   assert(deadExportFiles.every((file) => !file.includes('/archive/')));
 
+  // Auto-detect prototypes/examples as reference without config
+  const autoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-bridge-role-auto-'));
+  const writeAutoFile = (relativePath, content) => {
+    const fullPath = path.join(autoRoot, relativePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content);
+  };
+  writeAutoFile('package.json', JSON.stringify({
+    name: 'role-auto-fixture',
+    version: '1.0.0',
+    main: 'src/index.js',
+  }, null, 2));
+  writeAutoFile('src/index.js', "export function main() { return 'ok'; }\n");
+  writeAutoFile('src/helper.js', "export function helper() { return 'helper'; }\n");
+  writeAutoFile('prototypes/playground/foo.js', "export function foo() { return 'foo'; }\n");
+  writeAutoFile('examples/demo/bar.js', "export function bar() { return 'bar'; }\n");
+
+  const autoSummary = runCli(['audit-summary', '--cwd', autoRoot, '--json', '--quiet']);
+  assert.strictEqual(autoSummary.scope.hasConfig, false);
+  assert.strictEqual(autoSummary.scope.counts.totalFiles, 4);
+  assert.strictEqual(autoSummary.scope.counts.mainlineFiles, 2);
+  assert.strictEqual(autoSummary.scope.counts.nonMainlineFiles, 2);
+  assert.strictEqual(autoSummary.scope.directoryRoles.active, 2);
+  assert.strictEqual(autoSummary.scope.directoryRoles.reference, 2);
+
+  const autoDeadExportFiles = autoSummary.deadExports.deadExports.map((entry) => entry.file.replace(/\\/g, '/'));
+  assert(autoDeadExportFiles.some((file) => file.endsWith('/src/helper.js')));
+  assert(autoDeadExportFiles.every((file) => !file.includes('/prototypes/')));
+  assert(autoDeadExportFiles.every((file) => !file.includes('/examples/')));
+  fs.rmSync(autoRoot, { recursive: true, force: true });
+
+  // Entry detection for framework/bootstrap files
+  const entryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-bridge-role-entry-'));
+  const writeEntryFile = (relativePath, content) => {
+    const fullPath = path.join(entryRoot, relativePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content);
+  };
+  writeEntryFile('package.json', JSON.stringify({
+    name: 'role-entry-fixture',
+    version: '1.0.0',
+    main: 'src/index.js',
+  }, null, 2));
+  writeEntryFile('src/index.js', "export function main() { return 'ok'; }\n");
+  writeEntryFile('manage.py', '#!/usr/bin/env python\n');
+  writeEntryFile('vite.config.ts', 'export default {};\n');
+  const entrySummary = runCli(['audit-summary', '--cwd', entryRoot, '--json', '--quiet']);
+  assert(entrySummary.scope.entryFiles.includes('manage.py'));
+  assert(entrySummary.scope.entryFiles.includes('vite.config.ts'));
+  fs.rmSync(entryRoot, { recursive: true, force: true });
+
   console.log('role-detection-test: ok');
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });

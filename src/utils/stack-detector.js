@@ -111,6 +111,35 @@ function detectPythonTestRunner(root) {
   return null;
 }
 
+function readTextIfExists(filePath) {
+  if (!pathExists(filePath)) return '';
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function detectPythonFramework(root) {
+  if (pathExists(path.join(root, 'manage.py'))) return 'django';
+
+  const requirementsFiles = [
+    'requirements.txt',
+    'requirements-dev.txt',
+    'requirements/base.txt',
+  ].map((name) => path.join(root, name));
+
+  const combined = [
+    ...requirementsFiles.map(readTextIfExists),
+    readTextIfExists(path.join(root, 'pyproject.toml')),
+  ].join('\n').toLowerCase();
+
+  if (!combined) return null;
+  if (/\bfastapi\b/.test(combined)) return 'fastapi';
+  if (/\bflask\b/.test(combined)) return 'flask';
+  return null;
+}
+
 function detectLinters(root) {
   const linters = {
     node: [],
@@ -206,17 +235,7 @@ function detectStack(root) {
       testRunner: pythonTestRunner || (testRunner?.type === 'python' ? testRunner.name : null),
       linters: linters.python,
       typeChecker: typeCheckers.python,
-      framework: pathExists(path.join(root, 'manage.py'))
-        ? 'django'
-        : (() => {
-          if (!pathExists(path.join(root, 'requirements.txt'))) return null;
-          try {
-            const content = fs.readFileSync(path.join(root, 'requirements.txt'), 'utf8');
-            return content.toLowerCase().includes('fastapi') ? 'fastapi' : null;
-          } catch {
-            return null;
-          }
-        })(),
+      framework: detectPythonFramework(root),
     } : null,
     java: hasJava ? {
       enabled: true,
