@@ -202,9 +202,13 @@ function main() {
     assert(pyEntry?.symbolImpact, 'python symbolImpact should exist');
     assert(javaEntry?.symbolImpact, 'java symbolImpact should exist');
     assert(Array.isArray(jsEntry.symbolImpact.symbolToDependents));
+    assert(Array.isArray(jsEntry.symbolImpact.functionToDependents));
     const jsSymbolRow = jsEntry.symbolImpact.symbolToDependents.find((item) => item.symbol === 'utilFn');
     assert(jsSymbolRow, 'js symbol-to-dependent mapping should include utilFn');
     assert(jsSymbolRow.dependentCount >= 1, 'utilFn should have at least one dependent');
+    const jsFunctionRow = jsEntry.symbolImpact.functionToDependents.find((item) => item.function === 'utilFn');
+    assert(jsFunctionRow, 'js function-level mapping should include utilFn');
+    assert(jsFunctionRow.dependentCount >= 1, 'utilFn function-level mapping should have at least one dependent');
     assert(polyDiff.validationAdvice.stack.java, 'java stack should exist in polyglot repo');
     assert.strictEqual(polyDiff.validationAdvice.stack.java.buildCommand, './mvnw');
     assert(jsEntry.impactCount >= 1);

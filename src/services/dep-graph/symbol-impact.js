@@ -126,6 +126,30 @@ function buildSymbolToDependents(depGraph, filePath, sourceSymbols) {
   return rows.sort((a, b) => b.dependentCount - a.dependentCount);
 }
 
+function buildFunctionToDependents(sourceInfo, symbolToDependents) {
+  const exportRecords = Array.isArray(sourceInfo?.exportRecords) ? sourceInfo.exportRecords : [];
+  const functionNames = Array.from(new Set(
+    exportRecords
+      .filter((record) => String(record?.kind || '').startsWith('function'))
+      .map((record) => record.name)
+      .filter((name) => name && name !== 'default')
+  ));
+  if (functionNames.length === 0) return [];
+
+  const rowsBySymbol = new Map((symbolToDependents || []).map((row) => [row.symbol, row]));
+  return functionNames.map((name) => {
+    const row = rowsBySymbol.get(name);
+    if (!row) {
+      return { function: name, dependentCount: 0, dependents: [] };
+    }
+    return {
+      function: name,
+      dependentCount: row.dependentCount,
+      dependents: row.dependents,
+    };
+  }).sort((a, b) => b.dependentCount - a.dependentCount);
+}
+
 function getSymbolImpact(depGraph, filePath, maxDepth = 4) {
   const sourceInfo = depGraph.graph.get(filePath);
   if (!sourceInfo) {
@@ -146,6 +170,7 @@ function getSymbolImpact(depGraph, filePath, maxDepth = 4) {
 
   const sourceSymbols = sourceInfo.exports || [];
   const symbolToDependents = buildSymbolToDependents(depGraph, filePath, sourceSymbols);
+  const functionToDependents = buildFunctionToDependents(sourceInfo, symbolToDependents);
   const direct = [];
   const reExportQueue = [];
   const seenReExportNode = new Set();
@@ -232,6 +257,7 @@ function getSymbolImpact(depGraph, filePath, maxDepth = 4) {
     sourceFile: filePath,
     sourceSymbols,
     symbolToDependents,
+    functionToDependents,
     directCount: uniqueDirect.length,
     directDependents: uniqueDirect,
     transitiveCount: transitive.length,

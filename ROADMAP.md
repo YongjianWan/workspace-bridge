@@ -102,6 +102,7 @@
 
 ### Phase 4: 深度分析
 - symbol-level impact（已实现 baseline：JS/TS + Python + Java，AST 失败回退 file-level）
+- 函数级影响 baseline（已实现：JS/TS 导出函数映射到 dependents）
 - 更精确的 test mapping
 - mixed repo 命令精度提升
 
@@ -129,7 +130,7 @@
 **symbol-level impact**
 
 - [x] 跨文件 symbol-level impact baseline（JS/TS + Python + Java）
-- [ ] 函数级影响分析（依赖 AST）
+- [x] 函数级影响分析 baseline（JS/TS 导出函数）
 - [ ] 变更影响具体函数而非整个文件
 - [ ] 精确测试映射（测试具体覆盖哪些函数）
 

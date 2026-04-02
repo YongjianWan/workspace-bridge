@@ -13,6 +13,13 @@ function uniqueNames(values) {
   return Array.from(new Set((values || []).filter(Boolean)));
 }
 
+function exportKindFromDeclarationType(type) {
+  if (type === 'FunctionDeclaration') return 'function';
+  if (type === 'ClassDeclaration') return 'class';
+  if (type === 'VariableDeclaration') return 'variable';
+  return 'symbol';
+}
+
 function normalizeImportedName(name) {
   if (!name) return null;
   const trimmed = String(name).trim();
@@ -258,7 +265,7 @@ function parseJavaScriptAST(content, filePath = '') {
             }
           }
           for (const { exported: name } of reExported) {
-            exportRecords.push({ name });
+            exportRecords.push({ name, kind: 'symbol' });
           }
           importRecords.push(createImportRecord(node.source.value, {
             imported,
@@ -271,7 +278,7 @@ function parseJavaScriptAST(content, filePath = '') {
               if (spec.exportKind === 'type') continue;
               const name = spec.exported?.name || spec.exported?.value || spec.local?.name || spec.local?.value;
               if (name) {
-                exportRecords.push({ name });
+                exportRecords.push({ name, kind: 'symbol' });
               }
             }
           }
@@ -279,13 +286,14 @@ function parseJavaScriptAST(content, filePath = '') {
 
         if (node.declaration) {
           const decl = node.declaration;
+          const kind = exportKindFromDeclarationType(decl.type);
           if (decl.id?.name) {
-            exportRecords.push({ name: decl.id.name });
+            exportRecords.push({ name: decl.id.name, kind });
           }
           if (decl.declarations) {
             for (const d of decl.declarations) {
               if (d.id?.name) {
-                exportRecords.push({ name: d.id.name });
+                exportRecords.push({ name: d.id.name, kind });
               }
             }
           }
@@ -293,7 +301,10 @@ function parseJavaScriptAST(content, filePath = '') {
       }
 
       if (node.type === 'ExportDefaultDeclaration') {
-        exportRecords.push({ name: 'default' });
+        const declarationType = node.declaration?.type;
+        const baseKind = exportKindFromDeclarationType(declarationType);
+        const kind = baseKind === 'symbol' ? 'symbol' : `${baseKind}-default`;
+        exportRecords.push({ name: 'default', kind });
       }
 
       if (node.type === 'ImportExpression' && node.source?.value) {
@@ -430,7 +441,7 @@ function parseJavaScript(content, filePath = '') {
       })
       .filter((pair) => pair.imported && pair.exported);
     for (const pair of reExported) {
-      exportRecords.push({ name: pair.exported });
+      exportRecords.push({ name: pair.exported, kind: 'symbol' });
     }
     importRecords.push(createImportRecord(source, {
       imported: reExported.map((pair) => pair.imported),
@@ -459,21 +470,31 @@ function parseJavaScript(content, filePath = '') {
       })
       .filter(Boolean);
     for (const name of exportedNames) {
-      exportRecords.push({ name });
+      exportRecords.push({ name, kind: 'symbol' });
     }
   }
 
-  const declarationExportRegex = /export\s+(?:async\s+)?(?:function|class|const|let|var)\s+(\w+)/g;
+  const declarationExportRegex = /export\s+(?:async\s+)?(function|class|const|let|var)\s+(\w+)/g;
   while ((match = declarationExportRegex.exec(content)) !== null) {
-    exportRecords.push({ name: match[1] });
+    const declType = match[1];
+    const name = match[2];
+    const kind = declType === 'function'
+      ? 'function'
+      : declType === 'class'
+        ? 'class'
+        : 'variable';
+    exportRecords.push({ name, kind });
   }
 
   const defaultNamedRegex = /export\s+default\s+(?:async\s+)?(?:function|class)\s+(\w+)/g;
   while ((match = defaultNamedRegex.exec(content)) !== null) {
-    exportRecords.push({ name: 'default' });
+    exportRecords.push({ name: 'default', kind: 'function-default' });
+    if (match[1]) {
+      exportRecords.push({ name: match[1], kind: 'function' });
+    }
   }
   if (/export\s+default\s+(?!async\s+function\s+\w+|function\s+\w+|class\s+\w+)/.test(content)) {
-    exportRecords.push({ name: 'default' });
+    exportRecords.push({ name: 'default', kind: 'symbol' });
   }
 
   const exports = uniqueNames(exportRecords.filter((record) => !record.unknown).map((record) => record.name));
@@ -503,7 +524,7 @@ function parseJava(content) {
 
   const exportRegex = /\bpublic\s+(?:abstract\s+|final\s+)?(?:class|interface|enum|record)\s+([A-Za-z_]\w*)/g;
   while ((match = exportRegex.exec(content)) !== null) {
-    exportRecords.push({ name: match[1] });
+    exportRecords.push({ name: match[1], kind: 'class' });
   }
 
   const exports = uniqueNames(exportRecords.map((record) => record.name));
