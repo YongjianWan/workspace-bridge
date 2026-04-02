@@ -30,6 +30,7 @@ Use this fallback chain:
 
 1. `workspace-bridge-cli ...` (global command available)
 2. `node <workspace-bridge-repo>/cli.js ...` (repo-local fallback)
+3. `node <workspace-bridge-repo>/scripts/cli-fallback.js ...` (scripted auto-fallback wrapper)
 
 Example (global):
 
@@ -41,6 +42,12 @@ Example (repo-local fallback):
 
 ```bash
 node C:\Users\sdses\Desktop\随机小项目\workspace-bridge\cli.js audit-summary --cwd <project> --json --quiet
+```
+
+Example (scripted wrapper, recommended for automation):
+
+```bash
+node C:\Users\sdses\Desktop\随机小项目\workspace-bridge\scripts\cli-fallback.js audit-summary --cwd <project> --json --quiet
 ```
 
 ### Startup preflight (must run once per new target path)

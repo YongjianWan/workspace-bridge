@@ -1,0 +1,64 @@
+#!/usr/bin/env node
+
+const assert = require('assert');
+const path = require('path');
+const { spawnSync } = require('child_process');
+const { runCliWithFallback } = require('../src/utils/cli-fallback');
+
+const repoRoot = path.join(__dirname, '..');
+
+function testFallbackWhenGlobalMissing() {
+  const run = runCliWithFallback(
+    ['workspace-info', '--cwd', repoRoot, '--json', '--quiet'],
+    {
+      stdio: 'pipe',
+      cwd: repoRoot,
+      env: process.env,
+      globalCmd: 'workspace-bridge-cli-does-not-exist',
+    }
+  );
+  assert.strictEqual(run.used, 'local', 'should fallback to local cli');
+  assert.strictEqual(run.result.status, 0, run.result.stderr?.toString() || run.result.stdout?.toString());
+  const parsed = JSON.parse(run.result.stdout.toString('utf8'));
+  assert.strictEqual(parsed.workspaceRoot, repoRoot);
+}
+
+function testForceLocalMode() {
+  const run = runCliWithFallback(
+    ['workspace-info', '--cwd', repoRoot, '--json', '--quiet'],
+    {
+      stdio: 'pipe',
+      cwd: repoRoot,
+      env: process.env,
+      globalCmd: 'workspace-bridge-cli',
+      forceLocal: true,
+    }
+  );
+  assert.strictEqual(run.used, 'local', 'forceLocal should bypass global cli');
+  assert.strictEqual(run.result.status, 0, run.result.stderr?.toString() || run.result.stdout?.toString());
+}
+
+function testScriptEntry() {
+  const scriptPath = path.join(repoRoot, 'scripts', 'cli-fallback.js');
+  const result = spawnSync('node', [scriptPath, 'workspace-info', '--cwd', repoRoot, '--json', '--quiet'], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      WB_GLOBAL_CLI: 'workspace-bridge-cli-does-not-exist',
+    },
+    encoding: 'utf8',
+  });
+  assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+  const parsed = JSON.parse(result.stdout);
+  assert.strictEqual(parsed.workspaceRoot, repoRoot);
+}
+
+function main() {
+  testFallbackWhenGlobalMissing();
+  testForceLocalMode();
+  testScriptEntry();
+  console.log('cli-fallback-test: ok');
+}
+
+main();
+
