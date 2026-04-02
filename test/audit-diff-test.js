@@ -65,6 +65,12 @@ try {
     '}',
     '',
   ].join('\n'));
+  writeFile('src/helper-service.js', [
+    'ex' + 'port function helperService() {',
+    '  return 1;',
+    '}',
+    '',
+  ].join('\n'));
   writeFile('test/app.test.js', [
     "im" + "port { run } from '../src/app';",
     '',
@@ -117,9 +123,19 @@ try {
   assert.strictEqual(changed.file.replace(/\\/g, '/'), 'src/util.js');
   assert.strictEqual(changed.classification.directoryRole, 'active');
   assert.strictEqual(changed.impactCount >= 1, true);
+  assert(Array.isArray(changed.changedLineRanges), 'changedLineRanges should exist');
+  assert(changed.changedLineRanges.length >= 1, 'changedLineRanges should include modified hunks');
   assert(changed.symbolImpact, 'symbolImpact should exist');
   assert(['symbol', 'file-fallback'].includes(changed.symbolImpact.mode), 'symbolImpact.mode should be valid');
   assert(Array.isArray(changed.symbolImpact.functionToDependents), 'functionToDependents should exist');
+  assert(changed.symbolImpact.changedFunctionImpact, 'changedFunctionImpact should exist');
+  assert.strictEqual(changed.symbolImpact.changedFunctionImpact.mode, 'function-symbol');
+  assert(changed.symbolImpact.changedFunctionImpact.changedFunctions.includes('helper'));
+  assert(Array.isArray(changed.symbolImpact.changedFunctionImpact.impactedFunctionDependents));
+  assert(Array.isArray(changed.symbolImpact.changedFunctionImpact.reuseHints), 'reuseHints should exist');
+  const helperHint = changed.symbolImpact.changedFunctionImpact.reuseHints.find((item) => item.function === 'helper');
+  assert(helperHint, 'reuseHints should include helper');
+  assert(helperHint.suggestions.some((item) => item.function === 'helperService'), 'helper should suggest helperService');
   assert(changed.compositeRisk, 'compositeRisk should exist');
   assert(['low', 'medium', 'high'].includes(changed.compositeRisk.level), 'compositeRisk.level should be valid');
   assert(typeof changed.compositeRisk.score === 'number', 'compositeRisk.score should be numeric');

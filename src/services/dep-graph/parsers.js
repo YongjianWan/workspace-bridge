@@ -20,6 +20,15 @@ function exportKindFromDeclarationType(type) {
   return 'symbol';
 }
 
+function createExportRecord(name, options = {}) {
+  const record = { name };
+  if (options.kind) record.kind = options.kind;
+  if (options.unknown) record.unknown = true;
+  if (Number.isFinite(options.lineStart)) record.lineStart = options.lineStart;
+  if (Number.isFinite(options.lineEnd)) record.lineEnd = options.lineEnd;
+  return record;
+}
+
 function normalizeImportedName(name) {
   if (!name) return null;
   const trimmed = String(name).trim();
@@ -239,7 +248,12 @@ function parseJavaScriptAST(content, filePath = '') {
         if (node.exportKind === 'type') {
           return;
         }
-        exportRecords.push({ name: '*', unknown: true });
+        exportRecords.push(createExportRecord('*', {
+          unknown: true,
+          kind: 'symbol',
+          lineStart: node.loc?.start?.line,
+          lineEnd: node.loc?.end?.line,
+        }));
         imports.push(node.source.value);
         importRecords.push(createImportRecord(node.source.value, { usesAllExports: true, reExportAll: true }));
       }
@@ -265,7 +279,11 @@ function parseJavaScriptAST(content, filePath = '') {
             }
           }
           for (const { exported: name } of reExported) {
-            exportRecords.push({ name, kind: 'symbol' });
+            exportRecords.push(createExportRecord(name, {
+              kind: 'symbol',
+              lineStart: node.loc?.start?.line,
+              lineEnd: node.loc?.end?.line,
+            }));
           }
           importRecords.push(createImportRecord(node.source.value, {
             imported,
@@ -278,7 +296,11 @@ function parseJavaScriptAST(content, filePath = '') {
               if (spec.exportKind === 'type') continue;
               const name = spec.exported?.name || spec.exported?.value || spec.local?.name || spec.local?.value;
               if (name) {
-                exportRecords.push({ name, kind: 'symbol' });
+                exportRecords.push(createExportRecord(name, {
+                  kind: 'symbol',
+                  lineStart: spec.loc?.start?.line || node.loc?.start?.line,
+                  lineEnd: spec.loc?.end?.line || node.loc?.end?.line,
+                }));
               }
             }
           }
@@ -288,12 +310,20 @@ function parseJavaScriptAST(content, filePath = '') {
           const decl = node.declaration;
           const kind = exportKindFromDeclarationType(decl.type);
           if (decl.id?.name) {
-            exportRecords.push({ name: decl.id.name, kind });
+            exportRecords.push(createExportRecord(decl.id.name, {
+              kind,
+              lineStart: decl.loc?.start?.line || node.loc?.start?.line,
+              lineEnd: decl.loc?.end?.line || node.loc?.end?.line,
+            }));
           }
           if (decl.declarations) {
             for (const d of decl.declarations) {
               if (d.id?.name) {
-                exportRecords.push({ name: d.id.name, kind });
+                exportRecords.push(createExportRecord(d.id.name, {
+                  kind,
+                  lineStart: d.loc?.start?.line || decl.loc?.start?.line || node.loc?.start?.line,
+                  lineEnd: d.loc?.end?.line || decl.loc?.end?.line || node.loc?.end?.line,
+                }));
               }
             }
           }
@@ -304,7 +334,11 @@ function parseJavaScriptAST(content, filePath = '') {
         const declarationType = node.declaration?.type;
         const baseKind = exportKindFromDeclarationType(declarationType);
         const kind = baseKind === 'symbol' ? 'symbol' : `${baseKind}-default`;
-        exportRecords.push({ name: 'default', kind });
+        exportRecords.push(createExportRecord('default', {
+          kind,
+          lineStart: node.loc?.start?.line,
+          lineEnd: node.loc?.end?.line,
+        }));
       }
 
       if (node.type === 'ImportExpression' && node.source?.value) {
@@ -441,7 +475,7 @@ function parseJavaScript(content, filePath = '') {
       })
       .filter((pair) => pair.imported && pair.exported);
     for (const pair of reExported) {
-      exportRecords.push({ name: pair.exported, kind: 'symbol' });
+      exportRecords.push(createExportRecord(pair.exported, { kind: 'symbol' }));
     }
     importRecords.push(createImportRecord(source, {
       imported: reExported.map((pair) => pair.imported),
@@ -453,7 +487,7 @@ function parseJavaScript(content, filePath = '') {
   const exportAllRegex = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
   while ((match = exportAllRegex.exec(content)) !== null) {
     imports.push(match[1]);
-    exportRecords.push({ name: '*', unknown: true });
+    exportRecords.push(createExportRecord('*', { unknown: true, kind: 'symbol' }));
     importRecords.push(createImportRecord(match[1], { usesAllExports: true, reExportAll: true }));
   }
 
@@ -470,7 +504,7 @@ function parseJavaScript(content, filePath = '') {
       })
       .filter(Boolean);
     for (const name of exportedNames) {
-      exportRecords.push({ name, kind: 'symbol' });
+      exportRecords.push(createExportRecord(name, { kind: 'symbol' }));
     }
   }
 
@@ -483,18 +517,18 @@ function parseJavaScript(content, filePath = '') {
       : declType === 'class'
         ? 'class'
         : 'variable';
-    exportRecords.push({ name, kind });
+    exportRecords.push(createExportRecord(name, { kind }));
   }
 
   const defaultNamedRegex = /export\s+default\s+(?:async\s+)?(?:function|class)\s+(\w+)/g;
   while ((match = defaultNamedRegex.exec(content)) !== null) {
-    exportRecords.push({ name: 'default', kind: 'function-default' });
+    exportRecords.push(createExportRecord('default', { kind: 'function-default' }));
     if (match[1]) {
-      exportRecords.push({ name: match[1], kind: 'function' });
+      exportRecords.push(createExportRecord(match[1], { kind: 'function' }));
     }
   }
   if (/export\s+default\s+(?!async\s+function\s+\w+|function\s+\w+|class\s+\w+)/.test(content)) {
-    exportRecords.push({ name: 'default', kind: 'symbol' });
+    exportRecords.push(createExportRecord('default', { kind: 'symbol' }));
   }
 
   const exports = uniqueNames(exportRecords.filter((record) => !record.unknown).map((record) => record.name));
@@ -524,7 +558,7 @@ function parseJava(content) {
 
   const exportRegex = /\bpublic\s+(?:abstract\s+|final\s+)?(?:class|interface|enum|record)\s+([A-Za-z_]\w*)/g;
   while ((match = exportRegex.exec(content)) !== null) {
-    exportRecords.push({ name: match[1], kind: 'class' });
+    exportRecords.push(createExportRecord(match[1], { kind: 'class' }));
   }
 
   const exports = uniqueNames(exportRecords.map((record) => record.name));

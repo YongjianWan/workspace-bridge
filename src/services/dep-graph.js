@@ -12,7 +12,7 @@ const {
   parseJava,
 } = require('./dep-graph/parsers');
 const { resolveImport } = require('./dep-graph/resolvers');
-const { getSymbolImpact } = require('./dep-graph/symbol-impact');
+const { getSymbolImpact, getChangedFunctionImpact, getFunctionReuseHints } = require('./dep-graph/symbol-impact');
 
 const readFile = promisify(fs.readFile);
 
@@ -287,6 +287,14 @@ class DependencyGraph {
 
   getSymbolImpact(filePath, maxDepth = 4) {
     return getSymbolImpact(this, filePath, maxDepth);
+  }
+
+  getChangedFunctionImpact(filePath, lineRanges, options = {}) {
+    return getChangedFunctionImpact(this, filePath, lineRanges, options);
+  }
+
+  getFunctionReuseHints(filePath, changedFunctions, options = {}) {
+    return getFunctionReuseHints(this, filePath, changedFunctions, options);
   }
 
   /**

@@ -182,6 +182,9 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 - 每个文件的 `compositeRisk`（结构 + 测试 + 历史融合评分）
 - 每个文件的 `symbolImpact.symbolToDependents`（导出符号到依赖文件映射）
 - 每个文件的 `symbolImpact.functionToDependents`（导出函数到依赖文件映射，JS/TS baseline）
+- 每个文件的 `changedLineRanges`（来自 git diff 的变更行区间）
+- 每个文件的 `symbolImpact.changedFunctionImpact`（变更函数级影响，JS/TS baseline）
+- `symbolImpact.changedFunctionImpact.reuseHints`（函数相似度复用提示，轻量启发式）
 - 聚合后的风险级别
 
 这玩意的目标不是替代 `git diff`，而是把"我这次改了什么，最好先测什么"直接吐给 agent。

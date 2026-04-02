@@ -10,6 +10,7 @@ const { workspaceInfo, runDiagnostics } = require('./src/tools/workspace-tools')
 const { projectHealth, checkDependencies } = require('./src/tools/health-tools');
 const { dependencyGraph } = require('./src/tools/dep-tools');
 const { getChangedFiles } = require('./src/tools/git-tools');
+const { getChangedLineRanges } = require('./src/tools/git-tools');
 const { validateWorkspacePath } = require('./src/tools/git-tools');
 const { getFileHistoryRisk } = require('./src/tools/git-tools');
 const {
@@ -309,7 +310,26 @@ async function runCommand(parsed, container) {
         const classification = container.projectContext?.classifyFile(resolvedPath) || null;
         const graphKnown = Boolean(resolvedPath && container.depGraph.graph.has(resolvedPath));
         const impact = graphKnown ? container.depGraph.getImpactRadius(resolvedPath) : [];
-        const symbolImpact = graphKnown ? container.depGraph.getSymbolImpact(resolvedPath) : null;
+        const lineRangeResult = resolvedPath
+          ? await getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: false })
+          : { ok: false };
+        const changedLineRanges = lineRangeResult.ok ? lineRangeResult.lineRanges : [];
+        const baseSymbolImpact = graphKnown ? container.depGraph.getSymbolImpact(resolvedPath) : null;
+        const changedFunctionImpactBase = graphKnown
+          ? container.depGraph.getChangedFunctionImpact(resolvedPath, changedLineRanges, { symbolImpact: baseSymbolImpact })
+          : null;
+        const reuseHints = graphKnown && changedFunctionImpactBase?.mode === 'function-symbol'
+          ? container.depGraph.getFunctionReuseHints(resolvedPath, changedFunctionImpactBase.changedFunctions, {
+            minScore: 0.5,
+            maxPerFunction: 3,
+          })
+          : [];
+        const changedFunctionImpact = changedFunctionImpactBase
+          ? { ...changedFunctionImpactBase, reuseHints }
+          : null;
+        const symbolImpact = baseSymbolImpact
+          ? { ...baseSymbolImpact, changedFunctionImpact }
+          : null;
         const affectedTests = graphKnown ? container.depGraph.findAffectedTests(resolvedPath, Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined) : [];
         const history = resolvedPath ? await getFileHistoryRisk(container.workspaceRoot, resolvedPath, { limit: 25 }) : { ok: false };
         const historyRisk = history.ok ? history.historyRisk : null;
@@ -320,6 +340,7 @@ async function runCommand(parsed, container) {
           graphKnown,
           impactCount: impact.length,
           impact,
+          changedLineRanges,
           symbolImpact,
           affectedTestCount: affectedTests.length,
           affectedTests,

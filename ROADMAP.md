@@ -131,7 +131,7 @@
 
 - [x] 跨文件 symbol-level impact baseline（JS/TS + Python + Java）
 - [x] 函数级影响分析 baseline（JS/TS 导出函数）
-- [ ] 变更影响具体函数而非整个文件
+- [x] 变更影响具体函数而非整个文件 baseline（JS/TS：基于 diff 行号）
 - [ ] 精确测试映射（测试具体覆盖哪些函数）
 
 **代码相似度（克制地借鉴 reference）**

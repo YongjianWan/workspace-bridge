@@ -196,6 +196,93 @@ async function getChangedFiles(root, options = {}) {
   };
 }
 
+function parseUnifiedDiffLineRanges(diffText) {
+  const ranges = [];
+  const hunkRegex = /^@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,(\d+))?\s+@@/gm;
+  let match;
+  while ((match = hunkRegex.exec(diffText || '')) !== null) {
+    const start = Number.parseInt(match[1], 10);
+    const count = match[2] ? Number.parseInt(match[2], 10) : 1;
+    if (!Number.isFinite(start) || !Number.isFinite(count) || count <= 0) continue;
+    ranges.push({
+      startLine: start,
+      endLine: start + count - 1,
+    });
+  }
+  return ranges;
+}
+
+async function isTrackedByGit(root, filePath) {
+  const result = await runGit(['ls-files', '--error-unmatch', '--', filePath], root, 15000);
+  return result.ok;
+}
+
+async function getChangedLineRanges(root, file, options = {}) {
+  const gitCheck = await ensureGitRepo(root);
+  if (gitCheck) return gitCheck;
+
+  const filePath = validateWorkspacePath(file, root);
+  if (!filePath) {
+    return { ok: false, error: 'Invalid file path or path outside workspace', workspaceRoot: root, file };
+  }
+
+  const staged = options.staged === true;
+  const unstagedArgs = ['diff', '--no-color', '--unified=0', '--', filePath];
+  const stagedArgs = ['diff', '--cached', '--no-color', '--unified=0', '--', filePath];
+  const [unstaged, stagedDiff] = await Promise.all([
+    runGit(unstagedArgs, root, 30000),
+    runGit(stagedArgs, root, 30000),
+  ]);
+
+  const combined = [unstaged.stdout || '', stagedDiff.stdout || ''].join('\n');
+  const ranges = parseUnifiedDiffLineRanges(combined);
+  if (ranges.length > 0) {
+    return {
+      ok: true,
+      workspaceRoot: root,
+      file: path.relative(root, filePath),
+      staged,
+      lineRanges: ranges,
+      source: 'diff',
+    };
+  }
+
+  // New untracked file may not appear in git diff output. Fallback to whole-file range.
+  const tracked = await isTrackedByGit(root, filePath);
+  if (!tracked && fs.existsSync(filePath)) {
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      const lines = content.split(/\r?\n/).length;
+      return {
+        ok: true,
+        workspaceRoot: root,
+        file: path.relative(root, filePath),
+        staged,
+        lineRanges: lines > 0 ? [{ startLine: 1, endLine: lines }] : [],
+        source: 'untracked-file',
+      };
+    } catch {
+      return {
+        ok: true,
+        workspaceRoot: root,
+        file: path.relative(root, filePath),
+        staged,
+        lineRanges: [],
+        source: 'untracked-file',
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    workspaceRoot: root,
+    file: path.relative(root, filePath),
+    staged,
+    lineRanges: [],
+    source: 'diff',
+  };
+}
+
 async function getFileHistoryRisk(root, file, options = {}) {
   const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
@@ -514,6 +601,7 @@ async function gitLogGraph(args) {
 module.exports = {
   gitDiffSummary,
   getChangedFiles,
+  getChangedLineRanges,
   getFileHistoryRisk,
   gitBlame,
   gitHistory,
