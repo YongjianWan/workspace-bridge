@@ -21,7 +21,40 @@ This skill wraps the local CLI for:
 
 ## Command patterns
 
-Run commands from the `workspace-bridge` repo root.
+Always execute against a target project path via `--cwd <project>`.
+Never assume the current terminal directory is the project root.
+
+### CLI resolution order (for random paths/new windows)
+
+Use this fallback chain:
+
+1. `workspace-bridge-cli ...` (global command available)
+2. `node <workspace-bridge-repo>/cli.js ...` (repo-local fallback)
+
+Example (global):
+
+```bash
+workspace-bridge-cli audit-summary --cwd <project> --json --quiet
+```
+
+Example (repo-local fallback):
+
+```bash
+node C:\Users\sdses\Desktop\随机小项目\workspace-bridge\cli.js audit-summary --cwd <project> --json --quiet
+```
+
+### Startup preflight (must run once per new target path)
+
+```bash
+workspace-bridge-cli workspace-info --cwd <project> --json --quiet
+workspace-bridge-cli audit-summary --cwd <project> --json --quiet
+```
+
+If preflight fails, report exact failure class:
+- path invalid / permission denied
+- not a git workspace (for `audit-diff`)
+- command missing / runtime missing
+- analysis degraded (fallback mode)
 
 ### Aggregate Commands (Recommended)
 
@@ -92,6 +125,19 @@ node cli.js diagnostics --cwd <project> --mode quick --json
 2. Review `hotspots` for high-risk files (frequent changes + high coupling)
 3. Review `stability` for fragile modules (low stability score)
 4. Check `orphans` for potentially unused files (verify before deleting)
+5. Review `architectureAdvice` for cycle/coupling refactor hints
+
+## Standard Output Contract (for reusable skill behavior)
+
+When this skill is used by an agent, the response should include:
+
+1. `Scope`: target path and whether exclusions/config were applied
+2. `Top Risks`: max 3 items with direct evidence fields
+3. `Actions`: concrete executable commands in priority order
+4. `Validation`: smoke/focused/full status or next commands
+5. `Confidence`: high/medium/low and why
+
+Avoid narrative-only output. Always return executable next steps.
 
 ## Suggested Workflows
 
@@ -168,4 +214,4 @@ This prevents reference code from polluting dead export and orphan detection res
 
 ## Version
 
-This skill targets workspace-bridge v0.8.0+
+This skill targets workspace-bridge v0.9.0+
