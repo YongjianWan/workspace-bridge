@@ -50,6 +50,7 @@
 - ✅ 混合仓库目录智能识别（自动降权 prototypes/examples 为 reference）
 - ✅ 自动入口识别增强（framework/config 入口：manage.py、vite.config.*）
 - ✅ 500+ 文件性能基准脚本（cold/hot/incremental，含 tree 与阈值）
+- ✅ function-level affected tests baseline（JS/TS：changed function -> likely tests）
 
 **诊断执行**
 
@@ -132,7 +133,7 @@
 - [x] 跨文件 symbol-level impact baseline（JS/TS + Python + Java）
 - [x] 函数级影响分析 baseline（JS/TS 导出函数）
 - [x] 变更影响具体函数而非整个文件 baseline（JS/TS：基于 diff 行号）
-- [ ] 精确测试映射（测试具体覆盖哪些函数）
+- [ ] 精确测试映射（测试具体覆盖哪些函数，当前为启发式 baseline）
 
 **代码相似度（克制地借鉴 reference）**
 

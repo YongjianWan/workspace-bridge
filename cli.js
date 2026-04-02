@@ -324,8 +324,18 @@ async function runCommand(parsed, container) {
             maxPerFunction: 3,
           })
           : [];
+        const functionLevelAffectedTests = graphKnown && changedFunctionImpactBase?.mode === 'function-symbol'
+          ? container.depGraph.getFunctionLevelAffectedTests(
+            resolvedPath,
+            changedFunctionImpactBase.changedFunctions,
+            {
+              symbolImpact: baseSymbolImpact,
+              maxDepth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : 4,
+            }
+          )
+          : { functions: [], affectedTestCount: 0 };
         const changedFunctionImpact = changedFunctionImpactBase
-          ? { ...changedFunctionImpactBase, reuseHints }
+          ? { ...changedFunctionImpactBase, reuseHints, functionLevelAffectedTests }
           : null;
         const symbolImpact = baseSymbolImpact
           ? { ...baseSymbolImpact, changedFunctionImpact }

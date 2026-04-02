@@ -204,6 +204,11 @@ function main() {
     assert(Array.isArray(jsEntry.symbolImpact.symbolToDependents));
     assert(Array.isArray(jsEntry.symbolImpact.functionToDependents));
     assert(jsEntry.symbolImpact.changedFunctionImpact, 'changedFunctionImpact should exist');
+    assert(jsEntry.symbolImpact.changedFunctionImpact.functionLevelAffectedTests, 'functionLevelAffectedTests should exist');
+    assert.strictEqual(
+      typeof jsEntry.symbolImpact.changedFunctionImpact.functionLevelAffectedTests.affectedTestCount,
+      'number'
+    );
     assert(Array.isArray(jsEntry.changedLineRanges), 'changedLineRanges should exist');
     const jsSymbolRow = jsEntry.symbolImpact.symbolToDependents.find((item) => item.symbol === 'utilFn');
     assert(jsSymbolRow, 'js symbol-to-dependent mapping should include utilFn');

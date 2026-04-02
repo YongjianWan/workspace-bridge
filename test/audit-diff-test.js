@@ -136,6 +136,12 @@ try {
   const helperHint = changed.symbolImpact.changedFunctionImpact.reuseHints.find((item) => item.function === 'helper');
   assert(helperHint, 'reuseHints should include helper');
   assert(helperHint.suggestions.some((item) => item.function === 'helperService'), 'helper should suggest helperService');
+  const fnTests = changed.symbolImpact.changedFunctionImpact.functionLevelAffectedTests;
+  assert(fnTests, 'functionLevelAffectedTests should exist');
+  assert.strictEqual(typeof fnTests.affectedTestCount, 'number');
+  const helperTests = fnTests.functions.find((item) => item.function === 'helper');
+  assert(helperTests, 'functionLevelAffectedTests should include helper');
+  assert(helperTests.affectedTests.some((item) => item.file.replace(/\\/g, '/').endsWith('/test/app.test.js')));
   assert(changed.compositeRisk, 'compositeRisk should exist');
   assert(['low', 'medium', 'high'].includes(changed.compositeRisk.level), 'compositeRisk.level should be valid');
   assert(typeof changed.compositeRisk.score === 'number', 'compositeRisk.score should be numeric');
