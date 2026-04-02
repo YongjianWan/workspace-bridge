@@ -162,7 +162,7 @@
 ### P6: Skill 标准化
 
 - [x] workspace-audit 标准化 v1（随机路径可用 + 启动 preflight + 标准输出契约） `完成于 2026-04-03，commit: d11288d`
-- [x] 全局安装/回退策略脚本化（`workspace-bridge-cli` 不可用时自动降级到 `node <repo>/cli.js`） `完成于 2026-04-03，commit: pending`
+- [x] 全局安装/回退策略脚本化（`workspace-bridge-cli` 不可用时自动降级到 `node <repo>/cli.js`） `完成于 2026-04-03，commit: ceaba86`
 - [ ] benchmark compare 阈值策略重构（相对基线 + 波动容忍，去掉固定 500ms 噪音）
 
 ---
