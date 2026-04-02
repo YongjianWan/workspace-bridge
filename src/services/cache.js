@@ -42,9 +42,11 @@ class WorkspaceCache {
         normalized.set(key, metadata);
         continue;
       }
-      const existingMtime = Number(existing?.mtime || 0);
-      const nextMtime = Number(metadata?.mtime || 0);
-      if (nextMtime >= existingMtime) {
+      const existingMtime = Number(existing?.mtime);
+      const nextMtime = Number(metadata?.mtime);
+      const existingSafe = Number.isNaN(existingMtime) ? 0 : existingMtime;
+      const nextSafe = Number.isNaN(nextMtime) ? 0 : nextMtime;
+      if (nextSafe > existingSafe) {
         normalized.set(key, metadata);
       }
     }
@@ -122,6 +124,7 @@ class WorkspaceCache {
    * Save to disk
    */
   async save() {
+    let tempPath = null;
     try {
       const data = {
         version: CACHE_VERSION,
@@ -133,11 +136,20 @@ class WorkspaceCache {
         diagnostics: Array.from(this.diagnostics.entries()),
       };
 
-      fs.writeFileSync(this.cachePath, JSON.stringify(data, null, 2));
+      tempPath = `${this.cachePath}.tmp-${process.pid}-${Date.now()}`;
+      fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf8');
+      fs.renameSync(tempPath, this.cachePath);
       this.lastSaved = Date.now();
       console.error('[Cache] Saved');
       return true;
     } catch (err) {
+      if (tempPath && fs.existsSync(tempPath)) {
+        try {
+          fs.unlinkSync(tempPath);
+        } catch (_) {
+          // Best effort cleanup.
+        }
+      }
       console.error('[Cache] Save failed:', err.message);
       return false;
     }

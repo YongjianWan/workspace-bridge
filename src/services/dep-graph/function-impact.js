@@ -174,6 +174,7 @@ function getFunctionLevelAffectedTests(depGraph, filePath, changedFunctions, opt
 
   const functionLevelAffectedTests = [];
   const totalUniqueTests = new Set();
+  const dependentBfsCache = new Map();
 
   for (const fnName of list) {
     const row = byFunction.get(fnName);
@@ -186,7 +187,11 @@ function getFunctionLevelAffectedTests(depGraph, filePath, changedFunctions, opt
         continue;
       }
 
-      const affected = depGraph.findAffectedTests(dependentFile, maxDepth, { includeHeuristic: false });
+      let affected = dependentBfsCache.get(dependentFile);
+      if (!affected) {
+        affected = depGraph.findAffectedTests(dependentFile, maxDepth, { includeHeuristic: false });
+        dependentBfsCache.set(dependentFile, affected);
+      }
       for (const test of affected) {
         const distance = Number.isFinite(test?.distance) ? test.distance + 1 : maxDepth + 1;
         mergeTestRow(testMap, test.file, distance, [`${sourceFile}#${fnName}`, dependentFile, ...(test.via || [])]);
