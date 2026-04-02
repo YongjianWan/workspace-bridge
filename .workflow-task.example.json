@@ -1,0 +1,19 @@
+{
+  "name": "workspace-bridge-autoloop",
+  "workdir": ".",
+  "maxLoops": 3,
+  "preflight": [
+    "npm ci",
+    "npm run test:security"
+  ],
+  "implement": [
+    "echo \"Implement phase: put your build/generate command here\""
+  ],
+  "test": [
+    "npm run test:all"
+  ],
+  "autofix": [
+    "echo \"Autofix phase: put your lint --fix or codegen repair command here\""
+  ],
+  "reportFile": "reports/workflow-last.json"
+}

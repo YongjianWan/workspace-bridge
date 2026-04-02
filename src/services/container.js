@@ -5,7 +5,6 @@
 const { WorkspaceCache } = require('./cache');
 const { FileIndex } = require('./file-index');
 const { DiagnosticsEngine } = require('./diagnostics-engine');
-const { EditorState } = require('./editor-state');
 const { DependencyGraph } = require('./dep-graph');
 const { ProjectContext } = require('../utils/project-context');
 
@@ -78,8 +77,12 @@ class ServiceContainer {
       // Initialize diagnostics engine
       this.diagnostics = new DiagnosticsEngine(this.workspaceRoot, this.cache);
 
-      // Initialize editor state reader
-      this.editorState = new EditorState(this.workspaceRoot);
+      // EditorState is deprecated and disabled by default.
+      // Keep an explicit opt-in hook for experiments.
+      if (options.enableEditorState === true) {
+        const { EditorState } = require('./editor-state');
+        this.editorState = new EditorState(this.workspaceRoot);
+      }
 
       // Initialize dependency graph
       this.depGraph = new DependencyGraph(this.workspaceRoot, this.cache, {

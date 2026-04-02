@@ -12,6 +12,7 @@ const {
   parseJava,
 } = require('./dep-graph/parsers');
 const { resolveImport } = require('./dep-graph/resolvers');
+const { normalizePathKey, matchesPathFragment } = require('../utils/path');
 const {
   getSymbolImpact,
   getChangedFunctionImpact,
@@ -29,7 +30,10 @@ const CONFIG = {
 
 function normalizeStem(filePath) {
   const base = path.basename(filePath, path.extname(filePath)).toLowerCase();
-  return base.replace(/(\.test|\.spec|_test|^test_)/g, '');
+  return base
+    .replace(/^test_/, '')
+    .replace(/_test$/, '')
+    .replace(/(?:\.|_)(?:test|spec)$/, '');
 }
 
 class DependencyGraph {
@@ -45,8 +49,20 @@ class DependencyGraph {
   }
 
   shouldExclude(filePath) {
-    const normalized = String(filePath || '').replace(/\\/g, '/').toLowerCase();
-    return this.excludeDirs.some((dir) => normalized.includes(`/${String(dir).replace(/\\/g, '/').toLowerCase()}/`) || normalized.endsWith(`/${String(dir).replace(/\\/g, '/').toLowerCase()}`));
+    const normalized = normalizePathKey(filePath);
+    return this.excludeDirs.some((dir) => matchesPathFragment(normalized, dir));
+  }
+
+  normalizeFilePath(filePath) {
+    return normalizePathKey(filePath);
+  }
+
+  hasFile(filePath) {
+    return this.graph.has(this.normalizeFilePath(filePath));
+  }
+
+  getFileInfo(filePath) {
+    return this.graph.get(this.normalizeFilePath(filePath));
   }
 
   _readPackageJson() {
@@ -83,7 +99,7 @@ class DependencyGraph {
   }
 
   isTestLikeFile(filePath) {
-    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+    const normalized = normalizePathKey(filePath);
     const base = path.basename(normalized);
     return (
       normalized.includes('/test/') ||
@@ -103,7 +119,7 @@ class DependencyGraph {
   isKnownEntryFile(filePath, exports) {
     if (this.entryFiles.has(filePath)) return true;
 
-    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+    const normalized = normalizePathKey(filePath);
     const base = path.basename(normalized);
     const frameworkManagedPatterns = [
       /\/migrations\/.*\.py$/,
@@ -146,11 +162,19 @@ class DependencyGraph {
     const startTime = Date.now();
     
     // Get all files from cache
-    const files = Array.from(this.cache.fileMetadata.keys()).filter((file) => {
+    const candidateFiles = Array.from(this.cache.fileMetadata.keys()).filter((file) => {
       if (this.shouldExclude(file)) return false;
       if (this.projectContext && !this.projectContext.shouldAnalyzeFile(file)) return false;
       return true;
     });
+    const files = [];
+    const seen = new Set();
+    for (const file of candidateFiles) {
+      const key = this.normalizeFilePath(file);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      files.push(file);
+    }
     
     // Process with concurrency limit (same pattern as FileIndex)
     await this._processFilesWithLimit(files, CONFIG.DEFAULT_CONCURRENCY);
@@ -186,6 +210,7 @@ class DependencyGraph {
    */
   async analyzeFile(filePath) {
     try {
+      const graphKey = this.normalizeFilePath(filePath);
       const content = await readFile(filePath, 'utf8');
       const ext = path.extname(filePath);
       
@@ -214,13 +239,13 @@ class DependencyGraph {
           if (!resolved) return null;
           return {
             ...record,
-            resolved,
+            resolved: this.normalizeFilePath(resolved),
           };
         })
         .filter(Boolean);
       const resolvedImports = resolvedImportRecords.map((record) => record.resolved);
 
-      this.graph.set(filePath, {
+      this.graph.set(graphKey, {
         imports: resolvedImports,
         exports,
         importRecords: resolvedImportRecords,
@@ -251,14 +276,14 @@ class DependencyGraph {
    * Get direct dependencies of a file
    */
   getDependencies(filePath) {
-    return this.graph.get(filePath)?.imports || [];
+    return this.getFileInfo(filePath)?.imports || [];
   }
 
   /**
    * Get files that depend on this file (reverse dependencies)
    */
   getDependents(filePath) {
-    return this.reverseGraph.get(filePath) || [];
+    return this.reverseGraph.get(this.normalizeFilePath(filePath)) || [];
   }
 
   /**
@@ -330,7 +355,7 @@ class DependencyGraph {
 
       const deps = this.getDependencies(file);
       for (const dep of deps) {
-        if (this.graph.has(dep)) {
+        if (this.hasFile(dep)) {
           visit(dep, [...path]);
         }
       }
@@ -349,7 +374,7 @@ class DependencyGraph {
    * Get unused exports in a file
    */
   getUnusedExports(filePath) {
-    const info = this.graph.get(filePath);
+    const info = this.getFileInfo(filePath);
     if (!info) return [];
 
     const unused = [];
@@ -393,7 +418,7 @@ class DependencyGraph {
       if (info.exports.length === 0) continue;
       if (this.isTestLikeFile(filePath)) continue;
       if (this.isKnownEntryFile(filePath, info.exports)) continue;
-      const importers = this.reverseGraph.get(filePath) || [];
+      const importers = this.getDependents(filePath);
       if (importers.length === 0) {
         deadExports.push({ file: filePath, exports: info.exports, confidence: 'high' });
         continue;
@@ -403,7 +428,7 @@ class DependencyGraph {
       const usedNames = new Set();
 
       for (const importerPath of importers) {
-        const importerInfo = this.graph.get(importerPath);
+        const importerInfo = this.getFileInfo(importerPath);
         if (!importerInfo?.importRecords) {
           usesAllExports = true;
           break;
@@ -447,7 +472,7 @@ class DependencyGraph {
 
     for (const [filePath, info] of this.graph) {
       for (const imp of info.imports) {
-        if (!this.graph.has(imp) && path.isAbsolute(imp) && !fs.existsSync(imp)) {
+        if (!this.hasFile(imp) && path.isAbsolute(imp) && !fs.existsSync(imp)) {
           unresolved.push({ file: filePath, import: imp, resolvedTo: imp });
         }
       }
@@ -475,7 +500,7 @@ class DependencyGraph {
       if (this.isTestLikeFile(f)) return true;
       const basename = path.basename(f);
       if (testPatterns.some(p => p.test(basename))) return true;
-      const dir = path.dirname(f).replace(/\\/g, '/').toLowerCase();
+      const dir = normalizePathKey(path.dirname(f));
       if (dir.includes('/tests/') || dir.includes('/test/') || dir.includes('/__tests__/')) return true;
       if (dir.includes('/src/test/java/')) return true;
       if (dir.endsWith('/tests') || dir.endsWith('/test') || dir.endsWith('/__tests__')) return true;
@@ -523,7 +548,7 @@ class DependencyGraph {
     const sourceStem = normalizeStem(filePath);
     const sourceExt = path.extname(filePath).toLowerCase();
     const sourceBase = path.basename(filePath, sourceExt);
-    const sourceDir = path.dirname(filePath).replace(/\\/g, '/').toLowerCase();
+    const sourceDir = normalizePathKey(path.dirname(filePath));
 
     for (const candidate of this.graph.keys()) {
       if (candidate === filePath) continue;
@@ -533,7 +558,7 @@ class DependencyGraph {
       const candidateExt = path.extname(candidate).toLowerCase();
       const candidateStem = normalizeStem(candidate);
       const candidateBase = path.basename(candidate, candidateExt).toLowerCase();
-      const candidateDir = path.dirname(candidate).replace(/\\/g, '/').toLowerCase();
+      const candidateDir = normalizePathKey(path.dirname(candidate));
 
       let match = false;
       if (sourceExt === '.java') {

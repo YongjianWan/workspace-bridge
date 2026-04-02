@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { TIMEOUTS, LIMITS } = require('../../config/constants');
 
 let babelParser = null;
 try {
@@ -155,7 +156,7 @@ async function parsePythonAST(content) {
     const python = spawn(pythonCmd, [scriptPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
-      timeout: 30000,
+      timeout: TIMEOUTS.PYTHON_AST_PARSE_MS,
     });
 
     let output = '';
@@ -165,20 +166,20 @@ async function parsePythonAST(content) {
     const timer = setTimeout(() => {
       killed = true;
       python.kill('SIGTERM');
-    }, 30000);
+    }, TIMEOUTS.PYTHON_AST_PARSE_MS);
 
     python.stdout.on('data', (data) => {
       output += data.toString('utf8');
-      if (output.length > 10 * 1024 * 1024) {
-        output = output.slice(0, 10 * 1024 * 1024) + '\n...[truncated]';
+      if (output.length > LIMITS.COMMAND_OUTPUT_MAX_BYTES) {
+        output = output.slice(0, LIMITS.COMMAND_OUTPUT_MAX_BYTES) + '\n...[truncated]';
         python.stdout.destroy();
       }
     });
 
     python.stderr.on('data', (data) => {
       errorOutput += data.toString('utf8');
-      if (errorOutput.length > 10 * 1024 * 1024) {
-        errorOutput = errorOutput.slice(0, 10 * 1024 * 1024) + '\n...[truncated]';
+      if (errorOutput.length > LIMITS.COMMAND_OUTPUT_MAX_BYTES) {
+        errorOutput = errorOutput.slice(0, LIMITS.COMMAND_OUTPUT_MAX_BYTES) + '\n...[truncated]';
         python.stderr.destroy();
       }
     });

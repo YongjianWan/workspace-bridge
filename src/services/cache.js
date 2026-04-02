@@ -4,6 +4,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { normalizePathKey } = require('../utils/path');
 
 const CACHE_FILENAME = '.workspace-bridge-cache.json';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -21,6 +22,59 @@ class WorkspaceCache {
     this.diagnostics = new Map();  // file -> [diagnostics]
     
     this.lastSaved = 0;
+  }
+
+  normalizeFilePath(filePath) {
+    if (!filePath || typeof filePath !== 'string') return null;
+    const absolute = path.isAbsolute(filePath)
+      ? filePath
+      : path.join(this.workspaceRoot, filePath);
+    return normalizePathKey(absolute);
+  }
+
+  normalizeFileMapEntries(entries) {
+    const normalized = new Map();
+    for (const [filePath, metadata] of entries || []) {
+      const key = this.normalizeFilePath(filePath);
+      if (!key) continue;
+      const existing = normalized.get(key);
+      if (!existing) {
+        normalized.set(key, metadata);
+        continue;
+      }
+      const existingMtime = Number(existing?.mtime || 0);
+      const nextMtime = Number(metadata?.mtime || 0);
+      if (nextMtime >= existingMtime) {
+        normalized.set(key, metadata);
+      }
+    }
+    return normalized;
+  }
+
+  normalizeDiagnosticsEntries(entries) {
+    const normalized = new Map();
+    for (const [filePath, diagnostics] of entries || []) {
+      const key = this.normalizeFilePath(filePath);
+      if (!key) continue;
+      normalized.set(key, diagnostics);
+    }
+    return normalized;
+  }
+
+  normalizeSymbolEntries(entries) {
+    const normalized = new Map();
+    for (const [name, locations] of entries || []) {
+      const list = Array.isArray(locations) ? locations : [];
+      const mapped = list
+        .map((location) => {
+          const key = this.normalizeFilePath(location?.file);
+          if (!key) return null;
+          return { ...location, file: key };
+        })
+        .filter(Boolean);
+      normalized.set(name, mapped);
+    }
+    return normalized;
   }
 
   /**
@@ -51,9 +105,9 @@ class WorkspaceCache {
       
       // Restore data
       this.workspaceInfo = data.workspaceInfo || null;
-      this.fileMetadata = new Map(data.fileMetadata || []);
-      this.symbolIndex = new Map(data.symbolIndex || []);
-      this.diagnostics = new Map(data.diagnostics || []);
+      this.fileMetadata = this.normalizeFileMapEntries(data.fileMetadata || []);
+      this.symbolIndex = this.normalizeSymbolEntries(data.symbolIndex || []);
+      this.diagnostics = this.normalizeDiagnosticsEntries(data.diagnostics || []);
       this.lastSaved = stat.mtimeMs;
 
       console.error(`[Cache] Loaded: ${this.fileMetadata.size} files, ${this.symbolIndex.size} symbols`);
@@ -100,19 +154,27 @@ class WorkspaceCache {
 
   // File metadata cache
   getFileMetadata(filePath) {
-    return this.fileMetadata.get(filePath);
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return undefined;
+    return this.fileMetadata.get(key);
   }
 
   setFileMetadata(filePath, metadata) {
-    this.fileMetadata.set(filePath, metadata);
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return;
+    this.fileMetadata.set(key, metadata);
   }
 
   hasFileMetadata(filePath) {
-    return this.fileMetadata.has(filePath);
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return false;
+    return this.fileMetadata.has(key);
   }
 
   deleteFileMetadata(filePath) {
-    this.fileMetadata.delete(filePath);
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return;
+    this.fileMetadata.delete(key);
   }
 
   // Symbol index cache
@@ -121,20 +183,33 @@ class WorkspaceCache {
   }
 
   setSymbols(name, locations) {
-    this.symbolIndex.set(name, locations);
+    const normalized = (Array.isArray(locations) ? locations : [])
+      .map((location) => {
+        const key = this.normalizeFilePath(location?.file);
+        if (!key) return null;
+        return { ...location, file: key };
+      })
+      .filter(Boolean);
+    this.symbolIndex.set(name, normalized);
   }
 
   // Diagnostics cache
   getDiagnostics(filePath) {
-    return this.diagnostics.get(filePath) || [];
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return [];
+    return this.diagnostics.get(key) || [];
   }
 
   setDiagnostics(filePath, diags) {
-    this.diagnostics.set(filePath, diags);
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return;
+    this.diagnostics.set(key, diags);
   }
 
   clearDiagnostics(filePath) {
-    this.diagnostics.delete(filePath);
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return;
+    this.diagnostics.delete(key);
   }
 
   getStats() {

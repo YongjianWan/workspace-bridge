@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
-const { detectWorkspace } = require('../utils/path');
+const { detectWorkspace, normalizePathKey, matchesPathFragment } = require('../utils/path');
 
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
@@ -221,8 +221,8 @@ class FileIndex {
   }
 
   shouldExclude(filePath) {
-    const normalized = String(filePath || '').replace(/\\/g, '/').toLowerCase();
-    if (this.excludeDirs.some((dir) => normalized.includes(`/${String(dir).replace(/\\/g, '/').toLowerCase()}/`) || normalized.endsWith(`/${String(dir).replace(/\\/g, '/').toLowerCase()}`))) {
+    const normalized = normalizePathKey(filePath);
+    if (this.excludeDirs.some((dir) => matchesPathFragment(normalized, dir))) {
       return true;
     }
     if (this.projectContext && !this.projectContext.shouldIndexFile(filePath)) {
@@ -234,11 +234,12 @@ class FileIndex {
   pruneExcludedCacheEntries() {
     for (const filePath of Array.from(this.cache.fileMetadata.keys())) {
       if (!this.shouldExclude(filePath)) continue;
+      const fileKey = normalizePathKey(filePath);
       const cached = this.cache.getFileMetadata(filePath);
       if (cached?.symbols) {
         for (const symName of cached.symbols) {
           const existing = this.cache.getSymbols(symName);
-          const filtered = existing.filter((location) => location.file !== filePath);
+          const filtered = existing.filter((location) => normalizePathKey(location.file) !== fileKey);
           if (filtered.length > 0) {
             this.cache.setSymbols(symName, filtered);
           } else {
@@ -253,6 +254,7 @@ class FileIndex {
 
   async indexFile(filePath) {
     try {
+      const fileKey = normalizePathKey(filePath);
       const stats = await stat(filePath);
       const content = await readFile(filePath, 'utf8');
       const ext = path.extname(filePath);
@@ -272,9 +274,9 @@ class FileIndex {
       for (const symbol of symbols) {
         const existing = this.cache.getSymbols(symbol.name);
         // Remove old entry for this file
-        const filtered = existing.filter(l => l.file !== filePath);
+        const filtered = existing.filter((l) => normalizePathKey(l.file) !== fileKey);
         filtered.push({
-          file: filePath,
+          file: fileKey,
           line: symbol.line,
           type: symbol.type,
           signature: symbol.signature,
@@ -334,11 +336,16 @@ class FileIndex {
   }
 
   startWatching() {
+    const recursiveSupported = process.platform === 'win32' || process.platform === 'darwin';
+    if (!recursiveSupported) {
+      console.error('[FileIndex] fs.watch recursive is not supported on this platform; watcher disabled');
+      return;
+    }
+
     try {
       const watcher = fs.watch(this.root, { recursive: true }, (eventType, filename) => {
-        if (!filename || this.shouldExclude(filename)) return;
-        
         const fullPath = path.join(this.root, filename);
+        if (!filename || this.shouldExclude(fullPath)) return;
         this.pendingUpdates.add(fullPath);
         
         // Debounce updates
@@ -363,6 +370,7 @@ class FileIndex {
 
   async handleFileChange(filePath) {
     try {
+      const fileKey = normalizePathKey(filePath);
       const stats = await stat(filePath);
       const cached = this.cache.getFileMetadata(filePath);
       
@@ -371,7 +379,7 @@ class FileIndex {
         if (cached) {
           for (const symName of cached.symbols) {
             const existing = this.cache.getSymbols(symName);
-            const filtered = existing.filter(l => l.file !== filePath);
+            const filtered = existing.filter((l) => normalizePathKey(l.file) !== fileKey);
             if (filtered.length > 0) {
               this.cache.setSymbols(symName, filtered);
             } else {
@@ -433,10 +441,11 @@ class FileIndex {
   getFileSymbols(filePath) {
     const meta = this.cache.getFileMetadata(filePath);
     if (!meta) return [];
-    
+    const fileKey = normalizePathKey(filePath);
+
     return meta.symbols.map(name => ({
       name,
-      locations: this.cache.getSymbols(name).filter(l => l.file === filePath),
+      locations: this.cache.getSymbols(name).filter((l) => normalizePathKey(l.file) === fileKey),
     })).filter(s => s.locations.length > 0);
   }
 

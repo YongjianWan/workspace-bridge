@@ -1,5 +1,5 @@
 const path = require('path');
-const { pathExists, readJsonSafe } = require('./path');
+const { pathExists, readJsonSafe, toPosixPath } = require('./path');
 
 const ROLE_PRIORITY = ['generated', 'archive', 'reference', 'active'];
 const DEFAULT_DIRECTORY_HINTS = {
@@ -10,8 +10,7 @@ const DEFAULT_DIRECTORY_HINTS = {
 };
 
 function normalizeRelativePath(input) {
-  return String(input || '')
-    .replace(/\\/g, '/')
+  return toPosixPath(String(input || ''))
     .replace(/^\.?\//, '')
     .replace(/\/+/g, '/')
     .replace(/\/$/, '')

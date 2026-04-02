@@ -4,6 +4,7 @@
  */
 const cp = require('child_process');
 const path = require('path');
+const { TIMEOUTS, LIMITS } = require('../config/constants');
 
 function resolveCommandForPlatform(command) {
   if (process.platform !== 'win32') return command;
@@ -24,7 +25,7 @@ function resolveCommandForPlatform(command) {
  * @param {number} timeoutMs - Timeout in ms
  * @returns {Promise<{ok: boolean, command: string, exitCode: number, stdout: string, stderr: string}>}
  */
-function runCommandSecure(command, args, cwd, timeoutMs = 120000) {
+function runCommandSecure(command, args, cwd, timeoutMs = TIMEOUTS.COMMAND_DEFAULT_MS) {
   return new Promise((resolve) => {
     const resolvedCommand = resolveCommandForPlatform(command);
     const useWindowsCmdShim = process.platform === 'win32' && /\.cmd$/i.test(resolvedCommand);
@@ -52,16 +53,16 @@ function runCommandSecure(command, args, cwd, timeoutMs = 120000) {
     child.stdout.on('data', (data) => {
       stdout += data.toString('utf8');
       // Prevent memory exhaustion from huge output
-      if (stdout.length > 10 * 1024 * 1024) {
-        stdout = stdout.slice(0, 10 * 1024 * 1024) + '\n...[truncated due to size limit]';
+      if (stdout.length > LIMITS.COMMAND_OUTPUT_MAX_BYTES) {
+        stdout = stdout.slice(0, LIMITS.COMMAND_OUTPUT_MAX_BYTES) + '\n...[truncated due to size limit]';
         child.stdout.destroy();
       }
     });
 
     child.stderr.on('data', (data) => {
       stderr += data.toString('utf8');
-      if (stderr.length > 10 * 1024 * 1024) {
-        stderr = stderr.slice(0, 10 * 1024 * 1024) + '\n...[truncated due to size limit]';
+      if (stderr.length > LIMITS.COMMAND_OUTPUT_MAX_BYTES) {
+        stderr = stderr.slice(0, LIMITS.COMMAND_OUTPUT_MAX_BYTES) + '\n...[truncated due to size limit]';
         child.stderr.destroy();
       }
     });
@@ -101,7 +102,7 @@ function runCommandSecure(command, args, cwd, timeoutMs = 120000) {
  * @param {number} timeoutMs - Timeout
  * @returns {Promise<{ok: boolean, command: string, exitCode: number, stdout: string, stderr: string}>}
  */
-function runGit(args, cwd, timeoutMs = 30000) {
+function runGit(args, cwd, timeoutMs = TIMEOUTS.GIT_DEFAULT_MS) {
   // Always disable quote path for consistent UTF-8 handling
   const gitArgs = ['-c', 'core.quotepath=off', ...args];
   return runCommandSecure('git', gitArgs, cwd, timeoutMs);
@@ -116,7 +117,7 @@ function runGit(args, cwd, timeoutMs = 30000) {
  * @param {number} timeoutMs - Timeout
  * @returns {Promise<{ok: boolean, command: string, exitCode: number, stdout: string, stderr: string}>}
  */
-function runPythonModule(python, module, args, cwd, timeoutMs = 30000) {
+function runPythonModule(python, module, args, cwd, timeoutMs = TIMEOUTS.PYTHON_MODULE_DEFAULT_MS) {
   const allArgs = ['-m', module, ...args];
   return runCommandSecure(python, allArgs, cwd, timeoutMs);
 }
@@ -129,7 +130,7 @@ function runPythonModule(python, module, args, cwd, timeoutMs = 30000) {
  * @param {number} timeoutMs - Timeout
  * @returns {Promise<{ok: boolean, command: string, exitCode: number, stdout: string, stderr: string}>}
  */
-function runNpx(pkg, args, cwd, timeoutMs = 30000) {
+function runNpx(pkg, args, cwd, timeoutMs = TIMEOUTS.NPX_DEFAULT_MS) {
   const allArgs = [pkg, ...args];
   return runCommandSecure('npx', allArgs, cwd, timeoutMs);
 }
@@ -143,7 +144,7 @@ function runNpx(pkg, args, cwd, timeoutMs = 30000) {
 async function commandExists(command, cwd) {
   const isWindows = process.platform === 'win32';
   const checkCmd = isWindows ? 'where' : 'which';
-  const result = await runCommandSecure(checkCmd, [command], cwd, 5000);
+  const result = await runCommandSecure(checkCmd, [command], cwd, TIMEOUTS.COMMAND_EXISTS_CHECK_MS);
   return result.ok && result.stdout.trim().length > 0;
 }
 
@@ -151,7 +152,7 @@ async function commandExists(command, cwd) {
  * DEPRECATED: Legacy command execution (kept for backwards compatibility)
  * WARNING: Do not use for user-input commands - use runCommandSecure instead
  */
-function runCommand(command, cwd, timeoutMs = 120000) {
+function runCommand(command, cwd, timeoutMs = TIMEOUTS.COMMAND_DEFAULT_MS) {
   try {
     const stdout = cp.execSync(command, {
       cwd,
@@ -159,7 +160,7 @@ function runCommand(command, cwd, timeoutMs = 120000) {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
       timeout: timeoutMs,
-      maxBuffer: 1024 * 1024 * 4,
+      maxBuffer: LIMITS.EXEC_SYNC_MAX_BUFFER_BYTES,
     });
 
     return {
@@ -180,7 +181,7 @@ function runCommand(command, cwd, timeoutMs = 120000) {
   }
 }
 
-function trimOutput(value, limit = 12000) {
+function trimOutput(value, limit = LIMITS.TRIM_OUTPUT_DEFAULT_CHARS) {
   if (!value) return '';
   if (value.length <= limit) return value;
   return `${value.slice(0, limit)}\n...<truncated>`;

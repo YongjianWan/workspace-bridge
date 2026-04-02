@@ -356,6 +356,33 @@ npm run benchmark:perf
 
 更多参数见 [benchmark/README.md](benchmark/README.md)。
 
+## 自动闭环工作流（loop）
+
+支持把任务固化成可执行 loop：
+
+`preflight -> implement -> test -> autofix -> test ... -> report`
+
+1. 复制模板并按任务修改命令：
+
+```bash
+cp .workflow-task.example.json .workflow-task.json
+```
+
+2. 先 dry-run 看流程：
+
+```bash
+npm run workflow:dry-run
+```
+
+3. 正式运行：
+
+```bash
+npm run workflow:run
+```
+
+默认会输出报告到 `reports/workflow-last.json`。  
+如果 `test` 在 `maxLoops` 次内通过，退出码为 `0`；否则非 `0`，可直接接 CI。
+
 ## 已知限制
 
 1. **VS Code 集成仅限 Windows** - EditorState 目前只读取 Windows 的 `%APPDATA%/Code/User/workspaceStorage`

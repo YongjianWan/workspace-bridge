@@ -5,10 +5,51 @@ const fs = require('fs');
 const path = require('path');
 
 const WORKSPACE_MARKERS = ['.git', 'package.json', 'pyproject.toml', 'requirements.txt', 'manage.py', 'pom.xml', 'build.gradle', 'build.gradle.kts'];
+const IS_WINDOWS = process.platform === 'win32';
 
 function normalizePath(inputPath) {
   if (!inputPath) return process.cwd();
   return path.resolve(inputPath);
+}
+
+function toPosixPath(inputPath) {
+  return String(inputPath || '').replace(/\\/g, '/');
+}
+
+function normalizePathKey(inputPath) {
+  const absolute = normalizePath(inputPath);
+  const normalized = toPosixPath(path.normalize(absolute));
+  return IS_WINDOWS ? normalized.toLowerCase() : normalized;
+}
+
+function toRelativePosix(rootPath, targetPath) {
+  const root = normalizePath(rootPath);
+  const target = normalizePath(targetPath);
+  return toPosixPath(path.relative(root, target));
+}
+
+function isPathInsideRoot(rootPath, targetPath) {
+  const root = normalizePath(rootPath);
+  const target = normalizePath(targetPath);
+  const relative = path.relative(root, target);
+  if (!relative) return true;
+  return !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+function hasPathSegment(targetPath, segment) {
+  const normalizedPath = normalizePathKey(targetPath);
+  const normalizedSegment = normalizePathKey(segment).split('/').filter(Boolean).pop();
+  if (!normalizedSegment) return false;
+  const parts = normalizedPath.split('/').filter(Boolean);
+  return parts.includes(normalizedSegment);
+}
+
+function matchesPathFragment(targetPath, fragment) {
+  const normalizedPath = normalizePathKey(targetPath);
+  const normalizedFragment = toPosixPath(String(fragment || '')).replace(/^\.?\//, '').replace(/\/+$/, '');
+  if (!normalizedFragment) return false;
+  const key = IS_WINDOWS ? normalizedFragment.toLowerCase() : normalizedFragment;
+  return normalizedPath.includes(`/${key}/`) || normalizedPath.endsWith(`/${key}`);
 }
 
 function pathExists(targetPath) {
@@ -153,6 +194,12 @@ function detectWorkspace(root) {
 
 module.exports = {
   normalizePath,
+  normalizePathKey,
+  toPosixPath,
+  toRelativePosix,
+  isPathInsideRoot,
+  hasPathSegment,
+  matchesPathFragment,
   pathExists,
   readJsonSafe,
   scoreDirectory,

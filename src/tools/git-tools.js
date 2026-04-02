@@ -4,7 +4,7 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { findWorkspaceRoot } = require('../utils/path');
+const { findWorkspaceRoot, normalizePath, isPathInsideRoot, toRelativePosix } = require('../utils/path');
 const { runGit, trimOutput } = require('../utils/command');
 
 function parseIsoDate(value) {
@@ -78,22 +78,15 @@ function computeHistoryRisk(commits) {
  */
 function validateWorkspacePath(filePath, root) {
   if (!filePath || typeof filePath !== 'string') return null;
-  
-  // Resolve to absolute path
-  const resolved = path.isAbsolute(filePath) 
-    ? path.normalize(filePath) 
-    : path.normalize(path.join(root, filePath));
-  
-  // Ensure path is within workspace (prevent traversal attacks)
-  // Use case-insensitive comparison on Windows
-  const isWindows = process.platform === 'win32';
-  const checkResolved = isWindows ? resolved.toLowerCase() : resolved;
-  const checkRoot = isWindows ? path.normalize(root).toLowerCase() : path.normalize(root);
-  
-  if (!checkResolved.startsWith(checkRoot)) {
+
+  const resolved = path.isAbsolute(filePath)
+    ? normalizePath(filePath)
+    : normalizePath(path.join(root, filePath));
+
+  if (!isPathInsideRoot(root, resolved)) {
     return null;
   }
-  
+
   return resolved;
 }
 
@@ -240,7 +233,7 @@ async function getChangedLineRanges(root, file, options = {}) {
     return {
       ok: true,
       workspaceRoot: root,
-      file: path.relative(root, filePath),
+      file: toRelativePosix(root, filePath),
       staged,
       lineRanges: ranges,
       source: 'diff',
@@ -256,7 +249,7 @@ async function getChangedLineRanges(root, file, options = {}) {
       return {
         ok: true,
         workspaceRoot: root,
-        file: path.relative(root, filePath),
+        file: toRelativePosix(root, filePath),
         staged,
         lineRanges: lines > 0 ? [{ startLine: 1, endLine: lines }] : [],
         source: 'untracked-file',
@@ -265,7 +258,7 @@ async function getChangedLineRanges(root, file, options = {}) {
       return {
         ok: true,
         workspaceRoot: root,
-        file: path.relative(root, filePath),
+        file: toRelativePosix(root, filePath),
         staged,
         lineRanges: [],
         source: 'untracked-file',
@@ -276,7 +269,7 @@ async function getChangedLineRanges(root, file, options = {}) {
   return {
     ok: true,
     workspaceRoot: root,
-    file: path.relative(root, filePath),
+    file: toRelativePosix(root, filePath),
     staged,
     lineRanges: [],
     source: 'diff',
@@ -316,7 +309,7 @@ async function getFileHistoryRisk(root, file, options = {}) {
   return {
     ok: true,
     workspaceRoot: root,
-    file: path.relative(root, filePath),
+    file: toRelativePosix(root, filePath),
     historyRisk: computeHistoryRisk(commits),
     recentCommits: commits.slice(0, 10),
   };
@@ -391,7 +384,7 @@ async function gitBlame(args, container) {
   return {
     ok: true,
     workspaceRoot: root,
-    file: path.relative(root, filePath),
+    file: toRelativePosix(root, filePath),
     entryCount: entries.length,
     entries: entries.slice(0, 500),
   };

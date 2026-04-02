@@ -4,6 +4,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { LIMITS } = require('../config/constants');
 const { findWorkspaceRoot } = require('../utils/path');
 
 const EXCLUDE_DIRS = new Set([
@@ -24,7 +25,7 @@ const BINARY_EXTS = new Set([
 const MAX_QUERY_LENGTH = 100;
 const MAX_RESULTS = 200;
 const MAX_DEPTH = 12;
-const MAX_FILE_SIZE = 1024 * 1024; // 1MB
+const MAX_FILE_SIZE = LIMITS.SEARCH_MAX_FILE_BYTES;
 
 /**
  * Escape regex special characters

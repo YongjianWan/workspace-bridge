@@ -16,7 +16,7 @@ function symbolSetToArray(symbolSet) {
 }
 
 function getMatchingImportRecords(depGraph, importerFile, importedFile) {
-  const importerInfo = depGraph.graph.get(importerFile);
+  const importerInfo = depGraph.getFileInfo(importerFile);
   if (!importerInfo?.importRecords) return [];
   return importerInfo.importRecords.filter((record) => record.resolved === importedFile);
 }
@@ -94,7 +94,7 @@ function collectReExportedSymbols(depGraph, sourceFile, reExporterFile, sourceSy
 }
 
 function shouldFallbackToFileImpact(depGraph, filePath) {
-  const info = depGraph.graph.get(filePath);
+  const info = depGraph.getFileInfo(filePath);
   if (!info) return true;
   const ext = path.extname(filePath).toLowerCase();
   if (['.js', '.jsx', '.ts', '.tsx'].includes(ext)) {
@@ -156,32 +156,47 @@ function buildFunctionToDependents(sourceInfo, symbolToDependents) {
 }
 
 function getSymbolImpact(depGraph, filePath, maxDepth = 4) {
-  const sourceInfo = depGraph.graph.get(filePath);
+  const sourceFile = depGraph.normalizeFilePath(filePath);
+  const sourceInfo = depGraph.getFileInfo(sourceFile);
   if (!sourceInfo) {
     return {
       mode: 'file-fallback',
       reason: 'source-not-indexed',
-      impactedFiles: depGraph.getImpactRadius(filePath, maxDepth),
+      impactedFiles: depGraph.getImpactRadius(sourceFile, maxDepth),
+      sourceSymbols: [],
+      symbolToDependents: [],
+      functionToDependents: [],
+      directCount: 0,
+      directDependents: [],
+      transitiveCount: 0,
+      transitiveDependents: [],
     };
   }
 
-  if (shouldFallbackToFileImpact(depGraph, filePath)) {
+  if (shouldFallbackToFileImpact(depGraph, sourceFile)) {
     return {
       mode: 'file-fallback',
       reason: 'ast-unavailable',
-      impactedFiles: depGraph.getImpactRadius(filePath, maxDepth),
+      impactedFiles: depGraph.getImpactRadius(sourceFile, maxDepth),
+      sourceSymbols: sourceInfo.exports || [],
+      symbolToDependents: [],
+      functionToDependents: [],
+      directCount: 0,
+      directDependents: [],
+      transitiveCount: 0,
+      transitiveDependents: [],
     };
   }
 
   const sourceSymbols = sourceInfo.exports || [];
-  const symbolToDependents = buildSymbolToDependents(depGraph, filePath, sourceSymbols);
+  const symbolToDependents = buildSymbolToDependents(depGraph, sourceFile, sourceSymbols);
   const functionToDependents = buildFunctionToDependents(sourceInfo, symbolToDependents);
   const direct = [];
   const reExportQueue = [];
   const seenReExportNode = new Set();
 
-  for (const importerFile of depGraph.getDependents(filePath)) {
-    const usage = collectDirectSymbolUsage(depGraph, filePath, importerFile, sourceSymbols);
+  for (const importerFile of depGraph.getDependents(sourceFile)) {
+    const usage = collectDirectSymbolUsage(depGraph, sourceFile, importerFile, sourceSymbols);
     if (usage.mode !== 'none') {
       direct.push({
         file: importerFile,
@@ -190,13 +205,13 @@ function getSymbolImpact(depGraph, filePath, maxDepth = 4) {
       });
     }
 
-    const reExportedSymbols = collectReExportedSymbols(depGraph, filePath, importerFile, sourceSymbols);
+    const reExportedSymbols = collectReExportedSymbols(depGraph, sourceFile, importerFile, sourceSymbols);
     if (reExportedSymbols) {
       reExportQueue.push({
         file: importerFile,
         level: 1,
         symbols: reExportedSymbols,
-        via: [filePath],
+        via: [sourceFile],
       });
     }
   }
@@ -259,7 +274,7 @@ function getSymbolImpact(depGraph, filePath, maxDepth = 4) {
 
   return {
     mode: 'symbol',
-    sourceFile: filePath,
+    sourceFile,
     sourceSymbols,
     symbolToDependents,
     functionToDependents,

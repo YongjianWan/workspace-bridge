@@ -4,9 +4,10 @@
  */
 const path = require('path');
 const { getFileHistoryRisk } = require('./git-tools');
+const { toRelativePosix } = require('../utils/path');
 
 function toRelative(root, filePath) {
-  return path.relative(root, filePath).replace(/\\/g, '/');
+  return toRelativePosix(root, filePath);
 }
 
 function calculateHotspotScore(historyRisk) {

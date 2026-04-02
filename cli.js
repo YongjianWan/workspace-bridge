@@ -31,7 +31,14 @@ async function mapWithConcurrency(items, limit, mapper) {
     while (cursor < items.length) {
       const currentIndex = cursor;
       cursor += 1;
-      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+      try {
+        results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+      } catch (err) {
+        results[currentIndex] = {
+          __error: err?.message || String(err),
+          __item: items[currentIndex],
+        };
+      }
     }
   }
 
@@ -308,7 +315,7 @@ async function runCommand(parsed, container) {
       const entries = await mapWithConcurrency(changed.changedFiles, 8, async (relativeFile) => {
         const resolvedPath = validateWorkspacePath(relativeFile, container.workspaceRoot);
         const classification = container.projectContext?.classifyFile(resolvedPath) || null;
-        const graphKnown = Boolean(resolvedPath && container.depGraph.graph.has(resolvedPath));
+        const graphKnown = Boolean(resolvedPath && container.depGraph.hasFile(resolvedPath));
         const impact = graphKnown ? container.depGraph.getImpactRadius(resolvedPath) : [];
         const lineRangeResult = resolvedPath
           ? await getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: false })
@@ -364,14 +371,36 @@ async function runCommand(parsed, container) {
           compositeRisk,
         };
       });
+      const safeEntries = entries.map((entry, index) => {
+        if (!entry?.__error) return entry;
+        const baseEntry = {
+          file: changed.changedFiles[index],
+          resolvedPath: null,
+          classification: null,
+          graphKnown: false,
+          impactCount: 0,
+          impact: [],
+          changedLineRanges: [],
+          symbolImpact: null,
+          affectedTestCount: 0,
+          affectedTests: [],
+          historyRisk: null,
+          recentCommits: [],
+          processingError: entry.__error,
+        };
+        return {
+          ...baseEntry,
+          compositeRisk: buildCompositeRisk(baseEntry),
+        };
+      });
 
       return {
         ok: true,
         workspaceRoot: container.workspaceRoot,
         scope: container.depGraph.getScopeSummary(),
-        summary: buildAuditDiffSummary(entries),
-        validationAdvice: buildValidationAdvice(entries, container.workspaceRoot),
-        changedFiles: entries,
+        summary: buildAuditDiffSummary(safeEntries),
+        validationAdvice: buildValidationAdvice(safeEntries, container.workspaceRoot),
+        changedFiles: safeEntries,
       };
     }
     case 'audit-overview':

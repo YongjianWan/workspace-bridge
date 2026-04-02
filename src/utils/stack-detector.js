@@ -95,18 +95,11 @@ function detectTestRunner(root) {
   return null;
 }
 
-function detectPythonTestRunner(root) {
+function detectPythonTestRunner(root, pyprojectText = '') {
   if (pathExists(path.join(root, 'pytest.ini'))) return 'pytest';
   if (pathExists(path.join(root, 'setup.cfg'))) return 'pytest';
-  if (pathExists(path.join(root, 'pyproject.toml'))) {
-    try {
-      const content = fs.readFileSync(path.join(root, 'pyproject.toml'), 'utf8');
-      if (content.includes('pytest') || content.includes('[tool.pytest')) {
-        return 'pytest';
-      }
-    } catch {
-      // ignore read errors
-    }
+  if (pyprojectText && (pyprojectText.includes('pytest') || pyprojectText.includes('[tool.pytest'))) {
+    return 'pytest';
   }
   return null;
 }
@@ -120,7 +113,7 @@ function readTextIfExists(filePath) {
   }
 }
 
-function detectPythonFramework(root) {
+function detectPythonFramework(root, pyprojectText = '') {
   if (pathExists(path.join(root, 'manage.py'))) return 'django';
 
   const requirementsFiles = [
@@ -131,7 +124,7 @@ function detectPythonFramework(root) {
 
   const combined = [
     ...requirementsFiles.map(readTextIfExists),
-    readTextIfExists(path.join(root, 'pyproject.toml')),
+    pyprojectText,
   ].join('\n').toLowerCase();
 
   if (!combined) return null;
@@ -140,7 +133,7 @@ function detectPythonFramework(root) {
   return null;
 }
 
-function detectLinters(root) {
+function detectLinters(root, pyprojectText = '') {
   const linters = {
     node: [],
     python: [],
@@ -158,21 +151,14 @@ function detectLinters(root) {
       pathExists(path.join(root, 'prettier.config.js'))) {
     linters.node.push('prettier');
   }
-  if (pathExists(path.join(root, 'pyproject.toml'))) {
-    try {
-      const content = fs.readFileSync(path.join(root, 'pyproject.toml'), 'utf8');
-      if (content.includes('ruff') || content.includes('[tool.ruff]')) {
-        linters.python.push('ruff');
-      }
-    } catch {
-      // ignore read errors
-    }
+  if (pyprojectText && (pyprojectText.includes('ruff') || pyprojectText.includes('[tool.ruff]'))) {
+    linters.python.push('ruff');
   }
 
   return linters;
 }
 
-function detectTypeCheckers(root) {
+function detectTypeCheckers(root, pyprojectText = '') {
   const typeCheckers = {
     node: null,
     python: null,
@@ -182,11 +168,8 @@ function detectTypeCheckers(root) {
   if (pathExists(path.join(root, 'tsconfig.json'))) {
     typeCheckers.node = 'tsc';
   }
-  if (pathExists(path.join(root, 'pyproject.toml'))) {
-    const content = fs.readFileSync(path.join(root, 'pyproject.toml'), 'utf8');
-    if (content.includes('pyright') || content.includes('[tool.pyright]')) {
-      typeCheckers.python = 'pyright';
-    }
+  if (pyprojectText && (pyprojectText.includes('pyright') || pyprojectText.includes('[tool.pyright]'))) {
+    typeCheckers.python = 'pyright';
   }
 
   return typeCheckers;
@@ -200,6 +183,7 @@ function detectDocsTool(root) {
 }
 
 function detectStack(root) {
+  const pyprojectText = readTextIfExists(path.join(root, 'pyproject.toml'));
   const hasNode = hasNodeProject(root);
   const hasPython = hasPythonProject(root);
   const hasJava = hasJavaProject(root);
@@ -207,9 +191,9 @@ function detectStack(root) {
   const javaBuildTool = detectJavaBuildTool(root);
   const javaBuildCommand = detectJavaBuildCommand(root, javaBuildTool);
   const testRunner = detectTestRunner(root);
-  const pythonTestRunner = detectPythonTestRunner(root);
-  const linters = detectLinters(root);
-  const typeCheckers = detectTypeCheckers(root);
+  const pythonTestRunner = detectPythonTestRunner(root, pyprojectText);
+  const linters = detectLinters(root, pyprojectText);
+  const typeCheckers = detectTypeCheckers(root, pyprojectText);
 
   let profile = 'unknown';
   const activeStacks = [hasNode, hasPython, hasJava].filter(Boolean).length;
@@ -235,7 +219,7 @@ function detectStack(root) {
       testRunner: pythonTestRunner || (testRunner?.type === 'python' ? testRunner.name : null),
       linters: linters.python,
       typeChecker: typeCheckers.python,
-      framework: detectPythonFramework(root),
+      framework: detectPythonFramework(root, pyprojectText),
     } : null,
     java: hasJava ? {
       enabled: true,

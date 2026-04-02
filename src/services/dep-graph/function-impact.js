@@ -16,8 +16,9 @@ function rangesOverlap(aStart, aEnd, bStart, bEnd) {
 }
 
 function getChangedFunctionImpact(depGraph, filePath, lineRanges, options = {}) {
+  const sourceFile = depGraph.normalizeFilePath(filePath);
   const ranges = normalizeLineRanges(lineRanges);
-  const sourceInfo = depGraph.graph.get(filePath);
+  const sourceInfo = depGraph.getFileInfo(sourceFile);
   if (!sourceInfo) {
     return {
       mode: 'unavailable',
@@ -29,7 +30,7 @@ function getChangedFunctionImpact(depGraph, filePath, lineRanges, options = {}) 
     };
   }
 
-  const ext = path.extname(filePath).toLowerCase();
+  const ext = path.extname(sourceFile).toLowerCase();
   if (!['.js', '.jsx', '.ts', '.tsx'].includes(ext) || sourceInfo.parseMode !== 'ast') {
     return {
       mode: 'unavailable',
@@ -96,11 +97,12 @@ function getChangedFunctionImpact(depGraph, filePath, lineRanges, options = {}) 
 }
 
 function getFunctionReuseHints(depGraph, filePath, changedFunctions, options = {}) {
-  const list = Array.isArray(changedFunctions) ? changedFunctions : [];
+  const sourceFile = depGraph.normalizeFilePath(filePath);
+  const list = Array.isArray(changedFunctions) ? Array.from(new Set(changedFunctions)) : [];
   if (list.length === 0) return [];
   const minScore = Number.isFinite(options.minScore) ? options.minScore : 0.5;
   const maxPerFunction = Number.isFinite(options.maxPerFunction) ? options.maxPerFunction : 3;
-  const sourceInfo = depGraph.graph.get(filePath) || {};
+  const sourceInfo = depGraph.getFileInfo(sourceFile) || {};
   const sourceRecords = Array.isArray(sourceInfo.exportRecords) ? sourceInfo.exportRecords : [];
   const sourceByName = new Map(
     sourceRecords
@@ -113,7 +115,7 @@ function getFunctionReuseHints(depGraph, filePath, changedFunctions, options = {
     const candidates = [];
     const sourceRecord = sourceByName.get(fnName) || { name: fnName };
     for (const [candidateFile, info] of depGraph.graph || []) {
-      if (candidateFile === filePath) continue;
+      if (candidateFile === sourceFile) continue;
       const records = Array.isArray(info?.exportRecords) ? info.exportRecords : [];
       for (const record of records) {
         if (!String(record?.kind || '').startsWith('function')) continue;
@@ -163,7 +165,8 @@ function mergeTestRow(map, testFile, distance, via) {
 }
 
 function getFunctionLevelAffectedTests(depGraph, filePath, changedFunctions, options = {}) {
-  const list = Array.isArray(changedFunctions) ? changedFunctions : [];
+  const sourceFile = depGraph.normalizeFilePath(filePath);
+  const list = Array.isArray(changedFunctions) ? Array.from(new Set(changedFunctions)) : [];
   const maxDepth = Number.isFinite(options.maxDepth) ? Math.max(1, options.maxDepth) : 4;
   const symbolImpact = options.symbolImpact || null;
   const functionRows = Array.isArray(symbolImpact?.functionToDependents) ? symbolImpact.functionToDependents : [];
@@ -179,14 +182,14 @@ function getFunctionLevelAffectedTests(depGraph, filePath, changedFunctions, opt
 
     for (const dependentFile of dependents) {
       if (depGraph.isTestLikeFile(dependentFile)) {
-        mergeTestRow(testMap, dependentFile, 1, [`function:${fnName}`, dependentFile]);
+        mergeTestRow(testMap, dependentFile, 1, [`${sourceFile}#${fnName}`, dependentFile]);
         continue;
       }
 
       const affected = depGraph.findAffectedTests(dependentFile, maxDepth);
       for (const test of affected) {
         const distance = Number.isFinite(test?.distance) ? test.distance + 1 : maxDepth + 1;
-        mergeTestRow(testMap, test.file, distance, [`function:${fnName}`, dependentFile, ...(test.via || [])]);
+        mergeTestRow(testMap, test.file, distance, [`${sourceFile}#${fnName}`, dependentFile, ...(test.via || [])]);
       }
     }
 

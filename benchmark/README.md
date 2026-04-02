@@ -15,6 +15,9 @@ It is designed to validate large-repo baseline behavior and cache benefit, not t
 
 ```bash
 npm run benchmark:perf
+npm run benchmark
+npm run benchmark:compare
+npm run benchmark:ci
 ```
 
 Optional flags:
@@ -25,18 +28,23 @@ node scripts/benchmark-perf.js --files 700 --changes 16 --max-ms 30000 --max-fun
 node scripts/benchmark-perf.js --files 650 --keep-fixture
 ```
 
+## Guardrail policy
+
+CI applies:
+
+- `cold-index` (`cold.audit-summary`) must be `< 15000ms` (blocking)
+- `hot-index` (`hot.audit-summary`) must be `< 500ms` (blocking)
+- `function-analysis` (`function-analysis.audit-diff`) may regress up to `+20%` vs `main` baseline (warning only)
+
+`benchmark:compare` loads baseline from `main:benchmark/results/latest.json` by default.
+You can override with:
+
+```bash
+node benchmark/compare.js --base release/0.7
+node benchmark/compare.js --base-file benchmark/results/latest-main.json
+```
+
 ## Output
 
 - Console timing summary.
 - JSON report at `benchmark/results/latest.json`.
-
-The script fails with exit code `1` if either cold metric exceeds the threshold:
-
-- `cold.audit-summary`
-- `cold.audit-diff`
-- `function-analysis.audit-diff`
-
-Default thresholds:
-
-- `--max-ms 30000` for cold metrics
-- `--max-function-ms 12000` for function-analysis metric
