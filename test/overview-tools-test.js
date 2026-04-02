@@ -2,6 +2,8 @@
 
 const assert = require('assert');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const { buildProjectOverview } = require('../src/tools/overview-tools');
 
 const root = path.resolve('C:/tmp/overview-fixture');
@@ -97,10 +99,23 @@ async function main() {
   assert(Array.isArray(result.summary.insights));
   assert(Array.isArray(result.summary.recommendations));
   assert(result.aggregates, 'aggregates should exist');
+  assert(result.hotspotData, 'hotspotData should exist');
+  assert.strictEqual(typeof result.hotspotData.schemaVersion, 'number');
+  assert(Array.isArray(result.hotspotData.hotspots), 'hotspotData.hotspots should exist');
   assert.strictEqual(typeof result.aggregates.hotspotsByRisk.high, 'number');
   assert.strictEqual(typeof result.aggregates.stabilityCounts.fragile, 'number');
   assert(calls.length >= 1, 'history provider should be called');
   assert(!result.orphans.samples.modules.some((item) => item.includes('.test.')), 'test files should not be reported as orphan modules');
+
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-overview-'));
+  const outFile = path.join(outDir, 'hotspots.json');
+  const resultWithFile = await buildProjectOverview({ historyProvider, hotspotData: outFile }, container);
+  assert.strictEqual(resultWithFile.hotspotDataFile, outFile);
+  assert(fs.existsSync(outFile), 'hotspot data file should be written');
+  const parsed = JSON.parse(fs.readFileSync(outFile, 'utf8'));
+  assert.strictEqual(parsed.schemaVersion, 1);
+  assert(Array.isArray(parsed.hotspots));
+  fs.rmSync(outDir, { recursive: true, force: true });
 
   console.log('overview-tools-test: ok');
 }

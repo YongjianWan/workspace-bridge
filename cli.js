@@ -79,6 +79,7 @@ Options:
   --file <path>           File path for file-scoped commands
   --max-depth <n>         Max depth for affected-tests
   --reuse-hints <mode>    Reuse hints mode for audit-diff: on|off (default: off)
+  --hotspot-data <path>   Write audit-overview hotspot visualization JSON
   --json                  Print machine-readable JSON
   --quiet                 Suppress stderr logs during CLI execution
   --help                  Show help
@@ -101,6 +102,7 @@ function parseArgs(argv) {
     file: null,
     maxDepth: null,
     reuseHints: 'off',
+    hotspotData: null,
     json: false,
     quiet: false,
     help: false,
@@ -132,6 +134,9 @@ function parseArgs(argv) {
         if (!['on', 'off'].includes(parsed.reuseHints)) {
           throw new Error(`Invalid --reuse-hints value: ${parsed.reuseHints}. Expected on|off`);
         }
+        break;
+      case '--hotspot-data':
+        parsed.hotspotData = args[++i] || null;
         break;
       case '--json':
         parsed.json = true;

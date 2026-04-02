@@ -73,7 +73,9 @@ node cli.js audit-summary --cwd C:\repo --json --quiet
 node cli.js audit-summary --cwd C:\repo --exclude prototypes/reference,archive --json --quiet
 node cli.js audit-file --cwd C:\repo --file src\app.ts --json --quiet
 node cli.js audit-diff --cwd C:\repo --json --quiet
+node cli.js audit-diff --cwd C:\repo --reuse-hints on --json --quiet
 node cli.js audit-overview --cwd C:\repo --json --quiet
+node cli.js audit-overview --cwd C:\repo --hotspot-data benchmark\results\hotspots.json --json --quiet
 node cli.js audit-overview --cwd C:\repo --quiet
 node cli.js dead-exports --cwd C:\repo --json
 node cli.js impact --cwd C:\repo --file src\app.ts --json
@@ -119,6 +121,8 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 
 - `aggregates.hotspotsByRisk`
 - `aggregates.stabilityCounts`
+- `hotspotData`（可视化热区数据，schemaVersion=1）
+- `hotspotDataFile`（仅当传入 `--hotspot-data` 时返回）
 
 `audit-diff` 返回结构化验证计划：
 
@@ -184,7 +188,7 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 - 每个文件的 `symbolImpact.functionToDependents`（导出函数到依赖文件映射，JS/TS baseline）
 - 每个文件的 `changedLineRanges`（来自 git diff 的变更行区间）
 - 每个文件的 `symbolImpact.changedFunctionImpact`（变更函数级影响，JS/TS baseline）
-- `symbolImpact.changedFunctionImpact.reuseHints`（函数相似度复用提示，结构+命名混合 baseline）
+- `symbolImpact.changedFunctionImpact.reuseHints`（函数相似度复用提示；默认关闭，仅 `--reuse-hints on` 生成）
 - `symbolImpact.changedFunctionImpact.functionLevelAffectedTests`（变更函数到可能受影响测试，启发式）
 - 聚合后的风险级别
 

@@ -3,6 +3,7 @@
  * 整合 dep-graph、project-context、git 历史，生成工程上帝视角
  */
 const path = require('path');
+const fs = require('fs');
 const { getFileHistoryRisk } = require('./git-tools');
 const { toRelativePosix } = require('../utils/path');
 
@@ -216,6 +217,39 @@ function aggregateOverviewStats(hotspots, stability) {
   return { hotspotsByRisk, stabilityCounts };
 }
 
+function buildHotspotVisualizationData(root, hotspots, aggregates) {
+  const ranked = hotspots
+    .slice()
+    .sort((a, b) => (b?.score || 0) - (a?.score || 0))
+    .map((item, index) => ({
+      id: item.file,
+      file: item.file,
+      rank: index + 1,
+      score: item.score || 0,
+      risk: item.risk || 'low',
+      coupling: item.coupling || 0,
+      reason: item.reason || '',
+    }));
+
+  return {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    workspaceRoot: root,
+    stats: {
+      hotspotCount: ranked.length,
+      byRisk: aggregates?.hotspotsByRisk || { high: 0, medium: 0, low: 0 },
+      maxScore: ranked[0]?.score || 0,
+    },
+    hotspots: ranked,
+  };
+}
+
+async function writeHotspotDataFile(filePath, payload) {
+  const dir = path.dirname(filePath);
+  await fs.promises.mkdir(dir, { recursive: true });
+  await fs.promises.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+}
+
 async function buildProjectOverview(args, container) {
   await container.ensureReady();
 
@@ -236,14 +270,31 @@ async function buildProjectOverview(args, container) {
   const orphans = findOrphanFiles(allFiles, depGraph.entryFiles, depGraph, root);
   const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans);
   const aggregates = aggregateOverviewStats(hotspots, stability);
+  const hotspotData = buildHotspotVisualizationData(root, hotspots, aggregates);
+  let hotspotDataFile = null;
+  if (args?.hotspotData) {
+    const target = path.isAbsolute(args.hotspotData)
+      ? args.hotspotData
+      : path.resolve(root, args.hotspotData);
+    await writeHotspotDataFile(target, hotspotData);
+    hotspotDataFile = target;
+  }
 
   return {
     ok: true,
     workspaceRoot: root,
+    options: {
+      hotspotData: {
+        enabled: Boolean(args?.hotspotData),
+        path: args?.hotspotData || null,
+      },
+    },
     summary,
     aggregates,
     skeleton,
     hotspots: hotspots.slice(0, 10),
+    hotspotData,
+    hotspotDataFile,
     stability: stability.slice(0, 10),
     orphans: {
       counts: {
@@ -265,4 +316,5 @@ async function buildProjectOverview(args, container) {
 
 module.exports = {
   buildProjectOverview,
+  buildHotspotVisualizationData,
 };

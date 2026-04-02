@@ -4,6 +4,8 @@
  */
 const assert = require('assert');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const { spawnSync } = require('child_process');
 
 const repoRoot = path.join(__dirname, '..');
@@ -237,10 +239,19 @@ function main() {
     console.log('polyglot-symbol-impact: ok');
   }
 
-  const overview = runCli(['audit-overview', '--cwd', '.', '--json', '--quiet']);
+  const overviewDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-overview-cli-'));
+  const overviewDataFile = path.join(overviewDataDir, 'hotspots.json');
+  const overview = runCli(['audit-overview', '--cwd', '.', '--hotspot-data', overviewDataFile, '--json', '--quiet']);
   assert.strictEqual(overview.ok, true);
   assert(overview.skeleton.totalFiles >= 1);
   assert(overview.aggregates, 'overview aggregates should exist');
+  assert.strictEqual(overview.options?.hotspotData?.enabled, true);
+  assert.strictEqual(overview.hotspotDataFile, overviewDataFile);
+  assert(fs.existsSync(overviewDataFile), 'audit-overview should write hotspot data file');
+  const overviewData = JSON.parse(fs.readFileSync(overviewDataFile, 'utf8'));
+  assert.strictEqual(overviewData.schemaVersion, 1);
+  assert(Array.isArray(overviewData.hotspots));
+  fs.rmSync(overviewDataDir, { recursive: true, force: true });
   const overviewHuman = runCliText(['audit-overview', '--cwd', '.', '--quiet']);
   assert(overviewHuman.includes('hotspotsHigh:'), 'audit-overview human output should include hotspot aggregates');
   console.log('audit-overview: ok');
