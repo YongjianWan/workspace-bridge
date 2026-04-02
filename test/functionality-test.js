@@ -254,6 +254,8 @@ function main() {
   assert.strictEqual(overview.ok, true);
   assert(overview.skeleton.totalFiles >= 1);
   assert(overview.aggregates, 'overview aggregates should exist');
+  assert(overview.architectureAdvice, 'overview architectureAdvice should exist');
+  assert(Array.isArray(overview.architectureAdvice.cycleRefactorSuggestions), 'overview cycle suggestions should exist');
   assert.strictEqual(overview.options?.hotspotData?.enabled, true);
   assert.strictEqual(overview.options?.stabilityTrendData?.enabled, true);
   assert.strictEqual(overview.options?.stabilityTrendData?.granularity, 'week');

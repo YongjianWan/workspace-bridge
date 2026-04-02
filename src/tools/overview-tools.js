@@ -199,6 +199,63 @@ function buildOverviewSummary(hotspots, stability, orphans) {
   return { summary, orphanCount };
 }
 
+function normalizeCycle(cycle) {
+  const list = Array.isArray(cycle) ? cycle.slice() : [];
+  if (list.length > 1 && list[0] === list[list.length - 1]) {
+    list.pop();
+  }
+  return list;
+}
+
+function pickBreakEdge(depGraph, cycleFiles) {
+  if (!Array.isArray(cycleFiles) || cycleFiles.length < 2) return null;
+  const edges = [];
+  for (let i = 0; i < cycleFiles.length; i += 1) {
+    const from = cycleFiles[i];
+    const to = cycleFiles[(i + 1) % cycleFiles.length];
+    const fromDependents = depGraph.getDependents?.(from) || [];
+    const fromDependencies = depGraph.getDependencies?.(from) || [];
+    const score = (fromDependents.length * 2) + fromDependencies.length;
+    edges.push({ from, to, score, fromDependents: fromDependents.length, fromDependencies: fromDependencies.length });
+  }
+
+  return edges.sort((a, b) => a.score - b.score)[0] || null;
+}
+
+function buildCycleRefactorSuggestions(root, depGraph, projectContext) {
+  const cycles = depGraph.findCircularDependencies?.() || [];
+  const normalized = cycles.map(normalizeCycle).filter((cycle) => cycle.length >= 2);
+  const suggestions = [];
+
+  for (let i = 0; i < normalized.length; i += 1) {
+    const cycleFiles = normalized[i];
+    const edge = pickBreakEdge(depGraph, cycleFiles);
+    if (!edge) continue;
+    const cycleRelative = cycleFiles.map((file) => toRelative(root, file));
+    const fromRole = projectContext?.classifyFile?.(edge.from)?.fileRole || 'library';
+    suggestions.push({
+      cycleId: `cycle-${i + 1}`,
+      cycleSize: cycleFiles.length,
+      cycle: cycleRelative,
+      breakCandidate: {
+        from: toRelative(root, edge.from),
+        to: toRelative(root, edge.to),
+        reason: `优先切断低影响边（from dependents=${edge.fromDependents}, dependencies=${edge.fromDependencies}, role=${fromRole}）`,
+      },
+      actions: [
+        `将 ${toRelative(root, edge.from)} 对 ${toRelative(root, edge.to)} 的直接依赖改为接口/回调注入`,
+        `把共享常量或类型下沉到独立模块，避免双向 import`,
+      ],
+      validation: {
+        command: 'node cli.js cycles --cwd . --json --quiet',
+        expectation: 'cycleCount 下降或至少该 cycle 不再出现',
+      },
+    });
+  }
+
+  return suggestions.slice(0, 10);
+}
+
 function aggregateOverviewStats(hotspots, stability) {
   const hotspotsByRisk = { high: 0, medium: 0, low: 0 };
   for (const item of hotspots) {
@@ -343,6 +400,10 @@ async function buildProjectOverview(args, container) {
   const orphans = findOrphanFiles(allFiles, depGraph.entryFiles, depGraph, root);
   const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans);
   const aggregates = aggregateOverviewStats(hotspots, stability);
+  const cycleRefactorSuggestions = buildCycleRefactorSuggestions(root, depGraph, projectContext);
+  if (cycleRefactorSuggestions.length > 0) {
+    summary.recommendations.push(`先处理循环依赖: ${cycleRefactorSuggestions.slice(0, 2).map((item) => item.breakCandidate.from).join(', ')}`);
+  }
   const hotspotData = buildHotspotVisualizationData(root, hotspots, aggregates);
   const nowIso = args?.now || new Date().toISOString();
   const trendGranularity = args?.trendGranularity === 'week' ? 'week' : 'day';
@@ -405,6 +466,9 @@ async function buildProjectOverview(args, container) {
     aggregates,
     skeleton,
     hotspots: hotspots.slice(0, 10),
+    architectureAdvice: {
+      cycleRefactorSuggestions,
+    },
     hotspotData,
     hotspotDataFile,
     stabilityTrend,

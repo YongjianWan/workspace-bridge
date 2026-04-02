@@ -98,6 +98,13 @@ async function main() {
   assert(typeof result.orphans.counts.total === 'number');
   assert(Array.isArray(result.summary.insights));
   assert(Array.isArray(result.summary.recommendations));
+  assert(result.architectureAdvice, 'architectureAdvice should exist');
+  assert(Array.isArray(result.architectureAdvice.cycleRefactorSuggestions), 'cycleRefactorSuggestions should exist');
+  assert(result.architectureAdvice.cycleRefactorSuggestions.length >= 1, 'should include cycle refactor suggestions');
+  const firstCycleSuggestion = result.architectureAdvice.cycleRefactorSuggestions[0];
+  assert(firstCycleSuggestion.breakCandidate?.from, 'cycle suggestion should include breakCandidate.from');
+  assert(firstCycleSuggestion.breakCandidate?.to, 'cycle suggestion should include breakCandidate.to');
+  assert(firstCycleSuggestion.validation?.command, 'cycle suggestion should include validation command');
   assert(result.aggregates, 'aggregates should exist');
   assert(result.hotspotData, 'hotspotData should exist');
   assert.strictEqual(typeof result.hotspotData.schemaVersion, 'number');
