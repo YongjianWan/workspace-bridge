@@ -26,7 +26,85 @@ function createExportRecord(name, options = {}) {
   if (options.unknown) record.unknown = true;
   if (Number.isFinite(options.lineStart)) record.lineStart = options.lineStart;
   if (Number.isFinite(options.lineEnd)) record.lineEnd = options.lineEnd;
+  if (options.fingerprint && typeof options.fingerprint === 'object') {
+    record.fingerprint = options.fingerprint;
+  }
   return record;
+}
+
+function isFunctionLikeNode(node) {
+  if (!node || typeof node !== 'object') return false;
+  return (
+    node.type === 'FunctionDeclaration' ||
+    node.type === 'FunctionExpression' ||
+    node.type === 'ArrowFunctionExpression'
+  );
+}
+
+function getCallName(callee) {
+  if (!callee || typeof callee !== 'object') return null;
+  if (callee.type === 'Identifier') return callee.name || null;
+  if (callee.type === 'MemberExpression') {
+    const objectName = callee.object?.type === 'Identifier' ? callee.object.name : null;
+    const propertyName = callee.property?.type === 'Identifier'
+      ? callee.property.name
+      : callee.property?.type === 'StringLiteral'
+        ? callee.property.value
+        : null;
+    if (objectName && propertyName) return `${objectName}.${propertyName}`;
+    if (propertyName) return propertyName;
+  }
+  return null;
+}
+
+function buildFunctionFingerprint(functionNode) {
+  if (!isFunctionLikeNode(functionNode)) return null;
+  const callCallees = new Set();
+  let hasTryCatch = false;
+  let branchCount = 0;
+  let returnCount = 0;
+  const stack = [functionNode.body];
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node || typeof node !== 'object') continue;
+
+    if (node.type === 'CallExpression') {
+      const callName = getCallName(node.callee);
+      if (callName) callCallees.add(callName);
+    } else if (node.type === 'TryStatement') {
+      hasTryCatch = true;
+    } else if (
+      node.type === 'IfStatement' ||
+      node.type === 'SwitchCase' ||
+      node.type === 'ConditionalExpression' ||
+      node.type === 'LogicalExpression'
+    ) {
+      branchCount += 1;
+    } else if (node.type === 'ReturnStatement') {
+      returnCount += 1;
+    }
+
+    for (const key of Object.keys(node)) {
+      if (key === 'type' || key === 'loc' || key === 'start' || key === 'end') continue;
+      const child = node[key];
+      if (Array.isArray(child)) {
+        for (const c of child) stack.push(c);
+      } else if (child && typeof child === 'object') {
+        stack.push(child);
+      }
+    }
+  }
+
+  return {
+    paramCount: Array.isArray(functionNode.params) ? functionNode.params.length : 0,
+    isAsync: Boolean(functionNode.async),
+    isGenerator: Boolean(functionNode.generator),
+    hasTryCatch,
+    branchCount,
+    returnCount,
+    callCallees: Array.from(callCallees).sort().slice(0, 20),
+  };
 }
 
 function normalizeImportedName(name) {
@@ -310,19 +388,24 @@ function parseJavaScriptAST(content, filePath = '') {
           const decl = node.declaration;
           const kind = exportKindFromDeclarationType(decl.type);
           if (decl.id?.name) {
+            const fingerprint = kind === 'function' ? buildFunctionFingerprint(decl) : null;
             exportRecords.push(createExportRecord(decl.id.name, {
               kind,
               lineStart: decl.loc?.start?.line || node.loc?.start?.line,
               lineEnd: decl.loc?.end?.line || node.loc?.end?.line,
+              fingerprint,
             }));
           }
           if (decl.declarations) {
             for (const d of decl.declarations) {
               if (d.id?.name) {
+                const variableKind = isFunctionLikeNode(d.init) ? 'function' : kind;
+                const fingerprint = variableKind === 'function' ? buildFunctionFingerprint(d.init) : null;
                 exportRecords.push(createExportRecord(d.id.name, {
-                  kind,
+                  kind: variableKind,
                   lineStart: d.loc?.start?.line || decl.loc?.start?.line || node.loc?.start?.line,
                   lineEnd: d.loc?.end?.line || decl.loc?.end?.line || node.loc?.end?.line,
+                  fingerprint,
                 }));
               }
             }
@@ -334,10 +417,14 @@ function parseJavaScriptAST(content, filePath = '') {
         const declarationType = node.declaration?.type;
         const baseKind = exportKindFromDeclarationType(declarationType);
         const kind = baseKind === 'symbol' ? 'symbol' : `${baseKind}-default`;
+        const fingerprint = String(kind).startsWith('function')
+          ? buildFunctionFingerprint(node.declaration)
+          : null;
         exportRecords.push(createExportRecord('default', {
           kind,
           lineStart: node.loc?.start?.line,
           lineEnd: node.loc?.end?.line,
+          fingerprint,
         }));
       }
 

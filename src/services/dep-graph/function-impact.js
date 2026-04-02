@@ -1,4 +1,5 @@
 const path = require('path');
+const { compareFunctionRecords } = require('./function-similarity');
 
 function normalizeLineRanges(lineRanges) {
   if (!Array.isArray(lineRanges)) return [];
@@ -94,55 +95,39 @@ function getChangedFunctionImpact(depGraph, filePath, lineRanges, options = {}) 
   };
 }
 
-function normalizeFunctionName(name) {
-  return String(name || '')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/[_\-]+/g, ' ')
-    .toLowerCase()
-    .trim();
-}
-
-function tokenizeFunctionName(name) {
-  return normalizeFunctionName(name)
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter(Boolean);
-}
-
-function tokenDiceSimilarity(aName, bName) {
-  const aTokens = tokenizeFunctionName(aName);
-  const bTokens = tokenizeFunctionName(bName);
-  if (aTokens.length === 0 || bTokens.length === 0) return 0;
-  const aSet = new Set(aTokens);
-  const bSet = new Set(bTokens);
-  let intersection = 0;
-  for (const token of aSet) {
-    if (bSet.has(token)) intersection += 1;
-  }
-  return (2 * intersection) / (aSet.size + bSet.size);
-}
-
 function getFunctionReuseHints(depGraph, filePath, changedFunctions, options = {}) {
   const list = Array.isArray(changedFunctions) ? changedFunctions : [];
   if (list.length === 0) return [];
   const minScore = Number.isFinite(options.minScore) ? options.minScore : 0.5;
   const maxPerFunction = Number.isFinite(options.maxPerFunction) ? options.maxPerFunction : 3;
+  const sourceInfo = depGraph.graph.get(filePath) || {};
+  const sourceRecords = Array.isArray(sourceInfo.exportRecords) ? sourceInfo.exportRecords : [];
+  const sourceByName = new Map(
+    sourceRecords
+      .filter((record) => String(record?.kind || '').startsWith('function'))
+      .map((record) => [record.name, record])
+  );
   const hints = [];
 
   for (const fnName of list) {
     const candidates = [];
+    const sourceRecord = sourceByName.get(fnName) || { name: fnName };
     for (const [candidateFile, info] of depGraph.graph || []) {
       if (candidateFile === filePath) continue;
       const records = Array.isArray(info?.exportRecords) ? info.exportRecords : [];
       for (const record of records) {
         if (!String(record?.kind || '').startsWith('function')) continue;
         if (!record?.name || record.name === 'default') continue;
-        const score = tokenDiceSimilarity(fnName, record.name);
+        const similarity = compareFunctionRecords(sourceRecord, record);
+        const score = similarity.score;
         if (score < minScore) continue;
         candidates.push({
           file: candidateFile,
           function: record.name,
           score: Math.round(score * 100) / 100,
+          similarityMode: similarity.mode,
+          structureScore: similarity.structureScore === null ? null : Math.round(similarity.structureScore * 100) / 100,
+          nameScore: Math.round(similarity.nameScore * 100) / 100,
         });
       }
     }
@@ -154,6 +139,9 @@ function getFunctionReuseHints(depGraph, filePath, changedFunctions, options = {
         file: path.relative(depGraph.root, item.file),
         function: item.function,
         score: item.score,
+        similarityMode: item.similarityMode,
+        structureScore: item.structureScore,
+        nameScore: item.nameScore,
       }));
 
     if (top.length > 0) {

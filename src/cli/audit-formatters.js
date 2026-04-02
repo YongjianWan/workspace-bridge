@@ -12,6 +12,10 @@ function buildCompositeRisk(entry) {
   const affectedTestCount = toNumber(entry?.affectedTestCount);
   const historyRiskScore = toNumber(entry?.historyRisk?.score);
   const symbolMode = entry?.symbolImpact?.mode || null;
+  const changedFunctionImpact = entry?.symbolImpact?.changedFunctionImpact || null;
+  const changedFunctions = Array.isArray(changedFunctionImpact?.changedFunctions)
+    ? changedFunctionImpact.changedFunctions
+    : [];
 
   if (impactCount >= 10) {
     score += 4;
@@ -48,10 +52,36 @@ function buildCompositeRisk(entry) {
     reasons.push('Symbol analysis fell back to file-level impact.');
   }
 
+  if (changedFunctionImpact?.mode === 'function-symbol' && changedFunctions.length > 0) {
+    score = Math.max(0, score - 1);
+    reasons.push(`Function-scoped impact available (${changedFunctions.length} changed function(s)).`);
+
+    const highImpactFunctions = (changedFunctionImpact.impactedFunctionDependents || [])
+      .filter((row) => toNumber(row?.dependentCount) >= 5);
+    if (highImpactFunctions.length > 0) {
+      score += Math.min(2, highImpactFunctions.length);
+      reasons.push(`High-impact functions changed (${highImpactFunctions.map((row) => row.function).join(', ')}).`);
+    }
+
+    if (changedFunctions.length >= 3) {
+      score += 1;
+      reasons.push('Multiple functions changed; verify cross-cutting behavior.');
+    }
+
+    const functionLevelAffectedTests = toNumber(changedFunctionImpact?.functionLevelAffectedTests?.affectedTestCount);
+    const impactedFunctionDependents = toNumber(changedFunctionImpact?.impactedDependentCount);
+    if (impactedFunctionDependents >= 3 && functionLevelAffectedTests === 0) {
+      score += 1;
+      reasons.push('Changed functions affect dependents but no function-level tests were mapped.');
+    }
+  }
+
   if (entry?.classification?.isMainline === false && score > 0) {
     score -= 1;
     reasons.push('Non-mainline file: downgrade one point.');
   }
+
+  score = Math.max(0, score);
 
   let level = 'low';
   if (score >= 6) level = 'high';

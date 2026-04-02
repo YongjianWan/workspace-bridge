@@ -136,6 +136,8 @@ try {
   const helperHint = changed.symbolImpact.changedFunctionImpact.reuseHints.find((item) => item.function === 'helper');
   assert(helperHint, 'reuseHints should include helper');
   assert(helperHint.suggestions.some((item) => item.function === 'helperService'), 'helper should suggest helperService');
+  const helperServiceHint = helperHint.suggestions.find((item) => item.function === 'helperService');
+  assert(helperServiceHint?.similarityMode, 'reuse hint should include similarityMode');
   const fnTests = changed.symbolImpact.changedFunctionImpact.functionLevelAffectedTests;
   assert(fnTests, 'functionLevelAffectedTests should exist');
   assert.strictEqual(typeof fnTests.affectedTestCount, 'number');
@@ -145,6 +147,10 @@ try {
   assert(changed.compositeRisk, 'compositeRisk should exist');
   assert(['low', 'medium', 'high'].includes(changed.compositeRisk.level), 'compositeRisk.level should be valid');
   assert(typeof changed.compositeRisk.score === 'number', 'compositeRisk.score should be numeric');
+  assert(
+    changed.compositeRisk.reasons.some((reason) => reason.includes('Function-scoped impact available')),
+    'compositeRisk should include function-level reasoning'
+  );
   assert.strictEqual(changed.affectedTestCount >= 1, true);
   assert.strictEqual(changed.historyRisk.level, 'high');
   assert.strictEqual(changed.historyRisk.authorCount >= 3, true);

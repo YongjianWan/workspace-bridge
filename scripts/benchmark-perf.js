@@ -15,6 +15,7 @@ function parseArgs(argv) {
     files: 620,
     changeCount: 12,
     maxMs: 30000,
+    maxFunctionMs: 12000,
     keepFixture: false,
     verbose: false,
   };
@@ -23,6 +24,7 @@ function parseArgs(argv) {
     if (arg === '--files') options.files = Number.parseInt(argv[++i] || '', 10);
     else if (arg === '--changes') options.changeCount = Number.parseInt(argv[++i] || '', 10);
     else if (arg === '--max-ms') options.maxMs = Number.parseInt(argv[++i] || '', 10);
+    else if (arg === '--max-function-ms') options.maxFunctionMs = Number.parseInt(argv[++i] || '', 10);
     else if (arg === '--keep-fixture') options.keepFixture = true;
     else if (arg === '--verbose') options.verbose = true;
     else throw new Error(`Unknown argument: ${arg}`);
@@ -35,6 +37,9 @@ function parseArgs(argv) {
   }
   if (!Number.isFinite(options.maxMs) || options.maxMs < 1) {
     throw new Error('--max-ms must be >= 1');
+  }
+  if (!Number.isFinite(options.maxFunctionMs) || options.maxFunctionMs < 1) {
+    throw new Error('--max-function-ms must be >= 1');
   }
   return options;
 }
@@ -200,15 +205,24 @@ function buildSummaryRows(results) {
   return results.map((entry) => `${entry.label.padEnd(24)} ${String(entry.elapsedMs).padStart(6)} ms`).join('\n');
 }
 
-function evaluateThresholds(results, maxMs) {
-  const violations = results.filter((entry) => entry.elapsedMs > maxMs);
+function evaluateThresholds(results, rules) {
+  const indexed = new Map(results.map((entry) => [entry.label, entry]));
+  const violations = [];
+  for (const rule of rules) {
+    const hit = indexed.get(rule.label);
+    if (!hit) continue;
+    if (hit.elapsedMs > rule.maxMs) {
+      violations.push({
+        metric: hit.label,
+        elapsedMs: hit.elapsedMs,
+        maxMs: rule.maxMs,
+      });
+    }
+  }
   return {
     pass: violations.length === 0,
-    violations: violations.map((entry) => ({
-      metric: entry.label,
-      elapsedMs: entry.elapsedMs,
-      maxMs,
-    })),
+    violations,
+    rules,
   };
 }
 
@@ -259,10 +273,33 @@ function main() {
       timings.push(result);
     }
 
-    const threshold = evaluateThresholds(
-      timings.filter((item) => item.label === 'cold.audit-summary' || item.label === 'cold.audit-diff'),
-      options.maxMs
+    writeFile(
+      fixtureRoot,
+      'src/module-1.js',
+      "import { fn2 } from './module-2.js';\nexport function fn1(payload, retries = 0) {\n  if (!payload) return fn2() + 1;\n  try {\n    return fn2() + payload.value + retries;\n  } catch (error) {\n    return fn2() + retries;\n  }\n}\n"
     );
+    {
+      const [cmd, args, cwd] = runCliJson('audit-diff', fixtureRoot);
+      const result = timeCommand('function-analysis.audit-diff', cmd, args, cwd);
+      const parsed = parseJson(result.output, result.label);
+      const functionScopedFiles = (parsed.changedFiles || [])
+        .filter((entry) => entry?.symbolImpact?.changedFunctionImpact?.mode === 'function-symbol');
+      const mappedTests = functionScopedFiles.reduce(
+        (sum, entry) => sum + (entry.symbolImpact?.changedFunctionImpact?.functionLevelAffectedTests?.affectedTestCount || 0),
+        0
+      );
+      result.meta = {
+        functionScopedFiles: functionScopedFiles.length,
+        mappedFunctionTests: mappedTests,
+      };
+      timings.push(result);
+    }
+
+    const threshold = evaluateThresholds(timings, [
+      { label: 'cold.audit-summary', maxMs: options.maxMs },
+      { label: 'cold.audit-diff', maxMs: options.maxMs },
+      { label: 'function-analysis.audit-diff', maxMs: options.maxFunctionMs },
+    ]);
     const report = {
       startedAt,
       finishedAt: new Date().toISOString(),
@@ -293,7 +330,7 @@ function main() {
       }
       process.exitCode = 1;
     } else {
-      console.log(`\nThreshold check passed (cold audit-summary/audit-diff <= ${options.maxMs}ms).`);
+      console.log(`\nThreshold check passed (cold <= ${options.maxMs}ms, function-analysis <= ${options.maxFunctionMs}ms).`);
     }
   } finally {
     if (!options.keepFixture) {

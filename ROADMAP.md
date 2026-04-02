@@ -51,6 +51,8 @@
 - ✅ 自动入口识别增强（framework/config 入口：manage.py、vite.config.*）
 - ✅ 500+ 文件性能基准脚本（cold/hot/incremental，含 tree 与阈值）
 - ✅ function-level affected tests baseline（JS/TS：changed function -> likely tests）
+- ✅ compositeRisk 接入函数级信号（changedFunctionImpact）
+- ✅ 复用提示升级（结构+命名混合相似度 baseline）
 
 **诊断执行**
 
@@ -137,8 +139,8 @@
 
 **代码相似度（克制地借鉴 reference）**
 
-- [ ] AST 相似度检测（提示，不强制）
-- [ ] 发现相似函数时给出参考实现
+- [x] AST 相似度检测 baseline（结构+命名，提示，不强制）
+- [x] 发现相似函数时给出参考实现（reuseHints suggestions）
 - [ ] 可选功能，非核心路径
 
 ### P3: 全景增强
