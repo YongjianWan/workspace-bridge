@@ -157,7 +157,7 @@
 
 ### P5: 长期演进
 
-- [x] overview 可视化输出 `完成于 2026-04-03，commit: pending`
+- [x] overview 可视化输出 `完成于 2026-04-03，commit: 383d6d6`
 
 ---
 
