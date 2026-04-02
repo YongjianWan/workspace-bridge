@@ -80,6 +80,8 @@ Options:
   --max-depth <n>         Max depth for affected-tests
   --reuse-hints <mode>    Reuse hints mode for audit-diff: on|off (default: off)
   --hotspot-data <path>   Write audit-overview hotspot visualization JSON
+  --stability-trend-data <path>  Write audit-overview stability trend JSON
+  --trend-granularity <mode>  Trend bucket mode for stability trend: day|week (default: day)
   --json                  Print machine-readable JSON
   --quiet                 Suppress stderr logs during CLI execution
   --help                  Show help
@@ -103,6 +105,8 @@ function parseArgs(argv) {
     maxDepth: null,
     reuseHints: 'off',
     hotspotData: null,
+    stabilityTrendData: null,
+    trendGranularity: 'day',
     json: false,
     quiet: false,
     help: false,
@@ -137,6 +141,15 @@ function parseArgs(argv) {
         break;
       case '--hotspot-data':
         parsed.hotspotData = args[++i] || null;
+        break;
+      case '--stability-trend-data':
+        parsed.stabilityTrendData = args[++i] || null;
+        break;
+      case '--trend-granularity':
+        parsed.trendGranularity = (args[++i] || parsed.trendGranularity).toLowerCase();
+        if (!['day', 'week'].includes(parsed.trendGranularity)) {
+          throw new Error(`Invalid --trend-granularity value: ${parsed.trendGranularity}. Expected day|week`);
+        }
         break;
       case '--json':
         parsed.json = true;
@@ -347,6 +360,9 @@ async function runCommand(parsed, container) {
             });
           } catch (e) {
             // Non-core path: similarity hints should never block main diff analysis.
+            if (!parsed.quiet) {
+              console.error(`[warn] reuse hints failed for ${relativeFile}: ${e?.message || String(e)}`);
+            }
             reuseHints = [];
           }
         }

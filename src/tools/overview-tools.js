@@ -250,6 +250,79 @@ async function writeHotspotDataFile(filePath, payload) {
   await fs.promises.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }
 
+function toDayKey(isoTimestamp) {
+  return String(isoTimestamp).slice(0, 10);
+}
+
+function toWeekKey(isoTimestamp) {
+  const d = new Date(isoTimestamp);
+  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+  return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+function getTrendBucketKey(isoTimestamp, granularity) {
+  return granularity === 'week' ? toWeekKey(isoTimestamp) : toDayKey(isoTimestamp);
+}
+
+function buildStabilityTrendSnapshot(isoTimestamp, stability, aggregates) {
+  const rows = Array.isArray(stability) ? stability : [];
+  const total = rows.reduce((sum, item) => sum + (Number(item?.stabilityScore) || 0), 0);
+  const stabilityScore = rows.length > 0 ? Math.round((total / rows.length) * 100) / 100 : 0;
+  return {
+    timestamp: isoTimestamp,
+    stabilityScore,
+    fragileCount: Number(aggregates?.stabilityCounts?.fragile) || 0,
+    hotspotsByRisk: {
+      high: Number(aggregates?.hotspotsByRisk?.high) || 0,
+      medium: Number(aggregates?.hotspotsByRisk?.medium) || 0,
+      low: Number(aggregates?.hotspotsByRisk?.low) || 0,
+    },
+  };
+}
+
+function buildStabilityTrendSeries(history, granularity) {
+  const rows = Array.isArray(history) ? history : [];
+  const buckets = new Map();
+  for (const row of rows) {
+    if (!row?.timestamp) continue;
+    const bucket = getTrendBucketKey(row.timestamp, granularity);
+    const existing = buckets.get(bucket);
+    if (!existing || String(row.timestamp) > String(existing.timestamp)) {
+      buckets.set(bucket, { ...row, bucket });
+    }
+  }
+
+  return Array.from(buckets.values())
+    .sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)))
+    .map((item) => ({
+      bucket: item.bucket,
+      timestamp: item.timestamp,
+      stabilityScore: item.stabilityScore,
+      fragileCount: item.fragileCount,
+      hotspotsByRisk: item.hotspotsByRisk,
+    }));
+}
+
+async function readTrendHistory(filePath) {
+  if (!fs.existsSync(filePath)) return [];
+  try {
+    const parsed = JSON.parse(await fs.promises.readFile(filePath, 'utf8'));
+    return Array.isArray(parsed?.history) ? parsed.history : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function writeStabilityTrendFile(filePath, payload) {
+  const dir = path.dirname(filePath);
+  await fs.promises.mkdir(dir, { recursive: true });
+  await fs.promises.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+}
+
 async function buildProjectOverview(args, container) {
   await container.ensureReady();
 
@@ -271,6 +344,20 @@ async function buildProjectOverview(args, container) {
   const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans);
   const aggregates = aggregateOverviewStats(hotspots, stability);
   const hotspotData = buildHotspotVisualizationData(root, hotspots, aggregates);
+  const nowIso = args?.now || new Date().toISOString();
+  const trendGranularity = args?.trendGranularity === 'week' ? 'week' : 'day';
+  const stabilityTrendSnapshot = buildStabilityTrendSnapshot(nowIso, stability, aggregates);
+  const stabilityTrend = {
+    granularity: trendGranularity,
+    latest: stabilityTrendSnapshot,
+    series: [stabilityTrendSnapshot].map((item) => ({
+      bucket: getTrendBucketKey(item.timestamp, trendGranularity),
+      timestamp: item.timestamp,
+      stabilityScore: item.stabilityScore,
+      fragileCount: item.fragileCount,
+      hotspotsByRisk: item.hotspotsByRisk,
+    })),
+  };
   let hotspotDataFile = null;
   if (args?.hotspotData) {
     const target = path.isAbsolute(args.hotspotData)
@@ -278,6 +365,26 @@ async function buildProjectOverview(args, container) {
       : path.resolve(root, args.hotspotData);
     await writeHotspotDataFile(target, hotspotData);
     hotspotDataFile = target;
+  }
+  let stabilityTrendDataFile = null;
+  if (args?.stabilityTrendData) {
+    const target = path.isAbsolute(args.stabilityTrendData)
+      ? args.stabilityTrendData
+      : path.resolve(root, args.stabilityTrendData);
+    const existingHistory = await readTrendHistory(target);
+    const history = [...existingHistory, stabilityTrendSnapshot];
+    const series = buildStabilityTrendSeries(history, trendGranularity);
+    const payload = {
+      schemaVersion: 1,
+      generatedAt: nowIso,
+      workspaceRoot: root,
+      granularity: trendGranularity,
+      history,
+      series,
+    };
+    await writeStabilityTrendFile(target, payload);
+    stabilityTrendDataFile = target;
+    stabilityTrend.series = series;
   }
 
   return {
@@ -288,6 +395,11 @@ async function buildProjectOverview(args, container) {
         enabled: Boolean(args?.hotspotData),
         path: args?.hotspotData || null,
       },
+      stabilityTrendData: {
+        enabled: Boolean(args?.stabilityTrendData),
+        path: args?.stabilityTrendData || null,
+        granularity: trendGranularity,
+      },
     },
     summary,
     aggregates,
@@ -295,6 +407,8 @@ async function buildProjectOverview(args, container) {
     hotspots: hotspots.slice(0, 10),
     hotspotData,
     hotspotDataFile,
+    stabilityTrend,
+    stabilityTrendDataFile,
     stability: stability.slice(0, 10),
     orphans: {
       counts: {
@@ -317,4 +431,6 @@ async function buildProjectOverview(args, container) {
 module.exports = {
   buildProjectOverview,
   buildHotspotVisualizationData,
+  buildStabilityTrendSnapshot,
+  buildStabilityTrendSeries,
 };

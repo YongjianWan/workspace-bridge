@@ -76,6 +76,7 @@ node cli.js audit-diff --cwd C:\repo --json --quiet
 node cli.js audit-diff --cwd C:\repo --reuse-hints on --json --quiet
 node cli.js audit-overview --cwd C:\repo --json --quiet
 node cli.js audit-overview --cwd C:\repo --hotspot-data benchmark\results\hotspots.json --json --quiet
+node cli.js audit-overview --cwd C:\repo --stability-trend-data benchmark\results\stability-trend.json --trend-granularity week --json --quiet
 node cli.js audit-overview --cwd C:\repo --quiet
 node cli.js dead-exports --cwd C:\repo --json
 node cli.js impact --cwd C:\repo --file src\app.ts --json
@@ -123,6 +124,8 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 - `aggregates.stabilityCounts`
 - `hotspotData`（可视化热区数据，schemaVersion=1）
 - `hotspotDataFile`（仅当传入 `--hotspot-data` 时返回）
+- `stabilityTrend`（稳定性趋势当前快照 + 按日/周聚合序列）
+- `stabilityTrendDataFile`（仅当传入 `--stability-trend-data` 时返回）
 
 `audit-diff` 返回结构化验证计划：
 

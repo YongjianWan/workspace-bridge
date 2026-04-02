@@ -102,6 +102,12 @@ async function main() {
   assert(result.hotspotData, 'hotspotData should exist');
   assert.strictEqual(typeof result.hotspotData.schemaVersion, 'number');
   assert(Array.isArray(result.hotspotData.hotspots), 'hotspotData.hotspots should exist');
+  assert(result.stabilityTrend, 'stabilityTrend should exist');
+  assert.strictEqual(result.stabilityTrend.granularity, 'day');
+  assert(Array.isArray(result.stabilityTrend.series), 'stabilityTrend.series should exist');
+  assert.strictEqual(typeof result.stabilityTrend.latest.stabilityScore, 'number');
+  assert.strictEqual(typeof result.stabilityTrend.latest.fragileCount, 'number');
+  assert.strictEqual(typeof result.stabilityTrend.latest.hotspotsByRisk.high, 'number');
   assert.strictEqual(typeof result.aggregates.hotspotsByRisk.high, 'number');
   assert.strictEqual(typeof result.aggregates.stabilityCounts.fragile, 'number');
   assert(calls.length >= 1, 'history provider should be called');
@@ -115,6 +121,28 @@ async function main() {
   const parsed = JSON.parse(fs.readFileSync(outFile, 'utf8'));
   assert.strictEqual(parsed.schemaVersion, 1);
   assert(Array.isArray(parsed.hotspots));
+  const trendFile = path.join(outDir, 'trend.json');
+  const firstRun = await buildProjectOverview({
+    historyProvider,
+    stabilityTrendData: trendFile,
+    trendGranularity: 'week',
+    now: '2026-04-02T00:00:00.000Z',
+  }, container);
+  assert.strictEqual(firstRun.stabilityTrendDataFile, trendFile);
+  const secondRun = await buildProjectOverview({
+    historyProvider,
+    stabilityTrendData: trendFile,
+    trendGranularity: 'week',
+    now: '2026-04-09T00:00:00.000Z',
+  }, container);
+  assert.strictEqual(secondRun.stabilityTrendDataFile, trendFile);
+  const trendParsed = JSON.parse(fs.readFileSync(trendFile, 'utf8'));
+  assert.strictEqual(trendParsed.schemaVersion, 1);
+  assert.strictEqual(trendParsed.granularity, 'week');
+  assert(Array.isArray(trendParsed.history));
+  assert(trendParsed.history.length >= 2, 'trend history should append snapshots');
+  assert(Array.isArray(trendParsed.series));
+  assert(trendParsed.series.length >= 2, 'trend series should include weekly buckets');
   fs.rmSync(outDir, { recursive: true, force: true });
 
   console.log('overview-tools-test: ok');

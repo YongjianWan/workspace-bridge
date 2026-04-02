@@ -241,16 +241,35 @@ function main() {
 
   const overviewDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-overview-cli-'));
   const overviewDataFile = path.join(overviewDataDir, 'hotspots.json');
-  const overview = runCli(['audit-overview', '--cwd', '.', '--hotspot-data', overviewDataFile, '--json', '--quiet']);
+  const trendDataFile = path.join(overviewDataDir, 'stability-trend.json');
+  const overview = runCli([
+    'audit-overview',
+    '--cwd', '.',
+    '--hotspot-data', overviewDataFile,
+    '--stability-trend-data', trendDataFile,
+    '--trend-granularity', 'week',
+    '--json',
+    '--quiet',
+  ]);
   assert.strictEqual(overview.ok, true);
   assert(overview.skeleton.totalFiles >= 1);
   assert(overview.aggregates, 'overview aggregates should exist');
   assert.strictEqual(overview.options?.hotspotData?.enabled, true);
+  assert.strictEqual(overview.options?.stabilityTrendData?.enabled, true);
+  assert.strictEqual(overview.options?.stabilityTrendData?.granularity, 'week');
   assert.strictEqual(overview.hotspotDataFile, overviewDataFile);
+  assert.strictEqual(overview.stabilityTrendDataFile, trendDataFile);
   assert(fs.existsSync(overviewDataFile), 'audit-overview should write hotspot data file');
+  assert(fs.existsSync(trendDataFile), 'audit-overview should write stability trend data file');
   const overviewData = JSON.parse(fs.readFileSync(overviewDataFile, 'utf8'));
   assert.strictEqual(overviewData.schemaVersion, 1);
   assert(Array.isArray(overviewData.hotspots));
+  const trendData = JSON.parse(fs.readFileSync(trendDataFile, 'utf8'));
+  assert.strictEqual(trendData.schemaVersion, 1);
+  assert.strictEqual(trendData.granularity, 'week');
+  assert(Array.isArray(trendData.series));
+  assert.strictEqual(typeof overview.stabilityTrend?.latest?.stabilityScore, 'number');
+  assert.strictEqual(typeof overview.stabilityTrend?.latest?.fragileCount, 'number');
   fs.rmSync(overviewDataDir, { recursive: true, force: true });
   const overviewHuman = runCliText(['audit-overview', '--cwd', '.', '--quiet']);
   assert(overviewHuman.includes('hotspotsHigh:'), 'audit-overview human output should include hotspot aggregates');
