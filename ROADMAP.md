@@ -135,7 +135,7 @@
 - [x] 跨文件 symbol-level impact baseline（JS/TS + Python + Java）
 - [x] 函数级影响分析 baseline（JS/TS 导出函数）
 - [x] 变更影响具体函数而非整个文件 baseline（JS/TS：基于 diff 行号）
-- [x] 精确测试映射（测试具体覆盖哪些函数，当前为启发式 baseline）`完成于 2026-04-02，commit: pending`
+- [x] 精确测试映射（测试具体覆盖哪些函数，当前为启发式 baseline）`完成于 2026-04-02，commit: 1f5cadf`
 
 **代码相似度（克制地借鉴 reference）**
 
