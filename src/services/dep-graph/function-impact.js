@@ -186,7 +186,7 @@ function getFunctionLevelAffectedTests(depGraph, filePath, changedFunctions, opt
         continue;
       }
 
-      const affected = depGraph.findAffectedTests(dependentFile, maxDepth);
+      const affected = depGraph.findAffectedTests(dependentFile, maxDepth, { includeHeuristic: false });
       for (const test of affected) {
         const distance = Number.isFinite(test?.distance) ? test.distance + 1 : maxDepth + 1;
         mergeTestRow(testMap, test.file, distance, [`${sourceFile}#${fnName}`, dependentFile, ...(test.via || [])]);

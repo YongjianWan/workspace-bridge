@@ -79,6 +79,14 @@ try {
     '}',
     '',
   ].join('\n'));
+  writeFile('test/app.smoke.test.js', [
+    'describe("app smoke", () => {',
+    '  it("ok", () => {',
+    '    return true;',
+    '  });',
+    '});',
+    '',
+  ].join('\n'));
 
   run('git', ['init'], tempRoot);
   run('git', ['config', 'user.email', 'test@example.com'], tempRoot);
@@ -144,6 +152,10 @@ try {
   const helperTests = fnTests.functions.find((item) => item.function === 'helper');
   assert(helperTests, 'functionLevelAffectedTests should include helper');
   assert(helperTests.affectedTests.some((item) => item.file.replace(/\\/g, '/').endsWith('/test/app.test.js')));
+  assert(
+    !helperTests.affectedTests.some((item) => item.file.replace(/\\/g, '/').endsWith('/test/app.smoke.test.js')),
+    'functionLevelAffectedTests should exclude naming-only heuristic tests'
+  );
   assert(changed.compositeRisk, 'compositeRisk should exist');
   assert(['low', 'medium', 'high'].includes(changed.compositeRisk.level), 'compositeRisk.level should be valid');
   assert(typeof changed.compositeRisk.score === 'number', 'compositeRisk.score should be numeric');

@@ -488,7 +488,8 @@ class DependencyGraph {
    * @returns {Array<{file: string, distance: number, via?: string[]}>}
    * @description 从起始文件出发，沿反向依赖图 BFS 搜索测试文件
    */
-  findAffectedTests(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH) {
+  findAffectedTests(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH, options = {}) {
+    const includeHeuristic = options?.includeHeuristic !== false;
     const testPatterns = [
       /\.test\./,           // *.test.*
       /\.spec\./,           // *.spec.*
@@ -542,47 +543,48 @@ class DependencyGraph {
       }
     }
 
-    // Heuristic supplement: when graph-based mapping misses obvious same-stem tests.
-    // Keeps output useful for repos that don't import tests directly.
-    const seen = new Set(affectedTests.map((entry) => entry.file));
-    const sourceStem = normalizeStem(filePath);
-    const sourceExt = path.extname(filePath).toLowerCase();
-    const sourceBase = path.basename(filePath, sourceExt);
-    const sourceDir = normalizePathKey(path.dirname(filePath));
+    if (includeHeuristic) {
+      // Heuristic supplement: when graph-based mapping misses obvious same-stem tests.
+      // Keeps output useful for repos that don't import tests directly.
+      const seen = new Set(affectedTests.map((entry) => entry.file));
+      const sourceStem = normalizeStem(filePath);
+      const sourceExt = path.extname(filePath).toLowerCase();
+      const sourceDir = normalizePathKey(path.dirname(filePath));
 
-    for (const candidate of this.graph.keys()) {
-      if (candidate === filePath) continue;
-      if (!isTestFile(candidate)) continue;
-      if (seen.has(candidate)) continue;
+      for (const candidate of this.graph.keys()) {
+        if (candidate === filePath) continue;
+        if (!isTestFile(candidate)) continue;
+        if (seen.has(candidate)) continue;
 
-      const candidateExt = path.extname(candidate).toLowerCase();
-      const candidateStem = normalizeStem(candidate);
-      const candidateBase = path.basename(candidate, candidateExt).toLowerCase();
-      const candidateDir = normalizePathKey(path.dirname(candidate));
+        const candidateExt = path.extname(candidate).toLowerCase();
+        const candidateStem = normalizeStem(candidate);
+        const candidateBase = path.basename(candidate, candidateExt).toLowerCase();
+        const candidateDir = normalizePathKey(path.dirname(candidate));
 
-      let match = false;
-      if (sourceExt === '.java') {
-        // Java: src/main/java/X.java -> src/test/java/XTest.java
-        match = candidateStem === sourceStem || candidateBase.includes(`${sourceStem}test`);
-      } else if (sourceExt === '.py') {
-        // Python: foo.py -> test_foo.py / foo_test.py
-        match = candidateStem === sourceStem;
-      } else if (['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'].includes(sourceExt)) {
-        // JS/TS: foo.ts -> foo.test.ts / foo.spec.ts
-        match = candidateStem === sourceStem;
-      }
+        let match = false;
+        if (sourceExt === '.java') {
+          // Java: src/main/java/X.java -> src/test/java/XTest.java
+          match = candidateStem === sourceStem || candidateBase.includes(`${sourceStem}test`);
+        } else if (sourceExt === '.py') {
+          // Python: foo.py -> test_foo.py / foo_test.py
+          match = candidateStem === sourceStem;
+        } else if (['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'].includes(sourceExt)) {
+          // JS/TS: foo.ts -> foo.test.ts / foo.spec.ts
+          match = candidateStem === sourceStem;
+        }
 
-      // Folder affinity: prioritize test folders near source tree.
-      if (match) {
-        const nearBy = candidateDir.includes('/test/') || candidateDir.includes('/tests/') || candidateDir.includes('/src/test/java/');
-        const sameRootHint = sourceDir.split('/').some((part) => part && candidateDir.includes(part));
-        if (nearBy || sameRootHint) {
-          affectedTests.push({
-            file: candidate,
-            distance: maxDepth + 1,
-            via: ['heuristic:naming'],
-          });
-          seen.add(candidate);
+        // Folder affinity: prioritize test folders near source tree.
+        if (match) {
+          const nearBy = candidateDir.includes('/test/') || candidateDir.includes('/tests/') || candidateDir.includes('/src/test/java/');
+          const sameRootHint = sourceDir.split('/').some((part) => part && candidateDir.includes(part));
+          if (nearBy || sameRootHint) {
+            affectedTests.push({
+              file: candidate,
+              distance: maxDepth + 1,
+              via: ['heuristic:naming'],
+            });
+            seen.add(candidate);
+          }
         }
       }
     }
