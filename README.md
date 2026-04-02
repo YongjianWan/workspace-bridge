@@ -338,6 +338,19 @@ workspace-bridge/
 DEBUG=1 node cli.js audit-summary --cwd . --json
 ```
 
+### 性能基准（500+ 文件）
+
+```bash
+npm run benchmark:perf
+```
+
+- 生成 500+ 文件的 synthetic tree（含 `src/test/api/docs/examples/prototypes`）
+- 分别测 `audit-summary` / `audit-diff` 的 cold/hot/incremental
+- 输出 `benchmark/results/latest.json`
+- 默认门槛：`cold.audit-summary` 和 `cold.audit-diff` 都要 `<= 30000ms`
+
+更多参数见 [benchmark/README.md](benchmark/README.md)。
+
 ## 已知限制
 
 1. **VS Code 集成仅限 Windows** - EditorState 目前只读取 Windows 的 `%APPDATA%/Code/User/workspaceStorage`

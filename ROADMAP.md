@@ -46,6 +46,10 @@
 - ✅ `audit-overview` 聚合统计（hotspotsByRisk / stabilityCounts）
 - ✅ `audit-diff` historyRisk 限并发采集（大改动集性能优化）
 - ✅ test mapping 命名启发式兜底（无显式 import 场景）
+- ✅ Python framework 检测增强（Django/FastAPI/Flask）
+- ✅ 混合仓库目录智能识别（自动降权 prototypes/examples 为 reference）
+- ✅ 自动入口识别增强（framework/config 入口：manage.py、vite.config.*）
+- ✅ 500+ 文件性能基准脚本（cold/hot/incremental，含 tree 与阈值）
 
 **诊断执行**
 
@@ -112,13 +116,13 @@
 
 - [x] 重构 `overview-tools.js` - 拆分大函数
 - [x] 补充自动化测试 - `overview-tools` 专项测试
-- [ ] 性能压测 - 大仓库（500+ 文件）性能基准
+- [x] 性能压测 - 大仓库（500+ 文件）性能基准
 
 **功能完善**
 
-- [ ] 改进 Python 技术栈检测 - 识别 Django/Flask/FastAPI
-- [ ] 自动入口识别增强 - 框架配置文件（vite.config、manage.py 等）
-- [ ] 混合仓库智能识别 - 自动检测 prototypes/examples 目录
+- [x] 改进 Python 技术栈检测 - 识别 Django/Flask/FastAPI
+- [x] 自动入口识别增强 - 框架配置文件（vite.config、manage.py 等）
+- [x] 混合仓库智能识别 - 自动检测 prototypes/examples 目录
 
 ### P2: 深度分析
 
