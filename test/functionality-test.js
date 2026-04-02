@@ -256,6 +256,7 @@ function main() {
   assert(overview.aggregates, 'overview aggregates should exist');
   assert(overview.architectureAdvice, 'overview architectureAdvice should exist');
   assert(Array.isArray(overview.architectureAdvice.cycleRefactorSuggestions), 'overview cycle suggestions should exist');
+  assert(Array.isArray(overview.architectureAdvice.couplingSplitSuggestions), 'overview coupling suggestions should exist');
   assert.strictEqual(overview.options?.hotspotData?.enabled, true);
   assert.strictEqual(overview.options?.stabilityTrendData?.enabled, true);
   assert.strictEqual(overview.options?.stabilityTrendData?.granularity, 'week');

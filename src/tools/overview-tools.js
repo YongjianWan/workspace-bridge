@@ -256,6 +256,44 @@ function buildCycleRefactorSuggestions(root, depGraph, projectContext) {
   return suggestions.slice(0, 10);
 }
 
+function buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectContext) {
+  const candidates = [];
+  for (const file of mainlineFiles) {
+    const dependents = depGraph.getDependents?.(file) || [];
+    const dependencies = depGraph.getDependencies?.(file) || [];
+    const coupling = calculateCoupling(dependencies, dependents);
+    const isOverCoupled = coupling.level === 'high' ||
+      (coupling.total >= 3 && (coupling.inDegree >= 2 || coupling.outDegree >= 2));
+    if (!isOverCoupled) continue;
+    const classification = projectContext?.classifyFile?.(file);
+    if (!classification?.isMainline) continue;
+    candidates.push({
+      file,
+      coupling,
+      role: classification.fileRole || 'library',
+    });
+  }
+
+  return candidates
+    .sort((a, b) => b.coupling.total - a.coupling.total)
+    .slice(0, 10)
+    .map((item, index) => ({
+      moduleId: `coupling-${index + 1}`,
+      file: toRelative(root, item.file),
+      coupling: item.coupling,
+      role: item.role,
+      reason: `耦合过高（in=${item.coupling.inDegree}, out=${item.coupling.outDegree}, total=${item.coupling.total}）`,
+      splitPlan: [
+        '按职责拆分为 core/domain/adapter 子模块，减少横向依赖',
+        '提取稳定接口层，反转上层对实现细节的直接引用',
+      ],
+      validation: {
+        command: 'node cli.js audit-overview --cwd . --json --quiet',
+        expectation: '目标模块 coupling.total 下降，stabilityScore 不回退',
+      },
+    }));
+}
+
 function aggregateOverviewStats(hotspots, stability) {
   const hotspotsByRisk = { high: 0, medium: 0, low: 0 };
   for (const item of hotspots) {
@@ -401,8 +439,12 @@ async function buildProjectOverview(args, container) {
   const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans);
   const aggregates = aggregateOverviewStats(hotspots, stability);
   const cycleRefactorSuggestions = buildCycleRefactorSuggestions(root, depGraph, projectContext);
+  const couplingSplitSuggestions = buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectContext);
   if (cycleRefactorSuggestions.length > 0) {
     summary.recommendations.push(`先处理循环依赖: ${cycleRefactorSuggestions.slice(0, 2).map((item) => item.breakCandidate.from).join(', ')}`);
+  }
+  if (couplingSplitSuggestions.length > 0) {
+    summary.recommendations.push(`高耦合模块拆分优先级: ${couplingSplitSuggestions.slice(0, 2).map((item) => item.file).join(', ')}`);
   }
   const hotspotData = buildHotspotVisualizationData(root, hotspots, aggregates);
   const nowIso = args?.now || new Date().toISOString();
@@ -468,6 +510,7 @@ async function buildProjectOverview(args, container) {
     hotspots: hotspots.slice(0, 10),
     architectureAdvice: {
       cycleRefactorSuggestions,
+      couplingSplitSuggestions,
     },
     hotspotData,
     hotspotDataFile,

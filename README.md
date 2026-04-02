@@ -127,6 +127,7 @@ node cli.js impact --cwd C:\repo --file src\app.ts --json
 - `stabilityTrend`（稳定性趋势当前快照 + 按日/周聚合序列）
 - `stabilityTrendDataFile`（仅当传入 `--stability-trend-data` 时返回）
 - `architectureAdvice.cycleRefactorSuggestions`（循环依赖断环候选边 + 执行动作 + 验证命令）
+- `architectureAdvice.couplingSplitSuggestions`（高耦合模块拆分提示 + 验证命令）
 
 `audit-diff` 返回结构化验证计划：
 
