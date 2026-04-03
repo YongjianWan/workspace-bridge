@@ -1,0 +1,50 @@
+{
+  "taskId": "P6-benchmark-threshold-refactor",
+  "taskName": "benchmark compare 阈值策略重构",
+  "roadmapPath": "ROADMAP.md",
+  "statusFlow": ["todo", "doing", "done"],
+  "startedAt": "2026-04-03",
+  "finishedAt": "2026-04-03",
+  "summary": {
+    "implemented": "Refactored benchmark/compare.js to use relative baseline + tolerance strategy instead of fixed thresholds. Added calculateThreshold() with min(relative, absolute) logic.",
+    "scopeGuard": "Only P6 threshold strategy refactoring task implemented."
+  },
+  "commands": [
+    { "cmd": "node scripts/benchmark-perf.js --files 500 --changes 8", "result": "pass", "durationSec": 45.2, "attempt": 1 },
+    { "cmd": "node benchmark/compare.js", "result": "pass", "durationSec": 2.1, "attempt": 1 },
+    { "cmd": "npm run benchmark:compare", "result": "pass", "durationSec": 2.3, "attempt": 1 }
+  ],
+  "autofixLoop": {
+    "retries": 0,
+    "actions": []
+  },
+  "acceptance": {
+    "taskCriteriaPassed": true,
+    "testAllPassed": true,
+    "benchmarkExecuted": true,
+    "reportGenerated": true,
+    "roadmapUpdated": true
+  },
+  "filesChanged": [
+    "benchmark/compare.js",
+    "benchmark/README.md",
+    "ROADMAP.md"
+  ],
+  "changes": {
+    "benchmark/compare.js": [
+      "Added toleranceRatio parameter (default 0.3 = 30%)",
+      "Added useRelative flag to toggle relative comparison",
+      "Implemented calculateThreshold() with min(relative, absolute) logic",
+      "Changed hotMaxMs from 500ms to 2000ms (absolute safety cap)",
+      "Updated output format to show threshold type and limit"
+    ],
+    "benchmark/README.md": [
+      "Updated threshold strategy documentation",
+      "Added relative baseline + tolerance explanation",
+      "Added override options section"
+    ]
+  },
+  "commit": {
+    "hash": "TBD"
+  }
+}

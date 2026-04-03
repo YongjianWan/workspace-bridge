@@ -11,9 +11,14 @@ function parseArgs(argv) {
   const options = {
     baseRef: 'main',
     baseFile: null,
+    // Absolute thresholds as safety nets (when base is missing or extremely high)
     coldMaxMs: 15000,
-    hotMaxMs: 500,
-    functionRegressionRatio: 1.2,
+    hotMaxMs: 2000,
+    functionMaxMs: 120000,
+    // Relative tolerance: how much regression is allowed vs baseline
+    toleranceRatio: 0.3, // 30% tolerance by default
+    // Whether to use relative comparison when baseline is available
+    useRelative: true,
   };
   for (let i = 2; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -21,7 +26,9 @@ function parseArgs(argv) {
     else if (arg === '--base-file') options.baseFile = argv[++i] || null;
     else if (arg === '--cold-max-ms') options.coldMaxMs = Number.parseInt(argv[++i] || '', 10);
     else if (arg === '--hot-max-ms') options.hotMaxMs = Number.parseInt(argv[++i] || '', 10);
-    else if (arg === '--function-regression') options.functionRegressionRatio = Number.parseFloat(argv[++i] || '');
+    else if (arg === '--function-max-ms') options.functionMaxMs = Number.parseInt(argv[++i] || '', 10);
+    else if (arg === '--tolerance') options.toleranceRatio = Number.parseFloat(argv[++i] || '');
+    else if (arg === '--no-relative') options.useRelative = false;
     else throw new Error(`Unknown argument: ${arg}`);
   }
   return options;
@@ -56,10 +63,34 @@ function percentageDelta(base, head) {
   return ((head - base) / base) * 100;
 }
 
-function printComparison(name, base, head) {
+function printComparison(name, base, head, threshold) {
   const delta = percentageDelta(base, head);
   const deltaText = delta === null ? 'n/a' : `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%`;
-  console.log(`${name.padEnd(20)} base=${formatMs(base).padEnd(8)} head=${formatMs(head).padEnd(8)} delta=${deltaText}`);
+  const thresholdText = threshold ? ` (limit: ${formatMs(threshold)})` : '';
+  console.log(
+    `${name.padEnd(24)} base=${formatMs(base).padEnd(8)} head=${formatMs(head).padEnd(8)} delta=${deltaText.padEnd(8)}${thresholdText}`
+  );
+}
+
+function calculateThreshold(baseValue, absoluteMax, toleranceRatio, useRelative) {
+  // If no baseline, use absolute threshold
+  if (!Number.isFinite(baseValue) || baseValue <= 0) {
+    return { value: absoluteMax, type: 'absolute' };
+  }
+  // If relative comparison is disabled, use absolute threshold
+  if (!useRelative) {
+    return { value: absoluteMax, type: 'absolute' };
+  }
+  // Calculate relative threshold: base * (1 + tolerance)
+  const relativeThreshold = baseValue * (1 + toleranceRatio);
+  // Use the lower of relative threshold and absolute max (safety net)
+  const finalThreshold = Math.min(relativeThreshold, absoluteMax);
+  return {
+    value: Math.round(finalThreshold),
+    type: finalThreshold === relativeThreshold ? 'relative' : 'absolute-cap',
+    base: baseValue,
+    tolerance: toleranceRatio,
+  };
 }
 
 function main() {
@@ -83,30 +114,75 @@ function main() {
 
   console.log('Performance comparison');
   const baseSource = options.baseFile ? path.resolve(options.baseFile) : `git:${options.baseRef}`;
-  console.log(`Base source: ${base ? baseSource : `${baseSource} (missing, relative check skipped)`}`);
-  printComparison('cold-index', coldBase, coldHead);
-  printComparison('hot-index', hotBase, hotHead);
-  printComparison('function-analysis', functionBase, functionHead);
+  console.log(`Base source: ${base ? baseSource : `${baseSource} (missing, using absolute thresholds)`}`);
+  console.log(`Tolerance: ${(options.toleranceRatio * 100).toFixed(0)}%`);
+  console.log('');
+
+  // Calculate thresholds
+  const coldThreshold = calculateThreshold(
+    coldBase,
+    options.coldMaxMs,
+    options.toleranceRatio,
+    options.useRelative
+  );
+  const hotThreshold = calculateThreshold(
+    hotBase,
+    options.hotMaxMs,
+    options.toleranceRatio,
+    options.useRelative
+  );
+  const functionThreshold = calculateThreshold(
+    functionBase,
+    options.functionMaxMs,
+    options.toleranceRatio,
+    options.useRelative
+  );
+
+  printComparison('cold-index', coldBase, coldHead, coldThreshold.value);
+  printComparison('hot-index', hotBase, hotHead, hotThreshold.value);
+  printComparison('function-analysis', functionBase, functionHead, functionThreshold.value);
 
   const blockingFailures = [];
-  if (!Number.isFinite(coldHead) || coldHead > options.coldMaxMs) {
-    blockingFailures.push(`cold-index ${formatMs(coldHead)} > ${options.coldMaxMs}ms`);
-  }
-  if (!Number.isFinite(hotHead) || hotHead > options.hotMaxMs) {
-    blockingFailures.push(`hot-index ${formatMs(hotHead)} > ${options.hotMaxMs}ms`);
+
+  // Check cold-index
+  if (!Number.isFinite(coldHead)) {
+    blockingFailures.push(`cold-index: no valid measurement`);
+  } else if (coldHead > coldThreshold.value) {
+    const thresholdType = coldThreshold.type === 'absolute' ? 'absolute' : `relative (+${(options.toleranceRatio * 100).toFixed(0)}%)`;
+    blockingFailures.push(
+      `cold-index ${formatMs(coldHead)} > ${thresholdType} threshold ${formatMs(coldThreshold.value)}`
+    );
   }
 
+  // Check hot-index
+  if (!Number.isFinite(hotHead)) {
+    blockingFailures.push(`hot-index: no valid measurement`);
+  } else if (hotHead > hotThreshold.value) {
+    const thresholdType = hotThreshold.type === 'absolute' ? 'absolute' : `relative (+${(options.toleranceRatio * 100).toFixed(0)}%)`;
+    blockingFailures.push(
+      `hot-index ${formatMs(hotHead)} > ${thresholdType} threshold ${formatMs(hotThreshold.value)}`
+    );
+  }
+
+  // Check function-analysis
+  if (!Number.isFinite(functionHead)) {
+    blockingFailures.push(`function-analysis: no valid measurement`);
+  } else if (functionHead > functionThreshold.value) {
+    const thresholdType = functionThreshold.type === 'absolute' ? 'absolute' : `relative (+${(options.toleranceRatio * 100).toFixed(0)}%)`;
+    blockingFailures.push(
+      `function-analysis ${formatMs(functionHead)} > ${thresholdType} threshold ${formatMs(functionThreshold.value)}`
+    );
+  }
+
+  // Warnings for significant regressions (beyond tolerance but not blocking)
   const warnings = [];
-  if (base && Number.isFinite(functionBase) && Number.isFinite(functionHead)) {
-    const threshold = functionBase * options.functionRegressionRatio;
-    if (functionHead > threshold) {
+  if (base && Number.isFinite(hotBase) && Number.isFinite(hotHead)) {
+    const regressionRatio = hotHead / hotBase;
+    if (regressionRatio > 1 + options.toleranceRatio && hotHead <= hotThreshold.value) {
       warnings.push(
-        `function-analysis regressed by > ${(options.functionRegressionRatio * 100 - 100).toFixed(0)}% ` +
-          `(${functionHead}ms vs baseline ${functionBase}ms)`
+        `hot-index regressed by ${((regressionRatio - 1) * 100).toFixed(1)}% but within absolute safety cap (${options.hotMaxMs}ms)`
       );
     }
-  } else {
-    warnings.push('function-analysis baseline/head metric unavailable, skipped relative check');
   }
 
   if (warnings.length > 0) {
@@ -125,7 +201,10 @@ function main() {
     return;
   }
 
-  console.log('\nBlocking thresholds passed.');
+  console.log('\nAll thresholds passed.');
+  if (coldThreshold.type !== 'absolute' || hotThreshold.type !== 'absolute') {
+    console.log('(Using relative thresholds with absolute safety caps)');
+  }
 }
 
 main();
