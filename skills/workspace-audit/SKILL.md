@@ -2,7 +2,6 @@
 name: workspace-audit
 description: Use this skill when the goal is to audit a local codebase with workspace-bridge-cli, especially for repo-level summaries, file impact checks, project overview, dead export candidates, unresolved imports, cycles, health checks, or dependency drift.
 ---
-
 # workspace-audit
 
 Use this skill when the goal is to audit a local codebase with `workspace-bridge-cli` instead of going through MCP.
@@ -58,6 +57,7 @@ workspace-bridge-cli audit-summary --cwd <project> --json --quiet
 ```
 
 If preflight fails, report exact failure class:
+
 - path invalid / permission denied
 - not a git workspace (for `audit-diff`)
 - command missing / runtime missing
@@ -99,13 +99,13 @@ node cli.js diagnostics --cwd <project> --mode quick --json
 
 ### Command Selection
 
-| Scenario | Recommended Command | Why |
-|----------|---------------------|-----|
-| First time seeing repo | `audit-summary` | Overall health + structural issues |
-| Changing specific file | `audit-file --file ...` | Impact + affected tests |
-| Git worktree has changes | `audit-diff` | Validation plan + concrete commands |
-| Planning refactoring | `audit-overview` | Hotspots + stability + orphans |
-| Deep dive on dead code | `dead-exports` | Symbol-level candidates |
+| Scenario                 | Recommended Command       | Why                                 |
+| ------------------------ | ------------------------- | ----------------------------------- |
+| First time seeing repo   | `audit-summary`         | Overall health + structural issues  |
+| Changing specific file   | `audit-file --file ...` | Impact + affected tests             |
+| Git worktree has changes | `audit-diff`            | Validation plan + concrete commands |
+| Planning refactoring     | `audit-overview`        | Hotspots + stability + orphans      |
+| Deep dive on dead code   | `dead-exports`          | Symbol-level candidates             |
 
 ### Options
 
@@ -116,11 +116,13 @@ node cli.js diagnostics --cwd <project> --mode quick --json
 ### Reading Results
 
 **audit-summary:**
+
 1. Read `summary.severity` first (low/medium/high)
 2. Read `summary.nextSteps` for prioritized actions
 3. Check `scope.mainlineFiles` vs `scope.nonMainlineFiles` for mixed repo awareness
 
 **audit-diff:**
+
 1. Read `validationAdvice.changeType` (docs/config/tests/scripts/code)
 2. Check `validationAdvice.stack` for detected tech stack
 3. Use `validationAdvice.commands` for concrete commands to run
@@ -128,6 +130,7 @@ node cli.js diagnostics --cwd <project> --mode quick --json
 5. Follow `validationAdvice.phases` in order (smoke → focused → full)
 
 **audit-overview:**
+
 1. Check `skeleton.coreModules` for key files to be careful with
 2. Review `hotspots` for high-risk files (frequent changes + high coupling)
 3. Review `stability` for fragile modules (low stability score)
@@ -149,6 +152,7 @@ Avoid narrative-only output. Always return executable next steps.
 ## Suggested Workflows
 
 ### New Project Assessment
+
 ```bash
 node cli.js audit-summary --cwd <project> --json --quiet
 # If mixed repo, add --exclude
@@ -156,6 +160,7 @@ node cli.js audit-summary --cwd <project> --exclude prototypes,reference --json 
 ```
 
 ### Pre-Refactoring Analysis
+
 ```bash
 node cli.js audit-overview --cwd <project> --json --quiet
 # Identify hotspots and fragile modules
@@ -164,6 +169,7 @@ node cli.js audit-file --cwd <project> --file <target-file> --json --quiet
 ```
 
 ### PR Validation
+
 ```bash
 node cli.js audit-diff --cwd <project> --json --quiet
 # Get validation plan with concrete commands
@@ -181,24 +187,26 @@ Avoid `deps` in the default flow unless dependency drift is part of the task.
 
 ### Result Confidence
 
-| Finding | Confidence | Action |
-|---------|------------|--------|
-| `dead-exports` with no importers | High | Candidate for deletion (verify dynamic loading) |
-| `unresolved` imports | High | Likely broken, inspect immediately |
-| `cycles` | High | Actionable architectural debt |
-| `orphans.modules` | Medium | Verify if actually unused (may be entry/config) |
-| `hotspots` | Medium-High | High churn + coupling, review carefully |
-| `stability` fragile | Medium | Add tests before refactoring |
+| Finding                            | Confidence  | Action                                          |
+| ---------------------------------- | ----------- | ----------------------------------------------- |
+| `dead-exports` with no importers | High        | Candidate for deletion (verify dynamic loading) |
+| `unresolved` imports             | High        | Likely broken, inspect immediately              |
+| `cycles`                         | High        | Actionable architectural debt                   |
+| `orphans.modules`                | Medium      | Verify if actually unused (may be entry/config) |
+| `hotspots`                       | Medium-High | High churn + coupling, review carefully         |
+| `stability` fragile              | Medium      | Add tests before refactoring                    |
 
 ### Known Limitations
 
 The CLI accounts for common false-positives:
+
 - Frontend asset imports (`.json`, `.css`)
 - Python relative imports
 - TypeScript ESM source imports ending in `.js`
 - Dynamic `import(...)`
 
 But still may report:
+
 - **False orphans**: Entry files not recognized, framework-managed files
 - **Mixed repo pollution**: Reference/prototypes not excluded
 - **Mixed repo command heuristics**: Custom scripts may need manual adjustment
@@ -221,4 +229,4 @@ This prevents reference code from polluting dead export and orphan detection res
 
 ## Version
 
-This skill targets workspace-bridge v0.9.0+
+This skill targets workspace-bridge v0.8.0+
