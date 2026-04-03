@@ -6,29 +6,30 @@
 
 ## [Unreleased]
 
-## [0.7.0] - 2026-04-03
+## [0.8.0] - 2026-04-03
 
 ### 新增
 
-- **audit-overview** - 项目全景视图命令，输出：
+- **audit-overview** - 项目全景视图命令（P3）：
   - 热区图（hotspotsByRisk）- 基于 Git 历史和依赖耦合度识别高风险文件
   - 稳定性趋势（stabilityCounts）- 综合测试覆盖、改动频率、循环依赖评分
   - 孤儿文件检测（orphans）- 发现可能未使用的文件
   - 架构建议（architectureAdvice）- 循环依赖重构建议、过度耦合模块拆分提示
-- **可视化输出** - `audit-overview --format html` 生成交互式仪表板
+- **可视化输出**（P5）- `audit-overview --format html` 生成交互式仪表板
 - **技术栈检测增强** - 自动识别 Java（Maven/Gradle）、Python（Django/FastAPI/Flask）框架
-- **函数级测试映射** - `audit-diff` 现在能精确映射变更函数到相关测试（JS/TS 支持）
-- **AST 相似度检测** - 发现相似函数时给出参考实现提示（非强制，可选功能）
-- **CLI 回退链** - `scripts/cli-fallback.js` 支持全局安装回退到本地 cli.js
-- **Skill 标准化 v1** - `workspace-audit` skill 支持随机路径启动、标准输出契约
+- **函数级测试映射**（P2）- `audit-diff` 精确映射变更函数到相关测试（JS/TS 支持）
+- **AST 相似度检测**（P2）- 发现相似函数时给出参考实现提示（可选功能）
+- **CLI 回退链**（P6）- `scripts/cli-fallback.js` 支持全局安装回退到本地 cli.js
+- **Skill 标准化 v1**（P6）- `workspace-audit` skill 支持随机路径启动、标准输出契约
+- **性能基准**（P1）- 新增 500+ 文件性能测试脚本
 
 ### 改进
 
-- **性能基准** - 新增 500+ 文件性能测试脚本
-- **benchmark 阈值策略** - 相对基线 + 30% 波动容忍，替代固定 500ms 阈值
+- **benchmark 阈值策略**（P6）- 相对基线 + 30% 波动容忍，替代固定 500ms 阈值
 - **混合仓库识别** - 自动检测 prototypes/examples 目录并降权处理
 - **入口识别增强** - 支持框架配置文件（vite.config、manage.py 等）作为入口
 - **缓存系统** - 内容哈希缓存，自动失效机制
+- **符号级影响分析** - JS/TS/Python/Java 支持，AST 失败自动回退到 file-level
 
 ### 变更
 
@@ -96,6 +97,7 @@
 
 ---
 
+[0.8.0]: https://github.com/user/workspace-bridge/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/user/workspace-bridge/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/user/workspace-bridge/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/user/workspace-bridge/compare/v0.5.0...v0.5.1
