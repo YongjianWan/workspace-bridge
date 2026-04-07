@@ -210,4 +210,12 @@
 
 ---
 
-*Last updated: 2026-04-02*
+## 当前执行计划（2026-04-07）
+
+- 见 [docs/plans/2026-04-07-next-roadmap.md](docs/plans/2026-04-07-next-roadmap.md)
+- 当前状态：M1-M3 已完成（误报压制、召回增强、验证一致性）
+- 执行门禁：`affected-tests-heuristic-test`、`audit-diff-test`、`function-impact-test`、`analysis-test`
+
+---
+
+*Last updated: 2026-04-07*

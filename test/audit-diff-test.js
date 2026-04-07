@@ -160,6 +160,7 @@ try {
   const helperTests = fnTests.functions.find((item) => item.function === 'helper');
   assert(helperTests, 'functionLevelAffectedTests should include helper');
   assert(helperTests.affectedTests.some((item) => item.file.replace(/\\/g, '/').endsWith('/test/app.test.js')));
+  assert(helperTests.affectedTests.every((item) => item.source === 'function-level'));
   assert(
     !helperTests.affectedTests.some((item) => item.file.replace(/\\/g, '/').endsWith('/test/app.smoke.test.js')),
     'functionLevelAffectedTests should exclude naming-only heuristic tests'
@@ -182,6 +183,9 @@ try {
   assert(parsed.summary.topCompositeRisks.length >= 1);
   assert.strictEqual(typeof parsed.summary.topCompositeRisks[0].score, 'number');
   assert(changed.affectedTests.some((entry) => entry.file.replace(/\\/g, '/').endsWith('/test/app.test.js')));
+  assert(changed.affectedTests.every((entry) => typeof entry.source === 'string' && entry.source.length > 0));
+  assert(changed.affectedTests.some((entry) => entry.source === 'graph'));
+  assert(changed.affectedTests.every((entry) => ['graph', 'heuristic'].includes(entry.source)));
   assert(Array.isArray(parsed.validationAdvice.phases));
   assert.strictEqual(parsed.validationAdvice.phases[0].phase, 'smoke');
   assert(parsed.validationAdvice.phases.some((item) => item.phase === 'focused'));
@@ -193,6 +197,10 @@ try {
   assert(parsed.validationAdvice.topRiskActions[0].evidence, 'topRiskActions should include evidence');
   assert(typeof parsed.validationAdvice.topRiskActions[0].evidence.impactCount === 'number');
   assert(Array.isArray(parsed.validationAdvice.topRiskActions[0].evidence.topImpactedSymbols));
+  const topActionForChanged = parsed.validationAdvice.topRiskActions.find((item) => item.file === changed.file);
+  assert(topActionForChanged, 'topRiskActions should include the changed file');
+  assert.strictEqual(topActionForChanged.evidence.impactCount, changed.impactCount);
+  assert.strictEqual(topActionForChanged.evidence.affectedTestCount, changed.affectedTestCount);
   const focusedCommandNames = parsed.validationAdvice.commands.focused.map((item) => item.name);
   assert(
     focusedCommandNames.includes('node-direct-tests') || focusedCommandNames.includes('node-focused-tests'),

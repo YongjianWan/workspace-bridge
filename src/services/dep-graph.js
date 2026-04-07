@@ -12,7 +12,7 @@ const {
   parseJava,
 } = require('./dep-graph/parsers');
 const { resolveImport } = require('./dep-graph/resolvers');
-const { normalizePathKey, matchesPathFragment } = require('../utils/path');
+const { normalizePathKey, matchesPathFragment, toPosixPath } = require('../utils/path');
 const {
   getSymbolImpact,
   getChangedFunctionImpact,
@@ -34,6 +34,58 @@ function normalizeStem(filePath) {
     .replace(/^test_/, '')
     .replace(/_test$/, '')
     .replace(/(?:\.|_)(?:test|spec)$/, '');
+}
+
+const HEURISTIC_ROOT_SEGMENTS = new Set([
+  'src', 'app', 'lib', 'source', 'sources',
+  'test', 'tests', '__tests__', 'spec', 'specs',
+  'main', 'java', 'python', 'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs',
+  'packages', 'package',
+]);
+
+function normalizeHeuristicName(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const base = path.basename(filePath, ext);
+
+  if (ext === '.java') {
+    return base.replace(/(?:Tests?|Specs?|TestCases?|ITs?)$/, '').toLowerCase();
+  }
+
+  return normalizeStem(filePath);
+}
+
+function buildHeuristicSignature(root, filePath) {
+  const relativePath = toPosixPath(path.relative(root, filePath));
+  const segments = relativePath
+    .split('/')
+    .filter(Boolean)
+    .filter((segment) => !HEURISTIC_ROOT_SEGMENTS.has(segment.toLowerCase()));
+
+  if (segments.length === 0) {
+    return '';
+  }
+
+  const leaf = normalizeHeuristicName(filePath);
+  if (!leaf) {
+    return '';
+  }
+
+  segments[segments.length - 1] = leaf.toLowerCase();
+  return segments.map((segment) => segment.toLowerCase()).join('/');
+}
+
+function getHeuristicLanguageFamily(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'].includes(ext)) {
+    return 'js-family';
+  }
+  if (ext === '.java') {
+    return 'java-family';
+  }
+  if (ext === '.py') {
+    return 'python-family';
+  }
+  return ext;
 }
 
 class DependencyGraph {
@@ -485,7 +537,7 @@ class DependencyGraph {
    * Phase 3: 查找受文件变更影响的测试文件
    * @param {string} filePath - 起始文件路径
    * @param {number} [maxDepth=5] - 最大搜索深度
-   * @returns {Array<{file: string, distance: number, via?: string[]}>}
+    * @returns {Array<{file: string, distance: number, source: string, via?: string[]}>}
    * @description 从起始文件出发，沿反向依赖图 BFS 搜索测试文件
    */
   findAffectedTests(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH, options = {}) {
@@ -521,7 +573,7 @@ class DependencyGraph {
       
       // 如果是测试文件且不是起始文件，记录结果
       if (file !== filePath && isTestFile(file)) {
-        const result = { file, distance };
+        const result = { file, distance, source: 'graph' };
         if (via.length > 0) {
           result.via = via;
         }
@@ -547,44 +599,41 @@ class DependencyGraph {
       // Heuristic supplement: when graph-based mapping misses obvious same-stem tests.
       // Keeps output useful for repos that don't import tests directly.
       const seen = new Set(affectedTests.map((entry) => entry.file));
-      const sourceStem = normalizeStem(filePath);
-      const sourceExt = path.extname(filePath).toLowerCase();
-      const sourceDir = normalizePathKey(path.dirname(filePath));
+      const sourceSignature = buildHeuristicSignature(this.root, filePath);
+      const sourceFamily = getHeuristicLanguageFamily(filePath);
+      const sourceLeaf = normalizeHeuristicName(filePath);
 
       for (const candidate of this.graph.keys()) {
         if (candidate === filePath) continue;
         if (!isTestFile(candidate)) continue;
         if (seen.has(candidate)) continue;
 
-        const candidateExt = path.extname(candidate).toLowerCase();
-        const candidateStem = normalizeStem(candidate);
-        const candidateBase = path.basename(candidate, candidateExt).toLowerCase();
-        const candidateDir = normalizePathKey(path.dirname(candidate));
+        const candidateFamily = getHeuristicLanguageFamily(candidate);
+        if (sourceFamily !== candidateFamily) continue;
 
-        let match = false;
-        if (sourceExt === '.java') {
-          // Java: src/main/java/X.java -> src/test/java/XTest.java
-          match = candidateStem === sourceStem || candidateBase.includes(`${sourceStem}test`);
-        } else if (sourceExt === '.py') {
-          // Python: foo.py -> test_foo.py / foo_test.py
-          match = candidateStem === sourceStem;
-        } else if (['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'].includes(sourceExt)) {
-          // JS/TS: foo.ts -> foo.test.ts / foo.spec.ts
-          match = candidateStem === sourceStem;
+        const candidateSignature = buildHeuristicSignature(this.root, candidate);
+        const candidateLeaf = normalizeHeuristicName(candidate);
+
+        let signatureMatched = candidateSignature && candidateSignature === sourceSignature;
+
+        // Python fallback for common layouts:
+        // source: pkg/module.py  -> tests/test_module.py | tests/module_test.py
+        if (!signatureMatched && sourceFamily === 'python-family') {
+          signatureMatched =
+            Boolean(candidateLeaf) &&
+            candidateLeaf === sourceLeaf &&
+            Boolean(sourceSignature) &&
+            sourceSignature.endsWith(`/${sourceLeaf}`);
         }
 
-        // Folder affinity: prioritize test folders near source tree.
-        if (match) {
-          const nearBy = candidateDir.includes('/test/') || candidateDir.includes('/tests/') || candidateDir.includes('/src/test/java/');
-          const sameRootHint = sourceDir.split('/').some((part) => part && candidateDir.includes(part));
-          if (nearBy || sameRootHint) {
-            affectedTests.push({
-              file: candidate,
-              distance: maxDepth + 1,
-              via: ['heuristic:naming'],
-            });
-            seen.add(candidate);
-          }
+        if (signatureMatched) {
+          affectedTests.push({
+            file: candidate,
+            distance: maxDepth + 1,
+            source: 'heuristic',
+            via: ['heuristic:naming'],
+          });
+          seen.add(candidate);
         }
       }
     }

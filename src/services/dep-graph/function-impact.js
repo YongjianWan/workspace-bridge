@@ -157,10 +157,10 @@ function getFunctionReuseHints(depGraph, filePath, changedFunctions, options = {
   return hints;
 }
 
-function mergeTestRow(map, testFile, distance, via) {
+function mergeTestRow(map, testFile, distance, via, source = 'function-level') {
   const existing = map.get(testFile);
   if (!existing || distance < existing.distance) {
-    map.set(testFile, { file: testFile, distance, via: via || [] });
+    map.set(testFile, { file: testFile, distance, source, via: via || [] });
   }
 }
 
@@ -183,7 +183,7 @@ function getFunctionLevelAffectedTests(depGraph, filePath, changedFunctions, opt
 
     for (const dependentFile of dependents) {
       if (depGraph.isTestLikeFile(dependentFile)) {
-        mergeTestRow(testMap, dependentFile, 1, [`${sourceFile}#${fnName}`, dependentFile]);
+        mergeTestRow(testMap, dependentFile, 1, [`${sourceFile}#${fnName}`, dependentFile], 'function-level');
         continue;
       }
 
@@ -194,7 +194,7 @@ function getFunctionLevelAffectedTests(depGraph, filePath, changedFunctions, opt
       }
       for (const test of affected) {
         const distance = Number.isFinite(test?.distance) ? test.distance + 1 : maxDepth + 1;
-        mergeTestRow(testMap, test.file, distance, [`${sourceFile}#${fnName}`, dependentFile, ...(test.via || [])]);
+        mergeTestRow(testMap, test.file, distance, [`${sourceFile}#${fnName}`, dependentFile, ...(test.via || [])], 'function-level');
       }
     }
 
