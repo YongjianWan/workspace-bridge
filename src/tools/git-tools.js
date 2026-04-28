@@ -124,6 +124,11 @@ async function gitDiffSummary(args, container) {
   };
 }
 
+function isTempFile(filePath) {
+  const base = path.basename(filePath);
+  return /^\.tmp-/.test(base) || /\.workspace-bridge-cache\.json\.tmp-/.test(base);
+}
+
 async function getChangedFiles(root, options = {}) {
   const staged = options.staged === true;
   const includeUntracked = options.includeUntracked !== false;
@@ -177,6 +182,7 @@ async function getChangedFiles(root, options = {}) {
           // Keep path when stat is unavailable (e.g., deleted file)
         }
       }
+      if (isTempFile(file)) continue;
       files.add(file);
     }
   }

@@ -243,6 +243,7 @@ function classifyChangeType(entries) {
     const fileRole = entry.classification?.fileRole;
 
     if (['md', 'mdx', 'mdtxt', 'markdown', 'txt', 'rst'].includes(ext) ||
+        fileRole === 'docs' ||
         file.toLowerCase().includes('readme') ||
         file.toLowerCase().includes('changelog') ||
         file.toLowerCase().includes('contributing')) {

@@ -21,13 +21,37 @@
 ---
 
 ## 基础能力（Phase 0-1）—— 先止血，再增功能
-按 AGENTS.md 原则"先减少误报，再加功能"，以下问题当前最伤害输出可信度，优先于多语言深度。
+按 AGENTS.md 原则"先减少误报，再加功能"，以下问题当前最伤害输出可信度，优先于多语言深度。每个条目已拆为"代码落点 + 验收命令"。
 
-- [ ] **临时文件/缓存过滤**（投入：低 / 收益：高 / 风险：低）— `.tmp-*`、`.workspace-bridge-cache.json.tmp-*` 不应进入 `audit-diff` 分析，避免 severity 虚高
-- [ ] **文件角色分类修正**（投入：低 / 收益：高 / 风险：低）— `AGENTS.md`/`README.md` 等文档不应分类为 `library`；`cli.js` 不应同时出现在 `entryPoints` 和 `orphans` 中
-- [ ] **自定义测试脚本识别**（投入：低 / 收益：高 / 风险：低）— `package.json` 中 `test:*` / `test:all` 等自定义脚本应被识别为测试配置，解决 `testConfig: false` 误报和 `audit-diff` focused 阶段命令缺失
-- [ ] **变更类型判断修正**（投入：低 / 收益：高 / 风险：低）— 文档/配置改动应正确输出 `changeType: docs/config`，匹配对应的验证模板
-- [ ] **Diff 场景 test mapping 激活**（投入：中 / 收益：高 / 风险：低）— 脚本/服务文件改动时，`affectedTests` 不应恒为 0
+### P0T1: 临时文件过滤（CLI 层面）
+- **问题**：`.gitignore` 已更新，但 `audit-diff` 代码层面仍将 `.tmp-*`、`.workspace-bridge-cache.json.tmp-*` 纳入 `changedFiles`
+- **代码落点**：`cli.js` `audit-diff` 的 changed files 收集逻辑（`getChangedFiles` 结果过滤或 `runCommand` 中 `safeEntries` 过滤）
+- **改动量**：~5 行
+- **验收**：存在 `.tmp-audit-summary.json` 时，`audit-diff` 的 `changedFiles` 不包含它
+
+### P0T2: 自定义测试脚本识别
+- **问题**：`package.json` 中 `test:*` / `test:all` 等自定义脚本未被识别为测试配置，`health.testConfig: false`，`audit-diff` focused 阶段命令缺失
+- **代码落点**：`src/utils/stack-detector.js` `detectTestRunner()` 增加 `package.json` `scripts` 字段扫描（检测 `test` / `test:*` 前缀）
+- **改动量**：~20 行
+- **验收**：`audit-summary` 输出 `testConfig.found: true, frameworks: ["custom-node-scripts"]`；`audit-diff` 的 `commands.focused` 不为空
+
+### P0T3: 文件角色分类修正
+- **问题**：文档（`AGENTS.md`、`README.md`）被分类为 `library`，`cli.js` 同时出现在 `entryPoints` 和 `orphans` 中
+- **代码落点**：`src/utils/project-context.js` `classifyFile()` 增加文档/配置白名单；`src/tools/overview-tools.js` 孤儿检测排除 `entryFiles`
+- **改动量**：~20 行
+- **验收**：`audit-diff` 中文档改动输出 `fileRole: docs, changeType: docs`；`audit-overview` 的 `orphans.modules` 不含 `cli.js`
+
+### P0T4: 变更类型判断修正
+- **问题**：文档/配置改动被输出为 `changeType: code`，验证模板错配
+- **代码落点**：`src/cli/audit-formatters.js` `buildValidationAdvice()` 增加 changeType 分支：当全部 changed files 的 `fileRole` 为 `docs/config` 时，`changeType = docs/config`
+- **改动量**：~15 行
+- **验收**：只改 `README.md` + `ROADMAP.md` 时，`audit-diff` 输出 `changeType: docs`
+
+### P0T5: Diff 场景 test mapping 激活（内部函数改动追踪）
+- **问题**：改内部辅助函数（如 `readGoMod`）时，`changedFunctionImpact.mode = "no-exported-function-change"`，`affectedTests` 为 0
+- **代码落点**：`src/services/dep-graph.js` `getChangedFunctionImpact()` 增加内部函数调用链追踪 — 找到调用该内部函数的导出函数，再映射 dependents
+- **改动量**：~50 行
+- **验收**：改 `resolvers.js` 中 `readGoMod`（内部函数）时，`affectedTests` 包含 `test/gors-resolver-test.js`
 
 ---
 
@@ -52,7 +76,11 @@
 - [ ] **CLI 命令完整性补全**（投入：低 / 收益：中 / 风险：低）— 底层 `dep-tools` 的 `stats` / `dependents` / `dependencies` operation 未暴露为 CLI 命令；`searchCode`（symbol 搜索）也未暴露。评估后补充有价值的独立命令
 
 ### P3：提升输出可解释性
-- [ ] **变更影响解释链**（投入：中 / 收益：高 / 风险：低）— 明确告知用户"因哪些 import/usage 推导出影响"，用于审核和调试误报
+- [ ] **CJS 符号解析补全**（投入：低 / 收益：高 / 风险：低）— `parsers.js` 识别 `module.exports = { fn }` 结构，使 `symbolToDependents` 不再为空数组。落点：`dep-graph/parsers.js` + `dep-graph.js` 符号级图构建
+- [ ] **内部函数改动→测试映射**（投入：中 / 收益：高 / 风险：低）— `getChangedFunctionImpact()` 追踪内部辅助函数的调用链，找到调用它的导出函数，再映射 dependents。落点：`src/services/dep-graph.js`
+- [ ] **影响路径解释字段**（投入：低 / 收益：中 / 风险：低）— `impact` 数组增加 `reason` + `importedSymbols` + `via` 字段。落点：`src/services/dep-graph.js` `getImpactRadius()`
+- [ ] **变更影响解释链（聚合）**（投入：中 / 收益：高 / 风险：低）— `audit-diff` 输出可读的因果链，如"因 `dep-graph.js` import `resolvers.js` 的 `resolveImport`，故波及 `test/gors-resolver-test.js`"。落点：`src/cli/audit-formatters.js`
+- [ ] **耦合拆分建议去模板化**（投入：低 / 收益：中 / 风险：低）— `audit-overview` 的 `couplingSplitSuggestions` 当前 10 条文案全一样，应根据实际出入度生成针对性建议（如 `path.js` in=14/out=0 应建议"保持原子性"而非"拆分为 core/domain/adapter"）。落点：`src/tools/overview-tools.js`
 - [ ] **统一能力矩阵输出**（投入：低 / 收益：中 / 风险：低）— CLI JSON 直接带 language support matrix + confidence 解释，减少文档追赶成本
 
 ### P4：技术债

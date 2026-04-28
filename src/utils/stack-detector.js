@@ -99,6 +99,10 @@ function detectTestRunner(root) {
     if (testScript.includes('jest')) return { name: 'jest', type: 'node' };
     if (testScript.includes('vitest')) return { name: 'vitest', type: 'node' };
     if (testScript.includes('mocha')) return { name: 'mocha', type: 'node' };
+    const hasTestScript = Object.keys(scripts).some((key) => key.startsWith('test'));
+    if (hasTestScript) {
+      return { name: 'custom', type: 'node' };
+    }
   }
   return null;
 }

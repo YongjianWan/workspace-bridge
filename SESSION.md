@@ -29,6 +29,11 @@
 | W2T3 命令建议质量收口 | ✅ | `src/utils/stack-detector.js` + `test/w2t3-command-quality-test.js` |
 | W2T4 发布前总回归 | ✅ | `npm run test:all` 全绿（17 项）+ `npm run self-audit` 通过 |
 | ROADMAP P1 包级解析器 | ✅ | `src/services/dep-graph/resolvers.js` + `test/gors-resolver-test.js` |
+| Phase 0-1 T1 临时文件过滤 | ✅ | `src/tools/git-tools.js` |
+| Phase 0-1 T2 文件角色分类修正 | ✅ | `src/services/dep-graph.js` + `src/utils/project-context.js` |
+| Phase 0-1 T3 自定义测试脚本识别 | ✅ | `src/utils/stack-detector.js` |
+| Phase 0-1 T4 变更类型判断修正 | ✅ | `src/utils/project-context.js` |
+| Phase 0-1 T5 Diff test mapping | ⏸ | 需系统设计，留待下轮 |
 
 ### 待完成（留给下轮）
 

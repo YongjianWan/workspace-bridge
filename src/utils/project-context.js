@@ -58,14 +58,18 @@ function inferFileRole(relativePath) {
     return 'entry';
   }
 
-  if (
-    base === 'package.json' ||
-    base === 'tsconfig.json' ||
-    base === 'pyproject.toml' ||
-    base === 'requirements.txt' ||
-    /\.config\./.test(base) ||
-    /^\.env(\.|$)/.test(base)
-  ) {
+  const configExact = new Set(['package.json', 'tsconfig.json', 'pyproject.toml', 'requirements.txt']);
+  if (configExact.has(base)) return 'config';
+
+  const configPatterns = [
+    /\.config\./, /^\.env(\.|$)/,
+    /^\.babelrc/, /^\.editorconfig/, /^\.gitignore/, /^\.gitattributes/,
+    /^\.npmrc/, /^\.yarnrc/, /^\.prettierrc/, /^\.eslintrc/, /^eslint\.config\./, /^\.mocharc/,
+    /tailwind\.config\./, /postcss\.config\./, /vite\.config\./, /webpack\.config\./, /rollup\.config\./, /tsup\.config\./,
+    /^docker/i, /^docker-compose/i, /^makefile/i,
+    /^\.nvmrc/, /^\.node-version/,
+  ];
+  if (configPatterns.some((p) => p.test(base))) {
     return 'config';
   }
 
@@ -99,6 +103,15 @@ function inferFileRole(relativePath) {
     base === 'server.ts'
   ) {
     return 'entry';
+  }
+
+  if (
+    /\.(md|mdx|txt|rst)$/.test(base) ||
+    base.toLowerCase().includes('license') ||
+    base.toLowerCase().includes('changelog') ||
+    base.toLowerCase().includes('contributing')
+  ) {
+    return 'docs';
   }
 
   return 'library';

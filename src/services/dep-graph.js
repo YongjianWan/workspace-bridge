@@ -147,7 +147,7 @@ class DependencyGraph {
 
     const addEntry = (value) => {
       if (typeof value !== 'string' || !value.trim()) return;
-      const resolved = path.resolve(this.root, value);
+      const resolved = normalizePathKey(path.resolve(this.root, value));
       entries.add(resolved);
     };
 
