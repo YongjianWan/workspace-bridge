@@ -7,8 +7,8 @@ const path = require('path');
 const { normalizePathKey } = require('../utils/path');
 
 const CACHE_FILENAME = '.workspace-bridge-cache.json';
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const CACHE_VERSION = 2; // Increment when cache structure changes
+const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours — enables incremental reuse across CI runs
+const CACHE_VERSION = 3; // Increment when cache structure changes
 
 class WorkspaceCache {
   constructor(workspaceRoot) {
@@ -20,6 +20,7 @@ class WorkspaceCache {
     this.fileMetadata = new Map(); // file -> {mtime, size, hash}
     this.symbolIndex = new Map();  // symbol -> [{file, line, type}]
     this.diagnostics = new Map();  // file -> [diagnostics]
+    this.graphData = new Map();    // file -> {imports, exports, importRecords, exportRecords, parseMode, mtime, size}
     
     this.lastSaved = 0;
   }
@@ -79,6 +80,16 @@ class WorkspaceCache {
     return normalized;
   }
 
+  normalizeGraphEntries(entries) {
+    const normalized = new Map();
+    for (const [filePath, data] of entries || []) {
+      const key = this.normalizeFilePath(filePath);
+      if (!key) continue;
+      normalized.set(key, data);
+    }
+    return normalized;
+  }
+
   /**
    * Load from disk if exists and fresh
    */
@@ -110,6 +121,7 @@ class WorkspaceCache {
       this.fileMetadata = this.normalizeFileMapEntries(data.fileMetadata || []);
       this.symbolIndex = this.normalizeSymbolEntries(data.symbolIndex || []);
       this.diagnostics = this.normalizeDiagnosticsEntries(data.diagnostics || []);
+      this.graphData = this.normalizeGraphEntries(data.graphData || []);
       this.lastSaved = stat.mtimeMs;
 
       console.error(`[Cache] Loaded: ${this.fileMetadata.size} files, ${this.symbolIndex.size} symbols`);
@@ -134,6 +146,7 @@ class WorkspaceCache {
         fileMetadata: Array.from(this.fileMetadata.entries()),
         symbolIndex: Array.from(this.symbolIndex.entries()),
         diagnostics: Array.from(this.diagnostics.entries()),
+        graphData: Array.from(this.graphData.entries()),
       };
 
       tempPath = `${this.cachePath}.tmp-${process.pid}-${Date.now()}`;
@@ -224,11 +237,37 @@ class WorkspaceCache {
     this.diagnostics.delete(key);
   }
 
+  // Dep-graph data cache (imports/exports per file, used for incremental analysis)
+  getGraphData(filePath) {
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return undefined;
+    return this.graphData.get(key);
+  }
+
+  setGraphData(filePath, data) {
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return;
+    this.graphData.set(key, data);
+  }
+
+  hasGraphData(filePath) {
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return false;
+    return this.graphData.has(key);
+  }
+
+  deleteGraphData(filePath) {
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return;
+    this.graphData.delete(key);
+  }
+
   getStats() {
     return {
       files: this.fileMetadata.size,
       symbols: this.symbolIndex.size,
       diagnostics: Array.from(this.diagnostics.values()).flat().length,
+      graphEntries: this.graphData.size,
     };
   }
 }
