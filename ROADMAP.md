@@ -104,7 +104,7 @@
 - 核心模块识别
 
 ### Phase 4: 深度分析
-- symbol-level impact（已实现 baseline：JS/TS + Python + Java，AST 失败回退 file-level）
+- symbol-level impact（JS/TS + Python 已实现 AST 级；Java 为 regex 级，AST 支持在 P4-A 计划中；Kotlin/Go/Rust 为 L2 regex 级）
 - 函数级影响 baseline（已实现：JS/TS 导出函数映射到 dependents）
 - 更精确的 test mapping
 - mixed repo 命令精度提升
@@ -215,6 +215,14 @@
 - 见 [docs/plans/2026-04-07-next-roadmap.md](docs/plans/2026-04-07-next-roadmap.md)
 - 当前状态：M1-M3 已完成（误报压制、召回增强、验证一致性）
 - 执行门禁：`affected-tests-heuristic-test`、`audit-diff-test`、`function-impact-test`、`analysis-test`
+
+## 下一批计划（2026-04-28）
+
+- 见 [docs/plans/2026-04-28-java-and-polyglot-support.md](docs/plans/2026-04-28-java-and-polyglot-support.md)
+- 目标：消除文档与源码的 gap（Java 实际只有 regex 级，文档声称已 AST 级）；扩展 Kotlin/Go/Rust 基础支持
+- 核心文件：`src/services/dep-graph/parsers.js`、`resolvers.js`、`file-index.js`、`stack-detector.js`
+- 新增文件：`scripts/java_ast_parser.py`
+- 预估工作量：Phase A 2~3 天，Phase B 1~2 天，Phase C 0.5 天
 
 ---
 

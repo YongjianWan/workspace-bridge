@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const WORKSPACE_MARKERS = ['.git', 'package.json', 'pyproject.toml', 'requirements.txt', 'manage.py', 'pom.xml', 'build.gradle', 'build.gradle.kts'];
+const WORKSPACE_MARKERS = ['.git', 'package.json', 'pyproject.toml', 'requirements.txt', 'manage.py', 'pom.xml', 'build.gradle', 'build.gradle.kts', 'go.mod', 'Cargo.toml'];
 const IS_WINDOWS = process.platform === 'win32';
 
 function normalizePath(inputPath) {
@@ -78,6 +78,8 @@ function scoreDirectory(candidate) {
   if (pathExists(path.join(candidate, 'manage.py'))) score += 5;
   if (pathExists(path.join(candidate, 'pom.xml'))) score += 6;
   if (pathExists(path.join(candidate, 'build.gradle')) || pathExists(path.join(candidate, 'build.gradle.kts'))) score += 6;
+  if (pathExists(path.join(candidate, 'go.mod'))) score += 6;
+  if (pathExists(path.join(candidate, 'Cargo.toml'))) score += 6;
   return score;
 }
 
@@ -175,6 +177,8 @@ function detectWorkspace(root) {
   const pomPath = path.join(root, 'pom.xml');
   const gradlePath = path.join(root, 'build.gradle');
   const gradleKtsPath = path.join(root, 'build.gradle.kts');
+  const goModPath = path.join(root, 'go.mod');
+  const cargoPath = path.join(root, 'Cargo.toml');
   const packageJson = pathExists(packageJsonPath) ? readJsonSafe(packageJsonPath) : null;
 
   return {
@@ -188,6 +192,8 @@ function detectWorkspace(root) {
     hasPom: pathExists(pomPath),
     hasGradle: pathExists(gradlePath) || pathExists(gradleKtsPath),
     hasJava: pathExists(pomPath) || pathExists(gradlePath) || pathExists(gradleKtsPath),
+    hasGo: pathExists(goModPath),
+    hasRust: pathExists(cargoPath),
     packageJson,
   };
 }

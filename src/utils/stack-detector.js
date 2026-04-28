@@ -32,6 +32,14 @@ function hasJavaProject(root) {
   );
 }
 
+function hasGoProject(root) {
+  return pathExists(path.join(root, 'go.mod'));
+}
+
+function hasRustProject(root) {
+  return pathExists(path.join(root, 'Cargo.toml'));
+}
+
 function detectJavaBuildTool(root) {
   if (pathExists(path.join(root, 'pom.xml'))) return 'maven';
   if (pathExists(path.join(root, 'build.gradle')) || pathExists(path.join(root, 'build.gradle.kts'))) return 'gradle';
@@ -155,6 +163,19 @@ function detectLinters(root, pyprojectText = '') {
     linters.python.push('ruff');
   }
 
+  // Java linters
+  if (pathExists(path.join(root, 'checkstyle.xml')) ||
+      pathExists(path.join(root, 'config/checkstyle/checkstyle.xml'))) {
+    linters.java.push('checkstyle');
+  }
+  const buildGradleText = readTextIfExists(path.join(root, 'build.gradle')) +
+    readTextIfExists(path.join(root, 'build.gradle.kts')) +
+    readTextIfExists(path.join(root, 'pom.xml'));
+  if (/\bspotbugs\b/.test(buildGradleText)) linters.java.push('spotbugs');
+  if (/\bpmd\b/.test(buildGradleText)) linters.java.push('pmd');
+  if (/\berrorprone\b/.test(buildGradleText)) linters.java.push('errorprone');
+  if (/\bjacoco\b/.test(buildGradleText)) linters.java.push('jacoco');
+
   return linters;
 }
 
@@ -187,6 +208,8 @@ function detectStack(root) {
   const hasNode = hasNodeProject(root);
   const hasPython = hasPythonProject(root);
   const hasJava = hasJavaProject(root);
+  const hasGo = hasGoProject(root);
+  const hasRust = hasRustProject(root);
   const nodePackageManager = detectNodePackageManager(root);
   const javaBuildTool = detectJavaBuildTool(root);
   const javaBuildCommand = detectJavaBuildCommand(root, javaBuildTool);
@@ -196,11 +219,13 @@ function detectStack(root) {
   const typeCheckers = detectTypeCheckers(root, pyprojectText);
 
   let profile = 'unknown';
-  const activeStacks = [hasNode, hasPython, hasJava].filter(Boolean).length;
+  const activeStacks = [hasNode, hasPython, hasJava, hasGo, hasRust].filter(Boolean).length;
   if (activeStacks >= 2) profile = 'mixed';
   else if (hasNode) profile = 'node-first';
   else if (hasPython) profile = 'python-first';
   else if (hasJava) profile = 'java-first';
+  else if (hasGo) profile = 'go-first';
+  else if (hasRust) profile = 'rust-first';
 
   return {
     profile,
@@ -229,6 +254,8 @@ function detectStack(root) {
       linters: linters.java,
       typeChecker: typeCheckers.java,
     } : null,
+    go: hasGo ? { enabled: true, packageManager: 'go modules', testRunner: 'go test' } : null,
+    rust: hasRust ? { enabled: true, packageManager: 'cargo', testRunner: 'cargo test' } : null,
   };
 }
 
@@ -322,6 +349,47 @@ function getJavaCommands(javaStack, changeType, targets) {
     }
     commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: `${javaCmd} -q test` });
   }
+  if (javaStack.linters.includes('checkstyle')) {
+    if (javaStack.buildTool === 'maven') {
+      commands.smoke.push({
+        name: 'java-checkstyle',
+        description: 'Run Checkstyle',
+        cmd: `${javaCmd} checkstyle:check`,
+      });
+    } else if (javaStack.buildTool === 'gradle') {
+      commands.smoke.push({
+        name: 'java-checkstyle',
+        description: 'Run Checkstyle',
+        cmd: `${javaCmd} checkstyleMain checkstyleTest`,
+      });
+    }
+  }
+  return commands;
+}
+
+function getGoCommands(goStack, changeType, targets) {
+  if (!goStack?.enabled) return { smoke: [], focused: [], full: [] };
+  if (changeType !== 'code' && changeType !== 'tests') return { smoke: [], focused: [], full: [] };
+  const commands = { smoke: [], focused: [], full: [] };
+  commands.smoke.push({ name: 'go-build', description: 'Go build check', cmd: 'go build ./...' });
+  if (targets.length > 0) {
+    const goPackages = Array.from(new Set(
+      targets.map((file) => path.dirname(file)).filter((dir) => dir && dir !== '.')
+    ));
+    if (goPackages.length > 0) {
+      commands.focused.push({ name: 'go-focused-tests', description: 'Run affected Go packages', cmd: `go test ${goPackages.map((p) => `./${p}`).join(' ')}` });
+    }
+  }
+  commands.full.push({ name: 'go-all-tests', description: 'Run all Go tests', cmd: 'go test ./...' });
+  return commands;
+}
+
+function getRustCommands(rustStack, changeType, targets) {
+  if (!rustStack?.enabled) return { smoke: [], focused: [], full: [] };
+  if (changeType !== 'code' && changeType !== 'tests') return { smoke: [], focused: [], full: [] };
+  const commands = { smoke: [], focused: [], full: [] };
+  commands.smoke.push({ name: 'rust-check', description: 'Rust check', cmd: 'cargo check' });
+  commands.full.push({ name: 'rust-all-tests', description: 'Run all Rust tests', cmd: 'cargo test' });
   return commands;
 }
 
@@ -347,7 +415,9 @@ function splitTargetsByStack(targets) {
   return {
     node: list.filter((file) => /\.(js|jsx|ts|tsx|json|mjs|cjs)$/.test(file)),
     python: list.filter((file) => /\.py$/.test(file)),
-    java: list.filter((file) => /\.java$/.test(file)),
+    java: list.filter((file) => /\.java$/.test(file) || /(^|\/)(pom\.xml|build\.gradle|build\.gradle\.kts)$/.test(file)),
+    go: list.filter((file) => /\.go$/.test(file)),
+    rust: list.filter((file) => /\.rs$/.test(file)),
   };
 }
 
@@ -382,11 +452,15 @@ function generateCommands(stack, changeType, targets, steps = []) {
   const nodeTargets = targets.filter((file) => /\.(js|jsx|ts|tsx|json|mjs|cjs)$/.test(file));
   const pythonTargets = targets.filter((file) => /\.py$/.test(file));
   const javaTargets = targets.filter((file) => /\.java$/.test(file) || /(^|\/)(pom\.xml|build\.gradle|build\.gradle\.kts)$/.test(file));
+  const goTargets = targets.filter((file) => /\.go$/.test(file));
+  const rustTargets = targets.filter((file) => /\.rs$/.test(file));
 
   const nodeCommands = getNodeCommands(stack.node, changeType, nodeTargets);
   const pythonCommands = getPythonCommands(stack.python, changeType, pythonTargets);
   const javaCommands = getJavaCommands(stack.java, changeType, javaTargets);
-  const merged = mergeCommandSets(nodeCommands, pythonCommands, javaCommands);
+  const goCommands = getGoCommands(stack.go, changeType, goTargets);
+  const rustCommands = getRustCommands(stack.rust, changeType, rustTargets);
+  const merged = mergeCommandSets(nodeCommands, pythonCommands, javaCommands, goCommands, rustCommands);
 
   // Prefer direct test targets from focused steps when available.
   const directTests = (steps || []).find((step) => step?.name === 'run-direct-tests')?.targets || [];
@@ -417,6 +491,27 @@ function generateCommands(stack, changeType, targets, steps = []) {
       });
     }
 
+    if (split.go.length > 0 && stack.go?.enabled) {
+      const goPackages = Array.from(new Set(
+        split.go.map((file) => path.dirname(file)).filter((dir) => dir && dir !== '.')
+      ));
+      if (goPackages.length > 0) {
+        addUniqueCommand(merged, 'focused', {
+          name: 'go-direct-tests',
+          description: 'Run go direct affected packages',
+          cmd: `go test ${goPackages.map((p) => `./${p}`).join(' ')}`,
+        });
+      }
+    }
+
+    if (split.rust.length > 0 && stack.rust?.enabled) {
+      addUniqueCommand(merged, 'focused', {
+        name: 'rust-direct-tests',
+        description: 'Run rust direct affected tests',
+        cmd: 'cargo test',
+      });
+    }
+
     if (split.java.length > 0 && stack.java?.enabled) {
       const javaCmd = stack.java.buildTool === 'maven'
         ? `${stack.java.buildCommand || 'mvn'} -q -Dtest=*Test test`
@@ -438,7 +533,7 @@ function generateCommands(stack, changeType, targets, steps = []) {
       merged.full.unshift({
         name: 'mixed-review',
         description: 'Review all stack-side validation results together',
-        cmd: 'echo "Review node/python/java command output together before merge"',
+        cmd: 'echo "Review node/python/java/go/rust command output together before merge"',
       });
     }
   }

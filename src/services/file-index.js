@@ -88,7 +88,13 @@ class FileIndex {
       patterns.push('**/*.py');
     }
     if (this.workspace.hasJava) {
-      patterns.push('**/*.java');
+      patterns.push('**/*.java', '**/*.kt');
+    }
+    if (this.workspace.hasGo) {
+      patterns.push('**/*.go');
+    }
+    if (this.workspace.hasRust) {
+      patterns.push('**/*.rs');
     }
     return patterns.length > 0 ? patterns : ['**/*.js', '**/*.py', '**/*.java'];
   }
@@ -323,15 +329,49 @@ class FileIndex {
         }
       });
     } else if (ext === '.java') {
-      // Java: top-level class/interface/enum/record
       lines.forEach((line, idx) => {
         const typeMatch = line.match(/\b(?:public\s+)?(?:abstract\s+|final\s+)?(class|interface|enum|record)\s+(\w+)/);
         if (typeMatch) {
           symbols.push({ name: typeMatch[2], type: typeMatch[1], line: idx + 1, signature: line.trim() });
         }
+        const methodMatch = line.match(/\bpublic\s+(?:static\s+)?(?:[\w<>,\[\]\s]+)\s+(\w+)\s*\(/);
+        if (methodMatch) {
+          symbols.push({ name: methodMatch[1], type: 'method', line: idx + 1, signature: line.trim() });
+        }
+      });
+    } else if (ext === '.kt') {
+      lines.forEach((line, idx) => {
+        const typeMatch = line.match(/\b(?:public\s+)?(?:abstract\s+|open\s+|data\s+)?(class|interface|object|enum)\s+(\w+)/);
+        if (typeMatch) {
+          symbols.push({ name: typeMatch[2], type: typeMatch[1], line: idx + 1, signature: line.trim() });
+        }
+        const funMatch = line.match(/\bfun\s+(\w+)\s*\(/);
+        if (funMatch) {
+          symbols.push({ name: funMatch[1], type: 'function', line: idx + 1, signature: line.trim() });
+        }
+      });
+    } else if (ext === '.go') {
+      lines.forEach((line, idx) => {
+        const typeMatch = line.match(/\btype\s+(\w+)/);
+        const funcMatch = line.match(/\bfunc\s+(?:\([^)]*\)\s+)?(\w+)\s*\(/);
+        if (typeMatch) {
+          symbols.push({ name: typeMatch[1], type: 'type', line: idx + 1, signature: line.trim() });
+        } else if (funcMatch) {
+          symbols.push({ name: funcMatch[1], type: 'function', line: idx + 1, signature: line.trim() });
+        }
+      });
+    } else if (ext === '.rs') {
+      lines.forEach((line, idx) => {
+        const fnMatch = line.match(/\bfn\s+(\w+)\s*\(/);
+        const structMatch = line.match(/\bstruct\s+(\w+)/);
+        if (fnMatch) {
+          symbols.push({ name: fnMatch[1], type: 'function', line: idx + 1, signature: line.trim() });
+        } else if (structMatch) {
+          symbols.push({ name: structMatch[1], type: 'struct', line: idx + 1, signature: line.trim() });
+        }
       });
     }
-    
+
     return symbols;
   }
 

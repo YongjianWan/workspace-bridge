@@ -6,6 +6,25 @@
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-04-28
+
+### 新增
+
+- **Java AST 支持**（P4-A）- `scripts/java_ast_parser.py` 使用 javalang 进行 AST 级解析，提取类名/public 方法/public 字段/接口方法，失败自动回退 regex
+- **Kotlin/Go/Rust L2 支持**（P4-B）- 文件索引、regex 级解析器、技术栈检测与验证命令生成
+- **多模块 Java source root 自动发现** - 支持 `module-a/src/main/java` 及 `src/main/kotlin` 目录结构
+
+### 改进
+
+- **Go 验证命令** - focused 阶段按 package directory 聚合生成 `go test ./pkg1 ./pkg2`，不再直接传文件路径
+- **符号级影响分析** - Java 从 regex 提升到 AST 级；JS/TS/Python 已实现 AST 级
+
+### 修复
+
+- **Java static import 解析** - source 保持标准包路径（不再带 `static ` 前缀），resolver 可正确解析
+- **Java 接口方法提取** - InterfaceDeclaration 中的方法纳入 exports，避免低估 symbol impact
+- **Kotlin 依赖解析** - `resolveJavaImport` 同时查找 `.java` 和 `.kt` 文件，打通 Kotlin import 解析
+
 ## [0.8.0] - 2026-04-03
 
 ### 新增
@@ -29,7 +48,7 @@
 - **混合仓库识别** - 自动检测 prototypes/examples 目录并降权处理
 - **入口识别增强** - 支持框架配置文件（vite.config、manage.py 等）作为入口
 - **缓存系统** - 内容哈希缓存，自动失效机制
-- **符号级影响分析** - JS/TS/Python/Java 支持，AST 失败自动回退到 file-level
+- **符号级影响分析** - JS/TS/Python 已实现 AST 级；Java 为 regex 级，AST 支持在 P4-A 计划中
 
 ### 变更
 

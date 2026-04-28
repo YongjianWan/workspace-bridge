@@ -1,6 +1,43 @@
 const fs = require('fs');
 const path = require('path');
 
+let _javaSourceRootsCache = new Map(); // root -> string[]
+
+function discoverJavaSourceRoots(root) {
+  if (_javaSourceRootsCache.has(root)) {
+    return _javaSourceRootsCache.get(root);
+  }
+
+  const roots = [root, path.join(root, 'src'), path.join(root, 'app')];
+
+  // Single-module projects
+  for (const srcDir of ['src/main/java', 'src/test/java', 'src/main/kotlin', 'src/test/kotlin']) {
+    const candidate = path.join(root, srcDir);
+    if (fs.existsSync(candidate)) {
+      roots.push(candidate);
+    }
+  }
+
+  // Multi-module projects
+  try {
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const sub = path.join(root, entry.name);
+      for (const srcDir of ['src/main/java', 'src/test/java', 'src/main/kotlin', 'src/test/kotlin']) {
+        const candidate = path.join(sub, srcDir);
+        if (fs.existsSync(candidate)) {
+          roots.push(candidate);
+        }
+      }
+    }
+  } catch (e) {
+    // root unreadable, ignore
+  }
+
+  _javaSourceRootsCache.set(root, roots);
+  return roots;
+}
+
 function resolvePythonImport(fromFile, importPath, root) {
   const tryPythonCandidates = (basePath) => {
     const candidates = [
@@ -113,18 +150,35 @@ function resolveJavaImport(importPath, root) {
     return null;
   }
   const relative = importPath.split('.').join(path.sep);
-  const candidates = [
-    path.join(root, relative),
-    path.join(root, 'src', relative),
-    path.join(root, 'src', 'main', 'java', relative),
-    path.join(root, 'src', 'test', 'java', relative),
-    path.join(root, 'app', relative),
-  ];
+  const candidates = discoverJavaSourceRoots(root).map((r) => path.join(r, relative));
+
   for (const base of candidates) {
-    const fullPath = `${base}.java`;
-    if (fs.existsSync(fullPath)) {
-      return fullPath;
+    for (const ext of ['.java', '.kt']) {
+      const fullPath = `${base}${ext}`;
+      if (fs.existsSync(fullPath)) {
+        return fullPath;
+      }
     }
+  }
+  return null;
+}
+
+function resolveGoImport(fromFile, importPath, root) {
+  // Phase B: only same-directory relative imports
+  if (importPath.startsWith('.')) {
+    const fromDir = path.dirname(fromFile);
+    const resolved = path.resolve(fromDir, importPath);
+    if (fs.existsSync(resolved)) return resolved;
+    if (fs.existsSync(`${resolved}.go`)) return `${resolved}.go`;
+  }
+  // Cross-package imports require go.mod parsing, not implemented yet
+  return null;
+}
+
+function resolveRustImport(fromFile, importPath, root) {
+  // Phase B: only intra-crate mod references; no actual path resolution yet
+  if (!importPath.startsWith('crate::') && !importPath.startsWith('super::')) {
+    return null;
   }
   return null;
 }
@@ -133,8 +187,14 @@ function resolveImport(fromFile, importPath, ext, root) {
   if (ext === '.py') {
     return resolvePythonImport(fromFile, importPath, root);
   }
-  if (ext === '.java') {
+  if (ext === '.java' || ext === '.kt') {
     return resolveJavaImport(importPath, root);
+  }
+  if (ext === '.go') {
+    return resolveGoImport(fromFile, importPath, root);
+  }
+  if (ext === '.rs') {
+    return resolveRustImport(fromFile, importPath, root);
   }
 
   return resolveJavaScriptImport(fromFile, importPath);
@@ -142,4 +202,5 @@ function resolveImport(fromFile, importPath, ext, root) {
 
 module.exports = {
   resolveImport,
+  resolveJavaImport,
 };

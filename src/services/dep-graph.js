@@ -10,6 +10,9 @@ const {
   parsePython,
   parseJavaScript,
   parseJava,
+  parseKotlin,
+  parseGo,
+  parseRust,
 } = require('./dep-graph/parsers');
 const { resolveImport } = require('./dep-graph/resolvers');
 const { normalizePathKey, matchesPathFragment, toPosixPath } = require('../utils/path');
@@ -41,6 +44,7 @@ const HEURISTIC_ROOT_SEGMENTS = new Set([
   'test', 'tests', '__tests__', 'spec', 'specs',
   'main', 'java', 'python', 'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs',
   'packages', 'package',
+  'kotlin', 'go', 'rust',
 ]);
 
 function normalizeHeuristicName(filePath) {
@@ -49,6 +53,9 @@ function normalizeHeuristicName(filePath) {
 
   if (ext === '.java') {
     return base.replace(/(?:Tests?|Specs?|TestCases?|ITs?)$/, '').toLowerCase();
+  }
+  if (ext === '.kt') {
+    return base.replace(/(?:Tests?|Test)$/, '').toLowerCase();
   }
 
   return normalizeStem(filePath);
@@ -79,11 +86,17 @@ function getHeuristicLanguageFamily(filePath) {
   if (['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'].includes(ext)) {
     return 'js-family';
   }
-  if (ext === '.java') {
+  if (ext === '.java' || ext === '.kt') {
     return 'java-family';
   }
   if (ext === '.py') {
     return 'python-family';
+  }
+  if (ext === '.go') {
+    return 'go-family';
+  }
+  if (ext === '.rs') {
+    return 'rust-family';
   }
   return ext;
 }
@@ -164,7 +177,9 @@ class DependencyGraph {
       /^test.*\.py$/i.test(base) ||
       base === 'tests.py' ||
       /^test_/.test(base) ||
-      /_test\./.test(base)
+      /_test\./.test(base) ||
+      /_test\.go$/.test(base) ||
+      /(Tests?|Test)\.kt$/i.test(base)
     );
   }
 
@@ -281,7 +296,13 @@ class DependencyGraph {
       } else if (['.js', '.ts', '.jsx', '.tsx'].includes(ext)) {
         ({ imports, exports, importRecords, exportRecords, parseMode } = parseJavaScript(content, filePath));
       } else if (ext === '.java') {
-        ({ imports, exports, importRecords, exportRecords, parseMode } = parseJava(content));
+        ({ imports, exports, importRecords, exportRecords, parseMode } = await parseJava(content));
+      } else if (ext === '.kt') {
+        ({ imports, exports, importRecords, exportRecords, parseMode } = parseKotlin(content));
+      } else if (ext === '.go') {
+        ({ imports, exports, importRecords, exportRecords, parseMode } = parseGo(content));
+      } else if (ext === '.rs') {
+        ({ imports, exports, importRecords, exportRecords, parseMode } = parseRust(content));
       }
 
       // Resolve relative imports to absolute paths
@@ -303,6 +324,7 @@ class DependencyGraph {
         importRecords: resolvedImportRecords,
         exportRecords: exportRecords.length > 0 ? exportRecords : exports.map((name) => ({ name })),
         parseMode,
+        confidence: parseMode === 'ast' ? 'high' : 'medium',
       });
 
     } catch (e) {
@@ -504,9 +526,16 @@ class DependencyGraph {
         continue;
       }
 
+      // Java AST: import records only capture class names, not method-level usage via instance calls.
+      // Symbol-level dead-export for Java would require cross-file call-graph analysis, which we don't have.
+      if (filePath.endsWith('.java') && info.parseMode === 'ast') {
+        continue;
+      }
+
       const unused = info.exports.filter((name) => !usedNames.has(name));
       if (unused.length > 0) {
-        deadExports.push({ file: filePath, exports: unused, confidence: 'medium' });
+        const confidence = info.parseMode === 'ast' ? 'medium' : 'low';
+        deadExports.push({ file: filePath, exports: unused, confidence });
       }
     }
 

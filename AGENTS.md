@@ -171,6 +171,19 @@ npm run test:all
 - 支持 `import/from...import/__all__` 解析
 - Node 子进程通信，失败自动回退 regex
 
+#### Java AST 支持 (P4-A)
+- 创建 `scripts/java_ast_parser.py`，使用 `javalang` 进行 AST 级解析
+- 提取类名、public 方法、public 字段，精确度从 regex 提升到 AST
+- Node 子进程通信，javalang 不可用时自动回退 regex，用户无感知
+- 多模块 Maven/Gradle 项目 source root 自动发现
+
+#### Kotlin/Go/Rust L2 支持 (P4-B)
+- 文件索引扩展：`.kt/.go/.rs` 纳入索引和符号提取
+- Regex 级解析器：`parseKotlin/Go/Rust()` 提取 import/export
+- 技术栈检测：自动识别 Go (go.mod) / Rust (Cargo.toml)
+- 验证命令生成：`go build/test`、`cargo check/test`
+- 路径解析：Go 同目录相对 import 支持
+
 #### M5: 项目全景视图
 - 新增 `audit-overview` 命令
 - 热区图：基于 Git 历史和依赖耦合度识别高风险文件

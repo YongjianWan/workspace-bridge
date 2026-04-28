@@ -675,6 +675,8 @@ function buildValidationAdvice(entries, workspaceRoot) {
       node: stack.node,
       python: stack.python,
       java: stack.java,
+      go: stack.go,
+      rust: stack.rust,
     },
     commands,
     topRiskActions,

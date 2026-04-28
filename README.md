@@ -281,14 +281,14 @@ workspace-bridge CLI
 
 自动检测项目技术栈并生成具体验证命令：
 
-| 检测项         | 识别文件                                       |
-| -------------- | ---------------------------------------------- |
-| profile        | package.json + requirements.txt / pyproject.toml / manage.py |
+| 检测项         | 识别文件                                                        |
+| -------------- | --------------------------------------------------------------- |
+| profile        | package.json + requirements.txt / pyproject.toml / manage.py    |
 | packageManager | pnpm-lock.yaml / yarn.lock / package-lock.json / Python markers |
-| testRunner     | jest.config.* / vitest.config.* / pytest.ini   |
-| linters        | .eslintrc.* / .prettierrc.* / pyproject.toml   |
-| typeChecker    | tsconfig.json / pyright                        |
-| javaBuildTool  | pom.xml / build.gradle / build.gradle.kts      |
+| testRunner     | jest.config.* / vitest.config.* / pytest.ini                    |
+| linters        | .eslintrc.* / .prettierrc.* / pyproject.toml                    |
+| typeChecker    | tsconfig.json / pyright                                         |
+| javaBuildTool  | pom.xml / build.gradle / build.gradle.kts                       |
 
 检测到的技术栈会用于生成 `audit-diff` 中的具体验证命令。
 
@@ -391,7 +391,7 @@ npm run workflow:dry-run
 npm run workflow:run
 ```
 
-默认会输出报告到 `reports/workflow-last.json`。  
+默认会输出报告到 `reports/workflow-last.json`。
 如果 `test` 在 `maxLoops` 次内通过，退出码为 `0`；否则非 `0`，可直接接 CI。
 
 ## 已知限制

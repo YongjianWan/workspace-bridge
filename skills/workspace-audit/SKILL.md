@@ -27,11 +27,12 @@ Never assume the current terminal directory is the project root.
 
 Use this fallback chain:
 
-1. `workspace-bridge-cli ...` (global command available)
+1. `workspace-bridge-cli ...` (global command - **requires fresh terminal after setup**)
 2. `node <workspace-bridge-repo>/cli.js ...` (repo-local fallback)
-3. `node <workspace-bridge-repo>/scripts/cli-fallback.js ...` (scripted auto-fallback wrapper)
+3. `<node-path> <workspace-bridge-repo>/cli.js ...` (explicit node path for NVM setups)
+4. `node <workspace-bridge-repo>/scripts/cli-fallback.js ...` (scripted auto-fallback wrapper)
 
-Example (global):
+Example (global - preferred after setup):
 
 ```bash
 workspace-bridge-cli audit-summary --cwd <project> --json --quiet
@@ -41,6 +42,12 @@ Example (repo-local fallback):
 
 ```bash
 node C:\Users\sdses\Desktop\随机小项目\workspace-bridge\cli.js audit-summary --cwd <project> --json --quiet
+```
+
+Example (NVM environment - node not in PATH):
+
+```powershell
+& "C:\Users\sdses\AppData\Local\nvm\v22.14.0\node.exe" C:\Users\sdses\Desktop\随机小项目\workspace-bridge\cli.js audit-summary --cwd <project> --json --quiet
 ```
 
 Example (scripted wrapper, recommended for automation):
@@ -66,33 +73,36 @@ If preflight fails, report exact failure class:
 ### Aggregate Commands (Recommended)
 
 ```bash
-# First pass on any repo
+# First pass on any repo (using global CLI)
+workspace-bridge-cli audit-summary --cwd <project> --json --quiet
+
+# Or using repo-local node
 node cli.js audit-summary --cwd <project> --json --quiet
 
 # With exclusions for mixed repos
-node cli.js audit-summary --cwd <project> --exclude prototypes/reference,archive --json --quiet
+workspace-bridge-cli audit-summary --cwd <project> --exclude prototypes/reference,archive --json --quiet
 
 # Single file impact analysis
-node cli.js audit-file --cwd <project> --file <relative-or-absolute-file> --json --quiet
+workspace-bridge-cli audit-file --cwd <project> --file <relative-or-absolute-file> --json --quiet
 
 # Current git changes validation (with tech stack detection + commands)
-node cli.js audit-diff --cwd <project> --json --quiet
+workspace-bridge-cli audit-diff --cwd <project> --json --quiet
 
 # Project panoramic view (hotspots + stability + orphans)
-node cli.js audit-overview --cwd <project> --json --quiet
+workspace-bridge-cli audit-overview --cwd <project> --json --quiet
 ```
 
 ### Raw Commands (When you need details)
 
 ```bash
-node cli.js health --cwd <project> --json
-node cli.js dead-exports --cwd <project> --json
-node cli.js unresolved --cwd <project> --json
-node cli.js cycles --cwd <project> --json
-node cli.js impact --cwd <project> --file <file> --json
-node cli.js affected-tests --cwd <project> --file <file> --max-depth 5 --json
-node cli.js deps --cwd <project> --json
-node cli.js diagnostics --cwd <project> --mode quick --json
+workspace-bridge-cli health --cwd <project> --json
+workspace-bridge-cli dead-exports --cwd <project> --json
+workspace-bridge-cli unresolved --cwd <project> --json
+workspace-bridge-cli cycles --cwd <project> --json
+workspace-bridge-cli impact --cwd <project> --file <file> --json
+workspace-bridge-cli affected-tests --cwd <project> --file <file> --max-depth 5 --json
+workspace-bridge-cli deps --cwd <project> --json
+workspace-bridge-cli diagnostics --cwd <project> --mode quick --json
 ```
 
 ## Usage rules
@@ -154,24 +164,24 @@ Avoid narrative-only output. Always return executable next steps.
 ### New Project Assessment
 
 ```bash
-node cli.js audit-summary --cwd <project> --json --quiet
+workspace-bridge-cli audit-summary --cwd <project> --json --quiet
 # If mixed repo, add --exclude
-node cli.js audit-summary --cwd <project> --exclude prototypes,reference --json --quiet
+workspace-bridge-cli audit-summary --cwd <project> --exclude prototypes,reference --json --quiet
 ```
 
 ### Pre-Refactoring Analysis
 
 ```bash
-node cli.js audit-overview --cwd <project> --json --quiet
+workspace-bridge-cli audit-overview --cwd <project> --json --quiet
 # Identify hotspots and fragile modules
-node cli.js audit-file --cwd <project> --file <target-file> --json --quiet
+workspace-bridge-cli audit-file --cwd <project> --file <target-file> --json --quiet
 # Understand impact before changing
 ```
 
 ### PR Validation
 
 ```bash
-node cli.js audit-diff --cwd <project> --json --quiet
+workspace-bridge-cli audit-diff --cwd <project> --json --quiet
 # Get validation plan with concrete commands
 # Run suggested commands in smoke → focused → full order
 ```
@@ -195,6 +205,17 @@ Avoid `deps` in the default flow unless dependency drift is part of the task.
 | `orphans.modules`                | Medium      | Verify if actually unused (may be entry/config) |
 | `hotspots`                       | Medium-High | High churn + coupling, review carefully         |
 | `stability` fragile              | Medium      | Add tests before refactoring                    |
+
+### Language Support Matrix
+
+| Language | Dependency Graph | Symbol Impact | Dead Exports | Test Mapping | Stack Commands |
+|----------|------------------|---------------|--------------|--------------|----------------|
+| JS/TS    | ✅ Full AST      | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full |
+| Python   | ✅ Full AST      | ✅ Module-level | ✅ `__all__` aware | ✅ Graph + Heuristic | ✅ Full |
+| Java     | ⚠️ Regex only    | ❌ File-level   | ❌ File-level   | ⚠️ Heuristic only   | ✅ Basic |
+| Kotlin   | ⚠️ Regex only    | ❌ File-level   | ❌ File-level   | ⚠️ Heuristic only   | ⚠️ Gradle only |
+| Go       | ⚠️ Regex only    | ❌ File-level   | ❌ File-level   | ⚠️ Heuristic only   | ❌ None |
+| Rust     | ⚠️ Regex only    | ❌ File-level   | ❌ File-level   | ⚠️ Heuristic only   | ❌ None |
 
 ### Known Limitations
 
@@ -227,6 +248,45 @@ Create `.workspace-bridge.json` in project root:
 
 This prevents reference code from polluting dead export and orphan detection results.
 
+## Troubleshooting
+
+### "node is not recognized" or "workspace-bridge-cli is not recognized"
+
+**Windows with NVM:**
+```powershell
+# Find your Node.js installation
+$nodePath = "C:\Users\$env:USERNAME\AppData\Local\nvm\v22.14.0\node.exe"
+& $nodePath cli.js audit-summary --cwd <project> --json --quiet
+```
+
+**Add Node.js to PATH permanently:**
+```powershell
+$nodeDir = "C:\Users\$env:USERNAME\AppData\Local\nvm\v22.14.0"
+$currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
+[Environment]::SetEnvironmentVariable("Path", "$currentPath;$nodeDir", "User")
+# Restart terminal after this
+```
+
+**Use global CLI directly:**
+```powershell
+# Global CLI is installed alongside Node.js
+& "C:\Users\$env:USERNAME\AppData\Local\nvm\v22.14.0\workspace-bridge-cli.ps1" audit-summary --cwd <project> --json --quiet
+```
+
+### Permission denied on project path
+
+Ensure the target path exists and is readable:
+```bash
+test -d <project> && workspace-bridge-cli audit-summary --cwd <project> --json --quiet
+```
+
+### Command runs but returns empty results
+
+Check if project has supported files (JS/TS/Python):
+```bash
+workspace-bridge-cli workspace-info --cwd <project> --json --quiet
+```
+
 ## Version
 
-This skill targets workspace-bridge v0.8.0+
+This skill targets workspace-bridge v0.8.1+
