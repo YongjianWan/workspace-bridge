@@ -8,3 +8,5 @@ Thumbs.db
 *.swo
 *~
 .workspace-bridge-cache.json
+.tmp-*.json
+.workspace-bridge-cache.json.tmp-*

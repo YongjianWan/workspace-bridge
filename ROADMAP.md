@@ -1,173 +1,68 @@
 # workspace-bridge Roadmap
 
 > 目标：把 `workspace-bridge` 从"可用的审计 CLI"推进成"能补足 AI 项目视角短板的工程脚手架"。
+> 
+> 历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [docs/plans/](./docs/plans/)。
 
 ---
 
-## 当前状态
+## 已知限制
 
-### 已完成功能 ✅
-
-**CLI 聚合命令**
-
-- ✅ `audit-summary` - 项目整体健康度扫描
-- ✅ `audit-file` - 单文件影响面分析
-- ✅ `audit-diff` - 当前改动验证建议（含技术栈检测、分阶段命令）
-- ✅ `audit-overview` - 项目全景视图（热区、稳定性、孤儿检测）
-
-**解析层**
-
-- ✅ JS/TS AST 解析（@babel/parser）
-- ✅ Python AST 解析（标准库 ast）
-- ✅ 精确 import/export 识别
-- ✅ 失败自动回退到 regex
-
-**语义识别**
-
-- ✅ 目录角色识别（active/reference/archive/generated）
-- ✅ 文件角色识别（entry/library/config/test/migration/script）
-- ✅ `.workspace-bridge.json` 配置支持
-- ✅ `--exclude` 命令行排除
-
-**验证建议**
-
-- ✅ 技术栈自动检测（packageManager/testRunner/linters/typeChecker）
-- ✅ mixed repo 技术栈分层识别（python-first / node-first / mixed）
-- ✅ mixed repo 分层命令生成（Node / Python）
-- ✅ Java 技术栈检测与命令生成（Maven / Gradle）
-- ✅ 分阶段验证计划（smoke/focused/full）
-- ✅ 具体命令生成（可直接粘贴执行）
-- ✅ Git 历史风险权重
-- ✅ `compositeRisk` 融合判断（结构影响 + 测试映射 + 历史风险）
-- ✅ `topRiskAction` / `topRiskCommand`（CLI 人类可读可执行建议）
-- ✅ Top 风险证据链（impact/tests/history/symbolMode）
-- ✅ `summary.topCompositeRisks` 机器可读风险排序
-- ✅ `symbolToDependents`（导出符号到依赖文件映射）
-- ✅ `audit-overview` 聚合统计（hotspotsByRisk / stabilityCounts）
-- ✅ `audit-diff` historyRisk 限并发采集（大改动集性能优化）
-- ✅ test mapping 命名启发式兜底（无显式 import 场景）
-- ✅ Python framework 检测增强（Django/FastAPI/Flask）
-- ✅ 混合仓库目录智能识别（自动降权 prototypes/examples 为 reference）
-- ✅ 自动入口识别增强（framework/config 入口：manage.py、vite.config.*）
-- ✅ 500+ 文件性能基准脚本（cold/hot/incremental，含 tree 与阈值）
-- ✅ function-level affected tests baseline（JS/TS：changed function -> likely tests）
-- ✅ compositeRisk 接入函数级信号（changedFunctionImpact）
-- ✅ 复用提示升级（结构+命名混合相似度 baseline）
-
-**诊断执行**
-
-- ✅ Windows npm/npx 兼容（`npm.cmd` + `cmd.exe` shim）
-- ✅ quick 兜底检查（避免 `checksRun=0` 空结果）
-
-**测试与验证**
-
-- ✅ 真实项目验证（kimi-agent-evolution、my-factory-system、pm-growth-graph）
-- ✅ 自动化测试覆盖核心功能
-
-### 已知限制 ⚠️
-
-| 问题                  | 影响                            | 缓解措施                             |
-| --------------------- | ------------------------------- | ------------------------------------ |
-| 混合仓库误判          | prototypes/reference 被视为主线 | 使用 `.workspace-bridge.json` 标注 |
-| mixed repo 技术栈启发式 | Node/Python 共存时命令可能不够精确 | 持续改进 stack-detector              |
-| 大仓库性能            | 10k+ 文件索引慢                 | 首次索引后缓存加速                   |
-| 孤儿检测假阳性        | 入口文件未被识别                | 人工审查 orphans.samples             |
+| 问题 | 影响 | 缓解措施 |
+|------|------|----------|
+| 临时文件污染 | `.tmp-*`、缓存临时文件被纳入 `audit-diff` | 清理工作区；后续加过滤规则 |
+| 测试配置盲区 | `package.json` 自定义 `test:*` 脚本未被识别为测试框架 | 手动确认 `scripts.test` 存在即可运行 |
+| 文件角色误判 | 文档（`AGENTS.md`、`README.md`）被分类为 `library`，导致 `changeType: code` | 人工判断真实变更类型 |
+| 混合仓库误判 | prototypes/reference 被视为主线 | 使用 `.workspace-bridge.json` 标注 |
+| mixed repo 技术栈启发式 | Node/Python 共存时命令可能不够精确 | 持续改进 stack-detector |
+| 大仓库性能 | 10k+ 文件索引慢 | 首次索引后缓存加速 |
+| 孤儿检测假阳性 | 入口文件未被识别 | 人工审查 orphans.samples |
 
 ---
 
-## 下一阶段规划
+## 基础能力（Phase 0-1）—— 先止血，再增功能
+按 AGENTS.md 原则"先减少误报，再加功能"，以下问题当前最伤害输出可信度，优先于多语言深度。
 
-## 生命周期 Roadmap
-
-### Phase 0: Core CLI 基座
-- CLI-only 入口
-- cache / file-index / dep-graph 跑通
-- `audit-summary` / `audit-file` 成型
-
-### Phase 1: 可信分析
-- 目录/文件角色识别
-- JS/TS AST
-- Python AST
-- `dead-exports` / unresolved / cycles 稳定
-
-### Phase 2: 变更验证
-- `audit-diff`
-- historyRisk
-- 分阶段验证计划
-- mixed repo 技术栈分层命令
-
-### Phase 3: 项目全景
-- `audit-overview`
-- 热区
-- 稳定性
-- 孤儿文件
-- 核心模块识别
-
-### Phase 4: 深度分析
-- symbol-level impact（JS/TS + Python 已实现 AST 级；Java 为 regex 级，AST 支持在 P4-A 计划中；Kotlin/Go/Rust 为 L2 regex 级）
-- 函数级影响 baseline（已实现：JS/TS 导出函数映射到 dependents）
-- 更精确的 test mapping
-- mixed repo 命令精度提升
-
-### Phase 5: 长期演进
-- overview 可视化输出
-- 架构重构建议
-- 大仓库性能专项优化
-
-### P1: 稳定性与 polish
-
-**代码质量**
-
-- [x] 重构 `overview-tools.js` - 拆分大函数
-- [x] 补充自动化测试 - `overview-tools` 专项测试
-- [x] 性能压测 - 大仓库（500+ 文件）性能基准
-
-**功能完善**
-
-- [x] 改进 Python 技术栈检测 - 识别 Django/Flask/FastAPI
-- [x] 自动入口识别增强 - 框架配置文件（vite.config、manage.py 等）
-- [x] 混合仓库智能识别 - 自动检测 prototypes/examples 目录
-
-### P2: 深度分析
-
-**symbol-level impact**
-
-- [x] 跨文件 symbol-level impact baseline（JS/TS + Python + Java）
-- [x] 函数级影响分析 baseline（JS/TS 导出函数）
-- [x] 变更影响具体函数而非整个文件 baseline（JS/TS：基于 diff 行号）
-- [x] 精确测试映射（测试具体覆盖哪些函数，当前为启发式 baseline）`完成于 2026-04-02，commit: 1f5cadf`
-
-**代码相似度（克制地借鉴 reference）**
-
-- [x] AST 相似度检测 baseline（结构+命名，提示，不强制）
-- [x] 发现相似函数时给出参考实现（reuseHints suggestions）
-- [x] 可选功能，非核心路径 `完成于 2026-04-02，commit: 494699d`
-
-### P3: 全景增强
-
-**项目热区图可视化**
-
-- [x] 生成热区数据文件（供外部工具可视化） `完成于 2026-04-02，commit: be9ba31`
-- [x] 模块稳定性趋势（跨时间分析） `完成于 2026-04-02，commit: 38cf70f`
-
-**架构建议**
-
-- [x] 循环依赖重构建议 `完成于 2026-04-02，commit: b7a0f1a`
-- [x] 过度耦合模块拆分提示 `完成于 2026-04-02，commit: 1e8127c`
-
-### P5: 长期演进
-
-- [x] overview 可视化输出 `完成于 2026-04-03，commit: 383d6d6`
-
-### P6: Skill 标准化
-
-- [x] workspace-audit 标准化 v1（随机路径可用 + 启动 preflight + 标准输出契约） `完成于 2026-04-03，commit: d11288d`
-- [x] 全局安装/回退策略脚本化（`workspace-bridge-cli` 不可用时自动降级到 `node <repo>/cli.js`） `完成于 2026-04-03，commit: ceaba86`
-- [x] benchmark compare 阈值策略重构（相对基线 + 波动容忍，去掉固定 500ms 噪音）
+- [ ] **临时文件/缓存过滤**（投入：低 / 收益：高 / 风险：低）— `.tmp-*`、`.workspace-bridge-cache.json.tmp-*` 不应进入 `audit-diff` 分析，避免 severity 虚高
+- [ ] **文件角色分类修正**（投入：低 / 收益：高 / 风险：低）— `AGENTS.md`/`README.md` 等文档不应分类为 `library`；`cli.js` 不应同时出现在 `entryPoints` 和 `orphans` 中
+- [ ] **自定义测试脚本识别**（投入：低 / 收益：高 / 风险：低）— `package.json` 中 `test:*` / `test:all` 等自定义脚本应被识别为测试配置，解决 `testConfig: false` 误报和 `audit-diff` focused 阶段命令缺失
+- [ ] **变更类型判断修正**（投入：低 / 收益：高 / 风险：低）— 文档/配置改动应正确输出 `changeType: docs/config`，匹配对应的验证模板
+- [ ] **Diff 场景 test mapping 激活**（投入：中 / 收益：高 / 风险：低）— 脚本/服务文件改动时，`affectedTests` 不应恒为 0
 
 ---
 
-## 设计原则（保持）
+## 未竟事项（按价值排序）
+
+### P1：提升分析可信度
+- [ ] **Java/Go/Rust 语言级使用点解析**（投入：中 / 收益：高 / 风险：低）— 轻量扫描符号使用，消除 dead-export 系统性误报
+- [x] **Go/Rust 包级解析器**（投入：中 / 收益：高 / 风险：中）— `go.mod` 包路径解析、`Cargo.toml` + module tree，替代仅相对 import
+- [x] Java 方法级 dead-export 误报消除（实例调用不在 import 记录中）— 已通过 AST 保守策略缓解
+
+### P1.5：全局项目地图（audit-map）
+- [ ] **`audit-map` 命令**（投入：低 / 收益：高 / 风险：低）— 聚合 `tree`（目录骨架）+ `edges`（依赖拓扑）+ `issueOverlay`（问题标注），给 AI 全局视野。数据已全部存在，只需序列化输出
+- [ ] **Tree 输出**：按目录聚合 FileIndex 数据，标注 role（entry/library/test/config）
+- [ ] **Edges 输出**：序列化 DependencyGraph 的 import/export 关系
+- [ ] **IssueOverlay 输出**：叠加 unresolved / deadExports / cycles / orphans / hotspots
+
+### P2：提升命令可执行性
+- [ ] **构建/测试命令智能化**（投入：中 / 收益：高 / 风险：低）— 基于真实配置生成命令（Gradle 任务发现、Go package 聚合、Rust workspace 子 crate）
+- [ ] mixed repo 命令精度提升（自定义脚本识别）
+- [ ] Go 验证命令按 module path 聚合（当前按目录聚合，子模块下可能不准）
+- [ ] Rust 模块级测试过滤（需解析 `mod` 声明）
+- [ ] **CLI 命令完整性补全**（投入：低 / 收益：中 / 风险：低）— 底层 `dep-tools` 的 `stats` / `dependents` / `dependencies` operation 未暴露为 CLI 命令；`searchCode`（symbol 搜索）也未暴露。评估后补充有价值的独立命令
+
+### P3：提升输出可解释性
+- [ ] **变更影响解释链**（投入：中 / 收益：高 / 风险：低）— 明确告知用户"因哪些 import/usage 推导出影响"，用于审核和调试误报
+- [ ] **统一能力矩阵输出**（投入：低 / 收益：中 / 风险：低）— CLI JSON 直接带 language support matrix + confidence 解释，减少文档追赶成本
+
+### P4：技术债
+- [ ] Kotlin AST 级支持（当前 L2 regex；需处理 object/companion object/top-level fun）
+- [ ] 大仓库性能专项优化（>10k 文件索引）
+- [ ] **插件化解析器注册表**（投入：高 / 收益：中 / 风险：高）— 轻量注册表替代 if-else 链，保持 CLI-only，不引入协议层
+
+---
+
+## 设计原则
 
 1. **CLI-only** - 不引入 MCP/协议层
 2. **先减少误报，再增加功能** - 结果可信优先
@@ -177,30 +72,7 @@
 
 ---
 
-## Reference 借鉴策略
-
-**不采用的**：
-
-- 四层强制架构（过度工程）
-- RAG + 嵌入向量（太重）
-- 强制复用闸（违背 CLI 定位）
-
-**可能借鉴的**：
-
-- AST 相似度算法（克制实现，仅提示）
-- CHANGE_PROOF.md 模板（增强报告格式）
-
-**保持差异**：
-
-- workspace-bridge = 轻量建议工具
-- reference = 重型强制脚手架
-- 两者定位不同，不硬融合
-
----
-
 ## 成功标准
-
-达成条件：
 
 1. 对混合仓库结果稳定（不误报）
 2. TS/Python/前端项目都能给出可信主线结论
@@ -210,20 +82,4 @@
 
 ---
 
-## 当前执行计划（2026-04-07）
-
-- 见 [docs/plans/2026-04-07-next-roadmap.md](docs/plans/2026-04-07-next-roadmap.md)
-- 当前状态：M1-M3 已完成（误报压制、召回增强、验证一致性）
-- 执行门禁：`affected-tests-heuristic-test`、`audit-diff-test`、`function-impact-test`、`analysis-test`
-
-## 下一批计划（2026-04-28）
-
-- 见 [docs/plans/2026-04-28-java-and-polyglot-support.md](docs/plans/2026-04-28-java-and-polyglot-support.md)
-- 目标：消除文档与源码的 gap（Java 实际只有 regex 级，文档声称已 AST 级）；扩展 Kotlin/Go/Rust 基础支持
-- 核心文件：`src/services/dep-graph/parsers.js`、`resolvers.js`、`file-index.js`、`stack-detector.js`
-- 新增文件：`scripts/java_ast_parser.py`
-- 预估工作量：Phase A 2~3 天，Phase B 1~2 天，Phase C 0.5 天
-
----
-
-*Last updated: 2026-04-07*
+*Last updated: 2026-04-28*

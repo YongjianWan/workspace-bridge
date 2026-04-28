@@ -333,18 +333,18 @@ function getJavaCommands(javaStack, changeType, targets) {
     return { smoke: [], focused: [], full: [] };
   }
   const commands = { smoke: [], focused: [], full: [] };
-  const hasTargets = targets.length > 0;
+  const hasJavaFiles = targets.some((file) => /\.java$/.test(file));
   const javaCmd = javaStack.buildCommand || (javaStack.buildTool === 'maven' ? 'mvn' : javaStack.buildTool === 'gradle' ? 'gradle' : null);
   if (!javaCmd) return commands;
   if (javaStack.buildTool === 'maven') {
     commands.smoke.push({ name: 'java-compile-check', description: 'Run Maven compile check', cmd: `${javaCmd} -q -DskipTests compile` });
-    if (hasTargets) {
+    if (hasJavaFiles) {
       commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Maven tests', cmd: `${javaCmd} -q -Dtest=*Test test` });
     }
     commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: `${javaCmd} -q test` });
   } else if (javaStack.buildTool === 'gradle') {
     commands.smoke.push({ name: 'java-compile-check', description: 'Run Gradle compile check', cmd: `${javaCmd} -q classes` });
-    if (hasTargets) {
+    if (hasJavaFiles) {
       commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Gradle tests', cmd: `${javaCmd} -q test --tests *Test` });
     }
     commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: `${javaCmd} -q test` });
@@ -369,7 +369,7 @@ function getJavaCommands(javaStack, changeType, targets) {
 
 function getGoCommands(goStack, changeType, targets) {
   if (!goStack?.enabled) return { smoke: [], focused: [], full: [] };
-  if (changeType !== 'code' && changeType !== 'tests') return { smoke: [], focused: [], full: [] };
+  if (changeType !== 'code' && changeType !== 'tests' && changeType !== 'config') return { smoke: [], focused: [], full: [] };
   const commands = { smoke: [], focused: [], full: [] };
   commands.smoke.push({ name: 'go-build', description: 'Go build check', cmd: 'go build ./...' });
   if (targets.length > 0) {
@@ -386,7 +386,7 @@ function getGoCommands(goStack, changeType, targets) {
 
 function getRustCommands(rustStack, changeType, targets) {
   if (!rustStack?.enabled) return { smoke: [], focused: [], full: [] };
-  if (changeType !== 'code' && changeType !== 'tests') return { smoke: [], focused: [], full: [] };
+  if (changeType !== 'code' && changeType !== 'tests' && changeType !== 'config') return { smoke: [], focused: [], full: [] };
   const commands = { smoke: [], focused: [], full: [] };
   commands.smoke.push({ name: 'rust-check', description: 'Rust check', cmd: 'cargo check' });
   commands.full.push({ name: 'rust-all-tests', description: 'Run all Rust tests', cmd: 'cargo test' });
@@ -416,8 +416,8 @@ function splitTargetsByStack(targets) {
     node: list.filter((file) => /\.(js|jsx|ts|tsx|json|mjs|cjs)$/.test(file)),
     python: list.filter((file) => /\.py$/.test(file)),
     java: list.filter((file) => /\.java$/.test(file) || /(^|\/)(pom\.xml|build\.gradle|build\.gradle\.kts)$/.test(file)),
-    go: list.filter((file) => /\.go$/.test(file)),
-    rust: list.filter((file) => /\.rs$/.test(file)),
+    go: list.filter((file) => /\.go$/.test(file) || /(^|\/)go\.mod$/.test(file)),
+    rust: list.filter((file) => /\.rs$/.test(file) || /(^|\/)Cargo\.toml$/.test(file)),
   };
 }
 
@@ -452,8 +452,8 @@ function generateCommands(stack, changeType, targets, steps = []) {
   const nodeTargets = targets.filter((file) => /\.(js|jsx|ts|tsx|json|mjs|cjs)$/.test(file));
   const pythonTargets = targets.filter((file) => /\.py$/.test(file));
   const javaTargets = targets.filter((file) => /\.java$/.test(file) || /(^|\/)(pom\.xml|build\.gradle|build\.gradle\.kts)$/.test(file));
-  const goTargets = targets.filter((file) => /\.go$/.test(file));
-  const rustTargets = targets.filter((file) => /\.rs$/.test(file));
+  const goTargets = targets.filter((file) => /\.go$/.test(file) || /(^|\/)go\.mod$/.test(file));
+  const rustTargets = targets.filter((file) => /\.rs$/.test(file) || /(^|\/)Cargo\.toml$/.test(file));
 
   const nodeCommands = getNodeCommands(stack.node, changeType, nodeTargets);
   const pythonCommands = getPythonCommands(stack.python, changeType, pythonTargets);
@@ -504,7 +504,8 @@ function generateCommands(stack, changeType, targets, steps = []) {
       }
     }
 
-    if (split.rust.length > 0 && stack.rust?.enabled) {
+    const rustFiles = split.rust.filter((file) => /\.rs$/.test(file));
+    if (rustFiles.length > 0 && stack.rust?.enabled) {
       addUniqueCommand(merged, 'focused', {
         name: 'rust-direct-tests',
         description: 'Run rust direct affected tests',
@@ -512,7 +513,8 @@ function generateCommands(stack, changeType, targets, steps = []) {
       });
     }
 
-    if (split.java.length > 0 && stack.java?.enabled) {
+    const javaFiles = split.java.filter((file) => /\.java$/.test(file));
+    if (javaFiles.length > 0 && stack.java?.enabled) {
       const javaCmd = stack.java.buildTool === 'maven'
         ? `${stack.java.buildCommand || 'mvn'} -q -Dtest=*Test test`
         : stack.java.buildTool === 'gradle'

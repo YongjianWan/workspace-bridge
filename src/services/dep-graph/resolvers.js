@@ -163,23 +163,103 @@ function resolveJavaImport(importPath, root) {
   return null;
 }
 
+let _goModCache = new Map(); // root -> modulePath | null
+
+function readGoMod(root) {
+  if (_goModCache.has(root)) {
+    return _goModCache.get(root);
+  }
+  const goModPath = path.join(root, 'go.mod');
+  if (!fs.existsSync(goModPath)) {
+    _goModCache.set(root, null);
+    return null;
+  }
+  const content = fs.readFileSync(goModPath, 'utf8');
+  const match = content.match(/^module\s+(\S+)/m);
+  const modulePath = match ? match[1] : null;
+  _goModCache.set(root, modulePath);
+  return modulePath;
+}
+
 function resolveGoImport(fromFile, importPath, root) {
-  // Phase B: only same-directory relative imports
   if (importPath.startsWith('.')) {
     const fromDir = path.dirname(fromFile);
     const resolved = path.resolve(fromDir, importPath);
     if (fs.existsSync(resolved)) return resolved;
     if (fs.existsSync(`${resolved}.go`)) return `${resolved}.go`;
+    return null;
   }
-  // Cross-package imports require go.mod parsing, not implemented yet
+
+  const modulePath = readGoMod(root);
+  if (!modulePath || !importPath.startsWith(modulePath)) {
+    return null;
+  }
+
+  let relPath = importPath.slice(modulePath.length);
+  if (relPath.startsWith('/')) relPath = relPath.slice(1);
+
+  const targetDir = relPath ? path.join(root, relPath) : root;
+  if (!fs.existsSync(targetDir)) return null;
+
+  try {
+    const entries = fs.readdirSync(targetDir).sort();
+    const goFile = entries.find((f) => f.endsWith('.go') && !f.endsWith('_test.go'));
+    if (goFile) {
+      return path.join(targetDir, goFile);
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+function resolveRustModulePath(modulePath, root, baseDir) {
+  const segments = modulePath.split('::').filter(Boolean);
+  if (segments.length === 0) return null;
+
+  const searchBase = baseDir || path.join(root, 'src');
+
+  for (let i = segments.length; i > 0; i--) {
+    const subPath = segments.slice(0, i).join('/');
+    const candidates = [
+      path.join(searchBase, `${subPath}.rs`),
+      path.join(searchBase, `${subPath}/mod.rs`),
+    ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
   return null;
 }
 
 function resolveRustImport(fromFile, importPath, root) {
-  // Phase B: only intra-crate mod references; no actual path resolution yet
-  if (!importPath.startsWith('crate::') && !importPath.startsWith('super::')) {
-    return null;
+  if (importPath.startsWith('crate::')) {
+    const modulePath = importPath.slice('crate::'.length);
+    return resolveRustModulePath(modulePath, root);
   }
+
+  if (importPath.startsWith('super::')) {
+    const fromDir = path.dirname(fromFile);
+    let baseDir = fromDir;
+    let remaining = importPath;
+
+    while (remaining.startsWith('super::')) {
+      remaining = remaining.slice('super::'.length);
+      const parent = path.dirname(baseDir);
+      if (parent === baseDir || !parent.startsWith(root)) {
+        return null;
+      }
+      baseDir = parent;
+    }
+
+    if (!remaining) return null;
+    return resolveRustModulePath(remaining, root, baseDir);
+  }
+
   return null;
 }
 

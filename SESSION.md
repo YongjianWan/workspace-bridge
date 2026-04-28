@@ -1,108 +1,119 @@
-# workspace-bridge v0.7.0 开发指令
+# 会话交接指令
 
-## 项目路径
-
-```
-C:\Users\sdses\.kimi\mcp-runtime\workspace-bridge\
-```
-
-## 上下文
-
-workspace-bridge 是 MCP server，v0.6.0 → v0.7.0 升级完成。
-
-**v0.7.0 目标**：加 HTTP/SSE 传输支持，让 Claude Code GUI 版（云端 VM 环境）能连接。✅ 已完成
+> 生成时间：2026-04-28
+> 当前版本：v0.8.2
+> 会话主题：workspace-bridge 多语言支持收尾与文档精简
 
 ---
 
-## ✅ 已完成
+## 1. 项目当前状态
 
-### 改动文件
+**workspace-bridge** 是 CLI-first 工作区分析引擎，当前 v0.8.2。
 
-#### 1. `package.json`
-- ✅ 添加依赖：`@modelcontextprotocol/sdk@^1.12.0`
-- ✅ 添加依赖：`express@^4.18.2`
-- ✅ 添加 script：`"start:http": "MCP_MODE=http node server.js"`
-- ✅ 版本更新：`0.6.0` → `0.7.0`
+### 已完成（本轮）
 
-#### 2. `server.js`
-- ✅ 双模式支持：stdio（保留）+ HTTP（新增）
-- ✅ HTTP 模式使用 `StreamableHTTPServerTransport`（无状态模式）
-- ✅ 每个 HTTP 请求创建独立的 Server 实例
-- ✅ 端口默认 3000，可通过 `PORT` 环境变量覆盖
-- ✅ 启动模式由 `MCP_MODE` 环境变量控制
-- ✅ 支持 `WORKSPACE_ROOT` 环境变量手动指定工作区根目录
+| 事项 | 状态 | 关键文件 |
+|------|------|----------|
+| Java AST + Kotlin/Go/Rust L2 | ✅ | `scripts/java_ast_parser.py`, `src/services/dep-graph/parsers.js` |
+| 文档精简与对齐 | ✅ | AGENTS.md(161行), README.md(97行), ROADMAP.md(48行), SKILL.md(238行) |
+| 两周收敛计划 | ✅ | `docs/plans/2026-05-05-two-week-convergence.md` |
+| W1: Java dead-export 保守策略 | ✅ | `src/services/dep-graph.js` 第529-533行 + `test/java-dead-export-test.js` |
+| W1: Gradle Checkstyle 命令修复 | ✅ | `src/utils/stack-detector.js` + `test/java-gradle-checkstyle-test.js` |
+| W2: 官方自审脚本 | ✅ | `scripts/self-audit.js`（`npm run self-audit`） |
+| AGENTS.md 工程品味 | ✅ | 新增 TASTE 章节（Linus 哲学、代码铁律、验证门禁、TDD、调试流程） |
 
-#### 3. `src/utils/path.js`
-- ✅ `findWorkspaceRoot()` 优先检查 `WORKSPACE_ROOT` 环境变量
-- ✅ 支持通过 `options.workspaceRoot` 参数指定
+### 已完成（本轮追加）
 
-#### 4. `src/services/container.js`
-- ✅ 初始化时记录工作区根目录来源（环境变量或自动检测）
+| 事项 | 状态 | 关键文件 |
+|------|------|----------|
+| W2T3 命令建议质量收口 | ✅ | `src/utils/stack-detector.js` + `test/w2t3-command-quality-test.js` |
+| W2T4 发布前总回归 | ✅ | `npm run test:all` 全绿（17 项）+ `npm run self-audit` 通过 |
+| ROADMAP P1 包级解析器 | ✅ | `src/services/dep-graph/resolvers.js` + `test/gors-resolver-test.js` |
 
-### 启动方式
+### 待完成（留给下轮）
+
+| 任务 | 优先级 | 说明 |
+|------|--------|------|
+| ROADMAP P1 使用点解析 | P1 | Java/Go/Rust 轻量符号使用扫描，消除 dead-export 误报 |
+| ROADMAP P2 构建/测试命令智能化 | P2 | Gradle 任务发现、Go module path 聚合、Rust workspace 子 crate |
+
+---
+
+## 2. 快速验证命令
 
 ```bash
-# stdio 模式（默认，向后兼容）
-npm start
-# 或
-MCP_MODE=stdio node server.js
+# 全量回归（必须绿）
+npm run test:all
 
-# HTTP 模式
-npm run start:http
-# 或
-MCP_MODE=http PORT=3000 node server.js
+# 官方自审（27.2s，已验证通过）
+npm run self-audit
 
-# 手动指定工作区根目录
-WORKSPACE_ROOT=/path/to/project node server.js
+# 性能基准
+npm run benchmark:perf
+
+# 关键专项测试
+node test/java-parsers-test.js
+node test/java-resolver-test.js
+node test/java-dead-export-test.js
+node test/java-gradle-checkstyle-test.js
+node test/gors-stack-detection-test.js
 ```
-
-### 环境变量
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `MCP_MODE` | 传输模式：`stdio` 或 `http` | `stdio`（无 `PORT` 时） |
-| `PORT` | HTTP 端口 | `3000` |
-| `WORKSPACE_ROOT` | 手动指定工作区根目录 | 自动检测 |
-| `DEBUG` | 启用调试输出 | - |
-
-### 验证结果
-
-| 测试项 | 结果 |
-|--------|------|
-| stdio 模式 - initialize | ✅ |
-| stdio 模式 - tools/list (11 tools) | ✅ |
-| stdio 模式 - tools/call | ✅ |
-| HTTP 模式 - health 端点 | ✅ |
-| HTTP 模式 - initialize | ✅ |
-| HTTP 模式 - tools/list (11 tools) | ✅ |
-| HTTP 模式 - tools/call | ✅ |
-| WORKSPACE_ROOT 环境变量 | ✅ |
-
-### settings.json 配置
-
-```json
-{
-  "workspace-bridge": {
-    "url": "http://服务器IP:3000/mcp"
-  }
-}
-```
-
-### 技术细节
-
-- HTTP 模式使用 SDK 的 `StreamableHTTPServerTransport`，支持 SSE 响应
-- 无状态模式（stateless）：每个请求独立，不维护会话
-- 工具注册逻辑复用 `tool-registry.js`，无需修改
-- 错误消息脱敏逻辑统一，保护敏感路径信息
-- 容器初始化仍采用后台初始化 + `ensureReady()` 模式
-- 工作区根目录查找优先级：`WORKSPACE_ROOT` 环境变量 > 参数指定 > 自动检测
 
 ---
 
-## 约束检查
+## 3. 文档结构（精简后）
 
-- ✅ **不删现有 stdio 模式** - CLI 场景继续工作
-- ✅ **不改 tool-registry.js 和 services/** - 仅适配器模式转换
-- ✅ **HTTP 模式下工具调用仍然走 container.ensureReady()**
-- ✅ **端口默认 3000，可通过 PORT 环境变量覆盖**
-- ✅ **支持 WORKSPACE_ROOT 环境变量手动指定工作区**
+| 文件 | 角色 | 行数 |
+|------|------|------|
+| **AGENTS.md** | 唯一根入口（状态/原则/重点/品味） | 161 |
+| **README.md** | 使用入口（安装/命令/场景） | 97 |
+| **SKILL.md** | 独立命令契约（模式/输出/排障） | 238 |
+| **ROADMAP.md** | 未竟事项（已知限制+P1-P4） | 48 |
+| **CHANGELOG.md** | 历史版本 | 125 |
+| **docs/plans/** | 决策摘要（已完成计划压缩为ADR） | ~50/篇 |
+
+---
+
+## 4. 关键代码落点
+
+### 多语言解析
+- `scripts/java_ast_parser.py` — javalang AST 解析
+- `src/services/dep-graph/parsers.js` — parseJava(parseMode='ast'/'regex') + parseKotlin/Go/Rust
+- `src/services/dep-graph/resolvers.js` — resolveJavaImport(多模块source root) + resolveGo/RustImport
+
+### dead-export 保守策略
+- `src/services/dep-graph.js` 第529-533行：
+  ```javascript
+  if (filePath.endsWith('.java') && info.parseMode === 'ast') {
+    continue; // 跳过方法级 dead-export 判定
+  }
+  ```
+
+### 命令生成
+- `src/utils/stack-detector.js` — generateCommands()，getJavaCommands() 已分 Maven/Gradle
+
+---
+
+## 5. 升级标准（9/10 门槛）
+
+- [x] Java dead-export 无已知高频误报
+- [x] Gradle Checkstyle 命令可直接执行
+- [x] 自审 JSON 在 Windows 中文路径稳定解析
+- [x] 文档/实现/测试三者一致
+- [ ] 关键回归套件稳定通过（需再跑一轮确认）
+
+---
+
+## 6. 下轮建议
+
+**首选**：回归已确认全绿，P1 包级解析器已完成。下轮可推进 ROADMAP P1 使用点解析（轻量扫描符号使用），或 P2 命令智能化。
+
+**工程品味提醒**（已写入 AGENTS.md）：
+- 边界消除 > if
+- 函数 < 30 行
+- 没有失败测试不写生产代码
+- 验证门禁：确定→运行→阅读→验证→才宣称完成
+
+---
+
+*Last updated: 2026-04-28*

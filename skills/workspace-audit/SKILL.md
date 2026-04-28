@@ -27,34 +27,9 @@ Never assume the current terminal directory is the project root.
 
 Use this fallback chain:
 
-1. `workspace-bridge-cli ...` (global command - **requires fresh terminal after setup**)
+1. `workspace-bridge-cli ...` (global command)
 2. `node <workspace-bridge-repo>/cli.js ...` (repo-local fallback)
-3. `<node-path> <workspace-bridge-repo>/cli.js ...` (explicit node path for NVM setups)
-4. `node <workspace-bridge-repo>/scripts/cli-fallback.js ...` (scripted auto-fallback wrapper)
-
-Example (global - preferred after setup):
-
-```bash
-workspace-bridge-cli audit-summary --cwd <project> --json --quiet
-```
-
-Example (repo-local fallback):
-
-```bash
-node C:\Users\sdses\Desktop\随机小项目\workspace-bridge\cli.js audit-summary --cwd <project> --json --quiet
-```
-
-Example (NVM environment - node not in PATH):
-
-```powershell
-& "C:\Users\sdses\AppData\Local\nvm\v22.14.0\node.exe" C:\Users\sdses\Desktop\随机小项目\workspace-bridge\cli.js audit-summary --cwd <project> --json --quiet
-```
-
-Example (scripted wrapper, recommended for automation):
-
-```bash
-node C:\Users\sdses\Desktop\随机小项目\workspace-bridge\scripts\cli-fallback.js audit-summary --cwd <project> --json --quiet
-```
+3. `node <workspace-bridge-repo>/scripts/cli-fallback.js ...` (scripted auto-fallback wrapper)
 
 ### Startup preflight (must run once per new target path)
 
@@ -63,33 +38,20 @@ workspace-bridge-cli workspace-info --cwd <project> --json --quiet
 workspace-bridge-cli audit-summary --cwd <project> --json --quiet
 ```
 
-If preflight fails, report exact failure class:
-
-- path invalid / permission denied
-- not a git workspace (for `audit-diff`)
-- command missing / runtime missing
-- analysis degraded (fallback mode)
+If preflight fails, report exact failure class: path invalid / permission denied / not a git workspace / command missing / analysis degraded.
 
 ### Aggregate Commands (Recommended)
 
 ```bash
-# First pass on any repo (using global CLI)
 workspace-bridge-cli audit-summary --cwd <project> --json --quiet
-
-# Or using repo-local node
-node cli.js audit-summary --cwd <project> --json --quiet
-
-# With exclusions for mixed repos
-workspace-bridge-cli audit-summary --cwd <project> --exclude prototypes/reference,archive --json --quiet
-
-# Single file impact analysis
-workspace-bridge-cli audit-file --cwd <project> --file <relative-or-absolute-file> --json --quiet
-
-# Current git changes validation (with tech stack detection + commands)
+workspace-bridge-cli audit-file --cwd <project> --file <file> --json --quiet
 workspace-bridge-cli audit-diff --cwd <project> --json --quiet
-
-# Project panoramic view (hotspots + stability + orphans)
 workspace-bridge-cli audit-overview --cwd <project> --json --quiet
+```
+
+With exclusions for mixed repos:
+```bash
+workspace-bridge-cli audit-summary --cwd <project> --exclude prototypes/reference,archive --json --quiet
 ```
 
 ### Raw Commands (When you need details)
@@ -101,21 +63,19 @@ workspace-bridge-cli unresolved --cwd <project> --json
 workspace-bridge-cli cycles --cwd <project> --json
 workspace-bridge-cli impact --cwd <project> --file <file> --json
 workspace-bridge-cli affected-tests --cwd <project> --file <file> --max-depth 5 --json
-workspace-bridge-cli deps --cwd <project> --json
-workspace-bridge-cli diagnostics --cwd <project> --mode quick --json
 ```
 
 ## Usage rules
 
 ### Command Selection
 
-| Scenario                 | Recommended Command       | Why                                 |
-| ------------------------ | ------------------------- | ----------------------------------- |
-| First time seeing repo   | `audit-summary`         | Overall health + structural issues  |
-| Changing specific file   | `audit-file --file ...` | Impact + affected tests             |
-| Git worktree has changes | `audit-diff`            | Validation plan + concrete commands |
-| Planning refactoring     | `audit-overview`        | Hotspots + stability + orphans      |
-| Deep dive on dead code   | `dead-exports`          | Symbol-level candidates             |
+| Scenario | Recommended Command | Why |
+|----------|---------------------|-----|
+| First time seeing repo | `audit-summary` | Overall health + structural issues |
+| Changing specific file | `audit-file --file ...` | Impact + affected tests |
+| Git worktree has changes | `audit-diff` | Validation plan + concrete commands |
+| Planning refactoring | `audit-overview` | Hotspots + stability + orphans |
+| Deep dive on dead code | `dead-exports` | Symbol-level candidates |
 
 ### Options
 
@@ -126,13 +86,11 @@ workspace-bridge-cli diagnostics --cwd <project> --mode quick --json
 ### Reading Results
 
 **audit-summary:**
-
 1. Read `summary.severity` first (low/medium/high)
 2. Read `summary.nextSteps` for prioritized actions
 3. Check `scope.mainlineFiles` vs `scope.nonMainlineFiles` for mixed repo awareness
 
 **audit-diff:**
-
 1. Read `validationAdvice.changeType` (docs/config/tests/scripts/code)
 2. Check `validationAdvice.stack` for detected tech stack
 3. Use `validationAdvice.commands` for concrete commands to run
@@ -140,7 +98,6 @@ workspace-bridge-cli diagnostics --cwd <project> --mode quick --json
 5. Follow `validationAdvice.phases` in order (smoke → focused → full)
 
 **audit-overview:**
-
 1. Check `skeleton.coreModules` for key files to be careful with
 2. Review `hotspots` for high-risk files (frequent changes + high coupling)
 3. Review `stability` for fragile modules (low stability score)
@@ -197,14 +154,14 @@ Avoid `deps` in the default flow unless dependency drift is part of the task.
 
 ### Result Confidence
 
-| Finding                            | Confidence  | Action                                          |
-| ---------------------------------- | ----------- | ----------------------------------------------- |
-| `dead-exports` with no importers | High        | Candidate for deletion (verify dynamic loading) |
-| `unresolved` imports             | High        | Likely broken, inspect immediately              |
-| `cycles`                         | High        | Actionable architectural debt                   |
-| `orphans.modules`                | Medium      | Verify if actually unused (may be entry/config) |
-| `hotspots`                       | Medium-High | High churn + coupling, review carefully         |
-| `stability` fragile              | Medium      | Add tests before refactoring                    |
+| Finding | Confidence | Action |
+|---------|------------|--------|
+| `dead-exports` with no importers | High | Candidate for deletion (verify dynamic loading) |
+| `unresolved` imports | High | Likely broken, inspect immediately |
+| `cycles` | High | Actionable architectural debt |
+| `orphans.modules` | Medium | Verify if actually unused (may be entry/config) |
+| `hotspots` | Medium-High | High churn + coupling, review carefully |
+| `stability` fragile | Medium | Add tests before refactoring |
 
 ### Language Support Matrix
 
@@ -212,10 +169,10 @@ Avoid `deps` in the default flow unless dependency drift is part of the task.
 |----------|------------------|---------------|--------------|--------------|----------------|
 | JS/TS    | ✅ Full AST      | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full |
 | Python   | ✅ Full AST      | ✅ Module-level | ✅ `__all__` aware | ✅ Graph + Heuristic | ✅ Full |
-| Java     | ⚠️ Regex only    | ❌ File-level   | ❌ File-level   | ⚠️ Heuristic only   | ✅ Basic |
-| Kotlin   | ⚠️ Regex only    | ❌ File-level   | ❌ File-level   | ⚠️ Heuristic only   | ⚠️ Gradle only |
-| Go       | ⚠️ Regex only    | ❌ File-level   | ❌ File-level   | ⚠️ Heuristic only   | ❌ None |
-| Rust     | ⚠️ Regex only    | ❌ File-level   | ❌ File-level   | ⚠️ Heuristic only   | ❌ None |
+| Java     | ✅ AST (javalang) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full (Maven/Gradle) |
+| Kotlin   | ⚠️ L2 Regex      | ⚠️ File-level   | ⚠️ File-level   | ⚠️ Heuristic only   | ⚠️ Gradle only |
+| Go       | ⚠️ L2 Regex      | ⚠️ File-level   | ⚠️ File-level   | ⚠️ Heuristic only   | ✅ Basic |
+| Rust     | ⚠️ L2 Regex      | ⚠️ File-level   | ⚠️ File-level   | ⚠️ Heuristic only   | ✅ Basic |
 
 ### Known Limitations
 
@@ -252,25 +209,14 @@ This prevents reference code from polluting dead export and orphan detection res
 
 ### "node is not recognized" or "workspace-bridge-cli is not recognized"
 
-**Windows with NVM:**
-```powershell
-# Find your Node.js installation
-$nodePath = "C:\Users\$env:USERNAME\AppData\Local\nvm\v22.14.0\node.exe"
-& $nodePath cli.js audit-summary --cwd <project> --json --quiet
+**Use repo-local fallback:**
+```bash
+node <workspace-bridge-repo>/cli.js audit-summary --cwd <project> --json --quiet
 ```
 
-**Add Node.js to PATH permanently:**
-```powershell
-$nodeDir = "C:\Users\$env:USERNAME\AppData\Local\nvm\v22.14.0"
-$currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
-[Environment]::SetEnvironmentVariable("Path", "$currentPath;$nodeDir", "User")
-# Restart terminal after this
-```
-
-**Use global CLI directly:**
-```powershell
-# Global CLI is installed alongside Node.js
-& "C:\Users\$env:USERNAME\AppData\Local\nvm\v22.14.0\workspace-bridge-cli.ps1" audit-summary --cwd <project> --json --quiet
+**Use scripted wrapper:**
+```bash
+node <workspace-bridge-repo>/scripts/cli-fallback.js audit-summary --cwd <project> --json --quiet
 ```
 
 ### Permission denied on project path
@@ -282,11 +228,11 @@ test -d <project> && workspace-bridge-cli audit-summary --cwd <project> --json -
 
 ### Command runs but returns empty results
 
-Check if project has supported files (JS/TS/Python):
+Check if project has supported files (JS/TS/Python/Java/Kotlin/Go/Rust):
 ```bash
 workspace-bridge-cli workspace-info --cwd <project> --json --quiet
 ```
 
 ## Version
 
-This skill targets workspace-bridge v0.8.1+
+This skill targets workspace-bridge v0.8.2+
