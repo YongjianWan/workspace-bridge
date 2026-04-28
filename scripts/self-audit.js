@@ -5,6 +5,7 @@
  * 使用 spawnSync 安全消费 CLI JSON，避免 PowerShell 管道二次处理问题
  */
 const { spawnSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -48,10 +49,25 @@ function printSection(title) {
   console.log(`\n=== ${title} ===`);
 }
 
+function checkTempPollution() {
+  const files = fs.readdirSync(REPO_ROOT);
+  const pollution = files.filter((f) =>
+    f.startsWith('.tmp-') || f.includes('.workspace-bridge-cache.json.tmp-')
+  );
+  return pollution;
+}
+
 function main() {
   const start = Date.now();
   console.log('workspace-bridge 自审启动...');
   console.log(`repo: ${REPO_ROOT}`);
+
+  const pollution = checkTempPollution();
+  if (pollution.length > 0) {
+    console.log(`\n⚠️ 临时文件污染 detected: ${pollution.join(', ')}`);
+    console.log('建议：清理工作区后重新运行。');
+    process.exit(1);
+  }
 
   // 1. audit-summary
   printSection('结构健康度');

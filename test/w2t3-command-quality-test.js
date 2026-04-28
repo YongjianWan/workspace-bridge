@@ -53,6 +53,15 @@ function main() {
   const gradleCode = generateCommands(gradleStack, 'code', ['src/App.java']);
   assert(gradleCode.focused.some((c) => c.name === 'java-focused-tests'), 'Gradle code should include focused tests');
 
+  // --- Go code: .go change should trigger focused tests ---
+  const goCode = generateCommands(goStack, 'code', ['src/app.go']);
+  assert(goCode.focused.some((c) => c.name === 'go-focused-tests'), 'Go code should include go-focused-tests');
+
+  // --- Rust code: .rs change should trigger full tests (no focused yet) ---
+  const rustCode = generateCommands(rustStack, 'code', ['src/lib.rs']);
+  assert(rustCode.smoke.some((c) => c.name === 'rust-check'), 'Rust code should include rust-check');
+  assert(rustCode.full.some((c) => c.name === 'rust-all-tests'), 'Rust code should include rust-all-tests');
+
   // --- Mixed repo: go.mod + Cargo.toml in splitTargetsByStack ---
   const mixedStack = {
     profile: 'mixed',

@@ -163,21 +163,27 @@ function resolveJavaImport(importPath, root) {
   return null;
 }
 
-let _goModCache = new Map(); // root -> modulePath | null
+let _goModCache = new Map(); // root -> { modulePath, mtime }
 
 function readGoMod(root) {
-  if (_goModCache.has(root)) {
-    return _goModCache.get(root);
-  }
   const goModPath = path.join(root, 'go.mod');
-  if (!fs.existsSync(goModPath)) {
-    _goModCache.set(root, null);
+  let currentMtime = 0;
+  try {
+    currentMtime = fs.statSync(goModPath).mtimeMs;
+  } catch {
+    _goModCache.delete(root);
     return null;
   }
+
+  const cached = _goModCache.get(root);
+  if (cached && cached.mtime === currentMtime) {
+    return cached.modulePath;
+  }
+
   const content = fs.readFileSync(goModPath, 'utf8');
   const match = content.match(/^module\s+(\S+)/m);
   const modulePath = match ? match[1] : null;
-  _goModCache.set(root, modulePath);
+  _goModCache.set(root, { modulePath, mtime: currentMtime });
   return modulePath;
 }
 
@@ -246,11 +252,12 @@ function resolveRustImport(fromFile, importPath, root) {
     const fromDir = path.dirname(fromFile);
     let baseDir = fromDir;
     let remaining = importPath;
+    const srcRoot = path.join(root, 'src');
 
     while (remaining.startsWith('super::')) {
       remaining = remaining.slice('super::'.length);
       const parent = path.dirname(baseDir);
-      if (parent === baseDir || !parent.startsWith(root)) {
+      if (parent === baseDir || !parent.startsWith(srcRoot)) {
         return null;
       }
       baseDir = parent;
