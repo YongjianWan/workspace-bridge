@@ -119,10 +119,11 @@ workspace-bridge 的核心价值很直接：
 现在最值钱的开发方向（按优先级）：
 
 1. **修复基础可信度（Phase 0）** — ✅ 已完成：临时文件过滤、文件角色分类、自定义测试脚本识别、内部函数→测试映射、CJS 符号解析。
-2. **做更好的 test mapping** — ✅ P0T5 已完成：diff 场景下内部函数改动通过调用链追溯映射到导出函数，再映射 dependents。`audit-diff` 改 `resolvers.js` 中 `readGoMod` 时 `functionLevelAffectedTests` 包含 `test/gors-resolver-test.js`。
-3. **做 symbol-level impact** — CJS `module.exports = { fn }` 已支持，本项目 symbol-level impact 可用。剩余：文档类和无导出脚本的退化问题。
-4. **把历史风险和结构影响融合得更像工程判断** — 变更类型判断（docs/config/tests/code）必须先准，否则验证建议会错配。
-5. **继续打磨 mixed repo 的技术栈检测**
+2. **做更好的 test mapping** — ✅ P0T5 已完成：diff 场景下内部函数改动通过调用链追溯映射到导出函数，再映射 dependents。
+3. **做 symbol-level impact** — ✅ CJS `module.exports = { fn }` 已支持，本项目 symbol-level impact 可用。
+4. **全局项目地图（P1.5）** — ✅ `audit-map` 已输出 tree + edges + issueOverlay，给 AI 全局视野。
+5. **把历史风险和结构影响融合得更像工程判断** — 变更类型判断（docs/config/tests/code）必须先准，否则验证建议会错配。
+6. **继续打磨 mixed repo 的技术栈检测**
 
 不优先的东西：
 
@@ -171,6 +172,14 @@ workspace-bridge 的核心价值很直接：
 - `function-impact.js` `getChangedFunctionImpact()` 增加 DFS 调用链追溯：内部函数 → 导出调用者 → `changedFunctions`
 - `cli.js` 识别 `internal-function-call-chain` mode，触发 `functionLevelAffectedTests` 生成
 - 验收达成：改 `resolvers.js` 中 `readGoMod` 时，`functionLevelAffectedTests` 包含 `test/gors-resolver-test.js`
+
+#### P1.5: `audit-map` 全局项目地图
+- `src/cli/audit-formatters.js` `buildProjectMap()` 聚合 tree + edges + issueOverlay
+- `cli.js` 新增 `audit-map` 命令
+- Tree：56 个文件按目录聚合，标注 role（entry/library/test/config/script）
+- Edges：65 条 import/export 关系序列化
+- IssueOverlay：3 deadExports / 0 unresolved / 0 cycles / 9 orphans
+- 验收：`node cli.js audit-map --cwd . --json --quiet` 输出结构化全局地图
 
 #### P3: CJS 符号解析补全
 - `parsers.js` 识别 `module.exports = { fn }` 和 `exports.fn = ...` 结构

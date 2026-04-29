@@ -686,6 +686,123 @@ function buildValidationAdvice(entries, workspaceRoot) {
   };
 }
 
+function toRelativePath(root, filePath) {
+  if (!root || !filePath) return filePath;
+  const normalizedRoot = root.replace(/\\/g, '/');
+  const normalizedFile = filePath.replace(/\\/g, '/');
+  if (normalizedFile.toLowerCase().startsWith(normalizedRoot.toLowerCase())) {
+    let rel = normalizedFile.slice(normalizedRoot.length);
+    return rel.replace(/^[/]+/, '');
+  }
+  return normalizedFile;
+}
+
+function buildProjectMap(depGraph) {
+  if (!depGraph) {
+    return { ok: false, error: 'Dependency graph not initialized' };
+  }
+
+  const root = depGraph.root || depGraph.workspaceRoot || '';
+  const projectContext = depGraph.projectContext || null;
+  const allFiles = Array.from(depGraph.graph?.keys() || []);
+
+  // Tree: all files with roles
+  const tree = allFiles.map((file) => {
+    const relative = toRelativePath(root, file);
+    const classification = projectContext?.classifyFile?.(file) || {};
+    const info = depGraph.getFileInfo(file) || {};
+    const ext = (relative.match(/\.([^.]+)$/) || [])[1] || null;
+    return {
+      file: relative,
+      role: classification.fileRole || 'library',
+      mainline: classification.isMainline !== false,
+      language: ext,
+      parseMode: info.parseMode || 'none',
+      exports: (info.exportRecords || info.exports || []).map((r) =>
+        typeof r === 'string' ? r : r?.name
+      ).filter(Boolean),
+    };
+  }).sort((a, b) => a.file.localeCompare(b.file));
+
+  // Edges: import relationships
+  const edges = [];
+  const seenEdges = new Set();
+  for (const file of allFiles) {
+    const fromRel = toRelativePath(root, file);
+    const info = depGraph.getFileInfo(file) || {};
+    const imports = info.importRecords || [];
+    const importRecords = Array.isArray(imports) && imports.length > 0
+      ? imports
+      : (info.imports || []).map((source) => ({ source, usesAllExports: true }));
+
+    for (const record of importRecords) {
+      const resolved = record.resolved || record.source;
+      if (!resolved) continue;
+      const toRel = toRelativePath(root, resolved);
+      const edgeKey = `${fromRel}|${toRel}`;
+      if (seenEdges.has(edgeKey)) continue;
+      seenEdges.add(edgeKey);
+      edges.push({
+        from: fromRel,
+        to: toRel,
+        type: 'import',
+        symbols: record.imported || [],
+        usesAllExports: Boolean(record.usesAllExports),
+      });
+    }
+
+    // Re-export edges
+    for (const record of info.exportRecords || []) {
+      if (record?.reExported && record.reExported.length > 0) {
+        for (const pair of record.reExported) {
+          edges.push({
+            from: fromRel,
+            type: 're-export',
+            imported: pair.imported,
+            exported: pair.exported,
+          });
+        }
+      }
+    }
+  }
+
+  // IssueOverlay
+  const deadExports = depGraph.findDeadExports?.() || [];
+  const unresolved = depGraph.findUnresolvedImports?.() || [];
+  const cycles = depGraph.findCircularDependencies?.() || [];
+
+  // Simple orphan detection (inline to avoid circular deps with overview-tools)
+  const orphans = [];
+  const entrySet = depGraph.entryFiles || new Set();
+  for (const file of allFiles) {
+    if (depGraph.isTestLikeFile?.(file)) continue;
+    const dependents = depGraph.getDependents?.(file) || [];
+    const isEntry = entrySet.has?.(file) || entrySet.includes?.(file);
+    if (!isEntry && dependents.length === 0) {
+      orphans.push(toRelativePath(root, file));
+    }
+  }
+
+  return {
+    ok: true,
+    tree,
+    edges,
+    issueOverlay: {
+      deadExports: deadExports.map((item) => ({
+        file: toRelativePath(root, item.file),
+        exports: item.exports,
+      })),
+      unresolved: unresolved.map((item) => ({
+        file: toRelativePath(root, item.file),
+        import: item.import,
+        resolvedTo: item.resolvedTo || null,
+      })),
+      cycles: cycles.map((cycle) => cycle.map((f) => toRelativePath(root, f))),
+      orphans,
+    },
+  };
+}
+
 module.exports = {
   toNumber,
   buildCompositeRisk,
@@ -693,4 +810,5 @@ module.exports = {
   buildFileSummary,
   buildAuditDiffSummary,
   buildValidationAdvice,
+  buildProjectMap,
 };

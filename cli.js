@@ -19,6 +19,7 @@ const {
   buildFileSummary,
   buildAuditDiffSummary,
   buildValidationAdvice,
+  buildProjectMap,
 } = require('./src/cli/audit-formatters');
 const { buildProjectOverview } = require('./src/tools/overview-tools');
 
@@ -64,6 +65,7 @@ Commands:
   audit-file --file <p>   Aggregate impact + affected tests for one file
   audit-diff             Aggregate changed files + impact + affected tests
   audit-overview         Project panoramic view (hotspots, stability, orphans)
+  audit-map              Global project map (tree + edges + issue overlay)
   health                  Summarize project health
   deps                    List outdated dependencies
   dead-exports            Find dead export candidates
@@ -249,6 +251,16 @@ function formatHuman(command, result) {
         `hotspotsMedium: ${result.aggregates?.hotspotsByRisk?.medium ?? 0}`,
         `fragileModules: ${result.aggregates?.stabilityCounts?.fragile ?? 0}`,
         `orphansTotal: ${result.orphans?.counts?.total ?? 0}`,
+      ].join('\n');
+    case 'audit-map':
+      return [
+        `workspaceRoot: ${result.workspaceRoot}`,
+        `files: ${result.tree?.length ?? 0}`,
+        `edges: ${result.edges?.length ?? 0}`,
+        `deadExports: ${result.issueOverlay?.deadExports?.length ?? 0}`,
+        `unresolved: ${result.issueOverlay?.unresolved?.length ?? 0}`,
+        `cycles: ${result.issueOverlay?.cycles?.length ?? 0}`,
+        `orphans: ${result.issueOverlay?.orphans?.length ?? 0}`,
       ].join('\n');
     case 'deps':
       return result.results.map((entry) => {
@@ -449,6 +461,10 @@ async function runCommand(parsed, container) {
     }
     case 'audit-overview':
       return buildProjectOverview(parsed, container);
+    case 'audit-map': {
+      await container.ensureReady();
+      return buildProjectMap(container.depGraph);
+    }
     case 'health':
       return projectHealth({ cwd: parsed.cwd }, container);
     case 'deps':
