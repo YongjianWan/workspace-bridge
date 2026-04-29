@@ -23,28 +23,29 @@
 ## 基础能力（Phase 0-1）—— 先止血，再增功能
 按 AGENTS.md 原则"先减少误报，再加功能"，以下问题当前最伤害输出可信度，优先于多语言深度。每个条目已拆为"代码落点 + 验收命令"。
 
-### P0T1: 临时文件过滤（CLI 层面）
+### P0T1: 临时文件过滤（CLI 层面）— ✅ 完成
 - **问题**：`.gitignore` 已更新，但 `audit-diff` 代码层面仍将 `.tmp-*`、`.workspace-bridge-cache.json.tmp-*` 纳入 `changedFiles`
-- **代码落点**：`cli.js` `audit-diff` 的 changed files 收集逻辑（`getChangedFiles` 结果过滤或 `runCommand` 中 `safeEntries` 过滤）
-- **改动量**：~5 行
+- **代码落点**：`src/tools/git-tools.js` `getChangedFiles()` 新增 `isTempFile()` 过滤
+- **完成证据**：`git-tools.js` 正则匹配 basename；`phase01-quality-test.js` `testTempFileFilter` 通过；`scripts/self-audit.js` 增加污染检测前置检查（530c6b7）
 - **验收**：存在 `.tmp-audit-summary.json` 时，`audit-diff` 的 `changedFiles` 不包含它
 
-### P0T2: 自定义测试脚本识别
+### P0T2: 自定义测试脚本识别 — ✅ 完成
 - **问题**：`package.json` 中 `test:*` / `test:all` 等自定义脚本未被识别为测试配置，`health.testConfig: false`，`audit-diff` focused 阶段命令缺失
 - **代码落点**：`src/utils/stack-detector.js` `detectTestRunner()` 增加 `package.json` `scripts` 字段扫描（检测 `test` / `test:*` 前缀）
-- **改动量**：~20 行
+- **完成证据**：`phase01-quality-test.js` `testCustomTestScriptDetection` 通过；`audit-summary` 当前输出 `testConfig.found: true`（已从 `false` 变为 `true`）
+- **遗留问题**：`startsWith('test')` 会误匹配 `pretest` / `posttest`（npm 生命周期钩子）。建议下轮改为 `key === 'test' || key.startsWith('test:')`。
 - **验收**：`audit-summary` 输出 `testConfig.found: true, frameworks: ["custom-node-scripts"]`；`audit-diff` 的 `commands.focused` 不为空
 
-### P0T3: 文件角色分类修正
+### P0T3: 文件角色分类修正 — ✅ 完成
 - **问题**：文档（`AGENTS.md`、`README.md`）被分类为 `library`，`cli.js` 同时出现在 `entryPoints` 和 `orphans` 中
-- **代码落点**：`src/utils/project-context.js` `classifyFile()` 增加文档/配置白名单；`src/tools/overview-tools.js` 孤儿检测排除 `entryFiles`
-- **改动量**：~20 行
+- **代码落点**：`src/utils/project-context.js` `inferFileRole()` 新增 `docs` 角色（`.md/.txt/.rst` + LICENSE/CHANGELOG/CONTRIBUTING）和扩展 `config` 模式；`dep-graph.js` `_collectEntryFiles()` 路径规范化
+- **完成证据**：`phase01-quality-test.js` `testFileRoleDocs` + `testFileRoleConfig` + `testEntryFileNormalization` 全绿
 - **验收**：`audit-diff` 中文档改动输出 `fileRole: docs, changeType: docs`；`audit-overview` 的 `orphans.modules` 不含 `cli.js`
 
-### P0T4: 变更类型判断修正
+### P0T4: 变更类型判断修正 — ✅ 完成
 - **问题**：文档/配置改动被输出为 `changeType: code`，验证模板错配
-- **代码落点**：`src/cli/audit-formatters.js` `buildValidationAdvice()` 增加 changeType 分支：当全部 changed files 的 `fileRole` 为 `docs/config` 时，`changeType = docs/config`
-- **改动量**：~15 行
+- **代码落点**：`src/cli/audit-formatters.js` `classifyChangeType()` 增加 `fileRole === 'docs'` 分支
+- **完成证据**：`phase01-quality-test.js` 通过；`audit-summary` 当前输出 `testRunner: "custom"`（T3 连带修复）
 - **验收**：只改 `README.md` + `ROADMAP.md` 时，`audit-diff` 输出 `changeType: docs`
 
 ### P0T5: Diff 场景 test mapping 激活（内部函数改动追踪）
