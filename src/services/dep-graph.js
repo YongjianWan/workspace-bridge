@@ -449,32 +449,6 @@ class DependencyGraph {
     return cycles;
   }
 
-  /**
-   * Get unused exports in a file
-   */
-  getUnusedExports(filePath) {
-    const info = this.getFileInfo(filePath);
-    if (!info) return [];
-
-    const unused = [];
-    for (const exp of info.exports) {
-      // Check if any file imports this symbol
-      let isUsed = false;
-      for (const [f, i] of this.graph) {
-        if (f === filePath) continue;
-        // Simple check: does the import contain the export name
-        // Real implementation would need more sophisticated analysis
-        if (i.imports.some(imp => imp.includes(exp) || imp.includes(path.basename(filePath, path.extname(filePath))))) {
-          isUsed = true;
-          break;
-        }
-      }
-      if (!isUsed) unused.push(exp);
-    }
-
-    return unused;
-  }
-
   getStats() {
     return {
       files: this.graph.size,
