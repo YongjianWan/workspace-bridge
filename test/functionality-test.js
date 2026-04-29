@@ -43,6 +43,14 @@ function runInDir(command, args, cwd) {
 function main() {
   console.log('=== workspace-bridge CLI 功能可用性测试 ===\n');
 
+  // Ensure audit-diff has at least one changed file to detect.
+  // We temporarily append a newline to README.md and restore it in finally.
+  const trackedFile = path.join(repoRoot, 'README.md');
+  const originalContent = fs.readFileSync(trackedFile, 'utf8');
+  fs.writeFileSync(trackedFile, originalContent + '\n', 'utf8');
+
+  try {
+
   const workspaceInfo = runCli(['workspace-info', '--cwd', '.', '--json', '--quiet']);
   assert.strictEqual(workspaceInfo.workspaceRoot, repoRoot);
   console.log('workspace-info: ok');
@@ -344,7 +352,10 @@ function main() {
   assert(diagnosticsQuick.checksRun >= 1, 'quick diagnostics should run at least one check');
   console.log('diagnostics-quick: ok');
 
-  console.log('\nAll CLI functionality tests passed');
+    console.log('\nAll CLI functionality tests passed');
+  } finally {
+    fs.writeFileSync(trackedFile, originalContent, 'utf8');
+  }
 }
 
 main();
