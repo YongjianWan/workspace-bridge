@@ -158,11 +158,13 @@ function resolvePythonCommand(root) {
     path.join(root, 'venv', 'Scripts', 'python.exe'),
     path.join(root, '.venv', 'bin', 'python'),
     path.join(root, 'venv', 'bin', 'python'),
+    'python3',
+    'python',
   ];
 
   for (const candidate of candidates) {
     if (pathExists(candidate)) {
-      return `"${candidate}"`;
+      return candidate;
     }
   }
   return 'python';

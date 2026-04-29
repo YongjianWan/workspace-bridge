@@ -117,13 +117,15 @@ class DiagnosticsEngine {
     try {
       const resolved = path.resolve(filePath);
       const rootResolved = path.resolve(this.root);
-      
+
       // On Windows, do case-insensitive comparison
       const isWindows = process.platform === 'win32';
       const checkResolved = isWindows ? resolved.toLowerCase() : resolved;
       const checkRoot = isWindows ? rootResolved.toLowerCase() : rootResolved;
-      
-      return checkResolved.startsWith(checkRoot);
+
+      const relative = path.relative(checkRoot, checkResolved);
+      if (!relative) return true;
+      return !relative.startsWith('..') && !path.isAbsolute(relative);
     } catch (e) {
       return false;
     }

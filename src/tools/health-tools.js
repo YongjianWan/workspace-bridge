@@ -48,8 +48,12 @@ function detectTestConfig(root, workspace) {
   if (pathExists(path.join(root, 'pytest.ini')) || pathExists(path.join(root, 'setup.cfg'))) frameworks.push('pytest');
   if (workspace.hasPyproject) frameworks.push('pytest-pyproject');
   if (pathExists(path.join(root, '.mocharc.js')) || pathExists(path.join(root, '.mocharc.yml'))) frameworks.push('mocha');
-  if (workspace.hasPackageJson && workspace.packageJson?.scripts?.test) {
-    frameworks.push('custom-node-scripts');
+  if (workspace.hasPackageJson && workspace.packageJson?.scripts) {
+    const scripts = workspace.packageJson.scripts;
+    const hasTestScript = Object.keys(scripts).some((key) => key === 'test' || key.startsWith('test:'));
+    if (hasTestScript) {
+      frameworks.push('custom-node-scripts');
+    }
   }
   return { found: frameworks.length > 0, frameworks };
 }

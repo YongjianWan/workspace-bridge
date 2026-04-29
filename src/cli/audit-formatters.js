@@ -262,11 +262,15 @@ function classifyChangeType(entries) {
     } else if (fileRole === 'test' ||
              file.includes('.test.') ||
              file.includes('.spec.') ||
+             file.startsWith('test/') ||
              file.includes('/test/') ||
+             file.startsWith('tests/') ||
              file.includes('/tests/')) {
       types.add('tests');
     } else if (fileRole === 'script' ||
+             file.startsWith('scripts/') ||
              file.includes('/scripts/') ||
+             file.startsWith('bin/') ||
              file.includes('/bin/') ||
              ext === 'sh' ||
              ext === 'bash' ||

@@ -235,10 +235,15 @@ class WorkspaceCache {
   }
 
   getStats() {
+    let diagnosticCount = 0;
+    for (const entry of this.diagnostics.values()) {
+      const diags = entry?.diagnostics;
+      if (Array.isArray(diags)) diagnosticCount += diags.length;
+    }
     return {
       files: this.fileMetadata.size,
       symbols: this.symbolIndex.size,
-      diagnostics: Array.from(this.diagnostics.values()).flat().length,
+      diagnostics: diagnosticCount,
     };
   }
 }

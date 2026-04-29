@@ -337,9 +337,12 @@ class DependencyGraph {
 
   buildReverseGraph() {
     this.reverseGraph.clear();
-    
+
     for (const [file, info] of this.graph) {
+      const seen = new Set();
       for (const imp of info.imports) {
+        if (seen.has(imp)) continue;
+        seen.add(imp);
         if (!this.reverseGraph.has(imp)) {
           this.reverseGraph.set(imp, []);
         }
