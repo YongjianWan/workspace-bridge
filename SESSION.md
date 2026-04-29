@@ -88,7 +88,7 @@ npm run benchmark:perf
 - `src/cli/audit-formatters.js` — `buildProjectMap()` 聚合 tree + edges + issueOverlay
 - `cli.js` — `audit-map` case 调用 `buildProjectMap(container.depGraph)`
 
-### 本轮修复
+### 本轮修复（commit `f8c291e`）
 - `src/services/dep-graph/resolvers.js` — `resolveJavaScriptImport()` 目录截断修复
 - `src/cli/audit-formatters.js` — `toRelativePath()` 边界校验 + `buildDirectoryTree()` 目录聚合 + deadExports confidence + hotspots
 - `cli.js` — `countTreeFiles()` 适配目录树 human 输出

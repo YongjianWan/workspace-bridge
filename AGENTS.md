@@ -176,9 +176,9 @@ workspace-bridge 的核心价值很直接：
 #### P1.5: `audit-map` 全局项目地图
 - `src/cli/audit-formatters.js` `buildProjectMap()` 聚合 tree + edges + issueOverlay
 - `cli.js` 新增 `audit-map` 命令
-- Tree：56 个文件按目录聚合，标注 role（entry/library/test/config/script）
-- Edges：65 条 import/export 关系序列化
-- IssueOverlay：3 deadExports / 0 unresolved / 0 cycles / 9 orphans
+- Tree：目录聚合树（`directory`/`file` 节点），标注 role（entry/library/test/config/script）
+- Edges：65 条 import/export 关系序列化，含 re-export 边与 symbols
+- IssueOverlay：3 deadExports（带 confidence）/ 0 unresolved / 0 cycles / 9 orphans / 4 hotspots
 - 验收：`node cli.js audit-map --cwd . --json --quiet` 输出结构化全局地图
 
 #### P3: CJS 符号解析补全
