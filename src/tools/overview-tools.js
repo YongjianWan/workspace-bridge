@@ -64,7 +64,7 @@ function findOrphanFiles(files, entryFiles, graph, root) {
 
     if (ext === '.md' || ext === '.mdx' || base.toLowerCase().includes('readme')) {
       orphans.docs.push(relativePath);
-    } else if (relativePath.includes('/scripts/') || relativePath.includes('/bin/')) {
+    } else if (relativePath.startsWith('scripts/') || relativePath.includes('/scripts/') || relativePath.startsWith('bin/') || relativePath.includes('/bin/')) {
       orphans.scripts.push(relativePath);
     } else if (ext === '.json' || ext === '.yaml' || ext === '.yml' || ext === '.toml') {
       orphans.configs.push(relativePath);
@@ -256,6 +256,64 @@ function buildCycleRefactorSuggestions(root, depGraph, projectContext) {
   return suggestions.slice(0, 10);
 }
 
+function generateCouplingSplitPlan(role, coupling) {
+  const { inDegree, outDegree, total } = coupling;
+
+  // Entry point: high outward coupling is natural, focus on command dispatch
+  if (role === 'entry') {
+    return [
+      'entry 点天然需要聚合依赖，关注是否可提取子命令分发层',
+      '避免在 entry 中直接包含业务实现，将具体逻辑下沉到独立服务',
+    ];
+  }
+
+  // Pure utility (only depended upon, no dependencies)
+  if (inDegree > 0 && outDegree === 0) {
+    return [
+      '被大量模块依赖，修改影响面大，建议保持接口稳定，新增功能优先开新模块',
+      '保持原子性，避免吸收不相关职责；若规模膨胀再按主题拆分',
+    ];
+  }
+
+  // Pure consumer (only depends on others, no dependents)
+  if (inDegree === 0 && outDegree > 0) {
+    return [
+      '零被依赖但高 outward 耦合，检查是否有重复初始化逻辑可下沉为独立模块',
+      '评估是否可通过依赖注入或工厂模式减少直接引用数量',
+    ];
+  }
+
+  // Script / tool modules
+  if (role === 'script') {
+    return [
+      '工具模块被多处引用，提取可复用核心逻辑到独立库，避免业务状态沉淀',
+      '保持工具函数无副作用，按领域拆分为专用工具子模块',
+    ];
+  }
+
+  // Test files
+  if (role === 'test') {
+    return [
+      '测试文件耦合高通常正常，关注是否可提取公共测试 fixture 到独立 helper',
+      '避免测试间相互 import，保持测试隔离性',
+    ];
+  }
+
+  // Config files
+  if (role === 'config') {
+    return [
+      '配置模块被多处引用时，考虑按环境或领域拆分为独立配置文件',
+      '提取配置验证逻辑到独立模块，避免配置解析散落在各处',
+    ];
+  }
+
+  // Default: bidirectional coupling (both depended upon and depends on others)
+  return [
+    '同时被依赖和依赖他人，考虑提取接口层或 facade 打破直接引用链',
+    '评估是否可拆分为 facade + 实现，或按读写/生命周期阶段分离职责',
+  ];
+}
+
 function buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectContext) {
   const candidates = [];
   for (const file of mainlineFiles) {
@@ -283,10 +341,7 @@ function buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectCon
       coupling: item.coupling,
       role: item.role,
       reason: `耦合过高（in=${item.coupling.inDegree}, out=${item.coupling.outDegree}, total=${item.coupling.total}）`,
-      splitPlan: [
-        '按职责拆分为 core/domain/adapter 子模块，减少横向依赖',
-        '提取稳定接口层，反转上层对实现细节的直接引用',
-      ],
+      splitPlan: generateCouplingSplitPlan(item.role, item.coupling),
       validation: {
         command: 'node cli.js audit-overview --cwd . --json --quiet',
         expectation: '目标模块 coupling.total 下降，stabilityScore 不回退',
