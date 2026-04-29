@@ -48,11 +48,12 @@
 - **完成证据**：`phase01-quality-test.js` 通过；`audit-summary` 当前输出 `testRunner: "custom"`（T3 连带修复）
 - **验收**：只改 `README.md` + `ROADMAP.md` 时，`audit-diff` 输出 `changeType: docs`
 
-### P0T5: Diff 场景 test mapping 激活（内部函数改动追踪）
+### P0T5: Diff 场景 test mapping 激活（内部函数改动追踪）— ✅ 完成
 - **问题**：改内部辅助函数（如 `readGoMod`）时，`changedFunctionImpact.mode = "no-exported-function-change"`，`affectedTests` 为 0
-- **代码落点**：`src/services/dep-graph.js` `getChangedFunctionImpact()` 增加内部函数调用链追踪 — 找到调用该内部函数的导出函数，再映射 dependents
-- **改动量**：~50 行
-- **验收**：改 `resolvers.js` 中 `readGoMod`（内部函数）时，`affectedTests` 包含 `test/gors-resolver-test.js`
+- **代码落点**：`src/services/dep-graph/parsers.js` 新增 `functionRecords`（所有函数定义含 callCallees）；`src/services/dep-graph/function-impact.js` `getChangedFunctionImpact()` 增加 DFS 调用链追溯；`cli.js` 识别 `internal-function-call-chain` mode 以触发 `functionLevelAffectedTests`
+- **改动量**：~80 行
+- **完成证据**：`test/p0t5-internal-function-impact-test.js` 4 项全绿；`audit-diff` 改 `resolvers.js` 中 `readGoMod` 时，`functionLevelAffectedTests` 包含 `test/gors-resolver-test.js`
+- **附带修复**：CJS `module.exports = { fn }` 导出识别（P3 同轮完成），使 `functionToDependents` 对本项目生效
 
 ---
 
@@ -99,8 +100,8 @@
 - [ ] **CLI 命令完整性补全**（投入：低 / 收益：中 / 风险：低）— 底层 `dep-tools` 的 `stats` / `dependents` / `dependencies` operation 未暴露为 CLI 命令；`searchCode`（symbol 搜索）也未暴露。评估后补充有价值的独立命令
 
 ### P3：提升输出可解释性
-- [ ] **CJS 符号解析补全**（投入：低 / 收益：高 / 风险：低）— `parsers.js` 识别 `module.exports = { fn }` 结构，使 `symbolToDependents` 不再为空数组。落点：`dep-graph/parsers.js` + `dep-graph.js` 符号级图构建
-- [ ] **内部函数改动→测试映射**（投入：中 / 收益：高 / 风险：低）— `getChangedFunctionImpact()` 追踪内部辅助函数的调用链，找到调用它的导出函数，再映射 dependents。落点：`src/services/dep-graph.js`
+- [x] **CJS 符号解析补全**（投入：低 / 收益：高 / 风险：低）— `parsers.js` 识别 `module.exports = { fn }` 和 `exports.fn = ...` 结构，使 `symbolToDependents` 不再为空数组。落点：`dep-graph/parsers.js` + `symbol-impact.js` `buildFunctionToDependents` 同时参考 `functionRecords`
+- [x] **内部函数改动→测试映射**（投入：中 / 收益：高 / 风险：低）— `getChangedFunctionImpact()` 追踪内部辅助函数的调用链，找到调用它的导出函数，再映射 dependents。落点：`src/services/dep-graph/function-impact.js`
 - [ ] **影响路径解释字段**（投入：低 / 收益：中 / 风险：低）— `impact` 数组增加 `reason` + `importedSymbols` + `via` 字段。落点：`src/services/dep-graph.js` `getImpactRadius()`
 - [ ] **变更影响解释链（聚合）**（投入：中 / 收益：高 / 风险：低）— `audit-diff` 输出可读的因果链，如"因 `dep-graph.js` import `resolvers.js` 的 `resolveImport`，故波及 `test/gors-resolver-test.js`"。落点：`src/cli/audit-formatters.js`
 - [ ] **耦合拆分建议去模板化**（投入：低 / 收益：中 / 风险：低）— `audit-overview` 的 `couplingSplitSuggestions` 当前 10 条文案全一样，应根据实际出入度生成针对性建议（如 `path.js` in=14/out=0 应建议"保持原子性"而非"拆分为 core/domain/adapter"）。落点：`src/tools/overview-tools.js`

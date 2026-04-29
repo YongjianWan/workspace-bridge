@@ -118,9 +118,9 @@ workspace-bridge 的核心价值很直接：
 
 现在最值钱的开发方向（按优先级）：
 
-1. **修复基础可信度（Phase 0）** — 临时文件过滤、文件角色分类、entry/orphan 语义冲突、自定义测试脚本识别。这些是"先减少误报"原则的直接体现，堵塞在多语言扩展之前。
-2. **做更好的 test mapping** — 特别是 diff 场景下 `affectedTests` 从 0 到真实的跃迁，以及 Node 自定义测试命令的 focused/full 阶段生成。
-3. **做 symbol-level impact** — 已有基础，但文档类和无导出脚本常退化为 `unknown` 或文件级。
+1. **修复基础可信度（Phase 0）** — ✅ 已完成：临时文件过滤、文件角色分类、自定义测试脚本识别、内部函数→测试映射、CJS 符号解析。
+2. **做更好的 test mapping** — ✅ P0T5 已完成：diff 场景下内部函数改动通过调用链追溯映射到导出函数，再映射 dependents。`audit-diff` 改 `resolvers.js` 中 `readGoMod` 时 `functionLevelAffectedTests` 包含 `test/gors-resolver-test.js`。
+3. **做 symbol-level impact** — CJS `module.exports = { fn }` 已支持，本项目 symbol-level impact 可用。剩余：文档类和无导出脚本的退化问题。
 4. **把历史风险和结构影响融合得更像工程判断** — 变更类型判断（docs/config/tests/code）必须先准，否则验证建议会错配。
 5. **继续打磨 mixed repo 的技术栈检测**
 
@@ -166,6 +166,16 @@ workspace-bridge 的核心价值很直接：
 - 验证命令生成：`go build/test`、`cargo check/test`
 - 路径解析：Go 同目录相对 import 支持
 
+#### P0T5: 内部函数改动→测试映射
+- `parsers.js` 新增 `functionRecords`：收集所有 `FunctionDeclaration`/`FunctionExpression` 的 line range 与 `callCallees`
+- `function-impact.js` `getChangedFunctionImpact()` 增加 DFS 调用链追溯：内部函数 → 导出调用者 → `changedFunctions`
+- `cli.js` 识别 `internal-function-call-chain` mode，触发 `functionLevelAffectedTests` 生成
+- 验收达成：改 `resolvers.js` 中 `readGoMod` 时，`functionLevelAffectedTests` 包含 `test/gors-resolver-test.js`
+
+#### P3: CJS 符号解析补全
+- `parsers.js` 识别 `module.exports = { fn }` 和 `exports.fn = ...` 结构
+- `symbol-impact.js` `buildFunctionToDependents` 同时参考 `functionRecords`，CJS 文件的 symbol-level impact 可用
+
 #### M5: 项目全景视图
 - 新增 `audit-overview` 命令
 - 热区图：基于 Git 历史和依赖耦合度识别高风险文件
@@ -180,10 +190,10 @@ workspace-bridge 的核心价值很直接：
 - `EditorState` 还在，但价值一般，后续可能继续降权甚至删掉。
 - `dead-exports` 现在对常见 JS/TS 语法已有基础符号级判断，但不是完整 AST 编译器。
 - `audit-diff` 是当前主战场，改动最好优先补它的测试。
-- **临时文件会污染 `audit-diff`** — 工作区中的 `.tmp-*`、`.workspace-bridge-cache.json.tmp-*` 会被纳入分析，导致 severity 虚高。提交前清理或使用 `.gitignore`。
-- **自定义测试脚本识别存在盲区** — `package.json` 中 `test:*` / `test:all` 等脚本不被识别为测试框架，导致 `health.testConfig: false` 和 `audit-diff` focused 阶段命令缺失。
-- **文件角色分类可能误判** — 文档（`AGENTS.md`、`README.md`）可能被分类为 `library`，导致 `changeType: code` 和错误的验证模板匹配。
-- **entry 与 orphan 可能冲突** — `cli.js` 等入口文件可能同时出现在 `skeleton.entryPoints` 和 `orphans.modules` 中，审查孤儿文件时需人工核对。
+- **临时文件过滤（P0T1）** — `git-tools.js` `getChangedFiles()` 已过滤 `.tmp-*` 和 `cache.tmp-*`，但工作区中残留的临时文件仍建议清理。
+- **自定义测试脚本识别（P0T3）** — `stack-detector.js` 已扫描 `package.json` 中 `test` / `test:*` 前缀脚本（排除 `pretest`/`posttest`），`health.testConfig` 和 focused 命令已可用。
+- **文件角色分类（P0T2）** — `project-context.js` 已新增 `docs` 角色（`.md/.txt/.rst` + LICENSE/CHANGELOG/CONTRIBUTING），`audit-diff` 中文档改动输出 `changeType: docs`。
+- **entry 与 orphan 冲突（P0T2）** — `dep-graph.js` `_collectEntryFiles()` 已路径规范化，`cli.js` 等入口文件不再同时出现在 `orphans.modules` 中。
 - 混合仓库必须用 `.workspace-bridge.json` 标注目录角色，否则孤儿检测严重误报。
 - 已知完整限制列表见 [ROADMAP.md](./ROADMAP.md)。
 
@@ -217,4 +227,4 @@ workspace-bridge 的核心价值很直接：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [docs/plans/](./docs/plans/)。*
-*Last updated: 2026-04-28*
+*Last updated: 2026-04-29*

@@ -371,7 +371,8 @@ async function runCommand(parsed, container) {
             reuseHints = [];
           }
         }
-        const functionLevelAffectedTests = graphKnown && changedFunctionImpactBase?.mode === 'function-symbol'
+        const functionLevelAffectedTests = graphKnown &&
+          (changedFunctionImpactBase?.mode === 'function-symbol' || changedFunctionImpactBase?.mode === 'internal-function-call-chain')
           ? container.depGraph.getFunctionLevelAffectedTests(
             resolvedPath,
             changedFunctionImpactBase.changedFunctions,

@@ -285,6 +285,7 @@ class DependencyGraph {
       let exports = [];
       let importRecords = [];
       let exportRecords = [];
+      let functionRecords = [];
       let parseMode = 'none';
 
       if (ext === '.py') {
@@ -294,15 +295,15 @@ class DependencyGraph {
         importRecords = pyResult.importRecords || [];
         parseMode = pyResult.parseMode || 'regex';
       } else if (['.js', '.ts', '.jsx', '.tsx'].includes(ext)) {
-        ({ imports, exports, importRecords, exportRecords, parseMode } = parseJavaScript(content, filePath));
+        ({ imports, exports, importRecords, exportRecords, functionRecords = [], parseMode } = parseJavaScript(content, filePath));
       } else if (ext === '.java') {
-        ({ imports, exports, importRecords, exportRecords, parseMode } = await parseJava(content));
+        ({ imports, exports, importRecords, exportRecords, functionRecords = [], parseMode } = await parseJava(content));
       } else if (ext === '.kt') {
-        ({ imports, exports, importRecords, exportRecords, parseMode } = parseKotlin(content));
+        ({ imports, exports, importRecords, exportRecords, functionRecords = [], parseMode } = parseKotlin(content));
       } else if (ext === '.go') {
-        ({ imports, exports, importRecords, exportRecords, parseMode } = parseGo(content));
+        ({ imports, exports, importRecords, exportRecords, functionRecords = [], parseMode } = parseGo(content));
       } else if (ext === '.rs') {
-        ({ imports, exports, importRecords, exportRecords, parseMode } = parseRust(content));
+        ({ imports, exports, importRecords, exportRecords, functionRecords = [], parseMode } = parseRust(content));
       }
 
       // Resolve relative imports to absolute paths
@@ -323,6 +324,7 @@ class DependencyGraph {
         exports,
         importRecords: resolvedImportRecords,
         exportRecords: exportRecords.length > 0 ? exportRecords : exports.map((name) => ({ name })),
+        functionRecords: functionRecords.length > 0 ? functionRecords : [],
         parseMode,
         confidence: parseMode === 'ast' ? 'high' : 'medium',
       });

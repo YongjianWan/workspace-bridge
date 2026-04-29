@@ -77,6 +77,69 @@ function getChangedFunctionImpact(depGraph, filePath, lineRanges, options = {}) 
   );
 
   if (changedFunctions.length === 0) {
+    // Trace internal function call chains to find exporting callers
+    const functionRecords = Array.isArray(sourceInfo.functionRecords) ? sourceInfo.functionRecords : [];
+    const changedInternalFunctions = Array.from(new Set(
+      functionRecords
+        .filter((record) => String(record?.kind || '').startsWith('function'))
+        .filter((record) => record?.name && record.name !== 'default')
+        .filter((record) => Number.isFinite(record.lineStart) && Number.isFinite(record.lineEnd))
+        .filter((record) =>
+          ranges.some((range) => rangesOverlap(range.startLine, range.endLine, record.lineStart, record.lineEnd))
+        )
+        .map((record) => record.name)
+    ));
+
+    const exportingCallers = new Set();
+    if (changedInternalFunctions.length > 0) {
+      const exportNames = new Set(exportRecords.map((r) => r.name));
+      const byName = new Map();
+      for (const record of functionRecords) {
+        if (record?.name) byName.set(record.name, record);
+      }
+
+      const visited = new Set();
+      function dfs(calleeName) {
+        if (visited.has(calleeName)) return;
+        visited.add(calleeName);
+        for (const [callerName, record] of byName) {
+          if (callerName === calleeName) continue;
+          const callCallees = record.fingerprint?.callCallees || [];
+          if (callCallees.includes(calleeName)) {
+            if (exportNames.has(callerName)) {
+              exportingCallers.add(callerName);
+            } else {
+              dfs(callerName);
+            }
+          }
+        }
+      }
+
+      for (const fn of changedInternalFunctions) {
+        dfs(fn);
+      }
+    }
+
+    if (exportingCallers.size > 0) {
+      const via = Array.from(exportingCallers);
+      const symbolImpact = options.symbolImpact || null;
+      const functionRows = Array.isArray(symbolImpact?.functionToDependents) ? symbolImpact.functionToDependents : [];
+      const impactedFunctionDependents = functionRows
+        .filter((row) => via.includes(row.function))
+        .sort((a, b) => (b.dependentCount || 0) - (a.dependentCount || 0));
+
+      return {
+        mode: 'internal-function-call-chain',
+        changedFunctions: via,
+        impactedFunctionDependents,
+        impactedDependentCount: impactedFunctionDependents.reduce(
+          (sum, row) => sum + (Number.isFinite(row.dependentCount) ? row.dependentCount : 0),
+          0
+        ),
+        lineRanges: ranges,
+      };
+    }
+
     return {
       mode: 'no-exported-function-change',
       reason: 'changed-lines-not-in-exported-functions',

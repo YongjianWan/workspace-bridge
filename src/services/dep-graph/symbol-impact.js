@@ -133,11 +133,13 @@ function buildSymbolToDependents(depGraph, filePath, sourceSymbols) {
 
 function buildFunctionToDependents(sourceInfo, symbolToDependents) {
   const exportRecords = Array.isArray(sourceInfo?.exportRecords) ? sourceInfo.exportRecords : [];
+  const functionRecords = Array.isArray(sourceInfo?.functionRecords) ? sourceInfo.functionRecords : [];
+  const exportNames = new Set(exportRecords.map((r) => r.name));
   const functionNames = Array.from(new Set(
-    exportRecords
+    functionRecords
       .filter((record) => String(record?.kind || '').startsWith('function'))
       .map((record) => record.name)
-      .filter((name) => name && name !== 'default')
+      .filter((name) => name && name !== 'default' && exportNames.has(name))
   ));
   if (functionNames.length === 0) return [];
 

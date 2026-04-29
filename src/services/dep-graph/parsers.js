@@ -445,6 +445,65 @@ function parseJavaScriptAST(content, filePath = '') {
         importRecords.push(createImportRecord(source, { usesAllExports: true }));
       }
 
+      // CJS: module.exports = { fn1, fn2 } or exports.fn = fn
+      if (node.type === 'AssignmentExpression') {
+        const left = node.left;
+        if (left?.type === 'MemberExpression') {
+          const objectName = left.object?.type === 'Identifier' ? left.object.name : null;
+          const propertyName = left.property?.type === 'Identifier'
+            ? left.property.name
+            : left.property?.type === 'StringLiteral'
+              ? left.property.value
+              : null;
+
+          // module.exports = { ... }
+          if (objectName === 'module' && propertyName === 'exports' && node.right?.type === 'ObjectExpression') {
+            for (const prop of node.right.properties || []) {
+              if (prop.type === 'ObjectProperty' || prop.type === 'Property') {
+                const name = prop.key?.type === 'Identifier' ? prop.key.name
+                  : prop.key?.type === 'StringLiteral' ? prop.key.value
+                  : null;
+                if (name) {
+                  const valueKind = isFunctionLikeNode(prop.value) ? 'function' : 'symbol';
+                  const fingerprint = valueKind === 'function' ? buildFunctionFingerprint(prop.value) : null;
+                  exportRecords.push(createExportRecord(name, {
+                    kind: valueKind,
+                    lineStart: prop.loc?.start?.line || node.loc?.start?.line,
+                    lineEnd: prop.loc?.end?.line || node.loc?.end?.line,
+                    fingerprint,
+                  }));
+                }
+              } else if (prop.type === 'ObjectMethod') {
+                const name = prop.key?.type === 'Identifier' ? prop.key.name
+                  : prop.key?.type === 'StringLiteral' ? prop.key.value
+                  : null;
+                if (name) {
+                  const fingerprint = buildFunctionFingerprint(prop);
+                  exportRecords.push(createExportRecord(name, {
+                    kind: 'function',
+                    lineStart: prop.loc?.start?.line || node.loc?.start?.line,
+                    lineEnd: prop.loc?.end?.line || node.loc?.end?.line,
+                    fingerprint,
+                  }));
+                }
+              }
+            }
+          }
+
+          // exports.foo = ...
+          if (objectName === 'exports' && propertyName && propertyName !== 'exports') {
+            const valueKind = isFunctionLikeNode(node.right) ? 'function' : 'symbol';
+            const fingerprint = valueKind === 'function' ? buildFunctionFingerprint(node.right) : null;
+            exportRecords.push(createExportRecord(propertyName, {
+              kind: valueKind,
+              lineStart: node.loc?.start?.line,
+              lineEnd: node.loc?.end?.line,
+              fingerprint,
+            }));
+          }
+        }
+      }
+
       for (const key of Object.keys(node)) {
         if (key === 'type' || key === 'loc' || key === 'start' || key === 'end') continue;
         const child = node[key];
@@ -459,11 +518,38 @@ function parseJavaScriptAST(content, filePath = '') {
     visitNode(ast);
 
     const exports = uniqueNames(exportRecords.filter((r) => !r.unknown).map((r) => r.name));
+
+    // Collect all top-level function definitions (including internal) for call-chain tracing
+    const functionRecords = [];
+    function visitFunctionNode(node) {
+      if (!node || typeof node !== 'object') return;
+      if ((node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') && node.id?.name) {
+        const fingerprint = buildFunctionFingerprint(node);
+        functionRecords.push(createExportRecord(node.id.name, {
+          kind: 'function',
+          lineStart: node.loc?.start?.line,
+          lineEnd: node.loc?.end?.line,
+          fingerprint,
+        }));
+      }
+      for (const key of Object.keys(node)) {
+        if (key === 'type' || key === 'loc' || key === 'start' || key === 'end') continue;
+        const child = node[key];
+        if (Array.isArray(child)) {
+          for (const c of child) visitFunctionNode(c);
+        } else if (child && typeof child === 'object') {
+          visitFunctionNode(child);
+        }
+      }
+    }
+    visitFunctionNode(ast);
+
     return {
       imports: uniqueNames(imports),
       exports,
       importRecords,
       exportRecords,
+      functionRecords,
       parseMode: 'ast',
     };
   } catch (e) {

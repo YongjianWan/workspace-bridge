@@ -28,9 +28,9 @@
 
 | 任务 | 优先级 | 说明 |
 |------|--------|------|
-| P0T5 Diff test mapping 激活 | P0 | 内部函数改动（如 `readGoMod`）时 `affectedTests` 不应恒为 0。需追踪内部函数调用链 → 找到调用它的导出函数 → 映射 dependents。落点：`src/services/dep-graph.js` `getChangedFunctionImpact()` |
+| P0T5 Diff test mapping 激活 | ✅ | 内部函数改动时 DFS 追溯调用链 → 导出函数 → 映射 dependents。验收：改 `resolvers.js` 中 `readGoMod` 时 `functionLevelAffectedTests` 包含 `test/gors-resolver-test.js` |
+| P3 CJS 符号解析补全 | ✅ | `parsers.js` 识别 `module.exports = { fn }`/`exports.fn = ...`，`buildFunctionToDependents` 参考 `functionRecords`，本项目 CJS 文件 symbol impact 可用 |
 | P1.5 `audit-map` 命令 | P1 | 聚合 `tree` + `edges` + `issueOverlay`，数据已存在只需序列化 |
-| P3 CJS 符号解析补全 | P1 | `parsers.js` 识别 `module.exports = { fn }`，使 `symbolToDependents` 不再为空 |
 | P1 使用点解析 | P2 | Java/Go/Rust 轻量符号使用扫描，消除 dead-export 误报 |
 
 ---
