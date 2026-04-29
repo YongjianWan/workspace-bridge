@@ -691,10 +691,43 @@ function toRelativePath(root, filePath) {
   const normalizedRoot = root.replace(/\\/g, '/');
   const normalizedFile = filePath.replace(/\\/g, '/');
   if (normalizedFile.toLowerCase().startsWith(normalizedRoot.toLowerCase())) {
+    const nextChar = normalizedFile[normalizedRoot.length];
+    if (nextChar !== '/' && nextChar !== undefined) {
+      return normalizedFile;
+    }
     let rel = normalizedFile.slice(normalizedRoot.length);
     return rel.replace(/^[/]+/, '');
   }
   return normalizedFile;
+}
+
+function buildDirectoryTree(flatFiles) {
+  const root = [];
+  const dirMap = new Map();
+
+  for (const entry of flatFiles) {
+    const parts = entry.file.split('/').filter(Boolean);
+    let current = root;
+    let currentPath = '';
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i];
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      const pathKey = currentPath;
+
+      let dirNode = dirMap.get(pathKey);
+      if (!dirNode) {
+        dirNode = { type: 'directory', name: part, path: currentPath, children: [] };
+        dirMap.set(pathKey, dirNode);
+        current.push(dirNode);
+      }
+      current = dirNode.children;
+    }
+
+    current.push({ type: 'file', name: parts[parts.length - 1], ...entry });
+  }
+
+  return root;
 }
 
 function buildProjectMap(depGraph) {
@@ -706,8 +739,8 @@ function buildProjectMap(depGraph) {
   const projectContext = depGraph.projectContext || null;
   const allFiles = Array.from(depGraph.graph?.keys() || []);
 
-  // Tree: all files with roles
-  const tree = allFiles.map((file) => {
+  // Flat tree: all files with roles
+  const flatTree = allFiles.map((file) => {
     const relative = toRelativePath(root, file);
     const classification = projectContext?.classifyFile?.(file) || {};
     const info = depGraph.getFileInfo(file) || {};
@@ -723,6 +756,9 @@ function buildProjectMap(depGraph) {
       ).filter(Boolean),
     };
   }).sort((a, b) => a.file.localeCompare(b.file));
+
+  // Tree: directory-aggregated structure
+  const tree = buildDirectoryTree(flatTree);
 
   // Edges: import relationships (merge symbols for same from|to pairs)
   const edgeMap = new Map();
@@ -802,6 +838,20 @@ function buildProjectMap(depGraph) {
     }
   }
 
+  // Hotspots: files with high dependent count (dependency centrality)
+  const hotspots = [];
+  for (const file of allFiles) {
+    const dependents = depGraph.getDependents?.(file) || [];
+    if (dependents.length >= 5) {
+      hotspots.push({
+        file: toRelativePath(root, file),
+        dependentCount: dependents.length,
+        reason: `Imported by ${dependents.length} files`,
+      });
+    }
+  }
+  hotspots.sort((a, b) => (b.dependentCount || 0) - (a.dependentCount || 0));
+
   return {
     ok: true,
     workspaceRoot: root,
@@ -811,6 +861,7 @@ function buildProjectMap(depGraph) {
       deadExports: deadExports.map((item) => ({
         file: toRelativePath(root, item.file),
         exports: item.exports,
+        confidence: item.confidence || 'medium',
       })),
       unresolved: unresolved.map((item) => ({
         file: toRelativePath(root, item.file),
@@ -819,6 +870,7 @@ function buildProjectMap(depGraph) {
       })),
       cycles: cycles.map((cycle) => cycle.map((f) => toRelativePath(root, f))),
       orphans,
+      hotspots: hotspots.slice(0, 10),
     },
   };
 }

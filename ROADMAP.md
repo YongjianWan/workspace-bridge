@@ -86,14 +86,14 @@
 - [x] **Go/Rust 包级解析器**（投入：中 / 收益：高 / 风险：中）— `go.mod` 包路径解析、`Cargo.toml` + module tree，替代仅相对 import
 - [x] Java 方法级 dead-export 误报消除（实例调用不在 import 记录中）— 已通过 AST 保守策略缓解
 
-### P1.5：全局项目地图（audit-map）— ✅ 完成（2 个已知 issue 待修）
+### P1.5：全局项目地图（audit-map）— ✅ 完成
 - [x] **`audit-map` 命令**（投入：低 / 收益：高 / 风险：低）— 聚合 `tree`（目录骨架）+ `edges`（依赖拓扑）+ `issueOverlay`（问题标注），给 AI 全局视野。数据已全部存在，只需序列化输出
 - [x] **Tree 输出**：按目录聚合 FileIndex 数据，标注 role（entry/library/test/config）
 - [x] **Edges 输出**：序列化 DependencyGraph 的 import/export 关系
 - [x] **IssueOverlay 输出**：叠加 unresolved / deadExports / cycles / orphans / hotspots
 - **代码落点**：`src/cli/audit-formatters.js` `buildProjectMap()` + `cli.js` `audit-map` case
-- **验收**：`node cli.js audit-map --cwd . --json --quiet` 输出 56 files / 65 edges / 3 deadExports / 9 orphans
-- **已知 issue**：re-export 边漏读（`exportRecords` vs `importRecords` 字段错位）、同 `from|to` 去重丢失符号信息、re-export 边缺 `to` 字段、human 输出 `workspaceRoot: undefined`。详见 SESSION.md "已知缺陷"
+- **验收**：`node cli.js audit-map --cwd . --json --quiet` 输出目录聚合 tree / 65 edges / 3 deadExports / 9 orphans / 4 hotspots
+- **已知 issue**：已修复（SESSION.md 2026-04-29 轮次）。当前实现包含 re-export 边、confidence 分级、目录聚合树、hotspots、workspaceRoot 正确传递。
 
 ### P2：提升命令可执行性
 - [ ] **构建/测试命令智能化**（投入：中 / 收益：高 / 风险：低）— 基于真实配置生成命令（Gradle 任务发现、Go package 聚合、Rust workspace 子 crate）

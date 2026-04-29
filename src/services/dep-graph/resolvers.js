@@ -138,10 +138,19 @@ function resolveJavaScriptImport(fromFile, importPath) {
 
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
+      const stat = fs.statSync(candidate);
+      if (stat.isDirectory()) {
+        // Skip directories; index files are added as separate candidates.
+        continue;
+      }
       return candidate;
     }
   }
 
+  // Don't return a bare directory path as a resolved module.
+  if (fs.existsSync(resolvedBase) && fs.statSync(resolvedBase).isDirectory()) {
+    return null;
+  }
   return resolvedBase;
 }
 

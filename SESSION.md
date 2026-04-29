@@ -2,7 +2,7 @@
 
 > 生成时间：2026-04-29
 > 当前版本：v0.8.2+
-> 会话主题：P0T5 内部函数调用链追溯 + P3 CJS 导出识别 + P1.5 audit-map 全局地图
+> 会话主题：修复 audit-map 审查缺陷 + resolveJavaScriptImport 目录截断
 
 ---
 
@@ -12,12 +12,18 @@
 
 ### 已完成（本轮）
 
-| 事项 | 状态 | 关键文件 | 提交 |
+| 事项 | 状态 | 关键文件 | 说明 |
 |------|------|----------|------|
 | P0T5 内部函数→测试映射 | ✅ | `function-impact.js` DFS 调用链 + `cli.js` mode 识别 | 3614e16 |
 | P3 CJS 符号解析补全 | ✅ | `parsers.js` `module.exports = { fn }` + `symbol-impact.js` `buildFunctionToDependents` | 3614e16 |
 | P1.5 `audit-map` 全局地图 | ✅ | `audit-formatters.js` `buildProjectMap()` + `cli.js` case | a3ad106 |
 | JS/TS `functionRecords` 索引 | ✅ | `parsers.js` 收集所有 `FunctionDeclaration`/`FunctionExpression` + callCallees | 3614e16 |
+| **resolveJavaScriptImport 目录截断** | ✅ | `resolvers.js` `resolveJavaScriptImport()` | 跳过目录候选，优先返回文件；无 index 时返回 null |
+| **audit-map tree 目录聚合** | ✅ | `audit-formatters.js` `buildDirectoryTree()` | tree 从扁平数组改为按目录聚合的树结构 |
+| **audit-map deadExports confidence** | ✅ | `audit-formatters.js` `buildProjectMap()` | issueOverlay.deadExports 保留 confidence 字段 |
+| **audit-map hotspots** | ✅ | `audit-formatters.js` `buildProjectMap()` | issueOverlay 新增依赖中心性 hotspots（dependentCount >= 5） |
+| **toRelativePath 边界校验** | ✅ | `audit-formatters.js` `toRelativePath()` | 增加 root 边界检查，防止 `/repo-extra` 被截断为 `extra` |
+| **audit-map human files 计数** | ✅ | `cli.js` `countTreeFiles()` | `formatHuman` 正确统计目录树中的文件数量 |
 
 ### 待完成（按 ROADMAP 价值排序）
 
@@ -34,11 +40,15 @@
 
 | 评级 | 问题 | 落点 | 修复投入 | 阻塞 |
 |------|------|------|----------|------|
-| HIGH | audit-map 漏掉 re-export 边 | `audit-formatters.js:754-766` 从 `exportRecords` 读 `reExported`，但 parser 把数据写在 `importRecords` 上 | ~10 行 | P1.5 拓扑完整性 |
-| HIGH | audit-map 同 `from\|to` 边去重丢失符号信息 | `seenEdges` 用 `${fromRel}\|${toRel}` 去重，多条 import 边只剩一条 | ~5 行 | P1.5 拓扑精度 |
-| MEDIUM | audit-map re-export 边缺 `to` 字段 | 只有 `from/type/imported/exported`，下游无法定位目标模块 | ~3 行 | P1.5 边可用性 |
-| MEDIUM | audit-map human 输出 `workspaceRoot: undefined` | `buildProjectMap()` 返回值缺 `workspaceRoot` | 1 行 | 输出瑕疵 |
-| LOW | audit-map `issueOverlay` 未包含 hotspots | ROADMAP 契约含 hotspots，实现缺漏 | ~5 行 | 契约对齐 |
+| ~~HIGH~~ | ~~audit-map 漏掉 re-export 边~~ | ✅ 已确认当前代码从 `importRecords` 读取，`re-export` 边正常生成 | — | — |
+| ~~HIGH~~ | ~~audit-map 同 `from\|to` 边去重丢失符号信息~~ | ✅ `edgeMap` 合并 symbols 是设计行为，同对文件多 import 合并为一条带全 symbols 的边 | — | — |
+| ~~HIGH~~ | ~~resolveJavaScriptImport 目录截断~~ | ✅ `resolvers.js` 遍历 candidates 时跳过目录，fallback 返回 null 而非目录路径 | — | — |
+| ~~MEDIUM~~ | ~~audit-map re-export 边缺 `to` 字段~~ | ✅ 当前 re-export 边已包含 `to` 字段 | — | — |
+| ~~MEDIUM~~ | ~~audit-map human 输出 `workspaceRoot: undefined`~~ | ✅ `buildProjectMap()` 返回 `workspaceRoot: root`，实测输出正确 | — | — |
+| ~~MEDIUM~~ | ~~audit-map `tree` 是扁平数组~~ | ✅ 已改为 `buildDirectoryTree()` 目录聚合结构 | — | — |
+| ~~MEDIUM~~ | ~~audit-map `deadExports` 丢掉 confidence~~ | ✅ issueOverlay 已保留 confidence | — | — |
+| ~~LOW~~ | ~~audit-map `issueOverlay` 未包含 hotspots~~ | ✅ 已新增基于依赖中心性的 hotspots | — | — |
+| ~~LOW~~ | ~~`toRelativePath()` 边界校验~~ | ✅ 已增加 root 边界检查 | — | — |
 
 ---
 
@@ -78,6 +88,12 @@ npm run benchmark:perf
 - `src/cli/audit-formatters.js` — `buildProjectMap()` 聚合 tree + edges + issueOverlay
 - `cli.js` — `audit-map` case 调用 `buildProjectMap(container.depGraph)`
 
+### 本轮修复
+- `src/services/dep-graph/resolvers.js` — `resolveJavaScriptImport()` 目录截断修复
+- `src/cli/audit-formatters.js` — `toRelativePath()` 边界校验 + `buildDirectoryTree()` 目录聚合 + deadExports confidence + hotspots
+- `cli.js` — `countTreeFiles()` 适配目录树 human 输出
+- `test/audit-map-test.js` — 5 项测试覆盖目录树 / confidence / re-export / hotspots / 边界校验
+
 ### 已知限制（未变）
 - `parsers.js` 876 行，唯一超 500 行铁律的文件，后续应拆成按语言的 dispatch 表
 - `src/services/dep-graph.js` 711 行，接近上限
@@ -88,7 +104,7 @@ npm run benchmark:perf
 
 **首选：P1 Java/Go/Rust 使用点解析**
 - 问题：实例调用 `foo.bar()` 不在 import 记录中，导致 dead-export 系统性误报
-- 思路：轻量扫描符号使用（不需要完整 AST），标记      被使用过的符号不判为 dead-export
+- 思路：轻量扫描符号使用（不需要完整 AST），标记被使用过的符号不判为 dead-export
 - 落点：`src/services/dep-graph.js` `findDeadExports()`
 - 验收：`audit-summary` 的 deadExports 数量对本项目更合理（当前 3 个，需判断是否为真误报）
 
@@ -125,47 +141,8 @@ npm run benchmark:perf
 3. **测试 mock 数据必须真实** — `test/p0t5-internal-function-impact-test.js` 最初 `functionRecords` 缺少 `kind` 字段，测试通过但真实场景失败。mock 数据应与生产产出一致。
 4. **Windows 路径大小写陷阱** — `workspaceRoot` 是 `C:\...`（大写），graph key 是 `c:/...`（小写），`startsWith` 直接失败。路径比较必须 `toLowerCase()`。
 5. **PowerShell 管道输出 UTF-16 LE** — `node cli.js ... > file.json` 在 PowerShell 中输出 UTF-16 LE BOM，JSON.parse 失败。验证脚本应使用 `fs.writeFileSync` 或 `execSync` + Node.js 处理。
+6. **StrReplaceFile 多段替换要精确匹配** — 本轮 `buildProjectMap` 的 return 语句被替换插入到中间，导致语法错误。多段替换时目标字符串必须精确到上下文边界，避免错位。
 
 ---
 
 *Last updated: 2026-04-29*
-
-## 7. 本轮审查补充
-
-1. `audit-map` 的 re-export 关系当前从 exportRecords 取，和 parser 的数据落点不一致，容易漏掉 `export { ... } from ...` / `export * from ...`。
-2. `audit-map` 的 human formatter 依赖 workspaceRoot，但返回值里没带这个字段，会打印 undefined。
-3. `issueOverlay` 目前没包含 ROADMAP 承诺的 hotspots，契约和实现还没完全对齐。
-
-## 8. 本轮审查新增
-
-1. `audit-map` 把同一 `from|to` 的多条 import 边去重了，会丢失同目标不同符号的边信息，导致图不完整。
-2. `audit-map` 的 re-export 边没有 `to` 字段，只有 `from/type/imported/exported`，下游无法把它当作完整拓扑边使用。
-
-## 9. 本轮审查继续新增
-
-1. `audit-map` 的 `tree` 现在只是按文件排序的扁平数组，不是 ROADMAP 里说的目录聚合树，目录骨架信息丢了。
-2. `audit-map` 里的 `deadExports` 在映射时丢掉了 `confidence` 字段，`high/medium/low` 这层风险信息被抹平了。
-
-## 10. 本轮审查收尾
-
-1. `AGENTS.md` / `ROADMAP.md` 已把 `audit-map` 标成完成，但实现仍缺热点、目录树聚合和完整边语义，文档状态和代码状态不一致。
-
-## 11. 本轮审查补充
-
-1. `ROADMAP.md` 把 `audit-map` 说成“2 个已知 issue 待修”，但下面实际列了 4 条问题，标题和内容不一致。
-
-## 12. 本轮审查继续补充
-
-1. `test/audit-map-test.js` 只覆盖了伪造 depGraph，没有覆盖真实 `resolved` / re-export / confidence / workspaceRoot 输出，当前命令的契约缺少回归保护。
-
-## 13. 本轮审查继续补充
-
-1. `toRelativePath()` 只做字符串前缀判断，不做真正的 root 边界校验；当 resolved 路径在 workspace 外但共享前缀时，会被切成错误的相对路径。
-
-## 14. 本轮审查继续补充
-
-1. `buildProjectMap()` 把 `deadExports` 映射成只剩 `file/exports`，把 `confidence` 丢掉了；`issueOverlay` 的风险分级在这个层面被裁断。
-
-## 15. 本轮审查继续补充
-
-1. `resolveJavaScriptImport()` 把存在的目录本身当成有效解析结果直接返回（`addCandidate(resolvedBase)` + `fs.existsSync(candidate)`），像 `require('../src/services/dep-graph')` 这种目录型 import 会落成目录路径而不是入口文件，进而把 dependents / deadExports / orphans 全带歪。

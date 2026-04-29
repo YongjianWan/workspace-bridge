@@ -182,6 +182,18 @@ function requireFile(parsed, command) {
   }
 }
 
+function countTreeFiles(tree) {
+  if (!Array.isArray(tree)) return 0;
+  let count = 0;
+  for (const node of tree) {
+    if (node.type === 'file') count += 1;
+    if (node.type === 'directory' && Array.isArray(node.children)) {
+      count += countTreeFiles(node.children);
+    }
+  }
+  return count;
+}
+
 function formatHuman(command, result) {
   switch (command) {
     case 'workspace-info':
@@ -255,12 +267,13 @@ function formatHuman(command, result) {
     case 'audit-map':
       return [
         `workspaceRoot: ${result.workspaceRoot}`,
-        `files: ${result.tree?.length ?? 0}`,
+        `files: ${countTreeFiles(result.tree)}`,
         `edges: ${result.edges?.length ?? 0}`,
         `deadExports: ${result.issueOverlay?.deadExports?.length ?? 0}`,
         `unresolved: ${result.issueOverlay?.unresolved?.length ?? 0}`,
         `cycles: ${result.issueOverlay?.cycles?.length ?? 0}`,
         `orphans: ${result.issueOverlay?.orphans?.length ?? 0}`,
+        `hotspots: ${result.issueOverlay?.hotspots?.length ?? 0}`,
       ].join('\n');
     case 'deps':
       return result.results.map((entry) => {
