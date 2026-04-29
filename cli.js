@@ -20,6 +20,7 @@ const {
   buildAuditDiffSummary,
   buildValidationAdvice,
   buildProjectMap,
+  buildImpactExplanations,
 } = require('./src/cli/audit-formatters');
 const { buildProjectOverview } = require('./src/tools/overview-tools');
 
@@ -429,6 +430,9 @@ async function runCommand(parsed, container) {
         const affectedTests = graphKnown ? container.depGraph.findAffectedTests(resolvedPath, Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined) : [];
         const history = resolvedPath ? await getFileHistoryRisk(container.workspaceRoot, resolvedPath, { limit: 25 }) : { ok: false };
         const historyRisk = history.ok ? history.historyRisk : null;
+        const impactExplanations = graphKnown
+          ? buildImpactExplanations({ file: relativeFile, impact })
+          : [];
         const baseEntry = {
           file: relativeFile,
           resolvedPath,
@@ -442,6 +446,7 @@ async function runCommand(parsed, container) {
           affectedTests,
           historyRisk,
           recentCommits: history.ok ? history.recentCommits : [],
+          impactExplanations,
         };
         const compositeRisk = buildCompositeRisk(baseEntry);
 

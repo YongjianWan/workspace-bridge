@@ -162,6 +162,26 @@ function buildFileSummary(impact, affectedTests) {
   };
 }
 
+function buildImpactExplanations(entry) {
+  const explanations = [];
+  if (!entry?.impact?.length) return explanations;
+
+  const changedFile = entry.file;
+
+  for (const imp of entry.impact) {
+    if (imp.level === 1 && imp.importedSymbols?.length > 0) {
+      const symbols = imp.importedSymbols.join(', ');
+      explanations.push(`因 \`${changedFile}\` 被 \`${imp.file}\` import（${symbols}），故波及该文件`);
+    } else if (imp.level > 1 && imp.via?.length >= 1) {
+      const directImporter = imp.via[0];
+      const chain = imp.via.slice(1).concat(imp.file).join(' -> ');
+      explanations.push(`因 \`${changedFile}\` 被 \`${directImporter}\` import，经 \`${chain}\` 传递，故波及测试`);
+    }
+  }
+
+  return explanations;
+}
+
 function buildAuditDiffSummary(entries) {
   const mainlineChanged = entries.filter((entry) => entry.classification?.isMainline);
   const affectedTests = new Set();
@@ -216,6 +236,13 @@ function buildAuditDiffSummary(entries) {
   if (entries.some((entry) => !entry.classification?.isMainline)) nextSteps.push('Verify whether non-mainline changes should be excluded from the audit.');
   if (nextSteps.length === 0) nextSteps.push('No changed files with structural impact were detected.');
 
+  const impactExplanations = [];
+  for (const entry of entries) {
+    if (entry.impactExplanations?.length) {
+      impactExplanations.push(...entry.impactExplanations);
+    }
+  }
+
   return {
     severity,
     counts: {
@@ -231,6 +258,7 @@ function buildAuditDiffSummary(entries) {
     topCompositeRisks: topCompositeRisks
       .sort((a, b) => (b.score || 0) - (a.score || 0))
       .slice(0, 3),
+    impactExplanations: [...new Set(impactExplanations)].slice(0, 5),
     nextSteps,
   };
 }
@@ -887,4 +915,5 @@ module.exports = {
   buildAuditDiffSummary,
   buildValidationAdvice,
   buildProjectMap,
+  buildImpactExplanations,
 };

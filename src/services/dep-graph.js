@@ -367,26 +367,44 @@ class DependencyGraph {
 
   /**
    * Calculate impact radius: how many files would be affected by changing this file
+   * P3: 增加 via（路径链）和 importedSymbols（导入符号），支撑变更影响解释
    */
-  getImpactRadius(filePath, depth = 3) {   
+  getImpactRadius(filePath, depth = 3) {
     const visited = new Set();
-    const queue = [{ file: filePath, level: 0 }];
+    const queue = [{ file: filePath, level: 0, via: [] }];
     const results = [];
 
     while (queue.length > 0) {
-      const { file, level } = queue.shift();
-      
+      const { file, level, via } = queue.shift();
+
       if (visited.has(file) || level > depth) continue;
       visited.add(file);
 
       if (level > 0) {
-        results.push({ file, level });
+        const currentInfo = this.getFileInfo(file);
+
+        let importedSymbols = [];
+        if (currentInfo?.importRecords) {
+          const parentFile = via[via.length - 1];
+          const matchingImports = currentInfo.importRecords.filter((r) => r.resolved === parentFile);
+          for (const record of matchingImports) {
+            if (record.imported) importedSymbols.push(...record.imported);
+          }
+        }
+
+        results.push({
+          file,
+          level,
+          via: [...via],
+          importedSymbols: [...new Set(importedSymbols)],
+          reason: level === 1 ? 'direct-import' : 'transitive-dependency',
+        });
       }
 
       const dependents = this.getDependents(file);
       for (const dep of dependents) {
         if (!visited.has(dep)) {
-          queue.push({ file: dep, level: level + 1 });
+          queue.push({ file: dep, level: level + 1, via: level === 0 ? [file] : [...via, file] });
         }
       }
     }
