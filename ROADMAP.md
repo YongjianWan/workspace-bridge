@@ -130,7 +130,9 @@ P0T1–P0T5 全部交付，详见上方"基础能力（Phase 0-1）"章节。
 - **已知 issue**：已修复（SESSION.md 2026-04-29 轮次）。当前实现包含 re-export 边、confidence 分级、目录聚合树、hotspots、workspaceRoot 正确传递。
 
 ### P2：提升命令可执行性
-- [ ] **构建/测试命令智能化**（投入：中 / 收益：高 / 风险：低）— 基于真实配置生成命令（Gradle 任务发现、Go package 聚合、Rust workspace 子 crate）
+- [x] **构建/测试命令智能化**（投入：中 / 收益：高 / 风险：低）— Rust workspace 子 crate 已完成（`detectRustWorkspaceMembers` + `cargo test -p`）
+- [ ] **Gradle 任务发现**（投入：高 / 收益：中）— 解析 `settings.gradle` 或运行 `gradle projects` 获取子项目，生成 `:subproject:test`
+- [ ] **Go module path 聚合**（投入：中 / 收益：中）— 嵌套 `go.mod` 场景下 `go test ./dir` 可能不准，需检测子 module
 - [ ] mixed repo 命令精度提升（自定义脚本识别）
 - [ ] Go 验证命令按 module path 聚合（当前按目录聚合，子模块下可能不准）
 - [ ] Rust 模块级测试过滤（需解析 `mod` 声明）
@@ -142,10 +144,10 @@ P0T1–P0T5 全部交付，详见上方"基础能力（Phase 0-1）"章节。
 - [x] **影响路径解释字段**（投入：低 / 收益：中 / 风险：低）— `getImpactRadius()` 扩展 `via`（路径链）+ `importedSymbols`（导入符号）+ `reason` 字段。落点：`src/services/dep-graph.js`
 - [x] **变更影响解释链（聚合）**（投入：中 / 收益：高 / 风险：低）— `audit-formatters.js` `buildImpactExplanations()` 聚合可读因果链，`audit-diff` 返回 `impactExplanations`。如"因 `resolvers.js` 被 `dep-graph.js` import（resolveImport），故波及测试"。落点：`src/cli/audit-formatters.js` + `cli.js`
 - [x] **耦合拆分建议去模板化**（投入：低 / 收益：中 / 风险：低）— `audit-overview` 的 `couplingSplitSuggestions` 已按 role + 出入度生成针对性建议（entry/utility/consumer/script/test/config）。落点：`src/tools/overview-tools.js` `generateCouplingSplitPlan()`（9198613）
-- [ ] **统一能力矩阵输出**（投入：低 / 收益：中 / 风险：低）— CLI JSON 直接带 language support matrix + confidence 解释，减少文档追赶成本
+- [x] **统一能力矩阵输出**（投入：低 / 收益：中 / 风险：低）— `audit-overview` JSON 已带 `languageSupport` 矩阵（level/confidence/files/astFiles）
 
 ### P4：技术债
-- [ ] **文件拆分：按语言/功能拆解超标文件**（投入：中 / 收益：中 / 风险：中）— AGENTS.md 铁律要求文件 < 500 行。当前超标文件及拆分方案：
+- [x] **文件拆分：按语言/功能拆解超标文件**（投入：中 / 收益：中 / 风险：中）— `parsers.js` 976 行已拆为 `parsers/` 目录（shared + js + python + java + polyglot + index），均 < 500 行
   - `src/services/dep-graph/parsers.js`（876 行）→ 按语言拆为 `src/parsers/{javascript,python,java,kotlin,go,rust}.js` + `index.js` 统一导出。风险低，纯代码搬迁，接口不变。**建议优先执行。**
   - `src/cli/audit-formatters.js`（886 行）→ 按 formatter 拆为 `src/cli/formatters/{composite-risk,repo-summary,file-summary,audit-diff-summary,validation-advice,project-map}.js`。风险中低，需改 `cli.js` 和测试的 `require` 路径。
   - `src/services/dep-graph.js`（711 行）→ `DependencyGraph` class 方法较多，拆需子模块/mixin。风险中高，**建议等 P1（使用点解析）稳定后再动**，避免图逻辑变动时跨文件重构。

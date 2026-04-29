@@ -100,10 +100,38 @@ function testFindDeadExportsWithUsageScan() {
   console.log('testFindDeadExportsWithUsageScan passed');
 }
 
+function testSymbolEscaping() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-p1-esc-'));
+  const mainPath = path.join(tmpDir, 'Main.java');
+
+  // Symbol with $ (valid in Java identifiers) should not throw or mis-match
+  fs.writeFileSync(mainPath, `
+  import example.Foo;
+  public class Main {
+      public void run() {
+          Foo f = new Foo();
+          f.$bar();
+          int x = f.$someField;
+      }
+  }
+  `);
+
+  const graph = new DependencyGraph(tmpDir);
+  const used = graph._scanSymbolUsageInImporters([mainPath], ['$bar', '$baz', '$someField'], path.join(tmpDir, 'Foo.java'));
+
+  assert(used.has('$bar'), '$bar should be detected as used despite $ in symbol');
+  assert(used.has('$someField'), '$someField should be detected as used despite $ in symbol');
+  assert(!used.has('$baz'), '$baz should not be detected as used');
+
+  fs.rmSync(tmpDir, { recursive: true });
+  console.log('testSymbolEscaping passed');
+}
+
 function main() {
   testScanSymbolUsage();
   testGoUsageScan();
   testFindDeadExportsWithUsageScan();
+  testSymbolEscaping();
   console.log('All P1 usage scan tests passed');
 }
 

@@ -40,6 +40,35 @@ function hasRustProject(root) {
   return pathExists(path.join(root, 'Cargo.toml'));
 }
 
+function detectRustWorkspaceMembers(root) {
+  const cargoPath = path.join(root, 'Cargo.toml');
+  if (!pathExists(cargoPath)) return null;
+
+  const content = fs.readFileSync(cargoPath, 'utf8');
+  const workspaceMatch = content.match(/\[workspace\]/);
+  if (!workspaceMatch) return null;
+
+  const membersMatch = content.match(/members\s*=\s*\[([^\]]*)\]/s);
+  if (!membersMatch) return null;
+
+  const members = membersMatch[1]
+    .split(/,/)
+    .map((s) => s.trim().replace(/^["']|["']$/g, ''))
+    .filter(Boolean);
+
+  const crates = [];
+  for (const member of members) {
+    const memberCargo = path.join(root, member, 'Cargo.toml');
+    if (!pathExists(memberCargo)) continue;
+    const memberContent = fs.readFileSync(memberCargo, 'utf8');
+    const nameMatch = memberContent.match(/name\s*=\s*["']([^"']+)["']/);
+    if (nameMatch) {
+      crates.push({ dir: member.replace(/\\/g, '/'), name: nameMatch[1] });
+    }
+  }
+  return crates.length > 0 ? crates : null;
+}
+
 function detectJavaBuildTool(root) {
   if (pathExists(path.join(root, 'pom.xml'))) return 'maven';
   if (pathExists(path.join(root, 'build.gradle')) || pathExists(path.join(root, 'build.gradle.kts'))) return 'gradle';
@@ -259,7 +288,7 @@ function detectStack(root) {
       typeChecker: typeCheckers.java,
     } : null,
     go: hasGo ? { enabled: true, packageManager: 'go modules', testRunner: 'go test' } : null,
-    rust: hasRust ? { enabled: true, packageManager: 'cargo', testRunner: 'cargo test' } : null,
+    rust: hasRust ? { enabled: true, packageManager: 'cargo', testRunner: 'cargo test', workspaceMembers: detectRustWorkspaceMembers(root) } : null,
   };
 }
 
@@ -393,6 +422,25 @@ function getRustCommands(rustStack, changeType, targets) {
   if (changeType !== 'code' && changeType !== 'tests' && changeType !== 'config') return { smoke: [], focused: [], full: [] };
   const commands = { smoke: [], focused: [], full: [] };
   commands.smoke.push({ name: 'rust-check', description: 'Rust check', cmd: 'cargo check' });
+
+  const rustFiles = targets.filter((file) => /\.rs$/.test(file));
+  if (rustFiles.length > 0 && rustStack.workspaceMembers) {
+    const affectedCrates = new Set();
+    for (const file of rustFiles) {
+      const normalizedFile = file.replace(/\\/g, '/');
+      for (const crate of rustStack.workspaceMembers) {
+        const prefix = crate.dir + '/';
+        if (normalizedFile === crate.dir || normalizedFile.startsWith(prefix)) {
+          affectedCrates.add(crate.name);
+        }
+      }
+    }
+    if (affectedCrates.size > 0) {
+      const crateArgs = Array.from(affectedCrates).sort().map((name) => `-p ${name}`).join(' ');
+      commands.focused.push({ name: 'rust-focused-tests', description: 'Run affected workspace crates', cmd: `cargo test ${crateArgs}` });
+    }
+  }
+
   commands.full.push({ name: 'rust-all-tests', description: 'Run all Rust tests', cmd: 'cargo test' });
   return commands;
 }
@@ -509,12 +557,25 @@ function generateCommands(stack, changeType, targets, steps = []) {
     }
 
     const rustFiles = split.rust.filter((file) => /\.rs$/.test(file));
-    if (rustFiles.length > 0 && stack.rust?.enabled) {
-      addUniqueCommand(merged, 'focused', {
-        name: 'rust-direct-tests',
-        description: 'Run rust direct affected tests',
-        cmd: 'cargo test',
-      });
+    if (rustFiles.length > 0 && stack.rust?.enabled && stack.rust.workspaceMembers) {
+      const affectedCrates = new Set();
+      for (const file of rustFiles) {
+        const normalizedFile = file.replace(/\\/g, '/');
+        for (const crate of stack.rust.workspaceMembers) {
+          const prefix = crate.dir + '/';
+          if (normalizedFile === crate.dir || normalizedFile.startsWith(prefix)) {
+            affectedCrates.add(crate.name);
+          }
+        }
+      }
+      if (affectedCrates.size > 0) {
+        const crateArgs = Array.from(affectedCrates).sort().map((name) => `-p ${name}`).join(' ');
+        addUniqueCommand(merged, 'focused', {
+          name: 'rust-direct-tests',
+          description: 'Run rust direct affected workspace crates',
+          cmd: `cargo test ${crateArgs}`,
+        });
+      }
     }
 
     const javaFiles = split.java.filter((file) => /\.java$/.test(file));

@@ -153,9 +153,9 @@ class DiagnosticsEngine {
     }
     
     // Check cache
-    const cached = this.cache.getDiagnostics(filePath);
-    if (cached && cached.mtime === stat.mtimeMs) {
-      return cached.diagnostics;
+    const cachedEntry = this.cache.getDiagnosticsEntry(filePath);
+    if (cachedEntry && cachedEntry.mtime === stat.mtimeMs) {
+      return cachedEntry.diagnostics;
     }
 
     // Prevent concurrent checks
@@ -318,8 +318,8 @@ class DiagnosticsEngine {
    * Quick check - return cached results without re-running
    */
   getCached(filePath) {
-    const cached = this.cache.getDiagnostics(filePath);
-    return cached?.diagnostics || [];
+    const entry = this.cache.getDiagnosticsEntry(filePath);
+    return entry?.diagnostics || [];
   }
 
   /**

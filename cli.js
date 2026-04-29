@@ -254,7 +254,11 @@ function formatHuman(command, result) {
         `validationPhases: ${result.validationAdvice.phases.length}`,
       ].join('\n');
       }
-    case 'audit-overview':
+    case 'audit-overview': {
+      const langSupport = result.languageSupport || {};
+      const langSummary = Object.entries(langSupport)
+        .map(([lang, info]) => `${lang}(${info.level}/${info.confidence})`)
+        .join(', ');
       return [
         `workspaceRoot: ${result.workspaceRoot}`,
         `severity: ${result.summary?.severity || 'low'}`,
@@ -264,7 +268,9 @@ function formatHuman(command, result) {
         `hotspotsMedium: ${result.aggregates?.hotspotsByRisk?.medium ?? 0}`,
         `fragileModules: ${result.aggregates?.stabilityCounts?.fragile ?? 0}`,
         `orphansTotal: ${result.orphans?.counts?.total ?? 0}`,
+        `languages: ${langSummary || 'none detected'}`,
       ].join('\n');
+    }
     case 'audit-map':
       return [
         `workspaceRoot: ${result.workspaceRoot}`,

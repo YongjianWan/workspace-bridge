@@ -1,269 +1,21 @@
-const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
-const { TIMEOUTS, LIMITS } = require('../../config/constants');
+const {
+  uniqueNames,
+  exportKindFromDeclarationType,
+  createExportRecord,
+  isFunctionLikeNode,
+  getCallName,
+  buildFunctionFingerprint,
+  normalizeImportedName,
+  parseNamedBindings,
+  createImportRecord,
+} = require('./shared');
 
 let babelParser = null;
 try {
   babelParser = require('@babel/parser');
 } catch {
   // babel parser not available, fallback to regex
-}
-
-function uniqueNames(values) {
-  return Array.from(new Set((values || []).filter(Boolean)));
-}
-
-function exportKindFromDeclarationType(type) {
-  if (type === 'FunctionDeclaration') return 'function';
-  if (type === 'ClassDeclaration') return 'class';
-  if (type === 'VariableDeclaration') return 'variable';
-  return 'symbol';
-}
-
-function createExportRecord(name, options = {}) {
-  const record = { name };
-  if (options.kind) record.kind = options.kind;
-  if (options.unknown) record.unknown = true;
-  if (Number.isFinite(options.lineStart)) record.lineStart = options.lineStart;
-  if (Number.isFinite(options.lineEnd)) record.lineEnd = options.lineEnd;
-  if (options.fingerprint && typeof options.fingerprint === 'object') {
-    record.fingerprint = options.fingerprint;
-  }
-  return record;
-}
-
-function isFunctionLikeNode(node) {
-  if (!node || typeof node !== 'object') return false;
-  return (
-    node.type === 'FunctionDeclaration' ||
-    node.type === 'FunctionExpression' ||
-    node.type === 'ArrowFunctionExpression'
-  );
-}
-
-function getCallName(callee) {
-  if (!callee || typeof callee !== 'object') return null;
-  if (callee.type === 'Identifier') return callee.name || null;
-  if (callee.type === 'MemberExpression') {
-    const objectName = callee.object?.type === 'Identifier' ? callee.object.name : null;
-    const propertyName = callee.property?.type === 'Identifier'
-      ? callee.property.name
-      : callee.property?.type === 'StringLiteral'
-        ? callee.property.value
-        : null;
-    if (objectName && propertyName) return `${objectName}.${propertyName}`;
-    if (propertyName) return propertyName;
-  }
-  return null;
-}
-
-function buildFunctionFingerprint(functionNode) {
-  if (!isFunctionLikeNode(functionNode)) return null;
-  const callCallees = new Set();
-  let hasTryCatch = false;
-  let branchCount = 0;
-  let returnCount = 0;
-  const stack = [functionNode.body];
-
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!node || typeof node !== 'object') continue;
-
-    if (node.type === 'CallExpression') {
-      const callName = getCallName(node.callee);
-      if (callName) callCallees.add(callName);
-    } else if (node.type === 'TryStatement') {
-      hasTryCatch = true;
-    } else if (
-      node.type === 'IfStatement' ||
-      node.type === 'SwitchCase' ||
-      node.type === 'ConditionalExpression' ||
-      node.type === 'LogicalExpression'
-    ) {
-      branchCount += 1;
-    } else if (node.type === 'ReturnStatement') {
-      returnCount += 1;
-    }
-
-    for (const key of Object.keys(node)) {
-      if (key === 'type' || key === 'loc' || key === 'start' || key === 'end') continue;
-      const child = node[key];
-      if (Array.isArray(child)) {
-        for (const c of child) stack.push(c);
-      } else if (child && typeof child === 'object') {
-        stack.push(child);
-      }
-    }
-  }
-
-  return {
-    paramCount: Array.isArray(functionNode.params) ? functionNode.params.length : 0,
-    isAsync: Boolean(functionNode.async),
-    isGenerator: Boolean(functionNode.generator),
-    hasTryCatch,
-    branchCount,
-    returnCount,
-    callCallees: Array.from(callCallees).sort().slice(0, 20),
-  };
-}
-
-function normalizeImportedName(name) {
-  if (!name) return null;
-  const trimmed = String(name).trim();
-  if (!trimmed || trimmed === 'type') return null;
-  return trimmed.replace(/^type\s+/, '').trim() || null;
-}
-
-function parseNamedBindings(raw) {
-  return raw
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      const withoutType = part.replace(/^type\s+/, '').trim();
-      const [imported] = withoutType.split(/\s+as\s+/i);
-      return normalizeImportedName(imported);
-    })
-    .filter(Boolean);
-}
-
-function createImportRecord(source, options = {}) {
-  const record = {
-    source,
-    imported: uniqueNames(options.imported || []),
-    usesAllExports: Boolean(options.usesAllExports),
-    reExported: (options.reExported || [])
-      .map((pair) => ({
-        imported: normalizeImportedName(pair?.imported),
-        exported: normalizeImportedName(pair?.exported),
-      }))
-      .filter((pair) => pair.imported && pair.exported),
-    reExportAll: Boolean(options.reExportAll),
-  };
-  if (options.isStatic) record.isStatic = true;
-  return record;
-}
-
-async function parsePythonAST(content) {
-  return new Promise((resolve) => {
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-    const scriptPath = path.join(__dirname, '..', '..', '..', 'scripts', 'python_ast_parser.py');
-
-    if (!fs.existsSync(scriptPath)) {
-      resolve(null);
-      return;
-    }
-
-    const python = spawn(pythonCmd, [scriptPath], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true,
-      timeout: TIMEOUTS.PYTHON_AST_PARSE_MS,
-    });
-
-    let output = '';
-    let errorOutput = '';
-    let killed = false;
-
-    const timer = setTimeout(() => {
-      killed = true;
-      python.kill('SIGTERM');
-    }, TIMEOUTS.PYTHON_AST_PARSE_MS);
-
-    python.stdout.on('data', (data) => {
-      output += data.toString('utf8');
-      if (output.length > LIMITS.COMMAND_OUTPUT_MAX_BYTES) {
-        output = output.slice(0, LIMITS.COMMAND_OUTPUT_MAX_BYTES) + '\n...[truncated]';
-        python.stdout.destroy();
-      }
-    });
-
-    python.stderr.on('data', (data) => {
-      errorOutput += data.toString('utf8');
-      if (errorOutput.length > LIMITS.COMMAND_OUTPUT_MAX_BYTES) {
-        errorOutput = errorOutput.slice(0, LIMITS.COMMAND_OUTPUT_MAX_BYTES) + '\n...[truncated]';
-        python.stderr.destroy();
-      }
-    });
-
-    python.on('close', (code) => {
-      clearTimeout(timer);
-      if (killed || code !== 0) {
-        if (process.env.DEBUG) {
-          console.error(`[DepGraph] Python AST parse failed: exitCode=${code}, stderr=${errorOutput}`);
-        }
-        resolve(null);
-        return;
-      }
-      try {
-        const result = JSON.parse(output);
-        resolve(result);
-      } catch (e) {
-        if (process.env.DEBUG) {
-          console.error(`[DepGraph] Python AST JSON parse failed: ${e.message}`);
-        }
-        resolve(null);
-      }
-    });
-
-    python.on('error', (err) => {
-      clearTimeout(timer);
-      if (process.env.DEBUG) {
-        console.error(`[DepGraph] Python spawn failed: ${err.message}`);
-      }
-      resolve(null);
-    });
-
-    python.stdin.write(content, 'utf8');
-    python.stdin.end();
-  });
-}
-
-function parsePythonWithRegex(content) {
-  const imports = [];
-  const importRecords = [];
-  const exports = [];
-
-  const importRegex = /^(?:from\s+(\S+)\s+import|import\s+(\S+))/gm;
-  let match;
-  while ((match = importRegex.exec(content)) !== null) {
-    const module = match[1] || match[2];
-    if (module) {
-      imports.push(module);
-      importRecords.push(createImportRecord(module, { usesAllExports: true }));
-    }
-  }
-
-  const classRegex = /^class\s+(\w+)/gm;
-  const funcRegex = /^(?:async\s+)?def\s+(\w+)/gm;
-
-  while ((match = classRegex.exec(content)) !== null) {
-    if (!match[1].startsWith('_')) exports.push(match[1]);
-  }
-  while ((match = funcRegex.exec(content)) !== null) {
-    if (!match[1].startsWith('_')) exports.push(match[1]);
-  }
-
-  return { imports, exports, importRecords, parseMode: 'regex' };
-}
-
-async function parsePython(content) {
-  const astResult = await parsePythonAST(content);
-  if (astResult) {
-    return {
-      imports: uniqueNames(astResult.imports),
-      exports: uniqueNames(astResult.exports),
-      importRecords: astResult.importRecords.map((record) =>
-        createImportRecord(record.source, {
-          imported: record.imported,
-          usesAllExports: record.usesAllExports,
-        })
-      ),
-      parseMode: 'ast',
-    };
-  }
-
-  return parsePythonWithRegex(content);
 }
 
 function parseJavaScriptAST(content, filePath = '') {
@@ -521,7 +273,7 @@ function parseJavaScriptAST(content, filePath = '') {
 
     // Collect all top-level function definitions (including internal) for call-chain tracing
     const functionRecords = [];
-    function visitFunctionNode(node) {
+    function visitFunctionNode(node, parent) {
       if (!node || typeof node !== 'object') return;
       if ((node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') && node.id?.name) {
         const fingerprint = buildFunctionFingerprint(node);
@@ -531,14 +283,28 @@ function parseJavaScriptAST(content, filePath = '') {
           lineEnd: node.loc?.end?.line,
           fingerprint,
         }));
+      } else if (node.type === 'ArrowFunctionExpression') {
+        let name = null;
+        if (parent?.type === 'VariableDeclarator' && parent.id?.name) {
+          name = parent.id.name;
+        }
+        if (name) {
+          const fingerprint = buildFunctionFingerprint(node);
+          functionRecords.push(createExportRecord(name, {
+            kind: 'function',
+            lineStart: node.loc?.start?.line,
+            lineEnd: node.loc?.end?.line,
+            fingerprint,
+          }));
+        }
       }
       for (const key of Object.keys(node)) {
         if (key === 'type' || key === 'loc' || key === 'start' || key === 'end') continue;
         const child = node[key];
         if (Array.isArray(child)) {
-          for (const c of child) visitFunctionNode(c);
+          for (const c of child) visitFunctionNode(c, node);
         } else if (child && typeof child === 'object') {
-          visitFunctionNode(child);
+          visitFunctionNode(child, node);
         }
       }
     }
@@ -633,7 +399,7 @@ function parseJavaScript(content, filePath = '') {
     importRecords.push(createImportRecord(source, { usesAllExports: true }));
   }
 
-  const namedReExportRegex = /export\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g;
+  const namedReExportRegex = /export\s*\{([^}]*)\}\s*from\s+['"]([^'"]+)['"]/g;
   while ((match = namedReExportRegex.exec(content)) !== null) {
     const source = match[2];
     imports.push(source);
@@ -717,246 +483,4 @@ function parseJavaScript(content, filePath = '') {
   };
 }
 
-async function parseJavaAST(content) {
-  return new Promise((resolve) => {
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-    const scriptPath = path.join(__dirname, '..', '..', '..', 'scripts', 'java_ast_parser.py');
-
-    if (!fs.existsSync(scriptPath)) {
-      resolve(null);
-      return;
-    }
-
-    const python = spawn(pythonCmd, [scriptPath], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true,
-      timeout: TIMEOUTS.PYTHON_AST_PARSE_MS,
-    });
-
-    let output = '';
-    let errorOutput = '';
-    let killed = false;
-
-    const timer = setTimeout(() => {
-      killed = true;
-      python.kill('SIGTERM');
-    }, TIMEOUTS.PYTHON_AST_PARSE_MS);
-
-    python.stdout.on('data', (data) => {
-      output += data.toString('utf8');
-      if (output.length > LIMITS.COMMAND_OUTPUT_MAX_BYTES) {
-        output = output.slice(0, LIMITS.COMMAND_OUTPUT_MAX_BYTES) + '\n...[truncated]';
-        python.stdout.destroy();
-      }
-    });
-
-    python.stderr.on('data', (data) => {
-      errorOutput += data.toString('utf8');
-      if (errorOutput.length > LIMITS.COMMAND_OUTPUT_MAX_BYTES) {
-        errorOutput = errorOutput.slice(0, LIMITS.COMMAND_OUTPUT_MAX_BYTES) + '\n...[truncated]';
-        python.stderr.destroy();
-      }
-    });
-
-    python.on('close', (code) => {
-      clearTimeout(timer);
-      if (killed || code !== 0) {
-        if (process.env.DEBUG) {
-          console.error(`[DepGraph] Java AST parse failed: exitCode=${code}, stderr=${errorOutput}`);
-        }
-        resolve(null);
-        return;
-      }
-      try {
-        const result = JSON.parse(output);
-        resolve(result);
-      } catch (e) {
-        if (process.env.DEBUG) {
-          console.error(`[DepGraph] Java AST JSON parse failed: ${e.message}`);
-        }
-        resolve(null);
-      }
-    });
-
-    python.on('error', (err) => {
-      clearTimeout(timer);
-      if (process.env.DEBUG) {
-        console.error(`[DepGraph] Java spawn failed: ${err.message}`);
-      }
-      resolve(null);
-    });
-
-    python.stdin.write(content, 'utf8');
-    python.stdin.end();
-  });
-}
-
-function parseJavaWithRegex(content) {
-  const imports = [];
-  const importRecords = [];
-  const exportRecords = [];
-
-  const importRegex = /^\s*import\s+(static\s+)?([a-zA-Z_][\w.]*(?:\.\*)?)\s*;/gm;
-  let match;
-  while ((match = importRegex.exec(content)) !== null) {
-    const source = match[2];
-    const isWildcard = source.endsWith('.*');
-    const imported = isWildcard ? [] : [source.split('.').pop()];
-    imports.push(source);
-    importRecords.push(createImportRecord(source, { imported, usesAllExports: isWildcard }));
-  }
-
-  const exportRegex = /\bpublic\s+(?:abstract\s+|final\s+)?(?:class|interface|enum|record)\s+([A-Za-z_]\w*)/g;
-  while ((match = exportRegex.exec(content)) !== null) {
-    exportRecords.push(createExportRecord(match[1], { kind: 'class' }));
-  }
-
-  const exports = uniqueNames(exportRecords.map((record) => record.name));
-  return {
-    imports: uniqueNames(imports),
-    exports,
-    importRecords,
-    exportRecords,
-    parseMode: 'regex',
-  };
-}
-
-async function parseJava(content) {
-  const astResult = await parseJavaAST(content);
-  if (astResult) {
-    return {
-      imports: uniqueNames(astResult.imports),
-      exports: uniqueNames(astResult.exports),
-      importRecords: (astResult.importRecords || []).map((record) =>
-        createImportRecord(record.source, {
-          imported: record.imported,
-          usesAllExports: record.usesAllExports,
-          isStatic: record.isStatic,
-        })
-      ),
-      exportRecords: uniqueNames(astResult.exports).map((name) =>
-        createExportRecord(name, { kind: 'symbol' })
-      ),
-      parseMode: 'ast',
-    };
-  }
-  const regexResult = parseJavaWithRegex(content);
-  return { ...regexResult, parseMode: 'regex' };
-}
-
-function parseKotlin(content) {
-  const imports = [];
-  const importRecords = [];
-  const exportRecords = [];
-
-  const importRegex = /^\s*import\s+([\w.]+)(?:\.\*)?\s*(?:as\s+\w+)?/gm;
-  let match;
-  while ((match = importRegex.exec(content)) !== null) {
-    const source = match[1] + (match[0].includes('.*') ? '.*' : '');
-    const isWildcard = source.endsWith('.*');
-    imports.push(source);
-    importRecords.push(createImportRecord(source, {
-      imported: isWildcard ? [] : [source.split('.').pop()],
-      usesAllExports: isWildcard,
-    }));
-  }
-
-  const exportRegex = /\b(?:public\s+)?(?:abstract\s+|open\s+|data\s+)?(?:class|interface|object|enum)\s+([A-Za-z_]\w*)/g;
-  while ((match = exportRegex.exec(content)) !== null) {
-    exportRecords.push(createExportRecord(match[1], { kind: 'class' }));
-  }
-
-  const funRegex = /\bfun\s+([A-Za-z_]\w*)\s*\(/g;
-  while ((match = funRegex.exec(content)) !== null) {
-    exportRecords.push(createExportRecord(match[1], { kind: 'function' }));
-  }
-
-  return {
-    imports: uniqueNames(imports),
-    exports: uniqueNames(exportRecords.map((r) => r.name)),
-    importRecords,
-    exportRecords,
-    parseMode: 'regex',
-  };
-}
-
-function parseGo(content) {
-  const imports = [];
-  const importRecords = [];
-  const exportRecords = [];
-
-  const singleImport = /^\s*import\s+"([^"]+)"/gm;
-  let match;
-  while ((match = singleImport.exec(content)) !== null) {
-    imports.push(match[1]);
-    importRecords.push(createImportRecord(match[1], { usesAllExports: true }));
-  }
-
-  const blockImport = /^\s*import\s+\(([\s\S]*?)\)/m;
-  const blockMatch = content.match(blockImport);
-  if (blockMatch) {
-    const inner = blockMatch[1];
-    const innerRegex = /"([^"]+)"/g;
-    while ((match = innerRegex.exec(inner)) !== null) {
-      imports.push(match[1]);
-      importRecords.push(createImportRecord(match[1], { usesAllExports: true }));
-    }
-  }
-
-  const typeRegex = /\btype\s+([A-Z]\w*)/g;
-  while ((match = typeRegex.exec(content)) !== null) {
-    exportRecords.push(createExportRecord(match[1], { kind: 'type' }));
-  }
-  const funcRegex = /\bfunc\s+(?:\([^)]*\)\s+)?([A-Z]\w*)\s*\(/g;
-  while ((match = funcRegex.exec(content)) !== null) {
-    exportRecords.push(createExportRecord(match[1], { kind: 'function' }));
-  }
-
-  return {
-    imports: uniqueNames(imports),
-    exports: uniqueNames(exportRecords.map((r) => r.name)),
-    importRecords,
-    exportRecords,
-    parseMode: 'regex',
-  };
-}
-
-function parseRust(content) {
-  const imports = [];
-  const importRecords = [];
-  const exportRecords = [];
-
-  const useRegex = /^\s*use\s+([\w:]+)\s*;/gm;
-  let match;
-  while ((match = useRegex.exec(content)) !== null) {
-    imports.push(match[1]);
-    importRecords.push(createImportRecord(match[1], { usesAllExports: match[1].endsWith('::*') }));
-  }
-
-  const fnRegex = /\bpub\s+(?:async\s+)?fn\s+(\w+)/g;
-  while ((match = fnRegex.exec(content)) !== null) {
-    exportRecords.push(createExportRecord(match[1], { kind: 'function' }));
-  }
-  const structRegex = /\bpub\s+struct\s+(\w+)/g;
-  while ((match = structRegex.exec(content)) !== null) {
-    exportRecords.push(createExportRecord(match[1], { kind: 'struct' }));
-  }
-
-  return {
-    imports: uniqueNames(imports),
-    exports: uniqueNames(exportRecords.map((r) => r.name)),
-    importRecords,
-    exportRecords,
-    parseMode: 'regex',
-  };
-}
-
-module.exports = {
-  createImportRecord,
-  parsePython,
-  parseJavaScript,
-  parseJava,
-  parseKotlin,
-  parseGo,
-  parseRust,
-};
+module.exports = { parseJavaScript, parseJavaScriptAST };

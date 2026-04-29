@@ -542,6 +542,35 @@ async function writeOverviewDashboardFile(filePath, data) {
   await fs.promises.writeFile(filePath, html, 'utf8');
 }
 
+function buildLanguageSupportMatrix(depGraph) {
+  const matrix = {};
+  const stats = {};
+  for (const [filePath, info] of depGraph.graph || []) {
+    const ext = path.extname(filePath).toLowerCase();
+    let lang = null;
+    if (['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'].includes(ext)) lang = 'javascript';
+    else if (ext === '.py') lang = 'python';
+    else if (ext === '.java') lang = 'java';
+    else if (ext === '.kt') lang = 'kotlin';
+    else if (ext === '.go') lang = 'go';
+    else if (ext === '.rs') lang = 'rust';
+    if (!lang) continue;
+    if (!stats[lang]) stats[lang] = { total: 0, ast: 0 };
+    stats[lang].total++;
+    if (info.parseMode === 'ast') stats[lang].ast++;
+  }
+  for (const [lang, s] of Object.entries(stats)) {
+    const ratio = s.total > 0 ? s.ast / s.total : 0;
+    matrix[lang] = {
+      level: ratio >= 0.5 ? 'ast' : 'regex',
+      confidence: ratio >= 0.8 ? 'high' : ratio >= 0.5 ? 'medium' : 'low',
+      files: s.total,
+      astFiles: s.ast,
+    };
+  }
+  return matrix;
+}
+
 async function buildProjectOverview(args, container) {
   await container.ensureReady();
 
@@ -666,6 +695,7 @@ async function buildProjectOverview(args, container) {
     stabilityTrendDataFile,
     overviewDashboardFile,
     stability: stability.slice(0, 10),
+    languageSupport: buildLanguageSupportMatrix(depGraph),
     orphans: {
       counts: {
         docs: orphans.docs.length,
@@ -690,4 +720,5 @@ module.exports = {
   buildStabilityTrendSnapshot,
   buildStabilityTrendSeries,
   renderOverviewDashboard,
+  buildLanguageSupportMatrix,
 };

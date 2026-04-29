@@ -213,6 +213,12 @@ class WorkspaceCache {
     return entry?.diagnostics || [];
   }
 
+  getDiagnosticsEntry(filePath) {
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return null;
+    return this.diagnostics.get(key) || null;
+  }
+
   getAllDiagnostics() {
     const all = [];
     for (const [, entry] of this.diagnostics) {

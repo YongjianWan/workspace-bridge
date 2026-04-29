@@ -64,23 +64,7 @@ function testGetImpactRadiusWithExplanations() {
 }
 
 function testBuildImpactExplanations() {
-  // Mock the formatter function logic inline to avoid requiring audit-formatters internals
-  function buildImpactExplanations(entry) {
-    const explanations = [];
-    if (!entry?.impact?.length) return explanations;
-    const changedFile = entry.file;
-    for (const imp of entry.impact) {
-      if (imp.level === 1 && imp.importedSymbols?.length > 0) {
-        const symbols = imp.importedSymbols.join(', ');
-        explanations.push(`因 \`${changedFile}\` 被 \`${imp.file}\` import（${symbols}），故波及该文件`);
-      } else if (imp.level > 1 && imp.via?.length >= 1) {
-        const directImporter = imp.via[0];
-        const chain = imp.via.slice(1).concat(imp.file).join(' -> ');
-        explanations.push(`因 \`${changedFile}\` 被 \`${directImporter}\` import，经 \`${chain}\` 传递，故波及测试`);
-      }
-    }
-    return explanations;
-  }
+  const { buildImpactExplanations } = require('../src/cli/audit-formatters');
 
   const entry = {
     file: 'src/utils/resolvers.js',
@@ -92,7 +76,10 @@ function testBuildImpactExplanations() {
 
   const explanations = buildImpactExplanations(entry);
   assert(explanations.some((e) => e.includes('resolvers.js') && e.includes('dep-graph.js') && e.includes('resolveImport')), 'Should explain direct import');
-  assert(explanations.some((e) => e.includes('dep-graph.js') && e.includes('gors-resolver-test.js')), 'Should explain transitive impact');
+  const transitive = explanations.find((e) => e.includes('gors-resolver-test.js'));
+  assert(transitive, 'Should explain transitive impact');
+  assert(!transitive.includes('被 `src/utils/resolvers.js` import'), 'directImporter should not be the changed file itself');
+  assert(transitive.includes('被 `src/services/dep-graph.js` import'), 'directImporter should be the immediate upstream file');
 
   console.log('testBuildImpactExplanations passed');
 }

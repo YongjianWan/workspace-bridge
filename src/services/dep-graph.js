@@ -496,10 +496,12 @@ class DependencyGraph {
         const content = fs.readFileSync(importerPath, 'utf-8');
         for (const symbol of symbols) {
           if (used.has(symbol)) continue;
+          // 转义正则元字符，防止 symbol 含 $ . ( 等导致 SyntaxError 或错误匹配
+          const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           // 方法/函数调用: bar( / Bar(
-          const callPattern = new RegExp(`\\b${symbol}\\s*\\(`);
+          const callPattern = new RegExp(`\\b${escaped}\\s*\\(`);
           // 字段/属性访问: .bar / .someField（Java/Kotlin）
-          const accessPattern = isJavaFamily ? new RegExp(`\\.${symbol}\\b`) : null;
+          const accessPattern = isJavaFamily ? new RegExp(`\\.${escaped}\\b`) : null;
           if (callPattern.test(content) || (accessPattern && accessPattern.test(content))) {
             used.add(symbol);
           }

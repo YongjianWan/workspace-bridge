@@ -50,8 +50,9 @@
 | ~~P1 Java/Go/Rust 使用点解析~~ | ✅ 已完成 | `dep-graph.js` `_scanSymbolUsageInImporters()` 消除符号级 dead-export 系统性误报 |
 | ~~P3 影响路径解释字段~~ | ✅ 已完成 | `getImpactRadius()` 扩展 `via` + `importedSymbols` + `reason` |
 | ~~P3 变更影响解释链（聚合）~~ | ✅ 已完成 | `audit-diff` 返回可读因果链 `impactExplanations` |
-| P2 构建/测试命令智能化 | P2 | Gradle 任务发现、Go package 聚合、Rust workspace 子 crate |
+| P2 构建/测试命令智能化 | P2 | ~~Rust workspace 子 crate~~ ✅ 已完成；Gradle 任务发现 / Go package 聚合 待续 |
 | ~~P3 耦合拆分建议去模板化~~ | ✅ 已完成 | `audit-overview` `couplingSplitSuggestions` 已按出入度生成针对性建议 |
+| ~~P4 parsers.js 文件拆分~~ | ✅ 已完成 | 976 行拆为 `parsers/` 目录（shared + js + python + java + polyglot + index） |
 | P4 Kotlin AST / 大仓库性能 / 注册表 | P3 | 技术债，不急 |
 
 ### 已知缺陷（本轮 Code Review 发现，下轮优先修）
@@ -202,6 +203,40 @@ npm run benchmark:perf
 
 ---
 
+---
+
+## 25. 本轮完成（当前会话）
+
+### 修复的缺陷
+
+| # | 问题 | 文件 | 修复 |
+|---|------|------|------|
+| 1 | `buildImpactExplanations()` `directImporter` 取错索引 | `audit-formatters.js` | `imp.via[0]` → `imp.via[imp.via.length - 1]`，加自引用防御 |
+| 2 | `checkFile()` 缓存接口不匹配 | `cache.js` + `diagnostics-engine.js` | 新增 `getDiagnosticsEntry()` 返回完整 `{mtime, diagnostics}` |
+| 3 | `_scanSymbolUsageInImporters()` symbol 未转义正则元字符 | `dep-graph.js` | `symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')` |
+| 4 | `visitFunctionNode()` 遗漏 `ArrowFunctionExpression` | `parsers.js` | 新增 `ArrowFunctionExpression` 分支，从父 `VariableDeclarator` 取函数名 |
+| 5 | 测试未覆盖 `directImporter` 正确性 | `test/p3-impact-explanation-test.js` | 改用真实函数，新增非自引用断言 |
+
+### 新增能力
+
+- **P2 Rust workspace 子 crate**：`detectRustWorkspaceMembers()` 解析 `Cargo.toml` workspace members，生成 `cargo test -p crate-name`
+- **P3 Language support matrix**：`audit-overview` JSON 输出 `languageSupport`（level/confidence/files/astFiles），human 输出同步追加 `languages` 行
+- **P4 parsers.js 拆分**：976 行拆为 `parsers/` 目录 6 个文件，均 < 500 行，现有 `require('./parsers')` 零改动
+
+### 测试
+
+- 新增：`arrow-function-test.js`、`rust-workspace-test.js`、`language-support-matrix-test.js`
+- 更新：`p1-usage-scan-test.js`（symbol 转义）、`p3-impact-explanation-test.js`（directImporter）
+- 全量：`npm run test:all` → **27/27 全绿**
+
+### 下轮建议
+
+1. **Go module path 聚合**（投入中/收益中）— 检测嵌套 `go.mod`，为子模块生成 `cd subdir && go test ./...`
+2. **注释剔除**（投入低/收益中）— `_scanSymbolUsageInImporters()` 剔除 `//...` 行内注释，减少 dead-export false negative
+3. **Gradle 任务发现**（投入高/收益中）— 建议等真实用户反馈后再做
+
+---
+
 *Last updated: 2026-04-29*
 
 ## 18. 本轮审查新增
@@ -254,5 +289,41 @@ npm run benchmark:perf
 3. `_scanSymbolUsageInImporters()` 无法区分"被导入 symbol 的调用"与"同名局部变量/方法的调用"。若 importer 文件内定义了同名的局部函数或方法，正则同样会匹配，导致该 symbol 被误判为已使用。
    - **示例**：A 导出 `bar()`，B 导入 A 但同时有局部 `function bar() {} bar()`，`_scanSymbolUsageInImporters` 扫描 B 时会将局部 `bar(` 匹配为 A 的 `bar` 被使用。
    - **权衡**：区分局部与导入 symbol 需要至少 token 级作用域分析，超出当前"轻量扫描"定位；建议作为已知局限在文档中明确标注。
+
+*Last updated: 2026-04-29*
+
+---
+
+## 25. 本轮完成（当前会话）
+
+### 修复的缺陷
+
+| # | 问题 | 文件 | 修复 |
+|---|------|------|------|
+| 1 | `buildImpactExplanations()` `directImporter` 取错索引 | `audit-formatters.js` | `imp.via[0]` → `imp.via[imp.via.length - 1]`，加自引用防御 |
+| 2 | `checkFile()` 缓存接口不匹配 | `cache.js` + `diagnostics-engine.js` | 新增 `getDiagnosticsEntry()` 返回完整 `{mtime, diagnostics}` |
+| 3 | `_scanSymbolUsageInImporters()` symbol 未转义正则元字符 | `dep-graph.js` | `symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')` |
+| 4 | `visitFunctionNode()` 遗漏 `ArrowFunctionExpression` | `parsers.js` | 新增 `ArrowFunctionExpression` 分支，从父 `VariableDeclarator` 取函数名 |
+| 5 | 测试未覆盖 `directImporter` 正确性 | `test/p3-impact-explanation-test.js` | 改用真实函数，新增非自引用断言 |
+
+### 新增能力
+
+- **P2 Rust workspace 子 crate**：`detectRustWorkspaceMembers()` 解析 `Cargo.toml` workspace members，生成 `cargo test -p crate-name`
+- **P3 Language support matrix**：`audit-overview` JSON 输出 `languageSupport`（level/confidence/files/astFiles），human 输出同步追加 `languages` 行
+- **P4 parsers.js 拆分**：976 行拆为 `parsers/` 目录 6 个文件，均 < 500 行，现有 `require('./parsers')` 零改动
+
+### 测试
+
+- 新增：`arrow-function-test.js`、`rust-workspace-test.js`、`language-support-matrix-test.js`
+- 更新：`p1-usage-scan-test.js`（symbol 转义）、`p3-impact-explanation-test.js`（directImporter）
+- 全量：`npm run test:all` → **27/27 全绿**
+
+### 下轮建议
+
+1. **Go module path 聚合**（投入中/收益中）— 检测嵌套 `go.mod`，为子模块生成 `cd subdir && go test ./...`
+2. **注释剔除**（投入低/收益中）— `_scanSymbolUsageInImporters()` 剔除 `//...` 行内注释，减少 dead-export false negative
+3. **Gradle 任务发现**（投入高/收益中）— 建议等真实用户反馈后再做
+
+---
 
 *Last updated: 2026-04-29*
