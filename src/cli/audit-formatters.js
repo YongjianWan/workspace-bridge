@@ -724,9 +724,8 @@ function buildProjectMap(depGraph) {
     };
   }).sort((a, b) => a.file.localeCompare(b.file));
 
-  // Edges: import relationships
-  const edges = [];
-  const seenEdges = new Set();
+  // Edges: import relationships (merge symbols for same from|to pairs)
+  const edgeMap = new Map();
   for (const file of allFiles) {
     const fromRel = toRelativePath(root, file);
     const info = depGraph.getFileInfo(file) || {};
@@ -740,31 +739,51 @@ function buildProjectMap(depGraph) {
       if (!resolved) continue;
       const toRel = toRelativePath(root, resolved);
       const edgeKey = `${fromRel}|${toRel}`;
-      if (seenEdges.has(edgeKey)) continue;
-      seenEdges.add(edgeKey);
-      edges.push({
-        from: fromRel,
-        to: toRel,
-        type: 'import',
-        symbols: record.imported || [],
-        usesAllExports: Boolean(record.usesAllExports),
-      });
-    }
+      const existing = edgeMap.get(edgeKey);
+      if (existing) {
+        for (const sym of record.imported || []) {
+          if (!existing.symbols.includes(sym)) existing.symbols.push(sym);
+        }
+        existing.usesAllExports = existing.usesAllExports || Boolean(record.usesAllExports);
+      } else {
+        edgeMap.set(edgeKey, {
+          from: fromRel,
+          to: toRel,
+          type: 'import',
+          symbols: record.imported || [],
+          usesAllExports: Boolean(record.usesAllExports),
+        });
+      }
 
-    // Re-export edges
-    for (const record of info.exportRecords || []) {
-      if (record?.reExported && record.reExported.length > 0) {
-        for (const pair of record.reExported) {
-          edges.push({
+      // Re-export edges piggyback on importRecords traversal
+      if (record.reExportAll) {
+        const reKey = `${fromRel}|${toRel}|re-export-all`;
+        if (!edgeMap.has(reKey)) {
+          edgeMap.set(reKey, {
             from: fromRel,
-            type: 're-export',
-            imported: pair.imported,
-            exported: pair.exported,
+            to: toRel,
+            type: 're-export-all',
+            symbols: [],
           });
+        }
+      }
+      if (record.reExported && record.reExported.length > 0) {
+        for (const pair of record.reExported) {
+          const reKey = `${fromRel}|${toRel}|re-export|${pair.imported || ''}|${pair.exported || ''}`;
+          if (!edgeMap.has(reKey)) {
+            edgeMap.set(reKey, {
+              from: fromRel,
+              to: toRel,
+              type: 're-export',
+              imported: pair.imported,
+              exported: pair.exported,
+            });
+          }
         }
       }
     }
   }
+  const edges = Array.from(edgeMap.values());
 
   // IssueOverlay
   const deadExports = depGraph.findDeadExports?.() || [];
@@ -785,6 +804,7 @@ function buildProjectMap(depGraph) {
 
   return {
     ok: true,
+    workspaceRoot: root,
     tree,
     edges,
     issueOverlay: {

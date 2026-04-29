@@ -30,6 +30,16 @@
 | P3 耦合拆分建议去模板化 | P2 | `audit-overview` `couplingSplitSuggestions` 根据出入度生成针对性建议 |
 | P4 Kotlin AST / 大仓库性能 / 注册表 | P3 | 技术债，不急 |
 
+### 已知缺陷（本轮 Code Review 发现，下轮优先修）
+
+| 评级 | 问题 | 落点 | 修复投入 | 阻塞 |
+|------|------|------|----------|------|
+| HIGH | audit-map 漏掉 re-export 边 | `audit-formatters.js:754-766` 从 `exportRecords` 读 `reExported`，但 parser 把数据写在 `importRecords` 上 | ~10 行 | P1.5 拓扑完整性 |
+| HIGH | audit-map 同 `from\|to` 边去重丢失符号信息 | `seenEdges` 用 `${fromRel}\|${toRel}` 去重，多条 import 边只剩一条 | ~5 行 | P1.5 拓扑精度 |
+| MEDIUM | audit-map re-export 边缺 `to` 字段 | 只有 `from/type/imported/exported`，下游无法定位目标模块 | ~3 行 | P1.5 边可用性 |
+| MEDIUM | audit-map human 输出 `workspaceRoot: undefined` | `buildProjectMap()` 返回值缺 `workspaceRoot` | 1 行 | 输出瑕疵 |
+| LOW | audit-map `issueOverlay` 未包含 hotspots | ROADMAP 契约含 hotspots，实现缺漏 | ~5 行 | 契约对齐 |
+
 ---
 
 ## 2. 快速验证命令
@@ -119,3 +129,43 @@ npm run benchmark:perf
 ---
 
 *Last updated: 2026-04-29*
+
+## 7. 本轮审查补充
+
+1. `audit-map` 的 re-export 关系当前从 exportRecords 取，和 parser 的数据落点不一致，容易漏掉 `export { ... } from ...` / `export * from ...`。
+2. `audit-map` 的 human formatter 依赖 workspaceRoot，但返回值里没带这个字段，会打印 undefined。
+3. `issueOverlay` 目前没包含 ROADMAP 承诺的 hotspots，契约和实现还没完全对齐。
+
+## 8. 本轮审查新增
+
+1. `audit-map` 把同一 `from|to` 的多条 import 边去重了，会丢失同目标不同符号的边信息，导致图不完整。
+2. `audit-map` 的 re-export 边没有 `to` 字段，只有 `from/type/imported/exported`，下游无法把它当作完整拓扑边使用。
+
+## 9. 本轮审查继续新增
+
+1. `audit-map` 的 `tree` 现在只是按文件排序的扁平数组，不是 ROADMAP 里说的目录聚合树，目录骨架信息丢了。
+2. `audit-map` 里的 `deadExports` 在映射时丢掉了 `confidence` 字段，`high/medium/low` 这层风险信息被抹平了。
+
+## 10. 本轮审查收尾
+
+1. `AGENTS.md` / `ROADMAP.md` 已把 `audit-map` 标成完成，但实现仍缺热点、目录树聚合和完整边语义，文档状态和代码状态不一致。
+
+## 11. 本轮审查补充
+
+1. `ROADMAP.md` 把 `audit-map` 说成“2 个已知 issue 待修”，但下面实际列了 4 条问题，标题和内容不一致。
+
+## 12. 本轮审查继续补充
+
+1. `test/audit-map-test.js` 只覆盖了伪造 depGraph，没有覆盖真实 `resolved` / re-export / confidence / workspaceRoot 输出，当前命令的契约缺少回归保护。
+
+## 13. 本轮审查继续补充
+
+1. `toRelativePath()` 只做字符串前缀判断，不做真正的 root 边界校验；当 resolved 路径在 workspace 外但共享前缀时，会被切成错误的相对路径。
+
+## 14. 本轮审查继续补充
+
+1. `buildProjectMap()` 把 `deadExports` 映射成只剩 `file/exports`，把 `confidence` 丢掉了；`issueOverlay` 的风险分级在这个层面被裁断。
+
+## 15. 本轮审查继续补充
+
+1. `resolveJavaScriptImport()` 把存在的目录本身当成有效解析结果直接返回（`addCandidate(resolvedBase)` + `fs.existsSync(candidate)`），像 `require('../src/services/dep-graph')` 这种目录型 import 会落成目录路径而不是入口文件，进而把 dependents / deadExports / orphans 全带歪。
