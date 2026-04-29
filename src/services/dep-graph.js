@@ -459,10 +459,48 @@ class DependencyGraph {
   }
 
   /**
+   * P1: 轻量扫描 importer 文件中的符号使用点
+   * 通过简单 regex 查找方法调用/字段访问，补充 importRecords 未 capture 的使用
+   * @param {string[]} importerPaths - importer 文件路径列表
+   * @param {string[]} symbols - 待检查的符号名
+   * @param {string} sourceFilePath - 被导入的源文件路径（用于判断语言）
+   * @returns {Set<string>} 被使用的符号集合
+   */
+  _scanSymbolUsageInImporters(importerPaths, symbols, sourceFilePath) {
+    const used = new Set();
+    if (!symbols || symbols.length === 0) return used;
+
+    const ext = path.extname(sourceFilePath).toLowerCase();
+    const isJavaFamily = ext === '.java' || ext === '.kt';
+
+    for (const importerPath of importerPaths) {
+      try {
+        const content = fs.readFileSync(importerPath, 'utf-8');
+        for (const symbol of symbols) {
+          if (used.has(symbol)) continue;
+          // 方法/函数调用: bar( / Bar(
+          const callPattern = new RegExp(`\\b${symbol}\\s*\\(`);
+          // 字段/属性访问: .bar / .someField（Java/Kotlin）
+          const accessPattern = isJavaFamily ? new RegExp(`\\.${symbol}\\b`) : null;
+          if (callPattern.test(content) || (accessPattern && accessPattern.test(content))) {
+            used.add(symbol);
+          }
+        }
+        if (used.size === symbols.length) break;
+      } catch {
+        // ignore read errors
+      }
+    }
+
+    return used;
+  }
+
+  /**
    * Phase 3: 查找未被引用的 exports（死代码）
-   * @returns {Array<{file: string, exports: string[], confidence: 'high'}>}
-   * @description 只报告没有任何 importer 的文件（high confidence）。
-   *   有 importer 的文件无法在没有 AST 的情况下判断符号级别的使用情况，不做猜测。
+   * @returns {Array<{file: string, exports: string[], confidence: 'high'|'medium'|'low'}>}
+   * @description 无 importer 的文件 → high confidence。
+   *   有 importer 的文件：先检查 importRecords，再轻量扫描 importer 内容中的使用点（P1），
+   *   两者都未发现的符号才报告为 dead-export。
    */
   findDeadExports() {
     const deadExports = [];
@@ -505,13 +543,14 @@ class DependencyGraph {
         continue;
       }
 
-      // Java AST: import records only capture class names, not method-level usage via instance calls.
-      // Symbol-level dead-export for Java would require cross-file call-graph analysis, which we don't have.
-      if (filePath.endsWith('.java') && info.parseMode === 'ast') {
-        continue;
+      let unused = info.exports.filter((name) => !usedNames.has(name));
+
+      // P1: 轻量扫描 importer 文件中的实际使用点，消除 importRecords 未 capture 的误报
+      if (unused.length > 0) {
+        const scannedUsed = this._scanSymbolUsageInImporters(importers, unused, filePath);
+        unused = unused.filter((name) => !scannedUsed.has(name));
       }
 
-      const unused = info.exports.filter((name) => !usedNames.has(name));
       if (unused.length > 0) {
         const confidence = info.parseMode === 'ast' ? 'medium' : 'low';
         deadExports.push({ file: filePath, exports: unused, confidence });
