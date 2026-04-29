@@ -191,6 +191,12 @@ workspace-bridge 的核心价值很直接：
 - 消除符号级 dead-export 系统性误报，Java AST 文件不再需要保守跳过
 - 验收：`java-dead-export-test.js` 验证 `f.bar()` 被识别后 `bar` 不再被报为 dead-export
 
+#### P3: 影响路径解释字段 + 变更影响解释链
+- `getImpactRadius()` 扩展 `via`（路径链）+ `importedSymbols`（导入符号）+ `reason`（direct-import/transitive-dependency）
+- `audit-formatters.js` 新增 `buildImpactExplanations()`：聚合可读因果链字符串
+- `audit-diff` entry 和 summary 均返回 `impactExplanations`，如"因 `resolvers.js` 被 `dep-graph.js` import（resolveImport），故波及测试"
+- 验收：`p3-impact-explanation-test.js` 验证 level 1 直接 import + level 2 传递链解释
+
 #### M5: 项目全景视图
 - 新增 `audit-overview` 命令
 - 热区图：基于 Git 历史和依赖耦合度识别高风险文件

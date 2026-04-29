@@ -139,8 +139,8 @@ P0T1–P0T5 全部交付，详见上方"基础能力（Phase 0-1）"章节。
 ### P3：提升输出可解释性
 - [x] **CJS 符号解析补全**（投入：低 / 收益：高 / 风险：低）— `parsers.js` 识别 `module.exports = { fn }` 和 `exports.fn = ...` 结构，使 `symbolToDependents` 不再为空数组。落点：`dep-graph/parsers.js` + `symbol-impact.js` `buildFunctionToDependents` 同时参考 `functionRecords`
 - [x] **内部函数改动→测试映射**（投入：中 / 收益：高 / 风险：低）— `getChangedFunctionImpact()` 追踪内部辅助函数的调用链，找到调用它的导出函数，再映射 dependents。落点：`src/services/dep-graph/function-impact.js`
-- [ ] **影响路径解释字段**（投入：低 / 收益：中 / 风险：低）— `impact` 数组增加 `reason` + `importedSymbols` + `via` 字段。落点：`src/services/dep-graph.js` `getImpactRadius()`
-- [ ] **变更影响解释链（聚合）**（投入：中 / 收益：高 / 风险：低）— `audit-diff` 输出可读的因果链，如"因 `dep-graph.js` import `resolvers.js` 的 `resolveImport`，故波及 `test/gors-resolver-test.js`"。落点：`src/cli/audit-formatters.js`
+- [x] **影响路径解释字段**（投入：低 / 收益：中 / 风险：低）— `getImpactRadius()` 扩展 `via`（路径链）+ `importedSymbols`（导入符号）+ `reason` 字段。落点：`src/services/dep-graph.js`
+- [x] **变更影响解释链（聚合）**（投入：中 / 收益：高 / 风险：低）— `audit-formatters.js` `buildImpactExplanations()` 聚合可读因果链，`audit-diff` 返回 `impactExplanations`。如"因 `resolvers.js` 被 `dep-graph.js` import（resolveImport），故波及测试"。落点：`src/cli/audit-formatters.js` + `cli.js`
 - [x] **耦合拆分建议去模板化**（投入：低 / 收益：中 / 风险：低）— `audit-overview` 的 `couplingSplitSuggestions` 已按 role + 出入度生成针对性建议（entry/utility/consumer/script/test/config）。落点：`src/tools/overview-tools.js` `generateCouplingSplitPlan()`（9198613）
 - [ ] **统一能力矩阵输出**（投入：低 / 收益：中 / 风险：低）— CLI JSON 直接带 language support matrix + confidence 解释，减少文档追赶成本
 

@@ -40,14 +40,16 @@
 | **cache getStats diagnostics 计数错误** | ✅ | `cache.js` `getStats()` | `.flat()` 对 `{mtime, diagnostics}` 对象无效，计数永远为 0 |
 | **getUnusedExports 死代码** | ✅ | `dep-graph.js` 删除 `getUnusedExports()` | 逻辑错误（检查路径包含符号名）且无人调用 |
 | **P1 使用点解析** | ✅ | `dep-graph.js` `_scanSymbolUsageInImporters()` + `findDeadExports()` | 轻量扫描 importer 文件中的方法调用/字段访问，消除 Java/Go/Rust 符号级 dead-export 系统性误报 |
+| **P3 影响路径解释字段** | ✅ | `dep-graph.js` `getImpactRadius()` 扩展 `via` + `importedSymbols` + `reason` | impact 数组从 `{file,level}` 升级为带路径解释的结构 |
+| **P3 变更影响解释链（聚合）** | ✅ | `audit-formatters.js` `buildImpactExplanations()` + `cli.js` | `audit-diff` 返回可读因果链 `impactExplanations` |
 
 ### 待完成（按 ROADMAP 价值排序）
 
 | 任务 | 优先级 | 说明 |
 |------|--------|------|
 | ~~P1 Java/Go/Rust 使用点解析~~ | ✅ 已完成 | `dep-graph.js` `_scanSymbolUsageInImporters()` 消除符号级 dead-export 系统性误报 |
-| P3 影响路径解释字段 | P1 | `impact` 数组增加 `reason` + `importedSymbols` + `via` |
-| P3 变更影响解释链（聚合） | P1 | `audit-diff` 输出可读因果链 |
+| ~~P3 影响路径解释字段~~ | ✅ 已完成 | `getImpactRadius()` 扩展 `via` + `importedSymbols` + `reason` |
+| ~~P3 变更影响解释链（聚合）~~ | ✅ 已完成 | `audit-diff` 返回可读因果链 `impactExplanations` |
 | P2 构建/测试命令智能化 | P2 | Gradle 任务发现、Go package 聚合、Rust workspace 子 crate |
 | ~~P3 耦合拆分建议去模板化~~ | ✅ 已完成 | `audit-overview` `couplingSplitSuggestions` 已按出入度生成针对性建议 |
 | P4 Kotlin AST / 大仓库性能 / 注册表 | P3 | 技术债，不急 |
@@ -237,3 +239,20 @@ npm run benchmark:perf
 7. ~~`resolvePythonCommand()` 引号包裹~~ ✅ 已修复。返回 `"C:\path"` 导致 `spawn()` 失败；移除引号。
 8. ~~`cache.getStats()` diagnostics 计数错误~~ ✅ 已修复。`.flat()` 对 `{mtime, diagnostics}` 对象无效；改为遍历累加 `diagnostics.length`。
 9. ~~`getUnusedExports()` 死代码~~ ✅ 已删除。逻辑错误且全仓零调用。
+
+---
+
+## 24. 本轮审查新增（edc687f P1 usage scan）
+
+1. `_scanSymbolUsageInImporters()` 的 `symbol` 参数未转义正则元字符。`callPattern` 和 `accessPattern` 直接拼接 `symbol` 到正则中，若 symbol 包含 `$`、`.`、`(` 等字符会导致 `SyntaxError` 或错误匹配。Java 允许 `$` 出现在标识符中，JS 导出符号也可能含 `$`。
+   - **影响**：含 `$` 的 symbol 在 JS/Go 调用场景中（如 `foo.$bar()`）会被 `$` 断言干扰，`$bar	s*\(` 可能永远匹配不到，导致本已被使用的 symbol 被误判为 dead-export。
+   - **修复**：拼接前对 `symbol` 做 `symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')` 转义。
+
+2. `_scanSymbolUsageInImporters()` 的正则在完整文件内容上运行，不做注释/字符串剔除。注释中的示例调用（`// don't call bar()`）和字符串字面量（`"use bar() for help"`）会被误判为实际使用，导致 false negative（漏报 dead-export）。
+   - **权衡**："轻量扫描"定位下不要求 AST 级精确，但注释误判概率不低（API 文档、TODO 注释常含方法名示例），建议至少剔除 `//...` 行内注释。
+
+3. `_scanSymbolUsageInImporters()` 无法区分"被导入 symbol 的调用"与"同名局部变量/方法的调用"。若 importer 文件内定义了同名的局部函数或方法，正则同样会匹配，导致该 symbol 被误判为已使用。
+   - **示例**：A 导出 `bar()`，B 导入 A 但同时有局部 `function bar() {} bar()`，`_scanSymbolUsageInImporters` 扫描 B 时会将局部 `bar(` 匹配为 A 的 `bar` 被使用。
+   - **权衡**：区分局部与导入 symbol 需要至少 token 级作用域分析，超出当前"轻量扫描"定位；建议作为已知局限在文档中明确标注。
+
+*Last updated: 2026-04-29*
