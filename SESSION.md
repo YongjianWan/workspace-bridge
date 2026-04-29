@@ -2,7 +2,7 @@
 
 > 生成时间：2026-04-29
 > 当前版本：v0.8.2+
-> 会话主题：修复 audit-map 审查缺陷 + resolveJavaScriptImport 目录截断
+> 会话主题：系统性 bug 扫荡（孤儿检测 / 耦合建议 / 安全 / 缓存 / 路径）
 
 ---
 
@@ -29,6 +29,16 @@
 | **detectTestConfig 不认 package.json test** | ✅ | `health-tools.js` `detectTestConfig()` | 识别 `package.json` `scripts.test` 为 `custom-node-scripts` |
 | **runDiagnostics 缓存吞结果** | ✅ | `cache.js` `getAllDiagnostics()` + `workspace-tools.js` | 缓存分支正确返回诊断数据和统计，不再置空 |
 | ~~ReDoS 过滤器漏洞~~ | ✅ 核实无需修复 | `search-tools.js` `containsReDoSPattern()` | 当前正则 `\([^()]*[+*][^()]*\)[+*]` 已正确拦截嵌套量词 |
+| **runDiagnostics 缓存快路径永远进不去** | ✅ | `container.js` `cache.setWorkspaceInfo()` | `initialize()` 后设置 workspaceInfo，使缓存命中路径生效 |
+| **孤儿检测路径匹配错误** | ✅ | `overview-tools.js` `findOrphanFiles()` | `includes('/scripts/')` 不匹配根级 `scripts/foo.js`，改为 `startsWith\|\|includes` |
+| **耦合拆分建议模板化** | ✅ | `overview-tools.js` `buildCouplingSplitSuggestions()` | 按 role + 出入度生成针对性建议（entry/utility/consumer/script/test/config） |
+| **detectTestConfig 不认 test:* 脚本** | ✅ | `health-tools.js` `detectTestConfig()` | 同步 `stack-detector.js` 逻辑，识别 `key === 'test' \|\| key.startsWith('test:')` |
+| **reverseGraph 重复 dependents** | ✅ | `dep-graph.js` `buildReverseGraph()` | 同一文件多 import（如 `import {a}` 和 `import {b}` from './foo'）导致 inDegree 虚高 |
+| **classifyChangeType 路径匹配遗漏** | ✅ | `audit-formatters.js` `classifyChangeType()` | 根级 `test/`、`scripts/` 路径未被后备分支识别 |
+| **isSafePath 路径遍历漏洞** | ✅ | `diagnostics-engine.js` `isSafePath()` | `startsWith()` 把 `workspace-extra` 误判为在 workspace 内；改为 `path.relative()` 检查 |
+| **resolvePythonCommand 引号包裹** | ✅ | `path.js` `resolvePythonCommand()` | 返回 `"C:\path"` 导致 `spawn()` 将其视为带引号的字面文件名而失败 |
+| **cache getStats diagnostics 计数错误** | ✅ | `cache.js` `getStats()` | `.flat()` 对 `{mtime, diagnostics}` 对象无效，计数永远为 0 |
+| **getUnusedExports 死代码** | ✅ | `dep-graph.js` 删除 `getUnusedExports()` | 逻辑错误（检查路径包含符号名）且无人调用 |
 
 ### 待完成（按 ROADMAP 价值排序）
 
@@ -38,7 +48,7 @@
 | P3 影响路径解释字段 | P1 | `impact` 数组增加 `reason` + `importedSymbols` + `via` |
 | P3 变更影响解释链（聚合） | P1 | `audit-diff` 输出可读因果链 |
 | P2 构建/测试命令智能化 | P2 | Gradle 任务发现、Go package 聚合、Rust workspace 子 crate |
-| P3 耦合拆分建议去模板化 | P2 | `audit-overview` `couplingSplitSuggestions` 根据出入度生成针对性建议 |
+| ~~P3 耦合拆分建议去模板化~~ | ✅ 已完成 | `audit-overview` `couplingSplitSuggestions` 已按出入度生成针对性建议 |
 | P4 Kotlin AST / 大仓库性能 / 注册表 | P3 | 技术债，不急 |
 
 ### 已知缺陷（本轮 Code Review 发现，下轮优先修）
@@ -59,13 +69,23 @@
 | ~~MEDIUM~~ | ~~`detectTestConfig()` 不认 `package.json` test script~~ | ✅ 已识别 `scripts.test` 并返回 `custom-node-scripts` | — | — |
 | ~~MEDIUM~~ | ~~`runDiagnostics()` 缓存吞结果~~ | ✅ `cache.getAllDiagnostics()` 正确展平 Map，`runDiagnostics` 返回缓存数据 | — | — |
 | ~~LOW~~ | ~~ReDoS 过滤器漏洞~~ | ✅ 当前正则已正确拦截 `(a+)+` / `(a*)*` | — | — |
+| ~~MEDIUM~~ | ~~`runDiagnostics()` 缓存快路径永远进不去~~ | ✅ `container.js` 已加 `setWorkspaceInfo()` 调用 | — | — |
+| ~~MEDIUM~~ | ~~孤儿检测路径匹配错误~~ | ✅ `startsWith('scripts/')` 已补全 | — | — |
+| ~~MEDIUM~~ | ~~耦合拆分建议模板化~~ | ✅ 已按 role + 出入度生成针对性建议 | — | — |
+| ~~MEDIUM~~ | ~~`detectTestConfig()` 不认 `test:*` 脚本~~ | ✅ 已同步 `stack-detector.js` 逻辑 | — | — |
+| ~~LOW~~ | ~~`reverseGraph` 重复 dependents~~ | ✅ 已去重 | — | — |
+| ~~LOW~~ | ~~`classifyChangeType()` 路径匹配遗漏~~ | ✅ 已补全 `startsWith` | — | — |
+| ~~HIGH~~ | ~~`isSafePath()` 路径遍历漏洞~~ | ✅ 已改为 `path.relative()` 检查 | — | — |
+| ~~MEDIUM~~ | ~~`resolvePythonCommand()` 引号包裹~~ | ✅ 已移除引号 | — | — |
+| ~~LOW~~ | ~~`cache.getStats()` diagnostics 计数错误~~ | ✅ 已正确遍历 `{mtime, diagnostics}` 结构 | — | — |
+| ~~LOW~~ | ~~`getUnusedExports()` 死代码~~ | ✅ 已删除 | — | — |
 
 ---
 
 ## 2. 快速验证命令
 
 ```bash
-# 全量回归（20 项，必须绿）
+# 全量回归（21 项，必须绿）
 npm run test:all
 
 # 官方自审（~25s）
@@ -76,6 +96,9 @@ node cli.js audit-map --cwd . --json --quiet
 
 # P0T5 验收（需临时改 resolvers.js 内部函数）
 node cli.js audit-diff --cwd . --json --quiet
+
+# 孤儿检测验收
+node cli.js audit-overview --cwd . --json --quiet
 
 # 性能基准
 npm run benchmark:perf
@@ -106,12 +129,20 @@ npm run benchmark:perf
 
 ### 本轮修复（commit `b8683ea` + 当前轮次）
 - `src/tools/git-tools.js` — staged 分支 `isTempFile` 过滤 + `getChangedLineRanges()` staged/unstaged 分离
-- `src/tools/health-tools.js` — `detectTestConfig()` 识别 `package.json` `scripts.test`
-- `src/services/cache.js` — 新增 `getAllDiagnostics()` 方法
+- `src/tools/health-tools.js` — `detectTestConfig()` 识别 `package.json` `scripts.test` 及 `test:*`
+- `src/services/cache.js` — 新增 `getAllDiagnostics()` 方法 + 修复 `getStats()` diagnostics 计数
 - `src/tools/workspace-tools.js` — `runDiagnostics()` 缓存分支正确返回诊断数据
 - `test/phase01-quality-test.js` — 新增 `testTempFileFilterStaged` + `testDetectTestConfigFromPackageJson`
 - `test/git-line-ranges-test.js` — 新增 staged/unstaged 分离测试
 - `test/diagnostics-cache-test.js` — 新增缓存返回数据 + 空缓存穿透测试
+- `test/container-workspace-info-test.js` — 验证 `ServiceContainer.initialize()` 设置 `workspaceInfo`
+
+### 本轮修复（系统性 bug 扫荡）
+- `src/tools/overview-tools.js` — `findOrphanFiles()` 路径匹配 + `generateCouplingSplitPlan()` 去模板化
+- `src/services/dep-graph.js` — `buildReverseGraph()` 去重 + 删除 `getUnusedExports()` 死代码
+- `src/cli/audit-formatters.js` — `classifyChangeType()` 根级路径匹配补全
+- `src/services/diagnostics-engine.js` — `isSafePath()` 路径遍历漏洞修复
+- `src/utils/path.js` — `resolvePythonCommand()` 移除引号包裹
 
 ### 已知限制（未变）
 - `parsers.js` 876 行，唯一超 500 行铁律的文件，后续应拆成按语言的 dispatch 表
@@ -125,7 +156,7 @@ npm run benchmark:perf
 - 问题：实例调用 `foo.bar()` 不在 import 记录中，导致 dead-export 系统性误报
 - 思路：轻量扫描符号使用（不需要完整 AST），标记被使用过的符号不判为 dead-export
 - 落点：`src/services/dep-graph.js` `findDeadExports()`
-- 验收：`audit-summary` 的 deadExports 数量对本项目更合理（当前 3 个，需判断是否为真误报）
+- 验收：`audit-summary` 的 deadExports 数量对本项目更合理（当前 1 个 `logger.js`，需判断是否为真误报）
 
 **次选：P3 影响路径解释字段**
 - 问题：`impact` 数组只有 `file` 和 `level`，没有 `why`
@@ -161,6 +192,10 @@ npm run benchmark:perf
 4. **Windows 路径大小写陷阱** — `workspaceRoot` 是 `C:\...`（大写），graph key 是 `c:/...`（小写），`startsWith` 直接失败。路径比较必须 `toLowerCase()`。
 5. **PowerShell 管道输出 UTF-16 LE** — `node cli.js ... > file.json` 在 PowerShell 中输出 UTF-16 LE BOM，JSON.parse 失败。验证脚本应使用 `fs.writeFileSync` 或 `execSync` + Node.js 处理。
 6. **StrReplaceFile 多段替换要精确匹配** — 本轮 `buildProjectMap` 的 return 语句被替换插入到中间，导致语法错误。多段替换时目标字符串必须精确到上下文边界，避免错位。
+7. **startsWith 不能替代路径安全判断** — `isSafePath()` 最初用 `startsWith` 判断文件是否在 workspace 内，`workspace-extra` 被误判为安全。路径 containment 必须用 `path.relative()`。
+8. **spawn 参数不需要手动加引号** — `resolvePythonCommand()` 返回 `"C:\path"`，`spawn()` 把引号当作文件名的一部分。命令参数数组本身已防注入，无需额外引号。
+9. **注意对象结构再调用数组方法** — `cache.getStats()` 对 `{mtime, diagnostics}` 对象调用 `.flat()`，结果永远是原数组（对象不是数组），计数错误。读取嵌套结构前先确认类型。
+10. **删除死代码时确认无人调用** — `getUnusedExports()` 逻辑完全错误，全仓 grep 确认零调用后才删除。
 
 ---
 
@@ -189,3 +224,15 @@ npm run benchmark:perf
 
 1. ~~`runDiagnostics()` 的缓存快路径实际上永远进不去~~ ✅ 已修复。`ServiceContainer.initialize()` 中 `cache.load()` 后增加 `this.cache.setWorkspaceInfo({ root: this.workspaceRoot })`，使 `runDiagnostics()` 的 `container.cache.getWorkspaceInfo()` 能命中。
 2. 验证：`new WorkspaceCache('.').getWorkspaceInfo()` 默认就是 `null`，而全仓检索不到生产代码调用 `setWorkspaceInfo()`。
+
+## 23. 本轮系统性 bug 扫荡（新会话）
+
+1. ~~`findOrphanFiles()` 路径匹配错误~~ ✅ 已修复。`includes('/scripts/')` 不匹配根级 `scripts/foo.js`；改为 `startsWith('scripts/') || includes('/scripts/')`（bin 同理）。
+2. ~~`buildCouplingSplitSuggestions()` 10 条相同模板~~ ✅ 已修复。新增 `generateCouplingSplitPlan(role, coupling)`，按 entry/utility/consumer/script/test/config 生成针对性建议。
+3. ~~`detectTestConfig()` 不认 `test:*` 脚本~~ ✅ 已修复。同步 `stack-detector.js` 的 `key === 'test' || key.startsWith('test:')` 逻辑。
+4. ~~`buildReverseGraph()` 重复 dependents~~ ✅ 已修复。同一文件多 import 产生 duplicate reverse-graph 条目；增加 `seen` Set 去重。
+5. ~~`classifyChangeType()` 根级路径匹配遗漏~~ ✅ 已修复。同 bug 1 模式，补全 `startsWith('test/')` 和 `startsWith('scripts/')`。
+6. ~~`isSafePath()` 路径遍历漏洞~~ ✅ 已修复。`startsWith()` 把 `workspace-extra` 误判为在 workspace 内；改为 `path.relative()` 检查。
+7. ~~`resolvePythonCommand()` 引号包裹~~ ✅ 已修复。返回 `"C:\path"` 导致 `spawn()` 失败；移除引号。
+8. ~~`cache.getStats()` diagnostics 计数错误~~ ✅ 已修复。`.flat()` 对 `{mtime, diagnostics}` 对象无效；改为遍历累加 `diagnostics.length`。
+9. ~~`getUnusedExports()` 死代码~~ ✅ 已删除。逻辑错误且全仓零调用。
