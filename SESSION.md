@@ -146,3 +146,14 @@ npm run benchmark:perf
 ---
 
 *Last updated: 2026-04-29*
+
+## 18. 本轮审查新增
+
+1. `search-tools.js` 的 ReDoS 过滤器有实证漏洞：`validateQuery('(a+)+')`、`validateQuery('(a*)*')` 都返回 `valid: true`，说明 `containsReDoSPattern()` 的危险模式匹配写错了，典型嵌套量词没有被拦住。
+2. `getChangedFiles()` 的 staged 分支绕过了 `isTempFile()` 过滤，若临时文件被 staged，`audit-diff` 会把本该忽略的 `.tmp-*` / `*.workspace-bridge-cache.json.tmp-*` 带进结果。
+3. `getChangedLineRanges()` 无论 `options.staged` 取什么值都会把 staged diff 和 unstaged diff 一起合并；而 `audit-diff` 目前固定传 `staged: false`，这会让工作区未暂存分析意外混入已暂存修改。
+
+## 19. 本轮审查继续补充
+
+1. `health-tools.js` 的 `detectTestConfig()` 只认框架配置文件，不认 `package.json` 里的 test script；当前仓库明明有 `package.json:test`，`projectHealth()` 仍然返回 `testConfig.found = false`，导致 `healthScore` 少算一项。
+2. `runDiagnostics()` 命中缓存后直接返回 `diagnosticsSummary: { total: 0, ... }`，同时把 `diagnostics` 和 `results` 置空；`cache` 分支不是复用结果，而是把已有诊断结果吞掉了。

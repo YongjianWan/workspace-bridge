@@ -111,6 +111,10 @@
 - [ ] **统一能力矩阵输出**（投入：低 / 收益：中 / 风险：低）— CLI JSON 直接带 language support matrix + confidence 解释，减少文档追赶成本
 
 ### P4：技术债
+- [ ] **文件拆分：按语言/功能拆解超标文件**（投入：中 / 收益：中 / 风险：中）— AGENTS.md 铁律要求文件 < 500 行。当前超标文件及拆分方案：
+  - `src/services/dep-graph/parsers.js`（876 行）→ 按语言拆为 `src/parsers/{javascript,python,java,kotlin,go,rust}.js` + `index.js` 统一导出。风险低，纯代码搬迁，接口不变。**建议优先执行。**
+  - `src/cli/audit-formatters.js`（886 行）→ 按 formatter 拆为 `src/cli/formatters/{composite-risk,repo-summary,file-summary,audit-diff-summary,validation-advice,project-map}.js`。风险中低，需改 `cli.js` 和测试的 `require` 路径。
+  - `src/services/dep-graph.js`（711 行）→ `DependencyGraph` class 方法较多，拆需子模块/mixin。风险中高，**建议等 P1（使用点解析）稳定后再动**，避免图逻辑变动时跨文件重构。
 - [ ] Kotlin AST 级支持（当前 L2 regex；需处理 object/companion object/top-level fun）
 - [ ] 大仓库性能专项优化（>10k 文件索引）
 - [ ] **插件化解析器注册表**（投入：高 / 收益：中 / 风险：高）— 轻量注册表替代 if-else 链，保持 CLI-only，不引入协议层
