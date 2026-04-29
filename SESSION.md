@@ -184,3 +184,8 @@ npm run benchmark:perf
 ## 21. 本轮审查继续补充
 
 1. ~~`audit-diff` 对 staged-only 文件会丢失函数级影响~~ ✅ 已修复。`cli.js` `audit-diff` 现在对每个文件同时获取 staged 和 unstaged 的 line ranges，合并去重后喂给 `changedFunctionImpact`，staged-only 文件不再丢失函数级影响。
+
+## 22. 本轮审查继续补充
+
+1. ~~`runDiagnostics()` 的缓存快路径实际上永远进不去~~ ✅ 已修复。`ServiceContainer.initialize()` 中 `cache.load()` 后增加 `this.cache.setWorkspaceInfo({ root: this.workspaceRoot })`，使 `runDiagnostics()` 的 `container.cache.getWorkspaceInfo()` 能命中。
+2. 验证：`new WorkspaceCache('.').getWorkspaceInfo()` 默认就是 `null`，而全仓检索不到生产代码调用 `setWorkspaceInfo()`。

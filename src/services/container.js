@@ -59,6 +59,7 @@ class ServiceContainer {
       // Initialize cache (memory + disk)
       this.cache = new WorkspaceCache(this.workspaceRoot);
       await this.cache.load();
+      this.cache.setWorkspaceInfo({ root: this.workspaceRoot });
 
       this.projectContext = new ProjectContext(this.workspaceRoot, {
         excludeDirs: options.excludeDirs || [],
