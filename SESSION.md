@@ -39,12 +39,13 @@
 | **resolvePythonCommand 引号包裹** | ✅ | `path.js` `resolvePythonCommand()` | 返回 `"C:\path"` 导致 `spawn()` 将其视为带引号的字面文件名而失败 |
 | **cache getStats diagnostics 计数错误** | ✅ | `cache.js` `getStats()` | `.flat()` 对 `{mtime, diagnostics}` 对象无效，计数永远为 0 |
 | **getUnusedExports 死代码** | ✅ | `dep-graph.js` 删除 `getUnusedExports()` | 逻辑错误（检查路径包含符号名）且无人调用 |
+| **P1 使用点解析** | ✅ | `dep-graph.js` `_scanSymbolUsageInImporters()` + `findDeadExports()` | 轻量扫描 importer 文件中的方法调用/字段访问，消除 Java/Go/Rust 符号级 dead-export 系统性误报 |
 
 ### 待完成（按 ROADMAP 价值排序）
 
 | 任务 | 优先级 | 说明 |
 |------|--------|------|
-| P1 Java/Go/Rust 使用点解析 | P1 | 消除 dead-export 系统性误报（实例调用不在 import 记录中） |
+| ~~P1 Java/Go/Rust 使用点解析~~ | ✅ 已完成 | `dep-graph.js` `_scanSymbolUsageInImporters()` 消除符号级 dead-export 系统性误报 |
 | P3 影响路径解释字段 | P1 | `impact` 数组增加 `reason` + `importedSymbols` + `via` |
 | P3 变更影响解释链（聚合） | P1 | `audit-diff` 输出可读因果链 |
 | P2 构建/测试命令智能化 | P2 | Gradle 任务发现、Go package 聚合、Rust workspace 子 crate |

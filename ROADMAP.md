@@ -8,15 +8,15 @@
 
 ## 已知限制
 
-| 问题 | 影响 | 缓解措施 |
-|------|------|----------|
-| 临时文件污染 | `.tmp-*`、缓存临时文件被纳入 `audit-diff` | 清理工作区；后续加过滤规则 |
-| 测试配置盲区 | `package.json` 自定义 `test:*` 脚本未被识别为测试框架 | 手动确认 `scripts.test` 存在即可运行 |
-| 文件角色误判 | 文档（`AGENTS.md`、`README.md`）被分类为 `library`，导致 `changeType: code` | 人工判断真实变更类型 |
-| 混合仓库误判 | prototypes/reference 被视为主线 | 使用 `.workspace-bridge.json` 标注 |
-| mixed repo 技术栈启发式 | Node/Python 共存时命令可能不够精确 | 持续改进 stack-detector |
-| 大仓库性能 | 10k+ 文件索引慢 | 首次索引后缓存加速 |
-| 孤儿检测假阳性 | 入口文件未被识别 | 人工审查 orphans.samples |
+| 问题 | 状态 | 影响 | 缓解措施 |
+|------|------|------|----------|
+| 临时文件污染 | ✅ 已修复 | `.tmp-*`、缓存临时文件被纳入 `audit-diff` | `git-tools.js` `isTempFile()` 已过滤（P0T1） |
+| 测试配置盲区 | ✅ 已修复 | `package.json` 自定义 `test:*` 脚本未被识别为测试框架 | `detectTestConfig()` 已识别 `test` / `test:*`（P0T2/P0T3） |
+| 文件角色误判 | ✅ 已修复 | 文档（`AGENTS.md`、`README.md`）被分类为 `library`，导致 `changeType: code` | `inferFileRole()` 新增 `docs` 角色（P0T3） |
+| 孤儿检测假阳性 | ✅ 已修复 | 入口文件未被识别 | `_collectEntryFiles()` 路径规范化（P0T3） |
+| 混合仓库误判 | ⏳ 需配置 | prototypes/reference 被视为主线 | 使用 `.workspace-bridge.json` 标注目录角色 |
+| mixed repo 技术栈启发式 | ⏳ 持续改进 | Node/Python 共存时命令可能不够精确 | 持续打磨 `stack-detector` |
+| 大仓库性能 | ⏳ 未解决 | 10k+ 文件索引慢 | 首次索引后缓存加速；P4 专项优化待执行 |
 
 ---
 
@@ -33,8 +33,7 @@
 - **问题**：`package.json` 中 `test:*` / `test:all` 等自定义脚本未被识别为测试配置，`health.testConfig: false`，`audit-diff` focused 阶段命令缺失
 - **代码落点**：`src/utils/stack-detector.js` `detectTestRunner()` 增加 `package.json` `scripts` 字段扫描（检测 `test` / `test:*` 前缀）
 - **完成证据**：`phase01-quality-test.js` `testCustomTestScriptDetection` 通过；`audit-summary` 当前输出 `testConfig.found: true`（已从 `false` 变为 `true`）
-- **遗留问题**：`startsWith('test')` 会误匹配 `pretest` / `posttest`（npm 生命周期钩子）。建议下轮改为 `key === 'test' || key.startsWith('test:')`。
-- **验收**：`audit-summary` 输出 `testConfig.found: true, frameworks: ["custom-node-scripts"]`；`audit-diff` 的 `commands.focused` 不为空
+- **验收**：`audit-summary` 输出 `testConfig.found: true, frameworks: ["custom-node-scripts"]`；`audit-diff` 的 `commands.focused` 不为空。已同步 `stack-detector.js` 逻辑，排除 `pretest`/`posttest` 生命周期钩子（56d38bc）
 
 ### P0T3: 文件角色分类修正 — ✅ 完成
 - **问题**：文档（`AGENTS.md`、`README.md`）被分类为 `library`，`cli.js` 同时出现在 `entryPoints` 和 `orphans` 中
@@ -54,6 +53,31 @@
 - **改动量**：~80 行
 - **完成证据**：`test/p0t5-internal-function-impact-test.js` 4 项全绿；`audit-diff` 改 `resolvers.js` 中 `readGoMod` 时，`functionLevelAffectedTests` 包含 `test/gors-resolver-test.js`
 - **附带修复**：CJS `module.exports = { fn }` 导出识别（P3 同轮完成），使 `functionToDependents` 对本项目生效
+
+---
+
+## 收敛里程碑：从 0.8.0 到 0.8.2+
+
+> 以下内容来自 `docs/plans/2026-05-05-two-week-convergence.md`，已融入主文档。
+
+### Phase 0：基础止血（已完成）
+P0T1–P0T5 全部交付，详见上方"基础能力（Phase 0-1）"章节。
+
+### W1：可信度与命令正确性（已完成）
+| 任务 | 状态 | 说明 |
+|------|------|------|
+| W1T1 Java dead-export 保守策略 | ✅ | 有 importer 的 Java AST 文件不再产生符号级 dead-export（v0.8.2） |
+| W1T2 Gradle Checkstyle 命令 | ✅ | Gradle 项目使用 `gradlew checkstyleMain checkstyleTest`，不再混用 Maven 语法（v0.8.2） |
+| W1T3 回归测试补全 | ⚠️ 部分 | Go/Rust 解析与命令质量已覆盖（`gors-resolver-test.js` + `w2t3-command-quality-test.js`）；Java dead-export / Gradle Checkstyle 专项目标测试待补 |
+| W1T4 文档诚实化 | ✅ | AGENTS.md / ROADMAP.md / SKILL.md 能力矩阵已与 v0.8.2 对齐 |
+
+### W2：自审可用性与工程收口（已完成）
+| 任务 | 状态 | 说明 |
+|------|------|------|
+| W2T1 官方自审脚本 | ✅ | `scripts/self-audit.js` + `npm run self-audit`（44b1780） |
+| W2T2 命令建议质量收口 | ✅ | Go/Rust config 改动触发 build/check；Java focused 测试按 `.java` 改动触发；`splitTargetsByStack` 纳入 `go.mod` / `Cargo.toml` |
+| W2T3 JSON 消费链路稳定 | ✅ | `self-audit.js` 用 `spawnSync` 安全消费 CLI JSON，绕过 PowerShell 管道 UTF-16 问题 |
+| W2T4 发布前总回归 | ✅ | `npm run test:all` 17→21 项全绿 |
 
 ---
 
@@ -77,14 +101,24 @@
 - **Python AST**：当前用标准库 `ast`，建议评估 **tree-sitter**（更快、语言覆盖更广、native binding 和 `better-sqlite3` 不冲突）
 - **Java AST**：`javalang` 够用，暂不替换
 
+### 多语言扩展 ADR（已完成）
+
+以下决策来自 `docs/plans/2026-04-28-java-and-polyglot-support.md`，已落地：
+
+| 决策 | 内容 | 理由 |
+|------|------|------|
+| ADR-1：Java AST 解析器 | 选 `javalang`（Python），不用 tree-sitter | 与现有 Python AST 子进程模式一致；不污染 package.json |
+| ADR-2：Kotlin/Go/Rust | 只做 regex 级（L2），不做 AST | 真实场景待验证；regex 已满足 80% audit-overview 需求 |
+| ADR-3：语言插件注册表 | 本次不做，保留硬编码链 | 当前 6 种语言维护成本可接受；注册表重构 >3 天，与收敛目标冲突 |
+
 ---
 
 ## 未竟事项（按价值排序）
 
 ### P1：提升分析可信度
-- [ ] **Java/Go/Rust 语言级使用点解析**（投入：中 / 收益：高 / 风险：低）— 轻量扫描符号使用，消除 dead-export 系统性误报
+- [x] **Java/Go/Rust 语言级使用点解析**（投入：中 / 收益：高 / 风险：低）— `dep-graph.js` `_scanSymbolUsageInImporters()` 轻量扫描 importer 文件中的方法调用/字段访问，补充 importRecords 未 capture 的使用。消除 Java 实例调用 `foo.bar()`、Go `pkg.Func()` 等场景的符号级 dead-export 误报
 - [x] **Go/Rust 包级解析器**（投入：中 / 收益：高 / 风险：中）— `go.mod` 包路径解析、`Cargo.toml` + module tree，替代仅相对 import
-- [x] Java 方法级 dead-export 误报消除（实例调用不在 import 记录中）— 已通过 AST 保守策略缓解
+- [x] Java 方法级 dead-export 误报消除（实例调用不在 import 记录中）— 已通过 P1 使用点扫描解决，不再需要保守跳过
 
 ### P1.5：全局项目地图（audit-map）— ✅ 完成
 - [x] **`audit-map` 命令**（投入：低 / 收益：高 / 风险：低）— 聚合 `tree`（目录骨架）+ `edges`（依赖拓扑）+ `issueOverlay`（问题标注），给 AI 全局视野。数据已全部存在，只需序列化输出
@@ -107,7 +141,7 @@
 - [x] **内部函数改动→测试映射**（投入：中 / 收益：高 / 风险：低）— `getChangedFunctionImpact()` 追踪内部辅助函数的调用链，找到调用它的导出函数，再映射 dependents。落点：`src/services/dep-graph/function-impact.js`
 - [ ] **影响路径解释字段**（投入：低 / 收益：中 / 风险：低）— `impact` 数组增加 `reason` + `importedSymbols` + `via` 字段。落点：`src/services/dep-graph.js` `getImpactRadius()`
 - [ ] **变更影响解释链（聚合）**（投入：中 / 收益：高 / 风险：低）— `audit-diff` 输出可读的因果链，如"因 `dep-graph.js` import `resolvers.js` 的 `resolveImport`，故波及 `test/gors-resolver-test.js`"。落点：`src/cli/audit-formatters.js`
-- [ ] **耦合拆分建议去模板化**（投入：低 / 收益：中 / 风险：低）— `audit-overview` 的 `couplingSplitSuggestions` 当前 10 条文案全一样，应根据实际出入度生成针对性建议（如 `path.js` in=14/out=0 应建议"保持原子性"而非"拆分为 core/domain/adapter"）。落点：`src/tools/overview-tools.js`
+- [x] **耦合拆分建议去模板化**（投入：低 / 收益：中 / 风险：低）— `audit-overview` 的 `couplingSplitSuggestions` 已按 role + 出入度生成针对性建议（entry/utility/consumer/script/test/config）。落点：`src/tools/overview-tools.js` `generateCouplingSplitPlan()`（9198613）
 - [ ] **统一能力矩阵输出**（投入：低 / 收益：中 / 风险：低）— CLI JSON 直接带 language support matrix + confidence 解释，减少文档追赶成本
 
 ### P4：技术债
@@ -140,6 +174,17 @@
 4. symbol-level impact 可用
 5. 大仓库性能可接受（<30s 索引，首次全量 <5min）
 6. **可选外部工具后端**（Semgrep/CodeQL adapter 可插拔）
+
+---
+
+---
+
+## 已归档计划
+
+以下历史技术方案已完成并融入本文档，原始文件保留供追溯：
+
+- `docs/plans/2026-04-28-java-and-polyglot-support.md` — Java AST 级支持与多语言扩展（已融入"技术栈评估 / ADR"）
+- `docs/plans/2026-05-05-two-week-convergence.md` — 两周收敛计划（已融入"收敛里程碑"）
 
 ---
 

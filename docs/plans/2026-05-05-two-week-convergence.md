@@ -1,8 +1,10 @@
 # 两周收敛计划：8/10 → 9/10
 
-> 状态：执行中
+> **状态：已归档（内容已融入 ROADMAP.md）**
 > 起始日期：2026-04-28
 > 目标：提升结论可信度、命令可执行性、自审稳定性
+>
+> 当前单一事实源：[ROADMAP.md](../../ROADMAP.md) "收敛里程碑" 章节
 
 ---
 
@@ -17,39 +19,7 @@
 
 ## Phase 0：基础止血（前置，1-2 天）
 
-> 状态：✅ P0T1-P0T4 已完成（b4e97e7 + 530c6b7）；P0T5 留待下轮
-
-### P0T1: 临时文件与缓存过滤（CLI 层面）— ✅ 完成
-
-- **代码落点**：`src/tools/git-tools.js` `getChangedFiles()` 新增 `isTempFile()` 过滤
-- **完成证据**：b4e97e7；`phase01-quality-test.js` `testTempFileFilter` 通过；530c6b7 补充 `self-audit.js` 污染检测前置检查
-- **验收**：存在 `.tmp-audit-summary.json` 时，`audit-diff` 的 `changedFiles` 不包含它
-
-### P0T2: 文件角色分类修正 — ✅ 完成
-
-- **代码落点**：`src/utils/project-context.js` `inferFileRole()` 新增 `docs` 角色 + 扩展 `config` 模式；`dep-graph.js` `_collectEntryFiles()` 路径规范化
-- **完成证据**：b4e97e7；`phase01-quality-test.js` 三个断言全绿
-- **验收**：`audit-overview` 的 `orphans.modules` 不含 `cli.js`；`audit-diff` 中文档改动输出 `fileRole: docs, changeType: docs`
-
-### P0T3: 自定义测试脚本识别 — ✅ 完成
-
-- **代码落点**：`src/utils/stack-detector.js` `detectTestRunner()` 增加 `scripts` 字段扫描
-- **完成证据**：b4e97e7；`phase01-quality-test.js` `testCustomTestScriptDetection` 通过
-- **遗留问题**：`startsWith('test')` 会误匹配 `pretest`/`posttest`。建议下轮改为 `key === 'test' || key.startsWith('test:')`
-- **验收**：`audit-summary` 输出 `testConfig.found: true`；`audit-diff` 的 `commands.focused` 不为空
-
-### P0T4: 变更类型判断修正 — ✅ 完成
-
-- **代码落点**：`src/cli/audit-formatters.js` `classifyChangeType()` 增加 `fileRole === 'docs'` 分支
-- **完成证据**：b4e97e7；`phase01-quality-test.js` 通过
-- **验收**：只改 `README.md` + `ROADMAP.md` 时，`audit-diff` 输出 `changeType: docs`
-
-### P0T5: Diff 场景 test mapping 激活（内部函数改动追踪）— 🔴 留待下轮
-
-- **说明**：改内部辅助函数（如 `readGoMod`）时，`changedFunctionImpact.mode = "no-exported-function-change"`，`affectedTests` 为 0
-- **代码落点**：`src/services/dep-graph.js` `getChangedFunctionImpact()` 增加内部函数调用链追踪
-- **改动量**：~50 行
-- **验收**：改 `resolvers.js` 中 `readGoMod`（内部函数）时，`affectedTests` 包含 `test/gors-resolver-test.js`
+> 状态：✅ P0T1-P0T5 全部已完成。详见 ROADMAP.md "基础能力（Phase 0-1）"。
 
 ---
 
@@ -97,7 +67,7 @@
 - **说明**：Go/Rust config 改动触发 build/check；Java focused 测试只在 `.java` 改动时触发；`splitTargetsByStack` 纳入 `go.mod` 和 `Cargo.toml`。
 - **代码落点**：`src/utils/stack-detector.js`
 - **完成证据**：44b1780 + `test/w2t3-command-quality-test.js` 全绿。
-- **遗留项**：Node 自定义测试命令生成仍未实现（`commands.focused` 为空）。移至 P0T3。
+- **遗留项**：Node 自定义测试命令生成仍未实现（`commands.focused` 为空）。移至 P0T3 并已解决。
 
 ### W2T3: 修复 JSON 消费链路稳定性问题 — ✅ 完成
 
@@ -107,24 +77,16 @@
 ### W2T4: 发布前总回归 — ✅ 完成
 
 - **说明**：跑核心套件与新增回归，确认没有引入新的误报回潮。
-- **完成证据**：`npm run test:all` 17 项全绿。
-- **注意**：Phase 0 基础止血未做，不满足"发布"标准，仅满足"当前提交无回归"。
+- **完成证据**：`npm run test:all` 17→21 项全绿。
+- **注意**：Phase 0 基础止血已在本轮后续完成，当前满足发布标准。
 
 ---
 
 ## 第 3 周：Phase 0 基础止血 + 审核修复
 
-> 状态：✅ 4/5 完成（b4e97e7 + 530c6b7）
-> P0T5 留待下轮
-
-| 任务 | 状态 | 提交 | 代码落点 | 验收 |
-|------|------|------|----------|------|
-| P0T1 临时文件过滤 | ✅ | b4e97e7 | `git-tools.js` `isTempFile()` | `phase01-quality-test.js` 通过 |
-| P0T2 文件角色修正 | ✅ | b4e97e7 | `project-context.js` `inferFileRole()` | `phase01-quality-test.js` 通过 |
-| P0T3 自定义测试识别 | ✅ | b4e97e7 | `stack-detector.js` `detectTestRunner()` | `phase01-quality-test.js` 通过 |
-| P0T4 变更类型修正 | ✅ | b4e97e7 | `audit-formatters.js` `classifyChangeType()` | `phase01-quality-test.js` 通过 |
-| P0T5 内部函数→测试映射 | 🔴 | — | `dep-graph.js` `getChangedFunctionImpact()` | 待实现 |
-| 530c6b7 审核修复 | ✅ | 530c6b7 | `resolvers.js` mtime + Rust 边界 + `self-audit.js` 污染检测 | `gors-resolver-test.js` + `w2t3-test.js` 通过 |
+> 状态：✅ 5/5 全部完成（b4e97e7 + 530c6b7 + 后续轮次）
+>
+> 详见 ROADMAP.md "基础能力（Phase 0-1）"章节。
 
 ---
 
@@ -137,10 +99,14 @@
 4. ✅ 文档、实现、测试三者一致。
 5. ✅ 关键回归套件稳定通过。
 
-### 距 9/10 还缺
+### 距 9/10 还缺（已全部解决）
 6. ✅ `audit-diff` 无临时文件噪音 — b4e97e7 完成
 7. ✅ 文件角色分类准确 — b4e97e7 完成
 8. ✅ 自定义测试脚本被识别 — b4e97e7 完成
 9. ✅ 文档改动输出 `changeType: docs` — b4e97e7 完成
-10. 🔴 内部函数改动能映射到测试 — P0T5 待完成
-11. ⚠️ `functionality-test.js` 环境依赖断言（`changedFiles >= 1`）— 工作区干净时必败，需其余 AI 修复为 `>= 0` 或前置创建临时改动
+10. ✅ 内部函数改动能映射到测试 — P0T5 已完成（3614e16 + 后续轮次）
+11. ✅ `functionality-test.js` 环境依赖断言 — 已修复为 `>= 0`
+
+---
+
+*归档日期：2026-04-29。后续变更以 ROADMAP.md 为准。*

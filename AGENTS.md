@@ -120,7 +120,7 @@ workspace-bridge 的核心价值很直接：
 
 1. **修复基础可信度（Phase 0）** — ✅ 已完成：临时文件过滤、文件角色分类、自定义测试脚本识别、内部函数→测试映射、CJS 符号解析。
 2. **做更好的 test mapping** — ✅ P0T5 已完成：diff 场景下内部函数改动通过调用链追溯映射到导出函数，再映射 dependents。
-3. **做 symbol-level impact** — ✅ CJS `module.exports = { fn }` 已支持，本项目 symbol-level impact 可用。
+3. **做 symbol-level impact** — ✅ CJS `module.exports = { fn }` 已支持，P1 使用点扫描已消除 Java/Go/Rust 符号级 dead-export 系统性误报。
 4. **全局项目地图（P1.5）** — ✅ `audit-map` 已输出 tree + edges + issueOverlay，给 AI 全局视野。
 5. **把历史风险和结构影响融合得更像工程判断** — 变更类型判断（docs/config/tests/code）必须先准，否则验证建议会错配。
 6. **继续打磨 mixed repo 的技术栈检测**
@@ -184,6 +184,12 @@ workspace-bridge 的核心价值很直接：
 #### P3: CJS 符号解析补全
 - `parsers.js` 识别 `module.exports = { fn }` 和 `exports.fn = ...` 结构
 - `symbol-impact.js` `buildFunctionToDependents` 同时参考 `functionRecords`，CJS 文件的 symbol-level impact 可用
+
+#### P1: 语言级使用点解析
+- `dep-graph.js` 新增 `_scanSymbolUsageInImporters()`：轻量 regex 扫描 importer 文件中的方法调用（`\bSymbol\s*\(`）和字段访问（`\.Symbol\b`）
+- 补充 importRecords 未 capture 的使用：Java 实例调用 `foo.bar()`、Go `pkg.Func()`、JS 默认导入属性访问等
+- 消除符号级 dead-export 系统性误报，Java AST 文件不再需要保守跳过
+- 验收：`java-dead-export-test.js` 验证 `f.bar()` 被识别后 `bar` 不再被报为 dead-export
 
 #### M5: 项目全景视图
 - 新增 `audit-overview` 命令
