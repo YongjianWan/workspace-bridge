@@ -209,7 +209,17 @@ class WorkspaceCache {
   getDiagnostics(filePath) {
     const key = this.normalizeFilePath(filePath);
     if (!key) return [];
-    return this.diagnostics.get(key) || [];
+    const entry = this.diagnostics.get(key);
+    return entry?.diagnostics || [];
+  }
+
+  getAllDiagnostics() {
+    const all = [];
+    for (const [, entry] of this.diagnostics) {
+      const diags = entry?.diagnostics;
+      if (Array.isArray(diags)) all.push(...diags);
+    }
+    return all;
   }
 
   setDiagnostics(filePath, diags) {

@@ -186,16 +186,15 @@ async function runDiagnostics(args, container) {
   if (container?.cache) {
     const cached = container.cache.getWorkspaceInfo();
     if (cached) {
-      // Return cached diagnostics
-      const diags = container.cache.getDiagnostics();
-      if (Object.keys(diags).length > 0) {
+      const allDiagnostics = container.cache.getAllDiagnostics?.() || [];
+      if (allDiagnostics.length > 0) {
         return {
           workspaceRoot: container.workspaceRoot,
           mode: 'cached',
           checksRun: 0,
           failedChecks: [],
-          diagnosticsSummary: { total: 0, error: 0, warning: 0, information: 0, hint: 0 },
-          diagnostics: [],
+          diagnosticsSummary: summarizeDiagnostics(allDiagnostics),
+          diagnostics: allDiagnostics,
           results: [],
           cached: true,
         };

@@ -10,6 +10,7 @@ const path = require('path');
 const { sanitizeSymbolName, sanitizeShellArg } = require('../src/utils/sanitize');
 const { runCommandSecure, runGit } = require('../src/utils/command');
 const { validateWorkspacePath } = require('../src/tools/git-tools');
+const { validateQuery } = require('../src/tools/search-tools');
 
 // Test utilities
 function assert(condition, message) {
@@ -98,7 +99,16 @@ test('should allow safe characters', () => {
   assert(sanitizeShellArg('file_name-123.txt') === 'file_name-123.txt', 'Safe filename should pass');
 });
 
-// Test 4: Command execution safety
+// Test 4: Search query ReDoS protection
+console.log('\n🔎 Search Query ReDoS Tests');
+console.log('-'.repeat(40));
+
+test('should reject nested quantifier patterns', () => {
+  assert(validateQuery('(a+)+').valid === false, 'Nested + quantifiers should be rejected');
+  assert(validateQuery('(a*)*').valid === false, 'Nested * quantifiers should be rejected');
+});
+
+// Test 5: Command execution safety
 console.log('\n⚡ Command Execution Safety Tests');
 console.log('-'.repeat(40));
 

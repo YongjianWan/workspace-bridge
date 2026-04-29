@@ -41,17 +41,13 @@ function escapeRegex(str) {
 function containsReDoSPattern(query) {
   // Dangerous patterns that can cause catastrophic backtracking
   const dangerousPatterns = [
-    /\(\?.*\+.*\)\+/,      // (a+)+ or similar nested quantifiers
-    /\(\?.*\*.*\)\*/,      // (a*)* 
-    /\(\?.*\+.*\)\*/,      // (a+)*
-    /\(\?.*\*.*\)\+/,      // (a*)+
-    /\+\+/,                 // ++
-    /\*\+/,                 // *+
-    /\+\*/,                 // +*
-    /\{\d+,\d+\}\+/,        // {n,m}+
-    /\[.*\]\+.*\[.*\]\+/,   // [a]+[b]+
+    new RegExp('\\([^()]*[+*][^()]*\\)[+*]'), // (a+)+, (a*)*, (a+)*, (a*)+
+    /\+\+/, // ++
+    /\*\+/, // *+
+    /\+\*/, // +*
+    /\{\d+,\d+\}\+/, // {n,m}+
+    /\[.*\]\+.*\[.*\]\+/, // [a]+[b]+
   ];
-  
   return dangerousPatterns.some(p => p.test(query));
 }
 

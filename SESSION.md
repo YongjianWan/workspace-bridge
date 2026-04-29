@@ -24,6 +24,11 @@
 | **audit-map hotspots** | ✅ | `audit-formatters.js` `buildProjectMap()` | issueOverlay 新增依赖中心性 hotspots（dependentCount >= 5） |
 | **toRelativePath 边界校验** | ✅ | `audit-formatters.js` `toRelativePath()` | 增加 root 边界检查，防止 `/repo-extra` 被截断为 `extra` |
 | **audit-map human files 计数** | ✅ | `cli.js` `countTreeFiles()` | `formatHuman` 正确统计目录树中的文件数量 |
+| **staged 分支绕过 isTempFile** | ✅ | `git-tools.js` `getChangedFiles()` | staged 模式也过滤 `.tmp-*` 和 cache 临时文件 |
+| **getChangedLineRanges staged/unstaged 合并** | ✅ | `git-tools.js` `getChangedLineRanges()` | 根据 `staged` 选项只取对应 diff，不再合并两者 |
+| **detectTestConfig 不认 package.json test** | ✅ | `health-tools.js` `detectTestConfig()` | 识别 `package.json` `scripts.test` 为 `custom-node-scripts` |
+| **runDiagnostics 缓存吞结果** | ✅ | `cache.js` `getAllDiagnostics()` + `workspace-tools.js` | 缓存分支正确返回诊断数据和统计，不再置空 |
+| ~~ReDoS 过滤器漏洞~~ | ✅ 核实无需修复 | `search-tools.js` `containsReDoSPattern()` | 当前正则 `\([^()]*[+*][^()]*\)[+*]` 已正确拦截嵌套量词 |
 
 ### 待完成（按 ROADMAP 价值排序）
 
@@ -49,6 +54,11 @@
 | ~~MEDIUM~~ | ~~audit-map `deadExports` 丢掉 confidence~~ | ✅ issueOverlay 已保留 confidence | — | — |
 | ~~LOW~~ | ~~audit-map `issueOverlay` 未包含 hotspots~~ | ✅ 已新增基于依赖中心性的 hotspots | — | — |
 | ~~LOW~~ | ~~`toRelativePath()` 边界校验~~ | ✅ 已增加 root 边界检查 | — | — |
+| ~~MEDIUM~~ | ~~staged 分支绕过 `isTempFile()`~~ | ✅ `getChangedFiles()` staged 分支已加 `isTempFile` 过滤 | — | — |
+| ~~MEDIUM~~ | ~~`getChangedLineRanges()` 合并 staged+unstaged~~ | ✅ 已改为根据 `staged` 选项只取对应 diff | — | — |
+| ~~MEDIUM~~ | ~~`detectTestConfig()` 不认 `package.json` test script~~ | ✅ 已识别 `scripts.test` 并返回 `custom-node-scripts` | — | — |
+| ~~MEDIUM~~ | ~~`runDiagnostics()` 缓存吞结果~~ | ✅ `cache.getAllDiagnostics()` 正确展平 Map，`runDiagnostics` 返回缓存数据 | — | — |
+| ~~LOW~~ | ~~ReDoS 过滤器漏洞~~ | ✅ 当前正则已正确拦截 `(a+)+` / `(a*)*` | — | — |
 
 ---
 
@@ -93,6 +103,15 @@ npm run benchmark:perf
 - `src/cli/audit-formatters.js` — `toRelativePath()` 边界校验 + `buildDirectoryTree()` 目录聚合 + deadExports confidence + hotspots
 - `cli.js` — `countTreeFiles()` 适配目录树 human 输出
 - `test/audit-map-test.js` — 5 项测试覆盖目录树 / confidence / re-export / hotspots / 边界校验
+
+### 本轮修复（commit `b8683ea` + 当前轮次）
+- `src/tools/git-tools.js` — staged 分支 `isTempFile` 过滤 + `getChangedLineRanges()` staged/unstaged 分离
+- `src/tools/health-tools.js` — `detectTestConfig()` 识别 `package.json` `scripts.test`
+- `src/services/cache.js` — 新增 `getAllDiagnostics()` 方法
+- `src/tools/workspace-tools.js` — `runDiagnostics()` 缓存分支正确返回诊断数据
+- `test/phase01-quality-test.js` — 新增 `testTempFileFilterStaged` + `testDetectTestConfigFromPackageJson`
+- `test/git-line-ranges-test.js` — 新增 staged/unstaged 分离测试
+- `test/diagnostics-cache-test.js` — 新增缓存返回数据 + 空缓存穿透测试
 
 ### 已知限制（未变）
 - `parsers.js` 876 行，唯一超 500 行铁律的文件，后续应拆成按语言的 dispatch 表
@@ -157,3 +176,11 @@ npm run benchmark:perf
 
 1. `health-tools.js` 的 `detectTestConfig()` 只认框架配置文件，不认 `package.json` 里的 test script；当前仓库明明有 `package.json:test`，`projectHealth()` 仍然返回 `testConfig.found = false`，导致 `healthScore` 少算一项。
 2. `runDiagnostics()` 命中缓存后直接返回 `diagnosticsSummary: { total: 0, ... }`，同时把 `diagnostics` 和 `results` 置空；`cache` 分支不是复用结果，而是把已有诊断结果吞掉了。
+
+## 20. 本轮审查新增
+
+1. ~~`src/services/cache.js` 新增的 `getAllDiagnostics()` 和真实存储结构不匹配~~ ✅ 已修复。`getDiagnostics()` 和 `getAllDiagnostics()` 现在正确读取 `{ mtime, diagnostics }` 结构中的 `diagnostics` 数组。
+
+## 21. 本轮审查继续补充
+
+1. ~~`audit-diff` 对 staged-only 文件会丢失函数级影响~~ ✅ 已修复。`cli.js` `audit-diff` 现在对每个文件同时获取 staged 和 unstaged 的 line ranges，合并去重后喂给 `changedFunctionImpact`，staged-only 文件不再丢失函数级影响。

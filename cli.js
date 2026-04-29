@@ -373,10 +373,23 @@ async function runCommand(parsed, container) {
         const classification = container.projectContext?.classifyFile(resolvedPath) || null;
         const graphKnown = Boolean(resolvedPath && container.depGraph.hasFile(resolvedPath));
         const impact = graphKnown ? container.depGraph.getImpactRadius(resolvedPath) : [];
-        const lineRangeResult = resolvedPath
-          ? await getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: false })
-          : { ok: false };
-        const changedLineRanges = lineRangeResult.ok ? lineRangeResult.lineRanges : [];
+        let changedLineRanges = [];
+        if (resolvedPath) {
+          const [unstagedResult, stagedResult] = await Promise.all([
+            getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: false }).catch(() => ({ ok: false })),
+            getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: true }).catch(() => ({ ok: false })),
+          ]);
+          const ranges = [];
+          if (unstagedResult.ok) ranges.push(...unstagedResult.lineRanges);
+          if (stagedResult.ok) ranges.push(...stagedResult.lineRanges);
+          const seen = new Set();
+          changedLineRanges = ranges.filter((r) => {
+            const key = `${r.startLine}-${r.endLine}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          }).sort((a, b) => a.startLine - b.startLine);
+        }
         const baseSymbolImpact = graphKnown ? container.depGraph.getSymbolImpact(resolvedPath) : null;
         const changedFunctionImpactBase = graphKnown
           ? container.depGraph.getChangedFunctionImpact(resolvedPath, changedLineRanges, { symbolImpact: baseSymbolImpact })

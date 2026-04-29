@@ -9,6 +9,7 @@ const { getChangedFiles } = require('../src/tools/git-tools');
 const { ProjectContext } = require('../src/utils/project-context');
 const { detectStack } = require('../src/utils/stack-detector');
 const { DependencyGraph } = require('../src/services/dep-graph');
+const { detectTestConfig } = require('../src/tools/health-tools');
 
 async function testTempFileFilter() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-temp-'));
@@ -26,6 +27,25 @@ async function testTempFileFilter() {
   assert(!names.includes('.tmp-audit-summary.json'), 'should filter .tmp-* files');
   assert(!names.includes('.workspace-bridge-cache.json.tmp-123'), 'should filter cache tmp files');
   assert(names.includes('real-file.js'), 'should keep real files');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+async function testTempFileFilterStaged() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-temp-staged-'));
+  fs.writeFileSync(path.join(tmpDir, '.tmp-audit-summary.json'), '{}');
+  fs.writeFileSync(path.join(tmpDir, 'real-file.js'), 'console.log(1);');
+
+  spawnSync('git', ['init'], { cwd: tmpDir });
+  spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpDir });
+  spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+  spawnSync('git', ['add', '.'], { cwd: tmpDir });
+
+  const result = await getChangedFiles(tmpDir, { staged: true, includeUntracked: false });
+  assert.strictEqual(result.ok, true);
+  const names = result.changedFiles.map((f) => path.basename(f));
+  assert(!names.includes('.tmp-audit-summary.json'), 'staged mode should also filter .tmp-* files');
+  assert(names.includes('real-file.js'), 'staged mode should keep real files');
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
@@ -61,6 +81,18 @@ function testCustomTestScriptDetection() {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
 
+function testDetectTestConfigFromPackageJson() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-testconfig-'));
+  fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ scripts: { test: 'node test/*.js', build: 'tsc' } }));
+
+  const workspace = { hasPackageJson: true, packageJson: { scripts: { test: 'node test/*.js' } }, hasPyproject: false };
+  const result = detectTestConfig(tmpDir, workspace);
+  assert.strictEqual(result.found, true, 'should detect test config from package.json scripts.test');
+  assert(result.frameworks.includes('custom-node-scripts'), 'should include custom-node-scripts framework');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
 function testEntryFileNormalization() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-entry-'));
   fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ main: 'cli.js', bin: { app: 'cli.js' } }));
@@ -76,9 +108,11 @@ function testEntryFileNormalization() {
 
 async function main() {
   await testTempFileFilter();
+  await testTempFileFilterStaged();
   testFileRoleDocs();
   testFileRoleConfig();
   testCustomTestScriptDetection();
+  testDetectTestConfigFromPackageJson();
   testEntryFileNormalization();
   console.log('phase01-quality-test: ok');
 }

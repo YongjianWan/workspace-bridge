@@ -167,7 +167,7 @@ async function getChangedFiles(root, options = {}) {
     }
 
     if (staged) {
-      if (isStaged) files.add(file);
+      if (isStaged && !isTempFile(file)) files.add(file);
       continue;
     }
 
@@ -226,15 +226,12 @@ async function getChangedLineRanges(root, file, options = {}) {
   }
 
   const staged = options.staged === true;
-  const unstagedArgs = ['diff', '--no-color', '--unified=0', '--', filePath];
-  const stagedArgs = ['diff', '--cached', '--no-color', '--unified=0', '--', filePath];
-  const [unstaged, stagedDiff] = await Promise.all([
-    runGit(unstagedArgs, root, 30000),
-    runGit(stagedArgs, root, 30000),
-  ]);
+  const diffArgs = staged
+    ? ['diff', '--cached', '--no-color', '--unified=0', '--', filePath]
+    : ['diff', '--no-color', '--unified=0', '--', filePath];
 
-  const combined = [unstaged.stdout || '', stagedDiff.stdout || ''].join('\n');
-  const ranges = parseUnifiedDiffLineRanges(combined);
+  const diffResult = await runGit(diffArgs, root, 30000);
+  const ranges = parseUnifiedDiffLineRanges(diffResult.stdout || '');
   if (ranges.length > 0) {
     return {
       ok: true,
@@ -246,29 +243,31 @@ async function getChangedLineRanges(root, file, options = {}) {
     };
   }
 
-  // New untracked file may not appear in git diff output. Fallback to whole-file range.
-  const tracked = await isTrackedByGit(root, filePath);
-  if (!tracked && fs.existsSync(filePath)) {
-    try {
-      const content = fs.readFileSync(filePath, 'utf8');
-      const lines = content.split(/\r?\n/).length;
-      return {
-        ok: true,
-        workspaceRoot: root,
-        file: toRelativePosix(root, filePath),
-        staged,
-        lineRanges: lines > 0 ? [{ startLine: 1, endLine: lines }] : [],
-        source: 'untracked-file',
-      };
-    } catch {
-      return {
-        ok: true,
-        workspaceRoot: root,
-        file: toRelativePosix(root, filePath),
-        staged,
-        lineRanges: [],
-        source: 'untracked-file',
-      };
+  // New untracked file may not appear in git diff output. Fallback only for unstaged.
+  if (!staged) {
+    const tracked = await isTrackedByGit(root, filePath);
+    if (!tracked && fs.existsSync(filePath)) {
+      try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        const lines = content.split(/\r?\n/).length;
+        return {
+          ok: true,
+          workspaceRoot: root,
+          file: toRelativePosix(root, filePath),
+          staged,
+          lineRanges: lines > 0 ? [{ startLine: 1, endLine: lines }] : [],
+          source: 'untracked-file',
+        };
+      } catch {
+        return {
+          ok: true,
+          workspaceRoot: root,
+          file: toRelativePosix(root, filePath),
+          staged,
+          lineRanges: [],
+          source: 'untracked-file',
+        };
+      }
     }
   }
 
