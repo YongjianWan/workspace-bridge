@@ -58,7 +58,7 @@ function inferFileRole(relativePath) {
     return 'entry';
   }
 
-  const configExact = new Set(['package.json', 'tsconfig.json', 'pyproject.toml', 'requirements.txt']);
+  const configExact = new Set(['package.json', 'tsconfig.json', 'pyproject.toml', 'requirements.txt', 'settings.local.json']);
   if (configExact.has(base)) return 'config';
 
   const configPatterns = [

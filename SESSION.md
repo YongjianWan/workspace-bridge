@@ -8,7 +8,7 @@
 
 ## 1. 项目当前状态
 
-**workspace-bridge** 是 CLI-first 工作区分析引擎，当前 v0.8.2+。
+**workspace-bridge** 是 CLI-first 工作区分析引擎，当前 v0.9.0。
 
 ### 已完成（本轮）
 
@@ -57,32 +57,11 @@
 
 ### 已知缺陷（本轮 Code Review 发现，下轮优先修）
 
+> 2026-04-29 本轮 24 项历史缺陷已全部修复。以下为新发现的未修复问题。
+
 | 评级 | 问题 | 落点 | 修复投入 | 阻塞 |
 |------|------|------|----------|------|
-| ~~HIGH~~ | ~~audit-map 漏掉 re-export 边~~ | ✅ 已确认当前代码从 `importRecords` 读取，`re-export` 边正常生成 | — | — |
-| ~~HIGH~~ | ~~audit-map 同 `from\|to` 边去重丢失符号信息~~ | ✅ `edgeMap` 合并 symbols 是设计行为，同对文件多 import 合并为一条带全 symbols 的边 | — | — |
-| ~~HIGH~~ | ~~resolveJavaScriptImport 目录截断~~ | ✅ `resolvers.js` 遍历 candidates 时跳过目录，fallback 返回 null 而非目录路径 | — | — |
-| ~~MEDIUM~~ | ~~audit-map re-export 边缺 `to` 字段~~ | ✅ 当前 re-export 边已包含 `to` 字段 | — | — |
-| ~~MEDIUM~~ | ~~audit-map human 输出 `workspaceRoot: undefined`~~ | ✅ `buildProjectMap()` 返回 `workspaceRoot: root`，实测输出正确 | — | — |
-| ~~MEDIUM~~ | ~~audit-map `tree` 是扁平数组~~ | ✅ 已改为 `buildDirectoryTree()` 目录聚合结构 | — | — |
-| ~~MEDIUM~~ | ~~audit-map `deadExports` 丢掉 confidence~~ | ✅ issueOverlay 已保留 confidence | — | — |
-| ~~LOW~~ | ~~audit-map `issueOverlay` 未包含 hotspots~~ | ✅ 已新增基于依赖中心性的 hotspots | — | — |
-| ~~LOW~~ | ~~`toRelativePath()` 边界校验~~ | ✅ 已增加 root 边界检查 | — | — |
-| ~~MEDIUM~~ | ~~staged 分支绕过 `isTempFile()`~~ | ✅ `getChangedFiles()` staged 分支已加 `isTempFile` 过滤 | — | — |
-| ~~MEDIUM~~ | ~~`getChangedLineRanges()` 合并 staged+unstaged~~ | ✅ 已改为根据 `staged` 选项只取对应 diff | — | — |
-| ~~MEDIUM~~ | ~~`detectTestConfig()` 不认 `package.json` test script~~ | ✅ 已识别 `scripts.test` 并返回 `custom-node-scripts` | — | — |
-| ~~MEDIUM~~ | ~~`runDiagnostics()` 缓存吞结果~~ | ✅ `cache.getAllDiagnostics()` 正确展平 Map，`runDiagnostics` 返回缓存数据 | — | — |
-| ~~LOW~~ | ~~ReDoS 过滤器漏洞~~ | ✅ 当前正则已正确拦截 `(a+)+` / `(a*)*` | — | — |
-| ~~MEDIUM~~ | ~~`runDiagnostics()` 缓存快路径永远进不去~~ | ✅ `container.js` 已加 `setWorkspaceInfo()` 调用 | — | — |
-| ~~MEDIUM~~ | ~~孤儿检测路径匹配错误~~ | ✅ `startsWith('scripts/')` 已补全 | — | — |
-| ~~MEDIUM~~ | ~~耦合拆分建议模板化~~ | ✅ 已按 role + 出入度生成针对性建议 | — | — |
-| ~~MEDIUM~~ | ~~`detectTestConfig()` 不认 `test:*` 脚本~~ | ✅ 已同步 `stack-detector.js` 逻辑 | — | — |
-| ~~LOW~~ | ~~`reverseGraph` 重复 dependents~~ | ✅ 已去重 | — | — |
-| ~~LOW~~ | ~~`classifyChangeType()` 路径匹配遗漏~~ | ✅ 已补全 `startsWith` | — | — |
-| ~~HIGH~~ | ~~`isSafePath()` 路径遍历漏洞~~ | ✅ 已改为 `path.relative()` 检查 | — | — |
-| ~~MEDIUM~~ | ~~`resolvePythonCommand()` 引号包裹~~ | ✅ 已移除引号 | — | — |
-| ~~LOW~~ | ~~`cache.getStats()` diagnostics 计数错误~~ | ✅ 已正确遍历 `{mtime, diagnostics}` 结构 | — | — |
-| ~~LOW~~ | ~~`getUnusedExports()` 死代码~~ | ✅ 已删除 | — | — |
+| MEDIUM | `safeRegexTest()` 超时保护失效 | `search-tools.js` `safeRegexTest()` | 低 | `Date.now()` 检查在 `pattern.test()` 之后，灾难性回溯时无法中断执行。前置 `validateQuery()` 为主要防线。详见 `docs/TECH_DEBT.md` #13 |
 
 ---
 

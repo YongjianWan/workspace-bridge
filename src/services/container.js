@@ -19,7 +19,6 @@ class ServiceContainer {
     this.cache = null;
     this.fileIndex = null;
     this.diagnostics = null;
-    this.editorState = null;
     this.depGraph = null;
     this.projectContext = null;
   }
@@ -77,13 +76,6 @@ class ServiceContainer {
 
       // Initialize diagnostics engine
       this.diagnostics = new DiagnosticsEngine(this.workspaceRoot, this.cache);
-
-      // EditorState is deprecated and disabled by default.
-      // Keep an explicit opt-in hook for experiments.
-      if (options.enableEditorState === true) {
-        const { EditorState } = require('./editor-state');
-        this.editorState = new EditorState(this.workspaceRoot);
-      }
 
       // Initialize dependency graph
       this.depGraph = new DependencyGraph(this.workspaceRoot, this.cache, {
@@ -147,7 +139,6 @@ class ServiceContainer {
       await this.cache.save();
     }
     this.diagnostics = null;
-    this.editorState = null;
     this.depGraph = null;
     this.projectContext = null;
     this.initialized = false;

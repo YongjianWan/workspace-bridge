@@ -47,6 +47,7 @@ workspace-bridge-cli audit-summary --cwd <project> --json --quiet
 workspace-bridge-cli audit-file --cwd <project> --file <file> --json --quiet
 workspace-bridge-cli audit-diff --cwd <project> --json --quiet
 workspace-bridge-cli audit-overview --cwd <project> --json --quiet
+workspace-bridge-cli audit-map --cwd <project> --json --quiet
 ```
 
 With exclusions for mixed repos:
@@ -75,6 +76,7 @@ workspace-bridge-cli affected-tests --cwd <project> --file <file> --max-depth 5 
 | Changing specific file | `audit-file --file ...` | Impact + affected tests |
 | Git worktree has changes | `audit-diff` | Validation plan + concrete commands |
 | Planning refactoring | `audit-overview` | Hotspots + stability + orphans |
+| Understanding project structure | `audit-map` | Directory tree + dependency edges + issue overlay |
 | Deep dive on dead code | `dead-exports` | Symbol-level candidates |
 
 ### Options
@@ -235,4 +237,4 @@ workspace-bridge-cli workspace-info --cwd <project> --json --quiet
 
 ## Version
 
-This skill targets workspace-bridge v0.8.2+
+This skill targets workspace-bridge v0.9.0+

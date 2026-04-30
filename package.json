@@ -54,7 +54,6 @@
     "scripts/java_ast_parser.py"
   ],
   "dependencies": {
-    "@babel/parser": "^7.29.2",
-    "better-sqlite3": "^12.8.0"
+    "@babel/parser": "^7.29.2"
   }
 }

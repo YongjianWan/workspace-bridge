@@ -33,8 +33,12 @@ npm install -g eslint typescript # Node
 | `audit-file --file` | 聚合 impact + affected tests |
 | `audit-diff` | 聚合当前 git 变更 + 验证建议 |
 | `audit-overview` | 项目全景视图（热区、稳定性、孤儿检测） |
+| `audit-map` | 全局项目地图（目录树 + 依赖拓扑 + 问题标注） |
 | `health` | 汇总项目健康度 |
 | `deps` | 检查过时依赖 |
+| `stats` | 依赖图统计 |
+| `dependencies --file` | 列出文件的直接依赖 |
+| `dependents --file` | 列出文件的直接被依赖 |
 | `dead-exports` | 查找死导出候选 |
 | `unresolved` | 查找未解析 import |
 | `cycles` | 查找循环依赖 |
@@ -93,7 +97,7 @@ node cli.js audit-diff --cwd . --json --quiet
 
 - [X] CLI-first 聚合审计：`audit-summary` / `audit-file` / `audit-diff` / `audit-overview`
 - [X] JS/TS/Python/Java AST 级 symbol-level impact
-- [~] Kotlin/Go/Rust L2 regex 级支持（需 AST 升级达到同等精度）
+- [X] Kotlin/Go/Rust L2 regex 级支持
 - [ ] mixed repo 技术栈检测与验证命令继续打磨
 
 更多项目背景、开发原则与架构取舍见 [AGENTS.md](./AGENTS.md)。

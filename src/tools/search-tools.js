@@ -71,30 +71,32 @@ function validateQuery(query) {
 }
 
 /**
- * Safe regex test with line-by-line timeout protection
+ * Regex test with post-hoc slow-query detection.
+ * NOTE: This cannot interrupt catastrophic backtracking in progress.
+ * The real ReDoS protection is upstream: validateQuery() + escapeRegex().
  */
 function safeRegexTest(pattern, line, maxMs = 100) {
   const startTime = Date.now();
-  
-  // Quick check: if pattern is simple literal, it's safe
+
+  // Quick check: if pattern is simple literal, backtracking is impossible
   if (pattern.source === escapeRegex(pattern.source)) {
     return pattern.test(line);
   }
-  
-  // For complex patterns, test with time check every 100 chars
+
   try {
-    // Use a simple approach: break into chunks for long lines
+    // Hard limit: truncate long lines to bound execution time
     if (line.length > 1000) {
-      line = line.slice(0, 1000); // Truncate very long lines
+      line = line.slice(0, 1000);
     }
-    
+
     const result = pattern.test(line);
-    
+
+    // Post-hoc warning only: if test took too long, log it but we already ran it
     if (Date.now() - startTime > maxMs) {
       console.error('[Search] Regex test took too long, potential ReDoS attack');
       return false;
     }
-    
+
     return result;
   } catch (e) {
     console.error('[Search] Regex test failed:', e.message);
@@ -215,9 +217,16 @@ function searchCode(args, container) {
           continue;
         }
         const lines = content.split('\n');
+        const lowerQuery = type === 'text' ? query.toLowerCase() : null;
         for (let i = 0; i < lines.length && matches.length < maxResults; i++) {
-          // Use safe regex test with time protection
-          if (safeRegexTest(pattern, lines[i])) {
+          let matched = false;
+          if (type === 'text') {
+            // Pure text search: use includes to eliminate any regex risk
+            matched = lines[i].toLowerCase().includes(lowerQuery);
+          } else {
+            matched = safeRegexTest(pattern, lines[i]);
+          }
+          if (matched) {
             matches.push({
               file: path.relative(root, fullPath),
               line: i + 1,
@@ -247,4 +256,5 @@ module.exports = {
   EXCLUDE_DIRS,
   BINARY_EXTS,
   validateQuery,  // Export for testing
+  escapeRegex,    // Export for testing
 };

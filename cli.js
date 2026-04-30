@@ -69,6 +69,9 @@ Commands:
   audit-map              Global project map (tree + edges + issue overlay)
   health                  Summarize project health
   deps                    List outdated dependencies
+  stats                   Show dependency graph statistics
+  dependencies --file <p> List direct dependencies of a file
+  dependents --file <p>   List direct dependents of a file
   dead-exports            Find dead export candidates
   unresolved              Find unresolved imports
   cycles                  Find circular dependencies
@@ -287,6 +290,22 @@ function formatHuman(command, result) {
         if (entry.skipped) return `${entry.tool}: skipped (${entry.reason})`;
         return `${entry.tool}: ${entry.outdatedCount} outdated`;
       }).join('\n');
+    case 'stats':
+      return Object.entries(result.stats || {})
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('\n');
+    case 'dependencies':
+      return [
+        `file: ${result.file}`,
+        `dependencyCount: ${result.dependencyCount}`,
+        ...result.dependencies.map((d) => `  → ${d}`),
+      ].join('\n');
+    case 'dependents':
+      return [
+        `file: ${result.file}`,
+        `dependentCount: ${result.dependentCount}`,
+        ...result.dependents.map((d) => `  ← ${d}`),
+      ].join('\n');
     case 'dead-exports':
       return [
         `deadExportCount: ${result.deadExportCount}`,
@@ -506,6 +525,14 @@ async function runCommand(parsed, container) {
       return projectHealth({ cwd: parsed.cwd }, container);
     case 'deps':
       return checkDependencies({ cwd: parsed.cwd }, container);
+    case 'stats':
+      return dependencyGraph({ cwd: parsed.cwd, operation: 'stats' }, container);
+    case 'dependencies':
+      requireFile(parsed, 'dependencies');
+      return dependencyGraph({ cwd: parsed.cwd, operation: 'dependencies', file: parsed.file }, container);
+    case 'dependents':
+      requireFile(parsed, 'dependents');
+      return dependencyGraph({ cwd: parsed.cwd, operation: 'dependents', file: parsed.file }, container);
     case 'dead-exports':
       return dependencyGraph({ cwd: parsed.cwd, operation: 'dead_exports' }, container);
     case 'unresolved':

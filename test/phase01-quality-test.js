@@ -10,6 +10,7 @@ const { ProjectContext } = require('../src/utils/project-context');
 const { detectStack } = require('../src/utils/stack-detector');
 const { DependencyGraph } = require('../src/services/dep-graph');
 const { detectTestConfig } = require('../src/tools/health-tools');
+const { classifyChangeType } = require('../src/cli/audit-formatters');
 
 async function testTempFileFilter() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-temp-'));
@@ -64,6 +65,7 @@ function testFileRoleConfig() {
   const configCases = [
     'package.json', 'tsconfig.json', '.editorconfig', '.gitignore',
     '.babelrc', '.npmrc', 'docker-compose.yml', 'Makefile',
+    '.claude/settings.local.json',
   ];
   for (const name of configCases) {
     const role = ctx.classifyFile(path.join(process.cwd(), name)).fileRole;
@@ -106,6 +108,46 @@ function testEntryFileNormalization() {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
 
+function testClassifyChangeTypeDocsDominant() {
+  // docs 占主导且没有 code/tests → 返回 docs
+  const docsDominant = [
+    { file: 'README.md', classification: { fileRole: 'docs' } },
+    { file: 'AGENTS.md', classification: { fileRole: 'docs' } },
+    { file: 'docs/guide.md', classification: { fileRole: 'docs' } },
+    { file: '.claude/settings.local.json', classification: { fileRole: 'config' } },
+  ];
+  assert.strictEqual(classifyChangeType(docsDominant), 'docs', 'docs dominant should return docs');
+
+  // 纯 docs
+  const pureDocs = [
+    { file: 'README.md', classification: { fileRole: 'docs' } },
+    { file: 'CHANGELOG.md', classification: { fileRole: 'docs' } },
+  ];
+  assert.strictEqual(classifyChangeType(pureDocs), 'docs', 'pure docs should return docs');
+
+  // 纯 config
+  const pureConfig = [
+    { file: 'package.json', classification: { fileRole: 'config' } },
+    { file: 'tsconfig.json', classification: { fileRole: 'config' } },
+  ];
+  assert.strictEqual(classifyChangeType(pureConfig), 'config', 'pure config should return config');
+
+  // 有 code 时不应被 docs 主导
+  const withCode = [
+    { file: 'src/index.js', classification: { fileRole: 'library' } },
+    { file: 'README.md', classification: { fileRole: 'docs' } },
+  ];
+  assert.strictEqual(classifyChangeType(withCode), 'code', 'code + docs should return code');
+
+  // 有 tests 时不应被 docs 主导
+  const withTests = [
+    { file: 'test/index.test.js', classification: { fileRole: 'test' } },
+    { file: 'README.md', classification: { fileRole: 'docs' } },
+    { file: 'docs/guide.md', classification: { fileRole: 'docs' } },
+  ];
+  assert.strictEqual(classifyChangeType(withTests), 'tests', 'tests + docs should return tests');
+}
+
 async function main() {
   await testTempFileFilter();
   await testTempFileFilterStaged();
@@ -114,6 +156,7 @@ async function main() {
   testCustomTestScriptDetection();
   testDetectTestConfigFromPackageJson();
   testEntryFileNormalization();
+  testClassifyChangeTypeDocsDominant();
   console.log('phase01-quality-test: ok');
 }
 

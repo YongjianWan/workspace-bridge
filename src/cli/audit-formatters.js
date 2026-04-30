@@ -266,6 +266,7 @@ function buildAuditDiffSummary(entries) {
 
 function classifyChangeType(entries) {
   const types = new Set();
+  let docsCount = 0;
   for (const entry of entries) {
     const file = entry.file || '';
     const ext = file.split('.').pop()?.toLowerCase();
@@ -277,6 +278,7 @@ function classifyChangeType(entries) {
         file.toLowerCase().includes('changelog') ||
         file.toLowerCase().includes('contributing')) {
       types.add('docs');
+      docsCount++;
     } else if (['json', 'yaml', 'yml', 'toml', 'ini', 'conf', 'config'].includes(ext) ||
              fileRole === 'config' ||
              file.includes('.env') ||
@@ -308,6 +310,12 @@ function classifyChangeType(entries) {
     } else {
       types.add('code');
     }
+  }
+
+  // 主导类型判断：docs 占严格多数且无 code/tests 时，优先返回 docs
+  // 避免大量文档改动因夹杂一个配置文件而被误判为 config，生成无意义的测试命令
+  if (types.has('docs') && docsCount > entries.length - docsCount && !types.has('code') && !types.has('tests')) {
+    return 'docs';
   }
 
   if (types.has('code')) return 'code';
@@ -910,6 +918,7 @@ function buildProjectMap(depGraph) {
 
 module.exports = {
   toNumber,
+  classifyChangeType,
   buildCompositeRisk,
   buildRepoSummary,
   buildFileSummary,
