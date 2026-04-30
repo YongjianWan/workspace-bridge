@@ -16,7 +16,7 @@
 | 孤儿检测假阳性 | ✅ 已修复 | 入口文件未被识别 | `_collectEntryFiles()` 路径规范化（P0T3） |
 | 混合仓库误判 | ⏳ 需配置 | prototypes/reference 被视为主线 | 使用 `.workspace-bridge.json` 标注目录角色 |
 | mixed repo 技术栈启发式 | ⏳ 持续改进 | Node/Python 共存时命令可能不够精确 | 持续打磨 `stack-detector` |
-| 大仓库性能 | ⏳ 未解决 | 10k+ 文件索引慢 | 首次索引后缓存加速；P4 专项优化待执行 |
+| 大仓库性能 | ⏳ 有方案待执行 | 10k+ 文件索引慢；全量 JSON 输出爆炸 | 三步走：REPL 精确查询 -> 缓存解析结果 -> watcher 增量更新。详见下方 P5 |
 
 ---
 
@@ -133,10 +133,10 @@ P0T1–P0T5 全部交付，详见上方"基础能力（Phase 0-1）"章节。
 - [x] **构建/测试命令智能化**（投入：中 / 收益：高 / 风险：低）— Rust workspace 子 crate 已完成（`detectRustWorkspaceMembers` + `cargo test -p`）
 - [ ] **Gradle 任务发现**（投入：高 / 收益：中）— 解析 `settings.gradle` 或运行 `gradle projects` 获取子项目，生成 `:subproject:test`
 - [ ] **Go module path 聚合**（投入：中 / 收益：中）— 嵌套 `go.mod` 场景下 `go test ./dir` 可能不准，需检测子 module
-- [ ] mixed repo 命令精度提升（自定义脚本识别）
+- [x] mixed repo 命令精度提升 — `classifyChangeType()` 单一数据源重构（fileRole 优先）+ `getNodeCommands()` codeTargets 过滤（排除 json/cache 误入 focused tests）
 - [ ] Go 验证命令按 module path 聚合（当前按目录聚合，子模块下可能不准）
 - [ ] Rust 模块级测试过滤（需解析 `mod` 声明）
-- [ ] **CLI 命令完整性补全**（投入：低 / 收益：中 / 风险：低）— 底层 `dep-tools` 的 `stats` / `dependents` / `dependencies` operation 未暴露为 CLI 命令；`searchCode`（symbol 搜索）也未暴露。评估后补充有价值的独立命令
+- [x] **CLI 命令完整性补全**（投入：低 / 收益：中 / 风险：低）— `stats` / `dependents` / `dependencies` 已暴露为独立 CLI 命令；Usage 文档已同步
 
 ### P3：提升输出可解释性
 - [x] **CJS 符号解析补全**（投入：低 / 收益：高 / 风险：低）— `parsers.js` 识别 `module.exports = { fn }` 和 `exports.fn = ...` 结构，使 `symbolToDependents` 不再为空数组。落点：`dep-graph/parsers.js` + `symbol-impact.js` `buildFunctionToDependents` 同时参考 `functionRecords`
@@ -152,8 +152,67 @@ P0T1–P0T5 全部交付，详见上方"基础能力（Phase 0-1）"章节。
   - `src/cli/audit-formatters.js`（886 行）→ 按 formatter 拆为 `src/cli/formatters/{composite-risk,repo-summary,file-summary,audit-diff-summary,validation-advice,project-map}.js`。风险中低，需改 `cli.js` 和测试的 `require` 路径。
   - `src/services/dep-graph.js`（711 行）→ `DependencyGraph` class 方法较多，拆需子模块/mixin。风险中高，**建议等 P1（使用点解析）稳定后再动**，避免图逻辑变动时跨文件重构。
 - [ ] Kotlin AST 级支持（当前 L2 regex；需处理 object/companion object/top-level fun）
-- [ ] 大仓库性能专项优化（>10k 文件索引）
+- [ ] 大仓库性能专项优化（>10k 文件索引）— 详见 P5 三步走方案
 - [ ] **插件化解析器注册表**（投入：高 / 收益：中 / 风险：高）— 轻量注册表替代 if-else 链，保持 CLI-only，不引入协议层
+
+### P5：大项目体验优化（REPL + 缓存 + Watcher）
+
+> 问题：小项目全量 JSON 输出可用，大项目（10k+ 文件）时 `audit-map`/`audit-overview` 的 edges 数组爆炸，`audit-diff` 输出数千行 JSON，且每次 CLI 调用都重建 dep-graph。
+>
+> 基础设施现状：`file-index.js` 已有 `fs.watch` + `pendingUpdates` debounce 骨架（`startWatching()`/`processPending()`），但只更新 fileMetadata，未接到 dep-graph；`cache.js` 只存了 `{mtime, size, hash}`，不存 parseResult。
+
+#### Step 1：REPL / 精确查询模式（1-2 天，投入低/收益高）
+
+新增 `node cli.js repl --cwd .`，启动一次，交互查询，按需输出：
+
+```
+> impact src/utils/path.js
+impactCount: 14, dependents: [...]
+
+> affected-tests src/services/dep-graph.js --max-depth 3
+affectedTestCount: 8, tests: [...]
+
+> dead-exports
+deadExportCount: 0
+```
+
+- **改动**：`cli.js` 新增 `repl` case；新增 `src/cli/repl.js`（readline 循环 + 命令解析）
+- **收益**：大项目不用每次等全量 JSON，只返回请求字段
+- **验收**：启动后输入 `impact src/utils/path.js`，<100ms 返回精简结果
+
+#### Step 2：缓存解析结果（1-2 天，解决冷启动慢）
+
+扩展 `cache.js`，新增 `parseResults` Map（file -> {imports, exports, importRecords, exportRecords, functionRecords, parseMode, mtime}）：
+
+```js
+// dep-graph.js build() 增量逻辑
+for (const file of files) {
+  const cached = this.cache.getParseResult(file);
+  const currentMtime = fs.statSync(file).mtimeMs;
+  if (cached && cached.mtime === currentMtime) {
+    this.graph.set(file, cached); // 文件未变，跳过解析
+  } else {
+    await this.analyzeFile(file);
+    this.cache.setParseResult(file, this.graph.get(file));
+  }
+}
+```
+
+- **收益**：10k 文件仓库改 1 个文件后 rebuild，从"解析 10k 文件"变成"解析 1 个 + 读取 9999 个缓存"
+- **验收**：第二次 `node cli.js audit-summary --cwd .` < 3s（10k 文件 fixture）
+
+#### Step 3：激活 Watcher（在 Step 2 基础上，2-3 天）
+
+`file-index.js` 已有 `fs.watch` + `pendingUpdates` debounce。只需：
+
+1. `processPending()` 末尾触发 dep-graph 增量更新
+2. `dep-graph.js` 新增 `updateFiles(filePaths)` 接口：
+   - 重新解析变化文件
+   - 增量更新 reverseGraph（删除旧 import 引用 -> 添加新引用）
+   - 不重建全量 reverseGraph
+
+- **收益**：文件保存后终端实时打印 "1 file updated, 14 dependents affected"
+- **验收**：`node cli.js watch --cwd .` 后改一个文件，<500ms 完成增量更新
 
 ---
 
@@ -190,4 +249,4 @@ P0T1–P0T5 全部交付，详见上方"基础能力（Phase 0-1）"章节。
 
 ---
 
-*Last updated: 2026-04-29*
+*Last updated: 2026-04-30（P5 REPL+缓存+Watcher 方案加入，P2/P3 多项标记完成）*

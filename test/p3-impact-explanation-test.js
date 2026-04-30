@@ -64,7 +64,7 @@ function testGetImpactRadiusWithExplanations() {
 }
 
 function testBuildImpactExplanations() {
-  const { buildImpactExplanations } = require('../src/cli/audit-formatters');
+  const { buildImpactExplanations } = require('../src/cli/formatters');
 
   const entry = {
     file: 'src/utils/resolvers.js',

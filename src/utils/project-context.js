@@ -66,8 +66,10 @@ function inferFileRole(relativePath) {
     /^\.babelrc/, /^\.editorconfig/, /^\.gitignore/, /^\.gitattributes/,
     /^\.npmrc/, /^\.yarnrc/, /^\.prettierrc/, /^\.eslintrc/, /^eslint\.config\./, /^\.mocharc/,
     /tailwind\.config\./, /postcss\.config\./, /vite\.config\./, /webpack\.config\./, /rollup\.config\./, /tsup\.config\./,
+    /jest\.config\./, /prettier\.config\./,
     /^docker/i, /^docker-compose/i, /^makefile/i,
     /^\.nvmrc/, /^\.node-version/,
+    /^requirements/, /pyproject/,
   ];
   if (configPatterns.some((p) => p.test(base))) {
     return 'config';
@@ -81,13 +83,17 @@ function inferFileRole(relativePath) {
     return 'migration';
   }
 
+  const ext = path.extname(base).slice(1);
   if (
     normalized.startsWith('scripts/') ||
     normalized.startsWith('bin/') ||
     normalized.startsWith('tools/') ||
     normalized.includes('/scripts/') ||
     normalized.includes('/bin/') ||
-    normalized.includes('/tools/')
+    normalized.includes('/tools/') ||
+    ext === 'sh' ||
+    ext === 'bash' ||
+    ext === 'ps1'
   ) {
     return 'script';
   }
@@ -109,7 +115,8 @@ function inferFileRole(relativePath) {
     /\.(md|mdx|txt|rst)$/.test(base) ||
     base.toLowerCase().includes('license') ||
     base.toLowerCase().includes('changelog') ||
-    base.toLowerCase().includes('contributing')
+    base.toLowerCase().includes('contributing') ||
+    base.toLowerCase().includes('readme')
   ) {
     return 'docs';
   }

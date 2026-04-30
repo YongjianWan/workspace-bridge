@@ -5,6 +5,7 @@
 const path = require('path');
 const { findWorkspaceRoot, detectWorkspace, pathExists, resolvePythonCommand } = require('../utils/path');
 const { runCommandSecure, runNpx, runPythonModule, trimOutput } = require('../utils/command');
+const { detectNodePackageManager, detectTestRunner } = require('../utils/stack-detector');
 
 function checkHealthFile(root, candidates) {
   for (const name of candidates) {
@@ -41,29 +42,16 @@ function detectCiConfig(root) {
   return { found: found.length > 0, configs: found };
 }
 
-function detectTestConfig(root, workspace) {
+function detectTestConfig(root) {
   const frameworks = [];
-  if (pathExists(path.join(root, 'jest.config.js')) || pathExists(path.join(root, 'jest.config.ts'))) frameworks.push('jest');
-  if (pathExists(path.join(root, 'vitest.config.ts')) || pathExists(path.join(root, 'vitest.config.js'))) frameworks.push('vitest');
-  if (pathExists(path.join(root, 'pytest.ini')) || pathExists(path.join(root, 'setup.cfg'))) frameworks.push('pytest');
-  if (workspace.hasPyproject) frameworks.push('pytest-pyproject');
-  if (pathExists(path.join(root, '.mocharc.js')) || pathExists(path.join(root, '.mocharc.yml'))) frameworks.push('mocha');
-  if (workspace.hasPackageJson && workspace.packageJson?.scripts) {
-    const scripts = workspace.packageJson.scripts;
-    const hasTestScript = Object.keys(scripts).some((key) => key === 'test' || key.startsWith('test:'));
-    if (hasTestScript) {
-      frameworks.push('custom-node-scripts');
-    }
+  const runner = detectTestRunner(root);
+  if (runner?.type === 'node') {
+    frameworks.push(runner.name === 'custom' ? 'custom-node-scripts' : runner.name);
+  }
+  if (runner?.type === 'python') {
+    frameworks.push(runner.name);
   }
   return { found: frameworks.length > 0, frameworks };
-}
-
-function detectPackageManager(root) {
-  if (pathExists(path.join(root, 'pnpm-lock.yaml'))) return 'pnpm';
-  if (pathExists(path.join(root, 'yarn.lock'))) return 'yarn';
-  if (pathExists(path.join(root, 'bun.lockb')) || pathExists(path.join(root, 'bun.lock'))) return 'bun';
-  if (pathExists(path.join(root, 'package-lock.json'))) return 'npm';
-  return null;
 }
 
 function projectHealth(args, container) {
@@ -79,7 +67,7 @@ function projectHealth(args, container) {
     envExample: checkHealthFile(root, ['.env.example', '.env.sample', '.env.template']),
     dockerConfig: checkHealthFile(root, ['Dockerfile', 'docker-compose.yml', 'docker-compose.yaml']),
     ci: detectCiConfig(root),
-    testConfig: detectTestConfig(root, workspace),
+    testConfig: detectTestConfig(root),
   };
 
   const coverageDirs = ['coverage', '.nyc_output', 'htmlcov', '.coverage'];
@@ -103,7 +91,7 @@ function projectHealth(args, container) {
     ok: true,
     workspaceRoot: root,
     healthScore: `${passedCount}/5`,
-    packageManager: detectPackageManager(root),
+    packageManager: detectNodePackageManager(root),
     checks,
     testCoverage: {
       hasCoverageScript: Boolean(coverageScript),

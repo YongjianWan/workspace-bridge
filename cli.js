@@ -21,8 +21,9 @@ const {
   buildValidationAdvice,
   buildProjectMap,
   buildImpactExplanations,
-} = require('./src/cli/audit-formatters');
+} = require('./src/cli/formatters');
 const { buildProjectOverview } = require('./src/tools/overview-tools');
+const { parseArgs } = require('./src/utils/parse-args');
 
 async function mapWithConcurrency(items, limit, mapper) {
   const safeLimit = Math.max(1, Number.isFinite(limit) ? limit : 1);
@@ -95,89 +96,55 @@ Options:
 `);
 }
 
-function parseArgs(argv) {
-  const args = argv.slice(2);
-  let command = null;
-  let startIndex = 0;
-  if (args[0] && !args[0].startsWith('-')) {
-    command = args[0];
-    startIndex = 1;
+function parseCliArgs(argv) {
+  const raw = parseArgs(argv, {
+    '--cwd': { key: 'cwd' },
+    '--exclude': { key: 'exclude' },
+    '--mode': { key: 'mode' },
+    '--file': { key: 'file' },
+    '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
+    '--reuse-hints': { key: 'reuseHints' },
+    '--hotspot-data': { key: 'hotspotData' },
+    '--stability-trend-data': { key: 'stabilityTrendData' },
+    '--trend-granularity': { key: 'trendGranularity' },
+    '--overview-dashboard': { key: 'overviewDashboard' },
+    '--json': true,
+    '--quiet': true,
+    '--help': true,
+    '-h': true,
+  });
+
+  const command = raw._[0] || null;
+  const reuseHints = (raw.reuseHints || 'off').toLowerCase();
+  if (reuseHints && !['on', 'off'].includes(reuseHints)) {
+    throw new Error(`Invalid --reuse-hints value: ${reuseHints}. Expected on|off`);
   }
-  const parsed = {
+  const trendGranularity = (raw.trendGranularity || 'day').toLowerCase();
+  if (trendGranularity && !['day', 'week'].includes(trendGranularity)) {
+    throw new Error(`Invalid --trend-granularity value: ${trendGranularity}. Expected day|week`);
+  }
+
+  return {
     command,
-    cwd: process.cwd(),
-    exclude: [],
-    mode: 'quick',
-    file: null,
-    maxDepth: null,
-    reuseHints: 'off',
-    hotspotData: null,
-    stabilityTrendData: null,
-    trendGranularity: 'day',
-    overviewDashboard: null,
-    json: false,
-    quiet: false,
-    help: false,
+    cwd: raw.cwd || process.cwd(),
+    exclude: raw.exclude
+      ? String(raw.exclude)
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+      : [],
+    mode: raw.mode || 'quick',
+    file: raw.file || null,
+    maxDepth: Number.isFinite(raw.maxDepth) ? raw.maxDepth : null,
+    reuseHints,
+    hotspotData: raw.hotspotData || null,
+    stabilityTrendData: raw.stabilityTrendData || null,
+    trendGranularity,
+    overviewDashboard: raw.overviewDashboard || null,
+    json: Boolean(raw['--json']),
+    quiet: Boolean(raw['--quiet']),
+    help: Boolean(raw['--help']) || Boolean(raw['-h']),
   };
-
-  for (let i = startIndex; i < args.length; i += 1) {
-    const arg = args[i];
-    switch (arg) {
-      case '--cwd':
-        parsed.cwd = args[++i] || parsed.cwd;
-        break;
-      case '--exclude':
-        parsed.exclude = (args[++i] || '')
-          .split(',')
-          .map((part) => part.trim())
-          .filter(Boolean);
-        break;
-      case '--mode':
-        parsed.mode = args[++i] || parsed.mode;
-        break;
-      case '--file':
-        parsed.file = args[++i] || null;
-        break;
-      case '--max-depth':
-        parsed.maxDepth = Number.parseInt(args[++i] || '', 10);
-        break;
-      case '--reuse-hints':
-        parsed.reuseHints = (args[++i] || parsed.reuseHints).toLowerCase();
-        if (!['on', 'off'].includes(parsed.reuseHints)) {
-          throw new Error(`Invalid --reuse-hints value: ${parsed.reuseHints}. Expected on|off`);
-        }
-        break;
-      case '--hotspot-data':
-        parsed.hotspotData = args[++i] || null;
-        break;
-      case '--stability-trend-data':
-        parsed.stabilityTrendData = args[++i] || null;
-        break;
-      case '--trend-granularity':
-        parsed.trendGranularity = (args[++i] || parsed.trendGranularity).toLowerCase();
-        if (!['day', 'week'].includes(parsed.trendGranularity)) {
-          throw new Error(`Invalid --trend-granularity value: ${parsed.trendGranularity}. Expected day|week`);
-        }
-        break;
-      case '--overview-dashboard':
-        parsed.overviewDashboard = args[++i] || null;
-        break;
-      case '--json':
-        parsed.json = true;
-        break;
-      case '--quiet':
-        parsed.quiet = true;
-        break;
-      case '--help':
-      case '-h':
-        parsed.help = true;
-        break;
-      default:
-        throw new Error(`Unknown argument: ${arg}`);
-    }
-  }
-
-  return parsed;
 }
 
 function requireFile(parsed, command) {
@@ -558,7 +525,7 @@ async function runCommand(parsed, container) {
 async function main() {
   let parsed;
   try {
-    parsed = parseArgs(process.argv);
+    parsed = parseCliArgs(process.argv);
   } catch (err) {
     console.error(err.message);
     printUsage();

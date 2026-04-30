@@ -82,10 +82,9 @@ class WorkspaceCache {
   /**
    * Load from disk if exists and fresh
    */
-  async load() {
+  load() {
     try {
       if (!fs.existsSync(this.cachePath)) {
-        console.error('[Cache] No cache file found');
         return false;
       }
 
@@ -93,7 +92,6 @@ class WorkspaceCache {
       const age = Date.now() - stat.mtimeMs;
       
       if (age > CACHE_TTL_MS) {
-        console.error(`[Cache] Cache expired (${Math.round(age/1000)}s old)`);
         return false;
       }
 
@@ -101,7 +99,6 @@ class WorkspaceCache {
       
       // Version check
       if (data.version !== CACHE_VERSION) {
-        console.error(`[Cache] Version mismatch: ${data.version} != ${CACHE_VERSION}, ignoring cache`);
         return false;
       }
       
@@ -112,7 +109,6 @@ class WorkspaceCache {
       this.diagnostics = this.normalizeDiagnosticsEntries(data.diagnostics || []);
       this.lastSaved = stat.mtimeMs;
 
-      console.error(`[Cache] Loaded: ${this.fileMetadata.size} files, ${this.symbolIndex.size} symbols`);
       return true;
     } catch (err) {
       console.error('[Cache] Load failed:', err.message);
@@ -123,7 +119,7 @@ class WorkspaceCache {
   /**
    * Save to disk
    */
-  async save() {
+  save() {
     let tempPath = null;
     try {
       const data = {
@@ -140,7 +136,6 @@ class WorkspaceCache {
       fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf8');
       fs.renameSync(tempPath, this.cachePath);
       this.lastSaved = Date.now();
-      console.error('[Cache] Saved');
       return true;
     } catch (err) {
       if (tempPath && fs.existsSync(tempPath)) {
@@ -203,6 +198,10 @@ class WorkspaceCache {
       })
       .filter(Boolean);
     this.symbolIndex.set(name, normalized);
+  }
+
+  deleteSymbol(name) {
+    this.symbolIndex.delete(name);
   }
 
   // Diagnostics cache

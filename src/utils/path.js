@@ -69,17 +69,23 @@ function readJsonSafe(filePath) {
   }
 }
 
+const WORKSPACE_SCORE_RULES = [
+  { files: ['.git'], score: 10 },
+  { files: ['package.json'], score: 6 },
+  { files: ['pyproject.toml'], score: 6 },
+  { files: ['requirements.txt'], score: 5 },
+  { files: ['manage.py'], score: 5 },
+  { files: ['pom.xml'], score: 6 },
+  { files: ['build.gradle', 'build.gradle.kts'], score: 6 },
+  { files: ['go.mod'], score: 6 },
+  { files: ['Cargo.toml'], score: 6 },
+];
+
 function scoreDirectory(candidate) {
   let score = 0;
-  if (pathExists(path.join(candidate, '.git'))) score += 10;
-  if (pathExists(path.join(candidate, 'package.json'))) score += 6;
-  if (pathExists(path.join(candidate, 'pyproject.toml'))) score += 6;
-  if (pathExists(path.join(candidate, 'requirements.txt'))) score += 5;
-  if (pathExists(path.join(candidate, 'manage.py'))) score += 5;
-  if (pathExists(path.join(candidate, 'pom.xml'))) score += 6;
-  if (pathExists(path.join(candidate, 'build.gradle')) || pathExists(path.join(candidate, 'build.gradle.kts'))) score += 6;
-  if (pathExists(path.join(candidate, 'go.mod'))) score += 6;
-  if (pathExists(path.join(candidate, 'Cargo.toml'))) score += 6;
+  for (const rule of WORKSPACE_SCORE_RULES) {
+    if (rule.files.some((f) => pathExists(path.join(candidate, f)))) score += rule.score;
+  }
   return score;
 }
 

@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { findWorkspaceRoot, normalizePath, isPathInsideRoot, toRelativePosix } = require('../utils/path');
 const { runGit, trimOutput } = require('../utils/command');
+const { scoreToLevel } = require('../config/risk-thresholds');
 
 function parseIsoDate(value) {
   const date = value ? new Date(value) : null;
@@ -16,6 +17,38 @@ function diffDays(from, to) {
   const msPerDay = 24 * 60 * 60 * 1000;
   return Math.max(0, Math.floor((to.getTime() - from.getTime()) / msPerDay));
 }
+
+// 历史风险评分规则：组内 first-match，组间累加
+const HISTORY_RISK_SCORE_GROUPS = [
+  {
+    name: 'commits',
+    rules: [
+      { check: (ctx) => ctx.commits.length >= 8, score: 3 },
+      { check: (ctx) => ctx.commits.length >= 4, score: 2 },
+      { check: (ctx) => ctx.commits.length >= 2, score: 1 },
+    ],
+  },
+  {
+    name: 'authors',
+    rules: [
+      { check: (ctx) => ctx.authors.size >= 3, score: 2 },
+      { check: (ctx) => ctx.authors.size >= 2, score: 1 },
+    ],
+  },
+  {
+    name: 'freshness',
+    rules: [
+      { check: (ctx) => ctx.lastModifiedDaysAgo !== null && ctx.lastModifiedDaysAgo <= 7, score: 2 },
+      { check: (ctx) => ctx.lastModifiedDaysAgo !== null && ctx.lastModifiedDaysAgo <= 30, score: 1 },
+    ],
+  },
+  {
+    name: 'reverts',
+    rules: [
+      { check: (ctx) => ctx.revertLikeCount > 0, score: 2 },
+    ],
+  },
+];
 
 function computeHistoryRisk(commits) {
   if (!Array.isArray(commits) || commits.length === 0) {
@@ -36,17 +69,15 @@ function computeHistoryRisk(commits) {
   const revertLikeCount = commits.filter((commit) => /\b(revert|rollback|roll back|hotfix)\b/i.test(commit.subject || '')).length;
 
   let score = 0;
-  if (commits.length >= 8) score += 3;
-  else if (commits.length >= 4) score += 2;
-  else if (commits.length >= 2) score += 1;
-
-  if (authors.size >= 3) score += 2;
-  else if (authors.size >= 2) score += 1;
-
-  if (lastModifiedDaysAgo !== null && lastModifiedDaysAgo <= 7) score += 2;
-  else if (lastModifiedDaysAgo !== null && lastModifiedDaysAgo <= 30) score += 1;
-
-  if (revertLikeCount > 0) score += 2;
+  const ctx = { commits, authors, lastModifiedDaysAgo, revertLikeCount };
+  for (const group of HISTORY_RISK_SCORE_GROUPS) {
+    for (const rule of group.rules) {
+      if (rule.check(ctx)) {
+        score += rule.score;
+        break;
+      }
+    }
+  }
 
   const signals = [];
   if (commits.length >= 4) signals.push(`High churn: ${commits.length} commits in recent history window.`);
@@ -55,9 +86,7 @@ function computeHistoryRisk(commits) {
   if (revertLikeCount > 0) signals.push(`Found ${revertLikeCount} revert/rollback-like commit(s).`);
   if (signals.length === 0) signals.push('History looks relatively quiet.');
 
-  let level = 'low';
-  if (score >= 6) level = 'high';
-  else if (score >= 3) level = 'medium';
+  const level = scoreToLevel(score);
 
   return {
     level,

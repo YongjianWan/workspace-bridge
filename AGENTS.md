@@ -24,6 +24,8 @@ workspace-bridge 的核心价值很直接：
 ## 工程品味（TASTE）
 
 > 以下铁律直接指导代码层面的决策。
+>
+> **优先级：好品味 > 形式指标。** 500 行、30 行、3 个词是辅助判断的标尺，不是目标本身。如果为了凑行数而把逻辑拆碎、为了省行数而引入晦涩、为了拆文件而破坏内聚，都是坏品味。先问"边界情况能不能消失"，再问"够不够短"。
 
 ### Linus 哲学四原则
 
@@ -39,7 +41,7 @@ workspace-bridge 的核心价值很直接：
 | 边界消除 > if | 让边界情况消失，而不是用 if 堆出来 |
 | 命名 < 3 词 | 口语化，避免教科书式命名 |
 | 函数 < 30 行 | 只做一件事 |
-| 文件 < 500 行 | 超过 500 行必须拆分，否则 AI 无法完整读取上下文 |
+| 文件 < 500 行 | 超过 500 行**考虑**拆分（内聚优先；不要为了拆而拆） |
 | 注释写"为什么" | 不写"做什么"（代码自己会说），写"为什么这么设计"和"边界假设" |
 | 错误暴露不吞 | 让错误暴露出来，别到处 try-catch；只在真正可能出错的地方加防御 |
 | 删除 > 添加 | 无当前用途的抽象 → 删 |
@@ -133,7 +135,7 @@ workspace-bridge 的核心价值很直接：
 | L2.5 子引擎 | `parsers/*`, `resolvers.js`, `symbol-impact.js`, `function-impact.js` | 多语言 parser、import 解析、符号级影响 |
 | L3 服务组装 | `container.js` | `ServiceContainer` 组装所有服务 |
 | L4 工具编排 | `dep-tools.js`, `git-tools.js`, `health-tools.js`, `overview-tools.js` | 对外暴露的分析工具函数 |
-| L5 CLI/格式化 | `cli.js`, `audit-formatters.js` | 命令分发、JSON 输出聚合 |
+| L5 CLI/格式化 | `cli.js`, `formatters/` | 命令分发、JSON 输出聚合 |
 | L6 外围 | `scripts/`, `test/`, `benchmark/` | 辅助脚本、全覆盖测试、性能基准 |
 
 **高耦合核心模块与改动风险**
@@ -166,12 +168,8 @@ workspace-bridge 的核心价值很直接：
 
 现在最值钱的开发方向（按优先级）：
 
-1. **修复基础可信度（Phase 0）** — ✅ 已完成：临时文件过滤、文件角色分类、自定义测试脚本识别、内部函数→测试映射、CJS 符号解析。
-2. **做更好的 test mapping** — ✅ P0T5 已完成：diff 场景下内部函数改动通过调用链追溯映射到导出函数，再映射 dependents。
-3. **做 symbol-level impact** — ✅ CJS `module.exports = { fn }` 已支持，P1 使用点扫描已消除 Java/Go/Rust 符号级 dead-export 系统性误报。
-4. **全局项目地图（P1.5）** — ✅ `audit-map` 已输出 tree + edges + issueOverlay，给 AI 全局视野。
-5. **把历史风险和结构影响融合得更像工程判断** — 变更类型判断（docs/config/tests/code）必须先准，否则验证建议会错配。
-6. **继续打磨 mixed repo 的技术栈检测**
+1. **把历史风险和结构影响融合得更像工程判断** — 变更类型判断（docs/config/tests/code）必须先准，否则验证建议会错配。
+2. **大仓库性能专项优化** — >10k 文件索引速度（mixed repo 命令精度已达标：smoke/focused 按栈隔离，full 保留全栈回归）
 
 不优先的东西：
 
@@ -184,88 +182,17 @@ workspace-bridge 的核心价值很直接：
 
 ### 最近完成
 
-#### 技术栈检测与具体命令建议
-- `audit-diff` 现在会返回 `validationAdvice.stack` 和 `validationAdvice.commands`
-- 自动检测 packageManager、testRunner、linters、typeChecker
-- 生成可直接粘贴执行的验证命令（smoke/focused/full 各阶段）
-- 区分 docs/config/tests/scripts/code 五种类型的验证模板
-
-#### JS/TS AST 解析
-- 集成 @babel/parser 进行精确的 JS/TS 代码解析
-- 正确识别 type import、re-export、动态导入
-- 忽略注释和字符串中的伪 import（相比 regex 大幅降低误报）
-- 失败自动回退到 regex 解析
-
-#### Python AST 支持 (P4)
-- 创建 `scripts/python_ast_parser.py`，使用 Python 标准库 `ast` 模块
-- 支持 `import/from...import/__all__` 解析
-- Node 子进程通信，失败自动回退 regex
-
-#### Java AST 支持 (P4-A)
-- 创建 `scripts/java_ast_parser.py`，使用 `javalang` 进行 AST 级解析
-- 提取类名、public 方法、public 字段、接口方法，精确度从 regex 提升到 AST
-- Node 子进程通信，javalang 不可用时自动回退 regex，用户无感知
-- 多模块 Maven/Gradle 项目 source root 自动发现
-- 修复 static import 带前缀导致 resolver 失败、接口方法未提取等 bug
-
-#### Kotlin/Go/Rust L2 支持 (P4-B)
-- 文件索引扩展：`.kt/.go/.rs` 纳入索引和符号提取
-- Regex 级解析器：`parseKotlin/Go/Rust()` 提取 import/export
-- 技术栈检测：自动识别 Go (go.mod) / Rust (Cargo.toml)
-- 验证命令生成：`go build/test`、`cargo check/test`
-- 路径解析：Go 同目录相对 import 支持
-
-#### P0T5: 内部函数改动→测试映射
-- `parsers.js` 新增 `functionRecords`：收集所有 `FunctionDeclaration`/`FunctionExpression` 的 line range 与 `callCallees`
-- `function-impact.js` `getChangedFunctionImpact()` 增加 DFS 调用链追溯：内部函数 → 导出调用者 → `changedFunctions`
-- `cli.js` 识别 `internal-function-call-chain` mode，触发 `functionLevelAffectedTests` 生成
-- 验收达成：改 `resolvers.js` 中 `readGoMod` 时，`functionLevelAffectedTests` 包含 `test/gors-resolver-test.js`
-
-#### P1.5: `audit-map` 全局项目地图
-- `src/cli/audit-formatters.js` `buildProjectMap()` 聚合 tree + edges + issueOverlay
-- `cli.js` 新增 `audit-map` 命令
-- Tree：目录聚合树（`directory`/`file` 节点），标注 role（entry/library/test/config/script）
-- Edges：65 条 import/export 关系序列化，含 re-export 边与 symbols
-- IssueOverlay：3 deadExports（带 confidence）/ 0 unresolved / 0 cycles / 9 orphans / 4 hotspots
-- 验收：`node cli.js audit-map --cwd . --json --quiet` 输出结构化全局地图
-
-#### P3: CJS 符号解析补全
-- `parsers.js` 识别 `module.exports = { fn }` 和 `exports.fn = ...` 结构
-- `symbol-impact.js` `buildFunctionToDependents` 同时参考 `functionRecords`，CJS 文件的 symbol-level impact 可用
-
-#### P1: 语言级使用点解析
-- `dep-graph.js` 新增 `_scanSymbolUsageInImporters()`：轻量 regex 扫描 importer 文件中的方法调用（`\bSymbol\s*\(`）和字段访问（`\.Symbol\b`）
-- 补充 importRecords 未 capture 的使用：Java 实例调用 `foo.bar()`、Go `pkg.Func()`、JS 默认导入属性访问等
-- 消除符号级 dead-export 系统性误报，Java AST 文件不再需要保守跳过
-- 验收：`java-dead-export-test.js` 验证 `f.bar()` 被识别后 `bar` 不再被报为 dead-export
-
-#### P3: 影响路径解释字段 + 变更影响解释链
-- `getImpactRadius()` 扩展 `via`（路径链）+ `importedSymbols`（导入符号）+ `reason`（direct-import/transitive-dependency）
-- `audit-formatters.js` 新增 `buildImpactExplanations()`：聚合可读因果链字符串
-- `audit-diff` entry 和 summary 均返回 `impactExplanations`，如"因 `resolvers.js` 被 `dep-graph.js` import（resolveImport），故波及测试"
-- 验收：`p3-impact-explanation-test.js` 验证 level 1 直接 import + level 2 传递链解释
-
-#### M5: 项目全景视图
-- 新增 `audit-overview` 命令
-- 热区图：基于 Git 历史和依赖耦合度识别高风险文件
-- 稳定性评分：综合测试覆盖、改动频率、循环依赖
-- 孤儿检测：发现可能未使用的文件
-- 核心模块识别：基于依赖中心性找出关键文件
+详见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 注意事项
 
-- `EditorState` 还在，但价值一般，后续可能继续降权甚至删掉。
-- `dead-exports` 现在对常见 JS/TS 语法已有基础符号级判断，但不是完整 AST 编译器。
+- `dead-exports` 对常见 JS/TS 语法已有基础符号级判断，但不是完整 AST 编译器。
 - `audit-diff` 是当前主战场，改动最好优先补它的测试。
-- **临时文件过滤（P0T1）** — `git-tools.js` `getChangedFiles()` 已过滤 `.tmp-*` 和 `cache.tmp-*`，但工作区中残留的临时文件仍建议清理。
-- **自定义测试脚本识别（P0T3）** — `stack-detector.js` 已扫描 `package.json` 中 `test` / `test:*` 前缀脚本（排除 `pretest`/`posttest`），`health.testConfig` 和 focused 命令已可用。
-- **文件角色分类（P0T2）** — `project-context.js` 已新增 `docs` 角色（`.md/.txt/.rst` + LICENSE/CHANGELOG/CONTRIBUTING），`audit-diff` 中文档改动输出 `changeType: docs`。
-- **entry 与 orphan 冲突（P0T2）** — `dep-graph.js` `_collectEntryFiles()` 已路径规范化，`cli.js` 等入口文件不再同时出现在 `orphans.modules` 中。
 - 混合仓库必须用 `.workspace-bridge.json` 标注目录角色，否则孤儿检测严重误报。
-- **代码与铁律的已知偏离** — `docs/TECH_DEBT.md` 记录了当前代码与 AGENTS.md 铁律的系统性偏离，包括 6 个文件超 500 行、`audit-formatters.js` 17 处 `toNumber()` 防御性包装、多处 try-catch 吞异常、`logger.js` + `editor-state.js` 死代码未删等。这是真实债务，不是文档错误。
-- 已知完整限制列表见 [ROADMAP.md](./ROADMAP.md)。
+- **Windows `spawnSync('npm')` 陷阱** — Node.js 20+ 在 Windows 上禁止直接 spawn `.cmd`/`.bat` 文件，`spawnSync('npm')` 返回 ENOENT，`spawnSync('npm.cmd')` 返回 EINVAL。必须设置 `shell: process.platform === 'win32'` 或使用 `cmd /c`。
+- 技术债状态、已知限制和详细问题清单见 `docs/TECH_DEBT.md` 与 [ROADMAP.md](./ROADMAP.md)。
 
 ---
 
@@ -302,10 +229,11 @@ THEN 必须先定向深入下方列出的目标文件，不能凭骨架直接动
 |----------|---------------|--------|
 | 改影响计算 / BFS / DFS | `src/services/dep-graph.js` + `src/services/dep-graph/symbol-impact.js` | 接口签名和 raw data 消费逻辑 |
 | 新增语言 parser | `src/services/dep-graph/parsers/shared.js` + 任意现有 parser（js.py/java.py） | 必须返回兼容的 `{imports, exports, importRecords, exportRecords, functionRecords, parseMode}` |
-| 改验证命令生成 | `src/utils/stack-detector.js` + `src/cli/audit-formatters.js` `buildValidationAdvice()` | 技术栈检测 + 命令聚合两条链路 |
+| 改验证命令生成 | `src/utils/stack-detector.js` + `src/cli/formatters/validation-advice.js` | 技术栈检测 + 命令聚合两条链路 |
 | 改容器初始化 | `src/services/container.js` | 初始化顺序：cache → projectContext → fileIndex → diagnostics → depGraph |
-| 新增 CLI 命令 | `cli.js` case 分支 + `src/cli/audit-formatters.js` + `src/tools/` 对应工具 | 必须同时改路由、formatter、测试 |
+| 新增 CLI 命令 | `cli.js` case 分支 + `src/cli/formatters/` + `src/tools/` 对应工具 | 必须同时改路由、formatter、测试 |
 | 补测试 | 先读 `test/functionality-test.js`（spawnSync 风格）和 `test/phase01-quality-test.js`（assert 风格） | 测试没有统一 runner，用裸 `assert` + `spawnSync` |
+| 提取类方法到新模块 | `grep` 搜索 `this.methodName` 和 `obj.methodName` 的所有调用方 | 类方法可能被外部通过实例引用，直接删除会破坏接口；安全做法：类方法委托给新模块的纯函数 |
 
 ### 规则 3：Record Schema（parser 必须返回的结构）
 
@@ -352,22 +280,28 @@ THEN 修改前必须跑：
 THEN 基于输出评估测试覆盖是否足够
 ```
 
-### 规则 5：技术债优先级（不要一次性全修）
+### 规则 5：防债检查表（入库前 30 秒）
 
-```
-P0（随时可删，无风险）：
-  - src/utils/logger.js（死代码）
-  - src/services/editor-state.js（已废弃）+ better-sqlite3 依赖
+> 技术债最便宜的还款时机是代码入库前。
 
-P1（小重构，局部影响）：
-  - audit-formatters.js 的 severity 阈值统一为规则表
-  - parseArgs() 三个实现合并
-  - health-tools.js / stack-detector.js 去重
+**新增代码必须过这三条：**
 
-P2（大重构，需要测试兜底）：
-  - audit-formatters.js 拆分为 risk-scoring + validation-templates + formatters/ + project-map
-  - 所有评分算法（composite/hotspot/stability/history）统一为数据结构驱动
-```
+1. **裸数字检查** — diff 中出现的新裸数字（非 `0`/`1`、非明显的时间戳/字节计算）必须关联到 `src/config/constants.js` `DEFAULTS`
+2. **函数长度检查** — 新增函数超过 30 行必须在 commit/PR 中写一句"为什么拆不开"
+3. **封装边界检查** — 禁止直接操作其他模块的内部 `Map`/`Set`（如 `.symbolIndex.delete()`），必须通过公共接口
+
+**新增脚本必须过这一条：**
+
+4. **参数解析统一** — 任何新 CLI 入口或脚本必须使用 `src/utils/parse-args.js`，禁止手写 `for (let i = 2; ...)` 循环
+
+**重构代码必须过这一条：**
+
+5. **配置表化前判断互斥性** — 把 `if-else if` 链重构为规则表时，必须区分：
+   - 累加条件（独立 `if`）→ 独立规则，逐项匹配
+   - 互斥条件（`if-else if`）→ `first-match` 模式，匹配一项即跳出
+   - 混合场景（如 `computeHistoryRisk`）→ 分组：`组内 first-match，组间累加`
+
+**历史债务状态：** 详见 `docs/TECH_DEBT.md`。当前 P0/P1/P2 核心债务已清零；P2 唯一剩余 `composite-risk.js` 的 `buildCompositeRisk`，等新增第 6 种评分维度时统一重构。
 
 ---
 
@@ -385,5 +319,5 @@ P2（大重构，需要测试兜底）：
 
 ---
 
-*使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [docs/plans/](./docs/plans/)。*
-*Last updated: 2026-04-30*
+*使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [docs/plans/](./docs/plans/)。*
+*Last updated: 2026-05-01（TECH_DEBT 清零行动：6 项配置表化重构 + Windows spawn 修复后同步）*

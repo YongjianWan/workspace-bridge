@@ -5,35 +5,55 @@
 const path = require('path');
 const fs = require('fs');
 const { getFileHistoryRisk } = require('./git-tools');
+const { overviewSeverity } = require('../config/risk-thresholds');
 const { toRelativePosix } = require('../utils/path');
+const { DEFAULTS } = require('../config/constants');
 
 function toRelative(root, filePath) {
   return toRelativePosix(root, filePath);
 }
 
+const HOTSPOT_SCORE_RULES = [
+  { field: 'commitCount', alt: 'churn', cap: 10, weight: 2 },
+  { field: 'authorCount', fallback: 1, weight: 3 },
+  { field: 'lastModifiedDaysAgo', condition: (v) => v !== undefined && v !== null, transform: (v) => Math.max(0, 30 - v) * 0.5 },
+  { field: 'revertLikeCount', fallback: 0, weight: 5 },
+];
+
 function calculateHotspotScore(historyRisk) {
   if (!historyRisk) return 0;
 
   let score = 0;
-  const churn = historyRisk.commitCount ?? historyRisk.churn ?? 0;
-  score += Math.min(churn, 10) * 2;
-  score += (historyRisk.authorCount || 1) * 3;
-  if (historyRisk.lastModifiedDaysAgo !== undefined && historyRisk.lastModifiedDaysAgo !== null) {
-    score += Math.max(0, 30 - historyRisk.lastModifiedDaysAgo) * 0.5;
+  for (const rule of HOTSPOT_SCORE_RULES) {
+    let value = historyRisk[rule.field];
+    if (value === undefined && rule.alt) value = historyRisk[rule.alt];
+    if (value === undefined || value === null) value = rule.fallback || 0;
+    if (rule.condition && !rule.condition(value)) continue;
+    if (rule.cap !== undefined) value = Math.min(value, rule.cap);
+    if (rule.transform) {
+      score += rule.transform(value);
+    } else {
+      score += value * rule.weight;
+    }
   }
-  score += (historyRisk.revertLikeCount || 0) * 5;
-
   return Math.min(Math.round(score), 100);
 }
 
+const STABILITY_SCORE_RULES = [
+  { check: (ctx) => ctx.hasTests, delta: 20 },
+  { check: (ctx) => ctx.impactCount < 5, delta: 10 },
+  { check: (ctx) => ctx.impactCount > 20, delta: -10 },
+  { check: (ctx) => !ctx.classification?.isMainline, delta: -10 },
+  { check: (ctx) => ctx.inCycle, delta: -15 },
+  { check: (ctx) => ctx.classification?.fileRole === 'config', delta: 10 },
+];
+
 function calculateStabilityScore(classification, impactCount, hasTests, inCycle) {
   let score = 50;
-  if (hasTests) score += 20;
-  if (impactCount < 5) score += 10;
-  else if (impactCount > 20) score -= 10;
-  if (!classification?.isMainline) score -= 10;
-  if (inCycle) score -= 15;
-  if (classification?.fileRole === 'config') score += 10;
+  const ctx = { classification, impactCount, hasTests, inCycle };
+  for (const rule of STABILITY_SCORE_RULES) {
+    if (rule.check(ctx)) score += rule.delta;
+  }
   return Math.max(0, Math.min(100, score));
 }
 
@@ -101,9 +121,7 @@ async function getHistoryRisk(root, filePath, historyProvider) {
     if (result?.ok === false) return null;
     return result?.historyRisk || null;
   } catch (e) {
-    if (process.env.DEBUG) {
-      console.error(`[overview] Failed to get history for ${filePath}:`, e.message);
-    }
+    console.error(`[overview] Failed to get history for ${filePath}:`, e.message);
     return null;
   }
 }
@@ -120,7 +138,7 @@ function buildSkeleton(root, depGraph, allFiles, mainlineFiles, projectContext) 
 
 async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
   const candidates = await Promise.all(
-    mainlineFiles.slice(0, 50).map(async (file) => {
+    mainlineFiles.slice(0, DEFAULTS.HOTSPOT_CANDIDATE_LIMIT).map(async (file) => {
       const relativePath = toRelative(root, file);
       const dependents = depGraph.getDependents?.(file) || [];
       const dependencies = depGraph.getDependencies?.(file) || [];
@@ -146,7 +164,7 @@ function buildStability(root, depGraph, mainlineFiles, projectContext) {
   const allCycles = depGraph.findCircularDependencies?.() || [];
   const filesInCycle = new Set(allCycles.flat());
 
-  for (const file of mainlineFiles.slice(0, 30)) {
+  for (const file of mainlineFiles.slice(0, DEFAULTS.STABILITY_CANDIDATE_LIMIT)) {
     const relativePath = toRelative(root, file);
     const classification = projectContext.classifyFile(file);
     const dependents = depGraph.getDependents?.(file) || [];
@@ -178,8 +196,8 @@ function buildOverviewSummary(hotspots, stability, orphans) {
   const fragileModules = stability.filter((s) => s.assessment === 'fragile');
   if (fragileModules.length > 0) {
     summary.insights.push(`${fragileModules.length} 个模块稳定性较差`);
-    summary.severity = 'medium';
   }
+  summary.severity = overviewSeverity({ fragileModuleCount: fragileModules.length });
 
   const orphanCount = Object.values(orphans).flat().length;
   if (orphanCount > 0) {
@@ -459,12 +477,9 @@ function buildStabilityTrendSeries(history, granularity) {
 
 async function readTrendHistory(filePath) {
   if (!fs.existsSync(filePath)) return [];
-  try {
-    const parsed = JSON.parse(await fs.promises.readFile(filePath, 'utf8'));
-    return Array.isArray(parsed?.history) ? parsed.history : [];
-  } catch (e) {
-    return [];
-  }
+  const content = await fs.promises.readFile(filePath, 'utf8');
+  const parsed = JSON.parse(content);
+  return Array.isArray(parsed?.history) ? parsed.history : [];
 }
 
 async function writeStabilityTrendFile(filePath, payload) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 const assert = require('assert');
-const { buildProjectMap } = require('../src/cli/audit-formatters');
+const { buildProjectMap } = require('../src/cli/formatters');
 
 function testProjectMapStructure() {
   const depGraph = {

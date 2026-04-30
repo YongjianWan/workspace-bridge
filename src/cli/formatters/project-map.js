@@ -1,0 +1,194 @@
+function toRelativePath(root, filePath) {
+  if (!root || !filePath) return filePath;
+  const normalizedRoot = root.replace(/\\/g, '/');
+  const normalizedFile = filePath.replace(/\\/g, '/');
+  if (normalizedFile.toLowerCase().startsWith(normalizedRoot.toLowerCase())) {
+    const nextChar = normalizedFile[normalizedRoot.length];
+    if (nextChar !== '/' && nextChar !== undefined) {
+      return normalizedFile;
+    }
+    let rel = normalizedFile.slice(normalizedRoot.length);
+    return rel.replace(/^[/]+/, '');
+  }
+  return normalizedFile;
+}
+
+function buildDirectoryTree(flatFiles) {
+  const root = [];
+  const dirMap = new Map();
+
+  for (const entry of flatFiles) {
+    const parts = entry.file.split('/').filter(Boolean);
+    let current = root;
+    let currentPath = '';
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i];
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      const pathKey = currentPath;
+
+      let dirNode = dirMap.get(pathKey);
+      if (!dirNode) {
+        dirNode = { type: 'directory', name: part, path: currentPath, children: [] };
+        dirMap.set(pathKey, dirNode);
+        current.push(dirNode);
+      }
+      current = dirNode.children;
+    }
+
+    current.push({ type: 'file', name: parts[parts.length - 1], ...entry });
+  }
+
+  return root;
+}
+
+function buildProjectMap(depGraph) {
+  if (!depGraph) {
+    return { ok: false, error: 'Dependency graph not initialized' };
+  }
+
+  const root = depGraph.root || depGraph.workspaceRoot || '';
+  const projectContext = depGraph.projectContext || null;
+  const allFiles = Array.from(depGraph.graph?.keys() || []);
+
+  // Flat tree: all files with roles
+  const flatTree = allFiles.map((file) => {
+    const relative = toRelativePath(root, file);
+    const classification = projectContext?.classifyFile?.(file) || {};
+    const info = depGraph.getFileInfo(file) || {};
+    const ext = (relative.match(/\.([^.]+)$/) || [])[1] || null;
+    return {
+      file: relative,
+      role: classification.fileRole || 'library',
+      mainline: classification.isMainline !== false,
+      language: ext,
+      parseMode: info.parseMode || 'none',
+      exports: (info.exportRecords || info.exports || []).map((r) =>
+        typeof r === 'string' ? r : r?.name
+      ).filter(Boolean),
+    };
+  }).sort((a, b) => a.file.localeCompare(b.file));
+
+  // Tree: directory-aggregated structure
+  const tree = buildDirectoryTree(flatTree);
+
+  // Edges: import relationships (merge symbols for same from|to pairs)
+  const edgeMap = new Map();
+  for (const file of allFiles) {
+    const fromRel = toRelativePath(root, file);
+    const info = depGraph.getFileInfo(file) || {};
+    const imports = info.importRecords || [];
+    const importRecords = Array.isArray(imports) && imports.length > 0
+      ? imports
+      : (info.imports || []).map((source) => ({ source, usesAllExports: true }));
+
+    for (const record of importRecords) {
+      const resolved = record.resolved || record.source;
+      if (!resolved) continue;
+      const toRel = toRelativePath(root, resolved);
+      const edgeKey = `${fromRel}|${toRel}`;
+      const existing = edgeMap.get(edgeKey);
+      if (existing) {
+        for (const sym of record.imported || []) {
+          if (!existing.symbols.includes(sym)) existing.symbols.push(sym);
+        }
+        existing.usesAllExports = existing.usesAllExports || Boolean(record.usesAllExports);
+      } else {
+        edgeMap.set(edgeKey, {
+          from: fromRel,
+          to: toRel,
+          type: 'import',
+          symbols: record.imported || [],
+          usesAllExports: Boolean(record.usesAllExports),
+        });
+      }
+
+      // Re-export edges piggyback on importRecords traversal
+      if (record.reExportAll) {
+        const reKey = `${fromRel}|${toRel}|re-export-all`;
+        if (!edgeMap.has(reKey)) {
+          edgeMap.set(reKey, {
+            from: fromRel,
+            to: toRel,
+            type: 're-export-all',
+            symbols: [],
+          });
+        }
+      }
+      if (record.reExported && record.reExported.length > 0) {
+        for (const pair of record.reExported) {
+          const reKey = `${fromRel}|${toRel}|re-export|${pair.imported || ''}|${pair.exported || ''}`;
+          if (!edgeMap.has(reKey)) {
+            edgeMap.set(reKey, {
+              from: fromRel,
+              to: toRel,
+              type: 're-export',
+              imported: pair.imported,
+              exported: pair.exported,
+            });
+          }
+        }
+      }
+    }
+  }
+  const edges = Array.from(edgeMap.values());
+
+  // IssueOverlay
+  const deadExports = depGraph.findDeadExports?.() || [];
+  const unresolved = depGraph.findUnresolvedImports?.() || [];
+  const cycles = depGraph.findCircularDependencies?.() || [];
+
+  // Simple orphan detection (inline to avoid circular deps with overview-tools)
+  const orphans = [];
+  const entrySet = depGraph.entryFiles || new Set();
+  for (const file of allFiles) {
+    if (depGraph.isTestLikeFile?.(file)) continue;
+    const dependents = depGraph.getDependents?.(file) || [];
+    const isEntry = entrySet.has?.(file) || entrySet.includes?.(file);
+    if (!isEntry && dependents.length === 0) {
+      orphans.push(toRelativePath(root, file));
+    }
+  }
+
+  // Hotspots: files with high dependent count (dependency centrality)
+  const hotspots = [];
+  for (const file of allFiles) {
+    const dependents = depGraph.getDependents?.(file) || [];
+    if (dependents.length >= 5) {
+      hotspots.push({
+        file: toRelativePath(root, file),
+        dependentCount: dependents.length,
+        reason: `Imported by ${dependents.length} files`,
+      });
+    }
+  }
+  hotspots.sort((a, b) => (b.dependentCount || 0) - (a.dependentCount || 0));
+
+  return {
+    ok: true,
+    workspaceRoot: root,
+    tree,
+    edges,
+    issueOverlay: {
+      deadExports: deadExports.map((item) => ({
+        file: toRelativePath(root, item.file),
+        exports: item.exports,
+        confidence: item.confidence || 'medium',
+      })),
+      unresolved: unresolved.map((item) => ({
+        file: toRelativePath(root, item.file),
+        import: item.import,
+        resolvedTo: item.resolvedTo || null,
+      })),
+      cycles: cycles.map((cycle) => cycle.map((f) => toRelativePath(root, f))),
+      orphans,
+      hotspots: hotspots.slice(0, 10),
+    },
+  };
+}
+
+module.exports = {
+  buildProjectMap,
+  buildDirectoryTree,
+  toRelativePath,
+};

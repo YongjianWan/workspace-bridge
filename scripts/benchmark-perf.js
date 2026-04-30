@@ -4,43 +4,34 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { parseArgs } = require('../src/utils/parse-args');
 
 const repoRoot = path.join(__dirname, '..');
 const cliPath = path.join(repoRoot, 'cli.js');
 const resultsDir = path.join(repoRoot, 'benchmark', 'results');
 const latestResultPath = path.join(resultsDir, 'latest.json');
 
-function parseArgs(argv) {
+function parseBenchmarkArgs(argv) {
+  const raw = parseArgs(argv, {
+    '--files': { key: 'files', transform: (v) => Number.parseInt(v, 10) },
+    '--changes': { key: 'changes', transform: (v) => Number.parseInt(v, 10) },
+    '--max-ms': { key: 'maxMs', transform: (v) => Number.parseInt(v, 10) },
+    '--max-function-ms': { key: 'maxFunctionMs', transform: (v) => Number.parseInt(v, 10) },
+    '--keep-fixture': true,
+    '--verbose': true,
+  });
   const options = {
-    files: 620,
-    changeCount: 12,
-    maxMs: 30000,
-    maxFunctionMs: 12000,
-    keepFixture: false,
-    verbose: false,
+    files: Number.isFinite(raw.files) ? raw.files : 620,
+    changeCount: Number.isFinite(raw.changes) ? raw.changes : 12,
+    maxMs: Number.isFinite(raw.maxMs) ? raw.maxMs : 30000,
+    maxFunctionMs: Number.isFinite(raw.maxFunctionMs) ? raw.maxFunctionMs : 12000,
+    keepFixture: Boolean(raw['--keep-fixture']),
+    verbose: Boolean(raw['--verbose']),
   };
-  for (let i = 2; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg === '--files') options.files = Number.parseInt(argv[++i] || '', 10);
-    else if (arg === '--changes') options.changeCount = Number.parseInt(argv[++i] || '', 10);
-    else if (arg === '--max-ms') options.maxMs = Number.parseInt(argv[++i] || '', 10);
-    else if (arg === '--max-function-ms') options.maxFunctionMs = Number.parseInt(argv[++i] || '', 10);
-    else if (arg === '--keep-fixture') options.keepFixture = true;
-    else if (arg === '--verbose') options.verbose = true;
-    else throw new Error(`Unknown argument: ${arg}`);
-  }
-  if (!Number.isFinite(options.files) || options.files < 500) {
-    throw new Error('--files must be >= 500');
-  }
-  if (!Number.isFinite(options.changeCount) || options.changeCount < 1) {
-    throw new Error('--changes must be >= 1');
-  }
-  if (!Number.isFinite(options.maxMs) || options.maxMs < 1) {
-    throw new Error('--max-ms must be >= 1');
-  }
-  if (!Number.isFinite(options.maxFunctionMs) || options.maxFunctionMs < 1) {
-    throw new Error('--max-function-ms must be >= 1');
-  }
+  if (options.files < 500) throw new Error('--files must be >= 500');
+  if (options.changeCount < 1) throw new Error('--changes must be >= 1');
+  if (options.maxMs < 1) throw new Error('--max-ms must be >= 1');
+  if (options.maxFunctionMs < 1) throw new Error('--max-function-ms must be >= 1');
   return options;
 }
 
@@ -227,7 +218,7 @@ function evaluateThresholds(results, rules) {
 }
 
 function main() {
-  const options = parseArgs(process.argv);
+  const options = parseBenchmarkArgs(process.argv);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-bridge-bench-'));
   const startedAt = new Date().toISOString();
   let fixtureInfo = null;

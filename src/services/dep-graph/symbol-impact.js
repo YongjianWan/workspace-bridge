@@ -157,7 +157,9 @@ function buildFunctionToDependents(sourceInfo, symbolToDependents) {
   }).sort((a, b) => b.dependentCount - a.dependentCount);
 }
 
-function getSymbolImpact(depGraph, filePath, maxDepth = 4) {
+const { DEFAULTS } = require('../../config/constants');
+
+function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_DEPTH) {
   const sourceFile = depGraph.normalizeFilePath(filePath);
   const sourceInfo = depGraph.getFileInfo(sourceFile);
   if (!sourceInfo) {

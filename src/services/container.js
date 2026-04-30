@@ -57,7 +57,7 @@ class ServiceContainer {
 
       // Initialize cache (memory + disk)
       this.cache = new WorkspaceCache(this.workspaceRoot);
-      await this.cache.load();
+      this.cache.load();
       this.cache.setWorkspaceInfo({ root: this.workspaceRoot });
 
       this.projectContext = new ProjectContext(this.workspaceRoot, {
@@ -136,7 +136,7 @@ class ServiceContainer {
       this.fileIndex.stopWatching();
     }
     if (this.cache) {
-      await this.cache.save();
+      this.cache.save();
     }
     this.diagnostics = null;
     this.depGraph = null;

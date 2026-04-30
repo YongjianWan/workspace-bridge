@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { parseArgs } = require('../src/utils/parse-args');
 
 function nowIso() {
   return new Date().toISOString();
@@ -14,22 +15,19 @@ function truncate(text, limit = 4000) {
   return `${text.slice(0, limit)}\n...[truncated]`;
 }
 
-function parseArgs(argv) {
-  const args = {
-    taskPath: '.workflow-task.json',
-    reportPath: null,
-    dryRun: false,
-    verbose: false,
+function parseWorkflowArgs(argv) {
+  const raw = parseArgs(argv, {
+    '--task': { key: 'taskPath' },
+    '--report': { key: 'reportPath' },
+    '--dry-run': true,
+    '--verbose': true,
+  });
+  return {
+    taskPath: raw.taskPath || '.workflow-task.json',
+    reportPath: raw.reportPath || null,
+    dryRun: Boolean(raw['--dry-run']),
+    verbose: Boolean(raw['--verbose']),
   };
-  for (let i = 2; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg === '--task') args.taskPath = argv[++i] || args.taskPath;
-    else if (arg === '--report') args.reportPath = argv[++i] || null;
-    else if (arg === '--dry-run') args.dryRun = true;
-    else if (arg === '--verbose') args.verbose = true;
-    else throw new Error(`Unknown argument: ${arg}`);
-  }
-  return args;
 }
 
 function readTask(filePath) {
@@ -54,18 +52,45 @@ function readTask(filePath) {
   };
 }
 
+function needsShell(command) {
+  // If the command contains shell metacharacters, it genuinely needs a shell.
+  return /[|><;&$]/.test(command);
+}
+
+function splitCommand(command) {
+  // Simple split for commands that don't need a shell.
+  // Note: this does not handle nested quotes or escapes; those cases
+  // are left to needsShell() and spawn with shell: true.
+  return command.split(/\s+/).filter(Boolean).map((p) => p.replace(/^["']|["']$/g, ''));
+}
+
 function runCommand(command, cwd, extraEnv, verbose) {
   const startedAt = nowIso();
   const startedHr = process.hrtime.bigint();
-  const result = spawnSync(command, {
-    cwd,
-    shell: true,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      ...extraEnv,
-    },
-  });
+
+  let result;
+  if (needsShell(command)) {
+    result = spawnSync(command, {
+      cwd,
+      shell: true,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        ...extraEnv,
+      },
+    });
+  } else {
+    const parts = splitCommand(command);
+    result = spawnSync(parts[0], parts.slice(1), {
+      cwd,
+      shell: false,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        ...extraEnv,
+      },
+    });
+  }
   const durationMs = Number(process.hrtime.bigint() - startedHr) / 1e6;
   const record = {
     command,
@@ -130,7 +155,7 @@ function summarize(report) {
 }
 
 function main() {
-  const args = parseArgs(process.argv);
+  const args = parseWorkflowArgs(process.argv);
   const task = readTask(args.taskPath);
   const reportPath = args.reportPath || task.reportFile || path.join('reports', 'workflow-last.json');
   const context = { task, dryRun: args.dryRun, verbose: args.verbose };

@@ -72,6 +72,31 @@ function main() {
   assert(mixedConfig.smoke.some((c) => c.name === 'go-build'), 'Mixed config should include go-build');
   assert(mixedConfig.smoke.some((c) => c.name === 'rust-check'), 'Mixed config should include rust-check');
 
+  // --- Mixed repo boundary: only Python files changed -> node smoke should be suppressed ---
+  const nodePythonMixed = {
+    profile: 'mixed',
+    node: { enabled: true, packageManager: 'npm', testRunner: 'jest', linters: ['eslint'], typeChecker: 'tsc' },
+    python: { enabled: true, testRunner: 'pytest', linters: ['ruff'] },
+  };
+  const onlyPython = generateCommands(nodePythonMixed, 'code', ['app.py']);
+  assert(onlyPython.smoke.some((c) => c.name === 'python-lint'), 'Mixed py-only should keep python smoke');
+  assert(!onlyPython.smoke.some((c) => c.name === 'node-lint'), 'Mixed py-only should suppress node smoke');
+  assert(!onlyPython.smoke.some((c) => c.name === 'node-type-check'), 'Mixed py-only should suppress node type-check');
+  assert(onlyPython.full.some((c) => c.name === 'node-all-tests'), 'Mixed py-only should keep node full (regression)');
+  assert(onlyPython.full.some((c) => c.name === 'python-all-tests'), 'Mixed py-only should keep python full');
+
+  // --- Mixed repo boundary: only Node files changed -> python smoke should be suppressed ---
+  const onlyNode = generateCommands(nodePythonMixed, 'code', ['app.ts']);
+  assert(onlyNode.smoke.some((c) => c.name === 'node-lint'), 'Mixed node-only should keep node smoke');
+  assert(!onlyNode.smoke.some((c) => c.name === 'python-lint'), 'Mixed node-only should suppress python smoke');
+  assert(onlyNode.full.some((c) => c.name === 'node-all-tests'), 'Mixed node-only should keep node full');
+  assert(onlyNode.full.some((c) => c.name === 'python-all-tests'), 'Mixed node-only should keep python full (regression)');
+
+  // --- Mixed repo boundary: both stacks changed -> all smoke retained ---
+  const bothChanged = generateCommands(nodePythonMixed, 'code', ['app.ts', 'app.py']);
+  assert(bothChanged.smoke.some((c) => c.name === 'node-lint'), 'Mixed both should keep node smoke');
+  assert(bothChanged.smoke.some((c) => c.name === 'python-lint'), 'Mixed both should keep python smoke');
+
   console.log('w2t3-command-quality-test: ok');
 }
 

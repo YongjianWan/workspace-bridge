@@ -32,10 +32,11 @@ function runCLI(args) {
 }
 
 function runTests() {
+  const isWin = process.platform === 'win32';
   const result = spawnSync('npm', ['run', 'test:all'], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
-    shell: true,
+    shell: isWin, // Windows: npm is a .cmd file, Node.js 20+ requires shell
   });
   return {
     ok: result.status === 0,

@@ -230,7 +230,9 @@ function mergeTestRow(map, testFile, distance, via, source = 'function-level') {
 function getFunctionLevelAffectedTests(depGraph, filePath, changedFunctions, options = {}) {
   const sourceFile = depGraph.normalizeFilePath(filePath);
   const list = Array.isArray(changedFunctions) ? Array.from(new Set(changedFunctions)) : [];
-  const maxDepth = Number.isFinite(options.maxDepth) ? Math.max(1, options.maxDepth) : 4;
+const { DEFAULTS } = require('../../config/constants');
+
+  const maxDepth = Number.isFinite(options.maxDepth) ? Math.max(1, options.maxDepth) : DEFAULTS.SYMBOL_IMPACT_DEPTH;
   const symbolImpact = options.symbolImpact || null;
   const functionRows = Array.isArray(symbolImpact?.functionToDependents) ? symbolImpact.functionToDependents : [];
   const byFunction = new Map(functionRows.map((row) => [row.function, row]));

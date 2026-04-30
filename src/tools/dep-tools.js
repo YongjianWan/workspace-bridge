@@ -3,6 +3,7 @@
  */
 const path = require('path');
 const { normalizePath, isPathInsideRoot } = require('../utils/path');
+const { DEFAULTS } = require('../config/constants');
 
 /**
  * Resolve file path to absolute for consistent lookup
@@ -96,7 +97,7 @@ async function dependencyGraph(args, container) {
     
     case 'affected_tests':
       if (!filePath) return { ok: false, error: 'file is required for affected_tests' };
-      const maxDepth = Number.isFinite(args?.maxDepth) ? Math.max(1, args.maxDepth) : 5;
+      const maxDepth = Number.isFinite(args?.maxDepth) ? Math.max(1, args.maxDepth) : DEFAULTS.AFFECTED_TEST_DEPTH;
       const affectedTests = container.depGraph.findAffectedTests(filePath, maxDepth);
       return {
         ok: true,

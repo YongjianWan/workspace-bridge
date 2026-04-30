@@ -6,22 +6,31 @@
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-05-01
+
 ### 新增
 
-- **CLI 命令完整性补全** — 新增 `stats`、`dependencies --file`、`dependents --file` 三个独立命令，底层 `dep-tools.js` 的 operation 全部暴露
+- **`src/utils/test-detector.js`** — 从 `dep-graph.js` 提取测试检测工具函数（`normalizeStem`、`normalizeHeuristicName`、`buildHeuristicSignature`、`getHeuristicLanguageFamily`、`isTestLikeFile`）
+- **`.github/workflows/release.yml`** — 自动 release workflow，`npm pack` 生成干净包（白名单过滤内部文档）
 
 ### 改进
 
-- **`classifyChangeType()` docs 主导判断** — 当 docs 占严格多数（>50%）且没有 code/tests 改动时，整体返回 `docs`，避免大量文档改动因夹杂一个配置文件而生成无意义的测试命令
-- **`search-tools.js` ReDoS 防线强化** — `text` 类型搜索改用 `String.prototype.includes` 替代正则，彻底消除灾难性回溯风险；`safeRegexTest` 注释诚实化（标注为"事后检测"而非"超时保护"）
+- **配置表化重构（5 处硬编码 if-else 链清零）**
+  - `stack-detector.js` — 7 组检测规则配置表化：`STACK_MARKERS`、`PACKAGE_MANAGER_RULES`、`TEST_RUNNER_FILE_RULES`、`LINTER_FILE_RULES`、`DOCS_TOOL_RULES`、`TYPE_CHECKER_FILE_RULES`、`JAVA_BUILD_RULES`
+  - `dep-graph.js` — `isTestLikeFile` 改为 `TEST_DETECTION_RULES` 表驱动，工具函数下沉至 `test-detector.js`；文件 -67 行
+  - `overview-tools.js` — `calculateHotspotScore` / `calculateStabilityScore` 重构为 `HOTSPOT_SCORE_RULES` / `STABILITY_SCORE_RULES` 数据结构驱动
+  - `git-tools.js` — `computeHistoryRisk` 重构为 `HISTORY_RISK_SCORE_GROUPS`，组内 first-match、组间累加
+  - `path.js` — `scoreDirectory` 重构为 `WORKSPACE_SCORE_RULES` 配置表驱动
+- **`package.json` `files` 字段补全** — 新增 `skills/**`、`README.md`、`LICENSE`，release/npm 包结构完整
 
 ### 修复
 
-- **`.claude/settings.local.json` 文件角色** — `project-context.js` `inferFileRole()` 将 `settings.local.json` 识别为 `config`，不再被分类为 `library`
+- **`scripts/self-audit.js` Windows 跨平台** — `spawnSync('npm')` 在 Windows 上返回 ENOENT（Node.js 20+ 禁止直接 spawn `.cmd`），已添加 `shell: process.platform === 'win32'` 平台适配
 
-### 清理
+### 文档
 
-- **删除死代码** — 移除 `src/utils/logger.js`（high confidence 死导出）、`src/services/editor-state.js`（已废弃，container 默认禁用），同步从 `package.json` 移除 `better-sqlite3` 依赖
+- `AGENTS.md` — 新增 Windows spawn 陷阱、提取类方法委托模式、配置表化互斥判断规则；更新历史债务状态
+- `SESSION.md` / `TECH_DEBT.md` / `ROADMAP.md` — 同步本轮完成状态
 
 ## [0.9.0] - 2026-04-29
 

@@ -1,6 +1,6 @@
 ---
 name: workspace-audit
-description: Use this skill when the goal is to audit a local codebase with workspace-bridge-cli, especially for repo-level summaries, file impact checks, project overview, dead export candidates, unresolved imports, cycles, health checks, or dependency drift.
+description: Use this skill when the goal is to audit a local codebase with workspace-bridge-cli, especially for repo-level summaries, file impact checks, project overview, dead export candidates, unresolved imports, cycles, health checks, or dependency drift. 触发词：代码审计, 仓库审计, 项目结构分析, 影响范围, 死代码检测, 循环依赖, 健康检查, 依赖漂移, 文件影响分析, 孤儿文件检测, 热点文件分析.
 ---
 # workspace-audit
 
@@ -17,6 +17,7 @@ This skill wraps the local CLI for:
 - **Dead export candidates** - Symbol-level dead code detection
 - **Unresolved imports** - Broken import detection
 - **Project health** - Basic hygiene checks
+- **Dependency queries** - Direct dependencies/dependents of a file + graph stats
 
 ## Command patterns
 
@@ -50,6 +51,14 @@ workspace-bridge-cli audit-overview --cwd <project> --json --quiet
 workspace-bridge-cli audit-map --cwd <project> --json --quiet
 ```
 
+### Quick Queries (Single-purpose)
+
+```bash
+workspace-bridge-cli stats --cwd <project> --json --quiet
+workspace-bridge-cli dependencies --cwd <project> --file <file> --json --quiet
+workspace-bridge-cli dependents --cwd <project> --file <file> --json --quiet
+```
+
 With exclusions for mixed repos:
 ```bash
 workspace-bridge-cli audit-summary --cwd <project> --exclude prototypes/reference,archive --json --quiet
@@ -77,6 +86,8 @@ workspace-bridge-cli affected-tests --cwd <project> --file <file> --max-depth 5 
 | Git worktree has changes | `audit-diff` | Validation plan + concrete commands |
 | Planning refactoring | `audit-overview` | Hotspots + stability + orphans |
 | Understanding project structure | `audit-map` | Directory tree + dependency edges + issue overlay |
+| "Who depends on this file?" | `dependents --file ...` | Direct dependents list |
+| "What does this file import?" | `dependencies --file ...` | Direct dependencies list |
 | Deep dive on dead code | `dead-exports` | Symbol-level candidates |
 
 ### Options
@@ -98,6 +109,8 @@ workspace-bridge-cli affected-tests --cwd <project> --file <file> --max-depth 5 
 3. Use `validationAdvice.commands` for concrete commands to run
 4. Prioritize `validationAdvice.topRiskActions` for immediate actions
 5. Follow `validationAdvice.phases` in order (smoke → focused → full)
+
+> `changeType` is inferred from `fileRole` as the single source of truth. Extension fallback only applies when `fileRole === 'library'`. This means `README.md` → docs, `package.json` → config, `.test.js` → tests, and `deploy.sh` → scripts are all driven by `inferFileRole()` rather than scattered regex checks.
 
 **audit-overview:**
 1. Check `skeleton.coreModules` for key files to be careful with
@@ -235,6 +248,4 @@ Check if project has supported files (JS/TS/Python/Java/Kotlin/Go/Rust):
 workspace-bridge-cli workspace-info --cwd <project> --json --quiet
 ```
 
-## Version
 
-This skill targets workspace-bridge v0.9.0+

@@ -10,7 +10,7 @@ const { ProjectContext } = require('../src/utils/project-context');
 const { detectStack } = require('../src/utils/stack-detector');
 const { DependencyGraph } = require('../src/services/dep-graph');
 const { detectTestConfig } = require('../src/tools/health-tools');
-const { classifyChangeType } = require('../src/cli/audit-formatters');
+const { classifyChangeType } = require('../src/cli/formatters');
 
 async function testTempFileFilter() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-temp-'));
@@ -87,8 +87,7 @@ function testDetectTestConfigFromPackageJson() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-testconfig-'));
   fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ scripts: { test: 'node test/*.js', build: 'tsc' } }));
 
-  const workspace = { hasPackageJson: true, packageJson: { scripts: { test: 'node test/*.js' } }, hasPyproject: false };
-  const result = detectTestConfig(tmpDir, workspace);
+  const result = detectTestConfig(tmpDir);
   assert.strictEqual(result.found, true, 'should detect test config from package.json scripts.test');
   assert(result.frameworks.includes('custom-node-scripts'), 'should include custom-node-scripts framework');
 
@@ -148,6 +147,50 @@ function testClassifyChangeTypeDocsDominant() {
   assert.strictEqual(classifyChangeType(withTests), 'tests', 'tests + docs should return tests');
 }
 
+function testClassifyChangeTypeFileRoleFallback() {
+  // library + ext fallback
+  assert.strictEqual(
+    classifyChangeType([{ file: 'README.md', classification: { fileRole: 'library' } }]),
+    'docs',
+    'library + md should fallback to docs'
+  );
+  assert.strictEqual(
+    classifyChangeType([{ file: 'package-lock.json', classification: { fileRole: 'library' } }]),
+    'config',
+    'library + json should fallback to config'
+  );
+  assert.strictEqual(
+    classifyChangeType([{ file: 'src/index.js', classification: { fileRole: 'library' } }]),
+    'code',
+    'library + js should fallback to code'
+  );
+
+  // fileRole direct mapping
+  assert.strictEqual(
+    classifyChangeType([{ file: 'cli.js', classification: { fileRole: 'entry' } }]),
+    'code',
+    'entry should map to code'
+  );
+  assert.strictEqual(
+    classifyChangeType([{ file: 'migrations/001.js', classification: { fileRole: 'migration' } }]),
+    'code',
+    'migration should map to code'
+  );
+  assert.strictEqual(
+    classifyChangeType([{ file: 'deploy.sh', classification: { fileRole: 'script' } }]),
+    'scripts',
+    'script should map to scripts'
+  );
+
+  // mixed: code priority over docs/config
+  const mixedCode = [
+    { file: 'src/index.js', classification: { fileRole: 'library' } },
+    { file: 'README.md', classification: { fileRole: 'library' } },
+    { file: 'tsconfig.json', classification: { fileRole: 'library' } },
+  ];
+  assert.strictEqual(classifyChangeType(mixedCode), 'code', 'code should win over docs and config');
+}
+
 async function main() {
   await testTempFileFilter();
   await testTempFileFilterStaged();
@@ -157,6 +200,7 @@ async function main() {
   testDetectTestConfigFromPackageJson();
   testEntryFileNormalization();
   testClassifyChangeTypeDocsDominant();
+  testClassifyChangeTypeFileRoleFallback();
   console.log('phase01-quality-test: ok');
 }
 

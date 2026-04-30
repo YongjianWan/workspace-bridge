@@ -5,39 +5,52 @@ const fs = require('fs');
 const path = require('path');
 const { pathExists, readJsonSafe } = require('./path');
 
-function hasPythonProject(root) {
-  return (
-    pathExists(path.join(root, 'requirements.txt')) ||
-    pathExists(path.join(root, 'pyproject.toml')) ||
-    pathExists(path.join(root, 'manage.py'))
-  );
+// 检测规则配置表：消除重复 pathExists 链
+const STACK_MARKERS = {
+  python: ['requirements.txt', 'pyproject.toml', 'manage.py'],
+  node:   ['package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'],
+  java:   ['pom.xml', 'build.gradle', 'build.gradle.kts'],
+  go:     ['go.mod'],
+  rust:   ['Cargo.toml'],
+};
+
+function hasStack(root, name) {
+  const files = STACK_MARKERS[name];
+  if (!files) return false;
+  return files.some((f) => pathExists(path.join(root, f)));
 }
 
-function hasNodeProject(root) {
-  return (
-    pathExists(path.join(root, 'package.json')) ||
-    pathExists(path.join(root, 'package-lock.json')) ||
-    pathExists(path.join(root, 'pnpm-lock.yaml')) ||
-    pathExists(path.join(root, 'yarn.lock')) ||
-    pathExists(path.join(root, 'bun.lock')) ||
-    pathExists(path.join(root, 'bun.lockb'))
-  );
-}
+const hasPythonProject = (root) => hasStack(root, 'python');
+const hasNodeProject   = (root) => hasStack(root, 'node');
+const hasJavaProject   = (root) => hasStack(root, 'java');
+const hasGoProject     = (root) => hasStack(root, 'go');
+const hasRustProject   = (root) => hasStack(root, 'rust');
 
-function hasJavaProject(root) {
-  return (
-    pathExists(path.join(root, 'pom.xml')) ||
-    pathExists(path.join(root, 'build.gradle')) ||
-    pathExists(path.join(root, 'build.gradle.kts'))
-  );
-}
-
-function hasGoProject(root) {
-  return pathExists(path.join(root, 'go.mod'));
-}
-
-function hasRustProject(root) {
-  return pathExists(path.join(root, 'Cargo.toml'));
+function extractTomlStringArray(content, key) {
+  const lines = content.split('\n');
+  let buffer = '';
+  let inArray = false;
+  for (const line of lines) {
+    if (!inArray) {
+      const match = line.match(new RegExp(`^\\s*${key}\\s*=\\s*(.*)$`));
+      if (match) {
+        buffer = match[1];
+        inArray = true;
+        if (buffer.includes(']')) break;
+      }
+    } else {
+      buffer += '\n' + line;
+      if (line.includes(']')) break;
+    }
+  }
+  if (!buffer) return null;
+  const items = [];
+  const stringRe = /["']([^"']+)["']/g;
+  let m;
+  while ((m = stringRe.exec(buffer)) !== null) {
+    items.push(m[1]);
+  }
+  return items.length > 0 ? items : null;
 }
 
 function detectRustWorkspaceMembers(root) {
@@ -45,16 +58,10 @@ function detectRustWorkspaceMembers(root) {
   if (!pathExists(cargoPath)) return null;
 
   const content = fs.readFileSync(cargoPath, 'utf8');
-  const workspaceMatch = content.match(/\[workspace\]/);
-  if (!workspaceMatch) return null;
+  if (!content.includes('[workspace]')) return null;
 
-  const membersMatch = content.match(/members\s*=\s*\[([^\]]*)\]/s);
-  if (!membersMatch) return null;
-
-  const members = membersMatch[1]
-    .split(/,/)
-    .map((s) => s.trim().replace(/^["']|["']$/g, ''))
-    .filter(Boolean);
+  const members = extractTomlStringArray(content, 'members');
+  if (!members) return null;
 
   const crates = [];
   for (const member of members) {
@@ -75,49 +82,48 @@ function detectJavaBuildTool(root) {
   return null;
 }
 
+const JAVA_BUILD_RULES = {
+  maven:  { wrappers: [{ file: 'mvnw.cmd', cmd: 'mvnw.cmd' }, { file: 'mvnw', cmd: './mvnw' }], default: 'mvn' },
+  gradle: { wrappers: [{ file: 'gradlew.bat', cmd: 'gradlew.bat' }, { file: 'gradlew', cmd: './gradlew' }], default: 'gradle' },
+};
+
 function detectJavaBuildCommand(root, buildTool) {
-  if (buildTool === 'maven') {
-    if (pathExists(path.join(root, 'mvnw.cmd'))) return 'mvnw.cmd';
-    if (pathExists(path.join(root, 'mvnw'))) return './mvnw';
-    return 'mvn';
+  const rule = JAVA_BUILD_RULES[buildTool];
+  if (!rule) return null;
+  for (const wrapper of rule.wrappers) {
+    if (pathExists(path.join(root, wrapper.file))) return wrapper.cmd;
   }
-  if (buildTool === 'gradle') {
-    if (pathExists(path.join(root, 'gradlew.bat'))) return 'gradlew.bat';
-    if (pathExists(path.join(root, 'gradlew'))) return './gradlew';
-    return 'gradle';
-  }
-  return null;
+  return rule.default;
 }
+
+const PACKAGE_MANAGER_RULES = [
+  { name: 'pnpm', files: ['pnpm-lock.yaml'] },
+  { name: 'yarn', files: ['yarn.lock'] },
+  { name: 'bun', files: ['bun.lockb', 'bun.lock'] },
+  { name: 'npm', files: ['package-lock.json', 'package.json'] },
+];
 
 function detectNodePackageManager(root) {
-  if (pathExists(path.join(root, 'pnpm-lock.yaml'))) return 'pnpm';
-  if (pathExists(path.join(root, 'yarn.lock'))) return 'yarn';
-  if (pathExists(path.join(root, 'bun.lockb')) || pathExists(path.join(root, 'bun.lock'))) return 'bun';
-  if (pathExists(path.join(root, 'package-lock.json'))) return 'npm';
-  if (pathExists(path.join(root, 'package.json'))) return 'npm';
+  for (const rule of PACKAGE_MANAGER_RULES) {
+    if (rule.files.some((f) => pathExists(path.join(root, f)))) {
+      return rule.name;
+    }
+  }
   return null;
 }
 
+const TEST_RUNNER_FILE_RULES = [
+  { name: 'jest',    type: 'node',   files: ['jest.config.js', 'jest.config.ts', 'jest.config.mjs'] },
+  { name: 'vitest',  type: 'node',   files: ['vitest.config.ts', 'vitest.config.js', 'vitest.config.mjs'] },
+  { name: 'mocha',   type: 'node',   files: ['.mocharc.js', '.mocharc.yml', '.mocharc.json'] },
+  { name: 'pytest',  type: 'python', files: ['pytest.ini', 'setup.cfg', 'pyproject.toml'] },
+];
+
 function detectTestRunner(root) {
-  if (pathExists(path.join(root, 'jest.config.js')) ||
-      pathExists(path.join(root, 'jest.config.ts')) ||
-      pathExists(path.join(root, 'jest.config.mjs'))) {
-    return { name: 'jest', type: 'node' };
-  }
-  if (pathExists(path.join(root, 'vitest.config.ts')) ||
-      pathExists(path.join(root, 'vitest.config.js')) ||
-      pathExists(path.join(root, 'vitest.config.mjs'))) {
-    return { name: 'vitest', type: 'node' };
-  }
-  if (pathExists(path.join(root, '.mocharc.js')) ||
-      pathExists(path.join(root, '.mocharc.yml')) ||
-      pathExists(path.join(root, '.mocharc.json'))) {
-    return { name: 'mocha', type: 'node' };
-  }
-  if (pathExists(path.join(root, 'pytest.ini')) ||
-      pathExists(path.join(root, 'setup.cfg')) ||
-      pathExists(path.join(root, 'pyproject.toml'))) {
-    return { name: 'pytest', type: 'python' };
+  for (const rule of TEST_RUNNER_FILE_RULES) {
+    if (rule.files.some((f) => pathExists(path.join(root, f)))) {
+      return { name: rule.name, type: rule.type };
+    }
   }
 
   const packageJsonPath = path.join(root, 'package.json');
@@ -174,53 +180,57 @@ function detectPythonFramework(root, pyprojectText = '') {
   return null;
 }
 
-function detectLinters(root, pyprojectText = '') {
-  const linters = {
-    node: [],
-    python: [],
-    java: [],
-  };
+const LINTER_FILE_RULES = [
+  { stack: 'node', name: 'eslint', files: ['.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', 'eslint.config.js'] },
+  { stack: 'node', name: 'prettier', files: ['.prettierrc', '.prettierrc.json', 'prettier.config.js'] },
+  { stack: 'java', name: 'checkstyle', files: ['checkstyle.xml', 'config/checkstyle/checkstyle.xml'] },
+];
 
-  if (pathExists(path.join(root, '.eslintrc.js')) ||
-      pathExists(path.join(root, '.eslintrc.cjs')) ||
-      pathExists(path.join(root, '.eslintrc.json')) ||
-      pathExists(path.join(root, 'eslint.config.js'))) {
-    linters.node.push('eslint');
+function hasGradlePlugin(text, pluginName) {
+  if (!text) return false;
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) continue;
+    if (new RegExp(`\\b${pluginName}\\b`).test(trimmed)) return true;
   }
-  if (pathExists(path.join(root, '.prettierrc')) ||
-      pathExists(path.join(root, '.prettierrc.json')) ||
-      pathExists(path.join(root, 'prettier.config.js'))) {
-    linters.node.push('prettier');
+  return false;
+}
+
+function detectLinters(root, pyprojectText = '') {
+  const linters = { node: [], python: [], java: [] };
+
+  for (const rule of LINTER_FILE_RULES) {
+    if (rule.files.some((f) => pathExists(path.join(root, f)))) {
+      linters[rule.stack].push(rule.name);
+    }
   }
+
   if (pyprojectText && (pyprojectText.includes('ruff') || pyprojectText.includes('[tool.ruff]'))) {
     linters.python.push('ruff');
   }
 
-  // Java linters
-  if (pathExists(path.join(root, 'checkstyle.xml')) ||
-      pathExists(path.join(root, 'config/checkstyle/checkstyle.xml'))) {
-    linters.java.push('checkstyle');
-  }
-  const buildGradleText = readTextIfExists(path.join(root, 'build.gradle')) +
-    readTextIfExists(path.join(root, 'build.gradle.kts')) +
-    readTextIfExists(path.join(root, 'pom.xml'));
-  if (/\bspotbugs\b/.test(buildGradleText)) linters.java.push('spotbugs');
-  if (/\bpmd\b/.test(buildGradleText)) linters.java.push('pmd');
-  if (/\berrorprone\b/.test(buildGradleText)) linters.java.push('errorprone');
-  if (/\bjacoco\b/.test(buildGradleText)) linters.java.push('jacoco');
+  const gradleText = readTextIfExists(path.join(root, 'build.gradle')) +
+    readTextIfExists(path.join(root, 'build.gradle.kts'));
+  const pomText = readTextIfExists(path.join(root, 'pom.xml'));
+  if (hasGradlePlugin(gradleText, 'spotbugs') || /\bspotbugs\b/.test(pomText)) linters.java.push('spotbugs');
+  if (hasGradlePlugin(gradleText, 'pmd') || /\bpmd\b/.test(pomText)) linters.java.push('pmd');
+  if (hasGradlePlugin(gradleText, 'errorprone') || /\berrorprone\b/.test(pomText)) linters.java.push('errorprone');
+  if (hasGradlePlugin(gradleText, 'jacoco') || /\bjacoco\b/.test(pomText)) linters.java.push('jacoco');
 
   return linters;
 }
 
-function detectTypeCheckers(root, pyprojectText = '') {
-  const typeCheckers = {
-    node: null,
-    python: null,
-    java: null,
-  };
+const TYPE_CHECKER_FILE_RULES = [
+  { stack: 'node', name: 'tsc', files: ['tsconfig.json'] },
+];
 
-  if (pathExists(path.join(root, 'tsconfig.json'))) {
-    typeCheckers.node = 'tsc';
+function detectTypeCheckers(root, pyprojectText = '') {
+  const typeCheckers = { node: null, python: null, java: null };
+
+  for (const rule of TYPE_CHECKER_FILE_RULES) {
+    if (rule.files.some((f) => pathExists(path.join(root, f)))) {
+      typeCheckers[rule.stack] = rule.name;
+    }
   }
   if (pyprojectText && (pyprojectText.includes('pyright') || pyprojectText.includes('[tool.pyright]'))) {
     typeCheckers.python = 'pyright';
@@ -229,10 +239,18 @@ function detectTypeCheckers(root, pyprojectText = '') {
   return typeCheckers;
 }
 
+const DOCS_TOOL_RULES = [
+  { name: 'mkdocs', files: ['mkdocs.yml'] },
+  { name: 'docusaurus', files: ['docusaurus.config.js'] },
+  { name: 'vitepress', files: ['vitepress.config.js'] },
+];
+
 function detectDocsTool(root) {
-  if (pathExists(path.join(root, 'mkdocs.yml'))) return 'mkdocs';
-  if (pathExists(path.join(root, 'docusaurus.config.js'))) return 'docusaurus';
-  if (pathExists(path.join(root, 'vitepress.config.js'))) return 'vitepress';
+  for (const rule of DOCS_TOOL_RULES) {
+    if (rule.files.some((f) => pathExists(path.join(root, f)))) {
+      return rule.name;
+    }
+  }
   return null;
 }
 
@@ -305,7 +323,9 @@ function getNodeCommands(nodeStack, changeType, targets) {
   const exec = nodeExec(nodeStack.packageManager);
   if (!exec) return { smoke: [], focused: [], full: [] };
 
-  const fileArgs = targets.length > 0 ? targets.join(' ') : '.';
+  // Only actual source files should be passed to linters/test runners.
+  const codeTargets = targets.filter((f) => /\.(js|jsx|ts|tsx|mjs|cjs)$/.test(f));
+  const fileArgs = codeTargets.length > 0 ? codeTargets.join(' ') : '.';
   const commands = { smoke: [], focused: [], full: [] };
 
   if (changeType === 'code' || changeType === 'tests' || changeType === 'config') {
@@ -317,13 +337,13 @@ function getNodeCommands(nodeStack, changeType, targets) {
     }
     if (nodeStack.testRunner) {
       const testCmd = nodeStack.testRunner === 'vitest'
-        ? `${exec.exec} vitest run ${targets.join(' ')}`
+        ? `${exec.exec} vitest run ${codeTargets.join(' ')}`
         : nodeStack.testRunner === 'jest'
-          ? `${exec.exec} jest ${targets.join(' ')}`
+          ? `${exec.exec} jest ${codeTargets.join(' ')}`
           : nodeStack.testRunner === 'mocha'
-            ? `${exec.exec} mocha ${targets.join(' ')}`
+            ? `${exec.exec} mocha ${codeTargets.join(' ')}`
           : `${exec.run} test`;
-      if (targets.length > 0) {
+      if (codeTargets.length > 0) {
         commands.focused.push({ name: 'node-focused-tests', description: 'Run node-side focused tests', cmd: testCmd });
       }
     }
@@ -501,18 +521,32 @@ function generateCommands(stack, changeType, targets, steps = []) {
     };
   }
 
-  const nodeTargets = targets.filter((file) => /\.(js|jsx|ts|tsx|json|mjs|cjs)$/.test(file));
-  const pythonTargets = targets.filter((file) => /\.py$/.test(file));
-  const javaTargets = targets.filter((file) => /\.java$/.test(file) || /(^|\/)(pom\.xml|build\.gradle|build\.gradle\.kts)$/.test(file));
-  const goTargets = targets.filter((file) => /\.go$/.test(file) || /(^|\/)go\.mod$/.test(file));
-  const rustTargets = targets.filter((file) => /\.rs$/.test(file) || /(^|\/)Cargo\.toml$/.test(file));
+  const split = splitTargetsByStack(targets);
 
-  const nodeCommands = getNodeCommands(stack.node, changeType, nodeTargets);
-  const pythonCommands = getPythonCommands(stack.python, changeType, pythonTargets);
-  const javaCommands = getJavaCommands(stack.java, changeType, javaTargets);
-  const goCommands = getGoCommands(stack.go, changeType, goTargets);
-  const rustCommands = getRustCommands(stack.rust, changeType, rustTargets);
+  const nodeCommands = getNodeCommands(stack.node, changeType, split.node);
+  const pythonCommands = getPythonCommands(stack.python, changeType, split.python);
+  const javaCommands = getJavaCommands(stack.java, changeType, split.java);
+  const goCommands = getGoCommands(stack.go, changeType, split.go);
+  const rustCommands = getRustCommands(stack.rust, changeType, split.rust);
   const merged = mergeCommandSets(nodeCommands, pythonCommands, javaCommands, goCommands, rustCommands);
+
+  // In mixed repos, suppress stack-specific smoke checks when that stack has no changed files.
+  if (stack.profile === 'mixed') {
+    const hasNode = split.node.length > 0;
+    const hasPython = split.python.length > 0;
+    const hasJava = split.java.length > 0;
+    const hasGo = split.go.length > 0;
+    const hasRust = split.rust.length > 0;
+
+    merged.smoke = merged.smoke.filter((cmd) => {
+      if (!hasNode && cmd.name.startsWith('node-')) return false;
+      if (!hasPython && cmd.name.startsWith('python-')) return false;
+      if (!hasJava && cmd.name.startsWith('java-')) return false;
+      if (!hasGo && cmd.name.startsWith('go-')) return false;
+      if (!hasRust && cmd.name.startsWith('rust-')) return false;
+      return true;
+    });
+  }
 
   // Prefer direct test targets from focused steps when available.
   const directTests = (steps || []).find((step) => step?.name === 'run-direct-tests')?.targets || [];
@@ -611,4 +645,6 @@ function generateCommands(stack, changeType, targets, steps = []) {
 module.exports = {
   detectStack,
   generateCommands,
+  detectNodePackageManager,
+  detectTestRunner,
 };

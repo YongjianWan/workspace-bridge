@@ -15,91 +15,29 @@ const {
   parseRust,
 } = require('./dep-graph/parsers');
 const { resolveImport } = require('./dep-graph/resolvers');
-const { normalizePathKey, matchesPathFragment, toPosixPath } = require('../utils/path');
+const { normalizePathKey, matchesPathFragment } = require('../utils/path');
 const {
   getSymbolImpact,
   getChangedFunctionImpact,
   getFunctionReuseHints,
   getFunctionLevelAffectedTests,
 } = require('./dep-graph/symbol-impact');
+const {
+  normalizeHeuristicName,
+  buildHeuristicSignature,
+  getHeuristicLanguageFamily,
+  isTestLikeFile,
+} = require('../utils/test-detector');
 
 const readFile = promisify(fs.readFile);
+
+const { DEFAULTS } = require('../config/constants');
 
 // 配置常量
 const CONFIG = {
   DEFAULT_CONCURRENCY: 20,      // 默认并发数（内存安全考虑）
-  DEFAULT_MAX_DEPTH: 5,         // affected_tests 默认搜索深度
+  DEFAULT_MAX_DEPTH: DEFAULTS.AFFECTED_TEST_DEPTH,
 };
-
-function normalizeStem(filePath) {
-  const base = path.basename(filePath, path.extname(filePath)).toLowerCase();
-  return base
-    .replace(/^test_/, '')
-    .replace(/_test$/, '')
-    .replace(/(?:\.|_)(?:test|spec)$/, '');
-}
-
-const HEURISTIC_ROOT_SEGMENTS = new Set([
-  'src', 'app', 'lib', 'source', 'sources',
-  'test', 'tests', '__tests__', 'spec', 'specs',
-  'main', 'java', 'python', 'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs',
-  'packages', 'package',
-  'kotlin', 'go', 'rust',
-]);
-
-function normalizeHeuristicName(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  const base = path.basename(filePath, ext);
-
-  if (ext === '.java') {
-    return base.replace(/(?:Tests?|Specs?|TestCases?|ITs?)$/, '').toLowerCase();
-  }
-  if (ext === '.kt') {
-    return base.replace(/(?:Tests?|Test)$/, '').toLowerCase();
-  }
-
-  return normalizeStem(filePath);
-}
-
-function buildHeuristicSignature(root, filePath) {
-  const relativePath = toPosixPath(path.relative(root, filePath));
-  const segments = relativePath
-    .split('/')
-    .filter(Boolean)
-    .filter((segment) => !HEURISTIC_ROOT_SEGMENTS.has(segment.toLowerCase()));
-
-  if (segments.length === 0) {
-    return '';
-  }
-
-  const leaf = normalizeHeuristicName(filePath);
-  if (!leaf) {
-    return '';
-  }
-
-  segments[segments.length - 1] = leaf.toLowerCase();
-  return segments.map((segment) => segment.toLowerCase()).join('/');
-}
-
-function getHeuristicLanguageFamily(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  if (['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'].includes(ext)) {
-    return 'js-family';
-  }
-  if (ext === '.java' || ext === '.kt') {
-    return 'java-family';
-  }
-  if (ext === '.py') {
-    return 'python-family';
-  }
-  if (ext === '.go') {
-    return 'go-family';
-  }
-  if (ext === '.rs') {
-    return 'rust-family';
-  }
-  return ext;
-}
 
 class DependencyGraph {
   constructor(workspaceRoot, cache, options = {}) {
@@ -131,13 +69,9 @@ class DependencyGraph {
   }
 
   _readPackageJson() {
-    try {
-      const packageJsonPath = path.join(this.root, 'package.json');
-      if (!fs.existsSync(packageJsonPath)) return null;
-      return JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-    } catch (e) {
-      return null;
-    }
+    const packageJsonPath = path.join(this.root, 'package.json');
+    if (!fs.existsSync(packageJsonPath)) return null;
+    return JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
   }
 
   _collectEntryFiles() {
@@ -164,23 +98,7 @@ class DependencyGraph {
   }
 
   isTestLikeFile(filePath) {
-    const normalized = normalizePathKey(filePath);
-    const base = path.basename(normalized);
-    return (
-      normalized.includes('/test/') ||
-      normalized.includes('/tests/') ||
-      normalized.includes('/src/test/java/') ||
-      normalized.includes('/__tests__/') ||
-      /\.test\./.test(base) ||
-      /\.spec\./.test(base) ||
-      /(test|tests|it)\.java$/i.test(base) ||
-      /^test.*\.py$/i.test(base) ||
-      base === 'tests.py' ||
-      /^test_/.test(base) ||
-      /_test\./.test(base) ||
-      /_test\.go$/.test(base) ||
-      /(Tests?|Test)\.kt$/i.test(base)
-    );
+    return isTestLikeFile(filePath);
   }
 
   isKnownEntryFile(filePath, exports) {
@@ -216,7 +134,7 @@ class DependencyGraph {
       const content = fs.readFileSync(filePath, 'utf8');
       if (content.startsWith('#!')) return true;
     } catch (e) {
-      return false;
+      if (e.code !== 'ENOENT') throw e;
     }
 
     return false;
@@ -609,23 +527,8 @@ class DependencyGraph {
    */
   findAffectedTests(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH, options = {}) {
     const includeHeuristic = options?.includeHeuristic !== false;
-    const testPatterns = [
-      /\.test\./,           // *.test.*
-      /\.spec\./,           // *.spec.*
-      /^test_/,             // test_*
-      /_test\./,            // *_test.*
-    ];
-    
-    const isTestFile = (f) => {
-      if (this.isTestLikeFile(f)) return true;
-      const basename = path.basename(f);
-      if (testPatterns.some(p => p.test(basename))) return true;
-      const dir = normalizePathKey(path.dirname(f));
-      if (dir.includes('/tests/') || dir.includes('/test/') || dir.includes('/__tests__/')) return true;
-      if (dir.includes('/src/test/java/')) return true;
-      if (dir.endsWith('/tests') || dir.endsWith('/test') || dir.endsWith('/__tests__')) return true;
-      return false;
-    };
+
+    const isTestFile = (f) => isTestLikeFile(f);
     
     // BFS 搜索
     const visited = new Map(); // file -> {distance, via}

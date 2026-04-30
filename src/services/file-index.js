@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
 const { detectWorkspace, normalizePathKey, matchesPathFragment } = require('../utils/path');
+const { DEFAULTS } = require('../config/constants');
 
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
@@ -41,34 +42,15 @@ class FileIndex {
       this.excludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS, ...options.excludeDirs])];
     }
     const patterns = this.getFilePatterns();
-    let timeoutId = null;
 
     this.pruneExcludedCacheEntries();
-    
-    // Create overall build timeout
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error(`Build timeout after ${timeoutMs}ms`)), timeoutMs);
-    });
-    
-    const buildPromise = (async () => {
-      for (const pattern of patterns) {
-        await this.indexByPattern(pattern, 5, 120000); // 2 min per pattern
-      }
-    })();
-    
-    try {
-      await Promise.race([buildPromise, timeoutPromise]);
-    } catch (e) {
-      if (e.message.includes('timeout')) {
+
+    for (const pattern of patterns) {
+      if (Date.now() - startTime > timeoutMs) {
         console.error(`[FileIndex] Build timed out after ${Date.now() - startTime}ms`);
-        // Continue with partial index
-      } else {
-        throw e;
+        break;
       }
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
+      await this.indexByPattern(pattern, DEFAULTS.FILE_INDEX_MAX_DEPTH, 120000); // 2 min per pattern
     }
 
     // CLI mode does not need long-lived watchers.
@@ -103,52 +85,40 @@ class FileIndex {
    * Index files by pattern with async iteration and concurrency control
    * Includes timeout protection for large repositories
    */
-  async indexByPattern(pattern, maxDepth = 5, timeoutMs = 120000) {
+  async indexByPattern(pattern, maxDepth = DEFAULTS.FILE_INDEX_MAX_DEPTH, timeoutMs = 120000) {
     const ext = pattern.replace('**/*', '');
     const files = [];
-    let timeoutId = null;
-    
-    // Create timeout promise
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error(`Indexing timeout after ${timeoutMs}ms`)), timeoutMs);
-    });
-    
-    // Race between indexing and timeout
-    const indexingPromise = (async () => {
-      // Collect all matching files
-      for await (const file of this.findFilesAsync(this.root, ext, maxDepth)) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      for await (const file of this.findFilesAsync(this.root, ext, maxDepth, controller.signal)) {
         files.push(file);
       }
-      
-      // Process files with concurrency limit
-      await this.processFilesWithLimit(files, this.concurrency);
-    })();
-    
-    try {
-      await Promise.race([indexingPromise, timeoutPromise]);
+      if (!controller.signal.aborted) {
+        await this.processFilesWithLimit(files, this.concurrency, controller.signal);
+      }
     } catch (e) {
-      if (e.message.includes('timeout')) {
+      if (controller.signal.aborted) {
         console.error(`[FileIndex] Pattern ${pattern} timed out, indexed ${files.length} files`);
-        // Continue with partial results
       } else {
         throw e;
       }
     } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
+      clearTimeout(timeoutId);
     }
   }
 
   /**
    * Async generator for finding files (non-blocking for large repos)
    */
-  async* findFilesAsync(dir, ext, maxDepth) {
+  async* findFilesAsync(dir, ext, maxDepth, signal) {
     const queue = [{ path: dir, depth: 0 }];
-    
+
     while (queue.length > 0) {
+      if (signal?.aborted) return;
       const { path: current, depth } = queue.shift();
-      
+
       if (depth > maxDepth) continue;
       
       let entries;
@@ -186,20 +156,21 @@ class FileIndex {
   /**
    * Process files with concurrency limit
    */
-  async processFilesWithLimit(files, limit) {
+  async processFilesWithLimit(files, limit, signal) {
     const executing = new Set();
-    
+
     for (const file of files) {
+      if (signal?.aborted) break;
       const promise = this.processFile(file).then(() => {
         executing.delete(promise);
       });
       executing.add(promise);
-      
+
       if (executing.size >= limit) {
         await Promise.race(executing);
       }
     }
-    
+
     await Promise.all(executing);
   }
 
@@ -249,7 +220,7 @@ class FileIndex {
           if (filtered.length > 0) {
             this.cache.setSymbols(symName, filtered);
           } else {
-            this.cache.symbolIndex.delete(symName);
+            this.cache.deleteSymbol(symName);
           }
         }
       }
@@ -423,7 +394,7 @@ class FileIndex {
             if (filtered.length > 0) {
               this.cache.setSymbols(symName, filtered);
             } else {
-              this.cache.symbolIndex.delete(symName);
+              this.cache.deleteSymbol(symName);
             }
           }
         }
