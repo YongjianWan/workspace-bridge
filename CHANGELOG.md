@@ -6,6 +6,23 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **CLI 命令完整性补全** — 新增 `stats`、`dependencies --file`、`dependents --file` 三个独立命令，底层 `dep-tools.js` 的 operation 全部暴露
+
+### 改进
+
+- **`classifyChangeType()` docs 主导判断** — 当 docs 占严格多数（>50%）且没有 code/tests 改动时，整体返回 `docs`，避免大量文档改动因夹杂一个配置文件而生成无意义的测试命令
+- **`search-tools.js` ReDoS 防线强化** — `text` 类型搜索改用 `String.prototype.includes` 替代正则，彻底消除灾难性回溯风险；`safeRegexTest` 注释诚实化（标注为"事后检测"而非"超时保护"）
+
+### 修复
+
+- **`.claude/settings.local.json` 文件角色** — `project-context.js` `inferFileRole()` 将 `settings.local.json` 识别为 `config`，不再被分类为 `library`
+
+### 清理
+
+- **删除死代码** — 移除 `src/utils/logger.js`（high confidence 死导出）、`src/services/editor-state.js`（已废弃，container 默认禁用），同步从 `package.json` 移除 `better-sqlite3` 依赖
+
 ## [0.9.0] - 2026-04-29
 
 ### 新增

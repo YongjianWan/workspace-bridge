@@ -150,7 +150,7 @@ workspace-bridge 的核心价值很直接：
 **健康快照**
 - 健康度：5/5
 - 循环依赖：0
-- 死导出：1 — `src/utils/logger.js`（debug/info/warn/error/isDebug），high confidence，内部无人使用
+- 死导出：0
 - 孤儿文件：7 个（见 `audit-overview` 输出）
 
 **模块边界**
