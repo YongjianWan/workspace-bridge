@@ -1,6 +1,8 @@
 # workspace-bridge 使用证明与影响力证明
 
 > 以下终端运行日志由 workspace-bridge CLI 对自身仓库执行产生，证明其跨文件分析、死代码检测、影响半径计算、测试映射等核心能力。
+> 
+> ⚠️ **数据快照：2026-04-29**。部分数据已过时（如 `src/utils/logger.js` 已于 2026-04-30 删除）。最新数据请运行 `npm run self-audit`。
 
 ## 项目地址
 
@@ -17,7 +19,7 @@ $ node cli.js audit-summary --cwd . --json --quiet
 **关键结果：**
 - 仓库规模：70 文件，69 主代码 + 1 参考
 - 健康评分：5/5（README、LICENSE、gitignore、editorconfig、CI 均到位）
-- 死导出：1 个（`src/utils/logger.js`，high confidence）
+- 死导出：0
 - 未解析 import：0
 - 循环依赖：0
 - 验证框架：已识别 custom-node-scripts
@@ -29,7 +31,7 @@ $ node cli.js audit-summary --cwd . --json --quiet
   "summary": {
     "severity": "medium",
     "counts": {
-      "deadExports": 1,
+      "deadExports": 0,
       "unresolved": 0,
       "cycles": 0
     }
@@ -64,8 +66,8 @@ $ node cli.js audit-overview --cwd . --json --quiet
       "发现 7 个孤儿文件（可能未使用）"
     ],
     "recommendations": [
-      "优先审查热区文件: cli.js, test/functionality-test.js, src/cli/audit-formatters.js",
-      "审查孤儿模块是否可删除: benchmark/compare.js, src/utils/logger.js",
+      "优先审查热区文件: cli.js, test/functionality-test.js, src/cli/formatters/",
+      "审查孤儿模块是否可删除: benchmark/compare.js",
       "高耦合模块拆分优先级: src/utils/path.js, src/services/dep-graph.js"
     ]
   }
@@ -81,20 +83,13 @@ $ node cli.js dead-exports --cwd . --json --quiet
 ```
 
 **关键结果：**
-- 精准识别 `src/utils/logger.js` 的 5 个导出函数全部为死代码（high confidence）
-- 说明：项目内部未使用自封装日志模块，实际靠裸 console
+- 当前无死导出（上次运行发现的 `src/utils/logger.js` 已于 2026-04-30 删除）
 
 ```json
 {
   "ok": true,
-  "deadExportCount": 1,
-  "deadExports": [
-    {
-      "file": ".../src/utils/logger.js",
-      "exports": ["debug", "info", "warn", "error", "isDebug"],
-      "confidence": "high"
-    }
-  ]
+  "deadExportCount": 0,
+  "deadExports": []
 }
 ```
 
@@ -161,7 +156,7 @@ $ node cli.js impact --cwd . --file src/services/dep-graph.js --json --quiet
 |------|----------|------|
 | 项目健康度扫描 | `audit-summary` | 5/5 分，0 循环依赖 |
 | 热区/孤儿检测 | `audit-overview` | 12 热区，7 孤儿 |
-| 死代码检测 | `dead-exports` | 1 个 high confidence 死导出 |
+| 死代码检测 | `dead-exports` | 0 个死导出 |
 | 变更影响半径 | `impact` / `audit-file` | path.js → 32 文件/17 测试 |
 | 符号级影响 | `impact --file` | `DependencyGraph` 类 9 个直接依赖者 |
 | 技术栈自动识别 | `audit-summary` | 识别 npm + custom-node-scripts |

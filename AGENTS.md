@@ -166,17 +166,7 @@ workspace-bridge 的核心价值很直接：
 
 ## 当前重点
 
-现在最值钱的开发方向（按优先级）：
-
-1. **把历史风险和结构影响融合得更像工程判断** — 变更类型判断（docs/config/tests/code）必须先准，否则验证建议会错配。
-2. **大仓库性能专项优化** — >10k 文件索引速度（mixed repo 命令精度已达标：smoke/focused 按栈隔离，full 保留全栈回归）
-
-不优先的东西：
-
-- 重新引入 MCP
-- 花很大力气做协议/适配层
-- 为了形式重写已经稳定的服务层
-- Kotlin/Go/Rust AST 深度（L2 regex 已满足 80% 需求，真实场景待验证）
+见 [ROADMAP.md §未竟事项](./ROADMAP.md#未竟事项按价值排序）。
 
 ---
 
@@ -191,11 +181,20 @@ workspace-bridge 的核心价值很直接：
 - `dead-exports` 对常见 JS/TS 语法已有基础符号级判断，但不是完整 AST 编译器。
 - `audit-diff` 是当前主战场，改动最好优先补它的测试。
 - 混合仓库必须用 `.workspace-bridge.json` 标注目录角色，否则孤儿检测严重误报。
-- **Windows `spawnSync('npm')` 陷阱** — Node.js 20+ 在 Windows 上禁止直接 spawn `.cmd`/`.bat` 文件，`spawnSync('npm')` 返回 ENOENT，`spawnSync('npm.cmd')` 返回 EINVAL。必须设置 `shell: process.platform === 'win32'` 或使用 `cmd /c`。
-- **regex 解析器字符串陷阱** — `parsers/js.js` regex fallback 会把字符串字面量/模板字符串/注释中的 `import...from` 当成真实 import。已修复：通过 `sanitizeForRegex()` 在 regex 前剥离字符串和注释。
-- **缓存文件副作用** — `.workspace-bridge-cache.json` 被创建在目标仓库根目录，会出现在 `git status` 中，且可能被 `audit-diff` 误判为 changed file。已修复：`shouldExclude()` + `getChangedFiles()` 双重排除。
-- **node_modules 路径陷阱** — 当 `cwd` 本身位于 `node_modules` 内（如全局安装的包），`matchesPathFragment('node_modules')` 会把整个目录排除。已修复：`shouldExclude()` 对 `node_modules` 改用相对路径匹配。
-- 技术债状态、已知限制和详细问题清单见 `docs/TECH_DEBT.md` 与 [ROADMAP.md](./ROADMAP.md)。
+- 已知限制与陷阱见 [ROADMAP.md §已知限制](./ROADMAP.md#已知限制当前待处理），已修复历史见 [CHANGELOG.md](./CHANGELOG.md) v0.8.2–v0.9.12。
+- 技术债状态见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。
+
+---
+
+## 外部工具策略（架构决策）
+
+| 维度 | 策略 | 理由 |
+|------|------|------|
+| 依赖图 | **自研** | 多语言统一是核心壁垒，pydeps/madge 都是单语言 |
+| 增量分析 | **自研** | git diff 驱动 <200ms 是护城河 |
+| 风格/质量 | **自研 + Semgrep 可选** | 你管格式（紧凑标签行），Semgrep 管规则库；`npm install` 之外的可选依赖 |
+| 精确影响/污点追踪 | **CodeQL 后端 + adapter** | 承认打不过，不做重复投入 |
+| tree-sitter | **不引入** | Python 标准库 `ast` 已够用；native binding 放大 Windows 中文路径风险 |
 
 ---
 
@@ -333,11 +332,7 @@ THEN 基于输出评估测试覆盖是否足够
 
 ## 成功标准
 
-1. 对混合仓库结果稳定（不误报）
-2. TS/Python/前端项目都能给出可信主线结论
-3. 能从"哪里可能有问题"推进到"该怎么改、改完测什么"
-4. symbol-level impact 可用
-5. 大仓库性能可接受（<30s 索引）
+见 [ROADMAP.md §成功标准](./ROADMAP.md#成功标准）。
 
 ---
 

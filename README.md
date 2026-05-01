@@ -2,13 +2,7 @@
 
 一个用于 AI 编程助手的工作区分析引擎，当前只保留本地 CLI + skill 工作流。
 
-## 功能特性
-
-- **🔍 智能代码索引** — 自动索引 JS/TS/Python/Java/Kotlin/Go/Rust 符号
-- **🔗 依赖分析** — AST 级 import/export 解析，计算变更影响范围
-- **⚡ 验证建议** — `audit-diff` 自动生成 smoke → focused → full 验证命令
-- **🧠 融合风险判断** — `compositeRisk` 融合结构影响 + 测试映射 + Git 历史风险
-- **📦 技术栈自动检测** — 识别项目技术栈并生成可执行验证命令
+给本地 AI coding agent 补跨文件视角和变更验证建议的 CLI 工具。支持 JS/TS/Python/Java/Kotlin/Go/Rust。
 
 ## 快速开始
 
@@ -23,66 +17,16 @@ pip install ruff pyright        # Python
 npm install -g eslint typescript # Node
 ```
 
-## CLI 命令
-
-| 命令 | 描述 |
-|------|------|
-| `workspace-info` | 检测工作区根目录和技术栈 |
-| `diagnostics` | 运行 quick/full 诊断 |
-| `audit-summary` | 聚合 health + dead exports + unresolved + cycles |
-| `audit-file --file` | 聚合 impact + affected tests |
-| `audit-diff` | 聚合当前 git 变更 + 验证建议 |
-| `audit-overview` | 项目全景视图（热区、稳定性、孤儿检测） |
-| `audit-map` | 全局项目地图（目录树 + 依赖拓扑 + 问题标注） |
-| `health` | 汇总项目健康度 |
-| `deps` | 检查过时依赖 |
-| `stats` | 依赖图统计 |
-| `dependencies --file` | 列出文件的直接依赖 |
-| `dependents --file` | 列出文件的直接被依赖 |
-| `dead-exports` | 查找死导出候选 |
-| `unresolved` | 查找未解析 import |
-| `cycles` | 查找循环依赖 |
-| `impact --file` | 分析文件影响半径 |
-| `affected-tests --file` | 分析受影响测试 |
-
-示例：
+## 核心命令
 
 ```bash
-node cli.js audit-diff --cwd . --json --quiet
+node cli.js audit-summary --cwd .    # 整体健康度
+node cli.js audit-file --file <path> # 单文件影响
+node cli.js audit-diff --cwd .       # 当前 git 变更 + 验证建议
+node cli.js audit-overview --cwd .   # 项目全景（热区、孤儿文件）
 ```
 
-聚合命令返回结构化摘要，包含 `summary.severity`、`summary.nextSteps` 和各阶段可执行命令：
-
-```json
-{
-  "validationAdvice": {
-    "changeType": "code",
-    "stack": { "profile": "mixed", "node": { ... }, "python": { ... } },
-    "commands": {
-      "smoke": [{ "name": "lint", "cmd": "npx eslint cli.js" }],
-      "focused": [{ "name": "run-direct-tests", "cmd": "npm run test:functionality" }],
-      "full": [{ "name": "run-all-tests", "cmd": "npm run test" }]
-    }
-  }
-}
-```
-
-默认使用顺序：
-1. `audit-summary` — 先看整体健康度
-2. `audit-file --file ...` — 聚焦单文件影响
-3. `audit-diff` — 基于当前改动做验证
-
-对于 mixed repo，用 `--exclude` 过滤参考目录，或在根目录放置 `.workspace-bridge.json`：
-
-```json
-{
-  "directories": {
-    "reference": ["prototypes", "reference", "examples"],
-    "archive": ["archive", "legacy"],
-    "generated": ["dist", "build", ".next"]
-  }
-}
-```
+完整命令列表、参数说明与 `.workspace-bridge.json` 配置见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)。
 
 ## 适用场景
 
@@ -93,14 +37,12 @@ node cli.js audit-diff --cwd . --json --quiet
 | 大型（>500文件） | ⚠️ 谨慎 | 首次索引较慢，建议定期清理缓存 |
 | 混合仓库 | ⚠️ 需配置 | 创建 `.workspace-bridge.json` 标注目录角色 |
 
-## 路线图
+## 相关文档
 
-- [X] CLI-first 聚合审计：`audit-summary` / `audit-file` / `audit-diff` / `audit-overview`
-- [X] JS/TS/Python/Java AST 级 symbol-level impact
-- [X] Kotlin/Go/Rust L2 regex 级支持
-- [ ] mixed repo 技术栈检测与验证命令继续打磨
-
-更多项目背景、开发原则与架构取舍见 [AGENTS.md](./AGENTS.md)。
+- [AGENTS.md](./AGENTS.md) — 开发原则、架构决策、当前状态
+- [ROADMAP.md](./ROADMAP.md) — 长期路线与未竟事项
+- [CHANGELOG.md](./CHANGELOG.md) — 版本变更历史
+- [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md) — 完整命令契约与使用指南
 
 ## 许可证
 
