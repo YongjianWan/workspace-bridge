@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
-const { detectWorkspace, normalizePathKey, matchesPathFragment } = require('../utils/path');
+const { detectWorkspace, normalizePathKey, matchesPathFragment, toRelativePosix } = require('../utils/path');
 const { DEFAULTS } = require('../config/constants');
 
 const readdir = promisify(fs.readdir);
@@ -15,7 +15,7 @@ const readFile = promisify(fs.readFile);
 
 // Limit concurrent file operations to prevent memory exhaustion
 const DEFAULT_CONCURRENCY = 50;
-const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build'];
+const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', 'gitnexus-extract', 'gitnexus'];
 
 class FileIndex {
   constructor(workspaceRoot, cache, options = {}) {
@@ -137,11 +137,10 @@ class FileIndex {
         const entry = entries[i];
         const fullPath = path.join(current, entry.name);
         
-        if (this.shouldExclude(fullPath)) continue;
-        
         if (entry.isDirectory()) {
+          if (this.shouldExclude(fullPath)) continue;
           queue.push({ path: fullPath, depth: depth + 1 });
-        } else if (fullPath.endsWith(ext)) {
+        } else if (!this.shouldExclude(fullPath) && fullPath.endsWith(ext)) {
           yield fullPath;
         }
         
@@ -198,8 +197,17 @@ class FileIndex {
   }
 
   shouldExclude(filePath) {
+    const base = path.basename(filePath);
+    if (base === '.workspace-bridge-cache.json') return true;
+
     const normalized = normalizePathKey(filePath);
-    if (this.excludeDirs.some((dir) => matchesPathFragment(normalized, dir))) {
+    if (this.excludeDirs.some((dir) => {
+      if (dir === 'node_modules') {
+        const relative = toRelativePosix(this.root, filePath);
+        return relative.includes('node_modules/') || relative === 'node_modules';
+      }
+      return matchesPathFragment(normalized, dir);
+    })) {
       return true;
     }
     if (this.projectContext && !this.projectContext.shouldIndexFile(filePath)) {

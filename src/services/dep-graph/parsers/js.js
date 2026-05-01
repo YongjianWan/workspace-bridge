@@ -18,6 +18,39 @@ try {
   // babel parser not available, fallback to regex
 }
 
+let warnedMissingParser = false;
+
+function stripBlockComments(content) {
+  return content.replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+function stripLineComment(line) {
+  return line.replace(/\/\/.*$/, '');
+}
+
+function stripQuotedStrings(line, quoteChar, replacement) {
+  const pattern = quoteChar === '"'
+    ? /"(?:[^"\\]|\\.)*"/g
+    : quoteChar === "'"
+    ? /'(?:[^'\\]|\\.)*'/g
+    : /`(?:[^`\\]|\\.)*`/g;
+  return line.replace(pattern, replacement);
+}
+
+function sanitizeForRegex(content) {
+  const withoutBlockComments = stripBlockComments(content);
+  return withoutBlockComments
+    .split('\n')
+    .map((line) => {
+      let sanitized = stripLineComment(line);
+      sanitized = stripQuotedStrings(sanitized, '"', '""');
+      sanitized = stripQuotedStrings(sanitized, "'", "''");
+      sanitized = stripQuotedStrings(sanitized, '`', '``');
+      return sanitized;
+    })
+    .join('\n');
+}
+
 function parseJavaScriptAST(content, filePath = '') {
   if (!babelParser) {
     return null;
@@ -334,13 +367,19 @@ function parseJavaScript(content, filePath = '') {
     }
   }
 
+  if (!warnedMissingParser && !babelParser) {
+    warnedMissingParser = true;
+    console.warn('[workspace-bridge] @babel/parser not available. JS/TS files will use regex parsing with reduced accuracy. Run npm install to enable full AST analysis.');
+  }
+
+  const sanitized = sanitizeForRegex(content);
   const imports = [];
   const importRecords = [];
   const exportRecords = [];
 
   const importFromRegex = /import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g;
   let match;
-  while ((match = importFromRegex.exec(content)) !== null) {
+  while ((match = importFromRegex.exec(sanitized)) !== null) {
     const clause = match[1].trim();
     const source = match[2];
     imports.push(source);
@@ -371,14 +410,14 @@ function parseJavaScript(content, filePath = '') {
   }
 
   const sideEffectImportRegex = /import\s+['"]([^'"]+)['"]/g;
-  while ((match = sideEffectImportRegex.exec(content)) !== null) {
+  while ((match = sideEffectImportRegex.exec(sanitized)) !== null) {
     const source = match[1];
     imports.push(source);
     importRecords.push(createImportRecord(source, { usesAllExports: true }));
   }
 
   const destructuredRequireRegex = /(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
-  while ((match = destructuredRequireRegex.exec(content)) !== null) {
+  while ((match = destructuredRequireRegex.exec(sanitized)) !== null) {
     const imported = parseNamedBindings(match[1]);
     const source = match[2];
     imports.push(source);
@@ -386,21 +425,21 @@ function parseJavaScript(content, filePath = '') {
   }
 
   const requireRegex = /(?:const|let|var)\s+[\w$]+\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)|require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
-  while ((match = requireRegex.exec(content)) !== null) {
+  while ((match = requireRegex.exec(sanitized)) !== null) {
     const source = match[1] || match[2];
     imports.push(source);
     importRecords.push(createImportRecord(source, { usesAllExports: true }));
   }
 
   const dynamicImportRegex = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
-  while ((match = dynamicImportRegex.exec(content)) !== null) {
+  while ((match = dynamicImportRegex.exec(sanitized)) !== null) {
     const source = match[1];
     imports.push(source);
     importRecords.push(createImportRecord(source, { usesAllExports: true }));
   }
 
   const namedReExportRegex = /export\s*\{([^}]*)\}\s*from\s+['"]([^'"]+)['"]/g;
-  while ((match = namedReExportRegex.exec(content)) !== null) {
+  while ((match = namedReExportRegex.exec(sanitized)) !== null) {
     const source = match[2];
     imports.push(source);
     const reExported = match[1]
@@ -427,14 +466,14 @@ function parseJavaScript(content, filePath = '') {
   }
 
   const exportAllRegex = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
-  while ((match = exportAllRegex.exec(content)) !== null) {
+  while ((match = exportAllRegex.exec(sanitized)) !== null) {
     imports.push(match[1]);
     exportRecords.push(createExportRecord('*', { unknown: true, kind: 'symbol' }));
     importRecords.push(createImportRecord(match[1], { usesAllExports: true, reExportAll: true }));
   }
 
   const namedExportRegex = /export\s*\{([^}]*)\}(?!\s*from)/g;
-  while ((match = namedExportRegex.exec(content)) !== null) {
+  while ((match = namedExportRegex.exec(sanitized)) !== null) {
     const exportedNames = match[1]
       .split(',')
       .map((part) => part.trim())
@@ -451,7 +490,7 @@ function parseJavaScript(content, filePath = '') {
   }
 
   const declarationExportRegex = /export\s+(?:async\s+)?(function|class|const|let|var)\s+(\w+)/g;
-  while ((match = declarationExportRegex.exec(content)) !== null) {
+  while ((match = declarationExportRegex.exec(sanitized)) !== null) {
     const declType = match[1];
     const name = match[2];
     const kind = declType === 'function'
@@ -463,13 +502,13 @@ function parseJavaScript(content, filePath = '') {
   }
 
   const defaultNamedRegex = /export\s+default\s+(?:async\s+)?(?:function|class)\s+(\w+)/g;
-  while ((match = defaultNamedRegex.exec(content)) !== null) {
+  while ((match = defaultNamedRegex.exec(sanitized)) !== null) {
     exportRecords.push(createExportRecord('default', { kind: 'function-default' }));
     if (match[1]) {
       exportRecords.push(createExportRecord(match[1], { kind: 'function' }));
     }
   }
-  if (/export\s+default\s+(?!async\s+function\s+\w+|function\s+\w+|class\s+\w+)/.test(content)) {
+  if (/export\s+default\s+(?!async\s+function\s+\w+|function\s+\w+|class\s+\w+)/.test(sanitized)) {
     exportRecords.push(createExportRecord('default', { kind: 'symbol' }));
   }
 

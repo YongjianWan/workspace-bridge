@@ -192,11 +192,16 @@ workspace-bridge 的核心价值很直接：
 - `audit-diff` 是当前主战场，改动最好优先补它的测试。
 - 混合仓库必须用 `.workspace-bridge.json` 标注目录角色，否则孤儿检测严重误报。
 - **Windows `spawnSync('npm')` 陷阱** — Node.js 20+ 在 Windows 上禁止直接 spawn `.cmd`/`.bat` 文件，`spawnSync('npm')` 返回 ENOENT，`spawnSync('npm.cmd')` 返回 EINVAL。必须设置 `shell: process.platform === 'win32'` 或使用 `cmd /c`。
+- **regex 解析器字符串陷阱** — `parsers/js.js` regex fallback 会把字符串字面量/模板字符串/注释中的 `import...from` 当成真实 import。已修复：通过 `sanitizeForRegex()` 在 regex 前剥离字符串和注释。
+- **缓存文件副作用** — `.workspace-bridge-cache.json` 被创建在目标仓库根目录，会出现在 `git status` 中，且可能被 `audit-diff` 误判为 changed file。已修复：`shouldExclude()` + `getChangedFiles()` 双重排除。
+- **node_modules 路径陷阱** — 当 `cwd` 本身位于 `node_modules` 内（如全局安装的包），`matchesPathFragment('node_modules')` 会把整个目录排除。已修复：`shouldExclude()` 对 `node_modules` 改用相对路径匹配。
 - 技术债状态、已知限制和详细问题清单见 `docs/TECH_DEBT.md` 与 [ROADMAP.md](./ROADMAP.md)。
 
 ---
 
 ## Reference 与架构取舍
+
+### Kimi Agent AI认知脚手架
 
 `reference/Kimi_Agent_AI认知脚手架/` 是一套**完整的四层强制脚手架系统**。workspace-bridge 明确不采用这套架构，因为：
 
@@ -208,6 +213,27 @@ workspace-bridge 的核心价值很直接：
 | 适用场景 | 大型团队规范 | 个人/小团队快速分析 |
 
 **结论：reference 是思想参考，不是代码复用目标。**
+
+### GitNexus
+
+`reference/gitnexus-extract/GitNexus-main/` 是 [GitNexus](https://github.com/abhigyanpatwari/GitNexus)（PolyForm Noncommercial 许可）的本地副本，作为**架构模式参考**，不直接复用代码。
+
+| 维度 | GitNexus | workspace-bridge | 可借鉴程度 |
+|------|---------|------------------|-----------|
+| 架构重量 | 完整产品（CLI + MCP + Web UI + 持久化图 DB） | 轻量 CLI-only | — |
+| 解析器 | Tree-sitter 原生绑定（14 种语言） | babel/regex（6 种） | **高** — 语言注册表配置模式 |
+| 图存储 | LadybugDB/KuzuDB 持久化 + Cypher | 内存 Map（每次重建） | **中** — 图 schema 与双索引设计 |
+| MCP 层 | 16 tools + resources URI | 无 | **高** — tool schema 与递进工具链 |
+| 搜索 | BM25 + 向量 + RRF 混合检索 | 无 | 低 — 与轻量定位冲突 |
+| 框架感知 | routes/tools/orm extractors（AST visitor） | 无 | **高** — 框架模式检测的插件化思路 |
+| Ingestion | 12 phase DAG | 单阶段 build | **中** — phase 分离指导增量更新设计 |
+
+**值得学习的具体模式：**
+
+1. **语言注册表** — `gitnexus/src/core/ingestion/languages/*.ts`：每种语言一个配置文件，统一实现 `parse(file) -> {ast, symbols, edges}` 接口。未来 workspace-bridge 从硬编码 if-else 链迁移到注册表时可直接参考。
+2. **知识图双索引** — `gitnexus/src/core/graph/graph.ts`：`relationshipMap`（按 id）+ `relationshipsByType`（按 type 分桶）+ `edgeIdsByNode`（反向邻接索引）。确保按类型遍历和节点级删除都是 O(touching-edges) 而非 O(total-edges)。
+3. **MCP 递进工具链** — `gitnexus/src/mcp/tools.ts`：`list_repos` → `query` → `context` → `impact` 的递进设计，每个 tool 的 description 明确标注 WHEN TO USE / AFTER THIS。未来若重新引入 MCP 层，这是工具命名和描述的黄金标准。
+4. **框架感知 Extractor** — `gitnexus/src/core/ingestion/routes.ts`、`orm.ts`：AST visitor 检测 Next.js App Router、Expo、Prisma 等框架模式，生成框架特定的边（HANDLES_ROUTE、QUERIES）。workspace-bridge 当前通过 `isKnownEntryFile()` 的硬编码 regex 做框架识别，未来可演进为配置表驱动的 extractor 注册表。
 
 ## Agent 认知边界（决策检查表）
 
@@ -320,4 +346,4 @@ THEN 基于输出评估测试覆盖是否足够
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [docs/plans/](./docs/plans/)。*
-*Last updated: 2026-05-01（TECH_DEBT 清零行动：6 项配置表化重构 + Windows spawn 修复后同步）*
+*Last updated: 2026-05-01（批量 issue 修复：框架感知 + regex 精度 + cycle 自循环 + 缓存副作用 + audit-file 存在性检查；GitNexus 架构参考加入）*

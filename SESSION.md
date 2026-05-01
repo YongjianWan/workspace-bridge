@@ -195,12 +195,48 @@ npm run benchmark:perf
 | 11 | git-tools.js `computeHistoryRisk` 硬编码 | src/tools/git-tools.js | `HISTORY_RISK_SCORE_GROUPS` 组内 first-match、组间累加 |
 | 12 | path.js `scoreDirectory` 评分逻辑渗透 | src/utils/path.js | `WORKSPACE_SCORE_RULES` 配置表驱动 |
 
+---
+
+### 本轮完成（2026-05-01）— 批量 issue 修复（GitHub #6 ~ #11）
+
+| Issue | 问题 | 修复文件 | 修复 |
+|-------|------|---------|------|
+| #6 #9 | Next.js `page.tsx` 被误判 dead export | `src/services/dep-graph.js` | `isKnownEntryFile()` 新增 Next.js App Router 框架入口模式：`/(page\|layout\|loading\|error\|not-found\|route\|template\|default)\.(tsx\|jsx\|ts\|js)$/` |
+| #6 #9 | Python CLI 脚本被误判 dead export | `src/services/dep-graph.js` | `isKnownEntryFile()` 读取文件内容，匹配 `if __name__ == '__main__':` 即视为入口 |
+| #6 #9 | `.next`/`.nuxt`/`.svelte-kit` 等编译产物未排除 | `src/services/file-index.js` | `DEFAULT_EXCLUDE_DIRS` 新增 `.next`、`.nuxt`、`.svelte-kit`、`out`、`.turbo`、`coverage`、`.cache` |
+| #6 #9 | `node_modules` 路径陷阱（全局安装包被全量排除） | `src/services/file-index.js` + `dep-graph.js` | `shouldExclude()` 对 `node_modules` 改用相对路径匹配 |
+| #7 #9 #10 #11 | regex 字符串字面量误识别 | `src/services/dep-graph/parsers/js.js` | 新增 `sanitizeForRegex()`：剥离注释和字符串字面量后再跑 import regex |
+| #7 | babel 静默降级为 regex，无警告 | `src/services/dep-graph/parsers/js.js` | 首次 regex fallback 时 `console.warn` 提示用户运行 `npm install` |
+| #10 #11 | cycle 自循环（`[A, A]`） | `src/services/dep-graph.js` | `analyzeFile()` 过滤自身引用 + `findCircularDependencies()` 过滤长度为 1 的 cycle |
+| #8 | 缓存文件被 `audit-diff` 误判 | `src/tools/git-tools.js` | `getChangedFiles()` 排除 `.workspace-bridge-cache.json` |
+| #8 | 缓存文件污染分析 | `src/services/file-index.js` + `dep-graph.js` | `shouldExclude()` 排除 `.workspace-bridge-cache.json` |
+| #8 | `audit-file` 对不存在文件返回 `ok:true` | `cli.js` | 增加 `fs.existsSync(resolvedPath)` 检查 |
+
+### 新增参考
+
+- `reference/gitnexus-extract/GitNexus-main/` — GitNexus 本地副本（zip 下载解压）。作为架构模式参考，已整理到 `AGENTS.md`「Reference 与架构取舍」章节。值得学习的模式：语言注册表、知识图双索引、MCP 递进工具链、框架感知 Extractor。
+
 ### 测试
 
 - 新增：无（重构保持零行为变更，现有测试覆盖即足够）
-- 全量：npm run test:all -> 32/32 全绿（3 次回归验证）
-- 自审：`npm run self-audit` ✅ 通过（40.5s）
+- 全量：`npm run test:all` → **32/32 全绿**
+- 自审：`npm run self-audit` ✅ 通过（45.9s）
+- 专项验证：Next.js page.tsx dead-export 0、Python CLI dead-export 0、regex 字符串 unresolved 0、audit-file 不存在文件返回 ok:false
+
+### 本轮完成（2026-05-02）— 遗留性能卡点收尾
+
+| 遗留问题 | 根因 | 处理 |
+|---------|------|------|
+| `audit-diff >180s 卡住` | `reference/gitnexus/` 2647 文件未被 `DEFAULT_EXCLUDE_DIRS` 排除，`FileIndex` 全量遍历索引 | 补入 `gitnexus`；删除物理残留；清理旧缓存 |
+| `functionality-test.js SIGTERM 超时` | 同上 | 同上 |
+| `findFilesAsync 目录剪枝` | 非剪枝逻辑 bug，是排除列表遗漏 | `DEFAULT_EXCLUDE_DIRS` 增加 `gitnexus`；简化冗余双检 |
+
+**验证**
+- `npm run test:all` → **32/32 PASS，26.6s**
+- `node cli.js audit-diff --cwd . --json --quiet` → 正常返回（<5s）
+
+**说明**：`reference/gitnexus/` 与 `reference/gitnexus-extract/` 已物理删除；`reference/` 下仅保留 `Kimi_Agent_AI认知脚手架/`（24 文件）。GitNexus 架构参考内容已提取并写入 `AGENTS.md`，本地副本不再需要。
 
 ---
 
-*Last updated: 2026-05-01（TECH_DEBT 清零行动后同步）*
+*Last updated: 2026-05-02（遗留性能卡点收尾 + 目录剪枝修复）*

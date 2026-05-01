@@ -5,6 +5,7 @@
  * Keeps the existing analysis engine behind a local CLI so agents
  * can call it directly.
  */
+const fs = require('fs');
 const { ServiceContainer } = require('./src/services/container');
 const { workspaceInfo, runDiagnostics } = require('./src/tools/workspace-tools');
 const { projectHealth, checkDependencies } = require('./src/tools/health-tools');
@@ -336,6 +337,10 @@ async function runCommand(parsed, container) {
     }
     case 'audit-file': {
       requireFile(parsed, 'audit-file');
+      const resolvedPath = validateWorkspacePath(parsed.file, container.workspaceRoot);
+      if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+        return { ok: false, error: `File not found: ${parsed.file}`, inProject: false };
+      }
       const [impact, affectedTests] = await Promise.all([
         dependencyGraph({ cwd: parsed.cwd, operation: 'impact', file: parsed.file }, container),
         dependencyGraph({

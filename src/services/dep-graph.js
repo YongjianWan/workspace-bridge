@@ -15,7 +15,7 @@ const {
   parseRust,
 } = require('./dep-graph/parsers');
 const { resolveImport } = require('./dep-graph/resolvers');
-const { normalizePathKey, matchesPathFragment } = require('../utils/path');
+const { normalizePathKey, matchesPathFragment, toRelativePosix } = require('../utils/path');
 const {
   getSymbolImpact,
   getChangedFunctionImpact,
@@ -52,8 +52,17 @@ class DependencyGraph {
   }
 
   shouldExclude(filePath) {
+    const base = path.basename(filePath);
+    if (base === '.workspace-bridge-cache.json') return true;
+
     const normalized = normalizePathKey(filePath);
-    return this.excludeDirs.some((dir) => matchesPathFragment(normalized, dir));
+    return this.excludeDirs.some((dir) => {
+      if (dir === 'node_modules') {
+        const relative = toRelativePosix(this.root, filePath);
+        return relative.includes('node_modules/') || relative === 'node_modules';
+      }
+      return matchesPathFragment(normalized, dir);
+    });
   }
 
   normalizeFilePath(filePath) {
@@ -118,6 +127,8 @@ class DependencyGraph {
       /\/asgi\.py$/,
       /\/wsgi\.py$/,
       /\/manage\.py$/,
+      /\/(page|layout|loading|error|not-found|route)\.(tsx|jsx|ts|js)$/,
+      /\/(template|default)\.(tsx|jsx|ts|js)$/,
     ];
     if (frameworkManagedPatterns.some((pattern) => pattern.test(normalized))) {
       return true;
@@ -126,15 +137,16 @@ class DependencyGraph {
       return true;
     }
 
-    if (!Array.isArray(exports) || exports.length === 0) {
-      return false;
-    }
-
     try {
       const content = fs.readFileSync(filePath, 'utf8');
       if (content.startsWith('#!')) return true;
+      if (/if\s+__name__\s*==\s*['"]__main__['"]\s*:/.test(content)) return true;
     } catch (e) {
       if (e.code !== 'ENOENT') throw e;
+    }
+
+    if (!Array.isArray(exports) || exports.length === 0) {
+      return false;
     }
 
     return false;
@@ -235,7 +247,7 @@ class DependencyGraph {
           };
         })
         .filter(Boolean);
-      const resolvedImports = resolvedImportRecords.map((record) => record.resolved);
+      const resolvedImports = resolvedImportRecords.map((record) => record.resolved).filter((imp) => imp !== graphKey);
 
       this.graph.set(graphKey, {
         imports: resolvedImports,
@@ -382,7 +394,7 @@ class DependencyGraph {
       visit(file, []);
     }
 
-    return cycles;
+    return cycles.filter((cycle) => !(cycle.length <= 2 && cycle[0] === cycle[cycle.length - 1]));
   }
 
   getStats() {

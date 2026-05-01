@@ -6,6 +6,29 @@
 
 ## [Unreleased]
 
+## [0.9.12] - 2026-05-01
+
+### 修复
+
+- **Issue #6/#9: 框架感知缺失 + 排除规则缺陷**
+  - `DEFAULT_EXCLUDE_DIRS` 新增 `.next`、`.nuxt`、`.svelte-kit`、`out`、`.turbo`、`coverage`、`.cache`
+  - `isKnownEntryFile()` 识别 Next.js App Router 文件（`page.tsx`、`layout.tsx`、`route.ts` 等）为框架入口，消除 dead-export 误判
+  - `isKnownEntryFile()` 识别 Python `if __name__ == '__main__'` CLI 脚本为入口，消除 dead-export 误判
+  - `shouldExclude()` 对 `node_modules` 改用相对路径匹配：workspace root 本身位于 `node_modules` 内时，只排除子目录 `node_modules`，不再全量排除整个项目
+- **Issue #7/#9/#10/#11: regex 字符串字面量误识别 + cycle 自循环 + 静默降级**
+  - `parsers/js.js` regex fallback 新增 `sanitizeForRegex()`：在应用 import regex 前剥离注释和字符串字面量（含模板字符串），消除字符串中的 `import...from` 被误识别为真实 import
+  - `parseJavaScript()` 首次 regex fallback 时输出 `console.warn` 提示用户 `@babel/parser` 缺失，避免静默降级
+  - `dep-graph.js` `analyzeFile()` 过滤自身引用 import，阻止自循环进入依赖图
+  - `findCircularDependencies()` 增加 `[A, A]` 型自循环过滤保险
+- **Issue #8: 缓存文件副作用 + audit-file 鲁棒性**
+  - `git-tools.js` `getChangedFiles()` 排除 `.workspace-bridge-cache.json`
+  - `file-index.js` / `dep-graph.js` `shouldExclude()` 排除 `.workspace-bridge-cache.json`
+  - `cli.js` `audit-file` 增加文件存在性检查，对不存在文件返回 `ok: false, error: "File not found: ..."`
+- **遗留：性能卡点（`audit-diff` / `functionality-test.js` 超时）**
+  - `file-index.js` `DEFAULT_EXCLUDE_DIRS` 补入 `gitnexus`（上一轮遗漏，与已存在的 `gitnexus-extract` 同级）
+  - `findFilesAsync` 简化冗余的目录级 `shouldExclude` 双检
+  - 清理 `reference/gitnexus/`、`reference/gitnexus-extract/`、`reference/gitnexus.zip` 物理残留与 `.workspace-bridge-cache.json` 旧缓存
+
 ## [0.9.11] - 2026-05-01
 
 ### 新增

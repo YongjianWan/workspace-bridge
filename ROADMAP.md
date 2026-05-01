@@ -17,6 +17,13 @@
 | 混合仓库误判 | ⏳ 需配置 | prototypes/reference 被视为主线 | 使用 `.workspace-bridge.json` 标注目录角色 |
 | mixed repo 技术栈启发式 | ⏳ 持续改进 | Node/Python 共存时命令可能不够精确 | 持续打磨 `stack-detector` |
 | 大仓库性能 | ⏳ 有方案待执行 | 10k+ 文件索引慢；全量 JSON 输出爆炸 | 三步走：REPL 精确查询 -> 缓存解析结果 -> watcher 增量更新。详见下方 P5 |
+| Next.js / Python CLI dead-export 误报 | ✅ 已修复 | `page.tsx`、`if __name__ == '__main__'` 被误判为 dead export | `isKnownEntryFile()` 新增框架入口模式（v0.9.12） |
+| `.next`/`.nuxt` 编译产物未排除 | ✅ 已修复 | Next.js/Nuxt 编译输出被纳入分析 | `DEFAULT_EXCLUDE_DIRS` 扩展（v0.9.12） |
+| node_modules 路径陷阱 | ✅ 已修复 | 全局安装包（cwd 在 node_modules 内）被全量排除 | `shouldExclude()` 相对路径匹配（v0.9.12） |
+| regex 字符串字面量误识别 | ✅ 已修复 | 模板字符串中的 `import...from` 被误识别 | `sanitizeForRegex()` 剥离字符串和注释（v0.9.12） |
+| cycle 自循环 | ✅ 已修复 | 文件自身被报告为循环依赖 | `analyzeFile()` 自引用过滤 + cycle 检测保险（v0.9.12） |
+| 缓存文件副作用 | ✅ 已修复 | `.workspace-bridge-cache.json` 被 audit-diff 误判 + 污染 git status | `shouldExclude()` + `getChangedFiles()` 双重排除（v0.9.12） |
+| audit-file 不存在文件 | ✅ 已修复 | 对不存在的文件路径返回 `ok:true` | `cli.js` 增加 `fs.existsSync` 检查（v0.9.12） |
 
 ---
 
@@ -249,4 +256,4 @@ for (const file of files) {
 
 ---
 
-*Last updated: 2026-04-30（P5 REPL+缓存+Watcher 方案加入，P2/P3 多项标记完成）*
+*Last updated: 2026-05-01（v0.9.12 issue 批量修复：框架感知 + regex 精度 + cycle 自循环 + 缓存副作用 + audit-file 存在性）*
