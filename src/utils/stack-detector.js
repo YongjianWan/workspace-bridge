@@ -328,7 +328,7 @@ function getNodeCommands(nodeStack, changeType, targets) {
   const fileArgs = codeTargets.length > 0 ? codeTargets.join(' ') : '.';
   const commands = { smoke: [], focused: [], full: [] };
 
-  if (changeType === 'code' || changeType === 'tests' || changeType === 'config') {
+  if (changeType === 'code' || changeType === 'tests' || changeType === 'config' || changeType === 'scripts') {
     if (nodeStack.linters.includes('eslint')) {
       commands.smoke.push({ name: 'node-lint', description: 'Run ESLint on changed files', cmd: `${exec.exec} eslint ${fileArgs}` });
     }
@@ -355,7 +355,7 @@ function getNodeCommands(nodeStack, changeType, targets) {
 
 function getPythonCommands(pythonStack, changeType, targets) {
   if (!pythonStack?.enabled) return { smoke: [], focused: [], full: [] };
-  if (changeType !== 'code' && changeType !== 'tests' && changeType !== 'config') {
+  if (changeType !== 'code' && changeType !== 'tests' && changeType !== 'config' && changeType !== 'scripts') {
     return { smoke: [], focused: [], full: [] };
   }
   const fileArgs = targets.length > 0 ? targets.join(' ') : '.';
@@ -382,7 +382,7 @@ function getPythonCommands(pythonStack, changeType, targets) {
 
 function getJavaCommands(javaStack, changeType, targets) {
   if (!javaStack?.enabled) return { smoke: [], focused: [], full: [] };
-  if (changeType !== 'code' && changeType !== 'tests' && changeType !== 'config') {
+  if (changeType !== 'code' && changeType !== 'tests' && changeType !== 'config' && changeType !== 'scripts') {
     return { smoke: [], focused: [], full: [] };
   }
   const commands = { smoke: [], focused: [], full: [] };

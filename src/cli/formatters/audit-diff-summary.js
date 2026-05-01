@@ -92,11 +92,21 @@ function buildAuditDiffSummary(entries) {
 function classifyChangeType(entries) {
   const types = new Set();
   let docsCount = 0;
+  let codeCount = 0;
+  let testCount = 0;
+  let configCount = 0;
+  let scriptCount = 0;
 
   for (const entry of entries) {
     const fileRole = entry.classification?.fileRole;
+    const directoryRole = entry.classification?.directoryRole;
     const file = entry.file || '';
     const ext = file.split('.').pop()?.toLowerCase();
+
+    // reference / archive 不参与主线变更类型判断
+    if (directoryRole === 'reference' || directoryRole === 'archive') {
+      continue;
+    }
 
     // fileRole 是单一事实源；inferFileRole 已从路径/扩展名/文件名推断过一次。
     if (fileRole === 'docs') {
@@ -104,12 +114,16 @@ function classifyChangeType(entries) {
       docsCount++;
     } else if (fileRole === 'config') {
       types.add('config');
+      configCount++;
     } else if (fileRole === 'test') {
       types.add('tests');
+      testCount++;
     } else if (fileRole === 'script') {
       types.add('scripts');
+      scriptCount++;
     } else if (fileRole === 'entry' || fileRole === 'migration') {
       types.add('code');
+      codeCount++;
     } else {
       // library / unknown / missing fileRole — 最小扩展名 fallback
       if (['md', 'mdx', 'mdtxt', 'markdown', 'txt', 'rst'].includes(ext)) {
@@ -117,23 +131,33 @@ function classifyChangeType(entries) {
         docsCount++;
       } else if (['json', 'yaml', 'yml', 'toml', 'ini', 'conf', 'config'].includes(ext)) {
         types.add('config');
+        configCount++;
       } else {
         types.add('code');
+        codeCount++;
       }
     }
   }
 
-  // 主导类型判断：docs 占严格多数且无 code/tests 时，优先返回 docs
-  // 避免大量文档改动因夹杂一个配置文件而被误判为 config，生成无意义的测试命令
-  if (types.has('docs') && docsCount > entries.length - docsCount && !types.has('code') && !types.has('tests')) {
+  const mainlineCount = docsCount + codeCount + testCount + configCount + scriptCount;
+  if (mainlineCount === 0) {
+    return 'code';
+  }
+
+  const codeRatio = codeCount / mainlineCount;
+
+  // docs 占严格多数且无 code/tests 时，优先返回 docs
+  if (types.has('docs') && docsCount > mainlineCount - docsCount && !types.has('code') && !types.has('tests')) {
     return 'docs';
   }
 
-  if (types.has('code')) return 'code';
+  // code 占比 >20% 时才升格为 code；否则按次要类型主导判断
+  if (types.has('code') && codeRatio > 0.2) return 'code';
   if (types.has('tests')) return 'tests';
   if (types.has('config')) return 'config';
   if (types.has('scripts')) return 'scripts';
   if (types.has('docs')) return 'docs';
+  if (types.has('code')) return 'code';
   return 'code';
 }
 
