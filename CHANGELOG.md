@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+### 修复
+
+- **#13** `arrow-function-test.js` 稳定性 — `src/services/dep-graph/parsers/js.js` `parseJavaScript()` regex fallback 现在返回 `functionRecords: []`，避免 `@babel/parser` 不可用时 `functionRecords` 为 `undefined`
+- **#14/#15** `audit-diff-test.js` / `functionality-test.js` 诊断增强 — `src/services/dep-graph/function-impact.js` `getChangedFunctionImpact()` 返回 `unavailable` 时附带 `actualParseMode` 字段；测试断言失败前打印诊断日志，帮助定位 AST 模式缺失的根因
+- **#16** `affected-tests-heuristic-test.js` 跨平台修复 — `src/utils/test-detector.js` `buildHeuristicSignature()` 在 POSIX 系统上正确处理 Windows 绝对路径（`C:\...`），避免 `path.relative` 行为差异导致启发式签名不匹配
+- **#17** `java-parsers-test.js` 环境适配 — 测试开头检测 Python `javalang` 是否可用，缺失时 skip AST 测试而不是硬失败（fallback 测试始终运行）
+
 ## [0.9.14] - 2026-05-02
 
 ### 新增

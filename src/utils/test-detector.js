@@ -52,7 +52,20 @@ function normalizeHeuristicName(filePath) {
 }
 
 function buildHeuristicSignature(root, filePath) {
-  const relativePath = toPosixPath(path.relative(root, filePath));
+  // Normalize Windows absolute paths on POSIX systems.
+  // path.relative('/repo', 'C:\repo\...') is unpredictable on POSIX;
+  // strip the drive letter so both paths share a common structure.
+  const posixRoot = toPosixPath(path.normalize(root));
+  let posixFile = toPosixPath(path.normalize(filePath));
+  posixFile = posixFile.replace(/^[a-zA-Z]:\//, '/');
+
+  let relativePath;
+  if (posixFile.startsWith(posixRoot + '/')) {
+    relativePath = posixFile.slice(posixRoot.length + 1);
+  } else {
+    relativePath = toPosixPath(path.relative(root, filePath));
+  }
+
   const segments = relativePath
     .split('/')
     .filter(Boolean)

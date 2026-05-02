@@ -143,6 +143,12 @@ try {
   assert(['symbol', 'file-fallback'].includes(changed.symbolImpact.mode), 'symbolImpact.mode should be valid');
   assert(Array.isArray(changed.symbolImpact.functionToDependents), 'functionToDependents should exist');
   assert(changed.symbolImpact.changedFunctionImpact, 'changedFunctionImpact should exist');
+  if (changed.symbolImpact.changedFunctionImpact.mode !== 'function-symbol') {
+    console.error('DIAGNOSTIC: changedFunctionImpact.mode =', changed.symbolImpact.changedFunctionImpact.mode,
+      'reason =', changed.symbolImpact.changedFunctionImpact.reason,
+      'actualParseMode =', changed.symbolImpact.changedFunctionImpact.actualParseMode,
+      'file =', changed.file);
+  }
   assert.strictEqual(changed.symbolImpact.changedFunctionImpact.mode, 'function-symbol');
   assert(changed.symbolImpact.changedFunctionImpact.changedFunctions.includes('helper'));
   assert(Array.isArray(changed.symbolImpact.changedFunctionImpact.impactedFunctionDependents));

@@ -355,6 +355,7 @@ function parseJavaScriptAST(content, filePath = '') {
     if (process.env.DEBUG) {
       console.error(`[DepGraph] AST parse failed for ${filePath}:`, e.message);
     }
+    // Include file path in error so callers can diagnose why AST mode was unavailable.
     return null;
   }
 }
@@ -518,6 +519,7 @@ function parseJavaScript(content, filePath = '') {
     exports,
     importRecords,
     exportRecords,
+    functionRecords: [],
     parseMode: 'regex',
   };
 }

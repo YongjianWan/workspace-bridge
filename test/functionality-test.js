@@ -214,6 +214,12 @@ function main() {
     assert(Array.isArray(jsEntry.symbolImpact.symbolToDependents));
     assert(Array.isArray(jsEntry.symbolImpact.functionToDependents));
     assert(jsEntry.symbolImpact.changedFunctionImpact, 'changedFunctionImpact should exist');
+    if (jsEntry.symbolImpact.changedFunctionImpact.mode !== 'function-symbol') {
+      console.error('DIAGNOSTIC: changedFunctionImpact.mode =', jsEntry.symbolImpact.changedFunctionImpact.mode,
+        'reason =', jsEntry.symbolImpact.changedFunctionImpact.reason,
+        'actualParseMode =', jsEntry.symbolImpact.changedFunctionImpact.actualParseMode,
+        'file =', jsEntry.file);
+    }
     assert(jsEntry.symbolImpact.changedFunctionImpact.functionLevelAffectedTests, 'functionLevelAffectedTests should exist');
     assert.strictEqual(
       typeof jsEntry.symbolImpact.changedFunctionImpact.functionLevelAffectedTests.affectedTestCount,
@@ -221,6 +227,10 @@ function main() {
     );
     assert(Array.isArray(jsEntry.changedLineRanges), 'changedLineRanges should exist');
     const jsSymbolRow = jsEntry.symbolImpact.symbolToDependents.find((item) => item.symbol === 'utilFn');
+    if (!jsSymbolRow) {
+      console.error('DIAGNOSTIC: symbolToDependents =', JSON.stringify(jsEntry.symbolImpact.symbolToDependents));
+      console.error('DIAGNOSTIC: symbolImpact.mode =', jsEntry.symbolImpact.mode);
+    }
     assert(jsSymbolRow, 'js symbol-to-dependent mapping should include utilFn');
     assert(jsSymbolRow.dependentCount >= 1, 'utilFn should have at least one dependent');
     const jsFunctionRow = jsEntry.symbolImpact.functionToDependents.find((item) => item.function === 'utilFn');

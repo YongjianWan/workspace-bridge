@@ -1,8 +1,24 @@
 #!/usr/bin/env node
 const assert = require('assert');
+const { spawnSync } = require('child_process');
 const { parseJava } = require('../src/services/dep-graph/parsers');
 
+function isJavalangAvailable() {
+  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  const result = spawnSync(pythonCmd, ['-c', 'import javalang; print("ok")'], {
+    encoding: 'utf8',
+    timeout: 5000,
+  });
+  return result.status === 0 && result.stdout.includes('ok');
+}
+
+const JAVALANG_AVAILABLE = isJavalangAvailable();
+
 async function testJavaAST() {
+  if (!JAVALANG_AVAILABLE) {
+    console.log('SKIP testJavaAST: javalang not available');
+    return;
+  }
   const source = `
 package com.example;
 import java.util.List;
@@ -29,6 +45,10 @@ public class Foo {
 }
 
 async function testJavaInterfaceMethods() {
+  if (!JAVALANG_AVAILABLE) {
+    console.log('SKIP testJavaInterfaceMethods: javalang not available');
+    return;
+  }
   const source = `
 package com.example;
 public interface Calculator {

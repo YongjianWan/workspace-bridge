@@ -35,6 +35,7 @@ function getChangedFunctionImpact(depGraph, filePath, lineRanges, options = {}) 
     return {
       mode: 'unavailable',
       reason: 'ast-unavailable-or-unsupported-language',
+      actualParseMode: sourceInfo.parseMode,
       changedFunctions: [],
       impactedFunctionDependents: [],
       impactedDependentCount: 0,
