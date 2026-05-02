@@ -10,6 +10,7 @@ const { ServiceContainer } = require('./src/services/container');
 const { workspaceInfo, runDiagnostics } = require('./src/tools/workspace-tools');
 const { projectHealth } = require('./src/tools/health-tools');
 const { dependencyGraph } = require('./src/tools/dep-tools');
+const { auditSecurity } = require('./src/tools/security-tools');
 const { getChangedFiles } = require('./src/tools/git-tools');
 const { getChangedLineRanges } = require('./src/tools/git-tools');
 const { validateWorkspacePath } = require('./src/tools/git-tools');
@@ -71,6 +72,7 @@ Commands:
   audit-overview         Project panoramic view (hotspots, stability, orphans)
   audit-map              Global project map (tree + edges + issue overlay)
   health                  Summarize project health
+  audit-security          Run external security scanners (Semgrep, CodeQL)
   repl                    Start interactive REPL shell
   watch                   Watch files and print impact on save
   stats                   Show dependency graph statistics
@@ -111,6 +113,7 @@ function parseCliArgs(argv) {
     '--stability-trend-data': { key: 'stabilityTrendData' },
     '--trend-granularity': { key: 'trendGranularity' },
     '--overview-dashboard': { key: 'overviewDashboard' },
+    '--config': { key: 'config' },
     '--json': true,
     '--quiet': true,
     '--help': true,
@@ -144,6 +147,8 @@ function parseCliArgs(argv) {
     stabilityTrendData: raw.stabilityTrendData || null,
     trendGranularity,
     overviewDashboard: raw.overviewDashboard || null,
+    config: raw.config || null,
+    targets: raw._.slice(1),
     json: Boolean(raw['--json']),
     quiet: Boolean(raw['--quiet']),
     help: Boolean(raw['--help']) || Boolean(raw['-h']),
@@ -186,6 +191,27 @@ function formatHuman(command, result) {
         `ci: ${result.checks.ci.found ? 'yes' : 'no'}`,
         `tests: ${result.checks.testConfig.found ? result.checks.testConfig.frameworks.join(', ') : 'none'}`,
       ].join('\n');
+    case 'audit-security': {
+      if (result.summary.message) {
+        return result.summary.message;
+      }
+      const lines = [
+        `adapters: ${result.adapters.join(', ') || 'none'}`,
+        `findings: ${result.summary.total}`,
+        `severity: high=${result.summary.bySeverity.high} medium=${result.summary.bySeverity.medium} low=${result.summary.bySeverity.low}`,
+      ];
+      if (result.findings.length > 0) {
+        lines.push('');
+        for (const f of result.findings.slice(0, 20)) {
+          lines.push(`[${f.severity.toUpperCase()}] ${f.ruleId} — ${f.file}${f.lineStart ? ':' + f.lineStart : ''}`);
+          if (f.message) lines.push(`  ${f.message}`);
+        }
+        if (result.findings.length > 20) {
+          lines.push(`... and ${result.findings.length - 20} more`);
+        }
+      }
+      return lines.join('\n');
+    }
     case 'audit-summary':
       return [
         `workspaceRoot: ${result.workspaceRoot}`,
@@ -495,6 +521,8 @@ async function runCommand(parsed, container) {
     }
     case 'health':
       return projectHealth({ cwd: parsed.cwd }, container);
+    case 'audit-security':
+      return auditSecurity({ cwd: parsed.cwd, targets: parsed.targets, config: parsed.config }, container);
     case 'stats':
       return dependencyGraph({ cwd: parsed.cwd, operation: 'stats' }, container);
     case 'dependencies':
