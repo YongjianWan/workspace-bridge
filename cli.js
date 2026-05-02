@@ -25,6 +25,7 @@ const {
 } = require('./src/cli/formatters');
 const { buildProjectOverview } = require('./src/tools/overview-tools');
 const { parseArgs } = require('./src/utils/parse-args');
+const { TIMEOUTS, DEFAULTS } = require('./src/config/constants');
 
 async function mapWithConcurrency(items, limit, mapper) {
   const safeLimit = Math.max(1, Number.isFinite(limit) ? limit : 1);
@@ -169,6 +170,9 @@ function countTreeFiles(tree) {
 }
 
 function formatHuman(command, result) {
+  if (!result || result.ok === false) {
+    return `Error: ${result?.error || 'Command failed'}`;
+  }
   switch (command) {
     case 'workspace-info':
       return [
@@ -368,7 +372,7 @@ async function runCommand(parsed, container) {
         return changed;
       }
 
-      const entries = await mapWithConcurrency(changed.changedFiles, 8, async (relativeFile) => {
+      const entries = await mapWithConcurrency(changed.changedFiles, DEFAULTS.CLI_CONCURRENCY, async (relativeFile) => {
         const resolvedPath = validateWorkspacePath(relativeFile, container.workspaceRoot);
         const classification = container.projectContext?.classifyFile(resolvedPath) || null;
         const graphKnown = Boolean(resolvedPath && container.depGraph.hasFile(resolvedPath));
@@ -416,7 +420,7 @@ async function runCommand(parsed, container) {
             changedFunctionImpactBase.changedFunctions,
             {
               symbolImpact: baseSymbolImpact,
-              maxDepth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : 4,
+              maxDepth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : DEFAULTS.SYMBOL_IMPACT_DEPTH,
             }
           )
           : { functions: [], affectedTestCount: 0 };
@@ -427,7 +431,7 @@ async function runCommand(parsed, container) {
           ? { ...baseSymbolImpact, changedFunctionImpact }
           : null;
         const affectedTests = graphKnown ? container.depGraph.findAffectedTests(resolvedPath, Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined) : [];
-        const history = resolvedPath ? await getFileHistoryRisk(container.workspaceRoot, resolvedPath, { limit: 25 }) : { ok: false };
+        const history = resolvedPath ? await getFileHistoryRisk(container.workspaceRoot, resolvedPath, { limit: DEFAULTS.HISTORY_LIMIT }) : { ok: false };
         const historyRisk = history.ok ? history.historyRisk : null;
         const impactExplanations = graphKnown
           ? buildImpactExplanations({ file: relativeFile, impact })
@@ -564,7 +568,7 @@ async function main() {
   }
 
   try {
-    const initialized = await container.initialize(parsed.cwd, 60000, {
+    const initialized = await container.initialize(parsed.cwd, TIMEOUTS.INIT_TIMEOUT_MS, {
       watch: false,
       excludeDirs: parsed.exclude,
     });
@@ -583,7 +587,7 @@ async function main() {
       process.exitCode = 1;
     }
   } catch (err) {
-    console.error(err.message || String(err));
+    originalConsoleError(err.message || String(err));
     process.exitCode = 1;
   } finally {
     await container.shutdown();

@@ -5,6 +5,7 @@
  */
 const readline = require('readline');
 const { ServiceContainer } = require('../services/container');
+const { TIMEOUTS } = require('../config/constants');
 
 function formatImpact(result) {
   const lines = [`impactCount: ${result.length}`];
@@ -89,7 +90,7 @@ async function executeCommand(container, line) {
   dependencies <file>
   stats
   help
-  exit`;
+  exit / quit`;
 
     case 'impact': {
       const file = args[0];
@@ -97,7 +98,8 @@ async function executeCommand(container, line) {
       let maxDepth = 3;
       const depthIdx = args.indexOf('--max-depth');
       if (depthIdx !== -1 && args[depthIdx + 1]) {
-        maxDepth = Number.parseInt(args[depthIdx + 1], 10);
+        const parsed = Number.parseInt(args[depthIdx + 1], 10);
+        if (Number.isFinite(parsed) && parsed > 0) maxDepth = parsed;
       }
       const result = container.depGraph.getImpactRadius(file, maxDepth);
       return formatImpact(result);
@@ -109,7 +111,8 @@ async function executeCommand(container, line) {
       let maxDepth = 5;
       const depthIdx = args.indexOf('--max-depth');
       if (depthIdx !== -1 && args[depthIdx + 1]) {
-        maxDepth = Number.parseInt(args[depthIdx + 1], 10);
+        const parsed = Number.parseInt(args[depthIdx + 1], 10);
+        if (Number.isFinite(parsed) && parsed > 0) maxDepth = parsed;
       }
       const result = container.depGraph.findAffectedTests(file, maxDepth);
       return formatAffectedTests(result);
@@ -156,9 +159,10 @@ async function executeCommand(container, line) {
 
 async function startRepl(options) {
   const container = new ServiceContainer();
+  let rl = null;
 
   try {
-    const initialized = await container.initialize(options.cwd, 60000, {
+    const initialized = await container.initialize(options.cwd, TIMEOUTS.INIT_TIMEOUT_MS, {
       watch: true,
       excludeDirs: options.exclude || [],
     });
@@ -167,17 +171,14 @@ async function startRepl(options) {
     }
 
     console.error(`workspace-bridge REPL — ${container.workspaceRoot}`);
-    console.error('Type "help" for commands, "exit" to quit.\n');
+    console.error('Type "help" for commands, "exit" or "quit" to quit.\n');
 
-    const rl = readline.createInterface({
+    rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
       prompt: '> ',
     });
 
-    rl.setPrompt('> ');
-
-    rl.setPrompt('> ');
     rl.prompt();
 
     for await (const line of rl) {
@@ -208,12 +209,13 @@ async function startRepl(options) {
       rl.prompt();
     }
 
-    rl.close();
     console.error('\nGoodbye.');
-    await container.shutdown();
   } catch (err) {
     console.error('REPL failed:', err.message);
     process.exitCode = 1;
+  } finally {
+    if (rl) rl.close();
+    await container.shutdown();
   }
 }
 

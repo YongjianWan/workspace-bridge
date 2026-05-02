@@ -24,7 +24,7 @@ function main() {
   console.log('=== workspace-bridge 跨文件分析 CLI 测试 ===\n');
 
   // 创建临时测试文件
-  const testDir = path.join(__dirname, '..', 'wb-analysis-fixture');
+  const testDir = path.join(__dirname, '..', 'fixture-temp');
   const testFile = path.join(testDir, 'test-module.js');
   const testUnusedFile = path.join(testDir, 'unused-module.js');
   const partialExportsFile = path.join(testDir, 'partial-exports.js');
@@ -120,7 +120,7 @@ function main() {
       fs.unlinkSync(testUnusedFile);
       fs.unlinkSync(partialExportsFile);
       fs.unlinkSync(partialConsumerFile);
-      fs.rmdirSync(testDir);
+      fs.rmSync(testDir, { recursive: true, force: true });
     } catch (e) {
       // ignore cleanup errors
     }

@@ -349,8 +349,9 @@ function buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectCon
     const role = classification.fileRole || 'library';
     const isPureUtility = coupling.outDegree === 0 && coupling.inDegree > 0;
     const isScriptOrTest = role === 'script' || role === 'test';
+    const isEntry = role === 'entry';
     const isOverCoupled = coupling.level === 'high' ||
-      (!isPureUtility && !isScriptOrTest && coupling.total >= 3 && (coupling.inDegree >= 2 || coupling.outDegree >= 2));
+      (!isPureUtility && !isScriptOrTest && !isEntry && coupling.total >= DEFAULTS.COUPLING_SPLIT_MIN_TOTAL && (coupling.inDegree >= 2 || coupling.outDegree >= 2));
     if (!isOverCoupled) continue;
     candidates.push({
       file,

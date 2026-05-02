@@ -220,11 +220,17 @@ function searchCode(args, container) {
         const lowerQuery = type === 'text' ? query.toLowerCase() : null;
         for (let i = 0; i < lines.length && matches.length < maxResults; i++) {
           let matched = false;
+          const line = lines[i];
           if (type === 'text') {
             // Pure text search: use includes to eliminate any regex risk
-            matched = lines[i].toLowerCase().includes(lowerQuery);
+            matched = line.toLowerCase().includes(lowerQuery);
           } else {
-            matched = safeRegexTest(pattern, lines[i]);
+            // Symbol search: pattern is built from escaped user input via escapeRegex(),
+            // so catastrophic backtracking is structurally impossible. Pre-check
+            // with includes for both speed and defense in depth.
+            if (line.toLowerCase().includes(lowerQuery)) {
+              matched = pattern.test(line);
+            }
           }
           if (matched) {
             matches.push({

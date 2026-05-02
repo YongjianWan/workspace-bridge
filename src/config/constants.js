@@ -9,6 +9,9 @@ const TIMEOUTS = {
   PYTHON_MODULE_DEFAULT_MS: 30000,
   NPX_DEFAULT_MS: 30000,
   PYTHON_AST_PARSE_MS: 30000,
+  // Container initialization: file indexing + dep-graph build + cache warm.
+  // Large repos (10k+ files) may need the full minute.
+  INIT_TIMEOUT_MS: 60000,
 };
 
 const LIMITS = {
@@ -35,6 +38,21 @@ const DEFAULTS = {
   // Stability analysis budget: smaller than hotspots because it runs
   // synchronously without history provider overhead.
   STABILITY_CANDIDATE_LIMIT: 30,
+  // Coupling split suggestion threshold: library files below this total
+  // degree are too small to be actionable split candidates.
+  COUPLING_SPLIT_MIN_TOTAL: 8,
+  // Watch mode impact radius: shallow enough to be readable,
+  // deep enough to show meaningful dependents.
+  WATCH_IMPACT_DEPTH: 3,
+  // audit-diff concurrency: how many changed files to process in parallel
+  // without overwhelming the event loop or file descriptors.
+  CLI_CONCURRENCY: 8,
+  // Git history query budget: number of recent commits to fetch per file.
+  // Larger values improve hotspot accuracy but slow down audit-diff/overview.
+  HISTORY_LIMIT: 25,
+  // Minimum code ratio for a mixed change to be classified as "code".
+  // Below this threshold, docs/tests/config/scripts may dominate.
+  CODE_CHANGE_RATIO_THRESHOLD: 0.2,
 };
 
 module.exports = {

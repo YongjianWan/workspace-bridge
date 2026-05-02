@@ -3,6 +3,7 @@ const {
   diffSeverity,
   fileImpactSeverity,
 } = require('../../config/risk-thresholds');
+const { DEFAULTS } = require('../../config/constants');
 
 function buildAuditDiffSummary(entries) {
   const mainlineChanged = entries.filter((entry) => entry.classification?.isMainline);
@@ -151,8 +152,16 @@ function classifyChangeType(entries) {
     return 'docs';
   }
 
-  // code 占比 >20% 时才升格为 code；否则按次要类型主导判断
-  if (types.has('code') && codeRatio > 0.2) return 'code';
+  // 单一类型占绝对多数（>50%）时，直接返回该类型，避免被次要类型掩盖
+  // docs  majority 已在上方严格多数检查中处理；此处不覆盖 tests/code 的存在
+  const majorityThreshold = mainlineCount / 2;
+  if (testCount > majorityThreshold) return 'tests';
+  if (configCount > majorityThreshold) return 'config';
+  if (scriptCount > majorityThreshold) return 'scripts';
+  if (codeCount > majorityThreshold) return 'code';
+
+  // code 占比超过阈值时，返回 code；否则按次要类型主导判断
+  if (types.has('code') && codeRatio > DEFAULTS.CODE_CHANGE_RATIO_THRESHOLD) return 'code';
   if (types.has('tests')) return 'tests';
   if (types.has('config')) return 'config';
   if (types.has('scripts')) return 'scripts';

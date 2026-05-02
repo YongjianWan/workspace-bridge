@@ -8,6 +8,15 @@
 
 ### 修复
 
+- **耦合假阳性收敛（entry 角色）** `src/tools/overview-tools.js` `buildCouplingSplitSuggestions()` — `isOverCoupled` 新增 `!isEntry` 条件，排除 `cli.js`、`src/cli/formatters/index.js`、`src/services/dep-graph/parsers/index.js` 等入口/barrel 文件的误报；同时将非 high-level 阈值从 `total >= 3` 提升至 `total >= 8`（`DEFAULTS.COUPLING_SPLIT_MIN_TOTAL`），耦合建议从 10 条收敛至 2 条真实问题
+- **FileIndex 排除测试 fixture** `src/services/file-index.js` — `DEFAULT_EXCLUDE_DIRS` 增加 `wb-analysis-fixture`，避免测试 fixture 被索引后产生死导出/未解析误报
+- **search-tools ReDoS 保护加固** `src/tools/search-tools.js` — symbol 搜索路径新增 `String.prototype.includes` 预检，替代 `safeRegexTest()` 的直接调用；text 搜索已使用 `includes`，symbol 正则由 `escapeRegex()` 构建，回溯风险结构性消除
+- **editor-state.js / better-sqlite3 清理** 确认 `editor-state.js` 已不存在、`better-sqlite3` 已从 `package.json` 移除，`docs/TECH_DEBT.md` 移除对应条目
+- **CLI 错误处理修复（HIGH）** `cli.js` — `--quiet` 不再吞掉致命错误：`catch` 块改用备份的 `originalConsoleError` 输出，用户能在静默模式下仍看到崩溃原因；`formatHuman()` 新增 `result.ok === false` 守卫，避免对错误响应体访问 `result.summary.*` 导致 `TypeError` 崩溃
+- **REPL 健壮性修复（MEDIUM）** `src/cli/repl.js` — `--max-depth` 参数新增 `Number.isFinite` + `> 0` 校验，防止 `NaN` 导致 BFS 遍历失控；初始化失败路径新增 `finally` 确保 `container.shutdown()` 总是被调用，消除资源泄漏；移除冗余的 `rl.setPrompt('> ')` 重复调用；`help` 文本补全 `quit` 别名
+- **CLI 裸数字归一化（MEDIUM）** `cli.js` / `src/cli/repl.js` / `src/cli/watch.js` — 并发限制 `8`、history limit `25`、初始化超时 `60000`、symbol impact depth `4` 全部集中到 `src/config/constants.js`（`CLI_CONCURRENCY`、`HISTORY_LIMIT`、`INIT_TIMEOUT_MS`、`SYMBOL_IMPACT_DEPTH`）
+- **classifyChangeType 精度提升（MEDIUM）** `src/cli/formatters/audit-diff-summary.js` — 新增比例感知：单一类型（test/config/script/code）占绝对多数（>50%）时直接返回该类型，避免 90% config + 10% test 被误判为 tests；`codeRatio > 0.2` 提取为 `DEFAULTS.CODE_CHANGE_RATIO_THRESHOLD`
+- **Watch 模式常量归一化（MEDIUM）** `src/cli/watch.js` — 硬编码深度 `3` 改为引用 `DEFAULTS.WATCH_IMPACT_DEPTH`
 - **#13** `arrow-function-test.js` 稳定性 — `src/services/dep-graph/parsers/js.js` `parseJavaScript()` regex fallback 现在返回 `functionRecords: []`，避免 `@babel/parser` 不可用时 `functionRecords` 为 `undefined`
 - **#14/#15** `audit-diff-test.js` / `functionality-test.js` 诊断增强 — `src/services/dep-graph/function-impact.js` `getChangedFunctionImpact()` 返回 `unavailable` 时附带 `actualParseMode` 字段；测试断言失败前打印诊断日志，帮助定位 AST 模式缺失的根因
 - **#16** `affected-tests-heuristic-test.js` 跨平台修复 — `src/utils/test-detector.js` `buildHeuristicSignature()` 在 POSIX 系统上正确处理 Windows 绝对路径（`C:\...`），避免 `path.relative` 行为差异导致启发式签名不匹配

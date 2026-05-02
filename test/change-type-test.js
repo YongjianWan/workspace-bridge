@@ -51,4 +51,12 @@ assert.strictEqual(classifyChangeType([
   { file: 'src/helper.js', classification: { fileRole: 'library' } },
 ]), 'tests');
 
+// config 占绝对多数（>50%），即使有少量 test 也应返回 config（比例感知）
+assert.strictEqual(classifyChangeType([
+  { file: '.eslintrc.json', classification: { fileRole: 'config' } },
+  { file: 'tsconfig.json', classification: { fileRole: 'config' } },
+  { file: 'package.json', classification: { fileRole: 'config' } },
+  { file: 'test/a.test.js', classification: { fileRole: 'test' } },
+]), 'config');
+
 console.log('change-type-test: ok');

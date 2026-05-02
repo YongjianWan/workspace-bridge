@@ -6,6 +6,7 @@
  */
 const path = require('path');
 const { ServiceContainer } = require('../services/container');
+const { DEFAULTS, TIMEOUTS } = require('../config/constants');
 
 function formatWatchOutput(workspaceRoot, filePath, impact) {
   const relativeFile = path.relative(workspaceRoot, filePath);
@@ -20,7 +21,7 @@ function registerWatchCallback(fileIndex, depGraph, workspaceRoot, originalCallb
       originalCallback(filePath);
     }
     const startTime = Date.now();
-    const impact = depGraph.getImpactRadius(filePath, 3);
+    const impact = depGraph.getImpactRadius(filePath, DEFAULTS.WATCH_IMPACT_DEPTH);
     console.log(formatWatchOutput(workspaceRoot, filePath, impact));
     if (process.env.DEBUG) {
       console.error(`[watch] computed in ${Date.now() - startTime}ms`);
@@ -45,7 +46,7 @@ async function startWatch(options) {
   setupGracefulShutdown(container);
 
   try {
-    const initialized = await container.initialize(options.cwd, 60000, {
+    const initialized = await container.initialize(options.cwd, TIMEOUTS.INIT_TIMEOUT_MS, {
       watch: true,
       excludeDirs: options.exclude || [],
     });

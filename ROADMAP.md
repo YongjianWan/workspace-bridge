@@ -13,8 +13,14 @@
 | 混合仓库误判 | ⏳ 需配置 | prototypes/reference 被视为主线 | 使用 `.workspace-bridge.json` 标注目录角色 |
 | mixed repo 技术栈启发式 | ⏳ 持续改进 | Node/Python 共存时命令可能不够精确 | 持续打磨 `stack-detector` |
 | 大仓库性能 | ✅ 已完成 | 10k+ 文件索引慢；全量 JSON 输出爆炸 | P5 三步走（REPL + 缓存解析结果 + Watcher 增量更新）已完成 |
-| 耦合建议假阳性 | ✅ 已完成 | pure utility（outDegree=0）被误报；script/test 角色低耦合被误报 | v0.9.13 排除 pure utility；v0.9.14 收紧 script/test threshold（仅 high 级别报告） |
+| 耦合建议假阳性 | ✅ 已完成 | pure utility（outDegree=0）被误报；script/test/entry 角色低耦合被误报 | v0.9.13 排除 pure utility；v0.9.14 收紧 script/test threshold；entry 角色排除 + library 阈值提升至 8 |
 | orphan 检测不懂脚本 | ✅ 已完成 | `scripts/`/`benchmark/` 下独立入口被误报为孤儿 | v0.9.13 跳过 `scripts/`/`bin/`；v0.9.14 新增跳过 `benchmark/` 和 `wb-analysis-fixture/` |
+| CLI `--quiet` 吞致命错误 | ✅ 已完成 | `console.error` 被提前静默，catch 块无法输出 | catch 块改用备份的 `originalConsoleError` |
+| CLI `formatHuman` 在错误响应上崩溃 | ✅ 已完成 | `audit-file`/`audit-diff` 失败时返回 `{ok:false}`，`formatHuman` 访问 `result.summary.*` 抛 TypeError | `formatHuman()` 顶部新增 `ok === false` 守卫 |
+| REPL 资源泄漏 | ✅ 已完成 | init 失败时 `container.shutdown()` 未被调用 | `startRepl()` 引入 `finally` 块 |
+| REPL `--max-depth` 无校验 | ✅ 已完成 | `parseInt` 返回 `NaN` 时 BFS 遍历失控 | 新增 `Number.isFinite && > 0` 校验 |
+| CLI 裸数字漂移 | ✅ 已完成 | 并发 8、history limit 25、超时 60000、symbol depth 4 多处硬编码 | 全部集中到 `constants.js` |
+| classifyChangeType 精度 | ✅ 已完成 | 90% config + 10% test 被误判为 tests；`0.2` 裸数字 | 新增 >50% 绝对多数检查；阈值提取为 `CODE_CHANGE_RATIO_THRESHOLD` |
 | 文档与代码状态同步 | ⏳ 需人工 | ROADMAP/SESSION/CHANGELOG 可能不同步 | 自审后手动对齐 |
 
 > 已修复历史见 [CHANGELOG.md](./CHANGELOG.md) v0.8.2–v0.9.12。
@@ -247,4 +253,4 @@ for (const file of files) {
 
 ---
 
-*Last updated: 2026-05-01（v0.9.12 issue 批量修复：框架感知 + regex 精度 + cycle 自循环 + 缓存副作用 + audit-file 存在性）*
+*Last updated: 2026-05-02（v0.9.14 耦合假阳性收敛 + entry 排除 + CLI 错误处理加固 + REPL 健壮性修复）*

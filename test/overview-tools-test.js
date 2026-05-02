@@ -12,21 +12,24 @@ const fileB = path.join(root, 'src', 'b.js');
 const fileApp = path.join(root, 'src', 'app.js');
 const fileTest = path.join(root, 'test', 'app.test.js');
 const fileDoc = path.join(root, 'README.md');
+const fileC = path.join(root, 'src', 'c.js');
 
 const dependentsMap = new Map([
   [fileA, [fileB, fileApp, fileTest]],
-  [fileB, [fileApp]],
+  [fileB, [fileApp, fileC]],
   [fileApp, [fileTest]],
   [fileTest, []],
   [fileDoc, []],
+  [fileC, [fileA, fileB, fileApp, fileTest]],
 ]);
 
 const dependenciesMap = new Map([
-  [fileA, []],
+  [fileA, [fileB, fileC]],
   [fileB, [fileA]],
   [fileApp, [fileA, fileB]],
   [fileTest, [fileApp]],
   [fileDoc, []],
+  [fileC, [fileA, fileB, fileApp, fileTest]],
 ]);
 
 const depGraph = {
@@ -36,6 +39,7 @@ const depGraph = {
     [fileApp, {}],
     [fileTest, {}],
     [fileDoc, {}],
+    [fileC, {}],
   ]),
   entryFiles: new Set([fileApp]),
   projectContext: {
@@ -89,7 +93,7 @@ async function main() {
   const result = await buildProjectOverview({ historyProvider }, container);
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.workspaceRoot, root);
-  assert.strictEqual(result.skeleton.totalFiles, 5);
+  assert.strictEqual(result.skeleton.totalFiles, 6);
   assert(result.skeleton.coreModules.some((entry) => entry.file.endsWith('src/a.js')));
   assert(Array.isArray(result.hotspots));
   assert(result.hotspots.length >= 1);
