@@ -21,7 +21,7 @@
 - **P2: Gradle 任务发现** `src/utils/stack-detector.js` — 新增 `detectGradleSubprojects()` 解析 `settings.gradle`/`settings.gradle.kts` 的 `include` 语句，提取子模块名与目录映射。`getJavaCommands()` 和 `generateCommands()` 的 direct-tests 路径均支持按受影响子模块生成精确 Gradle 命令（`:app:test`、`:app:classes`、`:app:checkstyleMain` 等），不再只能跑全量 `gradlew test`
 - **P2: Go module path 聚合** `src/utils/stack-detector.js` — `hasGoProject()` 扩展为检测嵌套 `go.mod`（root 无 go.mod 时扫描一级子目录）；新增 `detectGoModules()` 与 `mapFileToGoModule()`。嵌套 go.mod 场景下，`getGoCommands()` 按模块生成 `cd <module> && go test ./...` 命令，避免在 root 运行导致跨模块测试失败
 - **P2: Rust 模块级测试过滤** `src/utils/stack-detector.js` — 新增 `inferRustModuleName()` 从 `src/<module>.rs` / `src/<module>/mod.rs` 路径推断模块名。`getRustCommands()` 和 `generateCommands()` 的 direct-tests 路径在 workspace crate 过滤（`-p`）后追加模块过滤（`cargo test -p crate module_name`），非 workspace 项目也支持模块级过滤（`cargo test module_name`）
-- **成功标准 #6：可选外部工具后端（骨架）** `src/adapters/` — 新增 adapter 架构：`BaseAdapter` 接口 + `SemgrepAdapter`（完整实现，调用 `semgrep --json`）+ `CodeQLAdapter`（骨架，待数据库创建策略）。新增 `audit-security` 命令，聚合外部扫描器结果，输出统一 severity 统计
+- **成功标准 #6：可选外部工具后端** `src/adapters/` — 新增 adapter 架构：`BaseAdapter` 接口 + `SemgrepAdapter`（完整实现，调用 `semgrep --json`）+ `CodeQLAdapter`（完整实现：自动语言检测、数据库创建/复用、SARIF v2.1.0 解析）。新增 `audit-security` 命令，聚合 Semgrep + CodeQL 结果，输出统一 severity 统计。CLI 新增 `--language` 与 `--force-refresh` 参数
 
 ### 测试
 - 新增 `test/security-adapter-test.js` — 覆盖 BaseAdapter 接口契约、Semgrep normalizeFinding、severity 映射、auditSecurity 无 scanner fallback

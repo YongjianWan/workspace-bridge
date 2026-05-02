@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 const assert = require('assert');
+const path = require('path');
 const { BaseAdapter } = require('../src/adapters/base');
 const { SemgrepAdapter } = require('../src/adapters/semgrep');
 const { CodeQLAdapter } = require('../src/adapters/codeql');
@@ -11,7 +12,6 @@ function main() {
   const base = new BaseAdapter();
   assert.throws(() => base.name, /Subclass must implement name/);
   assert.throws(() => base.normalizeFinding({}), /Subclass must implement normalizeFinding/);
-  // scan is async; use assert.rejects for async errors
   assert.rejects(() => base.scan([], {}), /Subclass must implement scan/);
 
   // --- SemgrepAdapter.normalizeFinding ---
@@ -56,11 +56,71 @@ function main() {
     assert.strictEqual(result.summary.total, 0);
   });
 
-  // --- CodeQLAdapter skeleton ---
+  // --- CodeQLAdapter.normalizeFinding (SARIF) ---
   const codeql = new CodeQLAdapter();
   assert.strictEqual(codeql.name, 'codeql');
-  codeql.scan([], {}).then((result) => {
-    assert.strictEqual(result.summary.error.includes('CodeQL adapter'), true);
+
+  const sarifFinding = codeql.normalizeFinding({
+    ruleId: 'codeql/python/sql-injection',
+    message: { text: 'Potential SQL injection' },
+    level: 'error',
+    locations: [{
+      physicalLocation: {
+        artifactLocation: { uri: 'src/db.py' },
+        region: { startLine: 15, endLine: 17 },
+      },
+    }],
+  });
+  assert.strictEqual(sarifFinding.ruleId, 'codeql/python/sql-injection');
+  assert.strictEqual(sarifFinding.severity, 'high');
+  assert.strictEqual(sarifFinding.file, 'src/db.py');
+  assert.strictEqual(sarifFinding.lineStart, 15);
+  assert.strictEqual(sarifFinding.lineEnd, 17);
+  assert.strictEqual(sarifFinding.tool, 'codeql');
+
+  // SARIF severity fallback
+  const warnFinding = codeql.normalizeFinding({
+    ruleId: 'x',
+    message: { text: 'warn' },
+    level: 'warning',
+    locations: [{
+      physicalLocation: {
+        artifactLocation: { uri: 'a.py' },
+        region: { startLine: 1 },
+      },
+    }],
+  });
+  assert.strictEqual(warnFinding.severity, 'medium');
+
+  // SARIF without locations
+  const noLoc = codeql.normalizeFinding({
+    ruleId: 'y',
+    message: { text: 'note' },
+    level: 'note',
+  });
+  assert.strictEqual(noLoc.severity, 'low');
+  assert.strictEqual(noLoc.file, '');
+
+  // --- CodeQLAdapter._extractResultsFromSarif ---
+  const multiRunSarif = {
+    runs: [
+      { results: [{ ruleId: 'r1' }] },
+      { results: [{ ruleId: 'r2' }, { ruleId: 'r3' }] },
+    ],
+  };
+  const extracted = codeql._extractResultsFromSarif(multiRunSarif);
+  assert.strictEqual(extracted.length, 3);
+  assert.strictEqual(extracted[0].ruleId, 'r1');
+
+  // Empty SARIF
+  assert.deepStrictEqual(codeql._extractResultsFromSarif({}), []);
+  assert.deepStrictEqual(codeql._extractResultsFromSarif(null), []);
+
+  // --- CodeQLAdapter.scan with no language detected ---
+  // Use 'test/' as cwd because it has no build markers (package.json, go.mod, etc.)
+  codeql.scan([], { cwd: path.join(process.cwd(), 'test') }).then((result) => {
+    assert.strictEqual(result.summary.total, 0);
+    assert.ok(result.summary.error.includes('Unable to detect language'), `Expected language detection error, got: ${result.summary.error}`);
   });
 
   // --- Registry ---
@@ -85,7 +145,7 @@ function main() {
   const dupes = [
     { tool: 'semgrep', ruleId: 'r1', file: 'a.py', lineStart: 1 },
     { tool: 'semgrep', ruleId: 'r1', file: 'a.py', lineStart: 1 },
-    { tool: 'semgrep', ruleId: 'r2', file: 'a.py', lineStart: 1 },
+    { tool: 'codeql', ruleId: 'r2', file: 'a.py', lineStart: 1 },
   ];
   const deduped = dedupeFindings(dupes);
   assert.strictEqual(deduped.length, 2);

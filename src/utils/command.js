@@ -11,7 +11,7 @@ function resolveCommandForPlatform(command) {
   if (typeof command !== 'string' || !command) return command;
   if (path.extname(command)) return command;
   const lower = command.toLowerCase();
-  if (lower === 'npm' || lower === 'npx') {
+  if (['npm', 'npx', 'semgrep', 'codeql'].includes(lower)) {
     return `${command}.cmd`;
   }
   return command;

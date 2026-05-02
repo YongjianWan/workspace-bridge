@@ -114,6 +114,8 @@ function parseCliArgs(argv) {
     '--trend-granularity': { key: 'trendGranularity' },
     '--overview-dashboard': { key: 'overviewDashboard' },
     '--config': { key: 'config' },
+    '--language': { key: 'language' },
+    '--force-refresh': true,
     '--json': true,
     '--quiet': true,
     '--help': true,
@@ -148,6 +150,8 @@ function parseCliArgs(argv) {
     trendGranularity,
     overviewDashboard: raw.overviewDashboard || null,
     config: raw.config || null,
+    language: raw.language || null,
+    forceRefresh: Boolean(raw['--force-refresh']),
     targets: raw._.slice(1),
     json: Boolean(raw['--json']),
     quiet: Boolean(raw['--quiet']),
@@ -522,7 +526,7 @@ async function runCommand(parsed, container) {
     case 'health':
       return projectHealth({ cwd: parsed.cwd }, container);
     case 'audit-security':
-      return auditSecurity({ cwd: parsed.cwd, targets: parsed.targets, config: parsed.config }, container);
+      return auditSecurity({ cwd: parsed.cwd, targets: parsed.targets, config: parsed.config, language: parsed.language, forceRefresh: parsed.forceRefresh }, container);
     case 'stats':
       return dependencyGraph({ cwd: parsed.cwd, operation: 'stats' }, container);
     case 'dependencies':

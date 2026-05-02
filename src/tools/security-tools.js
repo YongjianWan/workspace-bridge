@@ -24,7 +24,7 @@ function dedupeFindings(findings) {
   return out;
 }
 
-async function auditSecurity({ cwd, targets = [], config }, container) {
+async function auditSecurity({ cwd, targets = [], config, language, forceRefresh }, container) {
   void container;
   const adapters = await getAvailableAdapters(cwd);
   if (adapters.length === 0) {
@@ -43,7 +43,7 @@ async function auditSecurity({ cwd, targets = [], config }, container) {
   const allFindings = [];
   const scanMeta = [];
   for (const adapter of adapters) {
-    const result = await adapter.scan(targets, { cwd, config });
+    const result = await adapter.scan(targets, { cwd, config, language, forceRefresh });
     scanMeta.push({ name: adapter.name, summary: result.summary });
     allFindings.push(...result.findings);
   }
