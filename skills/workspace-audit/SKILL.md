@@ -161,9 +161,7 @@ workspace-bridge-cli audit-diff --cwd <project> --json --quiet
 ## Fast vs Slow Commands
 
 - **Fast** (< 2s): `audit-summary`, `audit-file`, `audit-overview`, `audit-diff`, `health`, `dead-exports`, `unresolved`, `cycles`, `impact`, `affected-tests`
-- **Slow** (network-bound): `deps`, `diagnostics`
-
-Avoid `deps` in the default flow unless dependency drift is part of the task.
+- **Slow** (network-bound): `diagnostics`
 
 ## Interpretation
 

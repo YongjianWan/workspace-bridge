@@ -204,19 +204,19 @@ for (const file of files) {
 
 > v0.9.13 已交付 P5 完整上下文（缓存 + Watcher + REPL + watch）。1.0 是 major version，天然容纳 breaking change。
 
-### CLI 瘦身：23 → 8 命令
+### 1.0 发布决策
 
-**问题**：CLI 单次运行有固定初始化成本（~70-300ms）。原子命令（`dead-exports`/`unresolved`/`cycles`/`impact`/`affected-tests`/`dependencies`/`dependents`/`stats`）和聚合命令成本相同，但信息量低 5 倍以上。用户误以为「我只查这个，所以更快」，实际初始化一分没少。
+> 经产品视角重新评估，**CLI 瘦身（23 → 8）取消**。主要用户是 AI agent，而非人类开发者。AI 调用原子命令比聚合命令更省 token（精确输出 vs 冗余超集），且 AI 不存在「命令太多选哪个」的认知 paralysis。保留完整命令集对 AI 用户是净收益。
+>
+> 唯一删除的命令：`deps`（`npm outdated` 的封装）。它与"跨文件结构化分析"核心定位无关，且 npm / pip / cargo 自带 `outdated` 功能。
 
-**方案**：
-- **保留 8 个核心命令**：`audit-summary` / `audit-diff` / `audit-file` / `audit-overview` / `audit-map` / `repl` / `watch` / `diagnostics`
-- **从 CLI 删除，保留在 REPL**：`dead-exports` / `unresolved` / `cycles` / `impact` / `affected-tests` / `dependencies` / `dependents` / `stats`
-- **从 CLI 删除**：`workspace-info`（所有 audit 命令已含此信息）/ `health`（`audit-summary` 子集）/ `deps`（与静态分析定位无关）
-- **收益**：`cli.js` 595 行 → ~300 行，`formatHuman` 14 case → 6 case，用户认知负担从「我该用哪个？」变为「聚合命令 vs REPL 原子查询」
+**1.0 唯一 breaking change**：
+- `deps` 命令从 CLI 删除
 
-**隐性成本**：
-- `analysis-test.js` / `integration-core-test.js` / `functionality-test.js` 大量原子 CLI 调用需重构为直接测 `depGraph.findXxx()` 或聚合命令 + `jq` 提取
-- 预估投入：1.5-2 天（测试重构占大头）
+**版本与打包**：
+- `package.json` 版本号从 `0.9.11` 升至 `1.0.0`
+- `npm pack --dry-run` 确认无 `reference/` / `.claude/` / `.git` 等噪音
+- 写 Release Notes（breaking change 清单 + 迁移指南）
 
 ### 版本与打包
 - `package.json` 版本号对齐（当前 0.9.11，CHANGELOG 已写到 0.9.14）

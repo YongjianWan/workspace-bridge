@@ -8,7 +8,7 @@
 const fs = require('fs');
 const { ServiceContainer } = require('./src/services/container');
 const { workspaceInfo, runDiagnostics } = require('./src/tools/workspace-tools');
-const { projectHealth, checkDependencies } = require('./src/tools/health-tools');
+const { projectHealth } = require('./src/tools/health-tools');
 const { dependencyGraph } = require('./src/tools/dep-tools');
 const { getChangedFiles } = require('./src/tools/git-tools');
 const { getChangedLineRanges } = require('./src/tools/git-tools');
@@ -71,7 +71,6 @@ Commands:
   audit-overview         Project panoramic view (hotspots, stability, orphans)
   audit-map              Global project map (tree + edges + issue overlay)
   health                  Summarize project health
-  deps                    List outdated dependencies
   repl                    Start interactive REPL shell
   watch                   Watch files and print impact on save
   stats                   Show dependency graph statistics
@@ -259,11 +258,6 @@ function formatHuman(command, result) {
         `orphans: ${result.issueOverlay?.orphans?.length ?? 0}`,
         `hotspots: ${result.issueOverlay?.hotspots?.length ?? 0}`,
       ].join('\n');
-    case 'deps':
-      return result.results.map((entry) => {
-        if (entry.skipped) return `${entry.tool}: skipped (${entry.reason})`;
-        return `${entry.tool}: ${entry.outdatedCount} outdated`;
-      }).join('\n');
     case 'stats':
       return Object.entries(result.stats || {})
         .map(([k, v]) => `${k}: ${v}`)
@@ -501,8 +495,6 @@ async function runCommand(parsed, container) {
     }
     case 'health':
       return projectHealth({ cwd: parsed.cwd }, container);
-    case 'deps':
-      return checkDependencies({ cwd: parsed.cwd }, container);
     case 'stats':
       return dependencyGraph({ cwd: parsed.cwd, operation: 'stats' }, container);
     case 'dependencies':
