@@ -92,6 +92,7 @@ P0T1–P0T5 全部交付。
 - [x] Rust workspace 子 crate 支持（`cargo test -p`）
 - [x] mixed repo 命令精度提升（`classifyChangeType` 单一数据源 + `codeTargets` 过滤）
 - [x] CLI 命令完整性补全（`stats` / `dependents` / `dependencies`）
+- [ ] **CLI 瘦身（1.0 breaking change）** — 详见下方「1.0 发布准备」
 - [ ] Gradle 任务发现
 - [ ] Go module path 聚合（嵌套 `go.mod`）
 - [ ] Rust 模块级测试过滤
@@ -190,6 +191,31 @@ for (const file of files) {
 - **改动**：`file-index.js` `processPending()` 末尾新增 `onPendingProcessed` 批量回调；`container.js` 注册 `fileIndex.onPendingProcessed → depGraph.updateFiles`；`dep-graph.js` 新增 `updateFiles()` 方法（删旧边 → 检查 mtime → 重新解析 → 加新边）。
 - **实测**：新增 1 个文件后 `audit-summary`，`[DepGraph] Built in 10ms: 83 files (99% cached)`。
 - **验收**：`node cli.js watch --cwd .` 后改一个文件，<500ms 完成增量更新（需 REPL/watch 长期运行模式配合）
+
+---
+
+## 1.0 发布准备（下一步）
+
+> v0.9.13 已交付 P5 完整上下文（缓存 + Watcher + REPL + watch）。1.0 是 major version，天然容纳 breaking change。
+
+### CLI 瘦身：23 → 8 命令
+
+**问题**：CLI 单次运行有固定初始化成本（~70-300ms）。原子命令（`dead-exports`/`unresolved`/`cycles`/`impact`/`affected-tests`/`dependencies`/`dependents`/`stats`）和聚合命令成本相同，但信息量低 5 倍以上。用户误以为「我只查这个，所以更快」，实际初始化一分没少。
+
+**方案**：
+- **保留 8 个核心命令**：`audit-summary` / `audit-diff` / `audit-file` / `audit-overview` / `audit-map` / `repl` / `watch` / `diagnostics`
+- **从 CLI 删除，保留在 REPL**：`dead-exports` / `unresolved` / `cycles` / `impact` / `affected-tests` / `dependencies` / `dependents` / `stats`
+- **从 CLI 删除**：`workspace-info`（所有 audit 命令已含此信息）/ `health`（`audit-summary` 子集）/ `deps`（与静态分析定位无关）
+- **收益**：`cli.js` 595 行 → ~300 行，`formatHuman` 14 case → 6 case，用户认知负担从「我该用哪个？」变为「聚合命令 vs REPL 原子查询」
+
+**隐性成本**：
+- `analysis-test.js` / `integration-core-test.js` / `functionality-test.js` 大量原子 CLI 调用需重构为直接测 `depGraph.findXxx()` 或聚合命令 + `jq` 提取
+- 预估投入：1.5-2 天（测试重构占大头）
+
+### 版本与打包
+- `package.json` 版本号对齐（当前 0.9.11，CHANGELOG 已写到 0.9.14）
+- `npm pack --dry-run` 确认无 `reference/` / `.claude/` 等噪音
+- 写 Release Notes（breaking change 清单 + 迁移指南）
 
 ---
 

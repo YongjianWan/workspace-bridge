@@ -4,9 +4,10 @@
 
 ## 基线状态
 
-- 代码干净：`git status` 无未提交修改
-- 测试：35/35 PASS
-- 版本：v0.9.14
+- 代码干净：`git status` 仅 `.claude/settings.local.json`（IDE 个人配置，未提交）
+- 测试：36/36 PASS
+- 版本：**v0.9.13 已 commit + tag**（`637c103`）
+- 分支：`main`，ahead of origin by 4 commits
 
 ## 本轮完成（极简）
 
