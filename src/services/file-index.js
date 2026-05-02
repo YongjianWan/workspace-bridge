@@ -15,7 +15,7 @@ const readFile = promisify(fs.readFile);
 
 // Limit concurrent file operations to prevent memory exhaustion
 const DEFAULT_CONCURRENCY = 50;
-const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', 'gitnexus-extract', 'gitnexus'];
+const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', 'gitnexus-extract', 'gitnexus', 'test-temp'];
 
 class FileIndex {
   constructor(workspaceRoot, cache, options = {}) {
@@ -52,6 +52,9 @@ class FileIndex {
       }
       await this.indexByPattern(pattern, DEFAULTS.FILE_INDEX_MAX_DEPTH, 120000); // 2 min per pattern
     }
+
+    // Remove cache entries for files deleted since last build
+    this.pruneDeletedCacheEntries();
 
     // CLI mode does not need long-lived watchers.
     if (shouldWatch) {
@@ -216,24 +219,41 @@ class FileIndex {
     return false;
   }
 
+  _removeCacheEntry(filePath) {
+    const fileKey = normalizePathKey(filePath);
+    const cached = this.cache.getFileMetadata(filePath);
+    if (cached?.symbols) {
+      for (const symName of cached.symbols) {
+        const existing = this.cache.getSymbols(symName);
+        const filtered = existing.filter((location) => normalizePathKey(location.file) !== fileKey);
+        if (filtered.length > 0) {
+          this.cache.setSymbols(symName, filtered);
+        } else {
+          this.cache.deleteSymbol(symName);
+        }
+      }
+    }
+    this.cache.deleteFileMetadata(filePath);
+    this.cache.deleteParseResult(filePath);
+    this.cache.clearDiagnostics(filePath);
+  }
+
   pruneExcludedCacheEntries() {
     for (const filePath of Array.from(this.cache.fileMetadata.keys())) {
       if (!this.shouldExclude(filePath)) continue;
-      const fileKey = normalizePathKey(filePath);
-      const cached = this.cache.getFileMetadata(filePath);
-      if (cached?.symbols) {
-        for (const symName of cached.symbols) {
-          const existing = this.cache.getSymbols(symName);
-          const filtered = existing.filter((location) => normalizePathKey(location.file) !== fileKey);
-          if (filtered.length > 0) {
-            this.cache.setSymbols(symName, filtered);
-          } else {
-            this.cache.deleteSymbol(symName);
-          }
-        }
-      }
-      this.cache.deleteFileMetadata(filePath);
-      this.cache.clearDiagnostics(filePath);
+      this._removeCacheEntry(filePath);
+    }
+  }
+
+  pruneDeletedCacheEntries() {
+    let pruned = 0;
+    for (const filePath of Array.from(this.cache.fileMetadata.keys())) {
+      if (fs.existsSync(filePath)) continue;
+      this._removeCacheEntry(filePath);
+      pruned += 1;
+    }
+    if (pruned > 0 && process.env.DEBUG) {
+      console.error(`[FileIndex] Pruned ${pruned} deleted files from cache`);
     }
   }
 
@@ -384,6 +404,15 @@ class FileIndex {
     
     for (const file of files) {
       await this.handleFileChange(file);
+    }
+    
+    // Phase 3: 批量通知下游服务（如 dep-graph 增量更新）
+    if (this.onPendingProcessed && files.length > 0) {
+      try {
+        await this.onPendingProcessed(files);
+      } catch (e) {
+        console.error(`[FileIndex] onPendingProcessed failed:`, e.message);
+      }
     }
   }
 

@@ -84,8 +84,13 @@ function findOrphanFiles(files, entryFiles, graph, root) {
 
     if (ext === '.md' || ext === '.mdx' || base.toLowerCase().includes('readme')) {
       orphans.docs.push(relativePath);
-    } else if (relativePath.startsWith('scripts/') || relativePath.includes('/scripts/') || relativePath.startsWith('bin/') || relativePath.includes('/bin/')) {
-      orphans.scripts.push(relativePath);
+    } else if (
+      relativePath.startsWith('scripts/') || relativePath.includes('/scripts/') ||
+      relativePath.startsWith('bin/') || relativePath.includes('/bin/') ||
+      relativePath.startsWith('benchmark/') || relativePath.includes('/benchmark/') ||
+      relativePath.startsWith('wb-analysis-fixture/') || relativePath.includes('/wb-analysis-fixture/')
+    ) {
+      continue; // Scripts, benchmarks, and test fixtures are standalone entry points, not orphans
     } else if (ext === '.json' || ext === '.yaml' || ext === '.yml' || ext === '.toml') {
       orphans.configs.push(relativePath);
     } else if (['.js', '.ts', '.py', '.go', '.rs', '.java'].includes(ext)) {
@@ -338,11 +343,15 @@ function buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectCon
     const dependents = depGraph.getDependents?.(file) || [];
     const dependencies = depGraph.getDependencies?.(file) || [];
     const coupling = calculateCoupling(dependencies, dependents);
-    const isOverCoupled = coupling.level === 'high' ||
-      (coupling.total >= 3 && (coupling.inDegree >= 2 || coupling.outDegree >= 2));
-    if (!isOverCoupled) continue;
     const classification = projectContext?.classifyFile?.(file);
     if (!classification?.isMainline) continue;
+
+    const role = classification.fileRole || 'library';
+    const isPureUtility = coupling.outDegree === 0 && coupling.inDegree > 0;
+    const isScriptOrTest = role === 'script' || role === 'test';
+    const isOverCoupled = coupling.level === 'high' ||
+      (!isPureUtility && !isScriptOrTest && coupling.total >= 3 && (coupling.inDegree >= 2 || coupling.outDegree >= 2));
+    if (!isOverCoupled) continue;
     candidates.push({
       file,
       coupling,

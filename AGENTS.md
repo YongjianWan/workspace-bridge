@@ -101,6 +101,9 @@ workspace-bridge 的核心价值很直接：
 - `audit-diff`
   - 聚合当前 git worktree 改动
   - 输出 changed files、impact、affected tests、historyRisk、验证建议
+- `watch`
+  - 文件保存自动打印影响面
+  - 复用 REPL 的 dep-graph 热缓存，<500ms 响应
 - `audit-overview`
   - 输出项目热区、稳定性、孤儿文件、核心模块
   - 适合第一次接手一个仓库时快速看骨架
@@ -121,8 +124,8 @@ workspace-bridge 的核心价值很直接：
 > 以下数据由 `node cli.js audit-* --cwd .` 自分析得出，供开发者快速建立心理模型。
 
 **规模**
-- 70 文件，69 主代码 + 1 参考
-- 角色：entry=2, library=27, test=30, script=11
+- 88 文件，52 主代码 + 1 参考
+- 角色：entry=3, library=39, test=35, script=11
 - 入口：`cli.js`（CLI 入口）、`src/services/dep-graph/parsers/index.js`（parser 独立入口）
 
 **架构分层（按依赖方向，从上到下）**
@@ -153,12 +156,12 @@ workspace-bridge 的核心价值很直接：
 - 健康度：5/5
 - 循环依赖：0
 - 死导出：0
-- 孤儿文件：7 个（见 `audit-overview` 输出）
+- 孤儿文件：0
 
 **模块边界**
 - 0 循环依赖，模块边界干净
 - parser 子系统可独立使用（`parsers/index.js` 为第二入口）
-- 测试覆盖度极高（30 test vs 27 library），核心改动均有测试兜底
+- 测试覆盖度极高（35 test vs 39 library），核心改动均有测试兜底
 
 ---
 

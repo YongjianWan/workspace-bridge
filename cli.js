@@ -71,6 +71,8 @@ Commands:
   audit-map              Global project map (tree + edges + issue overlay)
   health                  Summarize project health
   deps                    List outdated dependencies
+  repl                    Start interactive REPL shell
+  watch                   Watch files and print impact on save
   stats                   Show dependency graph statistics
   dependencies --file <p> List direct dependencies of a file
   dependents --file <p>   List direct dependents of a file
@@ -539,6 +541,18 @@ async function main() {
 
   if (parsed.help || !parsed.command) {
     printUsage();
+    return;
+  }
+
+  if (parsed.command === 'repl') {
+    const { startRepl } = require('./src/cli/repl');
+    await startRepl({ cwd: parsed.cwd, exclude: parsed.exclude, quiet: parsed.quiet });
+    return;
+  }
+
+  if (parsed.command === 'watch') {
+    const { startWatch } = require('./src/cli/watch');
+    await startWatch({ cwd: parsed.cwd, exclude: parsed.exclude });
     return;
   }
 

@@ -8,7 +8,7 @@ const { normalizePathKey } = require('../utils/path');
 
 const CACHE_FILENAME = '.workspace-bridge-cache.json';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const CACHE_VERSION = 2; // Increment when cache structure changes
+const CACHE_VERSION = 3; // Increment when cache structure changes
 
 class WorkspaceCache {
   constructor(workspaceRoot) {
@@ -18,6 +18,7 @@ class WorkspaceCache {
     // In-memory caches
     this.workspaceInfo = null;
     this.fileMetadata = new Map(); // file -> {mtime, size, hash}
+    this.parseResults = new Map(); // file -> {imports, exports, importRecords, exportRecords, functionRecords, parseMode, confidence, mtime}
     this.symbolIndex = new Map();  // symbol -> [{file, line, type}]
     this.diagnostics = new Map();  // file -> [diagnostics]
     
@@ -79,6 +80,16 @@ class WorkspaceCache {
     return normalized;
   }
 
+  normalizeParseResultEntries(entries) {
+    const normalized = new Map();
+    for (const [filePath, result] of entries || []) {
+      const key = this.normalizeFilePath(filePath);
+      if (!key) continue;
+      normalized.set(key, result);
+    }
+    return normalized;
+  }
+
   /**
    * Load from disk if exists and fresh
    */
@@ -105,6 +116,7 @@ class WorkspaceCache {
       // Restore data
       this.workspaceInfo = data.workspaceInfo || null;
       this.fileMetadata = this.normalizeFileMapEntries(data.fileMetadata || []);
+      this.parseResults = this.normalizeParseResultEntries(data.parseResults || []);
       this.symbolIndex = this.normalizeSymbolEntries(data.symbolIndex || []);
       this.diagnostics = this.normalizeDiagnosticsEntries(data.diagnostics || []);
       this.lastSaved = stat.mtimeMs;
@@ -128,6 +140,7 @@ class WorkspaceCache {
         workspaceRoot: this.workspaceRoot,
         workspaceInfo: this.workspaceInfo,
         fileMetadata: Array.from(this.fileMetadata.entries()),
+        parseResults: Array.from(this.parseResults.entries()),
         symbolIndex: Array.from(this.symbolIndex.entries()),
         diagnostics: Array.from(this.diagnostics.entries()),
       };
@@ -182,6 +195,31 @@ class WorkspaceCache {
     const key = this.normalizeFilePath(filePath);
     if (!key) return;
     this.fileMetadata.delete(key);
+  }
+
+  // Parse result cache
+  getParseResult(filePath) {
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return undefined;
+    return this.parseResults.get(key);
+  }
+
+  setParseResult(filePath, result) {
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return;
+    this.parseResults.set(key, result);
+  }
+
+  hasParseResult(filePath) {
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return false;
+    return this.parseResults.has(key);
+  }
+
+  deleteParseResult(filePath) {
+    const key = this.normalizeFilePath(filePath);
+    if (!key) return;
+    this.parseResults.delete(key);
   }
 
   // Symbol index cache
@@ -247,6 +285,7 @@ class WorkspaceCache {
     }
     return {
       files: this.fileMetadata.size,
+      parseResults: this.parseResults.size,
       symbols: this.symbolIndex.size,
       diagnostics: diagnosticCount,
     };

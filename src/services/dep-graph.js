@@ -173,13 +173,29 @@ class DependencyGraph {
       files.push(file);
     }
     
-    // Process with concurrency limit (same pattern as FileIndex)
-    await this._processFilesWithLimit(files, CONFIG.DEFAULT_CONCURRENCY);
+    // Split: cache hit vs need analysis
+    const cachedFiles = [];
+    const filesToAnalyze = [];
+    for (const file of files) {
+      const meta = this.cache.getFileMetadata(file);
+      const cached = this.cache.getParseResult(file);
+      if (cached && meta && cached.mtime === meta.mtime) {
+        const key = this.normalizeFilePath(file);
+        this.graph.set(key, cached);
+        cachedFiles.push(file);
+      } else {
+        filesToAnalyze.push(file);
+      }
+    }
+    
+    // Process only changed/new files with concurrency limit
+    await this._processFilesWithLimit(filesToAnalyze, CONFIG.DEFAULT_CONCURRENCY);
 
     // Build reverse graph
     this.buildReverseGraph();
 
-    console.error(`[DepGraph] Built in ${Date.now() - startTime}ms: ${this.graph.size} files`);
+    const cacheHitRate = files.length > 0 ? Math.round((cachedFiles.length / files.length) * 100) : 0;
+    console.error(`[DepGraph] Built in ${Date.now() - startTime}ms: ${this.graph.size} files (${cacheHitRate}% cached)`);
   }
 
   /**
@@ -259,6 +275,15 @@ class DependencyGraph {
         confidence: parseMode === 'ast' ? 'high' : 'medium',
       });
 
+      // Cache parse result for incremental rebuilds
+      const meta = this.cache.getFileMetadata(filePath);
+      if (meta) {
+        this.cache.setParseResult(filePath, {
+          ...this.graph.get(graphKey),
+          mtime: meta.mtime,
+        });
+      }
+
     } catch (e) {
       // 单个文件分析失败不应阻塞整个依赖图构建，记录日志后继续
       console.error(`[DepGraph] Failed to analyze ${filePath}:`, e.message);
@@ -278,6 +303,77 @@ class DependencyGraph {
         }
         this.reverseGraph.get(imp).push(file);
       }
+    }
+  }
+
+  /**
+   * Incrementally update dependency graph for changed files.
+   * Removes old reverse edges, re-parses changed files, adds new reverse edges.
+   * Does NOT rebuild the full reverse graph.
+   */
+  async updateFiles(filePaths) {
+    const startTime = Date.now();
+    let reParsed = 0;
+    let skipped = 0;
+
+    for (const filePath of filePaths) {
+      const key = this.normalizeFilePath(filePath);
+
+      // Fast path: file unchanged (graph and cache agree on mtime)
+      const oldInfo = this.graph.get(key);
+      const meta = this.cache.getFileMetadata(filePath);
+      const cached = this.cache.getParseResult(filePath);
+      if (oldInfo && cached && meta && cached.mtime === meta.mtime) {
+        skipped++;
+        continue;
+      }
+
+      // 1. Remove old reverse edges
+      if (oldInfo) {
+        for (const imp of oldInfo.imports) {
+          const dependents = this.reverseGraph.get(imp);
+          if (dependents) {
+            const filtered = dependents.filter((d) => d !== key);
+            if (filtered.length > 0) {
+              this.reverseGraph.set(imp, filtered);
+            } else {
+              this.reverseGraph.delete(imp);
+            }
+          }
+        }
+      }
+
+      // 2. Handle deleted files
+      if (!fs.existsSync(filePath)) {
+        this.graph.delete(key);
+        this.cache.deleteParseResult(filePath);
+        continue;
+      }
+
+      // 3. Re-parse
+      await this.analyzeFile(filePath);
+      reParsed++;
+
+      // 4. Add new reverse edges
+      const newInfo = this.graph.get(key);
+      if (newInfo) {
+        const seen = new Set();
+        for (const imp of newInfo.imports) {
+          if (seen.has(imp)) continue;
+          seen.add(imp);
+          if (!this.reverseGraph.has(imp)) {
+            this.reverseGraph.set(imp, []);
+          }
+          const dependents = this.reverseGraph.get(imp);
+          if (!dependents.includes(key)) {
+            dependents.push(key);
+          }
+        }
+      }
+    }
+
+    if (reParsed > 0 || skipped > 0) {
+      console.error(`[DepGraph] Incremental update: ${reParsed} re-parsed, ${skipped} skipped in ${Date.now() - startTime}ms`);
     }
   }
 

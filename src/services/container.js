@@ -89,6 +89,15 @@ class ServiceContainer {
         this.diagnostics?.scheduleCheck(filePath);
       };
 
+      // Phase 3: 注册批量变更回调 → 触发 dep-graph 增量更新
+      this.fileIndex.onPendingProcessed = async (files) => {
+        try {
+          await this.depGraph?.updateFiles?.(files);
+        } catch (e) {
+          console.error(`[Container] DepGraph incremental update failed:`, e.message);
+        }
+      };
+
       this.initialized = true;
       console.error(`[Container] Ready: ${this.fileIndex.getStats().files} files indexed`);
       

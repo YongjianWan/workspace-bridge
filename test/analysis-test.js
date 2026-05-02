@@ -24,7 +24,7 @@ function main() {
   console.log('=== workspace-bridge 跨文件分析 CLI 测试 ===\n');
 
   // 创建临时测试文件
-  const testDir = path.join(__dirname, '..', 'test-temp');
+  const testDir = path.join(__dirname, '..', 'wb-analysis-fixture');
   const testFile = path.join(testDir, 'test-module.js');
   const testUnusedFile = path.join(testDir, 'unused-module.js');
   const partialExportsFile = path.join(testDir, 'partial-exports.js');
