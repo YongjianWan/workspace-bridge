@@ -23,8 +23,52 @@ function hasStack(root, name) {
 const hasPythonProject = (root) => hasStack(root, 'python');
 const hasNodeProject   = (root) => hasStack(root, 'node');
 const hasJavaProject   = (root) => hasStack(root, 'java');
-const hasGoProject     = (root) => hasStack(root, 'go');
 const hasRustProject   = (root) => hasStack(root, 'rust');
+
+function hasGoProject(root) {
+  if (pathExists(path.join(root, 'go.mod'))) return true;
+  try {
+    const entries = fs.readdirSync(root, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'vendor') continue;
+      if (pathExists(path.join(root, entry.name, 'go.mod'))) return true;
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
+function detectGoModules(root) {
+  const modules = [];
+  if (pathExists(path.join(root, 'go.mod'))) {
+    modules.push({ dir: '.', root: true });
+  }
+  try {
+    const entries = fs.readdirSync(root, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'vendor') continue;
+      if (pathExists(path.join(root, entry.name, 'go.mod'))) {
+        modules.push({ dir: entry.name, root: false });
+      }
+    }
+  } catch { /* ignore */ }
+  return modules.length > 0 ? modules : null;
+}
+
+function mapFileToGoModule(file, modules) {
+  const normalized = file.replace(/\\/g, '/');
+  const sorted = [...modules].sort((a, b) => b.dir.length - a.dir.length);
+  for (const mod of sorted) {
+    if (mod.dir === '.') {
+      const belongsToOther = sorted.some((m) => m.dir !== '.' && normalized.startsWith(m.dir + '/'));
+      if (!belongsToOther) return mod;
+    } else if (normalized === mod.dir || normalized.startsWith(mod.dir + '/')) {
+      return mod;
+    }
+  }
+  return null;
+}
 
 function extractTomlStringArray(content, key) {
   const lines = content.split('\n');
@@ -79,6 +123,33 @@ function detectRustWorkspaceMembers(root) {
 function detectJavaBuildTool(root) {
   if (pathExists(path.join(root, 'pom.xml'))) return 'maven';
   if (pathExists(path.join(root, 'build.gradle')) || pathExists(path.join(root, 'build.gradle.kts'))) return 'gradle';
+  return null;
+}
+
+function detectGradleSubprojects(root) {
+  const settingsFiles = ['settings.gradle', 'settings.gradle.kts'];
+  for (const file of settingsFiles) {
+    const filePath = path.join(root, file);
+    if (!pathExists(filePath)) continue;
+    const content = readTextIfExists(filePath);
+    if (!content) continue;
+    const modules = [];
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('include')) continue;
+      if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) continue;
+      const quotes = /["']([^"']+)["']/g;
+      let m;
+      while ((m = quotes.exec(trimmed)) !== null) {
+        modules.push(m[1]);
+      }
+    }
+    if (modules.length === 0) return null;
+    return modules.map((name) => ({
+      name: ':' + name,
+      dir: name.replace(/:/g, '/'),
+    }));
+  }
   return null;
 }
 
@@ -261,9 +332,11 @@ function detectStack(root) {
   const hasJava = hasJavaProject(root);
   const hasGo = hasGoProject(root);
   const hasRust = hasRustProject(root);
+  const goModules = hasGo ? detectGoModules(root) : null;
   const nodePackageManager = detectNodePackageManager(root);
   const javaBuildTool = detectJavaBuildTool(root);
   const javaBuildCommand = detectJavaBuildCommand(root, javaBuildTool);
+  const javaSubprojects = javaBuildTool === 'gradle' ? detectGradleSubprojects(root) : null;
   const testRunner = detectTestRunner(root);
   const pythonTestRunner = detectPythonTestRunner(root, pyprojectText);
   const linters = detectLinters(root, pyprojectText);
@@ -304,8 +377,9 @@ function detectStack(root) {
       testRunner: javaBuildTool === 'maven' ? 'surefire' : javaBuildTool === 'gradle' ? 'junit' : null,
       linters: linters.java,
       typeChecker: typeCheckers.java,
+      subprojects: javaSubprojects,
     } : null,
-    go: hasGo ? { enabled: true, packageManager: 'go modules', testRunner: 'go test' } : null,
+    go: hasGo ? { enabled: true, packageManager: 'go modules', testRunner: 'go test', modules: goModules } : null,
     rust: hasRust ? { enabled: true, packageManager: 'cargo', testRunner: 'cargo test', workspaceMembers: detectRustWorkspaceMembers(root) } : null,
   };
 }
@@ -380,6 +454,21 @@ function getPythonCommands(pythonStack, changeType, targets) {
   return commands;
 }
 
+function mapJavaFilesToGradleModules(files, subprojects) {
+  const modules = new Set();
+  for (const file of files) {
+    const normalized = file.replace(/\\/g, '/');
+    for (const proj of subprojects) {
+      const prefix = proj.dir + '/';
+      if (normalized === proj.dir || normalized.startsWith(prefix)) {
+        modules.add(proj.name);
+        break;
+      }
+    }
+  }
+  return Array.from(modules).sort();
+}
+
 function getJavaCommands(javaStack, changeType, targets) {
   if (!javaStack?.enabled) return { smoke: [], focused: [], full: [] };
   if (changeType !== 'code' && changeType !== 'tests' && changeType !== 'config' && changeType !== 'scripts') {
@@ -396,26 +485,44 @@ function getJavaCommands(javaStack, changeType, targets) {
     }
     commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: `${javaCmd} -q test` });
   } else if (javaStack.buildTool === 'gradle') {
-    commands.smoke.push({ name: 'java-compile-check', description: 'Run Gradle compile check', cmd: `${javaCmd} -q classes` });
-    if (hasJavaFiles) {
-      commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Gradle tests', cmd: `${javaCmd} -q test --tests *Test` });
+    const affectedModules = (javaStack.subprojects && hasJavaFiles)
+      ? mapJavaFilesToGradleModules(targets, javaStack.subprojects)
+      : [];
+    if (affectedModules.length > 0) {
+      const compileTasks = affectedModules.map((m) => `${m}:classes`).join(' ');
+      const testTasks = affectedModules.map((m) => `${m}:test`).join(' ');
+      commands.smoke.push({ name: 'java-compile-check', description: 'Run Gradle compile check', cmd: `${javaCmd} -q ${compileTasks}` });
+      commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Gradle tests', cmd: `${javaCmd} -q ${testTasks} --tests *Test` });
+      commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: `${javaCmd} -q test` });
+      if (javaStack.linters.includes('checkstyle')) {
+        const checkstyleTasks = affectedModules.flatMap((m) => [`${m}:checkstyleMain`, `${m}:checkstyleTest`]).join(' ');
+        commands.smoke.push({
+          name: 'java-checkstyle',
+          description: 'Run Checkstyle',
+          cmd: `${javaCmd} ${checkstyleTasks}`,
+        });
+      }
+    } else {
+      commands.smoke.push({ name: 'java-compile-check', description: 'Run Gradle compile check', cmd: `${javaCmd} -q classes` });
+      if (hasJavaFiles) {
+        commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Gradle tests', cmd: `${javaCmd} -q test --tests *Test` });
+      }
+      commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: `${javaCmd} -q test` });
+      if (javaStack.linters.includes('checkstyle')) {
+        commands.smoke.push({
+          name: 'java-checkstyle',
+          description: 'Run Checkstyle',
+          cmd: `${javaCmd} checkstyleMain checkstyleTest`,
+        });
+      }
     }
-    commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: `${javaCmd} -q test` });
   }
-  if (javaStack.linters.includes('checkstyle')) {
-    if (javaStack.buildTool === 'maven') {
-      commands.smoke.push({
-        name: 'java-checkstyle',
-        description: 'Run Checkstyle',
-        cmd: `${javaCmd} checkstyle:check`,
-      });
-    } else if (javaStack.buildTool === 'gradle') {
-      commands.smoke.push({
-        name: 'java-checkstyle',
-        description: 'Run Checkstyle',
-        cmd: `${javaCmd} checkstyleMain checkstyleTest`,
-      });
-    }
+  if (javaStack.linters.includes('checkstyle') && javaStack.buildTool === 'maven') {
+    commands.smoke.push({
+      name: 'java-checkstyle',
+      description: 'Run Checkstyle',
+      cmd: `${javaCmd} checkstyle:check`,
+    });
   }
   return commands;
 }
@@ -426,15 +533,46 @@ function getGoCommands(goStack, changeType, targets) {
   const commands = { smoke: [], focused: [], full: [] };
   commands.smoke.push({ name: 'go-build', description: 'Go build check', cmd: 'go build ./...' });
   if (targets.length > 0) {
-    const goPackages = Array.from(new Set(
-      targets.map((file) => path.dirname(file)).filter((dir) => dir && dir !== '.')
-    ));
-    if (goPackages.length > 0) {
-      commands.focused.push({ name: 'go-focused-tests', description: 'Run affected Go packages', cmd: `go test ${goPackages.map((p) => `./${p}`).join(' ')}` });
+    const hasNestedModules = goStack.modules && goStack.modules.some((m) => !m.root);
+    if (hasNestedModules) {
+      const affectedModules = new Set();
+      for (const file of targets) {
+        const mod = mapFileToGoModule(file, goStack.modules);
+        if (mod) affectedModules.add(mod.dir);
+      }
+      for (const modDir of Array.from(affectedModules).sort()) {
+        const cdPrefix = modDir === '.' ? '' : `cd ${modDir} && `;
+        commands.focused.push({
+          name: 'go-focused-tests',
+          description: `Run affected Go module${modDir === '.' ? '' : ` in ${modDir}`}`,
+          cmd: `${cdPrefix}go test ./...`,
+        });
+      }
+    } else {
+      const goPackages = Array.from(new Set(
+        targets.map((file) => path.dirname(file)).filter((dir) => dir && dir !== '.')
+      ));
+      if (goPackages.length > 0) {
+        commands.focused.push({ name: 'go-focused-tests', description: 'Run affected Go packages', cmd: `go test ${goPackages.map((p) => `./${p}`).join(' ')}` });
+      }
     }
   }
   commands.full.push({ name: 'go-all-tests', description: 'Run all Go tests', cmd: 'go test ./...' });
   return commands;
+}
+
+function inferRustModuleName(filePath) {
+  const normalized = filePath.replace(/\\/g, '/');
+  if (normalized.includes('/tests/') || normalized.includes('/benches/')) return null;
+  const srcMatch = normalized.match(/(?:^|\/)src\/(.+?)\.rs$/);
+  if (!srcMatch) return null;
+  const relativePath = srcMatch[1];
+  if (relativePath === 'lib' || relativePath === 'main') return null;
+  const parts = relativePath.split('/');
+  if (parts[parts.length - 1] === 'mod') {
+    parts.pop();
+  }
+  return parts.join('::');
 }
 
 function getRustCommands(rustStack, changeType, targets) {
@@ -444,20 +582,31 @@ function getRustCommands(rustStack, changeType, targets) {
   commands.smoke.push({ name: 'rust-check', description: 'Rust check', cmd: 'cargo check' });
 
   const rustFiles = targets.filter((file) => /\.rs$/.test(file));
-  if (rustFiles.length > 0 && rustStack.workspaceMembers) {
-    const affectedCrates = new Set();
+  if (rustFiles.length > 0) {
+    const moduleFilters = [];
     for (const file of rustFiles) {
-      const normalizedFile = file.replace(/\\/g, '/');
-      for (const crate of rustStack.workspaceMembers) {
-        const prefix = crate.dir + '/';
-        if (normalizedFile === crate.dir || normalizedFile.startsWith(prefix)) {
-          affectedCrates.add(crate.name);
+      const modName = inferRustModuleName(file);
+      if (modName) moduleFilters.push(modName);
+    }
+    const moduleArgs = moduleFilters.length > 0 ? ' ' + Array.from(new Set(moduleFilters)).sort().join(' ') : '';
+
+    if (rustStack.workspaceMembers) {
+      const affectedCrates = new Set();
+      for (const file of rustFiles) {
+        const normalizedFile = file.replace(/\\/g, '/');
+        for (const crate of rustStack.workspaceMembers) {
+          const prefix = crate.dir + '/';
+          if (normalizedFile === crate.dir || normalizedFile.startsWith(prefix)) {
+            affectedCrates.add(crate.name);
+          }
         }
       }
-    }
-    if (affectedCrates.size > 0) {
-      const crateArgs = Array.from(affectedCrates).sort().map((name) => `-p ${name}`).join(' ');
-      commands.focused.push({ name: 'rust-focused-tests', description: 'Run affected workspace crates', cmd: `cargo test ${crateArgs}` });
+      if (affectedCrates.size > 0) {
+        const crateArgs = Array.from(affectedCrates).sort().map((name) => `-p ${name}`).join(' ');
+        commands.focused.push({ name: 'rust-focused-tests', description: 'Run affected workspace crates', cmd: `cargo test ${crateArgs}${moduleArgs}` });
+      }
+    } else if (moduleArgs) {
+      commands.focused.push({ name: 'rust-focused-tests', description: 'Run affected Rust modules', cmd: `cargo test${moduleArgs}` });
     }
   }
 
@@ -578,47 +727,88 @@ function generateCommands(stack, changeType, targets, steps = []) {
     }
 
     if (split.go.length > 0 && stack.go?.enabled) {
-      const goPackages = Array.from(new Set(
-        split.go.map((file) => path.dirname(file)).filter((dir) => dir && dir !== '.')
-      ));
-      if (goPackages.length > 0) {
-        addUniqueCommand(merged, 'focused', {
-          name: 'go-direct-tests',
-          description: 'Run go direct affected packages',
-          cmd: `go test ${goPackages.map((p) => `./${p}`).join(' ')}`,
-        });
+      const hasNestedModules = stack.go.modules && stack.go.modules.some((m) => !m.root);
+      if (hasNestedModules) {
+        const affectedModules = new Set();
+        for (const file of split.go) {
+          const mod = mapFileToGoModule(file, stack.go.modules);
+          if (mod) affectedModules.add(mod.dir);
+        }
+        for (const modDir of Array.from(affectedModules).sort()) {
+          const cdPrefix = modDir === '.' ? '' : `cd ${modDir} && `;
+          addUniqueCommand(merged, 'focused', {
+            name: 'go-direct-tests',
+            description: `Run go direct affected module${modDir === '.' ? '' : ` in ${modDir}`}`,
+            cmd: `${cdPrefix}go test ./...`,
+          });
+        }
+      } else {
+        const goPackages = Array.from(new Set(
+          split.go.map((file) => path.dirname(file)).filter((dir) => dir && dir !== '.')
+        ));
+        if (goPackages.length > 0) {
+          addUniqueCommand(merged, 'focused', {
+            name: 'go-direct-tests',
+            description: 'Run go direct affected packages',
+            cmd: `go test ${goPackages.map((p) => `./${p}`).join(' ')}`,
+          });
+        }
       }
     }
 
     const rustFiles = split.rust.filter((file) => /\.rs$/.test(file));
-    if (rustFiles.length > 0 && stack.rust?.enabled && stack.rust.workspaceMembers) {
-      const affectedCrates = new Set();
+    if (rustFiles.length > 0 && stack.rust?.enabled) {
+      const moduleFilters = [];
       for (const file of rustFiles) {
-        const normalizedFile = file.replace(/\\/g, '/');
-        for (const crate of stack.rust.workspaceMembers) {
-          const prefix = crate.dir + '/';
-          if (normalizedFile === crate.dir || normalizedFile.startsWith(prefix)) {
-            affectedCrates.add(crate.name);
+        const modName = inferRustModuleName(file);
+        if (modName) moduleFilters.push(modName);
+      }
+      const moduleArgs = moduleFilters.length > 0 ? ' ' + Array.from(new Set(moduleFilters)).sort().join(' ') : '';
+
+      if (stack.rust.workspaceMembers) {
+        const affectedCrates = new Set();
+        for (const file of rustFiles) {
+          const normalizedFile = file.replace(/\\/g, '/');
+          for (const crate of stack.rust.workspaceMembers) {
+            const prefix = crate.dir + '/';
+            if (normalizedFile === crate.dir || normalizedFile.startsWith(prefix)) {
+              affectedCrates.add(crate.name);
+            }
           }
         }
-      }
-      if (affectedCrates.size > 0) {
-        const crateArgs = Array.from(affectedCrates).sort().map((name) => `-p ${name}`).join(' ');
+        if (affectedCrates.size > 0) {
+          const crateArgs = Array.from(affectedCrates).sort().map((name) => `-p ${name}`).join(' ');
+          addUniqueCommand(merged, 'focused', {
+            name: 'rust-direct-tests',
+            description: 'Run rust direct affected workspace crates',
+            cmd: `cargo test ${crateArgs}${moduleArgs}`,
+          });
+        }
+      } else if (moduleArgs) {
         addUniqueCommand(merged, 'focused', {
           name: 'rust-direct-tests',
-          description: 'Run rust direct affected workspace crates',
-          cmd: `cargo test ${crateArgs}`,
+          description: 'Run rust direct affected modules',
+          cmd: `cargo test${moduleArgs}`,
         });
       }
     }
 
     const javaFiles = split.java.filter((file) => /\.java$/.test(file));
     if (javaFiles.length > 0 && stack.java?.enabled) {
-      const javaCmd = stack.java.buildTool === 'maven'
-        ? `${stack.java.buildCommand || 'mvn'} -q -Dtest=*Test test`
-        : stack.java.buildTool === 'gradle'
-          ? `${stack.java.buildCommand || 'gradle'} -q test --tests *Test`
-          : null;
+      let javaCmd = null;
+      if (stack.java.buildTool === 'maven') {
+        javaCmd = `${stack.java.buildCommand || 'mvn'} -q -Dtest=*Test test`;
+      } else if (stack.java.buildTool === 'gradle') {
+        const affectedModules = stack.java.subprojects
+          ? mapJavaFilesToGradleModules(javaFiles, stack.java.subprojects)
+          : [];
+        if (affectedModules.length > 0) {
+          const testTasks = affectedModules.map((m) => `${m}:test`).join(' ');
+          javaCmd = `${stack.java.buildCommand || 'gradle'} -q ${testTasks} --tests *Test`;
+        } else {
+          javaCmd = `${stack.java.buildCommand || 'gradle'} -q test --tests *Test`;
+        }
+      }
       if (javaCmd) {
         addUniqueCommand(merged, 'focused', {
           name: 'java-direct-tests',

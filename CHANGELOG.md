@@ -16,6 +16,18 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **P2: Gradle 任务发现** `src/utils/stack-detector.js` — 新增 `detectGradleSubprojects()` 解析 `settings.gradle`/`settings.gradle.kts` 的 `include` 语句，提取子模块名与目录映射。`getJavaCommands()` 和 `generateCommands()` 的 direct-tests 路径均支持按受影响子模块生成精确 Gradle 命令（`:app:test`、`:app:classes`、`:app:checkstyleMain` 等），不再只能跑全量 `gradlew test`
+- **P2: Go module path 聚合** `src/utils/stack-detector.js` — `hasGoProject()` 扩展为检测嵌套 `go.mod`（root 无 go.mod 时扫描一级子目录）；新增 `detectGoModules()` 与 `mapFileToGoModule()`。嵌套 go.mod 场景下，`getGoCommands()` 按模块生成 `cd <module> && go test ./...` 命令，避免在 root 运行导致跨模块测试失败
+- **P2: Rust 模块级测试过滤** `src/utils/stack-detector.js` — 新增 `inferRustModuleName()` 从 `src/<module>.rs` / `src/<module>/mod.rs` 路径推断模块名。`getRustCommands()` 和 `generateCommands()` 的 direct-tests 路径在 workspace crate 过滤（`-p`）后追加模块过滤（`cargo test -p crate module_name`），非 workspace 项目也支持模块级过滤（`cargo test module_name`）
+
+### 测试
+
+- 新增 `test/gradle-task-discovery-test.js` — 覆盖单模块/多模块/nested 模块/文件在未知模块回退/direct-tests 去重
+- 新增 `test/go-module-path-test.js` — 覆盖单模块路径聚合/多模块 cd 命令/root 模块/direct-tests 去重
+- 新增 `test/rust-module-filter-test.js` — 覆盖 workspace crate+模块过滤、非 workspace 模块过滤、`mod.rs` 解析、direct-tests 去重
+
 ### 修复
 
 - **耦合假阳性收敛（entry 角色）** `src/tools/overview-tools.js` `buildCouplingSplitSuggestions()` — `isOverCoupled` 新增 `!isEntry` 条件，排除 `cli.js`、`src/cli/formatters/index.js`、`src/services/dep-graph/parsers/index.js` 等入口/barrel 文件的误报；同时将非 high-level 阈值从 `total >= 3` 提升至 `total >= 8`（`DEFAULTS.COUPLING_SPLIT_MIN_TOTAL`），耦合建议从 10 条收敛至 2 条真实问题

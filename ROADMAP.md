@@ -99,9 +99,9 @@ P0T1–P0T5 全部交付。
 - [x] mixed repo 命令精度提升（`classifyChangeType` 单一数据源 + `codeTargets` 过滤）
 - [x] CLI 命令完整性补全（`stats` / `dependents` / `dependencies`）
 - [ ] **CLI 瘦身（1.0 breaking change）** — 详见下方「1.0 发布准备」
-- [ ] Gradle 任务发现
-- [ ] Go module path 聚合（嵌套 `go.mod`）
-- [ ] Rust 模块级测试过滤
+- [x] Gradle 任务发现
+- [x] Go module path 聚合（嵌套 `go.mod`）
+- [x] Rust 模块级测试过滤
 
 ### P3：提升输出可解释性
 - [x] CJS 符号解析补全
