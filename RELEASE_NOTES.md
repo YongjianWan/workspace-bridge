@@ -1,3 +1,42 @@
+# workspace-bridge v1.0.1 Release Notes
+
+> CLI-first workspace analysis engine for local AI coding agents.
+
+---
+
+## Security & Reliability Fixes
+
+### CodeQL database no longer written inside user repositories
+
+Previously, `audit-security` with CodeQL created a `.codeql/` directory inside the scanned workspace. This polluted `git status` and risked accidental commits of 5+ MB database files.
+
+**New behavior:**
+- Default database path: `~/.workspace-bridge-cache/codeql/<hash>/`
+  - `hash` = first 12 chars of SHA-256 of the absolute workspace path
+  - Isolated per workspace; no collision across projects
+- SARIF results are cleaned up immediately after parsing to avoid cache bloat
+- Advanced users can override with `--db-path <dir>`
+
+**Migration:** If you previously committed `.codeql/` to your repo, add it to `.gitignore` and delete the directory.
+
+### Mixed-repo language detection
+
+CodeQL language detection switched from "first match wins" to "detect all." When multiple language markers are found (e.g., Spring Boot + frontend in the same repo):
+- **0 candidates:** clear error message asking for `--language`
+- **1 candidate:** proceed as before
+- **≥2 candidates:** clear error message listing detected languages and requiring `--language`
+
+This fixes the bug where a Java+JavaScript mixed repo was silently scanned as `javascript`.
+
+### Other fixes
+- Semgrep + CodeQL now run in parallel (`Promise.all`) instead of serially
+- `audit-security` with no targets now defaults to `['.']` instead of silently returning empty results
+- `commandExists` now uses the same platform-resolved command name as `spawn`, fixing Windows inconsistencies (`where codeql.exe` vs `spawn codeql.cmd`)
+- `dedupeFindings` renamed to `dedupeWithinTool` with JSDoc clarifying that cross-tool duplicates are intentionally preserved (confirmation signal)
+- Rust `inferRustModuleName` now excludes `examples/` directories and handles edge cases (`src/mod.rs`, pop-to-empty)
+
+---
+
 # workspace-bridge v1.0.0 Release Notes
 
 > CLI-first workspace analysis engine for local AI coding agents.

@@ -838,4 +838,5 @@ module.exports = {
   generateCommands,
   detectNodePackageManager,
   detectTestRunner,
+  inferRustModuleName,
 };

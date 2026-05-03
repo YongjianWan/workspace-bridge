@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 const assert = require('assert');
-const { generateCommands } = require('../src/utils/stack-detector');
+const { generateCommands, inferRustModuleName } = require('../src/utils/stack-detector');
 
 function main() {
   // --- Workspace Rust with module filtering ---
@@ -65,6 +65,14 @@ function main() {
   assert.strictEqual(appTestCmds.length, 1, 'Should dedupe identical focused/direct test commands');
   assert(appTestCmds[0].cmd.includes('-p app'), `Direct test should target crate: ${appTestCmds[0].cmd}`);
   assert(appTestCmds[0].cmd.includes('parser'), `Direct test should filter module: ${appTestCmds[0].cmd}`);
+
+  // --- inferRustModuleName boundary cases ---
+  assert.strictEqual(inferRustModuleName('src/examples/foo.rs'), null, 'examples/ should be excluded');
+  assert.strictEqual(inferRustModuleName('src/benches/foo.rs'), null, 'benches/ should be excluded');
+  assert.strictEqual(inferRustModuleName('src/tests/foo.rs'), null, 'tests/ should be excluded');
+  assert.strictEqual(inferRustModuleName('src/mod.rs'), null, 'src/mod.rs should return null');
+  assert.strictEqual(inferRustModuleName('src/utils/mod.rs'), 'utils', 'mod.rs should resolve to parent dir');
+  assert.strictEqual(inferRustModuleName('src/parser.rs'), 'parser', 'plain module should work');
 
   console.log('rust-module-filter-test: ok');
 }

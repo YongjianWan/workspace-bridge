@@ -30,7 +30,7 @@ function dedupeWithinTool(findings) {
   return out;
 }
 
-async function auditSecurity({ cwd, targets = [], config, language, forceRefresh }, container) {
+async function auditSecurity({ cwd, targets = [], config, language, dbPath, forceRefresh }, container) {
   void container;
   const adapters = await getAvailableAdapters(cwd);
   if (adapters.length === 0) {
@@ -51,7 +51,7 @@ async function auditSecurity({ cwd, targets = [], config, language, forceRefresh
   const effectiveTargets = targets.length > 0 ? targets : ['.'];
 
   const results = await Promise.all(
-    adapters.map((adapter) => adapter.scan(effectiveTargets, { cwd, config, language, forceRefresh }))
+    adapters.map((adapter) => adapter.scan(effectiveTargets, { cwd, config, language, dbPath, forceRefresh }))
   );
   const scanMeta = adapters.map((a, i) => ({ name: a.name, summary: results[i].summary }));
   const allFindings = results.flatMap((r) => r.findings);

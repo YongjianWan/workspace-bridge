@@ -16,45 +16,33 @@
 
 ## [Unreleased]
 
-### 新增
-
-- **P2: Gradle 任务发现** `src/utils/stack-detector.js` — 新增 `detectGradleSubprojects()` 解析 `settings.gradle`/`settings.gradle.kts` 的 `include` 语句，提取子模块名与目录映射。`getJavaCommands()` 和 `generateCommands()` 的 direct-tests 路径均支持按受影响子模块生成精确 Gradle 命令（`:app:test`、`:app:classes`、`:app:checkstyleMain` 等），不再只能跑全量 `gradlew test`
-- **P2: Go module path 聚合** `src/utils/stack-detector.js` — `hasGoProject()` 扩展为检测嵌套 `go.mod`（root 无 go.mod 时扫描一级子目录）；新增 `detectGoModules()` 与 `mapFileToGoModule()`。嵌套 go.mod 场景下，`getGoCommands()` 按模块生成 `cd <module> && go test ./...` 命令，避免在 root 运行导致跨模块测试失败
-- **P2: Rust 模块级测试过滤** `src/utils/stack-detector.js` — 新增 `inferRustModuleName()` 从 `src/<module>.rs` / `src/<module>/mod.rs` 路径推断模块名。`getRustCommands()` 和 `generateCommands()` 的 direct-tests 路径在 workspace crate 过滤（`-p`）后追加模块过滤（`cargo test -p crate module_name`），非 workspace 项目也支持模块级过滤（`cargo test module_name`）
-- **成功标准 #6：可选外部工具后端** `src/adapters/` — 新增 adapter 架构：`BaseAdapter` 接口 + `SemgrepAdapter`（完整实现，调用 `semgrep --json`）+ `CodeQLAdapter`（完整实现：自动语言检测、数据库创建/复用、SARIF v2.1.0 解析）。新增 `audit-security` 命令，聚合 Semgrep + CodeQL 结果，输出统一 severity 统计。CLI 新增 `--language` 与 `--force-refresh` 参数
-
-### 测试
-- 新增 `test/security-adapter-test.js` — 覆盖 BaseAdapter 接口契约、Semgrep normalizeFinding、severity 映射、auditSecurity 无 scanner fallback
-
-- 新增 `test/gradle-task-discovery-test.js` — 覆盖单模块/多模块/nested 模块/文件在未知模块回退/direct-tests 去重
-- 新增 `test/go-module-path-test.js` — 覆盖单模块路径聚合/多模块 cd 命令/root 模块/direct-tests 去重
-- 新增 `test/rust-module-filter-test.js` — 覆盖 workspace crate+模块过滤、非 workspace 模块过滤、`mod.rs` 解析、direct-tests 去重
+## [1.0.1] - 2026-05-03
 
 ### 修复
 
-- **Security adapter post-1.0 加固** `src/tools/security-tools.js` `src/adapters/codeql.js` `src/utils/command.js` `.gitignore` — 一组针对 v1.0 后 audit-security 真实场景的修复：
-  - **`.gitignore` 加 `.codeql/`** — CodeQL 数据库写到 `<cwd>/.codeql/databases/<lang>/`（5+ MB），不 ignore 会污染 `git status` 并可能误提交
-  - **adapter 串行 → `Promise.all` 并行** `auditSecurity()` — Semgrep + CodeQL 同时跑，大仓库节省一半时间
-  - **`audit-security` 默认 targets `['.']`** — 不传参数时扫当前目录，避免 `node cli.js audit-security` 静默返回空
-  - **CodeQL 混合仓库语言检测** `detectCodeQLLanguages()` — first-match-wins 改为 detect-all：0 候选返回检测失败，≥2 候选要求 `--language` 显式指定。修复 Spring Boot + 前端被识别为 javascript 的 bug
-  - **`dedupeFindings` 重命名为 `dedupeWithinTool`** — key 含 `tool` 字段意味着跨工具同位置发现不去重（这是有意的：双工具确认是信号），新名 + JSDoc 让意图自解释
-  - **CodeQL `_ensureDatabase` 简化** — 单次 `pathExists` 判断，删除冗余调用
-  - **CodeQL summary 删除 `scanned: targets.length`** — CodeQL 实际扫的是 `--source-root`，targets 不参与，旧字段是假数据
-  - **`commandExists` 与 spawn 命令名对齐** `src/utils/command.js` — `where`/`which` 现在也走 `resolveCommandForPlatform`，避免 Win 上 `where codeql` 找到 `.exe` 但 spawn 强制 `.cmd` 的不一致
+- **CodeQL 数据库默认搬到 OS 缓存目录** `src/adapters/codeql.js` `cli.js` — 默认数据库路径从 `<cwd>/.codeql/`（污染用户仓库）改为 `~/.workspace-bridge-cache/codeql/<sha256(cwd).slice(0,12)>/`。不同项目互不影响，SARIF 结果解析后立即清理。CLI 新增 `--db-path` 参数供进阶用户覆盖
+- **CodeQL 混合仓库语言检测** `src/adapters/codeql.js` — first-match-wins 改为 detect-all：0 候选返回检测失败，≥2 候选要求 `--language` 显式指定。修复 Spring Boot + 前端被识别为 javascript 的 bug
+- **adapter 串行 → `Promise.all` 并行** `src/tools/security-tools.js` — Semgrep + CodeQL 同时跑，大仓库节省一半时间
+- **`audit-security` 默认 targets `['.']`** `src/tools/security-tools.js` — 不传参数时扫当前目录，避免静默返回空结果
+- **`dedupeFindings` 重命名为 `dedupeWithinTool`** `src/tools/security-tools.js` — 跨工具同位置发现不去重是有意设计（双工具确认是信号），新名 + JSDoc 让意图自解释
+- **CodeQL `_ensureDatabase` 简化** `src/adapters/codeql.js` — 单次 `pathExists` 判断，删除旧库时 `force: true`
+- **CodeQL summary 删除 `scanned: targets.length`** `src/adapters/codeql.js` — CodeQL 实际扫的是 `--source-root`，targets 不参与，旧字段是假数据
+- **`commandExists` 与 spawn 命令名对齐** `src/utils/command.js` — `where`/`which` 现在也走 `resolveCommandForPlatform`，避免 Win 上 `where codeql` 找到 `.exe` 但 spawn 强制 `.cmd` 的不一致
 - **Rust 模块名推断收敛** `src/utils/stack-detector.js` `inferRustModuleName()` — Cargo 特殊目录补 `examples/`（之前只排 `tests/`、`benches/`）；`src/mod.rs` 罕见情况 + pop 后空数组兜底，避免生成 `cargo test ''` 的未定义命令
-- **耦合假阳性收敛（entry 角色）** `src/tools/overview-tools.js` `buildCouplingSplitSuggestions()` — `isOverCoupled` 新增 `!isEntry` 条件，排除 `cli.js`、`src/cli/formatters/index.js`、`src/services/dep-graph/parsers/index.js` 等入口/barrel 文件的误报；同时将非 high-level 阈值从 `total >= 3` 提升至 `total >= 8`（`DEFAULTS.COUPLING_SPLIT_MIN_TOTAL`），耦合建议从 10 条收敛至 2 条真实问题
-- **FileIndex 排除测试 fixture** `src/services/file-index.js` — `DEFAULT_EXCLUDE_DIRS` 增加 `wb-analysis-fixture`，避免测试 fixture 被索引后产生死导出/未解析误报
-- **search-tools ReDoS 保护加固** `src/tools/search-tools.js` — symbol 搜索路径新增 `String.prototype.includes` 预检，替代 `safeRegexTest()` 的直接调用；text 搜索已使用 `includes`，symbol 正则由 `escapeRegex()` 构建，回溯风险结构性消除
-- **editor-state.js / better-sqlite3 清理** 确认 `editor-state.js` 已不存在、`better-sqlite3` 已从 `package.json` 移除，`docs/TECH_DEBT.md` 移除对应条目
-- **CLI 错误处理修复（HIGH）** `cli.js` — `--quiet` 不再吞掉致命错误：`catch` 块改用备份的 `originalConsoleError` 输出，用户能在静默模式下仍看到崩溃原因；`formatHuman()` 新增 `result.ok === false` 守卫，避免对错误响应体访问 `result.summary.*` 导致 `TypeError` 崩溃
-- **REPL 健壮性修复（MEDIUM）** `src/cli/repl.js` — `--max-depth` 参数新增 `Number.isFinite` + `> 0` 校验，防止 `NaN` 导致 BFS 遍历失控；初始化失败路径新增 `finally` 确保 `container.shutdown()` 总是被调用，消除资源泄漏；移除冗余的 `rl.setPrompt('> ')` 重复调用；`help` 文本补全 `quit` 别名
-- **CLI 裸数字归一化（MEDIUM）** `cli.js` / `src/cli/repl.js` / `src/cli/watch.js` — 并发限制 `8`、history limit `25`、初始化超时 `60000`、symbol impact depth `4` 全部集中到 `src/config/constants.js`（`CLI_CONCURRENCY`、`HISTORY_LIMIT`、`INIT_TIMEOUT_MS`、`SYMBOL_IMPACT_DEPTH`）
-- **classifyChangeType 精度提升（MEDIUM）** `src/cli/formatters/audit-diff-summary.js` — 新增比例感知：单一类型（test/config/script/code）占绝对多数（>50%）时直接返回该类型，避免 90% config + 10% test 被误判为 tests；`codeRatio > 0.2` 提取为 `DEFAULTS.CODE_CHANGE_RATIO_THRESHOLD`
-- **Watch 模式常量归一化（MEDIUM）** `src/cli/watch.js` — 硬编码深度 `3` 改为引用 `DEFAULTS.WATCH_IMPACT_DEPTH`
-- **#13** `arrow-function-test.js` 稳定性 — `src/services/dep-graph/parsers/js.js` `parseJavaScript()` regex fallback 现在返回 `functionRecords: []`，避免 `@babel/parser` 不可用时 `functionRecords` 为 `undefined`
-- **#14/#15** `audit-diff-test.js` / `functionality-test.js` 诊断增强 — `src/services/dep-graph/function-impact.js` `getChangedFunctionImpact()` 返回 `unavailable` 时附带 `actualParseMode` 字段；测试断言失败前打印诊断日志，帮助定位 AST 模式缺失的根因
-- **#16** `affected-tests-heuristic-test.js` 跨平台修复 — `src/utils/test-detector.js` `buildHeuristicSignature()` 在 POSIX 系统上正确处理 Windows 绝对路径（`C:\...`），避免 `path.relative` 行为差异导致启发式签名不匹配
-- **#17** `java-parsers-test.js` 环境适配 — 测试开头检测 Python `javalang` 是否可用，缺失时 skip AST 测试而不是硬失败（fallback 测试始终运行）
+
+### 测试
+- `test/security-adapter-test.js` — 新增 CodeQL 多语言检测错误路径、auditSecurity 空 targets 默认 `['.']`
+- `test/rust-module-filter-test.js` — 新增 `inferRustModuleName` boundary 测试（`examples/`、`benches/`、`tests/`、`mod.rs`、pop-to-empty）
+
+## [1.0.0] - 2026-05-02
+
+### Breaking Changes
+
+- **`deps` 命令删除** `cli.js` — `deps` 是 `npm outdated --json` 的封装，与「跨文件结构化分析」核心定位无关，且 npm / pip / cargo 自带 `outdated` 功能。这是 1.0 唯一的 breaking change
+
+### 决策变更
+
+- **CLI 瘦身（23 → 8）取消** — 原计划删除 15 个命令，经产品视角重新评估后取消。主要用户是 AI agent，AI 调用原子命令比聚合命令更省 token（精确输出 vs 冗余超集），且 AI 不存在「命令太多选哪个」的认知 paralysis。保留完整命令集对 AI 用户是净收益
 
 ## [0.9.14] - 2026-05-02
 

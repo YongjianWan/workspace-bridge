@@ -7,7 +7,7 @@ const { CodeQLAdapter } = require('../src/adapters/codeql');
 const { getAllAdapters, getAvailableAdapters } = require('../src/adapters');
 const { auditSecurity, groupBySeverity, dedupeWithinTool } = require('../src/tools/security-tools');
 
-function main() {
+async function main() {
   // --- BaseAdapter interface ---
   const base = new BaseAdapter();
   assert.throws(() => base.name, /Subclass must implement name/);
@@ -118,10 +118,21 @@ function main() {
 
   // --- CodeQLAdapter.scan with no language detected ---
   // Use 'test/' as cwd because it has no build markers (package.json, go.mod, etc.)
-  codeql.scan([], { cwd: path.join(process.cwd(), 'test') }).then((result) => {
-    assert.strictEqual(result.summary.total, 0);
-    assert.ok(result.summary.error.includes('Unable to detect language'), `Expected language detection error, got: ${result.summary.error}`);
-  });
+  const noLangResult = await codeql.scan([], { cwd: path.join(process.cwd(), 'test') });
+  assert.strictEqual(noLangResult.summary.total, 0);
+  assert.ok(noLangResult.summary.error.includes('Unable to detect language'), `Expected language detection error, got: ${noLangResult.summary.error}`);
+
+  // --- CodeQLAdapter.scan multiple languages detected ---
+  const fs = require('fs');
+  const tmpGoMod = path.join(process.cwd(), 'go.mod');
+  fs.writeFileSync(tmpGoMod, 'module fake\n');
+  try {
+    const multiLangResult = await codeql.scan([], { cwd: process.cwd() });
+    assert.strictEqual(multiLangResult.summary.total, 0);
+    assert.ok(multiLangResult.summary.error.includes('Multiple languages detected'), `Expected multiple languages error, got: ${multiLangResult.summary.error}`);
+  } finally {
+    fs.unlinkSync(tmpGoMod);
+  }
 
   // --- Registry ---
   const all = getAllAdapters();
@@ -151,14 +162,36 @@ function main() {
   assert.strictEqual(deduped.length, 2);
 
   // --- auditSecurity with no scanners available ---
-  auditSecurity({ cwd: process.cwd(), targets: [] }, null).then((result) => {
-    assert.strictEqual(result.ok, true);
-    assert.deepStrictEqual(result.adapters, []);
-    assert.strictEqual(result.summary.total, 0);
-    assert.ok(result.summary.message.includes('No security scanners available'));
-  });
+  const noScannerResult = await auditSecurity({ cwd: process.cwd(), targets: [] }, null);
+  assert.strictEqual(noScannerResult.ok, true);
+  assert.deepStrictEqual(noScannerResult.adapters, []);
+  assert.strictEqual(noScannerResult.summary.total, 0);
+  assert.ok(noScannerResult.summary.message.includes('No security scanners available'));
+
+  // --- auditSecurity defaults empty targets to ['.'] ---
+  const { ADAPTERS } = require('../src/adapters');
+  let capturedTargets = null;
+  const fakeAdapter = {
+    name: 'fake',
+    async isAvailable() { return true; },
+    async scan(targets) {
+      capturedTargets = targets;
+      return { findings: [], summary: { total: 0 } };
+    },
+  };
+  ADAPTERS.push(fakeAdapter);
+  try {
+    await auditSecurity({ cwd: process.cwd(), targets: [] }, null);
+    assert.deepStrictEqual(capturedTargets, ['.'], 'Empty targets should default to ["."]');
+  } finally {
+    const idx = ADAPTERS.indexOf(fakeAdapter);
+    if (idx >= 0) ADAPTERS.splice(idx, 1);
+  }
 
   console.log('security-adapter-test: ok');
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

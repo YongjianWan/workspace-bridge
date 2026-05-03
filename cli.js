@@ -115,6 +115,7 @@ function parseCliArgs(argv) {
     '--overview-dashboard': { key: 'overviewDashboard' },
     '--config': { key: 'config' },
     '--language': { key: 'language' },
+    '--db-path': { key: 'dbPath' },
     '--force-refresh': true,
     '--json': true,
     '--quiet': true,
@@ -151,6 +152,7 @@ function parseCliArgs(argv) {
     overviewDashboard: raw.overviewDashboard || null,
     config: raw.config || null,
     language: raw.language || null,
+    dbPath: raw.dbPath || null,
     forceRefresh: Boolean(raw['--force-refresh']),
     targets: raw._.slice(1),
     json: Boolean(raw['--json']),
@@ -526,7 +528,7 @@ async function runCommand(parsed, container) {
     case 'health':
       return projectHealth({ cwd: parsed.cwd }, container);
     case 'audit-security':
-      return auditSecurity({ cwd: parsed.cwd, targets: parsed.targets, config: parsed.config, language: parsed.language, forceRefresh: parsed.forceRefresh }, container);
+      return auditSecurity({ cwd: parsed.cwd, targets: parsed.targets, config: parsed.config, language: parsed.language, dbPath: parsed.dbPath, forceRefresh: parsed.forceRefresh }, container);
     case 'stats':
       return dependencyGraph({ cwd: parsed.cwd, operation: 'stats' }, container);
     case 'dependencies':

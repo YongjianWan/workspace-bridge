@@ -8,7 +8,9 @@
  * 4. Parse SARIF v2.1.0 and normalize findings.
  */
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { BaseAdapter } = require('./base');
 const { runCommandSecure, commandExists } = require('../utils/command');
 const { pathExists } = require('../utils/path');
@@ -42,12 +44,22 @@ function detectCodeQLLanguages(cwd) {
   return found;
 }
 
-function dbPathFor(cwd, language) {
-  return path.join(cwd, '.codeql', 'databases', language);
+function hashCwd(cwd) {
+  return crypto.createHash('sha256').update(path.resolve(cwd)).digest('hex').slice(0, 12);
 }
 
-function resultsPathFor(cwd, language) {
-  return path.join(cwd, '.codeql', 'results', `${language}.sarif`);
+function defaultCodeQLRoot(cwd) {
+  return path.join(os.homedir(), '.workspace-bridge-cache', 'codeql', hashCwd(cwd));
+}
+
+function dbPathFor(cwd, language, customRoot) {
+  const root = customRoot || defaultCodeQLRoot(cwd);
+  return path.join(root, 'databases', language);
+}
+
+function resultsPathFor(cwd, language, customRoot) {
+  const root = customRoot || defaultCodeQLRoot(cwd);
+  return path.join(root, 'results', `${language}.sarif`);
 }
 
 class CodeQLAdapter extends BaseAdapter {
@@ -98,6 +110,8 @@ class CodeQLAdapter extends BaseAdapter {
     try {
       const dbPath = await this._ensureDatabase(options.cwd, language, options);
       const sarif = await this._analyzeDatabase(dbPath, language, queryPack, options);
+      // Clean up SARIF file after parsing to avoid cache bloat.
+      try { fs.unlinkSync(resultsPathFor(options.cwd, language, options.dbPath)); } catch { /* ignore */ }
       const rawResults = this._extractResultsFromSarif(sarif);
       const findings = rawResults.map((r) => this.normalizeFinding(r));
       // Note: targets is intentionally ignored — CodeQL scans the whole
@@ -124,10 +138,11 @@ class CodeQLAdapter extends BaseAdapter {
   }
 
   async _ensureDatabase(cwd, language, options = {}) {
-    const dbPath = dbPathFor(cwd, language);
+    const dbPath = dbPathFor(cwd, language, options.dbPath);
     const exists = pathExists(dbPath);
     if (exists && !options.forceRefresh) return dbPath;
     if (exists) fs.rmSync(dbPath, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     const result = await runCommandSecure('codeql', [
       'database', 'create', dbPath,
       `--language=${language}`,
@@ -141,7 +156,7 @@ class CodeQLAdapter extends BaseAdapter {
   }
 
   async _analyzeDatabase(dbPath, language, queryPack, options = {}) {
-    const outPath = resultsPathFor(options.cwd, language);
+    const outPath = resultsPathFor(options.cwd, language, options.dbPath);
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     const result = await runCommandSecure('codeql', [
       'database', 'analyze', dbPath,
