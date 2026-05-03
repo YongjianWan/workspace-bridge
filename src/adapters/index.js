@@ -2,11 +2,9 @@
  * Adapter registry — discover and run available external security/analysis tools.
  */
 const { SemgrepAdapter } = require('./semgrep');
-const { CodeQLAdapter } = require('./codeql');
 
 const ADAPTERS = [
   new SemgrepAdapter(),
-  new CodeQLAdapter(),
 ];
 
 async function getAvailableAdapters(cwd) {

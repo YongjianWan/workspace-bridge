@@ -72,7 +72,7 @@ Commands:
   audit-overview         Project panoramic view (hotspots, stability, orphans)
   audit-map              Global project map (tree + edges + issue overlay)
   health                  Summarize project health
-  audit-security          Run external security scanners (Semgrep, CodeQL)
+  audit-security          Run external security scanners (Semgrep)
   repl                    Start interactive REPL shell
   watch                   Watch files and print impact on save
   stats                   Show dependency graph statistics
@@ -115,8 +115,6 @@ function parseCliArgs(argv) {
     '--overview-dashboard': { key: 'overviewDashboard' },
     '--config': { key: 'config' },
     '--language': { key: 'language' },
-    '--db-path': { key: 'dbPath' },
-    '--force-refresh': true,
     '--json': true,
     '--quiet': true,
     '--help': true,
@@ -152,8 +150,6 @@ function parseCliArgs(argv) {
     overviewDashboard: raw.overviewDashboard || null,
     config: raw.config || null,
     language: raw.language || null,
-    dbPath: raw.dbPath || null,
-    forceRefresh: Boolean(raw['--force-refresh']),
     targets: raw._.slice(1),
     json: Boolean(raw['--json']),
     quiet: Boolean(raw['--quiet']),
@@ -528,7 +524,7 @@ async function runCommand(parsed, container) {
     case 'health':
       return projectHealth({ cwd: parsed.cwd }, container);
     case 'audit-security':
-      return auditSecurity({ cwd: parsed.cwd, targets: parsed.targets, config: parsed.config, language: parsed.language, dbPath: parsed.dbPath, forceRefresh: parsed.forceRefresh }, container);
+      return auditSecurity({ cwd: parsed.cwd, targets: parsed.targets, config: parsed.config, language: parsed.language }, container);
     case 'stats':
       return dependencyGraph({ cwd: parsed.cwd, operation: 'stats' }, container);
     case 'dependencies':

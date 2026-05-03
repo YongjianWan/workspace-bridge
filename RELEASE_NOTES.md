@@ -1,3 +1,27 @@
+# workspace-bridge v1.0.2 Release Notes
+
+> CLI-first workspace analysis engine for local AI coding agents.
+
+---
+
+## CodeQL Removed
+
+**CodeQL adapter has been removed.** After real-world evaluation, CodeQL's cost model does not align with workspace-bridge's target user (AI coding agents).
+
+| Dimension | CodeQL | Semgrep (retained) |
+|-----------|--------|-------------------|
+| Install | 500MB+ CLI download + env setup | `pip install semgrep` (seconds) |
+| First run | Database creation 1-5 min + analysis 1-5 min | Direct file scan (seconds) |
+| Incremental | Rebuild database required | No database, always incremental |
+| Languages | 10+ | 20+ |
+| Maintenance | 208 lines + database/cache/SARIF/Windows edge cases | ~60 lines |
+
+**What stays:** `audit-security` continues to work with Semgrep. If you need deeper static analysis, run CodeQL directly — workspace-bridge's thin aggregation layer added no unique value over `codeql database analyze` + reading SARIF yourself.
+
+**Migration:** If you previously used `--db-path` or `--force-refresh`, those flags are removed. `audit-security` now only accepts `--language` (passed to Semgrep) and targets.
+
+---
+
 # workspace-bridge v1.0.1 Release Notes
 
 > CLI-first workspace analysis engine for local AI coding agents.

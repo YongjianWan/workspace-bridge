@@ -15,7 +15,7 @@ function groupBySeverity(findings) {
 /**
  * Drop exact-match duplicates within the same tool's results.
  * Cross-tool findings at the same location are intentionally kept —
- * Semgrep + CodeQL flagging the same line is a confirmation signal,
+ * multiple scanners flagging the same line is a confirmation signal,
  * not noise.
  */
 function dedupeWithinTool(findings) {
@@ -30,7 +30,7 @@ function dedupeWithinTool(findings) {
   return out;
 }
 
-async function auditSecurity({ cwd, targets = [], config, language, dbPath, forceRefresh }, container) {
+async function auditSecurity({ cwd, targets = [], config, language }, container) {
   void container;
   const adapters = await getAvailableAdapters(cwd);
   if (adapters.length === 0) {
@@ -41,7 +41,7 @@ async function auditSecurity({ cwd, targets = [], config, language, dbPath, forc
       summary: {
         total: 0,
         bySeverity: { high: 0, medium: 0, low: 0, unknown: 0 },
-        message: 'No security scanners available. Install semgrep (pip install semgrep) or codeql.',
+        message: 'No security scanners available. Install semgrep (pip install semgrep).',
       },
     };
   }
@@ -51,7 +51,7 @@ async function auditSecurity({ cwd, targets = [], config, language, dbPath, forc
   const effectiveTargets = targets.length > 0 ? targets : ['.'];
 
   const results = await Promise.all(
-    adapters.map((adapter) => adapter.scan(effectiveTargets, { cwd, config, language, dbPath, forceRefresh }))
+    adapters.map((adapter) => adapter.scan(effectiveTargets, { cwd, config, language }))
   );
   const scanMeta = adapters.map((a, i) => ({ name: a.name, summary: results[i].summary }));
   const allFindings = results.flatMap((r) => r.findings);

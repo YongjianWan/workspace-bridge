@@ -121,7 +121,9 @@ workspace-bridge 的核心价值很直接：
 
 ## 项目骨架（自分析结果）
 
-> 以下数据由 `node cli.js audit-* --cwd .` 自分析得出，供开发者快速建立心理模型。
+> <!-- generated: 2026-05-03 — 数据由 `node cli.js audit-* --cwd .` 自分析得出，每次结构大幅变化后需重新运行并更新本段。-->
+>
+> 供开发者快速建立心理模型。
 
 **规模**
 - 88 文件，52 主代码 + 1 参考
@@ -196,7 +198,7 @@ workspace-bridge 的核心价值很直接：
 | 依赖图 | **自研** | 多语言统一是核心壁垒，pydeps/madge 都是单语言 |
 | 增量分析 | **自研** | git diff 驱动 <200ms 是护城河 |
 | 风格/质量 | **自研 + Semgrep 可选** | 你管格式（紧凑标签行），Semgrep 管规则库；`npm install` 之外的可选依赖 |
-| 精确影响/污点追踪 | **CodeQL 后端 + adapter** | 承认打不过，不做重复投入 |
+| 精确影响/污点追踪 | **不引入** | 承认打不过，不做重复投入 |
 | tree-sitter | **不引入** | Python 标准库 `ast` 已够用；native binding 放大 Windows 中文路径风险 |
 
 ---

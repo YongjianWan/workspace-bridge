@@ -12,18 +12,9 @@
 |------|------|------|----------|
 | 混合仓库误判 | ⏳ 需配置 | prototypes/reference 被视为主线 | 使用 `.workspace-bridge.json` 标注目录角色 |
 | mixed repo 技术栈启发式 | ⏳ 持续改进 | Node/Python 共存时命令可能不够精确 | 持续打磨 `stack-detector` |
-| 大仓库性能 | ✅ 已完成 | 10k+ 文件索引慢；全量 JSON 输出爆炸 | P5 三步走（REPL + 缓存解析结果 + Watcher 增量更新）已完成 |
-| 耦合建议假阳性 | ✅ 已完成 | pure utility（outDegree=0）被误报；script/test/entry 角色低耦合被误报 | v0.9.13 排除 pure utility；v0.9.14 收紧 script/test threshold；entry 角色排除 + library 阈值提升至 8 |
-| orphan 检测不懂脚本 | ✅ 已完成 | `scripts/`/`benchmark/` 下独立入口被误报为孤儿 | v0.9.13 跳过 `scripts/`/`bin/`；v0.9.14 新增跳过 `benchmark/` 和 `wb-analysis-fixture/` |
-| CLI `--quiet` 吞致命错误 | ✅ 已完成 | `console.error` 被提前静默，catch 块无法输出 | catch 块改用备份的 `originalConsoleError` |
-| CLI `formatHuman` 在错误响应上崩溃 | ✅ 已完成 | `audit-file`/`audit-diff` 失败时返回 `{ok:false}`，`formatHuman` 访问 `result.summary.*` 抛 TypeError | `formatHuman()` 顶部新增 `ok === false` 守卫 |
-| REPL 资源泄漏 | ✅ 已完成 | init 失败时 `container.shutdown()` 未被调用 | `startRepl()` 引入 `finally` 块 |
-| REPL `--max-depth` 无校验 | ✅ 已完成 | `parseInt` 返回 `NaN` 时 BFS 遍历失控 | 新增 `Number.isFinite && > 0` 校验 |
-| CLI 裸数字漂移 | ✅ 已完成 | 并发 8、history limit 25、超时 60000、symbol depth 4 多处硬编码 | 全部集中到 `constants.js` |
-| classifyChangeType 精度 | ✅ 已完成 | 90% config + 10% test 被误判为 tests；`0.2` 裸数字 | 新增 >50% 绝对多数检查；阈值提取为 `CODE_CHANGE_RATIO_THRESHOLD` |
 | 文档与代码状态同步 | ⏳ 需人工 | ROADMAP/SESSION/CHANGELOG 可能不同步 | 自审后手动对齐 |
 
-> 已修复历史见 [CHANGELOG.md](./CHANGELOG.md) v0.8.2–v0.9.12。
+> 已修复历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
@@ -123,39 +114,7 @@ P0T1–P0T5 全部交付。
 >
 > 基础设施现状：`file-index.js` 已有 `fs.watch` + `pendingUpdates` debounce 骨架（`startWatching()`/`processPending()`），但只更新 fileMetadata，未接到 dep-graph；`cache.js` ~~只存了 `{mtime, size, hash}`~~ 已扩展 `parseResults` Map（v0.9.13）。
 
-#### Step 1：REPL / 精确查询模式（1-2 天，投入低/收益高）
-
-新增 `node cli.js repl --cwd .`，启动一次，交互查询，按需输出：
-
-```
-> impact src/utils/path.js
-impactCount: 14, dependents: [...]
-
-> affected-tests src/services/dep-graph.js --max-depth 3
-affectedTestCount: 8, tests: [...]
-
-> dead-exports
-deadExportCount: 0
-```
-
-- **改动**：`cli.js` 新增 `repl` case；新增 `src/cli/repl.js`（readline 循环 + 命令解析）
-- **收益**：大项目不用每次等全量 JSON，只返回请求字段
-- **验收**：启动后输入 `impact src/utils/path.js`，<100ms 返回精简结果
-
 #### Step 1：REPL / 精确查询模式（✅ 已完成 v0.9.13）
-
-新增 `node cli.js repl --cwd .`，启动一次，交互查询，按需输出：
-
-```
-> impact src/utils/path.js
-impactCount: 36, dependents: [...]
-
-> affected-tests src/services/dep-graph.js --max-depth 2
-affectedTestCount: 8, tests: [...]
-
-> dead-exports
-deadExportCount: 0
-```
 
 - **改动**：`cli.js` 新增 `repl` case；新增 `src/cli/repl.js`（readline 循环 + 命令解析 + 精简输出）
 - **收益**：大项目不用每次等全量 JSON，只返回请求字段；dep-graph 常驻内存，单次查询 <100ms
@@ -163,65 +122,23 @@ deadExportCount: 0
 
 #### Step 2：缓存解析结果（✅ 已完成 v0.9.13）
 
-扩展 `cache.js`，新增 `parseResults` Map（file -> {imports, exports, importRecords, exportRecords, functionRecords, parseMode, mtime}）：
-
-```js
-// dep-graph.js build() 增量逻辑
-for (const file of files) {
-  const cached = this.cache.getParseResult(file);
-  const currentMtime = fs.statSync(file).mtimeMs;
-  if (cached && cached.mtime === currentMtime) {
-    this.graph.set(file, cached); // 文件未变，跳过解析
-  } else {
-    await this.analyzeFile(file);
-    this.cache.setParseResult(file, this.graph.get(file));
-  }
-}
-```
-
-- **改动**：`cache.js` `CACHE_VERSION` 升级到 3，新增 `parseResults` Map + 序列化/反序列化；`dep-graph.js` `build()` 按 mtime 分离缓存命中与需解析文件；`file-index.js` `pruneExcludedCacheEntries` 同步清理 stale parseResults。
-- **收益**：10k 文件仓库改 1 个文件后 rebuild，从"解析 10k 文件"变成"解析 1 个 + 读取 9999 个缓存"
+- **改动**：`cache.js` `CACHE_VERSION` 升级到 3，新增 `parseResults` Map；`dep-graph.js` `build()` 按 mtime 分离缓存命中与需解析文件；`file-index.js` 同步清理 stale parseResults。
 - **实测**：当前仓库（82 文件）冷启动 dep-graph 289ms → 热启动 3ms（100% cached），约 **96 倍**加速。
-- **验收**：第二次 `node cli.js audit-summary --cwd .` < 3s（10k 文件 fixture）
 
 #### Step 3：激活 Watcher（✅ 已完成 v0.9.13）
 
-`file-index.js` 已有 `fs.watch` + `pendingUpdates` debounce 骨架。只需：
-
-1. `processPending()` 末尾触发 dep-graph 增量更新
-2. `dep-graph.js` 新增 `updateFiles(filePaths)` 接口：
-   - 重新解析变化文件
-   - 增量更新 reverseGraph（删除旧 import 引用 -> 添加新引用）
-   - 不重建全量 reverseGraph
-
-- **改动**：`file-index.js` `processPending()` 末尾新增 `onPendingProcessed` 批量回调；`container.js` 注册 `fileIndex.onPendingProcessed → depGraph.updateFiles`；`dep-graph.js` 新增 `updateFiles()` 方法（删旧边 → 检查 mtime → 重新解析 → 加新边）。
+- **改动**：`file-index.js` `processPending()` 末尾新增 `onPendingProcessed` 批量回调；`container.js` 注册 `fileIndex.onPendingProcessed → depGraph.updateFiles`；`dep-graph.js` 新增 `updateFiles()` 增量更新方法。
 - **实测**：新增 1 个文件后 `audit-summary`，`[DepGraph] Built in 10ms: 83 files (99% cached)`。
-- **验收**：`node cli.js watch --cwd .` 后改一个文件，<500ms 完成增量更新（需 REPL/watch 长期运行模式配合）
 
 ---
 
-## 1.0 发布准备（下一步）
+## 已归档里程碑
 
-> v0.9.13 已交付 P5 完整上下文（缓存 + Watcher + REPL + watch）。1.0 是 major version，天然容纳 breaking change。
+### 1.0 发布（已完成 2026-05-02）
 
-### 1.0 发布决策
-
-> 经产品视角重新评估，**CLI 瘦身（23 → 8）取消**。主要用户是 AI agent，而非人类开发者。AI 调用原子命令比聚合命令更省 token（精确输出 vs 冗余超集），且 AI 不存在「命令太多选哪个」的认知 paralysis。保留完整命令集对 AI 用户是净收益。
->
-> 唯一删除的命令：`deps`（`npm outdated` 的封装）。它与"跨文件结构化分析"核心定位无关，且 npm / pip / cargo 自带 `outdated` 功能。
-
-**1.0 唯一 breaking change**：
-- `deps` 命令从 CLI 删除
-
-**版本与打包**：
-- `package.json` 版本号从 `0.9.11` 升至 `1.0.0`
-- `npm pack --dry-run` 确认无 `reference/` / `.claude/` / `.git` 等噪音
-- 写 Release Notes（breaking change 清单 + 迁移指南）
-
-### 版本与打包
-- `package.json` 版本号对齐（当前 0.9.11，CHANGELOG 已写到 0.9.14）
-- `npm pack --dry-run` 确认无 `reference/` / `.claude/` 等噪音
-- 写 Release Notes（breaking change 清单 + 迁移指南）
+- CLI 瘦身（23 → 8）取消，仅删除 `deps` 命令
+- `package.json` 升至 `1.0.0`
+- Release Notes + CHANGELOG 归档
 
 ---
 
@@ -238,7 +155,7 @@ for (const file of files) {
 3. 能从"哪里可能有问题"推进到"该怎么改、改完测什么"
 4. symbol-level impact 可用
 5. 大仓库性能可接受（<30s 索引，首次全量 <5min）
-6. **可选外部工具后端**（Semgrep/CodeQL adapter 可插拔）
+6. **可选外部工具后端**（Semgrep adapter 可插拔）
 
 ---
 

@@ -16,6 +16,17 @@
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-05-03
+
+### 变更
+
+- **删除 CodeQL adapter** `src/adapters/codeql.js` — CodeQL 对 workspace-bridge 的核心定位（跨文件结构化分析）ROI 极低：安装包 >500MB、建数据库 1-5 min、分析 1-5 min，与 AI agent 秒级响应的期望冲突；维护成本 208 行 + 大量边界逻辑（混合仓库语言检测、数据库缓存、SARIF 解析、Windows 适配），上一轮修了 9 个 bug 仍持续产出问题。`audit-security` 保留 Semgrep（pip install 秒级、出结果秒级、20+ 语言覆盖），足够满足需求
+- **CLI 清理** `cli.js` — 删除 `--db-path`、`--force-refresh`（CodeQL 专属参数）；`--language` 保留给 Semgrep 使用
+- **`src/tools/security-tools.js`** — 删除 `dbPath` / `forceRefresh` 透传
+
+### 测试
+- `test/security-adapter-test.js` — 删除 CodeQL 相关测试，保留 Semgrep + auditSecurity 核心测试
+
 ## [1.0.1] - 2026-05-03
 
 ### 修复
@@ -33,16 +44,6 @@
 ### 测试
 - `test/security-adapter-test.js` — 新增 CodeQL 多语言检测错误路径、auditSecurity 空 targets 默认 `['.']`
 - `test/rust-module-filter-test.js` — 新增 `inferRustModuleName` boundary 测试（`examples/`、`benches/`、`tests/`、`mod.rs`、pop-to-empty）
-
-## [1.0.0] - 2026-05-02
-
-### Breaking Changes
-
-- **`deps` 命令删除** `cli.js` — `deps` 是 `npm outdated --json` 的封装，与「跨文件结构化分析」核心定位无关，且 npm / pip / cargo 自带 `outdated` 功能。这是 1.0 唯一的 breaking change
-
-### 决策变更
-
-- **CLI 瘦身（23 → 8）取消** — 原计划删除 15 个命令，经产品视角重新评估后取消。主要用户是 AI agent，AI 调用原子命令比聚合命令更省 token（精确输出 vs 冗余超集），且 AI 不存在「命令太多选哪个」的认知 paralysis。保留完整命令集对 AI 用户是净收益
 
 ## [0.9.14] - 2026-05-02
 

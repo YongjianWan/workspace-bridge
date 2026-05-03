@@ -1,8 +1,6 @@
 # workspace-bridge 使用证明与影响力证明
 
-> 以下终端运行日志由 workspace-bridge CLI 对自身仓库执行产生，证明其跨文件分析、死代码检测、影响半径计算、测试映射等核心能力。
-> 
-> ⚠️ **数据快照：2026-04-29**。部分数据已过时（如 `src/utils/logger.js` 已于 2026-04-30 删除）。最新数据请运行 `npm run self-audit`。
+> ⚠️ **DEPRECATED — 本文件数据已过时（2026-04-29）**。当前仓库结构与健康度已大幅变化。请运行 `npm run self-audit` 获取最新数据，或查看 [AGENTS.md §项目骨架](../AGENTS.md#项目骨架自分析结果)。
 
 ## 项目地址
 
