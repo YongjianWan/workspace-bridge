@@ -142,7 +142,10 @@ function classifyChangeType(entries) {
 
   const mainlineCount = docsCount + codeCount + testCount + configCount + scriptCount;
   if (mainlineCount === 0) {
-    return 'code';
+    // All changes are in reference/archive/generated directories.
+    // Return 'docs' (lightest validation template) rather than 'code',
+    // since there are no mainline files to test.
+    return 'docs';
   }
 
   const codeRatio = codeCount / mainlineCount;

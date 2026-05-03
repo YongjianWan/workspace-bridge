@@ -488,33 +488,27 @@ function getJavaCommands(javaStack, changeType, targets) {
     const affectedModules = (javaStack.subprojects && hasJavaFiles)
       ? mapJavaFilesToGradleModules(targets, javaStack.subprojects)
       : [];
-    if (affectedModules.length > 0) {
-      const compileTasks = affectedModules.map((m) => `${m}:classes`).join(' ');
-      const testTasks = affectedModules.map((m) => `${m}:test`).join(' ');
-      commands.smoke.push({ name: 'java-compile-check', description: 'Run Gradle compile check', cmd: `${javaCmd} -q ${compileTasks}` });
+    const hasModules = affectedModules.length > 0;
+    const compileTasks = hasModules
+      ? affectedModules.map((m) => `${m}:classes`).join(' ')
+      : 'classes';
+    const testTasks = hasModules
+      ? affectedModules.map((m) => `${m}:test`).join(' ')
+      : 'test';
+    commands.smoke.push({ name: 'java-compile-check', description: 'Run Gradle compile check', cmd: `${javaCmd} -q ${compileTasks}` });
+    if (hasJavaFiles) {
       commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Gradle tests', cmd: `${javaCmd} -q ${testTasks} --tests *Test` });
-      commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: `${javaCmd} -q test` });
-      if (javaStack.linters.includes('checkstyle')) {
-        const checkstyleTasks = affectedModules.flatMap((m) => [`${m}:checkstyleMain`, `${m}:checkstyleTest`]).join(' ');
-        commands.smoke.push({
-          name: 'java-checkstyle',
-          description: 'Run Checkstyle',
-          cmd: `${javaCmd} ${checkstyleTasks}`,
-        });
-      }
-    } else {
-      commands.smoke.push({ name: 'java-compile-check', description: 'Run Gradle compile check', cmd: `${javaCmd} -q classes` });
-      if (hasJavaFiles) {
-        commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Gradle tests', cmd: `${javaCmd} -q test --tests *Test` });
-      }
-      commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: `${javaCmd} -q test` });
-      if (javaStack.linters.includes('checkstyle')) {
-        commands.smoke.push({
-          name: 'java-checkstyle',
-          description: 'Run Checkstyle',
-          cmd: `${javaCmd} checkstyleMain checkstyleTest`,
-        });
-      }
+    }
+    commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: `${javaCmd} -q test` });
+    if (javaStack.linters.includes('checkstyle')) {
+      const checkstyleTasks = hasModules
+        ? affectedModules.flatMap((m) => [`${m}:checkstyleMain`, `${m}:checkstyleTest`]).join(' ')
+        : 'checkstyleMain checkstyleTest';
+      commands.smoke.push({
+        name: 'java-checkstyle',
+        description: 'Run Checkstyle',
+        cmd: `${javaCmd} ${checkstyleTasks}`,
+      });
     }
   }
   if (javaStack.linters.includes('checkstyle') && javaStack.buildTool === 'maven') {

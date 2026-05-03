@@ -1,0 +1,6 @@
+{
+  "directories": {
+    "archive": ["reference", "prototypes"],
+    "reference": []
+  }
+}

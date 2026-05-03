@@ -37,10 +37,10 @@ assert.strictEqual(classifyChangeType([
   { file: 'src/code.js', classification: { fileRole: 'library', directoryRole: 'active' } },
 ]), 'code');
 
-// 全是 reference → fallback to code（无有效主线文件时保守处理）
+// 全是 reference → docs（无有效主线文件时返回最轻验证模板）
 assert.strictEqual(classifyChangeType([
   { file: 'reference/foo.md', classification: { fileRole: 'docs', directoryRole: 'reference' } },
-]), 'code');
+]), 'docs');
 
 // tests + 少量 code（code 占比 ≤20%）→ tests
 assert.strictEqual(classifyChangeType([

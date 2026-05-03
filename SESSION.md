@@ -5,10 +5,10 @@
 ## 基线状态
 
 - 测试：**41/41 PASS**
-- 版本：**v1.0.2**（待打 tag）
+- 版本：**v1.0.3**（待打 tag）
 - 分支：`main`，已 push origin
 
-## 本轮完成（v1.0.2 — 删除 CodeQL + 文档精简 + GitNexus 参考）
+## 本轮完成（v1.0.3 — 债务清理 + 混合仓库误判修复 + 文档精简 + GitNexus 参考）
 
 | 事项 | 关键文件 | 说明 |
 |------|----------|------|
@@ -18,20 +18,24 @@
 | security-tools 清理 | `src/tools/security-tools.js` | 删除 `dbPath` / `forceRefresh` 透传；message 改为仅提示 Semgrep |
 | 测试清理 | `test/security-adapter-test.js` | 删除 CodeQL 测试，保留 Semgrep + auditSecurity 核心测试 |
 | .gitignore 清理 | `.gitignore` | 删除 `.codeql/` |
-| AGENTS.md 更新 | `AGENTS.md` | 外部工具策略表删除 CodeQL 引用 |
-| CHANGELOG 去重 | `CHANGELOG.md` | 删除重复 `[1.0.0]` 块；新增 `[1.0.2]` 删除 CodeQL 条目 |
-| RELEASE_NOTES 更新 | `RELEASE_NOTES.md` | 新增 v1.0.2 删除说明 + 迁移指南；保留历史 1.0.0/1.0.1 记录 |
-| ROADMAP 精简 | `ROADMAP.md` | 已知限制删除 ✅ 已完成项；P5 删除 obsolete planned 块；1.0 发布准备归档；成功标准 #6 更新 |
+| AGENTS.md 更新 | `AGENTS.md` | 外部工具策略表删除 CodeQL 引用；自分析骨架加 `<!-- generated -->` |
+| CHANGELOG 去重 | `CHANGELOG.md` | 删除重复 `[1.0.0]` 块；新增 `[1.0.2]` 删除 CodeQL 条目；新增 `[1.0.3]` 债务清理 |
+| RELEASE_NOTES 更新 | `RELEASE_NOTES.md` | 新增 v1.0.2 删除说明；保留历史记录 |
+| ROADMAP 精简 | `ROADMAP.md` | 已知限制删除 8 条 ✅ 已完成项；P5 删除 obsolete planned 块；1.0 发布准备归档；成功标准 #6 更新 |
 | USAGE_PROOF 标记 | `docs/USAGE_PROOF.md` | 顶部加 DEPRECATED，指向 AGENTS.md + self-audit |
-| GitNexus clone | `reference/GitNexus/` | 作为架构参考（语言注册表、图双索引、框架 extractor） |
+| GitNexus clone | `reference/GitNexus/` | 作为架构参考 |
+| `mainlineCount === 0` 处理 | `src/cli/formatters/audit-diff-summary.js` | 无主线文件时返回 `'docs'`（最轻验证模板），避免 reference 变更触发全量回归 |
+| Gradle 去重 | `src/utils/stack-detector.js` | 合并 `getJavaCommands` 中 Gradle 子模块有无两个分支的重复代码 |
+| 混合仓库误判修复 | `src/utils/project-context.js` | `prototypes` 从 `reference` hints 移到 `archive` hints；`classifyDirectory` 优先匹配用户配置规则 |
+| 项目配置示例 | `.workspace-bridge.json` | 新增根目录配置，显式标注 `reference` / `prototypes` 为 archive |
 
 ## 仍未处理的 review 项
 
 | 项 | 卡点 |
 |----|------|
-| `DB_TIMEOUT_MS = 300000` 改成 option | UX 选择：CLI flag / env var（当前仅存于 SemgrepAdapter，若 Semgrep 也删则无需处理） |
-| `getJavaCommands` Gradle 两分支去重 | 纯美容，无功能问题 |
-| `classifyChangeType` `mainlineCount === 0` 显式处理 | 需看 entries 上下文确认是否真有空集场景 |
+| `getJavaCommands` Gradle 两分支去重 | ✅ 已合并（提取公共变量 `compileTasks` / `testTasks` / `checkstyleTasks`） |
+| `classifyChangeType` `mainlineCount === 0` 显式处理 | ✅ 已处理（返回 `'docs'`，补测试） |
+| `DB_TIMEOUT_MS = 300000` 改成 option | ✅ 不再适用 — CodeQL 已删除 |
 
 ## 验证命令
 
@@ -43,4 +47,4 @@ node cli.js audit-summary --cwd . --json --quiet | jq '.deadExports.deadExportCo
 
 ---
 
-*Last updated: 2026-05-03（v1.0.2 CodeQL 删除 + 文档精简 + GitNexus 参考）*
+*Last updated: 2026-05-03（v1.0.3 债务清理 + 混合仓库误判修复）*

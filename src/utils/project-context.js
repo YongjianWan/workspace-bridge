@@ -4,8 +4,8 @@ const { pathExists, readJsonSafe, toPosixPath } = require('./path');
 const ROLE_PRIORITY = ['generated', 'archive', 'reference', 'active'];
 const DEFAULT_DIRECTORY_HINTS = {
   active: [],
-  reference: ['reference', 'references', 'prototype', 'prototypes', 'example', 'examples', 'sample', 'samples', 'demo', 'demos'],
-  archive: ['archive', 'archives', 'attic', 'deprecated', 'legacy'],
+  reference: ['reference', 'references', 'example', 'examples', 'sample', 'samples', 'demo', 'demos'],
+  archive: ['archive', 'archives', 'attic', 'deprecated', 'legacy', 'prototype', 'prototypes'],
   generated: ['dist', 'build', 'coverage', '.next', 'out', 'generated', '.turbo'],
 };
 
@@ -167,6 +167,14 @@ class ProjectContext {
     const normalized = normalizeRelativePath(relativePath);
     if (!normalized) {
       return { role: 'active', matchedRule: null };
+    }
+
+    // User-configured rules take precedence over default hints.
+    const configuredMatch = this.directoryRules.find(
+      (rule) => rule.source === 'config' && pathMatchesRule(normalized, rule.path)
+    );
+    if (configuredMatch) {
+      return { role: configuredMatch.role, matchedRule: configuredMatch };
     }
 
     for (const role of ROLE_PRIORITY) {

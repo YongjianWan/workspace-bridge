@@ -84,7 +84,8 @@ try {
   assert.strictEqual(autoSummary.scope.counts.mainlineFiles, 2);
   assert.strictEqual(autoSummary.scope.counts.nonMainlineFiles, 2);
   assert.strictEqual(autoSummary.scope.directoryRoles.active, 2);
-  assert.strictEqual(autoSummary.scope.directoryRoles.reference, 2);
+  assert.strictEqual(autoSummary.scope.directoryRoles.reference, 1);
+  assert.strictEqual(autoSummary.scope.directoryRoles.archive, 1);
 
   const autoDeadExportFiles = autoSummary.deadExports.deadExports.map((entry) => entry.file.replace(/\\/g, '/'));
   assert(autoDeadExportFiles.some((file) => file.endsWith('/src/helper.js')));
