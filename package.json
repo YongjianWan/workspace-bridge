@@ -43,8 +43,8 @@
     "node": ">=16.0.0"
   },
   "bin": {
-    "workspace-bridge": "./cli.js",
-    "workspace-bridge-cli": "./cli.js"
+    "workspace-bridge": "cli.js",
+    "workspace-bridge-cli": "cli.js"
   },
   "files": [
     "cli.js",
