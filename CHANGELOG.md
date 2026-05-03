@@ -32,6 +32,16 @@
 
 ### 修复
 
+- **Security adapter post-1.0 加固** `src/tools/security-tools.js` `src/adapters/codeql.js` `src/utils/command.js` `.gitignore` — 一组针对 v1.0 后 audit-security 真实场景的修复：
+  - **`.gitignore` 加 `.codeql/`** — CodeQL 数据库写到 `<cwd>/.codeql/databases/<lang>/`（5+ MB），不 ignore 会污染 `git status` 并可能误提交
+  - **adapter 串行 → `Promise.all` 并行** `auditSecurity()` — Semgrep + CodeQL 同时跑，大仓库节省一半时间
+  - **`audit-security` 默认 targets `['.']`** — 不传参数时扫当前目录，避免 `node cli.js audit-security` 静默返回空
+  - **CodeQL 混合仓库语言检测** `detectCodeQLLanguages()` — first-match-wins 改为 detect-all：0 候选返回检测失败，≥2 候选要求 `--language` 显式指定。修复 Spring Boot + 前端被识别为 javascript 的 bug
+  - **`dedupeFindings` 重命名为 `dedupeWithinTool`** — key 含 `tool` 字段意味着跨工具同位置发现不去重（这是有意的：双工具确认是信号），新名 + JSDoc 让意图自解释
+  - **CodeQL `_ensureDatabase` 简化** — 单次 `pathExists` 判断，删除冗余调用
+  - **CodeQL summary 删除 `scanned: targets.length`** — CodeQL 实际扫的是 `--source-root`，targets 不参与，旧字段是假数据
+  - **`commandExists` 与 spawn 命令名对齐** `src/utils/command.js` — `where`/`which` 现在也走 `resolveCommandForPlatform`，避免 Win 上 `where codeql` 找到 `.exe` 但 spawn 强制 `.cmd` 的不一致
+- **Rust 模块名推断收敛** `src/utils/stack-detector.js` `inferRustModuleName()` — Cargo 特殊目录补 `examples/`（之前只排 `tests/`、`benches/`）；`src/mod.rs` 罕见情况 + pop 后空数组兜底，避免生成 `cargo test ''` 的未定义命令
 - **耦合假阳性收敛（entry 角色）** `src/tools/overview-tools.js` `buildCouplingSplitSuggestions()` — `isOverCoupled` 新增 `!isEntry` 条件，排除 `cli.js`、`src/cli/formatters/index.js`、`src/services/dep-graph/parsers/index.js` 等入口/barrel 文件的误报；同时将非 high-level 阈值从 `total >= 3` 提升至 `total >= 8`（`DEFAULTS.COUPLING_SPLIT_MIN_TOTAL`），耦合建议从 10 条收敛至 2 条真实问题
 - **FileIndex 排除测试 fixture** `src/services/file-index.js` — `DEFAULT_EXCLUDE_DIRS` 增加 `wb-analysis-fixture`，避免测试 fixture 被索引后产生死导出/未解析误报
 - **search-tools ReDoS 保护加固** `src/tools/search-tools.js` — symbol 搜索路径新增 `String.prototype.includes` 预检，替代 `safeRegexTest()` 的直接调用；text 搜索已使用 `includes`，symbol 正则由 `escapeRegex()` 构建，回溯风险结构性消除

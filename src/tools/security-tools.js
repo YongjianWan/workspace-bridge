@@ -12,7 +12,13 @@ function groupBySeverity(findings) {
   return map;
 }
 
-function dedupeFindings(findings) {
+/**
+ * Drop exact-match duplicates within the same tool's results.
+ * Cross-tool findings at the same location are intentionally kept —
+ * Semgrep + CodeQL flagging the same line is a confirmation signal,
+ * not noise.
+ */
+function dedupeWithinTool(findings) {
   const seen = new Set();
   const out = [];
   for (const f of findings) {
@@ -40,15 +46,17 @@ async function auditSecurity({ cwd, targets = [], config, language, forceRefresh
     };
   }
 
-  const allFindings = [];
-  const scanMeta = [];
-  for (const adapter of adapters) {
-    const result = await adapter.scan(targets, { cwd, config, language, forceRefresh });
-    scanMeta.push({ name: adapter.name, summary: result.summary });
-    allFindings.push(...result.findings);
-  }
+  // Default to scanning the workspace root when user gave no targets —
+  // matches what `node cli.js audit-security` intuitively means.
+  const effectiveTargets = targets.length > 0 ? targets : ['.'];
 
-  const deduped = dedupeFindings(allFindings);
+  const results = await Promise.all(
+    adapters.map((adapter) => adapter.scan(effectiveTargets, { cwd, config, language, forceRefresh }))
+  );
+  const scanMeta = adapters.map((a, i) => ({ name: a.name, summary: results[i].summary }));
+  const allFindings = results.flatMap((r) => r.findings);
+
+  const deduped = dedupeWithinTool(allFindings);
   const bySeverity = groupBySeverity(deduped);
 
   return {
@@ -64,4 +72,4 @@ async function auditSecurity({ cwd, targets = [], config, language, forceRefresh
   };
 }
 
-module.exports = { auditSecurity, groupBySeverity, dedupeFindings };
+module.exports = { auditSecurity, groupBySeverity, dedupeWithinTool };

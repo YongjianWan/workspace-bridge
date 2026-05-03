@@ -563,15 +563,16 @@ function getGoCommands(goStack, changeType, targets) {
 
 function inferRustModuleName(filePath) {
   const normalized = filePath.replace(/\\/g, '/');
-  if (normalized.includes('/tests/') || normalized.includes('/benches/')) return null;
+  if (normalized.includes('/tests/') || normalized.includes('/benches/') || normalized.includes('/examples/')) return null;
   const srcMatch = normalized.match(/(?:^|\/)src\/(.+?)\.rs$/);
   if (!srcMatch) return null;
   const relativePath = srcMatch[1];
-  if (relativePath === 'lib' || relativePath === 'main') return null;
+  if (relativePath === 'lib' || relativePath === 'main' || relativePath === 'mod') return null;
   const parts = relativePath.split('/');
   if (parts[parts.length - 1] === 'mod') {
     parts.pop();
   }
+  if (parts.length === 0) return null;
   return parts.join('::');
 }
 

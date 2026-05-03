@@ -34,11 +34,12 @@ const QUERY_PACK_MAP = {
 const DB_TIMEOUT_MS = 300000;   // 5 min for database creation
 const ANALYZE_TIMEOUT_MS = 300000; // 5 min for analysis
 
-function detectCodeQLLanguage(cwd) {
+function detectCodeQLLanguages(cwd) {
+  const found = [];
   for (const { lang, files } of LANGUAGE_MARKERS) {
-    if (files.some((f) => pathExists(path.join(cwd, f)))) return lang;
+    if (files.some((f) => pathExists(path.join(cwd, f)))) found.push(lang);
   }
-  return null;
+  return found;
 }
 
 function dbPathFor(cwd, language) {
@@ -59,16 +60,28 @@ class CodeQLAdapter extends BaseAdapter {
   }
 
   async scan(targets, options = {}) {
-    const language = options.language || detectCodeQLLanguage(options.cwd);
+    let language = options.language;
     if (!language) {
-      return {
-        findings: [],
-        summary: {
-          total: 0,
-          scanned: 0,
-          error: 'Unable to detect language. Pass --language or ensure a known build file exists.',
-        },
-      };
+      const candidates = detectCodeQLLanguages(options.cwd);
+      if (candidates.length === 0) {
+        return {
+          findings: [],
+          summary: {
+            total: 0,
+            error: 'Unable to detect language. Pass --language or ensure a known build file exists.',
+          },
+        };
+      }
+      if (candidates.length > 1) {
+        return {
+          findings: [],
+          summary: {
+            total: 0,
+            error: `Multiple languages detected (${candidates.join(', ')}). Pass --language to choose one.`,
+          },
+        };
+      }
+      language = candidates[0];
     }
 
     const queryPack = QUERY_PACK_MAP[language];
@@ -77,7 +90,6 @@ class CodeQLAdapter extends BaseAdapter {
         findings: [],
         summary: {
           total: 0,
-          scanned: 0,
           error: `Unsupported language for CodeQL: ${language}`,
         },
       };
@@ -88,11 +100,13 @@ class CodeQLAdapter extends BaseAdapter {
       const sarif = await this._analyzeDatabase(dbPath, language, queryPack, options);
       const rawResults = this._extractResultsFromSarif(sarif);
       const findings = rawResults.map((r) => this.normalizeFinding(r));
+      // Note: targets is intentionally ignored — CodeQL scans the whole
+      // --source-root, so reporting `scanned: targets.length` would be a lie.
+      void targets;
       return {
         findings,
         summary: {
           total: findings.length,
-          scanned: targets.length,
           language,
           error: null,
         },
@@ -102,7 +116,6 @@ class CodeQLAdapter extends BaseAdapter {
         findings: [],
         summary: {
           total: 0,
-          scanned: 0,
           language,
           error: err.message || String(err),
         },
@@ -112,12 +125,9 @@ class CodeQLAdapter extends BaseAdapter {
 
   async _ensureDatabase(cwd, language, options = {}) {
     const dbPath = dbPathFor(cwd, language);
-    if (!options.forceRefresh && pathExists(dbPath)) {
-      return dbPath;
-    }
-    if (pathExists(dbPath)) {
-      fs.rmSync(dbPath, { recursive: true, force: true });
-    }
+    const exists = pathExists(dbPath);
+    if (exists && !options.forceRefresh) return dbPath;
+    if (exists) fs.rmSync(dbPath, { recursive: true, force: true });
     const result = await runCommandSecure('codeql', [
       'database', 'create', dbPath,
       `--language=${language}`,

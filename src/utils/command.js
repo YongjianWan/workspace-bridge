@@ -144,7 +144,10 @@ function runNpx(pkg, args, cwd, timeoutMs = TIMEOUTS.NPX_DEFAULT_MS) {
 async function commandExists(command, cwd) {
   const isWindows = process.platform === 'win32';
   const checkCmd = isWindows ? 'where' : 'which';
-  const result = await runCommandSecure(checkCmd, [command], cwd, TIMEOUTS.COMMAND_EXISTS_CHECK_MS);
+  // Resolve through the same platform mapping spawn uses, so availability
+  // and execution agree on which file to look for (codeql.cmd vs codeql.exe).
+  const resolved = resolveCommandForPlatform(command);
+  const result = await runCommandSecure(checkCmd, [resolved], cwd, TIMEOUTS.COMMAND_EXISTS_CHECK_MS);
   return result.ok && result.stdout.trim().length > 0;
 }
 

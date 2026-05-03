@@ -5,7 +5,7 @@ const { BaseAdapter } = require('../src/adapters/base');
 const { SemgrepAdapter } = require('../src/adapters/semgrep');
 const { CodeQLAdapter } = require('../src/adapters/codeql');
 const { getAllAdapters, getAvailableAdapters } = require('../src/adapters');
-const { auditSecurity, groupBySeverity, dedupeFindings } = require('../src/tools/security-tools');
+const { auditSecurity, groupBySeverity, dedupeWithinTool } = require('../src/tools/security-tools');
 
 function main() {
   // --- BaseAdapter interface ---
@@ -141,13 +141,13 @@ function main() {
   assert.strictEqual(grouped.low, 1);
   assert.strictEqual(grouped.unknown, 1);
 
-  // --- dedupeFindings ---
+  // --- dedupeWithinTool ---
   const dupes = [
     { tool: 'semgrep', ruleId: 'r1', file: 'a.py', lineStart: 1 },
     { tool: 'semgrep', ruleId: 'r1', file: 'a.py', lineStart: 1 },
     { tool: 'codeql', ruleId: 'r2', file: 'a.py', lineStart: 1 },
   ];
-  const deduped = dedupeFindings(dupes);
+  const deduped = dedupeWithinTool(dupes);
   assert.strictEqual(deduped.length, 2);
 
   // --- auditSecurity with no scanners available ---
