@@ -28,6 +28,21 @@ function pathMatchesRule(relativePath, rulePath) {
   return relativePath === rulePath || relativePath.startsWith(`${rulePath}/`);
 }
 
+function loadWorkspaceConfig(root) {
+  const configPath = path.join(root, '.workspace-bridge.json');
+  if (!pathExists(configPath)) return null;
+  const config = readJsonSafe(configPath);
+  if (!config) return null;
+  return {
+    directories: {
+      active: ensureArray(config.directories?.active),
+      reference: ensureArray(config.directories?.reference),
+      archive: ensureArray(config.directories?.archive),
+      generated: ensureArray(config.directories?.generated),
+    },
+  };
+}
+
 function inferFileRole(relativePath) {
   const normalized = normalizeRelativePath(relativePath);
   const base = path.basename(normalized);
@@ -260,4 +275,5 @@ class ProjectContext {
 module.exports = {
   ProjectContext,
   normalizeRelativePath,
+  loadWorkspaceConfig,
 };

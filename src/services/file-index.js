@@ -41,6 +41,7 @@ class FileIndex {
     if (Array.isArray(options.excludeDirs)) {
       this.excludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS, ...options.excludeDirs])];
     }
+    this._applyWorkspaceExcludeDirs();
     const patterns = this.getFilePatterns();
 
     this.pruneExcludedCacheEntries();
@@ -197,6 +198,18 @@ class FileIndex {
 
     await this.indexFile(file);
     this.indexedCount++;
+  }
+
+  _applyWorkspaceExcludeDirs() {
+    const { loadWorkspaceConfig } = require('../utils/project-context');
+    const wsConfig = loadWorkspaceConfig(this.root);
+    if (!wsConfig?.directories) return;
+    const extra = [
+      ...wsConfig.directories.reference,
+      ...wsConfig.directories.archive,
+      ...wsConfig.directories.generated,
+    ].filter(Boolean);
+    this.excludeDirs = [...new Set([...this.excludeDirs, ...extra])];
   }
 
   shouldExclude(filePath) {

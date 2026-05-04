@@ -47,12 +47,12 @@ try {
   const summary = runCli(['audit-summary', '--cwd', tempRoot, '--json', '--quiet']);
 
   assert.strictEqual(summary.scope.hasConfig, true);
-  assert.strictEqual(summary.scope.counts.totalFiles, 4);
+  assert.strictEqual(summary.scope.counts.totalFiles, 2);
   assert.strictEqual(summary.scope.counts.mainlineFiles, 2);
-  assert.strictEqual(summary.scope.counts.nonMainlineFiles, 2);
+  assert.strictEqual(summary.scope.counts.nonMainlineFiles, 0);
   assert.strictEqual(summary.scope.directoryRoles.active, 2);
-  assert.strictEqual(summary.scope.directoryRoles.reference, 1);
-  assert.strictEqual(summary.scope.directoryRoles.archive, 1);
+  assert.strictEqual(summary.scope.directoryRoles.reference, 0);
+  assert.strictEqual(summary.scope.directoryRoles.archive, 0);
   assert.strictEqual(summary.scope.directoryRoles.generated, 0);
   assert(summary.scope.entryFiles.includes('src/index.js'));
 
