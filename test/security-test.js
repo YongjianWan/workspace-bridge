@@ -9,7 +9,7 @@ const path = require('path');
 // Import functions to test
 const { sanitizeSymbolName, sanitizeShellArg } = require('../src/utils/sanitize');
 const { runCommandSecure, runGit } = require('../src/utils/command');
-const { validateWorkspacePath } = require('../src/tools/git-tools');
+const { resolveWorkspaceFilePath } = require('../src/utils/path');
 const { validateQuery } = require('../src/tools/search-tools');
 
 // Test utilities
@@ -48,17 +48,17 @@ test('should block absolute path outside workspace', () => {
   const outsidePath = process.platform === 'win32' 
     ? 'C:\\Windows\\System32\\secret.txt'
     : '/etc/passwd';
-  const result = validateWorkspacePath(outsidePath, workspaceRoot);
+  const result = resolveWorkspaceFilePath(outsidePath, workspaceRoot);
   assert(result === null, 'Absolute path outside workspace should be rejected');
 });
 
 test('should block relative path traversal', () => {
-  const result = validateWorkspacePath('../../../etc/passwd', workspaceRoot);
+  const result = resolveWorkspaceFilePath('../../../etc/passwd', workspaceRoot);
   assert(result === null, 'Relative path traversal should be rejected');
 });
 
 test('should allow valid file inside workspace', () => {
-  const result = validateWorkspacePath('src/index.js', workspaceRoot);
+  const result = resolveWorkspaceFilePath('src/index.js', workspaceRoot);
   assert(result !== null, 'Valid file inside workspace should be allowed');
 });
 

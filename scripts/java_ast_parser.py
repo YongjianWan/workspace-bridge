@@ -41,12 +41,19 @@ def parse_java(source):
         })
 
     exports = []
+    function_records = []
     for path, node in tree:
         if isinstance(node, javalang.tree.ClassDeclaration):
             exports.append(node.name)
             for member in node.body or []:
                 if isinstance(member, javalang.tree.MethodDeclaration) and "public" in member.modifiers:
                     exports.append(member.name)
+                    function_records.append({
+                        "name": member.name,
+                        "kind": "function",
+                        "lineStart": member.position.line if member.position else None,
+                        "lineEnd": member.position.line if member.position else None,
+                    })
                 if isinstance(member, javalang.tree.FieldDeclaration) and "public" in member.modifiers:
                     for declarator in member.declarators:
                         exports.append(declarator.name)
@@ -55,6 +62,12 @@ def parse_java(source):
             for member in node.body or []:
                 if isinstance(member, javalang.tree.MethodDeclaration):
                     exports.append(member.name)
+                    function_records.append({
+                        "name": member.name,
+                        "kind": "function",
+                        "lineStart": member.position.line if member.position else None,
+                        "lineEnd": member.position.line if member.position else None,
+                    })
         elif isinstance(node, javalang.tree.EnumDeclaration):
             exports.append(node.name)
 
@@ -62,6 +75,7 @@ def parse_java(source):
         "imports": imports,
         "exports": list(dict.fromkeys(exports)),
         "importRecords": import_records,
+        "functionRecords": function_records,
         "package": package
     }
 

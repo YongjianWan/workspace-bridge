@@ -1,4 +1,5 @@
-const { HIGHLIGHT_SCORES } = require('../../config/constants');
+const { HIGHLIGHT_SCORES, DEFAULTS, SCORING } = require('../../config/constants');
+const { findOrphanFiles } = require('../../utils/orphan-detector');
 
 function toRelativePath(root, filePath) {
   if (!root || !filePath) return filePath;
@@ -325,30 +326,15 @@ function buildProjectMap(depGraph, options = {}) {
   const unresolved = depGraph.findUnresolvedImports?.() || [];
   const cycles = depGraph.findCircularDependencies?.() || [];
 
-  // Simple orphan detection (inline to avoid circular deps with overview-tools)
-  const orphans = [];
   const entrySet = depGraph.entryFiles || new Set();
-  for (const file of allFiles) {
-    if (depGraph.isTestLikeFile?.(file)) continue;
-    const relPath = toRelativePath(root, file);
-    // Standalone entry points are not orphans — keep in sync with overview-tools.js findOrphanFiles()
-    if (
-      relPath.startsWith('scripts/') || relPath.includes('/scripts/') ||
-      relPath.startsWith('bin/') || relPath.includes('/bin/') ||
-      relPath.startsWith('benchmark/') || relPath.includes('/benchmark/')
-    ) continue;
-    const dependents = depGraph.getDependents?.(file) || [];
-    const isEntry = entrySet.has?.(file) || entrySet.includes?.(file);
-    if (!isEntry && dependents.length === 0) {
-      orphans.push(relPath);
-    }
-  }
+  const orphanResult = findOrphanFiles(allFiles, entrySet, depGraph, root, toRelativePath);
+  const orphans = orphanResult.all;
 
   // Hotspots: files with high dependent count (dependency centrality)
   const hotspots = [];
   for (const file of allFiles) {
     const dependents = depGraph.getDependents?.(file) || [];
-    if (dependents.length >= 5) {
+    if (dependents.length >= SCORING.HOTSPOT_MIN_DEPENDENTS) {
       hotspots.push({
         file: toRelativePath(root, file),
         dependentCount: dependents.length,
@@ -375,7 +361,7 @@ function buildProjectMap(depGraph, options = {}) {
 
   // In compact mode AI can't see the full file list; surface noteworthy files explicitly.
   let highlightedFiles = compact ? buildHighlightedFiles(entrySet, issueOverlay, root) : [];
-  if (compact && highlightedFiles.length > 30) highlightedFiles = highlightedFiles.slice(0, 30);
+  if (compact && highlightedFiles.length > DEFAULTS.PROJECT_MAP_HIGHLIGHT_MAX) highlightedFiles = highlightedFiles.slice(0, DEFAULTS.PROJECT_MAP_HIGHLIGHT_MAX);
 
   const result = {
     ok: true,

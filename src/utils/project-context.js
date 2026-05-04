@@ -9,6 +9,107 @@ const DEFAULT_DIRECTORY_HINTS = {
   generated: ['dist', 'build', 'coverage', '.next', 'out', 'generated', '.turbo'],
 };
 
+// Framework-specific entry files checked before generic config/entry rules.
+const FRAMEWORK_ENTRY_FILES = new Set([
+  'manage.py',
+  'vite.config.js',
+  'vite.config.ts',
+  'vite.config.mjs',
+  'vite.config.cjs',
+]);
+
+// Exact config file names.
+const CONFIG_EXACT_NAMES = new Set([
+  'package.json',
+  'tsconfig.json',
+  'pyproject.toml',
+  'requirements.txt',
+  'settings.local.json',
+]);
+
+// Config patterns tested against basename.
+const CONFIG_PATTERNS = [
+  /\.config\./, /^\.env(\.|$)/,
+  /^\.babelrc/, /^\.editorconfig/, /^\.gitignore/, /^\.gitattributes/,
+  /^\.npmrc/, /^\.yarnrc/, /^\.prettierrc/, /^\.eslintrc/, /^eslint\.config\./, /^\.mocharc/,
+  /tailwind\.config\./, /postcss\.config\./, /vite\.config\./, /webpack\.config\./, /rollup\.config\./, /tsup\.config\./,
+  /jest\.config\./, /prettier\.config\./,
+  /^docker/i, /^docker-compose/i, /^makefile/i,
+  /^\.nvmrc/, /^\.node-version/,
+  /^requirements/, /pyproject/,
+];
+
+// Common entry file basenames.
+const ENTRY_BASE_NAMES = new Set([
+  'index.js', 'index.ts', 'main.js', 'main.ts',
+  'app.js', 'app.ts', 'cli.js', 'server.ts',
+]);
+
+const ROLE_RULES = [
+  {
+    role: 'test',
+    test: (relPath, base) =>
+      relPath.startsWith('test/') ||
+      relPath.startsWith('tests/') ||
+      relPath.startsWith('__tests__/') ||
+      relPath.includes('/test/') ||
+      relPath.includes('/tests/') ||
+      relPath.includes('/__tests__/') ||
+      /\.test\./.test(base) ||
+      /\.spec\./.test(base) ||
+      /^test_/.test(base) ||
+      /_test\./.test(base),
+  },
+  {
+    role: 'entry',
+    test: (_relPath, base) => FRAMEWORK_ENTRY_FILES.has(base),
+  },
+  {
+    role: 'config',
+    test: (_relPath, base) => {
+      if (CONFIG_EXACT_NAMES.has(base)) return true;
+      return CONFIG_PATTERNS.some((p) => p.test(base));
+    },
+  },
+  {
+    role: 'migration',
+    test: (relPath, base) =>
+      relPath.includes('/migrations/') ||
+      base === 'alembic.ini' ||
+      base === 'manage.py',
+  },
+  {
+    role: 'script',
+    test: (relPath, base) => {
+      const ext = path.extname(base).slice(1);
+      return (
+        relPath.startsWith('scripts/') ||
+        relPath.startsWith('bin/') ||
+        relPath.startsWith('tools/') ||
+        relPath.includes('/scripts/') ||
+        relPath.includes('/bin/') ||
+        relPath.includes('/tools/') ||
+        ext === 'sh' ||
+        ext === 'bash' ||
+        ext === 'ps1'
+      );
+    },
+  },
+  {
+    role: 'entry',
+    test: (_relPath, base) => ENTRY_BASE_NAMES.has(base),
+  },
+  {
+    role: 'docs',
+    test: (_relPath, base) =>
+      /\.(md|mdx|txt|rst)$/.test(base) ||
+      base.toLowerCase().includes('license') ||
+      base.toLowerCase().includes('changelog') ||
+      base.toLowerCase().includes('contributing') ||
+      base.toLowerCase().includes('readme'),
+  },
+];
+
 function normalizeRelativePath(input) {
   return toPosixPath(String(input || ''))
     .replace(/^\.?\//, '')
@@ -46,94 +147,11 @@ function loadWorkspaceConfig(root) {
 function inferFileRole(relativePath) {
   const normalized = normalizeRelativePath(relativePath);
   const base = path.basename(normalized);
-  const frameworkEntryFiles = new Set([
-    'manage.py',
-    'vite.config.js',
-    'vite.config.ts',
-    'vite.config.mjs',
-    'vite.config.cjs',
-  ]);
 
-  if (
-    normalized.startsWith('test/') ||
-    normalized.startsWith('tests/') ||
-    normalized.startsWith('__tests__/') ||
-    normalized.includes('/test/') ||
-    normalized.includes('/tests/') ||
-    normalized.includes('/__tests__/') ||
-    /\.test\./.test(base) ||
-    /\.spec\./.test(base) ||
-    /^test_/.test(base) ||
-    /_test\./.test(base)
-  ) {
-    return 'test';
-  }
-
-  if (frameworkEntryFiles.has(base)) {
-    return 'entry';
-  }
-
-  const configExact = new Set(['package.json', 'tsconfig.json', 'pyproject.toml', 'requirements.txt', 'settings.local.json']);
-  if (configExact.has(base)) return 'config';
-
-  const configPatterns = [
-    /\.config\./, /^\.env(\.|$)/,
-    /^\.babelrc/, /^\.editorconfig/, /^\.gitignore/, /^\.gitattributes/,
-    /^\.npmrc/, /^\.yarnrc/, /^\.prettierrc/, /^\.eslintrc/, /^eslint\.config\./, /^\.mocharc/,
-    /tailwind\.config\./, /postcss\.config\./, /vite\.config\./, /webpack\.config\./, /rollup\.config\./, /tsup\.config\./,
-    /jest\.config\./, /prettier\.config\./,
-    /^docker/i, /^docker-compose/i, /^makefile/i,
-    /^\.nvmrc/, /^\.node-version/,
-    /^requirements/, /pyproject/,
-  ];
-  if (configPatterns.some((p) => p.test(base))) {
-    return 'config';
-  }
-
-  if (
-    normalized.includes('/migrations/') ||
-    normalized.endsWith('/alembic.ini') ||
-    normalized.endsWith('/manage.py')
-  ) {
-    return 'migration';
-  }
-
-  const ext = path.extname(base).slice(1);
-  if (
-    normalized.startsWith('scripts/') ||
-    normalized.startsWith('bin/') ||
-    normalized.startsWith('tools/') ||
-    normalized.includes('/scripts/') ||
-    normalized.includes('/bin/') ||
-    normalized.includes('/tools/') ||
-    ext === 'sh' ||
-    ext === 'bash' ||
-    ext === 'ps1'
-  ) {
-    return 'script';
-  }
-
-  if (
-    base === 'index.js' ||
-    base === 'index.ts' ||
-    base === 'main.js' ||
-    base === 'main.ts' ||
-    base === 'app.js' ||
-    base === 'app.ts' ||
-    base === 'cli.js' ||
-    base === 'server.ts'
-  ) {
-    return 'entry';
-  }
-
-  if (
-    /\.(md|mdx|txt|rst)$/.test(base) ||
-    base.toLowerCase().includes('license') ||
-    base.toLowerCase().includes('changelog') ||
-    base.toLowerCase().includes('contributing') ||
-    base.toLowerCase().includes('readme')
-  ) {
-    return 'docs';
+  for (const rule of ROLE_RULES) {
+    if (rule.test(normalized, base)) {
+      return rule.role;
+    }
   }
 
   return 'library';
@@ -218,11 +236,11 @@ class ProjectContext {
     };
   }
 
-  shouldAnalyzeFile(filePath) {
+  isActiveSourceFile(filePath) {
     return this.classifyFile(filePath).isMainline;
   }
 
-  shouldIndexFile(filePath) {
+  isNotGeneratedFile(filePath) {
     return this.classifyFile(filePath).directoryRole !== 'generated';
   }
 

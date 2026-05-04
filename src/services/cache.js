@@ -137,20 +137,42 @@ class WorkspaceCache {
   async save() {
     const { writeFile, rename, unlink } = require('fs').promises;
     let tempPath = null;
-    try {
-      const data = {
-        version: CACHE_VERSION,
-        timestamp: Date.now(),
-        workspaceRoot: this.workspaceRoot,
-        workspaceInfo: this.workspaceInfo,
-        fileMetadata: Array.from(this.fileMetadata.entries()),
+    let serialized = null;
+
+    const buildData = (includeHeavy = true) => ({
+      version: CACHE_VERSION,
+      timestamp: Date.now(),
+      workspaceRoot: this.workspaceRoot,
+      workspaceInfo: this.workspaceInfo,
+      fileMetadata: Array.from(this.fileMetadata.entries()),
+      ...(includeHeavy ? {
         parseResults: Array.from(this.parseResults.entries()),
         symbolIndex: Array.from(this.symbolIndex.entries()),
         diagnostics: Array.from(this.diagnostics.entries()),
-      };
+      } : {}),
+    });
 
+    try {
+      const data = buildData(true);
+      serialized = JSON.stringify(data);
+    } catch (err) {
+      if (err instanceof RangeError) {
+        console.error('[Cache] Full cache too large, dropping heavy fields and retrying...');
+        try {
+          const data = buildData(false);
+          serialized = JSON.stringify(data);
+        } catch (err2) {
+          console.error('[Cache] Cache save failed even with minimal data:', err2.message);
+          return false;
+        }
+      } else {
+        throw err;
+      }
+    }
+
+    try {
       tempPath = `${this.cachePath}.tmp-${process.pid}-${Date.now()}`;
-      await writeFile(tempPath, JSON.stringify(data), 'utf8');
+      await writeFile(tempPath, serialized, 'utf8');
       await rename(tempPath, this.cachePath);
       this.lastSaved = Date.now();
       return true;

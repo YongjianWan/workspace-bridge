@@ -58,6 +58,7 @@ function runCommandSecure(command, args, cwd, timeoutMs = TIMEOUTS.COMMAND_DEFAU
       if (stdout.length > LIMITS.COMMAND_OUTPUT_MAX_BYTES) {
         stdout = stdout.slice(0, LIMITS.COMMAND_OUTPUT_MAX_BYTES) + '\n...[truncated due to size limit]';
         child.stdout.destroy();
+        child.kill('SIGTERM');
       }
     });
 
@@ -66,6 +67,7 @@ function runCommandSecure(command, args, cwd, timeoutMs = TIMEOUTS.COMMAND_DEFAU
       if (stderr.length > LIMITS.COMMAND_OUTPUT_MAX_BYTES) {
         stderr = stderr.slice(0, LIMITS.COMMAND_OUTPUT_MAX_BYTES) + '\n...[truncated due to size limit]';
         child.stderr.destroy();
+        child.kill('SIGTERM');
       }
     });
 
@@ -153,39 +155,6 @@ async function commandExists(command, cwd) {
   return result.ok && result.stdout.trim().length > 0;
 }
 
-/**
- * DEPRECATED: Legacy command execution (kept for backwards compatibility)
- * WARNING: Do not use for user-input commands - use runCommandSecure instead
- */
-function runCommand(command, cwd, timeoutMs = TIMEOUTS.COMMAND_DEFAULT_MS) {
-  try {
-    const stdout = cp.execSync(command, {
-      cwd,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-      timeout: timeoutMs,
-      maxBuffer: LIMITS.EXEC_SYNC_MAX_BUFFER_BYTES,
-    });
-
-    return {
-      ok: true,
-      command,
-      exitCode: 0,
-      stdout: stdout || '',
-      stderr: '',
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      command,
-      exitCode: typeof error.status === 'number' ? error.status : 1,
-      stdout: error.stdout ? String(error.stdout) : '',
-      stderr: error.stderr ? String(error.stderr) : String(error.message || error),
-    };
-  }
-}
-
 function trimOutput(value, limit = LIMITS.TRIM_OUTPUT_DEFAULT_CHARS) {
   if (!value) return '';
   if (value.length <= limit) return value;
@@ -199,8 +168,5 @@ module.exports = {
   runPythonModule,
   runNpx,
   commandExists,
-  
-  // Legacy methods (DEPRECATED - for internal use only)
-  runCommand,
   trimOutput,
 };

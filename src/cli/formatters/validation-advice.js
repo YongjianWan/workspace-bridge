@@ -1,10 +1,7 @@
 const { detectStack, generateCommands } = require('../../utils/stack-detector');
 const { classifyChangeType, getValidationTemplate } = require('./audit-diff-summary');
 
-function buildValidationAdvice(entries, workspaceRoot) {
-  const changeType = classifyChangeType(entries);
-  const template = getValidationTemplate(changeType);
-
+function collectEntryMetrics(entries) {
   const directTests = new Set();
   const indirectTests = new Set();
   const turbulenceFiles = [];
@@ -55,22 +52,25 @@ function buildValidationAdvice(entries, workspaceRoot) {
     }
   }
 
-  const phases = [];
-  const smokeTargets = Array.from(new Set(smokeFiles)).sort();
-  phases.push({
-    phase: 'smoke',
-    priority: 'high',
-    reason: template.smoke.reason,
-    actions: template.smoke.actions,
-    targets: smokeTargets,
-  });
+  return {
+    directTests,
+    indirectTests,
+    turbulenceFiles,
+    highImpactFiles,
+    highCompositeFiles,
+    smokeFiles,
+    graphTouchedFiles,
+    nonMainlineFiles,
+  };
+}
 
+function buildFocusedSteps(metrics) {
   const focusedSteps = [];
-  const uniqueHighImpact = Array.from(new Set(highImpactFiles)).sort();
-  const uniqueHighComposite = Array.from(new Set(highCompositeFiles.map((item) => item.file))).sort();
-  const uniqueTurbulence = Array.from(new Set(turbulenceFiles.map(t => t.file))).sort();
-  const uniqueDirectTests = Array.from(directTests).sort();
-  const uniqueNonMainline = Array.from(new Set(nonMainlineFiles)).sort();
+  const uniqueHighComposite = Array.from(new Set(metrics.highCompositeFiles.map((item) => item.file))).sort();
+  const uniqueHighImpact = Array.from(new Set(metrics.highImpactFiles)).sort();
+  const uniqueTurbulence = Array.from(new Set(metrics.turbulenceFiles.map((t) => t.file))).sort();
+  const uniqueDirectTests = Array.from(metrics.directTests).sort();
+  const uniqueNonMainline = Array.from(new Set(metrics.nonMainlineFiles)).sort();
 
   if (uniqueHighComposite.length > 0) {
     focusedSteps.push({
@@ -78,7 +78,7 @@ function buildValidationAdvice(entries, workspaceRoot) {
       name: 'review-high-composite-risk',
       reason: 'These files combine structural and history risk; review first.',
       targets: uniqueHighComposite,
-      notes: highCompositeFiles.map((item) => ({ file: item.file, note: item.reason })),
+      notes: metrics.highCompositeFiles.map((item) => ({ file: item.file, note: item.reason })),
     });
   }
 
@@ -97,7 +97,7 @@ function buildValidationAdvice(entries, workspaceRoot) {
       name: 'review-turbulence',
       reason: 'These files change often but have narrow impact; check recent commits for context.',
       targets: uniqueTurbulence,
-      notes: turbulenceFiles.map(t => ({ file: t.file, note: t.reason })),
+      notes: metrics.turbulenceFiles.map((t) => ({ file: t.file, note: t.reason })),
     });
   }
 
@@ -119,6 +119,22 @@ function buildValidationAdvice(entries, workspaceRoot) {
     });
   }
 
+  return { focusedSteps, uniqueHighImpact, uniqueTurbulence, uniqueDirectTests, uniqueNonMainline };
+}
+
+function buildPhases(metrics, template) {
+  const phases = [];
+  const smokeTargets = Array.from(new Set(metrics.smokeFiles)).sort();
+  phases.push({
+    phase: 'smoke',
+    priority: 'high',
+    reason: template.smoke.reason,
+    actions: template.smoke.actions,
+    targets: smokeTargets,
+  });
+
+  const { focusedSteps, uniqueHighImpact, uniqueTurbulence, uniqueDirectTests, uniqueNonMainline } = buildFocusedSteps(metrics);
+
   if (focusedSteps.length > 0) {
     phases.push({
       phase: 'focused',
@@ -136,8 +152,8 @@ function buildValidationAdvice(entries, workspaceRoot) {
   }
 
   const fullTargets = Array.from(new Set([
-    ...Array.from(indirectTests),
-    ...graphTouchedFiles,
+    ...Array.from(metrics.indirectTests),
+    ...metrics.graphTouchedFiles,
   ])).sort();
 
   phases.push({
@@ -148,47 +164,52 @@ function buildValidationAdvice(entries, workspaceRoot) {
     targets: fullTargets,
   });
 
+  return { phases, smokeTargets, focusedSteps };
+}
+
+function buildSummary(metrics) {
   const summary = [];
-  if (directTests.size > 0) {
+  if (metrics.directTests.size > 0) {
     summary.push({
       priority: 'high',
       kind: 'tests',
       message: 'Run directly affected tests first.',
-      targets: Array.from(directTests).sort(),
+      targets: Array.from(metrics.directTests).sort(),
     });
   }
-  if (highImpactFiles.length > 0) {
+  if (metrics.highImpactFiles.length > 0) {
     summary.push({
       priority: 'high',
       kind: 'review',
       message: 'Review high-impact files carefully before merge.',
-      targets: Array.from(new Set(highImpactFiles)).sort(),
+      targets: Array.from(new Set(metrics.highImpactFiles)).sort(),
     });
   }
-  if (highCompositeFiles.length > 0) {
+  if (metrics.highCompositeFiles.length > 0) {
+    const uniqueHighComposite = Array.from(new Set(metrics.highCompositeFiles.map((item) => item.file))).sort();
     summary.push({
       priority: 'high',
       kind: 'risk',
       message: 'Review high composite-risk files first.',
       targets: uniqueHighComposite,
-      notes: highCompositeFiles.map((item) => ({ file: item.file, reason: item.reason })),
+      notes: metrics.highCompositeFiles.map((item) => ({ file: item.file, reason: item.reason })),
     });
   }
-  if (turbulenceFiles.length > 0) {
+  if (metrics.turbulenceFiles.length > 0) {
     summary.push({
       priority: 'medium',
       kind: 'review',
       message: 'Review turbulence files - they change often but have narrow impact.',
-      targets: turbulenceFiles.map(t => t.file),
-      notes: turbulenceFiles.map(t => ({ file: t.file, reason: t.reason })),
+      targets: metrics.turbulenceFiles.map((t) => t.file),
+      notes: metrics.turbulenceFiles.map((t) => ({ file: t.file, reason: t.reason })),
     });
   }
-  if (indirectTests.size > 0) {
+  if (metrics.indirectTests.size > 0) {
     summary.push({
       priority: 'medium',
       kind: 'tests',
       message: 'Then run indirectly affected tests.',
-      targets: Array.from(indirectTests).sort(),
+      targets: Array.from(metrics.indirectTests).sort(),
     });
   }
   if (summary.length === 0) {
@@ -196,28 +217,23 @@ function buildValidationAdvice(entries, workspaceRoot) {
       priority: 'low',
       kind: 'review',
       message: 'Start with a smoke check; no narrower validation targets were detected.',
-      targets: smokeTargets,
+      targets: Array.from(new Set(metrics.smokeFiles)).sort(),
     });
   }
+  return summary;
+}
 
-  const stack = detectStack(workspaceRoot);
-  const commands = generateCommands(stack, changeType, smokeTargets, focusedSteps);
+function pickSuggestedCommand(allCommands) {
+  const names = ['focused-tests', 'all-tests', 'type-check', 'lint'];
+  for (const key of names) {
+    const hit = allCommands.find((cmd) => String(cmd.name || '').includes(key));
+    if (hit?.cmd) return hit.cmd;
+  }
+  return allCommands[0]?.cmd || null;
+}
 
-  const allCommands = [
-    ...(commands.focused || []),
-    ...(commands.smoke || []),
-    ...(commands.full || []),
-  ];
-  const pickSuggestedCommand = (entry) => {
-    const names = ['focused-tests', 'all-tests', 'type-check', 'lint'];
-    for (const key of names) {
-      const hit = allCommands.find((cmd) => String(cmd.name || '').includes(key));
-      if (hit?.cmd) return hit.cmd;
-    }
-    return allCommands[0]?.cmd || null;
-  };
-
-  const topRiskActions = entries
+function buildTopRiskActions(entries, allCommands) {
+  return entries
     .filter((entry) => entry?.compositeRisk)
     .sort((a, b) => (b.compositeRisk.score || 0) - (a.compositeRisk.score || 0))
     .slice(0, 3)
@@ -240,7 +256,7 @@ function buildValidationAdvice(entries, workspaceRoot) {
         file: entry.file,
         score: entry.compositeRisk.score,
         level: entry.compositeRisk.level,
-        suggestedCommand: pickSuggestedCommand(entry),
+        suggestedCommand: pickSuggestedCommand(allCommands),
         actions,
         evidence: {
           impactCount: entry.impactCount || 0,
@@ -254,6 +270,26 @@ function buildValidationAdvice(entries, workspaceRoot) {
         },
       };
     });
+}
+
+function buildValidationAdvice(entries, workspaceRoot) {
+  const changeType = classifyChangeType(entries);
+  const template = getValidationTemplate(changeType);
+
+  const metrics = collectEntryMetrics(entries);
+  const { phases, smokeTargets, focusedSteps } = buildPhases(metrics, template);
+  const summary = buildSummary(metrics);
+
+  const stack = detectStack(workspaceRoot);
+  const commands = generateCommands(stack, changeType, smokeTargets, focusedSteps);
+
+  const allCommands = [
+    ...(commands.focused || []),
+    ...(commands.smoke || []),
+    ...(commands.full || []),
+  ];
+
+  const topRiskActions = buildTopRiskActions(entries, allCommands);
 
   return {
     changeType,

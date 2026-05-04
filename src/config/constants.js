@@ -6,12 +6,23 @@ const TIMEOUTS = {
   COMMAND_DEFAULT_MS: 120000,
   COMMAND_EXISTS_CHECK_MS: 5000,
   GIT_DEFAULT_MS: 30000,
+  GIT_SHORT_MS: 15000,
+  GIT_LONG_MS: 30000,
   PYTHON_MODULE_DEFAULT_MS: 30000,
   NPX_DEFAULT_MS: 30000,
   PYTHON_AST_PARSE_MS: 30000,
+  CONTAINER_ENSURE_READY_TIMEOUT_MS: 30000,
   // Container initialization: file indexing + dep-graph build + cache warm.
   // Large repos (10k+ files) may need the full minute.
   INIT_TIMEOUT_MS: 60000,
+  // Health / linter commands: most formatters and checkers finish within a minute.
+  HEALTH_COMMAND_TIMEOUT_MS: 60000,
+  // Version-check calls are lightweight; 15s covers slow Python startup.
+  HEALTH_SHORT_TIMEOUT_MS: 15000,
+  // Security audit tools may need network; 45s is conservative.
+  HEALTH_AUDIT_TIMEOUT_MS: 45000,
+  // Very quick checks (npm config get, etc.)
+  HEALTH_QUICK_TIMEOUT_MS: 5000,
 };
 
 const LIMITS = {
@@ -19,6 +30,14 @@ const LIMITS = {
   EXEC_SYNC_MAX_BUFFER_BYTES: 4 * 1024 * 1024,
   TRIM_OUTPUT_DEFAULT_CHARS: 12000,
   SEARCH_MAX_FILE_BYTES: 1024 * 1024,
+  GIT_STAT_MAX_CHARS: 8000,
+  GIT_PATCH_MAX_CHARS: 12000,
+  GIT_FILE_LIST_MAX: 500,
+  GIT_COMMIT_MAX: 10,
+  GIT_BRANCH_MAX: 10,
+  GIT_LOG_MAX: 100,
+  GIT_AUTHOR_MAX_LENGTH: 100,
+  LINTER_OUTPUT_MAX_CHARS: 3000,
 };
 
 // Operational defaults with documented rationale
@@ -53,6 +72,23 @@ const DEFAULTS = {
   // Minimum code ratio for a mixed change to be classified as "code".
   // Below this threshold, docs/tests/config/scripts may dominate.
   CODE_CHANGE_RATIO_THRESHOLD: 0.2,
+  // REPL display limits
+  REPL_ISSUES_LIMIT: 3,
+  REPL_TOP_LIMIT: 2,
+  PROJECT_MAP_HIGHLIGHT_MAX: 30,
+  // Audit-diff compact thresholds
+  AUDIT_DIFF_AUTO_COMPACT_THRESHOLD: 20,
+  COMPACT_IMPACT_MAX: 5,
+  COMPACT_AFFECTED_TESTS_MAX: 5,
+  COMPACT_EXPLANATIONS_MAX: 3,
+  COMPACT_TOP_COMPOSITE_RISKS: 3,
+  // Function reuse hints for audit-diff
+  REUSE_HINTS_MIN_SCORE: 0.5,
+  REUSE_HINTS_MAX_PER_FUNCTION: 3,
+  // File-index timeouts
+  FILE_INDEX_PATTERN_TIMEOUT_MS: 120000,
+  WATCH_DEBOUNCE_MS: 500,
+  FILE_INDEX_BUILD_TIMEOUT_MS: 300000,
 };
 
 // Scoring weights for highlighted files in compact project map.
@@ -66,9 +102,52 @@ const HIGHLIGHT_SCORES = {
   entry: 0,
 };
 
+const SCORING = {
+  // Hotspot scoring
+  HOTSPOT_COMMIT_COUNT_CAP: 10,
+  HOTSPOT_COMMIT_COUNT_WEIGHT: 2,
+  HOTSPOT_AUTHOR_COUNT_FALLBACK: 1,
+  HOTSPOT_AUTHOR_COUNT_WEIGHT: 3,
+  HOTSPOT_LAST_MODIFIED_DAYS_CAP: 30,
+  HOTSPOT_LAST_MODIFIED_DAYS_MULTIPLIER: 0.5,
+  HOTSPOT_REVERT_COUNT_FALLBACK: 0,
+  HOTSPOT_REVERT_COUNT_WEIGHT: 5,
+  HOTSPOT_SCORE_MAX: 100,
+  HOTSPOT_REPORT_THRESHOLD: 30,
+  HOTSPOT_MIN_DEPENDENTS: 5,
+
+  // Stability scoring
+  STABILITY_BASE_SCORE: 50,
+  STABILITY_HAS_TESTS_DELTA: 20,
+  STABILITY_LOW_IMPACT_DELTA: 10,
+  STABILITY_HIGH_IMPACT_DELTA: -10,
+  STABILITY_NON_MAINLINE_DELTA: -10,
+  STABILITY_IN_CYCLE_DELTA: -15,
+  STABILITY_CONFIG_ROLE_DELTA: 10,
+  STABILITY_SCORE_MIN: 0,
+  STABILITY_SCORE_MAX: 100,
+  STABILITY_FRAGILE_THRESHOLD: 40,
+  STABILITY_STABLE_THRESHOLD: 70,
+
+  // Coupling thresholds
+  COUPLING_HIGH_MIN: 20,
+  COUPLING_MEDIUM_MIN: 10,
+
+  // Core module detection
+  CORE_MODULE_MIN_DEPENDENTS: 3,
+
+  // Edge break scoring
+  BREAK_EDGE_DEPENDENT_WEIGHT: 2,
+
+  // Sampling / display limits
+  TOP_N_RECOMMENDATIONS: 3,
+  TOP_N_LIST: 10,
+};
+
 module.exports = {
   TIMEOUTS,
   LIMITS,
   DEFAULTS,
   HIGHLIGHT_SCORES,
+  SCORING,
 };

@@ -45,58 +45,16 @@ class ServiceContainer {
     }
 
     this.initializing = true;
+    this.initError = null;
 
     try {
-      const { findWorkspaceRoot } = require('../utils/path');
-      this.workspaceRoot = findWorkspaceRoot(cwd);
-      
-      // 记录工作区根目录来源
-      const envWorkspaceRoot = process.env.WORKSPACE_ROOT;
-      const source = envWorkspaceRoot ? 'WORKSPACE_ROOT env' : 'auto-detected';
-      console.error(`[Container] Initializing for ${this.workspaceRoot} (${source})`);
-
-      // Initialize cache (memory + disk)
-      this.cache = new WorkspaceCache(this.workspaceRoot);
-      this.cache.load();
-      this.cache.setWorkspaceInfo({ root: this.workspaceRoot });
-
-      this.projectContext = new ProjectContext(this.workspaceRoot, {
-        excludeDirs: options.excludeDirs || [],
-      });
-
-      // Initialize file index
-      this.fileIndex = new FileIndex(this.workspaceRoot, this.cache, {
-        excludeDirs: options.excludeDirs || [],
-        projectContext: this.projectContext,
-      });
-      await this.fileIndex.build(300000, {
-        watch: options.watch !== false,
-        excludeDirs: options.excludeDirs || [],
-      });
-
-      // Initialize diagnostics engine
-      this.diagnostics = new DiagnosticsEngine(this.workspaceRoot, this.cache);
-
-      // Initialize dependency graph
-      this.depGraph = new DependencyGraph(this.workspaceRoot, this.cache, {
-        excludeDirs: options.excludeDirs || [],
-        projectContext: this.projectContext,
-      });
-      await this.depGraph.build();
-
-      // Phase 2: 注册文件变更回调 → 触发后台诊断
-      this.fileIndex.onFileChanged = (filePath) => {
-        this.diagnostics?.scheduleCheck(filePath);
-      };
-
-      // Phase 3: 注册批量变更回调 → 触发 dep-graph 增量更新
-      this.fileIndex.onPendingProcessed = async (files) => {
-        try {
-          await this.depGraph?.updateFiles?.(files);
-        } catch (e) {
-          console.error(`[Container] DepGraph incremental update failed:`, e.message);
-        }
-      };
+      this._findWorkspaceRoot(cwd);
+      this._initCache();
+      this._initProjectContext(options);
+      await this._initFileIndex(options);
+      this._initDiagnostics();
+      await this._initDepGraph(options);
+      this._registerCallbacks();
 
       this.initialized = true;
       this.indexBuildTime = Date.now();
@@ -110,6 +68,67 @@ class ServiceContainer {
     } finally {
       this.initializing = false;
     }
+  }
+
+  _findWorkspaceRoot(cwd) {
+    const { findWorkspaceRoot } = require('../utils/path');
+    this.workspaceRoot = findWorkspaceRoot(cwd);
+    
+    // 记录工作区根目录来源
+    const envWorkspaceRoot = process.env.WORKSPACE_ROOT;
+    const source = envWorkspaceRoot ? 'WORKSPACE_ROOT env' : 'auto-detected';
+    console.error(`[Container] Initializing for ${this.workspaceRoot} (${source})`);
+  }
+
+  _initCache() {
+    this.cache = new WorkspaceCache(this.workspaceRoot);
+    this.cache.load();
+    this.cache.setWorkspaceInfo({ root: this.workspaceRoot });
+  }
+
+  _initProjectContext(options) {
+    this.projectContext = new ProjectContext(this.workspaceRoot, {
+      excludeDirs: options.excludeDirs || [],
+    });
+  }
+
+  async _initFileIndex(options) {
+    this.fileIndex = new FileIndex(this.workspaceRoot, this.cache, {
+      excludeDirs: options.excludeDirs || [],
+      projectContext: this.projectContext,
+    });
+    await this.fileIndex.build(300000, {
+      watch: options.watch !== false,
+      excludeDirs: options.excludeDirs || [],
+    });
+  }
+
+  _initDiagnostics() {
+    this.diagnostics = new DiagnosticsEngine(this.workspaceRoot, this.cache);
+  }
+
+  async _initDepGraph(options) {
+    this.depGraph = new DependencyGraph(this.workspaceRoot, this.cache, {
+      excludeDirs: options.excludeDirs || [],
+      projectContext: this.projectContext,
+    });
+    await this.depGraph.build();
+  }
+
+  _registerCallbacks() {
+    // Phase 2: 注册文件变更回调 → 触发后台诊断
+    this.fileIndex.onFileChanged = (filePath) => {
+      this.diagnostics?.scheduleCheck(filePath);
+    };
+
+    // Phase 3: 注册批量变更回调 → 触发 dep-graph 增量更新
+    this.fileIndex.onPendingProcessed = async (files) => {
+      try {
+        await this.depGraph?.updateFiles?.(files);
+      } catch (e) {
+        console.error(`[Container] DepGraph incremental update failed:`, e.message);
+      }
+    };
   }
 
   /**
@@ -168,6 +187,7 @@ class ServiceContainer {
     this.depGraph = null;
     this.projectContext = null;
     this.initialized = false;
+    this.initError = new Error('Container shut down');
   }
 
   getStats() {

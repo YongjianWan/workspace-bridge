@@ -6,7 +6,7 @@
 const readline = require('readline');
 const path = require('path');
 const { ServiceContainer } = require('../services/container');
-const { TIMEOUTS } = require('../config/constants');
+const { TIMEOUTS, DEFAULTS, SCORING } = require('../config/constants');
 const { buildProjectMap, countTreeFiles } = require('./formatters/project-map');
 const { parseArgs } = require('../utils/parse-args');
 
@@ -212,15 +212,15 @@ async function executeCommand(container, line) {
       lines.push(`cycles: ${cycles.length}`);
 
       if (deadExports.length > 0) {
-        const list = deadExports.slice(0, 3).map((d) => d.file).join(', ');
+        const list = deadExports.slice(0, DEFAULTS.REPL_ISSUES_LIMIT).map((d) => d.file).join(', ');
         lines.push(`  → ${list}${deadExports.length > 3 ? ' + more' : ''}`);
       }
       if (unresolved.length > 0) {
-        const list = unresolved.slice(0, 3).map((u) => `${u.file}: ${u.import}`).join(', ');
+        const list = unresolved.slice(0, DEFAULTS.REPL_ISSUES_LIMIT).map((u) => `${u.file}: ${u.import}`).join(', ');
         lines.push(`  → ${list}${unresolved.length > 3 ? ' + more' : ''}`);
       }
       if (cycles.length > 0) {
-        const list = cycles.slice(0, 2).map((c) => c.join(' -> ')).join('; ');
+        const list = cycles.slice(0, DEFAULTS.REPL_TOP_LIMIT).map((c) => c.join(' -> ')).join('; ');
         lines.push(`  → ${list}${cycles.length > 2 ? ' + more' : ''}`);
       }
 
@@ -231,7 +231,7 @@ async function executeCommand(container, line) {
       if (nextSteps.length === 0) nextSteps.push('No immediate structural issues detected.');
 
       lines.push('nextSteps:');
-      for (const step of nextSteps.slice(0, 3)) {
+      for (const step of nextSteps.slice(0, DEFAULTS.REPL_ISSUES_LIMIT)) {
         lines.push(`  - ${step}`);
       }
 
@@ -243,14 +243,14 @@ async function executeCommand(container, line) {
       const hotspots = [];
       for (const file of allFiles) {
         const dependents = container.depGraph.getDependents?.(file) || [];
-        if (dependents.length >= 5) {
+        if (dependents.length >= SCORING.HOTSPOT_MIN_DEPENDENTS) {
           hotspots.push({ file, dependentCount: dependents.length });
         }
       }
       hotspots.sort((a, b) => b.dependentCount - a.dependentCount);
 
       if (hotspots.length === 0) {
-        return 'No hotspots detected (threshold: 5 dependents).';
+        return `No hotspots detected (threshold: ${SCORING.HOTSPOT_MIN_DEPENDENTS} dependents).`;
       }
 
       const lines = [];

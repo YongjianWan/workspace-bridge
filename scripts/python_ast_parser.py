@@ -25,6 +25,24 @@ def parse_code(source: str) -> dict[str, Any]:
                     "usesAllExports": false
                 },
                 ...
+            ],
+            "exportRecords": [
+                {
+                    "name": "ClassName",
+                    "kind": "class",
+                    "lineStart": 1,
+                    "lineEnd": 5
+                },
+                ...
+            ],
+            "functionRecords": [
+                {
+                    "name": "function_name",
+                    "kind": "function",
+                    "lineStart": 10,
+                    "lineEnd": 15
+                },
+                ...
             ]
         }
     """
@@ -36,16 +54,21 @@ def parse_code(source: str) -> dict[str, Any]:
             "imports": [],
             "exports": [],
             "importRecords": [],
+            "exportRecords": [],
+            "functionRecords": [],
             "error": f"Syntax error: {e}"
         }
     
     imports = []
     exports = []
     import_records = []
+    export_records = []
+    function_records = []
     all_export_names = None  # Will be set if __all__ is defined
     
-    # First pass: find __all__ assignment and class/function definitions
-    for node in ast.walk(tree):
+    # First pass: find __all__ assignment and module-level class/function definitions
+    # Use tree.body instead of ast.walk() to avoid treating nested definitions as module-level
+    for node in tree.body:
         # Check for __all__ assignment
         if isinstance(node, ast.Assign):
             for target in node.targets:
@@ -53,19 +76,49 @@ def parse_code(source: str) -> dict[str, Any]:
                     # Extract __all__ value
                     all_export_names = extract_all_exports(node.value)
         
-        # Collect class definitions (not starting with _)
+        # Collect module-level class definitions (not starting with _)
         elif isinstance(node, ast.ClassDef) and not node.name.startswith('_'):
             exports.append(node.name)
+            export_records.append({
+                "name": node.name,
+                "kind": "class",
+                "lineStart": node.lineno,
+                "lineEnd": getattr(node, 'end_lineno', node.lineno)
+            })
         
-        # Collect function definitions (not starting with _)
+        # Collect module-level function definitions (not starting with _)
         elif isinstance(node, ast.FunctionDef) and not node.name.startswith('_'):
             exports.append(node.name)
+            export_records.append({
+                "name": node.name,
+                "kind": "function",
+                "lineStart": node.lineno,
+                "lineEnd": getattr(node, 'end_lineno', node.lineno)
+            })
+            function_records.append({
+                "name": node.name,
+                "kind": "function",
+                "lineStart": node.lineno,
+                "lineEnd": getattr(node, 'end_lineno', node.lineno)
+            })
         
         # Also collect async function definitions
         elif isinstance(node, ast.AsyncFunctionDef) and not node.name.startswith('_'):
             exports.append(node.name)
+            export_records.append({
+                "name": node.name,
+                "kind": "function",
+                "lineStart": node.lineno,
+                "lineEnd": getattr(node, 'end_lineno', node.lineno)
+            })
+            function_records.append({
+                "name": node.name,
+                "kind": "function",
+                "lineStart": node.lineno,
+                "lineEnd": getattr(node, 'end_lineno', node.lineno)
+            })
     
-    # Second pass: collect imports
+    # Second pass: collect imports (walk entire tree since imports can be nested)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             # Handle: import x, import x.y, import x as y
@@ -109,6 +162,8 @@ def parse_code(source: str) -> dict[str, Any]:
             })
     
     # If __all__ is defined, use it as the definitive list of exports
+    # Note: exportRecords/functionRecords remain based on actual definitions,
+    # but the exports list is overridden by __all__
     if all_export_names is not None:
         exports = all_export_names
     
@@ -138,7 +193,9 @@ def parse_code(source: str) -> dict[str, Any]:
     return {
         "imports": unique_imports,
         "exports": unique_exports,
-        "importRecords": unique_import_records
+        "importRecords": unique_import_records,
+        "exportRecords": export_records,
+        "functionRecords": function_records
     }
 
 
@@ -180,6 +237,8 @@ def main():
             "imports": [],
             "exports": [],
             "importRecords": [],
+            "exportRecords": [],
+            "functionRecords": [],
             "error": str(e)
         }
         print(json.dumps(error_result))

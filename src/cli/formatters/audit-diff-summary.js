@@ -5,6 +5,9 @@ const {
 } = require('../../config/risk-thresholds');
 const { DEFAULTS } = require('../../config/constants');
 
+const DOCS_EXTENSIONS = ['md', 'mdx', 'mdtxt', 'markdown', 'txt', 'rst'];
+const CONFIG_EXTENSIONS = ['json', 'yaml', 'yml', 'toml', 'ini', 'conf', 'config'];
+
 function buildAuditDiffSummary(entries) {
   const list = Array.isArray(entries) ? entries : [];
   const mainlineChanged = list.filter((entry) => entry.classification?.isMainline);
@@ -85,8 +88,8 @@ function buildAuditDiffSummary(entries) {
     },
     topCompositeRisks: topCompositeRisks
       .sort((a, b) => (b.score || 0) - (a.score || 0))
-      .slice(0, 3),
-    impactExplanations: [...new Set(impactExplanations)].slice(0, 5),
+      .slice(0, DEFAULTS.COMPACT_TOP_COMPOSITE_RISKS),
+    impactExplanations: [...new Set(impactExplanations)].slice(0, DEFAULTS.COMPACT_EXPLANATIONS_MAX),
     nextSteps,
   };
 }
@@ -128,10 +131,10 @@ function classifyChangeType(entries) {
       codeCount++;
     } else {
       // library / unknown / missing fileRole — 最小扩展名 fallback
-      if (['md', 'mdx', 'mdtxt', 'markdown', 'txt', 'rst'].includes(ext)) {
+      if (DOCS_EXTENSIONS.includes(ext)) {
         types.add('docs');
         docsCount++;
-      } else if (['json', 'yaml', 'yml', 'toml', 'ini', 'conf', 'config'].includes(ext)) {
+      } else if (CONFIG_EXTENSIONS.includes(ext)) {
         types.add('config');
         configCount++;
       } else {
@@ -324,12 +327,12 @@ function compactChangedFile(entry) {
     classification: entry.classification,
     graphKnown: entry.graphKnown,
     impactCount: entry.impactCount || 0,
-    impact: impact.slice(0, 5),
+    impact: impact.slice(0, DEFAULTS.COMPACT_IMPACT_MAX),
     affectedTestCount: entry.affectedTestCount || 0,
-    affectedTests: affectedTests.slice(0, 5),
+    affectedTests: affectedTests.slice(0, DEFAULTS.COMPACT_AFFECTED_TESTS_MAX),
     compositeRisk: entry.compositeRisk || null,
     historyRisk,
-    impactExplanations: impactExplanations.slice(0, 3),
+    impactExplanations: impactExplanations.slice(0, DEFAULTS.COMPACT_EXPLANATIONS_MAX),
   };
 }
 

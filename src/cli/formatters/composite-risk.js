@@ -13,6 +13,8 @@ function buildCompositeRisk(entry) {
     ? changedFunctionImpact.changedFunctions
     : [];
 
+  // Structural impact: more dependents = higher risk.
+  // Thresholds chosen to surface high-radius changes early without over-weighting small utilities.
   if (impactCount >= 10) {
     score += 4;
     reasons.push(`Large impact radius (${impactCount} dependents).`);
@@ -24,6 +26,7 @@ function buildCompositeRisk(entry) {
     reasons.push(`Has transitive impact (${impactCount} dependents).`);
   }
 
+  // Test coverage quality: many mapped tests lower risk; missing tests raise it.
   if (affectedTestCount >= 3) {
     score += 2;
     reasons.push(`Many mapped tests affected (${affectedTestCount}).`);
@@ -31,10 +34,12 @@ function buildCompositeRisk(entry) {
     score += 1;
     reasons.push(`Mapped tests affected (${affectedTestCount}).`);
   } else if (impactCount >= 3) {
+    // Structural impact with zero mapped tests is a coverage gap worth flagging.
     score += 1;
     reasons.push('No mapped tests despite structural impact.');
   }
 
+  // History turbulence: files with many authors/commits are riskier to change.
   if (historyRiskScore >= 6) {
     score += 2;
     reasons.push(`History risk is high (${historyRiskScore}).`);
@@ -43,22 +48,27 @@ function buildCompositeRisk(entry) {
     reasons.push(`History risk is medium (${historyRiskScore}).`);
   }
 
+  // Symbol-level precision gap: fallback means less confidence in impact boundaries.
   if (symbolMode === 'file-fallback') {
     score += 1;
     reasons.push('Symbol analysis fell back to file-level impact.');
   }
 
   if (changedFunctionImpact?.mode === 'function-symbol' && changedFunctions.length > 0) {
+    // Function-scoped impact reduces uncertainty, so discount slightly.
     score = Math.max(0, score - 1);
     reasons.push(`Function-scoped impact available (${changedFunctions.length} changed function(s)).`);
 
+    // Re-add risk if specific changed functions have high dependent counts.
     const highImpactFunctions = (changedFunctionImpact.impactedFunctionDependents || [])
       .filter((row) => (row?.dependentCount || 0) >= 5);
     if (highImpactFunctions.length > 0) {
+      // Cap at +2 to avoid runaway scores for bulk refactors.
       score += Math.min(2, highImpactFunctions.length);
       reasons.push(`High-impact functions changed (${highImpactFunctions.map((row) => row.function).join(', ')}).`);
     }
 
+    // Multiple function changes increase cross-cutting concern risk.
     if (changedFunctions.length >= 3) {
       score += 1;
       reasons.push('Multiple functions changed; verify cross-cutting behavior.');
@@ -66,12 +76,14 @@ function buildCompositeRisk(entry) {
 
     const functionLevelAffectedTests = changedFunctionImpact?.functionLevelAffectedTests?.affectedTestCount || 0;
     const impactedFunctionDependents = changedFunctionImpact?.impactedDependentCount || 0;
+    // Function-level dependents exist but no mapped tests → coverage gap at function granularity.
     if (impactedFunctionDependents >= 3 && functionLevelAffectedTests === 0) {
       score += 1;
       reasons.push('Changed functions affect dependents but no function-level tests were mapped.');
     }
   }
 
+  // Downgrade non-mainline files because they usually have narrower production impact.
   if (entry?.classification?.isMainline === false && score > 0) {
     score -= 1;
     reasons.push('Non-mainline file: downgrade one point.');

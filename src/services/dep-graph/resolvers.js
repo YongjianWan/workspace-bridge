@@ -1,7 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 
-let _javaSourceRootsCache = new Map(); // root -> string[]
+const RESOLVER_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.json', '.css'];
+const TS_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts'];
+const JS_IMPORT_EXTENSIONS = ['.js', '.mjs', '.cjs'];
+const INDEX_EXTENSIONS = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'];
+const JAVA_SOURCE_ROOTS = ['src/main/java', 'src/test/java', 'src/main/kotlin', 'src/test/kotlin'];
+
+const _javaSourceRootsCache = new Map(); // root -> string[]
 
 function discoverJavaSourceRoots(root) {
   if (_javaSourceRootsCache.has(root)) {
@@ -11,7 +17,7 @@ function discoverJavaSourceRoots(root) {
   const roots = [root, path.join(root, 'src'), path.join(root, 'app')];
 
   // Single-module projects
-  for (const srcDir of ['src/main/java', 'src/test/java', 'src/main/kotlin', 'src/test/kotlin']) {
+  for (const srcDir of JAVA_SOURCE_ROOTS) {
     const candidate = path.join(root, srcDir);
     if (fs.existsSync(candidate)) {
       roots.push(candidate);
@@ -23,7 +29,7 @@ function discoverJavaSourceRoots(root) {
     for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const sub = path.join(root, entry.name);
-      for (const srcDir of ['src/main/java', 'src/test/java', 'src/main/kotlin', 'src/test/kotlin']) {
+      for (const srcDir of JAVA_SOURCE_ROOTS) {
         const candidate = path.join(sub, srcDir);
         if (fs.existsSync(candidate)) {
           roots.push(candidate);
@@ -98,7 +104,7 @@ function resolveJavaScriptImport(fromFile, importPath) {
 
   const sourceExt = path.extname(fromFile).toLowerCase();
   const importExt = path.extname(importPath).toLowerCase();
-  const isTypeScriptSource = ['.ts', '.tsx', '.mts', '.cts'].includes(sourceExt);
+  const isTypeScriptSource = TS_EXTENSIONS.includes(sourceExt);
 
   const candidates = new Set();
   const addCandidate = (candidate) => {
@@ -107,33 +113,23 @@ function resolveJavaScriptImport(fromFile, importPath) {
 
   addCandidate(resolvedBase);
 
-  if (isTypeScriptSource && ['.js', '.mjs', '.cjs'].includes(importExt)) {
+  if (isTypeScriptSource && JS_IMPORT_EXTENSIONS.includes(importExt)) {
     const withoutImportExt = resolvedBase.slice(0, -importExt.length);
-    addCandidate(`${withoutImportExt}.ts`);
-    addCandidate(`${withoutImportExt}.tsx`);
-    addCandidate(`${withoutImportExt}.mts`);
-    addCandidate(`${withoutImportExt}.cts`);
-    addCandidate(path.join(withoutImportExt, 'index.ts'));
-    addCandidate(path.join(withoutImportExt, 'index.tsx'));
-    addCandidate(path.join(withoutImportExt, 'index.mts'));
-    addCandidate(path.join(withoutImportExt, 'index.cts'));
+    for (const ext of TS_EXTENSIONS) {
+      addCandidate(`${withoutImportExt}${ext}`);
+    }
+    for (const ext of TS_EXTENSIONS) {
+      addCandidate(path.join(withoutImportExt, `index${ext}`));
+    }
   }
 
   if (!importExt) {
-    addCandidate(`${resolvedBase}.js`);
-    addCandidate(`${resolvedBase}.jsx`);
-    addCandidate(`${resolvedBase}.ts`);
-    addCandidate(`${resolvedBase}.tsx`);
-    addCandidate(`${resolvedBase}.mjs`);
-    addCandidate(`${resolvedBase}.cjs`);
-    addCandidate(`${resolvedBase}.json`);
-    addCandidate(`${resolvedBase}.css`);
-    addCandidate(path.join(resolvedBase, 'index.js'));
-    addCandidate(path.join(resolvedBase, 'index.jsx'));
-    addCandidate(path.join(resolvedBase, 'index.ts'));
-    addCandidate(path.join(resolvedBase, 'index.tsx'));
-    addCandidate(path.join(resolvedBase, 'index.mjs'));
-    addCandidate(path.join(resolvedBase, 'index.cjs'));
+    for (const ext of RESOLVER_EXTENSIONS) {
+      addCandidate(`${resolvedBase}${ext}`);
+    }
+    for (const ext of INDEX_EXTENSIONS) {
+      addCandidate(path.join(resolvedBase, `index${ext}`));
+    }
   }
 
   for (const candidate of candidates) {
@@ -172,7 +168,7 @@ function resolveJavaImport(importPath, root) {
   return null;
 }
 
-let _goModCache = new Map(); // root -> { modulePath, mtime }
+const _goModCache = new Map(); // root -> { modulePath, mtime }
 
 function readGoMod(root) {
   const goModPath = path.join(root, 'go.mod');

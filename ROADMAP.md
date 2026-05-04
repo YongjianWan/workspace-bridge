@@ -149,9 +149,9 @@ P0T1–P0T5 全部交付。
 
 | 语言 | 策略 | 状态 |
 |------|------|------|
-| **C / C++** | regex 提取 `#include` + 函数/宏导出识别 | ⏳ 已规划，见 SESSION.md 新会话指令 B |
-| **Vue SFC** | 提取 `<script>` / `<script setup>` 复用 JS/TS parser | ⏳ 已规划，见 SESSION.md 新会话指令 B |
-| **Svelte** | 提取 `<script>` 块，regex 级解析 | ⏳ 已规划，见 SESSION.md 新会话指令 B |
+| **C / C++** | regex 提取 `#include` + 函数/宏导出识别 | ✅ 已完成 v1.0.4 |
+| **Vue SFC** | 提取 `<script>` / `<script setup>` 复用 JS/TS parser | ✅ 已完成 v1.0.4 |
+| **Svelte** | 提取 `<script>` 块，regex 级解析 | ✅ 已完成 v1.0.4 |
 | **HTML / CSS** | 不纳入（无 import 语义）| ❌ 跳过 |
 
 > 策略：新增语言走 `polyglot.js` regex 模式，不引入 AST 编译器。**~~解析器注册表在超 10 种语言时统一重构~~ → 已提前重构（见 SESSION.md 新会话指令 B），当前 6→9 种途中完成，新增语言只需注册表加一行。**
@@ -195,4 +195,4 @@ P0T1–P0T5 全部交付。
 
 ---
 
-*Last updated: 2026-05-04（语言扩展更新：新增 P6 全栈支持章节，C/C++ 与 Vue/Svelte 纳入路线图）*
+*Last updated: 2026-05-04（P6 语言扩展完成：C/C++、Vue SFC、Svelte  parser 注册表集成，9 语言全栈覆盖达成）*

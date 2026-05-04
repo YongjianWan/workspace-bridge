@@ -7,17 +7,18 @@ const fs = require('fs');
 const { getFileHistoryRisk } = require('./git-tools');
 const { overviewSeverity } = require('../config/risk-thresholds');
 const { toRelativePosix } = require('../utils/path');
-const { DEFAULTS } = require('../config/constants');
+const { findOrphanFiles } = require('../utils/orphan-detector');
+const { DEFAULTS, SCORING } = require('../config/constants');
 
 function toRelative(root, filePath) {
   return toRelativePosix(root, filePath);
 }
 
 const HOTSPOT_SCORE_RULES = [
-  { field: 'commitCount', alt: 'churn', cap: 10, weight: 2 },
-  { field: 'authorCount', fallback: 1, weight: 3 },
-  { field: 'lastModifiedDaysAgo', condition: (v) => v !== undefined && v !== null, transform: (v) => Math.max(0, 30 - v) * 0.5 },
-  { field: 'revertLikeCount', fallback: 0, weight: 5 },
+  { field: 'commitCount', alt: 'churn', cap: SCORING.HOTSPOT_COMMIT_COUNT_CAP, weight: SCORING.HOTSPOT_COMMIT_COUNT_WEIGHT },
+  { field: 'authorCount', fallback: SCORING.HOTSPOT_AUTHOR_COUNT_FALLBACK, weight: SCORING.HOTSPOT_AUTHOR_COUNT_WEIGHT },
+  { field: 'lastModifiedDaysAgo', condition: (v) => v !== undefined && v !== null, transform: (v) => Math.max(0, SCORING.HOTSPOT_LAST_MODIFIED_DAYS_CAP - v) * SCORING.HOTSPOT_LAST_MODIFIED_DAYS_MULTIPLIER },
+  { field: 'revertLikeCount', fallback: SCORING.HOTSPOT_REVERT_COUNT_FALLBACK, weight: SCORING.HOTSPOT_REVERT_COUNT_WEIGHT },
 ];
 
 function calculateHotspotScore(historyRisk) {
@@ -36,25 +37,25 @@ function calculateHotspotScore(historyRisk) {
       score += value * rule.weight;
     }
   }
-  return Math.min(Math.round(score), 100);
+  return Math.min(Math.round(score), SCORING.HOTSPOT_SCORE_MAX);
 }
 
 const STABILITY_SCORE_RULES = [
-  { check: (ctx) => ctx.hasTests, delta: 20 },
-  { check: (ctx) => ctx.impactCount < 5, delta: 10 },
-  { check: (ctx) => ctx.impactCount > 20, delta: -10 },
-  { check: (ctx) => !ctx.classification?.isMainline, delta: -10 },
-  { check: (ctx) => ctx.inCycle, delta: -15 },
-  { check: (ctx) => ctx.classification?.fileRole === 'config', delta: 10 },
+  { check: (ctx) => ctx.hasTests, delta: SCORING.STABILITY_HAS_TESTS_DELTA },
+  { check: (ctx) => ctx.impactCount < 5, delta: SCORING.STABILITY_LOW_IMPACT_DELTA },
+  { check: (ctx) => ctx.impactCount > 20, delta: SCORING.STABILITY_HIGH_IMPACT_DELTA },
+  { check: (ctx) => !ctx.classification?.isMainline, delta: SCORING.STABILITY_NON_MAINLINE_DELTA },
+  { check: (ctx) => ctx.inCycle, delta: SCORING.STABILITY_IN_CYCLE_DELTA },
+  { check: (ctx) => ctx.classification?.fileRole === 'config', delta: SCORING.STABILITY_CONFIG_ROLE_DELTA },
 ];
 
 function calculateStabilityScore(classification, impactCount, hasTests, inCycle) {
-  let score = 50;
+  let score = SCORING.STABILITY_BASE_SCORE;
   const ctx = { classification, impactCount, hasTests, inCycle };
   for (const rule of STABILITY_SCORE_RULES) {
     if (rule.check(ctx)) score += rule.delta;
   }
-  return Math.max(0, Math.min(100, score));
+  return Math.max(SCORING.STABILITY_SCORE_MIN, Math.min(SCORING.STABILITY_SCORE_MAX, score));
 }
 
 function calculateCoupling(dependencies, dependents) {
@@ -65,40 +66,11 @@ function calculateCoupling(dependencies, dependents) {
     inDegree,
     outDegree,
     total,
-    level: total > 20 ? 'high' : total > 10 ? 'medium' : 'low',
+    level: total > SCORING.COUPLING_HIGH_MIN ? 'high' : total > SCORING.COUPLING_MEDIUM_MIN ? 'medium' : 'low',
   };
 }
 
-function findOrphanFiles(files, entryFiles, graph, root) {
-  const orphans = { docs: [], scripts: [], configs: [], modules: [] };
-
-  for (const file of files) {
-    const relativePath = toRelative(root, file);
-    const ext = path.extname(file).toLowerCase();
-    const base = path.basename(file);
-    if (graph.isTestLikeFile?.(file)) continue;
-    const dependents = graph.getDependents?.(file) || [];
-    const isEntry = entryFiles.has?.(file) || entryFiles.includes?.(file);
-    const isImported = dependents.length > 0;
-    if (isEntry || isImported) continue;
-
-    if (ext === '.md' || ext === '.mdx' || base.toLowerCase().includes('readme')) {
-      orphans.docs.push(relativePath);
-    } else if (
-      relativePath.startsWith('scripts/') || relativePath.includes('/scripts/') ||
-      relativePath.startsWith('bin/') || relativePath.includes('/bin/') ||
-      relativePath.startsWith('benchmark/') || relativePath.includes('/benchmark/')
-    ) {
-      continue; // Scripts, benchmarks, and test fixtures are standalone entry points, not orphans
-    } else if (ext === '.json' || ext === '.yaml' || ext === '.yml' || ext === '.toml') {
-      orphans.configs.push(relativePath);
-    } else if (['.js', '.ts', '.py', '.go', '.rs', '.java'].includes(ext)) {
-      orphans.modules.push(relativePath);
-    }
-  }
-
-  return orphans;
-}
+// findOrphanFiles moved to ../utils/orphan-detector.js to eliminate duplication with project-map.js
 
 function identifyCoreModules(graph, files, projectContext, root) {
   const candidates = [];
@@ -107,7 +79,7 @@ function identifyCoreModules(graph, files, projectContext, root) {
     const classification = projectContext?.classifyFile?.(file);
     if (!classification?.isMainline) continue;
     const dependents = graph.getDependents?.(file) || [];
-    if (dependents.length >= 3 && classification.fileRole === 'library') {
+    if (dependents.length >= SCORING.CORE_MODULE_MIN_DEPENDENTS && classification.fileRole === 'library') {
       candidates.push({
         file: toRelative(root, file),
         dependentCount: dependents.length,
@@ -116,12 +88,12 @@ function identifyCoreModules(graph, files, projectContext, root) {
     }
   }
 
-  return candidates.sort((a, b) => b.dependentCount - a.dependentCount).slice(0, 10);
+  return candidates.sort((a, b) => b.dependentCount - a.dependentCount).slice(0, SCORING.TOP_N_LIST);
 }
 
 async function getHistoryRisk(root, filePath, historyProvider) {
   try {
-    const result = await historyProvider(root, filePath, { limit: 25 });
+    const result = await historyProvider(root, filePath, { limit: DEFAULTS.HISTORY_LIMIT });
     if (result?.ok === false) return null;
     return result?.historyRisk || null;
   } catch (e) {
@@ -149,7 +121,7 @@ async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
       const historyRisk = await getHistoryRisk(root, file, historyProvider);
       const score = calculateHotspotScore(historyRisk);
       const coupling = calculateCoupling(dependencies, dependents);
-      if (score <= 30 && coupling.total <= 10) return null;
+      if (score <= SCORING.HOTSPOT_REPORT_THRESHOLD && coupling.total <= SCORING.COUPLING_MEDIUM_MIN) return null;
       return {
         file: relativePath,
         score,
@@ -183,7 +155,7 @@ function buildStability(root, depGraph, mainlineFiles, projectContext) {
       coupling,
       hasTests,
       inCycle,
-      assessment: score >= 70 ? 'stable' : score >= 40 ? 'moderate' : 'fragile',
+      assessment: score >= SCORING.STABILITY_STABLE_THRESHOLD ? 'stable' : score >= SCORING.STABILITY_FRAGILE_THRESHOLD ? 'moderate' : 'fragile',
     });
   }
 
@@ -209,13 +181,13 @@ function buildOverviewSummary(hotspots, stability, orphans) {
   }
 
   if (hotspots.length > 0) {
-    summary.recommendations.push(`优先审查热区文件: ${hotspots.slice(0, 3).map((h) => h.file).join(', ')}`);
+    summary.recommendations.push(`优先审查热区文件: ${hotspots.slice(0, SCORING.TOP_N_RECOMMENDATIONS).map((h) => h.file).join(', ')}`);
   }
   if (fragileModules.length > 0) {
-    summary.recommendations.push(`为脆弱模块添加测试: ${fragileModules.slice(0, 3).map((s) => s.file).join(', ')}`);
+    summary.recommendations.push(`为脆弱模块添加测试: ${fragileModules.slice(0, SCORING.TOP_N_RECOMMENDATIONS).map((s) => s.file).join(', ')}`);
   }
   if (orphans.modules.length > 0) {
-    summary.recommendations.push(`审查孤儿模块是否可删除: ${orphans.modules.slice(0, 3).join(', ')}`);
+    summary.recommendations.push(`审查孤儿模块是否可删除: ${orphans.modules.slice(0, SCORING.TOP_N_RECOMMENDATIONS).join(', ')}`);
   }
 
   return { summary, orphanCount };
@@ -237,7 +209,7 @@ function pickBreakEdge(depGraph, cycleFiles) {
     const to = cycleFiles[(i + 1) % cycleFiles.length];
     const fromDependents = depGraph.getDependents?.(from) || [];
     const fromDependencies = depGraph.getDependencies?.(from) || [];
-    const score = (fromDependents.length * 2) + fromDependencies.length;
+    const score = (fromDependents.length * SCORING.BREAK_EDGE_DEPENDENT_WEIGHT) + fromDependencies.length;
     edges.push({ from, to, score, fromDependents: fromDependents.length, fromDependencies: fromDependencies.length });
   }
 
@@ -275,7 +247,7 @@ function buildCycleRefactorSuggestions(root, depGraph, projectContext) {
     });
   }
 
-  return suggestions.slice(0, 10);
+  return suggestions.slice(0, SCORING.TOP_N_LIST);
 }
 
 const COUPLING_ADVICE_RULES = [
@@ -321,7 +293,7 @@ function buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectCon
 
   return candidates
     .sort((a, b) => b.coupling.total - a.coupling.total)
-    .slice(0, 10)
+    .slice(0, SCORING.TOP_N_LIST)
     .map((item, index) => ({
       moduleId: `coupling-${index + 1}`,
       file: toRelative(root, item.file),
@@ -642,7 +614,7 @@ async function buildProjectOverview(args, container) {
       summary,
       aggregates,
       skeleton,
-      hotspots: hotspots.slice(0, 10),
+      hotspots: hotspots.slice(0, SCORING.TOP_N_LIST),
       architectureAdvice: {
         cycleRefactorSuggestions,
         couplingSplitSuggestions,
@@ -673,7 +645,7 @@ async function buildProjectOverview(args, container) {
     summary,
     aggregates,
     skeleton,
-    hotspots: hotspots.slice(0, 10),
+    hotspots: hotspots.slice(0, SCORING.TOP_N_LIST),
     architectureAdvice: {
       cycleRefactorSuggestions,
       couplingSplitSuggestions,
@@ -683,7 +655,7 @@ async function buildProjectOverview(args, container) {
     stabilityTrend,
     stabilityTrendDataFile,
     overviewDashboardFile,
-    stability: stability.slice(0, 10),
+    stability: stability.slice(0, SCORING.TOP_N_LIST),
     languageSupport: buildLanguageSupportMatrix(depGraph),
     orphans: {
       counts: {

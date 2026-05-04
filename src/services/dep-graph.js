@@ -13,9 +13,12 @@ const {
   parseKotlin,
   parseGo,
   parseRust,
+  parseVue,
+  parseCpp,
+  parseSvelte,
 } = require('./dep-graph/parsers');
 const { resolveImport } = require('./dep-graph/resolvers');
-const { normalizePathKey, matchesPathFragment, toRelativePosix } = require('../utils/path');
+const { normalizePathKey, matchesPathFragment } = require('../utils/path');
 const {
   getSymbolImpact,
   getChangedFunctionImpact,
@@ -40,6 +43,83 @@ const CONFIG = {
   DEFAULT_MAX_DEPTH: DEFAULTS.AFFECTED_TEST_DEPTH,
 };
 
+/**
+ * Generic BFS traversal over a directed graph.
+ * @param {string|string[]} startNodes - Starting node(s)
+ * @param {Function} getNeighbors - (node) => string[]
+ * @param {Object} options
+ * @param {number} [options.maxDepth=Infinity]
+ * @param {Function} [options.onVisit] - (node, depth, path) => any | undefined
+ * @returns {any[]} collected results from onVisit
+ */
+function bfsTraverse(startNodes, getNeighbors, options = {}) {
+  const visited = new Set();
+  const queue = Array.isArray(startNodes)
+    ? startNodes.map((n) => ({ node: n, depth: 0, path: [] }))
+    : [{ node: startNodes, depth: 0, path: [] }];
+  const maxDepth = Number.isFinite(options.maxDepth) ? options.maxDepth : Infinity;
+  const results = [];
+
+  while (queue.length > 0) {
+    const { node, depth, path } = queue.shift();
+    if (visited.has(node) || depth > maxDepth) continue;
+    visited.add(node);
+
+    if (options.onVisit) {
+      const result = options.onVisit(node, depth, path);
+      if (result !== undefined) results.push(result);
+    }
+
+    for (const neighbor of getNeighbors(node)) {
+      if (!visited.has(neighbor)) {
+        queue.push({
+          node: neighbor,
+          depth: depth + 1,
+          path: depth === 0 ? [node] : [...path, node],
+        });
+      }
+    }
+  }
+
+  return results;
+}
+
+// #20: framework entry-file patterns promoted to module-level constant
+const FRAMEWORK_MANAGED_PATTERNS = [
+  /\/migrations\/.*\.py$/,
+  /\/admin\.py$/,
+  /\/apps\.py$/,
+  /\/signals\.py$/,
+  /\/tests\.py$/,
+  /\/conftest\.py$/,
+  /\/settings(\..+)?\.py$/,
+  /\/urls\.py$/,
+  /\/asgi\.py$/,
+  /\/wsgi\.py$/,
+  /\/manage\.py$/,
+  /\/(page|layout|loading|error|not-found|route)\.(tsx|jsx|ts|js)$/,
+  /\/(template|default)\.(tsx|jsx|ts|js)$/,
+];
+
+// #19: known config file names as a Set
+const KNOWN_CONFIG_NAMES = new Set(['vite.config.js', 'vite.config.ts', 'eslint.config.js']);
+
+// #21: __main__ regex promoted to module-level constant
+const PYTHON_MAIN_PATTERN = /if\s+__name__\s*==\s*['"]__main__['"]\s*:/;
+
+// #16-#17: parser registry eliminates language-dispatch if-else chain
+const PARSER_REGISTRY = [
+  { exts: ['.py'], parser: parsePython, async: true },
+  { exts: ['.js', '.ts', '.jsx', '.tsx'], parser: parseJavaScript, async: false, needsFilePath: true },
+  { exts: ['.java'], parser: parseJava, async: true },
+  { exts: ['.kt'], parser: parseKotlin, async: true },
+  { exts: ['.go'], parser: parseGo, async: true },
+  { exts: ['.rs'], parser: parseRust, async: true },
+  { exts: ['.vue'], parser: parseVue, async: false, needsFilePath: true },
+  { exts: ['.c', '.cpp', '.cc', '.h', '.hpp'], parser: parseCpp, async: false },
+  { exts: ['.svelte'], parser: parseSvelte, async: false, needsFilePath: true },
+];
+
 class DependencyGraph {
   constructor(workspaceRoot, cache, options = {}) {
     this.root = workspaceRoot;
@@ -57,13 +137,7 @@ class DependencyGraph {
     if (base === CACHE_FILENAME) return true;
 
     const normalized = normalizePathKey(filePath);
-    return this.excludeDirs.some((dir) => {
-      if (dir === 'node_modules') {
-        const relative = toRelativePosix(this.root, filePath);
-        return relative.includes('node_modules/') || relative === 'node_modules';
-      }
-      return matchesPathFragment(normalized, dir);
-    });
+    return this.excludeDirs.some((dir) => matchesPathFragment(normalized, dir));
   }
 
   normalizeFilePath(filePath) {
@@ -76,6 +150,10 @@ class DependencyGraph {
 
   getFileInfo(filePath) {
     return this.graph.get(this.normalizeFilePath(filePath));
+  }
+
+  getAllFileInfos() {
+    return Array.from(this.graph.entries());
   }
 
   _readPackageJson() {
@@ -120,38 +198,19 @@ class DependencyGraph {
 
     const normalized = normalizePathKey(filePath);
     const base = path.basename(normalized);
-    const frameworkManagedPatterns = [
-      /\/migrations\/.*\.py$/,
-      /\/admin\.py$/,
-      /\/apps\.py$/,
-      /\/signals\.py$/,
-      /\/tests\.py$/,
-      /\/conftest\.py$/,
-      /\/settings(\..+)?\.py$/,
-      /\/urls\.py$/,
-      /\/asgi\.py$/,
-      /\/wsgi\.py$/,
-      /\/manage\.py$/,
-      /\/(page|layout|loading|error|not-found|route)\.(tsx|jsx|ts|js)$/,
-      /\/(template|default)\.(tsx|jsx|ts|js)$/,
-    ];
-    if (frameworkManagedPatterns.some((pattern) => pattern.test(normalized))) {
+    if (FRAMEWORK_MANAGED_PATTERNS.some((pattern) => pattern.test(normalized))) {
       return true;
     }
-    if (base === 'vite.config.js' || base === 'vite.config.ts' || base === 'eslint.config.js') {
+    if (KNOWN_CONFIG_NAMES.has(base)) {
       return true;
     }
 
     try {
       const content = fs.readFileSync(filePath, 'utf8');
       if (content.startsWith('#!')) return true;
-      if (/if\s+__name__\s*==\s*['"]__main__['"]\s*:/.test(content)) return true;
+      if (PYTHON_MAIN_PATTERN.test(content)) return true;
     } catch (e) {
       if (e.code !== 'ENOENT') throw e;
-    }
-
-    if (!Array.isArray(exports) || exports.length === 0) {
-      return false;
     }
 
     return false;
@@ -166,7 +225,7 @@ class DependencyGraph {
     // Get all files from cache
     const candidateFiles = Array.from(this.cache.fileMetadata.keys()).filter((file) => {
       if (this.shouldExclude(file)) return false;
-      if (this.projectContext && !this.projectContext.shouldAnalyzeFile(file)) return false;
+      if (this.projectContext && !this.projectContext.isActiveSourceFile(file)) return false;
       return true;
     });
     const files = [];
@@ -239,22 +298,16 @@ class DependencyGraph {
       let functionRecords = [];
       let parseMode = 'none';
 
-      if (ext === '.py') {
-        const pyResult = await parsePython(content);
-        imports = pyResult.imports;
-        exports = pyResult.exports;
-        importRecords = pyResult.importRecords || [];
-        parseMode = pyResult.parseMode || 'regex';
-      } else if (['.js', '.ts', '.jsx', '.tsx'].includes(ext)) {
-        ({ imports, exports, importRecords, exportRecords, functionRecords = [], parseMode } = parseJavaScript(content, filePath));
-      } else if (ext === '.java') {
-        ({ imports, exports, importRecords, exportRecords, functionRecords = [], parseMode } = await parseJava(content));
-      } else if (ext === '.kt') {
-        ({ imports, exports, importRecords, exportRecords, functionRecords = [], parseMode } = parseKotlin(content));
-      } else if (ext === '.go') {
-        ({ imports, exports, importRecords, exportRecords, functionRecords = [], parseMode } = parseGo(content));
-      } else if (ext === '.rs') {
-        ({ imports, exports, importRecords, exportRecords, functionRecords = [], parseMode } = parseRust(content));
+      const entry = PARSER_REGISTRY.find((e) => e.exts.includes(ext));
+      if (entry) {
+        const args = entry.needsFilePath ? [content, filePath] : [content];
+        const result = entry.async ? await entry.parser(...args) : entry.parser(...args);
+        imports = result.imports;
+        exports = result.exports;
+        importRecords = result.importRecords || [];
+        exportRecords = result.exportRecords || [];
+        functionRecords = result.functionRecords || [];
+        parseMode = result.parseMode || 'regex';
       }
 
       // Resolve relative imports to absolute paths
@@ -274,7 +327,8 @@ class DependencyGraph {
         imports: resolvedImports,
         exports,
         importRecords: resolvedImportRecords,
-        exportRecords: exportRecords.length > 0 ? exportRecords : exports.map((name) => ({ name })),
+        // python.js now returns proper exportRecords (B3 fixed); keep fallback for other parsers
+        exportRecords,
         functionRecords: functionRecords.length > 0 ? functionRecords : [],
         parseMode,
         confidence: parseMode === 'ast' ? 'high' : 'medium',
@@ -298,19 +352,42 @@ class DependencyGraph {
     }
   }
 
+  _addReverseEdges(fileKey, imports, options = {}) {
+    const { skipExisting = false } = options;
+    const seen = new Set();
+    for (const imp of imports) {
+      if (seen.has(imp)) continue;
+      seen.add(imp);
+      if (!this.reverseGraph.has(imp)) {
+        this.reverseGraph.set(imp, []);
+      }
+      const dependents = this.reverseGraph.get(imp);
+      if (skipExisting && dependents.includes(fileKey)) continue;
+      dependents.push(fileKey);
+    }
+  }
+
+  _removeOldReverseEdges(fileKey) {
+    const oldInfo = this.graph.get(fileKey);
+    if (!oldInfo) return;
+    for (const imp of oldInfo.imports) {
+      const dependents = this.reverseGraph.get(imp);
+      if (dependents) {
+        const filtered = dependents.filter((d) => d !== fileKey);
+        if (filtered.length > 0) {
+          this.reverseGraph.set(imp, filtered);
+        } else {
+          this.reverseGraph.delete(imp);
+        }
+      }
+    }
+  }
+
   buildReverseGraph() {
     this.reverseGraph.clear();
 
     for (const [file, info] of this.graph) {
-      const seen = new Set();
-      for (const imp of info.imports) {
-        if (seen.has(imp)) continue;
-        seen.add(imp);
-        if (!this.reverseGraph.has(imp)) {
-          this.reverseGraph.set(imp, []);
-        }
-        this.reverseGraph.get(imp).push(file);
-      }
+      this._addReverseEdges(file, info.imports);
     }
   }
 
@@ -336,47 +413,22 @@ class DependencyGraph {
         continue;
       }
 
-      // 1. Remove old reverse edges
-      if (oldInfo) {
-        for (const imp of oldInfo.imports) {
-          const dependents = this.reverseGraph.get(imp);
-          if (dependents) {
-            const filtered = dependents.filter((d) => d !== key);
-            if (filtered.length > 0) {
-              this.reverseGraph.set(imp, filtered);
-            } else {
-              this.reverseGraph.delete(imp);
-            }
-          }
-        }
-      }
+      this._removeOldReverseEdges(key);
 
-      // 2. Handle deleted files
+      // Handle deleted files
       if (!fs.existsSync(filePath)) {
         this.graph.delete(key);
         this.cache.deleteParseResult(filePath);
         continue;
       }
 
-      // 3. Re-parse
+      // Re-parse
       await this.analyzeFile(filePath);
       reParsed++;
 
-      // 4. Add new reverse edges
       const newInfo = this.graph.get(key);
       if (newInfo) {
-        const seen = new Set();
-        for (const imp of newInfo.imports) {
-          if (seen.has(imp)) continue;
-          seen.add(imp);
-          if (!this.reverseGraph.has(imp)) {
-            this.reverseGraph.set(imp, []);
-          }
-          const dependents = this.reverseGraph.get(imp);
-          if (!dependents.includes(key)) {
-            dependents.push(key);
-          }
-        }
+        this._addReverseEdges(key, newInfo.imports, { skipExisting: true });
       }
     }
 
@@ -404,17 +456,10 @@ class DependencyGraph {
    * P3: 增加 via（路径链）和 importedSymbols（导入符号），支撑变更影响解释
    */
   getImpactRadius(filePath, depth = 3) {
-    const visited = new Set();
-    const queue = [{ file: filePath, level: 0, via: [] }];
-    const results = [];
-
-    while (queue.length > 0) {
-      const { file, level, via } = queue.shift();
-
-      if (visited.has(file) || level > depth) continue;
-      visited.add(file);
-
-      if (level > 0) {
+    return bfsTraverse(filePath, (file) => this.getDependents(file), {
+      maxDepth: depth,
+      onVisit: (file, level, via) => {
+        if (level === 0) return undefined;
         const currentInfo = this.getFileInfo(file);
 
         let importedSymbols = [];
@@ -426,24 +471,15 @@ class DependencyGraph {
           }
         }
 
-        results.push({
+        return {
           file,
           level,
           via: [...via],
           importedSymbols: [...new Set(importedSymbols)],
           reason: level === 1 ? 'direct-import' : 'transitive-dependency',
-        });
-      }
-
-      const dependents = this.getDependents(file);
-      for (const dep of dependents) {
-        if (!visited.has(dep)) {
-          queue.push({ file: dep, level: level + 1, via: level === 0 ? [file] : [...via, file] });
-        }
-      }
-    }
-
-    return results;
+        };
+      },
+    });
   }
 
   getSymbolImpact(filePath, maxDepth = 4) {
@@ -470,11 +506,11 @@ class DependencyGraph {
     const visited = new Set();
     const stack = new Set();
 
-    const visit = (file, path) => {
+    const visit = (file, pathStack) => {
       if (stack.has(file)) {
         // Found cycle
-        const cycleStart = path.indexOf(file);
-        cycles.push(path.slice(cycleStart).concat([file]));
+        const cycleStart = pathStack.indexOf(file);
+        cycles.push(pathStack.slice(cycleStart).concat([file]));
         return;
       }
 
@@ -482,12 +518,12 @@ class DependencyGraph {
 
       visited.add(file);
       stack.add(file);
-      path.push(file);
+      pathStack.push(file);
 
       const deps = this.getDependencies(file);
       for (const dep of deps) {
         if (this.hasFile(dep)) {
-          visit(dep, [...path]);
+          visit(dep, [...pathStack]);
         }
       }
 
@@ -528,15 +564,19 @@ class DependencyGraph {
     for (const importerPath of importerPaths) {
       try {
         const content = fs.readFileSync(importerPath, 'utf-8');
+        const patternCache = new Map();
         for (const symbol of symbols) {
           if (used.has(symbol)) continue;
-          // 转义正则元字符，防止 symbol 含 $ . ( 等导致 SyntaxError 或错误匹配
-          const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          // 方法/函数调用: bar( / Bar(
-          const callPattern = new RegExp(`\\b${escaped}\\s*\\(`);
-          // 字段/属性访问: .bar / .someField（Java/Kotlin）
-          const accessPattern = isJavaFamily ? new RegExp(`\\.${escaped}\\b`) : null;
-          if (callPattern.test(content) || (accessPattern && accessPattern.test(content))) {
+          let patterns = patternCache.get(symbol);
+          if (!patterns) {
+            const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            patterns = {
+              callPattern: new RegExp(`\\b${escaped}\\s*\\(`),
+              accessPattern: isJavaFamily ? new RegExp(`\\.${escaped}\\b`) : null,
+            };
+            patternCache.set(symbol, patterns);
+          }
+          if (patterns.callPattern.test(content) || (patterns.accessPattern && patterns.accessPattern.test(content))) {
             used.add(symbol);
           }
         }
@@ -556,6 +596,34 @@ class DependencyGraph {
    *   有 importer 的文件：先检查 importRecords，再轻量扫描 importer 内容中的使用点（P1），
    *   两者都未发现的符号才报告为 dead-export。
    */
+  _collectUsedExports(importers, filePath) {
+    let usesAllExports = false;
+    const usedNames = new Set();
+
+    for (const importerPath of importers) {
+      const importerInfo = this.getFileInfo(importerPath);
+      if (!importerInfo?.importRecords) {
+        usesAllExports = true;
+        break;
+      }
+
+      const matchingImports = importerInfo.importRecords.filter((record) => record.resolved === filePath);
+      for (const record of matchingImports) {
+        if (record.usesAllExports) {
+          usesAllExports = true;
+          break;
+        }
+        for (const importedName of record.imported || []) {
+          usedNames.add(importedName);
+        }
+      }
+
+      if (usesAllExports) break;
+    }
+
+    return { usedNames, usesAllExports };
+  }
+
   findDeadExports() {
     const deadExports = [];
 
@@ -569,33 +637,8 @@ class DependencyGraph {
         continue;
       }
 
-      let usesAllExports = false;
-      const usedNames = new Set();
-
-      for (const importerPath of importers) {
-        const importerInfo = this.getFileInfo(importerPath);
-        if (!importerInfo?.importRecords) {
-          usesAllExports = true;
-          break;
-        }
-
-        const matchingImports = importerInfo.importRecords.filter((record) => record.resolved === filePath);
-        for (const record of matchingImports) {
-          if (record.usesAllExports) {
-            usesAllExports = true;
-            break;
-          }
-          for (const importedName of record.imported || []) {
-            usedNames.add(importedName);
-          }
-        }
-
-        if (usesAllExports) break;
-      }
-
-      if (usesAllExports) {
-        continue;
-      }
+      const { usedNames, usesAllExports } = this._collectUsedExports(importers, filePath);
+      if (usesAllExports) continue;
 
       let unused = info.exports.filter((name) => !usedNames.has(name));
 
@@ -641,90 +684,69 @@ class DependencyGraph {
     * @returns {Array<{file: string, distance: number, source: string, via?: string[]}>}
    * @description 从起始文件出发，沿反向依赖图 BFS 搜索测试文件
    */
-  findAffectedTests(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH, options = {}) {
-    const includeHeuristic = options?.includeHeuristic !== false;
-
+  _findAffectedTestsByGraph(filePath, maxDepth) {
     const isTestFile = (f) => isTestLikeFile(f);
-    
-    // BFS 搜索
-    const visited = new Map(); // file -> {distance, via}
-    const queue = [{ file: filePath, distance: 0, via: [] }];
-    const affectedTests = [];
-    
-    while (queue.length > 0) {
-      const { file, distance, via } = queue.shift();
-      
-      if (visited.has(file)) continue;
-      visited.set(file, { distance, via });
-      
-      // 如果是测试文件且不是起始文件，记录结果
-      if (file !== filePath && isTestFile(file)) {
-        const result = { file, distance, source: 'graph' };
-        if (via.length > 0) {
-          result.via = via;
+    return bfsTraverse(filePath, (file) => this.getDependents(file), {
+      maxDepth,
+      onVisit: (file, distance, via) => {
+        if (file !== filePath && isTestFile(file)) {
+          const result = { file, distance, source: 'graph' };
+          if (via.length > 0) result.via = via;
+          return result;
         }
-        affectedTests.push(result);
+        return undefined;
+      },
+    });
+  }
+
+  _findAffectedTestsByHeuristic(filePath, maxDepth, graphResults) {
+    const isTestFile = (f) => isTestLikeFile(f);
+    const seen = new Set(graphResults.map((entry) => entry.file));
+    const sourceSignature = buildHeuristicSignature(this.root, filePath);
+    const sourceFamily = getHeuristicLanguageFamily(filePath);
+    const sourceLeaf = normalizeHeuristicName(filePath);
+
+    for (const candidate of this.graph.keys()) {
+      if (candidate === filePath) continue;
+      if (!isTestFile(candidate)) continue;
+      if (seen.has(candidate)) continue;
+
+      const candidateFamily = getHeuristicLanguageFamily(candidate);
+      if (sourceFamily !== candidateFamily) continue;
+
+      const candidateSignature = buildHeuristicSignature(this.root, candidate);
+      const candidateLeaf = normalizeHeuristicName(candidate);
+
+      let signatureMatched = candidateSignature && candidateSignature === sourceSignature;
+
+      // Python fallback for common layouts:
+      // source: pkg/module.py  -> tests/test_module.py | tests/module_test.py
+      if (!signatureMatched && sourceFamily === 'python-family') {
+        signatureMatched =
+          Boolean(candidateLeaf) &&
+          candidateLeaf === sourceLeaf &&
+          Boolean(sourceSignature) &&
+          sourceSignature.endsWith(`/${sourceLeaf}`);
       }
-      
-      // 继续 BFS（限制深度）
-      if (distance < maxDepth) {
-        const dependents = this.getDependents(file);
-        for (const dep of dependents) {
-          if (!visited.has(dep)) {
-            queue.push({
-              file: dep,
-              distance: distance + 1,
-              via: [...via, file],
-            });
-          }
-        }
-      }
-    }
 
-    if (includeHeuristic) {
-      // Heuristic supplement: when graph-based mapping misses obvious same-stem tests.
-      // Keeps output useful for repos that don't import tests directly.
-      const seen = new Set(affectedTests.map((entry) => entry.file));
-      const sourceSignature = buildHeuristicSignature(this.root, filePath);
-      const sourceFamily = getHeuristicLanguageFamily(filePath);
-      const sourceLeaf = normalizeHeuristicName(filePath);
-
-      for (const candidate of this.graph.keys()) {
-        if (candidate === filePath) continue;
-        if (!isTestFile(candidate)) continue;
-        if (seen.has(candidate)) continue;
-
-        const candidateFamily = getHeuristicLanguageFamily(candidate);
-        if (sourceFamily !== candidateFamily) continue;
-
-        const candidateSignature = buildHeuristicSignature(this.root, candidate);
-        const candidateLeaf = normalizeHeuristicName(candidate);
-
-        let signatureMatched = candidateSignature && candidateSignature === sourceSignature;
-
-        // Python fallback for common layouts:
-        // source: pkg/module.py  -> tests/test_module.py | tests/module_test.py
-        if (!signatureMatched && sourceFamily === 'python-family') {
-          signatureMatched =
-            Boolean(candidateLeaf) &&
-            candidateLeaf === sourceLeaf &&
-            Boolean(sourceSignature) &&
-            sourceSignature.endsWith(`/${sourceLeaf}`);
-        }
-
-        if (signatureMatched) {
-          affectedTests.push({
-            file: candidate,
-            distance: maxDepth + 1,
-            source: 'heuristic',
-            via: ['heuristic:naming'],
-          });
-          seen.add(candidate);
-        }
+      if (signatureMatched) {
+        graphResults.push({
+          file: candidate,
+          distance: maxDepth + 1,
+          source: 'heuristic',
+          via: ['heuristic:naming'],
+        });
+        seen.add(candidate);
       }
     }
+  }
 
-    return affectedTests;
+  findAffectedTests(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH, options = {}) {
+    const results = this._findAffectedTestsByGraph(filePath, maxDepth);
+    if (options?.includeHeuristic !== false) {
+      this._findAffectedTestsByHeuristic(filePath, maxDepth, results);
+    }
+    return results;
   }
 
   getScopeSummary() {

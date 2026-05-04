@@ -18,6 +18,14 @@
 
 ### 新增
 
+- **C/C++ parser** `src/services/dep-graph/parsers/cpp.js` `test/cpp-parser-test.js` — regex 级解析 `#include`、文件级函数、`#define` 宏。扩展名覆盖 `.c` `.cpp` `.cc` `.h` `.hpp`，`parseMode: 'regex'`
+- **Vue SFC parser** `src/services/dep-graph/parsers/vue.js` `test/vue-parser-test.js` — 提取 `<script>` / `<script setup>` 块，复用现有 `parseJavaScript` AST/regex 解析。支持多 script 块合并
+- **Svelte parser** `src/services/dep-graph/parsers/svelte.js` `test/svelte-parser-test.js` — 提取 `<script>` 块，复用现有 `parseJavaScript`。支持 `context="module"` 等多 script 块
+- **file-index 语言覆盖扩展** `src/services/file-index.js` `src/utils/path.js` — `getFilePatterns()` 在 `hasPackageJson` 时加入 `**/*.vue` `**/*.svelte`；新增 `hasCpp` workspace 特征（`CMakeLists.txt` / `Makefile`），匹配时加入 C/C++ 扩展名；fallback 模式亦覆盖新扩展名
+- **parser 注册表 6 → 9 语言** `src/services/dep-graph.js` `src/services/dep-graph/parsers/index.js` — `PARSER_REGISTRY` 新增 `.vue` `.c/.cpp/.cc/.h/.hpp` `.svelte` 三行。达成 AGENTS.md 成功标准「全栈语言覆盖」
+
+### 新增
+
 - **`audit-map --compact`** `cli.js` `src/cli/formatters/project-map.js` `src/cli/repl.js` — 大项目信息压缩模式，三轮递进压缩：
   - Round 1：edges 聚合到目录级，删除文件 `exports`/`parseMode`
   - Round 2：tree 变为纯目录骨架（`fileCount` + `totalFileCount`），新增 `highlightedFiles` 透出 entry/issue 文件
@@ -64,6 +72,15 @@
 - **`getNodeCommands` / `getPythonCommands` 空指针** `src/utils/stack-detectors/commands.js` — `targets` 未校验直接调用 `.filter()` / `.length`
 - **`auditSecurity` null 穿透** `src/tools/security-tools.js` — 解构默认 `targets = []` 只在属性缺失时生效，显式传入 `{ targets: null }` 会 crash
 - **`matchGlob` 不完全转义** `src/tools/search-tools.js` — 只转义 `.` / `*` / `?`，其他正则元字符（`+` `[` `]` `(` `)` `{` `}` `^` `$` `|`）未处理，导致 glob 匹配错误
+- **parsers/js.js  visitors 映射表** `src/services/dep-graph/parsers/js.js` — 220 行 `visitNode` 拆为 `importExportVisitors` / `functionVisitors` 映射表，7 种业务逻辑各归其位
+- **parsers/js.js 通用 AST walker** `src/services/dep-graph/parsers/js.js` — 提取 `walkAST(node, callback, parent)` 消除两处 >90% 重复的 inline walker
+- **parsers/js.js 重复代码消除 ×4** `src/services/dep-graph/parsers/js.js` — `getPropertyName(prop)`、`buildExportRecordFromValue(name, valueNode, fallbackLines)`、`pushFunctionRecord(records, name, node)`、`QUOTE_PATTERNS` + `DECL_KIND_MAP` 配置表
+- **dep-graph.js 语言分发注册表** `src/services/dep-graph.js` — `PARSER_REGISTRY` 配置表消除 6 分支 if-else 链，新增语言只需改一行
+- **dep-graph.js 反向边构建去重** `src/services/dep-graph.js` — 提取 `_addReverseEdges(fileKey, imports, options?)` + `_removeOldReverseEdges(fileKey)`，消除 `buildReverseGraph` 与 `updateFiles` 间的重复逻辑
+- **dep-graph.js 模块级常量提取** `src/services/dep-graph.js` — `FRAMEWORK_MANAGED_PATTERNS`、`KNOWN_CONFIG_NAMES`、`PYTHON_MAIN_PATTERN` 提到模块顶部，消除函数内重复创建
+- **dep-graph.js 正则缓存** `src/services/dep-graph.js` — `_scanSymbolUsageInImporters` 用局部 `Map<symbol, RegExp>` 缓存，避免每个 importer 对每个 symbol 都 `new RegExp`
+- **dep-graph.js 方法拆分 ×3** `src/services/dep-graph.js` — `findAffectedTests` 拆为 `_findAffectedTestsByGraph` + `_findAffectedTestsByHeuristic`；`findDeadExports` 提取 `_collectUsedExports`；`updateFiles` 拆为 `_removeOldReverseEdges` + `_addReverseEdges`
+- **overview-tools.js 裸数字归零** `src/config/constants.js` `src/tools/overview-tools.js` — 新增 `SCORING` 常量对象，覆盖 hotspot/stability/coupling/core-module/edge-break/sampling 全量阈值，~20 处裸数字替换
 
 ### 测试
 

@@ -157,47 +157,9 @@ function buildFunctionToDependents(sourceInfo, symbolToDependents) {
   }).sort((a, b) => b.dependentCount - a.dependentCount);
 }
 
-const { DEFAULTS } = require('../../config/constants');
-
-function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_DEPTH) {
-  const sourceFile = depGraph.normalizeFilePath(filePath);
-  const sourceInfo = depGraph.getFileInfo(sourceFile);
-  if (!sourceInfo) {
-    return {
-      mode: 'file-fallback',
-      reason: 'source-not-indexed',
-      impactedFiles: depGraph.getImpactRadius(sourceFile, maxDepth),
-      sourceSymbols: [],
-      symbolToDependents: [],
-      functionToDependents: [],
-      directCount: 0,
-      directDependents: [],
-      transitiveCount: 0,
-      transitiveDependents: [],
-    };
-  }
-
-  if (shouldFallbackToFileImpact(depGraph, sourceFile)) {
-    return {
-      mode: 'file-fallback',
-      reason: 'ast-unavailable',
-      impactedFiles: depGraph.getImpactRadius(sourceFile, maxDepth),
-      sourceSymbols: sourceInfo.exports || [],
-      symbolToDependents: [],
-      functionToDependents: [],
-      directCount: 0,
-      directDependents: [],
-      transitiveCount: 0,
-      transitiveDependents: [],
-    };
-  }
-
-  const sourceSymbols = sourceInfo.exports || [];
-  const symbolToDependents = buildSymbolToDependents(depGraph, sourceFile, sourceSymbols);
-  const functionToDependents = buildFunctionToDependents(sourceInfo, symbolToDependents);
+function buildDirectUsage(depGraph, sourceFile, sourceSymbols) {
   const direct = [];
   const reExportQueue = [];
-  const seenReExportNode = new Set();
 
   for (const importerFile of depGraph.getDependents(sourceFile)) {
     const usage = collectDirectSymbolUsage(depGraph, sourceFile, importerFile, sourceSymbols);
@@ -220,7 +182,13 @@ function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_D
     }
   }
 
+  return { direct, reExportQueue };
+}
+
+function buildTransitiveUsage(depGraph, reExportQueue, maxDepth, direct) {
   const transitive = [];
+  const seenReExportNode = new Set();
+
   while (reExportQueue.length > 0) {
     const current = reExportQueue.shift();
     const queueKey = `${current.file}::${symbolSetToArray(current.symbols).sort().join(',')}`;
@@ -267,6 +235,10 @@ function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_D
     }
   }
 
+  return transitive;
+}
+
+function deduplicateDirectDependents(direct) {
   const uniqueDirect = [];
   const seenDirect = new Set();
   for (const item of direct) {
@@ -275,6 +247,51 @@ function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_D
     seenDirect.add(key);
     uniqueDirect.push(item);
   }
+  return uniqueDirect;
+}
+
+const { DEFAULTS } = require('../../config/constants');
+
+function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_DEPTH) {
+  const sourceFile = depGraph.normalizeFilePath(filePath);
+  const sourceInfo = depGraph.getFileInfo(sourceFile);
+  if (!sourceInfo) {
+    return {
+      mode: 'file-fallback',
+      reason: 'source-not-indexed',
+      impactedFiles: depGraph.getImpactRadius(sourceFile, maxDepth),
+      sourceSymbols: [],
+      symbolToDependents: [],
+      functionToDependents: [],
+      directCount: 0,
+      directDependents: [],
+      transitiveCount: 0,
+      transitiveDependents: [],
+    };
+  }
+
+  if (shouldFallbackToFileImpact(depGraph, sourceFile)) {
+    return {
+      mode: 'file-fallback',
+      reason: 'ast-unavailable',
+      impactedFiles: depGraph.getImpactRadius(sourceFile, maxDepth),
+      sourceSymbols: sourceInfo.exports || [],
+      symbolToDependents: [],
+      functionToDependents: [],
+      directCount: 0,
+      directDependents: [],
+      transitiveCount: 0,
+      transitiveDependents: [],
+    };
+  }
+
+  const sourceSymbols = sourceInfo.exports || [];
+  const symbolToDependents = buildSymbolToDependents(depGraph, sourceFile, sourceSymbols);
+  const functionToDependents = buildFunctionToDependents(sourceInfo, symbolToDependents);
+
+  const { direct, reExportQueue } = buildDirectUsage(depGraph, sourceFile, sourceSymbols);
+  const transitive = buildTransitiveUsage(depGraph, reExportQueue, maxDepth, direct);
+  const uniqueDirect = deduplicateDirectDependents(direct);
 
   return {
     mode: 'symbol',

@@ -38,10 +38,11 @@ function isPathInsideRoot(rootPath, targetPath) {
 
 function hasPathSegment(targetPath, segment) {
   const normalizedPath = normalizePathKey(targetPath);
-  const normalizedSegment = normalizePathKey(segment).split('/').filter(Boolean).pop();
+  const normalizedSegment = normalizePathKey(segment);
   if (!normalizedSegment) return false;
-  const parts = normalizedPath.split('/').filter(Boolean);
-  return parts.includes(normalizedSegment);
+  const pathParts = normalizedPath.split('/').filter(Boolean);
+  const segmentParts = normalizedSegment.split('/').filter(Boolean);
+  return segmentParts.some((part) => pathParts.includes(part));
 }
 
 function matchesPathFragment(targetPath, fragment) {
@@ -176,6 +177,26 @@ function resolvePythonCommand(root) {
   return 'python';
 }
 
+function resolveWorkspaceFilePath(filePath, root) {
+  if (!filePath || typeof filePath !== 'string') return null;
+  const resolved = path.isAbsolute(filePath)
+    ? normalizePath(filePath)
+    : normalizePath(path.join(root, filePath));
+  if (!isPathInsideRoot(root, resolved)) {
+    return null;
+  }
+  return resolved;
+}
+
+function isStandaloneEntryPath(relativePath) {
+  if (!relativePath) return false;
+  return (
+    relativePath.startsWith('scripts/') || relativePath.includes('/scripts/') ||
+    relativePath.startsWith('bin/') || relativePath.includes('/bin/') ||
+    relativePath.startsWith('benchmark/') || relativePath.includes('/benchmark/')
+  );
+}
+
 function detectWorkspace(root) {
   const packageJsonPath = path.join(root, 'package.json');
   const pyprojectPath = path.join(root, 'pyproject.toml');
@@ -187,6 +208,8 @@ function detectWorkspace(root) {
   const gradleKtsPath = path.join(root, 'build.gradle.kts');
   const goModPath = path.join(root, 'go.mod');
   const cargoPath = path.join(root, 'Cargo.toml');
+  const cmakePath = path.join(root, 'CMakeLists.txt');
+  const makePath = path.join(root, 'Makefile');
   const packageJson = pathExists(packageJsonPath) ? readJsonSafe(packageJsonPath) : null;
 
   return {
@@ -202,6 +225,7 @@ function detectWorkspace(root) {
     hasJava: pathExists(pomPath) || pathExists(gradlePath) || pathExists(gradleKtsPath),
     hasGo: pathExists(goModPath),
     hasRust: pathExists(cargoPath),
+    hasCpp: pathExists(cmakePath) || pathExists(makePath),
     packageJson,
   };
 }
@@ -220,5 +244,7 @@ module.exports = {
   findWorkspaceRoot,
   resolvePythonCommand,
   detectWorkspace,
+  resolveWorkspaceFilePath,
+  isStandaloneEntryPath,
   WORKSPACE_MARKERS,
 };

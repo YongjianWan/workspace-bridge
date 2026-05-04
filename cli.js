@@ -13,7 +13,7 @@ const { dependencyGraph } = require('./src/tools/dep-tools');
 const { auditSecurity } = require('./src/tools/security-tools');
 const { getChangedFiles } = require('./src/tools/git-tools');
 const { getChangedLineRanges } = require('./src/tools/git-tools');
-const { validateWorkspacePath } = require('./src/tools/git-tools');
+const { resolveWorkspaceFilePath } = require('./src/utils/path');
 const { getFileHistoryRisk } = require('./src/tools/git-tools');
 const {
   buildCompositeRisk,
@@ -374,7 +374,7 @@ async function runCommand(parsed, container) {
     }
     case 'audit-file': {
       requireFile(parsed, 'audit-file');
-      const resolvedPath = validateWorkspacePath(parsed.file, container.workspaceRoot);
+      const resolvedPath = resolveWorkspaceFilePath(parsed.file, container.workspaceRoot);
       if (!resolvedPath || !fs.existsSync(resolvedPath)) {
         return { ok: false, error: `File not found: ${parsed.file}`, inProject: false };
       }
@@ -404,7 +404,7 @@ async function runCommand(parsed, container) {
       }
 
       const entries = await mapWithConcurrency(changed.changedFiles, DEFAULTS.CLI_CONCURRENCY, async (relativeFile) => {
-        const resolvedPath = validateWorkspacePath(relativeFile, container.workspaceRoot);
+        const resolvedPath = resolveWorkspaceFilePath(relativeFile, container.workspaceRoot);
         const classification = container.projectContext?.classifyFile(resolvedPath) || null;
         const graphKnown = Boolean(resolvedPath && container.depGraph.hasFile(resolvedPath));
         const impact = graphKnown ? container.depGraph.getImpactRadius(resolvedPath) : [];
@@ -433,8 +433,8 @@ async function runCommand(parsed, container) {
         if (parsed.reuseHints === 'on' && graphKnown && changedFunctionImpactBase?.mode === 'function-symbol') {
           try {
             reuseHints = container.depGraph.getFunctionReuseHints(resolvedPath, changedFunctionImpactBase.changedFunctions, {
-              minScore: 0.5,
-              maxPerFunction: 3,
+              minScore: DEFAULTS.REUSE_HINTS_MIN_SCORE,
+              maxPerFunction: DEFAULTS.REUSE_HINTS_MAX_PER_FUNCTION,
             });
           } catch (e) {
             // Non-core path: similarity hints should never block main diff analysis.
@@ -512,7 +512,8 @@ async function runCommand(parsed, container) {
         };
       });
 
-      const finalEntries = parsed.compact
+      const shouldAutoCompact = !parsed.compact && safeEntries.length > DEFAULTS.AUDIT_DIFF_AUTO_COMPACT_THRESHOLD;
+      const finalEntries = (parsed.compact || shouldAutoCompact)
         ? safeEntries.map((entry) => compactChangedFile(entry))
         : safeEntries;
 

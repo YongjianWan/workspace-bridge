@@ -1,3 +1,8 @@
+const FUNCTION_FINGERPRINT_MAX_CALLEES = 20;
+
+// AST keys to skip during generic traversal (avoid infinite loops / noise).
+const AST_SKIP_KEYS = new Set(['type', 'loc', 'start', 'end']);
+
 function uniqueNames(values) {
   return Array.from(new Set((values || []).filter(Boolean)));
 }
@@ -75,7 +80,7 @@ function buildFunctionFingerprint(functionNode) {
     }
 
     for (const key of Object.keys(node)) {
-      if (key === 'type' || key === 'loc' || key === 'start' || key === 'end') continue;
+      if (AST_SKIP_KEYS.has(key)) continue;
       const child = node[key];
       if (Array.isArray(child)) {
         for (const c of child) stack.push(c);
@@ -92,7 +97,7 @@ function buildFunctionFingerprint(functionNode) {
     hasTryCatch,
     branchCount,
     returnCount,
-    callCallees: Array.from(callCallees).sort().slice(0, 20),
+    callCallees: Array.from(callCallees).sort().slice(0, FUNCTION_FINGERPRINT_MAX_CALLEES),
   };
 }
 

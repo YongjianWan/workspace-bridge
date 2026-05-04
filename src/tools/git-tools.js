@@ -4,9 +4,10 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { findWorkspaceRoot, normalizePath, isPathInsideRoot, toRelativePosix } = require('../utils/path');
+const { findWorkspaceRoot, resolveWorkspaceFilePath, toRelativePosix } = require('../utils/path');
 const { runGit, trimOutput } = require('../utils/command');
 const { scoreToLevel } = require('../config/risk-thresholds');
+const { TIMEOUTS, LIMITS } = require('../config/constants');
 
 function parseIsoDate(value) {
   const date = value ? new Date(value) : null;
@@ -99,28 +100,8 @@ function computeHistoryRisk(commits) {
   };
 }
 
-/**
- * Validate that a file path is within the workspace root (prevent path traversal)
- * @param {string} filePath - Path to validate
- * @param {string} root - Workspace root
- * @returns {string|null} - Normalized path if valid, null otherwise
- */
-function validateWorkspacePath(filePath, root) {
-  if (!filePath || typeof filePath !== 'string') return null;
-
-  const resolved = path.isAbsolute(filePath)
-    ? normalizePath(filePath)
-    : normalizePath(path.join(root, filePath));
-
-  if (!isPathInsideRoot(root, resolved)) {
-    return null;
-  }
-
-  return resolved;
-}
-
 async function ensureGitRepo(root) {
-  const result = await runGit(['rev-parse', '--show-toplevel'], root, 15000);
+  const result = await runGit(['rev-parse', '--show-toplevel'], root, TIMEOUTS.GIT_SHORT_MS);
   if (!result.ok) {
     return { ok: false, error: 'Not a git repository', workspaceRoot: root };
   }
@@ -138,9 +119,9 @@ async function gitDiffSummary(args, container) {
   const diffArgs = staged ? ['diff', '--cached', '--no-color'] : ['diff', '--no-color'];
 
   const [stat, names, patch] = await Promise.all([
-    runGit([...diffArgs, '--stat'], root, 30000),
-    runGit([...diffArgs, '--name-only'], root, 30000),
-    runGit([...diffArgs, '--unified=0'], root, 30000),
+    runGit([...diffArgs, '--stat'], root, TIMEOUTS.GIT_LONG_MS),
+    runGit([...diffArgs, '--name-only'], root, TIMEOUTS.GIT_LONG_MS),
+    runGit([...diffArgs, '--unified=0'], root, TIMEOUTS.GIT_LONG_MS),
   ]);
 
   return {
@@ -148,8 +129,8 @@ async function gitDiffSummary(args, container) {
     inGitRepo: true,
     staged,
     files: names.stdout.split(/\r?\n/).map(l => l.trim()).filter(Boolean),
-    stat: trimOutput(stat.stdout, 8000),
-    patch: trimOutput(patch.stdout, 12000),
+    stat: trimOutput(stat.stdout, LIMITS.GIT_STAT_MAX_CHARS),
+    patch: trimOutput(patch.stdout, LIMITS.GIT_PATCH_MAX_CHARS),
   };
 }
 
@@ -166,7 +147,7 @@ async function getChangedFiles(root, options = {}) {
 
   const args = ['status', '--porcelain=v1', includeUntracked ? '--untracked-files=all' : '--untracked-files=no'];
 
-  const result = await runGit(args, root, 30000);
+  const result = await runGit(args, root, TIMEOUTS.GIT_LONG_MS);
   if (!result.ok) {
     return { ok: false, error: result.stderr || 'Failed to read git status', workspaceRoot: root };
   }
@@ -201,7 +182,7 @@ async function getChangedFiles(root, options = {}) {
     }
 
     if (isUntracked || isStaged || isUnstaged) {
-      const absolute = validateWorkspacePath(file, root);
+      const absolute = resolveWorkspaceFilePath(file, root);
       if (absolute) {
         try {
           if (fs.existsSync(absolute) && fs.statSync(absolute).isDirectory()) {
@@ -242,7 +223,7 @@ function parseUnifiedDiffLineRanges(diffText) {
 }
 
 async function isTrackedByGit(root, filePath) {
-  const result = await runGit(['ls-files', '--error-unmatch', '--', filePath], root, 15000);
+  const result = await runGit(['ls-files', '--error-unmatch', '--', filePath], root, TIMEOUTS.GIT_SHORT_MS);
   return result.ok;
 }
 
@@ -250,7 +231,7 @@ async function getChangedLineRanges(root, file, options = {}) {
   const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
 
-  const filePath = validateWorkspacePath(file, root);
+  const filePath = resolveWorkspaceFilePath(file, root);
   if (!filePath) {
     return { ok: false, error: 'Invalid file path or path outside workspace', workspaceRoot: root, file };
   }
@@ -260,7 +241,7 @@ async function getChangedLineRanges(root, file, options = {}) {
     ? ['diff', '--cached', '--no-color', '--unified=0', '--', filePath]
     : ['diff', '--no-color', '--unified=0', '--', filePath];
 
-  const diffResult = await runGit(diffArgs, root, 30000);
+  const diffResult = await runGit(diffArgs, root, TIMEOUTS.GIT_LONG_MS);
   const ranges = parseUnifiedDiffLineRanges(diffResult.stdout || '');
   if (ranges.length > 0) {
     return {
@@ -315,14 +296,14 @@ async function getFileHistoryRisk(root, file, options = {}) {
   const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
 
-  const filePath = validateWorkspacePath(file, root);
+  const filePath = resolveWorkspaceFilePath(file, root);
   if (!filePath) {
     return { ok: false, error: 'Invalid file path or path outside workspace', workspaceRoot: root };
   }
 
-  const limit = Number.isFinite(options.limit) ? Math.min(Math.max(options.limit, 1), 100) : 25;
+  const limit = Number.isFinite(options.limit) ? Math.min(Math.max(options.limit, 1), LIMITS.GIT_COMMIT_MAX) : 25;
   const fmt = '--format=%x00%H%n%an%n%ae%n%ai%n%s';
-  const result = await runGit(['log', '--follow', `-${limit}`, fmt, '--', filePath], root, 30000);
+  const result = await runGit(['log', '--follow', `-${limit}`, fmt, '--', filePath], root, TIMEOUTS.GIT_LONG_MS);
   if (!result.ok && !result.stdout) {
     return { ok: false, error: result.stderr || 'Failed to read git history', workspaceRoot: root, file };
   }
@@ -346,7 +327,7 @@ async function getFileHistoryRisk(root, file, options = {}) {
     workspaceRoot: root,
     file: toRelativePosix(root, filePath),
     historyRisk: computeHistoryRisk(commits),
-    recentCommits: commits.slice(0, 10),
+    recentCommits: commits.slice(0, LIMITS.GIT_COMMIT_MAX),
   };
 }
 
@@ -358,7 +339,7 @@ async function gitBlame(args, container) {
   if (!file) return { ok: false, error: 'file parameter is required' };
 
   // Validate path is within workspace
-  const filePath = validateWorkspacePath(file, root);
+  const filePath = resolveWorkspaceFilePath(file, root);
   if (!filePath) {
     return { ok: false, error: 'Invalid file path or path outside workspace' };
   }
@@ -389,7 +370,7 @@ async function gitBlame(args, container) {
   
   blameArgs.push(filePath);
 
-  const result = await runGit(blameArgs, root, 30000);
+  const result = await runGit(blameArgs, root, TIMEOUTS.GIT_LONG_MS);
   if (!result.ok && !result.stdout) {
     return { ok: false, error: result.stderr, workspaceRoot: root };
   }
@@ -421,14 +402,14 @@ async function gitBlame(args, container) {
     workspaceRoot: root,
     file: toRelativePosix(root, filePath),
     entryCount: entries.length,
-    entries: entries.slice(0, 500),
+    entries: entries.slice(0, LIMITS.GIT_FILE_LIST_MAX),
   };
 }
 
 async function gitHistory(args, container) {
   const target = args?.cwd || process.cwd();
   const root = container?.workspaceRoot || findWorkspaceRoot(target);
-  const limit = Number.isFinite(args?.limit) ? Math.min(args.limit, 200) : 30;
+  const limit = Number.isFinite(args?.limit) ? Math.min(args.limit, LIMITS.GIT_LOG_MAX) : 30;
 
   const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
@@ -437,7 +418,7 @@ async function gitHistory(args, container) {
   const logArgs = ['log', `-${limit}`];
   
   // Add optional filters with validation
-  if (args?.author && typeof args.author === 'string' && args.author.length < 100) {
+  if (args?.author && typeof args.author === 'string' && args.author.length < LIMITS.GIT_AUTHOR_MAX_LENGTH) {
     // Sanitize author - only allow reasonable characters
     const sanitizedAuthor = args.author.replace(/[<>\"\x00-\x1f]/g, '');
     if (sanitizedAuthor) {
@@ -462,7 +443,7 @@ async function gitHistory(args, container) {
 
   // Add file filter if specified (validate path)
   if (args?.file) {
-    const filePath = validateWorkspacePath(args.file, root);
+    const filePath = resolveWorkspaceFilePath(args.file, root);
     if (filePath) {
       logArgs.push('--', filePath);
     }
@@ -472,7 +453,7 @@ async function gitHistory(args, container) {
   const fmt = '--format=%x00%H%n%h%n%an%n%ae%n%ai%n%s';
   logArgs.push(fmt);
 
-  const result = await runGit(logArgs, root, 30000);
+  const result = await runGit(logArgs, root, TIMEOUTS.GIT_LONG_MS);
   const commits = [];
 
   for (const block of (result.stdout || '').split('\0')) {
@@ -507,15 +488,15 @@ async function gitBranchInfo(args) {
   if (gitCheck) return gitCheck;
 
   // --show-current requires Git 2.22+, fallback to rev-parse
-  let current = await runGit(['branch', '--show-current'], root, 15000);
+  let current = await runGit(['branch', '--show-current'], root, TIMEOUTS.GIT_SHORT_MS);
   if (!current.ok) {
-    current = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], root, 15000);
+    current = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], root, TIMEOUTS.GIT_SHORT_MS);
   }
 
   // --format requires Git 2.7+, fallback to -v -a parsing
   const formatResult = await runGit(
     ['branch', '-a', '--format=%(refname:short)|%(upstream:short)|%(upstream:track)|%(objectname:short)'],
-    root, 15000
+    root, TIMEOUTS.GIT_SHORT_MS
   );
 
   const branches = [];
@@ -533,7 +514,7 @@ async function gitBranchInfo(args) {
     }
   } else {
     // Git < 2.7 fallback: parse `git branch -v -a`
-    const fallback = await runGit(['branch', '-v', '-a'], root, 15000);
+    const fallback = await runGit(['branch', '-v', '-a'], root, TIMEOUTS.GIT_SHORT_MS);
     if (fallback.ok && fallback.stdout.trim()) {
       for (const line of fallback.stdout.split('\n')) {
         const trimmed = line.trim();
@@ -552,7 +533,7 @@ async function gitBranchInfo(args) {
     }
   }
 
-  const statusResult = await runGit(['status', '--porcelain=v1'], root, 15000);
+  const statusResult = await runGit(['status', '--porcelain=v1'], root, TIMEOUTS.GIT_SHORT_MS);
   const modifiedLines = (statusResult.stdout || '').split('\n').filter(l => l.trim());
 
   return {
@@ -575,7 +556,7 @@ async function gitStash(args) {
   if (gitCheck) return gitCheck;
 
   if (action === 'list') {
-    const result = await runGit(['stash', 'list'], root, 15000);
+    const result = await runGit(['stash', 'list'], root, TIMEOUTS.GIT_SHORT_MS);
     const stashes = (result.stdout || '')
       .split('\n')
       .filter(Boolean)
@@ -588,13 +569,13 @@ async function gitStash(args) {
 
   if (action === 'show') {
     const index = Number.isFinite(args?.index) && args.index >= 0 ? args.index : 0;
-    const result = await runGit(['stash', 'show', '-p', `stash@{${index}}`], root, 30000);
+    const result = await runGit(['stash', 'show', '-p', `stash@{${index}}`], root, TIMEOUTS.GIT_LONG_MS);
     return {
       ok: result.ok,
       workspaceRoot: root,
       action,
       index,
-      patch: trimOutput(result.stdout, 8000),
+      patch: trimOutput(result.stdout, LIMITS.GIT_STAT_MAX_CHARS),
       stderr: result.stderr,
     };
   }
@@ -605,7 +586,7 @@ async function gitStash(args) {
 async function gitLogGraph(args) {
   const target = args?.cwd || process.cwd();
   const root = findWorkspaceRoot(target);
-  const limit = Number.isFinite(args?.limit) ? Math.min(args.limit, 100) : 30;
+  const limit = Number.isFinite(args?.limit) ? Math.min(args.limit, LIMITS.GIT_LOG_MAX) : 30;
 
   const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
@@ -615,14 +596,14 @@ async function gitLogGraph(args) {
     logArgs.push('--all');
   }
 
-  const result = await runGit(logArgs, root, 30000);
+  const result = await runGit(logArgs, root, TIMEOUTS.GIT_LONG_MS);
 
   return {
     ok: result.ok,
     workspaceRoot: root,
     limit,
     allBranches: Boolean(args?.allBranches),
-    graph: trimOutput(result.stdout, 8000),
+    graph: trimOutput(result.stdout, LIMITS.GIT_STAT_MAX_CHARS),
   };
 }
 
@@ -636,5 +617,4 @@ module.exports = {
   gitBranchInfo,
   gitStash,
   gitLogGraph,
-  validateWorkspacePath,  // Export for testing
 };

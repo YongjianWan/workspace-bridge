@@ -1,19 +1,8 @@
 /**
  * Dependency graph tools - Fixed version with proper path handling
  */
-const path = require('path');
-const { normalizePath, isPathInsideRoot } = require('../utils/path');
+const { resolveWorkspaceFilePath } = require('../utils/path');
 const { DEFAULTS } = require('../config/constants');
-
-/**
- * Resolve file path to absolute for consistent lookup
- */
-function resolveFilePath(file, root) {
-  if (!file) return null;
-  const resolved = path.isAbsolute(file) ? normalizePath(file) : normalizePath(path.join(root, file));
-  if (!isPathInsideRoot(root, resolved)) return null;
-  return resolved;
-}
 
 async function dependencyGraph(args, container) {
   await container.ensureReady();
@@ -26,7 +15,7 @@ async function dependencyGraph(args, container) {
   const root = container.workspaceRoot;
   
   // Resolve file path to absolute for consistent lookup
-  const filePath = args?.file ? resolveFilePath(args.file, root) : null;
+  const filePath = args?.file ? resolveWorkspaceFilePath(args.file, root) : null;
 
   switch (operation) {
     case 'stats':

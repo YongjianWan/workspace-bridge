@@ -20,6 +20,25 @@ try {
 
 let warnedMissingParser = false;
 
+// #29: quote-pattern config table replaces nested ternary
+const QUOTE_PATTERNS = {
+  '"': /"(?:[^"\\]|\\.)*"/g,
+  "'": /'(?:[^'\\]|\\.)*'/g,
+  '`': /`(?:[^`\\]|\\.)*`/g,
+};
+
+// #29: declaration-kind map replaces nested ternary
+const DECL_KIND_MAP = {
+  function: 'function',
+  class: 'class',
+  const: 'variable',
+  let: 'variable',
+  var: 'variable',
+};
+
+// #31: AST walker skip keys extracted from hardcoded string list
+const AST_SKIP_KEYS = new Set(['type', 'loc', 'start', 'end']);
+
 function stripBlockComments(content) {
   return content.replace(/\/\*[\s\S]*?\*\//g, '');
 }
@@ -29,11 +48,8 @@ function stripLineComment(line) {
 }
 
 function stripQuotedStrings(line, quoteChar, replacement) {
-  const pattern = quoteChar === '"'
-    ? /"(?:[^"\\]|\\.)*"/g
-    : quoteChar === "'"
-    ? /'(?:[^'\\]|\\.)*'/g
-    : /`(?:[^`\\]|\\.)*`/g;
+  const pattern = QUOTE_PATTERNS[quoteChar];
+  if (!pattern) return line;
   return line.replace(pattern, replacement);
 }
 
@@ -49,6 +65,51 @@ function sanitizeForRegex(content) {
       return sanitized;
     })
     .join('\n');
+}
+
+// #12: generic AST walker extracted from two ~100% duplicate inline loops
+function walkAST(node, callback, parent = null) {
+  if (!node || typeof node !== 'object') return;
+  callback(node, parent);
+  for (const key of Object.keys(node)) {
+    if (AST_SKIP_KEYS.has(key)) continue;
+    const child = node[key];
+    if (Array.isArray(child)) {
+      for (const c of child) walkAST(c, callback, node);
+    } else if (child && typeof child === 'object') {
+      walkAST(child, callback, node);
+    }
+  }
+}
+
+// #13: property-name extraction duplicated in two CJS branches
+function getPropertyName(prop) {
+  if (prop.key?.type === 'Identifier') return prop.key.name;
+  if (prop.key?.type === 'StringLiteral') return prop.key.value;
+  return null;
+}
+
+// #14: export-record creation from a value node (CJS module.exports / exports.foo)
+function buildExportRecordFromValue(name, valueNode, fallbackLines) {
+  const kind = isFunctionLikeNode(valueNode) ? 'function' : 'symbol';
+  const fingerprint = kind === 'function' ? buildFunctionFingerprint(valueNode) : null;
+  return createExportRecord(name, {
+    kind,
+    lineStart: valueNode.loc?.start?.line || fallbackLines.lineStart,
+    lineEnd: valueNode.loc?.end?.line || fallbackLines.lineEnd,
+    fingerprint,
+  });
+}
+
+// #15: function-record push duplicated for FunctionDeclaration/Expression vs ArrowFunctionExpression
+function pushFunctionRecord(records, name, node) {
+  const fingerprint = buildFunctionFingerprint(node);
+  records.push(createExportRecord(name, {
+    kind: 'function',
+    lineStart: node.loc?.start?.line,
+    lineEnd: node.loc?.end?.line,
+    fingerprint,
+  }));
 }
 
 function parseJavaScriptAST(content, filePath = '') {
@@ -78,13 +139,11 @@ function parseJavaScriptAST(content, filePath = '') {
       ],
     });
 
-    function visitNode(node) {
-      if (!node || typeof node !== 'object') return;
-
-      if (node.type === 'ImportDeclaration' && node.source?.value) {
-        if (node.importKind === 'type') {
-          return;
-        }
+    // #11: visitors mapping table replaces 220-line visitNode monolith
+    const importExportVisitors = {
+      ImportDeclaration(node) {
+        if (!node.source?.value) return;
+        if (node.importKind === 'type') return;
         const source = node.source.value;
         imports.push(source);
 
@@ -97,9 +156,7 @@ function parseJavaScriptAST(content, filePath = '') {
           } else if (spec.type === 'ImportDefaultSpecifier') {
             imported.push('default');
           } else if (spec.type === 'ImportSpecifier') {
-            if (spec.importKind === 'type') {
-              continue;
-            }
+            if (spec.importKind === 'type') continue;
             const name = spec.imported?.name || spec.imported?.value;
             if (name && name !== 'type') {
               imported.push(name);
@@ -108,12 +165,11 @@ function parseJavaScriptAST(content, filePath = '') {
         }
 
         importRecords.push(createImportRecord(source, { imported, usesAllExports }));
-      }
+      },
 
-      if (node.type === 'ExportAllDeclaration' && node.source?.value) {
-        if (node.exportKind === 'type') {
-          return;
-        }
+      ExportAllDeclaration(node) {
+        if (!node.source?.value) return;
+        if (node.exportKind === 'type') return;
         exportRecords.push(createExportRecord('*', {
           unknown: true,
           kind: 'symbol',
@@ -122,12 +178,10 @@ function parseJavaScriptAST(content, filePath = '') {
         }));
         imports.push(node.source.value);
         importRecords.push(createImportRecord(node.source.value, { usesAllExports: true, reExportAll: true }));
-      }
+      },
 
-      if (node.type === 'ExportNamedDeclaration') {
-        if (node.exportKind === 'type') {
-          return;
-        }
+      ExportNamedDeclaration(node) {
+        if (node.exportKind === 'type') return;
         if (node.source?.value) {
           imports.push(node.source.value);
           const imported = [];
@@ -199,9 +253,9 @@ function parseJavaScriptAST(content, filePath = '') {
             }
           }
         }
-      }
+      },
 
-      if (node.type === 'ExportDefaultDeclaration') {
+      ExportDefaultDeclaration(node) {
         const declarationType = node.declaration?.type;
         const baseKind = exportKindFromDeclarationType(declarationType);
         const kind = baseKind === 'symbol' ? 'symbol' : `${baseKind}-default`;
@@ -214,134 +268,99 @@ function parseJavaScriptAST(content, filePath = '') {
           lineEnd: node.loc?.end?.line,
           fingerprint,
         }));
-      }
+      },
 
-      if (node.type === 'ImportExpression' && node.source?.value) {
+      ImportExpression(node) {
+        if (!node.source?.value) return;
         imports.push(node.source.value);
         importRecords.push(createImportRecord(node.source.value, { usesAllExports: true }));
-      }
+      },
 
-      if (node.type === 'CallExpression' &&
+      CallExpression(node) {
+        if (
           node.callee?.type === 'Identifier' &&
           node.callee.name === 'require' &&
-          node.arguments?.[0]?.value) {
-        const source = node.arguments[0].value;
-        imports.push(source);
-        importRecords.push(createImportRecord(source, { usesAllExports: true }));
-      }
+          node.arguments?.[0]?.value
+        ) {
+          const source = node.arguments[0].value;
+          imports.push(source);
+          importRecords.push(createImportRecord(source, { usesAllExports: true }));
+        }
+      },
 
-      // CJS: module.exports = { fn1, fn2 } or exports.fn = fn
-      if (node.type === 'AssignmentExpression') {
+      AssignmentExpression(node) {
         const left = node.left;
-        if (left?.type === 'MemberExpression') {
-          const objectName = left.object?.type === 'Identifier' ? left.object.name : null;
-          const propertyName = left.property?.type === 'Identifier'
-            ? left.property.name
-            : left.property?.type === 'StringLiteral'
-              ? left.property.value
-              : null;
+        if (left?.type !== 'MemberExpression') return;
+        const objectName = left.object?.type === 'Identifier' ? left.object.name : null;
+        const propertyName = left.property?.type === 'Identifier'
+          ? left.property.name
+          : left.property?.type === 'StringLiteral'
+            ? left.property.value
+            : null;
 
-          // module.exports = { ... }
-          if (objectName === 'module' && propertyName === 'exports' && node.right?.type === 'ObjectExpression') {
-            for (const prop of node.right.properties || []) {
-              if (prop.type === 'ObjectProperty' || prop.type === 'Property') {
-                const name = prop.key?.type === 'Identifier' ? prop.key.name
-                  : prop.key?.type === 'StringLiteral' ? prop.key.value
-                  : null;
-                if (name) {
-                  const valueKind = isFunctionLikeNode(prop.value) ? 'function' : 'symbol';
-                  const fingerprint = valueKind === 'function' ? buildFunctionFingerprint(prop.value) : null;
-                  exportRecords.push(createExportRecord(name, {
-                    kind: valueKind,
-                    lineStart: prop.loc?.start?.line || node.loc?.start?.line,
-                    lineEnd: prop.loc?.end?.line || node.loc?.end?.line,
-                    fingerprint,
-                  }));
-                }
-              } else if (prop.type === 'ObjectMethod') {
-                const name = prop.key?.type === 'Identifier' ? prop.key.name
-                  : prop.key?.type === 'StringLiteral' ? prop.key.value
-                  : null;
-                if (name) {
-                  const fingerprint = buildFunctionFingerprint(prop);
-                  exportRecords.push(createExportRecord(name, {
-                    kind: 'function',
-                    lineStart: prop.loc?.start?.line || node.loc?.start?.line,
-                    lineEnd: prop.loc?.end?.line || node.loc?.end?.line,
-                    fingerprint,
-                  }));
-                }
+        // module.exports = { ... }
+        if (objectName === 'module' && propertyName === 'exports' && node.right?.type === 'ObjectExpression') {
+          const fallbackLines = { lineStart: node.loc?.start?.line, lineEnd: node.loc?.end?.line };
+          for (const prop of node.right.properties || []) {
+            if (prop.type === 'ObjectProperty' || prop.type === 'Property') {
+              const name = getPropertyName(prop);
+              if (name) {
+                exportRecords.push(buildExportRecordFromValue(name, prop.value, fallbackLines));
+              }
+            } else if (prop.type === 'ObjectMethod') {
+              const name = getPropertyName(prop);
+              if (name) {
+                const fingerprint = buildFunctionFingerprint(prop);
+                exportRecords.push(createExportRecord(name, {
+                  kind: 'function',
+                  lineStart: prop.loc?.start?.line || fallbackLines.lineStart,
+                  lineEnd: prop.loc?.end?.line || fallbackLines.lineEnd,
+                  fingerprint,
+                }));
               }
             }
           }
-
-          // exports.foo = ...
-          if (objectName === 'exports' && propertyName && propertyName !== 'exports') {
-            const valueKind = isFunctionLikeNode(node.right) ? 'function' : 'symbol';
-            const fingerprint = valueKind === 'function' ? buildFunctionFingerprint(node.right) : null;
-            exportRecords.push(createExportRecord(propertyName, {
-              kind: valueKind,
-              lineStart: node.loc?.start?.line,
-              lineEnd: node.loc?.end?.line,
-              fingerprint,
-            }));
-          }
         }
-      }
 
-      for (const key of Object.keys(node)) {
-        if (key === 'type' || key === 'loc' || key === 'start' || key === 'end') continue;
-        const child = node[key];
-        if (Array.isArray(child)) {
-          for (const c of child) visitNode(c);
-        } else if (child && typeof child === 'object') {
-          visitNode(child);
+        // exports.foo = ...
+        if (objectName === 'exports' && propertyName && propertyName !== 'exports') {
+          exportRecords.push(buildExportRecordFromValue(propertyName, node.right, {
+            lineStart: node.loc?.start?.line,
+            lineEnd: node.loc?.end?.line,
+          }));
         }
-      }
-    }
+      },
+    };
 
-    visitNode(ast);
+    walkAST(ast, (node) => {
+      const handler = importExportVisitors[node.type];
+      if (handler) handler(node);
+    });
 
     const exports = uniqueNames(exportRecords.filter((r) => !r.unknown).map((r) => r.name));
 
     // Collect all top-level function definitions (including internal) for call-chain tracing
     const functionRecords = [];
-    function visitFunctionNode(node, parent) {
-      if (!node || typeof node !== 'object') return;
-      if ((node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') && node.id?.name) {
-        const fingerprint = buildFunctionFingerprint(node);
-        functionRecords.push(createExportRecord(node.id.name, {
-          kind: 'function',
-          lineStart: node.loc?.start?.line,
-          lineEnd: node.loc?.end?.line,
-          fingerprint,
-        }));
-      } else if (node.type === 'ArrowFunctionExpression') {
+    const functionVisitors = {
+      FunctionDeclaration(node) {
+        if (node.id?.name) pushFunctionRecord(functionRecords, node.id.name, node);
+      },
+      FunctionExpression(node) {
+        if (node.id?.name) pushFunctionRecord(functionRecords, node.id.name, node);
+      },
+      ArrowFunctionExpression(node, parent) {
         let name = null;
         if (parent?.type === 'VariableDeclarator' && parent.id?.name) {
           name = parent.id.name;
         }
-        if (name) {
-          const fingerprint = buildFunctionFingerprint(node);
-          functionRecords.push(createExportRecord(name, {
-            kind: 'function',
-            lineStart: node.loc?.start?.line,
-            lineEnd: node.loc?.end?.line,
-            fingerprint,
-          }));
-        }
-      }
-      for (const key of Object.keys(node)) {
-        if (key === 'type' || key === 'loc' || key === 'start' || key === 'end') continue;
-        const child = node[key];
-        if (Array.isArray(child)) {
-          for (const c of child) visitFunctionNode(c, node);
-        } else if (child && typeof child === 'object') {
-          visitFunctionNode(child, node);
-        }
-      }
-    }
-    visitFunctionNode(ast);
+        if (name) pushFunctionRecord(functionRecords, name, node);
+      },
+    };
+
+    walkAST(ast, (node, parent) => {
+      const handler = functionVisitors[node.type];
+      if (handler) handler(node, parent);
+    });
 
     return {
       imports: uniqueNames(imports),
@@ -360,23 +379,9 @@ function parseJavaScriptAST(content, filePath = '') {
   }
 }
 
-function parseJavaScript(content, filePath = '') {
-  if (babelParser) {
-    const astResult = parseJavaScriptAST(content, filePath);
-    if (astResult) {
-      return astResult;
-    }
-  }
-
-  if (!warnedMissingParser && !babelParser) {
-    warnedMissingParser = true;
-    console.warn('[workspace-bridge] @babel/parser not available. JS/TS files will use regex parsing with reduced accuracy. Run npm install to enable full AST analysis.');
-  }
-
-  const sanitized = sanitizeForRegex(content);
+function extractImportsWithRegex(sanitized) {
   const imports = [];
   const importRecords = [];
-  const exportRecords = [];
 
   const importFromRegex = /import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g;
   let match;
@@ -439,10 +444,17 @@ function parseJavaScript(content, filePath = '') {
     importRecords.push(createImportRecord(source, { usesAllExports: true }));
   }
 
+  return { imports, importRecords };
+}
+
+function extractExportsWithRegex(sanitized) {
+  const exportRecords = [];
+  const reExportImportRecords = [];
+
   const namedReExportRegex = /export\s*\{([^}]*)\}\s*from\s+['"]([^'"]+)['"]/g;
+  let match;
   while ((match = namedReExportRegex.exec(sanitized)) !== null) {
     const source = match[2];
-    imports.push(source);
     const reExported = match[1]
       .split(',')
       .map((part) => part.trim())
@@ -459,7 +471,7 @@ function parseJavaScript(content, filePath = '') {
     for (const pair of reExported) {
       exportRecords.push(createExportRecord(pair.exported, { kind: 'symbol' }));
     }
-    importRecords.push(createImportRecord(source, {
+    reExportImportRecords.push(createImportRecord(source, {
       imported: reExported.map((pair) => pair.imported),
       reExported,
       usesAllExports: reExported.length === 0,
@@ -468,9 +480,8 @@ function parseJavaScript(content, filePath = '') {
 
   const exportAllRegex = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
   while ((match = exportAllRegex.exec(sanitized)) !== null) {
-    imports.push(match[1]);
     exportRecords.push(createExportRecord('*', { unknown: true, kind: 'symbol' }));
-    importRecords.push(createImportRecord(match[1], { usesAllExports: true, reExportAll: true }));
+    reExportImportRecords.push(createImportRecord(match[1], { usesAllExports: true, reExportAll: true }));
   }
 
   const namedExportRegex = /export\s*\{([^}]*)\}(?!\s*from)/g;
@@ -494,11 +505,7 @@ function parseJavaScript(content, filePath = '') {
   while ((match = declarationExportRegex.exec(sanitized)) !== null) {
     const declType = match[1];
     const name = match[2];
-    const kind = declType === 'function'
-      ? 'function'
-      : declType === 'class'
-        ? 'class'
-        : 'variable';
+    const kind = DECL_KIND_MAP[declType] || 'variable';
     exportRecords.push(createExportRecord(name, { kind }));
   }
 
@@ -511,6 +518,33 @@ function parseJavaScript(content, filePath = '') {
   }
   if (/export\s+default\s+(?!async\s+function\s+\w+|function\s+\w+|class\s+\w+)/.test(sanitized)) {
     exportRecords.push(createExportRecord('default', { kind: 'symbol' }));
+  }
+
+  return { exportRecords, reExportImportRecords };
+}
+
+function parseJavaScript(content, filePath = '') {
+  if (babelParser) {
+    const astResult = parseJavaScriptAST(content, filePath);
+    if (astResult) {
+      return astResult;
+    }
+  }
+
+  if (!warnedMissingParser && !babelParser) {
+    warnedMissingParser = true;
+    console.warn('[workspace-bridge] @babel/parser not available. JS/TS files will use regex parsing with reduced accuracy. Run npm install to enable full AST analysis.');
+  }
+
+  const sanitized = sanitizeForRegex(content);
+  const { imports, importRecords } = extractImportsWithRegex(sanitized);
+  const { exportRecords, reExportImportRecords } = extractExportsWithRegex(sanitized);
+
+  for (const record of reExportImportRecords) {
+    importRecords.push(record);
+    if (!imports.includes(record.source)) {
+      imports.push(record.source);
+    }
   }
 
   const exports = uniqueNames(exportRecords.filter((record) => !record.unknown).map((record) => record.name));

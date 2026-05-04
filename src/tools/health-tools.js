@@ -6,6 +6,7 @@ const path = require('path');
 const { findWorkspaceRoot, detectWorkspace, pathExists, resolvePythonCommand } = require('../utils/path');
 const { runCommandSecure, runNpx, runPythonModule, trimOutput } = require('../utils/command');
 const { detectNodePackageManager, detectTestRunner } = require('../utils/stack-detector');
+const { LIMITS, TIMEOUTS } = require('../config/constants');
 
 function checkHealthFile(root, candidates) {
   for (const name of candidates) {
@@ -119,7 +120,7 @@ async function runAutoFix(args) {
     const eslintArgs = dryRun 
       ? ['eslint', '--fix-dry-run', '--format=json', '.']
       : ['eslint', '--fix', '.'];
-    const result = await runNpx('eslint', eslintArgs.slice(1), root, 60000);
+    const result = await runNpx('eslint', eslintArgs.slice(1), root, TIMEOUTS.HEALTH_COMMAND_TIMEOUT_MS);
     
     let changedFiles = null;
     if (dryRun) {
@@ -138,8 +139,8 @@ async function runAutoFix(args) {
       ok: result.ok || result.exitCode === 1,
       exitCode: result.exitCode,
       changedFiles,
-      stdout: trimOutput(dryRun ? '' : result.stdout, 3000),
-      stderr: trimOutput(result.stderr, 3000),
+      stdout: trimOutput(dryRun ? '' : result.stdout, LIMITS.LINTER_OUTPUT_MAX_CHARS),
+      stderr: trimOutput(result.stderr, LIMITS.LINTER_OUTPUT_MAX_CHARS),
     });
   }
 
@@ -153,7 +154,7 @@ async function runAutoFix(args) {
       const prettierArgs = dryRun 
         ? ['prettier', '--list-different', '.']
         : ['prettier', '--write', '.'];
-      const result = await runNpx('prettier', prettierArgs.slice(1), root, 60000);
+      const result = await runNpx('prettier', prettierArgs.slice(1), root, TIMEOUTS.HEALTH_COMMAND_TIMEOUT_MS);
       
       const filesToFormat = dryRun ? (result.stdout || '').split('\n').filter(Boolean) : null;
       results.push({
@@ -163,8 +164,8 @@ async function runAutoFix(args) {
         exitCode: result.exitCode,
         changedFiles: filesToFormat ? filesToFormat.length : null,
         filesToFormat,
-        stdout: trimOutput(dryRun ? '' : result.stdout, 3000),
-        stderr: trimOutput(result.stderr, 3000),
+        stdout: trimOutput(dryRun ? '' : result.stdout, LIMITS.LINTER_OUTPUT_MAX_CHARS),
+        stderr: trimOutput(result.stderr, LIMITS.LINTER_OUTPUT_MAX_CHARS),
       });
     } else {
       results.push({ fixer: 'prettier', ok: true, skipped: true, reason: 'No Prettier config found' });
@@ -173,21 +174,21 @@ async function runAutoFix(args) {
 
   if (shouldRun('black') && (workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy)) {
     const python = getPython();
-    const blackVersion = await runPythonModule(python, 'black', ['--version'], root, 15000);
+    const blackVersion = await runPythonModule(python, 'black', ['--version'], root, TIMEOUTS.HEALTH_SHORT_TIMEOUT_MS);
     
     if (blackVersion.ok) {
       const blackArgs = dryRun 
         ? ['black', '--check', '--diff', '.']
         : ['black', '.'];
-      const result = await runPythonModule(python, blackArgs[0], blackArgs.slice(1), root, 60000);
+      const result = await runPythonModule(python, blackArgs[0], blackArgs.slice(1), root, TIMEOUTS.HEALTH_COMMAND_TIMEOUT_MS);
       
       results.push({
         fixer: 'black',
         dryRun,
         ok: dryRun ? true : result.ok,
         exitCode: result.exitCode,
-        stdout: trimOutput(result.stdout, 3000),
-        stderr: trimOutput(result.stderr, 3000),
+        stdout: trimOutput(result.stdout, LIMITS.LINTER_OUTPUT_MAX_CHARS),
+        stderr: trimOutput(result.stderr, LIMITS.LINTER_OUTPUT_MAX_CHARS),
       });
     } else {
       results.push({ fixer: 'black', ok: true, skipped: true, reason: 'black not installed' });
@@ -196,21 +197,21 @@ async function runAutoFix(args) {
 
   if (shouldRun('ruff') && (workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy)) {
     const python = getPython();
-    const ruffVersion = await runPythonModule(python, 'ruff', ['--version'], root, 15000);
+    const ruffVersion = await runPythonModule(python, 'ruff', ['--version'], root, TIMEOUTS.HEALTH_SHORT_TIMEOUT_MS);
     
     if (ruffVersion.ok) {
       const ruffArgs = dryRun 
         ? ['ruff', 'check', '--diff', '.']
         : ['ruff', 'check', '--fix', '.'];
-      const result = await runPythonModule(python, ruffArgs[0], ruffArgs.slice(1), root, 60000);
+      const result = await runPythonModule(python, ruffArgs[0], ruffArgs.slice(1), root, TIMEOUTS.HEALTH_COMMAND_TIMEOUT_MS);
       
       results.push({
         fixer: 'ruff',
         dryRun,
         ok: result.ok || result.exitCode === 1,
         exitCode: result.exitCode,
-        stdout: trimOutput(result.stdout, 3000),
-        stderr: trimOutput(result.stderr, 3000),
+        stdout: trimOutput(result.stdout, LIMITS.LINTER_OUTPUT_MAX_CHARS),
+        stderr: trimOutput(result.stderr, LIMITS.LINTER_OUTPUT_MAX_CHARS),
       });
     } else {
       results.push({ fixer: 'ruff', ok: true, skipped: true, reason: 'ruff not installed' });
@@ -234,7 +235,7 @@ async function checkSecurity(args) {
 
   if (workspace.hasPackageJson) {
     // Check registry
-    const registryResult = await runCommandSecure('npm', ['config', 'get', 'registry'], root, 5000);
+    const registryResult = await runCommandSecure('npm', ['config', 'get', 'registry'], root, TIMEOUTS.HEALTH_QUICK_TIMEOUT_MS);
     const registry = (registryResult.stdout || '').trim();
     const AUDIT_SUPPORTED = ['registry.npmjs.org', 'registry.yarnpkg.com', 'npm.pkg.github.com'];
     const registrySupportsAudit = !registry || AUDIT_SUPPORTED.some(r => registry.includes(r));
@@ -247,7 +248,7 @@ async function checkSecurity(args) {
         reason: `Registry "${registry}" does not support audit.`,
       });
     } else {
-      const result = await runCommandSecure('npm', ['audit', '--json'], root, 60000);
+      const result = await runCommandSecure('npm', ['audit', '--json'], root, TIMEOUTS.HEALTH_COMMAND_TIMEOUT_MS);
       let summary = null;
       try {
         const parsed = JSON.parse(result.stdout);
@@ -258,7 +259,7 @@ async function checkSecurity(args) {
         tool: 'npm-audit',
         ok: summary ? (summary.critical + summary.high) === 0 : result.ok,
         summary,
-        raw: summary ? null : trimOutput(result.stdout + result.stderr, 3000),
+        raw: summary ? null : trimOutput(result.stdout + result.stderr, LIMITS.LINTER_OUTPUT_MAX_CHARS),
       });
     }
   }
@@ -267,9 +268,9 @@ async function checkSecurity(args) {
     const python = resolvePythonCommand(root);
 
     // Try pip-audit first
-    const pipAuditVersion = await runPythonModule(python, 'pip_audit', ['--version'], root, 15000);
+    const pipAuditVersion = await runPythonModule(python, 'pip_audit', ['--version'], root, TIMEOUTS.HEALTH_SHORT_TIMEOUT_MS);
     if (pipAuditVersion.ok) {
-      const result = await runPythonModule(python, 'pip_audit', ['--format=json'], root, 45000);
+      const result = await runPythonModule(python, 'pip_audit', ['--format=json'], root, TIMEOUTS.HEALTH_AUDIT_TIMEOUT_MS);
       
       if (!result.ok && result.stderr?.includes('timed out')) {
         results.push({
@@ -287,14 +288,14 @@ async function checkSecurity(args) {
           tool: 'pip-audit',
           ok: result.ok,
           summary: vulns !== null ? { vulnerabilities: vulns } : null,
-          raw: vulns === null ? trimOutput(result.stdout + result.stderr, 3000) : null,
+          raw: vulns === null ? trimOutput(result.stdout + result.stderr, LIMITS.LINTER_OUTPUT_MAX_CHARS) : null,
         });
       }
     } else {
       // Fallback to safety
-      const safetyVersion = await runPythonModule(python, 'safety', ['--version'], root, 15000);
+      const safetyVersion = await runPythonModule(python, 'safety', ['--version'], root, TIMEOUTS.HEALTH_SHORT_TIMEOUT_MS);
       if (safetyVersion.ok) {
-        const result = await runPythonModule(python, 'safety', ['check'], root, 45000);
+        const result = await runPythonModule(python, 'safety', ['check'], root, TIMEOUTS.HEALTH_AUDIT_TIMEOUT_MS);
         
         if (!result.ok && result.stderr?.includes('timed out')) {
           results.push({
@@ -307,7 +308,7 @@ async function checkSecurity(args) {
             tool: 'safety',
             ok: result.ok,
             summary: null,
-            raw: trimOutput(result.stdout + result.stderr, 3000),
+            raw: trimOutput(result.stdout + result.stderr, LIMITS.LINTER_OUTPUT_MAX_CHARS),
           });
         }
       }
@@ -329,7 +330,7 @@ async function checkDependencies(args, container) {
   const results = [];
 
   if (workspace.hasPackageJson) {
-    const result = await runCommandSecure('npm', ['outdated', '--json'], root, 60000);
+    const result = await runCommandSecure('npm', ['outdated', '--json'], root, TIMEOUTS.HEALTH_COMMAND_TIMEOUT_MS);
     let outdated = {};
     try {
       outdated = JSON.parse(result.stdout || '{}');
@@ -347,7 +348,7 @@ async function checkDependencies(args, container) {
 
   if (workspace.hasRequirements || workspace.hasPyproject) {
     const python = resolvePythonCommand(root);
-    const result = await runPythonModule(python, 'pip', ['list', '--outdated', '--format=json'], root, 15000);
+    const result = await runPythonModule(python, 'pip', ['list', '--outdated', '--format=json'], root, TIMEOUTS.HEALTH_SHORT_TIMEOUT_MS);
     
     if (!result.ok && result.stderr?.includes('timed out')) {
       results.push({

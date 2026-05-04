@@ -15,6 +15,67 @@ function rangesOverlap(aStart, aEnd, bStart, bEnd) {
   return aStart <= bEnd && bStart <= aEnd;
 }
 
+function findFunctionsOverlappingRanges(records, ranges) {
+  return Array.from(new Set(
+    records
+      .filter((record) => String(record?.kind || '').startsWith('function'))
+      .filter((record) => record?.name && record.name !== 'default')
+      .filter((record) => Number.isFinite(record.lineStart) && Number.isFinite(record.lineEnd))
+      .filter((record) =>
+        ranges.some((range) => rangesOverlap(range.startLine, range.endLine, record.lineStart, record.lineEnd))
+      )
+      .map((record) => record.name)
+  ));
+}
+
+function findExportingCallers(changedInternalFunctions, exportRecords, functionRecords) {
+  const exportingCallers = new Set();
+  if (changedInternalFunctions.length === 0) return exportingCallers;
+
+  const exportNames = new Set(exportRecords.map((r) => r.name));
+  const byName = new Map();
+  for (const record of functionRecords) {
+    if (record?.name) byName.set(record.name, record);
+  }
+
+  const visited = new Set();
+  function dfs(calleeName) {
+    if (visited.has(calleeName)) return;
+    visited.add(calleeName);
+    for (const [callerName, record] of byName) {
+      if (callerName === calleeName) continue;
+      const callCallees = record.fingerprint?.callCallees || [];
+      if (callCallees.includes(calleeName)) {
+        if (exportNames.has(callerName)) {
+          exportingCallers.add(callerName);
+        } else {
+          dfs(callerName);
+        }
+      }
+    }
+  }
+
+  for (const fn of changedInternalFunctions) {
+    dfs(fn);
+  }
+
+  return exportingCallers;
+}
+
+function buildImpactedFunctionDependents(changedFunctions, symbolImpact) {
+  const functionRows = Array.isArray(symbolImpact?.functionToDependents) ? symbolImpact.functionToDependents : [];
+  const impactedFunctionDependents = functionRows
+    .filter((row) => changedFunctions.includes(row.function))
+    .sort((a, b) => (b.dependentCount || 0) - (a.dependentCount || 0));
+
+  const impactedDependentCount = impactedFunctionDependents.reduce(
+    (sum, row) => sum + (Number.isFinite(row.dependentCount) ? row.dependentCount : 0),
+    0
+  );
+
+  return { impactedFunctionDependents, impactedDependentCount };
+}
+
 function getChangedFunctionImpact(depGraph, filePath, lineRanges, options = {}) {
   const sourceFile = depGraph.normalizeFilePath(filePath);
   const ranges = normalizeLineRanges(lineRanges);
@@ -54,89 +115,27 @@ function getChangedFunctionImpact(depGraph, filePath, lineRanges, options = {}) 
     };
   }
 
-  const exportRecords = Array.isArray(sourceInfo.exportRecords) ? sourceInfo.exportRecords : [];
-  const changedFunctions = Array.from(new Set(
-    exportRecords
-      .filter((record) => String(record?.kind || '').startsWith('function'))
-      .filter((record) => record?.name && record.name !== 'default')
-      .filter((record) => Number.isFinite(record.lineStart) && Number.isFinite(record.lineEnd))
-      .filter((record) =>
-        ranges.some((range) => rangesOverlap(range.startLine, range.endLine, record.lineStart, record.lineEnd))
-      )
-      .map((record) => record.name)
-  ));
-
-  const symbolImpact = options.symbolImpact || null;
-  const functionRows = Array.isArray(symbolImpact?.functionToDependents) ? symbolImpact.functionToDependents : [];
-  const impactedFunctionDependents = functionRows
-    .filter((row) => changedFunctions.includes(row.function))
-    .sort((a, b) => (b.dependentCount || 0) - (a.dependentCount || 0));
-
-  const impactedDependentCount = impactedFunctionDependents.reduce(
-    (sum, row) => sum + (Number.isFinite(row.dependentCount) ? row.dependentCount : 0),
-    0
+  const changedFunctions = findFunctionsOverlappingRanges(
+    Array.isArray(sourceInfo.exportRecords) ? sourceInfo.exportRecords : [],
+    ranges
   );
 
   if (changedFunctions.length === 0) {
     // Trace internal function call chains to find exporting callers
+    const exportRecords = Array.isArray(sourceInfo.exportRecords) ? sourceInfo.exportRecords : [];
     const functionRecords = Array.isArray(sourceInfo.functionRecords) ? sourceInfo.functionRecords : [];
-    const changedInternalFunctions = Array.from(new Set(
-      functionRecords
-        .filter((record) => String(record?.kind || '').startsWith('function'))
-        .filter((record) => record?.name && record.name !== 'default')
-        .filter((record) => Number.isFinite(record.lineStart) && Number.isFinite(record.lineEnd))
-        .filter((record) =>
-          ranges.some((range) => rangesOverlap(range.startLine, range.endLine, record.lineStart, record.lineEnd))
-        )
-        .map((record) => record.name)
-    ));
-
-    const exportingCallers = new Set();
-    if (changedInternalFunctions.length > 0) {
-      const exportNames = new Set(exportRecords.map((r) => r.name));
-      const byName = new Map();
-      for (const record of functionRecords) {
-        if (record?.name) byName.set(record.name, record);
-      }
-
-      const visited = new Set();
-      function dfs(calleeName) {
-        if (visited.has(calleeName)) return;
-        visited.add(calleeName);
-        for (const [callerName, record] of byName) {
-          if (callerName === calleeName) continue;
-          const callCallees = record.fingerprint?.callCallees || [];
-          if (callCallees.includes(calleeName)) {
-            if (exportNames.has(callerName)) {
-              exportingCallers.add(callerName);
-            } else {
-              dfs(callerName);
-            }
-          }
-        }
-      }
-
-      for (const fn of changedInternalFunctions) {
-        dfs(fn);
-      }
-    }
+    const changedInternalFunctions = findFunctionsOverlappingRanges(functionRecords, ranges);
+    const exportingCallers = findExportingCallers(changedInternalFunctions, exportRecords, functionRecords);
 
     if (exportingCallers.size > 0) {
       const via = Array.from(exportingCallers);
-      const symbolImpact = options.symbolImpact || null;
-      const functionRows = Array.isArray(symbolImpact?.functionToDependents) ? symbolImpact.functionToDependents : [];
-      const impactedFunctionDependents = functionRows
-        .filter((row) => via.includes(row.function))
-        .sort((a, b) => (b.dependentCount || 0) - (a.dependentCount || 0));
+      const { impactedFunctionDependents, impactedDependentCount } = buildImpactedFunctionDependents(via, options.symbolImpact);
 
       return {
         mode: 'internal-function-call-chain',
         changedFunctions: via,
         impactedFunctionDependents,
-        impactedDependentCount: impactedFunctionDependents.reduce(
-          (sum, row) => sum + (Number.isFinite(row.dependentCount) ? row.dependentCount : 0),
-          0
-        ),
+        impactedDependentCount,
         lineRanges: ranges,
       };
     }
@@ -150,6 +149,8 @@ function getChangedFunctionImpact(depGraph, filePath, lineRanges, options = {}) 
       lineRanges: ranges,
     };
   }
+
+  const { impactedFunctionDependents, impactedDependentCount } = buildImpactedFunctionDependents(changedFunctions, options.symbolImpact);
 
   return {
     mode: 'function-symbol',
@@ -178,7 +179,7 @@ function getFunctionReuseHints(depGraph, filePath, changedFunctions, options = {
   for (const fnName of list) {
     const candidates = [];
     const sourceRecord = sourceByName.get(fnName) || { name: fnName };
-    for (const [candidateFile, info] of depGraph.graph || []) {
+    for (const [candidateFile, info] of depGraph.getAllFileInfos()) {
       if (candidateFile === sourceFile) continue;
       const records = Array.isArray(info?.exportRecords) ? info.exportRecords : [];
       for (const record of records) {
@@ -231,7 +232,7 @@ function mergeTestRow(map, testFile, distance, via, source = 'function-level') {
 function getFunctionLevelAffectedTests(depGraph, filePath, changedFunctions, options = {}) {
   const sourceFile = depGraph.normalizeFilePath(filePath);
   const list = Array.isArray(changedFunctions) ? Array.from(new Set(changedFunctions)) : [];
-const { DEFAULTS } = require('../../config/constants');
+  const { DEFAULTS } = require('../../config/constants');
 
   const maxDepth = Number.isFinite(options.maxDepth) ? Math.max(1, options.maxDepth) : DEFAULTS.SYMBOL_IMPACT_DEPTH;
   const symbolImpact = options.symbolImpact || null;

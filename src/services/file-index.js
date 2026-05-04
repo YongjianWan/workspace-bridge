@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
-const { detectWorkspace, normalizePathKey, matchesPathFragment, toRelativePosix } = require('../utils/path');
+const { detectWorkspace, normalizePathKey, matchesPathFragment } = require('../utils/path');
 const { loadWorkspaceConfig } = require('../utils/project-context');
 const { extractSymbols } = require('./file-index/symbol-extractors');
 const { DEFAULTS } = require('../config/constants');
@@ -18,7 +18,7 @@ const readFile = promisify(fs.readFile);
 
 // Limit concurrent file operations to prevent memory exhaustion
 const DEFAULT_CONCURRENCY = 50;
-const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', 'gitnexus-extract'];
+const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache'];
 
 class FileIndex {
   constructor(workspaceRoot, cache, options = {}) {
@@ -37,7 +37,7 @@ class FileIndex {
   /**
    * Initial build: index all relevant files
    */
-  async build(timeoutMs = 300000, options = {}) {
+  async build(timeoutMs = DEFAULTS.FILE_INDEX_BUILD_TIMEOUT_MS, options = {}) {
     const startTime = Date.now();
     this.indexedCount = 0;
     const shouldWatch = options.watch !== false;
@@ -54,7 +54,7 @@ class FileIndex {
         console.error(`[FileIndex] Build timed out after ${Date.now() - startTime}ms`);
         break;
       }
-      await this.indexByPattern(pattern, DEFAULTS.FILE_INDEX_MAX_DEPTH, 120000); // 2 min per pattern
+      await this.indexByPattern(pattern, DEFAULTS.FILE_INDEX_MAX_DEPTH, DEFAULTS.FILE_INDEX_PATTERN_TIMEOUT_MS);
     }
 
     // Remove cache entries for files deleted since last build
@@ -71,7 +71,7 @@ class FileIndex {
   getFilePatterns() {
     const patterns = [];
     if (this.workspace.hasPackageJson) {
-      patterns.push('**/*.js', '**/*.ts', '**/*.jsx', '**/*.tsx');
+      patterns.push('**/*.js', '**/*.ts', '**/*.jsx', '**/*.tsx', '**/*.mjs', '**/*.cjs', '**/*.mts', '**/*.cts', '**/*.vue', '**/*.svelte');
     }
     if (this.workspace.hasRequirements || this.workspace.hasPyproject || this.workspace.hasManagePy) {
       patterns.push('**/*.py');
@@ -85,14 +85,17 @@ class FileIndex {
     if (this.workspace.hasRust) {
       patterns.push('**/*.rs');
     }
-    return patterns.length > 0 ? patterns : ['**/*.js', '**/*.py', '**/*.java', '**/*.kt'];
+    if (this.workspace.hasCpp) {
+      patterns.push('**/*.c', '**/*.cpp', '**/*.cc', '**/*.h', '**/*.hpp');
+    }
+    return patterns.length > 0 ? patterns : ['**/*.js', '**/*.py', '**/*.java', '**/*.kt', '**/*.go', '**/*.rs', '**/*.vue', '**/*.svelte'];
   }
 
   /**
    * Index files by pattern with async iteration and concurrency control
    * Includes timeout protection for large repositories
    */
-  async indexByPattern(pattern, maxDepth = DEFAULTS.FILE_INDEX_MAX_DEPTH, timeoutMs = 120000) {
+  async indexByPattern(pattern, maxDepth = DEFAULTS.FILE_INDEX_MAX_DEPTH, timeoutMs = DEFAULTS.FILE_INDEX_PATTERN_TIMEOUT_MS) {
     const ext = pattern.replace('**/*', '');
     const files = [];
     const controller = new AbortController();
@@ -193,8 +196,8 @@ class FileIndex {
           return; // Use cached data
         }
       } catch (e) {
-        // File deleted, remove from cache
-        this.cache.deleteFileMetadata(file);
+        // File deleted or unreadable — clean up all associated cache entries
+        this._removeCacheEntry(file);
         return;
       }
     }
@@ -224,7 +227,7 @@ class FileIndex {
     if (this.excludeDirs.some((dir) => matchesPathFragment(normalized, dir))) {
       return true;
     }
-    if (this.projectContext && !this.projectContext.shouldIndexFile(filePath)) {
+    if (this.projectContext && !this.projectContext.isNotGeneratedFile(filePath)) {
       return true;
     }
     return false;
@@ -315,7 +318,7 @@ class FileIndex {
   startWatching() {
     let recursiveSupported = false;
     try {
-      const testWatcher = fs.watch(process.cwd(), { recursive: true }, () => {});
+      const testWatcher = fs.watch(this.root, { recursive: true }, () => {});
       testWatcher.close();
       recursiveSupported = true;
     } catch {
@@ -336,7 +339,7 @@ class FileIndex {
         
         // Debounce updates
         if (this.updateTimer) clearTimeout(this.updateTimer);
-        this.updateTimer = setTimeout(() => this.processPending(), 500);
+        this.updateTimer = setTimeout(() => this.processPending(), DEFAULTS.WATCH_DEBOUNCE_MS);
       });
       
       this.watchers.push(watcher);
@@ -369,7 +372,7 @@ class FileIndex {
       const stats = await stat(filePath);
       const cached = this.cache.getFileMetadata(filePath);
       
-      if (!cached || stats.mtimeMs > cached.mtime) {
+      if (!cached || stats.mtimeMs !== cached.mtime || stats.size !== cached.size) {
         // Remove old symbols first
         if (cached) {
           for (const symName of cached.symbols) {
