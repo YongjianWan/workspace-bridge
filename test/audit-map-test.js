@@ -497,4 +497,87 @@ testProjectMapCompactMode();
 testProjectMapCompactDepthLimit();
 testProjectMapCompactModuleEdges();
 testProjectMapCompactHighlightLimit();
+
+function testProjectMapCompactSummary() {
+  const depGraph = {
+    root: '/repo',
+    graph: new Map([
+      ['/repo/src/a.js', { imports: ['/repo/src/b.js'], exports: ['a'], exportRecords: [{ name: 'a' }], importRecords: [{ source: './b.js', resolved: '/repo/src/b.js' }], parseMode: 'ast' }],
+      ['/repo/src/b.js', { imports: ['/repo/src/a.js'], exports: ['b'], exportRecords: [{ name: 'b' }], importRecords: [{ source: './a.js', resolved: '/repo/src/a.js' }], parseMode: 'ast' }],
+      ['/repo/src/c.js', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }],
+      ['/repo/src/d.js', { imports: [], exports: ['d'], exportRecords: [{ name: 'd' }], importRecords: [], parseMode: 'ast' }],
+      ['/repo/src/e.js', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }],
+    ]),
+    reverseGraph: new Map([
+      ['/repo/src/b.js', ['/repo/src/a.js']],
+      ['/repo/src/a.js', ['/repo/src/b.js']],
+    ]),
+    getFileInfo(file) { return this.graph.get(file); },
+    hasFile(file) { return this.graph.has(file); },
+    getDependents(file) { return this.reverseGraph.get(file) || []; },
+    getDependencies(file) { return this.graph.get(file)?.imports || []; },
+    findDeadExports() { return [{ file: '/repo/src/d.js', exports: ['unused'], confidence: 'high' }]; },
+    findUnresolvedImports() { return [{ file: '/repo/src/c.js', import: './missing' }]; },
+    findCircularDependencies() { return [['/repo/src/a.js', '/repo/src/b.js']]; },
+    entryFiles: new Set(['/repo/src/e.js']),
+    isTestLikeFile() { return false; },
+    projectContext: {
+      classifyFile() { return { isMainline: true, fileRole: 'library' }; },
+    },
+  };
+
+  const result = buildProjectMap(depGraph, { compact: true });
+
+  assert(result.summary, 'compact mode should include summary');
+  assert.strictEqual(result.summary.severity, 'high', 'severity should be high due to unresolved');
+  assert.strictEqual(result.summary.issueCounts.unresolved, 1, 'should count 1 unresolved');
+  assert.strictEqual(result.summary.issueCounts.cycles, 1, 'should count 1 cycle');
+  assert.strictEqual(result.summary.issueCounts.deadExports, 1, 'should count 1 dead export');
+  assert.strictEqual(result.summary.issueCounts.orphans, 2, 'should count 2 orphans (c.js and d.js have no dependents and are not entry)');
+  assert(Array.isArray(result.summary.nextSteps), 'nextSteps should be array');
+  assert(result.summary.nextSteps.length > 0, 'nextSteps should not be empty');
+  assert(result.summary.nextSteps[0].includes('unresolved'), 'first nextStep should mention unresolved');
+
+  // highlightedFiles should be sorted by priority: unresolved > cycle > dead-export > orphan > entry
+  const unresolvedIndex = result.highlightedFiles.findIndex((h) => h.file === 'src/c.js');
+  const entryIndex = result.highlightedFiles.findIndex((h) => h.file === 'src/e.js');
+  assert(unresolvedIndex >= 0, 'highlightedFiles should contain c.js');
+  assert(entryIndex >= 0, 'highlightedFiles should contain e.js');
+  assert(unresolvedIndex < entryIndex, 'unresolved file should appear before entry file in highlightedFiles');
+
+  console.log('testProjectMapCompactSummary: ok');
+}
+
+function testProjectMapCompactSummaryClean() {
+  const depGraph = {
+    root: '/repo',
+    graph: new Map([
+      ['/repo/src/a.js', { imports: [], exports: ['a'], exportRecords: [{ name: 'a' }], importRecords: [], parseMode: 'ast' }],
+    ]),
+    reverseGraph: new Map(),
+    getFileInfo(file) { return this.graph.get(file); },
+    hasFile(file) { return this.graph.has(file); },
+    getDependents(file) { return this.reverseGraph.get(file) || []; },
+    getDependencies(file) { return this.graph.get(file)?.imports || []; },
+    findDeadExports() { return []; },
+    findUnresolvedImports() { return []; },
+    findCircularDependencies() { return []; },
+    entryFiles: new Set(['/repo/src/a.js']),
+    isTestLikeFile() { return false; },
+    projectContext: {
+      classifyFile() { return { isMainline: true, fileRole: 'library' }; },
+    },
+  };
+
+  const result = buildProjectMap(depGraph, { compact: true });
+
+  assert(result.summary, 'compact mode should include summary even when clean');
+  assert.strictEqual(result.summary.severity, 'none', 'severity should be none when no issues');
+  assert.strictEqual(result.summary.nextSteps[0], 'No structural issues detected by the aggregate audit.', 'clean project should say no issues');
+
+  console.log('testProjectMapCompactSummaryClean: ok');
+}
+
+testProjectMapCompactSummary();
+testProjectMapCompactSummaryClean();
 console.log('audit-map-test: ok');

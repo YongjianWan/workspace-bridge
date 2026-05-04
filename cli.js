@@ -282,7 +282,20 @@ function formatHuman(command, result) {
         `languages: ${langSummary || 'none detected'}`,
       ].join('\n');
     }
-    case 'audit-map':
+    case 'audit-map': {
+      if (result.summary) {
+        return [
+          `severity: ${result.summary.severity}`,
+          `files: ${countTreeFiles(result.tree)}`,
+          `edges: ${result.edges?.length ?? 0}`,
+          `unresolved: ${result.issueOverlay?.unresolved?.length ?? 0}`,
+          `cycles: ${result.issueOverlay?.cycles?.length ?? 0}`,
+          `deadExports: ${result.issueOverlay?.deadExports?.length ?? 0}`,
+          `orphans: ${result.issueOverlay?.orphans?.length ?? 0}`,
+          `hotspots: ${result.issueOverlay?.hotspots?.length ?? 0}`,
+          `next: ${result.summary.nextSteps[0]}`,
+        ].join('\n');
+      }
       return [
         `workspaceRoot: ${result.workspaceRoot}`,
         `files: ${countTreeFiles(result.tree)}`,
@@ -293,6 +306,7 @@ function formatHuman(command, result) {
         `orphans: ${result.issueOverlay?.orphans?.length ?? 0}`,
         `hotspots: ${result.issueOverlay?.hotspots?.length ?? 0}`,
       ].join('\n');
+    }
     case 'stats':
       return Object.entries(result.stats || {})
         .map(([k, v]) => `${k}: ${v}`)

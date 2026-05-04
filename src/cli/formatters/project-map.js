@@ -103,6 +103,18 @@ function getDirectoryOf(relativePath) {
   return idx > 0 ? relativePath.slice(0, idx) : '.';
 }
 
+function scoreHighlightedFile(reason) {
+  switch (reason) {
+    case 'unresolved': return 100;
+    case 'cycle': return 80;
+    case 'dead-export': return 60;
+    case 'orphan': return 40;
+    case 'hotspot': return 20;
+    case 'entry': return 0;
+    default: return 0;
+  }
+}
+
 // Collect files worth calling out when the full file tree is hidden.
 function buildHighlightedFiles(entrySet, issueOverlay, root) {
   const map = new Map();
@@ -125,7 +137,38 @@ function buildHighlightedFiles(entrySet, issueOverlay, root) {
   for (const file of issueOverlay.orphans || []) add(file, 'orphan');
   for (const item of issueOverlay.hotspots || []) add(item.file, 'hotspot');
 
-  return Array.from(map.values()).map(({ file, reasons }) => ({ file, reason: reasons[0] }));
+  return Array.from(map.values())
+    .map(({ file, reasons }) => ({ file, reason: reasons[0], score: scoreHighlightedFile(reasons[0]) }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.file.localeCompare(b.file);
+    })
+    .map(({ file, reason }) => ({ file, reason }));
+}
+
+function buildCompactSummary(issueOverlay) {
+  const counts = {
+    deadExports: issueOverlay.deadExports?.length ?? 0,
+    unresolved: issueOverlay.unresolved?.length ?? 0,
+    cycles: issueOverlay.cycles?.length ?? 0,
+    orphans: issueOverlay.orphans?.length ?? 0,
+    hotspots: issueOverlay.hotspots?.length ?? 0,
+  };
+
+  let severity = 'low';
+  if (counts.unresolved > 0 || counts.cycles > 0) severity = 'high';
+  else if (counts.deadExports > 0 || counts.orphans > 0) severity = 'medium';
+  else if (counts.hotspots === 0) severity = 'none';
+
+  const nextSteps = [];
+  if (counts.unresolved > 0) nextSteps.push(`Inspect ${counts.unresolved} unresolved import(s) first — likely broken code path`);
+  if (counts.cycles > 0) nextSteps.push(`Break ${counts.cycles} dependency cycle(s) before broad refactors`);
+  if (counts.deadExports > 0) nextSteps.push(`Review ${counts.deadExports} dead export(s) as deletion candidates (verify dynamic loading)`);
+  if (counts.orphans > 0) nextSteps.push(`Verify ${counts.orphans} orphan file(s) — may be unused or missing entry detection`);
+  if (counts.hotspots > 0) nextSteps.push(`Review ${counts.hotspots} hotspot file(s) for refactoring risk`);
+  if (nextSteps.length === 0) nextSteps.push('No structural issues detected by the aggregate audit.');
+
+  return { severity, issueCounts: counts, nextSteps };
 }
 
 function aggregateEdgesToDirectoryLevel(edges) {
@@ -331,7 +374,7 @@ function buildProjectMap(depGraph, options = {}) {
   let highlightedFiles = compact ? buildHighlightedFiles(entrySet, issueOverlay, root) : [];
   if (compact && highlightedFiles.length > 30) highlightedFiles = highlightedFiles.slice(0, 30);
 
-  return {
+  const result = {
     ok: true,
     workspaceRoot: root,
     tree,
@@ -339,6 +382,12 @@ function buildProjectMap(depGraph, options = {}) {
     issueOverlay,
     highlightedFiles,
   };
+
+  if (compact) {
+    result.summary = buildCompactSummary(issueOverlay);
+  }
+
+  return result;
 }
 
 module.exports = {
