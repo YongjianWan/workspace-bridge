@@ -57,22 +57,45 @@ function compactTree(tree) {
 
 // Strip file nodes; keep only directory skeleton with file counts.
 // Recursive structure naturally eliminates leaf files as a boundary case.
-function buildDirectorySkeleton(tree) {
-  return tree
-    .filter((n) => n.type === 'directory')
-    .map((dir) => {
-      const children = buildDirectorySkeleton(dir.children || []);
-      const directFiles = (dir.children || []).filter((c) => c.type === 'file').length;
-      const recursiveFiles = directFiles + children.reduce((sum, c) => sum + c.totalFileCount, 0);
-      return {
-        type: 'directory',
-        name: dir.name,
-        path: dir.path,
-        fileCount: directFiles,
-        totalFileCount: recursiveFiles,
-        children,
-      };
+// When maxDepth is reached, deeper directories are folded into parent counts.
+function buildDirectorySkeleton(tree, maxDepth = Infinity, currentDepth = 0) {
+  const nodes = [];
+  let foldedFileCount = 0;
+
+  for (const n of tree) {
+    if (n.type !== 'directory') continue;
+
+    if (currentDepth >= maxDepth) {
+      foldedFileCount += countAllFiles(n.children || []);
+      continue;
+    }
+
+    const childResult = buildDirectorySkeleton(n.children || [], maxDepth, currentDepth + 1);
+    const directFiles = (n.children || []).filter((c) => c.type === 'file').length;
+    const totalFiles = directFiles + childResult.totalFileCount;
+
+    nodes.push({
+      type: 'directory',
+      name: n.name,
+      path: n.path,
+      fileCount: currentDepth + 1 >= maxDepth ? totalFiles : directFiles,
+      totalFileCount: totalFiles,
+      children: childResult.nodes,
     });
+  }
+
+  const totalFileCount = nodes.reduce((sum, n) => sum + n.totalFileCount, 0) + foldedFileCount;
+  return { nodes, totalFileCount };
+}
+
+/** Recursively count all file nodes in a tree branch. */
+function countAllFiles(nodes) {
+  let count = 0;
+  for (const n of nodes || []) {
+    if (n.type === 'file') count++;
+    else if (n.type === 'directory') count += countAllFiles(n.children);
+  }
+  return count;
 }
 
 function getDirectoryOf(relativePath) {
@@ -128,6 +151,38 @@ function aggregateEdgesToDirectoryLevel(edges) {
   return Array.from(map.values());
 }
 
+/** Extract module prefix (first two path segments) from a directory path. */
+function getModuleOf(dirPath) {
+  if (dirPath === '.') return '.';
+  const parts = dirPath.split('/');
+  if (parts.length <= 1) return dirPath;
+  return parts.slice(0, 2).join('/');
+}
+
+/** Aggregate directory-level edges up to module-level (first two path segments). */
+function aggregateEdgesToModuleLevel(edges) {
+  const map = new Map();
+  for (const e of edges) {
+    if (e.type !== 'import') continue;
+    const fromMod = getModuleOf(e.from);
+    const toMod = getModuleOf(e.to);
+    if (fromMod === toMod) continue;
+    const key = `${fromMod}|${toMod}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.usesAllExports = existing.usesAllExports || Boolean(e.usesAllExports);
+    } else {
+      map.set(key, {
+        from: fromMod,
+        to: toMod,
+        type: 'import',
+        usesAllExports: Boolean(e.usesAllExports),
+      });
+    }
+  }
+  return Array.from(map.values());
+}
+
 function buildProjectMap(depGraph, options = {}) {
   if (!depGraph) {
     return { ok: false, error: 'Dependency graph not initialized' };
@@ -160,7 +215,7 @@ function buildProjectMap(depGraph, options = {}) {
   let tree = buildDirectoryTree(flatTree);
   if (compact) {
     tree = compactTree(tree);
-    tree = buildDirectorySkeleton(tree);
+    tree = buildDirectorySkeleton(tree, 2).nodes;
   }
 
   // Edges: import relationships (merge symbols for same from|to pairs)
@@ -223,7 +278,8 @@ function buildProjectMap(depGraph, options = {}) {
     }
   }
   const rawEdges = Array.from(edgeMap.values());
-  const edges = compact ? aggregateEdgesToDirectoryLevel(rawEdges) : rawEdges;
+  let edges = compact ? aggregateEdgesToDirectoryLevel(rawEdges) : rawEdges;
+  if (compact) edges = aggregateEdgesToModuleLevel(edges);
 
   // IssueOverlay
   const deadExports = depGraph.findDeadExports?.() || [];
@@ -257,11 +313,10 @@ function buildProjectMap(depGraph, options = {}) {
   hotspots.sort((a, b) => (b.dependentCount || 0) - (a.dependentCount || 0));
 
   const issueOverlay = {
-    deadExports: deadExports.map((item) => ({
-      file: toRelativePath(root, item.file),
-      exports: item.exports,
-      confidence: item.confidence || 'medium',
-    })),
+    deadExports: deadExports.map((item) => compact
+      ? { file: toRelativePath(root, item.file), confidence: item.confidence || 'medium' }
+      : { file: toRelativePath(root, item.file), exports: item.exports, confidence: item.confidence || 'medium' }
+    ),
     unresolved: unresolved.map((item) => ({
       file: toRelativePath(root, item.file),
       import: item.import,
@@ -273,7 +328,8 @@ function buildProjectMap(depGraph, options = {}) {
   };
 
   // In compact mode AI can't see the full file list; surface noteworthy files explicitly.
-  const highlightedFiles = compact ? buildHighlightedFiles(entrySet, issueOverlay, root) : [];
+  let highlightedFiles = compact ? buildHighlightedFiles(entrySet, issueOverlay, root) : [];
+  if (compact && highlightedFiles.length > 30) highlightedFiles = highlightedFiles.slice(0, 30);
 
   return {
     ok: true,

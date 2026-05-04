@@ -342,6 +342,9 @@ function testProjectMapCompactMode() {
   assert.strictEqual(result.issueOverlay.deadExports.length, 1, 'should preserve dead exports');
   assert.strictEqual(result.issueOverlay.unresolved.length, 1, 'should preserve unresolved');
 
+  const deadExport = result.issueOverlay.deadExports[0];
+  assert(!('exports' in deadExport), 'compact deadExport should omit exports array');
+
   console.log('testProjectMapCompactMode: ok');
 }
 
@@ -350,5 +353,148 @@ testProjectMapWithIssues();
 testProjectMapReExportEdges();
 testProjectMapHotspots();
 testProjectMapToRelativePathBoundary();
+function testProjectMapCompactDepthLimit() {
+  const depGraph = {
+    root: '/repo',
+    graph: new Map([
+      ['/repo/src/core/ingestion/a.ts', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }],
+      ['/repo/src/core/ingestion/b.ts', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }],
+      ['/repo/src/mcp/server/c.ts', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }],
+      ['/repo/src/mcp/d.ts', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }],
+      ['/repo/docs/readme.md', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'none' }],
+    ]),
+    reverseGraph: new Map(),
+    getFileInfo(file) { return this.graph.get(file); },
+    hasFile(file) { return this.graph.has(file); },
+    getDependents() { return []; },
+    getDependencies() { return []; },
+    findDeadExports() { return []; },
+    findUnresolvedImports() { return []; },
+    findCircularDependencies() { return []; },
+    entryFiles: new Set(),
+    isTestLikeFile() { return false; },
+    projectContext: {
+      classifyFile() { return { isMainline: true, fileRole: 'library' }; },
+    },
+  };
+
+  const result = buildProjectMap(depGraph, { compact: true });
+
+  function collectDirPaths(nodes, depth = 0) {
+    const paths = [];
+    for (const n of nodes || []) {
+      if (n.type === 'directory') {
+        paths.push({ path: n.path, depth });
+        if (n.children) paths.push(...collectDirPaths(n.children, depth + 1));
+      }
+    }
+    return paths;
+  }
+  const dirPaths = collectDirPaths(result.tree);
+  const maxDepth = Math.max(...dirPaths.map((d) => d.depth));
+  assert(maxDepth <= 2, `max depth should be <= 2, got ${maxDepth}`);
+
+  const coreDir = result.tree.find((t) => t.name === 'src')?.children?.find((c) => c.name === 'core');
+  assert(coreDir, 'should have src/core directory');
+  assert.strictEqual(coreDir.children.length, 0, 'src/core children should be empty (folded)');
+  assert.strictEqual(coreDir.fileCount, 2, 'src/core fileCount should include folded ingestion files');
+  assert.strictEqual(coreDir.totalFileCount, 2, 'src/core totalFileCount should match');
+
+  const mcpDir = result.tree.find((t) => t.name === 'src')?.children?.find((c) => c.name === 'mcp');
+  assert(mcpDir, 'should have src/mcp directory');
+  assert.strictEqual(mcpDir.fileCount, 2, 'src/mcp fileCount should include folded server files');
+
+  console.log('testProjectMapCompactDepthLimit: ok');
+}
+
+function testProjectMapCompactModuleEdges() {
+  const depGraph = {
+    root: '/repo',
+    graph: new Map([
+      ['/repo/src/core/ingestion/a.ts', {
+        imports: ['/repo/src/mcp/server/c.ts', '/repo/src/utils/d.ts'],
+        exports: [], exportRecords: [],
+        importRecords: [
+          { source: '../mcp/server/c.ts', resolved: '/repo/src/mcp/server/c.ts', imported: ['c'], usesAllExports: false },
+          { source: '../../utils/d.ts', resolved: '/repo/src/utils/d.ts', imported: ['d'], usesAllExports: false },
+        ],
+        parseMode: 'ast',
+      }],
+      ['/repo/src/mcp/server/c.ts', {
+        imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast',
+      }],
+      ['/repo/src/utils/d.ts', {
+        imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast',
+      }],
+    ]),
+    reverseGraph: new Map([
+      ['/repo/src/mcp/server/c.ts', ['/repo/src/core/ingestion/a.ts']],
+      ['/repo/src/utils/d.ts', ['/repo/src/core/ingestion/a.ts']],
+    ]),
+    getFileInfo(file) { return this.graph.get(file); },
+    hasFile(file) { return this.graph.has(file); },
+    getDependents(file) { return this.reverseGraph.get(file) || []; },
+    getDependencies(file) { return this.graph.get(file)?.imports || []; },
+    findDeadExports() { return []; },
+    findUnresolvedImports() { return []; },
+    findCircularDependencies() { return []; },
+    entryFiles: new Set(),
+    isTestLikeFile() { return false; },
+    projectContext: {
+      classifyFile() { return { isMainline: true, fileRole: 'library' }; },
+    },
+  };
+
+  const result = buildProjectMap(depGraph, { compact: true });
+
+  for (const e of result.edges) {
+    const fromSegs = e.from.split('/');
+    const toSegs = e.to.split('/');
+    assert(fromSegs.length <= 2, `edge from should be at most 2 segments, got ${e.from}`);
+    assert(toSegs.length <= 2, `edge to should be at most 2 segments, got ${e.to}`);
+    assert.strictEqual(e.type, 'import', `module-level edge type should be import, got ${e.type}`);
+  }
+
+  const coreToMcp = result.edges.find((e) => e.from === 'src/core' && e.to === 'src/mcp');
+  assert(coreToMcp, 'should have src/core -> src/mcp module edge');
+
+  const coreToUtils = result.edges.find((e) => e.from === 'src/core' && e.to === 'src/utils');
+  assert(coreToUtils, 'should have src/core -> src/utils module edge');
+
+  console.log('testProjectMapCompactModuleEdges: ok');
+}
+
+function testProjectMapCompactHighlightLimit() {
+  const files = [];
+  for (let i = 0; i < 40; i++) {
+    files.push([`/repo/src/orphan${i}.js`, { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }]);
+  }
+  const depGraph = {
+    root: '/repo',
+    graph: new Map(files),
+    reverseGraph: new Map(),
+    getFileInfo(file) { return this.graph.get(file); },
+    hasFile(file) { return this.graph.has(file); },
+    getDependents() { return []; },
+    getDependencies() { return []; },
+    findDeadExports() { return []; },
+    findUnresolvedImports() { return []; },
+    findCircularDependencies() { return []; },
+    entryFiles: new Set(),
+    isTestLikeFile() { return false; },
+    projectContext: {
+      classifyFile() { return { isMainline: true, fileRole: 'library' }; },
+    },
+  };
+
+  const result = buildProjectMap(depGraph, { compact: true });
+  assert(result.highlightedFiles.length <= 30, `highlightedFiles should be capped at 30 in compact mode, got ${result.highlightedFiles.length}`);
+
+  console.log('testProjectMapCompactHighlightLimit: ok');
+}
+
 testProjectMapCompactMode();
+testProjectMapCompactDepthLimit();
+testProjectMapCompactModuleEdges();
+testProjectMapCompactHighlightLimit();
 console.log('audit-map-test: ok');

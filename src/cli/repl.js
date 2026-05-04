@@ -6,6 +6,7 @@
 const readline = require('readline');
 const { ServiceContainer } = require('../services/container');
 const { TIMEOUTS } = require('../config/constants');
+const { buildProjectMap } = require('./formatters/project-map');
 
 function formatImpact(result) {
   const lines = [`impactCount: ${result.length}`];
@@ -63,6 +64,56 @@ function formatDependencies(result) {
   return lines.join('\n');
 }
 
+function countTreeFiles(tree) {
+  if (!Array.isArray(tree)) return 0;
+  let count = 0;
+  for (const node of tree) {
+    if (node.type === 'file') {
+      count += 1;
+    } else if (node.type === 'directory' && Array.isArray(node.children)) {
+      count += typeof node.totalFileCount === 'number'
+        ? node.totalFileCount
+        : countTreeFiles(node.children);
+    }
+  }
+  return count;
+}
+
+function countDirectories(tree) {
+  if (!Array.isArray(tree)) return 0;
+  let count = 0;
+  for (const node of tree) {
+    if (node.type === 'directory') {
+      count += 1;
+      count += countDirectories(node.children || []);
+    }
+  }
+  return count;
+}
+
+function formatProjectMap(result, compact) {
+  const lines = [];
+  if (compact) {
+    lines.push(`directories: ${countDirectories(result.tree)}`);
+    lines.push(`files: ${countTreeFiles(result.tree)}`);
+    lines.push(`edges: ${result.edges?.length ?? 0}`);
+    lines.push(`highlightedFiles: ${result.highlightedFiles?.length ?? 0}`);
+  } else {
+    lines.push(`workspaceRoot: ${result.workspaceRoot}`);
+    lines.push(`files: ${countTreeFiles(result.tree)}`);
+    lines.push(`edges: ${result.edges?.length ?? 0}`);
+  }
+  const overlay = result.issueOverlay || {};
+  lines.push(`deadExports: ${overlay.deadExports?.length ?? 0}`);
+  lines.push(`unresolved: ${overlay.unresolved?.length ?? 0}`);
+  lines.push(`cycles: ${overlay.cycles?.length ?? 0}`);
+  lines.push(`orphans: ${overlay.orphans?.length ?? 0}`);
+  if (!compact) {
+    lines.push(`hotspots: ${overlay.hotspots?.length ?? 0}`);
+  }
+  return lines.join('\n');
+}
+
 function formatStats(result) {
   return [
     `files: ${result.files}`,
@@ -83,6 +134,7 @@ async function executeCommand(container, line) {
       return `Commands:
   impact <file> [--max-depth <n>]
   affected-tests <file> [--max-depth <n>]
+  audit-map [--compact]
   dead-exports
   unresolved
   cycles
@@ -150,6 +202,13 @@ async function executeCommand(container, line) {
     case 'stats': {
       const result = container.depGraph.getStats();
       return formatStats(result);
+    }
+
+    case 'audit-map': {
+      const compact = args.includes('--compact');
+      const result = buildProjectMap(container.depGraph, { compact });
+      if (!result.ok) return `Error: ${result.error}`;
+      return formatProjectMap(result, compact);
     }
 
     default:

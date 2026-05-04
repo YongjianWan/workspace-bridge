@@ -51,6 +51,21 @@ workspace-bridge-cli audit-overview --cwd <project> --json --quiet
 workspace-bridge-cli audit-map --cwd <project> --json --quiet
 ```
 
+### Large Project Mode
+
+For repositories with 500+ files, use `--compact` with `audit-map` to avoid information overload:
+
+```bash
+workspace-bridge-cli audit-map --cwd <project> --compact --json --quiet
+```
+
+Compact mode returns:
+- **Directory skeleton** instead of per-file tree (`fileCount` + `totalFileCount` per directory)
+- **Module-level edges** instead of file-level imports
+- **highlightedFiles** array surfacing entry points and files with issues (dead exports, unresolved imports, cycles, orphans, hotspots)
+
+Use full mode (`--json --quiet` without `--compact`) when you need complete file-level detail.
+
 ### Quick Queries (Single-purpose)
 
 ```bash
@@ -85,7 +100,7 @@ workspace-bridge-cli affected-tests --cwd <project> --file <file> --max-depth 5 
 | Changing specific file | `audit-file --file ...` | Impact + affected tests |
 | Git worktree has changes | `audit-diff` | Validation plan + concrete commands |
 | Planning refactoring | `audit-overview` | Hotspots + stability + orphans |
-| Understanding project structure | `audit-map` | Directory tree + dependency edges + issue overlay |
+| Understanding project structure | `audit-map` | Directory tree + dependency edges + issue overlay. Use `--compact` for large repos |
 | "Who depends on this file?" | `dependents --file ...` | Direct dependents list |
 | "What does this file import?" | `dependencies --file ...` | Direct dependencies list |
 | Deep dive on dead code | `dead-exports` | Symbol-level candidates |
@@ -201,6 +216,7 @@ But still may report:
 - **False orphans**: Entry files not recognized, framework-managed files
 - **Mixed repo pollution**: Reference/prototypes not excluded
 - **Mixed repo command heuristics**: Custom scripts may need manual adjustment
+- **Large project information overload**: `audit-map` without `--compact` can output 30k+ lines on 1000-file repos. Always use `--compact` for initial reconnaissance on large codebases.
 
 ### Handling Mixed Repositories
 
