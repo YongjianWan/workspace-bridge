@@ -303,13 +303,22 @@ function testProjectMapCompactMode() {
     return files;
   }
   const fileNodes = findFileNodes(result.tree);
-  assert(fileNodes.length > 0, 'should have file nodes');
-  for (const f of fileNodes) {
-    assert(!('exports' in f), `file ${f.name} should not have exports in compact mode`);
-    assert(!('parseMode' in f), `file ${f.name} should not have parseMode in compact mode`);
-    assert('role' in f, `file ${f.name} should have role`);
-    assert('language' in f, `file ${f.name} should have language`);
+  assert.strictEqual(fileNodes.length, 0, 'compact tree should have no file nodes');
+
+  function assertAllDirectories(nodes) {
+    for (const n of nodes || []) {
+      assert.strictEqual(n.type, 'directory', `expected directory node, got ${n.type}`);
+      assert(typeof n.fileCount === 'number', `directory ${n.name} should have fileCount`);
+      assert(typeof n.totalFileCount === 'number', `directory ${n.name} should have totalFileCount`);
+      if (n.children) assertAllDirectories(n.children);
+    }
   }
+  assertAllDirectories(result.tree);
+
+  assert(Array.isArray(result.highlightedFiles), 'highlightedFiles should be an array');
+  const entryHighlight = result.highlightedFiles.find((h) => h.file === 'rootfile.js');
+  assert(entryHighlight, 'highlightedFiles should contain entry file rootfile.js');
+  assert.strictEqual(entryHighlight.reason, 'entry', 'entry file reason should be entry');
 
   function looksLikeFile(p) {
     const seg = p.split('/').pop();

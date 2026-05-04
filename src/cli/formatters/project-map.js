@@ -55,9 +55,54 @@ function compactTree(tree) {
   return tree;
 }
 
+// Strip file nodes; keep only directory skeleton with file counts.
+// Recursive structure naturally eliminates leaf files as a boundary case.
+function buildDirectorySkeleton(tree) {
+  return tree
+    .filter((n) => n.type === 'directory')
+    .map((dir) => {
+      const children = buildDirectorySkeleton(dir.children || []);
+      const directFiles = (dir.children || []).filter((c) => c.type === 'file').length;
+      const recursiveFiles = directFiles + children.reduce((sum, c) => sum + c.totalFileCount, 0);
+      return {
+        type: 'directory',
+        name: dir.name,
+        path: dir.path,
+        fileCount: directFiles,
+        totalFileCount: recursiveFiles,
+        children,
+      };
+    });
+}
+
 function getDirectoryOf(relativePath) {
   const idx = relativePath.lastIndexOf('/');
   return idx > 0 ? relativePath.slice(0, idx) : '.';
+}
+
+// Collect files worth calling out when the full file tree is hidden.
+function buildHighlightedFiles(entrySet, issueOverlay, root) {
+  const map = new Map();
+  const add = (file, reason) => {
+    if (!file) return;
+    const rel = toRelativePath(root, file);
+    if (!map.has(rel)) {
+      map.set(rel, { file: rel, reasons: [reason] });
+    } else if (!map.get(rel).reasons.includes(reason)) {
+      map.get(rel).reasons.push(reason);
+    }
+  };
+
+  for (const file of entrySet) add(file, 'entry');
+  for (const item of issueOverlay.deadExports || []) add(item.file, 'dead-export');
+  for (const item of issueOverlay.unresolved || []) add(item.file, 'unresolved');
+  for (const cycle of issueOverlay.cycles || []) {
+    for (const file of cycle) add(file, 'cycle');
+  }
+  for (const file of issueOverlay.orphans || []) add(file, 'orphan');
+  for (const item of issueOverlay.hotspots || []) add(item.file, 'hotspot');
+
+  return Array.from(map.values()).map(({ file, reasons }) => ({ file, reason: reasons[0] }));
 }
 
 function aggregateEdgesToDirectoryLevel(edges) {
@@ -115,6 +160,7 @@ function buildProjectMap(depGraph, options = {}) {
   let tree = buildDirectoryTree(flatTree);
   if (compact) {
     tree = compactTree(tree);
+    tree = buildDirectorySkeleton(tree);
   }
 
   // Edges: import relationships (merge symbols for same from|to pairs)
@@ -210,26 +256,32 @@ function buildProjectMap(depGraph, options = {}) {
   }
   hotspots.sort((a, b) => (b.dependentCount || 0) - (a.dependentCount || 0));
 
+  const issueOverlay = {
+    deadExports: deadExports.map((item) => ({
+      file: toRelativePath(root, item.file),
+      exports: item.exports,
+      confidence: item.confidence || 'medium',
+    })),
+    unresolved: unresolved.map((item) => ({
+      file: toRelativePath(root, item.file),
+      import: item.import,
+      resolvedTo: item.resolvedTo || null,
+    })),
+    cycles: cycles.map((cycle) => cycle.map((f) => toRelativePath(root, f))),
+    orphans,
+    hotspots: hotspots.slice(0, 10),
+  };
+
+  // In compact mode AI can't see the full file list; surface noteworthy files explicitly.
+  const highlightedFiles = compact ? buildHighlightedFiles(entrySet, issueOverlay, root) : [];
+
   return {
     ok: true,
     workspaceRoot: root,
     tree,
     edges,
-    issueOverlay: {
-      deadExports: deadExports.map((item) => ({
-        file: toRelativePath(root, item.file),
-        exports: item.exports,
-        confidence: item.confidence || 'medium',
-      })),
-      unresolved: unresolved.map((item) => ({
-        file: toRelativePath(root, item.file),
-        import: item.import,
-        resolvedTo: item.resolvedTo || null,
-      })),
-      cycles: cycles.map((cycle) => cycle.map((f) => toRelativePath(root, f))),
-      orphans,
-      hotspots: hotspots.slice(0, 10),
-    },
+    issueOverlay,
+    highlightedFiles,
   };
 }
 

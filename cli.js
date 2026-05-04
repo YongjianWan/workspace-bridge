@@ -170,9 +170,13 @@ function countTreeFiles(tree) {
   if (!Array.isArray(tree)) return 0;
   let count = 0;
   for (const node of tree) {
-    if (node.type === 'file') count += 1;
-    if (node.type === 'directory' && Array.isArray(node.children)) {
-      count += countTreeFiles(node.children);
+    if (node.type === 'file') {
+      count += 1;
+    } else if (node.type === 'directory' && Array.isArray(node.children)) {
+      // Skeleton mode already rolls up recursive counts.
+      count += typeof node.totalFileCount === 'number'
+        ? node.totalFileCount
+        : countTreeFiles(node.children);
     }
   }
   return count;
