@@ -7,6 +7,7 @@ const { FileIndex } = require('./file-index');
 const { DiagnosticsEngine } = require('./diagnostics-engine');
 const { DependencyGraph } = require('./dep-graph');
 const { ProjectContext } = require('../utils/project-context');
+const { TIMEOUTS, DEFAULTS } = require('../config/constants');
 
 class ServiceContainer {
   constructor() {
@@ -26,7 +27,7 @@ class ServiceContainer {
   /**
    * Initialize all services. Thread-safe with mutex-like behavior.
    */
-  async initialize(cwd, timeoutMs = 60000, options = {}) {
+  async initialize(cwd, timeoutMs = TIMEOUTS.INIT_TIMEOUT_MS, options = {}) {
     // Mutex: if already initializing, wait with timeout
     if (this.initializing) {
       const startTime = Date.now();
@@ -97,7 +98,7 @@ class ServiceContainer {
       excludeDirs: options.excludeDirs || [],
       projectContext: this.projectContext,
     });
-    await this.fileIndex.build(300000, {
+    await this.fileIndex.build(DEFAULTS.FILE_INDEX_BUILD_TIMEOUT_MS, {
       watch: options.watch !== false,
       excludeDirs: options.excludeDirs || [],
     });
@@ -134,7 +135,7 @@ class ServiceContainer {
   /**
    * Gate: ensures initialization is complete before proceeding
    */
-  async ensureReady(timeoutMs = 30000) {
+  async ensureReady(timeoutMs = TIMEOUTS.CONTAINER_ENSURE_READY_TIMEOUT_MS) {
     if (this.initialized) return;
     if (this.initError) throw this.initError;
     
@@ -198,7 +199,7 @@ class ServiceContainer {
     };
   }
 
-  getStaleness(thresholdMs = 5 * 60 * 1000) {
+  getStaleness(thresholdMs = DEFAULTS.STALENESS_THRESHOLD_MS) {
     const ageMs = this.indexBuildTime ? Date.now() - this.indexBuildTime : 0;
     return {
       indexAgeMs: ageMs,

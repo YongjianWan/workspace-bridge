@@ -520,6 +520,23 @@ function extractExportsWithRegex(sanitized) {
     exportRecords.push(createExportRecord('default', { kind: 'symbol' }));
   }
 
+  // CJS: module.exports = { foo, bar: 1, baz: () => {} }
+  const moduleExportsRegex = /module\.exports\s*=\s*\{([^}]*)}/g;
+  while ((match = moduleExportsRegex.exec(sanitized)) !== null) {
+    const inner = match[1];
+    const propRegex = /([A-Za-z_$][\w$]*)\s*(?::|,|$)/g;
+    let propMatch;
+    while ((propMatch = propRegex.exec(inner)) !== null) {
+      exportRecords.push(createExportRecord(propMatch[1], { kind: 'symbol' }));
+    }
+  }
+
+  // CJS: exports.foo = ...  and  module.exports.foo = ...
+  const exportsAssignRegex = /(?:module\.)?exports\.([A-Za-z_$][\w$]*)\s*=/g;
+  while ((match = exportsAssignRegex.exec(sanitized)) !== null) {
+    exportRecords.push(createExportRecord(match[1], { kind: 'symbol' }));
+  }
+
   return { exportRecords, reExportImportRecords };
 }
 

@@ -10,11 +10,11 @@
 
 ```bash
 # 1. 验证测试基线
-npm run test:all          # 期望: 47/47 PASS
+node test/runner.js          # 期望: 51/51 PASS
 
 # 2. 验证自审基线
 node cli.js audit-summary --cwd . --json --quiet
-# 期望: healthScore=5/5, deadExportCount=0, unresolvedCount=0, cycleCount=0, totalFiles≈108
+# 期望: healthScore=5/5, deadExportCount=0, unresolvedCount=0, cycleCount=0, totalFiles≈113
 
 # 3. 验证大项目 compact 可用性
 node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
@@ -27,30 +27,55 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 ## 基线状态
 
-- 测试：**50/50 PASS**（新增 3 个 parser 测试；`repl-test.js` 偶发 flaky，单独重跑即过）
+- 测试：**51/51 PASS**（新增 `js-regex-cjs-test.js`）
 - 版本：**v1.0.4**（待打 tag）
 - 分支：`main`，已 push origin
-- 自身项目规模：111 文件，entry=4, library=44, test=51, script=12
+- 自身项目规模：113 文件，entry=4, library=45, test=52, script=12
 - 健康度：5/5，0 死导出，0 循环，0 未解析
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 
 ---
 
-## 本轮完成（2026-05-04）
+## 本轮完成（2026-05-05）
 
-### P6 语言扩展：6 → 9 种（全栈覆盖达成）
+### L2 债务全部清零（14 项残余一次性清理）
 
-- **Vue SFC parser** `src/services/dep-graph/parsers/vue.js` — 提取 `<script>` / `<script setup>` 复用 `parseJavaScript`
-- **C/C++ parser** `src/services/dep-graph/parsers/cpp.js` — regex 提取 `#include`、文件级函数、`#define` 宏
-- **Svelte parser** `src/services/dep-graph/parsers/svelte.js` — 提取 `<script>` 块复用 `parseJavaScript`
-- **注册表集成** `dep-graph.js` `parsers/index.js` — `PARSER_REGISTRY` 新增 3 行
-- **file-index 覆盖** `file-index.js` `path.js` — `hasPackageJson` 时索引 `.vue` `.svelte`；新增 `hasCpp`（CMakeLists.txt/Makefile）索引 C/C++ 扩展名
-- **新增 3 个 parser 测试文件**：`test/vue-parser-test.js`、`test/cpp-parser-test.js`、`test/svelte-parser-test.js`
-- **ROADMAP P6 标记更新**：C/C++、Vue SFC、Svelte 全部 ✅ 已完成
+**js.js — 1 项**
+- regex fallback 完全丢失 `module.exports = {...}` 和 `exports.foo = ...`
+- `extractExportsWithRegex` 新增 CJS module.exports / exports 检测正则
+- 新增 `test/js-regex-cjs-test.js` 强制 regex fallback 验证 CJS exports 提取
+
+**container.js — 3 项裸数字**
+- `initialize(cwd, timeoutMs = 60000)` → `TIMEOUTS.INIT_TIMEOUT_MS`
+- `ensureReady(timeoutMs = 30000)` → `TIMEOUTS.CONTAINER_ENSURE_READY_TIMEOUT_MS`
+- `build(300000)` → `DEFAULTS.FILE_INDEX_BUILD_TIMEOUT_MS`
+- `getStaleness(thresholdMs = 5 * 60 * 1000)` → `DEFAULTS.STALENESS_THRESHOLD_MS`
+
+**file-index.js — 1 项裸数字**
+- `i % 100 === 0` 进度报告批次 → `DEFAULTS.FILE_INDEX_PROGRESS_BATCH`
+
+**constants.js — 扩展**
+- 新增 `STALENESS_THRESHOLD_MS: 5 * 60 * 1000`
+- 新增 `FILE_INDEX_PROGRESS_BATCH: 100`
+
+**TECH_DEBT.md — 文档同步**
+- L1 Blocker B1–B7 全部 ✅
+- L2 裸数字、重复代码、Record Schema、Parser 盲区、其他杂项全部 ✅
+- 文档从 159 行精简至 ~140 行，只保留 L3 建议与文件级雷区地图
+
+---
 
 ## 上轮完成（2026-05-04）
 
-> 历史交付（audit-map compact、archive 排除、REPL 扩展等）见 [CHANGELOG.md](../CHANGELOG.md) [Unreleased]。
+### P6 语言扩展：6 → 9 种（全栈覆盖达成）
+
+- **Vue SFC parser** `src/services/dep-graph/parsers/vue.js`
+- **C/C++ parser** `src/services/dep-graph/parsers/cpp.js`
+- **Svelte parser** `src/services/dep-graph/parsers/svelte.js`
+- **注册表集成** `dep-graph.js` `parsers/index.js` — `PARSER_REGISTRY` 新增 3 行
+- **file-index 覆盖** — `getFilePatterns()` 加入 `.vue` `.svelte` 和 C/C++ 扩展名
+- **新增 3 个 parser 测试文件**：`test/vue-parser-test.js`、`test/cpp-parser-test.js`、`test/svelte-parser-test.js`
+- **ROADMAP P6 标记更新**：C/C++、Vue SFC、Svelte 全部 ✅ 已完成
 
 ### L2/L3 债务全部清零（18 项）
 
@@ -94,27 +119,18 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 ## 新会话指令（给下一轮 AI）
 
-> **状态更新（2026-05-04）**：L2 已全部清零，L3（#29–#32）亦已修完。47/47 PASS。已执行指令的详细方案（含过时行号）已归档于 [CHANGELOG.md](../CHANGELOG.md) [Unreleased] §重构，此处不再重复。
-
-### 前置检查
-1. 跑 `node test/runner.js` 确认基线绿色（当前 47/47 PASS；若 `repl-test.js` 偶发失败，单独重跑该文件确认）。
-2. 跑 `node cli.js audit-summary --cwd . --json --quiet` 确认 healthScore=5/5。
-
-## 新会话指令
-
-> **状态**：P6 语言扩展已完成（6 → 9 语言）。当前基线 50/50 PASS（含 3 个新增 parser 测试），healthScore=5/5。
+> **状态更新（2026-05-05）**：L1/L2 债务全部清零。当前基线 51/51 PASS，healthScore=5/5。
 
 ### 前置检查
 
-1. 跑 `node test/runner.js` 确认基线绿色。
+1. 跑 `node test/runner.js` 确认基线绿色（当前 51/51 PASS；若 `repl-test.js` 偶发失败，单独重跑该文件确认）。
 2. 跑 `node cli.js audit-summary --cwd . --json --quiet` 确认 healthScore=5/5。
 
 ### 下一步方向（按 ROADMAP 价值排序）
 
 - P4 剩余：Kotlin AST 级支持（当前 regex）
 - P5 剩余：REPL `issues` / `top` 命令待实现
-- TECH_DEBT.md L1 Blocker（B1–B7）— 数据一致性、异常安全问题
-- TECH_DEBT.md L2 债务 — 裸数字归零、重复代码、Record Schema 不一致等 14 项
+- L3 品味问题（时间允许时逐步推进）
 
 ### 新增第 N 种语言的 SOP（已验证，未来复用）
 
@@ -126,4 +142,4 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 ---
 
-*Last updated: 2026-05-04（本轮：P6 语言扩展完成，9 语言全栈覆盖达成。新增 vue/cpp/svelte parser + 测试 + 注册表集成 + file-index 扩展名覆盖。）*
+*Last updated: 2026-05-05（本轮：L2 债务全部清零。js.js CJS regex fallback 修复 + container.js/file-index.js 裸数字归零 + constants.js 扩展 + TECH_DEBT.md 精简同步。）*

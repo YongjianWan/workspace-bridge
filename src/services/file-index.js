@@ -154,8 +154,8 @@ class FileIndex {
           yield fullPath;
         }
         
-        // Yield to event loop every 100 entries to prevent blocking
-        if (i % 100 === 0) {
+        // Yield to event loop every N entries to prevent blocking
+        if (i % DEFAULTS.FILE_INDEX_PROGRESS_BATCH === 0) {
           await new Promise(resolve => setImmediate(resolve));
         }
       }

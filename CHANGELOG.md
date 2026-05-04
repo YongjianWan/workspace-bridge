@@ -81,11 +81,14 @@
 - **dep-graph.js 正则缓存** `src/services/dep-graph.js` — `_scanSymbolUsageInImporters` 用局部 `Map<symbol, RegExp>` 缓存，避免每个 importer 对每个 symbol 都 `new RegExp`
 - **dep-graph.js 方法拆分 ×3** `src/services/dep-graph.js` — `findAffectedTests` 拆为 `_findAffectedTestsByGraph` + `_findAffectedTestsByHeuristic`；`findDeadExports` 提取 `_collectUsedExports`；`updateFiles` 拆为 `_removeOldReverseEdges` + `_addReverseEdges`
 - **overview-tools.js 裸数字归零** `src/config/constants.js` `src/tools/overview-tools.js` — 新增 `SCORING` 常量对象，覆盖 hotspot/stability/coupling/core-module/edge-break/sampling 全量阈值，~20 处裸数字替换
+- **container.js / file-index.js 裸数字归零** `src/services/container.js` `src/services/file-index.js` `src/config/constants.js` — `initialize`/`ensureReady`/`build`/`getStaleness` 默认参数与进度批次全部替换为 `TIMEOUTS.*` / `DEFAULTS.*`；新增 `STALENESS_THRESHOLD_MS`、`FILE_INDEX_PROGRESS_BATCH`
+- **js.js CJS regex fallback 补全** `src/services/dep-graph/parsers/js.js` — `extractExportsWithRegex` 新增 `module.exports = { ... }` 与 `exports.foo = ...` 检测，消除 CJS 项目 regex fallback 下静默丢导出的盲区
 
 ### 测试
 
 - `test/cache-test.js` — 适配 `cache.save()` 改为异步（mock `fs.promises.rename` 替代 `fs.renameSync`）
 - `test/cache-stale-prune-test.js` — `cache1.save()` 加 `await`
+- `test/js-regex-cjs-test.js` — 新增：强制 regex fallback（故意放置非法语法使 AST 解析失败），验证 `module.exports = { foo, bar: 1 }` 与 `exports.baz = ...` 正确提取为 exportRecords
 
 ## [1.0.2] - 2026-05-03
 

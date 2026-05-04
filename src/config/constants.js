@@ -89,6 +89,10 @@ const DEFAULTS = {
   FILE_INDEX_PATTERN_TIMEOUT_MS: 120000,
   WATCH_DEBOUNCE_MS: 500,
   FILE_INDEX_BUILD_TIMEOUT_MS: 300000,
+  // Staleness threshold: 5 minutes balances freshness with cache hit rate.
+  STALENESS_THRESHOLD_MS: 5 * 60 * 1000,
+  // Progress report batch size for large repo indexing.
+  FILE_INDEX_PROGRESS_BATCH: 100,
 };
 
 // Scoring weights for highlighted files in compact project map.
