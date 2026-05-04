@@ -334,10 +334,18 @@ function buildProjectMap(depGraph, options = {}) {
   const entrySet = depGraph.entryFiles || new Set();
   for (const file of allFiles) {
     if (depGraph.isTestLikeFile?.(file)) continue;
+    const relPath = toRelativePath(root, file);
+    // Standalone entry points are not orphans — keep in sync with overview-tools.js findOrphanFiles()
+    if (
+      relPath.startsWith('scripts/') || relPath.includes('/scripts/') ||
+      relPath.startsWith('bin/') || relPath.includes('/bin/') ||
+      relPath.startsWith('benchmark/') || relPath.includes('/benchmark/') ||
+      relPath.startsWith('wb-analysis-fixture/') || relPath.includes('/wb-analysis-fixture/')
+    ) continue;
     const dependents = depGraph.getDependents?.(file) || [];
     const isEntry = entrySet.has?.(file) || entrySet.includes?.(file);
     if (!isEntry && dependents.length === 0) {
-      orphans.push(toRelativePath(root, file));
+      orphans.push(relPath);
     }
   }
 
