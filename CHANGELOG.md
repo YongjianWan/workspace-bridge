@@ -18,7 +18,13 @@
 
 ### 新增
 
-- **`audit-map --compact`** `cli.js` `src/cli/formatters/project-map.js` — 大项目信息压缩模式。tree 从文件级降到纯目录骨架（`fileCount` + `totalFileCount`），edges 聚合到目录级并过滤同目录边，新增 `highlightedFiles` 字段显式透出 entry 文件与问题文件。GitNexus（954 文件）输出从 28,818 行降到 4,708 行（~84% 压缩）
+- **`audit-map --compact`** `cli.js` `src/cli/formatters/project-map.js` `src/cli/repl.js` — 大项目信息压缩模式，三轮递进压缩：
+  - Round 1：edges 聚合到目录级，删除文件 `exports`/`parseMode`
+  - Round 2：tree 变为纯目录骨架（`fileCount` + `totalFileCount`），新增 `highlightedFiles` 透出 entry/issue 文件
+  - Round 3：tree 深度限制为 2（深层目录折叠到父目录），edges 进一步聚合到模块级（前两段路径），issueOverlay 裁剪 `exports` 数组，`highlightedFiles` 上限 30
+  - REPL `audit-map` 命令同步支持 `--compact`
+  - **GitNexus（954 文件）输出从 28,818 行降到 862 行（~97% 压缩）**
+- **SKILL.md 大项目模式文档** `skills/workspace-audit/SKILL.md` — 新增 `--compact` 使用场景和示例
 
 ### 修复
 
