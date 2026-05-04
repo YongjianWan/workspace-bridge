@@ -7,7 +7,7 @@
     "start": "node cli.js --help",
     "audit": "node cli.js audit-summary --cwd . --json --quiet",
     "audit:file": "node cli.js audit-file --cwd . --file src\\tools\\dep-tools.js --json --quiet",
-    "test": "node test/security-test.js",
+    "test": "node test/runner.js",
     "test:security": "node test/security-test.js",
     "test:functionality": "node test/functionality-test.js",
     "test:cache": "node test/cache-test.js",

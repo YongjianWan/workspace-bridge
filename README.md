@@ -28,6 +28,28 @@ node cli.js audit-overview --cwd .   # 项目全景（热区、孤儿文件）
 
 完整命令列表、参数说明与 `.workspace-bridge.json` 配置见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)。
 
+## 配置
+
+对于混合仓库（同时包含主代码、原型、参考实现、生成产物等），在项目根目录创建 `.workspace-bridge.json`：
+
+```json
+{
+  "directories": {
+    "archive": ["reference", "prototypes"],
+    "reference": [],
+    "generated": ["dist", "build", ".next", "coverage"]
+  }
+}
+```
+
+| 字段 | 作用 |
+|------|------|
+| `archive` | 归档/历史代码目录，不参与主线分析和死代码检测 |
+| `reference` | 参考实现/示例代码，不视为项目主线 |
+| `generated` | 构建产物/生成代码，跳过孤儿文件和死代码检测 |
+
+完整命令契约与使用指南见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)。
+
 ## 适用场景
 
 | 项目规模 | 推荐度 | 注意事项 |
