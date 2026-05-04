@@ -97,6 +97,7 @@ Options:
   --overview-dashboard <path>  Write audit-overview single-file HTML dashboard
   --json                  Print machine-readable JSON
   --quiet                 Suppress stderr logs during CLI execution
+  --compact              Emit condensed tree and directory-level edges
   --help                  Show help
 `);
 }
@@ -117,6 +118,7 @@ function parseCliArgs(argv) {
     '--language': { key: 'language' },
     '--json': true,
     '--quiet': true,
+    '--compact': true,
     '--help': true,
     '-h': true,
   });
@@ -153,6 +155,7 @@ function parseCliArgs(argv) {
     targets: raw._.slice(1),
     json: Boolean(raw['--json']),
     quiet: Boolean(raw['--quiet']),
+    compact: Boolean(raw['--compact']),
     help: Boolean(raw['--help']) || Boolean(raw['-h']),
   };
 }
@@ -519,7 +522,7 @@ async function runCommand(parsed, container) {
       return buildProjectOverview(parsed, container);
     case 'audit-map': {
       await container.ensureReady();
-      return buildProjectMap(container.depGraph);
+      return buildProjectMap(container.depGraph, { compact: parsed.compact });
     }
     case 'health':
       return projectHealth({ cwd: parsed.cwd }, container);

@@ -42,11 +42,53 @@ function buildDirectoryTree(flatFiles) {
   return root;
 }
 
-function buildProjectMap(depGraph) {
+function compactTree(tree) {
+  for (const node of tree) {
+    if (node.type === 'file') {
+      delete node.parseMode;
+      delete node.exports;
+    }
+    if (node.type === 'directory' && node.children) {
+      compactTree(node.children);
+    }
+  }
+  return tree;
+}
+
+function getDirectoryOf(relativePath) {
+  const idx = relativePath.lastIndexOf('/');
+  return idx > 0 ? relativePath.slice(0, idx) : '.';
+}
+
+function aggregateEdgesToDirectoryLevel(edges) {
+  const map = new Map();
+  for (const e of edges) {
+    if (e.type === 're-export') continue;
+    const fromDir = getDirectoryOf(e.from);
+    const toDir = getDirectoryOf(e.to);
+    if (fromDir === toDir) continue;
+    const key = `${fromDir}|${toDir}|${e.type}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.usesAllExports = existing.usesAllExports || Boolean(e.usesAllExports);
+    } else {
+      map.set(key, {
+        from: fromDir,
+        to: toDir,
+        type: e.type,
+        usesAllExports: Boolean(e.usesAllExports),
+      });
+    }
+  }
+  return Array.from(map.values());
+}
+
+function buildProjectMap(depGraph, options = {}) {
   if (!depGraph) {
     return { ok: false, error: 'Dependency graph not initialized' };
   }
 
+  const compact = options.compact || false;
   const root = depGraph.root || depGraph.workspaceRoot || '';
   const projectContext = depGraph.projectContext || null;
   const allFiles = Array.from(depGraph.graph?.keys() || []);
@@ -70,7 +112,10 @@ function buildProjectMap(depGraph) {
   }).sort((a, b) => a.file.localeCompare(b.file));
 
   // Tree: directory-aggregated structure
-  const tree = buildDirectoryTree(flatTree);
+  let tree = buildDirectoryTree(flatTree);
+  if (compact) {
+    tree = compactTree(tree);
+  }
 
   // Edges: import relationships (merge symbols for same from|to pairs)
   const edgeMap = new Map();
@@ -131,7 +176,8 @@ function buildProjectMap(depGraph) {
       }
     }
   }
-  const edges = Array.from(edgeMap.values());
+  const rawEdges = Array.from(edgeMap.values());
+  const edges = compact ? aggregateEdgesToDirectoryLevel(rawEdges) : rawEdges;
 
   // IssueOverlay
   const deadExports = depGraph.findDeadExports?.() || [];

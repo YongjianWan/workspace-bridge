@@ -233,9 +233,113 @@ function testProjectMapToRelativePathBoundary() {
   console.log('testProjectMapToRelativePathBoundary: ok');
 }
 
+function testProjectMapCompactMode() {
+  const depGraph = {
+    root: '/repo',
+    graph: new Map([
+      ['/repo/src/core/a.ts', {
+        imports: ['/repo/src/core/b.ts', '/repo/src/mcp/c.ts'],
+        exports: ['foo'],
+        exportRecords: [{ name: 'foo', kind: 'function' }],
+        importRecords: [
+          { source: './b.ts', resolved: '/repo/src/core/b.ts', imported: ['bar'], usesAllExports: false },
+          { source: '../mcp/c.ts', resolved: '/repo/src/mcp/c.ts', imported: ['baz'], usesAllExports: true },
+        ],
+        parseMode: 'ast',
+      }],
+      ['/repo/src/core/b.ts', {
+        imports: [],
+        exports: ['bar'],
+        exportRecords: [{ name: 'bar', kind: 'function' }],
+        importRecords: [],
+        parseMode: 'ast',
+      }],
+      ['/repo/src/mcp/c.ts', {
+        imports: ['/repo/src/core/a.ts'],
+        exports: ['baz'],
+        exportRecords: [{ name: 'baz', kind: 'function' }],
+        importRecords: [
+          { source: '../core/a.ts', resolved: '/repo/src/core/a.ts', imported: ['foo'], usesAllExports: false },
+        ],
+        parseMode: 'ast',
+      }],
+      ['/repo/rootfile.js', {
+        imports: [],
+        exports: ['x'],
+        exportRecords: [{ name: 'x' }],
+        importRecords: [],
+        parseMode: 'ast',
+      }],
+    ]),
+    reverseGraph: new Map([
+      ['/repo/src/core/b.ts', ['/repo/src/core/a.ts']],
+      ['/repo/src/mcp/c.ts', ['/repo/src/core/a.ts']],
+      ['/repo/src/core/a.ts', ['/repo/src/mcp/c.ts']],
+    ]),
+    getFileInfo(file) { return this.graph.get(file); },
+    hasFile(file) { return this.graph.has(file); },
+    getDependents(file) { return this.reverseGraph.get(file) || []; },
+    getDependencies(file) { return this.graph.get(file)?.imports || []; },
+    findDeadExports() { return [{ file: '/repo/src/core/b.ts', exports: ['unused'], confidence: 'medium' }]; },
+    findUnresolvedImports() { return [{ file: '/repo/src/mcp/c.ts', import: './missing' }]; },
+    findCircularDependencies() { return []; },
+    entryFiles: new Set(['/repo/rootfile.js']),
+    isTestLikeFile() { return false; },
+    projectContext: {
+      classifyFile() { return { isMainline: true, fileRole: 'library' }; },
+    },
+  };
+
+  const result = buildProjectMap(depGraph, { compact: true });
+
+  assert.strictEqual(result.ok, true, 'compact should return ok');
+
+  function findFileNodes(nodes) {
+    const files = [];
+    for (const n of nodes || []) {
+      if (n.type === 'file') files.push(n);
+      if (n.type === 'directory' && n.children) files.push(...findFileNodes(n.children));
+    }
+    return files;
+  }
+  const fileNodes = findFileNodes(result.tree);
+  assert(fileNodes.length > 0, 'should have file nodes');
+  for (const f of fileNodes) {
+    assert(!('exports' in f), `file ${f.name} should not have exports in compact mode`);
+    assert(!('parseMode' in f), `file ${f.name} should not have parseMode in compact mode`);
+    assert('role' in f, `file ${f.name} should have role`);
+    assert('language' in f, `file ${f.name} should have language`);
+  }
+
+  function looksLikeFile(p) {
+    const seg = p.split('/').pop();
+    return seg !== '.' && seg.includes('.');
+  }
+  for (const e of result.edges) {
+    assert(!looksLikeFile(e.from), `from should be directory: ${e.from}`);
+    assert(!looksLikeFile(e.to), `to should be directory: ${e.to}`);
+    assert(e.from !== e.to, `no self-referencing edges: ${e.from} -> ${e.to}`);
+    assert(e.type === 'import' || e.type === 're-export-all', `type should be import or re-export-all, got ${e.type}`);
+  }
+
+  const coreToMcp = result.edges.find((e) => e.from === 'src/core' && e.to === 'src/mcp');
+  assert(coreToMcp, 'should have src/core -> src/mcp edge');
+  assert.strictEqual(coreToMcp.usesAllExports, true, 'usesAllExports should be OR-ed');
+
+  const mcpToCore = result.edges.find((e) => e.from === 'src/mcp' && e.to === 'src/core');
+  assert(mcpToCore, 'should have src/mcp -> src/core edge');
+
+  assert(result.issueOverlay, 'issueOverlay should exist in compact mode');
+  assert.strictEqual(result.issueOverlay.deadExports.length, 1, 'should preserve dead exports');
+  assert.strictEqual(result.issueOverlay.unresolved.length, 1, 'should preserve unresolved');
+
+  console.log('testProjectMapCompactMode: ok');
+}
+
 testProjectMapStructure();
 testProjectMapWithIssues();
 testProjectMapReExportEdges();
 testProjectMapHotspots();
 testProjectMapToRelativePathBoundary();
+testProjectMapCompactMode();
 console.log('audit-map-test: ok');
