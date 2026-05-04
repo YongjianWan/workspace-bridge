@@ -16,6 +16,14 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **`audit-map --compact`** `cli.js` `src/cli/formatters/project-map.js` — 大项目信息压缩模式。tree 从文件级降到纯目录骨架（`fileCount` + `totalFileCount`），edges 聚合到目录级并过滤同目录边，新增 `highlightedFiles` 字段显式透出 entry 文件与问题文件。GitNexus（954 文件）输出从 28,818 行降到 4,708 行（~84% 压缩）
+
+### 修复
+
+- **`DEFAULT_EXCLUDE_DIRS` 污染** `src/services/file-index.js` — 移除上一轮清理本地 `reference/gitnexus/` 残留时误加入的全局排除项 `'gitnexus'`，该规则导致任何名为 `gitnexus` 的目录被全盘跳过
+
 ## [1.0.2] - 2026-05-03
 
 ### 变更

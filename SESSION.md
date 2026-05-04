@@ -4,11 +4,13 @@
 
 ## 基线状态
 
-- 测试：**41/41 PASS**
+- 测试：**43/43 PASS**
 - 版本：**v1.0.3**（待打 tag）
 - 分支：`main`，已 push origin
 
 ## 本轮完成（v1.0.3 — 债务清理 + 混合仓库误判修复 + 文档精简 + GitNexus 参考）
+
+见下方「会话延续」段落。
 
 | 事项 | 关键文件 | 说明 |
 |------|----------|------|
@@ -47,4 +49,14 @@ node cli.js audit-summary --cwd . --json --quiet | jq '.deadExports.deadExportCo
 
 ---
 
-*Last updated: 2026-05-03（v1.0.3 债务清理 + 混合仓库误判修复）*
+## 会话延续（本轮新增）
+
+| 事项 | 关键文件 | 说明 |
+|------|----------|------|
+| DEFAULT_EXCLUDE_DIRS 修复 | `src/services/file-index.js` | 移除上一轮清理残留时误加入的 `'gitnexus'`，该规则导致 GitNexus 项目被全盘跳过 |
+| audit-map `--compact` 模式 | `cli.js`, `src/cli/formatters/project-map.js`, `test/audit-map-test.js` | 解决大项目信息爆炸问题。两轮压缩：① edges 聚合到目录级 + 删除文件元数据；② tree 变为纯目录骨架（fileCount / totalFileCount）+ `highlightedFiles` 显式透出 entry / issue 文件 |
+| 大项目验证 | `reference/GitNexus/gitnexus` | GitNexus（954 文件）audit-map 从 28,818 行 -> 4,708 行（~84% 压缩），AI 可消费 |
+
+---
+
+*Last updated: 2026-05-04（audit-map --compact 大项目压缩）*
