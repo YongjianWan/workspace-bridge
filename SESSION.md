@@ -128,8 +128,9 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 ### 下一步方向（按 ROADMAP 价值排序）
 
+- **下一轮首选**：`test/parser-schema-contract-test.js` — 统一测试调用全部 9 个 parser，断言返回对象包含且仅包含 `{imports, exports, importRecords, exportRecords, functionRecords, parseMode}`。当前 Python/Kotlin/Go/Rust/JS-regex 都缺少专项覆盖，这是新增语言时的第一道安全门
 - P4 剩余：Kotlin AST 级支持（当前 regex）
-- P5 剩余：REPL `issues` / `top` 命令待实现
+- P5 已完成：REPL `issues` / `top` 已实现（ROADMAP.md 已同步）
 - L3 品味问题（时间允许时逐步推进）
 
 ### 新增第 N 种语言的 SOP（已验证，未来复用）
