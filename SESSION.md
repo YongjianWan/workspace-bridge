@@ -1,74 +1,78 @@
 # SESSION.md
 
-> 本轮会话上下文。通用项目信息见 [AGENTS.md](./AGENTS.md)，历史变更见 [CHANGELOG.md](./CHANGELOG.md)，长期路线见 [ROADMAP.md](./ROADMAP.md)。
+> 新会话启动指南。通用项目信息见 [AGENTS.md](./AGENTS.md)，历史变更见 [CHANGELOG.md](./CHANGELOG.md)，长期路线见 [ROADMAP.md](./ROADMAP.md)。
+
+---
+
+## 新会话启动检查表（必须执行）
+
+```bash
+# 1. 验证测试基线
+npm run test:all          # 期望: 44/44 PASS
+
+# 2. 验证自审基线
+node cli.js audit-summary --cwd . --json --quiet
+# 期望: healthScore=5/5, deadExportCount=0, unresolvedCount=0, cycleCount=0, totalFiles≈98
+
+# 3. 验证大项目 compact 可用性
+node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
+# 期望: 输出行数 < 1000, summary.severity 存在, highlightedFiles 按问题严重程度排序
+```
+
+**如果任何一步失败 → 先修基线，再做其他事。**
+
+---
 
 ## 基线状态
 
-- 测试：**43/43 PASS**
+- 测试：**44/44 PASS**
 - 版本：**v1.0.3**（待打 tag）
 - 分支：`main`，已 push origin
+- 自身项目规模：98 文件，entry=4, library=37, test=45, script=12
+- 健康度：5/5，0 死导出，0 循环，0 未解析
 
-## 本轮完成（v1.0.3 — 债务清理 + 混合仓库误判修复 + 文档精简 + GitNexus 参考）
+---
 
-见下方「会话延续」段落。
+## 本轮完成（2026-05-04）
 
 | 事项 | 关键文件 | 说明 |
 |------|----------|------|
-| 删除 CodeQL adapter | `src/adapters/codeql.js`（删除） | ROI 极低：>500MB 安装、5-10min 运行、208 行高维护成本 |
-| 保留 Semgrep | `src/adapters/index.js` | audit-security 退化为 Semgrep-only，足够轻量 |
-| CLI 清理 | `cli.js` | 删除 `--db-path`、`--force-refresh`；保留 `--language` 给 Semgrep |
-| security-tools 清理 | `src/tools/security-tools.js` | 删除 `dbPath` / `forceRefresh` 透传；message 改为仅提示 Semgrep |
-| 测试清理 | `test/security-adapter-test.js` | 删除 CodeQL 测试，保留 Semgrep + auditSecurity 核心测试 |
-| .gitignore 清理 | `.gitignore` | 删除 `.codeql/` |
-| AGENTS.md 更新 | `AGENTS.md` | 外部工具策略表删除 CodeQL 引用；自分析骨架加 `<!-- generated -->` |
-| CHANGELOG 去重 | `CHANGELOG.md` | 删除重复 `[1.0.0]` 块；新增 `[1.0.2]` 删除 CodeQL 条目；新增 `[1.0.3]` 债务清理 |
-| RELEASE_NOTES 更新 | `RELEASE_NOTES.md` | 新增 v1.0.2 删除说明；保留历史记录 |
-| ROADMAP 精简 | `ROADMAP.md` | 已知限制删除 8 条 ✅ 已完成项；P5 删除 obsolete planned 块；1.0 发布准备归档；成功标准 #6 更新 |
-| USAGE_PROOF 标记 | `docs/USAGE_PROOF.md` | 顶部加 DEPRECATED，指向 AGENTS.md + self-audit |
-| GitNexus clone | `reference/GitNexus/` | 作为架构参考 |
-| `mainlineCount === 0` 处理 | `src/cli/formatters/audit-diff-summary.js` | 无主线文件时返回 `'docs'`（最轻验证模板），避免 reference 变更触发全量回归 |
-| Gradle 去重 | `src/utils/stack-detector.js` | 合并 `getJavaCommands` 中 Gradle 子模块有无两个分支的重复代码 |
-| 混合仓库误判修复 | `src/utils/project-context.js` | `prototypes` 从 `reference` hints 移到 `archive` hints；`classifyDirectory` 优先匹配用户配置规则 |
-| 项目配置示例 | `.workspace-bridge.json` | 新增根目录配置，显式标注 `reference` / `prototypes` 为 archive |
-
-## 仍未处理的 review 项
-
-| 项 | 卡点 |
-|----|------|
-| `getJavaCommands` Gradle 两分支去重 | ✅ 已合并（提取公共变量 `compileTasks` / `testTasks` / `checkstyleTasks`） |
-| `classifyChangeType` `mainlineCount === 0` 显式处理 | ✅ 已处理（返回 `'docs'`，补测试） |
-| `DB_TIMEOUT_MS = 300000` 改成 option | ✅ 不再适用 — CodeQL 已删除 |
-
-## 验证命令
-
-```bash
-npm run test:all          # 41/41 绿
-npm run self-audit        # 自审通过
-node cli.js audit-summary --cwd . --json --quiet | jq '.deadExports.deadExportCount'  # 0
-```
+| `DEFAULT_EXCLUDE_DIRS` 修复 | `src/services/file-index.js` | 移除误加入的 `'gitnexus'` |
+| audit-map `--compact` 三轮压缩 | `cli.js`, `src/cli/formatters/project-map.js`, `src/cli/repl.js` | 大项目信息压缩：tree depth≤2 + 模块级 edges + highlightedFiles 上限 30。GitNexus 28,818 → **862 行** |
+| compact 问题驱动改造 | `src/cli/formatters/project-map.js`, `cli.js` | 新增 `summary` 字段（severity / issueCounts / nextSteps），human-readable 首行即 severity |
+| archive 目录自动排除 | `src/services/file-index.js`, `src/utils/project-context.js` | `.workspace-bridge.json` 中 reference/archive/generated 不再被 file-index 扫描。自身 totalFiles ~400 → **98** |
+| orphan 检测对齐 | `src/cli/formatters/project-map.js` | 修复 project-map 与 overview-tools 的 orphan 规则不一致（scripts/bin/benchmark 误报） |
+| REPL compact 支持 | `src/cli/repl.js` | `audit-map --compact` 可在 REPL 使用 |
+| SKILL.md 更新 | `skills/workspace-audit/SKILL.md` | 新增 Large Project Mode 文档 |
+| AGENTS.md 骨架更新 | `AGENTS.md` | 自分析数据更新为 2026-05-04 |
 
 ---
 
-## 会话延续（本轮新增）
+## 已知陷阱（新 agent 必看）
 
-| 事项 | 关键文件 | 说明 |
-|------|----------|------|
-| DEFAULT_EXCLUDE_DIRS 修复 | `src/services/file-index.js` | 移除上一轮清理残留时误加入的 `'gitnexus'`，该规则导致 GitNexus 项目被全盘跳过 |
-| audit-map `--compact` 模式 | `cli.js`, `src/cli/formatters/project-map.js`, `src/cli/repl.js`, `test/audit-map-test.js` | 解决大项目信息爆炸问题。三轮压缩：① edges 聚合到目录级 + 删除文件元数据；② tree 变为纯目录骨架 + `highlightedFiles`；③ depth 限制为 2 + edges 聚合到模块级 + issueOverlay 裁剪 + highlightedFiles 上限 30 |
-| REPL compact 支持 | `src/cli/repl.js` | `audit-map --compact` 可在 REPL 中使用 |
-| SKILL.md 更新 | `skills/workspace-audit/SKILL.md` | 增加 Large Project Mode 使用说明 |
-| archive 目录自动排除 | `src/services/file-index.js`, `src/utils/project-context.js` | `.workspace-bridge.json` 中标记为 reference/archive/generated 的目录不再被 file-index 扫描，减少构建时间和结果污染。自身项目 totalFiles 从 ~400 降到 98 |
-| compact 问题驱动改造 | `src/cli/formatters/project-map.js`, `cli.js`, `test/audit-map-test.js` | compact 模式新增 `summary` 字段（severity + issueCounts + nextSteps），`highlightedFiles` 按问题严重程度排序，human-readable 输出首行即 severity + 下一步建议 |
-| 大项目验证 | `reference/GitNexus/gitnexus` | GitNexus（954 文件）audit-map 从 28,818 行 -> **862 行**（~97% 压缩），AI 可消费 |
+| 陷阱 | 位置 | 如何避免 |
+|------|------|----------|
+| `DEFAULT_EXCLUDE_DIRS` 全局污染 | `src/services/file-index.js` | 任何新增排除项必须是通用目录名（如 `node_modules`），不能是项目特定名称（如 `gitnexus`） |
+| orphan 检测不一致 | `project-map.js` vs `overview-tools.js` | 两处 orphan 逻辑必须保持同步（scripts/bin/benchmark/wb-analysis-fixture 跳过） |
+| compact 模式只改 project-map.js | `cli.js` 也需要同步 | human-readable 输出和 `countTreeFiles()` 必须兼容 skeleton 模式（`totalFileCount`） |
+| Windows PowerShell 管道 BOM | 所有 `node cli.js ... \| node -e` 命令 | PowerShell 管道传 JSON 会带 BOM，用 `cmd /c "... > file"` 再读文件 |
 
 ---
 
-## 已知问题（本次发现但未处理）
+## 下一步方向（按价值排序）
 
-| 问题 | 位置 | 说明 |
-|------|------|------|
-| `scripts/` orphan 误报 | `src/cli/formatters/project-map.js` vs `src/tools/overview-tools.js` | ✅ **已修复** — project-map 内联 orphan 检测缺少 scripts/bin/benchmark 跳过规则，与 overview-tools 不一致。audit-map 误报 6 个 orphan，audit-summary/overview 不报 |
+### 高价值 / 低风险
+1. **给 `audit-diff` 加 `--compact`** — 当变更涉及大量文件时压缩输出
+2. **给 `watch` 命令加 `--compact`** — 大项目文件保存时 dependents 列表可能很长
+3. **REPL 增加 `issues` / `top` 命令** — 快速查看 summary 级别的问题汇总
+
+### 高价值 / 中风险
+4. **Kotlin AST 级支持** — ROADMAP 唯一剩余 P4。但无成熟纯 Python Kotlin AST 解析器，可能需要 regex 增强或接受现状
+5. **插件化解析器注册表** — 从硬编码 if-else 迁移到配置表驱动。工作量 >3 天
+
+### 维护
+6. **v1.0.3 打 tag 发布** — 当前 main 已稳定，可打 tag
 
 ---
 
-*Last updated: 2026-05-04（audit-map --compact 三轮压缩 + archive 排除 + orphan 误报修复）*
+*Last updated: 2026-05-04（收工状态：44/44 PASS, main push 完成）*
