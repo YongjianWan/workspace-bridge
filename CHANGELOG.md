@@ -24,6 +24,7 @@
   - Round 3：tree 深度限制为 2（深层目录折叠到父目录），edges 进一步聚合到模块级（前两段路径），issueOverlay 裁剪 `exports` 数组，`highlightedFiles` 上限 30
   - REPL `audit-map` 命令同步支持 `--compact`
   - **GitNexus（954 文件）输出从 28,818 行降到 862 行（~97% 压缩）**
+- **archive/reference/generated 目录自动排除** `src/services/file-index.js` `src/utils/project-context.js` — `.workspace-bridge.json` 中标记为非 active 的目录（reference/archive/generated）现在被 `file-index` 直接排除，不再扫描、解析、构建 dep-graph。解决混合仓库中 reference 代码污染分析结果和拖慢构建时间的问题。自身项目 totalFiles 从 ~400 降到 98
 - **SKILL.md 大项目模式文档** `skills/workspace-audit/SKILL.md` — 新增 `--compact` 使用场景和示例
 
 ### 修复

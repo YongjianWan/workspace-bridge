@@ -57,6 +57,7 @@ node cli.js audit-summary --cwd . --json --quiet | jq '.deadExports.deadExportCo
 | audit-map `--compact` 模式 | `cli.js`, `src/cli/formatters/project-map.js`, `src/cli/repl.js`, `test/audit-map-test.js` | 解决大项目信息爆炸问题。三轮压缩：① edges 聚合到目录级 + 删除文件元数据；② tree 变为纯目录骨架 + `highlightedFiles`；③ depth 限制为 2 + edges 聚合到模块级 + issueOverlay 裁剪 + highlightedFiles 上限 30 |
 | REPL compact 支持 | `src/cli/repl.js` | `audit-map --compact` 可在 REPL 中使用 |
 | SKILL.md 更新 | `skills/workspace-audit/SKILL.md` | 增加 Large Project Mode 使用说明 |
+| archive 目录自动排除 | `src/services/file-index.js`, `src/utils/project-context.js` | `.workspace-bridge.json` 中标记为 reference/archive/generated 的目录不再被 file-index 扫描，减少构建时间和结果污染。自身项目 totalFiles 从 ~400 降到 98 |
 | 大项目验证 | `reference/GitNexus/gitnexus` | GitNexus（954 文件）audit-map 从 28,818 行 -> **862 行**（~97% 压缩），AI 可消费 |
 
 ---
