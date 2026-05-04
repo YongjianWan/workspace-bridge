@@ -121,7 +121,7 @@ P0T1–P0T5 全部交付。
 > - **保留入口**：entry files 和 test files 永远显式命名，因为它们是动作入口
 > - **可下探**：compact 不删数据，细节移到"按需查询"路径（如 `impact --file`）
 >
-> **当前状态**：`audit-map --compact` ✅ / `audit-diff --compact` ✅ / `watch --compact` ✅ 全部完成。REPL `issues` / `top` 命令待实现。
+> **当前状态**：`audit-map --compact` ✅ / `audit-diff --compact` ✅ / `watch --compact` ✅ / REPL `issues` ✅ / `top` ✅ 全部完成。
 >
 > 基础设施现状：`file-index.js` 已有 `fs.watch` + `pendingUpdates` debounce 骨架（`startWatching()`/`processPending()`），但只更新 fileMetadata，未接到 dep-graph；`cache.js` ~~只存了 `{mtime, size, hash}`~~ 已扩展 `parseResults` Map（v0.9.13）。
 
@@ -195,4 +195,4 @@ P0T1–P0T5 全部交付。
 
 ---
 
-*Last updated: 2026-05-04（P6 语言扩展完成：C/C++、Vue SFC、Svelte  parser 注册表集成，9 语言全栈覆盖达成）*
+*Last updated: 2026-05-05（P6 语言扩展完成 + L2 债务全部清零，9 语言全栈覆盖达成）*
