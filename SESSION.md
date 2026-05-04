@@ -63,4 +63,12 @@ node cli.js audit-summary --cwd . --json --quiet | jq '.deadExports.deadExportCo
 
 ---
 
-*Last updated: 2026-05-04（audit-map --compact 三轮压缩完成，GitNexus 862 行）*
+## 已知问题（本次发现但未处理）
+
+| 问题 | 位置 | 说明 |
+|------|------|------|
+| `scripts/` orphan 误报 | `src/cli/formatters/project-map.js` vs `src/tools/overview-tools.js` | ✅ **已修复** — project-map 内联 orphan 检测缺少 scripts/bin/benchmark 跳过规则，与 overview-tools 不一致。audit-map 误报 6 个 orphan，audit-summary/overview 不报 |
+
+---
+
+*Last updated: 2026-05-04（audit-map --compact 三轮压缩 + archive 排除 + orphan 误报修复）*
