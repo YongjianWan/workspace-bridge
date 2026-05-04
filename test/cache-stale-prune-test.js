@@ -18,7 +18,7 @@ async function main() {
   const cache1 = new WorkspaceCache(root);
   const index1 = new FileIndex(root, cache1);
   await index1.build(30000, { watch: false });
-  cache1.save();
+  await cache1.save();
 
   assert.strictEqual(cache1.fileMetadata.size, 1, 'cache should have 1 file after build');
 

@@ -8,21 +8,44 @@ const path = require('path');
 const { ServiceContainer } = require('../services/container');
 const { DEFAULTS, TIMEOUTS } = require('../config/constants');
 
-function formatWatchOutput(workspaceRoot, filePath, impact) {
+function formatWatchOutput(workspaceRoot, filePath, impact, depGraph, compact) {
   const relativeFile = path.relative(workspaceRoot, filePath);
   const count = impact.length;
-  const list = impact.map((e) => path.relative(workspaceRoot, e.file)).join(', ');
-  return `${relativeFile} changed  ${count} dependents affected: [${list}]`;
+
+  if (!compact || count <= 10) {
+    const list = impact.map((e) => path.relative(workspaceRoot, e.file)).join(', ');
+    return `${relativeFile} changed  ${count} dependents affected: [${list}]`;
+  }
+
+  // Compact curation: show entries + tests explicitly, aggregate the rest.
+  const entrySet = depGraph.entryFiles || new Set();
+  const entries = [];
+  const tests = [];
+  let otherCount = 0;
+
+  for (const item of impact) {
+    if (entrySet.has(item.file)) {
+      entries.push(path.relative(workspaceRoot, item.file));
+    } else if (depGraph.isTestLikeFile?.(item.file)) {
+      tests.push(path.relative(workspaceRoot, item.file));
+    } else {
+      otherCount++;
+    }
+  }
+
+  const parts = [`${count} dependents`];
+  if (entries.length > 0) parts.push(`entries: [${entries.join(', ')}]`);
+  if (tests.length > 0) parts.push(`tests: [${tests.join(', ')}]`);
+  if (otherCount > 0) parts.push(`+${otherCount} more`);
+
+  return `${relativeFile} changed  ${parts.join(', ')}`;
 }
 
-function registerWatchCallback(fileIndex, depGraph, workspaceRoot, originalCallback) {
+function registerWatchCallback(fileIndex, depGraph, workspaceRoot, compact) {
   fileIndex.onFileChanged = (filePath) => {
-    if (originalCallback) {
-      originalCallback(filePath);
-    }
     const startTime = Date.now();
     const impact = depGraph.getImpactRadius(filePath, DEFAULTS.WATCH_IMPACT_DEPTH);
-    console.log(formatWatchOutput(workspaceRoot, filePath, impact));
+    console.log(formatWatchOutput(workspaceRoot, filePath, impact, depGraph, compact));
     if (process.env.DEBUG) {
       console.error(`[watch] computed in ${Date.now() - startTime}ms`);
     }
@@ -34,7 +57,11 @@ function setupGracefulShutdown(container) {
   async function shutdown() {
     if (shuttingDown) return;
     shuttingDown = true;
-    await container.shutdown();
+    try {
+      await container.shutdown();
+    } catch (e) {
+      console.error('Shutdown error:', e.message);
+    }
     process.exit(0);
   }
   process.on('SIGINT', shutdown);
@@ -61,7 +88,7 @@ async function startWatch(options) {
       container.fileIndex,
       container.depGraph,
       container.workspaceRoot,
-      container.fileIndex.onFileChanged,
+      options.compact,
     );
 
     await new Promise(() => {});
@@ -73,4 +100,5 @@ async function startWatch(options) {
 
 module.exports = {
   startWatch,
+  formatWatchOutput,
 };

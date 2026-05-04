@@ -6,7 +6,8 @@ const {
 const { DEFAULTS } = require('../../config/constants');
 
 function buildAuditDiffSummary(entries) {
-  const mainlineChanged = entries.filter((entry) => entry.classification?.isMainline);
+  const list = Array.isArray(entries) ? entries : [];
+  const mainlineChanged = list.filter((entry) => entry.classification?.isMainline);
   const affectedTests = new Set();
   let maxImpact = 0;
   let highRiskFiles = 0;
@@ -16,7 +17,7 @@ function buildAuditDiffSummary(entries) {
   let maxCompositeRiskScore = 0;
   const topCompositeRisks = [];
 
-  for (const entry of entries) {
+  for (const entry of list) {
     maxImpact = Math.max(maxImpact, entry.impactCount || 0);
     if (fileImpactSeverity(entry.impactCount || 0, entry.affectedTestCount || 0) === 'high') {
       highRiskFiles += 1;
@@ -302,8 +303,39 @@ function getValidationTemplate(changeType) {
   return templates[changeType] || templates.code;
 }
 
+/**
+ * Compact a single changed-file entry for AI consumption.
+ * Keeps counts, compositeRisk, and a capped slice of impact/affectedTests.
+ * Drops heavy details (symbolImpact, changedLineRanges, recentCommits, resolvedPath).
+ */
+function compactChangedFile(entry) {
+  if (!entry || typeof entry !== 'object') return entry;
+
+  const impact = Array.isArray(entry.impact) ? entry.impact : [];
+  const affectedTests = Array.isArray(entry.affectedTests) ? entry.affectedTests : [];
+  const impactExplanations = Array.isArray(entry.impactExplanations) ? entry.impactExplanations : [];
+
+  const historyRisk = entry.historyRisk
+    ? { score: entry.historyRisk.score, level: entry.historyRisk.level }
+    : null;
+
+  return {
+    file: entry.file,
+    classification: entry.classification,
+    graphKnown: entry.graphKnown,
+    impactCount: entry.impactCount || 0,
+    impact: impact.slice(0, 5),
+    affectedTestCount: entry.affectedTestCount || 0,
+    affectedTests: affectedTests.slice(0, 5),
+    compositeRisk: entry.compositeRisk || null,
+    historyRisk,
+    impactExplanations: impactExplanations.slice(0, 3),
+  };
+}
+
 module.exports = {
   buildAuditDiffSummary,
   classifyChangeType,
   getValidationTemplate,
+  compactChangedFile,
 };

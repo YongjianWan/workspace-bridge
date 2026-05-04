@@ -30,8 +30,9 @@ function dedupeWithinTool(findings) {
   return out;
 }
 
-async function auditSecurity({ cwd, targets = [], config, language }, container) {
+async function auditSecurity({ cwd, targets, config, language }, container) {
   void container;
+  const targetList = Array.isArray(targets) ? targets : [];
   const adapters = await getAvailableAdapters(cwd);
   if (adapters.length === 0) {
     return {
@@ -48,7 +49,7 @@ async function auditSecurity({ cwd, targets = [], config, language }, container)
 
   // Default to scanning the workspace root when user gave no targets —
   // matches what `node cli.js audit-security` intuitively means.
-  const effectiveTargets = targets.length > 0 ? targets : ['.'];
+  const effectiveTargets = targetList.length > 0 ? targetList : ['.'];
 
   const results = await Promise.all(
     adapters.map((adapter) => adapter.scan(effectiveTargets, { cwd, config, language }))

@@ -27,10 +27,48 @@
 - **archive/reference/generated 目录自动排除** `src/services/file-index.js` `src/utils/project-context.js` — `.workspace-bridge.json` 中标记为非 active 的目录（reference/archive/generated）现在被 `file-index` 直接排除，不再扫描、解析、构建 dep-graph。解决混合仓库中 reference 代码污染分析结果和拖慢构建时间的问题。自身项目 totalFiles 从 ~400 降到 98
 - **audit-map `--compact` 问题驱动改造** `src/cli/formatters/project-map.js` `cli.js` — compact 模式从"单纯信息压缩"升级为"问题驱动输出"：新增 `summary` 字段（severity / issueCounts / 按优先级排序的 nextSteps），`highlightedFiles` 按问题严重程度排序（unresolved > cycle > dead-export > orphan > hotspot > entry），human-readable 输出首行即 severity + 下一步建议
 - **SKILL.md 大项目模式文档** `skills/workspace-audit/SKILL.md` — 新增 `--compact` 使用场景和示例
+- **`HIGHLIGHT_SCORES` 注册表** `src/config/constants.js` — 统一 `project-map.js` 中 highlighted file 的评分权重，消除裸数字
+- **`symbol-extractors.js` 语言注册表** `src/services/file-index/symbol-extractors.js` — 将 `file-index.js` 中 6 分支 `else-if` 链重构为 first-match 配置表，新增语言只加一行，未知扩展名自然落空数组
+- **`stack-detectors/detect.js` + `commands.js`** `src/utils/stack-detectors/` — 将 835 行的 `stack-detector.js` 按「检测/命令」维度拆分为两个子模块，主文件变为 14 行入口
 
 ### 修复
 
 - **`DEFAULT_EXCLUDE_DIRS` 污染** `src/services/file-index.js` — 移除上一轮清理本地 `reference/gitnexus/` 残留时误加入的全局排除项 `'gitnexus'`，该规则导致任何名为 `gitnexus` 的目录被全盘跳过
+- **cache.js 缓存加载崩溃** `src/services/cache.js` — `normalizeFileMapEntries` / `normalizeDiagnosticsEntries` / `normalizeParseResultEntries` 假设传入值是数组，旧缓存或损坏缓存中该字段可能是普通对象 `{}`。加 `Array.isArray(entries)` 防御性检查
+- **hasGradlePlugin 循环内编译正则** `src/utils/stack-detectors/detect.js` — 每行 `new RegExp()` 提到循环外，一次编译复用
+- **file-index.js 硬编码 cache 文件名** `src/services/file-index.js` — `'.workspace-bridge-cache.json'` 改为 `require('./cache').CACHE_FILENAME`
+- **file-index.js node_modules 特殊分支冗余** `src/services/file-index.js` — `matchesPathFragment` 已覆盖 `node_modules/` 匹配，删除多余 `if (dir === 'node_modules')` 分支
+- **file-index.js handleFileChange 漏清缓存** `src/services/file-index.js` — 文件删除时只清 `fileMetadata`，漏了 `parseResult`/`diagnostics`/`symbolIndex`。改为调用 `_removeCacheEntry()`
+- **cache.js save() 同步阻塞** `src/services/cache.js` — `fs.writeFileSync` + `JSON.stringify(data, null, 2)` 对大型仓库可能产生数十 MB 字符串并冻结事件循环。改为 `async save()` + `fs.promises.writeFile/rename`，不再格式化 JSON 以减小体积
+- **command.js Windows 命令解析** `src/utils/command.js` — 原来对 `semgrep`/`codeql` 强制加 `.cmd`，但它们在 Windows 上可能是 `.exe`。改为只对 `npm`/`npx` 加 `.cmd`，其他交给 `spawn` 按 PATHEXT 搜索
+- **REPL SIGINT 资源泄漏** `src/cli/repl.js` — 注册 `rl.on('SIGINT', () => rl.close())`，确保 Ctrl+C 触发 finally 块中的 `container.shutdown()`
+- **watch.js shutdown 异常挂起** `src/cli/watch.js` — `container.shutdown()` 抛错时 `process.exit(0)` 不执行，进程挂住。加 `try-catch` 包围 shutdown
+- **container.js shutdown 异常不安全** `src/services/container.js` — `processPending()` 抛错时 `stopWatching()` 和 `cache.save()` 被跳过。每步独立 `try-catch`，DEBUG 模式输出细节
+- **dep-graph.js 引用污染** `src/services/dep-graph.js` — cache hit 路径直接 `this.graph.set(key, cached)`，导致 graph 和磁盘缓存共享同一个对象引用。改为 `{ ...cached }` 浅拷贝隔离
+- **semgrep.js 过度防御** `src/adapters/semgrep.js` — 非零退出码时直接丢弃 stdout 中的 findings。改为先尝试 `JSON.parse(result.stdout)`，解析成功且有有效 results 时保留 findings
+- **Linux watcher 被错误禁用** `src/services/file-index.js` — Node.js v20+ Linux 已支持 `fs.watch(path, { recursive: true })`。改为运行时探测而非硬编码 `platform === 'win32' \|\| platform === 'darwin'`
+
+### 重构
+
+- **stack-detector.js 重复代码消除** `src/utils/stack-detectors/` — `hasGoProject` 直接复用 `detectGoModules`；提取 `buildNodeTestCommand`、`buildGoModuleTestCommands`、`buildRustTestCommands` 三个纯函数，消除 Node testRunner 三元链和 Go/Rust 命令生成的跨函数重复
+- **file-index.js 死代码删除** `src/services/file-index.js` — `findSymbol`、`searchSymbols`、`getFileSymbols` 在 `src/` 中无调用方，删除
+- **DEFAULT_EXCLUDE_DIRS 清理** `src/services/file-index.js` — 移除项目特定目录 `test-temp`、`wb-analysis-fixture`
+- **watch.js dead code** `src/cli/watch.js` — 删除 `registerWatchCallback` 中永远收到 `undefined` 的 `originalCallback` 参数
+- **project-map.js / overview-tools.js 硬编码对齐** `src/cli/formatters/project-map.js` `src/tools/overview-tools.js` — 同步移除 `wb-analysis-fixture` 硬编码跳过规则
+- **cli.js printUsage 补文档** `cli.js` — 补全 `--config` 和 `--language` 参数说明
+- **fs.watch handler 崩溃** `src/services/file-index.js` — `path.join(this.root, filename)` 在 `!filename` 守卫之前执行，`filename` 为 `undefined` 时抛 `TypeError`。调整顺序；同时处理 Windows 上 `filename` 为 `Buffer` 的情况
+- **`_readPackageJson` 解析崩溃** `src/services/dep-graph.js` — `JSON.parse` 无 try-catch，损坏的 `package.json` 会导致 `DependencyGraph` 构造失败
+- **`readTrendHistory` 解析崩溃** `src/tools/overview-tools.js` — 同上，趋势历史文件损坏时抛未处理异常
+- **`resolveImport` 空指针** `src/services/dep-graph/resolvers.js` — 导出函数未校验 `importPath`，传入 `null`/`undefined` 时内部解析器崩溃
+- **`buildAuditDiffSummary` 空指针** `src/cli/formatters/audit-diff-summary.js` — 对 `entries` 直接调用 `.filter()` 无 array guard
+- **`getNodeCommands` / `getPythonCommands` 空指针** `src/utils/stack-detectors/commands.js` — `targets` 未校验直接调用 `.filter()` / `.length`
+- **`auditSecurity` null 穿透** `src/tools/security-tools.js` — 解构默认 `targets = []` 只在属性缺失时生效，显式传入 `{ targets: null }` 会 crash
+- **`matchGlob` 不完全转义** `src/tools/search-tools.js` — 只转义 `.` / `*` / `?`，其他正则元字符（`+` `[` `]` `(` `)` `{` `}` `^` `$` `|`）未处理，导致 glob 匹配错误
+
+### 测试
+
+- `test/cache-test.js` — 适配 `cache.save()` 改为异步（mock `fs.promises.rename` 替代 `fs.renameSync`）
+- `test/cache-stale-prune-test.js` — `cache1.save()` 加 `await`
 
 ## [1.0.2] - 2026-05-03
 

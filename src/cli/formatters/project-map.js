@@ -1,3 +1,5 @@
+const { HIGHLIGHT_SCORES } = require('../../config/constants');
+
 function toRelativePath(root, filePath) {
   if (!root || !filePath) return filePath;
   const normalizedRoot = root.replace(/\\/g, '/');
@@ -40,19 +42,6 @@ function buildDirectoryTree(flatFiles) {
   }
 
   return root;
-}
-
-function compactTree(tree) {
-  for (const node of tree) {
-    if (node.type === 'file') {
-      delete node.parseMode;
-      delete node.exports;
-    }
-    if (node.type === 'directory' && node.children) {
-      compactTree(node.children);
-    }
-  }
-  return tree;
 }
 
 // Strip file nodes; keep only directory skeleton with file counts.
@@ -98,21 +87,28 @@ function countAllFiles(nodes) {
   return count;
 }
 
+function countTreeFiles(tree) {
+  if (!Array.isArray(tree)) return 0;
+  let count = 0;
+  for (const node of tree) {
+    if (node.type === 'file') {
+      count += 1;
+    } else if (node.type === 'directory' && Array.isArray(node.children)) {
+      count += typeof node.totalFileCount === 'number'
+        ? node.totalFileCount
+        : countTreeFiles(node.children);
+    }
+  }
+  return count;
+}
+
 function getDirectoryOf(relativePath) {
   const idx = relativePath.lastIndexOf('/');
   return idx > 0 ? relativePath.slice(0, idx) : '.';
 }
 
 function scoreHighlightedFile(reason) {
-  switch (reason) {
-    case 'unresolved': return 100;
-    case 'cycle': return 80;
-    case 'dead-export': return 60;
-    case 'orphan': return 40;
-    case 'hotspot': return 20;
-    case 'entry': return 0;
-    default: return 0;
-  }
+  return HIGHLIGHT_SCORES[reason] || 0;
 }
 
 // Collect files worth calling out when the full file tree is hidden.
@@ -257,7 +253,7 @@ function buildProjectMap(depGraph, options = {}) {
   // Tree: directory-aggregated structure
   let tree = buildDirectoryTree(flatTree);
   if (compact) {
-    tree = compactTree(tree);
+    // buildDirectorySkeleton drops file nodes entirely, so compactTree field deletion is unnecessary.
     tree = buildDirectorySkeleton(tree, 2).nodes;
   }
 
@@ -339,8 +335,7 @@ function buildProjectMap(depGraph, options = {}) {
     if (
       relPath.startsWith('scripts/') || relPath.includes('/scripts/') ||
       relPath.startsWith('bin/') || relPath.includes('/bin/') ||
-      relPath.startsWith('benchmark/') || relPath.includes('/benchmark/') ||
-      relPath.startsWith('wb-analysis-fixture/') || relPath.includes('/wb-analysis-fixture/')
+      relPath.startsWith('benchmark/') || relPath.includes('/benchmark/')
     ) continue;
     const dependents = depGraph.getDependents?.(file) || [];
     const isEntry = entrySet.has?.(file) || entrySet.includes?.(file);
@@ -402,4 +397,5 @@ module.exports = {
   buildProjectMap,
   buildDirectoryTree,
   toRelativePath,
+  countTreeFiles,
 };

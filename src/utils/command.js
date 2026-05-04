@@ -11,7 +11,9 @@ function resolveCommandForPlatform(command) {
   if (typeof command !== 'string' || !command) return command;
   if (path.extname(command)) return command;
   const lower = command.toLowerCase();
-  if (['npm', 'npx', 'semgrep', 'codeql'].includes(lower)) {
+  // npm/npx ship as .cmd on Windows; semgrep/codeql may be .exe.
+  // Only force .cmd for npm/npx — for others let spawn search PATHEXT.
+  if (['npm', 'npx'].includes(lower)) {
     return `${command}.cmd`;
   }
   return command;

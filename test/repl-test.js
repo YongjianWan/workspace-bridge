@@ -4,10 +4,21 @@
  * Tests executeCommand with a mock container — no real dep-graph needed.
  */
 const assert = require('assert');
+const path = require('path');
 const { executeCommand } = require('../src/cli/repl');
 
 function makeMockDepGraph() {
   return {
+    workspaceRoot: '/project',
+    graph: new Map([
+      ['/project/src/utils/path.js', {}],
+      ['/project/src/app.js', {}],
+      ['/project/src/services/core.js', {}],
+      ['/project/test/app.test.js', {}],
+      ['/project/cli.js', {}],
+      ['/project/src/other.js', {}],
+    ]),
+    entryFiles: new Set(['/project/cli.js']),
     getImpactRadius: (file, maxDepth) => [
       { level: 1, file: `dep-${file}` },
       { level: 2, file: 'dep-level2.js' },
@@ -24,7 +35,12 @@ function makeMockDepGraph() {
     findCircularDependencies: () => [
       ['c.js', 'd.js', 'c.js'],
     ],
-    getDependents: (file) => [`dependent-of-${file}`],
+    getDependents: (file) => {
+      if (file === '/project/src/utils/path.js') {
+        return ['/project/src/app.js', '/project/src/services/core.js', '/project/test/app.test.js', '/project/cli.js', '/project/src/other.js'];
+      }
+      return [`dependent-of-${file}`];
+    },
     getDependencies: (file) => [`dependency-of-${file}`],
     getStats: () => ({
       files: 42,
@@ -127,6 +143,36 @@ async function main() {
   const depsNoFile = await executeCommand(container, 'dependencies');
   assert(depsNoFile.includes('Usage:'), 'dependencies without file should show usage');
   console.log('dependencies-missing-arg: ok');
+
+  // issues
+  const issues = await executeCommand(container, 'issues');
+  assert(issues.includes('severity: high'), 'issues should detect high severity due to unresolved + cycles');
+  assert(issues.includes('deadExports: 1'), 'issues should count dead exports');
+  assert(issues.includes('unresolved: 1'), 'issues should count unresolved');
+  assert(issues.includes('cycles: 1'), 'issues should count cycles');
+  assert(issues.includes('a.js'), 'issues should list dead export file');
+  assert(issues.includes('missing-pkg'), 'issues should list unresolved import');
+  assert(issues.includes('nextSteps:'), 'issues should include nextSteps');
+  console.log('issues: ok');
+
+  // top
+  const top = await executeCommand(container, 'top');
+  assert(top.includes('hotspot-1:'), 'top should list hotspot-1');
+  assert(top.includes(path.relative('/project', '/project/src/utils/path.js')), 'top should include path.js');
+  assert(top.includes('5 dependents'), 'top should show dependent count');
+  console.log('top: ok');
+
+  // top with no hotspots (threshold not met)
+  const noHotContainer = { depGraph: { ...container.depGraph, getDependents: () => [] } };
+  const topNone = await executeCommand(noHotContainer, 'top');
+  assert(topNone.includes('No hotspots detected'), 'top should handle no hotspots');
+  console.log('top-none: ok');
+
+  // help includes new commands
+  const help2 = await executeCommand(container, 'help');
+  assert(help2.includes('issues'), 'help should list issues command');
+  assert(help2.includes('top'), 'help should list top command');
+  console.log('help-includes-issues-top: ok');
 
   console.log('\nAll REPL tests passed');
 }

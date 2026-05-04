@@ -28,6 +28,7 @@ const {
   getHeuristicLanguageFamily,
   isTestLikeFile,
 } = require('../utils/test-detector');
+const { CACHE_FILENAME } = require('./cache');
 
 const readFile = promisify(fs.readFile);
 
@@ -53,7 +54,7 @@ class DependencyGraph {
 
   shouldExclude(filePath) {
     const base = path.basename(filePath);
-    if (base === '.workspace-bridge-cache.json') return true;
+    if (base === CACHE_FILENAME) return true;
 
     const normalized = normalizePathKey(filePath);
     return this.excludeDirs.some((dir) => {
@@ -80,7 +81,11 @@ class DependencyGraph {
   _readPackageJson() {
     const packageJsonPath = path.join(this.root, 'package.json');
     if (!fs.existsSync(packageJsonPath)) return null;
-    return JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    try {
+      return JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    } catch {
+      return null;
+    }
   }
 
   _collectEntryFiles() {
@@ -181,7 +186,7 @@ class DependencyGraph {
       const cached = this.cache.getParseResult(file);
       if (cached && meta && cached.mtime === meta.mtime) {
         const key = this.normalizeFilePath(file);
-        this.graph.set(key, cached);
+        this.graph.set(key, { ...cached });
         cachedFiles.push(file);
       } else {
         filesToAnalyze.push(file);
@@ -287,6 +292,9 @@ class DependencyGraph {
     } catch (e) {
       // 单个文件分析失败不应阻塞整个依赖图构建，记录日志后继续
       console.error(`[DepGraph] Failed to analyze ${filePath}:`, e.message);
+      // 删除 stale 记录，防止增量更新时 reverseGraph 与实际内容脱节
+      this.graph.delete(this.normalizeFilePath(filePath));
+      this.cache.deleteParseResult(filePath);
     }
   }
 

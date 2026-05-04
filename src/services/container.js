@@ -99,6 +99,7 @@ class ServiceContainer {
       };
 
       this.initialized = true;
+      this.indexBuildTime = Date.now();
       console.error(`[Container] Ready: ${this.fileIndex.getStats().files} files indexed`);
       
       return true;
@@ -136,16 +137,32 @@ class ServiceContainer {
   async shutdown() {
     // Phase 2: 清理待执行的诊断检查
     if (this.diagnostics) {
-      this.diagnostics.clearScheduledChecks();
+      try {
+        this.diagnostics.clearScheduledChecks();
+      } catch (e) {
+        if (process.env.DEBUG) console.error('[Container] clearScheduledChecks failed:', e.message);
+      }
     }
-    
+
     // Wait for pending updates before stopping
     if (this.fileIndex) {
-      await this.fileIndex.processPending?.();
-      this.fileIndex.stopWatching();
+      try {
+        await this.fileIndex.processPending?.();
+      } catch (e) {
+        if (process.env.DEBUG) console.error('[Container] processPending failed:', e.message);
+      }
+      try {
+        this.fileIndex.stopWatching();
+      } catch (e) {
+        if (process.env.DEBUG) console.error('[Container] stopWatching failed:', e.message);
+      }
     }
     if (this.cache) {
-      this.cache.save();
+      try {
+        await this.cache.save();
+      } catch (e) {
+        if (process.env.DEBUG) console.error('[Container] cache.save failed:', e.message);
+      }
     }
     this.diagnostics = null;
     this.depGraph = null;
@@ -158,6 +175,15 @@ class ServiceContainer {
       initialized: this.initialized,
       workspaceRoot: this.workspaceRoot,
       fileIndex: this.fileIndex?.getStats(),
+    };
+  }
+
+  getStaleness(thresholdMs = 5 * 60 * 1000) {
+    const ageMs = this.indexBuildTime ? Date.now() - this.indexBuildTime : 0;
+    return {
+      indexAgeMs: ageMs,
+      isStale: ageMs > thresholdMs,
+      thresholdMs,
     };
   }
 }

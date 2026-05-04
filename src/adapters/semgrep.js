@@ -27,7 +27,25 @@ class SemgrepAdapter extends BaseAdapter {
     ];
 
     const result = await runCommandSecure('semgrep', args, options.cwd);
-    if (!result.ok) {
+
+    let parsed;
+    try {
+      parsed = JSON.parse(result.stdout);
+    } catch {
+      // stdout is not valid JSON — treat as hard failure regardless of exit code
+      return {
+        findings: [],
+        summary: {
+          total: 0,
+          scanned: targets.length,
+          error: 'Invalid JSON from semgrep',
+        },
+      };
+    }
+
+    // If stdout parsed successfully but exit code was non-zero (e.g. --error flag),
+    // still return the findings rather than discarding them.
+    if (!result.ok && (!parsed?.results || !Array.isArray(parsed.results))) {
       return {
         findings: [],
         summary: {
@@ -35,16 +53,6 @@ class SemgrepAdapter extends BaseAdapter {
           scanned: targets.length,
           error: result.stderr || result.stdout || 'Semgrep exited with non-zero code',
         },
-      };
-    }
-
-    let parsed;
-    try {
-      parsed = JSON.parse(result.stdout);
-    } catch {
-      return {
-        findings: [],
-        summary: { total: 0, scanned: targets.length, error: 'Invalid JSON from semgrep' },
       };
     }
 

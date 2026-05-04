@@ -1,7 +1,9 @@
 # workspace-bridge Roadmap
 
-> 目标：把 `workspace-bridge` 从"可用的审计 CLI"推进成"能补足 AI 项目视角短板的工程脚手架"。
-> 
+> **目标：让 AI 写代码更方便。**
+>
+> 不是给人类阅读的报告，是给 AI 消费的策展输出。人看摘要，AI 看结构，两者都拿到立即能行动的信息。
+>
 > 历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [docs/plans/](./docs/plans/)。
 
 ---
@@ -89,7 +91,7 @@ P0T1–P0T5 全部交付。
 - [x] Rust workspace 子 crate 支持（`cargo test -p`）
 - [x] mixed repo 命令精度提升（`classifyChangeType` 单一数据源 + `codeTargets` 过滤）
 - [x] CLI 命令完整性补全（`stats` / `dependents` / `dependencies`）
-- [ ] **CLI 瘦身（1.0 breaking change）** — 详见下方「1.0 发布准备」
+- [x] **CLI 瘦身（1.0）** — 已完成：仅删除 `deps` 命令，保留其余命令
 - [x] Gradle 任务发现
 - [x] Go module path 聚合（嵌套 `go.mod`）
 - [x] Rust 模块级测试过滤
@@ -106,11 +108,20 @@ P0T1–P0T5 全部交付。
 - [x] 超标文件拆分（`parsers/` 目录、`formatters/` 目录）
 - [ ] Kotlin AST 级支持
 - [x] 大仓库性能专项优化（>10k 文件）— 详见 P5，Step 2 + Step 3 已完成
-- [ ] 插件化解析器注册表
+- [x] 插件化解析器注册表 — **决策更新：提前重构**（原定为"超 10 种时"，现 6→9 种途中即做，降低风险）
 
-### P5：大项目体验优化（REPL + 缓存 + Watcher）
+### P5：大项目体验优化（REPL + 缓存 + Watcher + Compact）
 
 > 问题：小项目全量 JSON 输出可用，大项目（10k+ 文件）时 `audit-map`/`audit-overview` 的 edges 数组爆炸，`audit-diff` 输出数千行 JSON，且每次 CLI 调用都重建 dep-graph。
+>
+> **Compact 模式设计原则**：压缩不是截断，是**面向 AI 消费的策展（curation）**。
+> - **问题优先**：先给 severity + nextSteps，让 AI 知道要不要继续看
+> - **分层策展**：分 `critical` / `warn` / `info` 三级，AI 按层决策
+> - **数量即信号**："N 个 dependents" 比列出 N 个名字更有信息量，除非 N 很小
+> - **保留入口**：entry files 和 test files 永远显式命名，因为它们是动作入口
+> - **可下探**：compact 不删数据，细节移到"按需查询"路径（如 `impact --file`）
+>
+> **当前状态**：`audit-map --compact` ✅ / `audit-diff --compact` ✅ / `watch --compact` ✅ 全部完成。REPL `issues` / `top` 命令待实现。
 >
 > 基础设施现状：`file-index.js` 已有 `fs.watch` + `pendingUpdates` debounce 骨架（`startWatching()`/`processPending()`），但只更新 fileMetadata，未接到 dep-graph；`cache.js` ~~只存了 `{mtime, size, hash}`~~ 已扩展 `parseResults` Map（v0.9.13）。
 
@@ -128,7 +139,22 @@ P0T1–P0T5 全部交付。
 #### Step 3：激活 Watcher（✅ 已完成 v0.9.13）
 
 - **改动**：`file-index.js` `processPending()` 末尾新增 `onPendingProcessed` 批量回调；`container.js` 注册 `fileIndex.onPendingProcessed → depGraph.updateFiles`；`dep-graph.js` 新增 `updateFiles()` 增量更新方法。
-- **实测**：新增 1 个文件后 `audit-summary`，`[DepGraph] Built in 10ms: 83 files (99% cached)`。
+- **实测**：新增 1 个文件后 `audit-summary`，`[DepGraph] Built in 10ms: 83 文件 (99% cached)`。
+
+---
+
+## P6：语言扩展（全栈支持）
+
+> 个人全栈开发场景驱动：C/C++ 后端/嵌入式 + Vue/Svelte 前端需要纳入依赖图。
+
+| 语言 | 策略 | 状态 |
+|------|------|------|
+| **C / C++** | regex 提取 `#include` + 函数/宏导出识别 | ⏳ 已规划，见 SESSION.md 新会话指令 B |
+| **Vue SFC** | 提取 `<script>` / `<script setup>` 复用 JS/TS parser | ⏳ 已规划，见 SESSION.md 新会话指令 B |
+| **Svelte** | 提取 `<script>` 块，regex 级解析 | ⏳ 已规划，见 SESSION.md 新会话指令 B |
+| **HTML / CSS** | 不纳入（无 import 语义）| ❌ 跳过 |
+
+> 策略：新增语言走 `polyglot.js` regex 模式，不引入 AST 编译器。**~~解析器注册表在超 10 种语言时统一重构~~ → 已提前重构（见 SESSION.md 新会话指令 B），当前 6→9 种途中完成，新增语言只需注册表加一行。**
 
 ---
 
@@ -156,8 +182,7 @@ P0T1–P0T5 全部交付。
 4. symbol-level impact 可用
 5. 大仓库性能可接受（<30s 索引，首次全量 <5min）
 6. **可选外部工具后端**（Semgrep adapter 可插拔）
-
----
+7. **全栈语言覆盖**（JS/TS/Python/Java/Kotlin/Go/Rust/C/C++/Vue/Svelte）
 
 ---
 
@@ -170,4 +195,4 @@ P0T1–P0T5 全部交付。
 
 ---
 
-*Last updated: 2026-05-02（v0.9.14 耦合假阳性收敛 + entry 排除 + CLI 错误处理加固 + REPL 健壮性修复）*
+*Last updated: 2026-05-04（语言扩展更新：新增 P6 全栈支持章节，C/C++ 与 Vue/Svelte 纳入路线图）*

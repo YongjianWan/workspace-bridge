@@ -1,9 +1,9 @@
 const { buildCompositeRisk } = require('./composite-risk');
 const { buildRepoSummary } = require('./repo-summary');
 const { buildFileSummary } = require('./file-summary');
-const { buildAuditDiffSummary, classifyChangeType, getValidationTemplate } = require('./audit-diff-summary');
+const { buildAuditDiffSummary, classifyChangeType, getValidationTemplate, compactChangedFile } = require('./audit-diff-summary');
 const { buildValidationAdvice } = require('./validation-advice');
-const { buildProjectMap, buildDirectoryTree, toRelativePath } = require('./project-map');
+const { buildProjectMap, buildDirectoryTree, toRelativePath, countTreeFiles } = require('./project-map');
 const { buildImpactExplanations } = require('./impact-explanations');
 
 module.exports = {
@@ -13,9 +13,11 @@ module.exports = {
   buildAuditDiffSummary,
   classifyChangeType,
   getValidationTemplate,
+  compactChangedFile,
   buildValidationAdvice,
   buildProjectMap,
   buildDirectoryTree,
   toRelativePath,
+  countTreeFiles,
   buildImpactExplanations,
 };

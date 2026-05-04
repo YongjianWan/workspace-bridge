@@ -280,6 +280,7 @@ function resolveRustImport(fromFile, importPath, root) {
 }
 
 function resolveImport(fromFile, importPath, ext, root) {
+  if (!importPath) return null;
   if (ext === '.py') {
     return resolvePythonImport(fromFile, importPath, root);
   }

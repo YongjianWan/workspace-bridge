@@ -35,7 +35,8 @@ class WorkspaceCache {
 
   normalizeFileMapEntries(entries) {
     const normalized = new Map();
-    for (const [filePath, metadata] of entries || []) {
+    const iterable = Array.isArray(entries) ? entries : [];
+    for (const [filePath, metadata] of iterable) {
       const key = this.normalizeFilePath(filePath);
       if (!key) continue;
       const existing = normalized.get(key);
@@ -56,7 +57,8 @@ class WorkspaceCache {
 
   normalizeDiagnosticsEntries(entries) {
     const normalized = new Map();
-    for (const [filePath, diagnostics] of entries || []) {
+    const iterable = Array.isArray(entries) ? entries : [];
+    for (const [filePath, diagnostics] of iterable) {
       const key = this.normalizeFilePath(filePath);
       if (!key) continue;
       normalized.set(key, diagnostics);
@@ -82,7 +84,8 @@ class WorkspaceCache {
 
   normalizeParseResultEntries(entries) {
     const normalized = new Map();
-    for (const [filePath, result] of entries || []) {
+    const iterable = Array.isArray(entries) ? entries : [];
+    for (const [filePath, result] of iterable) {
       const key = this.normalizeFilePath(filePath);
       if (!key) continue;
       normalized.set(key, result);
@@ -131,7 +134,8 @@ class WorkspaceCache {
   /**
    * Save to disk
    */
-  save() {
+  async save() {
+    const { writeFile, rename, unlink } = require('fs').promises;
     let tempPath = null;
     try {
       const data = {
@@ -146,14 +150,14 @@ class WorkspaceCache {
       };
 
       tempPath = `${this.cachePath}.tmp-${process.pid}-${Date.now()}`;
-      fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf8');
-      fs.renameSync(tempPath, this.cachePath);
+      await writeFile(tempPath, JSON.stringify(data), 'utf8');
+      await rename(tempPath, this.cachePath);
       this.lastSaved = Date.now();
       return true;
     } catch (err) {
-      if (tempPath && fs.existsSync(tempPath)) {
+      if (tempPath) {
         try {
-          fs.unlinkSync(tempPath);
+          await unlink(tempPath);
         } catch (_) {
           // Best effort cleanup.
         }

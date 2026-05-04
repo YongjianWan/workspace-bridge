@@ -23,6 +23,8 @@ const {
   buildValidationAdvice,
   buildProjectMap,
   buildImpactExplanations,
+  countTreeFiles,
+  compactChangedFile,
 } = require('./src/cli/formatters');
 const { buildProjectOverview } = require('./src/tools/overview-tools');
 const { parseArgs } = require('./src/utils/parse-args');
@@ -98,6 +100,8 @@ Options:
   --json                  Print machine-readable JSON
   --quiet                 Suppress stderr logs during CLI execution
   --compact              Emit condensed tree and directory-level edges
+  --config <name>        Semgrep config (default: auto)
+  --language <lang>      Filter security scan to one language
   --help                  Show help
 `);
 }
@@ -164,22 +168,6 @@ function requireFile(parsed, command) {
   if (!parsed.file) {
     throw new Error(`${command} requires --file <path>`);
   }
-}
-
-function countTreeFiles(tree) {
-  if (!Array.isArray(tree)) return 0;
-  let count = 0;
-  for (const node of tree) {
-    if (node.type === 'file') {
-      count += 1;
-    } else if (node.type === 'directory' && Array.isArray(node.children)) {
-      // Skeleton mode already rolls up recursive counts.
-      count += typeof node.totalFileCount === 'number'
-        ? node.totalFileCount
-        : countTreeFiles(node.children);
-    }
-  }
-  return count;
 }
 
 function formatHuman(command, result) {
@@ -524,16 +512,20 @@ async function runCommand(parsed, container) {
         };
       });
 
+      const finalEntries = parsed.compact
+        ? safeEntries.map((entry) => compactChangedFile(entry))
+        : safeEntries;
+
       return {
         ok: true,
         workspaceRoot: container.workspaceRoot,
         scope: container.depGraph.getScopeSummary(),
-        summary: buildAuditDiffSummary(safeEntries),
-        validationAdvice: buildValidationAdvice(safeEntries, container.workspaceRoot),
+        summary: buildAuditDiffSummary(finalEntries),
+        validationAdvice: buildValidationAdvice(finalEntries, container.workspaceRoot),
         options: {
           reuseHints: parsed.reuseHints,
         },
-        changedFiles: safeEntries,
+        changedFiles: finalEntries,
       };
     }
     case 'audit-overview':
@@ -571,6 +563,16 @@ async function runCommand(parsed, container) {
         file: parsed.file,
         maxDepth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined,
       }, container);
+    case 'repl': {
+      const { startRepl } = require('./src/cli/repl');
+      await startRepl({ cwd: parsed.cwd, exclude: parsed.exclude, quiet: parsed.quiet });
+      return { ok: true, __managedLifecycle: true };
+    }
+    case 'watch': {
+      const { startWatch } = require('./src/cli/watch');
+      await startWatch({ cwd: parsed.cwd, exclude: parsed.exclude, compact: parsed.compact });
+      return { ok: true, __managedLifecycle: true };
+    }
     default:
       throw new Error(`Unknown command: ${parsed.command}`);
   }
@@ -591,15 +593,9 @@ async function main() {
     return;
   }
 
-  if (parsed.command === 'repl') {
-    const { startRepl } = require('./src/cli/repl');
-    await startRepl({ cwd: parsed.cwd, exclude: parsed.exclude, quiet: parsed.quiet });
-    return;
-  }
-
-  if (parsed.command === 'watch') {
-    const { startWatch } = require('./src/cli/watch');
-    await startWatch({ cwd: parsed.cwd, exclude: parsed.exclude });
+  const SELF_MANAGED_COMMANDS = new Set(['repl', 'watch']);
+  if (SELF_MANAGED_COMMANDS.has(parsed.command)) {
+    await runCommand(parsed, null);
     return;
   }
 
@@ -620,6 +616,9 @@ async function main() {
     }
 
     const result = await runCommand(parsed, container);
+    if (result && typeof result === 'object' && result.ok !== false && container) {
+      result.staleness = container.getStaleness();
+    }
     if (parsed.json) {
       console.log(JSON.stringify(result, null, 2));
     } else {

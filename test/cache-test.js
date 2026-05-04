@@ -40,10 +40,8 @@ async function testAtomicSaveCleanupOnRenameFailure() {
   cache.setWorkspaceInfo({ kind: 'test' });
   cache.setFileMetadata(path.join(root, 'x.js'), { mtime: 1, size: 1 });
 
-  const originalRenameSync = fs.renameSync;
-  fs.renameSync = () => {
-    throw new Error('forced rename failure');
-  };
+  const originalPromisesRename = fs.promises.rename;
+  fs.promises.rename = () => Promise.reject(new Error('forced rename failure'));
 
   try {
     const ok = await cache.save();
@@ -51,7 +49,7 @@ async function testAtomicSaveCleanupOnRenameFailure() {
     const leftovers = fs.readdirSync(root).filter((name) => name.includes('.workspace-bridge-cache.json.tmp-'));
     assert.strictEqual(leftovers.length, 0, 'temporary cache files should be cleaned up');
   } finally {
-    fs.renameSync = originalRenameSync;
+    fs.promises.rename = originalPromisesRename;
     fs.rmSync(root, { recursive: true, force: true });
   }
 }

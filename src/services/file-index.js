@@ -7,7 +7,10 @@ const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
 const { detectWorkspace, normalizePathKey, matchesPathFragment, toRelativePosix } = require('../utils/path');
+const { loadWorkspaceConfig } = require('../utils/project-context');
+const { extractSymbols } = require('./file-index/symbol-extractors');
 const { DEFAULTS } = require('../config/constants');
+const { CACHE_FILENAME } = require('./cache');
 
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
@@ -15,7 +18,7 @@ const readFile = promisify(fs.readFile);
 
 // Limit concurrent file operations to prevent memory exhaustion
 const DEFAULT_CONCURRENCY = 50;
-const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', 'gitnexus-extract', 'test-temp', 'wb-analysis-fixture'];
+const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', 'gitnexus-extract'];
 
 class FileIndex {
   constructor(workspaceRoot, cache, options = {}) {
@@ -82,7 +85,7 @@ class FileIndex {
     if (this.workspace.hasRust) {
       patterns.push('**/*.rs');
     }
-    return patterns.length > 0 ? patterns : ['**/*.js', '**/*.py', '**/*.java'];
+    return patterns.length > 0 ? patterns : ['**/*.js', '**/*.py', '**/*.java', '**/*.kt'];
   }
 
   /**
@@ -196,12 +199,13 @@ class FileIndex {
       }
     }
 
-    await this.indexFile(file);
-    this.indexedCount++;
+    // indexFile defends against TOCTOU (file deleted between stat and read);
+    // only count successful indexing.
+    const ok = await this.indexFile(file);
+    if (ok) this.indexedCount++;
   }
 
   _applyWorkspaceExcludeDirs() {
-    const { loadWorkspaceConfig } = require('../utils/project-context');
     const wsConfig = loadWorkspaceConfig(this.root);
     if (!wsConfig?.directories) return;
     const extra = [
@@ -214,16 +218,10 @@ class FileIndex {
 
   shouldExclude(filePath) {
     const base = path.basename(filePath);
-    if (base === '.workspace-bridge-cache.json') return true;
+    if (base === CACHE_FILENAME) return true;
 
     const normalized = normalizePathKey(filePath);
-    if (this.excludeDirs.some((dir) => {
-      if (dir === 'node_modules') {
-        const relative = toRelativePosix(this.root, filePath);
-        return relative.includes('node_modules/') || relative === 'node_modules';
-      }
-      return matchesPathFragment(normalized, dir);
-    })) {
+    if (this.excludeDirs.some((dir) => matchesPathFragment(normalized, dir))) {
       return true;
     }
     if (this.projectContext && !this.projectContext.shouldIndexFile(filePath)) {
@@ -276,10 +274,10 @@ class FileIndex {
       const stats = await stat(filePath);
       const content = await readFile(filePath, 'utf8');
       const ext = path.extname(filePath);
-      
+
       // Extract symbols
-      const symbols = this.extractSymbols(content, ext);
-      
+      const symbols = extractSymbols(content, ext);
+
       // Update file metadata cache
       this.cache.setFileMetadata(filePath, {
         mtime: stats.mtimeMs,
@@ -302,93 +300,27 @@ class FileIndex {
         this.cache.setSymbols(symbol.name, filtered);
       }
 
+      return true;
     } catch (e) {
       if (process.env.DEBUG) {
         console.error(`[FileIndex] Failed to index ${filePath}:`, e.message);
       }
+      return false;
     }
   }
 
-  extractSymbols(content, ext) {
-    const symbols = [];
-    const lines = content.split('\n');
-    
-    if (ext === '.py') {
-      // Python: class/def/async def
-      lines.forEach((line, idx) => {
-        const classMatch = line.match(/^class\s+(\w+)/);
-        const funcMatch = line.match(/^(?:async\s+)?def\s+(\w+)/);
-        
-        if (classMatch) {
-          symbols.push({ name: classMatch[1], type: 'class', line: idx + 1, signature: line.trim() });
-        } else if (funcMatch) {
-          symbols.push({ name: funcMatch[1], type: 'function', line: idx + 1, signature: line.trim() });
-        }
-      });
-    } else if (['.js', '.ts', '.jsx', '.tsx'].includes(ext)) {
-      // JS/TS: class/function/const/let/var
-      lines.forEach((line, idx) => {
-        const classMatch = line.match(/(?:export\s+)?(?:default\s+)?class\s+(\w+)/);
-        const funcMatch = line.match(/(?:export\s+)?(?:async\s+)?function\s+(\w+)/);
-        const constMatch = line.match(/(?:export\s+)?const\s+(\w+)\s*=/);
-        
-        if (classMatch) {
-          symbols.push({ name: classMatch[1], type: 'class', line: idx + 1, signature: line.trim() });
-        } else if (funcMatch) {
-          symbols.push({ name: funcMatch[1], type: 'function', line: idx + 1, signature: line.trim() });
-        } else if (constMatch) {
-          symbols.push({ name: constMatch[1], type: 'constant', line: idx + 1, signature: line.trim() });
-        }
-      });
-    } else if (ext === '.java') {
-      lines.forEach((line, idx) => {
-        const typeMatch = line.match(/\b(?:public\s+)?(?:abstract\s+|final\s+)?(class|interface|enum|record)\s+(\w+)/);
-        if (typeMatch) {
-          symbols.push({ name: typeMatch[2], type: typeMatch[1], line: idx + 1, signature: line.trim() });
-        }
-        const methodMatch = line.match(/\bpublic\s+(?:static\s+)?(?:[\w<>,\[\]\s]+)\s+(\w+)\s*\(/);
-        if (methodMatch) {
-          symbols.push({ name: methodMatch[1], type: 'method', line: idx + 1, signature: line.trim() });
-        }
-      });
-    } else if (ext === '.kt') {
-      lines.forEach((line, idx) => {
-        const typeMatch = line.match(/\b(?:public\s+)?(?:abstract\s+|open\s+|data\s+)?(class|interface|object|enum)\s+(\w+)/);
-        if (typeMatch) {
-          symbols.push({ name: typeMatch[2], type: typeMatch[1], line: idx + 1, signature: line.trim() });
-        }
-        const funMatch = line.match(/\bfun\s+(\w+)\s*\(/);
-        if (funMatch) {
-          symbols.push({ name: funMatch[1], type: 'function', line: idx + 1, signature: line.trim() });
-        }
-      });
-    } else if (ext === '.go') {
-      lines.forEach((line, idx) => {
-        const typeMatch = line.match(/\btype\s+(\w+)/);
-        const funcMatch = line.match(/\bfunc\s+(?:\([^)]*\)\s+)?(\w+)\s*\(/);
-        if (typeMatch) {
-          symbols.push({ name: typeMatch[1], type: 'type', line: idx + 1, signature: line.trim() });
-        } else if (funcMatch) {
-          symbols.push({ name: funcMatch[1], type: 'function', line: idx + 1, signature: line.trim() });
-        }
-      });
-    } else if (ext === '.rs') {
-      lines.forEach((line, idx) => {
-        const fnMatch = line.match(/\bfn\s+(\w+)\s*\(/);
-        const structMatch = line.match(/\bstruct\s+(\w+)/);
-        if (fnMatch) {
-          symbols.push({ name: fnMatch[1], type: 'function', line: idx + 1, signature: line.trim() });
-        } else if (structMatch) {
-          symbols.push({ name: structMatch[1], type: 'struct', line: idx + 1, signature: line.trim() });
-        }
-      });
-    }
-
-    return symbols;
-  }
+  // extractSymbols removed — logic moved to ./file-index/symbol-extractors.js
+  // as a first-match registry, eliminating the 6-branch else-if chain.
 
   startWatching() {
-    const recursiveSupported = process.platform === 'win32' || process.platform === 'darwin';
+    let recursiveSupported = false;
+    try {
+      const testWatcher = fs.watch(process.cwd(), { recursive: true }, () => {});
+      testWatcher.close();
+      recursiveSupported = true;
+    } catch {
+      // Node <20 on Linux does not support recursive watch
+    }
     if (!recursiveSupported) {
       console.error('[FileIndex] fs.watch recursive is not supported on this platform; watcher disabled');
       return;
@@ -396,8 +328,10 @@ class FileIndex {
 
     try {
       const watcher = fs.watch(this.root, { recursive: true }, (eventType, filename) => {
-        const fullPath = path.join(this.root, filename);
-        if (!filename || this.shouldExclude(fullPath)) return;
+        if (!filename) return;
+        const normalizedFilename = Buffer.isBuffer(filename) ? filename.toString() : filename;
+        const fullPath = path.join(this.root, normalizedFilename);
+        if (this.shouldExclude(fullPath)) return;
         this.pendingUpdates.add(fullPath);
         
         // Debounce updates
@@ -453,8 +387,8 @@ class FileIndex {
         await this.indexFile(filePath);
       }
     } catch (e) {
-      // File deleted
-      this.cache.deleteFileMetadata(filePath);
+      // File deleted — clean up all associated cache entries
+      this._removeCacheEntry(filePath);
     }
     
     // Phase 2: 触发外部回调（如诊断检查）
@@ -477,37 +411,6 @@ class FileIndex {
       watcher.close();
     }
     this.watchers = [];
-  }
-
-  // Query methods
-  findSymbol(name) {
-    return this.cache.getSymbols(name);
-  }
-
-  searchSymbols(query, maxResults = 20) {
-    const results = [];
-    const lowerQuery = query.toLowerCase();
-    
-    // Iterate through all cached symbols
-    for (const [name, locations] of this.cache.symbolIndex || []) {
-      if (name.toLowerCase().includes(lowerQuery)) {
-        results.push(...locations.map(l => ({ name, ...l })));
-        if (results.length >= maxResults) break;
-      }
-    }
-    
-    return results.slice(0, maxResults);
-  }
-
-  getFileSymbols(filePath) {
-    const meta = this.cache.getFileMetadata(filePath);
-    if (!meta) return [];
-    const fileKey = normalizePathKey(filePath);
-
-    return meta.symbols.map(name => ({
-      name,
-      locations: this.cache.getSymbols(name).filter((l) => normalizePathKey(l.file) === fileKey),
-    })).filter(s => s.locations.length > 0);
   }
 
   getStats() {

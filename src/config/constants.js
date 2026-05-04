@@ -55,8 +55,20 @@ const DEFAULTS = {
   CODE_CHANGE_RATIO_THRESHOLD: 0.2,
 };
 
+// Scoring weights for highlighted files in compact project map.
+// Higher = more severe, drives sorting and truncation decisions.
+const HIGHLIGHT_SCORES = {
+  unresolved: 100,
+  cycle: 80,
+  'dead-export': 60,
+  orphan: 40,
+  hotspot: 20,
+  entry: 0,
+};
+
 module.exports = {
   TIMEOUTS,
   LIMITS,
   DEFAULTS,
+  HIGHLIGHT_SCORES,
 };

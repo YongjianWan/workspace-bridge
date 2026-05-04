@@ -4,9 +4,11 @@
  * Dep-graph stays hot in memory — no full rebuild per query.
  */
 const readline = require('readline');
+const path = require('path');
 const { ServiceContainer } = require('../services/container');
 const { TIMEOUTS } = require('../config/constants');
-const { buildProjectMap } = require('./formatters/project-map');
+const { buildProjectMap, countTreeFiles } = require('./formatters/project-map');
+const { parseArgs } = require('../utils/parse-args');
 
 function formatImpact(result) {
   const lines = [`impactCount: ${result.length}`];
@@ -62,21 +64,6 @@ function formatDependencies(result) {
     lines.push(`  → ${d}`);
   }
   return lines.join('\n');
-}
-
-function countTreeFiles(tree) {
-  if (!Array.isArray(tree)) return 0;
-  let count = 0;
-  for (const node of tree) {
-    if (node.type === 'file') {
-      count += 1;
-    } else if (node.type === 'directory' && Array.isArray(node.children)) {
-      count += typeof node.totalFileCount === 'number'
-        ? node.totalFileCount
-        : countTreeFiles(node.children);
-    }
-  }
-  return count;
 }
 
 function countDirectories(tree) {
@@ -135,6 +122,8 @@ async function executeCommand(container, line) {
   impact <file> [--max-depth <n>]
   affected-tests <file> [--max-depth <n>]
   audit-map [--compact]
+  issues                  Summary of structural issues (dead-exports, unresolved, cycles)
+  top                     Top 5 hotspot files by dependent count
   dead-exports
   unresolved
   cycles
@@ -145,27 +134,23 @@ async function executeCommand(container, line) {
   exit / quit`;
 
     case 'impact': {
-      const file = args[0];
+      const parsed = parseArgs(['node', 'repl', ...args], {
+        '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
+      });
+      const file = parsed._[0];
       if (!file) return 'Usage: impact <file>';
-      let maxDepth = 3;
-      const depthIdx = args.indexOf('--max-depth');
-      if (depthIdx !== -1 && args[depthIdx + 1]) {
-        const parsed = Number.parseInt(args[depthIdx + 1], 10);
-        if (Number.isFinite(parsed) && parsed > 0) maxDepth = parsed;
-      }
+      const maxDepth = Number.isFinite(parsed.maxDepth) && parsed.maxDepth > 0 ? parsed.maxDepth : 3;
       const result = container.depGraph.getImpactRadius(file, maxDepth);
       return formatImpact(result);
     }
 
     case 'affected-tests': {
-      const file = args[0];
+      const parsed = parseArgs(['node', 'repl', ...args], {
+        '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
+      });
+      const file = parsed._[0];
       if (!file) return 'Usage: affected-tests <file>';
-      let maxDepth = 5;
-      const depthIdx = args.indexOf('--max-depth');
-      if (depthIdx !== -1 && args[depthIdx + 1]) {
-        const parsed = Number.parseInt(args[depthIdx + 1], 10);
-        if (Number.isFinite(parsed) && parsed > 0) maxDepth = parsed;
-      }
+      const maxDepth = Number.isFinite(parsed.maxDepth) && parsed.maxDepth > 0 ? parsed.maxDepth : 5;
       const result = container.depGraph.findAffectedTests(file, maxDepth);
       return formatAffectedTests(result);
     }
@@ -205,10 +190,77 @@ async function executeCommand(container, line) {
     }
 
     case 'audit-map': {
-      const compact = args.includes('--compact');
+      const parsed = parseArgs(['node', 'repl', ...args], { '--compact': true });
+      const compact = Boolean(parsed['--compact']);
       const result = buildProjectMap(container.depGraph, { compact });
       if (!result.ok) return `Error: ${result.error}`;
       return formatProjectMap(result, compact);
+    }
+
+    case 'issues': {
+      const deadExports = container.depGraph.findDeadExports?.() || [];
+      const unresolved = container.depGraph.findUnresolvedImports?.() || [];
+      const cycles = container.depGraph.findCircularDependencies?.() || [];
+
+      let severity = 'low';
+      if (unresolved.length > 0 || cycles.length > 0) severity = 'high';
+      else if (deadExports.length > 0) severity = 'medium';
+
+      const lines = [`severity: ${severity}`];
+      lines.push(`deadExports: ${deadExports.length}`);
+      lines.push(`unresolved: ${unresolved.length}`);
+      lines.push(`cycles: ${cycles.length}`);
+
+      if (deadExports.length > 0) {
+        const list = deadExports.slice(0, 3).map((d) => d.file).join(', ');
+        lines.push(`  → ${list}${deadExports.length > 3 ? ' + more' : ''}`);
+      }
+      if (unresolved.length > 0) {
+        const list = unresolved.slice(0, 3).map((u) => `${u.file}: ${u.import}`).join(', ');
+        lines.push(`  → ${list}${unresolved.length > 3 ? ' + more' : ''}`);
+      }
+      if (cycles.length > 0) {
+        const list = cycles.slice(0, 2).map((c) => c.join(' -> ')).join('; ');
+        lines.push(`  → ${list}${cycles.length > 2 ? ' + more' : ''}`);
+      }
+
+      const nextSteps = [];
+      if (unresolved.length > 0) nextSteps.push(`Inspect ${unresolved.length} unresolved import(s) first — likely broken code path`);
+      if (cycles.length > 0) nextSteps.push(`Break ${cycles.length} dependency cycle(s) before broad refactors`);
+      if (deadExports.length > 0) nextSteps.push(`Review ${deadExports.length} dead export(s) as deletion candidates (verify dynamic loading)`);
+      if (nextSteps.length === 0) nextSteps.push('No immediate structural issues detected.');
+
+      lines.push('nextSteps:');
+      for (const step of nextSteps.slice(0, 3)) {
+        lines.push(`  - ${step}`);
+      }
+
+      return lines.join('\n');
+    }
+
+    case 'top': {
+      const allFiles = Array.from(container.depGraph.graph?.keys() || []);
+      const hotspots = [];
+      for (const file of allFiles) {
+        const dependents = container.depGraph.getDependents?.(file) || [];
+        if (dependents.length >= 5) {
+          hotspots.push({ file, dependentCount: dependents.length });
+        }
+      }
+      hotspots.sort((a, b) => b.dependentCount - a.dependentCount);
+
+      if (hotspots.length === 0) {
+        return 'No hotspots detected (threshold: 5 dependents).';
+      }
+
+      const lines = [];
+      const root = container.depGraph.workspaceRoot || '';
+      for (let i = 0; i < Math.min(hotspots.length, 5); i++) {
+        const h = hotspots[i];
+        const rel = path.relative(root, h.file) || h.file;
+        lines.push(`hotspot-${i + 1}: ${rel} (${h.dependentCount} dependents)`);
+      }
+      return lines.join('\n');
     }
 
     default:
@@ -236,6 +288,11 @@ async function startRepl(options) {
       input: process.stdin,
       output: process.stdout,
       prompt: '> ',
+    });
+
+    rl.on('SIGINT', () => {
+      rl.close();
+      // for await...of loop naturally ends, enters finally
     });
 
     rl.prompt();

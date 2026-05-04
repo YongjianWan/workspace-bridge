@@ -215,6 +215,24 @@ try {
   assert(parsed.validationAdvice.summary.some((item) => item.kind === 'tests'));
   assert(parsed.validationAdvice.summary.some((item) => item.kind === 'review'));
 
+  // Compact mode: verify curation drops heavy fields and caps arrays
+  const compactResult = run('node', [cliPath, 'audit-diff', '--cwd', tempRoot, '--json', '--quiet', '--compact'], repoRoot);
+  const compactParsed = JSON.parse(compactResult);
+  assert.strictEqual(compactParsed.ok, true);
+  assert.strictEqual(compactParsed.changedFiles.length, 1);
+  const compactChanged = compactParsed.changedFiles[0];
+  assert.strictEqual(compactChanged.file.replace(/\\/g, '/'), 'src/util.js');
+  assert(compactChanged.impact.length <= 5, `compact should cap impact to <=5, got ${compactChanged.impact.length}`);
+  assert(compactChanged.affectedTests.length <= 5, `compact should cap affectedTests to <=5, got ${compactChanged.affectedTests.length}`);
+  assert.strictEqual(compactChanged.symbolImpact, undefined, 'compact should drop symbolImpact');
+  assert.strictEqual(compactChanged.changedLineRanges, undefined, 'compact should drop changedLineRanges');
+  assert.strictEqual(compactChanged.recentCommits, undefined, 'compact should drop recentCommits');
+  assert.strictEqual(compactChanged.resolvedPath, undefined, 'compact should drop resolvedPath');
+  assert.strictEqual(compactChanged.historyRisk.score, changed.historyRisk.score, 'compact should keep historyRisk.score');
+  assert.strictEqual(compactChanged.historyRisk.level, changed.historyRisk.level, 'compact should keep historyRisk.level');
+  assert.strictEqual(compactChanged.historyRisk.recentCommits, undefined, 'compact should drop historyRisk.recentCommits');
+  console.log('audit-diff compact: ok');
+
   console.log('audit-diff-test: ok');
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });

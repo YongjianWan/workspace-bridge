@@ -87,8 +87,7 @@ function findOrphanFiles(files, entryFiles, graph, root) {
     } else if (
       relativePath.startsWith('scripts/') || relativePath.includes('/scripts/') ||
       relativePath.startsWith('bin/') || relativePath.includes('/bin/') ||
-      relativePath.startsWith('benchmark/') || relativePath.includes('/benchmark/') ||
-      relativePath.startsWith('wb-analysis-fixture/') || relativePath.includes('/wb-analysis-fixture/')
+      relativePath.startsWith('benchmark/') || relativePath.includes('/benchmark/')
     ) {
       continue; // Scripts, benchmarks, and test fixtures are standalone entry points, not orphans
     } else if (ext === '.json' || ext === '.yaml' || ext === '.yml' || ext === '.toml') {
@@ -279,59 +278,19 @@ function buildCycleRefactorSuggestions(root, depGraph, projectContext) {
   return suggestions.slice(0, 10);
 }
 
+const COUPLING_ADVICE_RULES = [
+  { match: (r, inD) => r === 'entry', advice: ['entry 点天然需要聚合依赖，关注是否可提取子命令分发层', '避免在 entry 中直接包含业务实现，将具体逻辑下沉到独立服务'] },
+  { match: (r, inD, outD) => inD > 0 && outD === 0, advice: ['被大量模块依赖，修改影响面大，建议保持接口稳定，新增功能优先开新模块', '保持原子性，避免吸收不相关职责；若规模膨胀再按主题拆分'] },
+  { match: (r, inD, outD) => inD === 0 && outD > 0, advice: ['零被依赖但高 outward 耦合，检查是否有重复初始化逻辑可下沉为独立模块', '评估是否可通过依赖注入或工厂模式减少直接引用数量'] },
+  { match: (r) => r === 'script', advice: ['工具模块被多处引用，提取可复用核心逻辑到独立库，避免业务状态沉淀', '保持工具函数无副作用，按领域拆分为专用工具子模块'] },
+  { match: (r) => r === 'test', advice: ['测试文件耦合高通常正常，关注是否可提取公共测试 fixture 到独立 helper', '避免测试间相互 import，保持测试隔离性'] },
+  { match: (r) => r === 'config', advice: ['配置模块被多处引用时，考虑按环境或领域拆分为独立配置文件', '提取配置验证逻辑到独立模块，避免配置解析散落在各处'] },
+];
+
 function generateCouplingSplitPlan(role, coupling) {
-  const { inDegree, outDegree, total } = coupling;
-
-  // Entry point: high outward coupling is natural, focus on command dispatch
-  if (role === 'entry') {
-    return [
-      'entry 点天然需要聚合依赖，关注是否可提取子命令分发层',
-      '避免在 entry 中直接包含业务实现，将具体逻辑下沉到独立服务',
-    ];
-  }
-
-  // Pure utility (only depended upon, no dependencies)
-  if (inDegree > 0 && outDegree === 0) {
-    return [
-      '被大量模块依赖，修改影响面大，建议保持接口稳定，新增功能优先开新模块',
-      '保持原子性，避免吸收不相关职责；若规模膨胀再按主题拆分',
-    ];
-  }
-
-  // Pure consumer (only depends on others, no dependents)
-  if (inDegree === 0 && outDegree > 0) {
-    return [
-      '零被依赖但高 outward 耦合，检查是否有重复初始化逻辑可下沉为独立模块',
-      '评估是否可通过依赖注入或工厂模式减少直接引用数量',
-    ];
-  }
-
-  // Script / tool modules
-  if (role === 'script') {
-    return [
-      '工具模块被多处引用，提取可复用核心逻辑到独立库，避免业务状态沉淀',
-      '保持工具函数无副作用，按领域拆分为专用工具子模块',
-    ];
-  }
-
-  // Test files
-  if (role === 'test') {
-    return [
-      '测试文件耦合高通常正常，关注是否可提取公共测试 fixture 到独立 helper',
-      '避免测试间相互 import，保持测试隔离性',
-    ];
-  }
-
-  // Config files
-  if (role === 'config') {
-    return [
-      '配置模块被多处引用时，考虑按环境或领域拆分为独立配置文件',
-      '提取配置验证逻辑到独立模块，避免配置解析散落在各处',
-    ];
-  }
-
-  // Default: bidirectional coupling (both depended upon and depends on others)
-  return [
+  const { inDegree, outDegree } = coupling;
+  const rule = COUPLING_ADVICE_RULES.find((r) => r.match(role, inDegree, outDegree));
+  return rule ? rule.advice : [
     '同时被依赖和依赖他人，考虑提取接口层或 facade 打破直接引用链',
     '评估是否可拆分为 facade + 实现，或按读写/生命周期阶段分离职责',
   ];
@@ -422,10 +381,14 @@ function buildHotspotVisualizationData(root, hotspots, aggregates) {
   };
 }
 
-async function writeHotspotDataFile(filePath, payload) {
+async function ensureWriteTextFile(filePath, content) {
   const dir = path.dirname(filePath);
   await fs.promises.mkdir(dir, { recursive: true });
-  await fs.promises.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  await fs.promises.writeFile(filePath, content, 'utf8');
+}
+
+async function writeHotspotDataFile(filePath, payload) {
+  await ensureWriteTextFile(filePath, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
 function toDayKey(isoTimestamp) {
@@ -487,15 +450,17 @@ function buildStabilityTrendSeries(history, granularity) {
 
 async function readTrendHistory(filePath) {
   if (!fs.existsSync(filePath)) return [];
-  const content = await fs.promises.readFile(filePath, 'utf8');
-  const parsed = JSON.parse(content);
-  return Array.isArray(parsed?.history) ? parsed.history : [];
+  try {
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed?.history) ? parsed.history : [];
+  } catch {
+    return [];
+  }
 }
 
 async function writeStabilityTrendFile(filePath, payload) {
-  const dir = path.dirname(filePath);
-  await fs.promises.mkdir(dir, { recursive: true });
-  await fs.promises.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  await ensureWriteTextFile(filePath, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
 function escapeHtml(value) {
@@ -561,24 +526,23 @@ const couplingBody=document.getElementById('coupling');
 }
 
 async function writeOverviewDashboardFile(filePath, data) {
-  const dir = path.dirname(filePath);
-  await fs.promises.mkdir(dir, { recursive: true });
-  const html = renderOverviewDashboard(data);
-  await fs.promises.writeFile(filePath, html, 'utf8');
+  await ensureWriteTextFile(filePath, renderOverviewDashboard(data));
 }
+
+const EXT_TO_LANG = {
+  '.js': 'javascript', '.jsx': 'javascript', '.ts': 'javascript', '.tsx': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
+  '.py': 'python',
+  '.java': 'java',
+  '.kt': 'kotlin',
+  '.go': 'go',
+  '.rs': 'rust',
+};
 
 function buildLanguageSupportMatrix(depGraph) {
   const matrix = {};
   const stats = {};
   for (const [filePath, info] of depGraph.graph || []) {
-    const ext = path.extname(filePath).toLowerCase();
-    let lang = null;
-    if (['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'].includes(ext)) lang = 'javascript';
-    else if (ext === '.py') lang = 'python';
-    else if (ext === '.java') lang = 'java';
-    else if (ext === '.kt') lang = 'kotlin';
-    else if (ext === '.go') lang = 'go';
-    else if (ext === '.rs') lang = 'rust';
+    const lang = EXT_TO_LANG[path.extname(filePath).toLowerCase()];
     if (!lang) continue;
     if (!stats[lang]) stats[lang] = { total: 0, ast: 0 };
     stats[lang].total++;
