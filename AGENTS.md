@@ -121,14 +121,14 @@ workspace-bridge 的核心价值很直接：
 
 ## 项目骨架（自分析结果）
 
-> <!-- generated: 2026-05-03 — 数据由 `node cli.js audit-* --cwd .` 自分析得出，每次结构大幅变化后需重新运行并更新本段。-->
+> <!-- generated: 2026-05-04 — 数据由 `node cli.js audit-* --cwd .` 自分析得出，每次结构大幅变化后需重新运行并更新本段。-->
 >
 > 供开发者快速建立心理模型。
 
 **规模**
-- 88 文件，52 主代码 + 1 参考
-- 角色：entry=3, library=39, test=35, script=11
-- 入口：`cli.js`（CLI 入口）、`src/services/dep-graph/parsers/index.js`（parser 独立入口）
+- 98 文件，53 主代码 + 0 参考（archive 目录已被 file-index 排除）
+- 角色：entry=4, library=37, test=45, script=12
+- 入口：`cli.js`（CLI 入口）、`src/adapters/index.js`、`src/cli/formatters/index.js`、`src/services/dep-graph/parsers/index.js`（parser 独立入口）
 
 **架构分层（按依赖方向，从上到下）**
 
@@ -152,6 +152,8 @@ workspace-bridge 的核心价值很直接：
 | `src/utils/command.js` | 5 | — | — | 验证命令生成 |
 | `src/utils/stack-detector.js` | 5 | — | — | 技术栈检测 |
 | `src/services/dep-graph/parsers/shared.js` | 5 | — | — | parser 共享逻辑 |
+| `src/services/container.js` | 4 | — | — | ServiceContainer 生命周期管理 |
+| `src/adapters/semgrep.js` | 3 | — | — | Semgrep 安全扫描适配 |
 | `src/config/constants.js` | 4 | — | — | 全局常量 |
 
 **健康快照**
@@ -159,11 +161,13 @@ workspace-bridge 的核心价值很直接：
 - 循环依赖：0
 - 死导出：0
 - 孤儿文件：0
+- 热区文件：7（test/audit-diff-test.js、test/functionality-test.js、cli.js 等高频改动文件）
 
 **模块边界**
 - 0 循环依赖，模块边界干净
 - parser 子系统可独立使用（`parsers/index.js` 为第二入口）
-- 测试覆盖度极高（35 test vs 39 library），核心改动均有测试兜底
+- 测试覆盖度极高（45 test vs 37 library），核心改动均有测试兜底
+- archive/reference/generated 目录自动排除，混合仓库结果更干净
 
 ---
 
