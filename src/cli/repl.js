@@ -295,6 +295,12 @@ async function startRepl(options) {
       // for await...of loop naturally ends, enters finally
     });
 
+    // Defensive: fast double Ctrl+C may bypass rl's SIGINT handler
+    const sigintHandler = () => {
+      if (rl) rl.close();
+    };
+    process.on('SIGINT', sigintHandler);
+
     rl.prompt();
 
     for await (const line of rl) {
@@ -331,6 +337,7 @@ async function startRepl(options) {
     process.exitCode = 1;
   } finally {
     if (rl) rl.close();
+    process.removeListener('SIGINT', sigintHandler);
     await container.shutdown();
   }
 }

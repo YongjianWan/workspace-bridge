@@ -104,10 +104,6 @@ function safeRegexTest(pattern, line, maxMs = 100) {
   }
 }
 
-function escapeRegex(str) {
-  return str.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-}
-
 function matchGlob(filename, pattern) {
   const regex = new RegExp(
     `^${escapeRegex(pattern).replace(/\\\*/g, '.*').replace(/\\\?/g, '.')}$`,

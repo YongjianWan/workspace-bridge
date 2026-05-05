@@ -74,8 +74,22 @@ async function spawnPythonASTParser(scriptName, content, timeoutMs = TIMEOUTS.PY
       resolve(null);
     });
 
-    python.stdin.write(content, 'utf8');
-    python.stdin.end();
+    python.stdin.on('error', (err) => {
+      if (process.env.DEBUG) {
+        console.error(`[DepGraph] ${scriptName} stdin error: ${err.message}`);
+      }
+    });
+
+    try {
+      python.stdin.write(content, 'utf8');
+      python.stdin.end();
+    } catch (err) {
+      if (process.env.DEBUG) {
+        console.error(`[DepGraph] ${scriptName} stdin write failed: ${err.message}`);
+      }
+      try { python.kill('SIGTERM'); } catch (_) {}
+      resolve(null);
+    }
   });
 }
 

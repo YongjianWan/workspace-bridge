@@ -19,7 +19,7 @@ function toPosixPath(inputPath) {
 function normalizePathKey(inputPath) {
   const absolute = normalizePath(inputPath);
   const normalized = toPosixPath(path.normalize(absolute));
-  return IS_WINDOWS ? normalized.toLowerCase() : normalized;
+  return IS_WINDOWS ? normalized.toLocaleLowerCase('en-US') : normalized;
 }
 
 function toRelativePosix(rootPath, targetPath) {
@@ -49,7 +49,7 @@ function matchesPathFragment(targetPath, fragment) {
   const normalizedPath = normalizePathKey(targetPath);
   const normalizedFragment = toPosixPath(String(fragment || '')).replace(/^\.?\//, '').replace(/\/+$/, '');
   if (!normalizedFragment) return false;
-  const key = IS_WINDOWS ? normalizedFragment.toLowerCase() : normalizedFragment;
+  const key = IS_WINDOWS ? normalizedFragment.toLocaleLowerCase('en-US') : normalizedFragment;
   return normalizedPath.includes(`/${key}/`) || normalizedPath.endsWith(`/${key}`);
 }
 

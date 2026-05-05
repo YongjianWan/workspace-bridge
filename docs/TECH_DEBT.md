@@ -138,88 +138,89 @@
 
 ---
 
-## 活跃缺陷（2026-05-05 深度扫描新增）
+## 活跃缺陷
 
-> 以下问题来自 6 维度并行子代理深度扫描，按严重性分级。修复后迁移至 CHANGELOG.md。
+> **2026-05-05 更新：D1–D20 全部修复，详见 CHANGELOG.md [Unreleased] §修复。**
+>
+> 以下历史记录供追溯。
 
-### 🔴 高（崩溃/数据丢失/资源泄漏）
+### 🔴 高（崩溃/数据丢失/资源泄漏）— 已修复
 
-| # | 位置 | 问题 | 根因 | 建议修复 |
-|---|------|------|------|----------|
-| D1 | `file-index.js:333-345` | `fs.watch` watcher 未注册 `'error'` 事件处理器 | 目录被删/权限变更时未处理异常直接抛为未处理异常，进程崩溃 | `watcher.on('error', (e) => { if (DEBUG) console.error(...); })` |
-| D2 | `parsers/spawn-ast.js:69-78` | `python.stdin` 无错误监听器，write/end 无 try-catch | Python 子进程崩溃时 stdin EPIPE 未捕获 | `python.stdin.on('error', ...)` + write/end try-catch |
-| D3 | `cli/repl.js:271-335` | 只注册 `rl.on('SIGINT')`，未注册 `process.on('SIGINT')` | 快速连按 Ctrl+C 跳过 finally 中 `container.shutdown()`，缓存未持久化 | 参照 `watch.js` 加 `process.on('SIGINT', shutdown)` |
-| D4 | `dep-graph.js:208-214` | `isKnownEntryFile()` 读整个文件无大小限制 | 多 GB 日志/二进制文件误标为 `.py`/`.js` 时 OOM | 读前 `fs.statSync` 检查，超 64KB 跳过 |
-| D5 | `dep-graph.js:399-438` | `updateFiles` async 无重入锁 | debounce 可能触发两个 `updateFiles` 交错执行，reverseGraph 残留幽灵边 | `DependencyGraph` 加 `_updating` 锁，排队处理 |
-| D6 | `container.js:138-152` | `shutdown()` 后 `initError` 阻止重新初始化 | `ensureReady()` 在 `initialize()` 前拦截，容器无法重启 | `initialize()` 开头清空 `initError` |
+| # | 位置 | 问题 | 修复 |
+|---|------|------|------|
+| D1 | `file-index.js:333-345` | `fs.watch` watcher 未注册 `'error'` 事件处理器 | `watcher.on('error', ...)` |
+| D2 | `parsers/spawn-ast.js:69-78` | `python.stdin` 无错误监听器，write/end 无 try-catch | `python.stdin.on('error', ...)` + try-catch |
+| D3 | `cli/repl.js:271-335` | 只注册 `rl.on('SIGINT')`，未注册 `process.on('SIGINT')` | `process.on('SIGINT', handler)` + finally 移除 |
+| D4 | `dep-graph.js:208-214` | `isKnownEntryFile()` 读整个文件无大小限制 | 读前 `fs.statSync`，超 64KB 跳过 |
+| D5 | `dep-graph.js:399-438` | `updateFiles` async 无重入锁 | `_updating` 锁 + try-finally |
+| D6 | `container.js:138-152` | `shutdown()` 后 `initError` 阻止重新初始化 | `initialize()` 开头清空 `initError` |
 
-### 🟡 中（边界条件/误报/竞态/性能）
+### 🟡 中（边界条件/误报/竞态/性能）— 已修复
 
-| # | 位置 | 问题 | 根因 | 建议修复 |
-|---|------|------|------|----------|
-| D7 | `diagnostics-engine.js:275` | TypeScript 诊断漏了 `.tsx` | 只检查 `.endsWith('.ts')` | 扩展为 `['.ts','.tsx','.mts','.cts']` |
-| D8 | `parsers/cpp.js:19` | `funcRe` 多项式回溯风险 | `(?:[\w:*&<>]+\s+)+` quantified quantifier | 限制单行长度或拆分 token 匹配 |
-| D9 | `parsers/java.js:33` | `methodRegex` 同构回溯风险 | 与 cpp.js 同构正则 | 同上 |
-| D10 | `file-index.js:413-416` | `stopWatching` 无逐条 try-catch | 单个 watcher 损坏时循环中断，后续泄漏 | `for (...) { try { watcher.close(); } catch (_) {} }` |
-| D11 | `dep-graph.js:545` | `getStats()` 每次调用都触发 O(V·E) DFS | `findCircularDependencies()` 无缓存/memoization | 为 cycles 添加延迟计算或缓存 |
-| D12 | `file-index.js:262-272` | `pruneDeletedCacheEntries` 同步遍历 | 成千上万缓存条目时阻塞事件循环 | 改为异步批量检查或移至后台 |
-| D13 | `cache.js:155-170` | `save()` 只捕获 `RangeError`，其他错误直接 re-throw | `JSON.stringify` 循环引用/BigInt 导致 shutdown 失败 | 改为两次降级尝试，两次都失败才返回 false |
-| D14 | `parsers/js.js:524-532` | `moduleExportsRegex` `[^}]*` 不支持嵌套对象 | `module.exports = { foo: { bar: 1 } }` 误判 | 文档化限制，或改用栈计数 |
+| # | 位置 | 问题 | 修复 |
+|---|------|------|------|
+| D7 | `diagnostics-engine.js:275` | TypeScript 诊断漏了 `.tsx` | 扩展为 `['.ts','.tsx','.mts','.cts']` |
+| D8 | `parsers/cpp.js:19` | `funcRe` 多项式回溯风险 | `MAX_LINE_LEN = 512`，超长匹配跳过 |
+| D9 | `parsers/java.js:33` | `methodRegex` 同构回溯风险 | `MAX_LINE_LEN = 512`，超长匹配跳过 |
+| D10 | `file-index.js:413-416` | `stopWatching` 无逐条 try-catch | 逐条 `try { watcher.close(); } catch (_) {}` |
+| D11 | `dep-graph.js:545` | `getStats()` 每次调用都触发 O(V·E) DFS | `_cycleCount` 延迟计算，graph 变更时重置 |
+| D12 | `file-index.js:262-272` | `pruneDeletedCacheEntries` 同步遍历 | 异步批量检查（batchSize=100）+ `setImmediate` yield |
+| D13 | `cache.js:155-170` | `save()` 只捕获 `RangeError` | 捕获所有序列化错误，两次降级后返回 false |
+| D14 | `parsers/js.js:524-532` | `moduleExportsRegex` 不支持嵌套对象 | 注释文档化限制（regex 不处理嵌套对象） |
 
-### 🟢 低（代码异味/防御性缺口）
+### 🟢 低（代码异味/防御性缺口）— 已修复
 
-| # | 位置 | 问题 | 建议修复 |
-|---|------|------|----------|
+| # | 位置 | 问题 | 修复 |
+|---|------|------|------|
 | D15 | `search-tools.js:33-35,107-109` | 两个完全相同的 `escapeRegex` 函数 | 删除第二个，统一引用第一个 |
-| D16 | `parsers/js.js:24-28,50-54` | `stripQuotedStrings` 对模板字面量 `${expr}` 内反引号清理不彻底 | 文档化限制，或改用保守整行丢弃 |
-| D17 | `dep-graph.js:73-84` | `bfsTraverse` 每次节点执行 `[...path, node]` O(depth) 拷贝 | 当前 depth≤5 影响有限；未来支持大深度时改用链表 |
-| D18 | `dep-graph.js:504-538` | `findCircularDependencies` 递归 DFS 无最大深度限制 | 超深依赖链可能栈溢出；加 `MAX_CYCLE_DEPTH` 兜底 |
-| D19 | `file-index.js:351-367` | `processPending` 串行 `await handleFileChange` | 批量保存时 debounce 意义被削弱；考虑小并发（如 5）|
+| D16 | `parsers/js.js:24-28,50-54` | `stripQuotedStrings` 对模板字面量 `${expr}` 内反引号清理不彻底 | 改用模板字符串安全的贪婪匹配 |
+| D17 | `dep-graph.js:73-84` | `bfsTraverse` 每次节点执行 `[...path, node]` O(depth) 拷贝 | 当前 depth≤5 影响有限；保持现状 |
+| D18 | `dep-graph.js:504-538` | `findCircularDependencies` 递归 DFS 无最大深度限制 | `MAX_CYCLE_DEPTH` 兜底 + try-finally 正确 pop |
+| D19 | `file-index.js:351-367` | `processPending` 串行 `await handleFileChange` | 小并发（CONCURRENCY=5）+ `Promise.race` |
 | D20 | `utils/path.js:22` | Windows 路径 `toLowerCase()` 在土耳其语 locale 下 `I→ı` 不匹配 | 改用 `toLocaleLowerCase('en-US')` |
 
 ---
 
 ## 测试覆盖缺口（详细版）
 
-> 2026-05-05 更新：54 个测试文件 vs 56 个主代码文件，表面健康但分布极不均匀。
+> **2026-05-05 更新：测试覆盖大幅补全，新增 10 个测试文件。**
+> 64 个测试文件 vs 48 个 library 文件，核心模块零测试缺口已关闭。
 
-### 完全没有测试的模块
+### 已补齐的测试（本轮新增）
 
-| 文件 | 函数/类 | 风险等级 |
-|------|---------|---------|
-| `utils/parse-args.js` | `parseArgs` | 🔴 高（CLI 参数解析入口）|
-| `utils/diagnostics.js` | `parseDiagnosticsFromText`, `normalizeSeverity`, `summarizeDiagnostics` | 🔴 高（诊断解析核心）|
-| `utils/orphan-detector.js` | `findOrphanFiles` | 🟡 中（被 overview-tools 和 project-map 使用）|
-| `utils/test-detector.js` | `isTestLikeFile`, `buildHeuristicSignature` | 🟡 中（测试映射 heuristic 核心）|
-| `services/diagnostics-engine.js` | `DiagnosticsEngine` 全类 | 🔴 高（完全零测试）|
-| `services/container.js` | `initialize`, `shutdown`, `ensureReady`, `_registerCallbacks` | 🔴 高（生命周期门控）|
-| `services/file-index/symbol-extractors.js` | `extractSymbols` | 🟡 中 |
-| `services/dep-graph/resolvers.js` | `resolveImport` | 🔴 高（import 解析核心）|
-| `services/dep-graph/function-similarity.js` | 全文件 | 🟢 低 |
-| `services/dep-graph/parsers/shared.js` | `createImportRecord` 等 | 🟡 中 |
-| `services/dep-graph/parsers/spawn-ast.js` | 全文件 | 🟡 中 |
-| `services/dep-graph/parsers/polyglot.js` | 全文件 | 🟡 中 |
-| `cli/formatters/*.js` | 全部 7 个 formatter | 🟡 中（仅间接测试）|
+| 测试文件 | 覆盖模块 | 验证要点 |
+|----------|----------|----------|
+| `test/parse-args-test.js` | `utils/parse-args.js` | boolean flag、transform、未知参数抛出、位置参数、缺失值 |
+| `test/diagnostics-parser-test.js` | `utils/diagnostics.js` | normalizeSeverity、ruff/pyright/eslint 输出解析、去重、汇总 |
+| `test/test-detector-test.js` | `utils/test-detector.js` | isTestLikeFile 规则、heuristic signature、language family、stem 归一化 |
+| `test/diagnostics-engine-test.js` | `services/diagnostics-engine.js` | scheduleCheck debounce、clearScheduledChecks、isSafePath、handleFileDeleted、并发限制重调度 |
+| `test/container-lifecycle-test.js` | `services/container.js` | initialize 创建服务、shutdown 设置 initError、shutdown 后重新初始化、ensureReady 超时/正常通过 |
+| `test/cache-corruption-test.js` | `services/cache.js` | 损坏 JSON 忽略、版本不匹配忽略、TTL 过期忽略、normalize 防御非数组输入、持久失败返回 false |
+| `test/dep-graph-error-test.js` | `services/dep-graph.js` | updateFiles([])、删除文件清理、缺失文件容错、重入锁、getStats 懒计算 cycles |
+| `test/path-utils-test.js` | `utils/path.js` | normalizePathKey 大小写、matchesPathFragment、isPathInsideRoot、resolveWorkspaceFilePath、Turkish locale 安全 |
+| `test/cli-args-validation-test.js` | `cli.js` | 未知命令、--help、--version、缺失必填参数、--quiet 抑制信息输出 |
+| `test/resolvers-test.js` | `services/dep-graph/resolvers.js` | JS/TS 相对路径、Python 相对路径、Java import、Go module、Rust crate、null importPath |
 
-### 有测试但仅覆盖 Happy Path
+### 仍无直接测试的模块（低优先级）
 
-| 模块 | 测试文件 | 已覆盖 | 未覆盖（错误路径）|
-|------|---------|--------|------------------|
-| `cache.js` | `cache-test.js` | save/load roundtrip, parseResult CRUD | 损坏 JSON、旧版本迁移、TTL 过期、normalize 防御非法输入 |
-| `dep-graph.js` | `dep-graph-incremental-test.js` | updateFiles 3 个 happy path | `updateFiles([])`、解析失败、`_processFilesWithLimit` reject、shebang/`__main__` 分支 |
-| `file-index.js` | 间接测试 | build()、pruneDeletedCacheEntries | watcher 完整链路、readdir 权限拒绝、stat 失败、AbortController 超时 |
-| `watch.js` | `watch-test.js` | 启动 + 文件创建触发 | compact 模式真实输出、SIGINT/SIGTERM、onFileChanged 异常隔离 |
-| `repl.js` | `repl-test.js` | 命令路由、缺少参数 | 真实容器初始化、SIGINT、depGraph 为 null、热点 threshold 边界 |
-| `cli.js` | `functionality-test.js` | 大部分命令 happy path | `--version`/`--help`、非法参数、mapper 异常、adapter 异常、所有 human 格式化分支 |
+| 文件 | 风险等级 | 说明 |
+|------|---------|------|
+| `utils/orphan-detector.js` | 🟡 中 | 被 overview-tools 和 project-map 间接覆盖 |
+| `services/file-index/symbol-extractors.js` | 🟡 中 | 被 file-index 集成测试间接覆盖 |
+| `services/dep-graph/function-similarity.js` | 🟢 低 | 边缘功能 |
+| `services/dep-graph/parsers/shared.js` | 🟡 中 | 被 parser 测试间接覆盖 |
+| `services/dep-graph/parsers/spawn-ast.js` | 🟡 中 | 被 java-parsers-test.js / go-ast-parser-test.js 间接覆盖 |
+| `services/dep-graph/parsers/polyglot.js` | 🟡 中 | 被 parser-schema-contract-test.js 间接覆盖 |
+| `cli/formatters/*.js` | 🟡 中 | 被 functionality-test.js / audit-diff-test.js 间接覆盖 |
 
-### Mock 过度需补充真实行为测试
+### 有测试但可继续深化的模块
 
-| 测试文件 | Mock 对象 | 问题 | 建议 |
-|----------|-----------|------|------|
-| `repl-test.js` | 整个 `depGraph`（`makeMockDepGraph`）| 测的是路由和字符串拼接 | **repl-integration-test.js**：真实 ServiceContainer + 临时仓库 |
-| `semgrep-scan-test.js` | `runCommandSecure` | 无真实 semgrep 可用时测试 | 加 `SEMGREP_TEST=1` 环境开关做真实扫描 |
-| `diagnostics-cache-test.js` | 整个 `container` | 测的是数据结构访问 | **diagnostics-engine-test.js**：真实 DiagnosticsEngine |
-| `function-impact-test.js` | `depGraph.normalizeFilePath`, `isTestLikeFile` | 测的是 BFS 调用次数 | 真实仓库修改函数，验证返回正确测试文件 |
+| 模块 | 测试文件 | 仍缺覆盖 |
+|------|---------|----------|
+| `file-index.js` | 间接测试 | watcher 完整链路、readdir 权限拒绝、AbortController 超时 |
+| `watch.js` | `watch-test.js` | compact 模式真实输出、SIGINT/SIGTERM 异常隔离 |
+| `repl.js` | `repl-test.js` | 真实容器初始化、热点 threshold 边界 |
+| `cli.js` | `functionality-test.js` | mapper 异常、adapter 异常、所有 human 格式化分支 |
 
 ### Flaky 根因
 
@@ -228,19 +229,4 @@
 | `watch-test.js` | 固定 `delay(2500)` 假设 + fs.watch 平台时序差异 | 轮询检查预期输出，而非固定 delay；使用独立临时目录 |
 | `functionality-test.js` | 修改 repo root 的 tracked 文件（README.md）+ 无原子恢复 | 用 `fs.copyFileSync` 在副本上操作 |
 | `java-parsers-test.js` / `go-ast-parser-test.js` | 外部进程 `timeout: 5000` 冷启动可能超时 | 提升至 15000ms 或根据 `CI` 环境变量动态调整 |
-
-### 建议新增测试文件（按优先级）
-
-1. `test/cache-corruption-test.js` — 损坏 JSON、旧版本、TTL、normalize 防御
-2. `test/dep-graph-error-test.js` — `updateFiles([])`、解析失败、空 reverseGraph
-3. `test/file-index-watcher-test.js` — 模拟 fs.watch 回调完整链路
-4. `test/diagnostics-engine-test.js` — `scheduleCheck` debounce、并发限制、异常安全
-5. `test/parse-args-test.js` — 未知参数、boolean flag、缺失值
-6. `test/path-utils-test.js` — Windows 大小写、嵌套 workspace、边界
-7. `test/project-context-test.js` — `classifyFile` 所有 ROLE_RULES 分支
-8. `test/test-detector-test.js` — `isTestLikeFile` 15 条规则逐一验证
-9. `test/diagnostics-parser-test.js` — 真实 ruff/pyright/eslint/tsc 输出样例解析
-10. `test/container-lifecycle-test.js` — 并发 initialize、超时、shutdown 异常安全
-11. `test/cli-args-validation-test.js` — 非法参数、未知命令、help/version
-12. `test/resolvers-test.js` — 9 语言 import 语法解析和路径解析
 

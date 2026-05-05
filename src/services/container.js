@@ -28,6 +28,9 @@ class ServiceContainer {
    * Initialize all services. Thread-safe with mutex-like behavior.
    */
   async initialize(cwd, timeoutMs = TIMEOUTS.INIT_TIMEOUT_MS, options = {}) {
+    // Allow re-initialization after shutdown by clearing the fatal error
+    this.initError = null;
+
     // Mutex: if already initializing, wait with timeout
     if (this.initializing) {
       const startTime = Date.now();

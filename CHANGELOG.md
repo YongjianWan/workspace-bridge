@@ -4,6 +4,47 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 修复（20 项活跃缺陷全量修复）
+
+**🔴 高危（崩溃/数据丢失/资源泄漏）**
+- `fs.watch` 未注册 `'error'` 事件 — `src/services/file-index.js` `startWatching()` 新增 `watcher.on('error', ...)`
+- `python.stdin` 无错误监听 — `src/services/dep-graph/parsers/spawn-ast.js` 新增 stdin error handler + write/end try-catch
+- REPL 快速连按 Ctrl+C 跳过 shutdown — `src/cli/repl.js` 新增 `process.on('SIGINT', handler)` + finally 移除
+- `isKnownEntryFile()` 读整个文件无大小限制 — `src/services/dep-graph.js` 读前 `fs.statSync`，超 64KB 跳过
+- `updateFiles` 无重入锁 — `src/services/dep-graph.js` `_updating` 锁 + try-finally
+- `shutdown()` 后 `initError` 阻止重新初始化 — `src/services/container.js` `initialize()` 开头清空 `initError`
+
+**🟡 中危（边界条件/误报/竞态/性能）**
+- TypeScript 诊断漏 `.tsx`/`.mts`/`.cts` — `src/services/diagnostics-engine.js` 扩展 TS_EXTS
+- `cpp.js`/`java.js` regex 多项式回溯 — `MAX_LINE_LEN = 512`，超长匹配跳过
+- `stopWatching` 无逐条 try-catch — `src/services/file-index.js` 逐条包围 `watcher.close()`
+- `getStats()` 每次触发 O(V·E) DFS — `src/services/dep-graph.js` `_cycleCount` 延迟计算
+- `pruneDeletedCacheEntries` 同步遍历阻塞事件循环 — 改为 async batchSize=100 + setImmediate yield
+- `cache.save()` 只捕获 `RangeError` — 捕获所有序列化错误，两次降级后返回 false
+- `moduleExportsRegex` 不支持嵌套对象 — `src/services/dep-graph/parsers/js.js` 注释文档化限制
+
+**🟢 低危（代码异味/防御性缺口）**
+- `search-tools.js` 两个重复 `escapeRegex` — 删除第二个
+- `stripQuotedStrings` 模板字面量清理不彻底 — 改用模板字符串安全贪婪匹配
+- `findCircularDependencies` 递归 DFS 无最大深度限制 — `MAX_CYCLE_DEPTH` 兜底 + try-finally 正确 pop
+- `processPending` 串行 `await` 削弱 debounce — 小并发 CONCURRENCY=5
+- Windows `toLowerCase()` Turkish `I→ı` — `src/utils/path.js` 改用 `toLocaleLowerCase('en-US')`
+
+### 测试（新增 10 个测试文件）
+
+- `test/parse-args-test.js` — CLI 参数解析入口
+- `test/diagnostics-parser-test.js` — 诊断解析核心
+- `test/test-detector-test.js` — 测试映射 heuristic
+- `test/diagnostics-engine-test.js` — 诊断引擎生命周期
+- `test/container-lifecycle-test.js` — ServiceContainer 初始化/关闭/重启
+- `test/cache-corruption-test.js` — 缓存损坏/过期/版本迁移防御
+- `test/dep-graph-error-test.js` — dep-graph 错误路径（空数组、删除、重入、懒计算）
+- `test/path-utils-test.js` — 路径工具边界与平台兼容
+- `test/cli-args-validation-test.js` — CLI 参数验证与帮助
+- `test/resolvers-test.js` — 9 语言 import 解析核心
+
 ## [1.0.4] - 2026-05-05
 
 > **Highlights**：全栈语言覆盖达成（9 种：JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte），`audit-map --compact` 大项目压缩模式可用（GitNexus 954 文件实测 97% 压缩），Go AST parser 基于 tree-sitter WASM 落地，L2 技术债全部清零。

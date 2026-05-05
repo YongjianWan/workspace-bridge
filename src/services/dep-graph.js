@@ -206,6 +206,10 @@ class DependencyGraph {
     }
 
     try {
+      const stats = fs.statSync(filePath);
+      // Guard against multi-GB log/binary files mis-identified as source
+      const MAX_ENTRY_FILE_SIZE = 64 * 1024;
+      if (stats.size > MAX_ENTRY_FILE_SIZE) return false;
       const content = fs.readFileSync(filePath, 'utf8');
       if (content.startsWith('#!')) return true;
       if (PYTHON_MAIN_PATTERN.test(content)) return true;
@@ -224,6 +228,7 @@ class DependencyGraph {
 
     // Reset graph to prevent ghost data from deleted/renamed files
     this.graph.clear();
+    this._cycleCount = undefined;
 
     // Get all files from cache
     const candidateFiles = Array.from(this.cache.fileMetadata.keys()).filter((file) => {
@@ -400,11 +405,18 @@ class DependencyGraph {
    * Does NOT rebuild the full reverse graph.
    */
   async updateFiles(filePaths) {
+    if (this._updating) {
+      // Reentrancy guard: debounce may trigger overlapping updates
+      return;
+    }
+    this._updating = true;
+
     const startTime = Date.now();
     let reParsed = 0;
     let skipped = 0;
 
-    for (const filePath of filePaths) {
+    try {
+      for (const filePath of filePaths) {
       const key = this.normalizeFilePath(filePath);
 
       // Handle deleted files FIRST — must not be masked by cache-hit fast path
@@ -431,6 +443,7 @@ class DependencyGraph {
       // Re-parse
       await this.analyzeFile(filePath);
       reParsed++;
+      this._cycleCount = undefined;
 
       const newInfo = this.graph.get(key);
       if (newInfo) {
@@ -440,6 +453,9 @@ class DependencyGraph {
 
     if (reParsed > 0 || skipped > 0) {
       console.error(`[DepGraph] Incremental update: ${reParsed} re-parsed, ${skipped} skipped in ${Date.now() - startTime}ms`);
+    }
+    } finally {
+      this._updating = false;
     }
   }
 
@@ -511,8 +527,13 @@ class DependencyGraph {
     const cycles = [];
     const visited = new Set();
     const stack = new Set();
+    const MAX_CYCLE_DEPTH = DEFAULTS.AFFECTED_TEST_DEPTH + 2; // conservative guard
 
     const visit = (file, pathStack) => {
+      if (pathStack.length > MAX_CYCLE_DEPTH) {
+        // Depth guard: prevent stack overflow on extremely deep dependency chains
+        return;
+      }
       if (stack.has(file)) {
         // Found cycle
         const cycleStart = pathStack.indexOf(file);
@@ -526,14 +547,17 @@ class DependencyGraph {
       stack.add(file);
       pathStack.push(file);
 
-      const deps = this.getDependencies(file);
-      for (const dep of deps) {
-        if (this.hasFile(dep)) {
-          visit(dep, [...pathStack]);
+      try {
+        const deps = this.getDependencies(file);
+        for (const dep of deps) {
+          if (this.hasFile(dep)) {
+            visit(dep, pathStack);
+          }
         }
+      } finally {
+        pathStack.pop();
+        stack.delete(file);
       }
-
-      stack.delete(file);
     };
 
     for (const file of this.graph.keys()) {
@@ -544,11 +568,15 @@ class DependencyGraph {
   }
 
   getStats() {
+    // Lazy-compute cycles to avoid O(V·E) DFS on every stats call
+    if (this._cycleCount === undefined) {
+      this._cycleCount = this.findCircularDependencies().length;
+    }
     return {
       files: this.graph.size,
       totalImports: Array.from(this.graph.values()).reduce((sum, i) => sum + i.imports.length, 0),
       totalExports: Array.from(this.graph.values()).reduce((sum, i) => sum + i.exports.length, 0),
-      cycles: this.findCircularDependencies().length,
+      cycles: this._cycleCount,
     };
   }
 

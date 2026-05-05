@@ -156,17 +156,14 @@ class WorkspaceCache {
       const data = buildData(true);
       serialized = JSON.stringify(data);
     } catch (err) {
-      if (err instanceof RangeError) {
-        console.error('[Cache] Full cache too large, dropping heavy fields and retrying...');
-        try {
-          const data = buildData(false);
-          serialized = JSON.stringify(data);
-        } catch (err2) {
-          console.error('[Cache] Cache save failed even with minimal data:', err2.message);
-          return false;
-        }
-      } else {
-        throw err;
+      // Defensive: catch both RangeError (too large) and TypeError (circular refs, BigInt, etc.)
+      console.error('[Cache] Full cache serialization failed:', err.message);
+      try {
+        const data = buildData(false);
+        serialized = JSON.stringify(data);
+      } catch (err2) {
+        console.error('[Cache] Cache save failed even with minimal data:', err2.message);
+        return false;
       }
     }
 

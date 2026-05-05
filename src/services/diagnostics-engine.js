@@ -272,7 +272,8 @@ class DiagnosticsEngine {
     }
 
     // Try tsc for TypeScript files
-    if (filePath.endsWith('.ts') && await this.hasChecker('tsc')) {
+    const TS_EXTS = ['.ts', '.tsx', '.mts', '.cts'];
+    if (TS_EXTS.some((ext) => filePath.endsWith(ext)) && await this.hasChecker('tsc')) {
       const result = await runNpx(
         'tsc',
         ['--noEmit', '--skipLibCheck', relativePath],

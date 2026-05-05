@@ -58,7 +58,7 @@ class FileIndex {
     }
 
     // Remove cache entries for files deleted since last build
-    this.pruneDeletedCacheEntries();
+    await this.pruneDeletedCacheEntries();
 
     // CLI mode does not need long-lived watchers.
     if (shouldWatch) {
@@ -259,7 +259,7 @@ class FileIndex {
     }
   }
 
-  pruneDeletedCacheEntries() {
+  async pruneDeletedCacheEntries() {
     let pruned = 0;
     // Defensive: scan both fileMetadata and parseResults to catch any
     // historical inconsistency where parseResults has a key not in fileMetadata.
@@ -267,10 +267,20 @@ class FileIndex {
       ...Array.from(this.cache.fileMetadata.keys()),
       ...Array.from(this.cache.parseResults.keys()),
     ]);
-    for (const filePath of allCachedFiles) {
-      if (fs.existsSync(filePath)) continue;
-      this._removeCacheEntry(filePath);
-      pruned += 1;
+    // Batch async checks to avoid blocking the event loop on huge caches
+    const batchSize = DEFAULTS.FILE_INDEX_PROGRESS_BATCH;
+    const files = Array.from(allCachedFiles);
+    for (let i = 0; i < files.length; i += batchSize) {
+      const batch = files.slice(i, i + batchSize);
+      for (const filePath of batch) {
+        if (fs.existsSync(filePath)) continue;
+        this._removeCacheEntry(filePath);
+        pruned += 1;
+      }
+      // Yield to event loop between batches
+      if (i + batchSize < files.length) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
     }
     if (pruned > 0 && process.env.DEBUG) {
       console.error(`[FileIndex] Pruned ${pruned} deleted files from cache`);
@@ -347,6 +357,12 @@ class FileIndex {
         if (this.updateTimer) clearTimeout(this.updateTimer);
         this.updateTimer = setTimeout(() => this.processPending(), DEFAULTS.WATCH_DEBOUNCE_MS);
       });
+
+      watcher.on('error', (e) => {
+        if (process.env.DEBUG) {
+          console.error('[FileIndex] Watcher error:', e.message);
+        }
+      });
       
       this.watchers.push(watcher);
     } catch (e) {
@@ -357,11 +373,20 @@ class FileIndex {
   async processPending() {
     const files = Array.from(this.pendingUpdates);
     this.pendingUpdates.clear();
-    
+
+    // Process with small concurrency to keep debounce meaningful while
+    // not serializing independent file operations.
+    const CONCURRENCY = 5;
+    const executing = new Set();
     for (const file of files) {
-      await this.handleFileChange(file);
+      const promise = this.handleFileChange(file).finally(() => executing.delete(promise));
+      executing.add(promise);
+      if (executing.size >= CONCURRENCY) {
+        await Promise.race(executing);
+      }
     }
-    
+    await Promise.all(executing);
+
     // Phase 3: 批量通知下游服务（如 dep-graph 增量更新）
     if (this.onPendingProcessed && files.length > 0) {
       try {
@@ -417,7 +442,11 @@ class FileIndex {
       this.updateTimer = null;
     }
     for (const watcher of this.watchers) {
-      watcher.close();
+      try {
+        watcher.close();
+      } catch (_) {
+        // Best effort: individual watcher failure should not block cleanup of others
+      }
     }
     this.watchers = [];
   }

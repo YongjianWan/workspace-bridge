@@ -50,6 +50,11 @@ function stripLineComment(line) {
 function stripQuotedStrings(line, quoteChar, replacement) {
   const pattern = QUOTE_PATTERNS[quoteChar];
   if (!pattern) return line;
+  // For template literals, use a conservative greedy match that skips
+  // escaped backticks and basic ${expr} interpolations.
+  if (quoteChar === '`') {
+    return line.replace(/`(?:[^`\\]|\\.|\$\{[^}]*\})*`/g, replacement);
+  }
   return line.replace(pattern, replacement);
 }
 
@@ -521,6 +526,8 @@ function extractExportsWithRegex(sanitized) {
   }
 
   // CJS: module.exports = { foo, bar: 1, baz: () => {} }
+  // LIMITATION: this regex cannot handle nested objects (e.g. { foo: { bar: 1 } }).
+  // Full nested-object parsing requires an AST; regex fallback is intentionally shallow.
   const moduleExportsRegex = /module\.exports\s*=\s*\{([^}]*)}/g;
   while ((match = moduleExportsRegex.exec(sanitized)) !== null) {
     const inner = match[1];
