@@ -6,6 +6,7 @@
  * can call it directly.
  */
 const fs = require('fs');
+const { version } = require('./package.json');
 const { ServiceContainer } = require('./src/services/container');
 const { workspaceInfo, runDiagnostics } = require('./src/tools/workspace-tools');
 const { projectHealth } = require('./src/tools/health-tools');
@@ -123,6 +124,8 @@ function parseCliArgs(argv) {
     '--json': true,
     '--quiet': true,
     '--compact': true,
+    '--version': true,
+    '-v': true,
     '--help': true,
     '-h': true,
   });
@@ -160,6 +163,7 @@ function parseCliArgs(argv) {
     json: Boolean(raw['--json']),
     quiet: Boolean(raw['--quiet']),
     compact: Boolean(raw['--compact']),
+    version: Boolean(raw['--version']) || Boolean(raw['-v']),
     help: Boolean(raw['--help']) || Boolean(raw['-h']),
   };
 }
@@ -587,6 +591,11 @@ async function main() {
     console.error(err.message);
     printUsage();
     process.exit(1);
+  }
+
+  if (parsed.version) {
+    console.log(`workspace-bridge ${version}`);
+    return;
   }
 
   if (parsed.help || !parsed.command) {

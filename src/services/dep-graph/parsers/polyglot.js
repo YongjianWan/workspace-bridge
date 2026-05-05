@@ -48,7 +48,7 @@ function parseKotlin(content) {
   };
 }
 
-function parseGo(content) {
+function parseGoRegex(content) {
   const imports = [];
   const importRecords = [];
   const exportRecords = [];
@@ -181,4 +181,4 @@ function parseRust(content) {
   };
 }
 
-module.exports = { parseKotlin, parseGo, parseRust };
+module.exports = { parseKotlin, parseGoRegex, parseRust };

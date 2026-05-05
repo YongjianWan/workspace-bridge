@@ -261,7 +261,13 @@ class FileIndex {
 
   pruneDeletedCacheEntries() {
     let pruned = 0;
-    for (const filePath of Array.from(this.cache.fileMetadata.keys())) {
+    // Defensive: scan both fileMetadata and parseResults to catch any
+    // historical inconsistency where parseResults has a key not in fileMetadata.
+    const allCachedFiles = new Set([
+      ...Array.from(this.cache.fileMetadata.keys()),
+      ...Array.from(this.cache.parseResults.keys()),
+    ]);
+    for (const filePath of allCachedFiles) {
       if (fs.existsSync(filePath)) continue;
       this._removeCacheEntry(filePath);
       pruned += 1;

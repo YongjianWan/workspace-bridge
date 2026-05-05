@@ -199,8 +199,11 @@ workspace-bridge-cli audit-diff --cwd <project> --json --quiet
 | Python   | ✅ Full AST      | ✅ Module-level | ✅ `__all__` aware | ✅ Graph + Heuristic | ✅ Full |
 | Java     | ✅ AST (javalang) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full (Maven/Gradle) |
 | Kotlin   | ⚠️ L2 Regex      | ⚠️ File-level   | ⚠️ File-level   | ⚠️ Heuristic only   | ⚠️ Gradle only |
-| Go       | ⚠️ L2 Regex      | ⚠️ File-level   | ⚠️ File-level   | ⚠️ Heuristic only   | ✅ Basic |
+| Go       | ✅ AST (tree-sitter) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Basic |
 | Rust     | ⚠️ L2 Regex      | ⚠️ File-level   | ⚠️ File-level   | ⚠️ Heuristic only   | ✅ Basic |
+| C/C++    | ⚠️ L2 Regex      | ⚠️ File-level   | ⚠️ File-level   | ⚠️ Heuristic only   | ✅ Basic |
+| Vue SFC  | ✅ Full AST (JS) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full |
+| Svelte   | ✅ Full AST (JS) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full |
 
 ### Known Limitations
 
@@ -257,7 +260,7 @@ test -d <project> && workspace-bridge-cli audit-summary --cwd <project> --json -
 
 ### Command runs but returns empty results
 
-Check if project has supported files (JS/TS/Python/Java/Kotlin/Go/Rust):
+Check if project has supported files (JS/TS, Python, Java, Kotlin, Go, Rust, C/C++, Vue, Svelte):
 ```bash
 workspace-bridge-cli workspace-info --cwd <project> --json --quiet
 ```

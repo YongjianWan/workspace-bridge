@@ -4,17 +4,9 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [1.0.0] - 2026-05-02
+## [1.0.4] - 2026-05-05
 
-### Breaking Changes
-
-- **`deps` 命令删除** `cli.js` — `deps` 是 `npm outdated --json` 的封装，与「跨文件结构化分析」核心定位无关，且 npm / pip / cargo 自带 `outdated` 功能。这是 1.0 唯一的 breaking change
-
-### 决策变更
-
-- **CLI 瘦身（23 → 8）取消** — 原计划删除 15 个命令，经产品视角重新评估后取消。主要用户是 AI agent，AI 调用原子命令比聚合命令更省 token（精确输出 vs 冗余超集），且 AI 不存在「命令太多选哪个」的认知 paralysis。保留完整命令集对 AI 用户是净收益
-
-## [Unreleased]
+> **Highlights**：全栈语言覆盖达成（9 种：JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte），`audit-map --compact` 大项目压缩模式可用（GitNexus 954 文件实测 97% 压缩），Go AST parser 基于 tree-sitter WASM 落地，L2 技术债全部清零。
 
 ### 新增
 
@@ -23,6 +15,7 @@
 - **Svelte parser** `src/services/dep-graph/parsers/svelte.js` `test/svelte-parser-test.js` — 提取 `<script>` 块，复用现有 `parseJavaScript`。支持 `context="module"` 等多 script 块
 - **file-index 语言覆盖扩展** `src/services/file-index.js` `src/utils/path.js` — `getFilePatterns()` 在 `hasPackageJson` 时加入 `**/*.vue` `**/*.svelte`；新增 `hasCpp` workspace 特征（`CMakeLists.txt` / `Makefile`），匹配时加入 C/C++ 扩展名；fallback 模式亦覆盖新扩展名
 - **parser 注册表 6 → 9 语言** `src/services/dep-graph.js` `src/services/dep-graph/parsers/index.js` — `PARSER_REGISTRY` 新增 `.vue` `.c/.cpp/.cc/.h/.hpp` `.svelte` 三行。达成 AGENTS.md 成功标准「全栈语言覆盖」
+- **Go AST parser** `src/services/dep-graph/parsers/go-ast.js` `test/go-ast-parser-test.js` — 基于 `web-tree-sitter` WASM + tree-sitter Query 实现 Go AST 解析，替代原有 regex parser。支持 import/function/method/type/const/var/generics，修复 regex parser `lineEnd = lineStart` 硬编码 bug。失败自动 fallback 到原有 regex。`parseMode: 'ast'`
 
 ### 新增
 
@@ -118,6 +111,16 @@
 ### 测试
 - `test/security-adapter-test.js` — 新增 CodeQL 多语言检测错误路径、auditSecurity 空 targets 默认 `['.']`
 - `test/rust-module-filter-test.js` — 新增 `inferRustModuleName` boundary 测试（`examples/`、`benches/`、`tests/`、`mod.rs`、pop-to-empty）
+
+## [1.0.0] - 2026-05-02
+
+### Breaking Changes
+
+- **`deps` 命令删除** `cli.js` — `deps` 是 `npm outdated --json` 的封装，与「跨文件结构化分析」核心定位无关，且 npm / pip / cargo 自带 `outdated` 功能。这是 1.0 唯一的 breaking change
+
+### 决策变更
+
+- **CLI 瘦身（23 → 8）取消** — 原计划删除 15 个命令，经产品视角重新评估后取消。主要用户是 AI agent，AI 调用原子命令比聚合命令更省 token（精确输出 vs 冗余超集），且 AI 不存在「命令太多选哪个」的认知 paralysis。保留完整命令集对 AI 用户是净收益
 
 ## [0.9.14] - 2026-05-02
 
@@ -368,6 +371,8 @@
 
 ---
 
+[1.0.4]: https://github.com/user/workspace-bridge/compare/v1.0.3...v1.0.4
+[1.0.3]: https://github.com/user/workspace-bridge/compare/v1.0.2...v1.0.3
 [0.8.0]: https://github.com/user/workspace-bridge/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/user/workspace-bridge/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/user/workspace-bridge/compare/v0.5.1...v0.6.0

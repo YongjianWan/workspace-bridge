@@ -2,11 +2,22 @@
 
 一个用于 AI 编程助手的工作区分析引擎，当前只保留本地 CLI + skill 工作流。
 
-给本地 AI coding agent 补跨文件视角和变更验证建议的 CLI 工具。支持 JS/TS/Python/Java/Kotlin/Go/Rust。
+给本地 AI coding agent 补跨文件视角和变更验证建议的 CLI 工具。支持 JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue SFC、Svelte。
 
 ## 快速开始
 
+### 全局安装（推荐）
+
 ```bash
+npm install -g workspace-bridge
+workspace-bridge-cli audit-summary --cwd . --json --quiet
+```
+
+### 本地使用
+
+```bash
+git clone <repo>
+cd workspace-bridge
 npm install
 node cli.js audit-summary --cwd . --json --quiet
 ```
@@ -24,6 +35,9 @@ node cli.js audit-summary --cwd .    # 整体健康度
 node cli.js audit-file --file <path> # 单文件影响
 node cli.js audit-diff --cwd .       # 当前 git 变更 + 验证建议
 node cli.js audit-overview --cwd .   # 项目全景（热区、孤儿文件）
+node cli.js audit-map --cwd .        # 全局项目地图（大项目加 --compact）
+node cli.js watch --cwd .            # 文件保存自动打印影响面
+node cli.js repl --cwd .             # REPL 交互查询模式
 ```
 
 完整命令列表、参数说明与 `.workspace-bridge.json` 配置见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)。
@@ -69,6 +83,8 @@ node cli.js audit-overview --cwd .   # 项目全景（热区、孤儿文件）
 ## 许可证
 
 MIT
+
+
 
 
 

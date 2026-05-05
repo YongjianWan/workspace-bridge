@@ -92,7 +92,7 @@ function getChangedFunctionImpact(depGraph, filePath, lineRanges, options = {}) 
   }
 
   const ext = path.extname(sourceFile).toLowerCase();
-  if (!['.js', '.jsx', '.ts', '.tsx'].includes(ext) || sourceInfo.parseMode !== 'ast') {
+  if (!['.js', '.jsx', '.ts', '.tsx', '.go'].includes(ext) || sourceInfo.parseMode !== 'ast') {
     return {
       mode: 'unavailable',
       reason: 'ast-unavailable-or-unsupported-language',

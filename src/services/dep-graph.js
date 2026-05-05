@@ -221,7 +221,10 @@ class DependencyGraph {
    */
   async build() {
     const startTime = Date.now();
-    
+
+    // Reset graph to prevent ghost data from deleted/renamed files
+    this.graph.clear();
+
     // Get all files from cache
     const candidateFiles = Array.from(this.cache.fileMetadata.keys()).filter((file) => {
       if (this.shouldExclude(file)) return false;
@@ -404,6 +407,16 @@ class DependencyGraph {
     for (const filePath of filePaths) {
       const key = this.normalizeFilePath(filePath);
 
+      // Handle deleted files FIRST — must not be masked by cache-hit fast path
+      if (!fs.existsSync(filePath)) {
+        this._removeOldReverseEdges(key);
+        this.graph.delete(key);
+        this.cache.deleteFileMetadata(filePath);
+        this.cache.deleteParseResult(filePath);
+        this.cache.clearDiagnostics(filePath);
+        continue;
+      }
+
       // Fast path: file unchanged (graph and cache agree on mtime)
       const oldInfo = this.graph.get(key);
       const meta = this.cache.getFileMetadata(filePath);
@@ -414,13 +427,6 @@ class DependencyGraph {
       }
 
       this._removeOldReverseEdges(key);
-
-      // Handle deleted files
-      if (!fs.existsSync(filePath)) {
-        this.graph.delete(key);
-        this.cache.deleteParseResult(filePath);
-        continue;
-      }
 
       // Re-parse
       await this.analyzeFile(filePath);

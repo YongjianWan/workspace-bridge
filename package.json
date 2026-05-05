@@ -1,6 +1,6 @@
 {
   "name": "workspace-bridge",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "CLI-first workspace analysis engine for local AI coding agents",
   "main": "cli.js",
   "scripts": {
@@ -37,7 +37,7 @@
     "indexing",
     "diagnostics"
   ],
-  "author": "",
+  "author": "sdses",
   "license": "MIT",
   "engines": {
     "node": ">=16.0.0"
@@ -54,9 +54,12 @@
     "scripts/python_ast_parser.py",
     "scripts/java_ast_parser.py",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "dependencies": {
-    "@babel/parser": "^7.29.2"
+    "@babel/parser": "^7.29.2",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "^0.25.3"
   }
 }
