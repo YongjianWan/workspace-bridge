@@ -95,6 +95,11 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 - `resolvers.js` 同步 I/O 缓存 — 模块级 `_statCache` LRU（上限 2000），`DependencyGraph.build()` 自动刷新
 - `cli.js` 超大 JSON 分块写入 — `writeLargeJson()` 64KB 分块 + `setImmediate` 让出；>1MB 时 stderr 提示 `--compact`
 
+**用户体验缺口** ✅
+- `impact` human-readable 输出展示 `via` 路径 — `formatHuman` impact case 新增 via 链
+- `Unknown command` 后提示 `--help`
+- `--quiet` 模式下初始化失败输出完整 `err.stack`
+
 ### 下一步方向（按价值排序）
 
 **GitNexus 高价值模式剩余**：

@@ -359,7 +359,12 @@ function formatHuman(command, result) {
     case 'impact':
       return [
         `impactCount: ${result.impactCount}`,
-        ...result.impact.map((entry) => `${entry.level}: ${entry.file}`),
+        ...result.impact.map((entry) => {
+          const viaStr = entry.via && entry.via.length > 1
+            ? ` via ${entry.via.slice(1).join(' -> ')}`
+            : '';
+          return `${entry.level}: ${entry.file}${viaStr}`;
+        }),
       ].join('\n');
     case 'affected-tests':
       return [
@@ -619,7 +624,7 @@ async function runCommand(parsed, container) {
       return { ok: true, __managedLifecycle: true };
     }
     default:
-      throw new Error(`Unknown command: ${parsed.command}`);
+      throw new Error(`Unknown command: ${parsed.command}. Run with --help for available commands.`);
   }
 }
 
@@ -690,7 +695,11 @@ async function main() {
       process.exitCode = 1;
     }
   } catch (err) {
-    originalConsoleError(err.message || String(err));
+    if (container && container.initError && err === container.initError && err.stack) {
+      originalConsoleError(err.stack);
+    } else {
+      originalConsoleError(err.message || String(err));
+    }
     process.exitCode = 1;
   } finally {
     await container.shutdown();
