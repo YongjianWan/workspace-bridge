@@ -7,13 +7,13 @@
 
 ## L1 Blocker（违反铁律，必须修）
 
-> **2026-05-05 更新：L1 Blocker 全部清零。** 历史记录见 [CHANGELOG.md](../CHANGELOG.md) [Unreleased] §修复。
+全部清零（2026-05-05）。见 [CHANGELOG.md](../CHANGELOG.md)。
 
 ---
 
 ## L2 债务（技术债务，计划修）
 
-> **2026-05-05 更新：L2 债务全部清零。** 历史记录见 [CHANGELOG.md](../CHANGELOG.md) [Unreleased] §重构。
+全部清零（2026-05-05）。见 [CHANGELOG.md](../CHANGELOG.md)。
 
 ---
 
@@ -64,36 +64,6 @@
 | Kotlin / Go / Rust (polyglot) | `test/parser-schema-contract-test.js` | ✅ |
 
 ---
-
-*注：本文档只记录当前活跃债务。已清零历史见 [CHANGELOG.md](../CHANGELOG.md) [Unreleased] §重构。*
-
----
-
-## 活跃缺陷
-
-> **2026-05-05 更新：D1–D20 全部修复。** 历史记录见 [CHANGELOG.md](../CHANGELOG.md) [Unreleased] §修复。
-
----
-
-## 测试覆盖缺口（详细版）
-
-> **2026-05-05 更新：测试覆盖大幅补全，新增 10 个测试文件。**
-> 66 个测试文件 vs 47 个 library 文件，核心模块零测试缺口已关闭。
-
-### 已补齐的测试（本轮新增）
-
-| 测试文件 | 覆盖模块 | 验证要点 |
-|----------|----------|----------|
-| `test/parse-args-test.js` | `utils/parse-args.js` | boolean flag、transform、未知参数抛出、位置参数、缺失值 |
-| `test/diagnostics-parser-test.js` | `utils/diagnostics.js` | normalizeSeverity、ruff/pyright/eslint 输出解析、去重、汇总 |
-| `test/test-detector-test.js` | `utils/test-detector.js` | isTestLikeFile 规则、heuristic signature、language family、stem 归一化 |
-| `test/diagnostics-engine-test.js` | `services/diagnostics-engine.js` | scheduleCheck debounce、clearScheduledChecks、isSafePath、handleFileDeleted、并发限制重调度 |
-| `test/container-lifecycle-test.js` | `services/container.js` | initialize 创建服务、shutdown 设置 initError、shutdown 后重新初始化、ensureReady 超时/正常通过 |
-| `test/cache-corruption-test.js` | `services/cache.js` | 损坏 JSON 忽略、版本不匹配忽略、TTL 过期忽略、normalize 防御非数组输入、持久失败返回 false |
-| `test/dep-graph-error-test.js` | `services/dep-graph.js` | updateFiles([])、删除文件清理、缺失文件容错、重入锁、getStats 懒计算 cycles |
-| `test/path-utils-test.js` | `utils/path.js` | normalizePathKey 大小写、matchesPathFragment、isPathInsideRoot、resolveWorkspaceFilePath、Turkish locale 安全 |
-| `test/cli-args-validation-test.js` | `cli.js` | 未知命令、--help、--version、缺失必填参数、--quiet 抑制信息输出 |
-| `test/resolvers-test.js` | `services/dep-graph/resolvers.js` | JS/TS 相对路径、Python 相对路径、Java import、Go module、Rust crate、null importPath |
 
 ### 仍无直接测试的模块（低优先级）
 

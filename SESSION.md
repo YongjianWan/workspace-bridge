@@ -28,7 +28,7 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 ## 基线状态
 
 - 测试：**70/70 PASS**
-- 版本：**v1.0.8**
+- 版本：**v1.1.0**（以 `package.json` 为准）
 - 分支：`main`，已 push origin
 - 自身项目规模：139 文件，entry=4, library=52, test=71, script=12
 - 健康度：5/5，0 死导出，0 循环，0 未解析

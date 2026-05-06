@@ -20,37 +20,6 @@
 
 ---
 
-## Phase 0-1：基础止血（已完成）
-
-P0T1–P0T5 全部交付。详见 [CHANGELOG.md](./CHANGELOG.md) 0.8.2–0.9.0。
-
----
-
-## 收敛里程碑：从 0.8.0 到 0.8.2+
-
-> 以下内容来自历史计划文档，已融入主文档。
-
-### Phase 0：基础止血（已完成）
-P0T1–P0T5 全部交付。
-
-### W1：可信度与命令正确性（已完成）
-| 任务 | 状态 |
-|------|------|
-| W1T1 Java dead-export 保守策略 | ✅ |
-| W1T2 Gradle Checkstyle 命令 | ✅ |
-| W1T3 回归测试补全 | ⚠️ 部分 |
-| W1T4 文档诚实化 | ✅ |
-
-### W2：自审可用性与工程收口（已完成）
-| 任务 | 状态 |
-|------|------|
-| W2T1 官方自审脚本 | ✅ |
-| W2T2 命令建议质量收口 | ✅ |
-| W2T3 JSON 消费链路稳定 | ✅ |
-| W2T4 发布前总回归 | ✅ |
-
----
-
 ## 从 0.8 到 1.0 的关键判断
 
 > 骨架很好，但还在"证明我能造轮子"的阶段。变成产品需要"承认自己不是全能"的觉悟。
@@ -66,61 +35,16 @@ P0T1–P0T5 全部交付。
 - **Java AST**：`javalang` 保持；子进程模式已验证稳定
 - **Go/Rust/Kotlin/C/C++ AST**：`web-tree-sitter` WASM 统一方案（见 P4-AST）
 
-### 多语言扩展 ADR（已完成）
-
-以下决策来自历史计划文档，已落地：
-
-| 决策 | 内容 | 理由 |
-|------|------|------|
-| ADR-1：Java AST 解析器 | 选 `javalang`（Python），不用 tree-sitter | 与现有 Python AST 子进程模式一致；不污染 package.json |
-| ADR-2：Kotlin/Go/Rust/C/C++ | ~~只做 regex 级（L2），不做 AST~~ → **转向 tree-sitter WASM AST** | 用户授权引入依赖；`web-tree-sitter@0.25.3` + `tree-sitter-wasms@0.1.13` 已验证 Windows 可用；统一架构优于子进程碎片化 |
-| ADR-3：语言插件注册表 | 本次不做，保留硬编码链 | 当前 6 种语言维护成本可接受；注册表重构 >3 天，与收敛目标冲突 |
-
 ---
 
 ## 未竟事项（按价值排序）
 
-### P1：提升分析可信度
-- [x] Java/Go/Rust 语言级使用点解析
-- [x] Go/Rust 包级解析器
-- [x] Java 方法级 dead-export 误报消除
+### P4：技术债与架构决策
 
-### P1.5：全局项目地图（audit-map）— ✅ 完成
-- [x] `audit-map` 命令（tree + edges + issueOverlay）
-
-### P2：提升命令可执行性
-- [x] Rust workspace 子 crate 支持（`cargo test -p`）
-- [x] mixed repo 命令精度提升（`classifyChangeType` 单一数据源 + `codeTargets` 过滤）
-- [x] CLI 命令完整性补全（`stats` / `dependents` / `dependencies`）
-- [x] **CLI 瘦身（1.0）** — 已完成：仅删除 `deps` 命令，保留其余命令
-- [x] Gradle 任务发现
-- [x] Go module path 聚合（嵌套 `go.mod`）
-- [x] Rust 模块级测试过滤
-
-### P3：提升输出可解释性
-- [x] CJS 符号解析补全
-- [x] 内部函数改动→测试映射
-- [x] 影响路径解释字段（`via` / `importedSymbols` / `reason`）
-- [x] 变更影响解释链（`impactExplanations`）
-- [x] 耦合拆分建议去模板化
-- [x] 统一能力矩阵输出（`languageSupport`）
-
-### P4：技术债
 - [x] 超标文件拆分（`parsers/` 目录、`formatters/` 目录）
-- [x] 大仓库性能专项优化（>10k 文件）— 详见 P5，Step 2 + Step 3 已完成
-- [x] 插件化解析器注册表 — **决策更新：提前重构**（原定为"超 10 种时"，现 6→9 种途中即做，降低风险）
-- [ ] **P4-AST：全栈 AST 覆盖** — 当前 8/9 语言为 AST（JS/TS、Python、Java、Go、Vue[复用JS AST]、Svelte[复用JS AST]、Rust、Kotlin），1 语言为 regex（C/C++）
-  - [x] Go AST（`tree-sitter-go`）— ✅ v1.0.4 已完成（`go-ast.js` + `tree-sitter.js` 基础设施已验证）
-  - [x] Rust AST（`tree-sitter-rust`）— ✅ 已完成
-  - [x] Kotlin AST（`tree-sitter-kotlin`）— ✅ 已完成（`tree-sitter-wasms@0.1.13` 已含 kotlin wasm）
-  - [x] C/C++ AST（`tree-sitter-cpp`）— ✅ **已完成**（2026-05-06）
-    - **交付物**：`src/services/dep-graph/parsers/cpp-ast.js`（~150 行）
-    - **覆盖**：`#include`、函数（含指针/引用返回值）、struct/class/enum/typedef/macro/namespace、template 函数/类、C++ 类方法（`qualified_identifier`）、C static 过滤
-    - **架构**：`parseCppAst(content, filePath)` 按扩展名分流 C/C++ Query，异常自动 fallback 到 `parseCpp` regex
-    - **测试**：`test/cpp-parser-test.js` 10 项用例全部通过
-    - **回归**：`node test/runner.js` 68/68 PASS，`audit-summary` healthScore=5/5
-
-  > **诚实的前提**：全 AST 是"理想目标"，不是"必须完成"。当前 regex 已满足 80% 的 audit-overview 需求。P4-AST 的价值在于**消除 dead-export 误报**和**提升 import 解析精度**，而不是追求语法分析的完整性。
+- [x] 大仓库性能专项优化（>10k 文件）— 详见 P5
+- [x] 插件化解析器注册表 — **决策更新：提前重构**（原定为"超 10 种时"，现 6→9 种途中即做）
+- [x] **P4-AST：全栈 AST 覆盖** — 9/9 语言全部 AST（2026-05-06 完成）。交付记录见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] §新增。
 
   #### 技术选型：为什么选 WASM 而非 native binding
 
@@ -173,30 +97,11 @@ P0T1–P0T5 全部交付。
   3. 发现 WASM 解析速度比 regex 慢 >10 倍（大文件场景）
   4. 用户明确反馈"零依赖"比"AST 精度"更重要
 
-  #### 阶段性交付（非一次性）
+### P5：大项目体验优化（REPL + 缓存 + Watcher + Compact）— ✅ 已完成
 
-  每完成一个语言就合并，立刻释放价值：
-  1. **Go**（最简单：import/function/type 结构清晰，query 极简）
-  2. **Rust**（pub 判断明确，impl block 需额外处理）
-  3. **Kotlin**（interface vs class 区分、primary constructor property）
-  4. **C/C++**（最复杂：pointer/reference/qualified 链，最后做）
-
-  每阶段验收：`node test/runner.js` 53/53 PASS + `node cli.js audit-summary --cwd . --json --quiet` healthScore=5/5。
-
-### P5：大项目体验优化（REPL + 缓存 + Watcher + Compact）
-
-> 问题：小项目全量 JSON 输出可用，大项目（10k+ 文件）时 `audit-map`/`audit-overview` 的 edges 数组爆炸，`audit-diff` 输出数千行 JSON，且每次 CLI 调用都重建 dep-graph。
+> **Compact 模式设计原则**：压缩不是截断，是**面向 AI 消费的策展（curation）**。详见 [AGENTS.md §Compact 设计哲学](./AGENTS.md#compact-设计哲学)。
 >
-> **Compact 模式设计原则**：压缩不是截断，是**面向 AI 消费的策展（curation）**。
-> - **问题优先**：先给 severity + nextSteps，让 AI 知道要不要继续看
-> - **分层策展**：分 `critical` / `warn` / `info` 三级，AI 按层决策
-> - **数量即信号**："N 个 dependents" 比列出 N 个名字更有信息量，除非 N 很小
-> - **保留入口**：entry files 和 test files 永远显式命名，因为它们是动作入口
-> - **可下探**：compact 不删数据，细节移到"按需查询"路径（如 `impact --file`）
->
-> **当前状态**：`audit-map --compact` ✅ / `audit-diff --compact` ✅ / `watch --compact` ✅ / REPL `issues` ✅ / `top` ✅ 全部完成。
->
-> 基础设施现状：`file-index.js` 已有 `fs.watch` + `pendingUpdates` debounce 骨架（`startWatching()`/`processPending()`），但只更新 fileMetadata，未接到 dep-graph；`cache.js` ~~只存了 `{mtime, size, hash}`~~ 已扩展 `parseResults` Map（v0.9.13）。
+> `audit-map --compact` / `audit-diff --compact` / `watch --compact` / REPL `issues` / `top` 全部完成。交付记录见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] §新增/修复。
 
 #### Step 1：REPL / 精确查询模式（✅ 已完成 v0.9.13）
 
