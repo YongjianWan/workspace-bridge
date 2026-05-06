@@ -17,7 +17,7 @@ const {
   parseCpp,
   parseSvelte,
 } = require('./dep-graph/parsers');
-const { resolveImport } = require('./dep-graph/resolvers');
+const { resolveImport, clearResolverCaches } = require('./dep-graph/resolvers');
 const { normalizePathKey, matchesPathFragment } = require('../utils/path');
 const {
   getSymbolImpact,
@@ -36,7 +36,7 @@ const { CACHE_FILENAME } = require('./cache');
 
 const readFile = promisify(fs.readFile);
 
-const { DEFAULTS } = require('../config/constants');
+const { DEFAULTS, LIMITS } = require('../config/constants');
 
 // 配置常量
 const CONFIG = {
@@ -214,12 +214,17 @@ class DependencyGraph {
 
     try {
       const stats = fs.statSync(filePath);
-      // Guard against multi-GB log/binary files mis-identified as source
-      const MAX_ENTRY_FILE_SIZE = 64 * 1024;
-      if (stats.size > MAX_ENTRY_FILE_SIZE) return false;
-      const content = fs.readFileSync(filePath, 'utf8');
-      if (content.startsWith('#!')) return true;
-      if (PYTHON_MAIN_PATTERN.test(content)) return true;
+      if (stats.size > LIMITS.ENTRY_FILE_MAX_BYTES) return false;
+      const fd = fs.openSync(filePath, 'r');
+      try {
+        const buffer = Buffer.alloc(LIMITS.ENTRY_SCAN_BYTES);
+        const bytesRead = fs.readSync(fd, buffer, 0, LIMITS.ENTRY_SCAN_BYTES, 0);
+        const content = buffer.toString('utf8', 0, bytesRead);
+        if (content.startsWith('#!')) return true;
+        if (PYTHON_MAIN_PATTERN.test(content)) return true;
+      } finally {
+        fs.closeSync(fd);
+      }
     } catch (e) {
       if (e.code !== 'ENOENT') throw e;
     }
@@ -241,6 +246,9 @@ class DependencyGraph {
    */
   async build() {
     const startTime = Date.now();
+
+    // Refresh resolver FS caches for each build to avoid stale paths
+    clearResolverCaches();
 
     // Reset graph to prevent ghost data from deleted/renamed files
     this.graph.clear();

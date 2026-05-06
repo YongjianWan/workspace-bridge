@@ -90,12 +90,12 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 **产品功能缺口 — impact paths** ✅（经确认已在 0.9.0 交付）
 - `impact` 命令 JSON 输出中的 `via` 数组即完整影响路径，无需额外 `paths` 字段
 
-### 下一步方向（按价值排序）
+**性能瓶颈（ROADMAP P0/P1）** ✅
+- `isKnownEntryFile()` 只读前 256 字节 — `fs.openSync` + `fs.readSync` 替代 `fs.readFileSync`，消除大文件全量读取
+- `resolvers.js` 同步 I/O 缓存 — 模块级 `_statCache` LRU（上限 2000），`DependencyGraph.build()` 自动刷新
+- `cli.js` 超大 JSON 分块写入 — `writeLargeJson()` 64KB 分块 + `setImmediate` 让出；>1MB 时 stderr 提示 `--compact`
 
-**性能瓶颈（ROADMAP P0/P1，大项目体验）**：
-1. `resolvers.js` 同步 I/O 风暴 — JS import 解析 20× `fs.existsSync` 无缓存
-2. `cli.js` `JSON.stringify` 阻塞事件循环 — 大项目 audit-map 100MB+ 对象
-3. `isKnownEntryFile()` 读整个文件 — 可只读前 256 字节
+### 下一步方向（按价值排序）
 
 **GitNexus 高价值模式剩余**：
 - **模式 D：递进工具链文案**（WHEN TO USE / AFTER THIS）— 改 `cli.js` help string + AGENTS.md 命令表，1 小时

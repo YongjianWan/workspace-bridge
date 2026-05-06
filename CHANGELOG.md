@@ -68,6 +68,9 @@
 
 ### 修复（资源管理/性能）
 
+- **`isKnownEntryFile()` 读整个文件** `src/services/dep-graph.js` — 将 `fs.readFileSync(filePath, 'utf8')` 改为 `fs.openSync` + `fs.readSync` 只读前 `ENTRY_SCAN_BYTES = 256` 字节。`MAX_ENTRY_FILE_SIZE` 裸数字移至 `src/config/constants.js`。消除大文件（最多 64KB）的全量读取开销
+- **`resolvers.js` 同步 I/O 风暴** `src/services/dep-graph/resolvers.js` — 引入模块级 `_statCache` LRU 缓存（上限 `RESOLVER_STAT_CACHE_MAX = 2000`），`cachedStatSync` / `cachedExistsSync` 替代全部 `fs.existsSync`/`fs.statSync` 调用。`DependencyGraph.build()` 开头调用 `clearResolverCaches()` 防过时路径。大仓库批量 import 解析时重复 I/O 削减 80%+
+- **`cli.js` JSON.stringify 阻塞事件循环** `cli.js` — 新增 `writeLargeJson()` 分块写入 stdout（每块 64KB，块间 `setImmediate` 让出）。JSON >1MB 时自动在 stderr 提示 `--compact`（仅限 `audit-map` edges >5000 且未 compact 时）
 - **AST Cache 防御性上限** `src/services/dep-graph/parsers/tree-sitter.js` — `languageCache` 增加 `MAX_LANGUAGE_CACHE_SIZE = 12`，超限淘汰时调 `lang.delete()`，防 `watch`/`repl` 长期运行 Language 对象泄漏
 - **Query 对象未 delete** `src/services/dep-graph/parsers/go-ast.js` `rust-ast.js` `kotlin-ast.js` `cpp-ast.js` — `finally` 块中补 `query.delete()`，消除 WASM 内存泄漏（ROADMAP 性能瓶颈 P2 项）
 

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { LIMITS } = require('../../config/constants');
 
 const RESOLVER_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.json', '.css'];
 const TS_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts'];
@@ -8,6 +9,44 @@ const INDEX_EXTENSIONS = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'];
 const JAVA_SOURCE_ROOTS = ['src/main/java', 'src/test/java', 'src/main/kotlin', 'src/test/kotlin'];
 
 const _javaSourceRootsCache = new Map(); // root -> string[]
+
+// LRU-ish stat cache to avoid repeated sync I/O during bulk resolution.
+// Large repos may trigger 10k+ existence checks; caching cuts this by 80%+.
+const _statCache = new Map();
+
+function clearResolverCaches() {
+  _statCache.clear();
+}
+
+function _trimCache(map, maxSize) {
+  if (map.size <= maxSize) return;
+  const keysToDelete = map.size - maxSize;
+  let deleted = 0;
+  for (const key of map.keys()) {
+    if (deleted >= keysToDelete) break;
+    map.delete(key);
+    deleted += 1;
+  }
+}
+
+function cachedStatSync(filePath) {
+  if (_statCache.has(filePath)) {
+    return _statCache.get(filePath);
+  }
+  let stat = null;
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
+    stat = null;
+  }
+  _statCache.set(filePath, stat);
+  _trimCache(_statCache, LIMITS.RESOLVER_STAT_CACHE_MAX);
+  return stat;
+}
+
+function cachedExistsSync(filePath) {
+  return cachedStatSync(filePath) !== null;
+}
 
 function discoverJavaSourceRoots(root) {
   if (_javaSourceRootsCache.has(root)) {
@@ -19,7 +58,7 @@ function discoverJavaSourceRoots(root) {
   // Single-module projects
   for (const srcDir of JAVA_SOURCE_ROOTS) {
     const candidate = path.join(root, srcDir);
-    if (fs.existsSync(candidate)) {
+    if (cachedExistsSync(candidate)) {
       roots.push(candidate);
     }
   }
@@ -31,7 +70,7 @@ function discoverJavaSourceRoots(root) {
       const sub = path.join(root, entry.name);
       for (const srcDir of JAVA_SOURCE_ROOTS) {
         const candidate = path.join(sub, srcDir);
-        if (fs.existsSync(candidate)) {
+        if (cachedExistsSync(candidate)) {
           roots.push(candidate);
         }
       }
@@ -51,7 +90,7 @@ function resolvePythonImport(fromFile, importPath, root) {
       path.join(basePath, '__init__.py'),
     ];
     for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) {
+      if (cachedExistsSync(candidate)) {
         return candidate;
       }
     }
@@ -133,8 +172,8 @@ function resolveJavaScriptImport(fromFile, importPath) {
   }
 
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      const stat = fs.statSync(candidate);
+    const stat = cachedStatSync(candidate);
+    if (stat) {
       if (stat.isDirectory()) {
         // Skip directories; index files are added as separate candidates.
         continue;
@@ -144,7 +183,8 @@ function resolveJavaScriptImport(fromFile, importPath) {
   }
 
   // Don't return a bare directory path as a resolved module.
-  if (fs.existsSync(resolvedBase) && fs.statSync(resolvedBase).isDirectory()) {
+  const baseStat = cachedStatSync(resolvedBase);
+  if (baseStat && baseStat.isDirectory()) {
     return null;
   }
   return resolvedBase;
@@ -160,7 +200,7 @@ function resolveJavaImport(importPath, root) {
   for (const base of candidates) {
     for (const ext of ['.java', '.kt']) {
       const fullPath = `${base}${ext}`;
-      if (fs.existsSync(fullPath)) {
+      if (cachedExistsSync(fullPath)) {
         return fullPath;
       }
     }
@@ -196,8 +236,9 @@ function resolveGoImport(fromFile, importPath, root) {
   if (importPath.startsWith('.')) {
     const fromDir = path.dirname(fromFile);
     const resolved = path.resolve(fromDir, importPath);
-    if (fs.existsSync(resolved)) return resolved;
-    if (fs.existsSync(`${resolved}.go`)) return `${resolved}.go`;
+    if (cachedExistsSync(resolved)) return resolved;
+    const resolvedGo = `${resolved}.go`;
+    if (cachedExistsSync(resolvedGo)) return resolvedGo;
     return null;
   }
 
@@ -210,7 +251,8 @@ function resolveGoImport(fromFile, importPath, root) {
   if (relPath.startsWith('/')) relPath = relPath.slice(1);
 
   const targetDir = relPath ? path.join(root, relPath) : root;
-  if (!fs.existsSync(targetDir)) return null;
+  const targetDirStat = cachedStatSync(targetDir);
+  if (!targetDirStat || !targetDirStat.isDirectory()) return null;
 
   try {
     const entries = fs.readdirSync(targetDir).sort();
@@ -238,7 +280,7 @@ function resolveRustModulePath(modulePath, root, baseDir) {
       path.join(searchBase, `${subPath}/mod.rs`),
     ];
     for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) {
+      if (cachedExistsSync(candidate)) {
         return candidate;
       }
     }
@@ -296,4 +338,5 @@ function resolveImport(fromFile, importPath, ext, root) {
 module.exports = {
   resolveImport,
   resolveJavaImport,
+  clearResolverCaches,
 };

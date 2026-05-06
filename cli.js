@@ -7,6 +7,29 @@
  */
 const fs = require('fs');
 const { version } = require('./package.json');
+
+const LARGE_JSON_THRESHOLD = 1024 * 1024;
+const JSON_WRITE_CHUNK_SIZE = 64 * 1024;
+
+/**
+ * Write large JSON strings to stdout in chunks to avoid blocking
+ * the event loop on huge strings (e.g. audit-map with 10k+ edges).
+ * @param {string} json
+ */
+async function writeLargeJson(json) {
+  if (json.length <= JSON_WRITE_CHUNK_SIZE) {
+    process.stdout.write(json + '\n');
+    return;
+  }
+  for (let i = 0; i < json.length; i += JSON_WRITE_CHUNK_SIZE) {
+    const chunk = json.slice(i, i + JSON_WRITE_CHUNK_SIZE);
+    process.stdout.write(chunk);
+    if (i + JSON_WRITE_CHUNK_SIZE < json.length) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  }
+  process.stdout.write('\n');
+}
 const { ServiceContainer } = require('./src/services/container');
 const { workspaceInfo, runDiagnostics } = require('./src/tools/workspace-tools');
 const { projectHealth } = require('./src/tools/health-tools');
@@ -647,7 +670,18 @@ async function main() {
       result.staleness = container.getStaleness();
     }
     if (parsed.json) {
-      console.log(JSON.stringify(result, null, 2));
+      const jsonStr = JSON.stringify(result, null, 2);
+      if (jsonStr.length > LARGE_JSON_THRESHOLD && !parsed.quiet) {
+        const edges = result && result.edges ? result.edges.length : 0;
+        if (edges > 5000 && !parsed.compact) {
+          process.stderr.write(
+            '[warn] JSON output is very large (~' +
+              Math.round(jsonStr.length / 1024 / 1024) +
+              'MB). Consider using --compact for large projects.\n'
+          );
+        }
+      }
+      await writeLargeJson(jsonStr);
     } else {
       console.log(formatHuman(parsed.command, result));
     }
