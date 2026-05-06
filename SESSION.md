@@ -100,11 +100,15 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 - `Unknown command` 后提示 `--help`
 - `--quiet` 模式下初始化失败输出完整 `err.stack`
 
+**GitNexus 模式 D — 递进工具链文案** ✅
+- `cli.js` 新增 `COMMAND_GUIDES` 配置表，覆盖 19 个命令，`--help <command>` 输出 WHEN TO USE / AFTER THIS
+- `affected-tests` 描述补全
+- AGENTS.md 核心命令表 + 原子命令表增加 WHEN TO USE / AFTER THIS 列
+
 ### 下一步方向（按价值排序）
 
 **GitNexus 高价值模式剩余**：
-- **模式 D：递进工具链文案**（WHEN TO USE / AFTER THIS）— 改 `cli.js` help string + AGENTS.md 命令表，1 小时
-- **模式 A：语言注册表重构** — `defineLanguage()` 统一接口，2–3 天，等性能瓶颈处理后再做
+- **模式 A：语言注册表重构** — `defineLanguage()` 统一接口，2–3 天
 
 **用户体验缺口**：
 - `impact` 命令 human-readable 输出未展示 `via` 路径（JSON 已有，formatter 未展示）

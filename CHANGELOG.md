@@ -80,6 +80,12 @@
 - **`Unknown command` 后未提示 `--help`** `cli.js` — 错误消息追加 `Run with --help for available commands`
 - **`--quiet` 模式下初始化失败根因丢失** `cli.js` — `catch` 块对 `container.initError` 输出完整 `err.stack` 而非仅 `err.message`，确保 quiet 模式下仍能拿到堆栈定位问题
 
+### 新增（GitNexus 模式 D — 递进工具链文案）
+
+- **`--help <command>` 详细指南** `cli.js` — 新增 `COMMAND_GUIDES` 配置表，覆盖全部 19 个命令。每个命令含 `desc` / `WHEN TO USE` / `AFTER THIS`。`node cli.js --help audit-diff` 输出递进式使用说明
+- **`affected-tests` 描述补全** `cli.js` `printUsage()` — 原仅显示参数格式 `affected-tests --file <path> [--max-depth <n>]`，现补全描述 `Find tests related to a file`
+- **AGENTS.md 命令表同步** — 核心命令表 + 原子命令表全部增加 `WHEN TO USE` / `AFTER THIS` 列，与 `COMMAND_GUIDES` 保持一致
+
 ## [1.0.4] - 2026-05-05
 
 > **Highlights**：全栈语言覆盖达成（9 种：JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte），`audit-map --compact` 大项目压缩模式可用（GitNexus 954 文件实测 97% 压缩），Go AST parser 基于 tree-sitter WASM 落地，L2 技术债全部清零。

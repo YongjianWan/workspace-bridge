@@ -84,6 +84,122 @@ async function mapWithConcurrency(items, limit, mapper) {
   return results;
 }
 
+const COMMAND_GUIDES = {
+  'workspace-info': {
+    desc: 'Detect workspace type and root',
+    when: 'First step when exploring an unknown repo. Confirm root, stack, and package manager before deeper analysis.',
+    after: 'audit-summary or audit-overview for the full picture.',
+  },
+  diagnostics: {
+    desc: 'Run quick/full diagnostics (eslint, tsc, pyright, etc.)',
+    when: 'Before committing, or when CI is failing and you want local repro.',
+    after: 'audit-file --file <path> if errors are localized to one file.',
+  },
+  'audit-summary': {
+    desc: 'Aggregate health + dead-exports + unresolved + cycles',
+    when: 'First look at a repo. Gives the "health snapshot" in one command.',
+    after: 'audit-overview for structural skeleton, or audit-map for full graph.',
+  },
+  'audit-file': {
+    desc: 'Aggregate impact + affected tests for one file',
+    when: 'Before/after editing a single file. Know what breaks before you save.',
+    after: 'impact --file <path> for deeper transitive analysis, or affected-tests for test mapping.',
+  },
+  'audit-diff': {
+    desc: 'Aggregate changed files + impact + affected tests + history risk',
+    when: 'Reviewing a PR or preparing a commit. Understand the blast radius of current worktree changes.',
+    after: 'audit-file --file <path> for any high-risk file that needs individual attention.',
+  },
+  'audit-overview': {
+    desc: 'Project panoramic view (hotspots, stability, orphans, core modules)',
+    when: 'Taking over a repo for the first time. Identify where the fire is before touching code.',
+    after: 'audit-map --compact for a navigable tree, or repl for precise queries.',
+  },
+  'audit-map': {
+    desc: 'Global project map (tree + edges + issue overlay)',
+    when: 'Need the full graph. Use --compact on large repos (>500 files) to avoid output explosion.',
+    after: 'impact --file <path> or repl for targeted exploration of specific files.',
+  },
+  health: {
+    desc: 'Summarize project health (CI, tests, config, deps)',
+    when: 'Quick gut-check on repo hygiene. Faster than audit-summary when you only care about health.',
+    after: 'audit-security if health flags missing security checks.',
+  },
+  'audit-security': {
+    desc: 'Run external security scanners (Semgrep)',
+    when: 'Security review, before releases, or when health flags missing security tools.',
+    after: 'audit-diff to see if recent changes touched code near security findings.',
+  },
+  repl: {
+    desc: 'Start interactive REPL shell',
+    when: 'Large projects where CLI startup is too slow. Dep-graph stays hot in memory; queries <100ms.',
+    after: 'Any atomic command (impact, dependencies, dead-exports) inside the REPL.',
+  },
+  watch: {
+    desc: 'Watch files and print impact on save',
+    when: 'Active development. Save a file → immediately see affected dependents.',
+    after: 'affected-tests --file <path> if you need the full test mapping after seeing impact.',
+  },
+  stats: {
+    desc: 'Show dependency graph statistics',
+    when: 'Need raw numbers (files, edges, cycles) without the full audit-map payload.',
+    after: 'audit-map --compact if the numbers look suspicious and you need visual confirmation.',
+  },
+  dependencies: {
+    desc: 'List direct dependencies of a file',
+    when: 'Debugging "why is this file here?" or tracing imports inward.',
+    after: 'dependents --file <path> for the reverse direction (who imports me).',
+  },
+  dependents: {
+    desc: 'List direct dependents of a file',
+    when: 'Before deleting or renaming a file. Know who imports you.',
+    after: 'impact --file <path> for transitive dependents (not just direct).',
+  },
+  'dead-exports': {
+    desc: 'Find dead export candidates',
+    when: 'Cleanup phase. Remove unused code to reduce maintenance surface.',
+    after: 'audit-file --file <path> on any dead-export candidate to confirm it is truly unused.',
+  },
+  unresolved: {
+    desc: 'Find unresolved imports',
+    when: 'Build is broken, or after moving/renaming files. Fix broken paths.',
+    after: 'audit-diff to verify the fix did not introduce new unresolved imports.',
+  },
+  cycles: {
+    desc: 'Find circular dependencies',
+    when: 'Architecture review, or before refactoring layered code.',
+    after: 'audit-file --file <path> on any file in the cycle to plan the break point.',
+  },
+  impact: {
+    desc: 'Find impact radius for a file',
+    when: 'Before risky changes. See the full transitive blast radius (not just direct dependents).',
+    after: 'affected-tests --file <path> to map the impacted area to specific tests.',
+  },
+  'affected-tests': {
+    desc: 'Find tests related to a file',
+    when: 'Before/after changes. Know which tests to run or update.',
+    after: 'impact --file <path> if test mapping is empty (heuristic may miss cross-stack tests).',
+  },
+};
+
+function printCommandHelp(command) {
+  const guide = COMMAND_GUIDES[command];
+  if (!guide) {
+    console.log(`No detailed help for '${command}'. Run without arguments for full command list.`);
+    return;
+  }
+  console.log(`workspace-bridge ${command}
+
+  ${guide.desc}
+
+WHEN TO USE:
+  ${guide.when}
+
+AFTER THIS:
+  ${guide.after}
+`);
+}
+
 function printUsage() {
   console.log(`workspace-bridge-cli
 
@@ -110,6 +226,7 @@ Commands:
   cycles                  Find circular dependencies
   impact --file <path>    Find impact radius for a file
   affected-tests --file <path> [--max-depth <n>]
+                          Find tests related to a file
 
 Options:
   --cwd <path>            Target workspace or file path
@@ -128,6 +245,7 @@ Options:
   --config <name>        Semgrep config (default: auto)
   --language <lang>      Filter security scan to one language
   --help                  Show help
+  --help <command>       Show detailed guide for a command
 `);
 }
 
@@ -643,7 +761,15 @@ async function main() {
     return;
   }
 
-  if (parsed.help || !parsed.command) {
+  if (parsed.help) {
+    if (parsed.command && COMMAND_GUIDES[parsed.command]) {
+      printCommandHelp(parsed.command);
+    } else {
+      printUsage();
+    }
+    return;
+  }
+  if (!parsed.command) {
     printUsage();
     return;
   }
