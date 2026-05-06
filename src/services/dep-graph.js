@@ -5,18 +5,8 @@
 const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
-const {
-  createImportRecord,
-  parsePython,
-  parseJavaScript,
-  parseJava,
-  parseKotlin,
-  parseGo,
-  parseRust,
-  parseVue,
-  parseCpp,
-  parseSvelte,
-} = require('./dep-graph/parsers');
+const { createImportRecord } = require('./dep-graph/parsers');
+const { registry } = require('./dep-graph/parsers/registry');
 const { resolveImport, clearResolverCaches } = require('./dep-graph/resolvers');
 const { normalizePathKey, matchesPathFragment } = require('../utils/path');
 const {
@@ -108,18 +98,8 @@ const KNOWN_CONFIG_NAMES = new Set(['vite.config.js', 'vite.config.ts', 'eslint.
 // #21: __main__ regex promoted to module-level constant
 const PYTHON_MAIN_PATTERN = /if\s+__name__\s*==\s*['"]__main__['"]\s*:/;
 
-// #16-#17: parser registry eliminates language-dispatch if-else chain
-const PARSER_REGISTRY = [
-  { exts: ['.py'], parser: parsePython, async: true },
-  { exts: ['.js', '.ts', '.jsx', '.tsx'], parser: parseJavaScript, async: false, needsFilePath: true },
-  { exts: ['.java'], parser: parseJava, async: true },
-  { exts: ['.kt'], parser: parseKotlin, async: true },
-  { exts: ['.go'], parser: parseGo, async: true },
-  { exts: ['.rs'], parser: parseRust, async: true },
-  { exts: ['.vue'], parser: parseVue, async: false, needsFilePath: true },
-  { exts: ['.c', '.cpp', '.cc', '.h', '.hpp'], parser: parseCpp, async: true, needsFilePath: true },
-  { exts: ['.svelte'], parser: parseSvelte, async: false, needsFilePath: true },
-];
+// #16-#17: language dispatch now delegated to LanguageRegistry
+// see src/services/dep-graph/parsers/registry.js for registration details
 
 class DependencyGraph {
   constructor(workspaceRoot, cache, options = {}) {
@@ -330,7 +310,7 @@ class DependencyGraph {
       let functionRecords = [];
       let parseMode = 'none';
 
-      const entry = PARSER_REGISTRY.find((e) => e.exts.includes(ext));
+      const entry = registry.findByExt(ext);
       if (entry) {
         const args = entry.needsFilePath ? [content, filePath] : [content];
         const result = entry.async ? await entry.parser(...args) : entry.parser(...args);

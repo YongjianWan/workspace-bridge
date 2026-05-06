@@ -9,6 +9,7 @@ const { promisify } = require('util');
 const { detectWorkspace, normalizePathKey, matchesPathFragment } = require('../utils/path');
 const { loadWorkspaceConfig } = require('../utils/project-context');
 const { extractSymbols } = require('./file-index/symbol-extractors');
+const { registry } = require('./dep-graph/parsers/registry');
 const { DEFAULTS } = require('../config/constants');
 const { CACHE_FILENAME } = require('./cache');
 
@@ -69,26 +70,7 @@ class FileIndex {
   }
 
   getFilePatterns() {
-    const patterns = [];
-    if (this.workspace.hasPackageJson) {
-      patterns.push('**/*.js', '**/*.ts', '**/*.jsx', '**/*.tsx', '**/*.mjs', '**/*.cjs', '**/*.mts', '**/*.cts', '**/*.vue', '**/*.svelte');
-    }
-    if (this.workspace.hasRequirements || this.workspace.hasPyproject || this.workspace.hasManagePy) {
-      patterns.push('**/*.py');
-    }
-    if (this.workspace.hasJava) {
-      patterns.push('**/*.java', '**/*.kt');
-    }
-    if (this.workspace.hasGo) {
-      patterns.push('**/*.go');
-    }
-    if (this.workspace.hasRust) {
-      patterns.push('**/*.rs');
-    }
-    if (this.workspace.hasCpp) {
-      patterns.push('**/*.c', '**/*.cpp', '**/*.cc', '**/*.h', '**/*.hpp');
-    }
-    return patterns.length > 0 ? patterns : ['**/*.js', '**/*.py', '**/*.java', '**/*.kt', '**/*.go', '**/*.rs', '**/*.vue', '**/*.svelte'];
+    return registry.getFilePatterns(this.workspace);
   }
 
   /**

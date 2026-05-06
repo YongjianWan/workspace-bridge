@@ -4,6 +4,17 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 重构
+
+- **语言注册表重构（模式 A）** — `defineLanguage()` 统一接口，新增语言从"改 3 个文件"降到"改 1 个文件"
+  - 新建 `src/services/dep-graph/parsers/registry-core.js`：`defineLanguage()` + `LanguageRegistry`（`register` / `findByExt` / `getAllExts` / `getFilePatterns`）
+  - 新建 `src/services/dep-graph/parsers/registry.js`：9 种语言集中注册（`name, exts, parser, async, needsFilePath, filePatterns, condition`）
+  - `src/services/dep-graph.js`：删除 `PARSER_REGISTRY` 硬编码数组，`analyzeFile()` 委托 `registry.findByExt(ext)`
+  - `src/services/file-index.js`：`getFilePatterns()` 委托 `registry.getFilePatterns(this.workspace)`，消除与 dep-graph 的语言条件重复
+  - `src/services/dep-graph/parsers/index.js`：新增导出 `registry`, `defineLanguage`, `LanguageRegistry`，成为 parser + registry 统一入口
+
 ## [1.1.0] - 2026-05-06
 
 ### 修复（20 项活跃缺陷全量修复）

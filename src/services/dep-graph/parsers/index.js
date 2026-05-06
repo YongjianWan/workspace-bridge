@@ -9,6 +9,7 @@ const { parseKotlin } = require('./kotlin-ast');
 const { parseVue } = require('./vue');
 const { parseCppAst } = require('./cpp-ast');
 const { parseSvelte } = require('./svelte');
+const { registry, defineLanguage, LanguageRegistry } = require('./registry');
 
 module.exports = {
   createImportRecord,
@@ -21,4 +22,7 @@ module.exports = {
   parseVue,
   parseCpp: parseCppAst,
   parseSvelte,
+  registry,
+  defineLanguage,
+  LanguageRegistry,
 };

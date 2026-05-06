@@ -30,7 +30,7 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 - 测试：**70/70 PASS**
 - 版本：**v1.1.0**（以 `package.json` 为准）
 - 分支：`main`，已 push origin
-- 自身项目规模：139 文件，entry=4, library=52, test=71, script=12
+- 自身项目规模：140 文件，entry=4, library=53, test=71, script=12
 - 健康度：5/5，0 死导出，0 循环，0 未解析
 - cache 一致性：✅ 已修复（删除文件后无 ghost 数据）
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
@@ -108,7 +108,7 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 ### 下一步方向（按价值排序）
 
 **GitNexus 高价值模式剩余**：
-- **模式 A：语言注册表重构** — `defineLanguage()` 统一接口，2–3 天
+- ~~模式 A：语言注册表重构~~ ✅ 已完成（2026-05-06）
 
 **用户体验缺口**：
 - `impact` 命令 human-readable 输出未展示 `via` 路径（JSON 已有，formatter 未展示）
@@ -118,74 +118,41 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 ### 新增第 N 种语言的 SOP（已验证，未来复用）
 
 1. **写 parser 函数** — 返回 Record Schema：`{ imports, exports, importRecords, exportRecords, functionRecords, parseMode }`
-2. **在 `PARSER_REGISTRY` 加一行** — `{ exts: ['.xxx'], parser: parseXxx }`
+2. **在 `registry.js` 加一行** — `registry.register(defineLanguage({ name: 'xxx', exts: ['.xxx'], parser: parseXxx, ... }))`
 3. **补测试** — `test/xxx-parser-test.js`
-4. **更新 file-index** — `getFilePatterns()` 加入对应扩展名
-5. **跑全量测试** — `node test/runner.js`
+4. **跑全量测试** — `node test/runner.js`
+
+> 新增语言从"改 3 个文件"降到"改 1 个文件"（模式 A 重构成果）。
 
 ---
 
-## 下一会话指令（模式 A：语言注册表重构）
-
-> **目标**：把新增语言从"改 3 个文件"降到"改 1 个文件"。
-> **参考**：AGENTS.md §Reference 与架构取舍 → GitNexus 模式 1（语言注册表）。
+## 下一会话指令
 
 ### 前置检查（必须执行）
 
 ```bash
 node test/runner.js          # 期望: 70/70 PASS
 node cli.js audit-summary --cwd . --json --quiet
-# 期望: healthScore=5/5, deadExports=0, unresolved=0, cycles=0, totalFiles≈138
+# 期望: healthScore=5/5, deadExports=0, unresolved=0, cycles=0, totalFiles≈140
 ```
 
-### 任务：模式 A — `defineLanguage()` 统一接口
+### 本轮已完成（模式 A：语言注册表重构）
 
-**Step 1：实现注册表基础设施** ✅ 骨架已新建 `src/services/dep-graph/parsers/registry-core.js`
-- 确认 `defineLanguage()` + `LanguageRegistry` 接口不变
-- `register()` / `findByExt()` / `getAllExts()` / `getFilePatterns(workspace)`
+- 新建 `src/services/dep-graph/parsers/registry.js`：9 种语言统一注册
+- `dep-graph.js` 删除 `PARSER_REGISTRY`，改用 `registry.findByExt(ext)`
+- `file-index.js` `getFilePatterns()` 委托给 `registry.getFilePatterns(this.workspace)`
+- `parsers/index.js` 导出 `registry`, `defineLanguage`, `LanguageRegistry`
+- 新增语言 SOP 从"改 3 个文件"降到"改 1 个文件"
 
-**Step 2：新建 `src/services/dep-graph/parsers/registry.js`**
-- 引入 `registry-core.js`
-- 引入全部 9 个 parser 函数
-- 用 `defineLanguage()` 注册 9 种语言，配置包含：`name, exts, parser, async, needsFilePath, filePatterns, condition`
-- `condition` 函数对应 `file-index.js` 原 `getFilePatterns()` 中的 workspace 特征判断
-- 导出 `const registry = new LanguageRegistry()`
+### 下一步方向（按价值排序）
 
-**Step 3：重构 `src/services/dep-graph.js`**
-- 删除 `PARSER_REGISTRY` 硬编码数组
-- 改为 `const { registry } = require('./dep-graph/parsers/registry');`
-- `analyzeFile()` 中 `PARSER_REGISTRY.find(...)` → `registry.findByExt(ext)`
+**用户体验缺口**：
+- `impact` 命令 human-readable 输出未展示 `via` 路径（JSON 已有，formatter 未展示）
+- `--quiet` 模式下初始化失败根因丢失
+- `Unknown command` 后未提示 `--help`
 
-**Step 4：重构 `src/services/file-index.js`**
-- 引入 `const { registry } = require('../dep-graph/parsers/registry');`
-- `getFilePatterns()` 方法体替换为 `return registry.getFilePatterns(this.workspace);`
-- 保留 fallback 语义（注册表内部已处理）
-
-**Step 5：更新 `src/services/dep-graph/parsers/index.js`**
-- 保留各 parser 独立导出（外部测试/脚本可能直接引用）
-- 新增导出 `const { registry, defineLanguage, LanguageRegistry } = require('./registry');`
-- 使 `parsers/index.js` 成为 parser + registry 的统一入口
-
-**Step 6：验证**
-- `node test/runner.js` 70/70 PASS
-- `node cli.js audit-summary --cwd . --json --quiet` healthScore=5/5
-- 新增一个 dummy 语言注册，确认只改 `registry.js` 一处即可
-
-### 关键文件清单
-
-| 文件 | 操作 | 原因 |
-|------|------|------|
-| `src/services/dep-graph/parsers/registry-core.js` | 确认/微调 | 基础设施，已新建 |
-| `src/services/dep-graph/parsers/registry.js` | **新建** | 9 种语言统一注册 |
-| `src/services/dep-graph.js` | 修改 | 删除 `PARSER_REGISTRY`，用 `registry.findByExt` |
-| `src/services/file-index.js` | 修改 | `getFilePatterns()` 委托给 registry |
-| `src/services/dep-graph/parsers/index.js` | 修改 | 导出 registry |
-
-### 风险点
-
-- `file-index.js` 引入 `parsers/registry.js` 是否产生循环依赖？**否** — registry 不引用 file-index。
-- `condition(workspace)` 函数必须与 `file-index.js` 原 `getFilePatterns()` 逻辑逐条对齐，否则会导致某些语言文件漏扫。
-- `needsFilePath` 和 `async` 标志必须保留，否则 `analyzeFile()` 的参数传递会崩溃。
+**架构演进**：
+- 语言注册表条件驱动 `filePatterns` 已集中，未来可扩展为插件化 extractor 注册表（GitNexus 模式 3）
 
 ---
 

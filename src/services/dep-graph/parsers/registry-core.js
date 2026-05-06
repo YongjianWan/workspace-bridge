@@ -3,16 +3,7 @@
  *
  * Design goal: adding a new language requires changing exactly one file
  * (registry.js) instead of three (dep-graph.js, parsers/index.js, file-index.js).
- *
- * @example
- *   registry.register(defineLanguage({
- *     name: 'python',
- *     exts: ['.py'],
- *     parser: parsePython,
- *     async: true,
- *     filePatterns: ['**/*.py'],
- *     condition: (workspace) => workspace.hasPyproject,
- *   }));
+ * See registry.js for concrete registration examples.
  */
 
 /**
