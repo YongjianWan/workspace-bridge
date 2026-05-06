@@ -177,7 +177,7 @@ async function testJavaSchema() {
 }
 
 async function testKotlinSchema() {
-  const result = parseKotlin(KOTLIN_SOURCE);
+  const result = await parseKotlin(KOTLIN_SOURCE);
   assertTopLevelSchema(result, 'parseKotlin');
   assertAllRecords(result, 'parseKotlin');
   assert(result.importRecords.some((r) => r.source === 'kotlin.collections.List'), 'parseKotlin: should have List importRecord');
@@ -193,7 +193,7 @@ async function testGoSchema() {
 }
 
 async function testRustSchema() {
-  const result = parseRust(RUST_SOURCE);
+  const result = await parseRust(RUST_SOURCE);
   assertTopLevelSchema(result, 'parseRust');
   assertAllRecords(result, 'parseRust');
   assert(result.importRecords.some((r) => r.source === 'std::io'), 'parseRust: should have std::io importRecord');
@@ -209,7 +209,7 @@ async function testVueSchema() {
 }
 
 async function testCppSchema() {
-  const result = parseCpp(CPP_SOURCE);
+  const result = await parseCpp(CPP_SOURCE, 'test.c');
   assertTopLevelSchema(result, 'parseCpp');
   assertAllRecords(result, 'parseCpp');
   assert(result.importRecords.some((r) => r.source === 'stdio.h'), 'parseCpp: should have stdio.h importRecord');

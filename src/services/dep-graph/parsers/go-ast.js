@@ -138,6 +138,7 @@ async function parseGo(content) {
   } catch {
     return parseGoRegex(content);
   } finally {
+    try { query.delete(); } catch {}
     try { parser.delete(); } catch {}
   }
 

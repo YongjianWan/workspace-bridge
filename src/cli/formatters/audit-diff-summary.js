@@ -8,7 +8,7 @@ const { DEFAULTS } = require('../../config/constants');
 const DOCS_EXTENSIONS = ['md', 'mdx', 'mdtxt', 'markdown', 'txt', 'rst'];
 const CONFIG_EXTENSIONS = ['json', 'yaml', 'yml', 'toml', 'ini', 'conf', 'config'];
 
-function buildAuditDiffSummary(entries) {
+function buildAuditDiffSummary(entries, changeMetrics = null) {
   const list = Array.isArray(entries) ? entries : [];
   const mainlineChanged = list.filter((entry) => entry.classification?.isMainline);
   const affectedTests = new Set();
@@ -19,6 +19,7 @@ function buildAuditDiffSummary(entries) {
   let highCompositeRiskFiles = 0;
   let maxCompositeRiskScore = 0;
   const topCompositeRisks = [];
+  const fileTypeBreakdown = {};
 
   for (const entry of list) {
     maxImpact = Math.max(maxImpact, entry.impactCount || 0);
@@ -46,6 +47,8 @@ function buildAuditDiffSummary(entries) {
     for (const testFile of entry.affectedTests || []) {
       affectedTests.add(testFile.file);
     }
+    const ext = (entry.file || '').split('.').pop()?.toLowerCase() || 'unknown';
+    fileTypeBreakdown[ext] = (fileTypeBreakdown[ext] || 0) + 1;
   }
 
   const severity = diffSeverity({
@@ -86,6 +89,8 @@ function buildAuditDiffSummary(entries) {
       highCompositeRiskFiles,
       maxCompositeRiskScore,
     },
+    fileTypeBreakdown,
+    changeMetrics: changeMetrics || null,
     topCompositeRisks: topCompositeRisks
       .sort((a, b) => (b.score || 0) - (a.score || 0))
       .slice(0, DEFAULTS.COMPACT_TOP_COMPOSITE_RISKS),

@@ -25,6 +25,7 @@ const {
   getFunctionReuseHints,
   getFunctionLevelAffectedTests,
 } = require('./dep-graph/symbol-impact');
+const { detectFrameworkFromPath } = require('./dep-graph/framework-patterns');
 const {
   normalizeHeuristicName,
   buildHeuristicSignature,
@@ -116,7 +117,7 @@ const PARSER_REGISTRY = [
   { exts: ['.go'], parser: parseGo, async: true },
   { exts: ['.rs'], parser: parseRust, async: true },
   { exts: ['.vue'], parser: parseVue, async: false, needsFilePath: true },
-  { exts: ['.c', '.cpp', '.cc', '.h', '.hpp'], parser: parseCpp, async: false },
+  { exts: ['.c', '.cpp', '.cc', '.h', '.hpp'], parser: parseCpp, async: true, needsFilePath: true },
   { exts: ['.svelte'], parser: parseSvelte, async: false, needsFilePath: true },
 ];
 
@@ -205,6 +206,12 @@ class DependencyGraph {
       return true;
     }
 
+    // Framework-aware entry detection (GitNexus pattern port)
+    const frameworkHint = detectFrameworkFromPath(filePath);
+    if (frameworkHint && frameworkHint.isEntry) {
+      return true;
+    }
+
     try {
       const stats = fs.statSync(filePath);
       // Guard against multi-GB log/binary files mis-identified as source
@@ -218,6 +225,15 @@ class DependencyGraph {
     }
 
     return false;
+  }
+
+  /**
+   * Get framework hint for a file (path-based detection).
+   * @param {string} filePath
+   * @returns {{ framework: string, reason: string, isEntry: boolean } | null}
+   */
+  getFrameworkHint(filePath) {
+    return detectFrameworkFromPath(filePath);
   }
 
   /**

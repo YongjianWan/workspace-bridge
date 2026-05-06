@@ -25,6 +25,11 @@ const hasNodeProject   = (root) => hasStack(root, 'node');
 const hasJavaProject   = (root) => hasStack(root, 'java');
 const hasRustProject   = (root) => hasStack(root, 'rust');
 
+function hasCppProject(root) {
+  const markers = ['CMakeLists.txt', 'Makefile', 'makefile'];
+  return markers.some((f) => pathExists(path.join(root, f)));
+}
+
 function hasGoProject(root) {
   return detectGoModules(root) !== null;
 }
@@ -324,6 +329,7 @@ function detectStack(root) {
   const hasJava = hasJavaProject(root);
   const hasGo = hasGoProject(root);
   const hasRust = hasRustProject(root);
+  const hasCpp = hasCppProject(root);
   const goModules = hasGo ? detectGoModules(root) : null;
   const nodePackageManager = detectNodePackageManager(root);
   const javaBuildTool = detectJavaBuildTool(root);
@@ -335,13 +341,14 @@ function detectStack(root) {
   const typeCheckers = detectTypeCheckers(root, pyprojectText);
 
   let profile = 'unknown';
-  const activeStacks = [hasNode, hasPython, hasJava, hasGo, hasRust].filter(Boolean).length;
+  const activeStacks = [hasNode, hasPython, hasJava, hasGo, hasRust, hasCpp].filter(Boolean).length;
   if (activeStacks >= 2) profile = 'mixed';
   else if (hasNode) profile = 'node-first';
   else if (hasPython) profile = 'python-first';
   else if (hasJava) profile = 'java-first';
   else if (hasGo) profile = 'go-first';
   else if (hasRust) profile = 'rust-first';
+  else if (hasCpp) profile = 'cpp-first';
 
   return {
     profile,
@@ -373,6 +380,7 @@ function detectStack(root) {
     } : null,
     go: hasGo ? { enabled: true, packageManager: 'go modules', testRunner: 'go test', modules: goModules } : null,
     rust: hasRust ? { enabled: true, packageManager: 'cargo', testRunner: 'cargo test', workspaceMembers: detectRustWorkspaceMembers(root) } : null,
+    cpp: hasCpp ? { enabled: true, packageManager: 'cmake/make', testRunner: 'ctest' } : null,
   };
 }
 
@@ -392,4 +400,5 @@ module.exports = {
   detectTypeCheckers,
   detectDocsTool,
   readTextIfExists,
+  hasCppProject,
 };

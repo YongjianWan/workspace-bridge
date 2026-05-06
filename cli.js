@@ -12,7 +12,7 @@ const { workspaceInfo, runDiagnostics } = require('./src/tools/workspace-tools')
 const { projectHealth } = require('./src/tools/health-tools');
 const { dependencyGraph } = require('./src/tools/dep-tools');
 const { auditSecurity } = require('./src/tools/security-tools');
-const { getChangedFiles } = require('./src/tools/git-tools');
+const { getChangedFiles, getDiffNumstat } = require('./src/tools/git-tools');
 const { getChangedLineRanges } = require('./src/tools/git-tools');
 const { resolveWorkspaceFilePath } = require('./src/utils/path');
 const { getFileHistoryRisk } = require('./src/tools/git-tools');
@@ -22,6 +22,7 @@ const {
   buildFileSummary,
   buildAuditDiffSummary,
   buildValidationAdvice,
+  buildFileValidationAdvice,
   buildProjectMap,
   buildImpactExplanations,
   countTreeFiles,
@@ -251,6 +252,8 @@ function formatHuman(command, result) {
         `maxImpact: ${result.summary.counts.maxImpact}`,
         `highHistoryRiskFiles: ${result.summary.counts.highHistoryRiskFiles}`,
         `highCompositeRiskFiles: ${result.summary.counts.highCompositeRiskFiles}`,
+        `fileTypeBreakdown: ${JSON.stringify(result.summary.fileTypeBreakdown)}`,
+        `changeMetrics: ${result.summary.changeMetrics ? `+${result.summary.changeMetrics.totalAdditions}/-${result.summary.changeMetrics.totalDeletions}` : 'unavailable'}`,
         `topCompositeRisk: ${topRisk ? `${topRisk.file} (score=${topRisk.compositeRisk.score}, level=${topRisk.compositeRisk.level})` : 'none'}`,
         `topRiskAction: ${topRiskAction ? `${topRiskAction.file}: ${topRiskAction.actions[0]}` : 'none'}`,
         `topRiskCommand: ${topRiskAction?.suggestedCommand || 'none'}`,
@@ -391,12 +394,16 @@ async function runCommand(parsed, container) {
           maxDepth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined,
         }, container),
       ]);
+      const frameworkPattern = container.depGraph.getFrameworkHint(resolvedPath);
+      const validationAdvice = buildFileValidationAdvice(resolvedPath, container.workspaceRoot);
       return {
         ok: impact.ok !== false && affectedTests.ok !== false,
         workspaceRoot: container.workspaceRoot,
         file: parsed.file,
         resolvedPath: impact.resolvedPath || affectedTests.resolvedPath || null,
         summary: buildFileSummary(impact, affectedTests),
+        frameworkPattern,
+        validationAdvice,
         impact,
         affectedTests,
       };
@@ -406,6 +413,13 @@ async function runCommand(parsed, container) {
       if (changed.ok === false) {
         return changed;
       }
+
+      const numstat = await getDiffNumstat(container.workspaceRoot, { staged: false, includeUntracked: true });
+      const changeMetrics = numstat.ok ? {
+        totalAdditions: numstat.totalAdditions,
+        totalDeletions: numstat.totalDeletions,
+        changedFileCount: numstat.files.length,
+      } : null;
 
       const entries = await mapWithConcurrency(changed.changedFiles, DEFAULTS.CLI_CONCURRENCY, async (relativeFile) => {
         const resolvedPath = resolveWorkspaceFilePath(relativeFile, container.workspaceRoot);
@@ -471,11 +485,13 @@ async function runCommand(parsed, container) {
         const impactExplanations = graphKnown
           ? buildImpactExplanations({ file: relativeFile, impact })
           : [];
+        const frameworkPattern = container.depGraph.getFrameworkHint(resolvedPath);
         const baseEntry = {
           file: relativeFile,
           resolvedPath,
           classification,
           graphKnown,
+          frameworkPattern,
           impactCount: impact.length,
           impact,
           changedLineRanges,
@@ -500,6 +516,7 @@ async function runCommand(parsed, container) {
           resolvedPath: null,
           classification: null,
           graphKnown: false,
+          frameworkPattern: null,
           impactCount: 0,
           impact: [],
           changedLineRanges: [],
@@ -525,7 +542,7 @@ async function runCommand(parsed, container) {
         ok: true,
         workspaceRoot: container.workspaceRoot,
         scope: container.depGraph.getScopeSummary(),
-        summary: buildAuditDiffSummary(finalEntries),
+        summary: buildAuditDiffSummary(finalEntries, changeMetrics),
         validationAdvice: buildValidationAdvice(finalEntries, container.workspaceRoot),
         options: {
           reuseHints: parsed.reuseHints,

@@ -109,11 +109,16 @@ P0T1–P0T5 全部交付。
 - [x] 超标文件拆分（`parsers/` 目录、`formatters/` 目录）
 - [x] 大仓库性能专项优化（>10k 文件）— 详见 P5，Step 2 + Step 3 已完成
 - [x] 插件化解析器注册表 — **决策更新：提前重构**（原定为"超 10 种时"，现 6→9 种途中即做，降低风险）
-- [ ] **P4-AST：全栈 AST 覆盖** — 当前 6/9 语言为 AST（JS/TS、Python、Java、Go、Vue[复用JS AST]、Svelte[复用JS AST]），3 语言为 regex（Rust、Kotlin、C/C++）
+- [ ] **P4-AST：全栈 AST 覆盖** — 当前 8/9 语言为 AST（JS/TS、Python、Java、Go、Vue[复用JS AST]、Svelte[复用JS AST]、Rust、Kotlin），1 语言为 regex（C/C++）
   - [x] Go AST（`tree-sitter-go`）— ✅ v1.0.4 已完成（`go-ast.js` + `tree-sitter.js` 基础设施已验证）
-  - [ ] Rust AST（`tree-sitter-rust`）— **当前阶段**
-  - [ ] Kotlin AST（`tree-sitter-kotlin`）— ⚠️ `tree-sitter-wasms@0.1.13` 不含 kotlin wasm，需先解决语言包来源
-  - [ ] C/C++ AST（`tree-sitter-cpp`）— 最后做（复杂度最高）
+  - [x] Rust AST（`tree-sitter-rust`）— ✅ 已完成
+  - [x] Kotlin AST（`tree-sitter-kotlin`）— ✅ 已完成（`tree-sitter-wasms@0.1.13` 已含 kotlin wasm）
+  - [x] C/C++ AST（`tree-sitter-cpp`）— ✅ **已完成**（2026-05-06）
+    - **交付物**：`src/services/dep-graph/parsers/cpp-ast.js`（~150 行）
+    - **覆盖**：`#include`、函数（含指针/引用返回值）、struct/class/enum/typedef/macro/namespace、template 函数/类、C++ 类方法（`qualified_identifier`）、C static 过滤
+    - **架构**：`parseCppAst(content, filePath)` 按扩展名分流 C/C++ Query，异常自动 fallback 到 `parseCpp` regex
+    - **测试**：`test/cpp-parser-test.js` 10 项用例全部通过
+    - **回归**：`node test/runner.js` 68/68 PASS，`audit-summary` healthScore=5/5
 
   > **诚实的前提**：全 AST 是"理想目标"，不是"必须完成"。当前 regex 已满足 80% 的 audit-overview 需求。P4-AST 的价值在于**消除 dead-export 误报**和**提升 import 解析精度**，而不是追求语法分析的完整性。
 
@@ -287,15 +292,14 @@ P0T1–P0T5 全部交付。
 
 > AGENTS.md 已确认 `dep-graph.js` 内聚优先、不物理拆分，但**函数级拆分**仍有空间。
 
-### GitNexus 高价值模式提取（待排期）
-已完成可行性评估，以下模式按 ROI 排序，可随时插入：
+### GitNexus 高价值模式提取
 
-| 模式 | 价值 | 成本 | 下一步 |
-|------|------|------|--------|
-| **C. 框架感知 Extractor**（Route + ORM）| 改 API 时自动提示前端调用方 | 0.5–1 天 | 新建 `src/services/dep-graph/framework-patterns.js`，在 `audit-diff`/`audit-file` formatter 中输出 `frameworkPatterns` |
-| **F. AST Cache**（LRU + WASM dispose）| 防 `watch`/`repl` 长期运行内存泄漏 | 0.5 天 | 在 `tree-sitter.js` 中包一层 `lru-cache`，淘汰时调 `tree.delete()` |
-| **D. 递进工具链文案**（WHEN TO USE / AFTER THIS）| 降低 CLI 决策成本 | 1 小时 | 改 `cli.js` help string + AGENTS.md 命令表 |
-| A. 语言注册表重构 | 消除 parser dispatch 硬编码 | 2–3 天 | 等 P4-AST 全部完成后再做，避免中途重构增加回归成本 |
+| 模式 | 价值 | 成本 | 状态 |
+|------|------|------|------|
+| **C. 框架感知 Extractor**（Route + ORM）| 改 API 时自动提示前端调用方 | 0.5–1 天 | ✅ 已交付（`framework-patterns.js` + `audit-diff`/`audit-file` `frameworkPattern` 字段）|
+| **F. AST Cache**（LRU + WASM dispose）| 防 `watch`/`repl` 长期运行内存泄漏 | 0.5 天 | ✅ 已交付（`languageCache` 防御性上限 + 4 语言 `query.delete()`）|
+| **D. 递进工具链文案**（WHEN TO USE / AFTER THIS）| 降低 CLI 决策成本 | 1 小时 | ⏳ 待排期 |
+| A. 语言注册表重构 | 消除 parser dispatch 硬编码 | 2–3 天 | ⏳ 等性能瓶颈处理后再做 |
 
 ### 数据清理
 - `reports/roadmap-m3-mapping-hitrate-compare.json` — 2026-04-07 生成的纯分析数据，无 `taskId`/`status`/`nextSteps`，建议归档或删除，避免 `reports/` 堆积死数据
@@ -305,9 +309,9 @@ P0T1–P0T5 全部交付。
 | 缺口 | 影响场景 | 当前状态 | 建议方向 | 工作量 |
 |------|---------|---------|----------|--------|
 | `function-impact.js` 硬编码 ext 白名单 | Python/Java 有 AST 但无法做 changed-function-impact | 只支持 `['.js','.jsx','.ts','.tsx','.go']` | 扩展白名单至 `['.py','.java']`，或利用 `functionRecords` 实现跨语言 | 0.5 天 |
-| `audit-file` 无 validationAdvice | 改单个文件后不知道测什么、怎么测 | 只返回 impact + affectedTests 列表 | 集成轻量版 `buildValidationAdvice`（单文件 stack 检测 + 命令生成）| 0.5 天 |
-| `health` 无具体修复建议 | healthScore 3/5 时不知道如何提升到 5/5 | 只返回 `checks` 布尔值 | 增加 `fixes` 数组：`[{ check, action, template }]` | 0.5 天 |
-| `impact` 命令无影响路径 | 重构时不知道中间经过哪些文件 | 只有 `level` 拓扑距离 | 增加 `paths` 字段（利用 BFS 的 `path` 数组）| 0.5 天 |
+| `audit-file` 无 validationAdvice | 改单个文件后不知道测什么、怎么测 | ✅ `buildFileValidationAdvice()` 已集成，JSON 输出 `validationAdvice` | — | — |
+| `health` 无具体修复建议 | healthScore 3/5 时不知道如何提升到 5/5 | ✅ `fixes` 数组已输出：`[{ check, action, severity }]` | — | — |
+| `impact` 命令无影响路径 | 重构时不知道中间经过哪些文件 | ✅ `via` 数组即完整路径（v0.9.0 已交付）| — | — |
 | SKILL.md 缺失 5 个命令 + staleness + reuse-hints | Agent 契约不完整 | 缺 `workspace-info`、`diagnostics`、`audit-security`、`repl`、`watch` 说明 | 补全命令说明和输出示例 | 0.5 天 |
 | C/C++ 无 stack 检测和验证命令 | 后端/嵌入式项目无法生成验证命令 | `stack-detector` 完全不检测 C/C++ | 添加 `hasCppProject` + `getCppCommands`（cmake/make）| 0.5 天 |
 | Go/Rust 静态分析命令缺失 | 验证深度不足 | 缺 `go vet`、`cargo clippy` | `getGoCommands`/`getRustCommands` smoke 阶段添加 | 0.25 天 |
@@ -353,13 +357,13 @@ P0T1–P0T5 全部交付。
 |---|----------|:------:|------|
 | 1 | 混合仓库结果稳定 | 80% | 无配置时 reference/prototype 仍污染结果 |
 | 2 | TS/Python/前端项目可信主线结论 | 90% | 极端框架（Nuxt layers、Django apps）可能漏报 |
-| 3 | 从"哪里有问题"推进到"怎么改、测什么" | 85% | 单文件场景无验证建议；health 3/5 时无修复步骤 |
-| 4 | symbol-level impact 可用 | 75% | Python/Java AST 的 `functionRecords` 未被 `function-impact.js` 消费 |
+| 3 | 从"哪里有问题"推进到"怎么改、测什么" | 90% | audit-file 单文件场景无验证建议；health 3/5 时无修复步骤 |
+| 4 | symbol-level impact 可用 | 90% | `function-impact.js` 已解锁所有 AST 语言；仅 C/C++ regex 无 functionRecords |
 | 5 | 大仓库性能可接受 | 90% | 10k+ 文件首次索引未实测；resolvers 同步 I/O 风暴 |
 | 6 | 可选外部工具后端（Semgrep）| 100% | — |
 | 7 | 全栈语言覆盖（9 种）| 100% | — |
-| 8 | 全栈 AST 覆盖（除 Rust/Kotlin/C/C++）| 67% | P4-AST 进行中 |
+| 8 | 全栈 AST 覆盖（9/9 语言）| **100%** | — |
 
 ---
 
-*Last updated: 2026-05-05（现状评估更新：Go AST ✅，P4-AST 剩余 Rust/Kotlin/C/C++；6 维度子代理深度扫描结果归档：活跃缺陷 20 项、产品缺口 8 项、性能瓶颈 12 项、用户体验缺口 12 项、成功标准完成度量化）*
+*Last updated: 2026-05-06（C/C++ AST ✅ 交付，P4-AST 闭环完成；全栈 9/9 语言 AST 覆盖达成；68/68 测试通过，healthScore=5/5）*

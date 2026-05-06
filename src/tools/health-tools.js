@@ -55,6 +55,17 @@ function detectTestConfig(root) {
   return { found: frameworks.length > 0, frameworks };
 }
 
+const FIX_SUGGESTIONS = {
+  readme: { action: 'Create README.md with project description and usage instructions', severity: 'medium' },
+  license: { action: 'Add a LICENSE file (e.g., MIT, Apache-2.0)', severity: 'low' },
+  gitignore: { action: 'Create .gitignore to exclude build artifacts and dependencies', severity: 'high' },
+  editorconfig: { action: 'Add .editorconfig for consistent coding style across editors', severity: 'low' },
+  envExample: { action: 'Create .env.example documenting required environment variables', severity: 'medium' },
+  dockerConfig: { action: 'Add Dockerfile or docker-compose.yml for containerized deployment', severity: 'low' },
+  ci: { action: 'Add CI configuration (e.g., .github/workflows/ci.yml)', severity: 'medium' },
+  testConfig: { action: 'Set up a test runner (e.g., Jest, pytest, cargo test)', severity: 'high' },
+};
+
 function projectHealth(args, container) {
   const target = args?.cwd || process.cwd();
   const root = container?.workspaceRoot || findWorkspaceRoot(target);
@@ -88,12 +99,17 @@ function projectHealth(args, container) {
     checks.testConfig.found,
   ].filter(Boolean).length;
 
+  const fixes = Object.entries(checks)
+    .filter(([key, value]) => !value.found && FIX_SUGGESTIONS[key])
+    .map(([key]) => ({ check: key, ...FIX_SUGGESTIONS[key] }));
+
   return {
     ok: true,
     workspaceRoot: root,
     healthScore: `${passedCount}/5`,
     packageManager: detectNodePackageManager(root),
     checks,
+    fixes,
     testCoverage: {
       hasCoverageScript: Boolean(coverageScript),
       coverageScript,

@@ -91,8 +91,8 @@ function getChangedFunctionImpact(depGraph, filePath, lineRanges, options = {}) 
     };
   }
 
-  const ext = path.extname(sourceFile).toLowerCase();
-  if (!['.js', '.jsx', '.ts', '.tsx', '.go'].includes(ext) || sourceInfo.parseMode !== 'ast') {
+  const hasFunctionRecords = Array.isArray(sourceInfo.functionRecords) && sourceInfo.functionRecords.length > 0;
+  if (sourceInfo.parseMode !== 'ast' || !hasFunctionRecords) {
     return {
       mode: 'unavailable',
       reason: 'ast-unavailable-or-unsupported-language',

@@ -2,10 +2,12 @@ const { createImportRecord } = require('./shared');
 const { parsePython } = require('./python');
 const { parseJavaScript } = require('./js');
 const { parseJava } = require('./java');
-const { parseKotlin, parseGoRegex, parseRust } = require('./polyglot');
+const { parseGoRegex } = require('./polyglot');
 const { parseGo } = require('./go-ast');
+const { parseRust } = require('./rust-ast');
+const { parseKotlin } = require('./kotlin-ast');
 const { parseVue } = require('./vue');
-const { parseCpp } = require('./cpp');
+const { parseCppAst } = require('./cpp-ast');
 const { parseSvelte } = require('./svelte');
 
 module.exports = {
@@ -17,6 +19,6 @@ module.exports = {
   parseGo,
   parseRust,
   parseVue,
-  parseCpp,
+  parseCpp: parseCppAst,
   parseSvelte,
 };

@@ -607,6 +607,51 @@ async function gitLogGraph(args) {
   };
 }
 
+async function getDiffNumstat(root, options = {}) {
+  const gitCheck = await ensureGitRepo(root);
+  if (gitCheck) return gitCheck;
+
+  const args = ['diff', '--numstat'];
+  if (options.staged) {
+    args.push('--cached');
+  }
+  if (options.includeUntracked) {
+    args.push('--', '.');
+  }
+
+  const result = await runGit(args, root, TIMEOUTS.GIT_LONG_MS);
+  if (!result.ok) {
+    return { ok: false, error: result.stderr || 'Failed to read diff numstat', workspaceRoot: root };
+  }
+
+  const files = [];
+  let totalAdditions = 0;
+  let totalDeletions = 0;
+
+  for (const line of (result.stdout || '').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split('\t');
+    if (parts.length < 3) continue;
+    const added = parts[0] === '-' ? 0 : Number.parseInt(parts[0], 10);
+    const removed = parts[1] === '-' ? 0 : Number.parseInt(parts[1], 10);
+    const file = parts[2];
+    if (!Number.isFinite(added) || !Number.isFinite(removed)) continue;
+    files.push({ file, added, removed });
+    totalAdditions += added;
+    totalDeletions += removed;
+  }
+
+  return {
+    ok: true,
+    workspaceRoot: root,
+    staged: Boolean(options.staged),
+    files,
+    totalAdditions,
+    totalDeletions,
+  };
+}
+
 module.exports = {
   gitDiffSummary,
   getChangedFiles,
@@ -617,4 +662,5 @@ module.exports = {
   gitBranchInfo,
   gitStash,
   gitLogGraph,
+  getDiffNumstat,
 };

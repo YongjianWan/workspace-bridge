@@ -30,13 +30,12 @@ function findOrphanFiles(files, entryFiles, graph, root, toRelativeFn = null) {
     const isImported = dependents.length > 0;
 
     if (isEntry || isImported) continue;
+    if (isStandaloneEntryPath(relativePath)) continue; // scripts / bin / benchmark are standalone entry points
 
     orphans.all.push(relativePath);
 
     if (ext === '.md' || ext === '.mdx' || base.toLowerCase().includes('readme')) {
       orphans.docs.push(relativePath);
-    } else if (isStandaloneEntryPath(relativePath)) {
-      continue; // scripts / bin / benchmark are standalone entry points
     } else if (ext === '.json' || ext === '.yaml' || ext === '.yml' || ext === '.toml') {
       orphans.configs.push(relativePath);
     } else if (['.js', '.ts', '.py', '.go', '.rs', '.java', '.kt', '.cpp', '.c', '.h', '.vue', '.svelte'].includes(ext)) {

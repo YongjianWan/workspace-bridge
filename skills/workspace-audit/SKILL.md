@@ -82,12 +82,17 @@ workspace-bridge-cli audit-summary --cwd <project> --exclude prototypes/referenc
 ### Raw Commands (When you need details)
 
 ```bash
+workspace-bridge-cli workspace-info --cwd <project> --json --quiet
 workspace-bridge-cli health --cwd <project> --json
+workspace-bridge-cli diagnostics --cwd <project> --json
 workspace-bridge-cli dead-exports --cwd <project> --json
 workspace-bridge-cli unresolved --cwd <project> --json
 workspace-bridge-cli cycles --cwd <project> --json
 workspace-bridge-cli impact --cwd <project> --file <file> --json
 workspace-bridge-cli affected-tests --cwd <project> --file <file> --max-depth 5 --json
+workspace-bridge-cli audit-security --cwd <project> --json
+workspace-bridge-cli repl --cwd <project>
+workspace-bridge-cli watch --cwd <project> --json --quiet
 ```
 
 ## Usage rules
@@ -104,6 +109,11 @@ workspace-bridge-cli affected-tests --cwd <project> --file <file> --max-depth 5 
 | "Who depends on this file?" | `dependents --file ...` | Direct dependents list |
 | "What does this file import?" | `dependencies --file ...` | Direct dependencies list |
 | Deep dive on dead code | `dead-exports` | Symbol-level candidates |
+| Quick project metadata | `workspace-info` | File counts, languages, entry points |
+| Type/lint check current state | `diagnostics` | eslint/tsc/pyright/ruff output |
+| Security scan | `audit-security` | Semgrep vulnerability findings |
+| Interactive query mode | `repl` | Fast impact/tests queries without rebuild |
+| Watch mode (continuous) | `watch` | Auto-print impact on file save |
 
 ### Options
 
@@ -119,13 +129,40 @@ workspace-bridge-cli affected-tests --cwd <project> --file <file> --max-depth 5 
 3. Check `scope.mainlineFiles` vs `scope.nonMainlineFiles` for mixed repo awareness
 
 **audit-diff:**
-1. Read `validationAdvice.changeType` (docs/config/tests/scripts/code)
-2. Check `validationAdvice.stack` for detected tech stack
-3. Use `validationAdvice.commands` for concrete commands to run
-4. Prioritize `validationAdvice.topRiskActions` for immediate actions
-5. Follow `validationAdvice.phases` in order (smoke → focused → full)
+1. Read `summary.fileTypeBreakdown` for changed file composition
+2. Read `summary.changeMetrics` (+additions/-deletions) for change scale
+3. Read `validationAdvice.changeType` (docs/config/tests/scripts/code)
+4. Check `validationAdvice.stack` for detected tech stack
+5. Use `validationAdvice.commands` for concrete commands to run
+6. Prioritize `validationAdvice.topRiskActions` for immediate actions
+7. Follow `validationAdvice.phases` in order (smoke → focused → full)
 
 > `changeType` is inferred from `fileRole` as the single source of truth. Extension fallback only applies when `fileRole === 'library'`. This means `README.md` → docs, `package.json` → config, `.test.js` → tests, and `deploy.sh` → scripts are all driven by `inferFileRole()` rather than scattered regex checks.
+
+**workspace-info:**
+1. Check `scope.totalFiles` and `scope.languages` for project scale
+2. Review `entryFiles` for project entry points
+3. Use as a lightweight preflight before heavier commands
+
+**diagnostics:**
+1. Check `diagnostics.totalIssues` for immediate problems
+2. Review `diagnostics.byFile` for per-file error/warning counts
+3. Prioritize files with `error` severity over `warning`
+
+**audit-security:**
+1. Read `summary.totalFindings` for security issue count
+2. Review `findings` array for severity + rule + file location
+3. Run after code changes that touch untrusted input boundaries
+
+**repl:**
+1. Start once, query multiple times (dep-graph stays hot in memory)
+2. Subcommands: `impact <file>`, `affected-tests <file>`, `dependents <file>`, `dependencies <file>`, `issues`, `top`, `audit-map`
+3. Exit with `exit` or Ctrl+C
+
+**watch:**
+1. Auto-detects file saves and prints impact + affected tests
+2. Use `--compact` for large projects to keep output manageable
+3. Press Ctrl+C to stop watching
 
 **audit-overview:**
 1. Check `skeleton.coreModules` for key files to be careful with
@@ -198,9 +235,9 @@ workspace-bridge-cli audit-diff --cwd <project> --json --quiet
 | JS/TS    | ✅ Full AST      | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full |
 | Python   | ✅ Full AST      | ✅ Module-level | ✅ `__all__` aware | ✅ Graph + Heuristic | ✅ Full |
 | Java     | ✅ AST (javalang) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full (Maven/Gradle) |
-| Kotlin   | ⚠️ L2 Regex      | ⚠️ File-level   | ⚠️ File-level   | ⚠️ Heuristic only   | ⚠️ Gradle only |
+| Kotlin   | ✅ AST (tree-sitter) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ⚠️ Gradle only |
 | Go       | ✅ AST (tree-sitter) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Basic |
-| Rust     | ⚠️ L2 Regex      | ⚠️ File-level   | ⚠️ File-level   | ⚠️ Heuristic only   | ✅ Basic |
+| Rust     | ✅ AST (tree-sitter) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Basic |
 | C/C++    | ⚠️ L2 Regex      | ⚠️ File-level   | ⚠️ File-level   | ⚠️ Heuristic only   | ✅ Basic |
 | Vue SFC  | ✅ Full AST (JS) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full |
 | Svelte   | ✅ Full AST (JS) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full |

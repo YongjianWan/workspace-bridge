@@ -45,6 +45,32 @@
 - `test/cli-args-validation-test.js` — CLI 参数验证与帮助
 - `test/resolvers-test.js` — 9 语言 import 解析核心
 
+### 新增
+
+- **Rust AST parser** `src/services/dep-graph/parsers/rust-ast.js` `test/rust-ast-parser-test.js` — 基于 `web-tree-sitter` WASM + Tree-sitter Query 实现 Rust AST 解析，替代原有 regex parser。支持 `use`（单路径 / use_list 展开 / `as` alias）、`pub fn`/`struct`/`enum`/`trait`/`type`/`mod`/`const`/`static`、`pub use` re-export、`impl` block 内 `pub fn`。非 `pub` 项自动过滤，消除 regex 级 dead-export 误报。失败自动 fallback 到 `polyglot.js` regex。`parseMode: 'ast'`
+- `src/services/dep-graph/parsers/index.js` — `parseRust` 来源从 `polyglot.js` 切换至 `rust-ast.js`
+- **Kotlin AST parser** `src/services/dep-graph/parsers/kotlin-ast.js` `test/kotlin-ast-parser-test.js` — 基于 `web-tree-sitter` WASM + Tree-sitter Query 实现 Kotlin AST 解析，替代原有 regex parser。支持 `import`（含 wildcard `.*`）、`class`/`interface`/`object`/`enum class`/`data class`/`fun`/`const val`/`val`/`typealias`。自动过滤 `private`/`internal`/`protected`，消除 regex 级 dead-export 误报。失败自动 fallback 到 `polyglot.js` regex。`parseMode: 'ast'`
+- `src/services/dep-graph/parsers/index.js` — `parseKotlin` 来源从 `polyglot.js` 切换至 `kotlin-ast.js`
+
+### 修复（产品功能缺口）
+
+- **`function-impact.js` 硬编码 ext 白名单** `src/services/dep-graph/function-impact.js` — 从 `['.js','.jsx','.ts','.tsx','.go']` 改为检查 `parseMode === 'ast' && functionRecords.length > 0`。Python/Java/Kotlin/Rust 的 changed-function-impact 立即解锁
+- **Go/Rust 静态分析命令缺失** `src/utils/stack-detectors/commands.js` — smoke 阶段新增 `go vet ./...` 和 `cargo clippy -- -D warnings`
+- **C/C++ stack 检测和验证命令缺失** `src/utils/stack-detectors/detect.js` `commands.js` — 新增 `hasCppProject`（CMakeLists.txt / Makefile 检测）、`cpp-first` profile、`getCppCommands`（cmake build / ctest）。`STACK_TARGET_PATTERNS` 和 `splitTargetsByStack` 加入 C/C++ 扩展名
+- **`audit-diff` 缺文件类型统计 + 变更量** `cli.js` `src/tools/git-tools.js` `src/cli/formatters/audit-diff-summary.js` — 新增 `getDiffNumstat()` 解析 `git diff --numstat`。`audit-diff` JSON 输出新增 `summary.fileTypeBreakdown`（按扩展名计数）和 `summary.changeMetrics`（+additions/-deletions）
+- **SKILL.md 缺失命令说明** `skills/workspace-audit/SKILL.md` — 补全 `workspace-info`、`diagnostics`、`audit-security`、`repl`、`watch` 的命令说明、阅读指南、场景矩阵。语言支持矩阵同步更新（Kotlin/Rust AST ✅）
+
+### 新增（GitNexus 模式提取 + 产品功能缺口）
+
+- **框架感知 Extractor（模式 C）** `src/services/dep-graph/framework-patterns.js` `test/framework-patterns-test.js` — 翻译 GitNexus `framework-detection.ts` 核心路径模式，裁剪为 workspace-bridge 9 种语言。`detectFrameworkFromPath()` 路径模式检测 + `detectFrameworkFromContent()` AST 轻量扫描（前 800 字节）。覆盖 Next.js / Express / Django / FastAPI / Spring / Ktor / Go HTTP / Rust Web / Vue / Svelte 等框架。`dep-graph.js` `isKnownEntryFile()` 集成框架检测，消除框架入口文件 dead-export 误报。`audit-diff` / `audit-file` JSON 输出新增 `frameworkPattern` 字段
+- **`audit-file` validationAdvice** `src/cli/formatters/validation-advice.js` `cli.js` `test/audit-file-validation-advice-test.js` — 新增 `buildFileValidationAdvice(filePath, workspaceRoot)` 轻量函数。检测 stack → 推断 changeType → 调用 `generateCommands()` → 去重返回。`audit-file` JSON 输出新增 `validationAdvice` 字段
+- **`health` fixes 数组** `src/tools/health-tools.js` — 新增 `FIX_SUGGESTIONS` 配置表，`projectHealth()` 对未通过的 check 输出 `fixes: [{ check, action, severity }]`
+
+### 修复（资源管理/性能）
+
+- **AST Cache 防御性上限** `src/services/dep-graph/parsers/tree-sitter.js` — `languageCache` 增加 `MAX_LANGUAGE_CACHE_SIZE = 12`，超限淘汰时调 `lang.delete()`，防 `watch`/`repl` 长期运行 Language 对象泄漏
+- **Query 对象未 delete** `src/services/dep-graph/parsers/go-ast.js` `rust-ast.js` `kotlin-ast.js` `cpp-ast.js` — `finally` 块中补 `query.delete()`，消除 WASM 内存泄漏（ROADMAP 性能瓶颈 P2 项）
+
 ## [1.0.4] - 2026-05-05
 
 > **Highlights**：全栈语言覆盖达成（9 种：JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte），`audit-map --compact` 大项目压缩模式可用（GitNexus 954 文件实测 97% 压缩），Go AST parser 基于 tree-sitter WASM 落地，L2 技术债全部清零。

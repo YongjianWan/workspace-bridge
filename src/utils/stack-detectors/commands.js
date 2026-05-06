@@ -210,6 +210,7 @@ function getGoCommands(goStack, changeType, targets) {
   if (!goStack) return { smoke: [], focused: [], full: [] };
   return buildStackCommands(goStack, changeType, (commands) => {
     commands.smoke.push({ name: 'go-build', description: 'Go build check', cmd: 'go build ./...' });
+    commands.smoke.push({ name: 'go-vet', description: 'Run go vet for static analysis', cmd: 'go vet ./...' });
     if (targets.length > 0) {
       const nested = buildGoModuleTestCommands(goStack.modules, targets, 'go-focused');
       if (nested.length > 0) {
@@ -246,6 +247,7 @@ function getRustCommands(rustStack, changeType, targets) {
   if (!rustStack) return { smoke: [], focused: [], full: [] };
   return buildStackCommands(rustStack, changeType, (commands) => {
     commands.smoke.push({ name: 'rust-check', description: 'Rust check', cmd: 'cargo check' });
+    commands.smoke.push({ name: 'rust-clippy', description: 'Run cargo clippy for linting', cmd: 'cargo clippy -- -D warnings' });
 
     const rustFiles = targets.filter((file) => /\.rs$/.test(file));
     if (rustFiles.length > 0) {
@@ -255,6 +257,17 @@ function getRustCommands(rustStack, changeType, targets) {
     }
 
     commands.full.push({ name: 'rust-all-tests', description: 'Run all Rust tests', cmd: 'cargo test' });
+  }, { allowedChangeTypes: ['code', 'tests', 'config'] });
+}
+
+function getCppCommands(cppStack, changeType, targets) {
+  if (!cppStack) return { smoke: [], focused: [], full: [] };
+  return buildStackCommands(cppStack, changeType, (commands) => {
+    commands.smoke.push({ name: 'cpp-cmake-build', description: 'CMake build check', cmd: 'cmake --build build' });
+    if (targets.length > 0) {
+      commands.focused.push({ name: 'cpp-compile-check', description: 'Compile affected C/C++ files', cmd: 'cmake --build build --target all' });
+    }
+    commands.full.push({ name: 'cpp-all-tests', description: 'Run all C/C++ tests', cmd: 'ctest --test-dir build' });
   }, { allowedChangeTypes: ['code', 'tests', 'config'] });
 }
 
@@ -281,6 +294,7 @@ const STACK_TARGET_PATTERNS = {
   java: /\.java$|(^|\/)(pom\.xml|build\.gradle|build\.gradle\.kts)$/,
   go: /\.go$|(^|\/)go\.mod$/,
   rust: /\.rs$|(^|\/)Cargo\.toml$/,
+  cpp: /\.(c|cpp|cc|h|hpp)$/,
 };
 
 function splitTargetsByStack(targets) {
@@ -291,6 +305,7 @@ function splitTargetsByStack(targets) {
     java: list.filter((file) => STACK_TARGET_PATTERNS.java.test(file)),
     go: list.filter((file) => STACK_TARGET_PATTERNS.go.test(file)),
     rust: list.filter((file) => STACK_TARGET_PATTERNS.rust.test(file)),
+    cpp: list.filter((file) => STACK_TARGET_PATTERNS.cpp.test(file)),
   };
 }
 
@@ -329,7 +344,8 @@ function generateCommands(stack, changeType, targets, steps = []) {
   const javaCommands = getJavaCommands(stack.java, changeType, split.java);
   const goCommands = getGoCommands(stack.go, changeType, split.go);
   const rustCommands = getRustCommands(stack.rust, changeType, split.rust);
-  const merged = mergeCommandSets(nodeCommands, pythonCommands, javaCommands, goCommands, rustCommands);
+  const cppCommands = getCppCommands(stack.cpp, changeType, split.cpp);
+  const merged = mergeCommandSets(nodeCommands, pythonCommands, javaCommands, goCommands, rustCommands, cppCommands);
 
   // In mixed repos, suppress stack-specific smoke checks when that stack has no changed files.
   if (stack.profile === 'mixed') {
@@ -338,6 +354,7 @@ function generateCommands(stack, changeType, targets, steps = []) {
     const hasJava = split.java.length > 0;
     const hasGo = split.go.length > 0;
     const hasRust = split.rust.length > 0;
+    const hasCpp = split.cpp.length > 0;
 
     merged.smoke = merged.smoke.filter((cmd) => {
       if (!hasNode && cmd.name.startsWith('node-')) return false;
@@ -345,6 +362,7 @@ function generateCommands(stack, changeType, targets, steps = []) {
       if (!hasJava && cmd.name.startsWith('java-')) return false;
       if (!hasGo && cmd.name.startsWith('go-')) return false;
       if (!hasRust && cmd.name.startsWith('rust-')) return false;
+      if (!hasCpp && cmd.name.startsWith('cpp-')) return false;
       return true;
     });
   }

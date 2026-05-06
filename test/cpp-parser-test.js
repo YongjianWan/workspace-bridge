@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 const assert = require('assert');
-const { parseCpp } = require('../src/services/dep-graph/parsers/cpp');
+const { parseCpp } = require('../src/services/dep-graph/parsers');
 
 async function testIncludes() {
   const source = `
@@ -9,8 +9,8 @@ async function testIncludes() {
 #include "local.h"
 #include "utils/helper.h"
 `;
-  const result = parseCpp(source);
-  assert.strictEqual(result.parseMode, 'regex');
+  const result = await parseCpp(source, 'test.c');
+  assert.strictEqual(result.parseMode, 'ast');
   assert(result.imports.includes('stdio.h'));
   assert(result.imports.includes('vector'));
   assert(result.imports.includes('local.h'));
@@ -35,12 +35,13 @@ int main() {
 void helper(int x) {
 }
 `;
-  const result = parseCpp(source);
+  const result = await parseCpp(source, 'test.c');
   assert(result.exports.includes('main'));
   assert(result.exports.includes('helper'));
 
   const mainExport = result.exportRecords.find((r) => r.name === 'main');
   assert.strictEqual(mainExport.kind, 'function');
+  assert(Number.isFinite(mainExport.lineStart), 'Should have lineStart');
 
   const mainFunc = result.functionRecords.find((r) => r.name === 'main');
   assert(mainFunc);
@@ -52,7 +53,7 @@ async function testMacros() {
 #define MAX_SIZE 100
 #define DEBUG
 `;
-  const result = parseCpp(source);
+  const result = await parseCpp(source, 'test.c');
   assert(result.exports.includes('MAX_SIZE'));
   assert(result.exports.includes('DEBUG'));
 
@@ -60,38 +61,124 @@ async function testMacros() {
   assert.strictEqual(maxExport.kind, 'macro');
 }
 
-async function testClassMemberNegative() {
+async function testPointerReturnFunction() {
+  const source = `
+int* foo() {
+  return nullptr;
+}
+
+int** bar() {
+  return nullptr;
+}
+`;
+  const result = await parseCpp(source, 'test.cpp');
+  assert(result.exports.includes('foo'), 'Should export pointer-return function foo');
+  assert(result.exports.includes('bar'), 'Should export double-pointer-return function bar');
+}
+
+async function testReferenceReturnFunction() {
+  const source = `
+int& baz() {
+  static int x = 0;
+  return x;
+}
+`;
+  const result = await parseCpp(source, 'test.cpp');
+  assert(result.exports.includes('baz'), 'Should export reference-return function baz');
+}
+
+async function testCppMethod() {
   const source = `
 class MyClass {
+public:
+  void method();
 };
 
 void MyClass::method() {
   return;
 }
 `;
-  const result = parseCpp(source);
-  assert(!result.exports.includes('method'), 'Class member method should not be exported');
-  assert(
-    !result.functionRecords.some((r) => r.name === 'method'),
-    'Class member method should not be in functionRecords'
-  );
+  const result = await parseCpp(source, 'test.cpp');
+  assert(result.exports.includes('method'), 'Should export out-of-class method definition');
+  const methodFunc = result.functionRecords.find((r) => r.name === 'method');
+  assert(methodFunc, 'method should be in functionRecords');
+}
+
+async function testStaticFilteringC() {
+  const source = `
+static void hidden() {
+}
+
+void visible() {
+}
+`;
+  const result = await parseCpp(source, 'test.c');
+  assert(!result.exports.includes('hidden'), 'static C function should be filtered');
+  assert(result.exports.includes('visible'), 'non-static C function should be exported');
+}
+
+async function testStructClassEnumTypedef() {
+  const cSource = `
+struct Point { int x; };
+enum Color { RED };
+typedef int MyInt;
+`;
+  const cResult = await parseCpp(cSource, 'test.c');
+  assert(cResult.exports.includes('Point'));
+  assert(cResult.exports.includes('Color'));
+  assert(cResult.exports.includes('MyInt'));
+  assert(cResult.exportRecords.some((r) => r.name === 'Point' && r.kind === 'struct'));
+  assert(cResult.exportRecords.some((r) => r.name === 'Color' && r.kind === 'enum'));
+  assert(cResult.exportRecords.some((r) => r.name === 'MyInt' && r.kind === 'typedef'));
+
+  const cppSource = `
+class Box {};
+namespace ns {}
+`;
+  const cppResult = await parseCpp(cppSource, 'test.cpp');
+  assert(cppResult.exports.includes('Box'));
+  assert(cppResult.exports.includes('ns'));
+  assert(cppResult.exportRecords.some((r) => r.name === 'Box' && r.kind === 'class'));
+  assert(cppResult.exportRecords.some((r) => r.name === 'ns' && r.kind === 'namespace'));
+}
+
+async function testTemplate() {
+  const source = `
+template<typename T>
+class Vector {};
+
+template<typename T>
+T max(T a, T b) {
+  return a > b ? a : b;
+}
+`;
+  const result = await parseCpp(source, 'test.cpp');
+  assert(result.exports.includes('Vector'), 'Should export template class');
+  assert(result.exports.includes('max'), 'Should export template function');
+  assert(result.exportRecords.some((r) => r.name === 'Vector' && r.kind === 'class'));
+  assert(result.exportRecords.some((r) => r.name === 'max' && r.kind === 'function'));
 }
 
 async function testEmpty() {
-  const result = parseCpp('');
+  const result = await parseCpp('', 'test.c');
   assert.deepStrictEqual(result.imports, []);
   assert.deepStrictEqual(result.exports, []);
   assert.deepStrictEqual(result.importRecords, []);
   assert.deepStrictEqual(result.exportRecords, []);
   assert.deepStrictEqual(result.functionRecords, []);
-  assert.strictEqual(result.parseMode, 'regex');
+  assert.strictEqual(result.parseMode, 'ast');
 }
 
 (async () => {
   await testIncludes();
   await testFunctions();
   await testMacros();
-  await testClassMemberNegative();
+  await testPointerReturnFunction();
+  await testReferenceReturnFunction();
+  await testCppMethod();
+  await testStaticFilteringC();
+  await testStructClassEnumTypedef();
+  await testTemplate();
   await testEmpty();
   console.log('cpp-parser-test: OK');
 })();

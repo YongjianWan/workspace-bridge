@@ -2,6 +2,7 @@ const path = require('path');
 
 let parserModule = null;
 const languageCache = new Map();
+const MAX_LANGUAGE_CACHE_SIZE = 12; // defensive cap: 9 langs + headroom
 
 async function getParserModule() {
   if (parserModule) return parserModule;
@@ -27,6 +28,15 @@ async function loadLanguage(langName) {
     const pkgJson = require.resolve('tree-sitter-wasms/package.json');
     const wasmPath = path.join(path.dirname(pkgJson), 'out', `tree-sitter-${langName}.wasm`);
     const lang = await mod.Language.load(wasmPath);
+    // Defensive LRU-like eviction: if cache exceeds cap, drop oldest entry
+    if (languageCache.size >= MAX_LANGUAGE_CACHE_SIZE) {
+      const firstKey = languageCache.keys().next().value;
+      if (firstKey !== undefined) {
+        const oldLang = languageCache.get(firstKey);
+        languageCache.delete(firstKey);
+        try { oldLang.delete(); } catch {}
+      }
+    }
     languageCache.set(langName, lang);
     return lang;
   } catch {
