@@ -125,4 +125,68 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 ---
 
+## 下一会话指令（模式 A：语言注册表重构）
+
+> **目标**：把新增语言从"改 3 个文件"降到"改 1 个文件"。
+> **参考**：AGENTS.md §Reference 与架构取舍 → GitNexus 模式 1（语言注册表）。
+
+### 前置检查（必须执行）
+
+```bash
+node test/runner.js          # 期望: 70/70 PASS
+node cli.js audit-summary --cwd . --json --quiet
+# 期望: healthScore=5/5, deadExports=0, unresolved=0, cycles=0, totalFiles≈138
+```
+
+### 任务：模式 A — `defineLanguage()` 统一接口
+
+**Step 1：实现注册表基础设施** ✅ 骨架已新建 `src/services/dep-graph/parsers/registry-core.js`
+- 确认 `defineLanguage()` + `LanguageRegistry` 接口不变
+- `register()` / `findByExt()` / `getAllExts()` / `getFilePatterns(workspace)`
+
+**Step 2：新建 `src/services/dep-graph/parsers/registry.js`**
+- 引入 `registry-core.js`
+- 引入全部 9 个 parser 函数
+- 用 `defineLanguage()` 注册 9 种语言，配置包含：`name, exts, parser, async, needsFilePath, filePatterns, condition`
+- `condition` 函数对应 `file-index.js` 原 `getFilePatterns()` 中的 workspace 特征判断
+- 导出 `const registry = new LanguageRegistry()`
+
+**Step 3：重构 `src/services/dep-graph.js`**
+- 删除 `PARSER_REGISTRY` 硬编码数组
+- 改为 `const { registry } = require('./dep-graph/parsers/registry');`
+- `analyzeFile()` 中 `PARSER_REGISTRY.find(...)` → `registry.findByExt(ext)`
+
+**Step 4：重构 `src/services/file-index.js`**
+- 引入 `const { registry } = require('../dep-graph/parsers/registry');`
+- `getFilePatterns()` 方法体替换为 `return registry.getFilePatterns(this.workspace);`
+- 保留 fallback 语义（注册表内部已处理）
+
+**Step 5：更新 `src/services/dep-graph/parsers/index.js`**
+- 保留各 parser 独立导出（外部测试/脚本可能直接引用）
+- 新增导出 `const { registry, defineLanguage, LanguageRegistry } = require('./registry');`
+- 使 `parsers/index.js` 成为 parser + registry 的统一入口
+
+**Step 6：验证**
+- `node test/runner.js` 70/70 PASS
+- `node cli.js audit-summary --cwd . --json --quiet` healthScore=5/5
+- 新增一个 dummy 语言注册，确认只改 `registry.js` 一处即可
+
+### 关键文件清单
+
+| 文件 | 操作 | 原因 |
+|------|------|------|
+| `src/services/dep-graph/parsers/registry-core.js` | 确认/微调 | 基础设施，已新建 |
+| `src/services/dep-graph/parsers/registry.js` | **新建** | 9 种语言统一注册 |
+| `src/services/dep-graph.js` | 修改 | 删除 `PARSER_REGISTRY`，用 `registry.findByExt` |
+| `src/services/file-index.js` | 修改 | `getFilePatterns()` 委托给 registry |
+| `src/services/dep-graph/parsers/index.js` | 修改 | 导出 registry |
+
+### 风险点
+
+- `file-index.js` 引入 `parsers/registry.js` 是否产生循环依赖？**否** — registry 不引用 file-index。
+- `condition(workspace)` 函数必须与 `file-index.js` 原 `getFilePatterns()` 逻辑逐条对齐，否则会导致某些语言文件漏扫。
+- `needsFilePath` 和 `async` 标志必须保留，否则 `analyzeFile()` 的参数传递会崩溃。
+
+---
+
 *Last updated: 2026-05-06*
