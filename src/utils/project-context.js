@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const { pathExists, readJsonSafe, toPosixPath } = require('./path');
 
@@ -129,11 +130,47 @@ function pathMatchesRule(relativePath, rulePath) {
   return relativePath === rulePath || relativePath.startsWith(`${rulePath}/`);
 }
 
-function loadWorkspaceConfig(root) {
+function loadWorkspaceConfig(root, options = {}) {
   const configPath = path.join(root, '.workspace-bridge.json');
   if (!pathExists(configPath)) return null;
-  const config = readJsonSafe(configPath);
-  if (!config) return null;
+
+  let config;
+  try {
+    config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch (err) {
+    if (!options.quiet) {
+      console.error(`[Config] Invalid JSON in ${configPath}: ${err.message}`);
+    }
+    return null;
+  }
+
+  // Lightweight schema validation: warn on unknown keys / wrong types,
+  // but still load the file so the user isn't blocked.
+  if (!options.quiet) {
+    const validTopKeys = new Set(['directories']);
+    for (const key of Object.keys(config)) {
+      if (!validTopKeys.has(key)) {
+        console.error(`[Config] Warning: unknown top-level key "${key}" in ${configPath}`);
+      }
+    }
+
+    const dirs = config.directories;
+    if (dirs !== undefined && (typeof dirs !== 'object' || Array.isArray(dirs))) {
+      console.error(`[Config] Warning: "directories" must be an object in ${configPath}`);
+    } else if (dirs) {
+      const validDirKeys = new Set(['active', 'reference', 'archive', 'generated']);
+      for (const [key, value] of Object.entries(dirs)) {
+        if (!validDirKeys.has(key)) {
+          console.error(`[Config] Warning: unknown directories key "${key}" in ${configPath}`);
+        } else if (!Array.isArray(value)) {
+          console.error(`[Config] Warning: directories.${key} must be an array in ${configPath}`);
+        } else if (!value.every((v) => typeof v === 'string')) {
+          console.error(`[Config] Warning: directories.${key} must be an array of strings in ${configPath}`);
+        }
+      }
+    }
+  }
+
   return {
     directories: {
       active: ensureArray(config.directories?.active),

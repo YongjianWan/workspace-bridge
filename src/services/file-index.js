@@ -42,6 +42,7 @@ class FileIndex {
   async build(timeoutMs = DEFAULTS.FILE_INDEX_BUILD_TIMEOUT_MS, options = {}) {
     const startTime = Date.now();
     this.indexedCount = 0;
+    this.processedCount = 0;
     const shouldWatch = options.watch !== false;
     if (Array.isArray(options.excludeDirs)) {
       this.excludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS, ...options.excludeDirs])];
@@ -51,12 +52,38 @@ class FileIndex {
 
     this.pruneExcludedCacheEntries();
 
+    const controller = new AbortController();
+    const allFiles = [];
+
+    // Phase 1: discover all files across patterns
     for (const pattern of patterns) {
       if (Date.now() - startTime > timeoutMs) {
         console.error(`[FileIndex] Build timed out after ${Date.now() - startTime}ms`);
+        controller.abort();
         break;
       }
-      await this.indexByPattern(pattern, DEFAULTS.FILE_INDEX_MAX_DEPTH, DEFAULTS.FILE_INDEX_PATTERN_TIMEOUT_MS);
+      if (controller.signal.aborted) break;
+
+      const ext = pattern.replace('**/*', '');
+      try {
+        for await (const file of this.findFilesAsync(this.root, ext, DEFAULTS.FILE_INDEX_MAX_DEPTH, controller.signal)) {
+          allFiles.push(file);
+        }
+      } catch (e) {
+        if (controller.signal.aborted) {
+          console.error(`[FileIndex] Build timed out after ${Date.now() - startTime}ms`);
+        } else {
+          throw e;
+        }
+      }
+    }
+
+    // Phase 2: process with progress
+    if (!this.quiet && allFiles.length > 0) {
+      console.error(`[FileIndex] Discovered ${allFiles.length} files to index`);
+    }
+    if (allFiles.length > 0) {
+      await this.processFilesWithLimit(allFiles, this.concurrency, controller.signal);
     }
 
     // Remove cache entries for files deleted since last build
@@ -152,11 +179,16 @@ class FileIndex {
    */
   async processFilesWithLimit(files, limit, signal) {
     const executing = new Set();
+    const total = files.length;
 
     for (const file of files) {
       if (signal?.aborted) break;
       const promise = this.processFile(file).then(() => {
         executing.delete(promise);
+        this.processedCount++;
+        if (!this.quiet && total > 0 && this.processedCount % DEFAULTS.FILE_INDEX_PROGRESS_BATCH === 0) {
+          console.error(`[FileIndex] ${this.processedCount}/${total} indexed...`);
+        }
       });
       executing.add(promise);
 
@@ -194,7 +226,7 @@ class FileIndex {
   }
 
   _applyWorkspaceExcludeDirs() {
-    const wsConfig = loadWorkspaceConfig(this.root);
+    const wsConfig = loadWorkspaceConfig(this.root, { quiet: this.quiet });
     if (!wsConfig?.directories) return;
     const extra = [
       ...wsConfig.directories.reference,
