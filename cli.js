@@ -282,6 +282,10 @@ function parseCliArgs(argv) {
     throw new Error(`Invalid --trend-granularity value: ${trendGranularity}. Expected day|week`);
   }
 
+  if (Number.isFinite(raw.maxDepth) && raw.maxDepth <= 0) {
+    throw new Error(`Invalid --max-depth value: ${raw.maxDepth}. Expected a positive integer`);
+  }
+
   return {
     command,
     cwd: raw.cwd || process.cwd(),
@@ -783,12 +787,7 @@ async function main() {
     return;
   }
 
-  const container = new ServiceContainer();
-  const originalConsoleError = console.error;
-
-  if (parsed.quiet) {
-    console.error = () => {};
-  }
+  const container = new ServiceContainer({ quiet: parsed.quiet });
 
   try {
     const initialized = await container.initialize(parsed.cwd, TIMEOUTS.INIT_TIMEOUT_MS, {
@@ -825,14 +824,13 @@ async function main() {
     }
   } catch (err) {
     if (container && container.initError && err === container.initError && err.stack) {
-      originalConsoleError(err.stack);
+      console.error(err.stack);
     } else {
-      originalConsoleError(err.message || String(err));
+      console.error(err.message || String(err));
     }
     process.exitCode = 1;
   } finally {
     await container.shutdown();
-    console.error = originalConsoleError;
   }
 }
 

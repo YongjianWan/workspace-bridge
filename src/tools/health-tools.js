@@ -55,6 +55,18 @@ function detectTestConfig(root) {
   return { found: frameworks.length > 0, frameworks };
 }
 
+function checkParserAvailability() {
+  try {
+    require('@babel/parser');
+    return { available: true };
+  } catch {
+    return {
+      available: false,
+      warning: '@babel/parser not available — JS/TS analysis will use regex fallback with reduced accuracy',
+    };
+  }
+}
+
 const FIX_SUGGESTIONS = {
   readme: { action: 'Create README.md with project description and usage instructions', severity: 'medium' },
   license: { action: 'Add a LICENSE file (e.g., MIT, Apache-2.0)', severity: 'low' },
@@ -82,6 +94,8 @@ function projectHealth(args, container) {
     testConfig: detectTestConfig(root),
   };
 
+  const parserAvailability = workspace.hasPackageJson ? checkParserAvailability() : { available: true, skipped: true };
+
   const coverageDirs = ['coverage', '.nyc_output', 'htmlcov', '.coverage'];
   const existingCoverageDir = coverageDirs.find(d => pathExists(path.join(root, d)));
 
@@ -103,6 +117,14 @@ function projectHealth(args, container) {
     .filter(([key, value]) => !value.found && FIX_SUGGESTIONS[key])
     .map(([key]) => ({ check: key, ...FIX_SUGGESTIONS[key] }));
 
+  if (!parserAvailability.available && !parserAvailability.skipped) {
+    fixes.push({
+      check: 'parserAvailability',
+      action: 'Install @babel/parser for accurate JS/TS dependency analysis (npm install @babel/parser)',
+      severity: 'high',
+    });
+  }
+
   return {
     ok: true,
     workspaceRoot: root,
@@ -110,6 +132,7 @@ function projectHealth(args, container) {
     packageManager: detectNodePackageManager(root),
     checks,
     fixes,
+    parserAvailability,
     testCoverage: {
       hasCoverageScript: Boolean(coverageScript),
       coverageScript,

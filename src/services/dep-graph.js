@@ -111,6 +111,7 @@ class DependencyGraph {
     this.entryFiles = this._collectEntryFiles();
     this.excludeDirs = options.excludeDirs || [];
     this.projectContext = options.projectContext || null;
+    this.quiet = options.quiet || false;
   }
 
   shouldExclude(filePath) {
@@ -271,7 +272,14 @@ class DependencyGraph {
     this.buildReverseGraph();
 
     const cacheHitRate = files.length > 0 ? Math.round((cachedFiles.length / files.length) * 100) : 0;
-    console.error(`[DepGraph] Built in ${Date.now() - startTime}ms: ${this.graph.size} files (${cacheHitRate}% cached)`);
+    if (!this.quiet) {
+      console.error(`[DepGraph] Built in ${Date.now() - startTime}ms: ${this.graph.size} files (${cacheHitRate}% cached)`);
+    }
+    // Guard: if graph has files but zero edges, downstream analysis will produce false positives.
+    const totalImports = Array.from(this.graph.values()).reduce((sum, i) => sum + i.imports.length, 0);
+    if (this.graph.size > 0 && totalImports === 0) {
+      console.error('[DepGraph] WARNING: Dependency graph appears empty (0 edges). Results may contain false positives.');
+    }
   }
 
   /**
@@ -455,7 +463,7 @@ class DependencyGraph {
       }
     }
 
-    if (reParsed > 0 || skipped > 0) {
+    if (!this.quiet && (reParsed > 0 || skipped > 0)) {
       console.error(`[DepGraph] Incremental update: ${reParsed} re-parsed, ${skipped} skipped in ${Date.now() - startTime}ms`);
     }
     } finally {
@@ -671,7 +679,14 @@ class DependencyGraph {
       if (this.isKnownEntryFile(filePath, info.exports)) continue;
       const importers = this.getDependents(filePath);
       if (importers.length === 0) {
-        deadExports.push({ file: filePath, exports: info.exports, confidence: 'high' });
+        // When the dependency graph has many files but suspiciously few edges,
+        // the parser may be unavailable or the project uses an unsupported module
+        // system. Downgrade confidence to avoid high-confidence false positives.
+        const stats = this.getStats();
+        const edgeRatio = stats.files > 0 ? stats.totalImports / stats.files : 0;
+        const graphUnreliable = stats.files > 1 && edgeRatio < 0.1;
+        const confidence = graphUnreliable ? 'low' : 'high';
+        deadExports.push({ file: filePath, exports: info.exports, confidence });
         continue;
       }
 

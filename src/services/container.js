@@ -10,11 +10,12 @@ const { ProjectContext } = require('../utils/project-context');
 const { TIMEOUTS, DEFAULTS } = require('../config/constants');
 
 class ServiceContainer {
-  constructor() {
+  constructor(options = {}) {
     this.initialized = false;
     this.initializing = false;
     this.initError = null;
     this.workspaceRoot = null;
+    this.quiet = options.quiet || false;
     
     // Services
     this.cache = null;
@@ -62,7 +63,9 @@ class ServiceContainer {
 
       this.initialized = true;
       this.indexBuildTime = Date.now();
-      console.error(`[Container] Ready: ${this.fileIndex.getStats().files} files indexed`);
+      if (!this.quiet) {
+        console.error(`[Container] Ready: ${this.fileIndex.getStats().files} files indexed`);
+      }
       
       return true;
     } catch (err) {
@@ -81,7 +84,9 @@ class ServiceContainer {
     // 记录工作区根目录来源
     const envWorkspaceRoot = process.env.WORKSPACE_ROOT;
     const source = envWorkspaceRoot ? 'WORKSPACE_ROOT env' : 'auto-detected';
-    console.error(`[Container] Initializing for ${this.workspaceRoot} (${source})`);
+    if (!this.quiet) {
+      console.error(`[Container] Initializing for ${this.workspaceRoot} (${source})`);
+    }
   }
 
   _initCache() {
@@ -100,6 +105,7 @@ class ServiceContainer {
     this.fileIndex = new FileIndex(this.workspaceRoot, this.cache, {
       excludeDirs: options.excludeDirs || [],
       projectContext: this.projectContext,
+      quiet: this.quiet,
     });
     await this.fileIndex.build(DEFAULTS.FILE_INDEX_BUILD_TIMEOUT_MS, {
       watch: options.watch !== false,
@@ -115,6 +121,7 @@ class ServiceContainer {
     this.depGraph = new DependencyGraph(this.workspaceRoot, this.cache, {
       excludeDirs: options.excludeDirs || [],
       projectContext: this.projectContext,
+      quiet: this.quiet,
     });
     await this.depGraph.build();
   }

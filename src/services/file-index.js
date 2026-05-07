@@ -33,6 +33,7 @@ class FileIndex {
     this.concurrency = options.concurrency || DEFAULT_CONCURRENCY;
     this.indexedCount = 0;
     this.excludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS, ...(options.excludeDirs || [])])];
+    this.quiet = options.quiet || false;
   }
 
   /**
@@ -66,7 +67,9 @@ class FileIndex {
       this.startWatching();
     }
 
-    console.error(`[FileIndex] Built in ${Date.now() - startTime}ms, indexed ${this.indexedCount} files`);
+    if (!this.quiet) {
+      console.error(`[FileIndex] Built in ${Date.now() - startTime}ms, indexed ${this.indexedCount} files`);
+    }
   }
 
   getFilePatterns() {
@@ -265,7 +268,9 @@ class FileIndex {
       }
     }
     if (pruned > 0 && process.env.DEBUG) {
-      console.error(`[FileIndex] Pruned ${pruned} deleted files from cache`);
+      if (!this.quiet) {
+        console.error(`[FileIndex] Pruned ${pruned} deleted files from cache`);
+      }
     }
   }
 
