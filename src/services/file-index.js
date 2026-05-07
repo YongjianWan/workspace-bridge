@@ -245,7 +245,7 @@ class FileIndex {
   }
 
   async pruneDeletedCacheEntries() {
-    let pruned = 0;
+    const prunedFiles = [];
     // Defensive: scan both fileMetadata and parseResults to catch any
     // historical inconsistency where parseResults has a key not in fileMetadata.
     const allCachedFiles = new Set([
@@ -260,18 +260,19 @@ class FileIndex {
       for (const filePath of batch) {
         if (fs.existsSync(filePath)) continue;
         this._removeCacheEntry(filePath);
-        pruned += 1;
+        prunedFiles.push(filePath);
       }
       // Yield to event loop between batches
       if (i + batchSize < files.length) {
         await new Promise((resolve) => setImmediate(resolve));
       }
     }
-    if (pruned > 0 && process.env.DEBUG) {
+    if (prunedFiles.length > 0 && process.env.DEBUG) {
       if (!this.quiet) {
-        console.error(`[FileIndex] Pruned ${pruned} deleted files from cache`);
+        console.error(`[FileIndex] Pruned ${prunedFiles.length} deleted files from cache`);
       }
     }
+    return prunedFiles;
   }
 
   async indexFile(filePath) {
@@ -334,12 +335,19 @@ class FileIndex {
 
     try {
       const watcher = fs.watch(this.root, { recursive: true }, (eventType, filename) => {
-        if (!filename) return;
+        if (!filename) {
+          // On some platforms (notably Windows) delete/rename events may not
+          // provide a filename. Defensively prune disappeared files.
+          if (eventType === 'rename') {
+            setImmediate(() => this._handleRenameWithoutFilename());
+          }
+          return;
+        }
         const normalizedFilename = Buffer.isBuffer(filename) ? filename.toString() : filename;
         const fullPath = path.join(this.root, normalizedFilename);
         if (this.shouldExclude(fullPath)) return;
         this.pendingUpdates.add(fullPath);
-        
+
         // Debounce updates
         if (this.updateTimer) clearTimeout(this.updateTimer);
         this.updateTimer = setTimeout(() => this.processPending(), DEFAULTS.WATCH_DEBOUNCE_MS);
@@ -354,6 +362,17 @@ class FileIndex {
       this.watchers.push(watcher);
     } catch (e) {
       console.error('[FileIndex] Watch failed:', e.message);
+    }
+  }
+
+  async _handleRenameWithoutFilename() {
+    const pruned = await this.pruneDeletedCacheEntries();
+    if (pruned.length > 0 && this.onPendingProcessed) {
+      try {
+        await this.onPendingProcessed(pruned);
+      } catch (e) {
+        console.error(`[FileIndex] onPendingProcessed failed:`, e.message);
+      }
     }
   }
 

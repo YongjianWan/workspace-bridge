@@ -1,0 +1,76 @@
+#!/usr/bin/env node
+/**
+ * Regression test for #43: fs.watch rename vs delete.
+ */
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { FileIndex } = require('../src/services/file-index');
+const { WorkspaceCache } = require('../src/services/cache');
+
+async function testPruneDeletedCacheEntriesReturnsPrunedFiles() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-prune-'));
+  fs.writeFileSync(path.join(root, 'a.js'), 'export const a = 1;\n');
+  fs.writeFileSync(path.join(root, 'b.js'), 'export const b = 2;\n');
+
+  const cache = new WorkspaceCache(root);
+  const index = new FileIndex(root, cache);
+  await index.build(30000, { watch: false });
+
+  fs.unlinkSync(path.join(root, 'a.js'));
+
+  const pruned = await index.pruneDeletedCacheEntries();
+  assert(pruned.some((f) => f.includes('a.js')), 'pruned should include a.js');
+  assert(!pruned.some((f) => f.includes('b.js')), 'pruned should not include b.js');
+
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+async function testRenameWithoutFilenameTriggersPruneAndCallback() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-rename-'));
+  fs.writeFileSync(path.join(root, 'a.js'), 'export const a = 1;\n');
+
+  const cache = new WorkspaceCache(root);
+  const index = new FileIndex(root, cache);
+
+  // Mock fs.watch to capture the callback
+  const originalWatch = fs.watch;
+  let capturedCallback = null;
+  fs.watch = function (p, options, callback) {
+    capturedCallback = callback;
+    return { on() {}, close() {} };
+  };
+
+  await index.build(30000, { watch: true });
+
+  fs.unlinkSync(path.join(root, 'a.js'));
+
+  let prunedFiles = null;
+  index.onPendingProcessed = (files) => {
+    prunedFiles = files;
+  };
+
+  // Trigger rename event without filename (platform-specific edge case)
+  capturedCallback('rename', null);
+
+  // Wait for setImmediate + prune + callback
+  await new Promise((r) => setTimeout(r, 200));
+
+  assert(prunedFiles, 'onPendingProcessed should be called');
+  assert(prunedFiles.some((f) => f.includes('a.js')), 'pruned files should include a.js');
+
+  fs.watch = originalWatch;
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+async function main() {
+  await testPruneDeletedCacheEntriesReturnsPrunedFiles();
+  await testRenameWithoutFilenameTriggersPruneAndCallback();
+  console.log('file-index-rename-test: ok');
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
