@@ -19,6 +19,7 @@
     "test:integration-core": "node test/integration-core-test.js",
     "test:roles": "node test/role-detection-test.js",
     "test:all": "node test/runner.js",
+    "test:coverage": "c8 --all --include='src/**' --reporter=text --reporter=html node test/runner.js",
     "benchmark:perf": "node scripts/benchmark-perf.js",
     "benchmark": "node scripts/benchmark-perf.js --files 620 --changes 12 --max-ms 15000 --max-function-ms 60000",
     "benchmark:compare": "node benchmark/compare.js --base main",
@@ -61,5 +62,8 @@
     "@babel/parser": "^7.29.2",
     "tree-sitter-wasms": "^0.1.13",
     "web-tree-sitter": "^0.25.3"
+  },
+  "devDependencies": {
+    "c8": "^11.0.0"
   }
 }

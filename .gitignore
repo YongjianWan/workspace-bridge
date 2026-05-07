@@ -12,5 +12,6 @@ Thumbs.db
 .workspace-bridge-cache.json.tmp-*
 test-temp/
 wb-analysis-fixture/
+coverage/
 
 /reference/GitNexus
