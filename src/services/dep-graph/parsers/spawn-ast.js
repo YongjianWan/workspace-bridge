@@ -16,17 +16,29 @@ async function spawnPythonASTParser(scriptName, content, timeoutMs = TIMEOUTS.PY
     const python = spawn(pythonCmd, [scriptPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
-      timeout: timeoutMs,
     });
+
+    // Do not let a hung Python parser keep the Node event loop alive.
+    if (typeof python.unref === 'function') {
+      python.unref();
+    }
 
     let output = '';
     let errorOutput = '';
     let killed = false;
 
-    const timer = setTimeout(() => {
+    const termTimer = setTimeout(() => {
       killed = true;
       python.kill('SIGTERM');
     }, timeoutMs);
+
+    const killTimer = setTimeout(() => {
+      try {
+        python.kill('SIGKILL');
+      } catch (_) {
+        // Already exited or permission denied
+      }
+    }, timeoutMs + TIMEOUTS.PYTHON_AST_SIGKILL_DELAY_MS);
 
     python.stdout.on('data', (data) => {
       output += data.toString('utf8');
@@ -47,7 +59,8 @@ async function spawnPythonASTParser(scriptName, content, timeoutMs = TIMEOUTS.PY
     });
 
     python.on('close', (code) => {
-      clearTimeout(timer);
+      clearTimeout(termTimer);
+      clearTimeout(killTimer);
       if (killed || code !== 0) {
         if (process.env.DEBUG) {
           console.error(`[DepGraph] ${scriptName} parse failed: exitCode=${code}, stderr=${errorOutput}`);
@@ -67,7 +80,8 @@ async function spawnPythonASTParser(scriptName, content, timeoutMs = TIMEOUTS.PY
     });
 
     python.on('error', (err) => {
-      clearTimeout(timer);
+      clearTimeout(termTimer);
+      clearTimeout(killTimer);
       if (process.env.DEBUG) {
         console.error(`[DepGraph] ${scriptName} spawn failed: ${err.message}`);
       }
