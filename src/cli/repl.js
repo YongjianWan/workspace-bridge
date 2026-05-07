@@ -271,6 +271,16 @@ async function executeCommand(container, line) {
 async function startRepl(options) {
   const container = new ServiceContainer();
   let rl = null;
+  let shuttingDown = false;
+
+  // Defensive: fast double Ctrl+C should not bypass container.shutdown().
+  // The handler stays registered until shutdown completes so that the
+  // default process exit is suppressed during cleanup.
+  const sigintHandler = () => {
+    if (shuttingDown) return;
+    if (rl) rl.close();
+  };
+  process.on('SIGINT', sigintHandler);
 
   try {
     const initialized = await container.initialize(options.cwd, TIMEOUTS.INIT_TIMEOUT_MS, {
@@ -294,12 +304,6 @@ async function startRepl(options) {
       rl.close();
       // for await...of loop naturally ends, enters finally
     });
-
-    // Defensive: fast double Ctrl+C may bypass rl's SIGINT handler
-    const sigintHandler = () => {
-      if (rl) rl.close();
-    };
-    process.on('SIGINT', sigintHandler);
 
     rl.prompt();
 
@@ -336,9 +340,17 @@ async function startRepl(options) {
     console.error('REPL failed:', err.message);
     process.exitCode = 1;
   } finally {
-    if (rl) rl.close();
+    shuttingDown = true;
+    if (rl) {
+      rl.close();
+      rl = null;
+    }
+    try {
+      await container.shutdown();
+    } catch (e) {
+      if (process.env.DEBUG) console.error('[REPL] shutdown failed:', e.message);
+    }
     process.removeListener('SIGINT', sigintHandler);
-    await container.shutdown();
   }
 }
 
