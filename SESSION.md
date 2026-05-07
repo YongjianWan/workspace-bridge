@@ -134,9 +134,9 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 | Issue | 文件 | 问题 | 预估工作量 |
 |-------|------|------|-----------|
-| **#51** | `dep-graph.js` | `_scanSymbolUsageInImporters()` O(N×M)，大项目性能悬崖 | 中（内容缓存 / 正则缓存） |
-| **#52** | `dep-graph.js` | `_importCache` / `_deadExportCache` 无上限 → 长期 REPL OOM | 中（LRU 实现） |
-| **#53** | `container.js` | `ensureReady()` busy-loop 50ms sleep，initError 时浪费 CPU | 小（共享 Promise） |
+| **#51** | `dep-graph.js` | `_scanSymbolUsageInImporters()` O(N×M)，大项目性能悬崖 | ✅ 已修复 |
+| **#52** | `dep-graph.js` | `_importCache` / `_deadExportCache` 无上限 → 长期 REPL OOM | ⏸ 跳过 — 当前代码中不存在这两个缓存 |
+| **#53** | `container.js` | `ensureReady()` busy-loop 50ms sleep，initError 时浪费 CPU | ✅ 已修复 |
 
 ---
 
@@ -152,21 +152,18 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### 本轮已完成
 
-- #39: `processPending()` 原子替换 Set
-- #40: REPL `shuttingDown` guard + shutdown try-catch
-- #41: Python `unref()` + SIGKILL fallback
-- #42: DiagnosticsEngine 队列驱动 + `MAX_SCHEDULED_CHECKS`
-- #43: `fs.watch` rename 无 filename 时 prune + `onPendingProcessed`
-- #48: cache `.bak` 备份 + 降级读取
-- #47: 删除 `safeRegexTest()` placebo
+- #51: `_scanSymbolUsageInImporters()` 内容级缓存 + 正则缓存实例化（`SCAN_SYMBOL_CONTENT_CACHE_MAX` 防御上限）
+- #53: `ensureReady()` busy-loop → 共享 Promise（消除 50ms polling，`sleep()` 删除）
+- `healthScoreNumeric`: `projectHealth` 新增结构化数字字段 `{ passed, total, ratio }`，AI 无需再解析字符串
+- `validation-advice.js` 拆分：274 行按 5 项职责拆分为 `metrics.js` / `phases.js` / `summary.js` / `risk-actions.js` + 精简入口
 
 ### 下一步方向
 
-**建议顺序**：#51 → #52 → #53
+P2 性能/体验债：#51 ✅ / #52 ⏸ / #53 ✅
 
-1. 每次只修 **1 个 issue**，commit 信息注明 `fix: #XX <title>`
-2. 修完即跑 `node test/runner.js`，确保 76/76 PASS
-3. 修完后在 GitHub 关闭对应 issue
+1. #52 跳过原因：当前代码中不存在 `_importCache` / `_deadExportCache`；如需添加结果缓存，请单独创建 issue 并补测试
+2. 如需继续修其他 open bug，请按 AGENTS.md 规则执行（每次 1 个，跑 `node test/runner.js`）
+3. 如需做 feature，请从 ROADMAP.md 的「产品功能缺口」或「用户体验缺口」中选
 
 ---
 
