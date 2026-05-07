@@ -194,6 +194,7 @@ async function getChangedFiles(root, options = {}) {
       }
       if (isTempFile(file)) continue;
       if (path.basename(file) === '.workspace-bridge-cache.json') continue;
+      if (path.basename(file) === '.workspace-bridge-cache.json.bak') continue;
       files.add(file);
     }
   }

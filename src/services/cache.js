@@ -97,25 +97,25 @@ class WorkspaceCache {
    * Load from disk if exists and fresh
    */
   load() {
-    try {
-      if (!fs.existsSync(this.cachePath)) {
+    const tryLoad = (filePath) => {
+      if (!fs.existsSync(filePath)) {
         return false;
       }
 
-      const stat = fs.statSync(this.cachePath);
+      const stat = fs.statSync(filePath);
       const age = Date.now() - stat.mtimeMs;
-      
+
       if (age > CACHE_TTL_MS) {
         return false;
       }
 
-      const data = JSON.parse(fs.readFileSync(this.cachePath, 'utf8'));
-      
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+
       // Version check
       if (data.version !== CACHE_VERSION) {
         return false;
       }
-      
+
       // Restore data
       this.workspaceInfo = data.workspaceInfo || null;
       this.fileMetadata = this.normalizeFileMapEntries(data.fileMetadata || []);
@@ -125,8 +125,25 @@ class WorkspaceCache {
       this.lastSaved = stat.mtimeMs;
 
       return true;
+    };
+
+    try {
+      return tryLoad(this.cachePath);
     } catch (err) {
       console.error('[Cache] Load failed:', err.message);
+      // Attempt fallback to backup
+      const backupPath = `${this.cachePath}.bak`;
+      try {
+        if (fs.existsSync(backupPath)) {
+          const ok = tryLoad(backupPath);
+          if (ok) {
+            console.error('[Cache] Loaded from backup after primary corruption');
+            return true;
+          }
+        }
+      } catch (backupErr) {
+        console.error('[Cache] Backup load also failed:', backupErr.message);
+      }
       return false;
     }
   }
@@ -168,6 +185,12 @@ class WorkspaceCache {
     }
 
     try {
+      // Backup existing cache before overwriting so corruption during save
+      // does not destroy the only copy.
+      if (fs.existsSync(this.cachePath)) {
+        fs.copyFileSync(this.cachePath, `${this.cachePath}.bak`);
+      }
+
       tempPath = `${this.cachePath}.tmp-${process.pid}-${Date.now()}`;
       await writeFile(tempPath, serialized, 'utf8');
       await rename(tempPath, this.cachePath);
