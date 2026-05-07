@@ -30,7 +30,7 @@ function resolveCommandForPlatform(command) {
 function runCommandSecure(command, args, cwd, timeoutMs = TIMEOUTS.COMMAND_DEFAULT_MS) {
   return new Promise((resolve) => {
     const resolvedCommand = resolveCommandForPlatform(command);
-    const useWindowsCmdShim = process.platform === 'win32' && /\.cmd$/i.test(resolvedCommand);
+    const useWindowsCmdShim = process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolvedCommand);
     const spawnCommand = useWindowsCmdShim ? 'cmd.exe' : resolvedCommand;
     const spawnArgs = useWindowsCmdShim
       ? ['/d', '/s', '/c', resolvedCommand, ...args]

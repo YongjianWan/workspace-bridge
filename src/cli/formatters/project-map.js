@@ -372,9 +372,7 @@ function buildProjectMap(depGraph, options = {}) {
     highlightedFiles,
   };
 
-  if (compact) {
-    result.summary = buildCompactSummary(issueOverlay);
-  }
+  result.summary = buildCompactSummary(issueOverlay);
 
   return result;
 }

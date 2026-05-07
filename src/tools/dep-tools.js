@@ -90,7 +90,7 @@ async function dependencyGraph(args, container) {
       const affectedTests = container.depGraph.findAffectedTests(filePath, maxDepth);
       return {
         ok: true,
-        source: args.file,
+        file: args.file,
         resolvedPath: filePath,
         maxDepth,
         affectedTestCount: affectedTests.length,
