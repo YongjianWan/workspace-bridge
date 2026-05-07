@@ -22,6 +22,7 @@ const {
   getHeuristicLanguageFamily,
   isTestLikeFile,
 } = require('../utils/test-detector');
+const { ENTRY_BASE_NAMES } = require('../utils/project-context');
 const { CACHE_FILENAME } = require('./cache');
 
 const readFile = promisify(fs.readFile);
@@ -93,7 +94,7 @@ const FRAMEWORK_MANAGED_PATTERNS = [
 ];
 
 // #19: known config file names as a Set
-const KNOWN_CONFIG_NAMES = new Set(['vite.config.js', 'vite.config.ts', 'eslint.config.js']);
+const KNOWN_CONFIG_NAMES = new Set(['vite.config.js', 'vite.config.ts', 'vitest.config.ts', 'eslint.config.js']);
 
 // #21: __main__ regex promoted to module-level constant
 const PYTHON_MAIN_PATTERN = /if\s+__name__\s*==\s*['"]__main__['"]\s*:/;
@@ -190,6 +191,9 @@ class DependencyGraph {
       return true;
     }
     if (KNOWN_CONFIG_NAMES.has(base)) {
+      return true;
+    }
+    if (ENTRY_BASE_NAMES.has(base)) {
       return true;
     }
 
@@ -352,6 +356,18 @@ class DependencyGraph {
         .filter(Boolean);
       const resolvedImports = resolvedImportRecords.map((record) => record.resolved).filter((imp) => imp !== graphKey);
 
+      // L2-28: infer parseModeReason so consumers can tell why a file fell back to regex.
+      let parseModeReason = 'unsupported-extension';
+      if (entry) {
+        if (parseMode === 'ast') {
+          parseModeReason = 'ast-success';
+        } else if (entry.async) {
+          parseModeReason = 'regex-fallback';
+        } else {
+          parseModeReason = 'regex-native';
+        }
+      }
+
       this.graph.set(graphKey, {
         imports: resolvedImports,
         exports,
@@ -360,6 +376,7 @@ class DependencyGraph {
         exportRecords,
         functionRecords: functionRecords.length > 0 ? functionRecords : [],
         parseMode,
+        parseModeReason,
         confidence: parseMode === 'ast' ? 'high' : 'medium',
       });
 
@@ -501,7 +518,8 @@ class DependencyGraph {
    * P3: 增加 via（路径链）和 importedSymbols（导入符号），支撑变更影响解释
    */
   getImpactRadius(filePath, depth = 3) {
-    return bfsTraverse(filePath, (file) => this.getDependents(file), {
+    const start = this.normalizeFilePath(filePath);
+    return bfsTraverse(start, (file) => this.getDependents(file), {
       maxDepth: depth,
       onVisit: (file, level, via) => {
         if (level === 0) return undefined;
@@ -560,7 +578,7 @@ class DependencyGraph {
       if (stack.has(file)) {
         // Found cycle
         const cycleStart = pathStack.indexOf(file);
-        cycles.push(pathStack.slice(cycleStart).concat([file]));
+        cycles.push(pathStack.slice(cycleStart));
         return;
       }
 
@@ -706,7 +724,7 @@ class DependencyGraph {
         const edgeRatio = stats.files > 0 ? stats.totalImports / stats.files : 0;
         const graphUnreliable = stats.files > 1 && edgeRatio < 0.1;
         const confidence = graphUnreliable ? 'low' : 'high';
-        deadExports.push({ file: filePath, exports: info.exports, confidence });
+        deadExports.push({ file: filePath, exports: info.exports, confidence, importerCount: 0 });
         continue;
       }
 
@@ -723,7 +741,7 @@ class DependencyGraph {
 
       if (unused.length > 0) {
         const confidence = info.parseMode === 'ast' ? 'medium' : 'low';
-        deadExports.push({ file: filePath, exports: unused, confidence });
+        deadExports.push({ file: filePath, exports: unused, confidence, importerCount: importers.length });
       }
     }
 
@@ -802,6 +820,17 @@ class DependencyGraph {
           sourceSignature.endsWith(`/${sourceLeaf}`);
       }
 
+      // L2-10: general leaf-name fallback for flat test directories
+      // e.g. src/utils/request.js -> tests/request.test.js
+      // Only match when the test has a flat signature (single segment) to avoid
+      // cross-module false positives like src/feature.js -> tests/group-b/feature.test.js
+      if (!signatureMatched && candidateLeaf && candidateLeaf === sourceLeaf) {
+        const isFlatTest = !candidateSignature.includes('/');
+        if (isFlatTest) {
+          signatureMatched = true;
+        }
+      }
+
       if (signatureMatched) {
         graphResults.push({
           file: candidate,
@@ -815,9 +844,10 @@ class DependencyGraph {
   }
 
   findAffectedTests(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH, options = {}) {
-    const results = this._findAffectedTestsByGraph(filePath, maxDepth);
+    const start = this.normalizeFilePath(filePath);
+    const results = this._findAffectedTestsByGraph(start, maxDepth);
     if (options?.includeHeuristic !== false) {
-      this._findAffectedTestsByHeuristic(filePath, maxDepth, results);
+      this._findAffectedTestsByHeuristic(start, maxDepth, results);
     }
     return results;
   }

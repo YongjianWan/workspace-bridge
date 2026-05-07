@@ -82,9 +82,12 @@ async function main() {
   // --- auditSecurity with no scanners available ---
   const noScannerResult = await auditSecurity({ cwd: process.cwd(), targets: [] }, null);
   assert.strictEqual(noScannerResult.ok, true);
-  assert.deepStrictEqual(noScannerResult.adapters, []);
-  assert.strictEqual(noScannerResult.summary.total, 0);
-  assert.ok(noScannerResult.summary.message.includes('No security scanners available'));
+  assert.deepStrictEqual(noScannerResult.adapters, ['builtin']);
+  assert.strictEqual(typeof noScannerResult.summary.total, 'number');
+  assert.strictEqual(noScannerResult.summary.message, null);
+  assert.ok(Array.isArray(noScannerResult.findings), 'builtin scan should return findings array');
+  assert.ok(Array.isArray(noScannerResult.scanMeta), 'scanMeta should be present');
+  assert.strictEqual(noScannerResult.scanMeta[0]?.name, 'builtin');
 
   // --- auditSecurity defaults empty targets to ['.'] ---
   const { ADAPTERS } = require('../src/adapters');

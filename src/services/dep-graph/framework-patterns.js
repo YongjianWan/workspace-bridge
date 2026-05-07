@@ -183,6 +183,9 @@ function detectFrameworkFromPath(filePath) {
 
   // ========== VUE / SVELTE ==========
   if (ext === '.vue') {
+    if (basename === 'app.vue') {
+      return { framework: 'vue', reason: 'vue-app-entry', isEntry: true };
+    }
     if ((p.includes('/pages/') || p.includes('/views/')) && !basename.startsWith('_')) {
       return { framework: 'vue-router', reason: 'vue-page', isEntry: true };
     }

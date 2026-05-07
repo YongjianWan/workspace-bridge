@@ -110,7 +110,9 @@ try {
   writeEntryFile('vite.config.ts', 'export default {};\n');
   const entrySummary = runCli(['audit-summary', '--cwd', entryRoot, '--json', '--quiet']);
   assert(entrySummary.scope.entryFiles.includes('manage.py'));
-  assert(entrySummary.scope.entryFiles.includes('vite.config.ts'));
+  // L2-17: vite.config.ts is a config file, not an entry file
+  assert(!entrySummary.scope.entryFiles.includes('vite.config.ts'));
+  assert.strictEqual(entrySummary.scope.fileRoles.config, 1, 'vite.config.ts should be counted as config');
   fs.rmSync(entryRoot, { recursive: true, force: true });
 
   console.log('role-detection-test: ok');

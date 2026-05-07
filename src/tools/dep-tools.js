@@ -1,7 +1,7 @@
 /**
  * Dependency graph tools - Fixed version with proper path handling
  */
-const { resolveWorkspaceFilePath } = require('../utils/path');
+const { resolveWorkspaceFilePath, normalizePathKey } = require('../utils/path');
 const { DEFAULTS } = require('../config/constants');
 
 async function dependencyGraph(args, container) {
@@ -15,7 +15,7 @@ async function dependencyGraph(args, container) {
   const root = container.workspaceRoot;
   
   // Resolve file path to absolute for consistent lookup
-  const filePath = args?.file ? resolveWorkspaceFilePath(args.file, root) : null;
+  const filePath = args?.file ? normalizePathKey(resolveWorkspaceFilePath(args.file, root)) : null;
 
   switch (operation) {
     case 'stats':

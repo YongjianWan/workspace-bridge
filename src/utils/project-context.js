@@ -13,10 +13,6 @@ const DEFAULT_DIRECTORY_HINTS = {
 // Framework-specific entry files checked before generic config/entry rules.
 const FRAMEWORK_ENTRY_FILES = new Set([
   'manage.py',
-  'vite.config.js',
-  'vite.config.ts',
-  'vite.config.mjs',
-  'vite.config.cjs',
 ]);
 
 // Exact config file names.
@@ -44,6 +40,7 @@ const CONFIG_PATTERNS = [
 const ENTRY_BASE_NAMES = new Set([
   'index.js', 'index.ts', 'main.js', 'main.ts',
   'app.js', 'app.ts', 'cli.js', 'server.ts',
+  'app.vue',
 ]);
 
 const ROLE_RULES = [
@@ -98,7 +95,16 @@ const ROLE_RULES = [
   },
   {
     role: 'entry',
-    test: (_relPath, base) => ENTRY_BASE_NAMES.has(base),
+    test: (relPath, base) => {
+      if (!ENTRY_BASE_NAMES.has(base)) return false;
+      // L2-18: index.js/index.ts deep in the tree are typically barrel files, not entries.
+      // Only treat them as entry at root level or directly under src/.
+      if (base === 'index.js' || base === 'index.ts') {
+        const depth = relPath.split('/').filter(Boolean).length;
+        return depth <= 2;
+      }
+      return true;
+    },
   },
   {
     role: 'docs',
@@ -312,7 +318,9 @@ class ProjectContext {
       summary.counts.totalFiles += 1;
       summary.directoryRoles[classification.directoryRole] += 1;
       summary.fileRoles[classification.fileRole] += 1;
-      if (classification.isMainline) {
+      // L2-26: tests and docs are active (still indexed) but not mainline
+      const isTrulyMainline = classification.isMainline && classification.fileRole !== 'test' && classification.fileRole !== 'docs';
+      if (isTrulyMainline) {
         summary.counts.mainlineFiles += 1;
       } else {
         summary.counts.nonMainlineFiles += 1;
@@ -331,4 +339,5 @@ module.exports = {
   ProjectContext,
   normalizeRelativePath,
   loadWorkspaceConfig,
+  ENTRY_BASE_NAMES,
 };

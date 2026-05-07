@@ -53,9 +53,10 @@ const DEFAULTS = {
   // Symbol-level impact uses 4 because it traverses one fewer hop
   // than file-level (symbol -> file -> test instead of file -> file -> test).
   SYMBOL_IMPACT_DEPTH: 4,
-  // File-index recursion cap: 5 directory levels avoids infinite descent
-  // in deeply-nested dependency directories while covering normal src trees.
-  FILE_INDEX_MAX_DEPTH: 5,
+  // File-index recursion cap: 12 directory levels covers Java multi-module
+  // projects (src/main/java/com/company/...) while still bounding descent.
+  // Dependency directories (node_modules, target, etc.) are excluded separately.
+  FILE_INDEX_MAX_DEPTH: 12,
   // Hotspot analysis budget: limit history queries to avoid Git churn
   // on monorepos with thousands of mainline files.
   HOTSPOT_CANDIDATE_LIMIT: 50,
@@ -81,6 +82,8 @@ const DEFAULTS = {
   REPL_ISSUES_LIMIT: 3,
   REPL_TOP_LIMIT: 2,
   PROJECT_MAP_HIGHLIGHT_MAX: 30,
+  COMPACT_ISSUE_MAX_ITEMS: 10,
+  COMPACT_ORPHAN_MAX_ITEMS: 10,
   // Audit-diff compact thresholds
   AUDIT_DIFF_AUTO_COMPACT_THRESHOLD: 20,
   COMPACT_IMPACT_MAX: 5,
@@ -124,15 +127,16 @@ const SCORING = {
   HOTSPOT_SCORE_MAX: 100,
   HOTSPOT_REPORT_THRESHOLD: 30,
   HOTSPOT_MIN_DEPENDENTS: 5,
+  HOTSPOT_CONFIG_DISCOUNT: 0.3, // config files naturally have high churn; dampen to avoid false positives
 
   // Stability scoring
-  STABILITY_BASE_SCORE: 50,
-  STABILITY_HAS_TESTS_DELTA: 20,
-  STABILITY_LOW_IMPACT_DELTA: 10,
+  STABILITY_BASE_SCORE: 40,
+  STABILITY_HAS_TESTS_DELTA: 15,
+  STABILITY_LOW_IMPACT_DELTA: 15,
   STABILITY_HIGH_IMPACT_DELTA: -10,
   STABILITY_NON_MAINLINE_DELTA: -10,
   STABILITY_IN_CYCLE_DELTA: -15,
-  STABILITY_CONFIG_ROLE_DELTA: 10,
+  STABILITY_CONFIG_ROLE_DELTA: 5,
   STABILITY_SCORE_MIN: 0,
   STABILITY_SCORE_MAX: 100,
   STABILITY_FRAGILE_THRESHOLD: 40,

@@ -197,6 +197,23 @@ function isStandaloneEntryPath(relativePath) {
   );
 }
 
+function _hasJavaInSubdirs(root) {
+  if (pathExists(path.join(root, 'pom.xml')) || pathExists(path.join(root, 'build.gradle')) || pathExists(path.join(root, 'build.gradle.kts'))) {
+    return true;
+  }
+  try {
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const sub = path.join(root, entry.name);
+      if (pathExists(path.join(sub, 'pom.xml')) || pathExists(path.join(sub, 'build.gradle')) || pathExists(path.join(sub, 'build.gradle.kts'))) {
+        return true;
+      }
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
 function detectWorkspace(root) {
   const packageJsonPath = path.join(root, 'package.json');
   const pyprojectPath = path.join(root, 'pyproject.toml');
@@ -222,7 +239,7 @@ function detectWorkspace(root) {
     hasTsconfig: pathExists(tsconfigPath),
     hasPom: pathExists(pomPath),
     hasGradle: pathExists(gradlePath) || pathExists(gradleKtsPath),
-    hasJava: pathExists(pomPath) || pathExists(gradlePath) || pathExists(gradleKtsPath),
+    hasJava: _hasJavaInSubdirs(root),
     hasGo: pathExists(goModPath),
     hasRust: pathExists(cargoPath),
     hasCpp: pathExists(cmakePath) || pathExists(makePath),

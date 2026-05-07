@@ -6,20 +6,88 @@
 
 ## [Unreleased]
 
-### 修复
+### 修复（L2 技术债清零 — 19 项）
 
-- `affected-tests` human-readable 输出未展示 `via` 链 — 与 `impact` 对称补全
-  - `cli.js` `formatHuman` 的 `affected-tests` case 新增 `viaStr`，展示完整影响路径
-  - `test/functionality-test.js` 新增 `affected-tests-via-human` 测试验证间接依赖的 via 路径输出
+- **L2-7: `audit-diff` 零变更时 hallucination 为 `"docs"`** `src/cli/formatters/validation-advice.js` — `buildValidationAdvice` 在 `entries.length === 0` 时短路返回 `changeType: "none"` 和空 `phases`
+- **L2-10: `affected-tests` 扁平测试目录 heuristic 漏配** `src/services/dep-graph.js` — `_findAffectedTestsByHeuristic` 新增 leaf-name fallback
+- **L2-13: `audit-map` 无 `--compact` 时信息过载** `src/cli/formatters/project-map.js` `src/config/constants.js` — compact 模式应用 `COMPACT_ISSUE_MAX_ITEMS`（10）截断
+- **L2-14: Windows 路径格式混乱** `src/services/dep-graph.js` `src/tools/dep-tools.js` — 所有命令绝对路径统一为小写 POSIX 格式
+- **L2-17: `vite.config.js` 被误判为 entry** `src/utils/project-context.js` — 将 `vite.config.*` 从 `FRAMEWORK_ENTRY_FILES` 移除，由 `CONFIG_PATTERNS` 统一归类为 `config`
+- **L2-18: 深层 `index.js` 被误判为 entry** `src/utils/project-context.js` — `inferFileRole()` 对 `index.js`/`index.ts` 增加深度限制
+- **L2-19: `stabilityScore` 所有文件统一为 60** `src/config/constants.js` — `STABILITY_BASE_SCORE` 50→40，`STABILITY_LOW_IMPACT_DELTA` 10→15，`STABILITY_CONFIG_ROLE_DELTA` 10→5
+- **L2-20: `symbolToDependents` 与 `functionToDependents` 完全重复** `src/services/dep-graph/symbol-impact.js` `function-impact.js` — `buildFunctionToDependents` 不再返回完整 `dependents` 数组
+- **L2-21: `deadExports.confidence` 分级与真实数据脱节** `src/services/dep-graph.js` — 新增 `importerCount` 字段，confidence 基于 importerCount + parseMode
+- **L2-22: `cycles` 路径格式与其他命令不一致** `src/services/dep-graph.js` `src/tools/dep-tools.js` — 同 L2-14 统一修复
+- **L2-23: `init` 命令生成空配置无引导价值** `cli.js` — 扫描根目录子目录，启发式填充 `generated` / `reference`
+- **L2-24: `repl` 模式 stderr 污染** `src/cli/repl.js` — `startRepl` 接收 `quiet` 选项
+- **L2-25: `audit-map --compact` 模块级 edges 严重遗漏** `src/cli/formatters/project-map.js` — `getModuleOf` 从 2 segments 提升到 3 segments
+- **L2-26: `scope.nonMainlineFiles` 始终为 0** `src/utils/project-context.js` — `summarizeFiles()` 将 `test`/`docs` 计为 `nonMainline`
+- **L2-27: `audit-overview` 默认输出含永久 `enabled: false` 噪音** `src/tools/overview-tools.js` — 默认输出不再包含未启用的 option 字段
+- **L2-28: 15% 文件 AST fallback 无原因说明** `src/services/dep-graph.js` `src/tools/overview-tools.js` — `analyzeFile` 新增 `parseModeReason`；`buildLanguageSupportMatrix` 新增 `regexFiles` + `fallbackReasons`
+- **L2-29: `parserAvailability.skipped` 信息未暴露** `src/tools/workspace-tools.js` `health-tools.js` — `workspaceInfo` 输出新增 `parserAvailability` 字段
+- **L2-6: `impact` 命令 `transitiveCount` 与 `impact` 数组数据矛盾** `src/services/dep-graph/symbol-impact.js` — `transitiveCount` 从 `getImpactRadius()` 同步计算
+- **L2-8: `audit-security` 无 semgrep 时直接不可用** `src/tools/security-tools.js` — 内置轻量规则扫描（`eval` / `innerHTML` / `document.write` 等）
+- **L2-9: `diagnostics` 只跑 `npm run -s`，未执行 linter** `src/tools/workspace-tools.js` `cli.js` — 自动检测 eslint 配置并执行；无 linter 时返回 `total: null` + `noLintersDetected: true`
+
+### 修复（产品缺陷 — 5 项）
+
+- **P2/P6: Java 后端项目完全失明（fileCount=0）** `src/config/constants.js` `src/services/file-index.js` — `FILE_INDEX_MAX_DEPTH` 5→12；`DEFAULT_EXCLUDE_DIRS` 补充 `target`/`bin`/`obj`/`.idea`/`.vscode`/`vendor`。两个 Java 后端项目（389 + 550 文件）现已正常扫描
+- **P28: `hotspot` 配置文件被系统性误标为风险** `src/tools/overview-tools.js` `src/config/constants.js` — `calculateHotspotScore` 新增 `fileRole` 参数，config 文件 score 乘以 `HOTSPOT_CONFIG_DISCOUNT`（0.3）
+- **`cycles` 数组首尾重复** `src/services/dep-graph.js` — 去掉 `.concat([file])`，输出标准图论不重复顶点列表
+- **REPL `impact` 与独立命令结果不一致** `src/cli/repl.js` — 统一 `resolveWorkspaceFilePath` 解析相对路径为绝对路径
+- **`file-index` 构建日志矛盾** `src/services/file-index.js` — 日志改为报告缓存总文件数 `getStats().files`
+
+### 修复（生产环境实测 — 4 仓库端到端审计）
+
+> 2026-05-07 用 2 个 Vue/Vite 前端 + 2 个 Maven 多模块 Java 后端做端到端测试，暴露 9 项严重缺陷，全部修复。
+
+- **Java 多模块后端完全失明** `src/utils/path.js` — `detectWorkspace` 递归检查一层子目录的 `pom.xml`/`build.gradle`
+- **Vue SFC `.vue` 扩展名省略导致 100% unresolved** `src/services/dep-graph/resolvers.js` — `RESOLVER_EXTENSIONS` 增加 `.vue`
+- **Vue/Vite alias（`@/`/`~`）未解析导致 dead-export 假阳性 >80%** `src/services/dep-graph/resolvers.js` — 新增 `_resolveAlias` 读取 `tsconfig.json`/`jsconfig.json` 的 `compilerOptions.paths`
+- **Vue 项目入口文件被标为 orphan** `src/services/dep-graph.js` `src/utils/orphan-detector.js` `src/utils/project-context.js` `src/services/dep-graph/framework-patterns.js` — `ENTRY_BASE_NAMES` 增加 `app.vue`；`framework-patterns.js` 对 `app.vue` 返回 `isEntry: true`
+- **Severity 评级自相矛盾** `src/config/risk-thresholds.js` `src/tools/overview-tools.js` — `overviewSeverity` 增加 `unresolved`/`cycles`/`deadExports`/`orphans` 参数
+- **health check 标准太偏 Node.js** `src/tools/health-tools.js` — 技术栈感知评分：核心项必检，`testConfig` 按栈动态要求，CI/docker/env/editorconfig 改为 bonus 项
+- **`workspace-info` 预检毫无信息量** `src/tools/workspace-tools.js` — 增加 `fileCount`/`languages`/`entryFiles`/`availableChecks`
+- **`--compact` 不够 compact** `src/cli/formatters/project-map.js` `src/config/constants.js` — compact 模式应用 `COMPACT_ISSUE_MAX_ITEMS`（10）截断
+- **动态导入识别与 alias 联动失效** `src/services/dep-graph/resolvers.js` — alias 解析打通后动态导入链路完整
+
+### 修复（正确性）
+
+- **动态 `import()` 未被解析** `src/services/dep-graph/parsers/js.js` — 新增 `node.callee.type === 'Import'` 分支。GitNexus 实测 dead-export 误报从 53 → 30（-43%）
+- **`vitest.config.ts` 未被识别为入口** `src/services/dep-graph.js` — `KNOWN_CONFIG_NAMES` 补充 `vitest.config.ts`
+- **`new URL('./worker.js', import.meta.url)` 未被解析** `src/services/dep-graph/parsers/js.js` — 新增 `NewExpression` visitor 检测 worker 脚本加载模式
+- **`findOrphanFiles` 与 `isKnownEntryFile` 不一致** `src/utils/orphan-detector.js` `src/tools/overview-tools.js` `src/cli/formatters/project-map.js` — `findOrphanFiles` 新增可选 `isKnownEntryFile` 参数
+
+### 修复（用户体验）
+
+- **`audit-map` 非 compact 缺 summary** `src/cli/formatters/project-map.js` — `--json` 输出均包含 `summary`
+- **`affected_tests` 字段 `source` → `file`** `src/tools/dep-tools.js` — 与 `impact` 命令统一字段名
+- **`Unknown command` 提示改进** `cli.js` — 错误消息精确为 `Run "workspace-bridge-cli --help" for available commands.`
+- **`--help <command>` Common Options** `cli.js` — `printCommandHelp()` 增加命令专属选项说明
+- **`validationAdvice` 建议不存在的 `npm run test`** `src/utils/stack-detectors/commands.js` — `node-all-tests` 仅在检测到 `testRunner` 时才建议
+- **`affected-tests` human-readable 输出未展示 `via` 链** `cli.js` — `formatHuman` 新增 `viaStr` 展示完整影响路径
 
 ### 重构
 
-- **语言注册表重构（模式 A）** — `defineLanguage()` 统一接口，新增语言从"改 3 个文件"降到"改 1 个文件"
-  - 新建 `src/services/dep-graph/parsers/registry-core.js`：`defineLanguage()` + `LanguageRegistry`（`register` / `findByExt` / `getAllExts` / `getFilePatterns`）
-  - 新建 `src/services/dep-graph/parsers/registry.js`：9 种语言集中注册（`name, exts, parser, async, needsFilePath, filePatterns, condition`）
-  - `src/services/dep-graph.js`：删除 `PARSER_REGISTRY` 硬编码数组，`analyzeFile()` 委托 `registry.findByExt(ext)`
-  - `src/services/file-index.js`：`getFilePatterns()` 委托 `registry.getFilePatterns(this.workspace)`，消除与 dep-graph 的语言条件重复
-  - `src/services/dep-graph/parsers/index.js`：新增导出 `registry`, `defineLanguage`, `LanguageRegistry`，成为 parser + registry 统一入口
+- **语言注册表重构（模式 A）** — `defineLanguage()` 统一接口
+  - 新建 `src/services/dep-graph/parsers/registry-core.js`：`defineLanguage()` + `LanguageRegistry`
+  - 新建 `src/services/dep-graph/parsers/registry.js`：9 种语言集中注册
+  - `src/services/dep-graph.js`：删除 `PARSER_REGISTRY` 硬编码数组
+  - `src/services/file-index.js`：`getFilePatterns()` 委托 `registry.getFilePatterns()`
+  - `src/services/dep-graph/parsers/index.js`：parser + registry 统一入口
+
+### 新增
+
+- **大项目索引进度条** `src/services/file-index.js` — 每 100 个文件打印进度
+- **`init` 命令** `cli.js` — 生成默认 `.workspace-bridge.json`
+- **c8 覆盖率** `package.json` `.gitignore` — `npm run test:coverage`，基线 **79.88%**
+- **`.bat`/`.cmd` spawn 自动包装** `src/utils/command.js` — Windows 下自动用 `cmd.exe /c` 包装
+- **`.workspace-bridge.json` schema 校验** `src/utils/project-context.js` — JSON 语法错误非阻塞提示
+
+### 文档
+
+- **SKILL.md 文档误导修复** `skills/workspace-audit/SKILL.md` — npx 优先调用；矩阵增加 Known Gaps 列；Known Limitations 增加 Vue/Java 专项说明；新增 Confidence rules 表格
+
 
 ## [1.1.0] - 2026-05-06
 

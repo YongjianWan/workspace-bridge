@@ -7,6 +7,33 @@ const { buildSummary } = require('./validation-advice/summary');
 const { buildTopRiskActions } = require('./validation-advice/risk-actions');
 
 function buildValidationAdvice(entries, workspaceRoot) {
+  // L2-7: zero changes should not hallucinate a docs validation plan
+  if (!entries || entries.length === 0) {
+    return {
+      changeType: 'none',
+      stack: {
+        profile: 'unknown',
+        packageManager: null,
+        node: false,
+        python: false,
+        java: false,
+        go: false,
+        rust: false,
+      },
+      commands: { smoke: [], focused: [], full: [] },
+      topRiskActions: [],
+      phases: [],
+      summary: {
+        changedFiles: 0,
+        mainlineChangedFiles: 0,
+        affectedTests: 0,
+        maxImpact: 0,
+        highHistoryRiskFiles: 0,
+        highCompositeRiskFiles: 0,
+      },
+    };
+  }
+
   const changeType = classifyChangeType(entries);
   const template = getValidationTemplate(changeType);
 

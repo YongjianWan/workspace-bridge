@@ -107,10 +107,17 @@ function diffSeverity({
 // Overview-level severity (used by buildOverviewSummary)
 const OVERVIEW = {
   MEDIUM_FRAGILE_MODULES_MIN: 1,
+  HIGH_UNRESOLVED_MIN: 1,
+  HIGH_CYCLES_MIN: 1,
+  MEDIUM_DEAD_EXPORTS_MIN: 1,
+  MEDIUM_ORPHANS_MIN: 5,
 };
 
-function overviewSeverity({ fragileModuleCount = 0 }) {
-  if (fragileModuleCount >= OVERVIEW.MEDIUM_FRAGILE_MODULES_MIN) {
+function overviewSeverity({ fragileModuleCount = 0, unresolved = 0, cycles = 0, deadExports = 0, orphans = 0 }) {
+  if (unresolved >= OVERVIEW.HIGH_UNRESOLVED_MIN || cycles >= OVERVIEW.HIGH_CYCLES_MIN) {
+    return 'high';
+  }
+  if (fragileModuleCount >= OVERVIEW.MEDIUM_FRAGILE_MODULES_MIN || deadExports >= OVERVIEW.MEDIUM_DEAD_EXPORTS_MIN || orphans >= OVERVIEW.MEDIUM_ORPHANS_MIN) {
     return 'medium';
   }
   return 'low';

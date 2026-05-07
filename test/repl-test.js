@@ -64,7 +64,7 @@ async function main() {
   // impact
   const impact = await executeCommand(container, 'impact src/app.js');
   assert(impact.includes('impactCount: 2'), 'impact should count results');
-  assert(impact.includes('dep-src/app.js'), 'impact should list files');
+  assert(impact.includes('dep-' + path.resolve('/project', 'src/app.js')), 'impact should list files');
   console.log('impact: ok');
 
   // impact with max-depth
@@ -75,7 +75,7 @@ async function main() {
   // affected-tests
   const tests = await executeCommand(container, 'affected-tests src/app.js');
   assert(tests.includes('affectedTestCount: 1'), 'affected-tests should count');
-  assert(tests.includes('test-src/app.js'), 'affected-tests should list files');
+  assert(tests.includes('test-' + path.resolve('/project', 'src/app.js')), 'affected-tests should list files');
   console.log('affected-tests: ok');
 
   // dead-exports
@@ -99,13 +99,13 @@ async function main() {
   // dependents
   const dependents = await executeCommand(container, 'dependents src/app.js');
   assert(dependents.includes('dependentCount: 1'), 'dependents should count');
-  assert(dependents.includes('dependent-of-src/app.js'), 'dependents should list files');
+  assert(dependents.includes('dependent-of-' + path.resolve('/project', 'src/app.js')), 'dependents should list files');
   console.log('dependents: ok');
 
   // dependencies
   const dependencies = await executeCommand(container, 'dependencies src/app.js');
   assert(dependencies.includes('dependencyCount: 1'), 'dependencies should count');
-  assert(dependencies.includes('dependency-of-src/app.js'), 'dependencies should list files');
+  assert(dependencies.includes('dependency-of-' + path.resolve('/project', 'src/app.js')), 'dependencies should list files');
   console.log('dependencies: ok');
 
   // stats

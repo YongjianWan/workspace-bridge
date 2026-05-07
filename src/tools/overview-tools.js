@@ -21,7 +21,7 @@ const HOTSPOT_SCORE_RULES = [
   { field: 'revertLikeCount', fallback: SCORING.HOTSPOT_REVERT_COUNT_FALLBACK, weight: SCORING.HOTSPOT_REVERT_COUNT_WEIGHT },
 ];
 
-function calculateHotspotScore(historyRisk) {
+function calculateHotspotScore(historyRisk, fileRole) {
   if (!historyRisk) return 0;
 
   let score = 0;
@@ -36,6 +36,11 @@ function calculateHotspotScore(historyRisk) {
     } else {
       score += value * rule.weight;
     }
+  }
+  // P28: config files (vite.config.js, webpack.config.js, etc.) naturally have high churn.
+  // Dampen their score to avoid systematic false positives while preserving high-coupling signals.
+  if (fileRole === 'config') {
+    score = Math.floor(score * SCORING.HOTSPOT_CONFIG_DISCOUNT);
   }
   return Math.min(Math.round(score), SCORING.HOTSPOT_SCORE_MAX);
 }
@@ -119,7 +124,9 @@ async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
       const dependents = depGraph.getDependents?.(file) || [];
       const dependencies = depGraph.getDependencies?.(file) || [];
       const historyRisk = await getHistoryRisk(root, file, historyProvider);
-      const score = calculateHotspotScore(historyRisk);
+      const classification = depGraph.projectContext?.classifyFile?.(file);
+      const fileRole = classification?.fileRole;
+      const score = calculateHotspotScore(historyRisk, fileRole);
       const coupling = calculateCoupling(dependencies, dependents);
       if (score <= SCORING.HOTSPOT_REPORT_THRESHOLD && coupling.total <= SCORING.COUPLING_MEDIUM_MIN) return null;
       return {
@@ -162,7 +169,7 @@ function buildStability(root, depGraph, mainlineFiles, projectContext) {
   return stability.sort((a, b) => a.stabilityScore - b.stabilityScore);
 }
 
-function buildOverviewSummary(hotspots, stability, orphans) {
+function buildOverviewSummary(hotspots, stability, orphans, unresolvedCount = 0, cycleCount = 0, deadExportCount = 0) {
   const summary = { severity: 'low', insights: [], recommendations: [] };
 
   if (hotspots.length > 0) {
@@ -173,12 +180,22 @@ function buildOverviewSummary(hotspots, stability, orphans) {
   if (fragileModules.length > 0) {
     summary.insights.push(`${fragileModules.length} 个模块稳定性较差`);
   }
-  summary.severity = overviewSeverity({ fragileModuleCount: fragileModules.length });
 
   const orphanCount = Object.values(orphans).flat().length;
   if (orphanCount > 0) {
     summary.insights.push(`发现 ${orphanCount} 个孤儿文件（可能未使用）`);
   }
+  if (unresolvedCount > 0) {
+    summary.insights.push(`${unresolvedCount} 个未解析的 import`);
+  }
+  if (cycleCount > 0) {
+    summary.insights.push(`${cycleCount} 个循环依赖`);
+  }
+  if (deadExportCount > 0) {
+    summary.insights.push(`${deadExportCount} 个死导出候选`);
+  }
+
+  summary.severity = overviewSeverity({ fragileModuleCount: fragileModules.length, unresolved: unresolvedCount, cycles: cycleCount, deadExports: deadExportCount, orphans: orphanCount });
 
   if (hotspots.length > 0) {
     summary.recommendations.push(`优先审查热区文件: ${hotspots.slice(0, SCORING.TOP_N_RECOMMENDATIONS).map((h) => h.file).join(', ')}`);
@@ -516,9 +533,15 @@ function buildLanguageSupportMatrix(depGraph) {
   for (const [filePath, info] of depGraph.graph || []) {
     const lang = EXT_TO_LANG[path.extname(filePath).toLowerCase()];
     if (!lang) continue;
-    if (!stats[lang]) stats[lang] = { total: 0, ast: 0 };
+    if (!stats[lang]) stats[lang] = { total: 0, ast: 0, regex: 0, fallbackReasons: {} };
     stats[lang].total++;
-    if (info.parseMode === 'ast') stats[lang].ast++;
+    if (info.parseMode === 'ast') {
+      stats[lang].ast++;
+    } else {
+      stats[lang].regex++;
+      const reason = info.parseModeReason || 'unknown';
+      stats[lang].fallbackReasons[reason] = (stats[lang].fallbackReasons[reason] || 0) + 1;
+    }
   }
   for (const [lang, s] of Object.entries(stats)) {
     const ratio = s.total > 0 ? s.ast / s.total : 0;
@@ -527,6 +550,8 @@ function buildLanguageSupportMatrix(depGraph) {
       confidence: ratio >= 0.8 ? 'high' : ratio >= 0.5 ? 'medium' : 'low',
       files: s.total,
       astFiles: s.ast,
+      regexFiles: s.regex,
+      fallbackReasons: s.fallbackReasons,
     };
   }
   return matrix;
@@ -549,8 +574,11 @@ async function buildProjectOverview(args, container) {
   const skeleton = buildSkeleton(root, depGraph, allFiles, mainlineFiles, projectContext);
   const hotspots = await buildHotspots(root, depGraph, mainlineFiles, historyProvider);
   const stability = buildStability(root, depGraph, mainlineFiles, projectContext);
-  const orphans = findOrphanFiles(allFiles, depGraph.entryFiles, depGraph, root);
-  const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans);
+  const orphans = findOrphanFiles(allFiles, depGraph.entryFiles, depGraph, root, null, depGraph.isKnownEntryFile?.bind(depGraph));
+  const unresolved = depGraph.findUnresolvedImports?.() || [];
+  const cycles = depGraph.findCircularDependencies?.() || [];
+  const deadExports = depGraph.findDeadExports?.() || [];
+  const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans, unresolved.length, cycles.length, deadExports.length);
   const aggregates = aggregateOverviewStats(hotspots, stability);
   const cycleRefactorSuggestions = buildCycleRefactorSuggestions(root, depGraph, projectContext);
   const couplingSplitSuggestions = buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectContext);
@@ -624,24 +652,23 @@ async function buildProjectOverview(args, container) {
     overviewDashboardFile = target;
   }
 
+  // L2-27: only include option toggles when they are actually enabled,
+  // avoiding permanent "enabled: false" noise in default output.
+  const options = {};
+  if (args?.hotspotData) {
+    options.hotspotData = { enabled: true, path: args.hotspotData };
+  }
+  if (args?.stabilityTrendData) {
+    options.stabilityTrendData = { enabled: true, path: args.stabilityTrendData, granularity: trendGranularity };
+  }
+  if (args?.overviewDashboard) {
+    options.overviewDashboard = { enabled: true, path: args.overviewDashboard };
+  }
+
   return {
     ok: true,
     workspaceRoot: root,
-    options: {
-      hotspotData: {
-        enabled: Boolean(args?.hotspotData),
-        path: args?.hotspotData || null,
-      },
-      stabilityTrendData: {
-        enabled: Boolean(args?.stabilityTrendData),
-        path: args?.stabilityTrendData || null,
-        granularity: trendGranularity,
-      },
-      overviewDashboard: {
-        enabled: Boolean(args?.overviewDashboard),
-        path: args?.overviewDashboard || null,
-      },
-    },
+    options,
     summary,
     aggregates,
     skeleton,

@@ -28,9 +28,9 @@ Never assume the current terminal directory is the project root.
 
 Use this fallback chain:
 
-1. `workspace-bridge-cli ...` (global command)
-2. `node <workspace-bridge-repo>/cli.js ...` (repo-local fallback)
-3. `node <workspace-bridge-repo>/scripts/cli-fallback.js ...` (scripted auto-fallback wrapper)
+1. `npx workspace-bridge-cli ...` (most reliable — no global install needed)
+2. `workspace-bridge-cli ...` (global command, if installed)
+3. `node <workspace-bridge-repo>/cli.js ...` (repo-local fallback)
 
 ### Startup preflight (must run once per new target path)
 
@@ -93,6 +93,7 @@ workspace-bridge-cli affected-tests --cwd <project> --file <file> --max-depth 5 
 workspace-bridge-cli audit-security --cwd <project> --json
 workspace-bridge-cli repl --cwd <project>
 workspace-bridge-cli watch --cwd <project> --json --quiet
+workspace-bridge-cli init
 ```
 
 ## Usage rules
@@ -114,6 +115,7 @@ workspace-bridge-cli watch --cwd <project> --json --quiet
 | Security scan | `audit-security` | Semgrep vulnerability findings |
 | Interactive query mode | `repl` | Fast impact/tests queries without rebuild |
 | Watch mode (continuous) | `watch` | Auto-print impact on file save |
+| Initialize config | `init` | Generate `.workspace-bridge.json` in cwd |
 
 ### Options
 
@@ -164,6 +166,13 @@ workspace-bridge-cli watch --cwd <project> --json --quiet
 2. Use `--compact` for large projects to keep output manageable
 3. Press Ctrl+C to stop watching
 
+**audit-map:**
+1. Read `summary.severity` first (low/medium/high)
+2. Read `summary.issueCounts` for issue distribution
+3. Read `summary.nextSteps` for prioritized actions
+4. Review `tree` for directory structure (or `highlightedFiles` in `--compact` mode)
+5. Check `edges` for dependency relationships (module-level in `--compact`)
+
 **audit-overview:**
 1. Check `skeleton.coreModules` for key files to be careful with
 2. Review `hotspots` for high-risk files (frequent changes + high coupling)
@@ -180,6 +189,16 @@ When this skill is used by an agent, the response should include:
 3. `Actions`: concrete executable commands in priority order
 4. `Validation`: smoke/focused/full status or next commands
 5. `Confidence`: high/medium/low and why
+
+### Confidence rules
+
+| Finding | Default Confidence | When to downgrade |
+|---------|-------------------|-------------------|
+| `unresolved` | High | Downgrade to **medium** if the project is Vue/Vite and the import omits `.vue` — verify manually before treating as broken. |
+| `dead-exports` | Medium (AST) / Low (regex) | Downgrade to **low** if the file is consumed via alias (`@/...`) or dynamic import (`() => import(...)`). |
+| `orphans` | Medium | Downgrade to **low** for `main.js`, `app.vue`, `index.js` — these are often entry points. |
+| `cycles` | High | Rarely downgrade; cycles are structural facts. |
+| `hotspots` | Medium-High | Downgrade if the file is a generated/config file rather than hand-written source. |
 
 Avoid narrative-only output. Always return executable next steps.
 
@@ -230,17 +249,17 @@ workspace-bridge-cli audit-diff --cwd <project> --json --quiet
 
 ### Language Support Matrix
 
-| Language | Dependency Graph | Symbol Impact | Dead Exports | Test Mapping | Stack Commands |
-|----------|------------------|---------------|--------------|--------------|----------------|
-| JS/TS    | ✅ Full AST      | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full |
-| Python   | ✅ Full AST      | ✅ Module-level | ✅ `__all__` aware | ✅ Graph + Heuristic | ✅ Full |
-| Java     | ✅ AST (javalang) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full (Maven/Gradle) |
-| Kotlin   | ✅ AST (tree-sitter) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ⚠️ Gradle only |
-| Go       | ✅ AST (tree-sitter) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Basic |
-| Rust     | ✅ AST (tree-sitter) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Basic |
-| C/C++    | ⚠️ L2 Regex      | ⚠️ File-level   | ⚠️ File-level   | ⚠️ Heuristic only   | ✅ Basic |
-| Vue SFC  | ✅ Full AST (JS) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full |
-| Svelte   | ✅ Full AST (JS) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full |
+| Language | Dependency Graph | Symbol Impact | Dead Exports | Test Mapping | Stack Commands | Known Gaps |
+|----------|------------------|---------------|--------------|--------------|----------------|------------|
+| JS/TS    | ✅ Full AST      | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full | Custom aliases need `tsconfig.json` paths |
+| Python   | ✅ Full AST      | ✅ Module-level | ✅ `__all__` aware | ✅ Graph + Heuristic | ✅ Full | |
+| Java     | ✅ AST (javalang) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full (Maven/Gradle) | Multi-module requires `pom.xml` at root or one subdir deep |
+| Kotlin   | ✅ AST (tree-sitter) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ⚠️ Gradle only | |
+| Go       | ✅ AST (tree-sitter) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Basic | |
+| Rust     | ✅ AST (tree-sitter) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Basic | |
+| C/C++    | ⚠️ L2 Regex      | ⚠️ File-level   | ⚠️ File-level   | ⚠️ Heuristic only   | ✅ Basic | |
+| Vue SFC  | ✅ Full AST (JS) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full | Alias/`@/` resolution depends on `tsconfig.json` or common patterns |
+| Svelte   | ✅ Full AST (JS) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full | |
 
 ### Known Limitations
 
@@ -249,7 +268,17 @@ The CLI accounts for common false-positives:
 - Frontend asset imports (`.json`, `.css`)
 - Python relative imports
 - TypeScript ESM source imports ending in `.js`
-- Dynamic `import(...)`
+- Dynamic `import(...)` (AST-tracked, but alias resolution must succeed to link the target)
+
+**Vue/Vite projects — expect these harmless findings until fully indexed:**
+
+- **Unresolved imports** from `.vue` extension omission (`import App from './app'` → resolves to `app.vue` since v1.1.1, but may still report if `tsconfig.json`/`jsconfig.json` paths are missing).
+- **Dead exports** on files only consumed via Vite alias (`@/utils/request`). Alias resolution reads `tsconfig.json`/`jsconfig.json` `compilerOptions.paths` and falls back to common patterns (`@/` → `src/`, `~/` → project root). If your alias is custom, add it to `tsconfig.json` paths.
+- **Orphans** on `src/main.js` / `app.vue` — these are entry points. They should be auto-recognized; if not, verify the file is named exactly `main.js`/`main.ts`/`app.vue`.
+
+**Java multi-module projects:**
+
+- If `pom.xml`/`build.gradle` is in a subdirectory (e.g. `backend/`) rather than the repo root, the CLI now scans one level deep to find it (v1.1.1+). If still missing, run the CLI from the module directory containing `pom.xml`.
 
 But still may report:
 
@@ -278,14 +307,14 @@ This prevents reference code from polluting dead export and orphan detection res
 
 ### "node is not recognized" or "workspace-bridge-cli is not recognized"
 
+**Use npx (no install required):**
+```bash
+npx workspace-bridge-cli audit-summary --cwd <project> --json --quiet
+```
+
 **Use repo-local fallback:**
 ```bash
 node <workspace-bridge-repo>/cli.js audit-summary --cwd <project> --json --quiet
-```
-
-**Use scripted wrapper:**
-```bash
-node <workspace-bridge-repo>/scripts/cli-fallback.js audit-summary --cwd <project> --json --quiet
 ```
 
 ### Permission denied on project path
@@ -299,7 +328,12 @@ test -d <project> && workspace-bridge-cli audit-summary --cwd <project> --json -
 
 Check if project has supported files (JS/TS, Python, Java, Kotlin, Go, Rust, C/C++, Vue, Svelte):
 ```bash
-workspace-bridge-cli workspace-info --cwd <project> --json --quiet
+npx workspace-bridge-cli workspace-info --cwd <project> --json --quiet
 ```
+
+If `fileCount: 0` but the project clearly has source files:
+- **Java**: ensure `pom.xml` or `build.gradle` exists at project root or one subdirectory deep.
+- **Vue**: ensure `package.json` exists (Vue SFC is registered under the Node.js condition).
+- **Mixed repo**: use `--exclude` to drop directories that confuse detection (e.g. `--exclude archive,reference`).
 
 

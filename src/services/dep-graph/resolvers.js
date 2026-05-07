@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { LIMITS } = require('../../config/constants');
 
-const RESOLVER_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.json', '.css'];
+const RESOLVER_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.json', '.css', '.vue'];
 const TS_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts'];
 const JS_IMPORT_EXTENSIONS = ['.js', '.mjs', '.cjs'];
 const INDEX_EXTENSIONS = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'];
@@ -131,8 +131,84 @@ function resolvePythonImport(fromFile, importPath, root) {
   return null;
 }
 
-function resolveJavaScriptImport(fromFile, importPath) {
+function _tryResolveWithExtensions(basePath) {
+  const candidates = [];
+  for (const ext of RESOLVER_EXTENSIONS) {
+    candidates.push(`${basePath}${ext}`);
+  }
+  for (const ext of INDEX_EXTENSIONS) {
+    candidates.push(path.join(basePath, `index${ext}`));
+  }
+  for (const candidate of candidates) {
+    const stat = cachedStatSync(candidate);
+    if (stat && !stat.isDirectory()) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+const _tsconfigPathsCache = new Map(); // root -> { paths, mtime }
+
+function _readTsconfigPaths(root) {
+  const tsconfigPath = path.join(root, 'tsconfig.json');
+  const jsconfigPath = path.join(root, 'jsconfig.json');
+  const configPath = cachedExistsSync(tsconfigPath) ? tsconfigPath : (cachedExistsSync(jsconfigPath) ? jsconfigPath : null);
+  if (!configPath) return null;
+
+  try {
+    const mtime = fs.statSync(configPath).mtimeMs;
+    const cached = _tsconfigPathsCache.get(configPath);
+    if (cached && cached.mtime === mtime) return cached.paths;
+
+    const content = fs.readFileSync(configPath, 'utf8');
+    const parsed = JSON.parse(content);
+    const paths = parsed?.compilerOptions?.paths || null;
+    const baseUrl = parsed?.compilerOptions?.baseUrl || '.';
+    const result = paths ? { paths, baseUrl } : null;
+    _tsconfigPathsCache.set(configPath, { paths: result, mtime });
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+function _resolveAlias(importPath, root) {
+  if (!root) return null;
+  const tsconfig = _readTsconfigPaths(root);
+  if (tsconfig?.paths) {
+    for (const [key, values] of Object.entries(tsconfig.paths)) {
+      const prefix = key.replace(/\*$/, '');
+      if (importPath.startsWith(prefix)) {
+        const suffix = importPath.slice(prefix.length);
+        for (const mapped of values) {
+          const mappedPrefix = mapped.replace(/\*$/, '');
+          const resolved = path.join(root, tsconfig.baseUrl, mappedPrefix + suffix);
+          const found = _tryResolveWithExtensions(resolved) || resolved;
+          if (cachedExistsSync(found)) return found;
+        }
+      }
+    }
+  }
+
+  // Fallback: common Vite/Webpack aliases when no tsconfig/jsconfig paths
+  if (importPath.startsWith('@/')) {
+    const resolved = path.join(root, 'src', importPath.slice(2));
+    return _tryResolveWithExtensions(resolved) || resolved;
+  }
+  if (importPath.startsWith('~/')) {
+    const resolved = path.join(root, importPath.slice(2));
+    return _tryResolveWithExtensions(resolved) || resolved;
+  }
+
+  return null;
+}
+
+function resolveJavaScriptImport(fromFile, importPath, root) {
   if (!importPath.startsWith('.') && !importPath.startsWith('/')) {
+    // Try alias resolution for non-relative imports (e.g. @/, ~)
+    const aliasResolved = _resolveAlias(importPath, root);
+    if (aliasResolved) return aliasResolved;
     return null;
   }
 
@@ -332,7 +408,7 @@ function resolveImport(fromFile, importPath, ext, root) {
     return resolveRustImport(fromFile, importPath, root);
   }
 
-  return resolveJavaScriptImport(fromFile, importPath);
+  return resolveJavaScriptImport(fromFile, importPath, root);
 }
 
 module.exports = {

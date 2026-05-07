@@ -19,7 +19,7 @@ const readFile = promisify(fs.readFile);
 
 // Limit concurrent file operations to prevent memory exhaustion
 const DEFAULT_CONCURRENCY = 50;
-const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache'];
+const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', 'target', 'bin', 'obj', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', '.idea', '.vscode', 'vendor'];
 
 class FileIndex {
   constructor(workspaceRoot, cache, options = {}) {
@@ -95,7 +95,8 @@ class FileIndex {
     }
 
     if (!this.quiet) {
-      console.error(`[FileIndex] Built in ${Date.now() - startTime}ms, indexed ${this.indexedCount} files`);
+      const totalFiles = this.getStats().files;
+      console.error(`[FileIndex] Built in ${Date.now() - startTime}ms, ${totalFiles} files indexed`);
     }
   }
 

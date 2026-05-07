@@ -105,13 +105,33 @@ function projectHealth(args, container) {
     coverageScript = scripts['test:coverage'] || scripts['coverage'] || null;
   }
 
-  const passedCount = [
-    checks.readme.found,
-    checks.license.found,
-    checks.gitignore.found,
-    checks.ci.found,
-    checks.testConfig.found,
-  ].filter(Boolean).length;
+  // Stack-aware scoring: core checks vary by tech stack
+  const isNodeProject = workspace.hasPackageJson;
+  const isJavaProject = workspace.hasJava;
+  const isPythonProject = workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy;
+  const isGoProject = workspace.hasGo;
+  const isRustProject = workspace.hasRust;
+
+  const coreChecks = ['readme', 'license', 'gitignore'];
+  if (isNodeProject || isPythonProject || isGoProject || isRustProject) {
+    coreChecks.push('testConfig');
+  }
+  // For Java projects, test config is less standardized (mvn test / gradle test);
+  // we still recommend it but don't penalize as heavily.
+  if (isJavaProject && !isNodeProject && !isPythonProject && !isGoProject && !isRustProject) {
+    // Java projects get a 3-point base; CI and testConfig are bonus
+  }
+
+  const corePassed = coreChecks.filter((key) => checks[key]?.found).length;
+  const coreTotal = coreChecks.length;
+
+  const bonusChecks = ['ci', 'dockerConfig', 'envExample', 'editorconfig'];
+  const bonusPassed = bonusChecks.filter((key) => checks[key]?.found).length;
+  const bonusTotal = bonusChecks.length;
+
+  // Health score = core + up to 1 bonus point (capped at coreTotal + 1 for display parity)
+  const displayTotal = Math.max(5, coreTotal + 1);
+  const displayPassed = corePassed + (bonusPassed > 0 ? 1 : 0);
 
   const fixes = Object.entries(checks)
     .filter(([key, value]) => !value.found && FIX_SUGGESTIONS[key])
@@ -128,16 +148,23 @@ function projectHealth(args, container) {
   return {
     ok: true,
     workspaceRoot: root,
-    healthScore: `${passedCount}/5`,
+    healthScore: `${displayPassed}/${displayTotal}`,
     healthScoreNumeric: {
-      passed: passedCount,
-      total: 5,
-      ratio: passedCount / 5,
+      passed: displayPassed,
+      total: displayTotal,
+      ratio: displayTotal > 0 ? displayPassed / displayTotal : 0,
     },
     packageManager: detectNodePackageManager(root),
     checks,
     fixes,
     parserAvailability,
+    stack: {
+      isNode: isNodeProject,
+      isJava: isJavaProject,
+      isPython: isPythonProject,
+      isGo: isGoProject,
+      isRust: isRustProject,
+    },
     testCoverage: {
       hasCoverageScript: Boolean(coverageScript),
       coverageScript,
@@ -426,4 +453,5 @@ module.exports = {
   checkSecurity,
   checkDependencies,
   detectTestConfig,
+  checkParserAvailability,
 };

@@ -46,38 +46,7 @@
 - [x] 插件化解析器注册表 — **决策更新：提前重构**（原定为"超 10 种时"，现 6→9 种途中即做）
 - [x] **P4-AST：全栈 AST 覆盖** — 9/9 语言全部 AST（2026-05-06 完成）。交付记录见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] §新增。
 
-  #### 技术选型：为什么选 WASM 而非 native binding
-
-  GitNexus 用 `tree-sitter` native binding（`tree-sitter-go` 等 npm 包），结果陷入**版本兼容性地狱**：
-  - `tree-sitter-c` 在 Windows 下 segfault（#1242）
-  - 每个 grammar 的 prebuild `.node` 与 runtime ABI 必须严格匹配
-  - GitNexus 被迫写 798 行的 Python 脚本 + Daily CI workflow 监控 15 个 grammar 的 peer-dep 兼容性
-  - 当前 runtime 锁定在 `0.21.x`，升级 `0.25.x` 被大量 grammar 卡住
-
-  **WASM 方案的本质**：用包体积（`tree-sitter-wasms` ~50MB）和解析速度换取**安装可靠性**。没有 `.node` 编译，没有 ABI 噩梦。
-
-  #### 已验证的基线
-
-  - `web-tree-sitter@0.25.3` + `tree-sitter-wasms@0.1.13`，Windows/Node 22 四语言 wasm 加载 + Query API 全部通过
-  - `web-tree-sitter@0.26.8` 与 `tree-sitter-wasms@0.1.13` **ABI 不兼容**（wasm 加载崩溃），已锁定 `0.25.3`
-  - dep-graph.js 已支持 `entry.async`，parser 接口改 async **不破坏调用方**
-
-  #### 实现策略
-
-  1. **Tree-sitter Query 为主**（比手写 visitor 代码量 -70%）
-  2. **手写 visitor 为辅**（C/C++ function name 解包链、Rust visibility 判断等 Query 无法表达的局部逻辑）
-  3. **失败自动 fallback regex**（wasm 加载失败 / query 编译失败 / 解析异常 → 静默降级到现有 regex，parseMode 标记为 `regex`）
-  4. **语言对象 + Query 对象懒加载缓存**（首次加载后复用，不重复读 wasm 文件）
-
-  #### 从 GitNexus 学到的 5 个具体模式
-
-  | # | 模式 | 价值 | 可移植性 |
-  |---|------|------|----------|
-  | 1 | Tree-sitter Query 声明式提取 | 代码量 -70%，跨语言一致 | **极高** — query 文本可直接复用 |
-  | 2 | Export Checker 纯函数 `(node, name) => boolean` | 隔离语言特定的 export 判断 | **极高** — Go/Rust/Kotlin/C++ 逻辑直接抄 |
-  | 3 | C/C++ Function Name 解包链 | 处理 pointer/reference/qualified/parenthesized 嵌套 | **极高** — ~130 行逻辑直接参考 |
-  | 4 | Parser Loader 优雅降级 | `GrammarSource` 配置表 + `loadCache` + `logged` Set | **中** — 思路可用，复杂度可简化 |
-  | 5 | Language Provider 配置表封装 | `defineLanguage()` 统一封装，零 if-else | **中** — 借鉴哲学，不需要 10+ extractor 重型框架 |
+  > 技术选型、实现策略与验证详情见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] §重构/新增。
 
   #### 风险清单（诚实版）
 
@@ -103,21 +72,9 @@
 >
 > `audit-map --compact` / `audit-diff --compact` / `watch --compact` / REPL `issues` / `top` 全部完成。交付记录见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] §新增/修复。
 
-#### Step 1：REPL / 精确查询模式（✅ 已完成 v0.9.13）
-
-- **改动**：`cli.js` 新增 `repl` case；新增 `src/cli/repl.js`（readline 循环 + 命令解析 + 精简输出）
-- **收益**：大项目不用每次等全量 JSON，只返回请求字段；dep-graph 常驻内存，单次查询 <100ms
-- **验收**：启动后输入 `impact src/utils/path.js`，<100ms 返回精简结果
-
-#### Step 2：缓存解析结果（✅ 已完成 v0.9.13）
-
-- **改动**：`cache.js` `CACHE_VERSION` 升级到 3，新增 `parseResults` Map；`dep-graph.js` `build()` 按 mtime 分离缓存命中与需解析文件；`file-index.js` 同步清理 stale parseResults。
-- **实测**：当前仓库（82 文件）冷启动 dep-graph 289ms → 热启动 3ms（100% cached），约 **96 倍**加速。
-
-#### Step 3：激活 Watcher（✅ 已完成 v0.9.13）
-
-- **改动**：`file-index.js` `processPending()` 末尾新增 `onPendingProcessed` 批量回调；`container.js` 注册 `fileIndex.onPendingProcessed → depGraph.updateFiles`；`dep-graph.js` 新增 `updateFiles()` 增量更新方法。
-- **实测**：新增 1 个文件后 `audit-summary`，`[DepGraph] Built in 10ms: 83 文件 (99% cached)`。
+- Step 1：REPL / 精确查询模式 ✅
+- Step 2：缓存解析结果（parseResults）✅
+- Step 3：Watcher 增量更新 dep-graph ✅
 
 ---
 
@@ -127,23 +84,12 @@
 
 | 语言 | 策略 | 状态 |
 |------|------|------|
-| **C / C++** | ~~regex~~ → **tree-sitter AST**（过渡中） | ✅ v1.0.4 regex 已完成，AST 进行中 |
+| **C / C++** | regex + tree-sitter AST fallback | ✅ 已完成 v1.0.4 |
 | **Vue SFC** | 提取 `<script>` 复用 JS/TS AST parser | ✅ 已完成 v1.0.4 |
 | **Svelte** | 提取 `<script>` 复用 JS/TS AST parser | ✅ 已完成 v1.0.4 |
 | **HTML / CSS** | 不纳入（无 import 语义）| ❌ 跳过 |
 
-> **策略演进**：v1.0 前坚持 regex 以维持零依赖；v1.0+ 用户授权引入依赖，转向 `web-tree-sitter` WASM 统一 AST 方案（见 P4-AST）。
-> ~~解析器注册表在超 10 种语言时统一重构~~ → 已提前重构（见 SESSION.md），当前 9 种全部接入注册表。
-
----
-
-## 已归档里程碑
-
-### 1.0 发布（已完成 2026-05-02）
-
-- CLI 瘦身（23 → 8）取消，仅删除 `deps` 命令
-- `package.json` 升至 `1.0.0`
-- Release Notes + CHANGELOG 归档
+> 9 种语言全部接入 `defineLanguage()` 注册表。交付记录见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
@@ -162,7 +108,7 @@
 5. 大仓库性能可接受（<30s 索引，首次全量 <5min）
 6. **可选外部工具后端**（Semgrep adapter 可插拔）
 7. **全栈语言覆盖**（JS/TS/Python/Java/Kotlin/Go/Rust/C/C++/Vue/Svelte）
-8. **全栈 AST 覆盖**（除 Rust/Kotlin/C/C++ 外已全部 AST）
+8. **全栈 AST 覆盖**（9/9 语言全部 AST）
 
 ---
 
@@ -182,15 +128,14 @@
 > 非核心承诺，不影响 1.0 定位，但持续提升工程健康度。
 
 ### 测试覆盖率量化
-- 当前 **无** istanbul/c8/nyc 等覆盖率工具，行/分支覆盖率未知
-- 53 个测试文件全部为绿不代表高覆盖，需引入 `c8` 生成报告
+- ✅ **c8 已引入**，`npm run test:coverage` 生成 HTML 报告。当前基线 **79.88%**（77 测试）
 
 ### L3 品味问题（10 项活跃）
 按 [TECH_DEBT.md](./docs/TECH_DEBT.md) 记录，优先级如下：
 
 | 问题 | 严重程度 | 文件 |
 |------|---------|------|
-| `buildValidationAdvice` **274 行** 承担 5 项独立子工作 | 🔴 高 | `validation-advice.js` |
+| `buildValidationAdvice` 已拆分 | ✅ 已完成 | `validation-advice.js` |
 | `dep-graph.js` 8 个函数 >30 行 | 🟡 中 | `dep-graph.js` |
 | `js.js` 2 个 visitor 超长（74 行 / 42 行）| 🟡 中 | `js.js` |
 | `file-index.js` 4 个函数 >30 行 | 🟡 中 | `file-index.js` |
@@ -201,8 +146,8 @@
 
 | 模式 | 价值 | 成本 | 状态 |
 |------|------|------|------|
-| **C. 框架感知 Extractor**（Route + ORM）| 改 API 时自动提示前端调用方 | 0.5–1 天 | ✅ 已交付（`framework-patterns.js` + `audit-diff`/`audit-file` `frameworkPattern` 字段）|
-| **F. AST Cache**（LRU + WASM dispose）| 防 `watch`/`repl` 长期运行内存泄漏 | 0.5 天 | ✅ 已交付（`languageCache` 防御性上限 + 4 语言 `query.delete()`）|
+| **C. 框架感知 Extractor**（Route + ORM）| 改 API 时自动提示前端调用方 | 0.5–1 天 | ✅ 已交付 |
+| **F. AST Cache**（LRU + WASM dispose）| 防 `watch`/`repl` 长期运行内存泄漏 | 0.5 天 | ✅ 已交付 |
 | **D. 递进工具链文案**（WHEN TO USE / AFTER THIS）| 降低 CLI 决策成本 | 1 小时 | ⏳ 待排期 |
 | A. 语言注册表重构 | 消除 parser dispatch 硬编码 | 2–3 天 | ⏳ 等性能瓶颈处理后再做 |
 
@@ -213,14 +158,14 @@
 
 | 缺口 | 影响场景 | 当前状态 | 建议方向 | 工作量 |
 |------|---------|---------|----------|--------|
-| `function-impact.js` 硬编码 ext 白名单 | Python/Java 有 AST 但无法做 changed-function-impact | 只支持 `['.js','.jsx','.ts','.tsx','.go']` | 扩展白名单至 `['.py','.java']`，或利用 `functionRecords` 实现跨语言 | 0.5 天 |
-| `audit-file` 无 validationAdvice | 改单个文件后不知道测什么、怎么测 | ✅ `buildFileValidationAdvice()` 已集成，JSON 输出 `validationAdvice` | — | — |
-| `health` 无具体修复建议 | healthScore 3/5 时不知道如何提升到 5/5 | ✅ `fixes` 数组已输出：`[{ check, action, severity }]` | — | — |
-| `impact` 命令无影响路径 | 重构时不知道中间经过哪些文件 | ✅ `via` 数组即完整路径（v0.9.0 已交付）| — | — |
-| SKILL.md 缺失 5 个命令 + staleness + reuse-hints | Agent 契约不完整 | 缺 `workspace-info`、`diagnostics`、`audit-security`、`repl`、`watch` 说明 | 补全命令说明和输出示例 | 0.5 天 |
-| C/C++ 无 stack 检测和验证命令 | 后端/嵌入式项目无法生成验证命令 | `stack-detector` 完全不检测 C/C++ | 添加 `hasCppProject` + `getCppCommands`（cmake/make）| 0.5 天 |
-| Go/Rust 静态分析命令缺失 | 验证深度不足 | 缺 `go vet`、`cargo clippy` | `getGoCommands`/`getRustCommands` smoke 阶段添加 | 0.25 天 |
-| `audit-diff` 缺文件类型统计 + 变更量 | AI 无法判断改动性质和规模 | 只有 changedFiles 计数 | 增加 `fileTypeBreakdown` + `changeMetrics`（git diff --numstat）| 0.5 天 |
+| `function-impact.js` 硬编码 ext 白名单 | Python/Java 有 AST 但无法做 changed-function-impact | ✅ 已解锁所有 AST 语言 | — | — |
+| `audit-file` 无 validationAdvice | 改单个文件后不知道测什么、怎么测 | ✅ `buildFileValidationAdvice()` 已集成 | — | — |
+| `health` 无具体修复建议 | healthScore 3/5 时不知道如何提升到 5/5 | ✅ `fixes` 数组已输出 | — | — |
+| `impact` 命令无影响路径 | 重构时不知道中间经过哪些文件 | ✅ `via` 数组即完整路径 | — | — |
+| SKILL.md 缺失命令说明 | Agent 契约不完整 | ✅ 已补全 | — | — |
+| C/C++ 无 stack 检测和验证命令 | 后端/嵌入式项目无法生成验证命令 | ✅ `hasCppProject` + `getCppCommands` 已添加 | — | — |
+| Go/Rust 静态分析命令缺失 | 验证深度不足 | ✅ `go vet` / `cargo clippy` 已添加 | — | — |
+| `audit-diff` 缺文件类型统计 + 变更量 | AI 无法判断改动性质和规模 | ✅ `fileTypeBreakdown` + `changeMetrics` 已添加 | — | — |
 
 ### 性能瓶颈（大项目 >10k 文件）
 
@@ -271,4 +216,35 @@
 
 ---
 
-*Last updated: 2026-05-06（C/C++ AST ✅ 交付，P4-AST 闭环完成；全栈 9/9 语言 AST 覆盖达成；68/68 测试通过，healthScore=5/5）*
+---
+
+## 产品评估
+
+> 以下评估记录工具从"不可用"到"及格"后的真实竞争力与剩余架构债。
+
+### v2.0.0 理想态
+
+- 假阳性率 < 10%，数据可信，建议可执行
+- 输出体积可控（< 500 行 @ 223 文件项目）
+- 一个 CLI 同时覆盖 JS + Java + 验证建议 + 影响半径
+
+### 与专业工具对比
+
+| 维度 | knip | dependency-cruiser | SonarQube | workspace-bridge |
+|------|------|-------------------|-----------|------------------|
+| JS dead exports | 95% | — | — | 85% |
+| JS cycles | — | 95% | — | 可用 |
+| Java 分析深度 | — | — | 很高 | 能检测到文件 |
+
+**给人类用**：仍然打不过专业工具。**给 AI 用**：有独特优势（统一接口、轻量、JSON、验证建议 + 影响半径一体化）。
+
+### 剩余架构债
+
+- dep-graph.js 函数级拆分空间
+- Java 多模块 AST 解析深度
+- Vue SFC 解析与 `languageSupport` 统计打通
+- 测试覆盖补全（flaky 测试修掉）
+
+---
+
+*Last updated: 2026-05-07（10 项用户体验缺口清零；产品 bug 专项收尾；80/80 测试通过，覆盖率 79.88%，healthScore=5/5）*

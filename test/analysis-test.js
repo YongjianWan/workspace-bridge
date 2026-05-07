@@ -111,7 +111,13 @@ function main() {
     assert(typeof impact.impactCount === 'number', 'impactCount should be a number');
     assert(impact.symbolImpact, 'symbolImpact should exist');
     assert(['symbol', 'file-fallback'].includes(impact.symbolImpact.mode), 'symbolImpact.mode should be valid');
-    console.log(`     Impact: ${impact.impactCount}`);
+    const transitiveInImpact = (impact.impact || []).filter((e) => e.level >= 2);
+    assert.strictEqual(
+      impact.symbolImpact.transitiveCount,
+      transitiveInImpact.length,
+      'transitiveCount should match count of level>=2 items in impact array'
+    );
+    console.log(`     Impact: ${impact.impactCount}, transitive: ${impact.symbolImpact.transitiveCount}`);
 
     console.log('\nAll analysis tests passed');
   } finally {

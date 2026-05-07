@@ -236,6 +236,10 @@ function getFunctionLevelAffectedTests(depGraph, filePath, changedFunctions, opt
 
   const maxDepth = Number.isFinite(options.maxDepth) ? Math.max(1, options.maxDepth) : DEFAULTS.SYMBOL_IMPACT_DEPTH;
   const symbolImpact = options.symbolImpact || null;
+  // L2-20: functionToDependents no longer carries the dependents array.
+  // Look up the actual file list from symbolToDependents instead.
+  const symbolRows = Array.isArray(symbolImpact?.symbolToDependents) ? symbolImpact.symbolToDependents : [];
+  const bySymbol = new Map(symbolRows.map((row) => [row.symbol, row]));
   const functionRows = Array.isArray(symbolImpact?.functionToDependents) ? symbolImpact.functionToDependents : [];
   const byFunction = new Map(functionRows.map((row) => [row.function, row]));
 
@@ -244,8 +248,14 @@ function getFunctionLevelAffectedTests(depGraph, filePath, changedFunctions, opt
   const dependentBfsCache = new Map();
 
   for (const fnName of list) {
-    const row = byFunction.get(fnName);
-    const dependents = Array.isArray(row?.dependents) ? row.dependents : [];
+    const symbolRow = bySymbol.get(fnName);
+    // L2-20: primary lookup from symbolToDependents; fallback to legacy
+    // dependents array in functionToDependents for backward compatibility.
+    const dependents = Array.isArray(symbolRow?.dependents)
+      ? symbolRow.dependents
+      : Array.isArray(byFunction.get(fnName)?.dependents)
+        ? byFunction.get(fnName).dependents
+        : [];
     const testMap = new Map();
 
     for (const dependentFile of dependents) {

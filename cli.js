@@ -504,12 +504,16 @@ function formatHuman(command, result) {
           return `${entry.distance}: ${entry.file}${viaStr}`;
         }),
       ].join('\n');
-    case 'diagnostics':
+    case 'diagnostics': {
+      const diagTotal = result.diagnosticsSummary?.noLintersDetected
+        ? 'no linters detected'
+        : result.diagnosticsSummary?.total;
       return [
         `checksRun: ${result.checksRun}`,
         `failedChecks: ${result.failedChecks.join(', ') || 'none'}`,
-        `diagnostics: ${result.diagnosticsSummary.total}`,
+        `diagnostics: ${diagTotal}`,
       ].join('\n');
+    }
     default:
       return JSON.stringify(result, null, 2);
   }
@@ -764,17 +768,33 @@ async function runCommand(parsed, container) {
         else console.error(err.error);
         return { ok: false, __managedLifecycle: true };
       }
+      const root = parsed.cwd || process.cwd();
+      const GENERATED_HINTS = new Set(['node_modules', 'dist', 'build', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', '.git']);
+      const REFERENCE_HINTS = new Set(['docs', 'test', 'tests', 'benchmark', 'scripts', 'reference', 'fixtures', 'fixture-temp']);
+      const generated = [];
+      const reference = [];
+      try {
+        for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          if (GENERATED_HINTS.has(entry.name)) generated.push(entry.name);
+          else if (REFERENCE_HINTS.has(entry.name)) reference.push(entry.name);
+        }
+      } catch { /* ignore read errors */ }
       const defaultConfig = {
         $schema: 'https://workspace-bridge.dev/schema/v1.json',
         directories: {
           active: [],
-          reference: [],
+          reference,
           archive: [],
-          generated: [],
+          generated,
         },
       };
       fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2) + '\n');
-      const result = { ok: true, configPath, message: 'Created .workspace-bridge.json with default directories.' };
+      const result = {
+        ok: true,
+        configPath,
+        message: `Created .workspace-bridge.json. ${generated.length > 0 ? `Detected generated directories: ${generated.join(', ')}. ` : ''}${reference.length > 0 ? `Detected reference directories: ${reference.join(', ')}. ` : ''}Adjust "active" / "archive" as needed.`,
+      };
       if (parsed.json) console.log(JSON.stringify(result, null, 2));
       else console.log(result.message);
       return { ok: true, __managedLifecycle: true };

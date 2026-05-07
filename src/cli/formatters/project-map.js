@@ -191,12 +191,12 @@ function aggregateEdgesToDirectoryLevel(edges) {
   return Array.from(map.values());
 }
 
-/** Extract module prefix (first two path segments) from a directory path. */
+/** Extract module prefix (first three path segments) from a directory path. */
 function getModuleOf(dirPath) {
   if (dirPath === '.') return '.';
   const parts = dirPath.split('/');
-  if (parts.length <= 1) return dirPath;
-  return parts.slice(0, 2).join('/');
+  if (parts.length <= 2) return dirPath;
+  return parts.slice(0, 3).join('/');
 }
 
 /** Aggregate directory-level edges up to module-level (first two path segments). */
@@ -327,7 +327,7 @@ function buildProjectMap(depGraph, options = {}) {
   const cycles = depGraph.findCircularDependencies?.() || [];
 
   const entrySet = depGraph.entryFiles || new Set();
-  const orphanResult = findOrphanFiles(allFiles, entrySet, depGraph, root, toRelativePath);
+  const orphanResult = findOrphanFiles(allFiles, entrySet, depGraph, root, toRelativePath, depGraph.isKnownEntryFile?.bind(depGraph));
   const orphans = orphanResult.all;
 
   // Hotspots: files with high dependent count (dependency centrality)
@@ -348,14 +348,14 @@ function buildProjectMap(depGraph, options = {}) {
     deadExports: deadExports.map((item) => compact
       ? { file: toRelativePath(root, item.file), confidence: item.confidence || 'medium' }
       : { file: toRelativePath(root, item.file), exports: item.exports, confidence: item.confidence || 'medium' }
-    ),
+    ).slice(0, compact ? DEFAULTS.COMPACT_ISSUE_MAX_ITEMS : deadExports.length),
     unresolved: unresolved.map((item) => ({
       file: toRelativePath(root, item.file),
       import: item.import,
       resolvedTo: item.resolvedTo || null,
-    })),
+    })).slice(0, compact ? DEFAULTS.COMPACT_ISSUE_MAX_ITEMS : unresolved.length),
     cycles: cycles.map((cycle) => cycle.map((f) => toRelativePath(root, f))),
-    orphans,
+    orphans: compact ? orphans.slice(0, DEFAULTS.COMPACT_ORPHAN_MAX_ITEMS) : orphans,
     hotspots: hotspots.slice(0, 10),
   };
 

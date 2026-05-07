@@ -450,16 +450,16 @@ function testProjectMapCompactModuleEdges() {
   for (const e of result.edges) {
     const fromSegs = e.from.split('/');
     const toSegs = e.to.split('/');
-    assert(fromSegs.length <= 2, `edge from should be at most 2 segments, got ${e.from}`);
-    assert(toSegs.length <= 2, `edge to should be at most 2 segments, got ${e.to}`);
+    assert(fromSegs.length <= 3, `edge from should be at most 3 segments, got ${e.from}`);
+    assert(toSegs.length <= 3, `edge to should be at most 3 segments, got ${e.to}`);
     assert.strictEqual(e.type, 'import', `module-level edge type should be import, got ${e.type}`);
   }
 
-  const coreToMcp = result.edges.find((e) => e.from === 'src/core' && e.to === 'src/mcp');
-  assert(coreToMcp, 'should have src/core -> src/mcp module edge');
+  const coreToMcp = result.edges.find((e) => e.from === 'src/core/ingestion' && e.to === 'src/mcp/server');
+  assert(coreToMcp, 'should have src/core/ingestion -> src/mcp/server module edge');
 
-  const coreToUtils = result.edges.find((e) => e.from === 'src/core' && e.to === 'src/utils');
-  assert(coreToUtils, 'should have src/core -> src/utils module edge');
+  const coreToUtils = result.edges.find((e) => e.from === 'src/core/ingestion' && e.to === 'src/utils');
+  assert(coreToUtils, 'should have src/core/ingestion -> src/utils module edge');
 
   console.log('testProjectMapCompactModuleEdges: ok');
 }

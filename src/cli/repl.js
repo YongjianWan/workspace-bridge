@@ -9,6 +9,7 @@ const { ServiceContainer } = require('../services/container');
 const { TIMEOUTS, DEFAULTS, SCORING } = require('../config/constants');
 const { buildProjectMap, countTreeFiles } = require('./formatters/project-map');
 const { parseArgs } = require('../utils/parse-args');
+const { resolveWorkspaceFilePath } = require('../utils/path');
 
 function formatImpact(result) {
   const lines = [`impactCount: ${result.length}`];
@@ -137,7 +138,7 @@ async function executeCommand(container, line) {
       const parsed = parseArgs(['node', 'repl', ...args], {
         '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
       });
-      const file = parsed._[0];
+      const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || container.depGraph?.workspaceRoot);
       if (!file) return 'Usage: impact <file>';
       const maxDepth = Number.isFinite(parsed.maxDepth) && parsed.maxDepth > 0 ? parsed.maxDepth : 3;
       const result = container.depGraph.getImpactRadius(file, maxDepth);
@@ -148,7 +149,7 @@ async function executeCommand(container, line) {
       const parsed = parseArgs(['node', 'repl', ...args], {
         '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
       });
-      const file = parsed._[0];
+      const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || container.depGraph?.workspaceRoot);
       if (!file) return 'Usage: affected-tests <file>';
       const maxDepth = Number.isFinite(parsed.maxDepth) && parsed.maxDepth > 0 ? parsed.maxDepth : 5;
       const result = container.depGraph.findAffectedTests(file, maxDepth);
@@ -171,14 +172,14 @@ async function executeCommand(container, line) {
     }
 
     case 'dependents': {
-      const file = args[0];
+      const file = resolveWorkspaceFilePath(args[0], container.workspaceRoot || container.depGraph?.workspaceRoot);
       if (!file) return 'Usage: dependents <file>';
       const result = container.depGraph.getDependents(file);
       return formatDependents(result);
     }
 
     case 'dependencies': {
-      const file = args[0];
+      const file = resolveWorkspaceFilePath(args[0], container.workspaceRoot || container.depGraph?.workspaceRoot);
       if (!file) return 'Usage: dependencies <file>';
       const result = container.depGraph.getDependencies(file);
       return formatDependencies(result);
@@ -269,7 +270,7 @@ async function executeCommand(container, line) {
 }
 
 async function startRepl(options) {
-  const container = new ServiceContainer();
+  const container = new ServiceContainer({ quiet: options.quiet });
   let rl = null;
   let shuttingDown = false;
 
@@ -291,8 +292,10 @@ async function startRepl(options) {
       throw container.initError || new Error('Failed to initialize workspace container');
     }
 
-    console.error(`workspace-bridge REPL — ${container.workspaceRoot}`);
-    console.error('Type "help" for commands, "exit" or "quit" to quit.\n');
+    if (!options.quiet) {
+      console.error(`workspace-bridge REPL — ${container.workspaceRoot}`);
+      console.error('Type "help" for commands, "exit" or "quit" to quit.\n');
+    }
 
     rl = readline.createInterface({
       input: process.stdin,
@@ -335,7 +338,9 @@ async function startRepl(options) {
       rl.prompt();
     }
 
-    console.error('\nGoodbye.');
+    if (!options.quiet) {
+      console.error('\nGoodbye.');
+    }
   } catch (err) {
     console.error('REPL failed:', err.message);
     process.exitCode = 1;

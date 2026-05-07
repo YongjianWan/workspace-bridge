@@ -3,9 +3,10 @@
  * All commands use argument arrays to prevent injection
  */
 const path = require('path');
-const { findWorkspaceRoot, detectWorkspace } = require('../utils/path');
+const { findWorkspaceRoot, detectWorkspace, toRelativePosix, pathExists } = require('../utils/path');
 const { runCommandSecure, runNpx, runPythonModule, trimOutput } = require('../utils/command');
 const { parseDiagnosticsFromText, uniqueDiagnostics, summarizeDiagnostics } = require('../utils/diagnostics');
+const { checkParserAvailability } = require('./health-tools');
 
 /**
  * Resolve Python executable path
@@ -39,51 +40,68 @@ function resolvePythonCommand(root) {
 async function buildChecks(workspace, mode) {
   const checks = [];
   const root = workspace.root;
+  let noLintersDetected = false;
 
   if (workspace.hasPackageJson && workspace.packageJson?.scripts) {
     const scripts = workspace.packageJson.scripts;
+    let hasNodeCheck = false;
+
     if (scripts.typecheck) {
-      checks.push({ 
-        name: 'node:typecheck', 
+      checks.push({
+        name: 'node:typecheck',
         cmd: 'npm',
         args: ['run', '-s', 'typecheck'],
       });
+      hasNodeCheck = true;
     } else if (workspace.hasTsconfig) {
-      checks.push({ 
-        name: 'node:tsc', 
+      checks.push({
+        name: 'node:tsc',
         cmd: 'npx',
         args: ['tsc', '--noEmit'],
       });
+      hasNodeCheck = true;
     }
     if (scripts.lint) {
-      checks.push({ 
-        name: 'node:lint', 
+      checks.push({
+        name: 'node:lint',
         cmd: 'npm',
         args: ['run', '-s', 'lint'],
       });
+      hasNodeCheck = true;
     }
     if (mode === 'full' && scripts.build) {
-      checks.push({ 
-        name: 'node:build', 
+      checks.push({
+        name: 'node:build',
         cmd: 'npm',
         args: ['run', '-s', 'build'],
       });
     }
     if (mode === 'full' && scripts.test) {
-      checks.push({ 
-        name: 'node:test', 
+      checks.push({
+        name: 'node:test',
         cmd: 'npm',
         args: ['run', '-s', 'test', '--', '--runInBand'],
       });
+      hasNodeCheck = true;
     }
 
-    if (mode === 'quick' && checks.length === 0) {
-      checks.push({
-        name: 'node:script-list',
-        cmd: 'npm',
-        args: ['run', '-s'],
-        timeout: 15000,
-      });
+    // Auto-detect eslint if no lint script but config exists
+    if (!scripts.lint) {
+      const eslintConfigs = ['.eslintrc.js', '.eslintrc.json', '.eslintrc.cjs', '.eslintrc.yaml', '.eslintrc.yml', 'eslint.config.js', 'eslint.config.mjs'];
+      const hasEslintConfig = eslintConfigs.some((f) => pathExists(path.join(root, f)));
+      if (hasEslintConfig) {
+        checks.push({
+          name: 'node:eslint',
+          cmd: 'npx',
+          args: ['eslint', '.'],
+          timeout: 30000,
+        });
+        hasNodeCheck = true;
+      }
+    }
+
+    if (mode === 'quick' && !hasNodeCheck) {
+      noLintersDetected = true;
     }
   }
 
@@ -153,7 +171,7 @@ async function buildChecks(workspace, mode) {
     });
   }
 
-  return checks;
+  return { checks, noLintersDetected };
 }
 
 function workspaceInfo(args, container) {
@@ -161,18 +179,64 @@ function workspaceInfo(args, container) {
   const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const workspace = detectWorkspace(root);
 
+  // Try to use depGraph data if container is ready; otherwise fall back to basic detection
+  const depGraph = container?.depGraph;
+  const allFiles = depGraph ? Array.from(depGraph.graph?.keys() || []) : [];
+  const entryFiles = depGraph
+    ? Array.from(depGraph.entryFiles || []).map((f) => toRelativePosix(root, f))
+    : [];
+
+  // Language distribution from graph
+  const langCounts = {};
+  for (const file of allFiles) {
+    const ext = path.extname(file).toLowerCase();
+    const lang =
+      ext === '.js' || ext === '.jsx' || ext === '.ts' || ext === '.tsx' || ext === '.mjs' || ext === '.cjs' ? 'javascript'
+      : ext === '.py' ? 'python'
+      : ext === '.java' ? 'java'
+      : ext === '.kt' ? 'kotlin'
+      : ext === '.go' ? 'go'
+      : ext === '.rs' ? 'rust'
+      : ext === '.vue' ? 'vue'
+      : ext === '.svelte' ? 'svelte'
+      : ext === '.c' || ext === '.cpp' || ext === '.cc' || ext === '.h' || ext === '.hpp' ? 'c-cpp'
+      : 'other';
+    langCounts[lang] = (langCounts[lang] || 0) + 1;
+  }
+
+  const availableChecks = [];
+  if (workspace.hasPackageJson) {
+    availableChecks.push('npm scripts', 'eslint', 'prettier');
+    if (workspace.hasTsconfig) availableChecks.push('tsc');
+  }
+  if (workspace.hasJava) availableChecks.push('mvn/gradle');
+  if (workspace.hasManagePy) availableChecks.push('django-check');
+  if (workspace.hasRequirements || workspace.hasPyproject) availableChecks.push('pytest', 'ruff');
+  if (workspace.hasGo) availableChecks.push('go test', 'go vet');
+  if (workspace.hasRust) availableChecks.push('cargo test', 'cargo clippy');
+
+  const parserAvailability = workspace.hasPackageJson
+    ? checkParserAvailability()
+    : { available: true, skipped: true };
+
   return {
     cwd: require('../utils/path').normalizePath(target),
     workspaceRoot: workspace.root,
+    fileCount: allFiles.length,
     detected: {
       git: workspace.hasGit,
       node: workspace.hasPackageJson,
       python: workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy,
       django: workspace.hasManagePy,
-      typescript: workspace.hasTsconfig,
+      typescript: workspace.hasTsconfig || Boolean(workspace.packageJson?.devDependencies?.typescript) || Boolean(workspace.packageJson?.dependencies?.typescript),
+      java: workspace.hasJava,
+      go: workspace.hasGo,
+      rust: workspace.hasRust,
     },
-    // Note: async buildChecks is called separately when needed
-    availableChecks: [], 
+    languages: langCounts,
+    entryFiles,
+    availableChecks,
+    parserAvailability,
   };
 }
 
@@ -204,7 +268,7 @@ async function runDiagnostics(args, container) {
 
   const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const workspace = detectWorkspace(root);
-  const checks = await buildChecks(workspace, mode);
+  const { checks, noLintersDetected } = await buildChecks(workspace, mode);
 
   const checkResults = await Promise.allSettled(
     checks.map(async (check) => {
@@ -257,14 +321,19 @@ async function runDiagnostics(args, container) {
   const diagnostics = uniqueDiagnostics(allDiagnostics).slice(0, maxDiagnostics);
   const results = fulfilled.map(r => r.entry);
 
+  const diagnosticsSummary = noLintersDetected
+    ? { total: null, error: null, warning: null, information: null, hint: null, noLintersDetected: true }
+    : summarizeDiagnostics(diagnostics);
+
   return {
     workspaceRoot: workspace.root,
     mode,
     checksRun: results.length,
     failedChecks: results.filter(item => !item.ok).map(item => item.name),
-    diagnosticsSummary: summarizeDiagnostics(diagnostics),
+    diagnosticsSummary,
     diagnostics,
     results,
+    noLintersDetected,
   };
 }
 

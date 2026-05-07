@@ -4,6 +4,7 @@
  */
 const path = require('path');
 const { isStandaloneEntryPath, toRelativePosix } = require('./path');
+const { ENTRY_BASE_NAMES } = require('./project-context');
 
 /**
  * Find orphan files (not imported and not entry points).
@@ -14,7 +15,7 @@ const { isStandaloneEntryPath, toRelativePosix } = require('./path');
  * @param {Function|null} toRelativeFn — optional (root, filePath) => relativePath
  * @returns {{docs: string[], scripts: string[], configs: string[], modules: string[], all: string[]}}
  */
-function findOrphanFiles(files, entryFiles, graph, root, toRelativeFn = null) {
+function findOrphanFiles(files, entryFiles, graph, root, toRelativeFn = null, isKnownEntryFile = null) {
   const orphans = { docs: [], scripts: [], configs: [], modules: [], all: [] };
   const toRel = toRelativeFn || toRelativePosix;
 
@@ -30,6 +31,8 @@ function findOrphanFiles(files, entryFiles, graph, root, toRelativeFn = null) {
     const isImported = dependents.length > 0;
 
     if (isEntry || isImported) continue;
+    if (isKnownEntryFile?.(file)) continue; // shebang / config / framework entry files
+    if (ENTRY_BASE_NAMES.has(base)) continue; // common entry files (main.js, app.js, etc.)
     if (isStandaloneEntryPath(relativePath)) continue; // scripts / bin / benchmark are standalone entry points
 
     orphans.all.push(relativePath);

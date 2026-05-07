@@ -275,17 +275,41 @@ function parseJavaScriptAST(content, filePath = '') {
         }));
       },
 
-      ImportExpression(node) {
-        if (!node.source?.value) return;
-        imports.push(node.source.value);
-        importRecords.push(createImportRecord(node.source.value, { usesAllExports: true }));
-      },
-
       CallExpression(node) {
+        // require('./foo')
         if (
           node.callee?.type === 'Identifier' &&
           node.callee.name === 'require' &&
           node.arguments?.[0]?.value
+        ) {
+          const source = node.arguments[0].value;
+          imports.push(source);
+          importRecords.push(createImportRecord(source, { usesAllExports: true }));
+          return;
+        }
+        // import('./foo') — Babel parses this as CallExpression with callee.type === 'Import'
+        if (
+          node.callee?.type === 'Import' &&
+          node.arguments?.[0]?.value
+        ) {
+          const source = node.arguments[0].value;
+          imports.push(source);
+          importRecords.push(createImportRecord(source, { usesAllExports: true }));
+        }
+      },
+
+      NewExpression(node) {
+        // new URL('./worker.js', import.meta.url) — worker threads / asset resolution
+        if (
+          node.callee?.type === 'Identifier' &&
+          node.callee.name === 'URL' &&
+          node.arguments?.[0]?.type === 'StringLiteral' &&
+          /\.(js|ts|mjs|cjs)$/i.test(node.arguments[0].value) &&
+          node.arguments?.[1]?.type === 'MemberExpression' &&
+          node.arguments[1].object?.type === 'MetaProperty' &&
+          node.arguments[1].object.meta?.name === 'import' &&
+          node.arguments[1].object.property?.name === 'meta' &&
+          node.arguments[1].property?.name === 'url'
         ) {
           const source = node.arguments[0].value;
           imports.push(source);

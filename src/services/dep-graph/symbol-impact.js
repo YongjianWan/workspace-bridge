@@ -144,15 +144,14 @@ function buildFunctionToDependents(sourceInfo, symbolToDependents) {
   if (functionNames.length === 0) return [];
 
   const rowsBySymbol = new Map((symbolToDependents || []).map((row) => [row.symbol, row]));
+  // L2-20: return only { function, dependentCount } to avoid duplicating the
+  // dependents array already present in symbolToDependents. Callers that need
+  // the actual file list can look it up from symbolToDependents.
   return functionNames.map((name) => {
     const row = rowsBySymbol.get(name);
-    if (!row) {
-      return { function: name, dependentCount: 0, dependents: [] };
-    }
     return {
       function: name,
-      dependentCount: row.dependentCount,
-      dependents: row.dependents,
+      dependentCount: row ? row.dependentCount : 0,
     };
   }).sort((a, b) => b.dependentCount - a.dependentCount);
 }
@@ -256,32 +255,36 @@ function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_D
   const sourceFile = depGraph.normalizeFilePath(filePath);
   const sourceInfo = depGraph.getFileInfo(sourceFile);
   if (!sourceInfo) {
+    const impactedFiles = depGraph.getImpactRadius(sourceFile, maxDepth);
+    const transitive = impactedFiles.filter((f) => f.level >= 2);
     return {
       mode: 'file-fallback',
       reason: 'source-not-indexed',
-      impactedFiles: depGraph.getImpactRadius(sourceFile, maxDepth),
+      impactedFiles,
       sourceSymbols: [],
       symbolToDependents: [],
       functionToDependents: [],
       directCount: 0,
       directDependents: [],
-      transitiveCount: 0,
-      transitiveDependents: [],
+      transitiveCount: transitive.length,
+      transitiveDependents: transitive,
     };
   }
 
   if (shouldFallbackToFileImpact(depGraph, sourceFile)) {
+    const impactedFiles = depGraph.getImpactRadius(sourceFile, maxDepth);
+    const transitive = impactedFiles.filter((f) => f.level >= 2);
     return {
       mode: 'file-fallback',
       reason: 'ast-unavailable',
-      impactedFiles: depGraph.getImpactRadius(sourceFile, maxDepth),
+      impactedFiles,
       sourceSymbols: sourceInfo.exports || [],
       symbolToDependents: [],
       functionToDependents: [],
       directCount: 0,
       directDependents: [],
-      transitiveCount: 0,
-      transitiveDependents: [],
+      transitiveCount: transitive.length,
+      transitiveDependents: transitive,
     };
   }
 
@@ -293,6 +296,9 @@ function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_D
   const transitive = buildTransitiveUsage(depGraph, reExportQueue, maxDepth, direct);
   const uniqueDirect = deduplicateDirectDependents(direct);
 
+  const impactedFiles = depGraph.getImpactRadius(sourceFile, maxDepth);
+  const transitiveFromImpact = impactedFiles.filter((f) => f.level >= 2);
+
   return {
     mode: 'symbol',
     sourceFile,
@@ -301,8 +307,9 @@ function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_D
     functionToDependents,
     directCount: uniqueDirect.length,
     directDependents: uniqueDirect,
-    transitiveCount: transitive.length,
-    transitiveDependents: transitive,
+    impactedFiles,
+    transitiveCount: transitiveFromImpact.length,
+    transitiveDependents: transitiveFromImpact,
   };
 }
 

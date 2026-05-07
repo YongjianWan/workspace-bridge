@@ -112,8 +112,8 @@ function getNodeCommands(nodeStack, changeType, targets) {
       if (codeTargets.length > 0) {
         commands.focused.push({ name: 'node-focused-tests', description: 'Run node-side focused tests', cmd: testCmd });
       }
+      commands.full.push({ name: 'node-all-tests', description: 'Run node-side full test suite', cmd: `${exec.run} test` });
     }
-    commands.full.push({ name: 'node-all-tests', description: 'Run node-side full test suite', cmd: `${exec.run} test` });
   });
 }
 

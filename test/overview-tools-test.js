@@ -19,12 +19,12 @@ const dependentsMap = new Map([
   [fileB, [fileApp, fileC]],
   [fileApp, [fileTest]],
   [fileTest, []],
-  [fileDoc, []],
+  [fileDoc, [fileA, fileB]],
   [fileC, [fileA, fileB, fileApp, fileTest]],
 ]);
 
 const dependenciesMap = new Map([
-  [fileA, [fileB, fileC]],
+  [fileA, [fileB, fileC, fileDoc]],
   [fileB, [fileA]],
   [fileApp, [fileA, fileB]],
   [fileTest, [fileApp]],
@@ -85,7 +85,7 @@ async function main() {
       [fileB]: { level: 'medium', commitCount: 4, authorCount: 2, lastModifiedDaysAgo: 10, revertLikeCount: 0, signals: ['hotspot B'] },
       [fileApp]: { level: 'low', commitCount: 1, authorCount: 1, lastModifiedDaysAgo: 40, revertLikeCount: 0, signals: ['quiet'] },
       [fileTest]: { level: 'low', commitCount: 1, authorCount: 1, lastModifiedDaysAgo: 20, revertLikeCount: 0, signals: ['test'] },
-      [fileDoc]: { level: 'low', commitCount: 0, authorCount: 1, lastModifiedDaysAgo: null, revertLikeCount: 0, signals: ['doc'] },
+      [fileDoc]: { level: 'high', commitCount: 10, authorCount: 3, lastModifiedDaysAgo: 2, revertLikeCount: 1, signals: ['config churn'] },
     };
     return { ok: true, historyRisk: riskByFile[file] || null, recentCommits: [] };
   };
@@ -129,6 +129,8 @@ async function main() {
   assert.strictEqual(typeof result.aggregates.stabilityCounts.fragile, 'number');
   assert(calls.length >= 1, 'history provider should be called');
   assert(!result.orphans.samples.modules.some((item) => item.includes('.test.')), 'test files should not be reported as orphan modules');
+  // P28: config files with high churn should not be misreported as hotspots.
+  assert(!result.hotspots.some((h) => h.file.includes('README.md')), 'config file (README.md) with high churn should be dampened and not appear in hotspots');
 
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-overview-'));
   const outFile = path.join(outDir, 'hotspots.json');
