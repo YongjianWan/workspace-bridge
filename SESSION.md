@@ -10,7 +10,7 @@
 
 ```bash
 # 1. 验证测试基线
-node test/runner.js          # 期望: 70/70 PASS
+node test/runner.js          # 期望: 76/76 PASS
 
 # 2. 验证自审基线
 node cli.js audit-summary --cwd . --json --quiet
@@ -27,16 +27,17 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 ## 基线状态
 
-- 测试：**70/70 PASS**
+- 测试：**76/76 PASS**
 - 版本：**v1.1.0**（以 `package.json` 为准）
 - 分支：`main`，已 push origin
-- 自身项目规模：140 文件，entry=4, library=53, test=71, script=12
+- 自身项目规模：146 文件，entry=4, library=53, test=77, script=12
 - 健康度：5/5，0 死导出，0 循环，0 未解析
 - cache 一致性：✅ 已修复（删除文件后无 ghost 数据）
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**（C/C++ AST 已于 2026-05-06 交付）
-- **本轮新增（2026-05-07）**：
-  - 修复 #45 / #49 / #50 / #54（见下方"本轮已完成"）
+- **上一轮已完成（2026-05-07 bug 修复专项）**：
+  - 修复 #39 / #40 / #41 / #42 / #43 / #48 / #47（全部 P0 + P1 bug 清零）
+  - 修复 #45 / #49 / #50 / #54
   - 关闭过时 issue #38（registry-core.js 已实际接入）
 
 ---
@@ -55,10 +56,32 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 | `buildFileValidationAdvice` 导出链 | `validation-advice.js` → `index.js` → `cli.js` | 新增 formatter 函数必须在 `src/cli/formatters/index.js` 中显式导出，否则 cli.js 解构为 `undefined` |
 | `--quiet` 不再 monkey-patch `console.error` | `cli.js` / `container.js` | `quiet` 通过 `ServiceContainer` → `FileIndex` / `DependencyGraph` 传递；信息性日志条件输出，错误日志仍用 `console.error` |
 | `findDeadExports()` edges/files 降级 | `src/services/dep-graph.js` | 单文件项目（files=1）不受降级影响；多文件项目 edges/files < 0.1 时 confidence 降为 low |
+| `.workspace-bridge-cache.json.bak` 泄漏到 git status | `src/tools/git-tools.js` | `getChangedFiles()` 已排除 `.bak` 备份文件，防止 audit-diff 误报 |
 
 ---
 
-## 本轮已完成（2026-05-07 bug 修复专项）
+## 历史已完成（2026-05-07 bug 修复专项）
+
+**#39: `processPending()` race condition**
+- `file-index.js` 原子替换 `Set`，防止批量变更时文件更新丢失
+
+**#40: REPL double Ctrl+C 泄漏**
+- `repl.js` `shuttingDown` guard + SIGINT handler 保持到 `shutdown()` 完成 + try-catch
+
+**#41: Python zombie 进程（无 SIGKILL fallback）**
+- `spawn-ast.js` 移除冗余 `spawn timeout`，新增 `python.unref()` + SIGKILL fallback（5s）
+
+**#42: DiagnosticsEngine 无界 timer**
+- `diagnostics-engine.js` 队列驱动 `_drainCheckQueue()` 替换无界 `setTimeout` 重试，加 `MAX_SCHEDULED_CHECKS` 上限
+
+**#43: `fs.watch` rename 不区分删除**
+- `file-index.js` `rename` 且 `!filename` 时触发 `pruneDeletedCacheEntries` + `onPendingProcessed`
+
+**#48: cache 损坏时静默丢弃（无备份）**
+- `cache.js` `save()` 先备份 `.bak`，`load()` 主缓存损坏时降级读取 `.bak`
+
+**#47: `safeRegexTest()` placebo**
+- `search-tools.js` 删除死代码 `safeRegexTest()`（未被调用且无法阻止 ReDoS）
 
 **#45: `--max-depth` 参数验证**
 - `cli.js` `parseCliArgs()` 拒绝 `≤0` 的值，抛出明确错误
@@ -66,20 +89,18 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 **#49: `--quiet` 模式 monkey-patch 消除**
 - 删除 `console.error = () => {}` 全局篡改
 - `ServiceContainer` / `FileIndex` / `DependencyGraph` 构造函数新增 `quiet` 选项
-- 信息性日志（`[Container] Ready`、`[DepGraph] Built` 等）条件输出；错误日志保留
 
 **#50: parser 不可用时误导性结果**
 - `dep-graph.js` `build()` 完成后若 `edges/files < 0.1` 输出 WARNING 到 stderr
 - `findDeadExports()` 在该场景下将无 importer 文件的 confidence 从 `high` 降级为 `low`
-- 单文件项目不受此降级影响（避免误伤合法单文件 dead-export）
+- 单文件项目不受此降级影响
 
 **#54: health 命令 parser 可用性检查**
 - `health-tools.js` 新增 `checkParserAvailability()`
-- Node 项目（`hasPackageJson`）检测 `@babel/parser` 是否可用
-- 不可用时 `fixes` 数组推送安装建议；JSON 输出新增 `parserAvailability` 字段
+- Node 项目检测 `@babel/parser` 是否可用
 
 **#38: 关闭过时 issue**
-- `registry-core.js` 已实际通过 `registry.js` → `index.js` → `dep-graph.js` 接入，零引用问题已不存在
+- `registry-core.js` 已实际接入，零引用问题已不存在
 
 ---
 
@@ -89,23 +110,27 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 ### P0（资源泄漏 / 竞态 / 数据不一致）
 
-| Issue | 文件 | 问题 | 预估工作量 |
-|-------|------|------|-----------|
-| **#39** | `file-index.js` | `processPending()` `clear()` 非原子，批量变更时文件更新丢失 | 小（原子替换 Set） |
-| **#40** | `repl.js` | double Ctrl+C 绕过 `container.shutdown()`，watcher/diagnostic 泄漏 | 小（shuttingDown guard + try-catch） |
-| **#41** | `spawn-ast.js` | Python 子进程超时只发 SIGTERM，无 SIGKILL fallback → zombie | 小（5s 后 SIGKILL + `unref()`） |
-| **#42** | `diagnostics-engine.js` | linter hang 时 `setTimeout` 重入无上限 → timer 队列爆炸 | 中（retry 上限 / 队列替换） |
-| **#43** | `file-index.js` | `fs.watch` rename 事件不区分删除，dep-graph 残留 phantom edges | 中（`onFileDeleted` 回调） |
+✅ **已全部清零**（#39 → #40 → #41 → #42 → #43）
+
+| Issue | 文件 | 问题 | 状态 |
+|-------|------|------|------|
+| **#39** | `file-index.js` | `processPending()` `clear()` 非原子，批量变更时文件更新丢失 | ✅ 已修复 |
+| **#40** | `repl.js` | double Ctrl+C 绕过 `container.shutdown()`，watcher/diagnostic 泄漏 | ✅ 已修复 |
+| **#41** | `spawn-ast.js` | Python 子进程超时只发 SIGTERM，无 SIGKILL fallback → zombie | ✅ 已修复 |
+| **#42** | `diagnostics-engine.js` | linter hang 时 `setTimeout` 重入无上限 → timer 队列爆炸 | ✅ 已修复 |
+| **#43** | `file-index.js` | `fs.watch` rename 事件不区分删除，dep-graph 残留 phantom edges | ✅ 已修复 |
 | **#44** | `container.js` | `getContainer()` 单例非线程安全 | **影响小** — CLI-only 无并发场景，可延后 |
 
 ### P1（安全 / 缓存 / 性能）
 
-| Issue | 文件 | 问题 | 预估工作量 |
-|-------|------|------|-----------|
-| **#46/#47** | `search-tools.js` | `safeRegexTest()` 是 placebo，ReDoS 仍可挂起进程 | 中（vm.runInNewContext 或移除 safe 前缀） |
-| **#48** | `cache.js` | 缓存损坏时静默丢弃全部，无备份恢复 | 小（`.bak` 备份 + 降级读取） |
+✅ **已全部清零**（#48 → #47）
 
-### P2（性能 / 体验）
+| Issue | 文件 | 问题 | 状态 |
+|-------|------|------|------|
+| **#48** | `cache.js` | 缓存损坏时静默丢弃全部，无备份恢复 | ✅ 已修复 |
+| **#47** | `search-tools.js` | `safeRegexTest()` 是 placebo，ReDoS 仍可挂起进程 | ✅ 已修复 |
+
+### P2（性能 / 体验）— 下一步方向
 
 | Issue | 文件 | 问题 | 预估工作量 |
 |-------|------|------|-----------|
@@ -120,27 +145,28 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 ### 前置检查（必须执行）
 
 ```bash
-node test/runner.js          # 期望: 70/70 PASS
+node test/runner.js          # 期望: 76/76 PASS
 node cli.js audit-summary --cwd . --json --quiet
-# 期望: healthScore=5/5, deadExports=0, unresolved=0, cycles=0, totalFiles≈140
+# 期望: healthScore=5/5, deadExports=0, unresolved=0, cycles=0, totalFiles≈146
 ```
 
 ### 本轮已完成
 
-- #45: `--max-depth` 正数验证
-- #49: `--quiet` monkey-patch 消除，改为 scoped `quiet` 选项
-- #50: edges/files < 0.1 时 WARNING + dead-export confidence 降级
-- #54: health `parserAvailability` 检查
-- #38: 关闭（registry-core.js 已实际接入）
+- #39: `processPending()` 原子替换 Set
+- #40: REPL `shuttingDown` guard + shutdown try-catch
+- #41: Python `unref()` + SIGKILL fallback
+- #42: DiagnosticsEngine 队列驱动 + `MAX_SCHEDULED_CHECKS`
+- #43: `fs.watch` rename 无 filename 时 prune + `onPendingProcessed`
+- #48: cache `.bak` 备份 + 降级读取
+- #47: 删除 `safeRegexTest()` placebo
 
 ### 下一步方向
 
-**建议顺序**：#39 → #40 → #41 → #42 → #43 → #48 → #47
+**建议顺序**：#51 → #52 → #53
 
 1. 每次只修 **1 个 issue**，commit 信息注明 `fix: #XX <title>`
-2. 修完即跑 `node test/runner.js`，确保 70/70 PASS
+2. 修完即跑 `node test/runner.js`，确保 76/76 PASS
 3. 修完后在 GitHub 关闭对应 issue
-4. 全部 P0 修完后再考虑 P1/P2
 
 ---
 
