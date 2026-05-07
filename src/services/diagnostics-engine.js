@@ -12,7 +12,8 @@ const { parseDiagnosticsFromText, uniqueDiagnostics } = require('../utils/diagno
 const CONFIG = {
   DEBOUNCE_MS: 1000,              // 文件变更 debounce 时间
   MAX_CONCURRENT_CHECKS: 5,       // 最大并发检查数
-  CONCURRENT_RETRY_DELAY_MS: 500, // 并发限制重试延迟
+  MAX_SCHEDULED_CHECKS: 20,       // 4x MAX_CONCURRENT_CHECKS, bounds timer queue under bulk changes
+  CONCURRENT_RETRY_DELAY_MS: 500, // 并发限制重试延迟 (legacy, kept for reference)
   CHECKER_TIMEOUT_MS: 5000,       // checker 可用性检查超时
   RUFF_TIMEOUT_MS: 10000,         // ruff 检查超时
   PYRIGHT_TIMEOUT_MS: 15000,      // pyright 检查超时
@@ -333,16 +334,28 @@ class DiagnosticsEngine {
     if (this.scheduledChecks.has(filePath)) {
       clearTimeout(this.scheduledChecks.get(filePath));
     }
-    
+
+    // Guard: prevent unbounded timer growth under heavy load.
+    if (this.scheduledChecks.size >= this.config.MAX_SCHEDULED_CHECKS) {
+      const firstKey = this.scheduledChecks.keys().next().value;
+      clearTimeout(this.scheduledChecks.get(firstKey));
+      this.scheduledChecks.delete(firstKey);
+      this.checkQueue.delete(firstKey);
+    }
+
     // 加入队列
     this.checkQueue.add(filePath);
-    
+
     // 设置新的 debounce 定时器
     const timeoutId = setTimeout(() => {
       this.scheduledChecks.delete(filePath);
-      this._runBackgroundCheck(filePath);
+      // If the file was already drained by _drainCheckQueue, skip it to
+      // avoid duplicate checks.
+      if (this.checkQueue.has(filePath)) {
+        this._runBackgroundCheck(filePath);
+      }
     }, this.config.DEBOUNCE_MS);
-    
+
     this.scheduledChecks.set(filePath, timeoutId);
   }
 
@@ -353,24 +366,21 @@ class DiagnosticsEngine {
    */
   async _runBackgroundCheck(filePath) {
     this.checkQueue.delete(filePath);
-    
-    // 并发控制：如果正在运行的检查数超过限制，延迟执行
+
+    // 并发控制：如果正在运行的检查数超过限制，重新入队等待
     if (this.runningChecks.size >= this.config.MAX_CONCURRENT_CHECKS) {
-      // 重新加入队列，稍后重试
-      setTimeout(() => {
-        this.scheduleCheck(filePath);
-      }, this.config.CONCURRENT_RETRY_DELAY_MS);
+      this.checkQueue.add(filePath);
       return;
     }
-    
+
     this.runningChecks.add(filePath);
-    
+
     try {
       // 安全校验：只处理工作区内文件
       if (!this.isSafePath(filePath)) {
         return;
       }
-      
+
       // 检查文件是否存在
       try {
         fs.statSync(filePath);
@@ -379,7 +389,7 @@ class DiagnosticsEngine {
         this.handleFileDeleted(filePath);
         return;
       }
-      
+
       // 后台执行检查
       await this.checkFile(filePath);
     } catch (e) {
@@ -387,6 +397,24 @@ class DiagnosticsEngine {
       console.error(`[Diagnostics] Background check failed for ${filePath}:`, e.message);
     } finally {
       this.runningChecks.delete(filePath);
+      this._drainCheckQueue();
+    }
+  }
+
+  /**
+   * Drain the check queue when a running check completes.
+   * Avoids creating unbounded retry timers.
+   */
+  _drainCheckQueue() {
+    while (
+      this.runningChecks.size < this.config.MAX_CONCURRENT_CHECKS &&
+      this.checkQueue.size > 0
+    ) {
+      const nextFile = this.checkQueue.values().next().value;
+      this.checkQueue.delete(nextFile);
+      // _runBackgroundCheck is async but the concurrency gate is evaluated
+      // synchronously, so fire-and-forget is safe here.
+      this._runBackgroundCheck(nextFile);
     }
   }
 

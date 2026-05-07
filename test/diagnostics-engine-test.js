@@ -81,13 +81,14 @@ async function testConcurrencyLimit() {
     engine.runningChecks.add(`file-${i}.js`);
   }
 
-  let rescheduled = false;
-  engine.scheduleCheck = () => { rescheduled = true; };
-
   engine._runBackgroundCheck('overflow.js');
-  // _runBackgroundCheck reschedules via setTimeout, so wait a tick
-  await new Promise((resolve) => setTimeout(resolve, engine.config.CONCURRENT_RETRY_DELAY_MS + 50));
-  assert.strictEqual(rescheduled, true, 'should reschedule when concurrency limit hit');
+  // With the queue-based design, the file is re-queued instead of
+  // spawning an unbounded retry timer.
+  assert.strictEqual(
+    engine.checkQueue.has('overflow.js'),
+    true,
+    'should re-queue when concurrency limit hit',
+  );
 
   fs.rmSync(dir, { recursive: true, force: true });
 }
