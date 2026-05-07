@@ -23,6 +23,9 @@ class ServiceContainer {
     this.diagnostics = null;
     this.depGraph = null;
     this.projectContext = null;
+    
+    // Shared promise for concurrent waiters (eliminates busy-loop polling)
+    this._readyPromise = null;
   }
 
   /**
@@ -32,14 +35,14 @@ class ServiceContainer {
     // Allow re-initialization after shutdown by clearing the fatal error
     this.initError = null;
 
-    // Mutex: if already initializing, wait with timeout
+    // Mutex: if already initializing, wait on shared promise
     if (this.initializing) {
-      const startTime = Date.now();
-      while (this.initializing) {
-        if (Date.now() - startTime > timeoutMs) {
-          throw new Error(`Initialization wait timeout after ${timeoutMs}ms`);
+      if (this._readyPromise) {
+        try {
+          await this._readyPromise;
+        } catch {
+          // First init failed — return outcome below
         }
-        await sleep(50);
       }
       return this.initialized;
     }
@@ -51,6 +54,13 @@ class ServiceContainer {
 
     this.initializing = true;
     this.initError = null;
+    this._readyPromise = null;
+    
+    let resolveReady, rejectReady;
+    this._readyPromise = new Promise((resolve, reject) => {
+      resolveReady = resolve;
+      rejectReady = reject;
+    });
 
     try {
       this._findWorkspaceRoot(cwd);
@@ -67,10 +77,12 @@ class ServiceContainer {
         console.error(`[Container] Ready: ${this.fileIndex.getStats().files} files indexed`);
       }
       
+      resolveReady(true);
       return true;
     } catch (err) {
       this.initError = err;
       console.error('[Container] Initialization failed:', err);
+      rejectReady(err);
       return false;
     } finally {
       this.initializing = false;
@@ -149,16 +161,16 @@ class ServiceContainer {
     if (this.initialized) return;
     if (this.initError) throw this.initError;
     
-    // Wait for initialization with timeout
-    const startTime = Date.now();
-    while (!this.initialized && !this.initError) {
-      if (Date.now() - startTime > timeoutMs) {
-        throw new Error(`Initialization timeout after ${timeoutMs}ms`);
-      }
-      await sleep(50);
-    }
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`Initialization timeout after ${timeoutMs}ms`)), timeoutMs);
+    });
     
-    if (this.initError) throw this.initError;
+    if (this._readyPromise) {
+      await Promise.race([this._readyPromise, timeoutPromise]);
+    } else {
+      // initialize() was never called — behave like old polling: wait for timeout
+      await timeoutPromise;
+    }
   }
 
   /**
@@ -199,6 +211,7 @@ class ServiceContainer {
     this.projectContext = null;
     this.initialized = false;
     this.initError = new Error('Container shut down');
+    this._readyPromise = null;
   }
 
   getStats() {
@@ -217,10 +230,6 @@ class ServiceContainer {
       thresholdMs,
     };
   }
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Global singleton

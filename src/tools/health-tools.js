@@ -129,6 +129,11 @@ function projectHealth(args, container) {
     ok: true,
     workspaceRoot: root,
     healthScore: `${passedCount}/5`,
+    healthScoreNumeric: {
+      passed: passedCount,
+      total: 5,
+      ratio: passedCount / 5,
+    },
     packageManager: detectNodePackageManager(root),
     checks,
     fixes,

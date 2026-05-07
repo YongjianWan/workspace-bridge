@@ -6,9 +6,8 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope) {
   const cycleCount = cycles.cycleCount || 0;
   const nonMainlineFiles = scope?.counts?.nonMainlineFiles || 0;
 
-  const scoreParts = String(health.healthScore || '0/5').split('/');
-  const passedChecks = Number.parseInt(scoreParts[0] || '0', 10) || 0;
-  const totalChecks = Number.parseInt(scoreParts[1] || '5', 10) || 5;
+  const passedChecks = health.healthScoreNumeric?.passed ?? (Number.parseInt(String(health.healthScore || '0/5').split('/')[0] || '0', 10) || 0);
+  const totalChecks = health.healthScoreNumeric?.total ?? (Number.parseInt(String(health.healthScore || '0/5').split('/')[1] || '5', 10) || 5);
   const missingHygieneChecks = Math.max(0, totalChecks - passedChecks);
 
   const severity = repoSeverity({

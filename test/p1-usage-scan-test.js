@@ -127,11 +127,55 @@ function testSymbolEscaping() {
   console.log('testSymbolEscaping passed');
 }
 
+function testScanContentCache() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-p1-cache-'));
+  const mainPath = path.join(tmpDir, 'Main.java');
+
+  fs.writeFileSync(mainPath, `
+  import example.Foo;
+  public class Main {
+      public void run() {
+          Foo f = new Foo();
+          f.bar();
+          f.baz();
+      }
+  }
+  `);
+
+  const graph = new DependencyGraph(tmpDir);
+
+  // First call: should read file and populate cache
+  const used1 = graph._scanSymbolUsageInImporters([mainPath], ['bar'], path.join(tmpDir, 'Foo.java'));
+  assert(used1.has('bar'), 'bar should be detected');
+  assert(graph._scanContentCache.has(mainPath), 'content cache should contain importer after first scan');
+  assert(graph._scanPatternCache.has('bar:java'), 'pattern cache should contain bar pattern after first scan');
+
+  // Second call with different symbol: should reuse cache, no extra file read
+  let readCount = 0;
+  const originalRead = fs.readFileSync;
+  fs.readFileSync = (...args) => {
+    if (args[0] === mainPath) readCount++;
+    return originalRead.apply(fs, args);
+  };
+
+  try {
+    const used2 = graph._scanSymbolUsageInImporters([mainPath], ['baz'], path.join(tmpDir, 'Foo.java'));
+    assert(used2.has('baz'), 'baz should be detected');
+    assert.strictEqual(readCount, 0, 'should not re-read cached file content');
+  } finally {
+    fs.readFileSync = originalRead;
+  }
+
+  fs.rmSync(tmpDir, { recursive: true });
+  console.log('testScanContentCache passed');
+}
+
 function main() {
   testScanSymbolUsage();
   testGoUsageScan();
   testFindDeadExportsWithUsageScan();
   testSymbolEscaping();
+  testScanContentCache();
   console.log('All P1 usage scan tests passed');
 }
 

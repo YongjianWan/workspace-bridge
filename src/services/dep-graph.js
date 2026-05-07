@@ -112,6 +112,12 @@ class DependencyGraph {
     this.excludeDirs = options.excludeDirs || [];
     this.projectContext = options.projectContext || null;
     this.quiet = options.quiet || false;
+    // Content cache for _scanSymbolUsageInImporters: avoids re-reading the same
+    // importer file hundreds of times during a single findDeadExports() call.
+    this._scanContentCache = new Map();
+    // Pattern cache for _scanSymbolUsageInImporters: RegExp objects are reused
+    // across calls within a single build() lifecycle.
+    this._scanPatternCache = new Map();
   }
 
   shouldExclude(filePath) {
@@ -234,6 +240,9 @@ class DependencyGraph {
     // Reset graph to prevent ghost data from deleted/renamed files
     this.graph.clear();
     this._cycleCount = undefined;
+    // Clear per-build caches to avoid stale content after rebuild
+    this._scanContentCache.clear();
+    this._scanPatternCache.clear();
 
     // Get all files from cache
     const candidateFiles = Array.from(this.cache.fileMetadata.keys()).filter((file) => {
@@ -438,6 +447,7 @@ class DependencyGraph {
         this.cache.deleteFileMetadata(filePath);
         this.cache.deleteParseResult(filePath);
         this.cache.clearDiagnostics(filePath);
+        this._scanContentCache.delete(key);
         continue;
       }
 
@@ -451,6 +461,7 @@ class DependencyGraph {
       }
 
       this._removeOldReverseEdges(key);
+      this._scanContentCache.delete(key);
 
       // Re-parse
       await this.analyzeFile(filePath);
@@ -606,21 +617,30 @@ class DependencyGraph {
 
     const ext = path.extname(sourceFilePath).toLowerCase();
     const isJavaFamily = ext === '.java' || ext === '.kt';
+    const patternCache = this._scanPatternCache;
 
     for (const importerPath of importerPaths) {
       try {
-        const content = fs.readFileSync(importerPath, 'utf-8');
-        const patternCache = new Map();
+        let content = this._scanContentCache.get(importerPath);
+        if (content === undefined) {
+          content = fs.readFileSync(importerPath, 'utf-8');
+          // Defensive cap: prevent unbounded growth in long-lived REPL sessions
+          if (this._scanContentCache.size < LIMITS.SCAN_SYMBOL_CONTENT_CACHE_MAX) {
+            this._scanContentCache.set(importerPath, content);
+          }
+        }
+
         for (const symbol of symbols) {
           if (used.has(symbol)) continue;
-          let patterns = patternCache.get(symbol);
+          const cacheKey = isJavaFamily ? `${symbol}:java` : symbol;
+          let patterns = patternCache.get(cacheKey);
           if (!patterns) {
             const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             patterns = {
               callPattern: new RegExp(`\\b${escaped}\\s*\\(`),
               accessPattern: isJavaFamily ? new RegExp(`\\.${escaped}\\b`) : null,
             };
-            patternCache.set(symbol, patterns);
+            patternCache.set(cacheKey, patterns);
           }
           if (patterns.callPattern.test(content) || (patterns.accessPattern && patterns.accessPattern.test(content))) {
             used.add(symbol);
