@@ -358,8 +358,11 @@ class FileIndex {
   }
 
   async processPending() {
-    const files = Array.from(this.pendingUpdates);
-    this.pendingUpdates.clear();
+    // Atomic swap: replace the pending set so that updates arriving during
+    // processing are not lost by a subsequent clear() or re-entrant call.
+    const updates = this.pendingUpdates;
+    this.pendingUpdates = new Set();
+    const files = Array.from(updates);
 
     // Process with small concurrency to keep debounce meaningful while
     // not serializing independent file operations.
