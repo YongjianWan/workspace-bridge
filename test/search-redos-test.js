@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
- * Test for safeRegexTest honesty + text search includes fallback
+ * Test for search ReDoS defense layers.
+ * The search path uses escapeRegex() + includes() pre-check; no unsafe
+ * regex test is performed on user input.
  */
 const assert = require('assert');
 const { validateQuery } = require('../src/tools/search-tools');

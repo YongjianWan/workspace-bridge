@@ -70,40 +70,6 @@ function validateQuery(query) {
   return { valid: true };
 }
 
-/**
- * Regex test with post-hoc slow-query detection.
- * NOTE: This cannot interrupt catastrophic backtracking in progress.
- * The real ReDoS protection is upstream: validateQuery() + escapeRegex().
- */
-function safeRegexTest(pattern, line, maxMs = 100) {
-  const startTime = Date.now();
-
-  // Quick check: if pattern is simple literal, backtracking is impossible
-  if (pattern.source === escapeRegex(pattern.source)) {
-    return pattern.test(line);
-  }
-
-  try {
-    // Hard limit: truncate long lines to bound execution time
-    if (line.length > 1000) {
-      line = line.slice(0, 1000);
-    }
-
-    const result = pattern.test(line);
-
-    // Post-hoc warning only: if test took too long, log it but we already ran it
-    if (Date.now() - startTime > maxMs) {
-      console.error('[Search] Regex test took too long, potential ReDoS attack');
-      return false;
-    }
-
-    return result;
-  } catch (e) {
-    console.error('[Search] Regex test failed:', e.message);
-    return false;
-  }
-}
-
 function matchGlob(filename, pattern) {
   const regex = new RegExp(
     `^${escapeRegex(pattern).replace(/\\\*/g, '.*').replace(/\\\?/g, '.')}$`,
