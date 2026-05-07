@@ -55,6 +55,16 @@
 
 两个前端项目合计产生 **117 个 dead exports**（51 + 66）和 **48 个 unresolved imports**（24 × 2），实测**几乎全部是误报**。
 
+**根因分类（按频率）**：
+
+| 根因 | 数量 | 状态 |
+|------|------|------|
+| Vue `.vue` 扩展名省略 + alias 未解析 | ~45 | ✅ 已修复（resolvers.js 增加 `.vue` + `tsconfig.json` paths 读取） |
+| Vue 动态路由懒加载导致 orphan | ~30 | 🚧 待框架隐式依赖流水线（SESSION.md 本轮聚焦） |
+| Vue 全局组件注册导致 orphan/dead-export | ~20 | 🚧 待框架隐式依赖流水线 |
+| Vue 自定义指令 / 动态字符串调用 | ~15 | ⏳ 占位，需模板/语义分析 |
+| 真实的死代码 | ~7 | — |
+
 **产品影响**：
 
 - 用户第一次使用会花大量时间排查这 117 个"死代码"，最后发现全是 alias 或 `.vue` 扩展名导致的假阳性。
@@ -793,15 +803,17 @@ SKILL.md 要求 agent 输出包含：
 
 **典型误报模式**：
 
-- `src/components/breadcrumb/index.vue` —— 全局注册组件，未被任何文件显式 import
-- `src/views/*` 下大量页面 —— 被动态路由懒加载引用（如 `() => import('@/views/xxx')`）
-- `src/utils/generator/*.js` —— 工具函数，可能被动态字符串调用
+| 模式 | 示例 | 解决方式 |
+|------|------|----------|
+| 动态路由懒加载 | `src/views/*` 页面被 `() => import('@/views/xxx')` 引用 | 🚧 框架隐式依赖流水线：扫描路由配置提取 `import('...')` |
+| 全局组件注册 | `src/components/breadcrumb/index.vue` 被 `Vue.component('Breadcrumb', ...)` 注册 | 🚧 框架隐式依赖流水线：扫描入口文件提取 `Vue.component()` |
+| 动态字符串调用 | `src/utils/generator/*.js` 的函数被 `window[fnName]()` 调用 | ⏳ 占位，需语义分析 |
 
 **产品影响**：
 
 - Orphan 检测的底层逻辑是"没被任何文件 import"，但 Vue 项目的动态路由和全局组件打破了这种假设。
 - 该检测在 Vue 项目中基本不可用，产生大量噪声，直接淹没真实问题。
-- 与 P1（假阳性淹没真实问题）和 P48（Vue SFC 死导出误报）共同构成 Vue 项目的系统性假阳性三角。
+- 与 P1 共同构成 Vue 项目的系统性假阳性三角。
 
 ---
 

@@ -93,6 +93,40 @@
 
 ---
 
+## P7：框架隐式依赖插件化（当前主战场）
+
+> 解决 P1/P63 Vue 假阳性三角的核心架构。不是"迁移硬编码 if-else"，而是新增一层能力——框架特殊调用模式产生的依赖关系不会被静态 import 捕获，需要额外扫描。
+
+### 架构：Scanner → Extractor → Applier
+
+```
+扫描器 Scanner     解析器 Extractor      应用器 Applier
+    ↓                  ↓                    ↓
+"哪些文件可能     "从内容提取隐式      "把隐式边注入
+ 包含这种模式"     import 路径"         依赖图"
+```
+
+### 首批模式（2 种实现 + 2 种占位）
+
+| 模式 | 框架 | Scanner | Extractor | 状态 |
+|------|------|---------|-----------|------|
+| 路由懒加载 | Vue | 路径含 `router` 或内容含 `component:` | 正则提取 `import('...')` 路径 | 🚧 当前迭代 |
+| 全局组件注册 | Vue | `main.js` / `app.js` 等入口文件 | 提取 `Vue.component('Name', ...)`，按命名约定映射到组件文件 | 🚧 当前迭代 |
+| 自定义指令 | Vue | 入口文件 + 所有 `.vue` 模板 | 关联指令名 `v-hasPermi` 与导出函数 | ⏳ 占位（需模板扫描） |
+| 动态字符串调用 | any | 所有 `.js` / `.ts` | `window[fnName]()` 语义分析 | ⏳ 占位（需语义分析） |
+
+### 后续扩展成本
+
+React `lazy(() => import(...))`、Angular `loadChildren`、SvelteKit 路由只需注册一行 `{ scanner, extractor }` 配置，流水线全部复用。
+
+### 核心文件
+
+- 新建 `src/services/dep-graph/framework-usage-patterns.js` — 配置表 + 流水线
+- 修改 `src/services/dep-graph.js` — `build()` 后增加 `applyFrameworkImplicitImports()`
+- 修改 `src/utils/orphan-detector.js` — 双源判断（显式 + 隐式依赖）
+
+---
+
 ## 设计原则
 
 见 [AGENTS.md §开发原则](./AGENTS.md#开发原则）。

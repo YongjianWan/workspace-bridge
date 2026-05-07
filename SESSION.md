@@ -61,17 +61,26 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 > 活跃问题见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。历史已修复条目不重复记录。
 
-### 本轮聚焦（框架感知抽象）
+### 本轮聚焦（框架隐式依赖插件化）
 
-**目标**：把 Vue 的特殊调用模式从硬编码 if-else 迁移到配置表，为 React/Angular 预留扩展点。
+**架构决策**：新增 `Scanner → Extractor → Applier` 统一流水线，把框架特殊调用模式（如 Vue Router 懒加载、全局组件注册）产生的**隐式依赖**注入依赖图。
 
-**具体模式**：
-1. Vue 全局组件注册（`Vue.component('SvgIcon', ...)`）→ orphan/dead-export 误报
-2. Vue 动态路由懒加载（`() => import('@/views/xxx')`）→ orphan 误报
-3. Vue 自定义指令（`v-hasPermi`）→ dead-export 误报
-4. 动态字符串调用（`window[fnName]()`）→ dead-export 误报
+**不是"迁移硬编码 if-else"，而是"新增一层能力"**。当前代码对这 4 种模式完全未处理，所以产生 orphan/dead-export 误报。
 
-**文件**：`src/services/dep-graph/framework-patterns.js` + `src/utils/orphan-detector.js` + `src/services/dep-graph.js`
+**首批实现（2 种）**：
+1. **Vue Router 懒加载** — 扫描路由配置文件，正则提取 `component: () => import('@/views/xxx')`，建立 router → page 的隐式边
+2. **Vue 全局组件注册** — 扫描入口文件，提取 `Vue.component('SvgIcon', ...)`，按命名约定映射到 `components/SvgIcon/index.vue`
+
+**占位留接口（2 种）**：
+3. Vue 自定义指令 — 需要模板扫描，当前 extractor 返回 `[]`
+4. 动态字符串调用 — 需要语义分析，当前 extractor 返回 `[]`
+
+**后续扩展成本**：React `lazy(() => import(...))`、Angular `loadChildren` 只需注册一行 `{ scanner, extractor }` 配置，流水线全部复用。
+
+**核心文件**：
+- 新建 `src/services/dep-graph/framework-usage-patterns.js` — 配置表 + 流水线
+- 修改 `src/services/dep-graph.js` — `build()` 后增加 `applyFrameworkImplicitImports()` 阶段
+- 修改 `src/utils/orphan-detector.js` — 双源判断（显式依赖 + 隐式依赖）
 
 ### 活跃技术债（按价值排序）
 
