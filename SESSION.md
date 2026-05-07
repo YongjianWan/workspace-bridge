@@ -35,7 +35,9 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 - cache 一致性：✅ 已修复（删除文件后无 ghost 数据）
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**（C/C++ AST 已于 2026-05-06 交付）
-- **本轮新增**：框架感知 Extractor（GitNexus 模式 C）、AST Cache 防御性上限 + Query.delete()、health fixes、audit-file validationAdvice
+- **本轮新增（2026-05-07）**：
+  - 修复 #45 / #49 / #50 / #54（见下方"本轮已完成"）
+  - 关闭过时 issue #38（registry-core.js 已实际接入）
 
 ---
 
@@ -51,78 +53,65 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 | repl-test.js flaky | `test/repl-test.js` | runner.js 串行执行时偶发失败，单独 `node test/repl-test.js` 稳定通过；若遇到，先重跑确认 |
 | `framework-patterns.js` 新增框架时 | `src/services/dep-graph/framework-patterns.js` | 路径检测逻辑按语言分块，新增语言需同时更新 `isEntry` 标记和测试 |
 | `buildFileValidationAdvice` 导出链 | `validation-advice.js` → `index.js` → `cli.js` | 新增 formatter 函数必须在 `src/cli/formatters/index.js` 中显式导出，否则 cli.js 解构为 `undefined` |
+| `--quiet` 不再 monkey-patch `console.error` | `cli.js` / `container.js` | `quiet` 通过 `ServiceContainer` → `FileIndex` / `DependencyGraph` 传递；信息性日志条件输出，错误日志仍用 `console.error` |
+| `findDeadExports()` edges/files 降级 | `src/services/dep-graph.js` | 单文件项目（files=1）不受降级影响；多文件项目 edges/files < 0.1 时 confidence 降为 low |
 
 ---
 
-## 新会话指令（给下一轮 AI）
+## 本轮已完成（2026-05-07 bug 修复专项）
 
-### 前置检查
+**#45: `--max-depth` 参数验证**
+- `cli.js` `parseCliArgs()` 拒绝 `≤0` 的值，抛出明确错误
 
-1. 跑 `node test/runner.js` 确认基线绿色（当前 70/70 PASS；若 `repl-test.js` 偶发失败，单独重跑该文件确认）。
-2. 跑 `node cli.js audit-summary --cwd . --json --quiet` 确认 healthScore=5/5。注意：测试运行后会生成 `fixture-temp/` 临时目录，此时 totalFiles 会临时增加至 ~144，清理后恢复为 ~139。
+**#49: `--quiet` 模式 monkey-patch 消除**
+- 删除 `console.error = () => {}` 全局篡改
+- `ServiceContainer` / `FileIndex` / `DependencyGraph` 构造函数新增 `quiet` 选项
+- 信息性日志（`[Container] Ready`、`[DepGraph] Built` 等）条件输出；错误日志保留
 
-### 本轮已完成（GitNexus 对比补全 + 产品缺口）
+**#50: parser 不可用时误导性结果**
+- `dep-graph.js` `build()` 完成后若 `edges/files < 0.1` 输出 WARNING 到 stderr
+- `findDeadExports()` 在该场景下将无 importer 文件的 confidence 从 `high` 降级为 `low`
+- 单文件项目不受此降级影响（避免误伤合法单文件 dead-export）
 
-**模式 C：框架感知 Extractor** ✅
-- 新建 `src/services/dep-graph/framework-patterns.js`（~200 行）
-- 翻译 GitNexus `framework-detection.ts` 核心路径模式，裁剪为 workspace-bridge 9 种语言
-- `detectFrameworkFromPath()` + `detectFrameworkFromContent()` 双路径检测
-- `dep-graph.js` `isKnownEntryFile()` 集成框架检测，消除框架入口文件 dead-export 误报
-- `audit-diff` / `audit-file` JSON 输出新增 `frameworkPattern` 字段
-- 测试：`test/framework-patterns-test.js`
+**#54: health 命令 parser 可用性检查**
+- `health-tools.js` 新增 `checkParserAvailability()`
+- Node 项目（`hasPackageJson`）检测 `@babel/parser` 是否可用
+- 不可用时 `fixes` 数组推送安装建议；JSON 输出新增 `parserAvailability` 字段
 
-**模式 F：AST Cache 加固** ✅
-- `tree-sitter.js` `languageCache` 增加防御性大小上限（`MAX_LANGUAGE_CACHE_SIZE = 12`），超限淘汰时调 `lang.delete()`
-- 4 个 AST parser（go/rust/kotlin/cpp）`finally` 块中补 `query.delete()`，消除 WASM 内存泄漏
-- 测试：现有 AST parser 测试全部通过
+**#38: 关闭过时 issue**
+- `registry-core.js` 已实际通过 `registry.js` → `index.js` → `dep-graph.js` 接入，零引用问题已不存在
 
-**产品功能缺口 — health fixes** ✅
-- `src/tools/health-tools.js` 新增 `FIX_SUGGESTIONS` 配置表
-- `projectHealth()` 输出新增 `fixes` 数组：`[{ check, action, severity }]`
-- 仅对未通过的 check 生成建议，AI 可直接消费
+---
 
-**产品功能缺口 — audit-file validationAdvice** ✅
-- `src/cli/formatters/validation-advice.js` 新增 `buildFileValidationAdvice(filePath, workspaceRoot)`
-- 轻量版：检测 stack → 推断 changeType → 调用 `generateCommands()` → 去重返回
-- `cli.js` `audit-file` 输出新增 `validationAdvice` 字段
-- 测试：`test/audit-file-validation-advice-test.js`
+## 下一步方向（按优先级排序）
 
-**产品功能缺口 — impact paths** ✅（经确认已在 0.9.0 交付）
-- `impact` 命令 JSON 输出中的 `via` 数组即完整影响路径，无需额外 `paths` 字段
+> 当前 open issues 还有 **11 个实际 bug** + **7 个 feature/评审**。建议按 **P0 → P1 → P2** 修 bug，不修 feature。
 
-**性能瓶颈（ROADMAP P0/P1）** ✅
-- `isKnownEntryFile()` 只读前 256 字节 — `fs.openSync` + `fs.readSync` 替代 `fs.readFileSync`，消除大文件全量读取
-- `resolvers.js` 同步 I/O 缓存 — 模块级 `_statCache` LRU（上限 2000），`DependencyGraph.build()` 自动刷新
-- `cli.js` 超大 JSON 分块写入 — `writeLargeJson()` 64KB 分块 + `setImmediate` 让出；>1MB 时 stderr 提示 `--compact`
+### P0（资源泄漏 / 竞态 / 数据不一致）
 
-**用户体验缺口** ✅
-- `impact` human-readable 输出展示 `via` 路径 — `formatHuman` impact case 新增 via 链
-- `Unknown command` 后提示 `--help`
-- `--quiet` 模式下初始化失败输出完整 `err.stack`
+| Issue | 文件 | 问题 | 预估工作量 |
+|-------|------|------|-----------|
+| **#39** | `file-index.js` | `processPending()` `clear()` 非原子，批量变更时文件更新丢失 | 小（原子替换 Set） |
+| **#40** | `repl.js` | double Ctrl+C 绕过 `container.shutdown()`，watcher/diagnostic 泄漏 | 小（shuttingDown guard + try-catch） |
+| **#41** | `spawn-ast.js` | Python 子进程超时只发 SIGTERM，无 SIGKILL fallback → zombie | 小（5s 后 SIGKILL + `unref()`） |
+| **#42** | `diagnostics-engine.js` | linter hang 时 `setTimeout` 重入无上限 → timer 队列爆炸 | 中（retry 上限 / 队列替换） |
+| **#43** | `file-index.js` | `fs.watch` rename 事件不区分删除，dep-graph 残留 phantom edges | 中（`onFileDeleted` 回调） |
+| **#44** | `container.js` | `getContainer()` 单例非线程安全 | **影响小** — CLI-only 无并发场景，可延后 |
 
-**GitNexus 模式 D — 递进工具链文案** ✅
-- `cli.js` 新增 `COMMAND_GUIDES` 配置表，覆盖 19 个命令，`--help <command>` 输出 WHEN TO USE / AFTER THIS
-- `affected-tests` 描述补全
-- AGENTS.md 核心命令表 + 原子命令表增加 WHEN TO USE / AFTER THIS 列
+### P1（安全 / 缓存 / 性能）
 
-### 下一步方向（按价值排序）
+| Issue | 文件 | 问题 | 预估工作量 |
+|-------|------|------|-----------|
+| **#46/#47** | `search-tools.js` | `safeRegexTest()` 是 placebo，ReDoS 仍可挂起进程 | 中（vm.runInNewContext 或移除 safe 前缀） |
+| **#48** | `cache.js` | 缓存损坏时静默丢弃全部，无备份恢复 | 小（`.bak` 备份 + 降级读取） |
 
-**GitNexus 高价值模式剩余**：
-- ~~模式 A：语言注册表重构~~ ✅ 已完成（2026-05-06）
+### P2（性能 / 体验）
 
-**用户体验缺口**：
-- `impact` 命令 human-readable 输出未展示 `via` 路径（JSON 已有，formatter 未展示）
-- `--quiet` 模式下初始化失败根因丢失
-- `Unknown command` 后未提示 `--help`
-
-### 新增第 N 种语言的 SOP（已验证，未来复用）
-
-1. **写 parser 函数** — 返回 Record Schema：`{ imports, exports, importRecords, exportRecords, functionRecords, parseMode }`
-2. **在 `registry.js` 加一行** — `registry.register(defineLanguage({ name: 'xxx', exts: ['.xxx'], parser: parseXxx, ... }))`
-3. **补测试** — `test/xxx-parser-test.js`
-4. **跑全量测试** — `node test/runner.js`
-
-> 新增语言从"改 3 个文件"降到"改 1 个文件"（模式 A 重构成果）。
+| Issue | 文件 | 问题 | 预估工作量 |
+|-------|------|------|-----------|
+| **#51** | `dep-graph.js` | `_scanSymbolUsageInImporters()` O(N×M)，大项目性能悬崖 | 中（内容缓存 / 正则缓存） |
+| **#52** | `dep-graph.js` | `_importCache` / `_deadExportCache` 无上限 → 长期 REPL OOM | 中（LRU 实现） |
+| **#53** | `container.js` | `ensureReady()` busy-loop 50ms sleep，initError 时浪费 CPU | 小（共享 Promise） |
 
 ---
 
@@ -138,22 +127,21 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### 本轮已完成
 
-**模式 A：语言注册表重构**
-- 新建 `src/services/dep-graph/parsers/registry.js`：9 种语言统一注册
-- `dep-graph.js` 删除 `PARSER_REGISTRY`，改用 `registry.findByExt(ext)`
-- `file-index.js` `getFilePatterns()` 委托给 `registry.getFilePatterns(this.workspace)`
-- `parsers/index.js` 导出 `registry`, `defineLanguage`, `LanguageRegistry`
-- 新增语言 SOP 从"改 3 个文件"降到"改 1 个文件"
-
-**UX 对称补全**
-- `affected-tests` human-readable 输出展示 `via` 链（与 `impact` 对称）
-- SESSION.md 清理已完成的过时缺口列表
+- #45: `--max-depth` 正数验证
+- #49: `--quiet` monkey-patch 消除，改为 scoped `quiet` 选项
+- #50: edges/files < 0.1 时 WARNING + dead-export confidence 降级
+- #54: health `parserAvailability` 检查
+- #38: 关闭（registry-core.js 已实际接入）
 
 ### 下一步方向
 
-**架构演进**：
-- 语言注册表条件驱动 `filePatterns` 已集中，未来可扩展为插件化 extractor 注册表（GitNexus 模式 3）
+**建议顺序**：#39 → #40 → #41 → #42 → #43 → #48 → #47
+
+1. 每次只修 **1 个 issue**，commit 信息注明 `fix: #XX <title>`
+2. 修完即跑 `node test/runner.js`，确保 70/70 PASS
+3. 修完后在 GitHub 关闭对应 issue
+4. 全部 P0 修完后再考虑 P1/P2
 
 ---
 
-*Last updated: 2026-05-06*
+*Last updated: 2026-05-07*
