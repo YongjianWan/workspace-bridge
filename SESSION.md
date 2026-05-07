@@ -147,9 +147,7 @@ node cli.js audit-summary --cwd . --json --quiet
 ### 下一步方向（按价值排序）
 
 **用户体验缺口**：
-- `impact` 命令 human-readable 输出未展示 `via` 路径（JSON 已有，formatter 未展示）
-- `--quiet` 模式下初始化失败根因丢失
-- `Unknown command` 后未提示 `--help`
+- `affected-tests` human-readable 输出未展示 `via` 路径（JSON 已有，formatter 未展示）— 与 `impact` 对称
 
 **架构演进**：
 - 语言注册表条件驱动 `filePatterns` 已集中，未来可扩展为插件化 extractor 注册表（GitNexus 模式 3）

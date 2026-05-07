@@ -487,7 +487,10 @@ function formatHuman(command, result) {
     case 'affected-tests':
       return [
         `affectedTestCount: ${result.affectedTestCount}`,
-        ...result.affectedTests.map((entry) => `${entry.distance}: ${entry.file}`),
+        ...result.affectedTests.map((entry) => {
+          const viaStr = entry.via?.length > 0 ? ` via ${entry.via.join(' -> ')}` : '';
+          return `${entry.distance}: ${entry.file}${viaStr}`;
+        }),
       ].join('\n');
     case 'diagnostics':
       return [

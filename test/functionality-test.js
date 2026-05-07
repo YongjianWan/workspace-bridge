@@ -343,6 +343,26 @@ function main() {
     console.log('heuristic-test-mapping: ok');
   }
 
+  // affected-tests human-readable should show via chain (symmetric with impact)
+  {
+    const fs = require('fs');
+    const os = require('os');
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cli-affected-via-'));
+    const write = (rel, content) => {
+      const full = path.join(tempRoot, rel);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, content, 'utf8');
+    };
+    write('package.json', JSON.stringify({ name: 'via-test', version: '1.0.0' }, null, 2));
+    write('src/lib.js', 'export function helper() { return 1; }\n');
+    write('src/mid.js', 'import { helper } from "./lib.js";\nexport function mid() { return helper(); }\n');
+    write('test/mid.test.js', 'import { mid } from "../src/mid.js";\ndescribe("mid", () => { it("works", () => {}); });\n');
+    const text = runCliText(['affected-tests', '--cwd', tempRoot, '--file', 'src/lib.js']);
+    assert(text.includes('via'), `affected-tests human-readable should show via chain, got:\n${text}`);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+    console.log('affected-tests-via-human: ok');
+  }
+
   const deadExports = runCli(['dead-exports', '--cwd', '.', '--json', '--quiet']);
   assert.strictEqual(deadExports.ok, true);
   assert(Array.isArray(deadExports.deadExports));
