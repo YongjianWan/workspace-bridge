@@ -243,18 +243,18 @@
 
 | 维度 | 问题 | 当前表现 | 理想表现 |
 |------|------|----------|----------|
-| 错误信息 | `--quiet` 模式下初始化失败根因完全丢失 | `Failed to initialize workspace container`，无细节 | `--quiet` 只抑制信息性 stderr，错误性 stderr 强制输出 |
-| 错误信息 | `Unknown command` 后未提示 `--help` | `Unknown command: audit-dif` | 追加 `Run "workspace-bridge-cli --help" for available commands.` |
-| Help | `printUsage()` 与 AGENTS.md 命令矩阵不一致 | AGENTS.md 只列 7 个核心命令，实际有 19 个 | AGENTS.md 扩充或标注"完整命令见 cli.js --help" |
-| Help | 无 per-command help，无默认值说明 | 纯命令列表，无示例 | `--mode <quick|full> (default: quick)` + Examples 区块 |
-| JSON 一致性 | `affected_tests` 用 `source`，`impact` 用 `file` | 同一语义不同字段名 | 统一为 `file`，或 `affected_tests` 同时保留 `file` |
-| JSON 一致性 | `healthScore` 是字符串 `"3/5"` | AI 需额外解析 | 保留字符串，同时加 `{ passed: 3, total: 5, ratio: 0.6 }` |
-| JSON 一致性 | `audit-map` compact 与非 compact 字段结构不一致 | compact 无 `workspaceRoot`，非 compact 无 `summary` | 两种模式都包含 `workspaceRoot` + `summary` |
-| Windows | `.bat` 文件 spawn 缺少 `cmd.exe` 包装 | `gradlew.bat` 直接 spawn 失败 | `useWindowsCmdShim` 检测 `\.(cmd|bat)$` |
+| 错误信息 | ✅ `--quiet` 下错误性 stderr 已强制输出 | `Failed to initialize workspace container`，无细节 | `--quiet` 只抑制信息性 stderr，错误性 stderr 强制输出 |
+| 错误信息 | ✅ `Unknown command` 已提示 `--help` | `Unknown command: audit-dif` | 追加 `Run "workspace-bridge-cli --help" for available commands.` |
+| Help | ✅ 命令参考已统一至 `--help` / SKILL.md | AGENTS.md 只列 7 个核心命令 | AGENTS.md 引用 `cli.js --help` 与 SKILL.md 作为单一事实源 |
+| Help | ✅ per-command help 已加 Common Options | 纯命令列表，无示例 | `--help <command>` 输出含 `--cwd/--json/--quiet/--help` 说明 |
+| JSON 一致性 | ✅ `affected_tests` 已统一为 `file`（原 `source`） | `impact` 与 `affected_tests` 语义相同字段名不同 | 统一为 `file` |
+| JSON 一致性 | ✅ `healthScore` 已加 `healthScoreNumeric`（含 `passed/total/ratio`）| AI 需额外解析 | 保留字符串，同时加 `healthScoreNumeric` |
+| JSON 一致性 | ✅ `audit-map` 两种模式均含 `workspaceRoot` + `summary` | compact 无 `summary`（workspaceRoot 本来就有） | 非 compact 也输出 `summary` |
+| Windows | ✅ `.bat`/`.cmd` spawn 已自动包装 `cmd.exe` | `gradlew.bat` 直接 spawn 失败 | `useWindowsCmdShim` 检测 `\.(cmd|bat)$` |
 | Windows | 验证命令包含 Unix shell 语法 | `cd ${modDir} && go test ./...` | PowerShell 下生成 `cd ${modDir}; go test ./...` |
-| 配置 | `.workspace-bridge.json` 无 schema 验证 | JSON 语法错误静默忽略，未知字段静默忽略 | 轻量 schema 验证，错误时 `console.error` 警告 |
-| 配置 | 无 `init` 命令生成默认配置 | 用户只能手动创建 | `workspace-bridge-cli init` 生成带注释的默认配置 |
-| 进度 | 大项目索引无中间进度 | 开始和结束两条日志，中间黑屏数十秒 | 每 100 个文件打印进度：`1200/10432 files indexed...` |
+| 配置 | ✅ `.workspace-bridge.json` 已加轻量 schema 校验 | JSON 语法错误静默忽略，未知字段静默忽略 | 校验 JSON 语法 + 未知字段/类型错误警告（非阻塞） |
+| 配置 | ✅ `init` 命令已添加 | 用户只能手动创建 | `workspace-bridge-cli init` 生成默认配置 |
+| 进度 | ✅ 大项目索引进度条已添加 | 开始和结束两条日志，中间黑屏数十秒 | 每 100 个文件打印进度：`1200/10432 indexed...` |
 
 ### 成功标准完成度（8 条）
 

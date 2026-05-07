@@ -6,6 +6,7 @@
  * can call it directly.
  */
 const fs = require('fs');
+const path = require('path');
 const { version } = require('./package.json');
 
 const LARGE_JSON_THRESHOLD = 1024 * 1024;
@@ -197,6 +198,12 @@ WHEN TO USE:
 
 AFTER THIS:
   ${guide.after}
+
+Common Options:
+  --cwd <path>    Target workspace or file path
+  --json          Print machine-readable JSON
+  --quiet         Suppress stderr logs during CLI execution
+  --help          Show help (or --help <command> for detailed guide)
 `);
 }
 
@@ -215,6 +222,7 @@ Commands:
   audit-overview         Project panoramic view (hotspots, stability, orphans)
   audit-map              Global project map (tree + edges + issue overlay)
   health                  Summarize project health
+  init                    Create default .workspace-bridge.json in cwd
   audit-security          Run external security scanners (Semgrep)
   repl                    Start interactive REPL shell
   watch                   Watch files and print impact on save
@@ -231,9 +239,9 @@ Commands:
 Options:
   --cwd <path>            Target workspace or file path
   --exclude <paths>       Comma-separated directories or path fragments to exclude
-  --mode <quick|full>     Diagnostics mode
+  --mode <quick|full>     Diagnostics mode (default: quick)
   --file <path>           File path for file-scoped commands
-  --max-depth <n>         Max depth for affected-tests
+  --max-depth <n>         Max depth for affected-tests (default: 5)
   --reuse-hints <mode>    Reuse hints mode for audit-diff: on|off (default: off)
   --hotspot-data <path>   Write audit-overview hotspot visualization JSON
   --stability-trend-data <path>  Write audit-overview stability trend JSON
@@ -748,8 +756,31 @@ async function runCommand(parsed, container) {
       await startWatch({ cwd: parsed.cwd, exclude: parsed.exclude, compact: parsed.compact });
       return { ok: true, __managedLifecycle: true };
     }
+    case 'init': {
+      const configPath = path.join(parsed.cwd || process.cwd(), '.workspace-bridge.json');
+      if (fs.existsSync(configPath)) {
+        const err = { ok: false, error: `.workspace-bridge.json already exists at ${configPath}` };
+        if (parsed.json) console.log(JSON.stringify(err, null, 2));
+        else console.error(err.error);
+        return { ok: false, __managedLifecycle: true };
+      }
+      const defaultConfig = {
+        $schema: 'https://workspace-bridge.dev/schema/v1.json',
+        directories: {
+          active: [],
+          reference: [],
+          archive: [],
+          generated: [],
+        },
+      };
+      fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2) + '\n');
+      const result = { ok: true, configPath, message: 'Created .workspace-bridge.json with default directories.' };
+      if (parsed.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(result.message);
+      return { ok: true, __managedLifecycle: true };
+    }
     default:
-      throw new Error(`Unknown command: ${parsed.command}. Run with --help for available commands.`);
+      throw new Error(`Unknown command: ${parsed.command}. Run "workspace-bridge-cli --help" for available commands.`);
   }
 }
 
@@ -781,7 +812,7 @@ async function main() {
     return;
   }
 
-  const SELF_MANAGED_COMMANDS = new Set(['repl', 'watch']);
+  const SELF_MANAGED_COMMANDS = new Set(['repl', 'watch', 'init']);
   if (SELF_MANAGED_COMMANDS.has(parsed.command)) {
     await runCommand(parsed, null);
     return;
