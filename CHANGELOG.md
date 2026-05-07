@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+### 修复
+
+- `affected-tests` human-readable 输出未展示 `via` 链 — 与 `impact` 对称补全
+  - `cli.js` `formatHuman` 的 `affected-tests` case 新增 `viaStr`，展示完整影响路径
+  - `test/functionality-test.js` 新增 `affected-tests-via-human` 测试验证间接依赖的 via 路径输出
+
 ### 重构
 
 - **语言注册表重构（模式 A）** — `defineLanguage()` 统一接口，新增语言从"改 3 个文件"降到"改 1 个文件"

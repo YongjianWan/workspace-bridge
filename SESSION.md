@@ -136,18 +136,20 @@ node cli.js audit-summary --cwd . --json --quiet
 # 期望: healthScore=5/5, deadExports=0, unresolved=0, cycles=0, totalFiles≈140
 ```
 
-### 本轮已完成（模式 A：语言注册表重构）
+### 本轮已完成
 
+**模式 A：语言注册表重构**
 - 新建 `src/services/dep-graph/parsers/registry.js`：9 种语言统一注册
 - `dep-graph.js` 删除 `PARSER_REGISTRY`，改用 `registry.findByExt(ext)`
 - `file-index.js` `getFilePatterns()` 委托给 `registry.getFilePatterns(this.workspace)`
 - `parsers/index.js` 导出 `registry`, `defineLanguage`, `LanguageRegistry`
 - 新增语言 SOP 从"改 3 个文件"降到"改 1 个文件"
 
-### 下一步方向（按价值排序）
+**UX 对称补全**
+- `affected-tests` human-readable 输出展示 `via` 链（与 `impact` 对称）
+- SESSION.md 清理已完成的过时缺口列表
 
-**用户体验缺口**：
-- `affected-tests` human-readable 输出未展示 `via` 路径（JSON 已有，formatter 未展示）— 与 `impact` 对称
+### 下一步方向
 
 **架构演进**：
 - 语言注册表条件驱动 `filePatterns` 已集中，未来可扩展为插件化 extractor 注册表（GitNexus 模式 3）
