@@ -32,7 +32,9 @@ class FileIndex {
     this.updateTimer = null;
     this.concurrency = options.concurrency || DEFAULT_CONCURRENCY;
     this.indexedCount = 0;
-    this.excludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS, ...(options.excludeDirs || [])])];
+    this.cliExcludeDirs = [...new Set((options.excludeDirs || []).map((d) => d.trim()).filter(Boolean))];
+    this.baseExcludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS])];
+    this.excludeDirs = [...new Set([...this.baseExcludeDirs, ...this.cliExcludeDirs])];
     this.quiet = options.quiet || false;
   }
 
@@ -45,7 +47,9 @@ class FileIndex {
     this.processedCount = 0;
     const shouldWatch = options.watch !== false;
     if (Array.isArray(options.excludeDirs)) {
-      this.excludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS, ...options.excludeDirs])];
+      this.cliExcludeDirs = [...new Set(options.excludeDirs.map((d) => d.trim()).filter(Boolean))];
+      this.baseExcludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS])];
+      this.excludeDirs = [...new Set([...this.baseExcludeDirs, ...this.cliExcludeDirs])];
     }
     this._applyWorkspaceExcludeDirs();
     const patterns = this.getFilePatterns();
@@ -234,7 +238,8 @@ class FileIndex {
       ...wsConfig.directories.archive,
       ...wsConfig.directories.generated,
     ].filter(Boolean);
-    this.excludeDirs = [...new Set([...this.excludeDirs, ...extra])];
+    this.baseExcludeDirs = [...new Set([...this.baseExcludeDirs, ...extra])];
+    this.excludeDirs = [...new Set([...this.baseExcludeDirs, ...this.cliExcludeDirs])];
   }
 
   shouldExclude(filePath) {
@@ -242,13 +247,27 @@ class FileIndex {
     if (base === CACHE_FILENAME) return true;
 
     const normalized = normalizePathKey(filePath);
-    if (this.excludeDirs.some((dir) => matchesPathFragment(normalized, dir))) {
+    // Only exclude base dirs (node_modules, .git, etc.) and workspace-configured dirs.
+    // CLI --exclude files are still indexed so they can serve as importers in the graph.
+    if (this.baseExcludeDirs.some((dir) => matchesPathFragment(normalized, dir))) {
       return true;
     }
     if (this.projectContext && !this.projectContext.isNotGeneratedFile(filePath)) {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Check whether a file was excluded by the CLI --exclude flag.
+   * This is separate from shouldExclude() so that CLI-excluded files are still
+   * indexed and participate in the dependency graph (as importers), but are
+   * filtered out of report output.
+   */
+  shouldExcludeCli(filePath) {
+    if (this.cliExcludeDirs.length === 0) return false;
+    const normalized = normalizePathKey(filePath);
+    return this.cliExcludeDirs.some((dir) => matchesPathFragment(normalized, dir));
   }
 
   _removeCacheEntry(filePath) {
@@ -273,6 +292,13 @@ class FileIndex {
   pruneExcludedCacheEntries() {
     for (const filePath of Array.from(this.cache.fileMetadata.keys())) {
       if (!this.shouldExclude(filePath)) continue;
+      this._removeCacheEntry(filePath);
+    }
+  }
+
+  pruneCliExcludedCacheEntries() {
+    for (const filePath of Array.from(this.cache.fileMetadata.keys())) {
+      if (!this.shouldExcludeCli(filePath)) continue;
       this._removeCacheEntry(filePath);
     }
   }

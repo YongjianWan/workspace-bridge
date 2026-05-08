@@ -327,7 +327,7 @@ function buildProjectMap(depGraph, options = {}) {
   const cycles = depGraph.findCircularDependencies?.() || [];
 
   const entrySet = depGraph.entryFiles || new Set();
-  const orphanResult = findOrphanFiles(allFiles, entrySet, depGraph, root, toRelativePath, depGraph.isKnownEntryFile?.bind(depGraph));
+  const orphanResult = findOrphanFiles(allFiles, entrySet, depGraph, root, toRelativePath, depGraph.isKnownEntryFile?.bind(depGraph), depGraph.shouldExcludeCli?.bind(depGraph));
   const orphans = orphanResult.all;
 
   // Hotspots: files with high dependent count (dependency centrality)

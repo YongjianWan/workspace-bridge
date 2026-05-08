@@ -23,7 +23,7 @@ const registry = new LanguageRegistry();
 
 registry.register(defineLanguage({
   name: 'javascript',
-  exts: ['.js', '.ts', '.jsx', '.tsx'],
+  exts: ['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.mts', '.cts'],
   parser: parseJavaScript,
   async: false,
   needsFilePath: true,

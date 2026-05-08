@@ -17,13 +17,30 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope) {
     missingHygieneChecks,
   });
 
-  const nextSteps = [];
-  if (unresolvedCount > 0) nextSteps.push('Inspect unresolved imports first; they can indicate broken code paths or unsupported alias resolution.');
-  if (cycleCount > 0) nextSteps.push('Break dependency cycles before making broad refactors.');
-  if (deadExportCount > 0) nextSteps.push('Review dead exports as candidates, not automatic deletions.');
-  if (missingHygieneChecks > 0) nextSteps.push('Close basic project hygiene gaps: LICENSE, CI, test config, env example, or editorconfig.');
-  if (nonMainlineFiles > 0) nextSteps.push('Review the mainline/non-mainline split before trusting structural findings in mixed repositories.');
-  if (nextSteps.length === 0) nextSteps.push('No immediate structural issues detected by the aggregate audit.');
+  // Honesty metadata: surface false-positive likelihood so users can calibrate trust
+  const honesty = {
+    deadExports: {
+      total: deadExportCount,
+      likelyFalsePositives: deadExports.possibleFalsePositives?.count || 0,
+      primaryReason: deadExports.possibleFalsePositives?.primaryReason || null,
+    },
+    unresolved: {
+      total: unresolvedCount,
+      likelyFalsePositives: unresolved.possibleFalsePositives?.count || 0,
+      primaryReason: unresolved.possibleFalsePositives?.primaryReason || null,
+    },
+    disclaimer: buildCombinedDisclaimer(deadExports.possibleFalsePositives, unresolved.possibleFalsePositives),
+  };
+
+  const nextSteps = buildNextSteps({
+    unresolvedCount,
+    cycleCount,
+    deadExportCount,
+    missingHygieneChecks,
+    nonMainlineFiles,
+    unresolvedFp: unresolved.possibleFalsePositives,
+    deadExportsFp: deadExports.possibleFalsePositives,
+  });
 
   return {
     severity,
@@ -33,8 +50,56 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope) {
       cycles: cycleCount,
       missingHygieneChecks,
     },
+    honesty,
     nextSteps,
   };
+}
+
+function buildCombinedDisclaimer(unresolvedFp, deadExportsFp) {
+  const parts = [];
+  if (unresolvedFp?.disclaimer) parts.push(unresolvedFp.disclaimer);
+  if (deadExportsFp?.disclaimer) parts.push(deadExportsFp.disclaimer);
+  return parts.length > 0 ? parts.join(' ') : null;
+}
+
+function buildNextSteps(ctx) {
+  const steps = [];
+
+  if (ctx.unresolvedCount > 0) {
+    const fpRatio = ctx.unresolvedFp?.total > 0 ? (ctx.unresolvedFp.count / ctx.unresolvedFp.total) : 0;
+    if (fpRatio >= 0.8 && ctx.unresolvedFp?.primaryReason === 'alias-unresolved') {
+      steps.push('Most unresolved imports are alias false positives; check tsconfig.json / jsconfig.json compilerOptions.paths configuration.');
+    } else {
+      steps.push('Inspect unresolved imports first; they can indicate broken code paths or unsupported alias resolution.');
+    }
+  }
+
+  if (ctx.cycleCount > 0) {
+    steps.push('Break dependency cycles before making broad refactors.');
+  }
+
+  if (ctx.deadExportCount > 0) {
+    const fpRatio = ctx.deadExportsFp?.total > 0 ? (ctx.deadExportsFp.count / ctx.deadExportsFp.total) : 0;
+    if (fpRatio >= 0.5) {
+      steps.push(`Review dead exports carefully; about ${Math.round(fpRatio * 100)}% are likely false positives (${ctx.deadExportsFp?.primaryReason || 'unknown'}).`);
+    } else {
+      steps.push('Review dead exports as candidates, not automatic deletions.');
+    }
+  }
+
+  if (ctx.missingHygieneChecks > 0) {
+    steps.push('Close basic project hygiene gaps: LICENSE, CI, test config, env example, or editorconfig.');
+  }
+
+  if (ctx.nonMainlineFiles > 0) {
+    steps.push('Review the mainline/non-mainline split before trusting structural findings in mixed repositories.');
+  }
+
+  if (steps.length === 0) {
+    steps.push('No immediate structural issues detected by the aggregate audit.');
+  }
+
+  return steps;
 }
 
 module.exports = { buildRepoSummary };

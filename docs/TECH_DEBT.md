@@ -1,7 +1,7 @@
 ﻿# 技术债与代码气味地图
 
 > 本文档只记录**当前活跃**的技术债务。已修复历史见 [CHANGELOG.md](../CHANGELOG.md)。
-> 最后审查：2026-05-07。已修复条目详情见 [CHANGELOG.md](../CHANGELOG.md)。
+> 最后审查：2026-05-08。已修复条目详情见 [CHANGELOG.md](../CHANGELOG.md)。
 
 ---
 
@@ -11,12 +11,9 @@
 
 ---
 
-#### L2-12. `--exclude` 只影响 scope 计数，不影响分析结果
+#### L2-12. `--exclude` 只影响 scope 计数，不影响分析结果 ✅ 已修复
 
-`--exclude tests` 后 `totalFiles` 从 223→208，`test` role 从 15→0，但 `deadExports` 仍是 51 个（没有变化）。
-
-**问题**：如果排除目录的目的是“只看生产代码”，那么 dead export / orphan 的检测也应该在排除后的图上重新计算。
-**修复方向**：`--exclude` 应在索引阶段过滤文件，而不是仅在 scope 统计阶段过滤。
+✅ 已修复。`--exclude` 改为只在报告阶段过滤，CLI-excluded 文件仍参与依赖图构建（保留 importer 关系），`deadExports` / `unresolved` / `orphans` / `getScopeSummary` 均在返回前过滤。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -60,8 +57,8 @@
 | 根因 | 数量 | 状态 |
 |------|------|------|
 | Vue `.vue` 扩展名省略 + alias 未解析 | ~45 | ✅ 已修复（resolvers.js 增加 `.vue` + `tsconfig.json` paths 读取） |
-| Vue 动态路由懒加载导致 orphan | ~30 | 🚧 待框架隐式依赖流水线（SESSION.md 本轮聚焦） |
-| Vue 全局组件注册导致 orphan/dead-export | ~20 | 🚧 待框架隐式依赖流水线 |
+| Vue 动态路由懒加载导致 orphan | ~30 | ✅ 已修复（framework-usage-patterns.js: vue-router-lazy） |
+| Vue 全局组件注册导致 orphan/dead-export | ~20 | ✅ 已修复（framework-usage-patterns.js: vue-global-component） |
 | Vue 自定义指令 / 动态字符串调用 | ~15 | ⏳ 占位，需模板/语义分析 |
 | 真实的死代码 | ~7 | — |
 
@@ -122,19 +119,9 @@
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 ---
 
-#### P10. `affected-tests` 永远返回 0 = 核心场景失效
+#### P10. `affected-tests` 永远返回 0 = 核心场景失效 ✅ 已修复（主要根因）
 
-用户修改了核心文件 `controller.js`，想知道要跑哪些测试验证影响。工具返回：
-
-```json
-"affectedTestCount": 0, "affectedTests": []
-```
-
-**产品影响**：
-
-- 产品的核心卖点之一是"变更影响分析"，但测试关联这个功能完全失效。
-- 对于有测试文件的项目，这个结论直接否定了产品的"智能影响分析"价值。
-- 用户被迫回到手动找测试的老路。
+✅ 已修复。`registry.js` 补充 `.mjs`/`.cjs`/`.mts`/`.cts` 扩展名，`analyzeFile` 不再跳过解析。`response.js` 实测从 0 → 2 个测试。`fs.readFileSync` 运行时读取模式仍超出静态分析范围。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -227,18 +214,9 @@
 
 ---
 
-#### P20. 命令输出中没有"误报率预估"或"诚实度"标注
+#### P20. 命令输出中没有"误报率预估"或"诚实度"标注 ✅ 已修复
 
-用户看到 `deadExports: 51`，但工具没有告诉用户：
-
-- "其中约 45 个是因为 alias 未解析导致的假阳性"
-- "约 5 个可能是真正的死代码，建议人工复查"
-
-**产品影响**：
-
-- 当前工具以绝对肯定的语气输出结论（`confidence: high`），但实测假阳性率 > 80%。
-- 一个负责任的审计工具应该在不确定时标注"此结果可能包含误报，原因：alias 解析未配置"。
-- 现在的输出像是"医生给你开了 51 张病危通知书，其中 45 张是误诊"，但没有一张标注"本诊断仅供参考"。
+✅ 已修复。新增 `src/tools/honesty-engine.js`，`dead-exports` / `unresolved` / `audit-summary` 均输出 `possibleFalsePositives` / `honesty` 字段，含 `count` / `primaryReason` / `disclaimer`。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -805,8 +783,8 @@ SKILL.md 要求 agent 输出包含：
 
 | 模式 | 示例 | 解决方式 |
 |------|------|----------|
-| 动态路由懒加载 | `src/views/*` 页面被 `() => import('@/views/xxx')` 引用 | 🚧 框架隐式依赖流水线：扫描路由配置提取 `import('...')` |
-| 全局组件注册 | `src/components/breadcrumb/index.vue` 被 `Vue.component('Breadcrumb', ...)` 注册 | 🚧 框架隐式依赖流水线：扫描入口文件提取 `Vue.component()` |
+| 动态路由懒加载 | `src/views/*` 页面被 `() => import('@/views/xxx')` 引用 | ✅ 已修复（framework-usage-patterns.js: vue-router-lazy） |
+| 全局组件注册 | `src/components/breadcrumb/index.vue` 被 `Vue.component('Breadcrumb', ...)` 注册 | ✅ 已修复（framework-usage-patterns.js: vue-global-component） |
 | 动态字符串调用 | `src/utils/generator/*.js` 的函数被 `window[fnName]()` 调用 | ⏳ 占位，需语义分析 |
 
 **产品影响**：
@@ -817,19 +795,9 @@ SKILL.md 要求 agent 输出包含：
 
 ---
 
-#### P64. Health check "按技术栈打分"后，建议命令仍然脱离实际
+#### P64. Health check "按技术栈打分"后，建议命令仍然脱离实际 ✅ 已修复
 
-**实测证据**：
-
-- Vue/Vite 前端项目被建议 `"Set up Jest"`，但项目实际使用 Vitest
-- Spring Boot 后端项目也被建议 `"Set up Jest"`
-- `.editorconfig` 权重过高，在国企项目中基本没人用，却被列为 hygiene 扣分项
-
-**产品影响**：
-
-- 用户按建议安装 Jest 后，发现项目本来就用 Vitest，建议完全无效。
-- 这暴露了 health check 的"检测"和"建议"两条链路脱节：检测能识别技术栈，但建议命令没有跟随技术栈动态调整。
-- health check 从"形式主义打分"进一步恶化为"误导性建议"——不仅没帮助，还让用户做无用功。
+`src/tools/health-tools.js` — `FIX_SUGGESTIONS` 静态表改为 `buildFixSuggestions(stack)` 动态函数，接入 `detectStack` 结果按 `profile`（node-first / java-first / python-first / go-first / rust-first / cpp-first / mixed）生成差异化 `testConfig` 建议文案。Java 项目不再被建议 Jest，Node 项目优先提示 Vitest（Vite 生态）。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 

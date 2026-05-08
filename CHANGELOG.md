@@ -28,6 +28,7 @@
 - **L2-6: `impact` 命令 `transitiveCount` 与 `impact` 数组数据矛盾** `src/services/dep-graph/symbol-impact.js` — `transitiveCount` 从 `getImpactRadius()` 同步计算
 - **L2-8: `audit-security` 无 semgrep 时直接不可用** `src/tools/security-tools.js` — 内置轻量规则扫描（`eval` / `innerHTML` / `document.write` 等）
 - **L2-9: `diagnostics` 只跑 `npm run -s`，未执行 linter** `src/tools/workspace-tools.js` `cli.js` — 自动检测 eslint 配置并执行；无 linter 时返回 `total: null` + `noLintersDetected: true`
+- **L2-12: `--exclude` 只影响 scope 计数，不影响分析结果** `src/services/file-index.js` `src/services/dep-graph.js` `src/utils/orphan-detector.js` — CLI `--exclude` 改为只在报告阶段过滤，被排除文件仍参与依赖图构建（保留 importer 关系）。`FileIndex` 分离 `baseExcludeDirs` / `cliExcludeDirs`；`DependencyGraph` 新增 `shouldExcludeCli()`；`findDeadExports` / `findUnresolvedImports` / `findOrphanFiles` / `getScopeSummary` 均在返回前过滤
 
 ### 修复（产品缺陷 — 5 项）
 
@@ -36,6 +37,9 @@
 - **`cycles` 数组首尾重复** `src/services/dep-graph.js` — 去掉 `.concat([file])`，输出标准图论不重复顶点列表
 - **REPL `impact` 与独立命令结果不一致** `src/cli/repl.js` — 统一 `resolveWorkspaceFilePath` 解析相对路径为绝对路径
 - **`file-index` 构建日志矛盾** `src/services/file-index.js` — 日志改为报告缓存总文件数 `getStats().files`
+- **P10: `affected-tests` 永远返回 0** `src/services/dep-graph/parsers/registry.js` `test/parser-registry-test.js` — `.mjs` / `.cjs` / `.mts` / `.cts` 被 `file-index` 索引但 `registry.findByExt()` 未覆盖这些扩展名，导致 `analyzeFile` 跳过解析、imports 为空。`exts` 数组补充 4 个缺失扩展名。Vue 前端 `response.js` 实测从 0 → 2 个测试。`fs.readFileSync` 运行时读取模式仍超出静态分析范围。
+- **P20: 命令输出中没有"误报率预估"或"诚实度"标注** `src/tools/honesty-engine.js` `src/tools/dep-tools.js` `src/cli/formatters/repo-summary.js` `cli.js` — 新增 `honesty-engine` 假阳性分类引擎。`dead-exports` / `unresolved` 输出 `possibleFalsePositives`（count / primaryReason / disclaimer）；`audit-summary` 输出 `honesty` 字段；`nextSteps` 根据假阳性比例动态调整建议文案
+- **P64: Health 建议命令脱离实际技术栈** `src/tools/health-tools.js` — `FIX_SUGGESTIONS` 静态表改为 `buildFixSuggestions(stack)` 动态函数，接入 `detectStack` 的 `profile`（node-first / java-first / python-first / go-first / rust-first / cpp-first / mixed）生成差异化 `testConfig` 建议文案。Java 项目不再被建议 Jest，Node 项目优先提示 Vitest（Vite 生态）。
 
 ### 修复（生产环境实测 — 4 仓库端到端审计）
 
@@ -50,6 +54,16 @@
 - **`workspace-info` 预检毫无信息量** `src/tools/workspace-tools.js` — 增加 `fileCount`/`languages`/`entryFiles`/`availableChecks`
 - **`--compact` 不够 compact** `src/cli/formatters/project-map.js` `src/config/constants.js` — compact 模式应用 `COMPACT_ISSUE_MAX_ITEMS`（10）截断
 - **动态导入识别与 alias 联动失效** `src/services/dep-graph/resolvers.js` — alias 解析打通后动态导入链路完整
+
+### 新增（框架隐式依赖插件化 — P7 首批交付）
+
+- **Scanner → Extractor → Applier 统一流水线** `src/services/dep-graph/framework-usage-patterns.js` — 配置表驱动，4 种模式注册：
+  - `vue-router-lazy`：正则提取 `component: () => import('@/views/xxx')`
+  - `vue-global-component`：提取 `Vue.component('Name', ...)` 按命名约定映射到 `components/Name/index.vue`
+  - `vue-custom-directive` / `dynamic-string-call`：占位接口，当前返回 `[]`
+- **隐式边注入依赖图** `src/services/dep-graph.js` — `build()` 和 `updateFiles()` 后调用 `applyFrameworkImplicitImports()`，将解析成功的隐式边写入 `graph.imports` / `importRecords`（`usesAllExports: true, isImplicit: true`）和 `reverseGraph`
+- **增量更新一致性** `src/services/dep-graph.js` — 重新解析后自动重新应用隐式边；防御性拷贝 `info.imports` / `info.importRecords` 防止污染缓存
+- **端到端集成测试** `test/framework-usage-patterns-test.js` — 模拟 Vue 项目验证：router 懒加载 view 不再 orphan/dead-export；全局组件不再 orphan；impact 半径包含隐式依赖方
 
 ### 修复（正确性）
 

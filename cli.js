@@ -367,8 +367,8 @@ function formatHuman(command, result) {
       }
       return lines.join('\n');
     }
-    case 'audit-summary':
-      return [
+    case 'audit-summary': {
+      const lines = [
         `workspaceRoot: ${result.workspaceRoot}`,
         `severity: ${result.summary.severity}`,
         `healthScore: ${result.health.healthScore}`,
@@ -377,7 +377,12 @@ function formatHuman(command, result) {
         `deadExportCount: ${result.deadExports.deadExportCount}`,
         `unresolvedCount: ${result.unresolved.unresolvedCount}`,
         `cycleCount: ${result.cycles.cycleCount}`,
-      ].join('\n');
+      ];
+      if (result.summary.honesty?.disclaimer) {
+        lines.push(`note: ${result.summary.honesty.disclaimer}`);
+      }
+      return lines.join('\n');
+    }
     case 'audit-file':
       return [
         `file: ${result.file}`,
@@ -471,16 +476,26 @@ function formatHuman(command, result) {
         `dependentCount: ${result.dependentCount}`,
         ...result.dependents.map((d) => `  ← ${d}`),
       ].join('\n');
-    case 'dead-exports':
-      return [
+    case 'dead-exports': {
+      const lines = [
         `deadExportCount: ${result.deadExportCount}`,
-        ...result.deadExports.map((entry) => `${entry.file}: ${entry.exports.join(', ')}`),
-      ].join('\n');
-    case 'unresolved':
-      return [
+      ];
+      if (result.possibleFalsePositives?.disclaimer) {
+        lines.push(`note: ${result.possibleFalsePositives.disclaimer}`);
+      }
+      lines.push(...result.deadExports.map((entry) => `${entry.file}: ${entry.exports.join(', ')}`));
+      return lines.join('\n');
+    }
+    case 'unresolved': {
+      const lines = [
         `unresolvedCount: ${result.unresolvedCount}`,
-        ...result.unresolved.map((entry) => `${entry.file}: ${entry.import}`),
-      ].join('\n');
+      ];
+      if (result.possibleFalsePositives?.disclaimer) {
+        lines.push(`note: ${result.possibleFalsePositives.disclaimer}`);
+      }
+      lines.push(...result.unresolved.map((entry) => `${entry.file}: ${entry.import}`));
+      return lines.join('\n');
+    }
     case 'cycles':
       return [
         `cycleCount: ${result.cycleCount}`,

@@ -13,9 +13,11 @@ const { ENTRY_BASE_NAMES } = require('./project-context');
  * @param {object} graph — dependency graph with isTestLikeFile/getDependents
  * @param {string} root — workspace root
  * @param {Function|null} toRelativeFn — optional (root, filePath) => relativePath
+ * @param {Function|null} isKnownEntryFile — optional (filePath) => boolean
+ * @param {Function|null} shouldExclude — optional (filePath) => boolean
  * @returns {{docs: string[], scripts: string[], configs: string[], modules: string[], all: string[]}}
  */
-function findOrphanFiles(files, entryFiles, graph, root, toRelativeFn = null, isKnownEntryFile = null) {
+function findOrphanFiles(files, entryFiles, graph, root, toRelativeFn = null, isKnownEntryFile = null, shouldExclude = null) {
   const orphans = { docs: [], scripts: [], configs: [], modules: [], all: [] };
   const toRel = toRelativeFn || toRelativePosix;
 
@@ -24,6 +26,7 @@ function findOrphanFiles(files, entryFiles, graph, root, toRelativeFn = null, is
     const ext = path.extname(file).toLowerCase();
     const base = path.basename(file);
 
+    if (shouldExclude?.(file)) continue;
     if (graph.isTestLikeFile?.(file)) continue;
 
     const dependents = graph.getDependents?.(file) || [];

@@ -10,7 +10,7 @@
 
 ```bash
 # 1. 验证测试基线
-node test/runner.js          # 期望: 80/80 PASS
+node test/runner.js          # 期望: 82/82 PASS
 
 # 2. 验证自审基线
 node cli.js audit-summary --cwd . --json --quiet
@@ -27,15 +27,18 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 ## 基线状态
 
-- 测试：**80/80 PASS**
+- 测试：**83/83 PASS**
 - 版本：**v1.1.0**（以 `package.json` 为准）
 - 分支：`main`，已 push origin
-- 自身项目规模：154 文件，entry=1, library=60, test=81, script=12
+- 自身项目规模：158 文件，entry=1, library=62, test=83, script=12
 - 健康度：5/5，0 死导出，0 循环，0 未解析
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**
 
-**本轮状态**：P2/P6 Java 后端复明 + P28 hotspot 修复 + 5 项 L2 修复（L2-19~L2-29）。历史详情见 CHANGELOG.md [Unreleased]。
+**本轮状态**：
+1. **P10 `affected-tests` 核心根因已修复** — `registry.findByExt('.mjs')` 返回 `undefined`，导致 `.mjs`/`.cjs`/`.mts`/`.cts` 文件被索引但跳过解析、imports 为空。`src/services/dep-graph/parsers/registry.js` `exts` 补充 4 个缺失扩展名。Vue 前端 `response.js` 实测从 0 → 2 个测试。新增 `test/parser-registry-test.js` 防回归。
+2. **诚实度标注（P20）已落地** — 新增 `src/tools/honesty-engine.js`，`dead-exports` / `unresolved` / `audit-summary` 输出 `possibleFalsePositives` / `honesty` 字段，含 `count` / `primaryReason` / `disclaimer`。
+3. **`--exclude` 修复（L2-12）已落地** — CLI `--exclude` 改为只在报告阶段过滤，被排除文件仍参与依赖图构建（保留 importer 关系），`deadExports` / `unresolved` / `orphans` / `getScopeSummary` 均在返回前过滤。
 
 ---
 
@@ -61,39 +64,40 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 > 活跃问题见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。历史已修复条目不重复记录。
 
-### 本轮聚焦（框架隐式依赖插件化）
+### 本轮聚焦（框架隐式依赖插件化）— ✅ 已完成
 
-**架构决策**：新增 `Scanner → Extractor → Applier` 统一流水线，把框架特殊调用模式（如 Vue Router 懒加载、全局组件注册）产生的**隐式依赖**注入依赖图。
-
-**不是"迁移硬编码 if-else"，而是"新增一层能力"**。当前代码对这 4 种模式完全未处理，所以产生 orphan/dead-export 误报。
+**架构决策**：新增 `Scanner → Extractor → Applier` 统一流水线，把框架特殊调用模式产生的**隐式依赖**注入依赖图。
 
 **首批实现（2 种）**：
-1. **Vue Router 懒加载** — 扫描路由配置文件，正则提取 `component: () => import('@/views/xxx')`，建立 router → page 的隐式边
-2. **Vue 全局组件注册** — 扫描入口文件，提取 `Vue.component('SvgIcon', ...)`，按命名约定映射到 `components/SvgIcon/index.vue`
+1. **Vue Router 懒加载** — 正则提取 `component: () => import('@/views/xxx')`，建立 router → page 隐式边
+2. **Vue 全局组件注册** — 提取 `Vue.component('SvgIcon', ...)`，按命名约定映射到 `components/SvgIcon/index.vue`
 
 **占位留接口（2 种）**：
-3. Vue 自定义指令 — 需要模板扫描，当前 extractor 返回 `[]`
-4. 动态字符串调用 — 需要语义分析，当前 extractor 返回 `[]`
+3. Vue 自定义指令 — 当前 extractor 返回 `[]`
+4. 动态字符串调用 — 当前 extractor 返回 `[]`
 
-**后续扩展成本**：React `lazy(() => import(...))`、Angular `loadChildren` 只需注册一行 `{ scanner, extractor }` 配置，流水线全部复用。
+**关键实现细节**：
+- 隐式边直接注入 `graph.imports` / `importRecords` 和 `reverseGraph`，下游工具（orphan、dead-export、impact）自动受益
+- `applyFrameworkImplicitImports()` 在 `build()` 和 `updateFiles()` 后调用，支持增量更新
+- 通过 `fs.existsSync` 过滤确保只注入真实存在的路径，避免 unresolved 误报
+- 对 `graph` 中缓存命中项做防御性拷贝（`info.imports.slice()`），防止污染缓存
 
 **核心文件**：
-- 新建 `src/services/dep-graph/framework-usage-patterns.js` — 配置表 + 流水线
-- 修改 `src/services/dep-graph.js` — `build()` 后增加 `applyFrameworkImplicitImports()` 阶段
-- 修改 `src/utils/orphan-detector.js` — 双源判断（显式依赖 + 隐式依赖）
+- ✅ 新建 `src/services/dep-graph/framework-usage-patterns.js` — 配置表 + 流水线
+- ✅ 修改 `src/services/dep-graph.js` — `build()` / `updateFiles()` 后增加 `applyFrameworkImplicitImports()`
+- ⏸ 修改 `src/utils/orphan-detector.js` — **未修改**（隐式边已注入 reverseGraph，`getDependents()` 自动覆盖，无需双源参数）
 
 ### 活跃技术债（按价值排序）
 
-| 编号 | 问题 | 文件 |
-|------|------|------|
-| L2-12 | `--exclude` 只影响 scope 计数，不影响分析结果 | `src/services/file-index.js` |
-| P1/P63 | Vue 假阳性三角（dead-export + orphan） | `dep-graph.js` / `orphan-detector.js` |
-| P18/P19/P25 | 建议模板化，不区分项目实际特征 | `overview-tools.js` / `validation-advice.js` |
-| P20 | 命令输出没有"误报率预估"或"诚实度"标注 | 多个 formatter |
-| P33 | 两个前端项目输出高度模板化 | `overview-tools.js` |
-| P39 | `audit-file` severity 反映影响范围而非代码质量 | `dep-tools.js` |
-| P64 | Health 建议命令脱离实际技术栈 | `health-tools.js` |
+| 编号 | 问题 | 文件 | 状态 |
+|------|------|------|------|
+| P1/P63 | Vue 假阳性三角（dead-export + orphan） | `dep-graph.js` / `orphan-detector.js` | ⏳ 路由懒加载/全局组件已修，剩余自定义指令/动态字符串占位 |
+| P10 | `affected-tests` 永远返回 0 | `registry.js` | ✅ `.mjs`/`.cjs`/`.mts`/`.cts` 扩展名已补，`fs.readFileSync` 模式属设计限制 |
+| P18/P19/P25 | 建议模板化，不区分项目实际特征 | `overview-tools.js` / `validation-advice.js` | ❌ 未修 |
+| P33 | 两个前端项目输出高度模板化 | `overview-tools.js` | ❌ 未修 |
+| P39 | `audit-file` severity 反映影响范围而非代码质量 | `dep-tools.js` | ❌ 未修 |
+| P64 | Health 建议命令脱离实际技术栈 | `health-tools.js` | ✅ 已接入 `detectStack` 动态建议 |
 
 ---
 
-*Last updated: 2026-05-07（SESSION.md 清理历史信息，只存当前上下文）*
+*Last updated: 2026-05-08（P64 修复：`health-tools.js` 建议文案接入 `detectStack` 按技术栈动态生成）*

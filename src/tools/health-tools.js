@@ -5,7 +5,7 @@
 const path = require('path');
 const { findWorkspaceRoot, detectWorkspace, pathExists, resolvePythonCommand } = require('../utils/path');
 const { runCommandSecure, runNpx, runPythonModule, trimOutput } = require('../utils/command');
-const { detectNodePackageManager, detectTestRunner } = require('../utils/stack-detector');
+const { detectNodePackageManager, detectTestRunner, detectStack } = require('../utils/stack-detector');
 const { LIMITS, TIMEOUTS } = require('../config/constants');
 
 function checkHealthFile(root, candidates) {
@@ -67,16 +67,46 @@ function checkParserAvailability() {
   }
 }
 
-const FIX_SUGGESTIONS = {
-  readme: { action: 'Create README.md with project description and usage instructions', severity: 'medium' },
-  license: { action: 'Add a LICENSE file (e.g., MIT, Apache-2.0)', severity: 'low' },
-  gitignore: { action: 'Create .gitignore to exclude build artifacts and dependencies', severity: 'high' },
-  editorconfig: { action: 'Add .editorconfig for consistent coding style across editors', severity: 'low' },
-  envExample: { action: 'Create .env.example documenting required environment variables', severity: 'medium' },
-  dockerConfig: { action: 'Add Dockerfile or docker-compose.yml for containerized deployment', severity: 'low' },
-  ci: { action: 'Add CI configuration (e.g., .github/workflows/ci.yml)', severity: 'medium' },
-  testConfig: { action: 'Set up a test runner (e.g., Jest, pytest, cargo test)', severity: 'high' },
-};
+function buildFixSuggestions(stack) {
+  const profile = stack?.profile || 'unknown';
+  const isNode = stack?.node?.enabled;
+  const isJava = stack?.java?.enabled;
+  const isPython = stack?.python?.enabled;
+  const isGo = stack?.go?.enabled;
+  const isRust = stack?.rust?.enabled;
+  const isCpp = stack?.cpp?.enabled;
+
+  let testAction = 'Set up a test runner (e.g., Jest, pytest, cargo test)';
+  if (isJava) {
+    testAction = 'Set up Java tests (e.g., mvn test, gradle test)';
+  } else if (isPython) {
+    testAction = 'Set up a Python test runner (e.g., pytest)';
+  } else if (isGo) {
+    testAction = 'Go testing is built-in with go test; ensure module structure supports your test files';
+  } else if (isRust) {
+    testAction = 'Rust testing is built-in with cargo test; ensure workspace members are configured';
+  } else if (isCpp) {
+    testAction = 'Set up a C++ test runner (e.g., CTest, Google Test)';
+  } else if (isNode || profile === 'mixed') {
+    const runner = stack?.node?.testRunner;
+    if (runner && runner !== 'custom') {
+      testAction = `Complete ${runner} setup (runner detected but test script or config may be missing)`;
+    } else {
+      testAction = 'Set up a test runner (e.g., Vitest for Vite projects, Jest for plain Node)';
+    }
+  }
+
+  return {
+    readme: { action: 'Create README.md with project description and usage instructions', severity: 'medium' },
+    license: { action: 'Add a LICENSE file (e.g., MIT, Apache-2.0)', severity: 'low' },
+    gitignore: { action: 'Create .gitignore to exclude build artifacts and dependencies', severity: 'high' },
+    editorconfig: { action: 'Add .editorconfig for consistent coding style across editors', severity: 'low' },
+    envExample: { action: 'Create .env.example documenting required environment variables', severity: 'medium' },
+    dockerConfig: { action: 'Add Dockerfile or docker-compose.yml for containerized deployment', severity: 'low' },
+    ci: { action: 'Add CI configuration (e.g., .github/workflows/ci.yml)', severity: 'medium' },
+    testConfig: { action: testAction, severity: 'high' },
+  };
+}
 
 function projectHealth(args, container) {
   const target = args?.cwd || process.cwd();
@@ -133,9 +163,11 @@ function projectHealth(args, container) {
   const displayTotal = Math.max(5, coreTotal + 1);
   const displayPassed = corePassed + (bonusPassed > 0 ? 1 : 0);
 
+  const stack = detectStack(root);
+  const fixSuggestions = buildFixSuggestions(stack);
   const fixes = Object.entries(checks)
-    .filter(([key, value]) => !value.found && FIX_SUGGESTIONS[key])
-    .map(([key]) => ({ check: key, ...FIX_SUGGESTIONS[key] }));
+    .filter(([key, value]) => !value.found && fixSuggestions[key])
+    .map(([key]) => ({ check: key, ...fixSuggestions[key] }));
 
   if (!parserAvailability.available && !parserAvailability.skipped) {
     fixes.push({

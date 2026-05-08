@@ -574,7 +574,7 @@ async function buildProjectOverview(args, container) {
   const skeleton = buildSkeleton(root, depGraph, allFiles, mainlineFiles, projectContext);
   const hotspots = await buildHotspots(root, depGraph, mainlineFiles, historyProvider);
   const stability = buildStability(root, depGraph, mainlineFiles, projectContext);
-  const orphans = findOrphanFiles(allFiles, depGraph.entryFiles, depGraph, root, null, depGraph.isKnownEntryFile?.bind(depGraph));
+  const orphans = findOrphanFiles(allFiles, depGraph.entryFiles, depGraph, root, null, depGraph.isKnownEntryFile?.bind(depGraph), depGraph.shouldExcludeCli?.bind(depGraph));
   const unresolved = depGraph.findUnresolvedImports?.() || [];
   const cycles = depGraph.findCircularDependencies?.() || [];
   const deadExports = depGraph.findDeadExports?.() || [];

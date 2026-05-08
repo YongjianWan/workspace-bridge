@@ -3,6 +3,7 @@
  */
 const { resolveWorkspaceFilePath, normalizePathKey } = require('../utils/path');
 const { DEFAULTS } = require('../config/constants');
+const { classifyUnresolved, classifyDeadExports, attachHonesty } = require('./honesty-engine');
 
 async function dependencyGraph(args, container) {
   await container.ensureReady();
@@ -68,21 +69,27 @@ async function dependencyGraph(args, container) {
       };
     
     // Phase 3: 跨文件分析查询
-    case 'dead_exports':
+    case 'dead_exports': {
       const deadExports = container.depGraph.findDeadExports();
-      return {
+      const classifications = classifyDeadExports(deadExports, container.depGraph);
+      const result = {
         ok: true,
         deadExportCount: deadExports.length,
         deadExports,
       };
+      return attachHonesty(result, 'dead_exports', classifications, container.workspaceRoot);
+    }
     
-    case 'unresolved':
+    case 'unresolved': {
       const unresolved = container.depGraph.findUnresolvedImports();
-      return {
+      const classifications = classifyUnresolved(unresolved, container.workspaceRoot);
+      const result = {
         ok: true,
         unresolvedCount: unresolved.length,
         unresolved,
       };
+      return attachHonesty(result, 'unresolved', classifications, container.workspaceRoot);
+    }
     
     case 'affected_tests':
       if (!filePath) return { ok: false, error: 'file is required for affected_tests' };

@@ -131,7 +131,8 @@ class ServiceContainer {
 
   async _initDepGraph(options) {
     this.depGraph = new DependencyGraph(this.workspaceRoot, this.cache, {
-      excludeDirs: options.excludeDirs || [],
+      excludeDirs: this.fileIndex?.baseExcludeDirs || [],
+      cliExcludeDirs: this.fileIndex?.cliExcludeDirs || [],
       projectContext: this.projectContext,
       quiet: this.quiet,
     });

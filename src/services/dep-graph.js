@@ -17,6 +17,11 @@ const {
 } = require('./dep-graph/symbol-impact');
 const { detectFrameworkFromPath } = require('./dep-graph/framework-patterns');
 const {
+  scanAndExtractImplicitImports,
+  resolveImplicitImports,
+  buildImplicitImportRecord,
+} = require('./dep-graph/framework-usage-patterns');
+const {
   normalizeHeuristicName,
   buildHeuristicSignature,
   getHeuristicLanguageFamily,
@@ -111,6 +116,7 @@ class DependencyGraph {
     this.packageJson = this._readPackageJson();
     this.entryFiles = this._collectEntryFiles();
     this.excludeDirs = options.excludeDirs || [];
+    this.cliExcludeDirs = options.cliExcludeDirs || [];
     this.projectContext = options.projectContext || null;
     this.quiet = options.quiet || false;
     // Content cache for _scanSymbolUsageInImporters: avoids re-reading the same
@@ -127,6 +133,18 @@ class DependencyGraph {
 
     const normalized = normalizePathKey(filePath);
     return this.excludeDirs.some((dir) => matchesPathFragment(normalized, dir));
+  }
+
+  /**
+   * Check whether a file was excluded by the CLI --exclude flag.
+   * These files are kept in the dependency graph (so their imports still
+   * protect production code from dead-export false positives) but filtered
+   * out of report output.
+   */
+  shouldExcludeCli(filePath) {
+    if (this.cliExcludeDirs.length === 0) return false;
+    const normalized = normalizePathKey(filePath);
+    return this.cliExcludeDirs.some((dir) => matchesPathFragment(normalized, dir));
   }
 
   normalizeFilePath(filePath) {
@@ -251,7 +269,12 @@ class DependencyGraph {
     // Get all files from cache
     const candidateFiles = Array.from(this.cache.fileMetadata.keys()).filter((file) => {
       if (this.shouldExclude(file)) return false;
-      if (this.projectContext && !this.projectContext.isActiveSourceFile(file)) return false;
+      if (this.projectContext && !this.projectContext.isActiveSourceFile(file)) {
+        // L2-12: keep CLI-excluded files in the graph so their imports still
+        // protect production code from false positives. They will be filtered
+        // out of report output by shouldExcludeCli().
+        if (!this.shouldExcludeCli(file)) return false;
+      }
       return true;
     });
     const files = [];
@@ -283,6 +306,9 @@ class DependencyGraph {
 
     // Build reverse graph
     this.buildReverseGraph();
+
+    // Inject framework implicit dependencies (e.g. Vue router lazy-loading)
+    this.applyFrameworkImplicitImports();
 
     const cacheHitRate = files.length > 0 ? Math.round((cachedFiles.length / files.length) * 100) : 0;
     if (!this.quiet) {
@@ -438,6 +464,74 @@ class DependencyGraph {
   }
 
   /**
+   * Apply framework implicit imports after explicit graph is built.
+   * Scans JS/TS/Vue files for framework patterns (Vue router lazy-loading,
+   * global component registration) and injects resolved implicit edges into
+   * both graph.imports/importRecords and reverseGraph.
+   */
+  applyFrameworkImplicitImports() {
+    const startTime = Date.now();
+    let implicitEdgeCount = 0;
+
+    for (const [fileKey, info] of this.graph) {
+      const ext = path.extname(fileKey).toLowerCase();
+      if (!['.js', '.jsx', '.ts', '.tsx', '.vue', '.mjs', '.cjs'].includes(ext)) continue;
+
+      let content;
+      try {
+        content = fs.readFileSync(fileKey, 'utf-8');
+      } catch {
+        continue;
+      }
+
+      const implicitSources = scanAndExtractImplicitImports(fileKey, content);
+      if (implicitSources.length === 0) continue;
+
+      const resolved = resolveImplicitImports(fileKey, implicitSources, this.root);
+      if (resolved.length === 0) continue;
+
+      // Defensive copy to avoid mutating cached arrays (cache-hit uses shallow clone)
+      if (!info._implicitMutated) {
+        info.imports = info.imports.slice();
+        info.importRecords = info.importRecords.slice();
+        info._implicitMutated = true;
+        this.graph.set(fileKey, info);
+      }
+
+      for (const { source, resolved: resolvedPath, patternId } of resolved) {
+        const normalizedResolved = this.normalizeFilePath(resolvedPath);
+        if (normalizedResolved === fileKey) continue;
+
+        if (!info.imports.includes(normalizedResolved)) {
+          info.imports.push(normalizedResolved);
+        }
+
+        const hasRecord = info.importRecords.some(
+          (r) => r.resolved === normalizedResolved && r.source === source
+        );
+        if (!hasRecord) {
+          info.importRecords.push(
+            buildImplicitImportRecord(source, normalizedResolved, patternId)
+          );
+        }
+
+        if (!this.reverseGraph.has(normalizedResolved)) {
+          this.reverseGraph.set(normalizedResolved, []);
+        }
+        const dependents = this.reverseGraph.get(normalizedResolved);
+        if (!dependents.includes(fileKey)) {
+          dependents.push(fileKey);
+          implicitEdgeCount++;
+        }
+      }
+    }
+
+    if (!this.quiet && implicitEdgeCount > 0) {
+      console.error(`[DepGraph] Applied ${implicitEdgeCount} framework implicit import edges in ${Date.now() - startTime}ms`);
+    }
+  }
+
+  /**
    * Incrementally update dependency graph for changed files.
    * Removes old reverse edges, re-parses changed files, adds new reverse edges.
    * Does NOT rebuild the full reverse graph.
@@ -489,6 +583,12 @@ class DependencyGraph {
       if (newInfo) {
         this._addReverseEdges(key, newInfo.imports, { skipExisting: true });
       }
+    }
+
+    // Re-apply framework implicit imports when any file was re-parsed,
+    // because re-parsing wipes previous implicit edges from graph.imports.
+    if (reParsed > 0) {
+      this.applyFrameworkImplicitImports();
     }
 
     if (!this.quiet && (reParsed > 0 || skipped > 0)) {
@@ -712,6 +812,7 @@ class DependencyGraph {
     const deadExports = [];
 
     for (const [filePath, info] of this.graph) {
+      if (this.shouldExcludeCli(filePath)) continue;
       if (info.exports.length === 0) continue;
       if (this.isTestLikeFile(filePath)) continue;
       if (this.isKnownEntryFile(filePath, info.exports)) continue;
@@ -758,6 +859,7 @@ class DependencyGraph {
     const unresolved = [];
 
     for (const [filePath, info] of this.graph) {
+      if (this.shouldExcludeCli(filePath)) continue;
       for (const imp of info.imports) {
         if (!this.hasFile(imp) && path.isAbsolute(imp) && !fs.existsSync(imp)) {
           unresolved.push({ file: filePath, import: imp, resolvedTo: imp });
@@ -853,7 +955,11 @@ class DependencyGraph {
   }
 
   getScopeSummary() {
-    const files = Array.from(this.cache.fileMetadata.keys()).filter((file) => !this.shouldExclude(file));
+    const files = Array.from(this.cache.fileMetadata.keys()).filter((file) => {
+      if (this.shouldExclude(file)) return false;
+      if (this.shouldExcludeCli(file)) return false;
+      return true;
+    });
     if (this.projectContext) {
       return this.projectContext.summarizeFiles(files);
     }
