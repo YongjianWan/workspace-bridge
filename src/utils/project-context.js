@@ -287,14 +287,15 @@ class ProjectContext {
     return this.classifyFile(filePath).directoryRole !== 'generated';
   }
 
-  summarizeFiles(files) {
+  summarizeFiles(files, isImportedFn) {
     const summary = {
       configPath: pathExists(this.configPath) ? this.configPath : null,
-      hasConfig: pathExists(this.configPath),
+      hasWorkspaceBridgeConfig: pathExists(this.configPath),
       counts: {
         totalFiles: 0,
         mainlineFiles: 0,
         nonMainlineFiles: 0,
+        testFiles: 0,
       },
       directoryRoles: {
         active: 0,
@@ -309,6 +310,7 @@ class ProjectContext {
         test: 0,
         migration: 0,
         script: 0,
+        unknown: 0,
       },
       entryFiles: [],
     };
@@ -317,19 +319,25 @@ class ProjectContext {
       const classification = this.classifyFile(filePath);
       summary.counts.totalFiles += 1;
       summary.directoryRoles[classification.directoryRole] += 1;
-      summary.fileRoles[classification.fileRole] += 1;
+      let fileRole = classification.fileRole;
+      // P41: a file cannot simultaneously be 'library' and 'orphan'
+      if (fileRole === 'library' && isImportedFn && !isImportedFn(filePath)) {
+        fileRole = 'unknown';
+      }
+      summary.fileRoles[fileRole] += 1;
       // L2-26: tests and docs are active (still indexed) but not mainline
-      const isTrulyMainline = classification.isMainline && classification.fileRole !== 'test' && classification.fileRole !== 'docs';
+      const isTrulyMainline = classification.isMainline && fileRole !== 'test' && fileRole !== 'docs';
       if (isTrulyMainline) {
         summary.counts.mainlineFiles += 1;
       } else {
         summary.counts.nonMainlineFiles += 1;
       }
-      if (classification.fileRole === 'entry') {
+      if (fileRole === 'entry') {
         summary.entryFiles.push(classification.relativePath);
       }
     }
 
+    summary.counts.testFiles = summary.fileRoles.test;
     summary.entryFiles = Array.from(new Set(summary.entryFiles)).sort();
     return summary;
   }

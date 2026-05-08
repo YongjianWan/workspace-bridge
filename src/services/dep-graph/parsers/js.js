@@ -275,7 +275,7 @@ function parseJavaScriptAST(content, filePath = '') {
         }));
       },
 
-      CallExpression(node) {
+      CallExpression(node, parent) {
         // require('./foo')
         if (
           node.callee?.type === 'Identifier' &&
@@ -284,7 +284,26 @@ function parseJavaScriptAST(content, filePath = '') {
         ) {
           const source = node.arguments[0].value;
           imports.push(source);
-          importRecords.push(createImportRecord(source, { usesAllExports: true }));
+          let imported = [];
+          let usesAllExports = true;
+          // Destructured require: const { foo, bar } = require('./foo')
+          if (
+            parent?.type === 'VariableDeclarator' &&
+            parent.id?.type === 'ObjectPattern' &&
+            parent.id.properties
+          ) {
+            usesAllExports = false;
+            for (const prop of parent.id.properties) {
+              if (prop.type === 'ObjectProperty' && prop.key) {
+                const name = prop.key.name || prop.key.value;
+                if (name) imported.push(name);
+              } else if (prop.type === 'RestElement' && prop.argument?.name) {
+                imported.push(prop.argument.name);
+                usesAllExports = true;
+              }
+            }
+          }
+          importRecords.push(createImportRecord(source, { imported, usesAllExports }));
           return;
         }
         // import('./foo') — Babel parses this as CallExpression with callee.type === 'Import'
@@ -361,9 +380,9 @@ function parseJavaScriptAST(content, filePath = '') {
       },
     };
 
-    walkAST(ast, (node) => {
+    walkAST(ast, (node, parent) => {
       const handler = importExportVisitors[node.type];
-      if (handler) handler(node);
+      if (handler) handler(node, parent);
     });
 
     const exports = uniqueNames(exportRecords.filter((r) => !r.unknown).map((r) => r.name));

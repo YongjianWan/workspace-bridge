@@ -13,6 +13,8 @@ function buildFileSummary(impact, affectedTests) {
 
   return {
     severity,
+    severityContext: 'impact-radius',
+    severityNote: 'This severity reflects blast radius (dependents + affected tests), not code quality defects.',
     counts: {
       impact: impactCount,
       affectedTests: affectedTestCount,

@@ -9,6 +9,13 @@ const { DependencyGraph } = require('./dep-graph');
 const { ProjectContext } = require('../utils/project-context');
 const { TIMEOUTS, DEFAULTS } = require('../config/constants');
 
+function formatDuration(ms) {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${Math.round(ms / 1000)} seconds`;
+  if (ms < 3600000) return `${Math.round(ms / 60000)} minutes`;
+  return `${Math.round(ms / 3600000)} hours`;
+}
+
 class ServiceContainer {
   constructor(options = {}) {
     this.initialized = false;
@@ -229,6 +236,7 @@ class ServiceContainer {
       indexAgeMs: ageMs,
       isStale: ageMs > thresholdMs,
       thresholdMs,
+      thresholdDescription: formatDuration(thresholdMs),
     };
   }
 }

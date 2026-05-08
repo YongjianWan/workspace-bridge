@@ -8,6 +8,7 @@ const { getFileHistoryRisk } = require('./git-tools');
 const { overviewSeverity } = require('../config/risk-thresholds');
 const { toRelativePosix } = require('../utils/path');
 const { findOrphanFiles } = require('../utils/orphan-detector');
+const { detectStack } = require('../utils/stack-detectors/detect');
 const { DEFAULTS, SCORING } = require('../config/constants');
 
 function toRelative(root, filePath) {
@@ -107,9 +108,9 @@ async function getHistoryRisk(root, filePath, historyProvider) {
   }
 }
 
-function buildSkeleton(root, depGraph, allFiles, mainlineFiles, projectContext) {
+function buildSkeleton(root, depGraph, allFiles, mainlineFiles, projectContext, entryFiles) {
   return {
-    entryPoints: Array.from(depGraph.entryFiles || []).map((f) => toRelative(root, f)),
+    entryPoints: entryFiles || [],
     totalFiles: allFiles.length,
     mainlineFiles: mainlineFiles.length,
     testFiles: allFiles.filter((f) => depGraph.isTestLikeFile(f)).length,
@@ -169,7 +170,7 @@ function buildStability(root, depGraph, mainlineFiles, projectContext) {
   return stability.sort((a, b) => a.stabilityScore - b.stabilityScore);
 }
 
-function buildOverviewSummary(hotspots, stability, orphans, unresolvedCount = 0, cycleCount = 0, deadExportCount = 0) {
+function buildOverviewSummary(hotspots, stability, orphans, unresolvedCount = 0, cycleCount = 0, deadExportCount = 0, stackProfile = 'unknown') {
   const summary = { severity: 'low', insights: [], recommendations: [] };
 
   if (hotspots.length > 0) {
@@ -197,6 +198,22 @@ function buildOverviewSummary(hotspots, stability, orphans, unresolvedCount = 0,
 
   summary.severity = overviewSeverity({ fragileModuleCount: fragileModules.length, unresolved: unresolvedCount, cycles: cycleCount, deadExports: deadExportCount, orphans: orphanCount });
 
+  // Stack-profile-aware recommendation ordering and wording
+  const isNode = stackProfile === 'node-first' || stackProfile === 'mixed';
+  const isJava = stackProfile === 'java-first';
+  const isPython = stackProfile === 'python-first';
+  const isGo = stackProfile === 'go-first';
+  const isRust = stackProfile === 'rust-first';
+
+  if (cycleCount > 0) {
+    summary.recommendations.push('Break dependency cycles before making broad refactors.');
+  }
+  if (unresolvedCount > 0) {
+    summary.recommendations.push('Inspect unresolved imports; they can indicate broken code paths or unsupported alias resolution.');
+  }
+  if (deadExportCount > 0) {
+    summary.recommendations.push('Review dead exports as candidates, not automatic deletions.');
+  }
   if (hotspots.length > 0) {
     summary.recommendations.push(`优先审查热区文件: ${hotspots.slice(0, SCORING.TOP_N_RECOMMENDATIONS).map((h) => h.file).join(', ')}`);
   }
@@ -205,6 +222,19 @@ function buildOverviewSummary(hotspots, stability, orphans, unresolvedCount = 0,
   }
   if (orphans.modules.length > 0) {
     summary.recommendations.push(`审查孤儿模块是否可删除: ${orphans.modules.slice(0, SCORING.TOP_N_RECOMMENDATIONS).join(', ')}`);
+  }
+
+  // Stack-specific advice appended at the end
+  if (isNode) {
+    summary.recommendations.push('Node 项目建议：运行 linter + type-check 作为日常验证基线。');
+  } else if (isJava) {
+    summary.recommendations.push('Java 项目建议：运行 Maven/Gradle compile + surefire 测试作为日常验证基线。');
+  } else if (isPython) {
+    summary.recommendations.push('Python 项目建议：运行 pytest + ruff 作为日常验证基线。');
+  } else if (isGo) {
+    summary.recommendations.push('Go 项目建议：运行 go build ./... + go vet 作为日常验证基线。');
+  } else if (isRust) {
+    summary.recommendations.push('Rust 项目建议：运行 cargo check + cargo clippy 作为日常验证基线。');
   }
 
   return { summary, orphanCount };
@@ -258,7 +288,7 @@ function buildCycleRefactorSuggestions(root, depGraph, projectContext) {
         `把共享常量或类型下沉到独立模块，避免双向 import`,
       ],
       validation: {
-        command: 'node cli.js cycles --cwd . --json --quiet',
+        command: 'workspace-bridge-cli cycles --cwd . --json --quiet',
         expectation: 'cycleCount 下降或至少该 cycle 不再出现',
       },
     });
@@ -319,7 +349,7 @@ function buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectCon
       reason: `耦合过高（in=${item.coupling.inDegree}, out=${item.coupling.outDegree}, total=${item.coupling.total}）`,
       splitPlan: generateCouplingSplitPlan(item.role, item.coupling),
       validation: {
-        command: 'node cli.js audit-overview --cwd . --json --quiet',
+        command: 'workspace-bridge-cli audit-overview --cwd . --json --quiet',
         expectation: '目标模块 coupling.total 下降，stabilityScore 不回退',
       },
     }));
@@ -520,6 +550,8 @@ async function writeOverviewDashboardFile(filePath, data) {
 
 const EXT_TO_LANG = {
   '.js': 'javascript', '.jsx': 'javascript', '.ts': 'javascript', '.tsx': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
+  '.vue': 'vue',
+  '.svelte': 'svelte',
   '.py': 'python',
   '.java': 'java',
   '.kt': 'kotlin',
@@ -569,16 +601,25 @@ async function buildProjectOverview(args, container) {
     return { ok: false, error: 'Dependency graph not initialized' };
   }
 
-  const allFiles = Array.from(depGraph.graph?.keys() || []);
+  const shouldExcludeCli = depGraph.shouldExcludeCli?.bind(depGraph);
+  const allFiles = Array.from(depGraph.graph?.keys() || []).filter((f) => !shouldExcludeCli || !shouldExcludeCli(f));
   const mainlineFiles = allFiles.filter((f) => projectContext.classifyFile(f).isMainline);
-  const skeleton = buildSkeleton(root, depGraph, allFiles, mainlineFiles, projectContext);
+  let scope = null;
+  let entryFiles = [];
+  if (typeof projectContext.summarizeFiles === 'function') {
+    scope = projectContext.summarizeFiles(allFiles, (file) => depGraph.getDependents(file).length > 0);
+    entryFiles = scope.entryFiles || [];
+  }
+  const skeleton = buildSkeleton(root, depGraph, allFiles, mainlineFiles, projectContext, entryFiles);
   const hotspots = await buildHotspots(root, depGraph, mainlineFiles, historyProvider);
   const stability = buildStability(root, depGraph, mainlineFiles, projectContext);
   const orphans = findOrphanFiles(allFiles, depGraph.entryFiles, depGraph, root, null, depGraph.isKnownEntryFile?.bind(depGraph), depGraph.shouldExcludeCli?.bind(depGraph));
   const unresolved = depGraph.findUnresolvedImports?.() || [];
   const cycles = depGraph.findCircularDependencies?.() || [];
   const deadExports = depGraph.findDeadExports?.() || [];
-  const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans, unresolved.length, cycles.length, deadExports.length);
+  const stack = detectStack(root);
+  const stackProfile = stack.profile;
+  const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans, unresolved.length, cycles.length, deadExports.length, stackProfile);
   const aggregates = aggregateOverviewStats(hotspots, stability);
   const cycleRefactorSuggestions = buildCycleRefactorSuggestions(root, depGraph, projectContext);
   const couplingSplitSuggestions = buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectContext);
@@ -668,6 +709,7 @@ async function buildProjectOverview(args, container) {
   return {
     ok: true,
     workspaceRoot: root,
+    stackProfile,
     options,
     summary,
     aggregates,
@@ -684,6 +726,7 @@ async function buildProjectOverview(args, container) {
     overviewDashboardFile,
     stability: stability.slice(0, SCORING.TOP_N_LIST),
     languageSupport: buildLanguageSupportMatrix(depGraph),
+    ...(scope ? { directoryRoles: scope.directoryRoles } : {}),
     orphans: {
       counts: {
         docs: orphans.docs.length,

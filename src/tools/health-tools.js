@@ -23,9 +23,18 @@ function checkHealthFile(root, candidates) {
   return { found: false, candidates };
 }
 
+function hasWorkflowFiles(dir) {
+  try {
+    const files = require('fs').readdirSync(dir);
+    return files.some((f) => f.endsWith('.yml') || f.endsWith('.yaml'));
+  } catch {
+    return false;
+  }
+}
+
 function detectCiConfig(root) {
   const ciConfigs = [
-    { name: 'GitHub Actions', path: '.github/workflows' },
+    { name: 'GitHub Actions', path: '.github/workflows', check: (p) => hasWorkflowFiles(p) },
     { name: 'GitLab CI', path: '.gitlab-ci.yml' },
     { name: 'CircleCI', path: '.circleci/config.yml' },
     { name: 'Travis CI', path: '.travis.yml' },
@@ -36,7 +45,9 @@ function detectCiConfig(root) {
 
   const found = [];
   for (const ci of ciConfigs) {
-    if (pathExists(path.join(root, ci.path))) {
+    const fullPath = path.join(root, ci.path);
+    const detected = ci.check ? ci.check(fullPath) : pathExists(fullPath);
+    if (detected) {
       found.push({ name: ci.name, path: ci.path });
     }
   }
@@ -118,11 +129,18 @@ function projectHealth(args, container) {
     license: checkHealthFile(root, ['LICENSE', 'LICENSE.md', 'LICENSE.txt', 'LICENCE', 'COPYING']),
     gitignore: checkHealthFile(root, ['.gitignore']),
     editorconfig: checkHealthFile(root, ['.editorconfig']),
-    envExample: checkHealthFile(root, ['.env.example', '.env.sample', '.env.template']),
+    envExample: checkHealthFile(root, ['.env.example', '.env.sample', '.env.template', '.env.development', '.env.production']),
     dockerConfig: checkHealthFile(root, ['Dockerfile', 'docker-compose.yml', 'docker-compose.yaml']),
     ci: detectCiConfig(root),
     testConfig: detectTestConfig(root),
   };
+
+  // P37: sizeBytes is output noise — it has no diagnostic value for health checks
+  for (const key of Object.keys(checks)) {
+    if (checks[key] && typeof checks[key] === 'object' && 'sizeBytes' in checks[key]) {
+      delete checks[key].sizeBytes;
+    }
+  }
 
   const parserAvailability = workspace.hasPackageJson ? checkParserAvailability() : { available: true, skipped: true };
 

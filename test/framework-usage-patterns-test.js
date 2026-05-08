@@ -77,11 +77,30 @@ function testNonJsExtensionSkipped() {
   assert.strictEqual(results.length, 0, 'non-JS extensions should be skipped');
 }
 
-function testPlaceholderPatterns() {
-  const content = "Vue.directive('focus', {});";
+function testVueCustomDirective() {
+  const content = "Vue.directive('focus', {}); Vue.directive('hasPermi', hasPermiDirective);";
   const results = scanAndExtractImplicitImports('/project/src/main.js', content);
-  // vue-custom-directive scanner returns false (placeholder)
-  assert.strictEqual(results.length, 0);
+  assert(results.some((r) => r.source === '@/directive/focus/index'), 'should map focus directive');
+  assert(results.some((r) => r.source === '@/directive/hasPermi/index'), 'should map hasPermi directive');
+  assert(results.every((r) => r.patternId === 'vue-custom-directive'));
+}
+
+function testDynamicStringCall() {
+  const content = `
+    const actions = ['fetchUser', 'deletePost'];
+    actions.forEach(action => window[action]());
+  `;
+  const results = scanAndExtractImplicitImports('/project/src/utils/api.js', content);
+  assert(results.some((r) => r.source === './fetchUser'), 'should extract fetchUser');
+  assert(results.some((r) => r.source === './deletePost'), 'should extract deletePost');
+  assert(results.every((r) => r.patternId === 'dynamic-string-call'));
+}
+
+function testDynamicStringCallLiteral() {
+  const content = "window['refreshData'](); this['clearCache']();";
+  const results = scanAndExtractImplicitImports('/project/src/app.js', content);
+  assert(results.some((r) => r.source === './refreshData'), 'should extract refreshData');
+  assert(results.some((r) => r.source === './clearCache'), 'should extract clearCache');
 }
 
 // --- resolveImplicitImports ---
@@ -204,7 +223,9 @@ async function run() {
   testVueGlobalComponent();
   testNoMatch();
   testNonJsExtensionSkipped();
-  testPlaceholderPatterns();
+  testVueCustomDirective();
+  testDynamicStringCall();
+  testDynamicStringCallLiteral();
   testResolveImplicitImports();
   testResolveImplicitImportsMissingFile();
   testBuildImplicitImportRecord();

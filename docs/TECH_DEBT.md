@@ -13,7 +13,7 @@
 
 #### L2-12. `--exclude` 只影响 scope 计数，不影响分析结果 ✅ 已修复
 
-✅ 已修复。`--exclude` 改为只在报告阶段过滤，CLI-excluded 文件仍参与依赖图构建（保留 importer 关系），`deadExports` / `unresolved` / `orphans` / `getScopeSummary` 均在返回前过滤。详情见 CHANGELOG.md [Unreleased]。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -59,7 +59,7 @@
 | Vue `.vue` 扩展名省略 + alias 未解析 | ~45 | ✅ 已修复（resolvers.js 增加 `.vue` + `tsconfig.json` paths 读取） |
 | Vue 动态路由懒加载导致 orphan | ~30 | ✅ 已修复（framework-usage-patterns.js: vue-router-lazy） |
 | Vue 全局组件注册导致 orphan/dead-export | ~20 | ✅ 已修复（framework-usage-patterns.js: vue-global-component） |
-| Vue 自定义指令 / 动态字符串调用 | ~15 | ⏳ 占位，需模板/语义分析 |
+| Vue 自定义指令 / 动态字符串调用 | ~15 | ✅ 已修复（framework-usage-patterns.js: vue-custom-directive / dynamic-string-call）|
 | 真实的死代码 | ~7 | — |
 
 **产品影响**：
@@ -121,7 +121,7 @@
 
 #### P10. `affected-tests` 永远返回 0 = 核心场景失效 ✅ 已修复（主要根因）
 
-✅ 已修复。`registry.js` 补充 `.mjs`/`.cjs`/`.mts`/`.cts` 扩展名，`analyzeFile` 不再跳过解析。`response.js` 实测从 0 → 2 个测试。`fs.readFileSync` 运行时读取模式仍超出静态分析范围。详情见 CHANGELOG.md [Unreleased]。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -130,19 +130,9 @@
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 ---
 
-#### P12. `--exclude` 行为违背用户心智模型
+#### P12. `--exclude` 行为违背用户心智模型 ✅ 已修复
 
-用户执行 `--exclude tests`，期望"排除测试文件后再做死代码检测"。
-
-实际：
-
-- `totalFiles` 从 223 → 208（统计变了）
-- `deadExports` 仍是 51 个（分析结果没变）
-
-**产品影响**：
-
-- 参数语义和实际行为不一致，用户会感觉"这个参数是假的"。
-- 在 monorepo 场景下，用户需要排除 `docs/`、`examples/` 后再分析生产代码，但当前 `--exclude` 无法满足这个核心需求。
+✅ 已修复。`--exclude` 现在同时在 `audit-overview` 的 `allFiles`/`mainlineFiles` 阶段过滤，确保 hotspots、stability、coupling 等分析均不纳入被排除文件。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -161,15 +151,9 @@
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 ---
 
-#### P16. `audit-overview` 的 `entryPoints: []` 与 `audit-summary` 的 `entryFiles` 矛盾
+#### P16. `audit-overview` 的 `entryPoints: []` 与 `audit-summary` 的 `entryFiles` 矛盾 ✅ 已修复
 
-`audit-summary` 列出 11 个 `entryFiles`（含 `src/main.js`、`vite.config.js`），但 `audit-overview` 的 `skeleton.entryPoints` 是**空数组**。
-
-**产品影响**：
-
-- 两个命令对同一项目的"入口是什么"给出了完全不同的答案。
-- `audit-overview` 的架构概览因为 entryPoints 为空，失去了"项目从哪里启动"这一核心上下文。
-- 下游基于 `audit-overview` 做可视化或报告时，入口检测完全失效。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -185,38 +169,21 @@
 
 ---
 
-#### P18. `architectureAdvice` 建议过于抽象，无法执行
+#### P18. `architectureAdvice` 建议过于抽象，无法执行 ✅ 已修复（phases 层面）
 
-对循环依赖的建议：
-
-> "将 judedashboard/controller.js 对 controller.js 的直接依赖改为接口/回调注入"
-
-**产品影响**：
-
-- 产品输出的"架构建议"如果停留在教科书式空话（"改为接口注入"），用户拿到后无法落地。
-- 一个合格的架构建议应该具体到："提取 `normalizeHumanJudge` 到 `shared/utils.js`，然后两个 controller 各自 import utils"。
-- 当前的建议还不如不做——做了反而占用用户的阅读时间。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P19. `summary.nextSteps` 模板化，没有根据项目实际情况定制
+#### P19. `summary.nextSteps` 模板化，没有根据项目实际情况定制 ✅ 已修复
 
-两个前端项目的 `nextSteps` 几乎完全相同：
-
-> "Inspect unresolved imports first; they can indicate broken code paths..."
-> "Break dependency cycles before making broad refactors..."
-
-**产品影响**：
-
-- 一个 223 文件有循环依赖的项目，和一个 218 文件没有循环依赖的项目，收到的建议一样。
-- `ai_zsgzt_frontend` 没有循环依赖，但 nextSteps 仍然包含 "Break dependency cycles"。
-- 模板化建议让用户感觉工具"没有真正看懂我的项目"。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
 #### P20. 命令输出中没有"误报率预估"或"诚实度"标注 ✅ 已修复
 
-✅ 已修复。新增 `src/tools/honesty-engine.js`，`dead-exports` / `unresolved` / `audit-summary` 均输出 `possibleFalsePositives` / `honesty` 字段，含 `count` / `primaryReason` / `disclaimer`。详情见 CHANGELOG.md [Unreleased]。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -225,81 +192,33 @@
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 ---
 
-#### P22. `scope.directoryRoles` 全为 0，目录角色检测完全失效
+#### P22. `scope.directoryRoles` 全为 0，目录角色检测完全失效 ✅ 已修复
 
-```json
-"directoryRoles": {
-  "active": 0,
-  "reference": 0,
-  "archive": 0,
-  "generated": 0
-}
-```
-
-**产品影响**：
-
-- 产品设计了 `active/reference/archive/generated` 四象限分类，但实测没有任何文件被归类到这四个角色中。
-- 这意味着基于目录角色的过滤、统计、建议全部失效（如"优先关注 active 目录的死代码"）。
-- 一个完全失效的功能如果还保留在输出结构里，就是输出噪音。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P23. `audit-map --compact` 的 `highlightedFiles` 没有去重
+#### P23. `audit-map --compact` 的 `highlightedFiles` 没有去重 ✅ 已修复
 
-一个文件如果同时有多个问题（如 `src/api/login.js` 既是 dead-export 又是 orphan），在 `highlightedFiles` 数组中**出现两次**，每次带一个 `reason`。
-
-**产品影响**：
-
-- 用户看到 `highlightedFiles` 长度为 50，以为有 50 个文件需要关注，实际可能只有 35 个文件（15 个重复）。
-- 去重是数据输出的基本要求，连这个都没做说明 compact 模式的后期处理很粗糙。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P24. `impact` 数组中 source 文件出现在自己的影响列表里
+#### P24. `impact` 数组中 source 文件出现在自己的影响列表里 ✅ 已修复
 
-`impact --file src/views/policyeval/controller.js` 的 `impact` 数组中：
-
-```json
-{ "file": "src/views/policyeval/controller.js", "level": 2, "reason": "transitive-dependency" }
-```
-
-**产品影响**：
-
-- 一个文件通过 transitive 依赖"影响到了自己"，在数据层面是循环依赖的合理表现，但在"这个文件改了会影响谁"的产品语境下非常反直觉。
-- 用户问"改 controller.js 会影响哪些文件"，结果列表里出现了 controller.js 本身——这会让用户困惑"难道我改这个文件还会影响到它自己？"
-- 产品应该在 impact 输出中过滤掉 source 文件自身，或在循环依赖场景下给出专门提示。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P25. `architectureAdvice` 拆分建议过于泛滥且不区分文件类型
+#### P25. `architectureAdvice` 拆分建议过于泛滥且不区分文件类型 ✅ 已修复（耦合建议已收敛）
 
-`audit-overview` 对以下文件都给出了"拆分"建议：
-
-- `src/components/crontab/index.vue`（inDegree=0, outDegree=8，一个自包含的定时任务组件）
-- `src/views/bigscreen/analyst.vue`（inDegree=0, outDegree=8，大屏分析页面）
-- `src/views/policyeval/pages/review/index.vue`（inDegree=1, outDegree=8，评审页面）
-
-**产品影响**：
-
-- Vue 页面组件 import 8 个依赖是非常正常的（模板、样式、子组件、API、工具），这并不代表需要拆分。
-- 产品没有区分"库文件高耦合"和"页面组件正常依赖"的场景，建议变得像垃圾邮件——每条都建议拆分，用户干脆全忽略。
-- 一个有效的架构建议应该考虑文件类型（`.vue` 页面 vs `.js` 工具库）和 inDegree 基数。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P26. `validationAdvice` 建议的命令路径不可用
+#### P26. `validationAdvice` 建议的命令路径不可用 ✅ 已修复
 
-`audit-overview` 的 cycle refactor suggestion 建议验证命令：
-
-```
-node cli.js cycles --cwd . --json --quiet
-```
-
-**产品影响**：
-
-- 用户通过 `npx workspace-bridge-cli` 运行工具，本地根本没有 `cli.js`。
-- 产品输出的"建议执行的命令"直接不可用，等于给用户一张写有错误地址的地图。
-- 命令建议应该使用用户实际调用的入口（`workspace-bridge-cli` 或 `npx workspace-bridge-cli`），而不是硬编码的 `node cli.js`。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -328,62 +247,27 @@ SKILL.md 要求 agent 输出包含：
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 ---
 
-#### P29. `impact` direct-import 的 `importedSymbols` 永远为空，symbol 追踪不完整
+#### P29. `impact` direct-import 的 `importedSymbols` 永远为空，symbol 追踪不完整 ✅ 已修复
 
-`impact` 数组中：
-
-- `level: 1`（direct-import）的项：`importedSymbols: []`
-- `level: 2`（transitive-dependency）的项：`importedSymbols: ["buildDashboardFromExtracts", "normalizeHumanJudge", ...]`
-
-**产品影响**：
-
-- 用户无法知道"哪些具体函数/变量被直接依赖了"，只能看到"这个文件依赖了那个文件"。
-- 在需要精确重构时（如"只改 `normalizePolicyListItem` 的签名"），用户无法从 impact 输出中判断哪些文件直接用了这个函数。
-- symbol-level impact 只做了 transitive 追踪，没做 direct 追踪，功能只有一半可用。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P30. `unresolved` 的 `resolvedTo` 在失败时等于原路径，字段无意义
+#### P30. `unresolved` 的 `resolvedTo` 在失败时等于原路径，字段无意义 ✅ 已修复
 
-所有 unresolved 项：
-
-```json
-{ "import": "src/app", "resolvedTo": "src/app" }
-```
-
-**产品影响**：
-
-- `resolvedTo` 的语义应该是"解析到的真实路径"，但在失败时它等于 `import` 本身。
-- 这个字段在 unresolved 场景下变成了无意义的重复数据，增加了输出体积但没有提供额外信息。
-- 产品应该要么不输出 `resolvedTo`（当 unresolved 时），要么输出 `resolvedTo: null` 明确表示解析失败。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P31. `health.checks.envExample` 只认 `.env.example`，不认 Vue 生态的 `.env.development`
+#### P31. `health.checks.envExample` 只认 `.env.example`，不认 Vue 生态的 `.env.development` ✅ 已修复
 
-两个前端项目都有 `.env.development` 和 `.env.production`，但健康检查：`envExample.found: false`。
-
-**产品影响**：
-
-- Vue/Vite 项目的标准做法是直接提供 `.env.development` 和 `.env.production`，而不是 `.env.example`。
-- 健康检查用单一标准（只认 `.env.example`）评判所有技术栈，导致 Vue 项目被误判为"缺少环境变量模板"。
-- 和 P4 同类：产品没有根据检测到的框架动态调整健康标准。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P32. `staleness` 的 `thresholdMs: 300000` 无解释，用户不知道多久算旧
+#### P32. `staleness` 的 `thresholdMs: 300000` 无解释，用户不知道多久算旧 ✅ 已修复
 
-所有命令都返回：
-
-```json
-"staleness": { "indexAgeMs": 55, "isStale": false, "thresholdMs": 300000 }
-```
-
-**产品影响**：
-
-- 300000ms = 5 分钟，但这个阈值为什么定 5 分钟？没有文档解释。
-- 用户看到 `indexAgeMs: 5000`（5 秒）和 `isStale: false`，不知道这个索引是"刚刚建的"还是"有点旧但还能用"。
-- `staleness` 作为每个命令都带的基础字段，如果用户看不懂它的含义，就变成了输出噪音。
+✅ 已修复。`staleness` 输出新增 `thresholdDescription` 字段（如 `"5 minutes"`），人类可读。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -406,21 +290,9 @@ SKILL.md 要求 agent 输出包含：
 
 ---
 
-#### P34. `languageSupport` 没有 Vue 的统计条目，注册了 parser 但不暴露
+#### P34. `languageSupport` 没有 Vue 的统计条目，注册了 parser 但不暴露 ✅ 已修复
 
-`languageSupport` 只输出：
-
-```json
-"javascript": { "files": 101, "astFiles": 86 }
-```
-
-项目有 `.vue` 文件（约 122 个非 JS 文件中大部分是 .vue），但 `languageSupport` 里完全没有 `vue` 条目。
-
-**产品影响**：
-
-- 工具注册了 `parseVue`、能解析 `.vue` 文件，但在 `languageSupport` 统计中完全不体现。
-- 用户无法从 `languageSupport` 判断".vue"文件有多少被成功解析。
-- 统计数据不完整，让用户对工具的实际覆盖范围产生误判。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -452,19 +324,9 @@ SKILL.md 要求 agent 输出包含：
 
 ---
 
-#### P37. `health.checks.readme.sizeBytes` 等字段是输出噪音
+#### P37. `health.checks.readme.sizeBytes` 等字段是输出噪音 ✅ 已修复
 
-`health` 输出中包含：
-
-```json
-"readme": { "found": true, "file": "README.md", "sizeBytes": 4700 }
-```
-
-**产品影响**：
-
-- `sizeBytes` 这个字段对"项目健康度"没有任何解释力——README 是 4700 字节还是 47 字节，和健康有什么关系？
-- 用户读完 health 输出后，得到的是一堆"有但没用"的数据点，反而分散了对真正问题（如缺少 `.editorconfig`）的注意力。
-- 健康检查应该输出"需要行动的事项"，而不是"项目档案信息"。
+✅ 已修复。`health.checks.*` 中的 `sizeBytes` 字段已从输出中移除，聚焦真正需要行动的事项。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -473,49 +335,21 @@ SKILL.md 要求 agent 输出包含：
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 ---
 
-#### P39. `audit-file` 的 `severity` 反映的是影响范围而非代码质量风险
+#### P39. `audit-file` 的 `severity` 反映的是影响范围而非代码质量风险 ✅ 已修复
 
-`audit-file --file controller.js` 返回 `severity: "high"`，但这个文件本身没有任何代码错误、语法问题、安全漏洞——它只是因为被 24 个文件依赖，所以 severity 是 high。
-
-**产品影响**：
-
-- 产品混淆了"影响范围大"和"代码质量差"两个概念。
-- 用户看到 `severity: high` 会以为这个文件有严重缺陷需要修复，实际它只是"改的时候要小心"。
-- 如果 severity 不能准确反映代码质量风险，它就失去了作为"优先级指示器"的核心价值。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P40. 命令输出 schema 不一致，部分命令缺少 `ok` 字段
+#### P40. 命令输出 schema 不一致，部分命令缺少 `ok` 字段 ✅ 已修复
 
-| 命令              | 有 `ok` 字段？ |
-| ----------------- | ---------------- |
-| `audit-summary` | ✅               |
-| `impact`        | ✅               |
-| `dead-exports`  | ✅               |
-| `unresolved`    | ✅               |
-| `stats`         | ❌               |
-| `diagnostics`   | ❌               |
-| `cycles`        | ❌               |
-| `dependents`    | ✅               |
-| `dependencies`  | ✅               |
-
-**产品影响**：
-
-- 自动化脚本和消费方无法统一判断"命令是否成功执行"。
-- 有的命令需要检查 `ok` 字段，有的命令只能依赖 HTTP 状态码或异常捕获。
-- 输出 schema 缺乏一致性承诺，增加了集成成本。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P41. `fileRoles.library` 和 `orphans.modules` 数据矛盾
+#### P41. `fileRoles.library` 和 `orphans.modules` 数据矛盾 ✅ 已修复
 
-`audit-summary` 显示 `fileRoles.library: 197`，但 `audit-overview` 的 `orphans.modules` 有 81 个。
-
-**产品影响**：
-
-- 一个文件不可能同时是"library（被使用的库）"和"orphan（可能未使用的孤儿）"。
-- 这两个检测逻辑（fileRole 判定 vs orphan 检测）独立运行、互不校验，导致同一份数据给出矛盾的定性。
-- 用户看到 "197 个 library + 81 个 orphan" 会困惑："到底有多少文件是真的在被用？"
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -535,27 +369,15 @@ SKILL.md 要求 agent 输出包含：
 
 ---
 
-#### P43. `health.checks.ci` 未检测到 `.github/workflows` 目录
+#### P43. `health.checks.ci` 未检测到 `.github/workflows` 目录 ✅ 已修复
 
-前端项目的 `.github/` 目录存在（从目录列表确认），但 `health.checks.ci.found: false`。
-
-**产品影响**：
-
-- 健康检查声称检测 CI 配置，但只扫描了 `.github/workflows/ci.yml` 等固定路径，没有递归扫描 `.github/workflows/` 目录下的所有 `.yml` 文件。
-- 如果项目用的是 `deploy.yml`、`test.yml` 等命名，健康检查会直接 miss。
-- 健康检查的 CI 检测覆盖面太窄，导致"有 CI 但报没有"的误报。
+✅ 已修复。`detectCiConfig` 对 GitHub Actions 从"检查目录存在"升级为"检查目录内是否存在 `.yml`/`.yaml` 文件"，覆盖任意命名的 workflow。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P44. `scope.hasConfig` 命名歧义，易误解为"项目无配置"
+#### P44. `scope.hasConfig` 命名歧义，易误解为"项目无配置" ✅ 已修复
 
-`audit-summary` 的 `scope.hasConfig: false` 实际含义是"没有 `.workspace-bridge.json`"，但字段名 `hasConfig` 会让用户误以为"这个项目连 package.json 都没有"。
-
-**产品影响**：
-
-- 字段命名与语义不匹配，造成理解障碍。
-- 如果用户基于 `hasConfig` 做自动化判断（如"没有配置的项目需要初始化"），会得出错误结论。
-- 产品应该明确命名为 `hasWorkspaceBridgeConfig` 或 `hasToolConfig`，而不是模糊的 `hasConfig`。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -646,21 +468,9 @@ SKILL.md 要求 agent 输出包含：
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 ---
 
-#### P55. `scope.counts` 缺少 `testFiles`，与 `fileRoles.test` 数据分散
+#### P55. `scope.counts` 缺少 `testFiles`，与 `fileRoles.test` 数据分散 ✅ 已修复
 
-`audit-summary` 的 `scope.counts` 只有：
-
-```json
-{ "totalFiles": 223, "mainlineFiles": 223, "nonMainlineFiles": 0 }
-```
-
-但 `scope.fileRoles` 中有 `test: 15`。
-
-**产品影响**：
-
-- 用户想知道"这个项目有多少测试文件"，需要在 `fileRoles` 里找，而不是在直觉上更匹配的 `counts` 里。
-- 数据的分散增加了用户的认知负担——同样的信息（文件数量）被拆到了两个不同位置，且命名不一致（`test` vs `testFiles`）。
-- 接口设计没有遵循"同一类信息聚合在一处"的基本原则。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -705,55 +515,21 @@ SKILL.md 要求 agent 输出包含：
 
 ---
 
-#### P58. `audit-file` 返回 `frameworkPattern: null`，框架检测完全失效
+#### P58. `audit-file` 返回 `frameworkPattern: null`，框架检测完全失效 ✅ 已修复
 
-`audit-file --file src/views/policyeval/controller.js` 返回：
-
-```json
-"frameworkPattern": null
-```
-
-**产品影响**：
-
-- 该文件位于 Vue 项目的 `src/views/` 目录下，明显是 Vue 生态的组件 controller，但框架模式检测没有任何识别。
-- `frameworkPattern` 字段如果永远为 null，就不应该出现在输出中；如果存在，就应该提供有价值的框架上下文（如 `"vue-composition-api"`、`"vue-options"`）。
-- 这个字段和 L2-17（`vite.config.js` 被误判为 entry）共同说明：工具对 Vue 生态的框架嗅探几乎完全失效。
+✅ 已修复。`dep-graph.js` 的 `getFrameworkHint` 增加 content-based fallback：当 path-based 检测返回 null 时，扫描文件前 800 字节中的框架特征（NestJS/Express/FastAPI/Flask/Spring/Vue 等），显著减少 `frameworkPattern: null` 的情况。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P60. `missingHygieneChecks: 2` 但 `health.fixes` 数组有 5 个条目
+#### P60. `missingHygieneChecks: 2` 但 `health.fixes` 数组有 5 个条目 ✅ 已修复
 
-`audit-summary`：
-
-```json
-"counts": { "missingHygieneChecks": 2 }
-```
-
-但 `health.fixes` 数组包含 5 个条目：
-
-- `editorconfig`（low）
-- `envExample`（medium）
-- `dockerConfig`（low）
-- `ci`（medium）
-- `testConfig`（high）
-
-**产品影响**：
-
-- 同一套健康检查数据在两个位置给出了不同的计数（2 vs 5），用户不知道以哪个为准。
-- 如果 `missingHygieneChecks` 只统计部分 severity（如只算 medium + high），这个规则没有在输出中说明。
-- 数据不一致直接破坏了产品的可信度——如果连"有几个问题"都数不清楚，用户怎么相信其他更复杂的分析结果？
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P61. `skeleton.testFiles` 只在 `audit-overview` 里有，`audit-summary` 里没有
+#### P61. `skeleton.testFiles` 只在 `audit-overview` 里有，`audit-summary` 里没有 ✅ 已修复
 
-`audit-overview` 的 `skeleton` 包含 `testFiles: 15`，但 `audit-summary` 的 `scope.counts` 里完全没有 `testFiles` 字段。
-
-**产品影响**：
-
-- 用户如果想在 `audit-summary` 里快速了解"这个项目有多少测试文件"，找不到对应字段。
-- 测试文件数量这种基础统计信息散落在不同命令的不同位置（`audit-overview.skeleton.testFiles`、`scope.fileRoles.test`），接口设计缺乏一致性。
-- 和 P55（`scope.counts` 缺少 `testFiles`）是同一问题的不同表现。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -797,7 +573,7 @@ SKILL.md 要求 agent 输出包含：
 
 #### P64. Health check "按技术栈打分"后，建议命令仍然脱离实际 ✅ 已修复
 
-`src/tools/health-tools.js` — `FIX_SUGGESTIONS` 静态表改为 `buildFixSuggestions(stack)` 动态函数，接入 `detectStack` 结果按 `profile`（node-first / java-first / python-first / go-first / rust-first / cpp-first / mixed）生成差异化 `testConfig` 建议文案。Java 项目不再被建议 Jest，Node 项目优先提示 Vitest（Vite 生态）。详情见 CHANGELOG.md [Unreleased]。
+✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 

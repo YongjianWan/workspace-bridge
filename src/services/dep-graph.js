@@ -15,7 +15,7 @@ const {
   getFunctionReuseHints,
   getFunctionLevelAffectedTests,
 } = require('./dep-graph/symbol-impact');
-const { detectFrameworkFromPath } = require('./dep-graph/framework-patterns');
+const { detectFrameworkFromPath, detectFrameworkFromContent } = require('./dep-graph/framework-patterns');
 const {
   scanAndExtractImplicitImports,
   resolveImplicitImports,
@@ -242,12 +242,30 @@ class DependencyGraph {
   }
 
   /**
-   * Get framework hint for a file (path-based detection).
+   * Get framework hint for a file (path-based detection + lightweight content fallback).
    * @param {string} filePath
    * @returns {{ framework: string, reason: string, isEntry: boolean } | null}
    */
   getFrameworkHint(filePath) {
-    return detectFrameworkFromPath(filePath);
+    const pathHint = detectFrameworkFromPath(filePath);
+    if (pathHint) return pathHint;
+
+    // Fallback: scan first 800 bytes for framework signatures (decorators, imports, etc.)
+    try {
+      const stats = fs.statSync(filePath);
+      if (stats.size > LIMITS.ENTRY_FILE_MAX_BYTES) return null;
+      const fd = fs.openSync(filePath, 'r');
+      try {
+        const buffer = Buffer.alloc(LIMITS.ENTRY_SCAN_BYTES);
+        const bytesRead = fs.readSync(fd, buffer, 0, LIMITS.ENTRY_SCAN_BYTES, 0);
+        const content = buffer.toString('utf8', 0, bytesRead);
+        return detectFrameworkFromContent(filePath, content);
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -622,7 +640,7 @@ class DependencyGraph {
     return bfsTraverse(start, (file) => this.getDependents(file), {
       maxDepth: depth,
       onVisit: (file, level, via) => {
-        if (level === 0) return undefined;
+        if (level === 0 || file === start) return undefined;
         const currentInfo = this.getFileInfo(file);
 
         let importedSymbols = [];
@@ -862,7 +880,7 @@ class DependencyGraph {
       if (this.shouldExcludeCli(filePath)) continue;
       for (const imp of info.imports) {
         if (!this.hasFile(imp) && path.isAbsolute(imp) && !fs.existsSync(imp)) {
-          unresolved.push({ file: filePath, import: imp, resolvedTo: imp });
+          unresolved.push({ file: filePath, import: imp, resolvedTo: null });
         }
       }
     }
@@ -961,16 +979,17 @@ class DependencyGraph {
       return true;
     });
     if (this.projectContext) {
-      return this.projectContext.summarizeFiles(files);
+      return this.projectContext.summarizeFiles(files, (file) => this.getDependents(file).length > 0);
     }
 
     return {
       configPath: null,
-      hasConfig: false,
+      hasWorkspaceBridgeConfig: false,
       counts: {
         totalFiles: files.length,
         mainlineFiles: files.length,
         nonMainlineFiles: 0,
+        testFiles: files.filter((f) => this.isTestLikeFile(f)).length,
       },
       directoryRoles: {
         active: files.length,

@@ -1,6 +1,6 @@
 const { repoSeverity } = require('../../config/risk-thresholds');
 
-function buildRepoSummary(health, deadExports, unresolved, cycles, scope) {
+function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackProfile = 'unknown') {
   const deadExportCount = deadExports.deadExportCount || 0;
   const unresolvedCount = unresolved.unresolvedCount || 0;
   const cycleCount = cycles.cycleCount || 0;
@@ -8,7 +8,9 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope) {
 
   const passedChecks = health.healthScoreNumeric?.passed ?? (Number.parseInt(String(health.healthScore || '0/5').split('/')[0] || '0', 10) || 0);
   const totalChecks = health.healthScoreNumeric?.total ?? (Number.parseInt(String(health.healthScore || '0/5').split('/')[1] || '5', 10) || 5);
-  const missingHygieneChecks = Math.max(0, totalChecks - passedChecks);
+  const missingHygieneChecks = health.checks
+    ? Object.values(health.checks).filter((c) => !c.found).length
+    : Math.max(0, totalChecks - passedChecks);
 
   const severity = repoSeverity({
     unresolved: unresolvedCount,
@@ -40,7 +42,7 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope) {
     nonMainlineFiles,
     unresolvedFp: unresolved.possibleFalsePositives,
     deadExportsFp: deadExports.possibleFalsePositives,
-  });
+  }, stackProfile);
 
   return {
     severity,
@@ -62,10 +64,18 @@ function buildCombinedDisclaimer(unresolvedFp, deadExportsFp) {
   return parts.length > 0 ? parts.join(' ') : null;
 }
 
-function buildNextSteps(ctx) {
+function buildNextSteps(ctx, stackProfile = 'unknown') {
   const steps = [];
 
-  if (ctx.unresolvedCount > 0) {
+  // Stack-specific prioritization: reorder steps based on dominant stack
+  const isNode = stackProfile === 'node-first' || stackProfile === 'mixed';
+  const isJava = stackProfile === 'java-first';
+  const isPython = stackProfile === 'python-first';
+
+  // For Java/Python, deadExports are more actionable than unresolved (alias issues are rare)
+  const prioritizeDeadExports = isJava || isPython;
+
+  if (ctx.unresolvedCount > 0 && !prioritizeDeadExports) {
     const fpRatio = ctx.unresolvedFp?.total > 0 ? (ctx.unresolvedFp.count / ctx.unresolvedFp.total) : 0;
     if (fpRatio >= 0.8 && ctx.unresolvedFp?.primaryReason === 'alias-unresolved') {
       steps.push('Most unresolved imports are alias false positives; check tsconfig.json / jsconfig.json compilerOptions.paths configuration.');
@@ -87,8 +97,26 @@ function buildNextSteps(ctx) {
     }
   }
 
+  // When prioritizing deadExports, put unresolved after deadExports
+  if (ctx.unresolvedCount > 0 && prioritizeDeadExports) {
+    const fpRatio = ctx.unresolvedFp?.total > 0 ? (ctx.unresolvedFp.count / ctx.unresolvedFp.total) : 0;
+    if (fpRatio >= 0.8 && ctx.unresolvedFp?.primaryReason === 'alias-unresolved') {
+      steps.push('Most unresolved imports are alias false positives; check tsconfig.json / jsconfig.json compilerOptions.paths configuration.');
+    } else {
+      steps.push('Inspect unresolved imports; they can indicate broken code paths or unsupported alias resolution.');
+    }
+  }
+
   if (ctx.missingHygieneChecks > 0) {
-    steps.push('Close basic project hygiene gaps: LICENSE, CI, test config, env example, or editorconfig.');
+    if (isNode) {
+      steps.push('Close basic project hygiene gaps: CI workflow, test config (Vitest/Jest), env example, and editorconfig.');
+    } else if (isJava) {
+      steps.push('Close basic project hygiene gaps: Maven/Gradle wrapper, CI workflow, test config (JUnit), and editorconfig.');
+    } else if (isPython) {
+      steps.push('Close basic project hygiene gaps: pytest config, requirements/pyproject, CI workflow, and editorconfig.');
+    } else {
+      steps.push('Close basic project hygiene gaps: LICENSE, CI, test config, env example, or editorconfig.');
+    }
   }
 
   if (ctx.nonMainlineFiles > 0) {

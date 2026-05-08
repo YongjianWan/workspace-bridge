@@ -16,6 +16,7 @@ function main() {
     assert.strictEqual(s.indexAgeMs, 0, 'age should be 0 before init');
     assert.strictEqual(s.isStale, false, 'should not be stale before init');
     assert.strictEqual(s.thresholdMs, 300000, 'default threshold should be 5min');
+    assert.strictEqual(s.thresholdDescription, '5 minutes', 'should include human-readable threshold');
     console.log('before-init: ok');
   }
 
@@ -42,6 +43,7 @@ function main() {
     const s = container.getStaleness(3000);
     assert.strictEqual(s.isStale, true, 'should be stale with 3s threshold');
     assert.strictEqual(s.thresholdMs, 3000);
+    assert.strictEqual(s.thresholdDescription, '3 seconds');
     console.log('custom-threshold: ok');
   }
 

@@ -548,11 +548,13 @@ async function runCommand(parsed, container) {
         dependencyGraph({ cwd: parsed.cwd, operation: 'cycles' }, container),
       ]);
       const scope = container.depGraph.getScopeSummary();
+      const { detectStack } = require('./src/utils/stack-detectors/detect');
+      const stack = detectStack(container.workspaceRoot);
       return {
         ok: [health, deadExports, unresolved, cycles].every((result) => result.ok !== false),
         workspaceRoot: container.workspaceRoot,
         scope,
-        summary: buildRepoSummary(health, deadExports, unresolved, cycles, scope),
+        summary: buildRepoSummary(health, deadExports, unresolved, cycles, scope, stack.profile),
         health,
         deadExports,
         unresolved,
@@ -718,11 +720,13 @@ async function runCommand(parsed, container) {
         ? safeEntries.map((entry) => compactChangedFile(entry))
         : safeEntries;
 
+      const { detectStack } = require('./src/utils/stack-detectors/detect');
+      const stack = detectStack(container.workspaceRoot);
       return {
         ok: true,
         workspaceRoot: container.workspaceRoot,
         scope: container.depGraph.getScopeSummary(),
-        summary: buildAuditDiffSummary(finalEntries, changeMetrics),
+        summary: buildAuditDiffSummary(finalEntries, changeMetrics, stack.profile),
         validationAdvice: buildValidationAdvice(finalEntries, container.workspaceRoot),
         options: {
           reuseHints: parsed.reuseHints,

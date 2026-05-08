@@ -4,7 +4,7 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [1.1.0] - 2026-05-08
 
 ### 修复（L2 技术债清零 — 19 项）
 
@@ -40,6 +40,40 @@
 - **P10: `affected-tests` 永远返回 0** `src/services/dep-graph/parsers/registry.js` `test/parser-registry-test.js` — `.mjs` / `.cjs` / `.mts` / `.cts` 被 `file-index` 索引但 `registry.findByExt()` 未覆盖这些扩展名，导致 `analyzeFile` 跳过解析、imports 为空。`exts` 数组补充 4 个缺失扩展名。Vue 前端 `response.js` 实测从 0 → 2 个测试。`fs.readFileSync` 运行时读取模式仍超出静态分析范围。
 - **P20: 命令输出中没有"误报率预估"或"诚实度"标注** `src/tools/honesty-engine.js` `src/tools/dep-tools.js` `src/cli/formatters/repo-summary.js` `cli.js` — 新增 `honesty-engine` 假阳性分类引擎。`dead-exports` / `unresolved` 输出 `possibleFalsePositives`（count / primaryReason / disclaimer）；`audit-summary` 输出 `honesty` 字段；`nextSteps` 根据假阳性比例动态调整建议文案
 - **P64: Health 建议命令脱离实际技术栈** `src/tools/health-tools.js` — `FIX_SUGGESTIONS` 静态表改为 `buildFixSuggestions(stack)` 动态函数，接入 `detectStack` 的 `profile`（node-first / java-first / python-first / go-first / rust-first / cpp-first / mixed）生成差异化 `testConfig` 建议文案。Java 项目不再被建议 Jest，Node 项目优先提示 Vitest（Vite 生态）。
+
+### 修复（低垂果实收尾 — P12/P32/P37/P43/P58）
+
+- **P12: `--exclude` 在 `audit-overview` 中未过滤 hotspots/stability/coupling** `src/tools/overview-tools.js` — `buildProjectOverview` 的 `allFiles` 增加 `shouldExcludeCli` 过滤，确保 CLI `--exclude` 在 overview 全链路生效
+- **P32: `staleness.thresholdMs` 无人类可读解释** `src/services/container.js` — `getStaleness` 新增 `thresholdDescription` 字段（如 `"5 minutes"`）
+- **P37: `health.checks.*.sizeBytes` 是输出噪音** `src/tools/health-tools.js` — `projectHealth` 输出前删除所有 `sizeBytes` 字段
+- **P43: `health.checks.ci` 未递归扫描 `.github/workflows/`** `src/tools/health-tools.js` — `detectCiConfig` 对 GitHub Actions 从检查目录存在升级为检查目录内是否有 `.yml`/`.yaml` 文件
+- **P58: `audit-file` 的 `frameworkPattern` 永远为 null** `src/services/dep-graph.js` `src/services/dep-graph/framework-patterns.js` — `getFrameworkHint` 增加 content-based fallback：path-based 返回 null 时扫描文件前 800 字节中的框架特征（NestJS/Express/FastAPI/Flask/Spring/Vue 等）
+
+### 修复（Vue 生态收尾 + 数据一致性第二轮 — P24/P29/P31/P34/P39/P41/P60 + P1/P63 占位实现）
+
+- **P31: `health.checks.envExample` 只认 `.env.example`，不认 Vue 生态的 `.env.development`** `src/tools/health-tools.js` — `checkHealthFile` 候选数组增加 `.env.development`、`.env.production`
+- **P34: `languageSupport` 没有 Vue/Svelte 的统计条目** `src/tools/overview-tools.js` — `EXT_TO_LANG` 增加 `'.vue': 'vue'` 和 `'.svelte': 'svelte'`
+- **P1/P63 剩余: Vue 自定义指令 + 动态字符串调用 extractor 占位实现** `src/services/dep-graph/framework-usage-patterns.js` — `vue-custom-directive` 扫描 `Vue.directive('xxx'` / `app.directive('xxx'`，按 `@/directive/xxx` 惯例映射；`dynamic-string-call` 扫描 `window['foo']` 字面量索引和字符串数组 `forEach` 遍历模式，映射为同级目录 `./foo`。假阳性率预期从 ~30% 降至 ~15%
+- **P24: `impact` 数组中 source 文件出现在自己的影响列表里** `src/services/dep-graph.js` — `getImpactRadius` 的 `onVisit` 增加 `file === start` 防御过滤，消除循环依赖场景下 source 以 `transitive-dependency` 形式重复出现
+- **P29: `impact` direct-import 的 `importedSymbols` 永远为空** `src/services/dep-graph/parsers/js.js` — AST `CallExpression` visitor 提取 `const { foo, bar } = require('./baz')` 的解构字段名填入 `imported`，regex fallback 已有覆盖，补全 AST 路径缺口。`cli.js` 实测 `importedSymbols` 从 `[]` → `['resolveWorkspaceFilePath']`
+- **P39: `audit-file` 的 `severity` 反映的是影响范围而非代码质量风险** `src/cli/formatters/file-summary.js` — 输出新增 `severityContext: 'impact-radius'` 和 `severityNote`，明确告知 severity 衡量的是变更影响半径（dependents + affected tests），不是代码缺陷
+- **P41: `fileRoles.library` 和 `orphans.modules` 数据矛盾** `src/utils/project-context.js` `src/services/dep-graph.js` `src/tools/overview-tools.js` — `summarizeFiles(files, isImportedFn)` 新增可选参数，当 `fileRole === 'library'` 但 `getDependents` 为空时降级为 `unknown`。`dep-graph.js` 和 `overview-tools.js` 调用方均传入 `getDependents` 回调，确保 library 与 orphan 互斥
+- **P60: `missingHygieneChecks` 计数与 `health.fixes` 数组长度不一致** `src/cli/formatters/repo-summary.js` — `missingHygieneChecks` 从 `displayTotal - displayPassed` 改为 `Object.values(health.checks).filter(c => !c.found).length`，与 `fixes` 数组同源同义
+
+### 修复（数据一致性小 bug — P23/P26/P30/P44/P55/P61）
+
+- **P23: `audit-map --compact` 的 `highlightedFiles` 没有去重** `src/cli/formatters/project-map.js` — `toRelativePath()` 在 `root` 带尾部斜杠时对绝对路径返回绝对路径、对相对路径返回相对路径，导致同一文件产生两个 Map key。修复：去掉 `normalizedRoot` 的尾部斜杠，确保所有路径统一为相对格式。
+- **P26: `validationAdvice` 建议的命令路径不可用** `src/tools/overview-tools.js` — `buildCycleRefactorSuggestions` 和 `buildCouplingSplitSuggestions` 的 `validation.command` 从 `'node cli.js ...'` 改为 `'workspace-bridge-cli ...'`。
+- **P30: `unresolved` 的 `resolvedTo` 在失败时等于原路径** `src/services/dep-graph.js` — `findUnresolvedImports()` 中 unresolved 项的 `resolvedTo` 从 `imp` 改为 `null`。
+- **P44: `scope.hasConfig` 命名歧义** `src/utils/project-context.js` `src/services/dep-graph.js` `test/role-detection-test.js` — `hasConfig` 重命名为 `hasWorkspaceBridgeConfig`。
+- **P55/P61: `scope.counts` 缺少 `testFiles`** `src/utils/project-context.js` `src/services/dep-graph.js` `test/role-detection-test.js` — `summarizeFiles()` 和 `getScopeSummary()` 的 `counts` 均新增 `testFiles` 字段。
+
+### 修复（建议模板化 + 数据一致性 — P18/P19/P25/P16/P22/P40）
+
+- **P18/P19/P25: `validationAdvice` / `nextSteps` / `recommendations` 模板化，不区分项目实际特征** `src/cli/formatters/audit-diff-summary.js` `src/cli/formatters/validation-advice.js` `src/cli/formatters/repo-summary.js` `src/tools/overview-tools.js` `cli.js` — `getValidationTemplate(changeType, stackProfile, fileExtensions)` 按技术栈覆盖 phases actions 文案（node-first / java-first / python-first / go-first / rust-first / cpp-first）；`buildFileSpecificAdvice` 按扩展名追加专项建议（`.vue` → 检查模板绑定，`.java` → 检查接口契约，`py`/`go`/`rs` 同理）。`buildNextSteps` 接入 `stackProfile`：Java/Python 优先 review dead exports，Node 优先 unresolved，无 cycle 时不输出 break cycles，hygiene 文案按栈差异化。`buildOverviewSummary` recommendations 末尾追加技术栈基线建议（Node → linter+type-check，Java → Maven compile+surefire 等）。实战基地验证：Vue 前端 vs Java 后端 `audit-overview` recommendations 已明显不同。
+- **P16: `audit-overview` 的 `entryPoints: []` 与 `audit-summary` 的 `entryFiles` 矛盾** `src/tools/overview-tools.js` — `buildSkeleton` 的 `entryPoints` 改用 `projectContext.summarizeFiles(allFiles).entryFiles`，与 `audit-summary` 的 `entryFiles` 单一事实源对齐。
+- **P22: `scope.directoryRoles` 全为 0** `src/tools/overview-tools.js` — `buildProjectOverview` 返回值新增 `directoryRoles: scope.directoryRoles`（`scope = projectContext.summarizeFiles(allFiles)`）。回退兼容无 `summarizeFiles` 方法的 mock。
+- **P40: 命令输出 schema 不一致，部分命令缺少 `ok` 字段** `src/tools/workspace-tools.js` — `runDiagnostics` 返回值加 `ok: true`（含 cached 路径）；`workspaceInfo` 返回值加 `ok: true`。
 
 ### 修复（生产环境实测 — 4 仓库端到端审计）
 

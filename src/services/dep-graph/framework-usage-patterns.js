@@ -61,20 +61,58 @@ const FRAMEWORK_USAGE_PATTERNS = [
     },
   },
 
-  // Placeholder: Vue custom directives require template scanning.
   {
     id: 'vue-custom-directive',
     frameworks: ['vue'],
-    scanner() { return false; },
-    extractor() { return []; },
+    scanner(filePath, content) {
+      return /(?:Vue|app)\.directive\s*\(\s*['"]/.test(content);
+    },
+    extractor(filePath, content) {
+      const sources = [];
+      const regex = /(?:Vue|app)\.directive\s*\(\s*['"]([a-zA-Z0-9-]+)['"]\s*,/g;
+      let match;
+      while ((match = regex.exec(content)) !== null) {
+        const directiveName = match[1];
+        // Vue convention: src/directive/xxx/index.js or src/directive/xxx.js
+        sources.push(`@/directive/${directiveName}/index`);
+        sources.push(`@/directive/${directiveName}`);
+      }
+      return sources;
+    },
   },
 
-  // Placeholder: dynamic string calls require semantic analysis.
   {
     id: 'dynamic-string-call',
     frameworks: [],
-    scanner() { return false; },
-    extractor() { return []; },
+    scanner(filePath, content) {
+      const hasDynamicAccess = /(?:window|this)\s*\[\s*['"]?[a-zA-Z_$]/.test(content);
+      const hasStringArray = /(?:const|let|var)\s+\w+\s*=\s*\[\s*(?:['"][^'"]+['"]\s*,?\s*)+\]/.test(content);
+      return hasDynamicAccess || hasStringArray;
+    },
+    extractor(filePath, content) {
+      const sources = [];
+
+      // Pattern 1: direct string literal indexing: window['foo'], this["foo"]
+      const literalIdx = /(?:window|this)\s*\[\s*['"]([a-zA-Z_$][a-zA-Z0-9_$]*)['"]\s*\]/g;
+      let m;
+      while ((m = literalIdx.exec(content)) !== null) {
+        sources.push(`./${m[1]}`);
+      }
+
+      // Pattern 2: string array iterated into dynamic access
+      // e.g. const actions = ['foo','bar']; actions.forEach(a => window[a]())
+      const arrayIterRegex = /(?:const|let|var)\s+(\w+)\s*=\s*\[([^\]]+)\][\s\S]{0,800}?\1\.(?:forEach|map|some|every)\s*\(\s*(\w+)\s*=>[\s\S]{0,300}?(?:window|this)\s*\[\s*\3\s*\]/g;
+      while ((m = arrayIterRegex.exec(content)) !== null) {
+        const arrayContent = m[2];
+        const items = arrayContent.match(/['"]([a-zA-Z_$][a-zA-Z0-9_$]*)['"]/g) || [];
+        for (const item of items) {
+          const name = item.slice(1, -1);
+          sources.push(`./${name}`);
+        }
+      }
+
+      return [...new Set(sources)];
+    },
   },
 ];
 

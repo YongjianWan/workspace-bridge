@@ -3,7 +3,11 @@ const { findOrphanFiles } = require('../../utils/orphan-detector');
 
 function toRelativePath(root, filePath) {
   if (!root || !filePath) return filePath;
-  const normalizedRoot = root.replace(/\\/g, '/');
+  let normalizedRoot = root.replace(/\\/g, '/');
+  // Strip trailing slashes (except root '/') so absolute paths reliably resolve to relative
+  if (normalizedRoot.length > 1 && normalizedRoot.endsWith('/')) {
+    normalizedRoot = normalizedRoot.slice(0, -1);
+  }
   const normalizedFile = filePath.replace(/\\/g, '/');
   if (normalizedFile.toLowerCase().startsWith(normalizedRoot.toLowerCase())) {
     const nextChar = normalizedFile[normalizedRoot.length];

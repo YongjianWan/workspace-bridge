@@ -35,13 +35,15 @@ function buildValidationAdvice(entries, workspaceRoot) {
   }
 
   const changeType = classifyChangeType(entries);
-  const template = getValidationTemplate(changeType);
+
+  const stack = detectStack(workspaceRoot);
+  const fileExtensions = Array.from(new Set(entries.map((e) => (e.file || '').split('.').pop()?.toLowerCase()).filter(Boolean)));
+  const template = getValidationTemplate(changeType, stack.profile, fileExtensions);
 
   const metrics = collectEntryMetrics(entries);
   const { phases, smokeTargets, focusedSteps } = buildPhases(metrics, template);
   const summary = buildSummary(metrics);
 
-  const stack = detectStack(workspaceRoot);
   const commands = generateCommands(stack, changeType, smokeTargets, focusedSteps);
 
   const allCommands = [
@@ -74,6 +76,22 @@ function buildValidationAdvice(entries, workspaceRoot) {
  * Lightweight validation advice for a single file (audit-file).
  * Detects stack and returns focused commands without full phase orchestration.
  */
+function buildFileSpecificAdvice(ext, stackProfile) {
+  const advice = [];
+  if (ext === '.vue' && stackProfile === 'node-first') {
+    advice.push('检查模板绑定和组件 props 变更是否同步更新。');
+  } else if (ext === '.java' && stackProfile === 'java-first') {
+    advice.push('检查接口契约变更和下游 Controller/Service 调用方兼容性。');
+  } else if (ext === '.py' && stackProfile === 'python-first') {
+    advice.push('检查模型字段变更是否需配套迁移脚本。');
+  } else if (ext === '.go' && stackProfile === 'go-first') {
+    advice.push('检查接口变更是否破坏已有实现方（interface compliance）。');
+  } else if (ext === '.rs' && stackProfile === 'rust-first') {
+    advice.push('检查 trait 实现变更是否影响下游依赖（trait bound compliance）。');
+  }
+  return advice;
+}
+
 function buildFileValidationAdvice(filePath, workspaceRoot) {
   const stack = detectStack(workspaceRoot);
   const ext = path.extname(filePath).toLowerCase();
@@ -101,11 +119,14 @@ function buildFileValidationAdvice(filePath, workspaceRoot) {
     return true;
   });
 
+  const fileSpecificAdvice = buildFileSpecificAdvice(ext, stack.profile);
+
   return {
     changeType,
     stackProfile: stack.profile,
     commandCount: uniqueCommands.length,
     commands: uniqueCommands,
+    fileSpecificAdvice,
   };
 }
 

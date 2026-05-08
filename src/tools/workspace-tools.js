@@ -220,6 +220,7 @@ function workspaceInfo(args, container) {
     : { available: true, skipped: true };
 
   return {
+    ok: true,
     cwd: require('../utils/path').normalizePath(target),
     workspaceRoot: workspace.root,
     fileCount: allFiles.length,
@@ -253,6 +254,7 @@ async function runDiagnostics(args, container) {
       const allDiagnostics = container.cache.getAllDiagnostics?.() || [];
       if (allDiagnostics.length > 0) {
         return {
+          ok: true,
           workspaceRoot: container.workspaceRoot,
           mode: 'cached',
           checksRun: 0,
@@ -326,6 +328,7 @@ async function runDiagnostics(args, container) {
     : summarizeDiagnostics(diagnostics);
 
   return {
+    ok: true,
     workspaceRoot: workspace.root,
     mode,
     checksRun: results.length,
