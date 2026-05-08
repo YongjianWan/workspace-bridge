@@ -30,6 +30,11 @@ function testDetectFrameworkFromPath() {
   assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/controllers/UserController.java').framework, 'spring');
   assert.strictEqual(detectFrameworkFromPath('/project/UserController.java').framework, 'spring');
 
+  // Spring Boot
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/DemoApplication.java').framework, 'spring-boot');
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/Application.java').framework, 'spring-boot');
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/ServletInitializer.java').framework, 'spring-boot');
+
   // Kotlin
   assert.strictEqual(detectFrameworkFromPath('/project/src/main/kotlin/controllers/UserController.kt').framework, 'spring-kotlin');
   assert.strictEqual(detectFrameworkFromPath('/project/src/main/kotlin/routes/api.kt').framework, 'ktor');
@@ -84,6 +89,19 @@ function testDetectFrameworkFromContent() {
   const springHint = detectFrameworkFromContent('/project/UserController.java', springContent);
   assert.strictEqual(springHint.framework, 'spring');
 
+  // Spring Boot annotations
+  const springBootContent = `@SpringBootApplication\npublic class DemoApplication {\n  public static void main(String[] args) {}\n}`;
+  const springBootHint = detectFrameworkFromContent('/project/DemoApplication.java', springBootContent);
+  assert.strictEqual(springBootHint.framework, 'spring-boot');
+
+  const configContent = `@Configuration\npublic class AppConfig {\n  @Bean\n}`;
+  const configHint = detectFrameworkFromContent('/project/AppConfig.java', configContent);
+  assert.strictEqual(configHint.framework, 'spring-boot');
+
+  const adviceContent = `@ControllerAdvice\npublic class GlobalExceptionHandler {}`;
+  const adviceHint = detectFrameworkFromContent('/project/GlobalExceptionHandler.java', adviceContent);
+  assert.strictEqual(adviceHint.framework, 'spring-boot');
+
   // Go Gin
   const ginContent = `func handler(c *gin.Context) {\n  c.JSON(200, gin.H{})\n}`;
   const ginHint = detectFrameworkFromContent('/project/handlers.go', ginContent);
@@ -104,10 +122,14 @@ function testIsEntryFlag() {
   assert.strictEqual(detectFrameworkFromPath('/project/app/page.tsx').isEntry, true);
   assert.strictEqual(detectFrameworkFromPath('/project/src/main.go').isEntry, true);
   assert.strictEqual(detectFrameworkFromPath('/project/src/main.rs').isEntry, true);
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/DemoApplication.java').isEntry, true);
+  assert.strictEqual(detectFrameworkFromContent('/project/DemoApplication.java', '@SpringBootApplication\npublic class DemoApplication {}').isEntry, true);
 
   // Non-entry files
   assert.strictEqual(detectFrameworkFromPath('/project/src/components/Button.tsx').isEntry, false);
   assert.strictEqual(detectFrameworkFromPath('/project/prisma/schema.prisma').isEntry, false);
+  const helperHint = detectFrameworkFromContent('/project/Helper.java', 'public class Helper {}');
+  assert.strictEqual(helperHint?.isEntry ?? false, false);
 }
 
 function run() {

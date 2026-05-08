@@ -115,6 +115,16 @@ const ROLE_RULES = [
       base.toLowerCase().includes('contributing') ||
       base.toLowerCase().includes('readme'),
   },
+  {
+    role: 'style',
+    test: (_relPath, base) =>
+      /\.(css|scss|sass|less|styl|stylus)$/.test(base),
+  },
+  {
+    role: 'asset',
+    test: (_relPath, base) =>
+      /\.(png|jpe?g|gif|svg|webp|ico|bmp|tiff?|woff2?|ttf|otf|eot|mp3|mp4|wav|avi|mov|pdf|zip|tar\.gz?)$/.test(base),
+  },
 ];
 
 function normalizeRelativePath(input) {
@@ -310,6 +320,9 @@ class ProjectContext {
         test: 0,
         migration: 0,
         script: 0,
+        docs: 0,
+        style: 0,
+        asset: 0,
         unknown: 0,
       },
       entryFiles: [],
@@ -326,7 +339,7 @@ class ProjectContext {
       }
       summary.fileRoles[fileRole] += 1;
       // L2-26: tests and docs are active (still indexed) but not mainline
-      const isTrulyMainline = classification.isMainline && fileRole !== 'test' && fileRole !== 'docs';
+      const isTrulyMainline = classification.isMainline && fileRole !== 'test' && fileRole !== 'docs' && fileRole !== 'style' && fileRole !== 'asset';
       if (isTrulyMainline) {
         summary.counts.mainlineFiles += 1;
       } else {

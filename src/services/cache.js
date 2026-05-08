@@ -325,15 +325,20 @@ class WorkspaceCache {
 
   getStats() {
     let diagnosticCount = 0;
+    let totalLines = 0;
     for (const entry of this.diagnostics.values()) {
       const diags = entry?.diagnostics;
       if (Array.isArray(diags)) diagnosticCount += diags.length;
+    }
+    for (const meta of this.fileMetadata.values()) {
+      totalLines += Number(meta?.lineCount) || 0;
     }
     return {
       files: this.fileMetadata.size,
       parseResults: this.parseResults.size,
       symbols: this.symbolIndex.size,
       diagnostics: diagnosticCount,
+      totalLines,
     };
   }
 }

@@ -11,6 +11,7 @@ const { version } = require('./package.json');
 
 const LARGE_JSON_THRESHOLD = 1024 * 1024;
 const JSON_WRITE_CHUNK_SIZE = 64 * 1024;
+const SCHEMA_VERSION = '1.1.1';
 
 /**
  * Write large JSON strings to stdout in chunks to avoid blocking
@@ -550,11 +551,12 @@ async function runCommand(parsed, container) {
       const scope = container.depGraph.getScopeSummary();
       const { detectStack } = require('./src/utils/stack-detectors/detect');
       const stack = detectStack(container.workspaceRoot);
+      const stats = container.depGraph.getStats();
       return {
         ok: [health, deadExports, unresolved, cycles].every((result) => result.ok !== false),
         workspaceRoot: container.workspaceRoot,
         scope,
-        summary: buildRepoSummary(health, deadExports, unresolved, cycles, scope, stack.profile),
+        summary: buildRepoSummary(health, deadExports, unresolved, cycles, scope, stack.profile, stats.analysisCoverage),
         health,
         deadExports,
         unresolved,
@@ -811,6 +813,7 @@ async function runCommand(parsed, container) {
       fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2) + '\n');
       const result = {
         ok: true,
+        schemaVersion: SCHEMA_VERSION,
         configPath,
         message: `Created .workspace-bridge.json. ${generated.length > 0 ? `Detected generated directories: ${generated.join(', ')}. ` : ''}${reference.length > 0 ? `Detected reference directories: ${reference.join(', ')}. ` : ''}Adjust "active" / "archive" as needed.`,
       };
@@ -873,6 +876,9 @@ async function main() {
       result.staleness = container.getStaleness();
     }
     if (parsed.json) {
+      if (result && typeof result === 'object') {
+        result.schemaVersion = SCHEMA_VERSION;
+      }
       const jsonStr = JSON.stringify(result, null, 2);
       if (jsonStr.length > LARGE_JSON_THRESHOLD && !parsed.quiet) {
         const edges = result && result.edges ? result.edges.length : 0;

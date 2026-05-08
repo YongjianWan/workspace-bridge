@@ -288,10 +288,10 @@ function main() {
   assert(fs.existsSync(trendDataFile), 'audit-overview should write stability trend data file');
   assert(fs.existsSync(dashboardFile), 'audit-overview should write dashboard html file');
   const overviewData = JSON.parse(fs.readFileSync(overviewDataFile, 'utf8'));
-  assert.strictEqual(overviewData.schemaVersion, 1);
+  assert.strictEqual(overviewData.schemaVersion, '1.1.1');
   assert(Array.isArray(overviewData.hotspots));
   const trendData = JSON.parse(fs.readFileSync(trendDataFile, 'utf8'));
-  assert.strictEqual(trendData.schemaVersion, 1);
+  assert.strictEqual(trendData.schemaVersion, '1.1.1');
   assert.strictEqual(trendData.granularity, 'week');
   assert(Array.isArray(trendData.series));
   const dashboardHtml = fs.readFileSync(dashboardFile, 'utf8');

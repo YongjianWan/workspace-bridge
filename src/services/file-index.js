@@ -349,7 +349,7 @@ class FileIndex {
         mtime: stats.mtimeMs,
         size: stats.size,
         symbols: symbols.map(s => s.name),
-        lineCount: content.split('\n').length,
+        lineCount: (content.match(/\n/g)?.length || 0) + 1,
       });
 
       // Update symbol index cache

@@ -6,6 +6,98 @@
 
 ## [Unreleased]
 
+### 修复（数据一致性与分类完整性 — P17/P36/P47）
+
+- **P17: `stability` 数组截断不透明，`aggregates` 与展示数据不一致** `src/tools/overview-tools.js` — `buildStability` 移除 `STABILITY_CANDIDATE_LIMIT` 截断，处理全部主线文件；`buildProjectOverview` 返回值新增 `stabilityMeta`（`totalCount`/`truncated`/`limit`），让用户明确知道还有多少文件未展示。同时统一 `mainlineFiles` 过滤逻辑，排除 test/docs/style/asset，与 `summarizeFiles` 的 `isTrulyMainline` 对齐
+- **P36: `fileRoles` 缺少 `docs`、`style`、`asset` 角色，分类体系不完整** `src/utils/project-context.js` — `ROLE_RULES` 新增 `style`（`.css`/`.scss`/`.sass`/`.less`/`.stylus`）和 `asset`（图片/字体/媒体/压缩包）规则；`summarizeFiles` 的 `fileRoles` 初始化增加 `docs: 0, style: 0, asset: 0`，消除潜在的 `NaN` 风险；`isTrulyMainline` 同步排除 style/asset
+- **P47: `scope.counts` 与 `stats` 命令完全没有代码量统计** `src/services/cache.js` `src/services/dep-graph.js` `src/tools/workspace-tools.js` — `cache.getStats()` 遍历 `fileMetadata` 累加 `lineCount`；`depGraph.getStats()` 透传 `totalLines`；`workspaceInfo` 输出新增 `totalLines`。`stats` 命令和 `workspace-info` 现已包含总行数
+
+### 修复（核心功能可信度 — P42/P56/P51）
+
+- **P42/P56: `deadExports.confidence` 分级逻辑不透明，90% 文件统一为 medium** `src/services/dep-graph.js` — 新增 `computeDeadExportConfidence()` 纯函数，按 `parseMode + graph reliability` 分级（importerCount 不参与降级，因为它衡量的是**文件**级引用而非**导出**级引用）：
+  - `high`: 无 importer 且 graph 可靠
+  - `medium`: AST 解析且存在 importer → AST 精确追踪符号使用，可信度中等
+  - `low`: regex 解析、或 graph 稀疏 → regex 无法精确追踪符号，假阳性风险高
+  每个 dead-export 条目新增 `confidenceReason` 字段，输出人类可读的解释。彻底消除黑盒分级
+- **P51: 命令输出"零问题"组合形成系统性虚假安全感** `src/services/dep-graph.js` `src/cli/formatters/repo-summary.js` `src/tools/overview-tools.js` `cli.js` — `depGraph.getStats()` 新增 `analysisCoverage`（`totalFiles`/`parsedFiles`/`fallbackFiles`/`coverageRatio`）。`audit-summary` 和 `audit-overview` 输出均包含此字段。当 `coverageRatio < 0.5` 时，`summary.severity` 强制上浮为 `high`，并追加 `coverageWarning` 提示用户"findings may be incomplete"
+
+### 性能
+
+- **`file-index.js` `content.split('\n')` 内存峰值** `src/services/file-index.js` — 行数统计从 `content.split('\n').length` 改为 `(content.match(/\n/g)?.length || 0) + 1`，消除大文件临时数组内存峰值（1MB 文件 ~20MB → ~0MB）
+
+### 测试
+
+- `test/dead-export-confidence-test.js` — 覆盖 `computeDeadExportConfidence` 全部分支：无 importer 可靠/不可靠、AST 少 importer、AST 多 importer、regex 模式
+- `test/analysis-coverage-test.js` — 覆盖 `getStats().analysisCoverage`：全 AST、混合 regex、空图
+
+### 新增（Schema 冻结基础设施）
+
+- **全局 `schemaVersion` 字段** `cli.js` — 定义 `SCHEMA_VERSION = '1.1.1'`，所有 JSON 输出（含 `init` 命令）自动注入 `schemaVersion`。核心字段 `{ ok, error, severity, summary }` 语义冻结：在 `schemaVersion` 不变时，这些字段的类型和含义绝不改变
+
+### 新增（Parser 契约完整性 — Rust/Kotlin AST）
+
+- **`rust-ast.js` 补 `imported` 提取** — `import.source`（`use std::io::Read` → `imported: ['Read']`）、`import.use_list`（`use std::io::{Read, Write}` → 每条 path 的末段符号）、`import.use_as`（`use crate::utils::Helper as MyHelper` → `imported: ['MyHelper']`）。此前 Rust AST 的 `imported` 始终为 `[]`
+- **`kotlin-ast.js` 补 `imported` 提取** — 非 wildcard import（`import java.io.File` → `imported: ['File']`）。此前 Kotlin AST 的 `imported` 始终为 `[]`
+
+### 新增（Impact 诚实度标注）
+
+- **`importedSymbolsAvailable` 布尔字段** `src/services/dep-graph.js` — `getImpactRadius` 的每条 impact 记录新增 `importedSymbolsAvailable`。当 `matchingImports.length > 0 && matchingImports.some(r => r.imported.length > 0)` 时为 `true`，否则为 `false`。解决 AI 无法区分"使用了整包"与"parser 没提取符号"的歧义
+
+### 测试
+
+- `test/rust-ast-parser-test.js` — 新增 4 条 `imported` 提取断言：HashMap/`self`（use_list）/Read（use_list）/MyHelper（use_as）
+- `test/kotlin-ast-parser-test.js` — 新增 3 条 `imported` 提取断言：File（普通 import）/wildcard（空数组）/delay（函数 import）
+
+### 修复（Schema 一致性 — 冻结后修复）
+
+- **`schemaVersion` 类型不一致：CLI 注入字符串 `'1.1.1'`，但 `audit-overview` 内部返回数字 `1`** `cli.js` `src/tools/overview-tools.js` `test/functionality-test.js` `test/overview-tools-test.js` — 全仓库统一为字符串 `'1.1.1'`（semver 风格）。此前 `overview-tools.js` 的 `hotspotData` / `stabilityTrend` 返回 `schemaVersion: 1`（number），与 CLI 的 `schemaVersion: '1.1.1'`（string）冲突，会导致 AI 解析器 `typeof` 检查失败
+
+### 路线 A 终点声明
+
+- **P24** `impact` source 文件出现在自己的影响列表 — 代码已有 `level === 0 || file === start` guard，当前代码无法复现，标记为 **cannot-reproduce**
+- **P30** `unresolved` 的 `resolvedTo` 语义 — 冻结为：`resolvedTo: null` = "该 import 未能解析到磁盘上的文件"，不改 schema，不在输出中增加新字段
+- **P43** `health.checks.ci` 未检测到 `.github/workflows` — 当前代码已升级为递归扫描 `.yml`/`.yaml`，当前代码无法复现，标记为 **cannot-reproduce**
+
+### 清理（Dogfooding — 删除真实死代码）
+
+- **`getContainer` 全局单例无人使用** `src/services/container.js` — 删除 `getContainer()` 函数及导出。`cli.js` 直接 `new ServiceContainer()`，该单例工厂自始无调用方
+- **`search-tools.js` 为 MCP 转型残留** `src/tools/search-tools.js` `test/search-redos-test.js` — 提交 `afe8f47`（"Refocus workspace-bridge on CLI audits"）删除了 `src/tool-registry.js`（MCP 工具注册表），`searchCode` 失去唯一调用方。现删除整个模块及专属测试。`test/security-test.js` 中 `validateQuery` 依赖内联为本地辅助函数，保留 ReDoS 安全概念测试
+
+### 修复（UX — P35 compact tree 目录层级）
+
+- **`audit-map --compact` 的 `tree` 只展示一层目录，用户误以为文件平铺** `src/cli/formatters/project-map.js` `test/audit-map-test.js` — `buildDirectorySkeleton` 的 `maxDepth` 从 2 提升到 3，保留到第 3 层目录（如 `src/views/policyeval`），第 4 层+ 继续折叠为 `fileCount`/`totalFileCount`。实测 GitNexus（1000+ 文件）：total directories 18→47，tree JSON lines 149→386，仍在 compact 可控范围内；`testProjectMapCompactDepthLimit` 同步更新断言以反映新层级行为
+
+### 修复（文档 — P50 Fast/Slow 分类校准）
+
+- **SKILL.md 的 Fast/Slow 分类与实际耗时脱节** `skills/workspace-audit/SKILL.md` — 基于 workspace-bridge（159 文件）实测缓存后耗时重新分类：
+  - **Fast** (< 2s): 新增 `workspace-info`, `audit-map`, `stats`, `diagnostics`；移除错误归入的 `audit-overview`, `audit-diff`
+  - **Medium** (2-5s): 新增 `audit-diff`（`git log --follow` + 变更分析）, `audit-overview`（`git log` 历史查询 + 热点计算）
+  - 新增冷启动说明：首次运行任何命令都有索引构建成本（大项目 5-30s），与具体命令无关
+  - 澄清 `diagnostics` 不是 network-bound，执行的是本地 linter（eslint/tsc/pyright/ruff），无网络请求
+
+### 修复（实战基地系统性盲区 — Spring Boot / Vue 循环白名单）
+
+- **Spring Boot 框架模式识别** `src/services/dep-graph/framework-patterns.js` `src/services/dep-graph.js` `src/config/constants.js` — 解决后端 3 个仓库 467 个 dead exports 中高 confidence 条目几乎全部是 Spring Boot 类被误标的问题：
+  - `detectFrameworkFromPath` 增加 `*Application.java` 和 `*ServletInitializer.java` 路径检测（`===` → `endsWith` 修复 `XxxServletInitializer` 不匹配）
+  - `AST_PATTERNS.java` 增加 `@SpringBootApplication`、 `@Configuration`、 `@ControllerAdvice`、 `@Component`、 `@Service`、 `@Repository`、 `@EnableAutoConfiguration`、 `@Aspect` content 检测
+  - `isKnownEntryFile` 复用已有的文件读取代码做 `detectFrameworkFromContent` 检测，消除与 `getFrameworkHint` 的 I/O 重复
+  - `ENTRY_SCAN_BYTES: 256 → 4096`，覆盖 import 繁多的大型 Java 文件（实测 `@Service` 在 1547 字节、`@Aspect` 在 1569 字节）
+  - `detectFrameworkFromContent` 内部 `content.slice(0, 800)` → `slice(0, 4096)`，消除与 `ENTRY_SCAN_BYTES` 的隐性不一致
+  - **实战效果**：zcypg_backend 205→134（-35%），zsgzt_backend 207→112（-46%），合计 412→246（-166 个误报消除）
+- **Vue Router/Vuex 循环白名单** `src/services/dep-graph.js` — 新增 `isLikelyFrameworkLegitimateCycle` 方法，过滤掉 Vue 项目中 `store/` ↔ `router/` ↔ `views/`（含 `.vue`）的短循环（长度 ≤ 5）。这些循环是 Vue 正常设计模式（store 引用 router 跳转、router 引用 view 组件、view 引用 store 状态），不应被报告为缺陷
+  - **实战效果**：zcypg_frontend 13→3，zsgzt_frontend 19→2
+
+### 测试
+
+- `test/framework-patterns-test.js` — 覆盖 Spring Boot 路径检测（Application/ServletInitializer）和 content 检测（SpringBootApplication/Configuration/ControllerAdvice）
+- `test/dep-graph-error-test.js` — 覆盖 Spring Boot entry 排除 dead-export 逻辑，以及 Vue store-router-view 循环白名单过滤逻辑
+
+### 文档
+
+- **TECH_DEBT.md** 已修复条目全部压缩为"标题 + 一行 ✅ 已修复 说明"，执行 AGENTS.md 清理铁律
+- **SESSION.md** 基线同步为 84/84 PASS
+- **CHANGELOG.md** 追加 [Unreleased] 条目
+
 ## [1.1.1] - 2026-05-08
 
 ### 修复（低垂果实收尾 — P12/P32/P37/P43/P58）

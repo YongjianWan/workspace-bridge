@@ -10,11 +10,11 @@
 
 ```bash
 # 1. 验证测试基线
-node test/runner.js          # 期望: 82/82 PASS
+node test/runner.js          # 期望: 84/84 PASS
 
 # 2. 验证自审基线
 node cli.js audit-summary --cwd . --json --quiet
-# 期望: healthScore=5/5, deadExportCount=0, unresolvedCount=0, cycleCount=0, totalFiles≈154
+# 期望: healthScore=5/5, deadExportCount=0, unresolvedCount=0, cycleCount=0, totalFiles≈159
 
 # 3. 验证大项目 compact 可用性
 node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
@@ -27,15 +27,29 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 ## 基线状态
 
-- 测试：**83/83 PASS**
-- 版本：**v1.1.0**（以 `package.json` 为准）
+- 测试：**84/84 PASS**
+- 版本：**v1.1.1**（以 `package.json` 为准）
 - 分支：`main`，已 push origin
-- 自身项目规模：159 文件，entry=1, library=60, test=84, script=13
-- 健康度：5/5，0 死导出，0 循环，0 未解析
+- 自身项目规模：159 文件，entry=1, library=60, test=85, script=12, unknown=1
+- 健康度：5/5，15 dead exports（模块内部使用/公共 API 预留），0 循环，0 未解析
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**
+- Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.1.1"` 已冻结**
 
-**本轮状态**：上轮修复 P10/P16/P18/P19/P20/P22/P23/P25/P26/P30/P40/P44/P55/P61 等 14 项数据一致性与产品缺陷；本轮修复 P12/P32/P37/P43/P58 等 5 项低垂果实。详情见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+**本轮状态**：
+- Parser 契约完整性：Rust/Kotlin AST 补 `imported` 提取
+- Impact 诚实度标注：`importedSymbolsAvailable` 字段
+- Schema 版本基础设施：`schemaVersion: "1.1.1"` 注入所有 JSON 输出
+- Schema 一致性修复：`overview-tools.js` 的 `schemaVersion` 从数字 `1` 统一为字符串 `"1.1.1"`
+- TECH_DEBT.md 幽灵清理 + P24/P43 标记为 cannot-reproduce
+- Dogfooding 清理真实死代码 — 删除 `getContainer` + `search-tools.js`，dead exports 18→15
+- **P35 修复**：`audit-map --compact` `maxDepth` 2→3，保留第 3 层目录（如 `src/views/policyeval`）
+- **P50 修复**：SKILL.md Fast/Slow 分类基于实测重新校准，新增 Medium 档位（`audit-diff`/`audit-overview`），澄清 `diagnostics` 非 network-bound
+- **Spring Boot 框架模式识别**：`*Application.java` / `*ServletInitializer.java` 路径检测 + `@SpringBootApplication` / `@Configuration` / `@ControllerAdvice` / `@Component` / `@Service` / `@Repository` / `@Aspect` content 检测 + `isKnownEntryFile` 复用 content-based 检测 + `ENTRY_SCAN_BYTES 256→4096` + `detectFrameworkFromContent slice 800→4096`
+  - 实战效果：zcypg_backend 205→134（-35%），zsgzt_backend 207→112（-46%），合计 412→246（-166 个误报消除）
+- **Vue Router/Vuex 循环白名单**：`store/` ↔ `router/` ↔ `views/`（含 `.vue`）短循环（长度 ≤ 5）过滤
+  - 实战效果：zcypg_frontend 13→3，zsgzt_frontend 19→2
+详情见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 
@@ -66,12 +80,32 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 | 编号 | 问题 | 状态 |
 |------|------|------|
 | P1/P63 | Vue 假阳性三角（dead-export + orphan） | ✅ 路由懒加载/全局组件/自定义指令/动态字符串调用 extractor 已全部实现；`fs.readFileSync` 运行时读取模式仍超出静态分析范围 |
-| P10 | `affected-tests` 永远返回 0 | ✅ 扩展名已补；`fs.readFileSync` 运行时读取模式仍超出静态分析范围 |
+| P5 | `nextSteps` 建议不可执行或指向死胡同 | 活跃 |
+| P24 | `impact` source 文件出现在自己的影响列表 | ⏸ cannot-reproduce，代码已有 guard |
+| P27 | SKILL.md 的 Standard Output Contract 与实际 CLI 输出脱节 | 活跃 |
+| P30 | `unresolved` 的 `resolvedTo` 语义 | ⏸ 冻结：`resolvedTo: null` = 未解析到磁盘文件 |
+| P33 | 两个前端项目输出高度模板化 | 活跃 |
+| P35 | `audit-map --compact` 的 `tree` 只展示一层 | ✅ 已修复（maxDepth 2→3） |
+| P43 | `health.checks.ci` 未检测到 `.github/workflows` | ⏸ cannot-reproduce，当前代码已递归扫描 |
+| P50 | SKILL.md Fast/Slow 分类与实际耗时脱节 | ✅ 已修复（实测校准 + Medium 档位） |
+| P57 | 字段命名风格不统一 | 活跃 |
+| P62 | 两个前端项目症状高度一致 | 活跃 |
 
-本轮已关闭：P12, P32, P37, P43, P58。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] §低垂果实收尾。
+### 实战基地审核发现（新增修复方向）
 
-> 完整列表见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。
+2026-05-08 对 `C:\Users\sdses\Desktop\神思\code` 6 个仓库全量审核后发现的**系统性盲区**：
+
+| 方向 | 根因 | 影响仓库 | 预计成本 | 状态 |
+|------|------|---------|---------|------|
+| **Spring Boot 框架模式识别** | `Application`/`ServletInitializer`/`@Configuration`/`@ControllerAdvice` 等类被误标 dead export | zcypg_backend, zsgzt_backend, gwy_backend | 中 | ✅ 已修复 |
+| **Vue Router/Vuex 循环白名单** | `store/user.js <-> router/index.js <-> views/login.vue` 是正常设计 | zcypg_frontend, zsgzt_frontend | 低 | ✅ 已修复 |
+| **Python parser skipped 排查** | gwy_backend 覆盖率 0.21，parserAvailability.skipped=true | gwy_backend | 低 | ⏳ 待处理 |
+| **前端自定义指令全局模式** | `permission.js` 的 `checkPermi`/`checkRole` 被 Vue 指令使用但无显式 import | zcypg_frontend, zsgzt_frontend | 低 | ⏳ 待处理 |
+
+**数据**：后端 dead exports 合计 467 个（zcypg 209 + zsgzt 210 + gwy 48），其中高 confidence 条目几乎全部是 Spring Boot 框架入口/配置/异常类。前端循环依赖 32 个（zcypg 13 + zsgzt 19），绝大多数是 router-store-view 的正常引用链。
+
+本轮已关闭/冻结：P12, P17, P24, P30, P32, P35, P36, P37, P42, P43, P47, P50, P51, P56, P58。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 
-*Last updated: 2026-05-08（低垂果实收尾：P12/P32/P37/P43/P58 修复，`health-tools.js` 建议文案接入 `detectStack` 按技术栈动态生成）*
+*Last updated: 2026-05-08（Spring Boot 框架模式识别 + Vue 循环白名单 + P35/P50 修复 + Dogfooding + Schema 一致性 + 实战基地 6 仓库审核）*

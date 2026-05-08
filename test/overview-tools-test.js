@@ -117,7 +117,7 @@ async function main() {
   assert(firstCouplingSuggestion.validation?.command, 'coupling suggestion should include validation command');
   assert(result.aggregates, 'aggregates should exist');
   assert(result.hotspotData, 'hotspotData should exist');
-  assert.strictEqual(typeof result.hotspotData.schemaVersion, 'number');
+  assert.strictEqual(typeof result.hotspotData.schemaVersion, 'string');
   assert(Array.isArray(result.hotspotData.hotspots), 'hotspotData.hotspots should exist');
   assert(result.stabilityTrend, 'stabilityTrend should exist');
   assert.strictEqual(result.stabilityTrend.granularity, 'day');
@@ -138,7 +138,7 @@ async function main() {
   assert.strictEqual(resultWithFile.hotspotDataFile, outFile);
   assert(fs.existsSync(outFile), 'hotspot data file should be written');
   const parsed = JSON.parse(fs.readFileSync(outFile, 'utf8'));
-  assert.strictEqual(parsed.schemaVersion, 1);
+  assert.strictEqual(parsed.schemaVersion, '1.1.1');
   assert(Array.isArray(parsed.hotspots));
   const trendFile = path.join(outDir, 'trend.json');
   const firstRun = await buildProjectOverview({
@@ -156,7 +156,7 @@ async function main() {
   }, container);
   assert.strictEqual(secondRun.stabilityTrendDataFile, trendFile);
   const trendParsed = JSON.parse(fs.readFileSync(trendFile, 'utf8'));
-  assert.strictEqual(trendParsed.schemaVersion, 1);
+  assert.strictEqual(trendParsed.schemaVersion, '1.1.1');
   assert.strictEqual(trendParsed.granularity, 'week');
   assert(Array.isArray(trendParsed.history));
   assert(trendParsed.history.length >= 2, 'trend history should append snapshots');

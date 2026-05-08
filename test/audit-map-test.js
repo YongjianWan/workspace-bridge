@@ -392,17 +392,26 @@ function testProjectMapCompactDepthLimit() {
   }
   const dirPaths = collectDirPaths(result.tree);
   const maxDepth = Math.max(...dirPaths.map((d) => d.depth));
-  assert(maxDepth <= 2, `max depth should be <= 2, got ${maxDepth}`);
+  assert(maxDepth <= 3, `max depth should be <= 3, got ${maxDepth}`);
 
   const coreDir = result.tree.find((t) => t.name === 'src')?.children?.find((c) => c.name === 'core');
   assert(coreDir, 'should have src/core directory');
-  assert.strictEqual(coreDir.children.length, 0, 'src/core children should be empty (folded)');
-  assert.strictEqual(coreDir.fileCount, 2, 'src/core fileCount should include folded ingestion files');
-  assert.strictEqual(coreDir.totalFileCount, 2, 'src/core totalFileCount should match');
+  const ingestionDir = coreDir.children.find((c) => c.type === 'directory' && c.name === 'ingestion');
+  assert(ingestionDir, 'src/core should contain ingestion subdirectory (depth 3 retention)');
+  assert.strictEqual(ingestionDir.fileCount, 2, 'ingestion fileCount should include its 2 files');
+  assert.strictEqual(ingestionDir.totalFileCount, 2, 'ingestion totalFileCount should match');
+  // core itself has no direct files; all files live under ingestion
+  assert.strictEqual(coreDir.fileCount, 0, 'src/core fileCount should be 0 (files are in ingestion)');
+  assert.strictEqual(coreDir.totalFileCount, 2, 'src/core totalFileCount should still aggregate ingestion');
 
   const mcpDir = result.tree.find((t) => t.name === 'src')?.children?.find((c) => c.name === 'mcp');
   assert(mcpDir, 'should have src/mcp directory');
-  assert.strictEqual(mcpDir.fileCount, 2, 'src/mcp fileCount should include folded server files');
+  const serverDir = mcpDir.children.find((c) => c.type === 'directory' && c.name === 'server');
+  assert(serverDir, 'src/mcp should contain server subdirectory (depth 3 retention)');
+  assert.strictEqual(serverDir.fileCount, 1, 'server fileCount should include its 1 file');
+  // mcp has 1 direct file (d.ts) plus 1 under server
+  assert.strictEqual(mcpDir.fileCount, 1, 'src/mcp fileCount should reflect direct files only');
+  assert.strictEqual(mcpDir.totalFileCount, 2, 'src/mcp totalFileCount should include server file');
 
   console.log('testProjectMapCompactDepthLimit: ok');
 }

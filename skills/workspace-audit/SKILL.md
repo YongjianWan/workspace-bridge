@@ -231,8 +231,12 @@ workspace-bridge-cli audit-diff --cwd <project> --json --quiet
 
 ## Fast vs Slow Commands
 
-- **Fast** (< 2s): `audit-summary`, `audit-file`, `audit-overview`, `audit-diff`, `health`, `dead-exports`, `unresolved`, `cycles`, `impact`, `affected-tests`
-- **Slow** (network-bound): `diagnostics`
+> 以下耗时基于**缓存命中后**（已构建过索引）。首次运行任何命令都需要冷启动索引，大项目（1000+ 文件）冷启动 5-30s，与具体命令无关。
+
+- **Fast** (< 2s): `workspace-info`, `audit-summary`, `audit-file`, `audit-map`, `stats`, `health`, `dead-exports`, `unresolved`, `cycles`, `impact`, `affected-tests`, `diagnostics`
+- **Medium** (2-5s): `audit-diff`（需要 `git log --follow` 和变更分析）, `audit-overview`（需要 `git log` 历史查询和热点计算）
+
+**注意**：`diagnostics` 不是 network-bound。它执行本地 linter（eslint/tsc/pyright/ruff），无网络请求。文档旧版将其误标为 Slow，实际缓存后 < 1s。
 
 ## Interpretation
 

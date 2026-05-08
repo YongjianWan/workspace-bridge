@@ -148,7 +148,7 @@ function buildStability(root, depGraph, mainlineFiles, projectContext) {
   const allCycles = depGraph.findCircularDependencies?.() || [];
   const filesInCycle = new Set(allCycles.flat());
 
-  for (const file of mainlineFiles.slice(0, DEFAULTS.STABILITY_CANDIDATE_LIMIT)) {
+  for (const file of mainlineFiles) {
     const relativePath = toRelative(root, file);
     const classification = projectContext.classifyFile(file);
     const dependents = depGraph.getDependents?.(file) || [];
@@ -388,7 +388,7 @@ function buildHotspotVisualizationData(root, hotspots, aggregates) {
     }));
 
   return {
-    schemaVersion: 1,
+    schemaVersion: '1.1.1',
     generatedAt: new Date().toISOString(),
     workspaceRoot: root,
     stats: {
@@ -603,7 +603,10 @@ async function buildProjectOverview(args, container) {
 
   const shouldExcludeCli = depGraph.shouldExcludeCli?.bind(depGraph);
   const allFiles = Array.from(depGraph.graph?.keys() || []).filter((f) => !shouldExcludeCli || !shouldExcludeCli(f));
-  const mainlineFiles = allFiles.filter((f) => projectContext.classifyFile(f).isMainline);
+  const mainlineFiles = allFiles.filter((f) => {
+    const c = projectContext.classifyFile(f);
+    return c.isMainline && c.fileRole !== 'test' && c.fileRole !== 'docs' && c.fileRole !== 'style' && c.fileRole !== 'asset';
+  });
   let scope = null;
   let entryFiles = [];
   if (typeof projectContext.summarizeFiles === 'function') {
@@ -621,6 +624,15 @@ async function buildProjectOverview(args, container) {
   const stackProfile = stack.profile;
   const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans, unresolved.length, cycles.length, deadExports.length, stackProfile);
   const aggregates = aggregateOverviewStats(hotspots, stability);
+
+  // P51: surface analysis coverage to prevent false safety when most files are skipped
+  const dgStats = depGraph.getStats?.() || {};
+  const analysisCoverage = dgStats.analysisCoverage;
+  if (analysisCoverage && analysisCoverage.coverageRatio < 0.5) {
+    summary.severity = 'high';
+    summary.recommendations.unshift(`WARNING: Analysis coverage is low (${Math.round(analysisCoverage.coverageRatio * 100)}%); findings may be incomplete.`);
+  }
+
   const cycleRefactorSuggestions = buildCycleRefactorSuggestions(root, depGraph, projectContext);
   const couplingSplitSuggestions = buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectContext);
   if (cycleRefactorSuggestions.length > 0) {
@@ -661,7 +673,7 @@ async function buildProjectOverview(args, container) {
     const history = [...existingHistory, stabilityTrendSnapshot];
     const series = buildStabilityTrendSeries(history, trendGranularity);
     const payload = {
-      schemaVersion: 1,
+      schemaVersion: '1.1.1',
       generatedAt: nowIso,
       workspaceRoot: root,
       granularity: trendGranularity,
@@ -725,8 +737,14 @@ async function buildProjectOverview(args, container) {
     stabilityTrendDataFile,
     overviewDashboardFile,
     stability: stability.slice(0, SCORING.TOP_N_LIST),
+    stabilityMeta: {
+      totalCount: stability.length,
+      truncated: stability.length > SCORING.TOP_N_LIST,
+      limit: SCORING.TOP_N_LIST,
+    },
     languageSupport: buildLanguageSupportMatrix(depGraph),
     ...(scope ? { directoryRoles: scope.directoryRoles } : {}),
+    ...(analysisCoverage ? { analysisCoverage } : {}),
     orphans: {
       counts: {
         docs: orphans.docs.length,

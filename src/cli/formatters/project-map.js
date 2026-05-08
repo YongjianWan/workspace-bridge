@@ -259,7 +259,7 @@ function buildProjectMap(depGraph, options = {}) {
   let tree = buildDirectoryTree(flatTree);
   if (compact) {
     // buildDirectorySkeleton drops file nodes entirely, so compactTree field deletion is unnecessary.
-    tree = buildDirectorySkeleton(tree, 2).nodes;
+    tree = buildDirectorySkeleton(tree, 3).nodes;
   }
 
   // Edges: import relationships (merge symbols for same from|to pairs)

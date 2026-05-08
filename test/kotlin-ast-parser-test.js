@@ -47,10 +47,16 @@ async function testKotlinAstSchema() {
   const fileImport = result.importRecords.find((r) => r.source === 'java.io.File');
   assert(fileImport, 'Should have java.io.File importRecord');
   assert.strictEqual(fileImport.usesAllExports, false);
+  assert.deepStrictEqual(fileImport.imported, ['File'], 'Should extract imported class name');
 
   const wildcardImport = result.importRecords.find((r) => r.source === 'java.util');
   assert(wildcardImport, 'Should have java.util wildcard importRecord');
   assert.strictEqual(wildcardImport.usesAllExports, true);
+  assert.deepStrictEqual(wildcardImport.imported, [], 'Wildcard import should have empty imported');
+
+  const delayImport = result.importRecords.find((r) => r.source === 'kotlinx.coroutines.delay');
+  assert(delayImport, 'Should have kotlinx.coroutines.delay importRecord');
+  assert.deepStrictEqual(delayImport.imported, ['delay'], 'Should extract imported function name');
 
   // exports
   assert(result.exports.includes('MyClass'), 'Should export MyClass');

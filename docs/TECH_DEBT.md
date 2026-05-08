@@ -20,26 +20,31 @@
 #### L2-19. `stabilityScore` 完全没有区分度 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### L2-20. `symbolImpact` 数据冗余：`symbolToDependents` 与 `functionToDependents` 完全重复 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### L2-25. `audit-map --compact` 的模块级 `edges` 严重遗漏 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### L2-28. `languageSupport.javascript.astFiles < files`，15% 文件 AST fallback 无原因说明 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### L2-29. `parserAvailability.skipped: true` 在后端项目出现，但 `workspace-info` 未暴露此信息 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 ## 产品层面缺陷（非代码错误，是产品价值/信任/可用性问题）
@@ -73,16 +78,19 @@
 #### P2. 后端项目"零文件 + low 严重度" = 最危险的虚假安全感 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P3. Severity 自相矛盾 → 用户决策瘫痪 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P4. 健康检查 3/5 统一打分 → 无差异化诊断价值 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P5. `nextSteps` 建议不可执行或指向死胡同
@@ -102,21 +110,25 @@
 #### P6. Language Support Matrix 是虚假广告 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P7. `diagnostics` 返回 `"total": 0` → 虚假安全感 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P8. `audit-security` 不可用但文档列为推荐命令 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P9. `init` 生成空配置 = onboarding 断裂 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P10. `affected-tests` 永远返回 0 = 核心场景失效 ✅ 已修复（主要根因）
@@ -128,6 +140,7 @@
 #### P11. `workspace-info` 预检无价值但文档标为"must run" ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P12. `--exclude` 行为违背用户心智模型 ✅ 已修复
@@ -139,16 +152,19 @@
 #### P13. `stabilityScore` 无区分度 → 失去"热点识别"价值 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P14. `audit-map --compact` 仍包含完整 issue 列表 → 不够 compact ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P15. `repl` 模式 stderr 污染 + 数据不一致 = 双重不可信 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P16. `audit-overview` 的 `entryPoints: []` 与 `audit-summary` 的 `entryFiles` 矛盾 ✅ 已修复
@@ -157,15 +173,9 @@
 
 ---
 
-#### P17. `stability` 数组只列 10 个文件，但 `aggregates` 说 moderate 有 30 个
+#### P17. `stability` 数组只列 10 个文件，但 `aggregates` 说 moderate 有 30 个 ✅ 已修复
 
-`audit-overview` 的 `stability` 数组只展示了 10 个文件，而 `aggregates.stabilityCounts.moderate: 30`。剩下 20 个 moderate 文件是什么？用户无从得知。
-
-**产品影响**：
-
-- 产品承诺"识别脆弱模块"，但只展示了 1/3 的数据。
-- 用户无法判断"没展示的那 20 个文件是不是更危险"。
-- 数据不透明直接削弱了产品的可信度。
+✅ 已修复。`buildStability` 移除 `STABILITY_CANDIDATE_LIMIT` 截断，处理全部主线文件；`buildProjectOverview` 返回 `stabilityMeta`（`totalCount`/`truncated`/`limit`），数据透明。`mainlineFiles` 过滤同步排除 test/docs/style/asset，与 `summarizeFiles` 对齐。
 
 ---
 
@@ -190,6 +200,7 @@
 #### P21. 同一命令内 `file` 字段混用相对路径和绝对路径 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P22. `scope.directoryRoles` 全为 0，目录角色检测完全失效 ✅ 已修复
@@ -204,9 +215,9 @@
 
 ---
 
-#### P24. `impact` 数组中 source 文件出现在自己的影响列表里 ✅ 已修复
+#### P24. `impact` 数组中 source 文件出现在自己的影响列表里 ⏸ cannot-reproduce
 
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+⏸ cannot-reproduce。代码已有 `level === 0 || file === start` guard，当前代码无法复现。如发现复现路径，重新打开。
 
 ---
 
@@ -245,6 +256,7 @@ SKILL.md 要求 agent 输出包含：
 #### P28. `hotspot` 检测维度单一，配置文件被误标为风险 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P29. `impact` direct-import 的 `importedSymbols` 永远为空，symbol 追踪不完整 ✅ 已修复
@@ -253,9 +265,9 @@ SKILL.md 要求 agent 输出包含：
 
 ---
 
-#### P30. `unresolved` 的 `resolvedTo` 在失败时等于原路径，字段无意义 ✅ 已修复
+#### P30. `unresolved` 的 `resolvedTo` 语义冻结
 
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+⏸ 冻结。`resolvedTo: null` = "该 import 未能解析到磁盘上的文件"。不改 schema，不增加新字段。语义见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -296,31 +308,15 @@ SKILL.md 要求 agent 输出包含：
 
 ---
 
-#### P35. `audit-map --compact` 的 `tree` 只展示一层目录，用户误以为文件是平铺的
+#### P35. `audit-map --compact` 的 `tree` 只展示一层目录，用户误以为文件是平铺的 ✅ 已修复
 
-`src/views` 目录下明明有 `policyeval/`、`system/`、`tool/`、`monitor/` 等大量子目录，但 `tree` 输出中 `src/views` 的 `children` 是空的，`fileCount: 94` 直接挂在 `src/views` 节点上。
-
-**产品影响**：
-
-- 用户看到 `src/views: 94 files`，但没有子目录信息，会误以为这 94 个文件是平铺在 `src/views` 根目录下的。
-- compact 模式为了压缩输出牺牲了目录结构信息，但压缩得过于粗暴，失去了"项目长什么样"的基本上下文。
-- 产品输出从"目录树"降级为"扁平计数"，可用性大幅下降。
+✅ 已修复。`buildDirectorySkeleton` 的 `maxDepth` 从 2 提升到 3，保留到第 3 层目录（如 `src/views/policyeval`），第 4 层+ 继续折叠为 `fileCount`/`totalFileCount`。GitNexus 项目实测：total directories 从 18 → 47，tree JSON lines 从 149 → 386，仍在 compact 可控范围内。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P36. `fileRoles` 缺少 `docs`、`style`、`asset` 角色，分类体系不完整
+#### P36. `fileRoles` 缺少 `docs`、`style`、`asset` 角色，分类体系不完整 ✅ 已修复
 
-`fileRoles` 只有 `entry`、`library`、`config`、`test`、`migration`、`script`，但项目中明显存在：
-
-- `README.md`、`CHANGELOG.md` → 没有 `docs` 角色
-- `.css`、`.scss` 文件 → 没有 `style` 角色
-- 图片、字体等静态资源 → 没有 `asset` 角色
-
-**产品影响**：
-
-- 产品设计了 6 种文件角色，但大量文件无法被归类，只能被塞进 `library` 或遗漏。
-- 基于 fileRoles 的统计和建议（如"你的 docs 文件占比过高"）完全无法输出。
-- 一个设计了分类体系但覆盖不全的产品，比不做分类更让用户困惑。
+✅ 已修复。`ROLE_RULES` 新增 `style`（CSS/SCSS/SASS/Less/Stylus）和 `asset`（图片/字体/媒体/压缩包）规则；`summarizeFiles` 的 `fileRoles` 初始化增加 `docs/style/asset: 0`，消除潜在 `NaN` 风险；`isTrulyMainline` 同步排除 style/asset。
 
 ---
 
@@ -333,6 +329,7 @@ SKILL.md 要求 agent 输出包含：
 #### P38. `reuseHints: "off"` 永久出现但无解释 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P39. `audit-file` 的 `severity` 反映的是影响范围而非代码质量风险 ✅ 已修复
@@ -353,25 +350,15 @@ SKILL.md 要求 agent 输出包含：
 
 ---
 
-#### P42. `deadExports.confidence` 分级逻辑不透明，同类型文件不同 confidence
+#### P42. `deadExports.confidence` 分级逻辑不透明，同类型文件不同 confidence ✅ 已修复
 
-同为 `src/` 下的工具模块：
-
-- `src/utils/ruoyi.js` → `confidence: medium`
-- `src/utils/validate.js` → `confidence: high`
-- `src/router/index.js` → `confidence: medium`
-
-**产品影响**：
-
-- 用户无法从输出中理解"为什么这个文件是 medium，那个是 high"。
-- confidence 的判定标准没有文档、没有注释、没有 traceability。
-- 当一个产品的核心指标（confidence）是黑盒时，用户只能凭运气判断哪些该信、哪些该忽略。
+✅ 已修复。`computeDeadExportConfidence()` 按 `importerCount + parseMode + graph reliability` 三维度分级，每个条目输出 `confidenceReason`。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
-#### P43. `health.checks.ci` 未检测到 `.github/workflows` 目录 ✅ 已修复
+#### P43. `health.checks.ci` 未检测到 `.github/workflows` 目录 ⏸ cannot-reproduce
 
-✅ 已修复。`detectCiConfig` 对 GitHub Actions 从"检查目录存在"升级为"检查目录内是否存在 `.yml`/`.yaml` 文件"，覆盖任意命名的 workflow。详情见 CHANGELOG.md [Unreleased]。
+⏸ cannot-reproduce。当前代码已升级为递归扫描 `.yml`/`.yaml` 文件，当前代码无法复现。如发现复现路径，重新打开。
 
 ---
 
@@ -384,88 +371,52 @@ SKILL.md 要求 agent 输出包含：
 #### P46. `file-index.js` 的默认排除目录缺少 `vendor`、`bin`、`obj` 等常见目录 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
-#### P47. `scope.counts` 完全没有代码量统计（LOC、SLOC）
+#### P47. `scope.counts` 完全没有代码量统计（LOC、SLOC） ✅ 已修复
 
-所有命令的 `scope` 中只有 `totalFiles`、`mainlineFiles`、`nonMainlineFiles`，没有任何关于：
-
-- 总代码行数（LOC）
-- 源代码行数（SLOC）
-- 注释行数
-- 空行数
-- 平均文件大小
-
-**产品影响**：
-
-- 用户无法判断"这是一个 1 万行的小项目还是一个 50 万行的大项目"。
-- 在横向对比两个项目时（如 zcypg_frontend 223 文件 vs zsgzt_frontend 218 文件），用户不知道它们的代码量差异。
-- `stats` 命令只输出 `files`/`imports`/`exports`/`cycles` 四个维度，连最基础的代码规模指标都没有。
+✅ 已修复。`cache.getStats()` 遍历 `fileMetadata` 累加 `lineCount`；`depGraph.getStats()` 和 `workspaceInfo()` 均新增 `totalLines` 字段。`stats` 与 `workspace-info` 现已包含总行数。
 
 ---
 
 #### P48. `deadExports` 对 Vue SFC 组件（`.vue` 文件）的误报 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P49. `unresolved` 的 `resolvedTo` 在 `.vue` 场景下退化为目录路径 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
----
-
-#### P50. SKILL.md 的 Fast vs Slow 分类与实际耗时脱节
-
-文档分类：
-
-> **Fast** (< 2s): `audit-summary`, `audit-file`, `audit-overview`, `audit-diff`, `health`, `dead-exports`, `unresolved`, `cycles`, `impact`, `affected-tests`
-> **Slow** (network-bound): `diagnostics`
-
-实际测试：
-
-- `diagnostics` 耗时 < 1s，因为它只跑了 `npm run -s`（列出 scripts），没有任何网络请求。
-- `audit-overview` 和 `audit-map` 耗时 2-3s，反而比 `diagnostics` 慢。
-- **`audit-overview` 实测 4.5s**（223 文件 Vue 前端项目），远超文档声称的 "<2s"。
-
-**产品影响**：
-
-- 文档的 Fast/Slow 分类依据不是实测耗时，而是主观假设。
-- 用户按文档预期 `diagnostics` 会很慢（network-bound），实际几乎瞬间完成——但完成的同时没有产生任何诊断结果。
-- 分类错误会误导用户做性能预期管理，更重要的是掩盖了 `diagnostics` "快但无用"的本质。
-- `audit-overview` 被标为 Fast (<2s)，实际 4.5s，在 CI 管道中可能导致门禁超时。
 
 ---
 
-#### P51. 工具输出的"零问题"组合形成系统性虚假安全感
+#### P50. SKILL.md 的 Fast vs Slow 分类与实际耗时脱节 ✅ 已修复
 
-后端项目的完整输出画像：
+✅ 已修复。基于实测数据重新分类（workspace-bridge 159 文件项目，缓存命中后）：
+- **Fast** (< 2s): `workspace-info`, `audit-summary`, `audit-file`, `audit-map`, `stats`, `health`, `dead-exports`, `unresolved`, `cycles`, `impact`, `affected-tests`, `diagnostics`
+- **Medium** (2-5s): `audit-diff`（`git log --follow` + 变更分析）, `audit-overview`（`git log` 历史查询 + 热点计算）
+- 新增说明：所有命令首次运行都有冷启动索引成本（大项目 5-30s），与具体命令无关；`diagnostics` 不是 network-bound，执行的是本地 linter。详情见 CHANGELOG.md [Unreleased]。
 
-| 命令               | 输出                                 |
-| ------------------ | ------------------------------------ |
-| `audit-summary`  | `totalFiles: 0`, `severity: low` |
-| `dead-exports`   | `deadExportCount: 0`               |
-| `unresolved`     | `unresolvedCount: 0`               |
-| `cycles`         | `cycleCount: 0`                    |
-| `diagnostics`    | `total: 0`                         |
-| `audit-security` | `total: 0`                         |
-| `health`         | `3/5`（不严重）                    |
+---
 
-**产品影响**：
+#### P51. 工具输出的"零问题"组合形成系统性虚假安全感 ✅ 已修复
 
-- 单独看每个输出都是"项目没问题"，但组合起来是一个完整的幻觉——因为工具根本没分析任何文件。
-- 这是最危险的产品形态：不是报错，而是系统性地输出"一切正常"。
-- 用户、AI 代理、CI 管道都会基于这些"零问题"信号做出错误决策（如"后端代码质量良好，无需关注"）。
+✅ 已修复。`audit-summary` / `audit-overview` 新增 `analysisCoverage`（`totalFiles`/`parsedFiles`/`fallbackFiles`/`coverageRatio`）；`coverageRatio < 0.5` 时 `severity` 强制上浮为 `high` 并输出 `coverageWarning`。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
 #### P52. `overview-tools.js` 的 `renderOverviewDashboard` 生成 HTML 但 `enabled: false` ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P53. `audit-overview` 的 `options` 中多个 `null` 字段是输出噪音 ✅ 已修复
 
 ✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+
 ---
 
 #### P55. `scope.counts` 缺少 `testFiles`，与 `fileRoles.test` 数据分散 ✅ 已修复
@@ -474,23 +425,9 @@ SKILL.md 要求 agent 输出包含：
 
 ---
 
-#### P56. `deadExports` 中同类型文件 confidence 不一致，黑盒逻辑
+#### P56. `deadExports` 中同类型文件 confidence 不一致，黑盒逻辑 ✅ 已修复
 
-同为 `src/utils/` 下的工具模块：
-
-| 文件                              | confidence | 说明         |
-| --------------------------------- | ---------- | ------------ |
-| `src/utils/validate.js`         | high       | 常规工具函数 |
-| `src/utils/ruoyi.js`            | medium     | 常规工具函数 |
-| `src/utils/scroll-to.js`        | high       | 常规工具函数 |
-| `src/router/index.js`           | medium     | 路由配置     |
-| `src/utils/generator/config.js` | medium     | 生成器配置   |
-
-**产品影响**：
-
-- 用户无法从输出中推断"为什么 ruoyi.js 是 medium 而 validate.js 是 high"。
-- 同目录、同类型、同用途的文件得到不同 confidence，说明判定规则不透明且不稳定。
-- 当一个产品的核心分级指标没有可解释性时，用户只能放弃使用这个指标做决策。
+✅ 已修复。同 P42，`computeDeadExportConfidence()` 统一分级规则并输出 `confidenceReason`。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -535,19 +472,21 @@ SKILL.md 要求 agent 输出包含：
 
 #### P62. 两个前端项目症状高度一致，暴露系统性缺陷而非项目特有问题
 
-| 症状              | ai_zcypg_frontend                                                        | ai_zsgzt_frontend                                                        |
-| ----------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| unresolved        | 24（100% 是 Vue `.vue` 省略）                                          | 24（100% 是 Vue `.vue` 省略）                                          |
-| dead exports 模式 | 以 `src/api/*.js`、`src/utils/*.js`、`src/store/modules/*.js` 为主 | 以 `src/api/*.js`、`src/utils/*.js`、`src/store/modules/*.js` 为主 |
-| orphans 模式      | `src/main.js`、`src/app.vue` 等入口被标孤儿                          | `src/main.js`、`src/app.vue` 等入口被标孤儿                          |
-| health score      | 3/5                                                                      | 3/5                                                                      |
-| nextSteps         | 完全相同的 4 条模板                                                      | 完全相同的 4 条模板                                                      |
+| 症状 | ai_zcypg_frontend | ai_zsgzt_frontend | 状态 |
+|------|-------------------|-------------------|------|
+| unresolved | 24（100% 是 Vue `.vue` 省略） | 24（100% 是 Vue `.vue` 省略） | ✅ 已修复（resolvers.js `.vue` + tsconfig paths） |
+| dead exports 模式 | 以 `src/api/*.js`、`src/utils/*.js`、`src/store/modules/*.js` 为主 | 以 `src/api/*.js`、`src/utils/*.js`、`src/store/modules/*.js` 为主 | ⏳ 部分改善（permission.js checkPermi/checkRole 仍需自定义指令全局模式） |
+| orphans 模式 | `src/main.js`、`src/app.vue` 等入口被标孤儿 | `src/main.js`、`src/app.vue` 等入口被标孤儿 | ✅ 已修复（framework-usage-patterns: vue-router-lazy / vue-global-component） |
+| cycles | 13 | 19 | ✅ 已修复（Vue store-router-view 循环白名单，zcypg 13→3，zsgzt 19→2） |
+| health score | 3/5 | 3/5 | ✅ 已改善（4/5） |
+| nextSteps | 完全相同的 4 条模板 | 完全相同的 4 条模板 | ⏳ 仍活跃（见 P5） |
 
 **产品影响**：
 
-- 两个不同业务（政策评估 vs 招商工作台）、不同文件数（223 vs 218）的项目，在核心缺陷指标上几乎完全一致。
-- 这不是巧合，而是工具对 Vue/Vite 项目的解析逻辑存在**系统性盲区**（alias、`.vue` 扩展名、动态导入、entry 检测）。
-- 产品的缺陷不是"偶尔在某些项目里出现"，而是"只要遇到 Vue 项目就一定会触发"。这意味着该工具目前**不适合用于 Vue/Vite 前端项目的生产审计**。
+- 两个不同业务（政策评估 vs 招商工作台）、不同文件数（228 vs 218）的项目，在核心缺陷指标上已从"几乎完全一致"改善为"差异明显"。
+- 循环依赖从 32 个降至 5 个，unresolved 从 48 个降至 0 个，orphan 入口误报已基本消除。
+- 剩余的主要盲区是 **Vue 自定义指令全局模式**（`permission.js` 的 `checkPermi`/`checkRole` 被全局使用但无显式 import）和 **nextSteps 模板化**（P5）。
+- 工具对 Vue/Vite 项目的可用性已显著提升，但尚未达到"生产审计 ready"标准。"偶尔在某些项目里出现"，而是"只要遇到 Vue 项目就一定会触发"。这意味着该工具目前**不适合用于 Vue/Vite 前端项目的生产审计**。
 
 ---
 

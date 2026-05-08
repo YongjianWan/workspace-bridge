@@ -49,6 +49,23 @@ async function testRustAstSchema() {
   assert(result.imports.includes('serde_json'), 'Should have serde_json import');
   assert(result.imports.includes('crate::utils::helper'), 'Should have crate::utils::helper import');
 
+  // importRecords imported field
+  const hashMapImport = result.importRecords.find((r) => r.source === 'std::collections::HashMap');
+  assert(hashMapImport, 'Should have HashMap importRecord');
+  assert.deepStrictEqual(hashMapImport.imported, ['HashMap'], 'Should extract imported symbol from simple use');
+
+  const ioImport = result.importRecords.find((r) => r.source === 'std::io');
+  assert(ioImport, 'Should have std::io importRecord from self');
+  assert.deepStrictEqual(ioImport.imported, ['io'], 'Should extract imported symbol from self');
+
+  const readImport = result.importRecords.find((r) => r.source === 'std::io::Read');
+  assert(readImport, 'Should have std::io::Read importRecord');
+  assert.deepStrictEqual(readImport.imported, ['Read'], 'Should extract imported symbol from use_list');
+
+  const myHelperImport = result.importRecords.find((r) => r.source === 'crate::utils::Helper');
+  assert(myHelperImport, 'Should have crate::utils::Helper importRecord');
+  assert.deepStrictEqual(myHelperImport.imported, ['MyHelper'], 'Should extract alias from use_as');
+
   // exports
   assert(result.exports.includes('hello'), 'Should export hello');
   assert(result.exports.includes('Point'), 'Should export Point');

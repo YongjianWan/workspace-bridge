@@ -185,7 +185,8 @@ async function parseRust(content) {
 
         if (tag === 'import.source') {
           imports.push(name);
-          importRecords.push(createImportRecord(name, { usesAllExports: false }));
+          const imported = name.split('::').pop();
+          importRecords.push(createImportRecord(name, { usesAllExports: false, imported: imported ? [imported] : [] }));
           continue;
         }
 
@@ -193,7 +194,8 @@ async function parseRust(content) {
           const paths = extractUsePaths(capture.node);
           for (const p of paths) {
             imports.push(p);
-            importRecords.push(createImportRecord(p, { usesAllExports: false }));
+            const imported = p.split('::').pop();
+            importRecords.push(createImportRecord(p, { usesAllExports: false, imported: imported ? [imported] : [] }));
           }
           continue;
         }
@@ -205,7 +207,10 @@ async function parseRust(content) {
           if (original) {
             const path = getNodeText(original);
             imports.push(path);
-            importRecords.push(createImportRecord(path, { usesAllExports: false }));
+            const aliasNodes = capture.node.children.filter((c) => c.type === 'identifier');
+            const alias = aliasNodes.length > 0 ? getNodeText(aliasNodes[aliasNodes.length - 1]) : null;
+            const imported = alias || path.split('::').pop();
+            importRecords.push(createImportRecord(path, { usesAllExports: false, imported: imported ? [imported] : [] }));
           }
           continue;
         }

@@ -119,6 +119,13 @@ function detectFrameworkFromPath(filePath) {
     if (basename.endsWith('controller.java')) {
       return { framework: 'spring', reason: 'spring-controller-file', isEntry: true };
     }
+    // Spring Boot application entry classes
+    if (basename.endsWith('application.java')) {
+      return { framework: 'spring-boot', reason: 'spring-boot-application', isEntry: true };
+    }
+    if (basename.endsWith('servletinitializer.java')) {
+      return { framework: 'spring-boot', reason: 'spring-boot-servlet-initializer', isEntry: true };
+    }
     if (p.includes('/service/') || p.includes('/services/')) {
       return { framework: 'java-service', reason: 'java-service', isEntry: false };
     }
@@ -216,6 +223,9 @@ const AST_PATTERNS = {
     { framework: 'flask', reason: 'flask-decorator', patterns: ['@app.route', '@blueprint.route'] },
   ],
   java: [
+    // Spring Boot annotations must come BEFORE plain Spring annotations
+    // to avoid substring false matches (e.g. @Controller matching inside @ControllerAdvice)
+    { framework: 'spring-boot', reason: 'spring-boot-annotation', patterns: ['@SpringBootApplication', '@Configuration', '@ControllerAdvice', '@Component', '@Service', '@Repository', '@EnableAutoConfiguration', '@Aspect'] },
     { framework: 'spring', reason: 'spring-annotation', patterns: ['@RestController', '@Controller', '@GetMapping', '@PostMapping'] },
   ],
   kt: [
@@ -254,8 +264,8 @@ function detectFrameworkFromContent(filePath, content) {
   const configs = AST_PATTERNS[key];
   if (!configs || configs.length === 0) return null;
 
-  // Only scan first 800 bytes — decorators/annotations live at top of file
-  const sample = content.slice(0, 800).toLowerCase();
+  // Use the full provided content sample (callers already cap at ENTRY_SCAN_BYTES)
+  const sample = content.slice(0, 4096).toLowerCase();
   for (const cfg of configs) {
     for (const pat of cfg.patterns) {
       if (sample.includes(pat.toLowerCase())) {

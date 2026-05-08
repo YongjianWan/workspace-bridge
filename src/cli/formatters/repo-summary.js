@@ -1,6 +1,6 @@
 const { repoSeverity } = require('../../config/risk-thresholds');
 
-function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackProfile = 'unknown') {
+function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackProfile = 'unknown', analysisCoverage = null) {
   const deadExportCount = deadExports.deadExportCount || 0;
   const unresolvedCount = unresolved.unresolvedCount || 0;
   const cycleCount = cycles.cycleCount || 0;
@@ -12,12 +12,20 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
     ? Object.values(health.checks).filter((c) => !c.found).length
     : Math.max(0, totalChecks - passedChecks);
 
-  const severity = repoSeverity({
+  let severity = repoSeverity({
     unresolved: unresolvedCount,
     cycles: cycleCount,
     deadExports: deadExportCount,
     missingHygieneChecks,
   });
+
+  // P51: escalate severity when analysis coverage is dangerously low to prevent
+  // the "all zeros = all good" false-safety illusion.
+  let coverageWarning = null;
+  if (analysisCoverage && analysisCoverage.coverageRatio < 0.5) {
+    severity = 'high';
+    coverageWarning = `Analysis coverage is low (${Math.round(analysisCoverage.coverageRatio * 100)}%); findings may be incomplete`;
+  }
 
   // Honesty metadata: surface false-positive likelihood so users can calibrate trust
   const honesty = {
@@ -44,7 +52,7 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
     deadExportsFp: deadExports.possibleFalsePositives,
   }, stackProfile);
 
-  return {
+  const result = {
     severity,
     counts: {
       deadExports: deadExportCount,
@@ -55,6 +63,15 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
     honesty,
     nextSteps,
   };
+
+  if (analysisCoverage) {
+    result.analysisCoverage = analysisCoverage;
+  }
+  if (coverageWarning) {
+    result.coverageWarning = coverageWarning;
+  }
+
+  return result;
 }
 
 function buildCombinedDisclaimer(unresolvedFp, deadExportsFp) {

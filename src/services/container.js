@@ -241,17 +241,6 @@ class ServiceContainer {
   }
 }
 
-// Global singleton
-let globalContainer = null;
-
-function getContainer() {
-  if (!globalContainer) {
-    globalContainer = new ServiceContainer();
-  }
-  return globalContainer;
-}
-
 module.exports = {
   ServiceContainer,
-  getContainer,
 };

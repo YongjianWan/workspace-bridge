@@ -10,7 +10,27 @@ const path = require('path');
 const { sanitizeSymbolName, sanitizeShellArg } = require('../src/utils/sanitize');
 const { runCommandSecure, runGit } = require('../src/utils/command');
 const { resolveWorkspaceFilePath } = require('../src/utils/path');
-const { validateQuery } = require('../src/tools/search-tools');
+/** Minimal ReDoS query validator (inlined after search-tools removal) */
+function validateQuery(query) {
+  if (!query || typeof query !== 'string') {
+    return { valid: false, error: 'query is required' };
+  }
+  if (query.length > 100) {
+    return { valid: false, error: 'query too long (max 100 chars)' };
+  }
+  const dangerousPatterns = [
+    new RegExp('\\([^()]*[+\\*][^()]*\\)[+*]'),
+    /\+\+/,
+    /\*\+/,
+    /\+\*/,
+    /\{\d+,\d+\}\+/,
+    /\[.*\]\+.*\[.*\]\+/,
+  ];
+  if (dangerousPatterns.some(p => p.test(query))) {
+    return { valid: false, error: 'query contains potentially dangerous pattern' };
+  }
+  return { valid: true };
+}
 
 // Test utilities
 function assert(condition, message) {

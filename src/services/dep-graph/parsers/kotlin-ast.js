@@ -99,7 +99,8 @@ async function parseKotlin(content) {
           const parent = capture.node.parent;
           const isWildcard = parent ? hasWildcardImport(parent) : false;
           imports.push(name + (isWildcard ? '.*' : ''));
-          importRecords.push(createImportRecord(name, { usesAllExports: isWildcard }));
+          const imported = isWildcard ? [] : [name.split('.').pop()];
+          importRecords.push(createImportRecord(name, { usesAllExports: isWildcard, imported }));
           continue;
         }
 

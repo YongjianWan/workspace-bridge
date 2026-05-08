@@ -219,11 +219,13 @@ function workspaceInfo(args, container) {
     ? checkParserAvailability()
     : { available: true, skipped: true };
 
+  const cacheStats = container?.cache?.getStats?.() || {};
   return {
     ok: true,
     cwd: require('../utils/path').normalizePath(target),
     workspaceRoot: workspace.root,
     fileCount: allFiles.length,
+    totalLines: cacheStats.totalLines || 0,
     detected: {
       git: workspace.hasGit,
       node: workspace.hasPackageJson,

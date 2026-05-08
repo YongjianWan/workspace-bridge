@@ -81,6 +81,34 @@ function bfsTraverse(startNodes, getNeighbors, options = {}) {
   return results;
 }
 
+/**
+ * Compute confidence level and human-readable reason for dead-export findings.
+ * P42/P56: eliminates the previous black-box where 90% of files were 'medium'.
+ *
+ * Rules:
+ * - high: no importers + reliable graph → entire module is unused
+ * - medium: importers exist + AST parse → AST precisely identified unused symbols
+ * - low:  importers exist + regex parse → regex is coarse; or unreliable graph
+ *
+ * NOTE: importerCount does NOT downgrade AST findings. A file may have many
+ * importers (because other exports are widely used) while a specific export is
+ * genuinely unused. AST-level symbol tracking is the authoritative signal.
+ */
+function computeDeadExportConfidence(importerCount, parseMode, graphUnreliable) {
+  if (importerCount === 0) {
+    if (graphUnreliable) {
+      return { confidence: 'low', reason: 'No importers, but dependency graph is sparse (possible parser miss)' };
+    }
+    return { confidence: 'high', reason: 'No files import this module; all exports are unused' };
+  }
+
+  if (parseMode === 'ast') {
+    return { confidence: 'medium', reason: 'AST-level analysis found unused exports (dynamic imports or string calls may bypass static detection)' };
+  }
+
+  return { confidence: 'low', reason: 'Regex-based analysis; high false-positive risk' };
+}
+
 // #20: framework entry-file patterns promoted to module-level constant
 const FRAMEWORK_MANAGED_PATTERNS = [
   /\/migrations\/.*\.py$/,
@@ -216,24 +244,32 @@ class DependencyGraph {
     }
 
     // Framework-aware entry detection (GitNexus pattern port)
-    const frameworkHint = detectFrameworkFromPath(filePath);
-    if (frameworkHint && frameworkHint.isEntry) {
+    const pathHint = detectFrameworkFromPath(filePath);
+    if (pathHint && pathHint.isEntry) {
       return true;
     }
 
+    // Content-based framework detection + shebang / python main
     try {
       const stats = fs.statSync(filePath);
       if (stats.size > LIMITS.ENTRY_FILE_MAX_BYTES) return false;
       const fd = fs.openSync(filePath, 'r');
+      let content = '';
       try {
         const buffer = Buffer.alloc(LIMITS.ENTRY_SCAN_BYTES);
         const bytesRead = fs.readSync(fd, buffer, 0, LIMITS.ENTRY_SCAN_BYTES, 0);
-        const content = buffer.toString('utf8', 0, bytesRead);
-        if (content.startsWith('#!')) return true;
-        if (PYTHON_MAIN_PATTERN.test(content)) return true;
+        content = buffer.toString('utf8', 0, bytesRead);
       } finally {
         fs.closeSync(fd);
       }
+
+      const contentHint = detectFrameworkFromContent(filePath, content);
+      if (contentHint && contentHint.isEntry) {
+        return true;
+      }
+
+      if (content.startsWith('#!')) return true;
+      if (PYTHON_MAIN_PATTERN.test(content)) return true;
     } catch (e) {
       if (e.code !== 'ENOENT') throw e;
     }
@@ -644,12 +680,14 @@ class DependencyGraph {
         const currentInfo = this.getFileInfo(file);
 
         let importedSymbols = [];
+        let importedSymbolsAvailable = false;
         if (currentInfo?.importRecords) {
           const parentFile = via[via.length - 1];
           const matchingImports = currentInfo.importRecords.filter((r) => r.resolved === parentFile);
           for (const record of matchingImports) {
             if (record.imported) importedSymbols.push(...record.imported);
           }
+          importedSymbolsAvailable = matchingImports.length > 0 && matchingImports.some((r) => r.imported && r.imported.length > 0);
         }
 
         return {
@@ -657,6 +695,7 @@ class DependencyGraph {
           level,
           via: [...via],
           importedSymbols: [...new Set(importedSymbols)],
+          importedSymbolsAvailable,
           reason: level === 1 ? 'direct-import' : 'transitive-dependency',
         };
       },
@@ -677,6 +716,36 @@ class DependencyGraph {
 
   getFunctionLevelAffectedTests(filePath, changedFunctions, options = {}) {
     return getFunctionLevelAffectedTests(this, filePath, changedFunctions, options);
+  }
+
+  /**
+   * Detect framework-legitimate cycles that are normal design patterns
+   * rather than structural defects (e.g. Vue store -> router -> view).
+   */
+  isLikelyFrameworkLegitimateCycle(cycle) {
+    if (cycle.length > 5) return false;
+
+    const normalized = cycle.map((f) => f.replace(/\\/g, '/').toLowerCase());
+
+    // All files must be in typical frontend source directories
+    const allInFrontend = normalized.every(
+      (f) =>
+        /\/(src|pages|views|components|store|router|layout|layouts|assets|composables|hooks|mixins|directive|directives|plugins|utils|api|http)\//.test(f) ||
+        /\.vue$/.test(f)
+    );
+    if (!allInFrontend) return false;
+
+    // Must involve at least two of: store, router, vue/view
+    const hasStore = normalized.some((f) => /\/store\//.test(f));
+    const hasRouter = normalized.some((f) => /\/router\//.test(f));
+    const hasView = normalized.some((f) => /\.vue$/.test(f) || /\/(views|pages|components|layout|layouts)\//.test(f));
+
+    let dimensions = 0;
+    if (hasStore) dimensions++;
+    if (hasRouter) dimensions++;
+    if (hasView) dimensions++;
+
+    return dimensions >= 2;
   }
 
   /**
@@ -723,7 +792,9 @@ class DependencyGraph {
       visit(file, []);
     }
 
-    return cycles.filter((cycle) => !(cycle.length <= 2 && cycle[0] === cycle[cycle.length - 1]));
+    return cycles
+      .filter((cycle) => !(cycle.length <= 2 && cycle[0] === cycle[cycle.length - 1]))
+      .filter((cycle) => !this.isLikelyFrameworkLegitimateCycle(cycle));
   }
 
   getStats() {
@@ -731,11 +802,27 @@ class DependencyGraph {
     if (this._cycleCount === undefined) {
       this._cycleCount = this.findCircularDependencies().length;
     }
+    const cacheStats = this.cache?.getStats?.() || {};
+    let parsedFiles = 0;
+    let fallbackFiles = 0;
+    for (const info of this.graph.values()) {
+      if (info.parseMode === 'ast') parsedFiles++;
+      else if (info.parseMode === 'regex') fallbackFiles++;
+    }
+    const totalFiles = this.graph.size;
+    const coverageRatio = totalFiles > 0 ? parsedFiles / totalFiles : 0;
     return {
-      files: this.graph.size,
+      files: totalFiles,
       totalImports: Array.from(this.graph.values()).reduce((sum, i) => sum + i.imports.length, 0),
       totalExports: Array.from(this.graph.values()).reduce((sum, i) => sum + i.exports.length, 0),
       cycles: this._cycleCount,
+      totalLines: cacheStats.totalLines || 0,
+      analysisCoverage: {
+        totalFiles,
+        parsedFiles,
+        fallbackFiles,
+        coverageRatio: Math.round(coverageRatio * 100) / 100,
+      },
     };
   }
 
@@ -842,8 +929,8 @@ class DependencyGraph {
         const stats = this.getStats();
         const edgeRatio = stats.files > 0 ? stats.totalImports / stats.files : 0;
         const graphUnreliable = stats.files > 1 && edgeRatio < 0.1;
-        const confidence = graphUnreliable ? 'low' : 'high';
-        deadExports.push({ file: filePath, exports: info.exports, confidence, importerCount: 0 });
+        const { confidence, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable);
+        deadExports.push({ file: filePath, exports: info.exports, confidence, confidenceReason: reason, importerCount: 0 });
         continue;
       }
 
@@ -859,8 +946,8 @@ class DependencyGraph {
       }
 
       if (unused.length > 0) {
-        const confidence = info.parseMode === 'ast' ? 'medium' : 'low';
-        deadExports.push({ file: filePath, exports: unused, confidence, importerCount: importers.length });
+        const { confidence, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false);
+        deadExports.push({ file: filePath, exports: unused, confidence, confidenceReason: reason, importerCount: importers.length });
       }
     }
 
