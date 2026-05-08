@@ -35,7 +35,7 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**
 
-**本轮状态**：上轮修复 P10/P16/P18/P19/P20/P22/P23/P25/P26/P30/P40/P44/P55/P61 等 14 项数据一致性与产品缺陷；本轮修复 P12/P32/P37/P43/P58 等 5 项低垂果实。详情见 [CHANGELOG.md](./CHANGELOG.md) [1.1.0]。
+**本轮状态**：上轮修复 P10/P16/P18/P19/P20/P22/P23/P25/P26/P30/P40/P44/P55/P61 等 14 项数据一致性与产品缺陷；本轮修复 P12/P32/P37/P43/P58 等 5 项低垂果实。详情见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 

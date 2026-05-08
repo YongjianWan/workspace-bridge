@@ -4,7 +4,26 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [1.1.0] - 2026-05-08
+## [Unreleased]
+
+## [1.1.1] - 2026-05-08
+
+### 修复（低垂果实收尾 — P12/P32/P37/P43/P58）
+
+- **P12: `--exclude` 在 `audit-overview` 中未过滤 hotspots/stability/coupling** `src/tools/overview-tools.js` — `buildProjectOverview` 的 `allFiles` 增加 `shouldExcludeCli` 过滤，确保 CLI `--exclude` 在 overview 全链路生效
+- **P32: `staleness.thresholdMs` 无人类可读解释** `src/services/container.js` — `getStaleness` 新增 `thresholdDescription` 字段（如 `"5 minutes"`）
+- **P37: `health.checks.*.sizeBytes` 是输出噪音** `src/tools/health-tools.js` — `projectHealth` 输出前删除所有 `sizeBytes` 字段
+- **P43: `health.checks.ci` 未递归扫描 `.github/workflows/`** `src/tools/health-tools.js` — `detectCiConfig` 对 GitHub Actions 从检查目录存在升级为检查目录内是否有 `.yml`/`.yaml` 文件
+- **P58: `audit-file` 的 `frameworkPattern` 永远为 null** `src/services/dep-graph.js` `src/services/dep-graph/framework-patterns.js` — `getFrameworkHint` 增加 content-based fallback：path-based 返回 null 时扫描文件前 800 字节中的框架特征（NestJS/Express/FastAPI/Flask/Spring/Vue 等）
+
+### 文档
+
+- **ROADMAP.md** 性能瓶颈表同步 5 项已修复；GitNexus 模式 D/A 标记已交付；成功标准 #5 90%→95%
+- **AGENTS.md** 项目规模同步（159 文件 / 83 test / 13 script）
+- **TECH_DEBT.md** P12/P32/P37/P43/P58 标记已修复
+- **SESSION.md** 基线与活跃技术债列表同步
+
+## [1.1.0] - 2026-05-06
 
 ### 修复（L2 技术债清零 — 19 项）
 
