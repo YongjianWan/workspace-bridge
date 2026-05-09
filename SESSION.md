@@ -80,7 +80,7 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 | 编号 | 问题 | 状态 |
 |------|------|------|
 | P1/P63 | Vue 假阳性三角（dead-export + orphan） | ✅ 路由懒加载/全局组件/自定义指令/动态字符串调用 extractor 已全部实现；`fs.readFileSync` 运行时读取模式仍超出静态分析范围 |
-| P5 | `nextSteps` 建议不可执行或指向死胡同 | 活跃 |
+| P5 | `nextSteps` 建议不可执行或指向死胡同 | ✅ 已修复（接入 framework 级信息：Vue/React/Next/Angular/Svelte；结合具体 counts 生成差异化文案） |
 | P24 | `impact` source 文件出现在自己的影响列表 | ⏸ cannot-reproduce，代码已有 guard |
 | P27 | SKILL.md 的 Standard Output Contract 与实际 CLI 输出脱节 | 活跃 |
 | P30 | `unresolved` 的 `resolvedTo` 语义 | ⏸ 冻结：`resolvedTo: null` = 未解析到磁盘文件 |
@@ -100,7 +100,7 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 | **Spring Boot 框架模式识别** | `Application`/`ServletInitializer`/`@Configuration`/`@ControllerAdvice` 等类被误标 dead export | zcypg_backend, zsgzt_backend, gwy_backend | 中 | ✅ 已修复 |
 | **Vue Router/Vuex 循环白名单** | `store/user.js <-> router/index.js <-> views/login.vue` 是正常设计 | zcypg_frontend, zsgzt_frontend | 低 | ✅ 已修复 |
 | **Python parser skipped 排查** | gwy_backend 覆盖率 0.21，根因为 Windows 上 Python 子进程 stdin 编码不匹配（GBK vs UTF-8）导致 AST 解析全部失败 | gwy_backend | 低 | ✅ 已修复（coverage 0.21→1.00，347/347 AST） |
-| **前端自定义指令全局模式** | `permission.js` 的 `checkPermi`/`checkRole` 被 Vue 指令使用但无显式 import | zcypg_frontend, zsgzt_frontend | 低 | ⏳ 待处理 |
+| **前端自定义指令全局模式** | `src/utils/permission.js` 的 `checkPermi`/`checkRole` 经全局 grep 确认无任何调用方，是真实死代码；`src/directive/permission/hasPermi.js` 有自己独立的权限检查实现 | zcypg_frontend, zsgzt_frontend | 低 | ⏸ 无需修复（非误报） |
 
 **数据**：后端 dead exports 合计 467 个（zcypg 209 + zsgzt 210 + gwy 48），其中高 confidence 条目几乎全部是 Spring Boot 框架入口/配置/异常类。前端循环依赖 32 个（zcypg 13 + zsgzt 19），绝大多数是 router-store-view 的正常引用链。
 

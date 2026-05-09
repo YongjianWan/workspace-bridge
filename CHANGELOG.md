@@ -87,6 +87,12 @@
 - **Vue Router/Vuex 循环白名单** `src/services/dep-graph.js` — 新增 `isLikelyFrameworkLegitimateCycle` 方法，过滤掉 Vue 项目中 `store/` ↔ `router/` ↔ `views/`（含 `.vue`）的短循环（长度 ≤ 5）。这些循环是 Vue 正常设计模式（store 引用 router 跳转、router 引用 view 组件、view 引用 store 状态），不应被报告为缺陷
   - **实战效果**：zcypg_frontend 13→3，zsgzt_frontend 19→2
 - **Python AST parser Windows 编码故障** `src/services/dep-graph/parsers/spawn-ast.js` — `spawnPythonASTParser` 的 `spawn` 调用新增 `env: { ...process.env, PYTHONIOENCODING: 'utf-8' }`。Windows 上 Python 子进程默认以系统编码（GBK/CP936）读取 stdin，但 Node.js 写入的是 UTF-8，导致包含中文注释/字符串的 `.py` 文件产生 surrogate 解码错误，全部 fallback 到 regex。修复后 gwy_backend 覆盖率 0.21→1.00（347/347 AST），Java parser 同步受益
+- **P5: `nextSteps` 模板化、不可执行** `src/utils/stack-detectors/detect.js` `src/cli/formatters/repo-summary.js` `cli.js` — 新增 `detectNodeFramework()` 读取 package.json 的 dependencies/devDependencies，检测 Vue/React/Next/Nuxt/Svelte/Angular。`buildNextSteps` 接入框架级信息，生成差异化可执行建议：
+  - Vue: cycle 建议明确提及 store→router→view 是正常设计模式；unresolved 建议指向 vite.config.js alias 和 `.vue` 扩展名
+  - Java: hygiene 建议提及 Maven/Gradle wrapper 和 JUnit
+  - Python: hygiene 建议区分 Django 和非 Django 的测试配置
+  - 所有建议结合具体数据（"3 dependency cycles", "12 dead exports", "4 hygiene gaps"）而非泛泛的 "Break dependency cycles"
+  - 实战效果：zcypg_frontend 和 zsgzt_frontend 的 cycle 建议从完全相同的模板变为 Vue 特异性文案
 
 ### 测试
 

@@ -1,6 +1,6 @@
 const { repoSeverity } = require('../../config/risk-thresholds');
 
-function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackProfile = 'unknown', analysisCoverage = null) {
+function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackProfile = 'unknown', analysisCoverage = null, stack = null) {
   const deadExportCount = deadExports.deadExportCount || 0;
   const unresolvedCount = unresolved.unresolvedCount || 0;
   const cycleCount = cycles.cycleCount || 0;
@@ -50,7 +50,7 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
     nonMainlineFiles,
     unresolvedFp: unresolved.possibleFalsePositives,
     deadExportsFp: deadExports.possibleFalsePositives,
-  }, stackProfile);
+  }, stackProfile, stack);
 
   const result = {
     severity,
@@ -81,7 +81,7 @@ function buildCombinedDisclaimer(unresolvedFp, deadExportsFp) {
   return parts.length > 0 ? parts.join(' ') : null;
 }
 
-function buildNextSteps(ctx, stackProfile = 'unknown') {
+function buildNextSteps(ctx, stackProfile = 'unknown', stack = null) {
   const steps = [];
 
   // Stack-specific prioritization: reorder steps based on dominant stack
@@ -89,28 +89,46 @@ function buildNextSteps(ctx, stackProfile = 'unknown') {
   const isJava = stackProfile === 'java-first';
   const isPython = stackProfile === 'python-first';
 
+  // Framework detection for actionable, specific advice
+  const nodeFramework = stack?.node?.framework || null;
+  const pythonFramework = stack?.python?.framework || null;
+
   // For Java/Python, deadExports are more actionable than unresolved (alias issues are rare)
   const prioritizeDeadExports = isJava || isPython;
 
   if (ctx.unresolvedCount > 0 && !prioritizeDeadExports) {
     const fpRatio = ctx.unresolvedFp?.total > 0 ? (ctx.unresolvedFp.count / ctx.unresolvedFp.total) : 0;
     if (fpRatio >= 0.8 && ctx.unresolvedFp?.primaryReason === 'alias-unresolved') {
-      steps.push('Most unresolved imports are alias false positives; check tsconfig.json / jsconfig.json compilerOptions.paths configuration.');
+      if (nodeFramework === 'vue') {
+        steps.push(`${ctx.unresolvedCount} unresolved imports — ${Math.round(fpRatio * 100)}% are alias/Vue extension omissions (e.g. missing .vue suffix or tsconfig paths not resolved). Check vite.config.js resolve.alias and ensure .vue files are imported with full extension.`);
+      } else {
+        steps.push(`${ctx.unresolvedCount} unresolved imports — ${Math.round(fpRatio * 100)}% are alias false positives. Check tsconfig.json / jsconfig.json compilerOptions.paths configuration.`);
+      }
     } else {
-      steps.push('Inspect unresolved imports first; they can indicate broken code paths or unsupported alias resolution.');
+      steps.push(`Inspect ${ctx.unresolvedCount} unresolved import${ctx.unresolvedCount > 1 ? 's' : ''} first; they can indicate broken code paths or unsupported alias resolution.`);
     }
   }
 
   if (ctx.cycleCount > 0) {
-    steps.push('Break dependency cycles before making broad refactors.');
+    if (nodeFramework === 'vue') {
+      steps.push(`${ctx.cycleCount} dependency cycle${ctx.cycleCount > 1 ? 's' : ''} detected — in Vue projects store→router→view cycles are often intentional design patterns. Review each cycle with 'audit-cycles --json' to distinguish framework-normal from structural debt.`);
+    } else {
+      steps.push(`Break ${ctx.cycleCount} dependency cycle${ctx.cycleCount > 1 ? 's' : ''} before making broad refactors.`);
+    }
   }
 
   if (ctx.deadExportCount > 0) {
     const fpRatio = ctx.deadExportsFp?.total > 0 ? (ctx.deadExportsFp.count / ctx.deadExportsFp.total) : 0;
     if (fpRatio >= 0.5) {
-      steps.push(`Review dead exports carefully; about ${Math.round(fpRatio * 100)}% are likely false positives (${ctx.deadExportsFp?.primaryReason || 'unknown'}).`);
+      let reason = ctx.deadExportsFp?.primaryReason || 'unknown';
+      if (nodeFramework === 'vue') {
+        reason = 'Vue global components, directives, or lazy-loaded routes';
+      } else if (isJava) {
+        reason = 'Spring Boot framework entry classes (Application, Configuration, etc.)';
+      }
+      steps.push(`${ctx.deadExportCount} dead exports — about ${Math.round(fpRatio * 100)}% are likely false positives (${reason}). Review with 'audit-file' before deleting.`);
     } else {
-      steps.push('Review dead exports as candidates, not automatic deletions.');
+      steps.push(`${ctx.deadExportCount} dead export${ctx.deadExportCount > 1 ? 's' : ''} — review as candidates, not automatic deletions. Run the project's test suite after any removal.`);
     }
   }
 
@@ -118,26 +136,28 @@ function buildNextSteps(ctx, stackProfile = 'unknown') {
   if (ctx.unresolvedCount > 0 && prioritizeDeadExports) {
     const fpRatio = ctx.unresolvedFp?.total > 0 ? (ctx.unresolvedFp.count / ctx.unresolvedFp.total) : 0;
     if (fpRatio >= 0.8 && ctx.unresolvedFp?.primaryReason === 'alias-unresolved') {
-      steps.push('Most unresolved imports are alias false positives; check tsconfig.json / jsconfig.json compilerOptions.paths configuration.');
+      steps.push(`${ctx.unresolvedCount} unresolved imports — ${Math.round(fpRatio * 100)}% are alias false positives. Check tsconfig.json / jsconfig.json compilerOptions.paths configuration.`);
     } else {
-      steps.push('Inspect unresolved imports; they can indicate broken code paths or unsupported alias resolution.');
+      steps.push(`Inspect ${ctx.unresolvedCount} unresolved import${ctx.unresolvedCount > 1 ? 's' : ''}; they can indicate broken code paths or unsupported alias resolution.`);
     }
   }
 
   if (ctx.missingHygieneChecks > 0) {
     if (isNode) {
-      steps.push('Close basic project hygiene gaps: CI workflow, test config (Vitest/Jest), env example, and editorconfig.');
+      const testHint = stack?.node?.testRunner ? `test config (${stack.node.testRunner})` : 'test config';
+      steps.push(`Close ${ctx.missingHygieneChecks} hygiene gap${ctx.missingHygieneChecks > 1 ? 's' : ''}: CI workflow, ${testHint}, env example, and editorconfig.`);
     } else if (isJava) {
-      steps.push('Close basic project hygiene gaps: Maven/Gradle wrapper, CI workflow, test config (JUnit), and editorconfig.');
+      steps.push(`Close ${ctx.missingHygieneChecks} hygiene gap${ctx.missingHygieneChecks > 1 ? 's' : ''}: Maven/Gradle wrapper, CI workflow, test config (JUnit), and editorconfig.`);
     } else if (isPython) {
-      steps.push('Close basic project hygiene gaps: pytest config, requirements/pyproject, CI workflow, and editorconfig.');
+      const testHint = pythonFramework === 'django' ? 'test config (pytest / manage.py test)' : 'test config (pytest)';
+      steps.push(`Close ${ctx.missingHygieneChecks} hygiene gap${ctx.missingHygieneChecks > 1 ? 's' : ''}: ${testHint}, requirements/pyproject, CI workflow, and editorconfig.`);
     } else {
-      steps.push('Close basic project hygiene gaps: LICENSE, CI, test config, env example, or editorconfig.');
+      steps.push(`Close ${ctx.missingHygieneChecks} hygiene gap${ctx.missingHygieneChecks > 1 ? 's' : ''}: LICENSE, CI, test config, env example, or editorconfig.`);
     }
   }
 
   if (ctx.nonMainlineFiles > 0) {
-    steps.push('Review the mainline/non-mainline split before trusting structural findings in mixed repositories.');
+    steps.push(`Review mainline/non-mainline split (${ctx.nonMainlineFiles} non-mainline files) before trusting structural findings in mixed repositories.`);
   }
 
   if (steps.length === 0) {

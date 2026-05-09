@@ -209,6 +209,20 @@ function detectTestRunner(root) {
   return null;
 }
 
+function detectNodeFramework(root) {
+  const packageJsonPath = path.join(root, 'package.json');
+  if (!pathExists(packageJsonPath)) return null;
+  const pkg = readJsonSafe(packageJsonPath);
+  const deps = { ...(pkg?.dependencies || {}), ...(pkg?.devDependencies || {}) };
+  if (deps.next || deps['next-router-mock']) return 'next';
+  if (deps.nuxt || deps['nuxt-kit']) return 'nuxt';
+  if (deps.vue || deps['vue-router'] || deps.vuex || deps.pinia) return 'vue';
+  if (deps.react || deps['react-dom'] || deps['react-router-dom']) return 'react';
+  if (deps.svelte || deps['@sveltejs/kit']) return 'svelte';
+  if (deps['@angular/core'] || deps['@angular/cli']) return 'angular';
+  return null;
+}
+
 function detectPythonTestRunner(root, pyprojectText = '') {
   if (pathExists(path.join(root, 'pytest.ini'))) return 'pytest';
   if (pathExists(path.join(root, 'setup.cfg'))) return 'pytest';
@@ -332,6 +346,7 @@ function detectStack(root) {
   const hasCpp = hasCppProject(root);
   const goModules = hasGo ? detectGoModules(root) : null;
   const nodePackageManager = detectNodePackageManager(root);
+  const nodeFramework = detectNodeFramework(root);
   const javaBuildTool = detectJavaBuildTool(root);
   const javaBuildCommand = detectJavaBuildCommand(root, javaBuildTool);
   const javaSubprojects = javaBuildTool === 'gradle' ? detectGradleSubprojects(root) : null;
@@ -357,6 +372,7 @@ function detectStack(root) {
     node: hasNode ? {
       enabled: true,
       packageManager: nodePackageManager,
+      framework: nodeFramework,
       testRunner: testRunner?.type === 'node' ? testRunner.name : null,
       linters: linters.node,
       typeChecker: typeCheckers.node,

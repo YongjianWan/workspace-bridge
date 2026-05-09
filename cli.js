@@ -556,7 +556,7 @@ async function runCommand(parsed, container) {
         ok: [health, deadExports, unresolved, cycles].every((result) => result.ok !== false),
         workspaceRoot: container.workspaceRoot,
         scope,
-        summary: buildRepoSummary(health, deadExports, unresolved, cycles, scope, stack.profile, stats.analysisCoverage),
+        summary: buildRepoSummary(health, deadExports, unresolved, cycles, scope, stack.profile, stats.analysisCoverage, stack),
         health,
         deadExports,
         unresolved,
