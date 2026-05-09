@@ -93,17 +93,9 @@
 
 ---
 
-#### P5. `nextSteps` 建议不可执行或指向死胡同
+#### P5. `nextSteps` 建议不可执行或指向死胡同 ✅ 已修复
 
-`audit-summary` 建议：
-
-> "Inspect unresolved imports first; they can indicate broken code paths..."
-
-**产品影响**：
-
-- 24 个 unresolved 全部是 Vue `.vue` 省略导致的误报，按建议去 inspect 等于做无用功。
-- 产品输出的"行动建议"如果 90% 是错的，用户会怀疑整个工具的智能程度。
-- AI 代理（如 Kimi Code CLI）如果直接执行这些 nextSteps，会产生大量无效操作。
+✅ 已修复。`detectNodeFramework()` 新增 Vue/React/Next/Nuxt/Svelte/Angular 检测；`buildNextSteps` 接入 framework 级信息生成差异化建议（Vue cycle 提及 store→router→view 正常模式；Java hygiene 提及 Maven/Gradle + JUnit）。所有建议嵌入具体 counts（"3 cycles" / "12 dead exports"）替代模板文案。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 
@@ -475,18 +467,18 @@ SKILL.md 要求 agent 输出包含：
 | 症状 | ai_zcypg_frontend | ai_zsgzt_frontend | 状态 |
 |------|-------------------|-------------------|------|
 | unresolved | 24（100% 是 Vue `.vue` 省略） | 24（100% 是 Vue `.vue` 省略） | ✅ 已修复（resolvers.js `.vue` + tsconfig paths） |
-| dead exports 模式 | 以 `src/api/*.js`、`src/utils/*.js`、`src/store/modules/*.js` 为主 | 以 `src/api/*.js`、`src/utils/*.js`、`src/store/modules/*.js` 为主 | ⏳ 部分改善（permission.js checkPermi/checkRole 仍需自定义指令全局模式） |
+| dead exports 模式 | 以 `src/api/*.js`、`src/utils/*.js`、`src/store/modules/*.js` 为主 | 以 `src/api/*.js`、`src/utils/*.js`、`src/store/modules/*.js` 为主 | ✅ 无需修复（`utils/permission.js` 的 `checkPermi`/`checkRole` 经全局 grep 确认无任何调用方，是真实死代码） |
 | orphans 模式 | `src/main.js`、`src/app.vue` 等入口被标孤儿 | `src/main.js`、`src/app.vue` 等入口被标孤儿 | ✅ 已修复（framework-usage-patterns: vue-router-lazy / vue-global-component） |
 | cycles | 13 | 19 | ✅ 已修复（Vue store-router-view 循环白名单，zcypg 13→3，zsgzt 19→2） |
 | health score | 3/5 | 3/5 | ✅ 已改善（4/5） |
-| nextSteps | 完全相同的 4 条模板 | 完全相同的 4 条模板 | ⏳ 仍活跃（见 P5） |
+| nextSteps | 完全相同的 4 条模板 | 完全相同的 4 条模板 | ✅ 已修复（接入 framework 检测，生成 Vue 特异性可执行建议） |
 
 **产品影响**：
 
 - 两个不同业务（政策评估 vs 招商工作台）、不同文件数（228 vs 218）的项目，在核心缺陷指标上已从"几乎完全一致"改善为"差异明显"。
 - 循环依赖从 32 个降至 5 个，unresolved 从 48 个降至 0 个，orphan 入口误报已基本消除。
-- 剩余的主要盲区是 **Vue 自定义指令全局模式**（`permission.js` 的 `checkPermi`/`checkRole` 被全局使用但无显式 import）和 **nextSteps 模板化**（P5）。
-- 工具对 Vue/Vite 项目的可用性已显著提升，但尚未达到"生产审计 ready"标准。"偶尔在某些项目里出现"，而是"只要遇到 Vue 项目就一定会触发"。这意味着该工具目前**不适合用于 Vue/Vite 前端项目的生产审计**。
+- 剩余的主要盲区是 **nextSteps 的 overview 层面个性化**（P5 已解决 audit-summary 层面，但 audit-overview 的 recommendations 仍偏模板化）。
+- 工具对 Vue/Vite 项目的可用性已显著提升，核心假阳性（unresolved/orphan/cycles）已基本清零，dead exports 中除 `src/api/*.js`（可能被运行时动态调用）外大部分为真实死代码或低 confidence。
 
 ---
 

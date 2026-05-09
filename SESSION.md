@@ -104,7 +104,7 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 **数据**：后端 dead exports 合计 467 个（zcypg 209 + zsgzt 210 + gwy 48），其中高 confidence 条目几乎全部是 Spring Boot 框架入口/配置/异常类。前端循环依赖 32 个（zcypg 13 + zsgzt 19），绝大多数是 router-store-view 的正常引用链。
 
-本轮已关闭/冻结：P12, P17, P24, P30, P32, P35, P36, P37, P42, P43, P47, P50, P51, P56, P58。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+本轮已关闭/冻结：P5, P12, P17, P24, P30, P32, P35, P36, P37, P42, P43, P47, P50, P51, P56, P58。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 
