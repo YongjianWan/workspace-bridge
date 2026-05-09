@@ -60,7 +60,13 @@ const ROLE_RULES = [
   },
   {
     role: 'entry',
-    test: (_relPath, base) => FRAMEWORK_ENTRY_FILES.has(base),
+    test: (_relPath, base) => {
+      if (FRAMEWORK_ENTRY_FILES.has(base)) return true;
+      // P70: Spring Boot application entry classes
+      if (/application.*\.java$/i.test(base)) return true;
+      if (/.*servletinitializer\.java$/i.test(base)) return true;
+      return false;
+    },
   },
   {
     role: 'config',

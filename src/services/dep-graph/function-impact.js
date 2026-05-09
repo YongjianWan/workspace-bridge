@@ -66,10 +66,10 @@ function buildImpactedFunctionDependents(changedFunctions, symbolImpact) {
   const functionRows = Array.isArray(symbolImpact?.functionToDependents) ? symbolImpact.functionToDependents : [];
   const impactedFunctionDependents = functionRows
     .filter((row) => changedFunctions.includes(row.function))
-    .sort((a, b) => (b.dependentCount || 0) - (a.dependentCount || 0));
+    .sort((a, b) => (b.dependentsCount || 0) - (a.dependentsCount || 0));
 
   const impactedDependentCount = impactedFunctionDependents.reduce(
-    (sum, row) => sum + (Number.isFinite(row.dependentCount) ? row.dependentCount : 0),
+    (sum, row) => sum + (Number.isFinite(row.dependentsCount) ? row.dependentsCount : 0),
     0
   );
 
@@ -283,14 +283,14 @@ function getFunctionLevelAffectedTests(depGraph, filePath, changedFunctions, opt
 
     functionLevelAffectedTests.push({
       function: fnName,
-      affectedTestCount: tests.length,
+      affectedTestsCount: tests.length,
       affectedTests: tests,
     });
   }
 
   return {
     functions: functionLevelAffectedTests,
-    affectedTestCount: totalUniqueTests.size,
+    affectedTestsCount: totalUniqueTests.size,
   };
 }
 

@@ -36,16 +36,16 @@ async function runBuiltinSecurityScan(cwd, targets, container) {
   const findings = [];
   const patterns = [
     { lang: 'javascript', ext: /\.(js|jsx|ts|tsx|mjs|cjs|vue|svelte)$/, rules: [
-      { id: 'js-eval', pattern: /\beval\s*\(/, severity: 'high', message: 'Use of eval() can lead to code injection' },
+      { id: 'js-eval', pattern: /\beval\s*\(/, severity: 'high', message: 'Use of eval() can lead to code injection' }, // security-scan-ignore
       { id: 'js-innerHTML', pattern: /\.innerHTML\s*=/, severity: 'medium', message: 'Assignment to innerHTML can lead to XSS' },
-      { id: 'js-document-write', pattern: /\bdocument\.write\s*\(/, severity: 'medium', message: 'document.write() is unsafe and blocks rendering' },
-      { id: 'js-new-function', pattern: /\bnew\s+Function\s*\(/, severity: 'high', message: 'new Function() is equivalent to eval()' },
-      { id: 'js-dangerous-timeout', pattern: /\bsetTimeout\s*\(\s*['"`]/, severity: 'medium', message: 'setTimeout with string argument is like eval()' },
-      { id: 'js-dangerous-interval', pattern: /\bsetInterval\s*\(\s*['"`]/, severity: 'medium', message: 'setInterval with string argument is like eval()' },
+      { id: 'js-document-write', pattern: /\bdocument\.write\s*\(/, severity: 'medium', message: 'document.write() is unsafe and blocks rendering' }, // security-scan-ignore
+      { id: 'js-new-function', pattern: /\bnew\s+Function\s*\(/, severity: 'high', message: 'new Function() is equivalent to eval()' }, // security-scan-ignore
+      { id: 'js-dangerous-timeout', pattern: /\bsetTimeout\s*\(\s*['"`]/, severity: 'medium', message: 'setTimeout with string argument is like eval()' }, // security-scan-ignore
+      { id: 'js-dangerous-interval', pattern: /\bsetInterval\s*\(\s*['"`]/, severity: 'medium', message: 'setInterval with string argument is like eval()' }, // security-scan-ignore
     ]},
     { lang: 'python', ext: /\.py$/, rules: [
-      { id: 'py-exec', pattern: /\bexec\s*\(/, severity: 'high', message: 'exec() can execute arbitrary code' },
-      { id: 'py-eval', pattern: /\beval\s*\(/, severity: 'high', message: 'eval() can execute arbitrary code' },
+      { id: 'py-exec', pattern: /\bexec\s*\(/, severity: 'high', message: 'exec() can execute arbitrary code' }, // security-scan-ignore
+      { id: 'py-eval', pattern: /\beval\s*\(/, severity: 'high', message: 'eval() can execute arbitrary code' }, // security-scan-ignore
       { id: 'py-shell-true', pattern: /subprocess\.\w+\(.*shell\s*=\s*True/, severity: 'high', message: 'subprocess with shell=True is vulnerable to shell injection' },
       { id: 'py-os-system', pattern: /\bos\.system\s*\(/, severity: 'medium', message: 'os.system() is vulnerable to shell injection' },
     ]},
@@ -94,9 +94,10 @@ async function runBuiltinSecurityScan(cwd, targets, container) {
       content = fs.readFileSync(file, 'utf8');
     } catch { continue; }
     const lines = content.split(/\r?\n/);
+    const ignorePattern = /\/\/\s*security-scan-ignore\b|\/\*\s*security-scan-ignore\b/;
     for (let i = 0; i < lines.length; i++) {
       for (const rule of group.rules) {
-        if (rule.pattern.test(lines[i])) {
+        if (rule.pattern.test(lines[i]) && !ignorePattern.test(lines[i])) {
           findings.push({
             ruleId: rule.id,
             message: rule.message,

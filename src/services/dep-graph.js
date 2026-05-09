@@ -29,6 +29,7 @@ const {
 } = require('../utils/test-detector');
 const { ENTRY_BASE_NAMES } = require('../utils/project-context');
 const { CACHE_FILENAME } = require('./cache');
+const { detectScaffold } = require('../tools/scaffold-detector');
 
 const readFile = promisify(fs.readFile);
 
@@ -94,6 +95,18 @@ function bfsTraverse(startNodes, getNeighbors, options = {}) {
  * importers (because other exports are widely used) while a specific export is
  * genuinely unused. AST-level symbol tracking is the authoritative signal.
  */
+function isLikelyConstantsWarehouse(filePath, exportRecords) {
+  const base = path.basename(filePath).toLowerCase();
+  if (!/(constants|status|utils)\.java$/.test(base)) return false;
+  if (exportRecords && exportRecords.length > 0) {
+    const fieldLike = exportRecords.filter(
+      (r) => r.kind === 'field' || r.kind === 'variable' || r.kind === 'const'
+    ).length;
+    return fieldLike / exportRecords.length >= 0.7;
+  }
+  return true;
+}
+
 function computeDeadExportConfidence(importerCount, parseMode, graphUnreliable) {
   if (importerCount === 0) {
     if (graphUnreliable) {
@@ -122,6 +135,15 @@ const FRAMEWORK_MANAGED_PATTERNS = [
   /\/asgi\.py$/,
   /\/wsgi\.py$/,
   /\/manage\.py$/,
+  /\/management\/commands\/.*\.py$/,
+  /\/tasks\.py$/,
+  // P71: Django configuration-driven entry points
+  /\/middleware.*\.py$/,
+  /\/database_router\.py$/,
+  /\/context_processors\.py$/,
+  /\/templatetags\/.*\.py$/,
+  /\/forms\.py$/,
+  /\/celery\.py$/,
   /\/(page|layout|loading|error|not-found|route)\.(tsx|jsx|ts|js)$/,
   /\/(template|default)\.(tsx|jsx|ts|js)$/,
 ];
@@ -134,6 +156,835 @@ const PYTHON_MAIN_PATTERN = /if\s+__name__\s*==\s*['"]__main__['"]\s*:/;
 
 // #16-#17: language dispatch now delegated to LanguageRegistry
 // see src/services/dep-graph/parsers/registry.js for registration details
+
+class GraphBuilder {
+  constructor(depGraph) {
+    this.dg = depGraph;
+    this.onBuildComplete = null;
+    this.onFileUpdated = null;
+  }
+
+  async build() {
+    const startTime = Date.now();
+
+    // Refresh resolver FS caches for each build to avoid stale paths
+    clearResolverCaches();
+
+    // Reset graph to prevent ghost data from deleted/renamed files
+    this.dg.graph.clear();
+    this.dg._cycleCount = undefined;
+    this.dg._cachedCycles = null;
+    // Clear per-build caches to avoid stale content after rebuild
+    this.dg._scanContentCache.clear();
+    this.dg._scanPatternCache.clear();
+
+    // Get all files from cache
+    const candidateFiles = Array.from(this.dg.cache.fileMetadata.keys()).filter((file) => {
+      if (this.dg.shouldExclude(file)) return false;
+      if (this.dg.projectContext && !this.dg.projectContext.isActiveSourceFile(file)) {
+        // L2-12: keep CLI-excluded files in the graph so their imports still
+        // protect production code from false positives. They will be filtered
+        // out of report output by shouldExcludeCli().
+        if (!this.dg.shouldExcludeCli(file)) return false;
+      }
+      return true;
+    });
+    const files = [];
+    const seen = new Set();
+    for (const file of candidateFiles) {
+      const key = this.dg.normalizeFilePath(file);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      files.push(file);
+    }
+    
+    // Split: cache hit vs need analysis
+    const cachedFiles = [];
+    const filesToAnalyze = [];
+    for (const file of files) {
+      const meta = this.dg.cache.getFileMetadata(file);
+      const cached = this.dg.cache.getParseResult(file);
+      if (cached && meta && cached.mtime === meta.mtime) {
+        const key = this.dg.normalizeFilePath(file);
+        this.dg.graph.set(key, { ...cached });
+        cachedFiles.push(file);
+      } else {
+        filesToAnalyze.push(file);
+      }
+    }
+    
+    // Process only changed/new files with concurrency limit
+    await this._processFilesWithLimit(filesToAnalyze, CONFIG.DEFAULT_CONCURRENCY);
+
+    // Build reverse graph
+    this.buildReverseGraph();
+
+    // Inject framework implicit dependencies (e.g. Vue router lazy-loading)
+    this.applyFrameworkImplicitImports();
+
+    const cacheHitRate = files.length > 0 ? Math.round((cachedFiles.length / files.length) * 100) : 0;
+    if (!this.dg.quiet) {
+      console.error(`[DepGraph] Built in ${Date.now() - startTime}ms: ${this.dg.graph.size} files (${cacheHitRate}% cached)`);
+    }
+    // Guard: if graph has files but zero edges, downstream analysis will produce false positives.
+    const totalImports = Array.from(this.dg.graph.values()).reduce((sum, i) => sum + i.imports.length, 0);
+    if (this.dg.graph.size > 0 && totalImports === 0) {
+      console.error('[DepGraph] WARNING: Dependency graph appears empty (0 edges). Results may contain false positives.');
+    }
+
+    // P8-1 callback slot
+    if (this.onBuildComplete) {
+      this.onBuildComplete({ fileCount: this.dg.graph.size, cacheHitRate });
+    }
+  }
+
+  async _processFilesWithLimit(files, limit) {
+    const executing = new Set();
+    
+    for (const file of files) {
+      const promise = this.analyzeFile(file).then(() => {
+        executing.delete(promise);
+      });
+      executing.add(promise);
+      
+      if (executing.size >= limit) {
+        await Promise.race(executing);
+      }
+    }
+    
+    await Promise.all(executing);
+  }
+
+  async analyzeFile(filePath) {
+    try {
+      const graphKey = this.dg.normalizeFilePath(filePath);
+      const content = await readFile(filePath, 'utf8');
+      const ext = path.extname(filePath);
+      
+      let imports = [];
+      let exports = [];
+      let importRecords = [];
+      let exportRecords = [];
+      let functionRecords = [];
+      let parseMode = 'none';
+
+      const entry = registry.findByExt(ext);
+      if (entry) {
+        const args = entry.needsFilePath ? [content, filePath] : [content];
+        const result = entry.async ? await entry.parser(...args) : entry.parser(...args);
+        imports = result.imports;
+        exports = result.exports;
+        importRecords = result.importRecords || [];
+        exportRecords = result.exportRecords || [];
+        functionRecords = result.functionRecords || [];
+        parseMode = result.parseMode || 'regex';
+      }
+
+      // Resolve relative imports to absolute paths
+      const resolvedImportRecords = (importRecords.length > 0 ? importRecords : imports.map((source) => createImportRecord(source)))
+        .map((record) => {
+          const resolved = resolveImport(filePath, record.source, ext, this.dg.root);
+          if (!resolved) return null;
+          return {
+            ...record,
+            resolved: this.dg.normalizeFilePath(resolved),
+          };
+        })
+        .filter(Boolean);
+      const resolvedImports = resolvedImportRecords.map((record) => record.resolved).filter((imp) => imp !== graphKey);
+
+      // L2-28: infer parseModeReason so consumers can tell why a file fell back to regex.
+      let parseModeReason = 'unsupported-extension';
+      if (entry) {
+        if (parseMode === 'ast') {
+          parseModeReason = 'ast-success';
+        } else if (entry.async) {
+          parseModeReason = 'regex-fallback';
+        } else {
+          parseModeReason = 'regex-native';
+        }
+      }
+
+      this.dg.graph.set(graphKey, {
+        imports: resolvedImports,
+        exports,
+        importRecords: resolvedImportRecords,
+        // python.js now returns proper exportRecords (B3 fixed); keep fallback for other parsers
+        exportRecords,
+        functionRecords: functionRecords.length > 0 ? functionRecords : [],
+        parseMode,
+        parseModeReason,
+        confidence: parseMode === 'ast' ? 'high' : 'medium',
+      });
+
+      // Cache parse result for incremental rebuilds
+      const meta = this.dg.cache.getFileMetadata(filePath);
+      if (meta) {
+        this.dg.cache.setParseResult(filePath, {
+          ...this.dg.graph.get(graphKey),
+          mtime: meta.mtime,
+        });
+      }
+
+    } catch (e) {
+      // 单个文件分析失败不应阻塞整个依赖图构建，记录日志后继续
+      console.error(`[DepGraph] Failed to analyze ${filePath}:`, e.message);
+      // 删除 stale 记录，防止增量更新时 reverseGraph 与实际内容脱节
+      this.dg.graph.delete(this.dg.normalizeFilePath(filePath));
+      this.dg.cache.deleteParseResult(filePath);
+    }
+  }
+
+  _addReverseEdges(fileKey, imports, options = {}) {
+    const { skipExisting = false } = options;
+    const seen = new Set();
+    for (const imp of imports) {
+      if (seen.has(imp)) continue;
+      seen.add(imp);
+      if (!this.dg.reverseGraph.has(imp)) {
+        this.dg.reverseGraph.set(imp, []);
+      }
+      const dependents = this.dg.reverseGraph.get(imp);
+      if (skipExisting && dependents.includes(fileKey)) continue;
+      dependents.push(fileKey);
+    }
+  }
+
+  _removeOldReverseEdges(fileKey) {
+    const oldInfo = this.dg.graph.get(fileKey);
+    if (!oldInfo) return;
+    for (const imp of oldInfo.imports) {
+      const dependents = this.dg.reverseGraph.get(imp);
+      if (dependents) {
+        const filtered = dependents.filter((d) => d !== fileKey);
+        if (filtered.length > 0) {
+          this.dg.reverseGraph.set(imp, filtered);
+        } else {
+          this.dg.reverseGraph.delete(imp);
+        }
+      }
+    }
+  }
+
+  buildReverseGraph() {
+    this.dg.reverseGraph.clear();
+
+    for (const [file, info] of this.dg.graph) {
+      this._addReverseEdges(file, info.imports);
+    }
+  }
+
+  applyFrameworkImplicitImports() {
+    const startTime = Date.now();
+    let implicitEdgeCount = 0;
+
+    for (const [fileKey, info] of this.dg.graph) {
+      const ext = path.extname(fileKey).toLowerCase();
+      if (!['.js', '.jsx', '.ts', '.tsx', '.vue', '.mjs', '.cjs'].includes(ext)) continue;
+
+      let content;
+      try {
+        content = fs.readFileSync(fileKey, 'utf-8');
+      } catch {
+        continue;
+      }
+
+      const implicitSources = scanAndExtractImplicitImports(fileKey, content);
+      if (implicitSources.length === 0) continue;
+
+      const resolved = resolveImplicitImports(fileKey, implicitSources, this.dg.root);
+      if (resolved.length === 0) continue;
+
+      // Defensive copy to avoid mutating cached arrays (cache-hit uses shallow clone)
+      if (!info._implicitMutated) {
+        info.imports = info.imports.slice();
+        info.importRecords = info.importRecords.slice();
+        info._implicitMutated = true;
+        this.dg.graph.set(fileKey, info);
+      }
+
+      for (const { source, resolved: resolvedPath, patternId } of resolved) {
+        const normalizedResolved = this.dg.normalizeFilePath(resolvedPath);
+        if (normalizedResolved === fileKey) continue;
+
+        if (!info.imports.includes(normalizedResolved)) {
+          info.imports.push(normalizedResolved);
+        }
+
+        const hasRecord = info.importRecords.some(
+          (r) => r.resolved === normalizedResolved && r.source === source
+        );
+        if (!hasRecord) {
+          info.importRecords.push(
+            buildImplicitImportRecord(source, normalizedResolved, patternId)
+          );
+        }
+
+        if (!this.dg.reverseGraph.has(normalizedResolved)) {
+          this.dg.reverseGraph.set(normalizedResolved, []);
+        }
+        const dependents = this.dg.reverseGraph.get(normalizedResolved);
+        if (!dependents.includes(fileKey)) {
+          dependents.push(fileKey);
+          implicitEdgeCount++;
+        }
+      }
+    }
+
+    if (!this.dg.quiet && implicitEdgeCount > 0) {
+      console.error(`[DepGraph] Applied ${implicitEdgeCount} framework implicit import edges in ${Date.now() - startTime}ms`);
+    }
+    // P85: implicit edges mutate the graph — invalidate cycle cache
+    this.dg._cachedCycles = null;
+    this.dg._cycleCount = undefined;
+  }
+
+  async updateFiles(filePaths) {
+    if (this.dg._updating) {
+      // Reentrancy guard: debounce may trigger overlapping updates
+      return;
+    }
+    this.dg._updating = true;
+
+    const startTime = Date.now();
+    let reParsed = 0;
+    let skipped = 0;
+
+    try {
+      for (const filePath of filePaths) {
+      const key = this.dg.normalizeFilePath(filePath);
+
+      // Handle deleted files FIRST — must not be masked by cache-hit fast path
+      if (!fs.existsSync(filePath)) {
+        this._removeOldReverseEdges(key);
+        this.dg.graph.delete(key);
+        this.dg.cache.deleteFileMetadata(filePath);
+        this.dg.cache.deleteParseResult(filePath);
+        this.dg.cache.clearDiagnostics(filePath);
+        this.dg._scanContentCache.delete(key);
+        continue;
+      }
+
+      // Fast path: file unchanged (graph and cache agree on mtime)
+      const oldInfo = this.dg.graph.get(key);
+      const meta = this.dg.cache.getFileMetadata(filePath);
+      const cached = this.dg.cache.getParseResult(filePath);
+      if (oldInfo && cached && meta && cached.mtime === meta.mtime) {
+        skipped++;
+        continue;
+      }
+
+      this._removeOldReverseEdges(key);
+      this.dg._scanContentCache.delete(key);
+
+      // Re-parse
+      await this.analyzeFile(filePath);
+      reParsed++;
+      this.dg._cycleCount = undefined;
+      this.dg._cachedCycles = null;
+
+      const newInfo = this.dg.graph.get(key);
+      if (newInfo) {
+        this._addReverseEdges(key, newInfo.imports, { skipExisting: true });
+      }
+      // P8-1 callback slot
+      if (this.onFileUpdated) {
+        this.onFileUpdated(filePath);
+      }
+    }
+
+    // Re-apply framework implicit imports when any file was re-parsed,
+    // because re-parsing wipes previous implicit edges from graph.imports.
+    if (reParsed > 0) {
+      this.applyFrameworkImplicitImports();
+    }
+
+    if (!this.dg.quiet && (reParsed > 0 || skipped > 0)) {
+      console.error(`[DepGraph] Incremental update: ${reParsed} re-parsed, ${skipped} skipped in ${Date.now() - startTime}ms`);
+    }
+    } finally {
+      this.dg._updating = false;
+    }
+  }
+
+}
+
+class GraphAnalyzer {
+  constructor(depGraph) {
+    this.dg = depGraph;
+  }
+
+  isLikelyFrameworkLegitimateCycle(cycle) {
+    if (cycle.length > 5) return false;
+
+    const normalized = cycle.map((f) => f.replace(/\\/g, '/').toLowerCase());
+
+    // Vue: store ↔ router ↔ view (length ≤ 5)
+    const allInVue = normalized.every(
+      (f) =>
+        /\/(src|pages|views|components|store|router|layout|layouts|assets|composables|hooks|mixins|directive|directives|plugins|utils|api|http)\//.test(f) ||
+        /\.vue$/.test(f)
+    );
+    if (allInVue) {
+      const hasStore = normalized.some((f) => /\/store\//.test(f));
+      const hasRouter = normalized.some((f) => /\/router\//.test(f));
+      const hasView = normalized.some((f) => /\.vue$/.test(f) || /\/(views|pages|components|layout|layouts)\//.test(f));
+      let dimensions = 0;
+      if (hasStore) dimensions++;
+      if (hasRouter) dimensions++;
+      if (hasView) dimensions++;
+      if (dimensions >= 2) return true;
+    }
+
+    // P73: React context ↔ hooks ↔ components (length ≤ 4)
+    const allInReact = normalized.every(
+      (f) =>
+        /\/(src|components|hooks?|context|pages|views|lib|utils|api)\//.test(f) ||
+        /\.(jsx|tsx)$/.test(f)
+    );
+    if (allInReact && cycle.length <= 4) {
+      const hasContext = normalized.some((f) => /\/context\//.test(f));
+      const hasHooks = normalized.some((f) => /\/hooks?\//.test(f));
+      const hasComponents = normalized.some((f) => /\/components\//.test(f) || /\.(jsx|tsx)$/.test(f));
+      let dimensions = 0;
+      if (hasContext) dimensions++;
+      if (hasHooks) dimensions++;
+      if (hasComponents) dimensions++;
+      if (dimensions >= 2) return true;
+    }
+
+    // P73: Java domain/model ↔ utils/entity (common module internal cycles, length ≤ 3)
+    const allInJava = normalized.every((f) => /\.java$/.test(f));
+    if (allInJava && cycle.length <= 3) {
+      const hasDomain = normalized.some((f) => /\/(domain|model|entity|po|vo|dto|bo)\//.test(f));
+      const hasUtils = normalized.some((f) => /\/(utils|util|common|core|helper|helpers|tools)\//.test(f));
+      if (hasDomain && hasUtils) return true;
+    }
+
+    return false;
+  }
+
+  findCircularDependencies() {
+    // P85: return cached filtered cycles so all consumers see the same data.
+    if (this.dg._cachedCycles) {
+      return this.dg._cachedCycles;
+    }
+
+    const cycles = [];
+    const visited = new Set();
+    const stack = new Set();
+    const MAX_CYCLE_DEPTH = DEFAULTS.AFFECTED_TEST_DEPTH + 2; // conservative guard
+
+    const visit = (file, pathStack) => {
+      if (pathStack.length > MAX_CYCLE_DEPTH) {
+        // Depth guard: prevent stack overflow on extremely deep dependency chains
+        return;
+      }
+      if (stack.has(file)) {
+        // Found cycle
+        const cycleStart = pathStack.indexOf(file);
+        cycles.push(pathStack.slice(cycleStart));
+        return;
+      }
+
+      if (visited.has(file)) return;
+
+      visited.add(file);
+      stack.add(file);
+      pathStack.push(file);
+
+      try {
+        const deps = this.dg.getDependencies(file);
+        for (const dep of deps) {
+          if (this.dg.hasFile(dep)) {
+            visit(dep, pathStack);
+          }
+        }
+      } finally {
+        pathStack.pop();
+        stack.delete(file);
+      }
+    };
+
+    for (const file of this.dg.graph.keys()) {
+      visit(file, []);
+    }
+
+    const filtered = cycles
+      .filter((cycle) => !(cycle.length <= 2 && cycle[0] === cycle[cycle.length - 1]))
+      .filter((cycle) => !this.isLikelyFrameworkLegitimateCycle(cycle));
+
+    this.dg._cachedCycles = filtered;
+    return filtered;
+  }
+
+  getStats() {
+    // P85: always use the same filtered cycles array that findCircularDependencies()
+    // returns, eliminating any stale-cache divergence between the two paths.
+    const cycles = this.findCircularDependencies();
+    this.dg._cycleCount = cycles.length;
+    const cacheStats = this.dg.cache?.getStats?.() || {};
+    let parsedFiles = 0;
+    let fallbackFiles = 0;
+    for (const info of this.dg.graph.values()) {
+      if (info.parseMode === 'ast') parsedFiles++;
+      else if (info.parseMode === 'regex') fallbackFiles++;
+    }
+    const totalFiles = this.dg.graph.size;
+    const coverageRatio = totalFiles > 0 ? parsedFiles / totalFiles : 0;
+    return {
+      files: totalFiles,
+      totalImports: Array.from(this.dg.graph.values()).reduce((sum, i) => sum + i.imports.length, 0),
+      totalExports: Array.from(this.dg.graph.values()).reduce((sum, i) => sum + i.exports.length, 0),
+      cycles: this.dg._cycleCount,
+      totalLines: cacheStats.totalLines || 0,
+      analysisCoverage: {
+        totalFiles,
+        parsedFiles,
+        fallbackFiles,
+        coverageRatio: Math.round(coverageRatio * 100) / 100,
+      },
+    };
+  }
+
+  _scanSymbolUsageInImporters(importerPaths, symbols, sourceFilePath) {
+    const used = new Set();
+    if (!symbols || symbols.length === 0) return used;
+
+    const ext = path.extname(sourceFilePath).toLowerCase();
+    const isJavaFamily = ext === '.java' || ext === '.kt';
+    const patternCache = this.dg._scanPatternCache;
+
+    for (const importerPath of importerPaths) {
+      try {
+        let content = this.dg._scanContentCache.get(importerPath);
+        if (content === undefined) {
+          content = fs.readFileSync(importerPath, 'utf-8');
+          // Defensive cap: prevent unbounded growth in long-lived REPL sessions
+          if (this.dg._scanContentCache.size < LIMITS.SCAN_SYMBOL_CONTENT_CACHE_MAX) {
+            this.dg._scanContentCache.set(importerPath, content);
+          }
+        }
+
+        for (const symbol of symbols) {
+          if (used.has(symbol)) continue;
+          const cacheKey = isJavaFamily ? `${symbol}:java` : symbol;
+          let patterns = patternCache.get(cacheKey);
+          if (!patterns) {
+            const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            patterns = {
+              callPattern: new RegExp(`\\b${escaped}\\s*\\(`),
+              accessPattern: isJavaFamily ? new RegExp(`\\.${escaped}\\b`) : null,
+            };
+            patternCache.set(cacheKey, patterns);
+          }
+          if (patterns.callPattern.test(content) || (patterns.accessPattern && patterns.accessPattern.test(content))) {
+            used.add(symbol);
+          }
+        }
+        if (used.size === symbols.length) break;
+      } catch {
+        // ignore read errors
+      }
+    }
+
+    return used;
+  }
+
+  _scanLocalSymbolUsage(filePath, symbols) {
+    const used = new Set();
+    if (!symbols || symbols.length === 0) return used;
+    try {
+      let content = this.dg._scanContentCache.get(filePath);
+      if (content === undefined) {
+        content = fs.readFileSync(filePath, 'utf-8');
+        if (this.dg._scanContentCache.size < LIMITS.SCAN_SYMBOL_CONTENT_CACHE_MAX) {
+          this.dg._scanContentCache.set(filePath, content);
+        }
+      }
+      for (const symbol of symbols) {
+        if (used.has(symbol)) continue;
+        const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const callPattern = new RegExp(`\\b${escaped}\\s*\\(`);
+        const selfAccessPattern = new RegExp(`\\b${escaped}\\.`);
+        // Scan line-by-line and skip declaration/export lines to avoid
+        // matching the function definition itself (e.g. "function foo()").
+        for (const line of content.split('\n')) {
+          if (line.includes('export') && line.includes(symbol)) continue;
+          if (line.includes('function') && line.includes(symbol)) continue;
+          if (callPattern.test(line) || selfAccessPattern.test(line)) {
+            used.add(symbol);
+            break;
+          }
+        }
+      }
+    } catch {
+      // ignore read errors
+    }
+    return used;
+  }
+
+  _collectUsedExports(importers, filePath) {
+    let usesAllExports = false;
+    const usedNames = new Set();
+
+    for (const importerPath of importers) {
+      const importerInfo = this.dg.getFileInfo(importerPath);
+      if (!importerInfo?.importRecords) {
+        usesAllExports = true;
+        break;
+      }
+
+      const matchingImports = importerInfo.importRecords.filter((record) => record.resolved === filePath);
+      for (const record of matchingImports) {
+        if (record.usesAllExports) {
+          usesAllExports = true;
+          break;
+        }
+        for (const importedName of record.imported || []) {
+          usedNames.add(importedName);
+        }
+      }
+
+      if (usesAllExports) break;
+    }
+
+    return { usedNames, usesAllExports };
+  }
+
+  findDeadExports() {
+    const deadExports = [];
+
+    for (const [filePath, info] of this.dg.graph) {
+      if (this.dg.shouldExcludeCli(filePath)) continue;
+      if (info.exports.length === 0) continue;
+      if (this.dg.isTestLikeFile(filePath)) continue;
+      if (this.dg.isKnownEntryFile(filePath, info.exports)) continue;
+      // P78: Detect scaffold once per file, reuse in both output branches
+      const scaffold = detectScaffold(filePath) || undefined;
+      const importers = this.dg.getDependents(filePath);
+      if (importers.length === 0) {
+        // When the dependency graph has many files but suspiciously few edges,
+        // the parser may be unavailable or the project uses an unsupported module
+        // system. Downgrade confidence to avoid high-confidence false positives.
+        const stats = this.getStats();
+        const edgeRatio = stats.files > 0 ? stats.totalImports / stats.files : 0;
+        const graphUnreliable = stats.files > 1 && edgeRatio < 0.1;
+        const { confidence, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable);
+        deadExports.push({ file: filePath, exports: info.exports, confidence, confidenceReason: reason, importerCount: 0, scaffold });
+        continue;
+      }
+
+      const { usedNames, usesAllExports } = this._collectUsedExports(importers, filePath);
+      if (usesAllExports) continue;
+
+      let unused = info.exports.filter((name) => !usedNames.has(name));
+
+      // P1: 轻量扫描 importer 文件中的实际使用点，消除 importRecords 未 capture 的误报
+      if (unused.length > 0) {
+        const scannedUsed = this._scanSymbolUsageInImporters(importers, unused, filePath);
+        unused = unused.filter((name) => !scannedUsed.has(name));
+      }
+
+      // L3-1: 扫描模块内部使用（同文件内的函数调用/属性访问），消除 barrel/internal-use 误报
+      if (unused.length > 0) {
+        const locallyUsed = this._scanLocalSymbolUsage(filePath, unused);
+        unused = unused.filter((name) => !locallyUsed.has(name));
+      }
+
+      if (unused.length > 0) {
+        const { confidence, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false);
+        const isConstantsWarehouse = isLikelyConstantsWarehouse(filePath, info.exportRecords);
+        deadExports.push({
+          file: filePath,
+          exports: unused,
+          confidence: isConstantsWarehouse ? 'low' : confidence,
+          confidenceReason: isConstantsWarehouse
+            ? 'File matches Java constants-warehouse pattern; individual constants may be referenced via static import or reflection, bypassing static analysis'
+            : reason,
+          importerCount: importers.length,
+          scaffold,
+        });
+      }
+    }
+
+    return deadExports;
+  }
+
+  findUnresolvedImports() {
+    const unresolved = [];
+
+    for (const [filePath, info] of this.dg.graph) {
+      if (this.dg.shouldExcludeCli(filePath)) continue;
+      for (const imp of info.imports) {
+        if (!this.dg.hasFile(imp) && path.isAbsolute(imp) && !fs.existsSync(imp)) {
+          unresolved.push({ file: filePath, import: imp, resolvedTo: null });
+        }
+      }
+    }
+
+    return unresolved;
+  }
+
+  _findAffectedTestsByGraph(filePath, maxDepth) {
+    const isTestFile = (f) => isTestLikeFile(f);
+    return bfsTraverse(filePath, (file) => this.dg.getDependents(file), {
+      maxDepth,
+      onVisit: (file, distance, via) => {
+        if (file !== filePath && isTestFile(file)) {
+          const result = { file, distance, source: 'graph' };
+          if (via.length > 0) result.via = via;
+          return result;
+        }
+        return undefined;
+      },
+    });
+  }
+
+  _findAffectedTestsByHeuristic(filePath, maxDepth, graphResults) {
+    const isTestFile = (f) => isTestLikeFile(f);
+    const seen = new Set(graphResults.map((entry) => entry.file));
+    const sourceSignature = buildHeuristicSignature(this.dg.root, filePath);
+    const sourceFamily = getHeuristicLanguageFamily(filePath);
+    const sourceLeaf = normalizeHeuristicName(filePath);
+
+    for (const candidate of this.dg.graph.keys()) {
+      if (candidate === filePath) continue;
+      if (!isTestFile(candidate)) continue;
+      if (seen.has(candidate)) continue;
+
+      const candidateFamily = getHeuristicLanguageFamily(candidate);
+      if (sourceFamily !== candidateFamily) continue;
+
+      const candidateSignature = buildHeuristicSignature(this.dg.root, candidate);
+      const candidateLeaf = normalizeHeuristicName(candidate);
+
+      let signatureMatched = candidateSignature && candidateSignature === sourceSignature;
+
+      // Python fallback for common layouts:
+      // source: pkg/module.py  -> tests/test_module.py | tests/module_test.py
+      if (!signatureMatched && sourceFamily === 'python-family') {
+        signatureMatched =
+          Boolean(candidateLeaf) &&
+          candidateLeaf === sourceLeaf &&
+          Boolean(sourceSignature) &&
+          sourceSignature.endsWith(`/${sourceLeaf}`);
+      }
+
+      // L2-10: general leaf-name fallback for flat test directories
+      // e.g. src/utils/request.js -> tests/request.test.js
+      // Only match when the test has a flat signature (single segment) to avoid
+      // cross-module false positives like src/feature.js -> tests/group-b/feature.test.js
+      if (!signatureMatched && candidateLeaf && candidateLeaf === sourceLeaf) {
+        const isFlatTest = !candidateSignature.includes('/');
+        if (isFlatTest) {
+          signatureMatched = true;
+        }
+      }
+
+      if (signatureMatched) {
+        graphResults.push({
+          file: candidate,
+          distance: maxDepth + 1,
+          source: 'heuristic',
+          via: ['heuristic:naming'],
+        });
+        seen.add(candidate);
+      }
+    }
+  }
+
+  findAffectedTests(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH, options = {}) {
+    const start = this.dg.normalizeFilePath(filePath);
+    const results = this._findAffectedTestsByGraph(start, maxDepth);
+    if (options?.includeHeuristic !== false) {
+      this._findAffectedTestsByHeuristic(start, maxDepth, results);
+    }
+    return results;
+  }
+
+  getScopeSummary() {
+    const files = Array.from(this.dg.cache.fileMetadata.keys()).filter((file) => {
+      if (this.dg.shouldExclude(file)) return false;
+      if (this.dg.shouldExcludeCli(file)) return false;
+      return true;
+    });
+    if (this.dg.projectContext) {
+      return this.dg.projectContext.summarizeFiles(files, (file) => this.dg.getDependents(file).length > 0);
+    }
+
+    return {
+      configPath: null,
+      hasWorkspaceBridgeConfig: false,
+      counts: {
+        totalFiles: files.length,
+        mainlineFiles: files.length,
+        nonMainlineFiles: 0,
+        testFiles: files.filter((f) => this.dg.isTestLikeFile(f)).length,
+      },
+      directoryRoles: {
+        active: files.length,
+        reference: 0,
+        archive: 0,
+        generated: 0,
+      },
+      fileRoles: {
+        entry: 0,
+        library: files.length,
+        config: 0,
+        test: 0,
+        migration: 0,
+        script: 0,
+      },
+      entryFiles: [],
+    };
+  }
+}
+
+class GraphQuery {
+  constructor(depGraph) {
+    this.dg = depGraph;
+  }
+
+  getDependencies(filePath) {
+    return this.dg.getFileInfo(filePath)?.imports || [];
+  }
+
+  getDependents(filePath) {
+    return this.dg.reverseGraph.get(this.dg.normalizeFilePath(filePath)) || [];
+  }
+
+  getImpactRadius(filePath, depth = 3) {
+    const start = this.dg.normalizeFilePath(filePath);
+    return bfsTraverse(start, (file) => this.getDependents(file), {
+      maxDepth: depth,
+      onVisit: (file, level, via) => {
+        if (level === 0 || file === start) return undefined;
+        const currentInfo = this.dg.getFileInfo(file);
+
+        let importedSymbols = [];
+        let importedSymbolsAvailable = false;
+        if (currentInfo?.importRecords) {
+          const parentFile = via[via.length - 1];
+          const matchingImports = currentInfo.importRecords.filter((r) => r.resolved === parentFile);
+          for (const record of matchingImports) {
+            if (record.imported) importedSymbols.push(...record.imported);
+          }
+          importedSymbolsAvailable = matchingImports.length > 0 && matchingImports.some((r) => r.imported && r.imported.length > 0);
+        }
+
+        return {
+          file,
+          level,
+          via: [...via],
+          importedSymbols: [...new Set(importedSymbols)],
+          importedSymbolsAvailable,
+          reason: level === 1 ? 'direct-import' : 'transitive-dependency',
+        };
+      },
+    });
+  }
+}
 
 class DependencyGraph {
   constructor(workspaceRoot, cache, options = {}) {
@@ -153,6 +1004,12 @@ class DependencyGraph {
     // Pattern cache for _scanSymbolUsageInImporters: RegExp objects are reused
     // across calls within a single build() lifecycle.
     this._scanPatternCache = new Map();
+    this.builder = new GraphBuilder(this);
+    this.analyzer = new GraphAnalyzer(this);
+    this.query = new GraphQuery(this);
+    // P85: cache the full filtered cycles array so getStats() and
+    // findCircularDependencies() always return the same data.
+    this._cachedCycles = null;
   }
 
   shouldExclude(filePath) {
@@ -172,7 +1029,17 @@ class DependencyGraph {
   shouldExcludeCli(filePath) {
     if (this.cliExcludeDirs.length === 0) return false;
     const normalized = normalizePathKey(filePath);
-    return this.cliExcludeDirs.some((dir) => matchesPathFragment(normalized, dir));
+    return this.cliExcludeDirs.some((pattern) => {
+      // Simple glob support: *.ext, prefix*, ?ingle-char
+      if (pattern.includes('*') || pattern.includes('?')) {
+        const regex = new RegExp('^' + pattern
+          .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+          .replace(/\*/g, '.*')
+          .replace(/\?/g, '.') + '$');
+        return regex.test(path.basename(normalized)) || regex.test(normalized);
+      }
+      return matchesPathFragment(normalized, pattern);
+    });
   }
 
   normalizeFilePath(filePath) {
@@ -304,404 +1171,6 @@ class DependencyGraph {
     }
   }
 
-  /**
-   * Build dependency graph from all indexed files
-   */
-  async build() {
-    const startTime = Date.now();
-
-    // Refresh resolver FS caches for each build to avoid stale paths
-    clearResolverCaches();
-
-    // Reset graph to prevent ghost data from deleted/renamed files
-    this.graph.clear();
-    this._cycleCount = undefined;
-    // Clear per-build caches to avoid stale content after rebuild
-    this._scanContentCache.clear();
-    this._scanPatternCache.clear();
-
-    // Get all files from cache
-    const candidateFiles = Array.from(this.cache.fileMetadata.keys()).filter((file) => {
-      if (this.shouldExclude(file)) return false;
-      if (this.projectContext && !this.projectContext.isActiveSourceFile(file)) {
-        // L2-12: keep CLI-excluded files in the graph so their imports still
-        // protect production code from false positives. They will be filtered
-        // out of report output by shouldExcludeCli().
-        if (!this.shouldExcludeCli(file)) return false;
-      }
-      return true;
-    });
-    const files = [];
-    const seen = new Set();
-    for (const file of candidateFiles) {
-      const key = this.normalizeFilePath(file);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      files.push(file);
-    }
-    
-    // Split: cache hit vs need analysis
-    const cachedFiles = [];
-    const filesToAnalyze = [];
-    for (const file of files) {
-      const meta = this.cache.getFileMetadata(file);
-      const cached = this.cache.getParseResult(file);
-      if (cached && meta && cached.mtime === meta.mtime) {
-        const key = this.normalizeFilePath(file);
-        this.graph.set(key, { ...cached });
-        cachedFiles.push(file);
-      } else {
-        filesToAnalyze.push(file);
-      }
-    }
-    
-    // Process only changed/new files with concurrency limit
-    await this._processFilesWithLimit(filesToAnalyze, CONFIG.DEFAULT_CONCURRENCY);
-
-    // Build reverse graph
-    this.buildReverseGraph();
-
-    // Inject framework implicit dependencies (e.g. Vue router lazy-loading)
-    this.applyFrameworkImplicitImports();
-
-    const cacheHitRate = files.length > 0 ? Math.round((cachedFiles.length / files.length) * 100) : 0;
-    if (!this.quiet) {
-      console.error(`[DepGraph] Built in ${Date.now() - startTime}ms: ${this.graph.size} files (${cacheHitRate}% cached)`);
-    }
-    // Guard: if graph has files but zero edges, downstream analysis will produce false positives.
-    const totalImports = Array.from(this.graph.values()).reduce((sum, i) => sum + i.imports.length, 0);
-    if (this.graph.size > 0 && totalImports === 0) {
-      console.error('[DepGraph] WARNING: Dependency graph appears empty (0 edges). Results may contain false positives.');
-    }
-  }
-
-  /**
-   * Process files with concurrency limit (reuse FileIndex pattern)
-   */
-  async _processFilesWithLimit(files, limit) {
-    const executing = new Set();
-    
-    for (const file of files) {
-      const promise = this.analyzeFile(file).then(() => {
-        executing.delete(promise);
-      });
-      executing.add(promise);
-      
-      if (executing.size >= limit) {
-        await Promise.race(executing);
-      }
-    }
-    
-    await Promise.all(executing);
-  }
-
-  /**
-   * Analyze a single file for imports/exports
-   */
-  async analyzeFile(filePath) {
-    try {
-      const graphKey = this.normalizeFilePath(filePath);
-      const content = await readFile(filePath, 'utf8');
-      const ext = path.extname(filePath);
-      
-      let imports = [];
-      let exports = [];
-      let importRecords = [];
-      let exportRecords = [];
-      let functionRecords = [];
-      let parseMode = 'none';
-
-      const entry = registry.findByExt(ext);
-      if (entry) {
-        const args = entry.needsFilePath ? [content, filePath] : [content];
-        const result = entry.async ? await entry.parser(...args) : entry.parser(...args);
-        imports = result.imports;
-        exports = result.exports;
-        importRecords = result.importRecords || [];
-        exportRecords = result.exportRecords || [];
-        functionRecords = result.functionRecords || [];
-        parseMode = result.parseMode || 'regex';
-      }
-
-      // Resolve relative imports to absolute paths
-      const resolvedImportRecords = (importRecords.length > 0 ? importRecords : imports.map((source) => createImportRecord(source)))
-        .map((record) => {
-          const resolved = resolveImport(filePath, record.source, ext, this.root);
-          if (!resolved) return null;
-          return {
-            ...record,
-            resolved: this.normalizeFilePath(resolved),
-          };
-        })
-        .filter(Boolean);
-      const resolvedImports = resolvedImportRecords.map((record) => record.resolved).filter((imp) => imp !== graphKey);
-
-      // L2-28: infer parseModeReason so consumers can tell why a file fell back to regex.
-      let parseModeReason = 'unsupported-extension';
-      if (entry) {
-        if (parseMode === 'ast') {
-          parseModeReason = 'ast-success';
-        } else if (entry.async) {
-          parseModeReason = 'regex-fallback';
-        } else {
-          parseModeReason = 'regex-native';
-        }
-      }
-
-      this.graph.set(graphKey, {
-        imports: resolvedImports,
-        exports,
-        importRecords: resolvedImportRecords,
-        // python.js now returns proper exportRecords (B3 fixed); keep fallback for other parsers
-        exportRecords,
-        functionRecords: functionRecords.length > 0 ? functionRecords : [],
-        parseMode,
-        parseModeReason,
-        confidence: parseMode === 'ast' ? 'high' : 'medium',
-      });
-
-      // Cache parse result for incremental rebuilds
-      const meta = this.cache.getFileMetadata(filePath);
-      if (meta) {
-        this.cache.setParseResult(filePath, {
-          ...this.graph.get(graphKey),
-          mtime: meta.mtime,
-        });
-      }
-
-    } catch (e) {
-      // 单个文件分析失败不应阻塞整个依赖图构建，记录日志后继续
-      console.error(`[DepGraph] Failed to analyze ${filePath}:`, e.message);
-      // 删除 stale 记录，防止增量更新时 reverseGraph 与实际内容脱节
-      this.graph.delete(this.normalizeFilePath(filePath));
-      this.cache.deleteParseResult(filePath);
-    }
-  }
-
-  _addReverseEdges(fileKey, imports, options = {}) {
-    const { skipExisting = false } = options;
-    const seen = new Set();
-    for (const imp of imports) {
-      if (seen.has(imp)) continue;
-      seen.add(imp);
-      if (!this.reverseGraph.has(imp)) {
-        this.reverseGraph.set(imp, []);
-      }
-      const dependents = this.reverseGraph.get(imp);
-      if (skipExisting && dependents.includes(fileKey)) continue;
-      dependents.push(fileKey);
-    }
-  }
-
-  _removeOldReverseEdges(fileKey) {
-    const oldInfo = this.graph.get(fileKey);
-    if (!oldInfo) return;
-    for (const imp of oldInfo.imports) {
-      const dependents = this.reverseGraph.get(imp);
-      if (dependents) {
-        const filtered = dependents.filter((d) => d !== fileKey);
-        if (filtered.length > 0) {
-          this.reverseGraph.set(imp, filtered);
-        } else {
-          this.reverseGraph.delete(imp);
-        }
-      }
-    }
-  }
-
-  buildReverseGraph() {
-    this.reverseGraph.clear();
-
-    for (const [file, info] of this.graph) {
-      this._addReverseEdges(file, info.imports);
-    }
-  }
-
-  /**
-   * Apply framework implicit imports after explicit graph is built.
-   * Scans JS/TS/Vue files for framework patterns (Vue router lazy-loading,
-   * global component registration) and injects resolved implicit edges into
-   * both graph.imports/importRecords and reverseGraph.
-   */
-  applyFrameworkImplicitImports() {
-    const startTime = Date.now();
-    let implicitEdgeCount = 0;
-
-    for (const [fileKey, info] of this.graph) {
-      const ext = path.extname(fileKey).toLowerCase();
-      if (!['.js', '.jsx', '.ts', '.tsx', '.vue', '.mjs', '.cjs'].includes(ext)) continue;
-
-      let content;
-      try {
-        content = fs.readFileSync(fileKey, 'utf-8');
-      } catch {
-        continue;
-      }
-
-      const implicitSources = scanAndExtractImplicitImports(fileKey, content);
-      if (implicitSources.length === 0) continue;
-
-      const resolved = resolveImplicitImports(fileKey, implicitSources, this.root);
-      if (resolved.length === 0) continue;
-
-      // Defensive copy to avoid mutating cached arrays (cache-hit uses shallow clone)
-      if (!info._implicitMutated) {
-        info.imports = info.imports.slice();
-        info.importRecords = info.importRecords.slice();
-        info._implicitMutated = true;
-        this.graph.set(fileKey, info);
-      }
-
-      for (const { source, resolved: resolvedPath, patternId } of resolved) {
-        const normalizedResolved = this.normalizeFilePath(resolvedPath);
-        if (normalizedResolved === fileKey) continue;
-
-        if (!info.imports.includes(normalizedResolved)) {
-          info.imports.push(normalizedResolved);
-        }
-
-        const hasRecord = info.importRecords.some(
-          (r) => r.resolved === normalizedResolved && r.source === source
-        );
-        if (!hasRecord) {
-          info.importRecords.push(
-            buildImplicitImportRecord(source, normalizedResolved, patternId)
-          );
-        }
-
-        if (!this.reverseGraph.has(normalizedResolved)) {
-          this.reverseGraph.set(normalizedResolved, []);
-        }
-        const dependents = this.reverseGraph.get(normalizedResolved);
-        if (!dependents.includes(fileKey)) {
-          dependents.push(fileKey);
-          implicitEdgeCount++;
-        }
-      }
-    }
-
-    if (!this.quiet && implicitEdgeCount > 0) {
-      console.error(`[DepGraph] Applied ${implicitEdgeCount} framework implicit import edges in ${Date.now() - startTime}ms`);
-    }
-  }
-
-  /**
-   * Incrementally update dependency graph for changed files.
-   * Removes old reverse edges, re-parses changed files, adds new reverse edges.
-   * Does NOT rebuild the full reverse graph.
-   */
-  async updateFiles(filePaths) {
-    if (this._updating) {
-      // Reentrancy guard: debounce may trigger overlapping updates
-      return;
-    }
-    this._updating = true;
-
-    const startTime = Date.now();
-    let reParsed = 0;
-    let skipped = 0;
-
-    try {
-      for (const filePath of filePaths) {
-      const key = this.normalizeFilePath(filePath);
-
-      // Handle deleted files FIRST — must not be masked by cache-hit fast path
-      if (!fs.existsSync(filePath)) {
-        this._removeOldReverseEdges(key);
-        this.graph.delete(key);
-        this.cache.deleteFileMetadata(filePath);
-        this.cache.deleteParseResult(filePath);
-        this.cache.clearDiagnostics(filePath);
-        this._scanContentCache.delete(key);
-        continue;
-      }
-
-      // Fast path: file unchanged (graph and cache agree on mtime)
-      const oldInfo = this.graph.get(key);
-      const meta = this.cache.getFileMetadata(filePath);
-      const cached = this.cache.getParseResult(filePath);
-      if (oldInfo && cached && meta && cached.mtime === meta.mtime) {
-        skipped++;
-        continue;
-      }
-
-      this._removeOldReverseEdges(key);
-      this._scanContentCache.delete(key);
-
-      // Re-parse
-      await this.analyzeFile(filePath);
-      reParsed++;
-      this._cycleCount = undefined;
-
-      const newInfo = this.graph.get(key);
-      if (newInfo) {
-        this._addReverseEdges(key, newInfo.imports, { skipExisting: true });
-      }
-    }
-
-    // Re-apply framework implicit imports when any file was re-parsed,
-    // because re-parsing wipes previous implicit edges from graph.imports.
-    if (reParsed > 0) {
-      this.applyFrameworkImplicitImports();
-    }
-
-    if (!this.quiet && (reParsed > 0 || skipped > 0)) {
-      console.error(`[DepGraph] Incremental update: ${reParsed} re-parsed, ${skipped} skipped in ${Date.now() - startTime}ms`);
-    }
-    } finally {
-      this._updating = false;
-    }
-  }
-
-  /**
-   * Get direct dependencies of a file
-   */
-  getDependencies(filePath) {
-    return this.getFileInfo(filePath)?.imports || [];
-  }
-
-  /**
-   * Get files that depend on this file (reverse dependencies)
-   */
-  getDependents(filePath) {
-    return this.reverseGraph.get(this.normalizeFilePath(filePath)) || [];
-  }
-
-  /**
-   * Calculate impact radius: how many files would be affected by changing this file
-   * P3: 增加 via（路径链）和 importedSymbols（导入符号），支撑变更影响解释
-   */
-  getImpactRadius(filePath, depth = 3) {
-    const start = this.normalizeFilePath(filePath);
-    return bfsTraverse(start, (file) => this.getDependents(file), {
-      maxDepth: depth,
-      onVisit: (file, level, via) => {
-        if (level === 0 || file === start) return undefined;
-        const currentInfo = this.getFileInfo(file);
-
-        let importedSymbols = [];
-        let importedSymbolsAvailable = false;
-        if (currentInfo?.importRecords) {
-          const parentFile = via[via.length - 1];
-          const matchingImports = currentInfo.importRecords.filter((r) => r.resolved === parentFile);
-          for (const record of matchingImports) {
-            if (record.imported) importedSymbols.push(...record.imported);
-          }
-          importedSymbolsAvailable = matchingImports.length > 0 && matchingImports.some((r) => r.imported && r.imported.length > 0);
-        }
-
-        return {
-          file,
-          level,
-          via: [...via],
-          importedSymbols: [...new Set(importedSymbols)],
-          importedSymbolsAvailable,
-          reason: level === 1 ? 'direct-import' : 'transitive-dependency',
-        };
-      },
-    });
-  }
-
   getSymbolImpact(filePath, maxDepth = 4) {
     return getSymbolImpact(this, filePath, maxDepth);
   }
@@ -718,386 +1187,64 @@ class DependencyGraph {
     return getFunctionLevelAffectedTests(this, filePath, changedFunctions, options);
   }
 
-  /**
-   * Detect framework-legitimate cycles that are normal design patterns
-   * rather than structural defects (e.g. Vue store -> router -> view).
-   */
-  isLikelyFrameworkLegitimateCycle(cycle) {
-    if (cycle.length > 5) return false;
-
-    const normalized = cycle.map((f) => f.replace(/\\/g, '/').toLowerCase());
-
-    // All files must be in typical frontend source directories
-    const allInFrontend = normalized.every(
-      (f) =>
-        /\/(src|pages|views|components|store|router|layout|layouts|assets|composables|hooks|mixins|directive|directives|plugins|utils|api|http)\//.test(f) ||
-        /\.vue$/.test(f)
-    );
-    if (!allInFrontend) return false;
-
-    // Must involve at least two of: store, router, vue/view
-    const hasStore = normalized.some((f) => /\/store\//.test(f));
-    const hasRouter = normalized.some((f) => /\/router\//.test(f));
-    const hasView = normalized.some((f) => /\.vue$/.test(f) || /\/(views|pages|components|layout|layouts)\//.test(f));
-
-    let dimensions = 0;
-    if (hasStore) dimensions++;
-    if (hasRouter) dimensions++;
-    if (hasView) dimensions++;
-
-    return dimensions >= 2;
+  async build(...args) {
+    return this.builder.build(...args);
   }
 
-  /**
-   * Find circular dependencies
-   */
-  findCircularDependencies() {
-    const cycles = [];
-    const visited = new Set();
-    const stack = new Set();
-    const MAX_CYCLE_DEPTH = DEFAULTS.AFFECTED_TEST_DEPTH + 2; // conservative guard
-
-    const visit = (file, pathStack) => {
-      if (pathStack.length > MAX_CYCLE_DEPTH) {
-        // Depth guard: prevent stack overflow on extremely deep dependency chains
-        return;
-      }
-      if (stack.has(file)) {
-        // Found cycle
-        const cycleStart = pathStack.indexOf(file);
-        cycles.push(pathStack.slice(cycleStart));
-        return;
-      }
-
-      if (visited.has(file)) return;
-
-      visited.add(file);
-      stack.add(file);
-      pathStack.push(file);
-
-      try {
-        const deps = this.getDependencies(file);
-        for (const dep of deps) {
-          if (this.hasFile(dep)) {
-            visit(dep, pathStack);
-          }
-        }
-      } finally {
-        pathStack.pop();
-        stack.delete(file);
-      }
-    };
-
-    for (const file of this.graph.keys()) {
-      visit(file, []);
-    }
-
-    return cycles
-      .filter((cycle) => !(cycle.length <= 2 && cycle[0] === cycle[cycle.length - 1]))
-      .filter((cycle) => !this.isLikelyFrameworkLegitimateCycle(cycle));
+  async updateFiles(...args) {
+    return this.builder.updateFiles(...args);
   }
 
-  getStats() {
-    // Lazy-compute cycles to avoid O(V·E) DFS on every stats call
-    if (this._cycleCount === undefined) {
-      this._cycleCount = this.findCircularDependencies().length;
-    }
-    const cacheStats = this.cache?.getStats?.() || {};
-    let parsedFiles = 0;
-    let fallbackFiles = 0;
-    for (const info of this.graph.values()) {
-      if (info.parseMode === 'ast') parsedFiles++;
-      else if (info.parseMode === 'regex') fallbackFiles++;
-    }
-    const totalFiles = this.graph.size;
-    const coverageRatio = totalFiles > 0 ? parsedFiles / totalFiles : 0;
-    return {
-      files: totalFiles,
-      totalImports: Array.from(this.graph.values()).reduce((sum, i) => sum + i.imports.length, 0),
-      totalExports: Array.from(this.graph.values()).reduce((sum, i) => sum + i.exports.length, 0),
-      cycles: this._cycleCount,
-      totalLines: cacheStats.totalLines || 0,
-      analysisCoverage: {
-        totalFiles,
-        parsedFiles,
-        fallbackFiles,
-        coverageRatio: Math.round(coverageRatio * 100) / 100,
-      },
-    };
+  async analyzeFile(...args) {
+    return this.builder.analyzeFile(...args);
   }
 
-  /**
-   * P1: 轻量扫描 importer 文件中的符号使用点
-   * 通过简单 regex 查找方法调用/字段访问，补充 importRecords 未 capture 的使用
-   * @param {string[]} importerPaths - importer 文件路径列表
-   * @param {string[]} symbols - 待检查的符号名
-   * @param {string} sourceFilePath - 被导入的源文件路径（用于判断语言）
-   * @returns {Set<string>} 被使用的符号集合
-   */
-  _scanSymbolUsageInImporters(importerPaths, symbols, sourceFilePath) {
-    const used = new Set();
-    if (!symbols || symbols.length === 0) return used;
-
-    const ext = path.extname(sourceFilePath).toLowerCase();
-    const isJavaFamily = ext === '.java' || ext === '.kt';
-    const patternCache = this._scanPatternCache;
-
-    for (const importerPath of importerPaths) {
-      try {
-        let content = this._scanContentCache.get(importerPath);
-        if (content === undefined) {
-          content = fs.readFileSync(importerPath, 'utf-8');
-          // Defensive cap: prevent unbounded growth in long-lived REPL sessions
-          if (this._scanContentCache.size < LIMITS.SCAN_SYMBOL_CONTENT_CACHE_MAX) {
-            this._scanContentCache.set(importerPath, content);
-          }
-        }
-
-        for (const symbol of symbols) {
-          if (used.has(symbol)) continue;
-          const cacheKey = isJavaFamily ? `${symbol}:java` : symbol;
-          let patterns = patternCache.get(cacheKey);
-          if (!patterns) {
-            const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            patterns = {
-              callPattern: new RegExp(`\\b${escaped}\\s*\\(`),
-              accessPattern: isJavaFamily ? new RegExp(`\\.${escaped}\\b`) : null,
-            };
-            patternCache.set(cacheKey, patterns);
-          }
-          if (patterns.callPattern.test(content) || (patterns.accessPattern && patterns.accessPattern.test(content))) {
-            used.add(symbol);
-          }
-        }
-        if (used.size === symbols.length) break;
-      } catch {
-        // ignore read errors
-      }
-    }
-
-    return used;
+  buildReverseGraph(...args) {
+    return this.builder.buildReverseGraph(...args);
   }
 
-  /**
-   * Phase 3: 查找未被引用的 exports（死代码）
-   * @returns {Array<{file: string, exports: string[], confidence: 'high'|'medium'|'low'}>}
-   * @description 无 importer 的文件 → high confidence。
-   *   有 importer 的文件：先检查 importRecords，再轻量扫描 importer 内容中的使用点（P1），
-   *   两者都未发现的符号才报告为 dead-export。
-   */
-  _collectUsedExports(importers, filePath) {
-    let usesAllExports = false;
-    const usedNames = new Set();
-
-    for (const importerPath of importers) {
-      const importerInfo = this.getFileInfo(importerPath);
-      if (!importerInfo?.importRecords) {
-        usesAllExports = true;
-        break;
-      }
-
-      const matchingImports = importerInfo.importRecords.filter((record) => record.resolved === filePath);
-      for (const record of matchingImports) {
-        if (record.usesAllExports) {
-          usesAllExports = true;
-          break;
-        }
-        for (const importedName of record.imported || []) {
-          usedNames.add(importedName);
-        }
-      }
-
-      if (usesAllExports) break;
-    }
-
-    return { usedNames, usesAllExports };
+  getDependencies(...args) {
+    return this.query.getDependencies(...args);
   }
 
-  findDeadExports() {
-    const deadExports = [];
-
-    for (const [filePath, info] of this.graph) {
-      if (this.shouldExcludeCli(filePath)) continue;
-      if (info.exports.length === 0) continue;
-      if (this.isTestLikeFile(filePath)) continue;
-      if (this.isKnownEntryFile(filePath, info.exports)) continue;
-      const importers = this.getDependents(filePath);
-      if (importers.length === 0) {
-        // When the dependency graph has many files but suspiciously few edges,
-        // the parser may be unavailable or the project uses an unsupported module
-        // system. Downgrade confidence to avoid high-confidence false positives.
-        const stats = this.getStats();
-        const edgeRatio = stats.files > 0 ? stats.totalImports / stats.files : 0;
-        const graphUnreliable = stats.files > 1 && edgeRatio < 0.1;
-        const { confidence, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable);
-        deadExports.push({ file: filePath, exports: info.exports, confidence, confidenceReason: reason, importerCount: 0 });
-        continue;
-      }
-
-      const { usedNames, usesAllExports } = this._collectUsedExports(importers, filePath);
-      if (usesAllExports) continue;
-
-      let unused = info.exports.filter((name) => !usedNames.has(name));
-
-      // P1: 轻量扫描 importer 文件中的实际使用点，消除 importRecords 未 capture 的误报
-      if (unused.length > 0) {
-        const scannedUsed = this._scanSymbolUsageInImporters(importers, unused, filePath);
-        unused = unused.filter((name) => !scannedUsed.has(name));
-      }
-
-      if (unused.length > 0) {
-        const { confidence, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false);
-        deadExports.push({ file: filePath, exports: unused, confidence, confidenceReason: reason, importerCount: importers.length });
-      }
-    }
-
-    return deadExports;
+  getDependents(...args) {
+    return this.query.getDependents(...args);
   }
 
-  /**
-   * Phase 3: 查找解析失败的 imports
-   * @returns {Array<{file: string, import: string, resolvedTo: string}>}
-   * @description info.imports 已经是 analyzeFile 里 resolveImport() 处理过的绝对路径。
-   *   这里只报告真实不存在的路径；静态资源（如 json/css）即使未被索引，也不应视为 unresolved。
-   */
-  findUnresolvedImports() {
-    const unresolved = [];
-
-    for (const [filePath, info] of this.graph) {
-      if (this.shouldExcludeCli(filePath)) continue;
-      for (const imp of info.imports) {
-        if (!this.hasFile(imp) && path.isAbsolute(imp) && !fs.existsSync(imp)) {
-          unresolved.push({ file: filePath, import: imp, resolvedTo: null });
-        }
-      }
-    }
-
-    return unresolved;
+  getImpactRadius(...args) {
+    return this.query.getImpactRadius(...args);
   }
 
-  /**
-   * Phase 3: 查找受文件变更影响的测试文件
-   * @param {string} filePath - 起始文件路径
-   * @param {number} [maxDepth=5] - 最大搜索深度
-    * @returns {Array<{file: string, distance: number, source: string, via?: string[]}>}
-   * @description 从起始文件出发，沿反向依赖图 BFS 搜索测试文件
-   */
-  _findAffectedTestsByGraph(filePath, maxDepth) {
-    const isTestFile = (f) => isTestLikeFile(f);
-    return bfsTraverse(filePath, (file) => this.getDependents(file), {
-      maxDepth,
-      onVisit: (file, distance, via) => {
-        if (file !== filePath && isTestFile(file)) {
-          const result = { file, distance, source: 'graph' };
-          if (via.length > 0) result.via = via;
-          return result;
-        }
-        return undefined;
-      },
-    });
+  findDeadExports(...args) {
+    return this.analyzer.findDeadExports(...args);
   }
 
-  _findAffectedTestsByHeuristic(filePath, maxDepth, graphResults) {
-    const isTestFile = (f) => isTestLikeFile(f);
-    const seen = new Set(graphResults.map((entry) => entry.file));
-    const sourceSignature = buildHeuristicSignature(this.root, filePath);
-    const sourceFamily = getHeuristicLanguageFamily(filePath);
-    const sourceLeaf = normalizeHeuristicName(filePath);
-
-    for (const candidate of this.graph.keys()) {
-      if (candidate === filePath) continue;
-      if (!isTestFile(candidate)) continue;
-      if (seen.has(candidate)) continue;
-
-      const candidateFamily = getHeuristicLanguageFamily(candidate);
-      if (sourceFamily !== candidateFamily) continue;
-
-      const candidateSignature = buildHeuristicSignature(this.root, candidate);
-      const candidateLeaf = normalizeHeuristicName(candidate);
-
-      let signatureMatched = candidateSignature && candidateSignature === sourceSignature;
-
-      // Python fallback for common layouts:
-      // source: pkg/module.py  -> tests/test_module.py | tests/module_test.py
-      if (!signatureMatched && sourceFamily === 'python-family') {
-        signatureMatched =
-          Boolean(candidateLeaf) &&
-          candidateLeaf === sourceLeaf &&
-          Boolean(sourceSignature) &&
-          sourceSignature.endsWith(`/${sourceLeaf}`);
-      }
-
-      // L2-10: general leaf-name fallback for flat test directories
-      // e.g. src/utils/request.js -> tests/request.test.js
-      // Only match when the test has a flat signature (single segment) to avoid
-      // cross-module false positives like src/feature.js -> tests/group-b/feature.test.js
-      if (!signatureMatched && candidateLeaf && candidateLeaf === sourceLeaf) {
-        const isFlatTest = !candidateSignature.includes('/');
-        if (isFlatTest) {
-          signatureMatched = true;
-        }
-      }
-
-      if (signatureMatched) {
-        graphResults.push({
-          file: candidate,
-          distance: maxDepth + 1,
-          source: 'heuristic',
-          via: ['heuristic:naming'],
-        });
-        seen.add(candidate);
-      }
-    }
+  findCircularDependencies(...args) {
+    return this.analyzer.findCircularDependencies(...args);
   }
 
-  findAffectedTests(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH, options = {}) {
-    const start = this.normalizeFilePath(filePath);
-    const results = this._findAffectedTestsByGraph(start, maxDepth);
-    if (options?.includeHeuristic !== false) {
-      this._findAffectedTestsByHeuristic(start, maxDepth, results);
-    }
-    return results;
+  findUnresolvedImports(...args) {
+    return this.analyzer.findUnresolvedImports(...args);
   }
 
-  getScopeSummary() {
-    const files = Array.from(this.cache.fileMetadata.keys()).filter((file) => {
-      if (this.shouldExclude(file)) return false;
-      if (this.shouldExcludeCli(file)) return false;
-      return true;
-    });
-    if (this.projectContext) {
-      return this.projectContext.summarizeFiles(files, (file) => this.getDependents(file).length > 0);
-    }
-
-    return {
-      configPath: null,
-      hasWorkspaceBridgeConfig: false,
-      counts: {
-        totalFiles: files.length,
-        mainlineFiles: files.length,
-        nonMainlineFiles: 0,
-        testFiles: files.filter((f) => this.isTestLikeFile(f)).length,
-      },
-      directoryRoles: {
-        active: files.length,
-        reference: 0,
-        archive: 0,
-        generated: 0,
-      },
-      fileRoles: {
-        entry: 0,
-        library: files.length,
-        config: 0,
-        test: 0,
-        migration: 0,
-        script: 0,
-      },
-      entryFiles: [],
-    };
+  findAffectedTests(...args) {
+    return this.analyzer.findAffectedTests(...args);
   }
+
+  getStats(...args) {
+    return this.analyzer.getStats(...args);
+  }
+
+  getScopeSummary(...args) {
+    return this.analyzer.getScopeSummary(...args);
+  }
+
+  _scanSymbolUsageInImporters(...args) {
+    return this.analyzer._scanSymbolUsageInImporters(...args);
+  }
+
 }
 
 module.exports = {
   DependencyGraph,
 };
-

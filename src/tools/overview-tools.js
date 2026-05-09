@@ -10,6 +10,16 @@ const { toRelativePosix } = require('../utils/path');
 const { findOrphanFiles } = require('../utils/orphan-detector');
 const { detectStack } = require('../utils/stack-detectors/detect');
 const { DEFAULTS, SCORING } = require('../config/constants');
+const {
+  buildUnresolvedRecommendation,
+  buildCycleRecommendation,
+  buildDeadExportRecommendation,
+} = require('../cli/formatters/recommendation-engine');
+const {
+  classifyUnresolved,
+  classifyDeadExports,
+  buildClassificationSummary,
+} = require('./honesty-engine');
 
 function toRelative(root, filePath) {
   return toRelativePosix(root, filePath);
@@ -88,13 +98,13 @@ function identifyCoreModules(graph, files, projectContext, root) {
     if (dependents.length >= SCORING.CORE_MODULE_MIN_DEPENDENTS && classification.fileRole === 'library') {
       candidates.push({
         file: toRelative(root, file),
-        dependentCount: dependents.length,
+        dependentsCount: dependents.length,
         reason: `被 ${dependents.length} 个模块依赖`,
       });
     }
   }
 
-  return candidates.sort((a, b) => b.dependentCount - a.dependentCount).slice(0, SCORING.TOP_N_LIST);
+  return candidates.sort((a, b) => b.dependentsCount - a.dependentsCount).slice(0, SCORING.TOP_N_LIST);
 }
 
 async function getHistoryRisk(root, filePath, historyProvider) {
@@ -170,8 +180,11 @@ function buildStability(root, depGraph, mainlineFiles, projectContext) {
   return stability.sort((a, b) => a.stabilityScore - b.stabilityScore);
 }
 
-function buildOverviewSummary(hotspots, stability, orphans, unresolvedCount = 0, cycleCount = 0, deadExportCount = 0, stackProfile = 'unknown') {
+function buildOverviewSummary(hotspots, stability, orphans, issueContext = {}, stackProfile = 'unknown', stack = null) {
   const summary = { severity: 'low', insights: [], recommendations: [] };
+  const unresolvedCount = issueContext.unresolved?.count || 0;
+  const cyclesCount = issueContext.cycles?.count || 0;
+  const deadExportsCount = issueContext.deadExports?.count || 0;
 
   if (hotspots.length > 0) {
     summary.insights.push(`发现 ${hotspots.length} 个热区文件，需要重点关注`);
@@ -189,14 +202,14 @@ function buildOverviewSummary(hotspots, stability, orphans, unresolvedCount = 0,
   if (unresolvedCount > 0) {
     summary.insights.push(`${unresolvedCount} 个未解析的 import`);
   }
-  if (cycleCount > 0) {
-    summary.insights.push(`${cycleCount} 个循环依赖`);
+  if (cyclesCount > 0) {
+    summary.insights.push(`${cyclesCount} 个循环依赖`);
   }
-  if (deadExportCount > 0) {
-    summary.insights.push(`${deadExportCount} 个死导出候选`);
+  if (deadExportsCount > 0) {
+    summary.insights.push(`${deadExportsCount} 个死导出候选`);
   }
 
-  summary.severity = overviewSeverity({ fragileModuleCount: fragileModules.length, unresolved: unresolvedCount, cycles: cycleCount, deadExports: deadExportCount, orphans: orphanCount });
+  summary.severity = overviewSeverity({ fragileModuleCount: fragileModules.length, unresolved: unresolvedCount, cycles: cyclesCount, deadExports: deadExportsCount, orphans: orphanCount });
 
   // Stack-profile-aware recommendation ordering and wording
   const isNode = stackProfile === 'node-first' || stackProfile === 'mixed';
@@ -205,15 +218,12 @@ function buildOverviewSummary(hotspots, stability, orphans, unresolvedCount = 0,
   const isGo = stackProfile === 'go-first';
   const isRust = stackProfile === 'rust-first';
 
-  if (cycleCount > 0) {
-    summary.recommendations.push('Break dependency cycles before making broad refactors.');
-  }
-  if (unresolvedCount > 0) {
-    summary.recommendations.push('Inspect unresolved imports; they can indicate broken code paths or unsupported alias resolution.');
-  }
-  if (deadExportCount > 0) {
-    summary.recommendations.push('Review dead exports as candidates, not automatic deletions.');
-  }
+  const unresolvedRec = buildUnresolvedRecommendation(unresolvedCount, issueContext.unresolved?.fp, stack);
+  const cycleRec = buildCycleRecommendation(cyclesCount, stack);
+  const deadExportRec = buildDeadExportRecommendation(deadExportsCount, issueContext.deadExports?.fp, stack);
+  if (unresolvedRec) summary.recommendations.push(unresolvedRec);
+  if (cycleRec) summary.recommendations.push(cycleRec);
+  if (deadExportRec) summary.recommendations.push(deadExportRec);
   if (hotspots.length > 0) {
     summary.recommendations.push(`优先审查热区文件: ${hotspots.slice(0, SCORING.TOP_N_RECOMMENDATIONS).map((h) => h.file).join(', ')}`);
   }
@@ -289,7 +299,7 @@ function buildCycleRefactorSuggestions(root, depGraph, projectContext) {
       ],
       validation: {
         command: 'workspace-bridge-cli cycles --cwd . --json --quiet',
-        expectation: 'cycleCount 下降或至少该 cycle 不再出现',
+        expectation: 'cyclesCount 下降或至少该 cycle 不再出现',
       },
     });
   }
@@ -309,7 +319,28 @@ const COUPLING_ADVICE_RULES = [
 function generateCouplingSplitPlan(role, coupling) {
   const { inDegree, outDegree } = coupling;
   const rule = COUPLING_ADVICE_RULES.find((r) => r.match(role, inDegree, outDegree));
-  return rule ? rule.advice : [
+  if (rule) return rule.advice;
+
+  // Differentiated by coupling shape for library / generic roles
+  if (inDegree > outDegree * 2) {
+    return [
+      '作为核心服务被大量依赖，建议按子域拆分为独立服务模块，降低变更影响面',
+      '提取内部通用逻辑到共享库，避免每个调用方直接依赖实现细节',
+    ];
+  }
+  if (outDegree > inDegree * 2) {
+    return [
+      '依赖外部模块过多，建议引入 facade 或防腐层统一封装外部调用',
+      '按业务场景拆分编排逻辑，避免单个模块成为全站依赖汇聚点',
+    ];
+  }
+  if (inDegree >= 3 && outDegree >= 3) {
+    return [
+      '双向耦合严重，考虑提取接口契约层，让调用方依赖抽象而非实现',
+      '评估是否可拆分为读服务 + 写服务，或按数据生命周期阶段分离职责',
+    ];
+  }
+  return [
     '同时被依赖和依赖他人，考虑提取接口层或 facade 打破直接引用链',
     '评估是否可拆分为 facade + 实现，或按读写/生命周期阶段分离职责',
   ];
@@ -622,7 +653,27 @@ async function buildProjectOverview(args, container) {
   const deadExports = depGraph.findDeadExports?.() || [];
   const stack = detectStack(root);
   const stackProfile = stack.profile;
-  const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans, unresolved.length, cycles.length, deadExports.length, stackProfile);
+
+  let unresolvedFp = null;
+  if (unresolved.length > 0) {
+    const classifications = classifyUnresolved(unresolved, root);
+    const summary = buildClassificationSummary(classifications);
+    unresolvedFp = { count: summary.falsePositiveCount, total: summary.total, primaryReason: summary.primaryReason };
+  }
+
+  let deadExportsFp = null;
+  if (deadExports.length > 0) {
+    const classifications = classifyDeadExports(deadExports, depGraph);
+    const summary = buildClassificationSummary(classifications);
+    deadExportsFp = { count: summary.falsePositiveCount, total: summary.total, primaryReason: summary.primaryReason };
+  }
+
+  const issueContext = {
+    unresolved: { count: unresolved.length, fp: unresolvedFp },
+    cycles: { count: cycles.length },
+    deadExports: { count: deadExports.length, fp: deadExportsFp },
+  };
+  const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans, issueContext, stackProfile, stack);
   const aggregates = aggregateOverviewStats(hotspots, stability);
 
   // P51: surface analysis coverage to prevent false safety when most files are skipped

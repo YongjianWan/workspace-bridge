@@ -36,9 +36,9 @@ const FILE_IMPACT = {
   MEDIUM_AFFECTED_TEST_COUNT: 1,
 };
 
-function fileImpactSeverity(impactCount, affectedTestCount) {
+function fileImpactSeverity(impactCount, affectedTestsCount) {
   const impact = toFinite(impactCount);
-  const tests = toFinite(affectedTestCount);
+  const tests = toFinite(affectedTestsCount);
   if (impact >= FILE_IMPACT.HIGH_IMPACT_COUNT || tests >= FILE_IMPACT.HIGH_AFFECTED_TEST_COUNT) {
     return 'high';
   }
@@ -76,7 +76,7 @@ const DIFF = {
 
 function diffSeverity({
   highRiskFileCount = 0,
-  affectedTestCount = 0,
+  affectedTestsCount = 0,
   highHistoryRiskFileCount = 0,
   highCompositeRiskFileCount = 0,
   mainlineChangedCount = 0,
@@ -86,7 +86,7 @@ function diffSeverity({
 }) {
   if (
     highRiskFileCount > 0 ||
-    affectedTestCount >= DIFF.HIGH_AFFECTED_TESTS_MIN ||
+    affectedTestsCount >= DIFF.HIGH_AFFECTED_TESTS_MIN ||
     highHistoryRiskFileCount > 0 ||
     highCompositeRiskFileCount > 0
   ) {
@@ -94,7 +94,7 @@ function diffSeverity({
   }
   if (
     mainlineChangedCount > 0 &&
-    (affectedTestCount > 0 ||
+    (affectedTestsCount > 0 ||
       maxImpact >= DIFF.MEDIUM_MAX_IMPACT_MIN ||
       maxHistoryRiskScore >= DIFF.MEDIUM_MAX_HISTORY_SCORE_MIN ||
       maxCompositeRiskScore >= DIFF.MEDIUM_MAX_COMPOSITE_SCORE_MIN)

@@ -214,6 +214,23 @@ function _hasJavaInSubdirs(root) {
   return false;
 }
 
+function _hasPythonFiles(root) {
+  try {
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        if (entry.name.endsWith('.py')) return true;
+        continue;
+      }
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const sub = path.join(root, entry.name);
+      for (const subEntry of fs.readdirSync(sub, { withFileTypes: true })) {
+        if (!subEntry.isDirectory() && subEntry.name.endsWith('.py')) return true;
+      }
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
 function detectWorkspace(root) {
   const packageJsonPath = path.join(root, 'package.json');
   const pyprojectPath = path.join(root, 'pyproject.toml');
@@ -236,6 +253,7 @@ function detectWorkspace(root) {
     hasPyproject: pathExists(pyprojectPath),
     hasRequirements: pathExists(requirementsPath),
     hasManagePy: pathExists(managePyPath),
+    hasPythonFiles: _hasPythonFiles(root),
     hasTsconfig: pathExists(tsconfigPath),
     hasPom: pathExists(pomPath),
     hasGradle: pathExists(gradlePath) || pathExists(gradleKtsPath),

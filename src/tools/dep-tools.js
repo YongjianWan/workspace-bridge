@@ -32,7 +32,7 @@ async function dependencyGraph(args, container) {
         ok: true,
         file: args.file,
         resolvedPath: filePath,
-        dependencyCount: deps.length,
+        dependenciesCount: deps.length,
         dependencies: deps,
       };
     
@@ -43,7 +43,7 @@ async function dependencyGraph(args, container) {
         ok: true,
         file: args.file,
         resolvedPath: filePath,
-        dependentCount: dents.length,
+        dependentsCount: dents.length,
         dependents: dents,
       };
     
@@ -64,7 +64,7 @@ async function dependencyGraph(args, container) {
       const cycles = container.depGraph.findCircularDependencies();
       return {
         ok: true,
-        cycleCount: cycles.length,
+        cyclesCount: cycles.length,
         cycles,
       };
     
@@ -74,7 +74,7 @@ async function dependencyGraph(args, container) {
       const classifications = classifyDeadExports(deadExports, container.depGraph);
       const result = {
         ok: true,
-        deadExportCount: deadExports.length,
+        deadExportsCount: deadExports.length,
         deadExports,
       };
       return attachHonesty(result, 'dead_exports', classifications, container.workspaceRoot);
@@ -100,7 +100,7 @@ async function dependencyGraph(args, container) {
         file: args.file,
         resolvedPath: filePath,
         maxDepth,
-        affectedTestCount: affectedTests.length,
+        affectedTestsCount: affectedTests.length,
         affectedTests,
       };
     

@@ -16,3 +16,13 @@ coverage/
 
 *.bak
 /reference/GitNexus
+
+# Temporary audit artifacts generated during local analysis sessions
+_audit_*.py
+_audit_*.js
+_audit_*.txt
+_extract_*.js
+_run_*.js
+zcypg_*.json
+zsgzt_*.json
+gwy_*.json

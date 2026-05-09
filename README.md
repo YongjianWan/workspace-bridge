@@ -2,7 +2,7 @@
 
 一个用于 AI 编程助手的工作区分析引擎，当前只保留本地 CLI + skill 工作流。
 
-给本地 AI coding agent 补跨文件视角和变更验证建议的 CLI 工具。支持 JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue SFC、Svelte。
+给本地 AI coding agent 补跨文件视角和变更验证建议的 CLI 工具。支持 JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue SFC、Svelte，自动识别框架入口（Spring Boot、Django、Vue 等），消除死代码误报。
 
 ## 快速开始
 
@@ -83,6 +83,7 @@ node cli.js repl --cwd .             # REPL 交互查询模式
 ## 许可证
 
 MIT
+
 
 
 

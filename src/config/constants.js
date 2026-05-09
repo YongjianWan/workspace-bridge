@@ -24,6 +24,9 @@ const TIMEOUTS = {
   HEALTH_AUDIT_TIMEOUT_MS: 45000,
   // Very quick checks (npm config get, etc.)
   HEALTH_QUICK_TIMEOUT_MS: 5000,
+  // Watch --run-tests mode: single validation command timeout.
+  // 60s covers most test suites for a focused set; kill if hung.
+  WATCH_COMMAND_TIMEOUT_MS: 60000,
 };
 
 const LIMITS = {

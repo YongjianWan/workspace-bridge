@@ -81,12 +81,12 @@ function main() {
     console.log('📋 Test Group: dead_exports');
     const deadExports = runCli(['dead-exports', '--cwd', '.', '--json', '--quiet']);
     assert(Array.isArray(deadExports.deadExports), 'deadExports should be an array');
-    assert(typeof deadExports.deadExportCount === 'number', 'deadExportCount should be a number');
+    assert(typeof deadExports.deadExportsCount === 'number', 'deadExportsCount should be a number');
     const partialEntry = deadExports.deadExports.find(item => path.basename(item.file) === 'partial-exports.js');
     assert(partialEntry, 'partial-exports.js should be reported');
     assert(partialEntry.exports.includes('unusedHelperTwo'), 'unusedHelperTwo should be reported as dead export');
     assert(!partialEntry.exports.includes('usedHelper'), 'usedHelper should not be reported as dead export');
-    console.log(`     Found ${deadExports.deadExportCount} files with dead exports`);
+    console.log(`     Found ${deadExports.deadExportsCount} files with dead exports`);
 
     console.log('\n📋 Test Group: unresolved');
     const unresolved = runCli(['unresolved', '--cwd', '.', '--json', '--quiet']);
@@ -97,8 +97,8 @@ function main() {
     console.log('\n📋 Test Group: affected_tests');
     const affectedTests = runCli(['affected-tests', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);
     assert(Array.isArray(affectedTests.affectedTests), 'affectedTests should be an array');
-    assert(typeof affectedTests.affectedTestCount === 'number', 'affectedTestCount should be a number');
-    console.log(`     Found ${affectedTests.affectedTestCount} affected tests`);
+    assert(typeof affectedTests.affectedTestsCount === 'number', 'affectedTestsCount should be a number');
+    console.log(`     Found ${affectedTests.affectedTestsCount} affected tests`);
 
     console.log('\n📋 Test Group: affected_tests with maxDepth');
     const limitedAffectedTests = runCli(['affected-tests', '--cwd', '.', '--file', 'src/services/container.js', '--max-depth', '2', '--json', '--quiet']);

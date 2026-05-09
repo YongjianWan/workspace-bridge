@@ -11,6 +11,7 @@ const {
   buildDisclaimer,
   isAliasImport,
 } = require('../src/tools/honesty-engine');
+const { SCAFFOLD_FINGERPRINTS } = require('../src/tools/scaffold-detector');
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -123,6 +124,58 @@ function testClassifyDeadExports_uncertain() {
   assert.strictEqual(classifications[0].reason, 'uncertain');
 }
 
+function testClassifyDeadExports_scaffoldRuoYi() {
+  const depGraph = mockDepGraph({ files: 100, totalImports: 500 });
+  const deadExports = [
+    // exactBasename match
+    { file: '/project/AbstractQuartzJob.java', exports: ['foo'], confidence: 'medium', importerCount: 3 },
+    { file: '/project/SysUser.java', exports: ['foo'], confidence: 'medium', importerCount: 3 },
+    // pathPattern match: StrFormatter under ruoyi path (basename does NOT hit constants-warehouse)
+    { file: '/project/com/ruoyi/common/utils/StrFormatter.java', exports: ['foo'], confidence: 'medium', importerCount: 3 },
+  ];
+  const classifications = classifyDeadExports(deadExports, depGraph);
+  assert.strictEqual(classifications[0].reason, 'scaffold-ruoyi');
+  assert.strictEqual(classifications[1].reason, 'scaffold-ruoyi');
+  assert.strictEqual(classifications[2].reason, 'scaffold-ruoyi');
+}
+
+function testClassifyDeadExports_scaffoldVueAdmin() {
+  const depGraph = mockDepGraph({ files: 100, totalImports: 500 });
+  const deadExports = [
+    // exactBasename match
+    { file: '/project/src/ruoyi.js', exports: ['foo'], confidence: 'medium', importerCount: 3 },
+    { file: '/project/src/validate.js', exports: ['foo'], confidence: 'medium', importerCount: 3 },
+  ];
+  const classifications = classifyDeadExports(deadExports, depGraph);
+  assert.strictEqual(classifications[0].reason, 'scaffold-vue-admin');
+  assert.strictEqual(classifications[1].reason, 'scaffold-vue-admin');
+}
+
+function testClassifyDeadExports_scaffoldNotMatched() {
+  const depGraph = mockDepGraph({ files: 100, totalImports: 500 });
+  const deadExports = [
+    // UserService outside ruoyi path — generic business code, not scaffold
+    { file: '/project/src/utils/UserService.java', exports: ['foo'], confidence: 'medium', importerCount: 3 },
+    // Generic Vue page — not scaffold, not framework-implicit
+    { file: '/project/src/pages/Home.vue', exports: ['default'], confidence: 'medium', importerCount: 0 },
+  ];
+  const classifications = classifyDeadExports(deadExports, depGraph);
+  assert.strictEqual(classifications[0].reason, 'uncertain');
+  assert.strictEqual(classifications[1].reason, 'likely-dead');
+}
+
+function testBuildClassificationSummary_scaffoldCountedAsFalsePositive() {
+  const classifications = [
+    { item: {}, reason: 'scaffold-ruoyi' },
+    { item: {}, reason: 'scaffold-ruoyi' },
+    { item: {}, reason: 'uncertain' },
+  ];
+  const summary = buildClassificationSummary(classifications);
+  assert.strictEqual(summary.total, 3);
+  assert.strictEqual(summary.falsePositiveCount, 2);
+  assert.strictEqual(summary.primaryReason, 'scaffold-ruoyi');
+}
+
 // ── buildClassificationSummary ────────────────────────────────────────────
 
 function testBuildClassificationSummary() {
@@ -172,6 +225,10 @@ const tests = [
   testClassifyDeadExports_graphUnreliable,
   testClassifyDeadExports_frameworkImplicit,
   testClassifyDeadExports_uncertain,
+  testClassifyDeadExports_scaffoldRuoYi,
+  testClassifyDeadExports_scaffoldVueAdmin,
+  testClassifyDeadExports_scaffoldNotMatched,
+  testBuildClassificationSummary_scaffoldCountedAsFalsePositive,
   testBuildClassificationSummary,
   testBuildDisclaimer_highRatio,
   testBuildDisclaimer_none,

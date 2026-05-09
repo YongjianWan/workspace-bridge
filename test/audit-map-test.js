@@ -193,7 +193,7 @@ function testProjectMapHotspots() {
   assert(result.issueOverlay.hotspots.length > 0, 'should have hotspots for highly imported files');
   const coreHotspot = result.issueOverlay.hotspots.find((h) => h.file === 'src/core.js');
   assert(coreHotspot, 'core.js should be a hotspot');
-  assert.strictEqual(coreHotspot.dependentCount, 5, 'core.js should have 5 dependents');
+  assert.strictEqual(coreHotspot.dependentsCount, 5, 'core.js should have 5 dependents');
 
   console.log('testProjectMapHotspots: ok');
 }

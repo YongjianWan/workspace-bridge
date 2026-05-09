@@ -81,9 +81,9 @@ function main() {
     const scope = summary.json.scope || {};
     console.log(`severity: ${s.severity || 'unknown'}`);
     console.log(`total files: ${scope.counts?.totalFiles || 'N/A'}`);
-    console.log(`dead exports: ${s.counts?.deadExportCount ?? 'N/A'}`);
-    console.log(`unresolved: ${s.counts?.unresolvedCount ?? 'N/A'}`);
-    console.log(`cycles: ${s.counts?.cycleCount ?? 'N/A'}`);
+    console.log(`dead exports: ${s.counts?.deadExports ?? 'N/A'}`);
+    console.log(`unresolved: ${s.counts?.unresolved ?? 'N/A'}`);
+    console.log(`cycles: ${s.counts?.cycles ?? 'N/A'}`);
     if (s.nextSteps?.length) {
       console.log(`next steps: ${s.nextSteps.join('; ')}`);
     }

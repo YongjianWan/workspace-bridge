@@ -20,7 +20,7 @@ function formatImpact(result) {
 }
 
 function formatAffectedTests(result) {
-  const lines = [`affectedTestCount: ${result.length}`];
+  const lines = [`affectedTestsCount: ${result.length}`];
   for (const entry of result) {
     lines.push(`  distance-${entry.distance}: ${entry.file}`);
   }
@@ -28,7 +28,7 @@ function formatAffectedTests(result) {
 }
 
 function formatDeadExports(result) {
-  const lines = [`deadExportCount: ${result.length}`];
+  const lines = [`deadExportsCount: ${result.length}`];
   for (const entry of result) {
     lines.push(`  ${entry.file}: ${entry.exports.join(', ')} (${entry.confidence})`);
   }
@@ -44,7 +44,7 @@ function formatUnresolved(result) {
 }
 
 function formatCycles(result) {
-  const lines = [`cycleCount: ${result.length}`];
+  const lines = [`cyclesCount: ${result.length}`];
   for (const cycle of result) {
     lines.push(`  ${cycle.join(' -> ')}`);
   }
@@ -52,7 +52,7 @@ function formatCycles(result) {
 }
 
 function formatDependents(result) {
-  const lines = [`dependentCount: ${result.length}`];
+  const lines = [`dependentsCount: ${result.length}`];
   for (const d of result) {
     lines.push(`  ← ${d}`);
   }
@@ -60,7 +60,7 @@ function formatDependents(result) {
 }
 
 function formatDependencies(result) {
-  const lines = [`dependencyCount: ${result.length}`];
+  const lines = [`dependenciesCount: ${result.length}`];
   for (const d of result) {
     lines.push(`  → ${d}`);
   }
@@ -245,10 +245,10 @@ async function executeCommand(container, line) {
       for (const file of allFiles) {
         const dependents = container.depGraph.getDependents?.(file) || [];
         if (dependents.length >= SCORING.HOTSPOT_MIN_DEPENDENTS) {
-          hotspots.push({ file, dependentCount: dependents.length });
+          hotspots.push({ file, dependentsCount: dependents.length });
         }
       }
-      hotspots.sort((a, b) => b.dependentCount - a.dependentCount);
+      hotspots.sort((a, b) => b.dependentsCount - a.dependentsCount);
 
       if (hotspots.length === 0) {
         return `No hotspots detected (threshold: ${SCORING.HOTSPOT_MIN_DEPENDENTS} dependents).`;
@@ -259,7 +259,7 @@ async function executeCommand(container, line) {
       for (let i = 0; i < Math.min(hotspots.length, 5); i++) {
         const h = hotspots[i];
         const rel = path.relative(root, h.file) || h.file;
-        lines.push(`hotspot-${i + 1}: ${rel} (${h.dependentCount} dependents)`);
+        lines.push(`hotspot-${i + 1}: ${rel} (${h.dependentsCount} dependents)`);
       }
       return lines.join('\n');
     }
@@ -270,6 +270,11 @@ async function executeCommand(container, line) {
 }
 
 async function startRepl(options) {
+  if (!process.stdin.isTTY) {
+    console.error('Error: REPL requires an interactive terminal (TTY).');
+    process.exitCode = 1;
+    return;
+  }
   const container = new ServiceContainer({ quiet: options.quiet });
   let rl = null;
   let shuttingDown = false;

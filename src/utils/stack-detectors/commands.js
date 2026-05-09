@@ -288,6 +288,57 @@ function addUniqueCommand(commands, phase, entry) {
   if (!exists) commands[phase].push(entry);
 }
 
+// P8-2: parse a raw cmd string into a structured executable object.
+// Best-effort: extracts cd prefixes, detects shell operators, splits args.
+function parseCommandString(cmd) {
+  if (!cmd || typeof cmd !== 'string') {
+    return { command: null, args: [], cwd: null, shell: null, expectedExitCode: 0, onFailure: 'abort' };
+  }
+
+  let cwd = null;
+  let rest = cmd;
+
+  // Extract cd prefix: "cd <path> && " or "cd <path> ; "
+  const cdMatch = rest.match(/^(?:cd\s+(.+?)\s+(?:&&|;)\s+)(.+)$/s);
+  if (cdMatch) {
+    cwd = cdMatch[1];
+    rest = cdMatch[2];
+  }
+
+  // If still contains shell operators, mark as shell-required
+  const hasShellOps = /[|&;<>()]/.test(rest);
+
+  // Naive split (doesn't handle quotes perfectly, but good enough for CLI args)
+  const parts = rest.trim().split(/\s+/).filter(Boolean);
+  const command = parts[0] || null;
+  const args = parts.slice(1);
+
+  return {
+    command,
+    args,
+    cwd,
+    shell: hasShellOps ? cmd : null,
+    expectedExitCode: 0,
+    onFailure: 'abort',
+  };
+}
+
+function enrichCommandEntry(entry) {
+  if (!entry || typeof entry !== 'object' || entry.executable) return entry;
+  entry.executable = parseCommandString(entry.cmd);
+  return entry;
+}
+
+function enrichCommandSet(set) {
+  if (!set) return set;
+  for (const phase of ['smoke', 'focused', 'full']) {
+    if (Array.isArray(set[phase])) {
+      set[phase] = set[phase].map(enrichCommandEntry);
+    }
+  }
+  return set;
+}
+
 const STACK_TARGET_PATTERNS = {
   node: /\.(js|jsx|ts|tsx|json|mjs|cjs)$/,
   python: /\.py$/,
@@ -451,10 +502,14 @@ function generateCommands(stack, changeType, targets, steps = []) {
     }
   }
 
+  enrichCommandSet(merged);
   return merged;
 }
 
 module.exports = {
   generateCommands,
   inferRustModuleName,
+  parseCommandString,
+  enrichCommandEntry,
+  enrichCommandSet,
 };

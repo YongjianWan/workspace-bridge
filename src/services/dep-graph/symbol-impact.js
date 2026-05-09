@@ -123,12 +123,12 @@ function buildSymbolToDependents(depGraph, filePath, sourceSymbols) {
     }
     rows.push({
       symbol,
-      dependentCount: files.length,
+      dependentsCount: files.length,
       dependents: files,
     });
   }
 
-  return rows.sort((a, b) => b.dependentCount - a.dependentCount);
+  return rows.sort((a, b) => b.dependentsCount - a.dependentsCount);
 }
 
 function buildFunctionToDependents(sourceInfo, symbolToDependents) {
@@ -144,16 +144,16 @@ function buildFunctionToDependents(sourceInfo, symbolToDependents) {
   if (functionNames.length === 0) return [];
 
   const rowsBySymbol = new Map((symbolToDependents || []).map((row) => [row.symbol, row]));
-  // L2-20: return only { function, dependentCount } to avoid duplicating the
+  // L2-20: return only { function, dependentsCount } to avoid duplicating the
   // dependents array already present in symbolToDependents. Callers that need
   // the actual file list can look it up from symbolToDependents.
   return functionNames.map((name) => {
     const row = rowsBySymbol.get(name);
     return {
       function: name,
-      dependentCount: row ? row.dependentCount : 0,
+      dependentsCount: row ? row.dependentsCount : 0,
     };
-  }).sort((a, b) => b.dependentCount - a.dependentCount);
+  }).sort((a, b) => b.dependentsCount - a.dependentsCount);
 }
 
 function buildDirectUsage(depGraph, sourceFile, sourceSymbols) {

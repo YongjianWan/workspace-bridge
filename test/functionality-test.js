@@ -222,7 +222,7 @@ function main() {
     }
     assert(jsEntry.symbolImpact.changedFunctionImpact.functionLevelAffectedTests, 'functionLevelAffectedTests should exist');
     assert.strictEqual(
-      typeof jsEntry.symbolImpact.changedFunctionImpact.functionLevelAffectedTests.affectedTestCount,
+      typeof jsEntry.symbolImpact.changedFunctionImpact.functionLevelAffectedTests.affectedTestsCount,
       'number'
     );
     assert(Array.isArray(jsEntry.changedLineRanges), 'changedLineRanges should exist');
@@ -232,10 +232,10 @@ function main() {
       console.error('DIAGNOSTIC: symbolImpact.mode =', jsEntry.symbolImpact.mode);
     }
     assert(jsSymbolRow, 'js symbol-to-dependent mapping should include utilFn');
-    assert(jsSymbolRow.dependentCount >= 1, 'utilFn should have at least one dependent');
+    assert(jsSymbolRow.dependentsCount >= 1, 'utilFn should have at least one dependent');
     const jsFunctionRow = jsEntry.symbolImpact.functionToDependents.find((item) => item.function === 'utilFn');
     assert(jsFunctionRow, 'js function-level mapping should include utilFn');
-    assert(jsFunctionRow.dependentCount >= 1, 'utilFn function-level mapping should have at least one dependent');
+    assert(jsFunctionRow.dependentsCount >= 1, 'utilFn function-level mapping should have at least one dependent');
     if (jsEntry.symbolImpact.changedFunctionImpact.mode === 'function-symbol') {
       assert(jsEntry.symbolImpact.changedFunctionImpact.changedFunctions.includes('utilFn'));
     }
@@ -244,7 +244,7 @@ function main() {
     assert(jsEntry.impactCount >= 1);
     assert(pyEntry.impactCount >= 1);
     assert(javaEntry.impactCount >= 1);
-    assert(javaEntry.affectedTestCount >= 1);
+    assert(javaEntry.affectedTestsCount >= 1);
     const polyCommandNames = [
       ...polyDiff.validationAdvice.commands.smoke.map((c) => c.name),
       ...polyDiff.validationAdvice.commands.focused.map((c) => c.name),
@@ -338,7 +338,7 @@ function main() {
     write('src/order-service.js', 'export function calc() { return 1; }\n');
     write('test/order-service.test.js', 'describe("order", () => { it("ok", () => {}); });\n');
     const affected = runCli(['affected-tests', '--cwd', tempRoot, '--file', 'src/order-service.js', '--json', '--quiet']);
-    assert(affected.affectedTestCount >= 1, 'heuristic mapping should find same-stem test file');
+    assert(affected.affectedTestsCount >= 1, 'heuristic mapping should find same-stem test file');
     fs.rmSync(tempRoot, { recursive: true, force: true });
     console.log('heuristic-test-mapping: ok');
   }

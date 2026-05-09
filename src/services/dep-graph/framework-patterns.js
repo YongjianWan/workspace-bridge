@@ -94,11 +94,45 @@ function detectFrameworkFromPath(filePath) {
     if (basename === 'views.py') {
       return { framework: 'django', reason: 'django-views', isEntry: true };
     }
+    if (p.includes('/views/') && !basename.startsWith('__')) {
+      return { framework: 'django', reason: 'django-views-dir', isEntry: true };
+    }
+    if (basename.startsWith('views_') && ext === '.py') {
+      return { framework: 'django', reason: 'django-views-prefix', isEntry: true };
+    }
     if (basename === 'urls.py') {
       return { framework: 'django', reason: 'django-urls', isEntry: true };
     }
+    if (basename === 'admin.py') {
+      return { framework: 'django', reason: 'django-admin', isEntry: true };
+    }
     if (basename === 'manage.py') {
       return { framework: 'django', reason: 'django-manage', isEntry: true };
+    }
+    if (p.includes('/management/commands/')) {
+      return { framework: 'django', reason: 'django-management-command', isEntry: true };
+    }
+    if (basename === 'tasks.py') {
+      return { framework: 'django', reason: 'django-tasks', isEntry: true };
+    }
+    // P71: Django configuration-driven entry points
+    if (basename === 'middleware.py' || /middleware.*\.py$/.test(basename)) {
+      return { framework: 'django', reason: 'django-middleware', isEntry: true };
+    }
+    if (basename === 'database_router.py' || /router.*\.py$/.test(basename)) {
+      return { framework: 'django', reason: 'django-router', isEntry: true };
+    }
+    if (basename === 'context_processors.py') {
+      return { framework: 'django', reason: 'django-context-processors', isEntry: true };
+    }
+    if (p.includes('/templatetags/') && !basename.startsWith('__')) {
+      return { framework: 'django', reason: 'django-templatetags', isEntry: true };
+    }
+    if (basename === 'forms.py') {
+      return { framework: 'django', reason: 'django-forms', isEntry: true };
+    }
+    if (basename === 'celery.py') {
+      return { framework: 'django', reason: 'django-celery-config', isEntry: true };
     }
     if (
       (p.includes('/routers/') || p.includes('/endpoints/') || p.includes('/routes/')) &&
@@ -125,6 +159,22 @@ function detectFrameworkFromPath(filePath) {
     }
     if (basename.endsWith('servletinitializer.java')) {
       return { framework: 'spring-boot', reason: 'spring-boot-servlet-initializer', isEntry: true };
+    }
+    // P79: Spring runtime-assembly components (Filter/Wrapper/Validator/Serializer/Interceptor/Listener)
+    if (/filter/i.test(basename) || /wrapper/i.test(basename) || /validator/i.test(basename) ||
+        /serializer/i.test(basename) || /interceptor/i.test(basename) || /listener/i.test(basename)) {
+      return { framework: 'spring', reason: 'spring-component', isEntry: true };
+    }
+    // P80: Quartz scheduler classes
+    if (/quartz/i.test(basename)) {
+      return { framework: 'quartz', reason: 'quartz-job', isEntry: true };
+    }
+    if (basename === 'jobinvokeutil.java') {
+      return { framework: 'quartz', reason: 'quartz-util', isEntry: true };
+    }
+    // P81: MyBatis TypeHandler
+    if (/typehandler/i.test(basename)) {
+      return { framework: 'mybatis', reason: 'mybatis-typehandler', isEntry: true };
     }
     if (p.includes('/service/') || p.includes('/services/')) {
       return { framework: 'java-service', reason: 'java-service', isEntry: false };
@@ -219,6 +269,14 @@ const AST_PATTERNS = {
     { framework: 'vue', reason: 'vue-script', patterns: ["from 'vue'", 'from "vue"', 'createapp(', 'definecomponent(', 'vue-router', 'pinia'] },
   ],
   py: [
+    { framework: 'django', reason: 'django-command', patterns: ['BaseCommand', 'class Command('] },
+    { framework: 'django', reason: 'django-admin', patterns: ['admin.site.register'] },
+    { framework: 'django', reason: 'django-middleware', patterns: ['MiddlewareMixin', 'class Middleware', 'def process_request', 'def process_response'] },
+    { framework: 'django', reason: 'django-router', patterns: ['class DatabaseRouter', 'allow_migrate', 'db_for_read', 'db_for_write'] },
+    { framework: 'django', reason: 'django-context-processors', patterns: ['def context_processors', 'def processor('] },
+    { framework: 'django', reason: 'django-templatetags', patterns: ['@register.filter', '@register.simple_tag', '@register.inclusion_tag'] },
+    { framework: 'django', reason: 'django-forms', patterns: ['class Form(', 'class ModelForm(', 'from django import forms'] },
+    { framework: 'celery', reason: 'celery-task', patterns: ['@shared_task', '@app.task'] },
     { framework: 'fastapi', reason: 'fastapi-decorator', patterns: ['@app.get', '@app.post', '@router.get'] },
     { framework: 'flask', reason: 'flask-decorator', patterns: ['@app.route', '@blueprint.route'] },
   ],
@@ -227,6 +285,10 @@ const AST_PATTERNS = {
     // to avoid substring false matches (e.g. @Controller matching inside @ControllerAdvice)
     { framework: 'spring-boot', reason: 'spring-boot-annotation', patterns: ['@SpringBootApplication', '@Configuration', '@ControllerAdvice', '@Component', '@Service', '@Repository', '@EnableAutoConfiguration', '@Aspect'] },
     { framework: 'spring', reason: 'spring-annotation', patterns: ['@RestController', '@Controller', '@GetMapping', '@PostMapping'] },
+    // P79/P80/P81: runtime-assembly framework components
+    { framework: 'spring', reason: 'spring-component', patterns: ['@Component', '@Service', '@Repository', '@Bean', 'FilterRegistrationBean', 'implements Filter', 'extends HttpServletRequestWrapper', 'implements Validator', 'implements HandlerInterceptor', 'implements ApplicationListener'] },
+    { framework: 'quartz', reason: 'quartz-job', patterns: ['org.quartz.Job', '@DisallowConcurrentExecution', 'extends AbstractQuartzJob', 'QuartzJobExecution', 'JobInvokeUtil'] },
+    { framework: 'mybatis', reason: 'mybatis-typehandler', patterns: ['implements TypeHandler', 'extends BaseTypeHandler', 'TypeHandler<'] },
   ],
   kt: [
     { framework: 'spring-kotlin', reason: 'spring-annotation', patterns: ['@RestController', '@Controller', '@GetMapping'] },

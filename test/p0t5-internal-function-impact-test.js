@@ -124,7 +124,7 @@ function testFunctionLevelAffectedTestsUsesInternalChain() {
 
   const symbolImpact = {
     functionToDependents: [
-      { function: 'publicFn', dependents: ['/repo/test/util.test.js'], dependentCount: 1 },
+      { function: 'publicFn', dependents: ['/repo/test/util.test.js'], dependentsCount: 1 },
     ],
   };
 
@@ -133,7 +133,7 @@ function testFunctionLevelAffectedTestsUsesInternalChain() {
   assert.deepStrictEqual(impact.changedFunctions, ['publicFn']);
 
   const affected = getFunctionLevelAffectedTests(depGraph, sourceFile, impact.changedFunctions, { symbolImpact, maxDepth: 4 });
-  assert.strictEqual(affected.affectedTestCount, 1);
+  assert.strictEqual(affected.affectedTestsCount, 1);
   assert.strictEqual(affected.functions[0].function, 'publicFn');
   console.log('testFunctionLevelAffectedTestsUsesInternalChain: ok');
 }

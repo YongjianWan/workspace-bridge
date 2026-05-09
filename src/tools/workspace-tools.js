@@ -229,7 +229,7 @@ function workspaceInfo(args, container) {
     detected: {
       git: workspace.hasGit,
       node: workspace.hasPackageJson,
-      python: workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy,
+      python: workspace.hasPythonFiles || workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy,
       django: workspace.hasManagePy,
       typescript: workspace.hasTsconfig || Boolean(workspace.packageJson?.devDependencies?.typescript) || Boolean(workspace.packageJson?.dependencies?.typescript),
       java: workspace.hasJava,

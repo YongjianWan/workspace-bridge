@@ -6,6 +6,27 @@
 
 ## [Unreleased]
 
+### 新增（P78 脚手架噪音过滤 — 路线 B）
+
+- **脚手架指纹检测** `src/tools/scaffold-detector.js` `src/tools/honesty-engine.js` `src/services/dep-graph.js` `src/cli/formatters/recommendation-engine.js` `src/cli/formatters/repo-summary.js` — 解决 RuoYi/Vue Admin 等常见脚手架在多个项目间产生 30+ 相同 dead-export 噪音的问题：
+  - `scaffold-detector.js`：保守策略，两层匹配：① `exactBasenames`（高度特异的文件名，如 `AbstractQuartzJob.java`、`SysUser.java`、`ruoyi.js`）② `pathPatterns`（通用文件名如 `StringUtils.java` 仅在路径含 `ruoyi` 等标记时才匹配）。避免误标非脚手架项目。
+  - `honesty-engine.js`：`classifyDeadExports` 集成 `detectScaffold()`，命中则 reason = `scaffold-ruoyi` / `scaffold-vue-admin`，纳入 `falsePositiveReasons`。
+  - `dep-graph.js`：`findDeadExports` 返回记录新增 `scaffold` 字段（含 `name`/`reason`/`description`）。
+  - `recommendation-engine.js`：`buildDeadExportRecommendation` 识别 `scaffold-*` primaryReason，文案提示 "known scaffolding boilerplate (RuoYi / Vue Admin)"。
+  - `repo-summary.js`：`honesty.deadExports` 新增 `scaffoldDeadExports` 计数。
+  - 测试：`test/scaffold-detector-test.js`（7 测试，覆盖 exact-basename / path-pattern / non-scaffold / null）+ `test/honesty-engine-test.js` 补充 4 测试 + `test/recommendation-engine-test.js` 补充 1 测试。
+
+### 修复（实战检测发现 — L2-3/L2-5/L3-1/L3-2）
+
+- **L2-3: `workspace-info` 语言检测遗漏 Python 文件** `src/utils/path.js` `src/services/dep-graph/parsers/registry.js` `src/tools/workspace-tools.js` — `detectWorkspace` 新增 `_hasPythonFiles(root)`：扫描根目录及一层子目录中的 `.py` 文件，与 Java 的 `_hasJavaInSubdirs` 保持一致。`registry.js` 的 Python `condition` 增加 `workspace.hasPythonFiles`，`workspaceInfo` 的 `detected.python` 同步更新。Node.js 项目中的 Python 辅助脚本（如 `scripts/*.py`）现被正确索引和统计
+- **L2-5: `--exclude` 不支持 glob 模式** `src/services/file-index.js` `src/services/dep-graph.js` `cli.js` — `shouldExcludeCli` 新增简单 glob 支持：pattern 含 `*` 或 `?` 时转为正则，先匹配 basename、再匹配完整路径。`cli.js` `--help` 文案同步更新为 "simple globs (*.ext)"。`*.sql` / `*.py` 等扩展名排除现已生效
+- **L3-1: `dead-exports` barrel / internal-use 模式误报** `src/services/dep-graph.js` — 新增 `_scanLocalSymbolUsage(filePath, symbols)`：逐行扫描源文件内容，检测模块内部的函数调用（`symbol(`）和属性访问（`symbol.`），跳过 `export` / `function` 声明行。`findDeadExports` 在 importer 扫描后追加本地使用扫描，消除 "导出符号仅被同模块内部使用" 的误报。自身项目 dead exports 15→5（-10 误报消除）
+- **L3-2: `audit-overview` 耦合建议模板化严重** `src/tools/overview-tools.js` — `generateCouplingSplitPlan` 默认分支按耦合形状差异化：
+  - `inDegree > outDegree * 2` → 核心服务拆分建议
+  - `outDegree > inDegree * 2` → facade / 防腐层建议
+  - `inDegree >= 3 && outDegree >= 3` → 双向耦合 / 读写分离建议
+  - 其他 → 保留原 facade + 接口层建议
+
 ### 修复（数据一致性与分类完整性 — P17/P36/P47）
 
 - **P17: `stability` 数组截断不透明，`aggregates` 与展示数据不一致** `src/tools/overview-tools.js` — `buildStability` 移除 `STABILITY_CANDIDATE_LIMIT` 截断，处理全部主线文件；`buildProjectOverview` 返回值新增 `stabilityMeta`（`totalCount`/`truncated`/`limit`），让用户明确知道还有多少文件未展示。同时统一 `mainlineFiles` 过滤逻辑，排除 test/docs/style/asset，与 `summarizeFiles` 的 `isTrulyMainline` 对齐
@@ -51,6 +72,33 @@
 ### 修复（Schema 一致性 — 冻结后修复）
 
 - **`schemaVersion` 类型不一致：CLI 注入字符串 `'1.1.1'`，但 `audit-overview` 内部返回数字 `1`** `cli.js` `src/tools/overview-tools.js` `test/functionality-test.js` `test/overview-tools-test.js` — 全仓库统一为字符串 `'1.1.1'`（semver 风格）。此前 `overview-tools.js` 的 `hotspotData` / `stabilityTrend` 返回 `schemaVersion: 1`（number），与 CLI 的 `schemaVersion: '1.1.1'`（string）冲突，会导致 AI 解析器 `typeof` 检查失败
+
+### 新增（P8-2 validationAdvice 可执行契约）
+
+- **`commands` 数组新增 `executable` 结构化字段** `src/utils/stack-detectors/commands.js` `src/cli/formatters/validation-advice.js` — 所有 validationAdvice 命令条目从 `{name, description, cmd}` 扩展为 `{name, description, cmd, executable}`，其中 `executable` 包含：
+  - `command`: 可执行文件名（如 `"npm"`、`"go"`、`"cargo"`）
+  - `args`: 参数数组（如 `["run", "test"]`）
+  - `cwd`: 工作目录（从 `cd <dir> && ` 前缀中提取，为 `null` 时在当前目录执行）
+  - `shell`: 若命令含管道/重定向等 shell 运算符，保留原始字符串供 shell 执行；否则为 `null`
+  - `expectedExitCode: 0` / `onFailure: 'abort'` — 供自动化流水线消费
+  - 向后兼容：`cmd` 字符串完全保留，现有消费者无需改动
+- **`parseCommandString` 尽力而为解析器** `src/utils/stack-detectors/commands.js` — 提取 `cd` 前缀、检测 shell 运算符、拆分参数。不追求 100% 精确（引号内空格未处理），但覆盖 95% 以上的真实验证命令
+
+### 修复（测试稳定性 — watch-test.js flaky）
+
+- **固定 `delay(2500)` 替换为轮询** `test/watch-test.js` — 创建触发文件后，轮询检查 stdout（最长 15s），消除 fs.watch 平台时序差异导致的偶发失败
+- **独立临时目录隔离** `test/watch-test.js` — 触发文件从 repo root（`watch-test-temp-file.js`）迁移到 `test/.watch-temp/trigger.js`，避免测试崩溃时污染工作区，也不与 git tracked 文件冲突
+- **新增 SIGINT 优雅退出覆盖** `test/watch-test.js` — 启动 watch 进程后发送 `SIGINT`，验证进程在 5s 内退出（Windows 上接受 `code === 0 || code === null` 以兼容平台差异）
+
+### 新增（P8-1 watch 闭环）
+
+- **`watch --run-tests`** `cli.js` `src/cli/watch.js` — 文件保存后自动执行 affected-tests 验证闭环：
+  - `buildWatchValidationCommands`：利用 `depGraph.findAffectedTests` + `generateCommands`（`run-direct-tests` steps）生成可执行的 focused 测试命令
+  - `executeWatchCommand`：spawn 执行单个 `executable` 结构化命令，支持 `cwd` / `shell` / `expectedExitCode` / 60s 超时 kill
+  - `runWatchValidation`：顺序执行命令链，任何命令失败立即停止，输出 JSON Lines 事件流（`validationStart` / `commandStart` / `commandResult` / `validationComplete`）
+  - 失败时 `commandResult` 包含完整 stdout/stderr；成功时省略以控制体积
+  - 向后兼容：不加 `--run-tests` 时 watch 行为 100% 不变
+- **`--run-tests` 测试覆盖** `test/watch-test.js` — 验证 `--run-tests` 启动后 stderr 提示 auto-run 模式，文件变更后 stdout 出现 `validationStart` + `validationComplete` JSON Lines 事件
 
 ### 路线 A 终点声明
 
@@ -103,16 +151,93 @@
   - 新增缺失命令的读取说明：`health`（`healthScore`/`checks`/`fixes`/`testCoverage`）、`stats`（`analysisCoverage`）、`dead-exports`/`unresolved`/`cycles`（`confidenceReason`/`possibleFalsePositives`）、`impact`/`dependents`/`dependencies`（`importedSymbolsAvailable`/`symbolImpact`）
   - 新增 `schemaVersion` 契约冻结说明
 
+### 修复（产品体验 — P33/P62 overview recommendations 个性化）
+
+- **P33: 两个前端项目 `audit-overview` recommendations 高度模板化** `src/tools/overview-tools.js` `src/cli/formatters/recommendation-engine.js` — 新建 `recommendation-engine.js`，提取 `buildUnresolvedRecommendation` / `buildCycleRecommendation` / `buildDeadExportRecommendation` 三个纯函数，消除 `repo-summary.js` `buildNextSteps` 与 `overview-tools.js` `buildOverviewSummary` 之间的重复 if-else 链。`audit-overview` 现在接入假阳性率（`possibleFalsePositives`）和框架检测（`stack.node.framework`），为 Vue 项目提示 alias/`.vue` 扩展名问题，为 Java 项目提示 Spring Boot 误报，为 cycle 提示 store→router→view 是正常设计模式
+- **P62: 两个前端项目症状高度一致（overview 层面）** `src/tools/overview-tools.js` — 同 P33，`audit-overview` 的 `recommendations` 与 `audit-summary` 的 `nextSteps` 共享同等的个性化水平，两个 Vue 前端项目的输出不再完全相同
+
 ### 测试
 
 - `test/framework-patterns-test.js` — 覆盖 Spring Boot 路径检测（Application/ServletInitializer）和 content 检测（SpringBootApplication/Configuration/ControllerAdvice）
 - `test/dep-graph-error-test.js` — 覆盖 Spring Boot entry 排除 dead-export 逻辑，以及 Vue store-router-view 循环白名单过滤逻辑
+- `test/recommendation-engine-test.js` — 覆盖 `buildUnresolvedRecommendation` / `buildCycleRecommendation` / `buildDeadExportRecommendation` 全部分支：count=0/null、通用文案、Vue alias、非 Vue alias、Vue cycle、通用 cycle、Vue dead-export fp、Java dead-export fp、其他 dead-export fp、fp 低于阈值
+
+### 修复（Schema 一致性 — P57 字段命名统一）
+
+- **P57: 字段命名风格不统一，增加集成成本** `cli.js` `src/tools/dep-tools.js` `src/cli/formatters/*` `src/services/dep-graph/*` `src/config/risk-thresholds.js` `test/*` — 统一各命令顶层计数字段为"数组名 + Count"规范：
+  - `dependencyCount` → `dependenciesCount`
+  - `dependentCount` → `dependentsCount`
+  - `cycleCount` → `cyclesCount`
+  - `deadExportCount` → `deadExportsCount`
+  - `affectedTestCount` → `affectedTestsCount`
+  - `impactCount` / `unresolvedCount` 保持不变（数组名本身为单数/不可数）
+- **Schema 升级**：`SCHEMA_VERSION` `'1.1.1'` → `'1.2.0'`，核心字段语义不变，计数字段命名规范化
+- **`scripts/self-audit.js`** 修复 `summary.counts` 读取错误（`deadExportCount` → `deadExports`、`unresolvedCount` → `unresolved`、`cycleCount` → `cycles`）
 
 ### 文档
 
-- **TECH_DEBT.md** 已修复条目全部压缩为"标题 + 一行 ✅ 已修复 说明"，执行 AGENTS.md 清理铁律
-- **SESSION.md** 基线同步为 84/84 PASS
+- **TECH_DEBT.md** 已修复条目全部压缩为"标题 + 一行 ✅ 已修复 说明"，执行 AGENTS.md 清理铁律；P33/P62/P57 标记已修复
+- **SESSION.md** 基线同步为 85/85 PASS；P57 关闭，`schemaVersion` 更新为 `1.2.0`
 - **CHANGELOG.md** 追加 [Unreleased] 条目
+
+### 新增（Django 框架模式识别）
+
+- **`framework-patterns.js` 路径检测** `src/services/dep-graph/framework-patterns.js` — 新增 Django 特有路径模式：
+  - `management/commands/*.py` → `django-management-command`，`isEntry: true`
+  - `views/*.py`（目录形式，非 `__init__.py`）→ `django-views-dir`，`isEntry: true`
+  - `views_*.py`（前缀形式，如 `views_coordination.py`）→ `django-views-prefix`，`isEntry: true`
+  - `admin.py` → `django-admin`，`isEntry: true`
+  - `tasks.py` → `django-tasks`（Celery），`isEntry: true`
+- **`AST_PATTERNS.py` 内容检测** `src/services/dep-graph/framework-patterns.js` — 新增 Django/Celery 内容特征：`BaseCommand` / `class Command(`（管理命令）、`admin.site.register`（admin）、`@shared_task` / `@app.task`（Celery）
+- **`dep-graph.js` `FRAMEWORK_MANAGED_PATTERNS`** `src/services/dep-graph.js` — 新增 `/management\/commands\/.*\.py$/` 和 `/tasks\.py$/`，确保 `isKnownEntryFile` 第一道防线覆盖
+- **实战效果**：`ai_gwy_backend` dead exports 74→54（-20 误报消除），与 Spring Boot 同等水平
+- **测试**：`test/framework-patterns-test.js` 新增 Django 路径/内容检测断言；`test/dep-graph-error-test.js` 新增 `testDjangoEntryDetection` 验证管理命令/视图/admin/tasks 不出现在 dead exports 中
+
+### 修复（实战检测闭环 — L1/L2/L3 全命令检验）
+
+- **L1-1: `impact` / `affected-tests` / `dependencies` / `dependents` 对不存在的文件返回 `ok: true`** `cli.js` — `runCommand` 的 4 个文件级命令分支中新增 `fs.existsSync` 前置检查，与 `audit-file` 保持一致。此前不存在的文件落入图查询返回空数组，导致自动化脚本无法区分"文件确实无影响"和"文件不存在"
+- **L1-2: `init` 命令失败时退出码为 `0`** `cli.js` — `init` case 中当配置文件已存在时，返回前显式设置 `process.exitCode = 1`。此前 `init` 是 `SELF_MANAGED_COMMANDS`，`__managedLifecycle` 为 true 时绕过了 `main()` 的错误处理路径
+- **L1-3: `audit-summary` 的 `analysisCoverage` 与 `--exclude` 不同步** `cli.js` — `audit-summary` 命令中基于 `scope.counts.totalFiles` 重新计算 `filteredAnalysisCoverage`，替代 `stats.analysisCoverage` 的全量统计。此前 `scope.counts.totalFiles = 74`（排除 test+benchmark）但 `analysisCoverage.totalFiles = 161`
+- **L1-4: `audit-diff` 变更文件计数不一致** `cli.js` — `changeMetrics` 新增 `untrackedFileCount: changed.changedFiles.length - numstat.files.length`。`changedFiles` 包含 untracked，而 `changeMetrics` 来自 `numstat.files`（仅 tracked），新增字段明确区分两者口径
+- **L1-5: `audit-diff` 出现 `undefined authors, undefined commits`** `src/cli/formatters/audit-diff-summary.js` `src/cli/formatters/validation-advice/metrics.js` — `compactChangedFile` 保留 `historyRisk.authorCount` 和 `historyRisk.commitCount`（此前被精简丢弃）；`metrics.js` 的 `buildTurbulenceNotes` 对缺失字段做 `?? 'unknown'` 兜底
+- **L2-1: Windows 反斜杠路径在输出中残留** `cli.js` — `parseCliArgs` 中对 `raw.file` 做 `toPosixPath` 标准化。此前 `--file .\src\services\dep-graph.js` 返回 `".\\src\\services\\dep-graph.js"`，下游路径匹配可能失败
+- **L2-2: REPL 在非交互环境下无明确错误即退出** `src/cli/repl.js` — `startRepl` 开头检测 `process.stdin.isTTY`，若非 TTY 则输出 `Error: REPL requires an interactive terminal (TTY).` 并设置 `process.exitCode = 1`
+- **L2-4: `audit-security` builtin 扫描器对工具自身代码误报** `src/tools/security-tools.js` — 每行匹配后检查 `ignorePattern`（`/\/\/\s*security-scan-ignore\b|\/\*\s*security-scan-ignore\b/`），允许开发者用行尾注释显式抑制已知无害的命中。`security-tools.js` 的 7 条 pattern 定义行均加上 `// security-scan-ignore`
+- **L3-3: `audit-file` 的 `--max-depth abc` 被静默忽略** `cli.js` — `parseCliArgs` 的 `--max-depth` transform 中增加 `Number.isNaN(n)` 检测，传入非数字字符串时立即抛出 `Invalid --max-depth value` 错误
+
+### 测试
+
+- `test/init-test.js` — 更新断言：`dup.status` 从 `0` → `1`，验证 `init` 重复运行时退出码正确反映失败状态
+- `test/repl-shutdown-test.js` — 测试前临时设置 `process.stdin.isTTY = true`，绕过新增的 TTY 检测以继续验证 REPL shutdown 守卫逻辑
+
+### 文档
+
+- **TECH_DEBT.md** 全命令实战检测报告更新：L1-1~L1-5/L2-1/L2-2/L2-4/L3-3 标记已修复并删除；L1-6 澄清为测试样本选择导致的假阳性（Java 依赖图实际工作正常）；更新命令覆盖矩阵和修复优先级建议
+
+### 修复（路线 A：数据一致性 + 框架边界硬化 — P85/P70/P71/P79/P80/P81/P72/P73）
+
+- **P85: `audit-summary` vs `cycles` 数据不一致（L1）** `src/services/dep-graph.js` — 统一 cycle 计算路径：新增 `_cachedCycles` 缓存过滤后的完整 cycles 数组，`findCircularDependencies()` 优先返回缓存，`getStats()` 直接复用同一数组计算 `cycles.length`。`GraphBuilder` 在 `build()` / `updateFiles()` / `applyFrameworkImplicitImports()` 三处图变更点均重置缓存，彻底消除 `_cycleCount` 延迟计算与图生命周期耦合导致的 stale 数据风险
+- **P70: Spring Boot `*Application.java` 在 `audit-summary` 中 `entryFiles` 缺失** `src/utils/project-context.js` — `ROLE_RULES` entry 检测新增 `application.*.java` 和 `*ServletInitializer.java` 路径模式，`inferFileRole()` 现与 `framework-patterns.js` 的 `detectFrameworkFromPath()` 对齐，Spring Boot 入口在 summary 层面不再遗漏
+- **P71: Django 配置驱动入口覆盖不全** `src/services/dep-graph.js` `src/services/dep-graph/framework-patterns.js` — 扩展 `FRAMEWORK_MANAGED_PATTERNS` 和 `detectFrameworkFromPath()` / `AST_PATTERNS.py`，新增 middleware（`middleware.py` / `*middleware*.py`）、database router（`database_router.py` / `*router*.py`）、context processors（`context_processors.py`）、templatetags（`templatetags/*.py`）、forms（`forms.py`）、Celery 配置（`celery.py`）六类 Django 配置驱动入口，消除 Django 项目 dead-export 误报
+- **P79/P80/P81: Spring/Quartz/MyBatis 组件 dead-export 系统性误报** `src/services/dep-graph/framework-patterns.js` — 新增运行时装配组件的路径 + 内容检测：
+  - Spring: `Filter` / `Wrapper` / `Validator` / `Serializer` / `Interceptor` / `Listener`（路径含关键字或内容含 `@Component` / `implements Filter` / `FilterRegistrationBean` 等）
+  - Quartz: `/quartz/` 路径 + `org.quartz.Job` / `@DisallowConcurrentExecution` / `extends AbstractQuartzJob` / `JobInvokeUtil`
+  - MyBatis: `/typehandler/` 路径 + `implements TypeHandler` / `extends BaseTypeHandler`
+  这些组件通过框架容器运行时装配，静态 import 分析无法追踪，现统一标记为 `isEntry: true`，`isKnownEntryFile()` 自动保护
+- **P72: Java 常量类死导出系统性误报** `src/services/dep-graph.js` `src/tools/honesty-engine.js` — 新增 `isLikelyConstantsWarehouse()` 识别常量仓库模式（文件名以 `Constants` / `Status` / `Utils` 结尾 + 导出以 field/variable 为主），`findDeadExports()` 对匹配文件降级 confidence 为 `low` 并输出差异化 reason；`honesty-engine.js` 新增 `java-constants-warehouse` 假阳性原因，纳入 `falsePositiveReasons` 统计
+- **P73: Java / React 循环依赖无白名单** `src/services/dep-graph.js` — `isLikelyFrameworkLegitimateCycle()` 从仅覆盖 Vue 扩展为三框架公平检测：
+  - Vue: `store/` ↔ `router/` ↔ `view/`（保留）
+  - React: `context/` ↔ `hooks/` ↔ `components/`（长度 ≤ 4，涉及至少两个维度）
+  - Java: `domain/model/entity` ↔ `utils/util/common`（长度 ≤ 3，涉及领域模型和工具类两个维度）
+
+### 重构（P8-0：dep-graph.js God Class 内部分拆）
+
+- **`src/services/dep-graph.js`** — 对外接口 100% 不变，内部拆为三个 collaborator，`DependencyGraph` 退化为 facade：
+  - `GraphBuilder` — `build()` / `updateFiles()` / `analyzeFile()` / `buildReverseGraph()` / `applyFrameworkImplicitImports()`
+  - `GraphAnalyzer` — `findDeadExports()` / `findCircularDependencies()` / `findUnresolvedImports()` / `findAffectedTests()` / `getStats()` / `getScopeSummary()`
+  - `GraphQuery` — `getDependencies()` / `getDependents()` / `getImpactRadius()`
+- **P8-1 插槽预留**：`GraphBuilder.onBuildComplete` / `GraphBuilder.onFileUpdated`，供 watch 闭环使用
+- **验证**：85/85 测试通过，healthScore=5/5，零外部调用方改动
 
 ## [1.1.1] - 2026-05-08
 

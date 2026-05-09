@@ -289,7 +289,7 @@ function buildAuditDiffSummary(entries, changeMetrics = null, stackProfile = 'un
 
   for (const entry of list) {
     maxImpact = Math.max(maxImpact, entry.impactCount || 0);
-    if (fileImpactSeverity(entry.impactCount || 0, entry.affectedTestCount || 0) === 'high') {
+    if (fileImpactSeverity(entry.impactCount || 0, entry.affectedTestsCount || 0) === 'high') {
       highRiskFiles += 1;
     }
     const historyRiskScore = entry.historyRisk?.score || 0;
@@ -319,7 +319,7 @@ function buildAuditDiffSummary(entries, changeMetrics = null, stackProfile = 'un
 
   const severity = diffSeverity({
     highRiskFileCount: highRiskFiles,
-    affectedTestCount: affectedTests.size,
+    affectedTestsCount: affectedTests.size,
     highHistoryRiskFileCount: highHistoryRiskFiles,
     highCompositeRiskFileCount: highCompositeRiskFiles,
     mainlineChangedCount: mainlineChanged.length,
@@ -475,7 +475,7 @@ function compactChangedFile(entry) {
   const impactExplanations = Array.isArray(entry.impactExplanations) ? entry.impactExplanations : [];
 
   const historyRisk = entry.historyRisk
-    ? { score: entry.historyRisk.score, level: entry.historyRisk.level }
+    ? { score: entry.historyRisk.score, level: entry.historyRisk.level, authorCount: entry.historyRisk.authorCount, commitCount: entry.historyRisk.commitCount }
     : null;
 
   return {
@@ -484,7 +484,7 @@ function compactChangedFile(entry) {
     graphKnown: entry.graphKnown,
     impactCount: entry.impactCount || 0,
     impact: impact.slice(0, DEFAULTS.COMPACT_IMPACT_MAX),
-    affectedTestCount: entry.affectedTestCount || 0,
+    affectedTestsCount: entry.affectedTestsCount || 0,
     affectedTests: affectedTests.slice(0, DEFAULTS.COMPACT_AFFECTED_TESTS_MAX),
     compositeRisk: entry.compositeRisk || null,
     historyRisk,

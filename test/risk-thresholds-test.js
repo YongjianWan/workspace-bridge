@@ -55,15 +55,15 @@ function testDiffSeverity() {
   assert.strictEqual(diffSeverity({}), 'low', 'empty diff is low');
   // high via highRiskFileCount
   assert.strictEqual(diffSeverity({ highRiskFileCount: 1 }), 'high', '1 high-risk file is high');
-  // high via affectedTestCount
-  assert.strictEqual(diffSeverity({ affectedTestCount: 5 }), 'high', '5 affected tests is high');
+  // high via affectedTestsCount
+  assert.strictEqual(diffSeverity({ affectedTestsCount: 5 }), 'high', '5 affected tests is high');
   // high via highHistoryRiskFileCount
   assert.strictEqual(diffSeverity({ highHistoryRiskFileCount: 1 }), 'high', '1 high-history-risk file is high');
   // high via highCompositeRiskFileCount
   assert.strictEqual(diffSeverity({ highCompositeRiskFileCount: 1 }), 'high', '1 high-composite-risk file is high');
   // medium: needs mainlineChangedCount > 0 plus one trigger
   assert.strictEqual(
-    diffSeverity({ mainlineChangedCount: 1, affectedTestCount: 1 }),
+    diffSeverity({ mainlineChangedCount: 1, affectedTestsCount: 1 }),
     'medium',
     'mainline + 1 affected test is medium'
   );
@@ -84,7 +84,7 @@ function testDiffSeverity() {
   );
   // no mainline = low even with other signals
   assert.strictEqual(
-    diffSeverity({ affectedTestCount: 1, maxImpact: 1 }),
+    diffSeverity({ affectedTestsCount: 1, maxImpact: 1 }),
     'low',
     'no mainline changes stays low'
   );
@@ -103,12 +103,12 @@ function testOverviewSeverity() {
 function testCrossModuleConsistency() {
   const { buildCompositeRisk } = require('../src/cli/formatters');
 
-  const low = buildCompositeRisk({ impactCount: 0, affectedTestCount: 0, historyRisk: { score: 0 } });
+  const low = buildCompositeRisk({ impactCount: 0, affectedTestsCount: 0, historyRisk: { score: 0 } });
   assert.strictEqual(low.level, 'low', 'composite risk with zero inputs should be low');
 
   const medium = buildCompositeRisk({
     impactCount: 5,
-    affectedTestCount: 0,
+    affectedTestsCount: 0,
     historyRisk: { score: 0 },
     symbolImpact: { mode: null },
   });
@@ -116,7 +116,7 @@ function testCrossModuleConsistency() {
 
   const high = buildCompositeRisk({
     impactCount: 10,
-    affectedTestCount: 3,
+    affectedTestsCount: 3,
     historyRisk: { score: 0 },
     symbolImpact: { mode: null },
   });
@@ -125,7 +125,7 @@ function testCrossModuleConsistency() {
   // Verify historyRisk score contributes +2 and the unified mapping is applied.
   const historyDriven = buildCompositeRisk({
     impactCount: 10,
-    affectedTestCount: 0,
+    affectedTestsCount: 0,
     historyRisk: { score: 6 },
     symbolImpact: { mode: null },
   });

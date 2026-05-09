@@ -5,7 +5,7 @@ function buildCompositeRisk(entry) {
   let score = 0;
 
   const impactCount = entry?.impactCount || 0;
-  const affectedTestCount = entry?.affectedTestCount || 0;
+  const affectedTestsCount = entry?.affectedTestsCount || 0;
   const historyRiskScore = entry?.historyRisk?.score || 0;
   const symbolMode = entry?.symbolImpact?.mode || null;
   const changedFunctionImpact = entry?.symbolImpact?.changedFunctionImpact || null;
@@ -27,12 +27,12 @@ function buildCompositeRisk(entry) {
   }
 
   // Test coverage quality: many mapped tests lower risk; missing tests raise it.
-  if (affectedTestCount >= 3) {
+  if (affectedTestsCount >= 3) {
     score += 2;
-    reasons.push(`Many mapped tests affected (${affectedTestCount}).`);
-  } else if (affectedTestCount >= 1) {
+    reasons.push(`Many mapped tests affected (${affectedTestsCount}).`);
+  } else if (affectedTestsCount >= 1) {
     score += 1;
-    reasons.push(`Mapped tests affected (${affectedTestCount}).`);
+    reasons.push(`Mapped tests affected (${affectedTestsCount}).`);
   } else if (impactCount >= 3) {
     // Structural impact with zero mapped tests is a coverage gap worth flagging.
     score += 1;
@@ -61,7 +61,7 @@ function buildCompositeRisk(entry) {
 
     // Re-add risk if specific changed functions have high dependent counts.
     const highImpactFunctions = (changedFunctionImpact.impactedFunctionDependents || [])
-      .filter((row) => (row?.dependentCount || 0) >= 5);
+      .filter((row) => (row?.dependentsCount || 0) >= 5);
     if (highImpactFunctions.length > 0) {
       // Cap at +2 to avoid runaway scores for bulk refactors.
       score += Math.min(2, highImpactFunctions.length);
@@ -74,7 +74,7 @@ function buildCompositeRisk(entry) {
       reasons.push('Multiple functions changed; verify cross-cutting behavior.');
     }
 
-    const functionLevelAffectedTests = changedFunctionImpact?.functionLevelAffectedTests?.affectedTestCount || 0;
+    const functionLevelAffectedTests = changedFunctionImpact?.functionLevelAffectedTests?.affectedTestsCount || 0;
     const impactedFunctionDependents = changedFunctionImpact?.impactedDependentCount || 0;
     // Function-level dependents exist but no mapped tests → coverage gap at function granularity.
     if (impactedFunctionDependents >= 3 && functionLevelAffectedTests === 0) {

@@ -162,7 +162,7 @@ try {
   assert(helperServiceHint?.similarityMode, 'reuse hint should include similarityMode');
   const fnTests = changed.symbolImpact.changedFunctionImpact.functionLevelAffectedTests;
   assert(fnTests, 'functionLevelAffectedTests should exist');
-  assert.strictEqual(typeof fnTests.affectedTestCount, 'number');
+  assert.strictEqual(typeof fnTests.affectedTestsCount, 'number');
   const helperTests = fnTests.functions.find((item) => item.function === 'helper');
   assert(helperTests, 'functionLevelAffectedTests should include helper');
   assert(helperTests.affectedTests.some((item) => item.file.replace(/\\/g, '/').endsWith('/test/app.test.js')));
@@ -178,7 +178,7 @@ try {
     changed.compositeRisk.reasons.some((reason) => reason.includes('Function-scoped impact available')),
     'compositeRisk should include function-level reasoning'
   );
-  assert.strictEqual(changed.affectedTestCount >= 1, true);
+  assert.strictEqual(changed.affectedTestsCount >= 1, true);
   assert.strictEqual(changed.historyRisk.level, 'high');
   assert.strictEqual(changed.historyRisk.authorCount >= 3, true);
   assert.strictEqual(changed.historyRisk.revertLikeCount >= 1, true);
@@ -206,12 +206,23 @@ try {
   const topActionForChanged = parsed.validationAdvice.topRiskActions.find((item) => item.file === changed.file);
   assert(topActionForChanged, 'topRiskActions should include the changed file');
   assert.strictEqual(topActionForChanged.evidence.impactCount, changed.impactCount);
-  assert.strictEqual(topActionForChanged.evidence.affectedTestCount, changed.affectedTestCount);
+  assert.strictEqual(topActionForChanged.evidence.affectedTestsCount, changed.affectedTestsCount);
   const focusedCommandNames = parsed.validationAdvice.commands.focused.map((item) => item.name);
   assert(
     focusedCommandNames.includes('node-direct-tests') || focusedCommandNames.includes('node-focused-tests'),
     'focused commands should include node direct/focused tests'
   );
+
+  // P8-2: verify structured executable metadata on all phases
+  for (const phase of ['smoke', 'focused', 'full']) {
+    for (const cmd of parsed.validationAdvice.commands[phase] || []) {
+      assert(cmd.executable && typeof cmd.executable === 'object', `command ${cmd.name} should have executable`);
+      assert(typeof cmd.executable.command === 'string', `command ${cmd.name} should have executable.command`);
+      assert(Array.isArray(cmd.executable.args), `command ${cmd.name} should have executable.args array`);
+      assert(typeof cmd.executable.expectedExitCode === 'number', `command ${cmd.name} should have expectedExitCode`);
+      assert(typeof cmd.executable.onFailure === 'string', `command ${cmd.name} should have onFailure`);
+    }
+  }
   assert(parsed.validationAdvice.summary.some((item) => item.kind === 'tests'));
   assert(parsed.validationAdvice.summary.some((item) => item.kind === 'review'));
 

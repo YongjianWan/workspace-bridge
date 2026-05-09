@@ -35,7 +35,7 @@ function main() {
     assert(config.directories.reference.includes('docs'));
 
     const dup = runCli(['init', '--cwd', tmpDir, '--json'], tmpDir);
-    assert.strictEqual(dup.status, 0);
+    assert.strictEqual(dup.status, 1, 'init should exit with code 1 when config already exists');
     const dupParsed = JSON.parse(dup.stdout);
     assert.strictEqual(dupParsed.ok, false);
     assert(dupParsed.error.includes('already exists'));

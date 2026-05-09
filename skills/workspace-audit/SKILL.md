@@ -362,6 +362,6 @@ npx workspace-bridge-cli workspace-info --cwd <project> --json --quiet
 If `fileCount: 0` but the project clearly has source files:
 - **Java**: ensure `pom.xml` or `build.gradle` exists at project root or one subdirectory deep.
 - **Vue**: ensure `package.json` exists (Vue SFC is registered under the Node.js condition).
-- **Mixed repo**: use `--exclude` to drop directories that confuse detection (e.g. `--exclude archive,reference`).
+- **Mixed repo**: use `--exclude` to drop directories or file types that confuse detection (e.g. `--exclude archive,reference` or `--exclude *.sql,*.md`).
 
 

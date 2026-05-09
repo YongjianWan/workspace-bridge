@@ -74,13 +74,13 @@ async function main() {
 
   // affected-tests
   const tests = await executeCommand(container, 'affected-tests src/app.js');
-  assert(tests.includes('affectedTestCount: 1'), 'affected-tests should count');
+  assert(tests.includes('affectedTestsCount: 1'), 'affected-tests should count');
   assert(tests.includes('test-' + path.resolve('/project', 'src/app.js')), 'affected-tests should list files');
   console.log('affected-tests: ok');
 
   // dead-exports
   const dead = await executeCommand(container, 'dead-exports');
-  assert(dead.includes('deadExportCount: 1'), 'dead-exports should count');
+  assert(dead.includes('deadExportsCount: 1'), 'dead-exports should count');
   assert(dead.includes('unusedFn'), 'dead-exports should list symbols');
   console.log('dead-exports: ok');
 
@@ -92,19 +92,19 @@ async function main() {
 
   // cycles
   const cycles = await executeCommand(container, 'cycles');
-  assert(cycles.includes('cycleCount: 1'), 'cycles should count');
+  assert(cycles.includes('cyclesCount: 1'), 'cycles should count');
   assert(cycles.includes('c.js -> d.js -> c.js'), 'cycles should format path');
   console.log('cycles: ok');
 
   // dependents
   const dependents = await executeCommand(container, 'dependents src/app.js');
-  assert(dependents.includes('dependentCount: 1'), 'dependents should count');
+  assert(dependents.includes('dependentsCount: 1'), 'dependents should count');
   assert(dependents.includes('dependent-of-' + path.resolve('/project', 'src/app.js')), 'dependents should list files');
   console.log('dependents: ok');
 
   // dependencies
   const dependencies = await executeCommand(container, 'dependencies src/app.js');
-  assert(dependencies.includes('dependencyCount: 1'), 'dependencies should count');
+  assert(dependencies.includes('dependenciesCount: 1'), 'dependencies should count');
   assert(dependencies.includes('dependency-of-' + path.resolve('/project', 'src/app.js')), 'dependencies should list files');
   console.log('dependencies: ok');
 

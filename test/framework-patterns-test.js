@@ -24,6 +24,16 @@ function testDetectFrameworkFromPath() {
   // Python Django / FastAPI
   assert.strictEqual(detectFrameworkFromPath('/project/blog/views.py').framework, 'django');
   assert.strictEqual(detectFrameworkFromPath('/project/blog/urls.py').framework, 'django');
+  assert.strictEqual(detectFrameworkFromPath('/project/blog/admin.py').framework, 'django');
+  assert.strictEqual(detectFrameworkFromPath('/project/blog/admin.py').reason, 'django-admin');
+  assert.strictEqual(detectFrameworkFromPath('/project/blog/tasks.py').framework, 'django');
+  assert.strictEqual(detectFrameworkFromPath('/project/blog/tasks.py').reason, 'django-tasks');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/management/commands/cleanup.py').framework, 'django');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/management/commands/cleanup.py').reason, 'django-management-command');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/views/login.py').framework, 'django');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/views/login.py').reason, 'django-views-dir');
+  assert.strictEqual(detectFrameworkFromPath('/project/task_management/views_coordination.py').framework, 'django');
+  assert.strictEqual(detectFrameworkFromPath('/project/task_management/views_coordination.py').reason, 'django-views-prefix');
   assert.strictEqual(detectFrameworkFromPath('/project/api/routers/users.py').framework, 'fastapi');
 
   // Java Spring
@@ -112,6 +122,21 @@ function testDetectFrameworkFromContent() {
   const actixHint = detectFrameworkFromContent('/project/src/routes.rs', actixContent);
   assert.strictEqual(actixHint.framework, 'actix-web');
 
+  // Django management command
+  const djangoCommandContent = `from django.core.management.base import BaseCommand\n\nclass Command(BaseCommand):\n    help = 'Cleanup'`;
+  const djangoCommandHint = detectFrameworkFromContent('/project/core/management/commands/cleanup.py', djangoCommandContent);
+  assert.strictEqual(djangoCommandHint.framework, 'django');
+
+  // Django admin
+  const djangoAdminContent = `from django.contrib import admin\nfrom .models import User\n\nadmin.site.register(User)`;
+  const djangoAdminHint = detectFrameworkFromContent('/project/core/admin.py', djangoAdminContent);
+  assert.strictEqual(djangoAdminHint.framework, 'django');
+
+  // Celery task
+  const celeryContent = `from celery import shared_task\n\n@shared_task\ndef add(x, y):\n    return x + y`;
+  const celeryHint = detectFrameworkFromContent('/project/core/tasks.py', celeryContent);
+  assert.strictEqual(celeryHint.framework, 'celery');
+
   // No match
   const plainContent = `function add(a, b) { return a + b; }`;
   assert.strictEqual(detectFrameworkFromContent('/project/utils.ts', plainContent), null);
@@ -124,6 +149,11 @@ function testIsEntryFlag() {
   assert.strictEqual(detectFrameworkFromPath('/project/src/main.rs').isEntry, true);
   assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/DemoApplication.java').isEntry, true);
   assert.strictEqual(detectFrameworkFromContent('/project/DemoApplication.java', '@SpringBootApplication\npublic class DemoApplication {}').isEntry, true);
+  assert.strictEqual(detectFrameworkFromPath('/project/core/management/commands/cleanup.py').isEntry, true);
+  assert.strictEqual(detectFrameworkFromPath('/project/core/views/login.py').isEntry, true);
+  assert.strictEqual(detectFrameworkFromPath('/project/task_management/views_coordination.py').isEntry, true);
+  assert.strictEqual(detectFrameworkFromPath('/project/core/admin.py').isEntry, true);
+  assert.strictEqual(detectFrameworkFromPath('/project/core/tasks.py').isEntry, true);
 
   // Non-entry files
   assert.strictEqual(detectFrameworkFromPath('/project/src/components/Button.tsx').isEntry, false);

@@ -18,7 +18,7 @@ function collectEntryMetrics(entries) {
       graphTouchedFiles.push(entry.file);
     }
 
-    if (entry.affectedTestCount > 0) {
+    if (entry.affectedTestsCount > 0) {
       for (const test of entry.affectedTests || []) {
         if (test.distance <= 1) {
           directTests.add(test.file);
@@ -42,7 +42,7 @@ function collectEntryMetrics(entries) {
     if (isHighHistoryRisk && !isHighImpact) {
       turbulenceFiles.push({
         file: entry.file,
-        reason: `Changed often (${entry.historyRisk?.authorCount} authors, ${entry.historyRisk?.commitCount} commits) but narrow impact (${entry.impactCount} dependents)`,
+        reason: `Changed often (${entry.historyRisk?.authorCount ?? 'unknown'} authors, ${entry.historyRisk?.commitCount ?? 'unknown'} commits) but narrow impact (${entry.impactCount} dependents)`,
       });
     } else if (isHighImpact) {
       highImpactFiles.push(entry.file);

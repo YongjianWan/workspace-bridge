@@ -37,7 +37,7 @@ registry.register(defineLanguage({
   parser: parsePython,
   async: true,
   filePatterns: ['**/*.py'],
-  condition: (workspace) => workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy,
+  condition: (workspace) => workspace.hasPythonFiles || workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy,
 }));
 
 registry.register(defineLanguage({

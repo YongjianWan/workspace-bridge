@@ -1,5 +1,5 @@
 const path = require('path');
-const { detectStack, generateCommands } = require('../../utils/stack-detector');
+const { detectStack, generateCommands, enrichCommandEntry } = require('../../utils/stack-detector');
 const { classifyChangeType, getValidationTemplate } = require('./audit-diff-summary');
 const { collectEntryMetrics } = require('./validation-advice/metrics');
 const { buildPhases } = require('./validation-advice/phases');
@@ -118,6 +118,11 @@ function buildFileValidationAdvice(filePath, workspaceRoot) {
     seen.add(c.cmd);
     return true;
   });
+
+  // P8-2: enrich each command with structured executable metadata
+  for (const cmd of uniqueCommands) {
+    enrichCommandEntry(cmd);
+  }
 
   const fileSpecificAdvice = buildFileSpecificAdvice(ext, stack.profile);
 

@@ -187,6 +187,48 @@ async function testSpringBootEntryDetection() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+async function testDjangoEntryDetection() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-'));
+  fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
+  fs.mkdirSync(path.join(dir, 'core', 'management', 'commands'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'core', 'views'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'task_management'), { recursive: true });
+
+  const cmdPath = path.join(dir, 'core', 'management', 'commands', 'cleanup.py');
+  const viewPath = path.join(dir, 'core', 'views', 'login.py');
+  const viewPrefixPath = path.join(dir, 'task_management', 'views_coordination.py');
+  const adminPath = path.join(dir, 'core', 'admin.py');
+  const tasksPath = path.join(dir, 'core', 'tasks.py');
+  const plainPath = path.join(dir, 'core', 'utils.py');
+
+  fs.writeFileSync(cmdPath, 'from django.core.management.base import BaseCommand\n\nclass Command(BaseCommand):\n    help = "Cleanup"\n', 'utf8');
+  fs.writeFileSync(viewPath, 'from django.http import JsonResponse\n\ndef login(request):\n    return JsonResponse({})\n', 'utf8');
+  fs.writeFileSync(viewPrefixPath, 'from django.http import JsonResponse\n\ndef coord(request):\n    return JsonResponse({})\n', 'utf8');
+  fs.writeFileSync(adminPath, 'from django.contrib import admin\nfrom .models import User\n\nadmin.site.register(User)\n', 'utf8');
+  fs.writeFileSync(tasksPath, 'from celery import shared_task\n\n@shared_task\ndef add(x, y):\n    return x + y\n', 'utf8');
+  fs.writeFileSync(plainPath, 'def helper():\n    pass\n', 'utf8');
+
+  const cache = new WorkspaceCache(dir);
+  [cmdPath, viewPath, adminPath, tasksPath, plainPath].forEach((p) => {
+    cache.setFileMetadata(p, { mtime: 1, size: 1 });
+  });
+
+  const dg = new DependencyGraph(dir, cache);
+  await dg.build();
+
+  const dead = dg.findDeadExports();
+  const deadBasenames = dead.map((d) => path.basename(d.file).toLowerCase());
+
+  assert.strictEqual(deadBasenames.includes(path.basename(cmdPath).toLowerCase()), false, 'Django management command should not be dead export');
+  assert.strictEqual(deadBasenames.includes(path.basename(viewPath).toLowerCase()), false, 'Django views should not be dead export');
+  assert.strictEqual(deadBasenames.includes(path.basename(viewPrefixPath).toLowerCase()), false, 'Django views_coordination should not be dead export');
+  assert.strictEqual(deadBasenames.includes(path.basename(adminPath).toLowerCase()), false, 'Django admin should not be dead export');
+  assert.strictEqual(deadBasenames.includes(path.basename(tasksPath).toLowerCase()), false, 'Celery tasks should not be dead export');
+  assert.strictEqual(deadBasenames.includes(path.basename(plainPath).toLowerCase()), true, 'Plain helper should be dead export');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 async function main() {
   await testUpdateFilesEmptyArray();
   await testUpdateFilesDeletedFile();
@@ -195,6 +237,7 @@ async function main() {
   await testGetStatsLazyCycles();
   await testVueFrameworkCycleWhitelist();
   await testSpringBootEntryDetection();
+  await testDjangoEntryDetection();
   console.log('dep-graph-error-test: all passed');
 }
 

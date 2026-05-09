@@ -14,6 +14,9 @@ async function testShutdownGuardAndErrorHandling() {
   // Remove cached repl module so our patches take effect before it requires deps.
   delete require.cache[replPath];
 
+  const originalIsTTY = process.stdin.isTTY;
+  process.stdin.isTTY = true;
+
   const OriginalContainer = require(containerPath).ServiceContainer;
   let shutdownCount = 0;
   require(containerPath).ServiceContainer = class MockContainer {
@@ -87,6 +90,7 @@ async function testShutdownGuardAndErrorHandling() {
     require(containerPath).ServiceContainer = OriginalContainer;
     require(readlinePath).createInterface = originalCreateInterface;
     delete require.cache[replPath];
+    process.stdin.isTTY = originalIsTTY;
   }
 }
 
@@ -96,6 +100,9 @@ async function testShutdownErrorCaught() {
   const readlinePath = require.resolve('readline');
 
   delete require.cache[replPath];
+
+  const originalIsTTY = process.stdin.isTTY;
+  process.stdin.isTTY = true;
 
   const OriginalContainer = require(containerPath).ServiceContainer;
   let shutdownCalled = false;
@@ -162,6 +169,7 @@ async function testShutdownErrorCaught() {
     require(containerPath).ServiceContainer = OriginalContainer;
     require(readlinePath).createInterface = originalCreateInterface;
     delete require.cache[replPath];
+    process.stdin.isTTY = originalIsTTY;
   }
 }
 

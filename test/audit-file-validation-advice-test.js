@@ -22,6 +22,14 @@ function testAuditFileHasValidationAdvice() {
   assert.ok(typeof result.validationAdvice.stackProfile === 'string', 'stackProfile should be a string');
   assert.ok(Array.isArray(result.validationAdvice.commands), 'commands should be an array');
   assert.ok(result.validationAdvice.commandCount >= 0, 'commandCount should be >= 0');
+  // P8-2: structured executable metadata
+  for (const cmd of result.validationAdvice.commands) {
+    assert.ok(cmd.executable && typeof cmd.executable === 'object', `command ${cmd.name} should have executable object`);
+    assert.ok(typeof cmd.executable.command === 'string', `command ${cmd.name} should have executable.command`);
+    assert.ok(Array.isArray(cmd.executable.args), `command ${cmd.name} should have executable.args array`);
+    assert.ok(typeof cmd.executable.expectedExitCode === 'number', `command ${cmd.name} should have expectedExitCode`);
+    assert.ok(typeof cmd.executable.onFailure === 'string', `command ${cmd.name} should have onFailure`);
+  }
 }
 
 function testAuditFileHasFrameworkPattern() {

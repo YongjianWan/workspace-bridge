@@ -17,8 +17,8 @@ function buildTopRiskActions(entries, allCommands) {
     .slice(0, 3)
     .map((entry) => {
       const actions = [];
-      if (entry.affectedTestCount > 0) {
-        actions.push(`Run mapped tests first (${entry.affectedTestCount}).`);
+      if (entry.affectedTestsCount > 0) {
+        actions.push(`Run mapped tests first (${entry.affectedTestsCount}).`);
       } else if (entry.impactCount > 0) {
         actions.push(`No mapped tests; inspect dependents (${entry.impactCount}) and add focused checks.`);
       } else {
@@ -38,13 +38,13 @@ function buildTopRiskActions(entries, allCommands) {
         actions,
         evidence: {
           impactCount: entry.impactCount || 0,
-          affectedTestCount: entry.affectedTestCount || 0,
+          affectedTestsCount: entry.affectedTestsCount || 0,
           historyRiskLevel: entry.historyRisk?.level || 'low',
           historySignals: (entry.historyRisk?.signals || []).slice(0, 2),
           symbolMode: entry.symbolImpact?.mode || 'unknown',
           topImpactedSymbols: (entry.symbolImpact?.symbolToDependents || [])
             .slice(0, 3)
-            .map((item) => ({ symbol: item.symbol, dependentCount: item.dependentCount })),
+            .map((item) => ({ symbol: item.symbol, dependentsCount: item.dependentsCount })),
         },
       };
     });

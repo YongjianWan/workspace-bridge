@@ -267,7 +267,17 @@ class FileIndex {
   shouldExcludeCli(filePath) {
     if (this.cliExcludeDirs.length === 0) return false;
     const normalized = normalizePathKey(filePath);
-    return this.cliExcludeDirs.some((dir) => matchesPathFragment(normalized, dir));
+    return this.cliExcludeDirs.some((pattern) => {
+      // Simple glob support: *.ext, prefix*, ?ingle-char
+      if (pattern.includes('*') || pattern.includes('?')) {
+        const regex = new RegExp('^' + pattern
+          .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+          .replace(/\*/g, '.*')
+          .replace(/\?/g, '.') + '$');
+        return regex.test(path.basename(normalized)) || regex.test(normalized);
+      }
+      return matchesPathFragment(normalized, pattern);
+    });
   }
 
   _removeCacheEntry(filePath) {

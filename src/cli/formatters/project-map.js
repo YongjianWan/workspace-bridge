@@ -341,12 +341,12 @@ function buildProjectMap(depGraph, options = {}) {
     if (dependents.length >= SCORING.HOTSPOT_MIN_DEPENDENTS) {
       hotspots.push({
         file: toRelativePath(root, file),
-        dependentCount: dependents.length,
+        dependentsCount: dependents.length,
         reason: `Imported by ${dependents.length} files`,
       });
     }
   }
-  hotspots.sort((a, b) => (b.dependentCount || 0) - (a.dependentCount || 0));
+  hotspots.sort((a, b) => (b.dependentsCount || 0) - (a.dependentsCount || 0));
 
   const issueOverlay = {
     deadExports: deadExports.map((item) => compact

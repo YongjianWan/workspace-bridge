@@ -3,10 +3,18 @@
  * File watcher that prints impact radius on every save.
  * Reuses REPL container initialization (watch: true), drops readline,
  * and registers a callback on file changes.
+ *
+ * P8-1: Closed-loop validation mode (--run-tests).
+ *   file save → impact → affected-tests → spawn executable commands →
+ *   JSON Lines output with pass/fail + failure details.
  */
 const path = require('path');
+const { spawn } = require('child_process');
 const { ServiceContainer } = require('../services/container');
 const { DEFAULTS, TIMEOUTS } = require('../config/constants');
+const WATCH_COMMAND_TIMEOUT_MS = TIMEOUTS.WATCH_COMMAND_TIMEOUT_MS;
+const { detectStack } = require('../utils/stack-detectors/detect');
+const { generateCommands } = require('../utils/stack-detectors/commands');
 
 function formatWatchOutput(workspaceRoot, filePath, impact, depGraph, compact) {
   const relativeFile = path.relative(workspaceRoot, filePath);
@@ -41,13 +49,191 @@ function formatWatchOutput(workspaceRoot, filePath, impact, depGraph, compact) {
   return `${relativeFile} changed  ${parts.join(', ')}`;
 }
 
-function registerWatchCallback(fileIndex, depGraph, workspaceRoot, compact) {
+function emitWatchEvent(event) {
+  // JSON Lines: one machine-readable object per line, flushed immediately.
+  console.log(JSON.stringify(event));
+}
+
+function buildWatchValidationCommands(filePath, depGraph, workspaceRoot) {
+  const affectedTests = depGraph.findAffectedTests(filePath, DEFAULTS.WATCH_IMPACT_DEPTH);
+  if (affectedTests.length === 0) {
+    return { commands: [], affectedTests: [] };
+  }
+
+  const stack = detectStack(workspaceRoot);
+  const relativeFile = path.relative(workspaceRoot, filePath);
+  const steps = [{
+    name: 'run-direct-tests',
+    targets: affectedTests.map((t) => t.file),
+  }];
+
+  const commandSet = generateCommands(stack, 'code', [relativeFile], steps);
+
+  // Only run focused commands in watch mode; smoke/full are too heavy for on-save.
+  const focused = commandSet.focused || [];
+  return { commands: focused, affectedTests };
+}
+
+function executeWatchCommand(entry, workspaceRoot, timeoutMs = WATCH_COMMAND_TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    const exec = entry.executable || {};
+    const command = exec.command || entry.cmd;
+    if (!command) {
+      resolve({
+        name: entry.name,
+        ok: false,
+        exitCode: null,
+        error: 'No executable command',
+        stdout: '',
+        stderr: '',
+        durationMs: 0,
+      });
+      return;
+    }
+
+    const args = exec.args || [];
+    const cwd = exec.cwd ? path.resolve(workspaceRoot, exec.cwd) : workspaceRoot;
+    const useShell = !!exec.shell;
+    const startTime = Date.now();
+
+    const child = spawn(command, args, {
+      cwd,
+      shell: useShell,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: process.env,
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let killed = false;
+
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    const timer = setTimeout(() => {
+      killed = true;
+      child.kill();
+    }, timeoutMs);
+
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      const durationMs = Date.now() - startTime;
+      const expected = typeof exec.expectedExitCode === 'number' ? exec.expectedExitCode : 0;
+      resolve({
+        name: entry.name,
+        ok: !killed && code === expected,
+        exitCode: code,
+        killed,
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+        durationMs,
+      });
+    });
+
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      resolve({
+        name: entry.name,
+        ok: false,
+        exitCode: null,
+        error: err.message,
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+        durationMs: Date.now() - startTime,
+      });
+    });
+  });
+}
+
+async function runWatchValidation(filePath, depGraph, workspaceRoot) {
+  const startTime = Date.now();
+  const { commands, affectedTests } = buildWatchValidationCommands(filePath, depGraph, workspaceRoot);
+
+  emitWatchEvent({
+    event: 'validationStart',
+    file: path.relative(workspaceRoot, filePath),
+    affectedTestsCount: affectedTests.length,
+    commandCount: commands.length,
+    timestamp: Date.now(),
+  });
+
+  if (commands.length === 0) {
+    emitWatchEvent({
+      event: 'validationComplete',
+      file: path.relative(workspaceRoot, filePath),
+      passed: true,
+      reason: 'No affected tests detected',
+      durationMs: Date.now() - startTime,
+    });
+    return;
+  }
+
+  for (const cmd of commands) {
+    emitWatchEvent({
+      event: 'commandStart',
+      name: cmd.name,
+      command: cmd.cmd,
+      executable: cmd.executable || null,
+    });
+
+    const result = await executeWatchCommand(cmd, workspaceRoot);
+
+    emitWatchEvent({
+      event: 'commandResult',
+      name: cmd.name,
+      passed: result.ok,
+      exitCode: result.exitCode,
+      killed: result.killed || undefined,
+      durationMs: result.durationMs,
+      error: result.error || undefined,
+      // Only include stdout/stderr on failure to keep JSON Lines compact.
+      stdout: result.ok ? undefined : result.stdout,
+      stderr: result.ok ? undefined : result.stderr,
+    });
+
+    if (!result.ok) {
+      emitWatchEvent({
+        event: 'validationComplete',
+        file: path.relative(workspaceRoot, filePath),
+        passed: false,
+        failedCommand: cmd.name,
+        durationMs: Date.now() - startTime,
+      });
+      return;
+    }
+  }
+
+  emitWatchEvent({
+    event: 'validationComplete',
+    file: path.relative(workspaceRoot, filePath),
+    passed: true,
+    durationMs: Date.now() - startTime,
+  });
+}
+
+function registerWatchCallback(fileIndex, depGraph, workspaceRoot, compact, runTests) {
   fileIndex.onFileChanged = (filePath) => {
     const startTime = Date.now();
     const impact = depGraph.getImpactRadius(filePath, DEFAULTS.WATCH_IMPACT_DEPTH);
     console.log(formatWatchOutput(workspaceRoot, filePath, impact, depGraph, compact));
     if (process.env.DEBUG) {
       console.error(`[watch] computed in ${Date.now() - startTime}ms`);
+    }
+
+    if (runTests) {
+      // Fire validation asynchronously; do not block the watcher callback.
+      runWatchValidation(filePath, depGraph, workspaceRoot).catch((err) => {
+        emitWatchEvent({
+          event: 'validationError',
+          file: path.relative(workspaceRoot, filePath),
+          error: err.message,
+        });
+      });
     }
   };
 }
@@ -82,13 +268,19 @@ async function startWatch(options) {
     }
 
     console.error(`workspace-bridge watch — ${container.workspaceRoot}`);
-    console.error('Watching for file changes. Press Ctrl+C to stop.\n');
+    console.error('Watching for file changes. Press Ctrl+C to stop.');
+    if (options.runTests) {
+      console.error('Auto-run mode: affected tests will be executed on every save.\n');
+    } else {
+      console.error('\n');
+    }
 
     registerWatchCallback(
       container.fileIndex,
       container.depGraph,
       container.workspaceRoot,
       options.compact,
+      options.runTests,
     );
 
     await new Promise(() => {});

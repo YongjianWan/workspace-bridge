@@ -22,8 +22,8 @@ function main() {
 
   const symbolImpact = {
     functionToDependents: [
-      { function: 'alpha', dependents: ['/repo/src/shared.js'], dependentCount: 1 },
-      { function: 'beta', dependents: ['/repo/src/shared.js'], dependentCount: 1 },
+      { function: 'alpha', dependents: ['/repo/src/shared.js'], dependentsCount: 1 },
+      { function: 'beta', dependents: ['/repo/src/shared.js'], dependentsCount: 1 },
     ],
   };
 
@@ -38,7 +38,7 @@ function main() {
   assert.strictEqual(optionsSeen.length, 1, 'one BFS invocation expected');
   assert.strictEqual(optionsSeen[0]?.includeHeuristic, false, 'function-level BFS should disable heuristic mapping');
   assert.strictEqual(result.functions.length, 2, 'two functions should be reported');
-  assert.strictEqual(result.affectedTestCount, 1, 'unique affected tests should be de-duplicated');
+  assert.strictEqual(result.affectedTestsCount, 1, 'unique affected tests should be de-duplicated');
 
   console.log('function-impact-test: ok');
 }

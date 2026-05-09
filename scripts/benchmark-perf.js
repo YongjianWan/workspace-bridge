@@ -276,7 +276,7 @@ function main() {
       const functionScopedFiles = (parsed.changedFiles || [])
         .filter((entry) => entry?.symbolImpact?.changedFunctionImpact?.mode === 'function-symbol');
       const mappedTests = functionScopedFiles.reduce(
-        (sum, entry) => sum + (entry.symbolImpact?.changedFunctionImpact?.functionLevelAffectedTests?.affectedTestCount || 0),
+        (sum, entry) => sum + (entry.symbolImpact?.changedFunctionImpact?.functionLevelAffectedTests?.affectedTestsCount || 0),
         0
       );
       result.meta = {

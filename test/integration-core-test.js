@@ -68,7 +68,7 @@ function testPathVariants() {
       assert.strictEqual(toPosix(item.resolvedPath), toPosix(baseImpact.resolvedPath), 'resolvedPath should be stable');
     }
     for (const item of affectedResults.slice(1)) {
-      assert.strictEqual(item.affectedTestCount, baseAffected.affectedTestCount, 'affectedTestCount should be stable');
+      assert.strictEqual(item.affectedTestsCount, baseAffected.affectedTestsCount, 'affectedTestsCount should be stable');
       assert.strictEqual(toPosix(item.resolvedPath), toPosix(baseAffected.resolvedPath), 'resolvedPath should be stable');
     }
   } finally {

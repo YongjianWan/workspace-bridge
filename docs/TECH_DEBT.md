@@ -1,7 +1,6 @@
-﻿# 技术债与代码气味地图
+# 技术债与代码气味地图
 
 > 本文档只记录**当前活跃**的技术债务。已修复历史见 [CHANGELOG.md](../CHANGELOG.md)。
-> 最后审查：2026-05-08。已修复条目详情见 [CHANGELOG.md](../CHANGELOG.md)。
 
 ---
 
@@ -11,504 +10,226 @@
 
 ---
 
-#### L2-12. `--exclude` 只影响 scope 计数，不影响分析结果 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### L2-19. `stabilityScore` 完全没有区分度 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### L2-20. `symbolImpact` 数据冗余：`symbolToDependents` 与 `functionToDependents` 完全重复 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### L2-25. `audit-map --compact` 的模块级 `edges` 严重遗漏 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### L2-28. `languageSupport.javascript.astFiles < files`，15% 文件 AST fallback 无原因说明 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### L2-29. `parserAvailability.skipped: true` 在后端项目出现，但 `workspace-info` 未暴露此信息 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
 ## 产品层面缺陷（非代码错误，是产品价值/信任/可用性问题）
 
-> 以下问题从**用户体验和产品价值**角度记录。它们不一定是 crash 或报错，但会直接影响用户对工具的采纳和信任。
+#### P1/P63. Vue 假阳性三角（dead-export + orphan）— 部分残留
+
+| 根因                           | 状态                |
+| ------------------------------ | ------------------- |
+| `.vue` 扩展名省略 + alias    | ✅ 已修复           |
+| 动态路由懒加载                 | ✅ 已修复           |
+| 全局组件注册                   | ✅ 已修复           |
+| 自定义指令 / 动态字符串调用    | ✅ 已修复           |
+| `fs.readFileSync` 运行时读取 | ⏳ 超出静态分析范围 |
+| 动态字符串调用 orphan          | ⏳ 占位，需语义分析 |
 
 ---
 
-#### P1. 假阳性淹没真实问题 → 信任崩塌（最严重的产品风险）
+#### P24. `impact` source 文件出现在自己的影响列表里 ⏸ cannot-reproduce
 
-两个前端项目合计产生 **117 个 dead exports**（51 + 66）和 **48 个 unresolved imports**（24 × 2），实测**几乎全部是误报**。
-
-**根因分类（按频率）**：
-
-| 根因 | 数量 | 状态 |
-|------|------|------|
-| Vue `.vue` 扩展名省略 + alias 未解析 | ~45 | ✅ 已修复（resolvers.js 增加 `.vue` + `tsconfig.json` paths 读取） |
-| Vue 动态路由懒加载导致 orphan | ~30 | ✅ 已修复（framework-usage-patterns.js: vue-router-lazy） |
-| Vue 全局组件注册导致 orphan/dead-export | ~20 | ✅ 已修复（framework-usage-patterns.js: vue-global-component） |
-| Vue 自定义指令 / 动态字符串调用 | ~15 | ✅ 已修复（framework-usage-patterns.js: vue-custom-directive / dynamic-string-call）|
-| 真实的死代码 | ~7 | — |
-
-**产品影响**：
-
-- 用户第一次使用会花大量时间排查这 117 个"死代码"，最后发现全是 alias 或 `.vue` 扩展名导致的假阳性。
-- 直接触发"狼来了"效应：用户对后续所有检测结果（包括真实的循环依赖）都不再信任。
-- 产品从"代码质量助手"降级为"噪音生成器"。
-
----
-
-#### P2. 后端项目"零文件 + low 严重度" = 最危险的虚假安全感 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P3. Severity 自相矛盾 → 用户决策瘫痪 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P4. 健康检查 3/5 统一打分 → 无差异化诊断价值 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P5. `nextSteps` 建议不可执行或指向死胡同 ✅ 已修复
-
-✅ 已修复。`detectNodeFramework()` 新增 Vue/React/Next/Nuxt/Svelte/Angular 检测；`buildNextSteps` 接入 framework 级信息生成差异化建议（Vue cycle 提及 store→router→view 正常模式；Java hygiene 提及 Maven/Gradle + JUnit）。所有建议嵌入具体 counts（"3 cycles" / "12 dead exports"）替代模板文案。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P6. Language Support Matrix 是虚假广告 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P7. `diagnostics` 返回 `"total": 0` → 虚假安全感 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P8. `audit-security` 不可用但文档列为推荐命令 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P9. `init` 生成空配置 = onboarding 断裂 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P10. `affected-tests` 永远返回 0 = 核心场景失效 ✅ 已修复（主要根因）
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P11. `workspace-info` 预检无价值但文档标为"must run" ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P12. `--exclude` 行为违背用户心智模型 ✅ 已修复
-
-✅ 已修复。`--exclude` 现在同时在 `audit-overview` 的 `allFiles`/`mainlineFiles` 阶段过滤，确保 hotspots、stability、coupling 等分析均不纳入被排除文件。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P13. `stabilityScore` 无区分度 → 失去"热点识别"价值 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P14. `audit-map --compact` 仍包含完整 issue 列表 → 不够 compact ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P15. `repl` 模式 stderr 污染 + 数据不一致 = 双重不可信 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P16. `audit-overview` 的 `entryPoints: []` 与 `audit-summary` 的 `entryFiles` 矛盾 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P17. `stability` 数组只列 10 个文件，但 `aggregates` 说 moderate 有 30 个 ✅ 已修复
-
-✅ 已修复。`buildStability` 移除 `STABILITY_CANDIDATE_LIMIT` 截断，处理全部主线文件；`buildProjectOverview` 返回 `stabilityMeta`（`totalCount`/`truncated`/`limit`），数据透明。`mainlineFiles` 过滤同步排除 test/docs/style/asset，与 `summarizeFiles` 对齐。
-
----
-
-#### P18. `architectureAdvice` 建议过于抽象，无法执行 ✅ 已修复（phases 层面）
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P19. `summary.nextSteps` 模板化，没有根据项目实际情况定制 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P20. 命令输出中没有"误报率预估"或"诚实度"标注 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P21. 同一命令内 `file` 字段混用相对路径和绝对路径 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P22. `scope.directoryRoles` 全为 0，目录角色检测完全失效 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P23. `audit-map --compact` 的 `highlightedFiles` 没有去重 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P24. `impact` 数组中 source 文件出现在自己的影响列表里 ⏸ cannot-reproduce
-
-⏸ cannot-reproduce。代码已有 `level === 0 || file === start` guard，当前代码无法复现。如发现复现路径，重新打开。
-
----
-
-#### P25. `architectureAdvice` 拆分建议过于泛滥且不区分文件类型 ✅ 已修复（耦合建议已收敛）
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P26. `validationAdvice` 建议的命令路径不可用 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P27. skill 文档的 Standard Output Contract 与实际 CLI 输出脱节 ✅ 已修复
-
-✅ 已修复。逐命令对比实际 JSON 输出，修正 6 处字段路径错误（`scope.totalFiles`→`fileCount`、`diagnostics.totalIssues`→`diagnosticsSummary.total`、`summary.totalFindings`→`summary.total` 等）；新增 health/stats 及 6 个独立命令的读取说明；补充 `schemaVersion` 契约冻结说明。agent 现在能准确解析所有 CLI 输出字段。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P28. `hotspot` 检测维度单一，配置文件被误标为风险 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P29. `impact` direct-import 的 `importedSymbols` 永远为空，symbol 追踪不完整 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+⏸ cannot-reproduce。代码已有 guard，当前无法复现。如发现复现路径，重新打开。
 
 ---
 
 #### P30. `unresolved` 的 `resolvedTo` 语义冻结
 
-⏸ 冻结。`resolvedTo: null` = "该 import 未能解析到磁盘上的文件"。不改 schema，不增加新字段。语义见 CHANGELOG.md [Unreleased]。
+⏸ 冻结。`resolvedTo: null` = 未解析到磁盘文件。不改 schema，不增加新字段。
 
 ---
 
-#### P31. `health.checks.envExample` 只认 `.env.example`，不认 Vue 生态的 `.env.development` ✅ 已修复
+#### P43. `health.checks.ci` 未检测到 `.github/workflows` ⏸ cannot-reproduce
 
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
-
----
-
-#### P32. `staleness` 的 `thresholdMs: 300000` 无解释，用户不知道多久算旧 ✅ 已修复
-
-✅ 已修复。`staleness` 输出新增 `thresholdDescription` 字段（如 `"5 minutes"`），人类可读。详情见 CHANGELOG.md [Unreleased]。
+⏸ cannot-reproduce。当前代码已递归扫描 `.yml`/`.yaml` 文件，无法复现。
 
 ---
 
-#### P33. 两个前端项目输出高度模板化，缺乏项目间差异化
+## 架构债务（不阻塞功能，但阻塞演进速度）
 
-| 维度                 | ai_zcypg_frontend | ai_zsgzt_frontend |
-| -------------------- | ----------------- | ----------------- |
-| unresolved           | 24                | 24                |
-| healthScore          | 3/5               | 3/5               |
-| nextSteps            | 4 条相同模板      | 4 条相同模板      |
-| missingHygieneChecks | 2                 | 2                 |
-| fileRoles.entry      | 11                | 10                |
-| fileRoles.library    | 197               | 208               |
+#### P8-2-1. `parseCommandString` 是后处理补丁，非正交设计
 
-**产品影响**：
+**数据**：`commands.js` 中 20+ 处 `push({cmd: '...'})`，最后由 `parseCommandString` 统一 regex 解析为 `executable`。同一条命令的信息在生成侧（拼字符串）和消费侧（拆字符串）各存在一次。
 
-- 两个项目一个有循环依赖、一个没有；一个 51 dead exports、一个 66；一个 162 orphans、一个 192——这些差异在输出中完全没有体现。
-- 产品的 nextSteps、healthScore、hygieneChecks 像是从模板填充的，没有根据项目实际特征做个性化诊断。
-- 用户感觉不到工具"看懂了我的项目"，而是觉得"它给每个项目都发了一样的体检报告"。
+**成本**：新增语言/命令时，开发者需同时验证：① `cmd` 字符串正确 ② `parseCommandString` 能正确拆分它。引号内空格、Windows 路径空格等边界情况随时可能击穿解析器。
 
----
+**理想形态**：`buildNodeTestCommand`、`buildGoModuleTestCommands` 等处直接返回 `{name, description, executable}`，`cmd` 由 `renderCommandString(executable)` 纯函数合成。新增语言只需维护一处结构。
 
-#### P34. `languageSupport` 没有 Vue 的统计条目，注册了 parser 但不暴露 ✅ 已修复
+**触发重构条件**（任一满足即做）：
+1. `parseCommandString` 遇到真实解析 bug
+2. 新增第 10 种语言，命令生成逻辑继续膨胀
+3. P8-1 需要修改 `commands.js` 的命令生成逻辑
 
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+#### P8-0. dep-graph.js God Class ✅ 已完成
 
----
+**数据**：~1121 行 → ~1168 行（+47 行粘合代码），coupling total=25（in=14, out=11），原同时承载 6 项职责。
 
-#### P35. `audit-map --compact` 的 `tree` 只展示一层目录，用户误以为文件是平铺的 ✅ 已修复
+**方案**：对外接口 100% 不变，内部拆为 `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` 三个 collaborator，`DependencyGraph` 退化为 facade。不物理拆文件。
 
-✅ 已修复。`buildDirectorySkeleton` 的 `maxDepth` 从 2 提升到 3，保留到第 3 层目录（如 `src/views/policyeval`），第 4 层+ 继续折叠为 `fileCount`/`totalFileCount`。GitNexus 项目实测：total directories 从 18 → 47，tree JSON lines 从 149 → 386，仍在 compact 可控范围内。详情见 CHANGELOG.md [Unreleased]。
+**验证**：85/85 测试通过，healthScore=5/5，零外部调用方改动。
 
----
+**P8-1 插槽已预留**：`GraphBuilder.onBuildComplete` / `GraphBuilder.onFileUpdated`。
 
-#### P36. `fileRoles` 缺少 `docs`、`style`、`asset` 角色，分类体系不完整 ✅ 已修复
+#### P74. `_scanLocalSymbolUsage` 内存峰值（已修复问题的遗留）
 
-✅ 已修复。`ROLE_RULES` 新增 `style`（CSS/SCSS/SASS/Less/Stylus）和 `asset`（图片/字体/媒体/压缩包）规则；`summarizeFiles` 的 `fileRoles` 初始化增加 `docs/style/asset: 0`，消除潜在 `NaN` 风险；`isTrulyMainline` 同步排除 style/asset。
+**数据**：`dep-graph.js:655` `_scanLocalSymbolUsage` 仍使用 `content.split('\n')`。`file-index.js` 的同样问题已在 v1.1.0 修复（改用 `content.match(/\n/g)?.length + 1`），但 `_scanLocalSymbolUsage` 的逐行扫描逻辑未同步优化。
+
+**影响**：大文件（1MB+）的 dead-export 分析会产生 ~20MB 临时数组，与 file-index.js 修复前的内存峰值相同。
+
+**修复方向**：改用 `content.match(/\n/g)` 遍历或流式扫描。
 
 ---
 
-#### P37. `health.checks.readme.sizeBytes` 等字段是输出噪音 ✅ 已修复
+#### P75. `framework-usage-patterns.js` 无缓存 I/O
 
-✅ 已修复。`health.checks.*` 中的 `sizeBytes` 字段已从输出中移除，聚焦真正需要行动的事项。详情见 CHANGELOG.md [Unreleased]。
+**数据**：`resolveImplicitImports()` 每次调用 `fs.existsSync(resolved)`，无缓存。`applyFrameworkImplicitImports()` 在每次 `build()` / `updateFiles()` 时全量扫描所有 JS/Vue 文件并重复解析隐式边。
 
----
+**影响**：大仓库中每次增量更新都会触发数十到数百次同步 I/O。
 
-#### P38. `reuseHints: "off"` 永久出现但无解释 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+**修复方向**：复用 `resolvers.js` 的 `cachedExistsSync` 或引入局部缓存。
 
 ---
 
-#### P39. `audit-file` 的 `severity` 反映的是影响范围而非代码质量风险 ✅ 已修复
+#### P76. `watch.js` `executeWatchCommand` stdout 拼接无上限
 
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+**数据**：`child.stdout.on('data', (data) => { stdout += data.toString(); })` 对长时间运行/高输出的测试无体积限制。
 
----
+**影响**：极端情况下（如测试框架输出大量日志）可能 OOM。
 
-#### P40. 命令输出 schema 不一致，部分命令缺少 `ok` 字段 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+**修复方向**：设置 `stdout`/`stderr` 上限（如 1MB），超限截断并标记 `truncated: true`。
 
 ---
 
-#### P41. `fileRoles.library` 和 `orphans.modules` 数据矛盾 ✅ 已修复
+#### P77. `findUnresolvedImports` Windows 路径格式不一致
 
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+**数据**：`dep-graph.js:751` `if (!this.dg.hasFile(imp) && path.isAbsolute(imp) && !fs.existsSync(imp))`。`hasFile()` 使用 `normalizePathKey()`（Windows 下小写+POSIX 斜杠），而 `path.isAbsolute(imp)` 检查原始路径格式。
 
----
+**根因**：`imp` 可能是 `c:/users/...`（normalizePathKey 格式），`path.isAbsolute()` 在 Windows 上能识别 `c:/...`，但理论上存在 `hasFile` 和 `isAbsolute` 判断不一致的边界。
 
-#### P42. `deadExports.confidence` 分级逻辑不透明，同类型文件不同 confidence ✅ 已修复
-
-✅ 已修复。`computeDeadExportConfidence()` 按 `importerCount + parseMode + graph reliability` 三维度分级，每个条目输出 `confidenceReason`。详情见 CHANGELOG.md [Unreleased]。
+**风险**：低。当前代码在 Windows 实测正常，但这是隐性假设，未在测试中覆盖。
 
 ---
 
-#### P43. `health.checks.ci` 未检测到 `.github/workflows` 目录 ⏸ cannot-reproduce
+#### P78. 脚手架噪音淹没业务信号（RuoYi/Spring Boot 模板同质化）✅ 已修复
 
-⏸ cannot-reproduce。当前代码已升级为递归扫描 `.yml`/`.yaml` 文件，当前代码无法复现。如发现复现路径，重新打开。
+**数据**：`ai_zcypg_backend` 与 `ai_zsgzt_backend` 基于同一套若依（RuoYi）脚手架，两个仓库的 dead-exports 重合度 > 90%。
 
----
-
-#### P44. `scope.hasConfig` 命名歧义，易误解为"项目无配置" ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+**修复**：`src/tools/scaffold-detector.js` 精简交付。保守两层匹配：`exactBasenames`（高度特异文件名）+ `pathPatterns`（通用文件名仅在含 `ruoyi` 等路径标记时匹配）。`honesty-engine` / `dep-graph` / `recommendation-engine` / `repo-summary` 全链路集成。`audit-summary` JSON 新增 `honesty.deadExports.scaffoldDeadExports`。
 
 ---
 
-#### P46. `file-index.js` 的默认排除目录缺少 `vendor`、`bin`、`obj` 等常见目录 ✅ 已修复
+#### P86. `vue-page-implicit` 误报仅计数、未归因到具体文件
 
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+**数据**：`ai_zcypg_frontend` 的 `possibleFalsePositives` 报告 `vue-page-implicit: 2`，提示"2 of 10 dead exports could be false positives"，但 10 条 `deadExports` 明细中没有任何一条标注 `reason: "vue-page-implicit"` 或类似的误报风险提示。
 
----
+**根因**：`honesty-engine.js` 的聚合层统计了 false positive 原因分布，但未把该标签下沉到单条 dead-export 记录。
 
-#### P47. `scope.counts` 完全没有代码量统计（LOC、SLOC） ✅ 已修复
-
-✅ 已修复。`cache.getStats()` 遍历 `fileMetadata` 累加 `lineCount`；`depGraph.getStats()` 和 `workspaceInfo()` 均新增 `totalLines` 字段。`stats` 与 `workspace-info` 现已包含总行数。
+**影响**：用户无法定位哪两个导出是疑似误报，增加了排查成本。
 
 ---
 
-#### P48. `deadExports` 对 Vue SFC 组件（`.vue` 文件）的误报 ✅ 已修复
+#### P87. importerCount>0 的 dead-export 解释信息过于模板化
 
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+**数据**：`ai_zcypg_frontend` 中，`ruoyi.js` 的 `sprintf`（importerCount=8）、`validate.js` 的 7 个导出（importerCount=8）、`policyeval/controller.js` 的 2 个导出（importerCount=18），所有条目的 `confidenceReason` 均为完全相同的字符串："AST-level analysis found unused exports (dynamic imports or string calls may bypass static detection)"。
 
----
+**根因**：这些模块**本身被大量文件导入**，只是具体的 named export 未被使用。但 `computeDeadExportConfidence()` 未区分"模块无人导入（importerCount=0）"和"模块有导入方但特定导出未使用（importerCount>0）"，统一返回相同的 `confidenceReason`。
 
-#### P49. `unresolved` 的 `resolvedTo` 在 `.vue` 场景下退化为目录路径 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+**影响**：用户看到 `importerCount: 18` 却收到"可能绕过静态检测"的模糊解释，降低了结果可信度。应返回差异化文案，如"File has 18 importers but these specific exports are not referenced by any importer"。
 
 ---
 
-#### P50. SKILL.md 的 Fast vs Slow 分类与实际耗时脱节 ✅ 已修复
+#### P82. Maven 项目 `testFiles: 0`
 
-✅ 已修复。基于实测数据重新分类（workspace-bridge 159 文件项目，缓存命中后）：
-- **Fast** (< 2s): `workspace-info`, `audit-summary`, `audit-file`, `audit-map`, `stats`, `health`, `dead-exports`, `unresolved`, `cycles`, `impact`, `affected-tests`, `diagnostics`
-- **Medium** (2-5s): `audit-diff`（`git log --follow` + 变更分析）, `audit-overview`（`git log` 历史查询 + 热点计算）
-- 新增说明：所有命令首次运行都有冷启动索引成本（大项目 5-30s），与具体命令无关；`diagnostics` 不是 network-bound，执行的是本地 linter。详情见 CHANGELOG.md [Unreleased]。
+**数据**：`ai_zcypg_backend`（389 文件）和 `ai_zsgzt_backend`（550 文件）均报告 `testFiles: 0`。实际两个 Maven 多模块项目均有 `src/test/java` 目录。
 
----
+**根因**：`file-index.js` 的 `getFilePatterns()` 或 `shouldExclude()` 可能排除了测试目录，或 `isTestLikeFile()` 的 Java 测试检测规则未覆盖 Maven 的 `*Test.java` / `*Tests.java` 命名。
 
-#### P51. 工具输出的"零问题"组合形成系统性虚假安全感 ✅ 已修复
-
-✅ 已修复。`audit-summary` / `audit-overview` 新增 `analysisCoverage`（`totalFiles`/`parsedFiles`/`fallbackFiles`/`coverageRatio`）；`coverageRatio < 0.5` 时 `severity` 强制上浮为 `high` 并输出 `coverageWarning`。详情见 CHANGELOG.md [Unreleased]。
+**影响**：health 检查的 `testConfig` 和 `testFiles` 均失效，影响 AI 对项目测试覆盖的判断。
 
 ---
 
-#### P52. `overview-tools.js` 的 `renderOverviewDashboard` 生成 HTML 但 `enabled: false` ✅ 已修复
+#### P83. 文件扫描数量与用户预期差距大
 
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+**数据**：`ai_zcypg_backend` 实际 1547 文件，扫描到 389；`ai_zsgzt_backend` 实际 1789 文件，扫描到 550。前端：`ai_zcypg_frontend` 实际 368 文件，扫描到 228；`ai_gwy_frontend` 实际 23 文件，扫描到 11。
 
----
+**根因**：workspace-bridge 只统计能解析的 mainline 文件（Java/JS/Vue 源码），Maven 项目的 `target/`、资源文件（`*.xml`、`*.yml`、`*.properties`）、前端产物（SVG、图片、CSS）等被排除。这是设计行为，但 `totalFiles` 的命名可能让用户误以为扫描不完整。
 
-#### P53. `audit-overview` 的 `options` 中多个 `null` 字段是输出噪音 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+**影响**：低。但 `testFiles: 0`（P82）和资产文件排除的叠加，可能让用户对索引完整性产生怀疑。
 
 ---
 
-#### P55. `scope.counts` 缺少 `testFiles`，与 `fileRoles.test` 数据分散 ✅ 已修复
+#### P84. 多模块 Maven 项目模块边界未显式标注
 
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+**数据**：两个 Spring Boot 多模块项目的 `unresolvedCount` 均为 0。
 
----
+**根因**：模块间交叉引用（如 `aizcypg-biz` 引用 `aizcypg-common`）被正确解析，但模块间的耦合强度、跨模块依赖热力图未被显式输出。所有文件被扁平化处理。
 
-#### P56. `deadExports` 中同类型文件 confidence 不一致，黑盒逻辑 ✅ 已修复
-
-✅ 已修复。同 P42，`computeDeadExportConfidence()` 统一分级规则并输出 `confidenceReason`。详情见 CHANGELOG.md [Unreleased]。
+**影响**：架构审计中丢失了一个重要维度——模块边界内的紧耦合 vs 模块间的松耦合。
 
 ---
 
-#### P57. 字段命名风格不统一，增加集成成本
+#### P88. 前端分析文件数差距（368 vs 228，23 vs 11）
 
-不同命令的计数字段命名不一致：
+**数据**：`ai_zcypg_frontend` 实际 368 文件，扫描到 228（排除了 92 SVG + 其他资产）；`ai_gwy_frontend` 实际 23 文件，扫描到 11（排除了 CSS 和 public 资产）。
 
-| 命令               | 计数字段名                                          |
-| ------------------ | --------------------------------------------------- |
-| `impact`         | `impactCount`                                     |
-| `dead-exports`   | `deadExportCount`                                 |
-| `unresolved`     | `unresolvedCount`                                 |
-| `cycles`         | `cycleCount`                                      |
-| `dependents`     | `dependentCount`（不是 `dependentsCount`）      |
-| `affected-tests` | `affectedTestCount`（但数组叫 `affectedTests`） |
-
-**产品影响**：
-
-- 自动化脚本和消费方需要为每个命令维护独立的字段映射表。
-- 命名风格在 "XxxCount" 和 "XxCount" 之间摇摆（`impactCount` vs `deadExportCount`），缺乏命名规范。
-- `dependentCount` 与 `dependents` 数组的复数形式不一致，增加了理解成本。
+**根因**：同 P83。前端项目的 SVG、图片、样式等被作为资产排除，但 `src/` 内的 `setupProxy.js`、`config.js` 等配置文件是否被正确归类也存疑。
 
 ---
 
-#### P58. `audit-file` 返回 `frameworkPattern: null`，框架检测完全失效 ✅ 已修复
+#### P89. Windows 路径大小写被强制归一化
 
-✅ 已修复。`dep-graph.js` 的 `getFrameworkHint` 增加 content-based fallback：当 path-based 检测返回 null 时，扫描文件前 800 字节中的框架特征（NestJS/Express/FastAPI/Flask/Spring/Vue 等），显著减少 `frameworkPattern: null` 的情况。详情见 CHANGELOG.md [Unreleased]。
+**数据**：`ai_gwy_frontend` 磁盘实际文件为 `src/utils/filePreview.js`（`P` 大写），但 JSON 输出路径为 `src/utils/filepreview.js`（全小写）。
 
----
+**根因**：`normalizePathKey()` 在 Windows 上使用 `toLocaleLowerCase('en-US')` 做大小写归一化。虽然本地匹配无影响，但跨平台（如与 Linux CI 对比）时可能导致路径匹配失败。
 
-#### P60. `missingHygieneChecks: 2` 但 `health.fixes` 数组有 5 个条目 ✅ 已修复
-
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+**影响**：低。但这是隐性假设，未在测试中覆盖。
 
 ---
 
-#### P61. `skeleton.testFiles` 只在 `audit-overview` 里有，`audit-summary` 里没有 ✅ 已修复
+#### P90. `.workspace-bridge.json` 配置状态不对称触发 cycle 数据不一致
 
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+**数据**：`ai_zcypg_frontend` 存在 `.workspace-bridge.json`（内容为空，仅含 schema），`hasWorkspaceBridgeConfig: true`；`ai_zsgzt_frontend` 无该文件，`hasWorkspaceBridgeConfig: false`。该差异导致 zcypg 被识别出 15 个 non-mainline 文件（test），而 zsgzt 为 0。更关键的是，zcypg 的 `audit-summary`（cycles=7）与 `cycles` 命令（cycles=3）数据不一致，而 zsgzt 的两条命令均一致（cycles=2）。
 
----
+**根因**：工具对"有空配置"和"无配置"的处理路径不同，可能间接触发了 `_cycleCount` 的缓存/计算路径分叉。
 
-#### P62. 两个前端项目症状高度一致，暴露系统性缺陷而非项目特有问题
-
-| 症状 | ai_zcypg_frontend | ai_zsgzt_frontend | 状态 |
-|------|-------------------|-------------------|------|
-| unresolved | 24（100% 是 Vue `.vue` 省略） | 24（100% 是 Vue `.vue` 省略） | ✅ 已修复（resolvers.js `.vue` + tsconfig paths） |
-| dead exports 模式 | 以 `src/api/*.js`、`src/utils/*.js`、`src/store/modules/*.js` 为主 | 以 `src/api/*.js`、`src/utils/*.js`、`src/store/modules/*.js` 为主 | ✅ 无需修复（`utils/permission.js` 的 `checkPermi`/`checkRole` 经全局 grep 确认无任何调用方，是真实死代码） |
-| orphans 模式 | `src/main.js`、`src/app.vue` 等入口被标孤儿 | `src/main.js`、`src/app.vue` 等入口被标孤儿 | ✅ 已修复（framework-usage-patterns: vue-router-lazy / vue-global-component） |
-| cycles | 13 | 19 | ✅ 已修复（Vue store-router-view 循环白名单，zcypg 13→3，zsgzt 19→2） |
-| health score | 3/5 | 3/5 | ✅ 已改善（4/5） |
-| nextSteps | 完全相同的 4 条模板 | 完全相同的 4 条模板 | ✅ 已修复（接入 framework 检测，生成 Vue 特异性可执行建议） |
-
-**产品影响**：
-
-- 两个不同业务（政策评估 vs 招商工作台）、不同文件数（228 vs 218）的项目，在核心缺陷指标上已从"几乎完全一致"改善为"差异明显"。
-- 循环依赖从 32 个降至 5 个，unresolved 从 48 个降至 0 个，orphan 入口误报已基本消除。
-- 剩余的主要盲区是 **nextSteps 的 overview 层面个性化**（P5 已解决 audit-summary 层面，但 audit-overview 的 recommendations 仍偏模板化）。
-- 工具对 Vue/Vite 项目的可用性已显著提升，核心假阳性（unresolved/orphan/cycles）已基本清零，dead exports 中除 `src/api/*.js`（可能被运行时动态调用）外大部分为真实死代码或低 confidence。
+**风险**：条件触发，难以稳定复现。但这是架构层面的信号路径不一致问题。
 
 ---
 
-#### P63. Orphan 检测在 Vue 项目中噪声 >50%，基本不可用
+#### P91. `audit-summary` / `audit-overview` orphans 聚合与明细不一致
 
-两个 Vue 前端项目分别产生 60/62 个 orphan，其中约 50% 是明显误报。
+**数据**：`ai_gwy_backend` 的 `audit-summary` 报告 `orphanCount: 4`，但明细列表中仅列出 2 个 orphan 文件。`audit-overview` 的 `orphanFiles` 数组长度同样与顶部统计数字不符。
 
-**典型误报模式**：
+**根因**：`overview-tools.js` 中的聚合逻辑与 `project-map.js` / `audit-summary` 中的 orphan 计数逻辑存在路径分叉。`getOrphanFiles()` 和 `summarizeFiles()` 可能使用了不同的排除规则（如 `scripts/` / `bin/` / `benchmark/` 目录的跳过逻辑不同步）。
 
-| 模式 | 示例 | 解决方式 |
-|------|------|----------|
-| 动态路由懒加载 | `src/views/*` 页面被 `() => import('@/views/xxx')` 引用 | ✅ 已修复（framework-usage-patterns.js: vue-router-lazy） |
-| 全局组件注册 | `src/components/breadcrumb/index.vue` 被 `Vue.component('Breadcrumb', ...)` 注册 | ✅ 已修复（framework-usage-patterns.js: vue-global-component） |
-| 动态字符串调用 | `src/utils/generator/*.js` 的函数被 `window[fnName]()` 调用 | ⏳ 占位，需语义分析 |
+**影响**：用户看到"4 orphans"但只能找到 2 条明细，产生数据不可信感。
 
-**产品影响**：
-
-- Orphan 检测的底层逻辑是"没被任何文件 import"，但 Vue 项目的动态路由和全局组件打破了这种假设。
-- 该检测在 Vue 项目中基本不可用，产生大量噪声，直接淹没真实问题。
-- 与 P1 共同构成 Vue 项目的系统性假阳性三角。
+**修复方向**：统一 orphan 判定和计数逻辑，确保聚合层与明细层使用同一套过滤规则。
 
 ---
 
-#### P64. Health check "按技术栈打分"后，建议命令仍然脱离实际 ✅ 已修复
+#### cli.js 厚门面
 
-✅ 已修复。详情见 CHANGELOG.md [Unreleased]。
+**数据**：~623 行，`formatHuman` ~200 行 switch 覆盖 20+ 命令。每新增命令或参数都要改 cli.js。
+
+**影响**：变更频率与 feature 增长速度成正比，长期是瓶颈。
+
+**方案**：每个 formatter 文件额外导出 `formatHuman(result)`，cli.js 动态查找。与 P8-2 同期做。
 
 ---
 
 ## L3 品味问题（建议修，非债务）
 
-以下问题属于代码风格/长度建议，不影响功能正确性，按价值排序记录：
+以下问题属于代码风格/长度建议，不影响功能正确性。已完成项（`validation-advice.js`、`container.js`、`function-impact.js`、`symbol-impact.js`、`project-context.js` 拆分/降行）不再列出。
 
-| 位置                     | 问题                                                              | 说明                                                                                                             |
-| ------------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `validation-advice.js` | ✅ 已拆分                                                         | `buildValidationAdvice` 从 274 行拆为 6 个纯函数，主函数降至 35 行                                             |
-| `project-context.js`   | `inferFileRole()` 已降至 12 行                                  | 顶部 `FRAMEWORK_ENTRY_FILES` / `CONFIG_PATTERNS` / `ROLE_RULES` 等常量集合仍分散，可继续提取为独立配置模块 |
-| `container.js`         | ✅ 已拆分                                                         | `initialize()` 从 ~85 行拆为 7 个私有方法，主函数降至 25 行                                                    |
-| `function-impact.js`   | `getChangedFunctionImpact()` 已降至 83 行                       | 已拆分为 9 个纯函数，内聚性恢复                                                                                  |
-| `symbol-impact.js`     | `getSymbolImpact()` 已降至 52 行                                | 已拆分为 11 个纯函数，超阈值问题消除                                                                             |
-| `git-tools.js`         | `getChangedFiles()` 手动字符级解析                              | 620 行文件中已知债务，当前不优先                                                                                 |
-| `overview-tools.js`    | `renderOverviewDashboard` 中 HTML/CSS 裸数字                    | `padding:14px`、`font-size:26px` 等仍在                                                                      |
-| `js.js`                | `parseJavaScriptAST` ~265 行、`parseJavaScript` regex ~147 行 | 函数过长，但 parser 边界稳定，低优先级                                                                           |
-| `path.js`              | `hasPathSegment` 语义陷阱：只取 segment 最后一级                | 函数名与实际行为不符                                                                                             |
+| 位置                  | 问题                                                              | 优先级 |
+| --------------------- | ----------------------------------------------------------------- | ------ |
+| `git-tools.js`      | `getChangedFiles()` 手动字符级解析                              | 低     |
+| `overview-tools.js` | `renderOverviewDashboard` 中 HTML/CSS 裸数字                    | 低     |
+| `js.js`             | `parseJavaScriptAST` ~265 行、`parseJavaScript` regex ~147 行 | 低     |
+| `path.js`           | `hasPathSegment` 语义陷阱：只取 segment 最后一级                | 低     |
+| `dep-graph.js`      | `isLikelyFrameworkLegitimateCycle` 仅覆盖 Vue，React/Java 无过滤 | 低     |
+| `framework-patterns.js` | Django middleware/database router/context processors 未覆盖   | 低     |
+| `honesty-engine.js`   | `vue-page-implicit` 等 fp 原因未下沉到单条 dead-export 记录    | 低     |
+| `dep-graph.js`        | `computeDeadExportConfidence` 未按 importerCount 差异化 reason   | 低     |
 
 ---
 
@@ -516,7 +237,7 @@
 
 | 文件                                        | 行数 | 风险         | 状态                                                      |
 | ------------------------------------------- | ---- | ------------ | --------------------------------------------------------- |
-| `src/services/dep-graph.js`               | ~704 | **高** | 核心引擎类，AGENTS.md 已确认"内聚优先、不物理拆分"        |
+| `src/services/dep-graph.js`               | ~1121 | **高** | 核心引擎类，AGENTS.md 已确认"内聚优先、不物理拆分"        |
 | `src/tools/overview-tools.js`             | ~622 | 中           | 裸数字已归零（JS侧），HTML/CSS 裸数字仍在                 |
 | `src/tools/git-tools.js`                  | ~620 | 中           | `getChangedFiles()` 手动字符级解析是已知债务            |
 | `cli.js`                                  | ~623 | 中           | 命令分发中心，分支短                                      |
@@ -532,13 +253,13 @@
 
 > **2026-05-05 更新**：新增 `test/js-regex-cjs-test.js`，JS regex fallback 已有基础覆盖。
 
-| Parser / 模块                   | 测试文件                                | 状态    |
-| ------------------------------- | --------------------------------------- | ------- |
-| JS AST + functionRecords        | `test/arrow-function-test.js`         | ✅      |
-| Java AST + regex fallback       | `test/java-parsers-test.js`           | ✅      |
-| JS regex fallback (CJS exports) | `test/js-regex-cjs-test.js`           | ✅ 新增 |
-| Python (AST/regex)              | `test/parser-schema-contract-test.js` | ✅      |
-| Kotlin / Go / Rust (polyglot)   | `test/parser-schema-contract-test.js` | ✅      |
+| Parser / 模块                   | 测试文件                                | 状态 |
+| ------------------------------- | --------------------------------------- | ---- |
+| JS AST + functionRecords        | `test/arrow-function-test.js`         | ✅   |
+| Java AST + regex fallback       | `test/java-parsers-test.js`           | ✅   |
+| JS regex fallback (CJS exports) | `test/js-regex-cjs-test.js`           | ✅   |
+| Python (AST/regex)              | `test/parser-schema-contract-test.js` | ✅   |
+| Kotlin / Go / Rust (polyglot)   | `test/parser-schema-contract-test.js` | ✅   |
 
 ---
 
@@ -559,7 +280,7 @@
 | 模块              | 测试文件                  | 仍缺覆盖                                                 |
 | ----------------- | ------------------------- | -------------------------------------------------------- |
 | `file-index.js` | 间接测试                  | watcher 完整链路、readdir 权限拒绝、AbortController 超时 |
-| `watch.js`      | `watch-test.js`         | compact 模式真实输出、SIGINT/SIGTERM 异常隔离            |
+| `watch.js`      | `watch-test.js`         | compact 模式真实输出、~~SIGINT/SIGTERM 异常隔离~~ ✅ 已覆盖 |
 | `repl.js`       | `repl-test.js`          | 真实容器初始化、热点 threshold 边界                      |
 | `cli.js`        | `functionality-test.js` | mapper 异常、adapter 异常、所有 human 格式化分支         |
 
@@ -567,6 +288,6 @@
 
 | 测试文件                                             | 根因                                                    | 建议修复                                           |
 | ---------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------- |
-| `watch-test.js`                                    | 固定 `delay(2500)` 假设 + fs.watch 平台时序差异       | 轮询检查预期输出，而非固定 delay；使用独立临时目录 |
+| `watch-test.js`                                    | ~~固定 `delay(2500)` 假设 + fs.watch 平台时序差异~~ ✅ 已修复 | — |
 | `functionality-test.js`                            | 修改 repo root 的 tracked 文件（README.md）+ 无原子恢复 | 用 `fs.copyFileSync` 在副本上操作                |
 | `java-parsers-test.js` / `go-ast-parser-test.js` | 外部进程 `timeout: 5000` 冷启动可能超时               | 提升至 15000ms 或根据 `CI` 环境变量动态调整      |

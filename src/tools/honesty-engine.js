@@ -8,6 +8,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { detectScaffold, SCAFFOLD_REASON_PREFIX } = require('./scaffold-detector');
 
 // Known alias prefixes that frequently cause unresolved false positives
 const ALIAS_PREFIXES = ['@/', '~/', '@/'];
@@ -127,6 +128,20 @@ function classifyDeadExports(deadExportsArray, depGraph) {
       continue;
     }
 
+    // P72: Java constants-warehouse pattern (e.g. HttpStatus.java, UserConstants.java)
+    const base = path.basename(filePath).toLowerCase();
+    if (/\.java$/.test(filePath) && /(constants|status|utils)\.java$/.test(base) && importerCount > 0) {
+      classifications.push({ item, reason: 'java-constants-warehouse' });
+      continue;
+    }
+
+    // P78: Scaffold noise detection (RuoYi, Vue Admin, etc.)
+    const scaffold = detectScaffold(filePath);
+    if (scaffold) {
+      classifications.push({ item, reason: scaffold.reason });
+      continue;
+    }
+
     // Has importers but symbols unused — may be barrel exports or dynamic usage
     classifications.push({ item, reason: 'uncertain' });
   }
@@ -150,6 +165,9 @@ function buildClassificationSummary(classifications) {
     'vue-page-implicit',
     'vue-component-implicit',
     'nextjs-app-router',
+    'java-constants-warehouse',
+    `${SCAFFOLD_REASON_PREFIX}ruoyi`,
+    `${SCAFFOLD_REASON_PREFIX}vue-admin`,
   ]);
   let falsePositiveCount = 0;
   for (const [reason, count] of Object.entries(counts)) {

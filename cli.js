@@ -11,7 +11,7 @@ const { version } = require('./package.json');
 
 const LARGE_JSON_THRESHOLD = 1024 * 1024;
 const JSON_WRITE_CHUNK_SIZE = 64 * 1024;
-const SCHEMA_VERSION = '1.1.1';
+const SCHEMA_VERSION = '1.2.0';
 
 /**
  * Write large JSON strings to stdout in chunks to avoid blocking
@@ -39,7 +39,7 @@ const { dependencyGraph } = require('./src/tools/dep-tools');
 const { auditSecurity } = require('./src/tools/security-tools');
 const { getChangedFiles, getDiffNumstat } = require('./src/tools/git-tools');
 const { getChangedLineRanges } = require('./src/tools/git-tools');
-const { resolveWorkspaceFilePath } = require('./src/utils/path');
+const { resolveWorkspaceFilePath, toPosixPath } = require('./src/utils/path');
 const { getFileHistoryRisk } = require('./src/tools/git-tools');
 const {
   buildCompositeRisk,
@@ -239,7 +239,7 @@ Commands:
 
 Options:
   --cwd <path>            Target workspace or file path
-  --exclude <paths>       Comma-separated directories or path fragments to exclude
+  --exclude <paths>       Comma-separated directories, path fragments, or simple globs (*.ext) to exclude
   --mode <quick|full>     Diagnostics mode (default: quick)
   --file <path>           File path for file-scoped commands
   --max-depth <n>         Max depth for affected-tests (default: 5)
@@ -264,7 +264,11 @@ function parseCliArgs(argv) {
     '--exclude': { key: 'exclude' },
     '--mode': { key: 'mode' },
     '--file': { key: 'file' },
-    '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
+    '--max-depth': { key: 'maxDepth', transform: (v) => {
+      const n = Number.parseInt(v, 10);
+      if (Number.isNaN(n)) throw new Error(`Invalid --max-depth value: ${v}. Expected a positive integer`);
+      return n;
+    } },
     '--reuse-hints': { key: 'reuseHints' },
     '--hotspot-data': { key: 'hotspotData' },
     '--stability-trend-data': { key: 'stabilityTrendData' },
@@ -275,6 +279,7 @@ function parseCliArgs(argv) {
     '--json': true,
     '--quiet': true,
     '--compact': true,
+    '--run-tests': true,
     '--version': true,
     '-v': true,
     '--help': true,
@@ -305,7 +310,7 @@ function parseCliArgs(argv) {
         .filter(Boolean)
       : [],
     mode: raw.mode || 'quick',
-    file: raw.file || null,
+    file: raw.file ? toPosixPath(raw.file) : null,
     maxDepth: Number.isFinite(raw.maxDepth) ? raw.maxDepth : null,
     reuseHints,
     hotspotData: raw.hotspotData || null,
@@ -318,6 +323,7 @@ function parseCliArgs(argv) {
     json: Boolean(raw['--json']),
     quiet: Boolean(raw['--quiet']),
     compact: Boolean(raw['--compact']),
+    runTests: Boolean(raw['--run-tests']),
     version: Boolean(raw['--version']) || Boolean(raw['-v']),
     help: Boolean(raw['--help']) || Boolean(raw['-h']),
   };
@@ -375,9 +381,9 @@ function formatHuman(command, result) {
         `healthScore: ${result.health.healthScore}`,
         `mainlineFiles: ${result.scope.counts.mainlineFiles}`,
         `nonMainlineFiles: ${result.scope.counts.nonMainlineFiles}`,
-        `deadExportCount: ${result.deadExports.deadExportCount}`,
+        `deadExportsCount: ${result.deadExports.deadExportsCount}`,
         `unresolvedCount: ${result.unresolved.unresolvedCount}`,
-        `cycleCount: ${result.cycles.cycleCount}`,
+        `cyclesCount: ${result.cycles.cyclesCount}`,
       ];
       if (result.summary.honesty?.disclaimer) {
         lines.push(`note: ${result.summary.honesty.disclaimer}`);
@@ -390,7 +396,7 @@ function formatHuman(command, result) {
         `resolvedPath: ${result.resolvedPath}`,
         `severity: ${result.summary.severity}`,
         `impactCount: ${result.impact.impactCount}`,
-        `affectedTestCount: ${result.affectedTests.affectedTestCount}`,
+        `affectedTestsCount: ${result.affectedTests.affectedTestsCount}`,
       ].join('\n');
     case 'audit-diff':
       {
@@ -468,18 +474,18 @@ function formatHuman(command, result) {
     case 'dependencies':
       return [
         `file: ${result.file}`,
-        `dependencyCount: ${result.dependencyCount}`,
+        `dependenciesCount: ${result.dependenciesCount}`,
         ...result.dependencies.map((d) => `  → ${d}`),
       ].join('\n');
     case 'dependents':
       return [
         `file: ${result.file}`,
-        `dependentCount: ${result.dependentCount}`,
+        `dependentsCount: ${result.dependentsCount}`,
         ...result.dependents.map((d) => `  ← ${d}`),
       ].join('\n');
     case 'dead-exports': {
       const lines = [
-        `deadExportCount: ${result.deadExportCount}`,
+        `deadExportsCount: ${result.deadExportsCount}`,
       ];
       if (result.possibleFalsePositives?.disclaimer) {
         lines.push(`note: ${result.possibleFalsePositives.disclaimer}`);
@@ -499,7 +505,7 @@ function formatHuman(command, result) {
     }
     case 'cycles':
       return [
-        `cycleCount: ${result.cycleCount}`,
+        `cyclesCount: ${result.cyclesCount}`,
         ...result.cycles.map((cycle) => cycle.join(' -> ')),
       ].join('\n');
     case 'impact':
@@ -514,7 +520,7 @@ function formatHuman(command, result) {
       ].join('\n');
     case 'affected-tests':
       return [
-        `affectedTestCount: ${result.affectedTestCount}`,
+        `affectedTestsCount: ${result.affectedTestsCount}`,
         ...result.affectedTests.map((entry) => {
           const viaStr = entry.via?.length > 0 ? ` via ${entry.via.join(' -> ')}` : '';
           return `${entry.distance}: ${entry.file}${viaStr}`;
@@ -552,11 +558,19 @@ async function runCommand(parsed, container) {
       const { detectStack } = require('./src/utils/stack-detectors/detect');
       const stack = detectStack(container.workspaceRoot);
       const stats = container.depGraph.getStats();
+      // L1-3: analysisCoverage must reflect the filtered file set (same as scope)
+      const filteredAnalysisCoverage = stats.analysisCoverage ? {
+        ...stats.analysisCoverage,
+        totalFiles: scope.counts.totalFiles,
+        coverageRatio: scope.counts.totalFiles > 0
+          ? Math.min(1, Math.round((stats.analysisCoverage.parsedFiles / scope.counts.totalFiles) * 100) / 100)
+          : 0,
+      } : null;
       return {
         ok: [health, deadExports, unresolved, cycles].every((result) => result.ok !== false),
         workspaceRoot: container.workspaceRoot,
         scope,
-        summary: buildRepoSummary(health, deadExports, unresolved, cycles, scope, stack.profile, stats.analysisCoverage, stack),
+        summary: buildRepoSummary(health, deadExports, unresolved, cycles, scope, stack.profile, filteredAnalysisCoverage, stack),
         health,
         deadExports,
         unresolved,
@@ -603,6 +617,7 @@ async function runCommand(parsed, container) {
         totalAdditions: numstat.totalAdditions,
         totalDeletions: numstat.totalDeletions,
         changedFileCount: numstat.files.length,
+        untrackedFileCount: Math.max(0, changed.changedFiles.length - numstat.files.length),
       } : null;
 
       const entries = await mapWithConcurrency(changed.changedFiles, DEFAULTS.CLI_CONCURRENCY, async (relativeFile) => {
@@ -656,7 +671,7 @@ async function runCommand(parsed, container) {
               maxDepth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : DEFAULTS.SYMBOL_IMPACT_DEPTH,
             }
           )
-          : { functions: [], affectedTestCount: 0 };
+          : { functions: [], affectedTestsCount: 0 };
         const changedFunctionImpact = changedFunctionImpactBase
           ? { ...changedFunctionImpactBase, reuseHints, functionLevelAffectedTests }
           : null;
@@ -680,7 +695,7 @@ async function runCommand(parsed, container) {
           impact,
           changedLineRanges,
           symbolImpact,
-          affectedTestCount: affectedTests.length,
+          affectedTestsCount: affectedTests.length,
           affectedTests,
           historyRisk,
           recentCommits: history.ok ? history.recentCommits : [],
@@ -705,7 +720,7 @@ async function runCommand(parsed, container) {
           impact: [],
           changedLineRanges: [],
           symbolImpact: null,
-          affectedTestCount: 0,
+          affectedTestsCount: 0,
           affectedTests: [],
           historyRisk: null,
           recentCommits: [],
@@ -748,29 +763,49 @@ async function runCommand(parsed, container) {
       return auditSecurity({ cwd: parsed.cwd, targets: parsed.targets, config: parsed.config, language: parsed.language }, container);
     case 'stats':
       return dependencyGraph({ cwd: parsed.cwd, operation: 'stats' }, container);
-    case 'dependencies':
+    case 'dependencies': {
       requireFile(parsed, 'dependencies');
+      const depPath = resolveWorkspaceFilePath(parsed.file, container.workspaceRoot);
+      if (!depPath || !fs.existsSync(depPath)) {
+        return { ok: false, error: `File not found: ${parsed.file}`, inProject: false };
+      }
       return dependencyGraph({ cwd: parsed.cwd, operation: 'dependencies', file: parsed.file }, container);
-    case 'dependents':
+    }
+    case 'dependents': {
       requireFile(parsed, 'dependents');
+      const dentPath = resolveWorkspaceFilePath(parsed.file, container.workspaceRoot);
+      if (!dentPath || !fs.existsSync(dentPath)) {
+        return { ok: false, error: `File not found: ${parsed.file}`, inProject: false };
+      }
       return dependencyGraph({ cwd: parsed.cwd, operation: 'dependents', file: parsed.file }, container);
+    }
     case 'dead-exports':
       return dependencyGraph({ cwd: parsed.cwd, operation: 'dead_exports' }, container);
     case 'unresolved':
       return dependencyGraph({ cwd: parsed.cwd, operation: 'unresolved' }, container);
     case 'cycles':
       return dependencyGraph({ cwd: parsed.cwd, operation: 'cycles' }, container);
-    case 'impact':
+    case 'impact': {
       requireFile(parsed, 'impact');
+      const impactPath = resolveWorkspaceFilePath(parsed.file, container.workspaceRoot);
+      if (!impactPath || !fs.existsSync(impactPath)) {
+        return { ok: false, error: `File not found: ${parsed.file}`, inProject: false };
+      }
       return dependencyGraph({ cwd: parsed.cwd, operation: 'impact', file: parsed.file }, container);
-    case 'affected-tests':
+    }
+    case 'affected-tests': {
       requireFile(parsed, 'affected-tests');
+      const atPath = resolveWorkspaceFilePath(parsed.file, container.workspaceRoot);
+      if (!atPath || !fs.existsSync(atPath)) {
+        return { ok: false, error: `File not found: ${parsed.file}`, inProject: false };
+      }
       return dependencyGraph({
         cwd: parsed.cwd,
         operation: 'affected_tests',
         file: parsed.file,
         maxDepth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined,
       }, container);
+    }
     case 'repl': {
       const { startRepl } = require('./src/cli/repl');
       await startRepl({ cwd: parsed.cwd, exclude: parsed.exclude, quiet: parsed.quiet });
@@ -778,7 +813,7 @@ async function runCommand(parsed, container) {
     }
     case 'watch': {
       const { startWatch } = require('./src/cli/watch');
-      await startWatch({ cwd: parsed.cwd, exclude: parsed.exclude, compact: parsed.compact });
+      await startWatch({ cwd: parsed.cwd, exclude: parsed.exclude, compact: parsed.compact, runTests: parsed.runTests });
       return { ok: true, __managedLifecycle: true };
     }
     case 'init': {
@@ -787,6 +822,7 @@ async function runCommand(parsed, container) {
         const err = { ok: false, error: `.workspace-bridge.json already exists at ${configPath}` };
         if (parsed.json) console.log(JSON.stringify(err, null, 2));
         else console.error(err.error);
+        process.exitCode = 1;
         return { ok: false, __managedLifecycle: true };
       }
       const root = parsed.cwd || process.cwd();

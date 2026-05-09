@@ -1,9 +1,14 @@
 const { repoSeverity } = require('../../config/risk-thresholds');
+const {
+  buildUnresolvedRecommendation,
+  buildCycleRecommendation,
+  buildDeadExportRecommendation,
+} = require('./recommendation-engine');
 
 function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackProfile = 'unknown', analysisCoverage = null, stack = null) {
-  const deadExportCount = deadExports.deadExportCount || 0;
+  const deadExportsCount = deadExports.deadExportsCount || 0;
   const unresolvedCount = unresolved.unresolvedCount || 0;
-  const cycleCount = cycles.cycleCount || 0;
+  const cyclesCount = cycles.cyclesCount || 0;
   const nonMainlineFiles = scope?.counts?.nonMainlineFiles || 0;
 
   const passedChecks = health.healthScoreNumeric?.passed ?? (Number.parseInt(String(health.healthScore || '0/5').split('/')[0] || '0', 10) || 0);
@@ -14,8 +19,8 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
 
   let severity = repoSeverity({
     unresolved: unresolvedCount,
-    cycles: cycleCount,
-    deadExports: deadExportCount,
+    cycles: cyclesCount,
+    deadExports: deadExportsCount,
     missingHygieneChecks,
   });
 
@@ -28,11 +33,18 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
   }
 
   // Honesty metadata: surface false-positive likelihood so users can calibrate trust
+  const { SCAFFOLD_REASON_PREFIX } = require('../../tools/scaffold-detector');
+  const deadFp = deadExports.possibleFalsePositives || {};
+  const scaffoldCount = (deadFp.reasons || []).reduce((sum, r) => {
+    if (r.reason && r.reason.startsWith(SCAFFOLD_REASON_PREFIX)) return sum + r.count;
+    return sum;
+  }, 0);
   const honesty = {
     deadExports: {
-      total: deadExportCount,
-      likelyFalsePositives: deadExports.possibleFalsePositives?.count || 0,
-      primaryReason: deadExports.possibleFalsePositives?.primaryReason || null,
+      total: deadExportsCount,
+      likelyFalsePositives: deadFp.count || 0,
+      primaryReason: deadFp.primaryReason || null,
+      scaffoldDeadExports: scaffoldCount,
     },
     unresolved: {
       total: unresolvedCount,
@@ -44,8 +56,8 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
 
   const nextSteps = buildNextSteps({
     unresolvedCount,
-    cycleCount,
-    deadExportCount,
+    cyclesCount,
+    deadExportsCount,
     missingHygieneChecks,
     nonMainlineFiles,
     unresolvedFp: unresolved.possibleFalsePositives,
@@ -55,9 +67,9 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
   const result = {
     severity,
     counts: {
-      deadExports: deadExportCount,
+      deadExports: deadExportsCount,
       unresolved: unresolvedCount,
-      cycles: cycleCount,
+      cycles: cyclesCount,
       missingHygieneChecks,
     },
     honesty,
@@ -96,50 +108,21 @@ function buildNextSteps(ctx, stackProfile = 'unknown', stack = null) {
   // For Java/Python, deadExports are more actionable than unresolved (alias issues are rare)
   const prioritizeDeadExports = isJava || isPython;
 
-  if (ctx.unresolvedCount > 0 && !prioritizeDeadExports) {
-    const fpRatio = ctx.unresolvedFp?.total > 0 ? (ctx.unresolvedFp.count / ctx.unresolvedFp.total) : 0;
-    if (fpRatio >= 0.8 && ctx.unresolvedFp?.primaryReason === 'alias-unresolved') {
-      if (nodeFramework === 'vue') {
-        steps.push(`${ctx.unresolvedCount} unresolved imports — ${Math.round(fpRatio * 100)}% are alias/Vue extension omissions (e.g. missing .vue suffix or tsconfig paths not resolved). Check vite.config.js resolve.alias and ensure .vue files are imported with full extension.`);
-      } else {
-        steps.push(`${ctx.unresolvedCount} unresolved imports — ${Math.round(fpRatio * 100)}% are alias false positives. Check tsconfig.json / jsconfig.json compilerOptions.paths configuration.`);
-      }
-    } else {
-      steps.push(`Inspect ${ctx.unresolvedCount} unresolved import${ctx.unresolvedCount > 1 ? 's' : ''} first; they can indicate broken code paths or unsupported alias resolution.`);
-    }
-  }
+  const unresolvedRec = buildUnresolvedRecommendation(ctx.unresolvedCount, ctx.unresolvedFp, stack);
+  const cycleRec = buildCycleRecommendation(ctx.cyclesCount, stack);
+  const deadExportRec = buildDeadExportRecommendation(ctx.deadExportsCount, ctx.deadExportsFp, stack);
 
-  if (ctx.cycleCount > 0) {
-    if (nodeFramework === 'vue') {
-      steps.push(`${ctx.cycleCount} dependency cycle${ctx.cycleCount > 1 ? 's' : ''} detected — in Vue projects store→router→view cycles are often intentional design patterns. Review each cycle with 'audit-cycles --json' to distinguish framework-normal from structural debt.`);
-    } else {
-      steps.push(`Break ${ctx.cycleCount} dependency cycle${ctx.cycleCount > 1 ? 's' : ''} before making broad refactors.`);
-    }
+  if (unresolvedRec && !prioritizeDeadExports) {
+    steps.push(unresolvedRec);
   }
-
-  if (ctx.deadExportCount > 0) {
-    const fpRatio = ctx.deadExportsFp?.total > 0 ? (ctx.deadExportsFp.count / ctx.deadExportsFp.total) : 0;
-    if (fpRatio >= 0.5) {
-      let reason = ctx.deadExportsFp?.primaryReason || 'unknown';
-      if (nodeFramework === 'vue') {
-        reason = 'Vue global components, directives, or lazy-loaded routes';
-      } else if (isJava) {
-        reason = 'Spring Boot framework entry classes (Application, Configuration, etc.)';
-      }
-      steps.push(`${ctx.deadExportCount} dead exports — about ${Math.round(fpRatio * 100)}% are likely false positives (${reason}). Review with 'audit-file' before deleting.`);
-    } else {
-      steps.push(`${ctx.deadExportCount} dead export${ctx.deadExportCount > 1 ? 's' : ''} — review as candidates, not automatic deletions. Run the project's test suite after any removal.`);
-    }
+  if (cycleRec) {
+    steps.push(cycleRec);
   }
-
-  // When prioritizing deadExports, put unresolved after deadExports
-  if (ctx.unresolvedCount > 0 && prioritizeDeadExports) {
-    const fpRatio = ctx.unresolvedFp?.total > 0 ? (ctx.unresolvedFp.count / ctx.unresolvedFp.total) : 0;
-    if (fpRatio >= 0.8 && ctx.unresolvedFp?.primaryReason === 'alias-unresolved') {
-      steps.push(`${ctx.unresolvedCount} unresolved imports — ${Math.round(fpRatio * 100)}% are alias false positives. Check tsconfig.json / jsconfig.json compilerOptions.paths configuration.`);
-    } else {
-      steps.push(`Inspect ${ctx.unresolvedCount} unresolved import${ctx.unresolvedCount > 1 ? 's' : ''}; they can indicate broken code paths or unsupported alias resolution.`);
-    }
+  if (deadExportRec) {
+    steps.push(deadExportRec);
+  }
+  if (unresolvedRec && prioritizeDeadExports) {
+    steps.push(unresolvedRec);
   }
 
   if (ctx.missingHygieneChecks > 0) {

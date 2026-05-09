@@ -19,7 +19,7 @@ function makeEntry(overrides = {}) {
     })),
     changedLineRanges: [{ startLine: 10, endLine: 20 }],
     symbolImpact: { symbols: ['foo', 'bar'], mode: 'full' },
-    affectedTestCount: 8,
+    affectedTestsCount: 8,
     affectedTests: Array.from({ length: 8 }, (_, i) => ({
       file: `test/a${i}-test.js`,
       distance: i < 4 ? 1 : 2,
@@ -44,7 +44,7 @@ function main() {
     assert.deepStrictEqual(c.classification, entry.classification);
     assert.strictEqual(c.graphKnown, true);
     assert.strictEqual(c.impactCount, 12);
-    assert.strictEqual(c.affectedTestCount, 8);
+    assert.strictEqual(c.affectedTestsCount, 8);
     assert.strictEqual(c.compositeRisk.score, 82);
     assert.strictEqual(c.historyRisk.score, 75);
     assert.strictEqual(c.historyRisk.level, 'high');
@@ -76,7 +76,7 @@ function main() {
     assert.deepStrictEqual(c.affectedTests, []);
     assert.deepStrictEqual(c.impactExplanations, []);
     assert.strictEqual(c.impactCount, 0);
-    assert.strictEqual(c.affectedTestCount, 0);
+    assert.strictEqual(c.affectedTestsCount, 0);
     assert.strictEqual(c.compositeRisk, null);
     assert.strictEqual(c.historyRisk, null);
     console.log('minimal entry: ok');
