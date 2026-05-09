@@ -86,6 +86,7 @@
   - **实战效果**：zcypg_backend 205→134（-35%），zsgzt_backend 207→112（-46%），合计 412→246（-166 个误报消除）
 - **Vue Router/Vuex 循环白名单** `src/services/dep-graph.js` — 新增 `isLikelyFrameworkLegitimateCycle` 方法，过滤掉 Vue 项目中 `store/` ↔ `router/` ↔ `views/`（含 `.vue`）的短循环（长度 ≤ 5）。这些循环是 Vue 正常设计模式（store 引用 router 跳转、router 引用 view 组件、view 引用 store 状态），不应被报告为缺陷
   - **实战效果**：zcypg_frontend 13→3，zsgzt_frontend 19→2
+- **Python AST parser Windows 编码故障** `src/services/dep-graph/parsers/spawn-ast.js` — `spawnPythonASTParser` 的 `spawn` 调用新增 `env: { ...process.env, PYTHONIOENCODING: 'utf-8' }`。Windows 上 Python 子进程默认以系统编码（GBK/CP936）读取 stdin，但 Node.js 写入的是 UTF-8，导致包含中文注释/字符串的 `.py` 文件产生 surrogate 解码错误，全部 fallback 到 regex。修复后 gwy_backend 覆盖率 0.21→1.00（347/347 AST），Java parser 同步受益
 
 ### 测试
 

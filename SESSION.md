@@ -99,7 +99,7 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 |------|------|---------|---------|------|
 | **Spring Boot 框架模式识别** | `Application`/`ServletInitializer`/`@Configuration`/`@ControllerAdvice` 等类被误标 dead export | zcypg_backend, zsgzt_backend, gwy_backend | 中 | ✅ 已修复 |
 | **Vue Router/Vuex 循环白名单** | `store/user.js <-> router/index.js <-> views/login.vue` 是正常设计 | zcypg_frontend, zsgzt_frontend | 低 | ✅ 已修复 |
-| **Python parser skipped 排查** | gwy_backend 覆盖率 0.21，parserAvailability.skipped=true | gwy_backend | 低 | ⏳ 待处理 |
+| **Python parser skipped 排查** | gwy_backend 覆盖率 0.21，根因为 Windows 上 Python 子进程 stdin 编码不匹配（GBK vs UTF-8）导致 AST 解析全部失败 | gwy_backend | 低 | ✅ 已修复（coverage 0.21→1.00，347/347 AST） |
 | **前端自定义指令全局模式** | `permission.js` 的 `checkPermi`/`checkRole` 被 Vue 指令使用但无显式 import | zcypg_frontend, zsgzt_frontend | 低 | ⏳ 待处理 |
 
 **数据**：后端 dead exports 合计 467 个（zcypg 209 + zsgzt 210 + gwy 48），其中高 confidence 条目几乎全部是 Spring Boot 框架入口/配置/异常类。前端循环依赖 32 个（zcypg 13 + zsgzt 19），绝大多数是 router-store-view 的正常引用链。

@@ -16,6 +16,7 @@ async function spawnPythonASTParser(scriptName, content, timeoutMs = TIMEOUTS.PY
     const python = spawn(pythonCmd, [scriptPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
     });
 
     // Do not let a hung Python parser keep the Node event loop alive.
