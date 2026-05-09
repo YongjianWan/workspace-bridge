@@ -82,7 +82,7 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 | P1/P63 | Vue 假阳性三角（dead-export + orphan） | ✅ 路由懒加载/全局组件/自定义指令/动态字符串调用 extractor 已全部实现；`fs.readFileSync` 运行时读取模式仍超出静态分析范围 |
 | P5 | `nextSteps` 建议不可执行或指向死胡同 | ✅ 已修复（接入 framework 级信息：Vue/React/Next/Angular/Svelte；结合具体 counts 生成差异化文案） |
 | P24 | `impact` source 文件出现在自己的影响列表 | ⏸ cannot-reproduce，代码已有 guard |
-| P27 | SKILL.md 的 Standard Output Contract 与实际 CLI 输出脱节 | 活跃 |
+| P27 | SKILL.md 的 Standard Output Contract 与实际 CLI 输出脱节 | ✅ 已修复（修正 6 处字段路径错误，新增 4 组缺失命令读取说明，补充 schemaVersion 契约说明） |
 | P30 | `unresolved` 的 `resolvedTo` 语义 | ⏸ 冻结：`resolvedTo: null` = 未解析到磁盘文件 |
 | P33 | 两个前端项目输出高度模板化 | 活跃 |
 | P35 | `audit-map --compact` 的 `tree` 只展示一层 | ✅ 已修复（maxDepth 2→3） |
@@ -104,7 +104,7 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 **数据**：后端 dead exports 合计 467 个（zcypg 209 + zsgzt 210 + gwy 48），其中高 confidence 条目几乎全部是 Spring Boot 框架入口/配置/异常类。前端循环依赖 32 个（zcypg 13 + zsgzt 19），绝大多数是 router-store-view 的正常引用链。
 
-本轮已关闭/冻结：P5, P12, P17, P24, P30, P32, P35, P36, P37, P42, P43, P47, P50, P51, P56, P58。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+本轮已关闭/冻结：P5, P12, P17, P24, P27, P30, P32, P35, P36, P37, P42, P43, P47, P50, P51, P56, P58。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 

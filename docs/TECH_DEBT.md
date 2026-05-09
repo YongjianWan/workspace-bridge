@@ -225,23 +225,9 @@
 
 ---
 
-#### P27. skill 文档的 Standard Output Contract 与实际 CLI 输出脱节
+#### P27. skill 文档的 Standard Output Contract 与实际 CLI 输出脱节 ✅ 已修复
 
-SKILL.md 要求 agent 输出包含：
-
-> 1. Scope 2. Top Risks 3. Actions 4. Validation 5. Confidence
-
-实际 CLI 输出：
-
-- `stats` → 只有 `files`/`imports`/`exports`/`cycles`，没有 Top Risks/Actions/Validation/Confidence
-- `dependencies` → 只有 `dependencies` 数组，没有上述 contract
-- `dependents` → 只有 `dependents` 数组
-
-**产品影响**：
-
-- skill 的 contract 是设计给 agent 消费的，但底层 CLI 根本无法提供这些数据。
-- agent 按照 skill 文档去解析输出时，会发现大量字段缺失，被迫编造内容来填充 contract。
-- 这意味着 skill 文档的承诺和实际工具能力之间存在结构性 gap。
+✅ 已修复。逐命令对比实际 JSON 输出，修正 6 处字段路径错误（`scope.totalFiles`→`fileCount`、`diagnostics.totalIssues`→`diagnosticsSummary.total`、`summary.totalFindings`→`summary.total` 等）；新增 health/stats 及 6 个独立命令的读取说明；补充 `schemaVersion` 契约冻结说明。agent 现在能准确解析所有 CLI 输出字段。详情见 CHANGELOG.md [Unreleased]。
 
 ---
 

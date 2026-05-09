@@ -128,7 +128,8 @@ workspace-bridge-cli init
 **audit-summary:**
 1. Read `summary.severity` first (low/medium/high)
 2. Read `summary.nextSteps` for prioritized actions
-3. Check `scope.mainlineFiles` vs `scope.nonMainlineFiles` for mixed repo awareness
+3. Check `scope.counts.mainlineFiles` vs `scope.counts.nonMainlineFiles` for mixed repo awareness
+4. Check `summary.analysisCoverage.coverageRatio`; if < 0.5, findings may be incomplete
 
 **audit-diff:**
 1. Read `summary.fileTypeBreakdown` for changed file composition
@@ -137,22 +138,22 @@ workspace-bridge-cli init
 4. Check `validationAdvice.stack` for detected tech stack
 5. Use `validationAdvice.commands` for concrete commands to run
 6. Prioritize `validationAdvice.topRiskActions` for immediate actions
-7. Follow `validationAdvice.phases` in order (smoke → focused → full)
+7. Follow `validationAdvice.phases` in order when present (smoke → focused → full); phases may be empty if no changes require phased validation
 
 > `changeType` is inferred from `fileRole` as the single source of truth. Extension fallback only applies when `fileRole === 'library'`. This means `README.md` → docs, `package.json` → config, `.test.js` → tests, and `deploy.sh` → scripts are all driven by `inferFileRole()` rather than scattered regex checks.
 
 **workspace-info:**
-1. Check `scope.totalFiles` and `scope.languages` for project scale
+1. Check `fileCount` and `languages` for project scale
 2. Review `entryFiles` for project entry points
 3. Use as a lightweight preflight before heavier commands
 
 **diagnostics:**
-1. Check `diagnostics.totalIssues` for immediate problems
-2. Review `diagnostics.byFile` for per-file error/warning counts
-3. Prioritize files with `error` severity over `warning`
+1. Check `diagnosticsSummary.total` for immediate problems (may be `null` if no linters detected)
+2. Review `results[].diagnostics` for per-check error/warning detail when linters are present
+3. If `noLintersDetected: true`, no file-level diagnostics are available; install eslint/tsc/pyright/ruff in the target project first
 
 **audit-security:**
-1. Read `summary.totalFindings` for security issue count
+1. Read `summary.total` for security issue count
 2. Review `findings` array for severity + rule + file location
 3. Run after code changes that touch untrusted input boundaries
 
@@ -166,6 +167,16 @@ workspace-bridge-cli init
 2. Use `--compact` for large projects to keep output manageable
 3. Press Ctrl+C to stop watching
 
+**health:**
+1. Read `healthScore` (e.g. "5/5") for overall hygiene
+2. Review `checks` for per-item pass/fail status
+3. Check `fixes` for actionable remediation items
+4. Review `testCoverage` for coverage script and report availability
+
+**stats:**
+1. Read `files`, `totalImports`, `totalExports`, `cycles` for graph scale
+2. Check `analysisCoverage` (`coverageRatio`) to verify parser depth; < 0.5 means most files fell back to regex and findings may be incomplete
+
 **audit-map:**
 1. Read `summary.severity` first (low/medium/high)
 2. Read `summary.issueCounts` for issue distribution
@@ -173,12 +184,23 @@ workspace-bridge-cli init
 4. Review `tree` for directory structure (or `highlightedFiles` in `--compact` mode)
 5. Check `edges` for dependency relationships (module-level in `--compact`)
 
+**dead-exports / unresolved / cycles:**
+1. Read `<cmd>Count` for total issue count
+2. Review the `<cmd>` array for per-item detail (file, severity, confidence, confidenceReason)
+3. Check `possibleFalsePositives` for false-positive likelihood and primaryReason
+
+**impact / dependents / dependencies:**
+1. Read `<cmd>Count` for total count
+2. Review the `<cmd>` array for per-file detail (file, level, via, importedSymbols, importedSymbolsAvailable)
+3. `impact`: check `symbolImpact` for function-level affected scope
+
 **audit-overview:**
 1. Check `skeleton.coreModules` for key files to be careful with
 2. Review `hotspots` for high-risk files (frequent changes + high coupling)
-3. Review `stability` for fragile modules (low stability score)
+3. Review `stability` for fragile modules (low stability score); `stabilityMeta` shows totalCount / truncated status
 4. Check `orphans` for potentially unused files (verify before deleting)
 5. Review `architectureAdvice` for cycle/coupling refactor hints
+6. Check `analysisCoverage` to verify analysis depth before trusting findings
 
 ## Standard Output Contract (for reusable skill behavior)
 
@@ -189,6 +211,8 @@ When this skill is used by an agent, the response should include:
 3. `Actions`: concrete executable commands in priority order
 4. `Validation`: smoke/focused/full status or next commands
 5. `Confidence`: high/medium/low and why
+
+All JSON outputs include `schemaVersion: "1.1.1"`. Core fields `{ok, error, severity, summary}` are frozen: their types and semantics do not change within the same schemaVersion.
 
 ### Confidence rules
 

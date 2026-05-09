@@ -93,6 +93,15 @@
   - Python: hygiene 建议区分 Django 和非 Django 的测试配置
   - 所有建议结合具体数据（"3 dependency cycles", "12 dead exports", "4 hygiene gaps"）而非泛泛的 "Break dependency cycles"
   - 实战效果：zcypg_frontend 和 zsgzt_frontend 的 cycle 建议从完全相同的模板变为 Vue 特异性文案
+- **P27: SKILL.md Standard Output Contract 与实际 CLI 输出脱节** `skills/workspace-audit/SKILL.md` — 逐命令对比实际 JSON 输出，修正 6 处字段路径错误：
+  - `workspace-info`: `scope.totalFiles` → `fileCount`（根级，无 `scope`）; `scope.languages` → `languages`
+  - `diagnostics`: `diagnostics.totalIssues` → `diagnosticsSummary.total`; `diagnostics.byFile` → `results[].diagnostics`; 补充 `noLintersDetected` 场景说明
+  - `audit-security`: `summary.totalFindings` → `summary.total`
+  - `audit-summary`: `scope.mainlineFiles` → `scope.counts.mainlineFiles`; 新增 `analysisCoverage` 读取说明
+  - `audit-diff`: `validationAdvice.phases` 补充 "可能为空数组" 说明
+  - `audit-overview`: 新增 `stabilityMeta` 和 `analysisCoverage` 读取说明
+  - 新增缺失命令的读取说明：`health`（`healthScore`/`checks`/`fixes`/`testCoverage`）、`stats`（`analysisCoverage`）、`dead-exports`/`unresolved`/`cycles`（`confidenceReason`/`possibleFalsePositives`）、`impact`/`dependents`/`dependencies`（`importedSymbolsAvailable`/`symbolImpact`）
+  - 新增 `schemaVersion` 契约冻结说明
 
 ### 测试
 
