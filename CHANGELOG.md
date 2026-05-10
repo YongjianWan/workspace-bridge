@@ -6,6 +6,63 @@
 
 ## [Unreleased]
 
+### 修复（路线 F：数据一致性收尾 — P92/P93/P94/P95）
+
+- **P92: `workspace-info` 的 `entryFiles` 与 `audit-summary` 不一致** `src/tools/workspace-tools.js` — `workspaceInfo()` 改用 `projectContext.summarizeFiles(allOriginalPaths, getDependents)` 计算 `entryFiles`，替代原来的 `depGraph.entryFiles`（空 Set）。`allOriginalPaths` 从 `depGraph.graph.values()` 的 `originalPath` 属性聚合。与 `audit-summary` 的 `scope.entryFiles` 使用同一数据源和计算路径
+- **P93: `workspace-info` 缺少 `stack` 字段** `src/tools/workspace-tools.js` — 返回值新增 `stack: {isNode, isJava, isPython, isGo, isRust}`，与 `health` 命令的 `stack` 字段同源同义。用户不再需要分别调用两个命令才能拿到完整项目画像
+- **P94: `stats` 命令缺少 `fileRoles`** `src/services/dep-graph.js` — `GraphAnalyzer.getStats()` 在返回前调用 `this.getScopeSummary()` 获取 `fileRoles` 并注入 `stats` 对象。`stats` 与 `audit-summary` 的 `scope.fileRoles` 字段完全互通
+- **P95: `ROLE_RULES` 与 `test-detector.js` 不同步** `src/utils/project-context.js` `test/role-detection-test.js` — `ROLE_RULES.test` 补入 `base === 'tests.py'` basename 匹配，与 `test-detector.js` 的 `TEST_DETECTION_RULES` 对齐。Django 项目的 `core/tests.py` 等不再被误标为 `library`。新增 `role-detection-test.js` Django 固件测试验证
+
+### 修复（路线 G：框架感知补全 — P96/P101）
+
+- **P96: Vue 长循环白名单不足（长度=6 被误报）** `src/services/dep-graph.js` `test/dep-graph-error-test.js` — `isLikelyFrameworkLegitimateCycle` 对 Vue 项目放宽至长度 ≤6（其他框架保持 ≤5）：① `allInVue` 目录匹配新增 `api`/`http`/`request`/`services`/`service` ② 维度检测新增 `hasApi`（≥2 个维度即合法）。`request→store→router→view→api→request` 标准数据流不再被误报为 cycles。新增 `testVueLongCycleWhitelist` 验证 5 文件 length=6 循环被正确过滤
+- **P101: Django 项目 `testConfig` 被误报为缺失** `src/tools/health-tools.js` `test/health-tools-test.js` — `detectTestConfig()` 在无其他测试运行器时检测 `manage.py` 存在，返回 `frameworks: ['django-test']`。Django 项目 health 评分不再被不公正扣分。新增 `testDjangoTestConfigDetection` 验证
+
+### 修复（路线 H：脚手架与模板同质化 — P97/P98/P99/P100）
+
+- **P97: RuoYi Java 工具类循环被误报为架构缺陷** `src/services/dep-graph.js` `test/dep-graph-error-test.js` — `isLikelyFrameworkLegitimateCycle` 新增 RuoYi 脚手架工具类互依赖白名单：① 循环长度 ≤2 ② 路径含 `ruoyi`/`common/utils`/`common/core` ③ 所有文件名以 `Utils`/`Formatter`/`Serializer`/`Helper`/`Constants` 结尾。`StringUtils↔StrFormatter`、`Sensitive↔SensitiveJsonSerializer` 等同源脚手架同质循环不再重复报告为缺陷。新增 `testRuoYiJavaCycleWhitelist` 验证
+- **P98: `scaffold-detector.js` 未覆盖 `Sensitive.java` 等 RuoYi 指纹** `src/tools/scaffold-detector.js` `test/scaffold-detector-test.js` — `ruoyi-java` 指纹补全：`pathPatterns` regex 新增 `sensitive`，覆盖 `Sensitive.java` 在 ruoyi 路径下的检测。新增 `testScaffoldDetectorSensitiveJava` 验证
+- **P99: 第三方库复制文件被标 dead-export** `src/tools/honesty-engine.js` `test/honesty-engine-test.js` — 新增 `VENDOR_COPY_BASENAMES` 集合（`jsencrypt.js`、`md5.js`、`crypto-js.js` 等 14 个常见库），`classifyDeadExports()` 在 `FRAMEWORK_IMPLICIT_PATTERNS` 之后检测 vendor-copy 并标记 `reason: 'vendor-copy'`。`buildClassificationSummary` 将 `vendor-copy` 纳入假阳性统计。静态分析无法追踪全局变量运行时引用的问题现可被透明标注。新增 `testClassifyDeadExports_vendorCopy` 与 `testBuildClassificationSummary_vendorCopyCountedAsFalsePositive` 验证
+- **P100: 根目录独立 `.py` 脚本未被识别为 `script`** `src/utils/project-context.js` `src/utils/path.js` `test/role-detection-test.js` — `ROLE_RULES.script` 新增根目录 `.py` 文件检测（深度=1，已被 `test`/`migration`/`entry`/`config` 前置规则捕获的除外）；`isStandaloneEntryPath()` 同步新增 `/^[^/]+\.py$/` 匹配，使孤儿检测与角色分类一致。`ai_gwy_backend` 根目录 20+ 运维脚本不再被误标为 `library`/`unknown`。新增根目录 `.py` script 角色覆盖测试
+
+### 修复（路线 I-2：GitNexus 低垂果实吸收）
+
+- **`yieldToEventLoop()` 防事件循环阻塞** `src/services/dep-graph.js` — `_processFilesWithLimit` 每处理 20 个文件 `await setImmediate` 主动让出；`applyFrameworkImplicitImports` 改为 async，同步 `fs.readFileSync` 替换为 `await readFile`，同循环内每 20 文件让出。`build()` / `updateFiles()` 中 `postProcessPhases` 调用改为 `await phase()`。大仓库（10k+ 文件）首次索引和 watch 长期运行时 CLI/UI 不再卡顿
+- **数值 confidence 替代文本分级** `src/services/dep-graph.js` `src/config/constants.js` — `computeDeadExportConfidence` 返回值新增 `confidenceValue`（0.95 / 0.9 / 0.5）和 `confidenceSource`（`ast-no-importer` / `ast-unused-exports` / `regex-fallback` / `graph-sparse` / `java-constants-warehouse`）。下游 AI 消费者可按数值阈值过滤，消除 `high/medium/low` 文本分级无法排序/比较的问题。向后兼容：`confidence` 字符串字段完全保留
+- **Staleness 检查 git HEAD** `src/services/container.js` `test/staleness-test.js` — `initialize()` 末尾执行 `git rev-parse HEAD` 并将 hash 存入 `cache.workspaceInfo`；`getStaleness()` 比较当前 HEAD 与缓存 HEAD，不一致时 `isStale: true` + `gitHeadChanged: true`。用户切换分支后缓存自动被视为过期，避免分支切换后的误报。非 git 目录或 git 不可用时不影响现有行为
+
+### 重构（路线 J：Import 解析策略链重构 — GitNexus 模式吸收）
+
+- **`resolvers.js` 配置表驱动策略链** `src/services/dep-graph/resolvers.js` `test/resolver-strategy-chain-test.js` — 吸收 GitNexus `import-resolvers/resolver-factory.ts` 设计模式：
+  - 新增 `createResolver(strategies)` 工厂函数：有序策略链，第一个非 null 结果获胜
+  - 新增 `registerResolverConfig(ext, strategies)` API：每种语言一行配置
+  - 新增 10 个策略纯函数：`tryAlias` / `tryRelativeWithExtensions` / `tryPythonRelative` / `tryPythonAbsolute` / `tryJava` / `tryGoRelative` / `tryGoModule` / `tryRustCrate` / `tryRustSuper`
+  - `resolveImport(fromFile, importPath, ext, root)` 门面：内部从 6 分支 if-else 改为 `RESOLVER_CONFIGS.get(ext) || default` + `createResolver(strategies)`。对外接口 100% 不变
+  - 向后兼容：所有原有导出（`resolveJavaImport`, `clearResolverCaches`, `cachedExistsSync`）完全保留
+  - 新增 `test/resolver-strategy-chain-test.js`：20 断言覆盖链式行为、配置表覆盖、facade 行为、扩展注册
+
+### 修复（路线 I：GitNexus 模式吸收与图架构深化 — P102/P103/P104/P105）
+
+- **P102: `updateFiles` 删除文件后图不一致（L1）** `src/services/dep-graph.js` `test/dep-graph-incremental-test.js` — 删除分支追加清理：① 遍历 `reverseGraph` 所有值，从 dependents 数组中移除被删除文件 ② 遍历 `graph` 所有条目，从 `imports` / `importRecords` 中过滤被删除文件 ③ 删除 `reverseGraph` 中以被删文件为 key 的条目。彻底消除 watch 长期运行的幽灵边。测试同步更新：删除后 `n.js` 不再引用 `m.js`，`getDependents(mKey)` 返回 `[]`
+- **P103: `framework-patterns.js` 引入 `entryPointWeight` 梯度评分（L2）** `src/services/dep-graph/framework-patterns.js` `src/tools/overview-tools.js` `test/framework-patterns-test.js` — 将 `isEntry: true/false` 升级为 1.0–3.0 梯度评分（`ENTRY_WEIGHT` 常量表）：HIGH=3.0（page/controller/views/main/application）、MEDIUM_HIGH=2.5（layout/routes/URLs/handlers）、MEDIUM=2.0（admin/middleware/plugins）、LOW=1.5（components/prisma）、MINIMAL=1.0（manage.py）。`calculateHotspotScore` 接入 `entryPointWeight` multiplier（`> 1` 时 `score *= weight`），热点计算首次能区分 Spring Boot Controller 与 Django manage.py 的变更风险差异。向后兼容：`isEntry` 字段保留，现有消费者零改动
+- **P104: 扩展隐式依赖模式 — React.lazy / Next.js dynamic / Angular loadChildren（L2）** `src/services/dep-graph/framework-usage-patterns.js` `test/framework-usage-patterns-test.js` — 新增 3 个 `FRAMEWORK_USAGE_PATTERNS` 配置：① `react-lazy` 扫描 `React.lazy(() => import('...'))` / `lazy(() => import('...'))` ② `nextjs-dynamic` 扫描 `dynamic(() => import('...'))` ③ `angular-loadchildren` 扫描 `loadChildren: () => import('...')`。各 pattern 含独立 scanner/extractor，复用现有 `resolveImplicitImports` 解析链路。消除 React/Next.js/Angular 项目懒加载组件的 orphan/dead-export 系统性误报。新增 3 组单元测试验证提取精度
+- **P105: 软 post-process phase 架构（L3）** `src/services/dep-graph.js` — `GraphBuilder` 构造函数新增 `postProcessPhases: Array<() => void>`，默认注册 `applyFrameworkImplicitImports`。`build()` 和 `updateFiles()` 末尾的硬编码调用替换为 `for (const phase of this.postProcessPhases) phase()`。新增 `registerPostProcessPhase(fn)` API 供外部注册新 phase。向后兼容：不加 `--incremental` 时现有行为 100% 不变
+
+### 新增（P8-3 增量策展 — 闭环能力完整）
+
+- **`audit-file --watch`** `cli.js` `src/cli/watch.js` `test/audit-file-watch-test.js` — 文件保存后输出完整 audit-file 结构化结果（JSON Lines 事件流）：
+  - `startAuditFileWatch(options)`：复用 `ServiceContainer` + `watch: true` 初始化，注册 `onFileChanged` 回调
+  - `registerAuditFileWatchCallback`：支持 `--file <path>` 目标过滤，只对目标文件变更触发分析
+  - `buildAuditFileWatchResult`：调用 `getImpactRadius` + `findAffectedTests` + `getFrameworkHint` + `buildFileValidationAdvice` + `buildFileSummary`，输出完整 audit-file 语义
+  - JSON Lines 事件契约：`auditFileStart` → `auditFileResult`（含 `impact`/`affectedTests`/`validationAdvice`/`summary`/`frameworkPattern`）→ `auditFileComplete`
+  - CLI 路由：`case 'audit-file'` 检测 `parsed.watch`，`isSelfManaged` 判断包含 `audit-file --watch` 以管理容器生命周期
+- **`audit-diff --incremental`** `cli.js` `src/tools/incremental-diff.js` `test/audit-diff-incremental-test.js` — 范围过滤层，消除全库噪音：
+  - `buildIncrementalFindings(changedFiles, container)`：收集 changed files + impact radius（depth=2）构成 `relatedFilesSet`，全库 `findDeadExports`/`findUnresolvedImports`/`findCircularDependencies` 只保留相关子集
+  - 输出 Schema：audit-diff 返回值追加 `incremental: true` + `incrementalFindings`（`deadExportsCount`/`deadExports`/`unresolvedCount`/`unresolved`/`cyclesCount`/`cycles`）
+  - 向后兼容：不加 `--incremental` 时现有字段 100% 不变
+- **参数解析**：`cli.js` `parseCliArgs` 新增 `'--watch': true` / `'--incremental': true`，返回值映射 `watch`/`incremental` 字段
+- **测试**：`test/audit-file-watch-test.js`（启动 → 触发文件变更 → 轮询验证 JSON Lines 事件 + target filtering）+ `test/audit-diff-incremental-test.js`（schema 验证 + 与全量输出对比 + 范围过滤断言）
+
 ### 新增（P78 脚手架噪音过滤 — 路线 B）
 
 - **脚手架指纹检测** `src/tools/scaffold-detector.js` `src/tools/honesty-engine.js` `src/services/dep-graph.js` `src/cli/formatters/recommendation-engine.js` `src/cli/formatters/repo-summary.js` — 解决 RuoYi/Vue Admin 等常见脚手架在多个项目间产生 30+ 相同 dead-export 噪音的问题：
@@ -41,6 +98,34 @@
   - `low`: regex 解析、或 graph 稀疏 → regex 无法精确追踪符号，假阳性风险高
   每个 dead-export 条目新增 `confidenceReason` 字段，输出人类可读的解释。彻底消除黑盒分级
 - **P51: 命令输出"零问题"组合形成系统性虚假安全感** `src/services/dep-graph.js` `src/cli/formatters/repo-summary.js` `src/tools/overview-tools.js` `cli.js` — `depGraph.getStats()` 新增 `analysisCoverage`（`totalFiles`/`parsedFiles`/`fallbackFiles`/`coverageRatio`）。`audit-summary` 和 `audit-overview` 输出均包含此字段。当 `coverageRatio < 0.5` 时，`summary.severity` 强制上浮为 `high`，并追加 `coverageWarning` 提示用户"findings may be incomplete"
+
+### 修复（结果可信性 — P86/P87/P91）
+
+- **P91: `audit-summary` / `audit-overview` orphans 聚合与明细不一致** `src/tools/overview-tools.js` — `buildOverviewSummary` 的 `orphanCount` 从 `Object.values(orphans).flat().length` 修复为 `orphans.all.length`。原代码把 `all`（已含全部孤儿）与各分类数组（docs/scripts/configs/modules）再次累加，造成重复计数（如 `ai_gwy_backend` 聚合报 4 但明细仅 2）
+- **P87: `importerCount>0` 的 dead-export 解释模板化** `src/services/dep-graph.js` `src/config/constants.js` — `computeDeadExportConfidence` 按 `importerCount` 差异化 `confidenceReason`：
+  - `importerCount >= 10` → "File has N importers, but these specific exports are not referenced by any importer"
+  - `importerCount >= 3` → "File has N importers; unused exports may be internal helpers or barrel re-exports"
+  - `importerCount < 3` → 保留原 "AST-level analysis found unused exports..."
+  阈值常量 `DEAD_EXPORT.IMPORTER_COUNT_HIGH` / `IMPORTER_COUNT_MEDIUM` 进 `constants.js`。彻底消除 "importerCount=18 仍返回同一句话" 的模板化问题
+- **P86: `vue-page-implicit` 等误报仅计数、未归因到具体文件** `src/tools/honesty-engine.js` — `classifyDeadExports` 在返回分类前给单条 dead-export 记录注入 `falsePositiveReason` 字段（如 `vue-page-implicit` / `java-constants-warehouse` / `scaffold-ruoyi` / `uncertain`）。`dead-exports` 命令 JSON 输出中的每条记录现可直接查看其 fp 标签，用户无需在聚合层和明细层之间来回比对
+
+### 修复（Windows 平台硬化 + 配置一致性 — P89/P90）
+
+- **P89: Windows 路径大小写被强制归一化** `src/utils/path.js` `src/services/dep-graph.js` `src/tools/dep-tools.js` `src/cli/repl.js` `src/tools/workspace-tools.js` `src/tools/security-tools.js` `src/cli/formatters/project-map.js` `src/tools/overview-tools.js` — 解决 Windows 上 `normalizePathKey()` 的 `toLocaleLowerCase('en-US')` 导致 JSON 输出路径丢失原始大小写的问题（如 `filePreview.js` → `filepreview.js`）：
+  - `path.js` 新增 `toDisplayPath()` — 仅 POSIX 斜杠转换，保留原始大小写，用于外部输出
+  - `GraphBuilder.analyzeFile()` 在 graph value 中存储 `originalPath`（原始绝对路径）
+  - `DependencyGraph` 新增 `_displayPath(graphKey)` — 将内部 graph key 映射回原始路径
+  - 所有输出方法统一转换：`findDeadExports`/`findUnresolvedImports`/`findCircularDependencies`/`getImpactRadius`/`findAffectedTests`/`getDependencies`/`getDependents` 返回的路径、CLI 命令 JSON、REPL `top`、formatters、security findings 全部使用 `_displayPath`
+  - 防御性设计：所有调用点使用 `_displayPath?.(k) || k`，兼容测试 mock 对象
+- **P90: `.workspace-bridge.json` 配置状态不对称** `src/utils/project-context.js` — 空配置文件（仅含 `$schema` 或 `{}`）与无配置文件的 `hasWorkspaceBridgeConfig` 标记不同（`true` vs `false`），导致处理路径分叉：
+  - 新增 `hasEffectiveConfig(config)` — 排除 `$schema` 后检查是否有任何有效配置键
+  - `summarizeFiles()` 中 `hasWorkspaceBridgeConfig` 改为 `pathExists(configPath) && hasEffectiveConfig(this.config)`
+  - 空配置/纯 schema 配置现在与无配置行为完全一致
+
+### 测试
+
+- `test/dead-export-confidence-test.js` — 更新 `testManyImportersAst` 断言以反映 P87 差异化文案；新增 `testVeryManyImportersAst` 覆盖 `importerCount >= 10` 分支
+- `test/honesty-engine-test.js` — 新增 `testClassifyDeadExports_falsePositiveReasonSinked` 验证 P86：`classifyDeadExports` 调用后单条记录自带 `falsePositiveReason`
 
 ### 性能
 
@@ -238,6 +323,13 @@
   - `GraphQuery` — `getDependencies()` / `getDependents()` / `getImpactRadius()`
 - **P8-1 插槽预留**：`GraphBuilder.onBuildComplete` / `GraphBuilder.onFileUpdated`，供 watch 闭环使用
 - **验证**：85/85 测试通过，healthScore=5/5，零外部调用方改动
+
+### 修复（工程健康 — 路线 D：P74/P75/P76/P82）
+
+- **P74: `_scanLocalSymbolUsage` 内存峰值** `src/services/dep-graph.js` — `content.split('\n')` 改为流式扫描（`indexOf('\n')` + `slice` 循环），消除大文件（1MB+）dead-export 分析时的 ~20MB 临时数组。行为与 `file-index.js` v1.1.0 的同类修复一致
+- **P75: `framework-usage-patterns.js` 无缓存 I/O** `src/services/dep-graph/framework-usage-patterns.js` `src/services/dep-graph/resolvers.js` — `resolveImplicitImports` 的 `fs.existsSync` 替换为 `cachedExistsSync`（LRU 缓存，上限 2000）。`resolvers.js` 导出 `cachedExistsSync` 供外部复用
+- **P76: `watch.js` stdout 拼接无上限** `src/cli/watch.js` `src/config/constants.js` — `executeWatchCommand` 新增 `WATCH_MAX_STDOUT_BYTES = 1MB` 上限，超限截断并标记 `truncated: true`。`commandResult` 事件透传 `truncated` 字段，防止测试框架海量日志导致 OOM
+- **P82: Maven 项目 `testFiles: 0`** `src/utils/test-detector.js` — 扩展 `TEST_DETECTION_RULES` 对 Java 测试命名的覆盖：新增 `/.*(?:Test|Tests|IT)\.java$/i` 规则，明确匹配 Maven 常见的 `*Test.java` / `*Tests.java` / `*IT.java` 命名。补测试到 `test/test-detector-test.js`
 
 ## [1.1.1] - 2026-05-08
 
