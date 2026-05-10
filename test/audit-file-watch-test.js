@@ -1,0 +1,190 @@
+#!/usr/bin/env node
+/**
+ * audit-file --watch integration test.
+ * Spawns the CLI in watch mode, triggers a file change, and verifies
+ * the full audit-file JSON Lines event stream.
+ */
+const assert = require('assert');
+const path = require('path');
+const fs = require('fs');
+const { spawn } = require('child_process');
+
+const repoRoot = path.join(__dirname, '..');
+const cliPath = path.join(repoRoot, 'cli.js');
+const tempDir = path.join(repoRoot, 'test', '.watch-temp');
+const triggerFile = path.join(tempDir, 'trigger.js');
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function setup() {
+  fs.mkdirSync(tempDir, { recursive: true });
+  fs.writeFileSync(triggerFile, '// initial\n');
+}
+
+async function cleanup() {
+  try {
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function waitForStartup(childStderr, timeoutMs = 15000) {
+  let waited = 0;
+  while (!childStderr.includes('Press Ctrl+C to stop') && waited < timeoutMs) {
+    await delay(100);
+    waited += 100;
+  }
+}
+
+function parseJsonLines(stdout) {
+  const lines = stdout.split(/\r?\n/).filter((l) => l.trim().startsWith('{'));
+  const events = [];
+  for (const line of lines) {
+    try {
+      events.push(JSON.parse(line));
+    } catch {
+      // ignore non-JSON lines
+    }
+  }
+  return events;
+}
+
+async function testAuditFileWatch() {
+  console.log('--- test: audit-file --watch JSON Lines events ---');
+
+  const relativeTrigger = path.relative(repoRoot, triggerFile);
+  const child = spawn('node', [cliPath, 'audit-file', '--file', relativeTrigger, '--watch', '--json'], {
+    cwd: repoRoot,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  let stdout = '';
+  let stderr = '';
+
+  child.stdout.on('data', (data) => {
+    stdout += data.toString();
+  });
+
+  child.stderr.on('data', (data) => {
+    stderr += data.toString();
+  });
+
+  await waitForStartup(stderr);
+  assert(stderr.includes('audit-file --watch'), 'Should show audit-file watch header');
+  assert(stderr.includes('Press Ctrl+C to stop'), 'Should show stop message');
+  console.log('audit-file --watch startup: ok');
+
+  // Update the trigger file to fire the watcher callback
+  fs.writeFileSync(triggerFile, `// updated ${Date.now()}\n`);
+
+  // Poll for expected JSON Lines events
+  const startTime = Date.now();
+  let resultEvent = null;
+  while (Date.now() - startTime < 15000) {
+    const events = parseJsonLines(stdout);
+    resultEvent = events.find((e) => e.event === 'auditFileResult');
+    if (resultEvent) break;
+    await delay(200);
+  }
+
+  // Kill the process
+  child.kill();
+
+  await new Promise((resolve) => {
+    child.on('exit', resolve);
+    child.on('error', resolve);
+    setTimeout(resolve, 3000);
+  });
+
+  assert(resultEvent, `Should emit auditFileResult event. stdout: ${stdout}`);
+  assert(resultEvent.file === relativeTrigger.replace(/\\/g, '/') || resultEvent.file === relativeTrigger, `Result file should match trigger. Got: ${resultEvent.file}`);
+  assert(resultEvent.summary && typeof resultEvent.summary.severity === 'string', 'Should include summary with severity');
+  assert(resultEvent.impact && typeof resultEvent.impact.impactCount === 'number', 'Should include impact with impactCount');
+  assert(resultEvent.affectedTests && typeof resultEvent.affectedTests.affectedTestsCount === 'number', 'Should include affectedTests with affectedTestsCount');
+  assert(resultEvent.validationAdvice, 'Should include validationAdvice');
+
+  const events = parseJsonLines(stdout);
+  const startEvent = events.find((e) => e.event === 'auditFileStart');
+  const completeEvent = events.find((e) => e.event === 'auditFileComplete');
+  assert(startEvent, 'Should emit auditFileStart event');
+  assert(completeEvent, 'Should emit auditFileComplete event');
+
+  console.log('audit-file --watch events: ok');
+}
+
+async function testAuditFileWatchTargetFiltering() {
+  console.log('--- test: audit-file --watch target file filtering ---');
+
+  const relativeTrigger = path.relative(repoRoot, triggerFile);
+  const child = spawn('node', [cliPath, 'audit-file', '--file', relativeTrigger, '--watch', '--json'], {
+    cwd: repoRoot,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  let stdout = '';
+  let stderr = '';
+
+  child.stdout.on('data', (data) => {
+    stdout += data.toString();
+  });
+
+  child.stderr.on('data', (data) => {
+    stderr += data.toString();
+  });
+
+  await waitForStartup(stderr);
+
+  // Write to a different file in the same directory
+  const otherFile = path.join(tempDir, 'other.js');
+  fs.writeFileSync(otherFile, `// other ${Date.now()}\n`);
+
+  // Wait a bit and verify no auditFileResult for other.js
+  await delay(2000);
+
+  const events = parseJsonLines(stdout);
+  const resultForOther = events.find((e) => e.event === 'auditFileResult' && e.file && e.file.includes('other'));
+
+  // Kill the process
+  child.kill();
+
+  await new Promise((resolve) => {
+    child.on('exit', resolve);
+    child.on('error', resolve);
+    setTimeout(resolve, 3000);
+  });
+
+  // We may get zero events because other.js is not the target file;
+  // or we may get an event for trigger.js if the watcher fires on directory change.
+  // The key assertion is: no auditFileResult for other.js.
+  assert(!resultForOther, 'Should not emit auditFileResult for non-target file');
+  console.log('audit-file --watch target filtering: ok');
+}
+
+async function main() {
+  console.log('=== workspace-bridge audit-file watch test ===\n');
+
+  await cleanup();
+  await setup();
+
+  try {
+    await testAuditFileWatch();
+    await cleanup();
+    await setup();
+    await testAuditFileWatchTargetFiltering();
+  } finally {
+    await cleanup();
+  }
+
+  console.log('\n=== all audit-file watch tests passed ===');
+}
+
+main().catch(async (err) => {
+  await cleanup();
+  console.error('Test failed:', err.message);
+  process.exit(1);
+});

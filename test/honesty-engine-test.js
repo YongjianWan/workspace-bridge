@@ -124,6 +124,19 @@ function testClassifyDeadExports_uncertain() {
   assert.strictEqual(classifications[0].reason, 'uncertain');
 }
 
+// P86: false-positive reason must be sunk to individual dead-export records
+// so users can locate which items are flagged.
+function testClassifyDeadExports_falsePositiveReasonSinked() {
+  const depGraph = mockDepGraph({ files: 100, totalImports: 500 });
+  const deadExports = [
+    { file: '/project/src/views/Home.vue', exports: ['default'], confidence: 'medium', importerCount: 0 },
+    { file: '/src/utils/helper.js', exports: ['foo'], confidence: 'medium', importerCount: 3 },
+  ];
+  classifyDeadExports(deadExports, depGraph);
+  assert.strictEqual(deadExports[0].falsePositiveReason, 'vue-page-implicit');
+  assert.strictEqual(deadExports[1].falsePositiveReason, 'uncertain');
+}
+
 function testClassifyDeadExports_scaffoldRuoYi() {
   const depGraph = mockDepGraph({ files: 100, totalImports: 500 });
   const deadExports = [
@@ -137,6 +150,32 @@ function testClassifyDeadExports_scaffoldRuoYi() {
   assert.strictEqual(classifications[0].reason, 'scaffold-ruoyi');
   assert.strictEqual(classifications[1].reason, 'scaffold-ruoyi');
   assert.strictEqual(classifications[2].reason, 'scaffold-ruoyi');
+}
+
+// P99: third-party library copy-paste files should be classified as vendor-copy
+function testClassifyDeadExports_vendorCopy() {
+  const depGraph = mockDepGraph({ files: 100, totalImports: 500 });
+  const deadExports = [
+    { file: '/project/src/utils/jsencrypt.js', exports: ['JSEncrypt'], confidence: 'high', importerCount: 0 },
+    { file: '/project/src/utils/md5.js', exports: ['md5'], confidence: 'high', importerCount: 0 },
+    { file: '/project/src/utils/helper.js', exports: ['foo'], confidence: 'high', importerCount: 0 },
+  ];
+  const classifications = classifyDeadExports(deadExports, depGraph);
+  assert.strictEqual(classifications[0].reason, 'vendor-copy', 'jsencrypt.js should be vendor-copy');
+  assert.strictEqual(classifications[1].reason, 'vendor-copy', 'md5.js should be vendor-copy');
+  assert.strictEqual(classifications[2].reason, 'likely-dead', 'helper.js should not be vendor-copy');
+}
+
+function testBuildClassificationSummary_vendorCopyCountedAsFalsePositive() {
+  const classifications = [
+    { item: {}, reason: 'vendor-copy' },
+    { item: {}, reason: 'vendor-copy' },
+    { item: {}, reason: 'uncertain' },
+  ];
+  const summary = buildClassificationSummary(classifications);
+  assert.strictEqual(summary.total, 3);
+  assert.strictEqual(summary.falsePositiveCount, 2, 'vendor-copy should count as false positive');
+  assert.strictEqual(summary.primaryReason, 'vendor-copy');
 }
 
 function testClassifyDeadExports_scaffoldVueAdmin() {
@@ -225,10 +264,13 @@ const tests = [
   testClassifyDeadExports_graphUnreliable,
   testClassifyDeadExports_frameworkImplicit,
   testClassifyDeadExports_uncertain,
+  testClassifyDeadExports_falsePositiveReasonSinked,
   testClassifyDeadExports_scaffoldRuoYi,
   testClassifyDeadExports_scaffoldVueAdmin,
   testClassifyDeadExports_scaffoldNotMatched,
+  testClassifyDeadExports_vendorCopy,
   testBuildClassificationSummary_scaffoldCountedAsFalsePositive,
+  testBuildClassificationSummary_vendorCopyCountedAsFalsePositive,
   testBuildClassificationSummary,
   testBuildDisclaimer_highRatio,
   testBuildDisclaimer_none,

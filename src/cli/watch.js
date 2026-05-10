@@ -11,10 +11,14 @@
 const path = require('path');
 const { spawn } = require('child_process');
 const { ServiceContainer } = require('../services/container');
-const { DEFAULTS, TIMEOUTS } = require('../config/constants');
+const { DEFAULTS, TIMEOUTS, LIMITS } = require('../config/constants');
 const WATCH_COMMAND_TIMEOUT_MS = TIMEOUTS.WATCH_COMMAND_TIMEOUT_MS;
+const WATCH_MAX_STDOUT_BYTES = LIMITS.WATCH_MAX_STDOUT_BYTES;
 const { detectStack } = require('../utils/stack-detectors/detect');
 const { generateCommands } = require('../utils/stack-detectors/commands');
+const { buildFileSummary } = require('./formatters/file-summary');
+const { buildFileValidationAdvice } = require('./formatters/validation-advice');
+const { normalizePathKey } = require('../utils/path');
 
 function formatWatchOutput(workspaceRoot, filePath, impact, depGraph, compact) {
   const relativeFile = path.relative(workspaceRoot, filePath);
@@ -106,13 +110,29 @@ function executeWatchCommand(entry, workspaceRoot, timeoutMs = WATCH_COMMAND_TIM
     let stdout = '';
     let stderr = '';
     let killed = false;
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
 
     child.stdout.on('data', (data) => {
-      stdout += data.toString();
+      if (stdoutTruncated) return;
+      const chunk = data.toString();
+      if (stdout.length + chunk.length > WATCH_MAX_STDOUT_BYTES) {
+        stdout += chunk.slice(0, WATCH_MAX_STDOUT_BYTES - stdout.length);
+        stdoutTruncated = true;
+      } else {
+        stdout += chunk;
+      }
     });
 
     child.stderr.on('data', (data) => {
-      stderr += data.toString();
+      if (stderrTruncated) return;
+      const chunk = data.toString();
+      if (stderr.length + chunk.length > WATCH_MAX_STDOUT_BYTES) {
+        stderr += chunk.slice(0, WATCH_MAX_STDOUT_BYTES - stderr.length);
+        stderrTruncated = true;
+      } else {
+        stderr += chunk;
+      }
     });
 
     const timer = setTimeout(() => {
@@ -131,6 +151,7 @@ function executeWatchCommand(entry, workspaceRoot, timeoutMs = WATCH_COMMAND_TIM
         killed,
         stdout: stdout.trim(),
         stderr: stderr.trim(),
+        truncated: stdoutTruncated || stderrTruncated || undefined,
         durationMs,
       });
     });
@@ -144,6 +165,7 @@ function executeWatchCommand(entry, workspaceRoot, timeoutMs = WATCH_COMMAND_TIM
         error: err.message,
         stdout: stdout.trim(),
         stderr: stderr.trim(),
+        truncated: stdoutTruncated || stderrTruncated || undefined,
         durationMs: Date.now() - startTime,
       });
     });
@@ -194,6 +216,7 @@ async function runWatchValidation(filePath, depGraph, workspaceRoot) {
       // Only include stdout/stderr on failure to keep JSON Lines compact.
       stdout: result.ok ? undefined : result.stdout,
       stderr: result.ok ? undefined : result.stderr,
+      truncated: result.truncated,
     });
 
     if (!result.ok) {
@@ -290,7 +313,115 @@ async function startWatch(options) {
   }
 }
 
+async function buildAuditFileWatchResult(filePath, depGraph, workspaceRoot) {
+  const impact = depGraph.getImpactRadius(filePath, DEFAULTS.WATCH_IMPACT_DEPTH);
+  const affectedTests = depGraph.findAffectedTests(filePath, DEFAULTS.WATCH_IMPACT_DEPTH);
+  const frameworkPattern = depGraph.getFrameworkHint(filePath);
+  const validationAdvice = buildFileValidationAdvice(filePath, workspaceRoot);
+  return {
+    file: path.relative(workspaceRoot, filePath),
+    resolvedPath: filePath,
+    summary: buildFileSummary(
+      { impactCount: impact.length, ok: true },
+      { affectedTestsCount: affectedTests.length, ok: true },
+    ),
+    frameworkPattern,
+    validationAdvice,
+    impact: {
+      ok: true,
+      impactCount: impact.length,
+      impact,
+    },
+    affectedTests: {
+      ok: true,
+      affectedTestsCount: affectedTests.length,
+      affectedTests,
+    },
+  };
+}
+
+function registerAuditFileWatchCallback(fileIndex, depGraph, workspaceRoot, compact, targetFile) {
+  const targetNormalized = targetFile ? normalizePathKey(targetFile) : null;
+  fileIndex.onFileChanged = async (filePath) => {
+    if (targetNormalized && normalizePathKey(filePath) !== targetNormalized) {
+      return;
+    }
+    const startTime = Date.now();
+    emitWatchEvent({
+      event: 'auditFileStart',
+      file: path.relative(workspaceRoot, filePath),
+      timestamp: startTime,
+    });
+
+    try {
+      const result = await buildAuditFileWatchResult(filePath, depGraph, workspaceRoot);
+      emitWatchEvent({
+        event: 'auditFileResult',
+        ...result,
+        durationMs: Date.now() - startTime,
+      });
+    } catch (err) {
+      emitWatchEvent({
+        event: 'auditFileError',
+        file: path.relative(workspaceRoot, filePath),
+        error: err?.message || String(err),
+        durationMs: Date.now() - startTime,
+      });
+    }
+
+    emitWatchEvent({
+      event: 'auditFileComplete',
+      file: path.relative(workspaceRoot, filePath),
+      timestamp: Date.now(),
+    });
+  };
+}
+
+async function startAuditFileWatch(options) {
+  const container = new ServiceContainer();
+  setupGracefulShutdown(container);
+
+  try {
+    const initialized = await container.initialize(options.cwd, TIMEOUTS.INIT_TIMEOUT_MS, {
+      watch: true,
+      excludeDirs: options.exclude || [],
+    });
+    if (!initialized) {
+      throw container.initError || new Error('Failed to initialize workspace container');
+    }
+
+    const targetFile = options.targetFile
+      ? path.resolve(container.workspaceRoot, options.targetFile)
+      : null;
+    if (targetFile && !require('fs').existsSync(targetFile)) {
+      throw new Error(`File not found: ${options.targetFile}`);
+    }
+
+    console.error(`workspace-bridge audit-file --watch — ${container.workspaceRoot}`);
+    if (targetFile) {
+      console.error(`Watching: ${path.relative(container.workspaceRoot, targetFile)}`);
+    } else {
+      console.error('Watching all files.');
+    }
+    console.error('Press Ctrl+C to stop.\n');
+
+    registerAuditFileWatchCallback(
+      container.fileIndex,
+      container.depGraph,
+      container.workspaceRoot,
+      options.compact,
+      targetFile,
+    );
+
+    await new Promise(() => {});
+  } catch (err) {
+    console.error('audit-file watch failed:', err.message);
+    process.exitCode = 1;
+  }
+}
+
 module.exports = {
   startWatch,
+  startAuditFileWatch,
   formatWatchOutput,
 };

@@ -13,6 +13,13 @@ const { detectScaffold, SCAFFOLD_REASON_PREFIX } = require('./scaffold-detector'
 // Known alias prefixes that frequently cause unresolved false positives
 const ALIAS_PREFIXES = ['@/', '~/', '@/'];
 
+// P99: Third-party library files copied into src/ (global variable usage, no static imports)
+const VENDOR_COPY_BASENAMES = new Set([
+  'jsencrypt.js', 'md5.js', 'crypto-js.js', 'sha256.js', 'aes.js',
+  'base64.js', 'uuid.js', 'jwt.js', 'qrcode.js', 'barcode.js',
+  'exceljs.js', 'filesaver.js', 'html2canvas.js', 'jspdf.js',
+]);
+
 // Framework path patterns that commonly produce implicit dependencies
 // (matched against relative or absolute file paths)
 const FRAMEWORK_IMPLICIT_PATTERNS = [
@@ -109,41 +116,43 @@ function classifyDeadExports(deadExportsArray, depGraph) {
     const importerCount = item.importerCount || 0;
     const confidence = item.confidence || 'medium';
 
+    // P86: sink false-positive reason to individual dead-export record so users
+    // can locate which items are flagged as false positives.
+    let reason = null;
+
     // Global graph reliability downgrade
     if (graphUnreliable) {
-      classifications.push({ item, reason: 'graph-unreliable' });
-      continue;
+      reason = 'graph-unreliable';
+    } else {
+      // Framework implicit dependency patterns
+      const implicitMatch = FRAMEWORK_IMPLICIT_PATTERNS.find((r) => r.pattern.test(filePath));
+      if (implicitMatch) {
+        reason = implicitMatch.reason;
+      } else if (VENDOR_COPY_BASENAMES.has(path.basename(filePath).toLowerCase())) {
+        reason = 'vendor-copy';
+      } else if (importerCount === 0) {
+        // No importers at all — likely dead, but still uncertain if graph is thin
+        reason = 'likely-dead';
+      } else {
+        // P72: Java constants-warehouse pattern (e.g. HttpStatus.java, UserConstants.java)
+        const base = path.basename(filePath).toLowerCase();
+        if (/\.java$/.test(filePath) && /(constants|status|utils)\.java$/.test(base)) {
+          reason = 'java-constants-warehouse';
+        } else {
+          // P78: Scaffold noise detection (RuoYi, Vue Admin, etc.)
+          const scaffold = detectScaffold(filePath);
+          if (scaffold) {
+            reason = scaffold.reason;
+          } else {
+            // Has importers but symbols unused — may be barrel exports or dynamic usage
+            reason = 'uncertain';
+          }
+        }
+      }
     }
 
-    // Framework implicit dependency patterns
-    const implicitMatch = FRAMEWORK_IMPLICIT_PATTERNS.find((r) => r.pattern.test(filePath));
-    if (implicitMatch) {
-      classifications.push({ item, reason: implicitMatch.reason });
-      continue;
-    }
-
-    // No importers at all — likely dead, but still uncertain if graph is thin
-    if (importerCount === 0) {
-      classifications.push({ item, reason: 'likely-dead' });
-      continue;
-    }
-
-    // P72: Java constants-warehouse pattern (e.g. HttpStatus.java, UserConstants.java)
-    const base = path.basename(filePath).toLowerCase();
-    if (/\.java$/.test(filePath) && /(constants|status|utils)\.java$/.test(base) && importerCount > 0) {
-      classifications.push({ item, reason: 'java-constants-warehouse' });
-      continue;
-    }
-
-    // P78: Scaffold noise detection (RuoYi, Vue Admin, etc.)
-    const scaffold = detectScaffold(filePath);
-    if (scaffold) {
-      classifications.push({ item, reason: scaffold.reason });
-      continue;
-    }
-
-    // Has importers but symbols unused — may be barrel exports or dynamic usage
-    classifications.push({ item, reason: 'uncertain' });
+    item.falsePositiveReason = reason;
+    classifications.push({ item, reason });
   }
 
   return classifications;
@@ -166,6 +175,7 @@ function buildClassificationSummary(classifications) {
     'vue-component-implicit',
     'nextjs-app-router',
     'java-constants-warehouse',
+    'vendor-copy',
     `${SCAFFOLD_REASON_PREFIX}ruoyi`,
     `${SCAFFOLD_REASON_PREFIX}vue-admin`,
   ]);

@@ -20,6 +20,8 @@ function testNoImporterReliableGraph() {
   const item = dead.find((d) => d.file === file);
   assert(item, 'should report dead export');
   assert.strictEqual(item.confidence, 'high');
+  assert.strictEqual(item.confidenceValue, 0.95, 'high confidence should have numeric value 0.95');
+  assert.strictEqual(item.confidenceSource, 'ast-no-importer', 'source should indicate AST analysis');
   assert.ok(item.confidenceReason.includes('No files import'), `reason should explain no importers: ${item.confidenceReason}`);
   console.log('testNoImporterReliableGraph: ok');
 }
@@ -40,6 +42,8 @@ function testNoImporterUnreliableGraph() {
   const item = dead.find((d) => d.file === file);
   assert(item, 'should report dead export');
   assert.strictEqual(item.confidence, 'low');
+  assert.strictEqual(item.confidenceValue, 0.5, 'low confidence should have numeric value 0.5');
+  assert.strictEqual(item.confidenceSource, 'graph-sparse', 'source should indicate sparse graph');
   assert.ok(item.confidenceReason.includes('sparse'), `reason should mention sparse graph: ${item.confidenceReason}`);
   console.log('testNoImporterUnreliableGraph: ok');
 }
@@ -59,6 +63,8 @@ function testFewImportersAst() {
   const item = dead.find((d) => d.file === file);
   assert(item, 'should report dead export');
   assert.strictEqual(item.confidence, 'medium');
+  assert.strictEqual(item.confidenceValue, 0.9, 'medium confidence should have numeric value 0.9');
+  assert.strictEqual(item.confidenceSource, 'ast-unused-exports', 'source should indicate AST unused exports');
   assert.ok(item.confidenceReason.includes('AST-level'), `reason should mention AST: ${item.confidenceReason}`);
   console.log('testFewImportersAst: ok');
 }
@@ -87,8 +93,41 @@ function testManyImportersAst() {
   // importers (because other exports are widely used) while a specific export
   // is genuinely unused. AST-level symbol tracking is the authoritative signal.
   assert.strictEqual(item.confidence, 'medium');
-  assert.ok(item.confidenceReason.includes('AST-level'), `reason should mention AST: ${item.confidenceReason}`);
+  assert.strictEqual(item.confidenceValue, 0.9, 'medium confidence should have numeric value 0.9');
+  assert.strictEqual(item.confidenceSource, 'ast-unused-exports');
+  // P87: importerCount >= 3 gets differentiated reason instead of templated AST message.
+  assert.ok(item.confidenceReason.includes('3 importers'), `reason should mention importer count: ${item.confidenceReason}`);
   console.log('testManyImportersAst: ok');
+}
+
+function testVeryManyImportersAst() {
+  const dg = new DependencyGraph('/repo', { fileMetadata: new Map() });
+  const file = n('/repo/lib.js');
+
+  const importers = [];
+  const graphEntries = [[file, { imports: [], exports: ['foo'], importRecords: [], exportRecords: [{ name: 'foo' }], parseMode: 'ast', confidence: 'high' }]];
+  const reverseEntries = [];
+  for (let i = 0; i < 12; i++) {
+    const imp = n(`/repo/app${i}.js`);
+    importers.push(imp);
+    graphEntries.push([imp, { imports: [file], exports: [], importRecords: [{ source: './lib', imported: [`sym${i}`], resolved: file }], exportRecords: [], parseMode: 'ast', confidence: 'high' }]);
+    reverseEntries.push([imp, []]);
+  }
+  reverseEntries.unshift([file, importers]);
+
+  dg.graph = new Map(graphEntries);
+  dg.reverseGraph = new Map(reverseEntries);
+
+  const dead = dg.findDeadExports();
+  const item = dead.find((d) => d.file === file);
+  assert(item, 'should report dead export');
+  assert.strictEqual(item.confidence, 'medium');
+  assert.strictEqual(item.confidenceValue, 0.9);
+  assert.strictEqual(item.confidenceSource, 'ast-unused-exports');
+  // P87: importerCount >= 10 gets high-count differentiated reason.
+  assert.ok(item.confidenceReason.includes('12 importers'), `reason should mention importer count: ${item.confidenceReason}`);
+  assert.ok(item.confidenceReason.includes('specific exports'), `reason should mention specific exports: ${item.confidenceReason}`);
+  console.log('testVeryManyImportersAst: ok');
 }
 
 function testRegexMode() {
@@ -107,6 +146,8 @@ function testRegexMode() {
   assert(item, 'should report dead export');
   assert.deepStrictEqual(item.exports, ['bar']);
   assert.strictEqual(item.confidence, 'low');
+  assert.strictEqual(item.confidenceValue, 0.5);
+  assert.strictEqual(item.confidenceSource, 'regex-fallback');
   assert.ok(item.confidenceReason.includes('Regex-based'), `reason should mention regex: ${item.confidenceReason}`);
   console.log('testRegexMode: ok');
 }
@@ -116,6 +157,7 @@ function main() {
   testNoImporterUnreliableGraph();
   testFewImportersAst();
   testManyImportersAst();
+  testVeryManyImportersAst();
   testRegexMode();
   console.log('dead-export-confidence-test: all passed');
 }

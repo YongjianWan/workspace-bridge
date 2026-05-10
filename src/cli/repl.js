@@ -245,7 +245,7 @@ async function executeCommand(container, line) {
       for (const file of allFiles) {
         const dependents = container.depGraph.getDependents?.(file) || [];
         if (dependents.length >= SCORING.HOTSPOT_MIN_DEPENDENTS) {
-          hotspots.push({ file, dependentsCount: dependents.length });
+          hotspots.push({ file: container.depGraph._displayPath?.(file) || file, dependentsCount: dependents.length });
         }
       }
       hotspots.sort((a, b) => b.dependentsCount - a.dependentsCount);

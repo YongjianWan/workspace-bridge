@@ -132,9 +132,12 @@ async function testIncrementalUpdateDeletesFile() {
     assert.strictEqual(graph.hasFile(mKey), false);
     assert.strictEqual(cache.hasParseResult(mFile), false);
     assert.strictEqual(graph.hasFile(nKey), true);
-    // n.js still holds unresolved import to m.js (existing behavior)
+    // P102: deleted file's incoming edges cleaned up — n.js no longer references m.js
     const nInfo = graph.getFileInfo(nKey);
-    assert(nInfo.imports.includes(mKey), 'n should still reference m as unresolved import');
+    assert(!nInfo.imports.includes(mKey), 'n should no longer reference m after deletion');
+    assert(!nInfo.importRecords.some((r) => r.resolved === mKey), 'n importRecords should not contain m');
+    assert.deepStrictEqual(graph.getDependents(mKey), []);
+    assert(!graph.reverseGraph.has(mKey), 'reverseGraph should not have deleted file key');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

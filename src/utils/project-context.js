@@ -56,7 +56,8 @@ const ROLE_RULES = [
       /\.test\./.test(base) ||
       /\.spec\./.test(base) ||
       /^test_/.test(base) ||
-      /_test\./.test(base),
+      /_test\./.test(base) ||
+      base === 'tests.py',
   },
   {
     role: 'entry',
@@ -86,7 +87,7 @@ const ROLE_RULES = [
     role: 'script',
     test: (relPath, base) => {
       const ext = path.extname(base).slice(1);
-      return (
+      if (
         relPath.startsWith('scripts/') ||
         relPath.startsWith('bin/') ||
         relPath.startsWith('tools/') ||
@@ -96,7 +97,13 @@ const ROLE_RULES = [
         ext === 'sh' ||
         ext === 'bash' ||
         ext === 'ps1'
-      );
+      ) return true;
+      // P100: root-level Python files are typically standalone scripts
+      if (ext === 'py') {
+        const depth = relPath.split('/').filter(Boolean).length;
+        if (depth === 1) return true;
+      }
+      return false;
     },
   },
   {
@@ -150,6 +157,11 @@ function ensureArray(value) {
 function pathMatchesRule(relativePath, rulePath) {
   if (!rulePath) return false;
   return relativePath === rulePath || relativePath.startsWith(`${rulePath}/`);
+}
+
+function hasEffectiveConfig(config) {
+  if (!config || typeof config !== 'object') return false;
+  return Object.keys(config).some((k) => k !== '$schema');
 }
 
 function loadWorkspaceConfig(root, options = {}) {
@@ -306,7 +318,7 @@ class ProjectContext {
   summarizeFiles(files, isImportedFn) {
     const summary = {
       configPath: pathExists(this.configPath) ? this.configPath : null,
-      hasWorkspaceBridgeConfig: pathExists(this.configPath),
+      hasWorkspaceBridgeConfig: pathExists(this.configPath) && hasEffectiveConfig(this.config),
       counts: {
         totalFiles: 0,
         mainlineFiles: 0,

@@ -32,7 +32,7 @@ const HOTSPOT_SCORE_RULES = [
   { field: 'revertLikeCount', fallback: SCORING.HOTSPOT_REVERT_COUNT_FALLBACK, weight: SCORING.HOTSPOT_REVERT_COUNT_WEIGHT },
 ];
 
-function calculateHotspotScore(historyRisk, fileRole) {
+function calculateHotspotScore(historyRisk, fileRole, entryPointWeight) {
   if (!historyRisk) return 0;
 
   let score = 0;
@@ -52,6 +52,10 @@ function calculateHotspotScore(historyRisk, fileRole) {
   // Dampen their score to avoid systematic false positives while preserving high-coupling signals.
   if (fileRole === 'config') {
     score = Math.floor(score * SCORING.HOTSPOT_CONFIG_DISCOUNT);
+  }
+  // P103: Framework entry points get higher hotspot scores
+  if (entryPointWeight > 1) {
+    score = Math.floor(score * entryPointWeight);
   }
   return Math.min(Math.round(score), SCORING.HOTSPOT_SCORE_MAX);
 }
@@ -131,13 +135,15 @@ function buildSkeleton(root, depGraph, allFiles, mainlineFiles, projectContext, 
 async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
   const candidates = await Promise.all(
     mainlineFiles.slice(0, DEFAULTS.HOTSPOT_CANDIDATE_LIMIT).map(async (file) => {
-      const relativePath = toRelative(root, file);
+      const displayFile = depGraph._displayPath?.(file) || file;
+      const relativePath = toRelative(root, displayFile);
       const dependents = depGraph.getDependents?.(file) || [];
       const dependencies = depGraph.getDependencies?.(file) || [];
-      const historyRisk = await getHistoryRisk(root, file, historyProvider);
-      const classification = depGraph.projectContext?.classifyFile?.(file);
+      const historyRisk = await getHistoryRisk(root, displayFile, historyProvider);
+      const classification = depGraph.projectContext?.classifyFile?.(displayFile);
       const fileRole = classification?.fileRole;
-      const score = calculateHotspotScore(historyRisk, fileRole);
+      const frameworkHint = depGraph.getFrameworkHint?.(file);
+      const score = calculateHotspotScore(historyRisk, fileRole, frameworkHint?.entryPointWeight);
       const coupling = calculateCoupling(dependencies, dependents);
       if (score <= SCORING.HOTSPOT_REPORT_THRESHOLD && coupling.total <= SCORING.COUPLING_MEDIUM_MIN) return null;
       return {
@@ -159,8 +165,9 @@ function buildStability(root, depGraph, mainlineFiles, projectContext) {
   const filesInCycle = new Set(allCycles.flat());
 
   for (const file of mainlineFiles) {
-    const relativePath = toRelative(root, file);
-    const classification = projectContext.classifyFile(file);
+    const displayFile = depGraph._displayPath?.(file) || file;
+    const relativePath = toRelative(root, displayFile);
+    const classification = projectContext.classifyFile(displayFile);
     const dependents = depGraph.getDependents?.(file) || [];
     const dependencies = depGraph.getDependencies?.(file) || [];
     const hasTests = dependents.some((d) => depGraph.isTestLikeFile(d));
@@ -195,7 +202,7 @@ function buildOverviewSummary(hotspots, stability, orphans, issueContext = {}, s
     summary.insights.push(`${fragileModules.length} 个模块稳定性较差`);
   }
 
-  const orphanCount = Object.values(orphans).flat().length;
+  const orphanCount = orphans.all.length;
   if (orphanCount > 0) {
     summary.insights.push(`发现 ${orphanCount} 个孤儿文件（可能未使用）`);
   }

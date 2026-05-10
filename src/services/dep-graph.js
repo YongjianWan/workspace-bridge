@@ -33,7 +33,7 @@ const { detectScaffold } = require('../tools/scaffold-detector');
 
 const readFile = promisify(fs.readFile);
 
-const { DEFAULTS, LIMITS } = require('../config/constants');
+const { DEFAULTS, LIMITS, DEAD_EXPORT, CONFIDENCE } = require('../config/constants');
 
 // 配置常量
 const CONFIG = {
@@ -110,16 +110,43 @@ function isLikelyConstantsWarehouse(filePath, exportRecords) {
 function computeDeadExportConfidence(importerCount, parseMode, graphUnreliable) {
   if (importerCount === 0) {
     if (graphUnreliable) {
-      return { confidence: 'low', reason: 'No importers, but dependency graph is sparse (possible parser miss)' };
+      return {
+        confidence: 'low',
+        confidenceValue: CONFIDENCE.LOW_VALUE,
+        source: 'graph-sparse',
+        reason: 'No importers, but dependency graph is sparse (possible parser miss)',
+      };
     }
-    return { confidence: 'high', reason: 'No files import this module; all exports are unused' };
+    return {
+      confidence: 'high',
+      confidenceValue: CONFIDENCE.HIGH_VALUE,
+      source: 'ast-no-importer',
+      reason: 'No files import this module; all exports are unused',
+    };
   }
 
   if (parseMode === 'ast') {
-    return { confidence: 'medium', reason: 'AST-level analysis found unused exports (dynamic imports or string calls may bypass static detection)' };
+    // P87: differentiate reason by importerCount to avoid templated explanations
+    const base = {
+      confidence: 'medium',
+      confidenceValue: CONFIDENCE.MEDIUM_VALUE,
+      source: 'ast-unused-exports',
+    };
+    if (importerCount >= DEAD_EXPORT.IMPORTER_COUNT_HIGH) {
+      return { ...base, reason: `File has ${importerCount} importers, but these specific exports are not referenced by any importer` };
+    }
+    if (importerCount >= DEAD_EXPORT.IMPORTER_COUNT_MEDIUM) {
+      return { ...base, reason: `File has ${importerCount} importers; unused exports may be internal helpers or barrel re-exports` };
+    }
+    return { ...base, reason: 'AST-level analysis found unused exports (dynamic imports or string calls may bypass static detection)' };
   }
 
-  return { confidence: 'low', reason: 'Regex-based analysis; high false-positive risk' };
+  return {
+    confidence: 'low',
+    confidenceValue: CONFIDENCE.LOW_VALUE,
+    source: 'regex-fallback',
+    reason: 'Regex-based analysis; high false-positive risk',
+  };
 }
 
 // #20: framework entry-file patterns promoted to module-level constant
@@ -162,6 +189,13 @@ class GraphBuilder {
     this.dg = depGraph;
     this.onBuildComplete = null;
     this.onFileUpdated = null;
+    // P105: soft post-process phase architecture
+    this.postProcessPhases = [];
+    this.postProcessPhases.push(() => this.applyFrameworkImplicitImports());
+  }
+
+  registerPostProcessPhase(fn) {
+    this.postProcessPhases.push(fn);
   }
 
   async build() {
@@ -219,8 +253,10 @@ class GraphBuilder {
     // Build reverse graph
     this.buildReverseGraph();
 
-    // Inject framework implicit dependencies (e.g. Vue router lazy-loading)
-    this.applyFrameworkImplicitImports();
+    // P105: run post-process phases (framework implicit imports, etc.)
+    for (const phase of this.postProcessPhases) {
+      await phase();
+    }
 
     const cacheHitRate = files.length > 0 ? Math.round((cachedFiles.length / files.length) * 100) : 0;
     if (!this.dg.quiet) {
@@ -240,18 +276,23 @@ class GraphBuilder {
 
   async _processFilesWithLimit(files, limit) {
     const executing = new Set();
-    
-    for (const file of files) {
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
       const promise = this.analyzeFile(file).then(() => {
         executing.delete(promise);
       });
       executing.add(promise);
-      
+
       if (executing.size >= limit) {
         await Promise.race(executing);
       }
+      // Yield to event loop every 20 files to prevent starvation in large repos
+      if ((i + 1) % 20 === 0) {
+        await new Promise((r) => setImmediate(r));
+      }
     }
-    
+
     await Promise.all(executing);
   }
 
@@ -306,6 +347,7 @@ class GraphBuilder {
       }
 
       this.dg.graph.set(graphKey, {
+        originalPath: filePath,
         imports: resolvedImports,
         exports,
         importRecords: resolvedImportRecords,
@@ -374,17 +416,24 @@ class GraphBuilder {
     }
   }
 
-  applyFrameworkImplicitImports() {
+  async applyFrameworkImplicitImports() {
     const startTime = Date.now();
     let implicitEdgeCount = 0;
+    let i = 0;
 
     for (const [fileKey, info] of this.dg.graph) {
+      i++;
+      // Yield to event loop every 20 files to prevent starvation in large repos
+      if (i % 20 === 0) {
+        await new Promise((r) => setImmediate(r));
+      }
+
       const ext = path.extname(fileKey).toLowerCase();
       if (!['.js', '.jsx', '.ts', '.tsx', '.vue', '.mjs', '.cjs'].includes(ext)) continue;
 
       let content;
       try {
-        content = fs.readFileSync(fileKey, 'utf-8');
+        content = await readFile(fileKey, 'utf-8');
       } catch {
         continue;
       }
@@ -457,6 +506,27 @@ class GraphBuilder {
       // Handle deleted files FIRST — must not be masked by cache-hit fast path
       if (!fs.existsSync(filePath)) {
         this._removeOldReverseEdges(key);
+
+        // P102: Clean incoming edges — remove deleted file from all reverseGraph entries
+        for (const [dependentKey, dependents] of this.dg.reverseGraph) {
+          const idx = dependents.indexOf(key);
+          if (idx >= 0) {
+            dependents.splice(idx, 1);
+            if (dependents.length === 0) {
+              this.dg.reverseGraph.delete(dependentKey);
+            }
+          }
+        }
+        // P102: Clean other files' imports / importRecords referencing deleted file
+        for (const [, info] of this.dg.graph) {
+          const idx = info.imports.indexOf(key);
+          if (idx >= 0) {
+            info.imports.splice(idx, 1);
+            info.importRecords = info.importRecords.filter((r) => r.resolved !== key);
+          }
+        }
+        this.dg.reverseGraph.delete(key);
+
         this.dg.graph.delete(key);
         this.dg.cache.deleteFileMetadata(filePath);
         this.dg.cache.deleteParseResult(filePath);
@@ -493,10 +563,12 @@ class GraphBuilder {
       }
     }
 
-    // Re-apply framework implicit imports when any file was re-parsed,
+    // P105: run post-process phases when any file was re-parsed,
     // because re-parsing wipes previous implicit edges from graph.imports.
     if (reParsed > 0) {
-      this.applyFrameworkImplicitImports();
+      for (const phase of this.postProcessPhases) {
+        await phase();
+      }
     }
 
     if (!this.dg.quiet && (reParsed > 0 || skipped > 0)) {
@@ -515,24 +587,28 @@ class GraphAnalyzer {
   }
 
   isLikelyFrameworkLegitimateCycle(cycle) {
-    if (cycle.length > 5) return false;
-
     const normalized = cycle.map((f) => f.replace(/\\/g, '/').toLowerCase());
 
-    // Vue: store ↔ router ↔ view (length ≤ 5)
+    // P96: Vue standard data flow can have length=6 (request→store→router→view→api→request)
     const allInVue = normalized.every(
       (f) =>
-        /\/(src|pages|views|components|store|router|layout|layouts|assets|composables|hooks|mixins|directive|directives|plugins|utils|api|http)\//.test(f) ||
+        /\/(src|pages|views|components|store|router|layout|layouts|assets|composables|hooks|mixins|directive|directives|plugins|utils|api|http|request|services|service)\//.test(f) ||
         /\.vue$/.test(f)
     );
+    const maxLen = allInVue ? 6 : 5;
+    if (cycle.length > maxLen) return false;
+
+    // Vue: store ↔ router ↔ view / api / request (length ≤ 6)
     if (allInVue) {
       const hasStore = normalized.some((f) => /\/store\//.test(f));
       const hasRouter = normalized.some((f) => /\/router\//.test(f));
       const hasView = normalized.some((f) => /\.vue$/.test(f) || /\/(views|pages|components|layout|layouts)\//.test(f));
+      const hasApi = normalized.some((f) => /\/(api|http|request|services|service)\//.test(f));
       let dimensions = 0;
       if (hasStore) dimensions++;
       if (hasRouter) dimensions++;
       if (hasView) dimensions++;
+      if (hasApi) dimensions++;
       if (dimensions >= 2) return true;
     }
 
@@ -559,6 +635,18 @@ class GraphAnalyzer {
       const hasDomain = normalized.some((f) => /\/(domain|model|entity|po|vo|dto|bo)\//.test(f));
       const hasUtils = normalized.some((f) => /\/(utils|util|common|core|helper|helpers|tools)\//.test(f));
       if (hasDomain && hasUtils) return true;
+    }
+
+    // P97: RuoYi scaffold utility mutual dependencies (length ≤ 2)
+    if (allInJava && cycle.length <= 2) {
+      const hasRuoYiMarker = normalized.some((f) => /\/(ruoyi|common\/utils|common\/core)\//.test(f));
+      if (hasRuoYiMarker) {
+        const allUtilityLike = normalized.every((f) => {
+          const base = path.basename(f);
+          return /(?:utils|formatter|serializer|helper|constants)\.java$/i.test(base);
+        });
+        if (allUtilityLike) return true;
+      }
     }
 
     return false;
@@ -614,8 +702,10 @@ class GraphAnalyzer {
       .filter((cycle) => !(cycle.length <= 2 && cycle[0] === cycle[cycle.length - 1]))
       .filter((cycle) => !this.isLikelyFrameworkLegitimateCycle(cycle));
 
-    this.dg._cachedCycles = filtered;
-    return filtered;
+    // P89: convert internal graph keys back to original-casing paths for output.
+    const displayFiltered = filtered.map((cycle) => cycle.map((f) => this.dg._displayPath(f)));
+    this.dg._cachedCycles = displayFiltered;
+    return displayFiltered;
   }
 
   getStats() {
@@ -632,7 +722,7 @@ class GraphAnalyzer {
     }
     const totalFiles = this.dg.graph.size;
     const coverageRatio = totalFiles > 0 ? parsedFiles / totalFiles : 0;
-    return {
+    const result = {
       files: totalFiles,
       totalImports: Array.from(this.dg.graph.values()).reduce((sum, i) => sum + i.imports.length, 0),
       totalExports: Array.from(this.dg.graph.values()).reduce((sum, i) => sum + i.exports.length, 0),
@@ -645,6 +735,14 @@ class GraphAnalyzer {
         coverageRatio: Math.round(coverageRatio * 100) / 100,
       },
     };
+
+    // P94: include fileRoles in stats for consistency with audit-summary
+    if (this.dg.projectContext) {
+      const scope = this.getScopeSummary();
+      result.fileRoles = scope.fileRoles;
+    }
+
+    return result;
   }
 
   _scanSymbolUsageInImporters(importerPaths, symbols, sourceFilePath) {
@@ -709,13 +807,24 @@ class GraphAnalyzer {
         const selfAccessPattern = new RegExp(`\\b${escaped}\\.`);
         // Scan line-by-line and skip declaration/export lines to avoid
         // matching the function definition itself (e.g. "function foo()").
-        for (const line of content.split('\n')) {
-          if (line.includes('export') && line.includes(symbol)) continue;
-          if (line.includes('function') && line.includes(symbol)) continue;
-          if (callPattern.test(line) || selfAccessPattern.test(line)) {
+        // P74: stream-style scan avoids allocating a temporary array for
+        // large files (content.split('\n') creates ~lineCount strings).
+        const scanLine = (line) => {
+          if (line.includes('export') && line.includes(symbol)) return false;
+          if (line.includes('function') && line.includes(symbol)) return false;
+          return callPattern.test(line) || selfAccessPattern.test(line);
+        };
+        let start = 0;
+        let end;
+        while ((end = content.indexOf('\n', start)) !== -1) {
+          if (scanLine(content.slice(start, end))) {
             used.add(symbol);
             break;
           }
+          start = end + 1;
+        }
+        if (!used.has(symbol) && scanLine(content.slice(start))) {
+          used.add(symbol);
         }
       }
     } catch {
@@ -770,8 +879,8 @@ class GraphAnalyzer {
         const stats = this.getStats();
         const edgeRatio = stats.files > 0 ? stats.totalImports / stats.files : 0;
         const graphUnreliable = stats.files > 1 && edgeRatio < 0.1;
-        const { confidence, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable);
-        deadExports.push({ file: filePath, exports: info.exports, confidence, confidenceReason: reason, importerCount: 0, scaffold });
+        const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable);
+        deadExports.push({ file: this.dg._displayPath(filePath), exports: info.exports, confidence, confidenceValue, confidenceSource: source, confidenceReason: reason, importerCount: 0, scaffold });
         continue;
       }
 
@@ -793,12 +902,14 @@ class GraphAnalyzer {
       }
 
       if (unused.length > 0) {
-        const { confidence, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false);
+        const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false);
         const isConstantsWarehouse = isLikelyConstantsWarehouse(filePath, info.exportRecords);
         deadExports.push({
-          file: filePath,
+          file: this.dg._displayPath(filePath),
           exports: unused,
           confidence: isConstantsWarehouse ? 'low' : confidence,
+          confidenceValue: isConstantsWarehouse ? CONFIDENCE.LOW_VALUE : confidenceValue,
+          confidenceSource: isConstantsWarehouse ? 'java-constants-warehouse' : source,
           confidenceReason: isConstantsWarehouse
             ? 'File matches Java constants-warehouse pattern; individual constants may be referenced via static import or reflection, bypassing static analysis'
             : reason,
@@ -818,7 +929,7 @@ class GraphAnalyzer {
       if (this.dg.shouldExcludeCli(filePath)) continue;
       for (const imp of info.imports) {
         if (!this.dg.hasFile(imp) && path.isAbsolute(imp) && !fs.existsSync(imp)) {
-          unresolved.push({ file: filePath, import: imp, resolvedTo: null });
+          unresolved.push({ file: this.dg._displayPath(filePath), import: this.dg._displayPath(imp), resolvedTo: null });
         }
       }
     }
@@ -900,7 +1011,12 @@ class GraphAnalyzer {
     if (options?.includeHeuristic !== false) {
       this._findAffectedTestsByHeuristic(start, maxDepth, results);
     }
-    return results;
+    // P89: convert internal graph keys back to original-casing paths for output.
+    return results.map((r) => ({
+      ...r,
+      file: this.dg._displayPath(r.file),
+      via: r.via ? r.via.map((f) => this.dg._displayPath(f)) : r.via,
+    }));
   }
 
   getScopeSummary() {
@@ -956,7 +1072,7 @@ class GraphQuery {
 
   getImpactRadius(filePath, depth = 3) {
     const start = this.dg.normalizeFilePath(filePath);
-    return bfsTraverse(start, (file) => this.getDependents(file), {
+    const results = bfsTraverse(start, (file) => this.getDependents(file), {
       maxDepth: depth,
       onVisit: (file, level, via) => {
         if (level === 0 || file === start) return undefined;
@@ -983,6 +1099,12 @@ class GraphQuery {
         };
       },
     });
+    // P89: convert internal graph keys back to original-casing paths for output.
+    return results.map((r) => ({
+      ...r,
+      file: this.dg._displayPath(r.file),
+      via: r.via ? r.via.map((f) => this.dg._displayPath(f)) : r.via,
+    }));
   }
 }
 
@@ -1044,6 +1166,11 @@ class DependencyGraph {
 
   normalizeFilePath(filePath) {
     return normalizePathKey(filePath);
+  }
+
+  _displayPath(filePath) {
+    const info = this.graph.get(filePath);
+    return info?.originalPath || filePath;
   }
 
   hasFile(filePath) {

@@ -80,10 +80,21 @@ class ServiceContainer {
 
       this.initialized = true;
       this.indexBuildTime = Date.now();
+
+      // Staleness: record git HEAD so getStaleness can detect branch switches
+      let gitHead = null;
+      try {
+        const { execSync } = require('child_process');
+        gitHead = execSync('git rev-parse HEAD', { cwd: this.workspaceRoot, encoding: 'utf8' }).trim();
+      } catch {
+        // Not a git repo or git not available — stale detection falls back to time-based only
+      }
+      this.cache.setWorkspaceInfo({ ...this.cache.getWorkspaceInfo(), gitHead });
+
       if (!this.quiet) {
         console.error(`[Container] Ready: ${this.fileIndex.getStats().files} files indexed`);
       }
-      
+
       resolveReady(true);
       return true;
     } catch (err) {
@@ -232,9 +243,24 @@ class ServiceContainer {
 
   getStaleness(thresholdMs = DEFAULTS.STALENESS_THRESHOLD_MS) {
     const ageMs = this.indexBuildTime ? Date.now() - this.indexBuildTime : 0;
+
+    let gitHeadChanged = false;
+    const cachedInfo = this.cache?.getWorkspaceInfo?.();
+    const cachedHead = cachedInfo?.gitHead;
+    if (cachedHead && this.workspaceRoot) {
+      try {
+        const { execSync } = require('child_process');
+        const currentHead = execSync('git rev-parse HEAD', { cwd: this.workspaceRoot, encoding: 'utf8' }).trim();
+        gitHeadChanged = currentHead !== cachedHead;
+      } catch {
+        // Non-git repo or git unavailable — keep gitHeadChanged false
+      }
+    }
+
     return {
       indexAgeMs: ageMs,
-      isStale: ageMs > thresholdMs,
+      isStale: ageMs > thresholdMs || gitHeadChanged,
+      gitHeadChanged,
       thresholdMs,
       thresholdDescription: formatDuration(thresholdMs),
     };

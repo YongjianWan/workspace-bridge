@@ -35,8 +35,26 @@ async function testHealthScoreNumeric() {
   console.log('testHealthScoreNumeric passed');
 }
 
+async function testDjangoTestConfigDetection() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-health-django-'));
+  fs.writeFileSync(path.join(tmpDir, 'manage.py'), '#!/usr/bin/env python\n', 'utf8');
+  fs.writeFileSync(path.join(tmpDir, 'README.md'), '# Test', 'utf8');
+  fs.writeFileSync(path.join(tmpDir, 'LICENSE'), 'MIT', 'utf8');
+  fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules', 'utf8');
+
+  const health = await projectHealth({ cwd: tmpDir }, null);
+
+  // P101: Django projects should have testConfig found via manage.py
+  assert.strictEqual(health.checks.testConfig.found, true, 'Django project with manage.py should have testConfig found');
+  assert(health.checks.testConfig.frameworks.includes('django-test'), 'testConfig frameworks should include django-test');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+  console.log('testDjangoTestConfigDetection passed');
+}
+
 async function main() {
   await testHealthScoreNumeric();
+  await testDjangoTestConfigDetection();
   console.log('All health-tools tests passed');
 }
 

@@ -22,6 +22,17 @@ function normalizePathKey(inputPath) {
   return IS_WINDOWS ? normalized.toLocaleLowerCase('en-US') : normalized;
 }
 
+/**
+ * Convert a path to a display-friendly form: absolute, POSIX slashes,
+ * but preserving original casing. Used for JSON output so that
+ * `filePreview.js` does not become `filepreview.js` on Windows.
+ * Internal matching should still use `normalizePathKey`.
+ */
+function toDisplayPath(inputPath) {
+  const absolute = normalizePath(inputPath);
+  return toPosixPath(path.normalize(absolute));
+}
+
 function toRelativePosix(rootPath, targetPath) {
   const root = normalizePath(rootPath);
   const target = normalizePath(targetPath);
@@ -193,7 +204,9 @@ function isStandaloneEntryPath(relativePath) {
   return (
     relativePath.startsWith('scripts/') || relativePath.includes('/scripts/') ||
     relativePath.startsWith('bin/') || relativePath.includes('/bin/') ||
-    relativePath.startsWith('benchmark/') || relativePath.includes('/benchmark/')
+    relativePath.startsWith('benchmark/') || relativePath.includes('/benchmark/') ||
+    // P100: root-level Python files are standalone entry points (not orphans)
+    /^[^/]+\.py$/.test(relativePath)
   );
 }
 
@@ -269,6 +282,7 @@ module.exports = {
   normalizePath,
   normalizePathKey,
   toPosixPath,
+  toDisplayPath,
   toRelativePosix,
   isPathInsideRoot,
   hasPathSegment,

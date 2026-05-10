@@ -102,7 +102,7 @@ async function runBuiltinSecurityScan(cwd, targets, container) {
             ruleId: rule.id,
             message: rule.message,
             severity: rule.severity,
-            file,
+            file: container?.depGraph?._displayPath?.(file) || file,
             lineStart: i + 1,
             lineEnd: i + 1,
             tool: 'builtin',

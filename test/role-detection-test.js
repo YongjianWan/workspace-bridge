@@ -117,6 +117,38 @@ try {
   assert.strictEqual(entrySummary.scope.fileRoles.config, 1, 'vite.config.ts should be counted as config');
   fs.rmSync(entryRoot, { recursive: true, force: true });
 
+  // P95: tests.py basename detection for Django projects
+  const djangoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-bridge-role-django-'));
+  const writeDjangoFile = (relativePath, content) => {
+    const fullPath = path.join(djangoRoot, relativePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content);
+  };
+  writeDjangoFile('manage.py', '#!/usr/bin/env python\n');
+  writeDjangoFile('core/tests.py', 'from django.test import TestCase\n');
+  writeDjangoFile('core/models.py', 'from django.db import models\n');
+  const djangoSummary = runCli(['audit-summary', '--cwd', djangoRoot, '--json', '--quiet']);
+  assert.strictEqual(djangoSummary.scope.fileRoles.test, 1, 'tests.py should be counted as test');
+  assert.strictEqual(djangoSummary.scope.counts.testFiles, 1, 'tests.py should be counted in testFiles');
+  fs.rmSync(djangoRoot, { recursive: true, force: true });
+
+  // P100: root-level Python scripts should be classified as script
+  const scriptRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-bridge-role-script-'));
+  const writeScriptFile = (relativePath, content) => {
+    const fullPath = path.join(scriptRoot, relativePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content);
+  };
+  writeScriptFile('package.json', JSON.stringify({ name: 'role-script-fixture', version: '1.0.0' }, null, 2));
+  writeScriptFile('fix_db_constraints.py', '# fix script\n');
+  writeScriptFile('generate_sql.py', '# generate script\n');
+  writeScriptFile('core/models.py', '# models\n');
+  const scriptSummary = runCli(['audit-summary', '--cwd', scriptRoot, '--json', '--quiet']);
+  assert.strictEqual(scriptSummary.scope.fileRoles.script, 2, 'root-level .py files should be counted as script');
+  // core/models.py is not imported by any file, so it becomes 'unknown' (orphan rule), not 'library'
+  assert.strictEqual(scriptSummary.scope.fileRoles.unknown, 1, 'non-root unimported .py should be unknown');
+  fs.rmSync(scriptRoot, { recursive: true, force: true });
+
   console.log('role-detection-test: ok');
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });

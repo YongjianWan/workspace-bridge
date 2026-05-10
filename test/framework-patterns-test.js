@@ -162,10 +162,41 @@ function testIsEntryFlag() {
   assert.strictEqual(helperHint?.isEntry ?? false, false);
 }
 
+function testEntryPointWeight() {
+  // P103: HIGH (3.0) — page, controller, views, main, application
+  assert.strictEqual(detectFrameworkFromPath('/project/app/page.tsx').entryPointWeight, 3.0);
+  assert.strictEqual(detectFrameworkFromPath('/project/pages/index.tsx').entryPointWeight, 3.0);
+  assert.strictEqual(detectFrameworkFromPath('/project/blog/views.py').entryPointWeight, 3.0);
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/DemoApplication.java').entryPointWeight, 3.0);
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main.go').entryPointWeight, 3.0);
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main.rs').entryPointWeight, 3.0);
+
+  // MEDIUM_HIGH (2.5) — layout, routes, URLs, handlers
+  assert.strictEqual(detectFrameworkFromPath('/project/app/layout.tsx').entryPointWeight, 2.5);
+  assert.strictEqual(detectFrameworkFromPath('/project/src/routes/user.ts').entryPointWeight, 2.5);
+  assert.strictEqual(detectFrameworkFromPath('/project/blog/urls.py').entryPointWeight, 2.5);
+
+  // MEDIUM (2.0) — admin, middleware, etc.
+  assert.strictEqual(detectFrameworkFromPath('/project/blog/admin.py').entryPointWeight, 2.0);
+  assert.strictEqual(detectFrameworkFromPath('/project/blog/tasks.py').entryPointWeight, 2.0);
+
+  // MINIMAL (1.0) — manage.py
+  assert.strictEqual(detectFrameworkFromPath('/project/manage.py').entryPointWeight, 1.0);
+
+  // Non-entry files have no weight
+  assert.strictEqual(detectFrameworkFromPath('/project/src/components/Button.tsx').entryPointWeight, undefined);
+  assert.strictEqual(detectFrameworkFromPath('/project/prisma/schema.prisma').entryPointWeight, undefined);
+
+  // Content-based detection also carries weight
+  const sbHint = detectFrameworkFromContent('/project/DemoApplication.java', '@SpringBootApplication\npublic class DemoApplication {}');
+  assert.strictEqual(sbHint.entryPointWeight, 3.0);
+}
+
 function run() {
   testDetectFrameworkFromPath();
   testDetectFrameworkFromContent();
   testIsEntryFlag();
+  testEntryPointWeight();
   console.log('framework-patterns-test.js: all passed');
 }
 

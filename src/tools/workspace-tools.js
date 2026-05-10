@@ -181,14 +181,25 @@ function workspaceInfo(args, container) {
 
   // Try to use depGraph data if container is ready; otherwise fall back to basic detection
   const depGraph = container?.depGraph;
-  const allFiles = depGraph ? Array.from(depGraph.graph?.keys() || []) : [];
-  const entryFiles = depGraph
-    ? Array.from(depGraph.entryFiles || []).map((f) => toRelativePosix(root, f))
+  const allOriginalPaths = depGraph
+    ? Array.from(depGraph.graph?.values() || []).map((v) => v.originalPath).filter(Boolean)
     : [];
+
+  // P92: unify entryFiles with audit-summary (projectContext.summarizeFiles)
+  let entryFiles = [];
+  if (container?.projectContext && allOriginalPaths.length > 0) {
+    const summary = container.projectContext.summarizeFiles(
+      allOriginalPaths,
+      (file) => depGraph?.getDependents(file).length > 0
+    );
+    entryFiles = summary.entryFiles;
+  } else if (depGraph) {
+    entryFiles = Array.from(depGraph.entryFiles || []).map((f) => toRelativePosix(root, depGraph._displayPath?.(f) || f));
+  }
 
   // Language distribution from graph
   const langCounts = {};
-  for (const file of allFiles) {
+  for (const file of allOriginalPaths) {
     const ext = path.extname(file).toLowerCase();
     const lang =
       ext === '.js' || ext === '.jsx' || ext === '.ts' || ext === '.tsx' || ext === '.mjs' || ext === '.cjs' ? 'javascript'
@@ -224,7 +235,7 @@ function workspaceInfo(args, container) {
     ok: true,
     cwd: require('../utils/path').normalizePath(target),
     workspaceRoot: workspace.root,
-    fileCount: allFiles.length,
+    fileCount: allOriginalPaths.length,
     totalLines: cacheStats.totalLines || 0,
     detected: {
       git: workspace.hasGit,
@@ -240,6 +251,13 @@ function workspaceInfo(args, container) {
     entryFiles,
     availableChecks,
     parserAvailability,
+    stack: {
+      isNode: workspace.hasPackageJson,
+      isJava: workspace.hasJava,
+      isPython: workspace.hasPythonFiles || workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy,
+      isGo: workspace.hasGo,
+      isRust: workspace.hasRust,
+    },
   };
 }
 

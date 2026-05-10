@@ -21,6 +21,7 @@ const TEST_DETECTION_RULES = [
   { type: 'basename', regex: /\.test\./ },
   { type: 'basename', regex: /\.spec\./ },
   { type: 'basename', regex: /(test|tests|it)\.java$/i },
+  { type: 'basename', regex: /.*(?:Test|Tests|IT)\.java$/i },
   { type: 'basename', regex: /^test.*\.py$/i },
   { type: 'basename', exact: 'tests.py' },
   { type: 'basename', regex: /^test_/ },

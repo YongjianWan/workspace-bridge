@@ -15,6 +15,7 @@ function main() {
     const s = container.getStaleness();
     assert.strictEqual(s.indexAgeMs, 0, 'age should be 0 before init');
     assert.strictEqual(s.isStale, false, 'should not be stale before init');
+    assert.strictEqual(s.gitHeadChanged, false, 'should not report git head changed before init');
     assert.strictEqual(s.thresholdMs, 300000, 'default threshold should be 5min');
     assert.strictEqual(s.thresholdDescription, '5 minutes', 'should include human-readable threshold');
     console.log('before-init: ok');
@@ -26,6 +27,7 @@ function main() {
     const s = container.getStaleness();
     assert(s.indexAgeMs >= 1000 && s.indexAgeMs < 5000, `age should be ~1000ms, got ${s.indexAgeMs}`);
     assert.strictEqual(s.isStale, false, 'should not be stale after 1s');
+    assert.strictEqual(s.gitHeadChanged, false, 'git head should not be changed when no cache');
     console.log('fresh-index: ok');
   }
 
@@ -35,6 +37,26 @@ function main() {
     const s = container.getStaleness();
     assert.strictEqual(s.isStale, true, 'should be stale after 400s');
     console.log('stale-index: ok');
+  }
+
+  // Git HEAD changed detection
+  {
+    container.indexBuildTime = Date.now() - 1000;
+    // Mock cache with a mismatched git HEAD
+    const mockCache = {
+      getWorkspaceInfo() {
+        return { gitHead: 'deadbeef00000000000000000000000000000000' };
+      },
+    };
+    container.cache = mockCache;
+    container.workspaceRoot = process.cwd();
+    const s = container.getStaleness();
+    assert.strictEqual(s.gitHeadChanged, true, 'should detect git head change');
+    assert.strictEqual(s.isStale, true, 'isStale should be true when git head changed');
+    console.log('git-head-changed: ok');
+    // Clean up mock
+    container.cache = null;
+    container.workspaceRoot = null;
   }
 
   // Custom threshold
@@ -61,6 +83,33 @@ function main() {
     const s = container.getStaleness();
     assert.strictEqual(s.isStale, true, '1ms over threshold should be stale');
     console.log('boundary-over: ok');
+  }
+
+  // Git HEAD unchanged detection
+  {
+    container.indexBuildTime = Date.now() - 1000;
+    const { execSync } = require('child_process');
+    let currentHead = null;
+    try {
+      currentHead = execSync('git rev-parse HEAD', { cwd: process.cwd(), encoding: 'utf8' }).trim();
+    } catch {
+      // skip if not in git repo
+    }
+    if (currentHead) {
+      const mockCache = {
+        getWorkspaceInfo() {
+          return { gitHead: currentHead };
+        },
+      };
+      container.cache = mockCache;
+      container.workspaceRoot = process.cwd();
+      const s = container.getStaleness();
+      assert.strictEqual(s.gitHeadChanged, false, 'should not flag unchanged head');
+      assert.strictEqual(s.isStale, false, 'should not be stale when head matches and age is fresh');
+      console.log('git-head-unchanged: ok');
+      container.cache = null;
+      container.workspaceRoot = null;
+    }
   }
 
   console.log('\nAll staleness tests passed.');

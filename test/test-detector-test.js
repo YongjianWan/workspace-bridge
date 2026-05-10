@@ -15,6 +15,12 @@ function testIsTestLikeFile() {
   assert.strictEqual(isTestLikeFile('test_foo.py'), true);
   assert.strictEqual(isTestLikeFile('tests/unit/baz.rs'), true);
   assert.strictEqual(isTestLikeFile('src/main.js'), false);
+  // P82: Maven Java test naming conventions
+  assert.strictEqual(isTestLikeFile('src/test/java/com/example/FooTest.java'), true);
+  assert.strictEqual(isTestLikeFile('src/test/java/com/example/FooTests.java'), true);
+  assert.strictEqual(isTestLikeFile('src/test/java/com/example/FooIT.java'), true);
+  assert.strictEqual(isTestLikeFile('src/test/java/com/example/AbstractTest.java'), true);
+  assert.strictEqual(isTestLikeFile('src/main/java/com/example/FooService.java'), false);
 }
 
 function testBuildHeuristicSignature() {

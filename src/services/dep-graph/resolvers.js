@@ -83,54 +83,6 @@ function discoverJavaSourceRoots(root) {
   return roots;
 }
 
-function resolvePythonImport(fromFile, importPath, root) {
-  const tryPythonCandidates = (basePath) => {
-    const candidates = [
-      `${basePath}.py`,
-      path.join(basePath, '__init__.py'),
-    ];
-    for (const candidate of candidates) {
-      if (cachedExistsSync(candidate)) {
-        return candidate;
-      }
-    }
-    return null;
-  };
-
-  if (importPath.startsWith('.')) {
-    const leadingDots = importPath.match(/^\.+/)[0].length;
-    const remainder = importPath.slice(leadingDots);
-    let currentDir = path.dirname(fromFile);
-
-    for (let i = 1; i < leadingDots; i += 1) {
-      currentDir = path.dirname(currentDir);
-    }
-
-    const basePath = remainder
-      ? path.join(currentDir, ...remainder.split('.'))
-      : currentDir;
-
-    return tryPythonCandidates(basePath) || basePath;
-  }
-
-  const modulePath = importPath.split('.').join(path.sep);
-  const searchRoots = [
-    root,
-    path.join(root, 'backend'),
-    path.join(root, 'src'),
-    path.join(root, 'app'),
-  ];
-
-  for (const searchRoot of searchRoots) {
-    const resolved = tryPythonCandidates(path.join(searchRoot, modulePath));
-    if (resolved) {
-      return resolved;
-    }
-  }
-
-  return null;
-}
-
 function _tryResolveWithExtensions(basePath) {
   const candidates = [];
   for (const ext of RESOLVER_EXTENSIONS) {
@@ -204,13 +156,70 @@ function _resolveAlias(importPath, root) {
   return null;
 }
 
-function resolveJavaScriptImport(fromFile, importPath, root) {
-  if (!importPath.startsWith('.') && !importPath.startsWith('/')) {
-    // Try alias resolution for non-relative imports (e.g. @/, ~)
-    const aliasResolved = _resolveAlias(importPath, root);
-    if (aliasResolved) return aliasResolved;
+// ============================================================================
+// Resolver Strategy Chain — inspired by GitNexus import-resolvers pattern.
+// Each strategy: (importPath, fromFile, ctx) => string | null
+// First non-null result wins. Null means "let the next strategy try".
+// ============================================================================
+
+/**
+ * Build a resolution context shared across strategies for a single resolveImport call.
+ * @param {string} root
+ * @returns {object}
+ */
+function _buildContext(root) {
+  return {
+    root,
+    cachedExistsSync,
+    cachedStatSync,
+    tryResolveWithExtensions: _tryResolveWithExtensions,
+    discoverJavaSourceRoots: () => discoverJavaSourceRoots(root),
+    readTsconfigPaths: () => _readTsconfigPaths(root),
+    readGoMod: () => readGoMod(root),
+  };
+}
+
+/** @type {Map<string, ResolverStrategy[]>} */
+const RESOLVER_CONFIGS = new Map();
+
+/**
+ * Register a resolver config for a file extension.
+ * @param {string} ext — file extension (e.g. '.py')
+ * @param {ResolverStrategy[]} strategies — ordered strategy chain
+ */
+function registerResolverConfig(ext, strategies) {
+  RESOLVER_CONFIGS.set(ext, strategies);
+}
+
+/**
+ * Create a composed resolver from an ordered strategy list.
+ * Mirrors GitNexus `createImportResolver` factory.
+ * @param {ResolverStrategy[]} strategies
+ * @returns {(importPath: string, fromFile: string, ctx: object) => string | null}
+ */
+function createResolver(strategies) {
+  return (importPath, fromFile, ctx) => {
+    for (const strategy of strategies) {
+      const result = strategy(importPath, fromFile, ctx);
+      if (result !== null) return result;
+    }
     return null;
-  }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Strategy: Alias resolution (JS/TS/Vite/Webpack)
+// ---------------------------------------------------------------------------
+function tryAlias(importPath, _fromFile, ctx) {
+  if (importPath.startsWith('.') || importPath.startsWith('/')) return null;
+  return _resolveAlias(importPath, ctx.root);
+}
+
+// ---------------------------------------------------------------------------
+// Strategy: Relative path with extension fallback (JS/TS/Vue/Svelte)
+// ---------------------------------------------------------------------------
+function tryRelativeWithExtensions(importPath, fromFile, ctx) {
+  if (!importPath.startsWith('.') && !importPath.startsWith('/')) return null;
 
   const fromDir = path.dirname(fromFile);
   const resolvedBase = importPath.startsWith('.')
@@ -248,40 +257,211 @@ function resolveJavaScriptImport(fromFile, importPath, root) {
   }
 
   for (const candidate of candidates) {
-    const stat = cachedStatSync(candidate);
+    const stat = ctx.cachedStatSync(candidate);
     if (stat) {
       if (stat.isDirectory()) {
-        // Skip directories; index files are added as separate candidates.
         continue;
       }
       return candidate;
     }
   }
 
-  // Don't return a bare directory path as a resolved module.
-  const baseStat = cachedStatSync(resolvedBase);
+  const baseStat = ctx.cachedStatSync(resolvedBase);
   if (baseStat && baseStat.isDirectory()) {
     return null;
   }
   return resolvedBase;
 }
 
-function resolveJavaImport(importPath, root) {
+// ---------------------------------------------------------------------------
+// Strategy: Python relative import
+// ---------------------------------------------------------------------------
+function tryPythonRelative(importPath, fromFile, ctx) {
+  if (!importPath.startsWith('.')) return null;
+
+  const tryPythonCandidates = (basePath) => {
+    const candidates = [
+      `${basePath}.py`,
+      path.join(basePath, '__init__.py'),
+    ];
+    for (const candidate of candidates) {
+      if (ctx.cachedExistsSync(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
+  };
+
+  const leadingDots = importPath.match(/^\.+/)[0].length;
+  const remainder = importPath.slice(leadingDots);
+  let currentDir = path.dirname(fromFile);
+
+  for (let i = 1; i < leadingDots; i += 1) {
+    currentDir = path.dirname(currentDir);
+  }
+
+  const basePath = remainder
+    ? path.join(currentDir, ...remainder.split('.'))
+    : currentDir;
+
+  return tryPythonCandidates(basePath) || basePath;
+}
+
+// ---------------------------------------------------------------------------
+// Strategy: Python absolute import
+// ---------------------------------------------------------------------------
+function tryPythonAbsolute(importPath, _fromFile, ctx) {
+  if (importPath.startsWith('.')) return null;
+
+  const tryPythonCandidates = (basePath) => {
+    const candidates = [
+      `${basePath}.py`,
+      path.join(basePath, '__init__.py'),
+    ];
+    for (const candidate of candidates) {
+      if (ctx.cachedExistsSync(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
+  };
+
+  const modulePath = importPath.split('.').join(path.sep);
+  const searchRoots = [
+    ctx.root,
+    path.join(ctx.root, 'backend'),
+    path.join(ctx.root, 'src'),
+    path.join(ctx.root, 'app'),
+  ];
+
+  for (const searchRoot of searchRoots) {
+    const resolved = tryPythonCandidates(path.join(searchRoot, modulePath));
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Strategy: Java / Kotlin package resolution
+// ---------------------------------------------------------------------------
+function tryJava(importPath, _fromFile, ctx) {
   if (!importPath || importPath.endsWith('.*')) {
     return null;
   }
   const relative = importPath.split('.').join(path.sep);
-  const candidates = discoverJavaSourceRoots(root).map((r) => path.join(r, relative));
+  const candidates = ctx.discoverJavaSourceRoots().map((r) => path.join(r, relative));
 
   for (const base of candidates) {
     for (const ext of ['.java', '.kt']) {
       const fullPath = `${base}${ext}`;
-      if (cachedExistsSync(fullPath)) {
+      if (ctx.cachedExistsSync(fullPath)) {
         return fullPath;
       }
     }
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Strategy: Go relative import
+// ---------------------------------------------------------------------------
+function tryGoRelative(importPath, fromFile, ctx) {
+  if (!importPath.startsWith('.')) return null;
+
+  const fromDir = path.dirname(fromFile);
+  const resolved = path.resolve(fromDir, importPath);
+  if (ctx.cachedExistsSync(resolved)) return resolved;
+  const resolvedGo = `${resolved}.go`;
+  if (ctx.cachedExistsSync(resolvedGo)) return resolvedGo;
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Strategy: Go module import
+// ---------------------------------------------------------------------------
+function tryGoModule(importPath, _fromFile, ctx) {
+  if (importPath.startsWith('.')) return null;
+
+  const modulePath = ctx.readGoMod();
+  if (!modulePath || !importPath.startsWith(modulePath)) {
+    return null;
+  }
+
+  let relPath = importPath.slice(modulePath.length);
+  if (relPath.startsWith('/')) relPath = relPath.slice(1);
+
+  const targetDir = relPath ? path.join(ctx.root, relPath) : ctx.root;
+  const targetDirStat = ctx.cachedStatSync(targetDir);
+  if (!targetDirStat || !targetDirStat.isDirectory()) return null;
+
+  try {
+    const entries = fs.readdirSync(targetDir).sort();
+    const goFile = entries.find((f) => f.endsWith('.go') && !f.endsWith('_test.go'));
+    if (goFile) {
+      return path.join(targetDir, goFile);
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Strategy: Rust crate:: resolution
+// ---------------------------------------------------------------------------
+function tryRustCrate(importPath, _fromFile, ctx) {
+  if (!importPath.startsWith('crate::')) return null;
+  const modulePath = importPath.slice('crate::'.length);
+  return resolveRustModulePath(modulePath, ctx.root);
+}
+
+// ---------------------------------------------------------------------------
+// Strategy: Rust super:: resolution
+// ---------------------------------------------------------------------------
+function tryRustSuper(importPath, fromFile, ctx) {
+  if (!importPath.startsWith('super::')) return null;
+
+  const fromDir = path.dirname(fromFile);
+  let baseDir = fromDir;
+  let remaining = importPath;
+  const srcRoot = path.join(ctx.root, 'src');
+
+  while (remaining.startsWith('super::')) {
+    remaining = remaining.slice('super::'.length);
+    const parent = path.dirname(baseDir);
+    if (parent === baseDir || !parent.startsWith(srcRoot)) {
+      return null;
+    }
+    baseDir = parent;
+  }
+
+  if (!remaining) return null;
+  return resolveRustModulePath(remaining, ctx.root, baseDir);
+}
+
+// ---------------------------------------------------------------------------
+// Legacy helpers (kept for internal use and backward compat)
+// ---------------------------------------------------------------------------
+
+function resolvePythonImport(fromFile, importPath, root) {
+  const ctx = _buildContext(root);
+  const resolver = createResolver([tryPythonRelative, tryPythonAbsolute]);
+  return resolver(importPath, fromFile, ctx);
+}
+
+function resolveJavaScriptImport(fromFile, importPath, root) {
+  const ctx = _buildContext(root);
+  const resolver = createResolver([tryAlias, tryRelativeWithExtensions]);
+  return resolver(importPath, fromFile, ctx);
+}
+
+function resolveJavaImport(importPath, root) {
+  const ctx = _buildContext(root);
+  return tryJava(importPath, null, ctx);
 }
 
 const _goModCache = new Map(); // root -> { modulePath, mtime }
@@ -309,38 +489,9 @@ function readGoMod(root) {
 }
 
 function resolveGoImport(fromFile, importPath, root) {
-  if (importPath.startsWith('.')) {
-    const fromDir = path.dirname(fromFile);
-    const resolved = path.resolve(fromDir, importPath);
-    if (cachedExistsSync(resolved)) return resolved;
-    const resolvedGo = `${resolved}.go`;
-    if (cachedExistsSync(resolvedGo)) return resolvedGo;
-    return null;
-  }
-
-  const modulePath = readGoMod(root);
-  if (!modulePath || !importPath.startsWith(modulePath)) {
-    return null;
-  }
-
-  let relPath = importPath.slice(modulePath.length);
-  if (relPath.startsWith('/')) relPath = relPath.slice(1);
-
-  const targetDir = relPath ? path.join(root, relPath) : root;
-  const targetDirStat = cachedStatSync(targetDir);
-  if (!targetDirStat || !targetDirStat.isDirectory()) return null;
-
-  try {
-    const entries = fs.readdirSync(targetDir).sort();
-    const goFile = entries.find((f) => f.endsWith('.go') && !f.endsWith('_test.go'));
-    if (goFile) {
-      return path.join(targetDir, goFile);
-    }
-  } catch {
-    // ignore
-  }
-
-  return null;
+  const ctx = _buildContext(root);
+  const resolver = createResolver([tryGoRelative, tryGoModule]);
+  return resolver(importPath, fromFile, ctx);
 }
 
 function resolveRustModulePath(modulePath, root, baseDir) {
@@ -366,53 +517,43 @@ function resolveRustModulePath(modulePath, root, baseDir) {
 }
 
 function resolveRustImport(fromFile, importPath, root) {
-  if (importPath.startsWith('crate::')) {
-    const modulePath = importPath.slice('crate::'.length);
-    return resolveRustModulePath(modulePath, root);
-  }
-
-  if (importPath.startsWith('super::')) {
-    const fromDir = path.dirname(fromFile);
-    let baseDir = fromDir;
-    let remaining = importPath;
-    const srcRoot = path.join(root, 'src');
-
-    while (remaining.startsWith('super::')) {
-      remaining = remaining.slice('super::'.length);
-      const parent = path.dirname(baseDir);
-      if (parent === baseDir || !parent.startsWith(srcRoot)) {
-        return null;
-      }
-      baseDir = parent;
-    }
-
-    if (!remaining) return null;
-    return resolveRustModulePath(remaining, root, baseDir);
-  }
-
-  return null;
+  const ctx = _buildContext(root);
+  const resolver = createResolver([tryRustCrate, tryRustSuper]);
+  return resolver(importPath, fromFile, ctx);
 }
+
+// Register resolver configs for all supported extensions.
+// Adding a new language requires exactly one line here.
+registerResolverConfig('.py', [tryPythonRelative, tryPythonAbsolute]);
+registerResolverConfig('.java', [tryJava]);
+registerResolverConfig('.kt', [tryJava]);
+registerResolverConfig('.go', [tryGoRelative, tryGoModule]);
+registerResolverConfig('.rs', [tryRustCrate, tryRustSuper]);
+registerResolverConfig('default', [tryAlias, tryRelativeWithExtensions]);
 
 function resolveImport(fromFile, importPath, ext, root) {
   if (!importPath) return null;
-  if (ext === '.py') {
-    return resolvePythonImport(fromFile, importPath, root);
-  }
-  if (ext === '.java' || ext === '.kt') {
-    return resolveJavaImport(importPath, root);
-  }
-  if (ext === '.go') {
-    return resolveGoImport(fromFile, importPath, root);
-  }
-  if (ext === '.rs') {
-    return resolveRustImport(fromFile, importPath, root);
-  }
-
-  return resolveJavaScriptImport(fromFile, importPath, root);
+  const strategies = RESOLVER_CONFIGS.get(ext) || RESOLVER_CONFIGS.get('default');
+  const ctx = _buildContext(root);
+  return createResolver(strategies)(importPath, fromFile, ctx);
 }
 
 module.exports = {
   resolveImport,
   resolveJavaImport,
   clearResolverCaches,
+  cachedExistsSync,
+  // Expose strategy internals for testing and future extension
+  createResolver,
+  registerResolverConfig,
+  RESOLVER_CONFIGS,
+  tryAlias,
+  tryRelativeWithExtensions,
+  tryPythonRelative,
+  tryPythonAbsolute,
+  tryJava,
+  tryGoRelative,
+  tryGoModule,
+  tryRustCrate,
+  tryRustSuper,
 };

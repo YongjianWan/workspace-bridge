@@ -32,6 +32,7 @@ const TIMEOUTS = {
 const LIMITS = {
   COMMAND_OUTPUT_MAX_BYTES: 10 * 1024 * 1024,
   EXEC_SYNC_MAX_BUFFER_BYTES: 4 * 1024 * 1024,
+  WATCH_MAX_STDOUT_BYTES: 1 * 1024 * 1024,
   TRIM_OUTPUT_DEFAULT_CHARS: 12000,
   SEARCH_MAX_FILE_BYTES: 1024 * 1024,
   ENTRY_FILE_MAX_BYTES: 64 * 1024,
@@ -160,10 +161,31 @@ const SCORING = {
   TOP_N_LIST: 10,
 };
 
+// Dead-export confidence reason thresholds
+// P87: differentiate explanation when a file has many importers but specific exports are unused.
+const DEAD_EXPORT = {
+  // "Many importers" — specific exports genuinely unused despite file popularity
+  IMPORTER_COUNT_HIGH: 10,
+  // "Some importers" — may be internal helpers or barrel re-exports
+  IMPORTER_COUNT_MEDIUM: 3,
+};
+
+// Numeric confidence values for downstream threshold filtering.
+// Tier 1 — same-file / no importer: highest confidence.
+// Tier 2 — import-scoped AST: medium confidence (symbol tracking is authoritative but dynamic imports may bypass).
+// Tier 3 — global / regex fallback: lowest confidence (high false-positive risk).
+const CONFIDENCE = {
+  HIGH_VALUE: 0.95,
+  MEDIUM_VALUE: 0.9,
+  LOW_VALUE: 0.5,
+};
+
 module.exports = {
   TIMEOUTS,
   LIMITS,
   DEFAULTS,
   HIGHLIGHT_SCORES,
   SCORING,
+  DEAD_EXPORT,
+  CONFIDENCE,
 };

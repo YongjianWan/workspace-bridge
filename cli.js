@@ -105,12 +105,12 @@ const COMMAND_GUIDES = {
   'audit-file': {
     desc: 'Aggregate impact + affected tests for one file',
     when: 'Before/after editing a single file. Know what breaks before you save.',
-    after: 'impact --file <path> for deeper transitive analysis, or affected-tests for test mapping.',
+    after: 'impact --file <path> for deeper transitive analysis, or affected-tests for test mapping. Add --watch to auto-re-run on every save.',
   },
   'audit-diff': {
     desc: 'Aggregate changed files + impact + affected tests + history risk',
     when: 'Reviewing a PR or preparing a commit. Understand the blast radius of current worktree changes.',
-    after: 'audit-file --file <path> for any high-risk file that needs individual attention.',
+    after: 'audit-file --file <path> for any high-risk file that needs individual attention. Add --incremental to suppress unrelated findings.',
   },
   'audit-overview': {
     desc: 'Project panoramic view (hotspots, stability, orphans, core modules)',
@@ -218,8 +218,8 @@ Commands:
   workspace-info           Detect workspace type and root
   diagnostics             Run quick/full diagnostics
   audit-summary           Aggregate health + graph findings
-  audit-file --file <p>   Aggregate impact + affected tests for one file
-  audit-diff             Aggregate changed files + impact + affected tests
+  audit-file --file <p> [--watch]  Aggregate impact + affected tests for one file
+  audit-diff [--incremental]       Aggregate changed files + impact + affected tests
   audit-overview         Project panoramic view (hotspots, stability, orphans)
   audit-map              Global project map (tree + edges + issue overlay)
   health                  Summarize project health
@@ -251,6 +251,8 @@ Options:
   --json                  Print machine-readable JSON
   --quiet                 Suppress stderr logs during CLI execution
   --compact              Emit condensed tree and directory-level edges
+  --watch                Watch mode for audit-file: re-run on file changes
+  --incremental          Only show findings related to changed files in audit-diff
   --config <name>        Semgrep config (default: auto)
   --language <lang>      Filter security scan to one language
   --help                  Show help
@@ -279,6 +281,8 @@ function parseCliArgs(argv) {
     '--json': true,
     '--quiet': true,
     '--compact': true,
+    '--watch': true,
+    '--incremental': true,
     '--run-tests': true,
     '--version': true,
     '-v': true,
@@ -323,6 +327,8 @@ function parseCliArgs(argv) {
     json: Boolean(raw['--json']),
     quiet: Boolean(raw['--quiet']),
     compact: Boolean(raw['--compact']),
+    watch: Boolean(raw['--watch']),
+    incremental: Boolean(raw['--incremental']),
     runTests: Boolean(raw['--run-tests']),
     version: Boolean(raw['--version']) || Boolean(raw['-v']),
     help: Boolean(raw['--help']) || Boolean(raw['-h']),
@@ -579,6 +585,16 @@ async function runCommand(parsed, container) {
     }
     case 'audit-file': {
       requireFile(parsed, 'audit-file');
+      if (parsed.watch) {
+        const { startAuditFileWatch } = require('./src/cli/watch');
+        await startAuditFileWatch({
+          cwd: parsed.cwd,
+          exclude: parsed.exclude,
+          targetFile: parsed.file,
+          compact: parsed.compact,
+        });
+        return { ok: true, __managedLifecycle: true };
+      }
       const resolvedPath = resolveWorkspaceFilePath(parsed.file, container.workspaceRoot);
       if (!resolvedPath || !fs.existsSync(resolvedPath)) {
         return { ok: false, error: `File not found: ${parsed.file}`, inProject: false };
@@ -739,7 +755,7 @@ async function runCommand(parsed, container) {
 
       const { detectStack } = require('./src/utils/stack-detectors/detect');
       const stack = detectStack(container.workspaceRoot);
-      return {
+      const result = {
         ok: true,
         workspaceRoot: container.workspaceRoot,
         scope: container.depGraph.getScopeSummary(),
@@ -750,6 +766,13 @@ async function runCommand(parsed, container) {
         },
         changedFiles: finalEntries,
       };
+      if (parsed.incremental) {
+        const { buildIncrementalFindings } = require('./src/tools/incremental-diff');
+        const changedPaths = finalEntries.map((e) => e.resolvedPath).filter(Boolean);
+        result.incremental = true;
+        result.incrementalFindings = buildIncrementalFindings(changedPaths, container);
+      }
+      return result;
     }
     case 'audit-overview':
       return buildProjectOverview(parsed, container);
@@ -891,7 +914,8 @@ async function main() {
   }
 
   const SELF_MANAGED_COMMANDS = new Set(['repl', 'watch', 'init']);
-  if (SELF_MANAGED_COMMANDS.has(parsed.command)) {
+  const isSelfManaged = SELF_MANAGED_COMMANDS.has(parsed.command) || (parsed.command === 'audit-file' && parsed.watch);
+  if (isSelfManaged) {
     await runCommand(parsed, null);
     return;
   }

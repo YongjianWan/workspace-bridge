@@ -56,6 +56,15 @@ function testPathPatternRuoYi() {
   assert.ok(scaffold2);
   assert.strictEqual(scaffold2.name, 'ruoyi-java');
 
+  // P98: Sensitive.java under ruoyi path (pathPattern match, not exactBasename)
+  const scaffold3 = detectScaffold('/project/src/main/java/com/ruoyi/common/utils/Sensitive.java');
+  assert.ok(scaffold3, 'Sensitive.java under ruoyi path should match');
+  assert.strictEqual(scaffold3.name, 'ruoyi-java');
+
+  // Sensitive.java outside ruoyi path should NOT match
+  const nonScaffold3 = detectScaffold('/project/src/main/java/com/example/Sensitive.java');
+  assert.strictEqual(nonScaffold3, null, 'Sensitive.java outside ruoyi path should NOT match');
+
   console.log('path-pattern-ruoyi: ok');
 }
 

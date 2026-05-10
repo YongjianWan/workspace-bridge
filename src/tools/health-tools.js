@@ -63,6 +63,10 @@ function detectTestConfig(root) {
   if (runner?.type === 'python') {
     frameworks.push(runner.name);
   }
+  // P101: Django projects can run tests via `manage.py test` without any config file
+  if (frameworks.length === 0 && pathExists(path.join(root, 'manage.py'))) {
+    frameworks.push('django-test');
+  }
   return { found: frameworks.length > 0, frameworks };
 }
 

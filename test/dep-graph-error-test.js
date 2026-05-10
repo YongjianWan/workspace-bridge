@@ -154,6 +154,50 @@ async function testVueFrameworkCycleWhitelist() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// P96: Vue length=6 cycle (request→store→router→view→api→request) should be whitelisted
+async function testVueLongCycleWhitelist() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-long-'));
+  fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
+  fs.mkdirSync(path.join(dir, 'src', 'api'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src', 'store'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src', 'router'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src', 'views'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src', 'request'), { recursive: true });
+
+  const requestPath = path.join(dir, 'src', 'request', 'index.js');
+  const storePath = path.join(dir, 'src', 'store', 'user.js');
+  const routerPath = path.join(dir, 'src', 'router', 'index.js');
+  const viewPath = path.join(dir, 'src', 'views', 'login.vue');
+  const apiPath = path.join(dir, 'src', 'api', 'user.js');
+
+  // request → store → router → view → api → request (length=6)
+  fs.writeFileSync(requestPath, "import store from '../store/user';\nexport const fetch = () => {};\n", 'utf8');
+  fs.writeFileSync(storePath, "import router from '../router/index';\nexport const user = {};\n", 'utf8');
+  fs.writeFileSync(routerPath, "import view from '../views/login.vue';\nexport const routes = [];\n", 'utf8');
+  fs.writeFileSync(viewPath, "<script>\nimport api from '../api/user';\nexport default {};\n</script>\n", 'utf8');
+  fs.writeFileSync(apiPath, "import request from '../request/index';\nexport const getUser = () => {};\n", 'utf8');
+
+  const cache = new WorkspaceCache(dir);
+  [requestPath, storePath, routerPath, viewPath, apiPath].forEach((p) => {
+    cache.setFileMetadata(p, { mtime: 1, size: 1 });
+  });
+
+  const dg = new DependencyGraph(dir, cache);
+  await dg.build();
+
+  const cycles = dg.findCircularDependencies();
+  const hasLongVueCycle = cycles.some((c) =>
+    c.some((f) => f.includes('request')) &&
+    c.some((f) => f.includes('store')) &&
+    c.some((f) => f.includes('router')) &&
+    c.some((f) => f.includes('login.vue')) &&
+    c.some((f) => f.includes('api'))
+  );
+  assert.strictEqual(hasLongVueCycle, false, 'Vue length=6 cycle (request→store→router→view→api→request) should be whitelisted');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 async function testSpringBootEntryDetection() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-'));
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
@@ -229,6 +273,36 @@ async function testDjangoEntryDetection() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// P97: RuoYi scaffold utility mutual dependencies should be whitelisted
+async function testRuoYiJavaCycleWhitelist() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-'));
+  fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
+  fs.mkdirSync(path.join(dir, 'src', 'main', 'java', 'com', 'ruoyi', 'common', 'utils'), { recursive: true });
+
+  const stringUtilsPath = path.join(dir, 'src', 'main', 'java', 'com', 'ruoyi', 'common', 'utils', 'StringUtils.java');
+  const strFormatterPath = path.join(dir, 'src', 'main', 'java', 'com', 'ruoyi', 'common', 'utils', 'StrFormatter.java');
+
+  // StringUtils ↔ StrFormatter (mutual scaffold dependency)
+  fs.writeFileSync(stringUtilsPath, 'package com.ruoyi.common.utils;\nimport com.ruoyi.common.utils.StrFormatter;\npublic class StringUtils { }\n', 'utf8');
+  fs.writeFileSync(strFormatterPath, 'package com.ruoyi.common.utils;\nimport com.ruoyi.common.utils.StringUtils;\npublic class StrFormatter { }\n', 'utf8');
+
+  const cache = new WorkspaceCache(dir);
+  cache.setFileMetadata(stringUtilsPath, { mtime: 1, size: 1 });
+  cache.setFileMetadata(strFormatterPath, { mtime: 1, size: 1 });
+
+  const dg = new DependencyGraph(dir, cache);
+  await dg.build();
+
+  const cycles = dg.findCircularDependencies();
+  const hasRuoYiCycle = cycles.some((c) =>
+    c.some((f) => f.toLowerCase().includes('stringutils')) &&
+    c.some((f) => f.toLowerCase().includes('strformatter'))
+  );
+  assert.strictEqual(hasRuoYiCycle, false, 'RuoYi StringUtils↔StrFormatter cycle should be whitelisted');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 async function main() {
   await testUpdateFilesEmptyArray();
   await testUpdateFilesDeletedFile();
@@ -236,8 +310,10 @@ async function main() {
   await testReentrantUpdateFiles();
   await testGetStatsLazyCycles();
   await testVueFrameworkCycleWhitelist();
+  await testVueLongCycleWhitelist();
   await testSpringBootEntryDetection();
   await testDjangoEntryDetection();
+  await testRuoYiJavaCycleWhitelist();
   console.log('dep-graph-error-test: all passed');
 }
 

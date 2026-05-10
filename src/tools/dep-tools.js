@@ -31,9 +31,9 @@ async function dependencyGraph(args, container) {
       return {
         ok: true,
         file: args.file,
-        resolvedPath: filePath,
+        resolvedPath: container.depGraph._displayPath?.(filePath) || filePath,
         dependenciesCount: deps.length,
-        dependencies: deps,
+        dependencies: deps.map((d) => container.depGraph._displayPath?.(d) || d),
       };
     
     case 'dependents':
@@ -42,9 +42,9 @@ async function dependencyGraph(args, container) {
       return {
         ok: true,
         file: args.file,
-        resolvedPath: filePath,
+        resolvedPath: container.depGraph._displayPath?.(filePath) || filePath,
         dependentsCount: dents.length,
-        dependents: dents,
+        dependents: dents.map((d) => container.depGraph._displayPath?.(d) || d),
       };
     
     case 'impact':
@@ -54,7 +54,7 @@ async function dependencyGraph(args, container) {
       return {
         ok: true,
         file: args.file,
-        resolvedPath: filePath,
+        resolvedPath: container.depGraph._displayPath?.(filePath) || filePath,
         impactCount: impact.length,
         impact,
         symbolImpact,
@@ -98,7 +98,7 @@ async function dependencyGraph(args, container) {
       return {
         ok: true,
         file: args.file,
-        resolvedPath: filePath,
+        resolvedPath: container.depGraph._displayPath?.(filePath) || filePath,
         maxDepth,
         affectedTestsCount: affectedTests.length,
         affectedTests,

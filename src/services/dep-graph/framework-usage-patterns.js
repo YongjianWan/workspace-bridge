@@ -8,7 +8,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { resolveImport } = require('./resolvers');
+const { resolveImport, cachedExistsSync } = require('./resolvers');
 const { createImportRecord } = require('./parsers/shared');
 
 // Extensions that may contain framework usage patterns.
@@ -76,6 +76,60 @@ const FRAMEWORK_USAGE_PATTERNS = [
         // Vue convention: src/directive/xxx/index.js or src/directive/xxx.js
         sources.push(`@/directive/${directiveName}/index`);
         sources.push(`@/directive/${directiveName}`);
+      }
+      return sources;
+    },
+  },
+
+  // P104: React.lazy(() => import('...'))
+  {
+    id: 'react-lazy',
+    frameworks: ['react'],
+    scanner(filePath, content) {
+      return /(?:React\.)?lazy\s*\(\s*(?:\(\s*\)\s*=>|function\s*\(\s*\)\s*=>?)\s*import\s*\(/i.test(content);
+    },
+    extractor(filePath, content) {
+      const sources = [];
+      const regex = /(?:React\.)?lazy\s*\(\s*(?:\(\s*\)\s*=>|function\s*\(\s*\)\s*=>?)\s*import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+      let match;
+      while ((match = regex.exec(content)) !== null) {
+        sources.push(match[1]);
+      }
+      return sources;
+    },
+  },
+
+  // P104: Next.js dynamic(() => import('...'))
+  {
+    id: 'nextjs-dynamic',
+    frameworks: ['nextjs'],
+    scanner(filePath, content) {
+      return /dynamic\s*\(\s*(?:\(\s*\)\s*=>|function\s*\(\s*\)\s*=>?)\s*import\s*\(/i.test(content);
+    },
+    extractor(filePath, content) {
+      const sources = [];
+      const regex = /dynamic\s*\(\s*(?:\(\s*\)\s*=>|function\s*\(\s*\)\s*=>?)\s*import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+      let match;
+      while ((match = regex.exec(content)) !== null) {
+        sources.push(match[1]);
+      }
+      return sources;
+    },
+  },
+
+  // P104: Angular loadChildren: () => import('...')
+  {
+    id: 'angular-loadchildren',
+    frameworks: ['angular'],
+    scanner(filePath, content) {
+      return /loadChildren\s*:\s*(?:\(\s*\)\s*=>|function\s*\(\s*\)\s*=>?)\s*import\s*\(/i.test(content);
+    },
+    extractor(filePath, content) {
+      const sources = [];
+      const regex = /loadChildren\s*:\s*(?:\(\s*\)\s*=>|function\s*\(\s*\)\s*=>?)\s*import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+      let match;
+      while ((match = regex.exec(content)) !== null) {
+        sources.push(match[1]);
       }
       return sources;
     },
@@ -149,7 +203,7 @@ function resolveImplicitImports(filePath, implicitSources, root) {
     seen.add(source);
 
     const resolved = resolveImport(filePath, source, ext, root);
-    if (resolved && fs.existsSync(resolved)) {
+    if (resolved && cachedExistsSync(resolved)) {
       results.push({ source, resolved, patternId });
     }
   }

@@ -50,7 +50,7 @@ const SCAFFOLD_FINGERPRINTS = [
     pathPatterns: [
       {
         marker: /ruoyi/i,
-        regex: /^(constants|httpstatus|userconstants|genconstants|dictconstants|stringutils|strformatter|dateutils|fileutils|excelutils|securityutils|iputils|idutils|asyncutils|sqlutils|jsonutils|springutils|threadutils|verifyutils|encryptutils|downloadutils)\.java$/i,
+        regex: /^(constants|httpstatus|userconstants|genconstants|dictconstants|stringutils|strformatter|sensitive|dateutils|fileutils|excelutils|securityutils|iputils|idutils|asyncutils|sqlutils|jsonutils|springutils|threadutils|verifyutils|encryptutils|downloadutils)\.java$/i,
       },
     ],
   },

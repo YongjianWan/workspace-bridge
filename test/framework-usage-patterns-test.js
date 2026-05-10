@@ -217,6 +217,40 @@ async function testVueImplicitDependenciesIntegration() {
 
 // --- Runner ---
 
+function testReactLazy() {
+  const content = `
+    const UserProfile = React.lazy(() => import('./UserProfile'));
+    const AdminDashboard = lazy(() => import('./AdminDashboard'));
+  `;
+  const results = scanAndExtractImplicitImports('/project/src/App.jsx', content);
+  assert.strictEqual(results.length, 2, 'should extract 2 React.lazy imports');
+  assert(results.some((r) => r.source === './UserProfile'), 'should extract UserProfile');
+  assert(results.some((r) => r.source === './AdminDashboard'), 'should extract AdminDashboard');
+  assert(results.every((r) => r.patternId === 'react-lazy'));
+}
+
+function testNextjsDynamic() {
+  const content = `
+    const DynamicComponent = dynamic(() => import('./DynamicComponent'));
+  `;
+  const results = scanAndExtractImplicitImports('/project/src/pages/index.tsx', content);
+  assert.strictEqual(results.length, 1, 'should extract 1 Next.js dynamic import');
+  assert.strictEqual(results[0].source, './DynamicComponent');
+  assert.strictEqual(results[0].patternId, 'nextjs-dynamic');
+}
+
+function testAngularLoadChildren() {
+  const content = `
+    const routes = [
+      { path: 'admin', loadChildren: () => import('./admin/admin.module').then(m => m.AdminModule) }
+    ];
+  `;
+  const results = scanAndExtractImplicitImports('/project/src/app/app-routing.module.ts', content);
+  assert.strictEqual(results.length, 1, 'should extract 1 Angular loadChildren import');
+  assert.strictEqual(results[0].source, './admin/admin.module');
+  assert.strictEqual(results[0].patternId, 'angular-loadchildren');
+}
+
 async function run() {
   testVueRouterLazy();
   testVueRouterLazyFunctionSyntax();
@@ -226,6 +260,9 @@ async function run() {
   testVueCustomDirective();
   testDynamicStringCall();
   testDynamicStringCallLiteral();
+  testReactLazy();
+  testNextjsDynamic();
+  testAngularLoadChildren();
   testResolveImplicitImports();
   testResolveImplicitImportsMissingFile();
   testBuildImplicitImportRecord();
