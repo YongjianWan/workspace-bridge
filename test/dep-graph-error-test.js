@@ -303,6 +303,37 @@ async function testRuoYiJavaCycleWhitelist() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// P97-1: RuoYi annotation↔serializer pair should be whitelisted
+async function testRuoYiAnnotationSerializerCycleWhitelist() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-'));
+  fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
+  fs.mkdirSync(path.join(dir, 'src', 'main', 'java', 'com', 'ruoyi', 'common', 'annotation'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src', 'main', 'java', 'com', 'ruoyi', 'common', 'config', 'serializer'), { recursive: true });
+
+  const sensitivePath = path.join(dir, 'src', 'main', 'java', 'com', 'ruoyi', 'common', 'annotation', 'Sensitive.java');
+  const serializerPath = path.join(dir, 'src', 'main', 'java', 'com', 'ruoyi', 'common', 'config', 'serializer', 'SensitiveJsonSerializer.java');
+
+  // Sensitive ↔ SensitiveJsonSerializer (annotation/serializer scaffold pair)
+  fs.writeFileSync(sensitivePath, 'package com.ruoyi.common.annotation;\nimport com.ruoyi.common.config.serializer.SensitiveJsonSerializer;\npublic @interface Sensitive { }\n', 'utf8');
+  fs.writeFileSync(serializerPath, 'package com.ruoyi.common.config.serializer;\nimport com.ruoyi.common.annotation.Sensitive;\npublic class SensitiveJsonSerializer { }\n', 'utf8');
+
+  const cache = new WorkspaceCache(dir);
+  cache.setFileMetadata(sensitivePath, { mtime: 1, size: 1 });
+  cache.setFileMetadata(serializerPath, { mtime: 1, size: 1 });
+
+  const dg = new DependencyGraph(dir, cache);
+  await dg.build();
+
+  const cycles = dg.findCircularDependencies();
+  const hasCycle = cycles.some((c) =>
+    c.some((f) => f.toLowerCase().includes('sensitive.java')) &&
+    c.some((f) => f.toLowerCase().includes('sensitivejsonserializer'))
+  );
+  assert.strictEqual(hasCycle, false, 'RuoYi Sensitive↔SensitiveJsonSerializer cycle should be whitelisted');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 async function main() {
   await testUpdateFilesEmptyArray();
   await testUpdateFilesDeletedFile();
@@ -314,6 +345,7 @@ async function main() {
   await testSpringBootEntryDetection();
   await testDjangoEntryDetection();
   await testRuoYiJavaCycleWhitelist();
+  await testRuoYiAnnotationSerializerCycleWhitelist();
   console.log('dep-graph-error-test: all passed');
 }
 

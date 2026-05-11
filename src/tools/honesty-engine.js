@@ -24,7 +24,7 @@ const VENDOR_COPY_BASENAMES = new Set([
 // (matched against relative or absolute file paths)
 const FRAMEWORK_IMPLICIT_PATTERNS = [
   // Vue router pages referenced by lazy-loading
-  { pattern: /[\\/]views[\\/]/, reason: 'vue-page-implicit' },
+  { pattern: /[\\/]views[\\/][^\\/]+\.(js|ts|jsx|tsx|vue)$/, reason: 'vue-page-implicit' },
   // Vue global components
   { pattern: /[\\/]components[\\/]/, reason: 'vue-component-implicit' },
   // Next.js App Router pages

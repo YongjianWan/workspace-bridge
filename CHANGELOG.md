@@ -6,6 +6,28 @@
 
 ## [Unreleased]
 
+### 重构（P8-2-1：`parseCommandString` 后处理补丁 → 正交设计）
+
+- **`commands.js` 生成侧直接返回 `executable` 结构** `src/utils/stack-detectors/commands.js` `test/render-command-string-test.js` — 消除"生成侧拼字符串、消费侧拆字符串"的双源维护：
+  - 新增 `renderCommandString(executable)` 纯函数：将 `{command, args, cwd, shell}` 合成人类可读的 `cmd` 字符串（`cd ${cwd} && ${command} ${args.join(' ')}`）
+  - `buildNodeTestCommand` / `buildGoModuleTestCommands` / `buildRustTestCommands` 改为返回 `executable` 对象
+  - `getNodeCommands` / `getPythonCommands` / `getJavaCommands` / `getGoCommands` / `getRustCommands` / `getCppCommands` / `generateCommands` 底部 direct-tests 等 20+ push 点全部改为 `executable: {...}`
+  - `enrichCommandEntry` 双向化：已有 `executable` 无 `cmd` 时合成 `cmd`；已有 `cmd` 无 `executable` 时解析 `executable`。两者都有时保持不动，仅补全 `expectedExitCode` / `onFailure` 默认值
+  - `addUniqueCommand` 兼容 `executable` 去重（`JSON.stringify(executable)` 比对 + `name` 比对）
+  - 向后兼容：`cmd` 字符串字段**完全保留**，所有现有消费者（`watch.js` / `validation-advice.js` / `risk-actions.js` / `self-audit.js` / 10+ 测试文件）零改动继续工作。`generateCommands` 末尾的 `enrichCommandSet` 确保每个条目同时有 `cmd` + `executable`
+  - `module.exports` 新增 `renderCommandString` 导出
+  - 测试：`test/render-command-string-test.js` 8 断言覆盖基本合成、`cwd` 前缀、`shell` 优先、null 过滤、空对象、parse→render 往返、无 args
+
+### 修复（P84：Maven 多模块边界检测 — 与 Gradle 对等）
+
+- **P84: Maven 多模块项目模块边界零检测** `src/utils/stack-detectors/detect.js` `src/utils/stack-detectors/commands.js` `test/maven-module-detection-test.js` — 此前 Gradle subprojects 已完整支持（`settings.gradle` 解析 + 模块级命令），Maven `<modules>` 完全空白：
+  - `detect.js` 新增 `detectMavenModules(root)`：解析根 `pom.xml` 的 `<module>` 元素，过滤无子 `pom.xml` 的幽灵条目，返回 `[{ name, dir }]` schema（与 Gradle `subprojects` 统一）
+  - `detectStack()` 对 Maven 注入 `java.modules`（Gradle 保持原有行为）；`java.subprojects` 保留为兼容别名
+  - `commands.js` `mapJavaFilesToGradleModules` → `mapJavaFilesToModules`，所有调用点通过 `java.modules || java.subprojects` 兼容旧消费者
+  - Maven 多模块命令生成：受影响的模块通过 `-pl <module1>,<module2> -am` 精准构建（`compile`/`test`/`focused-tests`/`full-tests` 全阶段），未受影响模块完全跳过。单模块项目 fallback 到根目录命令，行为 100% 不变
+  - 向后兼容：现有 Gradle mock stack（用 `subprojects` 字段）无需改动；`generateCommands` 自动 fallback
+  - 测试：`test/maven-module-detection-test.js` 6 断言覆盖单模块/多模块/无模块/缺失子 pom/detectStack 注入/命令生成 `-pl` 验证
+
 ### 修复（路线 F：数据一致性收尾 — P92/P93/P94/P95）
 
 - **P92: `workspace-info` 的 `entryFiles` 与 `audit-summary` 不一致** `src/tools/workspace-tools.js` — `workspaceInfo()` 改用 `projectContext.summarizeFiles(allOriginalPaths, getDependents)` 计算 `entryFiles`，替代原来的 `depGraph.entryFiles`（空 Set）。`allOriginalPaths` 从 `depGraph.graph.values()` 的 `originalPath` 属性聚合。与 `audit-summary` 的 `scope.entryFiles` 使用同一数据源和计算路径

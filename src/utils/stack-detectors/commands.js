@@ -13,11 +13,11 @@ function nodeExec(packageManager) {
 }
 
 function buildNodeTestCommand(runner, files, execConfig) {
-  const fileArgs = files.join(' ');
-  if (runner === 'vitest') return `${execConfig.exec} vitest run ${fileArgs}`;
-  if (runner === 'jest') return `${execConfig.exec} jest ${fileArgs}`;
-  if (runner === 'mocha') return `${execConfig.exec} mocha ${fileArgs}`;
-  return `${execConfig.run} test`;
+  if (runner === 'vitest') return { command: execConfig.exec, args: ['vitest', 'run', ...files] };
+  if (runner === 'jest') return { command: execConfig.exec, args: ['jest', ...files] };
+  if (runner === 'mocha') return { command: execConfig.exec, args: ['mocha', ...files] };
+  const runParts = execConfig.run.split(/\s+/);
+  return { command: runParts[0], args: [...runParts.slice(1), 'test'] };
 }
 
 function buildGoModuleTestCommands(modules, files, namePrefix) {
@@ -30,11 +30,10 @@ function buildGoModuleTestCommands(modules, files, namePrefix) {
   }
   const commands = [];
   for (const modDir of Array.from(affectedModules).sort()) {
-    const cdPrefix = modDir === '.' ? '' : `cd ${modDir} && `;
     commands.push({
       name: `${namePrefix}-tests`,
       description: `Run affected Go module${modDir === '.' ? '' : ` in ${modDir}`}`,
-      cmd: `${cdPrefix}go test ./...`,
+      executable: { command: 'go', args: ['test', './...'], cwd: modDir === '.' ? null : modDir },
     });
   }
   return commands;
@@ -47,8 +46,8 @@ function buildRustTestCommands(rustStack, rustFiles, namePrefix) {
     if (modName) moduleFilters.push(modName);
   }
   const moduleArgs = moduleFilters.length > 0
-    ? ' ' + Array.from(new Set(moduleFilters)).sort().join(' ')
-    : '';
+    ? Array.from(new Set(moduleFilters)).sort()
+    : [];
 
   if (rustStack.workspaceMembers) {
     const affectedCrates = new Set();
@@ -62,18 +61,18 @@ function buildRustTestCommands(rustStack, rustFiles, namePrefix) {
       }
     }
     if (affectedCrates.size > 0) {
-      const crateArgs = Array.from(affectedCrates).sort().map((name) => `-p ${name}`).join(' ');
+      const crateArgs = Array.from(affectedCrates).sort().flatMap((name) => ['-p', name]);
       return [{
         name: `${namePrefix}-tests`,
         description: 'Run affected workspace crates',
-        cmd: `cargo test ${crateArgs}${moduleArgs}`,
+        executable: { command: 'cargo', args: ['test', ...crateArgs, ...moduleArgs] },
       }];
     }
-  } else if (moduleArgs) {
+  } else if (moduleArgs.length > 0) {
     return [{
       name: `${namePrefix}-tests`,
       description: 'Run affected Rust modules',
-      cmd: `cargo test${moduleArgs}`,
+      executable: { command: 'cargo', args: ['test', ...moduleArgs] },
     }];
   }
   return [];
@@ -102,17 +101,17 @@ function getNodeCommands(nodeStack, changeType, targets) {
 
   return buildStackCommands(nodeStack, changeType, (commands) => {
     if (nodeStack.linters.includes('eslint')) {
-      commands.smoke.push({ name: 'node-lint', description: 'Run ESLint on changed files', cmd: `${exec.exec} eslint ${fileArgs}` });
+      commands.smoke.push({ name: 'node-lint', description: 'Run ESLint on changed files', executable: { command: exec.exec, args: ['eslint', ...codeTargets] } });
     }
     if (nodeStack.typeChecker === 'tsc') {
-      commands.smoke.push({ name: 'node-type-check', description: 'Run TypeScript type check', cmd: `${exec.exec} tsc --noEmit` });
+      commands.smoke.push({ name: 'node-type-check', description: 'Run TypeScript type check', executable: { command: exec.exec, args: ['tsc', '--noEmit'] } });
     }
     if (nodeStack.testRunner) {
-      const testCmd = buildNodeTestCommand(nodeStack.testRunner, codeTargets, exec);
+      const testExec = buildNodeTestCommand(nodeStack.testRunner, codeTargets, exec);
       if (codeTargets.length > 0) {
-        commands.focused.push({ name: 'node-focused-tests', description: 'Run node-side focused tests', cmd: testCmd });
+        commands.focused.push({ name: 'node-focused-tests', description: 'Run node-side focused tests', executable: testExec });
       }
-      commands.full.push({ name: 'node-all-tests', description: 'Run node-side full test suite', cmd: `${exec.run} test` });
+      commands.full.push({ name: 'node-all-tests', description: 'Run node-side full test suite', executable: { command: exec.run.split(/\s+/)[0], args: [...exec.run.split(/\s+/).slice(1), 'test'] } });
     }
   });
 }
@@ -124,36 +123,36 @@ function getPythonCommands(pythonStack, changeType, targets) {
 
   return buildStackCommands(pythonStack, changeType, (commands) => {
     if (pythonStack.linters.includes('ruff')) {
-      commands.smoke.push({ name: 'python-lint', description: 'Run Ruff on changed files', cmd: `ruff check ${fileArgs}` });
+      commands.smoke.push({ name: 'python-lint', description: 'Run Ruff on changed files', executable: { command: 'ruff', args: ['check', ...targetList] } });
     }
     if (pythonStack.typeChecker === 'pyright') {
-      commands.smoke.push({ name: 'python-type-check', description: 'Run Pyright', cmd: 'pyright' });
+      commands.smoke.push({ name: 'python-type-check', description: 'Run Pyright', executable: { command: 'pyright', args: [] } });
     }
     if (pythonStack.testRunner === 'pytest') {
       if (targetList.length > 0) {
-        commands.focused.push({ name: 'python-focused-tests', description: 'Run python-side focused tests', cmd: `pytest ${fileArgs}` });
+        commands.focused.push({ name: 'python-focused-tests', description: 'Run python-side focused tests', executable: { command: 'pytest', args: targetList } });
       }
-      commands.full.push({ name: 'python-all-tests', description: 'Run python-side full test suite', cmd: 'pytest' });
+      commands.full.push({ name: 'python-all-tests', description: 'Run python-side full test suite', executable: { command: 'pytest', args: [] } });
     }
     if (changeType === 'config' && pythonStack.framework === 'django') {
-      commands.focused.push({ name: 'django-check', description: 'Run Django system checks', cmd: 'python manage.py check' });
+      commands.focused.push({ name: 'django-check', description: 'Run Django system checks', executable: { command: 'python', args: ['manage.py', 'check'] } });
     }
   });
 }
 
-function mapJavaFilesToGradleModules(files, subprojects) {
-  const modules = new Set();
+function mapJavaFilesToModules(files, modules) {
+  const affected = new Set();
   for (const file of files) {
     const normalized = file.replace(/\\/g, '/');
-    for (const proj of subprojects) {
-      const prefix = proj.dir + '/';
-      if (normalized === proj.dir || normalized.startsWith(prefix)) {
-        modules.add(proj.name);
+    for (const mod of modules) {
+      const prefix = mod.dir + '/';
+      if (normalized === mod.dir || normalized.startsWith(prefix)) {
+        affected.add(mod.name);
         break;
       }
     }
   }
-  return Array.from(modules).sort();
+  return Array.from(affected).sort();
 }
 
 function getJavaCommands(javaStack, changeType, targets) {
@@ -164,35 +163,75 @@ function getJavaCommands(javaStack, changeType, targets) {
 
   return buildStackCommands(javaStack, changeType, (commands) => {
     if (javaStack.buildTool === 'maven') {
-      commands.smoke.push({ name: 'java-compile-check', description: 'Run Maven compile check', cmd: `${javaCmd} -q -DskipTests compile` });
+      const modules = javaStack.modules || javaStack.subprojects;
+      const affectedModules = (modules && hasJavaFiles)
+        ? mapJavaFilesToModules(targets, modules)
+        : [];
+      const hasModules = affectedModules.length > 0;
+      const plArg = hasModules ? affectedModules.join(',') : '';
+
+      commands.smoke.push({
+        name: 'java-compile-check',
+        description: 'Run Maven compile check',
+        executable: hasModules
+          ? { command: javaCmd, args: ['-pl', plArg, '-am', '-q', '-DskipTests', 'compile'] }
+          : { command: javaCmd, args: ['-q', '-DskipTests', 'compile'] },
+      });
+
       if (hasJavaFiles) {
-        commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Maven tests', cmd: `${javaCmd} -q -Dtest=*Test test` });
+        commands.focused.push({
+          name: 'java-focused-tests',
+          description: 'Run focused Maven tests',
+          executable: hasModules
+            ? { command: javaCmd, args: ['-pl', plArg, '-am', '-q', '-Dtest=*Test', 'test'] }
+            : { command: javaCmd, args: ['-q', '-Dtest=*Test', 'test'] },
+        });
       }
-      commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: `${javaCmd} -q test` });
+
+      commands.full.push({
+        name: 'java-all-tests',
+        description: 'Run Java full test suite',
+        executable: hasModules
+          ? { command: javaCmd, args: ['-pl', plArg, '-am', '-q', 'test'] }
+          : { command: javaCmd, args: ['-q', 'test'] },
+      });
     } else if (javaStack.buildTool === 'gradle') {
-      const affectedModules = (javaStack.subprojects && hasJavaFiles)
-        ? mapJavaFilesToGradleModules(targets, javaStack.subprojects)
+      const modules = javaStack.modules || javaStack.subprojects;
+      const affectedModules = (modules && hasJavaFiles)
+        ? mapJavaFilesToModules(targets, modules)
         : [];
       const hasModules = affectedModules.length > 0;
       const compileTasks = hasModules
-        ? affectedModules.map((m) => `${m}:classes`).join(' ')
-        : 'classes';
+        ? affectedModules.flatMap((m) => [`${m}:classes`])
+        : ['classes'];
       const testTasks = hasModules
-        ? affectedModules.map((m) => `${m}:test`).join(' ')
-        : 'test';
-      commands.smoke.push({ name: 'java-compile-check', description: 'Run Gradle compile check', cmd: `${javaCmd} -q ${compileTasks}` });
+        ? affectedModules.flatMap((m) => [`${m}:test`])
+        : ['test'];
+      commands.smoke.push({
+        name: 'java-compile-check',
+        description: 'Run Gradle compile check',
+        executable: { command: javaCmd, args: ['-q', ...compileTasks] },
+      });
       if (hasJavaFiles) {
-        commands.focused.push({ name: 'java-focused-tests', description: 'Run focused Gradle tests', cmd: `${javaCmd} -q ${testTasks} --tests *Test` });
+        commands.focused.push({
+          name: 'java-focused-tests',
+          description: 'Run focused Gradle tests',
+          executable: { command: javaCmd, args: ['-q', ...testTasks, '--tests', '*Test'] },
+        });
       }
-      commands.full.push({ name: 'java-all-tests', description: 'Run Java full test suite', cmd: `${javaCmd} -q test` });
+      commands.full.push({
+        name: 'java-all-tests',
+        description: 'Run Java full test suite',
+        executable: { command: javaCmd, args: ['-q', 'test'] },
+      });
       if (javaStack.linters.includes('checkstyle')) {
         const checkstyleTasks = hasModules
-          ? affectedModules.flatMap((m) => [`${m}:checkstyleMain`, `${m}:checkstyleTest`]).join(' ')
-          : 'checkstyleMain checkstyleTest';
+          ? affectedModules.flatMap((m) => [`${m}:checkstyleMain`, `${m}:checkstyleTest`])
+          : ['checkstyleMain', 'checkstyleTest'];
         commands.smoke.push({
           name: 'java-checkstyle',
           description: 'Run Checkstyle',
-          cmd: `${javaCmd} ${checkstyleTasks}`,
+          executable: { command: javaCmd, args: checkstyleTasks },
         });
       }
     }
@@ -200,7 +239,7 @@ function getJavaCommands(javaStack, changeType, targets) {
       commands.smoke.push({
         name: 'java-checkstyle',
         description: 'Run Checkstyle',
-        cmd: `${javaCmd} checkstyle:check`,
+        executable: { command: javaCmd, args: ['checkstyle:check'] },
       });
     }
   });
@@ -209,8 +248,8 @@ function getJavaCommands(javaStack, changeType, targets) {
 function getGoCommands(goStack, changeType, targets) {
   if (!goStack) return { smoke: [], focused: [], full: [] };
   return buildStackCommands(goStack, changeType, (commands) => {
-    commands.smoke.push({ name: 'go-build', description: 'Go build check', cmd: 'go build ./...' });
-    commands.smoke.push({ name: 'go-vet', description: 'Run go vet for static analysis', cmd: 'go vet ./...' });
+    commands.smoke.push({ name: 'go-build', description: 'Go build check', executable: { command: 'go', args: ['build', './...'] } });
+    commands.smoke.push({ name: 'go-vet', description: 'Run go vet for static analysis', executable: { command: 'go', args: ['vet', './...'] } });
     if (targets.length > 0) {
       const nested = buildGoModuleTestCommands(goStack.modules, targets, 'go-focused');
       if (nested.length > 0) {
@@ -220,11 +259,11 @@ function getGoCommands(goStack, changeType, targets) {
           targets.map((file) => path.dirname(file)).filter((dir) => dir && dir !== '.')
         ));
         if (goPackages.length > 0) {
-          commands.focused.push({ name: 'go-focused-tests', description: 'Run affected Go packages', cmd: `go test ${goPackages.map((p) => `./${p}`).join(' ')}` });
+          commands.focused.push({ name: 'go-focused-tests', description: 'Run affected Go packages', executable: { command: 'go', args: ['test', ...goPackages.map((p) => `./${p}`)] } });
         }
       }
     }
-    commands.full.push({ name: 'go-all-tests', description: 'Run all Go tests', cmd: 'go test ./...' });
+    commands.full.push({ name: 'go-all-tests', description: 'Run all Go tests', executable: { command: 'go', args: ['test', './...'] } });
   }, { allowedChangeTypes: ['code', 'tests', 'config'] });
 }
 
@@ -246,8 +285,8 @@ function inferRustModuleName(filePath) {
 function getRustCommands(rustStack, changeType, targets) {
   if (!rustStack) return { smoke: [], focused: [], full: [] };
   return buildStackCommands(rustStack, changeType, (commands) => {
-    commands.smoke.push({ name: 'rust-check', description: 'Rust check', cmd: 'cargo check' });
-    commands.smoke.push({ name: 'rust-clippy', description: 'Run cargo clippy for linting', cmd: 'cargo clippy -- -D warnings' });
+    commands.smoke.push({ name: 'rust-check', description: 'Rust check', executable: { command: 'cargo', args: ['check'] } });
+    commands.smoke.push({ name: 'rust-clippy', description: 'Run cargo clippy for linting', executable: { command: 'cargo', args: ['clippy', '--', '-D', 'warnings'] } });
 
     const rustFiles = targets.filter((file) => /\.rs$/.test(file));
     if (rustFiles.length > 0) {
@@ -256,18 +295,18 @@ function getRustCommands(rustStack, changeType, targets) {
       }
     }
 
-    commands.full.push({ name: 'rust-all-tests', description: 'Run all Rust tests', cmd: 'cargo test' });
+    commands.full.push({ name: 'rust-all-tests', description: 'Run all Rust tests', executable: { command: 'cargo', args: ['test'] } });
   }, { allowedChangeTypes: ['code', 'tests', 'config'] });
 }
 
 function getCppCommands(cppStack, changeType, targets) {
   if (!cppStack) return { smoke: [], focused: [], full: [] };
   return buildStackCommands(cppStack, changeType, (commands) => {
-    commands.smoke.push({ name: 'cpp-cmake-build', description: 'CMake build check', cmd: 'cmake --build build' });
+    commands.smoke.push({ name: 'cpp-cmake-build', description: 'CMake build check', executable: { command: 'cmake', args: ['--build', 'build'] } });
     if (targets.length > 0) {
-      commands.focused.push({ name: 'cpp-compile-check', description: 'Compile affected C/C++ files', cmd: 'cmake --build build --target all' });
+      commands.focused.push({ name: 'cpp-compile-check', description: 'Compile affected C/C++ files', executable: { command: 'cmake', args: ['--build', 'build', '--target', 'all'] } });
     }
-    commands.full.push({ name: 'cpp-all-tests', description: 'Run all C/C++ tests', cmd: 'ctest --test-dir build' });
+    commands.full.push({ name: 'cpp-all-tests', description: 'Run all C/C++ tests', executable: { command: 'ctest', args: ['--test-dir', 'build'] } });
   }, { allowedChangeTypes: ['code', 'tests', 'config'] });
 }
 
@@ -283,9 +322,27 @@ function mergeCommandSets(...sets) {
 }
 
 function addUniqueCommand(commands, phase, entry) {
-  if (!entry?.cmd) return;
-  const exists = commands[phase].some((item) => item.name === entry.name || item.cmd === entry.cmd);
+  if (!entry?.cmd && !entry?.executable) return;
+  const exists = commands[phase].some((item) => {
+    if (item.name === entry.name) return true;
+    if (entry.cmd && item.cmd === entry.cmd) return true;
+    if (entry.executable && item.executable) {
+      return JSON.stringify(item.executable) === JSON.stringify(entry.executable);
+    }
+    return false;
+  });
   if (!exists) commands[phase].push(entry);
+}
+
+// P8-2-1: render a structured executable object back into a human-readable cmd string.
+function renderCommandString(executable) {
+  if (!executable) return '';
+  const { command, args, cwd, shell } = executable;
+  if (shell) return shell;
+  const parts = [command, ...(args || [])].filter((s) => s !== null && s !== undefined);
+  const body = parts.join(' ');
+  if (cwd) return `cd ${cwd} && ${body}`;
+  return body;
 }
 
 // P8-2: parse a raw cmd string into a structured executable object.
@@ -324,8 +381,18 @@ function parseCommandString(cmd) {
 }
 
 function enrichCommandEntry(entry) {
-  if (!entry || typeof entry !== 'object' || entry.executable) return entry;
-  entry.executable = parseCommandString(entry.cmd);
+  if (!entry || typeof entry !== 'object') return entry;
+  // Bidirectional: executable → cmd, or cmd → executable
+  if (entry.executable && !entry.cmd) {
+    entry.cmd = renderCommandString(entry.executable);
+  } else if (entry.cmd && !entry.executable) {
+    entry.executable = parseCommandString(entry.cmd);
+  }
+  // Ensure executable has mandatory defaults regardless of source
+  if (entry.executable) {
+    if (entry.executable.expectedExitCode === undefined) entry.executable.expectedExitCode = 0;
+    if (entry.executable.onFailure === undefined) entry.executable.onFailure = 'abort';
+  }
   return entry;
 }
 
@@ -382,8 +449,8 @@ function generateCommands(stack, changeType, targets, steps = []) {
   const docsCommands = getDocsCommands(stack, changeType);
   if (changeType === 'docs' && docsCommands) {
     return {
-      smoke: [{ name: 'preview-docs', description: 'Start docs preview server', cmd: docsCommands.serve }],
-      focused: [{ name: 'build-docs', description: 'Build docs to catch broken pages', cmd: docsCommands.build }],
+      smoke: [{ name: 'preview-docs', description: 'Start docs preview server', executable: { command: docsCommands.serve.split(/\s+/)[0], args: docsCommands.serve.split(/\s+/).slice(1) } }],
+      focused: [{ name: 'build-docs', description: 'Build docs to catch broken pages', executable: { command: docsCommands.build.split(/\s+/)[0], args: docsCommands.build.split(/\s+/).slice(1) } }],
       full: [],
     };
   }
@@ -425,11 +492,11 @@ function generateCommands(stack, changeType, targets, steps = []) {
     const nodeExecConfig = nodeExec(stack.node?.packageManager);
 
     if (split.node.length > 0 && stack.node?.enabled && nodeExecConfig) {
-      const nodeDirectCmd = buildNodeTestCommand(stack.node.testRunner, split.node, nodeExecConfig);
+      const nodeDirectExec = buildNodeTestCommand(stack.node.testRunner, split.node, nodeExecConfig);
       addUniqueCommand(merged, 'focused', {
         name: 'node-direct-tests',
         description: 'Run node direct affected tests',
-        cmd: nodeDirectCmd,
+        executable: nodeDirectExec,
       });
     }
 
@@ -437,7 +504,7 @@ function generateCommands(stack, changeType, targets, steps = []) {
       addUniqueCommand(merged, 'focused', {
         name: 'python-direct-tests',
         description: 'Run python direct affected tests',
-        cmd: `pytest ${split.python.join(' ')}`,
+        executable: { command: 'pytest', args: split.python },
       });
     }
 
@@ -453,7 +520,7 @@ function generateCommands(stack, changeType, targets, steps = []) {
           addUniqueCommand(merged, 'focused', {
             name: 'go-direct-tests',
             description: 'Run go direct affected packages',
-            cmd: `go test ${goPackages.map((p) => `./${p}`).join(' ')}`,
+            executable: { command: 'go', args: ['test', ...goPackages.map((p) => `./${p}`)] },
           });
         }
       }
@@ -468,25 +535,36 @@ function generateCommands(stack, changeType, targets, steps = []) {
 
     const javaFiles = split.java.filter((file) => /\.java$/.test(file));
     if (javaFiles.length > 0 && stack.java?.enabled) {
-      let javaCmd = null;
+      let javaExec = null;
+      const javaModules = stack.java.modules || stack.java.subprojects;
       if (stack.java.buildTool === 'maven') {
-        javaCmd = `${stack.java.buildCommand || 'mvn'} -q -Dtest=*Test test`;
-      } else if (stack.java.buildTool === 'gradle') {
-        const affectedModules = stack.java.subprojects
-          ? mapJavaFilesToGradleModules(javaFiles, stack.java.subprojects)
+        const affectedModules = javaModules
+          ? mapJavaFilesToModules(javaFiles, javaModules)
           : [];
+        const mvn = stack.java.buildCommand || 'mvn';
         if (affectedModules.length > 0) {
-          const testTasks = affectedModules.map((m) => `${m}:test`).join(' ');
-          javaCmd = `${stack.java.buildCommand || 'gradle'} -q ${testTasks} --tests *Test`;
+          const plArg = affectedModules.join(',');
+          javaExec = { command: mvn, args: ['-pl', plArg, '-am', '-q', '-Dtest=*Test', 'test'] };
         } else {
-          javaCmd = `${stack.java.buildCommand || 'gradle'} -q test --tests *Test`;
+          javaExec = { command: mvn, args: ['-q', '-Dtest=*Test', 'test'] };
+        }
+      } else if (stack.java.buildTool === 'gradle') {
+        const affectedModules = javaModules
+          ? mapJavaFilesToModules(javaFiles, javaModules)
+          : [];
+        const gradle = stack.java.buildCommand || 'gradle';
+        if (affectedModules.length > 0) {
+          const testTasks = affectedModules.flatMap((m) => [`${m}:test`]);
+          javaExec = { command: gradle, args: ['-q', ...testTasks, '--tests', '*Test'] };
+        } else {
+          javaExec = { command: gradle, args: ['-q', 'test', '--tests', '*Test'] };
         }
       }
-      if (javaCmd) {
+      if (javaExec) {
         addUniqueCommand(merged, 'focused', {
           name: 'java-direct-tests',
           description: 'Run java direct affected tests',
-          cmd: javaCmd,
+          executable: javaExec,
         });
       }
     }
@@ -497,7 +575,7 @@ function generateCommands(stack, changeType, targets, steps = []) {
       merged.full.unshift({
         name: 'mixed-review',
         description: 'Review all stack-side validation results together',
-        cmd: 'echo "Review node/python/java/go/rust command output together before merge"',
+        executable: { command: 'echo', args: ['Review node/python/java/go/rust command output together before merge'] },
       });
     }
   }
@@ -510,6 +588,7 @@ module.exports = {
   generateCommands,
   inferRustModuleName,
   parseCommandString,
+  renderCommandString,
   enrichCommandEntry,
   enrichCommandSet,
 };

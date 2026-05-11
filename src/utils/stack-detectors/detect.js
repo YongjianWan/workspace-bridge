@@ -149,6 +149,23 @@ function detectGradleSubprojects(root) {
   return null;
 }
 
+function detectMavenModules(root) {
+  const pomPath = path.join(root, 'pom.xml');
+  if (!pathExists(pomPath)) return null;
+
+  const content = readTextIfExists(pomPath);
+  const modules = [];
+  const re = /<module>([^<]+)<\/module>/g;
+  let m;
+  while ((m = re.exec(content)) !== null) {
+    const dir = m[1].trim();
+    if (pathExists(path.join(root, dir, 'pom.xml'))) {
+      modules.push({ name: dir, dir });
+    }
+  }
+  return modules.length > 0 ? modules : null;
+}
+
 const JAVA_BUILD_RULES = {
   maven:  { wrappers: [{ file: 'mvnw.cmd', cmd: 'mvnw.cmd' }, { file: 'mvnw', cmd: './mvnw' }], default: 'mvn' },
   gradle: { wrappers: [{ file: 'gradlew.bat', cmd: 'gradlew.bat' }, { file: 'gradlew', cmd: './gradlew' }], default: 'gradle' },
@@ -349,7 +366,11 @@ function detectStack(root) {
   const nodeFramework = detectNodeFramework(root);
   const javaBuildTool = detectJavaBuildTool(root);
   const javaBuildCommand = detectJavaBuildCommand(root, javaBuildTool);
-  const javaSubprojects = javaBuildTool === 'gradle' ? detectGradleSubprojects(root) : null;
+  const javaModules = javaBuildTool === 'gradle'
+    ? detectGradleSubprojects(root)
+    : javaBuildTool === 'maven'
+      ? detectMavenModules(root)
+      : null;
   const testRunner = detectTestRunner(root);
   const pythonTestRunner = detectPythonTestRunner(root, pyprojectText);
   const linters = detectLinters(root, pyprojectText);
@@ -392,7 +413,8 @@ function detectStack(root) {
       testRunner: javaBuildTool === 'maven' ? 'surefire' : javaBuildTool === 'gradle' ? 'junit' : null,
       linters: linters.java,
       typeChecker: typeCheckers.java,
-      subprojects: javaSubprojects,
+      modules: javaModules,
+      subprojects: javaModules,
     } : null,
     go: hasGo ? { enabled: true, packageManager: 'go modules', testRunner: 'go test', modules: goModules } : null,
     rust: hasRust ? { enabled: true, packageManager: 'cargo', testRunner: 'cargo test', workspaceMembers: detectRustWorkspaceMembers(root) } : null,
@@ -409,6 +431,7 @@ module.exports = {
   detectRustWorkspaceMembers,
   detectJavaBuildTool,
   detectGradleSubprojects,
+  detectMavenModules,
   detectJavaBuildCommand,
   detectPythonTestRunner,
   detectPythonFramework,

@@ -52,10 +52,10 @@ node cli.js repl
 
 ## 基线状态
 
-- 测试：**89/89 PASS**
+- 测试：**91/91 PASS**
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：171 文件，entry=1, library=61, test=90, script=18, unknown=1
+- 自身项目规模：173 文件，entry=1, library=61, test=92, script=18, unknown=1
 - 健康度：5/5，5 dead exports（脚本/工具函数公共 API 预留），0 循环，0 未解析
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
@@ -92,11 +92,15 @@ node cli.js repl
 
 路线 I（P102–P105）、I-2（yieldToEventLoop/数值confidence/Staleness-gitHEAD）、J（Import 策略链重构）全部完成。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
+**新增：P84 Maven 多模块边界检测** — `detectMavenModules()` 解析 `<module>` 元素，统一 `java.modules` schema，命令生成接入 `-pl <module> -am` 精准构建。
+
+**新增：P8-2-1 `parseCommandString` 正交重构** — `renderCommandString()` 纯函数 + 生成侧直接返回 `executable` + `enrichCommandEntry` 双向化。`cmd` 保留为派生字段，所有消费者零改动。
+
 ### 下一步方向
 
-- 路线 I / I-2 / J 全部关闭，进入观察期
-- 活跃债务仅余 L2/L3（见 TECH_DEBT.md）：P77/P83/P84/P88/cli.js 厚门面/P8-2-1/L3 品味问题
+- 路线 I / I-2 / J / **P84** / **P8-2-1** 全部关闭，进入观察期
+- 活跃债务仅余 L2/L3（见 TECH_DEBT.md）：P77/P83/P88/cli.js 厚门面/L3 品味问题
 
 ---
 
-*Last updated: 2026-05-10（路线 I + I-2 + J：P102–P105 + yieldToEventLoop/数值confidence/Staleness-gitHEAD/Import策略链 全部完成；89/89 测试通过；活跃债务清空至 0 个 L1/L2 路线 I/J 条目）*
+*Last updated: 2026-05-11（路线 I + I-2 + J + P84 + P8-2-1 全部完成；91/91 测试通过；活跃债务清空至 0 个 L1/L2 路线 I/J/P84/P8-2-1 条目）*

@@ -115,6 +115,15 @@ function testClassifyDeadExports_frameworkImplicit() {
   assert.strictEqual(classifications[1].reason, 'vue-component-implicit');
 }
 
+function testClassifyDeadExports_vuePageImplicitIgnoresPy() {
+  const depGraph = mockDepGraph({ files: 100, totalImports: 500 });
+  const deadExports = [
+    { file: '/project/core/views/__init__.py', exports: ['get_public_key'], confidence: 'medium', importerCount: 0 },
+  ];
+  const classifications = classifyDeadExports(deadExports, depGraph);
+  assert.notStrictEqual(classifications[0].reason, 'vue-page-implicit', 'Django .py views should not be tagged as vue-page-implicit');
+}
+
 function testClassifyDeadExports_uncertain() {
   const depGraph = mockDepGraph({ files: 100, totalImports: 500 });
   const deadExports = [
@@ -263,6 +272,7 @@ const tests = [
   testClassifyDeadExports_likelyDead,
   testClassifyDeadExports_graphUnreliable,
   testClassifyDeadExports_frameworkImplicit,
+  testClassifyDeadExports_vuePageImplicitIgnoresPy,
   testClassifyDeadExports_uncertain,
   testClassifyDeadExports_falsePositiveReasonSinked,
   testClassifyDeadExports_scaffoldRuoYi,

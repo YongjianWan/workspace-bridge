@@ -144,8 +144,8 @@ workspace-bridge 当前解决了**看得准**（compact 模式、热区、影响
 > 供开发者快速建立心理模型。
 
 **规模**
-- 171 文件，81 主线 + 90 非主线（test/docs）
-- 角色：entry=1, library=61, test=90, script=18, unknown=1
+- 173 文件，81 主线 + 92 非主线（test/docs）
+- 角色：entry=1, library=61, test=92, script=18, unknown=1
 - 入口：`cli.js`（CLI 入口）
 
 **架构分层（按依赖方向，从上到下）**
@@ -372,4 +372,4 @@ THEN 优先提取为纯函数
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-10（路线 F + G + H 完成：P92–P101 修复；路线 I + I-2 + J 完成：P102–P105 + yieldToEventLoop/数值confidence/Staleness-gitHEAD/Import策略链；89/89 测试通过）*
+*Last updated: 2026-05-11（路线 F–J 全部完成 + 实战修复：跨框架假阳性/P97白名单/unknown文件分类；92/92 测试通过；schemaVersion: 1.2.0）*

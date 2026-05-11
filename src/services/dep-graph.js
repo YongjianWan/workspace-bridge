@@ -643,10 +643,20 @@ class GraphAnalyzer {
       if (hasRuoYiMarker) {
         const allUtilityLike = normalized.every((f) => {
           const base = path.basename(f);
-          return /(?:utils|formatter|serializer|helper|constants)\.java$/i.test(base);
+          if (/(?:utils|formatter|serializer|helper|constants)\.java$/i.test(base)) return true;
+          // RuoYi scaffold: annotation/serializer/config pairs are intentional design
+          if (/\/(annotation|config|serializer)\//.test(f)) return true;
+          return false;
         });
         if (allUtilityLike) return true;
       }
+    }
+
+    // Annotation ↔ Serializer mutual dependency (common Java framework design pattern)
+    if (allInJava && cycle.length <= 2) {
+      const hasAnnotation = normalized.some((f) => /\/annotation\//.test(f));
+      const hasSerializer = normalized.some((f) => /\/serializer\//.test(f));
+      if (hasAnnotation && hasSerializer) return true;
     }
 
     return false;

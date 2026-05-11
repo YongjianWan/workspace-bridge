@@ -73,7 +73,9 @@ const ROLE_RULES = [
     role: 'config',
     test: (_relPath, base) => {
       if (CONFIG_EXACT_NAMES.has(base)) return true;
-      return CONFIG_PATTERNS.some((p) => p.test(base));
+      if (CONFIG_PATTERNS.some((p) => p.test(base))) return true;
+      if (/\.(xml|properties|yml|yaml|ini|cfg|conf|toml)$/.test(base)) return true;
+      return false;
     },
   },
   {
@@ -96,7 +98,8 @@ const ROLE_RULES = [
         relPath.includes('/tools/') ||
         ext === 'sh' ||
         ext === 'bash' ||
-        ext === 'ps1'
+        ext === 'ps1' ||
+        ext === 'sql'
       ) return true;
       // P100: root-level Python files are typically standalone scripts
       if (ext === 'py') {

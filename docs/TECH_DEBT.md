@@ -12,19 +12,6 @@
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
-#### P8-2-1. `parseCommandString` 是后处理补丁，非正交设计
-
-**数据**：`commands.js` 中 20+ 处 `push({cmd: '...'})`，最后由 `parseCommandString` 统一 regex 解析为 `executable`。同一条命令的信息在生成侧（拼字符串）和消费侧（拆字符串）各存在一次。
-
-**成本**：新增语言/命令时，开发者需同时验证：① `cmd` 字符串正确 ② `parseCommandString` 能正确拆分它。引号内空格、Windows 路径空格等边界情况随时可能击穿解析器。
-
-**理想形态**：`buildNodeTestCommand`、`buildGoModuleTestCommands` 等处直接返回 `{name, description, executable}`，`cmd` 由 `renderCommandString(executable)` 纯函数合成。新增语言只需维护一处结构。
-
-**触发重构条件**（任一满足即做）：
-1. `parseCommandString` 遇到真实解析 bug
-2. 新增第 10 种语言，命令生成逻辑继续膨胀
-3. P8-1 需要修改 `commands.js` 的命令生成逻辑
-
 ---
 
 #### P77. `findUnresolvedImports` Windows 路径格式不一致
@@ -46,14 +33,6 @@
 **影响**：低。但资产文件排除和 testFiles 计数的叠加，可能让用户对索引完整性产生怀疑。
 
 ---
-
-#### P84. 多模块 Maven 项目模块边界未显式标注
-
-**数据**：两个 Spring Boot 多模块项目的 `unresolvedCount` 均为 0。
-
-**根因**：模块间交叉引用（如 `aizcypg-biz` 引用 `aizcypg-common`）被正确解析，但模块间的耦合强度、跨模块依赖热力图未被显式输出。所有文件被扁平化处理。
-
-**影响**：架构审计中丢失了一个重要维度——模块边界内的紧耦合 vs 模块间的松耦合。
 
 ---
 

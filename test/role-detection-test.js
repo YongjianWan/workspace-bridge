@@ -149,6 +149,15 @@ try {
   assert.strictEqual(scriptSummary.scope.fileRoles.unknown, 1, 'non-root unimported .py should be unknown');
   fs.rmSync(scriptRoot, { recursive: true, force: true });
 
+  // Direct inferFileRole tests for config/script extensions
+  const { ProjectContext } = require('../src/utils/project-context');
+  const pc = new ProjectContext(tempRoot);
+  assert.strictEqual(pc.classifyFile('pom.xml').fileRole, 'config', 'pom.xml should be config');
+  assert.strictEqual(pc.classifyFile('application.yml').fileRole, 'config', 'application.yml should be config');
+  assert.strictEqual(pc.classifyFile('db/schema.sql').fileRole, 'script', 'schema.sql should be script');
+  assert.strictEqual(pc.classifyFile('settings.properties').fileRole, 'config', 'settings.properties should be config');
+  assert.strictEqual(pc.classifyFile('nginx.conf').fileRole, 'config', 'nginx.conf should be config');
+
   console.log('role-detection-test: ok');
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
