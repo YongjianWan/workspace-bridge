@@ -7,7 +7,7 @@ function isJavalangAvailable() {
   const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
   const result = spawnSync(pythonCmd, ['-c', 'import javalang; print("ok")'], {
     encoding: 'utf8',
-    timeout: 5000,
+    timeout: 15000,
   });
   return result.status === 0 && result.stdout.includes('ok');
 }

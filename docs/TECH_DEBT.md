@@ -14,43 +14,13 @@
 
 ---
 
-#### P77. `findUnresolvedImports` Windows 路径格式不一致
+#### cli.js 厚门面（部分缓解）
 
-**数据**：`dep-graph.js:751` `if (!this.dg.hasFile(imp) && path.isAbsolute(imp) && !fs.existsSync(imp))`。`hasFile()` 使用 `normalizePathKey()`（Windows 下小写+POSIX 斜杠），而 `path.isAbsolute(imp)` 检查原始路径格式。
+**数据**：~770 行（`formatHuman` ~200 行已提取至 `human-formatters.js`），剩余 `runCommand` ~350 行 switch 覆盖 20+ 命令。
 
-**根因**：`imp` 可能是 `c:/users/...`（normalizePathKey 格式），`path.isAbsolute()` 在 Windows 上能识别 `c:/...`，但理论上存在 `hasFile` 和 `isAbsolute` 判断不一致的边界。
+**影响**：新增命令仍需改 `runCommand` 路由和 `human-formatters.js`，但 formatter 逻辑不再耦合在 cli.js 中。
 
-**风险**：低。当前代码在 Windows 实测正常，但这是隐性假设，未在测试中覆盖。
-
----
-
-#### P83. 文件扫描数量与用户预期差距大
-
-**数据**：`ai_zcypg_backend` 实际 1547 文件，扫描到 389；`ai_zsgzt_backend` 实际 1789 文件，扫描到 550。前端：`ai_zcypg_frontend` 实际 368 文件，扫描到 228；`ai_gwy_frontend` 实际 23 文件，扫描到 11。
-
-**根因**：workspace-bridge 只统计能解析的 mainline 文件（Java/JS/Vue 源码），Maven 项目的 `target/`、资源文件（`*.xml`、`*.yml`、`*.properties`）、前端产物（SVG、图片、CSS）等被排除。这是设计行为，但 `totalFiles` 的命名可能让用户误以为扫描不完整。
-
-**影响**：低。但资产文件排除和 testFiles 计数的叠加，可能让用户对索引完整性产生怀疑。
-
----
-
----
-
-#### P88. 前端分析文件数差距（368 vs 228，23 vs 11）
-
-**数据**：`ai_zcypg_frontend` 实际 368 文件，扫描到 228（排除了 92 SVG + 其他资产）；`ai_gwy_frontend` 实际 23 文件，扫描到 11（排除了 CSS 和 public 资产）。
-
-**根因**：同 P83。前端项目的 SVG、图片、样式等被作为资产排除，但 `src/` 内的 `setupProxy.js`、`config.js` 等配置文件是否被正确归类也存疑。
-
----
-
-#### cli.js 厚门面
-
-**数据**：~623 行，`formatHuman` ~200 行 switch 覆盖 20+ 命令。每新增命令或参数都要改 cli.js。
-
-**影响**：变更频率与 feature 增长速度成正比，长期是瓶颈。
-
-**方案**：每个 formatter 文件额外导出 `formatHuman(result)`，cli.js 动态查找。与 P8-2 同期做。
+**方案**：`runCommand` 可进一步拆分为 `src/cli/commands/` 目录下的独立处理器文件，每个命令一个模块。当前已足够，暂缓。
 
 ---
 
@@ -71,8 +41,8 @@
 | ------------------------------------------- | ---- | ------------ | --------------------------------------------------------- |
 | `src/services/dep-graph.js`               | ~1311 | **高** | 核心引擎类，AGENTS.md 已确认"内聚优先、不物理拆分"        |
 | `src/tools/overview-tools.js`             | ~622 | 中           | 裸数字已归零（JS侧），HTML/CSS 裸数字仍在                 |
-| `src/tools/git-tools.js`                  | ~620 | 中           | `getChangedFiles()` 手动字符级解析是已知债务            |
-| `cli.js`                                  | ~623 | 中           | 命令分发中心，分支短                                      |
+| `src/tools/git-tools.js`                  | ~358 | 低           | `getChangedFiles()` 手动字符级解析是已知债务；6 个死函数已清理（-309 行）
+| `cli.js`                                  | ~766 | 中           | `formatHuman` 已提取至 `human-formatters.js`，剩余 `runCommand` 路由                                      |
 | `src/cli/formatters/validation-advice.js` | ~312 | 低           | 已拆为 6 个纯函数；文件变长是因为总代码量增加，内聚性提升 |
 | `src/utils/project-context.js`            | ~297 | 低           | `inferFileRole()` 已降至 12 行，但 P95/P100 暴露规则缺口 |
 | `src/utils/stack-detectors/detect.js`     | ~351 | 低           | stack-detector 检测子模块                                   |
@@ -87,24 +57,24 @@
 
 | 文件                                          | 风险等级 | 说明                                                     |
 | --------------------------------------------- | -------- | -------------------------------------------------------- |
-| `services/file-index/symbol-extractors.js`  | 🟡 中    | 被 file-index 集成测试间接覆盖                           |
-| `services/dep-graph/parsers/shared.js`      | 🟡 中    | 被 parser 测试间接覆盖                                   |
-| `services/dep-graph/parsers/spawn-ast.js`   | 🟡 中    | 被 java-parsers-test.js / go-ast-parser-test.js 间接覆盖 |
-| `services/dep-graph/parsers/polyglot.js`    | 🟡 中    | 被 parser-schema-contract-test.js 间接覆盖               |
-| `cli/formatters/*.js`                       | 🟡 中    | 被 functionality-test.js / audit-diff-test.js 间接覆盖   |
+| ~~`services/file-index/symbol-extractors.js`~~ | ✅ 已覆盖 | `test/symbol-extractors-test.js` 直接覆盖 6 语言 × 边界 |
+| ~~`services/dep-graph/parsers/shared.js`~~  | ✅ 已覆盖 | `test/parser-shared-polyglot-test.js` 直接覆盖 9 个纯函数 |
+| ~~`services/dep-graph/parsers/spawn-ast.js`~~ | ✅ 已覆盖 | `test/spawn-ast-test.js`（SIGKILL）+ `spawn-ast-concurrency-test.js`（限流）+ `spawn-ast-direct-test.js`（成功/截断/错误边界） |
+| ~~`services/dep-graph/parsers/polyglot.js`~~| ✅ 已覆盖 | `test/parser-shared-polyglot-test.js` 直接覆盖 `parseKotlin`/`parseGoRegex`/`parseRust` |
+| ~~`cli/formatters/*.js`~~                   | ✅ 已覆盖 | `test/formatter-direct-test.js` + `formatter-e2e-test.js` 双层次覆盖 |
 
 ### 有测试但可继续深化的模块
 
-| 模块              | 测试文件                  | 仍缺覆盖                                                 |
+| 模块              | 测试文件                  | 覆盖状态                                                 |
 | ----------------- | ------------------------- | -------------------------------------------------------- |
-| `file-index.js` | 间接测试                  | watcher 完整链路、readdir 权限拒绝、AbortController 超时 |
-| `watch.js`      | `watch-test.js`         | compact 模式真实输出、SIGINT/SIGTERM 异常隔离            |
-| `repl.js`       | `repl-test.js`          | 真实容器初始化、热点 threshold 边界                      |
-| `cli.js`        | `functionality-test.js` | mapper 异常、adapter 异常、所有 human 格式化分支         |
+| `file-index.js` | `file-index-race-test.js` | ✅ race / exclude / rename / boundary（EACCES/AbortController） |
+| `watch.js`      | `watch-test.js`         | ✅ 文件变化 / SIGINT / SIGTERM / --run-tests / compact 格式 |
+| `repl.js`       | `repl-test.js`          | ✅ executeCommand 全分支 / shutdown 守卫 / 热点 threshold 边界 |
+| `cli.js`        | `functionality-test.js` | ✅ mapper 异常 / adapter 异常 / 所有 human 格式化分支 |
 
 ### Flaky 根因
 
 | 测试文件                                             | 根因                                                    | 建议修复                                           |
 | ---------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------- |
-| `functionality-test.js`                            | 修改 repo root 的 tracked 文件（README.md）+ 无原子恢复 | 用 `fs.copyFileSync` 在副本上操作                |
-| `java-parsers-test.js` / `go-ast-parser-test.js` | 外部进程 `timeout: 5000` 冷启动可能超时               | 提升至 15000ms 或根据 `CI` 环境变量动态调整      |
+| ~~`functionality-test.js`~~                        | ~~修改 README.md + 无原子恢复~~                       | ✅ 已修复：改用临时 untracked 文件 + finally 清理 |
+| ~~`java-parsers-test.js`~~                         | ~~外部进程 `timeout: 5000` 冷启动超时~~               | ✅ 已修复：timeout 提升至 15000ms                  |

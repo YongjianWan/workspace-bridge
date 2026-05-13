@@ -6,6 +6,87 @@
 
 ## [Unreleased]
 
+### 修复（大仓库并发限流 — 阶段 3）
+
+- **Python 子进程信号量** `src/services/dep-graph/parsers/spawn-ast.js` `src/config/constants.js` `test/spawn-ast-concurrency-test.js` — 解决大仓库 Java/Python 项目构建时 20 个并发 Python 子进程导致 600MB–1.6GB 瞬时内存峰值的问题：
+  - `spawn-ast.js` 新增模块级信号量（`activeParsers` + `parserQueue`），限制同时运行的 Python 子进程数为 `LIMITS.PYTHON_AST_CONCURRENCY = 4`
+  - `acquireParserSlot()` / `releaseParserSlot()` 封装排队逻辑；`spawnPythonASTParser` 用 try-finally 包装，确保任何路径（成功/失败/超时/kill）都释放 slot
+  - 向后兼容：非 Python/Java 文件解析不受影响；纯 JS parser 的并发仍为 20（`CONFIG.DEFAULT_CONCURRENCY`）
+  - 测试：`test/spawn-ast-concurrency-test.js` 10 并发 mock 验证峰值 ≤ 4，且所有请求最终都完成
+
+- **git log 分批次并发** `src/tools/overview-tools.js` `src/config/constants.js` `test/overview-tools-concurrency-test.js` — 解决 `audit-overview` 中 `buildHotspots` 对 50 个文件同时发起 `git log --follow`，导致磁盘/CPU 争用、总耗时 5–10s 的问题：
+  - `buildHotspots` 从全量 `Promise.all(...map(...))` 改为分批次并发，每批 `LIMITS.GIT_LOG_CONCURRENCY = 8` 个文件
+  - 批次内仍并行（同批文件互不影响），批次间串行（自然限制峰值并发）
+  - 向后兼容：输出格式和排序 100% 不变；小仓库（<8 文件）行为完全不变
+  - 测试：`test/overview-tools-concurrency-test.js` mock provider 验证 20 文件峰值 ≤ 8，且调用顺序在单批内保持
+
+### 重构（git-tools.js 死代码清理）
+
+- **删除 6 个无调用方的 git 工具函数** `src/tools/git-tools.js` `cli.js` — 根据 AGENTS.md L2-5 "删除 > 添加"铁律，清理自 MCP 转型以来无调用方的死代码：
+  - 删除：`gitDiffSummary`、`gitBlame`、`gitHistory`、`gitBranchInfo`、`gitStash`、`gitLogGraph`
+  - 这些函数在项目中无任何调用方（cli.js 无对应命令、无测试覆盖、被 dead-exports 分析明确标记为未使用）
+  - `git-tools.js` 从 667 行 → 358 行（-309 行，-46%），dead exports 从 5 个 → 4 个
+  - `cli.js` 合并重复的 `require('./src/tools/git-tools')` 为单一解构导入
+  - 向后兼容：所有活跃函数（`getChangedFiles`、`getChangedLineRanges`、`getFileHistoryRisk`、`getDiffNumstat`）行为 100% 不变
+
+### 修复（Windows 命令硬化：验证建议字符串在 PowerShell 下可执行）
+
+- **`renderCommandString` 平台感知** `src/utils/stack-detectors/commands.js` `test/render-command-string-test.js` `test/go-module-path-test.js` — 解决 Windows 下 `cd ${cwd} && ${cmd}` 在 PowerShell 中无法直接复制粘贴执行的问题：
+  - `renderCommandString(executable, platform = process.platform)`：Windows (`win32`) 下将 `cd ${cwd} && ${body}` 改为 `pushd ${cwd} && ${body}`。`pushd` 在 cmd 和 PowerShell 中均为内置命令，兼容性优于 `cd`
+  - `parseCommandString` 同步扩展：`cd` 前缀解析正则增加 `pushd` 替代符，分隔符增加 `;`（PowerShell 语句分隔符），确保 `pushd backend && go test ./...` 和 `cd backend ; go test ./...` 都能正确恢复 `cwd`/`command`/`args` 结构
+  - 向后兼容：非 Windows 平台行为 100% 不变；`executable` 结构化对象中的 `cwd` 字段语义不变，消费侧（`watch.js` `runCommandSecure`）仍通过 spawn 的 `cwd` 选项直接传递，不受字符串格式影响
+  - 测试：`render-command-string-test.js` 新增 `testWindowsCwdPrefix` / `testLinuxCwdPrefix` / `testParsePushd` / `testParseSemicolon` / `testParsePushdSemicolon` 5 个断言；`go-module-path-test.js` 将硬编码 `cd ` 断言改为平台感知 `CD_PREFIX`
+
+### 修复（测试基础设施稳定性）
+
+- **`functionality-test.js` 不再修改 git tracked 文件** `test/functionality-test.js` — 移除对 `README.md` 的读写修改，改用临时 untracked 文件 `test-audit-diff-temp.txt` 触发 `audit-diff` 的变更检测。`finally` 块负责清理临时文件，即使测试被 SIGKILL 也不会脏化工作区
+- **`java-parsers-test.js` javalang 探针超时提升** `test/java-parsers-test.js` — `spawnSync` timeout 从 5000ms → 15000ms，消除 Windows/Python 冷启动偶发超时导致的 flaky 测试
+- **`runner.js` 增加单测试耗时打印** `test/runner.js` — 每个测试 PASS/FAIL 后输出耗时（ms），超过 10s 标记 `SLOW`，帮助识别性能回归和 CI 超时根因
+
+### 重构（cli.js 门面拆分：`formatHuman` 提取到 formatters 层）
+
+- **新建 `src/cli/formatters/human-formatters.js`** — 将 cli.js 中 ~200 行的 `formatHuman` switch 完整迁移至此文件，覆盖 19 个命令的人类可读格式化。cli.js 仅保留 `require('./src/cli/formatters').formatHuman` 一行委托调用
+- **`src/cli/formatters/index.js`** 新增 `formatHuman` 导出
+- **`cli.js`** 移除本地 `formatHuman` 函数定义和 `countTreeFiles` 直接导入（后者仅在 human-formatters.js 中使用），门面厚度从 ~623 行降至 ~420 行
+- 向后兼容：所有 JSON/human 输出 100% 不变；新增命令时只需改 `human-formatters.js` 和 `runCommand` 路由，不再动 cli.js 的 formatter 逻辑
+
+### 测试（formatter 直接测试覆盖）
+
+- **新增 `test/formatter-direct-test.js`** `src/cli/formatters/human-formatters.js` `src/cli/formatters/repo-summary.js` — 直接测试此前仅被间接覆盖的 formatter 层：
+  - `formatHuman` 覆盖 18 个命令分支（error / audit-summary / audit-overview / health / audit-file / dead-exports / unresolved / cycles / impact / affected-tests / dependencies / dependents / stats / audit-diff / audit-map / diagnostics / workspace-info / audit-security / default fallback）
+  - `buildRepoSummary` 覆盖正常输入、coverageRatio < 0.5 severity 升级、node-first / java-first stack 优先级差异、nonMainline = 0 时的 totalFiles 提示
+  - 纯新增测试，零生产代码改动
+  - 测试数量从 94 → 95
+
+- **新增 `test/formatter-e2e-test.js`** — 基于真实 CLI 输出的端到端第二层验证（白盒单元测试的补充）：
+  - `audit-summary` / `audit-overview` human + JSON 双模式输出结构验证（含 P83/P88 totalFiles 标注断言）
+  - `audit-file` / `health` / `stats` human 输出关键字段断言
+  - `impact` 错误路径 human 格式断言（验证 `formatHuman` error fallback 在真实 CLI 链路中生效）
+  - 测试数量从 95 → 96；e2e 单文件耗时 ~21s（主要开销来自 `audit-overview` 的 `git log --follow`）
+
+- **新增 `test/parser-shared-polyglot-test.js`** — 直接测试此前仅被间接覆盖的 parser 底层纯函数：
+  - `shared.js` 覆盖 9 个纯函数（`uniqueNames` / `exportKindFromDeclarationType` / `createExportRecord` / `isFunctionLikeNode` / `getCallName` / `buildFunctionFingerprint` / `normalizeImportedName` / `parseNamedBindings` / `createImportRecord`）
+  - `polyglot.js` 覆盖 3 个 regex parser（`parseKotlin` / `parseGoRegex` / `parseRust`），含空输入边界
+  - 纯新增测试，零生产代码改动；测试中发现 `parseKotlin` `enum class` 提取为 `class` 的已知边缘行为已文档化于测试注释中
+  - 测试数量从 96 → 97
+
+### 修复（P83/P88：`totalFiles` 语义标注消除用户困惑）
+
+- **human-readable 输出显式标注 `totalFiles` 含义** `src/cli/formatters/human-formatters.js` `src/cli/formatters/repo-summary.js` — 解决用户看到 `totalFiles` 数值小于仓库实际文件数时产生"扫描不完整"的误解：
+  - `audit-summary` human format 新增 `totalFiles: N (parseable source only; excludes assets/build artifacts/excluded dirs)` 行
+  - `audit-overview` human format 同步修改 `totalFiles` 行，附加相同说明
+  - `buildNextSteps` 在 `nonMainlineFiles > 0` 时追加解释性前缀：`Note: totalFiles counts only parseable source files; assets, build artifacts, and excluded directories are not included.`
+  - 纯 JSON 输出 100% 不变（schema 冻结，不破坏 userspace）
+  - 向后兼容：所有现有测试通过；消费者通过 `scope.counts.mainlineFiles` / `scope.counts.nonMainlineFiles` 仍可自行计算比例
+
+### 修复（P77：`findUnresolvedImports` Windows 路径格式一致性）
+
+- **新增 `fromNormalizedKey` 消除平台路径隐性假设** `src/utils/path.js` `src/services/dep-graph.js` `test/p77-unresolved-imports-test.js` — 修复 `findUnresolvedImports` 中 `hasFile()`（基于 `normalizePathKey`）与 `path.isAbsolute()` / `fs.existsSync()`（基于原始路径格式）判断不一致的边界：
+  - `src/utils/path.js` 新增 `fromNormalizedKey(key)` 纯函数：Windows 下将 `c:/foo/bar`（normalizePathKey 格式）还原为 `c:\\foo\\bar`（平台原生格式）；POSIX 下为 no-op
+  - `src/services/dep-graph.js` `findUnresolvedImports()` 第 941 行：将 `path.isAbsolute(imp)` 和 `fs.existsSync(imp)` 改为先 `fromNormalizedKey(imp)` 再判断，消除"normalizePathKey 格式的路径一定能被 `fs.existsSync` 正确识别"的隐性假设
+  - 向后兼容：行为 100% 不变（当前 Windows 实测 `fs.existsSync('c:/foo')` 本就有效，修复仅为消除假设、统一范式）
+  - 测试：`test/p77-unresolved-imports-test.js` 覆盖 `fromNormalizedKey` 转换语义 + `findUnresolvedImports` 对 normalizePathKey 格式路径的正确处理
+
 ### 重构（P8-2-1：`parseCommandString` 后处理补丁 → 正交设计）
 
 - **`commands.js` 生成侧直接返回 `executable` 结构** `src/utils/stack-detectors/commands.js` `test/render-command-string-test.js` — 消除"生成侧拼字符串、消费侧拆字符串"的双源维护：
@@ -352,6 +433,51 @@
 - **P75: `framework-usage-patterns.js` 无缓存 I/O** `src/services/dep-graph/framework-usage-patterns.js` `src/services/dep-graph/resolvers.js` — `resolveImplicitImports` 的 `fs.existsSync` 替换为 `cachedExistsSync`（LRU 缓存，上限 2000）。`resolvers.js` 导出 `cachedExistsSync` 供外部复用
 - **P76: `watch.js` stdout 拼接无上限** `src/cli/watch.js` `src/config/constants.js` — `executeWatchCommand` 新增 `WATCH_MAX_STDOUT_BYTES = 1MB` 上限，超限截断并标记 `truncated: true`。`commandResult` 事件透传 `truncated` 字段，防止测试框架海量日志导致 OOM
 - **P82: Maven 项目 `testFiles: 0`** `src/utils/test-detector.js` — 扩展 `TEST_DETECTION_RULES` 对 Java 测试命名的覆盖：新增 `/.*(?:Test|Tests|IT)\.java$/i` 规则，明确匹配 Maven 常见的 `*Test.java` / `*Tests.java` / `*IT.java` 命名。补测试到 `test/test-detector-test.js`
+
+### 测试（测试覆盖缺口补齐 — 阶段 4）
+
+> 目标：消除 TECH_DEBT.md 中列出的所有"无直接测试"和"可深化"模块缺口。纯新增测试，零生产代码改动。
+
+- **新增 `test/symbol-extractors-test.js`** `src/services/file-index/symbol-extractors.js` — 直接覆盖此前仅被 file-index 集成测试间接覆盖的 6 语言符号提取器：
+  - Python（class/function）、JS/TS/JSX/TSX（class/function/constant）、Java（class/interface/enum/method）、Kotlin（class/interface/object/enum/function）、Go（type/function）、Rust（fn/struct）
+  - 边界：未知扩展名返回空数组、空内容返回空数组、1-based 行号、trim 后的 signature
+  - 测试中发现 `parseKotlin` `enum class` 被匹配为 `class` 的已知边缘行为，已文档化于测试注释
+  - 测试数量从 97 → 98
+
+- **新增 `test/spawn-ast-direct-test.js`** `src/services/dep-graph/parsers/spawn-ast.js` — 直接覆盖此前仅被 java-parsers-test / go-ast-parser-test 间接覆盖的 spawn-ast 边界：
+  - 脚本不存在 → `null`、成功 JSON 解析、非零 exit → `null`、stdout 截断（10MB+）、stderr 截断（10MB+）、spawn error → `null`、stdin write error → `null`、非法 JSON → `null`
+  - 与已有 `spawn-ast-test.js`（SIGKILL fallback）和 `spawn-ast-concurrency-test.js`（信号量限流）互补，形成 spawn-ast 的完整测试矩阵
+  - 测试数量从 98 → 99
+
+- **新增 `test/file-index-boundary-test.js`** `src/services/file-index.js` — 深化 file-index 的边界覆盖：
+  - `readdir` EACCES 权限拒绝时 graceful skip（不抛异常、继续索引可读目录）
+  - `build()` AbortController 超时中断（1ms 超时，验证不抛异常）
+  - `indexByPattern()` AbortController 超时中断
+  - 与已有 `file-index-race-test.js`（并发安全）、`file-index-exclude-test.js`（排除逻辑）、`file-index-rename-test.js`（重命名处理）互补
+  - 测试数量从 99 → 100
+
+- **新增 `test/watch-sigterm-test.js`** `src/cli/watch.js` — 深化 watch 的异常路径和信号处理：
+  - `watch` SIGTERM graceful shutdown（验证进程正常退出）
+  - `audit-file --watch` SIGINT graceful shutdown
+  - `executeWatchCommand` 无受影响测试边界（孤立文件变更时 `validationComplete.passed === true`）
+  - 与已有 `watch-test.js`（文件变化/SIGINT/`--run-tests`）和 `watch-format-test.js`（compact 格式）互补
+  - 测试数量从 100 → 101
+
+- **新增 `test/repl-edge-test.js`** `src/cli/repl.js` — 深化 repl 的 threshold 边界和输出格式：
+  - `top` 命令：dependents 恰好等于 `HOTSPOT_MIN_DEPENDENTS` 时显示 hotspot；低于 threshold 时显示 "No hotspots detected"
+  - `issues` 命令：无 structural issues 时 severity=low、nextSteps 提示 "No immediate structural issues detected"
+  - `audit-map --compact` 和 `audit-map`（非 compact）输出字段验证
+  - 与已有 `repl-test.js`（executeCommand 全分支）和 `repl-shutdown-test.js`（shutdown 守卫）互补
+  - 测试数量从 101 → 102
+
+- **新增 `test/cli-mapper-adapter-test.js`** `cli.js` — 深化 cli 的 mapper 异常和 adapter 验证：
+  - `audit-diff` safeEntries 结构验证（每个 entry 必须有 `file` string 和 `graphKnown` boolean）
+  - 非法 `--max-depth=abc` → exit 1
+  - 非法 `--reuse-hints=maybe` → exit 1
+  - 非法 `--trend-granularity=hour` → exit 1
+  - `impact` / `dependents` / `dependencies` / `affected-tests` 传入不存在的文件 → exit 1 + human 错误提示
+  - 与已有 `cli-error-handling-test.js`（缺失文件 human/JSON 错误）、`cli-args-validation-test.js`（参数校验）、`cli-fallback-test.js`（fallback 行为）互补
+  - 测试数量从 102 → 103
 
 ## [1.1.1] - 2026-05-08
 

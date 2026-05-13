@@ -3,7 +3,39 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { TIMEOUTS, LIMITS } = require('../../../config/constants');
 
+// Module-level semaphore to bound Python sub-process memory.
+// Each Python process uses 30-80MB; on large Java/Python repos,
+// unbounded concurrency can spike to 600MB-1.6GB.
+let activeParsers = 0;
+const parserQueue = [];
+
+function acquireParserSlot() {
+  if (activeParsers < LIMITS.PYTHON_AST_CONCURRENCY) {
+    activeParsers++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => parserQueue.push(resolve));
+}
+
+function releaseParserSlot() {
+  activeParsers--;
+  const next = parserQueue.shift();
+  if (next) {
+    activeParsers++;
+    next();
+  }
+}
+
 async function spawnPythonASTParser(scriptName, content, timeoutMs = TIMEOUTS.PYTHON_AST_PARSE_MS) {
+  await acquireParserSlot();
+  try {
+    return await _spawnPythonASTParser(scriptName, content, timeoutMs);
+  } finally {
+    releaseParserSlot();
+  }
+}
+
+function _spawnPythonASTParser(scriptName, content, timeoutMs) {
   return new Promise((resolve) => {
     const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
     const scriptPath = path.join(__dirname, '..', '..', '..', '..', 'scripts', scriptName);
@@ -108,4 +140,8 @@ async function spawnPythonASTParser(scriptName, content, timeoutMs = TIMEOUTS.PY
   });
 }
 
-module.exports = { spawnPythonASTParser };
+module.exports = {
+  spawnPythonASTParser,
+  // Exposed for testing the concurrency semaphore
+  getActiveParserCount: () => activeParsers,
+};

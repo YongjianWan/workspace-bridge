@@ -8,7 +8,7 @@ const { promisify } = require('util');
 const { createImportRecord } = require('./dep-graph/parsers');
 const { registry } = require('./dep-graph/parsers/registry');
 const { resolveImport, clearResolverCaches } = require('./dep-graph/resolvers');
-const { normalizePathKey, matchesPathFragment } = require('../utils/path');
+const { normalizePathKey, matchesPathFragment, fromNormalizedKey } = require('../utils/path');
 const {
   getSymbolImpact,
   getChangedFunctionImpact,
@@ -938,7 +938,8 @@ class GraphAnalyzer {
     for (const [filePath, info] of this.dg.graph) {
       if (this.dg.shouldExcludeCli(filePath)) continue;
       for (const imp of info.imports) {
-        if (!this.dg.hasFile(imp) && path.isAbsolute(imp) && !fs.existsSync(imp)) {
+        const fsPath = fromNormalizedKey(imp);
+        if (!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath)) {
           unresolved.push({ file: this.dg._displayPath(filePath), import: this.dg._displayPath(imp), resolvedTo: null });
         }
       }

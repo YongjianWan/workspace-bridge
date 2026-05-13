@@ -33,6 +33,20 @@ function toDisplayPath(inputPath) {
   return toPosixPath(path.normalize(absolute));
 }
 
+/**
+ * Convert a normalized path key back to a platform-native path.
+ * On Windows, this restores backslash separators (original casing is lost
+ * during normalization). On POSIX, this is a no-op.
+ *
+ * Use this when feeding a normalized key to fs/path APIs that expect
+ * platform-native paths, eliminating the implicit assumption that POSIX-style
+ * keys are universally accepted.
+ */
+function fromNormalizedKey(key) {
+  if (!key || !IS_WINDOWS) return key;
+  return key.replace(/\//g, '\\');
+}
+
 function toRelativePosix(rootPath, targetPath) {
   const root = normalizePath(rootPath);
   const target = normalizePath(targetPath);
@@ -281,6 +295,7 @@ function detectWorkspace(root) {
 module.exports = {
   normalizePath,
   normalizePathKey,
+  fromNormalizedKey,
   toPosixPath,
   toDisplayPath,
   toRelativePosix,

@@ -9,7 +9,7 @@ const { overviewSeverity } = require('../config/risk-thresholds');
 const { toRelativePosix } = require('../utils/path');
 const { findOrphanFiles } = require('../utils/orphan-detector');
 const { detectStack } = require('../utils/stack-detectors/detect');
-const { DEFAULTS, SCORING } = require('../config/constants');
+const { DEFAULTS, SCORING, LIMITS } = require('../config/constants');
 const {
   buildUnresolvedRecommendation,
   buildCycleRecommendation,
@@ -133,28 +133,36 @@ function buildSkeleton(root, depGraph, allFiles, mainlineFiles, projectContext, 
 }
 
 async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
-  const candidates = await Promise.all(
-    mainlineFiles.slice(0, DEFAULTS.HOTSPOT_CANDIDATE_LIMIT).map(async (file) => {
-      const displayFile = depGraph._displayPath?.(file) || file;
-      const relativePath = toRelative(root, displayFile);
-      const dependents = depGraph.getDependents?.(file) || [];
-      const dependencies = depGraph.getDependencies?.(file) || [];
-      const historyRisk = await getHistoryRisk(root, displayFile, historyProvider);
-      const classification = depGraph.projectContext?.classifyFile?.(displayFile);
-      const fileRole = classification?.fileRole;
-      const frameworkHint = depGraph.getFrameworkHint?.(file);
-      const score = calculateHotspotScore(historyRisk, fileRole, frameworkHint?.entryPointWeight);
-      const coupling = calculateCoupling(dependencies, dependents);
-      if (score <= SCORING.HOTSPOT_REPORT_THRESHOLD && coupling.total <= SCORING.COUPLING_MEDIUM_MIN) return null;
-      return {
-        file: relativePath,
-        score,
-        risk: historyRisk?.level || 'low',
-        coupling: coupling.total,
-        reason: historyRisk?.signals?.[0] || `${coupling.total} 个依赖连接`,
-      };
-    })
-  );
+  const files = mainlineFiles.slice(0, DEFAULTS.HOTSPOT_CANDIDATE_LIMIT);
+  const concurrency = LIMITS.GIT_LOG_CONCURRENCY;
+  const candidates = [];
+
+  for (let i = 0; i < files.length; i += concurrency) {
+    const batch = files.slice(i, i + concurrency);
+    const batchResults = await Promise.all(
+      batch.map(async (file) => {
+        const displayFile = depGraph._displayPath?.(file) || file;
+        const relativePath = toRelative(root, displayFile);
+        const dependents = depGraph.getDependents?.(file) || [];
+        const dependencies = depGraph.getDependencies?.(file) || [];
+        const historyRisk = await getHistoryRisk(root, displayFile, historyProvider);
+        const classification = depGraph.projectContext?.classifyFile?.(displayFile);
+        const fileRole = classification?.fileRole;
+        const frameworkHint = depGraph.getFrameworkHint?.(file);
+        const score = calculateHotspotScore(historyRisk, fileRole, frameworkHint?.entryPointWeight);
+        const coupling = calculateCoupling(dependencies, dependents);
+        if (score <= SCORING.HOTSPOT_REPORT_THRESHOLD && coupling.total <= SCORING.COUPLING_MEDIUM_MIN) return null;
+        return {
+          file: relativePath,
+          score,
+          risk: historyRisk?.level || 'low',
+          coupling: coupling.total,
+          reason: historyRisk?.signals?.[0] || `${coupling.total} 个依赖连接`,
+        };
+      })
+    );
+    candidates.push(...batchResults);
+  }
 
   return candidates.filter(Boolean).sort((a, b) => b.score - a.score);
 }
@@ -828,4 +836,6 @@ module.exports = {
   buildStabilityTrendSeries,
   renderOverviewDashboard,
   buildLanguageSupportMatrix,
+  // Exposed for testing concurrency limits
+  buildHotspots,
 };

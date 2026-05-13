@@ -44,10 +44,10 @@ function main() {
   console.log('=== workspace-bridge CLI 功能可用性测试 ===\n');
 
   // Ensure audit-diff has at least one changed file to detect.
-  // We temporarily append a newline to README.md and restore it in finally.
-  const trackedFile = path.join(repoRoot, 'README.md');
-  const originalContent = fs.readFileSync(trackedFile, 'utf8');
-  fs.writeFileSync(trackedFile, originalContent + '\n', 'utf8');
+  // Use a temporary untracked file instead of modifying README.md to avoid
+  // dirtying the git worktree if the test is killed mid-flight.
+  const tempChangeFile = path.join(repoRoot, 'test-audit-diff-temp.txt');
+  fs.writeFileSync(tempChangeFile, 'temp\n', 'utf8');
 
   try {
 
@@ -384,7 +384,7 @@ function main() {
 
     console.log('\nAll CLI functionality tests passed');
   } finally {
-    fs.writeFileSync(trackedFile, originalContent, 'utf8');
+    try { fs.unlinkSync(tempChangeFile); } catch (e) { /* ignore if already gone */ }
   }
 }
 

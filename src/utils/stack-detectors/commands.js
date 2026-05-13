@@ -335,14 +335,17 @@ function addUniqueCommand(commands, phase, entry) {
 }
 
 // P8-2-1: render a structured executable object back into a human-readable cmd string.
-function renderCommandString(executable) {
+function renderCommandString(executable, platform = process.platform) {
   if (!executable) return '';
   const { command, args, cwd, shell } = executable;
   if (shell) return shell;
   const parts = [command, ...(args || [])].filter((s) => s !== null && s !== undefined);
   const body = parts.join(' ');
-  if (cwd) return `cd ${cwd} && ${body}`;
-  return body;
+  if (!cwd) return body;
+  if (platform === 'win32') {
+    return `pushd ${cwd} && ${body}`;
+  }
+  return `cd ${cwd} && ${body}`;
 }
 
 // P8-2: parse a raw cmd string into a structured executable object.
@@ -355,8 +358,8 @@ function parseCommandString(cmd) {
   let cwd = null;
   let rest = cmd;
 
-  // Extract cd prefix: "cd <path> && " or "cd <path> ; "
-  const cdMatch = rest.match(/^(?:cd\s+(.+?)\s+(?:&&|;)\s+)(.+)$/s);
+  // Extract cd/pushd prefix: "cd <path> && ", "cd <path> ; ", "pushd <path> && "
+  const cdMatch = rest.match(/^(?:(?:cd|pushd)\s+(.+?)\s+(?:&&|;)\s+)(.+)$/s);
   if (cdMatch) {
     cwd = cdMatch[1];
     rest = cdMatch[2];

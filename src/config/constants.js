@@ -47,6 +47,12 @@ const LIMITS = {
   GIT_LOG_MAX: 100,
   GIT_AUTHOR_MAX_LENGTH: 100,
   LINTER_OUTPUT_MAX_CHARS: 3000,
+  // Parser concurrency: cap Python sub-processes to prevent memory spikes
+  // on large Java/Python repositories. Each Python process uses 30-80MB.
+  PYTHON_AST_CONCURRENCY: 4,
+  // Git history concurrency: cap parallel git log --follow to prevent
+  // disk/CPU thrashing during hotspot analysis.
+  GIT_LOG_CONCURRENCY: 8,
 };
 
 // Operational defaults with documented rationale

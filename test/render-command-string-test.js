@@ -11,10 +11,28 @@ function testBasicCommand() {
 }
 
 function testCwdPrefix() {
+  const isWin = process.platform === 'win32';
+  const expected = isWin ? 'pushd backend && go test ./...' : 'cd backend && go test ./...';
   assert.strictEqual(
     renderCommandString({ command: 'go', args: ['test', './...'], cwd: 'backend' }),
+    expected,
+    'cwd prefix uses platform convention'
+  );
+}
+
+function testWindowsCwdPrefix() {
+  assert.strictEqual(
+    renderCommandString({ command: 'go', args: ['test', './...'], cwd: 'backend' }, 'win32'),
+    'pushd backend && go test ./...',
+    'Windows uses pushd'
+  );
+}
+
+function testLinuxCwdPrefix() {
+  assert.strictEqual(
+    renderCommandString({ command: 'go', args: ['test', './...'], cwd: 'backend' }, 'linux'),
     'cd backend && go test ./...',
-    'cwd prefix'
+    'Linux uses cd'
   );
 }
 
@@ -42,8 +60,12 @@ function testEmptyExecutable() {
 }
 
 function testRoundTripWithParse() {
-  const original = 'cd app && go test ./...';
+  const isWin = process.platform === 'win32';
+  const original = isWin ? 'pushd app && go test ./...' : 'cd app && go test ./...';
   const parsed = parseCommandString(original);
+  assert.strictEqual(parsed.cwd, 'app');
+  assert.strictEqual(parsed.command, 'go');
+  assert.deepStrictEqual(parsed.args, ['test', './...']);
   const rendered = renderCommandString(parsed);
   assert.strictEqual(rendered, original, 'parse then render round-trip');
 }
@@ -63,16 +85,42 @@ function testNoArgs() {
   );
 }
 
+function testParsePushd() {
+  const parsed = parseCommandString('pushd backend && go test ./...');
+  assert.strictEqual(parsed.cwd, 'backend');
+  assert.strictEqual(parsed.command, 'go');
+  assert.deepStrictEqual(parsed.args, ['test', './...']);
+}
+
+function testParseSemicolon() {
+  const parsed = parseCommandString('cd backend ; go test ./...');
+  assert.strictEqual(parsed.cwd, 'backend');
+  assert.strictEqual(parsed.command, 'go');
+  assert.deepStrictEqual(parsed.args, ['test', './...']);
+}
+
+function testParsePushdSemicolon() {
+  const parsed = parseCommandString('pushd backend ; go test ./...');
+  assert.strictEqual(parsed.cwd, 'backend');
+  assert.strictEqual(parsed.command, 'go');
+  assert.deepStrictEqual(parsed.args, ['test', './...']);
+}
+
 function main() {
   testBasicCommand();
   testCwdPrefix();
+  testWindowsCwdPrefix();
+  testLinuxCwdPrefix();
   testShellFallback();
   testNullArgsFiltering();
   testEmptyExecutable();
   testRoundTripWithParse();
   testRoundTripNoCwd();
   testNoArgs();
-  console.log('render-command-string-test: all 8 passed');
+  testParsePushd();
+  testParseSemicolon();
+  testParsePushdSemicolon();
+  console.log('render-command-string-test: all 13 passed');
 }
 
 main();

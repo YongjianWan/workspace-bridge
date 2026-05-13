@@ -139,13 +139,13 @@ workspace-bridge 当前解决了**看得准**（compact 模式、热区、影响
 
 ## 项目骨架（自分析结果）
 
-> <!-- generated: 2026-05-10 — 数据由 `node cli.js audit-summary --cwd .` 自分析得出，每次结构大幅变化后需重新运行并更新本段。-->
+> <!-- generated: 2026-05-12 — 数据由 `node cli.js audit-summary --cwd .` 自分析得出，每次结构大幅变化后需重新运行并更新本段。-->
 >
 > 供开发者快速建立心理模型。
 
 **规模**
-- 173 文件，81 主线 + 92 非主线（test/docs）
-- 角色：entry=1, library=61, test=92, script=18, unknown=1
+- 185 文件，81 主线 + 104 非主线（test/docs）
+- 角色：entry=1, library=62, test=104, script=17, unknown=1
 - 入口：`cli.js`（CLI 入口）
 
 **架构分层（按依赖方向，从上到下）**
@@ -182,7 +182,7 @@ workspace-bridge 当前解决了**看得准**（compact 模式、热区、影响
 **健康快照**
 - 健康度：5/5
 - 循环依赖：0
-- 死导出：5（模块内部使用/公共 API 预留）
+- 死导出：3（模块内部使用/公共 API 预留）
 - 未解析 import：0
 - 孤儿文件：0
 - 热区文件：5
@@ -190,7 +190,7 @@ workspace-bridge 当前解决了**看得准**（compact 模式、热区、影响
 **模块边界**
 - 0 循环依赖，模块边界干净
 - parser 子系统可独立使用（`parsers/index.js` 为第二入口）
-- 测试覆盖度极高（90 test vs 61 library），核心改动均有测试兜底
+- 测试覆盖度极高（104 test vs 62 library），核心改动均有测试兜底
 - archive/reference/generated 目录自动排除，混合仓库结果更干净
 
 ---
@@ -372,4 +372,4 @@ THEN 优先提取为纯函数
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-11（路线 F–J 全部完成 + 实战修复：跨框架假阳性/P97白名单/unknown文件分类；92/92 测试通过；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-12（路线 F–J 全部完成 + 测试缺口补齐（6 新测试文件）+ Windows 命令硬化 + 测试基础设施 + cli.js 门面拆分 + git-tools.js 死代码清理 + P77 路径一致性 + P83/P88 totalFiles 语义标注 + formatter 双层次测试 + parser shared/polyglot 直接测试；103/103 测试通过；schemaVersion: 1.2.0）*

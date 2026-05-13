@@ -23,14 +23,17 @@ for (const file of files) {
   const filePath = path.join(TEST_DIR, file);
   process.stdout.write(`\u2192 ${file} ... `);
 
+  const testStart = Date.now();
   const result = spawnSync('node', [filePath], {
     encoding: 'utf8',
     timeout: TIMEOUT_MS,
   });
+  const testElapsed = Date.now() - testStart;
 
   if (result.status === 0 && !result.signal) {
     passed += 1;
-    console.log('PASS');
+    const elapsedLabel = testElapsed > 10000 ? `PASS (${testElapsed}ms) SLOW` : `PASS (${testElapsed}ms)`;
+    console.log(elapsedLabel);
   } else {
     failed += 1;
     console.log('FAIL');

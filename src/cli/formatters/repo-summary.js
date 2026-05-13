@@ -60,6 +60,7 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
     deadExportsCount,
     missingHygieneChecks,
     nonMainlineFiles,
+    totalFiles: scope?.counts?.totalFiles || 0,
     unresolvedFp: unresolved.possibleFalsePositives,
     deadExportsFp: deadExports.possibleFalsePositives,
   }, stackProfile, stack);
@@ -140,7 +141,9 @@ function buildNextSteps(ctx, stackProfile = 'unknown', stack = null) {
   }
 
   if (ctx.nonMainlineFiles > 0) {
-    steps.push(`Review mainline/non-mainline split (${ctx.nonMainlineFiles} non-mainline files) before trusting structural findings in mixed repositories.`);
+    steps.push(`Note: totalFiles counts only parseable source files; assets, build artifacts, and excluded directories are not included. Review mainline/non-mainline split (${ctx.nonMainlineFiles} non-mainline files) before trusting structural findings in mixed repositories.`);
+  } else if (ctx.totalFiles > 0) {
+    steps.push('Note: totalFiles counts only parseable source files; assets, build artifacts, and excluded directories are not included.');
   }
 
   if (steps.length === 0) {

@@ -10,11 +10,11 @@
 
 ```bash
 # 1. 验证测试基线
-node test/runner.js          # 期望: 89/89 PASS
+node test/runner.js          # 期望: 103/103 PASS（runner 300s 上限内 102 个，watch-test.js 单独运行）
 
 # 2. 验证自审基线
 node cli.js audit-summary --cwd . --json --quiet
-# 期望: healthScore=5/5, deadExportsCount=5, unresolvedCount=0, cyclesCount=0, totalFiles=171, analysisCoverage.coverageRatio=1
+# 期望: healthScore=5/5, deadExportsCount=3, unresolvedCount=0, cyclesCount=0, totalFiles≈185, analysisCoverage.coverageRatio=1
 
 # 3. 验证大项目 compact 可用性
 node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
@@ -52,16 +52,16 @@ node cli.js repl
 
 ## 基线状态
 
-- 测试：**91/91 PASS**
+- 测试：**103/103 PASS**（runner 内 102 个 + watch-test.js 单独运行）
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：173 文件，entry=1, library=61, test=92, script=18, unknown=1
-- 健康度：5/5，5 dead exports（脚本/工具函数公共 API 预留），0 循环，0 未解析
+- 自身项目规模：185 文件，entry=1, library=62, test=104, script=17, unknown=1
+- 健康度：5/5，3 dead exports（脚本/工具函数公共 API 预留），0 循环，0 未解析
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
 - Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.2.0"` 已冻结**
 
-**历史交付**：路线 A–J 全部完成。详见 [CHANGELOG.md](./CHANGELOG.md)。
+**历史交付**：路线 A–J 全部完成；测试缺口全部补齐。详见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
@@ -90,17 +90,38 @@ node cli.js repl
 
 ### 本轮做了什么
 
-路线 I（P102–P105）、I-2（yieldToEventLoop/数值confidence/Staleness-gitHEAD）、J（Import 策略链重构）全部完成。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+**测试缺口全部补齐** — 6 个新测试文件，103/103 PASS：
 
-**新增：P84 Maven 多模块边界检测** — `detectMavenModules()` 解析 `<module>` 元素，统一 `java.modules` schema，命令生成接入 `-pl <module> -am` 精准构建。
+| 新测试文件 | 覆盖目标 | 断言数 |
+|-----------|---------|--------|
+| `test/symbol-extractors-test.js` | 6 语言符号提取器 + 空输入/未知扩展名/行号/签名 | 14+ |
+| `test/spawn-ast-direct-test.js` | 成功 JSON / 脚本不存在 / stdout 截断 / stderr 截断 / spawn 错误 / stdin 错误 / 非法 JSON | 8 |
+| `test/file-index-boundary-test.js` | readdir EACCES 跳过 / build AbortController 超时 / indexByPattern 超时 | 3 |
+| `test/watch-sigterm-test.js` | watch SIGTERM / audit-file --watch SIGINT / executeWatchCommand 无受影响测试边界 | 3 |
+| `test/repl-edge-test.js` | top 精确 threshold / top 低于 threshold / issues 无问题 / audit-map compact / audit-map 非 compact | 5 |
+| `test/cli-mapper-adapter-test.js` | audit-diff safeEntries 结构 / 非法 max-depth / 非法 reuse-hints / 非法 trend-granularity / 缺失文件 human 错误 | 6 |
 
-**新增：P8-2-1 `parseCommandString` 正交重构** — `renderCommandString()` 纯函数 + 生成侧直接返回 `executable` + `enrichCommandEntry` 双向化。`cmd` 保留为派生字段，所有消费者零改动。
+**此前已完成**：路线 I / I-2 / J / P84 / P8-2-1 / 大仓库并发限流（阶段 3）/ Windows 命令硬化 / 测试基础设施 / cli.js 门面拆分 / git-tools.js 死代码清理 / P77 / P83/P88 / formatter 双层次测试 / parser shared/polyglot 直接测试。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+
+### 活跃问题与技术债务
+
+| 级别 | 数量 | 内容 |
+|------|------|------|
+| L1 Blocker | 0 | — |
+| L2 债务 | 0 | P77/P83/P88 全部清空 |
+| L3 品味 | 4 | git-tools.js 手动字符级解析 / overview-tools.js HTML 裸数字 / js.js visitor 超长 / path.js hasPathSegment 语义陷阱 |
+
+**测试覆盖缺口：已清零。** 所有 TECH_DEBT.md 列出的缺口模块均已有直接测试或深化测试。
 
 ### 下一步方向
 
-- 路线 I / I-2 / J / **P84** / **P8-2-1** 全部关闭，进入观察期
-- 活跃债务仅余 L2/L3（见 TECH_DEBT.md）：P77/P83/P88/cli.js 厚门面/L3 品味问题
+- 路线 A–J 及本轮所有补丁全部关闭，进入**观察期**
+- 活跃债务仅余 L3 品味问题（见 TECH_DEBT.md）
+- 可选：
+  1. 收工保持观察
+  2. 修 L3 品味问题 — js.js visitor 拆分 / git-tools.js 手动解析重构
+  3. 探索新方向（见 ROADMAP.md 未来路线）
 
 ---
 
-*Last updated: 2026-05-11（路线 I + I-2 + J + P84 + P8-2-1 全部完成；91/91 测试通过；活跃债务清空至 0 个 L1/L2 路线 I/J/P84/P8-2-1 条目）*
+*Last updated: 2026-05-12（测试缺口全部补齐，103/103 PASS；活跃 L1/L2 债务清零；6 个新测试文件；totalFiles=185）*
