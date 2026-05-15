@@ -583,6 +583,23 @@ function generateCommands(stack, changeType, targets, steps = []) {
     }
   }
 
+  // Universal fallback: ensure at least one actionable command is always present
+  const totalCommands = merged.smoke.length + merged.focused.length + merged.full.length;
+  if (totalCommands === 0) {
+    merged.smoke.push({
+      name: 'git-diff-check',
+      description: 'Check current changes for whitespace errors and basic issues',
+      executable: { command: 'git', args: ['diff', '--check'] },
+    });
+    if (Array.isArray(targets) && targets.length > 0) {
+      merged.smoke.push({
+        name: 'git-diff-stat',
+        description: 'Show change statistics for affected files',
+        executable: { command: 'git', args: ['diff', '--stat', '--', ...targets] },
+      });
+    }
+  }
+
   enrichCommandSet(merged);
   return merged;
 }

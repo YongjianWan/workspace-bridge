@@ -113,11 +113,44 @@ function isTempFile(filePath) {
   return /^\.tmp-/.test(base) || /\.workspace-bridge-cache\.json\.tmp-/.test(base);
 }
 
+function isCacheArtifact(filePath) {
+  const base = path.basename(filePath);
+  return base === '.workspace-bridge-cache.json'
+    || base === '.workspace-bridge-cache.json.bak'
+    || base === 'cache.db'
+    || base === 'cache.db-wal'
+    || base === 'cache.db-shm';
+}
+
 async function getChangedFiles(root, options = {}) {
   const staged = options.staged === true;
   const includeUntracked = options.includeUntracked !== false;
+  const since = options.since || null;
   const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
+
+  // Commit range mode: use git diff --name-only instead of git status
+  if (since) {
+    const result = await runGit(['diff', '--name-only', `${since}...HEAD`], root, TIMEOUTS.GIT_LONG_MS);
+    if (!result.ok) {
+      return { ok: false, error: result.stderr || `Failed to read git diff since ${since}`, workspaceRoot: root };
+    }
+    const files = new Set();
+    for (const line of (result.stdout || '').split(/\r?\n/)) {
+      const file = line.trim();
+      if (!file) continue;
+      if (isTempFile(file)) continue;
+      if (isCacheArtifact(file)) continue;
+      files.add(file);
+    }
+    return {
+      ok: true,
+      workspaceRoot: root,
+      staged: false,
+      since,
+      changedFiles: Array.from(files),
+    };
+  }
 
   const args = ['status', '--porcelain=v1', includeUntracked ? '--untracked-files=all' : '--untracked-files=no'];
 
@@ -167,8 +200,7 @@ async function getChangedFiles(root, options = {}) {
         }
       }
       if (isTempFile(file)) continue;
-      if (path.basename(file) === '.workspace-bridge-cache.json') continue;
-      if (path.basename(file) === '.workspace-bridge-cache.json.bak') continue;
+      if (isCacheArtifact(file)) continue;
       files.add(file);
     }
   }
@@ -212,9 +244,15 @@ async function getChangedLineRanges(root, file, options = {}) {
   }
 
   const staged = options.staged === true;
-  const diffArgs = staged
-    ? ['diff', '--cached', '--no-color', '--unified=0', '--', filePath]
-    : ['diff', '--no-color', '--unified=0', '--', filePath];
+  const since = options.since || null;
+  let diffArgs;
+  if (since) {
+    diffArgs = ['diff', '--no-color', '--unified=0', `${since}...HEAD`, '--', filePath];
+  } else {
+    diffArgs = staged
+      ? ['diff', '--cached', '--no-color', '--unified=0', '--', filePath]
+      : ['diff', '--no-color', '--unified=0', '--', filePath];
+  }
 
   const diffResult = await runGit(diffArgs, root, TIMEOUTS.GIT_LONG_MS);
   const ranges = parseUnifiedDiffLineRanges(diffResult.stdout || '');
@@ -310,11 +348,14 @@ async function getDiffNumstat(root, options = {}) {
   const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
 
+  const since = options.since || null;
   const args = ['diff', '--numstat'];
-  if (options.staged) {
+  if (since) {
+    args.push(`${since}...HEAD`);
+  } else if (options.staged) {
     args.push('--cached');
   }
-  if (options.includeUntracked) {
+  if (options.includeUntracked && !since) {
     args.push('--', '.');
   }
 
@@ -345,6 +386,7 @@ async function getDiffNumstat(root, options = {}) {
     ok: true,
     workspaceRoot: root,
     staged: Boolean(options.staged),
+    since,
     files,
     totalAdditions,
     totalDeletions,
