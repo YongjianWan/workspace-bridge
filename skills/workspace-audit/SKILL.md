@@ -4,364 +4,231 @@ description: Use this skill when the goal is to audit a local codebase with work
 ---
 # workspace-audit
 
-Use this skill when the goal is to audit a local codebase with `workspace-bridge-cli` instead of going through MCP.
+> **AI-first 调用约定。** 本 skill 教 AI 如何高效使用 workspace-bridge-cli。完整命令参考见 [SKILL-REFERENCE.md](./SKILL-REFERENCE.md)。
 
 ## Purpose
 
-This skill wraps the local CLI for:
+本地 CLI 分析引擎，给 AI 提供跨文件视角和变更验证建议。只做**结构分析**（谁依赖谁、改了什么），不做**语义分析**（代码逻辑、安全鉴权、并发正确性）。
 
-- **Project overview** - Hotspots, stability scores, orphan detection
-- **Top-level repo audit** - Health + dead exports + cycles + unresolved
-- **File impact analysis** - Impact radius + affected tests
-- **Change validation** - Structured validation plan with concrete commands
-- **Dead export candidates** - Symbol-level dead code detection
-- **Unresolved imports** - Broken import detection
-- **Project health** - Basic hygiene checks
-- **Dependency queries** - Direct dependencies/dependents of a file + graph stats
+## AI 默认调用约定
 
-## Command patterns
-
-Always execute against a target project path via `--cwd <project>`.
-Never assume the current terminal directory is the project root.
-
-### CLI resolution order (for random paths/new windows)
-
-Use this fallback chain:
-
-1. `npx workspace-bridge-cli ...` (most reliable — no global install needed)
-2. `workspace-bridge-cli ...` (global command, if installed)
-3. `node <workspace-bridge-repo>/cli.js ...` (repo-local fallback)
-
-### Startup preflight (must run once per new target path)
+**不要裸调命令。总是使用以下默认参数：**
 
 ```bash
-workspace-bridge-cli workspace-info --cwd <project> --json --quiet
-workspace-bridge-cli audit-summary --cwd <project> --json --quiet
+workspace-bridge-cli <command> --cwd <project> --format markdown --quiet
 ```
 
-If preflight fails, report exact failure class: path invalid / permission denied / not a git workspace / command missing / analysis degraded.
+| 场景 | 命令 |
+|------|------|
+| 首次摸底 / 定期健康检查 | `audit-summary` |
+| 有 git 变更，需审查 | `audit-diff` |
+| 改特定文件前，评估影响 | `audit-file --file <path>` |
+| 安全扫描 | `audit-security --builtin-only` |
+| 项目结构太复杂，理一理 | `audit-map --compact` |
+| 死代码清理 | `dead-exports` |
+| 循环依赖/架构问题 | `cycles` |
+| 断链 import | `unresolved` |
 
-### Aggregate Commands (Recommended)
+**为什么 `--format markdown`**：直接输出带标题/列表的 Markdown，AI 无需解析 JSON，减少 token 消耗和解析错误。需要结构化数据时用 `--format jsonl`。
+
+**`--format ai`（推荐用于 `audit-summary`）**：输出预消化的策展 JSON — `severity + topRisks + actions + confidence`，AI 可直接消费，无需自己从 400 行原始 JSON 中提取结论。支持 `--depth surface|detail|full` 渐进式发现和 `--token-budget <n>` 自动裁剪。
+
+**为什么 `--quiet`**：消除 stderr 日志污染，输出纯净。
+
+### 预热工作流（避免冷启动超时）
+
+首次分析新路径时，CLI 需要 5-30s 构建索引。AI 工作流易超时。
 
 ```bash
-workspace-bridge-cli audit-summary --cwd <project> --json --quiet
-workspace-bridge-cli audit-file --cwd <project> --file <file> --json --quiet
-workspace-bridge-cli audit-diff --cwd <project> --json --quiet
-workspace-bridge-cli audit-overview --cwd <project> --json --quiet
-workspace-bridge-cli audit-map --cwd <project> --json --quiet
+# Step 1: 轻量预检，触发缓存（< 2s）
+workspace-bridge-cli workspace-info --cwd <project> --quiet
+
+# Step 2: 缓存已热，执行重命令
+workspace-bridge-cli audit-summary --cwd <project> --format markdown --quiet
 ```
 
-### Large Project Mode
+> 若 `workspace-info` 返回 `fileCount: 0`，停止后续命令，报告"未找到可解析源文件"。
 
-For repositories with 500+ files, use `--compact` with `audit-map` to avoid information overload:
+## 核心决策树
+
+| 用户意图 | 推荐命令 | 说明 |
+|---------|---------|------|
+| "看看这个项目怎么样" | `audit-summary` | 整体健康度 + 结构问题 + 下一步建议 |
+| "我改了些代码，帮忙看看" | `audit-diff` | 变更分析 + 验证建议 + 具体执行命令 |
+| "改这个文件会影响什么" | `audit-file --file <path>` | 影响半径 + 受影响测试 |
+| "有没有安全问题" | `audit-security --builtin-only` | 19 条内置规则，< 2s |
+| "项目结构太复杂，理一理" | `audit-map --compact` | 目录树 + 依赖边 + 问题高亮 |
+| "死代码清理" | `dead-exports` | 0 引用符号候选（需人工确认后删除） |
+| "循环依赖/架构问题" | `cycles` | 逐条循环路径 |
+| "断链 import" | `unresolved` | 未解析的导入列表 |
+
+**避免调用的命令**：`audit-overview`（与 audit-summary 重叠，除非需要 hotspots）、`stats`（数据太 raw）、`repl`/`watch`（交互式，不适合 AI 批量调用）。
+
+## 核心命令详解
+
+### audit-summary — 默认入口
 
 ```bash
-workspace-bridge-cli audit-map --cwd <project> --compact --json --quiet
+# 推荐：预消化 JSON，AI 直接消费
+workspace-bridge-cli audit-summary --cwd <project> --format ai --quiet
+
+# 备选：人类可读的 Markdown
+workspace-bridge-cli audit-summary --cwd <project> --format markdown --quiet
 ```
 
-Compact mode returns:
-- **Directory skeleton** instead of per-file tree (`fileCount` + `totalFileCount` per directory)
-- **Module-level edges** instead of file-level imports
-- **highlightedFiles** array surfacing entry points and files with issues (dead exports, unresolved imports, cycles, orphans, hotspots)
+**`--format ai` 读取优先级**：
+1. `severity` → 整体风险级别
+2. `topRisks` → 按优先级排序的风险列表（coverage → cycles → unresolved → dead-exports → health），每条带 `confidence`
+3. `actions` → `P0/P1/P2` 优先级可执行建议
+4. `counts` → 问题数量概览
+5. `confidence.coverageRatio` → 若 < 0.5，提示"分析可能不完整"
 
-Use full mode (`--json --quiet` without `--compact`) when you need complete file-level detail.
+**渐进式发现**：
+- `--depth surface`：只给 counts + top 3 risks + actions，~15 行 JSON，适合快速摸底
+- `--depth detail`（默认）：追加 `riskFiles`（每类风险最多 3 个代表性文件）
+- `--depth full`：追加完整 `details`（全部 deadExports / unresolved / cycles）
+- `--token-budget 500`：超限自动降级深度，防止上下文溢出
 
-### Quick Queries (Single-purpose)
+**`--format markdown` 读取优先级**：
+1. `summary.severity` → 整体风险级别
+2. `summary.nextSteps` → 可执行建议
+3. `scope.counts` → 项目规模与角色分布
+4. `analysisCoverage.coverageRatio` → 若 < 0.5，提示"分析可能不完整"
+5. `honesty` → 假阳性率预估，决定是否信任 findings
+
+**注意**：`architectureAdvice` 字段价值低，直接忽略。
+
+### audit-diff — 变更审查
 
 ```bash
-workspace-bridge-cli stats --cwd <project> --json --quiet
-workspace-bridge-cli dependencies --cwd <project> --file <file> --json --quiet
-workspace-bridge-cli dependents --cwd <project> --file <file> --json --quiet
+workspace-bridge-cli audit-diff --cwd <project> --format markdown --quiet
+workspace-bridge-cli audit-diff --cwd <project> --since HEAD~3 --format markdown --quiet  # PR range
+workspace-bridge-cli audit-diff --cwd <project> --staged --format markdown --quiet         # 暂存区
 ```
 
-With exclusions for mixed repos:
-```bash
-workspace-bridge-cli audit-summary --cwd <project> --exclude prototypes/reference,archive --json --quiet
-```
+**AI 读取优先级**：
+1. `summary.changeMetrics` → 变更规模
+2. `validationAdvice.changeType` / `phases` → 验证计划（smoke → focused → full）
+3. `validationAdvice.commands` → 可执行验证命令
+4. `incrementalFindings`（加 `--incremental` 时）→ 只与变更相关的问题
 
-### Raw Commands (When you need details)
-
-```bash
-workspace-bridge-cli workspace-info --cwd <project> --json --quiet
-workspace-bridge-cli health --cwd <project> --json
-workspace-bridge-cli diagnostics --cwd <project> --json
-workspace-bridge-cli dead-exports --cwd <project> --json
-workspace-bridge-cli unresolved --cwd <project> --json
-workspace-bridge-cli cycles --cwd <project> --json
-workspace-bridge-cli impact --cwd <project> --file <file> --json
-workspace-bridge-cli affected-tests --cwd <project> --file <file> --max-depth 5 --json
-workspace-bridge-cli audit-security --cwd <project> --json
-workspace-bridge-cli repl --cwd <project>
-workspace-bridge-cli watch --cwd <project> --json --quiet
-workspace-bridge-cli init
-```
-
-## Usage rules
-
-### Command Selection
-
-| Scenario | Recommended Command | Why |
-|----------|---------------------|-----|
-| First time seeing repo | `audit-summary` | Overall health + structural issues |
-| Changing specific file | `audit-file --file ...` | Impact + affected tests |
-| Git worktree has changes | `audit-diff` | Validation plan + concrete commands |
-| Planning refactoring | `audit-overview` | Hotspots + stability + orphans |
-| Understanding project structure | `audit-map` | Directory tree + dependency edges + issue overlay. Use `--compact` for large repos |
-| "Who depends on this file?" | `dependents --file ...` | Direct dependents list |
-| "What does this file import?" | `dependencies --file ...` | Direct dependencies list |
-| Deep dive on dead code | `dead-exports` | Symbol-level candidates |
-| Quick project metadata | `workspace-info` | File counts, languages, entry points |
-| Type/lint check current state | `diagnostics` | eslint/tsc/pyright/ruff output |
-| Security scan | `audit-security` | Semgrep vulnerability findings |
-| Interactive query mode | `repl` | Fast impact/tests queries without rebuild |
-| Watch mode (continuous) | `watch` | Auto-print impact on file save |
-| Initialize config | `init` | Generate `.workspace-bridge.json` in cwd |
-
-### Options
-
-- Prefer `--json` and summarize the result after parsing it.
-- Prefer `--quiet` together with `--json` so stderr logs do not pollute automation.
-- In research or monorepo-style workspaces, use `--exclude` to drop reference or archive trees.
-
-### Reading Results
-
-**audit-summary:**
-1. Read `summary.severity` first (low/medium/high)
-2. Read `summary.nextSteps` for prioritized actions
-3. Check `scope.counts.mainlineFiles` vs `scope.counts.nonMainlineFiles` for mixed repo awareness
-4. Check `summary.analysisCoverage.coverageRatio`; if < 0.5, findings may be incomplete
-
-**audit-diff:**
-1. Read `summary.fileTypeBreakdown` for changed file composition
-2. Read `summary.changeMetrics` (+additions/-deletions) for change scale
-3. Read `validationAdvice.changeType` (docs/config/tests/scripts/code)
-4. Check `validationAdvice.stack` for detected tech stack
-5. Use `validationAdvice.commands` for concrete commands to run
-6. Prioritize `validationAdvice.topRiskActions` for immediate actions
-7. Follow `validationAdvice.phases` in order when present (smoke → focused → full); phases may be empty if no changes require phased validation
-
-> `changeType` is inferred from `fileRole` as the single source of truth. Extension fallback only applies when `fileRole === 'library'`. This means `README.md` → docs, `package.json` → config, `.test.js` → tests, and `deploy.sh` → scripts are all driven by `inferFileRole()` rather than scattered regex checks.
-
-**workspace-info:**
-1. Check `fileCount` and `languages` for project scale
-2. Review `entryFiles` for project entry points
-3. Use as a lightweight preflight before heavier commands
-
-**diagnostics:**
-1. Check `diagnosticsSummary.total` for immediate problems (may be `null` if no linters detected)
-2. Review `results[].diagnostics` for per-check error/warning detail when linters are present
-3. If `noLintersDetected: true`, no file-level diagnostics are available; install eslint/tsc/pyright/ruff in the target project first
-
-**audit-security:**
-1. Read `summary.total` for security issue count
-2. Review `findings` array for severity + rule + file location
-3. Run after code changes that touch untrusted input boundaries
-
-**repl:**
-1. Start once, query multiple times (dep-graph stays hot in memory)
-2. Subcommands: `impact <file>`, `affected-tests <file>`, `dependents <file>`, `dependencies <file>`, `issues`, `top`, `audit-map`
-3. Exit with `exit` or Ctrl+C
-
-**watch:**
-1. Auto-detects file saves and prints impact + affected tests
-2. Use `--compact` for large projects to keep output manageable
-3. Press Ctrl+C to stop watching
-
-**health:**
-1. Read `healthScore` (e.g. "5/5") for overall hygiene
-2. Review `checks` for per-item pass/fail status
-3. Check `fixes` for actionable remediation items
-4. Review `testCoverage` for coverage script and report availability
-
-**stats:**
-1. Read `files`, `totalImports`, `totalExports`, `cycles` for graph scale
-2. Check `analysisCoverage` (`coverageRatio`) to verify parser depth; < 0.5 means most files fell back to regex and findings may be incomplete
-
-**audit-map:**
-1. Read `summary.severity` first (low/medium/high)
-2. Read `summary.issueCounts` for issue distribution
-3. Read `summary.nextSteps` for prioritized actions
-4. Review `tree` for directory structure (or `highlightedFiles` in `--compact` mode)
-5. Check `edges` for dependency relationships (module-level in `--compact`)
-
-**dead-exports / unresolved / cycles:**
-1. Read `<cmd>Count` for total issue count
-2. Review the `<cmd>` array for per-item detail (file, severity, confidence, confidenceReason)
-3. Check `possibleFalsePositives` for false-positive likelihood and primaryReason
-
-**impact / dependents / dependencies:**
-1. Read `<cmd>Count` for total count
-2. Review the `<cmd>` array for per-file detail (file, level, via, importedSymbols, importedSymbolsAvailable)
-3. `impact`: check `symbolImpact` for function-level affected scope
-
-**audit-overview:**
-1. Check `skeleton.coreModules` for key files to be careful with
-2. Review `hotspots` for high-risk files (frequent changes + high coupling)
-3. Review `stability` for fragile modules (low stability score); `stabilityMeta` shows totalCount / truncated status
-4. Check `orphans` for potentially unused files (verify before deleting)
-5. Review `architectureAdvice` for cycle/coupling refactor hints
-6. Check `analysisCoverage` to verify analysis depth before trusting findings
-
-## Standard Output Contract (for reusable skill behavior)
-
-When this skill is used by an agent, the response should include:
-
-1. `Scope`: target path and whether exclusions/config were applied
-2. `Top Risks`: max 3 items with direct evidence fields
-3. `Actions`: concrete executable commands in priority order
-4. `Validation`: smoke/focused/full status or next commands
-5. `Confidence`: high/medium/low and why
-
-All JSON outputs include `schemaVersion: "1.1.1"`. Core fields `{ok, error, severity, summary}` are frozen: their types and semantics do not change within the same schemaVersion.
-
-### Confidence rules
-
-| Finding | Default Confidence | When to downgrade |
-|---------|-------------------|-------------------|
-| `unresolved` | High | Downgrade to **medium** if the project is Vue/Vite and the import omits `.vue` — verify manually before treating as broken. |
-| `dead-exports` | Medium (AST) / Low (regex) | Downgrade to **low** if the file is consumed via alias (`@/...`) or dynamic import (`() => import(...)`). |
-| `orphans` | Medium | Downgrade to **low** for `main.js`, `app.vue`, `index.js` — these are often entry points. |
-| `cycles` | High | Rarely downgrade; cycles are structural facts. |
-| `hotspots` | Medium-High | Downgrade if the file is a generated/config file rather than hand-written source. |
-
-Avoid narrative-only output. Always return executable next steps.
-
-## Suggested Workflows
-
-### New Project Assessment
+### audit-file — 改前影响评估
 
 ```bash
-workspace-bridge-cli audit-summary --cwd <project> --json --quiet
-# If mixed repo, add --exclude
-workspace-bridge-cli audit-summary --cwd <project> --exclude prototypes,reference --json --quiet
+workspace-bridge-cli audit-file --cwd <project> --file <path> --format markdown --quiet
 ```
 
-### Pre-Refactoring Analysis
+**AI 读取优先级**：
+1. `severity` → 变更风险级别
+2. `impact` → 直接/传递依赖方
+3. `affectedTests` → 需要跑的测试
+4. `validationAdvice` → 验证建议
+5. `frameworkPattern` → 框架模式提示
+
+### audit-security — 安全扫描
 
 ```bash
-workspace-bridge-cli audit-overview --cwd <project> --json --quiet
-# Identify hotspots and fragile modules
-workspace-bridge-cli audit-file --cwd <project> --file <target-file> --json --quiet
-# Understand impact before changing
+workspace-bridge-cli audit-security --cwd <project> --builtin-only --format markdown --quiet
+workspace-bridge-cli audit-security --cwd <project> --builtin-only --files <file1>,<file2> --format markdown --quiet
 ```
 
-### PR Validation
+**AI 读取优先级**：
+1. `summary.total` → 命中数
+2. `findings[]` → 逐条规则命中（severity, rule, file, line）
+
+> **关键认知**：19 条规则全是正则匹配，只能发现"出现了敏感字符串"。框架级语义漏洞（如 `permitAll()` 通配符开放）必须 AI 手动审查。
+
+## 安全审查清单（AI 必须手动执行）
+
+CLI 只能给**结构线索**，安全判断必须 AI 自己做。按项目类型执行：
+
+### Spring Boot
+- `SecurityConfig.java` / `WebSecurityConfig.java` → 搜索 `permitAll()`、`@Anonymous`
+- `application.yml` / `application-dev.yml` → 搜索明文密码、JWT secret、数据库连接串
+- 所有 `@RestController` → 检查是否有 `@PreAuthorize` / `@Secured` / 方法级鉴权
+- `FileUploadController` / `*Upload*.java` → 路径遍历防护、文件名校验
+- `LogAspect.java` / 全局异常处理 → 是否打印 token/密码/身份证号
+- 所有 SSE/WS endpoint → 是否有鉴权拦截器
+- `batchSave` / `batchInsert` → `@Transactional` + 乐观锁 `version`
+
+### Django
+- `settings.py` → `SECRET_KEY` 是否硬编码、`DEBUG = True` 生产环境
+- `urls.py` → 敏感路由是否有 `@login_required` / 权限检查
+- `views.py` → 文件上传路径校验、SQL 注入（`raw()` / 字符串拼接）
+- `middleware.py` → 鉴权中间件是否覆盖全站
+- 所有 `*.py` → `print()` / `logger` 中是否输出敏感字段
+
+### Vue / Node
+- `vite.config.js` / `vue.config.js` → proxy 配置是否暴露内网接口
+- `.env` / `.env.development` → 是否含密钥、token
+- 接口请求层（`utils/request.js`）→ token 存储方式、是否自动附带到请求头
+- `eval()` / `Function()` / `innerHTML` / `document.write` → 代码注入风险
+- `cors` 配置 → 是否开放 `*` 或反射 origin
+- `console.log` → 是否打印用户输入 / token / 个人信息
+
+## 多仓库批量审计
+
+同一目录下有多个仓库时：
 
 ```bash
-workspace-bridge-cli audit-diff --cwd <project> --json --quiet
-# Get validation plan with concrete commands
-# Run suggested commands in smoke → focused → full order
+# Shell 循环模板
+for dir in */; do
+  echo "=== $dir ==="
+  workspace-bridge-cli audit-summary --cwd "$dir" --format jsonl --quiet
+done
 ```
 
-## Fast vs Slow Commands
+或使用聚合脚本（输出合并 severity）：
 
-> 以下耗时基于**缓存命中后**（已构建过索引）。首次运行任何命令都需要冷启动索引，大项目（1000+ 文件）冷启动 5-30s，与具体命令无关。
+```bash
+node scripts/multi-repo-audit.js <parent-dir>
+```
 
-- **Fast** (< 2s): `workspace-info`, `audit-summary`, `audit-file`, `audit-map`, `stats`, `health`, `dead-exports`, `unresolved`, `cycles`, `impact`, `affected-tests`, `diagnostics`
-- **Medium** (2-5s): `audit-diff`（需要 `git log --follow` 和变更分析）, `audit-overview`（需要 `git log` 历史查询和热点计算）
+> `scripts/multi-repo-audit.js` 需另行提供，见 [SKILL-REFERENCE.md](./SKILL-REFERENCE.md)。
 
-**注意**：`diagnostics` 不是 network-bound。它执行本地 linter（eslint/tsc/pyright/ruff），无网络请求。文档旧版将其误标为 Slow，实际缓存后 < 1s。
+## 可忽略字段指南
 
-## Interpretation
+AI 消费输出时，以下字段价值低，可跳过以节省上下文：
 
-### Result Confidence
+| 字段 | 理由 |
+|------|------|
+| `architectureAdvice` | 单体项目建议"按子域拆分"，不实用 |
+| `stability` | 新文件默认 fragile，噪声大 |
+| `stabilityTrend` | 基于 git 历史，对 AI 决策帮助有限 |
+| `hotspots[].reason` | 只展示 git 信号，真正的风险看 `score` 和 `coupling` |
+| `parserAvailability` | 非 Node 项目 `skipped: true` 是正常初始化路径，不代表文件被跳过 |
 
-| Finding | Confidence | Action |
-|---------|------------|--------|
-| `dead-exports` with no importers | High | Candidate for deletion (verify dynamic loading) |
-| `unresolved` imports | High | Likely broken, inspect immediately |
-| `cycles` | High | Actionable architectural debt |
-| `orphans.modules` | Medium | Verify if actually unused (may be entry/config) |
-| `hotspots` | Medium-High | High churn + coupling, review carefully |
-| `stability` fragile | Medium | Add tests before refactoring |
+## 标准输出契约
 
-### Language Support Matrix
+所有 JSON/Markdown 输出均含 `schemaVersion: "1.2.0"`。核心字段 `{ok, error, severity, summary}` 语义冻结。
 
-| Language | Dependency Graph | Symbol Impact | Dead Exports | Test Mapping | Stack Commands | Known Gaps |
-|----------|------------------|---------------|--------------|--------------|----------------|------------|
-| JS/TS    | ✅ Full AST      | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full | Custom aliases need `tsconfig.json` paths |
-| Python   | ✅ Full AST      | ✅ Module-level | ✅ `__all__` aware | ✅ Graph + Heuristic | ✅ Full | |
-| Java     | ✅ AST (javalang) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full (Maven/Gradle) | Multi-module requires `pom.xml` at root or one subdir deep |
-| Kotlin   | ✅ AST (tree-sitter) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ⚠️ Gradle only | |
-| Go       | ✅ AST (tree-sitter) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Basic | |
-| Rust     | ✅ AST (tree-sitter) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Basic | |
-| C/C++    | ⚠️ L2 Regex      | ⚠️ File-level   | ⚠️ File-level   | ⚠️ Heuristic only   | ✅ Basic | |
-| Vue SFC  | ✅ Full AST (JS) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full | Alias/`@/` resolution depends on `tsconfig.json` or common patterns |
-| Svelte   | ✅ Full AST (JS) | ✅ Symbol-level | ✅ Symbol-level | ✅ Graph + Heuristic | ✅ Full | |
+### Confidence 规则
 
-### Known Limitations
+| Finding | 默认置信度 | 何时降级 |
+|---------|-----------|---------|
+| `unresolved` | High | Vue/Vite 省略 `.vue` 扩展名时 → Medium |
+| `dead-exports` | Medium (AST) / Low (regex) | alias (`@/...`) 或动态导入时 → Low |
+| `cycles` | High | 框架合法循环（Vue store↔router）已自动过滤 |
+| `hotspots` | Medium-High | 配置文件/生成文件 → Medium |
 
-The CLI accounts for common false-positives:
+### 混合仓库
 
-- Frontend asset imports (`.json`, `.css`)
-- Python relative imports
-- TypeScript ESM source imports ending in `.js`
-- Dynamic `import(...)` (AST-tracked, but alias resolution must succeed to link the target)
-
-**Vue/Vite projects — expect these harmless findings until fully indexed:**
-
-- **Unresolved imports** from `.vue` extension omission (`import App from './app'` → resolves to `app.vue` since v1.1.1, but may still report if `tsconfig.json`/`jsconfig.json` paths are missing).
-- **Dead exports** on files only consumed via Vite alias (`@/utils/request`). Alias resolution reads `tsconfig.json`/`jsconfig.json` `compilerOptions.paths` and falls back to common patterns (`@/` → `src/`, `~/` → project root). If your alias is custom, add it to `tsconfig.json` paths.
-- **Orphans** on `src/main.js` / `app.vue` — these are entry points. They should be auto-recognized; if not, verify the file is named exactly `main.js`/`main.ts`/`app.vue`.
-
-**Java multi-module projects:**
-
-- If `pom.xml`/`build.gradle` is in a subdirectory (e.g. `backend/`) rather than the repo root, the CLI now scans one level deep to find it (v1.1.1+). If still missing, run the CLI from the module directory containing `pom.xml`.
-
-But still may report:
-
-- **False orphans**: Entry files not recognized, framework-managed files
-- **Mixed repo pollution**: Reference/prototypes not excluded
-- **Mixed repo command heuristics**: Custom scripts may need manual adjustment
-- **Large project information overload**: `audit-map` without `--compact` can output 30k+ lines on 1000-file repos. Always use `--compact` for initial reconnaissance on large codebases.
-
-### Handling Mixed Repositories
-
-Create `.workspace-bridge.json` in project root:
+若目录含 `prototypes/` / `reference/` / `archive/`，创建 `.workspace-bridge.json`：
 
 ```json
 {
   "directories": {
-    "reference": ["prototypes", "reference", "examples"],
-    "archive": ["archive", "legacy"],
+    "archive": ["reference", "prototypes"],
     "generated": ["dist", "build", ".next", "coverage"]
   }
 }
 ```
 
-This prevents reference code from polluting dead export and orphan detection results.
-
 ## Troubleshooting
 
-### "node is not recognized" or "workspace-bridge-cli is not recognized"
-
-**Use npx (no install required):**
-```bash
-npx workspace-bridge-cli audit-summary --cwd <project> --json --quiet
-```
-
-**Use repo-local fallback:**
-```bash
-node <workspace-bridge-repo>/cli.js audit-summary --cwd <project> --json --quiet
-```
-
-### Permission denied on project path
-
-Ensure the target path exists and is readable:
-```bash
-test -d <project> && workspace-bridge-cli audit-summary --cwd <project> --json --quiet
-```
-
-### Command runs but returns empty results
-
-Check if project has supported files (JS/TS, Python, Java, Kotlin, Go, Rust, C/C++, Vue, Svelte):
-```bash
-npx workspace-bridge-cli workspace-info --cwd <project> --json --quiet
-```
-
-If `fileCount: 0` but the project clearly has source files:
-- **Java**: ensure `pom.xml` or `build.gradle` exists at project root or one subdirectory deep.
-- **Vue**: ensure `package.json` exists (Vue SFC is registered under the Node.js condition).
-- **Mixed repo**: use `--exclude` to drop directories or file types that confuse detection (e.g. `--exclude archive,reference` or `--exclude *.sql,*.md`).
-
-
+| 问题 | 修复 |
+|------|------|
+| `command not recognized` | `npx workspace-bridge-cli ...` |
+| `fileCount: 0` | 检查 `pom.xml`/`package.json` 是否存在；Java 项目确保在 `pom.xml` 所在目录运行 |
+| 输出含 `coverageWarning` | `analysisCoverage.coverageRatio < 0.5`，部分文件 fallback 到 regex 解析，findings 可能不完整 |
+| Windows 路径问题 | `--file` 参数使用正斜杠或双反斜杠：`--file src/services/dep-graph.js` |

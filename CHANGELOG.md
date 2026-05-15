@@ -6,6 +6,292 @@
 
 ## [Unreleased]
 
+### 修复（L3 双项收敛 — 功能缺口补全）
+
+- **impact 入口扩散截断** `src/services/dep-graph.js` `test/p3-impact-explanation-test.js`：
+  - `GraphQuery.getImpactRadius` BFS 邻居获取函数增加入口文件截断：`file !== start && this.dg.isKnownEntryFile(file)` 时返回 `[]`
+  - 解决 `impact --file src/utils/path.js` 扩散到 `cli.js` / `app.vue` / `index.js` 等入口后仍继续展开的问题，消除对 AI 零信息量的输出膨胀
+  - 向后兼容：查询起点本身是入口文件时不截断（仍返回其直接依赖方）
+  - 测试：`test/p3-impact-explanation-test.js` 新增 `testGetImpactRadiusTruncatesAtEntryFiles` + `testGetImpactRadiusDoesNotTruncateStartNode`
+
+- **diagnostics ESLint 检测盲区** `src/tools/workspace-tools.js` `test/workspace-tools-test.js`：
+  - `buildChecks` 自动检测 eslint 配置逻辑增加 `package.json#eslintConfig` 字段和 `.eslintrc`（无扩展名）文件检测
+  - 解决 Vue 等项目 ESLint 配置内嵌在 `package.json` 或使用无扩展名 `.eslintrc` 时 `noLintersDetected: true` 误报
+  - 测试：新建 `test/workspace-tools-test.js`，覆盖 `eslintConfig` 和 `.eslintrc` 两种场景
+
+### 重构（SQLite 持久化缓存迁移 — 解决工作目录污染）
+
+- **新建 `src/services/graph-db.js`** — better-sqlite3 封装，替换 JSON 文件持久化：
+  - 5 张表（`cache_metadata`/`file_metadata`/`parse_results`/`symbol_index`/`diagnostics`）对应 `WorkspaceCache` 数据结构
+  - WAL 模式 + transaction 批量 upsert，异常安全（load 错误返回 null，save 错误自动回滚）
+  - `loadAll()` 一次性加载到内存 Map；`saveAll()` 全量写入；`close()` 清理连接
+
+- **重构 `src/services/cache.js`** — 内部内存 Map 不变，持久化介质从 JSON 替换为 SQLite：
+  - 默认缓存路径：`path.join(os.tmpdir(), 'workspace-bridge', md5(cwd).slice(0,8), 'cache.db')`
+  - **项目间隔离**：不同 `workspaceRoot` 产生不同 md5 hash → 不同子目录 → 完全独立的 `cache.db`
+  - 支持 `options.cacheDir` 覆盖（供 `--cache-dir` CLI 参数使用）
+  - 移除 `.bak` 备份和 `.tmp-` 原子写逻辑（SQLite transaction 已提供同等可靠性）
+  - 保留 `CACHE_FILENAME` 常量供遗留文件排除用；新增 `CACHE_DB_FILENAME = 'cache.db'`
+  - 向后兼容：所有 `getFileMetadata`/`setParseResult`/`getSymbols` 等 20+ 公共方法签名 100% 不变
+
+- **CLI `--cache-dir` 参数** `cli.js` `src/services/container.js` — 用户可显式指定缓存目录：
+  - `parseCliArgs` 注册 `'--cache-dir': { key: 'cacheDir' }`
+  - `ServiceContainer` 透传 `options.cacheDir` 至 `WorkspaceCache`
+  - 向后兼容：不加 `--cache-dir` 时行为 100% 不变（自动使用 tmpdir）
+
+- **文件排除同步** `src/services/dep-graph.js` `src/services/file-index.js` `src/tools/git-tools.js` `.gitignore`：
+  - 新增 `cache.db` / `cache.db-wal` / `cache.db-shm` 排除（`isCacheArtifact` 统一函数）
+  - 保留旧 `.workspace-bridge-cache.json` / `.bak` 排除（处理遗留文件）
+
+- **测试适配** `test/cache-backup-test.js` `test/cache-corruption-test.js` `test/cache-test.js` `test/phase01-quality-test.js` `test/severity-filter-test.js`：
+  - `cache-backup-test.js`：重写为验证 SQLite save/load roundtrip 和 graceful 降级（无 db → false，损坏 db → false）
+  - `cache-corruption-test.js`：重写为验证 SQLite 版本不匹配 / 缺失 / stale / 权限拒绝场景
+  - `cache-test.js`：删除 `.tmp-` 原子写清理断言（SQLite 无此机制），保留 CRUD 和 roundtrip
+  - `phase01-quality-test.js`：将 `.workspace-bridge-cache.json.tmp-123` 替换为 `cache.db`
+  - `severity-filter-test.js`：消除硬编码 dead exports 数量（从 3 → 动态计算总数），避免新增导出导致测试 brittle
+
+- **POC 阶段 3 结论固化**：cycle detection 保留内存算法（naive SQLite recursive CTE 大图 45 秒 vs 内存 DFS 37ms），SQLite 仅负责持久化 + deadExports + impact 查询
+
+### 重构（SKILL 文档体系重构 — AI 协作优化）
+
+- **SKILL.md 精简为 AI 决策树核心** `skills/workspace-audit/SKILL.md` — 从 395 行精简为 ~180 行，聚焦 AI 高频决策场景：
+  - 置顶 **AI 默认调用约定**：定义 `--format markdown --quiet` 为默认参数，教 AI 不要裸调命令
+  - **核心决策树**：8 个高频命令（audit-summary / audit-diff / audit-file / audit-security / audit-map / dead-exports / cycles / unresolved），其余命令明确标注为"避免调用"
+  - **预热工作流**：教 AI "先 workspace-info 触发缓存，再 audit-summary"，避免冷启动 5-30s 超时
+  - **可忽略字段指南**：明确标注 `architectureAdvice` / `stability` / `stabilityTrend` / `hotspots[].reason` / `parserAvailability` 为低价值字段，AI 可跳过以节省上下文
+  - 删除 Fast/Slow 表格、完整 Raw Commands 列表、Language Support Matrix 等 AI 噪音内容
+  - 删除 Aggregate/Quick/Raw 三层命令分类
+
+- **新建 SKILL-REFERENCE.md** `skills/workspace-audit/SKILL-REFERENCE.md` — 从 SKILL.md 迁移完整命令参考：
+  - 完整命令列表（Aggregate / Quick / Raw）、参数说明、Fast vs Slow 表格
+  - Language Support Matrix、Known Limitations、Troubleshooting
+  - 多仓库批量审计模板、安全审查清单完整版
+  - 供人工查阅和深度使用；AI 快速上手优先阅读 SKILL.md
+
+- **安全审查清单扩展** `skills/workspace-audit/SKILL.md` — 从仅 Spring Boot 扩展为三框架：
+  - Django：`settings.py` SECRET_KEY/DEBUG、`urls.py` 鉴权、`views.py` SQL 注入/上传校验
+  - Vue / Node：`vite.config.js` proxy 暴露、`.env` 密钥、`cors` 开放、代码注入（`eval`/`innerHTML`）
+  - Spring Boot 保留原有必查清单
+
+- **多仓库批量审计脚本** `scripts/multi-repo-audit.js` — 遍历父目录下的子仓库，逐条执行 `audit-summary --format jsonl`，输出 Markdown 表格聚合 severity/fileCount/deadExports/unresolved/cycles：
+  - 自动过滤 `.git` / `node_modules`
+  - 错误仓库标记 ❌，高 severity 仓库列表末尾警告
+  - 零 CLI 改动，纯消费侧脚本
+
+### 修复（阶段 1：误报清零）
+
+- **schemaVersion 不一致** `package.json` `src/tools/overview-tools.js` `test/functionality-test.js` `test/overview-tools-test.js` — `package.json` version 1.1.1 → 1.2.0，`overview-tools.js` 内部 `schemaVersion` '1.1.1' → '1.2.0'，与 `cli.js` `SCHEMA_VERSION = '1.2.0'` 统一；同步修复 3 处测试断言
+
+- **L2-6 Vue Admin cycle 白名单** `src/services/dep-graph.js` — `isLikelyFrameworkLegitimateCycle` 新增 `hasUtils` 维度检测：
+  - Vue 项目中 store 目录文件（如 `store/modules/settings.js`）与 utils 目录文件（如 `utils/dynamicTitle.js`）之间的标准互引用，长度 ≤6 且涉及 store + utils 两个维度时，视为框架合法循环
+  - 覆盖实战基地 zcypg-fe、zsgzt-fe 两个前端项目出现的相同误报模式
+
+- **L2-7 stability 新文件全 fragile** `src/config/constants.js` — `STABILITY_BASE_SCORE` 40 → 45：
+  - 新文件默认从 40（fragile 阈值边缘）提升到 45（moderate），消除"无测试 + 中等影响面"的新项目文件批量 fragile 问题
+  - 向后兼容：仅 score 偏移 +5，assessment 阈值和语义不变；已有测试覆盖 score 计算逻辑
+
+- **L3-3 architectureAdvice 单体抑制** `src/tools/overview-tools.js` — 按项目规模抑制激进拆分建议：
+  - `buildCouplingSplitSuggestions` 检测 `mainlineFiles.length < 200`，标记为 `isSmallProject`
+  - `generateCouplingSplitPlan` 第三个参数接收 `isSmallProject`，library 角色时建议从"按子域拆分"降级为"保持内聚优先，通过测试覆盖降低修改风险"
+  - 仅影响 `couplingSplitSuggestions` 文案，不影响 cycleRefactorSuggestions 或其他输出字段
+
+- **security-tools.js 内置规则扩展** `src/tools/security-tools.js` — 新增 9 条安全规则（总计从 12 → 21 条）：
+  - **hardcoded-secret（medium）**：JS/Python/Java 各 1 条，检测 `password/secret/token/api_key` 等键值对后接 8+ 字符的硬编码字符串
+  - **log-sensitive（low）**：JS/Python/Java 各 1 条，检测 `console.log`/`logger.info`/`System.out.print` 等语句中输出敏感字段
+  - **file-upload-traversal（low）**：Java 1 条，检测 `MultipartFile`/`getOriginalFilename()`/`transferTo(` 等文件上传 API
+  - 全部规则均支持 `// security-scan-ignore` 和 `/* security-scan-ignore` 单行抑制注释
+
+---
+
+### 新增（P4：可靠性收敛 — AI 可信信号）
+
+- **`warnings[]` 解析降级信息入 JSON** `src/services/dep-graph.js` `cli.js` `src/cli/formatters/human-formatters.js` `test/formatter-direct-test.js` — 解决 `--quiet` suppress stderr 后 AI 无法感知解析质量的问题：
+  - `GraphAnalyzer.buildWarnings()` 遍历 graph 按 `parseModeReason` 聚合三类警告：`regex-fallback`（AST 降级到 regex，medium）、`unsupported-extension`（未解析，low）、`empty-graph`（0 edges，high）
+  - `DependencyGraph` facade 委托暴露 `buildWarnings()`
+  - `cli.js` `main()` 在 result 构建完成后注入 `result.warnings = container.depGraph.buildWarnings()`，所有 JSON 输出（`--json`、`--format ai`）自动携带
+  - `formatAi()` 将 `warnings` 原样透传至 output，AI 可直接消费
+  - 向后兼容：无降级文件时 `warnings` 为空数组，不破坏现有解析器
+  - 测试：`formatter-direct-test.js` 新增 `testFormatAiWithWarnings`，验证 warnings 数组正确透传
+
+- **exit code 语义定义** `cli.js` — 解决 AI 无法区分"分析成功"和"工具崩溃"的问题：
+  - 新增 `determineExitCode(command, result)`：0=成功完成，1=有 findings / 业务级失败（`result.ok === false`、文件不存在、参数错误），2=未捕获异常 / 工具崩溃
+  - `audit-summary`/`audit-security`/`dead-exports`/`unresolved`/`cycles`/`health` 六个命令按 findings 有无区分 0/1；其余命令保持 0/1 按 `result.ok` 区分
+  - `main()` catch 块：`process.exitCode = 1` → `process.exitCode = 2`，崩溃与业务失败语义分离
+  - 测试适配：`test/analysis-test.js`/`formatter-e2e-test.js`/`regression-test.js`/`role-detection-test.js`/`staged-files-test.js`/`functionality-test.js`/`severity-filter-test.js` 7 个集成测试的 status 断言从 `=== 0` 放宽为 `=== 0 || === 1`（功能测试不关心 findings 有无，只关心工具未崩溃）
+
+### 新增（阶段 2：暴露正确 + 输出策展）
+
+- **`audit-security --builtin-only`** `src/tools/security-tools.js` `cli.js` `test/security-adapter-test.js` — 19 条内置安全规则独立 CLI 入口：
+  - `auditSecurity` 签名扩展 `builtinOnly`，为 `true` 时跳过 `getAvailableAdapters()` 直接调用 `runBuiltinSecurityScan()`
+  - `cli.js` `parseCliArgs` 注册 `'--builtin-only': true`，`audit-security` case 透传至 `auditSecurity()`
+  - 向后兼容：不加 `--builtin-only` 时行为 100% 不变（有 Semgrep 仍优先 Semgrep，无则 fallback builtin）
+  - 测试：`security-adapter-test.js` 新增 fake adapter 可用但 `builtinOnly=true` 时仍返回 `adapters: ['builtin']` 的断言
+
+- **`--format summary`** `src/cli/formatters/human-formatters.js` `cli.js` `src/cli/formatters/index.js` `test/formatter-direct-test.js` — 纯模板策展摘要，解决 AI 上下文溢出：
+  - 新增 `formatSummary(command, result)` 覆盖 8 个命令：`audit-summary`/`audit-overview`/`audit-security`/`audit-diff`/`audit-file`/`health`/`impact`/`affected-tests`
+  - `audit-summary` 从 ~12 行压缩到 ~8 行关键结论（Severity/Health/Files/Issues/Coverage/Next steps）
+  - 未知命令自动 fallback 到 `formatHuman`
+  - `cli.js` `main()` human-readable 分支增加 `parsed.format === 'summary'` 路由
+  - 测试：`formatter-direct-test.js` 新增 4 断言（行数≤10、字段存在、fallback、error 处理）
+
+- **缓存 TTL 5 分钟 → 24 小时** `src/services/cache.js` `src/config/constants.js` `test/staleness-test.js` `test/cache-corruption-test.js` — 解决 AI 异步审查工作流中缓存形同虚设的问题：
+  - `src/services/cache.js` `CACHE_TTL_MS` 5 分钟 → 24 小时
+  - `src/config/constants.js` `STALENESS_THRESHOLD_MS` 5 分钟 → 24 小时
+  - 同步修复 `staleness-test.js` 硬编码阈值断言（300000→86400000，boundary→86400000/86400001，description→"24 hours"）
+  - 同步修复 `cache-corruption-test.js` stale 模拟时间（10 分钟→25 小时，确保超过 24h TTL）
+  - 向后兼容：非测试代码无硬编码数值，全部通过 `DEFAULTS.STALENESS_THRESHOLD_MS` 和 `CACHE_TTL_MS` 消费
+
+- **`audit-diff --since <commit>`** `src/tools/git-tools.js` `cli.js` `test/audit-diff-test.js` — PR diff 审查 commit range 支持：
+  - `getChangedFiles` 新增 `since` 参数：存在时调用 `git diff --name-only <since>...HEAD` 替代 `git status`
+  - `getDiffNumstat` 同步支持 `since`：`git diff --numstat <since>...HEAD`
+  - `getChangedLineRanges` 同步支持 `since`：`git diff --unified=0 <since>...HEAD -- <file>`
+  - `cli.js` `parseCliArgs` 注册 `'--since': { key: 'since' }`，`audit-diff` case 透传至三个 git 工具
+  - 向后兼容：不加 `--since` 时 100% 走原有 `git status` + staged/unstaged 路径
+  - 测试：`audit-diff-test.js` 利用已有临时 git 固件验证 `--since HEAD~2` 返回 `src/util.js`
+
+- **`--format markdown`** `src/cli/formatters/human-formatters.js` `cli.js` `src/cli/formatters/index.js` `test/formatter-direct-test.js` — 纯模板 Markdown 输出，直接喂给 AI：
+  - 新增 `formatMarkdown(command, result)` 覆盖 8 个命令，使用 Markdown 标题/列表/粗体/代码块
+  - `audit-summary` 输出带 `# Audit Summary` 标题和 `## Next Steps` 二级标题的 Markdown
+  - `audit-security` 输出带 `# Security Audit` 和 `## Findings` 的 Markdown，规则 ID 用行内代码包裹
+  - 未知命令 fallback 到 `formatHuman`
+  - `cli.js` `main()` 增加 `parsed.format === 'markdown'` 路由
+  - 测试：`formatter-direct-test.js` 新增 4 断言（标题存在、列表存在、fallback、error）
+
+- **`--staged` / `--files`** `cli.js` `src/tools/security-tools.js` `test/staged-files-test.js` — PR 审查核心能力补全：
+  - `--staged`：`audit-diff` 只分析 git 暂存区，提交前快速自检；`getChangedFiles`/`getDiffNumstat`/`getChangedLineRanges` 均透传 `staged: true`
+  - `--files a,b,c`：`audit-diff` 绕过 git status，直接以指定文件列表作为变更集；`audit-security` 将 `--files` 作为 `targets` 传入 `runBuiltinSecurityScan`，限定扫描范围
+  - `security-tools.js` 修复 `runBuiltinSecurityScan` 在有 `depGraph` 时忽略 `targets` 的缺陷；新增目录/文件双模式过滤（目录命中则包含其下所有 depGraph 文件，文件则精确匹配）
+  - 向后兼容：不加 `--staged`/`--files` 时行为 100% 不变
+  - 测试：`staged-files-test.js` 5 断言覆盖参数解析、audit-diff 指定文件、audit-security 限定范围、staged+files 共存优先级、不存在的文件 graceful 降级
+
+- **`--save` / `--check-regression`** `cli.js` `src/tools/regression-tools.js` `test/regression-test.js` — 建立"审计有记忆"的产品认知：
+  - `--save <file>`：`audit-summary` 将 findings（deadExports/unresolved/cycles/healthGaps）保存为 JSON 基线快照，含 `schemaVersion`/`timestamp`/`workspaceRoot`
+  - `--check-regression`：加载基线文件（默认 `.workspace-bridge-baseline.json`，可覆盖为 `--baseline <file>`），与当前结果逐类别对比
+  - 对比输出：`regression.{deadExports|unresolved|cycles|healthGaps}.{new|fixed|open}`，问题标识策略为 dead export 按 `file#name`、unresolved 按 `file#source`、cycle 按排序后 `files.join('->')`、health gap 按 `checkName`
+  - `cli.js` `audit-summary` case 顶部统一 `require` `regression-tools`（避免条件 require 被 depGraph 静态分析误判为无 importer）
+  - 向后兼容：不加 `--save`/`--check-regression` 时输出 100% 不变
+  - 测试：`regression-test.js` 4 断言覆盖 save 生成基线文件、无基线时 check-regression 报错、相同基线对比三态（new/fixed/open 均为空）、自定义 `--baseline` 路径
+
+- **`--baseline <commit>`** `cli.js` `src/tools/regression-tools.js` `test/regression-test.js` — 基线对比支持任意 git commit，标注问题为"本次变更引入"还是"历史遗留"：
+  - `regression-tools.js` 新增 `checkRegressionAgainstCommit(currentResult, commit, cwd)`：验证 commit 存在 → `git diff --name-only <commit>...HEAD` 获取变更文件 → 按文件归属标注 `new`/`legacy`
+  - `cli.js` 路由：优先判断 `--baseline` 值是否为存在的文件路径；不是则尝试作为 git commit 解析；均失败时回退到默认基线文件对比
+  - 向后兼容：`--baseline <file>` 行为 100% 不变
+  - 测试：`regression-test.js` 新增 `--baseline HEAD~1` 断言（ok、commit 字段、new/legacy 数组结构）
+
+- **hotspot reason 组合** `src/tools/overview-tools.js` `test/overview-tools-test.js` — 高耦合文件同时展示耦合数 + git 历史信号：
+  - `buildHotspots` 中，当 `coupling.total > COUPLING_MEDIUM_MIN`（>10）且存在 `historyRisk.signals[0]` 时，reason 格式化为 `"耦合 X 个模块 · [历史信号]"`
+  - 向后兼容：低耦合文件或没有历史信号的文件 reason 不变
+  - 测试：`overview-tools-test.js` fixture 调整使 `src/a.js` coupling > 10，断言 reason 包含 `"耦合"` 前缀
+
+- **L2-5 audit-overview schema 不一致** `src/tools/overview-tools.js` `test/overview-tools-test.js` — 统一 `audit-overview` 与 `audit-summary` 的 `summary` 子对象契约：
+  - `summary.nextSteps`：新增别名，指向 `summary.recommendations`，兼容按 `audit-summary` 习惯读取 `nextSteps` 的集成方
+  - `summary.counts`：新增 `{deadExports, unresolved, cycles, missingHygieneChecks}`，数值从当前 `depGraph` 结果直接提取
+  - `summary.analysisCoverage`：当存在时同步放入 `summary`，消除 `audit-summary`（嵌套）与 `audit-overview`（顶层）的嵌套差异
+  - 向后兼容：100% 保留现有字段（`insights`、`recommendations`、顶层 `analysisCoverage` 均不变）
+  - 测试：`overview-tools-test.js` 新增 6 断言覆盖 `nextSteps` 存在性与长度、`counts` 四字段类型
+
+- **`--format jsonl`** `src/cli/formatters/human-formatters.js` `cli.js` `src/cli/formatters/index.js` `test/formatter-direct-test.js` — JSON Lines 输出，管道友好：
+  - `formatJsonl(command, result)`：按命令类型提取核心记录数组，每行一个 JSON 对象，带 `_type` 字段（`finding`/`dead-export`/`unresolved`/`cycle`/`changed-file`/`hotspot`/`impact`/...）
+  - 覆盖命令：`audit-security`/`dead-exports`/`unresolved`/`cycles`/`audit-diff`/`audit-summary`/`audit-overview`/`impact`/`dependents`/`dependencies`/`affected-tests`/`audit-map`/`health`/`diagnostics`
+  - 无数组命令 fallback 到整对象输出；空数组时输出 `_type: 'summary'` 行
+  - `cli.js` 注册 `--format <mode>` help 文案（summary | markdown | jsonl），main() 增加 `parsed.format === 'jsonl'` 路由
+  - 向后兼容：不加 `--format` 时行为 100% 不变
+  - 测试：`formatter-direct-test.js` 新增 5 断言覆盖 error、audit-security findings、dead-exports、audit-summary 多类型混合、空数组 summary fallback
+
+- **默认输出校准评估**（纯文档/决策，0 行代码）— 评估是否将默认输出从 `human-readable` 改为 `--format summary`：
+  - **决策：保持 `human-readable` 默认不变**。理由：(1) AGENTS.md L1-1 Never break userspace，突然改变默认格式会 break 现有脚本；(2) 人类用户首次终端运行时期望看到完整字段，summary 是 AI 优化格式；(3) SKILL.md 已明确推荐 AI 场景使用 `--format summary`
+
+---
+
+### 新增（P1 `--format ai` AI 预消化输出）
+
+- **`formatAi` 策展 formatter** `src/cli/formatters/human-formatters.js` — AI 可直接消费的预消化 JSON，替代原始 `--json` 嵌套深、体积大的问题：
+  - 统一结构：`{ ok, schemaVersion, severity, meta, counts, topRisks[], actions[], confidence }`
+  - `topRisks` 按业务优先级排序：低 coverage → cycles → unresolved → dead-exports → health，每条风险含 `severity` / `count` / `message` / `confidence`（数值 0–1）
+  - `actions` 从 `nextSteps` 提取，最多 3 条，带 `priority: P0/P1/P2`
+  - `confidence` 包含 `overall` 和 `coverageRatio`，AI 可据此校准信任度
+  - 非 `audit-summary` 命令自动 fallback 到 `formatSummary`，不破坏现有体验
+
+- **`--depth surface|detail|full` 渐进式发现** `cli.js` `src/cli/formatters/human-formatters.js`：
+  - `surface`：只返回 counts + topRisks（最多 3）+ actions（最多 3）+ confidence + meta，~15 行 JSON
+  - `detail`（默认）：追加 `riskFiles`，每类风险最多 3 个代表性文件（含 exports / import / cycle length）
+  - `full`：追加完整 `details`（`deadExports[]` / `unresolved[]` / `cycles[]` 全部明细）
+
+- **`--token-budget <n>` AI 上下文感知裁剪** `cli.js` `src/cli/formatters/human-formatters.js`：
+  - 估算 token = `JSON.stringify(output).length / 4`
+  - 超限时自动降级：full → detail → surface → 核心字段（`ok + severity + counts`）
+  - 向后兼容：不加 `--token-budget` 时 100% 输出完整 depth 内容
+
+- **CLI 参数与路由** `cli.js`：
+  - `parseCliArgs` 注册 `'--depth': { key: 'depth' }` 和 `'--token-budget': { key: 'tokenBudget', transform: ... }`
+  - Help 文案更新：`--format <mode>` 增加 `ai`；新增 `--depth` 和 `--token-budget` 说明
+  - 主输出路由增加 `parsed.format === 'ai'` 分支，透传 `depth` / `tokenBudget` / `schemaVersion`
+
+- **测试覆盖** `test/formatter-direct-test.js`：
+  - `testFormatAiAuditSummarySurface`：验证无 `riskFiles`/`details`
+  - `testFormatAiAuditSummaryDetail`：验证有 `riskFiles` 无 `details`
+  - `testFormatAiAuditSummaryFull`：验证有 `riskFiles` 和 `details`
+  - `testFormatAiTokenBudgetDowngrade`：验证低 budget 触发降级到核心字段
+  - `testFormatAiFallbackToSummary`：验证非 audit-summary 命令 fallback
+  - `testFormatAiError`：验证错误输出格式
+
+---
+
+### 修复（P0 去噪工程 — 误报清零 + 输出策展）
+
+- **常量仓库 / 脚手架直接过滤** `src/services/dep-graph.js` — 从 `deadExports[]` 直接移除，不降级保留：
+  - `findDeadExports` `importers.length === 0` 分支：若 `scaffold` 命中（RuoYi / Vue Admin），直接 `continue` 跳过
+  - `findDeadExports` `unused.length > 0` 分支：若 `isLikelyConstantsWarehouse`（Java `Constants.java` / `HttpStatus.java` / `Utils.java`）或 `scaffold` 命中，直接 `continue` 跳过
+  - 向后兼容：常量仓库和脚手架文件仍参与依赖图构建，仅不从 `deadExports[]` 输出；`classifyDeadExports` / `honesty-engine` 分类逻辑 100% 保留
+  - 实战效果：Java 后端常量仓库误报 35% 清零；RuoYi/Vue Admin 脚手架 dead-export 噪音清零
+
+- **`audit-overview` 去重合并** `src/tools/overview-tools.js` `test/overview-tools-test.js`：
+  - 删除 `summary.nextSteps = summary.recommendations` 别名（`audit-overview` 内部两字段完全重复，8 条建议一模一样）
+  - `buildCouplingSplitSuggestions` 返回数量从 `SCORING.TOP_N_LIST(10)` 截断为 3，消除 `splitPlan` 模板化文案重复堆积
+  - 测试同步：移除 `overview-tools-test.js` 中 `nextSteps` 存在性与长度断言
+
+- **`audit-security` 附加 `matchedText`** `src/tools/security-tools.js` — 正则命中后输出匹配到的具体字符串：
+  - `runBuiltinSecurityScan` 每条 finding 新增 `matchedText` 字段（`lines[i].match(rule.pattern)[0]`），超长时截断至 120 字符
+  - AI 消费者无需额外读文件即可判断 `password: 'admin123'` 等命中内容是否为真实问题
+  - 向后兼容：未命中规则时 `matchedText` 为 `null`，不影响现有字段
+
+### 修复（阶段 3：框架感知深化 — P6）
+
+- **Vue `<script setup>` 编译器宏识别** `src/services/dep-graph/parsers/js.js` `src/services/dep-graph/framework-patterns.js` `test/vue-parser-test.js` `test/framework-patterns-test.js` — 消除 Vue 3 项目中 `defineProps`/`defineEmits`/`defineExpose` 被误标为 dead exports 的问题：
+  - `js.js` 新增 `VUE_COMPILER_MACROS` 集合（`defineProps`/`defineEmits`/`defineExpose`/`defineOptions`/`defineSlots`/`defineModel`），在 AST 和 regex parser 中对 `.vue` 文件的 export 记录做过滤
+  - AST 路径：`ExportNamedDeclaration` 的 `specifiers` 和 `declaration` 分支均跳过宏名 export
+  - regex 路径：`parseJavaScript` 调用 `extractExportsWithRegex` 后统一过滤
+  - 非 `.vue` 文件完全不过滤（保留向后兼容，避免误杀合法的同名函数 export）
+  - `framework-patterns.js` `AST_PATTERNS.js` 新增 `vue-script-setup-macro` 内容检测模式，`detectFrameworkFromContent` 识别到宏调用时标记 `framework: 'vue'`、`isEntry: true`
+  - 测试：`vue-parser-test.js` 新增 `testScriptSetupMacroExportsFiltered`（re-export 过滤）和 `testScriptSetupMacroDeclarationFiltered`（声明 export 过滤）；`framework-patterns-test.js` 新增宏内容检测断言
+
+- **Spring 更多运行时注解识别（P7）** `src/services/dep-graph/framework-patterns.js` `test/framework-patterns-test.js` — 扩展 `AST_PATTERNS.java` 的 `spring-annotation` 模式，覆盖 `@FeignClient`（Spring Cloud 声明式 HTTP 客户端）和 `@Scheduled`（Spring 定时任务）：
+  - `@FeignClient` 与 `@Scheduled` 追加到现有 `spring-annotation` patterns 数组，与 `@RestController`/`@Controller`/`@GetMapping`/`@PostMapping` 同组
+  - 运行时注解管理的组件静态分析无法追踪调用方，统一标记 `framework: 'spring'`、`reason: 'spring-annotation'`、`isEntry: true`，`dep-graph.js` `isKnownEntryFile()` 自动保护，消除 dead-export 误报
+  - 测试：`framework-patterns-test.js` 新增 `testDetectFrameworkFromContent` 中 `@FeignClient` 接口和 `@Scheduled` 方法的 content-based 检测断言
+
+- **Django 配置驱动入口深化（P8）** `src/services/dep-graph/framework-patterns.js` `test/framework-patterns-test.js` — 补充 Django signals 运行时入口检测：
+  - `AST_PATTERNS.py` 新增 `django-signal` 模式，覆盖 `@receiver` 装饰器和 `.connect(` 方法注册两种信号绑定写法
+  - `detectFrameworkFromPath` 新增 `signals.py` 路径检测（Django 项目惯用信号集中存放文件名）
+  - 信号处理函数被 Django 运行时通过信号分发机制调用，无静态 import 引用，统一标记 `isEntry: true`，消除 dead-export 误报
+  - 测试：新增 `@receiver` content-based 检测、`post_save.connect` content-based 检测、`signals.py` path-based 检测 3 个断言
+
+- **`--severity P0/P1` 过滤** `cli.js` `src/tools/security-tools.js` `test/severity-filter-test.js` — `audit-security` / `audit-summary` 输出前按 severity 过滤：
+  - `parseCliArgs` 注册 `--severity`，校验值限定 `high|medium|low`
+  - `audit-security`：对 `findings` 数组按 `severity` 过滤，过滤后重新计算 `summary.total` 和 `summary.bySeverity`
+  - `audit-summary`：对 `deadExports.deadExports` 按 `confidence` 过滤（`high`/`medium`/`low` 与 severity 语义对齐），同步更新 `deadExportsCount` 和 `possibleFalsePositives`
+  - 向后兼容：不加 `--severity` 时行为 100% 不变
+  - 测试：`severity-filter-test.js` 覆盖 `audit-summary --severity high/medium`（利用当前项目 medium confidence dead exports 验证过滤效果）、非法 severity 值报错、`audit-security --severity high` 在有 finding 的临时文件上验证过滤
+
+- **`--with-impact`** `cli.js` `test/with-impact-test.js` — `audit-diff` 输出追加 `impactFiles` 字段，变更文件依赖方自动展开：
+  - `parseCliArgs` 注册 `--with-impact`
+  - `audit-diff` case 对每个变更文件调用 `getImpactRadius(resolvedPath, 2)`，收集 depth=2 的依赖方，去重后注入 `result.impactFiles`
+  - 使用 `safeEntries`（compact 前）获取 `resolvedPath`，避免 `compactChangedFile` 丢弃路径后无法计算 impact
+  - 向后兼容：不加 `--with-impact` 时 `impactFiles` 字段不存在，行为 100% 不变
+  - 测试：`with-impact-test.js` 覆盖 `--with-impact` 返回 `impactFiles` 非空、`--without` 时字段不存在
+
+---
+
 ### 修复（大仓库并发限流 — 阶段 3）
 
 - **Python 子进程信号量** `src/services/dep-graph/parsers/spawn-ast.js` `src/config/constants.js` `test/spawn-ast-concurrency-test.js` — 解决大仓库 Java/Python 项目构建时 20 个并发 Python 子进程导致 600MB–1.6GB 瞬时内存峰值的问题：

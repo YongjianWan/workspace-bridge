@@ -6,6 +6,16 @@
 >
 > **本文档是项目状态的单一事实源。** 功能状态、版本能力、下一步方向以本文档为准。
 
+**文档速查**：
+| 你想知道 | 看这里 |
+|----------|--------|
+| 项目是什么、怎么用 | [README.md](./README.md) |
+| 当前活跃债务 | [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) |
+| 本轮做了什么、下一步 | [SESSION.md](./SESSION.md) |
+| 长期路线、成功标准 | [ROADMAP.md](./ROADMAP.md) |
+| 历史变更 | [CHANGELOG.md](./CHANGELOG.md) |
+| 代码审计 skill 用法 | [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md) |
+
 ---
 
 ## 实战基地
@@ -22,32 +32,24 @@ workspace-bridge 的核心价值很直接：
 - 测试建议
 - Git 历史风险提示
 
-**终极定位：AI 的基础设施，不是人的报告工具。**
+**终极定位：AI 的代码脚手架（Code Scaffolding for AI），不是人的报告工具。**
 
-人类开发者有 Read/Grep/Bash，AI agent 也有。但两者都缺的是**聚合判断**——把跨文件关系、变更风险、测试映射一次性算好、策展好、喂到上下文里。
+人类开发者有 IDE、Read/Grep/Bash，不需要在终端里跑 `npx workspace-bridge-cli impact --file ... --json`。但 AI 不能靠直觉"感觉"出代码结构 —— 它需要精确的依赖图、影响半径、死代码候选。
 
-workspace-bridge 不做"给 AI 一把铲子让它自己挖"（那是 GitNexus 的方向），而是"直接筛出金子递给 AI"。
+workspace-bridge 是**为 AI 设计的代码感知接口**：
+- **不是"给 AI 一把铲子"**（那是 GitNexus 的方向）
+- **而是"把金子筛好递给 AI"** —— 预组装、去噪、按优先级排序，AI 只需消费，无需自己聚合
 
-所以 compact 模式是核心壁垒，全栈语言覆盖是必要能力，策展哲学是设计一切功能的北极星。
+**CLI 与 skill 的职责边界**：
+- **CLI 是"策展引擎"** —— 统一入口（`audit-ai`）、Token 预算感知、渐进式发现（surface → detail → full）、自动去噪
+- **skill 是"驾驶手册"** —— 50 行足够：什么时候用、什么时候不用、一个标准工作流
+- **当前债务**：CLI 被人类工具的思维模式拖累（20+ 命令分类、模板化文案、重复字段），迫使 skill 膨胀到 395 行来补偿。这是架构定位问题
+
+**AI 脚手架的输出原则**：每个字段都必须可被 AI 直接消费，不存在需要 AI 自己过滤的噪音。
 
 ---
 
-### 第一性原理反思（2026-05-09）
-
-> AI 的核心矛盾是**认知有限 vs 问题复杂**。上下文窗口就那么大，喂再多也会溢出。
->
-> AI 真正需要的是三件事：
-> 1. **看得准** — 在有限窗口内，看到与当前任务最相关的代码
-> 2. **改得敢** — 知道修改的安全边界，敢动手
-> 3. **错得快** — 修改后立即验证，错了立即知道，立即修正
->
-> 第 3 点是最被忽视的，也是决定性的。
-
-workspace-bridge 当前解决了**看得准**（compact 模式、热区、影响面）、**改得敢**（audit-file/audit-diff 的验证建议）和**错得快**（P8-1 `watch --run-tests` 自动闭环、P8-2 validationAdvice 可执行契约、P8-3 增量策展）。
-
-`watch --run-tests` 建立自动闭环：文件保存 → impact → affected-tests → JSON Lines 结果回传。基础设施从"望远镜"进化到"辅助驾驶"——AI 改完代码后，测试自动跑、失败自动报、上下文自动喂。
-
-**P8-3 增量策展已落地**：`audit-file --watch` 文件保存后输出完整 audit-file 结构化结果（impact + affectedTests + validationAdvice）；`audit-diff --incremental` 只输出与本次改动相关的问题（dead-exports / unresolved / cycles），消除全库噪音。见 [ROADMAP.md §P8](./ROADMAP.md#p8从报告到闭环)。
+> 历史演进与第一性原理反思见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
 ---
 
@@ -60,6 +62,7 @@ workspace-bridge 当前解决了**看得准**（compact 模式、热区、影响
 ### L1 铁律（违反 = 直接产生 bug 或资源泄漏）
 
 1. **Never break userspace** — 向后兼容性神圣不可侵犯，任何导致现有程序崩溃的改动都是 bug
+   > **适用范围**：当 userspace 只有项目所有者本人且所有者明确要求重构时，兼容义务让位于演进效率。此时应通过 deprecation 警告 + 别名过渡期（1 个版本）平滑迁移，而非永久冻结接口。
 2. **异常安全** — `shutdown/close/cleanup` 必须逐步骤独立 try-catch；cache load 必须防御旧格式/损坏格式；SIGINT/SIGTERM 必须注册 handler
 3. **数据一致性** — 禁止把 cache 引用直接塞进可变结构；删除实体时必须清理所有关联缓存槽位；同一业务语义必须在单一模块实现
 
@@ -83,6 +86,7 @@ workspace-bridge 当前解决了**看得准**（compact 模式、热区、影响
 
 - 没有失败的测试，就不写生产代码
 - 修改测试后，先运行确认它 **FAILS（red）**，再写实现
+- **测试验证的是"有意义的属性"，不是"有返回值"或"不报错"** — 断言 `typeof result === 'object'` 或 `code === 0` 但不验证业务语义的测试，在真正破坏行为的改动面前是沉默的。测试必须回答：在输入 X 时，系统是否展现出正确的行为 Y？ runner 通过率是形式指标，测试能否在回归时尖叫才是质量标准。
 
 ### 验证门禁（收工前必做）
 
@@ -116,6 +120,8 @@ workspace-bridge 当前解决了**看得准**（compact 模式、热区、影响
 3. **先识别主线，再做判断** — 混合仓库先过滤
 4. **输出必须指导动作** — 不是报告，是行动计划
 5. **保守判断** — `dead-exports`、`historyRisk`、测试映射这些东西，一旦不确定就降级，不要自信胡说。
+6. **结构分析 ≠ 语义分析** — workspace-bridge 回答"谁依赖谁、改了什么"，不回答"有没有 XSS、N+1 查询、事务缺失"。后者是大模型的语义判断能力圈，工具越界只会增加误报和依赖重量。拒绝把 workspace-bridge 变成 SonarQube 替代品。
+7. **暴露冲突，不要折中** — 当发现架构冲突、职责不清、接口矛盾时，不允许用"两边都照顾一点"的妥协方案掩盖问题。折中只会在未来产生更复杂的 if-else 和隐性耦合。正确做法：暴露冲突，明确选择一方（哪怕暂时不舒服），或重构以彻底消除冲突。这条与 L2-4 "边界消除 > if" 互补：if 是代码层面的掩盖，折中是架构层面的掩盖。
 
 ---
 
@@ -134,64 +140,42 @@ workspace-bridge 当前解决了**看得准**（compact 模式、热区、影响
 - `ProjectContext` — 主线/非主线语义识别
 - `stack-detector` — 技术栈检测和验证命令生成
 - **P8-3 增量策展** — `audit-file --watch`（文件级动态分析）+ `audit-diff --incremental`（范围过滤，只输出改动相关问题）
+- **`--severity` 过滤** — `audit-security` / `audit-summary` 输出前按 severity（high/medium/low）过滤，解决大项目噪音问题
+- **`--with-impact`** — `audit-diff` 输出追加 `impactFiles`，变更文件的 depth=2 依赖方自动展开，PR 审查可见波及面
+- **`--staged` / `--files`** — `audit-diff --staged` 只分析暂存区，`audit-diff --files a,b,c` 和 `audit-security --files a,b,c` 支持指定文件列表，大 PR 分批审查
+- **`--save` / `--check-regression`** — `audit-summary --save` 保存 findings 基线，`--check-regression` 对比上次标注 new/fixed/open，建立审计记忆
+- **`warnings[]`** — `audit-summary`/`audit-diff`/`audit-file` 等所有 JSON 输出自动携带解析降级警告（`regex-fallback`/`unsupported-extension`/`empty-graph`），AI 无需读 stderr 即可感知分析可信度
+- **exit code 语义** — 0=成功完成，1=有 findings / 业务失败（`result.ok === false`），2=未捕获异常 / 工具崩溃；AI 和 CI 可精确区分"分析成功""需要关注""工具崩溃"
 
 ---
 
-## 项目骨架（自分析结果）
+## 项目骨架（运行 `node cli.js audit-summary --cwd .` 获取最新数据）
 
-> <!-- generated: 2026-05-12 — 数据由 `node cli.js audit-summary --cwd .` 自分析得出，每次结构大幅变化后需重新运行并更新本段。-->
->
-> 供开发者快速建立心理模型。
-
-**规模**
-- 185 文件，81 主线 + 104 非主线（test/docs）
-- 角色：entry=1, library=62, test=104, script=17, unknown=1
-- 入口：`cli.js`（CLI 入口）
+> 本段不存储具体数字，数字会过期。以下结构是稳定的。
 
 **架构分层（按依赖方向，从上到下）**
 
 | 层级 | 代表文件 | 职责 |
 |------|----------|------|
-| L0 基础设施 | `path.js`(20↑), `constants.js`(17↑), `sanitize.js` | 路径工具、常量、脱敏 |
-| L1 存储/索引 | `cache.js`, `file-index.js` | SQLite 缓存、文件索引构建 |
-| L2 核心引擎 | `dep-graph.js`(9↑) | `DependencyGraph` facade + `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` 三个 collaborator，AST 解析+依赖图+影响计算 |
+| L0 基础设施 | `path.js`, `constants.js`, `sanitize.js` | 路径工具、常量、脱敏 |
+| L1 存储/索引 | `cache.js`, `file-index.js` | SQLite 缓存（项目隔离：按 workspaceRoot md5 hash 分目录）、文件索引构建 |
+| L2 核心引擎 | `dep-graph.js` | `DependencyGraph` facade + `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` |
 | L2.5 子引擎 | `parsers/*`, `resolvers.js`, `symbol-impact.js`, `function-impact.js` | 多语言 parser、import 解析、符号级影响 |
 | L3 服务组装 | `container.js` | `ServiceContainer` 组装所有服务 |
 | L4 工具编排 | `dep-tools.js`, `git-tools.js`, `health-tools.js`, `overview-tools.js` | 对外暴露的分析工具函数 |
 | L5 CLI/格式化 | `cli.js`, `formatters/` | 命令分发、JSON 输出聚合 |
 | L6 外围 | `scripts/`, `test/`, `benchmark/` | 辅助脚本、全覆盖测试、性能基准 |
 
-**高耦合核心模块与改动风险**
+**高危改动文件**（改前必须跑 impact + affected-tests）
 
-| 文件 | 上游依赖数 | 影响文件数 | 影响测试数 | 备注 |
-|------|-----------|-----------|-----------|------|
-| `src/utils/path.js` | 57 | 36 | 最底层基础设施，任何路径逻辑变动波及面最大 |
-| `src/config/constants.js` | 62 | 38 | 全局常量 |
-| `src/services/cache.js` | 28 | 21 | 缓存层，被 file-index / container / diagnostics 等依赖 |
-| `src/services/dep-graph.js` | 20 | 15 | 导出 `DependencyGraph` 类，核心引擎 |
-| `src/utils/stack-detectors/detect.js` | 13 | 10 | 技术栈检测 |
-| `src/config/risk-thresholds.js` | 18 | 9 | 风险评分阈值，被 git-tools / overview-tools / composite-risk 引用 |
-| `src/utils/command.js` | 24 | 14 | 验证命令生成 |
-| `src/services/dep-graph/parsers/shared.js` | 35 | 25 | parser 共享逻辑 |
-| `src/services/dep-graph/framework-patterns.js` | 8 | 5 | 框架模式检测，被 dep-graph.js / overview-tools.js 引用 |
-| `src/services/dep-graph/framework-usage-patterns.js` | 5 | 3 | 隐式依赖边注入，被 dep-graph.js 引用 |
-| `src/services/container.js` | 8 | 5 | ServiceContainer 生命周期管理 |
-| `src/utils/parse-args.js` | 6 | 2 | CLI 参数解析，被 cli.js / repl.js / watch.js 引用 |
-| `src/adapters/semgrep.js` | 5 | 2 | Semgrep 安全扫描适配 |
-
-**健康快照**
-- 健康度：5/5
-- 循环依赖：0
-- 死导出：3（模块内部使用/公共 API 预留）
-- 未解析 import：0
-- 孤儿文件：0
-- 热区文件：5
-
-**模块边界**
-- 0 循环依赖，模块边界干净
-- parser 子系统可独立使用（`parsers/index.js` 为第二入口）
-- 测试覆盖度极高（104 test vs 62 library），核心改动均有测试兜底
-- archive/reference/generated 目录自动排除，混合仓库结果更干净
+| 文件 | 风险 |
+|------|------|
+| `src/utils/path.js` | 最底层基础设施，任何路径逻辑变动波及面最大 |
+| `src/config/constants.js` | 全局常量，改动影响评分阈值和稳定性计算 |
+| `src/services/dep-graph.js` | 核心引擎，依赖图/影响面/死导出的主逻辑 |
+| `src/services/cache.js` | SQLite 缓存层（项目隔离 + `--cache-dir` 覆盖），被 file-index / container / diagnostics 依赖 |
+| `src/services/dep-graph/parsers/shared.js` | parser 共享逻辑，9 语言通用 |
+| `src/services/dep-graph/resolvers.js` | import 解析策略链 |
 
 ---
 
@@ -221,6 +205,40 @@ workspace-bridge 当前解决了**看得准**（compact 模式、热区、影响
 - 已知限制与陷阱见 [ROADMAP.md §已知限制](./ROADMAP.md#已知限制当前待处理），已修复历史见 [CHANGELOG.md](./CHANGELOG.md)。
 - 技术债状态见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（仅活跃条目）。
 
+### 改前必查推荐用法
+
+workspace-bridge 不是代码审查主力（发现不了逻辑 bug），但以下三个场景 ROI 最高：
+
+**场景 1：新会话快速摸底**
+```bash
+node cli.js audit-overview --cwd . --json --quiet
+```
+→ 10 秒知道项目规模、热点文件、有没有循环依赖、未解析 import。
+
+**场景 2：改前影响评估**
+```bash
+node cli.js impact --cwd . --file <target-file> --json --quiet
+node cli.js affected-tests --cwd . --file <target-file> --json --quiet
+```
+→ 改一个文件之前，知道会波及多少模块、哪些测试需要跑。
+
+**场景 3：定期清理死代码**
+```bash
+node cli.js dead-exports --cwd . --json --quiet
+```
+→ 按月清理一次 0 引用符号，但只删确认是死代码的（Java 常量仓库、Spring DI 类误报率极高）。
+
+**不应做的事**：
+- 把它当代码审查主力（逻辑问题靠人工/AI 语义审查）
+- 按 architectureAdvice 拆分模块（单体项目已自动抑制激进建议）
+- 盯着死导出数字做 KPI（误报太多）
+
+### 输出格式注意事项
+
+- **默认输出是 human-readable**，`--json` 只是可选开关。`cli.js` 不加 `--json` 时输出紧凑的终端友好格式。
+- `audit-overview` 的 hotspot `reason` 只展示 git 历史信号（如 `"No tracked history for this file."`），不展示耦合信号。一个高耦合的新文件可能显示"没历史"，但它的真正风险是被大量模块依赖。看 `score` 和 `coupling` 字段，不要只看 `reason`。
+- `workspace-info` 的 `parserAvailability.skipped: true` 出现在非 Node.js 项目（Java/Python/Go）是正常的，表示 tree-sitter WASM 走了无 `package.json` 的初始化路径，**不表示文件被跳过解析**。
+
 ---
 
 ## 外部工具策略（架构决策）
@@ -230,7 +248,10 @@ workspace-bridge 当前解决了**看得准**（compact 模式、热区、影响
 | 依赖图 | **自研** | 多语言统一是核心壁垒，pydeps/madge 都是单语言 |
 | 增量分析 | **自研** | git diff 驱动 <200ms 是护城河 |
 | 风格/质量 | **自研 + Semgrep 可选** | 你管格式（紧凑标签行），Semgrep 管规则库；`npm install` 之外的可选依赖 |
-| 精确影响/污点追踪 | **不引入** | 承认打不过，不做重复投入 |
+| 精确影响/污点追踪 | **不引入** | 承认打不过，不做重复投入。语义级问题（N+1 查询、XSS、事务缺失）是大模型该做的事，workspace-bridge 提供的是上下文（谁依赖谁、改了什么），不是语义判断 |
+| Java 专用分析（SpotBugs/PMD）| **可选适配器，不做核心依赖** | 需要 JVM 环境，与"轻量 CLI"定位冲突。若用户有需求，像 Semgrep 一样做成可选 adapter，但绝不可成为默认依赖 |
+| 规则引擎（层次 A 配置化 + 层次 B AST 轻量）| **自研扩展** | 将 `security-tools.js` 硬编码规则提取为外部 YAML/JSON（层次 A），基于现有 `functionRecords` 做方法级条件检查（层次 B）。不需要数据库/图数据库，纯内存遍历 |
+| 图数据库 / 持久化图存储 | **不引入** | 当前内存 Map 已满足需求。图数据库是为了跨会话查询，但 workspace-bridge 每次重建图。引入 KuzuDB/LadybugDB 与轻量 CLI 定位冲突 |
 | tree-sitter | **引入（WASM 方案）** | `web-tree-sitter@0.25.3` + `tree-sitter-wasms@0.1.13`；纯 WASM 无 native binding 编译风险；为 Go/Rust/Kotlin/C/C++ 提供统一 AST 能力；失败自动 fallback regex |
 
 ---
@@ -328,7 +349,9 @@ THEN 基于输出评估测试覆盖是否足够
 
 ### 规则 5：收工前 5 检查（30 秒）
 
-1. **运行全量测试** — `node test/runner.js` 必须通过
+> **仅修改代码文件时需跑 runner；纯文档修改（SESSION.md / TECH_DEBT.md / CHANGELOG.md / SKILL.md 等）无需跑 runner。**
+
+1. **运行全量测试** — `node test/runner.js` 必须通过（仅代码变更时）
 2. **裸数字检查** — diff 中新增数字是否已关联 `src/config/constants.js`
 3. **异常安全检查** — 新增的 shutdown/cleanup/signal handler 是否异常安全
 4. **语义同步检查** — 同一业务判断是否在多处内联实现
@@ -359,17 +382,9 @@ THEN 优先提取为纯函数
 **历史债务状态：** 活跃问题见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)，已修复历史见 [CHANGELOG.md](./CHANGELOG.md)。
 > 注：`stack-detector.js`（835→14）和 `file-index.js`（523→420）拆分已完成；`dep-graph.js`（~1311 行）保持不物理拆分，内部已拆为 `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` + `DependencyGraph` facade，认知负荷下降。P8-1 变更触发插槽（`onBuildComplete` / `onFileUpdated`）已预留并投入使用。路线 I/J（GitNexus 模式吸收）全部完成。
 
----
-
-## 成功标准
-
-见 [ROADMAP.md §成功标准](./ROADMAP.md#成功标准）。
-
----
-
 继续保持 workspace-bridge 的克制哲学：CLI-only，够用就行，拒绝过度工程。
 
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-12（路线 F–J 全部完成 + 测试缺口补齐（6 新测试文件）+ Windows 命令硬化 + 测试基础设施 + cli.js 门面拆分 + git-tools.js 死代码清理 + P77 路径一致性 + P83/P88 totalFiles 语义标注 + formatter 双层次测试 + parser shared/polyglot 直接测试；103/103 测试通过；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-14（阶段 2 清单 `--save`/`--check-regression` 已完成；107/107 测试通过；schemaVersion: 1.2.0）*
