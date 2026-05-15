@@ -227,6 +227,11 @@ class ServiceContainer {
       } catch (e) {
         if (process.env.DEBUG) console.error('[Container] cache.save failed:', e.message);
       }
+      try {
+        this.cache.close();
+      } catch (e) {
+        if (process.env.DEBUG) console.error('[Container] cache.close failed:', e.message);
+      }
     }
     this.diagnostics = null;
     this.depGraph = null;

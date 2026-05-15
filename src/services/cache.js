@@ -4,12 +4,19 @@
  */
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
 const { normalizePathKey } = require('../utils/path');
 const { GraphDB } = require('./graph-db');
 
 const CACHE_FILENAME = '.workspace-bridge-cache.json';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const CACHE_VERSION = 3; // Increment when cache structure changes
+
+function computeDefaultCacheDir(workspaceRoot) {
+  const hash = crypto.createHash('md5').update(workspaceRoot).digest('hex').slice(0, 8);
+  return path.join(os.tmpdir(), 'workspace-bridge', hash);
+}
 
 class WorkspaceCache {
   constructor(workspaceRoot, options = {}) {
@@ -411,4 +418,5 @@ class WorkspaceCache {
 module.exports = {
   WorkspaceCache,
   CACHE_FILENAME,
+  computeDefaultCacheDir,
 };

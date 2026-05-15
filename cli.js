@@ -245,6 +245,8 @@ Commands:
   unresolved              Find unresolved imports
   cycles                  Find circular dependencies
   impact --file <path>    Find impact radius for a file
+  tree --file <path> [--max-depth <n>] [--direction <imports|dependents|both>]
+                          Build import/dependent tree for a file
   affected-tests --file <path> [--max-depth <n>]
                           Find tests related to a file
 
@@ -319,6 +321,7 @@ function parseCliArgs(argv) {
     '--check-regression': true,
     '--baseline': { key: 'baseline' },
     '--cache-dir': { key: 'cacheDir' },
+    '--direction': { key: 'direction' },
     '--fail-on-findings': true,
     '--run-tests': true,
     '--version': true,
@@ -380,6 +383,7 @@ function parseCliArgs(argv) {
     checkRegression: Boolean(raw['--check-regression']),
     baseline: raw.baseline || null,
     cacheDir: raw.cacheDir || null,
+    direction: raw.direction || null,
     failOnFindings: Boolean(raw['--fail-on-findings']),
     runTests: Boolean(raw['--run-tests']),
     version: Boolean(raw['--version']) || Boolean(raw['-v']),
@@ -779,6 +783,20 @@ async function runCommand(parsed, container) {
         maxDepth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined,
       }, container);
     }
+    case 'tree': {
+      requireFile(parsed, 'tree');
+      const { treeQuery } = require('./src/tools/tree-tools');
+      const treePath = resolveWorkspaceFilePath(parsed.file, container.workspaceRoot);
+      if (!treePath || !fs.existsSync(treePath)) {
+        return { ok: false, error: `File not found: ${parsed.file}`, inProject: false };
+      }
+      return treeQuery({
+        cwd: parsed.cwd,
+        file: treePath,
+        depth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined,
+        direction: parsed.direction || 'both',
+      }, container);
+    }
     case 'repl': {
       const { startRepl } = require('./src/cli/repl');
       await startRepl({ cwd: parsed.cwd, exclude: parsed.exclude, quiet: parsed.quiet });
@@ -880,6 +898,13 @@ async function main() {
     }
     process.exitCode = 1;
     return;
+  }
+
+  // Default cacheDir: SQLite in os.tmpdir() with workspaceRoot hash
+  // (only when not explicitly overridden via --cache-dir)
+  if (!parsed.cacheDir) {
+    const { computeDefaultCacheDir } = require('./src/services/cache');
+    parsed.cacheDir = computeDefaultCacheDir(path.resolve(parsed.cwd || process.cwd()));
   }
 
   const container = new ServiceContainer({ quiet: parsed.quiet, cacheDir: parsed.cacheDir });

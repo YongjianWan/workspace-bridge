@@ -126,6 +126,7 @@ node cli.js repl
 **SQLite 持久化缓存迁移** — 解决 L1 blocker 工作目录污染 + 缓存可靠性：
 - 新建 `src/services/graph-db.js`：better-sqlite3 封装，5 张表对应 cache 数据结构，WAL 模式，transaction 批量 upsert
 - 重构 `src/services/cache.js`：内部内存 Map 不变，`load()`/`save()` 持久化介质从 JSON 替换为 SQLite；默认缓存路径从项目根目录改为 `os.tmpdir()/workspace-bridge/<hash>/cache.db`；支持 `--cache-dir` 覆盖
+  - ✅ **架构不一致已修复（2026-05-15）**：`cli.js` `main()` 在未传 `--cache-dir` 时自动计算默认路径（`os.tmpdir()/workspace-bridge/<md5(workspaceRoot)>/cache.db`），`container.js` `shutdown()` 新增 `cache.close()` 确保 Windows 下连接正常释放。测试直接 `new WorkspaceCache(root)` 不受影响（不传 `cacheDir` 时仍回退 JSON），仅 CLI 入口默认走 SQLite。
 - 修改 `src/services/container.js` + `cli.js`：`ServiceContainer` 透传 `cacheDir` 选项，CLI 注册 `--cache-dir` 参数
 - 修改 `src/services/dep-graph.js` + `src/services/file-index.js` + `src/tools/git-tools.js`：排除逻辑同步增加 `cache.db` / `cache.db-wal` / `cache.db-shm`
 - 重写 `test/cache-backup-test.js` / `test/cache-corruption-test.js` / `test/cache-test.js`：验证 SQLite 持久化可靠性和 graceful 降级，删除已不存在的 `.bak` / `.tmp-` 机制断言

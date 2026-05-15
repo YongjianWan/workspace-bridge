@@ -44,6 +44,24 @@
   - 新增 `close()` 方法关闭 `GraphDB` 连接（修复 Windows 上 `EBUSY` 无法删除缓存目录的问题）
   - 测试全部显式传 `{ cacheDir }`，并在 cleanup 中 `close()` 后再 `rmSync`
 
+### 功能（tree 命令 + SQLite 默认迁移完成）
+
+- **新增 `tree` 命令** `src/tools/tree-tools.js` `cli.js` `test/tree-tools-test.js`：
+  - 基于 `DependencyGraph` 内存图构建文件级 import/dependent 树
+  - `node cli.js tree --file <path> [--max-depth <n>] [--direction <imports|dependents|both>]`
+  - 双向树形输出：`imports` 递归展开被当前文件 import 的模块，`dependents` 递归展开依赖当前文件的模块
+  - 外部依赖自动标记 `external: true`，不参与递归
+  - 支持 `--max-depth` 截断（默认 3，范围 1–10），防止大项目爆炸
+  - 测试：`test/tree-tools-test.js` 覆盖 imports-only、dependents-only、both、maxDepth 截断、external 标记
+
+- **SQLite 默认迁移真正完成** `src/services/cache.js` `src/services/container.js` `cli.js`：
+  - `cli.js` `main()` 在未传 `--cache-dir` 时自动计算默认路径：`path.join(os.tmpdir(), 'workspace-bridge', md5(workspaceRoot).slice(0,8), 'cache.db')`
+  - `container.js` `shutdown()` 新增 `cache.close()` 调用，确保 Windows 上 SQLite 连接正常释放
+  - `cache.js` 导出 `computeDefaultCacheDir()` 纯函数
+  - 修复 `computeDefaultCacheDir` 使用相对路径 `.` 导致 hash 错误的 bug：`path.resolve(parsed.cwd)` 前置
+  - 测试不受影响：直接 `new WorkspaceCache(root)` 不传 `cacheDir` 时仍回退 JSON；仅 CLI 入口默认走 SQLite
+  - 解决之前文档与代码状态不一致：CHANGELOG/AGENTS 声称迁移完成，实际默认仍是 JSON
+
 ### 修复（L3 双项收敛 — 功能缺口补全）
 
 - **impact 入口扩散截断** `src/services/dep-graph.js` `test/p3-impact-explanation-test.js`：
