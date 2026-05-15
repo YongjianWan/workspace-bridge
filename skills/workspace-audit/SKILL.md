@@ -23,6 +23,7 @@ workspace-bridge-cli <command> --cwd <project> --format markdown --quiet
 | 首次摸底 / 定期健康检查 | `audit-summary` |
 | 有 git 变更，需审查 | `audit-diff` |
 | 改特定文件前，评估影响 | `audit-file --file <path>` |
+| **深入理解模块依赖链** | **`tree --file <path>`** |
 | 安全扫描 | `audit-security --builtin-only` |
 | 项目结构太复杂，理一理 | `audit-map --compact` |
 | 死代码清理 | `dead-exports` |
@@ -49,20 +50,25 @@ workspace-bridge-cli audit-summary --cwd <project> --format markdown --quiet
 
 > 若 `workspace-info` 返回 `fileCount: 0`，停止后续命令，报告"未找到可解析源文件"。
 
+**缓存位置**：默认 SQLite（`os.tmpdir()/workspace-bridge/<hash>/cache.db`），项目间隔离。可通过 `--cache-dir <path>` 覆盖。旧 `.workspace-bridge-cache.json` 已废弃。
+
 ## 核心决策树
 
 | 用户意图 | 推荐命令 | 说明 |
 |---------|---------|------|
-| "看看这个项目怎么样" | `audit-summary` | 整体健康度 + 结构问题 + 下一步建议 |
+| "看看这个项目怎么样" | `audit-summary` | 结构问题 + 下一步建议（**忽略 healthScore 满分**，见下方警告） |
 | "我改了些代码，帮忙看看" | `audit-diff` | 变更分析 + 验证建议 + 具体执行命令 |
 | "改这个文件会影响什么" | `audit-file --file <path>` | 影响半径 + 受影响测试 |
+| "这个模块依赖谁、谁依赖它" | `tree --file <path>` | **递归 import/dependent 树**，比 `impact` 更直观展示依赖层次 |
 | "有没有安全问题" | `audit-security --builtin-only` | 19 条内置规则，< 2s |
 | "项目结构太复杂，理一理" | `audit-map --compact` | 目录树 + 依赖边 + 问题高亮 |
 | "死代码清理" | `dead-exports` | 0 引用符号候选（需人工确认后删除） |
 | "循环依赖/架构问题" | `cycles` | 逐条循环路径 |
 | "断链 import" | `unresolved` | 未解析的导入列表 |
 
-**避免调用的命令**：`audit-overview`（与 audit-summary 重叠，除非需要 hotspots）、`stats`（数据太 raw）、`repl`/`watch`（交互式，不适合 AI 批量调用）。
+**避免调用的命令**：`audit-overview`（与 audit-summary 重叠，除非需要 hotspots）、`stats`（数据太 raw）、`repl`/`watch`（交互式，不适合 AI 批量调用）、`health`（与 audit-summary.health 数据完全重合）。
+
+> ⚠️ **healthScore 不可信**：`healthScore: 5/5` 只检查文件是否存在（README/.gitignore/CI 等），**不反映代码质量**。项目可能有 4 个死导出、1311 行核心文件、6 条活跃债务，healthScore 仍是 5/5。AI 应关注 `deadExports`/`cycles`/`unresolved` 具体字段，而非 healthScore 总分。
 
 ## 核心命令详解
 
@@ -95,6 +101,7 @@ workspace-bridge-cli audit-summary --cwd <project> --format markdown --quiet
 3. `scope.counts` → 项目规模与角色分布
 4. `analysisCoverage.coverageRatio` → 若 < 0.5，提示"分析可能不完整"
 5. `honesty` → 假阳性率预估，决定是否信任 findings
+6. **`healthScore` → 忽略**。见上方警告。
 
 **注意**：`architectureAdvice` 字段价值低，直接忽略。
 
@@ -124,6 +131,28 @@ workspace-bridge-cli audit-file --cwd <project> --file <path> --format markdown 
 3. `affectedTests` → 需要跑的测试
 4. `validationAdvice` → 验证建议
 5. `frameworkPattern` → 框架模式提示
+
+### tree — 依赖链深入分析
+
+```bash
+# 双向展开（imports + dependents），默认深度 3
+workspace-bridge-cli tree --cwd <project> --file <path> --format json --quiet
+
+# 只看 imports 链（向下追踪依赖）
+workspace-bridge-cli tree --cwd <project> --file <path> --direction imports --format json --quiet
+
+# 深度限制为 2
+workspace-bridge-cli tree --cwd <project> --file <path> --max-depth 2 --format json --quiet
+```
+
+**AI 读取优先级**：
+1. `tree.imports` → 递归 import 链，展示"这个文件依赖谁"
+2. `tree.dependents` → 递归 dependent 链，展示"谁依赖这个文件"
+3. `external: true` → 外部依赖（如 npm 包），不参与递归
+
+**何时用 `tree` 而非 `impact`**：
+- `impact` 给出扁平的 impact 列表（36 个文件），**无层次**
+- `tree` 给出**树形结构**（`cache.js → container.js → cli.js`），更适合理解架构层次和间接依赖路径
 
 ### audit-security — 安全扫描
 
@@ -232,3 +261,4 @@ AI 消费输出时，以下字段价值低，可跳过以节省上下文：
 | `fileCount: 0` | 检查 `pom.xml`/`package.json` 是否存在；Java 项目确保在 `pom.xml` 所在目录运行 |
 | 输出含 `coverageWarning` | `analysisCoverage.coverageRatio < 0.5`，部分文件 fallback 到 regex 解析，findings 可能不完整 |
 | Windows 路径问题 | `--file` 参数使用正斜杠或双反斜杠：`--file src/services/dep-graph.js` |
+| Exit code 误判 | 默认 findings 不触发 exit=1。只有 `result.ok === false` 或 `--fail-on-findings` 显式开启时才会 exit=1。exit=2 表示未捕获异常 |
