@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
- * Regression test for #48: cache corruption silent drop (no backup).
+ * SQLite persistence reliability tests for WorkspaceCache.
+ * Replaces old JSON backup tests (SQLite WAL + transactions provide
+ * equivalent durability without manual .bak files).
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -8,28 +10,11 @@ const os = require('os');
 const path = require('path');
 const { WorkspaceCache } = require('../src/services/cache');
 
-async function testSaveCreatesBackup() {
+async function testSaveAndLoadRoundtrip() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
   const cache = new WorkspaceCache(root);
-  cache.setFileMetadata(path.join(root, 'a.js'), { mtime: 1, size: 1 });
-
-  // First save: no prior cache file, so no backup is created yet.
-  await cache.save();
-  assert(fs.existsSync(path.join(root, '.workspace-bridge-cache.json')), 'main cache should exist');
-  assert(!fs.existsSync(path.join(root, '.workspace-bridge-cache.json.bak')), 'no backup on first save');
-
-  // Second save: overwrites existing cache, backup should be created.
-  cache.setFileMetadata(path.join(root, 'b.js'), { mtime: 2, size: 2 });
-  await cache.save();
-  assert(fs.existsSync(path.join(root, '.workspace-bridge-cache.json.bak')), 'backup should exist after overwrite');
-
-  fs.rmSync(root, { recursive: true, force: true });
-}
-
-async function testLoadFallsBackToBackupOnCorruption() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
-  const cache = new WorkspaceCache(root);
-  const file = path.join(root, 'a.js');
+  const file = path.join(root, 'src', 'a.js');
+  cache.setWorkspaceInfo({ profile: 'node' });
   cache.setFileMetadata(file, { mtime: 123, size: 9 });
   cache.setParseResult(file, {
     imports: [], exports: ['x'], importRecords: [], exportRecords: [], functionRecords: [], parseMode: 'ast', confidence: 'high', mtime: 123,
@@ -37,45 +22,50 @@ async function testLoadFallsBackToBackupOnCorruption() {
 
   await cache.save();
 
-  // Ensure a backup exists for the fallback test.
-  fs.copyFileSync(
-    path.join(root, '.workspace-bridge-cache.json'),
-    path.join(root, '.workspace-bridge-cache.json.bak'),
-  );
+  // Verify db file exists under tmpdir, not project root
+  const dbPath = path.join(cache.cacheDir, 'cache.db');
+  assert(fs.existsSync(dbPath), 'cache.db should exist in tmpdir');
+  assert(!fs.existsSync(path.join(root, '.workspace-bridge-cache.json')), 'old json cache should not exist in project root');
 
-  // Corrupt the main cache file
-  fs.writeFileSync(path.join(root, '.workspace-bridge-cache.json'), 'not-json', 'utf8');
-
+  // New instance should load successfully
   const loaded = new WorkspaceCache(root);
   const ok = loaded.load();
-  assert.strictEqual(ok, true, 'should load from backup when primary is corrupted');
-  assert(loaded.getFileMetadata(file), 'metadata should be recovered from backup');
+  assert.strictEqual(ok, true, 'should load from SQLite');
+  assert(loaded.getFileMetadata(file), 'metadata should be recovered');
+  assert(loaded.getParseResult(file), 'parse result should be recovered');
 
   fs.rmSync(root, { recursive: true, force: true });
 }
 
-async function testLoadFailsGracefullyWhenBothCorrupted() {
+async function testLoadFailsWhenDatabaseMissing() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
+  const loaded = new WorkspaceCache(root);
+  const ok = loaded.load();
+  assert.strictEqual(ok, false, 'should fail when no database exists');
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+async function testLoadFailsGracefullyWhenDatabaseCorrupted() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
   const cache = new WorkspaceCache(root);
   cache.setFileMetadata(path.join(root, 'a.js'), { mtime: 1, size: 1 });
-
   await cache.save();
 
-  // Corrupt both main and backup
-  fs.writeFileSync(path.join(root, '.workspace-bridge-cache.json'), 'bad', 'utf8');
-  fs.writeFileSync(path.join(root, '.workspace-bridge-cache.json.bak'), 'bad', 'utf8');
+  // Corrupt the SQLite file by overwriting first bytes
+  const dbPath = path.join(cache.cacheDir, 'cache.db');
+  fs.writeFileSync(dbPath, 'NOT_SQLITE', 'utf8');
 
   const loaded = new WorkspaceCache(root);
   const ok = loaded.load();
-  assert.strictEqual(ok, false, 'should fail when both primary and backup are corrupted');
+  assert.strictEqual(ok, false, 'should fail gracefully when database is corrupted');
 
   fs.rmSync(root, { recursive: true, force: true });
 }
 
 async function main() {
-  await testSaveCreatesBackup();
-  await testLoadFallsBackToBackupOnCorruption();
-  await testLoadFailsGracefullyWhenBothCorrupted();
+  await testSaveAndLoadRoundtrip();
+  await testLoadFailsWhenDatabaseMissing();
+  await testLoadFailsGracefullyWhenDatabaseCorrupted();
   console.log('cache-backup-test: ok');
 }
 

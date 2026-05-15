@@ -23,6 +23,7 @@ class ServiceContainer {
     this.initError = null;
     this.workspaceRoot = null;
     this.quiet = options.quiet || false;
+    this.options = options;
     
     // Services
     this.cache = null;
@@ -120,7 +121,9 @@ class ServiceContainer {
   }
 
   _initCache() {
-    this.cache = new WorkspaceCache(this.workspaceRoot);
+    this.cache = new WorkspaceCache(this.workspaceRoot, {
+      cacheDir: this.options.cacheDir,
+    });
     this.cache.load();
     this.cache.setWorkspaceInfo({ root: this.workspaceRoot });
   }

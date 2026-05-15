@@ -6,29 +6,29 @@ const os = require('os');
 const path = require('path');
 const { WorkspaceCache } = require('../src/services/cache');
 
-function testLoadIgnoresCorruptedJson() {
+function testLoadIgnoresMissingDatabase() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
-  fs.writeFileSync(path.join(dir, '.workspace-bridge-cache.json'), 'not-json{{', 'utf8');
-
   const cache = new WorkspaceCache(dir);
   const ok = cache.load();
   assert.strictEqual(ok, false);
-
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
 function testLoadIgnoresWrongVersion() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
-  fs.writeFileSync(
-    path.join(dir, '.workspace-bridge-cache.json'),
-    JSON.stringify({ version: 999, timestamp: Date.now() }),
-    'utf8'
-  );
-
   const cache = new WorkspaceCache(dir);
-  const ok = cache.load();
-  assert.strictEqual(ok, false);
+  cache.setFileMetadata(path.join(dir, 'a.js'), { mtime: 1, size: 1 });
+  cache.save();
 
+  // Tamper with version in SQLite directly
+  const Database = require('better-sqlite3');
+  const db = new Database(path.join(cache.cacheDir, 'cache.db'));
+  db.prepare('UPDATE cache_metadata SET value = ? WHERE key = ?').run('999', 'version');
+  db.close();
+
+  const cache2 = new WorkspaceCache(dir);
+  const ok = cache2.load();
+  assert.strictEqual(ok, false);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -38,10 +38,10 @@ async function testLoadIgnoresStaleCache() {
   cache.setFileMetadata(path.join(dir, 'a.js'), { mtime: 1, size: 1 });
   await cache.save();
 
-  // Manually back-date the file to simulate stale cache
-  const cachePath = path.join(dir, '.workspace-bridge-cache.json');
-  const oldTime = new Date(Date.now() - 10 * 60 * 1000); // 10 minutes ago
-  fs.utimesSync(cachePath, oldTime, oldTime);
+  // Manually back-date the db file to simulate stale cache
+  const dbPath = path.join(cache.cacheDir, 'cache.db');
+  const oldTime = new Date(Date.now() - 25 * 60 * 60 * 1000); // 25 hours ago
+  fs.utimesSync(dbPath, oldTime, oldTime);
 
   const cache2 = new WorkspaceCache(dir);
   const ok = cache2.load();
@@ -81,21 +81,21 @@ async function testSaveReturnsFalseOnPersistentFailure() {
   const cache = new WorkspaceCache(dir);
   cache.setWorkspaceInfo({ kind: 'test' });
 
-  // Poison the directory so write fails
-  fs.writeFileSync(path.join(dir, '.workspace-bridge-cache.json'), '', 'utf8');
-  fs.chmodSync(dir, 0o555);
+  // Pre-create the db directory and make it read-only
+  fs.mkdirSync(cache.cacheDir, { recursive: true });
+  fs.chmodSync(cache.cacheDir, 0o555);
 
   try {
     const ok = await cache.save();
     assert.strictEqual(ok, false);
   } finally {
-    fs.chmodSync(dir, 0o755);
+    fs.chmodSync(cache.cacheDir, 0o755);
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
 async function main() {
-  testLoadIgnoresCorruptedJson();
+  testLoadIgnoresMissingDatabase();
   testLoadIgnoresWrongVersion();
   await testLoadIgnoresStaleCache();
   testNormalizeFileMapEntriesHandlesNonArray();

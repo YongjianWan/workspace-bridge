@@ -10,6 +10,10 @@ Thumbs.db
 .workspace-bridge-cache.json
 .tmp-*.json
 .workspace-bridge-cache.json.tmp-*
+# SQLite cache (when --cache-dir is set to project root)
+cache.db
+cache.db-wal
+cache.db-shm
 test-temp/
 wb-analysis-fixture/
 coverage/

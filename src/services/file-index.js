@@ -244,7 +244,7 @@ class FileIndex {
 
   shouldExclude(filePath) {
     const base = path.basename(filePath);
-    if (base === CACHE_FILENAME) return true;
+    if (base === CACHE_FILENAME || base === 'cache.db' || base === 'cache.db-wal' || base === 'cache.db-shm') return true;
 
     const normalized = normalizePathKey(filePath);
     // Only exclude base dirs (node_modules, .git, etc.) and workspace-configured dirs.

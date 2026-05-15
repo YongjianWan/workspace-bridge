@@ -16,8 +16,8 @@ function main() {
     assert.strictEqual(s.indexAgeMs, 0, 'age should be 0 before init');
     assert.strictEqual(s.isStale, false, 'should not be stale before init');
     assert.strictEqual(s.gitHeadChanged, false, 'should not report git head changed before init');
-    assert.strictEqual(s.thresholdMs, 300000, 'default threshold should be 5min');
-    assert.strictEqual(s.thresholdDescription, '5 minutes', 'should include human-readable threshold');
+    assert.strictEqual(s.thresholdMs, 86400000, 'default threshold should be 24h');
+    assert.strictEqual(s.thresholdDescription, '24 hours', 'should include human-readable threshold');
     console.log('before-init: ok');
   }
 
@@ -31,11 +31,11 @@ function main() {
     console.log('fresh-index: ok');
   }
 
-  // Stale index (>5min)
+  // Stale index (>24h)
   {
-    container.indexBuildTime = Date.now() - 400000;
+    container.indexBuildTime = Date.now() - 90000000;
     const s = container.getStaleness();
-    assert.strictEqual(s.isStale, true, 'should be stale after 400s');
+    assert.strictEqual(s.isStale, true, 'should be stale after 25h');
     console.log('stale-index: ok');
   }
 
@@ -71,7 +71,7 @@ function main() {
 
   // Boundary: exactly at threshold
   {
-    container.indexBuildTime = Date.now() - 300000;
+    container.indexBuildTime = Date.now() - 86400000;
     const s = container.getStaleness();
     assert.strictEqual(s.isStale, false, 'exactly at threshold should not be stale');
     console.log('boundary-exact: ok');
@@ -79,7 +79,7 @@ function main() {
 
   // Boundary: 1ms over threshold
   {
-    container.indexBuildTime = Date.now() - 300001;
+    container.indexBuildTime = Date.now() - 86400001;
     const s = container.getStaleness();
     assert.strictEqual(s.isStale, true, '1ms over threshold should be stale');
     console.log('boundary-over: ok');

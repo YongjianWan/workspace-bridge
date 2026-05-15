@@ -34,26 +34,6 @@ function testNormalizeFileMapEntriesDeterministic() {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
-async function testAtomicSaveCleanupOnRenameFailure() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
-  const cache = new WorkspaceCache(root);
-  cache.setWorkspaceInfo({ kind: 'test' });
-  cache.setFileMetadata(path.join(root, 'x.js'), { mtime: 1, size: 1 });
-
-  const originalPromisesRename = fs.promises.rename;
-  fs.promises.rename = () => Promise.reject(new Error('forced rename failure'));
-
-  try {
-    const ok = await cache.save();
-    assert.strictEqual(ok, false, 'save should fail when rename fails');
-    const leftovers = fs.readdirSync(root).filter((name) => name.includes('.workspace-bridge-cache.json.tmp-'));
-    assert.strictEqual(leftovers.length, 0, 'temporary cache files should be cleaned up');
-  } finally {
-    fs.promises.rename = originalPromisesRename;
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-}
-
 async function testSaveAndLoadRoundtrip() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
   const cache = new WorkspaceCache(root);
@@ -76,7 +56,7 @@ async function testSaveAndLoadRoundtrip() {
   const saved = await cache.save();
   assert.strictEqual(saved, true, 'save should succeed');
   const loaded = new WorkspaceCache(root);
-  const ok = await loaded.load();
+  const ok = loaded.load();
   assert.strictEqual(ok, true, 'load should succeed');
   assert(loaded.getWorkspaceInfo(), 'workspace info should load');
   assert(loaded.getFileMetadata(file), 'file metadata should load');
@@ -120,7 +100,6 @@ function testParseResultGetSetDelete() {
 async function main() {
   testNormalizeFileMapEntriesDeterministic();
   testParseResultGetSetDelete();
-  await testAtomicSaveCleanupOnRenameFailure();
   await testSaveAndLoadRoundtrip();
   console.log('cache-test: ok');
 }
@@ -129,5 +108,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-
-

@@ -107,8 +107,8 @@ const DEFAULTS = {
   FILE_INDEX_PATTERN_TIMEOUT_MS: 120000,
   WATCH_DEBOUNCE_MS: 500,
   FILE_INDEX_BUILD_TIMEOUT_MS: 300000,
-  // Staleness threshold: 5 minutes balances freshness with cache hit rate.
-  STALENESS_THRESHOLD_MS: 5 * 60 * 1000,
+  // Staleness threshold: 24 hours suits AI async review workflows.
+  STALENESS_THRESHOLD_MS: 24 * 60 * 60 * 1000,
   // Progress report batch size for large repo indexing.
   FILE_INDEX_PROGRESS_BATCH: 100,
 };
@@ -140,7 +140,7 @@ const SCORING = {
   HOTSPOT_CONFIG_DISCOUNT: 0.3, // config files naturally have high churn; dampen to avoid false positives
 
   // Stability scoring
-  STABILITY_BASE_SCORE: 40,
+  STABILITY_BASE_SCORE: 45,  // raised from 40 to avoid new files defaulting to fragile
   STABILITY_HAS_TESTS_DELTA: 15,
   STABILITY_LOW_IMPACT_DELTA: 15,
   STABILITY_HIGH_IMPACT_DELTA: -10,

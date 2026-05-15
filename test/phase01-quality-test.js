@@ -15,7 +15,7 @@ const { classifyChangeType } = require('../src/cli/formatters');
 async function testTempFileFilter() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-temp-'));
   fs.writeFileSync(path.join(tmpDir, '.tmp-audit-summary.json'), '{}');
-  fs.writeFileSync(path.join(tmpDir, '.workspace-bridge-cache.json.tmp-123'), '{}');
+  fs.writeFileSync(path.join(tmpDir, 'cache.db'), 'sqlite');
   fs.writeFileSync(path.join(tmpDir, 'real-file.js'), 'console.log(1);');
 
   spawnSync('git', ['init'], { cwd: tmpDir });
@@ -26,7 +26,7 @@ async function testTempFileFilter() {
   assert.strictEqual(result.ok, true);
   const names = result.changedFiles.map((f) => path.basename(f));
   assert(!names.includes('.tmp-audit-summary.json'), 'should filter .tmp-* files');
-  assert(!names.includes('.workspace-bridge-cache.json.tmp-123'), 'should filter cache tmp files');
+  assert(!names.includes('cache.db'), 'should filter cache db files');
   assert(names.includes('real-file.js'), 'should keep real files');
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
