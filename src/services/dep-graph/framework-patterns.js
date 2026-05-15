@@ -144,6 +144,9 @@ function detectFrameworkFromPath(filePath) {
     if (basename === 'celery.py') {
       return { framework: 'django', reason: 'django-celery-config', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
     }
+    if (basename === 'signals.py') {
+      return { framework: 'django', reason: 'django-signals-file', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
+    }
     if (
       (p.includes('/routers/') || p.includes('/endpoints/') || p.includes('/routes/')) &&
       !basename.startsWith('__')
@@ -300,6 +303,7 @@ const AST_PATTERNS = {
     { framework: 'nestjs', reason: 'nestjs-decorator', patterns: ['@Controller', '@Get(', '@Post(', '@Put(', '@Delete('] },
     { framework: 'express', reason: 'express-route', patterns: ['app.get(', 'app.post(', 'router.get(', 'router.post('] },
     { framework: 'vue', reason: 'vue-script', patterns: ["from 'vue'", 'from "vue"', 'createapp(', 'definecomponent(', 'vue-router', 'pinia'] },
+    { framework: 'vue', reason: 'vue-script-setup-macro', patterns: ['defineProps(', 'defineEmits(', 'defineExpose(', 'defineOptions(', 'defineSlots(', 'defineModel('] },
   ],
   py: [
     { framework: 'django', reason: 'django-command', patterns: ['BaseCommand', 'class Command('] },
@@ -309,6 +313,7 @@ const AST_PATTERNS = {
     { framework: 'django', reason: 'django-context-processors', patterns: ['def context_processors', 'def processor('] },
     { framework: 'django', reason: 'django-templatetags', patterns: ['@register.filter', '@register.simple_tag', '@register.inclusion_tag'] },
     { framework: 'django', reason: 'django-forms', patterns: ['class Form(', 'class ModelForm(', 'from django import forms'] },
+    { framework: 'django', reason: 'django-signal', patterns: ['@receiver', '.connect('] },
     { framework: 'celery', reason: 'celery-task', patterns: ['@shared_task', '@app.task'] },
     { framework: 'fastapi', reason: 'fastapi-decorator', patterns: ['@app.get', '@app.post', '@router.get'] },
     { framework: 'flask', reason: 'flask-decorator', patterns: ['@app.route', '@blueprint.route'] },
@@ -317,7 +322,7 @@ const AST_PATTERNS = {
     // Spring Boot annotations must come BEFORE plain Spring annotations
     // to avoid substring false matches (e.g. @Controller matching inside @ControllerAdvice)
     { framework: 'spring-boot', reason: 'spring-boot-annotation', patterns: ['@SpringBootApplication', '@Configuration', '@ControllerAdvice', '@Component', '@Service', '@Repository', '@EnableAutoConfiguration', '@Aspect'] },
-    { framework: 'spring', reason: 'spring-annotation', patterns: ['@RestController', '@Controller', '@GetMapping', '@PostMapping'] },
+    { framework: 'spring', reason: 'spring-annotation', patterns: ['@RestController', '@Controller', '@GetMapping', '@PostMapping', '@FeignClient', '@Scheduled'] },
     // P79/P80/P81: runtime-assembly framework components
     { framework: 'spring', reason: 'spring-component', patterns: ['@Component', '@Service', '@Repository', '@Bean', 'FilterRegistrationBean', 'implements Filter', 'extends HttpServletRequestWrapper', 'implements Validator', 'implements HandlerInterceptor', 'implements ApplicationListener'] },
     { framework: 'quartz', reason: 'quartz-job', patterns: ['org.quartz.Job', '@DisallowConcurrentExecution', 'extends AbstractQuartzJob', 'QuartzJobExecution', 'JobInvokeUtil'] },

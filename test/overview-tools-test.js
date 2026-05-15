@@ -15,7 +15,7 @@ const fileDoc = path.join(root, 'README.md');
 const fileC = path.join(root, 'src', 'c.js');
 
 const dependentsMap = new Map([
-  [fileA, [fileB, fileApp, fileTest]],
+  [fileA, [fileB, fileApp, fileTest, fileC, fileC, fileC, fileC, fileC]],
   [fileB, [fileApp, fileC]],
   [fileApp, [fileTest]],
   [fileTest, []],
@@ -24,7 +24,7 @@ const dependentsMap = new Map([
 ]);
 
 const dependenciesMap = new Map([
-  [fileA, [fileB, fileC, fileDoc]],
+  [fileA, [fileB, fileC, fileDoc, fileB, fileC, fileDoc]],
   [fileB, [fileA]],
   [fileApp, [fileA, fileB]],
   [fileTest, [fileApp]],
@@ -102,6 +102,12 @@ async function main() {
   assert(typeof result.orphans.counts.total === 'number');
   assert(Array.isArray(result.summary.insights));
   assert(Array.isArray(result.summary.recommendations));
+  // L2-5: schema parity with audit-summary — counts present, nextSteps removed
+  assert(typeof result.summary.counts === 'object' && result.summary.counts !== null, 'summary.counts should exist');
+  assert.strictEqual(typeof result.summary.counts.deadExports, 'number', 'counts.deadExports should be number');
+  assert.strictEqual(typeof result.summary.counts.unresolved, 'number', 'counts.unresolved should be number');
+  assert.strictEqual(typeof result.summary.counts.cycles, 'number', 'counts.cycles should be number');
+  assert.strictEqual(typeof result.summary.counts.missingHygieneChecks, 'number', 'counts.missingHygieneChecks should be number');
   assert(result.architectureAdvice, 'architectureAdvice should exist');
   assert(Array.isArray(result.architectureAdvice.cycleRefactorSuggestions), 'cycleRefactorSuggestions should exist');
   assert(Array.isArray(result.architectureAdvice.couplingSplitSuggestions), 'couplingSplitSuggestions should exist');
@@ -131,6 +137,9 @@ async function main() {
   assert(!result.orphans.samples.modules.some((item) => item.includes('.test.')), 'test files should not be reported as orphan modules');
   // P28: config files with high churn should not be misreported as hotspots.
   assert(!result.hotspots.some((h) => h.file.includes('README.md')), 'config file (README.md) with high churn should be dampened and not appear in hotspots');
+  // Hotspot reason combo: high-coupling files with history signals should mention coupling count.
+  const hotspotA = result.hotspots.find((h) => h.file.endsWith('src/a.js'));
+  assert(hotspotA && hotspotA.reason.includes('耦合'), 'high-coupling hotspot reason should include coupling prefix');
 
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-overview-'));
   const outFile = path.join(outDir, 'hotspots.json');
@@ -138,7 +147,7 @@ async function main() {
   assert.strictEqual(resultWithFile.hotspotDataFile, outFile);
   assert(fs.existsSync(outFile), 'hotspot data file should be written');
   const parsed = JSON.parse(fs.readFileSync(outFile, 'utf8'));
-  assert.strictEqual(parsed.schemaVersion, '1.1.1');
+  assert.strictEqual(parsed.schemaVersion, '1.2.0');
   assert(Array.isArray(parsed.hotspots));
   const trendFile = path.join(outDir, 'trend.json');
   const firstRun = await buildProjectOverview({
@@ -156,7 +165,7 @@ async function main() {
   }, container);
   assert.strictEqual(secondRun.stabilityTrendDataFile, trendFile);
   const trendParsed = JSON.parse(fs.readFileSync(trendFile, 'utf8'));
-  assert.strictEqual(trendParsed.schemaVersion, '1.1.1');
+  assert.strictEqual(trendParsed.schemaVersion, '1.2.0');
   assert.strictEqual(trendParsed.granularity, 'week');
   assert(Array.isArray(trendParsed.history));
   assert(trendParsed.history.length >= 2, 'trend history should append snapshots');

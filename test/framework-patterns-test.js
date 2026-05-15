@@ -28,6 +28,8 @@ function testDetectFrameworkFromPath() {
   assert.strictEqual(detectFrameworkFromPath('/project/blog/admin.py').reason, 'django-admin');
   assert.strictEqual(detectFrameworkFromPath('/project/blog/tasks.py').framework, 'django');
   assert.strictEqual(detectFrameworkFromPath('/project/blog/tasks.py').reason, 'django-tasks');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/signals.py').framework, 'django');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/signals.py').reason, 'django-signals-file');
   assert.strictEqual(detectFrameworkFromPath('/project/core/management/commands/cleanup.py').framework, 'django');
   assert.strictEqual(detectFrameworkFromPath('/project/core/management/commands/cleanup.py').reason, 'django-management-command');
   assert.strictEqual(detectFrameworkFromPath('/project/core/views/login.py').framework, 'django');
@@ -112,6 +114,21 @@ function testDetectFrameworkFromContent() {
   const adviceHint = detectFrameworkFromContent('/project/GlobalExceptionHandler.java', adviceContent);
   assert.strictEqual(adviceHint.framework, 'spring-boot');
 
+  // Spring Cloud / Task annotations (P7)
+  const feignContent = `@FeignClient(name = "user-service", url = "${'${user.service.url}'})
+public interface UserClient {
+  @GetMapping("/users/{id}")
+}`;
+  const feignHint = detectFrameworkFromContent('/project/UserClient.java', feignContent);
+  assert.strictEqual(feignHint.framework, 'spring');
+  assert.strictEqual(feignHint.reason, 'spring-annotation');
+
+  const scheduledContent = `@Scheduled(fixedRate = 5000)
+public void reportCurrentTime() {}`;
+  const scheduledHint = detectFrameworkFromContent('/project/ScheduledTasks.java', scheduledContent);
+  assert.strictEqual(scheduledHint.framework, 'spring');
+  assert.strictEqual(scheduledHint.reason, 'spring-annotation');
+
   // Go Gin
   const ginContent = `func handler(c *gin.Context) {\n  c.JSON(200, gin.H{})\n}`;
   const ginHint = detectFrameworkFromContent('/project/handlers.go', ginContent);
@@ -136,6 +153,24 @@ function testDetectFrameworkFromContent() {
   const celeryContent = `from celery import shared_task\n\n@shared_task\ndef add(x, y):\n    return x + y`;
   const celeryHint = detectFrameworkFromContent('/project/core/tasks.py', celeryContent);
   assert.strictEqual(celeryHint.framework, 'celery');
+
+  // Django signals (P8)
+  const signalContent = `from django.dispatch import receiver\nfrom django.db.models.signals import post_save\n\n@receiver(post_save, sender=User)\ndef user_post_save(sender, instance, created, **kwargs):\n    pass`;
+  const signalHint = detectFrameworkFromContent('/project/core/signals.py', signalContent);
+  assert.strictEqual(signalHint.framework, 'django');
+  assert.strictEqual(signalHint.reason, 'django-signal');
+
+  const connectContent = `post_save.connect(user_post_save, sender=User)`;
+  const connectHint = detectFrameworkFromContent('/project/core/handlers.py', connectContent);
+  assert.strictEqual(connectHint.framework, 'django');
+  assert.strictEqual(connectHint.reason, 'django-signal');
+
+  // Vue script setup compiler macros
+  const vueMacroContent = `<script setup>\nconst props = defineProps({ foo: String });\nconst emit = defineEmits(['click']);\ndefineExpose({ bar: 1 });\n</script>`;
+  const vueMacroHint = detectFrameworkFromContent('/project/src/components/Comp.vue', vueMacroContent);
+  assert.strictEqual(vueMacroHint.framework, 'vue');
+  assert.strictEqual(vueMacroHint.reason, 'vue-script-setup-macro');
+  assert.strictEqual(vueMacroHint.isEntry, true);
 
   // No match
   const plainContent = `function add(a, b) { return a + b; }`;

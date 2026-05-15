@@ -313,12 +313,14 @@ class GraphBuilder {
       if (entry) {
         const args = entry.needsFilePath ? [content, filePath] : [content];
         const result = entry.async ? await entry.parser(...args) : entry.parser(...args);
-        imports = result.imports;
-        exports = result.exports;
-        importRecords = result.importRecords || [];
-        exportRecords = result.exportRecords || [];
-        functionRecords = result.functionRecords || [];
-        parseMode = result.parseMode || 'regex';
+        if (result) {
+          imports = result.imports;
+          exports = result.exports;
+          importRecords = result.importRecords || [];
+          exportRecords = result.exportRecords || [];
+          functionRecords = result.functionRecords || [];
+          parseMode = result.parseMode || 'regex';
+        }
       }
 
       // Resolve relative imports to absolute paths
@@ -604,11 +606,13 @@ class GraphAnalyzer {
       const hasRouter = normalized.some((f) => /\/router\//.test(f));
       const hasView = normalized.some((f) => /\.vue$/.test(f) || /\/(views|pages|components|layout|layouts)\//.test(f));
       const hasApi = normalized.some((f) => /\/(api|http|request|services|service)\//.test(f));
+      const hasUtils = normalized.some((f) => /\/utils\//.test(f));
       let dimensions = 0;
       if (hasStore) dimensions++;
       if (hasRouter) dimensions++;
       if (hasView) dimensions++;
       if (hasApi) dimensions++;
+      if (hasUtils) dimensions++;
       if (dimensions >= 2) return true;
     }
 
@@ -732,6 +736,19 @@ class GraphAnalyzer {
     }
     const totalFiles = this.dg.graph.size;
     const coverageRatio = totalFiles > 0 ? parsedFiles / totalFiles : 0;
+
+    // Compute coverage for the CLI-filtered file set (respects --exclude)
+    let filteredParsedFiles = 0;
+    let filteredFallbackFiles = 0;
+    let filteredTotalFiles = 0;
+    for (const [key, info] of this.dg.graph) {
+      if (this.dg.shouldExcludeCli(key)) continue;
+      filteredTotalFiles++;
+      if (info.parseMode === 'ast') filteredParsedFiles++;
+      else if (info.parseMode === 'regex') filteredFallbackFiles++;
+    }
+    const filteredCoverageRatio = filteredTotalFiles > 0 ? filteredParsedFiles / filteredTotalFiles : 0;
+
     const result = {
       files: totalFiles,
       totalImports: Array.from(this.dg.graph.values()).reduce((sum, i) => sum + i.imports.length, 0),
@@ -744,6 +761,12 @@ class GraphAnalyzer {
         fallbackFiles,
         coverageRatio: Math.round(coverageRatio * 100) / 100,
       },
+      filteredAnalysisCoverage: {
+        totalFiles: filteredTotalFiles,
+        parsedFiles: filteredParsedFiles,
+        fallbackFiles: filteredFallbackFiles,
+        coverageRatio: Math.round(filteredCoverageRatio * 100) / 100,
+      },
     };
 
     // P94: include fileRoles in stats for consistency with audit-summary
@@ -753,6 +776,48 @@ class GraphAnalyzer {
     }
 
     return result;
+  }
+
+  buildWarnings() {
+    const warnings = [];
+    let regexFallbackCount = 0;
+    let regexNativeCount = 0;
+    let unsupportedCount = 0;
+
+    for (const [, info] of this.dg.graph) {
+      if (info.parseModeReason === 'regex-fallback') regexFallbackCount++;
+      else if (info.parseModeReason === 'regex-native') regexNativeCount++;
+      else if (info.parseModeReason === 'unsupported-extension') unsupportedCount++;
+    }
+
+    const total = this.dg.graph.size;
+    if (regexFallbackCount > 0) {
+      warnings.push({
+        type: 'regex-fallback',
+        severity: 'medium',
+        files: regexFallbackCount,
+        message: `${regexFallbackCount} file(s) fell back from AST to regex parsing (possible spawn timeout or WASM failure)`,
+      });
+    }
+    if (unsupportedCount > 0) {
+      warnings.push({
+        type: 'unsupported-extension',
+        severity: 'low',
+        files: unsupportedCount,
+        message: `${unsupportedCount} file(s) have unsupported extensions and were not parsed`,
+      });
+    }
+
+    const stats = this.getStats();
+    if (stats.files > 0 && stats.totalImports === 0) {
+      warnings.push({
+        type: 'empty-graph',
+        severity: 'high',
+        message: 'Dependency graph has 0 edges; findings may contain false positives',
+      });
+    }
+
+    return warnings;
   }
 
   _scanSymbolUsageInImporters(importerPaths, symbols, sourceFilePath) {
@@ -889,6 +954,7 @@ class GraphAnalyzer {
         const stats = this.getStats();
         const edgeRatio = stats.files > 0 ? stats.totalImports / stats.files : 0;
         const graphUnreliable = stats.files > 1 && edgeRatio < 0.1;
+        if (scaffold) continue;
         const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable);
         deadExports.push({ file: this.dg._displayPath(filePath), exports: info.exports, confidence, confidenceValue, confidenceSource: source, confidenceReason: reason, importerCount: 0, scaffold });
         continue;
@@ -912,8 +978,9 @@ class GraphAnalyzer {
       }
 
       if (unused.length > 0) {
-        const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false);
         const isConstantsWarehouse = isLikelyConstantsWarehouse(filePath, info.exportRecords);
+        if (isConstantsWarehouse || scaffold) continue;
+        const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false);
         deadExports.push({
           file: this.dg._displayPath(filePath),
           exports: unused,
@@ -1083,7 +1150,12 @@ class GraphQuery {
 
   getImpactRadius(filePath, depth = 3) {
     const start = this.dg.normalizeFilePath(filePath);
-    const results = bfsTraverse(start, (file) => this.getDependents(file), {
+    const results = bfsTraverse(start, (file) => {
+      // Stop diffusion at entry files: every module eventually converges to
+      // cli.js / app.vue / index.js, which provides zero actionable info.
+      if (file !== start && this.dg.isKnownEntryFile(file)) return [];
+      return this.getDependents(file);
+    }, {
       maxDepth: depth,
       onVisit: (file, level, via) => {
         if (level === 0 || file === start) return undefined;
@@ -1147,7 +1219,7 @@ class DependencyGraph {
 
   shouldExclude(filePath) {
     const base = path.basename(filePath);
-    if (base === CACHE_FILENAME) return true;
+    if (base === CACHE_FILENAME || base === 'cache.db') return true;
 
     const normalized = normalizePathKey(filePath);
     return this.excludeDirs.some((dir) => matchesPathFragment(normalized, dir));
@@ -1375,6 +1447,10 @@ class DependencyGraph {
 
   getScopeSummary(...args) {
     return this.analyzer.getScopeSummary(...args);
+  }
+
+  buildWarnings(...args) {
+    return this.analyzer.buildWarnings(...args);
   }
 
   _scanSymbolUsageInImporters(...args) {

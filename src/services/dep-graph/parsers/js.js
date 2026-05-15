@@ -39,6 +39,18 @@ const DECL_KIND_MAP = {
 // #31: AST walker skip keys extracted from hardcoded string list
 const AST_SKIP_KEYS = new Set(['type', 'loc', 'start', 'end']);
 
+// Vue <script setup> compiler macros — injected by the Vue compiler at build time.
+// Explicit re-exports of these names in .vue files are false positives because
+// consuming components use the compiler-injected globals, not imports.
+const VUE_COMPILER_MACROS = new Set([
+  'defineProps',
+  'defineEmits',
+  'defineExpose',
+  'defineOptions',
+  'defineSlots',
+  'defineModel',
+]);
+
 function stripBlockComments(content) {
   return content.replace(/\/\*[\s\S]*?\*\//g, '');
 }
@@ -145,6 +157,8 @@ function parseJavaScriptAST(content, filePath = '') {
     });
 
     // #11: visitors mapping table replaces 220-line visitNode monolith
+    const isVueFile = filePath.toLowerCase().endsWith('.vue');
+
     const importExportVisitors = {
       ImportDeclaration(node) {
         if (!node.source?.value) return;
@@ -220,6 +234,7 @@ function parseJavaScriptAST(content, filePath = '') {
             if (spec.type === 'ExportSpecifier') {
               if (spec.exportKind === 'type') continue;
               const name = spec.exported?.name || spec.exported?.value || spec.local?.name || spec.local?.value;
+              if (isVueFile && VUE_COMPILER_MACROS.has(name)) continue;
               if (name) {
                 exportRecords.push(createExportRecord(name, {
                   kind: 'symbol',
@@ -234,7 +249,7 @@ function parseJavaScriptAST(content, filePath = '') {
         if (node.declaration) {
           const decl = node.declaration;
           const kind = exportKindFromDeclarationType(decl.type);
-          if (decl.id?.name) {
+          if (decl.id?.name && !(isVueFile && VUE_COMPILER_MACROS.has(decl.id.name))) {
             const fingerprint = kind === 'function' ? buildFunctionFingerprint(decl) : null;
             exportRecords.push(createExportRecord(decl.id.name, {
               kind,
@@ -245,7 +260,7 @@ function parseJavaScriptAST(content, filePath = '') {
           }
           if (decl.declarations) {
             for (const d of decl.declarations) {
-              if (d.id?.name) {
+              if (d.id?.name && !(isVueFile && VUE_COMPILER_MACROS.has(d.id.name))) {
                 const variableKind = isFunctionLikeNode(d.init) ? 'function' : kind;
                 const fingerprint = variableKind === 'function' ? buildFunctionFingerprint(d.init) : null;
                 exportRecords.push(createExportRecord(d.id.name, {
@@ -605,7 +620,12 @@ function parseJavaScript(content, filePath = '') {
 
   const sanitized = sanitizeForRegex(content);
   const { imports, importRecords } = extractImportsWithRegex(sanitized);
-  const { exportRecords, reExportImportRecords } = extractExportsWithRegex(sanitized);
+  let { exportRecords, reExportImportRecords } = extractExportsWithRegex(sanitized);
+
+  const isVueFile = filePath.toLowerCase().endsWith('.vue');
+  if (isVueFile) {
+    exportRecords = exportRecords.filter((r) => !VUE_COMPILER_MACROS.has(r.name));
+  }
 
   for (const record of reExportImportRecords) {
     importRecords.push(record);

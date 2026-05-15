@@ -152,12 +152,17 @@ async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
         const score = calculateHotspotScore(historyRisk, fileRole, frameworkHint?.entryPointWeight);
         const coupling = calculateCoupling(dependencies, dependents);
         if (score <= SCORING.HOTSPOT_REPORT_THRESHOLD && coupling.total <= SCORING.COUPLING_MEDIUM_MIN) return null;
+        const historySignal = historyRisk?.signals?.[0];
+        const baseReason = historySignal || `${coupling.total} 个依赖连接`;
+        const reason = (coupling.total > SCORING.COUPLING_MEDIUM_MIN && historySignal)
+          ? `耦合 ${coupling.total} 个模块 · ${baseReason}`
+          : baseReason;
         return {
           file: relativePath,
           score,
           risk: historyRisk?.level || 'low',
           coupling: coupling.total,
-          reason: historyRisk?.signals?.[0] || `${coupling.total} 个依赖连接`,
+          reason,
         };
       })
     );
@@ -331,8 +336,17 @@ const COUPLING_ADVICE_RULES = [
   { match: (r) => r === 'config', advice: ['配置模块被多处引用时，考虑按环境或领域拆分为独立配置文件', '提取配置验证逻辑到独立模块，避免配置解析散落在各处'] },
 ];
 
-function generateCouplingSplitPlan(role, coupling) {
+function generateCouplingSplitPlan(role, coupling, isSmallProject) {
   const { inDegree, outDegree } = coupling;
+
+  // L3-3: suppress aggressive split advice for small monoliths
+  if (isSmallProject && role === 'library') {
+    return [
+      '项目规模较小，保持内聚优先；高耦合模块建议通过测试覆盖降低修改风险',
+      '关注接口稳定性，待规模增长后再评估是否物理拆分',
+    ];
+  }
+
   const rule = COUPLING_ADVICE_RULES.find((r) => r.match(role, inDegree, outDegree));
   if (rule) return rule.advice;
 
@@ -362,6 +376,7 @@ function generateCouplingSplitPlan(role, coupling) {
 }
 
 function buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectContext) {
+  const isSmallProject = mainlineFiles.length < 200;
   const candidates = [];
   for (const file of mainlineFiles) {
     const dependents = depGraph.getDependents?.(file) || [];
@@ -386,14 +401,14 @@ function buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectCon
 
   return candidates
     .sort((a, b) => b.coupling.total - a.coupling.total)
-    .slice(0, SCORING.TOP_N_LIST)
+    .slice(0, 3)
     .map((item, index) => ({
       moduleId: `coupling-${index + 1}`,
       file: toRelative(root, item.file),
       coupling: item.coupling,
       role: item.role,
       reason: `耦合过高（in=${item.coupling.inDegree}, out=${item.coupling.outDegree}, total=${item.coupling.total}）`,
-      splitPlan: generateCouplingSplitPlan(item.role, item.coupling),
+      splitPlan: generateCouplingSplitPlan(item.role, item.coupling, isSmallProject),
       validation: {
         command: 'workspace-bridge-cli audit-overview --cwd . --json --quiet',
         expectation: '目标模块 coupling.total 下降，stabilityScore 不回退',
@@ -434,7 +449,7 @@ function buildHotspotVisualizationData(root, hotspots, aggregates) {
     }));
 
   return {
-    schemaVersion: '1.1.1',
+    schemaVersion: '1.2.0',
     generatedAt: new Date().toISOString(),
     workspaceRoot: root,
     stats: {
@@ -739,7 +754,7 @@ async function buildProjectOverview(args, container) {
     const history = [...existingHistory, stabilityTrendSnapshot];
     const series = buildStabilityTrendSeries(history, trendGranularity);
     const payload = {
-      schemaVersion: '1.1.1',
+      schemaVersion: '1.2.0',
       generatedAt: nowIso,
       workspaceRoot: root,
       granularity: trendGranularity,
@@ -782,6 +797,18 @@ async function buildProjectOverview(args, container) {
   }
   if (args?.overviewDashboard) {
     options.overviewDashboard = { enabled: true, path: args.overviewDashboard };
+  }
+
+  // L2-5: schema parity with audit-summary — counts aligned, nextSteps removed
+  // (recommendations already carries all actionable guidance).
+  summary.counts = {
+    deadExports: deadExports.length,
+    unresolved: unresolved.length,
+    cycles: cycles.length,
+    missingHygieneChecks: 0,
+  };
+  if (analysisCoverage) {
+    summary.analysisCoverage = analysisCoverage;
   }
 
   return {

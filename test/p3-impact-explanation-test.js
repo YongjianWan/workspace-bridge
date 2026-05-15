@@ -84,9 +84,71 @@ function testBuildImpactExplanations() {
   console.log('testBuildImpactExplanations passed');
 }
 
+function testGetImpactRadiusTruncatesAtEntryFiles() {
+  const depGraph = new DependencyGraph('/repo', { fileMetadata: new Map() });
+  const utilPath = n('/repo/src/utils/path.js');
+  const cliPath = n('/repo/cli.js');
+  const indexPath = n('/repo/src/index.js');
+
+  depGraph.graph = new Map([
+    [utilPath, { imports: [], exports: [], importRecords: [], parseMode: 'ast' }],
+    [cliPath, {
+      imports: [utilPath],
+      exports: [],
+      importRecords: [{ source: './utils/path', resolved: utilPath, imported: [], usesAllExports: false }],
+      parseMode: 'ast',
+    }],
+    [indexPath, {
+      imports: [cliPath],
+      exports: [],
+      importRecords: [{ source: '../cli', resolved: cliPath, imported: [], usesAllExports: false }],
+      parseMode: 'ast',
+    }],
+  ]);
+  depGraph.buildReverseGraph();
+
+  const impact = depGraph.getImpactRadius(utilPath, 5);
+
+  const cliImpact = impact.find((i) => i.file === cliPath);
+  assert(cliImpact, 'cli.js should be in impact radius (level 1, entry file)');
+  assert.strictEqual(cliImpact.level, 1);
+
+  const indexImpact = impact.find((i) => i.file === indexPath);
+  assert(!indexImpact, 'index.js should NOT be in impact radius because cli.js is an entry file');
+
+  console.log('testGetImpactRadiusTruncatesAtEntryFiles passed');
+}
+
+function testGetImpactRadiusDoesNotTruncateStartNode() {
+  const depGraph = new DependencyGraph('/repo', { fileMetadata: new Map() });
+  const cliPath = n('/repo/cli.js');
+  const indexPath = n('/repo/src/index.js');
+
+  depGraph.graph = new Map([
+    [cliPath, { imports: [], exports: [], importRecords: [], parseMode: 'ast' }],
+    [indexPath, {
+      imports: [cliPath],
+      exports: [],
+      importRecords: [{ source: '../cli', resolved: cliPath, imported: [], usesAllExports: false }],
+      parseMode: 'ast',
+    }],
+  ]);
+  depGraph.buildReverseGraph();
+
+  const impact = depGraph.getImpactRadius(cliPath, 5);
+
+  const indexImpact = impact.find((i) => i.file === indexPath);
+  assert(indexImpact, 'index.js should be in impact radius even though cli.js is the start node and is an entry file');
+  assert.strictEqual(indexImpact.level, 1);
+
+  console.log('testGetImpactRadiusDoesNotTruncateStartNode passed');
+}
+
 function main() {
   testGetImpactRadiusWithExplanations();
   testBuildImpactExplanations();
+  testGetImpactRadiusTruncatesAtEntryFiles();
+  testGetImpactRadiusDoesNotTruncateStartNode();
   console.log('All P3 impact explanation tests passed');
 }
 

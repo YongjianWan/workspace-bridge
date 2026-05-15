@@ -109,6 +109,25 @@ async function main() {
     if (idx >= 0) ADAPTERS.splice(idx, 1);
   }
 
+  // --- auditSecurity builtinOnly forces builtin scan even when adapters available ---
+  const fakeAdapter2 = {
+    name: 'fake2',
+    async isAvailable() { return true; },
+    async scan() {
+      return { findings: [{ severity: 'high', ruleId: 'fake', file: 'a.js', lineStart: 1, lineEnd: 1, message: 'm', tool: 'fake2' }], summary: { total: 1 } };
+    },
+  };
+  ADAPTERS.push(fakeAdapter2);
+  try {
+    const builtinResult = await auditSecurity({ cwd: process.cwd(), targets: [], builtinOnly: true }, null);
+    assert.deepStrictEqual(builtinResult.adapters, ['builtin'], 'builtinOnly should skip external adapters');
+    assert.strictEqual(builtinResult.scanMeta[0]?.name, 'builtin');
+    assert.ok(!builtinResult.findings.some((f) => f.tool === 'fake2'), 'builtinOnly should not include fake adapter findings');
+  } finally {
+    const idx = ADAPTERS.indexOf(fakeAdapter2);
+    if (idx >= 0) ADAPTERS.splice(idx, 1);
+  }
+
   console.log('security-adapter-test: ok');
 }
 

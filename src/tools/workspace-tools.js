@@ -87,8 +87,11 @@ async function buildChecks(workspace, mode) {
 
     // Auto-detect eslint if no lint script but config exists
     if (!scripts.lint) {
-      const eslintConfigs = ['.eslintrc.js', '.eslintrc.json', '.eslintrc.cjs', '.eslintrc.yaml', '.eslintrc.yml', 'eslint.config.js', 'eslint.config.mjs'];
-      const hasEslintConfig = eslintConfigs.some((f) => pathExists(path.join(root, f)));
+      const eslintConfigs = ['.eslintrc.js', '.eslintrc.json', '.eslintrc.cjs', '.eslintrc.yaml', '.eslintrc.yml', 'eslint.config.js', 'eslint.config.mjs', '.eslintrc'];
+      let hasEslintConfig = eslintConfigs.some((f) => pathExists(path.join(root, f)));
+      if (!hasEslintConfig && workspace.packageJson) {
+        hasEslintConfig = Boolean(workspace.packageJson.eslintConfig);
+      }
       if (hasEslintConfig) {
         checks.push({
           name: 'node:eslint',
