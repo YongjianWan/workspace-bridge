@@ -24,30 +24,6 @@
 
 ---
 
-#### `--check-regression` 基线对比崩溃
-
-**数据**：`audit-summary --save` 成功生成 baseline（747 字节），但 `--check-regression` 崩溃：`Cannot read properties of undefined (reading 'slice')`。
-
-**根因**：基线文件 schema 与当前代码读取逻辑不匹配；`loadBaseline()` 或 `compareFindings()` 未防御缺失字段 / 旧格式。
-
-**影响**："跨时间审计追踪"能力完全不可用，SKILL.md 推荐的基线工作流断裂。
-
-**方案**：`loadBaseline()` 增加防御式解析（空文件 → 空基线、缺失字段 → 默认值）；`compareFindings()` 前置空值检查。
-
----
-
-#### Java `dead-exports` 大图崩溃
-
-**数据**：ai_zcypg_backend（542 文件 Java）跑 `dead-exports` 返回 exit code 49，零输出。同项目 `audit-summary` 正常。
-
-**根因**：待定位。可能路径：① `spawn-ast.js` Java AST 子进程 OOM / 超时；② `dep-graph.js` `findDeadExports` 在特定 exportRecords 结构上抛未捕获异常；③ Java parser regex fallback 路径异常。
-
-**影响**：Java 项目死导出检测能力完全不可用。
-
-**方案**：先复现 → 加 `--verbose` 或 stderr 捕获定位崩溃文件 → 在 parser / GraphAnalyzer 层加 try-catch 防御 → 修复根因。
-
----
-
 #### diagnostics linter 检测与 workspace-info 结果矛盾
 
 **数据**：`workspace-info` 显示 `availableChecks: ["npm scripts", "eslint", "prettier"]`，但 `diagnostics` 返回 `noLintersDetected: true`，只跑了 `git status --short`。
@@ -107,42 +83,6 @@
 **方案**：复现 → 确认是缓存问题还是 cycle 检测逻辑未过滤 → 在 `findCircularDependencies` 入口增加 `excludedFiles` 过滤，或确保 exclude 变化触发 cache 失效。
 
 ---
-
-#### `watch` 误报缓存文件变更
-
-**数据**：`watch` 启动后检测到 `.workspace-bridge-cache.json.tmp-*` / `.bak` 变更，输出 "0 dependents affected"。
-
-**根因**：`watch` 的文件监控排除列表未同步更新。SQLite 迁移后缓存文件变为 `cache.db` / `cache.db-wal` / `cache.db-shm`，但遗留的 `.tmp-*` / `.bak` 排除逻辑可能仍存在于旧路径，且新的 SQLite 缓存文件也未被 watch 排除。
-
-**影响**：工具自身缓存变更被当作项目源文件监控，产生自噪声，干扰 AI 对真实文件变更的判断。
-
-**方案**：同步更新 `watch.js` 的排除逻辑：① 保留旧 `.workspace-bridge-cache.json` / `.bak` 排除（处理遗留文件）；② 新增 `cache.db` / `cache.db-wal` / `cache.db-shm` 排除。
-
----
-
----
-
-#### `--cwd` 指向不存在的目录时挂起
-
-**数据**：`node cli.js audit-summary --cwd 不存在的目录` 5 秒内无响应，无限期挂起。
-
-**根因**：`file-index.js` 或 `container.js` 在无效路径下未做前置校验，进入扫描/解析循环后阻塞。可能是 `fs.readdirSync`/`glob` 在无效路径下的异常未捕获，或 `path.resolve()` 后未检查目录存在性。
-
-**影响**：AI agent 调用时若路径错误（如拼写错误），会永久卡住而不是快速报错。这是最严重的鲁棒性问题。
-
-**方案**：CLI 入口或 `ServiceContainer` 初始化时增加 `fs.existsSync(cwd) && fs.statSync(cwd).isDirectory()` 前置检查，无效时立即返回 `{ ok: false, error: 'Directory not found: ${cwd}' }`。
-
----
-
-#### `--exclude` 后 `parsedFiles` 不更新
-
-**数据**：`audit-diff --exclude src/views,src/components` 后，`totalFiles` 从 239 降至 98，但 `parsedFiles` 始终是 238。`coverageRatio` 计算被 `Math.min(1, parsed/total)` 硬截断为 100%。
-
-**根因**：`--exclude` 只做输出过滤，不重建子集索引。缓存索引在冷启动时建了一次，exclude 只是查询时的过滤条件，未同步更新 `analysisCoverage` 统计基数。
-
-**影响**：coverageRatio 完全不可信。用户看到 100% 覆盖率，实际只分析了 98 个文件中的部分。
-
-**方案**：`--exclude` 生效时重新计算 `parsedFiles` 和 `totalFiles`，或让 coverage 统计基于过滤后的实际文件集。
 
 ---
 

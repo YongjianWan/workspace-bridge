@@ -5,23 +5,32 @@
 const fs = require('fs');
 const path = require('path');
 const { normalizePathKey } = require('../utils/path');
+const { GraphDB } = require('./graph-db');
 
 const CACHE_FILENAME = '.workspace-bridge-cache.json';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const CACHE_VERSION = 3; // Increment when cache structure changes
 
 class WorkspaceCache {
-  constructor(workspaceRoot) {
+  constructor(workspaceRoot, options = {}) {
     this.workspaceRoot = workspaceRoot;
-    this.cachePath = path.join(workspaceRoot, CACHE_FILENAME);
-    
+    this.cacheDir = options.cacheDir || null;
+
+    if (this.cacheDir) {
+      this.cachePath = path.join(this.cacheDir, 'cache.db');
+      this._graphDb = new GraphDB(this.cachePath);
+    } else {
+      this.cachePath = path.join(workspaceRoot, CACHE_FILENAME);
+      this._graphDb = null;
+    }
+
     // In-memory caches
     this.workspaceInfo = null;
     this.fileMetadata = new Map(); // file -> {mtime, size, hash}
     this.parseResults = new Map(); // file -> {imports, exports, importRecords, exportRecords, functionRecords, parseMode, confidence, mtime}
     this.symbolIndex = new Map();  // symbol -> [{file, line, type}]
     this.diagnostics = new Map();  // file -> [diagnostics]
-    
+
     this.lastSaved = 0;
   }
 
@@ -97,6 +106,34 @@ class WorkspaceCache {
    * Load from disk if exists and fresh
    */
   load() {
+    if (this._graphDb) {
+      try {
+        // TTL check: treat stale database as cold start
+        if (fs.existsSync(this.cachePath)) {
+          const stat = fs.statSync(this.cachePath);
+          const age = Date.now() - stat.mtimeMs;
+          if (age > CACHE_TTL_MS) {
+            return false;
+          }
+        }
+
+        const data = this._graphDb.loadAll();
+        if (!data) return false;
+        this.workspaceInfo = data.workspaceInfo;
+        this.fileMetadata = data.fileMetadata || new Map();
+        this.parseResults = data.parseResults || new Map();
+        this.symbolIndex = data.symbolIndex || new Map();
+        this.diagnostics = data.diagnostics || new Map();
+        this.lastSaved = data.timestamp || 0;
+        return true;
+      } catch (err) {
+        if (process.env.DEBUG) {
+          console.error('[Cache] SQLite load failed:', err.message);
+        }
+        return false;
+      }
+    }
+
     const tryLoad = (filePath) => {
       if (!fs.existsSync(filePath)) {
         return false;
@@ -152,6 +189,28 @@ class WorkspaceCache {
    * Save to disk
    */
   async save() {
+    if (this._graphDb) {
+      try {
+        const ok = this._graphDb.saveAll({
+          workspaceRoot: this.workspaceRoot,
+          workspaceInfo: this.workspaceInfo,
+          fileMetadata: Array.from(this.fileMetadata.entries()),
+          parseResults: Array.from(this.parseResults.entries()),
+          symbolIndex: Array.from(this.symbolIndex.entries()),
+          diagnostics: Array.from(this.diagnostics.entries()),
+        });
+        if (ok) {
+          this.lastSaved = Date.now();
+        }
+        return ok;
+      } catch (err) {
+        if (process.env.DEBUG) {
+          console.error('[Cache] SQLite save failed:', err.message);
+        }
+        return false;
+      }
+    }
+
     const { writeFile, rename, unlink } = require('fs').promises;
     let tempPath = null;
     let serialized = null;
@@ -340,6 +399,12 @@ class WorkspaceCache {
       diagnostics: diagnosticCount,
       totalLines,
     };
+  }
+
+  close() {
+    if (this._graphDb) {
+      this._graphDb.close();
+    }
   }
 }
 

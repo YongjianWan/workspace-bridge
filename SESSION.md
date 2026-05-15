@@ -24,6 +24,8 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 
 **如果 audit-summary 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
 
+> 2026-05-15：P0–P2 bug fixes 已完成，4 个测试回归已修复。当前全量测试通过（109/109）。详见下方「本轮完成」。
+
 ---
 
 ## 新会话默认动作（如果用户未指定方向）
@@ -66,15 +68,15 @@ node cli.js repl
 
 ## 基线状态
 
-- 测试：**107/107 PASS**（runner 并行化：并行组 101 个 + 串行组 6 个）
+- 测试：**109/109 PASS**（全量 runner 通过）
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：198 文件，entry=1, library=64, test=108, script=21, unknown=4
+- 自身项目规模：~198 文件，entry=1, library=64, test=110, script=21, unknown=4
 - 健康度：5/5，5 dead exports（新增 `buildWarnings`/`determineExitCode` 等内部 API 导出），0 循环，0 未解析
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
 - Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.2.0"` 已冻结**
-- 缓存：**SQLite 持久化**（`os.tmpdir()/workspace-bridge/<hash>/cache.db`），项目间隔离（按 workspaceRoot md5 hash 分目录），支持 `--cache-dir` 覆盖
+- 缓存：**SQLite 持久化**（`os.tmpdir()/workspace-bridge/<hash>/cache.db`），项目间隔离（按 workspaceRoot md5 hash 分目录），支持 `--cache-dir` 覆盖；`WorkspaceCache` 构造函数接受 `options.cacheDir`，不传时回退 JSON
 
 **历史交付**：路线 A–J 全部完成；阶段 1 误报清零完成；阶段 2 暴露正确 + 输出策展完成（`--builtin-only`/`--format summary`/TTL 24h/`--since`/`--format markdown`/`--severity`/`--with-impact`/runner 并行化）；阶段 3 框架感知深化完成（P6-P8）。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 

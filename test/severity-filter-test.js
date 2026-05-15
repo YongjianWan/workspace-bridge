@@ -13,7 +13,12 @@ function testAuditSummarySeverityHigh() {
   const result = run(['audit-summary', '--severity', 'high']);
   assert.ok(result.status === 0, `Exit code should be 0, got ${result.status}. stderr: ${result.stderr}`);
   const data = JSON.parse(result.stdout);
-  assert.strictEqual(data.deadExports.deadExportsCount, 0, 'high severity filter should exclude medium-confidence dead exports');
+  // If dead exports are returned, every single one must be high-confidence.
+  // We do not assert a fixed count because the real codebase may legitimately
+  // contain high-confidence dead exports.
+  const deadExports = data.deadExports?.deadExports || [];
+  const allHigh = deadExports.every((d) => d.confidence === 'high');
+  assert.ok(allHigh, 'high severity filter should only include high-confidence dead exports');
 }
 
 function testAuditSummarySeverityMedium() {

@@ -397,6 +397,7 @@ function requireFile(parsed, command) {
 
 function determineExitCode(command, result, failOnFindings = false) {
   if (!result || result.ok === false) return 1;
+  if (result.regression && result.regression.ok === false) return 1;
 
   switch (command) {
     case 'audit-summary': {

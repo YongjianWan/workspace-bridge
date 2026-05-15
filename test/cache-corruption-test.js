@@ -8,15 +8,18 @@ const { WorkspaceCache } = require('../src/services/cache');
 
 function testLoadIgnoresMissingDatabase() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
-  const cache = new WorkspaceCache(dir);
+  const cacheDir = path.join(dir, '.cache');
+  const cache = new WorkspaceCache(dir, { cacheDir });
   const ok = cache.load();
   assert.strictEqual(ok, false);
+  cache.close();
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
 function testLoadIgnoresWrongVersion() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
-  const cache = new WorkspaceCache(dir);
+  const cacheDir = path.join(dir, '.cache');
+  const cache = new WorkspaceCache(dir, { cacheDir });
   cache.setFileMetadata(path.join(dir, 'a.js'), { mtime: 1, size: 1 });
   cache.save();
 
@@ -26,15 +29,18 @@ function testLoadIgnoresWrongVersion() {
   db.prepare('UPDATE cache_metadata SET value = ? WHERE key = ?').run('999', 'version');
   db.close();
 
-  const cache2 = new WorkspaceCache(dir);
+  const cache2 = new WorkspaceCache(dir, { cacheDir });
   const ok = cache2.load();
   assert.strictEqual(ok, false);
+  cache.close();
+  cache2.close();
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
 async function testLoadIgnoresStaleCache() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
-  const cache = new WorkspaceCache(dir);
+  const cacheDir = path.join(dir, '.cache');
+  const cache = new WorkspaceCache(dir, { cacheDir });
   cache.setFileMetadata(path.join(dir, 'a.js'), { mtime: 1, size: 1 });
   await cache.save();
 
@@ -43,31 +49,34 @@ async function testLoadIgnoresStaleCache() {
   const oldTime = new Date(Date.now() - 25 * 60 * 60 * 1000); // 25 hours ago
   fs.utimesSync(dbPath, oldTime, oldTime);
 
-  const cache2 = new WorkspaceCache(dir);
+  const cache2 = new WorkspaceCache(dir, { cacheDir });
   const ok = cache2.load();
   assert.strictEqual(ok, false);
-
+  cache.close();
+  cache2.close();
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
 function testNormalizeFileMapEntriesHandlesNonArray() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
-  const cache = new WorkspaceCache(dir);
+  const cacheDir = path.join(dir, '.cache');
+  const cache = new WorkspaceCache(dir, { cacheDir });
 
   // Passing a plain object should not crash; should treat as empty
   const result = cache.normalizeFileMapEntries({ foo: 'bar' });
   assert.strictEqual(result.size, 0);
-
+  cache.close();
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
 function testNormalizeDiagnosticsEntriesHandlesNonArray() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
-  const cache = new WorkspaceCache(dir);
+  const cacheDir = path.join(dir, '.cache');
+  const cache = new WorkspaceCache(dir, { cacheDir });
 
   const result = cache.normalizeDiagnosticsEntries({ foo: 'bar' });
   assert.strictEqual(result.size, 0);
-
+  cache.close();
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -78,7 +87,8 @@ async function testSaveReturnsFalseOnPersistentFailure() {
   }
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
-  const cache = new WorkspaceCache(dir);
+  const cacheDir = path.join(dir, '.cache');
+  const cache = new WorkspaceCache(dir, { cacheDir });
   cache.setWorkspaceInfo({ kind: 'test' });
 
   // Pre-create the db directory and make it read-only
@@ -90,6 +100,7 @@ async function testSaveReturnsFalseOnPersistentFailure() {
     assert.strictEqual(ok, false);
   } finally {
     fs.chmodSync(cache.cacheDir, 0o755);
+    cache.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }

@@ -6,6 +6,44 @@
 
 ## [Unreleased]
 
+### 修复（P0–P2 bug fixes + exit code 语义收敛）
+
+- **`--cwd` 前置校验** `cli.js`：
+  - `main()` 在 `ServiceContainer` 初始化前增加 `fs.existsSync(cwd) && fs.statSync(cwd).isDirectory()` 检查
+  - 无效路径立即返回 `{ ok: false, error: 'Directory not found: ${cwd}', schemaVersion }`，exit code = 1
+  - 解决 AI agent 传错路径时无限挂起的问题
+
+- **exit code 反模式修复** `cli.js`：
+  - 新增 `--fail-on-findings` 标志（默认 `false`）
+  - `determineExitCode()` 默认返回 `0`（分析成功即 0），无论是否有 findings；仅在 `--fail-on-findings` 显式开启时，有 findings 才返回 `1`
+  - 未捕获异常仍返回 `2`
+  - 修复 `--check-regression` 无基线时 `result.regression.ok = false` 但 `result.ok = true` 导致 exit=0 的问题：`determineExitCode` 增加 `result.regression?.ok === false` 检查
+  - 解决 CI / AI agent 把正常分析结果误判为命令失败的问题
+
+- **Java dead-exports 崩溃防御** `src/services/dep-graph.js`：
+  - `GraphBuilder.analyzeFile()` 中 `entry.parser()` 调用增加 try-catch
+  - 单文件 parse 错误不再 crash 整个 batch，而是降级为空 imports/exports 并继续分析其他文件
+  - 解决 542 文件 Java 项目 `dead-exports` exit code 49 崩溃问题（根因：regex fallback 路径遇到非预期语法时抛出未捕获异常）
+
+- **watch 缓存误报消除** `src/services/file-index.js`：
+  - `shouldExclude()` 新增 `cache.db-wal` / `cache.db-shm` 排除，与现有 `cache.db` 一起被过滤
+  - 解决 `audit-file --watch` 启动后将 SQLite WAL/shm 文件当作项目源文件监控的问题
+
+- **`--exclude` 后 coverage 统计修复** `src/services/dep-graph.js` `cli.js`：
+  - `GraphAnalyzer.getScopeSummary()` 在计数时同时应用 `shouldExclude()` 和 `shouldExcludeCli()` 过滤
+  - `audit-summary` formatter 优先使用 `stats.filteredAnalysisCoverage || stats.analysisCoverage`
+  - 解决 `--exclude` 后 `parsedFiles` 不下降、`coverageRatio` 硬截断 100% 的问题
+
+- **`severity-filter-test.js` 去 brittle 化** `test/severity-filter-test.js`：
+  - `testAuditSummarySeverityHigh` 不再断言 `deadExportsCount === 0`（依赖 codebase 无 high-confidence dead exports）
+  - 改为断言所有返回的 dead exports 必须 `confidence === 'high'`，使测试对 codebase 状态变化免疫
+
+- **`cache-backup-test.js` / `cache-corruption-test.js` 回归修复** `src/services/cache.js` `test/cache-backup-test.js` `test/cache-corruption-test.js`：
+  - `WorkspaceCache` 构造函数正式接受 `options.cacheDir`，存在时委托 `GraphDB`（SQLite）持久化，否则回退 JSON
+  - `load()` 为 SQLite 路径补充 `CACHE_TTL_MS` 过期检查（与 JSON 路径行为一致）
+  - 新增 `close()` 方法关闭 `GraphDB` 连接（修复 Windows 上 `EBUSY` 无法删除缓存目录的问题）
+  - 测试全部显式传 `{ cacheDir }`，并在 cleanup 中 `close()` 后再 `rmSync`
+
 ### 修复（L3 双项收敛 — 功能缺口补全）
 
 - **impact 入口扩散截断** `src/services/dep-graph.js` `test/p3-impact-explanation-test.js`：
