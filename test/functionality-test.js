@@ -17,7 +17,7 @@ function runCli(args) {
     encoding: 'utf8',
   });
 
-  assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+  assert.ok(result.status === 0, `exit=${result.status} stderr=${result.stderr || result.stdout}`);
   return JSON.parse(result.stdout);
 }
 
@@ -27,7 +27,7 @@ function runCliText(args) {
     encoding: 'utf8',
   });
 
-  assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+  assert.ok(result.status === 0, `exit=${result.status} stderr=${result.stderr || result.stdout}`);
   return result.stdout;
 }
 
@@ -36,7 +36,7 @@ function runInDir(command, args, cwd) {
     cwd,
     encoding: 'utf8',
   });
-  assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+  assert.ok(result.status === 0, `exit=${result.status} stderr=${result.stderr || result.stdout}`);
   return result.stdout;
 }
 
@@ -288,10 +288,10 @@ function main() {
   assert(fs.existsSync(trendDataFile), 'audit-overview should write stability trend data file');
   assert(fs.existsSync(dashboardFile), 'audit-overview should write dashboard html file');
   const overviewData = JSON.parse(fs.readFileSync(overviewDataFile, 'utf8'));
-  assert.strictEqual(overviewData.schemaVersion, '1.1.1');
+  assert.strictEqual(overviewData.schemaVersion, '1.2.0');
   assert(Array.isArray(overviewData.hotspots));
   const trendData = JSON.parse(fs.readFileSync(trendDataFile, 'utf8'));
-  assert.strictEqual(trendData.schemaVersion, '1.1.1');
+  assert.strictEqual(trendData.schemaVersion, '1.2.0');
   assert.strictEqual(trendData.granularity, 'week');
   assert(Array.isArray(trendData.series));
   const dashboardHtml = fs.readFileSync(dashboardFile, 'utf8');

@@ -1,0 +1,77 @@
+const assert = require('assert');
+const { spawnSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+const cwd = path.resolve(__dirname, '..');
+const targetFile = path.join(cwd, 'src', 'utils', 'path.js');
+
+function run(args) {
+  return spawnSync('node', ['cli.js', ...args, '--json', '--quiet'], { cwd, encoding: 'utf8' });
+}
+
+function testStagedFlagParsing() {
+  // --staged should be accepted without error
+  const result = run(['audit-diff', '--staged']);
+  // In a clean working tree this may return 0 with empty changedFiles
+  assert.ok(result.status === 0, `Exit code should be 0, got ${result.status}. stderr: ${result.stderr}`);
+  const data = JSON.parse(result.stdout);
+  assert.strictEqual(data.ok, true, 'ok should be true');
+  assert(Array.isArray(data.changedFiles), 'changedFiles should be an array');
+}
+
+function testFilesFlagAuditDiff() {
+  const files = 'src/utils/path.js,src/utils/constants.js';
+  const result = run(['audit-diff', '--files', files]);
+  assert.ok(result.status === 0, `Exit code should be 0, got ${result.status}. stderr: ${result.stderr}`);
+  const data = JSON.parse(result.stdout);
+  assert.strictEqual(data.ok, true, 'ok should be true');
+  assert.strictEqual(data.changedFiles.length, 2, 'should return exactly 2 files');
+  const fileNames = data.changedFiles.map((e) => e.file || e);
+  assert(fileNames.some((f) => f.includes('path.js')), 'should include path.js');
+  assert(fileNames.some((f) => f.includes('constants.js')), 'should include constants.js');
+}
+
+function testFilesFlagAuditSecurity() {
+  const tmpFile = path.join(cwd, 'test-staged-sec-temp.js');
+  try {
+    fs.writeFileSync(tmpFile, `eval('1');\n`);
+    const result = run(['audit-security', '--builtin-only', '--files', tmpFile]);
+    assert.ok(result.status === 0, `Exit code should be 0, got ${result.status}. stderr: ${result.stderr}`);
+    const data = JSON.parse(result.stdout);
+    assert.strictEqual(data.ok, true, 'ok should be true');
+    assert(data.findings.length > 0, 'should find security issues in specified file');
+    assert(data.findings.every((f) => f.file.includes('test-staged-sec-temp.js')), 'all findings should be from the specified file');
+  } finally {
+    try { fs.unlinkSync(tmpFile); } catch {}
+  }
+}
+
+function testStagedAndFilesMutualExclusion() {
+  // When --files is provided, --staged should be ignored (files takes precedence)
+  const files = 'src/utils/path.js';
+  const result = run(['audit-diff', '--staged', '--files', files]);
+  assert.ok(result.status === 0, `Exit code should be 0, got ${result.status}. stderr: ${result.stderr}`);
+  const data = JSON.parse(result.stdout);
+  assert.strictEqual(data.changedFiles.length, 1, 'should return exactly 1 file from --files');
+}
+
+function testInvalidFilesNonExistentAuditDiff() {
+  // Non-existent files should still be included in the output (graceful handling)
+  const result = run(['audit-diff', '--files', 'nonexistent-file-12345.js']);
+  assert.ok(result.status === 0, `Exit code should be 0, got ${result.status}. stderr: ${result.stderr}`);
+  const data = JSON.parse(result.stdout);
+  assert.strictEqual(data.changedFiles.length, 1, 'should return the non-existent file entry');
+  assert.strictEqual(data.changedFiles[0].graphKnown, false, 'non-existent file should have graphKnown=false');
+}
+
+function main() {
+  testStagedFlagParsing();
+  testFilesFlagAuditDiff();
+  testFilesFlagAuditSecurity();
+  testStagedAndFilesMutualExclusion();
+  testInvalidFilesNonExistentAuditDiff();
+  console.log('staged-files-test.js: all passed');
+}
+
+main();

@@ -13,6 +13,13 @@ const LARGE_JSON_THRESHOLD = 1024 * 1024;
 const JSON_WRITE_CHUNK_SIZE = 64 * 1024;
 const SCHEMA_VERSION = '1.2.0';
 
+const SEVERITY_RANK = { high: 3, medium: 2, low: 1 };
+
+function severityMeetsFilter(itemSeverity, minSeverity) {
+  if (!minSeverity || !SEVERITY_RANK[minSeverity]) return true;
+  return (SEVERITY_RANK[itemSeverity] || 0) >= SEVERITY_RANK[minSeverity];
+}
+
 /**
  * Write large JSON strings to stdout in chunks to avoid blocking
  * the event loop on huge strings (e.g. audit-map with 10k+ edges).
@@ -36,7 +43,7 @@ const { ServiceContainer } = require('./src/services/container');
 const { workspaceInfo, runDiagnostics } = require('./src/tools/workspace-tools');
 const { projectHealth } = require('./src/tools/health-tools');
 const { dependencyGraph } = require('./src/tools/dep-tools');
-const { auditSecurity } = require('./src/tools/security-tools');
+const { auditSecurity, groupBySeverity } = require('./src/tools/security-tools');
 const { getChangedFiles, getChangedLineRanges, getFileHistoryRisk, getDiffNumstat } = require('./src/tools/git-tools');
 const { resolveWorkspaceFilePath, toPosixPath } = require('./src/utils/path');
 const {
@@ -50,6 +57,10 @@ const {
   buildImpactExplanations,
   compactChangedFile,
   formatHuman,
+  formatSummary,
+  formatMarkdown,
+  formatJsonl,
+  formatAi,
 } = require('./src/cli/formatters');
 const { buildProjectOverview } = require('./src/tools/overview-tools');
 const { parseArgs } = require('./src/utils/parse-args');
@@ -217,12 +228,14 @@ Commands:
   diagnostics             Run quick/full diagnostics
   audit-summary           Aggregate health + graph findings
   audit-file --file <p> [--watch]  Aggregate impact + affected tests for one file
-  audit-diff [--incremental]       Aggregate changed files + impact + affected tests
+  audit-diff [--staged] [--files <list>] [--incremental]
+                          Aggregate changed files + impact + affected tests
   audit-overview         Project panoramic view (hotspots, stability, orphans)
   audit-map              Global project map (tree + edges + issue overlay)
   health                  Summarize project health
   init                    Create default .workspace-bridge.json in cwd
-  audit-security          Run external security scanners (Semgrep)
+  audit-security [--files <list>]
+                          Run external security scanners (Semgrep)
   repl                    Start interactive REPL shell
   watch                   Watch files and print impact on save
   stats                   Show dependency graph statistics
@@ -247,10 +260,18 @@ Options:
   --trend-granularity <mode>  Trend bucket mode for stability trend: day|week (default: day)
   --overview-dashboard <path>  Write audit-overview single-file HTML dashboard
   --json                  Print machine-readable JSON
+  --format <mode>         Output format: summary | markdown | jsonl | ai (default: human)
+  --token-budget <n>      Max estimated tokens for --format ai; auto-downgrades depth if exceeded
+  --depth <mode>          Discovery depth for --format ai: surface | detail | full (default: detail)
   --quiet                 Suppress stderr logs during CLI execution
   --compact              Emit condensed tree and directory-level edges
   --watch                Watch mode for audit-file: re-run on file changes
+  --staged               Only analyze git staged changes in audit-diff
+  --files <list>         Comma-separated file list for audit-diff / audit-security
   --incremental          Only show findings related to changed files in audit-diff
+  --save <file>          Save audit-summary findings to a JSON baseline file
+  --check-regression     Compare current audit-summary against previous baseline
+  --baseline <file|commit>  Baseline file or git commit for --check-regression (default: .workspace-bridge-baseline.json)
   --config <name>        Semgrep config (default: auto)
   --language <lang>      Filter security scan to one language
   --help                  Show help
@@ -276,11 +297,29 @@ function parseCliArgs(argv) {
     '--overview-dashboard': { key: 'overviewDashboard' },
     '--config': { key: 'config' },
     '--language': { key: 'language' },
+    '--builtin-only': true,
+    '--format': { key: 'format' },
+    '--token-budget': { key: 'tokenBudget', transform: (v) => {
+      const n = Number.parseInt(v, 10);
+      if (Number.isNaN(n) || n <= 0) throw new Error(`Invalid --token-budget value: ${v}. Expected a positive integer`);
+      return n;
+    } },
+    '--depth': { key: 'depth' },
+    '--since': { key: 'since' },
+    '--severity': { key: 'severity' },
+    '--staged': true,
+    '--files': { key: 'files' },
     '--json': true,
     '--quiet': true,
     '--compact': true,
     '--watch': true,
     '--incremental': true,
+    '--with-impact': true,
+    '--save': { key: 'save' },
+    '--check-regression': true,
+    '--baseline': { key: 'baseline' },
+    '--cache-dir': { key: 'cacheDir' },
+    '--fail-on-findings': true,
     '--run-tests': true,
     '--version': true,
     '-v': true,
@@ -300,6 +339,9 @@ function parseCliArgs(argv) {
 
   if (Number.isFinite(raw.maxDepth) && raw.maxDepth <= 0) {
     throw new Error(`Invalid --max-depth value: ${raw.maxDepth}. Expected a positive integer`);
+  }
+  if (raw.severity && !['high', 'medium', 'low'].includes(raw.severity)) {
+    throw new Error(`Invalid --severity value: ${raw.severity}. Expected high|medium|low`);
   }
 
   return {
@@ -321,21 +363,62 @@ function parseCliArgs(argv) {
     overviewDashboard: raw.overviewDashboard || null,
     config: raw.config || null,
     language: raw.language || null,
+    builtinOnly: Boolean(raw['--builtin-only']),
+    format: raw.format || null,
+    since: raw.since || null,
+    severity: raw.severity || null,
+    staged: Boolean(raw['--staged']),
+    files: raw.files || null,
     targets: raw._.slice(1),
     json: Boolean(raw['--json']),
     quiet: Boolean(raw['--quiet']),
     compact: Boolean(raw['--compact']),
     watch: Boolean(raw['--watch']),
     incremental: Boolean(raw['--incremental']),
+    withImpact: Boolean(raw['--with-impact']),
+    save: raw.save || null,
+    checkRegression: Boolean(raw['--check-regression']),
+    baseline: raw.baseline || null,
+    cacheDir: raw.cacheDir || null,
+    failOnFindings: Boolean(raw['--fail-on-findings']),
     runTests: Boolean(raw['--run-tests']),
     version: Boolean(raw['--version']) || Boolean(raw['-v']),
     help: Boolean(raw['--help']) || Boolean(raw['-h']),
+    depth: raw.depth || null,
+    tokenBudget: Number.isFinite(raw.tokenBudget) ? raw.tokenBudget : null,
   };
 }
 
 function requireFile(parsed, command) {
   if (!parsed.file) {
     throw new Error(`${command} requires --file <path>`);
+  }
+}
+
+function determineExitCode(command, result, failOnFindings = false) {
+  if (!result || result.ok === false) return 1;
+
+  switch (command) {
+    case 'audit-summary': {
+      const hasFindings =
+        (result.deadExports?.deadExportsCount || 0) > 0 ||
+        (result.unresolved?.unresolvedCount || 0) > 0 ||
+        (result.cycles?.cyclesCount || 0) > 0 ||
+        (result.health?.healthScoreNumeric?.ratio || 1) < 1;
+      return failOnFindings && hasFindings ? 1 : 0;
+    }
+    case 'audit-security':
+      return failOnFindings && (result.summary?.total || 0) > 0 ? 1 : 0;
+    case 'dead-exports':
+      return failOnFindings && (result.deadExportsCount || 0) > 0 ? 1 : 0;
+    case 'unresolved':
+      return failOnFindings && (result.unresolvedCount || 0) > 0 ? 1 : 0;
+    case 'cycles':
+      return failOnFindings && (result.cyclesCount || 0) > 0 ? 1 : 0;
+    case 'health':
+      return failOnFindings && (result.healthScoreNumeric?.ratio || 1) < 1 ? 1 : 0;
+    default:
+      return 0;
   }
 }
 
@@ -346,25 +429,34 @@ async function runCommand(parsed, container) {
     case 'diagnostics':
       return runDiagnostics({ cwd: parsed.cwd, mode: parsed.mode }, container);
     case 'audit-summary': {
+      const regressionTools = require('./src/tools/regression-tools');
       const [health, deadExports, unresolved, cycles] = await Promise.all([
         projectHealth({ cwd: parsed.cwd }, container),
         dependencyGraph({ cwd: parsed.cwd, operation: 'dead_exports' }, container),
         dependencyGraph({ cwd: parsed.cwd, operation: 'unresolved' }, container),
         dependencyGraph({ cwd: parsed.cwd, operation: 'cycles' }, container),
       ]);
+      if (parsed.severity && deadExports.ok && deadExports.deadExports) {
+        const filtered = deadExports.deadExports.filter((d) => severityMeetsFilter(d.confidence, parsed.severity));
+        deadExports.deadExports = filtered;
+        deadExports.deadExportsCount = filtered.length;
+        if (deadExports.possibleFalsePositives) {
+          deadExports.possibleFalsePositives.count = filtered.length;
+          deadExports.possibleFalsePositives.total = filtered.length;
+          if (filtered.length === 0) {
+            deadExports.possibleFalsePositives.primaryReason = 'unknown';
+            deadExports.possibleFalsePositives.reasons = [];
+            deadExports.possibleFalsePositives.disclaimer = null;
+          }
+        }
+      }
       const scope = container.depGraph.getScopeSummary();
       const { detectStack } = require('./src/utils/stack-detectors/detect');
       const stack = detectStack(container.workspaceRoot);
       const stats = container.depGraph.getStats();
       // L1-3: analysisCoverage must reflect the filtered file set (same as scope)
-      const filteredAnalysisCoverage = stats.analysisCoverage ? {
-        ...stats.analysisCoverage,
-        totalFiles: scope.counts.totalFiles,
-        coverageRatio: scope.counts.totalFiles > 0
-          ? Math.min(1, Math.round((stats.analysisCoverage.parsedFiles / scope.counts.totalFiles) * 100) / 100)
-          : 0,
-      } : null;
-      return {
+      const filteredAnalysisCoverage = stats.filteredAnalysisCoverage || stats.analysisCoverage || null;
+      const result = {
         ok: [health, deadExports, unresolved, cycles].every((result) => result.ok !== false),
         workspaceRoot: container.workspaceRoot,
         scope,
@@ -374,6 +466,29 @@ async function runCommand(parsed, container) {
         unresolved,
         cycles,
       };
+      if (parsed.save) {
+        const savePath = path.resolve(parsed.cwd || process.cwd(), parsed.save);
+        regressionTools.saveBaseline(result, savePath);
+        result.baselineSaved = savePath;
+      }
+      if (parsed.checkRegression) {
+        let baselinePath = null;
+        let commitBaseline = null;
+        if (parsed.baseline) {
+          const resolved = path.resolve(parsed.cwd || process.cwd(), parsed.baseline);
+          if (fs.existsSync(resolved)) {
+            baselinePath = resolved;
+          } else {
+            commitBaseline = parsed.baseline;
+          }
+        }
+        if (commitBaseline) {
+          result.regression = regressionTools.checkRegressionAgainstCommit(result, commitBaseline, parsed.cwd || process.cwd());
+        } else {
+          result.regression = regressionTools.checkRegression(result, baselinePath);
+        }
+      }
+      return result;
     }
     case 'audit-file': {
       requireFile(parsed, 'audit-file');
@@ -415,12 +530,23 @@ async function runCommand(parsed, container) {
       };
     }
     case 'audit-diff': {
-      const changed = await getChangedFiles(container.workspaceRoot, { staged: false, includeUntracked: true });
-      if (changed.ok === false) {
-        return changed;
+      const since = parsed.since || null;
+      const staged = parsed.staged === true;
+      const explicitFiles = parsed.files ? parsed.files.split(',').map((f) => f.trim()).filter(Boolean) : null;
+
+      let changed;
+      if (explicitFiles) {
+        changed = { ok: true, workspaceRoot: container.workspaceRoot, changedFiles: explicitFiles };
+      } else {
+        changed = await getChangedFiles(container.workspaceRoot, { staged, includeUntracked: !staged, since });
+        if (changed.ok === false) {
+          return changed;
+        }
       }
 
-      const numstat = await getDiffNumstat(container.workspaceRoot, { staged: false, includeUntracked: true });
+      const numstat = explicitFiles
+        ? { ok: false }
+        : await getDiffNumstat(container.workspaceRoot, { staged, includeUntracked: !staged, since });
       const changeMetrics = numstat.ok ? {
         totalAdditions: numstat.totalAdditions,
         totalDeletions: numstat.totalDeletions,
@@ -435,20 +561,28 @@ async function runCommand(parsed, container) {
         const impact = graphKnown ? container.depGraph.getImpactRadius(resolvedPath) : [];
         let changedLineRanges = [];
         if (resolvedPath) {
-          const [unstagedResult, stagedResult] = await Promise.all([
-            getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: false }).catch(() => ({ ok: false })),
-            getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: true }).catch(() => ({ ok: false })),
-          ]);
-          const ranges = [];
-          if (unstagedResult.ok) ranges.push(...unstagedResult.lineRanges);
-          if (stagedResult.ok) ranges.push(...stagedResult.lineRanges);
-          const seen = new Set();
-          changedLineRanges = ranges.filter((r) => {
-            const key = `${r.startLine}-${r.endLine}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-          }).sort((a, b) => a.startLine - b.startLine);
+          if (since) {
+            const rangeResult = await getChangedLineRanges(container.workspaceRoot, resolvedPath, { since }).catch(() => ({ ok: false }));
+            if (rangeResult.ok) changedLineRanges = rangeResult.lineRanges;
+          } else if (staged) {
+            const stagedResult = await getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: true }).catch(() => ({ ok: false }));
+            if (stagedResult.ok) changedLineRanges = stagedResult.lineRanges;
+          } else {
+            const [unstagedResult, stagedResult] = await Promise.all([
+              getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: false }).catch(() => ({ ok: false })),
+              getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: true }).catch(() => ({ ok: false })),
+            ]);
+            const ranges = [];
+            if (unstagedResult.ok) ranges.push(...unstagedResult.lineRanges);
+            if (stagedResult.ok) ranges.push(...stagedResult.lineRanges);
+            const seen = new Set();
+            changedLineRanges = ranges.filter((r) => {
+              const key = `${r.startLine}-${r.endLine}`;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            }).sort((a, b) => a.startLine - b.startLine);
+          }
         }
         const baseSymbolImpact = graphKnown ? container.depGraph.getSymbolImpact(resolvedPath) : null;
         const changedFunctionImpactBase = graphKnown
@@ -560,9 +694,24 @@ async function runCommand(parsed, container) {
       };
       if (parsed.incremental) {
         const { buildIncrementalFindings } = require('./src/tools/incremental-diff');
-        const changedPaths = finalEntries.map((e) => e.resolvedPath).filter(Boolean);
+        const changedPaths = safeEntries.map((e) => e.resolvedPath).filter(Boolean);
         result.incremental = true;
         result.incrementalFindings = buildIncrementalFindings(changedPaths, container);
+      }
+      if (parsed.withImpact) {
+        const impactFiles = new Set();
+        for (const entry of safeEntries) {
+          if (!entry.resolvedPath) continue;
+          try {
+            const impact = container.depGraph.getImpactRadius(entry.resolvedPath, 2);
+            for (const i of impact) {
+              if (i.file && i.file !== entry.resolvedPath) {
+                impactFiles.add(i.file);
+              }
+            }
+          } catch {}
+        }
+        result.impactFiles = Array.from(impactFiles);
       }
       return result;
     }
@@ -574,8 +723,16 @@ async function runCommand(parsed, container) {
     }
     case 'health':
       return projectHealth({ cwd: parsed.cwd }, container);
-    case 'audit-security':
-      return auditSecurity({ cwd: parsed.cwd, targets: parsed.targets, config: parsed.config, language: parsed.language }, container);
+    case 'audit-security': {
+      const explicitSecFiles = parsed.files ? parsed.files.split(',').map((f) => f.trim()).filter(Boolean) : null;
+      const secResult = await auditSecurity({ cwd: parsed.cwd, targets: explicitSecFiles || parsed.targets, config: parsed.config, language: parsed.language, builtinOnly: parsed.builtinOnly }, container);
+      if (parsed.severity && secResult.findings) {
+        secResult.findings = secResult.findings.filter((f) => severityMeetsFilter(f.severity, parsed.severity));
+        secResult.summary.total = secResult.findings.length;
+        secResult.summary.bySeverity = groupBySeverity(secResult.findings);
+      }
+      return secResult;
+    }
     case 'stats':
       return dependencyGraph({ cwd: parsed.cwd, operation: 'stats' }, container);
     case 'dependencies': {
@@ -712,7 +869,19 @@ async function main() {
     return;
   }
 
-  const container = new ServiceContainer({ quiet: parsed.quiet });
+  // P0: validate --cwd exists and is a directory before entering heavy init
+  if (parsed.cwd && (!fs.existsSync(parsed.cwd) || !fs.statSync(parsed.cwd).isDirectory())) {
+    const error = `Directory not found: ${parsed.cwd}`;
+    if (parsed.json) {
+      await writeLargeJson(JSON.stringify({ ok: false, error, schemaVersion: SCHEMA_VERSION }));
+    } else {
+      console.error(`Error: ${error}`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+
+  const container = new ServiceContainer({ quiet: parsed.quiet, cacheDir: parsed.cacheDir });
 
   try {
     const initialized = await container.initialize(parsed.cwd, TIMEOUTS.INIT_TIMEOUT_MS, {
@@ -726,8 +895,21 @@ async function main() {
     const result = await runCommand(parsed, container);
     if (result && typeof result === 'object' && result.ok !== false && container) {
       result.staleness = container.getStaleness();
+      result.warnings = container.depGraph.buildWarnings();
     }
-    if (parsed.json) {
+    if (parsed.format === 'ai') {
+      console.log(formatAi(parsed.command, result, {
+        depth: parsed.depth || 'detail',
+        tokenBudget: parsed.tokenBudget || null,
+        schemaVersion: SCHEMA_VERSION,
+      }));
+    } else if (parsed.format === 'summary') {
+      console.log(formatSummary(parsed.command, result));
+    } else if (parsed.format === 'markdown') {
+      console.log(formatMarkdown(parsed.command, result));
+    } else if (parsed.format === 'jsonl') {
+      console.log(formatJsonl(parsed.command, result));
+    } else if (parsed.json) {
       if (result && typeof result === 'object') {
         result.schemaVersion = SCHEMA_VERSION;
       }
@@ -747,16 +929,14 @@ async function main() {
       console.log(formatHuman(parsed.command, result));
     }
 
-    if (result && result.ok === false) {
-      process.exitCode = 1;
-    }
+    process.exitCode = determineExitCode(parsed.command, result, parsed.failOnFindings);
   } catch (err) {
     if (container && container.initError && err === container.initError && err.stack) {
       console.error(err.stack);
     } else {
       console.error(err.message || String(err));
     }
-    process.exitCode = 1;
+    process.exitCode = 2;
   } finally {
     await container.shutdown();
   }

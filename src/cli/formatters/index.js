@@ -5,7 +5,7 @@ const { buildAuditDiffSummary, classifyChangeType, getValidationTemplate, compac
 const { buildValidationAdvice, buildFileValidationAdvice } = require('./validation-advice');
 const { buildProjectMap, buildDirectoryTree, toRelativePath, countTreeFiles } = require('./project-map');
 const { buildImpactExplanations } = require('./impact-explanations');
-const { formatHuman } = require('./human-formatters');
+const { formatHuman, formatSummary, formatMarkdown, formatJsonl, formatAi } = require('./human-formatters');
 
 module.exports = {
   buildCompositeRisk,
@@ -23,4 +23,8 @@ module.exports = {
   countTreeFiles,
   buildImpactExplanations,
   formatHuman,
+  formatSummary,
+  formatMarkdown,
+  formatJsonl,
+  formatAi,
 };

@@ -244,6 +244,15 @@ try {
   assert.strictEqual(compactChanged.historyRisk.recentCommits, undefined, 'compact should drop historyRisk.recentCommits');
   console.log('audit-diff compact: ok');
 
+  // --since commit range mode
+  const sinceResult = run('node', [cliPath, 'audit-diff', '--cwd', tempRoot, '--since', 'HEAD~2', '--json', '--quiet'], repoRoot);
+  const sinceParsed = JSON.parse(sinceResult);
+  assert.strictEqual(sinceParsed.ok, true, 'audit-diff --since should succeed');
+  assert.strictEqual(sinceParsed.changedFiles.length >= 1, true, 'HEAD~2 should include at least src/util.js');
+  assert(sinceParsed.changedFiles.some((c) => c.file.replace(/\\/g, '/').endsWith('src/util.js')), '--since HEAD~2 should include src/util.js');
+  assert.strictEqual(sinceParsed.summary.counts.changedFiles >= 1, true);
+  console.log('audit-diff --since: ok');
+
   console.log('audit-diff-test: ok');
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });

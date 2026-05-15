@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const assert = require('assert');
-const { formatHuman } = require('../src/cli/formatters/human-formatters');
+const { formatHuman, formatSummary, formatMarkdown, formatJsonl, formatAi } = require('../src/cli/formatters/human-formatters');
 const { buildRepoSummary } = require('../src/cli/formatters/repo-summary');
 
 // ---------------------------------------------------------------------------
@@ -283,6 +283,113 @@ function testFormatHumanDefaultFallback() {
 }
 
 // ---------------------------------------------------------------------------
+// formatSummary
+// ---------------------------------------------------------------------------
+
+function testFormatSummaryAuditSummary() {
+  const result = {
+    ok: true,
+    workspaceRoot: '/project',
+    scope: { counts: { totalFiles: 10, mainlineFiles: 6 } },
+    summary: { severity: 'medium', nextSteps: ['Step A', 'Step B', 'Step C'], analysisCoverage: { parsedFiles: 10, totalFiles: 10, coverageRatio: 1 } },
+    health: { healthScore: '4/5' },
+    deadExports: { deadExportsCount: 2 },
+    unresolved: { unresolvedCount: 1 },
+    cycles: { cyclesCount: 0 },
+  };
+  const out = formatSummary('audit-summary', result);
+  const lines = out.split('\n');
+  assert(lines.length <= 10, `Expected <= 10 lines, got ${lines.length}`);
+  assert(out.includes('Severity: medium'));
+  assert(out.includes('Health: 4/5'));
+  assert(out.includes('Files: 10 total, 6 mainline'));
+  assert(out.includes('Issues: 2 dead exports, 1 unresolved, 0 cycles'));
+  assert(out.includes('Coverage: 10/10 parsed (100%)'));
+  assert(out.includes('Next steps:'));
+  assert(out.includes('Step A'));
+}
+
+function testFormatSummaryAuditSecurity() {
+  const result = {
+    ok: true,
+    adapters: ['builtin'],
+    summary: { total: 3, bySeverity: { high: 1, medium: 1, low: 1 } },
+    findings: [
+      { severity: 'high', ruleId: 'r1', file: 'a.js', lineStart: 1, message: 'm1' },
+      { severity: 'medium', ruleId: 'r2', file: 'b.js', lineStart: 2, message: 'm2' },
+      { severity: 'low', ruleId: 'r3', file: 'c.js', lineStart: 3, message: 'm3' },
+    ],
+  };
+  const out = formatSummary('audit-security', result);
+  assert(out.includes('Adapters: builtin'));
+  assert(out.includes('Findings: 3'));
+  assert(out.includes('Severity: high=1 medium=1 low=1'));
+  assert(out.includes('Top findings:'));
+  assert(out.includes('[HIGH] r1'));
+}
+
+function testFormatSummaryFallbackToHuman() {
+  const result = { ok: true, stats: { files: 5 } };
+  const out = formatSummary('stats', result);
+  assert(out.includes('files: 5'));
+}
+
+function testFormatSummaryError() {
+  assert.strictEqual(formatSummary('any', { ok: false, error: 'boom' }), 'Error: boom');
+  assert.strictEqual(formatSummary('any', null), 'Error: Command failed');
+}
+
+function testFormatMarkdownAuditSummary() {
+  const result = {
+    ok: true,
+    scope: { counts: { totalFiles: 10, mainlineFiles: 6 } },
+    summary: { severity: 'medium', nextSteps: ['Step A', 'Step B'], analysisCoverage: { parsedFiles: 10, totalFiles: 10, coverageRatio: 1 } },
+    health: { healthScore: '4/5' },
+    deadExports: { deadExportsCount: 2 },
+    unresolved: { unresolvedCount: 1 },
+    cycles: { cyclesCount: 0 },
+  };
+  const out = formatMarkdown('audit-summary', result);
+  assert(out.includes('# Audit Summary'));
+  assert(out.includes('**Severity**: medium'));
+  assert(out.includes('**Health**: 4/5'));
+  assert(out.includes('**Files**: 10 total, 6 mainline'));
+  assert(out.includes('**Issues**: 2 dead exports, 1 unresolved, 0 cycles'));
+  assert(out.includes('## Next Steps'));
+  assert(out.includes('- Step A'));
+}
+
+function testFormatMarkdownAuditSecurity() {
+  const result = {
+    ok: true,
+    adapters: ['builtin'],
+    summary: { total: 2, bySeverity: { high: 1, medium: 1, low: 0 } },
+    findings: [
+      { severity: 'high', ruleId: 'r1', file: 'a.js', lineStart: 1, message: 'm1' },
+      { severity: 'medium', ruleId: 'r2', file: 'b.js', lineStart: 2, message: 'm2' },
+    ],
+  };
+  const out = formatMarkdown('audit-security', result);
+  assert(out.includes('# Security Audit'));
+  assert(out.includes('**Adapters**: builtin'));
+  assert(out.includes('**Findings**: 2'));
+  assert(out.includes('## Findings'));
+  assert(out.includes('`r1`'));
+  assert(out.includes('`r2`'));
+}
+
+function testFormatMarkdownFallbackToHuman() {
+  const result = { ok: true, stats: { files: 5 } };
+  const out = formatMarkdown('stats', result);
+  assert(out.includes('files: 5'));
+}
+
+function testFormatMarkdownError() {
+  assert.strictEqual(formatMarkdown('any', { ok: false, error: 'boom' }), '## Error\n\nboom');
+  assert.strictEqual(formatMarkdown('any', null), '## Error\n\nCommand failed');
+}
+
+// ---------------------------------------------------------------------------
 // buildRepoSummary
 // ---------------------------------------------------------------------------
 
@@ -353,6 +460,180 @@ function testBuildRepoSummaryNoNonMainline() {
   assert(!summary.nextSteps.some((s) => s.includes('mixed repositories')));
 }
 
+// ---------------------------------------------------------------------------
+// formatJsonl
+// ---------------------------------------------------------------------------
+
+function testFormatJsonlError() {
+  const out = formatJsonl('audit-security', { ok: false, error: 'fail' });
+  const parsed = JSON.parse(out);
+  assert.strictEqual(parsed._type, 'error');
+  assert.strictEqual(parsed.error, 'fail');
+}
+
+function testFormatJsonlAuditSecurity() {
+  const result = {
+    ok: true,
+    findings: [
+      { severity: 'high', ruleId: 'eval', file: 'a.js', lineStart: 1 },
+      { severity: 'low', ruleId: 'log', file: 'b.js', lineStart: 2 },
+    ],
+  };
+  const lines = formatJsonl('audit-security', result).split('\n');
+  assert.strictEqual(lines.length, 2, 'should emit one line per finding');
+  const first = JSON.parse(lines[0]);
+  assert.strictEqual(first._type, 'finding');
+  assert.strictEqual(first.ruleId, 'eval');
+}
+
+function testFormatJsonlDeadExports() {
+  const result = {
+    ok: true,
+    deadExports: [
+      { file: 'a.js', exports: ['foo'], confidence: 'medium' },
+    ],
+  };
+  const lines = formatJsonl('dead-exports', result).split('\n');
+  assert.strictEqual(lines.length, 1);
+  const row = JSON.parse(lines[0]);
+  assert.strictEqual(row._type, 'dead-export');
+  assert.strictEqual(row.file, 'a.js');
+}
+
+function testFormatJsonlAuditSummary() {
+  const result = {
+    ok: true,
+    deadExports: { deadExports: [{ file: 'a.js', name: 'foo' }] },
+    unresolved: { unresolved: [{ file: 'b.js', source: 'x' }] },
+    cycles: { cycles: [{ files: ['a.js', 'b.js'], length: 2 }] },
+  };
+  const lines = formatJsonl('audit-summary', result).split('\n');
+  assert.strictEqual(lines.length, 3);
+  const types = lines.map((l) => JSON.parse(l)._type);
+  assert(types.includes('dead-export'));
+  assert(types.includes('unresolved'))
+  assert(types.includes('cycle'));
+}
+
+function testFormatJsonlEmptyResult() {
+  const result = { ok: true, severity: 'low', findings: [] };
+  const lines = formatJsonl('audit-security', result).split('\n');
+  assert.strictEqual(lines.length, 1);
+  const row = JSON.parse(lines[0]);
+  assert.strictEqual(row._type, 'summary');
+  assert.strictEqual(row.severity, 'low');
+}
+
+// ---------------------------------------------------------------------------
+// formatAi
+// ---------------------------------------------------------------------------
+
+function makeAiResult(overrides = {}) {
+  return {
+    ok: true,
+    workspaceRoot: '/project',
+    schemaVersion: '1.2.0',
+    scope: { counts: { totalFiles: 10, mainlineFiles: 6, nonMainlineFiles: 4 } },
+    summary: {
+      severity: 'medium',
+      counts: { deadExports: 2, unresolved: 1, cycles: 1, missingHygieneChecks: 0 },
+      nextSteps: ['Fix cycles first', 'Then unresolved', 'Then dead exports'],
+      analysisCoverage: { parsedFiles: 10, totalFiles: 10, coverageRatio: 1.0 },
+    },
+    health: { healthScore: '4/5', healthScoreNumeric: { passed: 4, total: 5, ratio: 0.8 }, fixes: [{ check: 'dockerConfig' }] },
+    deadExports: {
+      deadExportsCount: 2,
+      deadExports: [
+        { file: 'a.js', exports: ['foo'], confidence: 'medium' },
+        { file: 'b.js', exports: ['bar'], confidence: 'low' },
+      ],
+      possibleFalsePositives: { count: 0, total: 2 },
+    },
+    unresolved: {
+      unresolvedCount: 1,
+      unresolved: [{ file: 'c.js', import: 'x' }],
+      possibleFalsePositives: { count: 0, total: 1 },
+    },
+    cycles: {
+      cyclesCount: 1,
+      cycles: [{ files: ['a.js', 'b.js', 'a.js'], length: 2 }],
+    },
+    ...overrides,
+  };
+}
+
+function testFormatAiAuditSummarySurface() {
+  const result = makeAiResult();
+  const out = JSON.parse(formatAi('audit-summary', result, { depth: 'surface' }));
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.severity, 'medium');
+  assert.strictEqual(out.counts.deadExports, 2);
+  assert.strictEqual(out.counts.unresolved, 1);
+  assert.strictEqual(out.counts.cycles, 1);
+  assert(out.topRisks.length >= 1, 'should have top risks');
+  assert(out.actions.length >= 1, 'should have actions');
+  assert.strictEqual(out.actions[0].priority, 'P0');
+  assert.strictEqual(out.confidence.overall, 1.0);
+  assert.strictEqual(out.riskFiles, undefined, 'surface should not include riskFiles');
+  assert.strictEqual(out.details, undefined, 'surface should not include details');
+}
+
+function testFormatAiAuditSummaryDetail() {
+  const result = makeAiResult();
+  const out = JSON.parse(formatAi('audit-summary', result, { depth: 'detail' }));
+  assert.strictEqual(out.ok, true);
+  assert(out.riskFiles, 'detail should include riskFiles');
+  assert(Array.isArray(out.riskFiles.deadExports), 'detail should include deadExports riskFiles');
+  assert.strictEqual(out.riskFiles.deadExports.length, 2);
+  assert.strictEqual(out.details, undefined, 'detail should not include full details');
+}
+
+function testFormatAiAuditSummaryFull() {
+  const result = makeAiResult();
+  const out = JSON.parse(formatAi('audit-summary', result, { depth: 'full' }));
+  assert.strictEqual(out.ok, true);
+  assert(out.details, 'full should include details');
+  assert(Array.isArray(out.details.deadExports), 'full should include deadExports details');
+  assert.strictEqual(out.details.deadExports.length, 2);
+}
+
+function testFormatAiTokenBudgetDowngrade() {
+  const result = makeAiResult();
+  // Force a very low token budget to trigger downgrade to core fields
+  const out = JSON.parse(formatAi('audit-summary', result, { depth: 'full', tokenBudget: 10 }));
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.severity, 'medium');
+  assert.strictEqual(out.counts.deadExports, 2);
+  // After aggressive stripping, topRisks and actions should be gone
+  assert.strictEqual(out.topRisks, undefined, 'over-budget should strip topRisks');
+  assert.strictEqual(out.actions, undefined, 'over-budget should strip actions');
+}
+
+function testFormatAiFallbackToSummary() {
+  const result = { ok: true, summary: { total: 0 } };
+  const out = formatAi('audit-security', result);
+  // Non audit-summary commands fallback to formatSummary
+  assert(out.includes('Findings: 0') || out.includes('Adapters:'), 'fallback should use summary format');
+}
+
+function testFormatAiError() {
+  const out = JSON.parse(formatAi('audit-summary', { ok: false, error: 'boom' }));
+  assert.strictEqual(out.ok, false);
+  assert.strictEqual(out.error, 'boom');
+}
+
+function testFormatAiWithWarnings() {
+  const result = makeAiResult({
+    warnings: [
+      { type: 'regex-fallback', severity: 'medium', files: 3, message: '3 files fell back to regex' },
+    ],
+  });
+  const out = JSON.parse(formatAi('audit-summary', result, { depth: 'surface' }));
+  assert(Array.isArray(out.warnings), 'should include warnings array');
+  assert.strictEqual(out.warnings.length, 1);
+  assert.strictEqual(out.warnings[0].type, 'regex-fallback');
+}
+
 function main() {
   testFormatHumanError();
   testFormatHumanAuditSummary();
@@ -377,11 +658,35 @@ function main() {
   testFormatHumanAuditSecurity();
   testFormatHumanDefaultFallback();
 
+  testFormatSummaryAuditSummary();
+  testFormatSummaryAuditSecurity();
+  testFormatSummaryFallbackToHuman();
+  testFormatSummaryError();
+
+  testFormatMarkdownAuditSummary();
+  testFormatMarkdownAuditSecurity();
+  testFormatMarkdownFallbackToHuman();
+  testFormatMarkdownError();
+
   testBuildRepoSummaryBasic();
   testBuildRepoSummaryCoverageWarning();
   testBuildRepoSummaryNodeStack();
   testBuildRepoSummaryJavaStack();
   testBuildRepoSummaryNoNonMainline();
+
+  testFormatJsonlError();
+  testFormatJsonlAuditSecurity();
+  testFormatJsonlDeadExports();
+  testFormatJsonlAuditSummary();
+  testFormatJsonlEmptyResult();
+
+  testFormatAiAuditSummarySurface();
+  testFormatAiAuditSummaryDetail();
+  testFormatAiAuditSummaryFull();
+  testFormatAiTokenBudgetDowngrade();
+  testFormatAiFallbackToSummary();
+  testFormatAiError();
+  testFormatAiWithWarnings();
 
   console.log('formatter-direct-test: all passed');
 }

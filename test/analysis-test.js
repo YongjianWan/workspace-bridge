@@ -16,7 +16,7 @@ function runCli(args) {
     cwd: repoRoot,
     encoding: 'utf8',
   });
-  assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+  assert.ok(result.status === 0, `exit=${result.status} stderr=${result.stderr || result.stdout}`);
   return JSON.parse(result.stdout);
 }
 

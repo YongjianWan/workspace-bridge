@@ -16,7 +16,7 @@ function runCliText(args) {
     cwd: repoRoot,
     encoding: 'utf8',
   });
-  assert.strictEqual(result.status, 0, `exit=${result.status} stderr=${result.stderr}`);
+  assert.ok(result.status === 0, `exit=${result.status} stderr=${result.stderr}`);
   return result.stdout;
 }
 
