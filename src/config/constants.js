@@ -186,6 +186,16 @@ const CONFIDENCE = {
   LOW_VALUE: 0.5,
 };
 
+// Cache schema version. Increment when persistent cache structure changes.
+// Both WorkspaceCache (JSON fallback) and GraphDB (SQLite) must use the same version.
+const CACHE_VERSION = 3;
+
+// JSON output streaming thresholds to avoid blocking the event loop on huge strings.
+const STREAMING = {
+  LARGE_JSON_THRESHOLD_BYTES: 1024 * 1024,
+  JSON_WRITE_CHUNK_SIZE_BYTES: 64 * 1024,
+};
+
 module.exports = {
   TIMEOUTS,
   LIMITS,
@@ -194,4 +204,6 @@ module.exports = {
   SCORING,
   DEAD_EXPORT,
   CONFIDENCE,
+  CACHE_VERSION,
+  STREAMING,
 };

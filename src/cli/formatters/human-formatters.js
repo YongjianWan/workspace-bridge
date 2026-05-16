@@ -598,6 +598,33 @@ function formatHuman(command, result) {
         `diagnostics: ${diagTotal}`,
       ].join('\n');
     }
+    case 'tree': {
+      const lines = [`file: ${result.file}`];
+      function render(node, prefix = '') {
+        if (node.imports) {
+          for (const imp of node.imports) {
+            const tag = imp.external ? ' [external]' : (imp.circular ? ' [circular]' : '');
+            lines.push(`${prefix}→ ${imp.file}${tag}`);
+            if (imp.imports || imp.dependents) {
+              render(imp, prefix + '  ');
+            }
+          }
+        }
+        if (node.dependents) {
+          for (const dep of node.dependents) {
+            const tag = dep.circular ? ' [circular]' : '';
+            lines.push(`${prefix}← ${dep.file}${tag}`);
+            if (dep.imports || dep.dependents) {
+              render(dep, prefix + '  ');
+            }
+          }
+        }
+      }
+      if (result.tree) {
+        render(result.tree);
+      }
+      return lines.join('\n');
+    }
     default:
       return JSON.stringify(result, null, 2);
   }

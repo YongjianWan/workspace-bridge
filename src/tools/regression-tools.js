@@ -113,7 +113,12 @@ function checkRegressionAgainstCommit(currentResult, commit, cwd) {
   } catch {
     return { ok: false, error: `Invalid commit: ${commit}` };
   }
-  const stdout = execSync(`git diff --name-only ${commit}...HEAD`, { cwd, encoding: 'utf8', stdio: 'pipe' });
+  let stdout;
+  try {
+    stdout = execSync(`git diff --name-only ${commit}...HEAD`, { cwd, encoding: 'utf8', stdio: 'pipe' });
+  } catch {
+    return { ok: false, error: `Failed to get diff for commit: ${commit}` };
+  }
   const changed = new Set(stdout.trim().split(/\r?\n/).filter(Boolean));
   const current = extractFindings(currentResult);
   const byOrigin = (items, key = 'file') => ({

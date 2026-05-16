@@ -7,56 +7,52 @@ const path = require('path');
 function buildTree(rootFile, depGraph, options = {}) {
   const maxDepth = options.maxDepth || 3;
   const direction = options.direction || 'both'; // 'imports' | 'dependents' | 'both'
-  const visited = new Set();
 
-  function walk(file, depth, dir) {
+  function walk(file, depth, dir, pathStack) {
     const normalized = depGraph.normalizeFilePath?.(file) || file;
-    if (visited.has(`${normalized}:${dir}:${depth}`)) {
-      return null;
-    }
-    // Only mark visited per-direction to avoid cross-contamination,
-    // but allow revisiting the same file at different depths for tree display
-    if (depth > 0) {
-      visited.add(`${normalized}:${dir}:${depth}`);
+
+    // Prevent cycles on the current path (tree view: same file in one branch = loop)
+    if (pathStack.has(normalized)) {
+      return { file: normalized, circular: true };
     }
 
     const result = {
       file: normalized,
-      depth,
     };
+    const shouldExpand = depth < maxDepth;
+    const nextStack = new Set(pathStack);
+    nextStack.add(normalized);
 
     if (dir === 'imports' || dir === 'both') {
-      const imports = depGraph.getDependencies(normalized)
-        .filter((imp) => !imp.startsWith('.')) // internal imports only? no, keep all
-        .map((imp) => {
-          const resolved = depGraph.hasFile(imp) ? imp : null;
-          return { file: imp, resolved, external: !resolved };
-        });
+      const imports = depGraph.getDependencies(normalized).map((imp) => {
+        const resolved = depGraph.hasFile(imp) ? imp : null;
+        return { file: imp, resolved, external: !resolved };
+      });
 
-      if (imports.length > 0 && depth < maxDepth) {
+      if (imports.length > 0) {
         result.imports = imports
           .map((imp) => {
-            const child = imp.resolved ? walk(imp.resolved, depth + 1, 'imports') : null;
-            if (child) {
-              return child;
+            if (imp.resolved && shouldExpand) {
+              const child = walk(imp.resolved, depth + 1, 'imports', nextStack);
+              if (child) return child;
             }
             return { file: imp.file, external: imp.external, depth: depth + 1 };
           })
           .filter(Boolean);
-      } else if (imports.length > 0) {
-        result.imports = imports.map((imp) => ({
-          file: imp.file,
-          external: imp.external,
-          depth: depth + 1,
-        }));
       }
     }
 
-    if ((dir === 'dependents' || dir === 'both') && depth < maxDepth) {
+    if (dir === 'dependents' || dir === 'both') {
       const dependents = depGraph.getDependents(normalized);
       if (dependents.length > 0) {
         result.dependents = dependents
-          .map((dep) => walk(dep, depth + 1, 'dependents'))
+          .map((dep) => {
+            if (shouldExpand) {
+              const child = walk(dep, depth + 1, 'dependents', nextStack);
+              if (child) return child;
+            }
+            return { file: dep, depth: depth + 1 };
+          })
           .filter(Boolean);
       }
     }
@@ -65,7 +61,7 @@ function buildTree(rootFile, depGraph, options = {}) {
   }
 
   const rootNormalized = depGraph.normalizeFilePath?.(rootFile) || rootFile;
-  const tree = walk(rootNormalized, 0, direction);
+  const tree = walk(rootNormalized, 0, direction, new Set());
 
   // Remove depth from root to keep it clean
   if (tree) {

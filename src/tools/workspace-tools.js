@@ -35,12 +35,54 @@ function resolvePythonCommand(root) {
 }
 
 /**
+ * Detect available Node.js linters/formatters based on config files and package.json.
+ * Used by both workspaceInfo (availableChecks) and buildChecks (noLintersDetected).
+ */
+function detectNodeLinters(workspace, root) {
+  const linters = { eslint: false, prettier: false, tsc: false };
+  if (!workspace.hasPackageJson || !workspace.packageJson) {
+    return linters;
+  }
+
+  const pj = workspace.packageJson;
+
+  // ESLint: config file or inline eslintConfig
+  const eslintConfigs = [
+    '.eslintrc.js', '.eslintrc.json', '.eslintrc.cjs',
+    '.eslintrc.yaml', '.eslintrc.yml',
+    'eslint.config.js', 'eslint.config.mjs', '.eslintrc',
+  ];
+  linters.eslint = eslintConfigs.some((f) => pathExists(path.join(root, f)));
+  if (!linters.eslint) {
+    linters.eslint = Boolean(pj.eslintConfig);
+  }
+
+  // Prettier: config file or dependency/script
+  const prettierConfigs = [
+    '.prettierrc', '.prettierrc.json', '.prettierrc.js',
+    '.prettierrc.cjs', '.prettierrc.yaml', '.prettierrc.yml',
+    '.prettierrc.toml', 'prettier.config.js',
+  ];
+  linters.prettier = prettierConfigs.some((f) => pathExists(path.join(root, f)));
+  if (!linters.prettier) {
+    const deps = { ...pj.dependencies, ...pj.devDependencies };
+    linters.prettier = Boolean(deps.prettier) || Boolean(pj.scripts?.format);
+  }
+
+  // TypeScript compiler
+  linters.tsc = workspace.hasTsconfig || Boolean(pj.devDependencies?.typescript) || Boolean(pj.dependencies?.typescript);
+
+  return linters;
+}
+
+/**
  * Build diagnostic checks using secure command execution
  */
 async function buildChecks(workspace, mode) {
   const checks = [];
   const root = workspace.root;
   let noLintersDetected = false;
+  const nodeLinters = detectNodeLinters(workspace, root);
 
   if (workspace.hasPackageJson && workspace.packageJson?.scripts) {
     const scripts = workspace.packageJson.scripts;
@@ -86,21 +128,14 @@ async function buildChecks(workspace, mode) {
     }
 
     // Auto-detect eslint if no lint script but config exists
-    if (!scripts.lint) {
-      const eslintConfigs = ['.eslintrc.js', '.eslintrc.json', '.eslintrc.cjs', '.eslintrc.yaml', '.eslintrc.yml', 'eslint.config.js', 'eslint.config.mjs', '.eslintrc'];
-      let hasEslintConfig = eslintConfigs.some((f) => pathExists(path.join(root, f)));
-      if (!hasEslintConfig && workspace.packageJson) {
-        hasEslintConfig = Boolean(workspace.packageJson.eslintConfig);
-      }
-      if (hasEslintConfig) {
-        checks.push({
-          name: 'node:eslint',
-          cmd: 'npx',
-          args: ['eslint', '.'],
-          timeout: 30000,
-        });
-        hasNodeCheck = true;
-      }
+    if (!scripts.lint && nodeLinters.eslint) {
+      checks.push({
+        name: 'node:eslint',
+        cmd: 'npx',
+        args: ['eslint', '.'],
+        timeout: 30000,
+      });
+      hasNodeCheck = true;
     }
 
     if (mode === 'quick' && !hasNodeCheck) {
@@ -218,10 +253,13 @@ function workspaceInfo(args, container) {
     langCounts[lang] = (langCounts[lang] || 0) + 1;
   }
 
+  const nodeLinters = detectNodeLinters(workspace, root);
   const availableChecks = [];
   if (workspace.hasPackageJson) {
-    availableChecks.push('npm scripts', 'eslint', 'prettier');
-    if (workspace.hasTsconfig) availableChecks.push('tsc');
+    availableChecks.push('npm scripts');
+    if (nodeLinters.eslint) availableChecks.push('eslint');
+    if (nodeLinters.prettier) availableChecks.push('prettier');
+    if (nodeLinters.tsc) availableChecks.push('tsc');
   }
   if (workspace.hasJava) availableChecks.push('mvn/gradle');
   if (workspace.hasManagePy) availableChecks.push('django-check');
@@ -367,4 +405,5 @@ module.exports = {
   workspaceInfo,
   runDiagnostics,
   buildChecks,
+  detectNodeLinters,
 };

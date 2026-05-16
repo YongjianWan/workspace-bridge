@@ -9,8 +9,6 @@ const fs = require('fs');
 const path = require('path');
 const { version } = require('./package.json');
 
-const LARGE_JSON_THRESHOLD = 1024 * 1024;
-const JSON_WRITE_CHUNK_SIZE = 64 * 1024;
 const SCHEMA_VERSION = '1.2.0';
 
 const SEVERITY_RANK = { high: 3, medium: 2, low: 1 };
@@ -26,14 +24,14 @@ function severityMeetsFilter(itemSeverity, minSeverity) {
  * @param {string} json
  */
 async function writeLargeJson(json) {
-  if (json.length <= JSON_WRITE_CHUNK_SIZE) {
+  if (json.length <= STREAMING.JSON_WRITE_CHUNK_SIZE_BYTES) {
     process.stdout.write(json + '\n');
     return;
   }
-  for (let i = 0; i < json.length; i += JSON_WRITE_CHUNK_SIZE) {
-    const chunk = json.slice(i, i + JSON_WRITE_CHUNK_SIZE);
+  for (let i = 0; i < json.length; i += STREAMING.JSON_WRITE_CHUNK_SIZE_BYTES) {
+    const chunk = json.slice(i, i + STREAMING.JSON_WRITE_CHUNK_SIZE_BYTES);
     process.stdout.write(chunk);
-    if (i + JSON_WRITE_CHUNK_SIZE < json.length) {
+    if (i + STREAMING.JSON_WRITE_CHUNK_SIZE_BYTES < json.length) {
       await new Promise((resolve) => setImmediate(resolve));
     }
   }
@@ -64,7 +62,7 @@ const {
 } = require('./src/cli/formatters');
 const { buildProjectOverview } = require('./src/tools/overview-tools');
 const { parseArgs } = require('./src/utils/parse-args');
-const { TIMEOUTS, DEFAULTS } = require('./src/config/constants');
+const { TIMEOUTS, DEFAULTS, STREAMING } = require('./src/config/constants');
 
 async function mapWithConcurrency(items, limit, mapper) {
   const safeLimit = Math.max(1, Number.isFinite(limit) ? limit : 1);
@@ -714,7 +712,11 @@ async function runCommand(parsed, container) {
                 impactFiles.add(i.file);
               }
             }
-          } catch {}
+          } catch (err) {
+            if (process.env.DEBUG) {
+              console.error(`[CLI] Impact calculation failed for ${entry.resolvedPath}:`, err.message);
+            }
+          }
         }
         result.impactFiles = Array.from(impactFiles);
       }
@@ -940,7 +942,7 @@ async function main() {
         result.schemaVersion = SCHEMA_VERSION;
       }
       const jsonStr = JSON.stringify(result, null, 2);
-      if (jsonStr.length > LARGE_JSON_THRESHOLD && !parsed.quiet) {
+      if (jsonStr.length > STREAMING.LARGE_JSON_THRESHOLD_BYTES && !parsed.quiet) {
         const edges = result && result.edges ? result.edges.length : 0;
         if (edges > 5000 && !parsed.compact) {
           process.stderr.write(
