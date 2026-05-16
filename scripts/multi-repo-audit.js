@@ -37,8 +37,7 @@ const results = [];
 
 for (const dir of dirs) {
   const args = [...cliArgsPrefix, 'audit-summary', '--cwd', dir, '--format', 'jsonl', '--quiet'];
-  const cmdStr = `"${cliCommand}" ${args.map(a => `"${a}"`).join(' ')}`;
-  const res = spawnSync(cmdStr, { encoding: 'utf-8', shell: true });
+  const res = spawnSync(cliCommand, args, { encoding: 'utf-8' });
 
   let severity = 'unknown';
   let fileCount = 0;

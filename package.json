@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node cli.js --help",
     "audit": "node cli.js audit-summary --cwd . --json --quiet",
-    "audit:file": "node cli.js audit-file --cwd . --file src\\tools\\dep-tools.js --json --quiet",
+    "audit:file": "node cli.js audit-file --cwd . --file src/tools/dep-tools.js --json --quiet",
     "test": "node test/runner.js",
     "test:security": "node test/security-test.js",
     "test:functionality": "node test/functionality-test.js",
@@ -18,7 +18,6 @@
     "test:overview": "node test/overview-tools-test.js",
     "test:integration-core": "node test/integration-core-test.js",
     "test:roles": "node test/role-detection-test.js",
-    "test:all": "node test/runner.js",
     "test:coverage": "c8 --all --include='src/**' --reporter=text --reporter=html node test/runner.js",
     "benchmark:perf": "node scripts/benchmark-perf.js",
     "benchmark": "node scripts/benchmark-perf.js --files 620 --changes 12 --max-ms 15000 --max-function-ms 60000",
