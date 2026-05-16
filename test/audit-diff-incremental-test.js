@@ -7,20 +7,7 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const { spawnSync } = require('child_process');
-
-const repoRoot = path.join(__dirname, '..');
-const cliPath = path.join(repoRoot, 'cli.js');
-
-function runCli(args) {
-  const result = spawnSync('node', [cliPath, ...args], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    maxBuffer: 10 * 1024 * 1024,
-    timeout: 60000,
-  });
-  return result;
-}
+const { runCliRaw } = require('./test-helpers');
 
 function parseJsonOutput(stdout) {
   const start = stdout.indexOf('{');
@@ -36,7 +23,7 @@ function parseJsonOutput(stdout) {
 function testIncrementalSchema() {
   console.log('--- test: audit-diff --incremental schema ---');
 
-  const result = runCli(['audit-diff', '--incremental', '--json', '--quiet']);
+  const result = runCliRaw(['audit-diff', '--incremental', '--json', '--quiet']);
   const output = parseJsonOutput(result.stdout);
 
   assert(output, `Should produce JSON output. stdout: ${result.stdout}, stderr: ${result.stderr}`);
@@ -56,15 +43,13 @@ function testIncrementalSchema() {
   assert.strictEqual(inc.deadExportsCount, inc.deadExports.length, 'deadExportsCount must equal deadExports.length');
   assert.strictEqual(inc.unresolvedCount, inc.unresolved.length, 'unresolvedCount must equal unresolved.length');
   assert.strictEqual(inc.cyclesCount, inc.cycles.length, 'cyclesCount must equal cycles.length');
-
-  console.log('audit-diff --incremental schema: ok');
 }
 
 function testIncrementalVsFull() {
   console.log('--- test: audit-diff --incremental vs full ---');
 
-  const incResult = runCli(['audit-diff', '--incremental', '--json', '--quiet']);
-  const fullResult = runCli(['audit-diff', '--json', '--quiet']);
+  const incResult = runCliRaw(['audit-diff', '--incremental', '--json', '--quiet']);
+  const fullResult = runCliRaw(['audit-diff', '--json', '--quiet']);
 
   const incOutput = parseJsonOutput(incResult.stdout);
   const fullOutput = parseJsonOutput(fullResult.stdout);
@@ -86,14 +71,12 @@ function testIncrementalVsFull() {
     assert.strictEqual(incOutput.incrementalFindings.unresolvedCount, 0, 'No changes → no incremental unresolved');
     assert.strictEqual(incOutput.incrementalFindings.cyclesCount, 0, 'No changes → no incremental cycles');
   }
-
-  console.log('audit-diff --incremental vs full: ok');
 }
 
 function testIncrementalFiltering() {
   console.log('--- test: incremental findings scope ---');
 
-  const result = runCli(['audit-diff', '--incremental', '--json', '--quiet']);
+  const result = runCliRaw(['audit-diff', '--incremental', '--json', '--quiet']);
   const output = parseJsonOutput(result.stdout);
 
   assert(output && output.ok, 'Should succeed');
@@ -108,8 +91,6 @@ function testIncrementalFiltering() {
   for (const ur of output.incrementalFindings.unresolved) {
     assert(ur.file, 'Unresolved entry should have a file');
   }
-
-  console.log('incremental findings scope: ok');
 }
 
 function main() {

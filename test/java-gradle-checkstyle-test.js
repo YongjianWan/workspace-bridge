@@ -35,8 +35,6 @@ function main() {
   assert(gradleCheckstyle, 'Gradle should have checkstyle command');
   assert(!gradleCheckstyle.cmd.includes('checkstyle:check'), `Gradle checkstyle should not use Maven syntax: ${gradleCheckstyle.cmd}`);
   assert(gradleCheckstyle.cmd.includes('checkstyleMain'), `Gradle checkstyle command wrong: ${gradleCheckstyle.cmd}`);
-
-  console.log('java-gradle-checkstyle-test: ok');
 }
 
 main();

@@ -127,8 +127,6 @@ async function main() {
     const idx = ADAPTERS.indexOf(fakeAdapter2);
     if (idx >= 0) ADAPTERS.splice(idx, 1);
   }
-
-  console.log('security-adapter-test: ok');
 }
 
 main().catch((err) => {

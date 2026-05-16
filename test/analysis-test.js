@@ -6,19 +6,7 @@
 const path = require('path');
 const fs = require('fs');
 const assert = require('assert');
-const { spawnSync } = require('child_process');
-
-const repoRoot = path.join(__dirname, '..');
-const cliPath = path.join(repoRoot, 'cli.js');
-
-function runCli(args) {
-  const result = spawnSync('node', [cliPath, ...args], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  });
-  assert.ok(result.status === 0, `exit=${result.status} stderr=${result.stderr || result.stdout}`);
-  return JSON.parse(result.stdout);
-}
+const { runCli } = require('./test-helpers');
 
 function main() {
   console.log('=== workspace-bridge 跨文件分析 CLI 测试 ===\n');
@@ -37,11 +25,11 @@ function main() {
   // 创建一个有导出但未使用的文件
   fs.writeFileSync(testUnusedFile, [
     '// 这个文件的导出未被使用',
-    'ex' + 'port function unusedHelper() {',
+    'export function unusedHelper() {',
     "  return 'I am not used';",
     '}',
     '',
-    'ex' + 'port const UNUSED_CONST = 42;',
+    'export const UNUSED_CONST = 42;',
     '',
   ].join('\n'));
 
@@ -51,27 +39,27 @@ function main() {
     "im" + "port { something } from './non-existent-module';",
     "im" + "port fs from 'fs';",
     '',
-    'ex' + 'port function test() {',
+    'export function test() {',
     '  return something;',
     '}',
     '',
   ].join('\n'));
 
   fs.writeFileSync(partialExportsFile, [
-    'ex' + 'port function usedHelper() {',
+    'export function usedHelper() {',
     "  return 'used';",
     '}',
     '',
-    'ex' + 'port function unusedHelperTwo() {',
+    'export function unusedHelperTwo() {',
     "  return 'unused';",
     '}',
     '',
   ].join('\n'));
 
   fs.writeFileSync(partialConsumerFile, [
-    "im" + "port { usedHelper } from './partial-exports';",
+    "import { usedHelper } from './partial-exports';",
     '',
-    'ex' + 'port function run() {',
+    'export function run() {',
     '  return usedHelper();',
     '}',
     '',

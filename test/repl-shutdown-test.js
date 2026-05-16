@@ -176,7 +176,6 @@ async function testShutdownErrorCaught() {
 async function main() {
   await testShutdownGuardAndErrorHandling();
   await testShutdownErrorCaught();
-  console.log('repl-shutdown-test: ok');
 }
 
 main().catch((e) => {

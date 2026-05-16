@@ -2,35 +2,23 @@
 
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { runCli, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
-const repoRoot = path.join(__dirname, '..');
-const cliPath = path.join(repoRoot, 'cli.js');
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-bridge-role-'));
+function main() {
+  const tempRoot = makeTempDir('workspace-bridge-role-');
 
-function writeFile(relativePath, content) {
-  const fullPath = path.join(tempRoot, relativePath);
-  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-  fs.writeFileSync(fullPath, content);
-}
+  function writeFile(relativePath, content) {
+    const fullPath = path.join(tempRoot, relativePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content);
+  }
 
-function runCli(args) {
-  const result = spawnSync('node', [cliPath, ...args], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  });
-
-  assert.ok(result.status === 0, `exit=${result.status} stderr=${result.stderr || result.stdout}`);
-  return JSON.parse(result.stdout);
-}
-
-writeFile('package.json', JSON.stringify({
-  name: 'role-fixture',
-  version: '1.0.0',
-  main: 'src/index.js',
-}, null, 2));
+  writeFile('package.json', JSON.stringify({
+    name: 'role-fixture',
+    version: '1.0.0',
+    main: 'src/index.js',
+  }, null, 2));
 writeFile('.workspace-bridge.json', JSON.stringify({
   directories: {
     reference: ['prototypes/reference'],
@@ -43,8 +31,8 @@ writeFile('prototypes/reference/sample.js', "export function sample() { return '
 writeFile('archive/old.js', "export function oldThing() { return 'old'; }\n");
 writeFile('dist/bundle.js', "export function generated() { return 'generated'; }\n");
 
-try {
-  const summary = runCli(['audit-summary', '--cwd', tempRoot, '--json', '--quiet']);
+  try {
+    const summary = runCli(['audit-summary', '--cwd', tempRoot, '--json', '--quiet']);
 
   assert.strictEqual(summary.scope.hasWorkspaceBridgeConfig, true);
   assert.strictEqual(summary.scope.counts.totalFiles, 2);
@@ -63,7 +51,7 @@ try {
   assert(deadExportFiles.every((file) => !file.includes('/archive/')));
 
   // Auto-detect prototypes/examples as reference without config
-  const autoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-bridge-role-auto-'));
+  const autoRoot = makeTempDir('workspace-bridge-role-auto-');
   const writeAutoFile = (relativePath, content) => {
     const fullPath = path.join(autoRoot, relativePath);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
@@ -93,10 +81,10 @@ try {
   assert(autoDeadExportFiles.some((file) => file.endsWith('/src/helper.js')));
   assert(autoDeadExportFiles.every((file) => !file.includes('/prototypes/')));
   assert(autoDeadExportFiles.every((file) => !file.includes('/examples/')));
-  fs.rmSync(autoRoot, { recursive: true, force: true });
+  cleanupTempDir(autoRoot);
 
   // Entry detection for framework/bootstrap files
-  const entryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-bridge-role-entry-'));
+  const entryRoot = makeTempDir('workspace-bridge-role-entry-');
   const writeEntryFile = (relativePath, content) => {
     const fullPath = path.join(entryRoot, relativePath);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
@@ -115,10 +103,10 @@ try {
   // L2-17: vite.config.ts is a config file, not an entry file
   assert(!entrySummary.scope.entryFiles.includes('vite.config.ts'));
   assert.strictEqual(entrySummary.scope.fileRoles.config, 1, 'vite.config.ts should be counted as config');
-  fs.rmSync(entryRoot, { recursive: true, force: true });
+  cleanupTempDir(entryRoot);
 
   // P95: tests.py basename detection for Django projects
-  const djangoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-bridge-role-django-'));
+  const djangoRoot = makeTempDir('workspace-bridge-role-django-');
   const writeDjangoFile = (relativePath, content) => {
     const fullPath = path.join(djangoRoot, relativePath);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
@@ -130,10 +118,10 @@ try {
   const djangoSummary = runCli(['audit-summary', '--cwd', djangoRoot, '--json', '--quiet']);
   assert.strictEqual(djangoSummary.scope.fileRoles.test, 1, 'tests.py should be counted as test');
   assert.strictEqual(djangoSummary.scope.counts.testFiles, 1, 'tests.py should be counted in testFiles');
-  fs.rmSync(djangoRoot, { recursive: true, force: true });
+  cleanupTempDir(djangoRoot);
 
   // P100: root-level Python scripts should be classified as script
-  const scriptRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-bridge-role-script-'));
+  const scriptRoot = makeTempDir('workspace-bridge-role-script-');
   const writeScriptFile = (relativePath, content) => {
     const fullPath = path.join(scriptRoot, relativePath);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
@@ -147,7 +135,7 @@ try {
   assert.strictEqual(scriptSummary.scope.fileRoles.script, 2, 'root-level .py files should be counted as script');
   // core/models.py is not imported by any file, so it becomes 'unknown' (orphan rule), not 'library'
   assert.strictEqual(scriptSummary.scope.fileRoles.unknown, 1, 'non-root unimported .py should be unknown');
-  fs.rmSync(scriptRoot, { recursive: true, force: true });
+  cleanupTempDir(scriptRoot);
 
   // Direct inferFileRole tests for config/script extensions
   const { ProjectContext } = require('../src/utils/project-context');
@@ -157,8 +145,9 @@ try {
   assert.strictEqual(pc.classifyFile('db/schema.sql').fileRole, 'script', 'schema.sql should be script');
   assert.strictEqual(pc.classifyFile('settings.properties').fileRole, 'config', 'settings.properties should be config');
   assert.strictEqual(pc.classifyFile('nginx.conf').fileRole, 'config', 'nginx.conf should be config');
-
-  console.log('role-detection-test: ok');
-} finally {
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  } finally {
+    cleanupTempDir(tempRoot);
+  }
 }
+
+main();

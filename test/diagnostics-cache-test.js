@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
-const os = require('os');
-
 const { WorkspaceCache } = require('../src/services/cache');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { runDiagnostics } = require('../src/tools/workspace-tools');
 
 async function testDiagnosticsCacheReturnsData() {
@@ -30,7 +28,7 @@ async function testDiagnosticsCacheReturnsData() {
 }
 
 async function testDiagnosticsCacheEmptyFallsThrough() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-diag-'));
+  const tmpDir = makeTempDir('wb-diag-');
   const container = {
     workspaceRoot: tmpDir,
     cache: {
@@ -42,11 +40,11 @@ async function testDiagnosticsCacheEmptyFallsThrough() {
   const result = await runDiagnostics({ cwd: tmpDir, mode: 'quick' }, container);
   assert(!result.cached, 'should not mark cached when no diagnostics in cache');
 
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  cleanupTempDir(tmpDir);
 }
 
 function testCacheDiagnosticsStructure() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-diag-'));
+  const tmpDir = makeTempDir('wb-cache-diag-');
   const cache = new WorkspaceCache(tmpDir);
   const file = path.join(tmpDir, 'a.js');
   cache.setDiagnostics(file, { mtime: 1, diagnostics: [{ file: 'a.js', line: 1, message: 'err', severity: 'error' }] });
@@ -60,14 +58,14 @@ function testCacheDiagnosticsStructure() {
   assert.strictEqual(single.length, 1, 'getDiagnostics should return diagnostics array, not wrapper object');
   assert.strictEqual(single[0].message, 'err', 'should preserve diagnostic content');
 
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  cleanupTempDir(tmpDir);
 }
 
 async function main() {
   testCacheDiagnosticsStructure();
   await testDiagnosticsCacheReturnsData();
   await testDiagnosticsCacheEmptyFallsThrough();
-  console.log('diagnostics-cache-test: ok');
+
 }
 
 main().catch((e) => {

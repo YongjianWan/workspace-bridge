@@ -36,7 +36,6 @@ function main() {
     const out = formatWatchOutput(root, path.join(root, 'src/x.js'), impact, depGraph, false);
     assert(out.includes('3 dependents affected:'), `Expected full format, got: ${out}`);
     assert(out.includes('a.js, b.js, c.js'), `Expected full list, got: ${out}`);
-    console.log('non-compact (<10): ok');
   }
 
   // Compact with <= 10 dependents still shows full list (curation only kicks in above threshold)
@@ -45,7 +44,6 @@ function main() {
     const depGraph = makeDepGraph();
     const out = formatWatchOutput(root, path.join(root, 'src/x.js'), impact, depGraph, true);
     assert(out.includes('2 dependents affected:'), `Expected full format below threshold, got: ${out}`);
-    console.log('compact (<=10): ok');
   }
 
   // Compact with >10 dependents: categorizes into entries / tests / +more
@@ -75,7 +73,6 @@ function main() {
     assert(out.includes(`tests: [${rel(root, 'test/a-test.js')}, ${rel(root, 'test/b-test.js')}]`), `Expected tests section, got: ${out}`);
     assert(out.includes('+9 more') || out.includes('+ 9 more'), `Expected +more, got: ${out}`);
     assert(!out.includes('src/a.js'), `Should not list individual non-entry files in compact mode, got: ${out}`);
-    console.log('compact (>10 with entries+tests): ok');
   }
 
   // Compact with >10 but no entries/tests
@@ -88,7 +85,6 @@ function main() {
     assert(out.includes('+15 more'), `Expected +more, got: ${out}`);
     assert(!out.includes('entries:'), `Should not have entries section, got: ${out}`);
     assert(!out.includes('tests:'), `Should not have tests section, got: ${out}`);
-    console.log('compact (>10 no entries/tests): ok');
   }
 
   // Compact with Windows paths (backslash normalization)
@@ -103,7 +99,6 @@ function main() {
     const out = formatWatchOutput(winRoot, path.join(winRoot, 'src\\x.js'), impact, depGraph, true);
     assert(out.includes('12 dependents'), `Windows path count, got: ${out}`);
     assert(out.includes(`entries: [${rel(winRoot, 'cli.js')}]`), `Windows path entry, got: ${out}`);
-    console.log('compact windows paths: ok');
   }
 
   console.log('\nAll watch-format tests passed.');

@@ -11,7 +11,6 @@ function testNullWhenCountZero() {
   assert.strictEqual(buildUnresolvedRecommendation(0, null, null), null);
   assert.strictEqual(buildCycleRecommendation(0, null), null);
   assert.strictEqual(buildDeadExportRecommendation(0, null, null), null);
-  console.log('null-when-count-zero: ok');
 }
 
 function testUnresolvedGeneral() {
@@ -19,7 +18,6 @@ function testUnresolvedGeneral() {
   assert.strictEqual(rec, 'Inspect 3 unresolved imports first; they can indicate broken code paths or unsupported alias resolution.');
   const recSingle = buildUnresolvedRecommendation(1, null, null);
   assert.strictEqual(recSingle, 'Inspect 1 unresolved import first; they can indicate broken code paths or unsupported alias resolution.');
-  console.log('unresolved-general: ok');
 }
 
 function testUnresolvedAliasVue() {
@@ -28,7 +26,6 @@ function testUnresolvedAliasVue() {
   const rec = buildUnresolvedRecommendation(10, fp, stack);
   assert(rec.includes('80% are alias/Vue extension omissions'));
   assert(rec.includes('vite.config.js'));
-  console.log('unresolved-alias-vue: ok');
 }
 
 function testUnresolvedAliasNonVue() {
@@ -37,7 +34,6 @@ function testUnresolvedAliasNonVue() {
   const rec = buildUnresolvedRecommendation(10, fp, stack);
   assert(rec.includes('80% are alias false positives'));
   assert(rec.includes('tsconfig.json'));
-  console.log('unresolved-alias-non-vue: ok');
 }
 
 function testCycleGeneral() {
@@ -45,7 +41,6 @@ function testCycleGeneral() {
   assert.strictEqual(rec, 'Break 2 dependency cycles before making broad refactors.');
   const recSingle = buildCycleRecommendation(1, null);
   assert.strictEqual(recSingle, 'Break 1 dependency cycle before making broad refactors.');
-  console.log('cycle-general: ok');
 }
 
 function testCycleVue() {
@@ -53,7 +48,6 @@ function testCycleVue() {
   const rec = buildCycleRecommendation(3, stack);
   assert(rec.includes('store→router→view'));
   assert(rec.includes('intentional design patterns'));
-  console.log('cycle-vue: ok');
 }
 
 function testDeadExportGeneral() {
@@ -61,7 +55,6 @@ function testDeadExportGeneral() {
   assert(rec.includes('review as candidates'));
   const recSingle = buildDeadExportRecommendation(1, null, null);
   assert(recSingle.includes('review as candidates'));
-  console.log('dead-export-general: ok');
 }
 
 function testDeadExportFpVue() {
@@ -70,7 +63,6 @@ function testDeadExportFpVue() {
   const rec = buildDeadExportRecommendation(10, fp, stack);
   assert(rec.includes('60% are likely false positives'));
   assert(rec.includes('Vue global components, directives, or lazy-loaded routes'));
-  console.log('dead-export-fp-vue: ok');
 }
 
 function testDeadExportFpJava() {
@@ -79,7 +71,6 @@ function testDeadExportFpJava() {
   const rec = buildDeadExportRecommendation(10, fp, stack);
   assert(rec.includes('50% are likely false positives'));
   assert(rec.includes('Spring Boot framework entry classes'));
-  console.log('dead-export-fp-java: ok');
 }
 
 function testDeadExportFpOther() {
@@ -88,7 +79,6 @@ function testDeadExportFpOther() {
   const rec = buildDeadExportRecommendation(10, fp, stack);
   assert(rec.includes('70% are likely false positives'));
   assert(rec.includes('missing-extension'));
-  console.log('dead-export-fp-other: ok');
 }
 
 function testDeadExportFpBelowThreshold() {
@@ -97,7 +87,6 @@ function testDeadExportFpBelowThreshold() {
   const rec = buildDeadExportRecommendation(10, fp, stack);
   assert(rec.includes('review as candidates'));
   assert(!rec.includes('false positives'));
-  console.log('dead-export-fp-below-threshold: ok');
 }
 
 function testDeadExportFpScaffold() {
@@ -106,7 +95,6 @@ function testDeadExportFpScaffold() {
   const rec = buildDeadExportRecommendation(10, fp, stack);
   assert(rec.includes('70% are likely false positives'));
   assert(rec.includes('RuoYi / Vue Admin'));
-  console.log('dead-export-fp-scaffold: ok');
 }
 
 function main() {
@@ -122,7 +110,6 @@ function main() {
   testDeadExportFpOther();
   testDeadExportFpBelowThreshold();
   testDeadExportFpScaffold();
-  console.log('recommendation-engine-test: ok');
 }
 
 main();

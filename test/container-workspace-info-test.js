@@ -8,12 +8,11 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
-
 const { ServiceContainer } = require('../src/services/container');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 async function testContainerSetsWorkspaceInfo() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-container-'));
+  const tmpDir = makeTempDir('wb-container-');
   fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'test' }), 'utf8');
 
   const container = new ServiceContainer();
@@ -26,13 +25,13 @@ async function testContainerSetsWorkspaceInfo() {
     assert.strictEqual(info.root, container.workspaceRoot, 'workspaceInfo.root should match');
   } finally {
     await container.shutdown();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTempDir(tmpDir);
   }
 }
 
 async function main() {
   await testContainerSetsWorkspaceInfo();
-  console.log('container-workspace-info-test: ok');
+
 }
 
 main().catch((e) => {

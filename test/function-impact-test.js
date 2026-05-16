@@ -39,8 +39,6 @@ function main() {
   assert.strictEqual(optionsSeen[0]?.includeHeuristic, false, 'function-level BFS should disable heuristic mapping');
   assert.strictEqual(result.functions.length, 2, 'two functions should be reported');
   assert.strictEqual(result.affectedTestsCount, 1, 'unique affected tests should be de-duplicated');
-
-  console.log('function-impact-test: ok');
 }
 
 main();

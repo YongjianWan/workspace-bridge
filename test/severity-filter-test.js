@@ -1,17 +1,17 @@
 const assert = require('assert');
-const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { runCliRaw, assertOk } = require('./test-helpers');
 
 const cwd = path.resolve(__dirname, '..');
 
 function run(args) {
-  return spawnSync('node', ['cli.js', ...args, '--json', '--quiet'], { cwd, encoding: 'utf8' });
+  return runCliRaw([...args, '--json', '--quiet'], { cwd });
 }
 
 function testAuditSummarySeverityHigh() {
   const result = run(['audit-summary', '--severity', 'high']);
-  assert.ok(result.status === 0, `Exit code should be 0, got ${result.status}. stderr: ${result.stderr}`);
+  assertOk(result, 'severity high should succeed');
   const data = JSON.parse(result.stdout);
   // If dead exports are returned, every single one must be high-confidence.
   // We do not assert a fixed count because the real codebase may legitimately
@@ -25,12 +25,12 @@ function testAuditSummarySeverityMedium() {
   // Get total unfiltered count first so the test does not break when
   // new dead exports are added to the codebase.
   const unfiltered = run(['audit-summary']);
-  assert.ok(unfiltered.status === 0);
+  assertOk(unfiltered, 'unfiltered audit-summary should succeed');
   const totalData = JSON.parse(unfiltered.stdout);
   const totalCount = totalData.deadExports.deadExportsCount;
 
   const result = run(['audit-summary', '--severity', 'medium']);
-  assert.ok(result.status === 0, `Exit code should be 0, got ${result.status}. stderr: ${result.stderr}`);
+  assertOk(result, 'severity medium should succeed');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(
     data.deadExports.deadExportsCount,
@@ -40,7 +40,7 @@ function testAuditSummarySeverityMedium() {
 }
 
 function testInvalidSeverityValue() {
-  const result = spawnSync('node', ['cli.js', 'audit-security', '--severity', 'invalid'], { cwd, encoding: 'utf8' });
+  const result = runCliRaw(['audit-security', '--severity', 'invalid'], { cwd });
   assert.notStrictEqual(result.status, 0, 'invalid severity should exit non-zero');
   assert(result.stderr.includes('Invalid --severity value'), `stderr should contain error message, got: ${result.stderr}`);
 }
@@ -50,7 +50,7 @@ function testAuditSecuritySeverityFilter() {
   try {
     fs.writeFileSync(tmpFile, `eval('1');\nconsole.log(password);\n`);
     const result = run(['audit-security', '--builtin-only', '--severity', 'high']);
-    assert.ok(result.status === 0, `Exit code should be 0, got ${result.status}. stderr: ${result.stderr}`);
+    assertOk(result, 'audit-security severity filter should succeed');
     const data = JSON.parse(result.stdout);
     const highFindings = data.findings.filter((f) => f.severity === 'high');
     const mediumFindings = data.findings.filter((f) => f.severity === 'medium');

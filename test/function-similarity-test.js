@@ -145,7 +145,6 @@ function main() {
   testEmptyRecords();
   testNameTokenization();
   testCalleeOverlap();
-  console.log('function-similarity-test: ok');
 }
 
 main();

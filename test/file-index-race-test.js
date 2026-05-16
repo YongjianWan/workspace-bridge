@@ -7,12 +7,12 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { FileIndex } = require('../src/services/file-index');
 const { WorkspaceCache } = require('../src/services/cache');
 
 async function testUpdatesArrivingDuringProcessingAreNotLost() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-race-'));
+  const root = makeTempDir('wb-race-');
   fs.mkdirSync(path.join(root, 'src'));
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'test' }), 'utf8');
   fs.writeFileSync(path.join(root, 'src', 'a.js'), 'export const a = 1;\n');
@@ -50,11 +50,11 @@ async function testUpdatesArrivingDuringProcessingAreNotLost() {
     'b.js should be processed in second round',
   );
 
-  fs.rmSync(root, { recursive: true, force: true });
+  cleanupTempDir(root);
 }
 
 async function testReentrantProcessPendingDoesNotDuplicate() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-reent-'));
+  const root = makeTempDir('wb-reent-');
   fs.mkdirSync(path.join(root, 'src'));
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'test' }), 'utf8');
   fs.writeFileSync(path.join(root, 'src', 'a.js'), 'export const a = 1;\n');
@@ -82,13 +82,12 @@ async function testReentrantProcessPendingDoesNotDuplicate() {
   // so total count should be 2 (not 1, not 3+).
   assert.strictEqual(processedCount, 2, 're-entrant processPending should process each snapshot once');
 
-  fs.rmSync(root, { recursive: true, force: true });
+  cleanupTempDir(root);
 }
 
 async function main() {
   await testUpdatesArrivingDuringProcessingAreNotLost();
   await testReentrantProcessPendingDoesNotDuplicate();
-  console.log('file-index-race-test: ok');
 }
 
 main().catch((e) => {

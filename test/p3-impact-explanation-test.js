@@ -2,6 +2,7 @@ const assert = require('assert');
 const path = require('path');
 const { DependencyGraph } = require('../src/services/dep-graph');
 const { normalizePathKey } = require('../src/utils/path');
+const { buildMockDepGraph } = require('./test-helpers');
 
 function n(p) {
   return normalizePathKey(p);
@@ -13,14 +14,14 @@ function testGetImpactRadiusWithExplanations() {
   const depGraphPath = n('/repo/src/services/dep-graph.js');
   const testPath = n('/repo/test/gors-resolver-test.js');
 
-  depGraph.graph = new Map([
-    [resolversPath, {
+  depGraph.graph = buildMockDepGraph({
+    [resolversPath]: {
       imports: [],
       exports: ['resolveImport'],
       importRecords: [],
       parseMode: 'ast',
-    }],
-    [depGraphPath, {
+    },
+    [depGraphPath]: {
       imports: [resolversPath],
       exports: ['DependencyGraph'],
       importRecords: [{
@@ -30,8 +31,8 @@ function testGetImpactRadiusWithExplanations() {
         usesAllExports: false,
       }],
       parseMode: 'ast',
-    }],
-    [testPath, {
+    },
+    [testPath]: {
       imports: [depGraphPath],
       exports: [],
       importRecords: [{
@@ -41,8 +42,8 @@ function testGetImpactRadiusWithExplanations() {
         usesAllExports: false,
       }],
       parseMode: 'ast',
-    }],
-  ]);
+    },
+  });
   depGraph.buildReverseGraph();
 
   const impact = depGraph.getImpactRadius(resolversPath);
@@ -60,7 +61,6 @@ function testGetImpactRadiusWithExplanations() {
   assert.deepStrictEqual(level2.via, [resolversPath, depGraphPath]);
   assert.strictEqual(level2.reason, 'transitive-dependency');
 
-  console.log('testGetImpactRadiusWithExplanations passed');
 }
 
 function testBuildImpactExplanations() {
@@ -81,7 +81,6 @@ function testBuildImpactExplanations() {
   assert(!transitive.includes('被 `src/utils/resolvers.js` import'), 'directImporter should not be the changed file itself');
   assert(transitive.includes('被 `src/services/dep-graph.js` import'), 'directImporter should be the immediate upstream file');
 
-  console.log('testBuildImpactExplanations passed');
 }
 
 function testGetImpactRadiusTruncatesAtEntryFiles() {
@@ -90,21 +89,21 @@ function testGetImpactRadiusTruncatesAtEntryFiles() {
   const cliPath = n('/repo/cli.js');
   const indexPath = n('/repo/src/index.js');
 
-  depGraph.graph = new Map([
-    [utilPath, { imports: [], exports: [], importRecords: [], parseMode: 'ast' }],
-    [cliPath, {
+  depGraph.graph = buildMockDepGraph({
+    [utilPath]: { imports: [], exports: [], importRecords: [], parseMode: 'ast' },
+    [cliPath]: {
       imports: [utilPath],
       exports: [],
       importRecords: [{ source: './utils/path', resolved: utilPath, imported: [], usesAllExports: false }],
       parseMode: 'ast',
-    }],
-    [indexPath, {
+    },
+    [indexPath]: {
       imports: [cliPath],
       exports: [],
       importRecords: [{ source: '../cli', resolved: cliPath, imported: [], usesAllExports: false }],
       parseMode: 'ast',
-    }],
-  ]);
+    },
+  });
   depGraph.buildReverseGraph();
 
   const impact = depGraph.getImpactRadius(utilPath, 5);
@@ -116,7 +115,6 @@ function testGetImpactRadiusTruncatesAtEntryFiles() {
   const indexImpact = impact.find((i) => i.file === indexPath);
   assert(!indexImpact, 'index.js should NOT be in impact radius because cli.js is an entry file');
 
-  console.log('testGetImpactRadiusTruncatesAtEntryFiles passed');
 }
 
 function testGetImpactRadiusDoesNotTruncateStartNode() {
@@ -124,15 +122,15 @@ function testGetImpactRadiusDoesNotTruncateStartNode() {
   const cliPath = n('/repo/cli.js');
   const indexPath = n('/repo/src/index.js');
 
-  depGraph.graph = new Map([
-    [cliPath, { imports: [], exports: [], importRecords: [], parseMode: 'ast' }],
-    [indexPath, {
+  depGraph.graph = buildMockDepGraph({
+    [cliPath]: { imports: [], exports: [], importRecords: [], parseMode: 'ast' },
+    [indexPath]: {
       imports: [cliPath],
       exports: [],
       importRecords: [{ source: '../cli', resolved: cliPath, imported: [], usesAllExports: false }],
       parseMode: 'ast',
-    }],
-  ]);
+    },
+  });
   depGraph.buildReverseGraph();
 
   const impact = depGraph.getImpactRadius(cliPath, 5);
@@ -141,7 +139,6 @@ function testGetImpactRadiusDoesNotTruncateStartNode() {
   assert(indexImpact, 'index.js should be in impact radius even though cli.js is the start node and is an entry file');
   assert.strictEqual(indexImpact.level, 1);
 
-  console.log('testGetImpactRadiusDoesNotTruncateStartNode passed');
 }
 
 function main() {
@@ -149,7 +146,6 @@ function main() {
   testBuildImpactExplanations();
   testGetImpactRadiusTruncatesAtEntryFiles();
   testGetImpactRadiusDoesNotTruncateStartNode();
-  console.log('All P3 impact explanation tests passed');
 }
 
 main();

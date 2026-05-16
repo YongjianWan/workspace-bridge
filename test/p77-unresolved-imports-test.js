@@ -2,13 +2,13 @@
 
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { DependencyGraph } = require('../src/services/dep-graph');
 const { normalizePathKey, fromNormalizedKey } = require('../src/utils/path');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function testFindUnresolvedImportsUsesPlatformPath() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-p77-'));
+  const dir = makeTempDir('wb-p77-');
 
   // Create a real file and a missing import target
   fs.writeFileSync(path.join(dir, 'main.js'), "import './missing';", 'utf8');
@@ -36,7 +36,7 @@ function testFindUnresolvedImportsUsesPlatformPath() {
   assert.strictEqual(unresolved[0].file, path.join(dir, 'main.js'), 'file path should match');
   assert.strictEqual(unresolved[0].import, normalizePathKey(path.join(dir, 'missing.js')), 'import path should be normalizePathKey format');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 function testFromNormalizedKeyRoundTrip() {
@@ -66,7 +66,6 @@ function main() {
   testFindUnresolvedImportsUsesPlatformPath();
   testFromNormalizedKeyRoundTrip();
   testFromNormalizedKeyNullSafety();
-  console.log('p77-unresolved-imports-test: all passed');
-}
+  }
 
 main();

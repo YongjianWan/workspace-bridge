@@ -158,28 +158,20 @@ async function testInvalidJsonReturnsNull() {
 async function main() {
   try {
     await testScriptNotFoundReturnsNull();
-    console.log('script-not-found: ok');
 
     await testSuccessfulJsonParse();
-    console.log('successful-json: ok');
 
     await testNonZeroExitReturnsNull();
-    console.log('non-zero-exit: ok');
 
     await testStdoutTruncation();
-    console.log('stdout-truncation: ok');
 
     await testStderrTruncation();
-    console.log('stderr-truncation: ok');
 
     await testSpawnErrorReturnsNull();
-    console.log('spawn-error: ok');
 
     await testStdinWriteErrorReturnsNull();
-    console.log('stdin-write-error: ok');
 
     await testInvalidJsonReturnsNull();
-    console.log('invalid-json: ok');
 
     console.log('\nspawn-ast-direct-test: all passed');
   } finally {

@@ -2,13 +2,13 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const { spawnSync } = require('child_process');
 
 const { getChangedLineRanges } = require('../src/tools/git-tools');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 async function testLineRangesStagedSeparation() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-linerange-'));
+  const tmpDir = makeTempDir('wb-linerange-');
   const aPath = path.join(tmpDir, 'a.js');
   fs.writeFileSync(aPath, 'line1\nline2\nline3\n');
 
@@ -40,12 +40,11 @@ async function testLineRangesStagedSeparation() {
   assert.strictEqual(stagedAfterAdd.ok, true);
   assert(stagedAfterAdd.lineRanges.length > 0, 'after staging, staged should produce line ranges');
 
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  cleanupTempDir(tmpDir);
 }
 
 async function main() {
   await testLineRangesStagedSeparation();
-  console.log('git-line-ranges-test: ok');
 }
 
 main().catch((e) => {

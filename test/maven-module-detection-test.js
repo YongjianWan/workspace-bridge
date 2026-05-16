@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { detectMavenModules, detectStack } = require('../src/utils/stack-detectors/detect');
 
 // ============================================================================
 // Test: detectMavenModules — single module
 // ============================================================================
 function testDetectMavenModulesSingle() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-maven-single-'));
+  const dir = makeTempDir('wb-maven-single-');
   fs.writeFileSync(
     path.join(dir, 'pom.xml'),
     '<?xml version="1.0"?><project><modules><module>core</module></modules></project>',
@@ -24,14 +24,14 @@ function testDetectMavenModulesSingle() {
   assert.strictEqual(result[0].name, 'core', 'module name should be directory name');
   assert.strictEqual(result[0].dir, 'core', 'module dir should match');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 // ============================================================================
 // Test: detectMavenModules — multiple modules
 // ============================================================================
 function testDetectMavenModulesMultiple() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-maven-multi-'));
+  const dir = makeTempDir('wb-maven-multi-');
   fs.writeFileSync(
     path.join(dir, 'pom.xml'),
     '<?xml version="1.0"?><project><modules><module>app</module><module>lib</module></modules></project>',
@@ -47,14 +47,14 @@ function testDetectMavenModulesMultiple() {
   assert(result.some((m) => m.name === 'app'), 'should include app module');
   assert(result.some((m) => m.name === 'lib'), 'should include lib module');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 // ============================================================================
 // Test: detectMavenModules — no modules element
 // ============================================================================
 function testDetectMavenModulesNoModules() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-maven-none-'));
+  const dir = makeTempDir('wb-maven-none-');
   fs.writeFileSync(
     path.join(dir, 'pom.xml'),
     '<?xml version="1.0"?><project><artifactId>single</artifactId></project>',
@@ -64,14 +64,14 @@ function testDetectMavenModulesNoModules() {
   const result = detectMavenModules(dir);
   assert.strictEqual(result, null, 'should return null when no modules');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 // ============================================================================
 // Test: detectMavenModules — submodule missing pom.xml filtered out
 // ============================================================================
 function testDetectMavenModulesMissingSubPom() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-maven-miss-'));
+  const dir = makeTempDir('wb-maven-miss-');
   fs.writeFileSync(
     path.join(dir, 'pom.xml'),
     '<?xml version="1.0"?><project><modules><module>valid</module><module>ghost</module></modules></project>',
@@ -86,14 +86,14 @@ function testDetectMavenModulesMissingSubPom() {
   assert.strictEqual(result.length, 1, 'should filter out module without pom.xml');
   assert.strictEqual(result[0].name, 'valid', 'only valid module should remain');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 // ============================================================================
 // Test: detectStack — Maven multi-module injects modules into java stack
 // ============================================================================
 function testDetectStackMavenModules() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-maven-stack-'));
+  const dir = makeTempDir('wb-maven-stack-');
   fs.writeFileSync(
     path.join(dir, 'pom.xml'),
     '<?xml version="1.0"?><project><modules><module>api</module><module>service</module></modules></project>',
@@ -114,7 +114,7 @@ function testDetectStackMavenModules() {
   // Backward compatibility: subprojects alias
   assert.deepStrictEqual(stack.java.subprojects, stack.java.modules, 'subprojects should alias modules');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 // ============================================================================
@@ -176,7 +176,6 @@ function main() {
   testDetectStackMavenModules();
   testMavenModuleCommands();
 
-  console.log('maven-module-detection-test: all 6 passed');
-}
+  }
 
 main();

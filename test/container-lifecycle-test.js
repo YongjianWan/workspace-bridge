@@ -2,12 +2,12 @@
 
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { ServiceContainer } = require('../src/services/container');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 async function testInitializeCreatesServices() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-container-'));
+  const dir = makeTempDir('wb-container-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
 
   const container = new ServiceContainer();
@@ -19,11 +19,11 @@ async function testInitializeCreatesServices() {
   assert(container.depGraph);
 
   await container.shutdown();
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 async function testShutdownSetsInitError() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-container-'));
+  const dir = makeTempDir('wb-container-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
 
   const container = new ServiceContainer();
@@ -33,11 +33,11 @@ async function testShutdownSetsInitError() {
   assert.strictEqual(container.initialized, false);
   assert(container.initError);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 async function testReinitializeAfterShutdown() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-container-'));
+  const dir = makeTempDir('wb-container-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
 
   const container = new ServiceContainer();
@@ -50,7 +50,7 @@ async function testReinitializeAfterShutdown() {
   assert.strictEqual(container.initialized, true);
 
   await container.shutdown();
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 async function testEnsureReadyTimeout() {
@@ -65,7 +65,7 @@ async function testEnsureReadyTimeout() {
 }
 
 async function testEnsureReadyPassesWhenInitialized() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-container-'));
+  const dir = makeTempDir('wb-container-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
 
   const container = new ServiceContainer();
@@ -75,7 +75,7 @@ async function testEnsureReadyPassesWhenInitialized() {
   await container.ensureReady(1000);
 
   await container.shutdown();
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 async function main() {
@@ -84,7 +84,7 @@ async function main() {
   await testReinitializeAfterShutdown();
   await testEnsureReadyTimeout();
   await testEnsureReadyPassesWhenInitialized();
-  console.log('container-lifecycle-test: all passed');
+
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

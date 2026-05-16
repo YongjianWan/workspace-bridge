@@ -106,8 +106,6 @@ async function testKotlinAstSchema() {
   // functionRecords
   assert(result.functionRecords.some((r) => r.name === 'topLevelFun'), 'Should have topLevelFun functionRecord');
   assert(!result.functionRecords.some((r) => r.name === 'internalFun'), 'Should not have internalFun functionRecord');
-
-  console.log('kotlin-ast-parser-test: ok');
 }
 
 async function main() {

@@ -2,21 +2,22 @@
 
 const assert = require('assert');
 const { DependencyGraph } = require('../src/services/dep-graph');
+const { buildMockDepGraph } = require('./test-helpers');
 
 function makeGraph() {
   const depGraph = new DependencyGraph('/repo', { fileMetadata: new Map() });
   const P = (value) => depGraph.normalizeFilePath(value);
-  depGraph.graph = new Map([
-    [P('/repo/src/core/util.ts'), { imports: [], exports: ['helper'] }],
-    [P('/repo/src/core/index.ts'), { imports: [P('/repo/src/core/util.ts')], exports: ['helper'] }],
-    [P('/repo/src/app.ts'), { imports: [P('/repo/src/core/index.ts')], exports: ['run'] }],
-    [P('/repo/test/app.test.ts'), { imports: [P('/repo/src/app.ts')], exports: ['testRun'] }],
+  depGraph.graph = buildMockDepGraph({
+    [P('/repo/src/core/util.ts')]: { imports: [], exports: ['helper'] },
+    [P('/repo/src/core/index.ts')]: { imports: [P('/repo/src/core/util.ts')], exports: ['helper'] },
+    [P('/repo/src/app.ts')]: { imports: [P('/repo/src/core/index.ts')], exports: ['run'] },
+    [P('/repo/test/app.test.ts')]: { imports: [P('/repo/src/app.ts')], exports: ['testRun'] },
 
-    [P('/repo/pkg/module.py'), { imports: [], exports: ['run'] }],
-    [P('/repo/tests/test_module.py'), { imports: [], exports: ['test_run'] }],
-    [P('/repo/tests/module_test.py'), { imports: [], exports: ['test_run_alt'] }],
-    [P('/repo/tests/other_test.py'), { imports: [], exports: ['test_other'] }],
-  ]);
+    [P('/repo/pkg/module.py')]: { imports: [], exports: ['run'] },
+    [P('/repo/tests/test_module.py')]: { imports: [], exports: ['test_run'] },
+    [P('/repo/tests/module_test.py')]: { imports: [], exports: ['test_run_alt'] },
+    [P('/repo/tests/other_test.py')]: { imports: [], exports: ['test_other'] },
+  });
 
   depGraph.reverseGraph = new Map([
     [P('/repo/src/core/util.ts'), [P('/repo/src/core/index.ts')]],
@@ -45,8 +46,6 @@ function main() {
     pythonTests.filter((entry) => entry.file.replace(/\\/g, '/').includes('/repo/tests/')).every((entry) => ['heuristic', 'graph'].includes(entry.source)),
     'python mapping rows should include source metadata'
   );
-
-  console.log('affected-tests-barrel-python-test: ok');
 }
 
 main();

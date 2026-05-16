@@ -58,15 +58,12 @@ function main() {
     assert.strictEqual(c.symbolImpact, undefined, 'symbolImpact should be dropped');
     assert.strictEqual(c.recentCommits, undefined, 'recentCommits should be dropped');
     assert.strictEqual(c.historyRisk.recentCommits, undefined, 'historyRisk.recentCommits should be dropped');
-
-    console.log('baseline curation: ok');
   }
 
   // Empty/null edge cases
   {
     const c = compactChangedFile(null);
     assert.strictEqual(c, null, 'null should pass through');
-    console.log('null passthrough: ok');
   }
 
   {
@@ -79,7 +76,6 @@ function main() {
     assert.strictEqual(c.affectedTestsCount, 0);
     assert.strictEqual(c.compositeRisk, null);
     assert.strictEqual(c.historyRisk, null);
-    console.log('minimal entry: ok');
   }
 
   // Arrays smaller than caps should be preserved entirely
@@ -93,7 +89,6 @@ function main() {
     assert.strictEqual(c.impact.length, 1);
     assert.strictEqual(c.affectedTests.length, 1);
     assert.strictEqual(c.impactExplanations.length, 1);
-    console.log('small arrays preserved: ok');
   }
 
   // Missing historyRisk
@@ -101,7 +96,6 @@ function main() {
     const entry = makeEntry({ historyRisk: null });
     const c = compactChangedFile(entry);
     assert.strictEqual(c.historyRisk, null);
-    console.log('missing historyRisk: ok');
   }
 
   console.log('\nAll audit-diff-compact tests passed.');

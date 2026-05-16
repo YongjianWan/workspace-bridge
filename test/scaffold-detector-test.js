@@ -19,7 +19,6 @@ function testExactBasenameRuoYi() {
     assert.strictEqual(result.name, c.expect, `expected ${c.expect} for ${c.path}`);
     assert.strictEqual(result.reason, 'scaffold-ruoyi');
   }
-  console.log('exact-basename-ruoyi: ok');
 }
 
 function testExactBasenameVueAdmin() {
@@ -35,7 +34,6 @@ function testExactBasenameVueAdmin() {
     assert.strictEqual(result.name, c.expect);
     assert.strictEqual(result.reason, 'scaffold-vue-admin');
   }
-  console.log('exact-basename-vue-admin: ok');
 }
 
 function testPathPatternRuoYi() {
@@ -64,8 +62,6 @@ function testPathPatternRuoYi() {
   // Sensitive.java outside ruoyi path should NOT match
   const nonScaffold3 = detectScaffold('/project/src/main/java/com/example/Sensitive.java');
   assert.strictEqual(nonScaffold3, null, 'Sensitive.java outside ruoyi path should NOT match');
-
-  console.log('path-pattern-ruoyi: ok');
 }
 
 function testPathPatternVueAdmin() {
@@ -81,8 +77,6 @@ function testPathPatternVueAdmin() {
   const scaffold2 = detectScaffold('/project/src/views/tool/generator/index.js');
   assert.ok(scaffold2);
   assert.strictEqual(scaffold2.name, 'vue-admin');
-
-  console.log('path-pattern-vue-admin: ok');
 }
 
 function testNonScaffoldNotMatched() {
@@ -101,14 +95,12 @@ function testNonScaffoldNotMatched() {
     const result = detectScaffold(c);
     assert.strictEqual(result, null, `${c} should not match any scaffold`);
   }
-  console.log('non-scaffold-not-matched: ok');
 }
 
 function testNullAndEmpty() {
   assert.strictEqual(detectScaffold(null), null);
   assert.strictEqual(detectScaffold(''), null);
   assert.strictEqual(detectScaffold(undefined), null);
-  console.log('null-and-empty: ok');
 }
 
 function testFingerprintRegistryIntegrity() {
@@ -124,7 +116,6 @@ function testFingerprintRegistryIntegrity() {
       assert.ok(pp.regex instanceof RegExp, 'pathPattern.regex must be a RegExp');
     }
   }
-  console.log('fingerprint-registry-integrity: ok');
 }
 
 function main() {
@@ -135,7 +126,6 @@ function main() {
   testNonScaffoldNotMatched();
   testNullAndEmpty();
   testFingerprintRegistryIntegrity();
-  console.log('\nscaffold-detector-test: all ok');
 }
 
 main();

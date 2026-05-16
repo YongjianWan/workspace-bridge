@@ -2,27 +2,17 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const { spawnSync } = require('child_process');
-
-const repoRoot = path.join(__dirname, '..');
-const cliPath = path.join(repoRoot, 'cli.js');
-
-function runCli(args, cwd) {
-  return spawnSync('node', [cliPath, ...args], {
-    cwd: cwd || repoRoot,
-    encoding: 'utf8',
-  });
-}
+const { runCliRaw, REPO_ROOT } = require('./test-helpers');
 
 function main() {
-  const tmpDir = path.join(repoRoot, 'fixture-temp-init-test');
+  const tmpDir = path.join(REPO_ROOT, 'fixture-temp-init-test');
   fs.mkdirSync(tmpDir, { recursive: true });
   fs.mkdirSync(path.join(tmpDir, 'node_modules'), { recursive: true });
   fs.mkdirSync(path.join(tmpDir, 'dist'), { recursive: true });
   fs.mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
 
   try {
-    const result = runCli(['init', '--cwd', tmpDir, '--json'], tmpDir);
+    const result = runCliRaw(['init', '--cwd', tmpDir, '--json'], { cwd: tmpDir });
     assert.strictEqual(result.status, 0, result.stderr || result.stdout);
     const parsed = JSON.parse(result.stdout);
     assert.strictEqual(parsed.ok, true);
@@ -34,13 +24,11 @@ function main() {
     assert(config.directories.generated.includes('dist'));
     assert(config.directories.reference.includes('docs'));
 
-    const dup = runCli(['init', '--cwd', tmpDir, '--json'], tmpDir);
+    const dup = runCliRaw(['init', '--cwd', tmpDir, '--json'], { cwd: tmpDir });
     assert.strictEqual(dup.status, 1, 'init should exit with code 1 when config already exists');
     const dupParsed = JSON.parse(dup.stdout);
     assert.strictEqual(dupParsed.ok, false);
     assert(dupParsed.error.includes('already exists'));
-
-    console.log('init-test: ok');
   } finally {
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });

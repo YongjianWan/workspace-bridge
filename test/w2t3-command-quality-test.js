@@ -96,8 +96,6 @@ function main() {
   const bothChanged = generateCommands(nodePythonMixed, 'code', ['app.ts', 'app.py']);
   assert(bothChanged.smoke.some((c) => c.name === 'node-lint'), 'Mixed both should keep node smoke');
   assert(bothChanged.smoke.some((c) => c.name === 'python-lint'), 'Mixed both should keep python smoke');
-
-  console.log('w2t3-command-quality-test: ok');
 }
 
 main();

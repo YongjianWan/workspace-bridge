@@ -8,7 +8,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { FileIndex } = require('../src/services/file-index');
 const { WorkspaceCache } = require('../src/services/cache');
 
@@ -16,7 +16,7 @@ const originalReaddir = fs.promises.readdir;
 
 async function testReaddirPermissionDeniedSkipped() {
   console.log('--- test: readdir EACCES skip ---');
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-fidx-'));
+  const root = makeTempDir('wb-fidx-');
   fs.mkdirSync(path.join(root, 'readable'));
   fs.writeFileSync(path.join(root, 'readable', 'a.js'), 'export const a = 1;\n');
   fs.mkdirSync(path.join(root, 'unreadable'));
@@ -50,14 +50,13 @@ async function testReaddirPermissionDeniedSkipped() {
     // unreadable directory should have been skipped
   } finally {
     fs.readdir = originalFsReaddir;
-    fs.rmSync(root, { recursive: true, force: true });
+    cleanupTempDir(root);
   }
-  console.log('readdir-permission-denied: ok');
 }
 
 async function testBuildAbortControllerTimeout() {
   console.log('--- test: build abort timeout ---');
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-fidx-to-'));
+  const root = makeTempDir('wb-fidx-to-');
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'test' }));
   fs.mkdirSync(path.join(root, 'src'));
   fs.writeFileSync(path.join(root, 'src', 'a.js'), 'export const a = 1;\n');
@@ -69,14 +68,13 @@ async function testBuildAbortControllerTimeout() {
     await index.build(1, { watch: false });
     // Should complete without throwing even if aborted
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    cleanupTempDir(root);
   }
-  console.log('build-abort-timeout: ok');
 }
 
 async function testIndexByPatternAbortTimeout() {
   console.log('--- test: indexByPattern abort timeout ---');
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-fidx-ptn-'));
+  const root = makeTempDir('wb-fidx-ptn-');
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'test' }));
   fs.mkdirSync(path.join(root, 'src'));
   fs.writeFileSync(path.join(root, 'src', 'a.js'), 'export const a = 1;\n');
@@ -88,9 +86,8 @@ async function testIndexByPatternAbortTimeout() {
     await index.indexByPattern('**/*.js', 10, 1);
     // Should complete without throwing even if aborted
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    cleanupTempDir(root);
   }
-  console.log('indexByPattern-abort-timeout: ok');
 }
 
 async function main() {

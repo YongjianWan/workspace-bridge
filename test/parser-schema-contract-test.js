@@ -13,10 +13,15 @@ const {
 } = require('../src/services/dep-graph/parsers');
 
 const EXPECTED_TOP_KEYS = ['exportRecords', 'exports', 'functionRecords', 'importRecords', 'imports', 'parseMode'];
+const OPTIONAL_TOP_KEYS = ['package'];
 
 function assertTopLevelSchema(result, label) {
   const keys = Object.keys(result).sort();
-  assert.deepStrictEqual(keys, EXPECTED_TOP_KEYS, `${label}: top-level keys mismatch`);
+  const allowed = [...EXPECTED_TOP_KEYS, ...OPTIONAL_TOP_KEYS].sort();
+  const extra = keys.filter((k) => !allowed.includes(k));
+  const missing = EXPECTED_TOP_KEYS.filter((k) => !keys.includes(k));
+  assert.deepStrictEqual(missing, [], `${label}: missing top-level keys`);
+  assert.deepStrictEqual(extra, [], `${label}: unexpected extra top-level keys`);
 
   assert(Array.isArray(result.imports), `${label}: imports should be array`);
   assert(result.imports.every((v) => typeof v === 'string'), `${label}: imports should be string[]`);

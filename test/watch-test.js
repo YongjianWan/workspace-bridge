@@ -12,10 +12,9 @@ const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const { REPO_ROOT, CLI_PATH } = require('./test-helpers');
 
-const repoRoot = path.join(__dirname, '..');
-const cliPath = path.join(repoRoot, 'cli.js');
-const tempDir = path.join(repoRoot, 'test', '.watch-temp');
+const tempDir = path.join(REPO_ROOT, 'test', '.watch-temp');
 const triggerFile = path.join(tempDir, 'trigger.js');
 
 function delay(ms) {
@@ -49,8 +48,8 @@ async function waitForStartup(childStderr, timeoutMs = 15000) {
 async function testWatchFileChange() {
   console.log('--- test: watch file change ---');
 
-  const child = spawn('node', [cliPath, 'watch', '--cwd', '.'], {
-    cwd: repoRoot,
+  const child = spawn('node', [CLI_PATH, 'watch', '--cwd', '.'], {
+    cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -69,7 +68,6 @@ async function testWatchFileChange() {
 
   assert(stderr.includes('workspace-bridge watch'), 'Should show watch header');
   assert(stderr.includes('Watching for file changes'), 'Should show watching message');
-  console.log('watch startup: ok');
 
   // Update the trigger file to fire the watcher callback
   fs.writeFileSync(triggerFile, `// updated ${Date.now()}\n`);
@@ -96,14 +94,13 @@ async function testWatchFileChange() {
   });
 
   assert(found, `Should print impact for trigger file. stdout: ${stdout}`);
-  console.log('watch file change impact: ok');
 }
 
 async function testWatchSigint() {
   console.log('--- test: watch SIGINT graceful shutdown ---');
 
-  const child = spawn('node', [cliPath, 'watch', '--cwd', '.'], {
-    cwd: repoRoot,
+  const child = spawn('node', [CLI_PATH, 'watch', '--cwd', '.'], {
+    cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -134,7 +131,6 @@ async function testWatchSigint() {
   // We accept either graceful shutdown (0) or signal-termination (null).
   const ok = result.code === 0 || result.code === null || result.signal === 'SIGINT' || result.signal === 'SIGTERM';
   assert(ok, `SIGINT should cause process exit, got code=${result.code}, signal=${result.signal}`);
-  console.log('watch SIGINT: ok');
 }
 
 function parseJsonLines(stdout) {
@@ -153,8 +149,8 @@ function parseJsonLines(stdout) {
 async function testWatchRunTests() {
   console.log('--- test: watch --run-tests closed-loop ---');
 
-  const child = spawn('node', [cliPath, 'watch', '--cwd', '.', '--run-tests'], {
-    cwd: repoRoot,
+  const child = spawn('node', [CLI_PATH, 'watch', '--cwd', '.', '--run-tests'], {
+    cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -173,7 +169,6 @@ async function testWatchRunTests() {
   // Give stderr a moment to receive the "Auto-run mode" line that follows immediately after.
   await delay(200);
   assert(stderr.includes('Auto-run mode'), 'Should indicate auto-run mode in stderr');
-  console.log('watch --run-tests startup: ok');
 
   // Update the trigger file to fire the watcher callback
   fs.writeFileSync(triggerFile, `// updated ${Date.now()}\n`);
@@ -202,7 +197,6 @@ async function testWatchRunTests() {
   assert(startEvent, `Should emit validationStart event. Events: ${JSON.stringify(events.map((e) => e.event))}`);
   assert(completeEvent, `Should emit validationComplete event. Events: ${JSON.stringify(events.map((e) => e.event))}`);
   assert(completeEvent.passed === true, `validationComplete should indicate passed=true for isolated file. Got: ${JSON.stringify(completeEvent)}`);
-  console.log('watch --run-tests closed-loop: ok');
 }
 
 async function main() {

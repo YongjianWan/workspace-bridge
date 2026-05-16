@@ -2,6 +2,7 @@
 const assert = require('assert');
 const { DependencyGraph } = require('../src/services/dep-graph');
 const { normalizePathKey } = require('../src/utils/path');
+const { buildMockDepGraph } = require('./test-helpers');
 
 function n(p) {
   return normalizePathKey(p);
@@ -11,9 +12,9 @@ function testNoImporterReliableGraph() {
   const dg = new DependencyGraph('/repo', { fileMetadata: new Map() });
   const file = n('/repo/lib.js');
 
-  dg.graph = new Map([
-    [file, { imports: [], exports: ['foo'], importRecords: [], exportRecords: [{ name: 'foo' }], parseMode: 'ast', confidence: 'high' }],
-  ]);
+  dg.graph = buildMockDepGraph({
+    [file]: { imports: [], exports: ['foo'], importRecords: [], exportRecords: [{ name: 'foo' }], parseMode: 'ast', confidence: 'high' },
+  });
   dg.reverseGraph = new Map([[file, []]]);
 
   const dead = dg.findDeadExports();
@@ -23,7 +24,6 @@ function testNoImporterReliableGraph() {
   assert.strictEqual(item.confidenceValue, 0.95, 'high confidence should have numeric value 0.95');
   assert.strictEqual(item.confidenceSource, 'ast-no-importer', 'source should indicate AST analysis');
   assert.ok(item.confidenceReason.includes('No files import'), `reason should explain no importers: ${item.confidenceReason}`);
-  console.log('testNoImporterReliableGraph: ok');
 }
 
 function testNoImporterUnreliableGraph() {
@@ -31,11 +31,11 @@ function testNoImporterUnreliableGraph() {
   const file = n('/repo/lib.js');
 
   // Many files, very few edges → graph unreliable
-  dg.graph = new Map([
-    [file, { imports: [], exports: ['foo'], importRecords: [], exportRecords: [{ name: 'foo' }], parseMode: 'ast', confidence: 'high' }],
-    [n('/repo/a.js'), { imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'ast', confidence: 'high' }],
-    [n('/repo/b.js'), { imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'ast', confidence: 'high' }],
-  ]);
+  dg.graph = buildMockDepGraph({
+    [file]: { imports: [], exports: ['foo'], importRecords: [], exportRecords: [{ name: 'foo' }], parseMode: 'ast', confidence: 'high' },
+    [n('/repo/a.js')]: { imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'ast', confidence: 'high' },
+    [n('/repo/b.js')]: { imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'ast', confidence: 'high' },
+  });
   dg.reverseGraph = new Map([[file, []], [n('/repo/a.js'), []], [n('/repo/b.js'), []]]);
 
   const dead = dg.findDeadExports();
@@ -45,7 +45,6 @@ function testNoImporterUnreliableGraph() {
   assert.strictEqual(item.confidenceValue, 0.5, 'low confidence should have numeric value 0.5');
   assert.strictEqual(item.confidenceSource, 'graph-sparse', 'source should indicate sparse graph');
   assert.ok(item.confidenceReason.includes('sparse'), `reason should mention sparse graph: ${item.confidenceReason}`);
-  console.log('testNoImporterUnreliableGraph: ok');
 }
 
 function testFewImportersAst() {
@@ -53,10 +52,10 @@ function testFewImportersAst() {
   const file = n('/repo/lib.js');
   const importer = n('/repo/app.js');
 
-  dg.graph = new Map([
-    [file, { imports: [], exports: ['foo', 'bar'], importRecords: [], exportRecords: [{ name: 'foo' }, { name: 'bar' }], parseMode: 'ast', confidence: 'high' }],
-    [importer, { imports: [file], exports: [], importRecords: [{ source: './lib', imported: ['foo'], resolved: file }], exportRecords: [], parseMode: 'ast', confidence: 'high' }],
-  ]);
+  dg.graph = buildMockDepGraph({
+    [file]: { imports: [], exports: ['foo', 'bar'], importRecords: [], exportRecords: [{ name: 'foo' }, { name: 'bar' }], parseMode: 'ast', confidence: 'high' },
+    [importer]: { imports: [file], exports: [], importRecords: [{ source: './lib', imported: ['foo'], resolved: file }], exportRecords: [], parseMode: 'ast', confidence: 'high' },
+  });
   dg.reverseGraph = new Map([[file, [importer]], [importer, []]]);
 
   const dead = dg.findDeadExports();
@@ -66,19 +65,18 @@ function testFewImportersAst() {
   assert.strictEqual(item.confidenceValue, 0.9, 'medium confidence should have numeric value 0.9');
   assert.strictEqual(item.confidenceSource, 'ast-unused-exports', 'source should indicate AST unused exports');
   assert.ok(item.confidenceReason.includes('AST-level'), `reason should mention AST: ${item.confidenceReason}`);
-  console.log('testFewImportersAst: ok');
 }
 
 function testManyImportersAst() {
   const dg = new DependencyGraph('/repo', { fileMetadata: new Map() });
   const file = n('/repo/lib.js');
 
-  dg.graph = new Map([
-    [file, { imports: [], exports: ['foo'], importRecords: [], exportRecords: [{ name: 'foo' }], parseMode: 'ast', confidence: 'high' }],
-    [n('/repo/a.js'), { imports: [file], exports: [], importRecords: [{ source: './lib', imported: ['bar'], resolved: file }], exportRecords: [], parseMode: 'ast', confidence: 'high' }],
-    [n('/repo/b.js'), { imports: [file], exports: [], importRecords: [{ source: './lib', imported: ['baz'], resolved: file }], exportRecords: [], parseMode: 'ast', confidence: 'high' }],
-    [n('/repo/c.js'), { imports: [file], exports: [], importRecords: [{ source: './lib', imported: ['qux'], resolved: file }], exportRecords: [], parseMode: 'ast', confidence: 'high' }],
-  ]);
+  dg.graph = buildMockDepGraph({
+    [file]: { imports: [], exports: ['foo'], importRecords: [], exportRecords: [{ name: 'foo' }], parseMode: 'ast', confidence: 'high' },
+    [n('/repo/a.js')]: { imports: [file], exports: [], importRecords: [{ source: './lib', imported: ['bar'], resolved: file }], exportRecords: [], parseMode: 'ast', confidence: 'high' },
+    [n('/repo/b.js')]: { imports: [file], exports: [], importRecords: [{ source: './lib', imported: ['baz'], resolved: file }], exportRecords: [], parseMode: 'ast', confidence: 'high' },
+    [n('/repo/c.js')]: { imports: [file], exports: [], importRecords: [{ source: './lib', imported: ['qux'], resolved: file }], exportRecords: [], parseMode: 'ast', confidence: 'high' },
+  });
   dg.reverseGraph = new Map([
     [file, [n('/repo/a.js'), n('/repo/b.js'), n('/repo/c.js')]],
     [n('/repo/a.js'), []],
@@ -97,7 +95,6 @@ function testManyImportersAst() {
   assert.strictEqual(item.confidenceSource, 'ast-unused-exports');
   // P87: importerCount >= 3 gets differentiated reason instead of templated AST message.
   assert.ok(item.confidenceReason.includes('3 importers'), `reason should mention importer count: ${item.confidenceReason}`);
-  console.log('testManyImportersAst: ok');
 }
 
 function testVeryManyImportersAst() {
@@ -105,17 +102,19 @@ function testVeryManyImportersAst() {
   const file = n('/repo/lib.js');
 
   const importers = [];
-  const graphEntries = [[file, { imports: [], exports: ['foo'], importRecords: [], exportRecords: [{ name: 'foo' }], parseMode: 'ast', confidence: 'high' }]];
+  const schema = {
+    [file]: { imports: [], exports: ['foo'], importRecords: [], exportRecords: [{ name: 'foo' }], parseMode: 'ast', confidence: 'high' },
+  };
   const reverseEntries = [];
   for (let i = 0; i < 12; i++) {
     const imp = n(`/repo/app${i}.js`);
     importers.push(imp);
-    graphEntries.push([imp, { imports: [file], exports: [], importRecords: [{ source: './lib', imported: [`sym${i}`], resolved: file }], exportRecords: [], parseMode: 'ast', confidence: 'high' }]);
+    schema[imp] = { imports: [file], exports: [], importRecords: [{ source: './lib', imported: [`sym${i}`], resolved: file }], exportRecords: [], parseMode: 'ast', confidence: 'high' };
     reverseEntries.push([imp, []]);
   }
   reverseEntries.unshift([file, importers]);
 
-  dg.graph = new Map(graphEntries);
+  dg.graph = buildMockDepGraph(schema);
   dg.reverseGraph = new Map(reverseEntries);
 
   const dead = dg.findDeadExports();
@@ -127,7 +126,6 @@ function testVeryManyImportersAst() {
   // P87: importerCount >= 10 gets high-count differentiated reason.
   assert.ok(item.confidenceReason.includes('12 importers'), `reason should mention importer count: ${item.confidenceReason}`);
   assert.ok(item.confidenceReason.includes('specific exports'), `reason should mention specific exports: ${item.confidenceReason}`);
-  console.log('testVeryManyImportersAst: ok');
 }
 
 function testRegexMode() {
@@ -135,10 +133,10 @@ function testRegexMode() {
   const file = n('/repo/lib.rs');
   const importer = n('/repo/main.rs');
 
-  dg.graph = new Map([
-    [file, { imports: [], exports: ['foo', 'bar'], importRecords: [], exportRecords: [{ name: 'foo' }, { name: 'bar' }], parseMode: 'regex', confidence: 'medium' }],
-    [importer, { imports: [file], exports: [], importRecords: [{ source: './lib', imported: ['foo'], resolved: file }], exportRecords: [], parseMode: 'regex', confidence: 'medium' }],
-  ]);
+  dg.graph = buildMockDepGraph({
+    [file]: { imports: [], exports: ['foo', 'bar'], importRecords: [], exportRecords: [{ name: 'foo' }, { name: 'bar' }], parseMode: 'regex', confidence: 'medium' },
+    [importer]: { imports: [file], exports: [], importRecords: [{ source: './lib', imported: ['foo'], resolved: file }], exportRecords: [], parseMode: 'regex', confidence: 'medium' },
+  });
   dg.reverseGraph = new Map([[file, [importer]], [importer, []]]);
 
   const dead = dg.findDeadExports();
@@ -149,7 +147,6 @@ function testRegexMode() {
   assert.strictEqual(item.confidenceValue, 0.5);
   assert.strictEqual(item.confidenceSource, 'regex-fallback');
   assert.ok(item.confidenceReason.includes('Regex-based'), `reason should mention regex: ${item.confidenceReason}`);
-  console.log('testRegexMode: ok');
 }
 
 function main() {
@@ -159,7 +156,6 @@ function main() {
   testManyImportersAst();
   testVeryManyImportersAst();
   testRegexMode();
-  console.log('dead-export-confidence-test: all passed');
 }
 
 main();

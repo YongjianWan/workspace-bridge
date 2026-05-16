@@ -6,12 +6,12 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { FileIndex } = require('../src/services/file-index');
 const { WorkspaceCache } = require('../src/services/cache');
 
 async function testArchiveDirExcluded() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-exclude-'));
+  const root = makeTempDir('wb-exclude-');
   fs.mkdirSync(path.join(root, 'src'));
   fs.mkdirSync(path.join(root, 'legacy'));
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'test' }), 'utf8');
@@ -31,11 +31,11 @@ async function testArchiveDirExcluded() {
   assert(files.some((f) => f.includes('app.js')), 'app.js should be indexed');
   assert(!files.some((f) => f.includes('old.js')), 'old.js in archive dir should NOT be indexed');
 
-  fs.rmSync(root, { recursive: true, force: true });
+  cleanupTempDir(root);
 }
 
 async function testReferenceDirExcluded() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-exclude-ref-'));
+  const root = makeTempDir('wb-exclude-ref-');
   fs.mkdirSync(path.join(root, 'src'));
   fs.mkdirSync(path.join(root, 'reference'));
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'test' }), 'utf8');
@@ -54,11 +54,11 @@ async function testReferenceDirExcluded() {
   assert.strictEqual(files.length, 1, `expected 1 indexed file, got ${files.length}`);
   assert(!files.some((f) => f.includes('util.js')), 'util.js in reference dir should NOT be indexed');
 
-  fs.rmSync(root, { recursive: true, force: true });
+  cleanupTempDir(root);
 }
 
 async function testGeneratedDirExcluded() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-exclude-gen-'));
+  const root = makeTempDir('wb-exclude-gen-');
   fs.mkdirSync(path.join(root, 'src'));
   fs.mkdirSync(path.join(root, 'dist'));
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'test' }), 'utf8');
@@ -77,11 +77,11 @@ async function testGeneratedDirExcluded() {
   assert.strictEqual(files.length, 1, `expected 1 indexed file, got ${files.length}`);
   assert(!files.some((f) => f.includes('bundle.js')), 'bundle.js in generated dir should NOT be indexed');
 
-  fs.rmSync(root, { recursive: true, force: true });
+  cleanupTempDir(root);
 }
 
 async function testActiveDirNotExcluded() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-exclude-act-'));
+  const root = makeTempDir('wb-exclude-act-');
   fs.mkdirSync(path.join(root, 'src'));
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'test' }), 'utf8');
   fs.writeFileSync(path.join(root, 'src', 'app.js'), 'export const x = 1;\n');
@@ -98,7 +98,7 @@ async function testActiveDirNotExcluded() {
   assert.strictEqual(files.length, 1, `expected 1 indexed file, got ${files.length}`);
   assert(files.some((f) => f.includes('app.js')), 'app.js in active dir should be indexed');
 
-  fs.rmSync(root, { recursive: true, force: true });
+  cleanupTempDir(root);
 }
 
 async function main() {
@@ -106,7 +106,6 @@ async function main() {
   await testReferenceDirExcluded();
   await testGeneratedDirExcluded();
   await testActiveDirNotExcluded();
-  console.log('file-index-exclude-test: ok');
 }
 
 main().catch((e) => {

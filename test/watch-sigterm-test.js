@@ -8,10 +8,9 @@ const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const { REPO_ROOT, CLI_PATH } = require('./test-helpers');
 
-const repoRoot = path.join(__dirname, '..');
-const cliPath = path.join(repoRoot, 'cli.js');
-const tempDir = path.join(repoRoot, 'test', '.watch-sigterm-temp');
+const tempDir = path.join(REPO_ROOT, 'test', '.watch-sigterm-temp');
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -38,8 +37,8 @@ async function testWatchSigterm() {
   fs.mkdirSync(tempDir, { recursive: true });
   fs.writeFileSync(path.join(tempDir, 'trigger.js'), '// initial\n');
 
-  const child = spawn('node', [cliPath, 'watch', '--cwd', '.'], {
-    cwd: repoRoot,
+  const child = spawn('node', [CLI_PATH, 'watch', '--cwd', '.'], {
+    cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -67,7 +66,6 @@ async function testWatchSigterm() {
 
   const ok = result.code === 0 || result.code === null || result.signal === 'SIGTERM' || result.signal === 'SIGINT';
   assert(ok, `SIGTERM should cause process exit, got code=${result.code}, signal=${result.signal}`);
-  console.log('watch SIGTERM: ok');
   await cleanup();
 }
 
@@ -77,8 +75,8 @@ async function testAuditFileWatchSigint() {
   const targetFile = path.join(tempDir, 'target.js');
   fs.writeFileSync(targetFile, '// initial\n');
 
-  const child = spawn('node', [cliPath, 'audit-file', '--file', targetFile, '--watch', '--cwd', '.'], {
-    cwd: repoRoot,
+  const child = spawn('node', [CLI_PATH, 'audit-file', '--file', targetFile, '--watch', '--cwd', '.'], {
+    cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -109,7 +107,6 @@ async function testAuditFileWatchSigint() {
 
   const ok = result.code === 0 || result.code === null || ['SIGINT', 'SIGTERM'].includes(result.signal);
   assert(ok, `audit-file --watch SIGINT should cause exit, got code=${result.code}, signal=${result.signal}`);
-  console.log('audit-file --watch SIGINT: ok');
   await cleanup();
 }
 
@@ -121,8 +118,8 @@ async function testExecuteWatchCommandBoundaries() {
   fs.mkdirSync(tempDir, { recursive: true });
   fs.writeFileSync(path.join(tempDir, 'trigger.js'), '// initial\n');
 
-  const child = spawn('node', [cliPath, 'watch', '--cwd', '.', '--run-tests'], {
-    cwd: repoRoot,
+  const child = spawn('node', [CLI_PATH, 'watch', '--cwd', '.', '--run-tests'], {
+    cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -161,7 +158,6 @@ async function testExecuteWatchCommandBoundaries() {
   assert(completeEvent, 'Should emit validationComplete event');
   assert(completeEvent.passed === true, 'Should pass when no affected tests');
   assert(completeEvent.reason || completeEvent.file, 'Should include file or reason');
-  console.log('executeWatchCommand no-affected-tests: ok');
   await cleanup();
 }
 

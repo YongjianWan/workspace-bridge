@@ -115,7 +115,6 @@ function main() {
   testOtherFileTypesTrackedInAllOnly();
   testCustomToRelativeFn();
   testEntryFilesArraySupport();
-  console.log('orphan-detector-test: ok');
 }
 
 main();

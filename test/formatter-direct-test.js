@@ -282,6 +282,30 @@ function testFormatHumanDefaultFallback() {
   assert(out.includes('"foo": "bar"'));
 }
 
+function testFormatHumanTree() {
+  const result = {
+    ok: true,
+    file: 'src/a.js',
+    tree: {
+      file: 'src/a.js',
+      imports: [
+        { file: 'src/b.js', depth: 1, imports: [{ file: 'src/c.js', depth: 2 }] },
+        { file: 'lodash', depth: 1, external: true },
+      ],
+      dependents: [
+        { file: 'src/d.js', depth: 1, dependents: [{ file: 'src/e.js', depth: 2 }] },
+      ],
+    },
+  };
+  const out = formatHuman('tree', result);
+  assert(out.includes('file: src/a.js'));
+  assert(out.includes('→ src/b.js'));
+  assert(out.includes('→ src/c.js'));
+  assert(out.includes('→ lodash [external]'));
+  assert(out.includes('← src/d.js'));
+  assert(out.includes('← src/e.js'));
+}
+
 // ---------------------------------------------------------------------------
 // formatSummary
 // ---------------------------------------------------------------------------
@@ -657,6 +681,7 @@ function main() {
   testFormatHumanWorkspaceInfo();
   testFormatHumanAuditSecurity();
   testFormatHumanDefaultFallback();
+  testFormatHumanTree();
 
   testFormatSummaryAuditSummary();
   testFormatSummaryAuditSecurity();

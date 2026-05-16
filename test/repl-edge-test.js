@@ -52,7 +52,6 @@ async function main() {
     assert(out.includes(`${threshold} dependents`), `should show ${threshold} dependents, got: ${out}`);
 
     constants.SCORING.HOTSPOT_MIN_DEPENDENTS = originalThreshold;
-    console.log('top-exact-threshold: ok');
   }
 
   // top: file with dependents one below threshold
@@ -73,7 +72,6 @@ async function main() {
     assert(out.includes('No hotspots detected'), `below threshold should show no hotspots, got: ${out}`);
 
     constants.SCORING.HOTSPOT_MIN_DEPENDENTS = originalThreshold;
-    console.log('top-below-threshold: ok');
   }
 
   // issues: no structural issues
@@ -86,7 +84,6 @@ async function main() {
     assert(out.includes('unresolved: 0'), `should show 0 unresolved, got: ${out}`);
     assert(out.includes('cycles: 0'), `should show 0 cycles, got: ${out}`);
     assert(out.includes('No immediate structural issues detected.'), `should show no issues message, got: ${out}`);
-    console.log('issues-none: ok');
   }
 
   // audit-map compact output
@@ -98,7 +95,6 @@ async function main() {
     assert(out.includes('files:'), `compact audit-map should include files, got: ${out}`);
     assert(out.includes('edges:'), `compact audit-map should include edges, got: ${out}`);
     assert(out.includes('highlightedFiles:'), `compact audit-map should include highlightedFiles, got: ${out}`);
-    console.log('audit-map-compact: ok');
   }
 
   // audit-map non-compact output
@@ -108,7 +104,6 @@ async function main() {
     const out = await executeCommand(container, 'audit-map');
     assert(out.includes('workspaceRoot:'), `non-compact audit-map should include workspaceRoot, got: ${out}`);
     assert(out.includes('files:'), `non-compact audit-map should include files, got: ${out}`);
-    console.log('audit-map-non-compact: ok');
   }
 
   console.log('\nrepl-edge-test: all passed');

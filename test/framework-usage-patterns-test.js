@@ -1,25 +1,13 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
-const { spawnSync } = require('child_process');
+const { runCli, makeTempDir, cleanupTempDir } = require('./test-helpers');
 const {
   FRAMEWORK_USAGE_PATTERNS,
   scanAndExtractImplicitImports,
   resolveImplicitImports,
   buildImplicitImportRecord,
 } = require('../src/services/dep-graph/framework-usage-patterns');
-
-const cliPath = path.join(__dirname, '..', 'cli.js');
-
-function runCli(args, cwd) {
-  const result = spawnSync('node', [cliPath, ...args], {
-    cwd,
-    encoding: 'utf8',
-  });
-  assert.strictEqual(result.status, 0, result.stderr || result.stdout);
-  return JSON.parse(result.stdout);
-}
 
 // --- scanAndExtractImplicitImports ---
 
@@ -122,7 +110,7 @@ function testResolveImplicitImports() {
   assert.strictEqual(resolved[0].patternId, 'vue-router-lazy');
 
   // Cleanup
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  cleanupTempDir(tmpDir);
 }
 
 function testResolveImplicitImportsMissingFile() {
@@ -137,7 +125,7 @@ function testResolveImplicitImportsMissingFile() {
   );
   assert.strictEqual(resolved.length, 0, 'missing file should not resolve');
 
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  cleanupTempDir(tmpDir);
 }
 
 // --- buildImplicitImportRecord ---
@@ -166,7 +154,7 @@ function testPatternRegistry() {
 // --- Integration test: end-to-end orphan / dead-export elimination ---
 
 async function testVueImplicitDependenciesIntegration() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-vue-implicit-'));
+  const root = makeTempDir('wb-vue-implicit-');
   const write = (rel, content) => {
     const full = path.join(root, rel);
     fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -193,25 +181,25 @@ async function testVueImplicitDependenciesIntegration() {
     write('src/components/SvgIcon/index.vue', '<template><svg></svg></template>\n<script>export default { name: "SvgIcon" }</script>');
 
     // 1. Verify dead-exports: view components should NOT appear (they are implicitly used by router)
-    const deadExports = runCli(['dead-exports', '--cwd', root, '--json', '--quiet'], root);
+    const deadExports = runCli(['dead-exports', '--cwd', root, '--json', '--quiet'], { cwd: root });
     const deadFiles = deadExports.deadExports.map((d) => path.basename(d.file));
     assert(!deadFiles.includes('UserProfile.vue'), 'UserProfile should not be dead-export (router lazy-load)');
     assert(!deadFiles.includes('AdminDashboard.vue'), 'AdminDashboard should not be dead-export (router lazy-load)');
     assert(!deadFiles.includes('index.vue'), 'SvgIcon should not be dead-export (global component)');
 
     // 2. Verify orphans via audit-map compact
-    const auditMap = runCli(['audit-map', '--cwd', root, '--compact', '--json', '--quiet'], root);
+    const auditMap = runCli(['audit-map', '--cwd', root, '--compact', '--json', '--quiet'], { cwd: root });
     const orphanFiles = (auditMap.issueOverlay?.orphans || []).map((f) => path.basename(f));
     assert(!orphanFiles.includes('UserProfile.vue'), 'UserProfile should not be orphan (router implicit dep)');
     assert(!orphanFiles.includes('AdminDashboard.vue'), 'AdminDashboard should not be orphan (router implicit dep)');
     assert(!orphanFiles.includes('index.vue'), 'SvgIcon should not be orphan (global component implicit dep)');
 
     // 3. Verify impact radius includes implicit dependents
-    const impact = runCli(['impact', '--cwd', root, '--file', 'src/views/UserProfile.vue', '--json', '--quiet'], root);
+    const impact = runCli(['impact', '--cwd', root, '--file', 'src/views/UserProfile.vue', '--json', '--quiet'], { cwd: root });
     const impactedFiles = impact.impact.map((i) => path.basename(i.file));
     assert(impactedFiles.includes('index.js'), 'router should appear in impact radius of UserProfile');
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    cleanupTempDir(root);
   }
 }
 
@@ -267,11 +255,8 @@ async function run() {
   testResolveImplicitImportsMissingFile();
   testBuildImplicitImportRecord();
   testPatternRegistry();
-  console.log('unit tests: ok');
   await testVueImplicitDependenciesIntegration();
-  console.log('integration test: ok');
-  console.log('framework-usage-patterns-test: all passed');
-}
+  }
 
 run().catch((err) => {
   console.error(err);

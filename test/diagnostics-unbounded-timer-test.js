@@ -4,9 +4,9 @@
  */
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { DiagnosticsEngine } = require('../src/services/diagnostics-engine');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 class MockCache {
   getDiagnosticsEntry() {
@@ -46,7 +46,7 @@ async function testScheduledChecksBoundedUnderLoad() {
 }
 
 async function testQueueDrainedWhenSlotFrees() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-diag-'));
+  const dir = makeTempDir('wb-diag-');
   fs.writeFileSync(path.join(dir, 'a.py'), 'x=1\n');
   fs.writeFileSync(path.join(dir, 'b.py'), 'x=2\n');
   fs.writeFileSync(path.join(dir, 'c.py'), 'x=3\n');
@@ -74,13 +74,13 @@ async function testQueueDrainedWhenSlotFrees() {
   assert.strictEqual(checkCount, 3, 'all queued files should be checked');
 
   engine.clearScheduledChecks();
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 async function main() {
   await testScheduledChecksBoundedUnderLoad();
   await testQueueDrainedWhenSlotFrees();
-  console.log('diagnostics-unbounded-timer-test: ok');
+
 }
 
 main().catch((e) => {

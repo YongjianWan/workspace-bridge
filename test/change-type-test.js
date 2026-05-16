@@ -58,5 +58,3 @@ assert.strictEqual(classifyChangeType([
   { file: 'package.json', classification: { fileRole: 'config' } },
   { file: 'test/a.test.js', classification: { fileRole: 'test' } },
 ]), 'config');
-
-console.log('change-type-test: ok');

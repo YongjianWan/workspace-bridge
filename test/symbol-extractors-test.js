@@ -28,7 +28,6 @@ def helper():
     assert.strictEqual(symbols[1].name, 'my_func');
     assert.strictEqual(symbols[1].type, 'function');
     assert.strictEqual(symbols[2].name, 'helper');
-    console.log('python: ok');
   }
 
   // JavaScript / TypeScript
@@ -54,7 +53,6 @@ const LOCAL = 1;
         { name: 'LOCAL', type: 'constant' },
       ],
     );
-    console.log('js/ts: ok');
   }
 
   // JSX / TSX share the same extractor
@@ -64,7 +62,6 @@ export default class App {}`;
     const symbols = extractSymbols(jsx, '.jsx');
     assert(symbols.some((s) => s.name === 'Component'));
     assert(symbols.some((s) => s.name === 'App'));
-    console.log('jsx/tsx: ok');
   }
 
   // Java
@@ -85,7 +82,6 @@ public String getName() { return ""; }
     assert(names.includes('Status'), `expected Status in ${names}`);
     assert(names.includes('main'), `expected main in ${names}`);
     assert(names.includes('getName'), `expected getName in ${names}`);
-    console.log('java: ok');
   }
 
   // Kotlin
@@ -111,7 +107,6 @@ class Helper {}
     assert(!names.includes('Priority'), `Priority should NOT appear due to enum-class regex behavior`);
     assert(names.includes('compute'), `expected compute in ${names}`);
     assert(names.includes('Helper'), `expected Helper in ${names}`);
-    console.log('kotlin: ok');
   }
 
   // Go
@@ -128,7 +123,6 @@ func helper() {}
     assert(names.includes('ID'), `expected ID in ${names}`);
     assert(names.includes('Name'), `expected Name in ${names}`);
     assert(names.includes('helper'), `expected helper in ${names}`);
-    console.log('go: ok');
   }
 
   // Rust
@@ -145,21 +139,18 @@ struct Config;
     assert(names.includes('helper'), `expected helper in ${names}`);
     assert(names.includes('User'), `expected User in ${names}`);
     assert(names.includes('Config'), `expected Config in ${names}`);
-    console.log('rust: ok');
   }
 
   // Unknown extension returns empty array
   {
     const symbols = extractSymbols('some content', '.unknown');
     assert.deepStrictEqual(symbols, [], 'unknown extension should return empty array');
-    console.log('unknown-ext: ok');
   }
 
   // Empty content returns empty array
   {
     const symbols = extractSymbols('', '.py');
     assert.deepStrictEqual(symbols, [], 'empty content should return empty array');
-    console.log('empty-content: ok');
   }
 
   // Line numbers are 1-based
@@ -168,7 +159,6 @@ struct Config;
     const symbols = extractSymbols(py, '.py');
     assert.strictEqual(symbols[0].line, 1, 'first symbol should be on line 1');
     assert.strictEqual(symbols[1].line, 4, 'second symbol should be on line 4');
-    console.log('line-numbers: ok');
   }
 
   // Signature is the trimmed source line
@@ -176,7 +166,6 @@ struct Config;
     const js = `  export const FOO = 1;`;
     const symbols = extractSymbols(js, '.js');
     assert.strictEqual(symbols[0].signature, 'export const FOO = 1;');
-    console.log('signature-trim: ok');
   }
 
   console.log('\nsymbol-extractors-test: all passed');

@@ -1,13 +1,13 @@
 const assert = require('assert');
-const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { runCliRaw } = require('./test-helpers');
 
 const cwd = path.resolve(__dirname, '..');
 const targetFile = path.join(cwd, 'src', 'utils', 'path.js');
 
 function run(args) {
-  return spawnSync('node', ['cli.js', ...args, '--json', '--quiet'], { cwd, encoding: 'utf8' });
+  return runCliRaw([...args, '--json', '--quiet'], { cwd });
 }
 
 function testWithImpact() {

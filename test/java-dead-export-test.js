@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const assert = require('assert');
 const { normalizePathKey } = require('../src/utils/path');
 const { DependencyGraph } = require('../src/services/dep-graph');
+const { makeTempDir, cleanupTempDir, buildMockDepGraph } = require('./test-helpers');
 
 function n(p) {
   return normalizePathKey(p);
 }
 
 function testJavaAstConservativeWithUsageScan() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-java-de-'));
+  const tmpDir = makeTempDir('wb-java-de-');
   const fooPath = path.join(tmpDir, 'Foo.java');
   const consumerPath = path.join(tmpDir, 'Consumer.java');
 
@@ -73,24 +73,23 @@ public class Consumer {
   // baz is truly unused
   assert(!fooDead || fooDead.exports.includes('baz'), 'baz should still be dead-export');
 
-  fs.rmSync(tmpDir, { recursive: true });
-  console.log('java-dead-export-test: ok');
+  cleanupTempDir(tmpDir);
 }
 
 function testJavaRegexNoImporter() {
   const depGraph = new DependencyGraph('/repo', { fileMetadata: new Map() });
   const regexPath = n('/repo/src/main/java/com/example/RegexOnly.java');
 
-  depGraph.graph = new Map([
-    [regexPath, {
+  depGraph.graph = buildMockDepGraph({
+    [regexPath]: {
       imports: [],
       exports: ['RegexOnly'],
       importRecords: [],
       exportRecords: [{ name: 'RegexOnly' }],
       parseMode: 'regex',
       confidence: 'medium',
-    }],
-  ]);
+    },
+  });
   depGraph.reverseGraph = new Map([
     [regexPath, []],
   ]);

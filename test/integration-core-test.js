@@ -7,27 +7,14 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
-const { spawnSync } = require('child_process');
-
-const repoRoot = path.join(__dirname, '..');
-const cliPath = path.join(repoRoot, 'cli.js');
-
-function runCli(args, cwd = repoRoot) {
-  const result = spawnSync('node', [cliPath, ...args], {
-    cwd,
-    encoding: 'utf8',
-  });
-  assert.strictEqual(result.status, 0, result.stderr || result.stdout);
-  return JSON.parse(result.stdout);
-}
+const { runCli, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function toPosix(input) {
   return String(input || '').replace(/\\/g, '/');
 }
 
 function testPathVariants() {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-core-path-'));
+  const tempRoot = makeTempDir('wb-core-path-');
   const write = (rel, content) => {
     const full = path.join(tempRoot, rel);
     fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -55,10 +42,10 @@ function testPathVariants() {
     }
 
     const impactResults = variants.map((file) =>
-      runCli(['impact', '--cwd', tempRoot, '--file', file, '--json', '--quiet'], tempRoot)
+      runCli(['impact', '--cwd', tempRoot, '--file', file, '--json', '--quiet'], { cwd: tempRoot })
     );
     const affectedResults = variants.map((file) =>
-      runCli(['affected-tests', '--cwd', tempRoot, '--file', file, '--json', '--quiet'], tempRoot)
+      runCli(['affected-tests', '--cwd', tempRoot, '--file', file, '--json', '--quiet'], { cwd: tempRoot })
     );
 
     const baseImpact = impactResults[0];
@@ -72,12 +59,12 @@ function testPathVariants() {
       assert.strictEqual(toPosix(item.resolvedPath), toPosix(baseAffected.resolvedPath), 'resolvedPath should be stable');
     }
   } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    cleanupTempDir(tempRoot);
   }
 }
 
 function testNonAsciiPath() {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-core-cn-'));
+  const tempRoot = makeTempDir('wb-core-cn-');
   const write = (rel, content) => {
     const full = path.join(tempRoot, rel);
     fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -89,23 +76,20 @@ function testNonAsciiPath() {
     write('src/模块.js', 'export function 你好() { return 42; }\n');
     write('src/index.js', 'import { 你好 } from "./模块";\nexport function main() { return 你好(); }\n');
 
-    const unresolved = runCli(['unresolved', '--cwd', tempRoot, '--json', '--quiet'], tempRoot);
+    const unresolved = runCli(['unresolved', '--cwd', tempRoot, '--json', '--quiet'], { cwd: tempRoot });
     assert.strictEqual(unresolved.unresolvedCount, 0, 'non-ASCII import should not produce unresolved entries');
 
-    const impact = runCli(['impact', '--cwd', tempRoot, '--file', 'src/模块.js', '--json', '--quiet'], tempRoot);
+    const impact = runCli(['impact', '--cwd', tempRoot, '--file', 'src/模块.js', '--json', '--quiet'], { cwd: tempRoot });
     assert.strictEqual(impact.impactCount, 1, 'non-ASCII source should map one dependent');
   } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    cleanupTempDir(tempRoot);
   }
 }
 
 function main() {
   console.log('=== core integration regression test ===');
   testPathVariants();
-  console.log('path-variants: ok');
   testNonAsciiPath();
-  console.log('non-ascii: ok');
-  console.log('integration-core-test: ok');
 }
 
 main();

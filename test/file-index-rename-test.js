@@ -4,13 +4,13 @@
  */
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { FileIndex } = require('../src/services/file-index');
 const { WorkspaceCache } = require('../src/services/cache');
 
 async function testPruneDeletedCacheEntriesReturnsPrunedFiles() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-prune-'));
+  const root = makeTempDir('wb-prune-');
   fs.writeFileSync(path.join(root, 'a.js'), 'export const a = 1;\n');
   fs.writeFileSync(path.join(root, 'b.js'), 'export const b = 2;\n');
 
@@ -24,11 +24,11 @@ async function testPruneDeletedCacheEntriesReturnsPrunedFiles() {
   assert(pruned.some((f) => f.includes('a.js')), 'pruned should include a.js');
   assert(!pruned.some((f) => f.includes('b.js')), 'pruned should not include b.js');
 
-  fs.rmSync(root, { recursive: true, force: true });
+  cleanupTempDir(root);
 }
 
 async function testRenameWithoutFilenameTriggersPruneAndCallback() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-rename-'));
+  const root = makeTempDir('wb-rename-');
   fs.writeFileSync(path.join(root, 'a.js'), 'export const a = 1;\n');
 
   const cache = new WorkspaceCache(root);
@@ -61,13 +61,12 @@ async function testRenameWithoutFilenameTriggersPruneAndCallback() {
   assert(prunedFiles.some((f) => f.includes('a.js')), 'pruned files should include a.js');
 
   fs.watch = originalWatch;
-  fs.rmSync(root, { recursive: true, force: true });
+  cleanupTempDir(root);
 }
 
 async function main() {
   await testPruneDeletedCacheEntriesReturnsPrunedFiles();
   await testRenameWithoutFilenameTriggersPruneAndCallback();
-  console.log('file-index-rename-test: ok');
 }
 
 main().catch((e) => {

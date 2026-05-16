@@ -31,6 +31,7 @@ public class Foo {
 `;
   const result = await parseJava(source);
   assert.strictEqual(result.parseMode, 'ast', 'Should use AST when javalang available');
+  assert.strictEqual(result.package, 'com.example', 'Should parse package declaration');
   assert(result.imports.includes('java.util.List'));
   assert(result.imports.includes('org.junit.Assert'));
   assert(!result.imports.some(i => i.startsWith('static ')), 'static prefix should not appear in imports');

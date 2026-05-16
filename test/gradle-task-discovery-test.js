@@ -95,8 +95,6 @@ function main() {
   const nestedResult = generateCommands(nestedStack, 'code', ['lib/core/src/main/java/Core.java']);
   const nestedCompile = nestedResult.smoke.find((c) => c.name === 'java-compile-check');
   assert(nestedCompile.cmd.includes(':lib:core:classes'), `Nested module compile should target :lib:core:classes: ${nestedCompile.cmd}`);
-
-  console.log('gradle-task-discovery-test: ok');
 }
 
 main();

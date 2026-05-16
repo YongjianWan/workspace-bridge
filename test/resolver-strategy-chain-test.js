@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const {
   createResolver,
   registerResolverConfig,
@@ -68,7 +68,7 @@ function testUnknownExtFallsBackToDefault() {
 // Test: tryRelativeWithExtensions (JS/TS)
 // ============================================================================
 function testTryRelativeWithExtensions() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-rel-ext-'));
+  const dir = makeTempDir('wb-rel-ext-');
   fs.writeFileSync(path.join(dir, 'foo.js'), '', 'utf8');
 
   const ctx = { root: dir, cachedStatSync: (p) => {
@@ -77,7 +77,7 @@ function testTryRelativeWithExtensions() {
   const result = tryRelativeWithExtensions('./foo', path.join(dir, 'bar.js'), ctx);
   assert.strictEqual(result, path.join(dir, 'foo.js'), 'should resolve relative JS import');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 function testTryRelativeWithExtensionsIgnoresNonRelative() {
@@ -99,7 +99,7 @@ function testTryAliasIgnoresRelative() {
 // Test: tryPythonRelative
 // ============================================================================
 function testTryPythonRelative() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-py-rel-'));
+  const dir = makeTempDir('wb-py-rel-');
   fs.mkdirSync(path.join(dir, 'pkg'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'pkg', 'mod.py'), '', 'utf8');
 
@@ -107,7 +107,7 @@ function testTryPythonRelative() {
   const result = tryPythonRelative('.mod', path.join(dir, 'pkg', 'main.py'), ctx);
   assert.strictEqual(result, path.join(dir, 'pkg', 'mod.py'), 'should resolve Python relative import');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 function testTryPythonRelativeIgnoresAbsolute() {
@@ -119,7 +119,7 @@ function testTryPythonRelativeIgnoresAbsolute() {
 // Test: tryJava
 // ============================================================================
 function testTryJava() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-java-strat-'));
+  const dir = makeTempDir('wb-java-strat-');
   fs.mkdirSync(path.join(dir, 'src', 'main', 'java', 'com', 'example'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'src', 'main', 'java', 'com', 'example', 'Foo.java'), '', 'utf8');
 
@@ -131,14 +131,14 @@ function testTryJava() {
   const result = tryJava('com.example.Foo', null, ctx);
   assert.strictEqual(result, path.join(dir, 'src', 'main', 'java', 'com', 'example', 'Foo.java'));
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 // ============================================================================
 // Test: tryGoModule + tryGoRelative integration
 // ============================================================================
 function testTryGoModule() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-go-mod-strat-'));
+  const dir = makeTempDir('wb-go-mod-strat-');
   fs.writeFileSync(path.join(dir, 'go.mod'), 'module example.com/test\n', 'utf8');
   fs.mkdirSync(path.join(dir, 'pkg', 'foo'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'pkg', 'foo', 'foo.go'), 'package foo\n', 'utf8');
@@ -154,14 +154,14 @@ function testTryGoModule() {
   const result = tryGoModule('example.com/test/pkg/foo', path.join(dir, 'main.go'), ctx);
   assert(result && result.includes(path.join('pkg', 'foo', 'foo.go')), `Expected go module resolve, got ${result}`);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 // ============================================================================
 // Test: tryRustCrate + tryRustSuper
 // ============================================================================
 function testTryRustCrate() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-rs-crate-strat-'));
+  const dir = makeTempDir('wb-rs-crate-strat-');
   fs.mkdirSync(path.join(dir, 'src', 'pkg'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'src', 'pkg', 'mod.rs'), '', 'utf8');
 
@@ -169,11 +169,11 @@ function testTryRustCrate() {
   const result = tryRustCrate('crate::pkg', path.join(dir, 'src', 'main.rs'), ctx);
   assert.strictEqual(result, path.join(dir, 'src', 'pkg', 'mod.rs'));
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 function testTryRustSuper() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-rs-super-strat-'));
+  const dir = makeTempDir('wb-rs-super-strat-');
   fs.mkdirSync(path.join(dir, 'src', 'foo'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'src', 'foo.rs'), '', 'utf8');
 
@@ -182,7 +182,7 @@ function testTryRustSuper() {
   const result = tryRustSuper('super::foo', bar, ctx);
   assert.strictEqual(result, path.join(dir, 'src', 'foo.rs'));
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 // ============================================================================
@@ -201,40 +201,40 @@ function testRegisterResolverConfig() {
 // Test: resolveImport facade unchanged behavior
 // ============================================================================
 function testResolveImportFacadeJs() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-facade-js-'));
+  const dir = makeTempDir('wb-facade-js-');
   fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'src', 'foo.js'), '', 'utf8');
 
   const result = resolveImport(path.join(dir, 'src', 'bar.js'), './foo', '.js', dir);
   assert.strictEqual(result, path.join(dir, 'src', 'foo.js'), 'facade should resolve JS relative import');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 function testResolveImportFacadePython() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-facade-py-'));
+  const dir = makeTempDir('wb-facade-py-');
   fs.mkdirSync(path.join(dir, 'pkg'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'pkg', 'mod.py'), '', 'utf8');
 
   const result = resolveImport(path.join(dir, 'pkg', 'main.py'), '.mod', '.py', dir);
   assert.strictEqual(result, path.join(dir, 'pkg', 'mod.py'), 'facade should resolve Python relative import');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 function testResolveImportFacadeJava() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-facade-java-'));
+  const dir = makeTempDir('wb-facade-java-');
   fs.mkdirSync(path.join(dir, 'src', 'main', 'java', 'com', 'example'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'src', 'main', 'java', 'com', 'example', 'Foo.java'), '', 'utf8');
 
   const result = resolveImport(null, 'com.example.Foo', '.java', dir);
   assert.strictEqual(result, path.join(dir, 'src', 'main', 'java', 'com', 'example', 'Foo.java'));
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 function testResolveImportFacadeGo() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-facade-go-'));
+  const dir = makeTempDir('wb-facade-go-');
   fs.writeFileSync(path.join(dir, 'go.mod'), 'module example.com/test\n', 'utf8');
   fs.mkdirSync(path.join(dir, 'pkg', 'foo'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'pkg', 'foo', 'foo.go'), 'package foo\n', 'utf8');
@@ -242,18 +242,18 @@ function testResolveImportFacadeGo() {
   const result = resolveImport(path.join(dir, 'main.go'), 'example.com/test/pkg/foo', '.go', dir);
   assert(result && result.includes(path.join('pkg', 'foo', 'foo.go')), `Expected facade go resolve, got ${result}`);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 function testResolveImportFacadeRust() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-facade-rs-'));
+  const dir = makeTempDir('wb-facade-rs-');
   fs.mkdirSync(path.join(dir, 'src', 'pkg'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'src', 'pkg', 'mod.rs'), '', 'utf8');
 
   const result = resolveImport(path.join(dir, 'src', 'main.rs'), 'crate::pkg', '.rs', dir);
   assert.strictEqual(result, path.join(dir, 'src', 'pkg', 'mod.rs'));
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 function main() {
@@ -278,7 +278,6 @@ function main() {
   testResolveImportFacadeGo();
   testResolveImportFacadeRust();
 
-  console.log('resolver-strategy-chain-test: all 20 passed');
-}
+  }
 
 main();

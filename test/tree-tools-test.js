@@ -94,12 +94,59 @@ function testBuildTreeMarksExternal() {
   assert.strictEqual(tree.imports[0].file, 'external-lib');
 }
 
+function testBuildTreeCutsCircularImport() {
+  const deps = {
+    'a.js': ['b.js'],
+    'b.js': ['a.js'],
+  };
+  const dg = createMockDepGraph(deps, {});
+  const tree = buildTree('a.js', dg, { maxDepth: 3, direction: 'imports' });
+
+  assert.strictEqual(tree.imports[0].file, 'b.js');
+  assert.strictEqual(tree.imports[0].imports[0].file, 'a.js');
+  assert.strictEqual(tree.imports[0].imports[0].circular, true, 'circular back-edge should be marked');
+  assert.strictEqual(tree.imports[0].imports[0].imports, undefined, 'circular node should not expand further');
+}
+
+function testBuildTreeCutsCircularDependent() {
+  const dents = {
+    'a.js': ['b.js'],
+    'b.js': ['a.js'],
+  };
+  const dg = createMockDepGraph({}, dents);
+  const tree = buildTree('a.js', dg, { maxDepth: 3, direction: 'dependents' });
+
+  assert.strictEqual(tree.dependents[0].file, 'b.js');
+  assert.strictEqual(tree.dependents[0].dependents[0].file, 'a.js');
+  assert.strictEqual(tree.dependents[0].dependents[0].circular, true);
+  assert.strictEqual(tree.dependents[0].dependents[0].dependents, undefined);
+}
+
+function testBuildTreeDependentsRespectsMaxDepth() {
+  const dents = {
+    'a.js': ['b.js'],
+    'b.js': ['c.js'],
+    'c.js': ['d.js'],
+  };
+  const dg = createMockDepGraph({}, dents);
+  const tree = buildTree('a.js', dg, { maxDepth: 2, direction: 'dependents' });
+
+  assert.strictEqual(tree.dependents[0].file, 'b.js');
+  assert.strictEqual(tree.dependents[0].dependents[0].file, 'c.js');
+  // maxDepth=2: c.js (depth=2) shows d.js as a leaf but does not expand further
+  assert.strictEqual(tree.dependents[0].dependents[0].dependents[0].file, 'd.js');
+  assert.strictEqual(tree.dependents[0].dependents[0].dependents[0].dependents, undefined, 'depth=3 should not expand further');
+}
+
 function main() {
   testBuildTreeImportsOnly();
   testBuildTreeDependentsOnly();
   testBuildTreeRespectsMaxDepth();
   testBuildTreeBothDirections();
   testBuildTreeMarksExternal();
+  testBuildTreeCutsCircularImport();
+  testBuildTreeCutsCircularDependent();
+  testBuildTreeDependentsRespectsMaxDepth();
   console.log('tree-tools-test: all passed');
 }
 

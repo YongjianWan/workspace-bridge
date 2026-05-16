@@ -8,10 +8,9 @@ const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const { REPO_ROOT, CLI_PATH } = require('./test-helpers');
 
-const repoRoot = path.join(__dirname, '..');
-const cliPath = path.join(repoRoot, 'cli.js');
-const tempDir = path.join(repoRoot, 'test', '.watch-temp');
+const tempDir = path.join(REPO_ROOT, 'test', '.watch-temp');
 const triggerFile = path.join(tempDir, 'trigger.js');
 
 function delay(ms) {
@@ -57,9 +56,9 @@ function parseJsonLines(stdout) {
 async function testAuditFileWatch() {
   console.log('--- test: audit-file --watch JSON Lines events ---');
 
-  const relativeTrigger = path.relative(repoRoot, triggerFile);
-  const child = spawn('node', [cliPath, 'audit-file', '--file', relativeTrigger, '--watch', '--json'], {
-    cwd: repoRoot,
+  const relativeTrigger = path.relative(REPO_ROOT, triggerFile);
+  const child = spawn('node', [CLI_PATH, 'audit-file', '--file', relativeTrigger, '--watch', '--json'], {
+    cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -77,7 +76,6 @@ async function testAuditFileWatch() {
   await waitForStartup(stderr);
   assert(stderr.includes('audit-file --watch'), 'Should show audit-file watch header');
   assert(stderr.includes('Press Ctrl+C to stop'), 'Should show stop message');
-  console.log('audit-file --watch startup: ok');
 
   // Update the trigger file to fire the watcher callback
   fs.writeFileSync(triggerFile, `// updated ${Date.now()}\n`);
@@ -113,16 +111,14 @@ async function testAuditFileWatch() {
   const completeEvent = events.find((e) => e.event === 'auditFileComplete');
   assert(startEvent, 'Should emit auditFileStart event');
   assert(completeEvent, 'Should emit auditFileComplete event');
-
-  console.log('audit-file --watch events: ok');
 }
 
 async function testAuditFileWatchTargetFiltering() {
   console.log('--- test: audit-file --watch target file filtering ---');
 
-  const relativeTrigger = path.relative(repoRoot, triggerFile);
-  const child = spawn('node', [cliPath, 'audit-file', '--file', relativeTrigger, '--watch', '--json'], {
-    cwd: repoRoot,
+  const relativeTrigger = path.relative(REPO_ROOT, triggerFile);
+  const child = spawn('node', [CLI_PATH, 'audit-file', '--file', relativeTrigger, '--watch', '--json'], {
+    cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -162,7 +158,6 @@ async function testAuditFileWatchTargetFiltering() {
   // or we may get an event for trigger.js if the watcher fires on directory change.
   // The key assertion is: no auditFileResult for other.js.
   assert(!resultForOther, 'Should not emit auditFileResult for non-target file');
-  console.log('audit-file --watch target filtering: ok');
 }
 
 async function main() {

@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 
 const assert = require('assert');
-const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { WorkspaceCache } = require('../src/services/cache');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function testNormalizeFileMapEntriesDeterministic() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
+  const root = makeTempDir('wb-cache-');
   const cache = new WorkspaceCache(root);
   const target = path.join(root, 'src', 'a.js');
 
@@ -31,11 +30,11 @@ function testNormalizeFileMapEntriesDeterministic() {
   assert(tiePicked, 'tie row should exist');
   assert.strictEqual(tiePicked.size, 11, 'equal mtime should keep first entry deterministically');
 
-  fs.rmSync(root, { recursive: true, force: true });
+  cleanupTempDir(root);
 }
 
 async function testSaveAndLoadRoundtrip() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
+  const root = makeTempDir('wb-cache-');
   const cache = new WorkspaceCache(root);
   const file = path.join(root, 'src', 'b.js');
   cache.setWorkspaceInfo({ profile: 'node' });
@@ -66,11 +65,11 @@ async function testSaveAndLoadRoundtrip() {
   assert.strictEqual(loadedParse.parseMode, 'ast', 'parse result parseMode should load');
   assert(Array.isArray(loaded.getSymbols('run')), 'symbols should load');
 
-  fs.rmSync(root, { recursive: true, force: true });
+  cleanupTempDir(root);
 }
 
 function testParseResultGetSetDelete() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
+  const root = makeTempDir('wb-cache-');
   const cache = new WorkspaceCache(root);
   const file = path.join(root, 'src', 'c.js');
 
@@ -94,14 +93,13 @@ function testParseResultGetSetDelete() {
   cache.deleteParseResult(file);
   assert.strictEqual(cache.hasParseResult(file), false, 'should not have parse result after delete');
 
-  fs.rmSync(root, { recursive: true, force: true });
+  cleanupTempDir(root);
 }
 
 async function main() {
   testNormalizeFileMapEntriesDeterministic();
   testParseResultGetSetDelete();
   await testSaveAndLoadRoundtrip();
-  console.log('cache-test: ok');
 }
 
 main().catch((err) => {

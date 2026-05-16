@@ -6,18 +6,19 @@
 const assert = require('assert');
 const path = require('path');
 const { executeCommand } = require('../src/cli/repl');
+const { buildMockDepGraph } = require('./test-helpers');
 
 function makeMockDepGraph() {
   return {
     workspaceRoot: '/project',
-    graph: new Map([
-      ['/project/src/utils/path.js', {}],
-      ['/project/src/app.js', {}],
-      ['/project/src/services/core.js', {}],
-      ['/project/test/app.test.js', {}],
-      ['/project/cli.js', {}],
-      ['/project/src/other.js', {}],
-    ]),
+    graph: buildMockDepGraph({
+      '/project/src/utils/path.js': {},
+      '/project/src/app.js': {},
+      '/project/src/services/core.js': {},
+      '/project/test/app.test.js': {},
+      '/project/cli.js': {},
+      '/project/src/other.js': {},
+    }),
     entryFiles: new Set(['/project/cli.js']),
     getImpactRadius: (file, maxDepth) => [
       { level: 1, file: `dep-${file}` },

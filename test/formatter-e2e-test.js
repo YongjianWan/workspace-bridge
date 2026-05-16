@@ -6,19 +6,7 @@
  */
 const assert = require('assert');
 const path = require('path');
-const { spawnSync } = require('child_process');
-
-const repoRoot = path.join(__dirname, '..');
-const cliPath = path.join(repoRoot, 'cli.js');
-
-function runCliText(args) {
-  const result = spawnSync('node', [cliPath, ...args], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  });
-  assert.ok(result.status === 0, `exit=${result.status} stderr=${result.stderr}`);
-  return result.stdout;
-}
+const { runCliText, runCliRaw } = require('./test-helpers');
 
 // ---------------------------------------------------------------------------
 // audit-summary human output
@@ -122,10 +110,7 @@ function testStatsHuman() {
 // ---------------------------------------------------------------------------
 
 function testFormatHumanErrorFallback() {
-  const result = spawnSync('node', [cliPath, 'impact', '--file', 'nonexistent-file.js', '--cwd', '.', '--quiet'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  });
+  const result = runCliRaw(['impact', '--file', 'nonexistent-file.js', '--cwd', '.', '--quiet']);
   assert.notStrictEqual(result.status, 0, 'error command should have non-zero exit');
   assert(result.stdout.startsWith('Error:'), 'error output should start with Error:');
 }

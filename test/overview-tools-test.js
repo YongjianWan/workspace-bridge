@@ -3,8 +3,8 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
 const { buildProjectOverview } = require('../src/tools/overview-tools');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 const root = path.resolve('C:/tmp/overview-fixture');
 const fileA = path.join(root, 'src', 'a.js');
@@ -97,13 +97,20 @@ async function main() {
   assert(result.skeleton.coreModules.some((entry) => entry.file.endsWith('src/a.js')));
   assert(Array.isArray(result.hotspots));
   assert(result.hotspots.length >= 1);
+  assert(typeof result.hotspots[0].file === 'string', 'hotspot should have file');
+  assert(typeof result.hotspots[0].score === 'number', 'hotspot should have numeric score');
+  assert(typeof result.hotspots[0].risk === 'string', 'hotspot should have risk level');
   assert(Array.isArray(result.stability));
   assert(result.stability.length >= 1);
+  assert(typeof result.stability[0].file === 'string', 'stability entry should have file');
+  assert(typeof result.stability[0].stabilityScore === 'number', 'stability entry should have stabilityScore');
+  assert(typeof result.stability[0].hasTests === 'boolean', 'stability entry should have hasTests');
+  assert(typeof result.stability[0].inCycle === 'boolean', 'stability entry should have inCycle');
   assert(typeof result.orphans.counts.total === 'number');
   assert(Array.isArray(result.summary.insights));
   assert(Array.isArray(result.summary.recommendations));
   // L2-5: schema parity with audit-summary — counts present, nextSteps removed
-  assert(typeof result.summary.counts === 'object' && result.summary.counts !== null, 'summary.counts should exist');
+  assert(result.summary.counts != null, 'summary.counts should exist');
   assert.strictEqual(typeof result.summary.counts.deadExports, 'number', 'counts.deadExports should be number');
   assert.strictEqual(typeof result.summary.counts.unresolved, 'number', 'counts.unresolved should be number');
   assert.strictEqual(typeof result.summary.counts.cycles, 'number', 'counts.cycles should be number');
@@ -141,7 +148,7 @@ async function main() {
   const hotspotA = result.hotspots.find((h) => h.file.endsWith('src/a.js'));
   assert(hotspotA && hotspotA.reason.includes('耦合'), 'high-coupling hotspot reason should include coupling prefix');
 
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-overview-'));
+  const outDir = makeTempDir('wb-overview-');
   const outFile = path.join(outDir, 'hotspots.json');
   const resultWithFile = await buildProjectOverview({ historyProvider, hotspotData: outFile }, container);
   assert.strictEqual(resultWithFile.hotspotDataFile, outFile);
@@ -182,9 +189,7 @@ async function main() {
   assert(dashboardHtml.includes('Workspace Overview Dashboard'));
   assert(dashboardHtml.includes('Top Hotspots'));
   assert(dashboardHtml.includes('Coupling Split Suggestions'));
-  fs.rmSync(outDir, { recursive: true, force: true });
-
-  console.log('overview-tools-test: ok');
+  cleanupTempDir(outDir);
 }
 
 main().catch((err) => {

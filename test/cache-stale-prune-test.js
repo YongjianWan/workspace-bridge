@@ -5,12 +5,12 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const { FileIndex } = require('../src/services/file-index');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { WorkspaceCache } = require('../src/services/cache');
 
 async function main() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-stale-'));
+  const root = makeTempDir('wb-stale-');
   const fileA = path.join(root, 'a.js');
 
   // Phase 1: create file, build index
@@ -33,8 +33,7 @@ async function main() {
 
   assert.strictEqual(cache2.fileMetadata.size, 0, 'cache should have 0 files after pruning deleted');
 
-  fs.rmSync(root, { recursive: true, force: true });
-  console.log('cache-stale-prune-test: ok');
+  cleanupTempDir(root);
 }
 
 main().catch((e) => {

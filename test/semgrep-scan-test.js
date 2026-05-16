@@ -33,13 +33,11 @@ async function main() {
   const empty = await adapter.scan([], {});
   assert.deepStrictEqual(empty.findings, [], 'empty targets should return empty findings');
   assert.strictEqual(empty.summary.total, 0, 'empty targets summary.total should be 0');
-  console.log('empty-targets: ok');
 
   // 2. Null/undefined targets
   adapter = getAdapter();
   const nullTargets = await adapter.scan(null, {});
   assert.deepStrictEqual(nullTargets.findings, [], 'null targets should return empty findings');
-  console.log('null-targets: ok');
 
   // 3. Non-zero exit code
   mockRunCommandSecure({ ok: false, stdout: '', stderr: 'command not found', exitCode: 1 });
@@ -47,7 +45,6 @@ async function main() {
   const fail = await adapter.scan(['src'], {});
   assert.deepStrictEqual(fail.findings, [], 'non-zero exit should return empty findings');
   assert.ok(fail.summary.error, 'non-zero exit should include error message');
-  console.log('non-zero-exit: ok');
 
   // 4. Invalid JSON output
   mockRunCommandSecure({ ok: true, stdout: 'not-json{', stderr: '', exitCode: 0 });
@@ -55,7 +52,6 @@ async function main() {
   const badJson = await adapter.scan(['src'], {});
   assert.deepStrictEqual(badJson.findings, [], 'invalid JSON should return empty findings');
   assert.ok(badJson.summary.error.includes('Invalid JSON'), 'invalid JSON should report parse error');
-  console.log('invalid-json: ok');
 
   // 5. Valid empty JSON result
   mockRunCommandSecure({ ok: true, stdout: JSON.stringify({ results: [], errors: [] }), stderr: '', exitCode: 0 });
@@ -63,7 +59,6 @@ async function main() {
   const emptyJson = await adapter.scan(['src'], {});
   assert.deepStrictEqual(emptyJson.findings, [], 'empty results array should return empty findings');
   assert.strictEqual(emptyJson.summary.total, 0, 'empty results summary.total should be 0');
-  console.log('valid-empty-json: ok');
 
   // 6. Command injection safety — config should be passed as argument, not shell string
   const capturedArgs = [];
@@ -77,7 +72,6 @@ async function main() {
   assert(capturedArgs.includes('p/ci'), 'args should include config value as separate element');
   const configIndex = capturedArgs.indexOf('--config');
   assert.strictEqual(capturedArgs[configIndex + 1], 'p/ci', 'config should be a separate arg');
-  console.log('config-arg-safety: ok');
 
   restoreRunCommandSecure();
 
@@ -92,7 +86,6 @@ async function main() {
   });
   assert.strictEqual(noMessage.message, 'legacy fallback line', 'missing message should fallback to extra.lines');
   assert.strictEqual(noMessage.severity, 'medium', 'missing severity should fallback to medium');
-  console.log('normalize-finding-missing-fields: ok');
 
   // 8. normalizeFinding boundary — missing check_id
   const noId = adapter.normalizeFinding({
@@ -102,7 +95,6 @@ async function main() {
     extra: { message: 'm' },
   });
   assert.strictEqual(noId.ruleId, 'unknown', 'missing check_id should fallback to unknown');
-  console.log('normalize-finding-missing-id: ok');
 
   // 9. normalizeFinding severity mapping case-insensitivity
   const mixedCase = adapter.normalizeFinding({
@@ -113,7 +105,6 @@ async function main() {
     extra: { metadata: { severity: 'High' } },
   });
   assert.strictEqual(mixedCase.severity, 'high', 'severity should be case-insensitive');
-  console.log('normalize-finding-case-insensitive-severity: ok');
 
   console.log('\nAll SemgrepAdapter boundary tests passed');
 }

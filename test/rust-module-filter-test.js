@@ -73,8 +73,6 @@ function main() {
   assert.strictEqual(inferRustModuleName('src/mod.rs'), null, 'src/mod.rs should return null');
   assert.strictEqual(inferRustModuleName('src/utils/mod.rs'), 'utils', 'mod.rs should resolve to parent dir');
   assert.strictEqual(inferRustModuleName('src/parser.rs'), 'parser', 'plain module should work');
-
-  console.log('rust-module-filter-test: ok');
 }
 
 main();

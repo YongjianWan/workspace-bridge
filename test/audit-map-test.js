@@ -2,6 +2,14 @@
 const assert = require('assert');
 const { buildProjectMap } = require('../src/cli/formatters');
 
+const BASE_MOCK_METHODS = {
+  getFileInfo(file) { return this.graph.get(file); },
+  hasFile(file) { return this.graph.has(file); },
+  getDependents(file) { return this.reverseGraph.get(file) || []; },
+  getDependencies(file) { return this.graph.get(file)?.imports || []; },
+  isTestLikeFile() { return false; },
+};
+
 function testProjectMapStructure() {
   const depGraph = {
     root: '/repo',
@@ -26,15 +34,11 @@ function testProjectMapStructure() {
     reverseGraph: new Map([
       ['/repo/src/util.js', ['/repo/src/index.js']],
     ]),
-    getFileInfo(file) { return this.graph.get(file); },
-    hasFile(file) { return this.graph.has(file); },
-    getDependents(file) { return this.reverseGraph.get(file) || []; },
-    getDependencies(file) { return this.graph.get(file)?.imports || []; },
+    ...BASE_MOCK_METHODS,
     findDeadExports() { return []; },
     findUnresolvedImports() { return []; },
     findCircularDependencies() { return []; },
     entryFiles: new Set(['/repo/src/index.js']),
-    isTestLikeFile() { return false; },
     projectContext: {
       classifyFile(file) {
         if (file.includes('test')) return { isMainline: false, fileRole: 'test' };
@@ -69,7 +73,6 @@ function testProjectMapStructure() {
   assert.strictEqual(edge.type, 'import', 'edge type should be import');
   assert.deepStrictEqual(edge.symbols, ['helper'], 'edge should carry imported symbols');
 
-  console.log('testProjectMapStructure: ok');
 }
 
 function testProjectMapWithIssues() {
@@ -84,15 +87,11 @@ function testProjectMapWithIssues() {
       ['/repo/src/b.js', ['/repo/src/a.js']],
       ['/repo/src/a.js', ['/repo/src/b.js']],
     ]),
-    getFileInfo(file) { return this.graph.get(file); },
-    hasFile(file) { return this.graph.has(file); },
-    getDependents(file) { return this.reverseGraph.get(file) || []; },
-    getDependencies(file) { return this.graph.get(file)?.imports || []; },
+    ...BASE_MOCK_METHODS,
     findDeadExports() { return [{ file: '/repo/src/orphan.js', exports: ['unused'], confidence: 'high' }]; },
     findUnresolvedImports() { return [{ file: '/repo/src/a.js', import: './missing' }]; },
     findCircularDependencies() { return [['/repo/src/a.js', '/repo/src/b.js', '/repo/src/a.js']]; },
     entryFiles: new Set(['/repo/src/a.js']),
-    isTestLikeFile() { return false; },
     projectContext: {
       classifyFile(file) {
         return { isMainline: true, fileRole: 'library' };
@@ -108,7 +107,6 @@ function testProjectMapWithIssues() {
   assert.strictEqual(result.issueOverlay.cycles.length, 1, 'should have 1 cycle');
   assert.strictEqual(result.issueOverlay.orphans.length, 1, 'should have 1 orphan');
 
-  console.log('testProjectMapWithIssues: ok');
 }
 
 function testProjectMapReExportEdges() {
@@ -135,15 +133,11 @@ function testProjectMapReExportEdges() {
     reverseGraph: new Map([
       ['/repo/src/a.js', ['/repo/src/barrel.js']],
     ]),
-    getFileInfo(file) { return this.graph.get(file); },
-    hasFile(file) { return this.graph.has(file); },
-    getDependents(file) { return this.reverseGraph.get(file) || []; },
-    getDependencies(file) { return this.graph.get(file)?.imports || []; },
+    ...BASE_MOCK_METHODS,
     findDeadExports() { return []; },
     findUnresolvedImports() { return []; },
     findCircularDependencies() { return []; },
     entryFiles: new Set(),
-    isTestLikeFile() { return false; },
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
@@ -156,7 +150,6 @@ function testProjectMapReExportEdges() {
   assert.strictEqual(reExportEdge.imported, 'foo', 're-export edge should carry imported symbol');
   assert.strictEqual(reExportEdge.exported, 'foo', 're-export edge should carry exported symbol');
 
-  console.log('testProjectMapReExportEdges: ok');
 }
 
 function testProjectMapHotspots() {
@@ -173,15 +166,11 @@ function testProjectMapHotspots() {
     reverseGraph: new Map([
       ['/repo/src/core.js', ['/repo/src/a.js', '/repo/src/b.js', '/repo/src/c.js', '/repo/src/d.js', '/repo/src/e.js']],
     ]),
-    getFileInfo(file) { return this.graph.get(file); },
-    hasFile(file) { return this.graph.has(file); },
-    getDependents(file) { return this.reverseGraph.get(file) || []; },
-    getDependencies(file) { return this.graph.get(file)?.imports || []; },
+    ...BASE_MOCK_METHODS,
     findDeadExports() { return []; },
     findUnresolvedImports() { return []; },
     findCircularDependencies() { return []; },
     entryFiles: new Set(),
-    isTestLikeFile() { return false; },
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
@@ -195,7 +184,6 @@ function testProjectMapHotspots() {
   assert(coreHotspot, 'core.js should be a hotspot');
   assert.strictEqual(coreHotspot.dependentsCount, 5, 'core.js should have 5 dependents');
 
-  console.log('testProjectMapHotspots: ok');
 }
 
 function testProjectMapToRelativePathBoundary() {
@@ -205,15 +193,11 @@ function testProjectMapToRelativePathBoundary() {
       ['/repo-extra/file.js', { imports: [], exports: ['x'], exportRecords: [{ name: 'x' }], importRecords: [], parseMode: 'ast' }],
     ]),
     reverseGraph: new Map(),
-    getFileInfo(file) { return this.graph.get(file); },
-    hasFile(file) { return this.graph.has(file); },
-    getDependents() { return []; },
-    getDependencies() { return []; },
+    ...BASE_MOCK_METHODS,
     findDeadExports() { return []; },
     findUnresolvedImports() { return []; },
     findCircularDependencies() { return []; },
     entryFiles: new Set(),
-    isTestLikeFile() { return false; },
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
@@ -230,7 +214,6 @@ function testProjectMapToRelativePathBoundary() {
     assert.strictEqual(fileNode.file, '/repo-extra/file.js', 'file path outside root should remain absolute');
   }
 
-  console.log('testProjectMapToRelativePathBoundary: ok');
 }
 
 function testProjectMapCompactMode() {
@@ -276,15 +259,11 @@ function testProjectMapCompactMode() {
       ['/repo/src/mcp/c.ts', ['/repo/src/core/a.ts']],
       ['/repo/src/core/a.ts', ['/repo/src/mcp/c.ts']],
     ]),
-    getFileInfo(file) { return this.graph.get(file); },
-    hasFile(file) { return this.graph.has(file); },
-    getDependents(file) { return this.reverseGraph.get(file) || []; },
-    getDependencies(file) { return this.graph.get(file)?.imports || []; },
+    ...BASE_MOCK_METHODS,
     findDeadExports() { return [{ file: '/repo/src/core/b.ts', exports: ['unused'], confidence: 'medium' }]; },
     findUnresolvedImports() { return [{ file: '/repo/src/mcp/c.ts', import: './missing' }]; },
     findCircularDependencies() { return []; },
     entryFiles: new Set(['/repo/rootfile.js']),
-    isTestLikeFile() { return false; },
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
@@ -345,7 +324,6 @@ function testProjectMapCompactMode() {
   const deadExport = result.issueOverlay.deadExports[0];
   assert(!('exports' in deadExport), 'compact deadExport should omit exports array');
 
-  console.log('testProjectMapCompactMode: ok');
 }
 
 testProjectMapStructure();
@@ -364,15 +342,11 @@ function testProjectMapCompactDepthLimit() {
       ['/repo/docs/readme.md', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'none' }],
     ]),
     reverseGraph: new Map(),
-    getFileInfo(file) { return this.graph.get(file); },
-    hasFile(file) { return this.graph.has(file); },
-    getDependents() { return []; },
-    getDependencies() { return []; },
+    ...BASE_MOCK_METHODS,
     findDeadExports() { return []; },
     findUnresolvedImports() { return []; },
     findCircularDependencies() { return []; },
     entryFiles: new Set(),
-    isTestLikeFile() { return false; },
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
@@ -413,7 +387,6 @@ function testProjectMapCompactDepthLimit() {
   assert.strictEqual(mcpDir.fileCount, 1, 'src/mcp fileCount should reflect direct files only');
   assert.strictEqual(mcpDir.totalFileCount, 2, 'src/mcp totalFileCount should include server file');
 
-  console.log('testProjectMapCompactDepthLimit: ok');
 }
 
 function testProjectMapCompactModuleEdges() {
@@ -440,15 +413,11 @@ function testProjectMapCompactModuleEdges() {
       ['/repo/src/mcp/server/c.ts', ['/repo/src/core/ingestion/a.ts']],
       ['/repo/src/utils/d.ts', ['/repo/src/core/ingestion/a.ts']],
     ]),
-    getFileInfo(file) { return this.graph.get(file); },
-    hasFile(file) { return this.graph.has(file); },
-    getDependents(file) { return this.reverseGraph.get(file) || []; },
-    getDependencies(file) { return this.graph.get(file)?.imports || []; },
+    ...BASE_MOCK_METHODS,
     findDeadExports() { return []; },
     findUnresolvedImports() { return []; },
     findCircularDependencies() { return []; },
     entryFiles: new Set(),
-    isTestLikeFile() { return false; },
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
@@ -470,7 +439,6 @@ function testProjectMapCompactModuleEdges() {
   const coreToUtils = result.edges.find((e) => e.from === 'src/core/ingestion' && e.to === 'src/utils');
   assert(coreToUtils, 'should have src/core/ingestion -> src/utils module edge');
 
-  console.log('testProjectMapCompactModuleEdges: ok');
 }
 
 function testProjectMapCompactHighlightLimit() {
@@ -482,15 +450,11 @@ function testProjectMapCompactHighlightLimit() {
     root: '/repo',
     graph: new Map(files),
     reverseGraph: new Map(),
-    getFileInfo(file) { return this.graph.get(file); },
-    hasFile(file) { return this.graph.has(file); },
-    getDependents() { return []; },
-    getDependencies() { return []; },
+    ...BASE_MOCK_METHODS,
     findDeadExports() { return []; },
     findUnresolvedImports() { return []; },
     findCircularDependencies() { return []; },
     entryFiles: new Set(),
-    isTestLikeFile() { return false; },
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
@@ -499,7 +463,6 @@ function testProjectMapCompactHighlightLimit() {
   const result = buildProjectMap(depGraph, { compact: true });
   assert(result.highlightedFiles.length <= 30, `highlightedFiles should be capped at 30 in compact mode, got ${result.highlightedFiles.length}`);
 
-  console.log('testProjectMapCompactHighlightLimit: ok');
 }
 
 testProjectMapCompactMode();
@@ -521,15 +484,11 @@ function testProjectMapCompactSummary() {
       ['/repo/src/b.js', ['/repo/src/a.js']],
       ['/repo/src/a.js', ['/repo/src/b.js']],
     ]),
-    getFileInfo(file) { return this.graph.get(file); },
-    hasFile(file) { return this.graph.has(file); },
-    getDependents(file) { return this.reverseGraph.get(file) || []; },
-    getDependencies(file) { return this.graph.get(file)?.imports || []; },
+    ...BASE_MOCK_METHODS,
     findDeadExports() { return [{ file: '/repo/src/d.js', exports: ['unused'], confidence: 'high' }]; },
     findUnresolvedImports() { return [{ file: '/repo/src/c.js', import: './missing' }]; },
     findCircularDependencies() { return [['/repo/src/a.js', '/repo/src/b.js']]; },
     entryFiles: new Set(['/repo/src/e.js']),
-    isTestLikeFile() { return false; },
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
@@ -554,7 +513,6 @@ function testProjectMapCompactSummary() {
   assert(entryIndex >= 0, 'highlightedFiles should contain e.js');
   assert(unresolvedIndex < entryIndex, 'unresolved file should appear before entry file in highlightedFiles');
 
-  console.log('testProjectMapCompactSummary: ok');
 }
 
 function testProjectMapCompactSummaryClean() {
@@ -564,15 +522,11 @@ function testProjectMapCompactSummaryClean() {
       ['/repo/src/a.js', { imports: [], exports: ['a'], exportRecords: [{ name: 'a' }], importRecords: [], parseMode: 'ast' }],
     ]),
     reverseGraph: new Map(),
-    getFileInfo(file) { return this.graph.get(file); },
-    hasFile(file) { return this.graph.has(file); },
-    getDependents(file) { return this.reverseGraph.get(file) || []; },
-    getDependencies(file) { return this.graph.get(file)?.imports || []; },
+    ...BASE_MOCK_METHODS,
     findDeadExports() { return []; },
     findUnresolvedImports() { return []; },
     findCircularDependencies() { return []; },
     entryFiles: new Set(['/repo/src/a.js']),
-    isTestLikeFile() { return false; },
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
@@ -584,9 +538,7 @@ function testProjectMapCompactSummaryClean() {
   assert.strictEqual(result.summary.severity, 'none', 'severity should be none when no issues');
   assert.strictEqual(result.summary.nextSteps[0], 'No structural issues detected by the aggregate audit.', 'clean project should say no issues');
 
-  console.log('testProjectMapCompactSummaryClean: ok');
 }
 
 testProjectMapCompactSummary();
 testProjectMapCompactSummaryClean();
-console.log('audit-map-test: ok');

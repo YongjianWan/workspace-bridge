@@ -118,8 +118,6 @@ async function testRustAstSchema() {
   assert(result.functionRecords.some((r) => r.name === 'new'), 'Should have new functionRecord from impl');
   assert(!result.functionRecords.some((r) => r.name === 'private'), 'Should not have private functionRecord');
   assert(!result.functionRecords.some((r) => r.name === 'not_exported'), 'Should not have not_exported functionRecord');
-
-  console.log('rust-ast-parser-test: ok');
 }
 
 async function testRustAstUseListReexport() {
@@ -129,7 +127,6 @@ pub use std::io::{self, Write};
   const result = await parseRust(source);
   assert(result.exports.includes('io'), 'Should reexport io from self');
   assert(result.exports.includes('Write'), 'Should reexport Write');
-  console.log('rust-ast-use-list-reexport: ok');
 }
 
 async function main() {

@@ -6,12 +6,12 @@
  */
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { WorkspaceCache } = require('../src/services/cache');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 async function testSaveAndLoadRoundtrip() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
+  const root = makeTempDir('wb-cache-');
   const cacheDir = path.join(root, '.cache');
   const cache = new WorkspaceCache(root, { cacheDir });
   const file = path.join(root, 'src', 'a.js');
@@ -37,21 +37,21 @@ async function testSaveAndLoadRoundtrip() {
 
   cache.close();
   loaded.close();
-  fs.rmSync(root, { recursive: true, force: true });
+  cleanupTempDir(root);
 }
 
 async function testLoadFailsWhenDatabaseMissing() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
+  const root = makeTempDir('wb-cache-');
   const cacheDir = path.join(root, '.cache');
   const loaded = new WorkspaceCache(root, { cacheDir });
   const ok = loaded.load();
   assert.strictEqual(ok, false, 'should fail when no database exists');
   loaded.close();
-  fs.rmSync(root, { recursive: true, force: true });
+  cleanupTempDir(root);
 }
 
 async function testLoadFailsGracefullyWhenDatabaseCorrupted() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-'));
+  const root = makeTempDir('wb-cache-');
   const cacheDir = path.join(root, '.cache');
   const cache = new WorkspaceCache(root, { cacheDir });
   cache.setFileMetadata(path.join(root, 'a.js'), { mtime: 1, size: 1 });
@@ -67,14 +67,13 @@ async function testLoadFailsGracefullyWhenDatabaseCorrupted() {
   assert.strictEqual(ok, false, 'should fail gracefully when database is corrupted');
   cache.close();
   loaded.close();
-  fs.rmSync(root, { recursive: true, force: true });
+  cleanupTempDir(root);
 }
 
 async function main() {
   await testSaveAndLoadRoundtrip();
   await testLoadFailsWhenDatabaseMissing();
   await testLoadFailsGracefullyWhenDatabaseCorrupted();
-  console.log('cache-backup-test: ok');
 }
 
 main().catch((err) => {

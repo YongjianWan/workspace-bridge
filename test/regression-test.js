@@ -1,13 +1,13 @@
 const assert = require('assert');
-const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { runCliRaw, assertOk } = require('./test-helpers');
 
 const cwd = path.resolve(__dirname, '..');
 const baselineFile = path.join(cwd, 'test-regression-baseline.json');
 
 function run(args) {
-  return spawnSync('node', ['cli.js', ...args, '--json', '--quiet'], { cwd, encoding: 'utf8' });
+  return runCliRaw([...args, '--json', '--quiet'], { cwd });
 }
 
 function cleanup() {
@@ -18,7 +18,7 @@ function cleanup() {
 function testSaveBaseline() {
   cleanup();
   const result = run(['audit-summary', '--save', 'test-regression-baseline.json']);
-  assert.ok(result.status === 0, `Exit code should be 0, got ${result.status}. stderr: ${result.stderr}`);
+  assertOk(result, 'save baseline should succeed');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.baselineSaved, baselineFile, 'should report saved path');
   assert(fs.existsSync(baselineFile), 'baseline file should exist');
@@ -41,11 +41,11 @@ function testCheckRegressionWithBaseline() {
   cleanup();
   // First save a baseline
   const saveResult = run(['audit-summary', '--save', 'test-regression-baseline.json']);
-  assert.ok(saveResult.status === 0);
+  assertOk(saveResult, 'save baseline should succeed');
 
   // Then check regression against it
   const result = run(['audit-summary', '--check-regression', '--baseline', 'test-regression-baseline.json']);
-  assert.ok(result.status === 0, `Exit code should be 0, got ${result.status}. stderr: ${result.stderr}`);
+  assertOk(result, 'check regression should succeed');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.regression.ok, true, 'regression check should succeed');
   assert(data.regression.regression, 'should have regression breakdown');
@@ -60,10 +60,10 @@ function testCheckRegressionWithBaseline() {
 function testSaveAndCheckRegressionDefaultPath() {
   cleanup();
   const saveResult = run(['audit-summary', '--save', 'test-regression-baseline.json']);
-  assert.ok(saveResult.status === 0);
+  assertOk(saveResult, 'save baseline should succeed');
 
   const result = run(['audit-summary', '--check-regression', '--baseline', 'test-regression-baseline.json']);
-  assert.ok(result.status === 0);
+  assertOk(result, 'check regression should succeed');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.regression.ok, true);
   assert.strictEqual(data.regression.baselinePath, baselineFile);
@@ -72,7 +72,7 @@ function testSaveAndCheckRegressionDefaultPath() {
 function testCheckRegressionAgainstCommit() {
   cleanup();
   const result = run(['audit-summary', '--check-regression', '--baseline', 'HEAD~1']);
-  assert.ok(result.status === 0, `Exit code should be 0, got ${result.status}. stderr: ${result.stderr}`);
+  assertOk(result, 'check regression against commit should succeed');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.regression.ok, true, 'commit baseline check should succeed');
   assert.strictEqual(data.regression.commit, 'HEAD~1', 'should report commit');

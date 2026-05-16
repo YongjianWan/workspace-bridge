@@ -56,9 +56,7 @@ function testScriptEntry() {
 function main() {
   testFallbackWhenGlobalMissing();
   testForceLocalMode();
-  testScriptEntry();
-  console.log('cli-fallback-test: ok');
-}
+  testScriptEntry();}
 
 main();
 

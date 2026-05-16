@@ -88,7 +88,6 @@ async function testSigkillFallbackAndUnref() {
 
 async function main() {
   await testSigkillFallbackAndUnref();
-  console.log('spawn-ast-test: ok');
 }
 
 main().catch((e) => {

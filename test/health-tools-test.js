@@ -2,12 +2,12 @@
 
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { projectHealth } = require('../src/tools/health-tools');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 async function testHealthScoreNumeric() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-health-'));
+  const tmpDir = makeTempDir('wb-health-');
   fs.writeFileSync(path.join(tmpDir, 'package.json'), '{}', 'utf8');
   fs.writeFileSync(path.join(tmpDir, 'README.md'), '# Test', 'utf8');
   fs.writeFileSync(path.join(tmpDir, 'LICENSE'), 'MIT', 'utf8');
@@ -31,12 +31,12 @@ async function testHealthScoreNumeric() {
   assert.strictEqual(health.healthScoreNumeric.total, Number(totalStr));
   assert.strictEqual(health.healthScoreNumeric.ratio, Number(passedStr) / Number(totalStr));
 
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  cleanupTempDir(tmpDir);
   console.log('testHealthScoreNumeric passed');
 }
 
 async function testDjangoTestConfigDetection() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-health-django-'));
+  const tmpDir = makeTempDir('wb-health-django-');
   fs.writeFileSync(path.join(tmpDir, 'manage.py'), '#!/usr/bin/env python\n', 'utf8');
   fs.writeFileSync(path.join(tmpDir, 'README.md'), '# Test', 'utf8');
   fs.writeFileSync(path.join(tmpDir, 'LICENSE'), 'MIT', 'utf8');
@@ -48,14 +48,13 @@ async function testDjangoTestConfigDetection() {
   assert.strictEqual(health.checks.testConfig.found, true, 'Django project with manage.py should have testConfig found');
   assert(health.checks.testConfig.frameworks.includes('django-test'), 'testConfig frameworks should include django-test');
 
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  cleanupTempDir(tmpDir);
   console.log('testDjangoTestConfigDetection passed');
 }
 
 async function main() {
   await testHealthScoreNumeric();
   await testDjangoTestConfigDetection();
-  console.log('All health-tools tests passed');
-}
+  }
 
 main().catch((e) => { console.error(e); process.exit(1); });

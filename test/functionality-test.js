@@ -5,40 +5,7 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
-const { spawnSync } = require('child_process');
-
-const repoRoot = path.join(__dirname, '..');
-const cliPath = path.join(repoRoot, 'cli.js');
-
-function runCli(args) {
-  const result = spawnSync('node', [cliPath, ...args], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  });
-
-  assert.ok(result.status === 0, `exit=${result.status} stderr=${result.stderr || result.stdout}`);
-  return JSON.parse(result.stdout);
-}
-
-function runCliText(args) {
-  const result = spawnSync('node', [cliPath, ...args], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  });
-
-  assert.ok(result.status === 0, `exit=${result.status} stderr=${result.stderr || result.stdout}`);
-  return result.stdout;
-}
-
-function runInDir(command, args, cwd) {
-  const result = spawnSync(command, args, {
-    cwd,
-    encoding: 'utf8',
-  });
-  assert.ok(result.status === 0, `exit=${result.status} stderr=${result.stderr || result.stdout}`);
-  return result.stdout;
-}
+const { runCli, runCliText, runInDir, REPO_ROOT, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function main() {
   console.log('=== workspace-bridge CLI 功能可用性测试 ===\n');
@@ -46,28 +13,26 @@ function main() {
   // Ensure audit-diff has at least one changed file to detect.
   // Use a temporary untracked file instead of modifying README.md to avoid
   // dirtying the git worktree if the test is killed mid-flight.
-  const tempChangeFile = path.join(repoRoot, 'test-audit-diff-temp.txt');
+  const tempChangeFile = path.join(REPO_ROOT, 'test-audit-diff-temp.txt');
   fs.writeFileSync(tempChangeFile, 'temp\n', 'utf8');
 
   try {
 
   const workspaceInfo = runCli(['workspace-info', '--cwd', '.', '--json', '--quiet']);
-  assert.strictEqual(workspaceInfo.workspaceRoot, repoRoot);
-  console.log('workspace-info: ok');
+  assert.strictEqual(workspaceInfo.workspaceRoot, REPO_ROOT);
 
   const health = runCli(['health', '--cwd', '.', '--json', '--quiet']);
   assert.strictEqual(health.ok, true);
-  console.log('health: ok');
+  assert(typeof health.healthScore === 'string' && health.healthScore.includes('/'), 'health should return meaningful healthScore');
+  assert(health.checks?.readme?.found === true, 'health checks should include readme');
 
   const summary = runCli(['audit-summary', '--cwd', '.', '--json', '--quiet']);
   assert.strictEqual(summary.ok, true);
   assert(summary.scope.counts.totalFiles >= 1);
-  console.log('audit-summary: ok');
 
   const fileAudit = runCli(['audit-file', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);
   assert.strictEqual(fileAudit.ok, true);
   assert(fileAudit.impact.impactCount >= 0);
-  console.log('audit-file: ok');
 
   const diffAudit = runCli(['audit-diff', '--cwd', '.', '--json', '--quiet']);
   assert.strictEqual(diffAudit.ok, true);
@@ -76,7 +41,6 @@ function main() {
   assert(Array.isArray(diffAudit.validationAdvice.topRiskActions));
   assert(typeof diffAudit.summary.counts.highCompositeRiskFiles === 'number');
   assert(typeof diffAudit.summary.counts.maxCompositeRiskScore === 'number');
-  console.log('audit-diff: ok');
 
   const diffHuman = runCliText(['audit-diff', '--cwd', '.', '--quiet']);
   assert(diffHuman.includes('topCompositeRisk:'), 'audit-diff human output should include topCompositeRisk');
@@ -86,8 +50,7 @@ function main() {
   // Mixed repo stack detection
   {
     const fs = require('fs');
-    const os = require('os');
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cli-mixed-'));
+    const tempRoot = makeTempDir('wb-cli-mixed-');
     const write = (rel, content) => {
       const full = path.join(tempRoot, rel);
       fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -120,16 +83,14 @@ function main() {
     ];
     assert(commandNames.includes('node-all-tests'));
     assert(commandNames.includes('python-all-tests'));
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-    console.log('mixed-stack-detection: ok');
+    cleanupTempDir(tempRoot);
   }
 
   // Python framework detection: Flask from pyproject, Django should take priority when manage.py exists
   {
     const fs = require('fs');
-    const os = require('os');
 
-    const flaskRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cli-flask-'));
+    const flaskRoot = makeTempDir('wb-cli-flask-');
     const writeFlask = (rel, content) => {
       const full = path.join(flaskRoot, rel);
       fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -147,9 +108,9 @@ function main() {
     const flaskDiff = runCli(['audit-diff', '--cwd', flaskRoot, '--json', '--quiet']);
     assert.strictEqual(flaskDiff.validationAdvice.stack.profile, 'python-first');
     assert.strictEqual(flaskDiff.validationAdvice.stack.python.framework, 'flask');
-    fs.rmSync(flaskRoot, { recursive: true, force: true });
+    cleanupTempDir(flaskRoot);
 
-    const djangoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cli-django-'));
+    const djangoRoot = makeTempDir('wb-cli-django-');
     const writeDjango = (rel, content) => {
       const full = path.join(djangoRoot, rel);
       fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -167,15 +128,13 @@ function main() {
     writeDjango('app/views.py', 'def index():\n    return 2\n');
     const djangoDiff = runCli(['audit-diff', '--cwd', djangoRoot, '--json', '--quiet']);
     assert.strictEqual(djangoDiff.validationAdvice.stack.python.framework, 'django');
-    fs.rmSync(djangoRoot, { recursive: true, force: true });
-    console.log('python-framework-detection: ok');
+    cleanupTempDir(djangoRoot);
   }
 
   // Polyglot symbol-level impact (JS/Python/Java)
   {
     const fs = require('fs');
-    const os = require('os');
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cli-polyglot-'));
+    const tempRoot = makeTempDir('wb-cli-polyglot-');
     const write = (rel, content) => {
       const full = path.join(tempRoot, rel);
       fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -253,11 +212,10 @@ function main() {
     assert(polyCommandNames.includes('java-all-tests'));
     const javaAllTestCmd = polyDiff.validationAdvice.commands.full.find((c) => c.name === 'java-all-tests')?.cmd || '';
     assert(javaAllTestCmd.includes('./mvnw'), 'java commands should prefer project wrapper');
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-    console.log('polyglot-symbol-impact: ok');
+    cleanupTempDir(tempRoot);
   }
 
-  const overviewDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-overview-cli-'));
+  const overviewDataDir = makeTempDir('wb-overview-cli-');
   const overviewDataFile = path.join(overviewDataDir, 'hotspots.json');
   const trendDataFile = path.join(overviewDataDir, 'stability-trend.json');
   const dashboardFile = path.join(overviewDataDir, 'overview.html');
@@ -298,16 +256,14 @@ function main() {
   assert(dashboardHtml.includes('Workspace Overview Dashboard'));
   assert.strictEqual(typeof overview.stabilityTrend?.latest?.stabilityScore, 'number');
   assert.strictEqual(typeof overview.stabilityTrend?.latest?.fragileCount, 'number');
-  fs.rmSync(overviewDataDir, { recursive: true, force: true });
+  cleanupTempDir(overviewDataDir);
   const overviewHuman = runCliText(['audit-overview', '--cwd', '.', '--quiet']);
   assert(overviewHuman.includes('hotspotsHigh:'), 'audit-overview human output should include hotspot aggregates');
-  console.log('audit-overview: ok');
 
   // Non-ASCII path regression check
   {
     const fs = require('fs');
-    const os = require('os');
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cli-cn-'));
+    const tempRoot = makeTempDir('wb-cli-cn-');
     const write = (rel, content) => {
       const full = path.join(tempRoot, rel);
       fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -320,15 +276,13 @@ function main() {
     const cnImpact = runCli(['impact', '--cwd', tempRoot, '--file', 'src/模块.js', '--json', '--quiet']);
     assert.strictEqual(cnUnresolved.unresolvedCount, 0);
     assert.strictEqual(cnImpact.impactCount, 1);
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-    console.log('non-ascii-paths: ok');
+    cleanupTempDir(tempRoot);
   }
 
   // Heuristic test mapping: tests without explicit imports should still be suggested
   {
     const fs = require('fs');
-    const os = require('os');
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cli-heuristic-'));
+    const tempRoot = makeTempDir('wb-cli-heuristic-');
     const write = (rel, content) => {
       const full = path.join(tempRoot, rel);
       fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -339,15 +293,13 @@ function main() {
     write('test/order-service.test.js', 'describe("order", () => { it("ok", () => {}); });\n');
     const affected = runCli(['affected-tests', '--cwd', tempRoot, '--file', 'src/order-service.js', '--json', '--quiet']);
     assert(affected.affectedTestsCount >= 1, 'heuristic mapping should find same-stem test file');
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-    console.log('heuristic-test-mapping: ok');
+    cleanupTempDir(tempRoot);
   }
 
   // affected-tests human-readable should show via chain (symmetric with impact)
   {
     const fs = require('fs');
-    const os = require('os');
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cli-affected-via-'));
+    const tempRoot = makeTempDir('wb-cli-affected-via-');
     const write = (rel, content) => {
       const full = path.join(tempRoot, rel);
       fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -359,31 +311,25 @@ function main() {
     write('test/mid.test.js', 'import { mid } from "../src/mid.js";\ndescribe("mid", () => { it("works", () => {}); });\n');
     const text = runCliText(['affected-tests', '--cwd', tempRoot, '--file', 'src/lib.js']);
     assert(text.includes('via'), `affected-tests human-readable should show via chain, got:\n${text}`);
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-    console.log('affected-tests-via-human: ok');
+    cleanupTempDir(tempRoot);
   }
 
   const deadExports = runCli(['dead-exports', '--cwd', '.', '--json', '--quiet']);
   assert.strictEqual(deadExports.ok, true);
   assert(Array.isArray(deadExports.deadExports));
-  console.log('dead-exports: ok');
 
   const unresolved = runCli(['unresolved', '--cwd', '.', '--json', '--quiet']);
   assert.strictEqual(unresolved.ok, true);
   assert(Array.isArray(unresolved.unresolved));
-  console.log('unresolved: ok');
 
   const cycles = runCli(['cycles', '--cwd', '.', '--json', '--quiet']);
   assert.strictEqual(cycles.ok, true);
   assert(Array.isArray(cycles.cycles));
-  console.log('cycles: ok');
 
   const diagnosticsQuick = runCli(['diagnostics', '--cwd', '.', '--mode', 'quick', '--json', '--quiet']);
   assert(diagnosticsQuick.checksRun >= 1, 'quick diagnostics should run at least one check');
-  console.log('diagnostics-quick: ok');
 
-    console.log('\nAll CLI functionality tests passed');
-  } finally {
+      } finally {
     try { fs.unlinkSync(tempChangeFile); } catch (e) { /* ignore if already gone */ }
   }
 }

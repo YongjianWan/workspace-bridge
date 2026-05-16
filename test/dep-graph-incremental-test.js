@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { DependencyGraph } = require('../src/services/dep-graph');
 const { WorkspaceCache } = require('../src/services/cache');
 
 async function testIncrementalUpdateChangesImports() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-inc-'));
+  const root = makeTempDir('wb-inc-');
   const write = (rel, content) => {
     const full = path.join(root, rel);
     fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -56,12 +56,12 @@ async function testIncrementalUpdateChangesImports() {
     assert(aInfo.imports.includes(dKey));
     assert(!aInfo.imports.includes(bKey));
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    cleanupTempDir(root);
   }
 }
 
 async function testIncrementalUpdateSkipsUnchanged() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-inc-skip-'));
+  const root = makeTempDir('wb-inc-skip-');
   const write = (rel, content) => {
     const full = path.join(root, rel);
     fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -92,12 +92,12 @@ async function testIncrementalUpdateSkipsUnchanged() {
     assert(cache.hasParseResult(path.join(root, 'src/x.js')));
     assert(cache.hasParseResult(path.join(root, 'src/y.js')));
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    cleanupTempDir(root);
   }
 }
 
 async function testIncrementalUpdateDeletesFile() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-inc-del-'));
+  const root = makeTempDir('wb-inc-del-');
   const write = (rel, content) => {
     const full = path.join(root, rel);
     fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -139,19 +139,15 @@ async function testIncrementalUpdateDeletesFile() {
     assert.deepStrictEqual(graph.getDependents(mKey), []);
     assert(!graph.reverseGraph.has(mKey), 'reverseGraph should not have deleted file key');
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    cleanupTempDir(root);
   }
 }
 
 async function main() {
   console.log('=== dep-graph incremental update test ===');
   await testIncrementalUpdateChangesImports();
-  console.log('incremental-import-change: ok');
   await testIncrementalUpdateSkipsUnchanged();
-  console.log('incremental-skip-unchanged: ok');
   await testIncrementalUpdateDeletesFile();
-  console.log('incremental-delete-file: ok');
-  console.log('dep-graph-incremental-test: ok');
 }
 
 main().catch((err) => {

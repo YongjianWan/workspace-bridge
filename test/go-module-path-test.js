@@ -64,8 +64,6 @@ function main() {
   const backendTestCmds = directResult.focused.filter((c) => c.cmd && c.cmd.includes(`${CD_PREFIX} backend`));
   assert.strictEqual(backendTestCmds.length, 1, 'Should dedupe identical focused/direct test commands');
   assert(backendTestCmds[0].cmd.includes(`${CD_PREFIX} backend && `), `Direct backend should cd into module: ${backendTestCmds[0].cmd}`);
-
-  console.log('go-module-path-test: ok');
 }
 
 main();

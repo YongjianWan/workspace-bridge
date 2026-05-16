@@ -5,13 +5,13 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const { WorkspaceCache } = require('../src/services/cache');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { FileIndex } = require('../src/services/file-index');
 const { DependencyGraph } = require('../src/services/dep-graph');
 
 function setupTempWorkspace() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-consistency-'));
+  const root = makeTempDir('wb-cache-consistency-');
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.writeFileSync(
     path.join(root, 'package.json'),
@@ -87,7 +87,7 @@ async function testGraphClearedOnRebuild() {
     const aliveKey = normalizeKey(path.join(root, 'src', 'alive.js'));
     assert(services2.depGraph.hasFile(aliveKey), 'alive.js should still be in graph');
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    cleanupTempDir(root);
   }
 }
 
@@ -114,7 +114,7 @@ async function testParseResultsPrunedForDeletedFiles() {
       'post: ghost.js parse result should be pruned'
     );
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    cleanupTempDir(root);
   }
 }
 
@@ -151,7 +151,7 @@ async function testPruneCatchesOrphanParseResults() {
       'orphan parseResult without fileMetadata should be pruned'
     );
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    cleanupTempDir(root);
   }
 }
 
@@ -177,7 +177,7 @@ async function testUpdateFilesCleansAllCacheSlotsOnDelete() {
     assert(!cache.hasFileMetadata(ghostKey), 'post: ghost.js fileMetadata should be removed');
     assert(!cache.hasParseResult(ghostKey), 'post: ghost.js parseResult should be removed');
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    cleanupTempDir(root);
   }
 }
 
@@ -201,7 +201,7 @@ async function testDeadExportsExcludeDeletedFiles() {
       'post: deleted orphan.js should not appear in dead exports'
     );
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    cleanupTempDir(root);
   }
 }
 
@@ -232,7 +232,7 @@ async function testUnresolvedImportsExcludeDeletedFiles() {
       'importer.js should report unresolved import after ghost.js is deleted'
     );
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    cleanupTempDir(root);
   }
 }
 
@@ -243,7 +243,6 @@ async function runAll() {
   await testUpdateFilesCleansAllCacheSlotsOnDelete();
   await testDeadExportsExcludeDeletedFiles();
   await testUnresolvedImportsExcludeDeletedFiles();
-  console.log('All cache-consistency tests passed');
 }
 
 runAll().catch((e) => {

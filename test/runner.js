@@ -1,73 +1,157 @@
 #!/usr/bin/env node
 /**
- * Lightweight test runner for workspace-bridge.
+ * Lightweight concurrent test runner for workspace-bridge.
+ *
  * Replaces the &&-chained test:all so that every test runs even if one fails.
+ * Most tests run concurrently (they use unique temp directories).
+ * fs.watch-based tests run serially to avoid watcher cross-talk.
+ *
+ * Safety: each test has a hard timeout. If a single test hangs,
+ * it is killed and marked as a failure — the runner never blocks.
  */
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawn } = require('child_process');
 
 const TEST_DIR = __dirname;
-const TIMEOUT_MS = 120000;
+const TIMEOUT_MS = parseInt(process.env.TEST_TIMEOUT_MS, 10) || 120000;
+const CONCURRENCY = parseInt(process.env.TEST_CONCURRENCY, 10) || 1;
 
-const files = fs.readdirSync(TEST_DIR)
-  .filter((f) => f.endsWith('.js') && f !== 'runner.js')
- .sort();
+const files = fs
+  .readdirSync(TEST_DIR)
+  .filter((f) => f.endsWith('.js') && f !== 'runner.js' && f !== 'test-helpers.js')
+  .sort();
+
+const serialFiles = files.filter((f) => /watch/.test(f));
+const concurrentFiles = files.filter((f) => !/watch/.test(f));
 
 let passed = 0;
 let failed = 0;
 const failures = [];
 const start = Date.now();
 
-for (const file of files) {
+function runOne(file) {
   const filePath = path.join(TEST_DIR, file);
-  process.stdout.write(`\u2192 ${file} ... `);
-
   const testStart = Date.now();
-  const result = spawnSync('node', [filePath], {
-    encoding: 'utf8',
-    timeout: TIMEOUT_MS,
-  });
-  const testElapsed = Date.now() - testStart;
 
-  if (result.status === 0 && !result.signal) {
-    passed += 1;
-    const elapsedLabel = testElapsed > 10000 ? `PASS (${testElapsed}ms) SLOW` : `PASS (${testElapsed}ms)`;
-    console.log(elapsedLabel);
-  } else {
-    failed += 1;
-    console.log('FAIL');
-    failures.push({
-      file,
-      status: result.status,
-      signal: result.signal,
-      stdout: result.stdout || '',
-      stderr: result.stderr || '',
+  return new Promise((resolve) => {
+    let settled = false;
+    function settle(value) {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    }
+
+    const child = spawn('node', [filePath], {
+      timeout: TIMEOUT_MS,
     });
-    // Print failure output immediately so the user sees it before the next test.
-    if (result.stdout) {
-      console.log(result.stdout);
-    }
-    if (result.stderr) {
-      console.error(result.stderr);
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+
+    child.on('error', (err) => {
+      settle({
+        file, ok: false, status: null, signal: null, err, stdout, stderr,
+        elapsed: Date.now() - testStart,
+      });
+    });
+
+    child.on('close', (status, signal) => {
+      const elapsed = Date.now() - testStart;
+      const ok = status === 0 && !signal;
+      settle({ file, ok, status, signal, stdout, stderr, elapsed });
+    });
+
+    // Ultimate safety net: if the child refuses to die after spawn timeout,
+    // force SIGKILL and resolve so the runner never blocks.
+    const killTimer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch {}
+      settle({
+        file, ok: false, status: null, signal: 'TIMEOUT', stdout, stderr,
+        elapsed: Date.now() - testStart,
+      });
+    }, TIMEOUT_MS + 5000);
+
+    child.on('close', () => clearTimeout(killTimer));
+  });
+}
+
+async function runBatch(batch) {
+  return Promise.all(batch.map(runOne));
+}
+
+async function runSerial(filesList) {
+  for (const file of filesList) {
+    const r = await runOne(file);
+    if (r.ok) {
+      passed += 1;
+      const label = r.elapsed > 10000 ? `PASS (${r.elapsed}ms) SLOW` : `PASS (${r.elapsed}ms)`;
+      console.log(`→ ${r.file} ... ${label}`);
+    } else {
+      failed += 1;
+      console.log(`→ ${r.file} ... FAIL`);
+      failures.push(r);
+      if (r.stdout) console.log(r.stdout);
+      if (r.stderr) console.error(r.stderr);
+      if (r.err) console.error(r.err.message);
     }
   }
 }
 
-const elapsed = Date.now() - start;
-const separator = '-'.repeat(60);
+async function main() {
+  // Concurrent phase
+  for (let i = 0; i < concurrentFiles.length; i += CONCURRENCY) {
+    const batch = concurrentFiles.slice(i, i + CONCURRENCY);
+    const results = await runBatch(batch);
 
-console.log(`\n${separator}`);
-console.log(`Ran ${files.length} tests in ${elapsed}ms`);
-console.log(`${passed} passed, ${failed} failed`);
-
-if (failures.length > 0) {
-  console.log(`\nFailed tests:`);
-  for (const f of failures) {
-    const reason = f.signal ? `signal ${f.signal}` : `exit ${f.status}`;
-    console.log(`  - ${f.file} (${reason})`);
+    for (const r of results) {
+      if (r.ok) {
+        passed += 1;
+        const label = r.elapsed > 10000 ? `PASS (${r.elapsed}ms) SLOW` : `PASS (${r.elapsed}ms)`;
+        console.log(`→ ${r.file} ... ${label}`);
+      } else {
+        failed += 1;
+        console.log(`→ ${r.file} ... FAIL`);
+        failures.push(r);
+        if (r.stdout) console.log(r.stdout);
+        if (r.stderr) console.error(r.stderr);
+        if (r.err) console.error(r.err.message);
+      }
+    }
   }
-  process.exit(1);
+
+  // Serial phase (watch tests)
+  if (serialFiles.length > 0) {
+    await runSerial(serialFiles);
+  }
+
+  const elapsed = Date.now() - start;
+  const separator = '-'.repeat(60);
+
+  console.log(`\n${separator}`);
+  console.log(`Ran ${files.length} tests in ${elapsed}ms`);
+  console.log(`${passed} passed, ${failed} failed`);
+
+  if (failures.length > 0) {
+    console.log(`\nFailed tests:`);
+    for (const f of failures) {
+      const reason = f.signal === 'TIMEOUT'
+        ? 'timed out'
+        : f.signal
+          ? `signal ${f.signal}`
+          : f.err
+            ? `error ${f.err.message}`
+            : `exit ${f.status}`;
+      console.log(`  - ${f.file} (${reason})`);
+    }
+    process.exit(1);
+  }
+
+  console.log('\nAll tests passed.');
 }
 
-console.log('\nAll tests passed.');
+main();

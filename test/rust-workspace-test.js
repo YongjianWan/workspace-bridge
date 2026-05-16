@@ -1,11 +1,11 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const { detectStack, generateCommands } = require('../src/utils/stack-detector');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function testDetectRustWorkspaceMembers() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-rust-ws-'));
+  const tmpDir = makeTempDir('wb-rust-ws-');
 
   // Root workspace Cargo.toml
   fs.writeFileSync(path.join(tmpDir, 'Cargo.toml'), `
@@ -52,12 +52,12 @@ version = "0.1.0"
   assert(focused.cmd.includes('-p shared-lib'), 'Focused command should include -p shared-lib');
   assert(!focused.cmd.includes('crate-b'), 'Focused command should not include unaffected crate-b');
 
-  fs.rmSync(tmpDir, { recursive: true });
+  cleanupTempDir(tmpDir);
   console.log('testDetectRustWorkspaceMembers passed');
 }
 
 function testNonWorkspaceRust() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-rust-nws-'));
+  const tmpDir = makeTempDir('wb-rust-nws-');
 
   fs.writeFileSync(path.join(tmpDir, 'Cargo.toml'), `
 [package]
@@ -73,14 +73,13 @@ version = "0.1.0"
   const commands = generateCommands(stack, 'code', ['src/main.rs']);
   assert(!commands.focused.some((c) => c.name === 'rust-focused-tests'), 'Non-workspace should not generate focused crate commands');
 
-  fs.rmSync(tmpDir, { recursive: true });
+  cleanupTempDir(tmpDir);
   console.log('testNonWorkspaceRust passed');
 }
 
 function main() {
   testDetectRustWorkspaceMembers();
   testNonWorkspaceRust();
-  console.log('All Rust workspace tests passed');
-}
+  }
 
 main();

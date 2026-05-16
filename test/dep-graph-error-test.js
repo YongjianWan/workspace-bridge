@@ -2,13 +2,13 @@
 
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { DependencyGraph } = require('../src/services/dep-graph');
 const { WorkspaceCache } = require('../src/services/cache');
 
 async function testUpdateFilesEmptyArray() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-'));
+  const dir = makeTempDir('wb-dg-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
   const cache = new WorkspaceCache(dir);
   const dg = new DependencyGraph(dir, cache);
@@ -16,11 +16,11 @@ async function testUpdateFilesEmptyArray() {
   // Should not crash on empty array
   await dg.updateFiles([]);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 async function testUpdateFilesDeletedFile() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-'));
+  const dir = makeTempDir('wb-dg-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
   fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'src', 'a.js'), "export const a = 1;\n", 'utf8');
@@ -44,11 +44,11 @@ async function testUpdateFilesDeletedFile() {
 
   assert.strictEqual(dg.hasFile(aPath), false);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 async function testAnalyzeFileHandlesMissingFile() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-'));
+  const dir = makeTempDir('wb-dg-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
   const cache = new WorkspaceCache(dir);
   const dg = new DependencyGraph(dir, cache);
@@ -57,11 +57,11 @@ async function testAnalyzeFileHandlesMissingFile() {
   await dg.analyzeFile(path.join(dir, 'missing.js'));
   assert.strictEqual(dg.hasFile(path.join(dir, 'missing.js')), false);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 async function testReentrantUpdateFiles() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-'));
+  const dir = makeTempDir('wb-dg-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
   fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'src', 'x.js'), "export const x = 1;\n", 'utf8');
@@ -78,11 +78,11 @@ async function testReentrantUpdateFiles() {
   // Should complete without deadlock
   assert.strictEqual(dg._updating, false);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 async function testGetStatsLazyCycles() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-'));
+  const dir = makeTempDir('wb-dg-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
   fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
   const aPath = path.join(dir, 'src', 'a.js');
@@ -109,11 +109,11 @@ async function testGetStatsLazyCycles() {
   const stats2 = dg.getStats();
   assert.strictEqual(stats2.cycles, 0);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 async function testVueFrameworkCycleWhitelist() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-'));
+  const dir = makeTempDir('wb-dg-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
   fs.mkdirSync(path.join(dir, 'src', 'store'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'src', 'router'), { recursive: true });
@@ -151,12 +151,12 @@ async function testVueFrameworkCycleWhitelist() {
   const hasUtilCycle = cycles.some((c) => c.some((f) => f.includes('utils')));
   assert.strictEqual(hasUtilCycle, true, 'Non-Vue cycle should not be whitelisted');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 // P96: Vue length=6 cycle (request→store→router→view→api→request) should be whitelisted
 async function testVueLongCycleWhitelist() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-long-'));
+  const dir = makeTempDir('wb-dg-long-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
   fs.mkdirSync(path.join(dir, 'src', 'api'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'src', 'store'), { recursive: true });
@@ -195,11 +195,11 @@ async function testVueLongCycleWhitelist() {
   );
   assert.strictEqual(hasLongVueCycle, false, 'Vue length=6 cycle (request→store→router→view→api→request) should be whitelisted');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 async function testSpringBootEntryDetection() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-'));
+  const dir = makeTempDir('wb-dg-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
   fs.mkdirSync(path.join(dir, 'src', 'main', 'java', 'com', 'example'), { recursive: true });
 
@@ -228,11 +228,11 @@ async function testSpringBootEntryDetection() {
   assert.strictEqual(deadBasenames.includes(path.basename(configPath).toLowerCase()), false, 'Spring Boot @Configuration should not be dead export');
   assert.strictEqual(deadBasenames.includes(path.basename(plainPath).toLowerCase()), true, 'Plain helper class should be dead export');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 async function testDjangoEntryDetection() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-'));
+  const dir = makeTempDir('wb-dg-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
   fs.mkdirSync(path.join(dir, 'core', 'management', 'commands'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'core', 'views'), { recursive: true });
@@ -270,12 +270,12 @@ async function testDjangoEntryDetection() {
   assert.strictEqual(deadBasenames.includes(path.basename(tasksPath).toLowerCase()), false, 'Celery tasks should not be dead export');
   assert.strictEqual(deadBasenames.includes(path.basename(plainPath).toLowerCase()), true, 'Plain helper should be dead export');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 // P97: RuoYi scaffold utility mutual dependencies should be whitelisted
 async function testRuoYiJavaCycleWhitelist() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-'));
+  const dir = makeTempDir('wb-dg-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
   fs.mkdirSync(path.join(dir, 'src', 'main', 'java', 'com', 'ruoyi', 'common', 'utils'), { recursive: true });
 
@@ -300,12 +300,12 @@ async function testRuoYiJavaCycleWhitelist() {
   );
   assert.strictEqual(hasRuoYiCycle, false, 'RuoYi StringUtils↔StrFormatter cycle should be whitelisted');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 // P97-1: RuoYi annotation↔serializer pair should be whitelisted
 async function testRuoYiAnnotationSerializerCycleWhitelist() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-dg-'));
+  const dir = makeTempDir('wb-dg-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
   fs.mkdirSync(path.join(dir, 'src', 'main', 'java', 'com', 'ruoyi', 'common', 'annotation'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'src', 'main', 'java', 'com', 'ruoyi', 'common', 'config', 'serializer'), { recursive: true });
@@ -331,7 +331,7 @@ async function testRuoYiAnnotationSerializerCycleWhitelist() {
   );
   assert.strictEqual(hasCycle, false, 'RuoYi Sensitive↔SensitiveJsonSerializer cycle should be whitelisted');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 async function main() {

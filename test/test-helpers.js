@@ -1,0 +1,228 @@
+#!/usr/bin/env node
+/**
+ * Unified test helpers for workspace-bridge.
+ * Extracted to eliminate copy-paste across 110 test files.
+ *
+ * Design constraints:
+ * - Zero top-level side effects (safe to require without running tests)
+ * - No external dependencies beyond Node built-ins
+ * - Works with both spawnSync CLI tests and in-process unit tests
+ */
+
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
+
+const REPO_ROOT = path.join(__dirname, '..');
+const CLI_PATH = path.join(REPO_ROOT, 'cli.js');
+
+/* -------------------------------------------------------------------------- */
+// CLI runners
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Run the workspace-bridge CLI and return parsed JSON.
+ * Asserts exit code 0 and valid JSON.
+ *
+ * @param {string[]} args
+ * @param {{cwd?: string, timeout?: number}} [opts]
+ * @returns {any}
+ */
+function runCli(args, opts = {}) {
+  const result = spawnSync('node', [CLI_PATH, ...args], {
+    cwd: opts.cwd || REPO_ROOT,
+    encoding: 'utf8',
+    timeout: opts.timeout || 60000,
+  });
+  assert.strictEqual(
+    result.status,
+    0,
+    `CLI exited ${result.status}\nstderr: ${result.stderr || ''}\nstdout: ${result.stdout || ''}`.slice(0, 800)
+  );
+  try {
+    return JSON.parse(result.stdout);
+  } catch (e) {
+    throw new Error(`Failed to parse CLI stdout as JSON:\n${result.stdout?.slice(0, 500)}\n${e.message}`);
+  }
+}
+
+/**
+ * Run the workspace-bridge CLI and return raw stdout text.
+ * Asserts exit code 0.
+ *
+ * @param {string[]} args
+ * @param {{cwd?: string, timeout?: number}} [opts]
+ * @returns {string}
+ */
+function runCliText(args, opts = {}) {
+  const result = spawnSync('node', [CLI_PATH, ...args], {
+    cwd: opts.cwd || REPO_ROOT,
+    encoding: 'utf8',
+    timeout: opts.timeout || 60000,
+  });
+  assert.strictEqual(
+    result.status,
+    0,
+    `CLI exited ${result.status}\nstderr: ${result.stderr || ''}\nstdout: ${result.stdout || ''}`.slice(0, 800)
+  );
+  return result.stdout;
+}
+
+/**
+ * Run the workspace-bridge CLI and return the full spawnSync result.
+ * Does NOT assert status — useful for testing error paths.
+ *
+ * @param {string[]} args
+ * @param {{cwd?: string, timeout?: number}} [opts]
+ * @returns {import('child_process').SpawnSyncReturns<string>}
+ */
+function runCliRaw(args, opts = {}) {
+  return spawnSync('node', [CLI_PATH, ...args], {
+    cwd: opts.cwd || REPO_ROOT,
+    encoding: 'utf8',
+    timeout: opts.timeout || 60000,
+    maxBuffer: opts.maxBuffer,
+  });
+}
+
+/**
+ * Run an arbitrary command and return stdout.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @param {string} cwd
+ * @returns {string}
+ */
+function runInDir(command, args, cwd) {
+  const result = spawnSync(command, args, {
+    cwd,
+    encoding: 'utf8',
+  });
+  assert.strictEqual(
+    result.status,
+    0,
+    `Command "${command} ${args.join(' ')}" exited ${result.status}\nstderr: ${result.stderr || ''}`.slice(0, 800)
+  );
+  return result.stdout;
+}
+
+/* -------------------------------------------------------------------------- */
+// Temporary directory helpers
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Create a unique temporary directory under os.tmpdir().
+ *
+ * @param {string} [prefix='wb-test-']
+ * @returns {string}
+ */
+function makeTempDir(prefix = 'wb-test-') {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+/**
+ * Recursively delete a directory, swallowing errors.
+ *
+ * @param {string} dir
+ */
+function cleanupTempDir(dir) {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // ignore cleanup errors
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+// Mock graph factory
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Build a mock DependencyGraph internal structure from a concise schema.
+ *
+ * Schema:
+ *   {
+ *     '/repo/src/a.js': {
+ *       imports: ['b.js'],
+ *       exports: ['foo', 'bar'],
+ *       importRecords: [{ source: './b', resolved: 'b.js', imported: ['foo'], usesAllExports: false }],
+ *       exportRecords: [{ name: 'foo', kind: 'function', lineStart: 1, lineEnd: 3, fingerprint: 'abc' }],
+ *       functionRecords: [{ name: 'foo', kind: 'function', lineStart: 1, lineEnd: 3, fingerprint: 'abc' }],
+ *     }
+ *   }
+ *
+ * Missing fields are filled with sensible defaults.
+ *
+ * @param {Record<string, Partial<import('../src/services/dep-graph').FileNode>>} schema
+ * @returns {Map<string, import('../src/services/dep-graph').FileNode>}
+ */
+function buildMockDepGraph(schema) {
+  const map = new Map();
+  for (const [file, partial] of Object.entries(schema)) {
+    map.set(file, {
+      imports: partial.imports || [],
+      exports: partial.exports || [],
+      importRecords: partial.importRecords || [],
+      exportRecords: partial.exportRecords || [],
+      functionRecords: partial.functionRecords || [],
+      parseMode: partial.parseMode || 'ast',
+      ...(partial.parseModeReason ? { parseModeReason: partial.parseModeReason } : {}),
+      ...partial,
+    });
+  }
+  return map;
+}
+
+/* -------------------------------------------------------------------------- */
+// Assertion helpers
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Assert that a CLI result object represents success (status === 0).
+ *
+ * @param {import('child_process').SpawnSyncReturns<string>} result
+ * @param {string} [msg]
+ */
+function assertOk(result, msg) {
+  assert.strictEqual(
+    result.status,
+    0,
+    (msg ? `${msg}\n` : '') +
+      `exit=${result.status} stderr=${result.stderr || ''}\nstdout=${result.stdout || ''}`.slice(0, 800)
+  );
+}
+
+/**
+ * Assert that an array has at least one element and every element
+ * satisfies the given predicate.
+ *
+ * @param {any[]} arr
+ * @param {(item: any) => boolean} predicate
+ * @param {string} [msg]
+ */
+function assertAll(arr, predicate, msg) {
+  assert(Array.isArray(arr) && arr.length > 0, msg || 'expected non-empty array');
+  for (let i = 0; i < arr.length; i += 1) {
+    assert(predicate(arr[i]), `${msg || 'assertAll'} failed at index ${i}: ${JSON.stringify(arr[i])}`);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+// Exports
+/* -------------------------------------------------------------------------- */
+
+module.exports = {
+  REPO_ROOT,
+  CLI_PATH,
+  runCli,
+  runCliText,
+  runCliRaw,
+  runInDir,
+  makeTempDir,
+  cleanupTempDir,
+  buildMockDepGraph,
+  assertOk,
+  assertAll,
+};

@@ -52,7 +52,6 @@ function testInternalFunctionChangeMapsToExportingCaller() {
 
   assert.strictEqual(result.mode, 'internal-function-call-chain', `Expected internal-function-call-chain, got ${result.mode}`);
   assert.deepStrictEqual(result.changedFunctions, ['resolveImport']);
-  console.log('testInternalFunctionChangeMapsToExportingCaller: ok');
 }
 
 function testDirectInternalCallerMapsToExport() {
@@ -97,7 +96,6 @@ function testDirectInternalCallerMapsToExport() {
 
   assert.strictEqual(result.mode, 'internal-function-call-chain');
   assert.deepStrictEqual(result.changedFunctions, ['publicFn']);
-  console.log('testDirectInternalCallerMapsToExport: ok');
 }
 
 function testFunctionLevelAffectedTestsUsesInternalChain() {
@@ -135,7 +133,6 @@ function testFunctionLevelAffectedTestsUsesInternalChain() {
   const affected = getFunctionLevelAffectedTests(depGraph, sourceFile, impact.changedFunctions, { symbolImpact, maxDepth: 4 });
   assert.strictEqual(affected.affectedTestsCount, 1);
   assert.strictEqual(affected.functions[0].function, 'publicFn');
-  console.log('testFunctionLevelAffectedTestsUsesInternalChain: ok');
 }
 
 function testNoExportedFunctionChangeStillWorks() {
@@ -163,11 +160,9 @@ function testNoExportedFunctionChangeStillWorks() {
 
   assert.strictEqual(result.mode, 'no-exported-function-change');
   assert.deepStrictEqual(result.changedFunctions, []);
-  console.log('testNoExportedFunctionChangeStillWorks: ok');
 }
 
 testInternalFunctionChangeMapsToExportingCaller();
 testDirectInternalCallerMapsToExport();
 testFunctionLevelAffectedTestsUsesInternalChain();
 testNoExportedFunctionChangeStillWorks();
-console.log('p0t5-internal-function-impact-test: ok');

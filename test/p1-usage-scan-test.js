@@ -1,11 +1,11 @@
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const assert = require('assert');
 const { DependencyGraph } = require('../src/services/dep-graph');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function testScanSymbolUsage() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-p1-'));
+  const tmpDir = makeTempDir('wb-p1-');
   const mainPath = path.join(tmpDir, 'Main.java');
 
   fs.writeFileSync(mainPath, `
@@ -27,12 +27,12 @@ public class Main {
   assert(used.has('someField'), 'someField should be detected as used (field access)');
   assert(!used.has('baz'), 'baz should not be detected as used');
 
-  fs.rmSync(tmpDir, { recursive: true });
+  cleanupTempDir(tmpDir);
   console.log('testScanSymbolUsage passed');
 }
 
 function testGoUsageScan() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-p1-go-'));
+  const tmpDir = makeTempDir('wb-p1-go-');
   const mainPath = path.join(tmpDir, 'main.go');
 
   fs.writeFileSync(mainPath, `
@@ -49,12 +49,12 @@ func main() {
   assert(used.has('Bar'), 'Bar should be detected as used (pkg.Func call)');
   assert(!used.has('Baz'), 'Baz should not be detected as used');
 
-  fs.rmSync(tmpDir, { recursive: true });
+  cleanupTempDir(tmpDir);
   console.log('testGoUsageScan passed');
 }
 
 function testFindDeadExportsWithUsageScan() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-p1-de-'));
+  const tmpDir = makeTempDir('wb-p1-de-');
   const fooPath = path.join(tmpDir, 'Foo.java');
   const mainPath = path.join(tmpDir, 'Main.java');
 
@@ -96,12 +96,12 @@ function testFindDeadExportsWithUsageScan() {
   assert(!fooDead || !fooDead.exports.includes('bar'), 'bar should not be dead-export (used via instance call)');
   assert(!fooDead || fooDead.exports.includes('baz'), 'baz should still be dead-export');
 
-  fs.rmSync(tmpDir, { recursive: true });
+  cleanupTempDir(tmpDir);
   console.log('testFindDeadExportsWithUsageScan passed');
 }
 
 function testSymbolEscaping() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-p1-esc-'));
+  const tmpDir = makeTempDir('wb-p1-esc-');
   const mainPath = path.join(tmpDir, 'Main.java');
 
   // Symbol with $ (valid in Java identifiers) should not throw or mis-match
@@ -123,12 +123,12 @@ function testSymbolEscaping() {
   assert(used.has('$someField'), '$someField should be detected as used despite $ in symbol');
   assert(!used.has('$baz'), '$baz should not be detected as used');
 
-  fs.rmSync(tmpDir, { recursive: true });
+  cleanupTempDir(tmpDir);
   console.log('testSymbolEscaping passed');
 }
 
 function testScanContentCache() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-p1-cache-'));
+  const tmpDir = makeTempDir('wb-p1-cache-');
   const mainPath = path.join(tmpDir, 'Main.java');
 
   fs.writeFileSync(mainPath, `
@@ -166,7 +166,7 @@ function testScanContentCache() {
     fs.readFileSync = originalRead;
   }
 
-  fs.rmSync(tmpDir, { recursive: true });
+  cleanupTempDir(tmpDir);
   console.log('testScanContentCache passed');
 }
 
@@ -176,7 +176,6 @@ function main() {
   testFindDeadExportsWithUsageScan();
   testSymbolEscaping();
   testScanContentCache();
-  console.log('All P1 usage scan tests passed');
-}
+  }
 
 main();

@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 
 const assert = require('assert');
-const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { DiagnosticsEngine } = require('../src/services/diagnostics-engine');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { WorkspaceCache } = require('../src/services/cache');
 
 function testScheduleCheckDebouncing() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-diag-'));
+  const dir = makeTempDir('wb-diag-');
   const cache = new WorkspaceCache(dir);
   const engine = new DiagnosticsEngine(dir, cache);
 
@@ -24,11 +23,11 @@ function testScheduleCheckDebouncing() {
   assert.strictEqual(engine.scheduledChecks.size, 1, 'same file should share one timer');
 
   engine.clearScheduledChecks();
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 function testClearScheduledChecks() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-diag-'));
+  const dir = makeTempDir('wb-diag-');
   const cache = new WorkspaceCache(dir);
   const engine = new DiagnosticsEngine(dir, cache);
 
@@ -41,11 +40,11 @@ function testClearScheduledChecks() {
   assert.strictEqual(engine.checkQueue.size, 0);
   assert.strictEqual(engine.runningChecks.size, 0);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 function testIsSafePathRejectsOutsideWorkspace() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-diag-'));
+  const dir = makeTempDir('wb-diag-');
   const cache = new WorkspaceCache(dir);
   const engine = new DiagnosticsEngine(dir, cache);
 
@@ -55,11 +54,11 @@ function testIsSafePathRejectsOutsideWorkspace() {
   const inside = path.join(dir, 'inside.js');
   assert.strictEqual(engine.isSafePath(inside), true);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 function testHandleFileDeleted() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-diag-'));
+  const dir = makeTempDir('wb-diag-');
   const cache = new WorkspaceCache(dir);
   const engine = new DiagnosticsEngine(dir, cache);
 
@@ -68,11 +67,11 @@ function testHandleFileDeleted() {
   engine.handleFileDeleted(file);
   assert.deepStrictEqual(cache.getDiagnostics(file), []);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 async function testConcurrencyLimit() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-diag-'));
+  const dir = makeTempDir('wb-diag-');
   const cache = new WorkspaceCache(dir);
   const engine = new DiagnosticsEngine(dir, cache);
 
@@ -90,7 +89,7 @@ async function testConcurrencyLimit() {
     'should re-queue when concurrency limit hit',
   );
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  cleanupTempDir(dir);
 }
 
 function main() {
@@ -99,7 +98,7 @@ function main() {
   testIsSafePathRejectsOutsideWorkspace();
   testHandleFileDeleted();
   testConcurrencyLimit();
-  console.log('diagnostics-engine-test: all passed');
+
 }
 
 main();
