@@ -16,10 +16,6 @@ async function getParserModule() {
   }
 }
 
-function isTreeSitterAvailable() {
-  return parserModule !== null;
-}
-
 async function loadLanguage(langName) {
   if (languageCache.has(langName)) return languageCache.get(langName);
   const mod = await getParserModule();
@@ -49,19 +45,6 @@ function getNodeText(node) {
   return node.text;
 }
 
-function getChildByType(node, type) {
-  if (!node || !node.children) return null;
-  for (const child of node.children) {
-    if (child.type === type) return child;
-  }
-  return null;
-}
-
-function getChildrenByType(node, type) {
-  if (!node || !node.children) return [];
-  return node.children.filter((c) => c.type === type);
-}
-
 function getLineStart(node) {
   if (!node) return undefined;
   return node.startPosition.row + 1;
@@ -86,11 +69,8 @@ function stripQuotes(text) {
 
 module.exports = {
   getParserModule,
-  isTreeSitterAvailable,
   loadLanguage,
   getNodeText,
-  getChildByType,
-  getChildrenByType,
   getLineStart,
   getLineEnd,
   stripQuotes,

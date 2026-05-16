@@ -157,7 +157,7 @@ class ServiceContainer {
       projectContext: this.projectContext,
       quiet: this.quiet,
     });
-    await this.depGraph.build();
+    await this.depGraph.build(this.fileIndex?._indexedFiles || null);
   }
 
   _registerCallbacks() {
@@ -265,10 +265,20 @@ class ServiceContainer {
       }
     }
 
+    let filesChanged = false;
+    let changedFiles = [];
+    if (this.cache?.checkFileChanges) {
+      const fileCheck = this.cache.checkFileChanges();
+      filesChanged = fileCheck.changed;
+      changedFiles = fileCheck.changedFiles;
+    }
+
     return {
       indexAgeMs: ageMs,
-      isStale: ageMs > thresholdMs || gitHeadChanged,
+      isStale: ageMs > thresholdMs || gitHeadChanged || filesChanged,
       gitHeadChanged,
+      filesChanged,
+      changedFiles,
       thresholdMs,
       thresholdDescription: formatDuration(thresholdMs),
     };

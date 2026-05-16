@@ -98,6 +98,15 @@ function _spawnPythonASTParser(scriptName, content, timeoutMs) {
         if (process.env.DEBUG) {
           console.error(`[DepGraph] ${scriptName} parse failed: exitCode=${code}, stderr=${errorOutput}`);
         }
+        // Detect Windows Store Python pipe failure (exit code 49)
+        if (code === 49 && process.platform === 'win32') {
+          console.error(
+            `[workspace-bridge] Python AST parser exited with code 49. ` +
+            `This is a known issue with Windows Store Python in Git Bash when piping large data. ` +
+            `Suggested workarounds: 1) Use system Python instead of Windows Store Python, ` +
+            `2) Run in PowerShell, or 3) Set PYTHONIOENCODING=utf-8`
+          );
+        }
         resolve(null);
         return;
       }

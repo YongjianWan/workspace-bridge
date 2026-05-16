@@ -77,6 +77,7 @@ async function parseJava(content) {
         lineStart: record.lineStart,
         lineEnd: record.lineEnd,
       })),
+      package: astResult.package || null,
       parseMode: 'ast',
     };
   }

@@ -11,7 +11,8 @@ const { loadWorkspaceConfig } = require('../utils/project-context');
 const { extractSymbols } = require('./file-index/symbol-extractors');
 const { registry } = require('./dep-graph/parsers/registry');
 const { DEFAULTS } = require('../config/constants');
-const { CACHE_FILENAME } = require('./cache');
+// Old JSON cache filename (kept for exclusion of legacy files)
+const LEGACY_CACHE_FILENAME = '.workspace-bridge-cache.json';
 
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
@@ -102,6 +103,10 @@ class FileIndex {
       const totalFiles = this.getStats().files;
       console.error(`[FileIndex] Built in ${Date.now() - startTime}ms, ${totalFiles} files indexed`);
     }
+
+    // Store the raw discovered file list so dep-graph can use platform-native
+    // paths as originalPath instead of normalised cache keys.
+    this._indexedFiles = allFiles;
   }
 
   getFilePatterns() {
@@ -188,7 +193,7 @@ class FileIndex {
 
     for (const file of files) {
       if (signal?.aborted) break;
-      const promise = this.processFile(file).then(() => {
+      const promise = this.processFile(file).finally(() => {
         executing.delete(promise);
         this.processedCount++;
         if (!this.quiet && total > 0 && this.processedCount % DEFAULTS.FILE_INDEX_PROGRESS_BATCH === 0) {
@@ -244,7 +249,8 @@ class FileIndex {
 
   shouldExclude(filePath) {
     const base = path.basename(filePath);
-    if (base === CACHE_FILENAME || base === 'cache.db' || base === 'cache.db-wal' || base === 'cache.db-shm') return true;
+    if (base === LEGACY_CACHE_FILENAME || base === 'cache.db' || base === 'cache.db-wal' || base === 'cache.db-shm') return true;
+    if (base.startsWith(`${LEGACY_CACHE_FILENAME}.tmp-`) || base === `${LEGACY_CACHE_FILENAME}.bak`) return true;
 
     const normalized = normalizePathKey(filePath);
     // Only exclude base dirs (node_modules, .git, etc.) and workspace-configured dirs.

@@ -8,8 +8,7 @@
 const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
-
-const CACHE_VERSION = 3; // Must match cache.js
+const { CACHE_VERSION } = require('../config/constants');
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS cache_metadata (
@@ -22,7 +21,8 @@ const SCHEMA = `
     mtime INTEGER,
     size INTEGER,
     hash TEXT,
-    line_count INTEGER
+    line_count INTEGER,
+    original_path TEXT
   );
 
   CREATE TABLE IF NOT EXISTS parse_results (
@@ -64,6 +64,16 @@ class GraphDB {
     this.db = new Database(this.dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.exec(SCHEMA);
+    this._migrate();
+  }
+
+  _migrate() {
+    if (!this.db) return;
+    const cols = this.db.prepare('PRAGMA table_info(file_metadata)').all();
+    const hasOriginalPath = cols.some((c) => c.name === 'original_path');
+    if (!hasOriginalPath) {
+      this.db.prepare('ALTER TABLE file_metadata ADD COLUMN original_path TEXT').run();
+    }
   }
 
   close() {
@@ -103,13 +113,14 @@ class GraphDB {
 
       // File metadata
       const fileMetadata = new Map();
-      const fileRows = this.db.prepare('SELECT path, mtime, size, hash, line_count FROM file_metadata').all();
+      const fileRows = this.db.prepare('SELECT path, mtime, size, hash, line_count, original_path FROM file_metadata').all();
       for (const row of fileRows) {
         fileMetadata.set(row.path, {
           mtime: Number(row.mtime),
           size: Number(row.size),
           hash: row.hash,
           lineCount: Number(row.line_count),
+          originalPath: row.original_path,
         });
       }
 
@@ -188,7 +199,7 @@ class GraphDB {
 
         // Insert file metadata
         const insertFile = this.db.prepare(
-          'INSERT INTO file_metadata (path, mtime, size, hash, line_count) VALUES (?, ?, ?, ?, ?)'
+          'INSERT INTO file_metadata (path, mtime, size, hash, line_count, original_path) VALUES (?, ?, ?, ?, ?, ?)'
         );
         for (const [filePath, meta] of data.fileMetadata) {
           insertFile.run(
@@ -196,7 +207,8 @@ class GraphDB {
             meta.mtime ?? 0,
             meta.size ?? 0,
             meta.hash ?? '',
-            meta.lineCount ?? 0
+            meta.lineCount ?? 0,
+            meta.originalPath || null
           );
         }
 
@@ -245,5 +257,4 @@ class GraphDB {
 
 module.exports = {
   GraphDB,
-  CACHE_VERSION,
 };

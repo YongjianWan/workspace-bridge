@@ -28,7 +28,8 @@ const {
   isTestLikeFile,
 } = require('../utils/test-detector');
 const { ENTRY_BASE_NAMES } = require('../utils/project-context');
-const { CACHE_FILENAME } = require('./cache');
+// Old JSON cache filename (kept for exclusion of legacy files)
+const LEGACY_CACHE_FILENAME = '.workspace-bridge-cache.json';
 const { detectScaffold } = require('../tools/scaffold-detector');
 
 const readFile = promisify(fs.readFile);
@@ -191,6 +192,7 @@ class GraphBuilder {
     this.onFileUpdated = null;
     // P105: soft post-process phase architecture
     this.postProcessPhases = [];
+    this.postProcessPhases.push(() => this.expandJavaPackageImports());
     this.postProcessPhases.push(() => this.applyFrameworkImplicitImports());
   }
 
@@ -198,7 +200,7 @@ class GraphBuilder {
     this.postProcessPhases.push(fn);
   }
 
-  async build() {
+  async build(sourceFiles = null) {
     const startTime = Date.now();
 
     // Refresh resolver FS caches for each build to avoid stale paths
@@ -212,8 +214,9 @@ class GraphBuilder {
     this.dg._scanContentCache.clear();
     this.dg._scanPatternCache.clear();
 
-    // Get all files from cache
-    const candidateFiles = Array.from(this.dg.cache.fileMetadata.keys()).filter((file) => {
+    // Get all files from cache, or use the raw file list provided by file-index
+    // so that originalPath preserves platform-native casing and separators.
+    const candidateFiles = (sourceFiles || Array.from(this.dg.cache.fileMetadata.keys())).filter((file) => {
       if (this.dg.shouldExclude(file)) return false;
       if (this.dg.projectContext && !this.dg.projectContext.isActiveSourceFile(file)) {
         // L2-12: keep CLI-excluded files in the graph so their imports still
@@ -240,7 +243,9 @@ class GraphBuilder {
       const cached = this.dg.cache.getParseResult(file);
       if (cached && meta && cached.mtime === meta.mtime) {
         const key = this.dg.normalizeFilePath(file);
-        this.dg.graph.set(key, { ...cached });
+        // Ensure originalPath uses the platform-native path from sourceFiles
+        // even when the cached parse result lacks it (SQLite schema omit).
+        this.dg.graph.set(key, { ...cached, originalPath: meta?.originalPath || file });
         cachedFiles.push(file);
       } else {
         filesToAnalyze.push(file);
@@ -279,7 +284,7 @@ class GraphBuilder {
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const promise = this.analyzeFile(file).then(() => {
+      const promise = this.analyzeFile(file).finally(() => {
         executing.delete(promise);
       });
       executing.add(promise);
@@ -308,6 +313,7 @@ class GraphBuilder {
       let exportRecords = [];
       let functionRecords = [];
       let parseMode = 'none';
+      let packageName = null;
 
       const entry = registry.findByExt(ext);
       if (entry) {
@@ -320,6 +326,7 @@ class GraphBuilder {
           exportRecords = result.exportRecords || [];
           functionRecords = result.functionRecords || [];
           parseMode = result.parseMode || 'regex';
+          packageName = result.package || null;
         }
       }
 
@@ -359,6 +366,7 @@ class GraphBuilder {
         parseMode,
         parseModeReason,
         confidence: parseMode === 'ast' ? 'high' : 'medium',
+        package: packageName,
       });
 
       // Cache parse result for incremental rebuilds
@@ -415,6 +423,117 @@ class GraphBuilder {
 
     for (const [file, info] of this.dg.graph) {
       this._addReverseEdges(file, info.imports);
+    }
+  }
+
+  async expandJavaPackageImports() {
+    const startTime = Date.now();
+    let edgeCount = 0;
+    let wildcardCount = 0;
+    let samePackageCount = 0;
+
+    // Build package index from all Java/Kotlin files in the graph
+    const packageIndex = new Map();
+    for (const [fileKey, info] of this.dg.graph) {
+      const ext = path.extname(fileKey).toLowerCase();
+      if (!['.java', '.kt'].includes(ext)) continue;
+      if (!info.package) continue;
+
+      const files = packageIndex.get(info.package) || [];
+      files.push(fileKey);
+      packageIndex.set(info.package, files);
+    }
+
+    if (packageIndex.size === 0) return;
+
+    // Expand wildcard imports and same-package implicit references
+    for (const [fileKey, info] of this.dg.graph) {
+      const ext = path.extname(fileKey).toLowerCase();
+      if (!['.java', '.kt'].includes(ext)) continue;
+
+      // Defensive copy to avoid mutating cached arrays
+      if (!info._implicitMutated) {
+        info.imports = info.imports.slice();
+        info.importRecords = info.importRecords.slice();
+        info._implicitMutated = true;
+        this.dg.graph.set(fileKey, info);
+      }
+
+      // 1. Expand wildcard imports
+      for (const record of info.importRecords || []) {
+        if (record.usesAllExports && !record.resolved) {
+          const pkgName = record.source.replace(/\.\*$/, '');
+          const pkgFiles = packageIndex.get(pkgName);
+          if (pkgFiles) {
+            for (const targetFile of pkgFiles) {
+              if (targetFile === fileKey) continue;
+              if (!info.imports.includes(targetFile)) {
+                info.imports.push(targetFile);
+                edgeCount++;
+              }
+              const hasRecord = info.importRecords.some(
+                (r) => r.resolved === targetFile && r.source === record.source
+              );
+              if (!hasRecord) {
+                info.importRecords.push({
+                  ...record,
+                  resolved: targetFile,
+                });
+              }
+              if (!this.dg.reverseGraph.has(targetFile)) {
+                this.dg.reverseGraph.set(targetFile, []);
+              }
+              const dependents = this.dg.reverseGraph.get(targetFile);
+              if (!dependents.includes(fileKey)) {
+                dependents.push(fileKey);
+              }
+            }
+            wildcardCount++;
+          }
+        }
+      }
+
+      // 2. Same-package implicit references
+      if (info.package) {
+        const pkgFiles = packageIndex.get(info.package);
+        if (pkgFiles) {
+          for (const targetFile of pkgFiles) {
+            if (targetFile === fileKey) continue;
+            if (!info.imports.includes(targetFile)) {
+              info.imports.push(targetFile);
+              edgeCount++;
+              samePackageCount++;
+            }
+            const implicitSource = `<same-package:${info.package}>`;
+            const hasRecord = info.importRecords.some(
+              (r) => r.resolved === targetFile && r.source === implicitSource
+            );
+            if (!hasRecord) {
+              info.importRecords.push(
+                buildImplicitImportRecord(implicitSource, targetFile, 'java-same-package')
+              );
+            }
+            if (!this.dg.reverseGraph.has(targetFile)) {
+              this.dg.reverseGraph.set(targetFile, []);
+            }
+            const dependents = this.dg.reverseGraph.get(targetFile);
+            if (!dependents.includes(fileKey)) {
+              dependents.push(fileKey);
+            }
+          }
+        }
+      }
+    }
+
+    if (!this.dg.quiet && (wildcardCount > 0 || samePackageCount > 0)) {
+      console.error(
+        `[DepGraph] Expanded ${wildcardCount} wildcard imports + ${samePackageCount} same-package refs ` +
+          `(${edgeCount} edges) in ${Date.now() - startTime}ms`
+      );
+    }
+    if (edgeCount > 0) {
+      this.dg._cachedCycles = null;
+      this.dg._cycleCount = undefined;
     }
   }
 
@@ -709,6 +828,7 @@ class GraphAnalyzer {
     };
 
     for (const file of this.dg.graph.keys()) {
+      if (this.dg.shouldExcludeCli(file)) continue;
       visit(file, []);
     }
 
@@ -1219,7 +1339,7 @@ class DependencyGraph {
 
   shouldExclude(filePath) {
     const base = path.basename(filePath);
-    if (base === CACHE_FILENAME || base === 'cache.db') return true;
+    if (base === LEGACY_CACHE_FILENAME || base === 'cache.db') return true;
 
     const normalized = normalizePathKey(filePath);
     return this.excludeDirs.some((dir) => matchesPathFragment(normalized, dir));
@@ -1461,4 +1581,5 @@ class DependencyGraph {
 
 module.exports = {
   DependencyGraph,
+  GraphBuilder,
 };
