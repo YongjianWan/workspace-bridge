@@ -7,6 +7,7 @@ const HEURISTIC_ROOT_SEGMENTS = new Set([
   'main', 'java', 'python', 'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs',
   'packages', 'package',
   'kotlin', 'go', 'rust',
+  'cypress', 'e2e', 'integration',
 ]);
 
 // 规则表驱动：所有测试检测规则集中于此，消除 if-else 链
@@ -28,6 +29,14 @@ const TEST_DETECTION_RULES = [
   { type: 'basename', regex: /_test\./ },
   { type: 'basename', regex: /_test\.go$/ },
   { type: 'basename', regex: /(Tests?|Test)\.kt$/i },
+  { type: 'path', includes: '/spec/' },
+  { type: 'basename', regex: /_spec\.rb$/ },
+  { type: 'basename', regex: /_test\.rb$/ },
+  { type: 'basename', regex: /\.cy\./ },
+  { type: 'basename', regex: /\.e2e\./ },
+  { type: 'basename', regex: /\.integration\./ },
+  { type: 'path', includes: '/cypress/' },
+  { type: 'path', includes: '/e2e/' },
 ];
 
 function normalizeStem(filePath) {
@@ -35,6 +44,7 @@ function normalizeStem(filePath) {
   return base
     .replace(/^test_/, '')
     .replace(/_test$/, '')
+    .replace(/(?:\.|_)(?:cy|e2e|integration)$/, '')
     .replace(/(?:\.|_)(?:test|spec)$/, '');
 }
 
@@ -43,7 +53,7 @@ function normalizeHeuristicName(filePath) {
   const base = path.basename(filePath, ext);
 
   if (ext === '.java') {
-    return base.replace(/(?:Tests?|Specs?|TestCases?|ITs?)$/, '').toLowerCase();
+    return base.replace(/(?:UnitTests?|IntegrationTests?|SystemTests?|TestSuites?|FunctionalTests?|TestCases?|Tests?|Specs?|ITs?)$/, '').toLowerCase();
   }
   if (ext === '.kt') {
     return base.replace(/(?:Tests?|Test)$/, '').toLowerCase();
@@ -101,6 +111,9 @@ function getHeuristicLanguageFamily(filePath) {
   }
   if (ext === '.rs') {
     return 'rust-family';
+  }
+  if (ext === '.rb') {
+    return 'ruby-family';
   }
   return 'unknown';
 }

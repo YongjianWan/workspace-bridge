@@ -4,7 +4,7 @@ const { classifyChangeType, getValidationTemplate } = require('./audit-diff-summ
 const { collectEntryMetrics } = require('./validation-advice/metrics');
 const { buildPhases } = require('./validation-advice/phases');
 const { buildSummary } = require('./validation-advice/summary');
-const { buildTopRiskActions } = require('./validation-advice/risk-actions');
+const { buildTopRiskActions, pickSuggestedCommand } = require('./validation-advice/risk-actions');
 
 function buildValidationAdvice(entries, workspaceRoot) {
   // L2-7: zero changes should not hallucinate a docs validation plan
@@ -66,6 +66,7 @@ function buildValidationAdvice(entries, workspaceRoot) {
       rust: stack.rust,
     },
     commands,
+    suggestedCommand: pickSuggestedCommand(allCommands),
     topRiskActions,
     phases,
     summary,
@@ -131,6 +132,7 @@ function buildFileValidationAdvice(filePath, workspaceRoot) {
     stackProfile: stack.profile,
     commandCount: uniqueCommands.length,
     commands: uniqueCommands,
+    suggestedCommand: pickSuggestedCommand(uniqueCommands),
     fileSpecificAdvice,
   };
 }

@@ -2,24 +2,14 @@
 
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { runInDir, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 const repoRoot = path.join(__dirname, '..');
 const cliPath = path.join(repoRoot, 'cli.js');
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-bridge-audit-diff-'));
 
-function run(command, args, cwd) {
-  const result = spawnSync(command, args, {
-    cwd,
-    encoding: 'utf8',
-  });
-  assert.strictEqual(result.status, 0, result.stderr || result.stdout);
-  return result.stdout;
-}
-
-function commitAll(message, authorName, authorEmail) {
+function commitAll(tempRoot, message, authorName, authorEmail) {
   const env = {
     ...process.env,
     GIT_AUTHOR_NAME: authorName,
@@ -35,13 +25,14 @@ function commitAll(message, authorName, authorEmail) {
   assert.strictEqual(result.status, 0, result.stderr || result.stdout);
 }
 
-function writeFile(relativePath, content) {
-  const fullPath = path.join(tempRoot, relativePath);
-  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-  fs.writeFileSync(fullPath, content);
-}
+function main() {
+  const tempRoot = makeTempDir('workspace-bridge-audit-diff-');
 
-try {
+  function writeFile(relativePath, content) {
+    const fullPath = path.join(tempRoot, relativePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content);
+  }
   writeFile('package.json', JSON.stringify({
     name: 'audit-diff-fixture',
     version: '1.0.0',
@@ -52,29 +43,29 @@ try {
   }, null, 2));
   writeFile('vitest.config.js', 'export default {};\n');
   writeFile('src/util.js', [
-    'ex' + 'port function helper() {',
+    'export function helper() {',
     "  return 'ok';",
     '}',
     '',
   ].join('\n'));
   writeFile('src/app.js', [
-    "im" + "port { helper } from './util';",
+    "import { helper } from './util';",
     '',
-    'ex' + 'port function run() {',
+    'export function run() {',
     '  return helper();',
     '}',
     '',
   ].join('\n'));
   writeFile('src/helper-service.js', [
-    'ex' + 'port function helperService() {',
+    'export function helperService() {',
     '  return 1;',
     '}',
     '',
   ].join('\n'));
   writeFile('test/app.test.js', [
-    "im" + "port { run } from '../src/app';",
+    "import { run } from '../src/app';",
     '',
-    'ex' + 'port function testRun() {',
+    'export function testRun() {',
     '  return run();',
     '}',
     '',
@@ -88,40 +79,40 @@ try {
     '',
   ].join('\n'));
 
-  run('git', ['init'], tempRoot);
-  run('git', ['config', 'user.email', 'test@example.com'], tempRoot);
-  run('git', ['config', 'user.name', 'Test User'], tempRoot);
-  run('git', ['add', '.'], tempRoot);
-  commitAll('init', 'Test User', 'test@example.com');
+  runInDir('git', ['init'], tempRoot);
+  runInDir('git', ['config', 'user.email', 'test@example.com'], tempRoot);
+  runInDir('git', ['config', 'user.name', 'Test User'], tempRoot);
+  runInDir('git', ['add', '.'], tempRoot);
+  commitAll(tempRoot, 'init', 'Test User', 'test@example.com');
 
   writeFile('src/util.js', [
-    'ex' + 'port function helper() {',
+    'export function helper() {',
     "  return 'v2';",
     '}',
     '',
   ].join('\n'));
-  run('git', ['add', 'src/util.js'], tempRoot);
-  commitAll('feature: refine util', 'Alice', 'alice@example.com');
+  runInDir('git', ['add', 'src/util.js'], tempRoot);
+  commitAll(tempRoot, 'feature: refine util', 'Alice', 'alice@example.com');
 
   writeFile('src/util.js', [
-    'ex' + 'port function helper() {',
+    'export function helper() {',
     "  return 'rollback-safe';",
     '}',
     '',
   ].join('\n'));
-  run('git', ['add', 'src/util.js'], tempRoot);
-  commitAll('revert: util regression', 'Bob', 'bob@example.com');
+  runInDir('git', ['add', 'src/util.js'], tempRoot);
+  commitAll(tempRoot, 'revert: util regression', 'Bob', 'bob@example.com');
 
   writeFile('src/util.js', [
-    'ex' + 'port function helper() {',
+    'export function helper() {',
     "  return 'changed';",
     '}',
     '',
   ].join('\n'));
 
-  const result = run('node', [cliPath, 'audit-diff', '--cwd', tempRoot, '--json', '--quiet'], repoRoot);
+  const result = runInDir('node', [cliPath, 'audit-diff', '--cwd', tempRoot, '--json', '--quiet'], repoRoot);
   const parsed = JSON.parse(result);
-  const resultWithHints = run('node', [cliPath, 'audit-diff', '--cwd', tempRoot, '--reuse-hints', 'on', '--json', '--quiet'], repoRoot);
+  const resultWithHints = runInDir('node', [cliPath, 'audit-diff', '--cwd', tempRoot, '--reuse-hints', 'on', '--json', '--quiet'], repoRoot);
   const parsedWithHints = JSON.parse(resultWithHints);
 
   assert.strictEqual(parsed.ok, true);
@@ -200,6 +191,7 @@ try {
   assert(Array.isArray(parsed.validationAdvice.topRiskActions));
   assert(parsed.validationAdvice.topRiskActions.length >= 1);
   assert(typeof parsed.validationAdvice.topRiskActions[0].actions?.[0] === 'string');
+  assert(typeof parsed.validationAdvice.suggestedCommand === 'string' && parsed.validationAdvice.suggestedCommand.length > 0, 'validationAdvice.suggestedCommand should be a non-empty string');
   assert(parsed.validationAdvice.topRiskActions[0].evidence, 'topRiskActions should include evidence');
   assert(typeof parsed.validationAdvice.topRiskActions[0].evidence.impactCount === 'number');
   assert(Array.isArray(parsed.validationAdvice.topRiskActions[0].evidence.topImpactedSymbols));
@@ -216,7 +208,7 @@ try {
   // P8-2: verify structured executable metadata on all phases
   for (const phase of ['smoke', 'focused', 'full']) {
     for (const cmd of parsed.validationAdvice.commands[phase] || []) {
-      assert(cmd.executable && typeof cmd.executable === 'object', `command ${cmd.name} should have executable`);
+      assert(cmd.executable != null, `command ${cmd.name} should have executable`);
       assert(typeof cmd.executable.command === 'string', `command ${cmd.name} should have executable.command`);
       assert(Array.isArray(cmd.executable.args), `command ${cmd.name} should have executable.args array`);
       assert(typeof cmd.executable.expectedExitCode === 'number', `command ${cmd.name} should have expectedExitCode`);
@@ -227,7 +219,7 @@ try {
   assert(parsed.validationAdvice.summary.some((item) => item.kind === 'review'));
 
   // Compact mode: verify curation drops heavy fields and caps arrays
-  const compactResult = run('node', [cliPath, 'audit-diff', '--cwd', tempRoot, '--json', '--quiet', '--compact'], repoRoot);
+  const compactResult = runInDir('node', [cliPath, 'audit-diff', '--cwd', tempRoot, '--json', '--quiet', '--compact'], repoRoot);
   const compactParsed = JSON.parse(compactResult);
   assert.strictEqual(compactParsed.ok, true);
   assert.strictEqual(compactParsed.changedFiles.length, 1);
@@ -242,18 +234,15 @@ try {
   assert.strictEqual(compactChanged.historyRisk.score, changed.historyRisk.score, 'compact should keep historyRisk.score');
   assert.strictEqual(compactChanged.historyRisk.level, changed.historyRisk.level, 'compact should keep historyRisk.level');
   assert.strictEqual(compactChanged.historyRisk.recentCommits, undefined, 'compact should drop historyRisk.recentCommits');
-  console.log('audit-diff compact: ok');
 
   // --since commit range mode
-  const sinceResult = run('node', [cliPath, 'audit-diff', '--cwd', tempRoot, '--since', 'HEAD~2', '--json', '--quiet'], repoRoot);
+  const sinceResult = runInDir('node', [cliPath, 'audit-diff', '--cwd', tempRoot, '--since', 'HEAD~2', '--json', '--quiet'], repoRoot);
   const sinceParsed = JSON.parse(sinceResult);
   assert.strictEqual(sinceParsed.ok, true, 'audit-diff --since should succeed');
   assert.strictEqual(sinceParsed.changedFiles.length >= 1, true, 'HEAD~2 should include at least src/util.js');
   assert(sinceParsed.changedFiles.some((c) => c.file.replace(/\\/g, '/').endsWith('src/util.js')), '--since HEAD~2 should include src/util.js');
   assert.strictEqual(sinceParsed.summary.counts.changedFiles >= 1, true);
-  console.log('audit-diff --since: ok');
-
-  console.log('audit-diff-test: ok');
-} finally {
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  cleanupTempDir(tempRoot);
 }
+
+main();

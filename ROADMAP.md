@@ -17,35 +17,35 @@
 | 文档与代码状态同步 | ⏳ 需人工 | ROADMAP/SESSION/CHANGELOG 可能不同步 | 自审后手动对齐 |
 | 多模块 Maven 模块边界未显式标注 | ⏳ 观察 | 模块间耦合强度丢失 | 评估是否输出模块级聚合视图 |
 | 大项目冷启动超时 | ⏳ 观察 | ~~395 文件实测 59s~~ 实测 239 文件 2s / 542 文件 7s（环境差异），但 7s 对 CI 仍不够友好 | 预热工作流 + 评估 `--cache-dir` + 大项目默认 `--compact` |
-| 默认输出对 AI 不友好 | ⏳ 评估 | human-readable 默认输出迫使 AI 每次手动加 `--format markdown --quiet`。**根因是 CLI 把策展工作外包给 AI**：`--format ai` broken → AI 被迫筛 235 行 raw JSON；`commands: []` → AI 拿不到闭环指令；文档被迫写 180 行补偿指南 | 修 CLI 出口质量（`--format ai` / `commands` / `affected-tests` / exit code），届时 skill 可缩至 50 行 |
+| 默认输出对 AI 不友好 | ⏳ 评估 | human-readable 默认输出迫使 AI 每次手动加 `--format markdown --quiet`。**根因是 CLI 把策展工作外包给 AI**：`--format ai` broken → AI 被迫筛 235 行 raw JSON；`commands: []` → AI 拿不到闭环指令；文档被迫写 ~264 行补偿指南 | 修 CLI 出口质量（`--format ai` / `commands` / `affected-tests` / exit code），届时 skill 可缩至 50 行 |
 | ~~工作目录污染~~ | ✅ **已修复** | ~~`.workspace-bridge-cache.json` / `.bak` dump 到项目根目录~~ | 缓存迁移至 SQLite，`os.tmpdir()` 默认路径 + `--cache-dir` 参数 |
 | ~~Java 常量仓库假阳性~~ | ✅ **已修复** | ~~已识别 `java-constants-warehouse` 但仍出现在 dead-exports~~ | `findDeadExports` 直接过滤，不再保留 |
 | ~~Vue 脚手架残留假阳性~~ | ✅ **已修复** | ~~已识别 `scaffold-vue-admin` 但仍出现在 dead-exports~~ | `findDeadExports` 直接过滤 |
 | ~~audit-overview 数据冗余~~ | ✅ **已修复** | ~~recommendations/nextSteps 完全重复~~ | 删除 `nextSteps` 别名，`couplingSplitSuggestions` 截断为 3 条 |
 | ~~audit-security message 太泛~~ | ✅ **已修复** | ~~正则命中但不输出具体内容~~ | 命中规则附加 `matchedText` 字段（截断至 120 字符） |
 | ~~`--quiet` 丢失关键诊断信息~~ | ✅ **已修复** | ~~regex fallback 信息被 suppress~~ | `warnings[]` 注入所有 JSON 输出，不再走 stderr |
-| cache 失效策略粗糙 | 🔴 **高优先级** | 只检查 git HEAD，dirty worktree 文件变化不触发失效 | 增加文件 mtime/hash 对比 |
-| `--check-regression` 基线对比崩溃 | 🔴 **高优先级** | `audit-summary --save` 成功，但 `--check-regression` JS 报错 `Cannot read properties of undefined` | `loadBaseline()` 防御式解析 + `compareFindings()` 空值检查 |
-| Java `dead-exports` 大图崩溃 | 🔴 **高优先级** | 542 文件 Java 项目跑 `dead-exports` 返回 exit code 49，零输出 | 定位 spawn-ast / parser / GraphAnalyzer 崩溃路径，加防御式 try-catch |
-| diagnostics linter 检测矛盾 | 🔴 **高优先级** | `workspace-info` 显示 eslint 可用，但 `diagnostics` 返回 `noLintersDetected: true` | 统一 `buildChecks` 与 `detectAvailableChecks` 检测逻辑 |
+| ~~cache 失效策略粗糙~~ | ✅ **已修复** | ~~只检查 git HEAD，dirty worktree 文件变化不触发失效~~ | `cache.js` 新增 `checkFileChanges()` 对比 `mtime`/`size`，`getStaleness()` 返回 `filesChanged`/`changedFiles` |
+| ~~`--check-regression` 基线对比崩溃~~ | ✅ **已修复** | ~~`audit-summary --save` 成功，但 `--check-regression` JS 报错~~ | `loadBaseline()` 防御式解析 + `compareFindings()` 空值检查 |
+| Java `dead-exports` 大图崩溃 | 🔴 **高优先级** | 542 文件 Java 项目跑 `dead-exports` 返回 exit code 49，零输出 | **部分修复**：`GraphBuilder.analyzeFile()` 已加 try-catch 防止 crash batch，但 exit code 49 根因是 Windows Store Python + Git Bash 管道大数据崩溃，环境问题未根治 |
+| diagnostics linter 检测矛盾 | 🔴 **高优先级** | `workspace-info` 显示 eslint 可用，但 `diagnostics` 返回 `noLintersDetected: true` | **部分修复**：`detectNodeLinters` 已统一供 `workspaceInfo` 和 `buildChecks` 共用；残留：`diagnostics` 缓存命中路径不携带 `noLintersDetected`，`buildChecks` 中该字段仅在 `mode === 'quick'` 设置 |
 | ~~impact 入口扩散无截断~~ | ✅ **已修复** | ~~level 扩散到 main.js/app.vue 等入口，信息量为零~~ | `getImpactRadius` 遇到 `isKnownEntryFile` 停止扩散 |
 | ~~diagnostics ESLint 盲区~~ | ✅ **已修复** | ~~Vue 项目 100% 有 ESLint 配置但 `noLintersDetected: true`~~ | `buildChecks` 增加 `.eslintrc`（无扩展名）和 `package.json#eslintConfig` 检测 |
-| exit code 语义反模式 | 🔴 **高优先级** | `audit-summary` severity=high/medium 时 exit=1；**`cycles` 检测到 cycle 也 exit=1**（无 severity 字段，纯因"有发现"）。AI/CI 误判为命令崩溃 | 增加 `--fail-on-findings` 显式开关，默认 findings 不触发 exit=1 |
+| ~~exit code 语义反模式~~ | ✅ **已修复** | ~~`audit-summary` severity=high/medium 时 exit=1~~ | 增加 `--fail-on-findings` 显式开关，默认 findings 不触发 exit=1 |
 | `--compact` 阈值无 rationale | ⏳ 待评估 | 500 文件拍脑袋定，239 文件 compact 已输出 29KB | 按输出 token 数动态决定，或 `--budget-tokens` |
 | 跨仓库静态分析 | ⏳ 评估中 | 前后端 API 契约纯文本匹配可做（`@RequestMapping` vs `axios.get`），但 CLI 只能单 `--cwd` | 评估多 `--cwd` 或 `--cross-repo` 低复杂度方案 |
 | npx 版本未锁定 | ⏳ 待评估 | 可能自动升级到不兼容版本，schema 变更后 AI 解析崩 | skill 强制 `npx workspace-bridge-cli@1.2.0` |
-| 命令碎片化 | ⏳ 待评估 | `health` 与 `audit-summary.health` 数据完全重合；`dependents` 是 `impact` 子集；20+ 命令中 AI 仅需 3 个 | 评估 `audit-ai` 统一入口，旧命令保留软别名 + deprecation |
+| 命令分层混乱 | ⏳ 待评估 | L4 原始查询（`dead-exports`/`cycles`/`unresolved`/`dependencies`/`dependents`/`stats`/`tree`）被 L1 aggregate 完全覆盖，但作为一等公民暴露；`health` 与 `audit-summary.health` 重合；AI 不知道该用 aggregate 还是 raw | `--help` 按 L1/L2/L3/L4 分组输出；`health` 改为 `audit-summary --health-only` 别名 + deprecation；SKILL.md 按层级重写命令表 |
 | `repl` 非交互环境不可用 | ⏳ 待评估 | 需要 TTY，AI agent / CI / GitHub Actions 完全无法使用 | 评估 `--eval <command>` 非交互模式，或从 skill 降级推荐 |
-| `affected-tests` 关联能力弱 | ⏳ 待评估 | 15 个 test files 项目返回 0 个 affected tests，测试映射启发式失效 | 重新评估测试文件命名/目录启发式，或引入 import 反向追踪 |
-| `validationAdvice.commands` 为空 | ⏳ 待评估 | Purpose 承诺"concrete commands"，但实测 `commandCount: 0, commands: []` | 扩展 `validation-advice.js` 命令生成，或调整 Purpose 承诺 |
+| ~~`affected-tests` 关联能力弱~~ | ✅ **已修复** | ~~15 个 test files 项目返回 0 个 affected tests~~ | `test-detector.js` 扩展 `HEURISTIC_ROOT_SEGMENTS`（`__tests__`/`cypress`/`e2e`）+ `TEST_DETECTION_RULES`（`.cy.`/`.e2e.`/`spec.rb`）+ `normalizeHeuristicName`（`UnitTest`/`IntegrationTest` 等），覆盖率大幅提升 |
+| ~~`validationAdvice.commands` 为空~~ | ✅ **已修复** | ~~Purpose 承诺"concrete commands"，但实测 `audit-file` `suggestedCommand: null`~~ | `buildFileValidationAdvice` 与 `buildValidationAdvice` 均生成 `suggestedCommand`（复用 `pickSuggestedCommand`），实测非空 |
 | `init` 生成空配置 | ⏳ 待评估 | `.workspace-bridge.json` 目录列表全空，schema 存在但无默认值/无引导 | 预填 `entryPoints`/`libraryDirs` 启发式猜测，或改为交互式向导 |
-| `--exclude` 未完全过滤 cycle | ⏳ 待评估 | 排除 `src/views` 后 cycle 仍包含被排除文件 | 确认是缓存问题还是 cycle 检测逻辑未过滤，加 `excludedFiles` 过滤 |
-| `watch` 误报缓存文件变更 | ⏳ 待评估 | 检测到 `.workspace-bridge-cache.json.tmp-*` / `.bak` 变更，输出 "0 dependents affected" | 同步更新 `watch.js` 排除逻辑，新增 `cache.db` / `cache.db-wal` / `cache.db-shm` 排除 |
-| `--cwd` 不存在目录时挂起 | 🔴 **高优先级** | 5 秒内无响应，无限期挂起 | CLI 入口增加 `fs.existsSync(cwd)` 前置检查 |
+| ~~`--exclude` 未完全过滤 cycle~~ | ✅ **已修复** | ~~排除 `src/views` 后 cycle 仍包含被排除文件~~ | `findCircularDependencies` DFS 入口追加 `shouldExcludeCli` 检查 |
+| ~~`watch` 误报缓存文件变更~~ | ✅ **已修复** | ~~检测到 `.workspace-bridge-cache.json.tmp-*` / `.bak` 变更~~ | `file-index.js#shouldExclude` 增加 `.bak`/`.tmp-*` 缓存文件排除 |
+| ~~`--cwd` 不存在目录时挂起~~ | ✅ **已修复** | ~~5 秒内无响应，无限期挂起~~ | CLI 入口增加 `fs.existsSync(cwd)` 前置检查 |
 | compact 模式比 full 慢 4x | ⏳ 待评估 | 542 文件 compact 26s vs full 6s，聚合计算 overhead | 评估 compact 聚合逻辑优化或预计算 |
-| `commands` + `suggestedCommand` 全空 | ⏳ 待评估 | `phases` 有文案但 `commands` 永远为空，`suggestedCommand` 永远 null | 功能实现：从 `phases` 文案生成可执行命令模板 |
-| `--exclude` 后 `parsedFiles` 不更新 | ⏳ 待评估 | totalFiles=98 但 parsedFiles=238，coverageRatio 被 Math.min(1,...) 硬截断为 100% | exclude 生效时重建统计基数，或 coverage 基于过滤后实际文件集 |
-| 路径格式混用 | ⏳ 待评估 | workspaceRoot Windows 原生 vs resolvedPath 小写正斜杠 | 统一全链路路径格式，不混用 |
+| ~~`commands` + `suggestedCommand` 全空~~ | ✅ **已修复** | ~~`phases` 有文案但 `commands` 永远为空~~ | `generateCommands` fallback 确保 commands 非空；`buildFileValidationAdvice` 与 `buildValidationAdvice` 均生成 `suggestedCommand`。 |
+| ~~`--exclude` 后 `parsedFiles` 不更新~~ | ✅ **已修复** | ~~totalFiles=98 但 parsedFiles=238~~ | exclude 生效时 `totalFiles`/`parsedFiles` 同步过滤 |
+| ~~路径格式混用~~ | ✅ **已修复** | ~~workspaceRoot Windows 原生 vs resolvedPath 小写正斜杠~~ | `file-index` 传递原始路径列表给 `dep-graph`；`cache` 持久化 `originalPath`；`build()` cache-hit 路径用 `meta.originalPath` 覆盖。`workspaceRoot` 与 `resolvedPath` 格式现已一致 |
 
 > 近期已修复的限制见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]：`--builtin-only`、`--since <commit>`、TTL 24h、git-aware staleness、`--format jsonl`、SKILL 文档体系重构。
 >
@@ -130,7 +130,7 @@
 
 ### 阶段 3：AI 脚手架形态完成（中期，2-4 周）
 
-- **`audit-ai` 统一入口**：一个命令替代 `audit-summary` + `cycles` + `dead-exports` + `impact` 的多次调用
+- ~~`audit-ai` 统一入口~~ → **重新评估**：不是"合并到 1 个命令"，是"`--help` 和 SKILL.md 按 L1/L2/L3/L4 分层暴露"。`audit-summary`/`audit-diff`/`audit-file`/`audit-overview` 作为 L1 策展入口保持独立；`dead-exports`/`cycles`/`unresolved` 等 L4 命令对人类调试有价值，不应删除，只需降级为 debug 层级。
 - **Token 预算感知**：所有命令支持 `--token-budget`，超限自动 compact + 截断低价值字段
 - **渐进式发现**：`--depth surface`（severity + counts）→ `--depth detail`（file-level + symbol-level）→ `--depth full`（完整图）
 - **Skill 精简为 50 行驾驶手册**：删除命令分类表、参数说明、Known Limitations，只保留"什么时候用/什么时候不用/标准工作流"
@@ -162,7 +162,7 @@
 | **接入 SpotBugs/PMD** | 需要 JVM 环境。外部工具策略已明确"可选适配器，不做核心依赖" | 破坏轻量 CLI 定位 |
 | **MCP Server / daemon 模式** | 开发原则第 1 条：CLI-only。daemon = 常驻进程 = 协议层维护成本 | 与 CLI-only 方向直接冲突 |
 | **修复代码自动生成（`--suggest`）** | 这是 AI 语义理解的能力圈，不是结构分析的产出。给出具体重构建议需要理解代码语义 | 需要内置 LLM 调用，与轻量本地属性冲突 |
-| ~~**命令合并（audit-summary + audit-overview）**~~ | ~~违反 L1-1~~ | ~~用户明确：当前仅单用户，重构摩擦成本极低。已重新评估为**接受**~~ |
+| ~~**命令合并（audit-summary + audit-overview）**~~ | ~~违反 L1-1~~ | ~~已重新评估：不是"合并命令"，是"分层暴露"。`audit-summary` 与 `audit-overview` 职责不同（健康度 vs 全景），保持独立；L4 原始查询命令保留但降级为 debug 层级~~ |
 | ~~**智能 compact（自动启用）**~~ | ~~保守判断原则~~ | ~~用户明确：加 `--no-compact` 覆盖即可，已重新评估为**接受**~~ |
 | **`rules --config` 重规则引擎** | 将 `security-tools.js` 硬编码规则提取为外部 YAML/JSON 属于"规则引擎层次 A"，但完整的 `rules --list/run/config` CLI 是重规则引擎产品 | 与"轻量 CLI"定位冲突。层次 A 可在不新增命令的前提下实现（如 `--config <file>` 覆盖内置规则集） |
 | **AGENTS.md 语义联动** | AGENTS 红线多为语义规则，需要数据流分析才能判断来源是否安全 | 与"结构分析 ≠ 语义分析"原则冲突 |
@@ -182,7 +182,7 @@
 |------|------|--------|
 | `git-tools.js` | `getChangedFiles()` 手动字符级解析 | 低 |
 | `overview-tools.js` | `renderOverviewDashboard` 中 HTML/CSS 裸数字 | 低 |
-| `js.js` | `parseJavaScriptAST` ~265 行、`parseJavaScript` regex ~147 行 | 低 |
+| `js.js` | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行 | 低 |
 | `path.js` | `hasPathSegment` 语义陷阱：只取 segment 最后一级 | 低 |
 | `workspace-tools.js` / `SKILL.md` | `parserAvailability.skipped: true` 命名语义陷阱 | 低 |
 | `cli.js` / `formatters` | `--json` 嵌套深、体积大，`--compact` 后仍有 400 行，管道场景不友好；默认 human-readable 输出缺乏实战打磨 | 中 |
@@ -242,7 +242,7 @@
 | **审查追踪（轻量）** | 中 | 低 | ✅ **已完成** | `--save <file>` 保存审计结果、`--check-regression` 对比上次审计检查 P0/P1 是否修复、`--baseline <commit>` 按变更文件标注问题为 `new`/`legacy` |
 | **JSON Lines 输出** | 高 | 低 | **接受** | `--format jsonl` 一行一条记录（finding/changedFile/edge），解决 `--json` 嵌套过深、体积大、管道不友好问题 |
 | **默认输出模式校准** | 中 | 低 | **接受** | 默认输出改为 `--format markdown`（AI 场景为主）或 `--format summary`。加 `--format human` 显式恢复人工输出。用户明确：当前仅单用户，重构优先于兼容 |
-| **命令合并（audit-summary + audit-overview）** | 高 | 中 | **接受** | 合并为 `audit --depth=summary\|overview\|full`，旧命令保留软别名 + deprecation 警告，1 版本后删除。减少认知负担 |
+| **命令分层暴露** | 高 | 低 | **接受** | `--help` 按 L1 策展入口 / L2 专项工具 / L3 环境诊断 / L4 原始查询 四层分组输出；`health` 改为 `audit-summary --health-only` 别名 + deprecation；SKILL.md 按层级重写。不删除任何命令，只改暴露方式 |
 | **大项目自动截断/自适应** | 中 | 低 | **接受** | 500+ 文件自动启用 `--compact`，或自动抑制低价值字段（architectureAdvice 等）。加 `--no-compact` 显式覆盖 |
 | **噪音抑制增强** | 中 | 低 | **接受** | `.workspace-bridge.json` 扩展 `ignore` 配置（框架感知排除）、`--mark-false-positive <id>` 记录误报（轻量，不引入机器学习） |
 | **`--cache-dir` 参数** | 高 | 低 | **接受** | 让缓存持久化到指定目录，避免每次新 session 重建索引。解决 395 文件冷启动 59s 的最直接手段 |

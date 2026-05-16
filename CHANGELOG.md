@@ -6,6 +6,228 @@
 
 ## [Unreleased]
 
+### 修复（P1：`validationAdvice.commands` + `suggestedCommand` — 2026-05-16）
+
+- **`audit-file` 与 `audit-diff` 补充 `suggestedCommand`** `src/cli/formatters/validation-advice.js` `test/audit-file-validation-advice-test.js` `test/audit-diff-test.js`：
+  - **问题**：`audit-file` 的 `buildFileValidationAdvice()` 返回结构中**不存在 `suggestedCommand` 字段**；`audit-diff` 的 `buildValidationAdvice()` 顶层也没有 `suggestedCommand`。AI 无法拿到单一可执行指令，SKILL.md 被迫写 ~264 行补偿指南。
+  - **根因**：`pickSuggestedCommand` 辅助函数已存在于 `risk-actions.js`，但仅在 `buildTopRiskActions`（per-file risk actions）中使用，从未在 `buildFileValidationAdvice` 和 `buildValidationAdvice` 的顶层返回对象中调用。
+  - **修复**：
+    1. `validation-advice.js` 导入 `pickSuggestedCommand`
+    2. `buildFileValidationAdvice` 返回对象新增 `suggestedCommand: pickSuggestedCommand(uniqueCommands)`
+    3. `buildValidationAdvice` 返回对象新增 `suggestedCommand: pickSuggestedCommand(allCommands)`
+  - **向后兼容**：纯新增字段，不破坏现有 JSON 消费方。
+  - **测试**：
+    - `test/audit-file-validation-advice-test.js` 新增 `suggestedCommand` 非空字符串断言
+    - `test/audit-diff-test.js` 新增 `validationAdvice.suggestedCommand` 非空字符串断言
+
+### 修复（P1：`affected-tests` 启发式映射漏洞 — 2026-05-16）
+
+- **扩展测试文件检测与启发式匹配** `src/utils/test-detector.js` `test/affected-tests-heuristic-test.js`：
+  - **问题**：`affected-tests` 在存在测试文件的项目上返回 0，测试映射启发式失效。AI 无法信任测试关联，文档被迫写 fallback chain。
+  - **根因**：`test-detector.js` 的 `HEURISTIC_ROOT_SEGMENTS`、`TEST_DETECTION_RULES`、`normalizeHeuristicName`、`normalizeStem` 覆盖不全，导致常见布局/命名约定的测试文件无法被识别或匹配。
+  - **修复**：
+    1. `HEURISTIC_ROOT_SEGMENTS` 新增 `__tests__`、`cypress`、`e2e`、`integration` — 消除 `__tests__/Component.test.js` 与 `src/Component.js` 的签名不匹配
+    2. `TEST_DETECTION_RULES` 新增 Cypress `.cy.`、E2E `.e2e.`、Integration `.integration.`、Ruby `spec/`/`_spec.rb`/`_test.rb` 检测
+    3. Java `normalizeHeuristicName` 扩展后缀：`UnitTest`、`IntegrationTest`、`SystemTest`、`TestSuite`、`FunctionalTest`
+    4. JS `normalizeStem` 新增 `.cy`、`.e2e`、`.integration` 剥离
+    5. `getHeuristicLanguageFamily` 新增 `.rb` → `ruby-family`
+  - **向后兼容**：纯扩展规则表，不删除现有规则，不影响现有匹配行为。
+  - **测试**：`test/affected-tests-heuristic-test.js` 新增 6 组断言覆盖 `__tests__` 布局、Java `UnitTest`/`IntegrationTest`、Cypress `.cy.js`、E2E `.e2e.js`、Ruby `spec.rb`、跨目录不匹配拒绝。
+
+### 修复（L2 债务：cache 失效策略粗糙 — 2026-05-16）
+
+- **cache 失效增加文件级 mtime/size 检查** `src/services/cache.js` `src/services/container.js` `test/staleness-test.js`：
+  - **问题**：`getStaleness()` 仅对比 git HEAD hash，未对比文件 mtime/内容哈希。dirty worktree 场景下改了文件但没 commit 时，缓存不会失效，分析结论与代码实际状态不一致。
+  - **修复**：
+    1. `cache.js` 新增 `checkFileChanges()` 方法：遍历 `fileMetadata` 所有条目，比较存储的 `mtime`/`size` 与当前磁盘 `fs.statSync` 结果；文件删除或不可访问时视为 changed。
+    2. `container.js` `getStaleness()` 调用 `cache.checkFileChanges()`，将 `filesChanged` 纳入 `isStale` 判断；返回结果新增 `filesChanged`（boolean）和 `changedFiles`（string[]）字段。
+  - **向后兼容**：`getStaleness()` 原有字段（`indexAgeMs`/`isStale`/`gitHeadChanged`/`thresholdMs`）100% 保留；无 `fileMetadata` 时 `filesChanged` 默认为 `false`。
+  - **测试**：`test/staleness-test.js` 新增 5 个断言覆盖 mtime 不匹配、size 不匹配、文件未变化、文件删除、无 metadata 五种场景。
+
+### 修复（路线 A：路径格式混用 — 2026-05-16）
+
+- **产品 bug：路径格式混用** `src/services/file-index.js` `src/services/container.js` `src/services/dep-graph.js` `src/services/cache.js` `src/services/graph-db.js` `test/path-format-consistency-test.js`：
+  - **问题**：`audit-file` JSON 输出中 `workspaceRoot` = `C:\Users\...`（Windows 原生）与 `resolvedPath` = `c:/users/...`（小写正斜杠）格式不一致，违反 L1-3 数据一致性。
+  - **根因**：`file-index.js` 遍历得到的平台原生路径经 `cache.js` `normalizeFilePath` 转为 `normalizePathKey` 后作为 key 存储；`dep-graph.js` 从 `cache.fileMetadata.keys()` 读取这些 key 直接作为 `originalPath` 存入 graph，导致 `_displayPath` 返回小写正斜杠。
+  - **修复**：
+    1. `file-index.js` `build()` 末尾存储 `this._indexedFiles = allFiles`（原始平台路径列表）
+    2. `container.js` `_initDepGraph` 将 `_indexedFiles` 传给 `depGraph.build(sourceFiles)`
+    3. `dep-graph.js` `build()` 优先使用 `sourceFiles` 作为原始路径；cache-hit 时用 `meta.originalPath || file` 覆盖 `originalPath`
+    4. `cache.js` `setFileMetadata` 自动附加 `originalPath: filePath`
+    5. `graph-db.js` 新增 `original_path TEXT` 列、`_migrate()` 自动 ALTER TABLE、持久化保存/加载
+  - **向后兼容**：`build(sourceFiles = null)` 默认参数；不传 `sourceFiles` 时行为与旧代码一致（从 cache keys 读取）。旧缓存通过 migration 自动适配新列。
+  - **测试**：新建 `test/path-format-consistency-test.js` 验证 platform-native 路径保留（Windows 大小写+反斜杠 / POSIX 绝对路径）和缓存恢复后格式一致
+
+### 修复（测试基础设施与质量收敛 — 2026-05-16）
+
+- **统一测试工具库** `test/test-helpers.js`：
+  - 新建统一 helpers 模块，导出 `runCli` / `runCliText` / `runCliRaw` / `runInDir` / `makeTempDir` / `cleanupTempDir` / `buildMockDepGraph` / `assertOk` / `assertAll`
+  - 消灭 10+ 测试文件中 `spawnSync('node', [cliPath, ...args])` + `assert.ok(result.status === 0)` 的重复定义
+  - 20+ 测试文件迁移导入：`analysis-test.js` `functionality-test.js` `audit-diff-test.js` `init-test.js` `integration-core-test.js` `formatter-e2e-test.js` `cli-mapper-adapter-test.js` `role-detection-test.js` `framework-usage-patterns-test.js` `audit-diff-incremental-test.js` `gors-stack-detection-test.js` `audit-file-validation-advice-test.js` `regression-test.js` `severity-filter-test.js` `staged-files-test.js` `with-impact-test.js` `audit-file-watch-test.js` `watch-sigterm-test.js` `watch-test.js`
+
+- **runner.js 健壮性重写** `test/runner.js`：
+  - 并发执行（默认 `CONCURRENCY=1`，环境变量 `TEST_CONCURRENCY` 可覆盖）
+  - `fs.watch` 测试自动串行分组，避免 watcher cross-talk
+  - 独立超时保险：`spawn timeout` + 5s 强制 `SIGKILL`，确保单个测试 hang 住不会阻塞整个 runner
+
+- **模块级副作用清理**：
+  - `audit-diff-test.js`：顶层 `fs.mkdtempSync` 移入 `main()`
+  - `role-detection-test.js`：顶层 `fs.mkdtempSync` 移入 `main()`
+  - `gors-stack-detection-test.js`：顶层 `fs.mkdtempSync` + `spawnSync('git', ...)` 移入 `main()`
+
+- **无意义字符串拼接删除** `test/analysis-test.js` `test/audit-diff-test.js`：
+  - 删除 `ex' + 'port` / `im' + 'port` 等 13 处无技术必要性的字符串拼接
+
+- **弱断言消除**（全量）：
+  - 替换 `typeof result.xxx === 'object'/'string'/'number'` 为业务语义验证
+  - 替换 `assert.ok(result.status === 0)` 为 `runCli` 内置的严格断言
+
+- **parser schema 契约更新** `test/parser-schema-contract-test.js`：
+  - `assertTopLevelSchema` 允许 `package` 作为 parser 返回的可选键，适配 Java `package` 支持
+
+- **runner 并发已知限制**：
+  - 多个 CLI 实例同时写同一 SQLite 缓存文件时，子进程因锁竞争 hang 住
+  - 当前默认串行规避，中期方案为测试子进程传入独立 `--cache-dir`
+
+- **`mkdtempSync` 全面迁移至 `test-helpers.js`**（~123 处，39 个测试文件）：
+  - 所有 `fs.mkdtempSync(path.join(os.tmpdir(), '...'))` 替换为 `makeTempDir('...')`
+  - 所有 `fs.rmSync(dir, { recursive: true, force: true })` 替换为 `cleanupTempDir(dir)`
+  - 清理不再使用的 `fs`/`os` require，消除模块级副作用和临时目录泄漏风险
+
+- **`console.log(': ok')` 噪音清零**（169 处，42 个测试文件）：
+  - 删除所有 `console.log('...: ok')` 和 `console.log('...: all passed')`
+  - runner 本身输出 PASS/FAIL，测试内部打印是噪音，不增加暴露错误的能力
+
+- **mock depGraph 统一使用 `buildMockDepGraph`**（8 个测试文件）：
+  - `affected-tests-barrel-python-test.js` / `affected-tests-heuristic-test.js` / `analysis-coverage-test.js` / `dead-export-confidence-test.js` / `java-dead-export-test.js` / `java-package-imports-test.js` / `p3-impact-explanation-test.js` / `repl-test.js`
+  - 将 `new Map([...])` 手动构造替换为 `buildMockDepGraph({...})`
+  - 被测方法（`findAffectedTests` / `getImpactRadius` / REPL 命令）不依赖 graph 节点内部字段的缺失边界；生产代码已防御性处理 `undefined`
+  - `audit-map-test.js`（569 行，10 个 Map，含大量单行 entry）保留原样，自动替换脚本易误伤 `exportRecords: [{...}],` 中的 `}],`
+
+- **弱断言持续收敛**（第一轮）：
+  - `test/regression-test.js` / `test/severity-filter-test.js`：迁移至 `runCliRaw` + `assertOk`，消除 `assert.ok(result.status === 0)` 手动检查
+
+- **弱断言残留清零**（第二轮补漏 — 本轮）：
+  - `test/staged-files-test.js`：6 处 `assert.ok(result.status === 0)` → `assertOk(result)`
+  - `test/audit-diff-test.js` / `test/audit-file-validation-advice-test.js`：`typeof cmd.executable === 'object'` → `cmd.executable != null`
+  - `test/overview-tools-test.js`：`typeof result.summary.counts === 'object'` → `result.summary.counts != null`
+
+- **业务语义验证补全**（本轮）：
+  - `test/functionality-test.js`：`health` 命令除 `ok === true` 外，追加验证 `healthScore` 为 string、`checks.readme.found === true`
+  - `test/overview-tools-test.js`：`hotspots` 追加验证 `score`（number）和 `risk`（string）；`stability` 追加验证 `stabilityScore`（number）、`hasTests`（boolean）、`inCycle`（boolean）
+
+- **`audit-map-test.js` 重复代码提取**（本轮）：
+  - 提取 `BASE_MOCK_METHODS`（`getFileInfo`/`hasFile`/`getDependents`/`getDependencies`/`isTestLikeFile`）
+  - 11 处内联 depGraph 重复方法定义替换为 `...BASE_MOCK_METHODS`
+  - 清理残留 `console.log` 12 处
+  - 文件从 592 行降至 544 行
+
+### 修复（L1 铁律清零 + L2 债务收敛 + JSON 缓存彻底删除 — 2026-05-15）
+
+- **并发控制信号量泄漏** `src/services/dep-graph.js` / `src/services/file-index.js`：
+  - `_processFilesWithLimit` / `processFilesWithLimit` 中 `.then(() => executing.delete(promise))` 改为 `.finally(() => executing.delete(promise))`
+  - 解决 reject 时（文件读取失败、parse 异常）promise 永远留在 `executing` Set 中的**内存泄漏 + 并发控制失效**双重故障
+
+- **命令注入风险** `scripts/multi-repo-audit.js`：
+  - 删除 `shell: true`，改为参数数组 `spawnSync(cliCommand, args)`
+  - 消除不可信目录名导致的任意命令执行漏洞
+
+- **execSync 异常路径未防御** `src/tools/regression-tools.js`：
+  - `checkRegressionAgainstCommit` 中 `git diff --name-only` 调用增加 try-catch
+  - 非法 commit 或损坏 cwd 时返回结构化错误 `{ ok: false, error: ... }`，不抛异常
+
+- **CACHE_VERSION 同一语义多处内联** `src/config/constants.js` / `src/services/cache.js` / `src/services/graph-db.js`：
+  - `constants.js` 新增 `CACHE_VERSION = 3`
+  - `cache.js` 和 `graph-db.js` 统一导入，删除局部定义；`graph-db.js` 删除零调用方的 `CACHE_VERSION` 导出
+
+- **`--exclude` 未完全过滤 cycle** `src/services/dep-graph.js`：
+  - `GraphAnalyzer.findCircularDependencies()` DFS 入口追加 `shouldExcludeCli(file)` 检查
+  - 被排除目录下的文件不再参与 cycle 检测，与 `findDeadExports` / `findUnresolvedImports` 过滤策略一致
+
+- **`watch` 误报缓存文件变更** `src/services/file-index.js`：
+  - `shouldExclude()` 新增 `.workspace-bridge-cache.json.bak` / `.workspace-bridge-cache.json.tmp-*` 排除
+  - 与已有 `cache.db` / `cache.db-wal` / `cache.db-shm` 一起过滤
+
+- **cli.js 空 catch 块吞异常** `cli.js`：
+  - `audit-diff --with-impact` 的 impact 计算 catch 块从 `{}` 改为 `if (process.env.DEBUG) console.error(...)`
+  - 错误路径可观测，调试时可定位根因
+
+- **死代码导出清理** `src/tools/health-tools.js` / `src/services/dep-graph/parsers/tree-sitter.js` / `src/utils/sanitize.js`：
+  - 删除 `runAutoFix` / `checkSecurity` / `checkDependencies`（~270 行，零调用方）
+  - 删除 `isTreeSitterAvailable` / `getChildByType` / `getChildrenByType`（~20 行，零调用方）
+  - 删除 `sanitizeFilePath` / `sanitizeForRegex`（~20 行，零调用方）
+  - 删除前 `grep` 二次确认测试无间接引用
+
+- **POC 脚本清理** `scripts/`：
+  - 删除 `sqlite-poc.js`（302 行）和 `sqlite-poc-large.js`（384 行）
+  - SQLite 持久化已正式集成，POC 脚本完成历史使命
+
+### 修复（P0 产品 bug — diagnostics linter 检测矛盾 + Python 管道崩溃诊断 — 2026-05-16）
+
+- **diagnostics linter 检测与 workspace-info 结果矛盾** `src/tools/workspace-tools.js`：
+  - 提取 `detectNodeLinters(workspace, root)` 纯函数，统一检测 eslint / prettier / tsc 的可用性
+  - `buildChecks` 复用 `detectNodeLinters` 的 eslint 检测结果，消除重复配置列表
+  - `workspaceInfo` 的 `availableChecks` 基于 `detectNodeLinters` 构建，不再无条件乐观推入 `'eslint'` / `'prettier'`
+  - 修复前：`workspace-info` 报告 `availableChecks: ['npm scripts', 'eslint', 'prettier']`，但 `diagnostics` 返回 `noLintersDetected: true`；修复后两者完全一致
+  - 新增测试：`workspace-tools-test.js` 增加 4 断言覆盖 `detectNodeLinters` 无配置/有 prettier 场景 + `workspaceInfo.availableChecks` 一致性
+
+- **Python 管道大数据崩溃（exit code 49）诊断提示** `src/services/dep-graph/parsers/spawn-ast.js`：
+  - `spawnPythonASTParser` 的 `close` 事件处理中，检测到 `code === 49 && process.platform === 'win32'` 时，向 stderr 输出诊断信息
+  - 提示用户这是 Windows Store Python 在 Git Bash 管道传大数据时的已知问题，并提供三种 workaround
+  - 零行为变更：仍然 `resolve(null)` 让上层 fallback 到 regex，但用户不再面对'零输出、不知道怎么办'的困境
+
+
+### 修复（Java 包支持补全 — wildcard + 同包隐式引用 — 2026-05-16）
+
+- **Java `package` 声明从 parser 到 graph 全链路打通** `src/services/dep-graph/parsers/java.js` `src/services/dep-graph.js`：
+  - `java.js` AST 路径和 regex fallback 均解析 `package` 声明并返回；regex 使用 `/^\s*package\s+([a-zA-Z_][\w.]*)\s*;/m` 匹配
+  - `dep-graph.js` `analyzeFile` 将 `package` 存储到 graph node，为后续 package-aware 分析提供数据基础
+  - 修复 `analyzeFile` 中 `result` 变量作用域错误：原 `package: result.package || null` 写在 `if (entry)` 块外部，当文件扩展名不被 registry 识别时抛出 `ReferenceError: result is not defined`，导致全量文件解析失败
+
+- **wildcard import 自动展开** `src/services/dep-graph.js`：
+  - 新增 `expandJavaPackageImports()` post-process 阶段，在 `build()` 完成后运行
+  - 遍历 graph 构建 `packageIndex`（`Map<packageName, filePaths[]>`）
+  - 对于 `usesAllExports: true` 且未解析的 import record，搜索 `packageIndex` 中同包所有文件，建立依赖边并更新反向图
+  - 外部 package（如 `java.util.*`）不在 graph 中，自动忽略不产生误报
+  - 解决 `import com.foo.*;` 被 `findUnresolvedImports()` 错误报告为 unresolved 的问题
+
+- **同包隐式引用自动建立** `src/services/dep-graph.js`：
+  - 同一 `package` 的文件自动建立双向依赖边（Java 语义：同包类无需 import 即可互相引用）
+  - import record 使用特殊 source 标记 `<same-package:${packageName}>`，便于后续追踪
+  - 解决同包文件被 `findDeadExports()` 误判为 dead export 的问题
+
+- **测试**：
+  - `test/java-parsers-test.js`：新增 `result.package === 'com.example'` 断言
+  - **新建 `test/java-package-imports-test.js`**：覆盖 wildcard 展开、同包隐式引用、外部 package 忽略三个场景
+  - 全部通过：`java-parsers-test`、`java-resolver-test`、`java-dead-export-test`、`java-gradle-checkstyle-test`、`java-package-imports-test`、`functionality-test`
+
+### 重构（JSON 缓存彻底删除 — 2026-05-15）
+
+- **删除 JSON 回退路径** `src/services/cache.js`：
+  - `WorkspaceCache` 构造函数删除 `if (cacheDir) { SQLite } else { JSON }` 分支，**无条件使用 SQLite**
+  - `load()` 删除 JSON `tryLoad` + `.bak` 回退逻辑；`save()` 删除 JSON `buildData` + 原子写 `.tmp-*` + `.bak` 逻辑
+  - `CACHE_FILENAME` 常量删除；`dep-graph.js` / `file-index.js` 改用 `LEGACY_CACHE_FILENAME` 排除用户可能遗留的旧缓存文件
+  - `CACHE_TTL_MS` (5 分钟) → `CACHE_STALE_MS` (24 小时)，与文档记录的 TTL 24h 一致
+  - 测试自动适配：构造函数默认计算 `os.tmpdir()/workspace-bridge/<md5>/cache.db`，零测试文件需修改
+
+### 修复（工程品味 — 裸数字归零 — 2026-05-15）
+
+- **cli.js 裸数字归零** `cli.js` / `src/config/constants.js`：
+  - `LARGE_JSON_THRESHOLD` (1024×1024) 和 `JSON_WRITE_CHUNK_SIZE` (64×1024) 提取到 `constants.js#STREAMING`
+  - `cli.js` 统一导入，消除裸数字
+
+- **package.json 脚本清理** `package.json`：
+  - 删除与 `test` 完全重复的 `test:all`
+  - `audit:file` 硬编码 Windows 反斜杠路径改为正斜杠
+
+- **`JSON.parse` 全局防御验证** `src/` 全目录：
+  - `grep JSON.parse src/` 确认 **13 处全部已有 try-catch 或等价防御**
+  - `graph-db.js` `loadAll()` 外层 try-catch、`path.js` `readJsonSafe()`、`spawn-ast.js` 解析回退等
+  - `TECH_DEBT.md` 该条目标记为已修复
+
+- **测试修复** `test/cli-error-handling-test.js`：
+  - 修复导入 typo：`runCliRawRaw` → `runCliRaw`
+
 ### 修复（P0–P2 bug fixes + exit code 语义收敛）
 
 - **`--cwd` 前置校验** `cli.js`：
@@ -43,6 +265,13 @@
   - `load()` 为 SQLite 路径补充 `CACHE_TTL_MS` 过期检查（与 JSON 路径行为一致）
   - 新增 `close()` 方法关闭 `GraphDB` 连接（修复 Windows 上 `EBUSY` 无法删除缓存目录的问题）
   - 测试全部显式传 `{ cacheDir }`，并在 cleanup 中 `close()` 后再 `rmSync`
+
+- **`tree` 命令 human-readable 输出缺失 + 循环依赖防御薄弱** `src/tools/tree-tools.js` `src/cli/formatters/human-formatters.js` `test/tree-tools-test.js` `test/formatter-direct-test.js`：
+  - `formatHuman()` 新增 `case 'tree'`，用 `→` / `←` + 缩进渲染树形，标记 `[external]` / `[circular]`；解决不加 `--json` 时 fallback 到 `JSON.stringify` 的问题
+  - `buildTree()` 删除错误的 `.filter((imp) => !imp.startsWith('.'))`（与注释 "keep all" 矛盾，会过滤相对路径 imports）
+  - `buildTree()` 改用单路径 `pathStack` 防止循环（原 `visited` 以 `${file}:${dir}:${depth}` 为 key，单路径循环仍会在不同 depth 重复展开）
+  - 统一 `imports` 与 `dependents` 的 `maxDepth` 截断行为：超限深度时显示叶子节点但不递归展开（原 `dependents` 在 depth >= maxDepth 时直接消失）
+  - 测试新增：循环 import、循环 dependent、dependents maxDepth 截断、human formatter tree 输出
 
 ### 功能（tree 命令 + SQLite 默认迁移完成）
 
@@ -820,6 +1049,33 @@
   - `impact` / `dependents` / `dependencies` / `affected-tests` 传入不存在的文件 → exit 1 + human 错误提示
   - 与已有 `cli-error-handling-test.js`（缺失文件 human/JSON 错误）、`cli-args-validation-test.js`（参数校验）、`cli-fallback-test.js`（fallback 行为）互补
   - 测试数量从 102 → 103
+
+### 修复状态勘误（文档同步修正 — 2026-05-16）
+
+> 以下问题在 CHANGELOG [Unreleased] 中曾被记录为"已修复"，但实测或交叉验证发现修复不完全，现统一勘误。
+
+- **`validationAdvice.commands` + `suggestedCommand` 未完全修复**：
+  - `audit-diff` 在无变更文件时返回 `commands: { smoke: [], focused: [], full: [] }`；有变更文件时依赖 `generateCommands` 仍可能返回空数组
+  - `audit-file` 的 `buildFileValidationAdvice` 返回结构中**不存在 `suggestedCommand` 字段**，实测为 `null/undefined`
+  - 此前 SESSION.md 中"已验证不成立"的声明错误，问题仍然存在
+  - 根因：`buildFileValidationAdvice` 未生成 `suggestedCommand`；`audit-diff` 的 `buildValidationAdvice` 返回的是分组 commands 对象而非扁平数组，且 `suggestedCommand` 缺失
+
+- **`--format ai` 参数实测残留问题**：
+  - `--depth surface` 与 `--depth detail` 的差异仅在于 `riskFiles` 是否存在；当项目无 cycles/unresolved/dead-exports 时两者输出完全一致（预期应始终不同）
+  - `--token-budget` 降级逻辑：当前项目输出仅 ~179 tokens（< 500），无法验证降级是否触发；SESSION.md 实战基地实测记录显示未触发降级
+  - 结论：`depth` 控制逻辑已实现，但在无 findings 项目的边界行为不符合 SKILL.md 承诺；`token-budget` 待有 findings 项目进一步验证
+
+- **diagnostics linter 检测矛盾（部分修复）**：
+  - 代码层面已统一 `detectNodeLinters` 供 `workspaceInfo` 和 `buildChecks` 共用
+  - 残留问题：`diagnostics` 缓存命中路径直接返回缓存结果，不携带 `noLintersDetected` 字段；`buildChecks` 中 `noLintersDetected` 仅在 `mode === 'quick'` 时设置
+  - ROADMAP.md 仍标记为 🔴 高优先级，状态未同步
+
+- **Java dead-exports 大图崩溃（部分修复）**：
+  - `GraphBuilder.analyzeFile()` 已增加 try-catch，单文件 parse 错误不再 crash 整个 batch
+  - 但 exit code 49 的根本原因是 Windows Store Python + Git Bash 管道大数据崩溃，该环境问题未根治，仅通过诊断提示改善用户体验
+  - ROADMAP.md 仍标记为 🔴 高优先级，状态未同步
+
+- **测试数量修正**：全量 runner 实际为 **111/111 PASS**（含本轮新增 2 个测试），此前文档中多处记录为 109/109，已在本轮文档更新中统一修正。
 
 ## [1.1.1] - 2026-05-08
 
