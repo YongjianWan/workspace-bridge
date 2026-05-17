@@ -320,6 +320,17 @@ node cli.js repl
 
 ---
 
+#### 参考仓库评估（2026-05-17）
+
+三个竞争对手代码参考已 clone 至 `reference/`，完整评估见 [reference/README.md](./reference/README.md)。
+
+**核心结论**：
+- workspace-bridge 的 **CLI-only + 策展输出** 定位被验证为正确差异化（competitors 的 MCP tool 膨胀 / Docker 部署 / VS Code 扩展均与轻量哲学冲突）
+- **最大差距**：code-review-graph 的 token 削减能力（8.2×）远超 workspace-bridge（~2-3×）；qartez 的四信号融合 impact 比单维度 BFS 更可信
+- **最高 ROI 借鉴**：预计算聚合表（audit-summary O(N)→O(1)）、surface 模式彻底变薄（<150 tokens）、PageRank warm-start、SHA-256 内容哈希
+
+---
+
 #### 新会话默认动作
 
 **P0: 确认基线状态（30 秒）**
