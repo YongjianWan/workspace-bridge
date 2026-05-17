@@ -28,8 +28,6 @@ const {
   isTestLikeFile,
 } = require('../utils/test-detector');
 const { ENTRY_BASE_NAMES } = require('../utils/project-context');
-// Old JSON cache filename (kept for exclusion of legacy files)
-const LEGACY_CACHE_FILENAME = '.workspace-bridge-cache.json';
 const { detectScaffold } = require('../tools/scaffold-detector');
 
 const readFile = promisify(fs.readFile);
@@ -1339,7 +1337,7 @@ class DependencyGraph {
 
   shouldExclude(filePath) {
     const base = path.basename(filePath);
-    if (base === LEGACY_CACHE_FILENAME || base === 'cache.db') return true;
+    if (base === 'cache.db') return true;
 
     const normalized = normalizePathKey(filePath);
     return this.excludeDirs.some((dir) => matchesPathFragment(normalized, dir));

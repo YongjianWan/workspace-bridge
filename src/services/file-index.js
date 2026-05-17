@@ -11,8 +11,6 @@ const { loadWorkspaceConfig } = require('../utils/project-context');
 const { extractSymbols } = require('./file-index/symbol-extractors');
 const { registry } = require('./dep-graph/parsers/registry');
 const { DEFAULTS } = require('../config/constants');
-// Old JSON cache filename (kept for exclusion of legacy files)
-const LEGACY_CACHE_FILENAME = '.workspace-bridge-cache.json';
 
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
@@ -249,8 +247,7 @@ class FileIndex {
 
   shouldExclude(filePath) {
     const base = path.basename(filePath);
-    if (base === LEGACY_CACHE_FILENAME || base === 'cache.db' || base === 'cache.db-wal' || base === 'cache.db-shm') return true;
-    if (base.startsWith(`${LEGACY_CACHE_FILENAME}.tmp-`) || base === `${LEGACY_CACHE_FILENAME}.bak`) return true;
+    if (base === 'cache.db' || base === 'cache.db-wal' || base === 'cache.db-shm') return true;
 
     const normalized = normalizePathKey(filePath);
     // Only exclude base dirs (node_modules, .git, etc.) and workspace-configured dirs.

@@ -108,16 +108,9 @@ async function ensureGitRepo(root) {
   return null;
 }
 
-function isTempFile(filePath) {
-  const base = path.basename(filePath);
-  return /^\.tmp-/.test(base) || /\.workspace-bridge-cache\.json\.tmp-/.test(base);
-}
-
 function isCacheArtifact(filePath) {
   const base = path.basename(filePath);
-  return base === '.workspace-bridge-cache.json'
-    || base === '.workspace-bridge-cache.json.bak'
-    || base === 'cache.db'
+  return base === 'cache.db'
     || base === 'cache.db-wal'
     || base === 'cache.db-shm';
 }
@@ -139,7 +132,6 @@ async function getChangedFiles(root, options = {}) {
     for (const line of (result.stdout || '').split(/\r?\n/)) {
       const file = line.trim();
       if (!file) continue;
-      if (isTempFile(file)) continue;
       if (isCacheArtifact(file)) continue;
       files.add(file);
     }
@@ -184,7 +176,7 @@ async function getChangedFiles(root, options = {}) {
     }
 
     if (staged) {
-      if (isStaged && !isTempFile(file)) files.add(file);
+      if (isStaged && !isCacheArtifact(file)) files.add(file);
       continue;
     }
 
@@ -199,7 +191,6 @@ async function getChangedFiles(root, options = {}) {
           // Keep path when stat is unavailable (e.g., deleted file)
         }
       }
-      if (isTempFile(file)) continue;
       if (isCacheArtifact(file)) continue;
       files.add(file);
     }

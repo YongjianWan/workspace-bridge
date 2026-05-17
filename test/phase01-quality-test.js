@@ -14,7 +14,6 @@ const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 async function testTempFileFilter() {
   const tmpDir = makeTempDir('wb-temp-');
-  fs.writeFileSync(path.join(tmpDir, '.tmp-audit-summary.json'), '{}');
   fs.writeFileSync(path.join(tmpDir, 'cache.db'), 'sqlite');
   fs.writeFileSync(path.join(tmpDir, 'real-file.js'), 'console.log(1);');
 
@@ -25,7 +24,6 @@ async function testTempFileFilter() {
   const result = await getChangedFiles(tmpDir, { staged: false, includeUntracked: true });
   assert.strictEqual(result.ok, true);
   const names = result.changedFiles.map((f) => path.basename(f));
-  assert(!names.includes('.tmp-audit-summary.json'), 'should filter .tmp-* files');
   assert(!names.includes('cache.db'), 'should filter cache db files');
   assert(names.includes('real-file.js'), 'should keep real files');
 
@@ -34,7 +32,7 @@ async function testTempFileFilter() {
 
 async function testTempFileFilterStaged() {
   const tmpDir = makeTempDir('wb-temp-staged-');
-  fs.writeFileSync(path.join(tmpDir, '.tmp-audit-summary.json'), '{}');
+  fs.writeFileSync(path.join(tmpDir, 'cache.db'), 'sqlite');
   fs.writeFileSync(path.join(tmpDir, 'real-file.js'), 'console.log(1);');
 
   spawnSync('git', ['init'], { cwd: tmpDir });
@@ -45,7 +43,7 @@ async function testTempFileFilterStaged() {
   const result = await getChangedFiles(tmpDir, { staged: true, includeUntracked: false });
   assert.strictEqual(result.ok, true);
   const names = result.changedFiles.map((f) => path.basename(f));
-  assert(!names.includes('.tmp-audit-summary.json'), 'staged mode should also filter .tmp-* files');
+  assert(!names.includes('cache.db'), 'staged mode should filter cache db files');
   assert(names.includes('real-file.js'), 'staged mode should keep real files');
 
   cleanupTempDir(tmpDir);
