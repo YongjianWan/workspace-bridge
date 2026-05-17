@@ -42,7 +42,7 @@
 | ~~`--exclude` 未完全过滤 cycle~~ | ✅ **已修复** | ~~排除 `src/views` 后 cycle 仍包含被排除文件~~ | `findCircularDependencies` DFS 入口追加 `shouldExcludeCli` 检查 |
 | ~~`watch` 误报缓存文件变更~~ | ✅ **已修复** | ~~检测到 `.workspace-bridge-cache.json.tmp-*` / `.bak` 变更~~ | `file-index.js#shouldExclude` 增加 `.bak`/`.tmp-*` 缓存文件排除 |
 | ~~`--cwd` 不存在目录时挂起~~ | ✅ **已修复** | ~~5 秒内无响应，无限期挂起~~ | CLI 入口增加 `fs.existsSync(cwd)` 前置检查 |
-| compact 模式比 full 慢 4x | ⏳ 待评估 | 542 文件 compact 26s vs full 6s，聚合计算 overhead | 评估 compact 聚合逻辑优化或预计算 |
+| ~~compact 模式比 full 慢 4x~~ | ✅ **已修复** | ~~542 文件 compact 26s vs full 6s，聚合计算 overhead~~ | `buildProjectMap` compact 路径直接聚合到模块级别，跳过文件级 edgeMap + rawEdges 实例化 + re-export 处理 |
 | ~~`commands` + `suggestedCommand` 全空~~ | ✅ **已修复** | ~~`phases` 有文案但 `commands` 永远为空~~ | `generateCommands` fallback 确保 commands 非空；`buildFileValidationAdvice` 与 `buildValidationAdvice` 均生成 `suggestedCommand`。 |
 | ~~`--exclude` 后 `parsedFiles` 不更新~~ | ✅ **已修复** | ~~totalFiles=98 但 parsedFiles=238~~ | exclude 生效时 `totalFiles`/`parsedFiles` 同步过滤 |
 | ~~路径格式混用~~ | ✅ **已修复** | ~~workspaceRoot Windows 原生 vs resolvedPath 小写正斜杠~~ | `file-index` 传递原始路径列表给 `dep-graph`；`cache` 持久化 `originalPath`；`build()` cache-hit 路径用 `meta.originalPath` 覆盖。`workspaceRoot` 与 `resolvedPath` 格式现已一致 |
@@ -197,7 +197,7 @@
 |:---|:---|:---|:---|:---|
 | P1 | `dep-graph.js:127-128` | `graph` + `reverseGraph` 双边冗余 | 100k 条边 → **16–24MB** 纯冗余 | 评估是否可改为单图 + 按需反向遍历 |
 | P1 | `cache.js:112,157` | 缓存加载/保存双重内存峰值 | 50MB 缓存文件 → 峰值 **100MB+** | 接受现状（工程量大收益小），或评估 streaming JSON parser |
-| P2 | `project-map.js:226-320` | edges Map 内存爆炸 | 100k edges → **30–50MB** | compact 模式提前聚合，跳过 rawEdges 实例化 |
+| ~~P2~~ | ~~`project-map.js:226-320`~~ | ~~edges Map 内存爆炸~~ | ~~100k edges → **30–50MB**~~ | ✅ **已修复**：compact 路径直接聚合到模块级别，跳过文件级 edgeMap + rawEdges 实例化 + re-export 处理 |
 | ~~P2~~ | ~~`cache.js`~~ | ~~无增量写，每次 `save()` 全量序列化~~ | ~~改动 1 个文件也写 50MB~~ | ✅ **已修复**：SQLite 迁移完成，upsert 增量写入，文件大小小 610 倍 |
 
 > 已修复项（P74 流式扫描 / P75 缓存 I/O / Python 子进程限流 / git log 限流）见 [CHANGELOG.md](./CHANGELOG.md)。

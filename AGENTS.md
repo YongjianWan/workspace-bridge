@@ -138,6 +138,14 @@
 - 如果实测无法验证（如需要特定环境/项目才能复现），文档中必须标注"⚠️ 待特定环境验证"，不得标注"✅ 已修复"。
 - 本轮教训：`validationAdvice.commands` 被标记为"已验证不成立"，但 `node cli.js audit-file --file src/services/dep-graph.js --json --quiet` 实测 `suggestedCommand: null` 可直接复现。
 
+**CHANGELOG 读取约束**：
+- 新会话启动时，**不默认读取 CHANGELOG.md**。确定现状只需 **AGENTS.md + SESSION.md + TECH_DEBT.md + 1 条基线验证命令**。
+- 只在以下场景查 CHANGELOG：
+  1. **追查回归** — 怀疑当前 bug 与某次历史变更有关，需要回溯上下文
+  2. **修老 bug** — 需要了解之前尝试过的方案和失败原因，避免重复踩坑
+  3. **写 CHANGELOG 条目** — 确认本次变更与历史条目的格式、位置一致性
+- 禁止把 CHANGELOG 当作"必读清单"。历史存档不等于当前状态，读 CHANGELOG 不能替代读 SESSION.md 的基线确认。
+
 ---
 
 ## 注意事项
@@ -249,4 +257,4 @@ THEN 修改前必须跑：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-16（阶段 1/2/3 全部完成；111/111 测试通过；schemaVersion: 1.2.0；cache 失效策略粗糙已修复）*
+*Last updated: 2026-05-16（CHANGELOG 读取约束已写入文档管理规则；compact 性能修复 + highlightedFiles 排序缺陷修复完成；111/111 测试通过；schemaVersion: 1.2.0）*
