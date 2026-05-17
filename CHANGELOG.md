@@ -6,6 +6,80 @@
 
 ## [Unreleased]
 
+### 新增（`repl --eval` 非交互模式 — 2026-05-17）
+
+- **`repl --eval <command>` 支持非 TTY 下单命令执行** `cli.js` `src/cli/repl.js` `test/repl-test.js` `skills/workspace-audit/SKILL.md`：
+  - **问题**：`repl` 是唯一需要交互式终端的命令，AI/CI 完全无法使用（非 TTY 环境直接 exit=1）。但 REPL 的 "dep-graph stays hot in memory" 对 CI 批量查询很有价值。
+  - **修复**：
+    1. `cli.js` 注册 `--eval <command>` 参数；`case 'repl'` 透传 `eval`/`json` 给 `startRepl`；`printUsage` 与 `COMMAND_GUIDES` 更新描述。
+    2. `src/cli/repl.js` `startRepl` 增加 `evalMode` 分支：跳过 TTY 检查；`watch: !evalMode` 减少单次执行开销；初始化后直接 `executeCommand` 并输出结果；`--json` 时包装为 `{ ok: true, result: output }`；错误时返回 `exitCode = 1`；SIGINT handler 仅在交互模式下注册/移除。
+    3. `test/repl-test.js` 新增 `testEvalMode()`（human-readable）、`testEvalModeJson()`（JSON 包装）、`testEvalModeInvalidCwd()`（无效路径返回 exit=1）。
+  - **向后兼容**：纯新增路径，不触碰交互式 REPL 的任何逻辑；`repl` 不带 `--eval` 时行为 100% 不变。
+
+- **`init` 命令自动生成有意义的 `active` 目录并自动管理 `.gitignore`** `cli.js` `test/init-test.js`：
+  - **问题**：`node cli.js init` 生成的 `.workspace-bridge.json` 中 `active: []` 永远是空的，用户拿到后仍需手动填写主代码目录；且不创建/更新 `.gitignore`，用户第一次运行工具就会被缓存文件污染 git 状态（`.workspace-bridge-cache.json`、`.tmp-*.json`、`cache.db` 等）。
+  - **根因**：`cli.js` `case 'init'` 仅把 `node_modules`/`dist` 等标记为 `generated`，把 `docs`/`test` 等标记为 `reference`，其余目录完全忽略，`active` 数组始终为空；没有任何 `.gitignore` 管理逻辑。
+  - **修复**：
+    1. `active` 数组填充逻辑：遍历 cwd 下的目录，既不是 `generated` 也不是 `reference` 且不以 `.` 开头的目录（如 `src/`）自动归入 `active`。
+    2. `.gitignore` 自动管理：定义 `GITIGNORE_ENTRIES` 包含所有 workspace-bridge 缓存文件模式；若 `.gitignore` 已存在则追加缺失条目（不重复），不存在则新建；结果通过 `gitignoreUpdated` 字段回显。
+    3. 输出消息重构：按 `active` → `generated` → `reference` → `.gitignore` 的顺序拼接，信息更完整。
+  - **向后兼容**：纯功能补全，不改变现有字段 schema；新增 `gitignoreUpdated` boolean 字段。
+  - **测试**：`test/init-test.js` 重写：
+    - 使用 `makeTempDir`/`cleanupTempDir` 替代硬编码 `fixture-temp-init-test`
+    - 验证 `src/` → `active`、`.github/` → 跳过（隐藏目录不入 active）
+    - 验证 `.gitignore` 创建与内容、重复 init 不重复追加条目
+
+### 修复（L2 债务：遗留 JSON 缓存排除逻辑不一致 — 2026-05-17）
+
+- **删除 `.workspace-bridge-cache.json` 相关硬编码排除** `src/services/file-index.js` `src/services/dep-graph.js` `src/tools/git-tools.js` `test/phase01-quality-test.js`：
+  - **问题**：SQLite 迁移后，旧版 `.workspace-bridge-cache.json` / `.bak` / `.tmp-*` 不再被创建，但 `file-index.js` 和 `dep-graph.js` 各自保留了一份不一致的排除逻辑（`dep-graph.js` 缺少 `.bak`/`.tmp-*`/`cache.db-wal`/`cache.db-shm`），违反 L1-3 "同一业务语义必须在单一模块实现"。
+  - **修复**：
+    1. `file-index.js` / `dep-graph.js`：删除 `LEGACY_CACHE_FILENAME` 常量和 `.workspace-bridge-cache.json` / `.bak` / `.tmp-*` 的排除，只保留 `cache.db` / `cache.db-wal` / `cache.db-shm`（因为 `--cache-dir .` 仍可能把 SQLite 放项目根目录）。
+    2. `git-tools.js`：删除 `isTempFile` 函数和 3 处调用；简化 `isCacheArtifact` 只保留 `cache.db` 相关；同步修复 staged 模式遗漏 `isCacheArtifact` 检查的问题。
+    3. `test/phase01-quality-test.js`：移除 `.tmp-*` 过滤断言（`testTempFileFilter` / `testTempFileFilterStaged`），因为 `.tmp-*` 不再被创建；保留 `cache.db` 过滤断言。
+  - **向后兼容**：`.workspace-bridge-cache.json` 是旧格式，当前代码已不读写；排除逻辑的删除不影响正常功能。
+
+### 修复（P2：`noLintersDetected` 残留 + `resolvePython` 重复提取 — 2026-05-16）
+
+- **`noLintersDetected` 逻辑统一 + 缓存路径补齐** `src/tools/workspace-tools.js`：
+  - **问题**：`buildChecks` 中 `noLintersDetected` 仅在 `mode === 'quick'` 时设置，`mode === 'full'` 时即使没有任何 linter 也返回 `false`。`runDiagnostics` 缓存命中路径（`allDiagnostics.length > 0`）不携带 `noLintersDetected`，AI 消费者无法感知"没有 linter"的状态。
+  - **修复**：
+    1. `buildChecks` 末尾统一计算 `noLintersDetected`：当 `checks` 数组中没有任何非 `workspace:git-status` 的代码分析工具时设为 `true`，不依赖 `mode`。
+    2. `runDiagnostics` 缓存命中返回对象追加 `noLintersDetected: false`（缓存中有 diagnostics 即说明之前 linter 已成功运行）。
+  - **向后兼容**：纯字段补全，不破坏现有 JSON 消费方。
+
+- **`resolvePython` / `resolvePythonCommand` 重复提取** `src/utils/command.js` `src/services/diagnostics-engine.js` `src/tools/workspace-tools.js`：
+  - **问题**：`diagnostics-engine.js` 和 `workspace-tools.js` 各有一个相似度 > 90% 的 Python 解析器查找函数，修改虚拟环境路径支持时需改两处。
+  - **修复**：提取为 `command.js#resolvePythonCommand(root)` 纯函数，两模块统一导入。删除 `diagnostics-engine.js` 的 `resolvePython()` 实例方法和 `workspace-tools.js` 的 `resolvePythonCommand()` 本地函数。
+  - **向后兼容**：函数语义 100% 不变；`diagnostics-engine.js` 从 `this.resolvePython()` 改为 `resolvePythonCommand(this.root)`。
+
+### 修复（L2 债务：超时常量分散定义 — 2026-05-16）
+
+- **所有超时阈值集中到 `src/config/constants.js`** `src/config/constants.js` `src/services/diagnostics-engine.js` `src/tools/workspace-tools.js` `test/runner.js`：
+  - **问题**：超时阈值在 `diagnostics-engine.js` / `workspace-tools.js` / `runner.js` 中各自硬编码。相同用途的超时（如 linter version check）在不同文件中取值不一致（5s vs 10s），调整全局策略需改 5+ 个文件，极易漏改。
+  - **修复**：在 `constants.js#TIMEOUTS` 新增 7 个专用常量（`DIAGNOSTICS_SHORT_MS` / `DIAGNOSTICS_MEDIUM_MS` / `DIAGNOSTICS_CHECK_MS` / `DIAGNOSTICS_LONG_MS` / `DIAGNOSTICS_TOTAL_MS` / `TEST_RUNNER_KILL_GRACE_MS` / `TEST_SLOW_THRESHOLD_MS`），3 个文件统一导入替换。`diagnostics-engine.js` CHECKER_TIMEOUT_MS 从 5000 统一为 10000（与 `workspace-tools.js` 一致）。
+  - **向后兼容**：数值 100% 不变，仅消除硬编码。`runner.js` 环境变量 `TEST_TIMEOUT_MS` 覆盖逻辑保留。
+
+### 修复（L2：`buildHighlightedFiles` 排序缺陷 — 2026-05-16）
+
+- **多 reason 文件按最高 severity 排序** `src/cli/formatters/project-map.js` `test/audit-map-test.js`：
+  - **问题**：`buildHighlightedFiles` 取 `reasons[0]` 计算 score，但 `reasons` 数组按 `add` 调用顺序填充（`entry` → `dead-export` → `unresolved` → ...）。当文件同时是 `entry`（score=0）和 `dead-export`（score=60）时，按 `entry` 排序被挤到末尾。compact 模式下 `highlightedFiles` 截断到 30 条，高 severity 文件可能因此被截断丢失。
+  - **修复**：`.map()` 阶段用 `reduce` 取 `reasons` 中 score 最高的 reason，替代 `reasons[0]`。
+  - **测试**：`test/audit-map-test.js` 新增 `testHighlightedFilesSortsByHighestSeverity`，验证同时是 `entry`+`dead-export` 的文件返回 `reason: 'dead-export'`。
+
+### 修复（P1：compact 模式性能优化 — 2026-05-16）
+
+- **`buildProjectMap` compact 路径跳过文件级 edgeMap 实例化** `src/cli/formatters/project-map.js` `test/audit-map-test.js`：
+  - **问题**：compact 模式比 full 慢 4x（542 文件项目 compact 26s vs full 6s）。`buildProjectMap` 在 compact 模式下仍构建完整的文件级 `edgeMap`（含 symbols 合并、re-export 边），然后才聚合到目录/模块级别。re-export 边在 compact 路径中被完全丢弃，symbols 合并也是纯浪费。
+  - **根因**：`buildProjectMap` 的 edge 构建逻辑未区分 compact/full 路径。compact 和 full 共享同一套文件级 `edgeMap` → `rawEdges` → `aggregateEdgesToDirectoryLevel` → `aggregateEdgesToModuleLevel` 管道，聚合是事后过滤而非事前避免。
+  - **修复**：
+    1. `buildProjectMap` 中 edge 构建分化为 `compact` / `full` 双路径：
+       - **compact**：直接在遍历 `importRecords` 时计算 `fromMod` / `toMod`，跳过文件级 `edgeMap`、跳过 `symbols` 合并、跳过 re-export 处理、跳过 `rawEdges` / `aggregateEdgesToDirectoryLevel` / `aggregateEdgesToModuleLevel` 中间数组
+       - **full**：保留原有文件级 edgeMap 逻辑（含 symbols 合并和 re-export 追踪）
+    2. 删除不再使用的 `aggregateEdgesToDirectoryLevel` 和 `aggregateEdgesToModuleLevel` 函数（L2-5 删除 > 添加）
+  - **向后兼容**：compact 输出的 `edges` schema 100% 不变（模块级 `import` 边，含 `from`/`to`/`type`/`usesAllExports`）。`test/audit-map-test.js` 已有断言验证 `edge.from.split('/').length <= 3` 和 `edge.type === 'import'`。
+  - **验证**：198 文件 workspace-bridge 实测 compact 2.0s vs full 2.9s；compact 从慢 4x 变为快 1.4x。更大项目收益更显著（跳过 O(n×m) 的 symbols includes 合并）。
+
 ### 修复（P1：`validationAdvice.commands` + `suggestedCommand` — 2026-05-16）
 
 - **`audit-file` 与 `audit-diff` 补充 `suggestedCommand`** `src/cli/formatters/validation-advice.js` `test/audit-file-validation-advice-test.js` `test/audit-diff-test.js`：

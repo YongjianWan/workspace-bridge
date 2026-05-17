@@ -140,8 +140,8 @@ const COMMAND_GUIDES = {
     after: 'audit-diff to see if recent changes touched code near security findings.',
   },
   repl: {
-    desc: 'Start interactive REPL shell',
-    when: 'Large projects where CLI startup is too slow. Dep-graph stays hot in memory; queries <100ms.',
+    desc: 'Start interactive REPL shell, or run one command non-interactively with --eval',
+    when: 'Large projects where CLI startup is too slow. Dep-graph stays hot in memory; queries <100ms. Use --eval for CI/AI agent integration.',
     after: 'Any atomic command (impact, dependencies, dead-exports) inside the REPL.',
   },
   watch: {
@@ -234,7 +234,7 @@ Commands:
   init                    Create default .workspace-bridge.json in cwd
   audit-security [--files <list>]
                           Run external security scanners (Semgrep)
-  repl                    Start interactive REPL shell
+  repl [--eval <cmd>]     Start interactive REPL shell, or run one command non-interactively
   watch                   Watch files and print impact on save
   stats                   Show dependency graph statistics
   dependencies --file <p> List direct dependencies of a file
@@ -251,6 +251,7 @@ Commands:
 Options:
   --cwd <path>            Target workspace or file path
   --exclude <paths>       Comma-separated directories, path fragments, or simple globs (*.ext) to exclude
+  --eval <command>        Run a single REPL command non-interactively
   --mode <quick|full>     Diagnostics mode (default: quick)
   --file <path>           File path for file-scoped commands
   --max-depth <n>         Max depth for affected-tests (default: 5)
@@ -320,6 +321,7 @@ function parseCliArgs(argv) {
     '--baseline': { key: 'baseline' },
     '--cache-dir': { key: 'cacheDir' },
     '--direction': { key: 'direction' },
+    '--eval': { key: 'eval' },
     '--fail-on-findings': true,
     '--run-tests': true,
     '--version': true,
@@ -382,6 +384,7 @@ function parseCliArgs(argv) {
     baseline: raw.baseline || null,
     cacheDir: raw.cacheDir || null,
     direction: raw.direction || null,
+    eval: raw.eval || null,
     failOnFindings: Boolean(raw['--fail-on-findings']),
     runTests: Boolean(raw['--run-tests']),
     version: Boolean(raw['--version']) || Boolean(raw['-v']),
@@ -395,6 +398,20 @@ function requireFile(parsed, command) {
   if (!parsed.file) {
     throw new Error(`${command} requires --file <path>`);
   }
+}
+
+function validateCwd(parsed) {
+  if (parsed.cwd && (!fs.existsSync(parsed.cwd) || !fs.statSync(parsed.cwd).isDirectory())) {
+    const error = `Directory not found: ${parsed.cwd}`;
+    if (parsed.json) {
+      console.log(JSON.stringify({ ok: false, error, schemaVersion: SCHEMA_VERSION }));
+    } else {
+      console.error(`Error: ${error}`);
+    }
+    process.exitCode = 1;
+    return { ok: false, error };
+  }
+  return null;
 }
 
 function determineExitCode(command, result, failOnFindings = false) {
@@ -800,16 +817,22 @@ async function runCommand(parsed, container) {
       }, container);
     }
     case 'repl': {
+      const invalidRepl = validateCwd(parsed);
+      if (invalidRepl) return { ...invalidRepl, __managedLifecycle: true };
       const { startRepl } = require('./src/cli/repl');
-      await startRepl({ cwd: parsed.cwd, exclude: parsed.exclude, quiet: parsed.quiet });
+      await startRepl({ cwd: parsed.cwd, exclude: parsed.exclude, quiet: parsed.quiet, eval: parsed.eval, json: parsed.json });
       return { ok: true, __managedLifecycle: true };
     }
     case 'watch': {
+      const invalidWatch = validateCwd(parsed);
+      if (invalidWatch) return { ...invalidWatch, __managedLifecycle: true };
       const { startWatch } = require('./src/cli/watch');
       await startWatch({ cwd: parsed.cwd, exclude: parsed.exclude, compact: parsed.compact, runTests: parsed.runTests });
       return { ok: true, __managedLifecycle: true };
     }
     case 'init': {
+      const invalidInit = validateCwd(parsed);
+      if (invalidInit) return { ...invalidInit, __managedLifecycle: true };
       const configPath = path.join(parsed.cwd || process.cwd(), '.workspace-bridge.json');
       if (fs.existsSync(configPath)) {
         const err = { ok: false, error: `.workspace-bridge.json already exists at ${configPath}` };
@@ -823,28 +846,65 @@ async function runCommand(parsed, container) {
       const REFERENCE_HINTS = new Set(['docs', 'test', 'tests', 'benchmark', 'scripts', 'reference', 'fixtures', 'fixture-temp']);
       const generated = [];
       const reference = [];
+      const active = [];
       try {
         for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
           if (!entry.isDirectory()) continue;
           if (GENERATED_HINTS.has(entry.name)) generated.push(entry.name);
           else if (REFERENCE_HINTS.has(entry.name)) reference.push(entry.name);
+          else if (!entry.name.startsWith('.')) active.push(entry.name);
         }
       } catch { /* ignore read errors */ }
       const defaultConfig = {
         $schema: 'https://workspace-bridge.dev/schema/v1.json',
         directories: {
-          active: [],
+          active,
           reference,
           archive: [],
           generated,
         },
       };
       fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2) + '\n');
+
+      // Auto-manage .gitignore for workspace-bridge cache artifacts
+      const gitignorePath = path.join(root, '.gitignore');
+      const GITIGNORE_ENTRIES = [
+        '# workspace-bridge cache',
+        '.workspace-bridge-cache.json',
+        '.workspace-bridge-cache.json.bak',
+        '.tmp-*.json',
+        '.workspace-bridge-cache.json.tmp-*',
+        'cache.db',
+        'cache.db-wal',
+        'cache.db-shm',
+      ];
+      let gitignoreUpdated = false;
+      try {
+        let existing = '';
+        if (fs.existsSync(gitignorePath)) {
+          existing = fs.readFileSync(gitignorePath, 'utf8');
+        }
+        const missing = GITIGNORE_ENTRIES.filter((line) => !existing.includes(line));
+        if (missing.length > 0) {
+          const append = (existing.endsWith('\n') ? '' : '\n') + missing.join('\n') + '\n';
+          fs.writeFileSync(gitignorePath, existing + append);
+          gitignoreUpdated = true;
+        }
+      } catch { /* ignore gitignore errors */ }
+
+      const parts = [];
+      parts.push('Created .workspace-bridge.json.');
+      if (active.length > 0) parts.push(`Active directories: ${active.join(', ')}.`);
+      if (generated.length > 0) parts.push(`Generated directories: ${generated.join(', ')}.`);
+      if (reference.length > 0) parts.push(`Reference directories: ${reference.join(', ')}.`);
+      if (gitignoreUpdated) parts.push('Updated .gitignore with workspace-bridge cache exclusions.');
+      parts.push('Adjust "active" / "archive" as needed.');
       const result = {
         ok: true,
         schemaVersion: SCHEMA_VERSION,
         configPath,
-        message: `Created .workspace-bridge.json. ${generated.length > 0 ? `Detected generated directories: ${generated.join(', ')}. ` : ''}${reference.length > 0 ? `Detected reference directories: ${reference.join(', ')}. ` : ''}Adjust "active" / "archive" as needed.`,
+        gitignoreUpdated,
+        message: parts.join(' '),
       };
       if (parsed.json) console.log(JSON.stringify(result, null, 2));
       else console.log(result.message);

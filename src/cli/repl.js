@@ -270,7 +270,9 @@ async function executeCommand(container, line) {
 }
 
 async function startRepl(options) {
-  if (!process.stdin.isTTY) {
+  const evalMode = options.eval || null;
+
+  if (!evalMode && !process.stdin.isTTY) {
     console.error('Error: REPL requires an interactive terminal (TTY).');
     process.exitCode = 1;
     return;
@@ -286,15 +288,42 @@ async function startRepl(options) {
     if (shuttingDown) return;
     if (rl) rl.close();
   };
-  process.on('SIGINT', sigintHandler);
+  if (!evalMode) {
+    process.on('SIGINT', sigintHandler);
+  }
 
   try {
     const initialized = await container.initialize(options.cwd, TIMEOUTS.INIT_TIMEOUT_MS, {
-      watch: true,
+      watch: !evalMode,
       excludeDirs: options.exclude || [],
     });
     if (!initialized) {
       throw container.initError || new Error('Failed to initialize workspace container');
+    }
+
+    if (evalMode) {
+      const startTime = Date.now();
+      try {
+        const output = await executeCommand(container, evalMode);
+        if (output !== null) {
+          if (options.json) {
+            console.log(JSON.stringify({ ok: true, result: output }));
+          } else {
+            console.log(output);
+          }
+        }
+        if (!options.quiet && process.env.DEBUG) {
+          console.error(`[REPL] ${evalMode} completed in ${Date.now() - startTime}ms`);
+        }
+      } catch (e) {
+        if (options.json) {
+          console.log(JSON.stringify({ ok: false, error: e.message }));
+        } else {
+          console.error(`Error: ${e.message}`);
+        }
+        process.exitCode = 1;
+      }
+      return;
     }
 
     if (!options.quiet) {
@@ -360,7 +389,9 @@ async function startRepl(options) {
     } catch (e) {
       if (process.env.DEBUG) console.error('[REPL] shutdown failed:', e.message);
     }
-    process.removeListener('SIGINT', sigintHandler);
+    if (!evalMode) {
+      process.removeListener('SIGINT', sigintHandler);
+    }
   }
 }
 

@@ -15,7 +15,7 @@
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner）
 node cli.js audit-summary --cwd . --json --quiet
-# 期望: healthScore=5/5, deadExportsCount=5, unresolvedCount=0, cyclesCount=0, totalFiles≈194, analysisCoverage.coverageRatio=1
+# 期望: health.healthScore=5/5, summary.counts.deadExports=0, summary.counts.unresolved=0, summary.counts.cycles=0, summary.analysisCoverage.totalFiles≈198, summary.analysisCoverage.coverageRatio=1
 
 # 2. 验证大项目 compact 可用性（新功能涉及 compact / project-map 时才跑）
 node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
@@ -71,8 +71,8 @@ node cli.js repl
 - 测试：**111/111 PASS**（全量 runner 通过）
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~196 文件，entry=1, library=63, test=111, script=20, unknown=1
-- 健康度：5/5，0 dead exports（本轮清理了 health-tools/tree-sitter/sanitize/graph-db 死代码导出），0 循环，0 未解析
+- 自身项目规模：~198 文件，entry=1, library=63, test=113, script=20, unknown=1
+- 健康度：5/5，0 dead exports，0 循环，0 未解析
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
 - Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.2.0"` 已冻结**
@@ -173,6 +173,35 @@ node cli.js repl
 - **20+ 测试文件迁移**：`analysis-test.js`、`functionality-test.js`、`audit-diff-test.js`、`init-test.js`、`integration-core-test.js`、`formatter-e2e-test.js`、`cli-mapper-adapter-test.js`、`role-detection-test.js`、`framework-usage-patterns-test.js`、`audit-diff-incremental-test.js`、`gors-stack-detection-test.js`、`audit-file-validation-advice-test.js`、`regression-test.js`、`severity-filter-test.js`、`staged-files-test.js`、`with-impact-test.js`、`audit-file-watch-test.js`、`watch-sigterm-test.js`、`watch-test.js` 全部导入 `test-helpers.js`
 - **并发 runner 已知限制**：多个测试同时在 `repoRoot` 上运行 CLI 时，SQLite 缓存写冲突会导致子进程 hang 住（超过 120s）。当前默认串行规避，后续需解决 SQLite 并发写隔离或改为内存缓存模式
 
+**P1 compact 性能修复** — 消除大项目聚合计算 overhead：
+- **`src/cli/formatters/project-map.js`**：`buildProjectMap` edge 构建分化为 `compact` / `full` 双路径：
+  - compact：直接在遍历 `importRecords` 时计算 `fromMod`/`toMod`，跳过文件级 `edgeMap`、跳过 `symbols` includes 合并、跳过 re-export 处理、跳过 `rawEdges` / `aggregateEdgesToDirectoryLevel` / `aggregateEdgesToModuleLevel` 中间数组
+  - full：保留原有文件级 edgeMap 逻辑（含 symbols 合并和 re-export 追踪）
+  - 删除不再使用的 `aggregateEdgesToDirectoryLevel` 和 `aggregateEdgesToModuleLevel` 函数（L2-5 删除 > 添加）
+- **验证**：198 文件实测 compact 2.0s vs full 2.9s；compact 从慢 4x 变为快 1.4x
+
+**产品债务：`init` 生成空配置 + 不管理 `.gitignore`** — 修复 CLI 出口质量，新用户第一个接触点：
+- **`cli.js` `case 'init'`**：`active` 数组填充非 generated/reference 目录（如 `src/`），自动跳过隐藏目录（`.github/` 不入 active）
+- **`.gitignore` 自动管理**：定义 8 条 workspace-bridge 缓存文件忽略规则；已存在 `.gitignore` 时追加缺失条目（去重），不存在时新建；结果回显 `gitignoreUpdated`
+- **输出消息重构**：按 `active` → `generated` → `reference` → `.gitignore` 顺序拼接，用户一眼知道工具识别了什么
+- **测试**：`test/init-test.js` 重写，使用 `makeTempDir`/`cleanupTempDir`，覆盖 active 填充、隐藏目录跳过、`.gitignore` 创建与去重
+
+**L2 债务：遗留 JSON 缓存排除逻辑不一致** — SQLite 迁移收尾，删除死代码：
+- **`file-index.js` / `dep-graph.js`**：删除 `LEGACY_CACHE_FILENAME` 常量和 `.workspace-bridge-cache.json` / `.bak` / `.tmp-*` 排除，只保留 `cache.db` / `cache.db-wal` / `cache.db-shm`
+- **`git-tools.js`**：删除 `isTempFile` 函数（`.tmp-*` 不再被创建），简化 `isCacheArtifact`；修复 staged 模式遗漏 `isCacheArtifact` 检查的 bug
+- **`test/phase01-quality-test.js`**：移除 `.tmp-*` 过滤断言，保留 `cache.db` 过滤断言
+
+**`repl --eval` 非交互模式** — 解锁 AI/CI 使用 REPL 的能力：
+- **`cli.js`**：注册 `--eval <command>` 参数；`case 'repl'` 传递 `eval` 与 `json` 选项给 `startRepl`
+- **`src/cli/repl.js`**：`startRepl` 增加 `evalMode` 分支：
+  - 跳过 TTY 检查（`!evalMode && !process.stdin.isTTY`）
+  - `watch: !evalMode` 减少单次执行开销
+  - 初始化后直接 `executeCommand(container, evalMode)` 并输出结果
+  - `--json` 时包装为 `JSON.stringify({ ok: true, result: output })`
+  - eval 错误时返回 `exitCode = 1` + `{ ok: false, error }`
+  - SIGINT handler 仅在交互模式下注册/移除
+- **`test/repl-test.js`**：新增 `testEvalMode()`（human-readable）与 `testEvalModeJson()`（JSON 包装），均使用真实项目初始化验证
+
 **历史**：P0-P4 全部交付。本轮及历史交付见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ### 活跃问题与技术债务
@@ -180,10 +209,10 @@ node cli.js repl
 | 级别 | 数量 | 内容 |
 |------|------|------|
 | L1 Blocker | 0 | — |
-| L2 债务 | 1 | 超时常量分散定义 |
+| L2 债务 | 0 | — |
 | L3 品味 | 9 | git-tools.js 手动字符级解析 / overview-tools.js HTML 裸数字 / js.js visitor 超长 / path.js hasPathSegment 语义陷阱 / parserAvailability.skipped 命名陷阱 / cli.js JSON 嵌套深 / --compact 阈值无 rationale / npx 版本未锁定 / human-formatters.js 同一命令在 4-5 个 formatter 中重复判断 |
 | ~~**产品 bug**~~ | **0** | ~~路径格式混用~~ | ✅ **已修复**：`file-index` 传递原始路径给 `dep-graph`，`cache` 持久化 `originalPath`，`build()` cache-hit 路径优先使用 `meta.originalPath`。`workspaceRoot` 与 `resolvedPath` 格式现已一致。
-| **产品债务** | **5** | 命令分层混乱（L4 原始查询被 L1 aggregate 覆盖但混层暴露；**`health` 与 `audit-summary.health` 数据完全重合**）/ actions 是文案不是可执行命令 / **`repl` 非交互环境不可用**（AI/CI 完全无法使用）/ **`init` 生成空配置**（目录列表全空，设计未完成）/ **`--incremental` 增量逻辑不可见**（与 `--staged` 输出无差异） |
+| **产品债务** | **3** | 命令分层混乱（L4 原始查询被 L1 aggregate 覆盖但混层暴露；**`health` 与 `audit-summary.health` 数据完全重合**）/ actions 是文案不是可执行命令 / ~~`repl` 非交互环境不可用~~ ✅ **已修复**：`--eval <command>` 支持非 TTY 下直接执行单条命令并退出 / **`--incremental` 增量逻辑不可见**（与 `--staged` 输出无差异） |
 | **runner 并发限制** | **1** | 多个 CLI 实例同时写同一 SQLite 缓存文件时子进程 hang 住；默认串行规避，需后续修复并发写隔离 |
 
 **测试覆盖缺口：严重低估。**
@@ -212,9 +241,9 @@ node cli.js repl
 
 #### 当前状态
 
-- 活跃债务：**0 个 L1** + **1 个 L2**（超时常量分散定义）+ **9 个 L3** + **0 个产品 bug** + **5 个产品债务**
+- 活跃债务：**0 个 L1** + **0 个 L2** + **9 个 L3** + **0 个产品 bug** + **4 个产品债务**
 - 版本：v1.2.0，schemaVersion 冻结
-- 测试：**111/111 PASS**（~510s，默认串行）
+- 测试：**111/111 PASS**（~294s，默认串行；清除旧 JSON 缓存后速度提升）
 - P0-P4 全部完成（误报清零、暴露正确、框架感知、可靠性收敛）
 - **定位升级**：从"带 JSON 输出的人类审计工具"升级为"AI 的代码脚手架"
 - **核心认知**：CLI 静态分析能力没问题，问题分两类：
@@ -253,7 +282,7 @@ node cli.js audit-summary --cwd . --json --quiet  # 期望 healthScore=5/5
 | **P0** | ~~`--check-regression` crash~~ | ~~基线 schema 不匹配~~ | ✅ **已修**：`makeCycleKey` 防御 `item.files` 缺失 |
 | ~~**P1**~~ | ~~`--format ai` 参数生效~~ | ~~`depth`/`token-budget` 被短路~~ | ✅ **已生效**：`depth` 控制 `riskFiles`/`details` 输出，`token-budget` 超限自动降级 |
 | ~~**P1**~~ | ~~`validationAdvice.commands` + `suggestedCommand`~~ | ~~`buildFileValidationAdvice` 未生成 `suggestedCommand`~~ | ✅ **已修复**：`pickSuggestedCommand` 复用于 `audit-file` 与 `audit-diff` 顶层返回对象，实测均返回非空字符串。 |
-| **P1** | compact 模式比 full 慢 4x | 聚合计算 overhead | 大项目可用 |
+| ~~**P1**~~ | ~~compact 模式比 full 慢 4x~~ | ~~聚合计算 overhead~~ | ✅ **已修复**：compact 路径直接聚合到模块级别，跳过文件级 `edgeMap` + `rawEdges` 实例化 + re-export 处理。实测 compact 快于 full（2.0s vs 2.9s）。 |
 | ~~**P1**~~ | ~~`affected-tests` 0 关联~~ | ~~测试映射启发式失效~~ | ✅ **已修复**：`test-detector.js` 扩展 `HEURISTIC_ROOT_SEGMENTS` + `TEST_DETECTION_RULES` + `normalizeHeuristicName`/`normalizeStem`，覆盖 `__tests__`/`cypress`/`e2e`/`ruby`/`UnitTest`/`IntegrationTest` 等常见模式。 |
 | ~~**P2**~~ | ~~`watch` 排除自身缓存文件~~ | ~~遗留 `.tmp-*` / `.bak` 未排除~~ | ✅ **已修**：`shouldExclude` 增加 `.bak`/`.tmp-*` 缓存文件排除 |
 | **P2** | `diagnostics` 找到实际 linter | `buildChecks` 与 `workspace-info` 检测逻辑不同步 | 诊断可信 |
@@ -263,9 +292,8 @@ node cli.js audit-summary --cwd . --json --quiet  # 期望 healthScore=5/5
 
 **产品债务（暂缓，bug 清零后再评估）**
 - ~~`audit-ai` 统一入口~~ → **重新评估**：不是"合并到 3 个命令"，是"`--help` 和 SKILL.md 按 L1/L2/L3/L4 分层暴露"。`dead-exports`/`cycles`/`unresolved` 等 L4 命令对人类调试有价值，不应删除，只需降级为 debug 层级。
-- **compact 模式比 full 慢 4x**：542 文件项目 compact 26s vs full 6s，聚合计算 overhead 严重；且 full 模式 448KB（~112K tokens）直接爆掉大多数 AI 上下文窗口
 - actions 可执行化：从文案改为 `"run: npm test -- test/auth-*.test.js"` 等具体指令
-- `repl` 非交互环境不可用：SKILL.md 推荐但 AI/CI 完全无法使用，需评估 `--eval <command>` 模式或从 skill 中降级推荐
+- ~~`repl` 非交互环境不可用~~ → ✅ **已修复**：`--eval <command>` 支持非 TTY 下直接执行单条命令并退出。`printUsage` 与 `COMMAND_GUIDES` 已更新描述。
 
 - **`init` 生成空配置**：`.workspace-bridge.json` 目录列表全空，用户拿到后仍需手动填，设计未完成；**且未自动写 `.gitignore`**，用户第一次跑就会被 5 个未跟踪文件污染 git 状态
 - ~~`--exclude` 未完全过滤 cycle~~：⚠️ **部分修复**。cycle 检测逻辑已追加 `shouldExcludeCli` 过滤，但 dirty worktree 下缓存未刷新可能导致排除后 cycle 残留。2026-05-16 cache mtime/size 修复后该问题应已根治，待实战验证。
@@ -282,7 +310,7 @@ node cli.js audit-summary --cwd . --json --quiet  # 期望 healthScore=5/5
 | 2 | **~~错误边界：垃圾输入~~** | **已验证** | `--file 不存在.js` ✅ 优雅 / `--since 不存在commit` ✅ 优雅 / `--baseline 损坏.json` ⚠️ 半优雅 / **`--cwd 不存在/` ❌ 挂起** → 新增 P0 bug |
 | ~~3~~ | ~~`validationAdvice.commands` + `suggestedCommand`~~ | ~~**高**~~ | ✅ **已修复**：`audit-file` 与 `audit-diff` 均返回非空 `suggestedCommand`。 |
 | 4 | **audit-security Semgrep 适配器** | 中 | 默认模式（无 `--builtin-only`）会尝试启动 Semgrep。Semgrep 未安装/规则下载失败/大项目超时 → 行为如何？ |
-| 5 | **~~大项目输出体积~~** | **已验证** | 542 文件 full 模式 448KB（~112K tokens），直接爆掉 GPT-4o 上下文。compact 26s vs full 6s，compact 聚合 overhead 严重 |
+| 5 | **~~大项目输出体积~~** | **已验证** | 542 文件 full 模式 448KB（~112K tokens），直接爆掉 GPT-4o 上下文。compact 聚合 overhead 已修复。 |
 | 6 | **impact[] 与 symbolImpact.impactedFiles[] 冗余** | 低 | `audit-file` 同时返回两个几乎一样的数组，输出体积翻倍 |
 | 7 | **--exclude Windows 反斜杠** | 高 | 只测了正斜杠 `--exclude src/views`。Windows 用户大概率用反斜杠 `--exclude src\views`，可能不工作 |
 | 8 | **fileSpecificAdvice 语言一致性** | 低 | app.vue 是中文 advice，无 `--locale` 参数控制，非中文用户 AI 不友好 |
@@ -384,4 +412,4 @@ node cli.js audit-summary --cwd . --json --quiet  # 期望 healthScore=5/5
 
 ---
 
-*Last updated: 2026-05-16（`validationAdvice.suggestedCommand` + `affected-tests` 启发式修复完成；111/111 测试通过；活跃产品 bug 清零）*
+*Last updated: 2026-05-16（超时常量集中化完成；compact 性能修复完成；`validationAdvice.suggestedCommand` + `affected-tests` 启发式修复完成；111/111 测试通过；活跃产品 bug 清零）*

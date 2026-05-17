@@ -52,7 +52,7 @@ function makeMockDepGraph() {
   };
 }
 
-async function main() {
+async function testExecuteCommand() {
   console.log('=== REPL command test ===\n');
 
   const container = { depGraph: makeMockDepGraph() };
@@ -175,6 +175,66 @@ async function main() {
   assert(help2.includes('top'), 'help should list top command');
   console.log('help-includes-issues-top: ok');
 
+  console.log('\nAll REPL command tests passed');
+}
+
+async function testEvalMode() {
+  const { startRepl } = require('../src/cli/repl');
+
+  const logs = [];
+  const originalLog = console.log;
+  console.log = (...args) => logs.push(args.join(' '));
+
+  try {
+    await startRepl({ cwd: path.resolve(__dirname, '..'), quiet: true, eval: 'stats' });
+  } finally {
+    console.log = originalLog;
+  }
+
+  const output = logs.join('\n');
+  assert(output.includes('files:'), `eval mode should output stats result. got: ${output}`);
+  assert(output.includes('totalImports:') || output.includes('cycles:'), `eval mode stats should include imports or cycles. got: ${output}`);
+  console.log('repl-eval-mode: ok');
+}
+
+async function testEvalModeJson() {
+  const { startRepl } = require('../src/cli/repl');
+
+  const logs = [];
+  const originalLog = console.log;
+  console.log = (...args) => logs.push(args.join(' '));
+
+  try {
+    await startRepl({ cwd: path.resolve(__dirname, '..'), quiet: true, eval: 'stats', json: true });
+  } finally {
+    console.log = originalLog;
+  }
+
+  const output = logs.join('\n');
+  const parsed = JSON.parse(output);
+  assert.strictEqual(parsed.ok, true, 'json eval should return ok: true');
+  assert(typeof parsed.result === 'string', 'json eval should have string result');
+  assert(parsed.result.includes('files:'), 'json eval result should contain stats');
+  console.log('repl-eval-mode-json: ok');
+}
+
+async function testEvalModeInvalidCwd() {
+  const { runCliRaw } = require('./test-helpers');
+
+  // CLI 路径：--cwd 无效目录时应返回 exit=1
+  const result = runCliRaw(['repl', '--eval', 'stats', '--cwd', '/nonexistent-path-for-test', '--json', '--quiet']);
+  assert.strictEqual(result.status, 1, `invalid cwd should exit with code 1. stdout: ${result.stdout}`);
+  const parsed = JSON.parse(result.stdout);
+  assert.strictEqual(parsed.ok, false, 'invalid cwd should return ok: false');
+  assert(parsed.error.includes('Directory not found'), `should mention directory not found. got: ${parsed.error}`);
+  console.log('repl-eval-invalid-cwd: ok');
+}
+
+async function main() {
+  await testExecuteCommand();
+  await testEvalMode();
+  await testEvalModeJson();
+  await testEvalModeInvalidCwd();
   console.log('\nAll REPL tests passed');
 }
 

@@ -65,8 +65,11 @@ workspace-bridge-cli audit-summary --cwd <project> --format markdown --quiet
 | "死代码清理" | `dead-exports` | 0 引用符号候选（需人工确认后删除） |
 | "循环依赖/架构问题" | `cycles` | 逐条循环路径 |
 | "断链 import" | `unresolved` | 未解析的导入列表 |
+| "快速查一个文件的依赖/影响" | `repl --eval "impact <file>"` | **非交互单命令**，比直接 `impact` 更快（复用内存图），适合 AI/CI 批量调用 |
 
-**避免调用的命令**：`audit-overview`（与 audit-summary 重叠，除非需要 hotspots）、`stats`（数据太 raw）、`repl`/`watch`（交互式，不适合 AI 批量调用）、`health`（与 audit-summary.health 数据完全重合）。
+**避免调用的命令**：`audit-overview`（与 audit-summary 重叠，除非需要 hotspots）、`stats`（数据太 raw）、`watch`（交互式文件监控，不适合 AI 批量调用）、`health`（与 audit-summary.health 数据完全重合）。
+
+> `repl` 已支持 `--eval <command>` 非交互模式，不再属于"避免调用"。不带 `--eval` 的纯交互式 `repl` 仍不适合 AI 批量调用。
 
 > ⚠️ **healthScore 不可信**：`healthScore: 5/5` 只检查文件是否存在（README/.gitignore/CI 等），**不反映代码质量**。项目可能有 4 个死导出、1311 行核心文件、6 条活跃债务，healthScore 仍是 5/5。AI 应关注 `deadExports`/`cycles`/`unresolved` 具体字段，而非 healthScore 总分。
 

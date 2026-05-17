@@ -38,6 +38,7 @@ node cli.js audit-overview --cwd .   # 项目全景（热区、孤儿文件）
 node cli.js audit-map --cwd .        # 全局项目地图（大项目加 --compact）
 node cli.js watch --cwd .            # 文件保存自动打印影响面
 node cli.js repl --cwd .             # REPL 交互查询模式
+node cli.js repl --cwd . --eval "impact src/app.js"  # 非交互单命令（AI/CI 可用）
 ```
 
 完整命令列表、参数说明与 `.workspace-bridge.json` 配置见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)。
