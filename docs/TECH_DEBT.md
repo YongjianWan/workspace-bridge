@@ -12,23 +12,7 @@
 
 ## L2 债务（阻塞演进或导致结果不可信）
 
-#### 超时常量分散定义 — 违反 L2-6
-
-**数据**：超时阈值在多个文件中各自硬编码，未统一到 `src/config/constants.js`：
-
-| 文件 | 硬编码值 | 用途 |
-|------|----------|------|
-| `src/services/diagnostics-engine.js` | 5000, 10000, 15000 | checker/ruff/pyright/eslint/tsc 超时 |
-| `src/tools/workspace-tools.js` | 10000, 30000, 60000, 15000, 120000 | ruff/pyright/eslint/pytest/compileall/diagnostics 总超时 |
-| `src/tools/health-tools.js` | 30000, 10000, 60000, 15000 | eslint/ruff/pip-audit/pip-outdated 超时 |
-| ~~`cli.js`~~ | ~~1024, 1024~~ | ~~`LARGE_JSON_THRESHOLD`, `JSON_WRITE_CHUNK_SIZE`~~ | ✅ 已归零：`STREAMING` 对象移入 `constants.js` |
-| `test/runner.js` | 120000 | 测试总超时 |
-
-**根因**：新超时阈值加入时直接内联到调用点，未进 `constants.js`。
-
-**影响**：调整全局超时策略需改 5+ 个文件，极易漏改。不同文件的相同用途超时（如 linter 10s）可能因漏改而不一致。
-
-**方案**：所有超时阈值集中到 `src/config/constants.js` 的 `TIMEOUTS` 对象，各模块统一导入。
+无。
 
 ---
 
@@ -86,26 +70,148 @@
 
 ---
 
-## 测试代码债务（109 文件 / 460 函数）
+## 测试代码债务（113 文件 / ~460 函数）
+
+#### 弱断言分布 — 占总断言数 ~5.2%
+
+**数据**：
+
+| 弱断言模式 | 数量 | 风险等级 | 说明 |
+|-----------|------|---------|------|
+| `typeof x === 'string'/'number'/'boolean'` | 39 | 中 | 类型检查无法验证业务语义 |
+| `assert.ok(condition)`（无消息） | 11 | 高 | 失败时无法定位问题 |
+| `assert(condition)`（无消息） | 2 | 高 | 同上 |
+| `typeof x === 'object'` | 3 | 高 | 太宽泛，`null` 也匹配 |
+| `.status === 0` | 1 | 中 | 仅验证退出码 |
+| `!== null/undefined` | 20 | 低 | 存在性检查 |
+| **合计弱断言** | **~76** | — | 含 `strictEqual(result.ok, true/false)` 58 处 |
+
+> 注：用户审计口径为 ~52 处（未计入 `strictEqual(result.ok, true/false)` 型），实测含此型共 ~76 处。
+
+**核心问题**：58 处 `strictEqual(result.ok, true)` 只验证了"函数没抛错"，不验证返回的业务数据是否正确。这是"沉默的测试"——通过了但不知道在测什么。
+
+**方案**：
+1. 将 `strictEqual(result.ok, true)` 替换为具体字段断言（如 `result.summary.counts.deadExports === 0`）
+2. `assert.ok(condition)` 补消息参数，或直接替换为 `strictEqual`
+3. `typeof === 'object'` 替换为结构验证（`Array.isArray(x.imports)` + `x.imports.length > 0`）
+
+---
+
+#### 测试类型分布失衡
+
+| 类型 | 文件数 | 占比 | 评估 |
+|------|--------|------|------|
+| 单元测试（直接 `require src/`） | 88 | 78% | 比例良好 |
+| 集成测试（`spawn`/`runCli`） | 24 | 21% | **比例偏低** |
+| 混沌/模糊测试 | 0 | 0% | **严重缺失**（CLI 工具暂缓） |
+| 并发/竞争测试 | 5 个文件 | 4% | 存在（race、concurrency） |
+| 端到端测试 | 3 个文件 | 3% | **严重不足**（仅 functionality/formatter-e2e/integration-core） |
+
+**根因**：78% 单元测试 + 大量弱断言 = 测试验证的是"函数返回了结构正确的对象"，不是"CLI 管道把正确的数据送到了正确的 formatter"。
+
+**影响**：CLI 入口的选项解析、路由分发、错误边界、格式化器选择等关键路径缺乏回归保护。
+
+**方案**：
+1. 新增 3–4 个 CLI 集成测试，覆盖 `audit-file`、`dead-exports`、`tree`、`impact` 等目前仅靠单元测试的命令
+2. 弱断言清理与集成测试补齐并行进行
+
+---
+
+#### console.log 噪音 — 175 处
+
+**数据**：`test/` 目录下 175 处 `console.log(`，分布于 40+ 文件。Top 5：
+
+| 文件 | 处数 |
+|------|------|
+| `repl-test.js` | 26 |
+| `security-test.js` | 20 |
+| `runner.js` | 12 |
+| `analysis-test.js` | 11 |
+| `risk-thresholds-test.js` | 7 |
+
+**根因**：早期测试用 `console.log('...: ok')` 做手工确认，runner.js 已有 PASS/FAIL 输出后这些打印纯属噪音。
+
+**影响**：污染 runner 输出，增加 AGENTS.md 验证门禁"阅读完整输出"的阅读成本。
+
+**方案**：删除冗余的 `"xxx: ok"` / `"all passed"` 打印；保留 `runner.js` 的 PASS/FAIL 骨架输出。
+
+---
 
 #### 测试代码重复率过高 — 违反 L2-7
 
 **数据**：
 - **118 处 `fs.mkdtempSync()`** + 对应 **118 处 `fs.rmSync(..., { recursive: true })`**——临时目录 setup/teardown 在每个需要文件系统隔离的测试中重复
 - ~~**99 处内联 mock `depGraph`** 构造——`new Map([['/repo/src/a.js', { imports: [...], exports: [...] }]])` 模式在 `audit-map-test.js`、`overview-tools-test.js` 等文件中反复出现~~ **部分收敛**：`audit-map-test.js` 公共方法（`getFileInfo`/`hasFile`/`getDependents`/`getDependencies`/`isTestLikeFile`）已提取为 `BASE_MOCK_METHODS`，文件从 592 行降至 544 行；graph 数据字面量仍内联
-- `console.log('...: ok')` / `console.log('...: all passed')` 残留——CHANGELOG 声称"169 处清零"，实际 `audit-map-test.js`（本轮已清）、`repl-test.js`、`cli-args-validation-test.js` 等仍有 ~30 处；runner 本身输出 PASS/FAIL，测试内部打印不增加暴露错误的能力
 
-**根因**：没有提取测试 fixture 工厂函数和 setup/teardown 抽象；`console.log` 噪音未彻底清理。
+**根因**：没有提取测试 fixture 工厂函数和 setup/teardown 抽象。
 
 **影响**：
 - 修改 `depGraph` mock 接口需改 99 处（方法已提取，数据字面量仍分散）
 - 临时目录泄漏风险（若测试中途崩溃，`rmSync` 在 finally 中可能未执行）
-- `console.log` 污染 runner 输出，增加验证门禁"阅读完整输出"的阅读成本
 
 **方案**：
 1. 提取 `makeTempDir()` 和 `cleanupTempDir()` 到 `test-helpers.js`（已提供，待迁移剩余 36 文件）
 2. `audit-map-test.js` graph 数据字面量进一步提取为配置表驱动的工厂调用
-3. 彻底清理 `console.log` 噪音（repl-test.js、cli-args-validation-test.js 等剩余 ~30 处）
+
+---
+
+#### runner.js 并发执行 SQLite 写冲突 — 违反 L1-2 异常安全
+
+**数据**：`test/runner.js` 并发执行（CONCURRENCY > 1）时，多个测试子进程同时在 `repoRoot` 上运行 CLI，读写同一 SQLite 缓存文件（`cache.db`），导致子进程 hang 住超过 120s 或抛出 `ReferenceError`。
+
+**根因**：`better-sqlite3` WAL 模式支持并发读，但并发写会阻塞等待。当 4-8 个测试同时启动 `node cli.js` 并触发缓存写入时，SQLite 锁竞争导致部分子进程无法及时退出。
+
+**影响**：
+- 并发 runner 无法稳定使用，总时间超过 300s 甚至无限挂起
+- 被迫回退到串行执行（CONCURRENCY=1），测试总时间 ~286s
+- 与 AGENTS.md 验证门禁"收工前必跑全量测试"冲突：串行 runner 在 CI 中耗时过长
+
+**方案**：
+1. **短期**：默认串行（已实施），环境变量 `TEST_CONCURRENCY` 可覆盖
+2. **中期**：每个测试子进程启动时传入 `--cache-dir` 指向独立临时目录，彻底隔离缓存写
+3. **长期**：评估 SQLite 是否真的需要跨进程共享；若为纯测试隔离场景，内存缓存（JSON fallback）可能更快且无锁竞争
+
+---
+
+#### 时序依赖测试脆弱 — 违反 L1-2 异常安全
+
+**数据**：测试中存在大量固定延时，依赖事件循环/文件系统 watch 的时序：
+
+| 文件 | 延时 | 场景 |
+|------|------|------|
+| `audit-file-watch-test.js` | 100ms, 200ms, 2000ms, 3000ms ×2 | fs.watch 触发等待 |
+| `diagnostics-unbounded-timer-test.js` | 1200ms ×2, 3000ms | timer 测试 |
+| `file-index-race-test.js` | 20ms | 竞态条件模拟 |
+| `file-index-rename-test.js` | 200ms | 重命名事件等待 |
+| `overview-tools-concurrency-test.js` | 5ms, 30ms | 并发批次模拟 |
+| `repl-shutdown-test.js` | 30ms ×2, 50ms | shutdown 守卫 |
+| `spawn-ast-test.js` | 50ms, 60ms | 子进程 kill 等待 |
+
+**根因**：使用固定延时等待异步事件，而非轮询或信号机制。
+
+**影响**：在慢速 CI 环境或高负载机器上极易 flaky。`audit-file-watch-test.js` 已因时序问题做过一轮修复（从固定 `delay(2500)` 改为轮询），但其他文件仍未整改。
+
+**方案**：统一改为轮询检查（如 `watch-test.js` 的修复模式）或事件驱动等待，消除固定延时。
+
+---
+
+#### 模块级副作用与硬编码魔数
+
+**数据**：
+- `audit-diff-incremental-test.js:20`：硬编码 `timeout: 60000`
+- `java-parsers-test.js:10`：硬编码 `timeout: 15000`
+- `runner.js`：硬编码 `TIMEOUT_MS = 120000`
+- `analysis-test.js`：硬编码 fixture 路径 `fixture-temp/test-module.js`
+
+**根因**：测试代码未遵循 L2-6"裸数字归零"和 L1-2"异常安全"原则。
+
+**影响**：
+- 超时阈值无 rationale，不同文件各自拍脑袋定
+- 硬编码 fixture 路径可能与真实文件冲突
+
+**方案**：
+1. 所有超时阈值提取到 `test/test-constants.js`
+2. fixture 路径使用 `path.join(os.tmpdir(), 'wb-test-' + random)` 隔离
 
 ---
 
@@ -203,6 +309,46 @@
 ---
 
 ## 测试覆盖缺口
+
+### 零专属测试模块清单
+
+**L1 基础设施层**
+
+| 模块 | 风险等级 | 说明 | 建议测试文件 |
+|------|---------|------|-------------|
+| `src/services/graph-db.js` | **高** | SQLite 持久化层：schema 创建、load/save 往返、`_migrate` 列追加、close 释放、WAL 文件生成 | `test/graph-db-test.js` |
+
+**L4 工具层（12 个工具，5 个零专属测试）**
+
+| 模块 | 状态 | 说明 | 建议测试文件 |
+|------|------|------|-------------|
+| `src/tools/dep-tools.js` | ❌ 零测试 | `buildDependencyReport` 等业务函数无测试 | `test/dep-tools-test.js` |
+| `src/tools/git-tools.js` | ❌ 零测试 | `git-line-ranges-test.js` 仅覆盖行范围解析（<10%） | `test/git-tools-test.js` |
+| `src/tools/incremental-diff.js` | ❌ 零测试 | 增量 diff 核心算法无测试 | `test/incremental-diff-test.js` |
+| `src/tools/regression-tools.js` | ❌ 零测试 | `regression-test.js` 测的是 CLI `--save`/`--check-regression`，不是内部函数 | `test/regression-tools-test.js` |
+| `src/tools/security-tools.js` | ❌ 零测试 | `security-test.js` 测的是 CLI 命令层，未覆盖 `runBuiltinSecurityScan` | `test/security-tools-test.js` |
+| `src/tools/overview-tools.js` | ✅ 好 | `overview-tools-test.js` + `overview-tools-concurrency-test.js` | — |
+| `src/tools/health-tools.js` | ✅ 好 | `health-tools-test.js` | — |
+| `src/tools/workspace-tools.js` | ✅ 好 | `workspace-tools-test.js` | — |
+| `src/tools/tree-tools.js` | ✅ 好 | `tree-tools-test.js` | — |
+| `src/tools/honesty-engine.js` | ✅ 好 | `honesty-engine-test.js` | — |
+| `src/tools/scaffold-detector.js` | ✅ 好 | `scaffold-detector-test.js` | — |
+
+**L5 格式化层（9 个 formatter，3 个零测试 + 5 个间接覆盖不完整）**
+
+| 模块 | 状态 | 说明 | 建议测试文件 |
+|------|------|------|-------------|
+| `src/cli/formatters/file-summary.js` | ❌ 零测试 | `buildFileSummary` 无直接调用测试 | `test/file-summary-test.js` |
+| `src/cli/formatters/impact-explanations.js` | ❌ 零测试 | `explainImpact` 无直接调用测试 | `test/impact-explanations-test.js` |
+| `src/cli/formatters/project-map.js` | ❌ 零测试 | `audit-map-test.js` 测的是命令层，formatter 纯函数无专属测试 | `test/project-map-test.js` |
+| `src/cli/formatters/composite-risk.js` | ⚠️ 间接覆盖 | 仅被 CLI E2E 路过 | 可并入 `formatter-direct-test.js` |
+| `src/cli/formatters/audit-diff-summary.js` | ⚠️ 间接覆盖 | 仅被 CLI E2E 路过 | 可并入 `formatter-direct-test.js` |
+| `src/cli/formatters/repo-summary.js` | ⚠️ 间接覆盖 | `formatter-direct-test.js` 导入了 `buildRepoSummary` 但覆盖浅 | 扩展 `formatter-direct-test.js` |
+| `src/cli/formatters/human-formatters.js` | ⚠️ 间接覆盖 | `formatter-direct-test.js` 覆盖了部分分支 | 扩展 `formatter-direct-test.js` |
+| `src/cli/formatters/validation-advice.js` | ⚠️ 间接覆盖 | 被 `audit-file-validation-advice-test.js` 间接覆盖 | 扩展 `formatter-direct-test.js` |
+| `src/cli/formatters/recommendation-engine.js` | ✅ 有测试 | `test/recommendation-engine-test.js` | — |
+
+---
 
 ### 有测试但可继续深化的模块
 

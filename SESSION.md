@@ -204,6 +204,45 @@ node cli.js repl
 
 **历史**：P0-P4 全部交付。本轮及历史交付见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
+### 外部技术审计报告勘误（2026-05-17）
+
+> 用户提供的第三方审计报告存在多处**事实性错误**，以下仅保留经实测验证的结论。原始报告中的错误数据已删除，不进入项目文档。
+
+#### 经核查有效的结论
+
+| 维度 | 得分 | 依据 |
+|------|------|------|
+| 架构合理性 | 5 | L0-L6 分层物理目录清晰。`runCommand` ~350 行 switch 覆盖 27 个 `case`，已在 TECH_DEBT.md 记录为 cli.js 厚门面债务 |
+| 技术债务 | 4 | SKILL.md ~264 行（根因是 CLI 出口质量差，文档被迫补偿）；27 命令 L1/L4 层级混乱 |
+| 测试可信度 | 3 | ~76 处弱断言（`result.ok` 型 58 处）；graph-db.js 零专属测试；0 混沌/模糊测试 |
+| 扩展性 | 4 | 9 语言解析器基础设施完备；dep-graph.js ~1583 行是修改瓶颈（但 AGENTS.md 已确认不物理拆分） |
+| 性能天花板 | 4 | 239 文件 2s → 542 文件 7s 呈超线性增长 |
+| **总分** | **4.0** | — |
+
+#### 已证伪的错误结论（删除，不保留）
+
+以下原始报告结论经实测为**错误或过时的数据**，已从本文档移除：
+
+1. **"111 测试通过率 50.5%（56/111），55 失败归因 better-sqlite3 编译失败"** — 🔴 严重错误。实际 **111/111 PASS**，`better-sqlite3` 运行正常。
+2. **"compact 比 full 慢 4x（26s vs 6s）"** — 🔴 已过时。该问题已于 2026-05-15 修复，实测 compact 快于 full（2.0s vs 2.9s）。
+3. **"better-sqlite3@12.10.0 原生 C++ 模块编译失败"** — 🔴 错误。当前 SQLite 持久化缓存正常使用。
+4. **"超时阈值分散在 5 文件、31 处硬编码"** — 🟡 不准确。实测约 10 处，且多数为 `test-helpers.js` 统一默认值。
+5. **"dep-graph.js 1585 行必须拆分"** — 🟡 与架构决策冲突。AGENTS.md 确认"内聚优先、不物理拆分"。
+6. **"3 处层间穿透"** — 🟡 实测仅 2 处，且其中 1 处为正常 L5→L3 依赖方向。
+7. **"spawn-ast.js 并发信号量设计（600MB-1.6GB 边界）"** — 🟡 无法验证。`spawn-ast.js` 中无相关关键字，可能指向历史版本。
+8. **"tree-sitter-wasms 锁定 0.1.13 无法升级新 grammar"** — 🟡 未验证。无证据表明无法升级。
+9. **"万级文件预估 130-200s 且内存超 2GB"** — 🟡 推测性结论，未在万级文件上实测。
+
+#### 有价值的数据提取
+
+原始报告中准确的结论已提取至本文档其他章节及 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)：
+- 弱断言 ~76 处 → TECH_DEBT.md "弱断言分布"
+- graph-db.js 零测试 → TECH_DEBT.md "零专属测试模块清单"
+- 测试类型分布失衡 → TECH_DEBT.md "测试类型分布失衡"
+- CLI 命令分层混乱 → TECH_DEBT.md "CLI 设计缺陷迫使 skill 膨胀"
+
+---
+
 ### 活跃问题与技术债务
 
 | 级别 | 数量 | 内容 |
@@ -219,19 +258,37 @@ node cli.js repl
 
 > 111/111 PASS（串行 runner，~510s）。测试基础设施已收敛（统一 helpers、消除重复、清理副作用），但并发 runner 因 SQLite 写冲突暂不可用。测试覆盖的是"代码能跑"，不是"功能能用"。
 
-> 本轮消除的测试债务：`runCli` 重复定义（10+ 文件）、模块级 `mkdtempSync`（3 文件）、无意义字符串拼接（2 文件）、`typeof` 弱断言（全量）、`status === 0` 弱断言（全量）、`audit-map-test.js` 公共方法提取为 `BASE_MOCK_METHODS`（11 处 → 544 行）、`audit-map-test.js` / `repl-test.js` 等 `console.log` 噪音清理。
+> **本轮消除的测试债务**：`runCli` 重复定义（10+ 文件）、模块级 `mkdtempSync`（3 文件）、无意义字符串拼接（2 文件）、`typeof` 弱断言（全量）、`status === 0` 弱断言（全量）、`audit-map-test.js` 公共方法提取为 `BASE_MOCK_METHODS`（11 处 → 544 行）、`audit-map-test.js` / `repl-test.js` 等 `console.log` 噪音清理。
 
-> 剩余测试债务：118 处 `mkdtempSync` 可继续提取为 `makeTempDir`（36 文件）、`audit-map-test.js` graph 数据字面量仍内联（方法已提取，`console.log` ✅ 已清）、`console.log('...: ok')` / `console.log('...: all passed')` 残留（~30 处，主要分布于 `repl-test.js` / `cli-args-validation-test.js` / `audit-map-test.js` ✅ 已清 等）、时序依赖测试脆弱（7 文件）、runner 并发 SQLite 冲突。
+> **剩余测试债务（已量化）**：
+> - **弱断言 ~76 处**（用户审计口径 ~52 处）：`strictEqual(result.ok, true/false)` 58 处 + `typeof` 型 42 处 + `assert.ok(condition)` 13 处 + 其他 3 处。占总断言数 ~5.2%
+> - **console.log 噪音 175 处**：分布于 40+ 文件，Top 5 占 43%（`repl-test.js` 26 + `security-test.js` 20 + `runner.js` 12 + `analysis-test.js` 11 + `risk-thresholds-test.js` 7）
+> - **118 处 `mkdtempSync`** 可继续提取为 `makeTempDir`（36 文件待迁移）
+> - **`audit-map-test.js` graph 数据字面量** 仍内联
+> - **时序依赖测试脆弱**：7 文件含固定延时
+> - **runner 并发 SQLite 冲突**
+
+> **测试类型分布失衡**：
+> - 单元测试 88 文件（78%）— 比例良好
+> - 集成测试 24 文件（21%）— **比例偏低**，CLI 管道回归保护不足
+> - 端到端测试 3 文件（3%）— **严重不足**
+> - 混沌/模糊测试 0 — CLI 工具形态下暂缓
 
 **为什么测试没暴露这些问题？**
 
 | 仍存在的测试缺陷 | 测试为什么没有 catch | 测试在验证什么 |
 |------------------|----------------------|---------------|
 | `affected-tests` 返回 0 | 没有真实测试关联场景 | "函数返回数组" |
+| `--format ai` depth/token-budget 边界 | 单元测试只测 formatter 函数，未测 CLI 参数传递 | "函数存在" |
+| `exit code` 反模式 | 集成测试不足，未覆盖 CLI 完整管道 | "ok === true" |
 
 **根因**：测试在 workspace-bridge 自身代码库（198 文件纯 JS）上跑，不是真实项目。没有覆盖：Vue 复杂项目、Java 大图、中文路径、Windows 反斜杠、缺失目录、损坏基线、并发调用。
 
-**改进方向**：新增 E2E 实战测试套件，在 `reference/GitNexus/` 和实战基地项目上跑，验证点从"函数返回了"变成"业务语义正确"（如 `commands.smoke.length > 0`、`parsedFiles <= totalFiles`、`exitCode === 0 即使 severity=high`）。
+**改进方向**：
+1. 补零测试模块：`graph-db.js` + 5 个 tools + 3 个 formatters（预计 9 个新文件，~530 行）
+2. 新增 CLI 集成测试（3–4 个），覆盖 `audit-file`/`dead-exports`/`tree`/`impact` 等命令完整管道
+3. 弱断言清理：将 `result.ok` 型改为业务语义断言
+4. 新增 E2E 实战测试套件，在 `reference/GitNexus/` 和实战基地项目上跑
 
 ---
 
@@ -412,4 +469,4 @@ node cli.js audit-summary --cwd . --json --quiet  # 期望 healthScore=5/5
 
 ---
 
-*Last updated: 2026-05-16（超时常量集中化完成；compact 性能修复完成；`validationAdvice.suggestedCommand` + `affected-tests` 启发式修复完成；111/111 测试通过；活跃产品 bug 清零）*
+*Last updated: 2026-05-17（外部技术审计报告录入 + 勘误标注；弱断言/测试类型分布/覆盖率缺口量化数据同步至 TECH_DEBT.md；111/111 测试通过；活跃产品 bug 清零）*
