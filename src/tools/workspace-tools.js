@@ -4,35 +4,10 @@
  */
 const path = require('path');
 const { findWorkspaceRoot, detectWorkspace, toRelativePosix, pathExists } = require('../utils/path');
-const { runCommandSecure, runNpx, runPythonModule, trimOutput } = require('../utils/command');
+const { runCommandSecure, runNpx, runPythonModule, trimOutput, resolvePythonCommand } = require('../utils/command');
+const { TIMEOUTS } = require('../config/constants');
 const { parseDiagnosticsFromText, uniqueDiagnostics, summarizeDiagnostics } = require('../utils/diagnostics');
 const { checkParserAvailability } = require('./health-tools');
-
-/**
- * Resolve Python executable path
- */
-function resolvePythonCommand(root) {
-  const fs = require('fs');
-  const candidates = [
-    path.join(root, '.venv', 'Scripts', 'python.exe'),
-    path.join(root, 'venv', 'Scripts', 'python.exe'),
-    path.join(root, '.venv', 'bin', 'python'),
-    path.join(root, 'venv', 'bin', 'python'),
-    'python3',
-    'python',
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      if (fs.existsSync(candidate)) {
-        return candidate;
-      }
-    } catch (e) {
-      // Continue to next candidate
-    }
-  }
-  return 'python';
-}
 
 /**
  * Detect available Node.js linters/formatters based on config files and package.json.
@@ -133,23 +108,20 @@ async function buildChecks(workspace, mode) {
         name: 'node:eslint',
         cmd: 'npx',
         args: ['eslint', '.'],
-        timeout: 30000,
+        timeout: TIMEOUTS.DIAGNOSTICS_CHECK_MS,
       });
       hasNodeCheck = true;
     }
 
-    if (mode === 'quick' && !hasNodeCheck) {
-      noLintersDetected = true;
     }
-  }
 
   if (workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy) {
     const python = resolvePythonCommand(root);
     let hasFocusedPythonCheck = false;
 
     if (workspace.hasManagePy) {
-      checks.push({ 
-        name: 'django:check', 
+      checks.push({
+        name: 'django:check',
         cmd: python,
         args: ['manage.py', 'check'],
       });
@@ -157,42 +129,42 @@ async function buildChecks(workspace, mode) {
     }
 
     // Check for ruff availability
-    const ruffResult = await runPythonModule(python, 'ruff', ['--version'], root, 10000);
+    const ruffResult = await runPythonModule(python, 'ruff', ['--version'], root, TIMEOUTS.DIAGNOSTICS_SHORT_MS);
     if (ruffResult.ok) {
-      checks.push({ 
-        name: 'python:ruff', 
+      checks.push({
+        name: 'python:ruff',
         cmd: python,
         args: ['-m', 'ruff', 'check', '.'],
-        timeout: 30000,
+        timeout: TIMEOUTS.DIAGNOSTICS_CHECK_MS,
       });
       hasFocusedPythonCheck = true;
     }
 
     // Check for pyright availability
-    const pyrightResult = await runPythonModule(python, 'pyright', ['--version'], root, 10000);
+    const pyrightResult = await runPythonModule(python, 'pyright', ['--version'], root, TIMEOUTS.DIAGNOSTICS_SHORT_MS);
     if (pyrightResult.ok) {
-      checks.push({ 
-        name: 'python:pyright', 
+      checks.push({
+        name: 'python:pyright',
         cmd: python,
         args: ['-m', 'pyright', '.'],
-        timeout: 60000,
+        timeout: TIMEOUTS.DIAGNOSTICS_LONG_MS,
       });
       hasFocusedPythonCheck = true;
     }
 
     if (!hasFocusedPythonCheck || mode === 'full') {
-      checks.push({ 
-        name: 'python:compileall', 
+      checks.push({
+        name: 'python:compileall',
         cmd: python,
         args: ['-m', 'compileall', '-q', '.'],
       });
     }
 
     if (mode === 'full') {
-      const pytestResult = await runPythonModule(python, 'pytest', ['--version'], root, 15000);
+      const pytestResult = await runPythonModule(python, 'pytest', ['--version'], root, TIMEOUTS.DIAGNOSTICS_MEDIUM_MS);
       if (pytestResult.ok) {
-        checks.push({ 
-          name: 'python:pytest', 
+        checks.push({
+          name: 'python:pytest',
           cmd: python,
           args: ['-m', 'pytest', '-q'],
         });
@@ -205,8 +177,14 @@ async function buildChecks(workspace, mode) {
       name: 'workspace:git-status',
       cmd: 'git',
       args: ['status', '--short'],
-      timeout: 10000,
+      timeout: TIMEOUTS.DIAGNOSTICS_SHORT_MS,
     });
+  }
+
+  // No-linters detection: if the only check we produced is git-status, nothing can analyse code.
+  const hasCodeChecker = checks.some((c) => c.name !== 'workspace:git-status');
+  if (!hasCodeChecker) {
+    noLintersDetected = true;
   }
 
   return { checks, noLintersDetected };
@@ -305,7 +283,7 @@ function workspaceInfo(args, container) {
 async function runDiagnostics(args, container) {
   const target = args?.cwd || process.cwd();
   const mode = args?.mode === 'full' ? 'full' : 'quick';
-  const timeoutMs = Number.isFinite(args?.timeoutMs) ? args.timeoutMs : 120000;
+  const timeoutMs = Number.isFinite(args?.timeoutMs) ? args.timeoutMs : TIMEOUTS.DIAGNOSTICS_TOTAL_MS;
   const maxDiagnostics = Number.isFinite(args?.maxDiagnostics) ? Math.max(1, Math.floor(args.maxDiagnostics)) : 300;
 
   // Use container cache if available
@@ -324,6 +302,7 @@ async function runDiagnostics(args, container) {
           diagnostics: allDiagnostics,
           results: [],
           cached: true,
+          noLintersDetected: false,
         };
       }
     }

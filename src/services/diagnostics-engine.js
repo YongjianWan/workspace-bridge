@@ -5,8 +5,9 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { runPythonModule, runNpx, runCommandSecure } = require('../utils/command');
+const { runPythonModule, runNpx, runCommandSecure, resolvePythonCommand } = require('../utils/command');
 const { parseDiagnosticsFromText, uniqueDiagnostics } = require('../utils/diagnostics');
+const { TIMEOUTS } = require('../config/constants');
 
 // 配置常量 - 集中管理可调优参数
 const CONFIG = {
@@ -14,11 +15,11 @@ const CONFIG = {
   MAX_CONCURRENT_CHECKS: 5,       // 最大并发检查数
   MAX_SCHEDULED_CHECKS: 20,       // 4x MAX_CONCURRENT_CHECKS, bounds timer queue under bulk changes
   CONCURRENT_RETRY_DELAY_MS: 500, // 并发限制重试延迟 (legacy, kept for reference)
-  CHECKER_TIMEOUT_MS: 5000,       // checker 可用性检查超时
-  RUFF_TIMEOUT_MS: 10000,         // ruff 检查超时
-  PYRIGHT_TIMEOUT_MS: 15000,      // pyright 检查超时
-  ESLINT_TIMEOUT_MS: 10000,       // eslint 检查超时
-  TSC_TIMEOUT_MS: 15000,          // tsc 检查超时
+  CHECKER_TIMEOUT_MS: TIMEOUTS.DIAGNOSTICS_SHORT_MS,   // checker 可用性检查超时
+  RUFF_TIMEOUT_MS: TIMEOUTS.DIAGNOSTICS_SHORT_MS,      // ruff 检查超时
+  PYRIGHT_TIMEOUT_MS: TIMEOUTS.DIAGNOSTICS_MEDIUM_MS,  // pyright 检查超时
+  ESLINT_TIMEOUT_MS: TIMEOUTS.DIAGNOSTICS_SHORT_MS,    // eslint 检查超时
+  TSC_TIMEOUT_MS: TIMEOUTS.DIAGNOSTICS_MEDIUM_MS,      // tsc 检查超时
 };
 
 class DiagnosticsEngine {
@@ -72,7 +73,7 @@ class DiagnosticsEngine {
    * Check if a Python module is available
    */
   async checkPythonModule(module, arg) {
-    const python = this.resolvePython();
+    const python = resolvePythonCommand(this.root);
     const result = await runPythonModule(python, module, [arg], this.root, this.config.CHECKER_TIMEOUT_MS);
     return result.ok;
   }
@@ -86,32 +87,7 @@ class DiagnosticsEngine {
     return result.ok;
   }
 
-  /**
-   * Resolve Python executable
-   */
-  resolvePython() {
-    const candidates = [
-      path.join(this.root, '.venv', 'Scripts', 'python.exe'),
-      path.join(this.root, 'venv', 'Scripts', 'python.exe'),
-      path.join(this.root, '.venv', 'bin', 'python'),
-      path.join(this.root, 'venv', 'bin', 'python'),
-      'python3',
-      'python',
-    ];
-
-    for (const candidate of candidates) {
-      try {
-        if (fs.existsSync(candidate)) {
-          return candidate;
-        }
-      } catch (e) {
-        // Continue to next candidate
-      }
-    }
-    return 'python';
-  }
-
-  /**
+/**
    * Check if a file path is safe to process (within workspace)
    */
   isSafePath(filePath) {
@@ -193,7 +169,7 @@ class DiagnosticsEngine {
 
     // Try ruff first (fast)
     if (await this.hasChecker('ruff')) {
-      const python = this.resolvePython();
+      const python = resolvePythonCommand(this.root);
       const result = await runPythonModule(
         python,
         'ruff',
@@ -214,7 +190,7 @@ class DiagnosticsEngine {
 
     // Try pyright (type checking)
     if (await this.hasChecker('pyright')) {
-      const python = this.resolvePython();
+      const python = resolvePythonCommand(this.root);
       const result = await runPythonModule(
         python,
         'pyright',

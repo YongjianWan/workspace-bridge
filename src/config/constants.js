@@ -27,6 +27,23 @@ const TIMEOUTS = {
   // Watch --run-tests mode: single validation command timeout.
   // 60s covers most test suites for a focused set; kill if hung.
   WATCH_COMMAND_TIMEOUT_MS: 60000,
+
+  // Diagnostics-specific timeouts (consolidated from diagnostics-engine.js + workspace-tools.js)
+  // Short: linter version probes and git-status fallback.
+  DIAGNOSTICS_SHORT_MS: 10000,
+  // Medium: type-checker single-file checks and pytest --version.
+  DIAGNOSTICS_MEDIUM_MS: 15000,
+  // Standard check: ruff/eslint full run on the workspace.
+  DIAGNOSTICS_CHECK_MS: 30000,
+  // Long: pyright full workspace type-check.
+  DIAGNOSTICS_LONG_MS: 60000,
+  // Total budget for runDiagnostics; must exceed sum of individual check timeouts.
+  DIAGNOSTICS_TOTAL_MS: 120000,
+
+  // Test runner thresholds
+  TEST_RUNNER_MS: 120000,
+  TEST_RUNNER_KILL_GRACE_MS: 5000,
+  TEST_SLOW_THRESHOLD_MS: 10000,
 };
 
 const LIMITS = {

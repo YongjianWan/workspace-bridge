@@ -20,6 +20,33 @@ function resolveCommandForPlatform(command) {
 }
 
 /**
+ * Resolve Python executable path within a workspace.
+ * Searches common virtual-environment locations before falling back to system python.
+ */
+function resolvePythonCommand(root) {
+  const fs = require('fs');
+  const candidates = [
+    path.join(root, '.venv', 'Scripts', 'python.exe'),
+    path.join(root, 'venv', 'Scripts', 'python.exe'),
+    path.join(root, '.venv', 'bin', 'python'),
+    path.join(root, 'venv', 'bin', 'python'),
+    'python3',
+    'python',
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    } catch (e) {
+      // Continue to next candidate
+    }
+  }
+  return 'python';
+}
+
+/**
  * Securely run a command with argument array (NO shell injection possible)
  * @param {string} command - Base command
  * @param {string[]} args - Arguments array (each element is safely passed)
@@ -169,4 +196,5 @@ module.exports = {
   runNpx,
   commandExists,
   trimOutput,
+  resolvePythonCommand,
 };

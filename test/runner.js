@@ -12,9 +12,10 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { TIMEOUTS } = require('../src/config/constants');
 
 const TEST_DIR = __dirname;
-const TIMEOUT_MS = parseInt(process.env.TEST_TIMEOUT_MS, 10) || 120000;
+const TIMEOUT_MS = parseInt(process.env.TEST_TIMEOUT_MS, 10) || TIMEOUTS.TEST_RUNNER_MS;
 const CONCURRENCY = parseInt(process.env.TEST_CONCURRENCY, 10) || 1;
 
 const files = fs
@@ -74,7 +75,7 @@ function runOne(file) {
         file, ok: false, status: null, signal: 'TIMEOUT', stdout, stderr,
         elapsed: Date.now() - testStart,
       });
-    }, TIMEOUT_MS + 5000);
+    }, TIMEOUT_MS + TIMEOUTS.TEST_RUNNER_KILL_GRACE_MS);
 
     child.on('close', () => clearTimeout(killTimer));
   });
@@ -89,7 +90,7 @@ async function runSerial(filesList) {
     const r = await runOne(file);
     if (r.ok) {
       passed += 1;
-      const label = r.elapsed > 10000 ? `PASS (${r.elapsed}ms) SLOW` : `PASS (${r.elapsed}ms)`;
+      const label = r.elapsed > TIMEOUTS.TEST_SLOW_THRESHOLD_MS ? `PASS (${r.elapsed}ms) SLOW` : `PASS (${r.elapsed}ms)`;
       console.log(`→ ${r.file} ... ${label}`);
     } else {
       failed += 1;
