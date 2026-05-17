@@ -1,3 +1,5 @@
 # External reference repositories (cloned, not tracked by parent repo)
 GitNexus/
 qartez-mcp/
+code-review-graph/
+CodeGraphContext/
