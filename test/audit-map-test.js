@@ -465,6 +465,29 @@ function testProjectMapCompactHighlightLimit() {
 
 }
 
+function testHighlightedFilesSortsByHighestSeverity() {
+  const depGraph = {
+    root: '/repo',
+    graph: new Map([
+      ['/repo/src/a.js', {}],
+    ]),
+    reverseGraph: new Map(),
+    ...BASE_MOCK_METHODS,
+    findDeadExports() { return [{ file: '/repo/src/a.js', exports: ['x'], confidence: 'high' }]; },
+    findUnresolvedImports() { return []; },
+    findCircularDependencies() { return []; },
+    entryFiles: new Set(['/repo/src/a.js']),
+    projectContext: {
+      classifyFile() { return { isMainline: true, fileRole: 'library' }; },
+    },
+  };
+
+  const result = buildProjectMap(depGraph, { compact: true });
+  const a = result.highlightedFiles.find((h) => h.file === 'src/a.js');
+  assert(a, 'a.js should be highlighted');
+  assert.strictEqual(a.reason, 'dead-export', 'a.js should use highest-severity reason (dead-export), not entry');
+}
+
 testProjectMapCompactMode();
 testProjectMapCompactDepthLimit();
 testProjectMapCompactModuleEdges();

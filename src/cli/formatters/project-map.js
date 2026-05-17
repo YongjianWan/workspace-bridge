@@ -139,7 +139,11 @@ function buildHighlightedFiles(entrySet, issueOverlay, root) {
   for (const item of issueOverlay.hotspots || []) add(item.file, 'hotspot');
 
   return Array.from(map.values())
-    .map(({ file, reasons }) => ({ file, reason: reasons[0], score: scoreHighlightedFile(reasons[0]) }))
+    .map(({ file, reasons }) => {
+      const bestReason = reasons.reduce((best, r) =>
+        scoreHighlightedFile(r) > scoreHighlightedFile(best) ? r : best, reasons[0]);
+      return { file, reason: bestReason, score: scoreHighlightedFile(bestReason) };
+    })
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       return a.file.localeCompare(b.file);
@@ -172,59 +176,13 @@ function buildCompactSummary(issueOverlay) {
   return { severity, issueCounts: counts, nextSteps };
 }
 
-function aggregateEdgesToDirectoryLevel(edges) {
-  const map = new Map();
-  for (const e of edges) {
-    if (e.type === 're-export') continue;
-    const fromDir = getDirectoryOf(e.from);
-    const toDir = getDirectoryOf(e.to);
-    if (fromDir === toDir) continue;
-    const key = `${fromDir}|${toDir}|${e.type}`;
-    const existing = map.get(key);
-    if (existing) {
-      existing.usesAllExports = existing.usesAllExports || Boolean(e.usesAllExports);
-    } else {
-      map.set(key, {
-        from: fromDir,
-        to: toDir,
-        type: e.type,
-        usesAllExports: Boolean(e.usesAllExports),
-      });
-    }
-  }
-  return Array.from(map.values());
-}
-
-/** Extract module prefix (first three path segments) from a directory path. */
+/** Extract module prefix (up to three path segments) from a directory path.
+ *  Returns the full path if it has 2 or fewer segments. */
 function getModuleOf(dirPath) {
   if (dirPath === '.') return '.';
   const parts = dirPath.split('/');
   if (parts.length <= 2) return dirPath;
   return parts.slice(0, 3).join('/');
-}
-
-/** Aggregate directory-level edges up to module-level (first two path segments). */
-function aggregateEdgesToModuleLevel(edges) {
-  const map = new Map();
-  for (const e of edges) {
-    if (e.type !== 'import') continue;
-    const fromMod = getModuleOf(e.from);
-    const toMod = getModuleOf(e.to);
-    if (fromMod === toMod) continue;
-    const key = `${fromMod}|${toMod}`;
-    const existing = map.get(key);
-    if (existing) {
-      existing.usesAllExports = existing.usesAllExports || Boolean(e.usesAllExports);
-    } else {
-      map.set(key, {
-        from: fromMod,
-        to: toMod,
-        type: 'import',
-        usesAllExports: Boolean(e.usesAllExports),
-      });
-    }
-  }
-  return Array.from(map.values());
 }
 
 function buildProjectMap(depGraph, options = {}) {
@@ -262,68 +220,109 @@ function buildProjectMap(depGraph, options = {}) {
     tree = buildDirectorySkeleton(tree, 3).nodes;
   }
 
-  // Edges: import relationships (merge symbols for same from|to pairs)
-  const edgeMap = new Map();
-  for (const file of allFiles) {
-    const fromRel = toRelativePath(root, file);
-    const info = depGraph.getFileInfo(file) || {};
-    const imports = info.importRecords || [];
-    const importRecords = Array.isArray(imports) && imports.length > 0
-      ? imports
-      : (info.imports || []).map((source) => ({ source, usesAllExports: true }));
+  // Edges: import relationships
+  let edges;
+  if (compact) {
+    // Compact: aggregate directly to module level, skipping file-level edgeMap + rawEdges.
+    // Avoids building intermediate file-level edges and re-export records that are
+    // ultimately discarded by the old aggregate pipeline.
+    const modEdgeMap = new Map();
+    for (const file of allFiles) {
+      const fromRel = toRelativePath(root, file);
+      const fromDir = getDirectoryOf(fromRel);
+      const fromMod = getModuleOf(fromDir);
+      const info = depGraph.getFileInfo(file) || {};
+      const imports = info.importRecords || [];
+      const importRecords = Array.isArray(imports) && imports.length > 0
+        ? imports
+        : (info.imports || []).map((source) => ({ source, usesAllExports: true }));
 
-    for (const record of importRecords) {
-      const resolved = record.resolved || record.source;
-      if (!resolved) continue;
-      const toRel = toRelativePath(root, resolved);
-      const edgeKey = `${fromRel}|${toRel}`;
-      const existing = edgeMap.get(edgeKey);
-      if (existing) {
-        for (const sym of record.imported || []) {
-          if (!existing.symbols.includes(sym)) existing.symbols.push(sym);
-        }
-        existing.usesAllExports = existing.usesAllExports || Boolean(record.usesAllExports);
-      } else {
-        edgeMap.set(edgeKey, {
-          from: fromRel,
-          to: toRel,
-          type: 'import',
-          symbols: record.imported || [],
-          usesAllExports: Boolean(record.usesAllExports),
-        });
-      }
+      for (const record of importRecords) {
+        const resolved = record.resolved || record.source;
+        if (!resolved) continue;
+        const toRel = toRelativePath(root, resolved);
+        const toDir = getDirectoryOf(toRel);
+        if (fromDir === toDir) continue;
+        const toMod = getModuleOf(toDir);
+        if (fromMod === toMod) continue;
 
-      // Re-export edges piggyback on importRecords traversal
-      if (record.reExportAll) {
-        const reKey = `${fromRel}|${toRel}|re-export-all`;
-        if (!edgeMap.has(reKey)) {
-          edgeMap.set(reKey, {
-            from: fromRel,
-            to: toRel,
-            type: 're-export-all',
-            symbols: [],
+        const key = `${fromMod}|${toMod}`;
+        const existing = modEdgeMap.get(key);
+        if (existing) {
+          existing.usesAllExports = existing.usesAllExports || Boolean(record.usesAllExports);
+        } else {
+          modEdgeMap.set(key, {
+            from: fromMod,
+            to: toMod,
+            type: 'import',
+            usesAllExports: Boolean(record.usesAllExports),
           });
         }
       }
-      if (record.reExported && record.reExported.length > 0) {
-        for (const pair of record.reExported) {
-          const reKey = `${fromRel}|${toRel}|re-export|${pair.imported || ''}|${pair.exported || ''}`;
+    }
+    edges = Array.from(modEdgeMap.values());
+  } else {
+    // Full: build file-level edgeMap with symbol merging and re-export tracking.
+    const edgeMap = new Map();
+    for (const file of allFiles) {
+      const fromRel = toRelativePath(root, file);
+      const info = depGraph.getFileInfo(file) || {};
+      const imports = info.importRecords || [];
+      const importRecords = Array.isArray(imports) && imports.length > 0
+        ? imports
+        : (info.imports || []).map((source) => ({ source, usesAllExports: true }));
+
+      for (const record of importRecords) {
+        const resolved = record.resolved || record.source;
+        if (!resolved) continue;
+        const toRel = toRelativePath(root, resolved);
+        const edgeKey = `${fromRel}|${toRel}`;
+        const existing = edgeMap.get(edgeKey);
+        if (existing) {
+          for (const sym of record.imported || []) {
+            if (!existing.symbols.includes(sym)) existing.symbols.push(sym);
+          }
+          existing.usesAllExports = existing.usesAllExports || Boolean(record.usesAllExports);
+        } else {
+          edgeMap.set(edgeKey, {
+            from: fromRel,
+            to: toRel,
+            type: 'import',
+            symbols: record.imported || [],
+            usesAllExports: Boolean(record.usesAllExports),
+          });
+        }
+
+        // Re-export edges piggyback on importRecords traversal
+        if (record.reExportAll) {
+          const reKey = `${fromRel}|${toRel}|re-export-all`;
           if (!edgeMap.has(reKey)) {
             edgeMap.set(reKey, {
               from: fromRel,
               to: toRel,
-              type: 're-export',
-              imported: pair.imported,
-              exported: pair.exported,
+              type: 're-export-all',
+              symbols: [],
             });
+          }
+        }
+        if (record.reExported && record.reExported.length > 0) {
+          for (const pair of record.reExported) {
+            const reKey = `${fromRel}|${toRel}|re-export|${pair.imported || ''}|${pair.exported || ''}`;
+            if (!edgeMap.has(reKey)) {
+              edgeMap.set(reKey, {
+                from: fromRel,
+                to: toRel,
+                type: 're-export',
+                imported: pair.imported,
+                exported: pair.exported,
+              });
+            }
           }
         }
       }
     }
+    edges = Array.from(edgeMap.values());
   }
-  const rawEdges = Array.from(edgeMap.values());
-  let edges = compact ? aggregateEdgesToDirectoryLevel(rawEdges) : rawEdges;
-  if (compact) edges = aggregateEdgesToModuleLevel(edges);
 
   // IssueOverlay
   const deadExports = depGraph.findDeadExports?.() || [];
