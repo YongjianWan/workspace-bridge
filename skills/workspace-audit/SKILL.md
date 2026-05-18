@@ -18,17 +18,19 @@ description: Use this skill when the goal is to audit a local codebase with work
 workspace-bridge-cli <command> --cwd <project> --format markdown --quiet
 ```
 
-| 场景 | 命令 |
-|------|------|
-| 首次摸底 / 定期健康检查 | `audit-summary` |
-| 有 git 变更，需审查 | `audit-diff` |
-| 改特定文件前，评估影响 | `audit-file --file <path>` |
-| **深入理解模块依赖链** | **`tree --file <path>`** |
-| 安全扫描 | `audit-security --builtin-only` |
-| 项目结构太复杂，理一理 | `audit-map --compact` |
-| 死代码清理 | `dead-exports` |
-| 循环依赖/架构问题 | `cycles` |
-| 断链 import | `unresolved` |
+| 场景 | 命令 | 层级 |
+|------|------|------|
+| 首次摸底 / 定期健康检查 | `audit-summary` | L1 策展入口 |
+| 有 git 变更，需审查 | `audit-diff` | L1 策展入口 |
+| 改特定文件前，评估影响 | `audit-file --file <path>` | L1 策展入口 |
+| 安全扫描 | `audit-security --builtin-only` | L3 环境诊断 |
+| 项目结构太复杂，理一理 | `audit-map --compact` | L1 策展入口 |
+| **深入理解模块依赖链** | **`tree --file <path>`** | **L4 debug** |
+| 死代码清理 | `dead-exports` | L4 debug |
+| 循环依赖/架构问题 | `cycles` | L4 debug |
+| 断链 import | `unresolved` | L4 debug |
+
+> **L4 命令为 debug 层级**：`dead-exports` / `cycles` / `unresolved` / `tree` / `dependencies` / `dependents` / `stats` 均为原始查询命令，数据已被 L1（`audit-summary`/`audit-file`/`audit-diff`）策展覆盖。**日常审计优先用 L1/L2，L4 仅在需要原始数据或调试时调用。**
 
 **为什么 `--format markdown`**：直接输出带标题/列表的 Markdown，AI 无需解析 JSON，减少 token 消耗和解析错误。需要结构化数据时用 `--format jsonl`。
 
@@ -59,15 +61,15 @@ workspace-bridge-cli audit-summary --cwd <project> --format markdown --quiet
 | "看看这个项目怎么样" | `audit-summary` | 结构问题 + 下一步建议（**忽略 healthScore 满分**，见下方警告） |
 | "我改了些代码，帮忙看看" | `audit-diff` | 变更分析 + 验证建议 + 具体执行命令 |
 | "改这个文件会影响什么" | `audit-file --file <path>` | 影响半径 + 受影响测试 |
-| "这个模块依赖谁、谁依赖它" | `tree --file <path>` | **递归 import/dependent 树**，比 `impact` 更直观展示依赖层次 |
+| "这个模块依赖谁、谁依赖它" | `tree --file <path>` | **[L4 debug]** 递归 import/dependent 树，比 `impact` 更直观展示依赖层次 |
 | "有没有安全问题" | `audit-security --builtin-only` | 19 条内置规则，< 2s |
 | "项目结构太复杂，理一理" | `audit-map --compact` | 目录树 + 依赖边 + 问题高亮 |
-| "死代码清理" | `dead-exports` | 0 引用符号候选（需人工确认后删除） |
-| "循环依赖/架构问题" | `cycles` | 逐条循环路径 |
-| "断链 import" | `unresolved` | 未解析的导入列表 |
+| "死代码清理" | `dead-exports` | **[L4 debug]** 0 引用符号候选（需人工确认后删除） |
+| "循环依赖/架构问题" | `cycles` | **[L4 debug]** 逐条循环路径 |
+| "断链 import" | `unresolved` | **[L4 debug]** 未解析的导入列表 |
 | "快速查一个文件的依赖/影响" | `repl --eval "impact <file>"` | **非交互单命令**，比直接 `impact` 更快（复用内存图），适合 AI/CI 批量调用 |
 
-**避免调用的命令**：`audit-overview`（与 audit-summary 重叠，除非需要 hotspots）、`stats`（数据太 raw）、`watch`（交互式文件监控，不适合 AI 批量调用）、`health`（与 audit-summary.health 数据完全重合）。
+**避免调用的命令**：`audit-overview`（与 audit-summary 重叠，除非需要 hotspots）、`stats` / `dependencies` / `dependents`（数据太 raw，已被 L1/L2 覆盖）、`dead-exports` / `cycles` / `unresolved` / `tree`（数据已被 `audit-summary`/`audit-file` 策展覆盖，日常审计优先用 L1/L2）、`watch`（交互式文件监控，不适合 AI 批量调用）、`health`（与 audit-summary.health 数据完全重合）。
 
 > `repl` 已支持 `--eval <command>` 非交互模式，不再属于"避免调用"。不带 `--eval` 的纯交互式 `repl` 仍不适合 AI 批量调用。
 

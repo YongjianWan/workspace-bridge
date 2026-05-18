@@ -27,7 +27,7 @@
 **定位**：AI 的代码脚手架（Code Scaffolding for AI），不是人的报告工具。
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
-- **当前债务**：CLI 被人类工具思维模式拖累（20+ 命令、模板化文案），迫使 skill 膨胀到 ~264 行
+- **当前债务**：L1/L2/产品债务已清零；剩余 9 个 L3 品味问题（见 [TECH_DEBT.md](./docs/TECH_DEBT.md)）
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
@@ -258,4 +258,4 @@ THEN 修改前必须跑：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-18（文档归档清理完成；actions 可执行化 + --help 分层输出完成；120/120 测试通过；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-18（产品债务清零 + L4 命令标记为 debug 层级；120/120 测试通过；schemaVersion: 1.2.0）*

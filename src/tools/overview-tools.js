@@ -32,13 +32,13 @@ const HOTSPOT_SCORE_RULES = [
   { field: 'revertLikeCount', fallback: SCORING.HOTSPOT_REVERT_COUNT_FALLBACK, weight: SCORING.HOTSPOT_REVERT_COUNT_WEIGHT },
 ];
 
-function calculateHotspotScore(historyRisk, fileRole, entryPointWeight) {
-  if (!historyRisk) return 0;
+function calculateHotspotScore(historyRisk, fileRole, entryPointWeight, pageRank = 0, totalFiles = 0) {
+  if (!historyRisk && pageRank === 0) return 0;
 
   let score = 0;
   for (const rule of HOTSPOT_SCORE_RULES) {
-    let value = historyRisk[rule.field];
-    if (value === undefined && rule.alt) value = historyRisk[rule.alt];
+    let value = historyRisk?.[rule.field];
+    if (value === undefined && rule.alt) value = historyRisk?.[rule.alt];
     if (value === undefined || value === null) value = rule.fallback || 0;
     if (rule.condition && !rule.condition(value)) continue;
     if (rule.cap !== undefined) value = Math.min(value, rule.cap);
@@ -56,6 +56,17 @@ function calculateHotspotScore(historyRisk, fileRole, entryPointWeight) {
   // P103: Framework entry points get higher hotspot scores
   if (entryPointWeight > 1) {
     score = Math.floor(score * entryPointWeight);
+  }
+  // P0: PageRank warm-start — boost files with above-average global importance
+  if (totalFiles > 0 && pageRank > 0) {
+    const averageRank = 1.0 / totalFiles;
+    if (pageRank > averageRank * 2) {
+      score = Math.floor(score * SCORING.HOTSPOT_PAGERANK_BOOST);
+    }
+    // If no git history, use PageRank as a base signal so new files aren't zero
+    if ((!historyRisk || historyRisk.commitCount === 0) && score === 0) {
+      score = Math.min(Math.round(pageRank * SCORING.HOTSPOT_SCORE_MAX), SCORING.HOTSPOT_SCORE_MAX);
+    }
   }
   return Math.min(Math.round(score), SCORING.HOTSPOT_SCORE_MAX);
 }
@@ -149,7 +160,8 @@ async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
         const classification = depGraph.projectContext?.classifyFile?.(displayFile);
         const fileRole = classification?.fileRole;
         const frameworkHint = depGraph.getFrameworkHint?.(file);
-        const score = calculateHotspotScore(historyRisk, fileRole, frameworkHint?.entryPointWeight);
+        const pageRank = depGraph.getPageRank?.(file) || 0;
+        const score = calculateHotspotScore(historyRisk, fileRole, frameworkHint?.entryPointWeight, pageRank, depGraph.graph?.size || 0);
         const coupling = calculateCoupling(dependencies, dependents);
         if (score <= SCORING.HOTSPOT_REPORT_THRESHOLD && coupling.total <= SCORING.COUPLING_MEDIUM_MIN) return null;
         const historySignal = historyRisk?.signals?.[0];

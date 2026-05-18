@@ -291,9 +291,32 @@ class WorkspaceCache {
     };
   }
 
+  loadAggregateSummary() {
+    try {
+      const raw = this._graphDb.getMetadata('aggregateSummary');
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  saveAggregateSummary(summary) {
+    try {
+      this._graphDb.setMetadata('aggregateSummary', JSON.stringify(summary));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Check whether any cached file has changed on disk since it was indexed.
-   * Compares stored mtime/size against current fs.statSync values.
+   *
+   * Fast path: mtime+size unchanged → skip (zero extra I/O).
+   * Slow path: mtime+size changed → SHA-256 content hash to verify
+   * actual change vs git-checkout-style mtime drift.
+   *
    * Files that no longer exist are treated as changed.
    *
    * @returns {{ changed: boolean, changedFiles: string[] }}
@@ -306,7 +329,24 @@ class WorkspaceCache {
         const stat = fs.statSync(filePath);
         const storedMtime = Number(meta?.mtime);
         const storedSize = Number(meta?.size);
-        if (stat.mtimeMs !== storedMtime || stat.size !== storedSize) {
+        // Fast path: mtime+size identical → unchanged
+        if (stat.mtimeMs === storedMtime && stat.size === storedSize) {
+          continue;
+        }
+        // Slow path: mtime/size drifted → verify with SHA-256 content hash
+        const storedHash = meta?.hash;
+        if (storedHash) {
+          const content = fs.readFileSync(filePath, 'utf8');
+          const currentHash = crypto.createHash('sha256').update(content).digest('hex');
+          if (currentHash !== storedHash) {
+            changedFiles.push(filePath);
+          } else {
+            // Content unchanged (e.g. git checkout); update stored mtime/size
+            // so next check stays on the fast path.
+            this.fileMetadata.set(key, { ...meta, mtime: stat.mtimeMs, size: stat.size });
+          }
+        } else {
+          // Legacy cache without hash → fall back to mtime+size
           changedFiles.push(filePath);
         }
       } catch {

@@ -19,8 +19,18 @@ function collectRelatedFiles(changedFiles, depGraph) {
     related.add(normalized);
     try {
       const impact = depGraph.getImpactRadius(file, IMPACT_RADIUS_DEPTH);
+      // Contract guard: getImpactRadius must return an array of objects with a `file` property.
+      // If the return shape changes, skip impact expansion but keep the changed file itself.
+      if (!Array.isArray(impact)) {
+        if (process.env.DEBUG) {
+          console.error(`[incremental-diff] getImpactRadius returned non-array for ${file}:`, typeof impact);
+        }
+        continue;
+      }
       for (const entry of impact) {
-        if (entry.file) related.add(normalizePathKey(entry.file));
+        if (entry && typeof entry === 'object' && entry.file) {
+          related.add(normalizePathKey(entry.file));
+        }
       }
     } catch {
       // If impact radius fails for one file, still include the file itself.

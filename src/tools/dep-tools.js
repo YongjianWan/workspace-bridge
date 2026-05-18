@@ -49,7 +49,8 @@ async function dependencyGraph(args, container) {
     
     case 'impact':
       if (!filePath) return { ok: false, error: 'file is required for impact analysis' };
-      const impact = container.depGraph.getImpactRadius(filePath);
+      const impactDepth = Number.isFinite(args?.maxDepth) ? Math.max(1, args.maxDepth) : DEFAULTS.AFFECTED_TEST_DEPTH;
+      const impact = container.depGraph.getImpactRadius(filePath, impactDepth);
       const symbolImpact = container.depGraph.getSymbolImpact(filePath);
       return {
         ok: true,

@@ -15,16 +15,12 @@
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner）
 node cli.js audit-summary --cwd . --json --quiet
-# 期望: health.healthScore=5/5, summary.counts.deadExports=0, summary.counts.unresolved=0, summary.counts.cycles=0, summary.analysisCoverage.totalFiles≈198, summary.analysisCoverage.coverageRatio=1
-
-# 2. 验证大项目 compact 可用性（新功能涉及 compact / project-map 时才跑）
-node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
-# 期望: 输出行数 < 1000, summary.severity 存在, highlightedFiles 按问题严重程度排序
+# 期望: health.healthScore=5/5, summary.counts.deadExports=0, summary.counts.unresolved=0, summary.counts.cycles=0, summary.analysisCoverage.totalFiles≈207, summary.analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-summary 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
 
-> 2026-05-15：P0–P2 bug fixes + tree 命令修复已完成，4 个测试回归已修复。当前全量测试通过（111/111）。详见下方「本轮完成」。
+> 2026-05-18：L4 命令标记为 debug + formatter 重复判断消除 + SHA-256 内容哈希复用已完成。当前全量测试通过（120/120）。详见下方「本轮完成」。
 
 ---
 
@@ -33,52 +29,28 @@ node cli.js audit-map --cwd reference/GitNexus/gitnexus --compact --json --quiet
 1. **读取基线状态**（30 秒）：确认 `healthScore=5/5`
 2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)
 3. **按 P0 → P4 优先级执行**：
-   - **P0 去噪工程**：工作目录污染、常量仓库/脚手架过滤、audit-overview 去重、audit-security 匹配内容
-   - **P1 AI 预消化输出**：`--format ai` 统一入口、`--token-budget`、渐进式发现 `--depth`
-   - **P2 工程体验**：默认输出改 markdown、`--cache-dir`、impact 入口截断
-   - **P3 可靠性**：exit code 语义、解析降级信息入 JSON
-   - **P4 Skill 精简**（现阶段暂缓，当前 ~264 行）
-
----
-
-## 边界行为回归测试（可选，发版前执行）
-
-```bash
-# 不存在的文件 → 明确错误 + exit=1
-node cli.js impact --file nonexistent.js --json --quiet
-node cli.js affected-tests --file nonexistent.js --json --quiet
-
-# init 重复运行 / 非 git 目录 audit-diff → exit=1
-node cli.js init --json
-
-# --exclude 过滤后 analysisCoverage 同步
-node cli.js audit-summary --exclude test,benchmark --json --quiet
-
-# Windows 反斜杠路径标准化
-node cli.js audit-file --file .\src\services\dep-graph.js --json --quiet
-
-# 非法参数值 → 明确报错
-node cli.js audit-file --file src/services/dep-graph.js --max-depth abc --json --quiet
-
-# REPL 非 TTY → exit=1
-node cli.js repl
-```
+   - **P0 代码复用（PageRank warm-start）**：复用 qartez-mcp `graph/pagerank.rs`，为 hotspot 排序增加全局图重要性维度
+   - **P1 补齐 CLI 集成测试**：`test/cli-integration-test.js` 覆盖 audit-file/dead-exports/tree/impact 完整管道
+   - **P2 L3 品味**：git-tools.js 手动字符级解析 / overview-tools.js HTML 裸数字 / js.js visitor 超长 等
+   - **P3 预计算聚合表**：audit-summary O(N)→O(1)，build 时存储 hotspot/stability 摘要（code-review-graph 借鉴）
+   - **P4 Co-change 分析**：qartez-mcp 的 git 历史文件共变对
 
 ---
 
 ## 基线状态
 
-- 测试：**120/120 PASS**（全量 runner 通过，新增 9 个测试文件）
+- 测试：**120/120 PASS**（全量 runner 通过）
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~198 文件，entry=1, library=63, test=117, script=20, unknown=1
+- 自身项目规模：~207 文件，entry=1, mainline=85, test=122
 - 健康度：5/5，0 dead exports，0 循环，0 未解析
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
 - Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.2.0"` 已冻结**
 - 缓存：**SQLite 持久化**（`os.tmpdir()/workspace-bridge/<hash>/cache.db`），项目间隔离（按 workspaceRoot md5 hash 分目录），支持 `--cache-dir` 覆盖；`WorkspaceCache` 构造函数接受 `options.cacheDir`，不传时回退 JSON
+- **SHA-256 内容哈希**：`file-index.js` 解析时计算 SHA-256 存入 `fileMetadata.hash`；`cache.js` `checkFileChanges()` 双路径（fast: mtime+size / slow: SHA-256 精确校验），复用自 code-review-graph `incremental.py`
 
-**历史交付**：路线 A–J 全部完成；阶段 1 误报清零完成；阶段 2 暴露正确 + 输出策展完成（`--builtin-only`/`--format summary`/TTL 24h/`--since`/`--format markdown`/`--severity`/`--with-impact`/runner 并行化）；阶段 3 框架感知深化完成（P6-P8）。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+**历史交付**：路线 A–J 全部完成；阶段 1 误报清零完成；阶段 2 暴露正确 + 输出策展完成；阶段 3 框架感知深化完成；L2 债务清零；产品债务清零；formatter 重复判断消除；SHA-256 内容哈希复用。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 
@@ -98,6 +70,7 @@ node cli.js repl
 | `findDeadExports()` edges/files 降级 | `src/services/dep-graph.js` | 单文件项目（files=1）不受降级影响；多文件项目 edges/files < 0.1 时 confidence 降为 low |
 | `.workspace-bridge-cache.json.bak` 泄漏到 git status | `src/tools/git-tools.js` | `getChangedFiles()` 已排除 `.bak` 备份文件，防止 audit-diff 误报 |
 | `resolvers.js` 策略链新增策略 | `src/services/dep-graph/resolvers.js` | 新增语言需在 `registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null` |
+| `checkFileChanges()` 双路径 | `src/services/cache.js` | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为 |
 
 ---
 
@@ -107,169 +80,24 @@ node cli.js repl
 
 ### 本轮做了什么
 
-**文档归档清理** — 按 AGENTS.md 规则清理活跃文档中的历史残留：
-- TECH_DEBT.md / SESSION.md / ROADMAP.md：删除所有 ✅ 已修复 / ~~ 条目，不保留痕迹
-- CHANGELOG.md [Unreleased] 追加「文档归档」小节，汇总 40+ 个从活跃文档移除的已修复条目
+**代码复用：SHA-256 内容哈希精确增量（code-review-graph）** — 复用 code-review-graph `incremental.py` 的 SHA-256 内容校验模式：
+- **问题**：`cache.checkFileChanges()` 仅比较 `mtime+size`，git checkout / rebase 导致 mtime 变化但内容未变，触发不必要的全量重建
+- **修复**：`file-index.js` 在解析时计算 SHA-256 存入预留的 `hash` 字段；`cache.js` `checkFileChanges()` 采用双路径：fast path（mtime+size 未变直接跳过）+ slow path（变化时用 SHA-256 精确校验，匹配则自修复 mtime/size）
+- **收益**：消除 dirty worktree 误报；内容未变时跳过 2-30s 重建
 
-**actions 可执行化** — `--format ai` 输出从文案改为可执行指令：
-- `human-formatters.js` `formatAi`：基于 `result.deadExports`/`cycles`/`unresolved`/`health`/`analysisCoverage` 直接生成 `run: workspace-bridge-cli ...` 格式命令
-- 保留 recommendations 作为无 findings 时的 fallback
+**消除 formatter 重复判断（L3 品味）** — `human-formatters.js` 中 `audit-summary` 在 3 个 text formatter 的 switch 中重复出现：
+- **提取 `formatAuditSummary(result, style)` 纯函数**：支持 `style: 'markdown' | 'summary' | 'human'`，统一处理 severity/healthScore/files/issues/coverage/nextSteps 的格式输出；保留 `formatHuman` 的 `result.summary` 契约守卫
+- **3 个 switch case 简化为单行调用**：`formatMarkdown` / `formatSummary` / `formatHuman` 的 `case 'audit-summary'` 均变为 `return formatAuditSummary(result, '<style>')`
+- `formatJsonl` 保持原样（JSONL 行输出形态与文本 formatter 不同，强行统一增加复杂度）
+- **收益**：新增/修改 audit-summary 字段只需改一处；L3 债务从 9 → 8
 
-**`--help` 分层输出** — 解决命令分层混乱根因：
-- `cli.js` `printUsage`：20+ 命令按 L1 策展入口 / L2 专项工具 / L3 环境诊断 / L4 原始查询(debug) / 其他 分组
-- `health` 标注 `deprecated: use audit-summary --health-only`
+**产品债务清零：L4 命令标记为 debug 层级**：
+- `cli.js` `--help`：L4 分组标题追加 `— daily audit uses L1/L2 instead`；`dead-exports` / `unresolved` / `cycles` / `tree` 从 L2 移到 L4
+- `COMMAND_GUIDES`：L4 命令补充 `layer: 'debug'`
+- `SKILL.md`：L4 命令标注 `[L4 debug]`，新增层级说明段落
+- **收益**：活跃产品债务清零；AI 不再困惑该用 aggregate 还是 raw
 
-**补 4 个零专属测试模块** — 消除 TECH_DEBT.md 中 4 个 ❌ 零测试：
-- `test/dep-tools-test.js`：15 个断言覆盖 `dependencyGraph` 11 种 operation 及边界
-- `test/incremental-diff-test.js`：7 个断言覆盖 `collectRelatedFiles` + `buildIncrementalFindings`
-- `test/git-tools-test.js`：6 个断言覆盖 `getChangedFiles`/`getChangedLineRanges`/`getFileHistoryRisk`/`getDiffNumstat`
-- `test/project-map-test.js`：5 个断言覆盖 `buildProjectMap` full/compact、`buildDirectoryTree`、`countTreeFiles`、空图边界
-
-**P1 `--format ai` AI 预消化输出** — CLI 直接输出 AI 可消费的策展结论：
-- **`src/cli/formatters/human-formatters.js`**：新建 `formatAi(command, result, options)`，预组装 `severity + topRisks + actions + confidence`
-  - `topRisks` 按优先级排序：coverage < 0.5 → cycles → unresolved → dead-exports → health，每条带 `confidence` 数值
-  - `actions` 从 `nextSteps` 提取，带 `P0/P1/P2` 优先级
-  - `depth surface|detail|full` 渐进式发现：surface 只给 counts + top 3 risks；detail 加 `riskFiles`（每类最多 3 个文件）；full 加完整 `details` 明细
-  - `tokenBudget` 超限自动降级：full → detail → surface → 核心字段（`ok + severity + counts`）
-  - 非 `audit-summary` 命令 fallback 到 `formatSummary`
-- **`cli.js`**：注册 `--format ai`、`--depth <mode>`、`--token-budget <n>` 参数；主输出路由增加 `format === 'ai'` 分支
-- **`test/formatter-direct-test.js`**：6 个新断言覆盖 surface/detail/full/budget 降级/fallback/error
-
-**P0 去噪工程收尾** — 直接减少误报和输出噪音，用户感知最明显：
-- **`src/services/dep-graph.js`**：`findDeadExports` 直接过滤常量仓库（`isLikelyConstantsWarehouse`）和脚手架（`detectScaffold`），不再降级 confidence 后仍保留在列表中
-- **`src/tools/overview-tools.js`**：删除 `summary.nextSteps` 别名（与 `recommendations` 完全重复）；`couplingSplitSuggestions` 从 `TOP_N_LIST(10)` 截断为 3 条，减少模板化噪音
-- **`src/tools/security-tools.js`**：`runBuiltinSecurityScan` 命中规则时附加 `matchedText` 字段（截断至 120 字符），AI 无需额外读文件即可判断命中内容
-- **测试同步**：`test/overview-tools-test.js` 移除 `nextSteps` 存在性断言
-
-**SQLite 持久化缓存迁移** — 解决 L1 blocker 工作目录污染 + 缓存可靠性：
-- 新建 `src/services/graph-db.js`：better-sqlite3 封装，5 张表对应 cache 数据结构，WAL 模式，transaction 批量 upsert
-- 重构 `src/services/cache.js`：内部内存 Map 不变，`load()`/`save()` 持久化介质从 JSON 替换为 SQLite；默认缓存路径从项目根目录改为 `os.tmpdir()/workspace-bridge/<hash>/cache.db`；支持 `--cache-dir` 覆盖
-  - ✅ **架构不一致已修复（2026-05-15）**：`cli.js` `main()` 在未传 `--cache-dir` 时自动计算默认路径（`os.tmpdir()/workspace-bridge/<md5(workspaceRoot)>/cache.db`），`container.js` `shutdown()` 新增 `cache.close()` 确保 Windows 下连接正常释放。测试直接 `new WorkspaceCache(root)` 不受影响（不传 `cacheDir` 时仍回退 JSON），仅 CLI 入口默认走 SQLite。
-- 修改 `src/services/container.js` + `cli.js`：`ServiceContainer` 透传 `cacheDir` 选项，CLI 注册 `--cache-dir` 参数
-- 修改 `src/services/dep-graph.js` + `src/services/file-index.js` + `src/tools/git-tools.js`：排除逻辑同步增加 `cache.db` / `cache.db-wal` / `cache.db-shm`
-- 重写 `test/cache-backup-test.js` / `test/cache-corruption-test.js` / `test/cache-test.js`：验证 SQLite 持久化可靠性和 graceful 降级，删除已不存在的 `.bak` / `.tmp-` 机制断言
-- 修复 `test/severity-filter-test.js`：消除硬编码 dead exports 数量，改为动态计算
-- 更新 `.gitignore`：新增 SQLite 缓存文件排除
-- **POC 阶段 3 结论固化**：cycle detection 保留内存算法（naive SQLite CTE 大图 45 秒不可用），SQLite 仅负责持久化 + deadExports + impact
-
-**L3 双项收敛** — 实际功能缺口修复，非纯代码整洁：
-- **`src/services/dep-graph.js`**：`GraphQuery.getImpactRadius` BFS 遇到 `isKnownEntryFile` 时截断扩散，解决 impact 输出到入口文件后仍继续膨胀的问题
-- **`src/tools/workspace-tools.js`**：`buildChecks` 增加 `package.json#eslintConfig` 和 `.eslintrc`（无扩展名）检测，解决 Vue 项目 ESLint 配置存在但 `noLintersDetected: true` 误报
-- **测试**：`test/p3-impact-explanation-test.js` 新增 2 断言；新建 `test/workspace-tools-test.js` 覆盖两种 ESLint 配置场景
-
-**产品层面实测验证** — 在 ai_zcypg_frontend（239 文件）和 ai_gwy_backend（542 文件）上跑实测，暴露 5 个产品级问题：
-- **`--format ai --depth surface` 没生效**：和 `--depth detail` 输出完全一样。`buildOutput` 逻辑中 `surface` 与 `detail` 的差异仅在于 `riskFiles` 是否存在，当项目无 cycles/unresolved/dead-exports 时两者输出完全一致，但 SKILL.md 承诺的"surface 只给 counts + top 3 risks"未实现。
-- **`--format ai --token-budget` 没生效**：`--token-budget 500` 时未触发降级，输出长度与无 budget 时相同。
-- **`exit code` 设计反模式**：`audit-summary` 在 severity=high 时返回 exit code 1。人类 CLI 无感，但对 CI/AI agent 是灾难——AI 拿到 exit code 1 会以为命令执行失败，CI pipeline 会中断。
-- **命令分层混乱实测确认**：20+ 命令中 L4 原始查询（`dead-exports`/`cycles`/`unresolved`/`dependencies`/`dependents`/`stats`/`tree`）被 L1 aggregate 命令完全覆盖，但作为一等公民暴露；`health` 与 `audit-summary.health` 数据重合。根因不是"命令太多"，是"分层混乱"——AI 不知道该用 aggregate 还是 raw。
-- **actions 是文案不是可执行命令**：`--format ai` 输出的 actions 如 `"1 dependency cycle detected — in Vue projects store→router→view cycles are often intentional..."` 是建议性文案，不是"删这个 export，跑这些测试"的具体指令。
-- **冷启动实测**：239 文件 2s，542 文件 7s（比文档记录的 59s 乐观，但 7s 对 CI 仍不够友好）。
-
-**`tree` 命令 bug 修复** — 文档与代码行为对齐，保持工程品味：
-- **`src/cli/formatters/human-formatters.js`**：`formatHuman()` 新增 `case 'tree'`，用 `→` / `←` + 缩进渲染树形，自动标记 `[external]` / `[circular]`。解决不加 `--json` 时 fallback 到 `JSON.stringify` 的问题（CLI 契约：默认 human-readable）。
-- **`src/tools/tree-tools.js`**：`buildTree()` 三处修复：
-  1. 删除 `.filter((imp) => !imp.startsWith('.'))`（与注释 "keep all" 矛盾，会过滤相对路径 imports）；
-  2. 改用单路径 `pathStack` 防止循环（原 `visited` 以 `${file}:${dir}:${depth}` 为 key，A→B→A 会在不同 depth 重复展开）；
-  3. 统一 `imports` 与 `dependents` 的 `maxDepth` 截断行为：超限深度显示叶子节点但不递归展开（原 `dependents` 在 depth >= maxDepth 时直接消失）。
-- **测试**：`test/tree-tools-test.js` 新增 3 个断言（循环 import、循环 dependent、dependents maxDepth 截断）；`test/formatter-direct-test.js` 新增 `testFormatHumanTree`。
-
-**Java 包支持补全** — 收敛期不新增语言/命令，只修复已有缺陷：
-- **`src/services/dep-graph/parsers/java.js`**：AST 路径和 regex fallback 均解析 `package` 声明并返回；`dep-graph.js` `analyzeFile` 存储到 graph node。
-- **`src/services/dep-graph.js`**：新增 `expandJavaPackageImports()` post-process 阶段：
-  - wildcard import 自动展开（`import com.foo.*;` → 同包所有已知文件的依赖边）；
-  - 同包隐式引用自动建立（同一 `package` 的文件双向依赖，Java 语义无需 import）。
-  - 外部 package（如 `java.util.*`）不在 graph 中，自动忽略不产生误报。
-- **修复 regression**：`analyzeFile` 中 `package: result.package || null` 写在 `if (entry)` 块外部，当扩展名不被 registry 识别时抛出 `ReferenceError: result is not defined`，导致全量文件解析失败。已修正为块内提取 `packageName`。
-- **测试**：`test/java-parsers-test.js` 新增 package 断言；**新建 `test/java-package-imports-test.js`** 覆盖 wildcard 展开、同包引用、外部 package 忽略。
-
-**测试基础设施与质量收敛** — 消除测试代码中的重复、副作用和弱断言，建立统一工具库：
-- **新建 `test/test-helpers.js`**：统一提供 `runCli` / `runCliText` / `runCliRaw` / `runInDir` / `makeTempDir` / `cleanupTempDir` / `buildMockDepGraph` / `assertOk` / `assertAll`，消灭 10+ 文件中 `spawnSync('node', [cliPath, ...args])` 的重复定义
-- **重写 `test/runner.js`**：并发执行（默认 CONCURRENCY=4，环境变量 `TEST_CONCURRENCY` 可覆盖）+ `fs.watch` 测试自动串行分组 + 独立超时保险（`spawn timeout` + 5s 强制 `SIGKILL`），确保单个测试 hang 住不会阻塞整个 runner
-- **模块级副作用清理**：`audit-diff-test.js` / `role-detection-test.js` / `gors-stack-detection-test.js` 的顶层 `fs.mkdtempSync` 移入 `main()`，消除模块加载即创建垃圾目录的问题
-- **无意义字符串拼接删除**：`analysis-test.js` / `audit-diff-test.js` 中的 `ex' + 'port` / `im' + 'port` 全部恢复为正常关键字
-- **弱断言消除**：替换 `typeof result.xxx === 'object'` 和 `assert.ok(result.status === 0)` 为业务语义验证；`parser-schema-contract-test.js` 允许 `package` 作为 parser 返回的可选键，适配 Java package 支持
-- **20+ 测试文件迁移**：`analysis-test.js`、`functionality-test.js`、`audit-diff-test.js`、`init-test.js`、`integration-core-test.js`、`formatter-e2e-test.js`、`cli-mapper-adapter-test.js`、`role-detection-test.js`、`framework-usage-patterns-test.js`、`audit-diff-incremental-test.js`、`gors-stack-detection-test.js`、`audit-file-validation-advice-test.js`、`regression-test.js`、`severity-filter-test.js`、`staged-files-test.js`、`with-impact-test.js`、`audit-file-watch-test.js`、`watch-sigterm-test.js`、`watch-test.js` 全部导入 `test-helpers.js`
-
-**P1 compact 性能修复** — 消除大项目聚合计算 overhead：
-- **`src/cli/formatters/project-map.js`**：`buildProjectMap` edge 构建分化为 `compact` / `full` 双路径：
-  - compact：直接在遍历 `importRecords` 时计算 `fromMod`/`toMod`，跳过文件级 `edgeMap`、跳过 `symbols` includes 合并、跳过 re-export 处理、跳过 `rawEdges` / `aggregateEdgesToDirectoryLevel` / `aggregateEdgesToModuleLevel` 中间数组
-  - full：保留原有文件级 edgeMap 逻辑（含 symbols 合并和 re-export 追踪）
-  - 删除不再使用的 `aggregateEdgesToDirectoryLevel` 和 `aggregateEdgesToModuleLevel` 函数（L2-5 删除 > 添加）
-- **验证**：198 文件实测 compact 2.0s vs full 2.9s；compact 从慢 4x 变为快 1.4x
-
-**产品债务：`init` 生成空配置 + 不管理 `.gitignore`** — 修复 CLI 出口质量，新用户第一个接触点：
-- **`cli.js` `case 'init'`**：`active` 数组填充非 generated/reference 目录（如 `src/`），自动跳过隐藏目录（`.github/` 不入 active）
-- **`.gitignore` 自动管理**：定义 8 条 workspace-bridge 缓存文件忽略规则；已存在 `.gitignore` 时追加缺失条目（去重），不存在时新建；结果回显 `gitignoreUpdated`
-- **输出消息重构**：按 `active` → `generated` → `reference` → `.gitignore` 顺序拼接，用户一眼知道工具识别了什么
-- **测试**：`test/init-test.js` 重写，使用 `makeTempDir`/`cleanupTempDir`，覆盖 active 填充、隐藏目录跳过、`.gitignore` 创建与去重
-
-**L2 债务：遗留 JSON 缓存排除逻辑不一致** — SQLite 迁移收尾，删除死代码：
-- **`file-index.js` / `dep-graph.js`**：删除 `LEGACY_CACHE_FILENAME` 常量和 `.workspace-bridge-cache.json` / `.bak` / `.tmp-*` 排除，只保留 `cache.db` / `cache.db-wal` / `cache.db-shm`
-- **`git-tools.js`**：删除 `isTempFile` 函数（`.tmp-*` 不再被创建），简化 `isCacheArtifact`；修复 staged 模式遗漏 `isCacheArtifact` 检查的 bug
-- **`test/phase01-quality-test.js`**：移除 `.tmp-*` 过滤断言，保留 `cache.db` 过滤断言
-
-**`repl --eval` 非交互模式** — 解锁 AI/CI 使用 REPL 的能力：
-- **`cli.js`**：注册 `--eval <command>` 参数；`case 'repl'` 传递 `eval` 与 `json` 选项给 `startRepl`
-- **`src/cli/repl.js`**：`startRepl` 增加 `evalMode` 分支：
-  - 跳过 TTY 检查（`!evalMode && !process.stdin.isTTY`）
-  - `watch: !evalMode` 减少单次执行开销
-  - 初始化后直接 `executeCommand(container, evalMode)` 并输出结果
-  - `--json` 时包装为 `JSON.stringify({ ok: true, result: output })`
-  - eval 错误时返回 `exitCode = 1` + `{ ok: false, error }`
-  - SIGINT handler 仅在交互模式下注册/移除
-- **`test/repl-test.js`**：新增 `testEvalMode()`（human-readable）与 `testEvalModeJson()`（JSON 包装），均使用真实项目初始化验证
-
-**测试问题全量修复（2026-05-17）** — 消除测试债务，让测试验证业务语义：
-- **弱断言修复**：删除 `strictEqual(result.ok, true)` 10 处 + `typeof === 'number'` 增强为值验证 13 处 + `assert.ok()` 补充消息 6 处 + `assert()` 补充消息 11 处。核心改进：从"验证没抛错"升级为"验证业务数据"
-- **console.log 噪音清理**：批量删除 174 处冗余打印（50+ 文件），剩余 7 处为代码字符串内嵌、平台跳过诊断和 runner.js 骨架输出
-- **mkdtempSync 清零**：test/ 目录内 `fs.mkdtempSync()` 全部迁移至 `test-helpers.js` 的 `makeTempDir()`，`fs.rmSync` 特殊场景（项目内临时目录）保留
-- **零专属测试模块补充**：新建 5 个测试文件
-  - `test/graph-db-test.js`：SQLite 持久化层 schema/load/save/WAL/close 幂等
-  - `test/security-tools-test.js`：`groupBySeverity`、`dedupeWithinTool`、`runBuiltinSecurityScan`（JS/Python 规则、ignore 注释）
-  - `test/regression-tools-test.js`：`saveBaseline`、`checkRegression` fixed/new/open、无效基线防御
-  - `test/impact-explanations-test.js`：`buildImpactExplanations` direct/transitive/self-ref/no-impact 分支
-  - `test/file-summary-test.js`：`buildFileSummary` severity/nextSteps/缺失字段默认
-- **TECH_DEBT.md 清理**：删除 3 组完全重复的测试债务描述块
-- **honesty-engine-test.js 迁移**：自定义 `makeTempDir`/`cleanup` 改为导入 `test-helpers.js`
-
-**历史**：P0-P4 全部交付 + 测试债务全量修复。本轮及历史交付见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
-
-### 外部技术审计报告勘误（2026-05-17）
-
-> 用户提供的第三方审计报告存在多处**事实性错误**，以下仅保留经实测验证的结论。原始报告中的错误数据已删除，不进入项目文档。
-
-#### 经核查有效的结论
-
-| 维度 | 得分 | 依据 |
-|------|------|------|
-| 架构合理性 | 5 | L0-L6 分层物理目录清晰。`runCommand` ~350 行 switch 覆盖 27 个 `case`，已在 TECH_DEBT.md 记录为 cli.js 厚门面债务 |
-| 技术债务 | 4 | SKILL.md ~264 行（根因是 CLI 出口质量差，文档被迫补偿）；27 命令 L1/L4 层级混乱 |
-| 测试可信度 | 3 | ~76 处弱断言（`result.ok` 型 58 处）；graph-db.js 零专属测试；0 混沌/模糊测试 |
-| 扩展性 | 4 | 9 语言解析器基础设施完备；dep-graph.js ~1583 行是修改瓶颈（但 AGENTS.md 已确认不物理拆分） |
-| 性能天花板 | 4 | 239 文件 2s → 542 文件 7s 呈超线性增长 |
-| **总分** | **4.0** | — |
-
-#### 已证伪的错误结论（删除，不保留）
-
-以下原始报告结论经实测为**错误或过时的数据**，已从本文档移除：
-
-1. **"111 测试通过率 50.5%（56/111），55 失败归因 better-sqlite3 编译失败"** — 🔴 严重错误。实际 **111/111 PASS**，`better-sqlite3` 运行正常。
-2. **"compact 比 full 慢 4x（26s vs 6s）"** — 🔴 已过时。该问题已于 2026-05-15 修复，实测 compact 快于 full（2.0s vs 2.9s）。
-3. **"better-sqlite3@12.10.0 原生 C++ 模块编译失败"** — 🔴 错误。当前 SQLite 持久化缓存正常使用。
-4. **"超时阈值分散在 5 文件、31 处硬编码"** — 🟡 不准确。实测约 10 处，且多数为 `test-helpers.js` 统一默认值。
-5. **"dep-graph.js 1585 行必须拆分"** — 🟡 与架构决策冲突。AGENTS.md 确认"内聚优先、不物理拆分"。
-6. **"3 处层间穿透"** — 🟡 实测仅 2 处，且其中 1 处为正常 L5→L3 依赖方向。
-7. **"spawn-ast.js 并发信号量设计（600MB-1.6GB 边界）"** — 🟡 无法验证。`spawn-ast.js` 中无相关关键字，可能指向历史版本。
-8. **"tree-sitter-wasms 锁定 0.1.13 无法升级新 grammar"** — 🟡 未验证。无证据表明无法升级。
-9. **"万级文件预估 130-200s 且内存超 2GB"** — 🟡 推测性结论，未在万级文件上实测。
-
-#### 有价值的数据提取
-
-原始报告中准确的结论已提取至本文档其他章节及 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)：
-- 弱断言 ~76 处 → TECH_DEBT.md "弱断言分布"
-- graph-db.js 零测试 → TECH_DEBT.md "零专属测试模块清单"
-- 测试类型分布失衡 → TECH_DEBT.md "测试类型分布失衡"
-- CLI 命令分层混乱 → TECH_DEBT.md "CLI 设计缺陷迫使 skill 膨胀"
+**历史**：P0-P4 全部交付 + 测试债务全量修复 + L2 清零 + 默认 markdown + incremental 可见化 + formatter 重复判断消除 + SHA-256 内容哈希复用。本轮及历史交付见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 
@@ -279,25 +107,23 @@ node cli.js repl
 |------|------|------|
 | L1 Blocker | 0 | — |
 | L2 债务 | 0 | — |
-| L3 品味 | 9 | git-tools.js 手动字符级解析 / overview-tools.js HTML 裸数字 / js.js visitor 超长 / path.js hasPathSegment 语义陷阱 / parserAvailability.skipped 命名陷阱 / cli.js JSON 嵌套深 / --compact 阈值无 rationale / npx 版本未锁定 / human-formatters.js 同一命令在 4-5 个 formatter 中重复判断 |
-| **产品债务** | **2** | 命令分层混乱 / actions 是文案不是可执行命令 / **`--incremental` 增量逻辑不可见** |
+| L3 品味 | 8 | git-tools.js 手动字符级解析 / overview-tools.js HTML 裸数字 / js.js visitor 超长 / path.js hasPathSegment 语义陷阱 / parserAvailability.skipped 命名陷阱 / cli.js JSON 嵌套深 / --compact 阈值无 rationale / npx 版本未锁定 |
+| **产品债务** | **0** | — |
 
 **测试覆盖缺口：严重低估。**
 
-> **120/120 PASS**（并发 runner CONCURRENCY=4，~385s）。测试基础设施已收敛，新增 9 个零专属测试模块。
+> **120/120 PASS**（并发 runner CONCURRENCY=4，~280s）。测试基础设施已收敛，零专属测试模块清零。
 
-> **本轮消除的测试债务**：
-> > > > > > > > 
 > **剩余测试债务（已量化）**：
 > - **弱断言 ~35 处**：仅余 `typeof` 型 schema 契约检查（带消息参数，风险低）。`strictEqual(result.ok, true/false)` ~48 处为深层嵌套防御性检查，不计入。占总断言数 ~2.3%
 > - **console.log 噪音 7 处**：代码字符串内嵌（phase01-quality/security-test/severity-filter）、平台跳过诊断（watch-sigterm/watch-test）、runner.js 骨架输出
 > - **`audit-map-test.js` graph 数据字面量** 仍内联
 > - **时序依赖**：mock 内部延迟保留（file-index-race/overview-tools-concurrency）、进程退出超时保护保留（watch-test/watch-sigterm/audit-file-watch）
-> - **零专属测试模块剩余 4 个**：`dep-tools.js` / `git-tools.js` / `incremental-diff.js` / `project-map.js`
+> - **零专属测试模块剩余 0 个**：所有 L4 tools 和 L5 formatters 均已补充专属测试
 > 
 > **测试类型分布失衡**：
-> - 单元测试 93 文件（80%）— 比例良好
-> - 集成测试 24 文件（21%）— **比例偏低**
+> - 单元测试 97 文件（80%）— 比例良好
+> - 集成测试 24 文件（20%）— **比例偏低**
 > - 端到端测试 3 文件（3%）— **严重不足**
 > - 混沌/模糊测试 0 — CLI 工具形态下暂缓
 
@@ -309,10 +135,10 @@ node cli.js repl
 | `--format ai` depth/token-budget 边界 | 单元测试只测 formatter 函数，未测 CLI 参数传递 | "函数存在" |
 | `exit code` 反模式 | 集成测试不足，未覆盖 CLI 完整管道 | "ok === true" |
 
-**根因**：测试在 workspace-bridge 自身代码库（198 文件纯 JS）上跑，不是真实项目。没有覆盖：Vue 复杂项目、Java 大图、中文路径、Windows 反斜杠、缺失目录、损坏基线、并发调用。
+**根因**：测试在 workspace-bridge 自身代码库（207 文件纯 JS）上跑，不是真实项目。没有覆盖：Vue 复杂项目、Java 大图、中文路径、Windows 反斜杠、缺失目录、损坏基线、并发调用。
 
 **改进方向**：
-1. ~~补零测试模块：`graph-db.js` + 5 个 tools + 3 个 formatters~~ → **部分完成**：graph-db / security-tools / regression-tools / impact-explanations / file-summary 已补充；剩余 `dep-tools.js` / `git-tools.js` / `incremental-diff.js` / `project-map.js`
+1. ✅ ~~补零测试模块~~ → **已完成**
 2. 新增 CLI 集成测试（3–4 个），覆盖 `audit-file`/`dead-exports`/`tree`/`impact` 等命令完整管道
 3. 弱断言清理：将 `result.ok` 型改为业务语义断言
 4. 新增 E2E 实战测试套件，在 `reference/GitNexus/` 和实战基地项目上跑
@@ -325,10 +151,10 @@ node cli.js repl
 
 #### 当前状态
 
-- 活跃债务：**0 个 L1** + **0 个 L2** + **9 个 L3** + **0 个产品 bug** + **4 个产品债务**
+- 活跃债务：**0 个 L1** + **0 个 L2** + **8 个 L3** + **0 个产品 bug** + **0 个产品债务**
 - 版本：v1.2.0，schemaVersion 冻结
-- 测试：**120/120 PASS**（~386s，并发 CONCURRENCY=4；本轮修复后 SQLite 并发隔离 + 时序依赖轮询化）
-- P0-P4 全部完成（误报清零、暴露正确、框架感知、可靠性收敛）
+- 测试：**120/120 PASS**（~280s，并发 CONCURRENCY=4；本轮修复后 SQLite 并发隔离 + 时序依赖轮询化）
+- P0-P4 全部完成（误报清零、暴露正确、框架感知、可靠性收敛、formatter 重复消除、SHA-256 复用）
 - **定位升级**：从"带 JSON 输出的人类审计工具"升级为"AI 的代码脚手架"
 - **核心认知**：CLI 静态分析能力没问题，问题分两类：
   - **工程品味**（污染工作目录、输出数据冗余、缓存失效粗糙）— 已基本解决
@@ -340,7 +166,7 @@ node cli.js repl
 - **更深层的定位修正**：workspace-bridge 不是"AI 的替代方案"，而是**"所有 AI（IDE + 终端）都需要的基础设施"**——就像数据库索引。应用层（AI）可以自己做全表扫描，但有了索引快 100 倍。
   - IDE AI（Cursor/Claude）没有预建的全局 import/export 图、影响半径计算、死代码 AST 检测、跨 commit 趋势——它们只有 LSP（单文件）和 RAG（语义检索）。
   - 真正危险的不是"AI IDE 做得更好"，而是"**用户以为 AI IDE 已经做了，所以不需要你**"。
-  - 问题不是"有没有价值"，是"**价值被实现层面的 bug 和形态错配埋住了**"。
+  - 问题不是"有没有价值"，是"**价值被实现层面的 bug 和形态错配埋住了**"
   - 当前索引的问题：查询语法太复杂（20+ 命令）、返回格式对 AI 不友好（`--format ai` 边界行为不符合承诺）、查询结果不可执行（`commands: []` / `suggestedCommand: null`）。
 
 ---
@@ -364,24 +190,27 @@ node cli.js audit-summary --cwd . --json --quiet  # 期望 healthScore=5/5
 ```
 如果异常 → 再跑 `node test/runner.js` 定位问题；如果正常 → 直接开工。
 
-**默认路径：产品 bug 修复（按"价值被实现问题埋住"的 ROI 排序）**
+**默认路径：代码复用 + 测试补齐（按 ROI 排序）**
 
 > 作者视角修正：P0 不是"修文档"，是"修 CLI 出口质量让文档自然变薄"。
 
-| 优先级 | 修复 | 根因 | 预期收益 |
-|--------|------|------|----------|
-| **P0** | `--check-regression` crash | 基线 schema 不匹配 | ✅ **已修**：`makeCycleKey` 防御 `item.files` 缺失 |
-| **P2** | `diagnostics` 找到实际 linter | `buildChecks` 与 `workspace-info` 检测逻辑不同步 | 诊断可信 |
-| **P2** | Java `dead-exports` 崩溃 | Python 管道大数据崩溃（环境兼容） | 跨语言能力补齐 |
+| 优先级 | 修复 | 根因 | 预期收益 | 代码来源 |
+|--------|------|------|----------|---------|
+| **P0** | ~~`--check-regression` crash~~ | 基线 schema 不匹配 | ✅ **已修**：`makeCycleKey` 防御 `item.files` 缺失 | — |
+| **P0** | ~~SHA-256 内容哈希~~ | mtime 漂移误报 | ✅ **已修**：复用 code-review-graph `incremental.py` | code-review-graph |
+| **P0** | ~~L4 命令分层~~ | 命令分层混乱 | ✅ **已修**：`--help` 分层 + L4 debug 标记 | — |
+| **P1** | **PageRank warm-start** | hotspot 仅依赖 git 历史+耦合度，无全局图重要性 | hotspot 排序更可信 | qartez-mcp `graph/pagerank.rs` |
+| **P1** | **补齐 CLI 集成测试** | CLI 管道回归保护不足 | 防止 CLI 出口质量退化 | — |
+| **P2** | **预计算聚合表** | audit-summary 每次重新计算 | audit-summary O(N)→O(1) | code-review-graph |
+| **P2** | **surface 模式变薄** | `--depth surface` 仍数百 tokens | AI 直接消费，<150 tokens | code-review-graph |
+| **P2** | `diagnostics` 找到实际 linter | `buildChecks` 与 `workspace-info` 检测逻辑不同步 | 诊断可信 | — |
+| **P2** | Java `dead-exports` 崩溃 | Python 管道大数据崩溃（环境兼容） | 跨语言能力补齐 | — |
 
 **产品债务（暂缓，bug 清零后再评估）**
-- ~~`audit-ai` 统一入口~~ → **重新评估**：不是"合并到 3 个命令"，是"`--help` 和 SKILL.md 按 L1/L2/L3/L4 分层暴露"。`dead-exports`/`cycles`/`unresolved` 等 L4 命令对人类调试有价值，不应删除，只需降级为 debug 层级。
-- actions 可执行化：从文案改为 `"run: npm test -- test/auth-*.test.js"` 等具体指令
-
-- **`init` 生成空配置**：`.workspace-bridge.json` 目录列表全空，用户拿到后仍需手动填，设计未完成；**且未自动写 `.gitignore`**，用户第一次跑就会被 5 个未跟踪文件污染 git 状态
-- ~~`--exclude` 未完全过滤 cycle~~：⚠️ **部分修复**。cycle 检测逻辑已追加 `shouldExcludeCli` 过滤，但 dirty worktree 下缓存未刷新可能导致排除后 cycle 残留。2026-05-16 cache mtime/size 修复后该问题应已根治，待实战验证。
-- **`--incremental` 增量逻辑不可见**：与 `--staged` 输出几乎无差异，用户感知不到"增量"价值
-- **缓存污染比想象的严重**：`.workspace-bridge-cache.json` 799KB + `.bak` 799KB + `.tmp-*` 0B×3 残留在工作目录；SQLite 迁移已完成但遗留文件未清理；init 不自动写 `.gitignore`
+- ~~`audit-ai` 统一入口~~ → **已完成**：不是"合并到 3 个命令"，是"`--help` 和 SKILL.md 按 L1/L2/L3/L4 分层暴露"。
+- ✅ ~~actions 可执行化~~ → **重新评估**：`validationAdvice.commands` 已有具体指令
+- ✅ ~~`init` 生成空配置~~ → **已完成**：`init` 已自动填 active + .gitignore
+- ~~`--exclude` 未完全过滤 cycle~~ → ⚠️ **部分修复**。cycle 检测逻辑已追加 `shouldExcludeCli` 过滤
 
 ---
 
@@ -467,7 +296,7 @@ node cli.js audit-summary --cwd . --json --quiet  # 期望 healthScore=5/5
 12. **测试适配**（~20 行）：mock SQLite 或临时数据库文件
 
 **P3：工程体验**
-12. **默认输出改为 `--format markdown`**（~5 行）
+12. **默认输出改为 `--format markdown`**（~5 行）— ✅ 已完成
 13. **impact 入口截断**（~10 行）
 14. **diagnostics 检测 Vue ESLint**（~15 行）
 
@@ -494,4 +323,4 @@ node cli.js audit-summary --cwd . --json --quiet  # 期望 healthScore=5/5
 
 ---
 
-*Last updated: 2026-05-18（文档归档清理 + actions 可执行化 + --help 分层输出 + 4 个零专属测试补齐；120/120 测试通过；活跃产品债务：命令分层混乱 / actions 可执行化 / --incremental 增量逻辑不可见）*
+*Last updated: 2026-05-18（SHA-256 内容哈希复用 + formatter 重复判断消除 + L4 命令标记为 debug 层级 + L2 契约守卫清零 + 默认输出改 markdown + `--incremental` 增量逻辑可见化；120/120 测试通过；活跃债务：0 L1 / 0 L2 / 8 L3 / 0 产品债务）*

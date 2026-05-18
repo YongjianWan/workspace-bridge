@@ -87,6 +87,26 @@ class GraphDB {
     }
   }
 
+  getMetadata(key) {
+    try {
+      this._ensureOpen();
+      const row = this.db.prepare('SELECT value FROM cache_metadata WHERE key = ?').get(key);
+      return row ? row.value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  setMetadata(key, value) {
+    try {
+      this._ensureOpen();
+      this.db.prepare('INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?, ?)').run(key, value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Load all cache data from SQLite into memory structures.
    * Returns null on any error (caller should treat as cold start).

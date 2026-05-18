@@ -155,6 +155,8 @@ const SCORING = {
   HOTSPOT_REPORT_THRESHOLD: 30,
   HOTSPOT_MIN_DEPENDENTS: 5,
   HOTSPOT_CONFIG_DISCOUNT: 0.3, // config files naturally have high churn; dampen to avoid false positives
+  HOTSPOT_PAGERANK_BOOST: 1.1, // files with above-average global importance get a slight score bump
+  PAGERANK_CONFIG: { damping: 0.85, iterations: 20, epsilon: 1e-5 },
 
   // Stability scoring
   STABILITY_BASE_SCORE: 45,  // raised from 40 to avoid new files defaulting to fragile

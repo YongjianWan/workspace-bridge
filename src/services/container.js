@@ -77,6 +77,12 @@ class ServiceContainer {
       await this._initFileIndex(options);
       this._initDiagnostics();
       await this._initDepGraph(options);
+      // P2: load precomputed aggregate summary if graph hasn't changed since last run
+      const loadedAggregate = this.cache.loadAggregateSummary();
+      if (loadedAggregate && loadedAggregate.stats?.files === this.depGraph.graph.size) {
+        this.depGraph.analyzer._aggregateCache = loadedAggregate;
+        this.depGraph.analyzer._aggregateVersion = 0;
+      }
       this._registerCallbacks();
 
       this.initialized = true;
@@ -222,6 +228,15 @@ class ServiceContainer {
       }
     }
     if (this.cache) {
+      try {
+        // P2: persist aggregate summary for O(1) startup on next run
+        const aggregate = this.depGraph?.analyzer?._aggregateCache;
+        if (aggregate) {
+          this.cache.saveAggregateSummary(aggregate);
+        }
+      } catch (e) {
+        if (process.env.DEBUG) console.error('[Container] cache.saveAggregateSummary failed:', e.message);
+      }
       try {
         await this.cache.save();
       } catch (e) {

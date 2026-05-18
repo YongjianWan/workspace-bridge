@@ -38,7 +38,7 @@ function main() {
   assert(diffAudit.summary.counts.highCompositeRiskFiles >= 0, 'highCompositeRiskFiles should be non-negative');
   assert(diffAudit.summary.counts.maxCompositeRiskScore >= 0, 'maxCompositeRiskScore should be non-negative');
 
-  const diffHuman = runCliText(['audit-diff', '--cwd', '.', '--quiet']);
+  const diffHuman = runCliText(['audit-diff', '--cwd', '.', '--quiet', '--format', 'human']);
   assert(diffHuman.includes('topCompositeRisk:'), 'audit-diff human output should include topCompositeRisk');
   assert(diffHuman.includes('topRiskAction:'), 'audit-diff human output should include topRiskAction');
   assert(diffHuman.includes('topRiskCommand:'), 'audit-diff human output should include topRiskCommand');
@@ -253,7 +253,7 @@ function main() {
   assert(overview.stabilityTrend?.latest?.stabilityScore >= 0, `stabilityScore should be >= 0, got ${overview.stabilityTrend?.latest?.stabilityScore}`);
   assert(overview.stabilityTrend?.latest?.fragileCount >= 0, `fragileCount should be >= 0, got ${overview.stabilityTrend?.latest?.fragileCount}`);
   cleanupTempDir(overviewDataDir);
-  const overviewHuman = runCliText(['audit-overview', '--cwd', '.', '--quiet']);
+  const overviewHuman = runCliText(['audit-overview', '--cwd', '.', '--quiet', '--format', 'human']);
   assert(overviewHuman.includes('hotspotsHigh:'), 'audit-overview human output should include hotspot aggregates');
 
   // Non-ASCII path regression check

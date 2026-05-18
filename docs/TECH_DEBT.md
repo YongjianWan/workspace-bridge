@@ -12,17 +12,7 @@
 
 ## L2 债务（阻塞演进或导致结果不可信）
 
-#### `incremental-diff.js` / `human-formatters.js` 契约守卫缺失 — 写测试时发现
-
-**数据**：`collectRelatedFiles` 假设 `getImpactRadius` 返回对象数组（`{ file }`），`formatHuman` 假设 `buildRepoSummary` 返回的 `summary` 含 `honesty` 字段。两者均无格式校验或类型守卫。
-
-**根因**：内部 API 契约靠"人脑同步"，没有 schema 校验或断言。`getImpactRadius` 若改为字符串数组（历史版本曾如此），`entry.file` 变为 `undefined`，impact 文件静默丢失；`buildRepoSummary` 若删除 `honesty` 字段，`formatHuman` 的 `result.summary.honesty?.disclaimer` 永远为假，`note` 行永久消失。
-
-**影响**：不直接产生当前 bug（实现与假设暂时一致），但任何一方的重构都可能引发**静默数据丢失**，测试无法 catch（因为测试也复制了相同假设）。
-
-**方案**：
-1. 在 `collectRelatedFiles` 入口处加 `Array.isArray(impact) && impact.every(e => typeof e === 'object')` 断言（dev 模式），或统一用 `depGraph` 公共方法替代直接遍历返回值
-2. `buildRepoSummary` 与 `formatHuman` 之间建立最小 schema 契约（如 `const REQUIRED_SUMMARY_FIELDS = ['severity', 'counts', 'honesty', 'nextSteps']`），`formatHuman` 前置校验
+无。
 
 ---
 
@@ -43,10 +33,12 @@
 **更深层的定位修正**：workspace-bridge 不是"AI 的替代方案"，而是**"所有 AI（IDE + 终端）都需要的基础设施"**——就像数据库索引。IDE AI（Cursor/Claude）没有预建的全局 import/export 图、影响半径计算、死代码 AST 检测——它们只有 LSP（单文件）和 RAG（语义检索）。真正危险的不是"AI IDE 做得更好"，而是"**用户以为 AI IDE 已经做了，所以不需要你**"。
 
 **方案**：病根全在 CLI 出口质量。优先级：
-1. 修 `--check-regression` crash → "跨时间基线"核心价值可用
-2. 修 exit code → CI / AI agent 稳定调用
-3. 修 `--format ai`（depth/token-budget 生效）→ AI 直接消费策展结论
-4. **分层暴露**：`--help` 按 L1/L2/L3/L4 分组输出；`health` 改为 `audit-summary --health-only` 别名 + deprecation；L4 命令（`dead-exports`/`cycles` 等）保留但标记为 debug 层级
+1. ✅ 修 `--check-regression` crash → 已修复，`makeCycleKey` 防御 `item.files` 缺失
+2. ✅ 修 exit code → 已修复，`determineExitCode()` 定义 0=成功/1=业务失败/2=崩溃
+3. ✅ 修 `--format ai`（depth/token-budget 生效）→ 已修复，`formatAi` + `--depth` + `--token-budget` 已交付
+4. ✅ **分层暴露**：`--help` 已按 L1/L2/L3/L4 分组输出；`health` 已标注 deprecated；L4 命令（`dead-exports`/`cycles`/`unresolved`/`dependencies`/`dependents`/`stats`/`tree`）已标记为 debug 层级
+5. ✅ 默认输出改 markdown → 已修复，见 CHANGELOG
+6. ✅ `--incremental` 增量逻辑可见化 → 已修复，human-readable 输出直接展示增量发现
 7. 届时 SKILL.md 可缩至 ~80 行：L1 命令表 + L2 场景指南 + 版本锁定
 
 #### cli.js 厚门面（部分缓解）
@@ -59,7 +51,7 @@
 
 ---
 
-## 测试代码债务（117 文件 / ~470 函数）
+## 测试代码债务（122 文件 / ~376 函数）
 
 #### 弱断言分布 — 占总断言数 ~3.0%
 
@@ -93,7 +85,7 @@
 | 并发/竞争测试 | 5 个文件 | 4% | 存在（race、concurrency） |
 | 端到端测试 | 3 个文件 | 3% | **严重不足**（仅 functionality/formatter-e2e/integration-core） |
 
-**根因**：80% 单元测试 + 弱断言已从 ~76 处降至 ~44 处（~3.0%）。当前主要缺口是 CLI 管道回归保护不足，不是"函数返回了结构正确的对象"。
+**根因**：80% 单元测试 + 弱断言已从 ~76 处降至 ~35 处（~2.3%）。当前主要缺口是 CLI 管道回归保护不足，不是"函数返回了结构正确的对象"。
 
 **影响**：CLI 入口的选项解析、路由分发、错误边界、格式化器选择等关键路径缺乏回归保护。
 
@@ -164,7 +156,7 @@
 | `cli.js` / `formatters` | `--json` 嵌套深、体积大，`--compact` 后仍有 400 行，管道场景不友好；默认 human-readable 输出缺乏实战打磨。**根因是 CLI 不输出预消化报告，迫使 skill 变厚补偿** | 中     |
 | `cli.js` / `constants.js` | `--compact` 500 文件阈值无 rationale，拍脑袋定。239 文件项目 `audit-map --compact` 已输出 29KB；应按**输出 Token 数**或 `--budget-tokens` 决定压缩策略 | 中     |
 | `SKILL.md` / `package.json` | npx 版本未锁定，`npx workspace-bridge-cli` 可能自动升级到不兼容版本，schema 变更后 AI 解析直接崩 | 中     |
-| `human-formatters.js` | 同一命令在 4-5 个 formatter 函数中重复判断：`audit-summary` 出现在 formatHuman/formatSummary/formatMarkdown/formatAi/formatJsonl 的 switch 中各一次 | 中     |
+| ~~`human-formatters.js`~~ | ~~同一命令在 4-5 个 formatter 函数中重复判断~~ | ~~中~~ |
 
 ---
 
@@ -194,7 +186,7 @@
 | 模块 | 风险等级 | 说明 | 建议测试文件 |
 |------|---------|------|-------------|
 
-**L4 工具层（12 个工具，5 个零专属测试，本轮补充 2 个）**
+**L4 工具层（11 个工具，0 个零专属测试）**
 
 | 模块 | 状态 | 说明 | 建议测试文件 |
 |------|------|------|-------------|
@@ -208,7 +200,7 @@
 | `src/tools/honesty-engine.js` | ✅ 好 | `honesty-engine-test.js` | — |
 | `src/tools/scaffold-detector.js` | ✅ 好 | `scaffold-detector-test.js` | — |
 
-**L5 格式化层（9 个 formatter，1 个零测试 + 5 个间接覆盖不完整，本轮补充 2 个）**
+**L5 格式化层（10 个 formatter，0 个零测试）**
 
 | 模块 | 状态 | 说明 | 建议测试文件 |
 |------|------|------|-------------|

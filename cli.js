@@ -151,31 +151,37 @@ const COMMAND_GUIDES = {
   },
   stats: {
     desc: 'Show dependency graph statistics',
+    layer: 'debug',
     when: 'Need raw numbers (files, edges, cycles) without the full audit-map payload.',
     after: 'audit-map --compact if the numbers look suspicious and you need visual confirmation.',
   },
   dependencies: {
     desc: 'List direct dependencies of a file',
+    layer: 'debug',
     when: 'Debugging "why is this file here?" or tracing imports inward.',
     after: 'dependents --file <path> for the reverse direction (who imports me).',
   },
   dependents: {
     desc: 'List direct dependents of a file',
+    layer: 'debug',
     when: 'Before deleting or renaming a file. Know who imports you.',
     after: 'impact --file <path> for transitive dependents (not just direct).',
   },
   'dead-exports': {
     desc: 'Find dead export candidates',
+    layer: 'debug',
     when: 'Cleanup phase. Remove unused code to reduce maintenance surface.',
     after: 'audit-file --file <path> on any dead-export candidate to confirm it is truly unused.',
   },
   unresolved: {
     desc: 'Find unresolved imports',
+    layer: 'debug',
     when: 'Build is broken, or after moving/renaming files. Fix broken paths.',
     after: 'audit-diff to verify the fix did not introduce new unresolved imports.',
   },
   cycles: {
     desc: 'Find circular dependencies',
+    layer: 'debug',
     when: 'Architecture review, or before refactoring layered code.',
     after: 'audit-file --file <path> on any file in the cycle to plan the break point.',
   },
@@ -234,11 +240,6 @@ Commands:
     impact --file <path>    Find impact radius for a file
     affected-tests --file <path> [--max-depth <n>]
                             Find tests related to a file
-    dead-exports            Find dead export candidates
-    unresolved              Find unresolved imports
-    cycles                  Find circular dependencies
-    tree --file <path> [--max-depth <n>] [--direction <imports|dependents|both>]
-                            Build import/dependent tree for a file
 
   L3 环境诊断 (Environment & hygiene):
     workspace-info          Detect workspace type and root
@@ -247,7 +248,12 @@ Commands:
     audit-security [--files <list>]
                             Run external security scanners (Semgrep)
 
-  L4 原始查询 (Debug / raw data):
+  L4 原始查询 (Debug / raw data — daily audit uses L1/L2 instead):
+    dead-exports            Find dead export candidates
+    unresolved              Find unresolved imports
+    cycles                  Find circular dependencies
+    tree --file <path> [--max-depth <n>] [--direction <imports|dependents|both>]
+                            Build import/dependent tree for a file
     dependencies --file <p> List direct dependencies of a file
     dependents --file <p>   List direct dependents of a file
     stats                   Show dependency graph statistics
@@ -270,7 +276,7 @@ Options:
   --trend-granularity <mode>  Trend bucket mode for stability trend: day|week (default: day)
   --overview-dashboard <path>  Write audit-overview single-file HTML dashboard
   --json                  Print machine-readable JSON
-  --format <mode>         Output format: summary | markdown | jsonl | ai (default: human)
+  --format <mode>         Output format: summary | markdown | jsonl | ai | human (default: markdown)
   --token-budget <n>      Max estimated tokens for --format ai; auto-downgrades depth if exceeded
   --depth <mode>          Discovery depth for --format ai: surface | detail | full (default: detail)
   --quiet                 Suppress stderr logs during CLI execution
@@ -796,7 +802,7 @@ async function runCommand(parsed, container) {
       if (!impactPath || !fs.existsSync(impactPath)) {
         return { ok: false, error: `File not found: ${parsed.file}`, inProject: false };
       }
-      return dependencyGraph({ cwd: parsed.cwd, operation: 'impact', file: parsed.file }, container);
+      return dependencyGraph({ cwd: parsed.cwd, operation: 'impact', file: parsed.file, maxDepth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined }, container);
     }
     case 'affected-tests': {
       requireFile(parsed, 'affected-tests');
@@ -1002,10 +1008,13 @@ async function main() {
       }));
     } else if (parsed.format === 'summary') {
       console.log(formatSummary(parsed.command, result));
-    } else if (parsed.format === 'markdown') {
-      console.log(formatMarkdown(parsed.command, result));
     } else if (parsed.format === 'jsonl') {
       console.log(formatJsonl(parsed.command, result));
+    } else if (parsed.format === 'human') {
+      console.log(formatHuman(parsed.command, result));
+    } else if (parsed.format === 'markdown' || !parsed.json) {
+      // Default human-readable output is markdown for better AI/CI consumption.
+      console.log(formatMarkdown(parsed.command, result));
     } else if (parsed.json) {
       if (result && typeof result === 'object') {
         result.schemaVersion = SCHEMA_VERSION;
@@ -1022,8 +1031,6 @@ async function main() {
         }
       }
       await writeLargeJson(jsonStr);
-    } else {
-      console.log(formatHuman(parsed.command, result));
     }
 
     process.exitCode = determineExitCode(parsed.command, result, parsed.failOnFindings);

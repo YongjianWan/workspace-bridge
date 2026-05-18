@@ -17,14 +17,14 @@
 | 文档与代码状态同步 | ⏳ 需人工 | ROADMAP/SESSION/CHANGELOG 可能不同步 | 自审后手动对齐 |
 | 多模块 Maven 模块边界未显式标注 | ⏳ 观察 | 模块间耦合强度丢失 | 评估是否输出模块级聚合视图 |
 | 大项目冷启动超时 | ⏳ 观察 | ~~395 文件实测 59s~~ 实测 239 文件 2s / 542 文件 7s（环境差异），但 7s 对 CI 仍不够友好 | 预热工作流 + 评估 `--cache-dir` + 大项目默认 `--compact` |
-| 默认输出对 AI 不友好 | ⏳ 评估 | human-readable 默认输出迫使 AI 每次手动加 `--format markdown --quiet`。**根因是 CLI 把策展工作外包给 AI**：`--format ai` broken → AI 被迫筛 235 行 raw JSON；`commands: []` → AI 拿不到闭环指令；文档被迫写 ~264 行补偿指南 | 修 CLI 出口质量（`--format ai` / `commands` / `affected-tests` / exit code），届时 skill 可缩至 50 行 |
+| ~~默认输出对 AI 不友好~~ | ✅ **已完成** | ~~human-readable 默认输出迫使 AI 每次手动加 `--format markdown --quiet`~~ | 默认输出已改 `--format markdown`；`--format ai` + `--depth` + `--token-budget` 已交付；exit code 语义已修复。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] |
 | Java `dead-exports` 大图崩溃 | 🔴 **高优先级** | 542 文件 Java 项目跑 `dead-exports` 返回 exit code 49，零输出 | **部分修复**：`GraphBuilder.analyzeFile()` 已加 try-catch 防止 crash batch，但 exit code 49 根因是 Windows Store Python + Git Bash 管道大数据崩溃，环境问题未根治 |
 | diagnostics linter 检测矛盾 | 🔴 **高优先级** | `workspace-info` 显示 eslint 可用，但 `diagnostics` 返回 `noLintersDetected: true` | **部分修复**：`detectNodeLinters` 已统一供 `workspaceInfo` 和 `buildChecks` 共用；残留：`diagnostics` 缓存命中路径不携带 `noLintersDetected`，`buildChecks` 中该字段仅在 `mode === 'quick'` 设置 |
 | `--compact` 阈值无 rationale | ⏳ 待评估 | 500 文件拍脑袋定，239 文件 compact 已输出 29KB | 按输出 token 数动态决定，或 `--budget-tokens` |
 | 跨仓库静态分析 | ⏳ 评估中 | 前后端 API 契约纯文本匹配可做（`@RequestMapping` vs `axios.get`），但 CLI 只能单 `--cwd` | 评估多 `--cwd` 或 `--cross-repo` 低复杂度方案 |
 | npx 版本未锁定 | ⏳ 待评估 | 可能自动升级到不兼容版本，schema 变更后 AI 解析崩 | skill 强制 `npx workspace-bridge-cli@1.2.0` |
-| 命令分层混乱 | ⏳ 待评估 | L4 原始查询（`dead-exports`/`cycles`/`unresolved`/`dependencies`/`dependents`/`stats`/`tree`）被 L1 aggregate 完全覆盖，但作为一等公民暴露；`health` 与 `audit-summary.health` 重合；AI 不知道该用 aggregate 还是 raw | `--help` 按 L1/L2/L3/L4 分组输出；`health` 改为 `audit-summary --health-only` 别名 + deprecation；SKILL.md 按层级重写命令表 |
-| `init` 生成空配置 | ⏳ 待评估 | `.workspace-bridge.json` 目录列表全空，schema 存在但无默认值/无引导 | 预填 `entryPoints`/`libraryDirs` 启发式猜测，或改为交互式向导 |
+| ~~命令分层混乱~~ | ✅ **已完成** | ~~L4 原始查询与 L1 aggregate 混在同一层级暴露~~ | `--help` 已按 L1/L2/L3/L4 分组输出；L4 命令已标记为 debug 层级；`health` 已标注 deprecated。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] |
+| ~~`init` 生成空配置~~ | ✅ **已完成** | ~~`.workspace-bridge.json` 目录列表全空~~ | `init` 已自动生成 `active` 目录并自动管理 `.gitignore`。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] |
 
 > 近期已修复的限制见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]：`--builtin-only`、`--since <commit>`、TTL 24h、git-aware staleness、`--format jsonl`、SKILL 文档体系重构。
 >

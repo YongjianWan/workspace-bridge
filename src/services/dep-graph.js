@@ -15,6 +15,7 @@ const {
   getFunctionReuseHints,
   getFunctionLevelAffectedTests,
 } = require('./dep-graph/symbol-impact');
+const { computePageRank } = require('./dep-graph/pagerank');
 const { detectFrameworkFromPath, detectFrameworkFromContent } = require('./dep-graph/framework-patterns');
 const {
   scanAndExtractImplicitImports,
@@ -208,6 +209,8 @@ class GraphBuilder {
     this.dg.graph.clear();
     this.dg._cycleCount = undefined;
     this.dg._cachedCycles = null;
+    this.dg.analyzer._bumpAggregateCache();
+    this.dg.analyzer._bumpAggregateCache();
     // Clear per-build caches to avoid stale content after rebuild
     this.dg._scanContentCache.clear();
     this.dg._scanPatternCache.clear();
@@ -275,6 +278,9 @@ class GraphBuilder {
     if (this.onBuildComplete) {
       this.onBuildComplete({ fileCount: this.dg.graph.size, cacheHitRate });
     }
+
+    // P2: precompute aggregate summaries so subsequent queries are O(1)
+    this.dg.analyzer.precomputeAggregates();
   }
 
   async _processFilesWithLimit(files, limit) {
@@ -531,6 +537,7 @@ class GraphBuilder {
     }
     if (edgeCount > 0) {
       this.dg._cachedCycles = null;
+    this.dg.analyzer._bumpAggregateCache();
       this.dg._cycleCount = undefined;
     }
   }
@@ -604,6 +611,7 @@ class GraphBuilder {
     }
     // P85: implicit edges mutate the graph — invalidate cycle cache
     this.dg._cachedCycles = null;
+    this.dg.analyzer._bumpAggregateCache();
     this.dg._cycleCount = undefined;
   }
 
@@ -671,6 +679,8 @@ class GraphBuilder {
       reParsed++;
       this.dg._cycleCount = undefined;
       this.dg._cachedCycles = null;
+    this.dg.analyzer._bumpAggregateCache();
+      this.dg.analyzer._bumpAggregateCache();
 
       const newInfo = this.dg.graph.get(key);
       if (newInfo) {
@@ -703,6 +713,55 @@ class GraphBuilder {
 class GraphAnalyzer {
   constructor(depGraph) {
     this.dg = depGraph;
+    this._pageRanks = null;
+    this._aggregateCache = null;
+    this._aggregateVersion = 0;
+  }
+
+  _bumpAggregateCache() {
+    this._aggregateVersion++;
+    this._aggregateCache = null;
+  }
+
+  precomputeAggregates() {
+    // If a persistent aggregate was loaded and the graph size hasn't changed,
+    // skip recomputation and reuse the loaded cache.
+    if (this._aggregateCache && this._aggregateCache.stats?.files === this.dg.graph.size) {
+      return;
+    }
+    const deadExports = this.findDeadExports({ skipCache: true });
+    const unresolved = this.findUnresolvedImports({ skipCache: true });
+    const cycles = this.findCircularDependencies({ skipCache: true });
+    const stats = this.getStats({ skipCache: true });
+    this._aggregateCache = {
+      version: this._aggregateVersion,
+      deadExports,
+      unresolved,
+      cycles,
+      stats,
+    };
+  }
+
+  computePageRank() {
+    const nodes = [];
+    const edges = [];
+    for (const [filePath, info] of this.dg.graph) {
+      nodes.push(filePath);
+      for (const imp of info.imports) {
+        if (imp !== filePath) {
+          edges.push([filePath, imp]);
+        }
+      }
+    }
+    this._pageRanks = computePageRank(nodes, edges);
+  }
+
+  getPageRank(filePath) {
+    if (!this._pageRanks) {
+      this.computePageRank();
+    }
+    const key = this.dg.normalizeFilePath(filePath);
+    return this._pageRanks.get(key) || 0;
   }
 
   isLikelyFrameworkLegitimateCycle(cycle) {
@@ -783,8 +842,11 @@ class GraphAnalyzer {
     return false;
   }
 
-  findCircularDependencies() {
+  findCircularDependencies(options = {}) {
     // P85: return cached filtered cycles so all consumers see the same data.
+    if (!options?.skipCache && this._aggregateCache && this._aggregateCache.version === this._aggregateVersion) {
+      return this._aggregateCache.cycles;
+    }
     if (this.dg._cachedCycles) {
       return this.dg._cachedCycles;
     }
@@ -840,10 +902,13 @@ class GraphAnalyzer {
     return displayFiltered;
   }
 
-  getStats() {
+  getStats(options = {}) {
+    if (!options?.skipCache && this._aggregateCache && this._aggregateCache.version === this._aggregateVersion) {
+      return this._aggregateCache.stats;
+    }
     // P85: always use the same filtered cycles array that findCircularDependencies()
     // returns, eliminating any stale-cache divergence between the two paths.
-    const cycles = this.findCircularDependencies();
+    const cycles = this.findCircularDependencies(options);
     this.dg._cycleCount = cycles.length;
     const cacheStats = this.dg.cache?.getStats?.() || {};
     let parsedFiles = 0;
@@ -1054,7 +1119,10 @@ class GraphAnalyzer {
     return { usedNames, usesAllExports };
   }
 
-  findDeadExports() {
+  findDeadExports(options = {}) {
+    if (!options?.skipCache && this._aggregateCache && this._aggregateCache.version === this._aggregateVersion) {
+      return this._aggregateCache.deadExports;
+    }
     const deadExports = [];
 
     for (const [filePath, info] of this.dg.graph) {
@@ -1117,7 +1185,10 @@ class GraphAnalyzer {
     return deadExports;
   }
 
-  findUnresolvedImports() {
+  findUnresolvedImports(options = {}) {
+    if (!options?.skipCache && this._aggregateCache && this._aggregateCache.version === this._aggregateVersion) {
+      return this._aggregateCache.unresolved;
+    }
     const unresolved = [];
 
     for (const [filePath, info] of this.dg.graph) {
@@ -1561,6 +1632,10 @@ class DependencyGraph {
 
   getStats(...args) {
     return this.analyzer.getStats(...args);
+  }
+
+  getPageRank(...args) {
+    return this.analyzer.getPageRank(...args);
   }
 
   getScopeSummary(...args) {

@@ -13,7 +13,7 @@ const { runCliText, runCliRaw } = require('./test-helpers');
 // ---------------------------------------------------------------------------
 
 function testAuditSummaryHuman() {
-  const out = runCliText(['audit-summary', '--cwd', '.', '--quiet']);
+  const out = runCliText(['audit-summary', '--cwd', '.', '--quiet', '--format', 'human']);
   assert(out.includes('workspaceRoot:'), 'should show workspaceRoot');
   assert(out.includes('severity:'), 'should show severity');
   assert(out.includes('healthScore:'), 'should show healthScore');
@@ -45,7 +45,7 @@ function testAuditSummaryJson() {
 // ---------------------------------------------------------------------------
 
 function testAuditOverviewHuman() {
-  const out = runCliText(['audit-overview', '--cwd', '.', '--quiet']);
+  const out = runCliText(['audit-overview', '--cwd', '.', '--quiet', '--format', 'human']);
   assert(out.includes('workspaceRoot:'), 'should show workspaceRoot');
   assert(out.includes('severity:'), 'should show severity');
   assert(
@@ -71,7 +71,7 @@ function testAuditOverviewJson() {
 // ---------------------------------------------------------------------------
 
 function testAuditFileHuman() {
-  const out = runCliText(['audit-file', '--file', 'cli.js', '--cwd', '.', '--quiet']);
+  const out = runCliText(['audit-file', '--file', 'cli.js', '--cwd', '.', '--quiet', '--format', 'human']);
   assert(out.includes('file:'), 'should show file');
   assert(out.includes('severity:'), 'should show severity');
   assert(out.includes('impactCount:'), 'should show impactCount');
@@ -83,7 +83,7 @@ function testAuditFileHuman() {
 // ---------------------------------------------------------------------------
 
 function testHealthHuman() {
-  const out = runCliText(['health', '--cwd', '.', '--quiet']);
+  const out = runCliText(['health', '--cwd', '.', '--quiet', '--format', 'human']);
   assert(out.includes('workspaceRoot:'), 'should show workspaceRoot');
   assert(out.includes('healthScore:'), 'should show healthScore');
   assert(out.includes('packageManager:'), 'should show packageManager');
@@ -96,7 +96,7 @@ function testHealthHuman() {
 // ---------------------------------------------------------------------------
 
 function testStatsHuman() {
-  const out = runCliText(['stats', '--cwd', '.', '--quiet']);
+  const out = runCliText(['stats', '--cwd', '.', '--quiet', '--format', 'human']);
   // stats outputs key: value lines
   const lines = out.split('\n').filter(Boolean);
   assert(lines.length >= 1, 'should have at least one stat line');
@@ -108,7 +108,7 @@ function testStatsHuman() {
 // ---------------------------------------------------------------------------
 
 function testFormatHumanErrorFallback() {
-  const result = runCliRaw(['impact', '--file', 'nonexistent-file.js', '--cwd', '.', '--quiet']);
+  const result = runCliRaw(['impact', '--file', 'nonexistent-file.js', '--cwd', '.', '--quiet', '--format', 'human']);
   assert.notStrictEqual(result.status, 0, 'error command should have non-zero exit');
   assert(result.stdout.startsWith('Error:'), 'error output should start with Error:');
 }

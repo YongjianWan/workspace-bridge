@@ -4,12 +4,13 @@
  */
 const { countTreeFiles } = require('./project-map');
 
-function formatMarkdown(command, result) {
-  if (!result || result.ok === false) {
-    return `## Error\n\n${result?.error || 'Command failed'}`;
-  }
-  switch (command) {
-    case 'audit-summary': {
+/**
+ * Shared audit-summary formatter across text output styles.
+ * Eliminates the duplicate `case 'audit-summary'` in 3+ switch blocks.
+ */
+function formatAuditSummary(result, style) {
+  switch (style) {
+    case 'markdown': {
       const lines = [
         `# Audit Summary`,
         ``,
@@ -30,6 +31,57 @@ function formatMarkdown(command, result) {
       }
       return lines.join('\n');
     }
+    case 'summary': {
+      const lines = [
+        `Severity: ${result.summary?.severity}`,
+        `Health: ${result.health?.healthScore}`,
+        `Files: ${result.scope?.counts?.totalFiles ?? 0} total, ${result.scope?.counts?.mainlineFiles ?? 0} mainline`,
+        `Issues: ${result.deadExports?.deadExportsCount ?? 0} dead exports, ${result.unresolved?.unresolvedCount ?? 0} unresolved, ${result.cycles?.cyclesCount ?? 0} cycles`,
+      ];
+      const cov = result.summary?.analysisCoverage;
+      if (cov) {
+        lines.push(`Coverage: ${cov.parsedFiles}/${cov.totalFiles} parsed (${Math.round(cov.coverageRatio * 100)}%)`);
+      }
+      if (result.summary?.nextSteps?.length) {
+        lines.push('Next steps:');
+        for (const step of result.summary.nextSteps.slice(0, 3)) {
+          lines.push(`  • ${step}`);
+        }
+      }
+      return lines.join('\n');
+    }
+    case 'human': {
+      if (!result.summary || typeof result.summary !== 'object') {
+        return `Error: malformed audit-summary result (missing summary)`;
+      }
+      const lines = [
+        `workspaceRoot: ${result.workspaceRoot}`,
+        `severity: ${result.summary.severity}`,
+        `healthScore: ${result.health.healthScore}`,
+        `totalFiles: ${result.scope.counts.totalFiles} (parseable source only; excludes assets/build artifacts/excluded dirs)`,
+        `mainlineFiles: ${result.scope.counts.mainlineFiles}`,
+        `nonMainlineFiles: ${result.scope.counts.nonMainlineFiles}`,
+        `deadExportsCount: ${result.deadExports.deadExportsCount}`,
+        `unresolvedCount: ${result.unresolved.unresolvedCount}`,
+        `cyclesCount: ${result.cycles.cyclesCount}`,
+      ];
+      if (result.summary.honesty?.disclaimer) {
+        lines.push(`note: ${result.summary.honesty.disclaimer}`);
+      }
+      return lines.join('\n');
+    }
+    default:
+      return '';
+  }
+}
+
+function formatMarkdown(command, result) {
+  if (!result || result.ok === false) {
+    return `## Error\n\n${result?.error || 'Command failed'}`;
+  }
+  switch (command) {
+    case 'audit-summary':
+      return formatAuditSummary(result, 'markdown');
     case 'audit-overview': {
       const agg = result.aggregates || {};
       const langSupport = result.languageSupport || {};
@@ -86,6 +138,14 @@ function formatMarkdown(command, result) {
       if (result.validationAdvice?.phases?.length) {
         lines.push(`- **Validation phases**: ${result.validationAdvice.phases.length}`);
       }
+      if (result.incremental && result.incrementalFindings) {
+        const inc = result.incrementalFindings;
+        lines.push('', `## Incremental Findings`, `- **Dead exports**: ${inc.deadExportsCount}`, `- **Unresolved**: ${inc.unresolvedCount}`, `- **Cycles**: ${inc.cyclesCount}`);
+        for (const de of inc.deadExports.slice(0, 3)) lines.push(`  - \`${de.file}\`: ${de.exports?.join(', ') || 'n/a'}`);
+        for (const u of inc.unresolved.slice(0, 3)) lines.push(`  - \`${u.file}\`: ${u.import}`);
+        for (const c of inc.cycles.slice(0, 3)) lines.push(`  - ${c.join(' → ')}`);
+        if (inc.deadExportsCount + inc.unresolvedCount + inc.cyclesCount === 0) lines.push('*No incremental findings related to changed files.*');
+      }
       return lines.join('\n');
     }
     case 'audit-file': {
@@ -136,25 +196,8 @@ function formatSummary(command, result) {
     return `Error: ${result?.error || 'Command failed'}`;
   }
   switch (command) {
-    case 'audit-summary': {
-      const lines = [
-        `Severity: ${result.summary?.severity}`,
-        `Health: ${result.health?.healthScore}`,
-        `Files: ${result.scope?.counts?.totalFiles ?? 0} total, ${result.scope?.counts?.mainlineFiles ?? 0} mainline`,
-        `Issues: ${result.deadExports?.deadExportsCount ?? 0} dead exports, ${result.unresolved?.unresolvedCount ?? 0} unresolved, ${result.cycles?.cyclesCount ?? 0} cycles`,
-      ];
-      const cov = result.summary?.analysisCoverage;
-      if (cov) {
-        lines.push(`Coverage: ${cov.parsedFiles}/${cov.totalFiles} parsed (${Math.round(cov.coverageRatio * 100)}%)`);
-      }
-      if (result.summary?.nextSteps?.length) {
-        lines.push('Next steps:');
-        for (const step of result.summary.nextSteps.slice(0, 3)) {
-          lines.push(`  • ${step}`);
-        }
-      }
-      return lines.join('\n');
-    }
+    case 'audit-summary':
+      return formatAuditSummary(result, 'summary');
     case 'audit-overview': {
       const agg = result.aggregates || {};
       const langSupport = result.languageSupport || {};
@@ -204,6 +247,13 @@ function formatSummary(command, result) {
       ];
       if (result.validationAdvice?.phases?.length) {
         lines.push(`Validation phases: ${result.validationAdvice.phases.length}`);
+      }
+      if (result.incremental && result.incrementalFindings) {
+        const inc = result.incrementalFindings;
+        lines.push(`Incremental: dead=${inc.deadExportsCount} unresolved=${inc.unresolvedCount} cycles=${inc.cyclesCount}`);
+        for (const de of inc.deadExports.slice(0, 3)) lines.push(`  dead-export: ${de.file}`);
+        for (const u of inc.unresolved.slice(0, 3)) lines.push(`  unresolved: ${u.file}`);
+        for (const c of inc.cycles.slice(0, 3)) lines.push(`  cycle: ${c.join(' -> ')}`);
       }
       return lines.join('\n');
     }
@@ -453,23 +503,8 @@ function formatHuman(command, result) {
       }
       return lines.join('\n');
     }
-    case 'audit-summary': {
-      const lines = [
-        `workspaceRoot: ${result.workspaceRoot}`,
-        `severity: ${result.summary.severity}`,
-        `healthScore: ${result.health.healthScore}`,
-        `totalFiles: ${result.scope.counts.totalFiles} (parseable source only; excludes assets/build artifacts/excluded dirs)`,
-        `mainlineFiles: ${result.scope.counts.mainlineFiles}`,
-        `nonMainlineFiles: ${result.scope.counts.nonMainlineFiles}`,
-        `deadExportsCount: ${result.deadExports.deadExportsCount}`,
-        `unresolvedCount: ${result.unresolved.unresolvedCount}`,
-        `cyclesCount: ${result.cycles.cyclesCount}`,
-      ];
-      if (result.summary.honesty?.disclaimer) {
-        lines.push(`note: ${result.summary.honesty.disclaimer}`);
-      }
-      return lines.join('\n');
-    }
+    case 'audit-summary':
+      return formatAuditSummary(result, 'human');
     case 'audit-file':
       return [
         `file: ${result.file}`,
@@ -487,7 +522,7 @@ function formatHuman(command, result) {
       const topRiskAction = Array.isArray(result.validationAdvice?.topRiskActions)
         ? result.validationAdvice.topRiskActions[0]
         : null;
-      return [
+      const lines = [
         `workspaceRoot: ${result.workspaceRoot}`,
         `severity: ${result.summary.severity}`,
         `changedFiles: ${result.summary.counts.changedFiles}`,
@@ -502,7 +537,16 @@ function formatHuman(command, result) {
         `topRiskAction: ${topRiskAction ? `${topRiskAction.file}: ${topRiskAction.actions[0]}` : 'none'}`,
         `topRiskCommand: ${topRiskAction?.suggestedCommand || 'none'}`,
         `validationPhases: ${result.validationAdvice.phases.length}`,
-      ].join('\n');
+      ];
+      if (result.incremental && result.incrementalFindings) {
+        const inc = result.incrementalFindings;
+        lines.push('', `--- incremental findings (related to changed files) ---`, `deadExports: ${inc.deadExportsCount}`, `unresolved: ${inc.unresolvedCount}`, `cycles: ${inc.cyclesCount}`);
+        for (const de of inc.deadExports.slice(0, 3)) lines.push(`  dead-export: ${de.file}: ${de.exports?.join(', ') || 'n/a'}`);
+        for (const u of inc.unresolved.slice(0, 3)) lines.push(`  unresolved: ${u.file}: ${u.import}`);
+        for (const c of inc.cycles.slice(0, 3)) lines.push(`  cycle: ${c.join(' -> ')}`);
+        if (inc.deadExportsCount + inc.unresolvedCount + inc.cyclesCount === 0) lines.push('  (none)');
+      }
+      return lines.join('\n');
     }
     case 'audit-overview': {
       const langSupport = result.languageSupport || {};
@@ -734,4 +778,4 @@ function formatJsonl(command, result) {
   return records.map((r) => JSON.stringify(r)).join('\n');
 }
 
-module.exports = { formatHuman, formatSummary, formatMarkdown, formatJsonl, formatAi };
+module.exports = { formatHuman, formatSummary, formatMarkdown, formatJsonl, formatAi, formatAuditSummary };

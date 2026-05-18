@@ -358,9 +358,11 @@ class FileIndex {
       const symbols = extractSymbols(content, ext);
 
       // Update file metadata cache
+      const { createHash } = require('crypto');
       this.cache.setFileMetadata(filePath, {
         mtime: stats.mtimeMs,
         size: stats.size,
+        hash: createHash('sha256').update(content).digest('hex'),
         symbols: symbols.map(s => s.name),
         lineCount: (content.match(/\n/g)?.length || 0) + 1,
       });

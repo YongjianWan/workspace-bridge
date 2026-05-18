@@ -10,7 +10,7 @@ function main() {
 
   // Test 1: audit-file with missing file — human mode should show error, not crash
   {
-    const result = runCliRaw(['audit-file', '--cwd', '.', '--file', 'definitely-missing-xyz.js']);
+    const result = runCliRaw(['audit-file', '--cwd', '.', '--file', 'definitely-missing-xyz.js', '--format', 'human']);
     assert.strictEqual(result.status, 1, 'should exit 1 for missing file');
     assert(result.stdout.includes('Error:'), 'human output should contain Error:');
     assert(result.stdout.includes('File not found:'), 'human output should mention file not found');
@@ -27,7 +27,7 @@ function main() {
 
   // Test 3: --quiet must not suppress fatal errors
   {
-    const result = runCliRaw(['audit-file', '--cwd', '.', '--file', 'definitely-missing-xyz.js', '--quiet']);
+    const result = runCliRaw(['audit-file', '--cwd', '.', '--file', 'definitely-missing-xyz.js', '--quiet', '--format', 'human']);
     assert.strictEqual(result.status, 1, 'should exit 1 with quiet');
     assert(result.stdout.includes('Error:'), 'quiet mode should still surface error');
     assert(result.stderr === '', 'quiet mode should suppress stderr diagnostic logs');
