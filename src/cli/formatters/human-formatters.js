@@ -439,6 +439,20 @@ function formatAi(command, result, options = {}) {
       };
     }
 
+    // surface: minimal AI-digestible summary (<150 tokens target)
+    if (currentDepth === 'surface') {
+      return {
+        ok: true,
+        severity: result.summary?.severity || 'low',
+        counts: output.counts,
+        topRisks: output.topRisks.slice(0, 3).map((r) => ({
+          category: r.category,
+          severity: r.severity,
+          ...(r.count !== undefined ? { count: r.count } : {}),
+        })),
+      };
+    }
+
     return output;
   }
 

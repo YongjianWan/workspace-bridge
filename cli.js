@@ -966,14 +966,8 @@ async function main() {
   }
 
   // P0: validate --cwd exists and is a directory before entering heavy init
-  if (parsed.cwd && (!fs.existsSync(parsed.cwd) || !fs.statSync(parsed.cwd).isDirectory())) {
-    const error = `Directory not found: ${parsed.cwd}`;
-    if (parsed.json) {
-      await writeLargeJson(JSON.stringify({ ok: false, error, schemaVersion: SCHEMA_VERSION }));
-    } else {
-      console.error(`Error: ${error}`);
-    }
-    process.exitCode = 1;
+  const invalidCwd = validateCwd(parsed);
+  if (invalidCwd) {
     return;
   }
 
@@ -1022,7 +1016,7 @@ async function main() {
       const jsonStr = JSON.stringify(result, null, 2);
       if (jsonStr.length > STREAMING.LARGE_JSON_THRESHOLD_BYTES && !parsed.quiet) {
         const edges = result && result.edges ? result.edges.length : 0;
-        if (edges > 5000 && !parsed.compact) {
+        if (edges > DEFAULTS.LARGE_PROJECT_EDGE_WARNING_THRESHOLD && !parsed.compact) {
           process.stderr.write(
             '[warn] JSON output is very large (~' +
               Math.round(jsonStr.length / 1024 / 1024) +

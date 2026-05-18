@@ -8,7 +8,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { detectScaffold, SCAFFOLD_REASON_PREFIX } = require('./scaffold-detector');
+const { detectScaffold, SCAFFOLD_REASON_PREFIX } = require('../utils/scaffold-detector');
 
 // Known alias prefixes that frequently cause unresolved false positives
 const ALIAS_PREFIXES = ['@/', '~/', '@/'];

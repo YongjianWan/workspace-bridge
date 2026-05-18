@@ -4,7 +4,7 @@ description: Use this skill when the goal is to audit a local codebase with work
 ---
 # workspace-audit
 
-> **AI-first 调用约定。** 本 skill 教 AI 如何高效使用 workspace-bridge-cli。完整命令参考见 [SKILL-REFERENCE.md](./SKILL-REFERENCE.md)。
+> **AI-first 调用约定。** 本 skill 教 AI 如何高效使用 workspace-bridge-cli。完整命令参考见 [SKILL-REFERENCE.md](./reference/SKILL-REFERENCE.md)。
 
 ## Purpose
 
@@ -73,7 +73,7 @@ workspace-bridge-cli audit-summary --cwd <project> --format markdown --quiet
 
 > `repl` 已支持 `--eval <command>` 非交互模式，不再属于"避免调用"。不带 `--eval` 的纯交互式 `repl` 仍不适合 AI 批量调用。
 
-> ⚠️ **healthScore 不可信**：`healthScore: 5/5` 只检查文件是否存在（README/.gitignore/CI 等），**不反映代码质量**。项目可能有 4 个死导出、1311 行核心文件、6 条活跃债务，healthScore 仍是 5/5。AI 应关注 `deadExports`/`cycles`/`unresolved` 具体字段，而非 healthScore 总分。
+> ⚠️ **healthScore 是 hygiene 指标，不是代码质量指标**：healthScore 只检查文件是否存在（README/.gitignore/CI/Dockerfile 等），**不反映代码质量**。项目可能有 4 个死导出、1311 行核心文件、6 条活跃债务，healthScore 仍可能是满分。AI 应关注 `deadExports`/`cycles`/`unresolved` 具体字段，而非 healthScore 总分。
 
 ## 核心命令详解
 
@@ -230,7 +230,7 @@ AI 消费输出时，以下字段价值低，可跳过以节省上下文：
 | `stability` | 新文件默认 fragile，噪声大 |
 | `stabilityTrend` | 基于 git 历史，对 AI 决策帮助有限 |
 | `hotspots[].reason` | 只展示 git 信号，真正的风险看 `score` 和 `coupling` |
-| `parserAvailability` | 非 Node 项目 `skipped: true` 是正常初始化路径，不代表文件被跳过 |
+| `parserAvailability` | 非 Node 项目 `usedFallbackPath: true` 是正常初始化路径，不代表文件被跳过 |
 
 ## 标准输出契约
 
@@ -262,7 +262,7 @@ AI 消费输出时，以下字段价值低，可跳过以节省上下文：
 
 | 问题 | 修复 |
 |------|------|
-| `command not recognized` | `npx workspace-bridge-cli ...` |
+| `command not recognized` | `npx workspace-bridge-cli@1.2.0 ...` |
 | `fileCount: 0` | 检查 `pom.xml`/`package.json` 是否存在；Java 项目确保在 `pom.xml` 所在目录运行 |
 | 输出含 `coverageWarning` | `analysisCoverage.coverageRatio < 0.5`，部分文件 fallback 到 regex 解析，findings 可能不完整 |
 | Windows 路径问题 | `--file` 参数使用正斜杠或双反斜杠：`--file src/services/dep-graph.js` |

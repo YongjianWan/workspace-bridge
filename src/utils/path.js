@@ -61,15 +61,6 @@ function isPathInsideRoot(rootPath, targetPath) {
   return !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
-function hasPathSegment(targetPath, segment) {
-  const normalizedPath = normalizePathKey(targetPath);
-  const normalizedSegment = normalizePathKey(segment);
-  if (!normalizedSegment) return false;
-  const pathParts = normalizedPath.split('/').filter(Boolean);
-  const segmentParts = normalizedSegment.split('/').filter(Boolean);
-  return segmentParts.some((part) => pathParts.includes(part));
-}
-
 function matchesPathFragment(targetPath, fragment) {
   const normalizedPath = normalizePathKey(targetPath);
   const normalizedFragment = toPosixPath(String(fragment || '')).replace(/^\.?\//, '').replace(/\/+$/, '');
@@ -300,7 +291,6 @@ module.exports = {
   toDisplayPath,
   toRelativePosix,
   isPathInsideRoot,
-  hasPathSegment,
   matchesPathFragment,
   pathExists,
   readJsonSafe,

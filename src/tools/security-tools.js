@@ -70,6 +70,7 @@ async function runBuiltinSecurityScan(cwd, targets, container) {
     if (hasExplicitTargets) {
       const targetPaths = targets.map((t) => normalizePathKey(path.resolve(cwd, t)));
       const targetSet = new Set();
+      const graphPaths = new Set(files);
       for (const tp of targetPaths) {
         const isDir = files.some((f) => f.startsWith(tp + '/'));
         if (isDir) {
@@ -78,6 +79,9 @@ async function runBuiltinSecurityScan(cwd, targets, container) {
           }
         } else {
           targetSet.add(tp);
+          if (!graphPaths.has(tp) && fs.existsSync(tp)) {
+            files.push(tp);
+          }
         }
       }
       files = files.filter((f) => targetSet.has(f));

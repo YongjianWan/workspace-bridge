@@ -11,7 +11,7 @@ const {
   buildDisclaimer,
   isAliasImport,
 } = require('../src/tools/honesty-engine');
-const { SCAFFOLD_FINGERPRINTS } = require('../src/tools/scaffold-detector');
+const { SCAFFOLD_FINGERPRINTS } = require('../src/utils/scaffold-detector');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function mockDepGraph(stats) {

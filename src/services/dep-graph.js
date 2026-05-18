@@ -29,7 +29,7 @@ const {
   isTestLikeFile,
 } = require('../utils/test-detector');
 const { ENTRY_BASE_NAMES } = require('../utils/project-context');
-const { detectScaffold } = require('../tools/scaffold-detector');
+const { detectScaffold } = require('../utils/scaffold-detector');
 
 const readFile = promisify(fs.readFile);
 
@@ -739,6 +739,8 @@ class GraphAnalyzer {
       unresolved,
       cycles,
       stats,
+      hotspots: this._aggregateCache?.hotspots || null,
+      stability: this._aggregateCache?.stability || null,
     };
   }
 
@@ -753,7 +755,14 @@ class GraphAnalyzer {
         }
       }
     }
-    this._pageRanks = computePageRank(nodes, edges);
+    // Warm-start: reuse previous ranks if available (graph structure changes
+    // are handled gracefully — new nodes get uniform, old nodes keep prev).
+    const prevRanks = this.dg.cache?.pageRanks;
+    this._pageRanks = computePageRank(nodes, edges, undefined, prevRanks);
+    // Persist for next run
+    if (this.dg.cache?.savePageRanks) {
+      this.dg.cache.savePageRanks(this._pageRanks);
+    }
   }
 
   getPageRank(filePath) {
@@ -1655,4 +1664,5 @@ class DependencyGraph {
 module.exports = {
   DependencyGraph,
   GraphBuilder,
+  GraphAnalyzer,
 };

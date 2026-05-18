@@ -189,7 +189,7 @@ node cli.js dead-exports --cwd . --json --quiet
 
 - **默认输出是 human-readable**，`--json` 只是可选开关。`cli.js` 不加 `--json` 时输出紧凑的终端友好格式。
 - `audit-overview` 的 hotspot `reason` 只展示 git 历史信号（如 `"No tracked history for this file."`），不展示耦合信号。一个高耦合的新文件可能显示"没历史"，但它的真正风险是被大量模块依赖。看 `score` 和 `coupling` 字段，不要只看 `reason`。
-- `workspace-info` 的 `parserAvailability.skipped: true` 出现在非 Node.js 项目（Java/Python/Go）是正常的，表示 tree-sitter WASM 走了无 `package.json` 的初始化路径，**不表示文件被跳过解析**。
+- `workspace-info` 的 `parserAvailability.usedFallbackPath: true` 出现在非 Node.js 项目（Java/Python/Go）是正常的，表示 tree-sitter WASM 走了无 `package.json` 的初始化路径，**不表示文件被跳过解析**。
 
 ---
 
@@ -258,4 +258,4 @@ THEN 修改前必须跑：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-18（产品债务清零 + L4 命令标记为 debug 层级；120/120 测试通过；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-18（P0–P3 推进 + L3 品味收敛 5/8 + surface 模式变薄 + diagnostics linter fallback + compact 阈值 rationale + overview 裸数字归集 + CHANGELOG 版本导航；120/120 测试通过；schemaVersion: 1.2.0）*

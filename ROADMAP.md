@@ -10,21 +10,16 @@
 
 ## 已知限制（当前待处理）
 
-| 问题 | 状态 | 影响 | 缓解措施 |
-|------|------|------|----------|
-| 混合仓库误判 | ⏳ 需配置 | prototypes/reference 被视为主线 | 使用 `.workspace-bridge.json` 标注目录角色 |
-| mixed repo 技术栈启发式 | ⏳ 持续改进 | Node/Python 共存时命令可能不够精确 | 持续打磨 `stack-detector` |
-| 文档与代码状态同步 | ⏳ 需人工 | ROADMAP/SESSION/CHANGELOG 可能不同步 | 自审后手动对齐 |
-| 多模块 Maven 模块边界未显式标注 | ⏳ 观察 | 模块间耦合强度丢失 | 评估是否输出模块级聚合视图 |
-| 大项目冷启动超时 | ⏳ 观察 | ~~395 文件实测 59s~~ 实测 239 文件 2s / 542 文件 7s（环境差异），但 7s 对 CI 仍不够友好 | 预热工作流 + 评估 `--cache-dir` + 大项目默认 `--compact` |
-| ~~默认输出对 AI 不友好~~ | ✅ **已完成** | ~~human-readable 默认输出迫使 AI 每次手动加 `--format markdown --quiet`~~ | 默认输出已改 `--format markdown`；`--format ai` + `--depth` + `--token-budget` 已交付；exit code 语义已修复。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] |
-| Java `dead-exports` 大图崩溃 | 🔴 **高优先级** | 542 文件 Java 项目跑 `dead-exports` 返回 exit code 49，零输出 | **部分修复**：`GraphBuilder.analyzeFile()` 已加 try-catch 防止 crash batch，但 exit code 49 根因是 Windows Store Python + Git Bash 管道大数据崩溃，环境问题未根治 |
-| diagnostics linter 检测矛盾 | 🔴 **高优先级** | `workspace-info` 显示 eslint 可用，但 `diagnostics` 返回 `noLintersDetected: true` | **部分修复**：`detectNodeLinters` 已统一供 `workspaceInfo` 和 `buildChecks` 共用；残留：`diagnostics` 缓存命中路径不携带 `noLintersDetected`，`buildChecks` 中该字段仅在 `mode === 'quick'` 设置 |
-| `--compact` 阈值无 rationale | ⏳ 待评估 | 500 文件拍脑袋定，239 文件 compact 已输出 29KB | 按输出 token 数动态决定，或 `--budget-tokens` |
-| 跨仓库静态分析 | ⏳ 评估中 | 前后端 API 契约纯文本匹配可做（`@RequestMapping` vs `axios.get`），但 CLI 只能单 `--cwd` | 评估多 `--cwd` 或 `--cross-repo` 低复杂度方案 |
-| npx 版本未锁定 | ⏳ 待评估 | 可能自动升级到不兼容版本，schema 变更后 AI 解析崩 | skill 强制 `npx workspace-bridge-cli@1.2.0` |
-| ~~命令分层混乱~~ | ✅ **已完成** | ~~L4 原始查询与 L1 aggregate 混在同一层级暴露~~ | `--help` 已按 L1/L2/L3/L4 分组输出；L4 命令已标记为 debug 层级；`health` 已标注 deprecated。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] |
-| ~~`init` 生成空配置~~ | ✅ **已完成** | ~~`.workspace-bridge.json` 目录列表全空~~ | `init` 已自动生成 `active` 目录并自动管理 `.gitignore`。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] |
+| 问题                            | 状态                 | 影响                                                                                           | 缓解措施                                                                                                                                                                                                             |
+| ------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 混合仓库误判                    | ⏳ 需配置            | prototypes/reference 被视为主线                                                                | 使用 `.workspace-bridge.json` 标注目录角色                                                                                                                                                                         |
+| mixed repo 技术栈启发式         | ⏳ 持续改进          | Node/Python 共存时命令可能不够精确                                                             | 持续打磨 `stack-detector`                                                                                                                                                                                          |
+| 文档与代码状态同步              | ⏳ 需人工            | ROADMAP/SESSION/CHANGELOG 可能不同步                                                           | 自审后手动对齐                                                                                                                                                                                                       |
+| 多模块 Maven 模块边界未显式标注 | ⏳ 观察              | 模块间耦合强度丢失                                                                             | 评估是否输出模块级聚合视图                                                                                                                                                                                           |
+| 大项目冷启动超时                | ⏳ 观察              | ~~395 文件实测 59s~~ 实测 239 文件 2s / 542 文件 7s（环境差异），但 7s 对 CI 仍不够友好       | 预热工作流 + 评估 `--cache-dir` + 大项目默认 `--compact`                                                                                                                                                         |
+| Java `dead-exports` 大图崩溃  | 🔴**高优先级** | 542 文件 Java 项目跑 `dead-exports` 返回 exit code 49，零输出                                | **部分修复**：`GraphBuilder.analyzeFile()` 已加 try-catch 防止 crash batch，但 exit code 49 根因是 Windows Store Python + Git Bash 管道大数据崩溃，环境问题未根治                                            |
+| diagnostics linter 检测矛盾     | 🔴**高优先级** | `workspace-info` 显示 eslint 可用，但 `diagnostics` 返回 `noLintersDetected: true`       | **部分修复**：`detectNodeLinters` 已统一供 `workspaceInfo` 和 `buildChecks` 共用；残留：`diagnostics` 缓存命中路径不携带 `noLintersDetected`，`buildChecks` 中该字段仅在 `mode === 'quick'` 设置 |
+| 跨仓库静态分析                  | ⏳ 评估中            | 前后端 API 契约纯文本匹配可做（`@RequestMapping` vs `axios.get`），但 CLI 只能单 `--cwd` | 评估多 `--cwd` 或 `--cross-repo` 低复杂度方案                                                                                                                                                                    |
 
 > 近期已修复的限制见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]：`--builtin-only`、`--since <commit>`、TTL 24h、git-aware staleness、`--format jsonl`、SKILL 文档体系重构。
 >
@@ -38,28 +33,28 @@
 
 ---
 
-## 成功标准（9 条）
+## 期望成功标准（9 条）
 
-| # | 成功标准 | 完成度 | 缺口 |
-|---|----------|:------:|------|
-| 1 | 混合仓库结果稳定 | 80% | 无配置时 reference/prototype 仍污染结果 |
-| 2 | TS/Python/前端项目可信主线结论 | 90% | React hooks 隐式依赖、Java 多模块 AST 深度 |
-| 3 | 从"哪里有问题"推进到"怎么改、测什么" | 95% | 极端框架（Nuxt layers）的 fileSpecificAdvice 精度 |
-| 4 | symbol-level impact 可用 | 90% | 仅 C/C++ regex 无 functionRecords |
-| 5 | 大仓库性能可接受 | 97% | 双边冗余内存（路径整数化评估中）、chunked 解析（实测 OOM 时触发）|
-| 6 | 可选外部工具后端（Semgrep）| 100% | — |
-| 7 | 全栈语言覆盖（9 种）| 100% | — |
-| 8 | 全栈 AST 覆盖（9/9 语言）| **100%** | — |
-| 9 | 闭环验证（P8）| **100%** | onGitStaged 触发、失败信息注入 AI 上下文 |
+| # | 成功标准                             |     完成度     | 缺口                                                              |
+| - | ------------------------------------ | :------------: | ----------------------------------------------------------------- |
+| 1 | 混合仓库结果稳定                     |      80%      | 无配置时 reference/prototype 仍污染结果                           |
+| 2 | TS/Python/前端项目可信主线结论       |      90%      | React hooks 隐式依赖、Java 多模块 AST 深度                        |
+| 3 | 从"哪里有问题"推进到"怎么改、测什么" |      95%      | 极端框架（Nuxt layers）的 fileSpecificAdvice 精度                 |
+| 4 | symbol-level impact 可用             |      90%      | 仅 C/C++ regex 无 functionRecords                                 |
+| 5 | 大仓库性能可接受                     |      97%      | 双边冗余内存（路径整数化评估中）、chunked 解析（实测 OOM 时触发） |
+| 6 | 可选外部工具后端（Semgrep）          |      100%      | —                                                                |
+| 7 | 全栈语言覆盖（9 种）                 |      100%      | —                                                                |
+| 8 | 全栈 AST 覆盖（9/9 语言）            | **100%** | —                                                                |
+| 9 | 闭环验证（P8）                       | **100%** | onGitStaged 触发、失败信息注入 AI 上下文                          |
 
 ---
 
 ## 下一步方向：AI 脚手架形态升级
 
 > 路线 A–J 全部完成。基于 ai_zcypg_frontend 实测审计 + 6 仓库误报率统计，核心认知升级：
-> 
+>
 > **workspace-bridge 不是"带 JSON 输出的人类审计工具"，而是"为 AI 设计的代码感知接口"。**
-> 
+>
 > 当前 CLI 有脚手架的"材料"（symbol-level impact、cycle breakCandidate、honesty engine），但没有脚手架的"形态"（统一入口、Token 预算感知、渐进式发现、去噪输出）。
 >
 > 升级原则：砍掉给人类看的分类/模板文案/重复字段，让 AI 直接消费策展后的结论。
@@ -67,6 +62,7 @@
 ### 阶段 1：误报清零（**已完成**）→ 升级为"去噪工程"
 
 原阶段 1 只清零了框架循环误报。在"AI 脚手架"定位下，"去噪"范围扩展：
+
 - 常量仓库和脚手架文件默认过滤（不是降级）
 - audit-overview 去重（recommendations/nextSteps 合并）
 - architectureAdvice 默认抑制
@@ -74,12 +70,12 @@
 
 与开发原则第 2 条一致。实战基地 6 仓库审计直接暴露的 3 项活跃债务 + 1 项安全规则缺口。
 
-| 目标 | 改动文件 | 预期收益 | 工作量 |
-|------|---------|---------|--------|
-| **L2-6**：Vue Admin `settings.js ↔ dynamictitle.js` cycle 白名单 | `dep-graph.js` `isLikelyFrameworkLegitimateCycle` | 两个前端 cycle 误报消除 | ~10 行 |
-| **L2-7**：stability 新文件全 fragile | `overview-tools.js` `calculateStabilityScore` + `constants.js` | 新文件从"fragile"变为中性/"new" | ~20 行 |
-| **L3-3**：architectureAdvice 单体项目抑制 | `overview-tools.js` `generateCouplingSplitPlan` | 单体项目不再收到"按子域拆分" | ~30 行 |
-| **security-tools.js 规则扩展** | `security-tools.js` | 新增：文件上传路径遍历、配置密钥硬编码、日志 token 打印 | ~30 行 |
+| 目标                                                                      | 改动文件                                                             | 预期收益                                                | 工作量 |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------- | ------ |
+| **L2-6**：Vue Admin `settings.js ↔ dynamictitle.js` cycle 白名单 | `dep-graph.js` `isLikelyFrameworkLegitimateCycle`                | 两个前端 cycle 误报消除                                 | ~10 行 |
+| **L2-7**：stability 新文件全 fragile                                | `overview-tools.js` `calculateStabilityScore` + `constants.js` | 新文件从"fragile"变为中性/"new"                         | ~20 行 |
+| **L3-3**：architectureAdvice 单体项目抑制                           | `overview-tools.js` `generateCouplingSplitPlan`                  | 单体项目不再收到"按子域拆分"                            | ~30 行 |
+| **security-tools.js 规则扩展**                                      | `security-tools.js`                                                | 新增：文件上传路径遍历、配置密钥硬编码、日志 token 打印 | ~30 行 |
 
 **状态**：2026-05-14 全部完成，103/103 测试通过。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
@@ -88,6 +84,7 @@
 ### 阶段 2：AI 预消化输出（短期，1 周内）
 
 原阶段 2 是"把已有能力暴露正确"。在"AI 脚手架"定位下，升级为"CLI 直接输出 AI 可消费的策展结论"：
+
 - **`--format ai`**：统一入口，预组装 severity + top risks + actions + confidence
 - **`--token-budget <n>`**：AI 上下文感知，自动裁剪保留高优先级内容
 - **`--depth surface|detail|full`**：渐进式发现，Layer 1 只给 counts + top 3 risks
@@ -96,12 +93,12 @@
 
 **不是新增子系统，是把已有的能力暴露正确。**
 
-| # | 目标 | 改动文件 | 预期收益 | 工作量 |
-|---|------|---------|---------|--------|
-| 1 | **`audit-security --builtin-only`** | `security-tools.js` + `cli.js` + `parse-args.js` | 19 条零依赖规则可独立运行，< 2s，解决"安全扫描形同虚设" | ~10 行 |
-| 2 | **`--format summary` 纯模板摘要** | `human-formatters.js` 新增分支 | 1000 文件项目从 ~400 行 JSON → 20 行关键结论 | ~50 行 |
-| 3 | **`audit-diff --since <commit>`** | `git-tools.js` `getChangedFiles` + `cli.js` | PR diff 审查只输出变更相关结果，消除全库噪音 | ~40 行 |
-| — | hotspot `reason` 组合展示 | `overview-tools.js` `buildHotspots` | 高耦合新文件显示"高耦合 + 无历史"而非仅"无历史" | ~15 行 |
+| #  | 目标                                        | 改动文件                                               | 预期收益                                                | 工作量 |
+| -- | ------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------- | ------ |
+| 1  | **`audit-security --builtin-only`** | `security-tools.js` + `cli.js` + `parse-args.js` | 19 条零依赖规则可独立运行，< 2s，解决"安全扫描形同虚设" | ~10 行 |
+| 2  | **`--format summary` 纯模板摘要**   | `human-formatters.js` 新增分支                       | 1000 文件项目从 ~400 行 JSON → 20 行关键结论           | ~50 行 |
+| 3  | **`audit-diff --since <commit>`**   | `git-tools.js` `getChangedFiles` + `cli.js`      | PR diff 审查只输出变更相关结果，消除全库噪音            | ~40 行 |
+| — | hotspot `reason` 组合展示                 | `overview-tools.js` `buildHotspots`                | 高耦合新文件显示"高耦合 + 无历史"而非仅"无历史"         | ~15 行 |
 
 **决策逻辑**：纯 formatter / 参数层改动，不动 graph/parser/cache。三项均不引入 LLM 调用、网络依赖或外部工具，保持 CLI 轻量本地属性。
 
@@ -116,11 +113,11 @@
 
 静态分析的硬边界（Vue 模板编译时、Spring DI 运行时、MyBatis XML 绑定）无法突破，但在边界内仍可深化。
 
-| 目标 | 改动文件 | 预期收益 | 边界 |
-|------|---------|---------|------|
-| **Vue `<script setup>` 编译器宏识别** | `js.js` / `framework-patterns.js` | `defineProps`/`defineEmits`/`defineExpose` 导出不标记 dead-export | 只能识别宏定义，不能追踪模板使用 |
-| **Spring 更多运行时注解** | `framework-patterns.js` `AST_PATTERNS.java` | 覆盖 `@RestController`/`@FeignClient`/`@Scheduled` | 只标记 framework-managed，不追踪反射调用 |
-| **Django 更多配置驱动入口** | `framework-patterns.js` | middleware、router、context processors 等 | 同现有模式 |
+| 目标                                          | 改动文件                                        | 预期收益                                                                | 边界                                     |
+| --------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------- |
+| **Vue `<script setup>` 编译器宏识别** | `js.js` / `framework-patterns.js`           | `defineProps`/`defineEmits`/`defineExpose` 导出不标记 dead-export | 只能识别宏定义，不能追踪模板使用         |
+| **Spring 更多运行时注解**               | `framework-patterns.js` `AST_PATTERNS.java` | 覆盖 `@RestController`/`@FeignClient`/`@Scheduled`                | 只标记 framework-managed，不追踪反射调用 |
+| **Django 更多配置驱动入口**             | `framework-patterns.js`                       | middleware、router、context processors 等                               | 同现有模式                               |
 
 **决策逻辑**：投入可控（每种框架加几行 pattern），收益明确（减少误报）。不碰 call graph / 数据流。
 
@@ -135,45 +132,40 @@
 
 ### 当前不做（与核心原则冲突）
 
-| 需求 | 当前不做理由 | 如果硬做会怎样 |
-|------|---------|--------------|
-| **污点追踪 / 跨文件数据流** | 需要新增 call graph 子系统。即使做了，Spring DI / Vue 模板 / MyBatis XML 等运行时绑定问题仍解不了 | 投入 ~1 个月，对实战基地几乎无收益 |
-| **接入 SpotBugs/PMD** | 需要 JVM 环境。外部工具策略已明确"可选适配器，不做核心依赖" | 破坏轻量 CLI 定位 |
-| **MCP Server / daemon 模式** | 开发原则第 1 条：CLI-only。daemon = 常驻进程 = 协议层维护成本 | 与 CLI-only 方向直接冲突 |
-| **修复代码自动生成（`--suggest`）** | 这是 AI 语义理解的能力圈，不是结构分析的产出。给出具体重构建议需要理解代码语义 | 需要内置 LLM 调用，与轻量本地属性冲突 |
-| **`rules --config` 重规则引擎** | 将 `security-tools.js` 硬编码规则提取为外部 YAML/JSON 属于"规则引擎层次 A"，但完整的 `rules --list/run/config` CLI 是重规则引擎产品 | 与"轻量 CLI"定位冲突。层次 A 可在不新增命令的前提下实现（如 `--config <file>` 覆盖内置规则集） |
-| **AGENTS.md 语义联动** | AGENTS 红线多为语义规则，需要数据流分析才能判断来源是否安全 | 与"结构分析 ≠ 语义分析"原则冲突 |
-| **`--cross-repo` 跨仓库关联** | 需要解析前后端接口契约（OpenAPI/REST）并对比字段变更 | 属于跨项目语义关联，需要接口契约解析子系统，投入 ~1 个月 |
-| **`--field` 数据库字段级追踪** | 需要数据库 schema 解析 + 跨语言字段引用追踪 | 属于数据流分析，与"结构分析 ≠ 语义分析"原则冲突 |
-| **`--method` 方法级追踪** | 需要完整的 call graph 子系统（caller/callee 解析 + 重载消解 + 继承链追踪） | 属于符号级调用解析，工作量大但收益高。可在持久化图存储阶段评估 |
-| **`--workers 4` 多线程** | Node.js 单线程，worker_threads 引入共享内存/消息传递复杂度 | 当前 `Promise.all` + 信号量限流已满足需求，多线程收益有限 |
-| **已知缺口自动追踪** | 需要理解 AGENTS.md 自然语言语义并映射到代码位置 | 属于 NLP + 语义分析，与"结构分析 ≠ 语义分析"原则冲突 |
+| 需求                                        | 当前不做理由                                                                                                                            | 如果硬做会怎样                                                                                   |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| **污点追踪 / 跨文件数据流**           | 需要新增 call graph 子系统。即使做了，Spring DI / Vue 模板 / MyBatis XML 等运行时绑定问题仍解不了                                       | 投入 ~1 个月，对实战基地几乎无收益                                                               |
+| **接入 SpotBugs/PMD**                 | 需要 JVM 环境。外部工具策略已明确"可选适配器，不做核心依赖"                                                                             | 破坏轻量 CLI 定位                                                                                |
+| **MCP Server / daemon 模式**          | 开发原则第 1 条：CLI-only。daemon = 常驻进程 = 协议层维护成本                                                                           | 与 CLI-only 方向直接冲突                                                                         |
+| **修复代码自动生成（`--suggest`）** | 这是 AI 语义理解的能力圈，不是结构分析的产出。给出具体重构建议需要理解代码语义                                                          | 需要内置 LLM 调用，与轻量本地属性冲突                                                            |
+| **`rules --config` 重规则引擎**     | 将 `security-tools.js` 硬编码规则提取为外部 YAML/JSON 属于"规则引擎层次 A"，但完整的 `rules --list/run/config` CLI 是重规则引擎产品 | 与"轻量 CLI"定位冲突。层次 A 可在不新增命令的前提下实现（如 `--config <file>` 覆盖内置规则集） |
+| **AGENTS.md 语义联动**                | AGENTS 红线多为语义规则，需要数据流分析才能判断来源是否安全                                                                             | 与"结构分析 ≠ 语义分析"原则冲突                                                                 |
+| **`--cross-repo` 跨仓库关联**       | 需要解析前后端接口契约（OpenAPI/REST）并对比字段变更                                                                                    | 属于跨项目语义关联，需要接口契约解析子系统，投入 ~1 个月                                         |
+| **`--field` 数据库字段级追踪**      | 需要数据库 schema 解析 + 跨语言字段引用追踪                                                                                             | 属于数据流分析，与"结构分析 ≠ 语义分析"原则冲突                                                 |
+| **`--method` 方法级追踪**           | 需要完整的 call graph 子系统（caller/callee 解析 + 重载消解 + 继承链追踪）                                                              | 属于符号级调用解析，工作量大但收益高。可在持久化图存储阶段评估                                   |
+| **`--workers 4` 多线程**            | Node.js 单线程，worker_threads 引入共享内存/消息传递复杂度                                                                              | 当前 `Promise.all` + 信号量限流已满足需求，多线程收益有限                                      |
+| **已知缺口自动追踪**                  | 需要理解 AGENTS.md 自然语言语义并映射到代码位置                                                                                         | 属于 NLP + 语义分析，与"结构分析 ≠ 语义分析"原则冲突                                            |
 
 ---
 
-### L3 品味问题（8 项活跃）
+### L3 品味问题（3 项活跃）
 
 按 [TECH_DEBT.md](./docs/TECH_DEBT.md) 记录：
 
-| 位置 | 问题 | 优先级 |
-|------|------|--------|
-| `git-tools.js` | `getChangedFiles()` 手动字符级解析 | 低 |
-| `overview-tools.js` | `renderOverviewDashboard` 中 HTML/CSS 裸数字 | 低 |
-| `js.js` | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行 | 低 |
-| `path.js` | `hasPathSegment` 语义陷阱：只取 segment 最后一级 | 低 |
-| `workspace-tools.js` / `SKILL.md` | `parserAvailability.skipped: true` 命名语义陷阱 | 低 |
-| `cli.js` / `formatters` | `--json` 嵌套深、体积大，`--compact` 后仍有 400 行，管道场景不友好；默认 human-readable 输出缺乏实战打磨 | 中 |
-| `cli.js` / `constants.js` | `--compact` 500 文件阈值无 rationale，拍脑袋定 | 中 |
-| `SKILL.md` / `package.json` | npx 版本未锁定，可能自动升级到不兼容版本 | 中 |
+| 位置                        | 问题                                                                                                         | 优先级 |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------ | ------ |
+| `git-tools.js`            | `getChangedFiles()` 手动字符级解析                                                                         | 低     |
+| `js.js`                   | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行                                             | 低     |
+| `cli.js` / `formatters` | `--json` 嵌套深、体积大，`--compact` 后仍有 400 行，管道场景不友好；默认 human-readable 输出缺乏实战打磨 | 中     |
 
 ---
 
 ### 性能瓶颈（大项目 >10k 文件，未修复项）
 
-| 级别 | 位置 | 问题 | 量化影响 | 建议修复 |
-|:---|:---|:---|:---|:---|
-| P1 | `dep-graph.js:127-128` | `graph` + `reverseGraph` 双边冗余 | 100k 条边 → **16–24MB** 纯冗余 | 评估是否可改为单图 + 按需反向遍历 |
-| P1 | `cache.js:112,157` | 缓存加载/保存双重内存峰值 | 50MB 缓存文件 → 峰值 **100MB+** | 接受现状（工程量大收益小），或评估 streaming JSON parser |
+| 级别 | 位置                     | 问题                                  | 量化影响                              | 建议修复                                                 |
+| :--- | :----------------------- | :------------------------------------ | :------------------------------------ | :------------------------------------------------------- |
+| P1   | `dep-graph.js:127-128` | `graph` + `reverseGraph` 双边冗余 | 100k 条边 →**16–24MB** 纯冗余 | 评估是否可改为单图 + 按需反向遍历                        |
+| P1   | `cache.js:112,157`     | 缓存加载/保存双重内存峰值             | 50MB 缓存文件 → 峰值**100MB+** | 接受现状（工程量大收益小），或评估 streaming JSON parser |
 
 > 已修复项（P74 流式扫描 / P75 缓存 I/O / Python 子进程限流 / git log 限流）见 [CHANGELOG.md](./CHANGELOG.md)。
 
@@ -181,38 +173,39 @@
 
 ### 用户体验缺口
 
-| 维度 | 问题 | 当前表现 | 理想表现 |
-|------|------|----------|----------|
+| 维度 | 问题      | 当前表现                                       | 理想表现                        |
+| ---- | --------- | ---------------------------------------------- | ------------------------------- |
 | 配置 | ⏳ 待评估 | `.workspace-bridge.json` schema 校验可更严格 | 未知字段/类型错误警告（非阻塞） |
-| 进度 | ⏳ 待评估 | 超大仓库（>10k 文件）索引进度粒度不足 | 按百分比或按模块打印进度 |
+| 进度 | ⏳ 待评估 | 超大仓库（>10k 文件）索引进度粒度不足          | 按百分比或按模块打印进度        |
 
 ---
 
 ## 长期方向（非承诺，见路线 I-2 深度评估）
 
-| 方向 | 价值 | 成本 | 判断 | 触发条件 |
-|------|------|------|------|----------|
-| 符号级调用解析（Call-Resolution DAG） | 高 | 很高 | **当前不做** | 需要新增 call graph 子系统；即使做了，Spring DI / Vue 模板 / MyBatis XML 等运行时绑定问题仍解不了 |
-| 字段读写追踪（ACCESSES 边） | 高 | 高 | **当前不做** | 同污点追踪，需要跨文件数据流分析，与"结构分析 ≠ 语义分析"原则冲突 |
-| CI Schema Parity 测试 | 中 | 低 | 观察 | 下一次 schema 变更前 |
-| **规则引擎层次 A（配置化）** | 中 | 低 | **接受** | 将 `security-tools.js` 硬编码规则提取为外部 YAML/JSON，无需数据库。通过 `--config <file>` 参数接入，不新增 `rules` 子命令 |
-| **规则引擎层次 B（AST 轻量规则）** | 中高 | 中 | **接受** | 基于现有 `functionRecords` 做方法级条件检查（如"batch* 方法无 @Transactional"），不跨文件 |
-| **AI 预消化输出（`--format ai`）** | 高 | 低 | **接受** | CLI 直接输出"Top 3 Risks + Actions + Confidence"预消化报告，skill 从 180 行缩至 50 行。当前 skill 过厚是因为 CLI 不预消化，skill 被迫补偿 |
-| **AI 摘要输出（纯模板）** | 高 | 低 | **接受** | `--format summary` / `--format markdown` 用模板将 JSON 策展为 20 行关键结论或 Markdown 审查意见，不引入 LLM 调用 |
-| **增量分析扩展** | 高 | 低 | **接受** | `--since <commit>` commit range、`--staged` 暂存区、`--files a,b,c` 指定文件列表、`--with-impact` 变更+依赖方自动展开 |
-| **持久化图存储（SQLite）** | 高 | 中 | **P2 启动，POC 通过** | POC 三阶段全部完成：
+| 方向                                       | 价值 | 成本 | 判断                        | 触发条件                                                                                                                                  |
+| ------------------------------------------ | ---- | ---- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 符号级调用解析（Call-Resolution DAG）      | 高   | 很高 | **当前不做**          | 需要新增 call graph 子系统；即使做了，Spring DI / Vue 模板 / MyBatis XML 等运行时绑定问题仍解不了                                         |
+| 字段读写追踪（ACCESSES 边）                | 高   | 高   | **当前不做**          | 同污点追踪，需要跨文件数据流分析，与"结构分析 ≠ 语义分析"原则冲突                                                                        |
+| CI Schema Parity 测试                      | 中   | 低   | 观察                        | 下一次 schema 变更前                                                                                                                      |
+| **规则引擎层次 A（配置化）**         | 中   | 低   | **接受**              | 将 `security-tools.js` 硬编码规则提取为外部 YAML/JSON，无需数据库。通过 `--config <file>` 参数接入，不新增 `rules` 子命令           |
+| **规则引擎层次 B（AST 轻量规则）**   | 中高 | 中   | **接受**              | 基于现有 `functionRecords` 做方法级条件检查（如"batch* 方法无 @Transactional"），不跨文件                                               |
+| **AI 预消化输出（`--format ai`）** | 高   | 低   | **接受**              | CLI 直接输出"Top 3 Risks + Actions + Confidence"预消化报告，skill 从 180 行缩至 50 行。当前 skill 过厚是因为 CLI 不预消化，skill 被迫补偿 |
+| **AI 摘要输出（纯模板）**            | 高   | 低   | **接受**              | `--format summary` / `--format markdown` 用模板将 JSON 策展为 20 行关键结论或 Markdown 审查意见，不引入 LLM 调用                      |
+| **增量分析扩展**                     | 高   | 低   | **接受**              | `--since <commit>` commit range、`--staged` 暂存区、`--files a,b,c` 指定文件列表、`--with-impact` 变更+依赖方自动展开             |
+| **持久化图存储（SQLite）**           | 高   | 中   | **P2 启动，POC 通过** | POC 三阶段全部完成：                                                                                                                      |
+
 - 小图（239 nodes）：findDeadExports **1ms**、recursive CTE impact **0ms**、增量 update **1ms**、文件大小小 18 倍 ✅
 - 大图（5000 nodes / 17580 edges）：findDeadExports **4ms**、impact d=5 **1ms**、random 100× **5ms**、batch update **10ms**、文件大小小 610 倍 ✅
 - **cycle detection**：naive recursive CTE **45,601ms** ❌；内存 DFS **37ms** ✅ → **cycle 保留内存算法，SQLite 负责持久化 + deadExports + impact + 增量更新**
 - 方案：`better-sqlite3`（~10MB，零服务器），3 张表 `nodes` + `edges` + `file_metadata`。下一步：核心引擎迁移
-| **分层输出过滤** | 中 | 低 | **接受** | `--severity P0/P1` 按严重程度过滤、`--category security/performance` 按类别过滤（需规则打标签） |
-| **审查追踪（轻量）** | 中 | 低 | **接受** | `--save <file>` 保存审计结果、`--check-regression` 对比上次审计检查 P0/P1 是否修复、`--baseline <commit>` 按变更文件标注问题为 `new`/`legacy` |
-| **默认输出模式校准** | 中 | 低 | **接受** | 默认输出改为 `--format markdown`（AI 场景为主）或 `--format summary`。加 `--format human` 显式恢复人工输出。用户明确：当前仅单用户，重构优先于兼容 |
-| **命令分层暴露** | 高 | 低 | **接受** | `--help` 按 L1 策展入口 / L2 专项工具 / L3 环境诊断 / L4 原始查询 四层分组输出；`health` 改为 `audit-summary --health-only` 别名 + deprecation；SKILL.md 按层级重写。不删除任何命令，只改暴露方式 |
-| **大项目自动截断/自适应** | 中 | 低 | **接受** | 500+ 文件自动启用 `--compact`，或自动抑制低价值字段（architectureAdvice 等）。加 `--no-compact` 显式覆盖 |
-| **噪音抑制增强** | 中 | 低 | **接受** | `.workspace-bridge.json` 扩展 `ignore` 配置（框架感知排除）、`--mark-false-positive <id>` 记录误报（轻量，不引入机器学习） |
-| **`--cache-dir` 参数** | 高 | 低 | **接受** | 让缓存持久化到指定目录，避免每次新 session 重建索引。解决 395 文件冷启动 59s 的最直接手段 |
-| **大项目截断（手动）** | 低 | 低 | **接受** | `--max-files <n>` 只分析前 N 个变更/影响最大的文件，控制输出体积 |
+  | **分层输出过滤** | 中 | 低 | **接受** | `--severity P0/P1` 按严重程度过滤、`--category security/performance` 按类别过滤（需规则打标签） |
+  | **审查追踪（轻量）** | 中 | 低 | **接受** | `--save <file>` 保存审计结果、`--check-regression` 对比上次审计检查 P0/P1 是否修复、`--baseline <commit>` 按变更文件标注问题为 `new`/`legacy` |
+  | **默认输出模式校准** | 中 | 低 | **接受** | 默认输出改为 `--format markdown`（AI 场景为主）或 `--format summary`。加 `--format human` 显式恢复人工输出。用户明确：当前仅单用户，重构优先于兼容 |
+  | **命令分层暴露** | 高 | 低 | **接受** | `--help` 按 L1 策展入口 / L2 专项工具 / L3 环境诊断 / L4 原始查询 四层分组输出；`health` 改为 `audit-summary --health-only` 别名 + deprecation；SKILL.md 按层级重写。不删除任何命令，只改暴露方式 |
+  | **大项目自动截断/自适应** | 中 | 低 | **接受** | 500+ 文件自动启用 `--compact`，或自动抑制低价值字段（architectureAdvice 等）。加 `--no-compact` 显式覆盖 |
+  | **噪音抑制增强** | 中 | 低 | **接受** | `.workspace-bridge.json` 扩展 `ignore` 配置（框架感知排除）、`--mark-false-positive <id>` 记录误报（轻量，不引入机器学习） |
+  | **`--cache-dir` 参数** | 高 | 低 | **接受** | 让缓存持久化到指定目录，避免每次新 session 重建索引。解决 395 文件冷启动 59s 的最直接手段 |
+  | **大项目截断（手动）** | 低 | 低 | **接受** | `--max-files <n>` 只分析前 N 个变更/影响最大的文件，控制输出体积 |
 
 > 路线 I-2 GitNexus 深度对比的 9 项发现中，数值 confidence / yieldToEventLoop / confidenceSource 标签 / git-aware staleness / import 策略链抽象 5 项已吸收并完成。详见 [CHANGELOG.md](./CHANGELOG.md)。
 >

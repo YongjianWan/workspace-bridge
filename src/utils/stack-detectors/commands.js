@@ -12,12 +12,22 @@ function nodeExec(packageManager) {
   return null;
 }
 
+function splitCommand(commandStr) {
+  const parts = commandStr.split(/\s+/);
+  return { command: parts[0], args: parts.slice(1) };
+}
+
 function buildNodeTestCommand(runner, files, execConfig) {
-  if (runner === 'vitest') return { command: execConfig.exec, args: ['vitest', 'run', ...files] };
-  if (runner === 'jest') return { command: execConfig.exec, args: ['jest', ...files] };
-  if (runner === 'mocha') return { command: execConfig.exec, args: ['mocha', ...files] };
-  const runParts = execConfig.run.split(/\s+/);
-  return { command: runParts[0], args: [...runParts.slice(1), 'test'] };
+  const { command, args } = splitCommand(execConfig.exec);
+  if (runner === 'vitest') return { command, args: [...args, 'vitest', 'run', ...files] };
+  if (runner === 'jest') return { command, args: [...args, 'jest', ...files] };
+  if (runner === 'mocha') return { command, args: [...args, 'mocha', ...files] };
+  // Best-effort for unknown/custom runners: exec the runner with files if any
+  if (files.length > 0) {
+    return { command, args: [...args, runner, ...files] };
+  }
+  const run = splitCommand(execConfig.run);
+  return { command: run.command, args: [...run.args, 'test'] };
 }
 
 function buildGoModuleTestCommands(modules, files, namePrefix) {
@@ -74,6 +84,12 @@ function buildRustTestCommands(rustStack, rustFiles, namePrefix) {
       description: 'Run affected Rust modules',
       executable: { command: 'cargo', args: ['test', ...moduleArgs] },
     }];
+  } else if (rustFiles.length > 0) {
+    return [{
+      name: `${namePrefix}-tests`,
+      description: 'Run affected Rust crate',
+      executable: { command: 'cargo', args: ['test'] },
+    }];
   }
   return [];
 }
@@ -93,6 +109,8 @@ function getNodeCommands(nodeStack, changeType, targets) {
   if (!nodeStack?.enabled) return { smoke: [], focused: [], full: [] };
   const exec = nodeExec(nodeStack.packageManager);
   if (!exec) return { smoke: [], focused: [], full: [] };
+  const { command: execCmd, args: execArgs } = splitCommand(exec.exec);
+  const { command: runCmd, args: runArgs } = splitCommand(exec.run);
 
   // Only actual source files should be passed to linters/test runners.
   const targetList = Array.isArray(targets) ? targets : [];
@@ -101,17 +119,17 @@ function getNodeCommands(nodeStack, changeType, targets) {
 
   return buildStackCommands(nodeStack, changeType, (commands) => {
     if (nodeStack.linters.includes('eslint')) {
-      commands.smoke.push({ name: 'node-lint', description: 'Run ESLint on changed files', executable: { command: exec.exec, args: ['eslint', ...codeTargets] } });
+      commands.smoke.push({ name: 'node-lint', description: 'Run ESLint on changed files', executable: { command: execCmd, args: [...execArgs, 'eslint', ...codeTargets] } });
     }
     if (nodeStack.typeChecker === 'tsc') {
-      commands.smoke.push({ name: 'node-type-check', description: 'Run TypeScript type check', executable: { command: exec.exec, args: ['tsc', '--noEmit'] } });
+      commands.smoke.push({ name: 'node-type-check', description: 'Run TypeScript type check', executable: { command: execCmd, args: [...execArgs, 'tsc', '--noEmit'] } });
     }
     if (nodeStack.testRunner) {
       const testExec = buildNodeTestCommand(nodeStack.testRunner, codeTargets, exec);
       if (codeTargets.length > 0) {
         commands.focused.push({ name: 'node-focused-tests', description: 'Run node-side focused tests', executable: testExec });
       }
-      commands.full.push({ name: 'node-all-tests', description: 'Run node-side full test suite', executable: { command: exec.run.split(/\s+/)[0], args: [...exec.run.split(/\s+/).slice(1), 'test'] } });
+      commands.full.push({ name: 'node-all-tests', description: 'Run node-side full test suite', executable: { command: runCmd, args: [...runArgs, 'test'] } });
     }
   });
 }
@@ -250,16 +268,17 @@ function getGoCommands(goStack, changeType, targets) {
   return buildStackCommands(goStack, changeType, (commands) => {
     commands.smoke.push({ name: 'go-build', description: 'Go build check', executable: { command: 'go', args: ['build', './...'] } });
     commands.smoke.push({ name: 'go-vet', description: 'Run go vet for static analysis', executable: { command: 'go', args: ['vet', './...'] } });
-    if (targets.length > 0) {
-      const nested = buildGoModuleTestCommands(goStack.modules, targets, 'go-focused');
+    const goFiles = targets.filter((file) => /\.go$/.test(file));
+    if (goFiles.length > 0) {
+      const nested = buildGoModuleTestCommands(goStack.modules, goFiles, 'go-focused');
       if (nested.length > 0) {
         commands.focused.push(...nested);
       } else {
         const goPackages = Array.from(new Set(
-          targets.map((file) => path.dirname(file)).filter((dir) => dir && dir !== '.')
+          goFiles.map((file) => path.dirname(file)).filter((dir) => dir)
         ));
         if (goPackages.length > 0) {
-          commands.focused.push({ name: 'go-focused-tests', description: 'Run affected Go packages', executable: { command: 'go', args: ['test', ...goPackages.map((p) => `./${p}`)] } });
+          commands.focused.push({ name: 'go-focused-tests', description: 'Run affected Go packages', executable: { command: 'go', args: ['test', ...goPackages.map((p) => p === '.' ? '.' : `./${p}`)] } });
         }
       }
     }
@@ -451,9 +470,11 @@ function getDocsCommands(stack, changeType) {
 function generateCommands(stack, changeType, targets, steps = []) {
   const docsCommands = getDocsCommands(stack, changeType);
   if (changeType === 'docs' && docsCommands) {
+    const serveCmd = splitCommand(docsCommands.serve);
+    const buildCmd = splitCommand(docsCommands.build);
     return {
-      smoke: [{ name: 'preview-docs', description: 'Start docs preview server', executable: { command: docsCommands.serve.split(/\s+/)[0], args: docsCommands.serve.split(/\s+/).slice(1) } }],
-      focused: [{ name: 'build-docs', description: 'Build docs to catch broken pages', executable: { command: docsCommands.build.split(/\s+/)[0], args: docsCommands.build.split(/\s+/).slice(1) } }],
+      smoke: [{ name: 'preview-docs', description: 'Start docs preview server', executable: { command: serveCmd.command, args: serveCmd.args } }],
+      focused: [{ name: 'build-docs', description: 'Build docs to catch broken pages', executable: { command: buildCmd.command, args: buildCmd.args } }],
       full: [],
     };
   }

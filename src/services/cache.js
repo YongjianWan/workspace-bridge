@@ -29,6 +29,8 @@ class WorkspaceCache {
     this.parseResults = new Map(); // file -> {imports, exports, importRecords, exportRecords, functionRecords, parseMode, confidence, mtime}
     this.symbolIndex = new Map();  // symbol -> [{file, line, type}]
     this.diagnostics = new Map();  // file -> [diagnostics]
+    this.pageRanks = new Map();    // filePath -> rank (warm-start for PageRank)
+    this.coChanges = null;         // { pairCounts: Map, fileChangeCounts: Map, commitCount }
 
     this.lastSaved = 0;
   }
@@ -123,6 +125,8 @@ class WorkspaceCache {
       this.symbolIndex = data.symbolIndex || new Map();
       this.diagnostics = data.diagnostics || new Map();
       this.lastSaved = data.timestamp || 0;
+      this.pageRanks = this._loadPageRanks();
+      this.coChanges = this._loadCoChanges();
       return true;
     } catch (err) {
       if (process.env.DEBUG) {
@@ -153,6 +157,62 @@ class WorkspaceCache {
       if (process.env.DEBUG) {
         console.error('[Cache] SQLite save failed:', err.message);
       }
+      return false;
+    }
+  }
+
+  // Co-change cache
+  _loadCoChanges() {
+    try {
+      const raw = this._graphDb.getMetadata('coChanges');
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      if (!obj || typeof obj !== 'object') return null;
+      return {
+        pairCounts: new Map(obj.pairCounts || []),
+        fileChangeCounts: new Map(obj.fileChangeCounts || []),
+        commitCount: obj.commitCount || 0,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  saveCoChanges(coChanges) {
+    try {
+      const obj = {
+        pairCounts: Array.from(coChanges.pairCounts.entries()),
+        fileChangeCounts: Array.from(coChanges.fileChangeCounts.entries()),
+        commitCount: coChanges.commitCount,
+      };
+      this._graphDb.setMetadata('coChanges', JSON.stringify(obj));
+      this.coChanges = coChanges;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // PageRank warm-start cache
+  _loadPageRanks() {
+    try {
+      const raw = this._graphDb.getMetadata('pageRanks');
+      if (!raw) return new Map();
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return new Map();
+      return new Map(arr);
+    } catch {
+      return new Map();
+    }
+  }
+
+  savePageRanks(pageRanks) {
+    try {
+      const arr = Array.from(pageRanks.entries());
+      this._graphDb.setMetadata('pageRanks', JSON.stringify(arr));
+      this.pageRanks = pageRanks;
+      return true;
+    } catch {
       return false;
     }
   }

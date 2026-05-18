@@ -122,4 +122,4 @@ function computePageRank(nodes, edges, options, prevRanks) {
   return result;
 }
 
-module.exports = { computePageRank, DEFAULT_CONFIG };
+module.exports = { computePageRank };

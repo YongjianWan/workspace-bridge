@@ -4,7 +4,6 @@ const assert = require('assert');
 const {
   normalizePathKey,
   matchesPathFragment,
-  hasPathSegment,
   isPathInsideRoot,
   resolveWorkspaceFilePath,
 } = require('../src/utils/path');
@@ -25,14 +24,6 @@ function testMatchesPathFragment() {
   assert.strictEqual(matchesPathFragment('/a/b/node_modules/c', 'node_modules'), true);
   assert.strictEqual(matchesPathFragment('/a/b/node_modules', 'node_modules'), true);
   assert.strictEqual(matchesPathFragment('/a/b/c', 'node_modules'), false);
-}
-
-function testHasPathSegment() {
-  assert.strictEqual(hasPathSegment('/a/b/c', 'b'), true);
-  // NOTE: hasPathSegment has a known semantic trap on Windows:
-  // normalizePathKey resolves relative segments against cwd, and drive letters
-  // can cause false positives. This is documented in TECH_DEBT.md.
-  // We only assert the positive case here.
 }
 
 function testIsPathInsideRoot() {
@@ -63,7 +54,6 @@ function testTurkishLocaleSafe() {
 function main() {
   testNormalizePathKeyWindowsCase();
   testMatchesPathFragment();
-  testHasPathSegment();
   testIsPathInsideRoot();
   testResolveWorkspaceFilePath();
   testTurkishLocaleSafe();

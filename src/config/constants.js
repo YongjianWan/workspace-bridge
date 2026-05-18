@@ -109,14 +109,20 @@ const DEFAULTS = {
   REPL_ISSUES_LIMIT: 3,
   REPL_TOP_LIMIT: 2,
   PROJECT_MAP_HIGHLIGHT_MAX: 30,
-  COMPACT_ISSUE_MAX_ITEMS: 10,
-  COMPACT_ORPHAN_MAX_ITEMS: 10,
-  // Audit-diff compact thresholds
+  // Compact mode truncation limits — chosen to keep AI-readable output under ~2KB
+  // while still surfacing enough signal for action decisions.
+  COMPACT_ISSUE_MAX_ITEMS: 10,          // 10 issues = ~300 tokens; beyond that noise dominates signal
+  COMPACT_ORPHAN_MAX_ITEMS: 10,         // orphan files are low-priority; cap prevents scroll fatigue
+  // Audit-diff auto-compact: trigger when changed files exceed this count.
+  // Rationale: 20+ changed files usually means a large PR where per-file detail explodes output.
   AUDIT_DIFF_AUTO_COMPACT_THRESHOLD: 20,
-  COMPACT_IMPACT_MAX: 5,
-  COMPACT_AFFECTED_TESTS_MAX: 5,
-  COMPACT_EXPLANATIONS_MAX: 3,
-  COMPACT_TOP_COMPOSITE_RISKS: 3,
+  COMPACT_IMPACT_MAX: 5,                // 5 impact files covers ~90% of typical change radius
+  COMPACT_AFFECTED_TESTS_MAX: 5,        // AI rarely needs >5 test files to decide what to run
+  COMPACT_EXPLANATIONS_MAX: 3,          // 3 explanations = enough for pattern recognition without repetition
+  COMPACT_TOP_COMPOSITE_RISKS: 3,       // top-3 risks preserves P0/P1/P2 priority triage
+  // Large-project warning: when edge count exceeds this, prompt user to use --compact.
+  // Rationale: 5000 edges ≈ ~300KB JSON (pretty-printed), which exceeds typical AI context budgets.
+  LARGE_PROJECT_EDGE_WARNING_THRESHOLD: 5000,
   // Function reuse hints for audit-diff
   REUSE_HINTS_MIN_SCORE: 0.5,
   REUSE_HINTS_MAX_PER_FUNCTION: 3,

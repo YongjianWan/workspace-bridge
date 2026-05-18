@@ -34,7 +34,7 @@ function buildDeadExportRecommendation(count, fp, stack) {
   if (fpRatio >= 0.5) {
     const nodeFramework = stack?.node?.framework || null;
     const profile = stack?.profile || 'unknown';
-    const { SCAFFOLD_REASON_PREFIX } = require('../../tools/scaffold-detector');
+    const { SCAFFOLD_REASON_PREFIX } = require('./scaffold-detector');
     let reason = fp?.primaryReason || 'unknown';
     if (reason.startsWith(SCAFFOLD_REASON_PREFIX)) {
       reason = 'known scaffolding boilerplate (RuoYi / Vue Admin)';

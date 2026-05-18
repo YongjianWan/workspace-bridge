@@ -57,6 +57,21 @@ class DiagnosticsEngine {
         break;
       case 'eslint':
         result = await this.checkNodeModule('eslint', '--version');
+        if (!result) {
+          // Fallback: config-based detection (aligns with workspace-tools.js detectNodeLinters)
+          const configs = [
+            '.eslintrc.js', '.eslintrc.json', '.eslintrc.cjs',
+            '.eslintrc.yaml', '.eslintrc.yml',
+            'eslint.config.js', 'eslint.config.mjs', '.eslintrc',
+          ];
+          result = configs.some((c) => fs.existsSync(path.join(this.root, c)));
+          if (!result) {
+            try {
+              const pj = JSON.parse(fs.readFileSync(path.join(this.root, 'package.json'), 'utf8'));
+              result = Boolean(pj.eslintConfig);
+            } catch { /* ignore unreadable/missing package.json */ }
+          }
+        }
         break;
       case 'tsc':
         result = await this.checkNodeModule('typescript', '--version');

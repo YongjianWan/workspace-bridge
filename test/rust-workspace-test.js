@@ -70,7 +70,11 @@ version = "0.1.0"
   assert.strictEqual(stack.rust.workspaceMembers, null, 'Non-workspace should have null workspaceMembers');
 
   const commands = generateCommands(stack, 'code', ['src/main.rs']);
-  assert(!commands.focused.some((c) => c.name === 'rust-focused-tests'), 'Non-workspace should not generate focused crate commands');
+  // Single-crate projects fall back to `cargo test` (full crate) because module-level
+  // filtering is not available without workspace members.
+  const focused = commands.focused.find((c) => c.name === 'rust-focused-tests');
+  assert(focused, 'Non-workspace single crate should generate rust-focused-tests as fallback');
+  assert(focused.cmd.includes('cargo test'), 'Fallback focused command should run cargo test');
 
   cleanupTempDir(tmpDir);
 }

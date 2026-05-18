@@ -595,11 +595,15 @@ function testFormatAiAuditSummarySurface() {
   assert.strictEqual(out.counts.unresolved, 1);
   assert.strictEqual(out.counts.cycles, 1);
   assert(out.topRisks.length >= 1, 'should have top risks');
-  assert(out.actions.length >= 1, 'should have actions');
-  assert.strictEqual(out.actions[0].priority, 'P0');
-  assert.strictEqual(out.confidence.overall, 1.0);
+  assert.strictEqual(out.topRisks[0].category, 'cycles', 'top risk should be cycles');
+  assert.strictEqual(out.actions, undefined, 'surface should not include actions');
+  assert.strictEqual(out.confidence, undefined, 'surface should not include confidence');
+  assert.strictEqual(out.meta, undefined, 'surface should not include meta');
   assert.strictEqual(out.riskFiles, undefined, 'surface should not include riskFiles');
   assert.strictEqual(out.details, undefined, 'surface should not include details');
+  // Verify token economy: surface should be small (< ~600 chars ≈ 150 tokens)
+  const json = formatAi('audit-summary', result, { depth: 'surface' });
+  assert(json.length < 600, `surface output too large: ${json.length} chars`);
 }
 
 function testFormatAiAuditSummaryDetail() {
@@ -652,10 +656,13 @@ function testFormatAiWithWarnings() {
       { type: 'regex-fallback', severity: 'medium', files: 3, message: '3 files fell back to regex' },
     ],
   });
-  const out = JSON.parse(formatAi('audit-summary', result, { depth: 'surface' }));
-  assert(Array.isArray(out.warnings), 'should include warnings array');
-  assert.strictEqual(out.warnings.length, 1);
-  assert.strictEqual(out.warnings[0].type, 'regex-fallback');
+  // Warnings are preserved in detail/full but stripped in surface to stay under token budget
+  const detailOut = JSON.parse(formatAi('audit-summary', result, { depth: 'detail' }));
+  assert(Array.isArray(detailOut.warnings), 'detail should include warnings array');
+  assert.strictEqual(detailOut.warnings.length, 1);
+  assert.strictEqual(detailOut.warnings[0].type, 'regex-fallback');
+  const surfaceOut = JSON.parse(formatAi('audit-summary', result, { depth: 'surface' }));
+  assert.strictEqual(surfaceOut.warnings, undefined, 'surface should strip warnings to stay under budget');
 }
 
 function main() {

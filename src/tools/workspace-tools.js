@@ -247,7 +247,7 @@ function workspaceInfo(args, container) {
 
   const parserAvailability = workspace.hasPackageJson
     ? checkParserAvailability()
-    : { available: true, skipped: true };
+    : { available: true, usedFallbackPath: true };
 
   const cacheStats = container?.cache?.getStats?.() || {};
   return {

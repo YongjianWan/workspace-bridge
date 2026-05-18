@@ -5,7 +5,7 @@ const {
   buildUnresolvedRecommendation,
   buildCycleRecommendation,
   buildDeadExportRecommendation,
-} = require('../src/cli/formatters/recommendation-engine');
+} = require('../src/utils/recommendations');
 
 function testNullWhenCountZero() {
   assert.strictEqual(buildUnresolvedRecommendation(0, null, null), null);

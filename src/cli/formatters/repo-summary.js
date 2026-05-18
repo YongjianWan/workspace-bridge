@@ -3,7 +3,7 @@ const {
   buildUnresolvedRecommendation,
   buildCycleRecommendation,
   buildDeadExportRecommendation,
-} = require('./recommendation-engine');
+} = require('../../utils/recommendations');
 
 function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackProfile = 'unknown', analysisCoverage = null, stack = null) {
   const deadExportsCount = deadExports.deadExportsCount || 0;
@@ -33,7 +33,7 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
   }
 
   // Honesty metadata: surface false-positive likelihood so users can calibrate trust
-  const { SCAFFOLD_REASON_PREFIX } = require('../../tools/scaffold-detector');
+  const { SCAFFOLD_REASON_PREFIX } = require('../../utils/scaffold-detector');
   const deadFp = deadExports.possibleFalsePositives || {};
   const scaffoldCount = (deadFp.reasons || []).reduce((sum, r) => {
     if (r.reason && r.reason.startsWith(SCAFFOLD_REASON_PREFIX)) return sum + r.count;

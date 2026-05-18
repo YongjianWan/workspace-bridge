@@ -146,7 +146,7 @@ function projectHealth(args, container) {
     }
   }
 
-  const parserAvailability = workspace.hasPackageJson ? checkParserAvailability() : { available: true, skipped: true };
+  const parserAvailability = workspace.hasPackageJson ? checkParserAvailability() : { available: true, usedFallbackPath: true };
 
   const coverageDirs = ['coverage', '.nyc_output', 'htmlcov', '.coverage'];
   const existingCoverageDir = coverageDirs.find(d => pathExists(path.join(root, d)));
@@ -157,33 +157,21 @@ function projectHealth(args, container) {
     coverageScript = scripts['test:coverage'] || scripts['coverage'] || null;
   }
 
-  // Stack-aware scoring: core checks vary by tech stack
+  // Stack-aware scoring: all relevant checks count equally
   const isNodeProject = workspace.hasPackageJson;
   const isJavaProject = workspace.hasJava;
   const isPythonProject = workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy;
   const isGoProject = workspace.hasGo;
   const isRustProject = workspace.hasRust;
 
-  const coreChecks = ['readme', 'license', 'gitignore'];
-  if (isNodeProject || isPythonProject || isGoProject || isRustProject) {
-    coreChecks.push('testConfig');
+  const relevantChecks = ['readme', 'license', 'gitignore', 'envExample', 'editorconfig'];
+  if (isNodeProject || isPythonProject || isGoProject || isRustProject || isJavaProject) {
+    relevantChecks.push('testConfig');
   }
-  // For Java projects, test config is less standardized (mvn test / gradle test);
-  // we still recommend it but don't penalize as heavily.
-  if (isJavaProject && !isNodeProject && !isPythonProject && !isGoProject && !isRustProject) {
-    // Java projects get a 3-point base; CI and testConfig are bonus
-  }
+  relevantChecks.push('ci', 'dockerConfig');
 
-  const corePassed = coreChecks.filter((key) => checks[key]?.found).length;
-  const coreTotal = coreChecks.length;
-
-  const bonusChecks = ['ci', 'dockerConfig', 'envExample', 'editorconfig'];
-  const bonusPassed = bonusChecks.filter((key) => checks[key]?.found).length;
-  const bonusTotal = bonusChecks.length;
-
-  // Health score = core + up to 1 bonus point (capped at coreTotal + 1 for display parity)
-  const displayTotal = Math.max(5, coreTotal + 1);
-  const displayPassed = corePassed + (bonusPassed > 0 ? 1 : 0);
+  const passed = relevantChecks.filter((key) => checks[key]?.found).length;
+  const total = relevantChecks.length;
 
   const stack = detectStack(root);
   const fixSuggestions = buildFixSuggestions(stack);
@@ -191,7 +179,7 @@ function projectHealth(args, container) {
     .filter(([key, value]) => !value.found && fixSuggestions[key])
     .map(([key]) => ({ check: key, ...fixSuggestions[key] }));
 
-  if (!parserAvailability.available && !parserAvailability.skipped) {
+  if (!parserAvailability.available && !parserAvailability.usedFallbackPath) {
     fixes.push({
       check: 'parserAvailability',
       action: 'Install @babel/parser for accurate JS/TS dependency analysis (npm install @babel/parser)',
@@ -202,11 +190,11 @@ function projectHealth(args, container) {
   return {
     ok: true,
     workspaceRoot: root,
-    healthScore: `${displayPassed}/${displayTotal}`,
+    healthScore: `${passed}/${total}`,
     healthScoreNumeric: {
-      passed: displayPassed,
-      total: displayTotal,
-      ratio: displayTotal > 0 ? displayPassed / displayTotal : 0,
+      passed,
+      total,
+      ratio: total > 0 ? passed / total : 0,
     },
     packageManager: detectNodePackageManager(root),
     checks,

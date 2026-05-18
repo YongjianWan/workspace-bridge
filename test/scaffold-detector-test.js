@@ -2,7 +2,7 @@
  * Scaffold detector tests — conservative fingerprinting for known templates.
  */
 const assert = require('assert');
-const { detectScaffold, SCAFFOLD_FINGERPRINTS } = require('../src/tools/scaffold-detector');
+const { detectScaffold, SCAFFOLD_FINGERPRINTS } = require('../src/utils/scaffold-detector');
 
 function testExactBasenameRuoYi() {
   const cases = [
