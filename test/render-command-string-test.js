@@ -120,7 +120,6 @@ function main() {
   testParsePushd();
   testParseSemicolon();
   testParsePushdSemicolon();
-  console.log('render-command-string-test: all 13 passed');
 }
 
 main();

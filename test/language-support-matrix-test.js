@@ -31,9 +31,7 @@ function testBuildLanguageSupportMatrix() {
   assert.strictEqual(matrix.python.confidence, 'medium', 'python should have medium confidence');
   assert.strictEqual(matrix.go.level, 'regex', 'go should be regex (all files are regex-parsed)');
   assert.strictEqual(matrix.go.confidence, 'low', 'go should have low confidence (0 ast)');
-  assert(!matrix.java, 'java should not be present');
-
-  console.log('testBuildLanguageSupportMatrix passed:', JSON.stringify(matrix));
+  assert.strictEqual(matrix.java, undefined, 'java should not be present');
 }
 
 testBuildLanguageSupportMatrix();

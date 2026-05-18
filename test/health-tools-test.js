@@ -32,7 +32,6 @@ async function testHealthScoreNumeric() {
   assert.strictEqual(health.healthScoreNumeric.ratio, Number(passedStr) / Number(totalStr));
 
   cleanupTempDir(tmpDir);
-  console.log('testHealthScoreNumeric passed');
 }
 
 async function testDjangoTestConfigDetection() {
@@ -49,7 +48,6 @@ async function testDjangoTestConfigDetection() {
   assert(health.checks.testConfig.frameworks.includes('django-test'), 'testConfig frameworks should include django-test');
 
   cleanupTempDir(tmpDir);
-  console.log('testDjangoTestConfigDetection passed');
 }
 
 async function main() {

@@ -28,7 +28,6 @@ public class Main {
   assert(!used.has('baz'), 'baz should not be detected as used');
 
   cleanupTempDir(tmpDir);
-  console.log('testScanSymbolUsage passed');
 }
 
 function testGoUsageScan() {
@@ -50,7 +49,6 @@ func main() {
   assert(!used.has('Baz'), 'Baz should not be detected as used');
 
   cleanupTempDir(tmpDir);
-  console.log('testGoUsageScan passed');
 }
 
 function testFindDeadExportsWithUsageScan() {
@@ -97,7 +95,6 @@ function testFindDeadExportsWithUsageScan() {
   assert(!fooDead || fooDead.exports.includes('baz'), 'baz should still be dead-export');
 
   cleanupTempDir(tmpDir);
-  console.log('testFindDeadExportsWithUsageScan passed');
 }
 
 function testSymbolEscaping() {
@@ -124,7 +121,6 @@ function testSymbolEscaping() {
   assert(!used.has('$baz'), '$baz should not be detected as used');
 
   cleanupTempDir(tmpDir);
-  console.log('testSymbolEscaping passed');
 }
 
 function testScanContentCache() {
@@ -167,7 +163,6 @@ function testScanContentCache() {
   }
 
   cleanupTempDir(tmpDir);
-  console.log('testScanContentCache passed');
 }
 
 function main() {

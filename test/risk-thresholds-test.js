@@ -16,7 +16,7 @@ function testScoreToLevel() {
   assert.strictEqual(scoreToLevel(10), 'high', 'score 10 should be high');
   assert.strictEqual(scoreToLevel(null), 'low', 'null score should fallback to low');
   assert.strictEqual(scoreToLevel(undefined), 'low', 'undefined score should fallback to low');
-  console.log('testScoreToLevel passed');
+
 }
 
 function testFileImpactSeverity() {
@@ -33,7 +33,7 @@ function testFileImpactSeverity() {
   assert.strictEqual(fileImpactSeverity(15, 10), 'high', 'both high');
   // fallback
   assert.strictEqual(fileImpactSeverity(null, null), 'low', 'null inputs fallback to low');
-  console.log('testFileImpactSeverity passed');
+
 }
 
 function testRepoSeverity() {
@@ -47,7 +47,7 @@ function testRepoSeverity() {
   assert.strictEqual(repoSeverity({ unresolved: 1 }), 'high', '1 unresolved is high');
   assert.strictEqual(repoSeverity({ cycles: 1 }), 'high', '1 cycle is high');
   assert.strictEqual(repoSeverity({ unresolved: 1, deadExports: 5 }), 'high', 'unresolved trumps medium');
-  console.log('testRepoSeverity passed');
+
 }
 
 function testDiffSeverity() {
@@ -88,7 +88,7 @@ function testDiffSeverity() {
     'low',
     'no mainline changes stays low'
   );
-  console.log('testDiffSeverity passed');
+
 }
 
 function testOverviewSeverity() {
@@ -96,7 +96,7 @@ function testOverviewSeverity() {
   assert.strictEqual(overviewSeverity({ fragileModuleCount: 0 }), 'low', '0 fragile is low');
   assert.strictEqual(overviewSeverity({ fragileModuleCount: 1 }), 'medium', '1 fragile is medium');
   assert.strictEqual(overviewSeverity({ fragileModuleCount: 5 }), 'medium', '5 fragile is medium');
-  console.log('testOverviewSeverity passed');
+
 }
 
 // Consistency guard: buildCompositeRisk must use the unified score->level mapping.
@@ -131,7 +131,7 @@ function testCrossModuleConsistency() {
   });
   assert.strictEqual(historyDriven.level, 'high', 'impact 10 (+4) + history 6 (+2) = 6 should be high');
 
-  console.log('testCrossModuleConsistency passed');
+
 }
 
 testScoreToLevel();
@@ -140,4 +140,4 @@ testRepoSeverity();
 testDiffSeverity();
 testOverviewSeverity();
 testCrossModuleConsistency();
-console.log('\nAll risk-thresholds tests passed.');
+

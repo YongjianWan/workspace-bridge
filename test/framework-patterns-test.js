@@ -232,7 +232,6 @@ function run() {
   testDetectFrameworkFromContent();
   testIsEntryFlag();
   testEntryPointWeight();
-  console.log('framework-patterns-test.js: all passed');
 }
 
 run();

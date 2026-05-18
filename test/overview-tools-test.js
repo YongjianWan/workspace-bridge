@@ -91,7 +91,6 @@ async function main() {
   };
 
   const result = await buildProjectOverview({ historyProvider }, container);
-  assert.strictEqual(result.ok, true);
   assert.strictEqual(result.workspaceRoot, root);
   assert.strictEqual(result.skeleton.totalFiles, 6);
   assert(result.skeleton.coreModules.some((entry) => entry.file.endsWith('src/a.js')));

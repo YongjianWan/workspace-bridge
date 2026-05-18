@@ -66,7 +66,6 @@ function main() {
   testAuditSummarySeverityMedium();
   testInvalidSeverityValue();
   testAuditSecuritySeverityFilter();
-  console.log('severity-filter-test.js: all passed');
 }
 
 main();

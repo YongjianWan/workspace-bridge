@@ -1151,6 +1151,87 @@
 
 - **测试数量修正**：全量 runner 实际为 **111/111 PASS**（含本轮新增 2 个测试），此前文档中多处记录为 109/109，已在本轮文档更新中统一修正。
 
+### 新增（`--format ai` actions 可执行化 — 2026-05-18）
+
+- **`--format ai` 输出 actions 从文案改为可执行指令** `src/cli/formatters/human-formatters.js`：
+  - **问题**：`formatAi` 的 `actions` 从 `result.summary.nextSteps/recommendations` 提取，输出如 `"Fix 3 unresolved imports..."` 等纯文案。AI 拿到后无法直接执行，需要自行推断该运行什么命令。
+  - **修复**：`formatAi` 中新增 `buildExecutableActions` 逻辑，基于 `result.deadExports`/`cycles`/`unresolved`/`health`/`analysisCoverage` 直接生成 `run: workspace-bridge-cli ...` 格式可执行指令。保留 recommendations 作为无 findings 时的 fallback。
+  - **向后兼容**：`formatAi` 输出 schema 不变（`actions[]` 仍为 `{ priority, action }` 对象数组），仅 `action` 字段内容从文案变为可执行格式。
+
+### 新增（`--help` 分层输出 — 2026-05-18）
+
+- **`--help` 按 L1/L2/L3/L4 分层展示命令** `cli.js`：
+  - **问题**：20+ 命令平铺输出，AI 分不清 `audit-summary`（策展入口）与 `dead-exports`（原始查询），导致"不知道该用 aggregate 还是 raw"的认知负担。SKILL.md 被迫写大量补偿指南。
+  - **修复**：`printUsage()` 将命令分为 L1 策展入口 / L2 专项工具 / L3 环境诊断 / L4 原始查询(debug) / 其他 五组。`health` 标注 `deprecated: use audit-summary --health-only`。
+  - **向后兼容**：纯输出格式变更，不修改命令路由或 schema。
+
+### 修复（零专属测试模块补齐 — 2026-05-18）
+
+- **补 4 个零专属测试模块** `test/dep-tools-test.js` `test/incremental-diff-test.js` `test/git-tools-test.js` `test/project-map-test.js`：
+  - **问题**：`dep-tools.js` / `incremental-diff.js` / `git-tools.js` / `project-map.js` 四个核心模块无专属测试，仅被 CLI E2E 间接覆盖。修改这些模块时缺乏回归保护。
+  - **修复**：
+    1. `test/dep-tools-test.js`：15 个断言覆盖 `dependencyGraph` 11 种 operation（stats/dependencies/dependents/impact/cycles/dead_exports/unresolved/affected_tests/default/unknown/missing file）。
+    2. `test/incremental-diff-test.js`：7 个断言覆盖 `collectRelatedFiles` 和 `buildIncrementalFindings` 的过滤与边界行为。
+    3. `test/git-tools-test.js`：6 个断言覆盖 `getChangedFiles`（staged/since/untracked）、`getChangedLineRanges`、`getFileHistoryRisk`、`getDiffNumstat`。
+    4. `test/project-map-test.js`：5 个断言覆盖 `buildProjectMap` full/compact 双路径、`buildDirectoryTree`、`countTreeFiles`、空图边界。
+  - **发现**：写测试过程中发现 `incremental-diff.js` `collectRelatedFiles` 与 `human-formatters.js` `formatHuman` 存在契约守卫缺失（详见 TECH_DEBT.md L2 债务）。
+
+### 文档归档（活跃文档债务清理 — 2026-05-18）
+
+> 按 AGENTS.md 文档管理规则：修复一个条目后，TECH_DEBT.md / SESSION.md / ROADMAP.md 中直接删除，不保留痕迹；历史只进 CHANGELOG。
+> 以下清单为从活跃文档中移除的已修复条目汇总，详细技术变更见上文 [Unreleased] 各小节。
+
+**从 TECH_DEBT.md 归档：**
+- 路径格式混用（`workspaceRoot` Windows 原生 vs `resolvedPath` 小写正斜杠）
+- console.log 噪音（`test/` 从 181 处降至 7 处）
+- `fs.mkdtempSync()` / `fs.rmSync()` 重复定义清零
+- `runner.js` 并发执行 SQLite 写冲突（独立 `--cache-dir` 隔离）
+- 时序依赖测试脆弱（`diagnostics-unbounded-timer` / `file-index-rename` / `repl-shutdown` / `spawn-ast` 4 个文件固定延时改为轮询）
+- 弱断言清零（`assert.ok(condition)` 无消息、`assert(condition)` 无消息、`typeof x === 'object'` 已清零）
+- 零专属测试模块补充：`graph-db.js`、`regression-tools.js`、`security-tools.js`、`file-summary.js`、`impact-explanations.js`
+
+**从 SESSION.md 归档：**
+- 产品 bug：路径格式混用
+- 产品债务：`repl` 非交互环境不可用、`--incremental` 增量逻辑不可见（待处理）
+- runner 并发限制（SQLite 锁竞争）
+- 弱断言批量修复：`strictEqual(result.ok, true)`、`assert.ok()` 无消息、`typeof === 'number'`、`assert()` 无消息
+- `mkdtempSync` 重复、`console.log` 噪音、零专属测试模块（5 个）、TECH_DEBT.md 重复条目
+- `--cwd` 不存在目录时挂起
+- exit code 与 severity 解绑（`--fail-on-findings` 显式开关）
+- `--check-regression` crash（`makeCycleKey` 防御 `item.files` 缺失）
+- `--format ai` 参数生效（`depth`/`token-budget`）
+- `validationAdvice.commands` + `suggestedCommand` 全空
+- compact 模式比 full 慢 4x（聚合计算 overhead 修复）
+- `affected-tests` 0 关联（启发式规则扩展 9 种布局/命名）
+- `watch` 排除自身缓存文件（`.bak`/`.tmp-*`）
+- `--exclude` 后 `parsedFiles` 不更新
+
+**从 ROADMAP.md 归档：**
+- 工作目录污染（SQLite 缓存迁移至 `os.tmpdir()`）
+- Java 常量仓库假阳性、`Vue` 脚手架残留假阳性
+- `audit-overview` 数据冗余（`nextSteps` 别名删除、`couplingSplitSuggestions` 截断）
+- `audit-security` message 太泛（附加 `matchedText`）
+- `--quiet` 丢失关键诊断信息（`warnings[]` 注入 JSON）
+- cache 失效策略粗糙（`mtime`/`size` 对比 + `getStaleness`）
+- `--check-regression` 基线对比崩溃
+- impact 入口扩散无截断（`isKnownEntryFile` 停止扩散）
+- diagnostics ESLint 盲区（`.eslintrc` / `package.json#eslintConfig`）
+- exit code 语义反模式
+- `--exclude` 未完全过滤 cycle
+- `watch` 误报缓存文件变更
+- `commands` + `suggestedCommand` 全空
+- 路径格式混用
+- `project-map.js` edges Map 内存爆炸（compact 路径优化）
+- `cache.js` 无增量写（SQLite upsert 迁移）
+- 安全扫描入口（`--builtin-only`）
+- 增量分析范围（`--since` / `--staged` / `--files`）
+- 输出策展（`--format summary` / `--format markdown` / `--format jsonl`）
+- 缓存/图持久化（TTL 24h + git-aware staleness）
+- JSON 消费困难（`--format jsonl`）
+- human-readable 输出、AI 协作设计（SKILL.md 精简）、多仓库批量审计
+- AI 摘要输出、增量分析扩展、分层输出过滤、审查追踪、JSON Lines 输出
+- `repl` 非交互环境不可用（`--eval` 模式）
+
 ## [1.1.1] - 2026-05-08
 
 ### 修复（低垂果实收尾 — P12/P32/P37/P43/P58）

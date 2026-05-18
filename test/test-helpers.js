@@ -10,6 +10,7 @@
  */
 
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -30,8 +31,23 @@ const CLI_PATH = path.join(REPO_ROOT, 'cli.js');
  * @param {{cwd?: string, timeout?: number}} [opts]
  * @returns {any}
  */
+function _injectCacheDir(args) {
+  const cacheDir = process.env.WB_TEST_CACHE_DIR;
+  if (!cacheDir || args.includes('--cache-dir')) {
+    return args;
+  }
+  // Per-project sub-cache to prevent cross-project contamination
+  // when a single test spawns CLI against multiple --cwd values.
+  const cwdIdx = args.indexOf('--cwd');
+  const cwd = cwdIdx >= 0 ? args[cwdIdx + 1] : REPO_ROOT;
+  const hash = crypto.createHash('md5').update(cwd).digest('hex').slice(0, 8);
+  const subCacheDir = path.join(cacheDir, hash);
+  fs.mkdirSync(subCacheDir, { recursive: true });
+  return ['--cache-dir', subCacheDir, ...args];
+}
+
 function runCli(args, opts = {}) {
-  const result = spawnSync('node', [CLI_PATH, ...args], {
+  const result = spawnSync('node', [CLI_PATH, ..._injectCacheDir(args)], {
     cwd: opts.cwd || REPO_ROOT,
     encoding: 'utf8',
     timeout: opts.timeout || 60000,
@@ -57,7 +73,7 @@ function runCli(args, opts = {}) {
  * @returns {string}
  */
 function runCliText(args, opts = {}) {
-  const result = spawnSync('node', [CLI_PATH, ...args], {
+  const result = spawnSync('node', [CLI_PATH, ..._injectCacheDir(args)], {
     cwd: opts.cwd || REPO_ROOT,
     encoding: 'utf8',
     timeout: opts.timeout || 60000,
@@ -79,7 +95,7 @@ function runCliText(args, opts = {}) {
  * @returns {import('child_process').SpawnSyncReturns<string>}
  */
 function runCliRaw(args, opts = {}) {
-  return spawnSync('node', [CLI_PATH, ...args], {
+  return spawnSync('node', [CLI_PATH, ..._injectCacheDir(args)], {
     cwd: opts.cwd || REPO_ROOT,
     encoding: 'utf8',
     timeout: opts.timeout || 60000,

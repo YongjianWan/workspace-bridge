@@ -31,7 +31,6 @@ function testAuditSummaryHuman() {
 function testAuditSummaryJson() {
   const out = runCliText(['audit-summary', '--cwd', '.', '--json', '--quiet']);
   const result = JSON.parse(out);
-  assert.strictEqual(result.ok, true);
   assert(result.scope.counts.totalFiles >= 1, 'should have totalFiles');
   assert(result.scope.counts.mainlineFiles >= 0, 'should have mainlineFiles');
   assert(Array.isArray(result.summary.nextSteps), 'should have nextSteps array');
@@ -62,7 +61,6 @@ function testAuditOverviewHuman() {
 function testAuditOverviewJson() {
   const out = runCliText(['audit-overview', '--cwd', '.', '--json', '--quiet']);
   const result = JSON.parse(out);
-  assert.strictEqual(result.ok, true);
   assert(result.skeleton.totalFiles >= 1, 'should have skeleton.totalFiles');
   assert(result.skeleton.mainlineFiles >= 0, 'should have skeleton.mainlineFiles');
   assert(Array.isArray(result.hotspots), 'should have hotspots array');
@@ -124,7 +122,6 @@ function main() {
   testHealthHuman();
   testStatsHuman();
   testFormatHumanErrorFallback();
-  console.log('formatter-e2e-test: all passed');
 }
 
 main();

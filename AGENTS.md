@@ -131,6 +131,7 @@
 - 修复一个条目后，TECH_DEBT.md / SESSION.md 中直接删除该条目，不保留任何痕迹；历史只进 CHANGELOG。
 - SESSION.md 中，旧轮次的内容压缩为一句话引用 CHANGELOG，不保留文件列表/改动细节。
 - 任何 agent 发现文档膨胀（已修复条目仍留在活跃文档中）→ 立即清理。
+- **完成任何代码变更（新增功能、修复 bug、重构、测试补齐）后，必须立即在 CHANGELOG.md `[Unreleased]` 中追加技术变更条目**。禁止仅凭 SESSION.md / TECH_DEBT.md 的活跃状态更新替代 CHANGELOG 写入。活跃文档只存"当前状态"，CHANGELOG 存"变更过程"。本轮教训：补完 4 个测试模块后未及时写入 CHANGELOG，导致历史遗漏。
 
 **"已修复"声明验证铁律**：
 - 在 SESSION.md / ROADMAP.md / TECH_DEBT.md 中将任何条目标记为"已修复"、"已验证不成立"或"问题不存在"之前，**必须跑一条能直接验证该结论的命令**。
@@ -257,4 +258,4 @@ THEN 修改前必须跑：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-16（CHANGELOG 读取约束已写入文档管理规则；compact 性能修复 + highlightedFiles 排序缺陷修复完成；111/111 测试通过；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-18（文档归档清理完成；actions 可执行化 + --help 分层输出完成；120/120 测试通过；schemaVersion: 1.2.0）*

@@ -30,8 +30,11 @@ async function testScheduledChecksBoundedUnderLoad() {
     engine.scheduleCheck(`/tmp/file${i}.py`);
   }
 
-  // Wait for debounce timers to fire.
-  await new Promise((r) => setTimeout(r, 1200));
+  // Poll for debounce timers to fire instead of fixed delay.
+  const startTime = Date.now();
+  while (engine.runningChecks.size === 0 && Date.now() - startTime < 2000) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
 
   assert(
     engine.runningChecks.size <= engine.config.MAX_CONCURRENT_CHECKS,
@@ -67,8 +70,11 @@ async function testQueueDrainedWhenSlotFrees() {
   engine.scheduleCheck(path.join(dir, 'b.py'));
   engine.scheduleCheck(path.join(dir, 'c.py'));
 
-  // Wait for debounce.
-  await new Promise((r) => setTimeout(r, 1200));
+  // Poll for all checks to complete instead of fixed delay.
+  const startTime = Date.now();
+  while (checkCount < 3 && Date.now() - startTime < 2000) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
 
   // All three should eventually run because the queue is drained as slots free.
   assert.strictEqual(checkCount, 3, 'all queued files should be checked');

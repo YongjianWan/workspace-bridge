@@ -12,7 +12,7 @@ const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const { REPO_ROOT, CLI_PATH } = require('./test-helpers');
+const { REPO_ROOT, CLI_PATH, cleanupTempDir } = require('./test-helpers');
 
 const tempDir = path.join(REPO_ROOT, 'test', '.watch-temp');
 const triggerFile = path.join(tempDir, 'trigger.js');
@@ -30,7 +30,7 @@ async function setup() {
 async function cleanup() {
   try {
     if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      cleanupTempDir(tempDir);
     }
   } catch {
     // ignore
@@ -46,7 +46,6 @@ async function waitForStartup(childStderr, timeoutMs = 15000) {
 }
 
 async function testWatchFileChange() {
-  console.log('--- test: watch file change ---');
 
   const child = spawn('node', [CLI_PATH, 'watch', '--cwd', '.'], {
     cwd: REPO_ROOT,
@@ -97,7 +96,6 @@ async function testWatchFileChange() {
 }
 
 async function testWatchSigint() {
-  console.log('--- test: watch SIGINT graceful shutdown ---');
 
   const child = spawn('node', [CLI_PATH, 'watch', '--cwd', '.'], {
     cwd: REPO_ROOT,
@@ -147,7 +145,6 @@ function parseJsonLines(stdout) {
 }
 
 async function testWatchRunTests() {
-  console.log('--- test: watch --run-tests closed-loop ---');
 
   const child = spawn('node', [CLI_PATH, 'watch', '--cwd', '.', '--run-tests'], {
     cwd: REPO_ROOT,
@@ -200,7 +197,6 @@ async function testWatchRunTests() {
 }
 
 async function main() {
-  console.log('=== workspace-bridge watch test ===\n');
 
   await cleanup();
   await setup();
@@ -213,7 +209,6 @@ async function main() {
     await cleanup();
   }
 
-  console.log('\n=== all watch tests passed ===');
 }
 
 main().catch(async (err) => {

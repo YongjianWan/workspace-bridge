@@ -8,7 +8,7 @@ const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const { REPO_ROOT, CLI_PATH } = require('./test-helpers');
+const { REPO_ROOT, CLI_PATH, cleanupTempDir } = require('./test-helpers');
 
 const tempDir = path.join(REPO_ROOT, 'test', '.watch-temp');
 const triggerFile = path.join(tempDir, 'trigger.js');
@@ -25,7 +25,7 @@ async function setup() {
 async function cleanup() {
   try {
     if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      cleanupTempDir(tempDir);
     }
   } catch {
     // ignore
@@ -54,7 +54,6 @@ function parseJsonLines(stdout) {
 }
 
 async function testAuditFileWatch() {
-  console.log('--- test: audit-file --watch JSON Lines events ---');
 
   const relativeTrigger = path.relative(REPO_ROOT, triggerFile);
   const child = spawn('node', [CLI_PATH, 'audit-file', '--file', relativeTrigger, '--watch', '--json'], {
@@ -114,7 +113,6 @@ async function testAuditFileWatch() {
 }
 
 async function testAuditFileWatchTargetFiltering() {
-  console.log('--- test: audit-file --watch target file filtering ---');
 
   const relativeTrigger = path.relative(REPO_ROOT, triggerFile);
   const child = spawn('node', [CLI_PATH, 'audit-file', '--file', relativeTrigger, '--watch', '--json'], {
@@ -161,7 +159,6 @@ async function testAuditFileWatchTargetFiltering() {
 }
 
 async function main() {
-  console.log('=== workspace-bridge audit-file watch test ===\n');
 
   await cleanup();
   await setup();
@@ -175,7 +172,6 @@ async function main() {
     await cleanup();
   }
 
-  console.log('\n=== all audit-file watch tests passed ===');
 }
 
 main().catch(async (err) => {

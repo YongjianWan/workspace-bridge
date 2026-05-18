@@ -21,7 +21,6 @@ function parseJsonOutput(stdout) {
 }
 
 function testIncrementalSchema() {
-  console.log('--- test: audit-diff --incremental schema ---');
 
   const result = runCliRaw(['audit-diff', '--incremental', '--json', '--quiet']);
   const output = parseJsonOutput(result.stdout);
@@ -46,7 +45,6 @@ function testIncrementalSchema() {
 }
 
 function testIncrementalVsFull() {
-  console.log('--- test: audit-diff --incremental vs full ---');
 
   const incResult = runCliRaw(['audit-diff', '--incremental', '--json', '--quiet']);
   const fullResult = runCliRaw(['audit-diff', '--json', '--quiet']);
@@ -74,7 +72,6 @@ function testIncrementalVsFull() {
 }
 
 function testIncrementalFiltering() {
-  console.log('--- test: incremental findings scope ---');
 
   const result = runCliRaw(['audit-diff', '--incremental', '--json', '--quiet']);
   const output = parseJsonOutput(result.stdout);
@@ -94,13 +91,11 @@ function testIncrementalFiltering() {
 }
 
 function main() {
-  console.log('=== workspace-bridge audit-diff incremental test ===\n');
 
   testIncrementalSchema();
   testIncrementalVsFull();
   testIncrementalFiltering();
 
-  console.log('\n=== all audit-diff incremental tests passed ===');
 }
 
 main();

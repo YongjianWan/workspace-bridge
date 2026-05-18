@@ -12,20 +12,7 @@ const {
   isAliasImport,
 } = require('../src/tools/honesty-engine');
 const { SCAFFOLD_FINGERPRINTS } = require('../src/tools/scaffold-detector');
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-function makeTempDir() {
-  const tmp = path.join(__dirname, `honesty-test-${Date.now()}`);
-  fs.mkdirSync(tmp, { recursive: true });
-  return tmp;
-}
-
-function cleanup(dir) {
-  try {
-    fs.rmSync(dir, { recursive: true, force: true });
-  } catch {}
-}
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function mockDepGraph(stats) {
   return {
@@ -47,7 +34,7 @@ function testClassifyUnresolved_aliasWithoutTsconfig() {
     assert.strictEqual(classifications[0].reason, 'alias-unresolved');
     assert.strictEqual(classifications[1].reason, 'alias-unresolved');
   } finally {
-    cleanup(root);
+    cleanupTempDir(root);
   }
 }
 
@@ -65,7 +52,7 @@ function testClassifyUnresolved_aliasWithTsconfigPaths() {
     // With tsconfig paths present, @/ is not automatically blamed
     assert.ok(classifications[0].reason !== 'alias-unresolved', 'should not blame alias when tsconfig paths exist');
   } finally {
-    cleanup(root);
+    cleanupTempDir(root);
   }
 }
 
@@ -80,7 +67,7 @@ function testClassifyUnresolved_missingExtension() {
     const classifications = classifyUnresolved(unresolved, root);
     assert.strictEqual(classifications[0].reason, 'missing-extension');
   } finally {
-    cleanup(root);
+    cleanupTempDir(root);
   }
 }
 
@@ -244,14 +231,14 @@ function testBuildClassificationSummary() {
 function testBuildDisclaimer_highRatio() {
   const summary = { total: 24, falsePositiveCount: 23, primaryReason: 'alias-unresolved', reasons: [] };
   const text = buildDisclaimer('unresolved imports', summary);
-  assert.ok(text.includes('23 of 24'));
-  assert.ok(text.includes('alias-unresolved'));
+  assert.ok(text.includes('23 of 24'), 'summary should mention 23 of 24');
+  assert.ok(text.includes('alias-unresolved'), 'summary should mention alias-unresolved');
 }
 
 function testBuildDisclaimer_none() {
   const summary = { total: 5, falsePositiveCount: 0, primaryReason: 'unknown', reasons: [] };
   const text = buildDisclaimer('dead exports', summary);
-  assert.ok(text.includes('all appear genuine'));
+  assert.ok(text.includes('all appear genuine'), 'summary should mention all appear genuine');
 }
 
 // ── isAliasImport ─────────────────────────────────────────────────────────
@@ -293,7 +280,6 @@ let failed = 0;
 for (const test of tests) {
   try {
     test();
-    console.log(`→ ${test.name} ... PASS`);
     passed++;
   } catch (e) {
     console.error(`→ ${test.name} ... FAIL`);
@@ -301,9 +287,6 @@ for (const test of tests) {
     failed++;
   }
 }
-
-console.log(`\nRan ${tests.length} tests`);
-console.log(`${passed} passed, ${failed} failed`);
 
 if (failed > 0) {
   process.exit(1);

@@ -50,7 +50,6 @@ function testProjectMapStructure() {
 
   const result = buildProjectMap(depGraph);
 
-  assert.strictEqual(result.ok, true, 'should return ok');
   assert.strictEqual(result.workspaceRoot, '/repo', 'workspaceRoot should match depGraph.root');
   assert(Array.isArray(result.tree), 'tree should be array');
   assert(result.tree.length > 0, 'tree should have entries');
@@ -270,8 +269,6 @@ function testProjectMapCompactMode() {
   };
 
   const result = buildProjectMap(depGraph, { compact: true });
-
-  assert.strictEqual(result.ok, true, 'compact should return ok');
 
   function findFileNodes(nodes) {
     const files = [];

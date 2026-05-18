@@ -16,7 +16,6 @@ const JAVALANG_AVAILABLE = isJavalangAvailable();
 
 async function testJavaAST() {
   if (!JAVALANG_AVAILABLE) {
-    console.log('SKIP testJavaAST: javalang not available');
     return;
   }
   const source = `
@@ -47,7 +46,6 @@ public class Foo {
 
 async function testJavaInterfaceMethods() {
   if (!JAVALANG_AVAILABLE) {
-    console.log('SKIP testJavaInterfaceMethods: javalang not available');
     return;
   }
   const source = `
@@ -74,5 +72,4 @@ async function testJavaFallback() {
   await testJavaAST();
   await testJavaInterfaceMethods();
   await testJavaFallback();
-  console.log('java-parsers-test: OK');
 })();

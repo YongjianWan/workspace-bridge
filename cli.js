@@ -222,31 +222,40 @@ Usage:
   workspace-bridge-cli <command> [options]
 
 Commands:
-  workspace-info           Detect workspace type and root
-  diagnostics             Run quick/full diagnostics
-  audit-summary           Aggregate health + graph findings
-  audit-file --file <p> [--watch]  Aggregate impact + affected tests for one file
-  audit-diff [--staged] [--files <list>] [--incremental]
-                          Aggregate changed files + impact + affected tests
-  audit-overview         Project panoramic view (hotspots, stability, orphans)
-  audit-map              Global project map (tree + edges + issue overlay)
-  health                  Summarize project health
-  init                    Create default .workspace-bridge.json in cwd
-  audit-security [--files <list>]
-                          Run external security scanners (Semgrep)
-  repl [--eval <cmd>]     Start interactive REPL shell, or run one command non-interactively
-  watch                   Watch files and print impact on save
-  stats                   Show dependency graph statistics
-  dependencies --file <p> List direct dependencies of a file
-  dependents --file <p>   List direct dependents of a file
-  dead-exports            Find dead export candidates
-  unresolved              Find unresolved imports
-  cycles                  Find circular dependencies
-  impact --file <path>    Find impact radius for a file
-  tree --file <path> [--max-depth <n>] [--direction <imports|dependents|both>]
-                          Build import/dependent tree for a file
-  affected-tests --file <path> [--max-depth <n>]
-                          Find tests related to a file
+  L1 策展入口 (Curated aggregates — AI default):
+    audit-summary           Aggregate health + graph findings
+    audit-file --file <p> [--watch]  Aggregate impact + affected tests for one file
+    audit-diff [--staged] [--files <list>] [--incremental]
+                            Aggregate changed files + impact + affected tests
+    audit-overview          Project panoramic view (hotspots, stability, orphans)
+    audit-map               Global project map (tree + edges + issue overlay)
+
+  L2 专项工具 (Targeted analysis):
+    impact --file <path>    Find impact radius for a file
+    affected-tests --file <path> [--max-depth <n>]
+                            Find tests related to a file
+    dead-exports            Find dead export candidates
+    unresolved              Find unresolved imports
+    cycles                  Find circular dependencies
+    tree --file <path> [--max-depth <n>] [--direction <imports|dependents|both>]
+                            Build import/dependent tree for a file
+
+  L3 环境诊断 (Environment & hygiene):
+    workspace-info          Detect workspace type and root
+    diagnostics             Run quick/full diagnostics
+    health                  Summarize project health (deprecated: use audit-summary --health-only)
+    audit-security [--files <list>]
+                            Run external security scanners (Semgrep)
+
+  L4 原始查询 (Debug / raw data):
+    dependencies --file <p> List direct dependencies of a file
+    dependents --file <p>   List direct dependents of a file
+    stats                   Show dependency graph statistics
+
+  其他:
+    init                    Create default .workspace-bridge.json in cwd
+    repl [--eval <cmd>]     Start interactive REPL shell, or run one command non-interactively
+    watch                   Watch files and print impact on save
 
 Options:
   --cwd <path>            Target workspace or file path

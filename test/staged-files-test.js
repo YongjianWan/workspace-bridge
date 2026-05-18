@@ -71,7 +71,6 @@ function main() {
   testFilesFlagAuditSecurity();
   testStagedAndFilesMutualExclusion();
   testInvalidFilesNonExistentAuditDiff();
-  console.log('staged-files-test.js: all passed');
 }
 
 main();

@@ -27,7 +27,6 @@ function rel(base, filePath) {
 }
 
 function main() {
-  console.log('=== watch-format-test ===\n');
 
   // Non-compact: shows full list
   {
@@ -101,7 +100,6 @@ function main() {
     assert(out.includes(`entries: [${rel(winRoot, 'cli.js')}]`), `Windows path entry, got: ${out}`);
   }
 
-  console.log('\nAll watch-format tests passed.');
 }
 
 try {

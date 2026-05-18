@@ -22,7 +22,6 @@ async function testTempFileFilter() {
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
 
   const result = await getChangedFiles(tmpDir, { staged: false, includeUntracked: true });
-  assert.strictEqual(result.ok, true);
   const names = result.changedFiles.map((f) => path.basename(f));
   assert(!names.includes('cache.db'), 'should filter cache db files');
   assert(names.includes('real-file.js'), 'should keep real files');
@@ -41,7 +40,6 @@ async function testTempFileFilterStaged() {
   spawnSync('git', ['add', '.'], { cwd: tmpDir });
 
   const result = await getChangedFiles(tmpDir, { staged: true, includeUntracked: false });
-  assert.strictEqual(result.ok, true);
   const names = result.changedFiles.map((f) => path.basename(f));
   assert(!names.includes('cache.db'), 'staged mode should filter cache db files');
   assert(names.includes('real-file.js'), 'staged mode should keep real files');

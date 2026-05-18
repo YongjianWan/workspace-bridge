@@ -73,7 +73,6 @@ async function testHotspotBatchOrdering() {
 async function main() {
   await testHotspotConcurrencyLimit();
   await testHotspotBatchOrdering();
-  console.log('overview-tools-concurrency-test: all passed');
 }
 
 main().catch((err) => {

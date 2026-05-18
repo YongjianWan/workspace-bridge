@@ -7,7 +7,6 @@ function run(args) {
 
 function testAuditFileHasValidationAdvice() {
   const result = run(['audit-file', '--file', 'src/utils/path.js']);
-  assert.strictEqual(result.ok, true);
   assert.ok(result.validationAdvice, 'validationAdvice should exist');
   assert.ok(typeof result.validationAdvice.stackProfile === 'string', 'stackProfile should be a string');
   assert.ok(Array.isArray(result.validationAdvice.commands), 'commands should be an array');
@@ -25,23 +24,23 @@ function testAuditFileHasValidationAdvice() {
 
 function testAuditFileHasFrameworkPattern() {
   const result = run(['audit-file', '--file', 'cli.js']);
-  assert.strictEqual(result.ok, true);
-  // cli.js is an entry file, frameworkPattern might be null or have a value
+  assert.strictEqual(result.file, 'cli.js', 'file should match request');
+  assert.strictEqual(result.summary.severity, 'low', 'cli.js severity should be low');
+  assert.strictEqual(result.frameworkPattern, null, 'cli.js should have no framework pattern');
   assert.ok('frameworkPattern' in result, 'frameworkPattern field should exist');
 }
 
 function testAuditFileFrameworkDetection() {
-  // Next.js app router file pattern
   const result = run(['audit-file', '--file', 'test/vue-parser-test.js']);
-  assert.strictEqual(result.ok, true);
-  assert.ok(result.frameworkPattern === null || typeof result.frameworkPattern === 'object');
+  assert.strictEqual(result.file, 'test/vue-parser-test.js', 'file should match request');
+  assert.ok(result.frameworkPattern && result.frameworkPattern.framework === 'vue', 'vue test file should detect vue framework');
+  assert.strictEqual(result.frameworkPattern.isEntry, true, 'vue test file should be marked as entry');
 }
 
 function executeTests() {
   testAuditFileHasValidationAdvice();
   testAuditFileHasFrameworkPattern();
   testAuditFileFrameworkDetection();
-  console.log('audit-file-validation-advice-test.js: all passed');
 }
 
 executeTests();

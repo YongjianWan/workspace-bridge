@@ -26,7 +26,6 @@ function getAdapter() {
 }
 
 async function main() {
-  console.log('=== SemgrepAdapter scan boundary test ===\n');
 
   // 1. Empty targets
   let adapter = getAdapter();
@@ -106,7 +105,6 @@ async function main() {
   });
   assert.strictEqual(mixedCase.severity, 'high', 'severity should be case-insensitive');
 
-  console.log('\nAll SemgrepAdapter boundary tests passed');
 }
 
 main().catch((err) => {

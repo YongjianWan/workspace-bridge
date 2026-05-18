@@ -50,7 +50,6 @@ function main() {
   testBuildHeuristicSignature();
   testGetHeuristicLanguageFamily();
   testNormalizeHeuristicName();
-  console.log('test-detector-test: all passed');
 }
 
 main();

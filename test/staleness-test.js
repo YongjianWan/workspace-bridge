@@ -10,7 +10,6 @@ const { WorkspaceCache } = require('../src/services/cache');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function main() {
-  console.log('=== staleness-test ===\n');
 
   const container = new ServiceContainer();
 
@@ -216,7 +215,6 @@ function main() {
     cleanupTempDir(dir);
   }
 
-  console.log('\nAll staleness tests passed.');
 }
 
 try {

@@ -15,7 +15,6 @@ const { WorkspaceCache } = require('../src/services/cache');
 const originalReaddir = fs.promises.readdir;
 
 async function testReaddirPermissionDeniedSkipped() {
-  console.log('--- test: readdir EACCES skip ---');
   const root = makeTempDir('wb-fidx-');
   fs.mkdirSync(path.join(root, 'readable'));
   fs.writeFileSync(path.join(root, 'readable', 'a.js'), 'export const a = 1;\n');
@@ -55,7 +54,6 @@ async function testReaddirPermissionDeniedSkipped() {
 }
 
 async function testBuildAbortControllerTimeout() {
-  console.log('--- test: build abort timeout ---');
   const root = makeTempDir('wb-fidx-to-');
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'test' }));
   fs.mkdirSync(path.join(root, 'src'));
@@ -73,7 +71,6 @@ async function testBuildAbortControllerTimeout() {
 }
 
 async function testIndexByPatternAbortTimeout() {
-  console.log('--- test: indexByPattern abort timeout ---');
   const root = makeTempDir('wb-fidx-ptn-');
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'test' }));
   fs.mkdirSync(path.join(root, 'src'));
@@ -94,7 +91,6 @@ async function main() {
   await testReaddirPermissionDeniedSkipped();
   await testBuildAbortControllerTimeout();
   await testIndexByPatternAbortTimeout();
-  console.log('\nfile-index-boundary-test: all passed');
 }
 
 main().catch((err) => {

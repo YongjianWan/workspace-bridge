@@ -7,7 +7,6 @@ const assert = require('assert');
 const { extractSymbols } = require('../src/services/file-index/symbol-extractors');
 
 function main() {
-  console.log('=== symbol-extractors test ===\n');
 
   // Python
   {
@@ -168,7 +167,6 @@ struct Config;
     assert.strictEqual(symbols[0].signature, 'export const FOO = 1;');
   }
 
-  console.log('\nsymbol-extractors-test: all passed');
 }
 
 try {

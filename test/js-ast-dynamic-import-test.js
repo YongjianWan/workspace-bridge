@@ -10,14 +10,12 @@ program.command('clean').action(() => import('./clean.js'));
 `;
 
   const result = parseJavaScript(content, 'src/cli/index.ts');
-  assert(result.parseMode === 'ast', `Expected parseMode 'ast', got: ${result.parseMode}`);
+  assert.strictEqual(result.parseMode, 'ast', `Expected parseMode 'ast', got: ${result.parseMode}`);
 
   const dynamicImports = result.importRecords.filter((r) =>
     r.source === './analyze.js' || r.source === './clean.js'
   );
-  assert(dynamicImports.length === 2, `Expected 2 dynamic imports, got: ${dynamicImports.length}`);
-
-  console.log('testDynamicImport passed:', dynamicImports.map((r) => r.source).join(', '));
+  assert.strictEqual(dynamicImports.length, 2, `Expected 2 dynamic imports, got: ${dynamicImports.length}`);
 }
 
 testDynamicImport();

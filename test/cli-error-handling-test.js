@@ -7,7 +7,6 @@ const assert = require('assert');
 const { runCliRaw } = require('./test-helpers');
 
 function main() {
-  console.log('=== CLI Error Handling Test ===\n');
 
   // Test 1: audit-file with missing file — human mode should show error, not crash
   {

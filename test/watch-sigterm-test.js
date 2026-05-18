@@ -8,7 +8,7 @@ const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const { REPO_ROOT, CLI_PATH } = require('./test-helpers');
+const { REPO_ROOT, CLI_PATH, cleanupTempDir } = require('./test-helpers');
 
 const tempDir = path.join(REPO_ROOT, 'test', '.watch-sigterm-temp');
 
@@ -19,7 +19,7 @@ function delay(ms) {
 async function cleanup() {
   try {
     if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      cleanupTempDir(tempDir);
     }
   } catch {}
 }
@@ -33,7 +33,6 @@ async function waitForStartup(childStderr, timeoutMs = 15000) {
 }
 
 async function testWatchSigterm() {
-  console.log('--- test: watch SIGTERM graceful shutdown ---');
   fs.mkdirSync(tempDir, { recursive: true });
   fs.writeFileSync(path.join(tempDir, 'trigger.js'), '// initial\n');
 
@@ -70,7 +69,6 @@ async function testWatchSigterm() {
 }
 
 async function testAuditFileWatchSigint() {
-  console.log('--- test: audit-file --watch SIGINT graceful shutdown ---');
   fs.mkdirSync(tempDir, { recursive: true });
   const targetFile = path.join(tempDir, 'target.js');
   fs.writeFileSync(targetFile, '// initial\n');
@@ -111,7 +109,6 @@ async function testAuditFileWatchSigint() {
 }
 
 async function testExecuteWatchCommandBoundaries() {
-  console.log('--- test: executeWatchCommand boundaries ---');
   // executeWatchCommand is not exported, so we test via the watch module's
   // runWatchValidation path indirectly by spawning watch --run-tests and
   // asserting JSON Lines structure even when no tests exist.
@@ -170,7 +167,6 @@ async function main() {
   } finally {
     await cleanup();
   }
-  console.log('\nwatch-sigterm-test: all passed');
 }
 
 main().catch(async (err) => {

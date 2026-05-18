@@ -173,7 +173,6 @@ async function main() {
 
     await testInvalidJsonReturnsNull();
 
-    console.log('\nspawn-ast-direct-test: all passed');
   } finally {
     cp.spawn = originalSpawn;
     fs.existsSync = originalExistsSync;

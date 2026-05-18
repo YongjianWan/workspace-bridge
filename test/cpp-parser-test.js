@@ -180,5 +180,4 @@ async function testEmpty() {
   await testStructClassEnumTypedef();
   await testTemplate();
   await testEmpty();
-  console.log('cpp-parser-test: OK');
 })();

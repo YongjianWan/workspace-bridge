@@ -87,7 +87,6 @@ function testNonAsciiPath() {
 }
 
 function main() {
-  console.log('=== core integration regression test ===');
   testPathVariants();
   testNonAsciiPath();
 }

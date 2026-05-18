@@ -7,9 +7,17 @@ const { runCliWithFallback } = require('../src/utils/cli-fallback');
 
 const repoRoot = path.join(__dirname, '..');
 
+function _withCacheDir(args) {
+  const cacheDir = process.env.WB_TEST_CACHE_DIR;
+  if (cacheDir && !args.includes('--cache-dir')) {
+    return ['--cache-dir', cacheDir, ...args];
+  }
+  return args;
+}
+
 function testFallbackWhenGlobalMissing() {
   const run = runCliWithFallback(
-    ['workspace-info', '--cwd', repoRoot, '--json', '--quiet'],
+    _withCacheDir(['workspace-info', '--cwd', repoRoot, '--json', '--quiet']),
     {
       stdio: 'pipe',
       cwd: repoRoot,
@@ -25,7 +33,7 @@ function testFallbackWhenGlobalMissing() {
 
 function testForceLocalMode() {
   const run = runCliWithFallback(
-    ['workspace-info', '--cwd', repoRoot, '--json', '--quiet'],
+    _withCacheDir(['workspace-info', '--cwd', repoRoot, '--json', '--quiet']),
     {
       stdio: 'pipe',
       cwd: repoRoot,
@@ -40,7 +48,8 @@ function testForceLocalMode() {
 
 function testScriptEntry() {
   const scriptPath = path.join(repoRoot, 'scripts', 'cli-fallback.js');
-  const result = spawnSync('node', [scriptPath, 'workspace-info', '--cwd', repoRoot, '--json', '--quiet'], {
+  const args = _withCacheDir(['workspace-info', '--cwd', repoRoot, '--json', '--quiet']);
+  const result = spawnSync('node', [scriptPath, ...args], {
     cwd: repoRoot,
     env: {
       ...process.env,
@@ -56,7 +65,8 @@ function testScriptEntry() {
 function main() {
   testFallbackWhenGlobalMissing();
   testForceLocalMode();
-  testScriptEntry();}
+  testScriptEntry();
+}
 
 main();
 

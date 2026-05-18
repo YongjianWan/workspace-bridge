@@ -53,97 +53,97 @@ function makeMockDepGraph() {
 }
 
 async function testExecuteCommand() {
-  console.log('=== REPL command test ===\n');
+
 
   const container = { depGraph: makeMockDepGraph() };
 
   // help
   const help = await executeCommand(container, 'help');
   assert(help.includes('impact'), 'help should list commands');
-  console.log('help: ok');
+
 
   // impact
   const impact = await executeCommand(container, 'impact src/app.js');
   assert(impact.includes('impactCount: 2'), 'impact should count results');
   assert(impact.includes('dep-' + path.resolve('/project', 'src/app.js')), 'impact should list files');
-  console.log('impact: ok');
+
 
   // impact with max-depth
   const impactDepth = await executeCommand(container, 'impact src/app.js --max-depth 5');
   assert(impactDepth.includes('impactCount: 2'), 'impact with depth should work');
-  console.log('impact --max-depth: ok');
+
 
   // affected-tests
   const tests = await executeCommand(container, 'affected-tests src/app.js');
   assert(tests.includes('affectedTestsCount: 1'), 'affected-tests should count');
   assert(tests.includes('test-' + path.resolve('/project', 'src/app.js')), 'affected-tests should list files');
-  console.log('affected-tests: ok');
+
 
   // dead-exports
   const dead = await executeCommand(container, 'dead-exports');
   assert(dead.includes('deadExportsCount: 1'), 'dead-exports should count');
   assert(dead.includes('unusedFn'), 'dead-exports should list symbols');
-  console.log('dead-exports: ok');
+
 
   // unresolved
   const unresolved = await executeCommand(container, 'unresolved');
   assert(unresolved.includes('unresolvedCount: 1'), 'unresolved should count');
   assert(unresolved.includes('missing-pkg'), 'unresolved should list imports');
-  console.log('unresolved: ok');
+
 
   // cycles
   const cycles = await executeCommand(container, 'cycles');
   assert(cycles.includes('cyclesCount: 1'), 'cycles should count');
   assert(cycles.includes('c.js -> d.js -> c.js'), 'cycles should format path');
-  console.log('cycles: ok');
+
 
   // dependents
   const dependents = await executeCommand(container, 'dependents src/app.js');
   assert(dependents.includes('dependentsCount: 1'), 'dependents should count');
   assert(dependents.includes('dependent-of-' + path.resolve('/project', 'src/app.js')), 'dependents should list files');
-  console.log('dependents: ok');
+
 
   // dependencies
   const dependencies = await executeCommand(container, 'dependencies src/app.js');
   assert(dependencies.includes('dependenciesCount: 1'), 'dependencies should count');
   assert(dependencies.includes('dependency-of-' + path.resolve('/project', 'src/app.js')), 'dependencies should list files');
-  console.log('dependencies: ok');
+
 
   // stats
   const stats = await executeCommand(container, 'stats');
   assert(stats.includes('files: 42'), 'stats should show files');
   assert(stats.includes('totalImports: 100'), 'stats should show imports');
-  console.log('stats: ok');
+
 
   // empty input
   const empty = await executeCommand(container, '');
   assert.strictEqual(empty, null, 'empty input should return null');
-  console.log('empty-input: ok');
+
 
   // unknown command
   const unknown = await executeCommand(container, 'foobar');
   assert(unknown.includes('Unknown command'), 'unknown command should warn');
-  console.log('unknown-command: ok');
+
 
   // impact missing file
   const impactNoFile = await executeCommand(container, 'impact');
   assert(impactNoFile.includes('Usage:'), 'impact without file should show usage');
-  console.log('impact-missing-arg: ok');
+
 
   // affected-tests missing file
   const testsNoFile = await executeCommand(container, 'affected-tests');
   assert(testsNoFile.includes('Usage:'), 'affected-tests without file should show usage');
-  console.log('affected-tests-missing-arg: ok');
+
 
   // dependents missing file
   const depNoFile = await executeCommand(container, 'dependents');
   assert(depNoFile.includes('Usage:'), 'dependents without file should show usage');
-  console.log('dependents-missing-arg: ok');
+
 
   // dependencies missing file
   const depsNoFile = await executeCommand(container, 'dependencies');
   assert(depsNoFile.includes('Usage:'), 'dependencies without file should show usage');
-  console.log('dependencies-missing-arg: ok');
+
 
   // issues
   const issues = await executeCommand(container, 'issues');
@@ -154,28 +154,28 @@ async function testExecuteCommand() {
   assert(issues.includes('a.js'), 'issues should list dead export file');
   assert(issues.includes('missing-pkg'), 'issues should list unresolved import');
   assert(issues.includes('nextSteps:'), 'issues should include nextSteps');
-  console.log('issues: ok');
+
 
   // top
   const top = await executeCommand(container, 'top');
   assert(top.includes('hotspot-1:'), 'top should list hotspot-1');
   assert(top.includes(path.relative('/project', '/project/src/utils/path.js')), 'top should include path.js');
   assert(top.includes('5 dependents'), 'top should show dependent count');
-  console.log('top: ok');
+
 
   // top with no hotspots (threshold not met)
   const noHotContainer = { depGraph: { ...container.depGraph, getDependents: () => [] } };
   const topNone = await executeCommand(noHotContainer, 'top');
   assert(topNone.includes('No hotspots detected'), 'top should handle no hotspots');
-  console.log('top-none: ok');
+
 
   // help includes new commands
   const help2 = await executeCommand(container, 'help');
   assert(help2.includes('issues'), 'help should list issues command');
   assert(help2.includes('top'), 'help should list top command');
-  console.log('help-includes-issues-top: ok');
 
-  console.log('\nAll REPL command tests passed');
+
+
 }
 
 async function testEvalMode() {
@@ -194,7 +194,7 @@ async function testEvalMode() {
   const output = logs.join('\n');
   assert(output.includes('files:'), `eval mode should output stats result. got: ${output}`);
   assert(output.includes('totalImports:') || output.includes('cycles:'), `eval mode stats should include imports or cycles. got: ${output}`);
-  console.log('repl-eval-mode: ok');
+
 }
 
 async function testEvalModeJson() {
@@ -215,7 +215,7 @@ async function testEvalModeJson() {
   assert.strictEqual(parsed.ok, true, 'json eval should return ok: true');
   assert(typeof parsed.result === 'string', 'json eval should have string result');
   assert(parsed.result.includes('files:'), 'json eval result should contain stats');
-  console.log('repl-eval-mode-json: ok');
+
 }
 
 async function testEvalModeInvalidCwd() {
@@ -227,7 +227,7 @@ async function testEvalModeInvalidCwd() {
   const parsed = JSON.parse(result.stdout);
   assert.strictEqual(parsed.ok, false, 'invalid cwd should return ok: false');
   assert(parsed.error.includes('Directory not found'), `should mention directory not found. got: ${parsed.error}`);
-  console.log('repl-eval-invalid-cwd: ok');
+
 }
 
 async function main() {
@@ -235,7 +235,7 @@ async function main() {
   await testEvalMode();
   await testEvalModeJson();
   await testEvalModeInvalidCwd();
-  console.log('\nAll REPL tests passed');
+
 }
 
 main().catch((err) => {

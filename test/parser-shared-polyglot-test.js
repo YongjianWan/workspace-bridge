@@ -218,7 +218,6 @@ function main() {
   testParseRust();
   testPolyglotEmpty();
 
-  console.log('parser-shared-polyglot-test: all passed');
 }
 
 main();

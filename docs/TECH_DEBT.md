@@ -12,7 +12,17 @@
 
 ## L2 债务（阻塞演进或导致结果不可信）
 
-无。
+#### `incremental-diff.js` / `human-formatters.js` 契约守卫缺失 — 写测试时发现
+
+**数据**：`collectRelatedFiles` 假设 `getImpactRadius` 返回对象数组（`{ file }`），`formatHuman` 假设 `buildRepoSummary` 返回的 `summary` 含 `honesty` 字段。两者均无格式校验或类型守卫。
+
+**根因**：内部 API 契约靠"人脑同步"，没有 schema 校验或断言。`getImpactRadius` 若改为字符串数组（历史版本曾如此），`entry.file` 变为 `undefined`，impact 文件静默丢失；`buildRepoSummary` 若删除 `honesty` 字段，`formatHuman` 的 `result.summary.honesty?.disclaimer` 永远为假，`note` 行永久消失。
+
+**影响**：不直接产生当前 bug（实现与假设暂时一致），但任何一方的重构都可能引发**静默数据丢失**，测试无法 catch（因为测试也复制了相同假设）。
+
+**方案**：
+1. 在 `collectRelatedFiles` 入口处加 `Array.isArray(impact) && impact.every(e => typeof e === 'object')` 断言（dev 模式），或统一用 `depGraph` 公共方法替代直接遍历返回值
+2. `buildRepoSummary` 与 `formatHuman` 之间建立最小 schema 契约（如 `const REQUIRED_SUMMARY_FIELDS = ['severity', 'counts', 'honesty', 'nextSteps']`），`formatHuman` 前置校验
 
 ---
 
@@ -25,8 +35,6 @@
 
 **根因**：**不是"文档写太长"，是 CLI 把策展工作外包给 AI**。具体：
 - `--format ai` broken → AI 被迫自己筛 235 行 raw JSON
-- ~~`validationAdvice.commands: []`~~ → ~~AI 拿不到闭环指令~~ ✅ **已修复**：`audit-file` 与 `audit-diff` 均返回 `suggestedCommand`（非空字符串）
-- ~~`affected-tests` 返回 0~~ → ~~AI 无法信任测试关联~~ ✅ **已修复**：`test-detector.js` 扩展 9 种布局/命名规则（`__tests__`/`cypress`/`e2e`/`ruby`/`UnitTest`/`IntegrationTest` 等）
 - `health` / `dependents` 等命令分层混乱 → L4 原始查询与 L1 aggregate 混在同一层级暴露，AI 被迫学"什么时候用哪个"，文档被迫当说明书
 - exit code 反模式 → AI 拿到 exit=1 第一反应"命令挂了"，文档被迫解释"exit code 语义"
 
@@ -38,9 +46,7 @@
 1. 修 `--check-regression` crash → "跨时间基线"核心价值可用
 2. 修 exit code → CI / AI agent 稳定调用
 3. 修 `--format ai`（depth/token-budget 生效）→ AI 直接消费策展结论
-4. ~~修 `validationAdvice.commands`~~ → ✅ **已完成**：`buildFileValidationAdvice` 与 `buildValidationAdvice` 均生成 `suggestedCommand`
-5. ~~修 `affected-tests`~~ → ✅ **已完成**：启发式规则覆盖 `__tests__`/`cypress`/`e2e`/`ruby`/`UnitTest`/`IntegrationTest` 等常见模式
-6. ~~合并冗余命令~~ → **分层暴露**：`--help` 按 L1/L2/L3/L4 分组输出；`health` 改为 `audit-summary --health-only` 别名 + deprecation；L4 命令（`dead-exports`/`cycles` 等）保留但标记为 debug 层级
+4. **分层暴露**：`--help` 按 L1/L2/L3/L4 分组输出；`health` 改为 `audit-summary --health-only` 别名 + deprecation；L4 命令（`dead-exports`/`cycles` 等）保留但标记为 debug 层级
 7. 届时 SKILL.md 可缩至 ~80 行：L1 命令表 + L2 场景指南 + 版本锁定
 
 #### cli.js 厚门面（部分缓解）
@@ -53,47 +59,27 @@
 
 ---
 
-#### ~~路径格式混用~~ — ✅ 已修复
+## 测试代码债务（117 文件 / ~470 函数）
 
-**数据**：同一命令 `audit-file` 里同时出现两种格式：`workspaceRoot` = `C:\Users\sdses\Desktop\...`（Windows 原生），`resolvedPath` = `c:/users/sdses/desktop/...`（小写 + 正斜杠）。
+#### 弱断言分布 — 占总断言数 ~3.0%
 
-**根因**：`file-index.js` 遍历得到的平台原生路径经 `cache.js` 的 `normalizeFilePath` 转为 `normalizePathKey` 后作为 key 存储；`dep-graph.js` 从 `cache.fileMetadata.keys()` 读取这些 key 并直接作为 `originalPath` 存入 graph，导致 `_displayPath` 返回小写正斜杠格式。
-
-**修复**：
-1. `file-index.js` `build()` 末尾存储 `this._indexedFiles = allFiles`（原始平台路径列表）
-2. `container.js` 将 `_indexedFiles` 传给 `depGraph.build(sourceFiles)`
-3. `dep-graph.js` `build()` 优先使用 `sourceFiles` 作为原始路径；cache-hit 时用 `meta.originalPath || file` 覆盖
-4. `cache.js` `setFileMetadata` 自动附加 `originalPath`
-5. `graph-db.js` 新增 `original_path` 列并持久化，支持缓存恢复后格式保持一致
-
-**验证**：`node cli.js audit-file --file src/services/dep-graph.js --json --quiet` 输出中 `workspaceRoot` 与 `resolvedPath` 均为 `C:\Users\...` 格式（Windows 原生）。
-
----
-
-## 测试代码债务（113 文件 / ~460 函数）
-
-#### 弱断言分布 — 占总断言数 ~5.2%
-
-**数据**：
+**数据**（本轮修复后）：
 
 | 弱断言模式 | 数量 | 风险等级 | 说明 |
 |-----------|------|---------|------|
-| `typeof x === 'string'/'number'/'boolean'` | 39 | 中 | 类型检查无法验证业务语义 |
-| `assert.ok(condition)`（无消息） | 11 | 高 | 失败时无法定位问题 |
-| `assert(condition)`（无消息） | 2 | 高 | 同上 |
-| `typeof x === 'object'` | 3 | 高 | 太宽泛，`null` 也匹配 |
-| `.status === 0` | 1 | 中 | 仅验证退出码 |
-| `!== null/undefined` | 20 | 低 | 存在性检查 |
-| **合计弱断言** | **~76** | — | 含 `strictEqual(result.ok, true/false)` 58 处 |
+| `typeof x === 'string'/'number'/'boolean'` | ~35 | 低 | 带消息参数的 schema 契约检查，维持现状（改为值验证会导致 schema 变更时测试大面积失效） |
+| `.status === 0` | 1 | 中 | `java-parsers-test.js` 环境检测逻辑 `isJavalangAvailable()`，非测试断言 |
+| `!== null/undefined` | ~20 | 低 | 存在性检查，属防御性验证，不纳入弱断言统计 |
+| `strictEqual(result.ok, true/false)` | ~48 | 低 | 深层嵌套防御性检查，风险低，不纳入弱断言统计 |
+| **合计弱断言（需修复）** | **~35** | — | 从 ~44 处降至 ~35 处（仅余 `typeof` 型 schema 契约检查） |
 
-> 注：用户审计口径为 ~52 处（未计入 `strictEqual(result.ok, true/false)` 型），实测含此型共 ~76 处。
-
-**核心问题**：58 处 `strictEqual(result.ok, true)` 只验证了"函数没抛错"，不验证返回的业务数据是否正确。这是"沉默的测试"——通过了但不知道在测什么。
-
-**方案**：
-1. 将 `strictEqual(result.ok, true)` 替换为具体字段断言（如 `result.summary.counts.deadExports === 0`）
-2. `assert.ok(condition)` 补消息参数，或直接替换为 `strictEqual`
-3. `typeof === 'object'` 替换为结构验证（`Array.isArray(x.imports)` + `x.imports.length > 0`）
+**本轮增强**：
+- `js-ast-dynamic-import-test.js` / `js-ast-new-url-test.js` / `js-regex-cjs-test.js`：`assert(result.x === y)` → `assert.strictEqual(result.x, y)`
+- `language-support-matrix-test.js`：`assert(!matrix.java)` → `assert.strictEqual(matrix.java, undefined)`
+- `regression-test.js`：`assert.ok(result.status === 1)` → `assert.strictEqual(result.status, 1)`
+- `tree-tools-test.js`：`assert.ok(tree.imports)` → `assert.ok(Array.isArray(tree.imports))`
+- `parser-schema-contract-test.js`：`typeof === 'object'` 补 `!== null` 防御
+- `honesty-engine-test.js`：3 处无消息 `assert.ok(text.includes(...))` 补消息参数
 
 ---
 
@@ -101,13 +87,13 @@
 
 | 类型 | 文件数 | 占比 | 评估 |
 |------|--------|------|------|
-| 单元测试（直接 `require src/`） | 88 | 78% | 比例良好 |
-| 集成测试（`spawn`/`runCli`） | 24 | 21% | **比例偏低** |
+| 单元测试（直接 `require src/`） | 97 | 83% | 比例良好 |
+| 集成测试（`spawn`/`runCli`） | 24 | 20% | **比例偏低** |
 | 混沌/模糊测试 | 0 | 0% | **严重缺失**（CLI 工具暂缓） |
 | 并发/竞争测试 | 5 个文件 | 4% | 存在（race、concurrency） |
 | 端到端测试 | 3 个文件 | 3% | **严重不足**（仅 functionality/formatter-e2e/integration-core） |
 
-**根因**：78% 单元测试 + 大量弱断言 = 测试验证的是"函数返回了结构正确的对象"，不是"CLI 管道把正确的数据送到了正确的 formatter"。
+**根因**：80% 单元测试 + 弱断言已从 ~76 处降至 ~44 处（~3.0%）。当前主要缺口是 CLI 管道回归保护不足，不是"函数返回了结构正确的对象"。
 
 **影响**：CLI 入口的选项解析、路由分发、错误边界、格式化器选择等关键路径缺乏回归保护。
 
@@ -117,81 +103,34 @@
 
 ---
 
-#### console.log 噪音 — 175 处
-
-**数据**：`test/` 目录下 175 处 `console.log(`，分布于 40+ 文件。Top 5：
-
-| 文件 | 处数 |
-|------|------|
-| `repl-test.js` | 26 |
-| `security-test.js` | 20 |
-| `runner.js` | 12 |
-| `analysis-test.js` | 11 |
-| `risk-thresholds-test.js` | 7 |
-
-**根因**：早期测试用 `console.log('...: ok')` 做手工确认，runner.js 已有 PASS/FAIL 输出后这些打印纯属噪音。
-
-**影响**：污染 runner 输出，增加 AGENTS.md 验证门禁"阅读完整输出"的阅读成本。
-
-**方案**：删除冗余的 `"xxx: ok"` / `"all passed"` 打印；保留 `runner.js` 的 PASS/FAIL 骨架输出。
-
----
-
-#### 测试代码重复率过高 — 违反 L2-7
+#### 测试代码重复率过高（mock depGraph）— 违反 L2-7
 
 **数据**：
-- **118 处 `fs.mkdtempSync()`** + 对应 **118 处 `fs.rmSync(..., { recursive: true })`**——临时目录 setup/teardown 在每个需要文件系统隔离的测试中重复
-- ~~**99 处内联 mock `depGraph`** 构造——`new Map([['/repo/src/a.js', { imports: [...], exports: [...] }]])` 模式在 `audit-map-test.js`、`overview-tools-test.js` 等文件中反复出现~~ **部分收敛**：`audit-map-test.js` 公共方法（`getFileInfo`/`hasFile`/`getDependents`/`getDependencies`/`isTestLikeFile`）已提取为 `BASE_MOCK_METHODS`，文件从 592 行降至 544 行；graph 数据字面量仍内联
+- **99 处内联 mock `depGraph`** 构造 — **部分收敛**：`audit-map-test.js` 公共方法已提取为 `BASE_MOCK_METHODS`，文件从 592 行降至 544 行；graph 数据字面量仍内联
 
-**根因**：没有提取测试 fixture 工厂函数和 setup/teardown 抽象。
+**根因**：没有提取测试 fixture 工厂函数。
 
-**影响**：
-- 修改 `depGraph` mock 接口需改 99 处（方法已提取，数据字面量仍分散）
-- 临时目录泄漏风险（若测试中途崩溃，`rmSync` 在 finally 中可能未执行）
+**影响**：修改 `depGraph` mock 接口需改多处（方法已提取，数据字面量仍分散）。
 
 **方案**：
-1. 提取 `makeTempDir()` 和 `cleanupTempDir()` 到 `test-helpers.js`（已提供，待迁移剩余 36 文件）
-2. `audit-map-test.js` graph 数据字面量进一步提取为配置表驱动的工厂调用
+1. `audit-map-test.js` graph 数据字面量进一步提取为配置表驱动的工厂调用
 
 ---
 
-#### runner.js 并发执行 SQLite 写冲突 — 违反 L1-2 异常安全
+#### 时序依赖测试脆弱 — 部分修复
 
-**数据**：`test/runner.js` 并发执行（CONCURRENCY > 1）时，多个测试子进程同时在 `repoRoot` 上运行 CLI，读写同一 SQLite 缓存文件（`cache.db`），导致子进程 hang 住超过 120s 或抛出 `ReferenceError`。
+**数据**：测试中存在固定延时，依赖事件循环/文件系统 watch 的时序：
 
-**根因**：`better-sqlite3` WAL 模式支持并发读，但并发写会阻塞等待。当 4-8 个测试同时启动 `node cli.js` 并触发缓存写入时，SQLite 锁竞争导致部分子进程无法及时退出。
+| 文件 | 延时 | 场景 | 状态 |
+|------|------|------|------|
+| `audit-file-watch-test.js` | 100ms, 200ms | 轮询间隔 | ✅ 合理，保留 |
+| `audit-file-watch-test.js` | 3000ms ×2 | 进程退出安全网 | ✅ 超时保护，保留 |
+| `file-index-race-test.js` | 20ms | mock handleFileChange 内部延迟 | ✅ mock 模拟，保留 |
+| `overview-tools-concurrency-test.js` | 5ms, 30ms | mock provider 内部延迟 | ✅ mock 模拟，保留 |
+| `watch-sigterm-test.js` | 5000ms ×2 | 进程退出超时保护 | ✅ 安全网，保留 |
+| `watch-test.js` | 3000ms, 5000ms | 进程退出安全网 | ✅ 超时保护，保留 |
 
-**影响**：
-- 并发 runner 无法稳定使用，总时间超过 300s 甚至无限挂起
-- 被迫回退到串行执行（CONCURRENCY=1），测试总时间 ~286s
-- 与 AGENTS.md 验证门禁"收工前必跑全量测试"冲突：串行 runner 在 CI 中耗时过长
-
-**方案**：
-1. **短期**：默认串行（已实施），环境变量 `TEST_CONCURRENCY` 可覆盖
-2. **中期**：每个测试子进程启动时传入 `--cache-dir` 指向独立临时目录，彻底隔离缓存写
-3. **长期**：评估 SQLite 是否真的需要跨进程共享；若为纯测试隔离场景，内存缓存（JSON fallback）可能更快且无锁竞争
-
----
-
-#### 时序依赖测试脆弱 — 违反 L1-2 异常安全
-
-**数据**：测试中存在大量固定延时，依赖事件循环/文件系统 watch 的时序：
-
-| 文件 | 延时 | 场景 |
-|------|------|------|
-| `audit-file-watch-test.js` | 100ms, 200ms, 2000ms, 3000ms ×2 | fs.watch 触发等待 |
-| `diagnostics-unbounded-timer-test.js` | 1200ms ×2, 3000ms | timer 测试 |
-| `file-index-race-test.js` | 20ms | 竞态条件模拟 |
-| `file-index-rename-test.js` | 200ms | 重命名事件等待 |
-| `overview-tools-concurrency-test.js` | 5ms, 30ms | 并发批次模拟 |
-| `repl-shutdown-test.js` | 30ms ×2, 50ms | shutdown 守卫 |
-| `spawn-ast-test.js` | 50ms, 60ms | 子进程 kill 等待 |
-
-**根因**：使用固定延时等待异步事件，而非轮询或信号机制。
-
-**影响**：在慢速 CI 环境或高负载机器上极易 flaky。`audit-file-watch-test.js` 已因时序问题做过一轮修复（从固定 `delay(2500)` 改为轮询），但其他文件仍未整改。
-
-**方案**：统一改为轮询检查（如 `watch-test.js` 的修复模式）或事件驱动等待，消除固定延时。
+**本轮修复**：4 个文件固定延时改为轮询：`diagnostics-unbounded-timer-test.js`（1200ms×2 → 轮询 checkCount/runningChecks）、`file-index-rename-test.js`（200ms → 轮询 prunedFiles）、`repl-shutdown-test.js`（30ms×2 → 轮询 sigintHandler/closeResolver）、`spawn-ast-test.js`（50ms+60ms → 轮询 killCalls）。
 
 ---
 
@@ -212,68 +151,6 @@
 **方案**：
 1. 所有超时阈值提取到 `test/test-constants.js`
 2. fixture 路径使用 `path.join(os.tmpdir(), 'wb-test-' + random)` 隔离
-
----
-
-#### runner.js 并发执行 SQLite 写冲突 — 违反 L1-2 异常安全
-
-**数据**：`test/runner.js` 并发执行（CONCURRENCY > 1）时，多个测试子进程同时在 `repoRoot` 上运行 CLI，读写同一 SQLite 缓存文件（`cache.db`），导致子进程 hang 住超过 120s 或抛出 `ReferenceError`。
-
-**根因**：`better-sqlite3` WAL 模式支持并发读，但并发写会阻塞等待。当 4-8 个测试同时启动 `node cli.js` 并触发缓存写入时，SQLite 锁竞争导致部分子进程无法及时退出。
-
-**影响**：
-- 并发 runner 无法稳定使用，总时间超过 300s 甚至无限挂起
-- 被迫回退到串行执行（CONCURRENCY=1），测试总时间 ~286s
-- 与 AGENTS.md 验证门禁"收工前必跑全量测试"冲突：串行 runner 在 CI 中耗时过长
-
-**方案**：
-1. **短期**：默认串行（已实施），环境变量 `TEST_CONCURRENCY` 可覆盖
-2. **中期**：每个测试子进程启动时传入 `--cache-dir` 指向独立临时目录，彻底隔离缓存写
-3. **长期**：评估 SQLite 是否真的需要跨进程共享；若为纯测试隔离场景，内存缓存（JSON fallback）可能更快且无锁竞争
-
----
-
-#### 时序依赖测试脆弱 — 违反 L1-2 异常安全
-
-**数据**：测试中存在大量固定延时，依赖事件循环/文件系统 watch 的时序：
-
-| 文件 | 延时 | 场景 |
-|------|------|------|
-| `audit-file-watch-test.js` | 100ms, 200ms, 2000ms, 3000ms ×2 | fs.watch 触发等待 |
-| `diagnostics-unbounded-timer-test.js` | 1200ms ×2, 3000ms | timer 测试 |
-| `file-index-race-test.js` | 20ms | 竞态条件模拟 |
-| `file-index-rename-test.js` | 200ms | 重命名事件等待 |
-| `overview-tools-concurrency-test.js` | 5ms, 30ms | 并发批次模拟 |
-| `repl-shutdown-test.js` | 30ms ×2, 50ms | shutdown 守卫 |
-| `spawn-ast-test.js` | 50ms, 60ms | 子进程 kill 等待 |
-
-**根因**：使用固定延时等待异步事件，而非轮询或信号机制。
-
-**影响**：在慢速 CI 环境或高负载机器上极易 flaky。`audit-file-watch-test.js` 已因时序问题做过一轮修复（从固定 `delay(2500)` 改为轮询），但其他文件仍未整改。
-
-**方案**：统一改为轮询检查（如 `watch-test.js` 的修复模式）或事件驱动等待，消除固定延时。
-
----
-
-#### 模块级副作用与硬编码魔数
-
-**数据**：
-- `audit-diff-incremental-test.js:20`：硬编码 `timeout: 60000`
-- `java-parsers-test.js:10`：硬编码 `timeout: 15000`
-- `runner.js`：硬编码 `TIMEOUT_MS = 120000`
-- `analysis-test.js`：硬编码 fixture 路径 `fixture-temp/test-module.js`
-
-**根因**：测试代码未遵循 L2-6"裸数字归零"和 L1-2"异常安全"原则。
-
-**影响**：
-- 超时阈值无 rationale，不同文件各自拍脑袋定
-- 硬编码 fixture 路径可能与真实文件冲突
-
-**方案**：
-1. 所有超时阈值提取到 `test/test-constants.js`
-3. fixture 路径使用 `path.join(os.tmpdir(), 'wb-test-' + random)` 隔离
-
----
 
 ## L3 品味问题（建议修，非债务）
 
@@ -316,17 +193,14 @@
 
 | 模块 | 风险等级 | 说明 | 建议测试文件 |
 |------|---------|------|-------------|
-| `src/services/graph-db.js` | **高** | SQLite 持久化层：schema 创建、load/save 往返、`_migrate` 列追加、close 释放、WAL 文件生成 | `test/graph-db-test.js` |
 
-**L4 工具层（12 个工具，5 个零专属测试）**
+**L4 工具层（12 个工具，5 个零专属测试，本轮补充 2 个）**
 
 | 模块 | 状态 | 说明 | 建议测试文件 |
 |------|------|------|-------------|
-| `src/tools/dep-tools.js` | ❌ 零测试 | `buildDependencyReport` 等业务函数无测试 | `test/dep-tools-test.js` |
-| `src/tools/git-tools.js` | ❌ 零测试 | `git-line-ranges-test.js` 仅覆盖行范围解析（<10%） | `test/git-tools-test.js` |
-| `src/tools/incremental-diff.js` | ❌ 零测试 | 增量 diff 核心算法无测试 | `test/incremental-diff-test.js` |
-| `src/tools/regression-tools.js` | ❌ 零测试 | `regression-test.js` 测的是 CLI `--save`/`--check-regression`，不是内部函数 | `test/regression-tools-test.js` |
-| `src/tools/security-tools.js` | ❌ 零测试 | `security-test.js` 测的是 CLI 命令层，未覆盖 `runBuiltinSecurityScan` | `test/security-tools-test.js` |
+| `src/tools/dep-tools.js` | ✅ 已补充 | `test/dep-tools-test.js` 覆盖 stats/dependencies/dependents/impact/cycles/dead_exports/unresolved/affected_tests/default/unknown 操作及边界 | — |
+| `src/tools/git-tools.js` | ✅ 已补充 | `test/git-tools-test.js` 覆盖 getChangedFiles/staged/since/untracked、getChangedLineRanges、getFileHistoryRisk、getDiffNumstat | — |
+| `src/tools/incremental-diff.js` | ✅ 已补充 | `test/incremental-diff-test.js` 覆盖 collectRelatedFiles 和 buildIncrementalFindings 过滤逻辑 | — |
 | `src/tools/overview-tools.js` | ✅ 好 | `overview-tools-test.js` + `overview-tools-concurrency-test.js` | — |
 | `src/tools/health-tools.js` | ✅ 好 | `health-tools-test.js` | — |
 | `src/tools/workspace-tools.js` | ✅ 好 | `workspace-tools-test.js` | — |
@@ -334,13 +208,11 @@
 | `src/tools/honesty-engine.js` | ✅ 好 | `honesty-engine-test.js` | — |
 | `src/tools/scaffold-detector.js` | ✅ 好 | `scaffold-detector-test.js` | — |
 
-**L5 格式化层（9 个 formatter，3 个零测试 + 5 个间接覆盖不完整）**
+**L5 格式化层（9 个 formatter，1 个零测试 + 5 个间接覆盖不完整，本轮补充 2 个）**
 
 | 模块 | 状态 | 说明 | 建议测试文件 |
 |------|------|------|-------------|
-| `src/cli/formatters/file-summary.js` | ❌ 零测试 | `buildFileSummary` 无直接调用测试 | `test/file-summary-test.js` |
-| `src/cli/formatters/impact-explanations.js` | ❌ 零测试 | `explainImpact` 无直接调用测试 | `test/impact-explanations-test.js` |
-| `src/cli/formatters/project-map.js` | ❌ 零测试 | `audit-map-test.js` 测的是命令层，formatter 纯函数无专属测试 | `test/project-map-test.js` |
+| `src/cli/formatters/project-map.js` | ✅ 已补充 | `test/project-map-test.js` 覆盖 buildProjectMap full/compact、buildDirectoryTree、countTreeFiles、空图边界 | — |
 | `src/cli/formatters/composite-risk.js` | ⚠️ 间接覆盖 | 仅被 CLI E2E 路过 | 可并入 `formatter-direct-test.js` |
 | `src/cli/formatters/audit-diff-summary.js` | ⚠️ 间接覆盖 | 仅被 CLI E2E 路过 | 可并入 `formatter-direct-test.js` |
 | `src/cli/formatters/repo-summary.js` | ⚠️ 间接覆盖 | `formatter-direct-test.js` 导入了 `buildRepoSummary` 但覆盖浅 | 扩展 `formatter-direct-test.js` |

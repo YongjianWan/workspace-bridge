@@ -79,8 +79,8 @@ function testBuildTreeBothDirections() {
   const dg = createMockDepGraph(deps, dents);
   const tree = buildTree('a.js', dg, { maxDepth: 2, direction: 'both' });
 
-  assert.ok(tree.imports, 'should have imports');
-  assert.ok(tree.dependents, 'should have dependents');
+  assert.ok(Array.isArray(tree.imports), 'imports should be an array');
+  assert.ok(Array.isArray(tree.dependents), 'dependents should be an array');
 }
 
 function testBuildTreeMarksExternal() {
@@ -147,7 +147,6 @@ function main() {
   testBuildTreeCutsCircularImport();
   testBuildTreeCutsCircularDependent();
   testBuildTreeDependentsRespectsMaxDepth();
-  console.log('tree-tools-test: all passed');
 }
 
 main();

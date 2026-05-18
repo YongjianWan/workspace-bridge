@@ -132,7 +132,6 @@ pub use std::io::{self, Write};
 async function main() {
   await testRustAstSchema();
   await testRustAstUseListReexport();
-  console.log('All rust-ast-parser tests passed');
 }
 
 main().catch((e) => {

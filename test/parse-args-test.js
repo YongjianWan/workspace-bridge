@@ -41,7 +41,6 @@ function main() {
   testUnknownArgumentThrows();
   testPositionalArgs();
   testMissingValue();
-  console.log('parse-args-test: all passed');
 }
 
 main();

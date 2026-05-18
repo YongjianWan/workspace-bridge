@@ -8,16 +8,14 @@ const imgUrl = new URL('./logo.png', import.meta.url);
 `;
 
   const result = parseJavaScript(content, 'src/core/ingestion/pipeline-phases/parse-impl.ts');
-  assert(result.parseMode === 'ast', `Expected parseMode 'ast', got: ${result.parseMode}`);
+  assert.strictEqual(result.parseMode, 'ast', `Expected parseMode 'ast', got: ${result.parseMode}`);
 
   const jsImports = result.importRecords.filter((r) => r.source.endsWith('.js'));
-  assert(jsImports.length === 1, `Expected 1 JS import from new URL, got: ${jsImports.length}`);
-  assert(jsImports[0].source === './parse-worker.js', `Expected './parse-worker.js', got: ${jsImports[0].source}`);
+  assert.strictEqual(jsImports.length, 1, `Expected 1 JS import from new URL, got: ${jsImports.length}`);
+  assert.strictEqual(jsImports[0].source, './parse-worker.js', `Expected './parse-worker.js', got: ${jsImports[0].source}`);
 
   const pngImports = result.importRecords.filter((r) => r.source.endsWith('.png'));
-  assert(pngImports.length === 0, `Expected 0 PNG imports, got: ${pngImports.length}`);
-
-  console.log('testNewURLWorker passed:', jsImports.map((r) => r.source).join(', '));
+  assert.strictEqual(pngImports.length, 0, `Expected 0 PNG imports, got: ${pngImports.length}`);
 }
 
 testNewURLWorker();

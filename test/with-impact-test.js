@@ -41,7 +41,6 @@ function testWithoutImpact() {
 function main() {
   testWithImpact();
   testWithoutImpact();
-  console.log('with-impact-test.js: all passed');
 }
 
 main();

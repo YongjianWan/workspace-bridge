@@ -142,7 +142,7 @@ function main() {
   }
   assert.strictEqual(changed.symbolImpact.changedFunctionImpact.mode, 'function-symbol');
   assert(changed.symbolImpact.changedFunctionImpact.changedFunctions.includes('helper'));
-  assert(Array.isArray(changed.symbolImpact.changedFunctionImpact.impactedFunctionDependents));
+  assert(Array.isArray(changed.symbolImpact.changedFunctionImpact.impactedFunctionDependents), 'impactedFunctionDependents should be an array');
   assert(Array.isArray(changed.symbolImpact.changedFunctionImpact.reuseHints), 'reuseHints should exist');
   assert.strictEqual(changed.symbolImpact.changedFunctionImpact.reuseHints.length, 0, 'reuseHints should be empty by default');
   assert(Array.isArray(changedWithHints.symbolImpact.changedFunctionImpact.reuseHints), 'reuseHints should exist with flag on');
@@ -153,48 +153,48 @@ function main() {
   assert(helperServiceHint?.similarityMode, 'reuse hint should include similarityMode');
   const fnTests = changed.symbolImpact.changedFunctionImpact.functionLevelAffectedTests;
   assert(fnTests, 'functionLevelAffectedTests should exist');
-  assert.strictEqual(typeof fnTests.affectedTestsCount, 'number');
+  assert(fnTests.affectedTestsCount >= 0, `functionLevelAffectedTests.affectedTestsCount should be >= 0, got ${fnTests.affectedTestsCount}`);
   const helperTests = fnTests.functions.find((item) => item.function === 'helper');
   assert(helperTests, 'functionLevelAffectedTests should include helper');
-  assert(helperTests.affectedTests.some((item) => item.file.replace(/\\/g, '/').endsWith('/test/app.test.js')));
-  assert(helperTests.affectedTests.every((item) => item.source === 'function-level'));
+  assert(helperTests.affectedTests.some((item) => item.file.replace(/\\/g, '/').endsWith('/test/app.test.js')), 'helper affectedTests should include app.test.js');
+  assert(helperTests.affectedTests.every((item) => item.source === 'function-level'), 'helper affectedTests should all be function-level');
   assert(
     !helperTests.affectedTests.some((item) => item.file.replace(/\\/g, '/').endsWith('/test/app.smoke.test.js')),
     'functionLevelAffectedTests should exclude naming-only heuristic tests'
   );
   assert(changed.compositeRisk, 'compositeRisk should exist');
   assert(['low', 'medium', 'high'].includes(changed.compositeRisk.level), 'compositeRisk.level should be valid');
-  assert(typeof changed.compositeRisk.score === 'number', 'compositeRisk.score should be numeric');
+  assert(changed.compositeRisk.score >= 0, `compositeRisk.score should be >= 0, got ${changed.compositeRisk.score}`);
   assert(
     changed.compositeRisk.reasons.some((reason) => reason.includes('Function-scoped impact available')),
     'compositeRisk should include function-level reasoning'
   );
-  assert.strictEqual(changed.affectedTestsCount >= 1, true);
+  assert(changed.affectedTestsCount >= 1, `changed.affectedTestsCount should be >= 1, got ${changed.affectedTestsCount}`);
   assert.strictEqual(changed.historyRisk.level, 'high');
   assert.strictEqual(changed.historyRisk.authorCount >= 3, true);
   assert.strictEqual(changed.historyRisk.revertLikeCount >= 1, true);
   assert.strictEqual(parsed.summary.counts.highHistoryRiskFiles, 1);
-  assert.strictEqual(typeof parsed.summary.counts.highCompositeRiskFiles, 'number');
-  assert.strictEqual(typeof parsed.summary.counts.maxCompositeRiskScore, 'number');
-  assert(Array.isArray(parsed.summary.topCompositeRisks));
-  assert(parsed.summary.topCompositeRisks.length >= 1);
-  assert.strictEqual(typeof parsed.summary.topCompositeRisks[0].score, 'number');
+  assert(parsed.summary.counts.highCompositeRiskFiles >= 0, `highCompositeRiskFiles should be >= 0, got ${parsed.summary.counts.highCompositeRiskFiles}`);
+  assert(parsed.summary.counts.maxCompositeRiskScore >= 0, `maxCompositeRiskScore should be >= 0, got ${parsed.summary.counts.maxCompositeRiskScore}`);
+  assert(Array.isArray(parsed.summary.topCompositeRisks), 'topCompositeRisks should be an array');
+  assert(parsed.summary.topCompositeRisks.length >= 1, 'topCompositeRisks should have at least one entry');
+  assert(parsed.summary.topCompositeRisks[0].score >= 0, `topCompositeRisk score should be >= 0, got ${parsed.summary.topCompositeRisks[0].score}`);
   assert(changed.affectedTests.some((entry) => entry.file.replace(/\\/g, '/').endsWith('/test/app.test.js')));
-  assert(changed.affectedTests.every((entry) => typeof entry.source === 'string' && entry.source.length > 0));
+  assert(changed.affectedTests.every((entry) => typeof entry.source === 'string' && entry.source.length > 0), 'affectedTests entries should have non-empty source');
   assert(changed.affectedTests.some((entry) => entry.source === 'graph'));
   assert(changed.affectedTests.every((entry) => ['graph', 'heuristic'].includes(entry.source)));
-  assert(Array.isArray(parsed.validationAdvice.phases));
+  assert(Array.isArray(parsed.validationAdvice.phases), 'validationAdvice.phases should be an array');
   assert.strictEqual(parsed.validationAdvice.phases[0].phase, 'smoke');
   assert(parsed.validationAdvice.phases.some((item) => item.phase === 'focused'));
   assert(parsed.validationAdvice.phases.some((item) => item.phase === 'full'));
-  assert(Array.isArray(parsed.validationAdvice.summary));
-  assert(Array.isArray(parsed.validationAdvice.topRiskActions));
-  assert(parsed.validationAdvice.topRiskActions.length >= 1);
-  assert(typeof parsed.validationAdvice.topRiskActions[0].actions?.[0] === 'string');
+  assert(Array.isArray(parsed.validationAdvice.summary), 'validationAdvice.summary should be an array');
+  assert(Array.isArray(parsed.validationAdvice.topRiskActions), 'validationAdvice.topRiskActions should be an array');
+  assert(parsed.validationAdvice.topRiskActions.length >= 1, 'validationAdvice.topRiskActions should have at least one entry');
+  assert(parsed.validationAdvice.topRiskActions[0].actions?.[0]?.length > 0, 'topRiskActions first action should be a non-empty string');
   assert(typeof parsed.validationAdvice.suggestedCommand === 'string' && parsed.validationAdvice.suggestedCommand.length > 0, 'validationAdvice.suggestedCommand should be a non-empty string');
   assert(parsed.validationAdvice.topRiskActions[0].evidence, 'topRiskActions should include evidence');
-  assert(typeof parsed.validationAdvice.topRiskActions[0].evidence.impactCount === 'number');
-  assert(Array.isArray(parsed.validationAdvice.topRiskActions[0].evidence.topImpactedSymbols));
+  assert(typeof parsed.validationAdvice.topRiskActions[0].evidence.impactCount === 'number', 'evidence.impactCount should be a number');
+  assert(Array.isArray(parsed.validationAdvice.topRiskActions[0].evidence.topImpactedSymbols), 'evidence.topImpactedSymbols should be an array');
   const topActionForChanged = parsed.validationAdvice.topRiskActions.find((item) => item.file === changed.file);
   assert(topActionForChanged, 'topRiskActions should include the changed file');
   assert.strictEqual(topActionForChanged.evidence.impactCount, changed.impactCount);

@@ -167,7 +167,6 @@ async function main() {
   await testImportBlock();
   await testUnexportedFiltered();
   await testLineEndGreaterThanLineStart();
-  console.log('go-ast-parser-test: OK');
 }
 
 main().catch((e) => {

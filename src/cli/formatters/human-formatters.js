@@ -324,14 +324,31 @@ function formatAi(command, result, options = {}) {
       });
     }
 
-    // Build actions from nextSteps/recommendations
-    const steps = result.summary?.nextSteps || result.summary?.recommendations || [];
-    for (const step of steps.slice(0, 3)) {
-      output.actions.push({
-        priority: output.actions.length === 0 ? 'P0' : `P${output.actions.length}`,
-        action: step,
-      });
+    // Build executable actions instead of free-text recommendations
+    const actions = [];
+    if (result.deadExports?.deadExportsCount > 0) {
+      actions.push({ priority: 'P0', action: 'run: workspace-bridge-cli dead-exports --json --quiet' });
     }
+    if (result.cycles?.cyclesCount > 0) {
+      actions.push({ priority: 'P0', action: 'run: workspace-bridge-cli cycles --json --quiet' });
+    }
+    if (result.unresolved?.unresolvedCount > 0) {
+      actions.push({ priority: 'P0', action: 'run: workspace-bridge-cli unresolved --json --quiet' });
+    }
+    if (result.health?.healthScoreNumeric?.ratio < 1) {
+      actions.push({ priority: 'P1', action: 'run: workspace-bridge-cli diagnostics --mode full --json --quiet' });
+    }
+    const coverage = result.summary?.analysisCoverage;
+    if (coverage && coverage.coverageRatio < 0.5) {
+      actions.push({ priority: 'P2', action: 'run: workspace-bridge-cli audit-map --compact --json --quiet' });
+    }
+    if (actions.length === 0) {
+      const steps = result.summary?.nextSteps || result.summary?.recommendations || [];
+      for (const step of steps.slice(0, 3)) {
+        actions.push({ priority: actions.length === 0 ? 'P0' : `P${actions.length}`, action: step });
+      }
+    }
+    output.actions = actions.slice(0, 3);
 
     if (result.warnings && result.warnings.length > 0) {
       output.warnings = result.warnings;

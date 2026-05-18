@@ -51,7 +51,7 @@ function assertExportRecord(record, label) {
     assert(Number.isFinite(record.lineEnd), `${label}: exportRecord.lineEnd should be finite number`);
   }
   if (record.fingerprint !== undefined) {
-    assert(record.fingerprint && typeof record.fingerprint === 'object', `${label}: exportRecord.fingerprint should be object`);
+    assert(record.fingerprint !== null && typeof record.fingerprint === 'object', `${label}: exportRecord.fingerprint should be object`);
   }
 }
 
@@ -65,7 +65,7 @@ function assertFunctionRecord(record, label) {
     assert(Number.isFinite(record.lineEnd), `${label}: functionRecord.lineEnd should be finite number`);
   }
   if (record.fingerprint !== undefined) {
-    assert(record.fingerprint && typeof record.fingerprint === 'object', `${label}: functionRecord.fingerprint should be object`);
+    assert(record.fingerprint !== null && typeof record.fingerprint === 'object', `${label}: functionRecord.fingerprint should be object`);
   }
 }
 
@@ -239,7 +239,6 @@ async function main() {
   await testVueSchema();
   await testCppSchema();
   await testSvelteSchema();
-  console.log('parser-schema-contract-test: OK');
 }
 
 main().catch((e) => {

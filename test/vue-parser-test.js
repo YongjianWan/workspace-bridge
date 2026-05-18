@@ -100,5 +100,4 @@ export const msg = 'hello';
   await testMultipleScripts();
   await testNoScript();
   await testTemplateAndStyleIgnored();
-  console.log('vue-parser-test: OK');
 })();

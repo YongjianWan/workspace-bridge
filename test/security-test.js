@@ -39,7 +39,6 @@ function assert(condition, message) {
     process.exitCode = 1;
     return false;
   }
-  console.log(`✅ PASS: ${message}`);
   return true;
 }
 
@@ -52,13 +51,10 @@ function test(name, fn) {
   }
 }
 
-console.log('='.repeat(60));
-console.log('workspace-bridge Security Test Suite');
-console.log('='.repeat(60));
+
 
 // Test 1: Path traversal prevention
-console.log('\n📁 Path Traversal Tests');
-console.log('-'.repeat(40));
+
 
 const workspaceRoot = process.platform === 'win32' 
   ? 'C:\\projects\\myapp' 
@@ -83,8 +79,7 @@ test('should allow valid file inside workspace', () => {
 });
 
 // Test 2: Symbol name sanitization
-console.log('\n🔤 Symbol Name Sanitization Tests');
-console.log('-'.repeat(40));
+
 
 test('should allow valid identifier', () => {
   assert(sanitizeSymbolName('myFunction') === 'myFunction', 'Valid identifier should pass');
@@ -107,8 +102,7 @@ test('should handle edge cases', () => {
 });
 
 // Test 3: Shell argument sanitization
-console.log('\n🐚 Shell Argument Sanitization Tests');
-console.log('-'.repeat(40));
+
 
 test('should remove dangerous characters', () => {
   assert(sanitizeShellArg('file;rm -rf /') === 'filerm-rf', 'Semicolon should be removed');
@@ -120,8 +114,7 @@ test('should allow safe characters', () => {
 });
 
 // Test 4: Search query ReDoS protection
-console.log('\n🔎 Search Query ReDoS Tests');
-console.log('-'.repeat(40));
+
 
 test('should reject nested quantifier patterns', () => {
   assert(validateQuery('(a+)+').valid === false, 'Nested + quantifiers should be rejected');
@@ -129,8 +122,7 @@ test('should reject nested quantifier patterns', () => {
 });
 
 // Test 5: Command execution safety
-console.log('\n⚡ Command Execution Safety Tests');
-console.log('-'.repeat(40));
+
 
 async function runAsyncTests() {
   test('runCommandSecure should return a Promise', async () => {
@@ -142,15 +134,13 @@ async function runAsyncTests() {
     assert(resolved.ok === true, 'node command should succeed');
   });
 
-  console.log('\n' + '='.repeat(60));
-  console.log('Security test suite completed');
-  console.log('='.repeat(60));
+
 
   if (process.exitCode === 1) {
-    console.log('\n❌ Some tests failed');
+
     process.exit(1);
   } else {
-    console.log('\n✅ All security tests passed');
+
   }
 }
 

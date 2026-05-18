@@ -30,7 +30,6 @@ function makeMockDepGraph(opts = {}) {
 }
 
 async function main() {
-  console.log('=== REPL edge test ===\n');
 
   // top: file with dependents exactly at threshold
   {
@@ -106,7 +105,6 @@ async function main() {
     assert(out.includes('files:'), `non-compact audit-map should include files, got: ${out}`);
   }
 
-  console.log('\nrepl-edge-test: all passed');
 }
 
 main().catch((err) => {

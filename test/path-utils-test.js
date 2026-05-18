@@ -67,7 +67,6 @@ function main() {
   testIsPathInsideRoot();
   testResolveWorkspaceFilePath();
   testTurkishLocaleSafe();
-  console.log('path-utils-test: all passed');
 }
 
 main();

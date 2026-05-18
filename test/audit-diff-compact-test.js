@@ -33,7 +33,6 @@ function makeEntry(overrides = {}) {
 }
 
 function main() {
-  console.log('=== audit-diff-compact-test ===\n');
 
   // Baseline: all expected fields present, large arrays capped
   {
@@ -98,7 +97,6 @@ function main() {
     assert.strictEqual(c.historyRisk, null);
   }
 
-  console.log('\nAll audit-diff-compact tests passed.');
 }
 
 try {

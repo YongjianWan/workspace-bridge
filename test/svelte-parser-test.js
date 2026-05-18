@@ -85,5 +85,4 @@ async function testTemplateSyntaxIgnored() {
   await testMultipleScriptBlocks();
   await testNoScriptBlock();
   await testTemplateSyntaxIgnored();
-  console.log('svelte-parser-test: OK');
 })();

@@ -346,7 +346,6 @@ async function main() {
   await testDjangoEntryDetection();
   await testRuoYiJavaCycleWhitelist();
   await testRuoYiAnnotationSerializerCycleWhitelist();
-  console.log('dep-graph-error-test: all passed');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

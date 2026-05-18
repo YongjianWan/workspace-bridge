@@ -6,10 +6,10 @@
 const path = require('path');
 const fs = require('fs');
 const assert = require('assert');
-const { runCli } = require('./test-helpers');
+const { runCli, cleanupTempDir } = require('./test-helpers');
 
 function main() {
-  console.log('=== workspace-bridge 跨文件分析 CLI 测试 ===\n');
+
 
   // 创建临时测试文件
   const testDir = path.join(__dirname, '..', 'fixture-temp');
@@ -36,8 +36,9 @@ function main() {
   // 创建一个导入不存在的模块的文件
   fs.writeFileSync(testFile, [
     '// 导入不存在的模块',
-    "im" + "port { something } from './non-existent-module';",
-    "im" + "port fs from 'fs';",
+    "import { something } from './non-existent-module';",
+    "import fs from 'fs';",
+
     '',
     'export function test() {',
     '  return something;',
@@ -66,37 +67,37 @@ function main() {
   ].join('\n'));
 
   try {
-    console.log('📋 Test Group: dead_exports');
+
     const deadExports = runCli(['dead-exports', '--cwd', '.', '--json', '--quiet']);
     assert(Array.isArray(deadExports.deadExports), 'deadExports should be an array');
-    assert(typeof deadExports.deadExportsCount === 'number', 'deadExportsCount should be a number');
+    assert(deadExports.deadExportsCount >= 1, `deadExportsCount should be >= 1, got ${deadExports.deadExportsCount}`);
     const partialEntry = deadExports.deadExports.find(item => path.basename(item.file) === 'partial-exports.js');
     assert(partialEntry, 'partial-exports.js should be reported');
     assert(partialEntry.exports.includes('unusedHelperTwo'), 'unusedHelperTwo should be reported as dead export');
     assert(!partialEntry.exports.includes('usedHelper'), 'usedHelper should not be reported as dead export');
-    console.log(`     Found ${deadExports.deadExportsCount} files with dead exports`);
 
-    console.log('\n📋 Test Group: unresolved');
+
+
     const unresolved = runCli(['unresolved', '--cwd', '.', '--json', '--quiet']);
     assert(Array.isArray(unresolved.unresolved), 'unresolved should be an array');
-    assert(typeof unresolved.unresolvedCount === 'number', 'unresolvedCount should be a number');
-    console.log(`     Found ${unresolved.unresolvedCount} unresolved imports`);
+    assert(unresolved.unresolvedCount >= 1, `unresolvedCount should be >= 1, got ${unresolved.unresolvedCount}`);
 
-    console.log('\n📋 Test Group: affected_tests');
+
+
     const affectedTests = runCli(['affected-tests', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);
     assert(Array.isArray(affectedTests.affectedTests), 'affectedTests should be an array');
-    assert(typeof affectedTests.affectedTestsCount === 'number', 'affectedTestsCount should be a number');
-    console.log(`     Found ${affectedTests.affectedTestsCount} affected tests`);
+    assert(affectedTests.affectedTestsCount >= 0, `affectedTestsCount should be >= 0, got ${affectedTests.affectedTestsCount}`);
 
-    console.log('\n📋 Test Group: affected_tests with maxDepth');
+
+
     const limitedAffectedTests = runCli(['affected-tests', '--cwd', '.', '--file', 'src/services/container.js', '--max-depth', '2', '--json', '--quiet']);
     assert(limitedAffectedTests.maxDepth === 2, 'maxDepth should be 2');
     const allWithinDepth = limitedAffectedTests.affectedTests.every(t => t.distance <= 2);
     assert(allWithinDepth, 'All affected tests should be within maxDepth');
 
-    console.log('\n📋 Test Group: impact');
+
     const impact = runCli(['impact', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);
-    assert(typeof impact.impactCount === 'number', 'impactCount should be a number');
+    assert(impact.impactCount >= 0, `impactCount should be >= 0, got ${impact.impactCount}`);
     assert(impact.symbolImpact, 'symbolImpact should exist');
     assert(['symbol', 'file-fallback'].includes(impact.symbolImpact.mode), 'symbolImpact.mode should be valid');
     const transitiveInImpact = (impact.impact || []).filter((e) => e.level >= 2);
@@ -105,16 +106,16 @@ function main() {
       transitiveInImpact.length,
       'transitiveCount should match count of level>=2 items in impact array'
     );
-    console.log(`     Impact: ${impact.impactCount}, transitive: ${impact.symbolImpact.transitiveCount}`);
 
-    console.log('\nAll analysis tests passed');
+
+
   } finally {
     try {
       fs.unlinkSync(testFile);
       fs.unlinkSync(testUnusedFile);
       fs.unlinkSync(partialExportsFile);
       fs.unlinkSync(partialConsumerFile);
-      fs.rmSync(testDir, { recursive: true, force: true });
+      cleanupTempDir(testDir);
     } catch (e) {
       // ignore cleanup errors
     }

@@ -17,7 +17,6 @@ const obj = { method: () => { return 3; } };
   assert(names.includes('arrowFn'), `Expected arrowFn in functionRecords, got: ${names.join(', ')}`);
   assert(names.includes('regularFn'), `Expected regularFn in functionRecords, got: ${names.join(', ')}`);
   // Object method via Property is not yet supported; ensure it doesn't crash
-  console.log('testArrowFunctionRecords passed:', names);
   fs.unlinkSync(tmpFile);
 }
 
@@ -47,7 +46,6 @@ const { qux, ...rest } = require('./spread');
   assert(spreadRecord.imported.includes('qux'), 'should include qux');
   assert.strictEqual(spreadRecord.usesAllExports, true, 'rest element should set usesAllExports true');
 
-  console.log('testDestructuredRequireImports passed');
   fs.unlinkSync(tmpFile);
 }
 

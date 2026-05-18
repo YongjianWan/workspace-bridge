@@ -110,7 +110,6 @@ async function testKotlinAstSchema() {
 
 async function main() {
   await testKotlinAstSchema();
-  console.log('All kotlin-ast-parser tests passed');
 }
 
 main().catch((e) => {

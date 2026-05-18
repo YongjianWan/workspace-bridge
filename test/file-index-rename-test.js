@@ -54,8 +54,11 @@ async function testRenameWithoutFilenameTriggersPruneAndCallback() {
   // Trigger rename event without filename (platform-specific edge case)
   capturedCallback('rename', null);
 
-  // Wait for setImmediate + prune + callback
-  await new Promise((r) => setTimeout(r, 200));
+  // Poll for callback instead of fixed delay.
+  const startTime = Date.now();
+  while (!prunedFiles && Date.now() - startTime < 2000) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
 
   assert(prunedFiles, 'onPendingProcessed should be called');
   assert(prunedFiles.some((f) => f.includes('a.js')), 'pruned files should include a.js');

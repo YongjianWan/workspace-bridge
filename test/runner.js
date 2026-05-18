@@ -10,13 +10,14 @@
  * it is killed and marked as a failure — the runner never blocks.
  */
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { TIMEOUTS } = require('../src/config/constants');
 
 const TEST_DIR = __dirname;
 const TIMEOUT_MS = parseInt(process.env.TEST_TIMEOUT_MS, 10) || TIMEOUTS.TEST_RUNNER_MS;
-const CONCURRENCY = parseInt(process.env.TEST_CONCURRENCY, 10) || 1;
+const CONCURRENCY = parseInt(process.env.TEST_CONCURRENCY, 10) || 4;
 
 const files = fs
   .readdirSync(TEST_DIR)
@@ -35,6 +36,9 @@ function runOne(file) {
   const filePath = path.join(TEST_DIR, file);
   const testStart = Date.now();
 
+  // Isolate SQLite cache per test to eliminate lock contention under concurrency.
+  const testCacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-runner-cache-'));
+
   return new Promise((resolve) => {
     let settled = false;
     function settle(value) {
@@ -45,6 +49,10 @@ function runOne(file) {
 
     const child = spawn('node', [filePath], {
       timeout: TIMEOUT_MS,
+      env: {
+        ...process.env,
+        WB_TEST_CACHE_DIR: testCacheDir,
+      },
     });
 
     let stdout = '';
@@ -64,6 +72,8 @@ function runOne(file) {
     child.on('close', (status, signal) => {
       const elapsed = Date.now() - testStart;
       const ok = status === 0 && !signal;
+      // Clean up per-test cache directory regardless of outcome.
+      try { fs.rmSync(testCacheDir, { recursive: true, force: true }); } catch {}
       settle({ file, ok, status, signal, stdout, stderr, elapsed });
     });
 

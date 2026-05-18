@@ -53,7 +53,6 @@ version = "0.1.0"
   assert(!focused.cmd.includes('crate-b'), 'Focused command should not include unaffected crate-b');
 
   cleanupTempDir(tmpDir);
-  console.log('testDetectRustWorkspaceMembers passed');
 }
 
 function testNonWorkspaceRust() {
@@ -74,7 +73,6 @@ version = "0.1.0"
   assert(!commands.focused.some((c) => c.name === 'rust-focused-tests'), 'Non-workspace should not generate focused crate commands');
 
   cleanupTempDir(tmpDir);
-  console.log('testNonWorkspaceRust passed');
 }
 
 function main() {

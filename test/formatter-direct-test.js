@@ -713,7 +713,6 @@ function main() {
   testFormatAiError();
   testFormatAiWithWarnings();
 
-  console.log('formatter-direct-test: all passed');
 }
 
 main();

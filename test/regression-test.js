@@ -31,7 +31,7 @@ function testSaveBaseline() {
 function testCheckRegressionNoBaseline() {
   cleanup();
   const result = run(['audit-summary', '--check-regression']);
-  assert.ok(result.status === 1, `Exit code should be 1 (ok=false), got ${result.status}. stderr: ${result.stderr}`);
+  assert.strictEqual(result.status, 1, `Exit code should be 1 (ok=false), got ${result.status}. stderr: ${result.stderr}`);
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.regression.ok, false, 'should fail when no baseline exists');
   assert(data.regression.error.includes('Failed to load baseline'), 'should report missing baseline');
@@ -90,7 +90,6 @@ function main() {
     testCheckRegressionWithBaseline();
     testSaveAndCheckRegressionDefaultPath();
     testCheckRegressionAgainstCommit();
-    console.log('regression-test.js: all passed');
   } finally {
     cleanup();
   }

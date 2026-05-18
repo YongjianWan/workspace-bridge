@@ -11,7 +11,6 @@ const os = require('os');
 const { runCliRaw } = require('./test-helpers');
 
 function main() {
-  console.log('=== CLI mapper/adapter test ===\n');
 
   // Test 1: mapWithConcurrency error propagation via audit-diff on a repo
   // where one file's dependencyGraph operation throws.
@@ -72,7 +71,6 @@ function main() {
     }
   }
 
-  console.log('\ncli-mapper-adapter-test: all passed');
 }
 
 main();

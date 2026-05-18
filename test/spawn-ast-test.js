@@ -65,12 +65,17 @@ async function testSigkillFallbackAndUnref() {
   try {
     const promise = spawnPythonASTParser('dummy.py', 'print("hello")', 30);
 
-    // Wait for term timer to fire (30ms + buffer).
-    await new Promise((r) => setTimeout(r, 50));
+    // Poll for SIGTERM instead of fixed delay.
+    const startTime = Date.now();
+    while (!killCalls.includes('SIGTERM') && Date.now() - startTime < 500) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
     assert(killCalls.includes('SIGTERM'), 'should send SIGTERM on timeout');
 
-    // Wait for kill timer to fire (30ms + 50ms = 80ms total).
-    await new Promise((r) => setTimeout(r, 60));
+    // Poll for SIGKILL instead of fixed delay.
+    while (!killCalls.includes('SIGKILL') && Date.now() - startTime < 500) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
     assert(killCalls.includes('SIGKILL'), 'should send SIGKILL after fallback delay');
 
     assert(unrefCalled, 'should call unref() on subprocess');

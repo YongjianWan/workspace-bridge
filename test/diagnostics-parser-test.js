@@ -90,7 +90,6 @@ function main() {
   testParseDiagnosticsFromText();
   testUniqueDiagnostics();
   testSummarizeDiagnostics();
-  console.log('diagnostics-parser-test: all passed');
 }
 
 main();

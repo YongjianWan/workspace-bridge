@@ -144,7 +144,6 @@ async function testIncrementalUpdateDeletesFile() {
 }
 
 async function main() {
-  console.log('=== dep-graph incremental update test ===');
   await testIncrementalUpdateChangesImports();
   await testIncrementalUpdateSkipsUnchanged();
   await testIncrementalUpdateDeletesFile();

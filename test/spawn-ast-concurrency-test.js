@@ -108,7 +108,6 @@ async function testParserQueueDrainsCorrectly() {
 async function main() {
   await testParserConcurrencyLimit();
   await testParserQueueDrainsCorrectly();
-  console.log('spawn-ast-concurrency-test: all passed');
 }
 
 main().catch((err) => {

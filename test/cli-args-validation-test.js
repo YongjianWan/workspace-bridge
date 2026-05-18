@@ -42,7 +42,6 @@ function main() {
   testVersionFlag();
   testMissingFileArgument();
   testQuietSuppressesInfo();
-  console.log('cli-args-validation-test: all passed');
 }
 
 main();

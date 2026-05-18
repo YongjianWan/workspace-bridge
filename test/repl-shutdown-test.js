@@ -75,7 +75,11 @@ async function testShutdownGuardAndErrorHandling() {
 
   try {
     const replPromise = startRepl({ cwd: '/tmp' });
-    await new Promise((r) => setTimeout(r, 30));
+    // Poll for repl startup instead of fixed delay.
+    const replStart = Date.now();
+    while (!sigintHandler && Date.now() - replStart < 500) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
 
     // Simulate readline SIGINT (first Ctrl+C)
     if (sigintHandler) sigintHandler();
@@ -159,7 +163,11 @@ async function testShutdownErrorCaught() {
 
   try {
     const replPromise = startRepl({ cwd: '/tmp' });
-    await new Promise((r) => setTimeout(r, 30));
+    // Poll for repl startup instead of fixed delay.
+    const replStart = Date.now();
+    while (!closeResolver && Date.now() - replStart < 500) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
     if (closeResolver) closeResolver();
     await replPromise;
 

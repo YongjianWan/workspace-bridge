@@ -51,7 +51,7 @@ function testPathPatternRuoYi() {
 
   // Constants.java under ruoyi
   const scaffold2 = detectScaffold('/project/src/main/java/com/ruoyi/common/Constants.java');
-  assert.ok(scaffold2);
+  assert.ok(scaffold2, 'Constants.java under ruoyi path should match');
   assert.strictEqual(scaffold2.name, 'ruoyi-java');
 
   // P98: Sensitive.java under ruoyi path (pathPattern match, not exactBasename)
@@ -67,7 +67,7 @@ function testPathPatternRuoYi() {
 function testPathPatternVueAdmin() {
   // ruoyi/ directory marker
   const scaffold = detectScaffold('/project/src/components/ruoyi/SvgIcon.vue');
-  assert.ok(scaffold);
+  assert.ok(scaffold, 'SvgIcon.vue under ruoyi path should match');
   assert.strictEqual(scaffold.name, 'vue-admin');
 
   const nonScaffold = detectScaffold('/project/src/components/SharedButton.vue');
@@ -75,7 +75,7 @@ function testPathPatternVueAdmin() {
 
   // generator/ directory marker
   const scaffold2 = detectScaffold('/project/src/views/tool/generator/index.js');
-  assert.ok(scaffold2);
+  assert.ok(scaffold2, 'generator/index.js should match vue-admin scaffold');
   assert.strictEqual(scaffold2.name, 'vue-admin');
 }
 
