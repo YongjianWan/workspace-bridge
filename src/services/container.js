@@ -164,6 +164,12 @@ class ServiceContainer {
       quiet: this.quiet,
     });
     await this.depGraph.build(this.fileIndex?._indexedFiles || null);
+    // P2: precompute hotspot/stability so audit-overview is O(1)
+    await this._precomputeOverview();
+    // P3: precompute co-change partners from git history (only if cache miss)
+    if (!this.cache?.coChanges) {
+      await this._precomputeCoChanges();
+    }
   }
 
   _registerCallbacks() {
@@ -176,10 +182,41 @@ class ServiceContainer {
     this.fileIndex.onPendingProcessed = async (files) => {
       try {
         await this.depGraph?.updateFiles?.(files);
+        // P2: recompute hotspot/stability after incremental update
+        await this._precomputeOverview();
+        // P3: co-change is based on git history, not file changes; skip here
       } catch (e) {
         console.error(`[Container] DepGraph incremental update failed:`, e.message);
       }
     };
+  }
+
+  async _precomputeOverview() {
+    if (!this.depGraph?.analyzer?._aggregateCache) return;
+    try {
+      const { precomputeHotspotsAndStability } = require('../tools/overview-tools');
+      const { hotspots, stability } = await precomputeHotspotsAndStability(this.depGraph);
+      if (hotspots) this.depGraph.analyzer._aggregateCache.hotspots = hotspots;
+      if (stability) this.depGraph.analyzer._aggregateCache.stability = stability;
+    } catch (e) {
+      if (process.env.DEBUG) {
+        console.error('[Container] Precompute overview failed:', e.message);
+      }
+    }
+  }
+
+  async _precomputeCoChanges() {
+    try {
+      const { analyzeCoChanges } = require('../tools/cochange-tools');
+      const coChanges = analyzeCoChanges(this.workspaceRoot);
+      if (coChanges.commitCount > 0) {
+        this.cache.saveCoChanges(coChanges);
+      }
+    } catch (e) {
+      if (process.env.DEBUG) {
+        console.error('[Container] Precompute co-changes failed:', e.message);
+      }
+    }
   }
 
   /**

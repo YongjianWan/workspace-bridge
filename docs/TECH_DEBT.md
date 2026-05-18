@@ -149,14 +149,9 @@
 | 位置                  | 问题                                                              | 优先级 |
 | --------------------- | ----------------------------------------------------------------- | ------ |
 | `git-tools.js`      | `getChangedFiles()` 手动字符级解析；`--since` 已新增，字符级解析债务仍在 | 低     |
-| `overview-tools.js` | `renderOverviewDashboard` 中 HTML/CSS 裸数字                    | 低     |
 | `js.js`             | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行 | 低     |
-| `path.js`           | `hasPathSegment` 语义陷阱：只取 segment 最后一级                | 低     |
-| `workspace-tools.js` / `SKILL.md` | `parserAvailability.skipped: true` 命名语义陷阱：`skipped` 暗示"文件被跳过"，实际为"tree-sitter WASM 无 package.json 初始化路径"，AGENTS.md 和 SKILL.md 都要专门解释 | 低     |
 | `cli.js` / `formatters` | `--json` 嵌套深、体积大，`--compact` 后仍有 400 行，管道场景不友好；默认 human-readable 输出缺乏实战打磨。**根因是 CLI 不输出预消化报告，迫使 skill 变厚补偿** | 中     |
-| `cli.js` / `constants.js` | `--compact` 500 文件阈值无 rationale，拍脑袋定。239 文件项目 `audit-map --compact` 已输出 29KB；应按**输出 Token 数**或 `--budget-tokens` 决定压缩策略 | 中     |
-| `SKILL.md` / `package.json` | npx 版本未锁定，`npx workspace-bridge-cli` 可能自动升级到不兼容版本，schema 变更后 AI 解析直接崩 | 中     |
-| ~~`human-formatters.js`~~ | ~~同一命令在 4-5 个 formatter 函数中重复判断~~ | ~~中~~ |
+| `cache.js`          | `save()` 调用 `_graphDb.saveAll()` 不包含 `coChanges`，`coChanges` 只能通过独立 `saveCoChanges()` 持久化；设计与认知不一致 | 低     |
 
 ---
 
@@ -165,7 +160,7 @@
 | 文件                                        | 行数 | 风险         | 状态                                                      |
 | ------------------------------------------- | ---- | ------------ | --------------------------------------------------------- |
 | `src/services/dep-graph.js`               | ~1582 | **高** | 核心引擎类，AGENTS.md 已确认"内聚优先、不物理拆分"        |
-| `src/tools/overview-tools.js`             | ~868 | 中           | 裸数字已归零（JS侧），HTML/CSS 裸数字仍在；L2-5 schema 不一致源 |
+| `src/tools/overview-tools.js`             | ~868 | 中           | JS/CSS 裸数字已归零（`DASHBOARD_LAYOUT` 常量）；L2-5 schema 不一致源 |
 | `cli.js`                                  | ~974 | 中           | `formatHuman` 已提取至 `human-formatters.js`，剩余 `runCommand` 路由；L2-8/L2-9 参数路由源 |
 | `src/tools/git-tools.js`                  | ~358 | 低           | `getChangedFiles()` 手动字符级解析是已知债务；6 个死函数已清理（-309 行）；L2-9 commit range 源 |
 | `src/tools/security-tools.js`             | ~170 | 低           | `--builtin-only` 已新增；L2-8 已关闭                        |

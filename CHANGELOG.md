@@ -4,7 +4,178 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+**版本导航**：[Unreleased](#unreleased) · [1.2.0](#120---2026-05-18) · [1.1.1](#111---2026-05-08) · [1.1.0](#110---2026-05-06) · [1.0.4](#104---2026-05-05) · [1.0.2](#102---2026-05-03) · [1.0.1](#101---2026-05-03) · [1.0.0](#100---2026-05-02) · [0.9.14](#0914---2026-05-02) · [0.9.13](#0913---2026-05-02) · [0.9.12](#0912---2026-05-01) · [0.9.11](#0911---2026-05-01) · [0.9.0](#090---2026-04-29) · [0.8.2](#082---2026-04-28) · [0.8.0](#080---2026-04-03) · [0.6.0](#060---2026-03-27) · [0.5.1](#051---2026-03-27) · [0.5.0](#050---2026-03-26)
+
 ## [Unreleased]
+
+### 重构（架构债务清零：跨层依赖与职责纠缠 — 2026-05-18）
+
+- **消除 L4→L5 反向依赖** `src/tools/overview-tools.js` `src/utils/recommendations.js` `src/cli/formatters/repo-summary.js`：
+  - 问题：`overview-tools.js`（L4 工具层）直接 `require('../cli/formatters/recommendation-engine')`，工具层偷偷干了格式化的活，架构图依赖箭头方向反转。
+  - 修复：把 `buildUnresolvedRecommendation` / `buildCycleRecommendation` / `buildDeadExportRecommendation` 从 `src/cli/formatters/recommendation-engine.js` 提取到 `src/utils/recommendations.js`（L0/L1 层）。`overview-tools.js` 改为 `require('../utils/recommendations')`，`repo-summary.js` 改为 `require('../../utils/recommendations')`。删除 `src/cli/formatters/recommendation-engine.js`。
+  - 结果：L4→L5 反向依赖消除，工具层与格式化层边界恢复。
+
+- **消除 L2→L4 跨层依赖** `src/services/dep-graph.js` `src/tools/honesty-engine.js` `src/cli/formatters/repo-summary.js` `test/*`：
+  - 问题：`dep-graph.js`（L2 核心引擎）直接 `require('../tools/scaffold-detector')`，核心引擎被工具层细节污染。
+  - 修复：把 `scaffold-detector.js` 从 `src/tools/` 移至 `src/utils/`（L0/L1 层），更新 4 个生产文件 + 2 个测试文件的引用路径。
+  - 结果：L2 核心引擎正常依赖基础设施层，scaffold-detector 的接口变更不再向上传导到 dep-graph.js。
+
+- **拆分 `overview-tools.js`** `src/tools/overview-tools.js` `src/tools/overview-curator.js`：
+  - 问题：924 行的 `overview-tools.js` 既做数据聚合（hotspot/stability/coupling）又做策展生成（recommendations / nextSteps 拼装），违反"文件只做一件事"。
+  - 修复：新建 `src/tools/overview-curator.js`，提取 `buildOverviewSummary` / `buildCycleRefactorSuggestions` / `buildCouplingSplitSuggestions` / `generateCouplingSplitPlan` / `calculateCoupling` / `normalizeCycle` / `pickBreakEdge` 及 `COUPLING_ADVICE_RULES`。`overview-tools.js` 保留数据计算 + `buildProjectOverview` 主入口，通过 `require('./overview-curator')` 调用策展函数。`buildOverviewSummary` 扩展签名接收 `cycleRefactorSuggestions` 和 `couplingSplitSuggestions`，在内部统一 push 到 `summary.recommendations`，消除 `buildProjectOverview` 中分散的 push 逻辑。
+  - 结果：`overview-tools.js` 从 924 行降至 ~700 行；数据计算与策展生成物理分离；新增命令只需改对应文件。
+
+### 修复（P0：healthScore 诚实评分 — 2026-05-18）
+
+- **`health-tools.js` 消除撒谎式 `5/5` 评分，改为按实际检查项数诚实计算** `src/tools/health-tools.js` `SESSION.md`：
+  - 问题：原算法用 `Math.max(5, coreTotal + 1)` 强制总分锁死 5，且 `bonusPassed > 0 ? 1 : 0` 把 4 个 bonus 检查项压缩成 1 个点。结果是缺 `dockerConfig` 的项目与全满项目同为 `5/5`，AI 看到满分便不会去看 `fixes[]`。
+  - 修复：废除 core/bonus 压缩逻辑，所有相关检查项（readme、license、gitignore、envExample、editorconfig、testConfig、ci、dockerConfig）统一计数。总分 = 实际检查项数，通过分 = 实际通过数。
+  - 结果：workspace-bridge 自身从 `5/5` → `7/8`（缺 dockerConfig），ratio 从 1.0 → 0.875，`fixes[]` 非空与分数不匹配的矛盾消除。
+  - 向后兼容：`healthScore` 仍为 `"passed/total"` 字符串格式，`healthScoreNumeric` 结构不变；消费者若硬编码 `=== '5/5'` 判断完美健康会失效，但 AGENTS.md 明确 userspace 仅项目所有者本人时兼容义务让位。
+
+### 新增（P3：Co-change 分析 — 2026-05-18）
+
+- **实现 git 历史共变文件对（co-change）检测，为 impact 输出补充"常与谁一起改"信号** `src/tools/cochange-tools.js` `src/services/cache.js` `src/services/container.js` `src/tools/dep-tools.js` `test/cochange-test.js`：
+  - 问题：`impact` 命令只回答"谁依赖我"，不回答"我过去常与谁一起变更"；后者对代码审查和重构优先级排序有独立价值（移植自 qartez-mcp git/cochange.rs 启发）。
+  - `cochange-tools.js`：新增 `analyzeCoChanges(workspaceRoot)` 遍历近期 git log，统计同 commit 内文件对共现次数；`getCoChangePartners(filePath)` 按共现次数排序返回 top partners。
+    - **实现**：单次 `git -C <path> log --format=%H --name-only --no-merges -n <limit>`（`spawnSync`）取代逐 commit `git diff-tree --root`（212 次 `execSync`）。
+    - **性能**：workspace-bridge 自身（212 commits）从 ~20,000ms 降至 ~76ms（~260×）。
+    - **兼容性**：使用 `git -C` 参数代替 `execSync` 的 `cwd` 选项，消除 Windows 中文路径下 `spawnSync cmd.exe ENOENT`（Node child_process cwd 编码缺陷）。
+  - `cache.js`：新增 `coChanges` 内存字段 + `_loadCoChanges()` / `saveCoChanges()`，通过 `graph-db.js` `getMetadata`/`setMetadata` 持久化到 SQLite，避免每次冷启动重新遍历 git history。
+  - `container.js`：`initialize()` build 完成后仅在 `cache.coChanges` 为 null 时调用 `_precomputeCoChanges()` 预热，避免每次 CLI 启动重复计算；从 `onPendingProcessed`（文件增量更新回调）中移除 `_precomputeCoChanges()`，因为 co-change 基于 git history 而非文件变更，无需在文件变化时重新计算。
+  - `dep-tools.js` `case 'impact'`：从 `container.cache.coChanges` 读取并注入 `coChanges: []` 字段；`relativeFile` 统一归一化为正斜杠（`replace(/\\/g, '/')`），消除 Windows 反斜杠与 git 正斜杠路径不匹配导致的 partners 为空。
+  - 测试：`test/cochange-test.js` 覆盖 commit co-occurrence 统计、merge commit 跳过、大 commit 过滤、partner 查询限流。
+  - 向后兼容：无 git 历史或非 git 仓库时 `coChanges` 返回 `[]`，行为 100% 安全降级。
+
+### 新增（P0：PageRank warm-start 集成 — 2026-05-18）
+
+- **启用 `GraphAnalyzer.computePageRank()` 的 warm-start，减少增量更新时的迭代次数** `src/services/cache.js` `src/services/dep-graph.js` `src/services/graph-db.js` `test/pagerank-warmstart-integration-test.js`：
+  - 问题：`pagerank.js` 算法层已支持 `prevRanks` warm-start（移植自 qartez-mcp），但 `GraphAnalyzer.computePageRank()` 每次都冷启动，未利用上一次的收敛结果。
+  - cache 层：`cache.js` 新增 `pageRanks` 内存字段 + `_loadPageRanks()` / `savePageRanks()` 方法，通过 `graph-db.js` `getMetadata`/`setMetadata` 读写 SQLite `cache_metadata` 表，零 schema 变更。
+  - graph 层：`GraphAnalyzer.computePageRank()` 从 `this.dg.cache.pageRanks` 加载 `prevRanks` 传入 `computePageRank()`；计算完成后通过 `cache.savePageRanks()` 持久化。
+  - 导出：`dep-graph.js` `module.exports` 新增 `GraphAnalyzer`（供测试直接实例化）。
+  - 测试：`test/pagerank-warmstart-integration-test.js` 覆盖 cold-start 保存、warm-start 复用（结果与 cold 一致）、新增节点 graceful fallback、无 cache 环境兼容性。
+  - 向后兼容：无 cache 时 `prevRanks = undefined`，行为 100% 同冷启动。
+
+### 修复（测试债务：`rust-workspace-test.js` 同步上一轮设计变更 — 2026-05-18）
+
+- **更新 `test/rust-workspace-test.js` 断言以匹配单 crate focused 命令行为** `test/rust-workspace-test.js`：
+  - 上一轮会话（CHANGELOG ~107 行）为单 crate Rust 项目新增 `cargo test` fallback focused 命令，但测试未同步更新，导致 `assert(!commands.focused.some(...))` 失败。
+  - 修复：将"不应生成"改为"应生成 fallback `cargo test`"，与 `buildRustTestCommands` 的 `else if (rustFiles.length > 0)` 分支对齐。
+
+### 新增（P2：预计算聚合表扩展 hotspot/stability — 2026-05-18）
+
+- **`buildProjectOverview` 优先复用预计算的 hotspot/stability，避免重复 git history 查询** `src/tools/overview-tools.js` `src/services/container.js` `src/services/dep-graph.js` `test/precompute-hotspot-test.js`：
+  - 问题：`audit-overview` 每次执行都重新调用 `buildHotspots()`（异步 git log 批处理）和 `buildStability()`（遍历 mainlineFiles），即使图结构未变。对于 50+ mainline 文件的项目，这是 ~100-500ms 的重复开销。
+  - `overview-tools.js`：新增 `precomputeHotspotsAndStability(depGraph)` 纯函数，复用 `buildHotspots`/`buildStability` 的现有逻辑计算并返回 `{ hotspots, stability }`。
+  - `overview-tools.js` `buildProjectOverview`：优先检查 `depGraph.analyzer._aggregateCache.hotspots` / `.stability`，version 匹配时直接复用，否则 fallback 实时计算。
+  - `container.js`：`initialize()` 中 `build()` 完成后调用 `_precomputeOverview()` 预热缓存；`onPendingProcessed`（增量更新）后同样调用，确保图变更后缓存保持新鲜。
+  - `dep-graph.js` `precomputeAggregates()`：`_aggregateCache` 结构扩展 `hotspots` / `stability` 字段（初始为 null），兼容旧缓存加载。
+  - 测试：`test/precompute-hotspot-test.js` 验证 container init 后 cache 被填充、两次 `buildProjectOverview` 调用间 cache 引用稳定（不被重新分配）。
+  - 向后兼容：无 `_aggregateCache` 时 `buildProjectOverview` 100% fallback 到实时计算；`saveAggregateSummary` 自动序列化新字段。
+
+### 修复（P0：`--cwd` 不存在/挂起 + 消除重复校验 — 2026-05-18）
+
+- **`cli.js` `main()` 复用 `validateCwd()` 消除重复校验** `cli.js`：
+  - `main()` 中原 inline `fs.existsSync + fs.statSync.isDirectory` 校验替换为调用已有 `validateCwd(parsed)`，消除与 `init`/`repl`/`watch` 命令路径中 `validateCwd` 的重复逻辑。
+  - 行为不变：`--cwd` 指向不存在的目录时仍立即返回 `{ ok: false, error: 'Directory not found: ...' }`，exit code = 1。
+
+### 修复（P1：surface 模式变薄 — 2026-05-18）
+
+- **`formatAi` surface depth 输出精简到 <150 tokens** `src/cli/formatters/human-formatters.js` `test/formatter-direct-test.js`：
+  - 问题：`--depth surface` 与 `--depth detail` 输出结构几乎相同（仅缺少 `riskFiles`），surface 仍携带 `meta`/`actions`/`confidence`/`schemaVersion`/`warnings`，导致 200+ tokens，AI 消费不友好。
+  - 修复：`buildOutput('surface')` 返回精简结构 `{ ok, severity, counts, topRisks }`，`topRisks` 截断到最多 3 条且去掉 `message`/`confidence`，仅保留 `category`/`severity`/`count`。
+  - 测试同步：`testFormatAiAuditSummarySurface` 验证 `actions`/`confidence`/`meta`/`warnings` 不存在；新增 `json.length < 600`（≈150 tokens）体积断言；`testFormatAiWithWarnings` 改在 detail 模式验证 warnings，surface 模式验证 warnings 被剥离。
+  - 向后兼容：`detail`/`full` 输出 100% 不变。
+
+### 修复（P1：diagnostics 找到实际 linter — 2026-05-18）
+
+- **`diagnostics-engine.js` `hasChecker('eslint')` 增加配置文件 fallback 检测** `src/services/diagnostics-engine.js`：
+  - 问题：`hasChecker` 仅通过 `eslint --version`（即 `checkNodeModule`）检测 eslint 可用性；若 eslint 未全局/局部安装（如 CI 环境未跑 `npm install`），`hasChecker` 返回 `false`，但 `workspace-tools.js` 的 `detectNodeLinters` 通过配置文件检测认为 eslint 可用，导致 `workspace-info` 与 `diagnostics` 结果矛盾。
+  - 修复：`hasChecker('eslint')` 在 `checkNodeModule` 返回 `false` 时，fallback 检测 eslint 配置文件列表（`.eslintrc.js` 等）和 `package.json#eslintConfig`，与 `detectNodeLinters` 逻辑对齐。
+  - 向后兼容：eslint 已安装时行为 100% 不变；仅对"有配置但无安装"场景消除 false negative。
+
+### 修复（L3 品味：npx 版本锁定 — 2026-05-18）
+
+- **SKILL.md / SKILL-REFERENCE.md 中 `npx workspace-bridge-cli` 追加版本锁定** `skills/workspace-audit/SKILL.md` `skills/workspace-audit/SKILL-REFERENCE.md`：
+  - 问题：`npx workspace-bridge-cli` 可能自动安装最新版本，schema 变更后 AI 解析直接崩。
+  - 修复：所有 `npx workspace-bridge-cli` 引用改为 `npx workspace-bridge-cli@1.2.0`。
+
+### 修复（L3 品味：`parserAvailability.skipped` 命名陷阱 — 2026-05-18）
+
+- **重命名 `parserAvailability.skipped` → `usedFallbackPath`** `src/tools/health-tools.js` `src/tools/workspace-tools.js` `AGENTS.md` `SKILL.md` `SKILL-REFERENCE.md` `TECH_DEBT.md`：
+  - 问题：`skipped` 暗示"文件被跳过"，实际是"tree-sitter WASM 无 package.json 初始化路径"，AGENTS.md 和 SKILL.md 被迫专门解释。
+  - 修复：字段重命名为 `usedFallbackPath`，语义自解释；同步更新所有文档引用。
+  - 向后兼容：JSON schema 变更；但 `parserAvailability` 是次要字段，主要消费方（AI agent）通过文档学习字段含义，重命名反而减少误解。
+
+### 修复（L3 品味：删除 `hasPathSegment` 语义陷阱 + 死代码 — 2026-05-18）
+
+- **删除 `src/utils/path.js#hasPathSegment`** `src/utils/path.js` `test/path-utils-test.js`：
+  - 问题：`hasPathSegment` 语义陷阱：检查的是"segment 的任意 part 是否出现在路径的任意位置"，而非"连续 segment 匹配"；Windows 上 `normalizePathKey` 解析相对段可能导致额外 false positive。该函数零生产调用方，仅测试引用。
+  - 修复：直接删除函数定义、module.exports 导出、测试导入和测试用例。
+  - 向后兼容：零生产代码调用，无影响。
+
+### 修复（L3 品味：`--compact` 阈值加 rationale — 2026-05-18）
+
+- **为所有 compact 相关阈值补充注释说明** `src/config/constants.js` `cli.js`：
+  - `COMPACT_ISSUE_MAX_ITEMS` / `COMPACT_ORPHAN_MAX_ITEMS` / `COMPACT_IMPACT_MAX` / `COMPACT_AFFECTED_TESTS_MAX` / `COMPACT_EXPLANATIONS_MAX` / `COMPACT_TOP_COMPOSITE_RISKS` / `AUDIT_DIFF_AUTO_COMPACT_THRESHOLD`：补充 rationale 注释（如 "10 issues = ~300 tokens; beyond that noise dominates signal"、"20+ changed files usually means a large PR where per-file detail explodes output"）。
+  - 提取 `cli.js` 硬编码 `edges > 5000` 为 `constants.js#LARGE_PROJECT_EDGE_WARNING_THRESHOLD: 5000`，附注释 "5000 edges ≈ ~300KB JSON (pretty-printed), which exceeds typical AI context budgets"。
+  - 向后兼容：数值 100% 不变。
+
+### 修复（L3 品味：`overview-tools.js` HTML/CSS 裸数字归集 — 2026-05-18）
+
+- **提取 `renderOverviewDashboard` 内联 CSS 中的所有裸数字到 `DASHBOARD_LAYOUT` 常量** `src/tools/overview-tools.js`：
+  - 问题：15+ 个样式值（`1100px`、`28px`、`12px`、`999px` 等）硬编码在 HTML/CSS 字符串中，修改主题时需要逐行搜索替换，违反 L2-6 "裸数字归零"。
+  - 修复：在 `renderOverviewDashboard` 上方定义 `DASHBOARD_LAYOUT` 常量对象（`wrapMaxWidth`、`cardBorderRadius`、`pillPaddingV` 等 14 个字段），CSS 模板字符串全部引用 `${S.xxx}`。inline `style="margin-top:12px"` 同样改为 `${S.sectionMarginTop}`。
+  - 向后兼容：输出 HTML 100% 相同；纯内部重构。
+
+### 新增（CHANGELOG 版本导航目录 — 2026-05-18）
+
+- **CHANGELOG.md 顶部增加版本快速导航** `CHANGELOG.md`：
+  - 1965 行文档过长，查历史时难以定位。
+  - 在 `# Changelog` 下方增加一行 `**版本导航**：[Unreleased] · [1.2.0] · ... · [0.5.0]`，含 18 个版本的锚点链接，一键跳转。
+
+### 修复（高：spawn 带空格命令 ENOENT — 2026-05-18）
+
+- **拆分 `pnpm exec` / `yarn exec` / `bun exec` 为 command + args** `src/utils/stack-detectors/commands.js`：
+  - 问题：`nodeExec()` 返回的 `exec` 字段是带空格的字符串（如 `"pnpm exec"`），`buildNodeTestCommand()` 和 `getNodeCommands()` 直接将其作为 `spawn(command, args)` 的 `command` 参数传入，导致 `ENOENT`。
+  - 修复：提取纯函数 `splitCommand(commandStr) → { command, args }`，将 `.split(/\s+/)` 的 4 处重复（`buildNodeTestCommand`×2、`getNodeCommands`×1、`generateCommands` docs×2）统一收敛到单一实现；`npm` 的 `'npx'` 拆分后结果不变，仅修复 `pnpm`/`yarn`/`bun` 的 bug。
+  - 向后兼容：`npm` 行为 100% 不变；human-readable `cmd` 字符串经 `renderCommandString()` 渲染后与原来完全一致。
+
+### 修复（中：`audit-security --builtin-only --files` 漏掉显式目标 — 2026-05-18）
+
+- **`runBuiltinSecurityScan()` 对不在依赖图中的显式文件 fallback 到磁盘扫描** `src/tools/security-tools.js`：
+  - 问题：当 `container.depGraph.graph` 存在时，`runBuiltinSecurityScan()` 从 graph keys 构建文件列表，再用 `--files` 目标过滤；若用户显式指定的文件不在 graph 中（如新文件、未解析 import 的文件），会被直接过滤掉，`scanned: 0`。
+  - 修复：在显式目标处理循环中，若目标文件不在 `graphPaths` 但真实存在于磁盘（`fs.existsSync(tp)`），将其追加到 `files` 列表，使后续 regex 扫描能覆盖到。
+  - 向后兼容：未指定 `--files` 或文件已在 graph 中的行为 100% 不变。
+
+### 修复（低：冗余导出 `DEFAULT_CONFIG` — 2026-05-18）
+
+- **从 `pagerank.js` 导出中移除未外部引用的 `DEFAULT_CONFIG`** `src/services/dep-graph/pagerank.js`：
+  - 问题：`DEFAULT_CONFIG` 仅在 `computePageRank()` 内部使用（`{ ...DEFAULT_CONFIG, ...options }`），却被一同导出；全局搜索确认零外部引用，属于冗余导出。
+  - 修复：`module.exports` 从 `{ computePageRank, DEFAULT_CONFIG }` 精简为 `{ computePageRank }`。
+  - 向后兼容：零外部引用，无影响。
+
+### 修复（中：Node custom runner focused 退化为全量 — 2026-05-18）
+
+- **`buildNodeTestCommand()` unknown runner fallback 带上 files** `src/utils/stack-detectors/commands.js`：
+  - 问题：当 `testRunner` 不是 `vitest`/`jest`/`mocha` 时，`buildNodeTestCommand()` 直接返回 `npm run test`（及其 pnpm/yarn/bun 等价物），完全忽略了 `files` 参数；导致 watch 模式或 direct-tests 步骤生成的 focused 命令变成全量测试，失去文件级定向意义。
+  - 修复：在 unknown runner 分支中，若 `files.length > 0`，返回 `{ command: execCmd, args: [...execArgs, runner, ...files] }`（如 `npx tap src/a.js`），让 custom runner 至少能拿到变更文件列表。
+  - 向后兼容：vitest/jest/mocha 三大主流 runner 行为 100% 不变；仅对 unknown runner 且 `files` 非空时从"全量"变为"带文件列表"。
+
+### 修复（中：Go 根模块 focused tests 为空 — 2026-05-18）
+
+- **`getGoCommands()` fallback 保留根目录包并过滤非 `.go` 文件** `src/utils/stack-detectors/commands.js`：
+  - 问题：`buildGoModuleTestCommands()` 要求存在非 root 子模块（`hasNestedModules`），单 go.mod 根项目直接返回 `[]`；`getGoCommands()` 的 fallback 用 `path.dirname(file)` 推导包路径，但根目录文件返回 `.`，被 `dir !== '.'` 过滤掉，导致 focused 为空。同时非 `.go` 文件（如 `go.mod`）也会误入 fallback 逻辑。
+  - 修复：① fallback 前先用 `/\.go$/` 过滤 targets，消除 `go.mod` 等配置文件的误触发；② 包路径推导保留 `.`，并在 map 时将 `.` 映射为 `go test .`。
+  - 向后兼容：`go.mod` 变更不再生成虚假的 `go-focused-tests`（原来也不会，因为 `.` 被过滤；但修复后逻辑更干净）；`.go` 根目录文件现在能正确生成 `go test .`。
+
+### 修复（中：Rust 单 crate focused tests 为空 — 2026-05-18）
+
+- **`buildRustTestCommands()` 单 crate 无 module 名时 fallback 到 `cargo test`** `src/utils/stack-detectors/commands.js`：
+  - 问题：普通单 crate 仓库无 `workspaceMembers`，且 `src/main.rs`/`src/lib.rs`/`src/mod.rs` 被 `inferRustModuleName()` 返回 `null`，导致 `moduleArgs` 为空；`buildRustTestCommands()` 最终返回 `[]`，focused 列表为空。
+  - 修复：在最终 `return []` 前增加 `else if (rustFiles.length > 0)` 分支，返回 `{ command: 'cargo', args: ['test'] }`。虽然粒度是全 crate，但这是 Rust 单 crate 项目的物理上限，比"完全没有 focused 命令"更合理。
+  - 向后兼容：workspace 项目行为 100% 不变；单 crate 项目从"无 focused"变为"有 `cargo test` focused"。
 
 ## [1.2.0] - 2026-05-18
 
