@@ -10,7 +10,9 @@
 
 > **定位**：workspace-bridge 是**AI 的代码脚手架**，不是人类审计工具。CLI 负责策展（预组装、去噪、按优先级排序），skill 负责驾驶手册（什么时候用/不用/标准工作流）。
 >
-> 收工时已跑 `node test/runner.js` 并确认 120/120 PASS，开工无需重跑。直接读取下方「基线状态」确认当前文档记录是否仍成立。
+> 收工时已跑 `node test/runner.js` 并确认 126/126 PASS，开工无需重跑。直接读取下方「基线状态」确认当前文档记录是否仍成立。
+>
+> 开发迭代推荐 `npm run test:fast`（~14s，101 个纯单元测试），比全量 runner（~4min）快 15×。
 
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner）
@@ -39,7 +41,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；全量 runner 因脏工作区 30+ 未提交修改超时（非代码回归，`git stash` 后可恢复 120/120）
+- 测试：**受影响测试全部 PASS**；全量 runner 126/126 PASS（~4min，分阶段：fast ~14s / slow ~100s / watch 串行）。开发迭代用 `npm run test:fast`（~14s）或 `npm run test:smoke`（~31s）
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~219 文件，entry=1, mainline=87, test=128
@@ -124,6 +126,12 @@ node cli.js audit-summary --cwd . --json --quiet
 - **P0 Cache schema 自描述化**：引入 `METADATA_SCHEMA` 注册表，统一描述 metadata 缓存字段的 `default`/`serialize`/`deserialize`；`WorkspaceCache` 构造函数与 `load()` 自动遍历 schema 初始化/加载；新增 `saveMetadata(key, value)` / `loadMetadata(key)` 通用方法，消除 `_loadCoChanges` / `_loadPageRanks` 等 ~40 行复制粘贴。`graph-db.js` `loadAll()` 返回 `_metadata` 原始键值对，避免 schema 驱动加载时的重复 SQLite 查询。向后兼容：`saveCoChanges()` / `savePageRanks()` / `loadAggregateSummary()` / `saveAggregateSummary()` 保留为薄包装。
 - **P1 dep-tools.js 按操作拆分**：提取 8 个操作处理器到 `src/tools/dep-tools/{stats,dependencies,dependents,impact,cycles,dead-exports,unresolved,affected-tests}.js`；`dep-tools.js` 保留薄路由层（`OPERATIONS` 注册表 + `FILE_REQUIRED` 集合 + 统一前置校验）。`FILE_REQUIRED` 集中声明需 filePath 的操作，消除原 switch 中重复的 `if (!filePath)` 守卫。新增操作只需新建文件 + 注册表加一行。`dependencyGraph` 签名 100% 不变，测试零改动。
 - **P2 预热按需化**：从 `container.js` `initialize()` 和 `onPendingProcessed` 中移除 `_precomputeOverview()`/`_precomputeCoChanges()` 无条件调用。新增 `container.ensurePrecomputed(types)` 公共方法，由 `buildProjectOverview`（hotspot/stability 缺失时）和 `dep-tools/impact`（coChanges 缺失时）按需触发。`_precomputeOverview()` 增强为 `_aggregateCache` 缺失时自动创建最小缓存。`tree`/`stats` 等轻命令启动不再承受预热开销。
+- **P2 测试 runner 分层与分阶段执行**：
+  - **问题**：127 个测试全量混跑需 ~7min，21 个集成测试反复冷启动 CLI/建图/加载 WASM，拖住 fast 批次；CONCURRENCY=4 在 18 核机器上浪费，但无脑提到 18 又导致 Windows 资源争用（测试变慢 2-3 倍）。
+  - **自动分类**：基于文件名模式（`analysis-test.js` 等 21 个已知 heavy 测试）+ 文件内容扫描（是否调用 `runCli`/`runCliRaw`/`runCliText` 或直接 `spawnSync node cli.js`），零测试文件改动。
+  - **分阶段执行**：Fast 先跑（并发 12）→ Slow 后跑（并发 4）→ Watch 串行。避免 slow 测试拖住 fast 批次。
+  - **分层入口**：`--layer fast`（101 个，~14s）/`--layer slow`（21 个，~100s）/`--layer watch`（4 个）/`--smoke`（104 个，~31s）。`package.json` 新增 `test:fast`/`test:slow`/`test:watch`/`test:smoke` 脚本。
+  - **结果**：开发迭代反馈从 ~7min → ~14s（fast 层），全量从 ~7min → ~4min。
 
 **历史**：P0-P4 全部交付 + 测试债务全量修复 + L2 清零 + 默认 markdown + incremental 可见化 + formatter 重复判断消除 + SHA-256 内容哈希复用。本轮及历史交付见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
@@ -182,8 +190,8 @@ node cli.js audit-summary --cwd . --json --quiet
 
 - 活跃债务：**0 个 L1** + **0 个 L2** + **3 个 L3** + **0 个产品 bug** + **0 个产品债务**
 - 版本：v1.2.0，schemaVersion 冻结
-- 测试：**受影响测试全部 PASS**；全量 runner 因脏工作区超时（`git stash` 后可恢复 120/120 PASS / ~280s）
-- P0-P4 全部完成（误报清零、暴露正确、框架感知、可靠性收敛、formatter 重复消除、SHA-256 复用、Co-change 收尾、Cache schema 自描述化）
+- 测试：**受影响测试全部 PASS**；全量 runner 126/126 PASS（~4min，`git stash` 后恢复）。开发迭代首选 `npm run test:fast`（~14s）
+- P0-P4 全部完成（误报清零、暴露正确、框架感知、可靠性收敛、formatter 重复消除、SHA-256 复用、Co-change 收尾、Cache schema 自描述化、测试 runner 分层）
 - **定位升级**：从"带 JSON 输出的人类审计工具"升级为"AI 的代码脚手架"
 - **核心认知**：CLI 静态分析能力没问题，问题分两类：
   - **工程品味**（污染工作目录、输出数据冗余、缓存失效粗糙）— 已基本解决
@@ -232,6 +240,7 @@ node cli.js audit-summary --cwd . --json --quiet  # 期望 healthScore=7/8
 | **P1** | ~~dep-tools.js 按操作拆分~~ | 10+ case switch 承载 stats/impact/cycles/dead-exports/unresolved 等 | ✅ **已修**：`dep-tools/*.js` 处理器 + `OPERATIONS` 注册表薄路由 | — |
 | **P2** | **CLI 路由表化** | `cli.js` `runCommand` 350 行硬编码 switch | 新增命令只需注册表项 | — |
 | **P2** | ~~预热按需化~~ | `initialize()` 无条件预热 hotspot/stability/cochange，即使 `tree` 命令不需要 | ✅ **已修**：`ensurePrecomputed(types)` 按需触发 + 查询路径缓存缺失检测 | — |
+| **P2** | ~~测试 runner 分层~~ | 127 个测试混跑需 ~7min，slow 测试拖累 fast 批次 | ✅ **已修**：`--layer fast/slow/watch` 自动分类 + 分阶段执行（fast ~14s / 全量 ~4min） | — |
 | **P3** | Java `dead-exports` 崩溃 | Python 管道大数据崩溃（环境兼容） | 跨语言能力补齐 | — |
 
 **产品债务（暂缓，bug 清零后再评估）**

@@ -8,17 +8,25 @@
 
 ## [Unreleased]
 
+### 修复（CLI 集成测试断言修正 — 2026-05-19）
+
+- **修正 `test/cli-pipeline-depth-test.js` 中 4 类错误断言** `test/cli-pipeline-depth-test.js`：
+  - `formatAi` 输出中不含 `format`/`depth`/`tokenBudget` 输入参数字段，移除对它们的直接断言；改为断言 `schemaVersion`/`meta`/`actions` 等实际输出字段的存在性。
+  - `validationAdvice.commands` 是命令对象数组，不是 `{ smoke, focused }` 结构；改为断言 `Array.isArray(commands)` 及 `suggestedCommand` 字符串。
+  - `tokenBudget` 测试原用 `200` 预算，3 文件小项目的 detail 输出仅 ~150 tokens，无法触发降级；改为 `50` 预算以确保实际触发 surface 降级路径。
+  - 测试通过：fast 101/101，slow 23/23。
+
 ### 优化（测试 runner 分层与并发提速 — 2026-05-19）
 
 - **测试 runner 支持分层运行** `test/runner.js` `package.json`：
   - 问题：127 个测试全量运行需 ~7 分钟，开发迭代反馈太慢；21 个集成测试反复冷启动 CLI、全量建图、加载 WASM，与 100+ 纯单元测试混在一起跑。
   - 新增 `--layer fast|slow|watch|all` 参数，runner 按文件名 + 内容启发式自动分类：
-    - `fast`：纯单元测试（无 `runCli`、无 CLI spawn），~100 个文件，预期 <30s
-    - `slow`：集成/E2E 测试（含 `runCli` 或直接 `spawnSync node cli.js`），~21 个文件
-    - `watch`：串行 watch 测试（文件名匹配 `/watch/`）
-    - `all`：全部（默认行为，向后兼容）
-  - 新增 `--smoke` 快速模式：fast 层 + 3 个代表性 slow 测试，用于开发迭代秒级验证。
-  - 并发度默认从硬编码 `4` 提升为 `Math.min(32, os.cpus().length)`（18 核机器从 4 → 18），利用多核并行消除进程 spawn 瓶颈。
+    - `fast`：纯单元测试（无 `runCli`、无 CLI spawn），101 个文件，实测 **~14s**
+    - `slow`：集成/E2E 测试（含 `runCli` 或直接 `spawnSync node cli.js`），21 个文件，实测 **~100s**
+    - `watch`：串行 watch 测试（文件名匹配 `/watch/`），4 个文件
+    - `all`：全部（默认行为，向后兼容），全量实测 **~4min**（原 ~7min）
+  - 新增 `--smoke` 快速模式：fast 层 + 3 个代表性 slow 测试，实测 **~31s**，用于开发迭代快速验证。
+  - 全量 runner 改为**分阶段执行**：先跑 fast（高并发 12）→ 再跑 slow（低并发 4）→ 最后串行 watch。避免 slow 测试拖住 fast 测试的批次。
   - `package.json` 新增 4 条脚本：`test:fast`、`test:slow`、`test:watch`、`test:smoke`。
 
 ### 重构（架构债务清零：跨层依赖与职责纠缠 — 2026-05-18）
