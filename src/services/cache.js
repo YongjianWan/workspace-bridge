@@ -7,9 +7,9 @@ const os = require('os');
 const crypto = require('crypto');
 const { normalizePathKey } = require('../utils/path');
 const { GraphDB } = require('./graph-db');
-const { CACHE_VERSION } = require('../config/constants');
+const { CACHE_VERSION, DEFAULTS } = require('../config/constants');
 
-const CACHE_STALE_MS = 24 * 60 * 60 * 1000; // 24 hours
+const CACHE_STALE_MS = DEFAULTS.STALENESS_THRESHOLD_MS;
 
 /**
  * Metadata schema registry — add a new cached field by registering here.
@@ -361,6 +361,10 @@ class WorkspaceCache {
       if (Array.isArray(diags)) all.push(...diags);
     }
     return all;
+  }
+
+  hasDiagnosticEntries() {
+    return this.diagnostics.size > 0;
   }
 
   setDiagnostics(filePath, diags) {

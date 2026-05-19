@@ -116,9 +116,31 @@ function testWorkspaceInfoAvailableChecksWithEslint() {
   cleanupTempDir(tmpDir);
 }
 
+async function testBuildChecksEslintWithoutScriptsField() {
+  const tmpDir = makeTempDir('wb-diag-');
+  fs.writeFileSync(
+    path.join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: 'test',
+      eslintConfig: { extends: ['eslint:recommended'] },
+    }),
+    'utf8'
+  );
+
+  const workspace = detectWorkspace(tmpDir);
+  const { checks, noLintersDetected } = await buildChecks(workspace, 'quick');
+
+  const eslintCheck = checks.find((c) => c.name === 'node:eslint');
+  assert(eslintCheck, 'should detect eslint when package.json has no scripts field but eslintConfig exists');
+  assert.strictEqual(noLintersDetected, false, 'noLintersDetected should be false when eslintConfig exists even without scripts field');
+
+  cleanupTempDir(tmpDir);
+}
+
 async function main() {
   await testBuildChecksDetectsEslintConfigInPackageJson();
   await testBuildChecksDetectsDotEslintrc();
+  await testBuildChecksEslintWithoutScriptsField();
   testDetectNodeLintersNoConfig();
   testDetectNodeLintersPrettierConfig();
   testWorkspaceInfoAvailableChecksReflectsActualLinters();

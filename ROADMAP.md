@@ -18,7 +18,7 @@
 | 多模块 Maven 模块边界未显式标注 | ⏳ 观察              | 模块间耦合强度丢失                                                                             | 评估是否输出模块级聚合视图                                                                                                                                                                                           |
 | 大项目冷启动超时                | ⏳ 观察              | ~~395 文件实测 59s~~ 实测 239 文件 2s / 542 文件 7s（环境差异），但 7s 对 CI 仍不够友好       | 预热工作流 + 评估 `--cache-dir` + 大项目默认 `--compact`                                                                                                                                                         |
 | Java `dead-exports` 大图崩溃  | 🔴**高优先级** | 542 文件 Java 项目跑 `dead-exports` 返回 exit code 49，零输出                                | **部分修复**：`GraphBuilder.analyzeFile()` 已加 try-catch 防止 crash batch，但 exit code 49 根因是 Windows Store Python + Git Bash 管道大数据崩溃，环境问题未根治                                            |
-| diagnostics linter 检测矛盾     | 🔴**高优先级** | `workspace-info` 显示 eslint 可用，但 `diagnostics` 返回 `noLintersDetected: true`       | **部分修复**：`detectNodeLinters` 已统一供 `workspaceInfo` 和 `buildChecks` 共用；残留：`diagnostics` 缓存命中路径不携带 `noLintersDetected`，`buildChecks` 中该字段仅在 `mode === 'quick'` 设置 |
+| diagnostics linter 检测矛盾     | ✅ **已修复** | `workspace-info` 显示 eslint 可用，但 `diagnostics` 返回 `noLintersDetected: true`       | `buildChecks` 中 `scripts` 默认值改为 `workspace.packageJson?.scripts || {}`，消除 `package.json` 无 `scripts` 字段时 eslint 检测遗漏；新增回归测试 `testBuildChecksEslintWithoutScriptsField` |
 | 跨仓库静态分析                  | ⏳ 评估中            | 前后端 API 契约纯文本匹配可做（`@RequestMapping` vs `axios.get`），但 CLI 只能单 `--cwd` | 评估多 `--cwd` 或 `--cross-repo` 低复杂度方案                                                                                                                                                                    |
 
 > 近期已修复的限制见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]：`--builtin-only`、`--since <commit>`、TTL 24h、git-aware staleness、`--format jsonl`、SKILL 文档体系重构。
@@ -70,7 +70,7 @@
 
 与开发原则第 2 条一致。实战基地 6 仓库审计直接暴露的 3 项活跃债务 + 1 项安全规则缺口。
 
-**状态**：阶段 1 四项目标全部完成，129/129 测试通过。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+**状态**：阶段 1 四项目标全部完成；P0 去噪工程 5/5 完成（工作目录污染清理、脚手架过滤、audit-overview 去重、`architectureAdvice` 小项目抑制、`audit-security` matchedText 展示）。131/131 测试通过。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 
@@ -78,7 +78,7 @@
 
 原阶段 2 是"把已有能力暴露正确"。在"AI 脚手架"定位下，升级为"CLI 直接输出 AI 可消费的策展结论"：
 
-- **`--format ai` / `--token-budget` / `--depth`**：基础已交付，详见 [CHANGELOG.md](./CHANGELOG.md)。待深化：扩展至所有 L1 命令。
+- **`--format ai` / `--token-budget` / `--depth`**：✅ **已完成**。`formatAi()` 已覆盖 `dead-exports`/`impact`/`affected-tests`/`cycles`/`unresolved`/`audit-security`/`audit-diff` 等全部高频命令，统一输出 `severity`/`counts`/`topRisks`/`actions`/`confidence`；`depth`（`surface` 精简）和 `tokenBudget`（超限自动降级）对所有命令生效。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 当前 compact 模式是**结构降维**（文件→目录、边→模块），不是**语义策展**。AI 消费的是策展后的结论，不是压缩后的结构。同时产品评估发现已有能力（19 条内置安全规则、git diff commit range）因无 CLI 入口而被用户误以为不存在。
 
@@ -88,17 +88,18 @@
 | -- | ------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------- | ------ | ---- |
 | 1  | **`--format summary` 纯模板摘要**   | `human-formatters.js` 新增分支                       | 1000 文件项目从 ~400 行 JSON → 20 行关键结论           | ~50 行 | ✅ 已完成 |
 | 2  | hotspot `reason` 组合展示                 | `overview-tools.js` `buildHotspots`                | 高耦合新文件显示"高耦合 + 无历史"而非仅"无历史"         | ~15 行 | ✅ 已完成 |
+| 3  | **`--format ai` 统一入口扩展至所有命令** | `human-formatters.js` 新增 `buildCommandAiDigest` | AI 消费所有命令时都有结构化 `topRisks`/`actions`/`confidence`，不再被迫解析纯文本 `summary` | ~50 行 | ✅ 已完成 |
 
-**决策逻辑**：纯 formatter / 参数层改动，不动 graph/parser/cache。三项均不引入 LLM 调用、网络依赖或外部工具，保持 CLI 轻量本地属性。
+**决策逻辑**：纯 formatter / 参数层改动，不动 graph/parser/cache。四项均不引入 LLM 调用、网络依赖或外部工具，保持 CLI 轻量本地属性。
 
 ---
 
 ### 阶段 3：AI 脚手架形态完成（中期，2-4 周）
 
 - ~~`audit-ai` 统一入口~~ → **重新评估**：不是"合并到 1 个命令"，是"`--help` 和 SKILL.md 按 L1/L2/L3/L4 分层暴露"。`audit-summary`/`audit-diff`/`audit-file`/`audit-overview` 作为 L1 策展入口保持独立；`dead-exports`/`cycles`/`unresolved` 等 L4 命令对人类调试有价值，不应删除，只需降级为 debug 层级。
-- **Token 预算感知**：✅ 基础已交付。`--token-budget` 参数注册 + `formatAi()` 超限降级。待深化：所有非 `audit-summary` 命令统一支持。
-- **渐进式发现**：✅ 基础已交付。`--depth surface|detail|full` 在 `--format ai` 下生效。待深化：扩展至所有 L1 命令。
-- **Skill 精简为 50 行驾驶手册**：删除命令分类表、参数说明、Known Limitations，只保留"什么时候用/什么时候不用/标准工作流"
+- **Token 预算感知**：✅ **已完成**。`--token-budget` 参数注册 + `formatAi()` 超限降级。已扩展至所有命令（非 `audit-summary` 分支同样支持 token budget 裁剪）。
+- **渐进式发现**：✅ **已完成**。`--depth surface|detail|full` 已扩展至所有命令（`surface` 输出精简 `counts` + `topRisks`/`actions` 切片）。
+- **Skill 精简为 50 行驾驶手册**：⏳ 待评估。删除命令分类表、参数说明、Known Limitations，只保留"什么时候用/什么时候不用/标准工作流"；需按阶段 2.5 的"按层级重组"目标精简。
 
 静态分析的硬边界（Vue 模板编译时、Spring DI 运行时、MyBatis XML 绑定）无法突破，但在边界内仍可深化。
 
@@ -107,8 +108,33 @@
 | **Vue `<script setup>` 编译器宏识别** | `js.js` / `framework-patterns.js`           | `defineProps`/`defineEmits`/`defineExpose` 导出不标记 dead-export | 只能识别宏定义，不能追踪模板使用         |
 | **Spring 更多运行时注解**               | `framework-patterns.js` `AST_PATTERNS.java` | 覆盖 `@RestController`/`@FeignClient`/`@Scheduled`                | 只标记 framework-managed，不追踪反射调用 |
 | **Django 更多配置驱动入口**             | `framework-patterns.js`                       | middleware、router、context processors 等                               | 同现有模式                               |
+| **安全白名单分派表 + Assert Defense** | `security-tools.js`                             | 每条规则独立 `is_match_allowlisted()`；测试内 `.unwrap_err()` / `expect(error)` 匹配到的 payload 视为防御性测试，抑制误报 | 不改变现有 CLI 接口，纯规则后处理 |
+| **端到端请求路径（路由提取）** | `framework-patterns.js` / `dep-graph.js` / `human-formatters.js` | `impact` 输出增加 `affectedRoutes`：改 handler 前知道影响哪些 API（Express/Spring/FastAPI 等 9 语言） | 只提取路由声明，不追踪请求体内参数绑定 |
+| **测试间隙穿透（Dispatcher Regex）** | `affected-tests` 逻辑扩展 | 无 import 边但测试文件 body 提及源文件 stem，或 `call_tool_by_name("xxx")` 字符串分发匹配到的测试，也纳入 affected-tests | 需避免与已有 import 边重复计数 |
+| **Bus Factor / 知识分布** | `overview-tools.js` | `audit-overview` 新增 `knowledgeRisk` 维度：逐文件 `git blame` + mailmap 去重，标识"只有一个人懂的文件" | 依赖 git 历史完整，新仓库无意义 |
+| **回归测试档案** | `test/` 新增 `fp_regression_*.js` | 死代码/安全/未解析 import 的已知误报场景归档，防止修复后复发 | 档案需随规则调整同步维护 |
+| **路径参数安全清洗** | `cli.js` / `path.js` | 防路径注入：`--file`/`--cwd` 等路径参数在进入 graph 前统一清洗，拒绝 `../` 逃逸和绝对路径注入 | 与现有 `sanitize.js` 职责对齐 |
+| **Prompt 注入防御（符号名过滤）** | `formatters/` / `cli.js` | JSON 输出中的符号名增加 `_sanitize_name` 过滤（截断至 256 字符 + 清洗控制字符），防止源代码中的恶意标识符（如 `IGNORE_ALL_PREVIOUS_INSTRUCTIONS`）注入 AI prompt | 极低成本，安全风险 |
+| **parser 错误恢复（per-file try/catch）** | `parsers/registry.js` / `container.js` | 单一语言 parser 加载失败或解析异常时，只跳过该文件，不中断整个分析流程 | 参考 GitNexus Query 错误恢复 |
+| **cli.js 抽出可测试入口** | `cli.js` / `src/cli/commands/` | 将命令处理逻辑从 `process.argv` 解析中解耦，暴露 `runCommand(config, command)` 纯函数入口，支持单元测试直接调用而无需 spawn | 参考 qartez `cli_runner::run` |
 
-**决策逻辑**：投入可控（每种框架加几行 pattern），收益明确（减少误报）。不碰 call graph / 数据流。
+**决策逻辑**：投入可控（每项 ~5–80 行），收益明确（减少误报、提升稳定性或可测试性）。不碰 call graph / 数据流。
+
+---
+
+### 阶段 2.5：CLI 减负与认知负担（短期，参考 qartez Progressive Disclosure）
+
+> 当前 `--help` 展示 20 个命令，虽有 L1/L2/L3/L4 标签分组，但所有命令仍挤在同一列表。AI 消费者需在 20 个选项中选择。参考 qartez 的 **4-Tier Progressive Disclosure** 模式（Core/Analysis/Refactor/Meta），默认只展示 Tier 1，其余动态解锁。
+
+| #  | 目标 | 改动文件 | 预期收益 | 工作量 | 状态 |
+| -- | ---- | -------- | -------- | ------ | ---- |
+| 1  | **默认 `--help` 只展示核心命令** | `cli.js` help 文本生成 | AI 消费者从 20 选 1 → 6 选 1；L2-L4 命令仍需可用，但不默认暴露 | ~10 行 | ⏳ 待评估 |
+| 2  | **SKILL.md 按层级重组** | `skills/workspace-audit/SKILL.md` | 从 264 行缩至 ~80 行；只保留"何时用/何时不用/标准工作流" | ~30 行 | ⏳ 待评估 |
+| 3  | **PhaseTimer 多阶段计时** | `container.js` / `cli.js` | 大型仓库分析时知道卡在解析/建图/查询哪一阶段 | ~15 行 | ⏳ 待评估 |
+| 4  | **CLI 错误分类 + 可操作建议** | `cli.js` catch 块 | 错误不再是 raw stack，而是"错误类型 + 下一步命令" | ~20 行 | ⏳ 待评估 |
+
+**原则**：不删除命令、不合并命令、不改接口。只改暴露策略（默认折叠低频命令）和可观测性（计时/进度/错误提示）。
+
 
 ---
 
@@ -116,6 +142,14 @@
 
 - **跨仓库 API 契约检查**：frontend `axios.get('/api/policy/xxx')` vs backend `@GetMapping('/api/policy/xxx')`，纯静态文本匹配，评估低复杂度实现方案
 - **增量脚手架**：`watch --on-change "audit-file --file {changedFile}"`，AI 启动后持续监听，文件保存自动推送 impact
+- **自适应架构边界（`audit-boundaries`）**：读取 `.workspace-bridge.json` 中可选 `boundaries[]` 字段，用 minimatch 匹配路径遍历 import edges 做违规检测；无配置时用目录层级聚类（2 层前缀）自动生成建议规则（参考 qartez `BoundaryRule` + CRG Leiden 聚类）
+- **增量更新终极协议（四层叠加）**：L1 git diff → L2 SHA-256 过滤（排除内容未变的 dependent）→ L3 Neighbor-aware（只重解析 caller/inheritor）→ L4 WAL Cadence（SQLite 写入不阻塞 + WAL 截断）。按层渐进，不一次性全做
+- **符号解析置信飞轮**：Pre-scan 粗定位（全局 `symbol → [file]` 映射）→ Tree-sitter Query 精确捕获 → CRG Tier 置信标注（same-file/imported+ FQN/unique short name/alphabetical-first）。输出每条边附 `confidence` + `tier` + `resolutionMethod`
+- **复杂度趋势分析**：`git revwalk` 拓扑+时间排序遍历 commit，对每个 commit 检出文件内容，tree-sitter 重新解析，记录各符号 CC 和行数，输出 `GROWING/SHRINKING/STABLE`（阈值 ±10%）
+- **代码异味检测（Flat Dispatcher）**：扫描 `switch(action.type)` / `if-elif` 链的 `arms` 数量和 `cc` 关系，识别平铺 match/switch（Path 1: `arms ≥ 6` 且 `cc ≤ arms + 5`）和 Dominant 分支（Path 2: `arms ≥ 12` 且 `arms ≥ cc × 0.4`）
+- **SQLite pragma 调优**：WAL + mmap + temp_store 调优，提升缓存写入和查询性能
+- **Pre-scan 全局符号映射**：正式解析前轻量 query 提取所有文件顶层定义名，构建 `imports_map = {symbol_name: [file_path]}`，提升 import 解析准确率
+- **Worker Pool 并行解析**：大项目文件解析从单线程顺序改为 worker_threads 并行，评估共享内存/消息传递复杂度是否值得
 
 ---
 
@@ -165,22 +199,48 @@
 | 维度 | 问题      | 当前表现                                       | 理想表现                        |
 | ---- | --------- | ---------------------------------------------- | ------------------------------- |
 | 配置 | ⏳ 待评估 | `.workspace-bridge.json` schema 校验可更严格 | 未知字段/类型错误警告（非阻塞） |
-| 进度 | ⏳ 待评估 | 超大仓库（>10k 文件）索引进度粒度不足          | 按百分比或按模块打印进度        |
+| 进度 | ⏳ 待评估 | 超大仓库（>10k 文件）索引进度粒度不足；用户不知道是在工作还是卡住了 | 按百分比或按模块打印进度；或按 PhaseTimer 阶段输出"解析中…/建图中…/查询中…" |
+| 错误 | ⏳ 待评估 | 异常抛出 raw stack trace，AI 被迫自己解析错误根因 | 错误分类 + 可操作建议：如"路径不存在 → 检查 --cwd 是否正确" |
+| 路径安全 | ⏳ 待评估 | `--file`/`--cwd` 等路径参数未做注入清洗 | 拒绝 `../` 逃逸和绝对路径注入，与 `sanitize.js` 职责对齐 |
 
 ---
 
 ## 长期方向（非承诺，见路线 I-2 深度评估）
 
-| 方向                                       | 价值 | 成本 | 判断                        | 触发条件                                                                                                                                  |
+| 方向                                       | 价值 | 成本 | 判断                        | 触发条件 / 现状                                                                                                                                  |
 | ------------------------------------------ | ---- | ---- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | 符号级调用解析（Call-Resolution DAG）      | 高   | 很高 | **当前不做**          | 需要新增 call graph 子系统；即使做了，Spring DI / Vue 模板 / MyBatis XML 等运行时绑定问题仍解不了                                         |
 | 字段读写追踪（ACCESSES 边）                | 高   | 高   | **当前不做**          | 同污点追踪，需要跨文件数据流分析，与"结构分析 ≠ 语义分析"原则冲突                                                                        |
 | CI Schema Parity 测试                      | 中   | 低   | 观察                        | 下一次 schema 变更前                                                                                                                      |
+| **安全白名单分派表 + Assert Defense** | 高   | 低   | **接受**              | `security-tools.js` 每条规则独立 `is_match_allowlisted()`；测试内防御性匹配（`expect(error)`）抑制误报。参考 qartez 集中式白名单分派表 |
+| **端到端请求路径（路由提取）** | 高   | 低   | **接受**              | `framework-patterns.js` 新增 `extractRoutesFromContent()`，覆盖 Express/Spring/FastAPI 等 9 语言；`impact` 输出增加 `affectedRoutes`。参考 GitNexus `HANDLES_ROUTE` 边 + CRG entry point 检测 |
+| **测试间隙穿透（Dispatcher Regex）** | 中   | 低   | **接受**              | `affected-tests` 引入 qartez Dispatcher Regex + FTS Stem Mention 回退：无 import 边但测试文件 body 提及源文件 stem 时也纳入 |
+| **Bus Factor / 知识分布** | 中   | 低   | **接受**              | `audit-overview` 新增 `knowledgeRisk`：逐文件 `git blame` + mailmap 去重，标识"只有一个人懂的文件"。参考 qartez `src/git/knowledge.rs` |
+| **回归测试档案（fp_regression_*.js）** | 中   | 低   | **接受**              | 死代码/安全/未解析 import 的已知误报场景归档，防止修复后复发。参考 qartez 回归测试模式 |
+| **路径参数安全清洗** | 中   | 低   | **接受**              | `--file`/`--cwd` 等路径参数在进入 graph 前统一清洗，拒绝 `../` 逃逸。参考 qartez `_sanitize_name` Prompt 注入防御 |
+| **自适应架构边界（`audit-boundaries`）** | 中高 | 中   | **接受**              | 读取 `.workspace-bridge.json` 可选 `boundaries[]` 字段，用 minimatch 遍历 edges 做违规检测；无配置时用目录层级聚类自动生成建议规则。参考 qartez `BoundaryRule` + CRG Leiden 聚类 |
+| **符号解析置信飞轮** | 中高 | 中   | **接受**              | Pre-scan 粗定位（全局 `symbol → [file]` 映射）→ Query 精确捕获 → CRG Tier 置信标注。输出每条边附 `confidence` + `tier`。参考 CGC Pre-scan + GitNexus Query 分层协议 + CRG Confidence Tier |
+| **增量更新终极协议（四层叠加）** | 高   | 中   | **接受**              | L1 git diff → L2 SHA-256 过滤 → L3 Neighbor-aware 重解析 → L4 WAL Cadence。按层渐进。参考 CRG SHA-256 增量 + CGC Neighbor-aware + qartez WAL Cadence |
+| **复杂度趋势分析** | 中   | 中   | **接受**              | `git revwalk` 遍历 commit，tree-sitter 重新解析记录各符号 CC 和行数，输出 `GROWING/SHRINKING/STABLE`。参考 qartez `src/git/trend.rs` |
+| **代码异味检测（Flat Dispatcher）** | 中   | 中   | **接受**              | 扫描 `switch(action.type)` / `if-elif` 链，识别平铺 match（`arms ≥ 6` 且 `cc ≤ arms + 5`）和 Dominant 分支（`arms ≥ 12` 且 `arms ≥ cc × 0.4`）。参考 qartez `src/server/tools/smells.rs` |
+| **SQLite pragma 调优** | 中   | 极低 | **接受**              | WAL + mmap + temp_store 调优，提升缓存写入和查询性能。参考 qartez SQLite 配置 |
+| **Pre-scan 全局符号映射** | 中高 | 中   | **接受**              | 正式解析前轻量 query 提取所有文件顶层定义名，构建 `imports_map = {symbol_name: [file_path]}`。参考 CGC Pre-scan |
 | **规则引擎层次 A（配置化）**         | 中   | 低   | **接受**              | 将 `security-tools.js` 硬编码规则提取为外部 YAML/JSON，无需数据库。通过 `--config <file>` 参数接入，不新增 `rules` 子命令           |
 | **规则引擎层次 B（AST 轻量规则）**   | 中高 | 中   | **接受**              | 基于现有 `functionRecords` 做方法级条件检查（如"batch* 方法无 @Transactional"），不跨文件                                               |
-| **AI 预消化输出（`--format ai`）** | 高   | 低   | **接受 / 部分交付**   | `--format ai` 已支持 severity + top risks + actions + confidence。待深化：所有命令统一预消化输出，skill 从 ~264 行缩至 ~80 行。 |
+| **AI 预消化输出（`--format ai`）** | 高   | 低   | **接受 / 已交付**   | `--format ai` 已覆盖全部高频命令（`audit-summary` + `dead-exports`/`impact`/`affected-tests`/`cycles`/`unresolved`/`audit-security`/`audit-diff`），统一输出 `severity`/`counts`/`topRisks`/`actions`/`confidence`/`depth`/`tokenBudget`。skill 精简待深化。 |
 | **AI 摘要输出（纯模板）**            | 高   | 低   | **接受**              | `--format summary` / `--format markdown` 用模板将 JSON 策展为 20 行关键结论或 Markdown 审查意见，不引入 LLM 调用                      |
 | **增量分析扩展**                     | 高   | 低   | **接受**              | `--since <commit>` commit range、`--staged` 暂存区、`--files a,b,c` 指定文件列表、`--with-impact` 变更+依赖方自动展开             |
+| **跨调用缓存（ParseCache）** | 高   | 中   | **接受**              | 当前每次运行重新解析所有文件。对"先 impact 再 affected-tests 再 audit-summary"连续查询场景，引入按 `mtime_ns` 失效的 AST + ident + calls 缓存。参考 qartez `ParseCache` |
+| **统一 risk scoring（5 维度）** | 高   | 低   | **接受**              | `audit-diff` 引入跨文件变更风险排序：flow_participation + community_crossing + test_coverage + caller_count + security_sensitive。替代各命令自行判断。参考 CRG Risk Score |
+| **诚实截断机制（Honest Truncation）** | 中   | 极低 | **接受**              | `impact` / `affected-tests` 在大型单体项目中输出可能爆炸。给结果数组包装 `truncated` 布尔字段，超限后诚实告知"已截断，仅展示前 N 个"。参考 qartez `DependentList` |
+| **per-tool benchmark + 回归检查** | 中   | 低   | **接受**              | 扩展 `benchmark/` 目录，为每个 CLI 命令建立"有工具 vs 无工具"对照实验，检测性能回归。参考 qartez `benchmark/report.rs` |
+| **项目根自动发现（Monorepo）** | 中   | 中   | **接受**              | 当前主要靠 `--cwd`，对 monorepo 支持不够智能。评估自动检测 `package.json` / `pom.xml` / `go.mod` 层级，支持 `--service <subpath>` 过滤。参考 qartez Workspace 扩展 |
+| **环境变量层 + 配置来源报告** | 低   | 低   | **接受**              | 当前配置仅来自 `.workspace-bridge.json` 和 CLI 参数。增加 `WB_*` 环境变量层和启动时"来源报告"（config from: env > cli > file）。参考 qartez 配置系统 |
+| **JSON 输出 token 削减** | 中   | 低   | **接受**              | 大型文件 `--json` 输出过于庞大（`audit-file` 返回完整源代码）。引入 `elide_file_source()`：函数体 → 签名 + `{⋯}`，超限自动截断。参考 qartez token 削减 |
+| **async 未捕获异常处理（Fatal Handler）** | 高   | 极低 | **接受**              | CLI async 路径未捕获异常可能导致静默退出。安装 `unhandledRejection` / `uncaughtException` handler，保留真实 stderr 后退出。参考 GitNexus `installFatalHandlers` |
+| **GraphBuilder / GraphAnalyzer 职责边界** | 中   | 低   | **接受**              | 当前 `dep-graph.js` 内部已认知拆分，但对外接口未显式区分"节点构建期"和"边链接期"。参考 CGC 两阶段模型，职责边界文档化并提取为生命周期 hook |
+| **语言注册表统一契约** | 中   | 低   | **接受**              | 当前 `parsers/` 缺乏统一契约。引入 `{ language, extensions, parse, extractImports, extractExports, isBuiltIn }` 配置表，统一 parserAvailability / import 解析 / 导出检测。参考 GitNexus 语言注册表 |
+| **框架检测 query 化（compilePatterns）** | 中   | 中   | **接受**              | 当前 `framework-patterns.js` 使用硬编码 regex。引入 `compilePatterns(treeSitterQuery) + runCompiledPatterns()`，新增框架只需一个 query 文件。参考 GitNexus `HttpLanguagePlugin` |
 | **持久化图存储（SQLite）**           | 高   | 中   | **P2 启动，POC 通过** | POC 三阶段全部完成：                                                                                                                      |
 
 - 小图（239 nodes）：findDeadExports **1ms**、recursive CTE impact **0ms**、增量 update **1ms**、文件大小小 18 倍 ✅
@@ -190,7 +250,7 @@
   | **分层输出过滤** | 中 | 低 | **接受** | `--severity P0/P1` 按严重程度过滤、`--category security/performance` 按类别过滤（需规则打标签） |
   | **审查追踪（轻量）** | 中 | 低 | **接受** | `--save <file>` 保存审计结果、`--check-regression` 对比上次审计检查 P0/P1 是否修复、`--baseline <commit>` 按变更文件标注问题为 `new`/`legacy` |
   | **默认输出模式校准** | 中 | 低 | **接受 / 已交付** | 默认输出已改为 `--format markdown`（~5 行，cli.js 第 474 行）。`--format human` 显式恢复人工输出已支持。 |
-  | **命令分层暴露** | 高 | 低 | **接受 / 已交付** | `--help` 已按 L1/L2/L3/L4 四层分组；L4 命令（dead-exports/cycles/unresolved 等）标记为 debug 层级；`health` 标注 deprecated；`runCommand` 拆分为 `src/cli/commands/*.js` 注册表。SKILL.md 精简待深化。 |
+  | **命令分层暴露** | 高 | 低 | **接受 / 已交付标签分组，待深化默认折叠** | `--help` 已按 L1/L2/L3/L4 四层分组；L4 命令标记为 debug 层级；`health` 标注 deprecated；`runCommand` 已拆分注册表。待深化：默认 `--help` 只展示 Tier 1（~6 个命令），其余折叠到 `--help --all`（参考 qartez 4-Tier Progressive Disclosure）。SKILL.md 精简待深化。 |
   | **大项目自动截断/自适应** | 中 | 低 | **接受** | 500+ 文件自动启用 `--compact`，或自动抑制低价值字段（architectureAdvice 等）。加 `--no-compact` 显式覆盖 |
   | **噪音抑制增强** | 中 | 低 | **接受** | `.workspace-bridge.json` 扩展 `ignore` 配置（框架感知排除）、`--mark-false-positive <id>` 记录误报（轻量，不引入机器学习） |
   | **`--cache-dir` 参数** | 高 | 低 | **接受 / 已交付** | `--cache-dir` 已支持，cli.js parseCliArgs 已注册。默认缓存放 `os.tmpdir()/workspace-bridge/<hash>/cache.db`（SQLite），项目间隔离。 |
@@ -198,4 +258,4 @@
 
 > 路线 I-2 GitNexus 深度对比的 9 项发现中，数值 confidence / yieldToEventLoop / confidenceSource 标签 / git-aware staleness / import 策略链抽象 5 项已吸收并完成。详见 [CHANGELOG.md](./CHANGELOG.md)。
 >
-> **2026-05-14 评估更新**：阶段 1 误报清零完成。污点追踪 / 数据流分析 / 图数据库 三个方向**当前不做**（非永久拒绝）。`rules --config` 重规则引擎和 AGENTS.md 语义联动当前不做。规则引擎层次 A/B 和 AI 摘要输出在轻量边界内接受。详见 [SESSION.md](./SESSION.md)。
+> **2026-05-19 评估更新**：阶段 1 误报清零 + P0 去噪工程完成；diagnostics linter 矛盾已修复；L2 债务已清零。阶段 2 `--format ai` 统一入口已扩展至所有命令。死代码过滤链前 5 条规则已引入（CRG 吸收）。污点追踪 / 数据流分析 / 图数据库 三个方向**当前不做**（非永久拒绝）。规则引擎层次 A/B 和 AI 摘要输出在轻量边界内接受。详见 [SESSION.md](./SESSION.md)。

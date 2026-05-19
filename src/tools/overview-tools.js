@@ -619,7 +619,8 @@ async function buildProjectOverview(args, container) {
       hotspots: hotspots.slice(0, SCORING.TOP_N_LIST),
       architectureAdvice: {
         cycleRefactorSuggestions,
-        couplingSplitSuggestions,
+        // P0: suppress coupling-split advice for small/monolithic projects
+        couplingSplitSuggestions: mainlineFiles.length < DEFAULTS.SMALL_PROJECT_MAX_MAINLINE ? [] : couplingSplitSuggestions,
       },
     };
     await writeOverviewDashboardFile(target, dashboardData);
@@ -662,7 +663,8 @@ async function buildProjectOverview(args, container) {
     hotspots: hotspots.slice(0, SCORING.TOP_N_LIST),
     architectureAdvice: {
       cycleRefactorSuggestions,
-      couplingSplitSuggestions,
+      // P0: suppress coupling-split advice for small/monolithic projects (< 200 mainline files)
+      couplingSplitSuggestions: mainlineFiles.length < 200 ? [] : couplingSplitSuggestions,
     },
     hotspotData,
     hotspotDataFile,

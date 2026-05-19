@@ -5,7 +5,7 @@
 const path = require('path');
 const { findWorkspaceRoot, detectWorkspace, toRelativePosix, pathExists } = require('../utils/path');
 const { runCommandSecure, runNpx, runPythonModule, trimOutput, resolvePythonCommand } = require('../utils/command');
-const { TIMEOUTS } = require('../config/constants');
+const { TIMEOUTS, PROBE } = require('../config/constants');
 const { parseDiagnosticsFromText, uniqueDiagnostics, summarizeDiagnostics } = require('../utils/diagnostics');
 const { checkParserAvailability } = require('./health-tools');
 
@@ -22,23 +22,13 @@ function detectNodeLinters(workspace, root) {
   const pj = workspace.packageJson;
 
   // ESLint: config file or inline eslintConfig
-  const eslintConfigs = [
-    '.eslintrc.js', '.eslintrc.json', '.eslintrc.cjs',
-    '.eslintrc.yaml', '.eslintrc.yml',
-    'eslint.config.js', 'eslint.config.mjs', '.eslintrc',
-  ];
-  linters.eslint = eslintConfigs.some((f) => pathExists(path.join(root, f)));
+  linters.eslint = PROBE.ESLINT_CONFIG_FILES.some((f) => pathExists(path.join(root, f)));
   if (!linters.eslint) {
     linters.eslint = Boolean(pj.eslintConfig);
   }
 
   // Prettier: config file or dependency/script
-  const prettierConfigs = [
-    '.prettierrc', '.prettierrc.json', '.prettierrc.js',
-    '.prettierrc.cjs', '.prettierrc.yaml', '.prettierrc.yml',
-    '.prettierrc.toml', 'prettier.config.js',
-  ];
-  linters.prettier = prettierConfigs.some((f) => pathExists(path.join(root, f)));
+  linters.prettier = PROBE.PRETTIER_CONFIG_FILES.some((f) => pathExists(path.join(root, f)));
   if (!linters.prettier) {
     const deps = { ...pj.dependencies, ...pj.devDependencies };
     linters.prettier = Boolean(deps.prettier) || Boolean(pj.scripts?.format);
@@ -57,10 +47,11 @@ async function buildChecks(workspace, mode) {
   const checks = [];
   const root = workspace.root;
   let noLintersDetected = false;
+  let hasLinter = false;
   const nodeLinters = detectNodeLinters(workspace, root);
 
-  if (workspace.hasPackageJson && workspace.packageJson?.scripts) {
-    const scripts = workspace.packageJson.scripts;
+  if (workspace.hasPackageJson) {
+    const scripts = workspace.packageJson?.scripts || {};
     let hasNodeCheck = false;
 
     if (scripts.typecheck) {
@@ -70,6 +61,7 @@ async function buildChecks(workspace, mode) {
         args: ['run', '-s', 'typecheck'],
       });
       hasNodeCheck = true;
+      hasLinter = true;
     } else if (workspace.hasTsconfig) {
       checks.push({
         name: 'node:tsc',
@@ -77,6 +69,7 @@ async function buildChecks(workspace, mode) {
         args: ['tsc', '--noEmit'],
       });
       hasNodeCheck = true;
+      hasLinter = true;
     }
     if (scripts.lint) {
       checks.push({
@@ -85,6 +78,7 @@ async function buildChecks(workspace, mode) {
         args: ['run', '-s', 'lint'],
       });
       hasNodeCheck = true;
+      hasLinter = true;
     }
     if (mode === 'full' && scripts.build) {
       checks.push({
@@ -111,6 +105,7 @@ async function buildChecks(workspace, mode) {
         timeout: TIMEOUTS.DIAGNOSTICS_CHECK_MS,
       });
       hasNodeCheck = true;
+      hasLinter = true;
     }
 
     }
@@ -126,6 +121,7 @@ async function buildChecks(workspace, mode) {
         args: ['manage.py', 'check'],
       });
       hasFocusedPythonCheck = true;
+      hasLinter = true;
     }
 
     // Check for ruff availability
@@ -138,6 +134,7 @@ async function buildChecks(workspace, mode) {
         timeout: TIMEOUTS.DIAGNOSTICS_CHECK_MS,
       });
       hasFocusedPythonCheck = true;
+      hasLinter = true;
     }
 
     // Check for pyright availability
@@ -150,6 +147,7 @@ async function buildChecks(workspace, mode) {
         timeout: TIMEOUTS.DIAGNOSTICS_LONG_MS,
       });
       hasFocusedPythonCheck = true;
+      hasLinter = true;
     }
 
     if (!hasFocusedPythonCheck || mode === 'full') {
@@ -181,9 +179,8 @@ async function buildChecks(workspace, mode) {
     });
   }
 
-  // No-linters detection: if the only check we produced is git-status, nothing can analyse code.
-  const hasCodeChecker = checks.some((c) => c.name !== 'workspace:git-status');
-  if (!hasCodeChecker) {
+  // No-linters detection: true only when no actual linter or type-checker was found.
+  if (!hasLinter) {
     noLintersDetected = true;
   }
 
@@ -290,8 +287,11 @@ async function runDiagnostics(args, container) {
   if (container?.cache) {
     const cached = container.cache.getWorkspaceInfo();
     if (cached) {
-      const allDiagnostics = container.cache.getAllDiagnostics?.() || [];
-      if (allDiagnostics.length > 0) {
+      const hasEntries = typeof container.cache.hasDiagnosticEntries === 'function'
+        ? container.cache.hasDiagnosticEntries()
+        : (container.cache.getAllDiagnostics?.() || []).length > 0;
+      if (hasEntries) {
+        const allDiagnostics = container.cache.getAllDiagnostics?.() || [];
         return {
           ok: true,
           workspaceRoot: container.workspaceRoot,

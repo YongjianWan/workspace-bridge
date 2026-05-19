@@ -5,6 +5,8 @@
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const crypto = require('crypto');
 const assert = require('assert');
 const { runCli, cleanupTempDir } = require('./test-helpers');
 
@@ -12,7 +14,7 @@ function main() {
 
 
   // 创建临时测试文件
-  const testDir = path.join(__dirname, '..', 'fixture-temp');
+  const testDir = path.join(os.tmpdir(), 'wb-test-analysis-' + crypto.randomBytes(4).toString('hex'));
   const testFile = path.join(testDir, 'test-module.js');
   const testUnusedFile = path.join(testDir, 'unused-module.js');
   const partialExportsFile = path.join(testDir, 'partial-exports.js');

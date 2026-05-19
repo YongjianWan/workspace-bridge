@@ -33,7 +33,7 @@
 **定位**：AI 的代码脚手架（Code Scaffolding for AI），不是人的报告工具。
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
-- **当前债务**：L1/L2/产品债务已清零；剩余 3 个 L3 品味问题（见 [TECH_DEBT.md](./docs/TECH_DEBT.md)）
+- **当前债务**：L1/产品债务已清零；L2 债务已清零；L3 品味问题 3 项（见 [TECH_DEBT.md](./docs/TECH_DEBT.md)）
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
@@ -264,4 +264,4 @@ THEN 修改前必须跑：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-19（P0 `--exclude` Windows 反斜杠兼容 + Cache schema 自描述化 + dep-tools 拆分 + 预热按需化 + 测试 runner 分层；129/129 测试通过；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-19（diagnostics linter 检测矛盾修复 + P0 去噪工程完成 + 裸数字归零 + 发现归档；131/131 测试通过；schemaVersion: 1.2.0）*

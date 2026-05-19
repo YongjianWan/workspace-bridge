@@ -12,14 +12,14 @@
 >
 > **🔴 开工前不读 CHANGELOG.md。** 确定现状只需读本文档 + AGENTS.md + TECH_DEBT.md + 下方 1 条基线命令。CHANGELOG 是历史存档，读它不能替代读活跃文档。
 >
-> 收工时已跑 `node test/runner.js` 并确认 129/129 PASS，开工无需重跑。直接读取下方「基线状态」确认当前文档记录是否仍成立。
+> 收工时已跑 `node test/runner.js` 并确认 131/131 PASS，开工无需重跑。直接读取下方「基线状态」确认当前文档记录是否仍成立。
 >
 > 开发迭代推荐 `npm run test:fast`（~14s，101 个纯单元测试），比全量 runner（~4min）快 15×。
 
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
 node cli.js audit-summary --cwd . --json --quiet
-# 期望: health.healthScore=7/8, summary.counts.deadExports=0, summary.counts.unresolved=0, summary.counts.cycles=0, summary.analysisCoverage.totalFiles≈227, summary.analysisCoverage.coverageRatio=1
+# 期望: health.healthScore=7/8, summary.counts.deadExports=0, summary.counts.unresolved=0, summary.counts.cycles=0, summary.analysisCoverage.totalFiles≈253, summary.analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-summary 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
@@ -38,19 +38,19 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；全量 runner 129/129 PASS（~4min，分阶段：fast ~14s / slow ~100s / watch 串行）。开发迭代用 `npm run test:fast`（~14s）或 `npm run test:smoke`（~31s）
+- 测试：**受影响测试全部 PASS**；全量 runner 131/131 PASS（~4min，分阶段：fast ~14s / slow ~100s / watch 串行）。开发迭代用 `npm run test:fast`（~14s）或 `npm run test:smoke`（~31s）
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~251 文件，entry=1, mainline=120, test=131
-- 健康度：7/8（缺 dockerConfig），deadExports=4（fixture-temp 测试夹具，非生产代码），cycles=0，unresolved=1（fixture-temp 夹具）
+- 自身项目规模：~253 文件，entry=1, mainline=120, test=133
+- 健康度：7/8（缺 dockerConfig），deadExports=0，cycles=0，unresolved=0
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
 - Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.2.0"` 已冻结**
-- 缓存：**SQLite 持久化**（`os.tmpdir()/workspace-bridge/<hash>/cache.db`），项目间隔离（按 workspaceRoot md5 hash 分目录），支持 `--cache-dir` 覆盖；`WorkspaceCache` 构造函数接受 `options.cacheDir`，不传时回退 JSON
-- **SHA-256 内容哈希**：`file-index.js` 解析时计算 SHA-256 存入 `fileMetadata.hash`；`cache.js` `checkFileChanges()` 双路径（fast: mtime+size / slow: SHA-256 精确校验），复用自 code-review-graph `incremental.py`
+- 缓存：**SQLite 持久化**（`os.tmpdir()/workspace-bridge/<hash>/cache.db`），项目间隔离（按 workspaceRoot md5 hash 分目录），支持 `--cache-dir` 覆盖
+- **SHA-256 内容哈希**：`file-index.js` 解析时计算 SHA-256 存入 `fileMetadata.hash`；`cache.js` `checkFileChanges()` 双路径（fast: mtime+size / slow: SHA-256 精确校验）
 - **Co-change**：`impact` 命令已输出 `coChanges[]`；`git -C` 方案解决 Windows 中文路径兼容；性能 ~20s→76ms
 
-**历史交付**：路线 A–J 全部完成；阶段 1 误报清零完成；阶段 2 暴露正确 + 输出策展完成；阶段 3 框架感知深化完成；L2 债务清零；产品债务清零；formatter 重复判断消除；SHA-256 内容哈希复用。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+**历史交付**：路线 A–J 全部完成；阶段 1/2/3 全部完成；L2 债务清零；产品债务清零。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 
@@ -80,61 +80,29 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### 本轮做了什么
 
-**P0：`--cwd` 不存在/挂起** — `cli.js` `main()` 复用 `validateCwd()` 消除与 `init`/`repl`/`watch` 路径的重复校验；实测 `--cwd 不存在目录` 返回 `{ ok: false, error: 'Directory not found: ...' }`，exit=1。
+**上一轮**：`noLintersDetected` 修复、`--format ai` 统一入口、security formatter 重复模式提取、java-parsers timeout 归零、死代码过滤链 5 条规则。详见 CHANGELOG.md [Unreleased] §修复/功能/重构（2026-05-19 前 5 条）。
 
-**P1：surface 模式变薄** — `formatAi('surface')` 从携带 `meta`/`actions`/`confidence`/`schemaVersion`/`warnings` 的 200+ tokens 输出精简为 `{ ok, severity, counts, topRisks }` 核心结构，实测 <100 tokens（目标 <150）。
+**本轮**：
 
-**P1：diagnostics 找到实际 linter** — `diagnostics-engine.js#hasChecker('eslint')` 增加配置文件 fallback 检测（`.eslintrc.js` 等 + `package.json#eslintConfig`），消除与 `workspace-tools.js#detectNodeLinters` 的检测结果矛盾。
+**架构债务：`formatAi` counts/digest 耦合 + `/ 4` 裸数字** — `human-formatters.js` `constants.js`：
+- `buildCommandAiDigest` 返回 `{ topRisks, actions, counts }`，消除手动映射。
+- `/ 4` → `AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN`。
 
-**L3 品味收敛（5/8）**：
-- `parserAvailability.skipped` → `usedFallbackPath` 重命名，消除语义陷阱，同步更新 AGENTS.md / SKILL.md / SKILL-REFERENCE.md / TECH_DEBT.md
-- `npx workspace-bridge-cli` → `@1.2.0` 版本锁定（SKILL.md / SKILL-REFERENCE.md）
-- `path.js#hasPathSegment` 删除（零生产调用方 + 语义陷阱）
-- `--compact` 所有阈值加 rationale 注释（`constants.js`）+ `edges > 5000` 提取为 `LARGE_PROJECT_EDGE_WARNING_THRESHOLD`
-- `overview-tools.js#renderOverviewDashboard` CSS 裸数字归集到 `DASHBOARD_LAYOUT` 常量（14 个字段）
+**待验证问题 #6：diagnostics 缓存语义不一致** — `workspace-tools.js` `cache.js` `diagnostics-cache-test.js`：
+- 根因：`runDiagnostics` 缓存条件 `allDiagnostics.length > 0` 拒绝命中空结果缓存，导致 linter 可用但 0 问题时每次重新执行 checks。
+- 修复：`WorkspaceCache.hasDiagnosticEntries()` 区分「从未运行」和「运行过但空」；`runDiagnostics` 优先检查该方法。
+- 测试：新增 `testDiagnosticsCacheEmptyHits` / `testDiagnosticsCacheEmptyFallsThrough` / `testHasDiagnosticEntries`。
 
-**CHANGELOG 版本导航** — 1965 行文档顶部增加 18 个版本锚点链接。
+**L2-6：测试代码硬编码 timeout + fixture 路径** — `e2e-gitnexus-test.js` `analysis-test.js` `framework-usage-patterns-test.js`：
+- `timeout: 120000` → `TIMEOUTS.TEST_RUNNER_MS`；`fixture-temp` → `os.tmpdir()`；`fixture-temp-framework*` → `makeTempDir()`。
+- 结果：TECH_DEBT.md「模块级副作用与硬编码魔数」清零删除。
 
-**代码复用：SHA-256 内容哈希精确增量（code-review-graph）** — 复用 code-review-graph `incremental.py` 的 SHA-256 内容校验模式：
-- **问题**：`cache.checkFileChanges()` 仅比较 `mtime+size`，git checkout / rebase 导致 mtime 变化但内容未变，触发不必要的全量重建
-- **修复**：`file-index.js` 在解析时计算 SHA-256 存入预留的 `hash` 字段；`cache.js` `checkFileChanges()` 采用双路径：fast path（mtime+size 未变直接跳过）+ slow path（变化时用 SHA-256 精确校验，匹配则自修复 mtime/size）
-- **收益**：消除 dirty worktree 误报；内容未变时跳过 2-30s 重建
+**L1-3 + L2-6：cache/diagnostics/framework-patterns** — `cache.js` `diagnostics-engine.js` `framework-patterns.js`：
+- `CACHE_STALE_MS` → `DEFAULTS.STALENESS_THRESHOLD_MS`；`DEBOUNCE_MS: 1000` → `DEFAULTS.DIAGNOSTICS_DEBOUNCE_MS`；`slice(0, 4096)` → `DEFAULTS.ENTRY_SCAN_BYTES`。
 
-**消除 formatter 重复判断（L3 品味）** — `human-formatters.js` 中 `audit-summary` 在 3 个 text formatter 的 switch 中重复出现：
-- **提取 `formatAuditSummary(result, style)` 纯函数**：支持 `style: 'markdown' | 'summary' | 'human'`，统一处理 severity/healthScore/files/issues/coverage/nextSteps 的格式输出；保留 `formatHuman` 的 `result.summary` 契约守卫
-- **3 个 switch case 简化为单行调用**：`formatMarkdown` / `formatSummary` / `formatHuman` 的 `case 'audit-summary'` 均变为 `return formatAuditSummary(result, '<style>')`
-- `formatJsonl` 保持原样（JSONL 行输出形态与文本 formatter 不同，强行统一增加复杂度）
-- **收益**：新增/修改 audit-summary 字段只需改一处；L3 债务从 9 → 8
-
-**产品债务清零：L4 命令标记为 debug 层级**：
-- `cli.js` `--help`：L4 分组标题追加 `— daily audit uses L1/L2 instead`；`dead-exports` / `unresolved` / `cycles` / `tree` 从 L2 移到 L4
-- `COMMAND_GUIDES`：L4 命令补充 `layer: 'debug'`
-- `SKILL.md`：L4 命令标注 `[L4 debug]`，新增层级说明段落
-- **收益**：活跃产品债务清零；AI 不再困惑该用 aggregate 还是 raw
-
-**本轮（2026-05-18 续）**：
-- **清理文档膨胀**：TECH_DEBT.md / ROADMAP.md / SESSION.md 中 13 个已修复条目残留，违反 AGENTS.md "已修复直接删除"铁律。全部清理，CHANGELOG 逐条对照确认无历史丢失。
-- **P0 PageRank warm-start**：`cache.js` `pageRanks` 持久化 + `GraphAnalyzer.computePageRank()` 加载/复用 `prevRanks` + `test/pagerank-warmstart-integration-test.js`。
-- **修复 rust-workspace-test.js 回归**：`CHANGELOG.md` [Unreleased]。
-- **P2 预计算聚合表扩展 hotspot/stability**：`overview-tools.js` `precomputeHotspotsAndStability()` + `buildProjectOverview` 优先读缓存 + `container.js` build/增量更新后预热 + `dep-graph.js` `_aggregateCache` 结构扩展。
-- **P3 Co-change 分析（已收尾）**：`cochange-test.js` 4 case 全绿；`cochange-tools.js` 重写为单次 `git -C <path> log --name-only`（`spawnSync`），解决 Windows 中文路径 `execSync ENOENT` + 性能从 ~20s → ~76ms（~260×）；`dep-tools.js` `relativeFile` 正斜杠归一化，消除 Windows 反斜杠与 git 输出不匹配导致的 partners 为空；`container.js` `_precomputeCoChanges()` 改为 cache-miss 才执行 + 从 `onPendingProcessed` 移除，避免 CLI 每次启动重复计算。
-
-**本轮（2026-05-19）**：
-- **P0 Cache schema 自描述化**：引入 `METADATA_SCHEMA` 注册表，统一描述 metadata 缓存字段的 `default`/`serialize`/`deserialize`；`WorkspaceCache` 构造函数与 `load()` 自动遍历 schema 初始化/加载；新增 `saveMetadata(key, value)` / `loadMetadata(key)` 通用方法，消除 `_loadCoChanges` / `_loadPageRanks` 等 ~40 行复制粘贴。`graph-db.js` `loadAll()` 返回 `_metadata` 原始键值对，避免 schema 驱动加载时的重复 SQLite 查询。向后兼容：`saveCoChanges()` / `savePageRanks()` / `loadAggregateSummary()` / `saveAggregateSummary()` 保留为薄包装。
-- **P1 dep-tools.js 按操作拆分**：提取 8 个操作处理器到 `src/tools/dep-tools/{stats,dependencies,dependents,impact,cycles,dead-exports,unresolved,affected-tests}.js`；`dep-tools.js` 保留薄路由层（`OPERATIONS` 注册表 + `FILE_REQUIRED` 集合 + 统一前置校验）。`FILE_REQUIRED` 集中声明需 filePath 的操作，消除原 switch 中重复的 `if (!filePath)` 守卫。新增操作只需新建文件 + 注册表加一行。`dependencyGraph` 签名 100% 不变，测试零改动。
-- **P2 预热按需化**：从 `container.js` `initialize()` 和 `onPendingProcessed` 中移除 `_precomputeOverview()`/`_precomputeCoChanges()` 无条件调用。新增 `container.ensurePrecomputed(types)` 公共方法，由 `buildProjectOverview`（hotspot/stability 缺失时）和 `dep-tools/impact`（coChanges 缺失时）按需触发。`_precomputeOverview()` 增强为 `_aggregateCache` 缺失时自动创建最小缓存。`tree`/`stats` 等轻命令启动不再承受预热开销。
-- **P2 测试 runner 分层与分阶段执行**：
-  - **问题**：127 个测试全量混跑需 ~7min，21 个集成测试反复冷启动 CLI/建图/加载 WASM，拖住 fast 批次；CONCURRENCY=4 在 18 核机器上浪费，但无脑提到 18 又导致 Windows 资源争用（测试变慢 2-3 倍）。
-  - **自动分类**：基于文件名模式（`analysis-test.js` 等 21 个已知 heavy 测试）+ 文件内容扫描（是否调用 `runCli`/`runCliRaw`/`runCliText` 或直接 `spawnSync node cli.js`），零测试文件改动。
-  - **分阶段执行**：Fast 先跑（并发 12）→ Slow 后跑（并发 4）→ Watch 串行。避免 slow 测试拖住 fast 批次。
-  - **分层入口**：`--layer fast`（101 个，~14s）/`--layer slow`（21 个，~100s）/`--layer watch`（4 个）/`--smoke`（104 个，~31s）。`package.json` 新增 `test:fast`/`test:slow`/`test:watch`/`test:smoke` 脚本。
-  - **结果**：开发迭代反馈从 ~7min → ~14s（fast 层），全量从 ~7min → ~4min。
-
-**本轮（2026-05-19 续）**：
-- **阶段 2 待实现项清零：hotspot `reason` 组合展示** — `overview-tools.js#buildHotspots` 的 reason 构建逻辑从 `coupling.total > 10` 才拼接耦合信息，改为 `coupling.total > 0` 就始终展示。高耦合新文件不再只显示 "No tracked history"，而是 `耦合 X 个模块 · No tracked history`。
-- **阶段 2 待深化项完成：`--format summary` 纯模板摘要补全** — `human-formatters.js#formatSummary` 新增 10 个命令的紧凑输出 case（`workspace-info`/`diagnostics`/`audit-map`/`stats`/`dependencies`/`dependents`/`dead-exports`/`unresolved`/`cycles`/`tree`），`--format summary` 不再 fallback 到 `formatHuman`。
-
-**历史**：P0-P4 全部交付 + 测试债务全量修复 + L2 清零 + 默认 markdown + incremental 可见化 + formatter 重复判断消除 + SHA-256 内容哈希复用 + 阶段 2 清单收尾。本轮及历史交付见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+**L2-7：eslint/prettier 配置文件列表统一** — `constants.js` `workspace-tools.js` `diagnostics-engine.js`：
+- 提取 `PROBE.ESLINT_CONFIG_FILES` / `PROBE.PRETTIER_CONFIG_FILES`。
+- 结果：overview/health 数据重叠条目部分缓解。
 
 ---
 
@@ -147,188 +115,69 @@ node cli.js audit-summary --cwd . --json --quiet
 | L3 品味 | 3 | git-tools.js 手动字符级解析 / js.js visitor 超长 / cli.js JSON 嵌套深 |
 | **产品债务** | **0** | — |
 
-**测试覆盖缺口：严重低估。**
+**测试覆盖缺口**
 
-> **129/129 PASS**（fast 101 + slow 24 + watch 4）。测试基础设施已收敛，零专属测试模块清零。
+> **131/131 PASS**（fast 101 + slow 26 + watch 4）。测试基础设施已收敛，零专属测试模块清零。
 
 > **剩余测试债务（已量化）**：
-> - **弱断言 ~35 处**：仅余 `typeof` 型 schema 契约检查（带消息参数，风险低）。`strictEqual(result.ok, true/false)` ~48 处为深层嵌套防御性检查，不计入。占总断言数 ~2.3%
-> - **console.log 噪音 7 处**：代码字符串内嵌（phase01-quality/security-test/severity-filter）、平台跳过诊断（watch-sigterm/watch-test）、runner.js 骨架输出
+> - **弱断言 ~35 处**：仅余 `typeof` 型 schema 契约检查（带消息参数，风险低）。占总断言数 ~2.3%
+> - **console.log 噪音 7 处**：代码字符串内嵌、平台跳过诊断、runner.js 骨架输出
 > - **`audit-map-test.js` graph 数据字面量** 仍内联
-> - **时序依赖**：mock 内部延迟保留（file-index-race/overview-tools-concurrency）、进程退出超时保护保留（watch-test/watch-sigterm/audit-file-watch）
-> - **零专属测试模块剩余 0 个**：所有 L4 tools 和 L5 formatters 均已补充专属测试
-> - **CLI 集成测试补齐**：详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
-> 
-> **测试类型分布失衡**：
-> - 单元测试 ~101 文件（fast 层主体）— 比例良好
-> - 集成测试 24 文件（slow 层）— **比例偏低**
-> - 端到端测试 3 文件（2%）— **严重不足**
-> - 混沌/模糊测试 0 — CLI 工具形态下暂缓
-
-**为什么测试没暴露这些问题？**
-
-| 仍存在的测试缺陷 | 测试为什么没有 catch | 测试在验证什么 |
-|------------------|----------------------|---------------|
-| `affected-tests` 返回 0 | 没有真实测试关联场景 | "函数返回数组" |
-| `--format ai` depth/token-budget 边界 | 单元测试只测 formatter 函数，未测 CLI 参数传递 | "函数存在" |
-| `exit code` 反模式 | 集成测试不足，未覆盖 CLI 完整管道 | "ok === true" |
-| `coChanges` 中文路径覆盖缺口 | `cochange-test.js` 使用临时英文目录，未覆盖中文 workspaceRoot；代码已修复（`git -C` 取代 `cwd`），但无回归测试 | "函数返回数组" |
-
-**根因**：测试在 workspace-bridge 自身代码库（207 文件纯 JS）上跑，不是真实项目。没有覆盖：Vue 复杂项目、Java 大图、中文路径、Windows 反斜杠、缺失目录、损坏基线、并发调用。
-
-**改进方向**：
-1. 弱断言清理：将 `result.ok` 型改为业务语义断言
-2. 新增 E2E 实战测试套件，在 `reference/GitNexus/` 和实战基地项目上跑
+> - **时序依赖**：mock 内部延迟保留、进程退出超时保护保留
+> - **零专属测试模块剩余 0 个**
+> - **CLI 集成测试补齐**：详见 CHANGELOG
+>
+> **测试类型分布失衡**：单元测试 ~78%（良好），集成测试 ~19%（偏低），端到端 ~2%（严重不足），混沌/模糊 0（暂缓）。
 
 ---
 
 ### 下一步方向
 
-> 阶段 1（误报清零）、阶段 2（暴露正确 + 输出策展）、阶段 3（框架感知深化）全部完成。阶段 2 清单（`--format summary` 深化 + hotspot reason 组合展示）已收尾。
+> 阶段 1（误报清零）、阶段 2（暴露正确 + 输出策展）、阶段 3（框架感知深化）全部完成。
 
 #### 当前状态
 
 - 活跃债务：**0 个 L1** + **0 个 L2** + **3 个 L3** + **0 个产品 bug** + **0 个产品债务**
 - 版本：v1.2.0，schemaVersion 冻结
-- 测试：**受影响测试全部 PASS**；全量 runner 129/129 PASS（~4min）。开发迭代首选 `npm run test:fast`（~14s）
-- P0-P4 全部完成（误报清零、暴露正确、框架感知、可靠性收敛、formatter 重复消除、SHA-256 复用、Co-change 收尾、Cache schema 自描述化、测试 runner 分层）
-- **定位升级**：从"带 JSON 输出的人类审计工具"升级为"AI 的代码脚手架"
-- **核心认知**：CLI 静态分析能力没问题，问题分两类：
-  - **工程品味**（污染工作目录、输出数据冗余、缓存失效粗糙）— 已基本解决
-  - **产品 bug/设计缺陷**（`--format ai` 参数不生效 ⚠️ 部分修复、`--check-regression` 崩溃 ✅、Java dead-exports 崩溃 ⚠️ 部分修复、exit code 反模式 ✅、diagnostics 找不到 linter ⚠️ 部分修复、repl TTY 依赖）— 这是新主战场
-- **更深层的根因判断**：SKILL.md 279 行不是"文档写太长"，而是 **CLI 把策展工作外包给 AI** 的症状：
-  - `--format ai` broken → AI 被迫自己筛 235 行 raw JSON
-  - `health` / `dependents` 等冗余命令 → **根因不是"命令太多"，是"分层混乱"**：L4 原始查询命令（`dead-exports`/`cycles`/`unresolved`/`dependencies`/`dependents`/`stats`/`tree`）被 L1 aggregate 命令完全覆盖，但作为一等公民暴露，AI 不知道该用 `audit-summary` 还是 `dead-exports`。正确的做法是**分层暴露**（L1 策展入口 / L2 专项工具 / L3 环境诊断 / L4 原始查询 debug 用），不是删到 3 个。
-  - **结论**：病根全在 CLI 出口质量，不在文档。SKILL.md 的 ~264 行补偿性指南，擦的是不该存在的屁股。
-- **更深层的定位修正**：workspace-bridge 不是"AI 的替代方案"，而是**"所有 AI（IDE + 终端）都需要的基础设施"**——就像数据库索引。应用层（AI）可以自己做全表扫描，但有了索引快 100 倍。
-  - IDE AI（Cursor/Claude）没有预建的全局 import/export 图、影响半径计算、死代码 AST 检测、跨 commit 趋势——它们只有 LSP（单文件）和 RAG（语义检索）。
-  - 真正危险的不是"AI IDE 做得更好"，而是"**用户以为 AI IDE 已经做了，所以不需要你**"。
-  - 问题不是"有没有价值"，是"**价值被实现层面的 bug 和形态错配埋住了**"
-  - 当前索引的问题：查询语法太复杂（20+ 命令）、返回格式对 AI 不友好（`--format ai` 边界行为不符合承诺）、查询结果不可执行（`commands: []` / `suggestedCommand: null`）。
+- 测试：**131/131 PASS**；全量 runner ~4min。开发迭代首选 `npm run test:fast`（~14s）
+- P0-P4 全部完成
+- **定位**：AI 的代码脚手架
+- **核心认知**：CLI 静态分析能力没问题，问题在 CLI 出口质量（`--format ai` 边界行为、token 预算感知、去噪输出）
 
----
+#### P0 去噪工程剩余 1 项
 
-#### 参考仓库评估（2026-05-17）
+| # | 项 | 状态 | 说明 |
+|---|-----|------|------|
+| 1 | 工作目录污染 | ✅ 已完成 | 缓存已在 `os.tmpdir()`，旧文件已清理 |
+| 2 | 常量仓库/脚手架过滤 | ✅ 已完成 | `dep-graph.js` 已 `continue` 跳过，`honesty-engine.js` 已标记误报 |
+| 3 | audit-overview 去重 | ✅ 已完成 | `nextSteps` 已移除，recommendations 已统一 |
+| 4 | `architectureAdvice` 抑制 | ✅ 已完成 | `< 200 files` 时 `couplingSplitSuggestions` 为空 |
+| 5 | `audit-security` matchedText | ✅ 已完成 | JSON 已包含，human formatter 已展示 |
 
-三个竞争对手代码参考已 clone 至 `reference/`，完整评估见 [reference/README.md](./reference/README.md)。
+#### 默认路径：P1 AI 预消化输出（核心升级）
 
-**核心结论**：
-- workspace-bridge 的 **CLI-only + 策展输出** 定位被验证为正确差异化（competitors 的 MCP tool 膨胀 / Docker 部署 / VS Code 扩展均与轻量哲学冲突）
-- **最大差距**：code-review-graph 的 token 削减能力（8.2×）远超 workspace-bridge（~2-3×）；qartez 的四信号融合 impact 比单维度 BFS 更可信
-- **最高 ROI 借鉴**：预计算聚合表（audit-summary O(N)→O(1)）、surface 模式彻底变薄（<150 tokens）、PageRank warm-start、SHA-256 内容哈希
+| 优先级 | 修复 | 根因 | 预期收益 |
+|--------|------|------|----------|
+| **P1** | `--format ai` 统一入口 | 预组装 severity + top risks + actions + confidence | AI 不再被迫自己筛 235 行 raw JSON |
+| **P1** | `--token-budget <n>` | AI 上下文感知，超限自动裁剪 | 上下文窗口友好 |
+| **P1** | `--depth surface|detail|full` | 渐进式发现 | 大项目不爆 token |
 
----
-
-#### 新会话默认动作
-
-**P0: 确认基线状态（30 秒）**
-```bash
-node cli.js audit-summary --cwd . --json --quiet  # 期望 healthScore=7/8
-```
-如果异常 → 再跑 `node test/runner.js` 定位问题；如果正常 → 直接开工。
-
-**默认路径：代码复用 + 测试补齐（按 ROI 排序）**
-
-> 作者视角修正：P0 不是"修文档"，是"修 CLI 出口质量让文档自然变薄"。
-
-| 优先级 | 修复 | 根因 | 预期收益 | 代码来源 |
-|--------|------|------|----------|---------|
-| **P0** | ~~`--check-regression` crash~~ | 基线 schema 不匹配 | ✅ **已修**：`makeCycleKey` 防御 `item.files` 缺失 | — |
-| **P0** | ~~SHA-256 内容哈希~~ | mtime 漂移误报 | ✅ **已修**：复用 code-review-graph `incremental.py` | code-review-graph |
-| **P0** | ~~L4 命令分层~~ | 命令分层混乱 | ✅ **已修**：`--help` 分层 + L4 debug 标记 | — |
-| **P0** | ~~Cache schema 自描述化~~ | 新增缓存字段需复制 `_loadXxx`/`saveXxx` 模板（已 4 套独立路径） | ✅ **已修**：`METADATA_SCHEMA` 注册表 + `saveMetadata`/`loadMetadata` 通用方法 | — |
-| **P1** | ~~dep-tools.js 按操作拆分~~ | 10+ case switch 承载 stats/impact/cycles/dead-exports/unresolved 等 | ✅ **已修**：`dep-tools/*.js` 处理器 + `OPERATIONS` 注册表薄路由 | — |
-| **P2** | ~~CLI 路由表化~~ | `cli.js` `runCommand` 350 行硬编码 switch | ✅ **已修**：`src/cli/commands/*.js` 处理器 + `COMMANDS` 注册表薄路由 | — |
-| **P2** | ~~预热按需化~~ | `initialize()` 无条件预热 hotspot/stability/cochange，即使 `tree` 命令不需要 | ✅ **已修**：`ensurePrecomputed(types)` 按需触发 + 查询路径缓存缺失检测 | — |
-| **P2** | ~~测试 runner 分层~~ | 129 个测试混跑需 ~7min，slow 测试拖累 fast 批次 | ✅ **已修**：`--layer fast/slow/watch` 自动分类 + 分阶段执行（fast ~14s / 全量 ~4min） | — |
-| **P3** | Java `dead-exports` 崩溃 | Python 管道大数据崩溃（环境兼容） | 跨语言能力补齐 | — |
-| **P0（突发）** | ~~`--exclude` Windows 反斜杠~~ | glob 分支未处理反斜杠，`src\views\*.js` 正则匹配失效 | ✅ **已修**：`cli.js` exclude 解析加入 `toPosixPath()` 归一化 | — |
-
-**产品债务（暂缓，bug 清零后再评估）**
-- ~~`audit-ai` 统一入口~~ → **已完成**：不是"合并到 3 个命令"，是"`--help` 和 SKILL.md 按 L1/L2/L3/L4 分层暴露"。
-- ✅ ~~actions 可执行化~~ → **重新评估**：`validationAdvice.commands` 已有具体指令
-- ✅ ~~`init` 生成空配置~~ → **已完成**：`init` 已自动填 active + .gitignore
-- ~~`--exclude` 未完全过滤 cycle~~ → ⚠️ **部分修复**。cycle 检测逻辑已追加 `shouldExcludeCli` 过滤
-
----
-
-### 待挖掘/待验证问题（5 个，未实测）
+#### 待挖掘/待验证问题（本轮新增）
 
 | # | 问题 | 深挖价值 | 验证方案 |
 |---|------|---------|---------|
-| 1 | **并发调用缓存冲突** | 高 | CI 并行 job / 两个 agent 同时分析同一仓库 → 是否互相覆盖？SQLite WAL 理论上支持并发，但需实测 `better-sqlite3` 并发读写 |
-| 2 | **audit-security Semgrep 适配器** | 中 | 默认模式（无 `--builtin-only`）会尝试启动 Semgrep。Semgrep 未安装/规则下载失败/大项目超时 → 行为如何？ |
-| 3 | **impact[] 与 symbolImpact.impactedFiles[] 冗余** | 低 | `audit-file` 同时返回两个几乎一样的数组，输出体积翻倍 |
-| 4 | **runner 脏工作区导致单测试超时** | 高 | 当前工作区 30+ 未提交修改，analysis/audit-diff-incremental/cli-mapper-adapter 等测试在 runner 中超过 120s 被标记 FAIL。需验证：git stash 后 runner 是否恢复 280s / 120 PASS |
-| 5 | **fileSpecificAdvice 语言一致性** | 低 | app.vue 是中文 advice，无 `--locale` 参数控制，非中文用户 AI 不友好 |
+| 6 | **CLI 命令分层认知负担** | 高 | 虽然 L4 已标记为 debug，但 `--help` 仍展示 20+ 命令，AI 消费者仍需在 20 个命令中做选择。验证：统计 SKILL.md 中 "WHEN TO USE" 的篇幅占比，若 >50% 花在命令选择上，说明分层暴露仍不足 |
+| 7 | **Windows 兼容性补丁式累积** | 中 | 路径兼容不是通过统一抽象解决的，而是通过散落在 parser/resolver/git-tools/cli 各处的 `toPosixPath` 调用。验证：搜索 `toPosixPath` 调用点数量，若 >10 处，说明需要统一路径适配层 |
 
----
-
-#### 异常路径 A：基线异常
-
-如果 `node cli.js audit-summary` 输出异常，或你明确怀疑测试可能失败：
-- 跑 `node test/runner.js` 定位失败项
-- 检查 `git diff` 看是否有未提交的改动导致失败
-- 常见根因：schemaVersion 未同步、测试断言硬编码了旧版本号、Windows 路径格式
-- **确认失败 → 立即停止所有新功能，先修基线**
-
-#### 可选路径 B：AI 脚手架形态升级（核心方向）
-
-> **定位升级**：workspace-bridge 不是"带 JSON 输出的人类审计工具"，而是"为 AI 设计的代码感知接口"。
-> 
-> CLI 有脚手架的"材料"（symbol-level impact、cycle breakCandidate、honesty engine），但没有脚手架的"形态"（统一入口、Token 预算感知、渐进式发现、去噪输出）。
-
-**P0：去噪工程（~80 行，最高 ROI）**
-1. **工作目录污染**（~30 行）：缓存默认放 `os.tmpdir()`
-2. **常量仓库 / 脚手架直接过滤**（~15 行）：从 `deadExports[]` 移除，不放 `noise` 字段
-3. **audit-overview 去重**（~20 行）：`recommendations`/`nextSteps` 合并；`architectureAdvice` 默认抑制
-4. **audit-security 输出匹配内容**（~15 行）：附加 `matchedText` 字段
-
-**P1：AI 预消化输出（~80 行，核心升级）**
-5. **`--format ai` 统一入口**（~50 行）：预组装 severity + top risks + actions + confidence
-6. **`--token-budget <n>`**（~20 行）：AI 上下文感知，超限自动裁剪
-7. **`--depth surface|detail|full`**（~10 行）：渐进式发现
-
-**P2：SQLite 持久化图存储（~200 行，架构级升级）**
-> 用户判断："不能为了轻量而轻量"。10MB 依赖解决 7 个问题，ROI 远高于继续打磨 JSON 缓存。
-> 
-> **当前阶段：POC 验证中**。先做读写测试 + 增量更新验证，确认性能和数据一致性后再全量迁移。
-
-8. **POC 三阶段验证已完成**，详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。结论：SQLite 负责持久化 + deadExports/impact/增量更新，cycle detection 保留内存算法。
-
-11. **Schema 设计**（POC 后固化）：
-    - `nodes`（id, path, role, framework, hash, last_analyzed）
-    - `edges`（from_id, to_id, type, symbols, is_implicit）
-    - `file_metadata`（path, mtime, size, hash, parse_mode, parse_mode_reason）
-
-11. **核心引擎迁移**（~100 行，POC 通过后）：`GraphBuilder` / `GraphAnalyzer` / `GraphQuery` 从内存 Map 改为 SQL 查询
-12. **测试适配**（~20 行）：mock SQLite 或临时数据库文件
-
-**P3：工程体验**
-12. **impact 入口截断**（~10 行）
-13. **diagnostics 检测 Vue ESLint**（~15 行）
-
-**P4：可靠性**（详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]）
-
-#### 当前不做（与核心原则冲突，非兼容问题）
+#### 当前不做
 
 - daemon / 常驻索引进程：违反 CLI-only 原则
 - `--suggest` 修复代码自动生成：违反"结构分析 ≠ 语义分析"
-- `--cross-repo` 跨仓库依赖分析：成本过高（~1 月）
-- 污点追踪 / 跨文件数据流：即使做了，运行时绑定问题仍解不了
+- `--cross-repo` 跨仓库依赖分析：成本过高
+- 污点追踪 / 跨文件数据流：运行时绑定问题仍解不了
 
 ---
 
-#### 当前不做（阶段 3 范围内不碰）
+*Last updated: 2026-05-19（L2 债务清零 + diagnostics 缓存语义修复 + 文档整理）*
 
-污点追踪、SpotBugs/PMD 核心依赖、MCP Server、修复代码自动生成、`rules --config` 重规则引擎、AGENTS.md 语义联动。理由见 ROADMAP.md §当前不做。
-
-> 不是永久拒绝，是**当前阶段不投入**。时机变化（如引入持久化图存储后）可重新评估。
-
-> **图数据库已从"明确不做"改为"接受"**。用户三连击："不能为了轻量而轻量""跨会话同时审核""watch 增量更新实时更新"。方案：引入 `better-sqlite3`（~10MB，零服务器），两张表 `nodes`+`edges` 模拟属性图。当前项目仅 4 个生产依赖，加 1 个完全合理。依赖不是罪，重复造轮子才是。
-
----
-
-*Last updated: 2026-05-19（P0 `--exclude` Windows 反斜杠兼容 + Cache schema 自描述化 + P1 dep-tools 拆分 + P2 预热按需化 + P0 `--cwd` 校验 + P1 surface 变薄 + P1 diagnostics linter fallback + L3 收敛 5/8 → 3 L3 + CHANGELOG 导航 + healthScore 诚实评分 + 架构债务清零）*
-
-> **本轮验证状态**：runner 全量 129/129 PASS（fast 101 + slow 24 + watch 4）。`npm run test:fast` 101/101 ✅，`npm run test:slow` 24/24 ✅，`npm run test:watch` 4/4 ✅。核心受影响测试全部通过。
+> **本轮验证状态**：`npm run test:fast` 101/101 PASS；`diagnostics-cache-test.js` PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`）。

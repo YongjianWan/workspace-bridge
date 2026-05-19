@@ -123,6 +123,9 @@ const DEFAULTS = {
   // Large-project warning: when edge count exceeds this, prompt user to use --compact.
   // Rationale: 5000 edges ≈ ~300KB JSON (pretty-printed), which exceeds typical AI context budgets.
   LARGE_PROJECT_EDGE_WARNING_THRESHOLD: 5000,
+  // Small-project threshold: below this mainline file count, coupling-split advice is noise
+  // because the codebase is small enough to be mentally mapped as a single unit.
+  SMALL_PROJECT_MAX_MAINLINE: 200,
   // Function reuse hints for audit-diff
   REUSE_HINTS_MIN_SCORE: 0.5,
   REUSE_HINTS_MAX_PER_FUNCTION: 3,
@@ -134,6 +137,9 @@ const DEFAULTS = {
   STALENESS_THRESHOLD_MS: 24 * 60 * 60 * 1000,
   // Progress report batch size for large repo indexing.
   FILE_INDEX_PROGRESS_BATCH: 100,
+  // Diagnostics debounce: 1s balances responsiveness with batching.
+  // Too short = excessive re-runs; too long = stale linter feedback.
+  DIAGNOSTICS_DEBOUNCE_MS: 1000,
 };
 
 // Scoring weights for highlighted files in compact project map.
@@ -211,6 +217,22 @@ const CONFIDENCE = {
   LOW_VALUE: 0.5,
 };
 
+// Config file lists for environment probing.
+// Centralized so that linter detection logic stays consistent across
+// workspace-tools.js (static) and diagnostics-engine.js (runtime fallback).
+const PROBE = {
+  ESLINT_CONFIG_FILES: [
+    '.eslintrc.js', '.eslintrc.json', '.eslintrc.cjs',
+    '.eslintrc.yaml', '.eslintrc.yml',
+    'eslint.config.js', 'eslint.config.mjs', '.eslintrc',
+  ],
+  PRETTIER_CONFIG_FILES: [
+    '.prettierrc', '.prettierrc.json', '.prettierrc.js',
+    '.prettierrc.cjs', '.prettierrc.yaml', '.prettierrc.yml',
+    '.prettierrc.toml', 'prettier.config.js',
+  ],
+};
+
 // CLI/API schema version. Increment when JSON output structure changes.
 const SCHEMA_VERSION = '1.2.0';
 
@@ -224,6 +246,12 @@ const STREAMING = {
   JSON_WRITE_CHUNK_SIZE_BYTES: 64 * 1024,
 };
 
+// AI formatter token estimation.
+// Based on UTF-8 English text average token length; actual error up to ±30%.
+const AI_FORMAT = {
+  ESTIMATED_CHARS_PER_TOKEN: 4,
+};
+
 module.exports = {
   TIMEOUTS,
   LIMITS,
@@ -235,4 +263,6 @@ module.exports = {
   CACHE_VERSION,
   STREAMING,
   SCHEMA_VERSION,
+  AI_FORMAT,
+  PROBE,
 };

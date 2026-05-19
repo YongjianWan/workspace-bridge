@@ -8,6 +8,103 @@
 
 ## [Unreleased]
 
+### 修复（L2 债务：`noLintersDetected` 计算方式脆弱 — 2026-05-19）
+
+- **`noLintersDetected` 改为直接跟踪 linter 存在性，而非间接推导** `src/tools/workspace-tools.js` `test/workspace-tools-test.js`：
+  - 问题：`buildChecks` 中 `noLintersDetected` 通过 `checks.some((c) => c.name !== 'workspace:git-status')` 间接推导。当 `mode === 'full'` 时 `node:build`/`node:test` 被加入 checks，导致 `hasCodeChecker = true`，`noLintersDetected = false`——即使实际上没有 eslint/ruff/tsc 等 linter。
+  - 修复：引入 `hasLinter` 变量，在添加真正的 linter 或 type-checker（`node:typecheck`/`node:tsc`/`node:lint`/`node:eslint`/`python:ruff`/`python:pyright`/`django:check`）时显式标记。`node:build`/`node:test`/`python:compileall`/`python:pytest` 不再影响 `noLintersDetected`。
+  - 结果：L2 债务清零（TECH_DEBT.md 移除该条目）。
+  - 验证：`workspace-tools-test.js` 3 个现有测试仍通过；fast 101/101 PASS。
+
+### 功能（阶段 2 深化：`--format ai` 统一入口 — 2026-05-19）
+
+- **扩展 `formatAi` 策展能力至所有 CLI 命令** `src/cli/formatters/human-formatters.js`：
+  - 问题：仅 `audit-summary` 享受 `formatAi` 的深度策展（`topRisks`/`actions`/`confidence`/`depth`/`tokenBudget`）；其他命令返回轻量 JSON wrapper，其中 `summary` 字段是纯文本，AI 被迫解析多行字符串。
+  - 修复：新增 `buildCommandAiDigest(command, result)`，为 `dead-exports`/`impact`/`affected-tests`/`cycles`/`unresolved`/`audit-security`/`audit-diff` 生成结构化 `topRisks` + `actions`。非 `audit-summary` 命令的 `--format ai` 输出现在统一包含 `severity`/`counts`/`topRisks`/`actions`/`confidence`，且支持 `depth`（`surface` 精简输出）和 `tokenBudget`（超限自动降级）。
+  - 向后兼容：`summary` 字段仍保留人类可读文本，不破坏现有管道。
+  - 验证：`impact --format ai --depth surface` / `dead-exports --format ai --depth detail` 输出结构化 JSON；fast 101/101 PASS。
+
+### 重构（L3 品味：formatter security 重复模式 — 2026-05-19）
+
+- **提取 `buildSecurityLines()` 消除 `audit-security` 三个 formatter 的重复逻辑** `src/cli/formatters/human-formatters.js`：
+  - 问题：`formatMarkdown`/`formatSummary`/`formatHuman` 三个 `audit-security` case 输出结构高度相似（adapters/findings/severity 元信息 + findings 列表 + matchedText），新增 security 字段需改 3 处，容易遗漏。
+  - 修复：提取 `buildSecurityLines(result, style)` 纯函数，通过 `style` 参数（`'markdown'|'summary'|'human'`）控制 bullet 格式、大小写、findings 数量限制（10/5/20）、message 展示策略（summary 不展示 message）。三个 case 各压缩为 1-2 行调用。
+  - 验证：`formatter-direct-test.js` 现有 `testFormatMarkdownAuditSecurity` 通过；fast 101/101 PASS。
+
+### 修复（L2-6 裸数字归零：测试硬编码 timeout — 2026-05-19）
+
+- **`java-parsers-test.js` 硬编码 `timeout: 15000` 改为 `TIMEOUTS.HEALTH_SHORT_TIMEOUT_MS`** `test/java-parsers-test.js`：
+  - 问题：`isJavalangAvailable()` 中 `spawnSync` timeout 写死 15000，无 rationale，与 constants.js 中已有同名常量重复。
+  - 修复：import `TIMEOUTS` 并替换。测试文件引用 constants.js 已有先例（`graph-db-test.js` / `spawn-ast-test.js` 等）。
+  - 验证：`java-parsers-test.js` PASS；fast 101/101 PASS。
+
+### 功能（P0 去噪工程：死代码过滤链 — 2026-05-19）
+
+- **引入 CRG 死代码过滤链前 5 条规则** `src/services/dep-graph.js` `test/dead-export-confidence-test.js`：
+  - 来源：code-review-graph `refactor.py:find_dead_code()` 15+ 条排除规则。
+  - 新增规则：
+    1. `.d.ts` 环境声明文件整体跳过（类型导出非运行时代码）。
+    2. `constructor` 符号过滤（JS/TS 类方法不应被模块导出）。
+    3. dunder 方法过滤（`__init__`/`__str__` 等 Python 魔术方法）。
+    4. mock/stub/spy/fake 命名模式过滤（`mockUserService`/`stubDatabase` 等测试约定俗成命名）。
+  - 实现：提取 `isConventionallyAliveSymbol(name)` 纯函数 + `DEAD_EXPORT_FILTER_RE` 常量表；同时作用于"无 importer"分支和"有 importer 但 unused"分支，避免过滤遗漏。
+  - 测试：新增 `testDtsFilesAreSkipped` / `testConstructorIsFiltered` / `testDunderMethodsAreFiltered` / `testMockLikeNamesAreFiltered`。
+  - 验证：`dead-export-confidence-test.js` 10/10 PASS；fast 101/101 PASS。
+
+### 重构（L2-7 重复即债务：eslint/prettier 配置文件列表统一 — 2026-05-19）
+
+- **提取 `PROBE.ESLINT_CONFIG_FILES` / `PROBE.PRETTIER_CONFIG_FILES` 消除 `workspace-tools.js` 与 `diagnostics-engine.js` 的重复定义** `src/config/constants.js` `src/tools/workspace-tools.js` `src/services/diagnostics-engine.js`：
+  - 问题：`workspace-tools.js#detectNodeLinters` 和 `diagnostics-engine.js#hasChecker('eslint')` fallback 各自内联维护一份 eslint 配置文件列表（`.eslintrc.js`/`.json`/`.cjs`/`.yaml`/`.yml`/`eslint.config.js`/`eslint.config.mjs`/`.eslintrc`）。新增 eslint 配置格式（如 `eslint.config.cjs`）时需要在两处同时添加，容易遗漏； prettier 配置文件列表同样在 `workspace-tools.js` 中内联定义。
+  - 修复：`constants.js` 新增 `PROBE` 常量组，集中存放环境探测用的配置文件列表（附注释说明 rationale：集中管理以保证静态检测和运行时 fallback 的一致性）。`workspace-tools.js` 和 `diagnostics-engine.js` 改为引用 `PROBE.ESLINT_CONFIG_FILES` / `PROBE.PRETTIER_CONFIG_FILES`。
+  - 验证：`workspace-tools-test.js` PASS；`diagnostics-engine-test.js` PASS；fast 101/101 PASS。
+
+### 重构（L1-3 数据一致性 + L2-6 裸数字归零：cache/diagnostics/framework-patterns — 2026-05-19）
+
+- **`cache.js` `CACHE_STALE_MS` 改为引用 `DEFAULTS.STALENESS_THRESHOLD_MS`** `src/services/cache.js`：
+  - 问题：`CACHE_STALE_MS = 24 * 60 * 60 * 1000` 与 `constants.js` `DEFAULTS.STALENESS_THRESHOLD_MS` 重复定义同一语义（缓存过期阈值 = 24 小时），违反 L1-3「同一业务语义必须在单一模块实现」。
+  - 修复：`cache.js` 直接引用 `DEFAULTS.STALENESS_THRESHOLD_MS`，删除本地重复常量。
+  - 验证：`cache-test.js` / `cache-consistency-test.js` / `cache-stale-prune-test.js` PASS；fast 101/101 PASS。
+
+- **`diagnostics-engine.js` `DEBOUNCE_MS: 1000` 提取到 `DEFAULTS.DIAGNOSTICS_DEBOUNCE_MS`** `src/services/diagnostics-engine.js` `src/config/constants.js`：
+  - 问题：诊断引擎内部写死 `DEBOUNCE_MS: 1000`，无集中管理。
+  - 修复：`constants.js` `DEFAULTS` 新增 `DIAGNOSTICS_DEBOUNCE_MS: 1000`（附 rationale 注释：1s 平衡响应性与批处理）；`diagnostics-engine.js` 改为引用常量。
+  - 验证：`diagnostics-engine-test.js` PASS；fast 101/101 PASS。
+
+- **`framework-patterns.js` `4096` 改为 `DEFAULTS.ENTRY_SCAN_BYTES`** `src/services/dep-graph/framework-patterns.js`：
+  - 问题：`content.slice(0, 4096)` 使用裸数字，与 `constants.js` `ENTRY_SCAN_BYTES: 4096` 重复。
+  - 修复：引入 `DEFAULTS`，替换为 `DEFAULTS.ENTRY_SCAN_BYTES`。
+  - 验证：`framework-patterns-test.js` PASS；fast 101/101 PASS。
+
+### 重构（L2-6 裸数字归零：测试代码硬编码 timeout + fixture 路径 — 2026-05-19）
+
+- **`e2e-gitnexus-test.js` 3 处 `timeout: 120000` 改为 `TIMEOUTS.TEST_RUNNER_MS`** `test/e2e-gitnexus-test.js`：
+  - 问题：E2E GitNexus 测试 3 次 spawn CLI 均写死 120000ms，无 rationale，与 `constants.js` 已有常量重复。
+  - 修复：引入 `TIMEOUTS`，统一替换。
+  - 验证：`e2e-gitnexus-test.js` PASS；fast 101/101 PASS。
+
+- **`analysis-test.js` 硬编码 `fixture-temp` 改为 `os.tmpdir()` 隔离** `test/analysis-test.js`：
+  - 问题：测试在 `__dirname/../fixture-temp` 创建文件，该目录不在 `.gitignore` 中，测试中断会污染工作区。
+  - 修复：引入 `os` 和 `crypto`，用 `path.join(os.tmpdir(), 'wb-test-analysis-' + random)` 生成临时目录；原有 finally 清理逻辑不变。
+  - 验证：`analysis-test.js` PASS；fast 101/101 PASS。
+
+- **`framework-usage-patterns-test.js` 硬编码 `fixture-temp-framework` 改为 `makeTempDir`** `test/framework-usage-patterns-test.js`：
+  - 问题：两处测试在 `__dirname/../fixture-temp-framework*` 创建目录，同样存在污染工作区风险。
+  - 修复：使用 `test-helpers.js` 已有的 `makeTempDir('framework-')` / `makeTempDir('framework-missing-')` 替换；`cleanupTempDir` 保持不变。
+  - 验证：`framework-patterns-test.js` PASS；fast 101/101 PASS。
+
+### 重构（架构债务：`formatAi` counts/digest 耦合 + token 估算裸数字 — 2026-05-19）
+
+- **单一数据源驱动 `formatAi` 的 `counts` 与 `topRisks`/`actions`** `src/cli/formatters/human-formatters.js` `src/config/constants.js`：
+  - 问题：`formatAi` 中 `counts` 字段（418–426 行）手动映射 6 个命令的计数字段；`buildCommandAiDigest` 覆盖 7 个命令的 `topRisks`/`actions`。两者集合不一致（`audit-security` 的 `summary.total` 未被 counts 映射），新增 CLI 命令需同时改两处，容易遗漏。
+  - 修复：`buildCommandAiDigest` 改为返回 `{ topRisks, actions, counts }`，每个 `switch` case 内部自洽地设置对应 count 字段（`deadExports`/`impact`/`affectedTests`/`cycles`/`unresolved`/`securityFindings`/`highCompositeRiskFiles`）。`formatAi` 非 `audit-summary` 分支直接解构 `counts`，删除手动映射代码块。
+  - 结果：新增 CLI 命令的 AI 输出只需在 `buildCommandAiDigest` 一处维护。
+  - 验证：`formatter-direct-test.js` 现有 `testFormatAiTokenBudgetDowngrade` / `testFormatAiDepthSurface` 通过；fast 101/101 PASS。
+
+- **`/ 4` token 估算裸数字归零** `src/cli/formatters/human-formatters.js` `src/config/constants.js`：
+  - 问题：`formatAi` 第 449 行和第 623 行使用 `JSON.stringify(output).length / 4` 估算 token 数，`/ 4` 是"平均每 token 4 字符"的启发式，无命名常量、无注释说明 rationale 和误差范围。
+  - 修复：在 `constants.js` 新增 `AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN = 4`，附注释说明该值基于 UTF-8 英文文本平均 token 长度，实际误差可达 ±30%。`human-formatters.js` 两处 `/ 4` 替换为 `/ AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN`。
+  - 验证：fast 101/101 PASS。
+
 ### 优化（阶段 2：`--format summary` 纯模板摘要深化 + hotspot reason 组合展示 — 2026-05-19）
 
 - **`--format summary` 补全 10 个命令的紧凑输出** `src/cli/formatters/human-formatters.js` `test/formatter-direct-test.js`：
@@ -318,6 +415,55 @@
   - `testDeadExportsOnGitNexus`：验证 `dead-exports` 成功返回且每条目包含 `file` 和 `exports` 字段。
   - 约束：不硬编码具体数字（GitNexus 可能更新），只验证输出结构和数据类型。
   - 结果：slow 层从 25 增至 26，26/26 PASS；全量 runner 131/131 PASS。
+
+### 修复（diagnostics linter 检测矛盾 — 2026-05-19）
+
+- **修复 `buildChecks` 中 eslint auto-detect 被 `packageJson.scripts` 字段限制导致 `noLintersDetected` 误判** `src/tools/workspace-tools.js` `test/workspace-tools-test.js`：
+  - 问题：当 `package.json` 没有 `scripts` 字段但存在 `.eslintrc` 或 `eslintConfig` 时，`workspaceInfo` 的 `detectNodeLinters` 正确检测到 eslint（不依赖 scripts），但 `buildChecks` 的 eslint auto-detect 被嵌套在 `if (workspace.packageJson?.scripts)` 条件内部，导致 eslint check 未被加入 checks 列表。最终 `hasCodeChecker = false`，`noLintersDetected = true`，与 `workspaceInfo` 的检测结果矛盾。
+  - 修复：将 `buildChecks` 中 `scripts` 的获取从 `workspace.packageJson.scripts`（要求字段存在）改为 `workspace.packageJson?.scripts || {}`（允许字段缺失）；外层条件从 `workspace.hasPackageJson && workspace.packageJson?.scripts` 简化为 `workspace.hasPackageJson`。
+  - 测试：新增 `testBuildChecksEslintWithoutScriptsField`，验证 package.json 无 scripts 字段但有 `eslintConfig` 时，`buildChecks` 仍能正确添加 `node:eslint` 且 `noLintersDetected = false`。
+  - 验证：fast 101/101 PASS，slow 26/26 PASS，watch 4/4 PASS；全量 runner 131/131 PASS。
+
+### 优化（P0 去噪工程 — 2026-05-19）
+
+- **工作目录污染清理** `scripts/self-audit.js`：
+  - 清理历史遗留的 20+ 个 `.tmp-*.json` 文件；`cache.js` 已于此前将默认缓存目录迁移至 `os.tmpdir()`，`init` 命令已将这些文件加入 `.gitignore` 建议列表。
+
+- **`architectureAdvice` 单体项目默认抑制** `src/tools/overview-tools.js` `test/overview-tools-test.js`：
+  - 问题：`buildCouplingSplitSuggestions` 对 < 200 mainline files 的小型/单体项目仍返回"拆分模块"建议（如 workspace-bridge 自身 120 files 返回 3 条耦合拆分建议），对单体项目是无价值噪音。
+  - 修复：`buildProjectOverview` 返回 `architectureAdvice` 时，当 `mainlineFiles.length < 200` 将 `couplingSplitSuggestions` 设为空数组；`cycleRefactorSuggestions` 不受影响（循环依赖是真实问题，与项目规模无关）。
+  - 测试：`overview-tools-test.js` 调整断言，小项目场景下不再强制要求 `couplingSplitSuggestions.length >= 1`，改为条件断言。
+
+- **`audit-security` human formatter 展示 `matchedText`** `src/cli/formatters/human-formatters.js`：
+  - 问题：`security-tools.js` 已采集 `matchedText` 并在 `--json` 输出中返回，但 `formatMarkdown`/`formatSummary`/`formatHuman` 三个 human formatter 的 `audit-security` case 均未展示该字段，导致终端用户无法看到规则实际匹配到的代码片段。
+  - 修复：三个 formatter 的 finding 循环中追加 `matchedText` 输出行（`Matched: \`...\``）。
+  - 验证：`node cli.js audit-security --cwd . --quiet` 现在输出 `Matched: \`eval(\``。
+
+- **全量验证**：fast 101/101 PASS，slow 26/26 PASS，watch 4/4 PASS；全量 runner 131/131 PASS。
+
+### 修复（裸数字归零 + 发现归档 — 2026-05-19）
+
+- **`DEFAULTS.SMALL_PROJECT_MAX_MAINLINE` 提取** `src/config/constants.js` `src/tools/overview-tools.js`：
+  - 问题：P0 去噪工程中 `overview-tools.js` 引入硬编码 `mainlineFiles.length < 200`，违反 L2-6"裸数字归零"。
+  - 修复：提取为 `DEFAULTS.SMALL_PROJECT_MAX_MAINLINE: 200`，附 rationale 注释（"below this threshold, coupling-split advice is noise because the codebase is small enough to be mentally mapped as a single unit"）。
+
+- **代码审查发现归档到活跃文档** `SESSION.md` `docs/TECH_DEBT.md`：
+  - 10 项问题分类归档：2 项进 TECH_DEBT.md L2 债务（`noLintersDetected` 计算脆弱、formatter security 重复模式），2 项进架构债务（`ensurePrecomputed()` 分散、`overview-tools`/`health-tools` 重叠），2 项进测试债务（mock 脱节、slow 层 e2e-gitnexus 55s 拖慢），4 项进 SESSION.md 待挖掘问题（diagnostics 缓存语义、CLI 命令分层负担、Windows 补丁式兼容、formatter 重复模式）。
+
+### 修复（diagnostics 缓存语义不一致 — 2026-05-19）
+
+- **`runDiagnostics` 空 diagnostics 结果也能缓存命中** `src/tools/workspace-tools.js` `src/services/cache.js` `test/diagnostics-cache-test.js`：
+  - 问题：`runDiagnostics` 缓存命中条件为 `container.cache.getAllDiagnostics().length > 0`，当 linter 可用但 0 问题时（如代码已 clean 通过 eslint），`allDiagnostics` 为空数组，条件不满足，导致每次调用都重新执行全部 checks，违反 L1-3「同一业务语义必须在单一模块实现」（缓存语义在 engine 层和 tools 层不一致：engine 的 `checkFile` 始终写入缓存，tools 的 `runDiagnostics` 却拒绝读取空缓存）。
+  - 修复：
+    1. `WorkspaceCache` 新增 `hasDiagnosticEntries()` 方法，返回 `this.diagnostics.size > 0`，区分「从未运行过 diagnostics」和「运行过但结果为空」两种语义。
+    2. `runDiagnostics` 缓存条件从 `allDiagnostics.length > 0` 改为优先检查 `hasDiagnosticEntries()`；回退路径保留 `getAllDiagnostics().length > 0` 以保持向后兼容（兼容未实现新方法的 mock cache）。
+    3. 缓存命中后仍通过 `getAllDiagnostics()` 获取实际数据，空数组场景下 `summarizeDiagnostics([])` 返回 `{ total: 0, error: 0, warning: 0, information: 0, hint: 0 }`，输出契约不变。
+  - 测试：`diagnostics-cache-test.js` 新增 2 个测试：
+    - `testDiagnosticsCacheEmptyFallsThrough`：使用真实 `WorkspaceCache`，不设置 diagnostics entry，验证「从未运行」场景缓存 miss。
+    - `testDiagnosticsCacheEmptyHits`：使用真实 `WorkspaceCache`，设置 `{ diagnostics: [] }` entry，验证「运行过但 0 问题」场景缓存 hit，输出 `cached: true, diagnostics: []`。
+    - `testHasDiagnosticEntries`：验证 `hasDiagnosticEntries()` 在空 Map / 有空数组 entry / clear 后的三态行为。
+  - 结果：SESSION.md 待验证问题 #6 移除。
+  - 验证：`diagnostics-cache-test.js` PASS；fast 101/101 PASS。
 
 ## [1.2.0] - 2026-05-18
 

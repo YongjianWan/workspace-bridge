@@ -16,14 +16,21 @@
 
 ---
 
-
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
-无。
+#### `overview-tools.js` 与 `health-tools.js` 数据重叠
+
+**数据**：AGENTS.md 已标记；`health-tools.js` 的 `checkParserAvailability` 与 `audit-summary.health.parserAvailability` 重合；`workspace-tools.js#detectNodeLinters` 与 `diagnostics-engine.js#hasChecker` 分别独立实现 eslint 检测逻辑（eslint/prettier 配置文件列表已于本轮提取为 `PROBE.ESLINT_CONFIG_FILES` / `PROBE.PRETTIER_CONFIG_FILES`，但运行时检测 `hasChecker` 与静态检测 `detectNodeLinters` 的底层逻辑仍未统一）。
+
+**根因**：health / overview / diagnostics 三个模块各自维护一份"环境检测"逻辑，没有统一的数据源。
+
+**影响**：修改 linter 检测逻辑时可能漏改某一处，导致不同命令输出矛盾。
+
+**方案**：提取统一的环境探测模块（`environment-probe.js`），由所有消费者共享同一份检测结果。
 
 ---
 
-## 测试代码债务（129 文件）
+## 测试代码债务（131 文件）
 
 #### 弱断言分布 — 占总断言数 ~3.0%
 
@@ -72,13 +79,15 @@
 
 **数据**：
 - **99 处内联 mock `depGraph`** 构造 — **部分收敛**：`audit-map-test.js` 公共方法已提取为 `BASE_MOCK_METHODS`，文件从 592 行降至 544 行；graph 数据字面量仍内联
+- **新增发现**：`overview-tools-test.js` 的 mock depGraph 只有 6 个文件，但断言了复杂的 overview 行为。当 `buildProjectOverview` 添加小项目抑制逻辑时，测试立刻失败——mock 数据无法代表真实项目规模，说明 mock 测试与真实行为之间存在脱节。
 
-**根因**：没有提取测试 fixture 工厂函数。
+**根因**：没有提取测试 fixture 工厂函数；mock 数据规模与真实项目差异过大。
 
-**影响**：修改 `depGraph` mock 接口需改多处（方法已提取，数据字面量仍分散）。
+**影响**：修改 `depGraph` mock 接口需改多处；新增基于项目规模的业务逻辑时，mock 测试容易误报或漏报。
 
 **方案**：
 1. `audit-map-test.js` graph 数据字面量进一步提取为配置表驱动的工厂调用
+2. 基于规模的断言改为条件断言（如 `overview-tools-test.js` 本轮已做的调整），或提供多种规模的 fixture
 
 ---
 
@@ -99,23 +108,17 @@
 
 ---
 
-#### 模块级副作用与硬编码魔数
+#### slow 层测试过重
 
-**数据**：
-- `audit-diff-incremental-test.js:20`：硬编码 `timeout: 60000`
-- `java-parsers-test.js:10`：硬编码 `timeout: 15000`
-- `runner.js`：硬编码 `TIMEOUT_MS = 120000`
-- `analysis-test.js`：硬编码 fixture 路径 `fixture-temp/test-module.js`
+**数据**：slow 层 26 个测试需 ~100s，其中 `e2e-gitnexus-test.js` 单个测试占 55s（全层时间的 55%）。
 
-**根因**：测试代码未遵循 L2-6"裸数字归零"和 L1-2"异常安全"原则。
+**根因**：GitNexus 项目规模 1329 文件，每次测试都冷启动 CLI + 全量建图 + 加载 WASM。
 
-**影响**：
-- 超时阈值无 rationale，不同文件各自拍脑袋定
-- 硬编码 fixture 路径可能与真实文件冲突
+**影响**：slow 层的时间分布极不均匀，单个测试拖慢整个批次；开发迭代时即使只改一个功能，也需要等待全量 slow 层完成。
 
 **方案**：
-1. 所有超时阈值提取到 `test/test-constants.js`
-2. fixture 路径使用 `path.join(os.tmpdir(), 'wb-test-' + random)` 隔离
+1. e2e-gitnexus 测试改为"缓存复用"模式（先预热缓存，测试只验证输出结构）
+2. 或将 e2e-gitnexus 拆分为独立 CI job，本地 runner 默认跳过
 
 ## L3 品味问题（建议修，非债务）
 
@@ -132,7 +135,7 @@
 | 文件                                        | 行数 | 风险         | 状态                                                      |
 | ------------------------------------------- | ---- | ------------ | --------------------------------------------------------- |
 | `src/services/dep-graph.js`               | ~1582 | **高** | 核心引擎类，AGENTS.md 已确认"内聚优先、不物理拆分"        |
-| `src/tools/overview-tools.js`             | ~868 | 中           | JS/CSS 裸数字已归零（`DASHBOARD_LAYOUT` 常量）；L2-5 schema 不一致源 |
+| `src/tools/overview-tools.js`             | ~868 | 中           | JS/CSS 裸数字已归零（`DASHBOARD_LAYOUT` 常量）；P0 去噪已添加小项目 `architectureAdvice` 抑制；L2-5 schema 不一致源 |
 | `cli.js`                                  | ~509 | 低           | `runCommand` 已拆分为 `src/cli/commands/*.js` + `COMMANDS` 注册表；仅保留参数解析、退出码语义、格式化输出调度 |
 | `src/tools/git-tools.js`                  | ~358 | 低           | `getChangedFiles()` 手动字符级解析是已知债务；6 个死函数已清理（-309 行）；L2-9 commit range 源 |
 | `src/tools/security-tools.js`             | ~170 | 低           | `--builtin-only` 已新增；L2-8 已关闭                        |

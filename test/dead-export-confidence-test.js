@@ -149,6 +149,63 @@ function testRegexMode() {
   assert.ok(item.confidenceReason.includes('Regex-based'), `reason should mention regex: ${item.confidenceReason}`);
 }
 
+function testDtsFilesAreSkipped() {
+  const dg = new DependencyGraph('/repo', { fileMetadata: new Map() });
+  const file = n('/repo/types.d.ts');
+  dg.graph = buildMockDepGraph({
+    [file]: { imports: [], exports: ['MyInterface'], importRecords: [], exportRecords: [{ name: 'MyInterface' }], parseMode: 'ast' },
+  });
+  dg.reverseGraph = new Map([[file, []]]);
+  const dead = dg.findDeadExports();
+  assert.strictEqual(dead.length, 0, '.d.ts files should be skipped entirely');
+}
+
+function testConstructorIsFiltered() {
+  const dg = new DependencyGraph('/repo', { fileMetadata: new Map() });
+  const file = n('/repo/lib.js');
+  dg.graph = buildMockDepGraph({
+    [file]: { imports: [], exports: ['constructor', 'foo'], importRecords: [], exportRecords: [{ name: 'constructor' }, { name: 'foo' }], parseMode: 'ast' },
+  });
+  dg.reverseGraph = new Map([[file, []]]);
+  const dead = dg.findDeadExports();
+  const item = dead.find((d) => d.file === file);
+  assert(item, 'should still report the file');
+  assert(!item.exports.includes('constructor'), 'constructor should be filtered from dead exports');
+  assert(item.exports.includes('foo'), 'foo should remain as dead export');
+}
+
+function testDunderMethodsAreFiltered() {
+  const dg = new DependencyGraph('/repo', { fileMetadata: new Map() });
+  const file = n('/repo/lib.py');
+  dg.graph = buildMockDepGraph({
+    [file]: { imports: [], exports: ['__init__', '__str__', 'foo'], importRecords: [], exportRecords: [{ name: '__init__' }, { name: '__str__' }, { name: 'foo' }], parseMode: 'ast' },
+  });
+  dg.reverseGraph = new Map([[file, []]]);
+  const dead = dg.findDeadExports();
+  const item = dead.find((d) => d.file === file);
+  assert(item, 'should still report the file');
+  assert(!item.exports.includes('__init__'), '__init__ should be filtered');
+  assert(!item.exports.includes('__str__'), '__str__ should be filtered');
+  assert(item.exports.includes('foo'), 'foo should remain');
+}
+
+function testMockLikeNamesAreFiltered() {
+  const dg = new DependencyGraph('/repo', { fileMetadata: new Map() });
+  const file = n('/repo/lib.js');
+  dg.graph = buildMockDepGraph({
+    [file]: { imports: [], exports: ['mockUserService', 'stubDatabase', 'spyLogin', 'fakeAuth', 'realService'], importRecords: [], exportRecords: [{ name: 'mockUserService' }, { name: 'stubDatabase' }, { name: 'spyLogin' }, { name: 'fakeAuth' }, { name: 'realService' }], parseMode: 'ast' },
+  });
+  dg.reverseGraph = new Map([[file, []]]);
+  const dead = dg.findDeadExports();
+  const item = dead.find((d) => d.file === file);
+  assert(item, 'should still report the file');
+  assert(!item.exports.includes('mockUserService'), 'mockUserService should be filtered');
+  assert(!item.exports.includes('stubDatabase'), 'stubDatabase should be filtered');
+  assert(!item.exports.includes('spyLogin'), 'spyLogin should be filtered');
+  assert(!item.exports.includes('fakeAuth'), 'fakeAuth should be filtered');
+  assert(item.exports.includes('realService'), 'realService should remain');
+}
+
 function main() {
   testNoImporterReliableGraph();
   testNoImporterUnreliableGraph();
@@ -156,6 +213,10 @@ function main() {
   testManyImportersAst();
   testVeryManyImportersAst();
   testRegexMode();
+  testDtsFilesAreSkipped();
+  testConstructorIsFiltered();
+  testDunderMethodsAreFiltered();
+  testMockLikeNamesAreFiltered();
 }
 
 main();

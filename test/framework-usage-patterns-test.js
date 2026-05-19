@@ -94,8 +94,7 @@ function testDynamicStringCallLiteral() {
 // --- resolveImplicitImports ---
 
 function testResolveImplicitImports() {
-  const tmpDir = path.join(__dirname, '..', 'fixture-temp-framework');
-  fs.mkdirSync(tmpDir, { recursive: true });
+  const tmpDir = makeTempDir('framework-');
   fs.mkdirSync(path.join(tmpDir, 'src', 'views'), { recursive: true });
   fs.writeFileSync(path.join(tmpDir, 'src', 'views', 'UserProfile.vue'), '<template></template>');
 
@@ -114,8 +113,7 @@ function testResolveImplicitImports() {
 }
 
 function testResolveImplicitImportsMissingFile() {
-  const tmpDir = path.join(__dirname, '..', 'fixture-temp-framework-missing');
-  fs.mkdirSync(tmpDir, { recursive: true });
+  const tmpDir = makeTempDir('framework-missing-');
 
   const sources = [{ source: '@/views/NonExistent', patternId: 'vue-router-lazy' }];
   const resolved = resolveImplicitImports(

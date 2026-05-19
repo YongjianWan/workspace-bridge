@@ -5,13 +5,14 @@
  */
 const assert = require('assert');
 const path = require('path');
+const { TIMEOUTS } = require('../src/config/constants');
 const { runCli } = require('./test-helpers');
 
 const GITNEXUS_ROOT = path.join(__dirname, '..', 'reference', 'GitNexus');
 
 function testAuditSummaryOnGitNexus() {
   const result = runCli(['audit-summary', '--cwd', GITNEXUS_ROOT, '--json', '--quiet'], {
-    timeout: 120000,
+    timeout: TIMEOUTS.TEST_RUNNER_MS,
   });
   assert.strictEqual(result.ok, true, 'audit-summary should succeed on GitNexus');
   assert(typeof result.schemaVersion === 'string' && result.schemaVersion.length > 0, 'schemaVersion should be present');
@@ -28,7 +29,7 @@ function testAuditSummaryOnGitNexus() {
 
 function testAuditFileOnGitNexus() {
   const result = runCli(['audit-file', '--cwd', GITNEXUS_ROOT, '--file', 'gitnexus/scripts/build.js', '--json', '--quiet'], {
-    timeout: 120000,
+    timeout: TIMEOUTS.TEST_RUNNER_MS,
   });
   assert.strictEqual(result.ok, true, 'audit-file should succeed on GitNexus');
   assert(result.file, 'audit-file should return file path');
@@ -37,7 +38,7 @@ function testAuditFileOnGitNexus() {
 
 function testDeadExportsOnGitNexus() {
   const result = runCli(['dead-exports', '--cwd', GITNEXUS_ROOT, '--json', '--quiet'], {
-    timeout: 120000,
+    timeout: TIMEOUTS.TEST_RUNNER_MS,
   });
   assert.strictEqual(result.ok, true, 'dead-exports should succeed on GitNexus');
   assert(Number.isFinite(result.deadExportsCount), 'deadExportsCount should be a valid number');

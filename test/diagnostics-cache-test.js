@@ -10,6 +10,7 @@ async function testDiagnosticsCacheReturnsData() {
     workspaceRoot: process.cwd(),
     cache: {
       getWorkspaceInfo() { return { root: process.cwd() }; },
+      hasDiagnosticEntries() { return true; },
       getAllDiagnostics() {
         return [
           { file: 'src/a.js', line: 1, message: 'Error', severity: 'error', source: 'test' },
@@ -28,17 +29,39 @@ async function testDiagnosticsCacheReturnsData() {
 }
 
 async function testDiagnosticsCacheEmptyFallsThrough() {
-  const tmpDir = makeTempDir('wb-diag-');
+  const tmpDir = makeTempDir('wb-diag-miss-');
+  const cache = new WorkspaceCache(tmpDir);
+  cache.setWorkspaceInfo({ root: tmpDir });
+  // Intentionally NOT calling cache.setDiagnostics — simulates "never run diagnostics"
+
   const container = {
     workspaceRoot: tmpDir,
-    cache: {
-      getWorkspaceInfo() { return { root: tmpDir }; },
-      getAllDiagnostics() { return []; },
-    },
+    cache,
   };
 
   const result = await runDiagnostics({ cwd: tmpDir, mode: 'quick' }, container);
-  assert(!result.cached, 'should not mark cached when no diagnostics in cache');
+  assert(!result.cached, 'should not mark cached when no diagnostic entries exist in cache');
+
+  cleanupTempDir(tmpDir);
+}
+
+async function testDiagnosticsCacheEmptyHits() {
+  const tmpDir = makeTempDir('wb-diag-hit-');
+  const cache = new WorkspaceCache(tmpDir);
+  cache.setWorkspaceInfo({ root: tmpDir });
+  // Simulate: linter ran on one file with 0 problems
+  const file = path.join(tmpDir, 'a.js');
+  cache.setDiagnostics(file, { mtime: 1, diagnostics: [] });
+
+  const container = {
+    workspaceRoot: tmpDir,
+    cache,
+  };
+
+  const result = await runDiagnostics({ cwd: tmpDir, mode: 'quick' }, container);
+  assert.strictEqual(result.cached, true, 'should cache-hit when diagnostic entries exist even if arrays are empty');
+  assert.strictEqual(result.diagnostics.length, 0, 'should return empty diagnostics');
+  assert.deepStrictEqual(result.diagnosticsSummary, { total: 0, error: 0, warning: 0, information: 0, hint: 0 });
 
   cleanupTempDir(tmpDir);
 }
@@ -61,11 +84,27 @@ function testCacheDiagnosticsStructure() {
   cleanupTempDir(tmpDir);
 }
 
+function testHasDiagnosticEntries() {
+  const tmpDir = makeTempDir('wb-has-diag-');
+  const cache = new WorkspaceCache(tmpDir);
+  assert.strictEqual(cache.hasDiagnosticEntries(), false, 'should be false when no entries');
+
+  const file = path.join(tmpDir, 'a.js');
+  cache.setDiagnostics(file, { mtime: 1, diagnostics: [] });
+  assert.strictEqual(cache.hasDiagnosticEntries(), true, 'should be true when entry exists even if empty array');
+
+  cache.clearDiagnostics(file);
+  assert.strictEqual(cache.hasDiagnosticEntries(), false, 'should be false after clear');
+
+  cleanupTempDir(tmpDir);
+}
+
 async function main() {
   testCacheDiagnosticsStructure();
+  testHasDiagnosticEntries();
   await testDiagnosticsCacheReturnsData();
   await testDiagnosticsCacheEmptyFallsThrough();
-
+  await testDiagnosticsCacheEmptyHits();
 }
 
 main().catch((e) => {

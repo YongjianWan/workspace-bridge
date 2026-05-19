@@ -181,6 +181,19 @@ const KNOWN_CONFIG_NAMES = new Set(['vite.config.js', 'vite.config.ts', 'vitest.
 // #21: __main__ regex promoted to module-level constant
 const PYTHON_MAIN_PATTERN = /if\s+__name__\s*==\s*['"]__main__['"]\s*:/;
 
+// CRG-inspired dead-code filter chain: symbols conventionally not considered dead
+const DEAD_EXPORT_FILTER_RE = {
+  dunder: /^__.*__$/,
+  mockLike: /^(mock|stub|spy|fake)[A-Z]/,
+};
+
+function isConventionallyAliveSymbol(name) {
+  if (name === 'constructor') return false;
+  if (DEAD_EXPORT_FILTER_RE.dunder.test(name)) return false;
+  if (DEAD_EXPORT_FILTER_RE.mockLike.test(name)) return false;
+  return true;
+}
+
 // #16-#17: language dispatch now delegated to LanguageRegistry
 // see src/services/dep-graph/parsers/registry.js for registration details
 
@@ -1139,6 +1152,8 @@ class GraphAnalyzer {
       if (info.exports.length === 0) continue;
       if (this.dg.isTestLikeFile(filePath)) continue;
       if (this.dg.isKnownEntryFile(filePath, info.exports)) continue;
+      // Rule 2: .d.ts ambient declaration files are type-only, not runtime exports
+      if (filePath.endsWith('.d.ts')) continue;
       // P78: Detect scaffold once per file, reuse in both output branches
       const scaffold = detectScaffold(filePath) || undefined;
       const importers = this.dg.getDependents(filePath);
@@ -1150,15 +1165,17 @@ class GraphAnalyzer {
         const edgeRatio = stats.files > 0 ? stats.totalImports / stats.files : 0;
         const graphUnreliable = stats.files > 1 && edgeRatio < 0.1;
         if (scaffold) continue;
+        const filteredExports = info.exports.filter(isConventionallyAliveSymbol);
+        if (filteredExports.length === 0) continue;
         const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable);
-        deadExports.push({ file: this.dg._displayPath(filePath), exports: info.exports, confidence, confidenceValue, confidenceSource: source, confidenceReason: reason, importerCount: 0, scaffold });
+        deadExports.push({ file: this.dg._displayPath(filePath), exports: filteredExports, confidence, confidenceValue, confidenceSource: source, confidenceReason: reason, importerCount: 0, scaffold });
         continue;
       }
 
       const { usedNames, usesAllExports } = this._collectUsedExports(importers, filePath);
       if (usesAllExports) continue;
 
-      let unused = info.exports.filter((name) => !usedNames.has(name));
+      let unused = info.exports.filter((name) => !usedNames.has(name) && isConventionallyAliveSymbol(name));
 
       // P1: 轻量扫描 importer 文件中的实际使用点，消除 importRecords 未 capture 的误报
       if (unused.length > 0) {

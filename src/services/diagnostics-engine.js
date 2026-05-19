@@ -7,11 +7,11 @@ const fs = require('fs');
 const path = require('path');
 const { runPythonModule, runNpx, runCommandSecure, resolvePythonCommand } = require('../utils/command');
 const { parseDiagnosticsFromText, uniqueDiagnostics } = require('../utils/diagnostics');
-const { TIMEOUTS } = require('../config/constants');
+const { TIMEOUTS, DEFAULTS, PROBE } = require('../config/constants');
 
 // 配置常量 - 集中管理可调优参数
 const CONFIG = {
-  DEBOUNCE_MS: 1000,              // 文件变更 debounce 时间
+  DEBOUNCE_MS: DEFAULTS.DIAGNOSTICS_DEBOUNCE_MS,
   MAX_CONCURRENT_CHECKS: 5,       // 最大并发检查数
   MAX_SCHEDULED_CHECKS: 20,       // 4x MAX_CONCURRENT_CHECKS, bounds timer queue under bulk changes
   CONCURRENT_RETRY_DELAY_MS: 500, // 并发限制重试延迟 (legacy, kept for reference)
@@ -59,12 +59,7 @@ class DiagnosticsEngine {
         result = await this.checkNodeModule('eslint', '--version');
         if (!result) {
           // Fallback: config-based detection (aligns with workspace-tools.js detectNodeLinters)
-          const configs = [
-            '.eslintrc.js', '.eslintrc.json', '.eslintrc.cjs',
-            '.eslintrc.yaml', '.eslintrc.yml',
-            'eslint.config.js', 'eslint.config.mjs', '.eslintrc',
-          ];
-          result = configs.some((c) => fs.existsSync(path.join(this.root, c)));
+          result = PROBE.ESLINT_CONFIG_FILES.some((c) => fs.existsSync(path.join(this.root, c)));
           if (!result) {
             try {
               const pj = JSON.parse(fs.readFileSync(path.join(this.root, 'package.json'), 'utf8'));

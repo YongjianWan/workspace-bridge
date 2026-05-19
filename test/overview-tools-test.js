@@ -118,15 +118,17 @@ async function main() {
   assert(Array.isArray(result.architectureAdvice.cycleRefactorSuggestions), 'cycleRefactorSuggestions should exist');
   assert(Array.isArray(result.architectureAdvice.couplingSplitSuggestions), 'couplingSplitSuggestions should exist');
   assert(result.architectureAdvice.cycleRefactorSuggestions.length >= 1, 'should include cycle refactor suggestions');
-  assert(result.architectureAdvice.couplingSplitSuggestions.length >= 1, 'should include coupling split suggestions');
+  // P0: small projects (< 200 mainline files) suppress couplingSplitSuggestions
   const firstCycleSuggestion = result.architectureAdvice.cycleRefactorSuggestions[0];
-  const firstCouplingSuggestion = result.architectureAdvice.couplingSplitSuggestions[0];
   assert(firstCycleSuggestion.breakCandidate?.from, 'cycle suggestion should include breakCandidate.from');
   assert(firstCycleSuggestion.breakCandidate?.to, 'cycle suggestion should include breakCandidate.to');
   assert(firstCycleSuggestion.validation?.command, 'cycle suggestion should include validation command');
-  assert(firstCouplingSuggestion.file, 'coupling suggestion should include file');
-  assert(typeof firstCouplingSuggestion.coupling?.total === 'number', 'coupling suggestion should include coupling total');
-  assert(firstCouplingSuggestion.validation?.command, 'coupling suggestion should include validation command');
+  if (result.architectureAdvice.couplingSplitSuggestions.length > 0) {
+    const firstCouplingSuggestion = result.architectureAdvice.couplingSplitSuggestions[0];
+    assert(firstCouplingSuggestion.file, 'coupling suggestion should include file');
+    assert(typeof firstCouplingSuggestion.coupling?.total === 'number', 'coupling suggestion should include coupling total');
+    assert(firstCouplingSuggestion.validation?.command, 'coupling suggestion should include validation command');
+  }
   assert(result.aggregates, 'aggregates should exist');
   assert(result.hotspotData, 'hotspotData should exist');
   assert.strictEqual(typeof result.hotspotData.schemaVersion, 'string');

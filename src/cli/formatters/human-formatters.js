@@ -3,6 +3,7 @@
  * Extracted from cli.js to reduce the facade thickness.
  */
 const { countTreeFiles } = require('./project-map');
+const { AI_FORMAT } = require('../../config/constants');
 
 /**
  * Shared audit-summary formatter across text output styles.
@@ -75,6 +76,41 @@ function formatAuditSummary(result, style) {
   }
 }
 
+function buildSecurityLines(result, style) {
+  const isMd = style === 'markdown';
+  const isSum = style === 'summary';
+  const max = isMd ? 10 : isSum ? 5 : 20;
+  const bp = isMd ? '- ' : (isSum ? '  ' : '');
+  const bold = (t) => isMd ? `**${t}**` : t;
+  const sep = ': ';
+  const labels = isMd || isSum ? ['Adapters', 'Findings', 'Severity'] : ['adapters', 'findings', 'severity'];
+  const lines = [];
+  lines.push(`${bp}${bold(labels[0])}${sep}${result.adapters?.join(', ') || 'none'}`);
+  lines.push(`${bp}${bold(labels[1])}${sep}${result.summary?.total ?? 0}`);
+  lines.push(`${bp}${bold(labels[2])}${sep}high=${result.summary?.bySeverity?.high ?? 0} medium=${result.summary?.bySeverity?.medium ?? 0} low=${result.summary?.bySeverity?.low ?? 0}`);
+  if (result.findings?.length > 0) {
+    if (isMd) lines.push('', '## Findings');
+    else if (isSum) lines.push('Top findings:');
+    else lines.push('');
+    for (const f of result.findings.slice(0, max)) {
+      lines.push(isMd
+        ? `- **[${f.severity.toUpperCase()}]** \`${f.ruleId}\` — ${f.file}${f.lineStart ? ':' + f.lineStart : ''}`
+        : `${bp}[${f.severity.toUpperCase()}] ${f.ruleId} — ${f.file}${f.lineStart ? ':' + f.lineStart : ''}`
+      );
+      if (f.message && !isSum) lines.push(isMd ? `  - ${f.message}` : `  ${f.message}`);
+      if (f.matchedText) {
+        const m = `Matched: \`${f.matchedText}\``;
+        lines.push(isMd ? `  - ${m}` : (isSum ? `    ${m}` : `  ${m}`));
+      }
+    }
+    if (result.findings.length > max) {
+      const more = `... and ${result.findings.length - max} more`;
+      lines.push(isMd ? `- *${more}*` : `${bp}${more}`);
+    }
+  }
+  return lines;
+}
+
 function formatMarkdown(command, result) {
   if (!result || result.ok === false) {
     return `## Error\n\n${result?.error || 'Command failed'}`;
@@ -107,23 +143,7 @@ function formatMarkdown(command, result) {
       return lines.join('\n');
     }
     case 'audit-security': {
-      const lines = [
-        `# Security Audit`,
-        ``,
-        `- **Adapters**: ${result.adapters?.join(', ') || 'none'}`,
-        `- **Findings**: ${result.summary?.total ?? 0}`,
-        `- **Severity**: high=${result.summary?.bySeverity?.high ?? 0} medium=${result.summary?.bySeverity?.medium ?? 0} low=${result.summary?.bySeverity?.low ?? 0}`,
-      ];
-      if (result.findings?.length > 0) {
-        lines.push('', `## Findings`);
-        for (const f of result.findings.slice(0, 10)) {
-          lines.push(`- **[${f.severity.toUpperCase()}]** \`${f.ruleId}\` — ${f.file}${f.lineStart ? ':' + f.lineStart : ''}`);
-          if (f.message) lines.push(`  - ${f.message}`);
-        }
-        if (result.findings.length > 10) {
-          lines.push(`- *... and ${result.findings.length - 10} more*`);
-        }
-      }
+      const lines = ['# Security Audit', '', ...buildSecurityLines(result, 'markdown')];
       return lines.join('\n');
     }
     case 'audit-diff': {
@@ -221,21 +241,7 @@ function formatSummary(command, result) {
       return lines.join('\n');
     }
     case 'audit-security': {
-      const lines = [
-        `Adapters: ${result.adapters?.join(', ') || 'none'}`,
-        `Findings: ${result.summary?.total ?? 0}`,
-        `Severity: high=${result.summary?.bySeverity?.high ?? 0} medium=${result.summary?.bySeverity?.medium ?? 0} low=${result.summary?.bySeverity?.low ?? 0}`,
-      ];
-      if (result.findings?.length > 0) {
-        lines.push('Top findings:');
-        for (const f of result.findings.slice(0, 5)) {
-          lines.push(`  [${f.severity.toUpperCase()}] ${f.ruleId} — ${f.file}${f.lineStart ? ':' + f.lineStart : ''}`);
-        }
-        if (result.findings.length > 5) {
-          lines.push(`  ... and ${result.findings.length - 5} more`);
-        }
-      }
-      return lines.join('\n');
+      return buildSecurityLines(result, 'summary').join('\n');
     }
     case 'audit-diff': {
       const lines = [
@@ -347,6 +353,69 @@ function formatSummary(command, result) {
  * AI-pre-digested output — curated JSON that LLMs can consume directly.
  * Produces severity + top risks + actions + confidence, not raw dumps.
  */
+function buildCommandAiDigest(command, result) {
+  const topRisks = [];
+  const actions = [];
+  const counts = {};
+  switch (command) {
+    case 'dead-exports':
+      if (result.deadExportsCount > 0) {
+        counts.deadExports = result.deadExportsCount;
+        topRisks.push({ category: 'dead-exports', severity: result.deadExportsCount > 10 ? 'high' : 'medium', count: result.deadExportsCount, message: `${result.deadExportsCount} dead export(s) found`, confidence: 0.85 });
+        actions.push({ priority: 'P0', action: `Review ${result.deadExportsCount} dead-export candidate(s) before deletion` });
+      }
+      break;
+    case 'impact':
+      if (result.impactCount > 0) {
+        counts.impact = result.impactCount;
+        topRisks.push({ category: 'impact', severity: result.impactCount > 20 ? 'high' : 'medium', count: result.impactCount, message: `Change would affect ${result.impactCount} file(s)`, confidence: 0.9 });
+        actions.push({ priority: 'P0', action: 'Run affected-tests to identify tests to update' });
+      }
+      break;
+    case 'affected-tests':
+      if (result.affectedTestsCount > 0) {
+        counts.affectedTests = result.affectedTestsCount;
+        topRisks.push({ category: 'tests', severity: 'medium', count: result.affectedTestsCount, message: `${result.affectedTestsCount} test file(s) affected`, confidence: 0.9 });
+        actions.push({ priority: 'P0', action: `Run ${result.affectedTestsCount} affected test(s)` });
+      }
+      break;
+    case 'cycles':
+      if (result.cyclesCount > 0) {
+        counts.cycles = result.cyclesCount;
+        topRisks.push({ category: 'cycles', severity: 'high', count: result.cyclesCount, message: `${result.cyclesCount} dependency cycle(s) detected`, confidence: 0.95 });
+        actions.push({ priority: 'P0', action: 'Break dependency cycles before they grow' });
+      }
+      break;
+    case 'unresolved':
+      if (result.unresolvedCount > 0) {
+        counts.unresolved = result.unresolvedCount;
+        topRisks.push({ category: 'unresolved', severity: 'medium', count: result.unresolvedCount, message: `${result.unresolvedCount} unresolved import(s)`, confidence: 0.85 });
+        actions.push({ priority: 'P0', action: 'Fix unresolved imports to prevent runtime errors' });
+      }
+      break;
+    case 'audit-security':
+      if (result.summary?.total > 0) {
+        counts.securityFindings = result.summary.total;
+        const sev = result.summary.bySeverity || {};
+        const severity = sev.high > 0 ? 'high' : sev.medium > 0 ? 'medium' : 'low';
+        topRisks.push({ category: 'security', severity, count: result.summary.total, message: `${result.summary.total} security finding(s)`, confidence: 0.8 });
+        actions.push({ priority: 'P0', action: 'Review security findings manually before relying on auto-fixes' });
+      }
+      break;
+    case 'audit-diff':
+      if (result.summary?.counts?.highCompositeRiskFiles > 0) {
+        counts.highCompositeRiskFiles = result.summary.counts.highCompositeRiskFiles;
+        topRisks.push({ category: 'diff-risk', severity: 'high', count: result.summary.counts.highCompositeRiskFiles, message: `${result.summary.counts.highCompositeRiskFiles} high-risk changed file(s)`, confidence: 0.85 });
+      }
+      if (result.summary?.counts?.affectedTests > 0) {
+        counts.affectedTests = result.summary.counts.affectedTests;
+        actions.push({ priority: 'P0', action: `Run ${result.summary.counts.affectedTests} affected test(s)` });
+      }
+      break;
+  }
+  return { topRisks, actions, counts };
+}
+
 function formatAi(command, result, options = {}) {
   if (!result || result.ok === false) {
     return JSON.stringify({ ok: false, error: result?.error || 'Command failed' });
@@ -356,15 +425,39 @@ function formatAi(command, result, options = {}) {
   const tokenBudget = options.tokenBudget || null;
   const schemaVersion = options.schemaVersion || '1.2.0';
 
-  // AI format primarily serves audit-summary; lightweight JSON wrapper for others
   if (command !== 'audit-summary') {
+    const { topRisks, actions, counts } = buildCommandAiDigest(command, result);
+
+    if (depth === 'surface') {
+      const surface = { ok: true, schemaVersion, command, severity: result.summary?.severity || 'low', counts };
+      if (topRisks.length > 0) surface.topRisks = topRisks.slice(0, 3).map((r) => ({ category: r.category, severity: r.severity, ...(r.count !== undefined ? { count: r.count } : {}) }));
+      if (actions.length > 0) surface.actions = actions.slice(0, 3);
+      return JSON.stringify(surface);
+    }
+
     const output = {
       ok: true,
       schemaVersion,
       command,
       severity: result.summary?.severity || 'low',
+      counts,
       summary: formatSummary(command, result),
+      confidence: { overall: 1.0 },
     };
+    if (topRisks.length > 0) output.topRisks = topRisks;
+    if (actions.length > 0) output.actions = actions;
+    if (depth === 'full' && result.details) output.details = result.details;
+
+    if (tokenBudget) {
+      let estimatedTokens = JSON.stringify(output).length / AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN;
+      if (estimatedTokens > tokenBudget) {
+        const slim = { ok: output.ok, schemaVersion, command, severity: output.severity, counts, topRisks: output.topRisks?.slice(0, 3), actions: output.actions?.slice(0, 3) };
+        estimatedTokens = JSON.stringify(slim).length / AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN;
+        if (estimatedTokens <= tokenBudget) return JSON.stringify(slim, null, 2);
+        const minimal = { ok: output.ok, schemaVersion, command, severity: output.severity, counts };
+        return JSON.stringify(minimal, null, 2);
+      }
+    }
     return JSON.stringify(output, null, 2);
   }
 
@@ -530,10 +623,10 @@ function formatAi(command, result, options = {}) {
   let output = buildOutput(depth);
 
   if (tokenBudget) {
-    let estimatedTokens = JSON.stringify(output).length / 4;
+    let estimatedTokens = JSON.stringify(output).length / AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN;
     if (estimatedTokens > tokenBudget && depth !== 'surface') {
       output = buildOutput('surface');
-      estimatedTokens = JSON.stringify(output).length / 4;
+      estimatedTokens = JSON.stringify(output).length / AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN;
     }
     // If still over budget at surface, strip to core fields
     if (estimatedTokens > tokenBudget) {
@@ -567,25 +660,10 @@ function formatHuman(command, result) {
         `tests: ${result.checks.testConfig.found ? result.checks.testConfig.frameworks.join(', ') : 'none'}`,
       ].join('\n');
     case 'audit-security': {
-      if (result.summary.message) {
+      if (result.summary?.message) {
         return result.summary.message;
       }
-      const lines = [
-        `adapters: ${result.adapters.join(', ') || 'none'}`,
-        `findings: ${result.summary.total}`,
-        `severity: high=${result.summary.bySeverity.high} medium=${result.summary.bySeverity.medium} low=${result.summary.bySeverity.low}`,
-      ];
-      if (result.findings.length > 0) {
-        lines.push('');
-        for (const f of result.findings.slice(0, 20)) {
-          lines.push(`[${f.severity.toUpperCase()}] ${f.ruleId} — ${f.file}${f.lineStart ? ':' + f.lineStart : ''}`);
-          if (f.message) lines.push(`  ${f.message}`);
-        }
-        if (result.findings.length > 20) {
-          lines.push(`... and ${result.findings.length - 20} more`);
-        }
-      }
-      return lines.join('\n');
+      return buildSecurityLines(result, 'human').join('\n');
     }
     case 'audit-summary':
       return formatAuditSummary(result, 'human');

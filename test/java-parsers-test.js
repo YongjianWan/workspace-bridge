@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 const assert = require('assert');
 const { spawnSync } = require('child_process');
+const { TIMEOUTS } = require('../src/config/constants');
 const { parseJava } = require('../src/services/dep-graph/parsers');
 
 function isJavalangAvailable() {
   const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
   const result = spawnSync(pythonCmd, ['-c', 'import javalang; print("ok")'], {
     encoding: 'utf8',
-    timeout: 15000,
+    timeout: TIMEOUTS.HEALTH_SHORT_TIMEOUT_MS,
   });
   return result.status === 0 && result.stdout.includes('ok');
 }

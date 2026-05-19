@@ -13,6 +13,7 @@
  */
 
 const path = require('path');
+const { DEFAULTS } = require('../../config/constants');
 
 /**
  * @typedef {Object} FrameworkHint
@@ -365,7 +366,7 @@ function detectFrameworkFromContent(filePath, content) {
   if (!configs || configs.length === 0) return null;
 
   // Use the full provided content sample (callers already cap at ENTRY_SCAN_BYTES)
-  const sample = content.slice(0, 4096).toLowerCase();
+  const sample = content.slice(0, DEFAULTS.ENTRY_SCAN_BYTES).toLowerCase();
   for (const cfg of configs) {
     for (const pat of cfg.patterns) {
       if (sample.includes(pat.toLowerCase())) {
