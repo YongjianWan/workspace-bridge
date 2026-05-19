@@ -289,14 +289,21 @@ function formatAi(command, result, options = {}) {
     return JSON.stringify({ ok: false, error: result?.error || 'Command failed' });
   }
 
-  // AI format primarily serves audit-summary; fallback for others
-  if (command !== 'audit-summary') {
-    return formatSummary(command, result);
-  }
-
   const depth = options.depth || 'detail';
   const tokenBudget = options.tokenBudget || null;
   const schemaVersion = options.schemaVersion || '1.2.0';
+
+  // AI format primarily serves audit-summary; lightweight JSON wrapper for others
+  if (command !== 'audit-summary') {
+    const output = {
+      ok: true,
+      schemaVersion,
+      command,
+      severity: result.summary?.severity || 'low',
+      summary: formatSummary(command, result),
+    };
+    return JSON.stringify(output, null, 2);
+  }
 
   function buildOutput(currentDepth) {
     const output = {

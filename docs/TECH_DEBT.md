@@ -41,19 +41,6 @@
 6. ✅ `--incremental` 增量逻辑可见化 → 已修复，human-readable 输出直接展示增量发现
 7. 届时 SKILL.md 可缩至 ~80 行：L1 命令表 + L2 场景指南 + 版本锁定
 
-#### `--format ai` 与 `--json` 标志交互不一致
-
-**数据**：`cli.js` 中 `if (parsed.format === 'ai')` 分支在 `else if (parsed.json)` 之前，`--json` 在 `--format ai` 场景下被静默忽略。`formatAi()` 对 `audit-summary` 返回 JSON 字符串（碰巧满足 `--json` 期望），但对非 `audit-summary` 命令 fallback 到 `formatSummary()`（纯文本）。
-
-**根因**：`formatAi` 设计上只服务 `audit-summary`，其他命令未定义 AI 格式输出形态。CLI 路由层未拦截 `--format ai + non-audit-summary` 的非法组合。
-
-**影响**：脚本或 AI 调用 `impact --format ai --json` / `tree --format ai --json` 时，期望得到 JSON 却拿到纯文本，管道下游 `JSON.parse` 会崩溃。这是 CLI 出口契约层面的不一致。
-
-**方案**：
-1. 方案 A（推荐）：`formatAi` 对所有命令返回统一结构化 JSON（非 audit-summary 时包装为 `{ ok, command, summaryText }`）。
-2. 方案 B：非 audit-summary 命令遇到 `--format ai` 时自动降级为标准 `--json` 输出。
-3. 方案 C：CLI 层显式报错，`--format ai` 仅限 `audit-summary` 使用。
-
 #### cli.js 厚门面（部分缓解）
 
 **数据**：~974 行（`formatHuman` 等 formatter 逻辑已提取至 `human-formatters.js` ~720 行），剩余 `runCommand` ~350 行 switch 覆盖 20+ 命令。

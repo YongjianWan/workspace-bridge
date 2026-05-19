@@ -8,6 +8,18 @@
 
 ## [Unreleased]
 
+### 修复（`--format ai` 完整管道 + CLI 集成测试补齐 — 2026-05-19）
+
+- **修复 `--format ai` 对非 audit-summary 命令返回纯文本的契约不一致** `src/cli/formatters/human-formatters.js`：
+  - 原行为：`formatAi()` 对 `impact`/`tree`/`audit-file`/`dead-exports` 等命令 fallback 到 `formatSummary()`（纯文本），导致 `--format ai --json` 组合下管道下游 `JSON.parse` 崩溃。
+  - 修复：非 `audit-summary` 命令返回轻量 JSON 包装 `{ ok, schemaVersion, command, severity, summary }`，与 `audit-summary` 的 JSON 输出保持契约一致。
+  - 验证：`impact --format ai --json` 现在返回可解析 JSON（keys: ok/schemaVersion/command/severity/summary）。
+
+- **扩展 CLI 集成测试覆盖 `--format ai` 全命令管道** `test/cli-pipeline-depth-test.js`：
+  - 新增 4 个测试：`testImpactAiFormat`、`testTreeAiFormat`、`testAuditFileAiFormat`、`testDeadExportsAiFormat`。
+  - 验证每个命令的 `--format ai` 输出包含 `ok`/`schemaVersion`/`command`/`severity`/`summary`。
+  - 验证非 `audit-summary` 命令传 `--depth`/`--token-budget` 不崩溃（参数透传安全）。
+
 ### 修复（CLI 集成测试断言修正 — 2026-05-19）
 
 - **修正 `test/cli-pipeline-depth-test.js` 中 4 类错误断言** `test/cli-pipeline-depth-test.js`：
