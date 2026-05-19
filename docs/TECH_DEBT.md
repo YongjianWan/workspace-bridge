@@ -151,7 +151,6 @@
 | `git-tools.js`      | `getChangedFiles()` 手动字符级解析；`--since` 已新增，字符级解析债务仍在 | 低     |
 | `js.js`             | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行 | 低     |
 | `cli.js` / `formatters` | `--json` 嵌套深、体积大，`--compact` 后仍有 400 行，管道场景不友好；默认 human-readable 输出缺乏实战打磨。**根因是 CLI 不输出预消化报告，迫使 skill 变厚补偿** | 中     |
-| `cache.js`          | `save()` 调用 `_graphDb.saveAll()` 不包含 `coChanges`，`coChanges` 只能通过独立 `saveCoChanges()` 持久化；设计与认知不一致 | 低     |
 
 ---
 

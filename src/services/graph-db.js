@@ -186,6 +186,7 @@ class GraphDB {
         parseResults,
         symbolIndex,
         diagnostics,
+        _metadata: metadata, // raw metadata for schema-driven loading
       };
     } catch (err) {
       if (process.env.DEBUG) {

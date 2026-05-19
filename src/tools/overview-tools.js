@@ -503,8 +503,20 @@ async function buildProjectOverview(args, container) {
   // P2: use precomputed hotspot/stability from aggregate cache if available
   const aggregate = depGraph.analyzer?._aggregateCache;
   const hasValidAggregate = aggregate && aggregate.version === depGraph.analyzer?._aggregateVersion;
-  const hotspots = (hasValidAggregate && aggregate.hotspots) ? aggregate.hotspots : await buildHotspots(root, depGraph, mainlineFiles, historyProvider);
-  const stability = (hasValidAggregate && aggregate.stability) ? aggregate.stability : buildStability(root, depGraph, mainlineFiles, projectContext);
+  let hotspots = (hasValidAggregate && aggregate?.hotspots) ? aggregate.hotspots : null;
+  let stability = (hasValidAggregate && aggregate?.stability) ? aggregate.stability : null;
+
+  // Precompute-on-demand: trigger background calculation if cache miss
+  if ((!hotspots || !stability) && container.ensurePrecomputed) {
+    await container.ensurePrecomputed(['overview']);
+    const refreshed = depGraph.analyzer?._aggregateCache;
+    const refreshedValid = refreshed && refreshed.version === depGraph.analyzer?._aggregateVersion;
+    hotspots = (refreshedValid && refreshed.hotspots) ? refreshed.hotspots : hotspots;
+    stability = (refreshedValid && refreshed.stability) ? refreshed.stability : stability;
+  }
+
+  hotspots = hotspots || await buildHotspots(root, depGraph, mainlineFiles, historyProvider);
+  stability = stability || buildStability(root, depGraph, mainlineFiles, projectContext);
   const orphans = findOrphanFiles(allFiles, depGraph.entryFiles, depGraph, root, null, depGraph.isKnownEntryFile?.bind(depGraph), depGraph.shouldExcludeCli?.bind(depGraph));
   const unresolved = depGraph.findUnresolvedImports?.() || [];
   const cycles = depGraph.findCircularDependencies?.() || [];

@@ -8,6 +8,19 @@
 
 ## [Unreleased]
 
+### 优化（测试 runner 分层与并发提速 — 2026-05-19）
+
+- **测试 runner 支持分层运行** `test/runner.js` `package.json`：
+  - 问题：127 个测试全量运行需 ~7 分钟，开发迭代反馈太慢；21 个集成测试反复冷启动 CLI、全量建图、加载 WASM，与 100+ 纯单元测试混在一起跑。
+  - 新增 `--layer fast|slow|watch|all` 参数，runner 按文件名 + 内容启发式自动分类：
+    - `fast`：纯单元测试（无 `runCli`、无 CLI spawn），~100 个文件，预期 <30s
+    - `slow`：集成/E2E 测试（含 `runCli` 或直接 `spawnSync node cli.js`），~21 个文件
+    - `watch`：串行 watch 测试（文件名匹配 `/watch/`）
+    - `all`：全部（默认行为，向后兼容）
+  - 新增 `--smoke` 快速模式：fast 层 + 3 个代表性 slow 测试，用于开发迭代秒级验证。
+  - 并发度默认从硬编码 `4` 提升为 `Math.min(32, os.cpus().length)`（18 核机器从 4 → 18），利用多核并行消除进程 spawn 瓶颈。
+  - `package.json` 新增 4 条脚本：`test:fast`、`test:slow`、`test:watch`、`test:smoke`。
+
 ### 重构（架构债务清零：跨层依赖与职责纠缠 — 2026-05-18）
 
 - **消除 L4→L5 反向依赖** `src/tools/overview-tools.js` `src/utils/recommendations.js` `src/cli/formatters/repo-summary.js`：
@@ -176,6 +189,35 @@
   - 问题：普通单 crate 仓库无 `workspaceMembers`，且 `src/main.rs`/`src/lib.rs`/`src/mod.rs` 被 `inferRustModuleName()` 返回 `null`，导致 `moduleArgs` 为空；`buildRustTestCommands()` 最终返回 `[]`，focused 列表为空。
   - 修复：在最终 `return []` 前增加 `else if (rustFiles.length > 0)` 分支，返回 `{ command: 'cargo', args: ['test'] }`。虽然粒度是全 crate，但这是 Rust 单 crate 项目的物理上限，比"完全没有 focused 命令"更合理。
   - 向后兼容：workspace 项目行为 100% 不变；单 crate 项目从"无 focused"变为"有 `cargo test` focused"。
+
+### 重构（P0：Cache schema 自描述化 — 2026-05-19）
+
+- **`cache.js` metadata 缓存字段 schema 自描述化** `src/services/cache.js` `src/services/graph-db.js`：
+  - 问题：`coChanges`、`pageRanks`、`aggregateSummary` 三套 metadata 缓存各有独立的 `_loadXxx()` / `saveXxx()` 路径。新增一个 metadata 缓存字段需要复制粘贴模板并改动 5 处（内存属性初始化、load() 调用、load 实现、save 实现、调用方调用）。
+  - 修复：引入 `METADATA_SCHEMA` 注册表，在常量层统一描述每个字段的 `default`、`serialize`、`deserialize`。`WorkspaceCache` 构造函数自动初始化 schema 字段，`load()` 通过 `graph-db.js` 返回的 `_metadata` 自动反序列化所有注册字段。新增 `saveMetadata(key, value)` / `loadMetadata(key)` 通用方法，底层由 schema 注册表驱动。
+  - `graph-db.js`：`loadAll()` 返回原始 `metadata` 键值对（`_metadata`），供 `cache.js` schema 驱动加载复用，避免每个字段单独查询 SQLite。
+  - 结果：新增 metadata 字段只需在 `METADATA_SCHEMA` 中注册 1 处；`_loadCoChanges` / `_loadPageRanks` 等私有模板方法删除（~40 行）。
+  - 向后兼容：`saveCoChanges()` / `savePageRanks()` / `loadAggregateSummary()` / `saveAggregateSummary()` 保留为薄包装，委托给 `saveMetadata` / `loadMetadata`。所有现有调用方零改动。
+
+### 重构（P1：dep-tools.js 按操作拆分 — 2026-05-19）
+
+- **`dep-tools.js` 10+ case switch → `dep-tools/*.js` 薄路由** `src/tools/dep-tools.js` `src/tools/dep-tools/*` `test/dep-tools-test.js`：
+  - 问题：`dep-tools.js` 用一个 93 行 switch 承载 stats/dependencies/dependents/impact/cycles/dead_exports/unresolved/affected_tests 等 8 个操作。新增操作需改同一个核心文件，与 dep-graph.js 的 `GraphBuilder`/`GraphAnalyzer`/`GraphQuery` 认知拆分不匹配。
+  - 修复：提取 8 个操作处理器到 `src/tools/dep-tools/{stats,dependencies,dependents,impact,cycles,dead-exports,unresolved,affected-tests}.js`。`dep-tools.js` 保留薄路由层：`OPERATIONS` 注册表 + `FILE_REQUIRED` 集合 + 统一的 `ensureReady`/`depGraph` 可用性/`filePath` 解析与校验。处理器签名统一为 `(args, container, filePath) => result`。
+  - `FILE_REQUIRED` 集合集中声明哪些操作需要 filePath，消除原 switch 中每个 file-required case 的重复 `if (!filePath)` 守卫。
+  - 结果：新增操作只需新建文件 + 注册表加一行，无需改 `dep-tools.js` 路由；`dep-tools.js` 从 121 行降至 ~50 行。
+  - 向后兼容：`dependencyGraph(args, container)` 签名 100% 不变；`test/dep-tools-test.js` 零改动通过。
+
+### 重构（P2：预热按需化 — 2026-05-19）
+
+- **`container.js` 从 `initialize()` 中移除无条件预热，改为查询路径按需触发** `src/services/container.js` `src/tools/overview-tools.js` `src/tools/dep-tools/impact.js` `test/precompute-hotspot-test.js`：
+  - 问题：`_precomputeOverview()`（异步 git log 批处理）和 `_precomputeCoChanges()` 在 `initialize()` 中无条件调用。`tree`/`stats`/`workspace-info` 等轻命令不需要 hotspot/stability/coChanges，但仍承受 ~100-500ms 的预热开销。
+  - 修复：从 `_initDepGraph()` 和 `onPendingProcessed`（增量更新回调）中移除 `_precomputeOverview()` 调用；从 `_initDepGraph()` 中移除 `_precomputeCoChanges()` 调用。新增 `container.ensurePrecomputed(types)` 公共方法，接受 `['overview']` / `['cochanges']` / `['overview', 'cochanges']`，在缓存缺失时触发对应计算。
+  - `overview-tools.js` `buildProjectOverview`：如果 `aggregate.hotspots` / `aggregate.stability` 缺失，先尝试 `container.ensurePrecomputed(['overview'])` 填充缓存，仍缺失时 fallback 实时计算（并存入 `_aggregateCache` 供下次复用）。
+  - `dep-tools/impact.js`：改为 `async`，在 `coChangeData` 缺失时调用 `container.ensurePrecomputed(['cochanges'])` 填充，仍缺失时返回 `[]`。
+  - `container.js` `_precomputeOverview()`：防御性增强——若 `_aggregateCache` 不存在则创建最小缓存对象，确保首次运行也能存入 hotspot/stability。
+  - 测试：`precompute-hotspot-test.js` 断言同步更新：初始化后 `hotspots`/`stability` 为 `null`，首次 `buildProjectOverview` 调用后触发计算并缓存，第二次调用复用同一引用。
+  - 向后兼容：`ensurePrecomputed` 调用前检查 `container.ensurePrecomputed` 存在性，mock container 无此方法时安全降级为实时计算；`dependencyGraph` 签名不变。
 
 ## [1.2.0] - 2026-05-18
 

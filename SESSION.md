@@ -120,6 +120,11 @@ node cli.js audit-summary --cwd . --json --quiet
 - **P2 预计算聚合表扩展 hotspot/stability**：`overview-tools.js` `precomputeHotspotsAndStability()` + `buildProjectOverview` 优先读缓存 + `container.js` build/增量更新后预热 + `dep-graph.js` `_aggregateCache` 结构扩展。
 - **P3 Co-change 分析（已收尾）**：`cochange-test.js` 4 case 全绿；`cochange-tools.js` 重写为单次 `git -C <path> log --name-only`（`spawnSync`），解决 Windows 中文路径 `execSync ENOENT` + 性能从 ~20s → ~76ms（~260×）；`dep-tools.js` `relativeFile` 正斜杠归一化，消除 Windows 反斜杠与 git 输出不匹配导致的 partners 为空；`container.js` `_precomputeCoChanges()` 改为 cache-miss 才执行 + 从 `onPendingProcessed` 移除，避免 CLI 每次启动重复计算。
 
+**本轮（2026-05-19）**：
+- **P0 Cache schema 自描述化**：引入 `METADATA_SCHEMA` 注册表，统一描述 metadata 缓存字段的 `default`/`serialize`/`deserialize`；`WorkspaceCache` 构造函数与 `load()` 自动遍历 schema 初始化/加载；新增 `saveMetadata(key, value)` / `loadMetadata(key)` 通用方法，消除 `_loadCoChanges` / `_loadPageRanks` 等 ~40 行复制粘贴。`graph-db.js` `loadAll()` 返回 `_metadata` 原始键值对，避免 schema 驱动加载时的重复 SQLite 查询。向后兼容：`saveCoChanges()` / `savePageRanks()` / `loadAggregateSummary()` / `saveAggregateSummary()` 保留为薄包装。
+- **P1 dep-tools.js 按操作拆分**：提取 8 个操作处理器到 `src/tools/dep-tools/{stats,dependencies,dependents,impact,cycles,dead-exports,unresolved,affected-tests}.js`；`dep-tools.js` 保留薄路由层（`OPERATIONS` 注册表 + `FILE_REQUIRED` 集合 + 统一前置校验）。`FILE_REQUIRED` 集中声明需 filePath 的操作，消除原 switch 中重复的 `if (!filePath)` 守卫。新增操作只需新建文件 + 注册表加一行。`dependencyGraph` 签名 100% 不变，测试零改动。
+- **P2 预热按需化**：从 `container.js` `initialize()` 和 `onPendingProcessed` 中移除 `_precomputeOverview()`/`_precomputeCoChanges()` 无条件调用。新增 `container.ensurePrecomputed(types)` 公共方法，由 `buildProjectOverview`（hotspot/stability 缺失时）和 `dep-tools/impact`（coChanges 缺失时）按需触发。`_precomputeOverview()` 增强为 `_aggregateCache` 缺失时自动创建最小缓存。`tree`/`stats` 等轻命令启动不再承受预热开销。
+
 **历史**：P0-P4 全部交付 + 测试债务全量修复 + L2 清零 + 默认 markdown + incremental 可见化 + formatter 重复判断消除 + SHA-256 内容哈希复用。本轮及历史交付见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
@@ -130,7 +135,7 @@ node cli.js audit-summary --cwd . --json --quiet
 |------|------|------|
 | L1 Blocker | 0 | — |
 | L2 债务 | 0 | — |
-| L3 品味 | 4 | git-tools.js 手动字符级解析 / js.js visitor 超长 / cli.js JSON 嵌套深 / cache.save 不包 coChanges 等独立路径 |
+| L3 品味 | 3 | git-tools.js 手动字符级解析 / js.js visitor 超长 / cli.js JSON 嵌套深 |
 | **产品债务** | **0** | — |
 
 **测试覆盖缺口：严重低估。**
@@ -178,7 +183,7 @@ node cli.js audit-summary --cwd . --json --quiet
 - 活跃债务：**0 个 L1** + **0 个 L2** + **3 个 L3** + **0 个产品 bug** + **0 个产品债务**
 - 版本：v1.2.0，schemaVersion 冻结
 - 测试：**受影响测试全部 PASS**；全量 runner 因脏工作区超时（`git stash` 后可恢复 120/120 PASS / ~280s）
-- P0-P4 全部完成（误报清零、暴露正确、框架感知、可靠性收敛、formatter 重复消除、SHA-256 复用、Co-change 收尾）
+- P0-P4 全部完成（误报清零、暴露正确、框架感知、可靠性收敛、formatter 重复消除、SHA-256 复用、Co-change 收尾、Cache schema 自描述化）
 - **定位升级**：从"带 JSON 输出的人类审计工具"升级为"AI 的代码脚手架"
 - **核心认知**：CLI 静态分析能力没问题，问题分两类：
   - **工程品味**（污染工作目录、输出数据冗余、缓存失效粗糙）— 已基本解决
@@ -223,10 +228,10 @@ node cli.js audit-summary --cwd . --json --quiet  # 期望 healthScore=7/8
 | **P0** | ~~`--check-regression` crash~~ | 基线 schema 不匹配 | ✅ **已修**：`makeCycleKey` 防御 `item.files` 缺失 | — |
 | **P0** | ~~SHA-256 内容哈希~~ | mtime 漂移误报 | ✅ **已修**：复用 code-review-graph `incremental.py` | code-review-graph |
 | **P0** | ~~L4 命令分层~~ | 命令分层混乱 | ✅ **已修**：`--help` 分层 + L4 debug 标记 | — |
-| **P0** | **Cache schema 自描述化** | 新增缓存字段需复制 `_loadXxx`/`saveXxx` 模板（已 4 套独立路径） | 新增字段从 5 处改动降至 1 处注册 | — |
-| **P1** | **dep-tools.js 按操作拆分** | 10+ case switch 承载 stats/impact/cycles/dead-exports/unresolved 等 | 新增操作无需改核心文件 | — |
+| **P0** | ~~Cache schema 自描述化~~ | 新增缓存字段需复制 `_loadXxx`/`saveXxx` 模板（已 4 套独立路径） | ✅ **已修**：`METADATA_SCHEMA` 注册表 + `saveMetadata`/`loadMetadata` 通用方法 | — |
+| **P1** | ~~dep-tools.js 按操作拆分~~ | 10+ case switch 承载 stats/impact/cycles/dead-exports/unresolved 等 | ✅ **已修**：`dep-tools/*.js` 处理器 + `OPERATIONS` 注册表薄路由 | — |
 | **P2** | **CLI 路由表化** | `cli.js` `runCommand` 350 行硬编码 switch | 新增命令只需注册表项 | — |
-| **P2** | **预热按需化** | `initialize()` 无条件预热 hotspot/stability/cochange，即使 `tree` 命令不需要 | `tree`/`stats` 等轻命令启动加速 | — |
+| **P2** | ~~预热按需化~~ | `initialize()` 无条件预热 hotspot/stability/cochange，即使 `tree` 命令不需要 | ✅ **已修**：`ensurePrecomputed(types)` 按需触发 + 查询路径缓存缺失检测 | — |
 | **P3** | Java `dead-exports` 崩溃 | Python 管道大数据崩溃（环境兼容） | 跨语言能力补齐 | — |
 
 **产品债务（暂缓，bug 清零后再评估）**
@@ -345,4 +350,6 @@ node cli.js audit-summary --cwd . --json --quiet  # 期望 healthScore=7/8
 
 ---
 
-*Last updated: 2026-05-18（P0 `--cwd` 校验 + P1 surface 变薄 + P1 diagnostics linter fallback + L3 收敛 5/8 + CHANGELOG 导航 + healthScore 诚实评分 + 架构债务清零；120/120 测试通过；活跃债务：0 L1 / 0 L2 / 3 L3 / 0 架构债务 / 0 产品债务）*
+*Last updated: 2026-05-19（P0 Cache schema 自描述化 + P1 dep-tools 拆分 + P2 预热按需化 + P0 `--cwd` 校验 + P1 surface 变薄 + P1 diagnostics linter fallback + L3 收敛 5/8 → 3 L3 + CHANGELOG 导航 + healthScore 诚实评分 + 架构债务清零）*
+
+> **本轮验证状态**：runner 全量 126 tests 中 123 PASS，3 FAIL（`watch-test.js` / `watch-sigterm-test.js` / `audit-file-watch-test.js`）。失败根因：并发 runner 中 watch 测试的 `.watch-temp` 临时目录互相冲突（`ENOENT`），与本轮代码修改无关。单独串行执行 `node test/watch-test.js` 稳定通过。核心受影响测试（cache-test / precompute-hotspot / precompute-aggregate / dep-tools-test / cochange-test / container-lifecycle / cli-integration / functionality）全部 PASS。

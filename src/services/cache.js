@@ -11,6 +11,42 @@ const { CACHE_VERSION } = require('../config/constants');
 
 const CACHE_STALE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+/**
+ * Metadata schema registry — add a new cached field by registering here.
+ * Eliminates copy-paste of _loadXxx / saveXxx boilerplate.
+ */
+const METADATA_SCHEMA = {
+  coChanges: {
+    default: null,
+    serialize(v) {
+      if (!v) return null;
+      return JSON.stringify({
+        pairCounts: Array.from(v.pairCounts.entries()),
+        fileChangeCounts: Array.from(v.fileChangeCounts.entries()),
+        commitCount: v.commitCount,
+      });
+    },
+    deserialize(raw) {
+      const obj = JSON.parse(raw);
+      return {
+        pairCounts: new Map(obj.pairCounts || []),
+        fileChangeCounts: new Map(obj.fileChangeCounts || []),
+        commitCount: obj.commitCount || 0,
+      };
+    },
+  },
+  pageRanks: {
+    default: () => new Map(),
+    serialize: (v) => JSON.stringify(Array.from(v.entries())),
+    deserialize: (raw) => new Map(JSON.parse(raw)),
+  },
+  aggregateSummary: {
+    default: null,
+    serialize: (v) => JSON.stringify(v),
+    deserialize: (raw) => JSON.parse(raw),
+  },
+};
+
 function computeDefaultCacheDir(workspaceRoot) {
   const hash = crypto.createHash('md5').update(workspaceRoot).digest('hex').slice(0, 8);
   return path.join(os.tmpdir(), 'workspace-bridge', hash);
@@ -29,8 +65,11 @@ class WorkspaceCache {
     this.parseResults = new Map(); // file -> {imports, exports, importRecords, exportRecords, functionRecords, parseMode, confidence, mtime}
     this.symbolIndex = new Map();  // symbol -> [{file, line, type}]
     this.diagnostics = new Map();  // file -> [diagnostics]
-    this.pageRanks = new Map();    // filePath -> rank (warm-start for PageRank)
-    this.coChanges = null;         // { pairCounts: Map, fileChangeCounts: Map, commitCount }
+
+    // Schema-driven metadata fields — register in METADATA_SCHEMA to add new ones
+    for (const [key, def] of Object.entries(METADATA_SCHEMA)) {
+      this[key] = typeof def.default === 'function' ? def.default() : def.default;
+    }
 
     this.lastSaved = 0;
   }
@@ -125,8 +164,21 @@ class WorkspaceCache {
       this.symbolIndex = data.symbolIndex || new Map();
       this.diagnostics = data.diagnostics || new Map();
       this.lastSaved = data.timestamp || 0;
-      this.pageRanks = this._loadPageRanks();
-      this.coChanges = this._loadCoChanges();
+
+      // Schema-driven metadata loading — eliminates _loadXxx boilerplate
+      const metadata = data._metadata || {};
+      for (const [key, def] of Object.entries(METADATA_SCHEMA)) {
+        const raw = metadata[key];
+        if (raw) {
+          try {
+            this[key] = def.deserialize(raw);
+          } catch {
+            this[key] = typeof def.default === 'function' ? def.default() : def.default;
+          }
+        } else {
+          this[key] = typeof def.default === 'function' ? def.default() : def.default;
+        }
+      }
       return true;
     } catch (err) {
       if (process.env.DEBUG) {
@@ -161,60 +213,51 @@ class WorkspaceCache {
     }
   }
 
-  // Co-change cache
-  _loadCoChanges() {
+  /**
+   * Generic metadata save — new fields only need schema registration.
+   */
+  saveMetadata(key, value) {
+    const def = METADATA_SCHEMA[key];
+    if (!def) throw new Error(`Unknown metadata key: ${key}`);
     try {
-      const raw = this._graphDb.getMetadata('coChanges');
-      if (!raw) return null;
-      const obj = JSON.parse(raw);
-      if (!obj || typeof obj !== 'object') return null;
-      return {
-        pairCounts: new Map(obj.pairCounts || []),
-        fileChangeCounts: new Map(obj.fileChangeCounts || []),
-        commitCount: obj.commitCount || 0,
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  saveCoChanges(coChanges) {
-    try {
-      const obj = {
-        pairCounts: Array.from(coChanges.pairCounts.entries()),
-        fileChangeCounts: Array.from(coChanges.fileChangeCounts.entries()),
-        commitCount: coChanges.commitCount,
-      };
-      this._graphDb.setMetadata('coChanges', JSON.stringify(obj));
-      this.coChanges = coChanges;
+      const serialized = def.serialize(value);
+      if (serialized != null) {
+        this._graphDb.setMetadata(key, serialized);
+      }
+      this[key] = value;
       return true;
     } catch {
       return false;
     }
   }
 
-  // PageRank warm-start cache
-  _loadPageRanks() {
-    try {
-      const raw = this._graphDb.getMetadata('pageRanks');
-      if (!raw) return new Map();
-      const arr = JSON.parse(raw);
-      if (!Array.isArray(arr)) return new Map();
-      return new Map(arr);
-    } catch {
-      return new Map();
+  /**
+   * Generic metadata load — new fields only need schema registration.
+   */
+  loadMetadata(key) {
+    const def = METADATA_SCHEMA[key];
+    if (!def) throw new Error(`Unknown metadata key: ${key}`);
+    const raw = this._graphDb.getMetadata(key);
+    if (!raw) {
+      this[key] = typeof def.default === 'function' ? def.default() : def.default;
+      return this[key];
     }
+    try {
+      this[key] = def.deserialize(raw);
+    } catch {
+      this[key] = typeof def.default === 'function' ? def.default() : def.default;
+    }
+    return this[key];
+  }
+
+  // Backwards-compat wrappers around saveMetadata / loadMetadata
+
+  saveCoChanges(coChanges) {
+    return this.saveMetadata('coChanges', coChanges);
   }
 
   savePageRanks(pageRanks) {
-    try {
-      const arr = Array.from(pageRanks.entries());
-      this._graphDb.setMetadata('pageRanks', JSON.stringify(arr));
-      this.pageRanks = pageRanks;
-      return true;
-    } catch {
-      return false;
-    }
+    return this.saveMetadata('pageRanks', pageRanks);
   }
 
   // Workspace info cache
@@ -352,22 +395,12 @@ class WorkspaceCache {
   }
 
   loadAggregateSummary() {
-    try {
-      const raw = this._graphDb.getMetadata('aggregateSummary');
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
+    // Already loaded by schema-driven load(); return memory value directly
+    return this.aggregateSummary;
   }
 
   saveAggregateSummary(summary) {
-    try {
-      this._graphDb.setMetadata('aggregateSummary', JSON.stringify(summary));
-      return true;
-    } catch {
-      return false;
-    }
+    return this.saveMetadata('aggregateSummary', summary);
   }
 
   /**

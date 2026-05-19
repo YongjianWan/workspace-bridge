@@ -1,119 +1,47 @@
 /**
- * Dependency graph tools - Fixed version with proper path handling
+ * Dependency graph tools — thin router over operation handlers.
+ * Add new operations by creating a file in ./dep-tools/ and registering below.
  */
-const path = require('path');
 const { resolveWorkspaceFilePath, normalizePathKey } = require('../utils/path');
-const { DEFAULTS } = require('../config/constants');
-const { classifyUnresolved, classifyDeadExports, attachHonesty } = require('./honesty-engine');
-const { getCoChangePartners } = require('./cochange-tools');
+
+// Operation registry — thin mapping, handlers live in ./dep-tools/
+const OPERATIONS = {
+  stats: require('./dep-tools/stats'),
+  dependencies: require('./dep-tools/dependencies'),
+  dependents: require('./dep-tools/dependents'),
+  impact: require('./dep-tools/impact'),
+  cycles: require('./dep-tools/cycles'),
+  dead_exports: require('./dep-tools/dead-exports'),
+  unresolved: require('./dep-tools/unresolved'),
+  affected_tests: require('./dep-tools/affected-tests'),
+};
+
+// Operations that require a resolved file path
+const FILE_REQUIRED = new Set([
+  'dependencies', 'dependents', 'impact', 'affected_tests',
+]);
 
 async function dependencyGraph(args, container) {
   await container.ensureReady();
-  
+
   if (!container.depGraph) {
     return { ok: false, error: 'Dependency graph not available' };
   }
 
   const operation = args?.operation || 'stats';
+  const handler = OPERATIONS[operation];
+  if (!handler) {
+    return { ok: false, error: `Unknown operation: ${operation}` };
+  }
+
   const root = container.workspaceRoot;
-  
-  // Resolve file path to absolute for consistent lookup
   const filePath = args?.file ? normalizePathKey(resolveWorkspaceFilePath(args.file, root)) : null;
 
-  switch (operation) {
-    case 'stats':
-      return {
-        ok: true,
-        stats: container.depGraph.getStats(),
-      };
-    
-    case 'dependencies':
-      if (!filePath) return { ok: false, error: 'file is required for dependencies' };
-      const deps = container.depGraph.getDependencies(filePath);
-      return {
-        ok: true,
-        file: args.file,
-        resolvedPath: container.depGraph._displayPath?.(filePath) || filePath,
-        dependenciesCount: deps.length,
-        dependencies: deps.map((d) => container.depGraph._displayPath?.(d) || d),
-      };
-    
-    case 'dependents':
-      if (!filePath) return { ok: false, error: 'file is required for dependents' };
-      const dents = container.depGraph.getDependents(filePath);
-      return {
-        ok: true,
-        file: args.file,
-        resolvedPath: container.depGraph._displayPath?.(filePath) || filePath,
-        dependentsCount: dents.length,
-        dependents: dents.map((d) => container.depGraph._displayPath?.(d) || d),
-      };
-    
-    case 'impact':
-      if (!filePath) return { ok: false, error: 'file is required for impact analysis' };
-      const impactDepth = Number.isFinite(args?.maxDepth) ? Math.max(1, args.maxDepth) : DEFAULTS.AFFECTED_TEST_DEPTH;
-      const impact = container.depGraph.getImpactRadius(filePath, impactDepth);
-      const symbolImpact = container.depGraph.getSymbolImpact(filePath);
-      const coChangeData = container.cache?.coChanges || null;
-      const relativeFile = path.relative(root, filePath).replace(/\\/g, '/');
-      const coChanges = coChangeData ? getCoChangePartners(relativeFile, coChangeData, { minCount: 2, partnerLimit: 10 }) : [];
-      return {
-        ok: true,
-        file: args.file,
-        resolvedPath: container.depGraph._displayPath?.(filePath) || filePath,
-        impactCount: impact.length,
-        impact,
-        symbolImpact,
-        coChanges,
-      };
-    
-    case 'cycles':
-      const cycles = container.depGraph.findCircularDependencies();
-      return {
-        ok: true,
-        cyclesCount: cycles.length,
-        cycles,
-      };
-    
-    // Phase 3: 跨文件分析查询
-    case 'dead_exports': {
-      const deadExports = container.depGraph.findDeadExports();
-      const classifications = classifyDeadExports(deadExports, container.depGraph);
-      const result = {
-        ok: true,
-        deadExportsCount: deadExports.length,
-        deadExports,
-      };
-      return attachHonesty(result, 'dead_exports', classifications, container.workspaceRoot);
-    }
-    
-    case 'unresolved': {
-      const unresolved = container.depGraph.findUnresolvedImports();
-      const classifications = classifyUnresolved(unresolved, container.workspaceRoot);
-      const result = {
-        ok: true,
-        unresolvedCount: unresolved.length,
-        unresolved,
-      };
-      return attachHonesty(result, 'unresolved', classifications, container.workspaceRoot);
-    }
-    
-    case 'affected_tests':
-      if (!filePath) return { ok: false, error: 'file is required for affected_tests' };
-      const maxDepth = Number.isFinite(args?.maxDepth) ? Math.max(1, args.maxDepth) : DEFAULTS.AFFECTED_TEST_DEPTH;
-      const affectedTests = container.depGraph.findAffectedTests(filePath, maxDepth);
-      return {
-        ok: true,
-        file: args.file,
-        resolvedPath: container.depGraph._displayPath?.(filePath) || filePath,
-        maxDepth,
-        affectedTestsCount: affectedTests.length,
-        affectedTests,
-      };
-    
-    default:
-      return { ok: false, error: `Unknown operation: ${operation}` };
+  if (FILE_REQUIRED.has(operation) && !filePath) {
+    return { ok: false, error: `file is required for ${operation}` };
   }
+
+  return handler(args, container, filePath);
 }
 
 module.exports = {

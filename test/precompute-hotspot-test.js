@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Precomputed hotspot/stability integration test.
- * Verifies that container initialization triggers precompute,
- * and buildProjectOverview reuses the cached data.
+ * Verifies that hotspot/stability are computed on-demand by buildProjectOverview
+ * and cached for reuse (precompute-on-demand).
  */
 const assert = require('assert');
 const path = require('path');
@@ -39,14 +39,17 @@ async function testPrecomputeHotspotsAndStability() {
 
     const analyzer = container.depGraph.analyzer;
     assert(analyzer._aggregateCache, 'aggregate cache should exist after build');
-    assert(Array.isArray(analyzer._aggregateCache.hotspots), 'hotspots should be precomputed');
-    assert(Array.isArray(analyzer._aggregateCache.stability), 'stability should be precomputed');
+    // Precompute-on-demand: hotspots/stability are NOT computed during initialize()
+    assert.strictEqual(analyzer._aggregateCache.hotspots, null, 'hotspots should be null before first query');
+    assert.strictEqual(analyzer._aggregateCache.stability, null, 'stability should be null before first query');
 
-    // buildProjectOverview should reuse cached data (same array reference)
+    // buildProjectOverview triggers on-demand precompute on first call
     const result1 = await buildProjectOverview({ quiet: true }, container);
     assert(result1.ok, 'audit-overview should succeed');
     assert(Array.isArray(result1.hotspots), 'result should have hotspots');
     assert(Array.isArray(result1.stability), 'result should have stability');
+    assert(Array.isArray(analyzer._aggregateCache.hotspots), 'hotspots should be cached after first query');
+    assert(Array.isArray(analyzer._aggregateCache.stability), 'stability should be cached after first query');
 
     // Verify cache reuse:
     // buildHotspotVisualizationData sorts hotspots in-place via .sort().

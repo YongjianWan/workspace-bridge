@@ -164,12 +164,7 @@ class ServiceContainer {
       quiet: this.quiet,
     });
     await this.depGraph.build(this.fileIndex?._indexedFiles || null);
-    // P2: precompute hotspot/stability so audit-overview is O(1)
-    await this._precomputeOverview();
-    // P3: precompute co-change partners from git history (only if cache miss)
-    if (!this.cache?.coChanges) {
-      await this._precomputeCoChanges();
-    }
+    // Precompute-on-demand: hotspot/stability and co-changes computed on first query
   }
 
   _registerCallbacks() {
@@ -182,9 +177,8 @@ class ServiceContainer {
     this.fileIndex.onPendingProcessed = async (files) => {
       try {
         await this.depGraph?.updateFiles?.(files);
-        // P2: recompute hotspot/stability after incremental update
-        await this._precomputeOverview();
-        // P3: co-change is based on git history, not file changes; skip here
+        // Hotspot/stability recomputed on next query (precompute-on-demand)
+        // Co-change is based on git history, not file changes; skip here
       } catch (e) {
         console.error(`[Container] DepGraph incremental update failed:`, e.message);
       }
@@ -192,10 +186,13 @@ class ServiceContainer {
   }
 
   async _precomputeOverview() {
-    if (!this.depGraph?.analyzer?._aggregateCache) return;
+    if (!this.depGraph?.analyzer) return;
     try {
       const { precomputeHotspotsAndStability } = require('../tools/overview-tools');
       const { hotspots, stability } = await precomputeHotspotsAndStability(this.depGraph);
+      if (!this.depGraph.analyzer._aggregateCache) {
+        this.depGraph.analyzer._aggregateCache = { version: this.depGraph.analyzer._aggregateVersion };
+      }
       if (hotspots) this.depGraph.analyzer._aggregateCache.hotspots = hotspots;
       if (stability) this.depGraph.analyzer._aggregateCache.stability = stability;
     } catch (e) {
@@ -216,6 +213,20 @@ class ServiceContainer {
       if (process.env.DEBUG) {
         console.error('[Container] Precompute co-changes failed:', e.message);
       }
+    }
+  }
+
+  /**
+   * On-demand precompute — called by query paths when cached data is missing.
+   * Eliminates unconditional预热 in initialize() for lightweight commands (tree/stats).
+   */
+  async ensurePrecomputed(types) {
+    if (!Array.isArray(types)) types = [types];
+    if (types.includes('overview')) {
+      await this._precomputeOverview();
+    }
+    if (types.includes('cochanges') && !this.cache?.coChanges) {
+      await this._precomputeCoChanges();
     }
   }
 
