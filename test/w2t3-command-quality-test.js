@@ -96,6 +96,23 @@ function main() {
   const bothChanged = generateCommands(nodePythonMixed, 'code', ['app.ts', 'app.py']);
   assert(bothChanged.smoke.some((c) => c.name === 'node-lint'), 'Mixed both should keep node smoke');
   assert(bothChanged.smoke.some((c) => c.name === 'python-lint'), 'Mixed both should keep python smoke');
+
+  // --- Node custom runner: should not generate meaningless 'npx custom <files>' focused tests ---
+  const customNodeStack = {
+    profile: 'node-first',
+    node: { enabled: true, packageManager: 'npm', testRunner: 'custom', linters: [] },
+  };
+  const customNodeCode = generateCommands(customNodeStack, 'code', ['src/app.js']);
+  assert(!customNodeCode.focused.some((c) => c.name === 'node-focused-tests'), 'Custom runner should not generate focused tests');
+  assert(customNodeCode.full.some((c) => c.name === 'node-all-tests' && c.cmd === 'npm run test'), 'Custom runner should still generate full test command');
+
+  // --- Node jest runner: should generate focused tests for .js files ---
+  const jestNodeStack = {
+    profile: 'node-first',
+    node: { enabled: true, packageManager: 'npm', testRunner: 'jest', linters: [] },
+  };
+  const jestNodeCode = generateCommands(jestNodeStack, 'code', ['src/app.js']);
+  assert(jestNodeCode.focused.some((c) => c.name === 'node-focused-tests' && c.cmd.includes('jest')), 'Jest runner should generate focused tests');
 }
 
 main();

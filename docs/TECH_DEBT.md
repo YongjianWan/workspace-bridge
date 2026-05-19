@@ -19,39 +19,11 @@
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
-#### CLI 设计缺陷迫使 skill 膨胀（根本问题）
-
-**数据**：SKILL.md 已从 395 行精简至 ~264 行，仍厚于理想状态（50 行）。命令分层混乱：20+ 命令中 L4 原始查询（`dead-exports`/`cycles`/`unresolved`/`dependencies`/`dependents`/`stats`/`tree`）被 L1 aggregate 命令（`audit-summary`/`audit-file`）完全覆盖，但作为一等公民暴露；`health` 与 `audit-summary.health` **数据完全重合**；`dependents` 是 `impact` 的子集。AI 不知道该用 aggregate 还是 raw。
-
-**根因**：**不是"文档写太长"，是 CLI 把策展工作外包给 AI**。具体：
-- `--format ai` broken → AI 被迫自己筛 235 行 raw JSON
-- `health` / `dependents` 等命令分层混乱 → L4 原始查询与 L1 aggregate 混在同一层级暴露，AI 被迫学"什么时候用哪个"，文档被迫当说明书
-- exit code 反模式 → AI 拿到 exit=1 第一反应"命令挂了"，文档被迫解释"exit code 语义"
-
-**影响**：SKILL.md ~264 行里 ~200 行是"怎么绕过 CLI 缺陷"的补偿性指南。擦的是不该存在的屁股。
-
-**更深层的定位修正**：workspace-bridge 不是"AI 的替代方案"，而是**"所有 AI（IDE + 终端）都需要的基础设施"**——就像数据库索引。IDE AI（Cursor/Claude）没有预建的全局 import/export 图、影响半径计算、死代码 AST 检测——它们只有 LSP（单文件）和 RAG（语义检索）。真正危险的不是"AI IDE 做得更好"，而是"**用户以为 AI IDE 已经做了，所以不需要你**"。
-
-**方案**：病根全在 CLI 出口质量。优先级：
-1. ✅ 修 `--check-regression` crash → 已修复，`makeCycleKey` 防御 `item.files` 缺失
-2. ✅ 修 exit code → 已修复，`determineExitCode()` 定义 0=成功/1=业务失败/2=崩溃
-3. ✅ 修 `--format ai`（depth/token-budget 生效）→ 已修复，`formatAi` + `--depth` + `--token-budget` 已交付
-4. ✅ **分层暴露**：`--help` 已按 L1/L2/L3/L4 分组输出；`health` 已标注 deprecated；L4 命令（`dead-exports`/`cycles`/`unresolved`/`dependencies`/`dependents`/`stats`/`tree`）已标记为 debug 层级
-5. ✅ 默认输出改 markdown → 已修复，见 CHANGELOG
-6. ✅ `--incremental` 增量逻辑可见化 → 已修复，human-readable 输出直接展示增量发现
-7. 届时 SKILL.md 可缩至 ~80 行：L1 命令表 + L2 场景指南 + 版本锁定
-
-#### cli.js 厚门面（部分缓解）
-
-**数据**：~974 行（`formatHuman` 等 formatter 逻辑已提取至 `human-formatters.js` ~720 行），剩余 `runCommand` ~350 行 switch 覆盖 20+ 命令。
-
-**影响**：新增命令仍需改 `runCommand` 路由和 `human-formatters.js`，但 formatter 逻辑不再耦合在 cli.js 中。
-
-**方案**：`runCommand` 可进一步拆分为 `src/cli/commands/` 目录下的独立处理器文件，每个命令一个模块。当前已足够，暂缓。
+无。
 
 ---
 
-## 测试代码债务（122 文件 / ~376 函数）
+## 测试代码债务（129 文件）
 
 #### 弱断言分布 — 占总断言数 ~3.0%
 
@@ -79,11 +51,11 @@
 
 | 类型 | 文件数 | 占比 | 评估 |
 |------|--------|------|------|
-| 单元测试（直接 `require src/`） | 97 | 83% | 比例良好 |
-| 集成测试（`spawn`/`runCli`） | 24 | 20% | **比例偏低** |
+| 单元测试（直接 `require src/`） | ~101 | 78% | 比例良好 |
+| 集成测试（`spawn`/`runCli`） | 24 | 19% | **比例偏低** |
 | 混沌/模糊测试 | 0 | 0% | **严重缺失**（CLI 工具暂缓） |
 | 并发/竞争测试 | 5 个文件 | 4% | 存在（race、concurrency） |
-| 端到端测试 | 3 个文件 | 3% | **严重不足**（仅 functionality/formatter-e2e/integration-core） |
+| 端到端测试 | 3 个文件 | 2% | **严重不足**（仅 functionality/formatter-e2e/integration-core） |
 
 **根因**：80% 单元测试 + 弱断言已从 ~76 处降至 ~35 处（~2.3%）。当前主要缺口是 CLI 管道回归保护不足，不是"函数返回了结构正确的对象"。
 
@@ -151,7 +123,7 @@
 | --------------------- | ----------------------------------------------------------------- | ------ |
 | `git-tools.js`      | `getChangedFiles()` 手动字符级解析；`--since` 已新增，字符级解析债务仍在 | 低     |
 | `js.js`             | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行 | 低     |
-| `cli.js` / `formatters` | `--json` 嵌套深、体积大，`--compact` 后仍有 400 行，管道场景不友好；默认 human-readable 输出缺乏实战打磨。**根因是 CLI 不输出预消化报告，迫使 skill 变厚补偿** | 中     |
+| `cli.js` / `formatters` | `--json` 嵌套深、体积大，`--compact` 后仍有 400 行，管道场景不友好；默认 human-readable 输出缺乏实战打磨 | 中     |
 
 ---
 
@@ -161,7 +133,7 @@
 | ------------------------------------------- | ---- | ------------ | --------------------------------------------------------- |
 | `src/services/dep-graph.js`               | ~1582 | **高** | 核心引擎类，AGENTS.md 已确认"内聚优先、不物理拆分"        |
 | `src/tools/overview-tools.js`             | ~868 | 中           | JS/CSS 裸数字已归零（`DASHBOARD_LAYOUT` 常量）；L2-5 schema 不一致源 |
-| `cli.js`                                  | ~974 | 中           | `formatHuman` 已提取至 `human-formatters.js`，剩余 `runCommand` 路由；L2-8/L2-9 参数路由源 |
+| `cli.js`                                  | ~509 | 低           | `runCommand` 已拆分为 `src/cli/commands/*.js` + `COMMANDS` 注册表；仅保留参数解析、退出码语义、格式化输出调度 |
 | `src/tools/git-tools.js`                  | ~358 | 低           | `getChangedFiles()` 手动字符级解析是已知债务；6 个死函数已清理（-309 行）；L2-9 commit range 源 |
 | `src/tools/security-tools.js`             | ~170 | 低           | `--builtin-only` 已新增；L2-8 已关闭                        |
 | `src/cli/formatters/validation-advice.js` | ~312 | 低           | 已拆为 6 个纯函数；文件变长是因为总代码量增加，内聚性提升 |

@@ -22,7 +22,9 @@ function buildNodeTestCommand(runner, files, execConfig) {
   if (runner === 'vitest') return { command, args: [...args, 'vitest', 'run', ...files] };
   if (runner === 'jest') return { command, args: [...args, 'jest', ...files] };
   if (runner === 'mocha') return { command, args: [...args, 'mocha', ...files] };
-  // Best-effort for unknown/custom runners: exec the runner with files if any
+  // Custom/unknown runner: cannot reliably run focused tests per-file
+  if (runner === 'custom') return null;
+  // Best-effort for other unknown runners: exec the runner with files if any
   if (files.length > 0) {
     return { command, args: [...args, runner, ...files] };
   }
@@ -125,9 +127,11 @@ function getNodeCommands(nodeStack, changeType, targets) {
       commands.smoke.push({ name: 'node-type-check', description: 'Run TypeScript type check', executable: { command: execCmd, args: [...execArgs, 'tsc', '--noEmit'] } });
     }
     if (nodeStack.testRunner) {
-      const testExec = buildNodeTestCommand(nodeStack.testRunner, codeTargets, exec);
       if (codeTargets.length > 0) {
-        commands.focused.push({ name: 'node-focused-tests', description: 'Run node-side focused tests', executable: testExec });
+        const testExec = buildNodeTestCommand(nodeStack.testRunner, codeTargets, exec);
+        if (testExec) {
+          commands.focused.push({ name: 'node-focused-tests', description: 'Run node-side focused tests', executable: testExec });
+        }
       }
       commands.full.push({ name: 'node-all-tests', description: 'Run node-side full test suite', executable: { command: runCmd, args: [...runArgs, 'test'] } });
     }

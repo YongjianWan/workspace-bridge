@@ -211,6 +211,9 @@ const CONFIDENCE = {
   LOW_VALUE: 0.5,
 };
 
+// CLI/API schema version. Increment when JSON output structure changes.
+const SCHEMA_VERSION = '1.2.0';
+
 // Cache schema version. Increment when persistent cache structure changes.
 // Both WorkspaceCache (JSON fallback) and GraphDB (SQLite) must use the same version.
 const CACHE_VERSION = 3;
@@ -231,4 +234,5 @@ module.exports = {
   CONFIDENCE,
   CACHE_VERSION,
   STREAMING,
+  SCHEMA_VERSION,
 };

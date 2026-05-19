@@ -32,11 +32,39 @@ function testAuditFileDeep() {
     initGit(tempRoot);
 
     const result = runCli(['audit-file', '--cwd', tempRoot, '--file', 'src/util.js', '--json', '--quiet']);
-    assert(typeof result.impact?.impactCount === 'number', 'audit-file should return impact.impactCount');
+    assert(Number.isFinite(result.impact?.impactCount), 'audit-file should return impact.impactCount');
     assert(result.impact.impactCount >= 1, 'util.js should have at least 1 dependent');
-    assert(typeof result.affectedTests?.affectedTestsCount === 'number', 'audit-file should return affectedTests.affectedTestsCount');
+    assert(Number.isFinite(result.affectedTests?.affectedTestsCount), 'audit-file should return affectedTests.affectedTestsCount');
     assert(result.affectedTests.affectedTestsCount >= 1, 'util.js should affect at least 1 test');
     assert(Array.isArray(result.impact?.symbolImpact?.impactedFiles), 'impact.symbolImpact.impactedFiles should be an array');
+  } finally {
+    cleanupTempDir(tempRoot);
+  }
+}
+
+function testAuditFileCustomRunnerValidationAdvice() {
+  const tempRoot = makeTempDir('wb-cli-custom-runner-');
+  try {
+    // No jest/vitest/mocha config => detectStack returns 'custom' testRunner
+    writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'cr-test', version: '1.0.0', main: 'src/app.js', scripts: { test: 'node test/runner.js' } }, null, 2));
+    writeFile(tempRoot, 'src/app.js', 'export function run() { return 1; }\n');
+    writeFile(tempRoot, 'test/app.test.js', 'import { run } from "../src/app";\nexport function t() { return run(); }\n');
+    initGit(tempRoot);
+
+    const result = runCli(['audit-file', '--cwd', tempRoot, '--file', 'src/app.js', '--json', '--quiet']);
+    const advice = result.validationAdvice;
+    assert(advice, 'audit-file should return validationAdvice');
+    assert.strictEqual(advice.stackProfile, 'node-first', 'should detect node-first stack');
+    // Custom runner must NOT produce meaningless 'npx custom <files>'
+    const focused = advice.commands?.find((c) => c.name === 'node-focused-tests');
+    assert(!focused, 'custom runner should not generate node-focused-tests');
+    // Full test command should be present and executable
+    const full = advice.commands?.find((c) => c.name === 'node-all-tests');
+    assert(full, 'custom runner should generate node-all-tests');
+    assert(full.cmd.includes('test'), 'full test command should reference test');
+    // suggestedCommand should fall back to full suite, not 'npx custom ...'
+    assert(advice.suggestedCommand, 'suggestedCommand should not be null');
+    assert(!advice.suggestedCommand.includes('custom'), 'suggestedCommand must not include meaningless "custom"');
   } finally {
     cleanupTempDir(tempRoot);
   }
@@ -51,7 +79,7 @@ function testDeadExports() {
     initGit(tempRoot);
 
     const result = runCli(['dead-exports', '--cwd', tempRoot, '--json', '--quiet']);
-    assert(typeof result.deadExportsCount === 'number', 'dead-exports should return deadExportsCount');
+    assert(Number.isFinite(result.deadExportsCount), 'dead-exports should return deadExportsCount');
     assert(result.deadExportsCount >= 1, 'should find at least 1 dead export');
     const found = result.deadExports?.find((d) => path.basename(d.file) === 'lib.js');
     assert(found, 'src/lib.js should appear in dead exports');
@@ -104,11 +132,100 @@ function testImpactDepth() {
   }
 }
 
+function testAffectedTests() {
+  const tempRoot = makeTempDir('wb-cli-affected-tests-');
+  try {
+    writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'at-test', version: '1.0.0', main: 'src/app.js' }, null, 2));
+    writeFile(tempRoot, 'src/util.js', 'export function helper() { return 1; }\n');
+    writeFile(tempRoot, 'src/app.js', 'import { helper } from "./util";\nexport function run() { return helper(); }\n');
+    writeFile(tempRoot, 'test/app.test.js', 'import { run } from "../src/app";\nexport function t() { return run(); }\n');
+    initGit(tempRoot);
+
+    const result = runCli(['affected-tests', '--cwd', tempRoot, '--file', 'src/util.js', '--json', '--quiet']);
+    assert(Number.isFinite(result.affectedTestsCount), 'affected-tests should return affectedTestsCount');
+    assert(result.affectedTestsCount >= 1, 'src/util.js should affect at least 1 test');
+    assert(
+      result.affectedTests.some((t) => path.basename(t.file) === 'app.test.js'),
+      'affected-tests should include test/app.test.js'
+    );
+  } finally {
+    cleanupTempDir(tempRoot);
+  }
+}
+
+function testDependencies() {
+  const tempRoot = makeTempDir('wb-cli-dependencies-');
+  try {
+    writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'dep-test', version: '1.0.0', main: 'src/app.js' }, null, 2));
+    writeFile(tempRoot, 'src/lib.js', 'export const x = 1;\n');
+    writeFile(tempRoot, 'src/app.js', 'import { x } from "./lib";\nexport const y = x;\n');
+    initGit(tempRoot);
+
+    const result = runCli(['dependencies', '--cwd', tempRoot, '--file', 'src/app.js', '--json', '--quiet']);
+    assert(Array.isArray(result.dependencies), 'dependencies should return an array');
+    assert(result.dependencies.length >= 1, 'src/app.js should have at least 1 dependency');
+    assert(
+      result.dependencies.some((d) => path.basename(d.file || d) === 'lib.js'),
+      'dependencies should include src/lib.js'
+    );
+  } finally {
+    cleanupTempDir(tempRoot);
+  }
+}
+
+function testDependents() {
+  const tempRoot = makeTempDir('wb-cli-dependents-');
+  try {
+    writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'dent-test', version: '1.0.0', main: 'src/app.js' }, null, 2));
+    writeFile(tempRoot, 'src/lib.js', 'export const x = 1;\n');
+    writeFile(tempRoot, 'src/app.js', 'import { x } from "./lib";\nexport const y = x;\n');
+    initGit(tempRoot);
+
+    const result = runCli(['dependents', '--cwd', tempRoot, '--file', 'src/lib.js', '--json', '--quiet']);
+    assert(Array.isArray(result.dependents), 'dependents should return an array');
+    assert(result.dependents.length >= 1, 'src/lib.js should have at least 1 dependent');
+    assert(
+      result.dependents.some((d) => path.basename(d.file || d) === 'app.js'),
+      'dependents should include src/app.js'
+    );
+  } finally {
+    cleanupTempDir(tempRoot);
+  }
+}
+
+function testCycles() {
+  const tempRoot = makeTempDir('wb-cli-cycles-');
+  try {
+    writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'cycle-test', version: '1.0.0', main: 'src/a.js' }, null, 2));
+    writeFile(tempRoot, 'src/a.js', 'import { b } from "./b";\nexport function a() { return b(); }\n');
+    writeFile(tempRoot, 'src/b.js', 'import { c } from "./c";\nexport function b() { return c(); }\n');
+    writeFile(tempRoot, 'src/c.js', 'import { a } from "./a";\nexport function c() { return a(); }\n');
+    initGit(tempRoot);
+
+    const result = runCli(['cycles', '--cwd', tempRoot, '--json', '--quiet']);
+    assert(Number.isFinite(result.cyclesCount), 'cycles should return cyclesCount');
+    assert(result.cyclesCount >= 1, 'should detect at least 1 cycle in a→b→c→a');
+    assert(Array.isArray(result.cycles), 'cycles should return an array of cycles');
+    const cycleFiles = result.cycles.flat();
+    assert(
+      cycleFiles.some((f) => path.basename(f) === 'a.js'),
+      'cycle should include src/a.js'
+    );
+  } finally {
+    cleanupTempDir(tempRoot);
+  }
+}
+
 function main() {
   testAuditFileDeep();
+  testAuditFileCustomRunnerValidationAdvice();
   testDeadExports();
   testTree();
   testImpactDepth();
+  testAffectedTests();
+  testDependencies();
+  testDependents();
+  testCycles();
   console.log('cli-integration-test.js: all passed');
 }
 

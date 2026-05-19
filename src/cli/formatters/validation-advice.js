@@ -80,15 +80,15 @@ function buildValidationAdvice(entries, workspaceRoot) {
 function buildFileSpecificAdvice(ext, stackProfile) {
   const advice = [];
   if (ext === '.vue' && stackProfile === 'node-first') {
-    advice.push('检查模板绑定和组件 props 变更是否同步更新。');
+    advice.push('Verify template bindings and component prop changes are synchronized.');
   } else if (ext === '.java' && stackProfile === 'java-first') {
-    advice.push('检查接口契约变更和下游 Controller/Service 调用方兼容性。');
+    advice.push('Check interface contract changes and downstream Controller/Service caller compatibility.');
   } else if (ext === '.py' && stackProfile === 'python-first') {
-    advice.push('检查模型字段变更是否需配套迁移脚本。');
+    advice.push('Check if model field changes require a companion migration script.');
   } else if (ext === '.go' && stackProfile === 'go-first') {
-    advice.push('检查接口变更是否破坏已有实现方（interface compliance）。');
+    advice.push('Verify interface changes do not break existing implementers (interface compliance).');
   } else if (ext === '.rs' && stackProfile === 'rust-first') {
-    advice.push('检查 trait 实现变更是否影响下游依赖（trait bound compliance）。');
+    advice.push('Check trait implementation changes affect downstream dependencies (trait bound compliance).');
   }
   return advice;
 }
