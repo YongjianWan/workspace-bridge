@@ -8,6 +8,46 @@
 
 ## [Unreleased]
 
+### 优化（阶段 2：`--format summary` 纯模板摘要深化 + hotspot reason 组合展示 — 2026-05-19）
+
+- **`--format summary` 补全 10 个命令的紧凑输出** `src/cli/formatters/human-formatters.js` `test/formatter-direct-test.js`：
+  - 问题：`formatSummary()` 仅对 8 个命令有专用 case，`workspace-info`/`diagnostics`/`audit-map`/`stats`/`dependencies`/`dependents`/`dead-exports`/`unresolved`/`cycles`/`tree` 等 10 个命令 fallback 到 `formatHuman()`，导致 `--format summary` 下输出不紧凑。
+  - 修复：为上述 10 个命令逐一添加 `formatSummary` case，输出控制在 2-4 行关键结论（如 `Dependencies: 3\nsrc/a.js, src/b.js`），与已有 summary 风格保持一致。
+  - 验证：`formatter-direct-test.js` 新增 `testFormatSummaryMissingCommands()` 覆盖全部 10 个命令；fast 101/101 PASS。
+
+- **hotspot `reason` 组合展示：耦合信号不再被历史信号淹没** `src/tools/overview-tools.js`：
+  - 问题：`buildHotspots()` 中 reason 构建仅在 `coupling.total > COUPLING_MEDIUM_MIN`（10）时才把耦合信息拼接进 reason；对于 coupling 5-9 的高耦合新文件，reason 只显示 git 历史信号（如"No tracked history"），AI 无法从 reason 中获知真正风险来自被大量模块依赖（AGENTS.md §已知陷阱）。
+  - 修复：拆分 `historySignal` 与 `couplingSignal`，只要 `coupling.total > 0` 就始终将耦合信息纳入 reason；两者共存时格式为 `耦合 X 个模块 · <historySignal>`。
+  - 验证：`overview-tools-concurrency-test.js` / `overview-tools-test.js` / `precompute-hotspot-test.js` 均不硬编码 reason 字符串，无回归；fast 101/101 PASS。
+
+### 重构（P2：CLI 路由表化 — 2026-05-19）
+
+- **将 `cli.js` `runCommand` ~350 行 switch 拆分为 `src/cli/commands/*.js` 独立处理器 + `COMMANDS` 注册表** `cli.js` `src/cli/commands/` `src/utils/async.js` `src/config/constants.js`：
+  - 问题：`cli.js` 1044 行中 `runCommand` 占 ~350 行硬编码 switch，覆盖 21 个命令。新增命令必须修改 `runCommand` 路由，formatter 和路由耦合在同一文件。
+  - 提取共享辅助函数：`SCHEMA_VERSION` 从 `cli.js` 顶部移至 `src/config/constants.js`（裸数字归零）；`mapWithConcurrency` 从 `cli.js` 提取至 `src/utils/async.js`（通用并发工具归位 utils）；`requireFile` + `severityMeetsFilter` + `validateCwd` 提取至 `src/cli/commands/_utils.js`（命令层共享工具）。
+  - 新建 21 个命令处理器：`src/cli/commands/{workspace-info,diagnostics,audit-summary,audit-file,audit-diff,audit-overview,audit-map,health,audit-security,stats,dependencies,dependents,dead-exports,unresolved,cycles,impact,affected-tests,tree,repl,watch,init}.js`，统一签名 `async function handler(parsed, container)`。
+  - 新建注册表：`src/cli/commands/index.js` 导出 `COMMANDS` 映射表，与 `dep-tools.js` 的 `OPERATIONS` 注册表形成对称。
+  - `cli.js` 瘦身：从 ~1044 行降至 ~509 行；`runCommand` 从 ~350 行 switch 压缩为 6 行注册表查找；顶部 require 从 15+ 个工具模块降至 5 个核心模块（ServiceContainer、toPosixPath、formatters、parseArgs、constants）。
+  - 结果：新增命令只需"一个文件 + 注册表一行"，不再需要修改 `cli.js`。P0-P4 规划中最后一个结构性债务清零。
+  - 验证：`audit-summary`/`audit-file`/`impact`/`workspace-info`/`stats`/`--help` 均正常；fast 101/101 PASS；全量 runner 129/129 PASS。
+
+### 测试（CLI 集成测试补齐 — 2026-05-19）
+
+- **扩展 `test/cli-integration-test.js` 覆盖 4 个缺乏管道回归保护的命令** `test/cli-integration-test.js`：
+  - 问题：`affected-tests`/`dependencies`/`dependents`/`cycles` 等命令只有单元测试（直接 `require src/`），没有通过真实 CLI 进程的端到端验证；参数传递、exit code、JSON 输出契约缺乏回归保护。
+  - `testAffectedTests`：创建有测试关联场景的项目（`src/util.js` → `src/app.js` → `test/app.test.js`），验证 `affected-tests --file src/util.js` 返回 `test/app.test.js`。
+  - `testDependencies`：创建 import 链项目，验证 `dependencies --file src/app.js` 返回 `src/lib.js`。
+  - `testDependents`：创建 import 链项目，验证 `dependents --file src/lib.js` 返回 `src/app.js`。
+  - `testCycles`：创建循环依赖项目（`a→b→c→a`），验证 `cycles` 检测到至少 1 个循环，且循环包含 `src/a.js`。
+  - 结果：cli-integration-test.js 从 4 个测试扩展到 8 个，slow 层 24/24 PASS。
+
+### 修复（P0：`--exclude` Windows 反斜杠兼容性 — 2026-05-19）
+
+- **CLI 入口对 `--exclude` 值统一归一化正斜杠** `cli.js` `test/cli-exclude-backslash-test.js`：
+  - 问题：Windows 用户本能写 `--exclude src\views`（反斜杠分隔），`parseCliArgs` 原样传递反斜杠给 `shouldExcludeCli`；非 glob 模式下 `matchesPathFragment` 内部已有 `toPosixPath` 可兼容，但 glob 模式下正则构建直接把反斜杠当作字面量匹配，导致正斜杠路径无法命中。
+  - 修复：`cli.js` `exclude` 解析链中对每个 part 调用 `toPosixPath()`，与已有 `raw.file` 的处理模式保持一致。`src\views` → `src/views`、`src\views\*.js` → `src/views/*.js`。
+  - 测试：`test/cli-exclude-backslash-test.js` 覆盖：正斜杠排除生效、反斜杠排除结果与正斜杠一致、反斜杠 glob 与正斜杠 glob 行为一致、混合分隔符单目录排除。
+
 ### 修复（`--format ai` 完整管道 + CLI 集成测试补齐 — 2026-05-19）
 
 - **修复 `--format ai` 对非 audit-summary 命令返回纯文本的契约不一致** `src/cli/formatters/human-formatters.js`：
@@ -238,6 +278,46 @@
   - `container.js` `_precomputeOverview()`：防御性增强——若 `_aggregateCache` 不存在则创建最小缓存对象，确保首次运行也能存入 hotspot/stability。
   - 测试：`precompute-hotspot-test.js` 断言同步更新：初始化后 `hotspots`/`stability` 为 `null`，首次 `buildProjectOverview` 调用后触发计算并缓存，第二次调用复用同一引用。
   - 向后兼容：`ensurePrecomputed` 调用前检查 `container.ensurePrecomputed` 存在性，mock container 无此方法时安全降级为实时计算；`dependencyGraph` 签名不变。
+
+### 修复（`npx custom` 无意义 focused 测试命令 — 2026-05-19）
+
+- **当 Node 测试 runner 为 `custom` 时，禁止生成 `npx custom <files>` 不可执行命令** `src/utils/stack-detectors/commands.js` `test/w2t3-command-quality-test.js` `test/cli-integration-test.js`：
+  - 问题：`detectStack` 在未检测到 jest/vitest/mocha 配置时返回 `testRunner: 'custom'`；`buildNodeTestCommand` 对 `custom` 的处理是 `npx custom <files>`，在任何实际项目中都不可执行。`audit-file` / `audit-diff` 的 `validationAdvice.suggestedCommand` 因此变成 `npx custom ...` 而非合理的 `npm run test`。
+  - 修复：`buildNodeTestCommand` 中 `runner === 'custom'` 时直接返回 `null`（无法可靠运行 focused 测试）。`getNodeCommands` 中仅在 `testExec` 非 null 时才生成 `node-focused-tests`。
+  - 结果：`validationAdvice.suggestedCommand` 正确 fallback 到 `node-all-tests`（`npm run test`）；`commands.focused` 不再包含无意义命令。
+  - 测试：`w2t3-command-quality-test.js` 新增 custom runner 边界（不生成 focused、仍生成 full）和 jest runner 边界（正常生成 focused）。
+
+### 测试（CLI 集成测试：custom runner validation advice — 2026-05-19）
+
+- **扩展 `test/cli-integration-test.js` 覆盖 `audit-file` 的 `validationAdvice` 在 custom runner 场景下的正确性** `test/cli-integration-test.js`：
+  - `testAuditFileCustomRunnerValidationAdvice`：创建无 jest/vitest/mocha 配置但有 `scripts.test` 的临时项目，验证 `audit-file --file src/app.js` 返回的 `validationAdvice.suggestedCommand` 不为 null、不包含 `"custom"`，且 `commands` 数组中没有 `node-focused-tests` 但存在 `node-all-tests`。
+  - 弱断言清理：同文件中将 4 处 `typeof x === 'number'` 改为 `Number.isFinite(x)`，从 schema 契约检查升级为语义验证（确保值是有效数字而非仅类型正确）。
+  - slow 层 24/24 PASS。
+
+### 国际化（`fileSpecificAdvice` 默认英文 — 2026-05-19）
+
+- **将 `buildFileSpecificAdvice` 中的中文建议改为英文** `src/cli/formatters/validation-advice.js`：
+  - 问题：`audit-file` 对 `.vue`/`.java`/`.py`/`.go`/`.rs` 文件返回的 `fileSpecificAdvice` 是中文，非中文用户环境下 AI 无法直接消费。
+  - 修复：5 条语言专属建议全部改为英文，保持技术语义不变。
+  - 验证：`audit-file-validation-advice-test.js` PASS。
+
+### 测试（并发缓存冲突验证 — 2026-05-19）
+
+- **新增 `test/cache-concurrency-test.js` 验证 SQLite WAL 模式下的并发安全性** `test/cache-concurrency-test.js`：
+  - 问题：`graph-db.js` 使用 `better-sqlite3` WAL 模式，但从未验证过两个 CLI 进程同时读写同一缓存目录时的行为；如果 WAL 模式配置不当或并发写入冲突，可能导致 `SQLITE_BUSY` 或数据损坏。
+  - `testConcurrentCacheAccess`：两个并发 `audit-summary` 进程共享同一 `--cache-dir`，验证两者 exit code 均为 0、输出均为合法 JSON、stderr 不含 lock/busy 错误。
+  - `testSequentialThenConcurrentCacheAccess`：先顺序运行填充缓存，再并发读取，验证缓存内容一致性（healthScore 相同）。
+  - 结果：slow 层从 24 增至 25，25/25 PASS；并发读写安全得到回归保护。
+
+### 测试（E2E 实战测试：reference/GitNexus — 2026-05-19）
+
+- **新增 `test/e2e-gitnexus-test.js` 在真实第三方项目上验证 workspace-bridge 输出** `test/e2e-gitnexus-test.js`：
+  - 问题：所有 100+ 个测试都在 workspace-bridge 自身代码库（251 文件纯 JS）上运行，没有覆盖真实第三方项目的规模、文件结构差异和跨语言混合场景。
+  - `testAuditSummaryOnGitNexus`：验证 `audit-summary` 在 GitNexus（1329 文件）上成功返回、`coverageRatio=1`、输出结构完整。
+  - `testAuditFileOnGitNexus`：验证 `audit-file --file gitnexus/scripts/build.js` 成功返回且 `impactCount` 为有效数字。
+  - `testDeadExportsOnGitNexus`：验证 `dead-exports` 成功返回且每条目包含 `file` 和 `exports` 字段。
+  - 约束：不硬编码具体数字（GitNexus 可能更新），只验证输出结构和数据类型。
+  - 结果：slow 层从 25 增至 26，26/26 PASS；全量 runner 131/131 PASS。
 
 ## [1.2.0] - 2026-05-18
 

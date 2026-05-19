@@ -70,14 +70,7 @@
 
 与开发原则第 2 条一致。实战基地 6 仓库审计直接暴露的 3 项活跃债务 + 1 项安全规则缺口。
 
-| 目标                                                                      | 改动文件                                                             | 预期收益                                                | 工作量 |
-| ------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------- | ------ |
-| **L2-6**：Vue Admin `settings.js ↔ dynamictitle.js` cycle 白名单 | `dep-graph.js` `isLikelyFrameworkLegitimateCycle`                | 两个前端 cycle 误报消除                                 | ~10 行 |
-| **L2-7**：stability 新文件全 fragile                                | `overview-tools.js` `calculateStabilityScore` + `constants.js` | 新文件从"fragile"变为中性/"new"                         | ~20 行 |
-| **L3-3**：architectureAdvice 单体项目抑制                           | `overview-tools.js` `generateCouplingSplitPlan`                  | 单体项目不再收到"按子域拆分"                            | ~30 行 |
-| **security-tools.js 规则扩展**                                      | `security-tools.js`                                                | 新增：文件上传路径遍历、配置密钥硬编码、日志 token 打印 | ~30 行 |
-
-**状态**：2026-05-14 全部完成，103/103 测试通过。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+**状态**：阶段 1 四项目标全部完成，129/129 测试通过。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 
@@ -85,20 +78,16 @@
 
 原阶段 2 是"把已有能力暴露正确"。在"AI 脚手架"定位下，升级为"CLI 直接输出 AI 可消费的策展结论"：
 
-- **`--format ai`**：统一入口，预组装 severity + top risks + actions + confidence
-- **`--token-budget <n>`**：AI 上下文感知，自动裁剪保留高优先级内容
-- **`--depth surface|detail|full`**：渐进式发现，Layer 1 只给 counts + top 3 risks
+- **`--format ai` / `--token-budget` / `--depth`**：基础已交付，详见 [CHANGELOG.md](./CHANGELOG.md)。待深化：扩展至所有 L1 命令。
 
 当前 compact 模式是**结构降维**（文件→目录、边→模块），不是**语义策展**。AI 消费的是策展后的结论，不是压缩后的结构。同时产品评估发现已有能力（19 条内置安全规则、git diff commit range）因无 CLI 入口而被用户误以为不存在。
 
 **不是新增子系统，是把已有的能力暴露正确。**
 
-| #  | 目标                                        | 改动文件                                               | 预期收益                                                | 工作量 |
-| -- | ------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------- | ------ |
-| 1  | **`audit-security --builtin-only`** | `security-tools.js` + `cli.js` + `parse-args.js` | 19 条零依赖规则可独立运行，< 2s，解决"安全扫描形同虚设" | ~10 行 |
-| 2  | **`--format summary` 纯模板摘要**   | `human-formatters.js` 新增分支                       | 1000 文件项目从 ~400 行 JSON → 20 行关键结论           | ~50 行 |
-| 3  | **`audit-diff --since <commit>`**   | `git-tools.js` `getChangedFiles` + `cli.js`      | PR diff 审查只输出变更相关结果，消除全库噪音            | ~40 行 |
-| — | hotspot `reason` 组合展示                 | `overview-tools.js` `buildHotspots`                | 高耦合新文件显示"高耦合 + 无历史"而非仅"无历史"         | ~15 行 |
+| #  | 目标                                        | 改动文件                                               | 预期收益                                                | 工作量 | 状态 |
+| -- | ------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------- | ------ | ---- |
+| 1  | **`--format summary` 纯模板摘要**   | `human-formatters.js` 新增分支                       | 1000 文件项目从 ~400 行 JSON → 20 行关键结论           | ~50 行 | ✅ 已完成 |
+| 2  | hotspot `reason` 组合展示                 | `overview-tools.js` `buildHotspots`                | 高耦合新文件显示"高耦合 + 无历史"而非仅"无历史"         | ~15 行 | ✅ 已完成 |
 
 **决策逻辑**：纯 formatter / 参数层改动，不动 graph/parser/cache。三项均不引入 LLM 调用、网络依赖或外部工具，保持 CLI 轻量本地属性。
 
@@ -107,8 +96,8 @@
 ### 阶段 3：AI 脚手架形态完成（中期，2-4 周）
 
 - ~~`audit-ai` 统一入口~~ → **重新评估**：不是"合并到 1 个命令"，是"`--help` 和 SKILL.md 按 L1/L2/L3/L4 分层暴露"。`audit-summary`/`audit-diff`/`audit-file`/`audit-overview` 作为 L1 策展入口保持独立；`dead-exports`/`cycles`/`unresolved` 等 L4 命令对人类调试有价值，不应删除，只需降级为 debug 层级。
-- **Token 预算感知**：所有命令支持 `--token-budget`，超限自动 compact + 截断低价值字段
-- **渐进式发现**：`--depth surface`（severity + counts）→ `--depth detail`（file-level + symbol-level）→ `--depth full`（完整图）
+- **Token 预算感知**：✅ 基础已交付。`--token-budget` 参数注册 + `formatAi()` 超限降级。待深化：所有非 `audit-summary` 命令统一支持。
+- **渐进式发现**：✅ 基础已交付。`--depth surface|detail|full` 在 `--format ai` 下生效。待深化：扩展至所有 L1 命令。
 - **Skill 精简为 50 行驾驶手册**：删除命令分类表、参数说明、Known Limitations，只保留"什么时候用/什么时候不用/标准工作流"
 
 静态分析的硬边界（Vue 模板编译时、Spring DI 运行时、MyBatis XML 绑定）无法突破，但在边界内仍可深化。
@@ -156,7 +145,7 @@
 | --------------------------- | ------------------------------------------------------------------------------------------------------------ | ------ |
 | `git-tools.js`            | `getChangedFiles()` 手动字符级解析                                                                         | 低     |
 | `js.js`                   | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行                                             | 低     |
-| `cli.js` / `formatters` | `--json` 嵌套深、体积大，`--compact` 后仍有 400 行，管道场景不友好；默认 human-readable 输出缺乏实战打磨 | 中     |
+| `cli.js` / `formatters` | `--json` 嵌套深、体积大；`formatAi` 边界行为已修复，但所有命令统一预消化输出待深化 | 中     |
 
 ---
 
@@ -189,7 +178,7 @@
 | CI Schema Parity 测试                      | 中   | 低   | 观察                        | 下一次 schema 变更前                                                                                                                      |
 | **规则引擎层次 A（配置化）**         | 中   | 低   | **接受**              | 将 `security-tools.js` 硬编码规则提取为外部 YAML/JSON，无需数据库。通过 `--config <file>` 参数接入，不新增 `rules` 子命令           |
 | **规则引擎层次 B（AST 轻量规则）**   | 中高 | 中   | **接受**              | 基于现有 `functionRecords` 做方法级条件检查（如"batch* 方法无 @Transactional"），不跨文件                                               |
-| **AI 预消化输出（`--format ai`）** | 高   | 低   | **接受**              | CLI 直接输出"Top 3 Risks + Actions + Confidence"预消化报告，skill 从 180 行缩至 50 行。当前 skill 过厚是因为 CLI 不预消化，skill 被迫补偿 |
+| **AI 预消化输出（`--format ai`）** | 高   | 低   | **接受 / 部分交付**   | `--format ai` 已支持 severity + top risks + actions + confidence。待深化：所有命令统一预消化输出，skill 从 ~264 行缩至 ~80 行。 |
 | **AI 摘要输出（纯模板）**            | 高   | 低   | **接受**              | `--format summary` / `--format markdown` 用模板将 JSON 策展为 20 行关键结论或 Markdown 审查意见，不引入 LLM 调用                      |
 | **增量分析扩展**                     | 高   | 低   | **接受**              | `--since <commit>` commit range、`--staged` 暂存区、`--files a,b,c` 指定文件列表、`--with-impact` 变更+依赖方自动展开             |
 | **持久化图存储（SQLite）**           | 高   | 中   | **P2 启动，POC 通过** | POC 三阶段全部完成：                                                                                                                      |
@@ -200,11 +189,11 @@
 - 方案：`better-sqlite3`（~10MB，零服务器），3 张表 `nodes` + `edges` + `file_metadata`。下一步：核心引擎迁移
   | **分层输出过滤** | 中 | 低 | **接受** | `--severity P0/P1` 按严重程度过滤、`--category security/performance` 按类别过滤（需规则打标签） |
   | **审查追踪（轻量）** | 中 | 低 | **接受** | `--save <file>` 保存审计结果、`--check-regression` 对比上次审计检查 P0/P1 是否修复、`--baseline <commit>` 按变更文件标注问题为 `new`/`legacy` |
-  | **默认输出模式校准** | 中 | 低 | **接受** | 默认输出改为 `--format markdown`（AI 场景为主）或 `--format summary`。加 `--format human` 显式恢复人工输出。用户明确：当前仅单用户，重构优先于兼容 |
-  | **命令分层暴露** | 高 | 低 | **接受** | `--help` 按 L1 策展入口 / L2 专项工具 / L3 环境诊断 / L4 原始查询 四层分组输出；`health` 改为 `audit-summary --health-only` 别名 + deprecation；SKILL.md 按层级重写。不删除任何命令，只改暴露方式 |
+  | **默认输出模式校准** | 中 | 低 | **接受 / 已交付** | 默认输出已改为 `--format markdown`（~5 行，cli.js 第 474 行）。`--format human` 显式恢复人工输出已支持。 |
+  | **命令分层暴露** | 高 | 低 | **接受 / 已交付** | `--help` 已按 L1/L2/L3/L4 四层分组；L4 命令（dead-exports/cycles/unresolved 等）标记为 debug 层级；`health` 标注 deprecated；`runCommand` 拆分为 `src/cli/commands/*.js` 注册表。SKILL.md 精简待深化。 |
   | **大项目自动截断/自适应** | 中 | 低 | **接受** | 500+ 文件自动启用 `--compact`，或自动抑制低价值字段（architectureAdvice 等）。加 `--no-compact` 显式覆盖 |
   | **噪音抑制增强** | 中 | 低 | **接受** | `.workspace-bridge.json` 扩展 `ignore` 配置（框架感知排除）、`--mark-false-positive <id>` 记录误报（轻量，不引入机器学习） |
-  | **`--cache-dir` 参数** | 高 | 低 | **接受** | 让缓存持久化到指定目录，避免每次新 session 重建索引。解决 395 文件冷启动 59s 的最直接手段 |
+  | **`--cache-dir` 参数** | 高 | 低 | **接受 / 已交付** | `--cache-dir` 已支持，cli.js parseCliArgs 已注册。默认缓存放 `os.tmpdir()/workspace-bridge/<hash>/cache.db`（SQLite），项目间隔离。 |
   | **大项目截断（手动）** | 低 | 低 | **接受** | `--max-files <n>` 只分析前 N 个变更/影响最大的文件，控制输出体积 |
 
 > 路线 I-2 GitNexus 深度对比的 9 项发现中，数值 confidence / yieldToEventLoop / confidenceSource 标签 / git-aware staleness / import 策略链抽象 5 项已吸收并完成。详见 [CHANGELOG.md](./CHANGELOG.md)。

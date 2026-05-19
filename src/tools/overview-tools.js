@@ -154,10 +154,17 @@ async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
         const coupling = calculateCoupling(dependencies, dependents);
         if (score <= SCORING.HOTSPOT_REPORT_THRESHOLD && coupling.total <= SCORING.COUPLING_MEDIUM_MIN) return null;
         const historySignal = historyRisk?.signals?.[0];
-        const baseReason = historySignal || `${coupling.total} 个依赖连接`;
-        const reason = (coupling.total > SCORING.COUPLING_MEDIUM_MIN && historySignal)
-          ? `耦合 ${coupling.total} 个模块 · ${baseReason}`
-          : baseReason;
+        const couplingSignal = coupling.total > 0 ? `${coupling.total} 个依赖连接` : null;
+        let reason;
+        if (historySignal && couplingSignal) {
+          reason = `耦合 ${coupling.total} 个模块 · ${historySignal}`;
+        } else if (historySignal) {
+          reason = historySignal;
+        } else if (couplingSignal) {
+          reason = couplingSignal;
+        } else {
+          reason = '高风险文件';
+        }
         return {
           file: relativePath,
           score,

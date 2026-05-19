@@ -16,6 +16,12 @@
 | 历史变更 | [CHANGELOG.md](./CHANGELOG.md) |
 | 代码审计 skill 用法 | [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md) |
 
+> **🔴 新会话启动红线：不默认读取 CHANGELOG.md**
+>
+> 确定现状只需 **AGENTS.md + SESSION.md + TECH_DEBT.md + 1 条基线验证命令**（`node cli.js audit-summary --cwd . --json --quiet`）。
+> CHANGELOG 是历史存档，不是当前状态。读它不能替代读 SESSION.md 的基线确认。
+> 只有三种场景允许打开 CHANGELOG：追查回归 / 修老 bug / 写 CHANGELOG 条目。
+
 ---
 
 ## 实战基地
@@ -27,7 +33,7 @@
 **定位**：AI 的代码脚手架（Code Scaffolding for AI），不是人的报告工具。
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
-- **当前债务**：L1/L2/产品债务已清零；剩余 9 个 L3 品味问题（见 [TECH_DEBT.md](./docs/TECH_DEBT.md)）
+- **当前债务**：L1/L2/产品债务已清零；剩余 3 个 L3 品味问题（见 [TECH_DEBT.md](./docs/TECH_DEBT.md)）
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
@@ -139,13 +145,14 @@
 - 如果实测无法验证（如需要特定环境/项目才能复现），文档中必须标注"⚠️ 待特定环境验证"，不得标注"✅ 已修复"。
 - 本轮教训：`validationAdvice.commands` 被标记为"已验证不成立"，但 `node cli.js audit-file --file src/services/dep-graph.js --json --quiet` 实测 `suggestedCommand: null` 可直接复现。
 
-**CHANGELOG 读取约束**：
-- 新会话启动时，**不默认读取 CHANGELOG.md**。确定现状只需 **AGENTS.md + SESSION.md + TECH_DEBT.md + 1 条基线验证命令**。
-- 只在以下场景查 CHANGELOG：
+**CHANGELOG 读取约束（违反 = 浪费时间 + 上下文污染）**：
+- 新会话启动时，**禁止默认读取 CHANGELOG.md**。确定现状只需 **AGENTS.md + SESSION.md + TECH_DEBT.md + 1 条基线验证命令**。
+- 只在以下三种场景允许查 CHANGELOG：
   1. **追查回归** — 怀疑当前 bug 与某次历史变更有关，需要回溯上下文
   2. **修老 bug** — 需要了解之前尝试过的方案和失败原因，避免重复踩坑
   3. **写 CHANGELOG 条目** — 确认本次变更与历史条目的格式、位置一致性
-- 禁止把 CHANGELOG 当作"必读清单"。历史存档不等于当前状态，读 CHANGELOG 不能替代读 SESSION.md 的基线确认。
+- **禁止把 CHANGELOG 当作"必读清单"**。历史存档不等于当前状态，读 CHANGELOG 不能替代读 SESSION.md 的基线确认。
+- **本轮教训**：新会话启动时读了 CHANGELOG.md 的 995 行，完全冗余。AGENTS.md + SESSION.md + TECH_DEBT.md 已覆盖全部现状信息。
 
 ---
 
@@ -188,7 +195,6 @@ node cli.js dead-exports --cwd . --json --quiet
 ### 输出格式注意事项
 
 - **默认输出是 human-readable**，`--json` 只是可选开关。`cli.js` 不加 `--json` 时输出紧凑的终端友好格式。
-- `audit-overview` 的 hotspot `reason` 只展示 git 历史信号（如 `"No tracked history for this file."`），不展示耦合信号。一个高耦合的新文件可能显示"没历史"，但它的真正风险是被大量模块依赖。看 `score` 和 `coupling` 字段，不要只看 `reason`。
 - `workspace-info` 的 `parserAvailability.usedFallbackPath: true` 出现在非 Node.js 项目（Java/Python/Go）是正常的，表示 tree-sitter WASM 走了无 `package.json` 的初始化路径，**不表示文件被跳过解析**。
 
 ---
@@ -258,4 +264,4 @@ THEN 修改前必须跑：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-18（P0–P3 推进 + L3 品味收敛 5/8 + surface 模式变薄 + diagnostics linter fallback + compact 阈值 rationale + overview 裸数字归集 + CHANGELOG 版本导航；120/120 测试通过；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-19（P0 `--exclude` Windows 反斜杠兼容 + Cache schema 自描述化 + dep-tools 拆分 + 预热按需化 + 测试 runner 分层；129/129 测试通过；schemaVersion: 1.2.0）*

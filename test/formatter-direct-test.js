@@ -354,8 +354,60 @@ function testFormatSummaryAuditSecurity() {
 
 function testFormatSummaryFallbackToHuman() {
   const result = { ok: true, stats: { files: 5 } };
-  const out = formatSummary('stats', result);
-  assert(out.includes('files: 5'));
+  const out = formatSummary('unknown-cmd', result);
+  assert(out.includes('"files": 5'), 'unknown command should fallback to human JSON format');
+}
+
+function testFormatSummaryMissingCommands() {
+  const statsResult = { ok: true, stats: { files: 10, imports: 20 } };
+  const statsOut = formatSummary('stats', statsResult);
+  assert(statsOut.includes('files: 10'), `stats summary should include key stats, got: ${statsOut}`);
+  assert(statsOut.includes('imports: 20'), `stats summary should include imports, got: ${statsOut}`);
+
+  const depsResult = { ok: true, file: 'src/a.js', dependenciesCount: 2, dependencies: ['src/b.js', 'src/c.js'] };
+  const depsOut = formatSummary('dependencies', depsResult);
+  assert(depsOut.includes('Dependencies: 2'), `dependencies summary, got: ${depsOut}`);
+  assert(depsOut.includes('src/b.js'), `dependencies summary should list files, got: ${depsOut}`);
+
+  const dpsResult = { ok: true, file: 'src/a.js', dependentsCount: 1, dependents: ['src/b.js'] };
+  const dpsOut = formatSummary('dependents', dpsResult);
+  assert(dpsOut.includes('Dependents: 1'), `dependents summary, got: ${dpsOut}`);
+
+  const deadResult = { ok: true, deadExportsCount: 1, deadExports: [{ file: 'a.js', exports: ['x'] }] };
+  const deadOut = formatSummary('dead-exports', deadResult);
+  assert(deadOut.includes('Dead exports: 1'), `dead-exports summary, got: ${deadOut}`);
+  assert(deadOut.includes('a.js: x'), `dead-exports summary should list files, got: ${deadOut}`);
+
+  const unresResult = { ok: true, unresolvedCount: 1, unresolved: [{ file: 'a.js', import: './missing' }] };
+  const unresOut = formatSummary('unresolved', unresResult);
+  assert(unresOut.includes('Unresolved: 1'), `unresolved summary, got: ${unresOut}`);
+  assert(unresOut.includes('a.js: ./missing'), `unresolved summary should list files, got: ${unresOut}`);
+
+  const cyclesResult = { ok: true, cyclesCount: 1, cycles: [['a.js', 'b.js', 'a.js']] };
+  const cyclesOut = formatSummary('cycles', cyclesResult);
+  assert(cyclesOut.includes('Cycles: 1'), `cycles summary, got: ${cyclesOut}`);
+  assert(cyclesOut.includes('a.js -> b.js -> a.js'), `cycles summary should list cycles, got: ${cyclesOut}`);
+
+  const treeResult = { ok: true, file: 'src/a.js', tree: { imports: [{ file: 'src/b.js' }], dependents: [{ file: 'src/c.js' }] } };
+  const treeOut = formatSummary('tree', treeResult);
+  assert(treeOut.includes('File: src/a.js'), `tree summary, got: ${treeOut}`);
+  assert(treeOut.includes('Imports: 1'), `tree summary imports, got: ${treeOut}`);
+  assert(treeOut.includes('Dependents: 1'), `tree summary dependents, got: ${treeOut}`);
+
+  const wsResult = { ok: true, workspaceRoot: '/project', detected: { node: true, python: false } };
+  const wsOut = formatSummary('workspace-info', wsResult);
+  assert(wsOut.includes('Workspace: /project'), `workspace-info summary, got: ${wsOut}`);
+  assert(wsOut.includes('node'), `workspace-info summary should list detected, got: ${wsOut}`);
+
+  const diagResult = { ok: true, checksRun: 5, failedChecks: ['lint'], diagnosticsSummary: { total: 3 } };
+  const diagOut = formatSummary('diagnostics', diagResult);
+  assert(diagOut.includes('Checks: 5'), `diagnostics summary checks, got: ${diagOut}`);
+  assert(diagOut.includes('Diagnostics: 3'), `diagnostics summary total, got: ${diagOut}`);
+
+  const mapResult = { ok: true, tree: [{ type: 'file', name: 'a.js', path: 'a.js' }], edges: [], issueOverlay: { deadExports: [], unresolved: [], cycles: [] } };
+  const mapOut = formatSummary('audit-map', mapResult);
+  assert(mapOut.includes('Files: 1'), `audit-map summary files, got: ${mapOut}`);
+  assert(mapOut.includes('Edges: 0'), `audit-map summary edges, got: ${mapOut}`);
 }
 
 function testFormatSummaryError() {
@@ -692,6 +744,7 @@ function main() {
 
   testFormatSummaryAuditSummary();
   testFormatSummaryAuditSecurity();
+  testFormatSummaryMissingCommands();
   testFormatSummaryFallbackToHuman();
   testFormatSummaryError();
 

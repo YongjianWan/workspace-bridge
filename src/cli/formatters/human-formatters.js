@@ -275,6 +275,69 @@ function formatSummary(command, result) {
       return [`Impact radius: ${result.impactCount ?? 0}`, ...result.impact?.slice(0, 5).map((e) => `  ${e.level}: ${e.file}`) || []].join('\n');
     case 'affected-tests':
       return [`Affected tests: ${result.affectedTestsCount ?? 0}`, ...result.affectedTests?.slice(0, 5).map((e) => `  ${e.distance}: ${e.file}`) || []].join('\n');
+    case 'workspace-info': {
+      const detected = Object.entries(result.detected || {})
+        .filter(([, v]) => v)
+        .map(([k]) => k)
+        .join(', ') || 'none';
+      return `Workspace: ${result.workspaceRoot}\nDetected: ${detected}`;
+    }
+    case 'diagnostics': {
+      const diagTotal = result.diagnosticsSummary?.noLintersDetected
+        ? 'no linters detected'
+        : result.diagnosticsSummary?.total;
+      return `Checks: ${result.checksRun ?? 0}, Failed: ${result.failedChecks?.length ?? 0}\nDiagnostics: ${diagTotal ?? 'none'}`;
+    }
+    case 'audit-map': {
+      const lines = [
+        `Files: ${countTreeFiles(result.tree)}`,
+        `Edges: ${result.edges?.length ?? 0}`,
+        `Issues: dead=${result.issueOverlay?.deadExports?.length ?? 0} unresolved=${result.issueOverlay?.unresolved?.length ?? 0} cycles=${result.issueOverlay?.cycles?.length ?? 0}`,
+      ];
+      return lines.join('\n');
+    }
+    case 'stats':
+      return Object.entries(result.stats || {})
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(', ');
+    case 'dependencies': {
+      const deps = (result.dependencies || []).slice(0, 5).join(', ') || 'none';
+      return `Dependencies: ${result.dependenciesCount ?? 0}\n${deps}`;
+    }
+    case 'dependents': {
+      const deps = (result.dependents || []).slice(0, 5).join(', ') || 'none';
+      return `Dependents: ${result.dependentsCount ?? 0}\n${deps}`;
+    }
+    case 'dead-exports': {
+      const lines = [`Dead exports: ${result.deadExportsCount ?? 0}`];
+      if (result.possibleFalsePositives?.disclaimer) {
+        lines.push(`Note: ${result.possibleFalsePositives.disclaimer}`);
+      }
+      lines.push(...((result.deadExports || []).slice(0, 5).map((e) => `${e.file}: ${e.exports?.join(', ')}`)));
+      return lines.join('\n');
+    }
+    case 'unresolved': {
+      const lines = [`Unresolved: ${result.unresolvedCount ?? 0}`];
+      if (result.possibleFalsePositives?.disclaimer) {
+        lines.push(`Note: ${result.possibleFalsePositives.disclaimer}`);
+      }
+      lines.push(...((result.unresolved || []).slice(0, 5).map((u) => `${u.file}: ${u.import}`)));
+      return lines.join('\n');
+    }
+    case 'cycles': {
+      const cycles = (result.cycles || []).slice(0, 3).map((c) => c.join(' -> ')).join('\n');
+      return `Cycles: ${result.cyclesCount ?? 0}\n${cycles}`;
+    }
+    case 'tree': {
+      const lines = [`File: ${result.file}`];
+      if (result.tree?.imports) {
+        lines.push(`Imports: ${result.tree.imports.length}`);
+      }
+      if (result.tree?.dependents) {
+        lines.push(`Dependents: ${result.tree.dependents.length}`);
+      }
+      return lines.join('\n');
+    }
     default:
       return formatHuman(command, result);
   }
