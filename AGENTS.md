@@ -33,7 +33,7 @@
 **定位**：AI 的代码脚手架（Code Scaffolding for AI），不是人的报告工具。
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
-- **当前债务**：L1/产品债务已清零；L2 债务已清零；L3 品味问题 3 项（见 [TECH_DEBT.md](./docs/TECH_DEBT.md)）
+- **当前债务**：L1/产品债务已清零；L2 债务已清零；L3 品味问题 6 项（见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
@@ -114,7 +114,7 @@
 | L2 核心引擎 | `dep-graph.js` | `DependencyGraph` facade + `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` |
 | L2.5 子引擎 | `parsers/*`, `resolvers.js`, `symbol-impact.js`, `function-impact.js`, `framework-patterns.js`, `implicit-imports.js` | 多语言 parser、import 解析、符号级影响、框架模式检测（9 语言 × 20+ 框架） |
 | L3 服务组装 | `container.js` | `ServiceContainer` 组装所有服务 |
-| L4 工具编排 | `dep-tools.js`, `git-tools.js`, `health-tools.js`, `overview-tools.js`, `security-tools.js`, `workspace-tools.js` | 对外暴露的分析工具函数（`health-tools.js` 数据与 `audit-summary.health` 重合，已标记冗余） |
+| L4 工具编排 | `audit-assembler.js`, `dep-tools.js`, `git-tools.js`, `health-tools.js`, `overview-tools.js`, `security-tools.js`, `workspace-tools.js` | 对外暴露的分析工具函数与 Curation/拼装层（`health-tools.js` 数据与 `audit-summary.health` 重合，已标记冗余） |
 | L5 CLI/格式化 | `cli.js`, `formatters/` | 命令分发、JSON 输出聚合 |
 | L6 外围 | `scripts/`, `test/`, `benchmark/` | 辅助脚本、全覆盖测试、性能基准 |
 
@@ -242,6 +242,7 @@ THEN 必须先读对应文件，不能凭骨架直接动手：
   - 验证命令生成 → `stack-detectors/detect.js` + `commands.js` + `validation-advice.js`
   - 容器初始化 → `container.js`
   - 新增 CLI 命令 → `cli.js` + `formatters/` + `tools/`
+  - 新增/修改编排与输出 Curation → `src/tools/audit-assembler.js` + `src/cli/formatters/human-formatters.js`
   - 补测试 → `test/functionality-test.js` + `test/phase01-quality-test.js`
   - 提取类方法 → `grep` 搜索 `this.methodName` 的所有调用方
 ```
@@ -264,4 +265,4 @@ THEN 修改前必须跑：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-20（WorkspaceSnapshot 数据一致性修复 + environment-probe.js 完整统一 + git-tools.js porcelain 解析提取 + e2e-gitnexus 去重；131/131 测试通过；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-20（L2 SQLite 物理增量写入 + L4 Facade 编排层 Facade 提取 + P1 AI 预消化输出机制 --format ai；128/128 测试通过；schemaVersion: 1.2.0）*
