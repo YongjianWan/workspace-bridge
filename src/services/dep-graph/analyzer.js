@@ -593,11 +593,40 @@ class GraphAnalyzer {
     }
   }
 
+  _findAffectedTestsByMention(filePath, maxDepth, graphResults) {
+    const isTestFile = (f) => isTestLikeFile(f);
+    const seen = new Set(graphResults.map((entry) => entry.file));
+    const sourceStem = path.basename(filePath, path.extname(filePath));
+    // Minimum stem length to avoid false positives on generic names like "a", "x", "index"
+    if (!sourceStem || sourceStem.length < 4) return;
+    const escapedStem = sourceStem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const mentionPattern = new RegExp(`\\b${escapedStem}\\b`, 'i');
+    for (const candidate of this.dg.graph.keys()) {
+      if (candidate === filePath) continue;
+      if (!isTestFile(candidate)) continue;
+      if (seen.has(candidate)) continue;
+      let content;
+      try {
+        content = fs.readFileSync(candidate, 'utf8');
+      } catch { continue; }
+      if (mentionPattern.test(content)) {
+        graphResults.push({
+          file: candidate,
+          distance: maxDepth + 1,
+          source: 'mention',
+          via: ['mention:stem'],
+        });
+        seen.add(candidate);
+      }
+    }
+  }
+
   findAffectedTests(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH, options = {}) {
     const start = this.dg.normalizeFilePath(filePath);
     const results = this._findAffectedTestsByGraph(start, maxDepth);
     if (options?.includeHeuristic !== false) {
       this._findAffectedTestsByHeuristic(start, maxDepth, results);
+      this._findAffectedTestsByMention(start, maxDepth, results);
     }
     // P89: convert internal graph keys back to original-casing paths for output.
     return results.map((r) => ({

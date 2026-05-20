@@ -410,6 +410,23 @@ function parseCliArgs(argv) {
   };
 }
 
+function classifyError(err) {
+  const msg = (err.message || String(err)).toLowerCase();
+  if (msg.includes('enoent') || msg.includes('no such file') || msg.includes('not found')) {
+    return { type: 'path_error', suggestion: 'Check if --cwd or --file paths exist and are accessible.' };
+  }
+  if (msg.includes('eacces') || msg.includes('permission denied')) {
+    return { type: 'permission_error', suggestion: 'Check file/directory permissions.' };
+  }
+  if (msg.includes('timeout') || msg.includes('timed out')) {
+    return { type: 'timeout_error', suggestion: 'Try increasing timeout or use --compact for large projects.' };
+  }
+  if (msg.includes('initialize') || msg.includes('init') || msg.includes('failed to initialize')) {
+    return { type: 'init_error', suggestion: 'Try clearing the cache directory (--cache-dir) and retrying.' };
+  }
+  return { type: 'unexpected_error', suggestion: 'Run "node cli.js --help" for usage.' };
+}
+
 function determineExitCode(command, result, failOnFindings = false) {
   if (!result || result.ok === false) return 1;
   if (result.regression && result.regression.ok === false) return 1;
@@ -475,15 +492,25 @@ async function main() {
   const container = new ServiceContainer({ quiet: parsed.quiet, cacheDir: parsed.cacheDir });
 
   try {
+    const initStart = Date.now();
     const initialized = await container.initialize(parsed.cwd, TIMEOUTS.INIT_TIMEOUT_MS, {
       watch: false,
       excludeDirs: parsed.exclude,
     });
+    const initTime = Date.now() - initStart;
     if (!initialized) {
       throw container.initError || new Error('Failed to initialize workspace container');
     }
 
+    const cmdStart = Date.now();
     const result = await runCommand(parsed, container);
+    const cmdTime = Date.now() - cmdStart;
+    if (!parsed.quiet && container._phaseTimes) {
+      const pt = container._phaseTimes;
+      process.stderr.write(
+        `[timing] init=${initTime}ms (fileIndex=${pt.fileIndex}ms, depGraph=${pt.depGraph}ms) command=${cmdTime}ms\n`
+      );
+    }
     if (result && typeof result === 'object' && result.ok !== false && container) {
       result.staleness = container.getStaleness();
       result.warnings = container.depGraph.buildWarnings();
@@ -523,10 +550,15 @@ async function main() {
 
     process.exitCode = determineExitCode(parsed.command, result, parsed.failOnFindings);
   } catch (err) {
+    const classified = classifyError(err);
+    const prefix = `[${classified.type}]`;
     if (container && container.initError && err === container.initError && err.stack) {
+      console.error(`${prefix} ${err.message || String(err)}`);
+      console.error(`→ ${classified.suggestion}`);
       console.error(err.stack);
     } else {
-      console.error(err.message || String(err));
+      console.error(`${prefix} ${err.message || String(err)}`);
+      console.error(`→ ${classified.suggestion}`);
     }
     process.exitCode = 2;
   } finally {

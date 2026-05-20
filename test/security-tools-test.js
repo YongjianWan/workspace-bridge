@@ -68,12 +68,36 @@ async function testAuditSecurityPython() {
   cleanupTempDir(tmpDir);
 }
 
+async function testAuditSecurityAssertDefense() {
+  const tmpDir = makeTempDir('wb-security-');
+  fs.writeFileSync(path.join(tmpDir, 'defense.js'), "expect(() => eval('x')).toThrow();\n", 'utf8');
+
+  const result = await auditSecurity({ cwd: tmpDir, targets: [], builtinOnly: true }, null);
+  assert.strictEqual(result.findings.length, 0, 'should suppress eval in assert-defense test code');
+
+  cleanupTempDir(tmpDir);
+}
+
+async function testAuditSecurityTestFilePlaceholderSecret() {
+  const tmpDir = makeTempDir('wb-security-');
+  const testDir = path.join(tmpDir, 'test');
+  fs.mkdirSync(testDir, { recursive: true });
+  fs.writeFileSync(path.join(testDir, 'auth.js'), "const password = 'test_dummy123';\n", 'utf8');
+
+  const result = await auditSecurity({ cwd: tmpDir, targets: [], builtinOnly: true }, null);
+  assert.strictEqual(result.findings.length, 0, 'should suppress placeholder secret in test files');
+
+  cleanupTempDir(tmpDir);
+}
+
 async function main() {
   testGroupBySeverity();
   testDedupeWithinTool();
   await testAuditSecurityBuiltinOnly();
   await testAuditSecurityIgnoresComment();
   await testAuditSecurityPython();
+  await testAuditSecurityAssertDefense();
+  await testAuditSecurityTestFilePlaceholderSecret();
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

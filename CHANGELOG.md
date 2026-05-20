@@ -673,6 +673,47 @@
     - `node cli.js impact --cwd . --file src/services/dep-graph.js --json --quiet` impact 计算正常（33 个影响文件）。
     - `node cli.js affected-tests --cwd . --file src/services/dep-graph.js --json --quiet` affected-tests 正常（24 个受影响测试）。
 
+### 优化（SQLite pragma 调优 — 2026-05-20）
+
+- **提升 SQLite 写入与查询性能** `src/services/graph-db.js`：
+  - 在 `_ensureOpen()` 中追加三条 `PRAGMA` 调优指令：
+    1. `journal_size_limit = 67108864`（64MB）— 限制 WAL 文件上限，防止无界增长并触发自动 checkpoint；
+    2. `mmap_size = 268435456`（256MB）— 内存映射热页，减少 read syscall；
+    3. `synchronous = NORMAL` — WAL 模式下 NORMAL 已具备崩溃安全性，比 FULL 更快。
+  - 验证：`npm run test:fast` 93/93 PASS；手动确认四项 pragma（journal_mode、journal_size_limit、mmap_size、synchronous）全部生效。
+
+### 优化（PhaseTimer 多阶段计时 — 2026-05-20）
+
+- **增加分析阶段可观测性** `src/services/container.js` `cli.js`：
+  - `container.js`：`initialize()` 中在 `_initFileIndex` 和 `_initDepGraph` 前后埋点，计算分段耗时存入 `this._phaseTimes`；
+  - `cli.js`：`main()` 中在 `container.initialize()` 和 `runCommand()` 前后埋点，计算总 init 时间和 command 时间；
+  - 非 quiet 模式下输出到 stderr：`[timing] init=1073ms (fileIndex=608ms, depGraph=230ms) command=152ms`；
+  - 验证：`npm run test:fast` 93/93 PASS；手动确认 timing 输出包含 fileIndex / depGraph / command 三段。
+
+### 优化（CLI 错误分类 + 可操作建议 — 2026-05-20）
+
+- **替换 raw stack 为分类化错误提示** `cli.js` `src/cli/commands/_utils.js`：
+  - 新增 `classifyError(err)` 函数，按错误消息关键词归类为 `path_error` / `permission_error` / `timeout_error` / `init_error` / `unexpected_error`，并给出对应可操作建议；
+  - `cli.js` catch 块统一输出格式：`[type] message → suggestion`；initError 场景仍保留 stack trace 输出（向后兼容）；
+  - `src/cli/commands/_utils.js` 中 `validateCwd()` 同步更新输出格式，路径不存在时输出 `[path_error]` 标签和建议；
+  - 验证：`npm run test:fast` 93/93 PASS；手动验证 `path_error` 与 `unexpected_error` 输出格式正确。
+
+### 优化（安全白名单分派表 + Assert Defense — 2026-05-20）
+
+- **减少安全扫描误报** `src/tools/security-tools.js` `test/security-tools-test.js`：
+  - 新增 `isMatchAllowlisted(ruleId, filePath, line)` 函数，为每条规则提供独立白名单判定：
+    1. **Assert Defense**：测试代码中故意触发危险模式以断言错误处理的场景（行内包含 `expect(...).toThrow`、`assert.throws`、`.unwrap_err`），对 `eval` / `exec` / `innerHTML` / `new Function` / `dangerous-timeout` 等规则自动抑制；
+    2. **测试文件 placeholder 密码**：位于 `test` / `spec` / `__tests__` 目录下的硬编码密码，若值包含 `test` / `dummy` / `placeholder` / `example` / `mock` / `fake` 关键词（支持下划线分隔），自动抑制 `hardcoded-secret` 误报；
+  - 验证：`npm run test:fast` 93/93 PASS；新增 `testAuditSecurityAssertDefense` 与 `testAuditSecurityTestFilePlaceholderSecret` 两个回归测试。
+
+### 新增（测试间隙穿透：Dispatcher Regex / Mention 检测 — 2026-05-20）
+
+- **补全无 import 边但测试文件提及源文件 stem 的 affected-tests 盲区** `src/services/dep-graph/analyzer.js` `test/affected-tests-mention-test.js`：
+  - 新增 `_findAffectedTestsByMention(filePath, maxDepth, graphResults)` 方法，在 `_findAffectedTestsByGraph`（import 边）和 `_findAffectedTestsByHeuristic`（命名镜像）均不命中时，作为第三层回退；
+  - 读取测试文件内容，用 `\b{sourceStem}\b` 正则匹配独立单词提及；stem 长度 < 4 时跳过，避免 `a.js` / `x.ts` 等通用名大量误报；
+  - 结果标记 `source: 'mention'` 和 `via: ['mention:stem']`，与 graph/heuristic 结果区分，避免重复计数（通过 `seen` Set 去重）；
+  - 验证：`npm run test:fast` 93/93 PASS；新增 `test/affected-tests-mention-test.js` 集成测试：源文件 `src/math/calculator.js` 与无 import 关系、不同名的测试文件 `test/unit/arith.test.js`（内容提及 `calculator`）成功通过 mention 检测关联。
+
 ## [1.2.0] - 2026-05-18
 
 ### 新增（PageRank warm-start — 2026-05-18）

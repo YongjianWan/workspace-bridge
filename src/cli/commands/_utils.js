@@ -24,7 +24,8 @@ function validateCwd(parsed) {
     if (parsed.json) {
       console.log(JSON.stringify({ ok: false, error, schemaVersion: SCHEMA_VERSION }));
     } else {
-      console.error(`Error: ${error}`);
+      console.error(`[path_error] ${error}`);
+      console.error(`→ Check if --cwd or --file paths exist and are accessible.`);
     }
     process.exitCode = 1;
     return { ok: false, error };

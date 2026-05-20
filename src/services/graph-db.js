@@ -63,6 +63,9 @@ class GraphDB {
     }
     this.db = new Database(this.dbPath);
     this.db.pragma('journal_mode = WAL');
+    this.db.pragma('journal_size_limit = 67108864'); // 64MB — auto-checkpoint, prevent unbounded WAL growth
+    this.db.pragma('mmap_size = 268435456');          // 256MB — memory-map hot pages, reduce read syscalls
+    this.db.pragma('synchronous = NORMAL');           // WAL mode: NORMAL is crash-safe and faster than FULL
     this.db.exec(SCHEMA);
     this._migrate();
   }

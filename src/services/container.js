@@ -84,14 +84,19 @@ class ServiceContainer {
     });
 
     try {
+      this._phaseTimes = {};
       this._findWorkspaceRoot(cwd);
       this._checkAborted();
       this._initCache();
       this._initProjectContext(options);
+      const t0 = Date.now();
       await this._initFileIndex(options);
+      this._phaseTimes.fileIndex = Date.now() - t0;
       this._checkAborted();
       this._initDiagnostics();
+      const t1 = Date.now();
       await this._initDepGraph(options);
+      this._phaseTimes.depGraph = Date.now() - t1;
       this._checkAborted();
       // P2: load precomputed aggregate summary if graph hasn't changed since last run
       const loadedAggregate = this.cache.loadAggregateSummary();

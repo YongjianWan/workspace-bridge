@@ -217,7 +217,7 @@
 | 字段读写追踪（ACCESSES 边）                | 高   | 高   | **当前不做**          | 同污点追踪，需要跨文件数据流分析，与"结构分析 ≠ 语义分析"原则冲突                                                                        |
 | CI Schema Parity 测试                      | 中   | 低   | 观察                        | 下一次 schema 变更前                                                                                                                      |
 | **安全白名单分派表 + Assert Defense** | 高   | 低   | **接受**              | `security-tools.js` 每条规则独立 `is_match_allowlisted()`；测试内防御性匹配（`expect(error)`）抑制误报。参考 qartez 集中式白名单分派表 |
-| **端到端请求路径（路由提取）** | 高   | 低   | **接受**              | `framework-patterns.js` 新增 `extractRoutesFromContent()`，覆盖 Express/Spring/FastAPI 等 9 语言；`impact` 输出增加 `affectedRoutes`。参考 GitNexus `HANDLES_ROUTE` 边 + CRG entry point 检测 |
+| **端到端请求路径（路由提取）** | 高   | 低   | **⏳ 暂缓**            | 越界语义分析风险：路由注册（`app.get('/users/:id', handler)`）是运行时语义，不是静态 import 边。若未来评估通过，只能做成可选适配器，不可成为默认依赖。参考 GitNexus `HANDLES_ROUTE` 边 + CRG entry point 检测 |
 | **测试间隙穿透（Dispatcher Regex）** | 中   | 低   | **接受**              | `affected-tests` 引入 qartez Dispatcher Regex + FTS Stem Mention 回退：无 import 边但测试文件 body 提及源文件 stem 时也纳入 |
 | **Bus Factor / 知识分布** | 中   | 低   | **接受**              | `audit-overview` 新增 `knowledgeRisk`：逐文件 `git blame` + mailmap 去重，标识"只有一个人懂的文件"。参考 qartez `src/git/knowledge.rs` |
 | **回归测试档案（fp_regression_*.js）** | 中   | 低   | **接受**              | 死代码/安全/未解析 import 的已知误报场景归档，防止修复后复发。参考 qartez 回归测试模式 |

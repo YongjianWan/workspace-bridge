@@ -19,7 +19,7 @@
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
 node cli.js audit-summary --cwd . --json --quiet
-# 期望: health.healthScore=7/8, summary.counts.deadExports=0, summary.counts.unresolved=0, summary.counts.cycles=0, summary.analysisCoverage.totalFiles≈253, summary.analysisCoverage.coverageRatio=1
+# 期望: health.healthScore=7/8, summary.counts.deadExports=1, summary.counts.unresolved=0, summary.counts.cycles=0, summary.analysisCoverage.totalFiles≈261, summary.analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-summary 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
@@ -41,8 +41,8 @@ node cli.js audit-summary --cwd . --json --quiet
 - 测试：**受影响测试全部 PASS**；全量 runner 131/131 PASS（~4min，分阶段：fast ~14s / slow ~100s / watch 串行）。开发迭代用 `npm run test:fast`（~14s）或 `npm run test:smoke`（~31s）
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~253 文件，entry=1, mainline=120, test=133
-- 健康度：7/8（缺 dockerConfig），deadExports=0，cycles=0，unresolved=0
+- 自身项目规模：~261 文件，entry=1, mainline=127, test=134
+- 健康度：7/8（缺 dockerConfig），deadExports=1（`severityMeetsFilter` 在 `src/cli/commands/_utils.js` 中零引用，待清理），cycles=0，unresolved=0
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust Regular Expressions、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
 - Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.2.0"` 已冻结**
@@ -88,6 +88,8 @@ node cli.js audit-summary --cwd . --json --quiet
 - **L4 Facade 编排层提取**：新建并抽取 Curation 与过滤核心中转层 `src/tools/audit-assembler.js`，将原本散落在 `audit-summary`, `audit-diff`, `audit-file`, `audit-security` 中的校验、筛选、格式化聚合逻辑彻底下沉，简化了 CLI 接口实现。
 - **P1 AI 预消化输出机制**：开发了专属于 Agent 消费的 `--format ai`、`--token-budget <n>` 和 `--depth` 特性，对 `audit-file` 提供了精细支持与多级树/影响路径智能剪裁；重构退出码检测为基于 O(1) 契约的 `result.hasFindings` 计算。
 - **端到端 Facade 测试与生命周期资源泄漏修复**：新增 `test/audit-assembler-test.js` 并显式标记 `// @slow` 以适配 Windows 测试 runner，在此期间修复了容器初始化未优雅 shutdown 导致的资源句柄遗留与进程挂起。
+- **架构方向共识确认**：经宏观判断复盘，确定解析精度结构性升级（Pre-scan + Provider 注册表 + Resolver 策略链重构）为中长期主线，但必须以 Wave 1/2/3 波次化执行，禁止在 131/131 全绿地基上一次性做多层心脏移植。`affectedRoutes`（端到端路由提取）因越界语义分析风险降级为"暂缓/观察"。
+- **P0 低垂果实 5/5 完成**：SQLite pragma 调优、PhaseTimer 多阶段计时、CLI 错误分类 + 可操作建议、安全白名单分派表 + Assert Defense、测试间隙穿透（Dispatcher Regex）已全部交付并通过测试。SKILL.md 经评估后决定保持现状（当前 269 行内容对 AI 消费者 ROI 足够，强行压缩会丢失 AI 读取优先级和安全审查清单等高价值信息）。
 
 ---
 
@@ -119,42 +121,51 @@ node cli.js audit-summary --cwd . --json --quiet
 ## 下一步方向
 
 > 阶段 1（误报清零）、阶段 2（暴露正确 + 输出策展）、阶段 3（框架感知深化）全部完成。
+> 当前进入 **"低垂果实 + 波次化架构升级"** 双轨阶段。
+>
+> **根因判断**：resolvers.js 启发式字符串匹配 + 零全局符号表，是 import 解析脆弱、dead-exports 误报、增量性能击穿、Builder 越权操控 Analyzer 的共同根因。修复路线：Pre-scan 全局符号映射 → 语言 Provider 注册表统一契约 → Resolver 策略链物理拆分 → Builder/Analyzer 生命周期事件解耦 → 后处理 Affected-only 增量化。
+>
+> 相关架构背景参考（独立文档，与本节 Wave 定义非同一套）：
+> - [ADR：workspace-bridge 从分析工具到代码知识库](./docs/architecture/ADR-graph-knowledge-base.md) — SQLite 作为核心图存储的决策与四阶段实施路线
+> - [REFACTOR：数据层、编排层、输出层三层齐改](./docs/architecture/REFACTOR-2026-05-data-orchestration-output.md) — 22 项代码审计问题的三层重构方案（D1-D8 / O1-O7 / U1-U9）
 
 ### 当前状态
 
 - 活跃债务：**0 个 L1** + **0 个 L2** + **6 个 L3** + **0 个产品 bug** + **0 个产品债务**
 - 版本：v1.2.0，schemaVersion 冻结
 - 测试：**131/131 PASS**；全量 runner ~4min。开发迭代首选 `npm run test:fast`（~14s）
-- P0-P4 全部完成
+- P0–P4 全部完成
 - **定位**：AI 的代码脚手架
-- **核心认知**：CLI 静态分析能力没问题，问题在 CLI 出口质量（`--format ai` 边界行为、token 预算感知、去噪输出）
+- **核心认知**：底层引擎能力足够，CLI 出口质量（`--format ai`）已交付。下一阶段主线是**解析精度结构性升级**，但必须波次化执行。
 
-### P0 去噪工程（已完成）
+### P0 低垂果实（现在做，零风险高 ROI）
 
-| # | 项 | 状态 | 说明 |
-|---|-----|------|------|
-| 1 | 工作目录污染 | ✅ 已完成 | 缓存已在 `os.tmpdir()`，旧文件已清理 |
-| 2 | 常量仓库/脚手架过滤 | ✅ 已完成 | `dep-graph.js` 已 `continue` 跳过，`honesty-engine.js` 已标记误报 |
-| 3 | audit-overview 去重 | ✅ 已完成 | `nextSteps` 已移除，recommendations 已统一 |
-| 4 | `architectureAdvice` 抑制 | ✅ 已完成 | `< 200 files` 时 `couplingSplitSuggestions` 为空 |
-| 5 | `audit-security` matchedText | ✅ 已完成 | JSON 已包含，human formatter 已展示 |
+| # | 目标 | 文件 | 工作量 | 预期收益 | 状态 |
+|---|------|------|--------|----------|------|
+| 1 | **SQLite pragma 调优** | `cache.js` / `graph-db.js` | ~5 行 | WAL + mmap + temp_store，提升写入和查询性能 | ✅ 已完成 |
+| 2 | **PhaseTimer 多阶段计时** | `container.js` / `cli.js` | ~15 行 | 大仓库分析时知道卡在 parse / resolve / query 哪一阶段 | ✅ 已完成 |
+| 3 | **CLI 错误分类 + 可操作建议** | `cli.js` catch 块 | ~20 行 | 错误不再是 raw stack，而是"错误类型 + 下一步命令" | ✅ 已完成 |
+| 4 | **安全白名单分派表 + Assert Defense** | `security-tools.js` | ~30 行 | 每条规则独立 `is_match_allowlisted()`；防御性测试误报抑制 | ✅ 已完成 |
+| 5 | **测试间隙穿透（Dispatcher Regex）** | `affected-tests` 逻辑 | ~40 行 | 无 import 边但测试 body 提及源文件 stem 时也纳入 affected-tests | ✅ 已完成 |
+| 6 | **SKILL.md 精简** | `skills/workspace-audit/SKILL.md` | — | 经评估保持现状：当前 AI 读取优先级 + 安全审查清单 + 可忽略字段对 AI 消费者 ROI 足够，无需为行数目标自残 | ✅ 保持现状 |
 
-### 结构性地基（优先于 P1）
+### P1 解析精度升级 Wave 1（本轮）
 
-> 骨架评估结论（2026-05-20）：`dep-graph.js` 1685 行已到物理拆分临界点；L4 工具层缺少共享项目元数据抽象。这两个问题不解决，P1 AI 预消化输出的组装逻辑会建立在松散地基上。
+> **约束**：波次化执行，每波之间保持 131/131 PASS。禁止一次性做多层心脏移植。
 
-| 优先级 | 修复 | 根因 | 预期收益 |
-|--------|------|------|----------|
-| ~~**P0.5**~~ | ~~`dep-graph.js` 物理拆分~~ | ✅ **已完成**（详见 CHANGELOG.md [Unreleased] 2026-05-20 条目） | — |
-| ~~**P0.5**~~ | ~~`WorkspaceSnapshot` 共享模型 + 自知机制~~ | ✅ **已完成**（详见 CHANGELOG.md [Unreleased] 2026-05-20 条目） | — |
+| 波次 | 范围 | 侵入性 | 验证标准 |
+|------|------|--------|----------|
+| **Wave 1** | Pre-scan 全局符号表（新增模块，不改现有解析链） | 低 | 新增测试全绿，现有测试不受影响，符号表数据可通过 debug 命令导出验证 |
+| **Wave 2** | Resolver 策略链物理拆分（基于 Wave 1 数据结构） | 中 | 所有语言解析测试全绿，benchmark 无回归 |
+| **Wave 3** | Builder/Analyzer 解耦 + 后处理 Affected-only | 高 | 增量更新 benchmark 证明 O(k)，watch 模式无泄漏 |
 
-### 默认路径：P1 AI 预消化输出（核心升级）
+### P2 高 ROI 用户可见功能（评估中）
 
-| 优先级 | 修复 | 根因 | 预期收益 |
-|--------|------|------|----------|
-| **P1** | `--format ai` 统一入口 | ✅ **已完成**（详见 CHANGELOG.md [Unreleased]） | — |
-| **P1** | `--token-budget <n>` | ✅ **已完成**（详见 CHANGELOG.md [Unreleased]） | — |
-| **P1** | `--depth surface|detail|full` | ✅ **已完成**（详见 CHANGELOG.md [Unreleased]） | — |
+| # | 目标 | 状态 | 说明 |
+|---|------|------|------|
+| 1 | **Bus Factor / 知识分布** | ⏳ 待评估 | `audit-overview` 新增 `knowledgeRisk`：逐文件 git blame + mailmap 去重 |
+| 2 | **回归测试档案** | ⏳ 待评估 | `fp_regression_*.js` 归档已知误报场景，防止修复后复发 |
+| 3 | **路径参数安全清洗** | ⏳ 待评估 | `--file`/`--cwd` 统一清洗，拒绝 `../` 逃逸 |
 
 ### 待挖掘/待验证问题（本轮新增）
 
@@ -171,9 +182,10 @@ node cli.js audit-summary --cwd . --json --quiet
 - `--suggest` 修复代码自动生成：违反"结构分析 ≠ 语义分析"
 - `--cross-repo` 跨仓库依赖分析：成本过高
 - 污点追踪 / 跨文件数据流：运行时绑定问题仍解不了
+- **`affectedRoutes` 端到端路由提取**：越界语义分析。路由注册（`app.get('/users/:id', handler)`）是运行时语义，不是静态 import 边。若未来要做，只能做成可选适配器，不可成为默认依赖
 
 ---
 
-*Last updated: 2026-05-20（L2 SQLite 物理增量写入 + L4 Facade 编排层 Facade 提取 + P1 AI 预消化输出机制）*
+*Last updated: 2026-05-20（架构方向共识确认：低垂果实优先 + Wave 1/2/3 波次化升级）*
 
-> **本轮验证状态**：`npm run test:fast` 93/93 PASS；`node test/runner.js --layer slow` 35/35 PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`）。
+> **本轮验证状态**：`npm run test:fast` 93/93 PASS；`node test/runner.js --layer slow` 35/35 PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=1`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`）。

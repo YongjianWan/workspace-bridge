@@ -114,6 +114,19 @@ async function runBuiltinSecurityScan(cwd, targets, container) {
     }
   }
 
+function isMatchAllowlisted(ruleId, filePath, line) {
+  // Assert Defense: test code intentionally triggers dangerous patterns to assert error handling
+  const isAssertDefense = /\bexpect\b.*\btoThrow\b|assert\.throws?\b|\.unwrap_err\s*\(/i.test(line);
+  if (isAssertDefense && (ruleId.includes('eval') || ruleId.includes('exec') || ruleId.includes('innerHTML') || ruleId.includes('new-function') || ruleId.includes('dangerous'))) {
+    return true;
+  }
+  // Test-file hardcoded secrets that are clearly placeholders
+  if (ruleId.includes('hardcoded-secret') && /[\\/](test|spec|__tests__)[\\/]/i.test(filePath)) {
+    if (/(?:\b|_)(test|dummy|placeholder|example|mock|fake)(?:\b|_)/i.test(line)) return true;
+  }
+  return false;
+}
+
   for (const file of files) {
     const group = patterns.find((g) => g.ext.test(file));
     if (!group) continue;
@@ -125,7 +138,7 @@ async function runBuiltinSecurityScan(cwd, targets, container) {
     const ignorePattern = /\/\/\s*security-scan-ignore\b|\/\*\s*security-scan-ignore\b/;
     for (let i = 0; i < lines.length; i++) {
       for (const rule of group.rules) {
-        if (rule.pattern.test(lines[i]) && !ignorePattern.test(lines[i])) {
+        if (rule.pattern.test(lines[i]) && !ignorePattern.test(lines[i]) && !isMatchAllowlisted(rule.id, file, lines[i])) {
           const match = lines[i].match(rule.pattern);
           let matchedText = match ? match[0] : null;
           if (matchedText && matchedText.length > 120) {
