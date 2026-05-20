@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 const assert = require('assert');
 const { spawnSync } = require('child_process');
 const { TIMEOUTS } = require('../src/config/constants');

@@ -218,6 +218,12 @@ class GraphDB {
         insertMeta.run('workspaceRoot', data.workspaceRoot || '');
         insertMeta.run('workspaceInfo', data.workspaceInfo ? JSON.stringify(data.workspaceInfo) : '');
 
+        if (data.metadata) {
+          for (const [key, value] of Object.entries(data.metadata)) {
+            insertMeta.run(key, value);
+          }
+        }
+
         // Insert file metadata
         const insertFile = this.db.prepare(
           'INSERT INTO file_metadata (path, mtime, size, hash, line_count, original_path) VALUES (?, ?, ?, ?, ?, ?)'
@@ -270,6 +276,119 @@ class GraphDB {
     } catch (err) {
       if (process.env.DEBUG) {
         console.error('[GraphDB] Save failed:', err.message);
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Save dirty/deleted cache data to SQLite incrementally in a single transaction.
+   */
+  saveIncremental(data) {
+    try {
+      this._ensureOpen();
+
+      const tx = this.db.transaction(() => {
+        // 1. Metadata
+        const insertMeta = this.db.prepare('INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?, ?)');
+        insertMeta.run('version', String(CACHE_VERSION));
+        insertMeta.run('timestamp', String(Date.now()));
+        if (data.workspaceRoot !== undefined) {
+          insertMeta.run('workspaceRoot', data.workspaceRoot || '');
+        }
+        if (data.workspaceInfo !== undefined) {
+          insertMeta.run('workspaceInfo', data.workspaceInfo ? JSON.stringify(data.workspaceInfo) : '');
+        }
+        if (data.metadata) {
+          for (const [key, value] of Object.entries(data.metadata)) {
+            insertMeta.run(key, value);
+          }
+        }
+
+        // 2. File Metadata
+        if (data.deletedFiles && data.deletedFiles.length > 0) {
+          const deleteFile = this.db.prepare('DELETE FROM file_metadata WHERE path = ?');
+          for (const filePath of data.deletedFiles) {
+            deleteFile.run(filePath);
+          }
+        }
+        if (data.dirtyFiles) {
+          const insertFile = this.db.prepare(
+            'INSERT OR REPLACE INTO file_metadata (path, mtime, size, hash, line_count, original_path) VALUES (?, ?, ?, ?, ?, ?)'
+          );
+          for (const [filePath, meta] of data.dirtyFiles) {
+            insertFile.run(
+              filePath,
+              meta.mtime ?? 0,
+              meta.size ?? 0,
+              meta.hash ?? '',
+              meta.lineCount ?? 0,
+              meta.originalPath || null
+            );
+          }
+        }
+
+        // 3. Parse Results
+        if (data.deletedParseResults && data.deletedParseResults.length > 0) {
+          const deleteParse = this.db.prepare('DELETE FROM parse_results WHERE path = ?');
+          for (const filePath of data.deletedParseResults) {
+            deleteParse.run(filePath);
+          }
+        }
+        if (data.dirtyParseResults) {
+          const insertParse = this.db.prepare(
+            'INSERT OR REPLACE INTO parse_results (path, mtime, imports, exports, import_records, export_records, function_records, parse_mode, parse_mode_reason, confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          );
+          for (const [filePath, result] of data.dirtyParseResults) {
+            insertParse.run(
+              filePath,
+              result.mtime ?? 0,
+              JSON.stringify(result.imports || []),
+              JSON.stringify(result.exports || []),
+              JSON.stringify(result.importRecords || []),
+              JSON.stringify(result.exportRecords || []),
+              JSON.stringify(result.functionRecords || []),
+              result.parseMode || '',
+              result.parseModeReason || '',
+              result.confidence || ''
+            );
+          }
+        }
+
+        // 4. Symbol Index
+        if (data.deletedSymbols && data.deletedSymbols.length > 0) {
+          const deleteSymbol = this.db.prepare('DELETE FROM symbol_index WHERE name = ?');
+          for (const name of data.deletedSymbols) {
+            deleteSymbol.run(name);
+          }
+        }
+        if (data.dirtySymbols) {
+          const insertSymbol = this.db.prepare('INSERT OR REPLACE INTO symbol_index (name, locations) VALUES (?, ?)');
+          for (const [name, locations] of data.dirtySymbols) {
+            insertSymbol.run(name, JSON.stringify(locations || []));
+          }
+        }
+
+        // 5. Diagnostics
+        if (data.deletedDiagnostics && data.deletedDiagnostics.length > 0) {
+          const deleteDiag = this.db.prepare('DELETE FROM diagnostics WHERE path = ?');
+          for (const filePath of data.deletedDiagnostics) {
+            deleteDiag.run(filePath);
+          }
+        }
+        if (data.dirtyDiagnostics) {
+          const insertDiag = this.db.prepare('INSERT OR REPLACE INTO diagnostics (path, data) VALUES (?, ?)');
+          for (const [filePath, entry] of data.dirtyDiagnostics) {
+            insertDiag.run(filePath, JSON.stringify(entry || { diagnostics: [] }));
+          }
+        }
+      });
+
+      tx();
+      return true;
+    } catch (err) {
+      if (process.env.DEBUG) {
+        console.error('[GraphDB] Save incremental failed:', err.message);
       }
       return false;
     }

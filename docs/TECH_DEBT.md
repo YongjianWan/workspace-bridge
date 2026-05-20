@@ -6,39 +6,8 @@
 
 ## L1 Blocker（违反铁律，必须修）
 
-#### 1. `ServiceContainer` 异步初始化与 `shutdown()` 竞态冲突导致资源泄漏与未定义行为（L1级异常安全与状态一致性债）
+> 当前无活跃的 L1 Blocker。
 
-**数据**：
-- 在 `src/services/container.js` 的 `initialize()` 中存在多处异步等待点（如 `await this._initFileIndex(options)`，`await this._initDepGraph(options)` 等）。这会在 Node.js 事件循环的微任务队列中多次让出控制权。
-- 若在这些异步挂起期间，宿主或外部测试触发了 `shutdown()` 调用，`shutdown()` 会同步将 `this.diagnostics`、`this.depGraph`、`this.projectContext` 等置为 `null`，并断开 SQLite cache（`cache.close()`），然后将 `this.initialized = false`。
-- 然而，正在运行的 `initialize()` 异步工作流**没有任何状态哨兵或 abort 短路机制**。一旦微任务被唤醒，它将继续无脑执行后续初始化，重新实例化已被 shutdown 释放的组件，并最终在末尾将 `this.initialized = true` 强制写回。
-
-**影响**：
-- 这彻底击穿了 `shutdown()` 的生命周期防御。整个系统会自满地认为容器已就绪（`initialized === true`），但底层的 cache（SQLite 连接）早已关闭。后续的业务查询（如 `audit-summary`）将会因操作已关闭的数据库而直接 Crash，违背了 **Never break userspace** 与 **异常安全** 铁律。
-- 同时，由于 initialize 继续推进，其新创建的文件 watch 实例、diagnostics 检查定时器将彻底悬空于内存中，造成严重的资源与进程句柄泄漏，对 REPL 交互环境、watch 频繁重启以及测试并发跑具有极高的高危破坏性。
-
-**方案**：
-- 在 `ServiceContainer` 引入 `initializing` 中止保护。在 `shutdown()` 调用时，将中止信号或状态置位。
-- 在 `initialize()` 的每个异步 `await` 阶段返回后，立即做短路检查（`if (this.initError || !this.initializing)`），若已被 shutdown 中途截停，则立即干净利落地 throw 或退出，阻止后续任何组件的脏实例化与状态污染。
-
----
-
-#### 2. `FileIndex.processPending()` 异步任务与 `shutdown` 竞态导致已关闭 SQLite 崩溃（L1级异常安全债）
-
-**数据**：
-- 在 `src/services/file-index.js` 的 `processPending()` 中，其执行流程中有多处异步挂起点（如 `await Promise.race(executing)`，`await Promise.all(executing)` 等）。
-- 当系统或外部测试调用了 `shutdown()`，会间接触发 `fileIndex.stopWatching()` 以及 `cache.close()`。
-- 然而，`stopWatching()` 仅仅是清除了定时器并关闭了 watcher 句柄。对于**已经处于执行进程中**的 `processPending` 异步函数，**没有任何拦截或强行 abort 机制**。
-
-**影响**：
-- 在 `processPending` 后续的 microtask 醒来时，它会继续高高兴兴地在后台执行 `this.handleFileChange(file)`，尝试去改写 symbols 并通过 `cache.setSymbols` 或 `cache.deleteSymbol` 等读写 SQLite。
-- 此时由于 SQLite 连接（`cache.close()`）早已被 `shutdown` 关闭，这会在后台爆发致命的 `SqliteError: database connection is closed`，导致宿主在退出或并发重置测试期间因未捕获异常而神秘 Crash，严重破坏了宿主的运行稳定性。
-
-**方案**：
-- 在 `FileIndex` 引入 Abort 信号或在 `stopWatching()` 中将 active 状态置为 `false`。
-- 在 `processPending` 内部的循环迭代中增加校验，一旦发现 active 状态为 false 或已被 shutdown 中止，立刻干净利落地短路并退出，不再允许其在后台继续脏读写已关闭的 cache 数据库。
-
----
 
 ## L2 债务（阻塞演进或导致结果不可信）
 
@@ -58,37 +27,11 @@
 
 ---
 
-#### 2. `checkFileChanges` 内存校准的“幽灵更新”不同步（L2级一致性债）
 
-**数据**：
-- 在 `src/services/cache.js` 的 `checkFileChanges()` 中，Slow path（通过 SHA-256 精确校验内容未变）通过后，会使用 `this.fileMetadata.set(key, { ...meta, mtime: stat.mtimeMs, size: stat.size })` 修正内存中过期的 mtime 和 size，使其在下一次回到 Fast path。
-
-**影响**：
-- 这部分校准纯属“幽灵更新”：如果本次运行只是只读的审计命令（没有发生导致 save() 触发的增量变更），这个被修正了的 metadata 结构**永远不会被自动持久化到 SQLite 数据库中**。
-- 下次重新启动进程，检测再次失效，依旧要重新运行慢路径读取该文件计算 SHA-256，导致针对 git checkout 等操作引起的 mtime 偏移在只读查询场景下无法被真正抹平。
-
-**方案**：
-- 在 `WorkspaceCache` 引入 `dirty` 标志。
-- 当 `checkFileChanges()` 内部由于 fast-path 校准或者任何局部变更修改了内存 state 时，标记 `this.dirty = true`。
-- 在 CLI 退出前或容器 `close()` 时，若 `dirty === true` 则自动持久化（或增量持久化）以抹平偏差。
-
----
 
 ---
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
-
-#### ~~`overview-tools.js` 与 `health-tools.js` 数据重叠~~ ✅ 已修复
-
-**数据**：`health-tools.js` 的 `checkParserAvailability` 与 `audit-summary.health.parserAvailability` 重合；`workspace-tools.js#detectNodeLinters` 与 `diagnostics-engine.js#hasChecker` 的 eslint 检测逻辑重复。
-
-**修复**：
-- eslint 检测：`src/utils/environment-probe.js` `detectEslintConfig` 已被 `workspace-tools.js` 和 `diagnostics-engine.js` 复用。
-- parserAvailability：`checkParserAvailability` 已从 `health-tools.js` 移入 `environment-probe.js`，`health-tools.js` 和 `workspace-tools.js` 统一从 `environment-probe.js` 引入。
-
-**结果**：`environment-probe.js` 成为环境探测的单一事实源。详见 CHANGELOG.md [Unreleased] 2026-05-20。
-
----
 
 #### 启发式字符串 Import 解析且缺乏全局符号表辅助（架构债）
 
@@ -165,24 +108,7 @@
 
 ---
 
-#### `runner.js` 慢测试分类机制脆弱
 
-**数据**：
-- `KNOWN_SLOW_PATTERNS` 是 21 个硬编码正则，与文件内容扫描 fallback（`runCli|spawnSync|spawnSync\('node'.*cli\.js`）并存。新增集成测试时作者容易忘记加入列表。
-- `affected-tests-heuristic-test.js` 不在列表中，被 fallback 分到 fast 层并发跑；但它构建大规模 mock depGraph（`new DependencyGraph()` + 20+ 节点），在 Windows 并发环境下偶发失败（SQLite 锁/超时）。**已修复**：文件头部添加 `// @slow` 注释，runner 优先解析注释，该测试现正确归入 slow 层（27 slow / 100 fast）。
-- smoke 模式从 slow 层"按字母排序取前 3 个"，可能选到 3 个 cache 相关测试而 0 个覆盖 dep-graph 核心路径，不具代表性。
-- **新增发现**：一致性检查扫描出 7 个含 `spawnSync`/`child_process` 但被 fallback 漏到 fast 层的文件（`git-line-ranges-test.js`、`java-parsers-test.js`、`phase01-quality-test.js`、`spawn-ast-*-test.js`、`staleness-test.js`）。这些文件运行时间可接受（<2s），但分类逻辑存在盲区。
-
-**根因**：分类依赖人工维护的文件名列表 + 脆弱的 regex 内容扫描，没有自验证机制；smoke 代表选择无策略。
-
-**影响**：慢测试漏到 fast 层并发跑 → SQLite 锁争用/超时/偶发失败；smoke 可能错过核心路径回归保护。
-
-**方案**：
-1. ✅ **自验证**：runner 启动时扫描所有测试文件，发现含 `runCli`/`spawnSync`/`child_process` 但不在 slow 列表的，打印 WARNING。
-2. ✅ **头部标记**：引入 `// @slow` / `// @watch` 文件级注释，runner 优先解析标记，文件名列表降为 fallback。
-3. ✅ **smoke 权重**：引入 `// @smoke-representative` 标记，runner 优先选择带标记的 slow 测试，无标记时回退字母序。
-
----
 
 #### 弱断言分布 — 占总断言数 ~3.0%
 
@@ -223,9 +149,7 @@
 **影响**：CLI 入口的选项解析、路由分发、错误边界、格式化器选择等关键路径的回归保护已建立；主要剩余缺口是端到端测试（仅 3 个文件，2%）。
 
 **方案**：
-1. ✅ ~~新增 3–4 个 CLI 集成测试~~ → **已完成**：`cli-integration-test.js`（9 个测试函数）覆盖 8 个 CLI 命令的管道回归；`analysis-test.js` 修复 cwd 指向问题后重新生效
-2. 弱断言清理继续推进（~35 处 `typeof` 型 schema 契约检查维持现状）
-3. ✅ ~~runner 分层执行~~ → **已修**：`--layer fast/slow/watch` + 分阶段执行（fast ~14s / 全量 ~4min），开发迭代无需等待全量 7min
+1. 弱断言清理继续推进（~35 处 `typeof` 型 schema 契约检查维持现状）。
 
 ---
 
@@ -264,15 +188,14 @@
 
 #### slow 层测试过重
 
-**数据**：slow 层 27 个测试需 ~100s，其中 `e2e-gitnexus-test.js` 单个测试占 ~34s（全层时间的 ~24%）。~~此前该测试含 3 个独立 CLI spawn（audit-summary/audit-file/dead-exports），单个占 55s（55%）。~~ ✅ **已优化**：删除重复 spawn，保留 `audit-summary` 单一大项目验证，runner 时间从 ~65s 降至 ~34s。
+**数据**：slow 层 27 个测试需 ~100s，其中 `e2e-gitnexus-test.js` 单个测试占 ~34s（全层时间的 ~24%）。
 
 **根因**：GitNexus 项目规模 1329 文件，runner 为每个测试文件创建独立空缓存目录，导致 CLI 冷启动 + 全量建图 + 加载 WASM。
 
-**影响**：slow 层总时间 ~129s，e2e-gitnexus 仍是最重单测试，但占比已从 55% 降至 24%。
+**影响**：slow 层总时间 ~129s，e2e-gitnexus 仍是最重单测试，占比为 24%。
 
 **方案**：
-1. ✅ ~~e2e-gitnexus 删除重复 spawn~~ **已完成**：`cli-integration-test.js` 已覆盖 audit-file/dead-exports 形状验证。
-2. 进一步：评估 runner 是否可为 e2e-gitnexus 提供预热缓存（复用默认缓存目录而非独立空目录），或拆分为独立 CI job 本地跳过。
+1. 评估 runner 是否可为 e2e-gitnexus 提供预热缓存（复用默认缓存目录而非独立空目录），或拆分为独立 CI job 本地跳过。
 
 ---
 
@@ -386,11 +309,11 @@
 ---
 
 
-#### ~~WorkspaceSnapshot 内部数据不一致 + 零消费者~~ ✅ 已修复
+#### WorkspaceSnapshot 零消费者（架构债）
 
-**修复**：`WorkspaceSnapshot.files` 改为惰性 getter，基于 `fileIndex` 引用实时构建；`container.js` 增量更新后重新组装 snapshot；catch 块保留已有 snapshot 避免瞬态错误清空视图。详见 CHANGELOG.md [Unreleased] 2026-05-20。
+**数据**：`DependencyGraphView` 目前只被测试用到，`container.snapshot` 零外部消费者。
 
-**剩余**：`DependencyGraphView` 目前只被测试用到，`container.snapshot` 零外部消费者。P1 阶段统一让 L4 工具消费 `container.snapshot`，然后 `container.depGraph` 标记 deprecated，消除双线并行。
+**方案**：P1 阶段统一让 L4 工具消费 `container.snapshot`，然后 `container.depGraph` 标记 deprecated，消除双线并行。
 
 ---
 
@@ -398,10 +321,8 @@
 
 | 位置                  | 问题                                                              | 优先级 |
 | --------------------- | ----------------------------------------------------------------- | ------ |
-| `git-tools.js`      | ~~`getChangedFiles()` 手动字符级解析~~ ✅ **已提取**：`parsePorcelainV1Line` 纯函数隔离 porcelain 解析，主循环只处理结构化对象 | 低     |
 | `js.js`             | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行 | 低     |
 | `cli.js`             | 1. `--json` 嵌套深，管道不友好；2. 静态帮助指南 `COMMAND_GUIDES` 硬编码配置外溢，违背 L2-8 内聚优先；3. `determineExitCode()` 包含庞大 `switch-case` 链条，偷窥子命令私有结果 Schema | 中     |
-| `dep-graph/framework-patterns.js` + `implicit-imports.js` | ~~命名混淆 + 层级错配~~ ✅ **已修复**：`detectFrameworkFromPath` + `ENTRY_WEIGHT` 已提取至 `project-context.js`（路径推断归 project-context 层），`framework-usage-patterns.js` 已重命名为 `implicit-imports.js`。`framework-patterns.js` 现仅保留 AST_PATTERNS + `detectFrameworkFromContent`，职责单一 | 低     |
 | `file-index.js`     | `this.excludeDirs` 被拼命计算与去重，却**没有任何一处代码消费**，属死代码气味 | 低 |
 | `file-index.js`     | `shouldExclude` 高频核心循环中嵌套调用了无缓存的 `projectContext.isNotGeneratedFile()`，导致对每个扫描到的目录/文件都执行了全套正则匹配与角色判定规则链，大项目 cold index 阶段存在明显 CPU 消耗瓶颈 | 中 |
 
@@ -411,12 +332,9 @@
 
 | 文件                                        | 行数 | 风险         | 状态                                                      |
 | ------------------------------------------- | ---- | ------------ | --------------------------------------------------------- |
-| `src/services/dep-graph.js`               | ~307 | 低 | 已拆分为 facade + builder/analyzer/query/shared 子模块；对外 API 不变 |
 | `src/tools/overview-tools.js`             | ~711 | 中           | JS/CSS 裸数字已归零（`DASHBOARD_LAYOUT` 常量）；P0 去噪已添加小项目 `architectureAdvice` 抑制；L2-5 schema 不一致源 |
-| `cli.js`                                  | ~509 | 中           | `runCommand` 已拆分，但命令指南硬编码外溢，`determineExitCode` 存在 `switch-case` 脏耦合分支 |
-| `src/tools/git-tools.js`                  | ~392 | 低           | `getChangedFiles()` 手动字符级解析是已知债务；6 个死函数已清理（-309 行）；L2-9 commit range 源 |
-| `src/tools/security-tools.js`             | ~197 | 低           | `--builtin-only` 已新增；L2-8 已关闭                        |
-| `src/cli/formatters/validation-advice.js` | ~140 | 低           | 已拆为 6 个纯函数；路由表化后代码量减少，内聚性提升 |
+| `cli.js`                                  | ~509 | 中           | 命令指南硬编码外溢，`determineExitCode` 存在 `switch-case` 脏耦合分支 |
+| `src/tools/git-tools.js`                  | ~392 | 低           | L2-9 commit range 源 |
 | `src/utils/project-context.js`            | ~634 | 中           | `inferFileRole()` 存在规则盲区与无状态匹配，高频 `shouldExclude` 存在高 CPU 消耗 |
 | `src/utils/stack-detectors/detect.js`     | ~443 | 低           | stack-detector 检测子模块                                   |
 | `src/utils/stack-detectors/commands.js`   | ~639 | 低           | stack-detector 命令子模块                                   |

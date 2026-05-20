@@ -43,6 +43,12 @@ class ServiceContainer {
     this._readyPromise = null;
   }
 
+  _checkAborted() {
+    if (!this.initializing || this._readyPromise === null) {
+      throw new Error('Container shut down during initialization');
+    }
+  }
+
   /**
    * Initialize all services. Thread-safe with mutex-like behavior.
    */
@@ -79,11 +85,14 @@ class ServiceContainer {
 
     try {
       this._findWorkspaceRoot(cwd);
+      this._checkAborted();
       this._initCache();
       this._initProjectContext(options);
       await this._initFileIndex(options);
+      this._checkAborted();
       this._initDiagnostics();
       await this._initDepGraph(options);
+      this._checkAborted();
       // P2: load precomputed aggregate summary if graph hasn't changed since last run
       const loadedAggregate = this.cache.loadAggregateSummary();
       if (loadedAggregate && loadedAggregate.stats?.files === this.depGraph.graph.size) {
@@ -104,6 +113,7 @@ class ServiceContainer {
       } catch {
         // Not a git repo or git not available — stale detection falls back to time-based only
       }
+      this._checkAborted();
       this.cache.setWorkspaceInfo({ ...this.cache.getWorkspaceInfo(), gitHead });
 
       if (!this.quiet) {
@@ -113,12 +123,17 @@ class ServiceContainer {
       resolveReady(true);
       return true;
     } catch (err) {
+      if (this._readyPromise === null) {
+        return false;
+      }
       this.initError = err;
       console.error('[Container] Initialization failed:', err);
       rejectReady(err);
       return false;
     } finally {
-      this.initializing = false;
+      if (this._readyPromise !== null) {
+        this.initializing = false;
+      }
     }
   }
 
@@ -305,6 +320,10 @@ class ServiceContainer {
    * Shutdown: persist cache and cleanup
    */
   async shutdown() {
+    // Mark as aborted if we are initializing to prevent background racing
+    this.initializing = false;
+    this._readyPromise = null;
+
     // Phase 2: 清理待执行的诊断检查
     if (this.diagnostics) {
       try {

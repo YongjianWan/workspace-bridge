@@ -412,6 +412,24 @@ function buildCommandAiDigest(command, result) {
         actions.push({ priority: 'P0', action: `Run ${result.summary.counts.affectedTests} affected test(s)` });
       }
       break;
+    case 'audit-file':
+      if (result.impact?.impactCount > 0 || result.affectedTests?.affectedTestsCount > 0) {
+        counts.impact = result.impact?.impactCount || 0;
+        counts.affectedTests = result.affectedTests?.affectedTestsCount || 0;
+        if (counts.impact > 20) {
+          topRisks.push({ category: 'impact', severity: 'high', count: counts.impact, message: `Editing this file would transitively impact ${counts.impact} file(s)`, confidence: 0.9 });
+        } else if (counts.impact > 0) {
+          topRisks.push({ category: 'impact', severity: 'medium', count: counts.impact, message: `Editing this file would transitively impact ${counts.impact} file(s)`, confidence: 0.9 });
+        }
+        if (counts.affectedTests > 0) {
+          topRisks.push({ category: 'tests', severity: 'medium', count: counts.affectedTests, message: `${counts.affectedTests} test(s) affected`, confidence: 0.9 });
+          actions.push({ priority: 'P0', action: `Run ${counts.affectedTests} affected test(s)` });
+        }
+        if (counts.impact > 0) {
+          actions.push({ priority: 'P1', action: 'Run affected-tests to find specific files' });
+        }
+      }
+      break;
   }
   return { topRisks, actions, counts };
 }
@@ -446,7 +464,35 @@ function formatAi(command, result, options = {}) {
     };
     if (topRisks.length > 0) output.topRisks = topRisks;
     if (actions.length > 0) output.actions = actions;
-    if (depth === 'full' && result.details) output.details = result.details;
+
+    if (command === 'audit-file') {
+      if (depth === 'detail' || depth === 'full') {
+        output.riskFiles = {};
+        if (result.impact?.impact?.length > 0) {
+          output.riskFiles.impact = result.impact.impact.slice(0, 3).map((i) => ({
+            file: i.file,
+            level: i.level,
+          }));
+        }
+        if (result.affectedTests?.affectedTests?.length > 0) {
+          output.riskFiles.affectedTests = result.affectedTests.affectedTests.slice(0, 3).map((t) => ({
+            file: t.file,
+            distance: t.distance,
+          }));
+        }
+        if (Object.keys(output.riskFiles).length === 0) {
+          delete output.riskFiles;
+        }
+      }
+      if (depth === 'full') {
+        output.details = {
+          impact: result.impact?.impact || [],
+          affectedTests: result.affectedTests?.affectedTests || [],
+        };
+      }
+    } else {
+      if (depth === 'full' && result.details) output.details = result.details;
+    }
 
     if (tokenBudget) {
       let estimatedTokens = JSON.stringify(output).length / AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN;

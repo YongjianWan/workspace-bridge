@@ -413,29 +413,7 @@ function parseCliArgs(argv) {
 function determineExitCode(command, result, failOnFindings = false) {
   if (!result || result.ok === false) return 1;
   if (result.regression && result.regression.ok === false) return 1;
-
-  switch (command) {
-    case 'audit-summary': {
-      const hasFindings =
-        (result.deadExports?.deadExportsCount || 0) > 0 ||
-        (result.unresolved?.unresolvedCount || 0) > 0 ||
-        (result.cycles?.cyclesCount || 0) > 0 ||
-        (result.health?.healthScoreNumeric?.ratio || 1) < 1;
-      return failOnFindings && hasFindings ? 1 : 0;
-    }
-    case 'audit-security':
-      return failOnFindings && (result.summary?.total || 0) > 0 ? 1 : 0;
-    case 'dead-exports':
-      return failOnFindings && (result.deadExportsCount || 0) > 0 ? 1 : 0;
-    case 'unresolved':
-      return failOnFindings && (result.unresolvedCount || 0) > 0 ? 1 : 0;
-    case 'cycles':
-      return failOnFindings && (result.cyclesCount || 0) > 0 ? 1 : 0;
-    case 'health':
-      return failOnFindings && (result.healthScoreNumeric?.ratio || 1) < 1 ? 1 : 0;
-    default:
-      return 0;
-  }
+  return failOnFindings && result.hasFindings === true ? 1 : 0;
 }
 
 async function runCommand(parsed, container) {

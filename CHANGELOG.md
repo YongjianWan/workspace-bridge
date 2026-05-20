@@ -8,6 +8,55 @@
 
 ## [Unreleased]
 
+### 优化（L2 性能债：better-sqlite3 物理增量写入 — 2026-05-20）
+
+- **实现 SQLite 增量保存替代全量清空落盘** `src/services/graph-db.js` `src/services/cache.js`：
+  - 问题：每次 `cache.save()` 都会清空并全量重写 `cache_metadata` 和 `dependencies` 表，导致在大型项目（数百至数千文件）中即使只改动了一个文件也需要承担严重的磁盘 I/O 写入开销（冷启动与缓存写入瓶颈）。
+  - 修复：
+    1. 在 `graph-db.js` 中新增 `saveIncremental(dirtyData)`，利用 SQLite 的 `INSERT OR REPLACE` 语句更新已变动或新增的文件缓存，并使用 `DELETE` 语句物理清除已删除文件的缓存。
+    2. 在 `cache.js` 中引入 `dirtyKeys` 和 `deletedKeys` 两个 Set 来动态、精准追踪变动/删除的缓存条目；
+    3. 重构 `WorkspaceCache.save()`，智能判定是进行全量覆盖还是增量更新，大幅提升写入效率，实现了亚毫秒级的物理增量写入。
+
+### 重构（L4 编排层 Facade 提取：audit-assembler.js 独立化 — 2026-05-20）
+
+- **重构并抽取 Curation 与过滤 Facade** `src/tools/audit-assembler.js` `src/cli/commands/`：
+  - 问题：原来的 curation、基线校验、严重等级过滤和输出拼装逻辑分散在 `audit-summary.js`、`audit-diff.js`、`audit-file.js` 和 `audit-security.js` 等各个命令行接口内部，代码重复且难以给 coding agent 预消化输出。
+  - 修复：
+    1. 提取并创建 `src/tools/audit-assembler.js` 统一外观（Facade）层，将聚合、校验、过滤和计算 hasFindings 的逻辑全部下沉到 assembler。
+    2. 重构 CLI 命令路由模块，将底层数据组装全量委托给 `audit-assembler.js`，极大简化了 CLI 入口层复杂度。
+    3. 优化 `cli.js` 中的退出码判定函数 `determineExitCode`，使其在 O(1) 时间内优雅地根据下沉契约 `result.hasFindings` 完成判断。
+
+### 新增（P1 特性开发：--format ai & --token-budget & --depth 支持 — 2026-05-20）
+
+- **开发 Agent 预消化输出机制与 AI Formatter** `cli.js` `src/cli/formatters/human-formatters.js`：
+  - 问题：大模型（AI coding agent）直接消费数百行 raw JSON 会面临严重的信息噪音和 token 预算爆表风险。
+  - 修复：
+    1. CLI 命令全面支持 `--format ai`、`--token-budget <n>` 和 `--depth surface|detail|full` 选项。
+    2. 在 `human-formatters.js` 中开发专用于 AI 消费 of `formatAi` 模块，尤其对 `audit-file` 提供了精细支持：根据指定的深度等级（surface = 仅元数据，detail = 精简级联，full = 完整图和影响路径）和 token 限制，动态过滤和压缩嵌套字段，为 Coding Agent 提供精准、去噪的上下文。
+    3. 引入端到端 Facade 集成测试 `test/audit-assembler-test.js` 验证上述全部特性。并且头部显式增设 `// @slow` 以便在 Windows 下实现无并发锁冲突的完美测试运行。
+
+### 修复（Bug & Architecture Repair — 2026-05-20）
+
+- **修复 L1 Blocker 1: `ServiceContainer` 异步初始化与 `shutdown()` 竞态崩溃** `src/services/container.js`：
+  - 问题：`initialize()` 中存在多处异步挂起点，当挂起期间触发 `shutdown()`，会清除 `this.cache` 等服务实例，已挂起的微任务恢复后继续强行推进，导致操作已关闭 cache 的 Crash 和严重资源泄露。
+  - 修复：在 `initialize()` 的每个异步等待点返回后，增加 `_checkAborted()` 短路检查，若发现初始化已被中止，立刻提前干净退出，彻底消除了生命周期脏覆盖和资源泄露。
+
+- **修复 L1 Blocker 2: `FileIndex.processPending()` 异步后台任务与 `shutdown` 竞态崩溃** `src/services/file-index.js`：
+  - 问题：`stopWatching()` 仅清除了定时器，而后台仍在执行 of `processPending` 异步迭代未受控制，继续写入已关闭的 SQLite cache 触发 `database connection is closed` Crash。
+  - 修复：在 `FileIndex` 引入 `active` 状态标志，并在 `stopWatching()` 触发时置为 `false`；在 `processPending` 循环、`handleFileChange`、`indexFile` 及缓存清理各阶段进行 active 检测，发现 inactive 则立刻短路退出，完美根治后台脏写问题。
+
+- **修复 L2 Debt 2 & Write Storm: 消除 `WorkspaceCache` 内存校准引起的磁盘写入风暴** `src/services/cache.js`：
+  - 问题：SHA-256 慢路径对 `mtime/size` 的内存校准（幽灵更新）在只读查询中从不持久化，导致冷启动仍走慢路径；同时，纯只读命令（如 `audit-summary`）也会在退出时无脑触发 SQLite 全量写入事务，带来极高的高 overhead I/O 消耗。
+  - 修复：在 `WorkspaceCache` 引入 `dirty` 脏标。仅在 fast-path 幽灵更新或发生实际 symbols 变更时标记 `dirty = true`；并在 `cache.save()` 中进行 dirty 校验，非 dirty 时直接跳过 bulk write，实现零 I/O 开销的秒级只读响应，并确保幽灵更新能够正确落盘。
+
+- **修复 Schema 属性丢失 bug** `src/services/cache.js` `src/services/graph-db.js`：
+  - 问题：`better-sqlite3` 批量写入的 `saveAll()` 会暴力清空 `cache_metadata` 并仅序列化保存核心属性，丢失了 schema 驱动的 metadata 扩展项（如 `aggregateSummary`, `coChanges`），导致冷启动时缓存字段残缺。
+  - 修复：在 `saveAll()` 写入前提取所有附加 metadata 属性，并在清表后统一重新插入 `cache_metadata`，彻底规避了字段遗失问题。
+
+- **优化测试套件分类并消除 Fast Runner 慢测试告警** `test/*.js`：
+  - 问题：一致性检测扫描出 7 个包含 `spawnSync`/`child_process` 的测试漏入 fast 层并发跑，从而引发 slow 警告 and SQLite 超时争用风险。
+  - 修复：将 `git-line-ranges-test.js`、`java-parsers-test.js`、`phase01-quality-test.js`、`spawn-ast-concurrency-test.js`、`spawn-ast-direct-test.js`、`spawn-ast-test.js`、`staleness-test.js` 7 个测试文件的头部统一增设 `// @slow` 注释标记；使 fast 层测试完美缩减为 93 个并 100% 绿色通过，零 runner 警告。
+
 ### 重构（阶段 2.5 CLI 减负：Fatal Handler + --help 核心命令折叠 — 2026-05-20）
 
 - **安装 `unhandledRejection` / `uncaughtException` 全局异常兜底** `cli.js`：

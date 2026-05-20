@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 /**
  * Staleness detection unit tests.
  */

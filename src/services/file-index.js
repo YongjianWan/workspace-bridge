@@ -22,6 +22,7 @@ const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.
 
 class FileIndex {
   constructor(workspaceRoot, cache, options = {}) {
+    this.active = true;
     this.root = workspaceRoot;
     this.cache = cache;
     this.workspace = detectWorkspace(workspaceRoot);
@@ -318,6 +319,7 @@ class FileIndex {
 
   async pruneDeletedCacheEntries() {
     const prunedFiles = [];
+    if (!this.active) return prunedFiles;
     // Defensive: scan both fileMetadata and parseResults to catch any
     // historical inconsistency where parseResults has a key not in fileMetadata.
     const allCachedFiles = new Set([
@@ -328,8 +330,10 @@ class FileIndex {
     const batchSize = DEFAULTS.FILE_INDEX_PROGRESS_BATCH;
     const files = Array.from(allCachedFiles);
     for (let i = 0; i < files.length; i += batchSize) {
+      if (!this.active) return prunedFiles;
       const batch = files.slice(i, i + batchSize);
       for (const filePath of batch) {
+        if (!this.active) return prunedFiles;
         if (fs.existsSync(filePath)) continue;
         this._removeCacheEntry(filePath);
         prunedFiles.push(filePath);
@@ -348,15 +352,19 @@ class FileIndex {
   }
 
   async indexFile(filePath) {
+    if (!this.active) return false;
     try {
       const fileKey = normalizePathKey(filePath);
       const stats = await stat(filePath);
+      if (!this.active) return false;
       const content = await readFile(filePath, 'utf8');
+      if (!this.active) return false;
       const ext = path.extname(filePath);
 
       // Extract symbols
       const symbols = extractSymbols(content, ext);
 
+      if (!this.active) return false;
       // Update file metadata cache
       const { createHash } = require('crypto');
       this.cache.setFileMetadata(filePath, {
@@ -369,6 +377,7 @@ class FileIndex {
 
       // Update symbol index cache
       for (const symbol of symbols) {
+        if (!this.active) return false;
         const existing = this.cache.getSymbols(symbol.name);
         // Remove old entry for this file
         const filtered = existing.filter((l) => normalizePathKey(l.file) !== fileKey);
@@ -451,6 +460,7 @@ class FileIndex {
   }
 
   async processPending() {
+    if (!this.active) return;
     // Atomic swap: replace the pending set so that updates arriving during
     // processing are not lost by a subsequent clear() or re-entrant call.
     const updates = this.pendingUpdates;
@@ -462,16 +472,18 @@ class FileIndex {
     const CONCURRENCY = 5;
     const executing = new Set();
     for (const file of files) {
+      if (!this.active) break;
       const promise = this.handleFileChange(file).finally(() => executing.delete(promise));
       executing.add(promise);
       if (executing.size >= CONCURRENCY) {
         await Promise.race(executing);
       }
     }
+    if (!this.active) return;
     await Promise.all(executing);
 
     // Phase 3: 批量通知下游服务（如 dep-graph 增量更新）
-    if (this.onPendingProcessed && files.length > 0) {
+    if (this.active && this.onPendingProcessed && files.length > 0) {
       try {
         await this.onPendingProcessed(files);
       } catch (e) {
@@ -481,14 +493,17 @@ class FileIndex {
   }
 
   async handleFileChange(filePath) {
+    if (!this.active) return;
     try {
       const fileKey = normalizePathKey(filePath);
       const stats = await stat(filePath);
+      if (!this.active) return;
       const cached = this.cache.getFileMetadata(filePath);
       
       if (!cached || stats.mtimeMs !== cached.mtime || stats.size !== cached.size) {
         // Remove old symbols first
         if (cached) {
+          if (!this.active) return;
           for (const symName of cached.symbols) {
             const existing = this.cache.getSymbols(symName);
             const filtered = existing.filter((l) => normalizePathKey(l.file) !== fileKey);
@@ -501,15 +516,18 @@ class FileIndex {
         }
         
         // Re-index
+        if (!this.active) return;
         await this.indexFile(filePath);
       }
     } catch (e) {
       // File deleted — clean up all associated cache entries
-      this._removeCacheEntry(filePath);
+      if (this.active) {
+        this._removeCacheEntry(filePath);
+      }
     }
     
     // Phase 2: 触发外部回调（如诊断检查）
-    if (this.onFileChanged) {
+    if (this.active && this.onFileChanged) {
       try {
         this.onFileChanged(filePath);
       } catch (e) {
@@ -520,6 +538,7 @@ class FileIndex {
   }
 
   stopWatching() {
+    this.active = false;
     if (this.updateTimer) {
       clearTimeout(this.updateTimer);
       this.updateTimer = null;

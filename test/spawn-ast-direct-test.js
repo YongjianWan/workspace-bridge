@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 /**
  * Direct unit tests for spawn-ast.js edge cases not covered by
  * spawn-ast-test.js (SIGKILL) or spawn-ast-concurrency-test.js (semaphore).
