@@ -67,6 +67,8 @@ class WorkspaceCache {
     this.diagnostics = new Map();  // file -> [diagnostics]
 
     // Incremental tracking sets
+    // INVARIANT: Any mutation to fileMetadata/parseResults/symbolIndex/diagnostics
+    // MUST update the corresponding _dirty* / _deleted* set and set this.dirty = true.
     this._dirtyFiles = new Set();
     this._deletedFiles = new Set();
     this._dirtyParseResults = new Set();

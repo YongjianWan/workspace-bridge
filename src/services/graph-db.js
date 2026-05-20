@@ -288,6 +288,19 @@ class GraphDB {
     try {
       this._ensureOpen();
 
+      const hasWork =
+        (data.deletedFiles && data.deletedFiles.length > 0) ||
+        (data.dirtyFiles && data.dirtyFiles.length > 0) ||
+        (data.deletedParseResults && data.deletedParseResults.length > 0) ||
+        (data.dirtyParseResults && data.dirtyParseResults.length > 0) ||
+        (data.deletedSymbols && data.deletedSymbols.length > 0) ||
+        (data.dirtySymbols && data.dirtySymbols.length > 0) ||
+        (data.deletedDiagnostics && data.deletedDiagnostics.length > 0) ||
+        (data.dirtyDiagnostics && data.dirtyDiagnostics.length > 0);
+      if (!hasWork) {
+        return true;
+      }
+
       const tx = this.db.transaction(() => {
         // 1. Metadata
         const insertMeta = this.db.prepare('INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?, ?)');

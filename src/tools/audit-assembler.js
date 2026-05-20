@@ -21,6 +21,7 @@ const { resolveWorkspaceFilePath } = require('../utils/path');
 const { mapWithConcurrency } = require('../utils/async');
 const { DEFAULTS } = require('../config/constants');
 const { auditSecurity, groupBySeverity } = require('./security-tools');
+const { buildCompositeRisk } = require('../cli/formatters');
 
 const SEVERITY_RANK = { high: 3, medium: 2, low: 1 };
 
@@ -217,7 +218,6 @@ async function assembleDiff(parsed, container) {
       recentCommits: history.ok ? history.recentCommits : [],
       impactExplanations,
     };
-    const { buildCompositeRisk } = require('../cli/formatters');
     const compositeRisk = buildCompositeRisk(baseEntry);
 
     return {
@@ -243,7 +243,6 @@ async function assembleDiff(parsed, container) {
       recentCommits: [],
       processingError: entry.__error,
     };
-    const { buildCompositeRisk } = require('../cli/formatters');
     return {
       ...baseEntry,
       compositeRisk: buildCompositeRisk(baseEntry),

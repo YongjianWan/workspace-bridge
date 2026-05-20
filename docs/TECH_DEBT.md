@@ -11,21 +11,8 @@
 
 ## L2 债务（阻塞演进或导致结果不可信）
 
-#### 1. SQLite 持久化中名存实亡的“假增量伪数据库”设计（L2级性能与架构债）
+> 当前无活跃的 L2 债务。
 
-**数据**：
-- 在 `src/services/graph-db.js` 的 `saveAll()` 事务中，写入前第一步居然是暴力的 `DELETE FROM` 清空所有表（`cache_metadata`、`file_metadata`、`parse_results`、`symbol_index`、`diagnostics`），然后再把内存中几千或上万个键值对逐一 `INSERT`！
-- 完全没有利用到数据库本该具备的增量更新（`INSERT OR REPLACE` / `UPDATE`）优势。
-
-**影响**：
-- 这虽然避免了手动处理复杂的主外键删除关系，但本质上只是把 SQLite 当作了一个格式好看一点的“伪·JSON序列化文件”来用。
-- 在大型项目中，即使每次保存只改动了 1 个文件，也必须全量抹除并重新向磁盘插入 10,000+ 行记录，极大浪费了 I/O 并限制了 CLI 冷启动及缓存写入的极限性能，这也是大项目在 CI 中性能不够极致的根因。
-
-**方案**：
-- 废除“清表全量插入”粗暴机制，提供 `saveFileIncremental(filePath, data)` 细粒度接口。
-- 利用 `better-sqlite3` 针对单表执行 `INSERT OR REPLACE` 或 `DELETE WHERE path = ?`，将 `FileIndex` / `DependencyGraph` 的物理增量更新真正落盘到 SQLite，实现毫秒级的脏缓存块更新。
-
----
 
 
 
@@ -87,24 +74,6 @@
 
 **方案**：
 - 解耦 Builder 与 Analyzer。通过在 `DependencyGraph` (Facade) 层注册生命周期事件（如 `onGraphMutated`），由 Facade 去通知 `analyzer` 进行缓存失效，彻底使 `GraphBuilder` 保持为纯粹的数据建图引擎。
-
----
-
-#### L4 工具编排层缺乏统一组装 facade
-
-**数据**：
-- `audit-summary.js`（71 行）手动组装 `health` + `deadExports` + `unresolved` + `cycles`，并直接操作 `possibleFalsePositives.count/total` 等内部字段做 severity 过滤；`audit-diff.js`（206 行）自行组装 git 变更 + impact + line ranges + cochange；`audit-file.js`（47 行）自行组装 `impact` + `affectedTests` + `validationAdvice`。
-- 横切关注点（severity 过滤、save baseline、regression check）分散在个别命令中，`severityMeetsFilter` 同时出现在 `audit-summary.js` 和 `audit-security.js`。
-- 12 个命令（cycles/dead-exports/diagnostics/health/stats/unresolved/workspace-info/audit-overview/audit-map）仅 7–8 行，纯粹透传；但 4 个策展命令（audit-summary/audit-diff/audit-file/audit-security）各自重复组装逻辑。
-
-**根因**：L4 工具层（`dep-tools.js`/`git-tools.js`/`health-tools.js`/`overview-tools.js`/`security-tools.js`/`workspace-tools.js`）只有"thin router"（如 `dep-tools.js` 的 `OPERATIONS`），没有统一的"审计组装器"（audit assembler）。策展逻辑（多工具结果合并、severity 过滤、格式化前数据塑形）被迫上浮到 CLI 命令处理器（L5），导致 L4 与 L5 边界模糊。
-
-**影响**：新增策展命令必须重新实现一遍组装逻辑；修改 severity 过滤或 baseline 保存逻辑时需改多处；`audit-summary.js` 成为唯一知道如何组装完整审计报告的模块，内聚性债务累积。
-
-**方案**：提取 `audit-assembler.js`（或扩展 `dep-tools.js` 为 `audit-tools.js`），统一封装：
-1. 单工具查询（透传层，保持现有 7 行命令的简洁）。
-2. 策展组装（audit-summary / audit-diff / audit-file / audit-security 的共同逻辑下沉）。
-3. 横切过滤器（severity 统一过滤、baseline save/regression check 钩子）。
 
 ---
 
@@ -214,21 +183,7 @@
 
 ---
 
-#### `determineExitCode` 沦为无所不知的集中式命令分支污染源（L3级架构与品味债）
 
-**数据**：
-- `cli.js` 的 `determineExitCode()` (413-439行) 针对 `audit-summary`、`audit-security` 等不同的子命令定制了长长的 `switch-case` 链条。
-- 为了确定 `--fail-on-findings` 开启时“是否存在 findings”，它无所不知地强行解析各个子命令完全不同的内部私有 Schema（如 `.deadExports?.deadExportsCount`，`.healthScoreNumeric?.ratio` 等）。
-
-**影响**：
-- 这是极其糟糕的“高维耦合折中”（违反开发原则 7）。当子命令增加或者子命令的数据 Schema 发生重构时，外层无辜的 `cli.js` 会被迫一同被动修改。子命令应该只关心执行，而 CLI 框架却扮演了知道下属每一个子命令肚子里的所有肠子长什么样的“全知超级上帝类”，完全违背了边界消除和高内聚低耦合原则。
-
-**方案**：
-- 消除 `cli.js` 中基于命令名的 `switch-case` 分支。
-- 制定统一的 Command 返回契约，各命令在返回的 `result` 中自带 `hasFindings: boolean` 或 `exitCode: number` 状态。
-- `determineExitCode()` 仅需以 O(1) 的形式统一消费契约字段，消除对命令私有 Schema 的偷窥。
-
----
 
 #### 参数解析的双重转换与冗余校验（L3级品味债）
 
