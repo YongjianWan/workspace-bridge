@@ -277,7 +277,7 @@
 | 位置                  | 问题                                                              | 优先级 |
 | --------------------- | ----------------------------------------------------------------- | ------ |
 | `js.js`             | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行 | 低     |
-| `cli.js`             | 1. `--json` 嵌套深，管道不友好；2. 静态帮助指南 `COMMAND_GUIDES` 硬编码配置外溢，违背 L2-8 内聚优先；3. `determineExitCode()` 包含庞大 `switch-case` 链条，偷窥子命令私有结果 Schema | 中     |
+| `cli.js`             | 1. `--json` 嵌套深，管道不友好；2. 静态帮助指南 `COMMAND_GUIDES` 硬编码配置外溢，违背 L2-8 内聚优先。 | 中     |
 | `file-index.js`     | `this.excludeDirs` 被拼命计算与去重，却**没有任何一处代码消费**，属死代码气味 | 低 |
 | `file-index.js`     | `shouldExclude` 高频核心循环中嵌套调用了无缓存的 `projectContext.isNotGeneratedFile()`，导致对每个扫描到的目录/文件都执行了全套正则匹配与角色判定规则链，大项目 cold index 阶段存在明显 CPU 消耗瓶颈 | 中 |
 
@@ -288,7 +288,7 @@
 | 文件                                        | 行数 | 风险         | 状态                                                      |
 | ------------------------------------------- | ---- | ------------ | --------------------------------------------------------- |
 | `src/tools/overview-tools.js`             | ~711 | 中           | JS/CSS 裸数字已归零（`DASHBOARD_LAYOUT` 常量）；P0 去噪已添加小项目 `architectureAdvice` 抑制；L2-5 schema 不一致源 |
-| `cli.js`                                  | ~509 | 中           | 命令指南硬编码外溢，`determineExitCode` 存在 `switch-case` 脏耦合分支 |
+| `cli.js`                                  | ~509 | 中           | 命令指南硬编码外溢。                                      |
 | `src/tools/git-tools.js`                  | ~392 | 低           | L2-9 commit range 源 |
 | `src/utils/project-context.js`            | ~634 | 中           | `inferFileRole()` 存在规则盲区与无状态匹配，高频 `shouldExclude` 存在高 CPU 消耗 |
 | `src/utils/stack-detectors/detect.js`     | ~443 | 低           | stack-detector 检测子模块                                   |
