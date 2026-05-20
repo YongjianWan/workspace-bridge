@@ -1,11 +1,11 @@
 const assert = require('assert');
 const { dependencyGraph } = require('../src/tools/dep-tools');
+const { makeMockSnapshot } = require('./test-helpers');
 
 function createMockContainer() {
-  return {
-    ensureReady: async () => {},
-    workspaceRoot: '/test',
-    depGraph: {
+  const snapshot = makeMockSnapshot({
+    root: '/test',
+    depGraphOverrides: {
       getStats: () => ({ totalFiles: 10, totalEdges: 20 }),
       getDependencies: (file) => (file.includes('a.js') ? ['b.js', 'c.js'] : []),
       getDependents: (file) => (file.includes('a.js') ? ['d.js'] : []),
@@ -17,6 +17,11 @@ function createMockContainer() {
       findAffectedTests: (file, depth) => (file.includes('a.js') ? ['test/a.test.js'] : []),
       _displayPath: (p) => p,
     },
+  });
+  return {
+    ensureReady: async () => {},
+    workspaceRoot: '/test',
+    depGraph: snapshot.graph,
   };
 }
 

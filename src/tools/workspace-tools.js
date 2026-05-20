@@ -7,7 +7,8 @@ const { findWorkspaceRoot, detectWorkspace, toRelativePosix, pathExists } = requ
 const { runCommandSecure, runNpx, runPythonModule, trimOutput, resolvePythonCommand } = require('../utils/command');
 const { TIMEOUTS, PROBE } = require('../config/constants');
 const { parseDiagnosticsFromText, uniqueDiagnostics, summarizeDiagnostics } = require('../utils/diagnostics');
-const { checkParserAvailability } = require('./health-tools');
+const { checkParserAvailability } = require('../utils/environment-probe');
+const { detectEslintConfig, detectPrettierConfig, detectTscConfig } = require('../utils/environment-probe');
 
 /**
  * Detect available Node.js linters/formatters based on config files and package.json.
@@ -21,21 +22,9 @@ function detectNodeLinters(workspace, root) {
 
   const pj = workspace.packageJson;
 
-  // ESLint: config file or inline eslintConfig
-  linters.eslint = PROBE.ESLINT_CONFIG_FILES.some((f) => pathExists(path.join(root, f)));
-  if (!linters.eslint) {
-    linters.eslint = Boolean(pj.eslintConfig);
-  }
-
-  // Prettier: config file or dependency/script
-  linters.prettier = PROBE.PRETTIER_CONFIG_FILES.some((f) => pathExists(path.join(root, f)));
-  if (!linters.prettier) {
-    const deps = { ...pj.dependencies, ...pj.devDependencies };
-    linters.prettier = Boolean(deps.prettier) || Boolean(pj.scripts?.format);
-  }
-
-  // TypeScript compiler
-  linters.tsc = workspace.hasTsconfig || Boolean(pj.devDependencies?.typescript) || Boolean(pj.dependencies?.typescript);
+  linters.eslint = detectEslintConfig(root);
+  linters.prettier = detectPrettierConfig(root);
+  linters.tsc = detectTscConfig(root);
 
   return linters;
 }

@@ -115,6 +115,44 @@ function isCacheArtifact(filePath) {
     || base === 'cache.db-shm';
 }
 
+/**
+ * Parse a single line of `git status --porcelain=v1` output.
+ * Isolates character-level parsing so the main loop only deals with
+ * structured data.
+ *
+ * Format: XY PATH  or  XY ORIG_PATH -> PATH
+ *   X = index status, Y = working tree status
+ *   '??' = untracked
+ *
+ * Returns null for empty or malformed lines.
+ */
+function parsePorcelainV1Line(line) {
+  if (!line || line.length < 4 || line[2] !== ' ') {
+    return null;
+  }
+
+  const indexStatus = line[0];
+  const workTreeStatus = line[1];
+  let rawPath = line.slice(3);
+  let renamedFrom = null;
+
+  if (rawPath.includes(' -> ')) {
+    const parts = rawPath.split(' -> ');
+    renamedFrom = parts[0].trim();
+    rawPath = parts[parts.length - 1].trim();
+  }
+
+  return {
+    indexStatus,
+    workTreeStatus,
+    path: rawPath,
+    renamedFrom,
+    isUntracked: indexStatus === '?' && workTreeStatus === '?',
+    isStaged: indexStatus !== ' ' && indexStatus !== '?',
+    isUnstaged: workTreeStatus !== ' ',
+  };
+}
+
 async function getChangedFiles(root, options = {}) {
   const staged = options.staged === true;
   const includeUntracked = options.includeUntracked !== false;
@@ -156,31 +194,24 @@ async function getChangedFiles(root, options = {}) {
     const line = rawLine.trimEnd();
     if (!line) continue;
 
-    const x = line[0];
-    const y = line[1];
-    let file = line.slice(3).trim();
+    const parsed = parsePorcelainV1Line(line);
+    if (!parsed) continue;
+
+    let file = parsed.path;
     if (!file) continue;
-
-    if (file.includes(' -> ')) {
-      file = file.split(' -> ').pop().trim();
-    }
-
-    const isUntracked = x === '?' && y === '?';
-    const isStaged = x !== ' ' && x !== '?';
-    const isUnstaged = y !== ' ';
 
     // `git status` can return untracked directories like "src/new-dir/".
     // We only want file paths in audit-diff.
-    if (isUntracked && (file.endsWith('/') || file.endsWith('\\'))) {
+    if (parsed.isUntracked && (file.endsWith('/') || file.endsWith('\\'))) {
       continue;
     }
 
     if (staged) {
-      if (isStaged && !isCacheArtifact(file)) files.add(file);
+      if (parsed.isStaged && !isCacheArtifact(file)) files.add(file);
       continue;
     }
 
-    if (isUntracked || isStaged || isUnstaged) {
+    if (parsed.isUntracked || parsed.isStaged || parsed.isUnstaged) {
       const absolute = resolveWorkspaceFilePath(file, root);
       if (absolute) {
         try {
@@ -389,4 +420,6 @@ module.exports = {
   getChangedLineRanges,
   getFileHistoryRisk,
   getDiffNumstat,
+  // Exposed for unit testing porcelain parser edge cases
+  parsePorcelainV1Line,
 };

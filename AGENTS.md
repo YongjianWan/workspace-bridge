@@ -56,7 +56,7 @@
 5. **删除 > 添加** — 无当前用途的抽象 → 删；死代码 → 删；冗余特殊处理 → 删
 6. **裸数字归零** — 新数字进 `constants.js`；新 regex 提到循环外；新阈值写注释说明 rationale
 7. **重复即债务** — 同文件相似度 > 70% 的代码必须提取为纯函数
-8. **内聚优先** — 文件只做一件事，命名口语化（避免教科书式），注释写"为什么"不写"做什么"。行数不重要——`dep-graph.js` ~1582 行仍保持不物理拆分，因为内部已通过 `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` 实现认知拆分。判断标准：修改时是否只需理解一个概念。
+8. **内聚优先** — 文件只做一件事，命名口语化（避免教科书式），注释写"为什么"不写"做什么"。行数不重要——`dep-graph.js` ~1685 行仍保持不物理拆分，因为内部已通过 `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` 实现认知拆分。判断标准：修改时是否只需理解一个概念。
 
 ### 验证与调试
 
@@ -112,7 +112,7 @@
 | L0 基础设施 | `path.js`, `constants.js`, `sanitize.js` | 路径工具、常量、shell 参数与符号名过滤 |
 | L1 存储/索引 | `cache.js`, `graph-db.js`, `file-index.js` | SQLite 缓存与持久化图存储（项目隔离：按 workspaceRoot md5 hash 分目录）、文件索引构建 |
 | L2 核心引擎 | `dep-graph.js` | `DependencyGraph` facade + `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` |
-| L2.5 子引擎 | `parsers/*`, `resolvers.js`, `symbol-impact.js`, `function-impact.js`, `framework-patterns.js`, `framework-usage-patterns.js` | 多语言 parser、import 解析、符号级影响、框架模式检测（9 语言 × 20+ 框架） |
+| L2.5 子引擎 | `parsers/*`, `resolvers.js`, `symbol-impact.js`, `function-impact.js`, `framework-patterns.js`, `implicit-imports.js` | 多语言 parser、import 解析、符号级影响、框架模式检测（9 语言 × 20+ 框架） |
 | L3 服务组装 | `container.js` | `ServiceContainer` 组装所有服务 |
 | L4 工具编排 | `dep-tools.js`, `git-tools.js`, `health-tools.js`, `overview-tools.js`, `security-tools.js`, `workspace-tools.js` | 对外暴露的分析工具函数（`health-tools.js` 数据与 `audit-summary.health` 重合，已标记冗余） |
 | L5 CLI/格式化 | `cli.js`, `formatters/` | 命令分发、JSON 输出聚合 |
@@ -264,4 +264,4 @@ THEN 修改前必须跑：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-19（diagnostics linter 检测矛盾修复 + P0 去噪工程完成 + 裸数字归零 + 发现归档；131/131 测试通过；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-20（WorkspaceSnapshot 数据一致性修复 + environment-probe.js 完整统一 + git-tools.js porcelain 解析提取 + e2e-gitnexus 去重；131/131 测试通过；schemaVersion: 1.2.0）*

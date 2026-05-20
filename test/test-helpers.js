@@ -152,7 +152,126 @@ function cleanupTempDir(dir) {
 }
 
 /* -------------------------------------------------------------------------- */
-// Mock graph factory
+// WorkspaceSnapshot mock factory
+/* -------------------------------------------------------------------------- */
+
+const { WorkspaceSnapshot, DependencyGraphView } = require('../src/models/workspace-snapshot');
+
+/**
+ * Build a mock WorkspaceSnapshot for unit tests.
+ *
+ * Provides two usage modes:
+ * 1. Declarative — pass `graph` (Map), `reverseGraph` (Map), `entryFiles` (Set)
+ *    and optional `depGraphOverrides` to tweak specific methods.
+ * 2. Direct — pass `mockDepGraph` as a full plain-object stub and skip all defaults.
+ *
+ * @param {{
+ *   root?: string,
+ *   graph?: Map<string, any>,
+ *   reverseGraph?: Map<string, string[]>,
+ *   entryFiles?: Set<string>,
+ *   files?: Array<{path: string, mtime?: number, size?: number, hash?: string, symbols?: string[], lineCount?: number}>,
+ *   projectContext?: object,
+ *   packageJson?: object|null,
+ *   gitStatus?: {head?: string|null},
+ *   frameworkHints?: Map<string, any>,
+ *   knownBlindSpots?: string[],
+ *   confidenceByDomain?: Map<string, {level: string, reason: string}>,
+ *   depGraphOverrides?: Record<string, any>,
+ *   mockDepGraph?: object,
+ * }} [opts]
+ * @returns {WorkspaceSnapshot}
+ */
+function makeMockSnapshot(opts = {}) {
+  const root = opts.root || '/mock';
+  const graphMap = opts.graph || new Map();
+  const reverseGraphMap = opts.reverseGraph || new Map();
+  const entryFilesSet = opts.entryFiles || new Set();
+
+  const defaultStubs = {
+    root,
+    graph: graphMap,
+    reverseGraph: reverseGraphMap,
+    entryFiles: entryFilesSet,
+    projectContext: opts.projectContext || {
+      classifyFile: () => ({ fileRole: 'library', directoryRole: 'active', isMainline: true }),
+      summarizeFiles: () => ({
+        counts: { totalFiles: graphMap.size, mainlineFiles: graphMap.size, nonMainlineFiles: 0, testFiles: 0 },
+        directoryRoles: { active: graphMap.size, reference: 0, archive: 0, generated: 0 },
+        fileRoles: { entry: 0, library: graphMap.size, config: 0, test: 0, migration: 0, script: 0, docs: 0, style: 0, asset: 0, unknown: 0 },
+        entryFiles: [],
+      }),
+    },
+    packageJson: opts.packageJson || null,
+    excludeDirs: [],
+    cliExcludeDirs: [],
+    hasFile: (p) => graphMap.has(p),
+    getFileInfo: (p) => graphMap.get(p),
+    getAllFileInfos: () => Array.from(graphMap.entries()),
+    normalizeFilePath: (p) => p,
+    _displayPath: (p) => p,
+    shouldExclude: () => false,
+    shouldExcludeCli: () => false,
+    isTestLikeFile: () => false,
+    isKnownEntryFile: () => false,
+    getFrameworkHint: () => null,
+    getSymbolImpact: () => null,
+    getChangedFunctionImpact: () => null,
+    getFunctionReuseHints: () => [],
+    getFunctionLevelAffectedTests: () => [],
+    getDependencies: () => [],
+    getDependents: () => [],
+    getImpactRadius: () => [],
+    findDeadExports: () => [],
+    findCircularDependencies: () => [],
+    findUnresolvedImports: () => [],
+    findAffectedTests: () => [],
+    getStats: () => ({
+      files: graphMap.size,
+      totalImports: 0,
+      totalExports: 0,
+      cycles: 0,
+      totalLines: 0,
+      analysisCoverage: {
+        totalFiles: graphMap.size,
+        parsedFiles: graphMap.size,
+        fallbackFiles: 0,
+        coverageRatio: 1,
+      },
+      filteredAnalysisCoverage: {
+        totalFiles: graphMap.size,
+        parsedFiles: graphMap.size,
+        fallbackFiles: 0,
+        coverageRatio: 1,
+      },
+    }),
+    getPageRank: () => new Map(),
+    getScopeSummary: () => ({}),
+    buildWarnings: () => [],
+    _scanSymbolUsageInImporters: () => new Set(),
+    ...opts.depGraphOverrides,
+  };
+
+  const mockDg = opts.mockDepGraph || defaultStubs;
+  const view = new DependencyGraphView(mockDg);
+
+  return new WorkspaceSnapshot({
+    workspaceRoot: root,
+    files: opts.files || [],
+    graph: view,
+    gitStatus: opts.gitStatus || { head: 'abc123' },
+    frameworkHints: opts.frameworkHints || new Map(),
+    projectContext: mockDg.projectContext,
+    fileIndexVersion: opts.fileIndexVersion || 1,
+    cacheStaleness: opts.cacheStaleness || { isStale: false },
+    gitHead: opts.gitHead || 'abc123',
+    knownBlindSpots: opts.knownBlindSpots || [],
+    confidenceByDomain: opts.confidenceByDomain || new Map(),
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+// Mock graph factory (legacy — prefer makeMockSnapshot for new tests)
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -239,6 +358,7 @@ module.exports = {
   makeTempDir,
   cleanupTempDir,
   buildMockDepGraph,
+  makeMockSnapshot,
   assertOk,
   assertAll,
 };

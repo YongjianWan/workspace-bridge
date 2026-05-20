@@ -7,7 +7,7 @@ const {
   scanAndExtractImplicitImports,
   resolveImplicitImports,
   buildImplicitImportRecord,
-} = require('../src/services/dep-graph/framework-usage-patterns');
+} = require('../src/services/dep-graph/implicit-imports');
 
 // --- scanAndExtractImplicitImports ---
 

@@ -8,6 +8,12 @@ const { DiagnosticsEngine } = require('./diagnostics-engine');
 const { DependencyGraph } = require('./dep-graph');
 const { ProjectContext } = require('../utils/project-context');
 const { TIMEOUTS, DEFAULTS } = require('../config/constants');
+const {
+  WorkspaceSnapshot,
+  DependencyGraphView,
+  computeKnownBlindSpots,
+  computeConfidenceByDomain,
+} = require('../models/workspace-snapshot');
 
 function formatDuration(ms) {
   if (ms < 1000) return `${ms}ms`;
@@ -31,6 +37,7 @@ class ServiceContainer {
     this.diagnostics = null;
     this.depGraph = null;
     this.projectContext = null;
+    this.snapshot = null;
     
     // Shared promise for concurrent waiters (eliminates busy-loop polling)
     this._readyPromise = null;
@@ -83,6 +90,7 @@ class ServiceContainer {
         this.depGraph.analyzer._aggregateCache = loadedAggregate;
         this.depGraph.analyzer._aggregateVersion = 0;
       }
+      this._assembleSnapshot();
       this._registerCallbacks();
 
       this.initialized = true;
@@ -167,6 +175,47 @@ class ServiceContainer {
     // Precompute-on-demand: hotspot/stability and co-changes computed on first query
   }
 
+  _assembleSnapshot() {
+    try {
+      const staleness = this.getStaleness();
+
+      this.snapshot = new WorkspaceSnapshot({
+        workspaceRoot: this.workspaceRoot,
+        fileIndex: this.fileIndex,
+        graph: new DependencyGraphView(this.depGraph),
+        gitStatus: { head: this.cache?.getWorkspaceInfo?.()?.gitHead || null },
+        frameworkHints: this._collectFrameworkHints(),
+        projectContext: this.depGraph?.projectContext || null,
+        fileIndexVersion: this.indexBuildTime || null,
+        cacheStaleness: staleness,
+        gitHead: this.cache?.getWorkspaceInfo?.()?.gitHead || null,
+        knownBlindSpots: computeKnownBlindSpots(this.depGraph?.projectContext || null, this.depGraph),
+        confidenceByDomain: computeConfidenceByDomain(this.depGraph?.projectContext || null, this.depGraph),
+      });
+    } catch (e) {
+      // L1 data-consistency: preserve existing snapshot on incremental re-assembly
+      // failure so that REPL watch mode doesn't lose the view after a transient error.
+      if (!this.snapshot) {
+        this.snapshot = null;
+      }
+      if (process.env.DEBUG) {
+        console.error('[Container] Snapshot assembly failed:', e.message);
+      }
+    }
+  }
+
+  _collectFrameworkHints() {
+    const hints = new Map();
+    if (!this.depGraph) return hints;
+    for (const filePath of this.depGraph.graph.keys()) {
+      const hint = this.depGraph.getFrameworkHint(filePath);
+      if (hint) {
+        hints.set(filePath, hint);
+      }
+    }
+    return hints;
+  }
+
   _registerCallbacks() {
     // Phase 2: 注册文件变更回调 → 触发后台诊断
     this.fileIndex.onFileChanged = (filePath) => {
@@ -177,6 +226,9 @@ class ServiceContainer {
     this.fileIndex.onPendingProcessed = async (files) => {
       try {
         await this.depGraph?.updateFiles?.(files);
+        // L1 data-consistency: re-assemble snapshot so that files (live view)
+        // and graph metadata stay in sync after incremental updates.
+        this._assembleSnapshot();
         // Hotspot/stability recomputed on next query (precompute-on-demand)
         // Co-change is based on git history, not file changes; skip here
       } catch (e) {
@@ -296,6 +348,7 @@ class ServiceContainer {
         if (process.env.DEBUG) console.error('[Container] cache.close failed:', e.message);
       }
     }
+    this.snapshot = null;
     this.diagnostics = null;
     this.depGraph = null;
     this.projectContext = null;

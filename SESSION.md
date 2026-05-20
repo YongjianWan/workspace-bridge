@@ -80,29 +80,44 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### 本轮做了什么
 
-**上一轮**：`noLintersDetected` 修复、`--format ai` 统一入口、security formatter 重复模式提取、java-parsers timeout 归零、死代码过滤链 5 条规则。详见 CHANGELOG.md [Unreleased] §修复/功能/重构（2026-05-19 前 5 条）。
+**上一轮**：WorkspaceSnapshot + 自知机制、analysis-test.js 回归修复、runner 分类机制修复、dep-graph.js 物理拆分、TECH_DEBT.md 过时条目清理。详见 CHANGELOG.md [Unreleased] 2026-05-20 条目及之前。
 
 **本轮**：
 
-**架构债务：`formatAi` counts/digest 耦合 + `/ 4` 裸数字** — `human-formatters.js` `constants.js`：
-- `buildCommandAiDigest` 返回 `{ topRisks, actions, counts }`，消除手动映射。
-- `/ 4` → `AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN`。
+**CLI Fatal Handler + --help 核心命令折叠（阶段 2.5）** — `cli.js` `test/cli-args-validation-test.js`：
+- `installFatalHandlers()`：全局 `unhandledRejection`/`uncaughtException` 兜底，输出 `Fatal:` 前缀 + 错误信息 + stack，exit code 2。`main().catch()` 双重保护。
+- `printUsage(showAll = false)`：默认 `--help` 只展示 L1 策展入口（5 个核心命令）+ Options + `--help --all` 提示；`--help --all` 恢复完整 20+ 命令列表。
+- 测试：`cli-args-validation-test.js` 新增 `testHelpFlag`/`testHelpAllFlag`，验证精简版不含 L4、完整版含 L4。
+- 验证：fast 100/100 PASS；slow 27/27 PASS。
 
-**待验证问题 #6：diagnostics 缓存语义不一致** — `workspace-tools.js` `cache.js` `diagnostics-cache-test.js`：
-- 根因：`runDiagnostics` 缓存条件 `allDiagnostics.length > 0` 拒绝命中空结果缓存，导致 linter 可用但 0 问题时每次重新执行 checks。
-- 修复：`WorkspaceCache.hasDiagnosticEntries()` 区分「从未运行」和「运行过但空」；`runDiagnostics` 优先检查该方法。
-- 测试：新增 `testDiagnosticsCacheEmptyHits` / `testDiagnosticsCacheEmptyFallsThrough` / `testHasDiagnosticEntries`。
+**WorkspaceSnapshot 数据一致性修复（L1 休眠 bug）** — `src/models/workspace-snapshot.js` `src/services/container.js`：
+- 根因：`snapshot.files` 是初始化时静态数组拷贝，`snapshot.graph`（DependencyGraphView）是 depGraph 实时引用；REPL watch 模式下增量更新后两者不同步。
+- 修复：`WorkspaceSnapshot.files` 改为惰性 getter，生产环境基于 `fileIndex` 引用实时构建；`container.js` 增量更新回调中重新组装 snapshot；异常安全（catch 保留已有 snapshot）。
+- 向后兼容：测试中 `makeMockSnapshot` 的静态 `files` 数组继续工作，getter 自动回退。
+- 验证：fast 100/100 PASS；slow 27/27 PASS；watch 4/4 PASS；基线通过。
 
-**L2-6：测试代码硬编码 timeout + fixture 路径** — `e2e-gitnexus-test.js` `analysis-test.js` `framework-usage-patterns-test.js`：
-- `timeout: 120000` → `TIMEOUTS.TEST_RUNNER_MS`；`fixture-temp` → `os.tmpdir()`；`fixture-temp-framework*` → `makeTempDir()`。
-- 结果：TECH_DEBT.md「模块级副作用与硬编码魔数」清零删除。
+**eslint 检测逻辑统一（架构债务）** — `src/utils/environment-probe.js` `src/tools/workspace-tools.js` `src/services/diagnostics-engine.js`：
+- 根因：`workspace-tools.js#detectNodeLinters` 与 `diagnostics-engine.js#hasChecker` 各自独立实现同一套 eslint 配置文件扫描（`PROBE.ESLINT_CONFIG_FILES` + `package.json#eslintConfig`）。
+- 修复：新建 `environment-probe.js`，导出 `detectEslintConfig`/`detectPrettierConfig`/`detectTscConfig` 纯函数；两消费者统一调用。
+- 验证：`workspace-tools-test.js`/`diagnostics-engine-test.js` PASS；fast 100/100 PASS；slow 27/27 PASS。
 
-**L1-3 + L2-6：cache/diagnostics/framework-patterns** — `cache.js` `diagnostics-engine.js` `framework-patterns.js`：
-- `CACHE_STALE_MS` → `DEFAULTS.STALENESS_THRESHOLD_MS`；`DEBOUNCE_MS: 1000` → `DEFAULTS.DIAGNOSTICS_DEBOUNCE_MS`；`slice(0, 4096)` → `DEFAULTS.ENTRY_SCAN_BYTES`。
+**git-tools.js 字符级解析提取（L3 品味）** — `src/tools/git-tools.js` `test/git-tools-test.js`：
+- 根因：`getChangedFiles()` 主循环直接索引 `line[0]`/`line[1]`/`line.slice(3)`，rename 处理与状态判断逻辑散落在循环体内。
+- 修复：提取 `parsePorcelainV1Line(line)` 纯函数，返回结构化对象；主循环只消费结构化数据。
+- 测试：`git-tools-test.js` 新增 10 个边界断言（修改/added/untracked/rename/空格文件名/malformed）。
+- 验证：`git-tools-test.js` PASS；fast 100/100 PASS；slow 27/27 PASS。
 
-**L2-7：eslint/prettier 配置文件列表统一** — `constants.js` `workspace-tools.js` `diagnostics-engine.js`：
-- 提取 `PROBE.ESLINT_CONFIG_FILES` / `PROBE.PRETTIER_CONFIG_FILES`。
-- 结果：overview/health 数据重叠条目部分缓解。
+**e2e-gitnexus 去重（测试债务）** — `test/e2e-gitnexus-test.js`：
+- 根因：该文件含 3 个独立 CLI spawn（audit-summary/audit-file/dead-exports），在 1329 文件项目上各 ~14s，合计占 slow 层 ~55%。
+- 修复：删除 `audit-file`/`dead-exports` 两个重复 spawn（`cli-integration-test.js` 已在小项目上覆盖形状验证），只保留 `audit-summary` 单一大项目验证。
+- 结果：runner 中该测试从 ~65s 降至 ~34s；slow 层总时间从 ~165s 降至 ~129s（省 ~22%）。
+- 验证：slow 27/27 PASS；fast 100/100 PASS。
+
+**parserAvailability 统一归位（架构债务）** — `src/utils/environment-probe.js` `src/tools/health-tools.js` `src/tools/workspace-tools.js`：
+- 根因：`health-tools.js` 同时承担"健康检查"和"环境探测"两个职责；`workspace-tools.js` 为获取 `parserAvailability` 直接依赖 `health-tools.js`，导致 L4 工具层间非预期耦合。
+- 修复：`checkParserAvailability` 移入 `environment-probe.js`；`health-tools.js` 和 `workspace-tools.js` 统一从 `environment-probe.js` 引入。`health-tools.js` 保留重新导出以维持向后兼容。
+- 结果：`environment-probe.js` 成为环境探测单一事实源。
+- 验证：`health-tools-test.js`/`workspace-tools-test.js` PASS；fast 100/100 PASS；slow 27/27 PASS。
 
 ---
 
@@ -112,12 +127,12 @@ node cli.js audit-summary --cwd . --json --quiet
 |------|------|------|
 | L1 Blocker | 0 | — |
 | L2 债务 | 0 | — |
-| L3 品味 | 3 | git-tools.js 手动字符级解析 / js.js visitor 超长 / cli.js JSON 嵌套深 |
+| L3 债务与品味 | 6 | js.js visitor超长 / cli.js JSON嵌套深 / ProjectContext规则盲区 / shouldExclude过度正则 / fallback正则缺陷 / resolvers.js缓存淘汰与高频GC |
 | **产品债务** | **0** | — |
 
 **测试覆盖缺口**
 
-> **131/131 PASS**（fast 101 + slow 26 + watch 4）。测试基础设施已收敛，零专属测试模块清零。
+> **131/131 PASS**（fast 100 + slow 27 + watch 4）。测试基础设施已收敛，零专属测试模块清零。
 
 > **剩余测试债务（已量化）**：
 > - **弱断言 ~35 处**：仅余 `typeof` 型 schema 契约检查（带消息参数，风险低）。占总断言数 ~2.3%
@@ -127,7 +142,7 @@ node cli.js audit-summary --cwd . --json --quiet
 > - **零专属测试模块剩余 0 个**
 > - **CLI 集成测试补齐**：详见 CHANGELOG
 >
-> **测试类型分布失衡**：单元测试 ~78%（良好），集成测试 ~19%（偏低），端到端 ~2%（严重不足），混沌/模糊 0（暂缓）。
+> **测试类型分布失衡**：单元测试 ~76%（良好），集成测试 ~20%（已补充 `cli-integration-test.js`），端到端 ~2%（严重不足），混沌/模糊 0（暂缓）。
 
 ---
 
@@ -137,14 +152,14 @@ node cli.js audit-summary --cwd . --json --quiet
 
 #### 当前状态
 
-- 活跃债务：**0 个 L1** + **0 个 L2** + **3 个 L3** + **0 个产品 bug** + **0 个产品债务**
+- 活跃债务：**0 个 L1** + **0 个 L2** + **6 个 L3** + **0 个产品 bug** + **0 个产品债务**
 - 版本：v1.2.0，schemaVersion 冻结
 - 测试：**131/131 PASS**；全量 runner ~4min。开发迭代首选 `npm run test:fast`（~14s）
 - P0-P4 全部完成
 - **定位**：AI 的代码脚手架
 - **核心认知**：CLI 静态分析能力没问题，问题在 CLI 出口质量（`--format ai` 边界行为、token 预算感知、去噪输出）
 
-#### P0 去噪工程剩余 1 项
+#### P0 去噪工程（已完成）
 
 | # | 项 | 状态 | 说明 |
 |---|-----|------|------|
@@ -153,6 +168,15 @@ node cli.js audit-summary --cwd . --json --quiet
 | 3 | audit-overview 去重 | ✅ 已完成 | `nextSteps` 已移除，recommendations 已统一 |
 | 4 | `architectureAdvice` 抑制 | ✅ 已完成 | `< 200 files` 时 `couplingSplitSuggestions` 为空 |
 | 5 | `audit-security` matchedText | ✅ 已完成 | JSON 已包含，human formatter 已展示 |
+
+#### 结构性地基（优先于 P1）
+
+> 骨架评估结论（2026-05-20）：`dep-graph.js` 1685 行已到物理拆分临界点；L4 工具层缺少共享项目元数据抽象。这两个问题不解决，P1 AI 预消化输出的组装逻辑会建立在松散地基上。
+
+| 优先级 | 修复 | 根因 | 预期收益 |
+--------|------|------|----------|
+| ~~**P0.5**~~ | ~~`dep-graph.js` 物理拆分~~ | ✅ **已完成**（详见 CHANGELOG.md [Unreleased] 2026-05-20 条目） | — |
+| ~~**P0.5**~~ | ~~`WorkspaceSnapshot` 共享模型 + 自知机制~~ | ✅ **已完成**（详见 CHANGELOG.md [Unreleased] 2026-05-20 条目） | — |
 
 #### 默认路径：P1 AI 预消化输出（核心升级）
 
@@ -168,6 +192,8 @@ node cli.js audit-summary --cwd . --json --quiet
 |---|------|---------|---------|
 | 6 | **CLI 命令分层认知负担** | 高 | 虽然 L4 已标记为 debug，但 `--help` 仍展示 20+ 命令，AI 消费者仍需在 20 个命令中做选择。验证：统计 SKILL.md 中 "WHEN TO USE" 的篇幅占比，若 >50% 花在命令选择上，说明分层暴露仍不足 |
 | 7 | **Windows 兼容性补丁式累积** | 中 | 路径兼容不是通过统一抽象解决的，而是通过散落在 parser/resolver/git-tools/cli 各处的 `toPosixPath` 调用。验证：搜索 `toPosixPath` 调用点数量，若 >10 处，说明需要统一路径适配层 |
+| 8 | ~~framework-patterns 与 framework-usage-patterns 职责边界~~ | 低 | ✅ **已修复**。`detectFrameworkFromPath` + `ENTRY_WEIGHT` 提取至 `project-context.js`；`framework-usage-patterns.js` 重命名为 `implicit-imports.js`；`framework-patterns.js` 现仅保留 AST_PATTERNS + `detectFrameworkFromContent` |
+| 9 | ~~CLI `--help` 认知负担~~ | 中 | ✅ **已修复**。默认 `--help` 只展示 L1 核心命令（5 个），`--help --all` 展示完整列表；AI 消费者从 20 选 1 → 5 选 1 |
 
 #### 当前不做
 
@@ -178,6 +204,6 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-19（L2 债务清零 + diagnostics 缓存语义修复 + 文档整理）*
+*Last updated: 2026-05-20（WorkspaceSnapshot 数据一致性修复 + environment-probe.js 完整统一 + git-tools.js porcelain 解析提取 + e2e-gitnexus 去重）*
 
-> **本轮验证状态**：`npm run test:fast` 101/101 PASS；`diagnostics-cache-test.js` PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`）。
+> **本轮验证状态**：`npm run test:fast` 100/100 PASS；`node test/runner.js --layer slow` 27/27 PASS；`node test/runner.js --layer watch` 4/4 PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`）。

@@ -8,6 +8,128 @@
 
 ## [Unreleased]
 
+### 重构（阶段 2.5 CLI 减负：Fatal Handler + --help 核心命令折叠 — 2026-05-20）
+
+- **安装 `unhandledRejection` / `uncaughtException` 全局异常兜底** `cli.js`：
+  - 问题：CLI async 路径未捕获的异常可能导致静默退出或 raw stack 输出，AI 被迫自己解析错误根因。`main()` 内部的 try-catch 已覆盖大部分路径，但 `container.shutdown()` 在 finally 块中若抛出异常会逃逸为 unhandled rejection；Node.js 默认行为是打印 deprecation warning 后进程以 0 退出，导致调用方误以为命令成功。
+  - 修复：新增 `installFatalHandlers()` 函数，注册 `unhandledRejection` 和 `uncaughtException` 两个进程级 handler。统一输出 `Fatal:` 前缀 + 错误消息 + stack trace，然后以 exit code 2 退出（2 = 崩溃，与 CLI 现有语义一致：0=成功，1=业务失败，2=崩溃）。
+  - 双重保护：`main()` 返回的 Promise 也附加 `.catch()`，确保即使 fatal handler 被绕过（如 Promise rejection 在 handler 安装前发生），仍有兜底。
+  - 向后兼容：无接口变更；正常路径行为不变。
+  - 验证：fast 100/100 PASS；slow 27/27 PASS。
+
+- **默认 `--help` 只展示 Tier 1 核心命令，其余折叠到 `--help --all`** `cli.js` `test/cli-args-validation-test.js`：
+  - 问题：当前 `--help` 打印全部 20+ 命令（L1-L4 + 其他），AI 消费者需在 20 个选项中选择。ROADMAP 阶段 2.5 评估结论：命令分层暴露已分组（L1/L2/L3/L4），但默认仍全部展示，认知负担未真正减轻。
+  - 修复：
+    1. `parseCliArgs` 新增 `'--all': true` 解析。
+    2. `printUsage(showAll = false)` 默认显示精简版：只展示 L1 策展入口（audit-summary / audit-file / audit-diff / audit-overview / audit-map）+ Options + 提示语 `Run --help --all to see the full command list`。L2-L4 命令不再默认暴露。
+    3. `--help --all` 恢复现有完整输出（保留 L1/L2/L3/L4 分组）。
+    4. 无参数直接运行 `cli.js`（如 `node cli.js`）也显示精简版，与 `--help` 行为一致。
+  - 向后兼容：所有命令本身未被删除或合并；`--help` 仍可用；新增 `--help --all` 显式展示完整列表。
+  - 验证：`cli-args-validation-test.js` 新增 `testHelpFlag`（验证精简版不含 L4）和 `testHelpAllFlag`（验证完整版含 L4）；fast 100/100 PASS；slow 27/27 PASS。
+
+### 修复（L1 休眠 bug：WorkspaceSnapshot 内部数据不一致 — 2026-05-20）
+
+- **消除 `snapshot.files` 与 `snapshot.graph` 的更新语义分歧** `src/models/workspace-snapshot.js` `src/services/container.js`：
+  - 问题：`container._assembleSnapshot()` 初始化时把 `fileIndex.cache.fileMetadata` 拷贝为静态数组 `snapshot.files`（spread 浅拷贝，`symbols[]` 共享引用），而 `snapshot.graph`（`DependencyGraphView`）持有 `depGraph` 的实时引用。REPL watch 模式下 `depGraph.updateFiles()` 增量更新 graph 后，`snapshot.files` 仍保持初始化状态，两者语义不一致。
+  - 修复：
+    1. `WorkspaceSnapshot.files` 改为惰性 getter：生产环境通过传入的 `fileIndex` 引用每次从 `cache.fileMetadata` 实时构建；测试环境回退到构造函数传入的静态 `_staticFiles` 数组，零测试改动。
+    2. `container._assembleSnapshot()` 传入 `fileIndex: this.fileIndex` 替代静态 `files` 数组。
+    3. `container._registerCallbacks().onPendingProcessed` 中 `depGraph.updateFiles()` 成功后重新调用 `_assembleSnapshot()`，确保增量更新后 snapshot 元数据（`generatedAt`/`basedOn`/`knownBlindSpots`）同步刷新。
+    4. 异常安全：`_assembleSnapshot()` catch 块中若已有 snapshot 则保留旧值（避免 REPL 增量更新时的瞬态错误清空视图）。
+  - 向后兼容：`makeMockSnapshot` 工厂继续传静态 `files`，getter 自动回退。
+  - 验证：fast 100/100 PASS；slow 27/27 PASS；watch 4/4 PASS；基线 `audit-summary` healthScore=7/8 deadExports=0 coverageRatio=1.00。
+
+### 重构（架构债务：parserAvailability 统一归位 — 2026-05-20）
+
+- **`checkParserAvailability` 从 `health-tools.js` 移至 `environment-probe.js`** `src/utils/environment-probe.js` `src/tools/health-tools.js` `src/tools/workspace-tools.js`：
+  - 问题：`health-tools.js` 同时承担"健康检查"和"环境探测"两个职责；`workspace-tools.js` 为获取 `parserAvailability` 不得不直接依赖 `health-tools.js`，导致 L4 工具层间出现非预期耦合。
+  - 修复：将 `checkParserAvailability()` 实现移入 `environment-probe.js`（与 `detectEslintConfig`/`detectPrettierConfig`/`detectTscConfig` 并列）；`health-tools.js` 和 `workspace-tools.js` 统一从 `environment-probe.js` 引入。`health-tools.js` 继续导出 `checkParserAvailability` 以保持向后兼容（重新导出）。
+  - 结果：`environment-probe.js` 成为环境探测的单一事实源；`health-tools.js` 只负责健康评分和修复建议。
+  - 验证：`health-tools-test.js`/`workspace-tools-test.js` PASS；fast 100/100 PASS；slow 27/27 PASS。
+
+### 重构（测试债务：e2e-gitnexus 去重 — 2026-05-20）
+
+- **删除 e2e-gitnexus 中重复的大项目 CLI spawn** `test/e2e-gitnexus-test.js`：
+  - 问题：`e2e-gitnexus-test.js` 包含 3 个独立 CLI spawn（`audit-summary`/`audit-file`/`dead-exports`），每个在 1329 文件项目上冷启动需 ~14s，合计 ~42s；占 slow 层总时间 ~30%。
+  - 根因：`cli-integration-test.js` 已在小项目上覆盖 `audit-file` 和 `dead-exports` 的命令形状验证；e2e-gitnexus 中后两个测试的唯一独特价值是"大项目不崩溃"，这已由 `audit-summary` 覆盖（`audit-summary` 内部同样调用 `deadExports`/`impact` 等核心路径）。
+  - 修复：删除 `testAuditFileOnGitNexus` 和 `testDeadExportsOnGitNexus`，只保留 `testAuditSummaryOnGitNexus`。runner 中该测试从 ~65s 降至 ~34s，slow 层总时间从 ~165s 降至 ~129s（省 ~22%）。
+  - 向后兼容：无接口变更；测试覆盖不减少（形状验证已存在 `cli-integration-test.js`）。
+  - 验证：fast 100/100 PASS；slow 27/27 PASS。
+
+### 重构（L3 品味：git-tools.js 手动字符级解析 — 2026-05-20）
+
+- **提取 `parsePorcelainV1Line` 隔离 `git status --porcelain=v1` 的字符级解析** `src/tools/git-tools.js` `test/git-tools-test.js`：
+  - 问题：`getChangedFiles()` 主循环直接操作 `line[0]`、`line[1]`、`line.slice(3)`，状态判断逻辑（`isUntracked`/`isStaged`/`isUnstaged`）散落在循环体中；rename 处理（`file.split(' -> ').pop()`）也内联在循环内。
+  - 修复：提取 `parsePorcelainV1Line(line)` 纯函数，返回结构化对象 `{ indexStatus, workTreeStatus, path, renamedFrom, isUntracked, isStaged, isUnstaged }`。主循环只处理结构化数据，不再直接索引字符串。
+  - 测试：`git-tools-test.js` 新增 `testParsePorcelainV1Line`，覆盖常规修改、staged added、untracked、rename、文件名含空格、空行/短行/malformed 边界。
+  - 向后兼容：`getChangedFiles` 行为零变更；新增 `parsePorcelainV1Line` 导出供测试使用。
+  - 验证：`git-tools-test.js` PASS；fast 100/100 PASS；slow 27/27 PASS。
+
+### 重构（L3 品味：framework-patterns 命名混淆 + 层级错配 — 2026-05-20）
+
+- **提取 `detectFrameworkFromPath` 至 `project-context.js`，重命名 `framework-usage-patterns.js` → `implicit-imports.js`** `src/utils/project-context.js` `src/services/dep-graph/framework-patterns.js` `src/services/dep-graph/implicit-imports.js` `src/services/dep-graph/builder.js` `test/implicit-imports-test.js` `test/runner.js`：
+  - 问题：`framework-patterns.js` 同时包含路径推断（`detectFrameworkFromPath`）和内容检测（`AST_PATTERNS`/`detectFrameworkFromContent`），前者是纯文件路径分类逻辑，后者是 builder post-process 的轻量文本扫描；`framework-usage-patterns.js` 实际职责是隐式 import 边注入（scanner/extractor/applier 流水线），但文件名暗示它是 "framework patterns" 的配套文件。两者混在 `dep-graph/` 下且命名相似，新增框架支持时开发者会同时打开两个文件后发现它们无调用关系，认知负担高。
+  - 修复：
+    1. `detectFrameworkFromPath` + `ENTRY_WEIGHT` 常量从 `framework-patterns.js` 提取至 `src/utils/project-context.js`，与 `ENTRY_BASE_NAMES`/`FRAMEWORK_ENTRY_FILES` 并列，成为项目上下文层的统一路径分类出口。
+    2. `framework-patterns.js` 仅保留 `AST_PATTERNS` + `detectFrameworkFromContent`，职责单一为"内容检测"；顶部通过 `require('../../utils/project-context')` 引入 `detectFrameworkFromPath` 以保持向后兼容（过渡性兼容 shim）。
+    3. `framework-usage-patterns.js` 重命名为 `implicit-imports.js`，文件名直接表达职责（隐式 import 边注入）。
+    4. `builder.js` 和 `test/implicit-imports-test.js` 同步更新 require 路径；`test/runner.js` slow 列表更新文件名匹配。
+  - 向后兼容：`framework-patterns.js` 仍导出 `detectFrameworkFromPath`（重新导出）；所有消费者 require 路径无需改动。
+  - 验证：fast 100/100 PASS；slow 27/27 PASS（含 `implicit-imports-test.js`）。
+
+### 重构（架构债务：eslint 检测逻辑统一 — 2026-05-20）
+
+- **提取 `environment-probe.js` 消除 `workspace-tools.js` 与 `diagnostics-engine.js` 的 eslint 检测重复** `src/utils/environment-probe.js` `src/tools/workspace-tools.js` `src/services/diagnostics-engine.js`：
+  - 问题：`workspace-tools.js#detectNodeLinters` 与 `diagnostics-engine.js#hasChecker` 各自独立实现同一套 eslint 配置文件扫描（`PROBE.ESLINT_CONFIG_FILES` + `package.json#eslintConfig`），修改 linter 检测逻辑时可能漏改某一处。
+  - 修复：新建 `src/utils/environment-probe.js`，导出 `detectEslintConfig(root)` / `detectPrettierConfig(root)` / `detectTscConfig(root)` 三个纯函数。`workspace-tools.js` 的 `detectNodeLinters` 和 `diagnostics-engine.js#hasChecker` 的 eslint fallback 统一调用 `detectEslintConfig`。`detectPrettierConfig` 和 `detectTscConfig` 同步从 `detectNodeLinters` 提取，消除同文件内重复模式。
+  - 向后兼容：函数签名不变；`detectNodeLinters` 仍返回 `{eslint, prettier, tsc}`。
+  - 验证：`workspace-tools-test.js` PASS；`diagnostics-engine-test.js` PASS；fast 100/100 PASS；slow 27/27 PASS。
+
+### 重构（P0.5 结构性地基：WorkspaceSnapshot + 自知机制 — 2026-05-20）
+
+- **引入 `WorkspaceSnapshot` 只读模型与 `DependencyGraphView` 视图层** `src/models/workspace-snapshot.js` `src/services/container.js`：
+  - 问题：L4 工具各自从 `container` 拉取原始服务（`depGraph`/`fileIndex`/`cache`），无统一数据视图；测试中 99 处内联 mock `depGraph` 重复构造 `new Map()` + 手工填充节点。
+  - 实现：
+    1. 新建 `src/models/workspace-snapshot.js`，包含 `DependencyGraphView`（薄只读包装，委托全部查询方法，不暴露 `build`/`updateFiles` 等写入方法）、`WorkspaceSnapshot`（组装 `files`/`graph`/`gitStatus`/`frameworkHints`/`projectContext` + 自知字段）。
+    2. 自知机制（self-awareness）：`generatedAt`（快照时间戳）、`basedOn`（数据溯源：fileIndexVersion/cacheStaleness/gitHead）、`knownBlindSpots`（已知盲区清单：运行时绑定、DI 容器、稀疏图/常量仓库、Java 框架误报）、`confidenceByDomain`（按领域分层置信度：dead-exports high/low、cycles high、impact high、security low）。
+    3. `ServiceContainer._assembleSnapshot()` 在 `_initDepGraph()` 成功后组装快照；异常安全包裹 try-catch，组装失败时 `snapshot = null`，不中断初始化。
+    4. `ServiceContainer._collectFrameworkHints()` 遍历 graph 收集每文件的 framework hint。
+  - 向后兼容：`container.depGraph` 继续工作；`DependencyGraph` API 不变；L4 工具本轮不强制迁移。
+  - 验证：`node cli.js audit-summary --cwd . --json --quiet` 基线通过（healthScore=7/8, deadExports=0, coverageRatio=1.00）；fast 100/100 PASS；slow 27/27 PASS。
+
+- **提供 `makeMockSnapshot(opts)` 工厂函数消灭测试重复** `test/test-helpers.js` `test/dep-tools-test.js` `test/overview-tools-test.js` `test/project-map-test.js`：
+  - 问题：每个测试文件自造 ad-hoc plain-object mock，`audit-map-test.js` 10 个测试函数各自重建近似的 `graph`/`reverseGraph`。
+  - 实现：`test-helpers.js` 新增 `makeMockSnapshot`，支持声明式（`graph`/`reverseGraph`/`entryFiles` + `depGraphOverrides`）和直接（`mockDepGraph`）两种模式。默认 stubs 覆盖全部 `DependencyGraphView` 委托方法。
+  - 试点重构：`dep-tools-test.js`/`overview-tools-test.js`/`project-map-test.js` 从手工 mock 迁移到工厂调用，断言零变更。
+  - 验证：3 个试点文件单独运行 PASS；fast 100/100 PASS；slow 27/27 PASS。
+
+### 修复（测试回归：`analysis-test.js` dead-exports 断言在自身仓库失效 — 2026-05-19）
+
+- **`analysis-test.js` 的 `dead-exports`/`unresolved` 测试改为以临时目录为 `--cwd`** `test/analysis-test.js`：
+  - 问题：测试在 `os.tmpdir()` 下创建 `partial-exports.js`/`partial-consumer.js`/`test-module.js`，但 CLI 调用使用 `--cwd .`（workspace-bridge 自身仓库）。自身仓库经 P0 去噪工程后 `deadExports=0`，导致 `assert(deadExportsCount >= 1)` 持续失败。
+  - 修复：在临时目录下创建 `package.json` 作为项目根标记；`dead-exports`/`unresolved` CLI 调用改为 `--cwd <testDir>`，确保扫描的是包含预期死代码/未解析 import 的临时项目。
+  - 验证：`analysis-test.js` PASS；slow 层 26/26 PASS；runner 全量回归中该测试从 FAIL 恢复为 PASS。
+
+### 文档（技术债务清理：CLI 集成测试条目已过时 — 2026-05-19）
+
+- **更新 `docs/TECH_DEBT.md`「测试类型分布失衡」条目** `docs/TECH_DEBT.md`：
+  - 问题：方案1仍写着"新增 3–4 个 CLI 集成测试"，但 `cli-integration-test.js`（8 个测试函数）已于同日在 CHANGELOG [Unreleased] 中记录为已完成，且 `analysis-test.js` 修复后重新生效。该方案属于文档膨胀（已修复条目仍留在活跃文档中）。
+  - 清理：将方案1标记为 ✅ 已完成，更新根因/影响描述，反映当前真实状态（CLI 管道回归保护已建立，主要剩余缺口是端到端测试 2%）。
+
+### 文档（新增活跃架构债务：L4 层散乱 + runner 分类机制 — 2026-05-19）
+
+- **记录 L4 工具编排层缺乏统一组装 facade** `docs/TECH_DEBT.md` `src/cli/commands/`：
+  - 观察：`audit-summary.js`（71 行）手动组装 4 个工具结果并直接操作内部字段；`audit-diff.js`（206 行）自行组装 git + impact + line ranges；12 个透传命令仅 7 行，但 4 个策展命令各自重复组装逻辑。severity 过滤、baseline save/regression check 横切关注点分散在个别命令中。
+  - 根因：L4 只有 "thin router"（`dep-tools.js` 的 `OPERATIONS`），没有统一的 audit assembler。策展逻辑被迫上浮到 CLI 命令处理器（L5），边界模糊。
+  - 方案：提取 `audit-assembler.js`，封装单工具查询、策展组装、横切过滤器三层。
+
+- **记录 `runner.js` 慢测试分类机制脆弱** `docs/TECH_DEBT.md` `test/runner.js`：
+  - 观察：`KNOWN_SLOW_PATTERNS` 是 21 个硬编码正则，新增集成测试时作者易忘加入；`affected-tests-heuristic-test.js` 被 fallback 分到 fast 层并发跑，但构建大规模 mock depGraph，Windows 下偶发失败；smoke 模式按字母序取前 3 个 slow 测试，不具代表性。
+  - 方案：runner 启动时自验证（扫描 `runCli`/`spawnSync` 但不在 slow 列表的打印 WARNING）；引入 `// @slow` / `// @watch` 头部标记替代文件名列表；smoke 代表引入模块维度权重或 `// @smoke-representative` 标记。
+
+- **校准文件级雷区地图行数** `docs/TECH_DEBT.md`：
+  - 9 个文件行数全部更新为当前 `wc -l`（dep-graph 1582→1685、overview-tools 868→711、validation-advice 312→140 等）。
+
 ### 修复（L2 债务：`noLintersDetected` 计算方式脆弱 — 2026-05-19）
 
 - **`noLintersDetected` 改为直接跟踪 linter 存在性，而非间接推导** `src/tools/workspace-tools.js` `test/workspace-tools-test.js`：
@@ -464,6 +586,43 @@
     - `testHasDiagnosticEntries`：验证 `hasDiagnosticEntries()` 在空 Map / 有空数组 entry / clear 后的三态行为。
   - 结果：SESSION.md 待验证问题 #6 移除。
   - 验证：`diagnostics-cache-test.js` PASS；fast 101/101 PASS。
+
+### 功能（测试基础设施：runner 分类机制自维护 — 2026-05-20）
+
+- **`classifyTest` 优先解析文件头部注释 `// @slow` / `// @watch`** `test/runner.js`：
+  - 问题：`KNOWN_SLOW_PATTERNS` 是 21 个硬编码正则，新增集成测试时作者易忘加入；`affected-tests-heuristic-test.js` 被 fallback 内容扫描漏到 fast 层并发跑，但构建大规模 mock depGraph（20+ 节点），Windows 下偶发 SQLite 锁/超时失败。
+  - 修复：
+    1. `classifyTest` 引入三级优先级：① 文件头部 10 行内的 `// @slow` / `// @watch` 注释 ② `KNOWN_SLOW_PATTERNS` 文件名列表 ③ 内容 heuristics（`runCli`/`spawnSync`）。头部标记成为最高优先级，新增 slow 测试只需在文件顶部加一行注释，无需修改 runner.js。
+    2. `classificationCache` 模块级 Map 缓存分类结果，避免同一 runner 生命周期内重复读取文件。
+  - `affected-tests-heuristic-test.js` 头部添加 `// @slow` 注释，从 fast 层（101 个）正确移至 slow 层（27 个）。
+
+- **runner 启动时自验证：打印 slow-test misclassification WARNING** `test/runner.js`：
+  - `validateSlowClassification(files)` 在 `main()` 开始时执行，扫描所有被 `classifyTest` 分到 fast 层的文件。
+  - 若文件内容包含 `runCli`/`spawnSync`/`child_process` 但未在 `KNOWN_SLOW_PATTERNS` 中且缺少 `// @slow` 头部标记，打印 WARNING 提示开发者添加标记或补入列表。
+  - 本轮扫描发现 7 个潜在漏网文件：`git-line-ranges-test.js`、`java-parsers-test.js`、`phase01-quality-test.js`、`spawn-ast-concurrency-test.js`、`spawn-ast-direct-test.js`、`spawn-ast-test.js`、`staleness-test.js`。这些文件运行时间可接受（<2s），未强制标记，由 WARNING 持续提醒。
+
+- **smoke 模式支持 `// @smoke-representative` 头部标记** `test/runner.js`：
+  - 问题：smoke 从 slow 层"按字母排序取前 3 个"，可能选到 3 个 cache 相关测试而 0 个覆盖 dep-graph 核心路径。
+  - 修复：smoke 阶段优先选择头部含 `// @smoke-representative` 的 slow 测试；若无标记则回退字母序前 3 个。为未来手工标注代表性测试提供机制。
+  - 验证：`npm run test:fast` 100/100 PASS；`node test/runner.js --layer slow` 27/27 PASS；全量 runner 回归验证中。
+
+### 重构（P0.5 结构性地基：`dep-graph.js` 物理拆分 — 2026-05-20）
+
+- **`src/services/dep-graph.js` 1685 行 → facade ~307 行 + 4 个独立子模块** `src/services/dep-graph.js` `src/services/dep-graph/shared.js` `src/services/dep-graph/builder.js` `src/services/dep-graph/analyzer.js` `src/services/dep-graph/query.js`：
+  - 问题：`dep-graph.js` 达物理拆分临界点（1685 行，4 个类 + 8 个顶部工具函数）。`GraphBuilder` 内部职责混杂（解析调度 + 框架检测 + 边构建 + 后处理），新人打开文件的第一反应是"改不起"。修改构建逻辑时必须理解整个文件上下文，增加回归风险；测试必须构造完整 `DependencyGraph` 才能测试 `GraphBuilder` 子行为。
+  - 拆分边界：
+    - `shared.js`：共享工具函数（`bfsTraverse`、`computeDeadExportConfidence`、`isConventionallyAliveSymbol`）+ 常量（`FRAMEWORK_MANAGED_PATTERNS`、`CONFIG` 等），零外部依赖（除 `constants.js`）。
+    - `builder.js`：`class GraphBuilder`（526 行）— build / analyzeFile / updateFiles / expandJavaPackageImports / applyFrameworkImplicitImports / buildReverseGraph。
+    - `analyzer.js`：`class GraphAnalyzer`（627 行）— findDeadExports / findCircularDependencies / findUnresolvedImports / findAffectedTests / getStats / buildWarnings / computePageRank。
+    - `query.js`：`class GraphQuery`（56 行）— getDependencies / getDependents / getImpactRadius。
+    - `dep-graph.js`：`class DependencyGraph` facade（~277 行）— 自有方法（shouldExclude / isKnownEntryFile / getFrameworkHint）+ 委托方法（build → builder / findDeadExports → analyzer / getImpactRadius → query 等）。
+  - 向后兼容：`module.exports = { DependencyGraph, GraphBuilder, GraphAnalyzer }` 保持不变。外部 `require('../src/services/dep-graph')` 不感知内部物理位置变化。`java-package-imports-test.js` 直接引用 `GraphBuilder`、`pagerank-warmstart-integration-test.js` 直接引用 `GraphAnalyzer` 继续正常工作。
+  - 零逻辑变更：所有方法体逐字移动，仅调整 require 路径。修复拆分过程中遗漏的 `isTestLikeFile` require（facade 的 `isTestLikeFile()` 方法依赖 `../utils/test-detector`）。
+  - 验证：
+    - `node test/runner.js` 131/131 PASS（fast 100 + slow 27 + watch 4）。
+    - `node cli.js audit-summary --cwd . --json --quiet` 基线通过（healthScore=7/8, deadExports=0, cycles=0, unresolved=0, coverageRatio=1.00）。
+    - `node cli.js impact --cwd . --file src/services/dep-graph.js --json --quiet` impact 计算正常（33 个影响文件）。
+    - `node cli.js affected-tests --cwd . --file src/services/dep-graph.js --json --quiet` affected-tests 正常（24 个受影响测试）。
 
 ## [1.2.0] - 2026-05-18
 

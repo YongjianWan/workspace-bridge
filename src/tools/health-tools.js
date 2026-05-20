@@ -7,6 +7,7 @@ const { findWorkspaceRoot, detectWorkspace, pathExists, resolvePythonCommand } =
 const { runCommandSecure, runNpx, runPythonModule, trimOutput } = require('../utils/command');
 const { detectNodePackageManager, detectTestRunner, detectStack } = require('../utils/stack-detector');
 const { LIMITS, TIMEOUTS } = require('../config/constants');
+const { checkParserAvailability } = require('../utils/environment-probe');
 
 function checkHealthFile(root, candidates) {
   for (const name of candidates) {
@@ -68,18 +69,6 @@ function detectTestConfig(root) {
     frameworks.push('django-test');
   }
   return { found: frameworks.length > 0, frameworks };
-}
-
-function checkParserAvailability() {
-  try {
-    require('@babel/parser');
-    return { available: true };
-  } catch {
-    return {
-      available: false,
-      warning: '@babel/parser not available — JS/TS analysis will use regex fallback with reduced accuracy',
-    };
-  }
 }
 
 function buildFixSuggestions(stack) {

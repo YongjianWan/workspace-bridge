@@ -4,7 +4,7 @@ const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 const { buildProjectOverview } = require('../src/tools/overview-tools');
-const { makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { makeTempDir, cleanupTempDir, makeMockSnapshot } = require('./test-helpers');
 
 const root = path.resolve('C:/tmp/overview-fixture');
 const fileA = path.join(root, 'src', 'a.js');
@@ -32,7 +32,8 @@ const dependenciesMap = new Map([
   [fileC, [fileA, fileB, fileApp, fileTest]],
 ]);
 
-const depGraph = {
+const snapshot = makeMockSnapshot({
+  root,
   graph: new Map([
     [fileA, {}],
     [fileB, {}],
@@ -53,23 +54,25 @@ const depGraph = {
       return { isMainline, fileRole };
     },
   },
-  getDependents(file) {
-    return dependentsMap.get(file) || [];
+  depGraphOverrides: {
+    getDependents(file) {
+      return dependentsMap.get(file) || [];
+    },
+    getDependencies(file) {
+      return dependenciesMap.get(file) || [];
+    },
+    findCircularDependencies() {
+      return [[fileA, fileB, fileA]];
+    },
+    isTestLikeFile(file) {
+      return /\.test\./.test(path.basename(file));
+    },
   },
-  getDependencies(file) {
-    return dependenciesMap.get(file) || [];
-  },
-  findCircularDependencies() {
-    return [[fileA, fileB, fileA]];
-  },
-  isTestLikeFile(file) {
-    return /\.test\./.test(path.basename(file));
-  },
-};
+});
 
 const container = {
   workspaceRoot: root,
-  depGraph,
+  depGraph: snapshot.graph,
   async ensureReady() {
     return true;
   },

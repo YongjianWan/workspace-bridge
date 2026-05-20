@@ -128,7 +128,7 @@
 
 | #  | 目标 | 改动文件 | 预期收益 | 工作量 | 状态 |
 | -- | ---- | -------- | -------- | ------ | ---- |
-| 1  | **默认 `--help` 只展示核心命令** | `cli.js` help 文本生成 | AI 消费者从 20 选 1 → 6 选 1；L2-L4 命令仍需可用，但不默认暴露 | ~10 行 | ⏳ 待评估 |
+| 1  | **默认 `--help` 只展示核心命令** | `cli.js` help 文本生成 | AI 消费者从 20 选 1 → 5 选 1；L2-L4 命令仍需可用，但不默认暴露 | ~10 行 | ✅ 已完成 |
 | 2  | **SKILL.md 按层级重组** | `skills/workspace-audit/SKILL.md` | 从 264 行缩至 ~80 行；只保留"何时用/何时不用/标准工作流" | ~30 行 | ⏳ 待评估 |
 | 3  | **PhaseTimer 多阶段计时** | `container.js` / `cli.js` | 大型仓库分析时知道卡在解析/建图/查询哪一阶段 | ~15 行 | ⏳ 待评估 |
 | 4  | **CLI 错误分类 + 可操作建议** | `cli.js` catch 块 | 错误不再是 raw stack，而是"错误类型 + 下一步命令" | ~20 行 | ⏳ 待评估 |
@@ -171,15 +171,19 @@
 
 ---
 
-### L3 品味问题（3 项活跃）
+### L3 品味与架构债务（6 项活跃）
 
 按 [TECH_DEBT.md](./docs/TECH_DEBT.md) 记录：
 
-| 位置                        | 问题                                                                                                         | 优先级 |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------ | ------ |
-| `git-tools.js`            | `getChangedFiles()` 手动字符级解析                                                                         | 低     |
-| `js.js`                   | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行                                             | 低     |
-| `cli.js` / `formatters` | `--json` 嵌套深、体积大；`formatAi` 边界行为已修复，但所有命令统一预消化输出待深化 | 中     |
+| 位置 | 问题 | 优先级 |
+| ---- | ---- | ------ |
+| `js.js` | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行 | 低 |
+| `cli.js` / `formatters` | `--json` 嵌套深；`COMMAND_GUIDES` 硬编码外溢；`determineExitCode()` 脏耦合 switch-case 链条 | 中 |
+| `project-context.js` | `inferFileRole` 规则存在非标目录盲区且为无状态硬编码匹配 | 中 |
+| `file-index.js` | `shouldExclude` 高频循环嵌套调用无缓存的 `isNotGeneratedFile`，正则全套大遍历 | 中 |
+| `parsers/js.js` | JS 正则 fallback 模式三大死角：多行模板按行切分瘫痪、解构导出捕获漏报、调用链空转 | 中 |
+| `resolvers.js` | FIFO 缓存粗暴淘汰导致核心配置被误杀抖动；高频解析无脑新建 context 带来巨大 GC 压力 | 中 |
+| `file-index.js` | `this.excludeDirs` 计算去重后零消费死代码 | 低 |
 
 ---
 
@@ -237,25 +241,20 @@
 | **项目根自动发现（Monorepo）** | 中   | 中   | **接受**              | 当前主要靠 `--cwd`，对 monorepo 支持不够智能。评估自动检测 `package.json` / `pom.xml` / `go.mod` 层级，支持 `--service <subpath>` 过滤。参考 qartez Workspace 扩展 |
 | **环境变量层 + 配置来源报告** | 低   | 低   | **接受**              | 当前配置仅来自 `.workspace-bridge.json` 和 CLI 参数。增加 `WB_*` 环境变量层和启动时"来源报告"（config from: env > cli > file）。参考 qartez 配置系统 |
 | **JSON 输出 token 削减** | 中   | 低   | **接受**              | 大型文件 `--json` 输出过于庞大（`audit-file` 返回完整源代码）。引入 `elide_file_source()`：函数体 → 签名 + `{⋯}`，超限自动截断。参考 qartez token 削减 |
-| **async 未捕获异常处理（Fatal Handler）** | 高   | 极低 | **接受**              | CLI async 路径未捕获异常可能导致静默退出。安装 `unhandledRejection` / `uncaughtException` handler，保留真实 stderr 后退出。参考 GitNexus `installFatalHandlers` |
+| **async 未捕获异常处理（Fatal Handler）** | 高   | 极低 | **接受 / 已交付**              | CLI async 路径未捕获异常可能导致静默退出。安装 `unhandledRejection` / `uncaughtException` handler，保留真实 stderr 后退出。参考 GitNexus `installFatalHandlers` |
 | **GraphBuilder / GraphAnalyzer 职责边界** | 中   | 低   | **接受**              | 当前 `dep-graph.js` 内部已认知拆分，但对外接口未显式区分"节点构建期"和"边链接期"。参考 CGC 两阶段模型，职责边界文档化并提取为生命周期 hook |
 | **语言注册表统一契约** | 中   | 低   | **接受**              | 当前 `parsers/` 缺乏统一契约。引入 `{ language, extensions, parse, extractImports, extractExports, isBuiltIn }` 配置表，统一 parserAvailability / import 解析 / 导出检测。参考 GitNexus 语言注册表 |
 | **框架检测 query 化（compilePatterns）** | 中   | 中   | **接受**              | 当前 `framework-patterns.js` 使用硬编码 regex。引入 `compilePatterns(treeSitterQuery) + runCompiledPatterns()`，新增框架只需一个 query 文件。参考 GitNexus `HttpLanguagePlugin` |
-| **持久化图存储（SQLite）**           | 高   | 中   | **P2 启动，POC 通过** | POC 三阶段全部完成：                                                                                                                      |
+| **持久化图存储（SQLite）**           | 高   | 中   | **P2 启动，POC 通过** | POC 三阶段全部完成：<br>1. 小图（239 nodes）：findDeadExports **1ms**、recursive CTE impact **0ms**、增量 update **1ms**、文件大小小 18 倍 ✅<br>2. 大图（5000 nodes / 17580 edges）：findDeadExports **4ms**、impact d=5 **1ms**、random 100× **5ms**、batch update **10ms**、文件大小小 610 倍 ✅<br>3. **cycle detection**：naive recursive CTE **45,601ms** ❌；内存 DFS **37ms** ✅ → **cycle 保留内存算法，SQLite 负责持久化 + deadExports + impact + 增量更新**<br>4. 方案：`better-sqlite3`（~10MB，零服务器），3 张表 `nodes` + `edges` + `file_metadata`。下一步：核心引擎迁移 |
+| **分层输出过滤** | 中 | 低 | **接受** | `--severity P0/P1` 按严重程度过滤、`--category security/performance` 按类别过滤（需规则打标签） |
+| **审查追踪（轻量）** | 中 | 低 | **接受** | `--save <file>` 保存审计结果、`--check-regression` 对比上次审计检查 P0/P1 是否修复、`--baseline <commit>` 按变更文件标注问题为 `new`/`legacy` |
+| **默认输出模式校准** | 中 | 低 | **接受 / 已交付** | 默认输出已改为 `--format markdown`（~5 行，cli.js 第 474 行）。`--format human` 显式恢复人工输出已支持。 |
+| **命令分层暴露** | 高 | 低 | **接受 / 已交付** | `--help` 已按 L1/L2/L3/L4 四层分组；L4 命令标记为 debug 层级；`health` 标注 deprecated；`runCommand` 已拆分注册表。默认 `--help` 只展示 Tier 1（~5 个命令），其余折叠到 `--help --all`。SKILL.md 精简待深化。 |
+| **大项目自动截断/自适应** | 中 | 低 | **接受** | 500+ 文件自动启用 `--compact`，或自动抑制低价值字段（architectureAdvice 等）。加 `--no-compact` 显式覆盖 |
+| **噪音抑制增强** | 中 | 低 | **接受** | `.workspace-bridge.json` 扩展 `ignore` 配置（框架感知排除）、`--mark-false-positive <id>` 记录误报（轻量，不引入机器学习） |
+| **`--cache-dir` 参数** | 高 | 低 | **接受 / 已交付** | `--cache-dir` 已支持，cli.js parseCliArgs 已注册。默认缓存放 `os.tmpdir()/workspace-bridge/<hash>/cache.db`（SQLite），项目间隔离。 |
+| **大项目截断（手动）** | 低 | 低 | **接受** | `--max-files <n>` 只分析前 N 个变更/影响最大的文件，控制输出体积 |
 
-- 小图（239 nodes）：findDeadExports **1ms**、recursive CTE impact **0ms**、增量 update **1ms**、文件大小小 18 倍 ✅
-- 大图（5000 nodes / 17580 edges）：findDeadExports **4ms**、impact d=5 **1ms**、random 100× **5ms**、batch update **10ms**、文件大小小 610 倍 ✅
-- **cycle detection**：naive recursive CTE **45,601ms** ❌；内存 DFS **37ms** ✅ → **cycle 保留内存算法，SQLite 负责持久化 + deadExports + impact + 增量更新**
-- 方案：`better-sqlite3`（~10MB，零服务器），3 张表 `nodes` + `edges` + `file_metadata`。下一步：核心引擎迁移
-  | **分层输出过滤** | 中 | 低 | **接受** | `--severity P0/P1` 按严重程度过滤、`--category security/performance` 按类别过滤（需规则打标签） |
-  | **审查追踪（轻量）** | 中 | 低 | **接受** | `--save <file>` 保存审计结果、`--check-regression` 对比上次审计检查 P0/P1 是否修复、`--baseline <commit>` 按变更文件标注问题为 `new`/`legacy` |
-  | **默认输出模式校准** | 中 | 低 | **接受 / 已交付** | 默认输出已改为 `--format markdown`（~5 行，cli.js 第 474 行）。`--format human` 显式恢复人工输出已支持。 |
-  | **命令分层暴露** | 高 | 低 | **接受 / 已交付标签分组，待深化默认折叠** | `--help` 已按 L1/L2/L3/L4 四层分组；L4 命令标记为 debug 层级；`health` 标注 deprecated；`runCommand` 已拆分注册表。待深化：默认 `--help` 只展示 Tier 1（~6 个命令），其余折叠到 `--help --all`（参考 qartez 4-Tier Progressive Disclosure）。SKILL.md 精简待深化。 |
-  | **大项目自动截断/自适应** | 中 | 低 | **接受** | 500+ 文件自动启用 `--compact`，或自动抑制低价值字段（architectureAdvice 等）。加 `--no-compact` 显式覆盖 |
-  | **噪音抑制增强** | 中 | 低 | **接受** | `.workspace-bridge.json` 扩展 `ignore` 配置（框架感知排除）、`--mark-false-positive <id>` 记录误报（轻量，不引入机器学习） |
-  | **`--cache-dir` 参数** | 高 | 低 | **接受 / 已交付** | `--cache-dir` 已支持，cli.js parseCliArgs 已注册。默认缓存放 `os.tmpdir()/workspace-bridge/<hash>/cache.db`（SQLite），项目间隔离。 |
-  | **大项目截断（手动）** | 低 | 低 | **接受** | `--max-files <n>` 只分析前 N 个变更/影响最大的文件，控制输出体积 |
-
-> 路线 I-2 GitNexus 深度对比的 9 项发现中，数值 confidence / yieldToEventLoop / confidenceSource 标签 / git-aware staleness / import 策略链抽象 5 项已吸收并完成。详见 [CHANGELOG.md](./CHANGELOG.md)。
+> 路线 I-2 GitNexus 深度对比 of 9 项发现中，数值 confidence / yieldToEventLoop / confidenceSource 标签 / git-aware staleness / import 策略链抽象 5 项已吸收并完成。详见 [CHANGELOG.md](./CHANGELOG.md)。
 >
-> **2026-05-19 评估更新**：阶段 1 误报清零 + P0 去噪工程完成；diagnostics linter 矛盾已修复；L2 债务已清零。阶段 2 `--format ai` 统一入口已扩展至所有命令。死代码过滤链前 5 条规则已引入（CRG 吸收）。污点追踪 / 数据流分析 / 图数据库 三个方向**当前不做**（非永久拒绝）。规则引擎层次 A/B 和 AI 摘要输出在轻量边界内接受。详见 [SESSION.md](./SESSION.md)。
+> **2026-05-20 评估更新**：本轮对 `workspace-bridge` 自身进行深度代码与架构审计，挖掘并同步记录 6 项重磅 L3 级架构/性能/功能性活跃技术债（ProjectContext规则盲区、shouldExclude高频过度正则、js正则fallback死角、resolvers缓存FIFO淘汰与GC开销等）。此前已完成 WorkspaceSnapshot 数据一致性修复、environment-probe.js 完整统一、git-tools.js porcelain 解析提取、e2e-gitnexus 去重优化。131/131 测试 100% 全量 PASS。详见 [SESSION.md](./SESSION.md)。

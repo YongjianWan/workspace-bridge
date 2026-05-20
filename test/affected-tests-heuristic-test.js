@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow — builds large mock DependencyGraph; must not run concurrently with other graph-building tests.
 
 const assert = require('assert');
 const { DependencyGraph } = require('../src/services/dep-graph');

@@ -15,6 +15,18 @@ function testHelpFlag() {
   assert.strictEqual(result.status, 0, '--help should succeed');
   const stdout = result.stdout || '';
   assert(stdout.includes('workspace-bridge'), 'help should mention workspace-bridge');
+  assert(stdout.includes('Core Commands'), 'default help should show Core Commands only');
+  assert(!stdout.includes('L4 原始查询'), 'default help should not show L4 debug commands');
+  assert(stdout.includes('--help --all'), 'default help should mention --help --all');
+}
+
+function testHelpAllFlag() {
+  const result = runCliRaw(['--help', '--all']);
+  assert.strictEqual(result.status, 0, '--help --all should succeed');
+  const stdout = result.stdout || '';
+  assert(stdout.includes('L1 策展入口'), 'full help should show L1 section');
+  assert(stdout.includes('L4 原始查询'), 'full help should show L4 debug commands');
+  assert(stdout.includes('dead-exports'), 'full help should list dead-exports command');
 }
 
 function testVersionFlag() {
@@ -39,6 +51,7 @@ function testQuietSuppressesInfo() {
 function main() {
   testUnknownCommand();
   testHelpFlag();
+  testHelpAllFlag();
   testVersionFlag();
   testMissingFileArgument();
   testQuietSuppressesInfo();

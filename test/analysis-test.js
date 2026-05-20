@@ -23,7 +23,10 @@ function main() {
   if (!fs.existsSync(testDir)) {
     fs.mkdirSync(testDir, { recursive: true });
   }
-  
+
+  // 项目根标记，确保 CLI 正确识别扫描范围
+  fs.writeFileSync(path.join(testDir, 'package.json'), JSON.stringify({ name: 'analysis-test', version: '1.0.0' }, null, 2));
+
   // 创建一个有导出但未使用的文件
   fs.writeFileSync(testUnusedFile, [
     '// 这个文件的导出未被使用',
@@ -70,7 +73,7 @@ function main() {
 
   try {
 
-    const deadExports = runCli(['dead-exports', '--cwd', '.', '--json', '--quiet']);
+    const deadExports = runCli(['dead-exports', '--cwd', testDir, '--json', '--quiet']);
     assert(Array.isArray(deadExports.deadExports), 'deadExports should be an array');
     assert(deadExports.deadExportsCount >= 1, `deadExportsCount should be >= 1, got ${deadExports.deadExportsCount}`);
     const partialEntry = deadExports.deadExports.find(item => path.basename(item.file) === 'partial-exports.js');
@@ -80,7 +83,7 @@ function main() {
 
 
 
-    const unresolved = runCli(['unresolved', '--cwd', '.', '--json', '--quiet']);
+    const unresolved = runCli(['unresolved', '--cwd', testDir, '--json', '--quiet']);
     assert(Array.isArray(unresolved.unresolved), 'unresolved should be an array');
     assert(unresolved.unresolvedCount >= 1, `unresolvedCount should be >= 1, got ${unresolved.unresolvedCount}`);
 

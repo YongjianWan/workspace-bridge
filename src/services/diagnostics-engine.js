@@ -7,7 +7,8 @@ const fs = require('fs');
 const path = require('path');
 const { runPythonModule, runNpx, runCommandSecure, resolvePythonCommand } = require('../utils/command');
 const { parseDiagnosticsFromText, uniqueDiagnostics } = require('../utils/diagnostics');
-const { TIMEOUTS, DEFAULTS, PROBE } = require('../config/constants');
+const { TIMEOUTS, DEFAULTS } = require('../config/constants');
+const { detectEslintConfig } = require('../utils/environment-probe');
 
 // 配置常量 - 集中管理可调优参数
 const CONFIG = {
@@ -58,14 +59,7 @@ class DiagnosticsEngine {
       case 'eslint':
         result = await this.checkNodeModule('eslint', '--version');
         if (!result) {
-          // Fallback: config-based detection (aligns with workspace-tools.js detectNodeLinters)
-          result = PROBE.ESLINT_CONFIG_FILES.some((c) => fs.existsSync(path.join(this.root, c)));
-          if (!result) {
-            try {
-              const pj = JSON.parse(fs.readFileSync(path.join(this.root, 'package.json'), 'utf8'));
-              result = Boolean(pj.eslintConfig);
-            } catch { /* ignore unreadable/missing package.json */ }
-          }
+          result = detectEslintConfig(this.root);
         }
         break;
       case 'tsc':

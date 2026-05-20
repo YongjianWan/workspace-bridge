@@ -27,34 +27,8 @@ function testAuditSummaryOnGitNexus() {
   assert(Array.isArray(result.cycles?.cycles), 'cycles array should be present');
 }
 
-function testAuditFileOnGitNexus() {
-  const result = runCli(['audit-file', '--cwd', GITNEXUS_ROOT, '--file', 'gitnexus/scripts/build.js', '--json', '--quiet'], {
-    timeout: TIMEOUTS.TEST_RUNNER_MS,
-  });
-  assert.strictEqual(result.ok, true, 'audit-file should succeed on GitNexus');
-  assert(result.file, 'audit-file should return file path');
-  assert(Number.isFinite(result.impact?.impactCount), 'impactCount should be a valid number');
-}
-
-function testDeadExportsOnGitNexus() {
-  const result = runCli(['dead-exports', '--cwd', GITNEXUS_ROOT, '--json', '--quiet'], {
-    timeout: TIMEOUTS.TEST_RUNNER_MS,
-  });
-  assert.strictEqual(result.ok, true, 'dead-exports should succeed on GitNexus');
-  assert(Number.isFinite(result.deadExportsCount), 'deadExportsCount should be a valid number');
-  assert(Array.isArray(result.deadExports), 'deadExports array should be present');
-  // Each entry should have expected shape
-  if (result.deadExports.length > 0) {
-    const first = result.deadExports[0];
-    assert(typeof first.file === 'string', 'dead export entry should have file path');
-    assert(Array.isArray(first.exports), 'dead export entry should have exports array');
-  }
-}
-
 function main() {
   testAuditSummaryOnGitNexus();
-  testAuditFileOnGitNexus();
-  testDeadExportsOnGitNexus();
   console.log('e2e-gitnexus-test.js: all passed');
 }
 

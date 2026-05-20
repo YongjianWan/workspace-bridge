@@ -58,26 +58,85 @@ const KNOWN_SLOW_PATTERNS = [
   /cli-error-handling-test\.js$/,
   /cli-args-validation-test\.js$/,
   /cli-mapper-adapter-test\.js$/,
-  /framework-usage-patterns-test\.js$/,
+  /implicit-imports-test\.js$/,
   /repl-test\.js$/,
 ];
 
-function classifyTest(file) {
-  if (/watch/.test(file)) return 'watch';
-  if (KNOWN_SLOW_PATTERNS.some((p) => p.test(file))) return 'slow';
+const classificationCache = new Map();
 
-  // Fallback: scan file content for runCli helpers or direct CLI spawns.
-  try {
-    const content = fs.readFileSync(path.join(TEST_DIR, file), 'utf8');
-    if (/runCli|runCliRaw|runCliText/.test(content)) return 'slow';
-    // Detect spawnSync('node', [cliPath...]) or spawnSync('git', ...) patterns
-    // that indicate integration-level work.
-    if (/spawnSync\(['"]node['"].*cli\.js/.test(content)) return 'slow';
-  } catch {
-    // ignore read errors
+function classifyTest(file) {
+  if (classificationCache.has(file)) return classificationCache.get(file);
+
+  if (/watch/.test(file)) {
+    classificationCache.set(file, 'watch');
+    return 'watch';
   }
 
+  let content = '';
+  let readOk = false;
+  try {
+    content = fs.readFileSync(path.join(TEST_DIR, file), 'utf8');
+    readOk = true;
+  } catch {
+    readOk = false;
+  }
+
+  // Priority 1: file-level annotation in first 10 lines
+  if (readOk) {
+    const header = content.split('\n').slice(0, 10).join('\n');
+    if (header.includes('@slow')) {
+      classificationCache.set(file, 'slow');
+      return 'slow';
+    }
+    if (header.includes('@watch')) {
+      classificationCache.set(file, 'watch');
+      return 'watch';
+    }
+  }
+
+  // Priority 2: known filename patterns
+  if (KNOWN_SLOW_PATTERNS.some((p) => p.test(file))) {
+    classificationCache.set(file, 'slow');
+    return 'slow';
+  }
+
+  // Priority 3: content heuristics
+  if (readOk) {
+    if (/runCli|runCliRaw|runCliText/.test(content)) {
+      classificationCache.set(file, 'slow');
+      return 'slow';
+    }
+    if (/spawnSync\(['"]node['"].*cli\.js/.test(content)) {
+      classificationCache.set(file, 'slow');
+      return 'slow';
+    }
+  }
+
+  classificationCache.set(file, 'fast');
   return 'fast';
+}
+
+/* --------------------------------------------------------------------------
+// Self-validation: warn if fast-classified tests contain slow indicators
+// -------------------------------------------------------------------------- */
+function validateSlowClassification(files) {
+  const warnings = [];
+  for (const file of files) {
+    if (classifyTest(file) !== 'fast') continue;
+    try {
+      const content = fs.readFileSync(path.join(TEST_DIR, file), 'utf8');
+      if (/runCli|runCliRaw|runCliText|spawnSync|child_process/.test(content)) {
+        warnings.push(`  ${file}: contains runCli/spawnSync/child_process but classified as fast. Add // @slow to its header.`);
+      }
+    } catch {
+      // ignore read errors
+    }
+  }
+  if (warnings.length > 0) {
+    console.warn('\n[runner] WARNING: potential slow-test misclassification detected:');
+    for (const w of warnings) console.warn(w);
+    console.warn('');
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -103,8 +162,26 @@ if (requestedLayer) {
   // representative slow tests to verify CLI pipeline is not completely broken.
   const fastTests = files.filter((f) => classifyTest(f) === 'fast');
   const slowTests = files.filter((f) => classifyTest(f) === 'slow');
-  // Pick first 3 slow tests alphabetically as representatives.
-  files = fastTests.concat(slowTests.slice(0, 3));
+
+  // Prefer @smoke-representative annotated tests over pure alphabetical order.
+  const representative = [];
+  const remaining = [];
+  for (const file of slowTests) {
+    try {
+      const content = fs.readFileSync(path.join(TEST_DIR, file), 'utf8');
+      if (content.split('\n').slice(0, 10).join('\n').includes('@smoke-representative')) {
+        representative.push(file);
+      } else {
+        remaining.push(file);
+      }
+    } catch {
+      remaining.push(file);
+    }
+  }
+  const selectedSlow = representative.length > 0
+    ? representative.slice(0, 3)
+    : slowTests.slice(0, 3);
+  files = fastTests.concat(selectedSlow);
 }
 
 const serialFiles = files.filter((f) => /watch/.test(f));
@@ -231,6 +308,9 @@ async function runConcurrentPhase(phaseFiles, concurrency, phaseLabel) {
 }
 
 async function main() {
+  // Self-check: warn about tests that look slow but are classified as fast.
+  validateSlowClassification(files);
+
   // Phase 1: fast tests at higher concurrency — they finish quickly and should
   // not be held back by slow/integration tests in the same batch.
   const fastFiles = concurrentFiles.filter((f) => classifyTest(f) === 'fast');

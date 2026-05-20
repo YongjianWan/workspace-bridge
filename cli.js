@@ -171,7 +171,56 @@ Common Options:
 `);
 }
 
-function printUsage() {
+function printUsage(showAll = false) {
+  if (!showAll) {
+    console.log(`workspace-bridge-cli
+
+Usage:
+  workspace-bridge-cli <command> [options]
+
+Core Commands:
+  audit-summary           Aggregate health + graph findings
+  audit-file --file <p> [--watch]  Aggregate impact + affected tests for one file
+  audit-diff [--staged] [--files <list>] [--incremental]
+                            Aggregate changed files + impact + affected tests
+  audit-overview          Project panoramic view (hotspots, stability, orphans)
+  audit-map               Global project map (tree + edges + issue overlay)
+
+Options:
+  --cwd <path>            Target workspace or file path
+  --exclude <paths>       Comma-separated directories, path fragments, or simple globs (*.ext) to exclude
+  --eval <command>        Run a single REPL command non-interactively
+  --mode <quick|full>     Diagnostics mode (default: quick)
+  --file <path>           File path for file-scoped commands
+  --max-depth <n>         Max depth for affected-tests (default: 5)
+  --reuse-hints <mode>    Reuse hints mode for audit-diff: on|off (default: off)
+  --hotspot-data <path>   Write audit-overview hotspot visualization JSON
+  --stability-trend-data <path>  Write audit-overview stability trend JSON
+  --trend-granularity <mode>  Trend bucket mode for stability trend: day|week (default: day)
+  --overview-dashboard <path>  Write audit-overview single-file HTML dashboard
+  --json                  Print machine-readable JSON
+  --format <mode>         Output format: summary | markdown | jsonl | ai | human (default: markdown)
+  --token-budget <n>      Max estimated tokens for --format ai; auto-downgrades depth if exceeded
+  --depth <mode>          Discovery depth for --format ai: surface | detail | full (default: detail)
+  --quiet                 Suppress stderr logs during CLI execution
+  --compact              Emit condensed tree and directory-level edges
+  --watch                Watch mode for audit-file: re-run on file changes
+  --staged               Only analyze git staged changes in audit-diff
+  --files <list>         Comma-separated file list for audit-diff / audit-security
+  --incremental          Only show findings related to changed files in audit-diff
+  --save <file>          Save audit-summary findings to a JSON baseline file
+  --check-regression     Compare current audit-summary against previous baseline
+  --baseline <file|commit>  Baseline file or git commit for --check-regression (default: .workspace-bridge-baseline.json)
+  --config <name>        Semgrep config (default: auto)
+  --language <lang>      Filter security scan to one language
+  --help                  Show help
+  --help <command>       Show detailed guide for a command
+
+Run --help --all to see the full command list (L2-L4 debug tools included).
+`);
+    return;
+  }
+
   console.log(`workspace-bridge-cli
 
 Usage:
@@ -293,6 +342,7 @@ function parseCliArgs(argv) {
     '-v': true,
     '--help': true,
     '-h': true,
+    '--all': true,
   });
 
   const command = raw._[0] || null;
@@ -354,6 +404,7 @@ function parseCliArgs(argv) {
     runTests: Boolean(raw['--run-tests']),
     version: Boolean(raw['--version']) || Boolean(raw['-v']),
     help: Boolean(raw['--help']) || Boolean(raw['-h']),
+    helpAll: Boolean(raw['--all']),
     depth: raw.depth || null,
     tokenBudget: Number.isFinite(raw.tokenBudget) ? raw.tokenBudget : null,
   };
@@ -414,12 +465,12 @@ async function main() {
     if (parsed.command && COMMAND_GUIDES[parsed.command]) {
       printCommandHelp(parsed.command);
     } else {
-      printUsage();
+      printUsage(parsed.helpAll);
     }
     return;
   }
   if (!parsed.command) {
-    printUsage();
+    printUsage(false);
     return;
   }
 
@@ -505,5 +556,31 @@ async function main() {
   }
 }
 
-main();
+function installFatalHandlers() {
+  process.on('unhandledRejection', (reason) => {
+    console.error('Fatal: Unhandled promise rejection');
+    if (reason instanceof Error) {
+      console.error(reason.message || String(reason));
+      if (reason.stack) console.error(reason.stack);
+    } else {
+      console.error(String(reason));
+    }
+    process.exit(2);
+  });
+
+  process.on('uncaughtException', (err) => {
+    console.error('Fatal: Uncaught exception');
+    console.error(err.message || String(err));
+    if (err.stack) console.error(err.stack);
+    process.exit(2);
+  });
+}
+
+installFatalHandlers();
+
+main().catch((err) => {
+  console.error('Fatal error:', err.message || String(err));
+  if (err.stack) console.error(err.stack);
+  process.exit(2);
+});
 

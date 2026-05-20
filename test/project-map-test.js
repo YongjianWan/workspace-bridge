@@ -1,5 +1,6 @@
 const assert = require('assert');
 const { buildProjectMap, buildDirectoryTree, countTreeFiles } = require('../src/cli/formatters/project-map');
+const { makeMockSnapshot } = require('./test-helpers');
 
 function createMockDepGraph() {
   const fileInfo = {
@@ -8,7 +9,7 @@ function createMockDepGraph() {
     'src/c.js': { parseMode: 'ast', importRecords: [], exports: ['baz'] },
     'src/d.js': { parseMode: 'ast', importRecords: [{ resolved: 'src/a.js' }], exports: ['qux'] },
   };
-  return {
+  const snapshot = makeMockSnapshot({
     root: '/test',
     graph: new Map([
       ['src/a.js', { imports: ['src/b.js', 'src/c.js'], dependents: ['src/d.js'] }],
@@ -16,27 +17,19 @@ function createMockDepGraph() {
       ['src/c.js', { imports: [], dependents: ['src/a.js'] }],
       ['src/d.js', { imports: ['src/a.js'], dependents: [] }],
     ]),
-    importRecords: [
-      { from: 'src/a.js', to: 'src/b.js', type: 'import' },
-      { from: 'src/a.js', to: 'src/c.js', type: 'import' },
-      { from: 'src/d.js', to: 'src/a.js', type: 'import' },
-    ],
+    entryFiles: new Set(['src/d.js']),
     projectContext: {
       mainlineFiles: new Set(['src/a.js', 'src/b.js', 'src/c.js', 'src/d.js']),
       classifyFile: (file) => ({ fileRole: 'library', isMainline: true }),
     },
-    entryFiles: new Set(['src/d.js']),
-    getStats: () => ({
-      totalFiles: 4,
-      totalEdges: 3,
-      analysisCoverage: { parsedFiles: 4, totalFiles: 4, coverageRatio: 1.0 },
-    }),
-    getFileInfo: (file) => fileInfo[file] || {},
-    _displayPath: (p) => p,
-    findDeadExports: () => [],
-    findUnresolvedImports: () => [],
-    findCircularDependencies: () => [],
-  };
+    depGraphOverrides: {
+      getFileInfo: (file) => fileInfo[file] || {},
+      findDeadExports: () => [],
+      findUnresolvedImports: () => [],
+      findCircularDependencies: () => [],
+    },
+  });
+  return snapshot.graph;
 }
 
 function testBuildProjectMapFull() {
@@ -84,18 +77,19 @@ function testCountTreeFiles() {
 }
 
 function testBuildProjectMapEmptyGraph() {
-  const depGraph = {
+  const snapshot = makeMockSnapshot({
     root: '/empty',
     graph: new Map(),
-    importRecords: [],
-    projectContext: { mainlineFiles: new Set() },
     entryFiles: new Set(),
-    getStats: () => ({ totalFiles: 0, totalEdges: 0, analysisCoverage: null }),
-    findDeadExports: () => [],
-    findUnresolvedImports: () => [],
-    findCircularDependencies: () => [],
-  };
-  const result = buildProjectMap(depGraph, { compact: false });
+    projectContext: { mainlineFiles: new Set() },
+    depGraphOverrides: {
+      getStats: () => ({ totalFiles: 0, totalEdges: 0, analysisCoverage: null }),
+      findDeadExports: () => [],
+      findUnresolvedImports: () => [],
+      findCircularDependencies: () => [],
+    },
+  });
+  const result = buildProjectMap(snapshot.graph, { compact: false });
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.edges.length, 0);
 }
