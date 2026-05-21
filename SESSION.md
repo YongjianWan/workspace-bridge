@@ -42,7 +42,7 @@ node cli.js audit-summary --cwd . --json --quiet
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~264 文件，entry=1, mainline=129, test=135
-- 健康度：7/8（缺 dockerConfig），deadExports=1（`severityMeetsFilter` 在 `src/cli/commands/_utils.js` 中零引用，待清理），cycles=0，unresolved=0
+- 健康度：7/8（缺 dockerConfig），deadExports=0，cycles=0，unresolved=0
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust Regular Expressions、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
 - Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.2.0"` 已冻结**
@@ -56,21 +56,21 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ## 已知陷阱（新 agent 必看）
 
-| 陷阱 | 位置 | 如何避免 |
-|------|------|----------|
-| `DEFAULT_EXCLUDE_DIRS` 全局污染 | `src/services/file-index.js` | 任何新增排除项必须是通用目录名（如 `node_modules`），不能是项目特定名称 |
-| orphan 检测不同步 | `project-map.js` vs `overview-tools.js` | 两处 orphan 逻辑必须保持同步（scripts/bin/benchmark 跳过） |
-| compact 模式只改 project-map.js | `cli.js` 也需要同步 | human-readable 输出和 `countTreeFiles()` 必须兼容 skeleton 模式（`totalFileCount`） |
-| Windows PowerShell 管道 BOM | 所有 `node cli.js ... \| node -e` 命令 | PowerShell 管道传 JSON 会带 BOM，用文件中转（`> file`）再读取 |
-| cache.save() 已改为 async | `src/services/cache.js` | 调用方必须 `await`（container.js、测试均已适配） |
-| repl-test.js flaky | `test/repl-test.js` | runner.js 串行执行时偶发失败，单独 `node test/repl-test.js` 稳定通过；若遇到，先重跑确认 |
-| `framework-patterns.js` 新增框架时 | `src/services/dep-graph/framework-patterns.js` | 路径检测逻辑按语言分块，新增语言需同时更新 `isEntry` 标记和测试 |
-| `buildFileValidationAdvice` 导出链 | `validation-advice.js` → `index.js` → `cli.js` | 新增 formatter 函数必须在 `src/cli/formatters/index.js` 中显式导出，否则 cli.js 解构为 `undefined` |
-| `--quiet` 不再 monkey-patch `console.error` | `cli.js` / `container.js` | `quiet` 通过 `ServiceContainer` → `FileIndex` / `DependencyGraph` 传递；信息性日志条件输出，错误日志仍用 `console.error` |
-| `findDeadExports()` edges/files 降级 | `src/services/dep-graph.js` | 单文件项目（files=1）不受降级影响；多文件项目 edges/files < 0.1 时 confidence 降为 low |
-| `.workspace-bridge-cache.json.bak` 泄漏到 git status | `src/tools/git-tools.js` | `getChangedFiles()` 已排除 `.bak` 备份文件，防止 audit-diff 误报 |
-| `resolvers.js` 策略链新增策略 | `src/services/dep-graph/resolvers.js` | 新增语言需在 `registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null` |
-| `checkFileChanges()` 双路径 | `src/services/cache.js` | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为 |
+| 陷阱                                                   | 位置                                                   | 如何避免                                                                                                                            |
+| ------------------------------------------------------ | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `DEFAULT_EXCLUDE_DIRS` 全局污染                      | `src/services/file-index.js`                         | 任何新增排除项必须是通用目录名（如 `node_modules`），不能是项目特定名称                                                           |
+| orphan 检测不同步                                      | `project-map.js` vs `overview-tools.js`            | 两处 orphan 逻辑必须保持同步（scripts/bin/benchmark 跳过）                                                                          |
+| compact 模式只改 project-map.js                        | `cli.js` 也需要同步                                  | human-readable 输出和 `countTreeFiles()` 必须兼容 skeleton 模式（`totalFileCount`）                                             |
+| Windows PowerShell 管道 BOM                            | 所有 `node cli.js ... \| node -e` 命令                | PowerShell 管道传 JSON 会带 BOM，用文件中转（`> file`）再读取                                                                     |
+| cache.save() 已改为 async                              | `src/services/cache.js`                              | 调用方必须 `await`（container.js、测试均已适配）                                                                                  |
+| repl-test.js flaky                                     | `test/repl-test.js`                                  | runner.js 串行执行时偶发失败，单独 `node test/repl-test.js` 稳定通过；若遇到，先重跑确认                                          |
+| `framework-patterns.js` 新增框架时                   | `src/services/dep-graph/framework-patterns.js`       | 路径检测逻辑按语言分块，新增语言需同时更新 `isEntry` 标记和测试                                                                   |
+| `buildFileValidationAdvice` 导出链                   | `validation-advice.js` → `index.js` → `cli.js` | 新增 formatter 函数必须在 `src/cli/formatters/index.js` 中显式导出，否则 cli.js 解构为 `undefined`                              |
+| `--quiet` 不再 monkey-patch `console.error`        | `cli.js` / `container.js`                          | `quiet` 通过 `ServiceContainer` → `FileIndex` / `DependencyGraph` 传递；信息性日志条件输出，错误日志仍用 `console.error` |
+| `findDeadExports()` edges/files 降级                 | `src/services/dep-graph.js`                          | 单文件项目（files=1）不受降级影响；多文件项目 edges/files < 0.1 时 confidence 降为 low                                              |
+| `.workspace-bridge-cache.json.bak` 泄漏到 git status | `src/tools/git-tools.js`                             | `getChangedFiles()` 已排除 `.bak` 备份文件，防止 audit-diff 误报                                                                |
+| `resolvers.js` 策略链新增策略                        | `src/services/dep-graph/resolvers.js`                | 新增语言需在 `registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null`                     |
+| `checkFileChanges()` 双路径                          | `src/services/cache.js`                              | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为                                              |
 
 ---
 
@@ -81,6 +81,7 @@ node cli.js audit-summary --cwd . --json --quiet
 ### 本轮做了什么
 
 **前轮（上一轮）**：
+
 - **Bug 与架构修复**：完成了 L1 Blocker 异步/shutdown 竞态修复、幽灵更新内存校验消除、SQLite 写入元数据丢失和测试分类警告等。详见 CHANGELOG.md [Unreleased]。
 - **L2 性能债（增量写入）**：重构了 `src/services/graph-db.js` 与 `src/services/cache.js`，实现 `saveIncremental(dirtyData)` 增量存表逻辑。
 - **L4 Facade 编排层提取**：新建并抽取 Curation 与过滤核心中转层 `src/tools/audit-assembler.js`。
@@ -88,6 +89,11 @@ node cli.js audit-summary --cwd . --json --quiet
 - **P0 低垂果实 5/5 完成**：SQLite pragma 调优、PhaseTimer 多阶段计时、CLI 错误分类 + 可操作建议、安全白名单分派表 + Assert Defense、测试间隙穿透。
 
 **本轮**：
+
+- **Dogfood 驱动新增（2 项）**：
+  - **`audit-diff --commits <range>`**：支持 `HEAD~9..HEAD` 风格 commit range，`git-tools.js` 三函数同步支持，`test/audit-diff-test.js` + `test/git-tools-test.js` 端到端覆盖，手动验证通过。
+  - **Dead export duplication hint**：`findDeadExports()` 通过 SymbolRegistry 交叉检查，为死导出标注 `duplicateOf: { symbolName: 'file.js:line' }`，消除 "工具只报症状、人工才能找病因" 的 gap。`dead-export-confidence-test.js` 2 个新测试覆盖。
+
 - **REFACTOR Wave 1 低垂果实全部完成**：
   - **D4**：`builder.js` `updateFiles()` finally 块 `await cache.save()`，watch 增量不落盘修复。
   - **O5**：`file-index.js` `processPending()` `.catch()` 异常捕获，消除 unhandled rejection。
@@ -120,23 +126,38 @@ node cli.js audit-summary --cwd . --json --quiet
   - 新增 `test/formatter-direct-test.js` `testCrossFormatCoverage`：覆盖全部 18 个命令的 human / summary / markdown / ai / jsonl 输出，确保重构后比特级一致。
   - 行数：989 → 775（-214 行，-22%），彻底消除霰弹式修改和 switch 漂移风险。
   - 验证：`npm run test:fast` **96/96 PASS**。
+- **O7（Resolver 缓存）**：
+  - `_resolverCache` 按 `ext` 缓存 `createResolver(strategies)` 实例，大项目 5000+ 次 resolver 分配降至 ~6 次。
+  - `_buildContext` 闭包（`discoverJavaSourceRoots: () => ...`、`readGoMod: () => ...`）改为直接函数引用；`tryJava` / `tryGoModule` 调整为 `ctx.discoverJavaSourceRoots(ctx.root)` / `ctx.readGoMod(ctx.root)`，策略签名不变。
+  - `registerResolverConfig` 和 `clearResolverCaches` 同步清空 resolver 缓存。
+  - 验证：`test/resolvers-test.js` / `test/resolver-strategy-chain-test.js` / `test/resolver-symbol-table-test.js` / `test/java-resolver-test.js` / `test/gors-resolver-test.js` 全部通过；`npm run test:fast` **96/96 PASS**。
+- **U2（ExitCode 契约补完）**：
+  - 为 10 个命令补全 `hasFindings`：affected-tests / dependencies / dependents / impact（按计数判断）；audit-map（按 issueCounts 判断）；audit-overview（按 orphans+hotspots+cycles 判断）；diagnostics（按 diagnosticsSummary.total 判断）；stats / tree / workspace-info（信息展示命令，固定 `false`）。
+  - 动机：`determineExitCode` 已压至 4 行 O(1) 契约，但大量命令缺 `hasFindings` 导致 `--fail-on-findings` 形同虚设。
+  - 验证：CLI 手动验证各命令 `hasFindings` 语义正确；`npm run test:fast` **96/96 PASS**。
+- **U9（constants.js 拆分）**：
+  - 将 268 行 `constants.js` 拆为 9 个子文件：`timeouts.js` / `limits.js` / `defaults.js` / `scoring.js` / `dead-export.js` / `probe.js` / `versions.js` / `streaming.js` / `ai-format.js`。
+  - `constants.js` 改为 29 行兼容聚合层（barrel），通过 `require('./timeouts')` 等重新导出全部命名空间。
+  - **零引用点变更**：所有 `require('../../config/constants')` 调用完全兼容。
+  - 验证：`npm run test:fast` **96/96 PASS**；基线 `audit-summary` 输出正常。
 
 ---
 
 ## 活跃问题与技术债务
 
-| 级别 | 数量 | 内容 |
-|------|------|------|
-| L1 Blocker | 0 | — |
-| L2 债务 | 0 | — |
-| L3 债务与品味 | 6 | js.js visitor超长 / cli.js JSON嵌套深 / ProjectContext规则盲区 / shouldExclude过度正则 / fallback正则缺陷 / resolvers.js缓存淘汰与高频GC |
-| **产品债务** | **0** | — |
+| 级别               | 数量        | 内容                                                                                                                                     |
+| ------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| L1 Blocker         | 0           | —                                                                                                                                       |
+| L2 债务            | 0           | —                                                                                                                                       |
+| L3 债务与品味      | 6           | js.js visitor超长 / cli.js JSON嵌套深 / ProjectContext规则盲区 / shouldExclude过度正则 / fallback正则缺陷 / resolvers.js缓存淘汰与高频GC |
+| **产品债务** | **0** | —                                                                                                                                       |
 
 **测试覆盖缺口**
 
 > **133/133 PASS**（fast 93 + slow 36 + watch 4）。测试基础设施已收敛。
 
 > **剩余测试债务（已量化）**：
+>
 > - **弱断言 ~35 处**：仅余 `typeof` 型 schema 契约检查（带消息参数，风险低）。占总断言数 ~2.3%
 > - **console.log 噪音 7 处**：代码字符串内嵌、平台跳过诊断、runner.js 骨架输出
 > - **`audit-map-test.js` graph 数据字面量** 仍内联
@@ -156,6 +177,7 @@ node cli.js audit-summary --cwd . --json --quiet
 > **根因判断**：resolvers.js 启发式字符串匹配 + 零全局符号表，是 import 解析脆弱、dead-exports 误报、增量性能击穿、Builder 越权操控 Analyzer 的共同根因。修复路线：Pre-scan 全局符号映射 → 语言 Provider 注册表统一契约 → Resolver 策略链物理拆分 → Builder/Analyzer 生命周期事件解耦 → 后处理 Affected-only 增量化。
 >
 > 相关架构背景参考（独立文档，与本节 Wave 定义非同一套）：
+>
 > - [ADR：workspace-bridge 从分析工具到代码知识库](./docs/architecture/ADR-graph-knowledge-base.md) — SQLite 作为核心图存储的决策与四阶段实施路线
 > - [REFACTOR：数据层、编排层、输出层三层齐改](./docs/architecture/REFACTOR-2026-05-data-orchestration-output.md) — 22 项代码审计问题的三层重构方案（D1-D8 / O1-O7 / U1-U9）
 
@@ -164,54 +186,58 @@ node cli.js audit-summary --cwd . --json --quiet
 - 活跃债务：**0 个 L1** + **0 个 L2** + **6 个 L3** + **0 个产品 bug** + **0 个产品债务**
 - 版本：v1.2.0，schemaVersion 冻结
 - 测试：**133/133 PASS**；全量 runner ~4min。开发迭代首选 `npm run test:fast`（~37s）
-- P0–P4 全部完成；**Wave 1（低垂果实）完成；Wave 2（D1-D3 edges 表）完成**
 - **定位**：AI 的代码脚手架
-- **核心认知**：底层引擎能力足够，CLI 出口质量（`--format ai`）已交付。下一阶段主线是**解析精度结构性升级**，但必须波次化执行。
+- **核心认知**：底层引擎能力足够，CLI 出口质量（`--format ai`）已交付。P0–P4 / Wave 1 / Wave 2（D1-D3/D5/D7-D8）/ O1-O3 / U1 全部完成，历史见 CHANGELOG。下一阶段主线是**解析精度结构性升级**（Wave 2/3）与**输出层/编排层剩余债务**，必须波次化执行。
 
 ### P0 低垂果实（现在做，零风险高 ROI）
 
 > 当前无待执行的 P0 低垂果实。
 
-### P1 解析精度升级 Wave 1（本轮）
+### P1 解析精度升级
 
 > **约束**：波次化执行，每波之间保持 133/133 PASS。禁止一次性做多层心脏移植。
+> Wave 1（SymbolRegistry）已完成，历史见 CHANGELOG。
 
-| 波次 | 范围 | 侵入性 | 验证标准 | 状态 |
-|------|------|--------|----------|------|
-| **Wave 1** | Pre-scan 全局符号表（新增模块，不改现有解析链） | 低 | 新增测试全绿，现有测试不受影响，符号表数据可通过 debug 命令导出验证 | ⏳ 待实施 |
-| **Wave 2** | Resolver 策略链物理拆分（基于 Wave 1 数据结构） | 中 | 所有语言解析测试全绿，benchmark 无回归 | ⏳ 待实施 |
-| **Wave 3** | Builder/Analyzer 解耦 + 后处理 Affected-only | 高 | 增量更新 benchmark 证明 O(k)，watch 模式无泄漏 | ⏳ 待实施 |
+| 波次     | 范围                                         | 侵入性 | 验证标准                                       | 状态   |
+| -------- | -------------------------------------------- | ------ | ---------------------------------------------- | ------ |
+| **Wave 2** | Resolver 策略链物理拆分（LanguageProvider）    | 中     | 所有语言解析测试全绿，benchmark 无回归         | ⏳ 待实施 |
+| **Wave 3** | Builder/Analyzer 解耦 + 后处理 Affected-only | 高     | 增量更新 benchmark 证明 O(k)，watch 模式无泄漏 | ⏳ 待实施 |
 
-### 数据层 Wave 2（D1-D8，已实施 D1-D3）
+### 数据层剩余项
 
 > **来源**：[REFACTOR：数据层、编排层、输出层三层齐改](./docs/architecture/REFACTOR-2026-05-data-orchestration-output.md)
+> D1-D3 / D5 / D7-D8 已完成，历史见 CHANGELOG。
 
-| # | 行动 | 文件 | 状态 | 说明 |
-|---|------|------|------|------|
-| D1 | 新增 `edges` 表 | `graph-db.js` | ✅ 已完成 | `nodes` 表 deferred（`file_metadata` 已覆盖节点元数据） |
-| D2 | 增量写入 edges | `graph-db.js` `cache.js` `builder.js` | ✅ 已完成 | `build()` / `updateFiles()` 末尾自动保存 |
-| D3 | 加载 edges 恢复内存图 | `dep-graph.js` `container.js` | ✅ 已完成 | `loadGraph()` 三层校验 + fallback 到 `build()` |
-| D5 | 按需 post-process | `builder.js` | ✅ 已完成 | 按 re-parsed 扩展名过滤 phase |
+| #  | 行动                         | 文件                      | 状态    | 说明                             |
+| -- | ---------------------------- | ------------------------- | ------- | -------------------------------- |
 | D6 | 消除 parseResults/graph 冗余 | `cache.js` `dep-graph.js` | ⏳ 长期 | `nodes` + `edges` 成为唯一事实源 |
-| D7 | 预计算表 | `graph-db.js` | ⏳ 待实施 | `precomputed_impact` / `precomputed_tests` / `precomputed_aggregates` |
-| D8 | 写入预计算 | `builder.js` | ⏳ 待实施 | `updateFiles()` 后重新预计算并写入 SQLite |
 
 ### P2 高 ROI 用户可见功能（评估中）
 
+| # | 目标                            | 状态      | 说明                                                                       |
+| - | ------------------------------- | --------- | -------------------------------------------------------------------------- |
+| 1 | **Bus Factor / 知识分布** | ⏳ 待评估 | `audit-overview` 新增 `knowledgeRisk`：逐文件 git blame + mailmap 去重 |
+| 2 | **回归测试档案**          | ⏳ 待评估 | `fp_regression_*.js` 归档已知误报场景，防止修复后复发                    |
+| 3 | **路径参数安全清洗**      | ⏳ 待评估 | `--file`/`--cwd` 统一清洗，拒绝 `../` 逃逸                           |
+
+### P3 输出层渐进改善（Dogfood 后续，按节奏推进）
+
+> 来源：本轮 dogfood 实际痛点，ROI 已排序。前三项为"建议做但按节奏来"的渐进改善；第四项已评估为越界，仅作记录。
+
 | # | 目标 | 状态 | 说明 |
 |---|------|------|------|
-| 1 | **Bus Factor / 知识分布** | ⏳ 待评估 | `audit-overview` 新增 `knowledgeRisk`：逐文件 git blame + mailmap 去重 |
-| 2 | **回归测试档案** | ⏳ 待评估 | `fp_regression_*.js` 归档已知误报场景，防止修复后复发 |
-| 3 | **路径参数安全清洗** | ⏳ 待评估 | `--file`/`--cwd` 统一清洗，拒绝 `../` 逃逸 |
+| 1 | **`audit-map` 目录级聚合 compact** | ⏳ 待评估 | edges 按目录聚合（如 `src/services/ → src/tools/ (15 edges)`），或异常-only 模式（只输出 fan-out > N、跨层依赖、孤立子图）。现有 `--compact` 仅压缩 tree 展示，未对 edges 做目录级聚合。 |
+| 2 | **Fan-out / Fan-in 指标进 `audit-overview`** | ⏳ 待评估 | hotspot `reason` 只输出"耦合 N 个模块"总数，不区分 fan-in（被多少模块 import）vs fan-out（import 多少模块）。风险性质完全不同：高 fan-out = "这个文件知道太多"，高 fan-in = "改这个文件影响太大"。数据已有（`imports.length` / `reverseGraph`），只需拆分展示。 |
+| 3 | **`--format ai` 风险分层输出** | ⏳ 待评估 | 当前 `--json` 太详细（几百行），`--format ai` 太压缩（丢了 `confidenceReason`）。按风险分层：高风险展开详情（file / reason / confidence / `duplicateOf`），低风险一行带过。与 `audit-diff` auto-compact 逻辑同思路。 |
+| 4 | **Duplication detection 通用化** | ❌ 暂缓 | 已评估为超出结构分析边界。`severityMeetsFilter` 案例能被抓到是巧合（同时满足"死导出"+"SymbolRegistry 同名"两个独立条件）。专门做 AST 级代码重复检测会变成 SonarQube，违反"结构分析 ≠ 语义分析"原则。 |
 
 ### 待挖掘/待验证问题（本轮新增）
 
-| # | 问题 | 深挖价值 | 验证方案 |
-|---|------|---------|---------|
-| 6 | **CLI 命令分层认知负担** | 高 | 虽然 L4 已标记为 debug，但 `--help` 仍展示 20+ 命令，AI 消费者仍需在 20 个命令中做选择。验证：统计 SKILL.md 中 "WHEN TO USE" 的篇幅占比，若 >50% 花在命令选择上，说明分层暴露仍不足 |
-| 7 | **Windows 兼容性补丁式累积** | 中 | 路径兼容不是通过统一抽象解决的，而是通过散落在 parser/resolver/git-tools/cli 各处的 `toPosixPath` 调用。验证：搜索 `toPosixPath` 调用点数量，若 >10 处，说明需要统一路径适配层 |
-| 8 | ~~framework-patterns 与 framework-usage-patterns 职责边界~~ | 低 | ✅ **已修复**。`detectFrameworkFromPath` + `ENTRY_WEIGHT` 提取至 `project-context.js`；`framework-usage-patterns.js` 重命名为 `implicit-imports.js`；`framework-patterns.js` 现仅保留 AST_PATTERNS + `detectFrameworkFromContent` |
-| 9 | ~~CLI `--help` 认知负担~~ | 中 | ✅ **已修复**。默认 `--help` 只展示 L1 核心命令（5 个），`--help --all` 展示完整列表；AI 消费者从 20 选 1 → 5 选 1 |
+| # | 问题                               | 深挖价值 | 验证方案                                                                                                                                                                              |
+| - | ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 6 | **CLI 命令分层认知负担**     | 高       | 虽然 L4 已标记为 debug，但 `--help` 仍展示 20+ 命令，AI 消费者仍需在 20 个命令中做选择。验证：统计 SKILL.md 中 "WHEN TO USE" 的篇幅占比，若 >50% 花在命令选择上，说明分层暴露仍不足 |
+| 7 | **Windows 兼容性补丁式累积** | 中       | 路径兼容不是通过统一抽象解决的，而是通过散落在 parser/resolver/git-tools/cli 各处的 `toPosixPath` 调用。验证：搜索 `toPosixPath` 调用点数量，若 >10 处，说明需要统一路径适配层    |
+|   |                                    |          |                                                                                                                                                                                       |
 
 ### 当前不做
 
@@ -229,8 +255,8 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-21（REFACTOR Wave 2 D1-D3 edges 表 + loadGraph 快速恢复已完成；完成 human-formatters.js U1 注册表重构；96/96 fast 测试全绿）*
+*Last updated: 2026-05-21（Dogfood 驱动新增：`audit-diff --commits <range>` + Dead export `duplicateOf` hint；U9 constants.js 拆分已完成；U2 ExitCode 契约补完已完成；O7 Resolver 缓存已完成；D1-D3 edges 表 + loadGraph 快速恢复已完成；D7-D8 预计算表持久化已完成；O1-O3 EventBus + watch/diagnostics 覆盖冲突修复已完成；Wave 1 SymbolRegistry 全局符号表及 Resolver 接入已完成；U1 human-formatters.js 注册表重构已完成（消灭四重 switch-case，989→775 行）；96/96 fast 测试全绿）*
 
-> **本轮验证状态**：`npm run test:fast` 96/96 PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=1`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=269`）。
+> **本轮验证状态**：`npm run test:fast` 96/96 PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=278`）。
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。
 > **本轮修复**：scratch 目录 3 个辅助脚本误提交已清理 + .gitignore 追加；完成 human-formatters.js U1 注册表重构（消灭四重 switch-case 派发链），新增 `testCrossFormatCoverage` 表格驱动覆盖测试，96/96 fast 测试全绿。

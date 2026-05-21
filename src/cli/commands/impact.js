@@ -9,12 +9,14 @@ async function impactCmd(parsed, container) {
   if (!impactPath || !fs.existsSync(impactPath)) {
     return { ok: false, error: `File not found: ${parsed.file}`, inProject: false };
   }
-  return dependencyGraph({
+  const result = await dependencyGraph({
     cwd: parsed.cwd,
     operation: 'impact',
     file: parsed.file,
     maxDepth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined,
   }, container);
+  result.hasFindings = (result.impactCount || 0) > 0;
+  return result;
 }
 
 module.exports = impactCmd;

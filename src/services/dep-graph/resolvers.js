@@ -16,6 +16,7 @@ const _statCache = new Map();
 
 function clearResolverCaches() {
   _statCache.clear();
+  _resolverCache.clear();
 }
 
 function _trimCache(map, maxSize) {
@@ -102,6 +103,10 @@ function _tryResolveWithExtensions(basePath) {
 
 const _tsconfigPathsCache = new Map(); // root -> { paths, mtime }
 
+// O7: Cache resolver instances per extension to avoid recreating the composed
+// function on every resolveImport call. Large repos may trigger 10k+ calls.
+const _resolverCache = new Map();
+
 function _readTsconfigPaths(root) {
   const tsconfigPath = path.join(root, 'tsconfig.json');
   const jsconfigPath = path.join(root, 'jsconfig.json');
@@ -173,9 +178,8 @@ function _buildContext(root, symbolRegistry = null) {
     cachedExistsSync,
     cachedStatSync,
     tryResolveWithExtensions: _tryResolveWithExtensions,
-    discoverJavaSourceRoots: () => discoverJavaSourceRoots(root),
-    readTsconfigPaths: () => _readTsconfigPaths(root),
-    readGoMod: () => readGoMod(root),
+    discoverJavaSourceRoots,
+    readGoMod,
     symbolRegistry,
   };
 }
@@ -190,6 +194,7 @@ const RESOLVER_CONFIGS = new Map();
  */
 function registerResolverConfig(ext, strategies) {
   RESOLVER_CONFIGS.set(ext, strategies);
+  _resolverCache.delete(ext);
 }
 
 /**
@@ -353,7 +358,7 @@ function tryJava(importPath, _fromFile, ctx) {
     return null;
   }
   const relative = importPath.split('.').join(path.sep);
-  const candidates = ctx.discoverJavaSourceRoots().map((r) => path.join(r, relative));
+  const candidates = ctx.discoverJavaSourceRoots(ctx.root).map((r) => path.join(r, relative));
 
   for (const base of candidates) {
     for (const ext of ['.java', '.kt']) {
@@ -386,7 +391,7 @@ function tryGoRelative(importPath, fromFile, ctx) {
 function tryGoModule(importPath, _fromFile, ctx) {
   if (importPath.startsWith('.')) return null;
 
-  const modulePath = ctx.readGoMod();
+  const modulePath = ctx.readGoMod(ctx.root);
   if (!modulePath || !importPath.startsWith(modulePath)) {
     return null;
   }
@@ -554,9 +559,13 @@ registerResolverConfig('default', [tryAlias, tryRelativeWithExtensions, trySymbo
 
 function resolveImport(fromFile, importPath, ext, root, symbolRegistry = null) {
   if (!importPath) return null;
-  const strategies = RESOLVER_CONFIGS.get(ext) || RESOLVER_CONFIGS.get('default');
-  const ctx = _buildContext(root, symbolRegistry);
-  return createResolver(strategies)(importPath, fromFile, ctx);
+  let resolver = _resolverCache.get(ext);
+  if (!resolver) {
+    const strategies = RESOLVER_CONFIGS.get(ext) || RESOLVER_CONFIGS.get('default');
+    resolver = createResolver(strategies);
+    _resolverCache.set(ext, resolver);
+  }
+  return resolver(importPath, fromFile, _buildContext(root, symbolRegistry));
 }
 
 module.exports = {

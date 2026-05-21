@@ -181,7 +181,7 @@ Usage:
 Core Commands:
   audit-summary           Aggregate health + graph findings
   audit-file --file <p> [--watch]  Aggregate impact + affected tests for one file
-  audit-diff [--staged] [--files <list>] [--incremental]
+  audit-diff [--staged] [--files <list>] [--incremental] [--commits <range>]
                             Aggregate changed files + impact + affected tests
   audit-overview          Project panoramic view (hotspots, stability, orphans)
   audit-map               Global project map (tree + edges + issue overlay)
@@ -207,6 +207,7 @@ Options:
   --watch                Watch mode for audit-file: re-run on file changes
   --staged               Only analyze git staged changes in audit-diff
   --files <list>         Comma-separated file list for audit-diff / audit-security
+  --commits <range>      Git commit range for audit-diff (e.g. HEAD~9..HEAD)
   --incremental          Only show findings related to changed files in audit-diff
   --save <file>          Save audit-summary findings to a JSON baseline file
   --check-regression     Compare current audit-summary against previous baseline
@@ -230,7 +231,7 @@ Commands:
   L1 策展入口 (Curated aggregates — AI default):
     audit-summary           Aggregate health + graph findings
     audit-file --file <p> [--watch]  Aggregate impact + affected tests for one file
-    audit-diff [--staged] [--files <list>] [--incremental]
+    audit-diff [--staged] [--files <list>] [--incremental] [--commits <range>]
                             Aggregate changed files + impact + affected tests
     audit-overview          Project panoramic view (hotspots, stability, orphans)
     audit-map               Global project map (tree + edges + issue overlay)
@@ -322,6 +323,7 @@ function parseCliArgs(argv) {
     } },
     '--depth': { key: 'depth' },
     '--since': { key: 'since' },
+    '--commits': { key: 'commits' },
     '--severity': { key: 'severity' },
     '--staged': true,
     '--files': { key: 'files' },
@@ -386,6 +388,7 @@ function parseCliArgs(argv) {
     builtinOnly: Boolean(raw['--builtin-only']),
     format: raw.format || null,
     since: raw.since || null,
+    commits: raw.commits || null,
     severity: raw.severity || null,
     staged: Boolean(raw['--staged']),
     files: raw.files || null,

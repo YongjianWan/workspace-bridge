@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const assert = require('assert');
 const { DependencyGraph } = require('../src/services/dep-graph');
+const { SymbolRegistry } = require('../src/services/dep-graph/symbol-registry');
 const { normalizePathKey } = require('../src/utils/path');
 const { buildMockDepGraph } = require('./test-helpers');
 
@@ -206,6 +207,46 @@ function testMockLikeNamesAreFiltered() {
   assert(item.exports.includes('realService'), 'realService should remain');
 }
 
+function testDuplicateOfHint() {
+  const dg = new DependencyGraph('/repo', { fileMetadata: new Map() });
+  const file = n('/repo/lib.js');
+  const dupFile = n('/repo/other.js');
+
+  dg.graph = buildMockDepGraph({
+    [file]: { imports: [], exports: ['foo'], importRecords: [], exportRecords: [{ name: 'foo' }], parseMode: 'ast', confidence: 'high' },
+    [dupFile]: { imports: [], exports: ['foo'], importRecords: [], exportRecords: [{ name: 'foo', lineStart: 28 }], parseMode: 'ast', confidence: 'high' },
+  });
+  dg.reverseGraph = new Map([[file, []], [dupFile, []]]);
+
+  dg.builder = { symbolRegistry: new SymbolRegistry() };
+  dg.builder.symbolRegistry.register(file, [{ name: 'foo' }]);
+  dg.builder.symbolRegistry.register(dupFile, [{ name: 'foo', lineStart: 28 }]);
+
+  const dead = dg.findDeadExports();
+  const item = dead.find((d) => d.file === file);
+  assert(item, 'should report dead export');
+  assert(item.duplicateOf, 'should have duplicateOf hint when symbol exists elsewhere');
+  assert.strictEqual(item.duplicateOf.foo, `${dupFile}:28`, 'duplicateOf should point to other file with line number');
+}
+
+function testDuplicateOfAbsentWhenUnique() {
+  const dg = new DependencyGraph('/repo', { fileMetadata: new Map() });
+  const file = n('/repo/lib.js');
+
+  dg.graph = buildMockDepGraph({
+    [file]: { imports: [], exports: ['foo'], importRecords: [], exportRecords: [{ name: 'foo' }], parseMode: 'ast', confidence: 'high' },
+  });
+  dg.reverseGraph = new Map([[file, []]]);
+
+  dg.builder = { symbolRegistry: new SymbolRegistry() };
+  dg.builder.symbolRegistry.register(file, [{ name: 'foo' }]);
+
+  const dead = dg.findDeadExports();
+  const item = dead.find((d) => d.file === file);
+  assert(item, 'should report dead export');
+  assert.strictEqual(item.duplicateOf, undefined, 'should NOT have duplicateOf when symbol is unique');
+}
+
 function main() {
   testNoImporterReliableGraph();
   testNoImporterUnreliableGraph();
@@ -217,6 +258,8 @@ function main() {
   testConstructorIsFiltered();
   testDunderMethodsAreFiltered();
   testMockLikeNamesAreFiltered();
+  testDuplicateOfHint();
+  testDuplicateOfAbsentWhenUnique();
 }
 
 main();

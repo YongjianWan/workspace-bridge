@@ -85,6 +85,190 @@
 - 解耦 Builder 与 Analyzer。通过在 `DependencyGraph` (Facade) 层注册生命周期事件（如 `onGraphMutated`），由 Facade 去通知 `analyzer` 进行缓存失效，彻底使 `GraphBuilder` 保持为纯粹的数据建图引擎。
 
 ---
+# 重构方向：数据层、编排层、输出层三层齐改
+
+> 来源：代码审计 22 项问题 + "知识库"架构构想
+> 日期：2026-05-20
+> 状态：Wave 1（低垂果实）/ O1-O3 / U1 / D1-D3 / D5 / D7-D8 已完成，历史见 [CHANGELOG.md](../../CHANGELOG.md)。本文档只保留剩余待实施项。
+
+---
+
+## 执行摘要
+
+本轮审计发现 22 项问题，全部可归入三个层面：
+
+| 层面               | 核心问题                                                                 | 数量 | 严重度 |
+| ------------------ | ------------------------------------------------------------------------ | ---- | ------ |
+| **数据层**   | SQLite 是 JSON 替身、三份冗余、watch 不落盘、后处理全图遍历              | 8    | 架构级 |
+| **编排层**   | 单回调覆盖、无事件系统、Builder 越权操作 Analyzer、生命周期竞态          | 7    | L1-L2  |
+| **输出层**   | 四重 switch、上帝函数、formatter 硬编码、裸数字、23 个空壳命令、线性意面 | 11   | L2-L3  |
+| **代码卫生** | 延迟 require 无统一规则、无错误分类体系、registry condition 误导         | 3    | L3     |
+
+**结论**：不是"加功能"，是"换骨架"。三层必须同步重构，任何一层单独做都会产生新的不匹配。
+
+---
+
+## 第一层：数据层——从"缓存"到"知识库"
+
+### 现状诊断
+
+当前数据流已大幅改善（D1-D3 / D4 / D5 / D7-D8 已完成），但仍有残余问题：
+
+1. **数据三份冗余**——`parse_results`(SQLite JSON) → `cache.parseResults`(Map) → `depGraph.graph`(Map) 仍同时存在。`edges` 表和预计算表已落地，但 `parse_results` 尚未 deprecated，新旧双轨并行。
+2. **BFS 热路径上有同步磁盘 I/O**——`dep-graph.js isKnownEntryFile()` 里做 `fs.statSync` + `fs.openSync` + `fs.readSync`。`getImpactRadius()` BFS 每访问一个节点就调一次，1329 文件项目 depth=3 时可能触发几百次同步磁盘 I/O。
+
+### 目标架构
+
+```
+文件系统 Watcher → 增量解析 → 增量更新 edges → 预计算 → 写入 SQLite
+                                          ↑
+                              CLI 优先查库 / fallback 内存重建
+```
+
+### 具体行动项
+
+| #  | 行动                                   | 文件                            | 说明                                                                               |
+| -- | -------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------- |
+|    |                                        |                                 |                                                                                    |
+| D6 | **消除 parseResults/graph 冗余** | `cache.js` + `dep-graph.js` | 长期：让 `nodes` + `edges` 成为唯一事实源，`parse_results` 表逐步 deprecated |
+|    |                                        |                                 |                                                                                    |
+
+### 验收标准
+
+- 大项目（GitNexus 1329 文件）CLI 冷启动时，`buildReverseGraph` 时间为 0ms（edges 从 SQLite 加载）
+- watch 进程修改文件后，SQLite `edges` 表在 100ms 内更新完成
+- `impact --file foo.js` 在预计算命中时 < 10ms（当前 ~7s）
+
+---
+
+## 第二层：编排层——从"属性回调"到"事件总线"
+
+### 现状诊断
+
+问题：
+
+1. **Builder 越权操作 Analyzer**——`builder.js` 直接调用 `this.dg.analyzer._bumpAggregateCache()`（私有方法），Builder 知道 Analyzer 的内部缓存版本机制
+2. **生命周期竞态**——前轮已修 `initialize/shutdown` 竞态和 `processPending` 后台脏写，但根因是"常驻进程 + 单线程事件循环"模型缺乏明确的状态机
+
+### 目标架构
+
+```
+Container (状态机)
+    ├── EventBus (文件变更 / 图更新 / 诊断调度)
+    │       ├── FileIndexWatcher → "file:changed"
+    │       ├── DepGraphBuilder → "graph:updated"
+    │       └── DiagnosticsEngine → "diagnostics:scheduled"
+    ├── ServiceContainer (生命周期管理)
+    └── SQLite (唯一状态存储)
+```
+
+### 具体行动项
+
+| #  | 行动                               | 文件                             | 说明                                                                                                      |
+| -- | ---------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| O4 | **Builder → Analyzer 解耦** | `builder.js` + `analyzer.js` | Builder 完成后 emit `graph:updated`；Analyzer 自己监听并失效缓存，禁止 Builder 直接调 Analyzer 私有方法 |
+| O6 | **生命周期状态机**           | `container.js`                 | 显式状态：`idle → initializing → ready → shutting-down → idle`，非法转换 throw                      |
+| O7 | **Resolver 缓存**            | `resolvers.js`                 | ✅ 已完成。`_resolverCache` 按 `ext` 缓存 resolver 实例；`_buildContext` 闭包改直接引用，减少 context 对象分配 |
+
+### 验收标准
+
+- watch 模式下，`diagnostics.scheduleCheck` 和 `watch.js` 的 `formatWatchOutput` 同时工作，互不覆盖
+- `processPending()` 抛异常不会导致 watch 进程崩溃
+- `resolveImport` 在 500 文件项目上的分配次数从 5000 降到 1
+
+---
+
+## 第三层：输出层——从"硬编码 switch"到"注册表"
+
+### 现状诊断
+
+当前输出层**仍有两处硬编码**：
+
+1. `cli.js`：`determineExitCode()` 已从 25 行 switch 压至 4 行 O(1) 契约，U2 核心目标已达成。剩余：13 个命令未返回 `hasFindings`（非阻塞后续工作）。
+2. `overview-tools.js`：`buildProjectOverview` 213 行上帝函数，混了图查询、git、分数计算、HTML、I/O
+3. `cli.js`：`COMMAND_GUIDES` 和 `COMMANDS` 路由表硬编码
+
+问题：
+
+1. **overview-tools 712 行**——hotspot、stability、trend、HTML dashboard、文件 I/O 全塞在一起
+2. **命令指南硬编码外溢**——`COMMAND_GUIDES` 大配表违背 L2-8 内聚优先，应下沉到各 Command 模块
+
+### 目标架构
+
+```
+CLI 入口 → 命令注册表（command → handler + formatter + exitCode 契约）
+              ↓
+        audit-assembler（策展组装，统一 hasFindings 契约）
+              ↓
+        Formatter 注册表（command → aiFormatter + humanFormatter）
+```
+
+### 具体行动项
+
+| #  | 行动                           | 文件                                                       | 说明                                                                                                                                                  |
+| -- | ------------------------------ | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+|    |                                |                                                            |                                                                                                                                                       |
+| U2 | **ExitCode 契约补完**    | `cli.js`                                                 | ✅ 已完成。10 个命令补全 `hasFindings`（affected-tests / dependencies / dependents / impact / audit-map / audit-overview / diagnostics / stats / tree / workspace-info） |
+| U3 | **overview-tools 拆分**  | 新建 `overview-assembler.js`、`dashboard-formatter.js` | `buildProjectOverview` 拆成：数据组装（纯函数）+ HTML 渲染（纯函数）+ 文件 I/O（副作用）                                                            |
+| U7 | **audit-assembler 拆分** | `audit-assembler.js`                                     | `assembleDiff` 80 行回调拆分为：`buildDiffEntry`（纯函数）、`buildChangeMetrics`（纯函数）、`buildDiffResult`（纯函数）                       |
+| U8 | **commands/ 去壳**       | `commands/`                                              | 23 个文件里 80% 是 5 行透传壳。提取为 `COMMAND_REGISTRY` Map，命令名 → handler 直接映射。只在需要特殊逻辑（如 audit-file --watch）时才保留独立文件 |
+| U9 | **constants.js 拆分**    | `config/`                                                | ✅ 已完成。拆为 `timeouts.js` / `limits.js` / `defaults.js` / `scoring.js` / `dead-export.js` / `probe.js` / `versions.js` / `streaming.js` / `ai-format.js`；`constants.js` 改为 29 行兼容聚合层 |
+
+### 验收标准
+
+- `determineExitCode` < 5 行
+- `overview-tools.js` < 200 行（拆分后）
+- 新增命令只需在注册表加一行，不改 `cli.js`
+
+---
+
+## 优先级与依赖关系
+
+```
+Layer 1: 数据层
+    └── D6（消除 parseResults/graph 冗余）——长期，等 edges 成为唯一事实源
+
+Layer 2: 编排层
+    ├── O4（Builder/Analyzer 解耦）——内聚性
+    └── O6（状态机）——长期稳定性
+
+Layer 3: 输出层（与数据层无强依赖，可独立推进）
+    ├── U2（ExitCode 契约补完）——13 个命令缺 `hasFindings`
+    ├── U3（overview-tools 拆分）——最大工作量
+    ├── U7（audit-assembler 拆分）
+    ├── U8（commands/ 去壳）
+    └── U9（constants.js 拆分）——机械重构
+```
+
+### 推荐实施顺序（剩余待实施）
+
+**中等工作量**：
+- U8（commands/ 去壳）——提取 `COMMAND_REGISTRY`，消灭 80% 的 5 行透传壳
+- O4（Builder/Analyzer 解耦）——EventBus 事件替代直接私有方法调用
+- U7（audit-assembler 拆分）——`assembleDiff` 拆为纯函数
+
+**高工作量、长期**：
+- D6（消除 parseResults/graph 冗余）——`nodes` + `edges` 成为唯一事实源
+- U3（overview-tools 拆分）——712 行上帝函数 → <200 行
+- O6（生命周期状态机）——`idle → initializing → ready → shutting-down`
+
+---
+
+## 与现有文档的衔接
+
+| 文档                            | 关系                                                      |
+| ------------------------------- | --------------------------------------------------------- |
+| `ADR-graph-knowledge-base.md` | Wave 2-3 的数据层详细设计，本文件引用之                   |
+| `TECH_DEBT.md`                | 本文件中的 22 项问题应进 TECH_DEBT，按 Wave 分组          |
+| `ROADMAP.md`                  | Wave 3 的预计算持久化是 P1 AI 预消化输出的基础设施        |
+| `AGENTS.md`                   | 不违反"CLI-only"原则；EventBus 不是协议层，是内部编排机制 |
+
+---
+
+## 一句话
+
+> **数据层重做让知识有地方存，编排层加事件让知识能流动，输出层改注册表让知识能消费。** 三层做完，workspace-bridge 从"每次重建的分析工具"变成"持续积累的知识库"。
+
 
 #### 弱断言分布 — 占总断言数 ~3.0%
 
@@ -277,22 +461,21 @@
 
 ---
 
-#### `resolvers.js` FIFO 缓存粗暴淘汰与 context 高频 GC 压力 (L3级性能债)
+#### `resolvers.js` FIFO 缓存粗暴淘汰 (L3级性能债)
 
 **数据**：
 
 - 在 `src/services/dep-graph/resolvers.js` 中，为了防止 stat 缓存无限增长，`_trimCache` 极其粗暴地用 FIFO 形式在 Map 头部截断元素。
-- 在 `_buildContext` 中，每次调用 `resolveImport` 时，都会重新实例化并返回一个新的 context 字典对象。
 
 **影响**：
 
 - **缓存抖动**：FIFO 抹杀了热点高频缓存的价值。一旦大项目 cold indexing 进行 bulk 依赖解析，最早被 stat 缓存的根配置文件（如 `package.json`、`tsconfig.json`）由于是解析最初创建的，会被粗暴地无脑逐出，随后在下一批解析中又被迫频繁重新读取磁盘 `fs.statSync`，造成严重的缓存抖动和重复 I/O 损耗。
-- **GC 压力**：大型项目依赖解析涉及几万甚至十几万次调用，每一次都凭空捏造一个 context 字典对象并随后丢弃，在短时间内制造了海量的短命垃圾对象，极大加剧了 V8 引擎在 CLI 瞬态运行中的垃圾回收（GC）开销与延迟。
 
 **方案**：
 
 - 将 `_trimCache` 升级为具备高频访问保护的简单 LRU 或 LFU 淘汰算法，避免高频热点配置文件被误杀。
-- 在 Service 实例上维护复用型 ResolverContext 单例，或者利用闭包和延迟求值彻底消除每次调用时创建无用字典对象的开销。
+
+> **GC 压力部分已修复（O7）**：`_resolverCache` 按 `ext` 缓存 resolver 实例，`_buildContext` 闭包改直接引用。详见 CHANGELOG.md [Unreleased]。
 
 ---
 

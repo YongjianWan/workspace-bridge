@@ -9,7 +9,9 @@ async function dependenciesCmd(parsed, container) {
   if (!depPath || !fs.existsSync(depPath)) {
     return { ok: false, error: `File not found: ${parsed.file}`, inProject: false };
   }
-  return dependencyGraph({ cwd: parsed.cwd, operation: 'dependencies', file: parsed.file }, container);
+  const result = await dependencyGraph({ cwd: parsed.cwd, operation: 'dependencies', file: parsed.file }, container);
+  result.hasFindings = (result.dependenciesCount || 0) > 0;
+  return result;
 }
 
 module.exports = dependenciesCmd;

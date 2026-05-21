@@ -157,10 +157,33 @@ async function getChangedFiles(root, options = {}) {
   const staged = options.staged === true;
   const includeUntracked = options.includeUntracked !== false;
   const since = options.since || null;
+  const commits = options.commits || null;
   const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
 
-  // Commit range mode: use git diff --name-only instead of git status
+  // Commit range mode: use git diff --name-only for explicit range
+  if (commits) {
+    const result = await runGit(['diff', '--name-only', commits], root, TIMEOUTS.GIT_LONG_MS);
+    if (!result.ok) {
+      return { ok: false, error: result.stderr || `Failed to read git diff for ${commits}`, workspaceRoot: root };
+    }
+    const files = new Set();
+    for (const line of (result.stdout || '').split(/\r?\n/)) {
+      const file = line.trim();
+      if (!file) continue;
+      if (isCacheArtifact(file)) continue;
+      files.add(file);
+    }
+    return {
+      ok: true,
+      workspaceRoot: root,
+      staged: false,
+      commits,
+      changedFiles: Array.from(files),
+    };
+  }
+
+  // Since mode: use git diff --name-only against since...HEAD
   if (since) {
     const result = await runGit(['diff', '--name-only', `${since}...HEAD`], root, TIMEOUTS.GIT_LONG_MS);
     if (!result.ok) {
@@ -267,8 +290,11 @@ async function getChangedLineRanges(root, file, options = {}) {
 
   const staged = options.staged === true;
   const since = options.since || null;
+  const commits = options.commits || null;
   let diffArgs;
-  if (since) {
+  if (commits) {
+    diffArgs = ['diff', '--no-color', '--unified=0', commits, '--', filePath];
+  } else if (since) {
     diffArgs = ['diff', '--no-color', '--unified=0', `${since}...HEAD`, '--', filePath];
   } else {
     diffArgs = staged
@@ -371,13 +397,16 @@ async function getDiffNumstat(root, options = {}) {
   if (gitCheck) return gitCheck;
 
   const since = options.since || null;
+  const commits = options.commits || null;
   const args = ['diff', '--numstat'];
-  if (since) {
+  if (commits) {
+    args.push(commits);
+  } else if (since) {
     args.push(`${since}...HEAD`);
   } else if (options.staged) {
     args.push('--cached');
   }
-  if (options.includeUntracked && !since) {
+  if (options.includeUntracked && !since && !commits) {
     args.push('--', '.');
   }
 
@@ -409,6 +438,7 @@ async function getDiffNumstat(root, options = {}) {
     workspaceRoot: root,
     staged: Boolean(options.staged),
     since,
+    commits,
     files,
     totalAdditions,
     totalDeletions,

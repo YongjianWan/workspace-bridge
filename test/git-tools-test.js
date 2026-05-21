@@ -19,6 +19,13 @@ async function testGetChangedFilesSince() {
   assert(result.since === 'HEAD~1' || result.since === undefined);
 }
 
+async function testGetChangedFilesCommits() {
+  const result = await getChangedFiles(REPO_ROOT, { commits: 'HEAD~1..HEAD' });
+  assert.strictEqual(result.ok, true);
+  assert(Array.isArray(result.changedFiles));
+  assert.strictEqual(result.commits, 'HEAD~1..HEAD');
+}
+
 async function testGetChangedFilesWithUntracked() {
   const result = await getChangedFiles(REPO_ROOT, { includeUntracked: true });
   assert.strictEqual(result.ok, true);
@@ -101,6 +108,7 @@ function testParsePorcelainV1Line() {
 async function main() {
   await testGetChangedFilesStaged();
   await testGetChangedFilesSince();
+  await testGetChangedFilesCommits();
   await testGetChangedFilesWithUntracked();
   await testGetChangedLineRanges();
   await testGetFileHistoryRisk();

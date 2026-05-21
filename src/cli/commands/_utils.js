@@ -35,6 +35,5 @@ function validateCwd(parsed) {
 
 module.exports = {
   requireFile,
-  severityMeetsFilter,
   validateCwd,
 };

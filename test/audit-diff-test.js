@@ -242,6 +242,14 @@ function main() {
   assert.strictEqual(sinceParsed.changedFiles.length >= 1, true, 'HEAD~2 should include at least src/util.js');
   assert(sinceParsed.changedFiles.some((c) => c.file.replace(/\\/g, '/').endsWith('src/util.js')), '--since HEAD~2 should include src/util.js');
   assert.strictEqual(sinceParsed.summary.counts.changedFiles >= 1, true);
+
+  // --commits commit range mode
+  const commitsResult = runInDir('node', [cliPath, 'audit-diff', '--cwd', tempRoot, '--commits', 'HEAD~2..HEAD', '--json', '--quiet'], repoRoot);
+  const commitsParsed = JSON.parse(commitsResult);
+  assert.strictEqual(commitsParsed.ok, true, 'audit-diff --commits should succeed');
+  assert.strictEqual(commitsParsed.changedFiles.length >= 1, true, 'HEAD~2..HEAD should include at least src/util.js');
+  assert(commitsParsed.changedFiles.some((c) => c.file.replace(/\\/g, '/').endsWith('src/util.js')), '--commits HEAD~2..HEAD should include src/util.js');
+  assert.strictEqual(commitsParsed.summary.counts.changedFiles >= 1, true);
   cleanupTempDir(tempRoot);
 }
 

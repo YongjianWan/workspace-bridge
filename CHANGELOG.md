@@ -8,6 +8,94 @@
 
 ## [Unreleased]
 
+### 新增（Dogfood 驱动：commit range + duplication hint — 2026-05-21）
+
+- **`audit-diff --commits <range>`** `cli.js` `src/tools/git-tools.js` `src/tools/audit-assembler.js`：
+  - 新增 `--commits HEAD~9..HEAD` 风格参数，支持任意 git commit range（两点差异）。
+  - `git-tools.js` 三函数同步支持：`getChangedFiles`（`git diff --name-only`）、`getChangedLineRanges`（`git diff --unified=0`）、`getDiffNumstat`（`git diff --numstat`）。
+  - `commits` 优先级高于 `since`，与 `staged` / `files` 互斥（显式文件列表优先）。
+  - 验证：`test/git-tools-test.js` 新增 `testGetChangedFilesCommits`；`test/audit-diff-test.js` 新增 `--commits HEAD~2..HEAD` 端到端断言；手动验证 `HEAD~3..HEAD` 输出 6 个 changed files。
+
+- **Dead export duplication hint** `src/services/dep-graph/analyzer.js` `test/dead-export-confidence-test.js`：
+  - `findDeadExports()` 在输出结果中新增 `duplicateOf` 对象字段：当死导出符号在 SymbolRegistry 的其他位置也有定义时，标注 `duplicateOf: { symbolName: 'file.js:line' }`。
+  - 新增 `_findDuplicateOf(symbolName, currentFile)` + `_buildDuplicateOf(exports, filePath)` 辅助方法。
+  - 动机：dogfood 中发现 `severityMeetsFilter` 死导出，人工 grep 才发现 `audit-assembler.js` 有完全一样的副本。现在工具直接告诉用户"这个死导出在别处还有一份"。
+  - 向后兼容：无重复符号时 `duplicateOf` 字段不存在，schema 零变更。
+  - 验证：`test/dead-export-confidence-test.js` 新增 `testDuplicateOfHint` + `testDuplicateOfAbsentWhenUnique`；`npm run test:fast` **96/96 PASS**。
+
+### 修复（Dogfood 代码卫生 — 2026-05-21）
+
+- **消除 `severityMeetsFilter` 重复并删除死导出** `src/cli/commands/_utils.js` `src/tools/audit-assembler.js`：
+  - 发现 `_utils.js` 中 `severityMeetsFilter` 为零引用死导出，同时 `audit-assembler.js:28` 存在完全相同的实现（L2-7 重复即债务）。
+  - 删除 `_utils.js` 中的 `SEVERITY_RANK` 常量和 `severityMeetsFilter` 函数及其导出；保留 `audit-assembler.js` 中的实现（L4 工具层是唯一使用者，职责归属正确）。
+  - 验证：`npm run test:fast` **96/96 PASS**；基线 `audit-summary` `deadExports` 从 1 降至 **0**，`severity` 从 `medium` 降至 `low`，零回归。
+
+- **清理 scratch 磁盘残留** `scratch/`：
+  - 删除工作区中仍存在的 3 个未追踪文件：`apply-u3.js`、`apply-u3-fixed.js`、`fix-literals.js`（已 `.gitignore` 排除但磁盘残留导致 `audit-overview` 孤儿检测误报）。
+  - 验证：基线 `audit-summary` `totalFiles` 从 281 降至 **278**，orphan 误报消除。
+
+### 性能（O7: Resolver 缓存优化 — 2026-05-21）
+
+- **Resolver 实例按 ext 缓存** `src/services/dep-graph/resolvers.js`：
+  - 新增 `_resolverCache`（`Map<string, Resolver>`），按文件扩展名缓存 `createResolver(strategies)` 的结果。
+  - 大项目冷启动时，`resolveImport` 可能触发数万次调用；此前每次调用都重新实例化 resolver 函数（捕获 strategies 数组的闭包）。缓存后将 5000+ 次分配降至扩展名种类数（~6 次）。
+  - `registerResolverConfig()` 和 `clearResolverCaches()` 自动清空 resolver 缓存，保证配置热更新和测试隔离。
+
+- **Context 对象轻量化**：
+  - `_buildContext()` 中每次创建的闭包函数（`discoverJavaSourceRoots: () => ...`、`readGoMod: () => ...`）改为直接函数引用。
+  - 相应调整 `tryJava`（`ctx.discoverJavaSourceRoots(ctx.root)`）和 `tryGoModule`（`ctx.readGoMod(ctx.root)`），策略函数签名不变，向后兼容。
+  - 每次 `resolveImport` 的 context 对象从 7 个属性（含 3 个闭包）降至 5 个属性（全为直接引用或原始值），减少 V8 堆分配压力。
+
+- **验证**：
+  - `test/resolvers-test.js` / `test/resolver-strategy-chain-test.js` / `test/resolver-symbol-table-test.js` / `test/java-resolver-test.js` / `test/gors-resolver-test.js` 全部通过。
+  - `npm run test:fast` **96/96 PASS**，无回归。
+
+### 修复（U2: ExitCode 契约补完 — 2026-05-21）
+
+- **为 10 个命令补全 `hasFindings`** `src/cli/commands/*.js`：
+  - `affected-tests`：`hasFindings = (affectedTestsCount || 0) > 0`
+  - `dependencies` / `dependents` / `impact`：`hasFindings = (count || 0) > 0`
+  - `audit-map`：`hasFindings = issueCounts 任一指标 > 0`（deadExports / unresolved / cycles / orphans / hotspots）
+  - `audit-overview`：`hasFindings = orphans > 0 || hotspots > 0 || cycleRefactorSuggestions > 0`
+  - `diagnostics`：`hasFindings = (diagnosticsSummary.total || 0) > 0`
+  - `stats` / `tree` / `workspace-info`：信息展示命令，`hasFindings = false`
+  - 已有 `hasFindings` 的命令（cycles / dead-exports / health / unresolved / audit-summary / audit-diff / audit-file / audit-security）不受影响。
+
+- **动机**：`determineExitCode` 已从 25 行 switch 压至 4 行 O(1) 契约（`ok + hasFindings + regression.ok`），但大量命令未返回 `hasFindings`，导致 `--fail-on-findings` 对这些命令形同虚设。补完后所有分析命令的退出码语义统一。
+
+- **验证**：
+  - CLI 手动验证：`impact`/`dependencies`/`audit-map`/`audit-overview` 正确返回 `hasFindings: true`；`stats`/`tree`/`workspace-info`/`diagnostics` 正确返回 `false`。
+  - `npm run test:fast` **96/96 PASS**，无回归。
+
+### 重构（U9: constants.js 拆分 — 2026-05-21）
+
+- **物理拆分 8 个命名空间到独立文件** `src/config/*.js`：
+  - `timeouts.js` — 所有超时阈值（命令、Git、诊断、测试 runner）。
+  - `limits.js` — 缓冲区上限、缓存容量、并发限制。
+  - `defaults.js` — 业务默认值 + `HIGHLIGHT_SCORES`。
+  - `scoring.js` — hotspot / stability / coupling 权重与阈值。
+  - `dead-export.js` — `DEAD_EXPORT` + `CONFIDENCE` 阈值。
+  - `probe.js` — ESLint / Prettier 配置文件列表。
+  - `versions.js` — `SCHEMA_VERSION` + `CACHE_VERSION`。
+  - `streaming.js` + `ai-format.js` — JSON 流阈值与 token 估算。
+
+- **`constants.js` 改为兼容聚合层**：
+  - 原 `constants.js` 268 行 → **29 行** 薄 barrel，通过 `require('./timeouts')` 等重新导出全部命名空间。
+  - **零引用点变更**：现有 `require('../../config/constants')` 调用完全兼容，无行为变更。
+  - 为后续模块按需引入子文件打下基础（如只需要 `TIMEOUTS` 的模块可直接 `require('./timeouts')`）。
+
+- **验证**：
+  - `npm run test:fast` **96/96 PASS**，无回归。
+  - 基线 `node cli.js audit-summary --cwd . --json --quiet` 输出正常（healthScore=7/8, schemaVersion=1.2.0）。
+
+### 文档 (极简架构 — 2026-05-21)
+
+- **新增人能看懂的极简架构文档** `docs/ARCHITECTURE.md`：
+  - 以 Linus Torvalds 的硬核工程品味为视角，使用通俗、易懂的语言对 workspace-bridge 进行剖析。
+  - 提供了一目了然的核心数据流 Mermaid 图解，清晰说明了从 CLI 触发到 FileIndex、Cache、AST Parsers、Resolvers 直至 SQLite 图存储与 CLI/Formatter 渲染的单向数据生命周期。
+  - 详细定义了 L0 到 L5 的 7 层严格物理隔离与依赖规则，并详细说明了 ServiceContainer 的生命周期机制及近期对 human-formatters.js 进行的 Registry 模式重构原理。
+  - 提供了供后续 AI agent 或人类开发者快速入手的行动指南。
+
 ### 修复（代码卫生 — 2026-05-21）
 
 - **清理 scratch 目录误提交** `scratch/` `.gitignore`：

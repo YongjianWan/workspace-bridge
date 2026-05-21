@@ -33,7 +33,8 @@ npm install -g eslint typescript # Node
 ```bash
 node cli.js audit-summary --cwd .    # 整体健康度
 node cli.js audit-file --file <path> # 单文件影响
-node cli.js audit-diff --cwd .       # 当前 git 变更 + 验证建议
+node cli.js audit-diff --cwd .                       # 当前 git 变更 + 验证建议
+node cli.js audit-diff --cwd . --commits HEAD~5..HEAD  # 指定 commit range
 node cli.js audit-overview --cwd .   # 项目全景（热区、孤儿文件）
 node cli.js audit-map --cwd .        # 全局项目地图（大项目加 --compact）
 node cli.js watch --cwd .            # 文件保存自动打印影响面

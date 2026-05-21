@@ -594,6 +594,26 @@ class GraphAnalyzer {
     return { usedNames, usesAllExports };
   }
 
+  _findDuplicateOf(symbolName, currentFile) {
+    const registry = this.dg.symbolRegistry;
+    if (!registry) return null;
+    const locations = registry.lookup(symbolName);
+    const others = locations.filter((loc) => loc.file !== currentFile);
+    if (others.length === 0) return null;
+    const loc = others[0];
+    const line = loc.lineStart ?? 1;
+    return `${this.dg._displayPath(loc.file)}:${line}`;
+  }
+
+  _buildDuplicateOf(exports, filePath) {
+    const duplicateOf = {};
+    for (const exp of exports) {
+      const dup = this._findDuplicateOf(exp, filePath);
+      if (dup) duplicateOf[exp] = dup;
+    }
+    return Object.keys(duplicateOf).length > 0 ? duplicateOf : undefined;
+  }
+
   findDeadExports(options = {}) {
     if (!options?.skipCache && this._aggregateCache && this._aggregateCache.version === this._aggregateVersion) {
       return this._aggregateCache.deadExports;
@@ -621,7 +641,8 @@ class GraphAnalyzer {
         const filteredExports = info.exports.filter(isConventionallyAliveSymbol);
         if (filteredExports.length === 0) continue;
         const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable);
-        deadExports.push({ file: this.dg._displayPath(filePath), exports: filteredExports, confidence, confidenceValue, confidenceSource: source, confidenceReason: reason, importerCount: 0, scaffold });
+        const duplicateOf = this._buildDuplicateOf(filteredExports, filePath);
+        deadExports.push({ file: this.dg._displayPath(filePath), exports: filteredExports, confidence, confidenceValue, confidenceSource: source, confidenceReason: reason, importerCount: 0, scaffold, ...(duplicateOf ? { duplicateOf } : {}) });
         continue;
       }
 
@@ -646,6 +667,7 @@ class GraphAnalyzer {
         const isConstantsWarehouse = isLikelyConstantsWarehouse(filePath, info.exportRecords);
         if (isConstantsWarehouse || scaffold) continue;
         const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false);
+        const duplicateOf = this._buildDuplicateOf(unused, filePath);
         deadExports.push({
           file: this.dg._displayPath(filePath),
           exports: unused,
@@ -657,6 +679,7 @@ class GraphAnalyzer {
             : reason,
           importerCount: importers.length,
           scaffold,
+          ...(duplicateOf ? { duplicateOf } : {}),
         });
       }
     }

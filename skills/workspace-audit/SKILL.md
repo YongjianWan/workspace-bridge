@@ -114,8 +114,9 @@ workspace-bridge-cli audit-summary --cwd <project> --format markdown --quiet
 
 ```bash
 workspace-bridge-cli audit-diff --cwd <project> --format markdown --quiet
-workspace-bridge-cli audit-diff --cwd <project> --since HEAD~3 --format markdown --quiet  # PR range
-workspace-bridge-cli audit-diff --cwd <project> --staged --format markdown --quiet         # 暂存区
+workspace-bridge-cli audit-diff --cwd <project> --commits HEAD~9..HEAD --format markdown --quiet  # commit range
+workspace-bridge-cli audit-diff --cwd <project> --since HEAD~3 --format markdown --quiet           # since 模式
+workspace-bridge-cli audit-diff --cwd <project> --staged --format markdown --quiet                # 暂存区
 ```
 
 **AI 读取优先级**：

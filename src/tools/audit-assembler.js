@@ -107,6 +107,7 @@ async function assembleSummary(parsed, container) {
 
 async function assembleDiff(parsed, container) {
   const since = parsed.since || null;
+  const commits = parsed.commits || null;
   const staged = parsed.staged === true;
   const explicitFiles = parsed.files ? parsed.files.split(',').map((f) => f.trim()).filter(Boolean) : null;
 
@@ -114,7 +115,7 @@ async function assembleDiff(parsed, container) {
   if (explicitFiles) {
     changed = { ok: true, workspaceRoot: container.workspaceRoot, changedFiles: explicitFiles };
   } else {
-    changed = await getChangedFiles(container.workspaceRoot, { staged, includeUntracked: !staged, since });
+    changed = await getChangedFiles(container.workspaceRoot, { staged, includeUntracked: !staged, since, commits });
     if (changed.ok === false) {
       return changed;
     }
@@ -122,7 +123,7 @@ async function assembleDiff(parsed, container) {
 
   const numstat = explicitFiles
     ? { ok: false }
-    : await getDiffNumstat(container.workspaceRoot, { staged, includeUntracked: !staged, since });
+    : await getDiffNumstat(container.workspaceRoot, { staged, includeUntracked: !staged, since, commits });
   const changeMetrics = numstat.ok ? {
     totalAdditions: numstat.totalAdditions,
     totalDeletions: numstat.totalDeletions,
@@ -137,7 +138,10 @@ async function assembleDiff(parsed, container) {
     const impact = graphKnown ? container.depGraph.getImpactRadius(resolvedPath) : [];
     let changedLineRanges = [];
     if (resolvedPath) {
-      if (since) {
+      if (commits) {
+        const rangeResult = await getChangedLineRanges(container.workspaceRoot, resolvedPath, { commits }).catch(() => ({ ok: false }));
+        if (rangeResult.ok) changedLineRanges = rangeResult.lineRanges;
+      } else if (since) {
         const rangeResult = await getChangedLineRanges(container.workspaceRoot, resolvedPath, { since }).catch(() => ({ ok: false }));
         if (rangeResult.ok) changedLineRanges = rangeResult.lineRanges;
       } else if (staged) {

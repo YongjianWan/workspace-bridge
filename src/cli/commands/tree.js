@@ -9,12 +9,14 @@ async function treeCmd(parsed, container) {
   if (!treePath || !fs.existsSync(treePath)) {
     return { ok: false, error: `File not found: ${parsed.file}`, inProject: false };
   }
-  return treeQuery({
+  const result = treeQuery({
     cwd: parsed.cwd,
     file: treePath,
     depth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined,
     direction: parsed.direction || 'both',
   }, container);
+  result.hasFindings = false;
+  return result;
 }
 
 module.exports = treeCmd;
