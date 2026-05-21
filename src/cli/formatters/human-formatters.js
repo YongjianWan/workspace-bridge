@@ -320,7 +320,6 @@ const FORMATTERS = {
   'workspace-info': {
     human: (r) => `workspaceRoot: ${r.workspaceRoot}\ndetected: ${Object.entries(r.detected).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none'}`,
     summary: (r) => `Workspace: ${r.workspaceRoot}\nDetected: ${Object.entries(r.detected || {}).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none'}`,
-    markdown: (r) => `workspaceRoot: ${r.workspaceRoot}\ndetected: ${Object.entries(r.detected).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none'}`,
     jsonl: (r) => JSON.stringify({ _type: 'workspace-info', ...r }),
   },
   'diagnostics': {
@@ -331,10 +330,6 @@ const FORMATTERS = {
     summary: (r) => {
       const diagTotal = r.diagnosticsSummary?.noLintersDetected ? 'no linters detected' : r.diagnosticsSummary?.total;
       return `Checks: ${r.checksRun ?? 0}, Failed: ${r.failedChecks?.length ?? 0}\nDiagnostics: ${diagTotal ?? 'none'}`;
-    },
-    markdown: (r) => {
-      const diagTotal = r.diagnosticsSummary?.noLintersDetected ? 'no linters detected' : r.diagnosticsSummary?.total;
-      return `checksRun: ${r.checksRun}\nfailedChecks: ${r.failedChecks.join(', ') || 'none'}\ndiagnostics: ${diagTotal}`;
     },
     jsonl: (r) => {
       const rec = [];
@@ -352,7 +347,6 @@ const FORMATTERS = {
       return `workspaceRoot: ${r.workspaceRoot}\nfiles: ${countTreeFiles(r.tree)}\nedges: ${r.edges?.length ?? 0}\ndeadExports: ${r.issueOverlay?.deadExports?.length ?? 0}\nunresolved: ${r.issueOverlay?.unresolved?.length ?? 0}\ncycles: ${r.issueOverlay?.cycles?.length ?? 0}\norphans: ${r.issueOverlay?.orphans?.length ?? 0}\nhotspots: ${r.issueOverlay?.hotspots?.length ?? 0}`;
     },
     summary: (r) => `Files: ${countTreeFiles(r.tree)}\nEdges: ${r.edges?.length ?? 0}\nIssues: dead=${r.issueOverlay?.deadExports?.length ?? 0} unresolved=${r.issueOverlay?.unresolved?.length ?? 0} cycles=${r.issueOverlay?.cycles?.length ?? 0}`,
-    markdown: (r) => `severity: ${r.summary?.severity || 'low'}\nfiles: ${countTreeFiles(r.tree)}\nedges: ${r.edges?.length ?? 0}`,
     jsonl: (r) => {
       const rec = [];
       const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
@@ -365,13 +359,11 @@ const FORMATTERS = {
   'stats': {
     human: (r) => Object.entries(r.stats || {}).map(([k, v]) => `${k}: ${v}`).join('\n'),
     summary: (r) => Object.entries(r.stats || {}).map(([k, v]) => `${k}: ${v}`).join(', '),
-    markdown: (r) => Object.entries(r.stats || {}).map(([k, v]) => `${k}: ${v}`).join('\n'),
     jsonl: (r) => JSON.stringify({ _type: 'stats', ...r }),
   },
   'dependencies': {
     human: (r) => `file: ${r.file}\ndependenciesCount: ${r.dependenciesCount}\n${r.dependencies.map((d) => `  → ${d}`).join('\n')}`,
     summary: (r) => `Dependencies: ${r.dependenciesCount ?? 0}\n${(r.dependencies || []).slice(0, 5).join(', ') || 'none'}`,
-    markdown: (r) => `Dependencies: ${r.dependenciesCount ?? 0}\n${(r.dependencies || []).slice(0, 5).join(', ') || 'none'}`,
     jsonl: (r) => {
       const rec = [];
       const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
@@ -383,7 +375,6 @@ const FORMATTERS = {
   'dependents': {
     human: (r) => `file: ${r.file}\ndependentsCount: ${r.dependentsCount}\n${r.dependents.map((d) => `  ← ${d}`).join('\n')}`,
     summary: (r) => `Dependents: ${r.dependentsCount ?? 0}\n${(r.dependents || []).slice(0, 5).join(', ') || 'none'}`,
-    markdown: (r) => `Dependents: ${r.dependentsCount ?? 0}\n${(r.dependents || []).slice(0, 5).join(', ') || 'none'}`,
     jsonl: (r) => {
       const rec = [];
       const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
@@ -400,12 +391,6 @@ const FORMATTERS = {
       return lines.join('\n');
     },
     summary: (r) => {
-      const lines = [`Dead exports: ${r.deadExportsCount ?? 0}`];
-      if (r.possibleFalsePositives?.disclaimer) lines.push(`Note: ${r.possibleFalsePositives.disclaimer}`);
-      lines.push(...(r.deadExports || []).slice(0, 5).map((e) => `${e.file}: ${e.exports?.join(', ')}`));
-      return lines.join('\n');
-    },
-    markdown: (r) => {
       const lines = [`Dead exports: ${r.deadExportsCount ?? 0}`];
       if (r.possibleFalsePositives?.disclaimer) lines.push(`Note: ${r.possibleFalsePositives.disclaimer}`);
       lines.push(...(r.deadExports || []).slice(0, 5).map((e) => `${e.file}: ${e.exports?.join(', ')}`));
@@ -432,12 +417,6 @@ const FORMATTERS = {
       lines.push(...(r.unresolved || []).slice(0, 5).map((u) => `${u.file}: ${u.import}`));
       return lines.join('\n');
     },
-    markdown: (r) => {
-      const lines = [`Unresolved: ${r.unresolvedCount ?? 0}`];
-      if (r.possibleFalsePositives?.disclaimer) lines.push(`Note: ${r.possibleFalsePositives.disclaimer}`);
-      lines.push(...(r.unresolved || []).slice(0, 5).map((u) => `${u.file}: ${u.import}`));
-      return lines.join('\n');
-    },
     jsonl: (r) => {
       const rec = [];
       const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
@@ -449,7 +428,6 @@ const FORMATTERS = {
   'cycles': {
     human: (r) => [`cyclesCount: ${r.cyclesCount}`, ...r.cycles.map((c) => c.join(' -> '))].join('\n'),
     summary: (r) => `Cycles: ${r.cyclesCount ?? 0}\n${(r.cycles || []).slice(0, 3).map((c) => c.join(' -> ')).join('\n')}`,
-    markdown: (r) => `Cycles: ${r.cyclesCount ?? 0}\n${(r.cycles || []).slice(0, 3).map((c) => c.join(' -> ')).join('\n')}`,
     jsonl: (r) => {
       const rec = [];
       const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
@@ -481,12 +459,6 @@ const FORMATTERS = {
       return lines.join('\n');
     },
     summary: (r) => {
-      const lines = [`File: ${r.file}`];
-      if (r.tree?.imports) lines.push(`Imports: ${r.tree.imports.length}`);
-      if (r.tree?.dependents) lines.push(`Dependents: ${r.tree.dependents.length}`);
-      return lines.join('\n');
-    },
-    markdown: (r) => {
       const lines = [`File: ${r.file}`];
       if (r.tree?.imports) lines.push(`Imports: ${r.tree.imports.length}`);
       if (r.tree?.dependents) lines.push(`Dependents: ${r.tree.dependents.length}`);
