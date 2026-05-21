@@ -26,6 +26,10 @@ class GraphAnalyzer {
     this._aggregateVersion = 0;
     this._impactCache = new Map();
     this._impactVersion = 0;
+
+    this.dg.bus.on('graph:updated', () => {
+      this._bumpAggregateCache();
+    });
   }
 
   _bumpAggregateCache() {

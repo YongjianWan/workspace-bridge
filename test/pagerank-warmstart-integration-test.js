@@ -21,6 +21,7 @@ function testGraphAnalyzerColdStart() {
       ['c', { imports: ['a'] }],
     ]),
     normalizeFilePath: (p) => p,
+    bus: { emit: () => {}, on: () => {} },
     cache,
   };
   const analyzer = new GraphAnalyzer(dg);
@@ -48,6 +49,7 @@ function testGraphAnalyzerWarmStartReusesCache() {
       ['c', { imports: ['a'] }],
     ]),
     normalizeFilePath: (p) => p,
+    bus: { emit: () => {}, on: () => {} },
     cache,
   };
   const analyzer1 = new GraphAnalyzer(dg1);
@@ -62,6 +64,7 @@ function testGraphAnalyzerWarmStartReusesCache() {
       ['c', { imports: ['a'] }],
     ]),
     normalizeFilePath: (p) => p,
+    bus: { emit: () => {}, on: () => {} },
     cache,
   };
   const analyzer2 = new GraphAnalyzer(dg2);
@@ -91,6 +94,7 @@ function testGraphAnalyzerWarmStartHandlesNewNode() {
       ['c', { imports: ['a'] }],
     ]),
     normalizeFilePath: (p) => p,
+    bus: { emit: () => {}, on: () => {} },
     cache,
   };
   const analyzer1 = new GraphAnalyzer(dg1);
@@ -105,6 +109,7 @@ function testGraphAnalyzerWarmStartHandlesNewNode() {
       ['d', { imports: ['a'] }],
     ]),
     normalizeFilePath: (p) => p,
+    bus: { emit: () => {}, on: () => {} },
     cache,
   };
   const analyzer2 = new GraphAnalyzer(dg2);
@@ -126,6 +131,7 @@ function testGraphAnalyzerWithoutCache() {
       ['b', { imports: ['a'] }],
     ]),
     normalizeFilePath: (p) => p,
+    bus: { emit: () => {}, on: () => {} },
     cache: null,
   };
   const analyzer = new GraphAnalyzer(dg);

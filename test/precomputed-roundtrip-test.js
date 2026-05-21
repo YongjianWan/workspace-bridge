@@ -77,6 +77,7 @@ function mockDepGraph(graphData) {
     graph,
     reverseGraph,
     normalizeFilePath: (f) => f,
+    bus: { emit: () => {}, on: () => {} },
     getDependencies: (f) => graph.get(f)?.imports || [],
     getDependents: (f) => reverseGraph.get(f) || [],
     shouldExcludeCli: () => false,

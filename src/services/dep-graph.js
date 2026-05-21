@@ -21,6 +21,7 @@ const {
 } = require('./dep-graph/symbol-impact');
 const { detectFrameworkFromPath, detectFrameworkFromContent } = require('./dep-graph/framework-patterns');
 const { DEFAULTS, LIMITS, CACHE_VERSION } = require('../config/constants');
+const { EventBus } = require('../utils/event-bus');
 const { GraphBuilder } = require('./dep-graph/builder');
 const { GraphAnalyzer } = require('./dep-graph/analyzer');
 const { GraphQuery } = require('./dep-graph/query');
@@ -41,6 +42,11 @@ class DependencyGraph {
     this.cliExcludeDirs = options.cliExcludeDirs || [];
     this.projectContext = options.projectContext || null;
     this.quiet = options.quiet || false;
+    this.bus = new EventBus();
+    this.bus.on('graph:updated', () => {
+      this._cachedCycles = null;
+      this._cycleCount = undefined;
+    });
     // Content cache for _scanSymbolUsageInImporters: avoids re-reading the same
     // importer file hundreds of times during a single findDeadExports() call.
     this._scanContentCache = new Map();
@@ -274,11 +280,7 @@ class DependencyGraph {
 
     this.graph.clear();
     this.reverseGraph.clear();
-    this._cachedCycles = null;
-    this._cycleCount = undefined;
-    if (this.analyzer) {
-      this.analyzer._bumpAggregateCache();
-    }
+    this.bus.emit('graph:updated');
 
     // Rebuild edge map and reverseGraph from persisted edges
     const edgeMap = new Map();

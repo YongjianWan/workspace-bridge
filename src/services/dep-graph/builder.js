@@ -50,10 +50,7 @@ class GraphBuilder {
 
     // Reset graph to prevent ghost data from deleted/renamed files
     this.dg.graph.clear();
-    this.dg._cycleCount = undefined;
-    this.dg._cachedCycles = null;
-    this.dg.analyzer._bumpAggregateCache();
-    this.dg.analyzer._bumpAggregateCache();
+    this.dg.bus.emit('graph:updated');
     // Clear per-build caches to avoid stale content after rebuild
     this.dg._scanContentCache.clear();
     this.dg._scanPatternCache.clear();
@@ -411,9 +408,7 @@ class GraphBuilder {
       );
     }
     if (edgeCount > 0) {
-      this.dg._cachedCycles = null;
-    this.dg.analyzer._bumpAggregateCache();
-      this.dg._cycleCount = undefined;
+      this.dg.bus.emit('graph:updated');
     }
   }
 
@@ -485,9 +480,7 @@ class GraphBuilder {
       console.error(`[DepGraph] Applied ${implicitEdgeCount} framework implicit import edges in ${Date.now() - startTime}ms`);
     }
     // P85: implicit edges mutate the graph — invalidate cycle cache
-    this.dg._cachedCycles = null;
-    this.dg.analyzer._bumpAggregateCache();
-    this.dg._cycleCount = undefined;
+    this.dg.bus.emit('graph:updated');
   }
 
   async updateFiles(filePaths) {
@@ -555,10 +548,7 @@ class GraphBuilder {
       reParsed++;
       const ext = path.extname(filePath).toLowerCase();
       if (ext) reParsedExts.add(ext);
-      this.dg._cycleCount = undefined;
-      this.dg._cachedCycles = null;
-    this.dg.analyzer._bumpAggregateCache();
-      this.dg.analyzer._bumpAggregateCache();
+      this.dg.bus.emit('graph:updated');
 
       const newInfo = this.dg.graph.get(key);
       if (newInfo) {

@@ -482,13 +482,10 @@ async function precomputeHotspotsAndStability(depGraph) {
   return { hotspots, stability };
 }
 
-async function buildProjectOverview(args, container) {
-  await container.ensureReady();
-
+async function assembleOverviewData(args, container, historyProvider) {
   const root = container.workspaceRoot;
   const depGraph = container.depGraph;
   const projectContext = depGraph?.projectContext;
-  const historyProvider = args?.historyProvider || getFileHistoryRisk;
 
   if (!depGraph || !projectContext) {
     return { ok: false, error: 'Dependency graph not initialized' };
@@ -507,13 +504,12 @@ async function buildProjectOverview(args, container) {
     entryFiles = scope.entryFiles || [];
   }
   const skeleton = buildSkeleton(root, depGraph, allFiles, mainlineFiles, projectContext, entryFiles);
-  // P2: use precomputed hotspot/stability from aggregate cache if available
+
   const aggregate = depGraph.analyzer?._aggregateCache;
   const hasValidAggregate = aggregate && aggregate.version === depGraph.analyzer?._aggregateVersion;
   let hotspots = (hasValidAggregate && aggregate?.hotspots) ? aggregate.hotspots : null;
   let stability = (hasValidAggregate && aggregate?.stability) ? aggregate.stability : null;
 
-  // Precompute-on-demand: trigger background calculation if cache miss
   if ((!hotspots || !stability) && container.ensurePrecomputed) {
     await container.ensurePrecomputed(['overview']);
     const refreshed = depGraph.analyzer?._aggregateCache;
@@ -555,41 +551,63 @@ async function buildProjectOverview(args, container) {
   const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans, issueContext, stackProfile, stack, cycleRefactorSuggestions, couplingSplitSuggestions);
   const aggregates = aggregateOverviewStats(hotspots, stability);
 
-  // P51: surface analysis coverage to prevent false safety when most files are skipped
   const dgStats = depGraph.getStats?.() || {};
   const analysisCoverage = dgStats.analysisCoverage;
   if (analysisCoverage && analysisCoverage.coverageRatio < 0.5) {
     summary.severity = 'high';
     summary.recommendations.unshift(`WARNING: Analysis coverage is low (${Math.round(analysisCoverage.coverageRatio * 100)}%); findings may be incomplete.`);
   }
-  const hotspotData = buildHotspotVisualizationData(root, hotspots, aggregates);
+
+  summary.counts = {
+    deadExports: deadExports.length,
+    unresolved: unresolved.length,
+    cycles: cycles.length,
+    missingHygieneChecks: 0,
+  };
+  if (analysisCoverage) summary.analysisCoverage = analysisCoverage;
+
   const nowIso = args?.now || new Date().toISOString();
   const trendGranularity = args?.trendGranularity === 'week' ? 'week' : 'day';
-  const stabilityTrendSnapshot = buildStabilityTrendSnapshot(nowIso, stability, aggregates);
-  const stabilityTrend = {
-    granularity: trendGranularity,
-    latest: stabilityTrendSnapshot,
-    series: [stabilityTrendSnapshot].map((item) => ({
-      bucket: getTrendBucketKey(item.timestamp, trendGranularity),
-      timestamp: item.timestamp,
-      stabilityScore: item.stabilityScore,
-      fragileCount: item.fragileCount,
-      hotspotsByRisk: item.hotspotsByRisk,
-    })),
+
+  return {
+    ok: true,
+    root,
+    depGraph,
+    scope,
+    stackProfile,
+    summary,
+    aggregates,
+    skeleton,
+    hotspots,
+    stability,
+    mainlineFiles,
+    orphanCount,
+    orphans,
+    analysisCoverage,
+    cycleRefactorSuggestions,
+    couplingSplitSuggestions,
+    nowIso,
+    trendGranularity
   };
-  let hotspotDataFile = null;
+}
+
+async function writeOverviewOutputs(args, rawData) {
+  const { root, hotspots, aggregates, stability, nowIso, trendGranularity, mainlineFiles, cycleRefactorSuggestions, couplingSplitSuggestions, summary, skeleton } = rawData;
+  const outputFiles = {};
+  
   if (args?.hotspotData) {
-    const target = path.isAbsolute(args.hotspotData)
-      ? args.hotspotData
-      : path.resolve(root, args.hotspotData);
+    const target = path.isAbsolute(args.hotspotData) ? args.hotspotData : path.resolve(root, args.hotspotData);
+    const hotspotData = buildHotspotVisualizationData(root, hotspots, aggregates);
     await writeHotspotDataFile(target, hotspotData);
-    hotspotDataFile = target;
+    outputFiles.hotspotDataFile = target;
+    outputFiles.hotspotData = hotspotData;
+  } else {
+    outputFiles.hotspotData = buildHotspotVisualizationData(root, hotspots, aggregates);
   }
-  let stabilityTrendDataFile = null;
+
+  const stabilityTrendSnapshot = buildStabilityTrendSnapshot(nowIso, stability, aggregates);
   if (args?.stabilityTrendData) {
-    const target = path.isAbsolute(args.stabilityTrendData)
-      ? args.stabilityTrendData
-      : path.resolve(root, args.stabilityTrendData);
+    const target = path.isAbsolute(args.stabilityTrendData) ? args.stabilityTrendData : path.resolve(root, args.stabilityTrendData);
     const existingHistory = await readTrendHistory(target);
     const history = [...existingHistory, stabilityTrendSnapshot];
     const series = buildStabilityTrendSeries(history, trendGranularity);
@@ -602,15 +620,24 @@ async function buildProjectOverview(args, container) {
       series,
     };
     await writeStabilityTrendFile(target, payload);
-    stabilityTrendDataFile = target;
-    stabilityTrend.series = series;
+    outputFiles.stabilityTrendDataFile = target;
+    outputFiles.stabilityTrend = { granularity: trendGranularity, latest: stabilityTrendSnapshot, series };
+  } else {
+    outputFiles.stabilityTrend = {
+      granularity: trendGranularity,
+      latest: stabilityTrendSnapshot,
+      series: [stabilityTrendSnapshot].map((item) => ({
+        bucket: getTrendBucketKey(item.timestamp, trendGranularity),
+        timestamp: item.timestamp,
+        stabilityScore: item.stabilityScore,
+        fragileCount: item.fragileCount,
+        hotspotsByRisk: item.hotspotsByRisk,
+      })),
+    };
   }
 
-  let overviewDashboardFile = null;
   if (args?.overviewDashboard) {
-    const target = path.isAbsolute(args.overviewDashboard)
-      ? args.overviewDashboard
-      : path.resolve(root, args.overviewDashboard);
+    const target = path.isAbsolute(args.overviewDashboard) ? args.overviewDashboard : path.resolve(root, args.overviewDashboard);
     const dashboardData = {
       workspaceRoot: root,
       summary,
@@ -619,86 +646,77 @@ async function buildProjectOverview(args, container) {
       hotspots: hotspots.slice(0, SCORING.TOP_N_LIST),
       architectureAdvice: {
         cycleRefactorSuggestions,
-        // P0: suppress coupling-split advice for small/monolithic projects
         couplingSplitSuggestions: mainlineFiles.length < DEFAULTS.SMALL_PROJECT_MAX_MAINLINE ? [] : couplingSplitSuggestions,
       },
     };
     await writeOverviewDashboardFile(target, dashboardData);
-    overviewDashboardFile = target;
+    outputFiles.overviewDashboardFile = target;
   }
 
-  // L2-27: only include option toggles when they are actually enabled,
-  // avoiding permanent "enabled: false" noise in default output.
+  return outputFiles;
+}
+
+async function buildProjectOverview(args, container) {
+  await container.ensureReady();
+  const historyProvider = args?.historyProvider || getFileHistoryRisk;
+  const rawData = await assembleOverviewData(args, container, historyProvider);
+  if (!rawData.ok) return rawData;
+
+  const ioResults = await writeOverviewOutputs(args, rawData);
+
   const options = {};
-  if (args?.hotspotData) {
-    options.hotspotData = { enabled: true, path: args.hotspotData };
-  }
-  if (args?.stabilityTrendData) {
-    options.stabilityTrendData = { enabled: true, path: args.stabilityTrendData, granularity: trendGranularity };
-  }
-  if (args?.overviewDashboard) {
-    options.overviewDashboard = { enabled: true, path: args.overviewDashboard };
-  }
-
-  // L2-5: schema parity with audit-summary — counts aligned, nextSteps removed
-  // (recommendations already carries all actionable guidance).
-  summary.counts = {
-    deadExports: deadExports.length,
-    unresolved: unresolved.length,
-    cycles: cycles.length,
-    missingHygieneChecks: 0,
-  };
-  if (analysisCoverage) {
-    summary.analysisCoverage = analysisCoverage;
-  }
+  if (args?.hotspotData) options.hotspotData = { enabled: true, path: args.hotspotData };
+  if (args?.stabilityTrendData) options.stabilityTrendData = { enabled: true, path: args.stabilityTrendData, granularity: rawData.trendGranularity };
+  if (args?.overviewDashboard) options.overviewDashboard = { enabled: true, path: args.overviewDashboard };
 
   return {
     ok: true,
-    workspaceRoot: root,
-    stackProfile,
+    workspaceRoot: rawData.root,
+    stackProfile: rawData.stackProfile,
     options,
-    summary,
-    aggregates,
-    skeleton,
-    hotspots: hotspots.slice(0, SCORING.TOP_N_LIST),
+    summary: rawData.summary,
+    aggregates: rawData.aggregates,
+    skeleton: rawData.skeleton,
+    hotspots: rawData.hotspots.slice(0, SCORING.TOP_N_LIST),
     architectureAdvice: {
-      cycleRefactorSuggestions,
-      // P0: suppress coupling-split advice for small/monolithic projects (< 200 mainline files)
-      couplingSplitSuggestions: mainlineFiles.length < DEFAULTS.SMALL_PROJECT_MAX_MAINLINE ? [] : couplingSplitSuggestions,
+      cycleRefactorSuggestions: rawData.cycleRefactorSuggestions,
+      couplingSplitSuggestions: rawData.mainlineFiles.length < DEFAULTS.SMALL_PROJECT_MAX_MAINLINE ? [] : rawData.couplingSplitSuggestions,
     },
-    hotspotData,
-    hotspotDataFile,
-    stabilityTrend,
-    stabilityTrendDataFile,
-    overviewDashboardFile,
-    stability: stability.slice(0, SCORING.TOP_N_LIST),
+    hotspotData: ioResults.hotspotData,
+    hotspotDataFile: ioResults.hotspotDataFile || null,
+    stabilityTrend: ioResults.stabilityTrend,
+    stabilityTrendDataFile: ioResults.stabilityTrendDataFile || null,
+    overviewDashboardFile: ioResults.overviewDashboardFile || null,
+    stability: rawData.stability.slice(0, SCORING.TOP_N_LIST),
     stabilityMeta: {
-      totalCount: stability.length,
-      truncated: stability.length > SCORING.TOP_N_LIST,
+      totalCount: rawData.stability.length,
+      truncated: rawData.stability.length > SCORING.TOP_N_LIST,
       limit: SCORING.TOP_N_LIST,
     },
-    languageSupport: buildLanguageSupportMatrix(depGraph),
-    ...(scope ? { directoryRoles: scope.directoryRoles } : {}),
-    ...(analysisCoverage ? { analysisCoverage } : {}),
+    languageSupport: buildLanguageSupportMatrix(rawData.depGraph),
+    ...(rawData.scope ? { directoryRoles: rawData.scope.directoryRoles } : {}),
+    ...(rawData.analysisCoverage ? { analysisCoverage: rawData.analysisCoverage } : {}),
     orphans: {
       counts: {
-        docs: orphans.docs.length,
-        scripts: orphans.scripts.length,
-        configs: orphans.configs.length,
-        modules: orphans.modules.length,
-        total: orphanCount,
+        docs: rawData.orphans.docs.length,
+        scripts: rawData.orphans.scripts.length,
+        configs: rawData.orphans.configs.length,
+        modules: rawData.orphans.modules.length,
+        total: rawData.orphanCount,
       },
       samples: {
-        docs: orphans.docs.slice(0, 5),
-        scripts: orphans.scripts.slice(0, 5),
-        configs: orphans.configs.slice(0, 5),
-        modules: orphans.modules.slice(0, 5),
+        docs: rawData.orphans.docs.slice(0, 5),
+        scripts: rawData.orphans.scripts.slice(0, 5),
+        configs: rawData.orphans.configs.slice(0, 5),
+        modules: rawData.orphans.modules.slice(0, 5),
       },
     },
   };
 }
 
 module.exports = {
+  assembleOverviewData,
+  writeOverviewOutputs,
   buildProjectOverview,
   precomputeHotspotsAndStability,
   buildHotspotVisualizationData,
