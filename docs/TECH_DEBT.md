@@ -301,26 +301,9 @@
 
 ### 零专属测试模块清单
 
-**L1 基础设施层**
+- `src/tools/overview-curator.js`：⚠️ 零专属测试，被 `overview-tools-test.js` 间接覆盖，无独立断言。
 
-| 模块 | 风险等级 | 说明 | 建议测试文件 |
-|------|---------|------|-------------|
-
-**L4 工具层（11 个工具，0 个零专属测试）**
-
-| 模块 | 状态 | 说明 | 建议测试文件 |
-|------|------|------|-------------|
-| `src/tools/dep-tools.js` | ✅ 已补充 | `test/dep-tools-test.js` 覆盖 stats/dependencies/dependents/impact/cycles/dead_exports/unresolved/affected_tests/default/unknown 操作及边界 | — |
-| `src/tools/git-tools.js` | ✅ 已补充 | `test/git-tools-test.js` 覆盖 getChangedFiles/staged/since/untracked、getChangedLineRanges、getFileHistoryRisk、getDiffNumstat | — |
-| `src/tools/incremental-diff.js` | ✅ 已补充 | `test/incremental-diff-test.js` 覆盖 collectRelatedFiles 和 buildIncrementalFindings 过滤逻辑 | — |
-| `src/tools/overview-tools.js` | ✅ 好 | `overview-tools-test.js` + `overview-tools-concurrency-test.js` | — |
-| `src/tools/health-tools.js` | ✅ 好 | `health-tools-test.js` | — |
-| `src/tools/workspace-tools.js` | ✅ 好 | `workspace-tools-test.js` | — |
-| `src/tools/tree-tools.js` | ✅ 好 | `tree-tools-test.js` | — |
-| `src/tools/honesty-engine.js` | ✅ 好 | `honesty-engine-test.js` | — |
-| `src/tools/scaffold-detector.js` | ✅ 好 | `scaffold-detector-test.js` | — |
-
-**L5 格式化层（10 个 formatter，0 个零测试）**
+**L5 格式化层（10 个 formatter，6 个间接覆盖）**
 
 | 模块 | 状态 | 说明 | 建议测试文件 |
 |------|------|------|-------------|

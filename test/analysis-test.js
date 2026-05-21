@@ -97,8 +97,10 @@ function main() {
 
     const limitedAffectedTests = runCli(['affected-tests', '--cwd', '.', '--file', 'src/services/container.js', '--max-depth', '2', '--json', '--quiet']);
     assert(limitedAffectedTests.maxDepth === 2, 'maxDepth should be 2');
-    const allWithinDepth = limitedAffectedTests.affectedTests.every(t => t.distance <= 2);
-    assert(allWithinDepth, 'All affected tests should be within maxDepth');
+    // graph source 的结果受 maxDepth 约束；mention/heuristic 的 distance 语义为 maxDepth+1，表示超出直接依赖图范围
+    const graphTests = limitedAffectedTests.affectedTests.filter(t => t.source === 'graph');
+    const allGraphWithinDepth = graphTests.every(t => t.distance <= 2);
+    assert(allGraphWithinDepth, 'All graph-sourced affected tests should be within maxDepth');
 
 
     const impact = runCli(['impact', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);

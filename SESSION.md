@@ -12,14 +12,14 @@
 >
 > **🔴 开工前不读 CHANGELOG.md**。确定现状只需读本文档 + AGENTS.md + TECH_DEBT.md + 下方 1 条基线命令。CHANGELOG 是历史存档，读它不能替代读活跃文档。
 >
-> 收工时已跑 `node test/runner.js` 并确认 131/131 PASS，开工无需重跑。直接读取下方「基线状态」确认当前文档记录是否仍成立。
+> 收工时已跑 `node test/runner.js` 并确认 133/133 PASS，开工无需重跑。直接读取下方「基线状态」确认当前文档记录是否仍成立。
 >
 > 开发迭代推荐 `npm run test:fast`（~14s，101 个纯单元测试），比全量 runner（~4min）快 15×。
 
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
 node cli.js audit-summary --cwd . --json --quiet
-# 期望: health.healthScore=7/8, summary.counts.deadExports=1, summary.counts.unresolved=0, summary.counts.cycles=0, summary.analysisCoverage.totalFiles≈261, summary.analysisCoverage.coverageRatio=1
+# 期望: health.healthScore=7/8, summary.counts.deadExports=1, summary.counts.unresolved=0, summary.counts.cycles=0, summary.analysisCoverage.totalFiles≈262, summary.analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-summary 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
@@ -41,7 +41,7 @@ node cli.js audit-summary --cwd . --json --quiet
 - 测试：**受影响测试全部 PASS**；全量 runner 131/131 PASS（~4min，分阶段：fast ~14s / slow ~100s / watch 串行）。开发迭代用 `npm run test:fast`（~14s）或 `npm run test:smoke`（~31s）
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~261 文件，entry=1, mainline=127, test=134
+- 自身项目规模：~262 文件，entry=1, mainline=127, test=135
 - 健康度：7/8（缺 dockerConfig），deadExports=1（`severityMeetsFilter` 在 `src/cli/commands/_utils.js` 中零引用，待清理），cycles=0，unresolved=0
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust Regular Expressions、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
@@ -104,14 +104,14 @@ node cli.js audit-summary --cwd . --json --quiet
 
 **测试覆盖缺口**
 
-> **131/131 PASS**（fast 100 + slow 27 + watch 4）。测试基础设施已收敛，零专属测试模块清零。
+> **133/133 PASS**（fast 93 + slow 36 + watch 4）。测试基础设施已收敛。
 
 > **剩余测试债务（已量化）**：
 > - **弱断言 ~35 处**：仅余 `typeof` 型 schema 契约检查（带消息参数，风险低）。占总断言数 ~2.3%
 > - **console.log 噪音 7 处**：代码字符串内嵌、平台跳过诊断、runner.js 骨架输出
 > - **`audit-map-test.js` graph 数据字面量** 仍内联
 > - **时序依赖**：mock 内部延迟保留、进程退出超时保护保留
-> - **零专属测试模块剩余 0 个**
+> - `src/tools/overview-curator.js` 零专属测试（被 `overview-tools-test.js` 间接覆盖）
 > - **CLI 集成测试补齐**：详见 CHANGELOG
 >
 > **测试类型分布失衡**：单元测试 ~76%（良好），集成测试 ~20%（已补充 `cli-integration-test.js`），端到端 ~2%（严重不足），混沌/模糊 0（暂缓）。
@@ -140,18 +140,11 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### P0 低垂果实（现在做，零风险高 ROI）
 
-| # | 目标 | 文件 | 工作量 | 预期收益 | 状态 |
-|---|------|------|--------|----------|------|
-| 1 | **SQLite pragma 调优** | `cache.js` / `graph-db.js` | ~5 行 | WAL + mmap + temp_store，提升写入和查询性能 | ✅ 已完成 |
-| 2 | **PhaseTimer 多阶段计时** | `container.js` / `cli.js` | ~15 行 | 大仓库分析时知道卡在 parse / resolve / query 哪一阶段 | ✅ 已完成 |
-| 3 | **CLI 错误分类 + 可操作建议** | `cli.js` catch 块 | ~20 行 | 错误不再是 raw stack，而是"错误类型 + 下一步命令" | ✅ 已完成 |
-| 4 | **安全白名单分派表 + Assert Defense** | `security-tools.js` | ~30 行 | 每条规则独立 `is_match_allowlisted()`；防御性测试误报抑制 | ✅ 已完成 |
-| 5 | **测试间隙穿透（Dispatcher Regex）** | `affected-tests` 逻辑 | ~40 行 | 无 import 边但测试 body 提及源文件 stem 时也纳入 affected-tests | ✅ 已完成 |
-| 6 | **SKILL.md 精简** | `skills/workspace-audit/SKILL.md` | — | 经评估保持现状：当前 AI 读取优先级 + 安全审查清单 + 可忽略字段对 AI 消费者 ROI 足够，无需为行数目标自残 | ✅ 保持现状 |
+> 当前无待执行的 P0 低垂果实。
 
 ### P1 解析精度升级 Wave 1（本轮）
 
-> **约束**：波次化执行，每波之间保持 131/131 PASS。禁止一次性做多层心脏移植。
+> **约束**：波次化执行，每波之间保持 133/133 PASS。禁止一次性做多层心脏移植。
 
 | 波次 | 范围 | 侵入性 | 验证标准 |
 |------|------|--------|----------|
@@ -186,6 +179,6 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-20（架构方向共识确认：低垂果实优先 + Wave 1/2/3 波次化升级）*
+*Last updated: 2026-05-21（修复 analysis-test.js maxDepth 断言 + SESSION.md 数字同步）*
 
-> **本轮验证状态**：`npm run test:fast` 93/93 PASS；`node test/runner.js --layer slow` 35/35 PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=1`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`）。
+> **本轮验证状态**：`npm run test:fast` 93/93 PASS；`node test/runner.js --layer slow` 36/36 PASS；`node test/runner.js --layer watch` 4/4 PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=1`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`）。
