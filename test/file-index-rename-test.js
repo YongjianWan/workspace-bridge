@@ -47,9 +47,9 @@ async function testRenameWithoutFilenameTriggersPruneAndCallback() {
   fs.unlinkSync(path.join(root, 'a.js'));
 
   let prunedFiles = null;
-  index.onPendingProcessed = (files) => {
+  index.bus.on('pending:processed', (files) => {
     prunedFiles = files;
-  };
+  });
 
   // Trigger rename event without filename (platform-specific edge case)
   capturedCallback('rename', null);

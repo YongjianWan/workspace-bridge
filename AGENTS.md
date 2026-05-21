@@ -24,10 +24,6 @@
 
 ---
 
-## 实战基地
-
-> `C:\Users\sdses\Desktop\神思\code` 是 workspace-bridge 的实战基地，内含四个仓库，用于功能验证与实战演练。
-
 ## 项目概述
 
 **定位**：AI 的代码脚手架（Code Scaffolding for AI），不是人的报告工具。
@@ -45,18 +41,32 @@
 
 ### L1 铁律（违反 = 直接产生 bug 或资源泄漏）
 
+> **适用范围**：任何涉及代码逻辑、数据结构、生命周期或接口契约的改动。
+> 纯表层改动（调文案、改缩进、换颜色、改 CLI 默认值、修 formatter 字符串模板）不适用。
+
 1. **Never break userspace** — 向后兼容性神圣不可侵犯，任何导致现有程序崩溃的改动都是 bug
-   > **适用范围**：当 userspace 只有项目所有者本人且所有者明确要求重构时，兼容义务让位于演进效率。此时应通过 deprecation 警告 + 别名过渡期（1 个版本）平滑迁移，而非永久冻结接口。
+   > **例外**：当 userspace 只有项目所有者本人且所有者明确要求重构时，兼容义务让位于演进效率。此时应通过 deprecation 警告 + 别名过渡期（1 个版本）平滑迁移，而非永久冻结接口。
 2. **异常安全** — `shutdown/close/cleanup` 必须逐步骤独立 try-catch；cache load 必须防御旧格式/损坏格式；SIGINT/SIGTERM 必须注册 handler
+   > **触发条件**：改动涉及资源生命周期、cache 读写、进程信号处理时适用。
 3. **数据一致性** — 禁止把 cache 引用直接塞进可变结构；删除实体时必须清理所有关联缓存槽位；同一业务语义必须在单一模块实现
+   > **触发条件**：改动涉及 cache/graph/状态增删改时适用。
 
 ### L2 标准（违反 = 技术债务，短期内可接受但必须偿还）
 
+> **适用范围**：修改 L2 核心引擎（dep-graph.js、cache.js、graph-db.js、resolvers.js、parsers/shared.js、container.js）或 L4 编排层时强制适用。
+> 表层改动、新增独立工具脚本、补测试不受约束。
+
 4. **边界消除 > if** — 让边界情况消失，不是用 if 堆出来；重构 if-else 链为配置表时先判断互斥性
+   > **触发条件**：新增/重构控制流、新增功能分支时适用。
 5. **删除 > 添加** — 无当前用途的抽象 → 删；死代码 → 删；冗余特殊处理 → 删
+   > **触发条件**：清理代码、重构模块时适用。不要为"可能未来有用"而保留代码。
 6. **裸数字归零** — 新数字进 `constants.js`；新 regex 提到循环外；新阈值写注释说明 rationale
-7. **重复即债务** — 同文件相似度 > 70% 的代码必须提取为纯函数
+   > **触发条件**：新增任何字面量数字、regex、阈值时适用。
+7. **重复即债务** — 同文件内明显重复的逻辑必须提取为纯函数。
+   跨文件重复：目标层级已有合适宿主模块则提取，否则标记为债务，不强行新建模块。
+   > **触发条件**：发现复制粘贴代码、提取公共逻辑时适用。
 8. **内聚优先** — 文件只做一件事，命名口语化（避免教科书式），注释写"为什么"不写"做什么"。行数不重要——`dep-graph.js` ~1685 行仍保持不物理拆分，因为内部已通过 `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` 实现认知拆分。判断标准：修改时是否只需理解一个概念。
+   > **触发条件**：新增模块、拆分文件、调整目录结构时适用。
 
 ### 验证与调试
 
@@ -134,25 +144,9 @@
 | `AGENTS.md` | **项目状态单一事实源**。功能状态、版本能力、下一步方向 | 历史变更细节 |
 
 **清理铁律**：
-- 修复一个条目后，TECH_DEBT.md / SESSION.md 中直接删除该条目，不保留任何痕迹；历史只进 CHANGELOG。
-- SESSION.md 中，旧轮次的内容压缩为一句话引用 CHANGELOG，不保留文件列表/改动细节。
-- 任何 agent 发现文档膨胀（已修复条目仍留在活跃文档中）→ 立即清理。
-- **完成任何代码变更（新增功能、修复 bug、重构、测试补齐）后，必须立即在 CHANGELOG.md `[Unreleased]` 中追加技术变更条目**。禁止仅凭 SESSION.md / TECH_DEBT.md 的活跃状态更新替代 CHANGELOG 写入。活跃文档只存"当前状态"，CHANGELOG 存"变更过程"。本轮教训：补完 4 个测试模块后未及时写入 CHANGELOG，导致历史遗漏。
-
-**"已修复"声明验证铁律**：
-- 在 SESSION.md / ROADMAP.md / TECH_DEBT.md 中将任何条目标记为"已修复"、"已验证不成立"或"问题不存在"之前，**必须跑一条能直接验证该结论的命令**。
-- 禁止凭"代码已合并""CHANGELOG 已记录"或"逻辑上应该修好了"推断问题已消失。
-- 如果实测无法验证（如需要特定环境/项目才能复现），文档中必须标注"⚠️ 待特定环境验证"，不得标注"✅ 已修复"。
-- 本轮教训：`validationAdvice.commands` 被标记为"已验证不成立"，但 `node cli.js audit-file --file src/services/dep-graph.js --json --quiet` 实测 `suggestedCommand: null` 可直接复现。
-
-**CHANGELOG 读取约束（违反 = 浪费时间 + 上下文污染）**：
-- 新会话启动时，**禁止默认读取 CHANGELOG.md**。确定现状只需 **AGENTS.md + SESSION.md + TECH_DEBT.md + 1 条基线验证命令**。
-- 只在以下三种场景允许查 CHANGELOG：
-  1. **追查回归** — 怀疑当前 bug 与某次历史变更有关，需要回溯上下文
-  2. **修老 bug** — 需要了解之前尝试过的方案和失败原因，避免重复踩坑
-  3. **写 CHANGELOG 条目** — 确认本次变更与历史条目的格式、位置一致性
-- **禁止把 CHANGELOG 当作"必读清单"**。历史存档不等于当前状态，读 CHANGELOG 不能替代读 SESSION.md 的基线确认。
-- **本轮教训**：新会话启动时读了 CHANGELOG.md 的 995 行，完全冗余。AGENTS.md + SESSION.md + TECH_DEBT.md 已覆盖全部现状信息。
+- 任何活跃文档只存当前状态。修复即删，历史只进 CHANGELOG。
+- 任何代码变更完成后，必须立即在 CHANGELOG.md顶层位置 `[Unreleased]` 追加条目。
+- 标"已修复"前必须跑命令验证。无法验证则标"⚠️ 待验证"，不得标"✅ 已修复"。
 
 ---
 
@@ -199,31 +193,6 @@ node cli.js dead-exports --cwd . --json --quiet
 
 ---
 
-## 外部工具策略（架构决策）
-
-| 维度 | 策略 | 理由 |
-|------|------|------|
-| 依赖图 | **自研** | 多语言统一是核心壁垒，pydeps/madge 都是单语言 |
-| 增量分析 | **自研** | git diff 驱动 <200ms 是护城河 |
-| 风格/质量 | **自研 + Semgrep 可选** | 你管格式（紧凑标签行），Semgrep 管规则库；`npm install` 之外的可选依赖 |
-| 精确影响/污点追踪 | **不引入** | 承认打不过，不做重复投入。语义级问题（N+1 查询、XSS、事务缺失）是大模型该做的事，workspace-bridge 提供的是上下文（谁依赖谁、改了什么），不是语义判断 |
-| Java 专用分析（SpotBugs/PMD）| **可选适配器，不做核心依赖** | 需要 JVM 环境，与"轻量 CLI"定位冲突。若用户有需求，像 Semgrep 一样做成可选 adapter，但绝不可成为默认依赖 |
-| 规则引擎（层次 A 配置化 + 层次 B AST 轻量）| **自研扩展** | 将 `security-tools.js` 硬编码规则提取为外部 YAML/JSON（层次 A），基于现有 `functionRecords` 做方法级条件检查（层次 B）。不需要数据库/图数据库，纯内存遍历 |
-| 图数据库 / 持久化图存储 | **不引入** | 当前内存 Map 已满足需求。图数据库是为了跨会话查询，但 workspace-bridge 每次重建图。引入 KuzuDB/LadybugDB 与轻量 CLI 定位冲突 |
-| tree-sitter | **引入（WASM 方案）** | `web-tree-sitter@0.25.3` + `tree-sitter-wasms@0.1.13`；纯 WASM 无 native binding 编译风险；为 Go/Rust/Kotlin/C/C++ 提供统一 AST 能力；失败自动 fallback regex |
-
----
-
-## Reference 与架构取舍
-
-workspace-bridge 明确不采用 Kimi Agent AI认知脚手架（4 层完整系统），保持轻量 CLI 定位。
-
-**GitNexus**（`reference/gitnexus-extract/`，PolyForm Noncommercial）是思想参考和代码改编来源。4 个可借鉴模式：
-1. **语言注册表** — 每种语言一个配置，统一 `parse(file) -> {ast, symbols, edges}`
-2. **知识图双索引** — `relationshipMap` + `relationshipsByType` + `edgeIdsByNode`
-3. **MCP 递进工具链** — `list_repos` → `query` → `context` → `impact` 的 WHEN TO USE 标注
-4. **框架感知 Extractor** — AST visitor 检测框架模式，生成框架特定边
-
 ## Agent 认知边界（决策检查表）
 
 > 以下规则供后续 AI agent 直接按条件执行，无需二次翻译。
@@ -250,10 +219,16 @@ THEN 必须先读对应文件，不能凭骨架直接动手：
 ### 规则 2：高危文件改前跑 impact
 
 ```
-IF 修改 path.js / dep-graph.js / parsers/shared.js / resolvers.js
+IF 修改 path.js / constants.js / dep-graph.js / cache.js / graph-db.js / parsers/shared.js / resolvers.js
 THEN 修改前必须跑：
   node cli.js impact --cwd . --file <改动文件> --json --quiet
   node cli.js affected-tests --cwd . --file <改动文件> --json --quiet
+
+THEN 拿到结果后必须执行：
+  1. 阅读完整输出，记录 impactedFiles.length 和 affectedTests.length
+  2. 如果 impactedFiles 包含 dep-graph.js / cache.js / graph-db.js / container.js：
+     → 核心基础设施被波及，改动必须保守，优先向后兼容（保留旧接口 + 新增，不删不改现有行为）
+  3. 收工前必须跑 `npm run test:fast` 并 93/93 PASS，确认无回归
 ```
 
 > 其余检查（裸数字、异常安全、语义同步、重复代码）已由 L1/L2 覆盖，无需单列。
@@ -265,4 +240,4 @@ THEN 修改前必须跑：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-20（L2 SQLite 物理增量写入 + L4 Facade 编排层 Facade 提取 + P1 AI 预消化输出机制 --format ai；128/128 测试通过；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-21（REFACTOR Wave 1 低垂果实 D4/O5/U4/U5/U6 全部完成 + U2 ExitCode 契约核心目标已达成；133/133 测试通过；schemaVersion: 1.2.0）*

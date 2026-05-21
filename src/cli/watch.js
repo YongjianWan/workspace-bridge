@@ -239,8 +239,8 @@ async function runWatchValidation(filePath, depGraph, workspaceRoot) {
   });
 }
 
-function registerWatchCallback(fileIndex, depGraph, workspaceRoot, compact, runTests) {
-  fileIndex.onFileChanged = (filePath) => {
+function registerWatchCallback(bus, depGraph, workspaceRoot, compact, runTests) {
+  bus.on('file:changed', (filePath) => {
     const startTime = Date.now();
     const impact = depGraph.getImpactRadius(filePath, DEFAULTS.WATCH_IMPACT_DEPTH);
     console.log(formatWatchOutput(workspaceRoot, filePath, impact, depGraph, compact));
@@ -258,7 +258,7 @@ function registerWatchCallback(fileIndex, depGraph, workspaceRoot, compact, runT
         });
       });
     }
-  };
+  });
 }
 
 function setupGracefulShutdown(container) {
@@ -299,7 +299,7 @@ async function startWatch(options) {
     }
 
     registerWatchCallback(
-      container.fileIndex,
+      container.fileIndex.bus,
       container.depGraph,
       container.workspaceRoot,
       options.compact,
@@ -340,9 +340,9 @@ async function buildAuditFileWatchResult(filePath, depGraph, workspaceRoot) {
   };
 }
 
-function registerAuditFileWatchCallback(fileIndex, depGraph, workspaceRoot, compact, targetFile) {
+function registerAuditFileWatchCallback(bus, depGraph, workspaceRoot, compact, targetFile) {
   const targetNormalized = targetFile ? normalizePathKey(targetFile) : null;
-  fileIndex.onFileChanged = async (filePath) => {
+  bus.on('file:changed', async (filePath) => {
     if (targetNormalized && normalizePathKey(filePath) !== targetNormalized) {
       return;
     }
@@ -374,7 +374,7 @@ function registerAuditFileWatchCallback(fileIndex, depGraph, workspaceRoot, comp
       file: path.relative(workspaceRoot, filePath),
       timestamp: Date.now(),
     });
-  };
+  });
 }
 
 async function startAuditFileWatch(options) {
@@ -406,7 +406,7 @@ async function startAuditFileWatch(options) {
     console.error('Press Ctrl+C to stop.\n');
 
     registerAuditFileWatchCallback(
-      container.fileIndex,
+      container.fileIndex.bus,
       container.depGraph,
       container.workspaceRoot,
       options.compact,

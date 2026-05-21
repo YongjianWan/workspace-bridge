@@ -9,7 +9,8 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { normalizePathKey, matchesPathFragment } = require('../utils/path');
+const { normalizePathKey, matchesPathFragment, normalizeFilePath: _normalizeFilePath } = require('../utils/path');
+const { shouldExcludeCli: _shouldExcludeCli } = require('../utils/exclude-patterns');
 const { ENTRY_BASE_NAMES } = require('../utils/project-context');
 const { isTestLikeFile } = require('../utils/test-detector');
 const {
@@ -69,23 +70,11 @@ class DependencyGraph {
    * out of report output.
    */
   shouldExcludeCli(filePath) {
-    if (this.cliExcludeDirs.length === 0) return false;
-    const normalized = normalizePathKey(filePath);
-    return this.cliExcludeDirs.some((pattern) => {
-      // Simple glob support: *.ext, prefix*, ?ingle-char
-      if (pattern.includes('*') || pattern.includes('?')) {
-        const regex = new RegExp('^' + pattern
-          .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-          .replace(/\*/g, '.*')
-          .replace(/\?/g, '.') + '$');
-        return regex.test(path.basename(normalized)) || regex.test(normalized);
-      }
-      return matchesPathFragment(normalized, pattern);
-    });
+    return _shouldExcludeCli(filePath, this.cliExcludeDirs);
   }
 
   normalizeFilePath(filePath) {
-    return normalizePathKey(filePath);
+    return _normalizeFilePath(filePath, this.root);
   }
 
   _displayPath(filePath) {

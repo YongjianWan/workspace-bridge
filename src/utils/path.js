@@ -23,6 +23,19 @@ function normalizePathKey(inputPath) {
 }
 
 /**
+ * Normalize a file path into a stable key used for graph/cache lookups.
+ * Handles relative paths by resolving them against workspaceRoot first.
+ * Returns null for non-string inputs.
+ */
+function normalizeFilePath(filePath, workspaceRoot) {
+  if (!filePath || typeof filePath !== 'string') return null;
+  const absolute = path.isAbsolute(filePath)
+    ? filePath
+    : path.join(workspaceRoot || process.cwd(), filePath);
+  return normalizePathKey(absolute);
+}
+
+/**
  * Convert a path to a display-friendly form: absolute, POSIX slashes,
  * but preserving original casing. Used for JSON output so that
  * `filePreview.js` does not become `filepreview.js` on Windows.
@@ -286,6 +299,7 @@ function detectWorkspace(root) {
 module.exports = {
   normalizePath,
   normalizePathKey,
+  normalizeFilePath,
   fromNormalizedKey,
   toPosixPath,
   toDisplayPath,

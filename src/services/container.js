@@ -238,12 +238,12 @@ class ServiceContainer {
 
   _registerCallbacks() {
     // Phase 2: 注册文件变更回调 → 触发后台诊断
-    this.fileIndex.onFileChanged = (filePath) => {
+    this.fileIndex.bus.on('file:changed', (filePath) => {
       this.diagnostics?.scheduleCheck(filePath);
-    };
+    });
 
     // Phase 3: 注册批量变更回调 → 触发 dep-graph 增量更新
-    this.fileIndex.onPendingProcessed = async (files) => {
+    this.fileIndex.bus.on('pending:processed', async (files) => {
       try {
         await this.depGraph?.updateFiles?.(files);
         // L1 data-consistency: re-assemble snapshot so that files (live view)
@@ -254,7 +254,7 @@ class ServiceContainer {
       } catch (e) {
         console.error(`[Container] DepGraph incremental update failed:`, e.message);
       }
-    };
+    });
   }
 
   async _precomputeOverview() {

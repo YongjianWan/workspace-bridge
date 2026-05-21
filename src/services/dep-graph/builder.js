@@ -20,12 +20,24 @@ class GraphBuilder {
     this.onFileUpdated = null;
     // P105: soft post-process phase architecture
     this.postProcessPhases = [];
-    this.postProcessPhases.push(() => this.expandJavaPackageImports());
-    this.postProcessPhases.push(() => this.applyFrameworkImplicitImports());
+    this.postProcessPhases.push({
+      fn: () => this.expandJavaPackageImports(),
+      triggers: ['.java', '.kt'],
+    });
+    this.postProcessPhases.push({
+      fn: () => this.applyFrameworkImplicitImports(),
+      triggers: ['.js', '.jsx', '.ts', '.tsx', '.vue', '.mjs', '.cjs'],
+    });
   }
 
-  registerPostProcessPhase(fn) {
-    this.postProcessPhases.push(fn);
+  registerPostProcessPhase(phase) {
+    if (typeof phase === 'function') {
+      this.postProcessPhases.push({ fn: phase });
+    } else if (phase && typeof phase.fn === 'function') {
+      this.postProcessPhases.push(phase);
+    } else {
+      throw new TypeError('registerPostProcessPhase expects a function or { fn: () => void, triggers?: string[] }');
+    }
   }
 
   async build(sourceFiles = null) {
@@ -90,7 +102,7 @@ class GraphBuilder {
 
     // P105: run post-process phases (framework implicit imports, etc.)
     for (const phase of this.postProcessPhases) {
-      await phase();
+      await phase.fn();
     }
 
     const cacheHitRate = files.length > 0 ? Math.round((cachedFiles.length / files.length) * 100) : 0;
@@ -454,6 +466,7 @@ class GraphBuilder {
     const startTime = Date.now();
     let reParsed = 0;
     let skipped = 0;
+    const reParsedExts = new Set();
 
     try {
       for (const filePath of filePaths) {
@@ -506,6 +519,8 @@ class GraphBuilder {
       // Re-parse
       await this.analyzeFile(filePath);
       reParsed++;
+      const ext = path.extname(filePath).toLowerCase();
+      if (ext) reParsedExts.add(ext);
       this.dg._cycleCount = undefined;
       this.dg._cachedCycles = null;
     this.dg.analyzer._bumpAggregateCache();
@@ -523,9 +538,15 @@ class GraphBuilder {
 
     // P105: run post-process phases when any file was re-parsed,
     // because re-parsing wipes previous implicit edges from graph.imports.
+    // D5: only run phases whose trigger extensions match re-parsed files.
     if (reParsed > 0) {
       for (const phase of this.postProcessPhases) {
-        await phase();
+        if (!phase.triggers) {
+          await phase.fn();
+        } else {
+          const shouldRun = phase.triggers.some((t) => reParsedExts.has(t));
+          if (shouldRun) await phase.fn();
+        }
       }
     }
 
@@ -534,6 +555,15 @@ class GraphBuilder {
     }
     } finally {
       this.dg._updating = false;
+      if (this.dg.cache && typeof this.dg.cache.save === 'function') {
+        try {
+          await this.dg.cache.save();
+        } catch (e) {
+          if (process.env.DEBUG) {
+            console.error('[GraphBuilder] cache.save() failed:', e.message);
+          }
+        }
+      }
     }
   }
 

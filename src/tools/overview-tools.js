@@ -664,7 +664,7 @@ async function buildProjectOverview(args, container) {
     architectureAdvice: {
       cycleRefactorSuggestions,
       // P0: suppress coupling-split advice for small/monolithic projects (< 200 mainline files)
-      couplingSplitSuggestions: mainlineFiles.length < 200 ? [] : couplingSplitSuggestions,
+      couplingSplitSuggestions: mainlineFiles.length < DEFAULTS.SMALL_PROJECT_MAX_MAINLINE ? [] : couplingSplitSuggestions,
     },
     hotspotData,
     hotspotDataFile,

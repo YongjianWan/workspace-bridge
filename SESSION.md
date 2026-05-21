@@ -14,12 +14,12 @@
 >
 > 收工时已跑 `node test/runner.js` 并确认 133/133 PASS，开工无需重跑。直接读取下方「基线状态」确认当前文档记录是否仍成立。
 >
-> 开发迭代推荐 `npm run test:fast`（~14s，101 个纯单元测试），比全量 runner（~4min）快 15×。
+> 开发迭代推荐 `npm run test:fast`（~37s，93 个 fast 层测试），比全量 runner（~4min）快 6×。
 
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
 node cli.js audit-summary --cwd . --json --quiet
-# 期望: health.healthScore=7/8, summary.counts.deadExports=1, summary.counts.unresolved=0, summary.counts.cycles=0, summary.analysisCoverage.totalFiles≈262, summary.analysisCoverage.coverageRatio=1
+# 期望: health.healthScore=7/8, summary.counts.deadExports=1, summary.counts.unresolved=0, summary.counts.cycles=0, summary.analysisCoverage.totalFiles≈263, summary.analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-summary 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
@@ -38,10 +38,10 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；全量 runner 131/131 PASS（~4min，分阶段：fast ~14s / slow ~100s / watch 串行）。开发迭代用 `npm run test:fast`（~14s）或 `npm run test:smoke`（~31s）
+- 测试：**受影响测试全部 PASS**；全量 runner 133/133 PASS（~4min，分阶段：fast ~37s / slow ~100s / watch 串行）。开发迭代用 `npm run test:fast`（~37s）或 `npm run test:smoke`（~31s）
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~262 文件，entry=1, mainline=127, test=135
+- 自身项目规模：~263 文件，entry=1, mainline=128, test=135
 - 健康度：7/8（缺 dockerConfig），deadExports=1（`severityMeetsFilter` 在 `src/cli/commands/_utils.js` 中零引用，待清理），cycles=0，unresolved=0
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust Regular Expressions、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
@@ -80,16 +80,26 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### 本轮做了什么
 
-**前轮**：
+**前轮（上一轮）**：
 - **Bug 与架构修复**：完成了 L1 Blocker 异步/shutdown 竞态修复、幽灵更新内存校验消除、SQLite 写入元数据丢失和测试分类警告等。详见 CHANGELOG.md [Unreleased]。
+- **L2 性能债（增量写入）**：重构了 `src/services/graph-db.js` 与 `src/services/cache.js`，实现 `saveIncremental(dirtyData)` 增量存表逻辑。
+- **L4 Facade 编排层提取**：新建并抽取 Curation 与过滤核心中转层 `src/tools/audit-assembler.js`。
+- **P1 AI 预消化输出机制**：开发了 `--format ai`、`--token-budget <n>` 和 `--depth` 特性。
+- **P0 低垂果实 5/5 完成**：SQLite pragma 调优、PhaseTimer 多阶段计时、CLI 错误分类 + 可操作建议、安全白名单分派表 + Assert Defense、测试间隙穿透。
 
 **本轮**：
-- **L2 性能债（增量写入）**：重构了 `src/services/graph-db.js` 与 `src/services/cache.js`，实现 `saveIncremental(dirtyData)` 增量存表逻辑，支持 `INSERT OR REPLACE` 和 `DELETE` 局部更新，冷启动/高速写入无需清表，消除了 Write Storm。
-- **L4 Facade 编排层提取**：新建并抽取 Curation 与过滤核心中转层 `src/tools/audit-assembler.js`，将原本散落在 `audit-summary`, `audit-diff`, `audit-file`, `audit-security` 中的校验、筛选、格式化聚合逻辑彻底下沉，简化了 CLI 接口实现。
-- **P1 AI 预消化输出机制**：开发了专属于 Agent 消费的 `--format ai`、`--token-budget <n>` 和 `--depth` 特性，对 `audit-file` 提供了精细支持与多级树/影响路径智能剪裁；重构退出码检测为基于 O(1) 契约的 `result.hasFindings` 计算。
-- **端到端 Facade 测试与生命周期资源泄漏修复**：新增 `test/audit-assembler-test.js` 并显式标记 `// @slow` 以适配 Windows 测试 runner，在此期间修复了容器初始化未优雅 shutdown 导致的资源句柄遗留与进程挂起。
-- **架构方向共识确认**：经宏观判断复盘，确定解析精度结构性升级（Pre-scan + Provider 注册表 + Resolver 策略链重构）为中长期主线，但必须以 Wave 1/2/3 波次化执行，禁止在 131/131 全绿地基上一次性做多层心脏移植。`affectedRoutes`（端到端路由提取）因越界语义分析风险降级为"暂缓/观察"。
-- **P0 低垂果实 5/5 完成**：SQLite pragma 调优、PhaseTimer 多阶段计时、CLI 错误分类 + 可操作建议、安全白名单分派表 + Assert Defense、测试间隙穿透（Dispatcher Regex）已全部交付并通过测试。SKILL.md 经评估后决定保持现状（当前 269 行内容对 AI 消费者 ROI 足够，强行压缩会丢失 AI 读取优先级和安全审查清单等高价值信息）。
+- **REFACTOR Wave 1 低垂果实全部完成**：
+  - **D4**：`builder.js` `updateFiles()` finally 块 `await cache.save()`，watch 增量不落盘修复。
+  - **O5**：`file-index.js` `processPending()` `.catch()` 异常捕获，消除 unhandled rejection。
+  - **U4**：`overview-tools.js` 硬编码 `200` → `DEFAULTS.SMALL_PROJECT_MAX_MAINLINE`。
+  - **U5**：新建 `src/utils/exclude-patterns.js`，提取 `shouldExcludeCli` 共享纯函数，消除 `dep-graph.js` / `file-index.js` 50 行复制粘贴。
+  - **U6**：`path.js` 新增 `normalizeFilePath`，统一 `cache.js` / `dep-graph.js` 两处实现。
+- **U2（ExitCode 契约）核心目标已达成**：`determineExitCode` 已从 25 行 switch 压到 4 行 O(1) 契约，剩余 13 个命令补 `hasFindings` 为非阻塞性后续工作。
+- **D5（按需 post-process）**：`builder.js` 中 `updateFiles()` 按 re-parsed 文件扩展名过滤 `postProcessPhases`。改 `.js` 不跑 Java package 逻辑，改 `.java` 不跑 JS 框架隐式 import 逻辑，O(N)→O(k)。
+- **O1-O3（EventBus + 修复 watch/diagnostics 覆盖冲突）**：
+  - 新建 `src/utils/event-bus.js`，支持多监听器 + 错误隔离 + `emitAsync`。
+  - `file-index.js` 单属性回调改为 EventBus 事件发射。
+  - `watch.js` 不再覆盖 `fileIndex.onFileChanged`，watch 输出与 diagnostics 检查同时工作。
 
 ---
 
@@ -133,7 +143,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 - 活跃债务：**0 个 L1** + **0 个 L2** + **6 个 L3** + **0 个产品 bug** + **0 个产品债务**
 - 版本：v1.2.0，schemaVersion 冻结
-- 测试：**131/131 PASS**；全量 runner ~4min。开发迭代首选 `npm run test:fast`（~14s）
+- 测试：**133/133 PASS**；全量 runner ~4min。开发迭代首选 `npm run test:fast`（~37s）
 - P0–P4 全部完成
 - **定位**：AI 的代码脚手架
 - **核心认知**：底层引擎能力足够，CLI 出口质量（`--format ai`）已交付。下一阶段主线是**解析精度结构性升级**，但必须波次化执行。
@@ -179,6 +189,12 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-21（修复 analysis-test.js maxDepth 断言 + SESSION.md 数字同步）*
+## 实战基地
 
-> **本轮验证状态**：`npm run test:fast` 93/93 PASS；`node test/runner.js --layer slow` 36/36 PASS；`node test/runner.js --layer watch` 4/4 PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=1`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`）。
+> `C:\Users\sdses\Desktop\神思\code` 是 workspace-bridge 的实战基地，内含四个仓库，用于功能验证与实战演练。
+
+---
+
+*Last updated: 2026-05-21（REFACTOR Wave 1 低垂果实 D4/O5/U4/U5/U6 全部完成 + D5/O1-O3 完成；U2 核心目标已达成）*
+
+> **本轮验证状态**：`npm run test:fast` 93/93 PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=1`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=263`）。

@@ -7,7 +7,9 @@ const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
 const { detectWorkspace, normalizePathKey, matchesPathFragment } = require('../utils/path');
+const { shouldExcludeCli: _shouldExcludeCli } = require('../utils/exclude-patterns');
 const { loadWorkspaceConfig } = require('../utils/project-context');
+const { EventBus } = require('../utils/event-bus');
 const { extractSymbols } = require('./file-index/symbol-extractors');
 const { registry } = require('./dep-graph/parsers/registry');
 const { DEFAULTS } = require('../config/constants');
@@ -36,6 +38,7 @@ class FileIndex {
     this.baseExcludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS])];
     this.excludeDirs = [...new Set([...this.baseExcludeDirs, ...this.cliExcludeDirs])];
     this.quiet = options.quiet || false;
+    this.bus = new EventBus();
   }
 
   /**
@@ -269,19 +272,7 @@ class FileIndex {
    * filtered out of report output.
    */
   shouldExcludeCli(filePath) {
-    if (this.cliExcludeDirs.length === 0) return false;
-    const normalized = normalizePathKey(filePath);
-    return this.cliExcludeDirs.some((pattern) => {
-      // Simple glob support: *.ext, prefix*, ?ingle-char
-      if (pattern.includes('*') || pattern.includes('?')) {
-        const regex = new RegExp('^' + pattern
-          .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-          .replace(/\*/g, '.*')
-          .replace(/\?/g, '.') + '$');
-        return regex.test(path.basename(normalized)) || regex.test(normalized);
-      }
-      return matchesPathFragment(normalized, pattern);
-    });
+    return _shouldExcludeCli(filePath, this.cliExcludeDirs);
   }
 
   _removeCacheEntry(filePath) {
@@ -433,7 +424,13 @@ class FileIndex {
 
         // Debounce updates
         if (this.updateTimer) clearTimeout(this.updateTimer);
-        this.updateTimer = setTimeout(() => this.processPending(), DEFAULTS.WATCH_DEBOUNCE_MS);
+        this.updateTimer = setTimeout(() => {
+          this.processPending().catch(err => {
+            if (process.env.DEBUG) {
+              console.error('[FileIndex] processPending failed:', err.message);
+            }
+          });
+        }, DEFAULTS.WATCH_DEBOUNCE_MS);
       });
 
       watcher.on('error', (e) => {
@@ -450,11 +447,11 @@ class FileIndex {
 
   async _handleRenameWithoutFilename() {
     const pruned = await this.pruneDeletedCacheEntries();
-    if (pruned.length > 0 && this.onPendingProcessed) {
+    if (pruned.length > 0) {
       try {
-        await this.onPendingProcessed(pruned);
+        await this.bus.emitAsync('pending:processed', pruned);
       } catch (e) {
-        console.error(`[FileIndex] onPendingProcessed failed:`, e.message);
+        console.error(`[FileIndex] pending:processed failed:`, e.message);
       }
     }
   }
@@ -483,11 +480,11 @@ class FileIndex {
     await Promise.all(executing);
 
     // Phase 3: 批量通知下游服务（如 dep-graph 增量更新）
-    if (this.active && this.onPendingProcessed && files.length > 0) {
+    if (this.active && files.length > 0) {
       try {
-        await this.onPendingProcessed(files);
+        await this.bus.emitAsync('pending:processed', files);
       } catch (e) {
-        console.error(`[FileIndex] onPendingProcessed failed:`, e.message);
+        console.error(`[FileIndex] pending:processed failed:`, e.message);
       }
     }
   }
@@ -527,12 +524,12 @@ class FileIndex {
     }
     
     // Phase 2: 触发外部回调（如诊断检查）
-    if (this.active && this.onFileChanged) {
+    if (this.active) {
       try {
-        this.onFileChanged(filePath);
+        this.bus.emit('file:changed', filePath);
       } catch (e) {
         // 回调失败不应影响文件索引流程
-        console.error(`[FileIndex] onFileChanged callback failed:`, e.message);
+        console.error(`[FileIndex] file:changed emit failed:`, e.message);
       }
     }
   }

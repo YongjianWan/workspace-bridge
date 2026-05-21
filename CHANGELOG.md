@@ -8,6 +8,31 @@
 
 ## [Unreleased]
 
+### 重构（O1-O3：EventBus + 修复 watch/diagnostics 覆盖冲突 — 2026-05-21）
+
+- **引入轻量 EventBus 替换单属性回调** `src/utils/event-bus.js` `src/services/file-index.js` `src/services/container.js` `src/cli/watch.js`：
+  - 问题：`fileIndex.onFileChanged` 和 `fileIndex.onPendingProcessed` 是单属性回调，只能挂一个函数。`watch.js` 的 `registerWatchCallback` 直接 `fileIndex.onFileChanged = ...` 覆盖了 `container.js` 注册的 `diagnostics.scheduleCheck`，导致 watch 模式下 linter 诊断完全失效（真 bug）。
+  - 修复：
+    1. 新建 `src/utils/event-bus.js`：~40 行 `on/emit/emitAsync/off`，支持多监听器 + 错误隔离（一个 listener 抛错不影响其他）。`emitAsync` 按顺序 await 异步监听器，保持 `processPending` 原有的 await 语义。
+    2. `file-index.js` 构造函数中创建 `this.bus = new EventBus()`，所有 `onFileChanged`/`onPendingProcessed` 属性调用改为 `this.bus.emit('file:changed', filePath)` / `this.bus.emitAsync('pending:processed', files)`。
+    3. `container.js` 的 `_registerCallbacks()` 改为 `this.fileIndex.bus.on('file:changed', ...)` 和 `this.fileIndex.bus.on('pending:processed', ...)`。
+    4. `watch.js` 的 `registerWatchCallback` / `registerAuditFileWatchCallback` 改为接收 `bus` 参数并 `bus.on('file:changed', ...)`，不再覆盖 container 的 diagnostics 监听器。
+    5. `test/file-index-rename-test.js` 同步适配为 `index.bus.on('pending:processed', ...)`。
+  - 收益：watch 模式下 diagnostics 和 watch 输出同时工作，互不覆盖；为 O4（Builder/Analyzer 解耦）和 D8（预计算写入）的事件驱动铺路。
+  - 向后兼容：`file-index.js` 不再暴露 `onFileChanged`/`onPendingProcessed` 属性；外部调用者统一通过 `fileIndex.bus` 注册。
+  - 验证：`npm run test:fast` 93/93 PASS；`watch-test.js` / `file-index-rename-test.js` / `dep-graph-incremental-test.js` 单独 PASS。
+
+### 优化（D5：按需 post-process — 2026-05-21）
+
+- **增量更新时按文件扩展名过滤 post-process phases** `src/services/dep-graph/builder.js`：
+  - 问题：`updateFiles()` 中只要 `reParsed > 0` 就无条件执行全部 `postProcessPhases`（`expandJavaPackageImports` + `applyFrameworkImplicitImports`）。修改一个 `.js` 文件时，Builder 仍遍历全图所有 Java 文件重新计算 package index；修改 `.java` 文件时，仍遍历全图所有 JS/TS 文件重新扫描隐式框架 import。O(1) 局部重建退化为 O(N) 全量大后处理。
+  - 修复：
+    1. `postProcessPhases` 从 `Array<() => void>` 改为 `Array<{ fn: () => void, triggers?: string[] }>`，给每个 phase 标注触发扩展名（`expandJavaPackageImports` → `['.java', '.kt']`；`applyFrameworkImplicitImports` → `['.js', '.jsx', '.ts', '.tsx', '.vue', '.mjs', '.cjs']`）。
+    2. `updateFiles()` 中收集实际 re-parsed 文件的扩展名集合 `reParsedExts`，仅当 phase 的 `triggers` 与集合命中时才执行。
+    3. `registerPostProcessPhase` 保持向后兼容：纯函数入参自动包装为 `{ fn }`（无条件执行）。
+  - 收益：纯 JS 项目 watch 模式下修改 `.js` 文件不再跑 Java package 逻辑；纯 Java 项目修改 `.java` 不再跑 JS 框架隐式 import 逻辑。性能从 O(N) 降至 O(k)。
+  - 验证：`npm run test:fast` 93/93 PASS；`dep-graph-incremental-test.js` / `java-package-imports-test.js` / `cache-consistency-test.js` 单独 PASS。
+
 ### 优化（L2 性能债：better-sqlite3 物理增量写入 — 2026-05-20）
 
 - **实现 SQLite 增量保存替代全量清空落盘** `src/services/graph-db.js` `src/services/cache.js`：
@@ -713,6 +738,37 @@
   - 读取测试文件内容，用 `\b{sourceStem}\b` 正则匹配独立单词提及；stem 长度 < 4 时跳过，避免 `a.js` / `x.ts` 等通用名大量误报；
   - 结果标记 `source: 'mention'` 和 `via: ['mention:stem']`，与 graph/heuristic 结果区分，避免重复计数（通过 `seen` Set 去重）；
   - 验证：`npm run test:fast` 93/93 PASS；新增 `test/affected-tests-mention-test.js` 集成测试：源文件 `src/math/calculator.js` 与无 import 关系、不同名的测试文件 `test/unit/arith.test.js`（内容提及 `calculator`）成功通过 mention 检测关联。
+
+### 修复与优化（REFACTOR Wave 1 低垂果实 — 2026-05-21）
+
+- **修复 O5：processPending 异常安全** `src/services/file-index.js`：
+  - 问题：`setTimeout(() => this.processPending(), delay)` 未 await 也未 catch，`processPending` 抛异常时变为 unhandled rejection，watch 模式下进程可能崩溃。
+  - 修复：改为 `setTimeout(() => { this.processPending().catch(err => { ... }) }, delay)`，异常被捕获并按 DEBUG 模式输出，进程不崩溃。
+  - 验证：`npm run test:fast` 93/93 PASS。
+
+- **修复 D4：watch 增量自动 save** `src/services/dep-graph/builder.js`：
+  - 问题：`updateFiles()` 完成后内存图已更新，但 SQLite cache 仍是旧数据。watch 模式下进程崩溃 = 增量丢失，下次冷启动需重新全量解析。
+  - 修复：在 `updateFiles()` 的 `finally` 块中调用 `await this.dg.cache.save()`，并包裹防御性 try-catch，确保增量数据及时持久化。
+  - 验证：`npm run test:fast` 93/93 PASS；基线 `audit-summary` 输出一致。
+
+- **优化 U4：overview-tools 裸数字归零** `src/tools/overview-tools.js`：
+  - 问题：第 667 行硬编码 `200` 作为小项目判定阈值，同文件第 623 行已使用 `DEFAULTS.SMALL_PROJECT_MAX_MAINLINE`。
+  - 修复：`200` → `DEFAULTS.SMALL_PROJECT_MAX_MAINLINE`，消除裸数字，统一阈值来源。
+  - 验证：`node cli.js audit-overview --cwd . --json --quiet` 输出不变（mainline=127 < 阈值，`couplingSplitSuggestions` 保持 `[]`）。
+
+- **重构 U5：shouldExcludeCli 提取到共享模块** `src/utils/exclude-patterns.js` `src/services/dep-graph.js` `src/services/file-index.js`：
+  - 问题：`shouldExcludeCli` 在 `dep-graph.js` 和 `file-index.js` 中完全复制粘贴（50 行相同逻辑），违反 L2-7 重复即债务。
+  - 修复：
+    1. 新建 `src/utils/exclude-patterns.js`，导出纯函数 `shouldExcludeCli(filePath, cliExcludeDirs)`。
+    2. `dep-graph.js` 和 `file-index.js` 的实例方法改为委托调用共享实现，零行为变更。
+  - 验证：`npm run test:fast` 93/93 PASS。
+
+- **重构 U6：normalizeFilePath 统一到 path.js** `src/utils/path.js` `src/services/cache.js` `src/services/dep-graph.js`：
+  - 问题：`cache.js` 和 `dep-graph.js` 各自维护 `normalizeFilePath` 实现，前者更完整（处理相对路径 + null 防御），后者只是 `normalizePathKey` 的简单包装。相对路径传入 dep-graph 时行为不一致。
+  - 修复：
+    1. `path.js` 新增 `normalizeFilePath(filePath, workspaceRoot)`，统合两处的完整语义（null 检查、相对路径解析、normalizePathKey）。
+    2. `cache.js` 和 `dep-graph.js` 的实例方法均委托给 `path.js`，消除重复实现并增强 dep-graph 对相对路径的兼容性。
+  - 验证：`npm run test:fast` 93/93 PASS；基线 `audit-summary` 输出一致（totalFiles=263，新增 exclude-patterns.js 被正确计入）。
 
 ## [1.2.0] - 2026-05-18
 

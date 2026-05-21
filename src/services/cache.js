@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { normalizePathKey } = require('../utils/path');
+const { normalizePathKey, normalizeFilePath: _normalizeFilePath } = require('../utils/path');
 const { GraphDB } = require('./graph-db');
 const { CACHE_VERSION, DEFAULTS } = require('../config/constants');
 
@@ -89,11 +89,7 @@ class WorkspaceCache {
   }
 
   normalizeFilePath(filePath) {
-    if (!filePath || typeof filePath !== 'string') return null;
-    const absolute = path.isAbsolute(filePath)
-      ? filePath
-      : path.join(this.workspaceRoot, filePath);
-    return normalizePathKey(absolute);
+    return _normalizeFilePath(filePath, this.workspaceRoot);
   }
 
   normalizeFileMapEntries(entries) {
