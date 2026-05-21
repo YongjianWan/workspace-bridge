@@ -115,6 +115,11 @@ node cli.js audit-summary --cwd . --json --quiet
   - CLI 新增 `debug --what symbols` 命令，输出符号统计和重复符号 TOP 50（自身项目：293 符号 / 92 文件 / 40 重复）。
   - **Resolver 接入完成**：`resolvers.js` 新增 `trySymbolTable` fallback 策略，挂到所有语言策略链末尾；`resolveImport` 扩展可选第 5 参数 `symbolRegistry`；`builder.js` 调用点传入 `this.symbolRegistry`。
   - 验证：`test/symbol-registry-test.js` 7/7 PASS；`test/resolver-symbol-table-test.js` 7/7 PASS；fast 层 96/96 PASS。
+- **U1（Formatter 注册表）—— 消灭四重 switch-case**：
+  - 重构 `src/cli/formatters/human-formatters.js`：将 `formatHuman` / `formatSummary` / `formatMarkdown` / `formatJsonl` / `buildCommandAiDigest` 中的 `switch(command)` 全部替换为 `FORMATTERS` + `AI_DIGEST` 注册表查表。
+  - 新增 `test/formatter-direct-test.js` `testCrossFormatCoverage`：覆盖全部 18 个命令的 human / summary / markdown / ai / jsonl 输出，确保重构后比特级一致。
+  - 行数：989 → 775（-214 行，-22%），彻底消除霰弹式修改和 switch 漂移风险。
+  - 验证：`npm run test:fast` **96/96 PASS**。
 
 ---
 
