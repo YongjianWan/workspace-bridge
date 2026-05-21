@@ -8,6 +8,18 @@
 
 ## [Unreleased]
 
+### 修复（代码卫生 — 2026-05-21）
+
+- **清理 scratch 目录误提交** `scratch/` `.gitignore`：
+  - `git rm --cached` 移除 `scratch/apply-u3.js`、`scratch/apply-u3-fixed.js`、`scratch/fix-literals.js`（一次性辅助脚本不应进版本控制）。
+  - 删除工作区剩余未追踪 scratch 文件（`apply-u1.js`、`fix-syntax.js`、`parse-commands.js`、`registry-block.js`）。
+  - `.gitignore` 追加 `scratch/` 规则防止复发。
+
+- **完成 human-formatters.js U1 重构** `src/cli/formatters/human-formatters.js` `test/formatter-direct-test.js`：
+  - 消灭了四重 switch-case 派发链，重构为基于配置表的 `FORMATTERS` 注册表驱动。
+  - 新增了 `testCrossFormatCoverage` 表格驱动回归测试，覆盖全部 17 个命令与 5 种输出格式（Human, Summary, Markdown, AI, JSONL）的组合。
+  - 成功消除了重复的分发逻辑和潜在的 switch 漂移风险，且 `npm run test:fast` 96/96 测试全绿通过。
+
 ### 架构（Wave 1：SymbolRegistry 全局符号表 — 2026-05-21）
 
 - **SymbolRegistry 新模块** `src/services/dep-graph/symbol-registry.js` `test/symbol-registry-test.js`：

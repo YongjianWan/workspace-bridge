@@ -49,7 +49,7 @@
 ### 具体行动项
 
 | # | 行动 | 文件 | 说明 |
-|---|------|------|------|
+|---|------|------|------| 
 | D1 | **新增 `nodes` + `edges` 表** | `graph-db.js` | `nodes` 统一文件级元数据；`edges` 存储 import + implicit-framework + package 三类边 |
 | D2 | **增量写入 edges** | `graph-db.js` | `saveIncremental()` 追加 edges 的 dirty/delete 追踪 |
 | D3 | **加载 edges 恢复内存图** | `dep-graph.js` | 新增 `loadGraph()`：从 SQLite SELECT 恢复 graph + reverseGraph，跳过 `buildReverseGraph()` |

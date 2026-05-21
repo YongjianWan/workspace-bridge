@@ -224,7 +224,8 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-21（REFACTOR Wave 2 D1-D3 edges 表 + loadGraph 快速恢复已完成；133/133 PASS）*
+*Last updated: 2026-05-21（REFACTOR Wave 2 D1-D3 edges 表 + loadGraph 快速恢复已完成；完成 human-formatters.js U1 注册表重构；96/96 fast 测试全绿）*
 
-> **本轮验证状态**：`npm run test:fast` 93/93 PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=1`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=268`）。
+> **本轮验证状态**：`npm run test:fast` 96/96 PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=1`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=269`）。
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。
+> **本轮修复**：scratch 目录 3 个辅助脚本误提交已清理 + .gitignore 追加；完成 human-formatters.js U1 注册表重构（消灭四重 switch-case 派发链），新增 `testCrossFormatCoverage` 表格驱动覆盖测试，96/96 fast 测试全绿。

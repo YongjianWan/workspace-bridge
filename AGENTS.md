@@ -240,4 +240,4 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-21（REFACTOR Wave 1 低垂果实 D4/O5/U4/U5/U6 全部完成 + U2 ExitCode 契约核心目标已达成；D7-D8 预计算表持久化 + Wave 1 SymbolRegistry 全局符号表及 Resolver 接入已完成；133/133 测试通过；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-21（REFACTOR Wave 1 低垂果实 D4/O5/U4/U5/U6 全部完成 + U2 ExitCode 契约核心目标已达成；D7-D8 预计算表持久化 + Wave 1 SymbolRegistry 全局符号表及 Resolver 接入已完成；scratch 误提交已清理；human-formatters.js U1 重构因语法错误回滚；96/96 fast 测试通过；schemaVersion: 1.2.0）*

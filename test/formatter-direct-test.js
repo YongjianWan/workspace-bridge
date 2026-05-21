@@ -772,7 +772,42 @@ function main() {
   testFormatAiFallbackToSummary();
   testFormatAiError();
   testFormatAiWithWarnings();
+  testCrossFormatCoverage();
 
+}
+
+function testCrossFormatCoverage() {
+  const assertIncludes = (actual, expected, msg) => {
+    assert(actual.includes(expected), `${msg}: expected to include "${expected}", got: ${actual.substring(0, 200)}`);
+  };
+
+  const cases = [
+    { cmd: 'audit-overview', r: { ok: true, workspaceRoot: '/project', summary: { severity: 'low', recommendations: ['Rec1'] }, skeleton: { totalFiles: 20, mainlineFiles: 15 }, aggregates: { hotspotsByRisk: { high: 1, medium: 0 }, stabilityCounts: { fragile: 0 } }, orphans: { counts: { total: 0 }, samples: { modules: ['c.js'] } }, languageSupport: { js: { level: 'ast', confidence: 'high' } }, hotspots: [{ file: 'a.js' }], stability: [{ file: 'b.js' }] }, h: ['totalFiles: 20'], s: ['Severity: low'], m: ['# Project Overview'], a: ['"command": "audit-overview"'], j: ['"_type":"hotspot"'] },
+    { cmd: 'audit-diff', r: { ok: true, workspaceRoot: '/project', summary: { severity: 'medium', counts: { changedFiles: 2, mainlineChangedFiles: 1, affectedTests: 3, maxImpact: 2, highHistoryRiskFiles: 0, highCompositeRiskFiles: 1, fileTypeBreakdown: { js: 2 }, changeMetrics: { totalAdditions: 10, totalDeletions: 5 } } }, changedFiles: [{ file: 'a.js', compositeRisk: { score: 0.8, level: 'high' } }], validationAdvice: { phases: ['lint'], topRiskActions: [{ file: 'a.js', actions: ['run tests'], suggestedCommand: 'npm test' }] }, incremental: true, incrementalFindings: { deadExportsCount: 0, unresolvedCount: 0, cyclesCount: 0, deadExports: [], unresolved: [], cycles: [] } }, h: ['changedFiles: 2'], s: ['Severity: medium'], m: ['# Diff Audit'], a: ['"command": "audit-diff"', '"diff-risk"'], j: ['"_type":"changed-file"'] },
+    { cmd: 'audit-file', r: { ok: true, file: 'src/foo.js', resolvedPath: '/p/src/foo.js', summary: { severity: 'medium' }, impact: { impactCount: 3, impact: [{ file: 'b.js', level: 1 }] }, affectedTests: { affectedTestsCount: 1, affectedTests: [{ file: 't.js', distance: 1 }] } }, h: ['file: src/foo.js'], s: ['File: src/foo.js'], m: ['# File Audit: src/foo.js'], a: ['"command": "audit-file"', '"impact": 3'], j: ['"_type":"audit-file"'] },
+    { cmd: 'health', r: { ok: true, workspaceRoot: '/project', healthScore: '5/5', healthScoreNumeric: { passed: 5, total: 5 }, packageManager: 'npm', checks: { ci: { found: true }, testConfig: { found: true, frameworks: ['jest'] }, readme: { found: true }, license: { found: true }, gitignore: { found: true }, editorconfig: { found: true }, envExample: { found: true }, dockerConfig: { found: false } }, fixes: [{ check: 'dockerConfig', action: 'Add Dockerfile', severity: 'low' }] }, h: ['healthScore: 5/5'], s: ['Health: 5/5'], m: ['# Health Check'], a: ['"command": "health"'], j: ['"ok":true'] },
+    { cmd: 'impact', r: { ok: true, impactCount: 2, impact: [{ level: 1, file: 'b.js', via: ['a.js', 'b.js'] }, { level: 2, file: 'c.js' }] }, h: ['impactCount: 2'], s: ['Impact radius: 2'], m: ['# Impact Radius'], a: ['"command": "impact"', '"impact": 2'], j: ['"_type":"impact"'] },
+    { cmd: 'affected-tests', r: { ok: true, affectedTestsCount: 1, affectedTests: [{ distance: 1, file: 'test/a.test.js', via: ['src/a.js'] }] }, h: ['affectedTestsCount: 1'], s: ['Affected tests: 1'], m: ['# Affected Tests'], a: ['"command": "affected-tests"', '"tests"'], j: ['"_type":"affected-test"'] },
+    { cmd: 'workspace-info', r: { ok: true, workspaceRoot: '/project', detected: { node: true, python: false } }, h: ['workspaceRoot: /project'], s: ['Workspace: /project'], m: ['workspaceRoot: /project'], a: ['"command": "workspace-info"'], j: ['"ok":true'] },
+    { cmd: 'diagnostics', r: { ok: true, checksRun: 5, failedChecks: ['lint'], diagnosticsSummary: { total: 3 }, results: [{ file: 'a.js', messages: 2 }] }, h: ['checksRun: 5'], s: ['Checks: 5'], m: ['checksRun: 5'], a: ['"command": "diagnostics"'], j: ['"_type":"diagnostic"'] },
+    { cmd: 'audit-map', r: { ok: true, summary: { severity: 'low', nextSteps: ['Check'] }, tree: [{ type: 'file', name: 'a.js', path: 'a.js' }], edges: [{ source: 'a.js', target: 'b.js' }], highlightedFiles: [{ file: 'a.js', reason: 'hotspot' }], issueOverlay: { unresolved: [], cycles: [], deadExports: [], orphans: [], hotspots: [] } }, h: ['severity: low'], s: ['Files: 1'], m: ['severity: low'], a: ['"command": "audit-map"'], j: ['"_type":"highlighted-file"'] },
+    { cmd: 'stats', r: { ok: true, stats: { files: 10, imports: 20 } }, h: ['files: 10'], s: ['files: 10'], m: ['files: 10'], a: ['"command": "stats"'], j: ['"ok":true'] },
+    { cmd: 'dependencies', r: { ok: true, file: 'src/a.js', dependenciesCount: 2, dependencies: ['src/b.js', 'src/c.js'] }, h: ['dependenciesCount: 2'], s: ['Dependencies: 2'], m: ['Dependencies: 2'], a: ['"command": "dependencies"'], j: ['"_type":"dependency"'] },
+    { cmd: 'dependents', r: { ok: true, file: 'src/a.js', dependentsCount: 1, dependents: ['src/b.js'] }, h: ['dependentsCount: 1'], s: ['Dependents: 1'], m: ['Dependents: 1'], a: ['"command": "dependents"'], j: ['"_type":"dependent"'] },
+    { cmd: 'dead-exports', r: { ok: true, deadExportsCount: 1, deadExports: [{ file: 'a.js', exports: ['x'] }], possibleFalsePositives: { disclaimer: 'May be false.' } }, h: ['deadExportsCount: 1'], s: ['Dead exports: 1'], m: ['Dead exports: 1'], a: ['"command": "dead-exports"', '"dead-exports"'], j: ['"_type":"dead-export"'] },
+    { cmd: 'unresolved', r: { ok: true, unresolvedCount: 1, unresolved: [{ file: 'a.js', import: './missing' }], possibleFalsePositives: { disclaimer: 'May be alias.' } }, h: ['unresolvedCount: 1'], s: ['Unresolved: 1'], m: ['Unresolved: 1'], a: ['"command": "unresolved"'], j: ['"_type":"unresolved"'] },
+    { cmd: 'cycles', r: { ok: true, cyclesCount: 1, cycles: [['a.js', 'b.js', 'a.js']] }, h: ['cyclesCount: 1'], s: ['Cycles: 1'], m: ['Cycles: 1'], a: ['"command": "cycles"', '"cycles"'], j: ['"_type":"cycle"'] },
+    { cmd: 'tree', r: { ok: true, file: 'src/a.js', tree: { file: 'src/a.js', imports: [{ file: 'src/b.js' }], dependents: [{ file: 'src/c.js' }] } }, h: ['file: src/a.js'], s: ['File: src/a.js'], m: ['File: src/a.js'], a: ['"command": "tree"'], j: ['"_type":"tree"'] },
+    { cmd: 'audit-security', r: { ok: true, adapters: ['builtin'], summary: { total: 2, bySeverity: { high: 1, medium: 1, low: 0 } }, findings: [{ severity: 'high', ruleId: 'r1', file: 'a.js', lineStart: 1, message: 'm1' }, { severity: 'medium', ruleId: 'r2', file: 'b.js', lineStart: 2, message: 'm2' }] }, h: ['findings: 2'], s: ['Findings: 2'], m: ['# Security Audit'], a: ['"command": "audit-security"', '"security"'], j: ['"_type":"finding"'] },
+  ];
+
+  for (const c of cases) {
+    if (c.h) { const o = formatHuman(c.cmd, c.r); for (const e of c.h) assertIncludes(o, e, `${c.cmd}/human`); }
+    if (c.s) { const o = formatSummary(c.cmd, c.r); for (const e of c.s) assertIncludes(o, e, `${c.cmd}/summary`); }
+    if (c.m) { const o = formatMarkdown(c.cmd, c.r); for (const e of c.m) assertIncludes(o, e, `${c.cmd}/markdown`); }
+    if (c.a) { const o = formatAi(c.cmd, c.r); for (const e of c.a) assertIncludes(o, e, `${c.cmd}/ai`); }
+    if (c.j) { const o = formatJsonl(c.cmd, c.r); for (const e of c.j) assertIncludes(o, e, `${c.cmd}/jsonl`); }
+  }
 }
 
 main();
