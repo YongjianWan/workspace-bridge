@@ -25,6 +25,7 @@ const COMMANDS = {
   repl: require('./repl'),
   watch: require('./watch'),
   init: require('./init'),
+  debug: require('./debug'),
 };
 
 module.exports = { COMMANDS };

@@ -41,7 +41,7 @@ node cli.js audit-summary --cwd . --json --quiet
 - 测试：**受影响测试全部 PASS**；全量 runner 133/133 PASS（~4min，分阶段：fast ~37s / slow ~100s / watch 串行）。开发迭代用 `npm run test:fast`（~37s）或 `npm run test:smoke`（~31s）
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~263 文件，entry=1, mainline=128, test=135
+- 自身项目规模：~264 文件，entry=1, mainline=129, test=135
 - 健康度：7/8（缺 dockerConfig），deadExports=1（`severityMeetsFilter` 在 `src/cli/commands/_utils.js` 中零引用，待清理），cycles=0，unresolved=0
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust Regular Expressions、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
@@ -100,6 +100,21 @@ node cli.js audit-summary --cwd . --json --quiet
   - 新建 `src/utils/event-bus.js`，支持多监听器 + 错误隔离 + `emitAsync`。
   - `file-index.js` 单属性回调改为 EventBus 事件发射。
   - `watch.js` 不再覆盖 `fileIndex.onFileChanged`，watch 输出与 diagnostics 检查同时工作。
+- **D1-D3（Wave 2 架构核心：edges 表 + loadGraph 快速恢复）**：
+  - **D1** `graph-db.js`：新增 `edges` 表 schema + `saveEdges()` / `loadEdges()` API；`test/graph-db-test.js` 补 round-trip + 空表测试。
+  - **D2** `cache.js` + `builder.js`：`WorkspaceCache` 新增 edges 代理；`GraphBuilder` 在 `build()` / `updateFiles()` 末尾持久化 edges（含 post-process 后的 implicit edges）。
+  - **D3** `dep-graph.js` + `container.js`：新增 `loadGraph()`，三层 staleness 校验后从 SQLite edges + parseResults 恢复 graph + reverseGraph；`container.js` `_initDepGraph()` 优先 loadGraph，fallback 到 build。修复 Windows originalPath 大小写回归（`integration-core-test.js`）。
+- **D7-D8（预计算表持久化）**：
+  - **D7** `graph-db.js` + `cache.js`：新增 `precomputed_aggregates` 和 `precomputed_impact` 表及读写 API；`WorkspaceCache` 薄代理。
+  - **D8** `analyzer.js` + `builder.js` + `dep-graph.js`：`GraphAnalyzer` 新增 `precomputeImpact()` 和 `_impactCache`；`injectPrecomputedAggregates()` / `injectPrecomputedImpact()` 从 SQLite 恢复；`build()` / `updateFiles()` 末尾自动持久化；`loadGraph()` 恢复时注入预计算数据。
+  - 验证：全量 runner **133/133 PASS**；`test/precomputed-roundtrip-test.js` 5/5 PASS；冷启动 2.7s → 温启动 1.45s。
+- **Wave 1（SymbolRegistry 全局符号表）**：
+  - 新建 `src/services/dep-graph/symbol-registry.js`：从 AST `exportRecords` 构建纯内存全局符号表，支持 `lookup` / `lookupUnique` / `getRegistryStats`。
+  - `builder.js` 在 `build()` / `updateFiles()` 末尾调用 `_buildSymbolRegistry()` 构建符号表。
+  - `dep-graph.js` facade 暴露 `symbolRegistry` getter。
+  - CLI 新增 `debug --what symbols` 命令，输出符号统计和重复符号 TOP 50（自身项目：293 符号 / 92 文件 / 40 重复）。
+  - **Resolver 接入完成**：`resolvers.js` 新增 `trySymbolTable` fallback 策略，挂到所有语言策略链末尾；`resolveImport` 扩展可选第 5 参数 `symbolRegistry`；`builder.js` 调用点传入 `this.symbolRegistry`。
+  - 验证：`test/symbol-registry-test.js` 7/7 PASS；`test/resolver-symbol-table-test.js` 7/7 PASS；fast 层 96/96 PASS。
 
 ---
 
@@ -144,7 +159,7 @@ node cli.js audit-summary --cwd . --json --quiet
 - 活跃债务：**0 个 L1** + **0 个 L2** + **6 个 L3** + **0 个产品 bug** + **0 个产品债务**
 - 版本：v1.2.0，schemaVersion 冻结
 - 测试：**133/133 PASS**；全量 runner ~4min。开发迭代首选 `npm run test:fast`（~37s）
-- P0–P4 全部完成
+- P0–P4 全部完成；**Wave 1（低垂果实）完成；Wave 2（D1-D3 edges 表）完成**
 - **定位**：AI 的代码脚手架
 - **核心认知**：底层引擎能力足够，CLI 出口质量（`--format ai`）已交付。下一阶段主线是**解析精度结构性升级**，但必须波次化执行。
 
@@ -156,11 +171,25 @@ node cli.js audit-summary --cwd . --json --quiet
 
 > **约束**：波次化执行，每波之间保持 133/133 PASS。禁止一次性做多层心脏移植。
 
-| 波次 | 范围 | 侵入性 | 验证标准 |
-|------|------|--------|----------|
-| **Wave 1** | Pre-scan 全局符号表（新增模块，不改现有解析链） | 低 | 新增测试全绿，现有测试不受影响，符号表数据可通过 debug 命令导出验证 |
-| **Wave 2** | Resolver 策略链物理拆分（基于 Wave 1 数据结构） | 中 | 所有语言解析测试全绿，benchmark 无回归 |
-| **Wave 3** | Builder/Analyzer 解耦 + 后处理 Affected-only | 高 | 增量更新 benchmark 证明 O(k)，watch 模式无泄漏 |
+| 波次 | 范围 | 侵入性 | 验证标准 | 状态 |
+|------|------|--------|----------|------|
+| **Wave 1** | Pre-scan 全局符号表（新增模块，不改现有解析链） | 低 | 新增测试全绿，现有测试不受影响，符号表数据可通过 debug 命令导出验证 | ⏳ 待实施 |
+| **Wave 2** | Resolver 策略链物理拆分（基于 Wave 1 数据结构） | 中 | 所有语言解析测试全绿，benchmark 无回归 | ⏳ 待实施 |
+| **Wave 3** | Builder/Analyzer 解耦 + 后处理 Affected-only | 高 | 增量更新 benchmark 证明 O(k)，watch 模式无泄漏 | ⏳ 待实施 |
+
+### 数据层 Wave 2（D1-D8，已实施 D1-D3）
+
+> **来源**：[REFACTOR：数据层、编排层、输出层三层齐改](./docs/architecture/REFACTOR-2026-05-data-orchestration-output.md)
+
+| # | 行动 | 文件 | 状态 | 说明 |
+|---|------|------|------|------|
+| D1 | 新增 `edges` 表 | `graph-db.js` | ✅ 已完成 | `nodes` 表 deferred（`file_metadata` 已覆盖节点元数据） |
+| D2 | 增量写入 edges | `graph-db.js` `cache.js` `builder.js` | ✅ 已完成 | `build()` / `updateFiles()` 末尾自动保存 |
+| D3 | 加载 edges 恢复内存图 | `dep-graph.js` `container.js` | ✅ 已完成 | `loadGraph()` 三层校验 + fallback 到 `build()` |
+| D5 | 按需 post-process | `builder.js` | ✅ 已完成 | 按 re-parsed 扩展名过滤 phase |
+| D6 | 消除 parseResults/graph 冗余 | `cache.js` `dep-graph.js` | ⏳ 长期 | `nodes` + `edges` 成为唯一事实源 |
+| D7 | 预计算表 | `graph-db.js` | ⏳ 待实施 | `precomputed_impact` / `precomputed_tests` / `precomputed_aggregates` |
+| D8 | 写入预计算 | `builder.js` | ⏳ 待实施 | `updateFiles()` 后重新预计算并写入 SQLite |
 
 ### P2 高 ROI 用户可见功能（评估中）
 
@@ -195,6 +224,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-21（REFACTOR Wave 1 低垂果实 D4/O5/U4/U5/U6 全部完成 + D5/O1-O3 完成；U2 核心目标已达成）*
+*Last updated: 2026-05-21（REFACTOR Wave 2 D1-D3 edges 表 + loadGraph 快速恢复已完成；133/133 PASS）*
 
-> **本轮验证状态**：`npm run test:fast` 93/93 PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=1`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=263`）。
+> **本轮验证状态**：`npm run test:fast` 93/93 PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=1`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=268`）。
+> **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。

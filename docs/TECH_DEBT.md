@@ -18,21 +18,20 @@
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
-#### 启发式字符串 Import 解析且缺乏全局符号表辅助（架构债）
+#### ~~启发式字符串 Import 解析且缺乏全局符号表辅助（架构债）~~ ✅ 已缓解
+
+**状态**：SymbolRegistry fallback 已上线。`resolvers.js` 新增 `trySymbolTable` 策略挂到所有语言策略链末尾，当启发式字符串匹配失败时，通过 `symbolRegistry.lookupUnique()` 按符号名回溯定义文件。
 
 **数据**：
 
-- 在 `src/services/dep-graph/resolvers.js` 中，对于 Java（`tryJava`）、Go（`tryGoModule`）、Rust（`tryRustCrate`）等语言的跨文件依赖解析，完全依赖于粗暴的文件名/路径字符串匹配（如 `importPath.split('.').join(path.sep)`）。
-- 整个解析链对于跨文件导入的符号，缺乏一份轻量级的「全局符号表（pre-scan）」辅助。
+- `src/services/dep-graph/resolvers.js` 中 `resolveImport(fromFile, importPath, ext, root, symbolRegistry = null)` 扩展可选第 5 参数；`_buildContext` 将 `symbolRegistry` 传入 ctx；`trySymbolTable` 提取 importPath 最后一段作为符号名查询全局符号表。
+- 向后兼容：不传 `symbolRegistry` 时 `trySymbolTable` 立即 return null，零行为变更。
+- 典型收益场景：Java 类名与文件名不一致（如 `Utils.java` 中定义 `class Helper`）。
 
-**影响**：
+**剩余风险**：
 
-- 这直接导致了极其脆弱的跨文件解析能力。在现代多语言项目中，若符号导出名与所在物理文件名不一致（在 Java、Go 和 Python 中极为普遍），或者通过复杂的 package 依赖传递，单纯基于文件名猜测的解析会 100% 失败。这是系统底层造成跨文件依赖漏报和误报的架构性根因。
-
-**方案**：
-
-- 引入轻量级全局符号预扫描（pre-scan）机制，提取全工作区的公开符号表并落入 SQLite。
-- 升级 Resolver，使其在字符串启发式拼接失败时，能够结合全局符号表对符号定义进行高置信度多重回溯，彻底消除启发式匹配的局限。
+- 多文件同名符号时 `lookupUnique` 保守返回 null（避免误报），此时仍无法解析。
+- 实战基地 3 个项目 unresolved 仍为 0，说明当前代码库中暂无触发场景，fallback 处于"待命"状态。
 
 ---
 

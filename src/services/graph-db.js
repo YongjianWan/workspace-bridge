@@ -47,6 +47,37 @@ const SCHEMA = `
     path TEXT PRIMARY KEY,
     data TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS edges (
+    source TEXT NOT NULL,
+    target TEXT NOT NULL,
+    edge_type TEXT NOT NULL DEFAULT 'import',
+    confidence REAL NOT NULL DEFAULT 1.0,
+    PRIMARY KEY (source, target, edge_type)
+  );
+  CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source);
+  CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target);
+  CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
+
+  CREATE TABLE IF NOT EXISTS precomputed_aggregates (
+    key TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 0,
+    file_count INTEGER NOT NULL,
+    computed_at INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_precomputed_aggregates_version ON precomputed_aggregates(version);
+
+  CREATE TABLE IF NOT EXISTS precomputed_impact (
+    file TEXT PRIMARY KEY,
+    direct_deps INTEGER NOT NULL DEFAULT 0,
+    transitive_deps INTEGER NOT NULL DEFAULT 0,
+    direct_dependents INTEGER NOT NULL DEFAULT 0,
+    transitive_dependents INTEGER NOT NULL DEFAULT 0,
+    affected_tests TEXT,
+    version INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_precomputed_impact_version ON precomputed_impact(version);
 `;
 
 class GraphDB {
@@ -405,6 +436,208 @@ class GraphDB {
     } catch (err) {
       if (process.env.DEBUG) {
         console.error('[GraphDB] Save incremental failed:', err.message);
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Save all dependency edges to SQLite in a single transaction.
+   * Edges are stored after post-process so they include implicit/framework edges.
+   * @param {Array<{source:string,target:string,edgeType?:string,confidence?:number}>} edges
+   * @param {{cacheVersion?:number,fileMetadataCount?:number,parseResultsCount?:number,timestamp?:number}} [meta]
+   */
+  saveEdges(edges, meta = {}) {
+    try {
+      this._ensureOpen();
+
+      const tx = this.db.transaction(() => {
+        this.db.prepare('DELETE FROM edges').run();
+        const insert = this.db.prepare(
+          'INSERT OR REPLACE INTO edges (source, target, edge_type, confidence) VALUES (?, ?, ?, ?)'
+        );
+        for (const edge of edges) {
+          insert.run(
+            edge.source,
+            edge.target,
+            edge.edgeType || 'import',
+            Number(edge.confidence ?? 1.0)
+          );
+        }
+
+        if (meta && Object.keys(meta).length > 0) {
+          this.db.prepare('INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?, ?)').run(
+            'edgeMeta',
+            JSON.stringify(meta)
+          );
+        }
+      });
+
+      tx();
+      return true;
+    } catch (err) {
+      if (process.env.DEBUG) {
+        console.error('[GraphDB] Save edges failed:', err.message);
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Load all dependency edges from SQLite.
+   * @returns {Array<{source:string,target:string,edgeType:string,confidence:number}>|null}
+   */
+  loadEdges() {
+    try {
+      this._ensureOpen();
+      const rows = this.db.prepare(
+        'SELECT source, target, edge_type, confidence FROM edges'
+      ).all();
+      return rows.map((r) => ({
+        source: r.source,
+        target: r.target,
+        edgeType: r.edge_type,
+        confidence: Number(r.confidence),
+      }));
+    } catch (err) {
+      if (process.env.DEBUG) {
+        console.error('[GraphDB] Load edges failed:', err.message);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Save precomputed aggregate summaries to SQLite.
+   * @param {Array<{key:string,data:string,version:number,fileCount:number}>} rows
+   */
+  savePrecomputedAggregates(rows) {
+    try {
+      this._ensureOpen();
+      const tx = this.db.transaction(() => {
+        this.db.prepare('DELETE FROM precomputed_aggregates').run();
+        const insert = this.db.prepare(
+          'INSERT INTO precomputed_aggregates (key, data, version, file_count, computed_at) VALUES (?, ?, ?, ?, ?)'
+        );
+        const now = Math.floor(Date.now() / 1000);
+        for (const row of rows) {
+          insert.run(row.key, row.data, row.version ?? 0, row.fileCount ?? 0, now);
+        }
+      });
+      tx();
+      return true;
+    } catch (err) {
+      if (process.env.DEBUG) {
+        console.error('[GraphDB] Save precomputed aggregates failed:', err.message);
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Load precomputed aggregate summaries from SQLite.
+   * @returns {Array<{key:string,data:string,version:number,fileCount:number,computedAt:number}>|null}
+   */
+  loadPrecomputedAggregates() {
+    try {
+      this._ensureOpen();
+      const rows = this.db.prepare(
+        'SELECT key, data, version, file_count, computed_at FROM precomputed_aggregates'
+      ).all();
+      return rows.map((r) => ({
+        key: r.key,
+        data: r.data,
+        version: Number(r.version),
+        fileCount: Number(r.file_count),
+        computedAt: Number(r.computed_at),
+      }));
+    } catch (err) {
+      if (process.env.DEBUG) {
+        console.error('[GraphDB] Load precomputed aggregates failed:', err.message);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Save precomputed per-file impact data to SQLite.
+   * @param {Array<{file:string,directDeps:number,transitiveDeps:number,directDependents:number,transitiveDependents:number,affectedTests?:string,version:number}>} records
+   */
+  savePrecomputedImpact(records) {
+    try {
+      this._ensureOpen();
+      const tx = this.db.transaction(() => {
+        this.db.prepare('DELETE FROM precomputed_impact').run();
+        const insert = this.db.prepare(
+          'INSERT INTO precomputed_impact (file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, version) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        for (const rec of records) {
+          insert.run(
+            rec.file,
+            rec.directDeps ?? 0,
+            rec.transitiveDeps ?? 0,
+            rec.directDependents ?? 0,
+            rec.transitiveDependents ?? 0,
+            rec.affectedTests || null,
+            rec.version ?? 0
+          );
+        }
+      });
+      tx();
+      return true;
+    } catch (err) {
+      if (process.env.DEBUG) {
+        console.error('[GraphDB] Save precomputed impact failed:', err.message);
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Load precomputed per-file impact data from SQLite.
+   * @returns {Array<{file:string,directDeps:number,transitiveDeps:number,directDependents:number,transitiveDependents:number,affectedTests:string|null,version:number}>|null}
+   */
+  loadPrecomputedImpact() {
+    try {
+      this._ensureOpen();
+      const rows = this.db.prepare(
+        'SELECT file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, version FROM precomputed_impact'
+      ).all();
+      return rows.map((r) => ({
+        file: r.file,
+        directDeps: Number(r.direct_deps),
+        transitiveDeps: Number(r.transitive_deps),
+        directDependents: Number(r.direct_dependents),
+        transitiveDependents: Number(r.transitive_dependents),
+        affectedTests: r.affected_tests,
+        version: Number(r.version),
+      }));
+    } catch (err) {
+      if (process.env.DEBUG) {
+        console.error('[GraphDB] Load precomputed impact failed:', err.message);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Delete specific precomputed impact rows (for incremental updates).
+   * @param {string[]} files
+   */
+  deletePrecomputedImpact(files) {
+    try {
+      this._ensureOpen();
+      const stmt = this.db.prepare('DELETE FROM precomputed_impact WHERE file = ?');
+      const tx = this.db.transaction(() => {
+        for (const file of files) {
+          stmt.run(file);
+        }
+      });
+      tx();
+      return true;
+    } catch (err) {
+      if (process.env.DEBUG) {
+        console.error('[GraphDB] Delete precomputed impact failed:', err.message);
       }
       return false;
     }

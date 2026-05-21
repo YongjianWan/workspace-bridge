@@ -24,6 +24,8 @@ class GraphAnalyzer {
     this._pageRanks = null;
     this._aggregateCache = null;
     this._aggregateVersion = 0;
+    this._impactCache = new Map();
+    this._impactVersion = 0;
   }
 
   _bumpAggregateCache() {
@@ -50,6 +52,122 @@ class GraphAnalyzer {
       hotspots: this._aggregateCache?.hotspots || null,
       stability: this._aggregateCache?.stability || null,
     };
+  }
+
+  /**
+   * D7: Precompute per-file impact radius (direct/transitive deps & dependents)
+   * and affected tests. Results are stored in _impactCache for O(1) queries.
+   */
+  precomputeImpact() {
+    this._impactCache.clear();
+    this._impactVersion++;
+
+    for (const [filePath] of this.dg.graph) {
+      const directDeps = this.dg.getDependencies(filePath);
+      const directDependents = this.dg.getDependents(filePath);
+
+      // Transitive deps via BFS
+      const transitiveDeps = new Set();
+      bfsTraverse(filePath, (f) => this.dg.getDependencies(f), {
+        maxDepth: CONFIG.DEFAULT_MAX_DEPTH,
+        onVisit: (f) => {
+          if (f !== filePath) transitiveDeps.add(f);
+        },
+      });
+
+      // Transitive dependents via BFS
+      const transitiveDependents = new Set();
+      bfsTraverse(filePath, (f) => this.dg.getDependents(f), {
+        maxDepth: CONFIG.DEFAULT_MAX_DEPTH,
+        onVisit: (f) => {
+          if (f !== filePath) transitiveDependents.add(f);
+        },
+      });
+
+      // Affected tests (graph-only, without heuristic/mention to keep deterministic)
+      const affectedTests = this._findAffectedTestsByGraph(filePath, CONFIG.DEFAULT_MAX_DEPTH);
+
+      this._impactCache.set(filePath, {
+        directDeps: directDeps.length,
+        transitiveDeps: transitiveDeps.size,
+        directDependents: directDependents.length,
+        transitiveDependents: transitiveDependents.size,
+        affectedTests,
+      });
+    }
+  }
+
+  getPrecomputedImpact(filePath) {
+    const key = this.dg.normalizeFilePath(filePath);
+    return this._impactCache.get(key) || null;
+  }
+
+  /**
+   * D7: Inject precomputed aggregates from SQLite loadGraph fast path.
+   * Only accepts data if version and file_count match current state.
+   */
+  injectPrecomputedAggregates(rows, graphSize) {
+    if (!rows || rows.length === 0) return false;
+    // Verify consistency: all rows should share the same version/fileCount
+    const first = rows[0];
+    if (first.fileCount !== graphSize) return false;
+
+    const injected = {};
+    for (const row of rows) {
+      try {
+        injected[row.key] = JSON.parse(row.data);
+      } catch {
+        // ignore corrupted row
+      }
+    }
+
+    // Reconstruct _aggregateCache from injected keys
+    const deadExports = injected.deadExports || injected.dead_export || [];
+    const unresolved = injected.unresolved || injected.unresolved_import || [];
+    const cycles = injected.cycles || injected.cycle || [];
+    const stats = injected.stats || {};
+
+    this._aggregateCache = {
+      version: this._aggregateVersion,
+      deadExports,
+      unresolved,
+      cycles,
+      stats,
+      hotspots: injected.hotspots || null,
+      stability: injected.stability || null,
+    };
+    return true;
+  }
+
+  /**
+   * D7: Inject precomputed impact from SQLite loadGraph fast path.
+   */
+  injectPrecomputedImpact(rows, graphSize) {
+    if (!rows || rows.length === 0) return false;
+    // Light consistency check: if row count differs significantly from graph size,
+    // the precomputed data is likely stale.
+    if (Math.abs(rows.length - graphSize) > Math.max(1, graphSize * 0.1)) {
+      return false;
+    }
+
+    this._impactCache.clear();
+    this._impactVersion++;
+    for (const row of rows) {
+      let affectedTests = [];
+      try {
+        if (row.affectedTests) affectedTests = JSON.parse(row.affectedTests);
+      } catch {
+        // ignore corrupted
+      }
+      this._impactCache.set(row.file, {
+        directDeps: row.directDeps,
+        transitiveDeps: row.transitiveDeps,
+        directDependents: row.directDependents,
+        transitiveDependents: row.transitiveDependents,
+        affectedTests,
+      });
+    }
+    return true;
   }
 
   computePageRank() {
@@ -79,6 +197,42 @@ class GraphAnalyzer {
     }
     const key = this.dg.normalizeFilePath(filePath);
     return this._pageRanks.get(key) || 0;
+  }
+
+  getImpactStats(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH) {
+    // D7: prefer precomputed impact cache for O(1) queries
+    const cached = this.getPrecomputedImpact(filePath);
+    if (cached) {
+      return {
+        direct: cached.directDeps,
+        transitive: cached.transitiveDeps,
+        dependents: cached.directDependents,
+        transitiveDependents: cached.transitiveDependents,
+      };
+    }
+    // Fallback: compute on demand
+    const directDeps = this.dg.getDependencies(filePath);
+    const directDependents = this.dg.getDependents(filePath);
+    const transitiveDeps = new Set();
+    bfsTraverse(filePath, (f) => this.dg.getDependencies(f), {
+      maxDepth,
+      onVisit: (f) => {
+        if (f !== filePath) transitiveDeps.add(f);
+      },
+    });
+    const transitiveDependents = new Set();
+    bfsTraverse(filePath, (f) => this.dg.getDependents(f), {
+      maxDepth,
+      onVisit: (f) => {
+        if (f !== filePath) transitiveDependents.add(f);
+      },
+    });
+    return {
+      direct: directDeps.length,
+      transitive: transitiveDeps.size,
+      dependents: directDependents.length,
+      transitiveDependents: transitiveDependents.size,
+    };
   }
 
   isLikelyFrameworkLegitimateCycle(cycle) {

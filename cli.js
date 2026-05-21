@@ -256,6 +256,7 @@ Commands:
     dependencies --file <p> List direct dependencies of a file
     dependents --file <p>   List direct dependents of a file
     stats                   Show dependency graph statistics
+    debug --what symbols    Dump symbol registry stats and duplicates
 
   其他:
     init                    Create default .workspace-bridge.json in cwd
@@ -336,6 +337,7 @@ function parseCliArgs(argv) {
     '--cache-dir': { key: 'cacheDir' },
     '--direction': { key: 'direction' },
     '--eval': { key: 'eval' },
+    '--what': { key: 'what' },
     '--fail-on-findings': true,
     '--run-tests': true,
     '--version': true,
@@ -400,6 +402,7 @@ function parseCliArgs(argv) {
     cacheDir: raw.cacheDir || null,
     direction: raw.direction || null,
     eval: raw.eval || null,
+    what: raw.what || null,
     failOnFindings: Boolean(raw['--fail-on-findings']),
     runTests: Boolean(raw['--run-tests']),
     version: Boolean(raw['--version']) || Boolean(raw['-v']),

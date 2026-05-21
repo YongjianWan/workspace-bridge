@@ -11,6 +11,7 @@ const {
   buildImplicitImportRecord,
 } = require('./implicit-imports');
 const { CONFIG } = require('./shared');
+const { SymbolRegistry } = require('./symbol-registry');
 
 const readFile = promisify(fs.readFile);
 class GraphBuilder {
@@ -18,6 +19,7 @@ class GraphBuilder {
     this.dg = depGraph;
     this.onBuildComplete = null;
     this.onFileUpdated = null;
+    this.symbolRegistry = new SymbolRegistry();
     // P105: soft post-process phase architecture
     this.postProcessPhases = [];
     this.postProcessPhases.push({
@@ -122,6 +124,16 @@ class GraphBuilder {
 
     // P2: precompute aggregate summaries so subsequent queries are O(1)
     this.dg.analyzer.precomputeAggregates();
+
+    // D7-D8: precompute impact radius and persist to SQLite
+    this.dg.analyzer.precomputeImpact();
+    await this._savePrecomputed();
+
+    // Wave 1: build global symbol registry from exportRecords
+    this._buildSymbolRegistry();
+
+    // D1-D2: persist edges to SQLite for fast loadGraph() on next startup
+    await this._saveEdges();
   }
 
   async _processFilesWithLimit(files, limit) {
@@ -178,7 +190,7 @@ class GraphBuilder {
       // Resolve relative imports to absolute paths
       const resolvedImportRecords = (importRecords.length > 0 ? importRecords : imports.map((source) => createImportRecord(source)))
         .map((record) => {
-          const resolved = resolveImport(filePath, record.source, ext, this.dg.root);
+          const resolved = resolveImport(filePath, record.source, ext, this.dg.root, this.symbolRegistry);
           if (!resolved) return null;
           return {
             ...record,
@@ -268,6 +280,28 @@ class GraphBuilder {
 
     for (const [file, info] of this.dg.graph) {
       this._addReverseEdges(file, info.imports);
+    }
+  }
+
+  _serializeEdges() {
+    const edges = [];
+    for (const [file, info] of this.dg.graph) {
+      for (const imp of info.imports || []) {
+        edges.push({ source: file, target: imp, edgeType: 'import', confidence: 1.0 });
+      }
+    }
+    return edges;
+  }
+
+  async _saveEdges() {
+    if (!this.dg.cache || typeof this.dg.cache.saveEdges !== 'function') return;
+    try {
+      const edges = this._serializeEdges();
+      this.dg.cache.saveEdges(edges);
+    } catch (e) {
+      if (process.env.DEBUG) {
+        console.error('[GraphBuilder] saveEdges failed:', e.message);
+      }
     }
   }
 
@@ -563,6 +597,101 @@ class GraphBuilder {
             console.error('[GraphBuilder] cache.save() failed:', e.message);
           }
         }
+      }
+      // D1-D2: persist edges after incremental update
+      await this._saveEdges();
+
+      // D7-D8: recompute and persist precomputed data after incremental update
+      this.dg.analyzer.precomputeAggregates();
+      this.dg.analyzer.precomputeImpact();
+      await this._savePrecomputed();
+
+      // Wave 1: rebuild symbol registry for changed files
+      this._buildSymbolRegistry();
+    }
+  }
+
+  /**
+   * Wave 1: Build global symbol registry from all exportRecords in the graph.
+   */
+  _buildSymbolRegistry() {
+    this.symbolRegistry.clear();
+    for (const [filePath, info] of this.dg.graph) {
+      if (info.exportRecords && info.exportRecords.length > 0) {
+        this.symbolRegistry.register(filePath, info.exportRecords);
+      }
+    }
+  }
+
+  /**
+   * D7-D8: Serialize and save precomputed aggregates + impact to SQLite.
+   */
+  async _savePrecomputed() {
+    if (!this.dg.cache) return;
+    try {
+      const analyzer = this.dg.analyzer;
+      const graphSize = this.dg.graph.size;
+
+      // Save aggregates
+      const aggregateRows = [];
+      if (analyzer._aggregateCache) {
+        const cache = analyzer._aggregateCache;
+        if (cache.deadExports !== undefined) {
+          aggregateRows.push({
+            key: 'deadExports',
+            data: JSON.stringify(cache.deadExports),
+            version: analyzer._aggregateVersion,
+            fileCount: graphSize,
+          });
+        }
+        if (cache.unresolved !== undefined) {
+          aggregateRows.push({
+            key: 'unresolved',
+            data: JSON.stringify(cache.unresolved),
+            version: analyzer._aggregateVersion,
+            fileCount: graphSize,
+          });
+        }
+        if (cache.cycles !== undefined) {
+          aggregateRows.push({
+            key: 'cycles',
+            data: JSON.stringify(cache.cycles),
+            version: analyzer._aggregateVersion,
+            fileCount: graphSize,
+          });
+        }
+        if (cache.stats !== undefined) {
+          aggregateRows.push({
+            key: 'stats',
+            data: JSON.stringify(cache.stats),
+            version: analyzer._aggregateVersion,
+            fileCount: graphSize,
+          });
+        }
+      }
+      if (aggregateRows.length > 0) {
+        this.dg.cache.savePrecomputedAggregates(aggregateRows);
+      }
+
+      // Save impact
+      const impactRecords = [];
+      for (const [file, data] of analyzer._impactCache) {
+        impactRecords.push({
+          file,
+          directDeps: data.directDeps,
+          transitiveDeps: data.transitiveDeps,
+          directDependents: data.directDependents,
+          transitiveDependents: data.transitiveDependents,
+          affectedTests: JSON.stringify(data.affectedTests),
+          version: analyzer._impactVersion,
+        });
+      }
+      if (impactRecords.length > 0) {
+        this.dg.cache.savePrecomputedImpact(impactRecords);
+      }
+    } catch (e) {
+      if (process.env.DEBUG) {
+        console.error('[GraphBuilder] _savePrecomputed failed:', e.message);
       }
     }
   }

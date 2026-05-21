@@ -167,7 +167,7 @@ function _resolveAlias(importPath, root) {
  * @param {string} root
  * @returns {object}
  */
-function _buildContext(root) {
+function _buildContext(root, symbolRegistry = null) {
   return {
     root,
     cachedExistsSync,
@@ -176,6 +176,7 @@ function _buildContext(root) {
     discoverJavaSourceRoots: () => discoverJavaSourceRoots(root),
     readTsconfigPaths: () => _readTsconfigPaths(root),
     readGoMod: () => readGoMod(root),
+    symbolRegistry,
   };
 }
 
@@ -420,6 +421,26 @@ function tryRustCrate(importPath, _fromFile, ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// Strategy: SymbolRegistry fallback
+// Fallback when all heuristic string-matching strategies fail.
+// Looks up the last segment of the import path as a symbol name in the
+// workspace-wide SymbolRegistry. Only activates when a registry is provided.
+// ---------------------------------------------------------------------------
+function trySymbolTable(importPath, fromFile, ctx) {
+  if (!ctx.symbolRegistry) return null;
+  // Relative and absolute filesystem paths are out of scope for symbol lookup.
+  if (importPath.startsWith('.') || importPath.startsWith('/')) return null;
+
+  const symbolName = importPath.includes('.')
+    ? importPath.split('.').pop()
+    : importPath;
+  if (!symbolName) return null;
+
+  const fromDir = fromFile ? path.dirname(fromFile) : null;
+  return ctx.symbolRegistry.lookupUnique(symbolName, fromDir);
+}
+
+// ---------------------------------------------------------------------------
 // Strategy: Rust super:: resolution
 // ---------------------------------------------------------------------------
 function tryRustSuper(importPath, fromFile, ctx) {
@@ -524,17 +545,17 @@ function resolveRustImport(fromFile, importPath, root) {
 
 // Register resolver configs for all supported extensions.
 // Adding a new language requires exactly one line here.
-registerResolverConfig('.py', [tryPythonRelative, tryPythonAbsolute]);
-registerResolverConfig('.java', [tryJava]);
-registerResolverConfig('.kt', [tryJava]);
-registerResolverConfig('.go', [tryGoRelative, tryGoModule]);
-registerResolverConfig('.rs', [tryRustCrate, tryRustSuper]);
-registerResolverConfig('default', [tryAlias, tryRelativeWithExtensions]);
+registerResolverConfig('.py', [tryPythonRelative, tryPythonAbsolute, trySymbolTable]);
+registerResolverConfig('.java', [tryJava, trySymbolTable]);
+registerResolverConfig('.kt', [tryJava, trySymbolTable]);
+registerResolverConfig('.go', [tryGoRelative, tryGoModule, trySymbolTable]);
+registerResolverConfig('.rs', [tryRustCrate, tryRustSuper, trySymbolTable]);
+registerResolverConfig('default', [tryAlias, tryRelativeWithExtensions, trySymbolTable]);
 
-function resolveImport(fromFile, importPath, ext, root) {
+function resolveImport(fromFile, importPath, ext, root, symbolRegistry = null) {
   if (!importPath) return null;
   const strategies = RESOLVER_CONFIGS.get(ext) || RESOLVER_CONFIGS.get('default');
-  const ctx = _buildContext(root);
+  const ctx = _buildContext(root, symbolRegistry);
   return createResolver(strategies)(importPath, fromFile, ctx);
 }
 
@@ -556,4 +577,5 @@ module.exports = {
   tryGoModule,
   tryRustCrate,
   tryRustSuper,
+  trySymbolTable,
 };

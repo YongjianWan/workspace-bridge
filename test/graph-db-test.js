@@ -123,12 +123,70 @@ function testWALFileGenerated() {
   cleanupTempDir(tmpDir);
 }
 
+function testEdgesRoundTrip() {
+  const tmpDir = makeTempDir('wb-graphdb-');
+  const dbPath = path.join(tmpDir, 'cache.db');
+  const db = new GraphDB(dbPath);
+
+  const edges = [
+    { source: 'src/index.js', target: 'src/utils.js', edgeType: 'import', confidence: 1.0 },
+    { source: 'src/index.js', target: 'src/lib.js', edgeType: 'implicit-framework', confidence: 0.9 },
+    { source: 'src/utils.js', target: 'src/lib.js', edgeType: 'import', confidence: 1.0 },
+  ];
+
+  const meta = { cacheVersion: CACHE_VERSION, fileMetadataCount: 3, parseResultsCount: 3, timestamp: Date.now() };
+
+  const saved = db.saveEdges(edges, meta);
+  assert.strictEqual(saved, true, 'saveEdges should return true');
+
+  const loaded = db.loadEdges();
+  assert(loaded, 'loadEdges should return edges');
+  assert.strictEqual(loaded.length, 3, 'should load 3 edges');
+
+  const sorted = loaded.sort((a, b) => a.source.localeCompare(b.source) || a.target.localeCompare(b.target));
+  assert.strictEqual(sorted[0].source, 'src/index.js');
+  assert.strictEqual(sorted[0].target, 'src/lib.js');
+  assert.strictEqual(sorted[0].edgeType, 'implicit-framework');
+  assert.strictEqual(sorted[0].confidence, 0.9);
+
+  assert.strictEqual(sorted[1].source, 'src/index.js');
+  assert.strictEqual(sorted[1].target, 'src/utils.js');
+  assert.strictEqual(sorted[1].edgeType, 'import');
+
+  assert.strictEqual(sorted[2].source, 'src/utils.js');
+  assert.strictEqual(sorted[2].target, 'src/lib.js');
+
+  // Edge meta persisted
+  const edgeMetaRaw = db.getMetadata('edgeMeta');
+  assert(edgeMetaRaw, 'edgeMeta should be persisted');
+  const edgeMeta = JSON.parse(edgeMetaRaw);
+  assert.strictEqual(edgeMeta.cacheVersion, CACHE_VERSION);
+  assert.strictEqual(edgeMeta.fileMetadataCount, 3);
+
+  db.close();
+  cleanupTempDir(tmpDir);
+}
+
+function testEdgesLoadEmptyReturnsNull() {
+  const tmpDir = makeTempDir('wb-graphdb-');
+  const dbPath = path.join(tmpDir, 'cache.db');
+  const db = new GraphDB(dbPath);
+
+  const loaded = db.loadEdges();
+  assert.deepStrictEqual(loaded, [], 'loadEdges on fresh DB should return empty array');
+
+  db.close();
+  cleanupTempDir(tmpDir);
+}
+
 function main() {
   testSchemaCreation();
   testRoundTrip();
   testVersionMismatchReturnsNull();
   testCloseIdempotent();
   testWALFileGenerated();
+  testEdgesRoundTrip();
+  testEdgesLoadEmptyReturnsNull();
 }
 
 main();

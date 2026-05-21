@@ -8,6 +8,77 @@
 
 ## [Unreleased]
 
+### 架构（Wave 1：SymbolRegistry 全局符号表 — 2026-05-21）
+
+- **SymbolRegistry 新模块** `src/services/dep-graph/symbol-registry.js` `test/symbol-registry-test.js`：
+  - 轻量级全局符号表，从 AST `exportRecords` 构建，纯内存、无持久化。
+  - 核心 API：`register(filePath, exportRecords)` / `unregister(filePath)` / `lookup(symbolName)` / `lookupUnique(symbolName, preferredDir)` / `getExportedSymbols(filePath)` / `getRegistryStats()`。
+  - `lookupUnique` 在符号唯一时返回文件路径；若多个文件导出同名符号，返回 null（支持 `preferredDir` 优先级兜底）。
+  - `getRegistryStats` 输出符号总数、文件数、重复符号数。
+  - 测试：`test/symbol-registry-test.js` 7 个测试覆盖注册/注销/查重/唯一性/清空/corner case。
+
+- **Builder 集成** `src/services/dep-graph/builder.js`：
+  - `GraphBuilder` 构造函数中实例化 `this.symbolRegistry = new SymbolRegistry()`。
+  - `build()` 与 `updateFiles()` 末尾调用 `_buildSymbolRegistry()`：遍历全图 `exportRecords`，为每个文件注册导出符号。
+
+- **Facade 暴露** `src/services/dep-graph.js`：
+  - `DependencyGraph` 新增 getter `symbolRegistry`，代理到 `this.builder.symbolRegistry`。
+
+- **CLI debug 命令** `src/cli/commands/debug.js` `cli.js`：
+  - 新增 `debug --what symbols` 命令（L4 debug 层），输出符号表统计和重复符号 TOP 50。
+  - 验证：自身项目输出 293 符号 / 92 文件 / 40 重复，数据合理（如 `parseKotlin` 在 3 个 parser 入口中重复导出）。
+
+- **Resolver 接入** `src/services/dep-graph/resolvers.js` `src/services/dep-graph/builder.js` `test/resolver-symbol-table-test.js`：
+  - 新增 `trySymbolTable` 解析策略，挂到所有语言策略链（`.py` / `.java` / `.kt` / `.go` / `.rs` / `default`）末尾作为 fallback。
+  - 策略逻辑：当且仅当 `symbolRegistry` 提供且启发式匹配全部失败时，提取 importPath 最后一段作为符号名，调用 `symbolRegistry.lookupUnique(symbolName, fromDir)`；多文件同名时保守返回 null。
+  - `resolveImport(fromFile, importPath, ext, root, symbolRegistry = null)` 扩展可选第 5 参数，向后兼容：不传时 `trySymbolTable` 立即 return null，零行为变更。
+  - `builder.js` `_resolveImports()` 调用点传入 `this.symbolRegistry`，使符号表 fallback 在图构建阶段生效。
+  - 典型收益场景：Java 类名与文件名不一致（如 `Utils.java` 中定义 `class Helper`，另一文件 `import com.example.Helper`）。
+  - 测试：`test/resolver-symbol-table-test.js` 7 个测试覆盖 null registry / 相对路径过滤 / 唯一匹配 / 歧义保守 / fromDir 优先 / Java facade 端到端 / 点号分割提取。
+
+### 数据层（D7-D8：预计算表持久化 — 2026-05-21）
+
+- **D7: 新增 `precomputed_aggregates` + `precomputed_impact` 表** `src/services/graph-db.js` `test/precomputed-roundtrip-test.js`：
+  - SQLite schema 追加两张预计算表：
+    - `precomputed_aggregates(key, data, version, file_count, computed_at)` — 存储聚合分析结果（deadExports / unresolved / cycles / stats）。
+    - `precomputed_impact(file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, version)` — 存储每个文件的依赖半径和受影响测试列表。
+  - `GraphDB` 新增 5 个 API：`savePrecomputedAggregates` / `loadPrecomputedAggregates` / `savePrecomputedImpact` / `loadPrecomputedImpact` / `deletePrecomputedImpact`。
+  - `WorkspaceCache` 新增对应薄代理方法，保持与 edges API 一致的调用范式。
+  - 向后兼容：旧 cache.db 无预计算表 → load 返回 null → 正常 fallback 到内存计算。
+
+- **D8: Builder 写入 + loadGraph 恢复预计算** `src/services/dep-graph/builder.js` `src/services/dep-graph.js` `src/services/dep-graph/analyzer.js`：
+  - `GraphAnalyzer` 新增 `precomputeImpact()`：遍历全图，为每个文件计算直接/传递依赖数、直接/传递反向依赖数、受影响测试列表（graph-only），存入 `_impactCache`。
+  - `GraphAnalyzer` 新增 `injectPrecomputedAggregates(rows, graphSize)` / `injectPrecomputedImpact(rows, graphSize)`：从 SQLite 恢复预计算数据到内存缓存，带版本与 file_count 一致性校验，拒绝 stale 数据。
+  - `GraphBuilder.build()` 与 `updateFiles()` 末尾在 `_saveEdges()` 之前自动调用 `precomputeAggregates()` + `precomputeImpact()` + `_savePrecomputed()`，将结果持久化。
+  - `DependencyGraph.loadGraph()` 在 edges 恢复成功后，尝试加载并注入预计算数据到 analyzer。若注入成功，后续 `getStats()` / `findDeadExports()` / `findAffectedTests()` 等查询走 O(1) 缓存命中。
+  - 验证：
+    - `test/precomputed-roundtrip-test.js`：5 个测试覆盖 GraphDB 读写删、Analyzer 预计算与注入、corrupted row 容错。
+    - 全量 runner 133/133 PASS；基线 `audit-summary` 结果不变（healthScore=7/8, deadExports=1, unresolved=0）。
+    - 性能：自身项目冷启动 2.7s → 温启动 1.45s（~46% 提升，主要收益来自 loadGraph 跳过解析 + 预计算避免重复 BFS）。
+
+### 架构（Wave 2：D1-D3 edges 表 + loadGraph 快速恢复 — 2026-05-21）
+
+- **D1: 新增 `edges` 表与持久化 API** `src/services/graph-db.js` `test/graph-db-test.js`：
+  - 在 SQLite schema 中追加 `edges(source, target, edge_type, confidence)` 表及 `idx_edges_source/target/type` 三个索引。
+  - 新增 `GraphDB.saveEdges(edges, meta)`：事务内全量替换写入 edges，并原子保存 `edgeMeta`（cacheVersion / fileMetadataCount / parseResultsCount / timestamp）用于 staleness 校验。
+  - 新增 `GraphDB.loadEdges()`：SELECT 全表并返回结构化 edge 数组。
+  - 验证：`test/graph-db-test.js` 新增 `testEdgesRoundTrip` + `testEdgesLoadEmptyReturnsNull`，133/133 PASS。
+
+- **D2: Builder 增量保存 edges** `src/services/cache.js` `src/services/dep-graph/builder.js`：
+  - `WorkspaceCache` 新增 `saveEdges(edges)` / `loadEdges()` 代理，并在 `METADATA_SCHEMA` 注册 `edgeMeta` 以便 schema-driven load。
+  - `GraphBuilder` 新增 `_serializeEdges()`（遍历 `graph` 提取所有 import 边）与 `_saveEdges()`（防御式错误捕获）。
+  - `build()` 与 `updateFiles()` 末尾在 post-process 之后自动调用 `_saveEdges()`，确保 edges 包含 implicit/framework 边。
+  - 向后兼容：旧 cache.db 无 edges 表 → `loadEdges()` 返回空数组 → 正常 fallback 到 `build()`。
+
+- **D3: `loadGraph()` 快速恢复 + container 优先使用** `src/services/dep-graph.js` `src/services/container.js`：
+  - `DependencyGraph` 新增 `loadGraph()`：
+    1.  staleness 三层校验：`cache.checkFileChanges()`（磁盘变更检测）→ `edgeMeta.cacheVersion` → `fileMetadataCount` / `parseResultsCount` 匹配。
+    2.  从 `cache.parseResults` 恢复节点基础数据（exports / parseMode / functionRecords 等），从 `edges` 表恢复 `imports` 和 `reverseGraph`（包含 post-process 后的 implicit edges）。
+    3.  处理 orphan edges（edges 中有但 parseResults 中无的文件），创建最小占位节点避免图断裂。
+  - `ServiceContainer._initDepGraph()` 优先调用 `depGraph.loadGraph()`；成功时跳过 `build()` 并补调 `precomputeAggregates()`；失败时正常 fallback 到 `depGraph.build()`。
+  - 修复：loadGraph 中 `originalPath` 优先从 `fileMetadata.originalPath` 恢复（`parseResults` 的 `loadAll` 不保留该字段），避免 Windows 路径大小写失真导致 `integration-core-test.js` resolvedPath 不稳定。
+  - 验证：全量 runner 133/133 PASS（含 `integration-core-test.js` / `dep-graph-incremental-test.js` / `cache-consistency-test.js`）。
+
 ### 重构（O1-O3：EventBus + 修复 watch/diagnostics 覆盖冲突 — 2026-05-21）
 
 - **引入轻量 EventBus 替换单属性回调** `src/utils/event-bus.js` `src/services/file-index.js` `src/services/container.js` `src/cli/watch.js`：

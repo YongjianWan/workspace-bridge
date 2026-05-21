@@ -45,6 +45,11 @@ const METADATA_SCHEMA = {
     serialize: (v) => JSON.stringify(v),
     deserialize: (raw) => JSON.parse(raw),
   },
+  edgeMeta: {
+    default: null,
+    serialize: (v) => JSON.stringify(v),
+    deserialize: (raw) => JSON.parse(raw),
+  },
 };
 
 function computeDefaultCacheDir(workspaceRoot) {
@@ -561,6 +566,50 @@ class WorkspaceCache {
       }
     }
     return { changed: changedFiles.length > 0, changedFiles };
+  }
+
+  /**
+   * Persist dependency edges to SQLite (full replacement).
+   * Called by GraphBuilder after build()/updateFiles() post-process.
+   */
+  saveEdges(edges) {
+    const meta = {
+      cacheVersion: CACHE_VERSION,
+      fileMetadataCount: this.fileMetadata.size,
+      parseResultsCount: this.parseResults.size,
+      timestamp: Date.now(),
+    };
+    return this._graphDb.saveEdges(edges, meta);
+  }
+
+  /**
+   * Load dependency edges from SQLite.
+   * @returns {Array<{source:string,target:string,edgeType:string,confidence:number}>|null}
+   */
+  loadEdges() {
+    return this._graphDb.loadEdges();
+  }
+
+  // D7-D8: Precomputed aggregates / impact proxy methods
+
+  savePrecomputedAggregates(rows) {
+    return this._graphDb.savePrecomputedAggregates(rows);
+  }
+
+  loadPrecomputedAggregates() {
+    return this._graphDb.loadPrecomputedAggregates();
+  }
+
+  savePrecomputedImpact(records) {
+    return this._graphDb.savePrecomputedImpact(records);
+  }
+
+  loadPrecomputedImpact() {
+    return this._graphDb.loadPrecomputedImpact();
+  }
+
+  deletePrecomputedImpact(files) {
+    return this._graphDb.deletePrecomputedImpact(files);
   }
 
   close() {

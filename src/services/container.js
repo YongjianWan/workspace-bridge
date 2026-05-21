@@ -191,7 +191,14 @@ class ServiceContainer {
       projectContext: this.projectContext,
       quiet: this.quiet,
     });
-    await this.depGraph.build(this.fileIndex?._indexedFiles || null);
+    // D3: attempt fast-path load from persisted edges; fall back to full build()
+    const loaded = this.depGraph.loadGraph();
+    if (!loaded) {
+      await this.depGraph.build(this.fileIndex?._indexedFiles || null);
+    } else {
+      // Precompute aggregates since we skipped build()
+      this.depGraph.analyzer.precomputeAggregates();
+    }
     // Precompute-on-demand: hotspot/stability and co-changes computed on first query
   }
 
