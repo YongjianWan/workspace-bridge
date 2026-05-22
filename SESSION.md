@@ -144,7 +144,6 @@ node cli.js audit-summary --cwd . --json --quiet
 >
 > 相关架构背景参考（独立文档，与本节 Wave 定义非同一套）：
 >
-> - [ADR：workspace-bridge 从分析工具到代码知识库](./docs/architecture/ADR-graph-knowledge-base.md) — SQLite 作为核心图存储的决策与四阶段实施路线
 > - [REFACTOR：数据层、编排层、输出层三层齐改](./docs/architecture/REFACTOR-2026-05-data-orchestration-output.md) — 22 项代码审计问题的三层重构方案（D1-D8 / O1-O7 / U1-U9）
 
 ### 当前状态
