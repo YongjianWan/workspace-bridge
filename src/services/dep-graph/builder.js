@@ -119,18 +119,16 @@ class GraphBuilder {
       this.onBuildComplete({ fileCount: this.dg.graph.size, cacheHitRate });
     }
 
-    // P2: precompute aggregate summaries so subsequent queries are O(1)
-    this.dg.analyzer.precomputeAggregates();
-
-    // D7-D8: precompute impact radius and persist to SQLite
-    this.dg.analyzer.precomputeImpact();
-    await this._savePrecomputed();
-
     // Wave 1: build global symbol registry from exportRecords
     this._buildSymbolRegistry();
 
     // D1-D2: persist edges to SQLite for fast loadGraph() on next startup
     await this._saveEdges();
+
+    // O4: Builder no longer knows Analyzer. Post-build analysis is triggered
+    // by the 'graph:built' event, which the facade (DependencyGraph) listens
+    // to and coordinates precompute + persistence.
+    await this.dg.bus.emitAsync('graph:built');
   }
 
   async _processFilesWithLimit(files, limit) {
@@ -591,13 +589,11 @@ class GraphBuilder {
       // D1-D2: persist edges after incremental update
       await this._saveEdges();
 
-      // D7-D8: recompute and persist precomputed data after incremental update
-      this.dg.analyzer.precomputeAggregates();
-      this.dg.analyzer.precomputeImpact();
-      await this._savePrecomputed();
-
       // Wave 1: rebuild symbol registry for changed files
       this._buildSymbolRegistry();
+
+      // O4: post-build analysis triggered via event, not direct call.
+      await this.dg.bus.emitAsync('graph:built');
     }
   }
 
@@ -609,79 +605,6 @@ class GraphBuilder {
     for (const [filePath, info] of this.dg.graph) {
       if (info.exportRecords && info.exportRecords.length > 0) {
         this.symbolRegistry.register(filePath, info.exportRecords);
-      }
-    }
-  }
-
-  /**
-   * D7-D8: Serialize and save precomputed aggregates + impact to SQLite.
-   */
-  async _savePrecomputed() {
-    if (!this.dg.cache) return;
-    try {
-      const analyzer = this.dg.analyzer;
-      const graphSize = this.dg.graph.size;
-
-      // Save aggregates
-      const aggregateRows = [];
-      if (analyzer._aggregateCache) {
-        const cache = analyzer._aggregateCache;
-        if (cache.deadExports !== undefined) {
-          aggregateRows.push({
-            key: 'deadExports',
-            data: JSON.stringify(cache.deadExports),
-            version: analyzer._aggregateVersion,
-            fileCount: graphSize,
-          });
-        }
-        if (cache.unresolved !== undefined) {
-          aggregateRows.push({
-            key: 'unresolved',
-            data: JSON.stringify(cache.unresolved),
-            version: analyzer._aggregateVersion,
-            fileCount: graphSize,
-          });
-        }
-        if (cache.cycles !== undefined) {
-          aggregateRows.push({
-            key: 'cycles',
-            data: JSON.stringify(cache.cycles),
-            version: analyzer._aggregateVersion,
-            fileCount: graphSize,
-          });
-        }
-        if (cache.stats !== undefined) {
-          aggregateRows.push({
-            key: 'stats',
-            data: JSON.stringify(cache.stats),
-            version: analyzer._aggregateVersion,
-            fileCount: graphSize,
-          });
-        }
-      }
-      if (aggregateRows.length > 0) {
-        this.dg.cache.savePrecomputedAggregates(aggregateRows);
-      }
-
-      // Save impact
-      const impactRecords = [];
-      for (const [file, data] of analyzer._impactCache) {
-        impactRecords.push({
-          file,
-          directDeps: data.directDeps,
-          transitiveDeps: data.transitiveDeps,
-          directDependents: data.directDependents,
-          transitiveDependents: data.transitiveDependents,
-          affectedTests: JSON.stringify(data.affectedTests),
-          version: analyzer._impactVersion,
-        });
-      }
-      if (impactRecords.length > 0) {
-        this.dg.cache.savePrecomputedImpact(impactRecords);
-      }
-    } catch (e) {
-      if (process.env.DEBUG) {
-        console.error('[GraphBuilder] _savePrecomputed failed:', e.message);
       }
     }
   }

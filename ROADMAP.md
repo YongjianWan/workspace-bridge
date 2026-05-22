@@ -507,3 +507,18 @@ CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
 > 路线 I-2 GitNexus 深度对比 of 9 项发现中，数值 confidence / yieldToEventLoop / confidenceSource 标签 / git-aware staleness / import 策略链抽象 5 项已吸收并完成。详见 [CHANGELOG.md](./CHANGELOG.md)。
 >
 > **2026-05-21 评估更新**：本轮修复 `analysis-test.js` maxDepth 断言（mention 检测 distance 语义兼容），同步 SESSION.md / TECH_DEBT.md / ROADMAP.md 数字与状态。133/133 测试 100% 全量 PASS。详见 [SESSION.md](./SESSION.md)。
+
+---
+
+## 活跃重构项
+
+> 三层重构（数据层 / 编排层 / 输出层）的详细 Wave 计划、优先级与验收标准见 [SESSION.md](./SESSION.md) §下一步方向。
+> 本文档只保留高层方向；具体实施顺序、P0-P3 分类、已知陷阱见 SESSION.md。
+
+| 项 | 范围 | 状态 | 说明 |
+|----|------|------|------|
+| D6 | 消除 parseResults/graph 冗余 | ⏳ 长期 | `nodes` + `edges` 成为唯一事实源 |
+| O6 | 生命周期状态机 | ⏳ 长期 | `idle → initializing → ready → shutting-down → idle` |
+| U3 | overview-tools 拆分 | ⏳ 中等 | 712 行上帝函数 → <200 行 |
+| U7 | audit-assembler 拆分 | ⏳ 中等 | `assembleDiff` 拆为纯函数 |
+| O4 | Builder→Analyzer 解耦 | ✅ 已完成 | EventBus `graph:built` 替代直接调用 |

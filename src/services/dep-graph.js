@@ -47,6 +47,14 @@ class DependencyGraph {
       this._cachedCycles = null;
       this._cycleCount = undefined;
     });
+    // O4: Builder no longer knows Analyzer. The facade listens to 'graph:built'
+    // and coordinates post-build precompute + persistence so Builder stays a
+    // pure graph-construction engine.
+    this.bus.on('graph:built', async () => {
+      this.analyzer.precomputeAggregates();
+      this.analyzer.precomputeImpact();
+      await this._savePrecomputed();
+    });
     // Content cache for _scanSymbolUsageInImporters: avoids re-reading the same
     // importer file hundreds of times during a single findDeadExports() call.
     this._scanContentCache = new Map();
@@ -98,6 +106,18 @@ class DependencyGraph {
 
   getAllFileInfos() {
     return Array.from(this.graph.entries());
+  }
+
+  getFileCount() {
+    return this.graph.size;
+  }
+
+  getAllFilePaths() {
+    return Array.from(this.graph.keys());
+  }
+
+  getAllFileValues() {
+    return Array.from(this.graph.values());
   }
 
   _readPackageJson() {
@@ -418,6 +438,81 @@ class DependencyGraph {
 
   _scanSymbolUsageInImporters(...args) {
     return this.analyzer._scanSymbolUsageInImporters(...args);
+  }
+
+  /**
+   * D7-D8: Serialize and save precomputed aggregates + impact to SQLite.
+   * Moved from builder.js to dep-graph.js (facade) as part of O4 decoupling:
+   * Builder no longer knows Analyzer; the facade coordinates persistence.
+   */
+  async _savePrecomputed() {
+    if (!this.cache) return;
+    try {
+      const analyzer = this.analyzer;
+      const graphSize = this.graph.size;
+
+      // Save aggregates
+      const aggregateRows = [];
+      if (analyzer._aggregateCache) {
+        const cache = analyzer._aggregateCache;
+        if (cache.deadExports !== undefined) {
+          aggregateRows.push({
+            key: 'deadExports',
+            data: JSON.stringify(cache.deadExports),
+            version: analyzer._aggregateVersion,
+            fileCount: graphSize,
+          });
+        }
+        if (cache.unresolved !== undefined) {
+          aggregateRows.push({
+            key: 'unresolved',
+            data: JSON.stringify(cache.unresolved),
+            version: analyzer._aggregateVersion,
+            fileCount: graphSize,
+          });
+        }
+        if (cache.cycles !== undefined) {
+          aggregateRows.push({
+            key: 'cycles',
+            data: JSON.stringify(cache.cycles),
+            version: analyzer._aggregateVersion,
+            fileCount: graphSize,
+          });
+        }
+        if (cache.stats !== undefined) {
+          aggregateRows.push({
+            key: 'stats',
+            data: JSON.stringify(cache.stats),
+            version: analyzer._aggregateVersion,
+            fileCount: graphSize,
+          });
+        }
+      }
+      if (aggregateRows.length > 0) {
+        this.cache.savePrecomputedAggregates(aggregateRows);
+      }
+
+      // Save impact
+      const impactRecords = [];
+      for (const [file, data] of analyzer._impactCache) {
+        impactRecords.push({
+          file,
+          directDeps: data.directDeps,
+          transitiveDeps: data.transitiveDeps,
+          directDependents: data.directDependents,
+          transitiveDependents: data.transitiveDependents,
+          affectedTests: JSON.stringify(data.affectedTests),
+          version: analyzer._impactVersion,
+        });
+      }
+      if (impactRecords.length > 0) {
+        this.cache.savePrecomputedImpact(impactRecords);
+      }
+    } catch (e) {
+      if (process.env.DEBUG) {
+        console.error('[DependencyGraph] _savePrecomputed failed:', e.message);
+      }
+    }
   }
 
 }
