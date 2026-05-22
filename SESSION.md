@@ -61,7 +61,7 @@ node cli.js audit-summary --cwd . --json --quiet
 | `DEFAULT_EXCLUDE_DIRS` 全局污染                      | `src/services/file-index.js`                         | 任何新增排除项必须是通用目录名（如 `node_modules`），不能是项目特定名称                                                           |
 | orphan 检测不同步                                      | `project-map.js` vs `overview-tools.js`            | 两处 orphan 逻辑必须保持同步（scripts/bin/benchmark 跳过）                                                                          |
 | compact 模式只改 project-map.js                        | `cli.js` 也需要同步                                  | human-readable 输出和 `countTreeFiles()` 必须兼容 skeleton 模式（`totalFileCount`）                                             |
-| Windows PowerShell 管道 BOM                            | 所有 `node cli.js ... \| node -e` 命令                | PowerShell 管道传 JSON 会带 BOM，用文件中转（`> file`）再读取                                                                     |
+| Windows PowerShell 管道 BOM                            | 所有 `node cli.js ... \| node -e` 命令                | PowerShell 管道传 JSON 会带 BOM，导致 `JSON.parse` 必 crash。**这是主要消费路径上的 broken pipe**，修法：JSON 输出时 strip BOM，或用 Buffer 写 stdout 绕过 PowerShell 编码。当前 workaround：用文件中转（`> file`）再读取                                              |
 | cache.save() 已改为 async                              | `src/services/cache.js`                              | 调用方必须 `await`（container.js、测试均已适配）                                                                                  |
 | repl-test.js flaky                                     | `test/repl-test.js`                                  | runner.js 串行执行时偶发失败，单独 `node test/repl-test.js` 稳定通过；若遇到，先重跑确认                                          |
 | `framework-patterns.js` 新增框架时                   | `src/services/dep-graph/framework-patterns.js`       | 路径检测逻辑按语言分块，新增语言需同时更新 `isEntry` 标记和测试                                                                   |
@@ -71,6 +71,7 @@ node cli.js audit-summary --cwd . --json --quiet
 | `.workspace-bridge-cache.json.bak` 泄漏到 git status | `src/tools/git-tools.js`                             | `getChangedFiles()` 已排除 `.bak` 备份文件，防止 audit-diff 误报                                                                |
 | `resolvers.js` 策略链新增策略                        | `src/services/dep-graph/resolvers.js`                | 新增语言需在 `registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null`                     |
 | `checkFileChanges()` 双路径                          | `src/services/cache.js`                              | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为                                              |
+| `engines: >=16.0.0` 与实际依赖冲突                   | `package.json`                                       | `better-sqlite3@12` 需要 Node 18+；`structuredClone` 需 Node 17+。声称支持 16 但实际装不上。已标记需修，见下方待挖掘 #13                              |
 
 ---
 
@@ -202,7 +203,12 @@ node cli.js audit-summary --cwd . --json --quiet
 | - | ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 6 | **CLI 命令分层认知负担**     | 高       | 虽然 L4 已标记为 debug，但 `--help` 仍展示 20+ 命令，AI 消费者仍需在 20 个命令中做选择。验证：统计 SKILL.md 中 "WHEN TO USE" 的篇幅占比，若 >50% 花在命令选择上，说明分层暴露仍不足 |
 | 7 | **Windows 兼容性补丁式累积** | 中       | 路径兼容不是通过统一抽象解决的，而是通过散落在 parser/resolver/git-tools/cli 各处的 `toPosixPath` 调用。验证：搜索 `toPosixPath` 调用点数量，若 >10 处，说明需要统一路径适配层    |
-|   |                                    |          |                                                                                                                                                                                       |
+| 8 | **`isKnownEntryFile` 同步磁盘 I/O** | 中       | `dep-graph.js` 中 `isKnownEntryFile()` 做 `fs.statSync` + `fs.openSync` + `fs.readSync`。findDeadExports 遍历每个文件都调，1329 文件项目会有几百次同步磁盘读。应从 D6 下独立为单独性能项          |
+| 9 | **`this.dg.graph` 穿透（38 处）** | 高       | L4 工具层直接操作 L2 `DependencyGraph.graph` 内部 Map，绕过 facade API。导致数据层与编排层边界模糊，任何 graph 结构变更都会波及大量调用点。应收敛为 facade 方法或 snapshot 消费      |
+| 10 | **预计算失效粒度太粗** | 中       | `graph:updated` 触发时清空整个 `_cachedCycles`。只改了一个文件不一定影响 cycles。当前"任何变更清全部缓存"对 watch 模式增量性能不友好。需验证：局部文件变更时，cycles 是否真的需要全量重算 |
+| 11 | **SESSION.md 与 TECH_DEBT.md 信息重复且不一致** | 低       | TECH_DEBT.md 第 88 行起有一整段"重构方向"与 SESSION.md Wave 2/3 计划大量重叠但粒度不同。两份文档事实源不统一，违反 AGENTS.md "活跃状态只在当前文档"原则。应收敛：技术债进 TECH_DEBT，路线图进 SESSION |
+| 12 | **TECH_DEBT.md 存已完成项** | 低       | 第 21-35 行"SymbolRegistry fallback 已上线"标了 ✅ 但没删。按清理铁律"修复即删，历史只进 CHANGELOG"，应移走                                            |
+| 13 | **`package.json engines` 偏低** | 低       | `engines.node: ">=16.0.0"` 但实际 `better-sqlite3@12` 需 Node 18+，`structuredClone` 需 Node 17+。应升至 `>=18.0.0`                                 |
 
 ### 当前不做
 

@@ -44,7 +44,7 @@
   "author": "sdses",
   "license": "MIT",
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0"
   },
   "bin": {
     "workspace-bridge": "cli.js",
