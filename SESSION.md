@@ -14,7 +14,7 @@
 >
 > 收工时已跑 `node test/runner.js` 并确认 133/133 PASS，开工无需重跑。直接读取下方「基线状态」确认当前文档记录是否仍成立。
 >
-> 开发迭代推荐 `npm run test:fast`（~37s，93 个 fast 层测试），比全量 runner（~4min）快 6×。
+> 开发迭代推荐 `npm run test:fast`（~37s，96 个 fast 层测试），比全量 runner（~4min）快 6×。
 
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）

@@ -5,17 +5,10 @@
 const fs = require('fs');
 const { SCHEMA_VERSION } = require('../../config/constants');
 
-const SEVERITY_RANK = { high: 3, medium: 2, low: 1 };
-
 function requireFile(parsed, command) {
   if (!parsed.file) {
     throw new Error(`${command} requires --file <path>`);
   }
-}
-
-function severityMeetsFilter(itemSeverity, minSeverity) {
-  if (!minSeverity || !SEVERITY_RANK[minSeverity]) return true;
-  return (SEVERITY_RANK[itemSeverity] || 0) >= SEVERITY_RANK[minSeverity];
 }
 
 function validateCwd(parsed) {
