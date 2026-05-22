@@ -6,7 +6,7 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const { runCli, runCliText, makeTempDir, cleanupTempDir, runInDir } = require('./test-helpers');
+const { runCli, runCliRaw, runCliText, makeTempDir, cleanupTempDir, runInDir } = require('./test-helpers');
 
 function writeFile(root, rel, content) {
   const full = path.join(root, rel);
@@ -193,6 +193,30 @@ function testDependents() {
   }
 }
 
+function testPathSanitization() {
+  const tempRoot = makeTempDir('wb-cli-path-sanitization-');
+  try {
+    writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'ps-test', version: '1.0.0', main: 'src/app.js' }, null, 2));
+    writeFile(tempRoot, 'src/app.js', 'export function run() { return 1; }\n');
+    initGit(tempRoot);
+
+    // --file with path traversal should be rejected
+    const badFile = runCliRaw(['impact', '--cwd', tempRoot, '--file', '../escape.js', '--json', '--quiet']);
+    assert.strictEqual(badFile.status, 1, 'path traversal in --file should exit 1');
+    assert(badFile.stdout.includes('path traversal') || badFile.stderr.includes('path traversal') || badFile.stdout.includes('path_error') || badFile.stderr.includes('path_error'), 'should mention path traversal or path_error');
+
+    // --files with path traversal should be rejected
+    const badFiles = runCliRaw(['audit-security', '--cwd', tempRoot, '--files', 'src/app.js,../evil.js', '--json', '--quiet']);
+    assert.strictEqual(badFiles.status, 1, 'path traversal in --files should exit 1');
+
+    // Normal relative path should succeed
+    const good = runCli(['impact', '--cwd', tempRoot, '--file', 'src/app.js', '--json', '--quiet']);
+    assert.strictEqual(good.ok, true, 'normal --file should succeed');
+  } finally {
+    cleanupTempDir(tempRoot);
+  }
+}
+
 function testCycles() {
   const tempRoot = makeTempDir('wb-cli-cycles-');
   try {
@@ -226,6 +250,7 @@ function main() {
   testDependencies();
   testDependents();
   testCycles();
+  testPathSanitization();
   console.log('cli-integration-test.js: all passed');
 }
 

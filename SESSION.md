@@ -19,7 +19,7 @@
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
 node cli.js audit-summary --cwd . --json --quiet
-# 期望: health.healthScore=7/8, summary.counts.deadExports=1, summary.counts.unresolved=0, summary.counts.cycles=0, summary.analysisCoverage.totalFiles≈263, summary.analysisCoverage.coverageRatio=1
+# 期望: health.healthScore=7/8, summary.counts.deadExports=0, summary.counts.unresolved=0, summary.counts.cycles=0, summary.analysisCoverage.totalFiles≈261, summary.analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-summary 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
@@ -41,7 +41,7 @@ node cli.js audit-summary --cwd . --json --quiet
 - 测试：**受影响测试全部 PASS**；全量 runner 133/133 PASS（~4min，分阶段：fast ~37s / slow ~100s / watch 串行）。开发迭代用 `npm run test:fast`（~37s）或 `npm run test:smoke`（~31s）
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~264 文件，entry=1, mainline=129, test=135
+- 自身项目规模：~247 文件（entry=1, mainline=123, test=138），commands/ 去壳后减少 17 个透传文件
 - 健康度：7/8（缺 dockerConfig），deadExports=0，cycles=0，unresolved=0
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust Regular Expressions、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
@@ -87,59 +87,24 @@ node cli.js audit-summary --cwd . --json --quiet
 - **L4 Facade 编排层提取**：新建并抽取 Curation 与过滤核心中转层 `src/tools/audit-assembler.js`。
 - **P1 AI 预消化输出机制**：开发了 `--format ai`、`--token-budget <n>` 和 `--depth` 特性。
 - **P0 低垂果实 5/5 完成**：SQLite pragma 调优、PhaseTimer 多阶段计时、CLI 错误分类 + 可操作建议、安全白名单分派表 + Assert Defense、测试间隙穿透。
+- **Dogfood 驱动新增（2 项）**：`audit-diff --commits <range>` + Dead export `duplicateOf` hint。
+- **REFACTOR Wave 1 低垂果实全部完成**：D4/O5/U4/U5/U6。
+- **U2（ExitCode 契约）核心目标已达成**。
+- **D5（按需 post-process）**。
+- **O1-O3（EventBus + 修复 watch/diagnostics 覆盖冲突）**。
+- **D1-D3（Wave 2 架构核心：edges 表 + loadGraph 快速恢复）**。
+- **D7-D8（预计算表持久化）**：冷启动 2.7s → 温启动 1.45s。
+- **Wave 1（SymbolRegistry 全局符号表）** + Resolver 接入。
+- **U1（Formatter 注册表）**：989 → 775 行（-22%）。
+- **O7（Resolver 缓存）**。
+- **U9（constants.js 拆分）**。
 
 **本轮**：
 
-- **Dogfood 驱动新增（2 项）**：
-  - **`audit-diff --commits <range>`**：支持 `HEAD~9..HEAD` 风格 commit range，`git-tools.js` 三函数同步支持，`test/audit-diff-test.js` + `test/git-tools-test.js` 端到端覆盖，手动验证通过。
-  - **Dead export duplication hint**：`findDeadExports()` 通过 SymbolRegistry 交叉检查，为死导出标注 `duplicateOf: { symbolName: 'file.js:line' }`，消除 "工具只报症状、人工才能找病因" 的 gap。`dead-export-confidence-test.js` 2 个新测试覆盖。
-
-- **REFACTOR Wave 1 低垂果实全部完成**：
-  - **D4**：`builder.js` `updateFiles()` finally 块 `await cache.save()`，watch 增量不落盘修复。
-  - **O5**：`file-index.js` `processPending()` `.catch()` 异常捕获，消除 unhandled rejection。
-  - **U4**：`overview-tools.js` 硬编码 `200` → `DEFAULTS.SMALL_PROJECT_MAX_MAINLINE`。
-  - **U5**：新建 `src/utils/exclude-patterns.js`，提取 `shouldExcludeCli` 共享纯函数，消除 `dep-graph.js` / `file-index.js` 50 行复制粘贴。
-  - **U6**：`path.js` 新增 `normalizeFilePath`，统一 `cache.js` / `dep-graph.js` 两处实现。
-- **U2（ExitCode 契约）核心目标已达成**：`determineExitCode` 已从 25 行 switch 压到 4 行 O(1) 契约，剩余 13 个命令补 `hasFindings` 为非阻塞性后续工作。
-- **D5（按需 post-process）**：`builder.js` 中 `updateFiles()` 按 re-parsed 文件扩展名过滤 `postProcessPhases`。改 `.js` 不跑 Java package 逻辑，改 `.java` 不跑 JS 框架隐式 import 逻辑，O(N)→O(k)。
-- **O1-O3（EventBus + 修复 watch/diagnostics 覆盖冲突）**：
-  - 新建 `src/utils/event-bus.js`，支持多监听器 + 错误隔离 + `emitAsync`。
-  - `file-index.js` 单属性回调改为 EventBus 事件发射。
-  - `watch.js` 不再覆盖 `fileIndex.onFileChanged`，watch 输出与 diagnostics 检查同时工作。
-- **D1-D3（Wave 2 架构核心：edges 表 + loadGraph 快速恢复）**：
-  - **D1** `graph-db.js`：新增 `edges` 表 schema + `saveEdges()` / `loadEdges()` API；`test/graph-db-test.js` 补 round-trip + 空表测试。
-  - **D2** `cache.js` + `builder.js`：`WorkspaceCache` 新增 edges 代理；`GraphBuilder` 在 `build()` / `updateFiles()` 末尾持久化 edges（含 post-process 后的 implicit edges）。
-  - **D3** `dep-graph.js` + `container.js`：新增 `loadGraph()`，三层 staleness 校验后从 SQLite edges + parseResults 恢复 graph + reverseGraph；`container.js` `_initDepGraph()` 优先 loadGraph，fallback 到 build。修复 Windows originalPath 大小写回归（`integration-core-test.js`）。
-- **D7-D8（预计算表持久化）**：
-  - **D7** `graph-db.js` + `cache.js`：新增 `precomputed_aggregates` 和 `precomputed_impact` 表及读写 API；`WorkspaceCache` 薄代理。
-  - **D8** `analyzer.js` + `builder.js` + `dep-graph.js`：`GraphAnalyzer` 新增 `precomputeImpact()` 和 `_impactCache`；`injectPrecomputedAggregates()` / `injectPrecomputedImpact()` 从 SQLite 恢复；`build()` / `updateFiles()` 末尾自动持久化；`loadGraph()` 恢复时注入预计算数据。
-  - 验证：全量 runner **133/133 PASS**；`test/precomputed-roundtrip-test.js` 5/5 PASS；冷启动 2.7s → 温启动 1.45s。
-- **Wave 1（SymbolRegistry 全局符号表）**：
-  - 新建 `src/services/dep-graph/symbol-registry.js`：从 AST `exportRecords` 构建纯内存全局符号表，支持 `lookup` / `lookupUnique` / `getRegistryStats`。
-  - `builder.js` 在 `build()` / `updateFiles()` 末尾调用 `_buildSymbolRegistry()` 构建符号表。
-  - `dep-graph.js` facade 暴露 `symbolRegistry` getter。
-  - CLI 新增 `debug --what symbols` 命令，输出符号统计和重复符号 TOP 50（自身项目：293 符号 / 92 文件 / 40 重复）。
-  - **Resolver 接入完成**：`resolvers.js` 新增 `trySymbolTable` fallback 策略，挂到所有语言策略链末尾；`resolveImport` 扩展可选第 5 参数 `symbolRegistry`；`builder.js` 调用点传入 `this.symbolRegistry`。
-  - 验证：`test/symbol-registry-test.js` 7/7 PASS；`test/resolver-symbol-table-test.js` 7/7 PASS；fast 层 96/96 PASS。
-- **U1（Formatter 注册表）—— 消灭四重 switch-case**：
-  - 重构 `src/cli/formatters/human-formatters.js`：将 `formatHuman` / `formatSummary` / `formatMarkdown` / `formatJsonl` / `buildCommandAiDigest` 中的 `switch(command)` 全部替换为 `FORMATTERS` + `AI_DIGEST` 注册表查表。
-  - 新增 `test/formatter-direct-test.js` `testCrossFormatCoverage`：覆盖全部 18 个命令的 human / summary / markdown / ai / jsonl 输出，确保重构后比特级一致。
-  - 行数：989 → 775（-214 行，-22%），彻底消除霰弹式修改和 switch 漂移风险。
-  - 验证：`npm run test:fast` **96/96 PASS**。
-- **O7（Resolver 缓存）**：
-  - `_resolverCache` 按 `ext` 缓存 `createResolver(strategies)` 实例，大项目 5000+ 次 resolver 分配降至 ~6 次。
-  - `_buildContext` 闭包（`discoverJavaSourceRoots: () => ...`、`readGoMod: () => ...`）改为直接函数引用；`tryJava` / `tryGoModule` 调整为 `ctx.discoverJavaSourceRoots(ctx.root)` / `ctx.readGoMod(ctx.root)`，策略签名不变。
-  - `registerResolverConfig` 和 `clearResolverCaches` 同步清空 resolver 缓存。
-  - 验证：`test/resolvers-test.js` / `test/resolver-strategy-chain-test.js` / `test/resolver-symbol-table-test.js` / `test/java-resolver-test.js` / `test/gors-resolver-test.js` 全部通过；`npm run test:fast` **96/96 PASS**。
-- **U2（ExitCode 契约补完）**：
-  - 为 10 个命令补全 `hasFindings`：affected-tests / dependencies / dependents / impact（按计数判断）；audit-map（按 issueCounts 判断）；audit-overview（按 orphans+hotspots+cycles 判断）；diagnostics（按 diagnosticsSummary.total 判断）；stats / tree / workspace-info（信息展示命令，固定 `false`）。
-  - 动机：`determineExitCode` 已压至 4 行 O(1) 契约，但大量命令缺 `hasFindings` 导致 `--fail-on-findings` 形同虚设。
-  - 验证：CLI 手动验证各命令 `hasFindings` 语义正确；`npm run test:fast` **96/96 PASS**。
-- **U9（constants.js 拆分）**：
-  - 将 268 行 `constants.js` 拆为 9 个子文件：`timeouts.js` / `limits.js` / `defaults.js` / `scoring.js` / `dead-export.js` / `probe.js` / `versions.js` / `streaming.js` / `ai-format.js`。
-  - `constants.js` 改为 29 行兼容聚合层（barrel），通过 `require('./timeouts')` 等重新导出全部命名空间。
-  - **零引用点变更**：所有 `require('../../config/constants')` 调用完全兼容。
-  - 验证：`npm run test:fast` **96/96 PASS**；基线 `audit-summary` 输出正常。
+- **U8（commands/ 去壳）**：17 个纯透传命令从独立文件内联到 `commands/index.js` 注册表，新增 `makeFileCommand` 工厂统一封装 `requireFile` + `resolveWorkspaceFilePath` + `hasFindings` boilerplate；删除 17 个壳文件（-312 行）。保留 repl/watch/init/debug/audit-file 为独立模块。`cli.js` 从注册表动态读取 `SELF_MANAGED_COMMANDS`，消除硬编码 Set。
+- **路径参数安全清洗**：`cli.js` 新增 `sanitizeCliPaths(parsed)`，在 `main()` 中对 `--file` / `--files` 统一调用 `resolveWorkspaceFilePath()` 校验，拒绝 `../` 逃逸和绝对路径注入（exit code 1）。修复 `resolveWorkspaceFilePath()` 在 Windows 上对 POSIX 绝对路径的误判。
+- **安全白名单分派表 + Assert Defense 扩展**：`security-tools.js` 将内联 `isMatchAllowlisted()` 提取为模块顶层 `ALLOWLIST_DISPATCH` 配置表（`assert-defense`、`test-placeholder-secrets` 两条独立策略）；扩展 Assert Defense 正则覆盖 Chai `to.throw` / Node.js `assert.rejects` / Jest async `rejects.toThrow` / Rust `.unwrap_err()` 等变体。
+- **Prompt 注入防御**：`sanitize.js` 新增 `sanitizeForAiOutput(text, maxLength = 256)`（截断 + 清洗控制字符）；`security-tools.js` 的 `matchedText` 和 `human-formatters.js` 中所有 `exports` 展示前统一清洗。修复 `Array.prototype.map` 传参经典陷阱（`.map(sanitizeForAiOutput)` → `.map((e) => sanitizeForAiOutput(e))`）。
 
 ---
 
@@ -255,8 +220,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-21（Dogfood 驱动新增：`audit-diff --commits <range>` + Dead export `duplicateOf` hint；U9 constants.js 拆分已完成；U2 ExitCode 契约补完已完成；O7 Resolver 缓存已完成；D1-D3 edges 表 + loadGraph 快速恢复已完成；D7-D8 预计算表持久化已完成；O1-O3 EventBus + watch/diagnostics 覆盖冲突修复已完成；Wave 1 SymbolRegistry 全局符号表及 Resolver 接入已完成；U1 human-formatters.js 注册表重构已完成（消灭四重 switch-case，989→775 行）；96/96 fast 测试全绿）*
+*Last updated: 2026-05-21（U8 commands/ 去壳已完成；路径参数安全清洗已完成；安全白名单分派表 + Assert Defense 扩展已完成；Prompt 注入防御已完成；96/96 fast 测试全绿）*
 
-> **本轮验证状态**：`npm run test:fast` 96/96 PASS；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=278`）。
+> **本轮验证状态**：`npm run test:fast` **96/96 PASS**；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=261`）。
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。
-> **本轮修复**：scratch 目录 3 个辅助脚本误提交已清理 + .gitignore 追加；完成 human-formatters.js U1 注册表重构（消灭四重 switch-case 派发链），新增 `testCrossFormatCoverage` 表格驱动覆盖测试，96/96 fast 测试全绿。

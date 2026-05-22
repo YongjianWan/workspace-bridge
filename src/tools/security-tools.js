@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { getAvailableAdapters } = require('../adapters');
 const { normalizePathKey } = require('../utils/path');
+const { sanitizeForAiOutput } = require('../utils/sanitize');
 
 function groupBySeverity(findings) {
   const map = { high: 0, medium: 0, low: 0, unknown: 0 };
@@ -31,6 +32,34 @@ function dedupeWithinTool(findings) {
     out.push(f);
   }
   return out;
+}
+
+/**
+ * Allowlist dispatch table — each entry is an independent predicate.
+ * New rules can add their own allowlist entries without touching the core scan loop.
+ */
+const ALLOWLIST_DISPATCH = [
+  {
+    id: 'assert-defense',
+    match(ruleId, _filePath, line) {
+      // Test code intentionally triggers dangerous patterns to assert error handling.
+      const assertDefensePattern = /\bexpect\b.*\btoThrow\b|\bexpect\b.*\bto\.throw\b|\bexpect\b.*\brejects\b|\bassert\.throws?\b|\bassert\.rejects?\b|\.unwrap_err\s*\(/i;
+      if (!assertDefensePattern.test(line)) return false;
+      return ['eval', 'exec', 'innerHTML', 'new-function', 'dangerous'].some((k) => ruleId.includes(k));
+    },
+  },
+  {
+    id: 'test-placeholder-secrets',
+    match(ruleId, filePath, line) {
+      if (!ruleId.includes('hardcoded-secret')) return false;
+      if (!/[\\/](test|spec|__tests__)[\\/]/i.test(filePath)) return false;
+      return /(?:\b|_)(test|dummy|placeholder|example|mock|fake)(?:\b|_)/i.test(line);
+    },
+  },
+];
+
+function isMatchAllowlisted(ruleId, filePath, line) {
+  return ALLOWLIST_DISPATCH.some((entry) => entry.match(ruleId, filePath, line));
 }
 
 async function runBuiltinSecurityScan(cwd, targets, container) {
@@ -114,19 +143,6 @@ async function runBuiltinSecurityScan(cwd, targets, container) {
     }
   }
 
-function isMatchAllowlisted(ruleId, filePath, line) {
-  // Assert Defense: test code intentionally triggers dangerous patterns to assert error handling
-  const isAssertDefense = /\bexpect\b.*\btoThrow\b|assert\.throws?\b|\.unwrap_err\s*\(/i.test(line);
-  if (isAssertDefense && (ruleId.includes('eval') || ruleId.includes('exec') || ruleId.includes('innerHTML') || ruleId.includes('new-function') || ruleId.includes('dangerous'))) {
-    return true;
-  }
-  // Test-file hardcoded secrets that are clearly placeholders
-  if (ruleId.includes('hardcoded-secret') && /[\\/](test|spec|__tests__)[\\/]/i.test(filePath)) {
-    if (/(?:\b|_)(test|dummy|placeholder|example|mock|fake)(?:\b|_)/i.test(line)) return true;
-  }
-  return false;
-}
-
   for (const file of files) {
     const group = patterns.find((g) => g.ext.test(file));
     if (!group) continue;
@@ -141,8 +157,8 @@ function isMatchAllowlisted(ruleId, filePath, line) {
         if (rule.pattern.test(lines[i]) && !ignorePattern.test(lines[i]) && !isMatchAllowlisted(rule.id, file, lines[i])) {
           const match = lines[i].match(rule.pattern);
           let matchedText = match ? match[0] : null;
-          if (matchedText && matchedText.length > 120) {
-            matchedText = matchedText.slice(0, 117) + '...';
+          if (matchedText) {
+            matchedText = sanitizeForAiOutput(matchedText, 120);
           }
           findings.push({
             ruleId: rule.id,

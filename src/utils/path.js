@@ -208,9 +208,13 @@ function resolvePythonCommand(root) {
 
 function resolveWorkspaceFilePath(filePath, root) {
   if (!filePath || typeof filePath !== 'string') return null;
-  const resolved = path.isAbsolute(filePath)
-    ? normalizePath(filePath)
-    : normalizePath(path.join(root, filePath));
+  const trimmed = filePath.trim();
+  // On Windows, a leading slash looks relative to path.join but actually
+  // denotes an absolute POSIX-style path — treat it as an escape attempt.
+  if (IS_WINDOWS && /^[\\/]/.test(trimmed)) return null;
+  const resolved = path.isAbsolute(trimmed)
+    ? normalizePath(trimmed)
+    : normalizePath(path.join(root, trimmed));
   if (!isPathInsideRoot(root, resolved)) {
     return null;
   }

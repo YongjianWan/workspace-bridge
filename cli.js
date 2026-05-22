@@ -10,7 +10,7 @@ const path = require('path');
 const { version } = require('./package.json');
 
 const { ServiceContainer } = require('./src/services/container');
-const { toPosixPath } = require('./src/utils/path');
+const { toPosixPath, resolveWorkspaceFilePath } = require('./src/utils/path');
 const {
   formatHuman,
   formatSummary,
@@ -20,7 +20,7 @@ const {
 } = require('./src/cli/formatters');
 const { parseArgs } = require('./src/utils/parse-args');
 const { TIMEOUTS, DEFAULTS, STREAMING, SCHEMA_VERSION } = require('./src/config/constants');
-const { COMMANDS } = require('./src/cli/commands');
+const { COMMANDS, SELF_MANAGED_COMMANDS } = require('./src/cli/commands');
 const { validateCwd } = require('./src/cli/commands/_utils');
 
 /**
@@ -416,6 +416,32 @@ function parseCliArgs(argv) {
   };
 }
 
+function sanitizeCliPaths(parsed) {
+  const root = path.resolve(parsed.cwd || process.cwd());
+
+  if (parsed.file) {
+    const safe = resolveWorkspaceFilePath(parsed.file, root);
+    if (!safe) {
+      return { ok: false, error: `Invalid --file path: path traversal or escape detected: ${parsed.file}` };
+    }
+    parsed.file = safe;
+  }
+
+  if (parsed.files) {
+    const parts = parsed.files.split(',').map((f) => f.trim()).filter(Boolean);
+    const safeParts = [];
+    for (const part of parts) {
+      const safe = resolveWorkspaceFilePath(part, root);
+      if (!safe) {
+        return { ok: false, error: `Invalid --files path: path traversal or escape detected: ${part}` };
+      }
+      safeParts.push(safe);
+    }
+    parsed.files = safeParts.join(',');
+  }
+  return null;
+}
+
 function classifyError(err) {
   const msg = (err.message || String(err)).toLowerCase();
   if (msg.includes('enoent') || msg.includes('no such file') || msg.includes('not found')) {
@@ -475,7 +501,6 @@ async function main() {
     return;
   }
 
-  const SELF_MANAGED_COMMANDS = new Set(['repl', 'watch', 'init']);
   const isSelfManaged = SELF_MANAGED_COMMANDS.has(parsed.command) || (parsed.command === 'audit-file' && parsed.watch);
   if (isSelfManaged) {
     await runCommand(parsed, null);
@@ -485,6 +510,19 @@ async function main() {
   // P0: validate --cwd exists and is a directory before entering heavy init
   const invalidCwd = validateCwd(parsed);
   if (invalidCwd) {
+    return;
+  }
+
+  // P0: sanitize path arguments to prevent traversal outside the workspace
+  const invalidPaths = sanitizeCliPaths(parsed);
+  if (invalidPaths) {
+    if (parsed.json) {
+      console.log(JSON.stringify({ ok: false, error: invalidPaths.error, schemaVersion: SCHEMA_VERSION }));
+    } else {
+      console.error(`[path_error] ${invalidPaths.error}`);
+      console.error(`→ Check if --cwd or --file paths exist and are accessible.`);
+    }
+    process.exitCode = 1;
     return;
   }
 

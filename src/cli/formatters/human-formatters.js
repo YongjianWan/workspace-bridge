@@ -4,6 +4,7 @@
  */
 const { countTreeFiles } = require('./project-map');
 const { AI_FORMAT } = require('../../config/constants');
+const { sanitizeForAiOutput } = require('../../utils/sanitize');
 
 /**
  * Shared audit-summary formatter across text output styles.
@@ -98,7 +99,7 @@ function buildSecurityLines(result, style) {
       );
       if (f.message && !isSum) lines.push(isMd ? `  - ${f.message}` : `  ${f.message}`);
       if (f.matchedText) {
-        const m = `Matched: \`${f.matchedText}\``;
+        const m = `Matched: \`${sanitizeForAiOutput(f.matchedText, 120)}\``;
         lines.push(isMd ? `  - ${m}` : (isSum ? `    ${m}` : `  ${m}`));
       }
     }
@@ -218,7 +219,7 @@ const FORMATTERS = {
       if (r.incremental && r.incrementalFindings) {
         const inc = r.incrementalFindings;
         lines.push('', '--- incremental findings (related to changed files) ---', `deadExports: ${inc.deadExportsCount}`, `unresolved: ${inc.unresolvedCount}`, `cycles: ${inc.cyclesCount}`);
-        for (const de of inc.deadExports.slice(0, 3)) lines.push(`  dead-export: ${de.file}: ${de.exports?.join(', ') || 'n/a'}`);
+        for (const de of inc.deadExports.slice(0, 3)) lines.push(`  dead-export: ${de.file}: ${(de.exports || []).map((e) => sanitizeForAiOutput(e)).join(', ') || 'n/a'}`);
         for (const u of inc.unresolved.slice(0, 3)) lines.push(`  unresolved: ${u.file}: ${u.import}`);
         for (const c of inc.cycles.slice(0, 3)) lines.push(`  cycle: ${c.join(' -> ')}`);
         if (inc.deadExportsCount + inc.unresolvedCount + inc.cyclesCount === 0) lines.push('  (none)');
@@ -256,7 +257,7 @@ const FORMATTERS = {
       if (r.incremental && r.incrementalFindings) {
         const inc = r.incrementalFindings;
         lines.push(``, `## Incremental Findings`, `- **Dead exports**: ${inc.deadExportsCount}`, `- **Unresolved**: ${inc.unresolvedCount}`, `- **Cycles**: ${inc.cyclesCount}`);
-        for (const de of inc.deadExports.slice(0, 3)) lines.push(`  - \`${de.file}\`: ${de.exports?.join(', ') || 'n/a'}`);
+        for (const de of inc.deadExports.slice(0, 3)) lines.push(`  - \`${de.file}\`: ${(de.exports || []).map((e) => sanitizeForAiOutput(e)).join(', ') || 'n/a'}`);
         for (const u of inc.unresolved.slice(0, 3)) lines.push(`  - \`${u.file}\`: ${u.import}`);
         for (const c of inc.cycles.slice(0, 3)) lines.push(`  - ${c.join(' → ')}`);
         if (inc.deadExportsCount + inc.unresolvedCount + inc.cyclesCount === 0) lines.push('*No incremental findings related to changed files.*');
@@ -387,13 +388,13 @@ const FORMATTERS = {
     human: (r) => {
       const lines = [`deadExportsCount: ${r.deadExportsCount}`];
       if (r.possibleFalsePositives?.disclaimer) lines.push(`note: ${r.possibleFalsePositives.disclaimer}`);
-      lines.push(...r.deadExports.map((e) => `${e.file}: ${e.exports.join(', ')}`));
+      lines.push(...r.deadExports.map((e) => `${e.file}: ${e.exports.map((e) => sanitizeForAiOutput(e)).join(', ')}`));
       return lines.join('\n');
     },
     summary: (r) => {
       const lines = [`Dead exports: ${r.deadExportsCount ?? 0}`];
       if (r.possibleFalsePositives?.disclaimer) lines.push(`Note: ${r.possibleFalsePositives.disclaimer}`);
-      lines.push(...(r.deadExports || []).slice(0, 5).map((e) => `${e.file}: ${e.exports?.join(', ')}`));
+      lines.push(...(r.deadExports || []).slice(0, 5).map((e) => `${e.file}: ${(e.exports || []).map((e) => sanitizeForAiOutput(e)).join(', ') || 'n/a'}`));
       return lines.join('\n');
     },
     jsonl: (r) => {
@@ -697,7 +698,7 @@ function formatAi(command, result, options = {}) {
 
       if (currentDepth === 'detail' || currentDepth === 'full') {
         output.riskFiles = {};
-        if (result.deadExports?.deadExports?.length > 0) output.riskFiles.deadExports = result.deadExports.deadExports.slice(0, 3).map((d) => ({ file: d.file, exports: d.exports?.slice(0, 3), confidence: d.confidence }));
+        if (result.deadExports?.deadExports?.length > 0) output.riskFiles.deadExports = result.deadExports.deadExports.slice(0, 3).map((d) => ({ file: d.file, exports: (d.exports || []).slice(0, 3).map((e) => sanitizeForAiOutput(e)), confidence: d.confidence }));
         if (result.unresolved?.unresolved?.length > 0) output.riskFiles.unresolved = result.unresolved.unresolved.slice(0, 3).map((u) => ({ file: u.file, import: u.import }));
         if (result.cycles?.cycles?.length > 0) output.riskFiles.cycles = result.cycles.cycles.slice(0, 3).map((c) => ({ files: c.files, length: c.length }));
         if (Object.keys(output.riskFiles).length === 0) delete output.riskFiles;

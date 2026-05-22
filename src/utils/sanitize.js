@@ -31,7 +31,21 @@ function sanitizeSymbolName(name) {
   return sanitized;
 }
 
+/**
+ * Sanitize a string for inclusion in AI-facing output.
+ * - Truncate to maxLength (appending '⋯')
+ * - Strip control characters (C0/C1 and zero-width/format chars)
+ */
+function sanitizeForAiOutput(text, maxLength = 256) {
+  if (typeof text !== 'string') return '';
+  let s = text.length > maxLength ? text.slice(0, maxLength) + '⋯' : text;
+  // C0 (U+0000–U+001F), DEL (U+007F), zero-width spaces / directional marks / BOM
+  s = s.replace(/[\x00-\x1F\x7F\u200B-\u200F\uFEFF]/g, '');
+  return s;
+}
+
 module.exports = {
   sanitizeShellArg,
   sanitizeSymbolName,
+  sanitizeForAiOutput,
 };

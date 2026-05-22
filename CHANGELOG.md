@@ -8,6 +8,35 @@
 
 ## [Unreleased]
 
+### 安全与防御（阶段 3 低垂果实 — 2026-05-21）
+
+- **路径参数安全清洗** `cli.js` `src/utils/path.js` `test/cli-integration-test.js`：
+  - 新增 `sanitizeCliPaths(parsed)` 边界函数：在 `main()` 中对 `--file` / `--files` 参数统一调用 `resolveWorkspaceFilePath()` 校验，拒绝 `../` 逃逸和绝对路径注入（退出码 1，非崩溃）。
+  - 修复 `resolveWorkspaceFilePath()` 在 Windows 上对 POSIX 绝对路径（如 `/etc/passwd`）的误判：增加 `IS_WINDOWS && /^[\\/]/` 前置拦截，防止 `path.join(root, '/etc/passwd')` 错误地解析为 `root + 'etc\passwd'`。
+  - 验证：`test/cli-integration-test.js` 新增 `testPathSanitization`（`--file ../escape.js` 拒绝、`--files` 部分路径逃逸拒绝、正常路径通过）；`npm run test:fast` **96/96 PASS**。
+
+- **Prompt 注入防御（符号输出清洗）** `src/utils/sanitize.js` `src/tools/security-tools.js` `src/cli/formatters/human-formatters.js`：
+  - 新增 `sanitizeForAiOutput(text, maxLength = 256)`：截断超长字符串（追加 `⋯`）+ 清洗控制字符（C0/C1、零宽空格、BOM、方向标记）。
+  - `security-tools.js`：builtin 扫描的 `matchedText` 在截断至 120 字符前先经过 `sanitizeForAiOutput`，防止源代码中的恶意标识符直接流入 AI prompt。
+  - `human-formatters.js`：`dead-exports` / `audit-diff` incremental / `formatAi` 风险分层中所有 `exports` 数组元素及 `matchedText` 展示前统一清洗。
+  - 验证：`npm run test:fast` **96/96 PASS**；`test/formatter-direct-test.js` 覆盖清洗后输出比特级一致。
+
+- **安全白名单分派表 + Assert Defense 扩展** `src/tools/security-tools.js` `test/security-tools-test.js`：
+  - 将内联的 `isMatchAllowlisted()` 提取为模块顶层，重构为 `ALLOWLIST_DISPATCH` 配置表（`assert-defense`、`test-placeholder-secrets` 两条独立策略），新增规则只需追加表项，不改动核心扫描循环。
+  - 扩展 Assert Defense 正则覆盖：`expect...to.throw`（Chai）、`assert.rejects`（Node.js）、`await expect...rejects`（Jest async）、`.unwrap_err()`（Rust 风格）等测试防御性模式。
+  - 验证：`test/security-tools-test.js` 新增 `testAuditSecurityAssertDefenseVariants`（5 种变体全覆盖）；`npm run test:fast` **96/96 PASS**。
+
+### 架构（U8: commands/ 去壳 — 2026-05-21）
+
+- **提取 `COMMAND_REGISTRY`，消灭 80% 的 5 行透传壳** `src/cli/commands/index.js` `cli.js`：
+  - 将 17 个纯透传命令（`audit-diff`、`audit-security`、`audit-summary`、`cycles`、`dead-exports`、`diagnostics`、`health`、`stats`、`unresolved`、`workspace-info`、`audit-map`、`audit-overview`、`impact`、`affected-tests`、`dependencies`、`dependents`、`tree`）从独立文件内联到 `commands/index.js` 注册表。
+  - 保留 `repl` / `watch` / `init` / `debug` / `audit-file` 为独立模块（生命周期自管理或含 `--watch` / `--what` 分支）。
+  - 新增 `makeFileCommand` 工厂函数：统一封装 `requireFile` + `resolveWorkspaceFilePath` + `fs.existsSync` + `hasFindings` 的重复 boilerplate。
+  - `cli.js`：从注册表动态读取 `SELF_MANAGED_COMMANDS`，消除硬编码 `Set`。
+  - 删除 17 个壳命令文件（`src/cli/commands/*.js` 从 25 个减至 8 个，总代码量 -312 行）。
+  - 向后兼容：`COMMANDS` 导出结构不变，`cli.js` 调用方式不变；外部 consumers 无感知。
+  - 验证：`npm run test:fast` **96/96 PASS**；`test/cli-integration-test.js` 端到端覆盖全部受影响命令；基线 `audit-summary` 通过。
+
 ### 新增（Dogfood 驱动：commit range + duplication hint — 2026-05-21）
 
 - **`audit-diff --commits <range>`** `cli.js` `src/tools/git-tools.js` `src/tools/audit-assembler.js`：

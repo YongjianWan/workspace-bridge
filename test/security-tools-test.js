@@ -78,6 +78,25 @@ async function testAuditSecurityAssertDefense() {
   cleanupTempDir(tmpDir);
 }
 
+async function testAuditSecurityAssertDefenseVariants() {
+  const tmpDir = makeTempDir('wb-security-');
+  const variants = [
+    "assert.throws(() => eval('x'));\n",
+    "assert.rejects(async () => exec('x'));\n",
+    "expect(() => new Function('x')).to.throw();\n",
+    "await expect(promise).rejects.toThrow();\n",
+    "obj.unwrap_err();\n",
+  ];
+  for (let i = 0; i < variants.length; i++) {
+    fs.writeFileSync(path.join(tmpDir, `defense${i}.js`), variants[i], 'utf8');
+  }
+
+  const result = await auditSecurity({ cwd: tmpDir, targets: [], builtinOnly: true }, null);
+  assert.strictEqual(result.findings.length, 0, 'should suppress all assert-defense variants');
+
+  cleanupTempDir(tmpDir);
+}
+
 async function testAuditSecurityTestFilePlaceholderSecret() {
   const tmpDir = makeTempDir('wb-security-');
   const testDir = path.join(tmpDir, 'test');
@@ -97,6 +116,7 @@ async function main() {
   await testAuditSecurityIgnoresComment();
   await testAuditSecurityPython();
   await testAuditSecurityAssertDefense();
+  await testAuditSecurityAssertDefenseVariants();
   await testAuditSecurityTestFilePlaceholderSecret();
 }
 
