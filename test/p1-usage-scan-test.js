@@ -153,7 +153,6 @@ function testScanContentCache() {
     if (args[0] === mainPath) readCount++;
     return originalRead.apply(fs, args);
   };
-
   try {
     const used2 = graph._scanSymbolUsageInImporters([mainPath], ['baz'], path.join(tmpDir, 'Foo.java'));
     assert(used2.has('baz'), 'baz should be detected');
@@ -165,12 +164,42 @@ function testScanContentCache() {
   cleanupTempDir(tmpDir);
 }
 
+function testScanContentCacheBoundary() {
+  const tmpDir = makeTempDir('wb-p1-boundary-');
+  const mainPath = path.join(tmpDir, 'Main.java');
+
+  fs.writeFileSync(mainPath, `
+  import example.Foo;
+  public class Main {
+      public void run() {
+          Foo f = new Foo();
+          f.bar();
+      }
+  }
+  `);
+
+  const graph = createMockDepGraph({ root: tmpDir });
+
+  // Scan once to populate cache
+  const used = graph._scanSymbolUsageInImporters([mainPath], ['bar'], path.join(tmpDir, 'Foo.java'));
+  assert(used.has('bar'));
+  assert(graph._scanContentCache.has(mainPath), 'cache should have mainPath');
+
+  // Emit graph:updated and verify cache gets fully cleared
+  graph.bus.emit('graph:updated');
+  assert.strictEqual(graph._scanContentCache.size, 0, 'cache should be cleared after graph:updated');
+  assert.strictEqual(graph._scanPatternCache.size, 0, 'pattern cache should be cleared after graph:updated');
+
+  cleanupTempDir(tmpDir);
+}
+
 function main() {
   testScanSymbolUsage();
   testGoUsageScan();
   testFindDeadExportsWithUsageScan();
   testSymbolEscaping();
   testScanContentCache();
-  }
+  testScanContentCacheBoundary();
+}
 
 main();

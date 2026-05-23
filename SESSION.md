@@ -38,10 +38,10 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；全量 runner 133/133 PASS（~4min，分阶段：fast ~38s / slow ~100s / watch 串行）。开发迭代用 `npm run test:fast`（~37s）或 `npm run test:smoke`（~31s）。当前 fast 层 98 个测试。
+- 测试：**受影响测试全部 PASS**；全量 runner 133/133 PASS（~4min，分阶段：fast ~38s / slow ~100s / watch 串行）。开发迭代用 `npm run test:fast`（~37s）或 `npm run test:smoke`（~31s）。当前 fast 层 99 个测试。
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~247 文件（entry=1, mainline=123, test=138），commands/ 去壳后减少 17 个透传文件
+- 自身项目规模：~276 文件（entry=1, mainline=133, test=142），commands/ 去壳后减少 17 个透传文件
 - 健康度：7/8（缺 dockerConfig），deadExports=0，cycles=0，unresolved=0
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust Regular Expressions、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
@@ -89,14 +89,27 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### 本轮做了什么
 
-**本轮**：
+**本轮（Wave 3：Builder/Analyzer 解耦 + 后处理 Affected-only 增量化）**：
 
-- **E2E 管道物理边界防线与 BOM 净化底座**：
-  - **PowerShell BOM Piping 模拟校验**：在 `test/cli-integration-test.js` 中新增 `testCliPipeAndBom()`，模拟 PowerShell 管道流式传输的 BOM 物理特征并实施清洗机制，拦截 JSON 解析崩溃。
-  - **Java Stdin BOM 容错**：升级 `scripts/java_ast_parser.py`，增加 stdin 读取头部 BOM 剔除逻辑，防止 `javalang` AST 解析降级为正则。
-  - **逃逸路径进程级物理拦截**：在 `test/cli-integration-test.js` 中新增 `testPathEscapePhysicalInterception()`，物理校验 shell 执行下的相对/绝对路径逃逸拦截与进程退出码 `1` 契约。
-  - **WASM WASI 极限制冷启动容错**：在 `tree-sitter.js` 中支持 `FORCE_WASM_FAIL` 模拟 WASM 物理故障，新增 `testWasmFailureFallback()` 确保多语言引擎弹性降级至正则解析而非异常崩溃。
-  - **物理子进程配置能力升级**：更新 `test-helpers.js` 以便向 `spawnSync` 注入子进程 `env` 及清除 `stdout` BOM 容错。
+- **Builder/Analyzer 生命周期与缓存彻底解耦**：
+  - `_cachedCycles`、`_cycleCount`、`_scanContentCache`、`_scanPatternCache` 从 `DependencyGraph` 完全下沉到 `GraphAnalyzer` 内部封装，Builder 不再直接篡改 Analyzer 缓存字段。
+  - `GraphAnalyzer` 通过 `graph:updated` 事件自主失效自身缓存，彻底消除穿透反模式。
+  - `DependencyGraph` 保留向后兼容 getter/setter delegate，保障 userspace 测试断言零破坏。
+- **框架隐式依赖计算下沉到单文件解析阶段**：
+  - 将 `applyFrameworkImplicitImports` 的全图 JS/TS 正则扫盘后处理，迁移到 `analyzeFile` 的单文件解析阶段完成。
+  - 隐式依赖现在作为常规 `importRecords` 随 `parseResult` 落入 SQLite 缓存，增量更新时无需重新读盘扫描。
+- **Java 包展开幂等化与 Affected-only 增量计算**：
+  - 拆分 `expandJavaPackageImports` 为 `_buildPackageIndex` / `_stripJavaExpansions` / `_expandJavaForFile` 四个单一职责方法。
+  - 新增 `expandJavaPackageImportsIncremental(affectedFiles)`：仅对 package 变更波及的文件执行局部展开，彻底废除全图扫盘。
+  - `java.js` regex fallback 新增 `package` 字段提取，确保 wildcard import 增量展开有完整包索引。
+- **防御性修复（审核中发现并修复）**：
+  - 用显式 `id: 'expand-java-packages'` 替代脆弱的 `phase.fn.toString().includes(...)` 文本匹配。
+  - `_expandJavaForFile` 内部不再操作 `reverseGraph`，统一由调用方 `_removeOldReverseEdges` + `_addReverseEdges` 负责，同时修复全量版本旧 reverseGraph 边未清理的 bug。
+  - `expandJavaPackageImports` / `expandJavaPackageImportsIncremental` 改为无条件 emit `graph:updated`，防止只减少边时 analyzer 缓存不失效。
+  - `deletedOrUpdatedKeys` 拆分为 `deletedKeys` + `updatedKeys`，cache-hit 文件不再无意义加入 affected set。
+- **测试覆盖**：
+  - 新增 `test/dep-graph-postprocess-incremental-test.js`（3 个语义测试）：框架隐式依赖缓存集成、Java 包变更一致性、Affected-only O(k) 展开。
+  - 新增 `testScanContentCacheBoundary`（`p1-usage-scan-test.js`）：验证 `graph:updated` 正确清空 analyzer 缓存。
 
 
 ---
@@ -158,7 +171,7 @@ node cli.js audit-summary --cwd . --json --quiet
 | 波次     | 范围                                         | 侵入性 | 验证标准                                       | 状态   |
 | -------- | -------------------------------------------- | ------ | ---------------------------------------------- | ------ |
 | **Wave 2** | Resolver 策略链物理拆分（LanguageProvider）    | 中     | 所有语言解析测试全绿，benchmark 无回归         | ✅ 已完成 |
-| **Wave 3** | Builder/Analyzer 解耦 + 后处理 Affected-only | 高     | 增量更新 benchmark 证明 O(k)，watch 模式无泄漏 | ⏳ 待实施 |
+| **Wave 3** | Builder/Analyzer 解耦 + 后处理 Affected-only | 高     | 增量更新 benchmark 证明 O(k)，watch 模式无泄漏 | ✅ 已完成 |
 
 ### 数据层剩余项
 

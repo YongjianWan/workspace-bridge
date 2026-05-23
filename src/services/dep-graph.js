@@ -89,10 +89,6 @@ class DependencyGraph {
     this.projectContext = options.projectContext || null;
     this.quiet = options.quiet || false;
     this.bus = new EventBus();
-    this.bus.on('graph:updated', () => {
-      this._cachedCycles = null;
-      this._cycleCount = undefined;
-    });
     // O4: Builder no longer knows Analyzer. The facade listens to 'graph:built'
     // and coordinates post-build precompute + persistence so Builder stays a
     // pure graph-construction engine.
@@ -101,18 +97,9 @@ class DependencyGraph {
       this.analyzer.precomputeImpact();
       await this._savePrecomputed();
     });
-    // Content cache for _scanSymbolUsageInImporters: avoids re-reading the same
-    // importer file hundreds of times during a single findDeadExports() call.
-    this._scanContentCache = new Map();
-    // Pattern cache for _scanSymbolUsageInImporters: RegExp objects are reused
-    // across calls within a single build() lifecycle.
-    this._scanPatternCache = new Map();
     this.builder = new GraphBuilder(this);
     this.analyzer = new GraphAnalyzer(this);
     this.query = new GraphQuery(this);
-    // P85: cache the full filtered cycles array so getStats() and
-    // findCircularDependencies() always return the same data.
-    this._cachedCycles = null;
   }
 
   shouldExclude(filePath) {
@@ -559,6 +546,35 @@ class DependencyGraph {
         console.error('[DependencyGraph] _savePrecomputed failed:', e.message);
       }
     }
+  }
+
+  // Backwards compatibility getters/setters for test assertions and tools
+  get _scanContentCache() {
+    return this.analyzer ? this.analyzer._scanContentCache : null;
+  }
+  set _scanContentCache(val) {
+    if (this.analyzer) this.analyzer._scanContentCache = val;
+  }
+
+  get _scanPatternCache() {
+    return this.analyzer ? this.analyzer._scanPatternCache : null;
+  }
+  set _scanPatternCache(val) {
+    if (this.analyzer) this.analyzer._scanPatternCache = val;
+  }
+
+  get _cachedCycles() {
+    return this.analyzer ? this.analyzer._cachedCycles : null;
+  }
+  set _cachedCycles(val) {
+    if (this.analyzer) this.analyzer._cachedCycles = val;
+  }
+
+  get _cycleCount() {
+    return this.analyzer ? this.analyzer._cycleCount : undefined;
+  }
+  set _cycleCount(val) {
+    if (this.analyzer) this.analyzer._cycleCount = val;
   }
 
 }

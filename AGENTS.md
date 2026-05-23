@@ -242,6 +242,6 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-23（测试分层标记与低信号 C 级测试升级 + ProjectContext.inferFileRole 状态化 + Resolver LRU 缓存 + Wave 2 Resolver 拆分 + COMMAND_GUIDES 内聚 + U7 audit-assembler 拆分 + shouldExclude 跨层解耦已完成；L3 债务与品味 8 项；97/97 fast 测试通过；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-23（Wave 3 Builder/Analyzer 解耦 + 后处理 Affected-only 增量化 + JS 解析器模块化 + BFS 优化 + WorkspaceSnapshot L4 迁移 + E2E 物理防线已完成；L3 债务与品味 6 项；99/99 fast 测试通过；schemaVersion: 1.2.0）*
 
 

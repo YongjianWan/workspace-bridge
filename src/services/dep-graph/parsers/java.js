@@ -15,6 +15,10 @@ function parseJavaWithRegex(content) {
   const exportRecords = [];
   const functionRecords = [];
 
+  const packageRegex = /^\s*package\s+([a-zA-Z_][\w.]*)\s*;/m;
+  const packageMatch = packageRegex.exec(content);
+  const packageName = packageMatch ? packageMatch[1] : null;
+
   const importRegex = /^\s*import\s+(static\s+)?([a-zA-Z_][\w.]*(?:\.\*)?)\s*;/gm;
   let match;
   while ((match = importRegex.exec(content)) !== null) {
@@ -51,6 +55,7 @@ function parseJavaWithRegex(content) {
     importRecords,
     exportRecords,
     functionRecords,
+    package: packageName,
     parseMode: 'regex',
   };
 }

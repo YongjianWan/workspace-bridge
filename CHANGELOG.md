@@ -8,6 +8,35 @@
 
 ## [Unreleased]
 
+### 架构重构（Wave 3：Builder/Analyzer 解耦 + 后处理 Affected-only 增量化 — 2026-05-23）
+
+- **Builder/Analyzer 生命周期与缓存彻底解耦** `src/services/dep-graph.js` `src/services/dep-graph/analyzer.js` `src/services/dep-graph/builder.js`：
+  - 将 `_cachedCycles`、`_cycleCount`、`_scanContentCache`、`_scanPatternCache` 从 `DependencyGraph` facade 完全下沉到 `GraphAnalyzer` 内部封装。
+  - `GraphAnalyzer` 通过监听 `graph:updated` 事件自主失效自身缓存，彻底消除 Builder 直接篡改 Analyzer 缓存字段的穿透反模式。
+  - `DependencyGraph` 保留向后兼容 getter/setter，delegate 到 `this.analyzer`，保障 userspace 测试断言零破坏。
+- **框架隐式依赖计算下沉到单文件解析阶段** `src/services/dep-graph/builder.js`：
+  - 将 `applyFrameworkImplicitImports` 的全图 JS/TS 正则扫盘后处理，迁移到 `analyzeFile` 的单文件解析阶段完成。
+  - 隐式依赖（Vue router lazy-loading、React lazy、Next.js dynamic 等）现在作为常规 `importRecords` 的一部分随 `parseResult` 一同落入 SQLite 缓存，增量更新时无需重新读盘扫描。
+  - 删除空的 `applyFrameworkImplicitImports` 方法与 constructor 中的注册，消除死代码。
+- **Java 包展开幂等化与 Affected-only 增量计算** `src/services/dep-graph/builder.js` `src/services/dep-graph/parsers/java.js`：
+  - 拆分 `expandJavaPackageImports` 为 `_buildPackageIndex` / `_stripJavaExpansions` / `_expandJavaForFile` / `_expandJavaForFile` 四个单一职责方法。
+  - 引入 `_stripJavaExpansions` 实现幂等清除：在重新展开前先精确剥离旧的 same-package 隐式记录和 wildcard 展开记录，避免重复边累积。
+  - 新增 `expandJavaPackageImportsIncremental(affectedFiles)`：仅对 package 发生变更的文件及其 wildcard 导入受影响者执行局部展开，彻底废除 `for (const file of graph.keys())` 的全图扫盘。
+  - `java.js` regex fallback  parser 新增 `package` 字段提取，确保 wildcard import 的增量展开有完整的包索引数据。
+- **后处理 phase 标识化** `src/services/dep-graph/builder.js`：
+  - 用显式 `id: 'expand-java-packages'` 替代脆弱的 `phase.fn.toString().includes(...)` 文本匹配，消除代码压缩/重构即失效的隐式契约风险。
+- **防御性事件发射** `src/services/dep-graph/builder.js`：
+  - `expandJavaPackageImports` / `expandJavaPackageImportsIncremental` 改为无条件 emit `graph:updated`，防止 `_stripJavaExpansions` 只减少边不增加边时 analyzer 缓存不失效的数据一致性漏洞。
+- **增量更新 affected set 精确化** `src/services/dep-graph/builder.js`：
+  - 将 `deletedOrUpdatedKeys` 拆分为 `deletedKeys` 与 `updatedKeys`，cache-hit 的文件不再无意义地加入 affected set，减少不必要的 Java 包展开计算。
+  - 同时保留 deleted/updated 文件的旧 package 跟踪，确保 Java 文件跨 package 移动时 wildcard 导入能正确失效并重新展开。
+- **测试覆盖** `test/dep-graph-postprocess-incremental-test.js` `test/p1-usage-scan-test.js`：
+  - 新增 `testFrameworkImplicitDependenciesCacheIntegration`：验证框架隐式依赖落入 SQLite 缓存且无关增量更新不触发重新读盘。
+  - 新增 `testJavaPackageChangeConsistency`：验证 Java 文件跨 package 移动后，wildcard/same-package 导入的增量一致性。
+  - 新增 `testJavaPackageExpansionIncrementalAffectedOnly`：验证无关文件更新仅触发 O(k) 展开而非全图扫盘。
+  - 新增 `testScanContentCacheBoundary`：验证 `graph:updated` 事件正确清空 analyzer 封装的 `_scanContentCache` 与 `_scanPatternCache`。
+- **验证**：`npm run test:fast` **99/99 PASS**；`npm run test:smoke` **102/102 PASS**；零回归。
+
 ### 改进与架构重构（JS解析器模块化、BFS优化与 WorkspaceSnapshot 全量迁移 — 2026-05-23）
 
 - **JavaScript 解析器模块化拆分（Option A）** `src/services/dep-graph/parsers/js.js` `src/services/dep-graph/parsers/js/`：

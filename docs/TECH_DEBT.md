@@ -18,23 +18,6 @@
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
-#### 全量后处理风暴击穿增量更新性能红利（性能与架构债）
-
-**数据**：
-
-- 在 `src/services/dep-graph/builder.js` 中，后处理阶段（`expandJavaPackageImports` 与 `applyFrameworkImplicitImports`）的机制极其粗暴：只要有任何文件重析（`reParsed > 0`），就会强行对 `this.dg.graph` 中的**所有文件**进行一次全量大遍历，并在后处理中对所有 JS/TS 文件进行正则重新读盘扫视。
-
-**影响**：
-
-- 这直接一巴掌拍死了增量更新的性能红利。即便在 watch/REPL 模式下我们仅仅修改了 1 个文件，仅仅因为这 1 个文件重析，Builder 就必须拉着全项目成千上万个文件重新走一遍高成本的后处理磁盘读写和包索引计算，导致 O(1) 的脏文件局部重建退化成了 O(N) 的全量大后处理。
-
-**方案**：
-
-- 纠正后处理的生命周期归属。将隐式/框架后处理依赖的计算下沉到单个文件的 `analyzeFile` 阶段，并将隐式依赖数据作为 `parseResult` 的一部分随常规依赖一同缓存在 SQLite 数据库中。
-- 包依赖的拓扑展开应当基于内存中的包全局映射关系进行“局部受波及点按需展开（Affected-only）”，彻底废除大图全量扫盘。
-
----
-
 #### 弱断言分布 — 占总断言数 ~2.3%
 
 **数据**（本轮修复后）：
@@ -149,19 +132,15 @@
 
 ---
 
-#### Builder/Analyzer/Query 生命周期纠缠（架构债）
+#### Builder/Analyzer/Query 状态机（架构债 — 部分完成）
 
-**根因**：生命周期事件缺少明确状态机与边界，Builder/Analyzer/Query 在构建/更新/查询路径互相穿透调用。
+**已完成**：
+- Builder 与 Analyzer 缓存已彻底解耦：`_cachedCycles`、`_cycleCount`、`_scanContentCache`、`_scanPatternCache` 全部下沉到 `GraphAnalyzer` 内部，Builder 不再直接篡改 Analyzer 字段。
+- Builder 只通过 `graph:updated` / `graph:built` 事件与 Analyzer 通信；Analyzer 只响应事件并自主维护缓存。
 
-**影响**：
-
-- 增量更新时容易触发不必要的全量计算。
-- Query 可能依赖未完成的 Analyzer 状态，造成不稳定结果或隐性性能抖动。
-
-**方案**：
-
-1. 明确状态机（`idle -> initializing -> ready -> updating -> ready`），禁止跨状态调用。
-2. Builder 只负责构建与事件；Analyzer 只响应事件并维护缓存；Query 只读快照。
+**剩余**：
+- 明确状态机（`idle -> initializing -> ready -> updating -> ready`）尚未实现，当前仅靠 `_updating` 布尔锁做重入防护。
+- Query 理论上只读快照，但缺少运行时跨状态调用拦截。
 
 ---
 

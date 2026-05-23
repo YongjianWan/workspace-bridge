@@ -27,8 +27,18 @@ class GraphAnalyzer {
     this._impactCache = new Map();
     this._impactVersion = 0;
 
+    // Encapsulate caches entirely within analyzer
+    this._cachedCycles = null;
+    this._cycleCount = undefined;
+    this._scanContentCache = new Map();
+    this._scanPatternCache = new Map();
+
     this.dg.bus.on('graph:updated', () => {
       this._bumpAggregateCache();
+      this._cachedCycles = null;
+      this._cycleCount = undefined;
+      this._scanContentCache.clear();
+      this._scanPatternCache.clear();
     });
   }
 
@@ -322,8 +332,8 @@ class GraphAnalyzer {
     if (!options?.skipCache && this._aggregateCache && this._aggregateCache.version === this._aggregateVersion) {
       return this._aggregateCache.cycles;
     }
-    if (this.dg._cachedCycles) {
-      return this.dg._cachedCycles;
+    if (this._cachedCycles) {
+      return this._cachedCycles;
     }
 
     const cycles = [];
@@ -373,7 +383,7 @@ class GraphAnalyzer {
 
     // P89: convert internal graph keys back to original-casing paths for output.
     const displayFiltered = filtered.map((cycle) => cycle.map((f) => this.dg._displayPath(f)));
-    this.dg._cachedCycles = displayFiltered;
+    this._cachedCycles = displayFiltered;
     return displayFiltered;
   }
 
@@ -384,7 +394,7 @@ class GraphAnalyzer {
     // P85: always use the same filtered cycles array that findCircularDependencies()
     // returns, eliminating any stale-cache divergence between the two paths.
     const cycles = this.findCircularDependencies(options);
-    this.dg._cycleCount = cycles.length;
+    this._cycleCount = cycles.length;
     const cacheStats = this.dg.cache?.getStats?.() || {};
     let parsedFiles = 0;
     let fallbackFiles = 0;
@@ -411,7 +421,7 @@ class GraphAnalyzer {
       files: totalFiles,
       totalImports: Array.from(this.dg.graph.values()).reduce((sum, i) => sum + i.imports.length, 0),
       totalExports: Array.from(this.dg.graph.values()).reduce((sum, i) => sum + i.exports.length, 0),
-      cycles: this.dg._cycleCount,
+      cycles: this._cycleCount,
       totalLines: cacheStats.totalLines || 0,
       analysisCoverage: {
         totalFiles,
@@ -484,16 +494,16 @@ class GraphAnalyzer {
 
     const ext = path.extname(sourceFilePath).toLowerCase();
     const isJavaFamily = ext === '.java' || ext === '.kt';
-    const patternCache = this.dg._scanPatternCache;
+    const patternCache = this._scanPatternCache;
 
     for (const importerPath of importerPaths) {
       try {
-        let content = this.dg._scanContentCache.get(importerPath);
+        let content = this._scanContentCache.get(importerPath);
         if (content === undefined) {
           content = fs.readFileSync(importerPath, 'utf-8');
           // Defensive cap: prevent unbounded growth in long-lived REPL sessions
-          if (this.dg._scanContentCache.size < LIMITS.SCAN_SYMBOL_CONTENT_CACHE_MAX) {
-            this.dg._scanContentCache.set(importerPath, content);
+          if (this._scanContentCache.size < LIMITS.SCAN_SYMBOL_CONTENT_CACHE_MAX) {
+            this._scanContentCache.set(importerPath, content);
           }
         }
 
@@ -526,11 +536,11 @@ class GraphAnalyzer {
     const used = new Set();
     if (!symbols || symbols.length === 0) return used;
     try {
-      let content = this.dg._scanContentCache.get(filePath);
+      let content = this._scanContentCache.get(filePath);
       if (content === undefined) {
         content = fs.readFileSync(filePath, 'utf-8');
-        if (this.dg._scanContentCache.size < LIMITS.SCAN_SYMBOL_CONTENT_CACHE_MAX) {
-          this.dg._scanContentCache.set(filePath, content);
+        if (this._scanContentCache.size < LIMITS.SCAN_SYMBOL_CONTENT_CACHE_MAX) {
+          this._scanContentCache.set(filePath, content);
         }
       }
       for (const symbol of symbols) {
