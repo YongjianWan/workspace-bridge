@@ -105,159 +105,117 @@ async function assembleSummary(parsed, container) {
   return result;
 }
 
-async function assembleDiff(parsed, container) {
-  const since = parsed.since || null;
-  const commits = parsed.commits || null;
-  const staged = parsed.staged === true;
-  const explicitFiles = parsed.files ? parsed.files.split(',').map((f) => f.trim()).filter(Boolean) : null;
-
-  let changed;
-  if (explicitFiles) {
-    changed = { ok: true, workspaceRoot: container.workspaceRoot, changedFiles: explicitFiles };
-  } else {
-    changed = await getChangedFiles(container.workspaceRoot, { staged, includeUntracked: !staged, since, commits });
-    if (changed.ok === false) {
-      return changed;
-    }
-  }
-
-  const numstat = explicitFiles
-    ? { ok: false }
-    : await getDiffNumstat(container.workspaceRoot, { staged, includeUntracked: !staged, since, commits });
-  const changeMetrics = numstat.ok ? {
+function buildChangeMetrics(numstat, changed) {
+  if (!numstat.ok) return null;
+  return {
     totalAdditions: numstat.totalAdditions,
     totalDeletions: numstat.totalDeletions,
     changedFileCount: numstat.files.length,
     untrackedFileCount: Math.max(0, changed.changedFiles.length - numstat.files.length),
-  } : null;
+  };
+}
 
-  const entries = await mapWithConcurrency(changed.changedFiles, DEFAULTS.CLI_CONCURRENCY, async (relativeFile) => {
-    const resolvedPath = resolveWorkspaceFilePath(relativeFile, container.workspaceRoot);
-    const classification = container.projectContext?.classifyFile(resolvedPath) || null;
-    const graphKnown = Boolean(resolvedPath && container.depGraph.hasFile(resolvedPath));
-    const impact = graphKnown ? container.depGraph.getImpactRadius(resolvedPath) : [];
-    let changedLineRanges = [];
-    if (resolvedPath) {
-      if (commits) {
-        const rangeResult = await getChangedLineRanges(container.workspaceRoot, resolvedPath, { commits }).catch(() => ({ ok: false }));
-        if (rangeResult.ok) changedLineRanges = rangeResult.lineRanges;
-      } else if (since) {
-        const rangeResult = await getChangedLineRanges(container.workspaceRoot, resolvedPath, { since }).catch(() => ({ ok: false }));
-        if (rangeResult.ok) changedLineRanges = rangeResult.lineRanges;
-      } else if (staged) {
-        const stagedResult = await getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: true }).catch(() => ({ ok: false }));
-        if (stagedResult.ok) changedLineRanges = stagedResult.lineRanges;
-      } else {
-        const [unstagedResult, stagedResult] = await Promise.all([
-          getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: false }).catch(() => ({ ok: false })),
-          getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: true }).catch(() => ({ ok: false })),
-        ]);
-        const ranges = [];
-        if (unstagedResult.ok) ranges.push(...unstagedResult.lineRanges);
-        if (stagedResult.ok) ranges.push(...stagedResult.lineRanges);
-        const seen = new Set();
-        changedLineRanges = ranges.filter((r) => {
-          const key = `${r.startLine}-${r.endLine}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        }).sort((a, b) => a.startLine - b.startLine);
-      }
+async function buildDiffEntry(relativeFile, container, parsed) {
+  const { since, commits, staged, reuseHints: reuseHintsFlag, quiet, maxDepth } = parsed;
+  const resolvedPath = resolveWorkspaceFilePath(relativeFile, container.workspaceRoot);
+  const classification = container.projectContext?.classifyFile(resolvedPath) || null;
+  const graphKnown = Boolean(resolvedPath && container.depGraph.hasFile(resolvedPath));
+  const impact = graphKnown ? container.depGraph.getImpactRadius(resolvedPath) : [];
+  let changedLineRanges = [];
+  if (resolvedPath) {
+    if (commits) {
+      const rangeResult = await getChangedLineRanges(container.workspaceRoot, resolvedPath, { commits }).catch(() => ({ ok: false }));
+      if (rangeResult.ok) changedLineRanges = rangeResult.lineRanges;
+    } else if (since) {
+      const rangeResult = await getChangedLineRanges(container.workspaceRoot, resolvedPath, { since }).catch(() => ({ ok: false }));
+      if (rangeResult.ok) changedLineRanges = rangeResult.lineRanges;
+    } else if (staged) {
+      const stagedResult = await getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: true }).catch(() => ({ ok: false }));
+      if (stagedResult.ok) changedLineRanges = stagedResult.lineRanges;
+    } else {
+      const [unstagedResult, stagedResult] = await Promise.all([
+        getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: false }).catch(() => ({ ok: false })),
+        getChangedLineRanges(container.workspaceRoot, resolvedPath, { staged: true }).catch(() => ({ ok: false })),
+      ]);
+      const ranges = [];
+      if (unstagedResult.ok) ranges.push(...unstagedResult.lineRanges);
+      if (stagedResult.ok) ranges.push(...stagedResult.lineRanges);
+      const seen = new Set();
+      changedLineRanges = ranges.filter((r) => {
+        const key = `${r.startLine}-${r.endLine}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).sort((a, b) => a.startLine - b.startLine);
     }
-    const baseSymbolImpact = graphKnown ? container.depGraph.getSymbolImpact(resolvedPath) : null;
-    const changedFunctionImpactBase = graphKnown
-      ? container.depGraph.getChangedFunctionImpact(resolvedPath, changedLineRanges, { symbolImpact: baseSymbolImpact })
-      : null;
-    let reuseHints = [];
-    if (parsed.reuseHints === 'on' && graphKnown && changedFunctionImpactBase?.mode === 'function-symbol') {
-      try {
-        reuseHints = container.depGraph.getFunctionReuseHints(resolvedPath, changedFunctionImpactBase.changedFunctions, {
-          minScore: DEFAULTS.REUSE_HINTS_MIN_SCORE,
-          maxPerFunction: DEFAULTS.REUSE_HINTS_MAX_PER_FUNCTION,
-        });
-      } catch (e) {
-        if (!parsed.quiet) {
-          console.error(`[warn] reuse hints failed for ${relativeFile}: ${e?.message || String(e)}`);
-        }
-        reuseHints = [];
+  }
+  const baseSymbolImpact = graphKnown ? container.depGraph.getSymbolImpact(resolvedPath) : null;
+  const changedFunctionImpactBase = graphKnown
+    ? container.depGraph.getChangedFunctionImpact(resolvedPath, changedLineRanges, { symbolImpact: baseSymbolImpact })
+    : null;
+  let reuseHints = [];
+  if (reuseHintsFlag === 'on' && graphKnown && changedFunctionImpactBase?.mode === 'function-symbol') {
+    try {
+      reuseHints = container.depGraph.getFunctionReuseHints(resolvedPath, changedFunctionImpactBase.changedFunctions, {
+        minScore: DEFAULTS.REUSE_HINTS_MIN_SCORE,
+        maxPerFunction: DEFAULTS.REUSE_HINTS_MAX_PER_FUNCTION,
+      });
+    } catch (e) {
+      if (!quiet) {
+        console.error(`[warn] reuse hints failed for ${relativeFile}: ${e?.message || String(e)}`);
       }
+      reuseHints = [];
     }
-    const functionLevelAffectedTests = graphKnown &&
-      (changedFunctionImpactBase?.mode === 'function-symbol' || changedFunctionImpactBase?.mode === 'internal-function-call-chain')
-      ? container.depGraph.getFunctionLevelAffectedTests(
-        resolvedPath,
-        changedFunctionImpactBase.changedFunctions,
-        {
-          symbolImpact: baseSymbolImpact,
-          maxDepth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : DEFAULTS.SYMBOL_IMPACT_DEPTH,
-        }
-      )
-      : { functions: [], affectedTestsCount: 0 };
-    const changedFunctionImpact = changedFunctionImpactBase
-      ? { ...changedFunctionImpactBase, reuseHints, functionLevelAffectedTests }
-      : null;
-    const symbolImpact = baseSymbolImpact
-      ? { ...baseSymbolImpact, changedFunctionImpact }
-      : null;
-    const affectedTests = graphKnown ? container.depGraph.findAffectedTests(resolvedPath, Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined) : [];
-    const history = resolvedPath ? await getFileHistoryRisk(container.workspaceRoot, resolvedPath, { limit: DEFAULTS.HISTORY_LIMIT }) : { ok: false };
-    const historyRisk = history.ok ? history.historyRisk : null;
-    const impactExplanations = graphKnown
-      ? buildImpactExplanations({ file: relativeFile, impact })
-      : [];
-    const frameworkPattern = container.depGraph.getFrameworkHint(resolvedPath);
-    const baseEntry = {
-      file: relativeFile,
+  }
+  const functionLevelAffectedTests = graphKnown &&
+    (changedFunctionImpactBase?.mode === 'function-symbol' || changedFunctionImpactBase?.mode === 'internal-function-call-chain')
+    ? container.depGraph.getFunctionLevelAffectedTests(
       resolvedPath,
-      classification,
-      graphKnown,
-      frameworkPattern,
-      impactCount: impact.length,
-      impact,
-      changedLineRanges,
-      symbolImpact,
-      affectedTestsCount: affectedTests.length,
-      affectedTests,
-      historyRisk,
-      recentCommits: history.ok ? history.recentCommits : [],
-      impactExplanations,
-    };
-    const compositeRisk = buildCompositeRisk(baseEntry);
+      changedFunctionImpactBase.changedFunctions,
+      {
+        symbolImpact: baseSymbolImpact,
+        maxDepth: Number.isFinite(maxDepth) ? maxDepth : DEFAULTS.SYMBOL_IMPACT_DEPTH,
+      }
+    )
+    : { functions: [], affectedTestsCount: 0 };
+  const changedFunctionImpact = changedFunctionImpactBase
+    ? { ...changedFunctionImpactBase, reuseHints, functionLevelAffectedTests }
+    : null;
+  const symbolImpact = baseSymbolImpact
+    ? { ...baseSymbolImpact, changedFunctionImpact }
+    : null;
+  const affectedTests = graphKnown ? container.depGraph.findAffectedTests(resolvedPath, Number.isFinite(maxDepth) ? maxDepth : undefined) : [];
+  const history = resolvedPath ? await getFileHistoryRisk(container.workspaceRoot, resolvedPath, { limit: DEFAULTS.HISTORY_LIMIT }) : { ok: false };
+  const historyRisk = history.ok ? history.historyRisk : null;
+  const impactExplanations = graphKnown
+    ? buildImpactExplanations({ file: relativeFile, impact })
+    : [];
+  const frameworkPattern = container.depGraph.getFrameworkHint(resolvedPath);
+  const baseEntry = {
+    file: relativeFile,
+    resolvedPath,
+    classification,
+    graphKnown,
+    frameworkPattern,
+    impactCount: impact.length,
+    impact,
+    changedLineRanges,
+    symbolImpact,
+    affectedTestsCount: affectedTests.length,
+    affectedTests,
+    historyRisk,
+    recentCommits: history.ok ? history.recentCommits : [],
+    impactExplanations,
+  };
+  const compositeRisk = buildCompositeRisk(baseEntry);
 
-    return {
-      ...baseEntry,
-      compositeRisk,
-    };
-  });
-  const safeEntries = entries.map((entry, index) => {
-    if (!entry?.__error) return entry;
-    const baseEntry = {
-      file: changed.changedFiles[index],
-      resolvedPath: null,
-      classification: null,
-      graphKnown: false,
-      frameworkPattern: null,
-      impactCount: 0,
-      impact: [],
-      changedLineRanges: [],
-      symbolImpact: null,
-      affectedTestsCount: 0,
-      affectedTests: [],
-      historyRisk: null,
-      recentCommits: [],
-      processingError: entry.__error,
-    };
-    return {
-      ...baseEntry,
-      compositeRisk: buildCompositeRisk(baseEntry),
-    };
-  });
+  return {
+    ...baseEntry,
+    compositeRisk,
+  };
+}
 
-  const shouldAutoCompact = !parsed.compact && safeEntries.length > DEFAULTS.AUDIT_DIFF_AUTO_COMPACT_THRESHOLD;
-  const finalEntries = (parsed.compact || shouldAutoCompact)
-    ? safeEntries.map((entry) => compactChangedFile(entry))
-    : safeEntries;
-
+function buildDiffResult(safeEntries, finalEntries, changeMetrics, parsed, container) {
   const { detectStack } = require('../utils/stack-detectors/detect');
   const stack = detectStack(container.workspaceRoot);
   const result = {
@@ -301,6 +259,62 @@ async function assembleDiff(parsed, container) {
   result.hasFindings = result.summary?.counts?.highCompositeRiskFiles > 0 || result.summary?.counts?.affectedTests > 0;
 
   return result;
+}
+
+async function assembleDiff(parsed, container) {
+  const since = parsed.since || null;
+  const commits = parsed.commits || null;
+  const staged = parsed.staged === true;
+  const explicitFiles = parsed.files ? parsed.files.split(',').map((f) => f.trim()).filter(Boolean) : null;
+
+  let changed;
+  if (explicitFiles) {
+    changed = { ok: true, workspaceRoot: container.workspaceRoot, changedFiles: explicitFiles };
+  } else {
+    changed = await getChangedFiles(container.workspaceRoot, { staged, includeUntracked: !staged, since, commits });
+    if (changed.ok === false) {
+      return changed;
+    }
+  }
+
+  const numstat = explicitFiles
+    ? { ok: false }
+    : await getDiffNumstat(container.workspaceRoot, { staged, includeUntracked: !staged, since, commits });
+  const changeMetrics = buildChangeMetrics(numstat, changed);
+
+  const entries = await mapWithConcurrency(changed.changedFiles, DEFAULTS.CLI_CONCURRENCY, (relativeFile) =>
+    buildDiffEntry(relativeFile, container, parsed)
+  );
+  const safeEntries = entries.map((entry, index) => {
+    if (!entry?.__error) return entry;
+    const baseEntry = {
+      file: changed.changedFiles[index],
+      resolvedPath: null,
+      classification: null,
+      graphKnown: false,
+      frameworkPattern: null,
+      impactCount: 0,
+      impact: [],
+      changedLineRanges: [],
+      symbolImpact: null,
+      affectedTestsCount: 0,
+      affectedTests: [],
+      historyRisk: null,
+      recentCommits: [],
+      processingError: entry.__error,
+    };
+    return {
+      ...baseEntry,
+      compositeRisk: buildCompositeRisk(baseEntry),
+    };
+  });
+
+  const shouldAutoCompact = !parsed.compact && safeEntries.length > DEFAULTS.AUDIT_DIFF_AUTO_COMPACT_THRESHOLD;
+  const finalEntries = (parsed.compact || shouldAutoCompact)
+    ? safeEntries.map((entry) => compactChangedFile(entry))
+    : safeEntries;
+
+  return buildDiffResult(safeEntries, finalEntries, changeMetrics, parsed, container);
 }
 
 async function assembleFile(parsed, container) {

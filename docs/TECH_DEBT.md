@@ -18,24 +18,6 @@
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
-#### 多语言策略链设计的“巨石化”与低内聚（架构与品味债）
-
-**数据**：
-
-- 尽管 `resolvers.js` 通过 `registerResolverConfig` 提供了策略链机制，但所有的语言解析策略（`tryPythonRelative`、`tryPythonAbsolute`、`tryJava`、`tryGoRelative`、`tryGoModule`、`tryRustCrate` 等）竟然统统被揉在同一个大文件 `resolvers.js`（560行）中实现。
-
-**影响**：
-
-- 这是极其妥协的“半吊子插件化”。真正的插件化架构应当让每种语言的 Provider 自行内聚管理 `parse()`、`resolve()` 及其专用 helper。目前这种巨石化设计导致每当新增支持一门新语言（如 Ruby/PHP），开发者必须跑到庞大核心模块 `resolvers.js` 内部去强行塞入私有策略函数，极易产生副作用，违背了开放封闭原则与 L2-8 内聚优先。
-
-**方案**：
-
-- 物理拆分，推行真正的 `LanguageProvider` 插件化架构。
-- 将每种语言的 AST parser、依赖提取 regex 和 resolver 策略函数彻底封装到如 `src/services/languages/[lang]/*.js` 各自的内聚包中。
-- `resolvers.js` 与 `registry.js` 仅作为核心 Facade 和动态注册中心，保持绝对的轻量与语言无关。
-
----
-
 #### 全量后处理风暴击穿增量更新性能红利（性能与架构债）
 
 **数据**：
@@ -53,14 +35,7 @@
 
 ---
 
-#### ~~Builder 越权越层操控 Analyzer 缓存（架构债）~~ ✅ 已修复
-
-**状态**：O4 已完成。Builder 不再认知 Analyzer 的存在；`build()` / `updateFiles()` 末尾改为 `emitAsync('graph:built')`；dep-graph.js facade 监听事件并协调 `precomputeAggregates` + `precomputeImpact` + `_savePrecomputed`。
-
-**历史**：负责图结构和物理组装的 `GraphBuilder` 曾直接调用 `this.dg.analyzer.precomputeAggregates()` 并访问私有缓存字段。修复见 CHANGELOG.md [Unreleased] O4。
-
----
-#### 弱断言分布 — 占总断言数 ~3.0%
+#### 弱断言分布 — 占总断言数 ~2.3%
 
 **数据**（本轮修复后）：
 
@@ -127,25 +102,6 @@
 
 ---
 
-#### 时序依赖测试脆弱 — 部分修复
-
-**数据**：测试中存在固定延时，依赖事件循环/文件系统 watch 的时序：
-
-
-| 文件                                   | 延时             | 场景                         | 状态           |
-| ------------------------------------ | -------------- | -------------------------- | ------------ |
-| `audit-file-watch-test.js`           | 100ms, 200ms   | 轮询间隔                       | ✅ 合理，保留      |
-| `audit-file-watch-test.js`           | 3000ms ×2      | 进程退出安全网                    | ✅ 超时保护，保留    |
-| `file-index-race-test.js`            | 20ms           | mock handleFileChange 内部延迟 | ✅ mock 模拟，保留 |
-| `overview-tools-concurrency-test.js` | 5ms, 30ms      | mock provider 内部延迟         | ✅ mock 模拟，保留 |
-| `watch-sigterm-test.js`              | 5000ms ×2      | 进程退出超时保护                   | ✅ 安全网，保留     |
-| `watch-test.js`                      | 3000ms, 5000ms | 进程退出安全网                    | ✅ 超时保护，保留    |
-
-
-**本轮修复**：4 个文件固定延时改为轮询：`diagnostics-unbounded-timer-test.js`（1200ms×2 → 轮询 checkCount/runningChecks）、`file-index-rename-test.js`（200ms → 轮询 prunedFiles）、`repl-shutdown-test.js`（30ms×2 → 轮询 sigintHandler/closeResolver）、`spawn-ast-test.js`（50ms+60ms → 轮询 killCalls）。
-
----
-
 #### slow 层测试过重
 
 **数据**：slow 层 27 个测试需 ~100s，其中 `e2e-gitnexus-test.js` 单个测试占 ~34s（全层时间的 ~24%）。
@@ -157,24 +113,6 @@
 **方案**：
 
 1. 评估 runner 是否可为 e2e-gitnexus 提供预热缓存（复用默认缓存目录而非独立空目录），或拆分为独立 CI job 本地跳过。
-
----
-
-#### `cli.js` 脑壳上硬编码的命令指南配置外溢（L3级架构与品味债）
-
-**数据**：
-
-- `cli.js` 中维护着高达 100 行的 `COMMAND_GUIDES` 大配表，强行静态指定了各 CLI 命令的 help 信息（when to use, after this 引导语）。
-- 而 workspace-bridge 早就已经实现了将各个 Command Module 物理隔离拆分到 `src/cli/commands/` 下并用 `COMMANDS` 注册表挂载的架构。
-
-**影响**：
-
-- 这极大地破坏了“局部内聚”原则（违反 L2-8）。每当开发者增加或调整某个命令的配置说明，都必须在 `src/cli/commands/` 增加命令，同时跑到 `cli.js` 头部塞入冗长重复的配置，不仅增加了文件尺寸，还极其容易在添加新命令时遗漏 guide。
-
-**方案**：
-
-- 命令的 guide/help 元数据应彻底内聚归位到各自的具体 Command 导出文件中。
-- `cli.js` 统一从 `COMMANDS` 注册表中动态读取并渲染各命令的 guide。
 
 ---
 
@@ -283,7 +221,7 @@
 | 位置              | 问题                                                                                                                                     | 优先级 |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --- |
 | `js.js`         | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行                                                                              | 低   |
-| `cli.js`        | 1. `--json` 嵌套深，管道不友好；2. 静态帮助指南 `COMMAND_GUIDES` 硬编码配置外溢，违背 L2-8 内聚优先。                                                                 | 中   |
+| `cli.js`        | `--json` 嵌套深，管道不友好                                                                                                               | 中   |
 | `file-index.js` | `this.excludeDirs` 被拼命计算与去重，却**没有任何一处代码消费**，属死代码气味                                                                                     | 低   |
 | `file-index.js` | `shouldExclude` 高频核心循环中嵌套调用了无缓存的 `projectContext.isNotGeneratedFile()`，导致对每个扫描到的目录/文件都执行了全套正则匹配与角色判定规则链，大项目 cold index 阶段存在明显 CPU 消耗瓶颈 | 中   |
 
@@ -296,7 +234,7 @@
 | 文件                                      | 行数   | 风险  | 状态                                                                                        |
 | --------------------------------------- | ---- | --- | ----------------------------------------------------------------------------------------- |
 | `src/tools/overview-tools.js`           | ~711 | 中   | JS/CSS 裸数字已归零（`DASHBOARD_LAYOUT` 常量）；P0 去噪已添加小项目 `architectureAdvice` 抑制；L2-5 schema 不一致源 |
-| `cli.js`                                | ~509 | 中   | 命令指南硬编码外溢。                                                                                |
+| `cli.js`                                | ~509 | 中   | `--json` 嵌套深，管道不友好                                                                        |
 | `src/tools/git-tools.js`                | ~392 | 低   | L2-9 commit range 源                                                                       |
 | `src/utils/project-context.js`          | ~634 | 中   | `inferFileRole()` 存在规则盲区与无状态匹配，高频 `shouldExclude` 存在高 CPU 消耗                              |
 | `src/utils/stack-detectors/detect.js`   | ~443 | 低   | stack-detector 检测子模块                                                                      |

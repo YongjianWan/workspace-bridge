@@ -8,6 +8,29 @@
 
 ## [Unreleased]
 
+### 架构（Wave 2：Resolver 策略链物理拆分 (LanguageProvider) — 2026-05-23）
+
+- **物理拆分多语言策略链** `src/services/dep-graph/resolvers/` `src/services/dep-graph/resolvers.js`：
+  - 新增 `resolvers/base.js`：封装 I/O 缓存 `_statCache` 与 tsconfig、go.mod、Java 源码根目录解析底座，提供全局共享常量，规避循环依赖。
+  - 新增 `resolvers/javascript.js`：实现 JS/TS 的 `tryAlias` 与 `tryRelativeWithExtensions` 解析策略。
+  - 新增 `resolvers/python.js`：实现 Python 的 `tryPythonRelative` 与 `tryPythonAbsolute` 策略。
+  - 新增 `resolvers/java.js`：实现 Java/Kotlin 的 `tryJava` 解析。
+  - 新增 `resolvers/go.js`：实现 Go 的 `tryGoRelative` 与 `tryGoModule` 策略。
+  - 新增 `resolvers/rust.js`：实现 Rust 的 `tryRustCrate` 与 `tryRustSuper` 策略，以及 `resolveRustModulePath`。
+  - 重构并瘦身 `resolvers.js` 门面（Facade）：代码量骤降 80%（591 → 114 行），作为注册表和策略分发核心，向后兼容导出所有策略和 legacy 接口。并且删除了 `_buildContext` 中冗余传递的 `tryResolveWithExtensions` 闭包属性，优化内存与结构内聚。
+  - 精细清理 `base.js` 导出：移除外部未消费的 `JAVA_SOURCE_ROOTS` 内部常量，消除了自身项目死导出误报，保持 `0 deadExports` 的工程净值。
+  - 验证：`npm run test:fast` **96/96 PASS**；温启动自检 `node cli.js audit-summary` 成功通过。
+
+### 输出层（U7：audit-assembler 拆分 — 2026-05-23）
+
+- **拆分 `assembleDiff` 面条回调为三个纯函数** `src/tools/audit-assembler.js`：
+  - 新增 `buildChangeMetrics(numstat, changed)`：纯函数，构建变更指标（additions / deletions / fileCount / untrackedCount）。
+  - 新增 `buildDiffEntry(relativeFile, container, parsed)`：async 纯函数，封装单文件 impact / symbolImpact / affectedTests / historyRisk / compositeRisk 的完整组装逻辑。
+  - 新增 `buildDiffResult(safeEntries, finalEntries, changeMetrics, parsed, container)`：纯函数，负责最终结果组装、incremental / withImpact 条件分支、hasFindings 契约计算。
+  - `assembleDiff` 退化为薄编排层：获取 changed files → 调用 `buildChangeMetrics` → `mapWithConcurrency` 并发调用 `buildDiffEntry` → 错误降级（safeEntries）→ compact 处理 → 调用 `buildDiffResult`。无副作用、无内联回调、职责单一。
+  - 修正 compact 边界：`compactChangedFile` 会丢弃 `resolvedPath`，因此 `withImpact` / `incremental` 计算必须使用原始的 `safeEntries`，而 `summary` / `changedFiles` 使用 compact 后的 `finalEntries`，避免行为回归。
+  - 验证：`npm run test:fast` **96/96 PASS**；基线 `node cli.js audit-summary` 无回归，`deadExports=0`。
+
 ### 安全与防御（阶段 3 低垂果实 — 2026-05-21）
 
 - **路径参数安全清洗** `cli.js` `src/utils/path.js` `test/cli-integration-test.js`：
