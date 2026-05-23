@@ -141,7 +141,7 @@ async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
         const fileRole = classification?.fileRole;
         const frameworkHint = depGraph.getFrameworkHint?.(file);
         const pageRank = depGraph.getPageRank?.(file) || 0;
-        const score = calculateHotspotScore(historyRisk, fileRole, frameworkHint?.entryPointWeight, pageRank, depGraph.graph?.size || 0);
+        const score = calculateHotspotScore(historyRisk, fileRole, frameworkHint?.entryPointWeight, pageRank, depGraph.getFileCount?.() || 0);
         const coupling = calculateCoupling(dependencies, dependents);
         if (score <= SCORING.HOTSPOT_REPORT_THRESHOLD && coupling.total <= SCORING.COUPLING_MEDIUM_MIN) return null;
         const historySignal = historyRisk?.signals?.[0];
@@ -315,7 +315,7 @@ const EXT_TO_LANG = {
 function buildLanguageSupportMatrix(depGraph) {
   const matrix = {};
   const stats = {};
-  for (const [filePath, info] of depGraph.graph || []) {
+  for (const [filePath, info] of depGraph.getAllFileInfos?.() || []) {
     const lang = EXT_TO_LANG[path.extname(filePath).toLowerCase()];
     if (!lang) continue;
     if (!stats[lang]) stats[lang] = { total: 0, ast: 0, regex: 0, fallbackReasons: {} };
@@ -348,7 +348,7 @@ async function precomputeHotspotsAndStability(depGraph) {
   if (!projectContext) return { hotspots: null, stability: null };
 
   const shouldExcludeCli = depGraph.shouldExcludeCli?.bind(depGraph);
-  const allFiles = Array.from(depGraph.graph?.keys() || []).filter((f) => !shouldExcludeCli || !shouldExcludeCli(f));
+  const allFiles = (depGraph.getAllFilePaths?.() || []).filter((f) => !shouldExcludeCli || !shouldExcludeCli(f));
   const mainlineFiles = allFiles.filter((f) => {
     const c = projectContext.classifyFile(f);
     return c.isMainline && c.fileRole !== 'test' && c.fileRole !== 'docs' && c.fileRole !== 'style' && c.fileRole !== 'asset';
@@ -369,7 +369,7 @@ async function assembleOverviewData(args, container, historyProvider) {
   }
 
   const shouldExcludeCli = depGraph.shouldExcludeCli?.bind(depGraph);
-  const allFiles = Array.from(depGraph.graph?.keys() || []).filter((f) => !shouldExcludeCli || !shouldExcludeCli(f));
+  const allFiles = (depGraph.getAllFilePaths?.() || []).filter((f) => !shouldExcludeCli || !shouldExcludeCli(f));
   const mainlineFiles = allFiles.filter((f) => {
     const c = projectContext.classifyFile(f);
     return c.isMainline && c.fileRole !== 'test' && c.fileRole !== 'docs' && c.fileRole !== 'style' && c.fileRole !== 'asset';

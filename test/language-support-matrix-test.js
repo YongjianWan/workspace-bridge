@@ -1,25 +1,18 @@
+// @semantic
 const assert = require('assert');
 const path = require('path');
-const { DependencyGraph } = require('../src/services/dep-graph');
+const { createMockDepGraph } = require('./test-helpers');
 
 function testBuildLanguageSupportMatrix() {
   const root = '/repo';
-  const depGraph = new DependencyGraph(root, { fileMetadata: new Map() });
-
-  depGraph.graph.set(path.join(root, 'src', 'app.js'), {
-    imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'ast',
-  });
-  depGraph.graph.set(path.join(root, 'src', 'util.ts'), {
-    imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'ast',
-  });
-  depGraph.graph.set(path.join(root, 'lib', 'helper.py'), {
-    imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'ast',
-  });
-  depGraph.graph.set(path.join(root, 'lib', 'legacy.py'), {
-    imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'regex',
-  });
-  depGraph.graph.set(path.join(root, 'src', 'main.go'), {
-    imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'regex',
+  const depGraph = createMockDepGraph({
+    schema: {
+      [path.join(root, 'src', 'app.js')]: { imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'ast' },
+      [path.join(root, 'src', 'util.ts')]: { imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'ast' },
+      [path.join(root, 'lib', 'helper.py')]: { imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'ast' },
+      [path.join(root, 'lib', 'legacy.py')]: { imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'regex' },
+      [path.join(root, 'src', 'main.go')]: { imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'regex' },
+    }
   });
 
   const { buildLanguageSupportMatrix } = require('../src/tools/overview-assembler');
@@ -34,4 +27,14 @@ function testBuildLanguageSupportMatrix() {
   assert.strictEqual(matrix.java, undefined, 'java should not be present');
 }
 
+function testBuildLanguageSupportMatrixEmpty() {
+  const root = '/repo';
+  const depGraph = createMockDepGraph({ schema: {} });
+  const { buildLanguageSupportMatrix } = require('../src/tools/overview-assembler');
+  const matrix = buildLanguageSupportMatrix(depGraph);
+  assert.deepStrictEqual(matrix, {}, 'empty graph should yield empty matrix');
+}
+
 testBuildLanguageSupportMatrix();
+testBuildLanguageSupportMatrixEmpty();
+

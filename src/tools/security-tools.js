@@ -94,8 +94,8 @@ async function runBuiltinSecurityScan(cwd, targets, container) {
 
   let files = [];
   const hasExplicitTargets = targets.length > 0;
-  if (container?.depGraph?.graph) {
-    files = Array.from(container.depGraph.graph.keys());
+  if (container?.depGraph?.getAllFilePaths) {
+    files = container.depGraph.getAllFilePaths();
     if (hasExplicitTargets) {
       const targetPaths = targets.map((t) => normalizePathKey(path.resolve(cwd, t)));
       const targetSet = new Set();

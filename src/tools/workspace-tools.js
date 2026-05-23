@@ -184,7 +184,7 @@ function workspaceInfo(args, container) {
   // Try to use depGraph data if container is ready; otherwise fall back to basic detection
   const depGraph = container?.depGraph;
   const allOriginalPaths = depGraph
-    ? Array.from(depGraph.graph?.values() || []).map((v) => v.originalPath).filter(Boolean)
+    ? (depGraph.getAllFileValues?.() || []).map((v) => v.originalPath).filter(Boolean)
     : [];
 
   // P92: unify entryFiles with audit-summary (projectContext.summarizeFiles)

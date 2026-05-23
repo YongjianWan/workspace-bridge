@@ -69,7 +69,7 @@
 | 集成测试（`spawn`/`runCli`）  | ~26   | ~20% | 已补充 `cli-integration-test.js`                          |
 | 混沌/模糊测试                 | 0     | 0%   | 暂缓（CLI 工具）                                             |
 | 并发/竞争测试                 | 4 个文件 | ~3%  | 存在（race、concurrency）                                   |
-| 端到端测试                   | 3 个文件 | ~2%  | **严重不足**（functionality/formatter-e2e/integration-core） |
+| 端到端测试                   | 3 个文件 | ~2%  | **缺口仍在**，但 CLI 核心主线已有 spawn 级护体；暂不追加 PowerShell/WASM 专项 E2E |
 
 
 > 注：分类有重叠（如 `cache-concurrency-test.js` 既是集成测试也是并发测试），占比基于总文件数 131 独立计算，不互斥。
@@ -88,8 +88,9 @@
 
 **数据**：
 
-- **99 处内联 mock `depGraph`** 构造 — **部分收敛**：`audit-map-test.js` 公共方法已提取为 `BASE_MOCK_METHODS`，文件从 592 行降至 ~564 行；graph 数据字面量仍内联
-- **新增发现**：`overview-tools-test.js` 的 mock depGraph 只有 6 个文件，但断言了复杂的 overview 行为。当 `buildProjectOverview` 添加小项目抑制逻辑时，测试立刻失败——mock 数据无法代表真实项目规模，说明 mock 测试与真实行为之间存在脱节。
+- **99 处内联 mock `depGraph`** 构造 — **部分收敛**：`audit-map-test.js` 已完成试点迁移（`BASE_MOCK_METHODS` 删除，全面改用 `createMockDepGraph`）；剩余 17 个文件中的 55 处 `new DependencyGraph` + 手动赋值待分批迁移
+- `test/test-helpers.js` 已建立 `createMockDepGraph` + `GraphFixtures` 工厂基础设施
+- **生产侧根因已解**：`DependencyGraph.fromSchema()` 静态工厂 + 构造函数 DI（`packageJson`/`entryFiles` 可选注入）已落地；`createMockDepGraph({ mode: 'instance' })` 已桥接为生产工厂消费者，彻底消灭属性篡改反模式
 
 **根因**：没有提取测试 fixture 工厂函数；mock 数据规模与真实项目差异过大。
 
@@ -97,7 +98,7 @@
 
 **方案**：
 
-1. `audit-map-test.js` graph 数据字面量进一步提取为配置表驱动的工厂调用
+1. ✅ 基础设施完成；剩余文件按「每轮 2~3 个」渐进迁移
 2. 基于规模的断言改为条件断言（如 `overview-tools-test.js` 本轮已做的调整），或提供多种规模的 fixture
 
 ---
@@ -128,36 +129,16 @@
 - 冗余校验堆砌，违背了“边界消除 > if”及“裸数字归零”原则。
 - 应当使参数校验在 CLI 边界处（边界层）一次性清洗 and 类型化完毕，核心业务层完全信任已类型化的配置，轻装上阵，消除重复 of if 防御分支。
 
----
-
-#### 模板字符串“按行切分”及解构导出提取瘫痪 (L3级 JavaScript 正则 fallback 模式功能债)
-
-**数据**：
-
-- 在 `src/services/dep-graph/parsers/js.js` 中，当 `@babel/parser` 不可用时会退化至 `parseJavaScript` 的正则表达式 fallback 模式：
-  - 在 `sanitizeForRegex` 阶段，其通过 `.split('\n')` 将整个文件拆分为行数组，并分别在每行内单独执行 `stripQuotedStrings(line, '`')`。
-  - 在 `extractExportsWithRegex` 阶段，针对 `export const { a, b } = obj` 这类解构导出，其使用 `declarationExportRegex = /export\s+(?:async\s+)?(function|class|const|let|var)\s+(\w+)/g` 进行捕获，只去提取紧随声明关键字后的下一个单词 `\w+`。
-
-**影响**：
-
-- **多行模板误报**：如果一个文件中含有跨越多行的模板字符串 `，`split('\n') `会无情地将这个闭合的模板字符串斩断成无数截。处于中间或两端的单`  根本无法闭合，导致 `stripQuotedStrings` 完美罢工。多行模板字符串内部写的任何类似 require/import/export 的伪代码，都会被系统高高兴兴地捕获为真实的模块依赖，造成极高误报。
-- **解构导出瘫痪**：由于 `declarationExportRegex` 只提取 `\w+`，在解构导出（如 `export const { foo }`）下，它匹配到了 `{` 便直接被正则抛弃，导致解构导出的符号在 fallback 模式下 100% 丢失漏报。
-- **调用链失效**：在 fallback 模式下，`functionRecords` 被粗暴地直接丢回空数组 `[]`，让整个引擎引以为豪的 call-chain 调用链影响分析直接在此文件下变相瘫痪。
-
-**方案**：
-
-- 废弃 `sanitizeForRegex` 中愚蠢的 `split('\n')` 按行过滤。直接对整块 text 内容执行基于单状态机或更高级的非行切割式全局正则替换。
-- 扩展 `declarationExportRegex` 兼容解构导出匹配，或者在 fallback 模式检测到解构导出时优雅地抛出 accuracy-downgrade 警告而非自信假装没发生。
-
----
-
-
-
 #### WorkspaceSnapshot 零消费者（架构债）
 
-**数据**：`DependencyGraphView` 目前只被测试用到，`container.snapshot` 零外部消费者。
+**数据**：`container.snapshot` 仍为零外部消费者；L4 工具函数签名仍接收 `depGraph` 参数，而非从 `snapshot` 获取。
 
-**方案**：P1 阶段统一让 L4 工具消费 `container.snapshot`，然后 `container.depGraph` 标记 deprecated，消除双线并行。
+**已完成前提**：
+- L4 层全部 `.graph` Map 穿透调用已清理（overview-assembler / workspace-tools / security-tools / project-map / repl / container / workspace-snapshot compute 函数），统一改用 `DependencyGraphView` facade 方法。
+- `DependencyGraphView` 补全 `getFileCount()` / `getAllFilePaths()` / `getAllFileValues()`，不再依赖底层 Map 暴露。
+- `container.depGraph` 已标记 `@deprecated`。
+
+**剩余一步**：将 L4 工具函数签名从 `(depGraph, ...)` 迁移为消费 `container.snapshot.graph`（或接收 `snapshot` 参数），彻底切断 L4 层对 `container.depGraph` 的直接依赖。
 
 ---
 
@@ -193,7 +174,7 @@
 
 ### 零专属测试模块清单
 
-- `src/tools/overview-curator.js`：⚠️ 零专属测试，被 `overview-tools-test.js` 间接覆盖，无独立断言。
+- ✅ `src/tools/overview-curator.js`：已补充 `test/overview-curator-test.js`，覆盖 `buildOverviewSummary` / `buildCycleRefactorSuggestions` / `buildCouplingSplitSuggestions` / `calculateCoupling` 全部导出。
 
 **L5 格式化层（10 个 formatter，6 个间接覆盖）**
 
@@ -201,8 +182,8 @@
 | 模块                                            | 状态      | 说明                                                                                                | 建议测试文件                         |
 | --------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- | ------------------------------ |
 | `src/cli/formatters/project-map.js`           | ✅ 已补充   | `test/project-map-test.js` 覆盖 buildProjectMap full/compact、buildDirectoryTree、countTreeFiles、空图边界 | —                              |
-| `src/cli/formatters/composite-risk.js`        | ⚠️ 间接覆盖 | 仅被 CLI E2E 路过                                                                                     | 可并入 `formatter-direct-test.js` |
-| `src/cli/formatters/audit-diff-summary.js`    | ⚠️ 间接覆盖 | 仅被 CLI E2E 路过                                                                                     | 可并入 `formatter-direct-test.js` |
+| `src/cli/formatters/composite-risk.js`        | ✅ 已补充   | `formatter-direct-test.js` 新增 7 组 `buildCompositeRisk` 测试                                         | —                              |
+| `src/cli/formatters/audit-diff-summary.js`    | ✅ 已补充   | `formatter-direct-test.js` 新增 `buildAuditDiffSummary` + `classifyChangeType` 测试                    | —                              |
 | `src/cli/formatters/repo-summary.js`          | ⚠️ 间接覆盖 | `formatter-direct-test.js` 导入了 `buildRepoSummary` 但覆盖浅                                            | 扩展 `formatter-direct-test.js`  |
 | `src/cli/formatters/human-formatters.js`      | ⚠️ 间接覆盖 | `formatter-direct-test.js` 覆盖了部分分支                                                                | 扩展 `formatter-direct-test.js`  |
 | `src/cli/formatters/validation-advice.js`     | ⚠️ 间接覆盖 | 被 `audit-file-validation-advice-test.js` 间接覆盖                                                     | 扩展 `formatter-direct-test.js`  |

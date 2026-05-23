@@ -3,9 +3,8 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { DependencyGraph } = require('../src/services/dep-graph');
 const { normalizePathKey, fromNormalizedKey } = require('../src/utils/path');
-const { makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { makeTempDir, cleanupTempDir, createMockDepGraph } = require('./test-helpers');
 
 function testFindUnresolvedImportsUsesPlatformPath() {
   const dir = makeTempDir('wb-p77-');
@@ -13,20 +12,23 @@ function testFindUnresolvedImportsUsesPlatformPath() {
   // Create a real file and a missing import target
   fs.writeFileSync(path.join(dir, 'main.js'), "import './missing';", 'utf8');
 
-  const dg = new DependencyGraph(dir, null);
   const mainKey = normalizePathKey(path.join(dir, 'main.js'));
   const missingKey = normalizePathKey(path.join(dir, 'missing.js'));
 
-  // Inject graph state directly (bypassing build)
-  dg.graph.set(mainKey, {
-    originalPath: path.join(dir, 'main.js'),
-    imports: [missingKey],
-    exports: [],
-    importRecords: [{ source: './missing', resolved: missingKey, imported: null, usesAllExports: true }],
-    exportRecords: [],
-    functionRecords: [],
-    parseMode: 'ast',
-    parseModeReason: 'js',
+  const dg = createMockDepGraph({
+    root: dir,
+    schema: {
+      [mainKey]: {
+        originalPath: path.join(dir, 'main.js'),
+        imports: [missingKey],
+        exports: [],
+        importRecords: [{ source: './missing', resolved: missingKey, imported: null, usesAllExports: true }],
+        exportRecords: [],
+        functionRecords: [],
+        parseMode: 'ast',
+        parseModeReason: 'js',
+      }
+    }
   });
 
   const unresolved = dg.findUnresolvedImports();

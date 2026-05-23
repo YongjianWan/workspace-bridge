@@ -1,3 +1,4 @@
+// @contract
 const assert = require('assert');
 const { registry } = require('../src/services/dep-graph/parsers/registry');
 
@@ -28,9 +29,20 @@ function testSvelteExtIsRegistered() {
   assert.strictEqual(entry.name, 'svelte');
 }
 
+function testRegistryBoundaryAndAttributes() {
+  const entry = registry.findByExt('.unknown-xyz');
+  assert.strictEqual(entry, undefined, 'unknown extension should return undefined');
+
+  const jsEntry = registry.findByExt('.js');
+  assert.strictEqual(jsEntry.async, false, 'JS parser should be synchronous');
+  assert.strictEqual(jsEntry.needsFilePath, true, 'JS parser should require file path');
+}
+
 if (require.main === module) {
   testJsFamilyExtsAreRegistered();
   testPythonExtsAreRegistered();
   testVueExtIsRegistered();
   testSvelteExtIsRegistered();
+  testRegistryBoundaryAndAttributes();
 }
+

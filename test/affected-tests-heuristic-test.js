@@ -2,54 +2,53 @@
 // @slow — builds large mock DependencyGraph; must not run concurrently with other graph-building tests.
 
 const assert = require('assert');
-const { DependencyGraph } = require('../src/services/dep-graph');
-const { buildMockDepGraph } = require('./test-helpers');
+const { createMockDepGraph } = require('./test-helpers');
 
 function makeGraph() {
-  const depGraph = new DependencyGraph('/repo', { fileMetadata: new Map() });
-  depGraph.graph = buildMockDepGraph({
-    '/repo/src/feature.js': { imports: [], exports: ['feature'] },
-    '/repo/test/feature.test.js': { imports: [], exports: ['testFeature'] },
-    '/repo/test/group-b/feature.test.js': { imports: [], exports: ['testFeature'] },
-    '/repo/src/server/auth/login.js': { imports: [], exports: ['login'] },
-    '/repo/test/client/auth/login.test.js': { imports: [], exports: ['testLogin'] },
-    '/repo/src/test/java/server/auth/LoginTests.java': { imports: [], exports: ['LoginTests'] },
-    '/repo/packages/foo/src/service.js': { imports: [], exports: ['service'] },
-    '/repo/packages/foo/test/service.test.js': { imports: [], exports: ['testService'] },
-    '/repo/packages/foo/test/group-b/service.test.js': { imports: [], exports: ['testService'] },
-    '/repo/src/main/java/com/acme/Foo.java': { imports: [], exports: ['Foo'] },
-    '/repo/src/test/java/com/acme/FooTests.java': { imports: [], exports: ['FooTests'] },
-    '/repo/src/test/java/com/acme/FooSpecs.java': { imports: [], exports: ['FooSpecs'] },
-    '/repo/src/test/java/com/acme/FooTestCases.java': { imports: [], exports: ['FooTestCases'] },
-    '/repo/src/test/java/com/acme/FooITs.java': { imports: [], exports: ['FooITs'] },
-    '/repo/src/test/java/com/acme/FooHelperTests.java': { imports: [], exports: ['FooHelperTests'] },
-    '/repo/src/test/java/com/acme/FooHelperSpecs.java': { imports: [], exports: ['FooHelperSpecs'] },
-    '/repo/src/main/java/com/acme/Audit.java': { imports: [], exports: ['Audit'] },
-    '/repo/src/test/java/com/acme/AuditTests.java': { imports: [], exports: ['AuditTests'] },
-    '/repo/src/test/java/com/acme/FooIT.java': { imports: [], exports: ['FooIT'] },
-    'C:\\repo\\packages\\foo\\src\\service.js': { imports: [], exports: ['service'] },
-    'C:\\repo\\packages\\foo\\test\\service.test.js': { imports: [], exports: ['testService'] },
-    'C:\\repo\\packages\\foo\\test\\mismatch\\service.test.js': { imports: [], exports: ['testService'] },
-    // __tests__ layout (React/Vue convention)
-    '/repo/src/utils/request.js': { imports: [], exports: ['request'] },
-    '/repo/__tests__/utils/request.test.js': { imports: [], exports: ['testRequest'] },
-    '/repo/__tests__/utils/other.test.js': { imports: [], exports: ['testOther'] },
-    // Java extended suffixes
-    '/repo/src/main/java/com/acme/Service.java': { imports: [], exports: ['Service'] },
-    '/repo/src/test/java/com/acme/ServiceUnitTest.java': { imports: [], exports: ['ServiceUnitTest'] },
-    '/repo/src/test/java/com/acme/ServiceIntegrationTest.java': { imports: [], exports: ['ServiceIntegrationTest'] },
-    '/repo/src/test/java/com/acme/ServiceHelperUnitTest.java': { imports: [], exports: ['ServiceHelperUnitTest'] },
-    // Cypress / E2E / integration
-    '/repo/src/components/Button.js': { imports: [], exports: ['Button'] },
-    '/repo/cypress/components/Button.cy.js': { imports: [], exports: ['testButton'] },
-    '/repo/src/components/Modal.js': { imports: [], exports: ['Modal'] },
-    '/repo/e2e/components/Modal.e2e.js': { imports: [], exports: ['testModal'] },
-    // Ruby
-    '/repo/app/models/user.rb': { imports: [], exports: ['User'] },
-    '/repo/spec/models/user_spec.rb': { imports: [], exports: ['testUser'] },
-    '/repo/spec/models/admin_spec.rb': { imports: [], exports: ['testAdmin'] },
+  const depGraph = createMockDepGraph({
+    schema: {
+      '/repo/src/feature.js': { imports: [], exports: ['feature'] },
+      '/repo/test/feature.test.js': { imports: [], exports: ['testFeature'] },
+      '/repo/test/group-b/feature.test.js': { imports: [], exports: ['testFeature'] },
+      '/repo/src/server/auth/login.js': { imports: [], exports: ['login'] },
+      '/repo/test/client/auth/login.test.js': { imports: [], exports: ['testLogin'] },
+      '/repo/src/test/java/server/auth/LoginTests.java': { imports: [], exports: ['LoginTests'] },
+      '/repo/packages/foo/src/service.js': { imports: [], exports: ['service'] },
+      '/repo/packages/foo/test/service.test.js': { imports: [], exports: ['testService'] },
+      '/repo/packages/foo/test/group-b/service.test.js': { imports: [], exports: ['testService'] },
+      '/repo/src/main/java/com/acme/Foo.java': { imports: [], exports: ['Foo'] },
+      '/repo/src/test/java/com/acme/FooTests.java': { imports: [], exports: ['FooTests'] },
+      '/repo/src/test/java/com/acme/FooSpecs.java': { imports: [], exports: ['FooSpecs'] },
+      '/repo/src/test/java/com/acme/FooTestCases.java': { imports: [], exports: ['FooTestCases'] },
+      '/repo/src/test/java/com/acme/FooITs.java': { imports: [], exports: ['FooITs'] },
+      '/repo/src/test/java/com/acme/FooHelperTests.java': { imports: [], exports: ['FooHelperTests'] },
+      '/repo/src/test/java/com/acme/FooHelperSpecs.java': { imports: [], exports: ['FooHelperSpecs'] },
+      '/repo/src/main/java/com/acme/Audit.java': { imports: [], exports: ['Audit'] },
+      '/repo/src/test/java/com/acme/AuditTests.java': { imports: [], exports: ['AuditTests'] },
+      '/repo/src/test/java/com/acme/FooIT.java': { imports: [], exports: ['FooIT'] },
+      'C:\\repo\\packages\\foo\\src\\service.js': { imports: [], exports: ['service'] },
+      'C:\\repo\\packages\\foo\\test\\service.test.js': { imports: [], exports: ['testService'] },
+      'C:\\repo\\packages\\foo\\test\\mismatch\\service.test.js': { imports: [], exports: ['testService'] },
+      // __tests__ layout (React/Vue convention)
+      '/repo/src/utils/request.js': { imports: [], exports: ['request'] },
+      '/repo/__tests__/utils/request.test.js': { imports: [], exports: ['testRequest'] },
+      '/repo/__tests__/utils/other.test.js': { imports: [], exports: ['testOther'] },
+      // Java extended suffixes
+      '/repo/src/main/java/com/acme/Service.java': { imports: [], exports: ['Service'] },
+      '/repo/src/test/java/com/acme/ServiceUnitTest.java': { imports: [], exports: ['ServiceUnitTest'] },
+      '/repo/src/test/java/com/acme/ServiceIntegrationTest.java': { imports: [], exports: ['ServiceIntegrationTest'] },
+      '/repo/src/test/java/com/acme/ServiceHelperUnitTest.java': { imports: [], exports: ['ServiceHelperUnitTest'] },
+      // Cypress / E2E / integration
+      '/repo/src/components/Button.js': { imports: [], exports: ['Button'] },
+      '/repo/cypress/components/Button.cy.js': { imports: [], exports: ['testButton'] },
+      '/repo/src/components/Modal.js': { imports: [], exports: ['Modal'] },
+      '/repo/e2e/components/Modal.e2e.js': { imports: [], exports: ['testModal'] },
+      // Ruby
+      '/repo/app/models/user.rb': { imports: [], exports: ['User'] },
+      '/repo/spec/models/user_spec.rb': { imports: [], exports: ['testUser'] },
+      '/repo/spec/models/admin_spec.rb': { imports: [], exports: ['testAdmin'] },
+    }
   });
-  depGraph.reverseGraph = new Map();
   return depGraph;
 }
 

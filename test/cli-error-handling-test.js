@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @contract
 /**
  * CLI error handling test
  * Covers HIGH-priority fixes for fatal error visibility and formatHuman crashes.
@@ -32,6 +33,15 @@ function main() {
     assert(result.stdout.includes('Error:'), 'quiet mode should still surface error');
     assert(result.stderr === '', 'quiet mode should suppress stderr diagnostic logs');
   }
+
+  // Test 4: Unknown command should exit 2 and show Unknown command error
+  {
+    const result = runCliRaw(['unknown-cmd-xyz']);
+    assert.strictEqual(result.status, 2, 'should exit 2 for unknown command');
+    const out = result.stdout + result.stderr;
+    assert(out.includes('Unknown command: unknown-cmd-xyz'), 'should surface unknown command error');
+  }
 }
 
 main();
+

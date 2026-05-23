@@ -193,7 +193,7 @@ function buildProjectMap(depGraph, options = {}) {
   const compact = options.compact || false;
   const root = depGraph.root || depGraph.workspaceRoot || '';
   const projectContext = depGraph.projectContext || null;
-  const allFiles = Array.from(depGraph.graph?.keys() || []).map((k) => depGraph._displayPath?.(k) || k);
+  const allFiles = (depGraph.getAllFilePaths?.() || []).map((k) => depGraph._displayPath?.(k) || k);
 
   // Flat tree: all files with roles
   const flatTree = allFiles.map((file) => {

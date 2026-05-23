@@ -1,3 +1,4 @@
+// @semantic
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -43,6 +44,10 @@ function testInvalidSeverityValue() {
   const result = runCliRaw(['audit-security', '--severity', 'invalid'], { cwd });
   assert.notStrictEqual(result.status, 0, 'invalid severity should exit non-zero');
   assert(result.stderr.includes('Invalid --severity value'), `stderr should contain error message, got: ${result.stderr}`);
+
+  const resultSummary = runCliRaw(['audit-summary', '--severity', 'invalid'], { cwd });
+  assert.notStrictEqual(resultSummary.status, 0, 'invalid severity should exit non-zero for audit-summary');
+  assert(resultSummary.stderr.includes('Invalid --severity value'), `stderr should contain error message, got: ${resultSummary.stderr}`);
 }
 
 function testAuditSecuritySeverityFilter() {

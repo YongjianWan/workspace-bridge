@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 
 const assert = require('assert');
 const { classifyChangeType } = require('../src/cli/formatters/audit-diff-summary');
@@ -58,3 +59,10 @@ assert.strictEqual(classifyChangeType([
   { file: 'package.json', classification: { fileRole: 'config' } },
   { file: 'test/a.test.js', classification: { fileRole: 'test' } },
 ]), 'config');
+
+// 空数组与非主线变更边界条件 -> docs
+assert.strictEqual(classifyChangeType([]), 'docs');
+assert.strictEqual(classifyChangeType([
+  { file: 'archive/old.js', classification: { fileRole: 'library', directoryRole: 'archive' } }
+]), 'docs');
+

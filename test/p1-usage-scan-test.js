@@ -1,8 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
-const { DependencyGraph } = require('../src/services/dep-graph');
-const { makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { makeTempDir, cleanupTempDir, createMockDepGraph } = require('./test-helpers');
 
 function testScanSymbolUsage() {
   const tmpDir = makeTempDir('wb-p1-');
@@ -19,7 +18,7 @@ public class Main {
 }
 `);
 
-  const graph = new DependencyGraph(tmpDir);
+  const graph = createMockDepGraph({ root: tmpDir });
 
   const used = graph._scanSymbolUsageInImporters([mainPath], ['bar', 'baz', 'someField'], path.join(tmpDir, 'Foo.java'));
 
@@ -42,7 +41,7 @@ func main() {
 }
 `);
 
-  const graph = new DependencyGraph(tmpDir);
+  const graph = createMockDepGraph({ root: tmpDir });
   const used = graph._scanSymbolUsageInImporters([mainPath], ['Bar', 'Baz'], path.join(tmpDir, 'foo.go'));
 
   assert(used.has('Bar'), 'Bar should be detected as used (pkg.Func call)');
@@ -59,34 +58,35 @@ function testFindDeadExportsWithUsageScan() {
   fs.writeFileSync(fooPath, `public class Foo { public void bar() {} public void baz() {} }`);
   fs.writeFileSync(mainPath, `import example.Foo; public class Main { public void run() { Foo f = new Foo(); f.bar(); } }`);
 
-  const graph = new DependencyGraph(tmpDir);
+  const fooKey = fooPath.replace(/\\/g, '/'); // simple normalization path for schema key
+  const mainKey = mainPath.replace(/\\/g, '/');
 
-  // Manually inject parsed info to bypass AST parser dependency
-  const fooKey = graph.normalizeFilePath(fooPath);
-  const mainKey = graph.normalizeFilePath(mainPath);
-
-  graph.graph.set(fooKey, {
-    imports: [],
-    exports: ['Foo', 'bar', 'baz'],
-    importRecords: [],
-    exportRecords: [],
-    parseMode: 'ast',
+  const graph = createMockDepGraph({
+    root: tmpDir,
+    schema: {
+      [fooKey]: {
+        originalPath: fooPath,
+        imports: [],
+        exports: ['Foo', 'bar', 'baz'],
+        importRecords: [],
+        exportRecords: [],
+        parseMode: 'ast',
+      },
+      [mainKey]: {
+        originalPath: mainPath,
+        imports: [fooKey],
+        exports: [],
+        importRecords: [{
+          source: 'example.Foo',
+          resolved: fooKey,
+          imported: ['Foo'],
+          usesAllExports: false,
+        }],
+        exportRecords: [],
+        parseMode: 'ast',
+      }
+    }
   });
-
-  graph.graph.set(mainKey, {
-    imports: [fooKey],
-    exports: [],
-    importRecords: [{
-      source: 'example.Foo',
-      resolved: fooKey,
-      imported: ['Foo'],
-      usesAllExports: false,
-    }],
-    exportRecords: [],
-    parseMode: 'ast',
-  });
-
-  graph.buildReverseGraph();
 
   const deadExports = graph.findDeadExports();
   const fooDead = deadExports.find((d) => d.file === fooKey);
@@ -113,7 +113,7 @@ function testSymbolEscaping() {
   }
   `);
 
-  const graph = new DependencyGraph(tmpDir);
+  const graph = createMockDepGraph({ root: tmpDir });
   const used = graph._scanSymbolUsageInImporters([mainPath], ['$bar', '$baz', '$someField'], path.join(tmpDir, 'Foo.java'));
 
   assert(used.has('$bar'), '$bar should be detected as used despite $ in symbol');
@@ -138,7 +138,7 @@ function testScanContentCache() {
   }
   `);
 
-  const graph = new DependencyGraph(tmpDir);
+  const graph = createMockDepGraph({ root: tmpDir });
 
   // First call: should read file and populate cache
   const used1 = graph._scanSymbolUsageInImporters([mainPath], ['bar'], path.join(tmpDir, 'Foo.java'));

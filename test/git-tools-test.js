@@ -44,10 +44,21 @@ async function testGetFileHistoryRisk() {
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.file, 'cli.js');
   assert(result.historyRisk);
-  assert(typeof result.historyRisk.score === 'number');
-  assert(typeof result.historyRisk.level === 'string');
+  assert(typeof result.historyRisk.score === 'number' && result.historyRisk.score >= 0, 'score should be a non-negative number');
+  assert.ok(['low', 'medium', 'high'].includes(result.historyRisk.level), `level should be low, medium, or high, got: ${result.historyRisk.level}`);
   assert(Array.isArray(result.recentCommits));
   assert(result.recentCommits.length <= 5);
+  for (const c of result.recentCommits) {
+    assert.strictEqual(typeof c.hash, 'string', 'commit hash should be string');
+    assert.ok(/^[0-9a-f]{40}$/.test(c.hash), 'commit hash should be 40-char SHA-1 hex string');
+    assert.strictEqual(typeof c.author, 'string', 'commit author should be string');
+    assert.ok(c.author.length > 0, 'commit author should not be empty');
+    assert.strictEqual(typeof c.email, 'string', 'commit email should be string');
+    assert.ok(c.email.includes('@'), 'commit email should contain @');
+    assert.strictEqual(typeof c.date, 'string', 'commit date should be string');
+    assert.strictEqual(typeof c.subject, 'string', 'commit subject should be string');
+    assert.ok(c.subject.length > 0, 'commit subject should not be empty');
+  }
 }
 
 async function testGetDiffNumstat() {

@@ -3,8 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 const { normalizePathKey } = require('../src/utils/path');
-const { DependencyGraph } = require('../src/services/dep-graph');
-const { makeTempDir, cleanupTempDir, buildMockDepGraph } = require('./test-helpers');
+const { makeTempDir, cleanupTempDir, createMockDepGraph } = require('./test-helpers');
 
 function n(p) {
   return normalizePathKey(p);
@@ -33,37 +32,35 @@ public class Consumer {
 }
 `);
 
-  const depGraph = new DependencyGraph(tmpDir);
-
   const fooKey = n(fooPath);
   const consumerKey = n(consumerPath);
 
-  depGraph.graph.set(fooKey, {
-    imports: [],
-    exports: ['Foo', 'bar', 'baz'],
-    importRecords: [],
-    exportRecords: [{ name: 'Foo' }, { name: 'bar' }, { name: 'baz' }],
-    parseMode: 'ast',
-    confidence: 'high',
+  const depGraph = createMockDepGraph({
+    root: tmpDir,
+    schema: {
+      [fooKey]: {
+        imports: [],
+        exports: ['Foo', 'bar', 'baz'],
+        importRecords: [],
+        exportRecords: [{ name: 'Foo' }, { name: 'bar' }, { name: 'baz' }],
+        parseMode: 'ast',
+        confidence: 'high',
+      },
+      [consumerKey]: {
+        imports: [fooKey],
+        exports: ['Consumer'],
+        importRecords: [{
+          source: 'com.example.Foo',
+          imported: ['Foo'],
+          usesAllExports: false,
+          resolved: fooKey,
+        }],
+        exportRecords: [{ name: 'Consumer' }],
+        parseMode: 'ast',
+        confidence: 'high',
+      }
+    }
   });
-
-  depGraph.graph.set(consumerKey, {
-    imports: [fooKey],
-    exports: ['Consumer'],
-    importRecords: [{
-      source: 'com.example.Foo',
-      imported: ['Foo'],
-      usesAllExports: false,
-      resolved: fooKey,
-    }],
-    exportRecords: [{ name: 'Consumer' }],
-    parseMode: 'ast',
-    confidence: 'high',
-  });
-
-  depGraph.reverseGraph = new Map([
-    [fooKey, [consumerKey]],
-  ]);
 
   const dead = depGraph.findDeadExports();
   const fooDead = dead.find((d) => d.file === fooKey);
@@ -77,22 +74,19 @@ public class Consumer {
 }
 
 function testJavaRegexNoImporter() {
-  const depGraph = new DependencyGraph('/repo', { fileMetadata: new Map() });
   const regexPath = n('/repo/src/main/java/com/example/RegexOnly.java');
-
-  depGraph.graph = buildMockDepGraph({
-    [regexPath]: {
-      imports: [],
-      exports: ['RegexOnly'],
-      importRecords: [],
-      exportRecords: [{ name: 'RegexOnly' }],
-      parseMode: 'regex',
-      confidence: 'medium',
-    },
+  const depGraph = createMockDepGraph({
+    schema: {
+      [regexPath]: {
+        imports: [],
+        exports: ['RegexOnly'],
+        importRecords: [],
+        exportRecords: [{ name: 'RegexOnly' }],
+        parseMode: 'regex',
+        confidence: 'medium',
+      }
+    }
   });
-  depGraph.reverseGraph = new Map([
-    [regexPath, []],
-  ]);
 
   const dead = depGraph.findDeadExports();
   const regexDead = dead.find((d) => d.file === regexPath);

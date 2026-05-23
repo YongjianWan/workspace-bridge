@@ -35,6 +35,7 @@ class ServiceContainer {
     this.cache = null;
     this.fileIndex = null;
     this.diagnostics = null;
+    /** @deprecated Use `this.snapshot.graph` instead. Direct depGraph access will be removed in a future version. */
     this.depGraph = null;
     this.projectContext = null;
     this.snapshot = null;
@@ -100,7 +101,7 @@ class ServiceContainer {
       this._checkAborted();
       // P2: load precomputed aggregate summary if graph hasn't changed since last run
       const loadedAggregate = this.cache.loadAggregateSummary();
-      if (loadedAggregate && loadedAggregate.stats?.files === this.depGraph.graph.size) {
+      if (loadedAggregate && loadedAggregate.stats?.files === this.depGraph.getFileCount()) {
         this.depGraph.analyzer._aggregateCache = loadedAggregate;
         this.depGraph.analyzer._aggregateVersion = 0;
       }
@@ -234,7 +235,7 @@ class ServiceContainer {
   _collectFrameworkHints() {
     const hints = new Map();
     if (!this.depGraph) return hints;
-    for (const filePath of this.depGraph.graph.keys()) {
+    for (const filePath of this.depGraph.getAllFilePaths()) {
       const hint = this.depGraph.getFrameworkHint(filePath);
       if (hint) {
         hints.set(filePath, hint);

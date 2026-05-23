@@ -9,29 +9,28 @@ const { WorkspaceCache } = require('../src/services/cache');
 function buildMockGraph() {
   const root = '/fake/root';
   const cache = new WorkspaceCache(root);
-  const dg = new DependencyGraph(root, cache, {
+  const dg = DependencyGraph.fromSchema(root, {
+    '/fake/root/src/a.js': {
+      imports: ['/fake/root/src/b.js'],
+      exports: ['foo', 'bar'],
+      importRecords: [{ source: './b', resolved: '/fake/root/src/b.js', imported: ['foo'] }],
+      exportRecords: [{ name: 'foo' }, { name: 'bar' }],
+      parseMode: 'ast',
+    },
+    '/fake/root/src/b.js': {
+      imports: [],
+      exports: ['foo'],
+      importRecords: [],
+      exportRecords: [{ name: 'foo' }],
+      parseMode: 'ast',
+    }
+  }, {
+    cache,
     projectContext: {
       classifyFile: () => ({ isMainline: true, fileRole: 'library' }),
       summarizeFiles: () => ({ entryFiles: [] }),
-    },
+    }
   });
-  // Manually populate graph
-  dg.graph.set('/fake/root/src/a.js', {
-    imports: ['/fake/root/src/b.js'],
-    exports: ['foo', 'bar'],
-    importRecords: [{ source: './b', resolved: '/fake/root/src/b.js', imported: ['foo'] }],
-    exportRecords: [{ name: 'foo' }, { name: 'bar' }],
-    parseMode: 'ast',
-  });
-  dg.graph.set('/fake/root/src/b.js', {
-    imports: [],
-    exports: ['foo'],
-    importRecords: [],
-    exportRecords: [{ name: 'foo' }],
-    parseMode: 'ast',
-  });
-  // Build reverse graph manually so getDependents works
-  dg.reverseGraph.set('/fake/root/src/b.js', ['/fake/root/src/a.js']);
   return dg;
 }
 
@@ -76,13 +75,15 @@ function testCacheInvalidation() {
 function testPersistentRoundTrip() {
   const root = '/fake/root2';
   const cache = new WorkspaceCache(root);
-  const dg = new DependencyGraph(root, cache, {
+  const dg = DependencyGraph.fromSchema(root, {
+    '/fake/root2/src/x.js': { imports: [], exports: ['x'], importRecords: [], exportRecords: [{ name: 'x' }], parseMode: 'ast' }
+  }, {
+    cache,
     projectContext: {
       classifyFile: () => ({ isMainline: true, fileRole: 'library' }),
       summarizeFiles: () => ({ entryFiles: [] }),
-    },
+    }
   });
-  dg.graph.set('/fake/root2/src/x.js', { imports: [], exports: ['x'], importRecords: [], exportRecords: [{ name: 'x' }], parseMode: 'ast' });
 
   dg.analyzer.precomputeAggregates();
   const before = dg.analyzer._aggregateCache;

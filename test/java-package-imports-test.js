@@ -3,7 +3,6 @@ const assert = require('assert');
 const path = require('path');
 const { normalizePathKey } = require('../src/utils/path');
 const { DependencyGraph, GraphBuilder } = require('../src/services/dep-graph');
-const { buildMockDepGraph } = require('./test-helpers');
 
 function n(p) {
   return normalizePathKey(p);
@@ -19,8 +18,7 @@ function testJavaWildcardImportExpansion() {
   const bKey = n(bPath);
   const cKey = n(cPath);
 
-  const depGraph = new DependencyGraph(tmpDir);
-  depGraph.graph = buildMockDepGraph({
+  const depGraph = DependencyGraph.fromSchema(tmpDir, {
     [aKey]: {
       originalPath: aPath,
       imports: [],
@@ -61,8 +59,6 @@ function testJavaWildcardImportExpansion() {
     },
   });
 
-  depGraph.reverseGraph = new Map();
-
   const builder = new GraphBuilder(depGraph);
   builder.expandJavaPackageImports();
 
@@ -94,8 +90,7 @@ function testJavaSamePackageImplicitRefs() {
   const aKey = n(aPath);
   const bKey = n(bPath);
 
-  const depGraph = new DependencyGraph(tmpDir);
-  depGraph.graph = buildMockDepGraph({
+  const depGraph = DependencyGraph.fromSchema(tmpDir, {
     [aKey]: {
       originalPath: aPath,
       imports: [],
@@ -119,8 +114,6 @@ function testJavaSamePackageImplicitRefs() {
       package: 'com.example',
     },
   });
-
-  depGraph.reverseGraph = new Map();
 
   const builder = new GraphBuilder(depGraph);
   builder.expandJavaPackageImports();
@@ -147,8 +140,7 @@ function testJavaWildcardExternalPackageIgnored() {
 
   const aKey = n(aPath);
 
-  const depGraph = new DependencyGraph(tmpDir);
-  depGraph.graph = buildMockDepGraph({
+  const depGraph = DependencyGraph.fromSchema(tmpDir, {
     [aKey]: {
       originalPath: aPath,
       imports: [],
@@ -166,8 +158,6 @@ function testJavaWildcardExternalPackageIgnored() {
       package: 'com.example',
     },
   });
-
-  depGraph.reverseGraph = new Map();
 
   const builder = new GraphBuilder(depGraph);
   builder.expandJavaPackageImports();

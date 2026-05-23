@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
@@ -51,6 +52,11 @@ function main() {
     const gitignore2 = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
     const occurrences = gitignore2.split('\n').filter((line) => line.trim() === '.workspace-bridge-cache.json').length;
     assert.strictEqual(occurrences, 1, 'cache entry should not be duplicated in .gitignore');
+
+    // 5. Init with invalid option fails
+    const invalidOpt = runCliRaw(['init', '--cwd', tmpDir, '--invalid-option-xyz', '--json'], { cwd: tmpDir });
+    assert.strictEqual(invalidOpt.status, 1, 'should exit 1 for invalid option');
+    assert(invalidOpt.stdout.includes('Unknown option') || invalidOpt.stderr.includes('Unknown option'), 'should surface unknown option error');
   } finally {
     cleanupTempDir(tmpDir);
   }

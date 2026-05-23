@@ -1,50 +1,49 @@
 const assert = require('assert');
 const path = require('path');
-const { DependencyGraph } = require('../src/services/dep-graph');
 const { normalizePathKey } = require('../src/utils/path');
-const { buildMockDepGraph } = require('./test-helpers');
+const { createMockDepGraph } = require('./test-helpers');
 
 function n(p) {
   return normalizePathKey(p);
 }
 
 function testGetImpactRadiusWithExplanations() {
-  const depGraph = new DependencyGraph('/repo', { fileMetadata: new Map() });
   const resolversPath = n('/repo/src/utils/resolvers.js');
   const depGraphPath = n('/repo/src/services/dep-graph.js');
   const testPath = n('/repo/test/gors-resolver-test.js');
 
-  depGraph.graph = buildMockDepGraph({
-    [resolversPath]: {
-      imports: [],
-      exports: ['resolveImport'],
-      importRecords: [],
-      parseMode: 'ast',
-    },
-    [depGraphPath]: {
-      imports: [resolversPath],
-      exports: ['DependencyGraph'],
-      importRecords: [{
-        source: '../utils/resolvers',
-        resolved: resolversPath,
-        imported: ['resolveImport'],
-        usesAllExports: false,
-      }],
-      parseMode: 'ast',
-    },
-    [testPath]: {
-      imports: [depGraphPath],
-      exports: [],
-      importRecords: [{
-        source: '../../src/services/dep-graph',
-        resolved: depGraphPath,
-        imported: ['DependencyGraph'],
-        usesAllExports: false,
-      }],
-      parseMode: 'ast',
-    },
+  const depGraph = createMockDepGraph({
+    schema: {
+      [resolversPath]: {
+        imports: [],
+        exports: ['resolveImport'],
+        importRecords: [],
+        parseMode: 'ast',
+      },
+      [depGraphPath]: {
+        imports: [resolversPath],
+        exports: ['DependencyGraph'],
+        importRecords: [{
+          source: '../utils/resolvers',
+          resolved: resolversPath,
+          imported: ['resolveImport'],
+          usesAllExports: false,
+        }],
+        parseMode: 'ast',
+      },
+      [testPath]: {
+        imports: [depGraphPath],
+        exports: [],
+        importRecords: [{
+          source: '../../src/services/dep-graph',
+          resolved: depGraphPath,
+          imported: ['DependencyGraph'],
+          usesAllExports: false,
+        }],
+        parseMode: 'ast',
+      },
+    }
   });
-  depGraph.buildReverseGraph();
 
   const impact = depGraph.getImpactRadius(resolversPath);
 
@@ -84,27 +83,27 @@ function testBuildImpactExplanations() {
 }
 
 function testGetImpactRadiusTruncatesAtEntryFiles() {
-  const depGraph = new DependencyGraph('/repo', { fileMetadata: new Map() });
   const utilPath = n('/repo/src/utils/path.js');
   const cliPath = n('/repo/cli.js');
   const indexPath = n('/repo/src/index.js');
 
-  depGraph.graph = buildMockDepGraph({
-    [utilPath]: { imports: [], exports: [], importRecords: [], parseMode: 'ast' },
-    [cliPath]: {
-      imports: [utilPath],
-      exports: [],
-      importRecords: [{ source: './utils/path', resolved: utilPath, imported: [], usesAllExports: false }],
-      parseMode: 'ast',
-    },
-    [indexPath]: {
-      imports: [cliPath],
-      exports: [],
-      importRecords: [{ source: '../cli', resolved: cliPath, imported: [], usesAllExports: false }],
-      parseMode: 'ast',
-    },
+  const depGraph = createMockDepGraph({
+    schema: {
+      [utilPath]: { imports: [], exports: [], importRecords: [], parseMode: 'ast' },
+      [cliPath]: {
+        imports: [utilPath],
+        exports: [],
+        importRecords: [{ source: './utils/path', resolved: utilPath, imported: [], usesAllExports: false }],
+        parseMode: 'ast',
+      },
+      [indexPath]: {
+        imports: [cliPath],
+        exports: [],
+        importRecords: [{ source: '../cli', resolved: cliPath, imported: [], usesAllExports: false }],
+        parseMode: 'ast',
+      },
+    }
   });
-  depGraph.buildReverseGraph();
 
   const impact = depGraph.getImpactRadius(utilPath, 5);
 
@@ -118,20 +117,20 @@ function testGetImpactRadiusTruncatesAtEntryFiles() {
 }
 
 function testGetImpactRadiusDoesNotTruncateStartNode() {
-  const depGraph = new DependencyGraph('/repo', { fileMetadata: new Map() });
   const cliPath = n('/repo/cli.js');
   const indexPath = n('/repo/src/index.js');
 
-  depGraph.graph = buildMockDepGraph({
-    [cliPath]: { imports: [], exports: [], importRecords: [], parseMode: 'ast' },
-    [indexPath]: {
-      imports: [cliPath],
-      exports: [],
-      importRecords: [{ source: '../cli', resolved: cliPath, imported: [], usesAllExports: false }],
-      parseMode: 'ast',
-    },
+  const depGraph = createMockDepGraph({
+    schema: {
+      [cliPath]: { imports: [], exports: [], importRecords: [], parseMode: 'ast' },
+      [indexPath]: {
+        imports: [cliPath],
+        exports: [],
+        importRecords: [{ source: '../cli', resolved: cliPath, imported: [], usesAllExports: false }],
+        parseMode: 'ast',
+      },
+    }
   });
-  depGraph.buildReverseGraph();
 
   const impact = depGraph.getImpactRadius(cliPath, 5);
 

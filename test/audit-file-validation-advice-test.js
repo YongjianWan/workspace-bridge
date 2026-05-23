@@ -8,17 +8,18 @@ function run(args) {
 function testAuditFileHasValidationAdvice() {
   const result = run(['audit-file', '--file', 'src/utils/path.js']);
   assert.ok(result.validationAdvice, 'validationAdvice should exist');
-  assert.ok(typeof result.validationAdvice.stackProfile === 'string', 'stackProfile should be a string');
+  assert.strictEqual(result.validationAdvice.stackProfile, 'node-first', 'stackProfile should be node-first');
   assert.ok(Array.isArray(result.validationAdvice.commands), 'commands should be an array');
-  assert.ok(result.validationAdvice.commandCount >= 0, 'commandCount should be >= 0');
-  assert.ok(typeof result.validationAdvice.suggestedCommand === 'string' && result.validationAdvice.suggestedCommand.length > 0, 'suggestedCommand should be a non-empty string');
+  assert.ok(result.validationAdvice.commands.length > 0, 'commands list should not be empty');
+  assert.strictEqual(result.validationAdvice.commandCount, result.validationAdvice.commands.length, 'commandCount should equal commands array length');
+  assert.strictEqual(result.validationAdvice.suggestedCommand, 'npm run test', 'suggestedCommand should be "npm run test" for JS file');
   // P8-2: structured executable metadata
   for (const cmd of result.validationAdvice.commands) {
     assert.ok(cmd.executable != null, `command ${cmd.name} should have executable object`);
-    assert.ok(typeof cmd.executable.command === 'string', `command ${cmd.name} should have executable.command`);
-    assert.ok(Array.isArray(cmd.executable.args), `command ${cmd.name} should have executable.args array`);
-    assert.ok(typeof cmd.executable.expectedExitCode === 'number', `command ${cmd.name} should have expectedExitCode`);
-    assert.ok(typeof cmd.executable.onFailure === 'string', `command ${cmd.name} should have onFailure`);
+    assert.strictEqual(cmd.executable.command, 'npm', `command ${cmd.name} should use npm`);
+    assert.deepStrictEqual(cmd.executable.args, ['run', 'test'], `command ${cmd.name} should have ['run', 'test'] arguments`);
+    assert.strictEqual(cmd.executable.expectedExitCode, 0, `command ${cmd.name} expected exit code should be 0`);
+    assert.strictEqual(cmd.executable.onFailure, 'abort', `command ${cmd.name} failure action should be abort`);
   }
 }
 

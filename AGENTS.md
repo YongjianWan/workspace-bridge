@@ -71,6 +71,8 @@
 ### 验证与调试
 
 **TDD 原则**：没有失败的测试，就不写生产代码；测试必须验证业务语义（`typeof result === 'object'` 或 `code === 0` 但不验证行为 = 沉默的测试）。
+- **测试升级规则**：低信号测试只保留 1 个版本，下一轮必须补语义断言或合并掉，防止再堆积。
+- **轻量分层标记**：所有测试文件头部必须显式标注 `// @contract`（契约校验/CLI参数/Schema边界）或 `// @semantic`（算法/流程/业务逻辑断言），让新会话一眼识别测试分层与性质。
 
 **收工前验证（4 步，不许跳）**
 1. 确定：什么命令能证明这个结论？
@@ -227,8 +229,8 @@ THEN 修改前必须跑：
 THEN 拿到结果后必须执行：
   1. 阅读完整输出，记录 impactedFiles.length 和 affectedTests.length
   2. 如果 impactedFiles 包含 dep-graph.js / cache.js / graph-db.js / container.js：
-     → 核心基础设施被波及，改动必须保守，优先向后兼容（保留旧接口 + 新增，不删不改现有行为）
-  3. 收工前必须跑 `npm run test:fast` 并 93/93 PASS，确认无回归
+      → 核心基础设施被波及，改动必须保守，优先向后兼容（保留旧接口 + 新增，不删不改现有行为）
+  3. 收工前必须跑 `npm run test:fast` 并 97/97 PASS，确认无回归
 ```
 
 > 其余检查（裸数字、异常安全、语义同步、重复代码）已由 L1/L2 覆盖，无需单列。
@@ -240,4 +242,6 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-23（ProjectContext.inferFileRole 状态化 + Resolver LRU 缓存 + Wave 2 Resolver 拆分 + COMMAND_GUIDES 内聚 + U7 audit-assembler 拆分 + shouldExclude 跨层解耦已完成；L3 债务与品味 8 项；96/96 fast 测试通过；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-23（测试分层标记与低信号 C 级测试升级 + ProjectContext.inferFileRole 状态化 + Resolver LRU 缓存 + Wave 2 Resolver 拆分 + COMMAND_GUIDES 内聚 + U7 audit-assembler 拆分 + shouldExclude 跨层解耦已完成；L3 债务与品味 8 项；97/97 fast 测试通过；schemaVersion: 1.2.0）*
+
+

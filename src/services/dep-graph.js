@@ -31,13 +31,59 @@ const {
   PYTHON_MAIN_PATTERN,
 } = require('./dep-graph/shared');
 class DependencyGraph {
+  /**
+   * Fast static factory to build a pre-populated DependencyGraph instance from a schema.
+   * Eliminates direct file-system scanning in tests and mock scenarios.
+   * @param {string} workspaceRoot
+   * @param {Record<string, object>} schema
+   * @param {object} [options]
+   * @returns {DependencyGraph}
+   */
+  static fromSchema(workspaceRoot, schema, options = {}) {
+    const depGraph = new DependencyGraph(
+      workspaceRoot,
+      options.cache !== undefined ? options.cache : null,
+      {
+        quiet: true,
+        packageJson: options.packageJson || null,
+        entryFiles: options.entryFiles || new Set(),
+        ...options,
+      }
+    );
+
+    // Build node map from schema
+    for (const [file, node] of Object.entries(schema || {})) {
+      const imports = node.imports || [];
+      depGraph.graph.set(file, {
+        originalPath: node.originalPath || file,
+        imports: imports,
+        exports: node.exports || [],
+        importRecords: node.importRecords || [],
+        exportRecords: node.exportRecords || [],
+        functionRecords: node.functionRecords || [],
+        parseMode: node.parseMode || 'ast',
+        confidence: node.confidence || 'medium',
+        package: node.package || null,
+      });
+    }
+
+    // Auto-build reverseGraph using production builder method to align contracts 100%!
+    depGraph.buildReverseGraph();
+
+    if (options.projectContext) {
+      depGraph.projectContext = options.projectContext;
+    }
+
+    return depGraph;
+  }
+
   constructor(workspaceRoot, cache, options = {}) {
     this.root = workspaceRoot;
     this.cache = cache;
     this.graph = new Map(); // file -> {imports: [], exports: []}
     this.reverseGraph = new Map(); // file -> [files that import it]
-    this.packageJson = this._readPackageJson();
-    this.entryFiles = this._collectEntryFiles();
+    this.packageJson = options.packageJson !== undefined ? options.packageJson : this._readPackageJson();
+    this.entryFiles = options.entryFiles !== undefined ? options.entryFiles : this._collectEntryFiles();
     this.excludeDirs = options.excludeDirs || [];
     this.cliExcludeDirs = options.cliExcludeDirs || [];
     this.projectContext = options.projectContext || null;

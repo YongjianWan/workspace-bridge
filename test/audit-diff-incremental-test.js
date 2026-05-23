@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * audit-diff --incremental integration test.
  * Verifies that the incremental flag adds an incrementalFindings field
@@ -90,11 +91,20 @@ function testIncrementalFiltering() {
   }
 }
 
+function testIncrementalWithFiles() {
+  const result = runCliRaw(['audit-diff', '--incremental', '--files', 'cli.js', '--json', '--quiet']);
+  const output = parseJsonOutput(result.stdout);
+  assert(output && output.ok, 'Incremental with --files should succeed');
+  assert.strictEqual(output.incremental, true);
+  assert(output.incrementalFindings, 'Should include incrementalFindings');
+}
+
 function main() {
 
   testIncrementalSchema();
   testIncrementalVsFull();
   testIncrementalFiltering();
+  testIncrementalWithFiles();
 
 }
 

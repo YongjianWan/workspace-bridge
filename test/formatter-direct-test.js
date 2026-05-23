@@ -3,6 +3,8 @@
 const assert = require('assert');
 const { formatHuman, formatSummary, formatMarkdown, formatJsonl, formatAi } = require('../src/cli/formatters/human-formatters');
 const { buildRepoSummary } = require('../src/cli/formatters/repo-summary');
+const { buildCompositeRisk } = require('../src/cli/formatters/composite-risk');
+const { buildAuditDiffSummary, classifyChangeType } = require('../src/cli/formatters/audit-diff-summary');
 
 // ---------------------------------------------------------------------------
 // formatHuman
@@ -717,6 +719,141 @@ function testFormatAiWithWarnings() {
   assert.strictEqual(surfaceOut.warnings, undefined, 'surface should strip warnings to stay under budget');
 }
 
+// ---------------------------------------------------------------------------
+// buildCompositeRisk
+// ---------------------------------------------------------------------------
+
+function testBuildCompositeRiskLow() {
+  const result = buildCompositeRisk({});
+  assert.strictEqual(result.level, 'low');
+  assert.strictEqual(result.score, 0);
+  assert(result.reasons.some((r) => r.includes('Low observed')));
+}
+
+function testBuildCompositeRiskHighImpact() {
+  const result = buildCompositeRisk({ impactCount: 12 });
+  assert.strictEqual(result.score, 5); // +4 large impact +1 no mapped tests
+  assert(result.reasons.some((r) => r.includes('Large impact radius')));
+  assert(result.reasons.some((r) => r.includes('No mapped tests')));
+}
+
+function testBuildCompositeRiskWithTests() {
+  const result = buildCompositeRisk({ impactCount: 1, affectedTestsCount: 4 });
+  assert.strictEqual(result.score, 2);
+  assert(result.reasons.some((r) => r.includes('Many mapped tests affected')));
+}
+
+function testBuildCompositeRiskHistoryRisk() {
+  const result = buildCompositeRisk({ historyRisk: { score: 7 } });
+  assert.strictEqual(result.score, 2);
+  assert(result.reasons.some((r) => r.includes('History risk is high')));
+}
+
+function testBuildCompositeRiskFileFallback() {
+  const result = buildCompositeRisk({ symbolImpact: { mode: 'file-fallback' } });
+  assert.strictEqual(result.score, 1);
+  assert(result.reasons.some((r) => r.includes('fell back')));
+}
+
+function testBuildCompositeRiskNonMainlineDowngrade() {
+  const result = buildCompositeRisk({ impactCount: 5, classification: { isMainline: false } });
+  assert.strictEqual(result.score, 3); // +3 broad +1 no tests -1 downgrade = 3
+  assert(result.reasons.some((r) => r.includes('Non-mainline')));
+}
+
+function testBuildCompositeRiskFunctionScoped() {
+  const result = buildCompositeRisk({
+    symbolImpact: {
+      mode: 'function-symbol',
+      changedFunctionImpact: {
+        mode: 'function-symbol',
+        changedFunctions: ['foo'],
+        impactedFunctionDependents: [],
+        functionLevelAffectedTests: { affectedTestsCount: 0 },
+        impactedDependentCount: 0,
+      },
+    },
+  });
+  assert(result.score >= 0);
+  assert(result.reasons.some((r) => r.includes('Function-scoped')));
+}
+
+// ---------------------------------------------------------------------------
+// buildAuditDiffSummary & classifyChangeType
+// ---------------------------------------------------------------------------
+
+function testBuildAuditDiffSummaryEmpty() {
+  const result = buildAuditDiffSummary([], null, 'unknown');
+  assert.strictEqual(result.severity, 'low');
+  assert.strictEqual(result.counts.changedFiles, 0);
+  assert.strictEqual(result.counts.mainlineChangedFiles, 0);
+  assert.deepStrictEqual(result.fileTypeBreakdown, {});
+  assert(result.nextSteps.length > 0);
+}
+
+function testBuildAuditDiffSummaryWithEntries() {
+  const entries = [
+    { file: 'src/a.js', impactCount: 5, affectedTestsCount: 2, affectedTests: [{ file: 'test/a.test.js' }], classification: { isMainline: true, fileRole: 'library' }, compositeRisk: { score: 3, level: 'medium', reasons: ['reason'] }, historyRisk: { score: 4, level: 'medium' } },
+    { file: 'src/b.js', impactCount: 12, affectedTestsCount: 0, affectedTests: [], classification: { isMainline: true, fileRole: 'library' }, compositeRisk: { score: 6, level: 'high', reasons: ['reason'] }, historyRisk: { score: 7, level: 'high' } },
+    { file: 'README.md', classification: { isMainline: false, fileRole: 'docs' } },
+  ];
+  const result = buildAuditDiffSummary(entries, { totalAdditions: 20, totalDeletions: 5 }, 'node-first');
+  assert.strictEqual(result.severity, 'high');
+  assert.strictEqual(result.counts.changedFiles, 3);
+  assert.strictEqual(result.counts.mainlineChangedFiles, 2);
+  assert.strictEqual(result.counts.affectedTests, 1);
+  assert.strictEqual(result.counts.maxImpact, 12);
+  assert.strictEqual(result.counts.highHistoryRiskFiles, 1);
+  assert.strictEqual(result.counts.highCompositeRiskFiles, 1);
+  assert(result.topCompositeRisks.length > 0);
+  assert(result.nextSteps.some((s) => s.includes('linter')));
+  assert(result.nextSteps.some((s) => s.includes('non-mainline')));
+}
+
+function testClassifyChangeTypeDocsMajority() {
+  const entries = [
+    { file: 'README.md', classification: { isMainline: true, fileRole: 'docs' } },
+    { file: 'CHANGELOG.md', classification: { isMainline: true, fileRole: 'docs' } },
+    { file: 'LICENSE', classification: { isMainline: true, fileRole: 'docs' } },
+  ];
+  assert.strictEqual(classifyChangeType(entries), 'docs');
+}
+
+function testClassifyChangeTypeCodeMajority() {
+  const entries = [
+    { file: 'src/a.js', classification: { isMainline: true, fileRole: 'library' } },
+    { file: 'src/b.js', classification: { isMainline: true, fileRole: 'entry' } },
+    { file: 'README.md', classification: { isMainline: true, fileRole: 'docs' } },
+  ];
+  assert.strictEqual(classifyChangeType(entries), 'code');
+}
+
+function testClassifyChangeTypeTestMajority() {
+  const entries = [
+    { file: 'test/a.test.js', classification: { isMainline: true, fileRole: 'test' } },
+    { file: 'test/b.test.js', classification: { isMainline: true, fileRole: 'test' } },
+    { file: 'src/a.js', classification: { isMainline: true, fileRole: 'library' } },
+  ];
+  assert.strictEqual(classifyChangeType(entries), 'tests');
+}
+
+function testClassifyChangeTypeConfigMajority() {
+  const entries = [
+    { file: 'tsconfig.json', classification: { isMainline: true, fileRole: 'config' } },
+    { file: 'package.json', classification: { isMainline: true, fileRole: 'config' } },
+    { file: 'src/a.js', classification: { isMainline: true, fileRole: 'library' } },
+  ];
+  assert.strictEqual(classifyChangeType(entries), 'config');
+}
+
+function testClassifyChangeTypeReferenceArchive() {
+  const entries = [
+    { file: 'archive/old.js', classification: { isMainline: false, fileRole: 'library', directoryRole: 'archive' } },
+    { file: 'ref/legacy.js', classification: { isMainline: false, fileRole: 'library', directoryRole: 'reference' } },
+  ];
+  assert.strictEqual(classifyChangeType(entries), 'docs');
+}
+
 function main() {
   testFormatHumanError();
   testFormatHumanAuditSummary();
@@ -773,6 +910,22 @@ function main() {
   testFormatAiError();
   testFormatAiWithWarnings();
   testCrossFormatCoverage();
+
+  testBuildCompositeRiskLow();
+  testBuildCompositeRiskHighImpact();
+  testBuildCompositeRiskWithTests();
+  testBuildCompositeRiskHistoryRisk();
+  testBuildCompositeRiskFileFallback();
+  testBuildCompositeRiskNonMainlineDowngrade();
+  testBuildCompositeRiskFunctionScoped();
+
+  testBuildAuditDiffSummaryEmpty();
+  testBuildAuditDiffSummaryWithEntries();
+  testClassifyChangeTypeDocsMajority();
+  testClassifyChangeTypeCodeMajority();
+  testClassifyChangeTypeTestMajority();
+  testClassifyChangeTypeConfigMajority();
+  testClassifyChangeTypeReferenceArchive();
 
 }
 

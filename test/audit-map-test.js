@@ -1,20 +1,13 @@
 #!/usr/bin/env node
 const assert = require('assert');
 const { buildProjectMap } = require('../src/cli/formatters');
-
-const BASE_MOCK_METHODS = {
-  getFileInfo(file) { return this.graph.get(file); },
-  hasFile(file) { return this.graph.has(file); },
-  getDependents(file) { return this.reverseGraph.get(file) || []; },
-  getDependencies(file) { return this.graph.get(file)?.imports || []; },
-  isTestLikeFile() { return false; },
-};
+const { createMockDepGraph } = require('./test-helpers');
 
 function testProjectMapStructure() {
-  const depGraph = {
-    root: '/repo',
-    graph: new Map([
-      ['/repo/src/index.js', {
+  const depGraph = createMockDepGraph({
+    mode: 'stub',
+    schema: {
+      '/repo/src/index.js': {
         imports: ['/repo/src/util.js'],
         exports: ['main'],
         exportRecords: [{ name: 'main', kind: 'function' }],
@@ -22,22 +15,15 @@ function testProjectMapStructure() {
           { source: './util.js', resolved: '/repo/src/util.js', imported: ['helper'], usesAllExports: false },
         ],
         parseMode: 'ast',
-      }],
-      ['/repo/src/util.js', {
+      },
+      '/repo/src/util.js': {
         imports: [],
         exports: ['helper'],
         exportRecords: [{ name: 'helper', kind: 'function' }],
         importRecords: [],
         parseMode: 'ast',
-      }],
-    ]),
-    reverseGraph: new Map([
-      ['/repo/src/util.js', ['/repo/src/index.js']],
-    ]),
-    ...BASE_MOCK_METHODS,
-    findDeadExports() { return []; },
-    findUnresolvedImports() { return []; },
-    findCircularDependencies() { return []; },
+      },
+    },
     entryFiles: new Set(['/repo/src/index.js']),
     projectContext: {
       classifyFile(file) {
@@ -46,7 +32,7 @@ function testProjectMapStructure() {
         return { isMainline: true, fileRole: 'library' };
       },
     },
-  };
+  });
 
   const result = buildProjectMap(depGraph);
 
@@ -75,28 +61,23 @@ function testProjectMapStructure() {
 }
 
 function testProjectMapWithIssues() {
-  const depGraph = {
-    root: '/repo',
-    graph: new Map([
-      ['/repo/src/a.js', { imports: ['/repo/src/b.js'], exports: ['a'], exportRecords: [{ name: 'a', kind: 'function' }], importRecords: [{ source: './b.js', resolved: '/repo/src/b.js', imported: ['b'], usesAllExports: false }], parseMode: 'ast' }],
-      ['/repo/src/b.js', { imports: ['/repo/src/a.js'], exports: ['b'], exportRecords: [{ name: 'b', kind: 'function' }], importRecords: [{ source: './a.js', resolved: '/repo/src/a.js', imported: ['a'], usesAllExports: false }], parseMode: 'ast' }],
-      ['/repo/src/orphan.js', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }],
-    ]),
-    reverseGraph: new Map([
-      ['/repo/src/b.js', ['/repo/src/a.js']],
-      ['/repo/src/a.js', ['/repo/src/b.js']],
-    ]),
-    ...BASE_MOCK_METHODS,
-    findDeadExports() { return [{ file: '/repo/src/orphan.js', exports: ['unused'], confidence: 'high' }]; },
-    findUnresolvedImports() { return [{ file: '/repo/src/a.js', import: './missing' }]; },
-    findCircularDependencies() { return [['/repo/src/a.js', '/repo/src/b.js', '/repo/src/a.js']]; },
+  const depGraph = createMockDepGraph({
+    mode: 'stub',
+    schema: {
+      '/repo/src/a.js': { imports: ['/repo/src/b.js'], exports: ['a'], exportRecords: [{ name: 'a', kind: 'function' }], importRecords: [{ source: './b.js', resolved: '/repo/src/b.js', imported: ['b'], usesAllExports: false }], parseMode: 'ast' },
+      '/repo/src/b.js': { imports: ['/repo/src/a.js'], exports: ['b'], exportRecords: [{ name: 'b', kind: 'function' }], importRecords: [{ source: './a.js', resolved: '/repo/src/a.js', imported: ['a'], usesAllExports: false }], parseMode: 'ast' },
+      '/repo/src/orphan.js': { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' },
+    },
+    deadExports: [{ file: '/repo/src/orphan.js', exports: ['unused'], confidence: 'high' }],
+    unresolved: [{ file: '/repo/src/a.js', import: './missing' }],
+    cycles: [['/repo/src/a.js', '/repo/src/b.js', '/repo/src/a.js']],
     entryFiles: new Set(['/repo/src/a.js']),
     projectContext: {
       classifyFile(file) {
         return { isMainline: true, fileRole: 'library' };
       },
     },
-  };
+  });
 
   const result = buildProjectMap(depGraph);
 
@@ -109,10 +90,10 @@ function testProjectMapWithIssues() {
 }
 
 function testProjectMapReExportEdges() {
-  const depGraph = {
-    root: '/repo',
-    graph: new Map([
-      ['/repo/src/barrel.js', {
+  const depGraph = createMockDepGraph({
+    mode: 'stub',
+    schema: {
+      '/repo/src/barrel.js': {
         imports: ['/repo/src/a.js'],
         exports: ['foo'],
         exportRecords: [{ name: 'foo', kind: 'function' }],
@@ -120,27 +101,19 @@ function testProjectMapReExportEdges() {
           { source: './a.js', resolved: '/repo/src/a.js', imported: ['foo'], usesAllExports: false, reExported: [{ imported: 'foo', exported: 'foo' }] },
         ],
         parseMode: 'ast',
-      }],
-      ['/repo/src/a.js', {
+      },
+      '/repo/src/a.js': {
         imports: [],
         exports: ['foo'],
         exportRecords: [{ name: 'foo', kind: 'function' }],
         importRecords: [],
         parseMode: 'ast',
-      }],
-    ]),
-    reverseGraph: new Map([
-      ['/repo/src/a.js', ['/repo/src/barrel.js']],
-    ]),
-    ...BASE_MOCK_METHODS,
-    findDeadExports() { return []; },
-    findUnresolvedImports() { return []; },
-    findCircularDependencies() { return []; },
-    entryFiles: new Set(),
+      },
+    },
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
-  };
+  });
 
   const result = buildProjectMap(depGraph);
 
@@ -152,28 +125,20 @@ function testProjectMapReExportEdges() {
 }
 
 function testProjectMapHotspots() {
-  const depGraph = {
-    root: '/repo',
-    graph: new Map([
-      ['/repo/src/core.js', { imports: [], exports: ['core'], exportRecords: [{ name: 'core' }], importRecords: [], parseMode: 'ast' }],
-      ['/repo/src/a.js', { imports: ['/repo/src/core.js'], exports: ['a'], exportRecords: [{ name: 'a' }], importRecords: [{ source: './core.js', resolved: '/repo/src/core.js', imported: ['core'] }], parseMode: 'ast' }],
-      ['/repo/src/b.js', { imports: ['/repo/src/core.js'], exports: ['b'], exportRecords: [{ name: 'b' }], importRecords: [{ source: './core.js', resolved: '/repo/src/core.js', imported: ['core'] }], parseMode: 'ast' }],
-      ['/repo/src/c.js', { imports: ['/repo/src/core.js'], exports: ['c'], exportRecords: [{ name: 'c' }], importRecords: [{ source: './core.js', resolved: '/repo/src/core.js', imported: ['core'] }], parseMode: 'ast' }],
-      ['/repo/src/d.js', { imports: ['/repo/src/core.js'], exports: ['d'], exportRecords: [{ name: 'd' }], importRecords: [{ source: './core.js', resolved: '/repo/src/core.js', imported: ['core'] }], parseMode: 'ast' }],
-      ['/repo/src/e.js', { imports: ['/repo/src/core.js'], exports: ['e'], exportRecords: [{ name: 'e' }], importRecords: [{ source: './core.js', resolved: '/repo/src/core.js', imported: ['core'] }], parseMode: 'ast' }],
-    ]),
-    reverseGraph: new Map([
-      ['/repo/src/core.js', ['/repo/src/a.js', '/repo/src/b.js', '/repo/src/c.js', '/repo/src/d.js', '/repo/src/e.js']],
-    ]),
-    ...BASE_MOCK_METHODS,
-    findDeadExports() { return []; },
-    findUnresolvedImports() { return []; },
-    findCircularDependencies() { return []; },
-    entryFiles: new Set(),
+  const depGraph = createMockDepGraph({
+    mode: 'stub',
+    schema: {
+      '/repo/src/core.js': { imports: [], exports: ['core'], exportRecords: [{ name: 'core' }], importRecords: [], parseMode: 'ast' },
+      '/repo/src/a.js': { imports: ['/repo/src/core.js'], exports: ['a'], exportRecords: [{ name: 'a' }], importRecords: [{ source: './core.js', resolved: '/repo/src/core.js', imported: ['core'] }], parseMode: 'ast' },
+      '/repo/src/b.js': { imports: ['/repo/src/core.js'], exports: ['b'], exportRecords: [{ name: 'b' }], importRecords: [{ source: './core.js', resolved: '/repo/src/core.js', imported: ['core'] }], parseMode: 'ast' },
+      '/repo/src/c.js': { imports: ['/repo/src/core.js'], exports: ['c'], exportRecords: [{ name: 'c' }], importRecords: [{ source: './core.js', resolved: '/repo/src/core.js', imported: ['core'] }], parseMode: 'ast' },
+      '/repo/src/d.js': { imports: ['/repo/src/core.js'], exports: ['d'], exportRecords: [{ name: 'd' }], importRecords: [{ source: './core.js', resolved: '/repo/src/core.js', imported: ['core'] }], parseMode: 'ast' },
+      '/repo/src/e.js': { imports: ['/repo/src/core.js'], exports: ['e'], exportRecords: [{ name: 'e' }], importRecords: [{ source: './core.js', resolved: '/repo/src/core.js', imported: ['core'] }], parseMode: 'ast' },
+    },
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
-  };
+  });
 
   const result = buildProjectMap(depGraph);
 
@@ -186,21 +151,15 @@ function testProjectMapHotspots() {
 }
 
 function testProjectMapToRelativePathBoundary() {
-  const depGraph = {
-    root: '/repo',
-    graph: new Map([
-      ['/repo-extra/file.js', { imports: [], exports: ['x'], exportRecords: [{ name: 'x' }], importRecords: [], parseMode: 'ast' }],
-    ]),
-    reverseGraph: new Map(),
-    ...BASE_MOCK_METHODS,
-    findDeadExports() { return []; },
-    findUnresolvedImports() { return []; },
-    findCircularDependencies() { return []; },
-    entryFiles: new Set(),
+  const depGraph = createMockDepGraph({
+    mode: 'stub',
+    schema: {
+      '/repo-extra/file.js': { imports: [], exports: ['x'], exportRecords: [{ name: 'x' }], importRecords: [], parseMode: 'ast' },
+    },
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
-  };
+  });
 
   const result = buildProjectMap(depGraph);
 
@@ -216,10 +175,10 @@ function testProjectMapToRelativePathBoundary() {
 }
 
 function testProjectMapCompactMode() {
-  const depGraph = {
-    root: '/repo',
-    graph: new Map([
-      ['/repo/src/core/a.ts', {
+  const depGraph = createMockDepGraph({
+    mode: 'stub',
+    schema: {
+      '/repo/src/core/a.ts': {
         imports: ['/repo/src/core/b.ts', '/repo/src/mcp/c.ts'],
         exports: ['foo'],
         exportRecords: [{ name: 'foo', kind: 'function' }],
@@ -228,15 +187,15 @@ function testProjectMapCompactMode() {
           { source: '../mcp/c.ts', resolved: '/repo/src/mcp/c.ts', imported: ['baz'], usesAllExports: true },
         ],
         parseMode: 'ast',
-      }],
-      ['/repo/src/core/b.ts', {
+      },
+      '/repo/src/core/b.ts': {
         imports: [],
         exports: ['bar'],
         exportRecords: [{ name: 'bar', kind: 'function' }],
         importRecords: [],
         parseMode: 'ast',
-      }],
-      ['/repo/src/mcp/c.ts', {
+      },
+      '/repo/src/mcp/c.ts': {
         imports: ['/repo/src/core/a.ts'],
         exports: ['baz'],
         exportRecords: [{ name: 'baz', kind: 'function' }],
@@ -244,29 +203,22 @@ function testProjectMapCompactMode() {
           { source: '../core/a.ts', resolved: '/repo/src/core/a.ts', imported: ['foo'], usesAllExports: false },
         ],
         parseMode: 'ast',
-      }],
-      ['/repo/rootfile.js', {
+      },
+      '/repo/rootfile.js': {
         imports: [],
         exports: ['x'],
         exportRecords: [{ name: 'x' }],
         importRecords: [],
         parseMode: 'ast',
-      }],
-    ]),
-    reverseGraph: new Map([
-      ['/repo/src/core/b.ts', ['/repo/src/core/a.ts']],
-      ['/repo/src/mcp/c.ts', ['/repo/src/core/a.ts']],
-      ['/repo/src/core/a.ts', ['/repo/src/mcp/c.ts']],
-    ]),
-    ...BASE_MOCK_METHODS,
-    findDeadExports() { return [{ file: '/repo/src/core/b.ts', exports: ['unused'], confidence: 'medium' }]; },
-    findUnresolvedImports() { return [{ file: '/repo/src/mcp/c.ts', import: './missing' }]; },
-    findCircularDependencies() { return []; },
+      },
+    },
+    deadExports: [{ file: '/repo/src/core/b.ts', exports: ['unused'], confidence: 'medium' }],
+    unresolved: [{ file: '/repo/src/mcp/c.ts', import: './missing' }],
     entryFiles: new Set(['/repo/rootfile.js']),
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
-  };
+  });
 
   const result = buildProjectMap(depGraph, { compact: true });
 
@@ -329,25 +281,19 @@ testProjectMapReExportEdges();
 testProjectMapHotspots();
 testProjectMapToRelativePathBoundary();
 function testProjectMapCompactDepthLimit() {
-  const depGraph = {
-    root: '/repo',
-    graph: new Map([
-      ['/repo/src/core/ingestion/a.ts', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }],
-      ['/repo/src/core/ingestion/b.ts', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }],
-      ['/repo/src/mcp/server/c.ts', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }],
-      ['/repo/src/mcp/d.ts', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }],
-      ['/repo/docs/readme.md', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'none' }],
-    ]),
-    reverseGraph: new Map(),
-    ...BASE_MOCK_METHODS,
-    findDeadExports() { return []; },
-    findUnresolvedImports() { return []; },
-    findCircularDependencies() { return []; },
-    entryFiles: new Set(),
+  const depGraph = createMockDepGraph({
+    mode: 'stub',
+    schema: {
+      '/repo/src/core/ingestion/a.ts': { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' },
+      '/repo/src/core/ingestion/b.ts': { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' },
+      '/repo/src/mcp/server/c.ts': { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' },
+      '/repo/src/mcp/d.ts': { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' },
+      '/repo/docs/readme.md': { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'none' },
+    },
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
-  };
+  });
 
   const result = buildProjectMap(depGraph, { compact: true });
 
@@ -387,10 +333,10 @@ function testProjectMapCompactDepthLimit() {
 }
 
 function testProjectMapCompactModuleEdges() {
-  const depGraph = {
-    root: '/repo',
-    graph: new Map([
-      ['/repo/src/core/ingestion/a.ts', {
+  const depGraph = createMockDepGraph({
+    mode: 'stub',
+    schema: {
+      '/repo/src/core/ingestion/a.ts': {
         imports: ['/repo/src/mcp/server/c.ts', '/repo/src/utils/d.ts'],
         exports: [], exportRecords: [],
         importRecords: [
@@ -398,27 +344,18 @@ function testProjectMapCompactModuleEdges() {
           { source: '../../utils/d.ts', resolved: '/repo/src/utils/d.ts', imported: ['d'], usesAllExports: false },
         ],
         parseMode: 'ast',
-      }],
-      ['/repo/src/mcp/server/c.ts', {
+      },
+      '/repo/src/mcp/server/c.ts': {
         imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast',
-      }],
-      ['/repo/src/utils/d.ts', {
+      },
+      '/repo/src/utils/d.ts': {
         imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast',
-      }],
-    ]),
-    reverseGraph: new Map([
-      ['/repo/src/mcp/server/c.ts', ['/repo/src/core/ingestion/a.ts']],
-      ['/repo/src/utils/d.ts', ['/repo/src/core/ingestion/a.ts']],
-    ]),
-    ...BASE_MOCK_METHODS,
-    findDeadExports() { return []; },
-    findUnresolvedImports() { return []; },
-    findCircularDependencies() { return []; },
-    entryFiles: new Set(),
+      },
+    },
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
-  };
+  });
 
   const result = buildProjectMap(depGraph, { compact: true });
 
@@ -439,23 +376,17 @@ function testProjectMapCompactModuleEdges() {
 }
 
 function testProjectMapCompactHighlightLimit() {
-  const files = [];
+  const schema = {};
   for (let i = 0; i < 40; i++) {
-    files.push([`/repo/src/orphan${i}.js`, { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }]);
+    schema[`/repo/src/orphan${i}.js`] = { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' };
   }
-  const depGraph = {
-    root: '/repo',
-    graph: new Map(files),
-    reverseGraph: new Map(),
-    ...BASE_MOCK_METHODS,
-    findDeadExports() { return []; },
-    findUnresolvedImports() { return []; },
-    findCircularDependencies() { return []; },
-    entryFiles: new Set(),
+  const depGraph = createMockDepGraph({
+    mode: 'stub',
+    schema,
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
-  };
+  });
 
   const result = buildProjectMap(depGraph, { compact: true });
   assert(result.highlightedFiles.length <= 30, `highlightedFiles should be capped at 30 in compact mode, got ${result.highlightedFiles.length}`);
@@ -463,21 +394,17 @@ function testProjectMapCompactHighlightLimit() {
 }
 
 function testHighlightedFilesSortsByHighestSeverity() {
-  const depGraph = {
-    root: '/repo',
-    graph: new Map([
-      ['/repo/src/a.js', {}],
-    ]),
-    reverseGraph: new Map(),
-    ...BASE_MOCK_METHODS,
-    findDeadExports() { return [{ file: '/repo/src/a.js', exports: ['x'], confidence: 'high' }]; },
-    findUnresolvedImports() { return []; },
-    findCircularDependencies() { return []; },
+  const depGraph = createMockDepGraph({
+    mode: 'stub',
+    schema: {
+      '/repo/src/a.js': {},
+    },
+    deadExports: [{ file: '/repo/src/a.js', exports: ['x'], confidence: 'high' }],
     entryFiles: new Set(['/repo/src/a.js']),
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
-  };
+  });
 
   const result = buildProjectMap(depGraph, { compact: true });
   const a = result.highlightedFiles.find((h) => h.file === 'src/a.js');
@@ -491,28 +418,23 @@ testProjectMapCompactModuleEdges();
 testProjectMapCompactHighlightLimit();
 
 function testProjectMapCompactSummary() {
-  const depGraph = {
-    root: '/repo',
-    graph: new Map([
-      ['/repo/src/a.js', { imports: ['/repo/src/b.js'], exports: ['a'], exportRecords: [{ name: 'a' }], importRecords: [{ source: './b.js', resolved: '/repo/src/b.js' }], parseMode: 'ast' }],
-      ['/repo/src/b.js', { imports: ['/repo/src/a.js'], exports: ['b'], exportRecords: [{ name: 'b' }], importRecords: [{ source: './a.js', resolved: '/repo/src/a.js' }], parseMode: 'ast' }],
-      ['/repo/src/c.js', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }],
-      ['/repo/src/d.js', { imports: [], exports: ['d'], exportRecords: [{ name: 'd' }], importRecords: [], parseMode: 'ast' }],
-      ['/repo/src/e.js', { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' }],
-    ]),
-    reverseGraph: new Map([
-      ['/repo/src/b.js', ['/repo/src/a.js']],
-      ['/repo/src/a.js', ['/repo/src/b.js']],
-    ]),
-    ...BASE_MOCK_METHODS,
-    findDeadExports() { return [{ file: '/repo/src/d.js', exports: ['unused'], confidence: 'high' }]; },
-    findUnresolvedImports() { return [{ file: '/repo/src/c.js', import: './missing' }]; },
-    findCircularDependencies() { return [['/repo/src/a.js', '/repo/src/b.js']]; },
+  const depGraph = createMockDepGraph({
+    mode: 'stub',
+    schema: {
+      '/repo/src/a.js': { imports: ['/repo/src/b.js'], exports: ['a'], exportRecords: [{ name: 'a' }], importRecords: [{ source: './b.js', resolved: '/repo/src/b.js' }], parseMode: 'ast' },
+      '/repo/src/b.js': { imports: ['/repo/src/a.js'], exports: ['b'], exportRecords: [{ name: 'b' }], importRecords: [{ source: './a.js', resolved: '/repo/src/a.js' }], parseMode: 'ast' },
+      '/repo/src/c.js': { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' },
+      '/repo/src/d.js': { imports: [], exports: ['d'], exportRecords: [{ name: 'd' }], importRecords: [], parseMode: 'ast' },
+      '/repo/src/e.js': { imports: [], exports: [], exportRecords: [], importRecords: [], parseMode: 'ast' },
+    },
+    deadExports: [{ file: '/repo/src/d.js', exports: ['unused'], confidence: 'high' }],
+    unresolved: [{ file: '/repo/src/c.js', import: './missing' }],
+    cycles: [['/repo/src/a.js', '/repo/src/b.js']],
     entryFiles: new Set(['/repo/src/e.js']),
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
-  };
+  });
 
   const result = buildProjectMap(depGraph, { compact: true });
 
@@ -536,21 +458,16 @@ function testProjectMapCompactSummary() {
 }
 
 function testProjectMapCompactSummaryClean() {
-  const depGraph = {
-    root: '/repo',
-    graph: new Map([
-      ['/repo/src/a.js', { imports: [], exports: ['a'], exportRecords: [{ name: 'a' }], importRecords: [], parseMode: 'ast' }],
-    ]),
-    reverseGraph: new Map(),
-    ...BASE_MOCK_METHODS,
-    findDeadExports() { return []; },
-    findUnresolvedImports() { return []; },
-    findCircularDependencies() { return []; },
+  const depGraph = createMockDepGraph({
+    mode: 'stub',
+    schema: {
+      '/repo/src/a.js': { imports: [], exports: ['a'], exportRecords: [{ name: 'a' }], importRecords: [], parseMode: 'ast' },
+    },
     entryFiles: new Set(['/repo/src/a.js']),
     projectContext: {
       classifyFile() { return { isMainline: true, fileRole: 'library' }; },
     },
-  };
+  });
 
   const result = buildProjectMap(depGraph, { compact: true });
 
@@ -562,3 +479,4 @@ function testProjectMapCompactSummaryClean() {
 
 testProjectMapCompactSummary();
 testProjectMapCompactSummaryClean();
+testHighlightedFilesSortsByHighestSeverity();

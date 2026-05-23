@@ -1,3 +1,4 @@
+// @semantic
 const assert = require('assert');
 const { buildFileSummary } = require('../src/cli/formatters/file-summary');
 
@@ -42,12 +43,27 @@ function testMissingFieldsDefaultsToZero() {
   assert.strictEqual(result.severity, 'low');
 }
 
+function testTransitionThresholds() {
+  // Just below high (9 impact, 4 tests) -> should be medium
+  const result1 = buildFileSummary({ impactCount: 9 }, { affectedTestsCount: 4 });
+  assert.strictEqual(result1.severity, 'medium');
+
+  // Exact high boundaries
+  const result2 = buildFileSummary({ impactCount: 10 }, { affectedTestsCount: 0 });
+  assert.strictEqual(result2.severity, 'high');
+
+  const result3 = buildFileSummary({ impactCount: 0 }, { affectedTestsCount: 5 });
+  assert.strictEqual(result3.severity, 'high');
+}
+
 function main() {
   testHighSeverityWithImpactAndTests();
   testMediumSeverityWithImpactOnly();
   testLowSeverityNoImpact();
   testSeverityContextAndNote();
   testMissingFieldsDefaultsToZero();
+  testTransitionThresholds();
 }
 
 main();
+

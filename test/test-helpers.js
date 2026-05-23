@@ -208,6 +208,9 @@ function makeMockSnapshot(opts = {}) {
     hasFile: (p) => graphMap.has(p),
     getFileInfo: (p) => graphMap.get(p),
     getAllFileInfos: () => Array.from(graphMap.entries()),
+    getFileCount: () => graphMap.size,
+    getAllFilePaths: () => Array.from(graphMap.keys()),
+    getAllFileValues: () => Array.from(graphMap.values()),
     normalizeFilePath: (p) => p,
     _displayPath: (p) => p,
     shouldExclude: () => false,
@@ -311,6 +314,249 @@ function buildMockDepGraph(schema) {
 }
 
 /* -------------------------------------------------------------------------- */
+// Mock graph factory (enhanced)
+/* -------------------------------------------------------------------------- */
+
+const { DependencyGraph } = require('../src/services/dep-graph');
+
+/**
+ * Create a mock DependencyGraph — either a real instance with injected data
+ * or a lightweight plain-object stub.
+ *
+ * @param {{
+ *   root?: string,
+ *   mode?: 'instance' | 'stub',
+ *   schema?: Record<string, Partial<import('../src/services/dep-graph').FileNode>>,
+ *   entryFiles?: Set<string>,
+ *   projectContext?: object,
+ *   deadExports?: any[],
+ *   unresolved?: any[],
+ *   cycles?: any[],
+ *   overrides?: Record<string, any>,
+ *   depGraphOptions?: object,
+ * }} [opts]
+ * @returns {DependencyGraph | object}
+ */
+function createMockDepGraph(opts = {}) {
+  const root = opts.root || '/repo';
+  const mode = opts.mode || 'instance';
+
+  const graphMap = opts.schema ? buildMockDepGraph(opts.schema) : new Map();
+
+  // Auto-build reverseGraph from imports
+  const reverseGraph = new Map();
+  for (const [file, node] of graphMap) {
+    if (!reverseGraph.has(file)) reverseGraph.set(file, []);
+    for (const imp of node.imports || []) {
+      if (!reverseGraph.has(imp)) reverseGraph.set(imp, []);
+      reverseGraph.get(imp).push(file);
+    }
+  }
+
+  if (mode === 'stub') {
+    const defaultCtx = {
+      classifyFile: () => ({ isMainline: true, fileRole: 'library' }),
+      summarizeFiles: () => ({
+        counts: { totalFiles: graphMap.size, mainlineFiles: graphMap.size, nonMainlineFiles: 0, testFiles: 0 },
+        directoryRoles: { active: graphMap.size, reference: 0, archive: 0, generated: 0 },
+        fileRoles: { entry: 0, library: graphMap.size, config: 0, test: 0, migration: 0, script: 0, docs: 0, style: 0, asset: 0, unknown: 0 },
+        entryFiles: [],
+      }),
+    };
+
+    return {
+      root,
+      graph: graphMap,
+      reverseGraph,
+      entryFiles: opts.entryFiles || new Set(),
+      projectContext: opts.projectContext || defaultCtx,
+      getFileInfo(file) { return this.graph.get(file); },
+      hasFile(file) { return this.graph.has(file); },
+      getDependents(file) { return this.reverseGraph.get(file) || []; },
+      getDependencies(file) { return this.graph.get(file)?.imports || []; },
+      getFileCount() { return graphMap.size; },
+      getAllFilePaths() { return Array.from(graphMap.keys()); },
+      getAllFileValues() { return Array.from(graphMap.values()); },
+      getAllFileInfos() { return Array.from(graphMap.entries()); },
+      isTestLikeFile() { return false; },
+      isKnownEntryFile() { return false; },
+      findDeadExports() { return opts.deadExports || []; },
+      findUnresolvedImports() { return opts.unresolved || []; },
+      findCircularDependencies() { return opts.cycles || []; },
+      getStats: () => ({
+        files: graphMap.size,
+        totalImports: 0,
+        totalExports: 0,
+        cycles: 0,
+        totalLines: 0,
+        analysisCoverage: { totalFiles: graphMap.size, parsedFiles: graphMap.size, fallbackFiles: 0, coverageRatio: 1 },
+        filteredAnalysisCoverage: { totalFiles: graphMap.size, parsedFiles: graphMap.size, fallbackFiles: 0, coverageRatio: 1 },
+      }),
+      getPageRank: () => new Map(),
+      getScopeSummary: () => ({}),
+      buildWarnings: () => [],
+      _displayPath: (p) => p,
+      normalizeFilePath: (p) => p,
+      shouldExclude: () => false,
+      shouldExcludeCli: () => false,
+      ...opts.overrides,
+    };
+  }
+
+  const depGraph = DependencyGraph.fromSchema(
+    root,
+    opts.schema || {},
+    {
+      quiet: true,
+      entryFiles: opts.entryFiles || new Set(),
+      projectContext: opts.projectContext || null,
+      ...opts.depGraphOptions,
+    }
+  );
+
+  return depGraph;
+}
+
+/**
+ * Standard graph fixtures for tests.
+ */
+const GraphFixtures = {
+  /**
+   * Empty graph with no files.
+   */
+  empty(root = '/repo', mode = 'instance') {
+    return createMockDepGraph({ root, mode, schema: {} });
+  },
+
+  /**
+   * Linear chain: f0 -> f1 -> ... -> f{n-1} (import direction: fn imports fn-1)
+   */
+  chain(root = '/repo', n = 5, mode = 'instance') {
+    const schema = {};
+    for (let i = 0; i < n; i++) {
+      const file = `${root}/src/f${i}.js`;
+      const imports = i > 0 ? [`${root}/src/f${i - 1}.js`] : [];
+      const importRecords = imports.length
+        ? [{ source: `./f${i - 1}`, resolved: imports[0], imported: [`f${i - 1}`], usesAllExports: false }]
+        : [];
+      schema[file] = {
+        imports,
+        exports: [`f${i}`],
+        exportRecords: [{ name: `f${i}`, kind: 'function' }],
+        importRecords,
+        parseMode: 'ast',
+      };
+    }
+    return createMockDepGraph({ root, mode, schema });
+  },
+
+  /**
+   * Cycle: each file imports the next, last imports first.
+   */
+  cycle(root = '/repo', files = ['a.js', 'b.js', 'c.js'], mode = 'instance') {
+    const schema = {};
+    for (let i = 0; i < files.length; i++) {
+      const file = `${root}/src/${files[i]}`;
+      const nextFile = `${root}/src/${files[(i + 1) % files.length]}`;
+      schema[file] = {
+        imports: [nextFile],
+        exports: [],
+        exportRecords: [],
+        importRecords: [{ source: `./${files[(i + 1) % files.length]}`, resolved: nextFile, imported: [], usesAllExports: false }],
+        parseMode: 'ast',
+      };
+    }
+    return createMockDepGraph({ root, mode, schema });
+  },
+
+  /**
+   * Star: one center file imported by many leaves.
+   */
+  star(root = '/repo', center = 'core.js', leaves = ['a.js', 'b.js', 'c.js', 'd.js', 'e.js'], mode = 'instance') {
+    const centerPath = `${root}/src/${center}`;
+    const schema = {
+      [centerPath]: {
+        imports: [],
+        exports: ['core'],
+        exportRecords: [{ name: 'core', kind: 'function' }],
+        importRecords: [],
+        parseMode: 'ast',
+      },
+    };
+    for (const leaf of leaves) {
+      const leafPath = `${root}/src/${leaf}`;
+      schema[leafPath] = {
+        imports: [centerPath],
+        exports: [],
+        exportRecords: [],
+        importRecords: [{ source: `./${center}`, resolved: centerPath, imported: ['core'], usesAllExports: false }],
+        parseMode: 'ast',
+      };
+    }
+    return createMockDepGraph({ root, mode, schema });
+  },
+
+  /**
+   * Large graph with N disconnected files (useful for scale assertions).
+   */
+  large(root = '/repo', n = 1000, mode = 'instance') {
+    const schema = {};
+    for (let i = 0; i < n; i++) {
+      schema[`${root}/src/file${i}.js`] = {
+        imports: [],
+        exports: [],
+        exportRecords: [],
+        importRecords: [],
+        parseMode: 'ast',
+      };
+    }
+    return createMockDepGraph({ root, mode, schema });
+  },
+
+  /**
+   * Small realistic project: entry + lib + util + test.
+   */
+  miniProject(root = '/repo', mode = 'instance') {
+    const schema = {
+      [`${root}/src/index.js`]: {
+        imports: [`${root}/src/lib.js`],
+        exports: ['main'],
+        exportRecords: [{ name: 'main', kind: 'function' }],
+        importRecords: [{ source: './lib', resolved: `${root}/src/lib.js`, imported: ['helper'], usesAllExports: false }],
+        parseMode: 'ast',
+      },
+      [`${root}/src/lib.js`]: {
+        imports: [`${root}/src/util.js`],
+        exports: ['helper'],
+        exportRecords: [{ name: 'helper', kind: 'function' }],
+        importRecords: [{ source: './util', resolved: `${root}/src/util.js`, imported: ['utilFn'], usesAllExports: false }],
+        parseMode: 'ast',
+      },
+      [`${root}/src/util.js`]: {
+        imports: [],
+        exports: ['utilFn'],
+        exportRecords: [{ name: 'utilFn', kind: 'function' }],
+        importRecords: [],
+        parseMode: 'ast',
+      },
+      [`${root}/test/index.test.js`]: {
+        imports: [`${root}/src/index.js`],
+        exports: [],
+        exportRecords: [],
+        importRecords: [{ source: '../src/index', resolved: `${root}/src/index.js`, imported: ['main'], usesAllExports: false }],
+        parseMode: 'ast',
+      },
+    };
+    return createMockDepGraph({
+      root,
+      mode,
+      schema,
+      entryFiles: new Set([`${root}/src/index.js`]),
+    });
+  },
+};
+
+/* -------------------------------------------------------------------------- */
 // Assertion helpers
 /* -------------------------------------------------------------------------- */
 
@@ -358,6 +604,8 @@ module.exports = {
   makeTempDir,
   cleanupTempDir,
   buildMockDepGraph,
+  createMockDepGraph,
+  GraphFixtures,
   makeMockSnapshot,
   assertOk,
   assertAll,

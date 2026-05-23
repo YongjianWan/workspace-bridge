@@ -1,36 +1,30 @@
 #!/usr/bin/env node
 
 const assert = require('assert');
-const { DependencyGraph } = require('../src/services/dep-graph');
-const { buildMockDepGraph } = require('./test-helpers');
+const { createMockDepGraph } = require('./test-helpers');
+const { normalizePathKey } = require('../src/utils/path');
+
+const P = (value) => normalizePathKey(value);
 
 function makeGraph() {
-  const depGraph = new DependencyGraph('/repo', { fileMetadata: new Map() });
-  const P = (value) => depGraph.normalizeFilePath(value);
-  depGraph.graph = buildMockDepGraph({
-    [P('/repo/src/core/util.ts')]: { imports: [], exports: ['helper'] },
-    [P('/repo/src/core/index.ts')]: { imports: [P('/repo/src/core/util.ts')], exports: ['helper'] },
-    [P('/repo/src/app.ts')]: { imports: [P('/repo/src/core/index.ts')], exports: ['run'] },
-    [P('/repo/test/app.test.ts')]: { imports: [P('/repo/src/app.ts')], exports: ['testRun'] },
+  return createMockDepGraph({
+    root: P('/repo'),
+    schema: {
+      [P('/repo/src/core/util.ts')]: { imports: [], exports: ['helper'] },
+      [P('/repo/src/core/index.ts')]: { imports: [P('/repo/src/core/util.ts')], exports: ['helper'] },
+      [P('/repo/src/app.ts')]: { imports: [P('/repo/src/core/index.ts')], exports: ['run'] },
+      [P('/repo/test/app.test.ts')]: { imports: [P('/repo/src/app.ts')], exports: ['testRun'] },
 
-    [P('/repo/pkg/module.py')]: { imports: [], exports: ['run'] },
-    [P('/repo/tests/test_module.py')]: { imports: [], exports: ['test_run'] },
-    [P('/repo/tests/module_test.py')]: { imports: [], exports: ['test_run_alt'] },
-    [P('/repo/tests/other_test.py')]: { imports: [], exports: ['test_other'] },
+      [P('/repo/pkg/module.py')]: { imports: [], exports: ['run'] },
+      [P('/repo/tests/test_module.py')]: { imports: [], exports: ['test_run'] },
+      [P('/repo/tests/module_test.py')]: { imports: [], exports: ['test_run_alt'] },
+      [P('/repo/tests/other_test.py')]: { imports: [], exports: ['test_other'] },
+    }
   });
-
-  depGraph.reverseGraph = new Map([
-    [P('/repo/src/core/util.ts'), [P('/repo/src/core/index.ts')]],
-    [P('/repo/src/core/index.ts'), [P('/repo/src/app.ts')]],
-    [P('/repo/src/app.ts'), [P('/repo/test/app.test.ts')]],
-  ]);
-
-  return depGraph;
 }
 
 function main() {
   const depGraph = makeGraph();
-  const P = (value) => depGraph.normalizeFilePath(value);
 
   const barrelTests = depGraph.findAffectedTests(P('/repo/src/core/util.ts'), 5, { includeHeuristic: false });
   const barrelFiles = barrelTests.map((entry) => entry.file.replace(/\\/g, '/'));

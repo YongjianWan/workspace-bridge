@@ -20,13 +20,6 @@ try {
 
 let warnedMissingParser = false;
 
-// #29: quote-pattern config table replaces nested ternary
-const QUOTE_PATTERNS = {
-  '"': /"(?:[^"\\]|\\.)*"/g,
-  "'": /'(?:[^'\\]|\\.)*'/g,
-  '`': /`(?:[^`\\]|\\.)*`/g,
-};
-
 // #29: declaration-kind map replaces nested ternary
 const DECL_KIND_MAP = {
   function: 'function',
@@ -51,37 +44,102 @@ const VUE_COMPILER_MACROS = new Set([
   'defineModel',
 ]);
 
-function stripBlockComments(content) {
-  return content.replace(/\/\*[\s\S]*?\*\//g, '');
-}
-
-function stripLineComment(line) {
-  return line.replace(/\/\/.*$/, '');
-}
-
-function stripQuotedStrings(line, quoteChar, replacement) {
-  const pattern = QUOTE_PATTERNS[quoteChar];
-  if (!pattern) return line;
-  // For template literals, use a conservative greedy match that skips
-  // escaped backticks and basic ${expr} interpolations.
-  if (quoteChar === '`') {
-    return line.replace(/`(?:[^`\\]|\\.|\$\{[^}]*\})*`/g, replacement);
-  }
-  return line.replace(pattern, replacement);
-}
-
+/**
+ * Global state-machine sanitizer that removes comments and string literals
+ * without splitting by newlines. This prevents multi-line template literals
+ * from being chopped in half, which previously exposed their inner content
+ * to import/export regexes and caused false-positive dependencies.
+ */
 function sanitizeForRegex(content) {
-  const withoutBlockComments = stripBlockComments(content);
-  return withoutBlockComments
-    .split('\n')
-    .map((line) => {
-      let sanitized = stripLineComment(line);
-      sanitized = stripQuotedStrings(sanitized, '"', '""');
-      sanitized = stripQuotedStrings(sanitized, "'", "''");
-      sanitized = stripQuotedStrings(sanitized, '`', '``');
-      return sanitized;
-    })
-    .join('\n');
+  let result = '';
+  let i = 0;
+  while (i < content.length) {
+    const ch = content[i];
+    const next = content[i + 1];
+
+    // Block comment
+    if (ch === '/' && next === '*') {
+      i += 2;
+      while (i < content.length - 1 && !(content[i] === '*' && content[i + 1] === '/')) {
+        i++;
+      }
+      i += 2;
+      continue;
+    }
+
+    // Line comment
+    if (ch === '/' && next === '/') {
+      i += 2;
+      while (i < content.length && content[i] !== '\n') {
+        i++;
+      }
+      continue;
+    }
+
+    // Double-quoted string
+    if (ch === '"') {
+      result += '""';
+      i++;
+      while (i < content.length) {
+        if (content[i] === '\\') {
+          i = Math.min(i + 2, content.length);
+        } else if (content[i] === '"') {
+          i++;
+          break;
+        } else {
+          i++;
+        }
+      }
+      continue;
+    }
+
+    // Single-quoted string
+    if (ch === "'") {
+      result += "''";
+      i++;
+      while (i < content.length) {
+        if (content[i] === '\\') {
+          i = Math.min(i + 2, content.length);
+        } else if (content[i] === "'") {
+          i++;
+          break;
+        } else {
+          i++;
+        }
+      }
+      continue;
+    }
+
+    // Template literal (may span multiple lines)
+    if (ch === '`') {
+      result += '``';
+      i++;
+      while (i < content.length) {
+        if (content[i] === '\\') {
+          i = Math.min(i + 2, content.length);
+        } else if (content[i] === '$' && content[i + 1] === '{') {
+          // Skip ${...} interpolations, tracking brace depth for nested braces
+          let depth = 1;
+          i += 2;
+          while (i < content.length && depth > 0) {
+            if (content[i] === '{') depth++;
+            else if (content[i] === '}') depth--;
+            i++;
+          }
+        } else if (content[i] === '`') {
+          i++;
+          break;
+        } else {
+          i++;
+        }
+      }
+      continue;
+    }
+
+    result += ch;
+    i++;
+  }
+  return result;
 }
 
 // #12: generic AST walker extracted from two ~100% duplicate inline loops
@@ -572,6 +630,28 @@ function extractExportsWithRegex(sanitized) {
     exportRecords.push(createExportRecord(name, { kind }));
   }
 
+  // Destructured exports: export const { a, b } = obj
+  // Also handles rename syntax: export const { a: renamed } = obj
+  // Multi-line destructuring is supported by using [\s\S]*? instead of [^}]*
+  const destructuredExportRegex = /export\s+(const|let|var)\s*\{([\s\S]*?)\}/g;
+  while ((match = destructuredExportRegex.exec(sanitized)) !== null) {
+    const names = match[2]
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const withoutType = part.replace(/^type\s+/, '').trim();
+        // Destructuring rename: { original: localName } → exported name is localName
+        const colonSegments = withoutType.split(':').map((s) => s.trim());
+        const rawName = colonSegments[colonSegments.length - 1];
+        return normalizeImportedName(rawName);
+      })
+      .filter(Boolean);
+    for (const name of names) {
+      exportRecords.push(createExportRecord(name, { kind: 'variable' }));
+    }
+  }
+
   const defaultNamedRegex = /export\s+default\s+(?:async\s+)?(?:function|class)\s+(\w+)/g;
   while ((match = defaultNamedRegex.exec(sanitized)) !== null) {
     exportRecords.push(createExportRecord('default', { kind: 'function-default' }));
@@ -605,6 +685,71 @@ function extractExportsWithRegex(sanitized) {
   return { exportRecords, reExportImportRecords };
 }
 
+function extractFunctionRecordsWithRegex(sanitized) {
+  const functionRecords = [];
+
+  // Precompute line offsets to avoid O(N^2) slice + split on large files
+  const lineOffsets = [];
+  for (let i = 0; i < sanitized.length; i++) {
+    if (sanitized[i] === '\n') {
+      lineOffsets.push(i);
+    }
+  }
+
+  function getLineNumber(index) {
+    let low = 0;
+    let high = lineOffsets.length - 1;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      if (lineOffsets[mid] < index) {
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return low + 1; // 1-indexed
+  }
+
+  // function declarations (including exported / async)
+  const functionDeclRegex = /(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g;
+  let match;
+  while ((match = functionDeclRegex.exec(sanitized)) !== null) {
+    const lineStart = getLineNumber(match.index);
+    functionRecords.push({
+      name: match[1],
+      kind: 'function',
+      lineStart,
+      lineEnd: lineStart,
+    });
+  }
+
+  // arrow functions: const foo = () => {}
+  const arrowFunctionRegex = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>/g;
+  while ((match = arrowFunctionRegex.exec(sanitized)) !== null) {
+    const lineStart = getLineNumber(match.index);
+    functionRecords.push({
+      name: match[1],
+      kind: 'function',
+      lineStart,
+      lineEnd: lineStart,
+    });
+  }
+
+  // function expressions: const foo = function() {}
+  const functionExprRegex = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\s*(?:[A-Za-z_$][\w$]*)?\s*\(/g;
+  while ((match = functionExprRegex.exec(sanitized)) !== null) {
+    const lineStart = getLineNumber(match.index);
+    functionRecords.push({
+      name: match[1],
+      kind: 'function',
+      lineStart,
+      lineEnd: lineStart,
+    });
+  }
+
+  return functionRecords;
+}
+
 function parseJavaScript(content, filePath = '') {
   if (babelParser) {
     const astResult = parseJavaScriptAST(content, filePath);
@@ -621,6 +766,7 @@ function parseJavaScript(content, filePath = '') {
   const sanitized = sanitizeForRegex(content);
   const { imports, importRecords } = extractImportsWithRegex(sanitized);
   let { exportRecords, reExportImportRecords } = extractExportsWithRegex(sanitized);
+  const functionRecords = extractFunctionRecordsWithRegex(sanitized);
 
   const isVueFile = filePath.toLowerCase().endsWith('.vue') || /<!\s*script\s+setup\b/i.test(content);
   if (isVueFile) {
@@ -640,7 +786,7 @@ function parseJavaScript(content, filePath = '') {
     exports,
     importRecords,
     exportRecords,
-    functionRecords: [],
+    functionRecords,
     parseMode: 'regex',
   };
 }

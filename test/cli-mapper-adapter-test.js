@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @contract
 /**
  * Tests for cli.js mapper/adapter error paths not covered by existing tests.
  * - mapWithConcurrency __error propagation
@@ -71,6 +72,14 @@ function main() {
     }
   }
 
+  // Test 7: CLI adapter error — invalid --token-budget should exit 1
+  {
+    const result = runCliRaw(['audit-diff', '--cwd', '.', '--token-budget', '-100']);
+    assert.strictEqual(result.status, 1, 'invalid --token-budget should exit 1');
+    assert(result.stderr.includes('Invalid --token-budget') || result.stdout.includes('Invalid --token-budget'), 'should surface token-budget error');
+  }
+
 }
 
 main();
+

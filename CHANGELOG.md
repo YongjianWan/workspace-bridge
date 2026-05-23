@@ -8,6 +8,78 @@
 
 ## [Unreleased]
 
+### 改进与精益重构（测试图工厂与生产类静态工厂升级 — 2026-05-23）
+
+- **DependencyGraph 静态工厂与 DI 升级** `src/services/dep-graph.js`：
+  - 新增 `static fromSchema(workspaceRoot, schema, options)` 生产级静态工厂，允许直接从内存 schema 高效自举 `DependencyGraph` 实例。
+  - 在 `DependencyGraph` 构造函数中引入 `packageJson` 和 `entryFiles` 的可选依赖注入（DI），解耦测试场景下的磁盘 I/O 绑定，极大减轻了实例化“图查询/图分析”时的重量。
+  - **反向图构建契约 100% 对齐**：静态工厂内部直接调用 `depGraph.buildReverseGraph()` 代替自定义手动迭代，使静态还原与真实的构建后处理在底层**物理对齐、共享代码**，消除了由于去重、排序、空项注册不一致引起的任何契约分歧隐患。
+- **测试用例大规模重构与去噪** `test/**/*.js`：
+  - 重构 `dead-export-confidence-test.js`、`p3-impact-explanation-test.js`、`language-support-matrix-test.js`、`java-dead-export-test.js`、`affected-tests-barrel-python-test.js`、`java-package-imports-test.js` 等核心测试文件，全量消除了恶劣的 `new DependencyGraph` + 手工 `dg.graph = ...` 属性篡改反模式，彻底拥抱原生的 `createMockDepGraph` 自举工厂或生产级静态工厂 `fromSchema`。
+- **Graph Factory 基础设施** `test/test-helpers.js`：
+  - 新增 `createMockDepGraph({ mode: 'instance' | 'stub', schema, entryFiles, projectContext, deadExports, unresolved, cycles, overrides })`，自动从 schema 构建 graph 与 reverseGraph，统一两种 mock 模式。
+  - **无痛契约对齐**：`createMockDepGraph` 在 `instance` 模式下直接桥接并调用 `DependencyGraph.fromSchema` 静态工厂构建真实实例，彻底清除了原先测试侧直接篡改 `depGraph.graph` 内部 Map 的反模式，让测试契约直接基于生产静态工厂。
+  - 新增 `GraphFixtures` 标准图工厂：`.empty()`、`.chain(n)`、`.cycle(files)`、`.star(center, leaves)`、`.large(n)`、`.miniProject()`，消除 99+ 处内联 depGraph 字面量的复制粘贴。
+- **试点迁移** `test/audit-map-test.js`：
+  - 彻底删除 `BASE_MOCK_METHODS` 与 12 组手工 mock 字面量，全面替换为 `createMockDepGraph({ mode: 'stub', ... })`；文件行数从 ~564 行降至 ~460 行，mock 重复归零。
+- **overview-curator 专属测试** `test/overview-curator-test.js`（新增）：
+  - 覆盖 `buildOverviewSummary` 的空输入、多 issue 聚合、severity 分级、stack-profile 感知推荐（Node/Java/Python/Go/Rust/unknown）。
+  - 覆盖 `buildCycleRefactorSuggestions` 的基本生成与空图边界。
+  - 覆盖 `buildCouplingSplitSuggestions` 的高耦合检测、小项目抑制逻辑、高 out-degree 场景。
+  - 覆盖 `calculateCoupling` 的 low/medium/high 三级阈值。
+- **L5 格式化层直测扩展** `test/formatter-direct-test.js`：
+  - 新增 `buildCompositeRisk` 测试 7 组：low baseline、high impact、tests mapped、history risk、file fallback、non-mainline downgrade、function-scoped discount。
+  - 新增 `buildAuditDiffSummary` 测试 2 组：空输入边界、多 entry 聚合（severity/highHistory/highComposite/nextSteps）。
+  - 新增 `classifyChangeType` 测试 5 组：docs majority、code majority、test majority、config majority、reference/archive fallback。
+- **验证**：`npm run test:fast` **98/98 PASS**（新增 1 个 fast 层测试文件）。
+
+### 修复与精益重构（Regex Fallback 健壮性最后一公里 — 2026-05-23）
+
+- **多行模板字符串全局状态机清洗** `src/services/dep-graph/parsers/js.js`：
+  - 替换 `sanitizeForRegex` 的 `.split('\n')` 逐行清洗方案为全局字符状态机，彻底消除跨多行模板字符串被拦腰截断的问题。
+  - 状态机正确处理块注释、行注释、双引号/单引号字符串、模板字符串（含 `${...}` 嵌套插值与转义反引号），防止模板内部伪代码引起依赖误报。
+  - **指针跳过越界防护**：使用 `Math.min(i + 2, content.length)` 安全防护逃逸字符 `\` 越界指针，规避潜在的越界读取隐患。
+- **多行解构导出支持** `src/services/dep-graph/parsers/js.js`：
+  - `extractExportsWithRegex` 新增 `destructuredExportRegex`，捕获 `export const/let/var { a, b: renamed } = obj` 模式，解决解构导出 100% 漏报问题。
+  - 支持重命名语法 `: localName`，导出名为本地绑定名而非原始属性名。
+  - **多行解构解析**：正则改为通用匹配 `[\s\S]*?`，天然支持跨行的多行解构导出，消除了原单行解析假设的规则盲区。
+- **Regex Fallback 函数记录提取** `src/services/dep-graph/parsers/js.js`：
+  - 新增 `extractFunctionRecordsWithRegex`，在 Fallback 模式下提取 `function` 声明、箭头函数、函数表达式，填充 `functionRecords`。
+  - 使 `symbol-impact.js` 的 `buildFunctionToDependents` 在 Fallback 下不再完全瘫痪，并为后续放宽 `function-impact.js` 的 AST-only 限制打下基础。
+  - **$O(N \log L)$ 二分行号查找重构**：干掉原先在每个匹配点对大文件调用 `slice().split('\n')` 的 $O(N^2)$ 行号查找算法；提前线性扫描所有的换行符并生成偏移数组，利用二分法实现 $O(\log L)$ 查找，大幅提升了大文件的静态解析性能。
+- **测试**：新增 `test/js-regex-fallback-test.js`，覆盖多行模板防误报、解构导出、functionRecords 回填三大场景；`npm run test:fast` **98/98 PASS**（覆盖 98 个 fast 层单元与语义集成测试）。
+
+### 改进（架构净化：终结 L4 层 .graph 穿透 — 2026-05-23）
+
+- **DependencyGraphView API 补全** `models/workspace-snapshot.js`：
+  - 新增 `getFileCount()`、`getAllFilePaths()`、`getAllFileValues()`，让只读视图具备完整的文件枚举能力，不再依赖 `.graph` Map 穿透。
+- **L4 工具层 .graph 穿透全部清理**：
+  - `tools/overview-assembler.js`：4 处 `depGraph.graph` 访问改为 `getFileCount()` / `getAllFileInfos()` / `getAllFilePaths()`。
+  - `tools/workspace-tools.js`：`depGraph.graph?.values()` 改为 `getAllFileValues()`。
+  - `tools/security-tools.js`：`container.depGraph.graph` 改为 `getAllFilePaths()`。
+  - `cli/formatters/project-map.js`：`depGraph.graph?.keys()` 改为 `getAllFilePaths()`。
+  - `cli/repl.js`：`container.depGraph.graph?.keys()` 改为 `getAllFilePaths()`。
+  - `services/container.js`：内部 2 处 `.graph.size` / `.graph.keys()` 改为 facade 方法；`this.depGraph` 添加 JSDoc `@deprecated`。
+  - `models/workspace-snapshot.js`：`computeKnownBlindSpots` / `computeConfidenceByDomain` 中的 `depGraph.graph.keys()` 改为 `getAllFilePaths()`。
+- **测试 mock 同步**：`test/test-helpers.js` 的 `makeMockSnapshot` / `createMockDepGraph` stub 模式补全新方法；`test/repl-edge-test.js` mock 对象同步补全。
+- **验证**：`npm run test:fast` **97/98 PASS**（`overview-curator-test.js` 为并行的 Graph Factory 重构遗留问题，与本次修改无关）。
+
+### 改进（测试分层标记与低信号 C 级测试升级 — 2026-05-23）
+
+- **新增测试升级规则** `docs/plans/2026-05-23-test-grading-report.md`：
+  - 补充“测试升级规则”：低信号测试只保留 1 个版本，下一轮必须补语义断言或合并掉，防止再堆积。
+- **给测试文件添加轻量分层标记** `test/**/*.js`：
+  - 为 C 级测试文件添加文件头注释标记（`// @contract` 或 `// @semantic`），清晰指示测试类型是契约测试（Schema Locks/边界/CLI 选项校验）还是语义测试（计算/核心算法/流程断言）。
+- **升级 C 级中最便宜的 5 个测试文件，显著降低水分**：
+  - `test/parser-registry-test.js` (`@contract`)：新增 `testRegistryBoundaryAndAttributes()`，验证未知扩展名的 undefined 边界以及核心 JavaScript 属性契约。
+  - `test/language-support-matrix-test.js` (`@semantic`)：新增 `testBuildLanguageSupportMatrixEmpty()`，验证空图依赖下的边界返回，提升语言支持矩阵在边缘情况下的健壮性。
+  - `test/file-summary-test.js` (`@semantic`)：新增 `testTransitionThresholds()`，验证 high 级与 medium 级的精确过渡临界值，确保爆破半径严重度计算符合算法设计。
+  - `test/cli-error-handling-test.js` (`@contract`)：新增 Test 4，验证未知命令在 CLI 中的 exit 2 错误分类及 stderr 输出，补全命令行非法输入的校验网。
+  - `test/severity-filter-test.js` (`@semantic`)：在 `testInvalidSeverityValue()` 中补充对 `audit-summary` 的未知 severity 校验，补全命令行参数过滤网格。
+- **C 级剩余文件轻量标记**：
+  - `change-type-test.js` (`@semantic`)、`init-test.js` (`@semantic`)、`audit-diff-compact-test.js` (`@semantic`)、`audit-diff-incremental-test.js` (`@semantic`)、`cli-mapper-adapter-test.js` (`@contract`)、`repl-edge-test.js` (`@semantic`)。
+- **验证**：`npm run test:fast` **96/96 PASS**。
+
 ### 改进（框架感知补完：Vue + Spring + Django — 2026-05-23）
 
 - **Vue `<script setup>` 编译器宏跨文件类型过滤** `src/services/dep-graph/parsers/js.js`：

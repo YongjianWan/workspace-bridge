@@ -35,15 +35,23 @@ function assertTopLevelSchema(result, label) {
   assert(result.parseMode === 'ast' || result.parseMode === 'regex', `${label}: parseMode should be ast or regex`);
 }
 
+const ALLOWED_KINDS = [
+  'function', 'class', 'type', 'struct', 'enum', 'trait', 'module', 'const',
+  'static', 'reexport', 'object', 'symbol', 'interface', 'function-default',
+  'variable'
+];
+
 function assertImportRecord(record, label) {
   assert(typeof record.source === 'string', `${label}: importRecord.source should be string`);
+  assert(record.source.trim().length > 0, `${label}: importRecord.source should be a non-empty string`);
   assert(Array.isArray(record.imported), `${label}: importRecord.imported should be array`);
   assert(typeof record.usesAllExports === 'boolean', `${label}: importRecord.usesAllExports should be boolean`);
 }
 
 function assertExportRecord(record, label) {
   assert(typeof record.name === 'string', `${label}: exportRecord.name should be string`);
-  assert(typeof record.kind === 'string', `${label}: exportRecord.kind should be string`);
+  assert(record.name.trim().length > 0, `${label}: exportRecord.name should be a non-empty string`);
+  assert(ALLOWED_KINDS.includes(record.kind), `${label}: exportRecord.kind "${record.kind}" should be a known kind`);
   if (record.lineStart !== undefined) {
     assert(Number.isFinite(record.lineStart), `${label}: exportRecord.lineStart should be finite number`);
   }
@@ -57,7 +65,8 @@ function assertExportRecord(record, label) {
 
 function assertFunctionRecord(record, label) {
   assert(typeof record.name === 'string', `${label}: functionRecord.name should be string`);
-  assert(typeof record.kind === 'string', `${label}: functionRecord.kind should be string`);
+  assert(record.name.trim().length > 0, `${label}: functionRecord.name should be a non-empty string`);
+  assert(ALLOWED_KINDS.includes(record.kind), `${label}: functionRecord.kind "${record.kind}" should be a known kind`);
   if (record.lineStart !== undefined) {
     assert(Number.isFinite(record.lineStart), `${label}: functionRecord.lineStart should be finite number`);
   }

@@ -14,7 +14,7 @@
 >
 > 收工时已跑 `node test/runner.js` 并确认 133/133 PASS，开工无需重跑。直接读取下方「基线状态」确认当前文档记录是否仍成立。
 >
-> 开发迭代推荐 `npm run test:fast`（~37s，96 个 fast 层测试），比全量 runner（~4min）快 6×。
+> 开发迭代推荐 `npm run test:fast`（~37s，97 个 fast 层测试），比全量 runner（~4min）快 6×。
 
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
@@ -38,7 +38,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；全量 runner 133/133 PASS（~4min，分阶段：fast ~37s / slow ~100s / watch 串行）。开发迭代用 `npm run test:fast`（~37s）或 `npm run test:smoke`（~31s）
+- 测试：**受影响测试全部 PASS**；全量 runner 133/133 PASS（~4min，分阶段：fast ~38s / slow ~100s / watch 串行）。开发迭代用 `npm run test:fast`（~37s）或 `npm run test:smoke`（~31s）。当前 fast 层 98 个测试。
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~247 文件（entry=1, mainline=123, test=138），commands/ 去壳后减少 17 个透传文件
@@ -49,6 +49,14 @@ node cli.js audit-summary --cwd . --json --quiet
 - 缓存：**SQLite 持久化**（`os.tmpdir()/workspace-bridge/<hash>/cache.db`），项目间隔离（按 workspaceRoot md5 hash 分目录），支持 `--cache-dir` 覆盖
 - **SHA-256 内容哈希**：`file-index.js` 解析时计算 SHA-256 存入 `fileMetadata.hash`；`cache.js` `checkFileChanges()` 双路径（fast: mtime+size / slow: SHA-256 精确校验）
 - **Co-change**：`impact` 命令已输出 `coChanges[]`；`git -C` 方案解决 Windows 中文路径兼容；性能 ~20s→76ms
+
+**本轮交付**：
+- Graph Factory 基础设施：test/test-helpers.js 新增 createMockDepGraph + GraphFixtures，统一两种 mock 模式；audit-map-test.js 完成试点迁移（删除 BASE_MOCK_METHODS，全面改用工厂）。
+- 零专属测试清零：test/overview-curator-test.js 新建，覆盖 buildOverviewSummary / buildCycleRefactorSuggestions / buildCouplingSplitSuggestions / calculateCoupling。
+- L5 格式化层直测扩展：formatter-direct-test.js 新增 buildCompositeRisk（7 组）+ buildAuditDiffSummary（2 组）+ classifyChangeType（5 组）。
+- Regex Fallback 健壮性修复（`js.js`）：全局状态机清洗替代 `.split('\n')`，支持解构导出，回填 `functionRecords`；新增 `js-regex-fallback-test.js`。
+- 架构净化：终结 L4 层 `.graph` 穿透。`DependencyGraphView` 补全 `getFileCount`/`getAllFilePaths`/`getAllFileValues`；`overview-assembler`/`workspace-tools`/`security-tools`/`project-map`/`repl`/`container` 等 7 个文件全部改用 facade 方法；`container.depGraph` 标记 `@deprecated`。
+- 顺手修复上一轮遗留的 `// @semantic` 标记导致 shebang 不在第一行、Windows 测试 runner 报 SyntaxError 的问题（3 个测试文件）。
 
 **历史交付**：路线 A–J 全部完成；阶段 1/2/3 全部完成；L2 债务清零；产品债务清零。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
@@ -81,8 +89,22 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### 本轮做了什么
 
-
 **本轮**：
+
+- **消灭暴力 Mock 遗留反模式**：
+  - 彻底完成了剩余核心测试文件 `test/affected-tests-barrel-python-test.js` 和 `test/java-package-imports-test.js` 的重构，全量消除了恶劣的 `new DependencyGraph` + 手工 `dg.graph = ...` 属性篡改反模式，彻底拥抱原生的 `createMockDepGraph` 自举工厂与生产级静态工厂 `fromSchema`。
+  - 对于真实测试 filesystem 交互、I/O 边界与 SQLite 缓存恢复的集成测试（如 `path-format-consistency-test.js`、`phase01-quality-test.js`），依据契约予以保留，保障高信度的测试能力。
+
+- **测试分层标记与低信号 C 级测试升级**：
+  - **测试升级规则**：在 `2026-05-23-test-grading-report.md` 中补充规则：低信号测试只保留 1 个版本，下一轮必须补语义断言或合并掉，防止再堆积。
+  - **轻量分层标记**：在 `test/*.js` 文件头部引入 `// @contract` / `// @semantic` 轻量分层标记，使得新会话可立即识别测试属性（契约/Schema Locks 校验 vs 语义/算法断言）。
+  - **升级 5 个 C 级低信号测试**：
+    - `parser-registry-test.js` (`@contract`)：加入未知扩展名边界检验及 JS family 属性契约。
+    - `language-support-matrix-test.js` (`@semantic`)：加入空图依赖的边界响应断言。
+    - `file-summary-test.js` (`@semantic`)：加入 severity 级联过渡的临界值断言。
+    - `cli-error-handling-test.js` (`@contract`)：加入未知指令的 exit 2 校验断言。
+    - `severity-filter-test.js` (`@semantic`)：在 `testInvalidSeverityValue` 中引入 `audit-summary` 的异常参数校验。
+  - **其余 C 级测试轻量标记**：`change-type-test.js` (`@semantic`)、`init-test.js` (`@semantic`)、`audit-diff-compact-test.js` (`@semantic`)、`audit-diff-incremental-test.js` (`@semantic`)、`cli-mapper-adapter-test.js` (`@contract`)、`repl-edge-test.js` (`@semantic`)。
 
 - **U8（commands/ 去壳）**：17 个纯透传命令从独立文件内联到 `commands/index.js` 注册表，新增 `makeFileCommand` 工厂统一封装 `requireFile` + `resolveWorkspaceFilePath` + `hasFindings` boilerplate；删除 17 个壳文件（-312 行）。保留 repl/watch/init/debug/audit-file 为独立模块。`cli.js` 从注册表动态读取 `SELF_MANAGED_COMMANDS`，消除硬编码 Set。
 - **路径参数安全清洗**：`cli.js` 新增 `sanitizeCliPaths(parsed)`，在 `main()` 中对 `--file` / `--files` 统一调用 `resolveWorkspaceFilePath()` 校验，拒绝 `../` 逃逸和绝对路径注入（exit code 1）。修复 `resolveWorkspaceFilePath()` 在 Windows 上对 POSIX 绝对路径的误判。
@@ -215,7 +237,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-23（U3 overview-tools 拆分 + ProjectContext.inferFileRole 状态化 + Resolver LRU 缓存 + Wave 2 Resolver 拆分 + COMMAND_GUIDES 内聚 + U7 audit-assembler 拆分 + shouldExclude 跨层热切判定解耦 + U8/workspace-info/Windows 路径回归修复已完成；96/96 fast 测试全绿）*
+*Last updated: 2026-05-23（测试图工厂与生产静态工厂升级 + 测试分层标记与低信号 C 级测试升级 + U3 overview-tools 拆分 + ProjectContext.inferFileRole 状态化 + Resolver LRU 缓存 + Wave 2 Resolver 拆分 + COMMAND_GUIDES 内聚 + U7 audit-assembler 拆分 + shouldExclude 跨层解耦已完成；98/98 fast 测试全绿）*
 
-> **本轮验证状态**：`npm run test:fast` **96/96 PASS**；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=268`）。
+> **本轮验证状态**：`npm run test:fast` **98/98 PASS**；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=271`）。
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。

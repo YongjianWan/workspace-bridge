@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Edge-case tests for repl.js executeCommand not covered by repl-test.js.
  * - top: hotspot threshold boundary (exactly at threshold, below threshold)
@@ -25,6 +26,7 @@ function makeMockDepGraph(opts = {}) {
     getDependents: (file) => dependentsMap[file] || [],
     getDependencies: () => [],
     getStats: () => ({ files: 10, totalImports: 20, totalExports: 15, cycles: 0 }),
+    getAllFilePaths: () => Array.from(graph.keys()),
     _displayPath: (f) => f,
   };
 }
@@ -103,6 +105,14 @@ async function main() {
     const out = await executeCommand(container, 'audit-map');
     assert(out.includes('workspaceRoot:'), `non-compact audit-map should include workspaceRoot, got: ${out}`);
     assert(out.includes('files:'), `non-compact audit-map should include files, got: ${out}`);
+  }
+
+  // Unknown command edge case
+  {
+    const depGraph = makeMockDepGraph();
+    const container = { depGraph };
+    const out = await executeCommand(container, 'unknown-xyz');
+    assert.strictEqual(out, 'Unknown command: unknown-xyz. Type "help" for available commands.');
   }
 
 }

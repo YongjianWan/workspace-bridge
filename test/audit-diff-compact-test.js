@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Unit tests for audit-diff compact curation logic.
  */
@@ -95,6 +96,13 @@ function main() {
     const entry = makeEntry({ historyRisk: null });
     const c = compactChangedFile(entry);
     assert.strictEqual(c.historyRisk, null);
+  }
+
+  // Missing details inside historyRisk
+  {
+    const c = compactChangedFile({ file: 'a.js', historyRisk: { authorCount: 2 } });
+    assert.strictEqual(c.historyRisk.score, undefined);
+    assert.strictEqual(c.historyRisk.authorCount, 2);
   }
 
 }

@@ -35,6 +35,9 @@ class DependencyGraphView {
   hasFile(filePath) { return this._dg.hasFile(filePath); }
   getFileInfo(filePath) { return this._dg.getFileInfo(filePath); }
   getAllFileInfos() { return this._dg.getAllFileInfos(); }
+  getFileCount() { return this._dg.getFileCount(); }
+  getAllFilePaths() { return this._dg.getAllFilePaths(); }
+  getAllFileValues() { return this._dg.getAllFileValues(); }
   normalizeFilePath(filePath) { return this._dg.normalizeFilePath(filePath); }
   _displayPath(filePath) { return this._dg._displayPath(filePath); }
   shouldExclude(filePath) { return this._dg.shouldExclude(filePath); }
@@ -178,7 +181,7 @@ function computeKnownBlindSpots(projectContext, depGraph) {
 
   // Light-weight framework detection: Java/Kotlin projects have high Spring DI false-positive rate
   let hasJavaFamily = false;
-  for (const filePath of depGraph.graph.keys()) {
+  for (const filePath of depGraph.getAllFilePaths()) {
     const ext = filePath.slice(filePath.lastIndexOf('.'));
     if (ext === '.java' || ext === '.kt') {
       hasJavaFamily = true;
@@ -208,7 +211,7 @@ function computeConfidenceByDomain(projectContext, depGraph) {
 
   // Light-weight framework detection
   let hasJavaFamily = false;
-  for (const filePath of depGraph.graph.keys()) {
+  for (const filePath of depGraph.getAllFilePaths()) {
     const ext = filePath.slice(filePath.lastIndexOf('.'));
     if (ext === '.java' || ext === '.kt') {
       hasJavaFamily = true;

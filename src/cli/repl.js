@@ -240,7 +240,7 @@ async function executeCommand(container, line) {
     }
 
     case 'top': {
-      const allFiles = Array.from(container.depGraph.graph?.keys() || []);
+      const allFiles = container.depGraph.getAllFilePaths?.() || [];
       const hotspots = [];
       for (const file of allFiles) {
         const dependents = container.depGraph.getDependents?.(file) || [];

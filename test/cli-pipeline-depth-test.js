@@ -30,9 +30,15 @@ function testAuditSummaryAiSurface() {
     // formatAi for audit-summary returns JSON string; runCli parses it.
     const result = runCli(['audit-summary', '--cwd', tempRoot, '--format', 'ai', '--depth', 'surface', '--json', '--quiet']);
     assert.strictEqual(result.ok, true);
-    assert(typeof result.severity === 'string', 'surface should include severity');
-    assert(typeof result.counts === 'object' && result.counts !== null, 'surface should include counts');
-    assert(Array.isArray(result.topRisks), 'surface should include topRisks array');
+    assert.strictEqual(result.severity, 'medium', 'surface severity should be medium');
+    assert.strictEqual(result.counts.deadExports, 0, 'deadExports should be 0');
+    assert.strictEqual(result.counts.unresolved, 0, 'unresolved should be 0');
+    assert.strictEqual(result.counts.cycles, 0, 'cycles should be 0');
+    assert.ok(Array.isArray(result.topRisks), 'surface should include topRisks array');
+    for (const risk of result.topRisks) {
+      assert.ok(typeof risk.category === 'string' && risk.category.length > 0, 'risk category should be non-empty');
+      assert.ok(['low', 'medium', 'high'].includes(risk.severity), 'risk severity should be valid enum');
+    }
     // Surface should NOT include deeply nested fields like meta/actions/schemaVersion
     assert.strictEqual(result.schemaVersion, undefined, 'surface should not include schemaVersion');
     assert.strictEqual(result.meta, undefined, 'surface should not include meta');
@@ -106,12 +112,12 @@ function testAuditFileJsonFidelity() {
     const result = runCli(['audit-file', '--cwd', tempRoot, '--file', 'src/util.js', '--json', '--quiet']);
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.file, 'src/util.js');
-    assert(typeof result.impact?.impactCount === 'number');
-    assert(Array.isArray(result.impact?.symbolImpact?.impactedFiles));
+    assert.strictEqual(result.impact.impactCount, 1, 'impactCount should be 1');
+    assert.strictEqual(result.impact.symbolImpact.impactedFiles.length, 1, 'impactedFiles length should be 1');
+    assert.ok(result.impact.symbolImpact.impactedFiles[0].file.endsWith('src/app.js') || result.impact.symbolImpact.impactedFiles[0].file.endsWith('src\\app.js'), 'dependent should be app.js');
     assert(result.validationAdvice, 'audit-file should include validationAdvice');
     assert(Array.isArray(result.validationAdvice.commands), 'validationAdvice.commands should be an array');
-    assert(result.validationAdvice.commands.length >= 1, 'validationAdvice should have at least one command');
-    assert(typeof result.validationAdvice.suggestedCommand === 'string', 'validationAdvice should include suggestedCommand');
+    assert.strictEqual(result.validationAdvice.suggestedCommand, 'git diff --check', 'validationAdvice suggestedCommand should be git diff --check');
   } finally {
     cleanupTempDir(tempRoot);
   }
