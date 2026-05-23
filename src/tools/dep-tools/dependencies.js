@@ -1,11 +1,11 @@
 function dependencies(args, container, filePath) {
-  const deps = container.depGraph.getDependencies(filePath);
+  const deps = container.snapshot.graph.getDependencies(filePath);
   return {
     ok: true,
     file: args.file,
-    resolvedPath: container.depGraph._displayPath?.(filePath) || filePath,
+    resolvedPath: container.snapshot.graph._displayPath?.(filePath) || filePath,
     dependenciesCount: deps.length,
-    dependencies: deps.map((d) => container.depGraph._displayPath?.(d) || d),
+    dependencies: deps.map((d) => container.snapshot.graph._displayPath?.(d) || d),
   };
 }
 

@@ -51,14 +51,19 @@ function runCli(args, opts = {}) {
     cwd: opts.cwd || REPO_ROOT,
     encoding: 'utf8',
     timeout: opts.timeout || 60000,
+    env: opts.env || process.env,
   });
   assert.strictEqual(
     result.status,
     0,
     `CLI exited ${result.status}\nstderr: ${result.stderr || ''}\nstdout: ${result.stdout || ''}`.slice(0, 800)
   );
+  let stdout = result.stdout;
+  if (stdout && stdout.startsWith('\ufeff')) {
+    stdout = stdout.slice(1);
+  }
   try {
-    return JSON.parse(result.stdout);
+    return JSON.parse(stdout);
   } catch (e) {
     throw new Error(`Failed to parse CLI stdout as JSON:\n${result.stdout?.slice(0, 500)}\n${e.message}`);
   }
@@ -77,6 +82,7 @@ function runCliText(args, opts = {}) {
     cwd: opts.cwd || REPO_ROOT,
     encoding: 'utf8',
     timeout: opts.timeout || 60000,
+    env: opts.env || process.env,
   });
   assert.strictEqual(
     result.status,
@@ -99,6 +105,7 @@ function runCliRaw(args, opts = {}) {
     cwd: opts.cwd || REPO_ROOT,
     encoding: 'utf8',
     timeout: opts.timeout || 60000,
+    env: opts.env || process.env,
     maxBuffer: opts.maxBuffer,
   });
 }

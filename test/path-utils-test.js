@@ -51,12 +51,53 @@ function testTurkishLocaleSafe() {
   assert.strictEqual(key.includes('ı'), false, 'Turkish ı should not appear');
 }
 
+function testBfsTraverse() {
+  const { bfsTraverse } = require('../src/services/dep-graph/shared');
+  
+  // A -> B -> C
+  const graph = {
+    A: ['B'],
+    B: ['C'],
+    C: [],
+  };
+  const getNeighbors = (node) => graph[node] || [];
+
+  // Test 1: Full traversal with path tracking
+  const visited = [];
+  const results = bfsTraverse('A', getNeighbors, {
+    onVisit: (node, depth, path) => {
+      visited.push({ node, depth, path: [...path] });
+      return node;
+    }
+  });
+
+  assert.deepStrictEqual(results, ['A', 'B', 'C']);
+  assert.deepStrictEqual(visited, [
+    { node: 'A', depth: 0, path: [] },
+    { node: 'B', depth: 1, path: ['A'] },
+    { node: 'C', depth: 2, path: ['A', 'B'] },
+  ]);
+
+  // Test 2: Early termination using 'STOP'
+  const visited2 = [];
+  const results2 = bfsTraverse('A', getNeighbors, {
+    onVisit: (node, depth, path) => {
+      visited2.push(node);
+      if (node === 'B') return 'STOP';
+      return node;
+    }
+  });
+  assert.deepStrictEqual(results2, ['A']);
+  assert.deepStrictEqual(visited2, ['A', 'B']);
+}
+
 function main() {
   testNormalizePathKeyWindowsCase();
   testMatchesPathFragment();
   testIsPathInsideRoot();
   testResolveWorkspaceFilePath();
   testTurkishLocaleSafe();
+  testBfsTraverse();
 }
 
 main();

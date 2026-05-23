@@ -83,6 +83,8 @@ def parse_java(source):
 if __name__ == "__main__":
     try:
         source = sys.stdin.read()
+        if source.startswith('\ufeff'):
+            source = source[1:]
         if not source.strip():
             print(json.dumps({"imports": [], "exports": [], "importRecords": [], "package": None}, separators=(',', ':')))
             sys.exit(0)

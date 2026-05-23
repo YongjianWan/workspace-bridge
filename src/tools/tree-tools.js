@@ -77,7 +77,7 @@ function treeQuery({ cwd, file, depth, direction }, container) {
   }
   container.ensureReady();
 
-  const depGraph = container.depGraph;
+  const depGraph = container.snapshot?.graph || container.depGraph;
   if (!depGraph) {
     throw new Error('DependencyGraph not initialized');
   }

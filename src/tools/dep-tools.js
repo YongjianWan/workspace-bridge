@@ -24,7 +24,8 @@ const FILE_REQUIRED = new Set([
 async function dependencyGraph(args, container) {
   await container.ensureReady();
 
-  if (!container.depGraph) {
+  const depGraph = container.snapshot?.graph || container.depGraph;
+  if (!depGraph) {
     return { ok: false, error: 'Dependency graph not available' };
   }
 
@@ -41,7 +42,12 @@ async function dependencyGraph(args, container) {
     return { ok: false, error: `file is required for ${operation}` };
   }
 
-  return handler(args, container, filePath);
+  const wrappedContainer = container.snapshot ? container : {
+    ...container,
+    snapshot: { graph: depGraph },
+  };
+
+  return handler(args, wrappedContainer, filePath);
 }
 
 module.exports = {

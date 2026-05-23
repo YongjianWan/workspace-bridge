@@ -111,7 +111,11 @@ function _spawnPythonASTParser(scriptName, content, timeoutMs) {
         return;
       }
       try {
-        const result = JSON.parse(output);
+        let cleanOutput = output;
+        if (cleanOutput.startsWith('\ufeff')) {
+          cleanOutput = cleanOutput.slice(1);
+        }
+        const result = JSON.parse(cleanOutput);
         resolve(result);
       } catch (e) {
         if (process.env.DEBUG) {

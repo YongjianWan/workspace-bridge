@@ -18,28 +18,46 @@ const CONFIG = {
  */
 function bfsTraverse(startNodes, getNeighbors, options = {}) {
   const visited = new Set();
+  
+  // pathRef uses a singly-linked list node format: { val: node, prev: parentRef }
   const queue = Array.isArray(startNodes)
-    ? startNodes.map((n) => ({ node: n, depth: 0, path: [] }))
-    : [{ node: startNodes, depth: 0, path: [] }];
+    ? startNodes.map((n) => ({ node: n, depth: 0, pathRef: null }))
+    : [{ node: startNodes, depth: 0, pathRef: null }];
+    
   const maxDepth = Number.isFinite(options.maxDepth) ? options.maxDepth : Infinity;
   const results = [];
 
+  function materializePath(ref) {
+    const arr = [];
+    let curr = ref;
+    while (curr) {
+      arr.push(curr.val);
+      curr = curr.prev;
+    }
+    return arr.reverse();
+  }
+
   while (queue.length > 0) {
-    const { node, depth, path } = queue.shift();
+    const { node, depth, pathRef } = queue.shift();
     if (visited.has(node) || depth > maxDepth) continue;
     visited.add(node);
 
     if (options.onVisit) {
-      const result = options.onVisit(node, depth, path);
+      const materialized = materializePath(pathRef);
+      const result = options.onVisit(node, depth, materialized);
+      if (result === false || result === 'STOP') {
+        break; // Early termination
+      }
       if (result !== undefined) results.push(result);
     }
 
+    const currentRef = { val: node, prev: pathRef };
     for (const neighbor of getNeighbors(node)) {
       if (!visited.has(neighbor)) {
         queue.push({
           node: neighbor,
           depth: depth + 1,
-          path: depth === 0 ? [node] : [...path, node],
+          pathRef: currentRef,
         });
       }
     }

@@ -92,10 +92,11 @@ async function runBuiltinSecurityScan(cwd, targets, container) {
     ]},
   ];
 
+  const depGraph = container?.snapshot?.graph || container?.depGraph;
   let files = [];
   const hasExplicitTargets = targets.length > 0;
-  if (container?.depGraph?.getAllFilePaths) {
-    files = container.depGraph.getAllFilePaths();
+  if (depGraph?.getAllFilePaths) {
+    files = depGraph.getAllFilePaths();
     if (hasExplicitTargets) {
       const targetPaths = targets.map((t) => normalizePathKey(path.resolve(cwd, t)));
       const targetSet = new Set();
@@ -164,7 +165,7 @@ async function runBuiltinSecurityScan(cwd, targets, container) {
             ruleId: rule.id,
             message: rule.message,
             severity: rule.severity,
-            file: container?.depGraph?._displayPath?.(file) || file,
+            file: depGraph?._displayPath?.(file) || file,
             lineStart: i + 1,
             lineEnd: i + 1,
             tool: 'builtin',

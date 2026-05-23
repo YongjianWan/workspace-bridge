@@ -91,33 +91,13 @@ node cli.js audit-summary --cwd . --json --quiet
 
 **本轮**：
 
-- **消灭暴力 Mock 遗留反模式**：
-  - 彻底完成了剩余核心测试文件 `test/affected-tests-barrel-python-test.js` 和 `test/java-package-imports-test.js` 的重构，全量消除了恶劣的 `new DependencyGraph` + 手工 `dg.graph = ...` 属性篡改反模式，彻底拥抱原生的 `createMockDepGraph` 自举工厂与生产级静态工厂 `fromSchema`。
-  - 对于真实测试 filesystem 交互、I/O 边界与 SQLite 缓存恢复的集成测试（如 `path-format-consistency-test.js`、`phase01-quality-test.js`），依据契约予以保留，保障高信度的测试能力。
+- **E2E 管道物理边界防线与 BOM 净化底座**：
+  - **PowerShell BOM Piping 模拟校验**：在 `test/cli-integration-test.js` 中新增 `testCliPipeAndBom()`，模拟 PowerShell 管道流式传输的 BOM 物理特征并实施清洗机制，拦截 JSON 解析崩溃。
+  - **Java Stdin BOM 容错**：升级 `scripts/java_ast_parser.py`，增加 stdin 读取头部 BOM 剔除逻辑，防止 `javalang` AST 解析降级为正则。
+  - **逃逸路径进程级物理拦截**：在 `test/cli-integration-test.js` 中新增 `testPathEscapePhysicalInterception()`，物理校验 shell 执行下的相对/绝对路径逃逸拦截与进程退出码 `1` 契约。
+  - **WASM WASI 极限制冷启动容错**：在 `tree-sitter.js` 中支持 `FORCE_WASM_FAIL` 模拟 WASM 物理故障，新增 `testWasmFailureFallback()` 确保多语言引擎弹性降级至正则解析而非异常崩溃。
+  - **物理子进程配置能力升级**：更新 `test-helpers.js` 以便向 `spawnSync` 注入子进程 `env` 及清除 `stdout` BOM 容错。
 
-- **测试分层标记与低信号 C 级测试升级**：
-  - **测试升级规则**：在 `2026-05-23-test-grading-report.md` 中补充规则：低信号测试只保留 1 个版本，下一轮必须补语义断言或合并掉，防止再堆积。
-  - **轻量分层标记**：在 `test/*.js` 文件头部引入 `// @contract` / `// @semantic` 轻量分层标记，使得新会话可立即识别测试属性（契约/Schema Locks 校验 vs 语义/算法断言）。
-  - **升级 5 个 C 级低信号测试**：
-    - `parser-registry-test.js` (`@contract`)：加入未知扩展名边界检验及 JS family 属性契约。
-    - `language-support-matrix-test.js` (`@semantic`)：加入空图依赖的边界响应断言。
-    - `file-summary-test.js` (`@semantic`)：加入 severity 级联过渡的临界值断言。
-    - `cli-error-handling-test.js` (`@contract`)：加入未知指令的 exit 2 校验断言。
-    - `severity-filter-test.js` (`@semantic`)：在 `testInvalidSeverityValue` 中引入 `audit-summary` 的异常参数校验。
-  - **其余 C 级测试轻量标记**：`change-type-test.js` (`@semantic`)、`init-test.js` (`@semantic`)、`audit-diff-compact-test.js` (`@semantic`)、`audit-diff-incremental-test.js` (`@semantic`)、`cli-mapper-adapter-test.js` (`@contract`)、`repl-edge-test.js` (`@semantic`)。
-
-- **U8（commands/ 去壳）**：17 个纯透传命令从独立文件内联到 `commands/index.js` 注册表，新增 `makeFileCommand` 工厂统一封装 `requireFile` + `resolveWorkspaceFilePath` + `hasFindings` boilerplate；删除 17 个壳文件（-312 行）。保留 repl/watch/init/debug/audit-file 为独立模块。`cli.js` 从注册表动态读取 `SELF_MANAGED_COMMANDS`，消除硬编码 Set。
-- **路径参数安全清洗**：`cli.js` 新增 `sanitizeCliPaths(parsed)`，在 `main()` 中对 `--file` / `--files` 统一调用 `resolveWorkspaceFilePath()` 校验，拒绝 `../` 逃逸和绝对路径注入（exit code 1）。修复 `resolveWorkspaceFilePath()` 在 Windows 上对 POSIX 绝对路径的误判。
-- **安全白名单分派表 + Assert Defense 扩展**：`security-tools.js` 将内联 `isMatchAllowlisted()` 提取为模块顶层 `ALLOWLIST_DISPATCH` 配置表（`assert-defense`、`test-placeholder-secrets` 两条独立策略）；扩展 Assert Defense 正则覆盖 Chai `to.throw` / Node.js `assert.rejects` / Jest async `rejects.toThrow` / Rust `.unwrap_err()` 等变体。
-- **Prompt 注入防御**：`sanitize.js` 新增 `sanitizeForAiOutput(text, maxLength = 256)`（截断 + 清洗控制字符）；`security-tools.js` 的 `matchedText` and `human-formatters.js` 中所有 `exports` 展示前统一清洗。修复 `Array.prototype.map` 传参经典陷阱（`.map(sanitizeForAiOutput)` → `.map((e) => sanitizeForAiOutput(e))`）。
-- **Wave 2（Resolver 策略链物理拆分）**：`src/services/dep-graph/resolvers/` 下新建 `base.js`/`javascript.js`/`python.js`/`java.js`/`go.js`/`rust.js`；`resolvers.js` 从 591 行降至 155 行（-74%），作为纯 Facade。向后兼容导出所有策略接口。
-- **COMMAND_GUIDES 内聚归位**：清空 `cli.js` 头部 100+ 行硬编码字典；`commands/index.js` 注册表通过循环将 `desc`/`when`/`after`/`layer` merge 到命令函数对象；`printCommandHelp` 从 `COMMANDS[command]` 动态读取。新增命令只需改一处，零 cli.js 侵入。
-- **U7（audit-assembler 拆分）**：`assembleDiff` 80 行回调拆为 `buildChangeMetrics`（纯函数）、`buildDiffEntry`（async 纯函数）、`buildDiffResult`（纯函数）；`assembleDiff` 退化为薄编排层（获取 changed files → 并发 buildDiffEntry → 错误降级 → compact → buildDiffResult）。修正 compact 边界：`withImpact`/`incremental` 使用原始 `safeEntries`（保留 `resolvedPath`），`summary`/`changedFiles` 使用 compact 后的 `finalEntries`。
-- **P0（shouldExclude 跨层热切判定解耦）**：移除 `shouldExclude` 中对 `projectContext.isNotGeneratedFile()` 的调用，`DEFAULT_EXCLUDE_DIRS` 补充 `'generated'` 对齐默认提示；`shouldExclude` 退化为纯目录前缀匹配，File Role 判定延迟到消费阶段。消除冷启动扫描的 CPU 性能瓶颈。
-- **U8 regression 修复（workspace-info 命令崩溃）**：U8 内联时 `workspace-info` 被错误写成 `dependencyGraph({ operation: 'workspace_info' })`，而 `OPERATIONS` 注册表无此操作，导致 CLI 返回 `Unknown operation`。修正为调用 `workspaceInfo()`。`cli-fallback-test.js` / `functionality-test.js` 恢复 PASS。
-- **Windows 路径回归修复（audit-file 返回绝对路径）**：P0 路径安全清洗将 `parsed.file` 替换为绝对路径，导致 `audit-file` 输出 `file` 字段变为绝对路径，破坏 API 契约。`sanitizeCliPaths` 保留原始值到 `parsed._rawFile`，`assembleFile` 优先使用原始值返回。`audit-file-validation-advice-test.js` / `cli-pipeline-depth-test.js` 恢复 PASS。
-- **ProjectContext.inferFileRole 状态化与规则盲区消除**：`inferFileRole` 签名改为接受 `context` 参数，在 `classifyFile` 中传入 `this`，使角色判定能感知 `.workspace-bridge.json` 的 `directories` 配置与 CLI `excludeDirs`；扩展 `ROLE_RULES` 新增 `benchmark/`、`e2e/`、`fixtures/`、`mocks/` 等常规开发目录识别；扩展 `DEFAULT_DIRECTORY_HINTS.reference` 纳入上述目录，消除硬编码盲区与 10%–15% 非主线文件分类偏离度。
-- **Resolver 缓存淘汰策略 FIFO → LRU**：`src/services/dep-graph/resolvers/base.js` 新增 `_touchCache` 并在 `cachedStatSync` 命中时调用，将高频根配置文件（`package.json`、`tsconfig.json`）保留在缓存中，避免 bulk indexing 时的 FIFO 误杀与重复 I/O 抖动。
 
 ---
 
@@ -141,9 +121,9 @@ node cli.js audit-summary --cwd . --json --quiet
 > - **`audit-map-test.js` graph 数据字面量** 仍内联
 > - **时序依赖**：mock 内部延迟保留、进程退出超时保护保留
 > - `src/tools/overview-curator.js` 零专属测试（被 `overview-tools-test.js` 间接覆盖）
-> - **CLI 集成测试补齐**：详见 CHANGELOG
+> - **CLI 集成测试补齐**：✅ 已完成物理 CLI 管道与 BOM 边界 E2E 覆盖。
 >
-> **测试类型分布失衡**：单元测试 ~76%（良好），集成测试 ~20%（已补充 `cli-integration-test.js`），端到端 ~2%（严重不足），混沌/模糊 0（暂缓）。
+> **测试类型分布失衡**：单元测试 ~74%（良好），集成与端到端测试 ~26%（已补充物理磁盘、进程 spawn 和 CLI 管道 E2E 覆盖，物理防线建立完毕），混沌/模糊 0（暂缓）。
 
 ---
 
@@ -237,7 +217,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-23（测试图工厂与生产静态工厂升级 + 测试分层标记与低信号 C 级测试升级 + U3 overview-tools 拆分 + ProjectContext.inferFileRole 状态化 + Resolver LRU 缓存 + Wave 2 Resolver 拆分 + COMMAND_GUIDES 内聚 + U7 audit-assembler 拆分 + shouldExclude 跨层解耦已完成；98/98 fast 测试全绿）*
+*Last updated: 2026-05-23（E2E 管道物理防线与 BOM 容错升级 + 测试图工厂与生产静态工厂升级 + 测试分层标记与低信号 C 级测试升级 + U3 overview-tools 拆分 + ProjectContext.inferFileRole 状态化 + Resolver LRU 缓存 + Wave 2 Resolver 拆分 + COMMAND_GUIDES 内聚 + U7 audit-assembler 拆分 + shouldExclude 跨层解耦已完成；98/98 fast 测试全绿）*
 
-> **本轮验证状态**：`npm run test:fast` **98/98 PASS**；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=271`）。
+> **本轮验证状态**：`npm run test:fast` **98/98 PASS**；`node test/cli-integration-test.js` **ALL PASSED**；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=272`）。
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。

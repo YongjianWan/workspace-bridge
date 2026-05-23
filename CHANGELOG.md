@@ -8,6 +8,45 @@
 
 ## [Unreleased]
 
+### 改进与架构重构（JS解析器模块化、BFS优化与 WorkspaceSnapshot 全量迁移 — 2026-05-23）
+
+- **JavaScript 解析器模块化拆分（Option A）** `src/services/dep-graph/parsers/js.js` `src/services/dep-graph/parsers/js/`：
+  - 新建 `parsers/js/` 物理文件夹，将巨无霸 `js.js`（~794行）按单一职责原则物理拆分。
+  - 新增 `ast-parser.js`：封装 Babel 驱动、sourceType 自动判定与异常处理。
+  - 新增 `regex-fallback.js`：提取纯正则备用解析策略与 $O(\log L)$ 二分行号查找。
+  - 新增 `shared.js`：提取 `stripQuotedStrings`、Vue `<script setup>` 过滤与清洗等通用辅助工具。
+  - 重构 `js.js` 主入口，使其退化为仅有约 40 行的薄编排层 Facade，极大降低了 JS 解析器的认知负担。
+- **BFS 遍历算法优化** `src/services/dep-graph/shared.js` `test/path-utils-test.js`：
+  - 彻底优化了通用 `bfsTraverse` 算法。使用单向反向链表（singly-linked list `{ val: node, prev: pathRef }`）将每次步进的 $O(depth)$ 数组分配与拷贝开销物理降低为 $O(1)$，仅在最终命中需要输出时才进行单次反向展开。
+  - 引入 early termination 支持，当 `onVisit` 回调显式返回 `false` 时立即熔断终止后续遍历，节约计算资源。
+  - 在 `test/path-utils-test.js` 中新增针对 BFS 路径准确性及早期熔断特性的单元测试。
+- **WorkspaceSnapshot 终极 L4 全量迁移** `src/services/container.js` `src/tools/`：
+  - 将所有 L4 层工具类从接收 `depGraph` 彻底重构为消费只读 `container.snapshot.graph` 视图。
+  - 涉及迁移文件：`workspace-tools.js`、`tree-tools.js`、`security-tools.js`、`overview-assembler.js`、`incremental-diff.js`、`dep-tools.js`、`audit-assembler.js` 等 7 个核心工具类及 sub-handlers。
+  - 对 Legacy 单元测试仅 mock `container.depGraph` 的场景，在 `dep-tools.js` 中实现了优雅的动态 Wrapper 包装兜底，既保障了 userspace 向后兼容性，又避免了大规模重写既有测试。
+- **SQLite 缓存预计算 Bypass 修复** `src/models/workspace-snapshot.js`：
+  - 修复了 L4 工具在通过 snapshot 读取图结构时，因 `DependencyGraphView` 之前未暴露 `analyzer` 属性导致 SQLite 预计算聚合缓存（D7/D8）被完全绕过/失效的问题。通过在 view 上暴露 `get analyzer()`，完美恢复了 $O(1)$ 级预计算温启动性能红利。
+- **低垂果实与死代码清理** `src/services/file-index.js` `docs/TECH_DEBT.md`：
+  - 彻底清理了 `file-index.js` 中定义却从未消费的 `this.excludeDirs` 字段，消除了死代码气味。
+  - 清理了 `parsers/js/shared.js` 中未被消费的死导出 helper。
+
+
+### 改进与边界防御（E2E 管道物理防线与 BOM 容错升级 — 2026-05-23）
+
+- **新增 E2E 管道物理边界防线** `test/cli-integration-test.js`：
+  - 新增 `testCliPipeAndBom()`：通过物理进程 `execSync` 管道（`node cli.js | node -e "..."`）验证在模拟 PowerShell 等 Shell 环境下，带 BOM 编码的流式 piping 能被下游安全、无 crash 地消费。
+  - 新增 `testJavaBomParsing()`：验证在 Java 源文件开头存在 UTF-8 BOM 物理特征时，AST 解析器可实现零降级解析，总文件索引数与结构完整性不发生偏差。
+  - 新增 `testPathEscapePhysicalInterception()`：验证绝对路径注入与 `../` 逃逸的 Shell 级别物理拦截契约，确保进程退出码硬性为 `1` 并拦截越界读取。
+  - 新增 `testWasmFailureFallback()`：利用 `FORCE_WASM_FAIL` 环境变量模拟 WASM/WASI 冷启动崩溃或缺失的极端物理故障，验证多语言引擎无缝降级为 Polyglot 正则解析的降级防御系统，确保 CLI 物理边界的鲁棒性。
+- **Java AST 解析器 Stdin BOM 容错** `scripts/java_ast_parser.py`：
+  - 在 `sys.stdin.read()` 头部对齐 Python AST 解析器，增加 `if source.startswith('\ufeff'): source = source[1:]` 的 BOM 清理逻辑，彻底解决了 Windows PowerShell 重度管道下因 BOM 引起的 `javalang` 解析异常。
+- **物理子进程 env 与 BOM 净化底座** `test/test-helpers.js` `src/services/dep-graph/parsers/spawn-ast.js`：
+  - `test-helpers.js`：给 `runCli`/`runCliText`/`runCliRaw` 注入 `env: opts.env || process.env` 选项派发能力，支持在 spawned sub-process 中安全定制测试级环境变量。
+  - `test-helpers.js` & `spawn-ast.js`：在 JSON 序列化解析前拦截并去除头部可能存在的 `\ufeff` 零宽非折行空格（BOM），构筑起硬碰硬的 JSON 解析容错边界。
+- **轻量分层标记** `test/cli-integration-test.js`：
+  - 显式标注 `// @contract` 分层标记，清晰指示该测试的命令行契约与物理边界拦截属性。
+- **验证**：`node test/cli-integration-test.js` **ALL PASSED**；`npm run test:fast` **98/98 PASS**，零回归。
+
 ### 改进与精益重构（测试图工厂与生产类静态工厂升级 — 2026-05-23）
 
 - **DependencyGraph 静态工厂与 DI 升级** `src/services/dep-graph.js`：

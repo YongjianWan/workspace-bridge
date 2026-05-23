@@ -361,7 +361,7 @@ async function precomputeHotspotsAndStability(depGraph) {
 
 async function assembleOverviewData(args, container, historyProvider) {
   const root = container.workspaceRoot;
-  const depGraph = container.depGraph;
+  const depGraph = container.snapshot?.graph || container.depGraph;
   const projectContext = depGraph?.projectContext;
 
   if (!depGraph || !projectContext) {

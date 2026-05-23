@@ -4,8 +4,8 @@ const { getCoChangePartners } = require('../cochange-tools');
 
 async function impact(args, container, filePath) {
   const impactDepth = Number.isFinite(args?.maxDepth) ? Math.max(1, args.maxDepth) : DEFAULTS.AFFECTED_TEST_DEPTH;
-  const impact = container.depGraph.getImpactRadius(filePath, impactDepth);
-  const symbolImpact = container.depGraph.getSymbolImpact(filePath);
+  const impact = container.snapshot.graph.getImpactRadius(filePath, impactDepth);
+  const symbolImpact = container.snapshot.graph.getSymbolImpact(filePath);
   let coChangeData = container.cache?.coChanges || null;
   if (!coChangeData && container.ensurePrecomputed) {
     await container.ensurePrecomputed(['cochanges']);
@@ -16,7 +16,7 @@ async function impact(args, container, filePath) {
   return {
     ok: true,
     file: args.file,
-    resolvedPath: container.depGraph._displayPath?.(filePath) || filePath,
+    resolvedPath: container.snapshot.graph._displayPath?.(filePath) || filePath,
     impactCount: impact.length,
     impact,
     symbolImpact,

@@ -1,8 +1,8 @@
 const { classifyDeadExports, attachHonesty } = require('../honesty-engine');
 
 function deadExports(_args, container, _filePath) {
-  const deadExports = container.depGraph.findDeadExports();
-  const classifications = classifyDeadExports(deadExports, container.depGraph);
+  const deadExports = container.snapshot.graph.findDeadExports();
+  const classifications = classifyDeadExports(deadExports, container.snapshot.graph);
   const result = {
     ok: true,
     deadExportsCount: deadExports.length,

@@ -7,6 +7,9 @@ const MAX_LANGUAGE_CACHE_SIZE = 12; // defensive cap: 9 langs + headroom
 async function getParserModule() {
   if (parserModule) return parserModule;
   try {
+    if (process.env.FORCE_WASM_FAIL) {
+      throw new Error('Simulated WASM WASI cold start failure');
+    }
     const mod = require('web-tree-sitter');
     await mod.Parser.init();
     parserModule = mod;

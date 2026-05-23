@@ -36,7 +36,6 @@ class FileIndex {
     this.indexedCount = 0;
     this.cliExcludeDirs = [...new Set((options.excludeDirs || []).map((d) => d.trim()).filter(Boolean))];
     this.baseExcludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS])];
-    this.excludeDirs = [...new Set([...this.baseExcludeDirs, ...this.cliExcludeDirs])];
     this.quiet = options.quiet || false;
     this.bus = new EventBus();
   }
@@ -52,7 +51,6 @@ class FileIndex {
     if (Array.isArray(options.excludeDirs)) {
       this.cliExcludeDirs = [...new Set(options.excludeDirs.map((d) => d.trim()).filter(Boolean))];
       this.baseExcludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS])];
-      this.excludeDirs = [...new Set([...this.baseExcludeDirs, ...this.cliExcludeDirs])];
     }
     this._applyWorkspaceExcludeDirs();
     const patterns = this.getFilePatterns();
@@ -246,7 +244,6 @@ class FileIndex {
       ...wsConfig.directories.generated,
     ].filter(Boolean);
     this.baseExcludeDirs = [...new Set([...this.baseExcludeDirs, ...extra])];
-    this.excludeDirs = [...new Set([...this.baseExcludeDirs, ...this.cliExcludeDirs])];
   }
 
   shouldExclude(filePath) {

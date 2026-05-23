@@ -52,7 +52,7 @@ function filterCycles(cycles, relatedSet) {
 }
 
 function buildIncrementalFindings(changedFiles, container) {
-  const depGraph = container.depGraph;
+  const depGraph = container.snapshot?.graph || container.depGraph;
   const relatedSet = collectRelatedFiles(changedFiles, depGraph);
 
   const deadExports = filterDeadExports(depGraph.findDeadExports(), relatedSet);

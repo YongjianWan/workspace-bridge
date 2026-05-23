@@ -1,7 +1,7 @@
 function stats(_args, container, _filePath) {
   return {
     ok: true,
-    stats: container.depGraph.getStats(),
+    stats: container.snapshot.graph.getStats(),
   };
 }
 

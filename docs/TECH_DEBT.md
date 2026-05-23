@@ -129,27 +129,78 @@
 - 冗余校验堆砌，违背了“边界消除 > if”及“裸数字归零”原则。
 - 应当使参数校验在 CLI 边界处（边界层）一次性清洗 and 类型化完毕，核心业务层完全信任已类型化的配置，轻装上阵，消除重复 of if 防御分支。
 
-#### WorkspaceSnapshot 零消费者（架构债）
+**方案**：
 
-**数据**：`container.snapshot` 仍为零外部消费者；L4 工具函数签名仍接收 `depGraph` 参数，而非从 `snapshot` 获取。
-
-**已完成前提**：
-- L4 层全部 `.graph` Map 穿透调用已清理（overview-assembler / workspace-tools / security-tools / project-map / repl / container / workspace-snapshot compute 函数），统一改用 `DependencyGraphView` facade 方法。
-- `DependencyGraphView` 补全 `getFileCount()` / `getAllFilePaths()` / `getAllFileValues()`，不再依赖底层 Map 暴露。
-- `container.depGraph` 已标记 `@deprecated`。
-
-**剩余一步**：将 L4 工具函数签名从 `(depGraph, ...)` 迁移为消费 `container.snapshot.graph`（或接收 `snapshot` 参数），彻底切断 L4 层对 `container.depGraph` 的直接依赖。
+1. 明确边界：CLI 统一解析并类型化（含 `maxDepth` 等），L4/L2 不再重复 `parseInt`。
+2. 为每个参数建立单一来源的规范化函数（返回 `{ value, source }`），下游只消费 `value`。
 
 ---
+
+#### maxDepth 在 CLI 与 L4 双重 parseInt（L3级品味债）
+
+**根因**：CLI 解析后仍在 L4 层重复 `parseInt`，说明边界层与业务层职责未彻底分离。
+
+**影响**：重复校验、默认值分散、出现“上游改了下游没跟上”的隐性回归风险。
+
+**方案**：
+
+1. CLI 端统一解析并冻结 `maxDepth`（整数 + 边界约束）。
+2. L4 层仅接受已类型化参数，删除重复转换与默认值硬编码。
+
+---
+
+#### Builder/Analyzer/Query 生命周期纠缠（架构债）
+
+**根因**：生命周期事件缺少明确状态机与边界，Builder/Analyzer/Query 在构建/更新/查询路径互相穿透调用。
+
+**影响**：
+
+- 增量更新时容易触发不必要的全量计算。
+- Query 可能依赖未完成的 Analyzer 状态，造成不稳定结果或隐性性能抖动。
+
+**方案**：
+
+1. 明确状态机（`idle -> initializing -> ready -> updating -> ready`），禁止跨状态调用。
+2. Builder 只负责构建与事件；Analyzer 只响应事件并维护缓存；Query 只读快照。
+
+---
+
+#### createMockDepGraph stub 模式重复 20+ 方法（测试债）
+
+**根因**：测试中缺少统一的 stub 适配层，导致 `createMockDepGraph` 在 stub 模式下手工复制大量方法签名。
+
+**影响**：
+
+- 维护成本高，新增/变更方法时易漏改，测试与生产 API 漂移。
+- 低信号测试增加（为了补齐方法只做存在性断言）。
+
+**方案**：
+
+1. 用最小 facade + proxy 转发替代手工复制（只覆写差异点）。
+2. 将 stub 模式输出固定到 `DependencyGraphView` 接口，减少表面积。
+
+---
+
+#### audit-diff 与 audit-summary JSON schema 不同步（L3级品味债）
+
+**根因**：两个输出由不同 assembler/formatter 维护，缺少共享 schema contract 与一致性测试。
+
+**影响**：
+
+- 消费端需要写两套适配逻辑，增加用户负担。
+- 合约回归难以被单测捕获（字段名/结构漂移）。
+
+**方案**：
+
+1. 抽出共享 schema contract（最小核心字段集合）。
+2. 增加跨命令 schema 一致性测试（至少校验核心字段集合）。
 
 ## L3 品味问题（建议修，非债务）
 
 
 | 位置              | 问题                                                                                                                                     | 优先级 |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --- |
-| `js.js`         | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行                                                                              | 低   |
 | `cli.js`        | `--json` 嵌套深，管道不友好                                                                                                               | 中   |
-| `file-index.js` | `this.excludeDirs` 被拼命计算与去重，却**没有任何一处代码消费**，属死代码气味                                                                                     | 低   |
 
 
 ---

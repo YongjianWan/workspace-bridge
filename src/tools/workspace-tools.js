@@ -182,7 +182,7 @@ function workspaceInfo(args, container) {
   const workspace = detectWorkspace(root);
 
   // Try to use depGraph data if container is ready; otherwise fall back to basic detection
-  const depGraph = container?.depGraph;
+  const depGraph = container?.snapshot?.graph || container?.depGraph;
   const allOriginalPaths = depGraph
     ? (depGraph.getAllFileValues?.() || []).map((v) => v.originalPath).filter(Boolean)
     : [];
