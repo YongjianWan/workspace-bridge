@@ -37,10 +37,30 @@ function testDetectFrameworkFromPath() {
   assert.strictEqual(detectFrameworkFromPath('/project/task_management/views_coordination.py').framework, 'django');
   assert.strictEqual(detectFrameworkFromPath('/project/task_management/views_coordination.py').reason, 'django-views-prefix');
   assert.strictEqual(detectFrameworkFromPath('/project/api/routers/users.py').framework, 'fastapi');
+  // Django REST framework
+  assert.strictEqual(detectFrameworkFromPath('/project/core/serializers.py').framework, 'django');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/serializers.py').reason, 'django-rest-serializers');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/viewsets.py').framework, 'django');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/viewsets.py').reason, 'django-rest-viewsets');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/permissions.py').framework, 'django');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/permissions.py').reason, 'django-rest-permissions');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/authentication.py').framework, 'django');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/authentication.py').reason, 'django-rest-authentication');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/throttling.py').framework, 'django');
+  assert.strictEqual(detectFrameworkFromPath('/project/core/throttling.py').reason, 'django-rest-throttling');
 
   // Java Spring
   assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/controllers/UserController.java').framework, 'spring');
   assert.strictEqual(detectFrameworkFromPath('/project/UserController.java').framework, 'spring');
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/repositories/UserRepository.java').framework, 'spring');
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/repositories/UserRepository.java').reason, 'spring-repository');
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/config/AppConfig.java').framework, 'spring-boot');
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/config/AppConfig.java').reason, 'spring-boot-config');
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/client/UserClient.java').framework, 'spring');
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/client/UserClient.java').reason, 'spring-feign-client');
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/listener/EventListener.java').framework, 'spring');
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/scheduler/TaskScheduler.java').framework, 'spring');
+  assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/task/BackgroundTask.java').framework, 'spring');
 
   // Spring Boot
   assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/DemoApplication.java').framework, 'spring-boot');
@@ -129,6 +149,31 @@ public void reportCurrentTime() {}`;
   assert.strictEqual(scheduledHint.framework, 'spring');
   assert.strictEqual(scheduledHint.reason, 'spring-annotation');
 
+  // Spring extended annotations
+  const requestMappingContent = `@RequestMapping("/api")
+public class ApiController {}`;
+  const requestMappingHint = detectFrameworkFromContent('/project/ApiController.java', requestMappingContent);
+  assert.strictEqual(requestMappingHint.framework, 'spring');
+  assert.strictEqual(requestMappingHint.reason, 'spring-annotation');
+
+  const asyncContent = `@Async
+public void asyncTask() {}`;
+  const asyncHint = detectFrameworkFromContent('/project/AsyncService.java', asyncContent);
+  assert.strictEqual(asyncHint.framework, 'spring');
+  assert.strictEqual(asyncHint.reason, 'spring-annotation');
+
+  const eventListenerContent = `@EventListener
+public void onEvent(MyEvent event) {}`;
+  const eventListenerHint = detectFrameworkFromContent('/project/EventListener.java', eventListenerContent);
+  assert.strictEqual(eventListenerHint.framework, 'spring');
+  assert.strictEqual(eventListenerHint.reason, 'spring-annotation');
+
+  const kafkaListenerContent = `@KafkaListener(topics = "orders")
+public void handleOrder(Order order) {}`;
+  const kafkaListenerHint = detectFrameworkFromContent('/project/OrderConsumer.java', kafkaListenerContent);
+  assert.strictEqual(kafkaListenerHint.framework, 'spring');
+  assert.strictEqual(kafkaListenerHint.reason, 'spring-annotation');
+
   // Go Gin
   const ginContent = `func handler(c *gin.Context) {\n  c.JSON(200, gin.H{})\n}`;
   const ginHint = detectFrameworkFromContent('/project/handlers.go', ginContent);
@@ -164,6 +209,28 @@ public void reportCurrentTime() {}`;
   const connectHint = detectFrameworkFromContent('/project/core/handlers.py', connectContent);
   assert.strictEqual(connectHint.framework, 'django');
   assert.strictEqual(connectHint.reason, 'django-signal');
+
+  // Django REST framework
+  const drfViewsetContent = `from rest_framework import viewsets
+class UserViewSet(viewsets.ModelViewSet):
+    queryset = User.objects.all()`;
+  const drfViewsetHint = detectFrameworkFromContent('/project/core/viewsets.py', drfViewsetContent);
+  assert.strictEqual(drfViewsetHint.framework, 'django');
+  assert.strictEqual(drfViewsetHint.reason, 'django-rest-framework');
+
+  const drfSerializerContent = `from rest_framework import serializers
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User`;
+  const drfSerializerHint = detectFrameworkFromContent('/project/core/serializers.py', drfSerializerContent);
+  assert.strictEqual(drfSerializerHint.framework, 'django');
+  assert.strictEqual(drfSerializerHint.reason, 'django-rest-framework');
+
+  const drfPermissionContent = `from rest_framework.permissions import BasePermission
+class IsOwner(BasePermission):`;
+  const drfPermissionHint = detectFrameworkFromContent('/project/core/permissions.py', drfPermissionContent);
+  assert.strictEqual(drfPermissionHint.framework, 'django');
+  assert.strictEqual(drfPermissionHint.reason, 'django-rest-framework');
 
   // Vue script setup compiler macros
   const vueMacroContent = `<script setup>\nconst props = defineProps({ foo: String });\nconst emit = defineEmits(['click']);\ndefineExpose({ bar: 1 });\n</script>`;

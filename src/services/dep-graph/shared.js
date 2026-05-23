@@ -139,6 +139,23 @@ const FRAMEWORK_MANAGED_PATTERNS = [
   /\/celery\.py$/,
   /\/(page|layout|loading|error|not-found|route)\.(tsx|jsx|ts|js)$/,
   /\/(template|default)\.(tsx|jsx|ts|js)$/,
+  // Spring / Java framework-managed components
+  /.*Controller\.java$/,
+  /.*Service\.java$/,
+  /.*Repository\.java$/,
+  /.*Configuration\.java$/,
+  /.*Config\.java$/,
+  /.*Mapper\.java$/,
+  /.*Client\.java$/,
+  /.*Listener\.java$/,
+  /.*Scheduler\.java$/,
+  /.*Task\.java$/,
+  // Django REST framework
+  /\/serializers\.py$/,
+  /\/viewsets\.py$/,
+  /\/permissions\.py$/,
+  /\/authentication\.py$/,
+  /\/throttling\.py$/,
 ];
 
 // #19: known config file names as a Set

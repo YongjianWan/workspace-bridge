@@ -71,6 +71,7 @@ const AST_PATTERNS = {
     { framework: 'django', reason: 'django-templatetags', patterns: ['@register.filter', '@register.simple_tag', '@register.inclusion_tag'] },
     { framework: 'django', reason: 'django-forms', patterns: ['class Form(', 'class ModelForm(', 'from django import forms'] },
     { framework: 'django', reason: 'django-signal', patterns: ['@receiver', '.connect('] },
+    { framework: 'django', reason: 'django-rest-framework', patterns: ['@api_view', 'class APIView', 'class ModelViewSet', 'class ViewSet', 'class GenericAPIView', '@action', '@permission_classes', '@authentication_classes', '@throttle_classes', 'from rest_framework'] },
     { framework: 'celery', reason: 'celery-task', patterns: ['@shared_task', '@app.task'] },
     { framework: 'fastapi', reason: 'fastapi-decorator', patterns: ['@app.get', '@app.post', '@router.get'] },
     { framework: 'flask', reason: 'flask-decorator', patterns: ['@app.route', '@blueprint.route'] },
@@ -79,14 +80,14 @@ const AST_PATTERNS = {
     // Spring Boot annotations must come BEFORE plain Spring annotations
     // to avoid substring false matches (e.g. @Controller matching inside @ControllerAdvice)
     { framework: 'spring-boot', reason: 'spring-boot-annotation', patterns: ['@SpringBootApplication', '@Configuration', '@ControllerAdvice', '@Component', '@Service', '@Repository', '@EnableAutoConfiguration', '@Aspect'] },
-    { framework: 'spring', reason: 'spring-annotation', patterns: ['@RestController', '@Controller', '@GetMapping', '@PostMapping', '@FeignClient', '@Scheduled'] },
+    { framework: 'spring', reason: 'spring-annotation', patterns: ['@RestController', '@Controller', '@RequestMapping', '@GetMapping', '@PostMapping', '@PutMapping', '@DeleteMapping', '@PatchMapping', '@FeignClient', '@Scheduled', '@Async', '@EventListener', '@KafkaListener', '@RabbitListener', '@JmsListener', '@Retryable'] },
     // P79/P80/P81: runtime-assembly framework components
     { framework: 'spring', reason: 'spring-component', patterns: ['@Component', '@Service', '@Repository', '@Bean', 'FilterRegistrationBean', 'implements Filter', 'extends HttpServletRequestWrapper', 'implements Validator', 'implements HandlerInterceptor', 'implements ApplicationListener'] },
     { framework: 'quartz', reason: 'quartz-job', patterns: ['org.quartz.Job', '@DisallowConcurrentExecution', 'extends AbstractQuartzJob', 'QuartzJobExecution', 'JobInvokeUtil'] },
     { framework: 'mybatis', reason: 'mybatis-typehandler', patterns: ['implements TypeHandler', 'extends BaseTypeHandler', 'TypeHandler<'] },
   ],
   kt: [
-    { framework: 'spring-kotlin', reason: 'spring-annotation', patterns: ['@RestController', '@Controller', '@GetMapping'] },
+    { framework: 'spring-kotlin', reason: 'spring-annotation', patterns: ['@RestController', '@Controller', '@RequestMapping', '@GetMapping', '@PostMapping', '@PutMapping', '@DeleteMapping', '@PatchMapping', '@FeignClient', '@Scheduled', '@Async', '@EventListener', '@KafkaListener', '@RabbitListener', '@JmsListener', '@Retryable'] },
     { framework: 'ktor', reason: 'ktor-routing', patterns: ['routing {', 'embeddedServer', 'Application.module'] },
   ],
   go: [

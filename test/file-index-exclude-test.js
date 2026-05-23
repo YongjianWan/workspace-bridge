@@ -80,6 +80,25 @@ async function testGeneratedDirExcluded() {
   cleanupTempDir(root);
 }
 
+async function testGeneratedDirExcludedByDefault() {
+  const root = makeTempDir('wb-exclude-gen-default-');
+  fs.mkdirSync(path.join(root, 'src'));
+  fs.mkdirSync(path.join(root, 'generated'));
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'test' }), 'utf8');
+  fs.writeFileSync(path.join(root, 'src', 'app.js'), 'export const x = 1;\n');
+  fs.writeFileSync(path.join(root, 'generated', 'output.js'), 'var x=1;\n');
+
+  const cache = new WorkspaceCache(root);
+  const index = new FileIndex(root, cache);
+  await index.build(30000, { watch: false });
+
+  const files = Array.from(cache.fileMetadata.keys());
+  assert.strictEqual(files.length, 1, `expected 1 indexed file, got ${files.length}`);
+  assert(!files.some((f) => f.includes('output.js')), 'output.js in generated dir should NOT be indexed by default');
+
+  cleanupTempDir(root);
+}
+
 async function testActiveDirNotExcluded() {
   const root = makeTempDir('wb-exclude-act-');
   fs.mkdirSync(path.join(root, 'src'));
@@ -105,6 +124,7 @@ async function main() {
   await testArchiveDirExcluded();
   await testReferenceDirExcluded();
   await testGeneratedDirExcluded();
+  await testGeneratedDirExcludedByDefault();
   await testActiveDirNotExcluded();
 }
 

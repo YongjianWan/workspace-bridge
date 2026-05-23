@@ -145,6 +145,45 @@ writeFile('dist/bundle.js', "export function generated() { return 'generated'; }
   assert.strictEqual(pc.classifyFile('db/schema.sql').fileRole, 'script', 'schema.sql should be script');
   assert.strictEqual(pc.classifyFile('settings.properties').fileRole, 'config', 'settings.properties should be config');
   assert.strictEqual(pc.classifyFile('nginx.conf').fileRole, 'config', 'nginx.conf should be config');
+
+  // Non-standard dev directories should be recognized as test/non-mainline
+  const devDirRoot = makeTempDir('workspace-bridge-role-devdir-');
+  const writeDevFile = (relativePath, content) => {
+    const fullPath = path.join(devDirRoot, relativePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content);
+  };
+  writeDevFile('package.json', JSON.stringify({ name: 'role-devdir-fixture', version: '1.0.0' }, null, 2));
+  writeDevFile('src/index.js', "export function main() { return 'ok'; }\n");
+  writeDevFile('benchmark/sort.js', "export function bench() {}\n");
+  writeDevFile('e2e/login.spec.js', "export function testLogin() {}\n");
+  writeDevFile('fixtures/users.json', JSON.stringify([]));
+  writeDevFile('mocks/api.js', "export function mockApi() {}\n");
+
+  const devPc = new ProjectContext(devDirRoot);
+  const benchClass = devPc.classifyFile('benchmark/sort.js');
+  assert.strictEqual(benchClass.fileRole, 'test', 'benchmark/ files should be classified as test');
+  assert.strictEqual(benchClass.isMainline, false, 'benchmark/ files should not be mainline');
+
+  const e2eClass = devPc.classifyFile('e2e/login.spec.js');
+  assert.strictEqual(e2eClass.fileRole, 'test', 'e2e/ files should be classified as test');
+  assert.strictEqual(e2eClass.isMainline, false, 'e2e/ files should not be mainline');
+
+  const fixtureClass = devPc.classifyFile('fixtures/users.json');
+  assert.strictEqual(fixtureClass.fileRole, 'test', 'fixtures/ files should be classified as test');
+  assert.strictEqual(fixtureClass.isMainline, false, 'fixtures/ files should not be mainline');
+
+  const mockClass = devPc.classifyFile('mocks/api.js');
+  assert.strictEqual(mockClass.fileRole, 'test', 'mocks/ files should be classified as test');
+  assert.strictEqual(mockClass.isMainline, false, 'mocks/ files should not be mainline');
+
+  // Context-aware: excludeDirs should be respected even for unknown directories
+  const excludePc = new ProjectContext(devDirRoot, { excludeDirs: ['vendor'] });
+  const vendorClass = excludePc.classifyFile('vendor/lib.js');
+  assert.strictEqual(vendorClass.directoryRole, 'reference', 'excludeDirs should classify as reference');
+  assert.strictEqual(vendorClass.isMainline, false, 'excludeDirs should make isMainline false');
+
+  cleanupTempDir(devDirRoot);
   } finally {
     cleanupTempDir(tempRoot);
   }

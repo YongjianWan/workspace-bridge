@@ -22,6 +22,14 @@ function clearResolverCaches() {
   _goModCache.clear();
 }
 
+function _touchCache(map, key) {
+  if (map.has(key)) {
+    const value = map.get(key);
+    map.delete(key);
+    map.set(key, value);
+  }
+}
+
 function _trimCache(map, maxSize) {
   if (map.size <= maxSize) return;
   const keysToDelete = map.size - maxSize;
@@ -35,6 +43,7 @@ function _trimCache(map, maxSize) {
 
 function cachedStatSync(filePath) {
   if (_statCache.has(filePath)) {
+    _touchCache(_statCache, filePath);
     return _statCache.get(filePath);
   }
   let stat = null;

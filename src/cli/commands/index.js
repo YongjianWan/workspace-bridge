@@ -8,7 +8,7 @@ const fs = require('fs');
 const { dependencyGraph } = require('../../tools/dep-tools');
 const { assembleDiff, assembleSecurity, assembleSummary } = require('../../tools/audit-assembler');
 const { projectHealth } = require('../../tools/health-tools');
-const { runDiagnostics } = require('../../tools/workspace-tools');
+const { runDiagnostics, workspaceInfo } = require('../../tools/workspace-tools');
 const { buildProjectMap } = require('../formatters');
 const { buildProjectOverview } = require('../../tools/overview-tools');
 const { treeQuery } = require('../../tools/tree-tools');
@@ -94,7 +94,7 @@ const COMMANDS = {
 
   // L3 — Environment & hygiene
   'workspace-info': async (parsed, container) => {
-    const result = await dependencyGraph({ cwd: parsed.cwd, operation: 'workspace_info' }, container);
+    const result = workspaceInfo({ cwd: parsed.cwd }, container);
     result.hasFindings = false;
     return result;
   },

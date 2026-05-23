@@ -20,7 +20,7 @@ const readFile = promisify(fs.readFile);
 
 // Limit concurrent file operations to prevent memory exhaustion
 const DEFAULT_CONCURRENCY = 50;
-const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', 'target', 'bin', 'obj', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', '.idea', '.vscode', 'vendor'];
+const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', 'target', 'bin', 'obj', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', '.idea', '.vscode', 'vendor', 'generated'];
 
 class FileIndex {
   constructor(workspaceRoot, cache, options = {}) {
@@ -256,10 +256,9 @@ class FileIndex {
     const normalized = normalizePathKey(filePath);
     // Only exclude base dirs (node_modules, .git, etc.) and workspace-configured dirs.
     // CLI --exclude files are still indexed so they can serve as importers in the graph.
+    // File Role classification (e.g. test/entry/library) is deferred to the parse/assembly
+    // stage so that cold-scan does not pay the cost of running the full ROLE_RULES regex chain.
     if (this.baseExcludeDirs.some((dir) => matchesPathFragment(normalized, dir))) {
-      return true;
-    }
-    if (this.projectContext && !this.projectContext.isNotGeneratedFile(filePath)) {
       return true;
     }
     return false;

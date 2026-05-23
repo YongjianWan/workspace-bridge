@@ -8,6 +8,90 @@
 
 ## [Unreleased]
 
+### 改进（框架感知补完：Vue + Spring + Django — 2026-05-23）
+
+- **Vue `<script setup>` 编译器宏跨文件类型过滤** `src/services/dep-graph/parsers/js.js`：
+  - `isVueFile` 判断从仅检查 `.vue` 扩展名扩展为同时检测文件内容是否包含 `<script setup` 标签。
+  - 覆盖 `unplugin-vue-macros` 等场景：`.ts`/`.js` 文件中显式使用 Vue 编译器宏时，同样过滤 `defineProps`/`defineEmits`/`defineExpose`/`defineOptions`/`defineSlots`/`defineModel` 的导出记录，消除 dead-export 误报。
+- **Spring 运行时注解扩展** `src/services/dep-graph/framework-patterns.js`：
+  - `AST_PATTERNS.java` 的 `spring-annotation` 新增：`@RequestMapping`、`@PutMapping`、`@DeleteMapping`、`@PatchMapping`、`@Async`、`@EventListener`、`@KafkaListener`、`@RabbitListener`、`@JmsListener`、`@Retryable`。
+  - `spring-kotlin` 同步扩展相同注解集合。
+  - `src/services/dep-graph/shared.js` `FRAMEWORK_MANAGED_PATTERNS` 新增 Java 框架托管路径：`.*Controller.java`、`.*Service.java`、`.*Repository.java`、`.*Configuration.java`、`.*Config.java`、`.*Mapper.java`、`.*Client.java`、`.*Listener.java`、`.*Scheduler.java`、`.*Task.java`。
+  - `src/utils/project-context.js` `detectFrameworkFromPath` 新增路径检测：`repository/`、`config/`/`configuration/`、`mapper/`、`client/`、`listener/`、`scheduler/`、`task/` 目录，统一标记为 `isEntry: true`。
+- **Django 配置驱动入口扩展** `src/services/dep-graph/framework-patterns.js`：
+  - `AST_PATTERNS.py` 新增 Django REST framework 内容检测：`@api_view`、`APIView`、`ModelViewSet`、`ViewSet`、`GenericAPIView`、`@action`、`@permission_classes`、`@authentication_classes`、`@throttle_classes`、`from rest_framework`。
+  - `src/services/dep-graph/shared.js` `FRAMEWORK_MANAGED_PATTERNS` 新增 DRF 文件：`serializers.py`、`viewsets.py`、`permissions.py`、`authentication.py`、`throttling.py`。
+  - `src/utils/project-context.js` `detectFrameworkFromPath` 新增 DRF 路径检测：`serializers.py`、`viewsets.py`、`permissions.py`、`authentication.py`、`throttling.py`。
+- **测试覆盖**：`test/framework-patterns-test.js` 新增 Spring 扩展注解（`@RequestMapping`、`@Async`、`@EventListener`、`@KafkaListener`）、Django REST framework（`ModelViewSet`、`serializers.py`、`permissions.py`）、Spring 路径（`repository/`、`config/`、`client/`、`listener/`）断言；`npm run test:fast` **96/96 PASS**。
+
+### 重构（U3：overview-tools 拆分 — 2026-05-23）
+
+- **新建 `src/tools/overview-assembler.js`**（~520 行，L4 数据组装层）：
+  - 从 `overview-tools.js` 中提取所有纯数据函数：`assembleOverviewData`、`precomputeHotspotsAndStability`、`buildHotspots`、`buildStability`、`buildSkeleton`、`aggregateOverviewStats`、`calculateHotspotScore`、`calculateStabilityScore`、`identifyCoreModules`、`buildHotspotVisualizationData`、`buildStabilityTrendSnapshot`、`buildStabilityTrendSeries`、`buildLanguageSupportMatrix` 及辅助函数。
+  - 零 I/O 副作用，零 HTML/CSS 渲染，专注数据转换与聚合。
+- **新建 `src/cli/formatters/dashboard-formatter.js`**（~180 行，L5 渲染与 I/O 层）：
+  - 从 `overview-tools.js` 中提取 `renderOverviewDashboard`、`DASHBOARD_LAYOUT`、`escapeHtml`、文件写入辅助（`ensureWriteTextFile`、`writeHotspotDataFile`、`readTrendHistory`、`writeStabilityTrendFile`、`writeOverviewDashboardFile`）及编排函数 `writeOverviewOutputs`。
+- **重写 `src/tools/overview-tools.js` 为薄编排层**（~80 行）：
+  - 保留 `buildProjectOverview` 主入口与 `precomputeHotspotsAndStability`，其余逻辑全部委托给 `overview-assembler` 与 `dashboard-formatter`。
+  - 原 729 行降至 ~80 行，达成 REFACTOR 文档 "<200 行" 目标。
+- **测试适配**：
+  - `test/overview-tools-concurrency-test.js` 改为从 `overview-assembler` 导入 `buildHotspots`。
+  - `test/language-support-matrix-test.js` 改为从 `overview-assembler` 导入 `buildLanguageSupportMatrix`。
+  - 消除 overview-tools.js 的 re-export 死导出误报；基线 `deadExports` 恢复为 0。
+- **验证**：`npm run test:fast` **96/96 PASS**；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`）。
+
+### 文档卫生（REFACTOR + ROADMAP 文档同步清理 — 2026-05-23）
+
+- **清理 `docs/architecture/REFACTOR-2026-05-data-orchestration-output.md`**：
+  - 删除所有已完成的 19 个条目的具体描述（~~删除线~~ + ✅ 标记），只保留剩余 3 个待实施项（D6 / O6 / U3）及必要的现状诊断、目标架构、验收标准。
+  - 文档行数从 174 行降至 153 行，与头部声明"本文档只保留剩余待实施项"保持一致。
+- **同步清理 `ROADMAP.md`**：
+  - §L3 品味与架构债务表格从"6 项活跃"修正为"3 项活跃"，删除已修复的 4 项（`inferFileRole` 盲区、`shouldExclude` CPU 消耗、COMMAND_GUIDES 硬编码、Resolver FIFO 缓存），底部追加已修复项历史引用指向 CHANGELOG。
+  - "已知限制"中"混合仓库误判"的缓解措施更新，标注 inferFileRole 已扩展 benchmark/e2e/fixtures/mocks 识别。
+  - 符合 AGENTS.md "修复即删，历史只进 CHANGELOG" 的文档管理铁律。
+
+### 改进（ProjectContext.inferFileRole 状态化与规则盲区消除 — 2026-05-23）
+
+- **重构 `inferFileRole` 为状态化函数** `src/utils/project-context.js`：
+  - 签名从 `inferFileRole(relativePath)` 改为 `inferFileRole(relativePath, context = null)`，在 `ProjectContext.classifyFile()` 中传入 `this`，使角色判定能感知动态目录配置（`.workspace-bridge.json` 的 `directories` 与 CLI `--exclude-dirs`）。
+  - 当 `context` 存在且文件所在目录被分类为 `reference`/`archive`/`generated` 时，fallback 不再盲目返回 `library`，而是与动态目录角色保持一致。
+  - 扩展 `ROLE_RULES` 的 `test` 规则，新增对 `benchmark/`、`benchmarks/`、`e2e/`、`fixtures/`、`mocks/`、`mock/`、`__mocks__/` 目录的识别，消除硬编码匹配盲区。
+  - 扩展 `DEFAULT_DIRECTORY_HINTS.reference`，将 `benchmark`、`benchmarks`、`e2e`、`fixtures`、`mocks`、`mock`、`__mocks__` 加入默认参考目录提示，使这些目录中的文件 `isMainline = false`。
+  - 验证：`test/role-detection-test.js` 新增 benchmark/e2e/fixtures/mocks 角色判定断言与 `excludeDirs` context 感知断言；`npm run test:fast` **96/96 PASS**。
+
+### 改进（Resolver 缓存淘汰策略 FIFO → LRU — 2026-05-23）
+
+- **升级 `_trimCache` 为简单 LRU 算法** `src/services/dep-graph/resolvers/base.js`：
+  - 新增 `_touchCache(map, key)` 内部函数：在缓存命中时将 key 移动到 `Map` 末尾（最新使用端）。
+  - `cachedStatSync` 在命中缓存后调用 `_touchCache`，确保高频访问的根配置文件（`package.json`、`tsconfig.json` 等）不会被 FIFO 误杀。
+  - 淘汰时仍从 `Map` 头部（最久未使用）删除，实现 O(1) 的简易 LRU，避免 bulk indexing 时的缓存抖动与重复 I/O。
+  - 验证：`npm run test:fast` **96/96 PASS**；resolver 全量测试无回归。
+
+### 修复（U8 regression：workspace-info 命令崩溃 — 2026-05-23）
+
+- **修复 `workspace-info` 命令的错误实现** `src/cli/commands/index.js`：
+  - U8（commands/ 去壳）内联时，`workspace-info` 被错误地写为 `dependencyGraph({ operation: 'workspace_info' })`，而 `dependencyGraph` 的 `OPERATIONS` 注册表中根本没有 `workspace_info`，导致 CLI 返回 `Unknown operation: workspace_info`（exit code 1）。
+  - 修正为调用正确的 `workspaceInfo({ cwd: parsed.cwd }, container)`（来自 `workspace-tools.js`）。
+  - 补充导入 `workspaceInfo`，与 U8 之前 `src/cli/commands/workspace-info.js` 的实现一致。
+  - 验证：`test/cli-fallback-test.js`、`test/functionality-test.js` 从 FAIL 恢复为 PASS；`npm run test:fast` **96/96 PASS**。
+
+### 修复（Windows 路径回归：`audit-file` 返回绝对路径 — 2026-05-23）
+
+- **修复 `audit-file` 在 Windows 上返回绝对路径的回归** `cli.js` `src/tools/audit-assembler.js`：
+  - "路径参数安全清洗"（P0）引入的 `sanitizeCliPaths` 将 `parsed.file` 统一替换为 `resolveWorkspaceFilePath()` 返回的绝对路径，导致 `audit-file` 输出的 `file` 字段从用户传入的相对路径变成了绝对路径。
+  - `cli.js`：`sanitizeCliPaths` 在改写 `parsed.file` 前，先将原始值存入 `parsed._rawFile`。
+  - `src/tools/audit-assembler.js`：`assembleFile` 返回的 `file` 字段优先使用 `parsed._rawFile`，恢复 API 契约（返回用户传入的原始路径）。
+  - 验证：`test/audit-file-validation-advice-test.js`、`test/cli-pipeline-depth-test.js` 从 FAIL 恢复为 PASS；`npm run test:fast` **96/96 PASS**。
+
+### 性能（FileIndex.shouldExclude 跨层热切判定解耦 — 2026-05-23）
+
+- **解耦 `shouldExclude` 与 `ProjectContext` 的高频正则耦合** `src/services/file-index.js`：
+  - 移除 `shouldExclude` 中对 `projectContext.isNotGeneratedFile()` 的调用，消除冷启动扫描阶段对每个目录/文件执行全套 `inferFileRole` 正则链的 CPU 浪费。
+  - `DEFAULT_EXCLUDE_DIRS` 补充 `'generated'`，与 `DEFAULT_DIRECTORY_HINTS.generated` 默认提示对齐，确保无配置时 `generated/` 目录仍被排除。
+  - `_applyWorkspaceExcludeDirs` 继续覆盖用户配置的 `directories.generated`，行为无变化。
+  - `shouldExclude` 退化为纯目录名前缀匹配（`baseExcludeDirs.some(...)`），职责边界清晰：FileIndex 负责"发现阶段去噪"，ProjectContext 负责"解析/组装阶段语义分类"。
+  - 验证：`npm run test:fast` **96/96 PASS**；`test/file-index-exclude-test.js` 新增 `testGeneratedDirExcludedByDefault`（无配置下 `generated/` 默认排除）；基线 `node cli.js audit-summary` 无回归。
+
 ### 架构（Wave 2：Resolver 策略链物理拆分 (LanguageProvider) — 2026-05-23）
 
 - **物理拆分多语言策略链** `src/services/dep-graph/resolvers/` `src/services/dep-graph/resolvers.js`：

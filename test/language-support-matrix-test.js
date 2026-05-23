@@ -22,7 +22,7 @@ function testBuildLanguageSupportMatrix() {
     imports: [], exports: [], importRecords: [], exportRecords: [], parseMode: 'regex',
   });
 
-  const { buildLanguageSupportMatrix } = require('../src/tools/overview-tools');
+  const { buildLanguageSupportMatrix } = require('../src/tools/overview-assembler');
   const matrix = buildLanguageSupportMatrix(depGraph);
 
   assert.strictEqual(matrix.javascript.level, 'ast', 'javascript should be ast');

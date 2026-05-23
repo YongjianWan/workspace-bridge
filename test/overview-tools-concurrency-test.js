@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const assert = require('assert');
-const { buildHotspots } = require('../src/tools/overview-tools');
+const { buildHotspots } = require('../src/tools/overview-assembler');
 
 async function testHotspotConcurrencyLimit() {
   let maxConcurrent = 0;

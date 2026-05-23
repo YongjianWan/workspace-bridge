@@ -340,7 +340,7 @@ async function assembleFile(parsed, container) {
   const result = {
     ok: impact.ok !== false && affectedTests.ok !== false,
     workspaceRoot: container.workspaceRoot,
-    file: parsed.file,
+    file: parsed._rawFile || parsed.file,
     resolvedPath: impact.resolvedPath || affectedTests.resolvedPath || null,
     summary: buildFileSummary(impact, affectedTests),
     frameworkPattern,

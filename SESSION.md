@@ -32,7 +32,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 1. **读取基线状态**（30 秒）：确认 `healthScore=7/8`
 2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)
-3. **查看活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 6 L3）
+3. **查看活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 8 L3）
 
 ---
 
@@ -87,10 +87,15 @@ node cli.js audit-summary --cwd . --json --quiet
 - **U8（commands/ 去壳）**：17 个纯透传命令从独立文件内联到 `commands/index.js` 注册表，新增 `makeFileCommand` 工厂统一封装 `requireFile` + `resolveWorkspaceFilePath` + `hasFindings` boilerplate；删除 17 个壳文件（-312 行）。保留 repl/watch/init/debug/audit-file 为独立模块。`cli.js` 从注册表动态读取 `SELF_MANAGED_COMMANDS`，消除硬编码 Set。
 - **路径参数安全清洗**：`cli.js` 新增 `sanitizeCliPaths(parsed)`，在 `main()` 中对 `--file` / `--files` 统一调用 `resolveWorkspaceFilePath()` 校验，拒绝 `../` 逃逸和绝对路径注入（exit code 1）。修复 `resolveWorkspaceFilePath()` 在 Windows 上对 POSIX 绝对路径的误判。
 - **安全白名单分派表 + Assert Defense 扩展**：`security-tools.js` 将内联 `isMatchAllowlisted()` 提取为模块顶层 `ALLOWLIST_DISPATCH` 配置表（`assert-defense`、`test-placeholder-secrets` 两条独立策略）；扩展 Assert Defense 正则覆盖 Chai `to.throw` / Node.js `assert.rejects` / Jest async `rejects.toThrow` / Rust `.unwrap_err()` 等变体。
-- **Prompt 注入防御**：`sanitize.js` 新增 `sanitizeForAiOutput(text, maxLength = 256)`（截断 + 清洗控制字符）；`security-tools.js` 的 `matchedText` 和 `human-formatters.js` 中所有 `exports` 展示前统一清洗。修复 `Array.prototype.map` 传参经典陷阱（`.map(sanitizeForAiOutput)` → `.map((e) => sanitizeForAiOutput(e))`）。
+- **Prompt 注入防御**：`sanitize.js` 新增 `sanitizeForAiOutput(text, maxLength = 256)`（截断 + 清洗控制字符）；`security-tools.js` 的 `matchedText` and `human-formatters.js` 中所有 `exports` 展示前统一清洗。修复 `Array.prototype.map` 传参经典陷阱（`.map(sanitizeForAiOutput)` → `.map((e) => sanitizeForAiOutput(e))`）。
 - **Wave 2（Resolver 策略链物理拆分）**：`src/services/dep-graph/resolvers/` 下新建 `base.js`/`javascript.js`/`python.js`/`java.js`/`go.js`/`rust.js`；`resolvers.js` 从 591 行降至 155 行（-74%），作为纯 Facade。向后兼容导出所有策略接口。
 - **COMMAND_GUIDES 内聚归位**：清空 `cli.js` 头部 100+ 行硬编码字典；`commands/index.js` 注册表通过循环将 `desc`/`when`/`after`/`layer` merge 到命令函数对象；`printCommandHelp` 从 `COMMANDS[command]` 动态读取。新增命令只需改一处，零 cli.js 侵入。
 - **U7（audit-assembler 拆分）**：`assembleDiff` 80 行回调拆为 `buildChangeMetrics`（纯函数）、`buildDiffEntry`（async 纯函数）、`buildDiffResult`（纯函数）；`assembleDiff` 退化为薄编排层（获取 changed files → 并发 buildDiffEntry → 错误降级 → compact → buildDiffResult）。修正 compact 边界：`withImpact`/`incremental` 使用原始 `safeEntries`（保留 `resolvedPath`），`summary`/`changedFiles` 使用 compact 后的 `finalEntries`。
+- **P0（shouldExclude 跨层热切判定解耦）**：移除 `shouldExclude` 中对 `projectContext.isNotGeneratedFile()` 的调用，`DEFAULT_EXCLUDE_DIRS` 补充 `'generated'` 对齐默认提示；`shouldExclude` 退化为纯目录前缀匹配，File Role 判定延迟到消费阶段。消除冷启动扫描的 CPU 性能瓶颈。
+- **U8 regression 修复（workspace-info 命令崩溃）**：U8 内联时 `workspace-info` 被错误写成 `dependencyGraph({ operation: 'workspace_info' })`，而 `OPERATIONS` 注册表无此操作，导致 CLI 返回 `Unknown operation`。修正为调用 `workspaceInfo()`。`cli-fallback-test.js` / `functionality-test.js` 恢复 PASS。
+- **Windows 路径回归修复（audit-file 返回绝对路径）**：P0 路径安全清洗将 `parsed.file` 替换为绝对路径，导致 `audit-file` 输出 `file` 字段变为绝对路径，破坏 API 契约。`sanitizeCliPaths` 保留原始值到 `parsed._rawFile`，`assembleFile` 优先使用原始值返回。`audit-file-validation-advice-test.js` / `cli-pipeline-depth-test.js` 恢复 PASS。
+- **ProjectContext.inferFileRole 状态化与规则盲区消除**：`inferFileRole` 签名改为接受 `context` 参数，在 `classifyFile` 中传入 `this`，使角色判定能感知 `.workspace-bridge.json` 的 `directories` 配置与 CLI `excludeDirs`；扩展 `ROLE_RULES` 新增 `benchmark/`、`e2e/`、`fixtures/`、`mocks/` 等常规开发目录识别；扩展 `DEFAULT_DIRECTORY_HINTS.reference` 纳入上述目录，消除硬编码盲区与 10%–15% 非主线文件分类偏离度。
+- **Resolver 缓存淘汰策略 FIFO → LRU**：`src/services/dep-graph/resolvers/base.js` 新增 `_touchCache` 并在 `cachedStatSync` 命中时调用，将高频根配置文件（`package.json`、`tsconfig.json`）保留在缓存中，避免 bulk indexing 时的 FIFO 误杀与重复 I/O 抖动。
 
 ---
 
@@ -100,7 +105,7 @@ node cli.js audit-summary --cwd . --json --quiet
 | ------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
-| L3 债务与品味      | 4           | js.js visitor超长 / cli.js JSON嵌套深 / ProjectContext规则盲区 / shouldExclude过度正则 / fallback正则缺陷                                 |
+| L3 债务与品味      | 8           | 后处理风暴 / 弱断言 / 测试失衡 / mock重复 / slow层测试过重 / 参数校验冗余等 |
 | **产品债务** | **0** | —                                                                                                                                       |
 
 **测试覆盖缺口**
@@ -133,11 +138,11 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### 当前状态
 
-- 活跃债务：**0 个 L1** + **0 个 L2** + **4 个 L3** + **0 个产品 bug** + **0 个产品债务**
+- 活跃债务：**0 个 L1** + **0 个 L2** + **8 个 L3** + **0 个产品 bug** + **0 个产品债务**
 - 版本：v1.2.0，schemaVersion 冻结
 - 测试：**133/133 PASS**；全量 runner ~4min。开发迭代首选 `npm run test:fast`（~37s）
 - **定位**：AI 的代码脚手架
-- **核心认知**：底层引擎能力足够，CLI 出口质量（`--format ai`）已交付。P0–P4 / Wave 1 / Wave 2（D1-D3/D5/D7-D8）/ O1-O3 / U1 全部完成，历史见 CHANGELOG。下一阶段主线是**解析精度结构性升级**（Wave 2/3）与**输出层/编排层剩余债务**，必须波次化执行。
+- **核心认知**：底层引擎能力足够，CLI 出口质量（`--format ai`）已交付。P0–P4 / Wave 1 / Wave 2（D1-D3/D5/D7-D8）/ O1-O3 / U1-U3 全部完成；ROADMAP 阶段 3 框架感知补完（Vue + Spring + Django）已完成，历史见 CHANGELOG。下一阶段主线是**解析精度结构性升级**（Wave 2/3）与**输出层/编排层剩余债务**，必须波次化执行。
 
 ### P0 低垂果实（现在做，零风险高 ROI）
 
@@ -210,7 +215,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-23（Wave 2 Resolver 拆分 + COMMAND_GUIDES 内聚 + U7 audit-assembler 拆分已完成；96/96 fast 测试全绿）*
+*Last updated: 2026-05-23（U3 overview-tools 拆分 + ProjectContext.inferFileRole 状态化 + Resolver LRU 缓存 + Wave 2 Resolver 拆分 + COMMAND_GUIDES 内聚 + U7 audit-assembler 拆分 + shouldExclude 跨层热切判定解耦 + U8/workspace-info/Windows 路径回归修复已完成；96/96 fast 测试全绿）*
 
-> **本轮验证状态**：`npm run test:fast` **96/96 PASS**；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=261`）。
+> **本轮验证状态**：`npm run test:fast` **96/96 PASS**；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=268`）。
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。

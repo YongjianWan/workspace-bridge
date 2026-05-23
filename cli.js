@@ -320,6 +320,7 @@ function sanitizeCliPaths(parsed) {
     if (!safe) {
       return { ok: false, error: `Invalid --file path: path traversal or escape detected: ${parsed.file}` };
     }
+    parsed._rawFile = parsed.file;
     parsed.file = safe;
   }
 

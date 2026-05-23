@@ -130,44 +130,6 @@
 
 ---
 
-#### `ProjectContext.inferFileRole` 规则盲区及无状态硬编码匹配 (L3级架构与品味债)
-
-**数据**：
-
-- 在 `src/utils/project-context.js` 中，`inferFileRole` 采用了一组极为脆弱且局限的硬编码正则与字符串猜测链（如检测是否包含 `/test/`，或匹配特定的 `.css`、`.png` 等后缀）来判定文件角色。
-- 此外，`inferFileRole` 作为一个纯粹的无状态静态函数被暴露出来，完全无法感知 `ProjectContext` 实例中从 CLI 或 `.workspace-bridge.json` 里传入的动态 `excludeDirs` 规则。
-
-**影响**：
-
-- **匹配规则盲区**：这对非主线（non-mainline）但包含大量代码的非标目录（如 `benchmark/`、`e2e/`、`fixtures/`、`mocks/` 等）根本没有任何感知，导致其默认退化归类为 `library` 并错误地认为其是 `isMainline = true`。这在庞大的中大型项目中引入了 10% 到 15% 的非主线文件分类偏离度，误导下游的依赖计算和代码审查建议。
-- **状态不一致**：这导致在需要细粒度多路径排他的场景下，各模块（如 `FileIndex`）单独调用 `inferFileRole` 会产生前后矛盾的判定。
-
-**方案**：
-
-- 重构 `inferFileRole` 使其接受包含当前上下文配置的 dynamic context 实例。
-- 扩展 `ROLE_RULES` 注入对 benchmark、e2e 等常规目录的识别；支持从 `.workspace-bridge.json` 中配置动态文件 Role 映射表，彻底消除硬编码规则盲区。
-
----
-
-#### `FileIndex.shouldExclude` 高频循环中的跨层过度热切判定 (L3级性能债)
-
-**数据**：
-
-- 在 `src/services/file-index.js` 的 `shouldExclude` 核心过滤器中，为了检测文件是否应被排除，其不仅在 `this.baseExcludeDirs` 集合中做线性迭代，甚至在每次高频扫描中都越权嵌套调用了 `this.projectContext.isNotGeneratedFile(filePath)`。
-- 而 `isNotGeneratedFile` 会反向完整触发 `classifyFile()`，其内部会无脑完整地跑一遍 `inferFileRole` 下包含数十个正则表达式的匹配链！
-
-**影响**：
-
-- **高频性能崩塌**：在冷启动（cold indexing）和深层扫描时，`shouldExclude` 是被几十万次调用过的极高频热点。这种设计导致引擎为了“看一眼它是不是 generated 目录”，被迫每次都极其昂贵地去跑“它是不是 typescript 测试文件/它是不是 svelte 资产”这种跟目录过滤毫无干系的全套正则匹配。
-- **跨层耦合**：这在物理上击穿了职责边界（FileIndex 越层调用了高层语义分类的 ProjectContext），造成了冷启动时严重的 CPU 暴涨和 indexing 延迟，使轻量 CLI 的定位变得非常讽刺。
-
-**方案**：
-
-- 解耦 FileIndex 与 ProjectContext 细节。在 `shouldExclude` 阶段只做纯粹的扁平化目录排他判定（即基于 hash/Set 化的 excluded 目录集做 O(1) 或低成本的前缀匹配）。
-- 将复杂的 File Role 判定延迟到文件真正需要被 indexing 甚至直到依赖组装阶段，消灭高频发现循环中的热切正则消耗。
-
----
-
 #### 模板字符串“按行切分”及解构导出提取瘫痪 (L3级 JavaScript 正则 fallback 模式功能债)
 
 **数据**：
@@ -189,23 +151,7 @@
 
 ---
 
-#### `resolvers.js` FIFO 缓存粗暴淘汰 (L3级性能债)
 
-**数据**：
-
-- 在 `src/services/dep-graph/resolvers.js` 中，为了防止 stat 缓存无限增长，`_trimCache` 极其粗暴地用 FIFO 形式在 Map 头部截断元素。
-
-**影响**：
-
-- **缓存抖动**：FIFO 抹杀了热点高频缓存的价值。一旦大项目 cold indexing 进行 bulk 依赖解析，最早被 stat 缓存的根配置文件（如 `package.json`、`tsconfig.json`）由于是解析最初创建的，会被粗暴地无脑逐出，随后在下一批解析中又被迫频繁重新读取磁盘 `fs.statSync`，造成严重的缓存抖动和重复 I/O 损耗。
-
-**方案**：
-
-- 将 `_trimCache` 升级为具备高频访问保护的简单 LRU 或 LFU 淘汰算法，避免高频热点配置文件被误杀。
-
-> **GC 压力部分已修复（O7）**：`_resolverCache` 按 `ext` 缓存 resolver 实例，`_buildContext` 闭包改直接引用。详见 CHANGELOG.md [Unreleased]。
-
----
 
 #### WorkspaceSnapshot 零消费者（架构债）
 
@@ -223,7 +169,6 @@
 | `js.js`         | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行                                                                              | 低   |
 | `cli.js`        | `--json` 嵌套深，管道不友好                                                                                                               | 中   |
 | `file-index.js` | `this.excludeDirs` 被拼命计算与去重，却**没有任何一处代码消费**，属死代码气味                                                                                     | 低   |
-| `file-index.js` | `shouldExclude` 高频核心循环中嵌套调用了无缓存的 `projectContext.isNotGeneratedFile()`，导致对每个扫描到的目录/文件都执行了全套正则匹配与角色判定规则链，大项目 cold index 阶段存在明显 CPU 消耗瓶颈 | 中   |
 
 
 ---
@@ -233,10 +178,10 @@
 
 | 文件                                      | 行数   | 风险  | 状态                                                                                        |
 | --------------------------------------- | ---- | --- | ----------------------------------------------------------------------------------------- |
-| `src/tools/overview-tools.js`           | ~711 | 中   | JS/CSS 裸数字已归零（`DASHBOARD_LAYOUT` 常量）；P0 去噪已添加小项目 `architectureAdvice` 抑制；L2-5 schema 不一致源 |
+| `src/tools/overview-tools.js`           | ~80 | 低   | U3 拆分已完成：数据组装进 `overview-assembler.js`，HTML 渲染与 I/O 进 `dashboard-formatter.js`；薄编排层仅剩 `buildProjectOverview` |
 | `cli.js`                                | ~509 | 中   | `--json` 嵌套深，管道不友好                                                                        |
 | `src/tools/git-tools.js`                | ~392 | 低   | L2-9 commit range 源                                                                       |
-| `src/utils/project-context.js`          | ~634 | 中   | `inferFileRole()` 存在规则盲区与无状态匹配，高频 `shouldExclude` 存在高 CPU 消耗                              |
+| `src/utils/project-context.js`          | ~634 | 低   | `inferFileRole()` 已状态化并消除规则盲区；`shouldExclude` CPU 消耗已修复                                |
 | `src/utils/stack-detectors/detect.js`   | ~443 | 低   | stack-detector 检测子模块                                                                      |
 | `src/utils/stack-detectors/commands.js` | ~639 | 低   | stack-detector 命令子模块                                                                      |
 | `src/services/file-index.js`            | ~547 | 低   | 行数稳定，内部通过 `FileIndexBuilder` / `ChangeTracker` 实现认知拆分                                     |

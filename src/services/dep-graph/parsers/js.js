@@ -157,7 +157,7 @@ function parseJavaScriptAST(content, filePath = '') {
     });
 
     // #11: visitors mapping table replaces 220-line visitNode monolith
-    const isVueFile = filePath.toLowerCase().endsWith('.vue');
+    const isVueFile = filePath.toLowerCase().endsWith('.vue') || /<\s*script\s+setup\b/i.test(content);
 
     const importExportVisitors = {
       ImportDeclaration(node) {
@@ -622,7 +622,7 @@ function parseJavaScript(content, filePath = '') {
   const { imports, importRecords } = extractImportsWithRegex(sanitized);
   let { exportRecords, reExportImportRecords } = extractExportsWithRegex(sanitized);
 
-  const isVueFile = filePath.toLowerCase().endsWith('.vue');
+  const isVueFile = filePath.toLowerCase().endsWith('.vue') || /<!\s*script\s+setup\b/i.test(content);
   if (isVueFile) {
     exportRecords = exportRecords.filter((r) => !VUE_COMPILER_MACROS.has(r.name));
   }

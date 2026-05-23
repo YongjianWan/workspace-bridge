@@ -5,7 +5,10 @@ const { pathExists, readJsonSafe, toPosixPath } = require('./path');
 const ROLE_PRIORITY = ['generated', 'archive', 'reference', 'active'];
 const DEFAULT_DIRECTORY_HINTS = {
   active: [],
-  reference: ['reference', 'references', 'example', 'examples', 'sample', 'samples', 'demo', 'demos'],
+  reference: [
+    'reference', 'references', 'example', 'examples', 'sample', 'samples', 'demo', 'demos',
+    'benchmark', 'benchmarks', 'e2e', 'fixtures', 'mocks', 'mock', '__mocks__',
+  ],
   archive: ['archive', 'archives', 'attic', 'deprecated', 'legacy', 'prototype', 'prototypes'],
   generated: ['dist', 'build', 'coverage', '.next', 'out', 'generated', '.turbo'],
 };
@@ -137,6 +140,22 @@ function detectFrameworkFromPath(filePath) {
     if (basename === 'signals.py') {
       return { framework: 'django', reason: 'django-signals-file', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
     }
+    // Django REST framework
+    if (basename === 'serializers.py') {
+      return { framework: 'django', reason: 'django-rest-serializers', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
+    }
+    if (basename === 'viewsets.py') {
+      return { framework: 'django', reason: 'django-rest-viewsets', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
+    }
+    if (basename === 'permissions.py') {
+      return { framework: 'django', reason: 'django-rest-permissions', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
+    }
+    if (basename === 'authentication.py') {
+      return { framework: 'django', reason: 'django-rest-authentication', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
+    }
+    if (basename === 'throttling.py') {
+      return { framework: 'django', reason: 'django-rest-throttling', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
+    }
     if (
       (p.includes('/routers/') || p.includes('/endpoints/') || p.includes('/routes/')) &&
       !basename.startsWith('__')
@@ -181,6 +200,27 @@ function detectFrameworkFromPath(filePath) {
     }
     if (p.includes('/service/') || p.includes('/services/')) {
       return { framework: 'java-service', reason: 'java-service', isEntry: false };
+    }
+    if (p.includes('/repository/') || p.includes('/repositories/')) {
+      return { framework: 'spring', reason: 'spring-repository', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
+    }
+    if (p.includes('/config/') || p.includes('/configuration/')) {
+      return { framework: 'spring-boot', reason: 'spring-boot-config', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
+    }
+    if (p.includes('/mapper/')) {
+      return { framework: 'mybatis', reason: 'mybatis-mapper', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
+    }
+    if (p.includes('/client/') || p.includes('/clients/')) {
+      return { framework: 'spring', reason: 'spring-feign-client', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
+    }
+    if (p.includes('/listener/') || p.includes('/listeners/')) {
+      return { framework: 'spring', reason: 'spring-listener', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
+    }
+    if (p.includes('/scheduler/') || p.includes('/schedulers/')) {
+      return { framework: 'spring', reason: 'spring-scheduler', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
+    }
+    if (p.includes('/task/') || p.includes('/tasks/')) {
+      return { framework: 'spring', reason: 'spring-task', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
     }
   }
 
@@ -296,9 +336,23 @@ const ROLE_RULES = [
       relPath.startsWith('test/') ||
       relPath.startsWith('tests/') ||
       relPath.startsWith('__tests__/') ||
+      relPath.startsWith('benchmark/') ||
+      relPath.startsWith('benchmarks/') ||
+      relPath.startsWith('e2e/') ||
+      relPath.startsWith('fixtures/') ||
+      relPath.startsWith('mocks/') ||
+      relPath.startsWith('mock/') ||
+      relPath.startsWith('__mocks__/') ||
       relPath.includes('/test/') ||
       relPath.includes('/tests/') ||
       relPath.includes('/__tests__/') ||
+      relPath.includes('/benchmark/') ||
+      relPath.includes('/benchmarks/') ||
+      relPath.includes('/e2e/') ||
+      relPath.includes('/fixtures/') ||
+      relPath.includes('/mocks/') ||
+      relPath.includes('/mock/') ||
+      relPath.includes('/__mocks__/') ||
       /\.test\./.test(base) ||
       /\.spec\./.test(base) ||
       /^test_/.test(base) ||
@@ -464,13 +518,24 @@ function loadWorkspaceConfig(root, options = {}) {
   };
 }
 
-function inferFileRole(relativePath) {
+function inferFileRole(relativePath, context = null) {
   const normalized = normalizeRelativePath(relativePath);
   const base = path.basename(normalized);
 
   for (const rule of ROLE_RULES) {
-    if (rule.test(normalized, base)) {
+    if (rule.test(normalized, base, context)) {
       return rule.role;
+    }
+  }
+
+  // Context-aware fallback: respect dynamic directory classification.
+  // If the file lives in a non-active directory (reference, archive, generated),
+  // do not blindly label it as productive library code.
+  if (context) {
+    const directory = path.dirname(normalized);
+    const dirInfo = context.classifyDirectory(directory === '.' ? '' : directory);
+    if (dirInfo.role !== 'active') {
+      return 'library';
     }
   }
 
@@ -544,7 +609,7 @@ class ProjectContext {
     const relativePath = this.getRelativePath(filePath);
     const directory = path.dirname(relativePath);
     const directoryInfo = this.classifyDirectory(directory === '.' ? '' : directory);
-    const fileRole = inferFileRole(relativePath);
+    const fileRole = inferFileRole(relativePath, this);
     const isMainline = directoryInfo.role === 'active';
 
     return {

@@ -12,7 +12,7 @@
 
 | 问题                            | 状态                 | 影响                                                                                           | 缓解措施                                                                                                                                                                  |
 | ------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 混合仓库误判                    | ⏳ 需配置            | prototypes/reference 被视为主线                                                                | 使用 `.workspace-bridge.json` 标注目录角色                                                                                                                              |
+| 混合仓库误判                    | ⏳ 需配置            | ~~prototypes/reference 被视为主线~~ inferFileRole 已扩展 benchmark/e2e/fixtures/mocks 识别，但仍需 `.workspace-bridge.json` 标注自定义目录角色 | 使用 `.workspace-bridge.json` 标注目录角色；非标目录识别持续扩展                                                                                                    |
 | mixed repo 技术栈启发式         | ⏳ 持续改进          | Node/Python 共存时命令可能不够精确                                                             | 持续打磨 `stack-detector`                                                                                                                                               |
 | 文档与代码状态同步              | ⏳ 需人工            | ROADMAP/SESSION/CHANGELOG 可能不同步                                                           | 自审后手动对齐                                                                                                                                                            |
 | 多模块 Maven 模块边界未显式标注 | ⏳ 观察              | 模块间耦合强度丢失                                                                             | 评估是否输出模块级聚合视图                                                                                                                                                |
@@ -99,9 +99,6 @@
 
 | 目标                                            | 改动文件                                                               | 预期收益                                                                                                                                                             | 边界                                     |
 | ----------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **Vue `<script setup>` 编译器宏识别**   | `js.js` / `framework-patterns.js`                                  | `defineProps`/`defineEmits`/`defineExpose` 导出不标记 dead-export                                                                                              | 只能识别宏定义，不能追踪模板使用         |
-| **Spring 更多运行时注解**                 | `framework-patterns.js` `AST_PATTERNS.java`                        | 覆盖 `@RestController`/`@FeignClient`/`@Scheduled`                                                                                                             | 只标记 framework-managed，不追踪反射调用 |
-| **Django 更多配置驱动入口**               | `framework-patterns.js`                                              | middleware、router、context processors 等                                                                                                                            | 同现有模式                               |
 | ~~安全白名单分派表 + Assert Defense~~ ✅ | `security-tools.js`                                                  | 每条规则独立 `is_match_allowlisted()`；测试内 `.unwrap_err()` / `expect(error)` 匹配到的 payload 视为防御性测试，抑制误报                                      | 不改变现有 CLI 接口，纯规则后处理        |
 | **端到端请求路径（路由提取）**            | `framework-patterns.js` / `dep-graph.js` / `human-formatters.js` | `impact` 输出增加 `affectedRoutes`：改 handler 前知道影响哪些 API（Express/Spring/FastAPI 等 9 语言）                                                            | 只提取路由声明，不追踪请求体内参数绑定   |
 | **测试间隙穿透（Dispatcher Regex）**      | `affected-tests` 逻辑扩展                                            | 无 import 边但测试文件 body 提及源文件 stem，或 `call_tool_by_name("xxx")` 字符串分发匹配到的测试，也纳入 affected-tests                                           | 需避免与已有 import 边重复计数           |
@@ -420,19 +417,17 @@ CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
 
 ---
 
-### L3 品味与架构债务（6 项活跃）
+### L3 品味与架构债务（3 项活跃）
 
 按 [TECH_DEBT.md](./docs/TECH_DEBT.md) 记录：
 
-| 位置                        | 问题                                                                                              | 优先级 |
-| --------------------------- | ------------------------------------------------------------------------------------------------- | ------ |
-| `js.js`                   | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行                                  | 低     |
-| `cli.js` / `formatters` | `--json` 嵌套深；`COMMAND_GUIDES` 硬编码外溢；`determineExitCode()` 脏耦合 switch-case 链条 | 中     |
-| `project-context.js`      | `inferFileRole` 规则存在非标目录盲区且为无状态硬编码匹配                                        | 中     |
-| `file-index.js`           | `shouldExclude` 高频循环嵌套调用无缓存的 `isNotGeneratedFile`，正则全套大遍历                 | 中     |
-| `parsers/js.js`           | JS 正则 fallback 模式三大死角：多行模板按行切分瘫痪、解构导出捕获漏报、调用链空转                 | 中     |
-| `resolvers.js`            | FIFO 缓存粗暴淘汰导致核心配置被误杀抖动；高频解析无脑新建 context 带来巨大 GC 压力                | 中     |
-| `file-index.js`           | `this.excludeDirs` 计算去重后零消费死代码                                                       | 低     |
+| 位置 | 问题 | 优先级 |
+| ---- | ---- | ------ |
+| `js.js` | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行 | 低 |
+| `cli.js` / `formatters` | `--json` 嵌套深；`determineExitCode()` 脏耦合 switch-case 链条 | 中 |
+| `parsers/js.js` | JS 正则 fallback 模式三大死角：多行模板按行切分瘫痪、解构导出捕获漏报、调用链空转 | 中 |
+
+> 已修复项（历史见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]）：`inferFileRole` 状态化 + 规则盲区消除（`project-context.js`）、`shouldExclude` 跨层热切判定解耦（`file-index.js`）、COMMAND_GUIDES 内聚归位（`cli.js`）、Resolver FIFO → LRU（`resolvers.js`）。
 
 ---
 

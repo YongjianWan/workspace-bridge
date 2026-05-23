@@ -29,7 +29,7 @@
 **定位**：AI 的代码脚手架（Code Scaffolding for AI），不是人的报告工具。
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
-- **当前债务**：L1/产品债务已清零；L2 债务已清零；L3 债务与品味 4 项（见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）
+- **当前债务**：L1/产品债务已清零；L2 债务已清零；L3 债务与品味 8 项（见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
@@ -240,4 +240,4 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-23（Wave 2 Resolver 策略链物理拆分 + COMMAND_GUIDES 内聚归位 + U7 audit-assembler 拆分已完成；L3 债务 4 项；96/96 fast 测试通过；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-23（ProjectContext.inferFileRole 状态化 + Resolver LRU 缓存 + Wave 2 Resolver 拆分 + COMMAND_GUIDES 内聚 + U7 audit-assembler 拆分 + shouldExclude 跨层解耦已完成；L3 债务与品味 8 项；96/96 fast 测试通过；schemaVersion: 1.2.0）*
