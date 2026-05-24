@@ -31,6 +31,7 @@ class DependencyGraphView {
   get excludeDirs() { return this._dg.excludeDirs; }
   get cliExcludeDirs() { return this._dg.cliExcludeDirs; }
   get analyzer() { return this._dg.analyzer; }
+  get symbolRegistry() { return this._dg.symbolRegistry; }
 
   // --- read accessors ---
   hasFile(filePath) { return this._dg.hasFile(filePath); }

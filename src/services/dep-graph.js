@@ -97,9 +97,13 @@ class DependencyGraph {
       this.analyzer.precomputeImpact();
       await this._savePrecomputed();
     });
+    this._entryFileCache = new Map();
     this.builder = new GraphBuilder(this);
     this.analyzer = new GraphAnalyzer(this);
     this.query = new GraphQuery(this);
+    this.bus.on('graph:updated', () => {
+      this._entryFileCache.clear();
+    });
   }
 
   shouldExclude(filePath) {
@@ -191,52 +195,61 @@ class DependencyGraph {
   }
 
   isKnownEntryFile(filePath, exports) {
-    if (this.entryFiles.has(filePath)) return true;
-
-    const normalized = normalizePathKey(filePath);
-    const base = path.basename(normalized);
-    if (FRAMEWORK_MANAGED_PATTERNS.some((pattern) => pattern.test(normalized))) {
-      return true;
-    }
-    if (KNOWN_CONFIG_NAMES.has(base)) {
-      return true;
-    }
-    if (ENTRY_BASE_NAMES.has(base)) {
-      return true;
+    const key = this.normalizeFilePath(filePath);
+    if (this._entryFileCache.has(key)) {
+      return this._entryFileCache.get(key);
     }
 
-    // Framework-aware entry detection (GitNexus pattern port)
-    const pathHint = detectFrameworkFromPath(filePath);
-    if (pathHint && pathHint.isEntry) {
-      return true;
-    }
+    let result = false;
+    if (this.entryFiles.has(filePath)) {
+      result = true;
+    } else {
+      const normalized = normalizePathKey(filePath);
+      const base = path.basename(normalized);
+      if (FRAMEWORK_MANAGED_PATTERNS.some((pattern) => pattern.test(normalized))) {
+        result = true;
+      } else if (KNOWN_CONFIG_NAMES.has(base)) {
+        result = true;
+      } else if (ENTRY_BASE_NAMES.has(base)) {
+        result = true;
+      } else {
+        // Framework-aware entry detection (GitNexus pattern port)
+        const pathHint = detectFrameworkFromPath(filePath);
+        if (pathHint && pathHint.isEntry) {
+          result = true;
+        } else {
+          // Content-based framework detection + shebang / python main
+          try {
+            const stats = fs.statSync(filePath);
+            if (stats.size <= LIMITS.ENTRY_FILE_MAX_BYTES) {
+              const fd = fs.openSync(filePath, 'r');
+              let content = '';
+              try {
+                const buffer = Buffer.alloc(LIMITS.ENTRY_SCAN_BYTES);
+                const bytesRead = fs.readSync(fd, buffer, 0, LIMITS.ENTRY_SCAN_BYTES, 0);
+                content = buffer.toString('utf8', 0, bytesRead);
+              } finally {
+                fs.closeSync(fd);
+              }
 
-    // Content-based framework detection + shebang / python main
-    try {
-      const stats = fs.statSync(filePath);
-      if (stats.size > LIMITS.ENTRY_FILE_MAX_BYTES) return false;
-      const fd = fs.openSync(filePath, 'r');
-      let content = '';
-      try {
-        const buffer = Buffer.alloc(LIMITS.ENTRY_SCAN_BYTES);
-        const bytesRead = fs.readSync(fd, buffer, 0, LIMITS.ENTRY_SCAN_BYTES, 0);
-        content = buffer.toString('utf8', 0, bytesRead);
-      } finally {
-        fs.closeSync(fd);
+              const contentHint = detectFrameworkFromContent(filePath, content);
+              if (contentHint && contentHint.isEntry) {
+                result = true;
+              } else if (content.startsWith('#!')) {
+                result = true;
+              } else if (PYTHON_MAIN_PATTERN.test(content)) {
+                result = true;
+              }
+            }
+          } catch (e) {
+            if (e.code !== 'ENOENT') throw e;
+          }
+        }
       }
-
-      const contentHint = detectFrameworkFromContent(filePath, content);
-      if (contentHint && contentHint.isEntry) {
-        return true;
-      }
-
-      if (content.startsWith('#!')) return true;
-      if (PYTHON_MAIN_PATTERN.test(content)) return true;
-    } catch (e) {
-      if (e.code !== 'ENOENT') throw e;
     }
 
-    return false;
+    this._entryFileCache.set(key, result);
+    return result;
   }
 
   /**
@@ -333,7 +346,7 @@ class DependencyGraph {
 
     this.graph.clear();
     this.reverseGraph.clear();
-    this.bus.emit('graph:updated');
+    this.bus.emit('graph:updated', { fullRebuild: true });
 
     // Rebuild edge map and reverseGraph from persisted edges
     const edgeMap = new Map();

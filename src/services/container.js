@@ -35,10 +35,26 @@ class ServiceContainer {
     this.cache = null;
     this.fileIndex = null;
     this.diagnostics = null;
-    /** @deprecated Use `this.snapshot.graph` instead. Direct depGraph access will be removed in a future version. */
-    this.depGraph = null;
+    this._depGraph = null;
+    this._depGraphAccessWarned = false;
     this.projectContext = null;
     this.snapshot = null;
+
+    /** @deprecated Use `this.snapshot.graph` instead. Direct depGraph access will be removed in a future version. */
+    Object.defineProperty(this, 'depGraph', {
+      get: () => {
+        if (!this._depGraphAccessWarned) {
+          console.error('[deprecated] container.depGraph is deprecated. Use container.snapshot.graph instead.');
+          this._depGraphAccessWarned = true;
+        }
+        return this._depGraph;
+      },
+      set: (value) => {
+        this._depGraph = value;
+      },
+      enumerable: true,
+      configurable: true,
+    });
     
     // Shared promise for concurrent waiters (eliminates busy-loop polling)
     this._readyPromise = null;
@@ -101,9 +117,9 @@ class ServiceContainer {
       this._checkAborted();
       // P2: load precomputed aggregate summary if graph hasn't changed since last run
       const loadedAggregate = this.cache.loadAggregateSummary();
-      if (loadedAggregate && loadedAggregate.stats?.files === this.depGraph.getFileCount()) {
-        this.depGraph.analyzer._aggregateCache = loadedAggregate;
-        this.depGraph.analyzer._aggregateVersion = 0;
+      if (loadedAggregate && loadedAggregate.stats?.files === this._depGraph.getFileCount()) {
+        this._depGraph.analyzer._aggregateCache = loadedAggregate;
+        this._depGraph.analyzer._aggregateVersion = 0;
       }
       this._assembleSnapshot();
       this._registerCallbacks();
@@ -186,19 +202,19 @@ class ServiceContainer {
   }
 
   async _initDepGraph(options) {
-    this.depGraph = new DependencyGraph(this.workspaceRoot, this.cache, {
+    this._depGraph = new DependencyGraph(this.workspaceRoot, this.cache, {
       excludeDirs: this.fileIndex?.baseExcludeDirs || [],
       cliExcludeDirs: this.fileIndex?.cliExcludeDirs || [],
       projectContext: this.projectContext,
       quiet: this.quiet,
     });
     // D3: attempt fast-path load from persisted edges; fall back to full build()
-    const loaded = this.depGraph.loadGraph();
+    const loaded = this._depGraph.loadGraph();
     if (!loaded) {
-      await this.depGraph.build(this.fileIndex?._indexedFiles || null);
+      await this._depGraph.build(this.fileIndex?._indexedFiles || null);
     } else {
       // Precompute aggregates since we skipped build()
-      this.depGraph.analyzer.precomputeAggregates();
+      this._depGraph.analyzer.precomputeAggregates();
     }
     // Precompute-on-demand: hotspot/stability and co-changes computed on first query
   }
@@ -210,15 +226,15 @@ class ServiceContainer {
       this.snapshot = new WorkspaceSnapshot({
         workspaceRoot: this.workspaceRoot,
         fileIndex: this.fileIndex,
-        graph: new DependencyGraphView(this.depGraph),
+        graph: new DependencyGraphView(this._depGraph),
         gitStatus: { head: this.cache?.getWorkspaceInfo?.()?.gitHead || null },
         frameworkHints: this._collectFrameworkHints(),
-        projectContext: this.depGraph?.projectContext || null,
+        projectContext: this._depGraph?.projectContext || null,
         fileIndexVersion: this.indexBuildTime || null,
         cacheStaleness: staleness,
         gitHead: this.cache?.getWorkspaceInfo?.()?.gitHead || null,
-        knownBlindSpots: computeKnownBlindSpots(this.depGraph?.projectContext || null, this.depGraph),
-        confidenceByDomain: computeConfidenceByDomain(this.depGraph?.projectContext || null, this.depGraph),
+        knownBlindSpots: computeKnownBlindSpots(this._depGraph?.projectContext || null, this._depGraph),
+        confidenceByDomain: computeConfidenceByDomain(this._depGraph?.projectContext || null, this._depGraph),
       });
     } catch (e) {
       // L1 data-consistency: preserve existing snapshot on incremental re-assembly
@@ -234,9 +250,9 @@ class ServiceContainer {
 
   _collectFrameworkHints() {
     const hints = new Map();
-    if (!this.depGraph) return hints;
-    for (const filePath of this.depGraph.getAllFilePaths()) {
-      const hint = this.depGraph.getFrameworkHint(filePath);
+    if (!this._depGraph) return hints;
+    for (const filePath of this._depGraph.getAllFilePaths()) {
+      const hint = this._depGraph.getFrameworkHint(filePath);
       if (hint) {
         hints.set(filePath, hint);
       }
@@ -253,7 +269,7 @@ class ServiceContainer {
     // Phase 3: 注册批量变更回调 → 触发 dep-graph 增量更新
     this.fileIndex.bus.on('pending:processed', async (files) => {
       try {
-        await this.depGraph?.updateFiles?.(files);
+        await this._depGraph?.updateFiles?.(files);
         // L1 data-consistency: re-assemble snapshot so that files (live view)
         // and graph metadata stay in sync after incremental updates.
         this._assembleSnapshot();
@@ -266,15 +282,15 @@ class ServiceContainer {
   }
 
   async _precomputeOverview() {
-    if (!this.depGraph?.analyzer) return;
+    if (!this._depGraph?.analyzer) return;
     try {
       const { precomputeHotspotsAndStability } = require('../tools/overview-tools');
-      const { hotspots, stability } = await precomputeHotspotsAndStability(this.depGraph);
-      if (!this.depGraph.analyzer._aggregateCache) {
-        this.depGraph.analyzer._aggregateCache = { version: this.depGraph.analyzer._aggregateVersion };
+      const { hotspots, stability } = await precomputeHotspotsAndStability(this._depGraph);
+      if (!this._depGraph.analyzer._aggregateCache) {
+        this._depGraph.analyzer._aggregateCache = { version: this._depGraph.analyzer._aggregateVersion };
       }
-      if (hotspots) this.depGraph.analyzer._aggregateCache.hotspots = hotspots;
-      if (stability) this.depGraph.analyzer._aggregateCache.stability = stability;
+      if (hotspots) this._depGraph.analyzer._aggregateCache.hotspots = hotspots;
+      if (stability) this._depGraph.analyzer._aggregateCache.stability = stability;
     } catch (e) {
       if (process.env.DEBUG) {
         console.error('[Container] Precompute overview failed:', e.message);
@@ -362,7 +378,7 @@ class ServiceContainer {
     if (this.cache) {
       try {
         // P2: persist aggregate summary for O(1) startup on next run
-        const aggregate = this.depGraph?.analyzer?._aggregateCache;
+        const aggregate = this._depGraph?.analyzer?._aggregateCache;
         if (aggregate) {
           this.cache.saveAggregateSummary(aggregate);
         }
@@ -382,7 +398,7 @@ class ServiceContainer {
     }
     this.snapshot = null;
     this.diagnostics = null;
-    this.depGraph = null;
+    this._depGraph = null;
     this.projectContext = null;
     this.initialized = false;
     this.initError = new Error('Container shut down');

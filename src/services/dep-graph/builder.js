@@ -47,7 +47,7 @@ class GraphBuilder {
 
     // Reset graph to prevent ghost data from deleted/renamed files
     this.dg.graph.clear();
-    this.dg.bus.emit('graph:updated');
+    this.dg.bus.emit('graph:updated', { fullRebuild: true });
     // Clear per-build caches to avoid stale content after rebuild
     this.dg._scanContentCache.clear();
     this.dg._scanPatternCache.clear();
@@ -461,7 +461,7 @@ class GraphBuilder {
     }
     // Emit graph:updated whenever the graph structure may have changed,
     // even if edgeCount is 0 (edges may have been removed by _stripJavaExpansions).
-    this.dg.bus.emit('graph:updated');
+    this.dg.bus.emit('graph:updated', {});
   }
 
   async expandJavaPackageImportsIncremental(affectedFiles) {
@@ -500,7 +500,7 @@ class GraphBuilder {
     }
     // Defensive: emit even when edgeCount is 0, because _stripJavaExpansions
     // may have removed edges without adding new ones.
-    this.dg.bus.emit('graph:updated');
+    this.dg.bus.emit('graph:updated', { changedFiles: Array.from(affectedFiles) });
   }
 
   async updateFiles(filePaths) {
@@ -563,7 +563,7 @@ class GraphBuilder {
           this.dg.cache.deleteParseResult(filePath);
           this.dg.cache.clearDiagnostics(filePath);
           deletedKeys.push(key);
-          this.dg.bus.emit('graph:updated');
+          this.dg.bus.emit('graph:updated', { changedFiles: [key] });
           continue;
         }
 
@@ -584,7 +584,7 @@ class GraphBuilder {
         updatedKeys.push(key);
         const ext = path.extname(filePath).toLowerCase();
         if (ext) reParsedExts.add(ext);
-        this.dg.bus.emit('graph:updated');
+        this.dg.bus.emit('graph:updated', { changedFiles: [key] });
 
         const newInfo = this.dg.graph.get(key);
         if (newInfo) {

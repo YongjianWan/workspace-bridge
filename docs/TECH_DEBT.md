@@ -25,11 +25,11 @@
 
 | 弱断言模式                                      | 数量      | 风险等级 | 说明                                                          |
 | ------------------------------------------ | ------- | ---- | ----------------------------------------------------------- |
-| `typeof x === 'string'/'number'/'boolean'` | ~35     | 低    | 带消息参数的 schema 契约检查，维持现状（改为值验证会导致 schema 变更时测试大面积失效）         |
+| `typeof x === 'string'/'number'/'boolean'` | ~10     | 低    | 带消息参数的 schema 契约检查，维持现状（改为值验证会导致 schema 变更时测试大面积失效）         |
 | `.status === 0`                            | 1       | 中    | `java-parsers-test.js` 环境检测逻辑 `isJavalangAvailable()`，非测试断言 |
 | `!== null/undefined`                       | ~20     | 低    | 存在性检查，属防御性验证，不纳入弱断言统计                                       |
 | `strictEqual(result.ok, true/false)`       | ~48     | 低    | 深层嵌套防御性检查，风险低，不纳入弱断言统计                                      |
-| **合计弱断言（需修复）**                             | **~35** | —    | 从 ~44 处降至 ~35 处（仅余 `typeof` 型 schema 契约检查）                  |
+| **合计弱断言（需修复）**                             | **~10** | —    | 从 ~44 处降至 ~10 处（仅余 `typeof` 型 schema 契约检查）                   |
 
 
 **本轮增强**：
@@ -57,13 +57,13 @@
 
 > 注：分类有重叠（如 `cache-concurrency-test.js` 既是集成测试也是并发测试），占比基于总文件数 131 独立计算，不互斥。
 
-**根因**：80% 单元测试 + 弱断言已从 ~~76 处降至 ~35 处（~~2.3%）。CLI 管道回归保护已有 `cli-integration-test.js` 覆盖 `audit-file`/`dead-exports`/`tree`/`impact`/`affected-tests`/`dependencies`/`dependents`/`cycles`，但 `analysis-test.js` 曾长期失败而未被发现（dead-exports 部分错误地以自身仓库为 `--cwd`，而自身仓库 deadExports=0）。
+**根因**：80% 单元测试 + 弱断言已从 ~~76 处降至 ~10 处（~~2.3%）。CLI 管道回归保护已有 `cli-integration-test.js` 覆盖 `audit-file`/`dead-exports`/`tree`/`impact`/`affected-tests`/`dependencies`/`dependents`/`cycles`，但 `analysis-test.js` 曾长期失败而未被发现（dead-exports 部分错误地以自身仓库为 `--cwd`，而自身仓库 deadExports=0）。
 
 **影响**：CLI 入口的选项解析、路由分发、错误边界、格式化器选择等关键路径的回归保护已建立；主要剩余缺口是端到端测试（仅 3 个文件，2%）。
 
 **方案**：
 
-1. 弱断言清理继续推进（~35 处 `typeof` 型 schema 契约检查维持现状）。
+1. 弱断言清理继续推进（~10 处 `typeof` 型 schema 契约检查维持现状）。
 
 ---
 
@@ -71,7 +71,7 @@
 
 **数据**：
 
-- **99 处内联 mock `depGraph`** 构造 — **部分收敛**：`audit-map-test.js` 已完成试点迁移（`BASE_MOCK_METHODS` 删除，全面改用 `createMockDepGraph`）；剩余 17 个文件中的 55 处 `new DependencyGraph` + 手动赋值待分批迁移
+- **内联 mock `depGraph`** 构造 — **大部分收敛**：`audit-map-test.js` 已完成试点迁移（`BASE_MOCK_METHODS` 删除，全面改用 `createMockDepGraph`）；剩余 7 个文件中的 ~23 处 `new DependencyGraph` + 手动赋值待分批迁移
 - `test/test-helpers.js` 已建立 `createMockDepGraph` + `GraphFixtures` 工厂基础设施
 - **生产侧根因已解**：`DependencyGraph.fromSchema()` 静态工厂 + 构造函数 DI（`packageJson`/`entryFiles` 可选注入）已落地；`createMockDepGraph({ mode: 'instance' })` 已桥接为生产工厂消费者，彻底消灭属性篡改反模式
 
@@ -88,7 +88,7 @@
 
 #### slow 层测试过重
 
-**数据**：slow 层 27 个测试需 ~100s，其中 `e2e-gitnexus-test.js` 单个测试占 ~34s（全层时间的 ~24%）。
+**数据**：slow 层 36 个测试需 ~100s，其中 `e2e-gitnexus-test.js` 单个测试占 ~34s（全层时间的 ~24%）。
 
 **根因**：GitNexus 项目规模 1329 文件，runner 为每个测试文件创建独立空缓存目录，导致 CLI 冷启动 + 全量建图 + 加载 WASM。
 
@@ -105,6 +105,7 @@
 **已完成**：
 - Builder 与 Analyzer 缓存已彻底解耦：`_cachedCycles`、`_cycleCount`、`_scanContentCache`、`_scanPatternCache` 全部下沉到 `GraphAnalyzer` 内部，Builder 不再直接篡改 Analyzer 字段。
 - Builder 只通过 `graph:updated` / `graph:built` 事件与 Analyzer 通信；Analyzer 只响应事件并自主维护缓存。
+- Wave 4（2026-05-24）：CLI/REPL 边界层所有 `container.depGraph` 穿透已收敛到 `DependencyGraphView` facade（`container.snapshot.graph`），数据层与编排层边界进一步清晰化。
 
 **剩余**：
 - 明确状态机（`idle -> initializing -> ready -> updating -> ready`）尚未实现，当前仅靠 `_updating` 布尔锁做重入防护。
@@ -112,19 +113,16 @@
 
 ---
 
-#### createMockDepGraph stub 模式重复 20+ 方法（测试债）
+#### ✅ createMockDepGraph stub 模式重复 20+ 方法（测试债）— 已修复
 
 **根因**：测试中缺少统一的 stub 适配层，导致 `createMockDepGraph` 在 stub 模式下手工复制大量方法签名。
 
-**影响**：
+**修复**（2026-05-24）：
+- 新增 `_createStubDepGraph` 共享工厂，使用 `Proxy` 自动拦截所有 `DependencyGraphView` 方法调用，仅 23 个有语义默认值的方法进入 `semanticDefaults` Map。
+- `createMockDepGraph({ mode: 'stub' })` 和 `makeMockSnapshot` 的 `defaultStubs` 统一调用 `_createStubDepGraph`，消灭两处重复代码。
+- 未知方法自动安全兜底（`() => []`），未来 `DependencyGraphView` 新增方法无需手工更新 stub。
 
-- 维护成本高，新增/变更方法时易漏改，测试与生产 API 漂移。
-- 低信号测试增加（为了补齐方法只做存在性断言）。
-
-**方案**：
-
-1. 用最小 facade + proxy 转发替代手工复制（只覆写差异点）。
-2. 将 stub 模式输出固定到 `DependencyGraphView` 接口，减少表面积。
+**验证**：`npm run test:fast` **99/99 PASS**。
 
 ---
 

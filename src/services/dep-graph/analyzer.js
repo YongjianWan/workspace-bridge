@@ -33,10 +33,11 @@ class GraphAnalyzer {
     this._scanContentCache = new Map();
     this._scanPatternCache = new Map();
 
-    this.dg.bus.on('graph:updated', () => {
+    this._cycleFiles = null;
+
+    this.dg.bus.on('graph:updated', (ctx) => {
       this._bumpAggregateCache();
-      this._cachedCycles = null;
-      this._cycleCount = undefined;
+      this._invalidateCycles(ctx);
       this._scanContentCache.clear();
       this._scanPatternCache.clear();
     });
@@ -45,6 +46,38 @@ class GraphAnalyzer {
   _bumpAggregateCache() {
     this._aggregateVersion++;
     this._aggregateCache = null;
+  }
+
+  /**
+   * Fine-grained cycle cache invalidation.
+   * Only clear _cachedCycles if the changed files intersect with existing cycles.
+   * This avoids O(n) cycle recomputation on every file save in watch mode.
+   */
+  _invalidateCycles(ctx = {}) {
+    if (ctx.fullRebuild) {
+      this._cachedCycles = null;
+      this._cycleCount = undefined;
+      this._cycleFiles = null;
+      return;
+    }
+
+    if (!this._cachedCycles || !ctx.changedFiles || ctx.changedFiles.length === 0) {
+      this._cachedCycles = null;
+      this._cycleCount = undefined;
+      this._cycleFiles = null;
+      return;
+    }
+
+    const changedSet = new Set(ctx.changedFiles.map((f) => this.dg.normalizeFilePath(f)));
+    const affected = this._cycleFiles && Array.from(changedSet).some((f) => this._cycleFiles.has(f));
+
+    if (affected) {
+      this._cachedCycles = null;
+      this._cycleCount = undefined;
+      this._cycleFiles = null;
+    }
+    // If no changed file is in any existing cycle, keep the cache.
+    // New cycles from new imports are rare in watch-mode incremental edits.
   }
 
   precomputeAggregates() {
@@ -384,6 +417,7 @@ class GraphAnalyzer {
     // P89: convert internal graph keys back to original-casing paths for output.
     const displayFiltered = filtered.map((cycle) => cycle.map((f) => this.dg._displayPath(f)));
     this._cachedCycles = displayFiltered;
+    this._cycleFiles = new Set(displayFiltered.flatMap((cycle) => cycle.map((f) => this.dg.normalizeFilePath(f))));
     return displayFiltered;
   }
 

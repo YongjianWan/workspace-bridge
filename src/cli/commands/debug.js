@@ -7,7 +7,7 @@ async function debugCmd(parsed, container) {
   const what = parsed.what || 'registry';
 
   if (what === 'symbols') {
-    const registry = container.depGraph?.symbolRegistry;
+    const registry = container.snapshot?.graph?.symbolRegistry;
     if (!registry) {
       return { ok: false, error: 'Symbol registry not available' };
     }

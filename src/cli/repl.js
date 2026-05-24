@@ -116,6 +116,8 @@ async function executeCommand(container, line) {
   if (tokens.length === 0) return null;
 
   const [cmd, ...args] = tokens;
+  const graph = container.snapshot?.graph || container.depGraph || null;
+  if (!graph) return 'Error: dependency graph not available';
 
   switch (cmd) {
     case 'help':
@@ -138,10 +140,10 @@ async function executeCommand(container, line) {
       const parsed = parseArgs(['node', 'repl', ...args], {
         '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
       });
-      const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || container.depGraph?.workspaceRoot);
+      const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
       if (!file) return 'Usage: impact <file>';
       const maxDepth = parsed.maxDepth ?? DEFAULTS.WATCH_IMPACT_DEPTH;
-      const result = container.depGraph.getImpactRadius(file, maxDepth);
+      const result = graph.getImpactRadius(file, maxDepth);
       return formatImpact(result);
     }
 
@@ -149,59 +151,59 @@ async function executeCommand(container, line) {
       const parsed = parseArgs(['node', 'repl', ...args], {
         '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
       });
-      const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || container.depGraph?.workspaceRoot);
+      const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
       if (!file) return 'Usage: affected-tests <file>';
       const maxDepth = parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH;
-      const result = container.depGraph.findAffectedTests(file, maxDepth);
+      const result = graph.findAffectedTests(file, maxDepth);
       return formatAffectedTests(result);
     }
 
     case 'dead-exports': {
-      const result = container.depGraph.findDeadExports();
+      const result = graph.findDeadExports();
       return formatDeadExports(result);
     }
 
     case 'unresolved': {
-      const result = container.depGraph.findUnresolvedImports();
+      const result = graph.findUnresolvedImports();
       return formatUnresolved(result);
     }
 
     case 'cycles': {
-      const result = container.depGraph.findCircularDependencies();
+      const result = graph.findCircularDependencies();
       return formatCycles(result);
     }
 
     case 'dependents': {
-      const file = resolveWorkspaceFilePath(args[0], container.workspaceRoot || container.depGraph?.workspaceRoot);
+      const file = resolveWorkspaceFilePath(args[0], container.workspaceRoot || graph?.root);
       if (!file) return 'Usage: dependents <file>';
-      const result = container.depGraph.getDependents(file);
+      const result = graph.getDependents(file);
       return formatDependents(result);
     }
 
     case 'dependencies': {
-      const file = resolveWorkspaceFilePath(args[0], container.workspaceRoot || container.depGraph?.workspaceRoot);
+      const file = resolveWorkspaceFilePath(args[0], container.workspaceRoot || graph?.root);
       if (!file) return 'Usage: dependencies <file>';
-      const result = container.depGraph.getDependencies(file);
+      const result = graph.getDependencies(file);
       return formatDependencies(result);
     }
 
     case 'stats': {
-      const result = container.depGraph.getStats();
+      const result = graph.getStats();
       return formatStats(result);
     }
 
     case 'audit-map': {
       const parsed = parseArgs(['node', 'repl', ...args], { '--compact': true });
       const compact = Boolean(parsed['--compact']);
-      const result = buildProjectMap(container.depGraph, { compact });
+      const result = buildProjectMap(graph, { compact });
       if (!result.ok) return `Error: ${result.error}`;
       return formatProjectMap(result, compact);
     }
 
     case 'issues': {
-      const deadExports = container.depGraph.findDeadExports?.() || [];
-      const unresolved = container.depGraph.findUnresolvedImports?.() || [];
-      const cycles = container.depGraph.findCircularDependencies?.() || [];
+      const deadExports = graph.findDeadExports?.() || [];
+      const unresolved = graph.findUnresolvedImports?.() || [];
+      const cycles = graph.findCircularDependencies?.() || [];
 
       let severity = 'low';
       if (unresolved.length > 0 || cycles.length > 0) severity = 'high';
@@ -240,12 +242,12 @@ async function executeCommand(container, line) {
     }
 
     case 'top': {
-      const allFiles = container.depGraph.getAllFilePaths?.() || [];
+      const allFiles = graph.getAllFilePaths?.() || [];
       const hotspots = [];
       for (const file of allFiles) {
-        const dependents = container.depGraph.getDependents?.(file) || [];
+        const dependents = graph.getDependents?.(file) || [];
         if (dependents.length >= SCORING.HOTSPOT_MIN_DEPENDENTS) {
-          hotspots.push({ file: container.depGraph._displayPath?.(file) || file, dependentsCount: dependents.length });
+          hotspots.push({ file: graph._displayPath?.(file) || file, dependentsCount: dependents.length });
         }
       }
       hotspots.sort((a, b) => b.dependentsCount - a.dependentsCount);
@@ -255,7 +257,7 @@ async function executeCommand(container, line) {
       }
 
       const lines = [];
-      const root = container.depGraph.workspaceRoot || '';
+      const root = graph.root || '';
       for (let i = 0; i < Math.min(hotspots.length, 5); i++) {
         const h = hotspots[i];
         const rel = path.relative(root, h.file) || h.file;

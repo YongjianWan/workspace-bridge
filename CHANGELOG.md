@@ -8,6 +8,62 @@
 
 ## [Unreleased]
 
+### 架构重构（Wave 4：Graph Facade 收敛与卫生清理 — 2026-05-24）
+
+- **REPL / Watch / Debug / CLI 命令 Facade 迁移** `src/cli/repl.js` `src/cli/watch.js` `src/cli/commands/debug.js` `src/cli/commands/index.js` `cli.js`：
+  - 将剩余 20 处 CLI/REPL 边界层 `container.depGraph` 穿透全部替换为 `container.snapshot.graph`。
+  - `repl.js` `executeCommand` 内聚 `graph` 局部变量，统一通过 `DependencyGraphView` facade 调用；保留 `container.depGraph` fallback 以兼容未初始化 snapshot 的测试 mock。
+  - `watch.js` `registerWatchCallback` / `registerAuditFileWatchCallback` 传入参数从 `container.depGraph` 改为 `container.snapshot.graph`。
+  - `commands/index.js` `audit-map` 命令的 `buildProjectMap` 调用改为 `container.snapshot.graph`。
+  - `cli.js` 最终输出组装处的 `container.depGraph.buildWarnings()` 改为 `container.snapshot.graph.buildWarnings()`。
+- **Container `depGraph` Deprecation Guard** `src/services/container.js`：
+  - 将 `depGraph` 从公共属性迁移为 getter/setter，getter 首次访问时输出一次性 deprecation warning：`[deprecated] container.depGraph is deprecated. Use container.snapshot.graph instead.`
+  - `ServiceContainer` 内部所有生产代码改为直接访问 `this._depGraph`，避免内部自引用触发 warning。
+- **`isKnownEntryFile` 同步 I/O 缓存** `src/services/dep-graph.js`：
+  - 新增 `this._entryFileCache`（`Map`），在 `isKnownEntryFile` 中按 `normalizeFilePath` 缓存结果，避免 `findDeadExports` 遍历每个文件时重复执行 `fs.statSync` + `fs.openSync` + `fs.readSync`。
+  - 监听 `graph:updated` 事件自动清空缓存，保证增量更新后 entry 检测结果不失效。
+- **DependencyGraphView 补全 facade 方法** `src/models/workspace-snapshot.js`：
+  - 新增 `symbolRegistry` getter，暴露底层 `DependencyGraph.symbolRegistry`，使 `debug symbols` 命令无需穿透 facade。
+- **验证**：`npm run test:fast` **99/99 PASS**；`audit-summary` / `impact` / `affected-tests` / `repl --eval` / `dead-exports` CLI smoke 回归验证通过，deprecation warning 零泄漏。
+
+### 改进（测试基础设施：Stub Facade 终结者 — 2026-05-24）
+
+- **`createMockDepGraph` stub 模式 Proxy 化** `test/test-helpers.js`：
+  - 新增 `_createStubDepGraph` 共享工厂，使用 `Proxy` 自动拦截所有 `DependencyGraphView` 方法调用，仅 23 个有语义默认值的方法进入 `semanticDefaults` Map，其余未知方法自动安全兜底（`() => []`）。
+  - `createMockDepGraph({ mode: 'stub' })` 从 48 行手工方法声明缩减为 12 行 `_createStubDepGraph` 调用。
+  - `makeMockSnapshot` 的 `defaultStubs` 从 65 行手工方法声明缩减为 7 行 `_createStubDepGraph` 调用。
+  - 消灭 `createMockDepGraph` stub 与 `makeMockSnapshot` defaultStubs 之间的重复代码（违反 L2-7），两个调用点共享单一 `semanticDefaults` 事实源。
+  - **防御性收益**：未来 `DependencyGraphView` 新增方法时，stub 自动返回安全默认值，无需手工更新，消除测试与生产 API 漂移风险。
+- **验证**：`npm run test:fast` **99/99 PASS**；`audit-map-test.js`（12 处 stub）/ `overview-curator-test.js`（5 处 stub）/ `dep-tools-test.js` / `project-map-test.js` / `overview-tools-test.js`（`makeMockSnapshot` 消费者）全部回归通过。
+
+### 改进（CLI 渐进式披露：Tier 1 Curated Commands — 2026-05-24）
+
+- **默认 `--help` 认知负担降低** `cli.js`：
+  - 默认 `--help` 从展示全部 22 个命令缩减为 **10 个高频 Curated Commands（Tier 1）**。
+  - Tier 1 包含：L1 策展入口 5 个（audit-summary / audit-file / audit-diff / audit-overview / audit-map）+ L2 专项工具 2 个（impact / affected-tests）+ L4 高频查询 3 个（dead-exports / tree / cycles）。
+  - 标题从 "Core Commands" 改为 "Curated Commands (Tier 1 — start here)"，明确引导 AI 消费者从策展入口开始。
+  - L2-L4 剩余 12 个诊断与调试工具（dependencies / dependents / stats / unresolved / debug / workspace-info / diagnostics / health / audit-security / init / repl / watch）折叠到 `--help --all`。
+- **测试同步更新** `test/cli-args-validation-test.js`：验证默认 help 包含 Tier 1 命令（impact / dead-exports）且不暴露 L4 调试命令；`--help --all` 仍展示完整 L1-L4 分层。
+- **验证**：`npm run test:fast` **99/99 PASS**；`node cli.js --help` 输出 10 个命令；`node cli.js --help --all` 输出全部 22 个命令。
+
+### 改进（预计算缓存细粒度失效 — 2026-05-24）
+
+- **`graph:updated` 事件上下文化** `src/services/dep-graph/builder.js` `src/services/dep-graph.js`：
+  - `graph:updated` 从无参事件改为携带变更上下文 `{ changedFiles?: string[], fullRebuild?: boolean }`。
+  - `builder.js` 全部 5 个 emit 点已传递上下文：`build()` → `fullRebuild: true`；`expandJavaPackageImports()` / `expandJavaPackageImportsIncremental(affectedFiles)` / `updateFiles` 删除/更新 → `changedFiles`。
+  - `dep-graph.js` `loadGraph()` → `fullRebuild: true`。
+- **`GraphAnalyzer._invalidateCycles()` 细粒度失效** `src/services/dep-graph/analyzer.js`：
+  - 新增 `_invalidateCycles(ctx)` 方法：仅在变更文件与已缓存 cycle 集合（`_cycleFiles`）相交时才清空 `_cachedCycles`；`fullRebuild` 时无条件清空；无上下文时保守回退到清空。
+  - `findCircularDependencies()` 缓存 cycles 时同步构建 `_cycleFiles` Set（`displayFiltered.flatMap` + `normalizeFilePath`），失效检查 O(k)。
+  - Watch 模式下编辑非 cycle 文件时，cycles 缓存不再重算，避免 O(n) DFS 开销。
+- **测试** `test/dep-graph-postprocess-incremental-test.js`：新增 `testCycleCacheFineGrainedInvalidation`，验证无关文件变更缓存保留、cycle 内文件变更缓存清空、fullRebuild 缓存清空。
+- **验证**：`npm run test:fast` **99/99 PASS**；`dep-graph-postprocess-incremental-test.js` 新增测试通过。
+
+### 改进（文档卫生与 engines 状态同步 — 2026-05-24）
+
+- **文档卫生清理** `SESSION.md`：
+  - 清理并删除 stale 的 `engines: >=16.0.0` 冲突及版本偏低待验证提示，使项目文档与 `package.json` 实际要求的 `node >=18.0.0` 保持 100% 精确一致。
+
 ### 改进（maxDepth 双重 parseInt 消除 — 2026-05-23）
 
 - **CLI / REPL / L4 层 maxDepth 职责分离** `cli.js` `src/cli/commands/index.js` `src/cli/repl.js` `src/tools/dep-tools/affected-tests.js` `src/tools/dep-tools/impact.js` `src/tools/tree-tools.js` `src/tools/audit-assembler.js`：

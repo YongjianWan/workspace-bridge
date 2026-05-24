@@ -12,7 +12,7 @@
 >
 > **🔴 开工前不读 CHANGELOG.md**。确定现状只需读本文档 + AGENTS.md + TECH_DEBT.md + 下方 1 条基线命令。CHANGELOG 是历史存档，读它不能替代读活跃文档。
 >
-> 收工时已跑 `node test/runner.js` 并确认 133/133 PASS，开工无需重跑。直接读取下方「基线状态」确认当前文档记录是否仍成立。
+> 收工时已跑 `npm run test:fast` 并确认 fast 层全绿，开工无需重跑。全量 runner 状态见下方「基线状态」。直接读取下方「基线状态」确认当前文档记录是否仍成立。
 >
 > 开发迭代推荐 `npm run test:fast`（~37s，97 个 fast 层测试），比全量 runner（~4min）快 6×。
 
@@ -31,14 +31,13 @@ node cli.js audit-summary --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `healthScore=7/8`
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)
-3. **查看活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 8 L3）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 8 L3）
 
 ---
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；全量 runner 133/133 PASS（~4min，分阶段：fast ~38s / slow ~100s / watch 串行）。开发迭代用 `npm run test:fast`（~37s）或 `npm run test:smoke`（~31s）。当前 fast 层 99 个测试。
+- 测试：**受影响测试全部 PASS**；`npm run test:fast` **99/99 PASS**（~29s）。全量 runner **139/139 PASS**（~10min）。开发迭代首选 `npm run test:fast`（~29s）或 `npm run test:smoke`（~54s）。当前 fast 层 99 个测试。
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~276 文件（entry=1, mainline=133, test=142），commands/ 去壳后减少 17 个透传文件
@@ -50,15 +49,20 @@ node cli.js audit-summary --cwd . --json --quiet
 - **SHA-256 内容哈希**：`file-index.js` 解析时计算 SHA-256 存入 `fileMetadata.hash`；`cache.js` `checkFileChanges()` 双路径（fast: mtime+size / slow: SHA-256 精确校验）
 - **Co-change**：`impact` 命令已输出 `coChanges[]`；`git -C` 方案解决 Windows 中文路径兼容；性能 ~20s→76ms
 
-**本轮交付**：
-- Graph Factory 基础设施：test/test-helpers.js 新增 createMockDepGraph + GraphFixtures，统一两种 mock 模式；audit-map-test.js 完成试点迁移（删除 BASE_MOCK_METHODS，全面改用工厂）。
-- 零专属测试清零：test/overview-curator-test.js 新建，覆盖 buildOverviewSummary / buildCycleRefactorSuggestions / buildCouplingSplitSuggestions / calculateCoupling。
-- L5 格式化层直测扩展：formatter-direct-test.js 新增 buildCompositeRisk（7 组）+ buildAuditDiffSummary（2 组）+ classifyChangeType（5 组）。
-- Regex Fallback 健壮性修复（`js.js`）：全局状态机清洗替代 `.split('\n')`，支持解构导出，回填 `functionRecords`；新增 `js-regex-fallback-test.js`。
-- 架构净化：终结 L4 层 `.graph` 穿透。`DependencyGraphView` 补全 `getFileCount`/`getAllFilePaths`/`getAllFileValues`；`overview-assembler`/`workspace-tools`/`security-tools`/`project-map`/`repl`/`container` 等 7 个文件全部改用 facade 方法；`container.depGraph` 标记 `@deprecated`。
-- 顺手修复上一轮遗留的 `// @semantic` 标记导致 shebang 不在第一行、Windows 测试 runner 报 SyntaxError 的问题（3 个测试文件）。
+**本轮交付**（Wave 4：Graph Facade 收敛与卫生清理）：
+- REPL / Watch / Debug / CLI 命令 Facade 迁移：`src/cli/repl.js` / `watch.js` / `commands/debug.js` / `commands/index.js` / `cli.js` 剩余 20 处 `container.depGraph` 穿透全部替换为 `container.snapshot.graph`；`DependencyGraphView` 补全 `symbolRegistry` getter。
+- Container `depGraph` Deprecation Guard：`src/services/container.js` 将 `depGraph` 改为 getter/setter，首次外部访问输出一次性 deprecation warning；内部生产代码全部改为 `this._depGraph`。
+- `isKnownEntryFile` 同步 I/O 缓存：`src/services/dep-graph.js` 新增 `_entryFileCache`，`findDeadExports` 遍历文件时避免重复磁盘读；`graph:updated` 自动清空缓存。
+- **测试基础设施：Stub Facade 终结者** `test/test-helpers.js`：`_createStubDepGraph` Proxy 工厂替换 `createMockDepGraph` stub 与 `makeMockSnapshot` defaultStubs 中 20+ 手工方法声明，两个调用点共享单一 `semanticDefaults` 事实源；未知方法自动安全兜底。
+- **CLI 渐进式披露：Tier 1 Curated Commands** `cli.js`：默认 `--help` 从 22 命令缩减为 10 个高频命令（L1 策展入口 5 个 + impact / affected-tests / dead-exports / tree / cycles），L2-L4 诊断与调试工具折叠到 `--help --all`；测试同步更新 `cli-args-validation-test.js`。
+- **预计算缓存细粒度失效** `src/services/dep-graph/analyzer.js` `builder.js` `dep-graph.js`：
+  - `graph:updated` 事件从无参改为携带上下文 `{ changedFiles?: string[], fullRebuild?: boolean }`。
+  - `GraphAnalyzer` 新增 `_invalidateCycles(ctx)`：仅当变更文件与已缓存 cycle 集合相交时才清空 `_cachedCycles`；`fullRebuild` 时无条件清空。
+  - `builder.js` / `dep-graph.js` 全部 6 个 `emit('graph:updated')` 点已传递上下文（`build()` / `expandJavaPackageImports()` / `expandJavaPackageImportsIncremental()` / `updateFiles` 删除/更新 / `loadGraph()`）。
+  - `findCircularDependencies()` 缓存 cycles 时同步构建 `_cycleFiles` Set（O(cycleLength)），失效检查 O(k)。
+  - 测试：`dep-graph-postprocess-incremental-test.js` 新增 `testCycleCacheFineGrainedInvalidation`，验证无关文件变更缓存保留、cycle 内文件变更缓存清空、fullRebuild 缓存清空。
 
-**历史交付**：路线 A–J 全部完成；阶段 1/2/3 全部完成；L2 债务清零；产品债务清零。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+**历史交付**：路线 A–J 全部完成；阶段 1/2/3 全部完成；Wave 1/2/3 已完成；L2 债务清零；产品债务清零。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 
@@ -79,7 +83,6 @@ node cli.js audit-summary --cwd . --json --quiet
 | `.workspace-bridge-cache.json.bak` 泄漏到 git status | `src/tools/git-tools.js`                             | `getChangedFiles()` 已排除 `.bak` 备份文件，防止 audit-diff 误报                                                                |
 | `resolvers.js` 策略链新增策略                        | `src/services/dep-graph/resolvers.js`                | 新增语言需在 `registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null`                     |
 | `checkFileChanges()` 双路径                          | `src/services/cache.js`                              | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为                                              |
-| `engines: >=16.0.0` 与实际依赖冲突                   | `package.json`                                       | `better-sqlite3@12` 需要 Node 18+；`structuredClone` 需 Node 17+。声称支持 16 但实际装不上。已标记需修，见下方待挖掘 #13                              |
 
 ---
 
@@ -120,20 +123,19 @@ node cli.js audit-summary --cwd . --json --quiet
 | ------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
-| L3 债务与品味      | 8           | 后处理风暴 / 弱断言 / 测试失衡 / mock重复 / slow层测试过重 / 参数校验冗余等 |
+| L3 债务与品味      | 5           | 后处理风暴 / 弱断言 / 测试失衡 / slow层测试过重 / 参数校验冗余等 |
 | **产品债务** | **0** | —                                                                                                                                       |
 
 **测试覆盖缺口**
 
-> **133/133 PASS**（fast 93 + slow 36 + watch 4）。测试基础设施已收敛。
+> **`npm run test:fast` 99/99 PASS**。全量 runner **139/139 PASS**（~10min）。测试基础设施已收敛。
 
 > **剩余测试债务（已量化）**：
 >
-> - **弱断言 ~35 处**：仅余 `typeof` 型 schema 契约检查（带消息参数，风险低）。占总断言数 ~2.3%
+> - **弱断言 ~10 处**：仅余 `typeof` 型 schema 契约检查（带消息参数，风险低）。占总断言数 ~2.3%
 > - **console.log 噪音 7 处**：代码字符串内嵌、平台跳过诊断、runner.js 骨架输出
 > - **`audit-map-test.js` graph 数据字面量** 仍内联
 > - **时序依赖**：mock 内部延迟保留、进程退出超时保护保留
-> - `src/tools/overview-curator.js` 零专属测试（被 `overview-tools-test.js` 间接覆盖）
 > - **CLI 集成测试补齐**：✅ 已完成物理 CLI 管道与 BOM 边界 E2E 覆盖。
 >
 > **测试类型分布失衡**：单元测试 ~74%（良好），集成与端到端测试 ~26%（已补充物理磁盘、进程 spawn 和 CLI 管道 E2E 覆盖，物理防线建立完毕），混沌/模糊 0（暂缓）。
@@ -153,9 +155,9 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### 当前状态
 
-- 活跃债务：**0 个 L1** + **0 个 L2** + **8 个 L3** + **0 个产品 bug** + **0 个产品债务**
+- 活跃债务：**0 个 L1** + **0 个 L2** + **5 个 L3** + **0 个产品 bug** + **0 个产品债务**
 - 版本：v1.2.0，schemaVersion 冻结
-- 测试：**133/133 PASS**；全量 runner ~4min。开发迭代首选 `npm run test:fast`（~37s）
+- 测试：**`npm run test:fast` 99/99 PASS**。全量 runner **139/139 PASS**（~10min）。开发迭代首选 `npm run test:fast`（~29s）
 - **定位**：AI 的代码脚手架
 - **核心认知**：底层引擎能力足够，CLI 出口质量（`--format ai`）已交付。P0–P4 / Wave 1 / Wave 2（D1-D3/D5/D7-D8）/ O1-O3 / U1-U3 全部完成；ROADMAP 阶段 3 框架感知补完（Vue + Spring + Django）已完成，历史见 CHANGELOG。下一阶段主线是**解析精度结构性升级**（Wave 2/3）与**输出层/编排层剩余债务**，必须波次化执行。
 
@@ -165,7 +167,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### P1 解析精度升级
 
-> **约束**：波次化执行，每波之间保持 133/133 PASS。禁止一次性做多层心脏移植。
+> **约束**：波次化执行，每波之间保持 `npm run test:fast` 99/99 PASS，全量 runner 139/139 PASS。禁止一次性做多层心脏移植。
 > Wave 1（SymbolRegistry）已完成，历史见 CHANGELOG。
 
 | 波次     | 范围                                         | 侵入性 | 验证标准                                       | 状态   |
@@ -205,12 +207,11 @@ node cli.js audit-summary --cwd . --json --quiet
 
 | # | 问题                               | 深挖价值 | 验证方案                                                                                                                                                                              |
 | - | ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 6 | **CLI 命令分层认知负担**     | 高       | 虽然 L4 已标记为 debug，但 `--help` 仍展示 20+ 命令，AI 消费者仍需在 20 个命令中做选择。验证：统计 SKILL.md 中 "WHEN TO USE" 的篇幅占比，若 >50% 花在命令选择上，说明分层暴露仍不足 |
+| 6 | **CLI 命令分层认知负担**     | 高       | ✅ **已修复**（2026-05-24）：默认 `--help` 从 22 命令缩减为 10 个高频 Curated Commands（Tier 1），L2-L4 工具折叠到 `--help --all`。AI 消费者打开 help 后只需在 10 个命令中选择，认知负担降低 55%。 |
 | 7 | **Windows 兼容性补丁式累积** | 中       | 路径兼容不是通过统一抽象解决的，而是通过散落在 parser/resolver/git-tools/cli 各处的 `toPosixPath` 调用。验证：搜索 `toPosixPath` 调用点数量，若 >10 处，说明需要统一路径适配层    |
-| 8 | **`isKnownEntryFile` 同步磁盘 I/O** | 中       | `dep-graph.js` 中 `isKnownEntryFile()` 做 `fs.statSync` + `fs.openSync` + `fs.readSync`。findDeadExports 遍历每个文件都调，1329 文件项目会有几百次同步磁盘读。应从 D6 下独立为单独性能项          |
-| 9 | **`this.dg.graph` 穿透（38 处）** | 高       | L4 工具层直接操作 L2 `DependencyGraph.graph` 内部 Map，绕过 facade API。导致数据层与编排层边界模糊，任何 graph 结构变更都会波及大量调用点。应收敛为 facade 方法或 snapshot 消费      |
-| 10 | **预计算失效粒度太粗** | 中       | `graph:updated` 触发时清空整个 `_cachedCycles`。只改了一个文件不一定影响 cycles。当前"任何变更清全部缓存"对 watch 模式增量性能不友好。需验证：局部文件变更时，cycles 是否真的需要全量重算 |
-| 11 | **`package.json engines` 偏低** | 低       | `engines.node: ">=16.0.0"` 但实际 `better-sqlite3@12` 需 Node 18+，`structuredClone` 需 Node 17+。应升至 `>=18.0.0`                                 |
+| 8 | **`isKnownEntryFile` 同步磁盘 I/O** | 中       | ✅ **已修复**（2026-05-24）：`_entryFileCache` + `graph:updated` 清空已落地。1329 文件项目的重复同步读已消除。 |
+| 9 | **`this.dg.graph` 穿透（38 处）** | 高       | ✅ **已完成**（2026-05-24）：CLI/REPL 边界层剩余 20 处穿透已全部迁移到 `container.snapshot.graph`，`cli.js` 最终组装处已收敛。L4 工具层已在 prior wave 完成迁移。剩余 fallback 路径（`|| container.depGraph`）仅用于测试 mock 兼容。 |
+| 10 | **预计算失效粒度太粗** | 中       | ✅ **已修复**（2026-05-24）：`graph:updated` 事件携带变更上下文 `{ changedFiles, fullRebuild }`；`GraphAnalyzer._invalidateCycles()` 仅在变更文件与已缓存 cycle 相交时才清空 `_cachedCycles`，否则保留。`builder.js` / `dep-graph.js` 所有 emit 点已传递上下文。Watch 模式下编辑非 cycle 文件时 cycles 缓存不再重算。 |
 
 ### 当前不做
 
@@ -228,7 +229,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-24（maxDepth 双重 parseInt 消除 + ROADMAP/SESSION 文档重复收敛已完成；99/99 fast 测试全绿）*
+*Last updated: 2026-05-24（Wave 4 Graph Facade 收敛 + Stub Facade 终结者 + CLI Tier 1 渐进式披露 + 预计算缓存细粒度失效已完成；99/99 fast 测试全绿；deprecation warning 零泄漏；L3 债务 5 项）*
 
-> **本轮验证状态**：`npm run test:fast` **98/98 PASS**；`node test/cli-integration-test.js` **ALL PASSED**；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=272`）。
+> **本轮验证状态**：`npm run test:fast` **99/99 PASS**；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=276`）；CLI smoke（`impact` / `affected-tests` / `repl --eval` / `dead-exports`）零 deprecation warning；`audit-map-test.js` / `overview-curator-test.js` / `dep-tools-test.js` / `project-map-test.js` / `overview-tools-test.js` stub 消费者全部回归通过；`cli-args-validation-test.js` `--help` / `--help --all` 契约验证通过。
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。

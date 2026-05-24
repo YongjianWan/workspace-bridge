@@ -74,13 +74,20 @@ function printUsage(showAll = false) {
 Usage:
   workspace-bridge-cli <command> [options]
 
-Core Commands:
+Curated Commands (Tier 1 — start here):
   audit-summary           Aggregate health + graph findings
   audit-file --file <p> [--watch]  Aggregate impact + affected tests for one file
   audit-diff [--staged] [--files <list>] [--incremental] [--commits <range>]
                             Aggregate changed files + impact + affected tests
   audit-overview          Project panoramic view (hotspots, stability, orphans)
   audit-map               Global project map (tree + edges + issue overlay)
+  impact --file <path>    Find impact radius for a file
+  affected-tests --file <path> [--max-depth <n>]
+                            Find tests related to a file
+  dead-exports            Find dead export candidates
+  tree --file <path> [--max-depth <n>] [--direction <imports|dependents|both>]
+                            Build import/dependent tree for a file
+  cycles                  Find circular dependencies
 
 Options:
   --cwd <path>            Target workspace or file path
@@ -113,7 +120,7 @@ Options:
   --help                  Show help
   --help <command>       Show detailed guide for a command
 
-Run --help --all to see the full command list (L2-L4 debug tools included).
+Run --help --all to see the full command list (diagnostic & debug tools included).
 `);
     return;
   }
@@ -454,7 +461,7 @@ async function main() {
     }
     if (result && typeof result === 'object' && result.ok !== false && container) {
       result.staleness = container.getStaleness();
-      result.warnings = container.depGraph.buildWarnings();
+      result.warnings = container.snapshot.graph.buildWarnings();
     }
     if (parsed.format === 'ai') {
       console.log(formatAi(parsed.command, result, {

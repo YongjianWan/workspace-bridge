@@ -300,7 +300,7 @@ async function startWatch(options) {
 
     registerWatchCallback(
       container.fileIndex.bus,
-      container.depGraph,
+      container.snapshot.graph,
       container.workspaceRoot,
       options.compact,
       options.runTests,
@@ -407,7 +407,7 @@ async function startAuditFileWatch(options) {
 
     registerAuditFileWatchCallback(
       container.fileIndex.bus,
-      container.depGraph,
+      container.snapshot.graph,
       container.workspaceRoot,
       options.compact,
       targetFile,

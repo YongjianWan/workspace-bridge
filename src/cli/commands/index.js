@@ -60,7 +60,7 @@ const COMMANDS = {
   },
   'audit-map': async (parsed, container) => {
     await container.ensureReady();
-    const result = buildProjectMap(container.depGraph, { compact: parsed.compact });
+    const result = buildProjectMap(container.snapshot.graph, { compact: parsed.compact });
     const c = result.summary?.issueCounts || {};
     result.hasFindings =
       (c.deadExports || 0) > 0 ||
