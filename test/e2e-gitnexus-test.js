@@ -4,16 +4,21 @@
  * Verifies workspace-bridge produces valid output on non-trivial repositories.
  */
 const assert = require('assert');
+const os = require('os');
 const path = require('path');
 const { TIMEOUTS } = require('../src/config/constants');
 const { runCli } = require('./test-helpers');
 
 const GITNEXUS_ROOT = path.join(__dirname, '..', 'reference', 'GitNexus');
+const SHARED_CACHE_DIR = path.join(os.tmpdir(), 'wb-gitnexus-shared-cache');
 
 function testAuditSummaryOnGitNexus() {
-  const result = runCli(['audit-summary', '--cwd', GITNEXUS_ROOT, '--json', '--quiet'], {
-    timeout: TIMEOUTS.TEST_RUNNER_MS,
-  });
+  const result = runCli(
+    ['audit-summary', '--cwd', GITNEXUS_ROOT, '--json', '--quiet', '--cache-dir', SHARED_CACHE_DIR],
+    {
+      timeout: TIMEOUTS.TEST_RUNNER_MS,
+    }
+  );
   assert.strictEqual(result.ok, true, 'audit-summary should succeed on GitNexus');
   assert.strictEqual(typeof result.schemaVersion, 'string', 'schemaVersion should be a string');
   assert.ok(result.schemaVersion.length > 0, 'schemaVersion should not be empty');

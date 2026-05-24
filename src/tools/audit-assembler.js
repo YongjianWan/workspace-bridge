@@ -72,7 +72,8 @@ async function assembleSummary(parsed, container) {
   };
 
   if (parsed.save) {
-    const savePath = path.resolve(parsed.cwd || process.cwd(), parsed.save);
+    const saveFilename = typeof parsed.save === 'string' ? parsed.save : regressionTools.DEFAULT_BASELINE_FILE;
+    const savePath = path.resolve(parsed.cwd || process.cwd(), saveFilename);
     regressionTools.saveBaseline(result, savePath);
     result.baselineSaved = savePath;
   }
@@ -80,13 +81,16 @@ async function assembleSummary(parsed, container) {
   if (parsed.checkRegression) {
     let baselinePath = null;
     let commitBaseline = null;
-    if (parsed.baseline) {
+    if (parsed.baseline && typeof parsed.baseline === 'string') {
       const resolved = path.resolve(parsed.cwd || process.cwd(), parsed.baseline);
       if (fs.existsSync(resolved)) {
         baselinePath = resolved;
       } else {
         commitBaseline = parsed.baseline;
       }
+    } else {
+      // Default baseline file resolved against target cwd
+      baselinePath = path.resolve(parsed.cwd || process.cwd(), regressionTools.DEFAULT_BASELINE_FILE);
     }
     if (commitBaseline) {
       result.regression = regressionTools.checkRegressionAgainstCommit(result, commitBaseline, parsed.cwd || process.cwd());

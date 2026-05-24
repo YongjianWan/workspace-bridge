@@ -1,7 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { runCliRaw, assertOk } = require('./test-helpers');
+const { runCliRaw, assertOk, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 const cwd = path.resolve(__dirname, '..');
 const targetFile = path.join(cwd, 'src', 'utils', 'path.js');
@@ -33,17 +33,19 @@ function testFilesFlagAuditDiff() {
 }
 
 function testFilesFlagAuditSecurity() {
-  const tmpFile = path.join(cwd, 'test-staged-sec-temp.js');
+  const tempDir = makeTempDir('wb-staged-sec-');
+  const tmpFile = path.join(tempDir, 'test-staged-sec-temp.js');
   try {
+    fs.writeFileSync(path.join(tempDir, 'package.json'), '{}'); // Dummy package.json
     fs.writeFileSync(tmpFile, `eval('1');\n`);
-    const result = run(['audit-security', '--builtin-only', '--files', tmpFile]);
+    const result = runCliRaw(['audit-security', '--cwd', tempDir, '--builtin-only', '--files', tmpFile, '--json', '--quiet'], { cwd: tempDir });
     assertOk(result, 'audit-security --files should succeed');
     const data = JSON.parse(result.stdout);
     assert.strictEqual(data.ok, true, 'ok should be true');
     assert(data.findings.length > 0, 'should find security issues in specified file');
     assert(data.findings.every((f) => f.file.includes('test-staged-sec-temp.js')), 'all findings should be from the specified file');
   } finally {
-    try { fs.unlinkSync(tmpFile); } catch {}
+    cleanupTempDir(tempDir);
   }
 }
 

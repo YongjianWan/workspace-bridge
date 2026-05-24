@@ -12,11 +12,18 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const { TIMEOUTS } = require('../src/config/constants');
 
 const TEST_DIR = __dirname;
+const REPO_ROOT = path.join(__dirname, '..');
 const TIMEOUT_MS = parseInt(process.env.TEST_TIMEOUT_MS, 10) || TIMEOUTS.TEST_RUNNER_MS;
+
+// Warm-cache for slow tests: a pre-built graph of the workspace-bridge repo itself.
+// Slow tests copy this into their isolated cache directory to skip the expensive
+// cold-start (file indexing + AST parsing + graph build) on every spawn.
+const WARM_CACHE_DIR = path.join(os.tmpdir(), 'wb-runner-warm-cache');
+const WARM_CACHE_READY = path.join(WARM_CACHE_DIR, '.ready');
 
 /* -------------------------------------------------------------------------- */
 // CLI argument parsing
@@ -92,6 +99,10 @@ function classifyTest(file) {
       classificationCache.set(file, 'watch');
       return 'watch';
     }
+    if (header.includes('@serial')) {
+      classificationCache.set(file, 'serial');
+      return 'serial';
+    }
   }
 
   // Priority 2: known filename patterns
@@ -110,10 +121,30 @@ function classifyTest(file) {
       classificationCache.set(file, 'slow');
       return 'slow';
     }
+    // Heavy internal API usage ≈ a full CLI cold start (ServiceContainer init, graph build, etc.)
+    if (/(new\s+ServiceContainer|new\s+FileIndex|DependencyGraph\.fromSchema|createServiceContainer)/.test(content)) {
+      classificationCache.set(file, 'slow');
+      return 'slow';
+    }
   }
 
   classificationCache.set(file, 'fast');
   return 'fast';
+}
+
+/**
+ * Determine whether a test needs an isolated per-test cache directory.
+ * Fast tests that do not spawn child processes or touch the cache directly
+ * do not need a WB_TEST_CACHE_DIR, saving NTFS mkdtemp/rm overhead.
+ */
+function needsCacheDir(file) {
+  if (classifyTest(file) !== 'fast') return true;
+  try {
+    const content = fs.readFileSync(path.join(TEST_DIR, file), 'utf8');
+    return /runCli|runCliRaw|runCliText|spawnSync|child_process|WB_TEST_CACHE_DIR/.test(content);
+  } catch {
+    return true;
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -125,8 +156,8 @@ function validateSlowClassification(files) {
     if (classifyTest(file) !== 'fast') continue;
     try {
       const content = fs.readFileSync(path.join(TEST_DIR, file), 'utf8');
-      if (/runCli|runCliRaw|runCliText|spawnSync|child_process/.test(content)) {
-        warnings.push(`  ${file}: contains runCli/spawnSync/child_process but classified as fast. Add // @slow to its header.`);
+      if (/runCli|runCliRaw|runCliText|spawnSync|child_process|(new\s+ServiceContainer|new\s+FileIndex|DependencyGraph\.fromSchema|createServiceContainer)/.test(content)) {
+        warnings.push(`  ${file}: contains runCli/spawnSync/child_process/heavy-API but classified as fast. Add // @slow to its header.`);
       }
     } catch {
       // ignore read errors
@@ -184,8 +215,8 @@ if (requestedLayer) {
   files = fastTests.concat(selectedSlow);
 }
 
-const serialFiles = files.filter((f) => /watch/.test(f));
-const concurrentFiles = files.filter((f) => !/watch/.test(f));
+const serialFiles = files.filter((f) => /watch/.test(f) || classifyTest(f) === 'serial');
+const concurrentFiles = files.filter((f) => !/watch/.test(f) && classifyTest(f) !== 'serial');
 
 /* -------------------------------------------------------------------------- */
 // Concurrency: default to CPU count (capped) for much faster execution.
@@ -193,7 +224,7 @@ const concurrentFiles = files.filter((f) => !/watch/.test(f));
 const FAST_CONCURRENCY = parseInt(process.env.TEST_CONCURRENCY, 10)
   || Math.min(12, os.cpus().length || 4);
 const SLOW_CONCURRENCY = parseInt(process.env.TEST_SLOW_CONCURRENCY, 10)
-  || Math.min(4, FAST_CONCURRENCY);
+  || Math.min(2, FAST_CONCURRENCY);
 
 let passed = 0;
 let failed = 0;
@@ -203,9 +234,21 @@ const start = Date.now();
 function runOne(file) {
   const filePath = path.join(TEST_DIR, file);
   const testStart = Date.now();
+  const useCache = needsCacheDir(file);
 
   // Isolate SQLite cache per test to eliminate lock contention under concurrency.
-  const testCacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-runner-cache-'));
+  const testCacheDir = useCache
+    ? fs.mkdtempSync(path.join(os.tmpdir(), 'wb-runner-cache-'))
+    : null;
+
+  // Copy warm cache for slow tests to skip expensive cold-start rebuild.
+  if (testCacheDir && classifyTest(file) === 'slow' && fs.existsSync(WARM_CACHE_READY)) {
+    try {
+      fs.cpSync(WARM_CACHE_DIR, testCacheDir, { recursive: true, force: true, dereference: true });
+    } catch {
+      // Non-fatal: fall back to cold start.
+    }
+  }
 
   return new Promise((resolve) => {
     let settled = false;
@@ -215,12 +258,13 @@ function runOne(file) {
       resolve(value);
     }
 
+    const childEnv = useCache
+      ? { ...process.env, WB_TEST_CACHE_DIR: testCacheDir }
+      : process.env;
+
     const child = spawn('node', [filePath], {
       timeout: TIMEOUT_MS,
-      env: {
-        ...process.env,
-        WB_TEST_CACHE_DIR: testCacheDir,
-      },
+      env: childEnv,
     });
 
     let stdout = '';
@@ -241,7 +285,9 @@ function runOne(file) {
       const elapsed = Date.now() - testStart;
       const ok = status === 0 && !signal;
       // Clean up per-test cache directory regardless of outcome.
-      try { fs.rmSync(testCacheDir, { recursive: true, force: true }); } catch {}
+      if (testCacheDir) {
+        try { fs.rmSync(testCacheDir, { recursive: true, force: true }); } catch {}
+      }
       settle({ file, ok, status, signal, stdout, stderr, elapsed });
     });
 
@@ -307,9 +353,55 @@ async function runConcurrentPhase(phaseFiles, concurrency, phaseLabel) {
   }
 }
 
+/**
+ * Pre-warm a shared cache against the workspace-bridge repo itself.
+ * Slow tests that operate on the main repo can copy this warm cache
+ * into their isolated test cache directory, skipping the expensive
+ * cold-start graph build + WASM initialization on every spawn.
+ */
+function warmCache() {
+  // Skip warm-up for fast-only runs (no slow tests need it).
+  if (requestedLayer === 'fast') return;
+
+  // Re-use if still fresh (5 min TTL).
+  if (fs.existsSync(WARM_CACHE_READY)) {
+    try {
+      const stat = fs.statSync(WARM_CACHE_READY);
+      if (Date.now() - stat.mtimeMs < 5 * 60 * 1000) {
+        return;
+      }
+    } catch {
+      // stale / unreadable → rebuild
+    }
+  }
+
+  // Clean stale cache
+  try { fs.rmSync(WARM_CACHE_DIR, { recursive: true, force: true }); } catch {}
+
+  const CLI_PATH = path.join(REPO_ROOT, 'cli.js');
+  console.log('[runner] Warming cache for slow tests...');
+  const warmStart = Date.now();
+  const result = spawnSync('node', [CLI_PATH, 'audit-summary', '--cwd', REPO_ROOT, '--cache-dir', WARM_CACHE_DIR, '--quiet', '--json'], {
+    encoding: 'utf8',
+    timeout: 120000,
+    stdio: 'pipe',
+    env: { ...process.env, WB_TEST_CACHE_DIR: WARM_CACHE_DIR },
+  });
+
+  if (result.status === 0) {
+    fs.writeFileSync(WARM_CACHE_READY, '');
+    console.log(`[runner] Cache warmed in ${Date.now() - warmStart}ms`);
+  } else {
+    console.warn(`[runner] Cache warm-up failed (exit ${result.status}), slow tests will cold-start. stderr: ${(result.stderr || '').slice(0, 200)}`);
+  }
+}
+
 async function main() {
   // Self-check: warn about tests that look slow but are classified as fast.
   validateSlowClassification(files);
+
+  // Pre-warm cache before any slow tests run.
+  warmCache();
 
   // Phase 1: fast tests at higher concurrency — they finish quickly and should
   // not be held back by slow/integration tests in the same batch.

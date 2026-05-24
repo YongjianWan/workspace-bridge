@@ -1,23 +1,36 @@
+// @semantic
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { runCliRaw, assertOk } = require('./test-helpers');
+const { runCliRaw, runInDir, assertOk, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
-const cwd = path.resolve(__dirname, '..');
-const baselineFile = path.join(cwd, 'test-regression-baseline.json');
+const tempDir = makeTempDir('wb-regression-');
+const baselineFile = path.join(tempDir, 'test-regression-baseline.json');
 
-function run(args) {
-  return runCliRaw([...args, '--json', '--quiet'], { cwd });
-}
+// Initialize a hermetic git repository in tempDir
+runInDir('git', ['init'], tempDir);
+runInDir('git', ['config', 'user.email', 'test@example.com'], tempDir);
+runInDir('git', ['config', 'user.name', 'Test User'], tempDir);
+
+// Commit 1 (HEAD~1)
+fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify({ name: 'reg-test', version: '1.0.0', main: 'a.js' }), 'utf8');
+fs.writeFileSync(path.join(tempDir, 'a.js'), 'console.log(1);\n', 'utf8');
+runInDir('git', ['add', '.'], tempDir);
+runInDir('git', ['commit', '-m', 'first commit'], tempDir);
+
+// Commit 2 (HEAD)
+fs.writeFileSync(path.join(tempDir, 'a.js'), 'console.log(2);\n', 'utf8');
+runInDir('git', ['add', '.'], tempDir);
+runInDir('git', ['commit', '-m', 'second commit'], tempDir);
 
 function cleanup() {
   try { fs.unlinkSync(baselineFile); } catch {}
-  try { fs.unlinkSync(path.join(cwd, '.workspace-bridge-baseline.json')); } catch {}
+  try { fs.unlinkSync(path.join(tempDir, '.workspace-bridge-baseline.json')); } catch {}
 }
 
 function testSaveBaseline() {
   cleanup();
-  const result = run(['audit-summary', '--save', 'test-regression-baseline.json']);
+  const result = runCliRaw(['audit-summary', '--cwd', tempDir, '--save', baselineFile, '--json', '--quiet'], { cwd: tempDir });
   assertOk(result, 'save baseline should succeed');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.baselineSaved, baselineFile, 'should report saved path');
@@ -30,7 +43,7 @@ function testSaveBaseline() {
 
 function testCheckRegressionNoBaseline() {
   cleanup();
-  const result = run(['audit-summary', '--check-regression']);
+  const result = runCliRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--json', '--quiet'], { cwd: tempDir });
   assert.strictEqual(result.status, 1, `Exit code should be 1 (ok=false), got ${result.status}. stderr: ${result.stderr}`);
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.regression.ok, false, 'should fail when no baseline exists');
@@ -40,11 +53,11 @@ function testCheckRegressionNoBaseline() {
 function testCheckRegressionWithBaseline() {
   cleanup();
   // First save a baseline
-  const saveResult = run(['audit-summary', '--save', 'test-regression-baseline.json']);
+  const saveResult = runCliRaw(['audit-summary', '--cwd', tempDir, '--save', baselineFile, '--json', '--quiet'], { cwd: tempDir });
   assertOk(saveResult, 'save baseline should succeed');
 
   // Then check regression against it
-  const result = run(['audit-summary', '--check-regression', '--baseline', 'test-regression-baseline.json']);
+  const result = runCliRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--baseline', baselineFile, '--json', '--quiet'], { cwd: tempDir });
   assertOk(result, 'check regression should succeed');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.regression.ok, true, 'regression check should succeed');
@@ -52,26 +65,25 @@ function testCheckRegressionWithBaseline() {
   assert(Array.isArray(data.regression.regression.deadExports.open), 'deadExports.open should be array');
   assert(Array.isArray(data.regression.regression.deadExports.new), 'deadExports.new should be array');
   assert(Array.isArray(data.regression.regression.deadExports.fixed), 'deadExports.fixed should be array');
-  // Same baseline = no changes
   assert.strictEqual(data.regression.regression.deadExports.new.length, 0, 'no new dead exports against same baseline');
   assert.strictEqual(data.regression.regression.deadExports.fixed.length, 0, 'no fixed dead exports against same baseline');
 }
 
 function testSaveAndCheckRegressionDefaultPath() {
   cleanup();
-  const saveResult = run(['audit-summary', '--save', 'test-regression-baseline.json']);
+  const saveResult = runCliRaw(['audit-summary', '--cwd', tempDir, '--save', '--json', '--quiet'], { cwd: tempDir });
   assertOk(saveResult, 'save baseline should succeed');
 
-  const result = run(['audit-summary', '--check-regression', '--baseline', 'test-regression-baseline.json']);
+  const result = runCliRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--json', '--quiet'], { cwd: tempDir });
   assertOk(result, 'check regression should succeed');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.regression.ok, true);
-  assert.strictEqual(data.regression.baselinePath, baselineFile);
+  assert.strictEqual(data.regression.baselinePath, path.join(tempDir, '.workspace-bridge-baseline.json'));
 }
 
 function testCheckRegressionAgainstCommit() {
   cleanup();
-  const result = run(['audit-summary', '--check-regression', '--baseline', 'HEAD~1']);
+  const result = runCliRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--baseline', 'HEAD~1', '--json', '--quiet'], { cwd: tempDir });
   assertOk(result, 'check regression against commit should succeed');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.regression.ok, true, 'commit baseline check should succeed');
@@ -92,6 +104,7 @@ function main() {
     testCheckRegressionAgainstCommit();
   } finally {
     cleanup();
+    cleanupTempDir(tempDir);
   }
 }
 

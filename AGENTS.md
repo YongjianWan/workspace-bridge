@@ -242,6 +242,6 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-24（Wave 4 Graph Facade 收敛已完成；全量 runner 139/139 PASS；L3 债务与品味 8 项；`npm run test:fast` 99/99 PASS；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-24（Wave 4 Graph Facade 收敛 + functionality-test 拆分 + runner 预热缓存 + slow 并发降级 + watch 超时收紧 + 去 serial 化已完成；全量 runner 141/141 PASS；L3 债务与品味 5 项；npm run test:fast 80/80 PASS；schemaVersion: 1.2.0）*
 
 

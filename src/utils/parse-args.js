@@ -26,9 +26,20 @@ function parseArgs(argv, handlers) {
     if (handler === true) {
       result[arg] = true;
     } else {
-      const rawValue = args[++i];
-      const key = handler.key || arg;
-      result[key] = handler.transform ? handler.transform(rawValue) : rawValue;
+      const nextArg = args[i + 1];
+      if (nextArg !== undefined) {
+        if (!/^-[a-zA-Z-]/.test(nextArg)) {
+          i += 1;
+          const key = handler.key || arg;
+          result[key] = handler.transform ? handler.transform(nextArg) : nextArg;
+        } else {
+          const key = handler.key || arg;
+          result[key] = true;
+        }
+      } else {
+        const key = handler.key || arg;
+        result[key] = handler.transform ? handler.transform(undefined) : undefined;
+      }
     }
   }
   return result;

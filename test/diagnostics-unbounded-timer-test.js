@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /**
+ * @slow
  * Regression test for #42: DiagnosticsEngine unbounded timer.
  */
 const assert = require('assert');

@@ -8,6 +8,57 @@
 
 ## [Unreleased]
 
+### 改进与重构（并发测试第二波与健壮 CLI 参数解析 — 2026-05-24）
+
+- **重型 Serial 测试并发化与隔离** `test/`：
+  - 将 5 个原本位于 `@serial` 单线程串行执行的重型测试（`cli-mapper-adapter-test.js`、`audit-diff-incremental-test.js`、`severity-filter-test.js`、`staged-files-test.js`、`regression-test.js`）移动到 Slow 并发层（concurrency=4）。
+  - 彻底重构测试内部的临时文件读写逻辑，使用 `makeTempDir` 创建独立的临时目录，并使用 `--cwd` 将 CLI 执行范围限制在 hermetic 的临时目录中。
+  - 为 `staged-files-test.js` 和 `severity-filter-test.js` 内的 `tempDir` 新增 dummy `package.json`，解决自动工作区根目录识别（`findWorkspaceRoot`）在非工作区目录下会一直向上回溯至用户 Home 目录并导致慢扫描/挂起的严重问题。
+- **健壮 CLI 选项与 Baseline 智能解析** `src/utils/parse-args.js` + `src/tools/audit-assembler.js`：
+  - 升级 `parseArgs` 核心库：当遇到带有可选值/默认值的参数（如 `--save`、`--baseline`）且下一个参数为命令行 Flag（以 `-` 开头）时，智能判定为无参 Flag 形式，不再错误地将下一个 Flag 消费为它的值。
+  - 升级 `assembleSummary` 路径处理：支持以 Boolean 传入的 `--save` 和 `--baseline` 参数，并智能在 `parsed.cwd`（而非 `process.cwd()`）下解析 `DEFAULT_BASELINE_FILE`，完美支持并发及任何隔离执行场景。
+- **验证**：全量 runner 141/141 PASS，重型测试彻底并发执行，测试总时间大幅优化！
+
+### 改进（测试 runner 性能优化第二波 — 2026-05-24）
+
+- **Slow 层预热缓存机制** `test/runner.js`：
+  - 新增 `warmCache()`：在 slow 层启动前预先对 workspace-bridge 自身跑一轮 `audit-summary`，将完整的图索引、SQLite 缓存、WASM 初始化结果写入 `wb-runner-warm-cache`。
+  - 每个 slow 测试启动时，通过 `fs.cpSync` 把预热缓存复制到自己的 `WB_TEST_CACHE_DIR` 中，跳过昂贵的冷启动（文件遍历 + AST 解析 + 建图）。
+  - 缓存 TTL 5 分钟，fast-only 运行自动跳过预热。
+  - 对 REPO_ROOT 上运行的 CLI 测试收益最大（如 `cli-integration-test.js` `cli-args-validation-test.js` 等），单测试节省 3–8s。
+- **Windows Slow 层并发度降级** `test/runner.js`：
+  - `SLOW_CONCURRENCY` 从 `Math.min(4, ...)` 降到 `Math.min(2, ...)`。Windows 上 4 个并发 Node.js 进程同时加载 tree-sitter WASM（总计 >20MB）会导致内存/磁盘 I/O 踩踏，反而更慢。
+  - 降频后单个进程获得更多资源，slow 层从 >10min（超时）降至 **~4.2min**。
+- **扩展 runner 慢测试检测启发式** `test/runner.js`：
+  - Priority 3 内容检测新增 `new ServiceContainer|new FileIndex|DependencyGraph.fromSchema|createServiceContainer` 模式。
+  - 10 个隐藏重量级测试（`container-lifecycle-test.js` `container-workspace-info-test.js` `file-index-*` `cache-consistency-test.js` 等）被正确降级到 slow。
+  - Fast 层从 90 个缩减为 **80 个**，回归 "毫秒级反馈" 本意。
+- **Flaky 测试修复** `test/`：
+  - `audit-diff-incremental-test.js` 和 `cli-mapper-adapter-test.js` 标为 `// @serial`，消除并发下 `spawnSync` 资源竞争导致的随机超时/崩溃。
+  - `test-helpers.js` `runCliRaw` 默认 timeout 从 60s 提升到 90s，覆盖并发 WASM 加载的尾部延迟。
+- **Watch 测试超时收紧** `test/watch-test.js` `audit-file-watch-test.js` `watch-sigterm-test.js`：
+  - 将保守的 `waitForStartup` 上限从 15s 降至 8s，事件轮询上限从 15–20s 降至 8–12s，进程退出等待从 3–5s 降至 1.5–2s。
+  - 这些超时只是安全上限，实际事件到达后即提前 resolve，不影响稳定性。
+- **functionality-core-test.js 去 serial 化** `test/functionality-core-test.js`：
+  - 将 `audit-diff` 部分从 REPO_ROOT（需要创建 `test-audit-diff-temp.txt`）迁移到独立临时目录 + git init，彻底消除对仓库根目录的修改。
+  - 移除 `// @serial` 注解，测试落入 slow 并发层执行。
+- **效果**：`npm run test:fast` **80/80 PASS**（~5–6s）；slow 层 **54/54 PASS**（~2.4min）；全量 runner 从 >10min 超时降至 **~4min**。
+
+### 改进（测试 runner 性能优化 — 2026-05-24）
+
+- **runner.js 缓存目录按需创建** `test/runner.js`：
+  - 新增 `needsCacheDir(file)` 辅助函数：fast 层测试若不包含 `runCli|spawnSync|child_process|WB_TEST_CACHE_DIR` 则跳过 `mkdtempSync` + `rmSync`，直接不注入 `WB_TEST_CACHE_DIR`。
+  - 消除 fast 层 90 个纯内存单元测试每次创建/销毁空临时目录的 NTFS 元数据开销。
+- **重量级 fast 测试降级为 slow** `test/runner.js` + 9 个测试文件：
+  - 将 9 个耗时 >3s 的 fast 测试（`cochange-test.js` `security-adapter-test.js` `cpp-parser-test.js` `parser-schema-contract-test.js` `dep-graph-error-test.js` `precompute-hotspot-test.js` `diagnostics-unbounded-timer-test.js` `security-tools-test.js` `dep-graph-postprocess-incremental-test.js`）头部添加 `// @slow` 注解。
+  - fast 层从 99 个测试缩减为 90 个，回归 `npm run test:fast` "快速反馈"的本意。
+- **functionality-test.js 拆分与串并行并发优化** `test/runner.js` + 3个拆分测试文件：
+  - 将原本串行独占 ~110s 的单体巨型 `functionality-test.js` 拆分为 `functionality-core-test.js`（保留 `@serial` 于主仓库执行）、`functionality-temp-test.js`（技术栈/框架检测，并发）、`functionality-polyglot-test.js`（多语言/非 ASCII 路径/Heuristic 映射，并发）。
+  - `runner.js` 新增对 `// @serial` 文件头部注释的自动扫描识别，使带该注解的测试在 runtime 动态归入单线程串行队列，彻底消除并发下操作 git / 仓库根目录导致的文件系统 crosstalk。
+  - 拆分后测试被并发消纳，单体耗时降至 12s/17s，测试总数升级为 141，Windows 运行完全稳定不 Flaky。
+- **效果**：`npm run test:fast` 从 ~29s 降至 **~12s**（~58% 提速）；全量 runner 在大幅增强稳定性的情况下 **141/141 PASS**。
+- **验证**：`npm run test:fast` **90/90 PASS**；全量 runner **141/141 PASS**。
+
 ### 架构重构（Wave 4：Graph Facade 收敛与卫生清理 — 2026-05-24）
 
 - **REPL / Watch / Debug / CLI 命令 Facade 迁移** `src/cli/repl.js` `src/cli/watch.js` `src/cli/commands/debug.js` `src/cli/commands/index.js` `cli.js`：

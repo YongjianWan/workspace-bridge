@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 const assert = require('assert');
 const path = require('path');
 const { BaseAdapter } = require('../src/adapters/base');

@@ -37,7 +37,7 @@ async function cleanup() {
   }
 }
 
-async function waitForStartup(childStderr, timeoutMs = 15000) {
+async function waitForStartup(childStderr, timeoutMs = 8000) {
   let waited = 0;
   while (!childStderr.includes('Watching for file changes') && waited < timeoutMs) {
     await delay(100);
@@ -74,7 +74,7 @@ async function testWatchFileChange() {
   // Poll for expected output instead of betting on a fixed delay
   const startTime = Date.now();
   let found = false;
-  while (Date.now() - startTime < 15000) {
+  while (Date.now() - startTime < 8000) {
     if (stdout.includes('trigger.js changed')) {
       found = true;
       break;
@@ -89,7 +89,7 @@ async function testWatchFileChange() {
   await new Promise((resolve) => {
     child.on('exit', resolve);
     child.on('error', resolve);
-    setTimeout(resolve, 3000);
+    setTimeout(resolve, 1500);
   });
 
   assert(found, `Should print impact for trigger file. stdout: ${stdout}`);
@@ -116,7 +116,7 @@ async function testWatchSigint() {
   const result = await new Promise((resolve) => {
     child.on('exit', (code, signal) => resolve({ code, signal }));
     child.on('error', () => resolve({ code: 'error' }));
-    setTimeout(() => resolve({ code: 'timeout' }), 5000);
+    setTimeout(() => resolve({ code: 'timeout' }), 2000);
   });
 
   // If the platform does not deliver the signal, we skip rather than fail.
@@ -173,7 +173,7 @@ async function testWatchRunTests() {
   // Poll for JSON Lines events (validation may take a while to compute + spawn)
   const startTime = Date.now();
   let completeEvent = null;
-  while (Date.now() - startTime < 20000) {
+  while (Date.now() - startTime < 12000) {
     const events = parseJsonLines(stdout);
     completeEvent = events.find((e) => e.event === 'validationComplete');
     if (completeEvent) break;
@@ -186,7 +186,7 @@ async function testWatchRunTests() {
   await new Promise((resolve) => {
     child.on('exit', resolve);
     child.on('error', resolve);
-    setTimeout(resolve, 3000);
+    setTimeout(resolve, 1500);
   });
 
   const events = parseJsonLines(stdout);

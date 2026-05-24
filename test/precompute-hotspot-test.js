@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /**
+ * @slow
  * Precomputed hotspot/stability integration test.
  * Verifies that hotspot/stability are computed on-demand by buildProjectOverview
  * and cached for reuse (precompute-on-demand).

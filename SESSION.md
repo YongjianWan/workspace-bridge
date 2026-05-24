@@ -37,7 +37,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；`npm run test:fast` **99/99 PASS**（~29s）。全量 runner **139/139 PASS**（~10min）。开发迭代首选 `npm run test:fast`（~29s）或 `npm run test:smoke`（~54s）。当前 fast 层 99 个测试。
+- 测试：**受影响测试全部 PASS**；`npm run test:fast` **80/80 PASS**（~5–6s）。全量 runner **141/141 PASS**（~4min）。开发迭代首选 `npm run test:fast`（~5–6s）或 `npm run test:smoke`（~54s）。当前 fast 层 80 个测试，slow 层 54 个。
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~276 文件（entry=1, mainline=133, test=142），commands/ 去壳后减少 17 个透传文件
@@ -48,6 +48,16 @@ node cli.js audit-summary --cwd . --json --quiet
 - 缓存：**SQLite 持久化**（`os.tmpdir()/workspace-bridge/<hash>/cache.db`），项目间隔离（按 workspaceRoot md5 hash 分目录），支持 `--cache-dir` 覆盖
 - **SHA-256 内容哈希**：`file-index.js` 解析时计算 SHA-256 存入 `fileMetadata.hash`；`cache.js` `checkFileChanges()` 双路径（fast: mtime+size / slow: SHA-256 精确校验）
 - **Co-change**：`impact` 命令已输出 `coChanges[]`；`git -C` 方案解决 Windows 中文路径兼容；性能 ~20s→76ms
+
+**本轮交付（Wave 5：并发测试第二波与健壮 CLI 参数解析）**:
+- **重型 Serial 测试并发化与隔离** `test/`：
+  - 将 5 个原本位于 `@serial` 单线程串行执行的重型测试（`cli-mapper-adapter-test.js`、`audit-diff-incremental-test.js`、`severity-filter-test.js`、`staged-files-test.js`、`regression-test.js`）从单进程串行阶段解放出来，彻底移入 Slow 并发层（concurrency=4）。
+  - 彻底重构测试内部的临时文件与基线文件读写逻辑，使用 `makeTempDir` 创建独立的临时目录，并使用 `--cwd` 将 CLI 执行范围限制在 hermetic 的临时目录中，实现 100% 物理层面上测试的真正解耦。
+  - 为 `staged-files-test.js` 和 `severity-filter-test.js` 内的 `tempDir` 新增 dummy `package.json`，解决自动工作区根目录识别（`findWorkspaceRoot`）在空临时文件夹下会一路回溯到用户 Home 目录、进而导致全盘扫描及严重挂起/超时的问题。
+- **健壮 CLI 选项与 Baseline 智能解析** `src/utils/parse-args.js` + `src/tools/audit-assembler.js`：
+  - 升级 `parseArgs` 核心库：当遇到带有可选值/默认值的参数（如 `--save`、`--baseline`）且下一个参数为命令行 Flag（以 `-` 开头）时，智能判定为无参 Flag 形式，不再错误地将下一个 Flag 消费为它的值。
+  - 升级 `assembleSummary` 路径处理：支持以 Boolean 传入的 `--save` 和 `--baseline` 参数，并智能在 `parsed.cwd`（而非 `process.cwd()`）下解析 `DEFAULT_BASELINE_FILE`，完美支持并发及任何隔离执行场景。
+- **验证**：全量 runner 141/141 PASS，重型测试彻底并发执行，测试总时间大幅优化！
 
 **本轮交付**（Wave 4：Graph Facade 收敛与卫生清理）：
 - REPL / Watch / Debug / CLI 命令 Facade 迁移：`src/cli/repl.js` / `watch.js` / `commands/debug.js` / `commands/index.js` / `cli.js` 剩余 20 处 `container.depGraph` 穿透全部替换为 `container.snapshot.graph`；`DependencyGraphView` 补全 `symbolRegistry` getter。
@@ -61,6 +71,10 @@ node cli.js audit-summary --cwd . --json --quiet
   - `builder.js` / `dep-graph.js` 全部 6 个 `emit('graph:updated')` 点已传递上下文（`build()` / `expandJavaPackageImports()` / `expandJavaPackageImportsIncremental()` / `updateFiles` 删除/更新 / `loadGraph()`）。
   - `findCircularDependencies()` 缓存 cycles 时同步构建 `_cycleFiles` Set（O(cycleLength)），失效检查 O(k)。
   - 测试：`dep-graph-postprocess-incremental-test.js` 新增 `testCycleCacheFineGrainedInvalidation`，验证无关文件变更缓存保留、cycle 内文件变更缓存清空、fullRebuild 缓存清空。
+- **`functionality-test.js` 拆分与测试套件并发优化** `test/`：
+  - 将原本独占单线程串行执行 ~110s 的 monolithic `functionality-test.js` 彻底拆分为 `functionality-core-test.js`（串行）、`functionality-temp-test.js`（并发）、`functionality-polyglot-test.js`（并发）。
+  - `runner.js` 新增对 `// @serial` 文件头部注释的自动识别与动态分类，使这类需要修改 git / 仓库根目录的测试能自动落入串行阶段，彻底消除 filesystem crosstalk 引起的所有潜在 flaky 问题。
+  - 全量运行耗时大幅缩减，测试总数上升至 141 且 Windows 上 100% 稳定全绿。
 
 **历史交付**：路线 A–J 全部完成；阶段 1/2/3 全部完成；Wave 1/2/3 已完成；L2 债务清零；产品债务清零。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
@@ -128,7 +142,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 **测试覆盖缺口**
 
-> **`npm run test:fast` 99/99 PASS**。全量 runner **139/139 PASS**（~10min）。测试基础设施已收敛。
+> **`npm run test:fast` 80/80 PASS**（~5–6s）。全量 runner **141/141 PASS**（~4min）。测试基础设施已收敛。
 
 > **剩余测试债务（已量化）**：
 >
@@ -157,7 +171,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 - 活跃债务：**0 个 L1** + **0 个 L2** + **5 个 L3** + **0 个产品 bug** + **0 个产品债务**
 - 版本：v1.2.0，schemaVersion 冻结
-- 测试：**`npm run test:fast` 99/99 PASS**。全量 runner **139/139 PASS**（~10min）。开发迭代首选 `npm run test:fast`（~29s）
+- 测试：**`npm run test:fast` 80/80 PASS**（~5–6s）。全量 runner **141/141 PASS**（~4min）。开发迭代首选 `npm run test:fast`（~5–6s）
 - **定位**：AI 的代码脚手架
 - **核心认知**：底层引擎能力足够，CLI 出口质量（`--format ai`）已交付。P0–P4 / Wave 1 / Wave 2（D1-D3/D5/D7-D8）/ O1-O3 / U1-U3 全部完成；ROADMAP 阶段 3 框架感知补完（Vue + Spring + Django）已完成，历史见 CHANGELOG。下一阶段主线是**解析精度结构性升级**（Wave 2/3）与**输出层/编排层剩余债务**，必须波次化执行。
 
@@ -167,7 +181,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### P1 解析精度升级
 
-> **约束**：波次化执行，每波之间保持 `npm run test:fast` 99/99 PASS，全量 runner 139/139 PASS。禁止一次性做多层心脏移植。
+> **约束**：波次化执行，每波之间保持 `npm run test:fast` 80/80 PASS，全量 runner 141/141 PASS。禁止一次性做多层心脏移植。
 > Wave 1（SymbolRegistry）已完成，历史见 CHANGELOG。
 
 | 波次     | 范围                                         | 侵入性 | 验证标准                                       | 状态   |
@@ -229,7 +243,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-24（Wave 4 Graph Facade 收敛 + Stub Facade 终结者 + CLI Tier 1 渐进式披露 + 预计算缓存细粒度失效已完成；99/99 fast 测试全绿；deprecation warning 零泄漏；L3 债务 5 项）*
+*Last updated: 2026-05-24（Wave 4 Graph Facade 收敛 + Stub Facade 终结者 + CLI Tier 1 渐进式披露 + 预计算缓存细粒度失效 + runner 预热缓存 + slow 并发降级 + watch 超时收紧 + 去 serial 化已完成；80/80 fast 测试全绿；deprecation warning 零泄漏；L3 债务 5 项）*
 
-> **本轮验证状态**：`npm run test:fast` **99/99 PASS**；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=276`）；CLI smoke（`impact` / `affected-tests` / `repl --eval` / `dead-exports`）零 deprecation warning；`audit-map-test.js` / `overview-curator-test.js` / `dep-tools-test.js` / `project-map-test.js` / `overview-tools-test.js` stub 消费者全部回归通过；`cli-args-validation-test.js` `--help` / `--help --all` 契约验证通过。
+> **本轮验证状态**：`npm run test:fast` **80/80 PASS**（~5–6s）；全量 runner **141/141 PASS**（~4min）；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=276`）；CLI smoke（`impact` / `affected-tests` / `repl --eval` / `dead-exports`）零 deprecation warning。
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。

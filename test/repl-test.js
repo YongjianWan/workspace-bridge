@@ -49,13 +49,23 @@ function makeMockDepGraph() {
       totalExports: 80,
       cycles: 2,
     }),
+    getAllFilePaths: () => [
+      '/project/src/utils/path.js',
+      '/project/src/app.js',
+      '/project/src/services/core.js',
+      '/project/test/app.test.js',
+      '/project/cli.js',
+      '/project/src/other.js',
+    ],
+    _displayPath: (f) => f,
+    root: '/project',
   };
 }
 
 async function testExecuteCommand() {
 
 
-  const container = { depGraph: makeMockDepGraph() };
+  const container = { workspaceRoot: '/project', depGraph: makeMockDepGraph() };
 
   // help
   const help = await executeCommand(container, 'help');

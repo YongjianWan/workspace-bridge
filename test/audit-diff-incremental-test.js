@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @serial
 // @semantic
 /**
  * audit-diff --incremental integration test.
@@ -8,7 +9,34 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const { runCliRaw } = require('./test-helpers');
+const { runCliRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { execSync } = require('child_process');
+
+let tempDir;
+
+function run(args) {
+  return runCliRaw([...args, '--cwd', tempDir], { cwd: tempDir });
+}
+
+function setupTempRepo() {
+  tempDir = makeTempDir('wb-inc-test-');
+  fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify({ name: 'test-project', version: '1.0.0' }));
+  fs.writeFileSync(path.join(tempDir, 'index.js'), 'const a = require("./helper");\nmodule.exports = { a };\n');
+  fs.writeFileSync(path.join(tempDir, 'helper.js'), 'module.exports = 42;\n');
+
+  try {
+    execSync('git init', { cwd: tempDir, stdio: 'ignore' });
+    execSync('git config user.name "Test"', { cwd: tempDir, stdio: 'ignore' });
+    execSync('git config user.email "test@example.com"', { cwd: tempDir, stdio: 'ignore' });
+    execSync('git add .', { cwd: tempDir, stdio: 'ignore' });
+    execSync('git commit -m "initial"', { cwd: tempDir, stdio: 'ignore' });
+  } catch (e) {
+    // ignore git issues
+  }
+
+  // Create a modified state by writing to helper.js
+  fs.writeFileSync(path.join(tempDir, 'helper.js'), 'module.exports = 43;\n');
+}
 
 function parseJsonOutput(stdout) {
   const start = stdout.indexOf('{');
@@ -22,8 +50,7 @@ function parseJsonOutput(stdout) {
 }
 
 function testIncrementalSchema() {
-
-  const result = runCliRaw(['audit-diff', '--incremental', '--json', '--quiet']);
+  const result = run(['audit-diff', '--incremental', '--json', '--quiet']);
   const output = parseJsonOutput(result.stdout);
 
   assert(output, `Should produce JSON output. stdout: ${result.stdout}, stderr: ${result.stderr}`);
@@ -46,9 +73,8 @@ function testIncrementalSchema() {
 }
 
 function testIncrementalVsFull() {
-
-  const incResult = runCliRaw(['audit-diff', '--incremental', '--json', '--quiet']);
-  const fullResult = runCliRaw(['audit-diff', '--json', '--quiet']);
+  const incResult = run(['audit-diff', '--incremental', '--json', '--quiet']);
+  const fullResult = run(['audit-diff', '--json', '--quiet']);
 
   const incOutput = parseJsonOutput(incResult.stdout);
   const fullOutput = parseJsonOutput(fullResult.stdout);
@@ -73,8 +99,7 @@ function testIncrementalVsFull() {
 }
 
 function testIncrementalFiltering() {
-
-  const result = runCliRaw(['audit-diff', '--incremental', '--json', '--quiet']);
+  const result = run(['audit-diff', '--incremental', '--json', '--quiet']);
   const output = parseJsonOutput(result.stdout);
 
   assert(output && output.ok, 'Should succeed');
@@ -92,7 +117,7 @@ function testIncrementalFiltering() {
 }
 
 function testIncrementalWithFiles() {
-  const result = runCliRaw(['audit-diff', '--incremental', '--files', 'cli.js', '--json', '--quiet']);
+  const result = run(['audit-diff', '--incremental', '--files', 'index.js', '--json', '--quiet']);
   const output = parseJsonOutput(result.stdout);
   assert(output && output.ok, 'Incremental with --files should succeed');
   assert.strictEqual(output.incremental, true);
@@ -100,12 +125,16 @@ function testIncrementalWithFiles() {
 }
 
 function main() {
-
-  testIncrementalSchema();
-  testIncrementalVsFull();
-  testIncrementalFiltering();
-  testIncrementalWithFiles();
-
+  setupTempRepo();
+  try {
+    testIncrementalSchema();
+    testIncrementalVsFull();
+    testIncrementalFiltering();
+    testIncrementalWithFiles();
+  } finally {
+    cleanupTempDir(tempDir);
+  }
 }
 
 main();
+

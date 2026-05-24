@@ -32,7 +32,7 @@ async function cleanup() {
   }
 }
 
-async function waitForStartup(childStderr, timeoutMs = 15000) {
+async function waitForStartup(childStderr, timeoutMs = 8000) {
   let waited = 0;
   while (!childStderr.includes('Press Ctrl+C to stop') && waited < timeoutMs) {
     await delay(100);
@@ -82,7 +82,7 @@ async function testAuditFileWatch() {
   // Poll for expected JSON Lines events
   const startTime = Date.now();
   let resultEvent = null;
-  while (Date.now() - startTime < 15000) {
+  while (Date.now() - startTime < 8000) {
     const events = parseJsonLines(stdout);
     resultEvent = events.find((e) => e.event === 'auditFileResult');
     if (resultEvent) break;
@@ -95,7 +95,7 @@ async function testAuditFileWatch() {
   await new Promise((resolve) => {
     child.on('exit', resolve);
     child.on('error', resolve);
-    setTimeout(resolve, 3000);
+    setTimeout(resolve, 1500);
   });
 
   assert(resultEvent, `Should emit auditFileResult event. stdout: ${stdout}`);
@@ -138,7 +138,7 @@ async function testAuditFileWatchTargetFiltering() {
   fs.writeFileSync(otherFile, `// other ${Date.now()}\n`);
 
   // Wait a bit and verify no auditFileResult for other.js
-  await delay(2000);
+  await delay(1000);
 
   const events = parseJsonLines(stdout);
   const resultForOther = events.find((e) => e.event === 'auditFileResult' && e.file && e.file.includes('other'));
@@ -149,7 +149,7 @@ async function testAuditFileWatchTargetFiltering() {
   await new Promise((resolve) => {
     child.on('exit', resolve);
     child.on('error', resolve);
-    setTimeout(resolve, 3000);
+    setTimeout(resolve, 1500);
   });
 
   // We may get zero events because other.js is not the target file;

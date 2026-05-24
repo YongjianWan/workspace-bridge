@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /**
+ * @slow
  * Co-change analysis tests
  */
 const assert = require('assert');

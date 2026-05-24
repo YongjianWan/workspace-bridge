@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // @semantic
 const assert = require('assert');
 const fs = require('fs');
@@ -121,6 +122,59 @@ async function testJavaPackageChangeConsistency() {
   }
 }
 
+async function testCycleCacheFineGrainedInvalidation() {
+  const { createMockDepGraph } = require('./test-helpers');
+
+  const graph = createMockDepGraph({
+    mode: 'instance',
+    schema: {
+      '/repo/src/a.js': { imports: [], exports: [] },
+      '/repo/src/b.js': { imports: [], exports: [] },
+      '/repo/src/c.js': { imports: [], exports: [] },
+      '/repo/src/d.js': { imports: [], exports: [] },
+    },
+  });
+
+  // Manually wire the cycle to bypass fromSchema/normalizeFilePath mismatch on Windows
+  const aKey = Array.from(graph.graph.keys()).find((k) => k.endsWith('a.js'));
+  const bKey = Array.from(graph.graph.keys()).find((k) => k.endsWith('b.js'));
+  const cKey = Array.from(graph.graph.keys()).find((k) => k.endsWith('c.js'));
+  const dKey = Array.from(graph.graph.keys()).find((k) => k.endsWith('d.js'));
+
+  graph.graph.get(aKey).imports = [bKey];
+  graph.graph.get(bKey).imports = [cKey];
+  graph.graph.get(cKey).imports = [aKey];
+  graph.buildReverseGraph();
+
+  // Normalize normalizeFilePath to identity for stable cross-platform test
+  const origNormalize = graph.normalizeFilePath.bind(graph);
+  graph.normalizeFilePath = (p) => p;
+
+  // Compute and cache cycles
+  const cycles = graph.analyzer.findCircularDependencies();
+  assert.strictEqual(cycles.length, 1, 'should find one cycle');
+  assert(graph.analyzer._cachedCycles, 'cycles should be cached after first computation');
+  assert(graph.analyzer._cycleFiles, '_cycleFiles set should be populated');
+
+  // Update a file NOT in any cycle — cache should be preserved
+  graph.bus.emit('graph:updated', { changedFiles: [dKey] });
+  assert(graph.analyzer._cachedCycles, 'cache preserved when unrelated file changes');
+  assert(graph.analyzer._cycleFiles, '_cycleFiles preserved when unrelated file changes');
+
+  // Update a file that IS in a cycle — cache should be invalidated
+  graph.bus.emit('graph:updated', { changedFiles: [aKey] });
+  assert.strictEqual(graph.analyzer._cachedCycles, null, 'cache cleared when cycle file changes');
+  assert.strictEqual(graph.analyzer._cycleFiles, null, '_cycleFiles cleared when cycle file changes');
+
+  // Recompute and verify fullRebuild also clears cache
+  graph.analyzer.findCircularDependencies();
+  assert(graph.analyzer._cachedCycles, 'cycles recached after recomputation');
+  graph.bus.emit('graph:updated', { fullRebuild: true });
+  assert.strictEqual(graph.analyzer._cachedCycles, null, 'cache cleared on fullRebuild');
+
+  graph.normalizeFilePath = origNormalize;
+}
+
 async function testJavaPackageExpansionIncrementalAffectedOnly() {
   const root = makeTempDir('wb-java-affected-only-');
   const write = (rel, content) => {
@@ -178,6 +232,7 @@ async function testJavaPackageExpansionIncrementalAffectedOnly() {
 async function main() {
   await testFrameworkImplicitDependenciesCacheIntegration();
   await testJavaPackageChangeConsistency();
+  await testCycleCacheFineGrainedInvalidation();
   await testJavaPackageExpansionIncrementalAffectedOnly();
 }
 

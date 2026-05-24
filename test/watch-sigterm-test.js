@@ -24,7 +24,7 @@ async function cleanup() {
   } catch {}
 }
 
-async function waitForStartup(childStderr, timeoutMs = 15000) {
+async function waitForStartup(childStderr, timeoutMs = 8000) {
   let waited = 0;
   while (!childStderr.includes('Watching for file changes') && waited < timeoutMs) {
     await delay(100);
@@ -54,7 +54,7 @@ async function testWatchSigterm() {
   const result = await new Promise((resolve) => {
     child.on('exit', (code, signal) => resolve({ code, signal }));
     child.on('error', () => resolve({ code: 'error' }));
-    setTimeout(() => resolve({ code: 'timeout' }), 5000);
+    setTimeout(() => resolve({ code: 'timeout' }), 2000);
   });
 
   if (result.code === 'timeout') {
@@ -84,7 +84,7 @@ async function testAuditFileWatchSigint() {
   });
 
   const startTime = Date.now();
-  while (!stderr.includes('Watching') && Date.now() - startTime < 15000) {
+  while (!stderr.includes('Watching') && Date.now() - startTime < 8000) {
     await delay(100);
   }
   assert(stderr.includes('Watching'), 'audit-file --watch should show watching message');
@@ -94,7 +94,7 @@ async function testAuditFileWatchSigint() {
   const result = await new Promise((resolve) => {
     child.on('exit', (code, signal) => resolve({ code, signal }));
     child.on('error', () => resolve({ code: 'error' }));
-    setTimeout(() => resolve({ code: 'timeout' }), 5000);
+    setTimeout(() => resolve({ code: 'timeout' }), 2000);
   });
 
   if (result.code === 'timeout') {
@@ -134,7 +134,7 @@ async function testExecuteWatchCommandBoundaries() {
 
   const startTime = Date.now();
   let completeEvent = null;
-  while (Date.now() - startTime < 20000) {
+  while (Date.now() - startTime < 12000) {
     const events = stdout.split(/\r?\n/).filter((l) => l.trim().startsWith('{')).map((l) => {
       try { return JSON.parse(l); } catch { return null; }
     }).filter(Boolean);
@@ -147,7 +147,7 @@ async function testExecuteWatchCommandBoundaries() {
   await new Promise((resolve) => {
     child.on('exit', resolve);
     child.on('error', resolve);
-    setTimeout(resolve, 3000);
+    setTimeout(resolve, 1500);
   });
 
   // For an isolated temp file with no dependents, validation should complete

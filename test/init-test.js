@@ -56,7 +56,7 @@ function main() {
     // 5. Init with invalid option fails
     const invalidOpt = runCliRaw(['init', '--cwd', tmpDir, '--invalid-option-xyz', '--json'], { cwd: tmpDir });
     assert.strictEqual(invalidOpt.status, 1, 'should exit 1 for invalid option');
-    assert(invalidOpt.stdout.includes('Unknown option') || invalidOpt.stderr.includes('Unknown option'), 'should surface unknown option error');
+    assert(invalidOpt.stdout.includes('Unknown argument') || invalidOpt.stderr.includes('Unknown argument'), 'should surface unknown option error');
   } finally {
     cleanupTempDir(tmpDir);
   }

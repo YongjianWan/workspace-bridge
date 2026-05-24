@@ -15,7 +15,9 @@ function testHelpFlag() {
   assert.strictEqual(result.status, 0, '--help should succeed');
   const stdout = result.stdout || '';
   assert(stdout.includes('workspace-bridge'), 'help should mention workspace-bridge');
-  assert(stdout.includes('Core Commands'), 'default help should show Core Commands only');
+  assert(stdout.includes('Curated Commands (Tier 1'), 'default help should show Tier 1 curated commands');
+  assert(stdout.includes('impact'), 'default help should include impact command');
+  assert(stdout.includes('dead-exports'), 'default help should include dead-exports command');
   assert(!stdout.includes('L4 原始查询'), 'default help should not show L4 debug commands');
   assert(stdout.includes('--help --all'), 'default help should mention --help --all');
 }

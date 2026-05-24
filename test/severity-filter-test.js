@@ -2,7 +2,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { runCliRaw, assertOk } = require('./test-helpers');
+const { runCliRaw, assertOk, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 const cwd = path.resolve(__dirname, '..');
 
@@ -51,18 +51,19 @@ function testInvalidSeverityValue() {
 }
 
 function testAuditSecuritySeverityFilter() {
-  const tmpFile = path.join(cwd, 'test-severity-temp.js');
+  const tempDir = makeTempDir('wb-severity-');
+  const tmpFile = path.join(tempDir, 'test-severity-temp.js');
   try {
+    fs.writeFileSync(path.join(tempDir, 'package.json'), '{}'); // Dummy package.json
     fs.writeFileSync(tmpFile, `eval('1');\nconsole.log(password);\n`);
-    const result = run(['audit-security', '--builtin-only', '--severity', 'high']);
+    const result = runCliRaw(['audit-security', '--cwd', tempDir, '--builtin-only', '--severity', 'high', '--json', '--quiet'], { cwd: tempDir });
     assertOk(result, 'audit-security severity filter should succeed');
     const data = JSON.parse(result.stdout);
     const highFindings = data.findings.filter((f) => f.severity === 'high');
-    const mediumFindings = data.findings.filter((f) => f.severity === 'medium');
     assert(highFindings.length > 0, 'high severity filter should include high findings');
     assert.strictEqual(data.findings.length, highFindings.length, 'high severity filter should exclude medium/low findings');
   } finally {
-    try { fs.unlinkSync(tmpFile); } catch {}
+    cleanupTempDir(tempDir);
   }
 }
 

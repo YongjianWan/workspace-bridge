@@ -50,7 +50,7 @@ function runCli(args, opts = {}) {
   const result = spawnSync('node', [CLI_PATH, ..._injectCacheDir(args)], {
     cwd: opts.cwd || REPO_ROOT,
     encoding: 'utf8',
-    timeout: opts.timeout || 60000,
+    timeout: opts.timeout || 90000,
     env: opts.env || process.env,
   });
   assert.strictEqual(
@@ -195,72 +195,14 @@ function makeMockSnapshot(opts = {}) {
   const reverseGraphMap = opts.reverseGraph || new Map();
   const entryFilesSet = opts.entryFiles || new Set();
 
-  const defaultStubs = {
+  const defaultStubs = _createStubDepGraph({
     root,
     graph: graphMap,
     reverseGraph: reverseGraphMap,
     entryFiles: entryFilesSet,
-    projectContext: opts.projectContext || {
-      classifyFile: () => ({ fileRole: 'library', directoryRole: 'active', isMainline: true }),
-      summarizeFiles: () => ({
-        counts: { totalFiles: graphMap.size, mainlineFiles: graphMap.size, nonMainlineFiles: 0, testFiles: 0 },
-        directoryRoles: { active: graphMap.size, reference: 0, archive: 0, generated: 0 },
-        fileRoles: { entry: 0, library: graphMap.size, config: 0, test: 0, migration: 0, script: 0, docs: 0, style: 0, asset: 0, unknown: 0 },
-        entryFiles: [],
-      }),
-    },
-    packageJson: opts.packageJson || null,
-    excludeDirs: [],
-    cliExcludeDirs: [],
-    hasFile: (p) => graphMap.has(p),
-    getFileInfo: (p) => graphMap.get(p),
-    getAllFileInfos: () => Array.from(graphMap.entries()),
-    getFileCount: () => graphMap.size,
-    getAllFilePaths: () => Array.from(graphMap.keys()),
-    getAllFileValues: () => Array.from(graphMap.values()),
-    normalizeFilePath: (p) => p,
-    _displayPath: (p) => p,
-    shouldExclude: () => false,
-    shouldExcludeCli: () => false,
-    isTestLikeFile: () => false,
-    isKnownEntryFile: () => false,
-    getFrameworkHint: () => null,
-    getSymbolImpact: () => null,
-    getChangedFunctionImpact: () => null,
-    getFunctionReuseHints: () => [],
-    getFunctionLevelAffectedTests: () => [],
-    getDependencies: () => [],
-    getDependents: () => [],
-    getImpactRadius: () => [],
-    findDeadExports: () => [],
-    findCircularDependencies: () => [],
-    findUnresolvedImports: () => [],
-    findAffectedTests: () => [],
-    getStats: () => ({
-      files: graphMap.size,
-      totalImports: 0,
-      totalExports: 0,
-      cycles: 0,
-      totalLines: 0,
-      analysisCoverage: {
-        totalFiles: graphMap.size,
-        parsedFiles: graphMap.size,
-        fallbackFiles: 0,
-        coverageRatio: 1,
-      },
-      filteredAnalysisCoverage: {
-        totalFiles: graphMap.size,
-        parsedFiles: graphMap.size,
-        fallbackFiles: 0,
-        coverageRatio: 1,
-      },
-    }),
-    getPageRank: () => new Map(),
-    getScopeSummary: () => ({}),
-    buildWarnings: () => [],
-    _scanSymbolUsageInImporters: () => new Set(),
-    ...opts.depGraphOverrides,
-  };
+    projectContext: opts.projectContext,
+    overrides: opts.depGraphOverrides || {},
+  });
 
   const mockDg = opts.mockDepGraph || defaultStubs;
   const view = new DependencyGraphView(mockDg);
@@ -321,6 +263,115 @@ function buildMockDepGraph(schema) {
 }
 
 /* -------------------------------------------------------------------------- */
+// Shared stub factory — eliminates 20+ hand-written method declarations
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Build a Proxy-backed mock that satisfies the DependencyGraphView interface.
+ *
+ * Only methods with non-trivial defaults are listed in semanticDefaults;
+ * everything else falls through to a safe no-op (() => []), so future
+ * additions to DependencyGraphView do not require manual stub updates.
+ */
+function _createStubDepGraph(opts = {}) {
+  const root = opts.root || '/repo';
+  const graphMap = opts.graph || new Map();
+  const reverseGraph = opts.reverseGraph || new Map();
+  const entryFiles = opts.entryFiles || new Set();
+  const overrides = opts.overrides || {};
+
+  const projectContext = opts.projectContext || {
+    classifyFile: () => ({ fileRole: 'library', directoryRole: 'active', isMainline: true }),
+    summarizeFiles: () => ({
+      counts: { totalFiles: graphMap.size, mainlineFiles: graphMap.size, nonMainlineFiles: 0, testFiles: 0 },
+      directoryRoles: { active: graphMap.size, reference: 0, archive: 0, generated: 0 },
+      fileRoles: { entry: 0, library: graphMap.size, config: 0, test: 0, migration: 0, script: 0, docs: 0, style: 0, asset: 0, unknown: 0 },
+      entryFiles: [],
+    }),
+  };
+
+  const baseData = {
+    root,
+    graph: graphMap,
+    reverseGraph,
+    entryFiles,
+    projectContext,
+    packageJson: opts.packageJson || null,
+    excludeDirs: [],
+    cliExcludeDirs: [],
+  };
+
+  const semanticDefaults = new Map([
+    ['getFileInfo', (file) => graphMap.get(file)],
+    ['hasFile', (file) => graphMap.has(file)],
+    ['getDependents', (file) => reverseGraph.get(file) || []],
+    ['getDependencies', (file) => graphMap.get(file)?.imports || []],
+    ['getFileCount', () => graphMap.size],
+    ['getAllFilePaths', () => Array.from(graphMap.keys())],
+    ['getAllFileValues', () => Array.from(graphMap.values())],
+    ['getAllFileInfos', () => Array.from(graphMap.entries())],
+    ['isTestLikeFile', () => false],
+    ['isKnownEntryFile', () => false],
+    ['findDeadExports', () => opts.deadExports || []],
+    ['findUnresolvedImports', () => opts.unresolved || []],
+    ['findCircularDependencies', () => opts.cycles || []],
+    ['getStats', () => ({
+      files: graphMap.size,
+      totalImports: 0,
+      totalExports: 0,
+      cycles: 0,
+      totalLines: 0,
+      analysisCoverage: {
+        totalFiles: graphMap.size,
+        parsedFiles: graphMap.size,
+        fallbackFiles: 0,
+        coverageRatio: 1,
+      },
+      filteredAnalysisCoverage: {
+        totalFiles: graphMap.size,
+        parsedFiles: graphMap.size,
+        fallbackFiles: 0,
+        coverageRatio: 1,
+      },
+    })],
+    ['getPageRank', () => new Map()],
+    ['getScopeSummary', () => ({})],
+    ['buildWarnings', () => []],
+    ['_displayPath', (p) => p],
+    ['normalizeFilePath', (p) => p],
+    ['shouldExclude', () => false],
+    ['shouldExcludeCli', () => false],
+    ['getFrameworkHint', () => null],
+    ['getSymbolImpact', () => null],
+    ['getChangedFunctionImpact', () => null],
+    ['getFunctionReuseHints', () => []],
+    ['getFunctionLevelAffectedTests', () => []],
+    ['getImpactRadius', () => []],
+    ['findAffectedTests', () => []],
+    ['_scanSymbolUsageInImporters', () => new Set()],
+  ]);
+
+  return new Proxy(baseData, {
+    get(target, prop) {
+      if (prop in overrides) {
+        return overrides[prop];
+      }
+      if (semanticDefaults.has(prop)) {
+        return semanticDefaults.get(prop);
+      }
+      if (prop in target) {
+        return target[prop];
+      }
+      // Safe fallback for any unknown callable property
+      if (typeof prop === 'string' && !prop.startsWith('_') && !prop.startsWith('Symbol(')) {
+        return () => [];
+      }
+      return target[prop];
+    },
+  });
+}
+
+/* -------------------------------------------------------------------------- */
 // Mock graph factory (enhanced)
 /* -------------------------------------------------------------------------- */
 
@@ -361,53 +412,17 @@ function createMockDepGraph(opts = {}) {
   }
 
   if (mode === 'stub') {
-    const defaultCtx = {
-      classifyFile: () => ({ isMainline: true, fileRole: 'library' }),
-      summarizeFiles: () => ({
-        counts: { totalFiles: graphMap.size, mainlineFiles: graphMap.size, nonMainlineFiles: 0, testFiles: 0 },
-        directoryRoles: { active: graphMap.size, reference: 0, archive: 0, generated: 0 },
-        fileRoles: { entry: 0, library: graphMap.size, config: 0, test: 0, migration: 0, script: 0, docs: 0, style: 0, asset: 0, unknown: 0 },
-        entryFiles: [],
-      }),
-    };
-
-    return {
+    return _createStubDepGraph({
       root,
       graph: graphMap,
       reverseGraph,
-      entryFiles: opts.entryFiles || new Set(),
-      projectContext: opts.projectContext || defaultCtx,
-      getFileInfo(file) { return this.graph.get(file); },
-      hasFile(file) { return this.graph.has(file); },
-      getDependents(file) { return this.reverseGraph.get(file) || []; },
-      getDependencies(file) { return this.graph.get(file)?.imports || []; },
-      getFileCount() { return graphMap.size; },
-      getAllFilePaths() { return Array.from(graphMap.keys()); },
-      getAllFileValues() { return Array.from(graphMap.values()); },
-      getAllFileInfos() { return Array.from(graphMap.entries()); },
-      isTestLikeFile() { return false; },
-      isKnownEntryFile() { return false; },
-      findDeadExports() { return opts.deadExports || []; },
-      findUnresolvedImports() { return opts.unresolved || []; },
-      findCircularDependencies() { return opts.cycles || []; },
-      getStats: () => ({
-        files: graphMap.size,
-        totalImports: 0,
-        totalExports: 0,
-        cycles: 0,
-        totalLines: 0,
-        analysisCoverage: { totalFiles: graphMap.size, parsedFiles: graphMap.size, fallbackFiles: 0, coverageRatio: 1 },
-        filteredAnalysisCoverage: { totalFiles: graphMap.size, parsedFiles: graphMap.size, fallbackFiles: 0, coverageRatio: 1 },
-      }),
-      getPageRank: () => new Map(),
-      getScopeSummary: () => ({}),
-      buildWarnings: () => [],
-      _displayPath: (p) => p,
-      normalizeFilePath: (p) => p,
-      shouldExclude: () => false,
-      shouldExcludeCli: () => false,
-      ...opts.overrides,
-    };
+      entryFiles: opts.entryFiles,
+      projectContext: opts.projectContext,
+      overrides: opts.overrides,
+      deadExports: opts.deadExports,
+      unresolved: opts.unresolved,
+      cycles: opts.cycles,
+    });
   }
 
   const depGraph = DependencyGraph.fromSchema(

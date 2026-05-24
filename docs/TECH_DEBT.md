@@ -88,15 +88,16 @@
 
 #### slow 层测试过重
 
-**数据**：slow 层 36 个测试需 ~100s，其中 `e2e-gitnexus-test.js` 单个测试占 ~34s（全层时间的 ~24%）。
+**数据**：slow 层 54 个测试需 ~250s，其中 `e2e-gitnexus-test.js` 单个测试占 ~23s（全层时间的 ~9%）。
 
-**根因**：GitNexus 项目规模 1329 文件，runner 为每个测试文件创建独立空缓存目录，导致 CLI 冷启动 + 全量建图 + 加载 WASM。
+**根因**：GitNexus 项目规模 1329 文件，CLI 冷启动 + 全量建图 + 加载 WASM。
 
-**影响**：slow 层总时间 ~129s，e2e-gitnexus 仍是最重单测试，占比为 24%。
+**影响**：slow 层总时间 ~250s。预热缓存已部署，e2e-gitnexus 已使用 `SHARED_CACHE_DIR`，占比从 24% 降至 9%。
 
 **方案**：
 
-1. 评估 runner 是否可为 e2e-gitnexus 提供预热缓存（复用默认缓存目录而非独立空目录），或拆分为独立 CI job 本地跳过。
+1. ✅ 已完成：runner 预热缓存机制（`wb-runner-warm-cache`），slow 层测试启动时复制预热缓存，跳过冷启动建图。
+2. 剩余空间：`formatter-e2e-test.js`（~45s）和 `cli-integration-test.js`（~22s）是新的头部测试，可考虑进一步拆分或改为非 spawn 测试。
 
 ---
 
