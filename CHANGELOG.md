@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### 改进（maxDepth 双重 parseInt 消除 — 2026-05-23）
+
+- **CLI / REPL / L4 层 maxDepth 职责分离** `cli.js` `src/cli/commands/index.js` `src/cli/repl.js` `src/tools/dep-tools/affected-tests.js` `src/tools/dep-tools/impact.js` `src/tools/tree-tools.js` `src/tools/audit-assembler.js`：
+  - `cli.js` 未传 `--max-depth` 时输出 `undefined`（原 `null`），使 `??` 和函数默认参数自然生效。
+  - `commands/index.js` 为 `impact` / `affected-tests` / `tree` 命令统一设定默认值（`DEFAULTS.AFFECTED_TEST_DEPTH` / `3`），删除 `Number.isFinite` 重复校验。
+  - `repl.js` `impact` 默认深度从硬编码 `3` 对齐为 `DEFAULTS.WATCH_IMPACT_DEPTH`（`3`），`affected-tests` 从硬编码 `5` 对齐为 `DEFAULTS.AFFECTED_TEST_DEPTH`（`5`）。
+  - L4 工具层删除 `Number.isFinite` + `Math.max(1, ...)` + 默认值硬编码，直接透传 `args?.maxDepth` 给 L2；输出字段保留 `?? DEFAULTS.XXX` 兜底保证用户可读性。
+  - `audit-assembler.js` 三处 `Number.isFinite` 检查改为 `??` 语义，与边界层职责一致。
+- **技术债清偿**：TECH_DEBT.md 中「参数解析的双重转换与冗余校验」与「maxDepth 在 CLI 与 L4 双重 parseInt」两条 L3 品味债已修复并删除。
+- **验证**：`npm run test:fast` **99/99 PASS**；`impact` / `affected-tests` / `tree` / `audit-file` CLI 管道回归验证通过。
+
 ### 架构重构（Wave 3：Builder/Analyzer 解耦 + 后处理 Affected-only 增量化 — 2026-05-23）
 
 - **Builder/Analyzer 生命周期与缓存彻底解耦** `src/services/dep-graph.js` `src/services/dep-graph/analyzer.js` `src/services/dep-graph/builder.js`：

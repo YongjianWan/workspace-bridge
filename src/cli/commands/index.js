@@ -14,6 +14,7 @@ const { buildProjectOverview } = require('../../tools/overview-tools');
 const { treeQuery } = require('../../tools/tree-tools');
 const { resolveWorkspaceFilePath } = require('../../utils/path');
 const { requireFile } = require('./_utils');
+const { DEFAULTS } = require('../../config/constants');
 
 // Commands with special lifecycle or branching logic kept as modules.
 const auditFile = require('./audit-file');
@@ -72,11 +73,11 @@ const COMMANDS = {
 
   // L2 — Targeted analysis
   impact: makeFileCommand(
-    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'impact', file: parsed.file, maxDepth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined }, container),
+    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'impact', file: parsed.file, maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH }, container),
     (r) => (r.impactCount || 0) > 0
   ),
   'affected-tests': makeFileCommand(
-    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'affected_tests', file: parsed.file, maxDepth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined }, container),
+    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'affected_tests', file: parsed.file, maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH }, container),
     (r) => (r.affectedTestsCount || 0) > 0
   ),
   dependencies: makeFileCommand(
@@ -88,7 +89,7 @@ const COMMANDS = {
     (r) => (r.dependentsCount || 0) > 0
   ),
   tree: makeFileCommand(
-    (parsed, container, filePath) => treeQuery({ cwd: parsed.cwd, file: filePath, depth: Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : undefined, direction: parsed.direction || 'both' }, container),
+    (parsed, container, filePath) => treeQuery({ cwd: parsed.cwd, file: filePath, depth: parsed.maxDepth ?? 3, direction: parsed.direction || 'both' }, container),
     () => false
   ),
 

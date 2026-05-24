@@ -273,7 +273,7 @@ function parseCliArgs(argv) {
       : [],
     mode: raw.mode || 'quick',
     file: raw.file ? toPosixPath(raw.file) : null,
-    maxDepth: Number.isFinite(raw.maxDepth) ? raw.maxDepth : null,
+    maxDepth: Number.isFinite(raw.maxDepth) ? raw.maxDepth : undefined,
     reuseHints,
     hotspotData: raw.hotspotData || null,
     stabilityTrendData: raw.stabilityTrendData || null,

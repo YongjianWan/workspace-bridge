@@ -508,12 +508,9 @@ CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
 ## 活跃重构项
 
 > 三层重构（数据层 / 编排层 / 输出层）的详细 Wave 计划、优先级与验收标准见 [SESSION.md](./SESSION.md) §下一步方向。
-> 本文档只保留高层方向；具体实施顺序、P0-P3 分类、已知陷阱见 SESSION.md。
+> 本文档不重复维护具体条目；以下仅为高层备忘。
 
-| 项 | 范围 | 状态 | 说明 |
-|----|------|------|------|
-| D6 | 消除 parseResults/graph 冗余 | ⏳ 长期 | `nodes` + `edges` 成为唯一事实源 |
-| O6 | 生命周期状态机 | ⏳ 长期 | `idle → initializing → ready → shutting-down → idle` |
-| U3 | overview-tools 拆分 | ⏳ 中等 | 712 行上帝函数 → <200 行 |
-| U7 | audit-assembler 拆分 | ⏳ 中等 | `assembleDiff` 拆为纯函数 |
-| O4 | Builder→Analyzer 解耦 | ✅ 已完成 | EventBus `graph:built` 替代直接调用 |
+- D6 消除 parseResults/graph 冗余（⏳ 长期）
+- O6 生命周期状态机（⏳ 长期）
+- U3 overview-tools 拆分（⏳ 中等）
+- U7 audit-assembler 拆分（⏳ 中等）

@@ -210,9 +210,7 @@ node cli.js audit-summary --cwd . --json --quiet
 | 8 | **`isKnownEntryFile` 同步磁盘 I/O** | 中       | `dep-graph.js` 中 `isKnownEntryFile()` 做 `fs.statSync` + `fs.openSync` + `fs.readSync`。findDeadExports 遍历每个文件都调，1329 文件项目会有几百次同步磁盘读。应从 D6 下独立为单独性能项          |
 | 9 | **`this.dg.graph` 穿透（38 处）** | 高       | L4 工具层直接操作 L2 `DependencyGraph.graph` 内部 Map，绕过 facade API。导致数据层与编排层边界模糊，任何 graph 结构变更都会波及大量调用点。应收敛为 facade 方法或 snapshot 消费      |
 | 10 | **预计算失效粒度太粗** | 中       | `graph:updated` 触发时清空整个 `_cachedCycles`。只改了一个文件不一定影响 cycles。当前"任何变更清全部缓存"对 watch 模式增量性能不友好。需验证：局部文件变更时，cycles 是否真的需要全量重算 |
-| 11 | **SESSION.md 与 TECH_DEBT.md 信息重复且不一致** | 低       | TECH_DEBT.md 第 88 行起有一整段"重构方向"与 SESSION.md Wave 2/3 计划大量重叠但粒度不同。两份文档事实源不统一，违反 AGENTS.md "活跃状态只在当前文档"原则。应收敛：技术债进 TECH_DEBT，路线图进 SESSION |
-| 12 | **TECH_DEBT.md 存已完成项** | 低       | 第 21-35 行"SymbolRegistry fallback 已上线"标了 ✅ 但没删。按清理铁律"修复即删，历史只进 CHANGELOG"，应移走                                            |
-| 13 | **`package.json engines` 偏低** | 低       | `engines.node: ">=16.0.0"` 但实际 `better-sqlite3@12` 需 Node 18+，`structuredClone` 需 Node 17+。应升至 `>=18.0.0`                                 |
+| 11 | **`package.json engines` 偏低** | 低       | `engines.node: ">=16.0.0"` 但实际 `better-sqlite3@12` 需 Node 18+，`structuredClone` 需 Node 17+。应升至 `>=18.0.0`                                 |
 
 ### 当前不做
 
@@ -230,7 +228,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-23（E2E 管道物理防线与 BOM 容错升级 + 测试图工厂与生产静态工厂升级 + 测试分层标记与低信号 C 级测试升级 + U3 overview-tools 拆分 + ProjectContext.inferFileRole 状态化 + Resolver LRU 缓存 + Wave 2 Resolver 拆分 + COMMAND_GUIDES 内聚 + U7 audit-assembler 拆分 + shouldExclude 跨层解耦已完成；98/98 fast 测试全绿）*
+*Last updated: 2026-05-24（maxDepth 双重 parseInt 消除 + ROADMAP/SESSION 文档重复收敛已完成；99/99 fast 测试全绿）*
 
 > **本轮验证状态**：`npm run test:fast` **98/98 PASS**；`node test/cli-integration-test.js` **ALL PASSED**；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=272`）。
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。

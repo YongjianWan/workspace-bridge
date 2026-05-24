@@ -174,7 +174,7 @@ async function buildDiffEntry(relativeFile, container, parsed) {
       changedFunctionImpactBase.changedFunctions,
       {
         symbolImpact: baseSymbolImpact,
-        maxDepth: Number.isFinite(maxDepth) ? maxDepth : DEFAULTS.SYMBOL_IMPACT_DEPTH,
+        maxDepth: maxDepth ?? DEFAULTS.SYMBOL_IMPACT_DEPTH,
       }
     )
     : { functions: [], affectedTestsCount: 0 };
@@ -184,7 +184,7 @@ async function buildDiffEntry(relativeFile, container, parsed) {
   const symbolImpact = baseSymbolImpact
     ? { ...baseSymbolImpact, changedFunctionImpact }
     : null;
-  const affectedTests = graphKnown ? container.snapshot.graph.findAffectedTests(resolvedPath, Number.isFinite(maxDepth) ? maxDepth : undefined) : [];
+  const affectedTests = graphKnown ? container.snapshot.graph.findAffectedTests(resolvedPath, maxDepth) : [];
   const history = resolvedPath ? await getFileHistoryRisk(container.workspaceRoot, resolvedPath, { limit: DEFAULTS.HISTORY_LIMIT }) : { ok: false };
   const historyRisk = history.ok ? history.historyRisk : null;
   const impactExplanations = graphKnown
@@ -324,7 +324,7 @@ async function assembleFile(parsed, container) {
   }
   // Honor --depth parameter (surface | detail | full)
   const maxDepth = parsed.depth === 'surface' ? 1 : parsed.depth === 'detail' ? DEFAULTS.SYMBOL_IMPACT_DEPTH : undefined;
-  const actualMaxDepth = Number.isFinite(parsed.maxDepth) ? parsed.maxDepth : maxDepth;
+  const actualMaxDepth = parsed.maxDepth ?? maxDepth;
 
   const [impact, affectedTests] = await Promise.all([
     dependencyGraph({ cwd: parsed.cwd, operation: 'impact', file: parsed.file }, container),

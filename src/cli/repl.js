@@ -140,7 +140,7 @@ async function executeCommand(container, line) {
       });
       const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || container.depGraph?.workspaceRoot);
       if (!file) return 'Usage: impact <file>';
-      const maxDepth = Number.isFinite(parsed.maxDepth) && parsed.maxDepth > 0 ? parsed.maxDepth : 3;
+      const maxDepth = parsed.maxDepth ?? DEFAULTS.WATCH_IMPACT_DEPTH;
       const result = container.depGraph.getImpactRadius(file, maxDepth);
       return formatImpact(result);
     }
@@ -151,7 +151,7 @@ async function executeCommand(container, line) {
       });
       const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || container.depGraph?.workspaceRoot);
       if (!file) return 'Usage: affected-tests <file>';
-      const maxDepth = Number.isFinite(parsed.maxDepth) && parsed.maxDepth > 0 ? parsed.maxDepth : 5;
+      const maxDepth = parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH;
       const result = container.depGraph.findAffectedTests(file, maxDepth);
       return formatAffectedTests(result);
     }

@@ -94,7 +94,7 @@ function treeQuery({ cwd, file, depth, direction }, container) {
   }
 
   const tree = buildTree(normalized, depGraph, {
-    maxDepth: Math.max(1, Math.min(depth || 3, 10)),
+    maxDepth: depth,
     direction: direction || 'both',
   });
 
