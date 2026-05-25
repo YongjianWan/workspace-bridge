@@ -450,6 +450,17 @@ async function assembleOverviewData(args, container, historyProvider) {
   const stack = detectStack(root);
   const stackProfile = stack.profile;
 
+  let filteredDeadExports = deadExports;
+  if (args?.severity) {
+    const SEVERITY_RANK = { high: 3, medium: 2, low: 1 };
+    filteredDeadExports = deadExports.filter((d) => {
+      const itemSeverity = d.confidence || 'medium';
+      const minSeverity = args.severity;
+      if (!minSeverity || !SEVERITY_RANK[minSeverity]) return true;
+      return (SEVERITY_RANK[itemSeverity] || 0) >= SEVERITY_RANK[minSeverity];
+    });
+  }
+
   let unresolvedFp = null;
   if (unresolved.length > 0) {
     const classifications = classifyUnresolved(unresolved, root);
@@ -458,8 +469,8 @@ async function assembleOverviewData(args, container, historyProvider) {
   }
 
   let deadExportsFp = null;
-  if (deadExports.length > 0) {
-    const classifications = classifyDeadExports(deadExports, depGraph);
+  if (filteredDeadExports.length > 0) {
+    const classifications = classifyDeadExports(filteredDeadExports, depGraph);
     const summary = buildClassificationSummary(classifications);
     deadExportsFp = { count: summary.falsePositiveCount, total: summary.total, primaryReason: summary.primaryReason };
   }
@@ -467,7 +478,7 @@ async function assembleOverviewData(args, container, historyProvider) {
   const issueContext = {
     unresolved: { count: unresolved.length, fp: unresolvedFp },
     cycles: { count: cycles.length },
-    deadExports: { count: deadExports.length, fp: deadExportsFp },
+    deadExports: { count: filteredDeadExports.length, fp: deadExportsFp },
   };
   const cycleRefactorSuggestions = buildCycleRefactorSuggestions(root, depGraph, projectContext);
   const couplingSplitSuggestions = buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectContext);
@@ -482,7 +493,7 @@ async function assembleOverviewData(args, container, historyProvider) {
   }
 
   summary.counts = {
-    deadExports: deadExports.length,
+    deadExports: filteredDeadExports.length,
     unresolved: unresolved.length,
     cycles: cycles.length,
     missingHygieneChecks: 0,
@@ -514,6 +525,23 @@ async function assembleOverviewData(args, container, historyProvider) {
     couplingSplitSuggestions,
     nowIso,
     trendGranularity,
+    deadExports: {
+      ok: true,
+      deadExportsCount: filteredDeadExports.length,
+      deadExports: filteredDeadExports,
+      possibleFalsePositives: deadExportsFp,
+    },
+    unresolved: {
+      ok: true,
+      unresolvedCount: unresolved.length,
+      unresolved: unresolved,
+      possibleFalsePositives: unresolvedFp,
+    },
+    cycles: {
+      ok: true,
+      cyclesCount: cycles.length,
+      cycles: cycles,
+    },
   };
 }
 

@@ -144,6 +144,9 @@ const FORMATTERS = {
         `orphansTotal: ${r.orphans?.counts?.total ?? 0}`,
         `knowledgeRiskHigh: ${kr.high?.length ?? 0}`,
         `knowledgeRiskMedium: ${kr.medium?.length ?? 0}`,
+        `deadExportsCount: ${r.deadExports?.deadExportsCount ?? 0}`,
+        `unresolvedCount: ${r.unresolved?.unresolvedCount ?? 0}`,
+        `cyclesCount: ${r.cycles?.cyclesCount ?? 0}`,
         `languages: ${ls}`,
       ].join('\n');
     },
@@ -158,6 +161,7 @@ const FORMATTERS = {
         `Fragile modules: ${agg.stabilityCounts?.fragile ?? 0}`,
         `Orphans: ${r.orphans?.counts?.total ?? 0}`,
         `Knowledge risk: ${kr.high?.length ?? 0} high, ${kr.medium?.length ?? 0} medium`,
+        `Issues: ${r.deadExports?.deadExportsCount ?? 0} dead exports, ${r.unresolved?.unresolvedCount ?? 0} unresolved, ${r.cycles?.cyclesCount ?? 0} cycles`,
         `Languages: ${ls}`,
       ];
       if (r.hotspots?.length) {
@@ -170,6 +174,24 @@ const FORMATTERS = {
         lines.push('Knowledge risk (bus factor = 1):');
         for (const k of kr.high.slice(0, 3)) {
           lines.push(`  • ${k.file}: ${Math.round((k.primaryAuthorPct || 0) * 100)}% ${k.primaryAuthor || 'unknown'}`);
+        }
+      }
+      if (r.deadExports?.deadExports?.length) {
+        lines.push('Dead exports:');
+        for (const de of r.deadExports.deadExports.slice(0, 3)) {
+          lines.push(`  • ${de.file}: ${(de.exports || []).map(e => sanitizeForAiOutput(e)).join(', ')}`);
+        }
+      }
+      if (r.unresolved?.unresolved?.length) {
+        lines.push('Unresolved imports:');
+        for (const u of r.unresolved.unresolved.slice(0, 3)) {
+          lines.push(`  • ${u.file}: ${u.import}`);
+        }
+      }
+      if (r.cycles?.cycles?.length) {
+        lines.push('Dependency cycles:');
+        for (const c of r.cycles.cycles.slice(0, 3)) {
+          lines.push(`  • ${c.join(' -> ')}`);
         }
       }
       if (r.summary?.recommendations?.length) { lines.push('Recommendations:'); for (const rec of r.summary.recommendations.slice(0, 2)) lines.push(`  • ${rec}`); }
@@ -188,6 +210,7 @@ const FORMATTERS = {
         `- **Fragile modules**: ${agg.stabilityCounts?.fragile ?? 0}`,
         `- **Orphans**: ${r.orphans?.counts?.total ?? 0}`,
         `- **Knowledge risk**: ${kr.high?.length ?? 0} high, ${kr.medium?.length ?? 0} medium`,
+        `- **Issues**: ${r.deadExports?.deadExportsCount ?? 0} dead exports, ${r.unresolved?.unresolvedCount ?? 0} unresolved, ${r.cycles?.cyclesCount ?? 0} cycles`,
         `- **Languages**: ${ls}`,
       ];
       if (r.hotspots?.length) {
@@ -202,6 +225,24 @@ const FORMATTERS = {
           lines.push(`- **${k.file}** — ${Math.round((k.primaryAuthorPct || 0) * 100)}% ${k.primaryAuthor || 'unknown'}`);
         }
       }
+      if (r.deadExports?.deadExports?.length) {
+        lines.push(``, `## Dead Exports`);
+        for (const de of r.deadExports.deadExports.slice(0, 3)) {
+          lines.push(`- **${de.file}**: ${(de.exports || []).map(e => sanitizeForAiOutput(e)).join(', ')}`);
+        }
+      }
+      if (r.unresolved?.unresolved?.length) {
+        lines.push(``, `## Unresolved Imports`);
+        for (const u of r.unresolved.unresolved.slice(0, 3)) {
+          lines.push(`- **${u.file}**: ${u.import}`);
+        }
+      }
+      if (r.cycles?.cycles?.length) {
+        lines.push(``, `## Dependency Cycles`);
+        for (const c of r.cycles.cycles.slice(0, 3)) {
+          lines.push(`- ${c.join(' → ')}`);
+        }
+      }
       if (r.summary?.recommendations?.length) { lines.push(``, `## Recommendations`); for (const rec of r.summary.recommendations.slice(0, 3)) lines.push(`- ${rec}`); }
       return lines.join('\n');
     },
@@ -213,6 +254,9 @@ const FORMATTERS = {
       push('knowledge-risk', r.knowledgeRisk?.high);
       push('knowledge-risk', r.knowledgeRisk?.medium);
       push('orphan', r.orphans?.samples?.modules);
+      push('dead-export', r.deadExports?.deadExports);
+      push('unresolved', r.unresolved?.unresolved);
+      push('cycle', r.cycles?.cycles);
       if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'audit-overview', severity: r.summary?.severity });
       return rec.map(JSON.stringify).join('\n');
     },
@@ -391,8 +435,38 @@ const FORMATTERS = {
     },
   },
   'stats': {
-    human: (r) => Object.entries(r.stats || {}).map(([k, v]) => `${k}: ${v}`).join('\n'),
-    summary: (r) => Object.entries(r.stats || {}).map(([k, v]) => `${k}: ${v}`).join(', '),
+    human: (r) => {
+      const formatValue = (val) => {
+        if (val && typeof val === 'object') {
+          return Object.entries(val).map(([k, v]) => `${k}=${v}`).join(', ');
+        }
+        return val;
+      };
+      return Object.entries(r.stats || {}).map(([k, v]) => `${k}: ${formatValue(v)}`).join('\n');
+    },
+    summary: (r) => {
+      const formatValue = (val) => {
+        if (val && typeof val === 'object') {
+          return Object.entries(val).map(([k, v]) => `${k}=${v}`).join(', ');
+        }
+        return val;
+      };
+      return Object.entries(r.stats || {}).map(([k, v]) => `${k}: ${formatValue(v)}`).join(', ');
+    },
+    markdown: (r) => {
+      const formatValue = (val) => {
+        if (val && typeof val === 'object') {
+          return Object.entries(val).map(([k, v]) => `${k}=${v}`).join(', ');
+        }
+        return val;
+      };
+      const lines = [
+        `# Stats`,
+        ``,
+        ...Object.entries(r.stats || {}).map(([k, v]) => `- **${k}**: ${formatValue(v)}`)
+      ];
+      return lines.join('\n');
+    },
     jsonl: (r) => JSON.stringify({ _type: 'stats', ...r }),
   },
   'dependencies': {
@@ -506,6 +580,37 @@ const FORMATTERS = {
 // AI digest registry — per-command risk/action/count extraction
 // ---------------------------------------------------------------------------
 const AI_DIGEST = {
+  'audit-overview': (r) => {
+    const topRisks = [];
+    const actions = [];
+    const counts = {
+      hotspots: r.aggregates?.hotspotsByRisk?.high || 0,
+      fragile: r.aggregates?.stabilityCounts?.fragile || 0,
+      orphans: r.orphans?.counts?.total || 0,
+      deadExports: r.deadExports?.deadExportsCount || 0,
+      unresolved: r.unresolved?.unresolvedCount || 0,
+      cycles: r.cycles?.cyclesCount || 0,
+    };
+    if (counts.cycles > 0) {
+      topRisks.push({ category: 'cycles', severity: 'high', count: counts.cycles, message: `${counts.cycles} dependency cycle(s) detected`, confidence: 0.95 });
+      actions.push({ priority: 'P0', action: 'Break circular dependencies to modularize codebase' });
+    }
+    if (counts.unresolved > 0) {
+      topRisks.push({ category: 'unresolved', severity: 'medium', count: counts.unresolved, message: `${counts.unresolved} unresolved import(s)`, confidence: 0.85 });
+      actions.push({ priority: 'P0', action: 'Fix unresolved imports to avoid runtime errors' });
+    }
+    if (counts.deadExports > 0) {
+      topRisks.push({ category: 'dead-exports', severity: 'medium', count: counts.deadExports, message: `${counts.deadExports} dead export(s) found`, confidence: 0.85 });
+      actions.push({ priority: 'P1', action: 'Prune dead exports to clean up public APIs' });
+    }
+    if (counts.hotspots > 0) {
+      topRisks.push({ category: 'hotspots', severity: 'medium', count: counts.hotspots, message: `${counts.hotspots} high-risk churn hotspots`, confidence: 0.9 });
+    }
+    if (counts.fragile > 0) {
+      topRisks.push({ category: 'stability', severity: 'low', count: counts.fragile, message: `${counts.fragile} fragile module(s)`, confidence: 0.85 });
+    }
+    return { topRisks, actions, counts };
+  },
   'dead-exports': (r) => {
     const topRisks = [];
     const actions = [];

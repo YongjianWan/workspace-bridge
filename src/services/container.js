@@ -104,6 +104,7 @@ class ServiceContainer {
       resolveReady = resolve;
       rejectReady = reject;
     });
+    this._readyPromise.catch(() => {});
 
     try {
       this._phaseTimes = {};

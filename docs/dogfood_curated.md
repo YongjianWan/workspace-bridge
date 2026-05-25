@@ -69,9 +69,20 @@ For an AI agent, the CLI represents its "eyes and ears". The following traps are
 
 ### 🚨 Pitfall 1: `--format json` vs `--json`
 AI agents standardly pass `--format json` based on general CLI design.
-- **Behavior**: `--format json` is silently ignored on `audit-summary`, `audit-file`, and `audit-diff`, reverting to Markdown.
+- **Behavior**: `--format json` is silently ignored on core L1 commands, reverting to Markdown.
 - **Impact**: AI runs `JSON.parse()` on Markdown, crashing the agent workflow despite an `exit 0` CLI status.
 - **Verification Evidence**:
+
+**Full command verification matrix:**
+
+| Command | `--json` (global flag) | `--format json` (per-formatter) | `--format jsonl` |
+|---------|------------------------|--------------------------------|------------------|
+| `audit-summary` | ✅ Returns JSON | ❌ Reverts to Markdown | Untested |
+| `audit-file` | ✅ Returns JSON | ❌ Reverts to Markdown | ✅ Returns JSONL |
+| `audit-diff` | ✅ Returns JSON | ❌ Reverts to Markdown | Untested |
+| `audit-map` | ✅ Returns JSON | ❌ Reverts to Markdown | Untested |
+| `dead-exports` | ✅ Returns JSON | ❌ Returns plain text | Untested |
+
 ```bash
 # AI reads help showing "--format <mode>  Output format: summary | markdown | jsonl | ai | human"
 # AI executes the command expecting JSON:
@@ -261,11 +272,11 @@ graph TD
     A --> L2[L2: Debug & Raw Query]
     A --> L3[L3: Environment & Security]
 
-    L1 --> C1[audit-summary]:::high
+    L1 --> C1[audit-overview]:::high
     L1 --> C2[audit-file]:::high
     L1 --> C3[audit-diff]:::high
-    L1 --> C4[audit-overview]:::high
-    L1 --> C5[audit-map --compact]:::high
+    L1 --> C4[audit-map --compact]:::high
+    L1 --> C5[audit-summary]:::med
 
     L2 --> R1[tree / repl]:::med
     L2 --> R2[impact / affected-tests]:::med
@@ -281,31 +292,32 @@ graph TD
     class D1,D2 low;
 ```
 
-### 🟢 Core Tier: Highly Valuable for AI & Humans (5 Commands)
-These five commands represent the core curation engine and cover 95% of use cases:
-1. **`audit-summary --json`**: High-level structural snapshot of the repository.
+### 🟢 Core Tier: Highly Valuable for AI & Humans (4 Commands)
+These four commands represent the core curation engine and cover 95% of use cases:
+1. **`audit-overview --json`**: **Default entry.** Structural snapshot + hotspots + knowledge risk + dead exports + unresolved + cycles + orphans + language coverage. Replaces `audit-summary` as the primary L1 command.
 2. **`audit-file --file <path> --json`**: Evaluates files before modification (provides impact, affected tests, and validation advice).
    - *Evidence of Redundancy Elimination*: Running `node cli.js audit-file --file src/services/container.js --json --quiet` yields a single package containing `impactCount: 16` and `affectedTestsCount: 18`, along with `validationAdvice`. Individually running `impact` or `affected-tests` on the same file yields flat, contextless lists with no actionable validations.
 3. **`audit-diff --json`**: Checks changed code and generates verification phases.
-4. **`audit-overview --json`**: Identifies hotspots, knowledge risks, and language footprints (not covered by `audit-summary`).
-5. **`audit-map --compact --json`**: Quick structural connection view.
+4. **`audit-map --compact --json`**: Quick structural connection view.
 
 ### 🟡 Sub-Tier / Debug Tier: Redundant but Functional (13 Commands)
 These are fully covered by L1 workflows or tree commands, but useful for raw granular queries:
 - **`impact` & `affected-tests`**: Fully redundant; `audit-file --json` already includes both outputs along with validation advice.
-- **`dead-exports`, `unresolved`, `cycles`**: Redundant; `audit-summary` aggregates their counts and details.
+- **`dead-exports`, `unresolved`, `cycles`**: Redundant; `audit-overview` aggregates their counts and details.
 - **`dependencies`, `dependents`**: Redundant; `tree --direction imports/dependents` provides hierarchal context instead of flat lists.
 - **`repl --eval`**: Crucial for large repos, but lacks `tree` and outputs poor JSON formatting.
 - **`tree`**: Excellent for hierarchical layout, but missing from REPL mode.
 - **`audit-security --builtin-only`**: Basic regex match ruleset, best combined with an external static analyzer.
 
-### 🔴 Redundant or Broken Tier: Candidates for Deprecation (4 Commands)
-These commands are obsolete, empty, or structurally broken:
-1. **`health`**: Obsolete.
-   - *Evidence*: Aggregates identical data to `audit-summary --health-only`.
-2. **`stats`**: Markdown output is completely broken.
+### 🔴 Redundant or Broken Tier: Candidates for Deprecation (5 Commands)
+These commands are obsolete, empty, structurally broken, or absorbed by other commands:
+1. **`audit-summary`**: **Absorbed by `audit-overview`.**
+   - *Evidence*: `health` checklist（文件存在性检查：README/LICENSE/.gitignore/Dockerfile）对 AI 决策零贡献。`audit-overview` 已覆盖 `deadExports`/`unresolved`/`cycles` + 新增 `hotspots`/`knowledgeRisk`/`orphans`/`languageSupport`。保留为兼容层，1 个版本后移除。
+2. **`health`**: Obsolete.
+   - *Evidence*: Aggregates identical data to `audit-summary --health-only`. Both commands deprecated in favor of `audit-overview`.
+3. **`stats`**: Markdown output is completely broken.
    - *Evidence*: `node cli.js stats --cwd . --quiet` prints raw unstringified objects like `analysisCoverage: [object Object]` and `fileRoles: [object Object]`.
-3. **`diagnostics`**: Runs dry without executing checks.
+4. **`diagnostics`**: Runs dry without executing checks.
    - *Evidence*: `node cli.js diagnostics --cwd . --mode full --quiet` outputs `checksRun: 0, failedChecks: none, diagnostics: 0`, performing absolutely zero meaningful auditing.
 4. **`debug --what symbols`**: Always returns zero unless custom symbols exist.
    - *Evidence*: `node cli.js debug --cwd . --what symbols --quiet` yields `symbolCount: 0, fileCount: 0`, and running `--what graph` immediately crashes with `Supported: symbols`.
@@ -364,7 +376,7 @@ Below is the definitive, unified checklist of codebase issues. Every bug include
 | **7** | **P1** | REPL | `repl --eval` returns exit 0 on nonexistent files. | `node cli.js repl --eval "dependencies nonexistent.js"` (returns exit 0)<br>**Target**: `src/cli/repl.js` | CLI inconsistency. | Align exit codes with CLI error handling (exit 1). |
 | **8** | **P1** | REPL | `repl` command registry lacks `tree` and throws errors for `exit/quit` in eval mode. | `node cli.js repl --eval "tree src/services/container.js"` or `repl --eval "exit"` (Unknown command)<br>**Target**: `src/cli/repl.js` | Incomplete tool capability inside REPL. | Register `tree`, `exit`, and `quit` actions inside `repl.js`. |
 | **9** | **P1** | REPL | `repl --eval --json` returns JSON containing text-wrapped `result` string. | `node cli.js repl --eval "impact src/services/container.js" --json`<br>**Target**: `src/cli/repl.js` | Inability to parse structural data. | Properly format REPL command responses as objects. |
-| **10** | **P1** | Auditing | `--check-regression` fails to output explicit comparison results. | `node cli.js audit-summary --save && node cli.js audit-summary --check-regression`<br>**Target**: `src/cli/commands/audit-summary.js` | Regression checking is opaque. | Append clear regression logs (e.g. "No regression detected"). |
+| **10** | **P1** | Auditing | `--check-regression` outputs a baseline summary identical to the current summary, with no explicit diff or conclusion. | `node cli.js audit-summary --save && node cli.js audit-summary --check-regression`<br>**Target**: `src/cli/commands/audit-summary.js` | AI cannot tell if comparison ran or what changed. | Append clear regression logs (e.g. "No regression detected" or "Regression found: X → Y"). |
 | **11** | **P1** | CLI / Args | `--cwd` automatically escapes to git root instead of sticking to path. | `node cli.js workspace-info --cwd reference --quiet` (returns bridge root)<br>**Target**: `src/services/file-index.js` | Incorrect folder scope auditing. | Add a `--strict-cwd` flag or restrict traversal. |
 | **12** | **P1** | Auditing | `audit-file --file` accepts directory paths and returns empty/junk stats. | `node cli.js audit-file --file src/services/ --quiet` (exit 0, empty stats)<br>**Target**: `src/cli/commands/audit-file.js` | Misleading results. | Validate that `--file` path is a file (using fs.stat) and exit 1. |
 | **13** | **P1** | Health | `diagnostics --mode full` hangs on first run (times out 60s), completes within 180s on second run, but returns `checksRun: 0`. | `node cli.js diagnostics --cwd . --mode full --quiet`<br>**Target**: `src/tools/health-tools.js` | CI pipeline blocker. | Timeout long externals and implement checks. |
@@ -389,7 +401,7 @@ Below is the definitive, unified checklist of codebase issues. Every bug include
 | **32** | **P2** | Orchestrator| `--reuse-hints` toggle yields identical results with no feedback mechanism. | `node cli.js audit-diff --staged --reuse-hints on`<br>**Target**: `src/tools/git-tools.js` | Feature verify opacity. | Provide explicit feedback when change index hints are applied. |
 | **33** | **P2** | CLI / Args | Undocumented CLI precedence when mixing global `--json` with `--format markdown`. | `node cli.js audit-summary --json --format markdown` (outputs markdown)<br>**Target**: `src/cli/parse-args.js` | CLI behavioral uncertainty. | Document that `--format` overrides `--json` globally. |
 | **34** | **P2** | Formatters | `audit-file` and `audit-diff` Markdown templates are excessively stripped down. | Compare `node cli.js audit-file --file x.js --json` vs `--format markdown`<br>**Target**: `src/cli/formatters/human-formatters.js` | Information starvation for human auditing. | Enrich Markdown formatting templates to mirror JSON structures. |
-| **35** | **P2** | Auditing | `--check-regression` exits 1 but prints empty or stack trace error on missing baseline targets. | `node cli.js audit-summary --check-regression --baseline nonexistent.json`<br>**Target**: `src/cli/commands/audit-summary.js` | Obscured baseline error tracing. | Catch baseline file reading exceptions and output a friendly "Baseline file not found" warning. |
+| **35** | **P2** | Auditing | `--check-regression --baseline <missing-file>` exits 1 but provides no explicit "baseline not found" message. | `node cli.js audit-summary --check-regression --baseline nonexistent.json`<br>**Target**: `src/cli/commands/audit-summary.js` | Obscured baseline error tracing. | Catch baseline file reading exceptions and output a friendly "Baseline file not found" warning. |
 | **36** | **P2** | Security | Raw Git ambiguities exposed on stderr during invalid git commits range audits. | `node cli.js audit-diff --commits invalid..range` or `--since "not-a-date"`<br>**Target**: `src/tools/git-tools.js` | Unclean shell stderr pollution. | Wrap spawned git processes inside strict error mapping boundaries. |
 | **37** | **P2** | REPL | Semicolon-delimited REPL eval calls silently discard subsequent commands. | `node cli.js repl --eval "help; stats"` (runs help, ignores stats)<br>**Target**: `src/cli/repl.js` | AI multi-command query execution breaks. | Split incoming `--eval` parameters on semicolon delimiters and map loops. |
 

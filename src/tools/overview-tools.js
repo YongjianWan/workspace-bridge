@@ -26,12 +26,13 @@ async function buildProjectOverview(args, container) {
   if (args?.stabilityTrendData) options.stabilityTrendData = { enabled: true, path: args.stabilityTrendData, granularity: rawData.trendGranularity };
   if (args?.overviewDashboard) options.overviewDashboard = { enabled: true, path: args.overviewDashboard };
 
-  return {
+  const result = {
     ok: true,
     workspaceRoot: rawData.root,
     stackProfile: rawData.stackProfile,
     options,
     summary: rawData.summary,
+    scope: rawData.scope,
     aggregates: rawData.aggregates,
     skeleton: rawData.skeleton,
     hotspots: rawData.hotspots.slice(0, SCORING.TOP_N_LIST),
@@ -60,10 +61,14 @@ async function buildProjectOverview(args, container) {
     languageSupport: buildLanguageSupportMatrix(rawData.depGraph),
     ...(rawData.scope ? { directoryRoles: rawData.scope.directoryRoles } : {}),
     ...(rawData.analysisCoverage ? { analysisCoverage: rawData.analysisCoverage } : {}),
+    deadExports: rawData.deadExports,
+    unresolved: rawData.unresolved,
+    cycles: rawData.cycles,
     orphans: {
       counts: {
         docs: rawData.orphans.docs.length,
         scripts: rawData.orphans.scripts.length,
+        counts: 0, // Unused / kept for placeholder
         configs: rawData.orphans.configs.length,
         modules: rawData.orphans.modules.length,
         total: rawData.orphanCount,
@@ -76,6 +81,41 @@ async function buildProjectOverview(args, container) {
       },
     },
   };
+
+  if (args?.save) {
+    const fs = require('fs');
+    const path = require('path');
+    const regressionTools = require('./regression-tools');
+    const saveFilename = typeof args.save === 'string' ? args.save : regressionTools.DEFAULT_BASELINE_FILE;
+    const savePath = path.resolve(args.cwd || process.cwd(), saveFilename);
+    regressionTools.saveBaseline(result, savePath);
+    result.baselineSaved = savePath;
+  }
+
+  if (args?.checkRegression) {
+    const fs = require('fs');
+    const path = require('path');
+    const regressionTools = require('./regression-tools');
+    let baselinePath = null;
+    let commitBaseline = null;
+    if (args.baseline && typeof args.baseline === 'string') {
+      const resolved = path.resolve(args.cwd || process.cwd(), args.baseline);
+      if (fs.existsSync(resolved)) {
+        baselinePath = resolved;
+      } else {
+        commitBaseline = args.baseline;
+      }
+    } else {
+      baselinePath = path.resolve(args.cwd || process.cwd(), regressionTools.DEFAULT_BASELINE_FILE);
+    }
+    if (commitBaseline) {
+      result.regression = regressionTools.checkRegressionAgainstCommit(result, commitBaseline, args.cwd || process.cwd());
+    } else {
+      result.regression = regressionTools.checkRegression(result, baselinePath);
+    }
+  }
+
+  return result;
 }
 
 module.exports = {

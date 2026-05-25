@@ -10,7 +10,29 @@
 
 ## L2 债务（阻塞演进或导致结果不可信）
 
-> 当前无活跃的 L2 债务。
+> 当前活跃的 L2 债务：
+
+### `audit-summary` 的 `health` checklist 为无意义指标
+
+**问题**：`health` 字段是文件存在性检查（README / LICENSE / .gitignore / Dockerfile 等），不是代码质量指标。`healthScore=7/8` 对 AI coding agent 的变更决策零贡献——项目可能有 4 个死导出、1311 行核心文件、6 条活跃债务，healthScore 仍可能是满分。
+
+**影响**：AI 误将 healthScore 视为项目健康度，忽略真正的结构性风险（hotspots / knowledgeRisk / deadExports）。`health-tools.js` 已与 `audit-summary.health` 数据重合，AGENTS.md 已标记为冗余债务。
+
+**方案**：
+1. `audit-overview` 吸收 `audit-summary` 的 `deadExports` / `unresolved` / `cycles` counts 和 `--save` / `--check-regression` 基线功能。
+2. `audit-summary` 保留为兼容层（内部 redirect 到 `audit-overview`），`health` 字段标记 deprecated。
+3. `health` 命令直接废弃。
+4. SKILL.md 默认入口从 `audit-summary` 改为 `audit-overview`。
+
+### `audit-summary` 与 `audit-overview` 功能重叠
+
+**问题**：两个 L1 策展入口提供不同维度的聚合，但 `audit-summary` 的核心价值（deadExports / unresolved / cycles）可被 `audit-overview` 吸收。Dogfood 实测证明 `audit-overview` 的 hotspots + knowledgeRisk + stability 对 AI 决策价值远高于 `audit-summary` 的 health checklist。
+
+**影响**：用户/AI 需要记住两个命令的区别，认知负担高。
+
+**方案**：
+1. `audit-overview` 成为唯一默认 L1 入口。
+2. `audit-summary` 变为 alias / redirect（保留 1 个版本后移除）。
 >
 >
 

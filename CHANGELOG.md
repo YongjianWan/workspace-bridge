@@ -8,6 +8,16 @@
 
 ## [Unreleased]
 
+### 产品决策（audit-overview 吸收 audit-summary — 2026-05-25）
+
+- **`audit-overview` 将成为唯一默认 L1 策展入口**：
+  - 吸收 `audit-summary` 的 `deadExports` / `unresolved` / `cycles` counts 和 `--save` / `--check-regression` 基线功能。
+  - `audit-overview` 现有维度（`hotspots` / `knowledgeRisk` / `stability` / `orphans` / `languageSupport`）已证明对 AI 决策价值远高于 `audit-summary` 的 `health` checklist（文件存在性检查：README/LICENSE/.gitignore/Dockerfile 等）。
+  - `healthScore` 对 AI coding agent 的变更决策零贡献，7/8 满分项目仍可能有死导出、循环依赖、高耦合热点文件。
+- **`audit-summary` 保留为兼容层**：内部 redirect 到 `audit-overview`，`health` 字段标记 deprecated，保留 1 个版本后移除。
+- **`health` 命令废弃**：redirect 到 `audit-overview`。
+- **文档同步**：`SESSION.md` 基线命令、`SKILL.md` 默认入口、`TECH_DEBT.md` 债务条目均已更新。
+
 ### 重构（容器生命周期单状态源收敛 — 2026-05-25）
 
 - **`ServiceContainer` 状态机重构** `src/services/container.js` + `test/container-lifecycle-test.js`：

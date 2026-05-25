@@ -75,11 +75,11 @@ Usage:
   workspace-bridge-cli <command> [options]
 
 Curated Commands (Tier 1 — start here):
-  audit-summary           Aggregate health + graph findings
+  audit-summary           Aggregate graph findings (aliased to audit-overview)
   audit-file --file <p> [--watch]  Aggregate impact + affected tests for one file
   audit-diff [--staged] [--files <list>] [--incremental] [--commits <range>]
                             Aggregate changed files + impact + affected tests
-  audit-overview          Project panoramic view (hotspots, stability, orphans)
+  audit-overview          Project panoramic view (hotspots, stability, orphans, dead-exports, unresolved, cycles)
   audit-map               Global project map (tree + edges + issue overlay)
   impact --file <path>    Find impact radius for a file
   affected-tests --file <path> [--max-depth <n>]
@@ -132,11 +132,11 @@ Usage:
 
 Commands:
   L1 策展入口 (Curated aggregates — AI default):
-    audit-summary           Aggregate health + graph findings
+    audit-summary           Aggregate graph findings (aliased to audit-overview)
     audit-file --file <p> [--watch]  Aggregate impact + affected tests for one file
     audit-diff [--staged] [--files <list>] [--incremental] [--commits <range>]
                             Aggregate changed files + impact + affected tests
-    audit-overview          Project panoramic view (hotspots, stability, orphans)
+    audit-overview          Project panoramic view (hotspots, stability, orphans, dead-exports, unresolved, cycles)
     audit-map               Global project map (tree + edges + issue overlay)
 
   L2 专项工具 (Targeted analysis):
@@ -296,7 +296,7 @@ function parseCliArgs(argv) {
     staged: Boolean(raw['--staged']),
     files: raw.files || null,
     targets: raw._.slice(1),
-    json: Boolean(raw['--json']),
+    json: Boolean(raw['--json']) || raw.format === 'json',
     quiet: Boolean(raw['--quiet']),
     compact: Boolean(raw['--compact']),
     watch: Boolean(raw['--watch']),
@@ -359,6 +359,9 @@ function classifyError(err) {
   }
   if (msg.includes('initialize') || msg.includes('init') || msg.includes('failed to initialize')) {
     return { type: 'init_error', suggestion: 'Try clearing the cache directory (--cache-dir) and retrying.' };
+  }
+  if (msg.includes('invalid json in config file') || msg.includes('workspace-bridge.json')) {
+    return { type: 'config_error', suggestion: 'Please fix the syntax error in your .workspace-bridge.json configuration file.' };
   }
   return { type: 'unexpected_error', suggestion: 'Run "node cli.js --help" for usage.' };
 }
@@ -508,7 +511,7 @@ async function main() {
       console.error(`${prefix} ${err.message || String(err)}`);
       console.error(`→ ${classified.suggestion}`);
     }
-    process.exitCode = 2;
+    process.exitCode = classified.type === 'config_error' ? 1 : 2;
   } finally {
     await container.shutdown();
   }

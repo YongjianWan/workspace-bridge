@@ -475,10 +475,7 @@ function loadWorkspaceConfig(root, options = {}) {
   try {
     config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   } catch (err) {
-    if (!options.quiet) {
-      console.error(`[Config] Invalid JSON in ${configPath}: ${err.message}`);
-    }
-    return null;
+    throw new Error(`Invalid JSON in config file ${configPath}: ${err.message}`);
   }
 
   // Lightweight schema validation: warn on unknown keys / wrong types,
@@ -546,7 +543,15 @@ class ProjectContext {
   constructor(root, options = {}) {
     this.root = root;
     this.configPath = path.join(root, '.workspace-bridge.json');
-    this.config = pathExists(this.configPath) ? readJsonSafe(this.configPath) || {} : {};
+    if (pathExists(this.configPath)) {
+      try {
+        this.config = JSON.parse(fs.readFileSync(this.configPath, 'utf8')) || {};
+      } catch (err) {
+        throw new Error(`Invalid JSON in config file ${this.configPath}: ${err.message}`);
+      }
+    } else {
+      this.config = {};
+    }
     this.cliExcludes = ensureArray(options.excludeDirs).map(normalizeRelativePath).filter(Boolean);
     this.directoryRules = this.buildDirectoryRules();
   }

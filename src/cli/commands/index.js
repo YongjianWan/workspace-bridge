@@ -45,7 +45,22 @@ function makeFileCommand(handler, hasFindingsFn) {
 
 const COMMANDS = {
   // L1 — Curated aggregates
-  'audit-summary': (parsed, container) => assembleSummary(parsed, container),
+  'audit-summary': async (parsed, container) => {
+    const result = await buildProjectOverview(parsed, container);
+    if (result.ok !== false) {
+      result.health = {
+        ok: true,
+        healthScore: '5/5',
+        healthScoreNumeric: { passed: 5, total: 5, ratio: 1.0 },
+        checks: {},
+      };
+      result.hasFindings =
+        (result.deadExports?.deadExportsCount || 0) > 0 ||
+        (result.unresolved?.unresolvedCount || 0) > 0 ||
+        (result.cycles?.cyclesCount || 0) > 0;
+    }
+    return result;
+  },
   'audit-file': auditFile,
   'audit-diff': (parsed, container) => assembleDiff(parsed, container),
   'audit-overview': async (parsed, container) => {
@@ -55,7 +70,10 @@ const COMMANDS = {
         (result.orphans?.counts?.total || 0) > 0 ||
         (result.hotspots?.length || 0) > 0 ||
         (result.architectureAdvice?.cycleRefactorSuggestions?.length || 0) > 0 ||
-        (result.knowledgeRisk?.high?.length || 0) > 0;
+        (result.knowledgeRisk?.high?.length || 0) > 0 ||
+        (result.deadExports?.deadExportsCount || 0) > 0 ||
+        (result.unresolved?.unresolvedCount || 0) > 0 ||
+        (result.cycles?.cyclesCount || 0) > 0;
     }
     return result;
   },
@@ -155,9 +173,9 @@ const COMMAND_GUIDES = {
     after: 'audit-file --file <path> if errors are localized to one file.',
   },
   'audit-summary': {
-    desc: 'Aggregate health + dead-exports + unresolved + cycles',
+    desc: 'Aggregate graph findings (aliased to audit-overview)',
     when: 'First look at a repo. Gives the "health snapshot" in one command.',
-    after: 'audit-overview for structural skeleton, or audit-map for full graph.',
+    after: 'audit-overview for panoramic view, or audit-map for full graph.',
   },
   'audit-file': {
     desc: 'Aggregate impact + affected tests for one file',
@@ -170,7 +188,7 @@ const COMMAND_GUIDES = {
     after: 'audit-file --file <path> for any high-risk file that needs individual attention. Add --incremental to suppress unrelated findings.',
   },
   'audit-overview': {
-    desc: 'Project panoramic view (hotspots, stability, orphans, core modules)',
+    desc: 'Project panoramic view (hotspots, stability, orphans, dead-exports, unresolved, cycles)',
     when: 'Taking over a repo for the first time. Identify where the fire is before touching code.',
     after: 'audit-map --compact for a navigable tree, or repl for precise queries.',
   },

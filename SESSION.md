@@ -18,11 +18,11 @@
 
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
-node cli.js audit-summary --cwd . --json --quiet
-# 期望: health.healthScore=7/8, summary.counts.deadExports=0, summary.counts.unresolved=0, summary.counts.cycles=0, summary.analysisCoverage.totalFiles≈280, summary.analysisCoverage.coverageRatio=1
+node cli.js audit-overview --cwd . --json --quiet
+# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count=0, summary.unresolved.count=0, summary.cycles.count=0, summary.analysisCoverage.totalFiles≈280, summary.analysisCoverage.coverageRatio=1
 ```
 
-**如果 audit-summary 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
+**如果 audit-overview 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
 
 > 历史变更见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
@@ -30,7 +30,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ## 新会话默认动作（如果用户未指定方向）
 
-1. **读取基线状态**（30 秒）：确认 `healthScore=7/8`
+1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
 2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 5 活跃债务）
 
 ---
@@ -41,7 +41,8 @@ node cli.js audit-summary --cwd . --json --quiet
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~280 文件（entry=1, mainline=133, test=147），commands/ 去壳后减少 17 个透传文件
-- 健康度：7/8（缺 dockerConfig），deadExports=0，cycles=0，unresolved=0
+- 结构性指标：deadExports=0，cycles=0，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 按实际分布
+- 注意：`healthScore=7/8` 是文件存在性检查（README/LICENSE/.gitignore/Dockerfile），**不反映代码质量**，已废弃
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust Regular Expressions、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
 - Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.2.0"` 已冻结**

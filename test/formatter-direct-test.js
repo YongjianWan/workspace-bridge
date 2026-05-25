@@ -59,10 +59,16 @@ function testFormatHumanAuditOverview() {
     aggregates: { hotspotsByRisk: { high: 1, medium: 2 }, stabilityCounts: { fragile: 0 } },
     orphans: { counts: { total: 0 } },
     languageSupport: { javascript: { level: 'ast', confidence: 'high' } },
+    deadExports: { deadExportsCount: 2, deadExports: [{ file: 'a.js', exports: ['x'] }] },
+    unresolved: { unresolvedCount: 1, unresolved: [{ file: 'b.js', import: 'foo' }] },
+    cycles: { cyclesCount: 1, cycles: [['c.js', 'd.js']] },
   };
   const out = formatHuman('audit-overview', result);
   assert(out.includes('totalFiles: 20 (parseable source only; excludes assets/build artifacts/excluded dirs)'));
   assert(out.includes('javascript(ast/high)'));
+  assert(out.includes('deadExportsCount: 2'));
+  assert(out.includes('unresolvedCount: 1'));
+  assert(out.includes('cyclesCount: 1'));
 }
 
 function testFormatHumanHealth() {
@@ -459,7 +465,7 @@ function testFormatMarkdownAuditSecurity() {
 function testFormatMarkdownFallbackToHuman() {
   const result = { ok: true, stats: { files: 5 } };
   const out = formatMarkdown('stats', result);
-  assert(out.includes('files: 5'));
+  assert(out.includes('**files**: 5'));
 }
 
 function testFormatMarkdownError() {
@@ -944,7 +950,7 @@ function testCrossFormatCoverage() {
     { cmd: 'workspace-info', r: { ok: true, workspaceRoot: '/project', detected: { node: true, python: false } }, h: ['workspaceRoot: /project'], s: ['Workspace: /project'], m: ['workspaceRoot: /project'], a: ['"command": "workspace-info"'], j: ['"ok":true'] },
     { cmd: 'diagnostics', r: { ok: true, checksRun: 5, failedChecks: ['lint'], diagnosticsSummary: { total: 3 }, results: [{ file: 'a.js', messages: 2 }] }, h: ['checksRun: 5'], s: ['Checks: 5'], m: ['checksRun: 5'], a: ['"command": "diagnostics"'], j: ['"_type":"diagnostic"'] },
     { cmd: 'audit-map', r: { ok: true, summary: { severity: 'low', nextSteps: ['Check'] }, tree: [{ type: 'file', name: 'a.js', path: 'a.js' }], edges: [{ source: 'a.js', target: 'b.js' }], highlightedFiles: [{ file: 'a.js', reason: 'hotspot' }], issueOverlay: { unresolved: [], cycles: [], deadExports: [], orphans: [], hotspots: [] } }, h: ['severity: low'], s: ['Files: 1'], m: ['severity: low'], a: ['"command": "audit-map"'], j: ['"_type":"highlighted-file"'] },
-    { cmd: 'stats', r: { ok: true, stats: { files: 10, imports: 20 } }, h: ['files: 10'], s: ['files: 10'], m: ['files: 10'], a: ['"command": "stats"'], j: ['"ok":true'] },
+    { cmd: 'stats', r: { ok: true, stats: { files: 10, imports: 20 } }, h: ['files: 10'], s: ['files: 10'], m: ['**files**: 10'], a: ['"command": "stats"'], j: ['"ok":true'] },
     { cmd: 'dependencies', r: { ok: true, file: 'src/a.js', dependenciesCount: 2, dependencies: ['src/b.js', 'src/c.js'] }, h: ['dependenciesCount: 2'], s: ['Dependencies: 2'], m: ['dependenciesCount: 2'], a: ['"command": "dependencies"'], j: ['"_type":"dependency"'] },
     { cmd: 'dependents', r: { ok: true, file: 'src/a.js', dependentsCount: 1, dependents: ['src/b.js'] }, h: ['dependentsCount: 1'], s: ['Dependents: 1'], m: ['dependentsCount: 1'], a: ['"command": "dependents"'], j: ['"_type":"dependent"'] },
     { cmd: 'dead-exports', r: { ok: true, deadExportsCount: 1, deadExports: [{ file: 'a.js', exports: ['x'] }], possibleFalsePositives: { disclaimer: 'May be false.' } }, h: ['deadExportsCount: 1'], s: ['Dead exports: 1'], m: ['deadExportsCount: 1'], a: ['"command": "dead-exports"', '"dead-exports"'], j: ['"_type":"dead-export"'] },
