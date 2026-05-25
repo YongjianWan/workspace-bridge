@@ -29,7 +29,7 @@
 **定位**：AI 的代码脚手架（Code Scaffolding for AI），不是人的报告工具。
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
-- **当前债务**：L1/产品债务已清零；L2 债务已清零；L3 债务与品味 8 项（见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）
+- **当前债务**：L1/产品债务已清零；L2 债务已清零；L3 债务与品味 7 项（见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
@@ -121,16 +121,16 @@
 
 | 层级 | 代表文件 | 职责 |
 |------|----------|------|
-| L0 基础设施 | `path.js`, `constants.js`, `sanitize.js` | 路径工具、常量、shell 参数与符号名过滤 |
+| L0 基础设施 | `path.js`, `constants.js`, `sanitize.js`, `command.js`, `parse-args.js`, `async.js`, `event-bus.js` | 路径工具、常量、shell 参数与符号名过滤、spawn 安全包装、并发控制、事件总线 |
 | L1 存储/索引 | `cache.js`, `graph-db.js`, `file-index.js` | SQLite 缓存与持久化图存储（项目隔离：按 workspaceRoot md5 hash 分目录）、文件索引构建 |
-| L2 核心引擎 | `dep-graph.js` | `DependencyGraph` facade + `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` |
-| L2.5 子引擎 | `parsers/*`, `resolvers.js`, `symbol-impact.js`, `function-impact.js`, `framework-patterns.js`, `implicit-imports.js` | 多语言 parser、import 解析、符号级影响、框架模式检测（9 语言 × 20+ 框架） |
-| L3 服务组装 | `container.js` | `ServiceContainer` 组装所有服务 |
-| L4 工具编排 | `audit-assembler.js`, `dep-tools.js`, `git-tools.js`, `health-tools.js`, `overview-tools.js`, `security-tools.js`, `workspace-tools.js` | 对外暴露的分析工具函数与 Curation/拼装层（`health-tools.js` 数据与 `audit-summary.health` 重合，已标记冗余） |
-| L5 CLI/格式化 | `cli.js`, `formatters/` | 命令分发、JSON 输出聚合 |
+| L2 核心引擎 | `dep-graph.js`, `builder.js`, `analyzer.js`, `query.js`, `pagerank.js` | `DependencyGraph` facade + `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` / PageRank |
+| L2.5 子引擎 | `parsers/*`, `resolvers.js` + `resolvers/*`, `symbol-registry.js`, `symbol-impact.js`, `function-impact.js`, `function-similarity.js`, `framework-patterns.js`, `implicit-imports.js` | 多语言 parser、import 解析、全局符号映射、符号级影响、函数相似度、框架模式检测（9 语言 × 20+ 框架） |
+| L3 服务组装 | `container.js`, `diagnostics-engine.js` | `ServiceContainer` 组装所有服务 + `DiagnosticsEngine` |
+| L4 工具编排 | `audit-assembler.js`, `dep-tools.js`, `git-tools.js`, `health-tools.js`, `overview-tools.js` + `overview-assembler.js` + `overview-curator.js`, `security-tools.js`, `workspace-tools.js`, `honesty-engine.js`, `incremental-diff.js`, `cochange-tools.js`, `tree-tools.js` | 对外暴露的分析工具函数与 Curation/拼装层（`health-tools.js` 数据与 `audit-summary.health` 重合，已标记冗余） |
+| L5 CLI/格式化 | `cli.js`, `commands/`, `repl.js`, `watch.js`, `formatters/` | 命令分发、REPL 引擎、文件监听、JSON/文本/Markdown/HTML 输出聚合 |
 | L6 外围 | `scripts/`, `test/`, `benchmark/` | 辅助脚本、全覆盖测试、性能基准 |
 
-**高危改动文件**：`path.js` / `constants.js` / `dep-graph.js` / `cache.js`+`graph-db.js` / `parsers/shared.js` / `resolvers.js` — 改前必须跑 impact + affected-tests。
+**高危改动文件**：`path.js` / `constants.js` / `dep-graph.js` / `builder.js` / `analyzer.js` / `cache.js`+`graph-db.js` / `parsers/shared.js` / `resolvers.js` — 改前必须跑 impact + affected-tests。
 
 ---
 
@@ -230,7 +230,7 @@ THEN 拿到结果后必须执行：
   1. 阅读完整输出，记录 impactedFiles.length 和 affectedTests.length
   2. 如果 impactedFiles 包含 dep-graph.js / cache.js / graph-db.js / container.js：
       → 核心基础设施被波及，改动必须保守，优先向后兼容（保留旧接口 + 新增，不删不改现有行为）
-  3. 收工前必须跑 `npm run test:fast` 并 97/97 PASS，确认无回归
+  3. 收工前必须跑 `npm run test:fast` 并 79/79 PASS，确认无回归
 ```
 
 > 其余检查（裸数字、异常安全、语义同步、重复代码）已由 L1/L2 覆盖，无需单列。
@@ -242,6 +242,6 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-24（Wave 4 Graph Facade 收敛 + functionality-test 拆分 + runner 预热缓存 + slow 并发降级 + watch 超时收紧 + 去 serial 化已完成；全量 runner 141/141 PASS；L3 债务与品味 5 项；npm run test:fast 80/80 PASS；schemaVersion: 1.2.0）*
+*Last updated: 2026-05-25（knowledgeRisk 已交付；全量 runner 144/144 PASS；L3 债务与品味 7 项；npm run test:fast 81/81 PASS；schemaVersion: 1.2.0）*
 
 

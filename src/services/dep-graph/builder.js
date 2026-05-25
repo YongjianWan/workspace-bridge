@@ -262,6 +262,9 @@ class GraphBuilder {
       // 删除 stale 记录，防止增量更新时 reverseGraph 与实际内容脱节
       this.dg.graph.delete(this.dg.normalizeFilePath(filePath));
       this.dg.cache.deleteParseResult(filePath);
+      // 记录解析失败，供 buildWarnings() 向用户报告
+      if (!this.dg._parseErrorFiles) this.dg._parseErrorFiles = new Set();
+      this.dg._parseErrorFiles.add(this.dg.normalizeFilePath(filePath));
     }
   }
 

@@ -8,6 +8,94 @@
 
 ## [Unreleased]
 
+### 新增（Bus Factor / 知识分布 — 2026-05-25）
+
+- **`audit-overview` 新增 `knowledgeRisk` 维度** `src/tools/git-tools.js` + `src/tools/overview-assembler.js` + `src/tools/overview-tools.js` + `src/cli/formatters/human-formatters.js` + `src/cli/commands/index.js`：
+  - 逐文件 `git blame --porcelain` 分析代码行级作者分布，支持 `.mailmap` 去重。
+  - Risk 分级：`authorCount === 1` → `high`（bus factor = 1）；`authorCount === 2` 或 dominant author > 80% → `medium`；其余 → `low`。
+  - 仅分析 mainline 文件，复用现有 batch concurrency（`LIMITS.GIT_LOG_CONCURRENCY`），对 133 mainline 文件实测 ~700ms。
+  - `audit-overview` 全部 formatter（`human` / `summary` / `markdown` / `jsonl`）已展示 knowledge risk 计数与 top 3 high-risk 文件。
+  - `hasFindings` 已包含 `knowledgeRisk?.high?.length > 0`。
+- **新增测试** `test/git-tools-blame-test.js` + `test/knowledge-risk-test.js`：
+  - blame porcelain 解析器单元测试、mailmap 解析测试、`computeKnowledgeRisk` 评分矩阵测试。
+  - `buildKnowledgeRisk` dogfood 测试 + `assembleOverviewData` 集成测试，验证 knowledgeRisk 字段正确流入 audit-overview 输出。
+  - 验证：`npm run test:fast` **81/81 PASS**（新增 2 个 fast 层测试）。
+
+### 修复（持久化图存储审核收尾 — 2026-05-25）
+
+- **hybrid path 删除检测路径格式统一** `src/services/container.js`：
+  - 问题：`indexedFiles` 存平台原生路径（Windows 反斜杠），`graphFiles` 存 normalized key（正斜杠小写），`indexedFiles.has(f)` 永远 false，删除检测无法提前短路。
+  - 修复：新增 `indexedKeys`（将 `indexedFiles` 统一 normalize 后的 Set），删除检测改为 `!indexedKeys.has(f)`，恢复正确的提前短路语义。
+- **消除预计算双机制覆盖冲突** `src/services/container.js`：
+  - 问题：`loadGraph()` 通过 `injectPrecomputedAggregates()` 注入预计算数据后，container.js 无条件用 `aggregateSummary`（机制 B）覆盖 `_aggregateCache`，若两套机制数据不同步会加载 stale 数据；且强制 `_aggregateVersion = 0` 可能与 `loadedAggregate.version` 不匹配。
+  - 修复：仅当 `loadGraph()` 未注入预计算（`_aggregateCache` 为 null）时才回退到 `aggregateSummary`；`_aggregateVersion` 同步为 `loadedAggregate.version || 0`。
+- **`FileIndex.build()` 重置 `changedFiles`** `src/services/file-index.js`：
+  - 问题：`changedFiles` 在 `build()` 开始时未被清空，若 FileIndex 实例被复用会累积历史变更。
+  - 修复：`build()` 入口添加 `this.changedFiles.clear()`。
+- **`injectPrecomputedAggregates` 同步 `_cachedCycles`** `src/services/dep-graph/analyzer.js`：
+  - 问题：`loadGraph()` 恢复预计算后仅填充 `_aggregateCache`，未同步 `_cachedCycles` / `_cycleFiles`，导致直接访问 cycles 缓存的路径可能触发不必要的重算。
+  - 修复：注入 aggregates 时同步填充 `_cachedCycles`、`_cycleCount`、`_cycleFiles`。
+- **验证**：`npm run test:fast` **79/79 PASS**；`test/persisted-graph-test.js` + `test/precomputed-roundtrip-test.js` 全部通过。
+
+### 改进（持久化图存储核心引擎迁移 — 2026-05-25）
+
+- **`loadGraph()` 混合加载 + 增量更新** `src/services/dep-graph.js` + `src/services/container.js` + `src/services/file-index.js`：
+  - `loadGraph()` 新增 `options.skipChangeCheck`：当调用方负责增量更新时，跳过 `checkFileChanges()` 全盘检查，始终尝试从 SQLite `edges` 表恢复 graph + reverseGraph。
+  - `container.js` `_initDepGraph()` 重构为混合路径：edges 加载成功后，计算三类 delta：
+    1. **新增文件**：`fileIndex._indexedFiles` 中有但 `graph` 中无；应用与 `build()` 相同的排除逻辑避免误引入非 source 文件。
+    2. **删除文件**：`graph` 中有但索引/缓存中已无。
+    3. **变更文件**：`fileIndex.changedFiles`（`processFile` 中 cache miss 时记录），精确追踪 mtime/size 不匹配而被重新索引的文件。
+  - 当 delta 数量 > 50% graph 大小时 fallback 到全量 `build()`，避免极端场景下增量更新反而更慢。
+  - 当 delta 为空时完全跳过 `build()` / `updateFiles()`，直接恢复预计算 aggregates + impact。
+  - `file-index.js` 新增 `changedFiles` Set：`processFile` 在 `indexFile` 成功后将文件加入集合；`getStats()` 暴露 `changedFiles` 数组供 container 消费。
+  - **效果**（workspace-bridge 自身仓库，278 文件）：
+    - Cold start：`depGraph=~960ms`（全量 build）
+    - Warm start（无变更）：`depGraph≈0ms`（纯 edges 加载 + 预计算恢复）
+    - Warm start（1 文件 touch）：`depGraph≈36ms`（edges 加载 + `updateFiles` 1 文件）
+- **新增集成测试** `test/persisted-graph-test.js`：
+  - `testLoadGraphRestoresGraphAndReverseGraph`：验证 edges 往返持久化后 graph 结构与 import 边正确恢复。
+  - `testHybridPathIncrementalNewFile`：新增文件场景，混合路径自动识别并增量加入 graph。
+  - `testHybridPathIncrementalChangedFile`：修改文件 import 语句场景，`updateFiles` 正确更新依赖边。
+  - `testHybridPathIncrementalDeletedFile`：删除文件场景，混合路径正确清理 graph 和 reverseGraph。
+  - `testPrecomputedRestoredOnWarmStart`：预计算 aggregates/impact 在 warm start 时从 SQLite 正确恢复。
+  - 验证：全量 runner **144/144 PASS**（fast 79 + slow 58 + serial 7）。
+
+### 改进（回归测试档案 — 2026-05-24）
+
+- **已知误报场景归档** `test/fp_regression_security.js` + `test/fp_regression_dead_exports.js`：
+  - 新增 2 个端到端回归档案测试（slow 层），覆盖已知安全误报与死导出误报，防止修复后复发。
+  - `fp_regression_security.js`：混合场景验证 `assert-defense`（`expect.toThrow(eval)` / `assert.throws(new Function)` / `.unwrap_err()`）与 `test-placeholder-secrets`（`test/` / `spec/` 目录下的 placeholder 密码）被正确抑制；同时验证 `src/` 下的真实密钥仍被检出，防止过度抑制。
+  - `fp_regression_dead_exports.js`：验证 `.vue` 文件中的 Vue compiler macro（`defineProps` / `defineEmits`）、`.ts` 文件中的显式 Vue macro re-export、以及被消费的 barrel re-export 不被误报为 dead-export；同时验证真正未使用的导出（`realUnused.js`）仍被检出。
+  - 验证：全量 runner **143/143 PASS**（fast 79 + slow 57 + serial 7）。
+
+### 改进（parser 错误恢复与诊断 — 2026-05-24）
+
+- **Parser 错误恢复完善** `src/services/dep-graph/builder.js` + `src/services/dep-graph/analyzer.js` + `test/dep-graph-error-test.js`：
+  - `GraphBuilder.analyzeFile()` 的 catch 块已具备 per-file try-catch（单个文件解析失败不阻塞整个依赖图构建）。本轮增强：将解析失败的文件记录到 `dg._parseErrorFiles`，供 `buildWarnings()` 向用户报告。
+  - `GraphAnalyzer.buildWarnings()` 新增 `parser-error` 类型 warning：当存在解析失败文件时，输出 `"X file(s) could not be parsed due to errors and were skipped"`，severity 为 `medium`。
+  - 新增 `testAnalyzeFileHandlesParserCrash`：通过 monkey-patch `registry.findByExt('.js').parser` 模拟 parser 崩溃，验证 `analyzeFile` 正确 catch 异常、graph 中不残留该文件、且 `buildWarnings()` 准确报告 `parser-error`。
+  - 验证：`npm run test:fast` **79/79 PASS**；全量 runner **143/143 PASS**。
+
+### 改进（P3 输出层渐进改善 — 2026-05-24）
+
+- **路径参数安全清洗补全测试** `test/security-test.js`：
+  - 新增 CLI spawn 测试验证 `sanitizeCliPaths` 集成行为：`--file ../../../../etc/passwd` 被拒绝、`--files a.js,../b.js` 被拒绝、合法 `--file` 被接受。
+  - `security-test.js` 头部标注 `// @slow` 移入 slow 并发层，消除 runner 对 `spawnSync` 的 fast-layer 误分类警告。
+- **Fan-out / Fan-in 指标进 audit-overview** `src/tools/overview-assembler.js` + `src/cli/formatters/human-formatters.js`：
+  - `buildHotspots` 的 `couplingSignal` 从单一"耦合 N 个模块"改为区分 fan-in vs fan-out：
+    - 高 fan-in（`inDegree >= outDegree * 2`）：`耦合: 被 N 个模块依赖（高 fan-in）`
+    - 高 fan-out（`outDegree >= inDegree * 2`）：`耦合: 依赖 N 个模块（高 fan-out）`
+    - 平衡耦合：`耦合: N 入 / M 出`
+  - `audit-overview` 的 markdown / summary formatter 新增 **Top Hotspots** 段落，展示前 3 个 hotspot 的带 fan-in/fan-out 的 `reason`。
+  - 向后兼容：保留"耦合"前缀词，现有 `overview-tools-test.js` 断言零破坏。
+- **`--format ai` 风险分层输出** `src/cli/formatters/human-formatters.js`：
+  - `formatAi` 对 `audit-summary` 的 `--format ai` 输出引入风险分层压缩：
+    - `high` severity：保留完整字段（`category` / `severity` / `message` / `count` / `confidence`）
+    - `medium` severity：压缩为 `category` / `severity` / `message` / `count`
+    - `low` severity：极简 `category` / `severity` / `count`
+  - 不改变 `surface|detail|full` depth 语义，仅在 `detail` / `full` 深度下生效；`surface` 已极简不受影响。
+- **验证**：`npm run test:fast` **79/79 PASS**；fast 层测试数从 80 降至 79（`security-test.js` 移入 slow 层），slow 层从 54 升至 55。
+
 ### 改进与重构（并发测试第二波与健壮 CLI 参数解析 — 2026-05-24）
 
 - **重型 Serial 测试并发化与隔离** `test/`：

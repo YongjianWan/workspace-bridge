@@ -58,38 +58,15 @@
 >
 > 升级原则：砍掉给人类看的分类/模板文案/重复字段，让 AI 直接消费策展后的结论。
 
-### 阶段 1：误报清零（**已完成**）→ 升级为"去噪工程"
+### 阶段 1：误报清零（**已完成**）
 
-原阶段 1 只清零了框架循环误报。在"AI 脚手架"定位下，"去噪"范围扩展：
-
-- 常量仓库和脚手架文件默认过滤（不是降级）
-- audit-overview 去重（recommendations/nextSteps 合并）
-- architectureAdvice 默认抑制
-- coupling 建议文案去重
-
-与开发原则第 2 条一致。实战基地 6 仓库审计直接暴露的 3 项活跃债务 + 1 项安全规则缺口。
-
-**状态**：阶段 1 四项目标全部完成；P0 去噪工程 5/5 完成（工作目录污染清理、脚手架过滤、audit-overview 去重、`architectureAdvice` 小项目抑制、`audit-security` matchedText 展示）。133/133 测试通过。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+**状态**：阶段 1 四项目标全部完成；P0 去噪工程 5/5 完成。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 
 ### 阶段 2：AI 预消化输出（已完成）
 
-原阶段 2 是"把已有能力暴露正确"。在"AI 脚手架"定位下，升级为"CLI 直接输出 AI 可消费的策展结论"：
-
-- **`--format ai` / `--token-budget` / `--depth`**：✅ **已完成**。`formatAi()` 已覆盖 `dead-exports`/`impact`/`affected-tests`/`cycles`/`unresolved`/`audit-security`/`audit-diff` 等全部高频命令，统一输出 `severity`/`counts`/`topRisks`/`actions`/`confidence`；`depth`（`surface` 精简）和 `tokenBudget`（超限自动降级）对所有命令生效。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
-
-当前 compact 模式是**结构降维**（文件→目录、边→模块），不是**语义策展**。AI 消费的是策展后的结论，不是压缩后的结构。同时产品评估发现已有能力（19 条内置安全规则、git diff commit range）因无 CLI 入口而被用户误以为不存在。
-
-**不是新增子系统，是把已有的能力暴露正确。**
-
-| # | 目标                                             | 改动文件                                              | 预期收益                                                                                            | 工作量 | 状态      |
-| - | ------------------------------------------------ | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ------ | --------- |
-| 1 | **`--format summary` 纯模板摘要**        | `human-formatters.js` 新增分支                      | 1000 文件项目从 ~400 行 JSON → 20 行关键结论                                                       | ~50 行 | ✅ 已完成 |
-| 2 | hotspot `reason` 组合展示                      | `overview-tools.js` `buildHotspots`               | 高耦合新文件显示"高耦合 + 无历史"而非仅"无历史"                                                     | ~15 行 | ✅ 已完成 |
-| 3 | **`--format ai` 统一入口扩展至所有命令** | `human-formatters.js` 新增 `buildCommandAiDigest` | AI 消费所有命令时都有结构化 `topRisks`/`actions`/`confidence`，不再被迫解析纯文本 `summary` | ~50 行 | ✅ 已完成 |
-
-**决策逻辑**：纯 formatter / 参数层改动，不动 graph/parser/cache。四项均不引入 LLM 调用、网络依赖或外部工具，保持 CLI 轻量本地属性。
+**状态**：`--format ai` / `--format summary` / `tokenBudget` / `depth` 已全部覆盖高频命令。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 
@@ -99,23 +76,21 @@
 
 | 目标                                            | 改动文件                                                               | 预期收益                                                                                                                                                             | 边界                                     |
 | ----------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| ~~安全白名单分派表 + Assert Defense~~ ✅ | `security-tools.js`                                                  | 每条规则独立 `is_match_allowlisted()`；测试内 `.unwrap_err()` / `expect(error)` 匹配到的 payload 视为防御性测试，抑制误报                                      | 不改变现有 CLI 接口，纯规则后处理        |
+| ~~安全白名单分派表 + Assert Defense~~ ✅ | `security-tools.js`                                                  | 已交付。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。 | 不改变现有 CLI 接口，纯规则后处理        |
 | **端到端请求路径（路由提取）**            | `framework-patterns.js` / `dep-graph.js` / `human-formatters.js` | `impact` 输出增加 `affectedRoutes`：改 handler 前知道影响哪些 API（Express/Spring/FastAPI 等 9 语言）                                                            | 只提取路由声明，不追踪请求体内参数绑定   |
 | **测试间隙穿透（Dispatcher Regex）**      | `affected-tests` 逻辑扩展                                            | 无 import 边但测试文件 body 提及源文件 stem，或 `call_tool_by_name("xxx")` 字符串分发匹配到的测试，也纳入 affected-tests                                           | 需避免与已有 import 边重复计数           |
 | **Bus Factor / 知识分布**                 | `overview-tools.js`                                                  | `audit-overview` 新增 `knowledgeRisk` 维度：逐文件 `git blame` + mailmap 去重，标识"只有一个人懂的文件"                                                        | 依赖 git 历史完整，新仓库无意义          |
 | **回归测试档案**                          | `test/` 新增 `fp_regression_*.js`                                  | 死代码/安全/未解析 import 的已知误报场景归档，防止修复后复发                                                                                                         | 档案需随规则调整同步维护                 |
-| ~~路径参数安全清洗~~ ✅                   | `cli.js` / `path.js`                                               | 防路径注入：`--file`/`--cwd` 等路径参数在进入 graph 前统一清洗，拒绝 `../` 逃逸和绝对路径注入                                                                  | 与现有 `sanitize.js` 职责对齐          |
-| ~~Prompt 注入防御（符号名过滤）~~ ✅      | `formatters/` / `cli.js`                                           | JSON 输出中的符号名增加 `_sanitize_name` 过滤（截断至 256 字符 + 清洗控制字符），防止源代码中的恶意标识符（如 `IGNORE_ALL_PREVIOUS_INSTRUCTIONS`）注入 AI prompt | 极低成本，安全风险                       |
-| **parser 错误恢复（per-file try/catch）** | `parsers/registry.js` / `container.js`                             | 单一语言 parser 加载失败或解析异常时，只跳过该文件，不中断整个分析流程                                                                                               | 参考 GitNexus Query 错误恢复             |
+| ~~路径参数安全清洗~~ ✅                   | `cli.js` / `path.js`                                               | 已交付。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。 | 与现有 `sanitize.js` 职责对齐          |
+| ~~Prompt 注入防御（符号名过滤）~~ ✅      | `formatters/` / `cli.js`                                           | 已交付。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。 | 极低成本，安全风险                       |
+| ~~**parser 错误恢复（per-file try/catch）**~~ ✅ | `src/services/dep-graph/builder.js` / `src/services/dep-graph/analyzer.js` | 已交付。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。 | 参考 GitNexus Query 错误恢复             |
 | **cli.js 抽出可测试入口**                 | `cli.js` / `src/cli/commands/`                                     | 将命令处理逻辑从 `process.argv` 解析中解耦，暴露 `runCommand(config, command)` 纯函数入口，支持单元测试直接调用而无需 spawn                                      | 参考 qartez `cli_runner::run`          |
 
 **决策逻辑**：投入可控（每项 ~5–80 行），收益明确（减少误报、提升稳定性或可测试性）。不碰 call graph / 数据流。
 
 ---
 
-### 阶段 2.5：CLI 减负与认知负担（短期，参考 qartez Progressive Disclosure）
-
-> 当前 `--help` 展示 20 个命令，虽有 L1/L2/L3/L4 标签分组，但所有命令仍挤在同一列表。AI 消费者需在 20 个选项中选择。参考 qartez 的 **4-Tier Progressive Disclosure** 模式（Core/Analysis/Refactor/Meta），默认只展示 Tier 1，其余动态解锁。
+### 阶段 2.5：CLI 减负与认知负担（短期）
 
 | # | 目标                                     | 改动文件                            | 预期收益                                                        | 工作量 | 状态      |
 | - | ---------------------------------------- | ----------------------------------- | --------------------------------------------------------------- | ------ | --------- |
@@ -142,25 +117,13 @@
 - **Worker Pool 并行解析**：大项目文件解析从单线程顺序改为 worker_threads 并行，评估共享内存/消息传递复杂度是否值得
 
 ---
-# ADR: workspace-bridge 从分析工具到代码知识库
 
-> 状态：草案（Draft）  
-> 日期：2026-05-20  
+## ADR: 持久化图存储（SQLite）
+
+> 状态：**已交付**  
 > 决策：SQLite 作为核心图存储，不引入图数据库  
-> 影响：全架构层（SQLite schema、Watcher、CLI、audit-assembler）
-
----
-
-## 背景
-
-workspace-bridge 当前的核心流程是"每次 CLI 命令冷启动 → 读 SQLite parseResults → 内存重建依赖图 → BFS/DFS 查询 → 返回 → 扔掉"。即使 parseResults 100% cache hit，仍需 O(n) 重建 reverseGraph 和预计算 aggregates。
-
-本轮（2026-05-20）已实现：
-- `saveIncremental()` 增量写入（避免全量清表重写）
-- `updateFiles()` 增量更新内存图（文件变更时只 re-parse 变更文件）
-- `fileIndex` 文件监听 + `onPendingProcessed` 批量回调
-
-**缺失的最后一块拼图**：内存中的图结构和预计算结果没有持久化。Watcher 更新后不落盘，CLI 每次仍重建。
+> 交付内容：`saveIncremental()` 增量写入、`updateFiles()` 增量更新内存图、`fileIndex` 监听 + 批量回调、预计算 aggregates 落盘。  
+> 详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 
@@ -396,7 +359,7 @@ CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
 
 - **ROADMAP.md P1（AI 预消化输出）**：预计算持久化是 `--depth`、`--token-budget` 的基础设施——薄查询层才能快速响应分级裁剪
 - **AGENTS.md "CLI-only"**：不违反。Watcher 仍是 CLI 命令（`workspace-bridge watch`），无协议层/网络端口
-- **本轮已完成的增量写入**：`saveIncremental()` 是 Phase 1-2 的写入基础设施，直接复用
+- **`saveIncremental()` 增量写入**：Phase 1-2 的写入基础设施，直接复用
 
 
 ### 当前不做（与核心原则冲突）
@@ -489,7 +452,7 @@ CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
 | **GraphBuilder / GraphAnalyzer 职责边界**  | 中   | 低   | **接受**              | 当前 `dep-graph.js` 内部已认知拆分，但对外接口未显式区分"节点构建期"和"边链接期"。参考 CGC 两阶段模型，职责边界文档化并提取为生命周期 hook                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | **语言注册表统一契约**                     | 中   | 低   | **接受**              | 当前 `parsers/` 缺乏统一契约。引入 `{ language, extensions, parse, extractImports, extractExports, isBuiltIn }` 配置表，统一 parserAvailability / import 解析 / 导出检测。参考 GitNexus 语言注册表                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | **框架检测 query 化（compilePatterns）**   | 中   | 中   | **接受**              | 当前 `framework-patterns.js` 使用硬编码 regex。引入 `compilePatterns(treeSitterQuery) + runCompiledPatterns()`，新增框架只需一个 query 文件。参考 GitNexus `HttpLanguagePlugin`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| **持久化图存储（SQLite）**                 | 高   | 中   | **P2 启动，POC 通过** | POC 三阶段全部完成：`<br>`1. 小图（239 nodes）：findDeadExports **1ms**、recursive CTE impact **0ms**、增量 update **1ms**、文件大小小 18 倍 ✅`<br>`2. 大图（5000 nodes / 17580 edges）：findDeadExports **4ms**、impact d=5 **1ms**、random 100× **5ms**、batch update **10ms**、文件大小小 610 倍 ✅`<br>`3. **cycle detection**：naive recursive CTE **45,601ms** ❌；内存 DFS **37ms** ✅ → **cycle 保留内存算法，SQLite 负责持久化 + deadExports + impact + 增量更新**`<br>`4. 方案：`better-sqlite3`（~10MB，零服务器），3 张表 `nodes` + `edges` + `file_metadata`。下一步：核心引擎迁移 |
+| **持久化图存储（SQLite）**                 | 高   | 中   | **✅ 已完成**          | 核心引擎迁移完成：`<br>`- `loadGraph()` 支持 `skipChangeCheck`，edges 加载成为默认路径`<br>`- `container.js` `_initDepGraph()` 实现混合路径：edges 加载 + 新增/删除/变更文件增量更新（`updateFiles`）+ delta>50% 时 fallback 到 `build()``<br>`- `file-index.js` 新增 `changedFiles` 追踪，精确标识 cache miss 文件`<br>`- 预计算 aggregates / impact 在 warm start 时从 SQLite 恢复`<br>`- 效果（278 文件）：Cold start ~960ms → Warm start（无变更）≈0ms → Warm start（1 文件变更）≈36ms`<br>`- 测试：`test/persisted-graph-test.js` 覆盖 edges 往返、新增/变更/删除增量、预计算恢复 |
 | **分层输出过滤**                           | 中   | 低   | **接受**              | `--severity P0/P1` 按严重程度过滤、`--category security/performance` 按类别过滤（需规则打标签）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | **审查追踪（轻量）**                       | 中   | 低   | **接受**              | `--save <file>` 保存审计结果、`--check-regression` 对比上次审计检查 P0/P1 是否修复、`--baseline <commit>` 按变更文件标注问题为 `new`/`legacy`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | **默认输出模式校准**                       | 中   | 低   | **接受 / 已交付**     | 默认输出已改为 `--format markdown`（~5 行，cli.js 第 474 行）。`--format human` 显式恢复人工输出已支持。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -501,7 +464,7 @@ CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
 
 > 路线 I-2 GitNexus 深度对比 of 9 项发现中，数值 confidence / yieldToEventLoop / confidenceSource 标签 / git-aware staleness / import 策略链抽象 5 项已吸收并完成。详见 [CHANGELOG.md](./CHANGELOG.md)。
 >
-> **2026-05-21 评估更新**：本轮修复 `analysis-test.js` maxDepth 断言（mention 检测 distance 语义兼容），同步 SESSION.md / TECH_DEBT.md / ROADMAP.md 数字与状态。133/133 测试 100% 全量 PASS。详见 [SESSION.md](./SESSION.md)。
+> 历史评估更新见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 

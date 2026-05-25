@@ -316,19 +316,23 @@ class DependencyGraph {
    * Skips buildReverseGraph() and post-process if edges are fresh.
    * Returns true on success, false to fall back to build().
    */
-  loadGraph() {
+  loadGraph(options = {}) {
     // Staleness guard: if files changed on disk since last edge save,
     // fall back to full build() to ensure consistency.
-    try {
-      const changeCheck = this.cache.checkFileChanges();
-      if (changeCheck.changed) {
-        if (!this.quiet) {
-          console.error(`[DepGraph] Files changed on disk (${changeCheck.changedFiles.length} files), skipping loadGraph`);
+    // When skipChangeCheck is true, caller is responsible for incremental
+    // update after load (container.js hybrid path).
+    if (!options.skipChangeCheck) {
+      try {
+        const changeCheck = this.cache.checkFileChanges();
+        if (changeCheck.changed) {
+          if (!this.quiet) {
+            console.error(`[DepGraph] Files changed on disk (${changeCheck.changedFiles.length} files), skipping loadGraph`);
+          }
+          return false;
         }
+      } catch {
         return false;
       }
-    } catch {
-      return false;
     }
 
     const edges = this.cache.loadEdges();

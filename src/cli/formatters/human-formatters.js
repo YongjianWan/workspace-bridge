@@ -132,6 +132,7 @@ const FORMATTERS = {
   'audit-overview': {
     human: (r) => {
       const ls = Object.entries(r.languageSupport || {}).map(([l, i]) => `${l}(${i.level}/${i.confidence})`).join(', ') || 'none';
+      const kr = r.knowledgeRisk || {};
       return [
         `workspaceRoot: ${r.workspaceRoot}`,
         `severity: ${r.summary?.severity || 'low'}`,
@@ -141,26 +142,43 @@ const FORMATTERS = {
         `hotspotsMedium: ${r.aggregates?.hotspotsByRisk?.medium ?? 0}`,
         `fragileModules: ${r.aggregates?.stabilityCounts?.fragile ?? 0}`,
         `orphansTotal: ${r.orphans?.counts?.total ?? 0}`,
+        `knowledgeRiskHigh: ${kr.high?.length ?? 0}`,
+        `knowledgeRiskMedium: ${kr.medium?.length ?? 0}`,
         `languages: ${ls}`,
       ].join('\n');
     },
     summary: (r) => {
       const agg = r.aggregates || {};
       const ls = Object.entries(r.languageSupport || {}).map(([l, i]) => `${l}(${i.level}/${i.confidence})`).join(', ') || 'none';
+      const kr = r.knowledgeRisk || {};
       const lines = [
         `Severity: ${r.summary?.severity || 'low'}`,
         `Files: ${r.skeleton?.totalFiles ?? 0} total, ${r.skeleton?.mainlineFiles ?? 0} mainline`,
         `Hotspots: ${agg.hotspotsByRisk?.high ?? 0} high, ${agg.hotspotsByRisk?.medium ?? 0} medium`,
         `Fragile modules: ${agg.stabilityCounts?.fragile ?? 0}`,
         `Orphans: ${r.orphans?.counts?.total ?? 0}`,
+        `Knowledge risk: ${kr.high?.length ?? 0} high, ${kr.medium?.length ?? 0} medium`,
         `Languages: ${ls}`,
       ];
+      if (r.hotspots?.length) {
+        lines.push('Top hotspots:');
+        for (const h of r.hotspots.slice(0, 3)) {
+          lines.push(`  • ${h.file}: ${h.reason}`);
+        }
+      }
+      if (kr.high?.length) {
+        lines.push('Knowledge risk (bus factor = 1):');
+        for (const k of kr.high.slice(0, 3)) {
+          lines.push(`  • ${k.file}: ${Math.round((k.primaryAuthorPct || 0) * 100)}% ${k.primaryAuthor || 'unknown'}`);
+        }
+      }
       if (r.summary?.recommendations?.length) { lines.push('Recommendations:'); for (const rec of r.summary.recommendations.slice(0, 2)) lines.push(`  • ${rec}`); }
       return lines.join('\n');
     },
     markdown: (r) => {
       const agg = r.aggregates || {};
       const ls = Object.entries(r.languageSupport || {}).map(([l, i]) => `${l}(${i.level}/${i.confidence})`).join(', ') || 'none';
+      const kr = r.knowledgeRisk || {};
       const lines = [
         `# Project Overview`,
         ``,
@@ -169,8 +187,21 @@ const FORMATTERS = {
         `- **Hotspots**: ${agg.hotspotsByRisk?.high ?? 0} high, ${agg.hotspotsByRisk?.medium ?? 0} medium`,
         `- **Fragile modules**: ${agg.stabilityCounts?.fragile ?? 0}`,
         `- **Orphans**: ${r.orphans?.counts?.total ?? 0}`,
+        `- **Knowledge risk**: ${kr.high?.length ?? 0} high, ${kr.medium?.length ?? 0} medium`,
         `- **Languages**: ${ls}`,
       ];
+      if (r.hotspots?.length) {
+        lines.push(``, `## Top Hotspots`);
+        for (const h of r.hotspots.slice(0, 3)) {
+          lines.push(`- **${h.file}** — ${h.reason}`);
+        }
+      }
+      if (kr.high?.length) {
+        lines.push(``, `## Knowledge Risk (Bus Factor = 1)`);
+        for (const k of kr.high.slice(0, 3)) {
+          lines.push(`- **${k.file}** — ${Math.round((k.primaryAuthorPct || 0) * 100)}% ${k.primaryAuthor || 'unknown'}`);
+        }
+      }
       if (r.summary?.recommendations?.length) { lines.push(``, `## Recommendations`); for (const rec of r.summary.recommendations.slice(0, 3)) lines.push(`- ${rec}`); }
       return lines.join('\n');
     },
@@ -179,6 +210,8 @@ const FORMATTERS = {
       const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
       push('hotspot', r.hotspots);
       push('stability', r.stability);
+      push('knowledge-risk', r.knowledgeRisk?.high);
+      push('knowledge-risk', r.knowledgeRisk?.medium);
       push('orphan', r.orphans?.samples?.modules);
       if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'audit-overview', severity: r.summary?.severity });
       return rec.map(JSON.stringify).join('\n');
@@ -695,6 +728,20 @@ function formatAi(command, result, options = {}) {
       output.actions = actions.slice(0, 3);
 
       if (result.warnings && result.warnings.length > 0) output.warnings = result.warnings;
+
+      // Risk-tiered compression: high = full, medium = slim, low = minimal
+      output.topRisks = output.topRisks.map((risk) => {
+        if (risk.severity === 'high') return risk;
+        if (risk.severity === 'medium') {
+          const slim = { category: risk.category, severity: risk.severity, message: risk.message };
+          if (risk.count !== undefined) slim.count = risk.count;
+          return slim;
+        }
+        // low
+        const minimal = { category: risk.category, severity: risk.severity };
+        if (risk.count !== undefined) minimal.count = risk.count;
+        return minimal;
+      });
 
       if (currentDepth === 'detail' || currentDepth === 'full') {
         output.riskFiles = {};

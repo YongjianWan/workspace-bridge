@@ -183,6 +183,15 @@ class GraphAnalyzer {
       hotspots: injected.hotspots || null,
       stability: injected.stability || null,
     };
+    // Sync _cachedCycles so direct consumers don't pay recomputation after loadGraph
+    this._cachedCycles = cycles;
+    this._cycleCount = cycles.length;
+    this._cycleFiles = new Set();
+    for (const cycle of cycles) {
+      for (const file of cycle) {
+        this._cycleFiles.add(this.dg.normalizeFilePath(file));
+      }
+    }
     return true;
   }
 
@@ -507,6 +516,15 @@ class GraphAnalyzer {
         severity: 'low',
         files: unsupportedCount,
         message: `${unsupportedCount} file(s) have unsupported extensions and were not parsed`,
+      });
+    }
+
+    if (this.dg._parseErrorFiles && this.dg._parseErrorFiles.size > 0) {
+      warnings.push({
+        type: 'parser-error',
+        severity: 'medium',
+        files: this.dg._parseErrorFiles.size,
+        message: `${this.dg._parseErrorFiles.size} file(s) could not be parsed due to errors and were skipped`,
       });
     }
 

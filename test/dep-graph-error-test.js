@@ -335,10 +335,52 @@ async function testRuoYiAnnotationSerializerCycleWhitelist() {
   cleanupTempDir(dir);
 }
 
+async function testAnalyzeFileHandlesParserCrash() {
+  const dir = makeTempDir('wb-dg-crash-');
+  fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
+  fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'src', 'good.js'), "export const ok = 1;\n", 'utf8');
+  fs.writeFileSync(path.join(dir, 'src', 'bad.js'), "export const bad = 1;\n", 'utf8');
+
+  const cache = new WorkspaceCache(dir);
+  const goodPath = path.join(dir, 'src', 'good.js');
+  const badPath = path.join(dir, 'src', 'bad.js');
+  cache.setFileMetadata(goodPath, { mtime: 1, size: 1 });
+  cache.setFileMetadata(badPath, { mtime: 1, size: 1 });
+
+  const dg = new DependencyGraph(dir, cache);
+
+  // Monkey-patch registry so .js files throw during parsing
+  const { registry } = require('../src/services/dep-graph/parsers/registry');
+  const entry = registry.findByExt('.js');
+  const origParser = entry.parser;
+  entry.parser = () => { throw new Error('Simulated parser crash'); };
+
+  try {
+    await dg.analyzeFile(goodPath);
+    await dg.analyzeFile(badPath);
+
+    // Neither file should be in graph after parser crash
+    assert.strictEqual(dg.hasFile(goodPath), false, 'good.js should not be in graph after parser crash');
+    assert.strictEqual(dg.hasFile(badPath), false, 'bad.js should not be in graph after parser crash');
+
+    // buildWarnings should report parser-error
+    const warnings = dg.buildWarnings();
+    const parserWarning = warnings.find((w) => w.type === 'parser-error');
+    assert.ok(parserWarning, 'buildWarnings should include parser-error warning');
+    assert.strictEqual(parserWarning.files, 2, 'parser-error should count 2 files');
+  } finally {
+    entry.parser = origParser;
+  }
+
+  cleanupTempDir(dir);
+}
+
 async function main() {
   await testUpdateFilesEmptyArray();
   await testUpdateFilesDeletedFile();
   await testAnalyzeFileHandlesMissingFile();
+  await testAnalyzeFileHandlesParserCrash();
   await testReentrantUpdateFiles();
   await testGetStatsLazyCycles();
   await testVueFrameworkCycleWhitelist();

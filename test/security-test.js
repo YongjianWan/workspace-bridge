@@ -1,10 +1,12 @@
 #!/usr/bin/env node
+// @slow
 /**
  * Security test suite for workspace-bridge
  * Tests injection protection and path traversal defenses
  */
 
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 // Import functions to test
 const { sanitizeSymbolName, sanitizeShellArg } = require('../src/utils/sanitize');
@@ -143,6 +145,42 @@ async function runAsyncTests() {
 
   }
 }
+
+// Test 6: CLI path argument sanitization (sanitizeCliPaths integration)
+
+test('CLI should reject --file path traversal', () => {
+  const result = spawnSync(
+    process.execPath,
+    ['cli.js', 'audit-file', '--file', '../../../../etc/passwd', '--cwd', '.'],
+    { encoding: 'utf8', cwd: path.dirname(__dirname) }
+  );
+  assert(result.status !== 0, 'CLI should exit non-zero for path traversal --file');
+  const out = result.stderr + result.stdout;
+  assert(out.includes('path traversal') || out.includes('Invalid --file'), `Expected path traversal error, got: ${out}`);
+});
+
+test('CLI should reject --files containing path traversal', () => {
+  const result = spawnSync(
+    process.execPath,
+    ['cli.js', 'audit-security', '--files', 'a.js,../../../../etc/passwd', '--cwd', '.'],
+    { encoding: 'utf8', cwd: path.dirname(__dirname) }
+  );
+  assert(result.status !== 0, 'CLI should exit non-zero for path traversal --files');
+  const out = result.stderr + result.stdout;
+  assert(out.includes('path traversal') || out.includes('Invalid --files'), `Expected path traversal error, got: ${out}`);
+});
+
+test('CLI should accept valid --file inside workspace', () => {
+  // Use a file that definitely exists in this repo
+  const result = spawnSync(
+    process.execPath,
+    ['cli.js', 'audit-file', '--file', 'package.json', '--cwd', '.'],
+    { encoding: 'utf8', cwd: path.dirname(__dirname) }
+  );
+  // Should not be rejected by path sanitization (may fail later for other reasons, but not path traversal)
+  const out = result.stderr + result.stdout;
+  assert(!out.includes('path traversal'), `Valid file should not trigger path traversal error: ${out}`);
+});
 
 runAsyncTests().catch(e => {
   console.error('Test suite error:', e);

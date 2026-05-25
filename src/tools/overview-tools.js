@@ -50,6 +50,13 @@ async function buildProjectOverview(args, container) {
       truncated: rawData.stability.length > SCORING.TOP_N_LIST,
       limit: SCORING.TOP_N_LIST,
     },
+    knowledgeRisk: rawData.knowledgeRisk,
+    knowledgeRiskMeta: {
+      totalCount: rawData.knowledgeRisk?.filesAnalyzed || 0,
+      highCount: rawData.knowledgeRisk?.high?.length || 0,
+      mediumCount: rawData.knowledgeRisk?.medium?.length || 0,
+      lowCount: rawData.knowledgeRisk?.low?.length || 0,
+    },
     languageSupport: buildLanguageSupportMatrix(rawData.depGraph),
     ...(rawData.scope ? { directoryRoles: rawData.scope.directoryRoles } : {}),
     ...(rawData.analysisCoverage ? { analysisCoverage: rawData.analysisCoverage } : {}),

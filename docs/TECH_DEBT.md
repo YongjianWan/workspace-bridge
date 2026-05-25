@@ -16,11 +16,13 @@
 
 ---
 
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **6** | L3 品味问题 **1** | 合计 **7 项**
+
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
 #### 弱断言分布 — 占总断言数 ~2.3%
 
-**数据**（本轮修复后）：
+**数据**：
 
 
 | 弱断言模式                                      | 数量      | 风险等级 | 说明                                                          |
@@ -31,15 +33,6 @@
 | `strictEqual(result.ok, true/false)`       | ~48     | 低    | 深层嵌套防御性检查，风险低，不纳入弱断言统计                                      |
 | **合计弱断言（需修复）**                             | **~10** | —    | 从 ~44 处降至 ~10 处（仅余 `typeof` 型 schema 契约检查）                   |
 
-
-**本轮增强**：
-
-- `js-ast-dynamic-import-test.js` / `js-ast-new-url-test.js` / `js-regex-cjs-test.js`：`assert(result.x === y)` → `assert.strictEqual(result.x, y)`
-- `language-support-matrix-test.js`：`assert(!matrix.java)` → `assert.strictEqual(matrix.java, undefined)`
-- `regression-test.js`：`assert.ok(result.status === 1)` → `assert.strictEqual(result.status, 1)`
-- `tree-tools-test.js`：`assert.ok(tree.imports)` → `assert.ok(Array.isArray(tree.imports))`
-- `parser-schema-contract-test.js`：`typeof === 'object'` 补 `!== null` 防御
-- `honesty-engine-test.js`：3 处无消息 `assert.ok(text.includes(...))` 补消息参数
 
 ---
 
@@ -52,14 +45,14 @@
 | 集成测试（`spawn`/`runCli`）  | ~26   | ~20% | 已补充 `cli-integration-test.js`                          |
 | 混沌/模糊测试                 | 0     | 0%   | 暂缓（CLI 工具）                                             |
 | 并发/竞争测试                 | 4 个文件 | ~3%  | 存在（race、concurrency）                                   |
-| 端到端测试                   | 3 个文件 | ~2%  | **缺口仍在**，但 CLI 核心主线已有 spawn 级护体；暂不追加 PowerShell/WASM 专项 E2E |
+| 端到端测试                   | 5 个文件 | ~3%  | 已补充 `fp_regression_security.js` + `fp_regression_dead_exports.js` 归档已知误报场景 |
 
 
-> 注：分类有重叠（如 `cache-concurrency-test.js` 既是集成测试也是并发测试），占比基于总文件数 131 独立计算，不互斥。
+> 注：分类有重叠（如 `cache-concurrency-test.js` 既是集成测试也是并发测试），占比基于总文件数 133 独立计算，不互斥。
 
-**根因**：80% 单元测试 + 弱断言已从 ~~76 处降至 ~10 处（~~2.3%）。CLI 管道回归保护已有 `cli-integration-test.js` 覆盖 `audit-file`/`dead-exports`/`tree`/`impact`/`affected-tests`/`dependencies`/`dependents`/`cycles`，但 `analysis-test.js` 曾长期失败而未被发现（dead-exports 部分错误地以自身仓库为 `--cwd`，而自身仓库 deadExports=0）。
+**根因**：80% 单元测试 + 弱断言 ~10 处（~2.3%）。CLI 管道回归保护已覆盖主要命令。
 
-**影响**：CLI 入口的选项解析、路由分发、错误边界、格式化器选择等关键路径的回归保护已建立；主要剩余缺口是端到端测试（仅 3 个文件，2%）。
+**影响**：CLI 入口的选项解析、路由分发、错误边界、格式化器选择等关键路径的回归保护已建立；主要剩余缺口是端到端测试（5 个文件，~3%），已补充 fp_regression 档案。
 
 **方案**：
 
@@ -71,9 +64,9 @@
 
 **数据**：
 
-- **内联 mock `depGraph`** 构造 — **大部分收敛**：`audit-map-test.js` 已完成试点迁移（`BASE_MOCK_METHODS` 删除，全面改用 `createMockDepGraph`）；剩余 7 个文件中的 ~23 处 `new DependencyGraph` + 手动赋值待分批迁移
+- **内联 mock `depGraph`** 构造 — 剩余 7 个文件中的 ~23 处 `new DependencyGraph` + 手动赋值待分批迁移
 - `test/test-helpers.js` 已建立 `createMockDepGraph` + `GraphFixtures` 工厂基础设施
-- **生产侧根因已解**：`DependencyGraph.fromSchema()` 静态工厂 + 构造函数 DI（`packageJson`/`entryFiles` 可选注入）已落地；`createMockDepGraph({ mode: 'instance' })` 已桥接为生产工厂消费者，彻底消灭属性篡改反模式
+- **生产侧根因已解**：`DependencyGraph.fromSchema()` 静态工厂 + 构造函数 DI 已落地；`createMockDepGraph({ mode: 'instance' })` 已桥接为生产工厂消费者
 
 **根因**：没有提取测试 fixture 工厂函数；mock 数据规模与真实项目差异过大。
 
@@ -81,8 +74,8 @@
 
 **方案**：
 
-1. ✅ 基础设施完成；剩余文件按「每轮 2~3 个」渐进迁移
-2. 基于规模的断言改为条件断言（如 `overview-tools-test.js` 本轮已做的调整），或提供多种规模的 fixture
+1. 基础设施已完成；剩余文件按「每轮 2~3 个」渐进迁移
+2. 基于规模的断言改为条件断言，或提供多种规模的 fixture
 
 ---
 
@@ -96,34 +89,16 @@
 
 **方案**：
 
-1. ✅ 已完成：runner 预热缓存机制（`wb-runner-warm-cache`），slow 层测试启动时复制预热缓存，跳过冷启动建图。
+1. runner 预热缓存机制已部署，slow 层测试启动时复制预热缓存，跳过冷启动建图。
 2. 剩余空间：`formatter-e2e-test.js`（~45s）和 `cli-integration-test.js`（~22s）是新的头部测试，可考虑进一步拆分或改为非 spawn 测试。
 
 ---
 
 #### Builder/Analyzer/Query 状态机（架构债 — 部分完成）
 
-**已完成**：
-- Builder 与 Analyzer 缓存已彻底解耦：`_cachedCycles`、`_cycleCount`、`_scanContentCache`、`_scanPatternCache` 全部下沉到 `GraphAnalyzer` 内部，Builder 不再直接篡改 Analyzer 字段。
-- Builder 只通过 `graph:updated` / `graph:built` 事件与 Analyzer 通信；Analyzer 只响应事件并自主维护缓存。
-- Wave 4（2026-05-24）：CLI/REPL 边界层所有 `container.depGraph` 穿透已收敛到 `DependencyGraphView` facade（`container.snapshot.graph`），数据层与编排层边界进一步清晰化。
-
 **剩余**：
 - 明确状态机（`idle -> initializing -> ready -> updating -> ready`）尚未实现，当前仅靠 `_updating` 布尔锁做重入防护。
 - Query 理论上只读快照，但缺少运行时跨状态调用拦截。
-
----
-
-#### ✅ createMockDepGraph stub 模式重复 20+ 方法（测试债）— 已修复
-
-**根因**：测试中缺少统一的 stub 适配层，导致 `createMockDepGraph` 在 stub 模式下手工复制大量方法签名。
-
-**修复**（2026-05-24）：
-- 新增 `_createStubDepGraph` 共享工厂，使用 `Proxy` 自动拦截所有 `DependencyGraphView` 方法调用，仅 23 个有语义默认值的方法进入 `semanticDefaults` Map。
-- `createMockDepGraph({ mode: 'stub' })` 和 `makeMockSnapshot` 的 `defaultStubs` 统一调用 `_createStubDepGraph`，消灭两处重复代码。
-- 未知方法自动安全兜底（`() => []`），未来 `DependencyGraphView` 新增方法无需手工更新 stub。
-
-**验证**：`npm run test:fast` **99/99 PASS**。
 
 ---
 
@@ -171,7 +146,7 @@
 
 ### 零专属测试模块清单
 
-- ✅ `src/tools/overview-curator.js`：已补充 `test/overview-curator-test.js`，覆盖 `buildOverviewSummary` / `buildCycleRefactorSuggestions` / `buildCouplingSplitSuggestions` / `calculateCoupling` 全部导出。
+- `src/tools/overview-curator.js`：`test/overview-curator-test.js` 覆盖全部导出。
 
 **L5 格式化层（10 个 formatter，6 个间接覆盖）**
 

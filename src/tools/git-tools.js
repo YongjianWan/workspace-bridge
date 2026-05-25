@@ -445,11 +445,156 @@ async function getDiffNumstat(root, options = {}) {
   };
 }
 
+function parseMailmap(content) {
+  if (!content || typeof content !== 'string') return new Map();
+  const map = new Map();
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    // Support: "Canonical Name <canonical@email> Name <alias@email>"
+    //          "<canonical@email> <alias@email>"
+    //          "Canonical Name <canonical@email> <alias@email>"
+    const m = trimmed.match(/^([^<]*\s)?<([^>]+)>\s+([^<]*\s)?<([^>]+)>$/);
+    if (m) {
+      const canonicalEmail = m[2].trim();
+      const aliasEmail = m[4].trim();
+      if (canonicalEmail && aliasEmail) {
+        map.set(aliasEmail.toLowerCase(), canonicalEmail.toLowerCase());
+      }
+    }
+  }
+  return map;
+}
+
+async function loadMailmap(root) {
+  try {
+    const mailmapPath = path.join(root, '.mailmap');
+    const content = fs.readFileSync(mailmapPath, 'utf8');
+    return parseMailmap(content);
+  } catch {
+    return new Map();
+  }
+}
+
+function parseBlamePorcelain(stdout) {
+  const lines = (stdout || '').split(/\r?\n/);
+  const authors = new Map(); // email -> { name, lines }
+  let currentEmail = null;
+  let currentName = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    // A blame block starts with a 40-char SHA, then metadata lines, then a tab-prefixed content line
+    if (/^[0-9a-f]{40}/.test(line)) {
+      currentEmail = null;
+      currentName = null;
+      continue;
+    }
+    if (line.startsWith('author ')) {
+      currentName = line.slice(7).trim();
+      continue;
+    }
+    if (line.startsWith('author-mail ')) {
+      currentEmail = line.slice(12).trim().replace(/^<|>$/g, '');
+      continue;
+    }
+    if (line.startsWith('\t')) {
+      // Content line — attribute to current author
+      if (currentEmail) {
+        const key = currentEmail.toLowerCase();
+        const existing = authors.get(key);
+        if (existing) {
+          existing.lines += 1;
+        } else {
+          authors.set(key, { name: currentName || currentEmail, email: currentEmail, lines: 1 });
+        }
+      }
+      continue;
+    }
+  }
+  return authors;
+}
+
+function computeKnowledgeRisk(metrics) {
+  const { authorCount, primaryAuthorPct } = metrics;
+  if (authorCount === 0) {
+    return { riskLevel: 'unknown', reason: 'No blame data available' };
+  }
+  if (authorCount === 1) {
+    return { riskLevel: 'high', reason: 'Single author — bus factor = 1' };
+  }
+  if (authorCount === 2) {
+    return { riskLevel: 'medium', reason: 'Only 2 authors' };
+  }
+  if (primaryAuthorPct > 0.8) {
+    return { riskLevel: 'medium', reason: `Dominant author (${Math.round(primaryAuthorPct * 100)}%)` };
+  }
+  return { riskLevel: 'low', reason: `${authorCount} authors, well distributed` };
+}
+
+async function getFileKnowledgeRisk(root, file, options = {}) {
+  const gitCheck = await ensureGitRepo(root);
+  if (gitCheck) return gitCheck;
+
+  const filePath = resolveWorkspaceFilePath(file, root);
+  if (!filePath) {
+    return { ok: false, error: 'Invalid file path or path outside workspace', workspaceRoot: root };
+  }
+
+  const mailmap = await loadMailmap(root);
+  const result = await runGit(['blame', '--porcelain', '--', filePath], root, TIMEOUTS.GIT_LONG_MS);
+  if (!result.ok && !result.stdout) {
+    return { ok: false, error: result.stderr || 'Failed to read git blame', workspaceRoot: root, file };
+  }
+
+  const authors = parseBlamePorcelain(result.stdout);
+  const totalLines = Array.from(authors.values()).reduce((sum, a) => sum + a.lines, 0);
+
+  // Apply mailmap deduplication
+  const canonicalAuthors = new Map();
+  for (const [email, info] of authors) {
+    const canonicalEmail = mailmap.get(email.toLowerCase()) || email.toLowerCase();
+    const existing = canonicalAuthors.get(canonicalEmail);
+    if (existing) {
+      existing.lines += info.lines;
+    } else {
+      canonicalAuthors.set(canonicalEmail, { name: info.name, email: canonicalEmail, lines: info.lines });
+    }
+  }
+
+  const authorList = Array.from(canonicalAuthors.values()).sort((a, b) => b.lines - a.lines);
+  const authorCount = authorList.length;
+  const primaryAuthor = authorList[0] || null;
+  const primaryAuthorLines = primaryAuthor ? primaryAuthor.lines : 0;
+  const primaryAuthorPct = totalLines > 0 ? primaryAuthorLines / totalLines : 0;
+
+  const { riskLevel, reason } = computeKnowledgeRisk({ authorCount, primaryAuthorPct });
+
+  return {
+    ok: true,
+    workspaceRoot: root,
+    file: toRelativePosix(root, filePath),
+    totalLines,
+    authorCount,
+    primaryAuthor: primaryAuthor ? primaryAuthor.name : null,
+    primaryAuthorEmail: primaryAuthor ? primaryAuthor.email : null,
+    primaryAuthorLines,
+    primaryAuthorPct,
+    authors: authorList.map((a) => ({ name: a.name, email: a.email, lines: a.lines, pct: totalLines > 0 ? a.lines / totalLines : 0 })),
+    riskLevel,
+    reason,
+  };
+}
+
 module.exports = {
   getChangedFiles,
   getChangedLineRanges,
   getFileHistoryRisk,
   getDiffNumstat,
-  // Exposed for unit testing porcelain parser edge cases
+  getFileKnowledgeRisk,
+  // Exposed for unit testing
   parsePorcelainV1Line,
+  parseMailmap,
+  parseBlamePorcelain,
+  computeKnowledgeRisk,
 };

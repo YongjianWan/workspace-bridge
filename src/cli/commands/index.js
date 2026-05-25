@@ -54,7 +54,8 @@ const COMMANDS = {
       result.hasFindings =
         (result.orphans?.counts?.total || 0) > 0 ||
         (result.hotspots?.length || 0) > 0 ||
-        (result.architectureAdvice?.cycleRefactorSuggestions?.length || 0) > 0;
+        (result.architectureAdvice?.cycleRefactorSuggestions?.length || 0) > 0 ||
+        (result.knowledgeRisk?.high?.length || 0) > 0;
     }
     return result;
   },

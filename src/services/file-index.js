@@ -34,6 +34,7 @@ class FileIndex {
     this.updateTimer = null;
     this.concurrency = options.concurrency || DEFAULT_CONCURRENCY;
     this.indexedCount = 0;
+    this.changedFiles = new Set();
     this.cliExcludeDirs = [...new Set((options.excludeDirs || []).map((d) => d.trim()).filter(Boolean))];
     this.baseExcludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS])];
     this.quiet = options.quiet || false;
@@ -47,6 +48,7 @@ class FileIndex {
     const startTime = Date.now();
     this.indexedCount = 0;
     this.processedCount = 0;
+    this.changedFiles.clear();
     const shouldWatch = options.watch !== false;
     if (Array.isArray(options.excludeDirs)) {
       this.cliExcludeDirs = [...new Set(options.excludeDirs.map((d) => d.trim()).filter(Boolean))];
@@ -232,7 +234,10 @@ class FileIndex {
     // indexFile defends against TOCTOU (file deleted between stat and read);
     // only count successful indexing.
     const ok = await this.indexFile(file);
-    if (ok) this.indexedCount++;
+    if (ok) {
+      this.indexedCount++;
+      this.changedFiles.add(file);
+    }
   }
 
   _applyWorkspaceExcludeDirs() {
@@ -550,6 +555,7 @@ class FileIndex {
     return {
       ...this.cache.getStats(),
       indexedCount: this.indexedCount,
+      changedFiles: Array.from(this.changedFiles),
     };
   }
 }

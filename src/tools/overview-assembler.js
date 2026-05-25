@@ -7,7 +7,7 @@ const { toRelativePosix } = require('../utils/path');
 const { findOrphanFiles } = require('../utils/orphan-detector');
 const { detectStack } = require('../utils/stack-detectors/detect');
 const { DEFAULTS, SCORING, LIMITS } = require('../config/constants');
-const { getFileHistoryRisk } = require('./git-tools');
+const { getFileHistoryRisk, getFileKnowledgeRisk } = require('./git-tools');
 const {
   buildOverviewSummary,
   buildCycleRefactorSuggestions,
@@ -123,6 +123,43 @@ function buildSkeleton(root, depGraph, allFiles, mainlineFiles, projectContext, 
   };
 }
 
+async function buildKnowledgeRisk(root, mainlineFiles) {
+  const files = mainlineFiles.slice(0, DEFAULTS.HOTSPOT_CANDIDATE_LIMIT);
+  const concurrency = LIMITS.GIT_LOG_CONCURRENCY;
+  const results = [];
+
+  for (let i = 0; i < files.length; i += concurrency) {
+    const batch = files.slice(i, i + concurrency);
+    const batchResults = await Promise.all(
+      batch.map(async (file) => {
+        try {
+          const result = await getFileKnowledgeRisk(root, file);
+          if (result?.ok === false) return null;
+          return {
+            file: result.file,
+            totalLines: result.totalLines,
+            authorCount: result.authorCount,
+            primaryAuthor: result.primaryAuthor,
+            primaryAuthorPct: result.primaryAuthorPct,
+            riskLevel: result.riskLevel,
+            reason: result.reason,
+          };
+        } catch {
+          return null;
+        }
+      })
+    );
+    results.push(...batchResults);
+  }
+
+  const all = results.filter(Boolean);
+  const high = all.filter((r) => r.riskLevel === 'high').sort((a, b) => b.primaryAuthorPct - a.primaryAuthorPct);
+  const medium = all.filter((r) => r.riskLevel === 'medium').sort((a, b) => b.primaryAuthorPct - a.primaryAuthorPct);
+  const low = all.filter((r) => r.riskLevel === 'low').sort((a, b) => b.primaryAuthorPct - a.primaryAuthorPct);
+
+  return { high, medium, low, filesAnalyzed: all.length };
+}
+
 async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
   const files = mainlineFiles.slice(0, DEFAULTS.HOTSPOT_CANDIDATE_LIMIT);
   const concurrency = LIMITS.GIT_LOG_CONCURRENCY;
@@ -145,10 +182,19 @@ async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
         const coupling = calculateCoupling(dependencies, dependents);
         if (score <= SCORING.HOTSPOT_REPORT_THRESHOLD && coupling.total <= SCORING.COUPLING_MEDIUM_MIN) return null;
         const historySignal = historyRisk?.signals?.[0];
-        const couplingSignal = coupling.total > 0 ? `${coupling.total} 个依赖连接` : null;
+        let couplingSignal = null;
+        if (coupling.total > 0) {
+          if (coupling.inDegree >= coupling.outDegree * 2) {
+            couplingSignal = `耦合: 被 ${coupling.inDegree} 个模块依赖（高 fan-in）`;
+          } else if (coupling.outDegree >= coupling.inDegree * 2) {
+            couplingSignal = `耦合: 依赖 ${coupling.outDegree} 个模块（高 fan-out）`;
+          } else {
+            couplingSignal = `耦合: ${coupling.inDegree} 入 / ${coupling.outDegree} 出`;
+          }
+        }
         let reason;
         if (historySignal && couplingSignal) {
-          reason = `耦合 ${coupling.total} 个模块 · ${historySignal}`;
+          reason = `${couplingSignal} · ${historySignal}`;
         } else if (historySignal) {
           reason = historySignal;
         } else if (couplingSignal) {
@@ -446,6 +492,8 @@ async function assembleOverviewData(args, container, historyProvider) {
   const nowIso = args?.now || new Date().toISOString();
   const trendGranularity = args?.trendGranularity === 'week' ? 'week' : 'day';
 
+  const knowledgeRisk = await buildKnowledgeRisk(root, mainlineFiles);
+
   return {
     ok: true,
     root,
@@ -457,6 +505,7 @@ async function assembleOverviewData(args, container, historyProvider) {
     skeleton,
     hotspots,
     stability,
+    knowledgeRisk,
     mainlineFiles,
     orphanCount,
     orphans,
@@ -477,6 +526,7 @@ module.exports = {
   buildLanguageSupportMatrix,
   buildHotspots,
   buildStability,
+  buildKnowledgeRisk,
   buildSkeleton,
   aggregateOverviewStats,
   calculateHotspotScore,
