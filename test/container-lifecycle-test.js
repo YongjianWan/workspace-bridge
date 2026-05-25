@@ -3,7 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { ServiceContainer } = require('../src/services/container');
+const { ServiceContainer, STATES } = require('../src/services/container');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 async function testInitializeCreatesServices() {
@@ -78,12 +78,40 @@ async function testEnsureReadyPassesWhenInitialized() {
   cleanupTempDir(dir);
 }
 
+async function testInvalidTransitionThrows() {
+  const container = new ServiceContainer();
+  // Force into INITIALIZING and attempt an illegal transition to IDLE
+  container._transition(STATES.INITIALIZING);
+  try {
+    container._transition(STATES.IDLE);
+    assert.fail('should have thrown for INITIALIZING → IDLE');
+  } catch (e) {
+    assert(e.message.includes('Invalid transition'), 'error should mention invalid transition');
+  }
+}
+
+async function testStateConvergesAfterShutdown() {
+  const dir = makeTempDir('wb-container-');
+  fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
+
+  const container = new ServiceContainer();
+  await container.initialize(dir, 30000, { watch: false });
+  assert.strictEqual(container.state, STATES.READY, 'state should be READY after init');
+
+  await container.shutdown();
+  assert.strictEqual(container.state, STATES.IDLE, 'state should be IDLE after shutdown');
+
+  cleanupTempDir(dir);
+}
+
 async function main() {
   await testInitializeCreatesServices();
   await testShutdownSetsInitError();
   await testReinitializeAfterShutdown();
   await testEnsureReadyTimeout();
   await testEnsureReadyPassesWhenInitialized();
+  await testInvalidTransitionThrows();
+  await testStateConvergesAfterShutdown();
 
 }
 

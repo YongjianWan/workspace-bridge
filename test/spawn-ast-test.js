@@ -38,9 +38,6 @@ async function testSigkillFallbackAndUnref() {
         destroy() {},
       },
       stdin: {
-        write() {
-          return true;
-        },
         end() {},
         on() {},
       },

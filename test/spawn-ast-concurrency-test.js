@@ -16,7 +16,6 @@ function mockSpawn(command, args, options) {
   const stdout = new EventEmitter();
   const stderr = new EventEmitter();
   const stdin = {
-    write: () => {},
     end: () => {},
     on: () => {},
   };

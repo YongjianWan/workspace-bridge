@@ -15,13 +15,9 @@ const originalExistsSync = fs.existsSync;
 function createMockProcess() {
   const stdout = new EventEmitter();
   const stderr = new EventEmitter();
-  const stdin = new EventEmitter();
-  stdin.write = () => true;
-  stdin.end = () => {};
   const proc = new EventEmitter();
   proc.stdout = stdout;
   proc.stderr = stderr;
-  proc.stdin = stdin;
   proc.unref = () => {};
   proc.kill = () => {};
   return proc;
@@ -124,20 +120,27 @@ async function testSpawnErrorReturnsNull() {
   assert.strictEqual(result, null, 'spawn error should resolve null');
 }
 
-async function testStdinWriteErrorReturnsNull() {
+async function testSpawnUsesFileArgument() {
   fs.existsSync = () => true;
+  let capturedArgs;
+  let capturedOptions;
   let mockProc;
-  cp.spawn = () => {
+  cp.spawn = (cmd, args, options) => {
+    capturedArgs = args;
+    capturedOptions = options;
     mockProc = createMockProcess();
-    mockProc.stdin.write = () => { throw new Error('EPIPE'); };
     setImmediate(() => {
-      mockProc.emit('close', 1);
+      mockProc.stdout.emit('data', JSON.stringify({ imports: [], exports: [] }));
+      mockProc.emit('close', 0);
     });
     return mockProc;
   };
   const { spawnPythonASTParser } = setupModule();
   const result = await spawnPythonASTParser('dummy.py', 'content', 5000);
-  assert.strictEqual(result, null, 'stdin write error should resolve null');
+  assert.deepStrictEqual(result, { imports: [], exports: [] }, 'should parse JSON result when using --file');
+  assert(capturedArgs.includes('--file'), 'spawn args should include --file flag');
+  assert(capturedArgs.some((arg) => arg.includes('wb-ast-')), 'spawn args should include temp file path');
+  assert.strictEqual(capturedOptions.stdio[0], 'ignore', 'stdio[0] should be ignore since stdin is not used');
 }
 
 async function testInvalidJsonReturnsNull() {
@@ -170,7 +173,7 @@ async function main() {
 
     await testSpawnErrorReturnsNull();
 
-    await testStdinWriteErrorReturnsNull();
+    await testSpawnUsesFileArgument();
 
     await testInvalidJsonReturnsNull();
 

@@ -79,8 +79,8 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### 本轮做了什么
 
-- **容器生命周期竞态窗口关闭**：`container.js` 引入 `_shuttingDown` 轻量同步锁（非完整状态机）。`shutdown()` 入口设标志防止重复关闭，`initialize()` 入口检查标志防止关闭期间重入，清理完成后重置标志允许重新初始化。直接关闭 `await cache.save()` 异步窗口期间的竞态，无新增抽象。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
-- **Java dead-exports 大图崩溃根治**：`spawn-ast.js` 改用临时文件中转替代 stdin 管道，Python 脚本支持 `--file` 参数读取。彻底消除 542 文件 Java 项目 `dead-exports` exit code 49。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+- **容器生命周期单状态源收敛**：`ServiceContainer` 删除 `initialized` / `initializing` / `_shuttingDown` 三布尔标志，收敛为 `this.state` 单一枚举（`IDLE/INITIALIZING/READY/SHUTTING_DOWN/ERROR`）。新增 `_transition(toState)` 统一守卫非法转换。`shutdown()` 末尾 `_transition(IDLE)` 移入 `finally` 块确保异常安全。`container.initialized` / `container.initializing` 保留 getter 桥接，外部零改动。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+- **Java dead-exports 大图崩溃根治**：`spawn-ast.js` 改用临时文件中转替代 stdin 管道，Python 脚本（`java_ast_parser.py` / `python_ast_parser.py`）支持 `--file` 参数读取。彻底消除 542 文件 Java 项目 `dead-exports` exit code 49（Windows Store Python + Git Bash 管道大数据崩溃）。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 - **Bus Factor / 知识分布（knowledgeRisk）**：`audit-overview` 新增逐文件 `git blame --porcelain` + `.mailmap` 去重，标识单作者文件（bus factor = 1）。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 
@@ -93,11 +93,12 @@ node cli.js audit-summary --cwd . --json --quiet
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
 | 活跃债务与品味     | 5           | 弱断言 / 测试类型失衡 / slow 层过重 / Builder 状态机 / `--json` 嵌套深 |
+| 状态机（Container）| ✅ 已收敛 | `initialized` / `initializing` / `_shuttingDown` 三标志已收敛为单一 `state` 枚举 + `_transition` 守卫 |
 | **产品债务** | **0** | —                                                                                                                                       |
 
 **测试覆盖缺口**
 
-> **`npm run test:fast` 81/81 PASS**（~5s）。全量 runner **144/144 PASS**（~4.5min）。测试基础设施已收敛。
+> **`npm run test:fast` 81/81 PASS**（~5s）。全量 runner **146/146 PASS**（~5min）。测试基础设施已收敛。
 
 > **剩余测试债务（已量化）**：
 >
@@ -141,10 +142,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 | 波次     | 范围                                         | 侵入性 | 验证标准                                       | 状态   |
 | -------- | -------------------------------------------- | ------ | ---------------------------------------------- | ------ |
-| **Wave 2** | Resolver 策略链物理拆分（LanguageProvider）    | 中     | 已交付                                     | ✅ 已完成 |
-| **Wave 3** | Builder/Analyzer 解耦 + 后处理 Affected-only | 高     | 已交付                                     | ✅ 已完成 |
-| **Wave 4** | Graph Facade 收敛与卫生清理                   | 中     | 已交付                                     | ✅ 已完成 |
-| **Wave 5** | 并发测试第二波 + 健壮 CLI 参数解析             | 中     | 已交付                                     | ✅ 已完成 |
+
 
 ### 数据层剩余项
 
@@ -158,10 +156,7 @@ node cli.js audit-summary --cwd . --json --quiet
 ### P2 高 ROI 用户可见功能（评估中）
 
 | # | 目标                            | 状态      | 说明                                                                       |
-| - | ------------------------------- | --------- | -------------------------------------------------------------------------- |
-| 1 | **Bus Factor / 知识分布** | ✅ 已完成 | `audit-overview` 新增 `knowledgeRisk`：逐文件 git blame + mailmap 去重 |
-| 2 | **回归测试档案**          | ✅ 已完成 | `fp_regression_*.js` 归档已知误报场景，防止修复后复发                    |
-| 3 | **路径参数安全清洗**      | ✅ 已完成 | `--file`/`--cwd` 统一清洗，拒绝 `../` 逃逸                           |
+| 
 
 ### P3 输出层渐进改善（Dogfood 后续，按节奏推进）
 
@@ -169,20 +164,10 @@ node cli.js audit-summary --cwd . --json --quiet
 
 | # | 目标 | 状态 | 说明 |
 |---|------|------|------|
-| 1 | **`audit-map` 目录级聚合 compact** | ✅ 已完成 | edges 按目录聚合已通过 modEdgeMap + getModuleOf 实现，在 --compact 模式下直接归并到目录层级，彻底消除文件级冗余 |
-| 2 | **Fan-out / Fan-in 指标进 `audit-overview`** | ✅ 已完成 | hotspot `reason` 从单一"耦合 N 个模块"改为区分 fan-in vs fan-out（高 fan-in / 高 fan-out / 平衡三种形态）。markdown / summary formatter 新增 Top Hotspots 段落展示带 fan-in/fan-out 的 reason。 |
-| 3 | **`--format ai` 风险分层输出** | ✅ 已完成 | `formatAi` 对 `audit-summary` 引入风险分层压缩：`high` 保留完整字段，`medium` 压缩为 category/severity/message/count，`low` 极简为 category/severity/count。仅在 `detail` / `full` 深度下生效。 |
 | 4 | **Duplication detection 通用化** | ❌ 暂缓 | 已评估为超出结构分析边界。`severityMeetsFilter` 案例能被抓到是巧合（同时满足"死导出"+"SymbolRegistry 同名"两个独立条件）。专门做 AST 级代码重复检测会变成 SonarQube，违反"结构分析 ≠ 语义分析"原则。 |
 
 ### 待挖掘/待验证问题（本轮新增）
 
-| # | 问题                               | 深挖价值 | 验证方案                                                                                                                                                                              |
-| - | ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 6 | **CLI 命令分层认知负担**     | 高       | ✅ **已修复**。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。 |
-| 7 | **Windows 兼容性与路径适配** | 中       | ✅ **已验证**。path.js 分层设计（Raw Path / Graph Key / Display Path）已清晰收拢，容器级 Raw/Key 混用 bug 已被精准短路，无需强行引入过度设计的适配层。 |
-| 8 | **`isKnownEntryFile` 同步磁盘 I/O** | 中       | ✅ **已修复**。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。 |
-| 9 | **`this.dg.graph` 穿透（38 处）** | 高       | ✅ **已完成**。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。 |
-| 10 | **预计算失效粒度太粗** | 中       | ✅ **已修复**。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。 |
 
 ### 当前不做
 
@@ -202,5 +187,5 @@ node cli.js audit-summary --cwd . --json --quiet
 
 *Last updated: 2026-05-25（exit code 49 已根治；knowledgeRisk 已交付；81/81 fast 测试全绿；146/146 全量 runner；活跃债务 5 项）*
 
-> **本轮验证状态**：`npm run test:fast` **81/81 PASS**（~5s）；全量 runner **146/146 PASS**（~5min）；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=280`）；CLI smoke（`impact` / `affected-tests` / `repl --eval` / `dead-exports`）零 deprecation warning；`dead-exports` CLI smoke 零 exit code 49；`container-lifecycle-test.js` PASS。
+> **本轮验证状态**：`npm run test:fast` **81/81 PASS**（~5s）；全量 runner **146/146 PASS**（~5min）；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=280`）；CLI smoke（`impact` / `affected-tests` / `repl --eval` / `dead-exports`）零 deprecation warning；`dead-exports` CLI smoke 零 exit code 49。
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。

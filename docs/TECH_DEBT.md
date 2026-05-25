@@ -119,13 +119,11 @@
 
 | 模块                                            | 状态      | 说明                                                                                                | 建议测试文件                         |
 | --------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- | ------------------------------ |
-| `src/cli/formatters/project-map.js`           | ✅ 已补充   | `test/project-map-test.js` 覆盖 buildProjectMap full/compact、buildDirectoryTree、countTreeFiles、空图边界 | —                              |
-| `src/cli/formatters/composite-risk.js`        | ✅ 已补充   | `formatter-direct-test.js` 新增 7 组 `buildCompositeRisk` 测试                                         | —                              |
-| `src/cli/formatters/audit-diff-summary.js`    | ✅ 已补充   | `formatter-direct-test.js` 新增 `buildAuditDiffSummary` + `classifyChangeType` 测试                    | —                              |
+|                          |
 | `src/cli/formatters/repo-summary.js`          | ⚠️ 间接覆盖 | `formatter-direct-test.js` 导入了 `buildRepoSummary` 但覆盖浅                                            | 扩展 `formatter-direct-test.js`  |
 | `src/cli/formatters/human-formatters.js`      | ⚠️ 间接覆盖 | `formatter-direct-test.js` 覆盖了部分分支                                                                | 扩展 `formatter-direct-test.js`  |
 | `src/cli/formatters/validation-advice.js`     | ⚠️ 间接覆盖 | 被 `audit-file-validation-advice-test.js` 间接覆盖                                                     | 扩展 `formatter-direct-test.js`  |
-| `src/cli/formatters/recommendation-engine.js` | ✅ 有测试   | `test/recommendation-engine-test.js`                                                              | —                              |
+|                                                             | —                              |
 
 
 ---
@@ -135,10 +133,7 @@
 
 | 模块                      | 测试文件                                                                   | 覆盖状态                                                                                                                            |
 | ----------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `file-index.js`         | `file-index-race-test.js`                                              | ✅ race / exclude / rename / boundary（EACCES/AbortController）                                                                    |
-| `watch.js`              | `watch-test.js`                                                        | ✅ 文件变化 / SIGINT / SIGTERM / --run-tests / compact 格式                                                                            |
-| `repl.js`               | `repl-test.js`                                                         | ✅ executeCommand 全分支 / shutdown 守卫 / 热点 threshold 边界                                                                            |
-| `cli.js`                | `functionality-test.js`                                                | ✅ mapper 异常 / adapter 异常 / 所有 human 格式化分支                                                                                       |
+|                                                          |
 | `workspace-snapshot.js` | `dep-tools-test.js` `overview-tools-test.js` `project-map-test.js`（试点） | ⚠️ 仅验证了 backward-compat（`snapshot.graph` 替代手工 mock），`getConfidence`/`knownBlindSpots`/`getSelfAwarenessSummary`/`basedOn` 零断言覆盖 |
 
 

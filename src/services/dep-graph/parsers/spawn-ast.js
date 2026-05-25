@@ -74,7 +74,7 @@ function _spawnPythonASTParser(scriptName, content, timeoutMs) {
     }
 
     const python = spawn(pythonCmd, [scriptPath, '--file', tempPath], {
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
     });
@@ -127,15 +127,6 @@ function _spawnPythonASTParser(scriptName, content, timeoutMs) {
         if (process.env.DEBUG) {
           console.error(`[DepGraph] ${scriptName} parse failed: exitCode=${code}, stderr=${errorOutput}`);
         }
-        // Detect Windows Store Python pipe failure (exit code 49)
-        if (code === 49 && process.platform === 'win32') {
-          console.error(
-            `[workspace-bridge] Python AST parser exited with code 49. ` +
-            `This is a known issue with Windows Store Python in Git Bash when piping large data. ` +
-            `Suggested workarounds: 1) Use system Python instead of Windows Store Python, ` +
-            `2) Run in PowerShell, or 3) Set PYTHONIOENCODING=utf-8`
-          );
-        }
         resolve(null);
         return;
       }
@@ -164,24 +155,7 @@ function _spawnPythonASTParser(scriptName, content, timeoutMs) {
       resolve(null);
     });
 
-    python.stdin.on('error', (err) => {
-      if (process.env.DEBUG) {
-        console.error(`[DepGraph] ${scriptName} stdin error: ${err.message}`);
-      }
-    });
 
-    // stdin is no longer used (content passed via --file temp file).
-    // Close it immediately so the Python script does not block waiting for input.
-    try {
-      python.stdin.end();
-    } catch (err) {
-      if (process.env.DEBUG) {
-        console.error(`[DepGraph] ${scriptName} stdin end failed: ${err.message}`);
-      }
-      cleanupTempFile();
-      try { python.kill('SIGTERM'); } catch (_) {}
-      resolve(null);
-    }
   });
 }
 

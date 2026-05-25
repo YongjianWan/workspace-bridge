@@ -8,13 +8,14 @@
 
 ## [Unreleased]
 
-### 修复（容器生命周期竞态窗口 — 2026-05-25）
+### 重构（容器生命周期单状态源收敛 — 2026-05-25）
 
-- **`shutdown()` 同步锁** `src/services/container.js`：
-  - **根因**：`shutdown()` 是 async 方法，在 `await cache.save()` / `await fileIndex.processPending()` 等异步操作期间，`initialized` 仍为 `true`。如果此时并发调用 `initialize()`，会因 `initialized = true` 直接短路返回，但 shutdown 最终会把 `initialized = false`，导致调用方拿到"已初始化"结论时容器实际正在关闭。
-  - **修复**：引入轻量同步标志 `_shuttingDown`。`shutdown()` 入口设 `_shuttingDown = true`（防重复 shutdown），`initialize()` 入口检查 `_shuttingDown` 并抛错（防关闭期间重入），`shutdown()` 完成清理后重置 `_shuttingDown = false`（允许重新初始化）。
-  - **方案选择**：未采用完整状态机（IDLE/INITIALIZING/READY/SHUTTING_DOWN），因为当前 `initialized` + `initializing` + `initError` + `_readyPromise` 四个标志已覆盖 95% 场景且无已知竞态 bug；5 行同步锁直接关闭唯一真实竞态窗口，无新增抽象。
-  - **验证**：`npm run test:fast` **81/81 PASS**。
+- **`ServiceContainer` 状态机重构** `src/services/container.js` + `test/container-lifecycle-test.js`：
+  - **根因**：`initialized` / `initializing` / `_shuttingDown` 三个布尔标志构成 Flag-Soup，32 种组合中只有 5 种合法，认知负担高且易引入隐蔽竞态。
+  - **重构**：物理删除所有布尔标志，收敛为单一 `this.state`（`STATES.IDLE | INITIALIZING | READY | SHUTTING_DOWN | ERROR`）作为唯一事实源。新增 `_transition(toState)` 统一守卫，非法转换直接抛错（`[Container] Invalid transition: ${from} → ${toState}`）。
+  - **向后兼容**：`container.initialized` 和 `container.initializing` 保留 getter 桥接（`state === STATES.READY / INITIALIZING`），外部调用方零改动。
+  - **异常安全**：`shutdown()` 末尾 `_transition(STATES.IDLE)` 移入 `finally` 块，确保任何清理路径异常后状态仍能恢复，消灭永久僵死风险。
+  - **验证**：`npm run test:fast` **81/81 PASS**；`container-lifecycle-test.js` 新增 `testInvalidTransitionThrows` + `testStateConvergesAfterShutdown` 语义测试。
 
 ### 修复（Java dead-exports 大图崩溃根治 — 2026-05-25）
 
@@ -25,6 +26,14 @@
   - **向后兼容**：Python 脚本仍支持无 `--file` 参数的 stdin 读取路径（fallback），不影响外部直接调用。
   - **边界消除**：彻底绕过 stdin 管道大数据崩溃的触发条件，不是再加一层诊断提示（if）。
   - **验证**：`npm run test:fast` **81/81 PASS**；CLI smoke `dead-exports --cwd . --json --quiet` 零 exit code 49；`java-dead-export-test.js` PASS；`python_ast_parser.py` 的 `--file` 路径经 Python 测试隐式覆盖。
+
+### 清理（spawn-ast stdin 残留逻辑移除 — 2026-05-25）
+
+- **`spawn-ast.js` 清理已废弃的 stdin 管道代码** `src/services/dep-graph/parsers/spawn-ast.js` + `test/spawn-ast-*-test.js`：
+  - `stdio` 从 `['pipe', 'pipe', 'pipe']` 改为 `['ignore', 'pipe', 'pipe']`，因为内容已通过 `--file` 临时文件传递，stdin pipe 不再使用。
+  - 删除 `python.stdin.on('error')` 监听器、`python.stdin.end()` 调用块、以及 `close` 事件里已根治的 exit code 49 诊断提示（死代码清理）。
+  - 删除沉默测试 `testStdinWriteErrorReturnsNull`（`stdin.write` 不再被调用，测试通过但不验证假设）。
+  - 新增语义测试 `testSpawnUsesFileArgument`，验证 spawn 参数包含 `--file`、临时文件路径、`stdio[0] === 'ignore'`。
 
 ### 新增（Bus Factor / 知识分布 — 2026-05-25）
 
