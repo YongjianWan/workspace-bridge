@@ -16,7 +16,7 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **6** | L3 品味问题 **1** | 合计 **7 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **4** | L3 品味问题 **1** | 合计 **5 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
@@ -60,25 +60,6 @@
 
 ---
 
-#### 测试代码重复率过高（mock depGraph）— 违反 L2-7
-
-**数据**：
-
-- **内联 mock `depGraph`** 构造 — 剩余 7 个文件中的 ~23 处 `new DependencyGraph` + 手动赋值待分批迁移
-- `test/test-helpers.js` 已建立 `createMockDepGraph` + `GraphFixtures` 工厂基础设施
-- **生产侧根因已解**：`DependencyGraph.fromSchema()` 静态工厂 + 构造函数 DI 已落地；`createMockDepGraph({ mode: 'instance' })` 已桥接为生产工厂消费者
-
-**根因**：没有提取测试 fixture 工厂函数；mock 数据规模与真实项目差异过大。
-
-**影响**：修改 `depGraph` mock 接口需改多处；新增基于项目规模的业务逻辑时，mock 测试容易误报或漏报。
-
-**方案**：
-
-1. 基础设施已完成；剩余文件按「每轮 2~3 个」渐进迁移
-2. 基于规模的断言改为条件断言，或提供多种规模的 fixture
-
----
-
 #### slow 层测试过重
 
 **数据**：slow 层 54 个测试需 ~250s，其中 `e2e-gitnexus-test.js` 单个测试占 ~23s（全层时间的 ~9%）。
@@ -100,21 +81,6 @@
 - 明确状态机（`idle -> initializing -> ready -> updating -> ready`）尚未实现，当前仅靠 `_updating` 布尔锁做重入防护。
 - Query 理论上只读快照，但缺少运行时跨状态调用拦截。
 
----
-
-#### audit-diff 与 audit-summary JSON schema 不同步（L3级品味债）
-
-**根因**：两个输出由不同 assembler/formatter 维护，缺少共享 schema contract 与一致性测试。
-
-**影响**：
-
-- 消费端需要写两套适配逻辑，增加用户负担。
-- 合约回归难以被单测捕获（字段名/结构漂移）。
-
-**方案**：
-
-1. 抽出共享 schema contract（最小核心字段集合）。
-2. 增加跨命令 schema 一致性测试（至少校验核心字段集合）。
 
 ## L3 品味问题（建议修，非债务）
 

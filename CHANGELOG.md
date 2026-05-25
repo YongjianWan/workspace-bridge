@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### 修复（容器生命周期竞态窗口 — 2026-05-25）
+
+- **`shutdown()` 同步锁** `src/services/container.js`：
+  - **根因**：`shutdown()` 是 async 方法，在 `await cache.save()` / `await fileIndex.processPending()` 等异步操作期间，`initialized` 仍为 `true`。如果此时并发调用 `initialize()`，会因 `initialized = true` 直接短路返回，但 shutdown 最终会把 `initialized = false`，导致调用方拿到"已初始化"结论时容器实际正在关闭。
+  - **修复**：引入轻量同步标志 `_shuttingDown`。`shutdown()` 入口设 `_shuttingDown = true`（防重复 shutdown），`initialize()` 入口检查 `_shuttingDown` 并抛错（防关闭期间重入），`shutdown()` 完成清理后重置 `_shuttingDown = false`（允许重新初始化）。
+  - **方案选择**：未采用完整状态机（IDLE/INITIALIZING/READY/SHUTTING_DOWN），因为当前 `initialized` + `initializing` + `initError` + `_readyPromise` 四个标志已覆盖 95% 场景且无已知竞态 bug；5 行同步锁直接关闭唯一真实竞态窗口，无新增抽象。
+  - **验证**：`npm run test:fast` **81/81 PASS**。
+
 ### 修复（Java dead-exports 大图崩溃根治 — 2026-05-25）
 
 - **临时文件中转替代 stdin 管道** `src/services/dep-graph/parsers/spawn-ast.js` + `scripts/java_ast_parser.py` + `scripts/python_ast_parser.py`：

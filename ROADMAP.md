@@ -380,17 +380,16 @@ CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
 
 ---
 
-### L3 品味与架构债务（3 项活跃）
+### L3 品味与架构债务（2 项活跃）
 
 按 [TECH_DEBT.md](./docs/TECH_DEBT.md) 记录：
 
 | 位置 | 问题 | 优先级 |
 | ---- | ---- | ------ |
-| `js.js` | `parseJavaScriptAST` ~476 行、`parseJavaScript` regex ~41 行 | 低 |
 | `cli.js` / `formatters` | `--json` 嵌套深；`determineExitCode()` 脏耦合 switch-case 链条 | 中 |
 | `parsers/js.js` | JS 正则 fallback 模式三大死角：多行模板按行切分瘫痪、解构导出捕获漏报、调用链空转 | 中 |
 
-> 已修复项（历史见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]）：`inferFileRole` 状态化 + 规则盲区消除（`project-context.js`）、`shouldExclude` 跨层热切判定解耦（`file-index.js`）、COMMAND_GUIDES 内聚归位（`cli.js`）、Resolver FIFO → LRU（`resolvers.js`）。
+> 已修复项（历史见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]）：`inferFileRole` 状态化 + 规则盲区消除（`project-context.js`）、`shouldExclude` 跨层热切判定解耦（`file-index.js`）、COMMAND_GUIDES 内聚归位（`cli.js`）、Resolver FIFO → LRU（`resolvers.js`）、`js.js` 解析器拆分（将 `parseJavaScriptAST` 移至 `ast-parser.js`）。
 
 ---
 

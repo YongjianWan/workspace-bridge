@@ -26,6 +26,7 @@ class ServiceContainer {
   constructor(options = {}) {
     this.initialized = false;
     this.initializing = false;
+    this._shuttingDown = false;
     this.initError = null;
     this.workspaceRoot = null;
     this.quiet = options.quiet || false;
@@ -70,6 +71,10 @@ class ServiceContainer {
    * Initialize all services. Thread-safe with mutex-like behavior.
    */
   async initialize(cwd, timeoutMs = TIMEOUTS.INIT_TIMEOUT_MS, options = {}) {
+    if (this._shuttingDown) {
+      throw new Error('Container is shutting down');
+    }
+
     // Allow re-initialization after shutdown by clearing the fatal error
     this.initError = null;
 
@@ -400,6 +405,9 @@ class ServiceContainer {
    * Shutdown: persist cache and cleanup
    */
   async shutdown() {
+    if (this._shuttingDown) return;
+    this._shuttingDown = true;
+
     // Mark as aborted if we are initializing to prevent background racing
     this.initializing = false;
     this._readyPromise = null;
@@ -454,6 +462,7 @@ class ServiceContainer {
     this.initialized = false;
     this.initError = new Error('Container shut down');
     this._readyPromise = null;
+    this._shuttingDown = false;
   }
 
   getStats() {

@@ -31,7 +31,7 @@ node cli.js audit-summary --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `healthScore=7/8`
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 7 L3）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 5 活跃债务）
 
 ---
 
@@ -79,7 +79,8 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### 本轮做了什么
 
-- **Java dead-exports 大图崩溃根治**：`spawn-ast.js` 改用临时文件中转替代 stdin 管道，Python 脚本（`java_ast_parser.py` / `python_ast_parser.py`）支持 `--file` 参数读取。彻底消除 542 文件 Java 项目 `dead-exports` exit code 49（Windows Store Python + Git Bash 管道大数据崩溃）。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+- **容器生命周期竞态窗口关闭**：`container.js` 引入 `_shuttingDown` 轻量同步锁（非完整状态机）。`shutdown()` 入口设标志防止重复关闭，`initialize()` 入口检查标志防止关闭期间重入，清理完成后重置标志允许重新初始化。直接关闭 `await cache.save()` 异步窗口期间的竞态，无新增抽象。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+- **Java dead-exports 大图崩溃根治**：`spawn-ast.js` 改用临时文件中转替代 stdin 管道，Python 脚本支持 `--file` 参数读取。彻底消除 542 文件 Java 项目 `dead-exports` exit code 49。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 - **Bus Factor / 知识分布（knowledgeRisk）**：`audit-overview` 新增逐文件 `git blame --porcelain` + `.mailmap` 去重，标识单作者文件（bus factor = 1）。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 
@@ -91,7 +92,7 @@ node cli.js audit-summary --cwd . --json --quiet
 | ------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
-| L3 债务与品味      | 7           | 弱断言 / 测试类型失衡 / mock 重复率 / slow 层过重 / Builder 状态机 / schema 不同步 / `--json` 嵌套深 |
+| 活跃债务与品味     | 5           | 弱断言 / 测试类型失衡 / slow 层过重 / Builder 状态机 / `--json` 嵌套深 |
 | **产品债务** | **0** | —                                                                                                                                       |
 
 **测试覆盖缺口**
@@ -123,7 +124,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### 当前状态
 
-- 活跃债务：**0 个 L1** + **0 个 L2** + **7 个 L3** + **0 个产品 bug** + **0 个产品债务**
+- 活跃债务：**0 个 L1** + **0 个 L2** + **5 个活跃债务** + **0 个产品 bug** + **0 个产品债务**
 - 版本：v1.2.0，schemaVersion 冻结
 - 测试：**`npm run test:fast` 79/79 PASS**（~5s）。全量 runner **144/144 PASS**（~4.5min）。开发迭代首选 `npm run test:fast`（~5s）
 - **定位**：AI 的代码脚手架
@@ -168,7 +169,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 | # | 目标 | 状态 | 说明 |
 |---|------|------|------|
-| 1 | **`audit-map` 目录级聚合 compact** | ⏳ 待评估 | edges 按目录聚合（如 `src/services/ → src/tools/ (15 edges)`），或异常-only 模式（只输出 fan-out > N、跨层依赖、孤立子图）。现有 `--compact` 仅压缩 tree 展示，未对 edges 做目录级聚合。 |
+| 1 | **`audit-map` 目录级聚合 compact** | ✅ 已完成 | edges 按目录聚合已通过 modEdgeMap + getModuleOf 实现，在 --compact 模式下直接归并到目录层级，彻底消除文件级冗余 |
 | 2 | **Fan-out / Fan-in 指标进 `audit-overview`** | ✅ 已完成 | hotspot `reason` 从单一"耦合 N 个模块"改为区分 fan-in vs fan-out（高 fan-in / 高 fan-out / 平衡三种形态）。markdown / summary formatter 新增 Top Hotspots 段落展示带 fan-in/fan-out 的 reason。 |
 | 3 | **`--format ai` 风险分层输出** | ✅ 已完成 | `formatAi` 对 `audit-summary` 引入风险分层压缩：`high` 保留完整字段，`medium` 压缩为 category/severity/message/count，`low` 极简为 category/severity/count。仅在 `detail` / `full` 深度下生效。 |
 | 4 | **Duplication detection 通用化** | ❌ 暂缓 | 已评估为超出结构分析边界。`severityMeetsFilter` 案例能被抓到是巧合（同时满足"死导出"+"SymbolRegistry 同名"两个独立条件）。专门做 AST 级代码重复检测会变成 SonarQube，违反"结构分析 ≠ 语义分析"原则。 |
@@ -178,7 +179,7 @@ node cli.js audit-summary --cwd . --json --quiet
 | # | 问题                               | 深挖价值 | 验证方案                                                                                                                                                                              |
 | - | ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 6 | **CLI 命令分层认知负担**     | 高       | ✅ **已修复**。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。 |
-| 7 | **Windows 兼容性补丁式累积** | 中       | 路径兼容不是通过统一抽象解决的，而是通过散落在 parser/resolver/git-tools/cli 各处的 `toPosixPath` 调用。验证：搜索 `toPosixPath` 调用点数量，若 >10 处，说明需要统一路径适配层    |
+| 7 | **Windows 兼容性与路径适配** | 中       | ✅ **已验证**。path.js 分层设计（Raw Path / Graph Key / Display Path）已清晰收拢，容器级 Raw/Key 混用 bug 已被精准短路，无需强行引入过度设计的适配层。 |
 | 8 | **`isKnownEntryFile` 同步磁盘 I/O** | 中       | ✅ **已修复**。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。 |
 | 9 | **`this.dg.graph` 穿透（38 处）** | 高       | ✅ **已完成**。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。 |
 | 10 | **预计算失效粒度太粗** | 中       | ✅ **已修复**。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。 |
@@ -199,7 +200,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-25（exit code 49 已根治；knowledgeRisk 已交付；81/81 fast 测试全绿；146/146 全量 runner；L3 债务 7 项）*
+*Last updated: 2026-05-25（exit code 49 已根治；knowledgeRisk 已交付；81/81 fast 测试全绿；146/146 全量 runner；活跃债务 5 项）*
 
-> **本轮验证状态**：`npm run test:fast` **81/81 PASS**（~5s）；全量 runner **146/146 PASS**（~5min）；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=280`）；CLI smoke（`impact` / `affected-tests` / `repl --eval` / `dead-exports`）零 deprecation warning；`dead-exports` CLI smoke 零 exit code 49。
+> **本轮验证状态**：`npm run test:fast` **81/81 PASS**（~5s）；全量 runner **146/146 PASS**（~5min）；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=280`）；CLI smoke（`impact` / `affected-tests` / `repl --eval` / `dead-exports`）零 deprecation warning；`dead-exports` CLI smoke 零 exit code 49；`container-lifecycle-test.js` PASS。
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。

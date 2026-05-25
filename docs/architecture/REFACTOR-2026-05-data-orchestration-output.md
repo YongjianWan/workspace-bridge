@@ -9,7 +9,7 @@
 
 ## 执行摘要
 
-本轮审计发现 22 项问题，19 项已完成，剩余 3 项：
+本轮审计发现 22 项问题，20 项已完成，剩余 2 项：
 
 | 层面 | 剩余项 | 数量 |
 | ---- | ------ | ---- |
@@ -25,7 +25,7 @@
 当前数据流已大幅改善（D1-D5 / D7-D8 已完成），但仍有残余问题：
 
 1. **数据三份冗余**——`parse_results`(SQLite JSON) → `cache.parseResults`(Map) → `depGraph.graph`(Map) 仍同时存在。`edges` 表和预计算表已落地，但 `parse_results` 尚未 deprecated，新旧双轨并行。
-2. **BFS 热路径上有同步磁盘 I/O**——`dep-graph.js isKnownEntryFile()` 里做 `fs.statSync` + `fs.openSync` + `fs.readSync`。`getImpactRadius()` BFS 每访问一个节点就调一次，1329 文件项目 depth=3 时可能触发几百次同步磁盘 I/O。
+2. ~~**BFS 热路径上有同步磁盘 I/O**~~ ✅ **已解决**——已在 `dep-graph.js` 中引入 `_entryFileCache`（Map），在首次读取文件特征判定后即写入缓存短路，并在 `graph:updated` 时自动清空，完全消除了 `findDeadExports` / `getImpactRadius` 遍历时的重复同步 I/O。
 
 ### 目标架构
 
@@ -53,8 +53,8 @@
 
 ### 现状诊断
 
-1. **Builder 越权操作 Analyzer**——`builder.js` 直接调用 `this.dg.analyzer._bumpAggregateCache()`（私有方法），Builder 知道 Analyzer 的内部缓存版本机制
-2. **生命周期竞态**——前轮已修 `initialize/shutdown` 竞态和 `processPending` 后台脏写，但根因是"常驻进程 + 单线程事件循环"模型缺乏明确的状态机
+1. ~~**Builder 越权操作 Analyzer**~~ ✅ **已解决**——已通过引入内嵌的 `EventBus` 事件总线进行完全解耦。`builder.js` 在构建图/更新图后，Facade `dep-graph.js` 会监听到 `graph:built` / `graph:updated` 消息并触发 Analyzer 更新与 Aggregates 缓存版本自增，使 Builder 回归纯粹的图构建逻辑，不再具有 Analyzer 的任何先验知识。
+2. **生命周期竞态**——前轮已修 `initialize/shutdown` 竞态 and `processPending` 后台脏写，但根因是"常驻进程 + 单线程事件循环"模型缺乏明确的状态机
 
 ### 目标架构
 
