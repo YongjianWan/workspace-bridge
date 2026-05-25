@@ -222,10 +222,14 @@ def extract_all_exports(node: ast.AST) -> list[str]:
 
 
 def main():
-    """Main entry point - read from stdin, write JSON to stdout."""
+    """Main entry point - read from file or stdin, write JSON to stdout."""
     try:
-        # Read from stdin and handle BOM (Byte Order Mark) for Windows compatibility
-        source = sys.stdin.read()
+        if len(sys.argv) >= 3 and sys.argv[1] == '--file':
+            with open(sys.argv[2], 'r', encoding='utf-8') as f:
+                source = f.read()
+        else:
+            # Read from stdin and handle BOM (Byte Order Mark) for Windows compatibility
+            source = sys.stdin.read()
         # Remove UTF-8 BOM if present
         if source.startswith('\ufeff'):
             source = source[1:]

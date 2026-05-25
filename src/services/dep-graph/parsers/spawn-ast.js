@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { TIMEOUTS, LIMITS } = require('../../../config/constants');
 
@@ -45,7 +47,33 @@ function _spawnPythonASTParser(scriptName, content, timeoutMs) {
       return;
     }
 
-    const python = spawn(pythonCmd, [scriptPath], {
+    // Write content to a temp file to bypass Windows Store Python stdin pipe
+    // crashes (exit code 49) when piping large or frequent data via Git Bash.
+    // This is a zero-architecture-risk workaround: the Python script reads
+    // the file path from --file argument instead of sys.stdin.
+    const tempDir = os.tmpdir();
+    const tempName = `wb-ast-${crypto.randomBytes(8).toString('hex')}.txt`;
+    const tempPath = path.join(tempDir, tempName);
+
+    try {
+      fs.writeFileSync(tempPath, content, 'utf8');
+    } catch (writeErr) {
+      if (process.env.DEBUG) {
+        console.error(`[DepGraph] temp file write failed: ${writeErr.message}`);
+      }
+      resolve(null);
+      return;
+    }
+
+    function cleanupTempFile() {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    const python = spawn(pythonCmd, [scriptPath, '--file', tempPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
@@ -94,6 +122,7 @@ function _spawnPythonASTParser(scriptName, content, timeoutMs) {
     python.on('close', (code) => {
       clearTimeout(termTimer);
       clearTimeout(killTimer);
+      cleanupTempFile();
       if (killed || code !== 0) {
         if (process.env.DEBUG) {
           console.error(`[DepGraph] ${scriptName} parse failed: exitCode=${code}, stderr=${errorOutput}`);
@@ -128,6 +157,7 @@ function _spawnPythonASTParser(scriptName, content, timeoutMs) {
     python.on('error', (err) => {
       clearTimeout(termTimer);
       clearTimeout(killTimer);
+      cleanupTempFile();
       if (process.env.DEBUG) {
         console.error(`[DepGraph] ${scriptName} spawn failed: ${err.message}`);
       }
@@ -140,13 +170,15 @@ function _spawnPythonASTParser(scriptName, content, timeoutMs) {
       }
     });
 
+    // stdin is no longer used (content passed via --file temp file).
+    // Close it immediately so the Python script does not block waiting for input.
     try {
-      python.stdin.write(content, 'utf8');
       python.stdin.end();
     } catch (err) {
       if (process.env.DEBUG) {
-        console.error(`[DepGraph] ${scriptName} stdin write failed: ${err.message}`);
+        console.error(`[DepGraph] ${scriptName} stdin end failed: ${err.message}`);
       }
+      cleanupTempFile();
       try { python.kill('SIGTERM'); } catch (_) {}
       resolve(null);
     }

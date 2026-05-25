@@ -82,7 +82,11 @@ def parse_java(source):
 
 if __name__ == "__main__":
     try:
-        source = sys.stdin.read()
+        if len(sys.argv) >= 3 and sys.argv[1] == '--file':
+            with open(sys.argv[2], 'r', encoding='utf-8') as f:
+                source = f.read()
+        else:
+            source = sys.stdin.read()
         if source.startswith('\ufeff'):
             source = source[1:]
         if not source.strip():

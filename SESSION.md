@@ -37,7 +37,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；`npm run test:fast` **79/79 PASS**（~5s）。全量 runner **144/144 PASS**（~4.5min）。开发迭代首选 `npm run test:fast`（~5s）或 `npm run test:smoke`（~54s）。当前 fast 层 79 个测试，slow 层 58 个。
+- 测试：**受影响测试全部 PASS**；`npm run test:fast` **81/81 PASS**（~5s）。全量 runner **146/146 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~5s）或 `npm run test:smoke`（~54s）。当前 fast 层 81 个测试，slow 层 58 个。
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~280 文件（entry=1, mainline=133, test=147），commands/ 去壳后减少 17 个透传文件
@@ -79,6 +79,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ### 本轮做了什么
 
+- **Java dead-exports 大图崩溃根治**：`spawn-ast.js` 改用临时文件中转替代 stdin 管道，Python 脚本（`java_ast_parser.py` / `python_ast_parser.py`）支持 `--file` 参数读取。彻底消除 542 文件 Java 项目 `dead-exports` exit code 49（Windows Store Python + Git Bash 管道大数据崩溃）。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 - **Bus Factor / 知识分布（knowledgeRisk）**：`audit-overview` 新增逐文件 `git blame --porcelain` + `.mailmap` 去重，标识单作者文件（bus factor = 1）。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 
@@ -198,7 +199,7 @@ node cli.js audit-summary --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-25（knowledgeRisk 已交付；81/81 fast 测试全绿；144/144 全量 runner；L3 债务 7 项）*
+*Last updated: 2026-05-25（exit code 49 已根治；knowledgeRisk 已交付；81/81 fast 测试全绿；146/146 全量 runner；L3 债务 7 项）*
 
-> **本轮验证状态**：`npm run test:fast` **81/81 PASS**（~5s）；全量 runner **144/144 PASS**（~4.5min）；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=280`）；CLI smoke（`impact` / `affected-tests` / `repl --eval` / `dead-exports`）零 deprecation warning。
+> **本轮验证状态**：`npm run test:fast` **81/81 PASS**（~5s）；全量 runner **146/146 PASS**（~5min）；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=280`）；CLI smoke（`impact` / `affected-tests` / `repl --eval` / `dead-exports`）零 deprecation warning；`dead-exports` CLI smoke 零 exit code 49。
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。

@@ -8,6 +8,16 @@
 
 ## [Unreleased]
 
+### 修复（Java dead-exports 大图崩溃根治 — 2026-05-25）
+
+- **临时文件中转替代 stdin 管道** `src/services/dep-graph/parsers/spawn-ast.js` + `scripts/java_ast_parser.py` + `scripts/python_ast_parser.py`：
+  - **根因**：542 文件 Java 项目跑 `dead-exports` 返回 exit code 49，零输出。根因是 Windows Store Python + Git Bash 环境下，高频 spawn Python 子进程并通过 stdin/stdout 管道传递数据时，管道会崩溃（exit code 49）。此前仅通过 try-catch batch 保护 + 诊断提示缓解，未根治。
+  - **修复**：`spawn-ast.js` 在 spawn Python 前将 content 写入临时文件（`os.tmpdir()` + `crypto.randomBytes`），通过 `--file <tempPath>` 命令行参数传文件路径给 Python 脚本，Python 从文件读取而非 `sys.stdin`。
+  - **清理**：`cleanupTempFile()` 在 `close` / `error` / `stdin end` 异常路径均调用 `fs.unlinkSync`，防止临时文件泄漏。
+  - **向后兼容**：Python 脚本仍支持无 `--file` 参数的 stdin 读取路径（fallback），不影响外部直接调用。
+  - **边界消除**：彻底绕过 stdin 管道大数据崩溃的触发条件，不是再加一层诊断提示（if）。
+  - **验证**：`npm run test:fast` **81/81 PASS**；CLI smoke `dead-exports --cwd . --json --quiet` 零 exit code 49；`java-dead-export-test.js` PASS；`python_ast_parser.py` 的 `--file` 路径经 Python 测试隐式覆盖。
+
 ### 新增（Bus Factor / 知识分布 — 2026-05-25）
 
 - **`audit-overview` 新增 `knowledgeRisk` 维度** `src/tools/git-tools.js` + `src/tools/overview-assembler.js` + `src/tools/overview-tools.js` + `src/cli/formatters/human-formatters.js` + `src/cli/commands/index.js`：
