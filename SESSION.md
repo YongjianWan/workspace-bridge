@@ -213,7 +213,10 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-26（exit code 49 已根治；knowledgeRisk 已交付；83/83 fast 测试全绿；153/153 全量 runner；活跃债务 5 项）*
+*Last updated: 2026-05-26（文档止血 + SKILL.md + 阶段3.5 已交付；fix/docs-sync-perf-lever 已合并 main；83/83 fast 测试全绿；活跃债务 5 项）*
 
-> **本轮验证状态**：`npm run test:fast` **83/83 PASS**（~20s）；全量 runner **153/153 PASS**（~5min）；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=5/5`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=290`）；CLI smoke（`impact` / `affected-tests` / `repl --eval` / `dead-exports`）零 deprecation warning；`dead-exports` CLI smoke 零 exit code 49。
+> **本轮验证状态**：`npm run test:fast` **83/83 PASS**（~20s）；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=5/5`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=0.99`，`totalFiles=294`）；CLI smoke 零 deprecation warning。
+> **本轮完成**：
+> - `fix/docs-sync-perf-lever` 4 commits 合并到 main（文档止血 → UV_THREADPOOL_SIZE=16 → SKILL.md 重写 → 阶段3.5 query-hotspots/query-knowledge-risk/query-stability）
+> - `overview-tools.js` + `audit-assembler.js` W2-5 `regression.status` 嵌套结构修复（`result.regression.regression.status` → `result.regression.status`）
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。
