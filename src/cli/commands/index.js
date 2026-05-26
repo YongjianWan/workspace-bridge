@@ -12,6 +12,7 @@ const { runDiagnostics, workspaceInfo } = require('../../tools/workspace-tools')
 const { buildProjectMap } = require('../formatters');
 const { buildProjectOverview } = require('../../tools/overview-tools');
 const { treeQuery } = require('../../tools/tree-tools');
+const { queryHotspots, queryKnowledgeRisk, queryStability } = require('../../tools/query-tools');
 const { resolveWorkspaceFilePath } = require('../../utils/path');
 const { requireFile } = require('./_utils');
 const { DEFAULTS } = require('../../config/constants');
@@ -189,6 +190,11 @@ const COMMANDS = {
     result.hasFindings = false;
     return result;
   },
+
+  // Stage 3.5 — Fine-grained query CLI
+  'query-hotspots': async (parsed, container) => queryHotspots(parsed, container),
+  'query-knowledge-risk': async (parsed, container) => queryKnowledgeRisk(parsed, container),
+  'query-stability': async (parsed, container) => queryStability(parsed, container),
 
   // Self-managed (lifecycle handled internally)
   repl,

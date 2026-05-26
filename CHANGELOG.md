@@ -8,6 +8,18 @@
 
 ## [Unreleased]
 
+### 文档同步与AI消费体验（2026-05-26）
+
+- **文档止血**：统一 AGENTS.md / SESSION.md / TECH_DEBT.md 中的债务数量（7→5）、测试基线（79→83）、runner（146→153）、Rust标签、totalFiles（280→290）、healthScore（7/8→5/5）；修复 TECH_DEBT.md Markdown 表格格式损坏。
+- **SKILL.md 深度重写**：默认 `--json --quiet`（替代 `--format markdown`）；`audit-file` 标注为一站式（impact + affectedTests + coChanges + validationAdvice）；新增 affectedTests 过滤指南（graph=高, mention=低, heuristic=中）；暴露 `coChanges[]` 使用方法。
+- **性能第一枪**：`cli.js` 顶部设置 `UV_THREADPOOL_SIZE=16`，提升并发文件 I/O 能力。
+- **阶段 3.5 聚合快照 + 细粒度查询 CLI**：
+  - `overview-tools.js` 在 `buildProjectOverview` 完成后自动持久化聚合快照到 `precomputed_aggregates`。
+  - 新增 `query-hotspots --risk high|medium|low --limit N`（~20ms 热读取，无需重建）。
+  - 新增 `query-knowledge-risk --level high|medium|low --limit N`。
+  - 新增 `query-stability --assessment fragile|moderate|stable --limit N`。
+  - 新增 `test/query-tools-test.js` 回归测试。
+
 ### Wave 3：Formatter 与体验打磨（2026-05-26）
 
 - **`stats --markdown` 根治 `[object Object]`** `src/cli/formatters/human-formatters.js`：

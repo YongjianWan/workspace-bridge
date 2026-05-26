@@ -115,6 +115,29 @@ async function buildProjectOverview(args, container) {
     }
   }
 
+  // Stage 3.5: Persist aggregate snapshot for query-* commands
+  try {
+    const snapshotPayload = {
+      hotspots: result.hotspots,
+      knowledgeRisk: result.knowledgeRisk,
+      stability: result.stability,
+      languageSupport: result.languageSupport,
+      deadExports: result.deadExports,
+      unresolved: result.unresolved,
+      cycles: result.cycles,
+      orphans: result.orphans,
+      aggregates: result.aggregates,
+      summary: result.summary,
+    };
+    const gitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
+    const fileCount = result.scope?.counts?.totalFiles || 0;
+    container.cache?.savePrecomputedAggregates?.([
+      { key: 'analysis_snapshot', data: JSON.stringify(snapshotPayload), version: gitHead, fileCount },
+    ]);
+  } catch (_) {
+    // Snapshot persistence is best-effort; never block the main flow
+  }
+
   return result;
 }
 

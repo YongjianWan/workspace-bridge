@@ -87,6 +87,8 @@ Curated Commands (Tier 1 — start here):
                             Aggregate changed files + impact + affected tests
   audit-overview          Project panoramic view (hotspots, stability, orphans, dead-exports, unresolved, cycles)
   audit-map               Global project map (tree + edges + issue overlay)
+  query-hotspots [--risk <high|medium|low>] [--limit <n>]
+                            Query cached hotspots (fast slice, no full rebuild)
   impact --file <path>    Find impact radius for a file
   affected-tests --file <path> [--max-depth <n>]
                             Find tests related to a file
@@ -150,6 +152,12 @@ Commands:
     impact --file <path>    Find impact radius for a file
     affected-tests --file <path> [--max-depth <n>]
                             Find tests related to a file
+    query-hotspots [--risk <high|medium|low>] [--limit <n>]
+                            Query cached hotspots (fast slice, no full rebuild)
+    query-knowledge-risk [--level <high|medium|low>] [--limit <n>]
+                            Query cached knowledge-risk files
+    query-stability [--assessment <fragile|moderate|stable>] [--limit <n>]
+                            Query cached stability assessment
 
   L3 环境诊断 (Environment & hygiene):
     workspace-info          Detect workspace type and root
@@ -236,6 +244,14 @@ function parseCliArgs(argv) {
     '--since': { key: 'since' },
     '--commits': { key: 'commits' },
     '--severity': { key: 'severity' },
+    '--risk': { key: 'risk' },
+    '--level': { key: 'level' },
+    '--assessment': { key: 'assessment' },
+    '--limit': { key: 'limit', transform: (v) => {
+      const n = Number.parseInt(v, 10);
+      if (Number.isNaN(n) || n <= 0) throw new Error(`Invalid --limit value: ${v}. Expected a positive integer`);
+      return n;
+    } },
     '--staged': true,
     '--files': { key: 'files' },
     '--json': true,
@@ -338,6 +354,10 @@ function parseCliArgs(argv) {
     direction: raw.direction || null,
     eval: raw.eval || null,
     what: raw.what || null,
+    risk: raw.risk || null,
+    level: raw.level || null,
+    assessment: raw.assessment || null,
+    limit: Number.isFinite(raw.limit) ? raw.limit : null,
     failOnFindings: Boolean(raw['--fail-on-findings']),
     runTests: Boolean(raw['--run-tests']),
     version: Boolean(raw['--version']) || Boolean(raw['-v']),
