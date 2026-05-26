@@ -22,6 +22,10 @@
   - `help` 命令列表同步追加 `tree`。
 - **`--format` vs `--json` 优先级文档化** `cli.js`：
   - help 文本中 `--json` 标注 `(overridden by --format)`，`--format` 标注 `Takes precedence over --json`。
+- **orphan count 波动根治** `src/utils/orphan-detector.js`：
+  - `findOrphanFiles` 中 `entryFiles.has?.(file)` 改为 `entryFiles?.has?.(file)`，防止 `entryFiles` 为 `undefined` 时抛出 `TypeError`，导致冷启动与热启动的 orphan 计数分叉。
+  - 清理遗留测试垃圾文件 `empty_test_file.js`。
+  - 新增 `test/orphan-stability-test.js` 回归测试，验证 `findOrphanFiles` 的确定性及 `undefined` entryFiles 的容错行为。
 
 ### Wave 2：参数与边界修复（2026-05-26）
 

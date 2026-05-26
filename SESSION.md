@@ -164,16 +164,18 @@ node cli.js audit-overview --cwd . --json --quiet
 | W2-6 | `--token-budget` 降级静默发生 | `src/cli/formatters/human-formatters.js` | `formatAi` 在 tokenBudget 触发降级时注入 `downgraded: true` | ✅ |
 | W2-7 | `symbolImpact` 漏掉解构导入符号 | `src/services/resolvers.js` | 多符号解构导入时，每个符号都要进入 `symbolToDependents` | ✅（复现已正常，无需修复） |
 
-### Wave 3：Formatter 与体验（P2 打磨，2-3 天）
+### Wave 3：Formatter 与体验（P2 打磨，2026-05-26）
 
-| # | 问题 | 目标文件 |
-|---|------|---------|
-| W3-1 | `stats --markdown` 输出 `[object Object]` | `src/cli/formatters/human-formatters.js` |
-| W3-2 | Markdown 缺少 `validationAdvice` | `src/cli/formatters/human-formatters.js` |
-| W3-3 | orphan count 波动 | `src/services/file-index.js` |
-| W3-4 | `--fail-on-findings` 隐藏在 help 中 | `src/cli/parse-args.js` / `cli.js` |
-| W3-5 | REPL 缺少 `tree` 命令 / `exit` 报错 | `src/cli/repl.js` |
-| W3-6 | `--format ai` vs `--json` 优先级未文档化 | `cli.js` help 文本 |
+> **状态**：✅ 已完成（test:fast 83/83 PASS）
+
+| # | 问题 | 目标文件 | 修复要点 | 状态 |
+|---|------|---------|----------|------|
+| W3-1 | `stats --markdown` 输出 `[object Object]` | `src/cli/formatters/human-formatters.js` | 提取 `formatStatsValue` 递归序列化嵌套对象 | ✅ |
+| W3-2 | Markdown 缺少 `validationAdvice` | `src/cli/formatters/human-formatters.js` | `audit-file` + `audit-diff` markdown 补全 Validation Advice 渲染 | ✅ |
+| W3-3 | orphan count 波动 | `src/utils/orphan-detector.js` | `entryFiles?.has?.(file)` 可选链修复，防止 `undefined` 时崩溃；清理 `empty_test_file.js` | ✅ |
+| W3-4 | `--fail-on-findings` 隐藏在 help 中 | `cli.js` | 精简版 & 完整版 help 均暴露 `--fail-on-findings` | ✅ |
+| W3-5 | REPL 缺少 `tree` 命令 / `exit` 报错 | `src/cli/repl.js` | 注册 `tree <file>`、`exit`、`quit`；help 同步追加 `tree` | ✅ |
+| W3-6 | `--format ai` vs `--json` 优先级未文档化 | `cli.js` help 文本 | `--json` 标注 overridden by `--format`，`--format` 标注 precedence | ✅ |
 
 ### Wave 4：SKILL.md 重写（1 天）
 
