@@ -8,6 +8,22 @@
 
 ## [Unreleased]
 
+### 性能攻坚三枪（2026-05-26）
+
+- **formatter-e2e 单进程 runner** `cli.js` + `test/test-helpers.js` + `test/formatter-e2e-test.js`：
+  - 提取 `runCliInProcess(args, opts)`，支持外部传入共享 `ServiceContainer`，避免每次测试重新初始化。
+  - `test-helpers.js` 新增 `_getSharedContainer` + `runCliTextInProcess` + `shutdownSharedContainer`。
+  - `formatter-e2e-test.js` 7 个 case 共用 1 次容器初始化，仅 error-path case 保留 spawn 以验证 exit code。
+  - 实测耗时从 ~42s → ~21s（热缓存）。
+- **file-index stat 去重 + O(1) 队列** `src/services/file-index.js`：
+  - `findFilesAsync` 中 `queue.shift()` → `queue.pop()`，数组头部移除 O(n) → 尾部移除 O(1)。
+  - `processFile` 缓存失效时复用已有 `stats` 传入 `indexFile`，消除同一文件的二次 `fs.stat`。
+- **precomputeImpact 增量缓存** `src/services/dep-graph/analyzer.js` + `src/services/dep-graph/query.js`：
+  - `precomputeImpact` 在 BFS 过程中同时缓存结构化 `impactRadius`（level / via / importedSymbols / reason）。
+  - `GraphQuery.getImpactRadius` 优先命中预计算缓存，避免每次实时 BFS。
+  - 向后兼容：SQLite 旧数据无 `impactRadius` 时回退实时 BFS；mock depGraph 无 `getFileInfo` 时跳过符号提取。
+- **cli.js self-managed 命令兼容修复**：`runCliInProcess` 不处理 self-managed 命令，由 `main()` 保留原始行为，防止覆盖 `init` 等命令自行设置的 `process.exitCode`。
+
 ### 文档同步与AI消费体验（2026-05-26）
 
 - **文档止血**：统一 AGENTS.md / SESSION.md / TECH_DEBT.md 中的债务数量（7→5）、测试基线（79→83）、runner（146→153）、Rust标签、totalFiles（280→290）、healthScore（7/8→5/5）；修复 TECH_DEBT.md Markdown 表格格式损坏。
