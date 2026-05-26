@@ -435,26 +435,20 @@ async function runCliInProcess(args, opts = {}) {
   try {
     parsed = parseCliArgs(['node', 'cli.js', ...args]);
   } catch (err) {
-    return { status: err.code === 'VALIDATION_ERROR' ? 2 : 1, stdout: err.message + '\n' };
+    return { status: err.code === 'VALIDATION_ERROR' ? 2 : 1, stdout: '', stderr: err.message };
   }
 
   if (parsed.version) {
-    return { status: 0, stdout: `workspace-bridge ${version}\n` };
+    return { status: 0, stdout: `workspace-bridge ${version}\n`, stderr: '' };
   }
 
   if (parsed.help || !parsed.command) {
-    return { status: 0, stdout: '' };
-  }
-
-  const isSelfManaged = SELF_MANAGED_COMMANDS.has(parsed.command) || (parsed.command === 'audit-file' && parsed.watch);
-  if (isSelfManaged) {
-    await runCommand(parsed, null);
-    return { status: 0, stdout: '' };
+    return { status: 0, stdout: '', stderr: '' };
   }
 
   const invalidCwd = validateCwd(parsed);
   if (invalidCwd) {
-    return { status: 1, stdout: '' };
+    return { status: 1, stdout: '', stderr: invalidCwd.error };
   }
 
   const invalidPaths = sanitizeCliPaths(parsed);
@@ -465,7 +459,7 @@ async function runCliInProcess(args, opts = {}) {
     } else {
       stdout = `[path_error] ${invalidPaths.error}\n→ Check if --cwd or --file paths exist and are accessible.`;
     }
-    return { status: 1, stdout };
+    return { status: 1, stdout, stderr: '' };
   }
 
   if (!parsed.cacheDir) {
@@ -521,16 +515,17 @@ async function runCliInProcess(args, opts = {}) {
     }
 
     const status = determineExitCode(parsed.command, result, parsed.failOnFindings);
-    return { status, stdout };
+    return { status, stdout, stderr: '' };
   } catch (err) {
     const classified = classifyError(err);
     let stdout = '';
+    let stderr = '';
     if (parsed.json) {
       stdout = JSON.stringify({ ok: false, error: err.message || String(err), schemaVersion: SCHEMA_VERSION });
     } else {
-      stdout = `[${classified.type}] ${err.message || String(err)}\n→ ${classified.suggestion}`;
+      stderr = `[${classified.type}] ${err.message || String(err)}\n→ ${classified.suggestion}`;
     }
-    return { status: classified.type === 'config_error' ? 1 : 2, stdout };
+    return { status: classified.type === 'config_error' ? 1 : 2, stdout, stderr };
   } finally {
     if (shouldInit) await container.shutdown();
   }
@@ -568,9 +563,18 @@ async function main() {
     return;
   }
 
+  const isSelfManaged = SELF_MANAGED_COMMANDS.has(parsed.command) || (parsed.command === 'audit-file' && parsed.watch);
+  if (isSelfManaged) {
+    await runCommand(parsed, null);
+    return;
+  }
+
   const result = await runCliInProcess(process.argv.slice(2));
   if (result.stdout) {
     process.stdout.write(result.stdout + (result.stdout.endsWith('\n') ? '' : '\n'));
+  }
+  if (result.stderr) {
+    console.error(result.stderr);
   }
   process.exitCode = result.status;
 }
