@@ -213,10 +213,14 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-26（文档止血 + SKILL.md + 阶段3.5 已交付；fix/docs-sync-perf-lever 已合并 main；83/83 fast 测试全绿；活跃债务 5 项）*
+*Last updated: 2026-05-26（性能攻坚三枪已交付；文档止血 + SKILL.md + 阶段3.5 已交付；fix/docs-sync-perf-lever 已合并 main；83/83 fast 测试全绿；活跃债务 5 项）*
 
-> **本轮验证状态**：`npm run test:fast` **83/83 PASS**（~20s）；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=5/5`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=0.99`，`totalFiles=294`）；CLI smoke 零 deprecation warning。
+> **本轮验证状态**：`npm run test:fast` **83/83 PASS**（~20s）；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=5/5`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=0.99`，`totalFiles=295`）；CLI smoke 零 deprecation warning。
 > **本轮完成**：
 > - `fix/docs-sync-perf-lever` 4 commits 合并到 main（文档止血 → UV_THREADPOOL_SIZE=16 → SKILL.md 重写 → 阶段3.5 query-hotspots/query-knowledge-risk/query-stability）
-> - `overview-tools.js` + `audit-assembler.js` W2-5 `regression.status` 嵌套结构修复（`result.regression.regression.status` → `result.regression.status`）
+> - `overview-tools.js` + `audit-assembler.js` W2-5 `regression.status` 嵌套结构修复
+> - **性能攻坚三枪**：
+>   1. `formatter-e2e-test.js` 单进程 runner（`cli.js` 提取 `runCliInProcess` + `test-helpers.js` 共享 `ServiceContainer`）
+>   2. `file-index.js` `queue.shift()`→`pop()` + `processFile`→`indexFile` stat 去重
+>   3. `analyzer.js` `precomputeImpact` 新增 `impactRadius` 结构化缓存 + `query.js` `getImpactRadius` 优先走缓存
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。
