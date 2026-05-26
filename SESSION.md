@@ -74,109 +74,132 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-## 本轮上下文
+## 本轮上下文：Dogfood 修复波次（当前主线）
 
-> 活跃问题与技术债务见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。历史已修复条目不重复记录。
+> **背景**：产品定位已确定为 **"AI 代码脚手架"**（不是人类审计工具）。Dogfooding 报告（[docs/dogfood_curated.md](./docs/dogfood_curated.md)）在自身代码库上验证出 **37 个问题**（3 P0 + 19 P1 + 15 P2）。
+>
+> **根因判断**：37 个问题中 ~20 个是"接口契约混乱"（schema 不一致、formatter 行为分叉、参数验证不严格），不是引擎缺陷。核心引擎（dep-graph.js / cache.js / graph-db.js / builder.js）零问题，非常健康。
+>
+> **修复原则**：先统一接口契约（schema/参数/formatter），再逐个修功能缺陷。契约不统一，逐个修只会越修越裂。
 
-### 本轮做了什么
+### 本轮已交付
 
-- **容器生命周期单状态源收敛**：`ServiceContainer` 删除 `initialized` / `initializing` / `_shuttingDown` 三布尔标志，收敛为 `this.state` 单一枚举（`IDLE/INITIALIZING/READY/SHUTTING_DOWN/ERROR`）。新增 `_transition(toState)` 统一守卫非法转换。`shutdown()` 末尾 `_transition(IDLE)` 移入 `finally` 块确保异常安全。`container.initialized` / `container.initializing` 保留 getter 桥接，外部零改动。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
-- **Java dead-exports 大图崩溃根治**：`spawn-ast.js` 改用临时文件中转替代 stdin 管道，Python 脚本（`java_ast_parser.py` / `python_ast_parser.py`）支持 `--file` 参数读取。彻底消除 542 文件 Java 项目 `dead-exports` exit code 49（Windows Store Python + Git Bash 管道大数据崩溃）。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
-- **Bus Factor / 知识分布（knowledgeRisk）**：`audit-overview` 新增逐文件 `git blame --porcelain` + `.mailmap` 去重，标识单作者文件（bus factor = 1）。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
-
+- **audit-summary → audit-overview 兼容层收敛**：`audit-summary` 直接复用 `COMMANDS['audit-overview']`，去掉独立的 `buildProjectOverview` + 窄版 `hasFindings`。保留 `health` 字段注入作为 deprecated 兼容层。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+- **容器生命周期单状态源收敛**：`ServiceContainer` 删除三布尔标志，收敛为 `this.state` 枚举。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+- **Java dead-exports 大图崩溃根治**：`spawn-ast.js` 改用临时文件中转。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+- **Bus Factor / 知识分布（knowledgeRisk）**：`audit-overview` 新增逐文件 git blame。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 
 ## 活跃问题与技术债务
+
+### Dogfood 问题清单（37 项）
+
+> 完整复现命令和修复目标见 [docs/dogfood_curated.md](./docs/dogfood_curated.md)。
+>
+> **AI 脚手架视角重新分级**：P0 = AI 工作流直接崩溃；P1 = AI 做出错误决策；P2 = 体验摩擦。
+
+| 原分级 | AI 视角 | 数量 | 典型问题 |
+|--------|---------|------|----------|
+| P0 | **P0** | 3 | `--format json` 对 L1 核心命令无效（AI 的 JSON.parse 崩溃）；`.workspace-bridge.json` 语法错误静默忽略（AI 在错误范围分析）；`stats --markdown` 输出 `[object Object]` |
+| P1 | **P0** | 5 | `--format ai` 丢失 `validationAdvice`/`impact[]`/`affectedTests[]`；`validationAdvice` schema 在 `audit-file` vs `audit-diff` 中不一致；无效参数静默忽略（`--format invalid` → exit 0） |
+| P1 | **P1** | 10 | 空文件触发 `severity: high` + 34 mention tests；`--cwd` 自动逃逸到 git root；REPL `--json` 把对象包成字符串；`symbolImpact` 漏掉解构导入符号 |
+| P1 | **P2** | 4 | Markdown 模板缺失；help 隐藏参数；等 |
+| P2 | **P1** | 3 | `--token-budget` 降级静默发生；orphan count 波动；`--check-regression` 无明确结论 |
+| P2 | **P2** | 12 | 体验摩擦 |
+
+**重新分级后**：P0 = **8** 项，P1 = **13** 项，P2 = **16** 项。
+
+### 传统技术债务
 
 | 级别               | 数量        | 内容                                                                                                                                     |
 | ------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
 | 活跃债务与品味     | 5           | 弱断言 / 测试类型失衡 / slow 层过重 / Builder 状态机 / `--json` 嵌套深 |
-| 状态机（Container）| ✅ 已收敛 | `initialized` / `initializing` / `_shuttingDown` 三标志已收敛为单一 `state` 枚举 + `_transition` 守卫 |
 | **产品债务** | **0** | —                                                                                                                                       |
 
-**测试覆盖缺口**
-
-> **`npm run test:fast` 81/81 PASS**（~5s）。全量 runner **146/146 PASS**（~5min）。测试基础设施已收敛。
-
-> **剩余测试债务（已量化）**：
->
-> - **弱断言 ~10 处**：仅余 `typeof` 型 schema 契约检查（带消息参数，风险低）。占总断言数 ~2.3%
-> - **console.log 噪音 7 处**：代码字符串内嵌、平台跳过诊断、runner.js 骨架输出
-> - **`audit-map-test.js` graph 数据字面量** 仍内联
-> - **时序依赖**：mock 内部延迟保留、进程退出超时保护保留
-> - **CLI 集成测试补齐**：✅ 已完成物理 CLI 管道与 BOM 边界 E2E 覆盖。
->
-> **测试类型分布失衡**：单元测试 ~74%（良好），集成与端到端测试 ~26%（已补充物理磁盘、进程 spawn 和 CLI 管道 E2E 覆盖，物理防线建立完毕），混沌/模糊 0（暂缓）。
+**测试状态**：`npm run test:fast` **81/81 PASS**（~5s）。全量 runner **146/146 PASS**（~5min）。
 
 ---
 
-## 下一步方向
+## 下一步方向：Dogfood 修复波次（波次化执行）
 
-> 阶段 1（误报清零）、阶段 2（暴露正确 + 输出策展）、阶段 3（框架感知深化）全部完成。
-> 当前进入 **"低垂果实 + 波次化架构升级"** 双轨阶段。
+> **约束**：每波修完后必须 `npm run test:fast` 81/81 PASS + 全量 runner 146/146 PASS。禁止跨波次混修。
 >
-> **根因判断**：resolvers.js 启发式字符串匹配 + 零全局符号表，是 import 解析脆弱、dead-exports 误报、增量性能击穿、Builder 越权操控 Analyzer 的共同根因。修复路线：Pre-scan 全局符号映射 → 语言 Provider 注册表统一契约 → Resolver 策略链物理拆分 → Builder/Analyzer 生命周期事件解耦 → 后处理 Affected-only 增量化。
->
-> 相关架构背景参考（独立文档，与本节 Wave 定义非同一套）：
->
-> - [REFACTOR：数据层、编排层、输出层三层齐改](./docs/architecture/REFACTOR-2026-05-data-orchestration-output.md) — 22 项代码审计问题的三层重构方案（D1-D8 / O1-O7 / U1-U9）
+> **核心认知**：底层引擎已收敛，当前是 **"最后一公里接口契约统一"**。
 
-### 当前状态
+### Wave 1：接口契约统一（P0 地基，3-4 天）
 
-- 活跃债务：**0 个 L1** + **0 个 L2** + **5 个活跃债务** + **0 个产品 bug** + **0 个产品债务**
-- 版本：v1.2.0，schemaVersion 冻结
-- 测试：**`npm run test:fast` 79/79 PASS**（~5s）。全量 runner **144/144 PASS**（~4.5min）。开发迭代首选 `npm run test:fast`（~5s）
-- **定位**：AI 的代码脚手架
-- **核心认知**：底层引擎能力足够，CLI 出口质量已交付。已完成工作见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。下一阶段主线是**解析精度结构性升级**与**输出层/编排层剩余债务**，必须波次化执行。
+> **目标**：统一 schema + 严格参数验证 + `--format json` 对齐。契约不统一，后续修复全白搭。
 
-### P0 低垂果实（现在做，零风险高 ROI）
+| # | 问题 | 目标文件 | 修复要点 |
+|---|------|---------|----------|
+| W1-1 | `--format json` 对 L1 命令无效 | `cli.js` / `parse-args.js` | `--format json` 映射到 `--json` 全局标志；不能静默回退 Markdown |
+| W1-2 | `.workspace-bridge.json` 语法错误静默忽略 | `src/services/file-index.js` | 解析失败时 throw 硬错误（exit 1），不能 fallback 到全量扫描 |
+| W1-3 | 无效参数静默忽略 | `src/cli/parse-args.js` | `--format invalid` / `--direction invalid` 等 → `exit 2`，不能 exit 0 |
+| W1-4 | `validationAdvice` schema 不一致 | `src/cli/formatters/validation-advice.js` | `audit-file` 和 `audit-diff` 输出统一 schema：`{changeType, commands{smoke,focused,full}, phases[], suggestedCommand, fileSpecificAdvice[]}` |
+| W1-5 | `audit-security` ruleId vs rule 命名分叉 | `src/tools/security-tools.js` + formatters | JSON 和 Markdown 统一字段名：只保留 `ruleId`，删除歧义的 `rule` |
+| W1-6 | `--format ai` 丢失关键决策字段 | `src/cli/formatters/human-formatters.js` `buildFormattedOutput` | `audit-file --format ai` 必须包含 `validationAdvice` + `impact.impact[]` + `affectedTests.affectedTests[]` |
+| W1-7 | REPL `--json` 文本包装 | `src/cli/repl.js` | `--json` 时 `result` 字段必须是结构化对象，不能是字符串拼接 |
 
-> 当前无待执行的 P0 低垂果实。
+**验收标准**：
+1. 跑 `node cli.js audit-file --file src/services/container.js --format json --quiet` → 输出 JSON（不是 Markdown）
+2. 跑 `node cli.js audit-file --file src/services/container.js --format ai --json --quiet` → 包含 `validationAdvice.commands` 和 `impact.impact[]`
+3. 跑 `node cli.js audit-summary --format invalid --quiet` → `exit 2`
+4. 跑 `echo 'invalid' > .workspace-bridge.json && node cli.js audit-summary --json` → `exit 1` 且提示 config 错误
+5. `npm run test:fast` 81/81 PASS
 
-### P1 解析精度升级
+### Wave 2：参数与边界修复（P1 决策质量，3-4 天）
 
-> **约束**：波次化执行，每波之间保持 `npm run test:fast` 79/79 PASS，全量 runner 144/144 PASS。禁止一次性做多层心脏移植。
-> Wave 1/2/3 已完成，历史见 CHANGELOG。
+| # | 问题 | 目标文件 | 修复要点 |
+|---|------|---------|----------|
+| W2-1 | `--cwd` 自动逃逸到 git root | `src/services/file-index.js` | 新增 `--strict-cwd` 标志，或默认锁定传入路径，不向上遍历 |
+| W2-2 | `--exclude` glob 模式不工作 | `src/services/file-index.js` | 支持 `*.test.js`、`src/**` 等 glob，不能只做目录名匹配 |
+| W2-3 | `audit-file --file` 接受目录路径 | `src/cli/commands/audit-file.js` | `--file` 必须是文件（`fs.stat` 验证），目录 → `exit 1` |
+| W2-4 | 空文件 `severity: high` + 34 mention tests | `src/tools/affected-tests.js` | 空文件/无导出文件跳过 mention/stem 启发式，或 `severity` 降级为 `low` |
+| W2-5 | `--check-regression` 无明确结论 | `src/cli/commands/index.js` | 输出显式结论：`"regression": {"status": "clean" / "degraded", "diff": {...}}` |
+| W2-6 | `--token-budget` 降级静默发生 | `src/tools/audit-assembler.js` | 降级时注入 `"downgraded": true` 到 metadata |
+| W2-7 | `symbolImpact` 漏掉解构导入符号 | `src/services/resolvers.js` | 多符号解构导入时，每个符号都要进入 `symbolToDependents` |
 
-| 波次     | 范围                                         | 侵入性 | 验证标准                                       | 状态   |
-| -------- | -------------------------------------------- | ------ | ---------------------------------------------- | ------ |
+### Wave 3：Formatter 与体验（P2 打磨，2-3 天）
 
+| # | 问题 | 目标文件 |
+|---|------|---------|
+| W3-1 | `stats --markdown` 输出 `[object Object]` | `src/cli/formatters/human-formatters.js` |
+| W3-2 | Markdown 缺少 `validationAdvice` | `src/cli/formatters/human-formatters.js` |
+| W3-3 | orphan count 波动 | `src/services/file-index.js` |
+| W3-4 | `--fail-on-findings` 隐藏在 help 中 | `src/cli/parse-args.js` / `cli.js` |
+| W3-5 | REPL 缺少 `tree` 命令 / `exit` 报错 | `src/cli/repl.js` |
+| W3-6 | `--format ai` vs `--json` 优先级未文档化 | `cli.js` help 文本 |
 
-### 数据层剩余项
+### Wave 4：SKILL.md 重写（1 天）
 
-> **来源**：[REFACTOR：数据层、编排层、输出层三层齐改](./docs/architecture/REFACTOR-2026-05-data-orchestration-output.md)
-> D1-D3 / D5 / D7-D8 已完成，历史见 CHANGELOG。
+> 基于 dogfood 结论重写 AI 工作流推荐。
 
-| #  | 行动                         | 文件                      | 状态    | 说明                             |
-| -- | ---------------------------- | ------------------------- | ------- | -------------------------------- |
-| D6 | 消除 parseResults/graph 冗余 | `cache.js` `dep-graph.js` | ⏳ 长期 | `nodes` + `edges` 成为唯一事实源 |
+| # | 变更 | 来源 |
+|---|------|------|
+| S1 | 默认推荐 `--json --quiet`，不再推荐 `--format markdown` | dogfood #2 |
+| S2 | `audit-overview` 作为默认入口，移出"避免调用"列表 | dogfood 核心推荐 |
+| S3 | `audit-file --json` 替代单独的 `impact` + `affected-tests` | dogfood 冗余消除 |
+| S4 | 指导 AI 过滤 `source: "graph"`，对 `source: "mention"` 降低优先级 | dogfood #4 |
+| S5 | 暴露 `coChanges[]` 的使用方法 | dogfood 遗漏高价值字段 |
 
-### P2 高 ROI 用户可见功能（评估中）
+---
 
-| # | 目标                            | 状态      | 说明                                                                       |
-| 
+## 修复流程（严谨版，新 Agent 必遵守）
 
-### P3 输出层渐进改善（Dogfood 后续，按节奏推进）
+```
+1. 读问题 → 2. 读复现命令 → 3. 本地复现 → 4. 读目标文件 → 5. 写失败测试 →
+6. 修复根因 → 7. 跑 test:fast → 8. 跑全量 runner → 9. 更新 CHANGELOG.md → 10. 标记 dogfood 问题为已修复
+```
 
-> 来源：本轮 dogfood 实际痛点，ROI 已排序。前三项为"建议做但按节奏来"的渐进改善；第四项已评估为越界，仅作记录。
-
-| # | 目标 | 状态 | 说明 |
-|---|------|------|------|
-| 4 | **Duplication detection 通用化** | ❌ 暂缓 | 已评估为超出结构分析边界。`severityMeetsFilter` 案例能被抓到是巧合（同时满足"死导出"+"SymbolRegistry 同名"两个独立条件）。专门做 AST 级代码重复检测会变成 SonarQube，违反"结构分析 ≠ 语义分析"原则。 |
-
-### 待挖掘/待验证问题（本轮新增）
-
-
-### 当前不做
-
-- daemon / 常驻索引进程：违反 CLI-only 原则
-- `--suggest` 修复代码自动生成：违反"结构分析 ≠ 语义分析"
-- `--cross-repo` 跨仓库依赖分析：成本过高
-- 污点追踪 / 跨文件数据流：运行时绑定问题仍解不了
-- **`affectedRoutes` 端到端路由提取**：越界语义分析。路由注册（`app.get('/users/:id', handler)`）是运行时语义，不是静态 import 边。若未来要做，只能做成可选适配器，不可成为默认依赖
+**铁律**：
+- **没有失败测试，不许写修复代码**（TDD）
+- **改高危文件前必须跑 impact + affected-tests**（`path.js` / `constants.js` / `dep-graph.js` / `cache.js` / `graph-db.js` / `parsers/shared.js` / `resolvers.js`）
+- **每波只修该波的问题**，不能跨波次混修
+- **每波收工前必须 `npm run test:fast` 81/81 PASS + 全量 runner 146/146 PASS**
+- **每次修复后在 CHANGELOG.md [Unreleased] 追加条目**（单条不超过 3 行）
 
 ---
 

@@ -29,6 +29,11 @@
 
 ### 修复（Java dead-exports 大图崩溃根治 — 2026-05-25）
 
+- **`audit-overview` 与 `getScopeSummary` 对齐与测试套件稳定化** `src/tools/overview-assembler.js` + `src/services/dep-graph/analyzer.js`：
+  - **对齐**：在 `overview-assembler.js` 中直接使用 `depGraph.getScopeSummary()` 代替对仅在依赖图中的 `allFiles` 进行局部 `scope` 计算。使得 `audit-overview` (以及重定向后的 `audit-summary`) 的全局项目文件计数与目录角色完全一致，成功修复了 `role-detection-test.js` 对 totalFiles = 4 的断言失败。
+  - **健壮性**：为 `GraphAnalyzer.getScopeSummary()` 添加安全保护逻辑，当 `this.dg.cache` 为空时（如测试套件 mock 场景）自动降级回退到 `this.dg.getAllFilePaths()`，彻底消除了 `knowledge-risk-test.js` 中调用 `fileMetadata` 产生的 null TypeError。
+  - **验证**：全量测试套件运行 `node test/runner.js --layer all` **146/146 PASS** 完美通过，不留任何死角。
+
 - **临时文件中转替代 stdin 管道** `src/services/dep-graph/parsers/spawn-ast.js` + `scripts/java_ast_parser.py` + `scripts/python_ast_parser.py`：
   - **根因**：542 文件 Java 项目跑 `dead-exports` 返回 exit code 49，零输出。根因是 Windows Store Python + Git Bash 环境下，高频 spawn Python 子进程并通过 stdin/stdout 管道传递数据时，管道会崩溃（exit code 49）。此前仅通过 try-catch batch 保护 + 诊断提示缓解，未根治。
   - **修复**：`spawn-ast.js` 在 spawn Python 前将 content 写入临时文件（`os.tmpdir()` + `crypto.randomBytes`），通过 `--file <tempPath>` 命令行参数传文件路径给 Python 脚本，Python 从文件读取而非 `sys.stdin`。

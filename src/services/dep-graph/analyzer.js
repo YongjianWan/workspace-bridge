@@ -880,11 +880,13 @@ class GraphAnalyzer {
   }
 
   getScopeSummary() {
-    const files = Array.from(this.dg.cache.fileMetadata.keys()).filter((file) => {
-      if (this.dg.shouldExclude(file)) return false;
-      if (this.dg.shouldExcludeCli(file)) return false;
-      return true;
-    });
+    const files = this.dg.cache
+      ? Array.from(this.dg.cache.fileMetadata.keys()).filter((file) => {
+          if (this.dg.shouldExclude(file)) return false;
+          if (this.dg.shouldExcludeCli(file)) return false;
+          return true;
+        })
+      : this.dg.getAllFilePaths();
     if (this.dg.projectContext) {
       return this.dg.projectContext.summarizeFiles(files, (file) => this.dg.getDependents(file).length > 0);
     }

@@ -420,12 +420,8 @@ async function assembleOverviewData(args, container, historyProvider) {
     const c = projectContext.classifyFile(f);
     return c.isMainline && c.fileRole !== 'test' && c.fileRole !== 'docs' && c.fileRole !== 'style' && c.fileRole !== 'asset';
   });
-  let scope = null;
-  let entryFiles = [];
-  if (typeof projectContext.summarizeFiles === 'function') {
-    scope = projectContext.summarizeFiles(allFiles, (file) => depGraph.getDependents(file).length > 0);
-    entryFiles = scope.entryFiles || [];
-  }
+  const scope = typeof depGraph.getScopeSummary === 'function' ? depGraph.getScopeSummary() : null;
+  const entryFiles = scope?.entryFiles || [];
   const skeleton = buildSkeleton(root, depGraph, allFiles, mainlineFiles, projectContext, entryFiles);
 
   const aggregate = depGraph.analyzer?._aggregateCache;

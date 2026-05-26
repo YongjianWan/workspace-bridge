@@ -103,6 +103,35 @@
 
 ---
 
+### 阶段 3.5：聚合结果持久化 + 细粒度查询 CLI（AI 按需投喂）
+
+> **根因判断**：`audit-overview` 每次运行都重新计算 `hotspots` / `knowledgeRisk` / `stability`（git blame + PageRank + 耦合度），大型项目重复开销十几秒；且 `--json` 输出 3000+ 行嵌套结构，AI 消费者被迫一次性吞下大量低信噪比数据。
+>
+> **目标**：workspace-bridge 从"每次生成完整报告"升级为"项目结构的本地数据库"——聚合分析结果落盘 SQLite，AI 通过细粒度 CLI 命令按需查询，上下文零浪费。
+
+| 目标 | 改动文件 | 说明 | 边界 |
+| ---- | -------- | ---- | ---- |
+| **聚合结果表** | `src/services/graph-db.js` | 复用现有 SQLite，新增 `analysis_snapshots`（热点/知识风险/稳定性/语言支持/架构建议的完整 JSON blob + gitHead 指纹 + computed_at） | 单表 KV 结构，不过度范式化；stale 时整表重建 |
+| **写入端** | `src/tools/overview-tools.js` | `buildProjectOverview()` 完成后，若 gitHead / fileCount 指纹匹配则跳过重算，直接 `SELECT value_json FROM analysis_snapshots`；否则计算后 `INSERT OR REPLACE` | 与现有 `precomputed_aggregates` 表并存，不冲突 |
+| **查询 CLI：热点** | `src/cli/commands/index.js` + `src/tools/query-tools.js` | 新增 `query-hotspots --risk high\|medium\|low --limit N --json`；只返回 `hotspots[]` 切片，不携带 languageSupport / knowledgeRisk 等无关维度 | 底层优先读 `analysis_snapshots`，miss 时触发完整 `audit-overview` 计算并缓存 |
+| **查询 CLI：知识风险** | `src/cli/commands/index.js` + `src/tools/query-tools.js` | 新增 `query-knowledge-risk --level high\|medium\|low --limit N --json`；返回 `{file, authorCount, busFactor}` 列表 | 同上 |
+| **查询 CLI：稳定性** | `src/cli/commands/index.js` + `src/tools/query-tools.js` | 新增 `query-stability --assessment fragile\|moderate\|stable --limit N --json` | 同上 |
+| **查询 CLI：通用 SQL** | `src/cli/commands/index.js` | 可选：新增 `query --sql "SELECT ... FROM analysis_snapshots ..."`，暴露 SQLite 只读查询能力 | 只读；不写；不加 SQL 解析器，直接透传 `better-sqlite3` |
+| ** `--fields` 白名单** | `src/cli/commands/index.js` + `src/tools/overview-tools.js` | `audit-overview --fields hotspots,deadExports,cycles`：只序列化指定顶层字段，削减 JSON 体积 | 不破坏现有 schema；缺失字段返回空对象或省略 |
+| **格式化器对齐** | `src/cli/formatters/human-formatters.js` | `query-*` 命令复用现有 formatter 注册表；human 模式输出紧凑列表（`file | score | risk`），不展开 `reason` 长文本 | — |
+
+**向后兼容**：
+- `audit-overview` / `audit-summary` 默认行为不变；聚合缓存是透明加速层
+- `analysis_snapshots` 使用 `CREATE TABLE IF NOT EXISTS`；旧版 CLI 读不到新表 → 正常 fallback 到实时计算
+- 新增 `query-*` 命令为 L2 层级（默认 `--help` 折叠，不挤占核心命令列表）
+
+**收益量化**：
+- 284 文件项目：`audit-overview` 重复运行从 ~2s → ~20ms（缓存命中）
+- 1329 文件 GitNexus：从 ~15s → ~50ms
+- AI 上下文：热点查询从 3000 行完整 JSON → 5-10 行切片
+
+---
+
 ### 阶段 4：长期（观察中）
 
 - **跨仓库 API 契约检查**：frontend `axios.get('/api/policy/xxx')` vs backend `@GetMapping('/api/policy/xxx')`，纯静态文本匹配，评估低复杂度实现方案

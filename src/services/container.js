@@ -22,11 +22,25 @@ function formatDuration(ms) {
   return `${Math.round(ms / 3600000)} hours`;
 }
 
+const STATES = {
+  IDLE: 'IDLE',
+  INITIALIZING: 'INITIALIZING',
+  READY: 'READY',
+  SHUTTING_DOWN: 'SHUTTING_DOWN',
+  ERROR: 'ERROR',
+};
+
+const VALID_TRANSITIONS = {
+  [STATES.IDLE]: [STATES.INITIALIZING, STATES.SHUTTING_DOWN],
+  [STATES.INITIALIZING]: [STATES.READY, STATES.ERROR, STATES.SHUTTING_DOWN],
+  [STATES.READY]: [STATES.SHUTTING_DOWN],
+  [STATES.SHUTTING_DOWN]: [STATES.IDLE],
+  [STATES.ERROR]: [STATES.INITIALIZING, STATES.SHUTTING_DOWN],
+};
+
 class ServiceContainer {
   constructor(options = {}) {
-    this.initialized = false;
-    this.initializing = false;
-    this._shuttingDown = false;
+    this._state = STATES.IDLE;
     this.initError = null;
     this.workspaceRoot = null;
     this.quiet = options.quiet || false;
@@ -61,8 +75,38 @@ class ServiceContainer {
     this._readyPromise = null;
   }
 
+  get state() {
+    return this._state;
+  }
+
+  get initialized() {
+    return this._state === STATES.READY;
+  }
+
+  set initialized(val) {
+    this._state = val ? STATES.READY : STATES.IDLE;
+  }
+
+  get initializing() {
+    return this._state === STATES.INITIALIZING;
+  }
+
+  set initializing(val) {
+    this._state = val ? STATES.INITIALIZING : STATES.IDLE;
+  }
+
+  _transition(toState) {
+    const from = this._state;
+    if (from === toState) return;
+    const valid = VALID_TRANSITIONS[from] || [];
+    if (!valid.includes(toState)) {
+      throw new Error(`[Container] Invalid transition: ${from} → ${toState}`);
+    }
+    this._state = toState;
+  }
+
   _checkAborted() {
-    if (!this.initializing || this._readyPromise === null) {
+    if ((this._state !== STATES.INITIALIZING && this._state !== STATES.READY) || this._readyPromise === null) {
       throw new Error('Container shut down during initialization');
     }
   }
@@ -71,7 +115,7 @@ class ServiceContainer {
    * Initialize all services. Thread-safe with mutex-like behavior.
    */
   async initialize(cwd, timeoutMs = TIMEOUTS.INIT_TIMEOUT_MS, options = {}) {
-    if (this._shuttingDown) {
+    if (this._state === STATES.SHUTTING_DOWN) {
       throw new Error('Container is shutting down');
     }
 
@@ -79,7 +123,7 @@ class ServiceContainer {
     this.initError = null;
 
     // Mutex: if already initializing, wait on shared promise
-    if (this.initializing) {
+    if (this._state === STATES.INITIALIZING) {
       if (this._readyPromise) {
         try {
           await this._readyPromise;
@@ -91,11 +135,11 @@ class ServiceContainer {
     }
 
     // If already initialized, skip
-    if (this.initialized) {
+    if (this._state === STATES.READY) {
       return true;
     }
 
-    this.initializing = true;
+    this._transition(STATES.INITIALIZING);
     this.initError = null;
     this._readyPromise = null;
     
@@ -134,7 +178,7 @@ class ServiceContainer {
       this._assembleSnapshot();
       this._registerCallbacks();
 
-      this.initialized = true;
+      this._transition(STATES.READY);
       this.indexBuildTime = Date.now();
 
       // Staleness: record git HEAD so getStaleness can detect branch switches
@@ -158,13 +202,14 @@ class ServiceContainer {
       if (this._readyPromise === null) {
         return false;
       }
+      this._transition(STATES.ERROR);
       this.initError = err;
       console.error('[Container] Initialization failed:', err);
       rejectReady(err);
       return false;
     } finally {
-      if (this._readyPromise !== null) {
-        this.initializing = false;
+      if (this._state === STATES.INITIALIZING) {
+        this._transition(STATES.ERROR);
       }
     }
   }
@@ -406,11 +451,10 @@ class ServiceContainer {
    * Shutdown: persist cache and cleanup
    */
   async shutdown() {
-    if (this._shuttingDown) return;
-    this._shuttingDown = true;
+    if (this._state === STATES.SHUTTING_DOWN) return;
+    this._transition(STATES.SHUTTING_DOWN);
 
     // Mark as aborted if we are initializing to prevent background racing
-    this.initializing = false;
     this._readyPromise = null;
 
     // Phase 2: 清理待执行的诊断检查
@@ -460,10 +504,9 @@ class ServiceContainer {
     this.diagnostics = null;
     this._depGraph = null;
     this.projectContext = null;
-    this.initialized = false;
     this.initError = new Error('Container shut down');
     this._readyPromise = null;
-    this._shuttingDown = false;
+    this._transition(STATES.IDLE);
   }
 
   getStats() {
@@ -512,4 +555,5 @@ class ServiceContainer {
 
 module.exports = {
   ServiceContainer,
+  STATES,
 };
