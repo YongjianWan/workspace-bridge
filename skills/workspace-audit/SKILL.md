@@ -15,8 +15,10 @@ description: Use this skill when the goal is to audit a local codebase with work
 **不要裸调命令。总是使用以下默认参数：**
 
 ```bash
-workspace-bridge-cli <command> --cwd <project> --format markdown --quiet
+workspace-bridge-cli <command> --cwd <project> --json --quiet
 ```
+
+> 为什么 `--json` 而非 `--format markdown`：Markdown 需要 AI 做正则/启发式解析，易出错且 token 浪费。`--json` 输出结构化数据，`JSON.parse` 一次成功，字段路径稳定（`schemaVersion: "1.2.0"` 已冻结）。
 
 | 场景 | 命令 | 层级 |
 |------|------|------|
@@ -32,9 +34,7 @@ workspace-bridge-cli <command> --cwd <project> --format markdown --quiet
 
 > **L4 命令为 debug 层级**：`dead-exports` / `cycles` / `unresolved` / `tree` / `dependencies` / `dependents` / `stats` 均为原始查询命令，数据已被 L1（`audit-summary`/`audit-file`/`audit-diff`）策展覆盖。**日常审计优先用 L1/L2，L4 仅在需要原始数据或调试时调用。**
 
-**为什么 `--format markdown`**：直接输出带标题/列表的 Markdown，AI 无需解析 JSON，减少 token 消耗和解析错误。需要结构化数据时用 `--format jsonl`。
-
-**`--format ai`（推荐用于 `audit-overview`）**：输出预消化的策展 JSON — `severity + topRisks + actions + confidence`，AI 可直接消费，无需自己从 400 行原始 JSON 中提取结论。支持 `--depth surface|detail|full` 渐进式发现和 `--token-budget <n>` 自动裁剪。
+**`--format ai`**（`audit-overview` 专用）：输出预消化的策展 JSON — `severity + topRisks + actions + confidence`，AI 可直接消费，无需自己从 400 行原始 JSON 中提取结论。支持 `--depth surface|detail|full` 渐进式发现和 `--token-budget <n>` 自动裁剪。**其余命令统一用 `--json`**。
 
 **为什么 `--quiet`**：消除 stderr 日志污染，输出纯净。
 
@@ -47,7 +47,7 @@ workspace-bridge-cli <command> --cwd <project> --format markdown --quiet
 workspace-bridge-cli workspace-info --cwd <project> --quiet
 
 # Step 2: 缓存已热，执行重命令
-workspace-bridge-cli audit-summary --cwd <project> --format markdown --quiet
+workspace-bridge-cli audit-overview --cwd <project> --json --quiet
 ```
 
 > 若 `workspace-info` 返回 `fileCount: 0`，停止后续命令，报告"未找到可解析源文件"。
@@ -61,7 +61,7 @@ workspace-bridge-cli audit-summary --cwd <project> --format markdown --quiet
 | "看看这个项目怎么样" | **`audit-overview`** | **默认入口**。热点文件 + 知识风险 + 死导出 + 未解析 + 循环依赖 + 孤儿文件 + 语言覆盖 |
 | "看看这个项目怎么样（旧命令，兼容）" | `audit-summary` | **已废弃**。内部 redirect 到 `audit-overview`；`healthScore` 字段无意义，忽略 |
 | "我改了些代码，帮忙看看" | `audit-diff` | 变更分析 + 验证建议 + 具体执行命令 |
-| "改这个文件会影响什么" | `audit-file --file <path>` | 影响半径 + 受影响测试 |
+| "改这个文件会影响什么" | `audit-file --file <path>` | **一站式**：`impact[]` + `affectedTests[]` + `validationAdvice` + `coChanges[]`。无需再单独调 `impact` 或 `affected-tests` |
 | "这个模块依赖谁、谁依赖它" | `tree --file <path>` | **[L4 debug]** 递归 import/dependent 树，比 `impact` 更直观展示依赖层次 |
 | "有没有安全问题" | `audit-security --builtin-only` | 19 条内置规则，< 2s |
 | "项目结构太复杂，理一理" | `audit-map --compact` | 目录树 + 依赖边 + 问题高亮 |
@@ -70,7 +70,7 @@ workspace-bridge-cli audit-summary --cwd <project> --format markdown --quiet
 | "断链 import" | `unresolved` | **[L4 debug]** 未解析的导入列表 |
 | "快速查一个文件的依赖/影响" | `repl --eval "impact <file>"` | **非交互单命令**，比直接 `impact` 更快（复用内存图），适合 AI/CI 批量调用 |
 
-**避免调用的命令**：`stats` / `dependencies` / `dependents`（数据太 raw，已被 L1/L2 覆盖）、`dead-exports` / `cycles` / `unresolved` / `tree`（数据已被 `audit-overview`/`audit-file` 策展覆盖，日常审计优先用 L1/L2）、`watch`（交互式文件监控，不适合 AI 批量调用）、`health`（已废弃，redirect 到 `audit-overview`）。
+**避免调用的命令**：`stats` / `dependencies` / `dependents`（数据太 raw，已被 L1/L2 覆盖）、`dead-exports` / `cycles` / `unresolved`（数据已被 `audit-overview` 策展覆盖）、`impact` / `affected-tests`（已被 `audit-file` 覆盖）、`tree`（仅在需要理解依赖层次时调用）、`watch`（交互式文件监控，不适合 AI 批量调用）、`health`（已废弃，redirect 到 `audit-overview`）。
 
 > `audit-overview` 不再是"避免调用"，而是**默认首选入口**。
 
@@ -128,10 +128,10 @@ workspace-bridge-cli audit-summary --cwd <project> --format ai --quiet
 ### audit-diff — 变更审查
 
 ```bash
-workspace-bridge-cli audit-diff --cwd <project> --format markdown --quiet
-workspace-bridge-cli audit-diff --cwd <project> --commits HEAD~9..HEAD --format markdown --quiet  # commit range
-workspace-bridge-cli audit-diff --cwd <project> --since HEAD~3 --format markdown --quiet           # since 模式
-workspace-bridge-cli audit-diff --cwd <project> --staged --format markdown --quiet                # 暂存区
+workspace-bridge-cli audit-diff --cwd <project> --json --quiet
+workspace-bridge-cli audit-diff --cwd <project> --commits HEAD~9..HEAD --json --quiet  # commit range
+workspace-bridge-cli audit-diff --cwd <project> --since HEAD~3 --json --quiet           # since 模式
+workspace-bridge-cli audit-diff --cwd <project> --staged --json --quiet                # 暂存区
 ```
 
 **AI 读取优先级**：
@@ -143,15 +143,23 @@ workspace-bridge-cli audit-diff --cwd <project> --staged --format markdown --qui
 ### audit-file — 改前影响评估
 
 ```bash
-workspace-bridge-cli audit-file --cwd <project> --file <path> --format markdown --quiet
+workspace-bridge-cli audit-file --cwd <project> --file <path> --json --quiet
 ```
 
 **AI 读取优先级**：
 1. `severity` → 变更风险级别
-2. `impact` → 直接/传递依赖方
-3. `affectedTests` → 需要跑的测试
-4. `validationAdvice` → 验证建议
-5. `frameworkPattern` → 框架模式提示
+2. `impact[]` → 直接/传递依赖方（含 `level`/`via`/`importedSymbols`）
+3. `affectedTests[]` → 需要跑的测试（含 `distance`/`source`/`via`）
+4. `coChanges[]` → 历史上与该文件频繁共变的文件（高价值，易遗漏）
+5. `validationAdvice` → 验证建议（含 `commands.smoke/focused/full`）
+6. `frameworkPattern` → 框架模式提示
+
+**⚠️ affectedTests 过滤规则**：
+- `source === "graph"` → **高优先级**（真实 import 依赖边）
+- `source === "mention"` → **低优先级/可忽略**（仅文件名 stem 匹配，空文件可能触发 30+ 误报）
+- `source === "heuristic"` → 中等优先级，人工确认后采纳
+
+> `audit-file --json` 已完整包含 `impact` + `affected-tests` + `validationAdvice`。**不要**再单独调用 `impact` 或 `affected-tests`。
 
 ### tree — 依赖链深入分析
 
@@ -178,8 +186,8 @@ workspace-bridge-cli tree --cwd <project> --file <path> --max-depth 2 --format j
 ### audit-security — 安全扫描
 
 ```bash
-workspace-bridge-cli audit-security --cwd <project> --builtin-only --format markdown --quiet
-workspace-bridge-cli audit-security --cwd <project> --builtin-only --files <file1>,<file2> --format markdown --quiet
+workspace-bridge-cli audit-security --cwd <project> --builtin-only --json --quiet
+workspace-bridge-cli audit-security --cwd <project> --builtin-only --files <file1>,<file2> --json --quiet
 ```
 
 **AI 读取优先级**：
