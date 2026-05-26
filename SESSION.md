@@ -14,12 +14,12 @@
 >
 > 收工时已跑 `npm run test:fast` 并确认 fast 层全绿，开工无需重跑。全量 runner 状态见下方「基线状态」。直接读取下方「基线状态」确认当前文档记录是否仍成立。
 >
-> 开发迭代推荐 `npm run test:fast`（~5s，79 个 fast 层测试），比全量 runner（~4.5min）快 50×。
+> 开发迭代推荐 `npm run test:fast`（~20s，83 个 fast 层测试），比全量 runner（~5min）快 15×。
 
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
 node cli.js audit-overview --cwd . --json --quiet
-# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count=0, summary.unresolved.count=0, summary.cycles.count=0, summary.analysisCoverage.totalFiles≈280, summary.analysisCoverage.coverageRatio=1
+# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count=0, summary.unresolved.count=0, summary.cycles.count=0, summary.analysisCoverage.totalFiles≈290, summary.analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-overview 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
@@ -37,13 +37,13 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；`npm run test:fast` **82/82 PASS**（~20s）。全量 runner **153/153 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~20s）或 `npm run test:smoke`（~54s）。当前 fast 层 82 个测试，slow 层 65 个，serial 层 7 个。
+- 测试：**受影响测试全部 PASS**；`npm run test:fast` **83/83 PASS**（~20s）。全量 runner **153/153 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~20s）或 `npm run test:smoke`（~54s）。当前 fast 层 83 个测试，slow 层 65 个，serial 层 7 个。
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~280 文件（entry=1, mainline=133, test=147），commands/ 去壳后减少 17 个透传文件
+- 自身项目规模：~290 文件（entry=1, mainline=137, test=157），commands/ 去壳后减少 17 个透传文件
 - 结构性指标：deadExports=0，cycles=0，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 按实际分布
 - 注意：`healthScore=7/8` 是文件存在性检查（README/LICENSE/.gitignore/Dockerfile），**不反映代码质量**，已废弃
-- 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust Regular Expressions、C/C++、Vue、Svelte）
+- 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
 - Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.2.0"` 已冻结**
 - 缓存：**SQLite 持久化**（`os.tmpdir()/workspace-bridge/<hash>/cache.db`），项目间隔离（按 workspaceRoot md5 hash 分目录），支持 `--cache-dir` 覆盖
@@ -119,13 +119,13 @@ node cli.js audit-overview --cwd . --json --quiet
 | 活跃债务与品味     | 5           | 弱断言 / 测试类型失衡 / slow 层过重 / Builder 状态机 / `--json` 嵌套深 |
 | **产品债务** | **0** | —                                                                                                                                       |
 
-**测试状态**：`npm run test:fast` **81/81 PASS**（~5s）。全量 runner **146/146 PASS**（~5min）。
+**测试状态**：`npm run test:fast` **83/83 PASS**（~20s）。全量 runner **153/153 PASS**（~5min）。
 
 ---
 
 ## 下一步方向：Dogfood 修复波次（波次化执行）
 
-> **约束**：每波修完后必须 `npm run test:fast` 81/81 PASS + 全量 runner 146/146 PASS。禁止跨波次混修。
+> **约束**：每波修完后必须 `npm run test:fast` 83/83 PASS + 全量 runner 153/153 PASS。禁止跨波次混修。
 >
 > **核心认知**：底层引擎已收敛，当前是 **"最后一公里接口契约统一"**。
 
@@ -148,7 +148,7 @@ node cli.js audit-overview --cwd . --json --quiet
 2. 跑 `node cli.js audit-file --file src/services/container.js --format ai --json --quiet` → 包含 `validationAdvice.commands` 和 `impact.impact[]`
 3. 跑 `node cli.js audit-summary --format invalid --quiet` → `exit 2`
 4. 跑 `echo 'invalid' > .workspace-bridge.json && node cli.js audit-summary --json` → `exit 1` 且提示 config 错误
-5. `npm run test:fast` 81/81 PASS
+5. `npm run test:fast` 83/83 PASS
 
 ### Wave 2：参数与边界修复（P1 决策质量，2026-05-26）
 
@@ -202,7 +202,7 @@ node cli.js audit-overview --cwd . --json --quiet
 - **没有失败测试，不许写修复代码**（TDD）
 - **改高危文件前必须跑 impact + affected-tests**（`path.js` / `constants.js` / `dep-graph.js` / `cache.js` / `graph-db.js` / `parsers/shared.js` / `resolvers.js`）
 - **每波只修该波的问题**，不能跨波次混修
-- **每波收工前必须 `npm run test:fast` 81/81 PASS + 全量 runner 146/146 PASS**
+- **每波收工前必须 `npm run test:fast` 83/83 PASS + 全量 runner 153/153 PASS**
 - **每次修复后在 CHANGELOG.md [Unreleased] 追加条目**（单条不超过 3 行）
 
 ---
@@ -213,7 +213,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-25（exit code 49 已根治；knowledgeRisk 已交付；81/81 fast 测试全绿；146/146 全量 runner；活跃债务 5 项）*
+*Last updated: 2026-05-26（exit code 49 已根治；knowledgeRisk 已交付；83/83 fast 测试全绿；153/153 全量 runner；活跃债务 5 项）*
 
-> **本轮验证状态**：`npm run test:fast` **81/81 PASS**（~5s）；全量 runner **146/146 PASS**（~5min）；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=7/8`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=280`）；CLI smoke（`impact` / `affected-tests` / `repl --eval` / `dead-exports`）零 deprecation warning；`dead-exports` CLI smoke 零 exit code 49。
+> **本轮验证状态**：`npm run test:fast` **83/83 PASS**（~20s）；全量 runner **153/153 PASS**（~5min）；基线 `node cli.js audit-summary --cwd . --json --quiet` 通过（`healthScore=5/5`，`deadExports=0`，`unresolved=0`，`cycles=0`，`coverageRatio=1.00`，`totalFiles=290`）；CLI smoke（`impact` / `affected-tests` / `repl --eval` / `dead-exports`）零 deprecation warning；`dead-exports` CLI smoke 零 exit code 49。
 > **实战基地量化**：3 个后端项目（Python 542 文件 / Java 395 文件 / Java 565 文件）`unresolved` 全部为 0 → SymbolRegistry 接入 resolver 的 immediate payoff 为 0，接入优先级降低，暂缓实施。

@@ -117,11 +117,9 @@
 
 | 模块                                            | 状态      | 说明                                                                                                | 建议测试文件                         |
 | --------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- | ------------------------------ |
-|                          |
 | `src/cli/formatters/repo-summary.js`          | ⚠️ 间接覆盖 | `formatter-direct-test.js` 导入了 `buildRepoSummary` 但覆盖浅                                            | 扩展 `formatter-direct-test.js`  |
 | `src/cli/formatters/human-formatters.js`      | ⚠️ 间接覆盖 | `formatter-direct-test.js` 覆盖了部分分支                                                                | 扩展 `formatter-direct-test.js`  |
 | `src/cli/formatters/validation-advice.js`     | ⚠️ 间接覆盖 | 被 `audit-file-validation-advice-test.js` 间接覆盖                                                     | 扩展 `formatter-direct-test.js`  |
-|                                                             | —                              |
 
 
 ---
@@ -131,7 +129,6 @@
 
 | 模块                      | 测试文件                                                                   | 覆盖状态                                                                                                                            |
 | ----------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-|                                                          |
 | `workspace-snapshot.js` | `dep-tools-test.js` `overview-tools-test.js` `project-map-test.js`（试点） | ⚠️ 仅验证了 backward-compat（`snapshot.graph` 替代手工 mock），`getConfidence`/`knownBlindSpots`/`getSelfAwarenessSummary`/`basedOn` 零断言覆盖 |
 
 
