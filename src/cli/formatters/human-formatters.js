@@ -899,11 +899,18 @@ function formatAi(command, result, options = {}) {
   if (actions.length > 0) output.actions = actions;
 
   if (command === 'audit-file') {
+    if (result.validationAdvice) {
+      output.validationAdvice = result.validationAdvice;
+    }
     if (depth === 'detail' || depth === 'full') {
       output.riskFiles = {};
       if (result.impact?.impact?.length > 0) output.riskFiles.impact = result.impact.impact.slice(0, 3).map((i) => ({ file: i.file, level: i.level }));
       if (result.affectedTests?.affectedTests?.length > 0) output.riskFiles.affectedTests = result.affectedTests.affectedTests.slice(0, 3).map((t) => ({ file: t.file, distance: t.distance }));
       if (Object.keys(output.riskFiles).length === 0) delete output.riskFiles;
+    }
+    if (depth === 'detail' || depth === 'full') {
+      output.impact = result.impact?.impact || [];
+      output.affectedTests = result.affectedTests?.affectedTests || [];
     }
     if (depth === 'full') {
       output.details = { impact: result.impact?.impact || [], affectedTests: result.affectedTests?.affectedTests || [] };

@@ -116,7 +116,10 @@ function testAuditFileJsonFidelity() {
     assert.strictEqual(result.impact.symbolImpact.impactedFiles.length, 1, 'impactedFiles length should be 1');
     assert.ok(result.impact.symbolImpact.impactedFiles[0].file.endsWith('src/app.js') || result.impact.symbolImpact.impactedFiles[0].file.endsWith('src\\app.js'), 'dependent should be app.js');
     assert(result.validationAdvice, 'audit-file should include validationAdvice');
-    assert(Array.isArray(result.validationAdvice.commands), 'validationAdvice.commands should be an array');
+    assert.strictEqual(typeof result.validationAdvice.commands, 'object', 'validationAdvice.commands should be grouped object');
+    assert(Array.isArray(result.validationAdvice.commands.smoke), 'commands.smoke should be array');
+    assert(Array.isArray(result.validationAdvice.commands.focused), 'commands.focused should be array');
+    assert(Array.isArray(result.validationAdvice.commands.full), 'commands.full should be array');
     assert.strictEqual(result.validationAdvice.suggestedCommand, 'git diff --check', 'validationAdvice suggestedCommand should be git diff --check');
   } finally {
     cleanupTempDir(tempRoot);

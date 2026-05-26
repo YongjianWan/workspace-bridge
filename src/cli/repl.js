@@ -111,17 +111,19 @@ function formatStats(result) {
   ].join('\n');
 }
 
-async function executeCommand(container, line) {
+async function executeCommand(container, line, options = {}) {
   const tokens = line.trim().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return null;
 
   const [cmd, ...args] = tokens;
   const graph = container.snapshot?.graph || container.depGraph || null;
-  if (!graph) return 'Error: dependency graph not available';
+  if (!graph) return options.structured ? { error: 'dependency graph not available' } : 'Error: dependency graph not available';
 
   switch (cmd) {
     case 'help':
-      return `Commands:
+      return options.structured
+        ? { commands: ['impact', 'affected-tests', 'audit-map', 'issues', 'top', 'dead-exports', 'unresolved', 'cycles', 'dependents', 'dependencies', 'stats', 'help', 'exit / quit'] }
+        : `Commands:
   impact <file> [--max-depth <n>]
   affected-tests <file> [--max-depth <n>]
   audit-map [--compact]
@@ -141,10 +143,10 @@ async function executeCommand(container, line) {
         '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
       });
       const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
-      if (!file) return 'Usage: impact <file>';
+      if (!file) return options.structured ? { error: 'Usage: impact <file>' } : 'Usage: impact <file>';
       const maxDepth = parsed.maxDepth ?? DEFAULTS.WATCH_IMPACT_DEPTH;
       const result = graph.getImpactRadius(file, maxDepth);
-      return formatImpact(result);
+      return options.structured ? { impactCount: result.length, impact: result } : formatImpact(result);
     }
 
     case 'affected-tests': {
@@ -152,52 +154,52 @@ async function executeCommand(container, line) {
         '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
       });
       const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
-      if (!file) return 'Usage: affected-tests <file>';
+      if (!file) return options.structured ? { error: 'Usage: affected-tests <file>' } : 'Usage: affected-tests <file>';
       const maxDepth = parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH;
       const result = graph.findAffectedTests(file, maxDepth);
-      return formatAffectedTests(result);
+      return options.structured ? { affectedTestsCount: result.length, affectedTests: result } : formatAffectedTests(result);
     }
 
     case 'dead-exports': {
       const result = graph.findDeadExports();
-      return formatDeadExports(result);
+      return options.structured ? { deadExportsCount: result.length, deadExports: result } : formatDeadExports(result);
     }
 
     case 'unresolved': {
       const result = graph.findUnresolvedImports();
-      return formatUnresolved(result);
+      return options.structured ? { unresolvedCount: result.length, unresolved: result } : formatUnresolved(result);
     }
 
     case 'cycles': {
       const result = graph.findCircularDependencies();
-      return formatCycles(result);
+      return options.structured ? { cyclesCount: result.length, cycles: result } : formatCycles(result);
     }
 
     case 'dependents': {
       const file = resolveWorkspaceFilePath(args[0], container.workspaceRoot || graph?.root);
-      if (!file) return 'Usage: dependents <file>';
+      if (!file) return options.structured ? { error: 'Usage: dependents <file>' } : 'Usage: dependents <file>';
       const result = graph.getDependents(file);
-      return formatDependents(result);
+      return options.structured ? { dependentsCount: result.length, dependents: result } : formatDependents(result);
     }
 
     case 'dependencies': {
       const file = resolveWorkspaceFilePath(args[0], container.workspaceRoot || graph?.root);
-      if (!file) return 'Usage: dependencies <file>';
+      if (!file) return options.structured ? { error: 'Usage: dependencies <file>' } : 'Usage: dependencies <file>';
       const result = graph.getDependencies(file);
-      return formatDependencies(result);
+      return options.structured ? { dependenciesCount: result.length, dependencies: result } : formatDependencies(result);
     }
 
     case 'stats': {
       const result = graph.getStats();
-      return formatStats(result);
+      return options.structured ? result : formatStats(result);
     }
 
     case 'audit-map': {
       const parsed = parseArgs(['node', 'repl', ...args], { '--compact': true });
       const compact = Boolean(parsed['--compact']);
       const result = buildProjectMap(graph, { compact });
-      if (!result.ok) return `Error: ${result.error}`;
-      return formatProjectMap(result, compact);
+      if (!result.ok) return options.structured ? { error: result.error } : `Error: ${result.error}`;
+      return options.structured ? result : formatProjectMap(result, compact);
     }
 
     case 'issues': {
@@ -208,6 +210,10 @@ async function executeCommand(container, line) {
       let severity = 'low';
       if (unresolved.length > 0 || cycles.length > 0) severity = 'high';
       else if (deadExports.length > 0) severity = 'medium';
+
+      if (options.structured) {
+        return { severity, deadExports, unresolved, cycles };
+      }
 
       const lines = [`severity: ${severity}`];
       lines.push(`deadExports: ${deadExports.length}`);
@@ -252,6 +258,10 @@ async function executeCommand(container, line) {
       }
       hotspots.sort((a, b) => b.dependentsCount - a.dependentsCount);
 
+      if (options.structured) {
+        return { hotspots: hotspots.slice(0, 5) };
+      }
+
       if (hotspots.length === 0) {
         return `No hotspots detected (threshold: ${SCORING.HOTSPOT_MIN_DEPENDENTS} dependents).`;
       }
@@ -267,7 +277,9 @@ async function executeCommand(container, line) {
     }
 
     default:
-      return `Unknown command: ${cmd}. Type "help" for available commands.`;
+      return options.structured
+        ? { error: `Unknown command: ${cmd}. Type "help" for available commands.` }
+        : `Unknown command: ${cmd}. Type "help" for available commands.`;
   }
 }
 
@@ -306,7 +318,7 @@ async function startRepl(options) {
     if (evalMode) {
       const startTime = Date.now();
       try {
-        const output = await executeCommand(container, evalMode);
+        const output = await executeCommand(container, evalMode, { structured: options.json });
         if (output !== null) {
           if (options.json) {
             console.log(JSON.stringify({ ok: true, result: output }));

@@ -105,34 +105,39 @@ function buildFileValidationAdvice(filePath, workspaceRoot) {
 
   const commands = generateCommands(stack, changeType, [filePath]);
 
-  // Flatten to a single list for AI consumption
+  // Deduplicate within each group by cmd string
+  const dedupe = (arr) => {
+    const seen = new Set();
+    return (arr || []).filter((c) => {
+      if (seen.has(c.cmd)) return false;
+      seen.add(c.cmd);
+      return true;
+    });
+  };
+
+  commands.smoke = dedupe(commands.smoke);
+  commands.focused = dedupe(commands.focused);
+  commands.full = dedupe(commands.full);
+
+  // P8-2: enrich each command with structured executable metadata
+  for (const group of ['smoke', 'focused', 'full']) {
+    for (const cmd of commands[group]) {
+      enrichCommandEntry(cmd);
+    }
+  }
+
+  const fileSpecificAdvice = buildFileSpecificAdvice(ext, stack.profile);
   const allCommands = [
     ...(commands.focused || []),
     ...(commands.smoke || []),
     ...(commands.full || []),
   ];
 
-  // Deduplicate by cmd string
-  const seen = new Set();
-  const uniqueCommands = allCommands.filter((c) => {
-    if (seen.has(c.cmd)) return false;
-    seen.add(c.cmd);
-    return true;
-  });
-
-  // P8-2: enrich each command with structured executable metadata
-  for (const cmd of uniqueCommands) {
-    enrichCommandEntry(cmd);
-  }
-
-  const fileSpecificAdvice = buildFileSpecificAdvice(ext, stack.profile);
-
   return {
     changeType,
-    stackProfile: stack.profile,
-    commandCount: uniqueCommands.length,
-    commands: uniqueCommands,
-    suggestedCommand: pickSuggestedCommand(uniqueCommands),
+    commands,
+    phases: [],
+    suggestedCommand: pickSuggestedCommand(allCommands),
     fileSpecificAdvice,
   };
 }

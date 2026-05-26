@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.2.0",
+  "timestamp": "2026-05-26T03:36:55.756Z",
+  "workspaceRoot": "C:\\Users\\sdses\\Desktop\\随机小项目\\workspace-bridge",
+  "findings": {
+    "deadExports": [],
+    "unresolved": [],
+    "cycles": [],
+    "healthGaps": []
+  }
+}

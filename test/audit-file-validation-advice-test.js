@@ -8,13 +8,19 @@ function run(args) {
 function testAuditFileHasValidationAdvice() {
   const result = run(['audit-file', '--file', 'src/utils/path.js']);
   assert.ok(result.validationAdvice, 'validationAdvice should exist');
-  assert.strictEqual(result.validationAdvice.stackProfile, 'node-first', 'stackProfile should be node-first');
-  assert.ok(Array.isArray(result.validationAdvice.commands), 'commands should be an array');
-  assert.ok(result.validationAdvice.commands.length > 0, 'commands list should not be empty');
-  assert.strictEqual(result.validationAdvice.commandCount, result.validationAdvice.commands.length, 'commandCount should equal commands array length');
+  assert.strictEqual(typeof result.validationAdvice.commands, 'object', 'commands should be grouped object');
+  assert.ok(Array.isArray(result.validationAdvice.commands.smoke), 'commands.smoke should be array');
+  assert.ok(Array.isArray(result.validationAdvice.commands.focused), 'commands.focused should be array');
+  assert.ok(Array.isArray(result.validationAdvice.commands.full), 'commands.full should be array');
+  assert.ok(result.validationAdvice.commands.smoke.length > 0 || result.validationAdvice.commands.focused.length > 0 || result.validationAdvice.commands.full.length > 0, 'commands should not all be empty');
   assert.strictEqual(result.validationAdvice.suggestedCommand, 'npm run test', 'suggestedCommand should be "npm run test" for JS file');
   // P8-2: structured executable metadata
-  for (const cmd of result.validationAdvice.commands) {
+  const allCommands = [
+    ...result.validationAdvice.commands.smoke,
+    ...result.validationAdvice.commands.focused,
+    ...result.validationAdvice.commands.full,
+  ];
+  for (const cmd of allCommands) {
     assert.ok(cmd.executable != null, `command ${cmd.name} should have executable object`);
     assert.strictEqual(cmd.executable.command, 'npm', `command ${cmd.name} should use npm`);
     assert.deepStrictEqual(cmd.executable.args, ['run', 'test'], `command ${cmd.name} should have ['run', 'test'] arguments`);

@@ -8,6 +8,27 @@
 
 ## [Unreleased]
 
+### Wave 1：接口契约统一（2026-05-26）
+
+- **严格参数验证** `cli.js`：
+  - `--format`、`--direction`、`--mode`、`--depth` 增加白名单校验，无效值触发 `VALIDATION_ERROR` 并 `exit 2`（原 `exit 0`）。
+  - `parseCliArgs` 的 throw 统一附加 `err.code`，`main()` catch 块根据 `VALIDATION_ERROR` 输出结构化 JSON（`--json` 时）并 `exit 2`。
+- **`--format json` 对齐** `cli.js`：
+  - `parsed.format === 'json'` 时清空 `format` 为 `null`，确保走 JSON 输出分支而不落入 Markdown 回退。
+  - help 文本 `--format` 合法值列表追加 `json`。
+- **`.workspace-bridge.json` 语法错误硬失败** `cli.js`：
+  - `main()` catch 块在 `parsed.json` 时输出 `{ok:false, error, schemaVersion}` 到 stdout，不再把错误全灌 stderr。
+  - 复现验证：`echo invalid > .workspace-bridge.json && node cli.js audit-summary --json` → `exit 1`，stdout 为合法 JSON。
+- **`validationAdvice` schema 统一** `src/cli/formatters/validation-advice.js`：
+  - `buildFileValidationAdvice` 的 `commands` 从 flat array 改为 grouped object `{smoke, focused, full}`，与 `buildValidationAdvice` 一致。
+  - 新增 `phases: []`，移除 `commandCount` / `stackProfile` 两个分叉字段。
+- **`--format ai` 补全决策字段** `src/cli/formatters/human-formatters.js`：
+  - `formatAi` 的 `audit-file` 分支注入 `validationAdvice`。
+  - `depth=detail/full` 时注入完整 `impact[]` 与 `affectedTests[]`（原仅 `riskFiles` 前 3 条 + `full` 才有 `details`）。
+- **REPL `--json` 结构化输出** `src/cli/repl.js`：
+  - `executeCommand` 新增 `options.structured` 参数，`true` 时返回原始数据对象而非文本字符串。
+  - eval 模式 `options.json` 自动映射 `structured=true`，`result` 字段变为可解析对象。
+
 ### 产品决策（audit-overview 吸收 audit-summary — 2026-05-25）
 
 - **`audit-overview` 将成为唯一默认 L1 策展入口**：

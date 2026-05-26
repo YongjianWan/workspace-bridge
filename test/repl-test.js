@@ -223,8 +223,8 @@ async function testEvalModeJson() {
   const output = logs.join('\n');
   const parsed = JSON.parse(output);
   assert.strictEqual(parsed.ok, true, 'json eval should return ok: true');
-  assert(typeof parsed.result === 'string', 'json eval should have string result');
-  assert(parsed.result.includes('files:'), 'json eval result should contain stats');
+  assert(typeof parsed.result === 'object', 'json eval should have structured result');
+  assert(typeof parsed.result.files === 'number', 'json eval result should contain files count');
 
 }
 

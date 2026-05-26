@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @contract
 
 const assert = require('assert');
 const { runCliRaw } = require('./test-helpers');
@@ -50,6 +51,34 @@ function testQuietSuppressesInfo() {
   assert(stdout.includes('files'), 'stats should output files count');
 }
 
+function testInvalidFormatExits2() {
+  const result = runCliRaw(['audit-summary', '--cwd', '.', '--format', 'invalid', '--quiet']);
+  assert.strictEqual(result.status, 2, 'invalid --format should exit 2');
+  const out = result.stderr || result.stdout || '';
+  assert(out.toLowerCase().includes('invalid'), 'should mention invalid value');
+}
+
+function testInvalidDirectionExits2() {
+  const result = runCliRaw(['tree', '--cwd', '.', '--file', 'cli.js', '--direction', 'invalid', '--quiet']);
+  assert.strictEqual(result.status, 2, 'invalid --direction should exit 2');
+  const out = result.stderr || result.stdout || '';
+  assert(out.toLowerCase().includes('invalid'), 'should mention invalid value');
+}
+
+function testInvalidModeExits2() {
+  const result = runCliRaw(['diagnostics', '--cwd', '.', '--mode', 'invalid', '--quiet']);
+  assert.strictEqual(result.status, 2, 'invalid --mode should exit 2');
+  const out = result.stderr || result.stdout || '';
+  assert(out.toLowerCase().includes('invalid'), 'should mention invalid value');
+}
+
+function testInvalidDepthExits2() {
+  const result = runCliRaw(['audit-summary', '--cwd', '.', '--depth', 'invalid', '--quiet']);
+  assert.strictEqual(result.status, 2, 'invalid --depth should exit 2');
+  const out = result.stderr || result.stdout || '';
+  assert(out.toLowerCase().includes('invalid'), 'should mention invalid value');
+}
+
 function main() {
   testUnknownCommand();
   testHelpFlag();
@@ -57,6 +86,11 @@ function main() {
   testVersionFlag();
   testMissingFileArgument();
   testQuietSuppressesInfo();
+  testInvalidFormatExits2();
+  testInvalidDirectionExits2();
+  testInvalidModeExits2();
+  testInvalidDepthExits2();
+  console.log('cli-args-validation-test.js: all passed');
 }
 
 main();

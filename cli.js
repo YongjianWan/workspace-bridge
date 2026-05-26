@@ -102,7 +102,7 @@ Options:
   --trend-granularity <mode>  Trend bucket mode for stability trend: day|week (default: day)
   --overview-dashboard <path>  Write audit-overview single-file HTML dashboard
   --json                  Print machine-readable JSON
-  --format <mode>         Output format: summary | markdown | jsonl | ai | human (default: markdown)
+  --format <mode>         Output format: summary | markdown | jsonl | ai | human | json (default: markdown)
   --token-budget <n>      Max estimated tokens for --format ai; auto-downgrades depth if exceeded
   --depth <mode>          Discovery depth for --format ai: surface | detail | full (default: detail)
   --quiet                 Suppress stderr logs during CLI execution
@@ -180,7 +180,7 @@ Options:
   --trend-granularity <mode>  Trend bucket mode for stability trend: day|week (default: day)
   --overview-dashboard <path>  Write audit-overview single-file HTML dashboard
   --json                  Print machine-readable JSON
-  --format <mode>         Output format: summary | markdown | jsonl | ai | human (default: markdown)
+  --format <mode>         Output format: summary | markdown | jsonl | ai | human | json (default: markdown)
   --token-budget <n>      Max estimated tokens for --format ai; auto-downgrades depth if exceeded
   --depth <mode>          Discovery depth for --format ai: surface | detail | full (default: detail)
   --quiet                 Suppress stderr logs during CLI execution
@@ -268,6 +268,26 @@ function parseCliArgs(argv) {
   if (raw.severity && !['high', 'medium', 'low'].includes(raw.severity)) {
     throw new Error(`Invalid --severity value: ${raw.severity}. Expected high|medium|low`);
   }
+  if (raw.format && !['summary', 'markdown', 'jsonl', 'ai', 'human', 'json'].includes(raw.format)) {
+    const err = new Error(`Invalid --format value: ${raw.format}. Expected summary|markdown|jsonl|ai|human|json`);
+    err.code = 'VALIDATION_ERROR';
+    throw err;
+  }
+  if (raw.direction && !['imports', 'dependents', 'both'].includes(raw.direction)) {
+    const err = new Error(`Invalid --direction value: ${raw.direction}. Expected imports|dependents|both`);
+    err.code = 'VALIDATION_ERROR';
+    throw err;
+  }
+  if (raw.mode && !['quick', 'full'].includes(raw.mode)) {
+    const err = new Error(`Invalid --mode value: ${raw.mode}. Expected quick|full`);
+    err.code = 'VALIDATION_ERROR';
+    throw err;
+  }
+  if (raw.depth && !['surface', 'detail', 'full'].includes(raw.depth)) {
+    const err = new Error(`Invalid --depth value: ${raw.depth}. Expected surface|detail|full`);
+    err.code = 'VALIDATION_ERROR';
+    throw err;
+  }
 
   return {
     command,
@@ -289,7 +309,7 @@ function parseCliArgs(argv) {
     config: raw.config || null,
     language: raw.language || null,
     builtinOnly: Boolean(raw['--builtin-only']),
-    format: raw.format || null,
+    format: raw.format === 'json' ? null : (raw.format || null),
     since: raw.since || null,
     commits: raw.commits || null,
     severity: raw.severity || null,
@@ -386,6 +406,9 @@ async function main() {
     parsed = parseCliArgs(process.argv);
   } catch (err) {
     console.error(err.message);
+    if (err.code === 'VALIDATION_ERROR') {
+      process.exit(2);
+    }
     printUsage();
     process.exit(1);
   }
@@ -502,14 +525,18 @@ async function main() {
     process.exitCode = determineExitCode(parsed.command, result, parsed.failOnFindings);
   } catch (err) {
     const classified = classifyError(err);
-    const prefix = `[${classified.type}]`;
-    if (container && container.initError && err === container.initError && err.stack) {
-      console.error(`${prefix} ${err.message || String(err)}`);
-      console.error(`→ ${classified.suggestion}`);
-      console.error(err.stack);
+    if (parsed.json) {
+      console.log(JSON.stringify({ ok: false, error: err.message || String(err), schemaVersion: SCHEMA_VERSION }));
     } else {
-      console.error(`${prefix} ${err.message || String(err)}`);
-      console.error(`→ ${classified.suggestion}`);
+      const prefix = `[${classified.type}]`;
+      if (container && container.initError && err === container.initError && err.stack) {
+        console.error(`${prefix} ${err.message || String(err)}`);
+        console.error(`→ ${classified.suggestion}`);
+        console.error(err.stack);
+      } else {
+        console.error(`${prefix} ${err.message || String(err)}`);
+        console.error(`→ ${classified.suggestion}`);
+      }
     }
     process.exitCode = classified.type === 'config_error' ? 1 : 2;
   } finally {

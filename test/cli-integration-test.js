@@ -56,12 +56,16 @@ function testAuditFileCustomRunnerValidationAdvice() {
     const result = runCli(['audit-file', '--cwd', tempRoot, '--file', 'src/app.js', '--json', '--quiet']);
     const advice = result.validationAdvice;
     assert(advice, 'audit-file should return validationAdvice');
-    assert.strictEqual(advice.stackProfile, 'node-first', 'should detect node-first stack');
     // Custom runner must NOT produce meaningless 'npx custom <files>'
-    const focused = advice.commands?.find((c) => c.name === 'node-focused-tests');
+    const allCommands = [
+      ...advice.commands.smoke,
+      ...advice.commands.focused,
+      ...advice.commands.full,
+    ];
+    const focused = allCommands.find((c) => c.name === 'node-focused-tests');
     assert(!focused, 'custom runner should not generate node-focused-tests');
     // Full test command should be present and executable
-    const full = advice.commands?.find((c) => c.name === 'node-all-tests');
+    const full = allCommands.find((c) => c.name === 'node-all-tests');
     assert(full, 'custom runner should generate node-all-tests');
     assert(full.cmd.includes('test'), 'full test command should reference test');
     // suggestedCommand should fall back to full suite, not 'npx custom ...'
