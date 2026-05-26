@@ -110,6 +110,68 @@ function runCliRaw(args, opts = {}) {
   });
 }
 
+/* -------------------------------------------------------------------------- */
+// In-process CLI runners (share ServiceContainer across calls)
+/* -------------------------------------------------------------------------- */
+
+let _sharedContainer = null;
+let _sharedContainerPromise = null;
+
+async function _getSharedContainer(cacheDir) {
+  if (_sharedContainer) return _sharedContainer;
+  if (_sharedContainerPromise) return _sharedContainerPromise;
+
+  const { ServiceContainer } = require('../src/services/container');
+  const { TIMEOUTS } = require('../src/config/constants');
+
+  _sharedContainerPromise = (async () => {
+    const container = new ServiceContainer({ quiet: true, cacheDir });
+    await container.initialize(REPO_ROOT, TIMEOUTS.INIT_TIMEOUT_MS, {
+      watch: false,
+    });
+    _sharedContainer = container;
+    return container;
+  })();
+
+  return _sharedContainerPromise;
+}
+
+/**
+ * Run CLI in-process with a shared ServiceContainer.
+ * Much faster than spawn-based runners for consecutive calls.
+ *
+ * @param {string[]} args
+ * @param {{cacheDir?: string}} [opts]
+ * @returns {Promise<string>}
+ */
+async function runCliTextInProcess(args, opts = {}) {
+  const { runCliInProcess } = require('../cli');
+  const injected = _injectCacheDir(args);
+  const cacheDir =
+    opts.cacheDir ||
+    (injected.includes('--cache-dir') ? injected[injected.indexOf('--cache-dir') + 1] : null);
+  const container = await _getSharedContainer(cacheDir);
+  const result = await runCliInProcess(injected, { container });
+  assert.strictEqual(
+    result.status,
+    0,
+    `CLI in-process exited ${result.status}\nstdout: ${result.stdout?.slice(0, 800)}`
+  );
+  return result.stdout;
+}
+
+/**
+ * Shut down the shared ServiceContainer used by in-process runners.
+ * Call after all in-process tests finish.
+ */
+function shutdownSharedContainer() {
+  if (_sharedContainer) {
+    _sharedContainer.shutdown().catch(() => {});
+    _sharedContainer = null;
+    _sharedContainerPromise = null;
+  }
+}
+
 /**
  * Run an arbitrary command and return stdout.
  *
@@ -622,6 +684,8 @@ module.exports = {
   runCli,
   runCliText,
   runCliRaw,
+  runCliTextInProcess,
+  shutdownSharedContainer,
   runInDir,
   makeTempDir,
   cleanupTempDir,

@@ -131,6 +131,37 @@ class GraphAnalyzer {
         },
       });
 
+      // Precompute structured impact radius (mirrors GraphQuery.getImpactRadius semantics)
+      const impactRadius = [];
+      bfsTraverse(filePath, (f) => {
+        if (f !== filePath && this.dg.isKnownEntryFile(f)) return [];
+        return this.dg.getDependents(f);
+      }, {
+        maxDepth: CONFIG.DEFAULT_MAX_DEPTH,
+        onVisit: (f, level, via) => {
+          if (level === 0 || f === filePath) return undefined;
+          const currentInfo = this.dg.getFileInfo ? this.dg.getFileInfo(f) : null;
+          let importedSymbols = [];
+          let importedSymbolsAvailable = false;
+          if (currentInfo?.importRecords) {
+            const parentFile = via[via.length - 1];
+            const matchingImports = currentInfo.importRecords.filter((r) => r.resolved === parentFile);
+            for (const record of matchingImports) {
+              if (record.imported) importedSymbols.push(...record.imported);
+            }
+            importedSymbolsAvailable = matchingImports.length > 0 && matchingImports.some((r) => r.imported && r.imported.length > 0);
+          }
+          impactRadius.push({
+            file: f,
+            level,
+            via: [...via],
+            importedSymbols: [...new Set(importedSymbols)],
+            importedSymbolsAvailable,
+            reason: level === 1 ? 'direct-import' : 'transitive-dependency',
+          });
+        },
+      });
+
       // Affected tests (graph-only, without heuristic/mention to keep deterministic)
       const affectedTests = this._findAffectedTestsByGraph(filePath, CONFIG.DEFAULT_MAX_DEPTH);
 
@@ -139,6 +170,7 @@ class GraphAnalyzer {
         transitiveDeps: transitiveDeps.size,
         directDependents: directDependents.length,
         transitiveDependents: transitiveDependents.size,
+        impactRadius,
         affectedTests,
       });
     }

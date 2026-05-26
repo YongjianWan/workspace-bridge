@@ -430,6 +430,112 @@ async function runCommand(parsed, container) {
   return handler(parsed, container);
 }
 
+async function runCliInProcess(args, opts = {}) {
+  let parsed;
+  try {
+    parsed = parseCliArgs(['node', 'cli.js', ...args]);
+  } catch (err) {
+    return { status: err.code === 'VALIDATION_ERROR' ? 2 : 1, stdout: err.message + '\n' };
+  }
+
+  if (parsed.version) {
+    return { status: 0, stdout: `workspace-bridge ${version}\n` };
+  }
+
+  if (parsed.help || !parsed.command) {
+    return { status: 0, stdout: '' };
+  }
+
+  const isSelfManaged = SELF_MANAGED_COMMANDS.has(parsed.command) || (parsed.command === 'audit-file' && parsed.watch);
+  if (isSelfManaged) {
+    await runCommand(parsed, null);
+    return { status: 0, stdout: '' };
+  }
+
+  const invalidCwd = validateCwd(parsed);
+  if (invalidCwd) {
+    return { status: 1, stdout: '' };
+  }
+
+  const invalidPaths = sanitizeCliPaths(parsed);
+  if (invalidPaths) {
+    let stdout = '';
+    if (parsed.json) {
+      stdout = JSON.stringify({ ok: false, error: invalidPaths.error, schemaVersion: SCHEMA_VERSION });
+    } else {
+      stdout = `[path_error] ${invalidPaths.error}\n→ Check if --cwd or --file paths exist and are accessible.`;
+    }
+    return { status: 1, stdout };
+  }
+
+  if (!parsed.cacheDir) {
+    const { computeDefaultCacheDir } = require('./src/services/cache');
+    parsed.cacheDir = computeDefaultCacheDir(path.resolve(parsed.cwd || process.cwd()));
+  }
+
+  let container = opts.container;
+  const shouldInit = !container;
+  if (!container) {
+    container = new ServiceContainer({ quiet: parsed.quiet, cacheDir: parsed.cacheDir });
+  }
+
+  try {
+    if (shouldInit) {
+      const initialized = await container.initialize(parsed.cwd, TIMEOUTS.INIT_TIMEOUT_MS, {
+        watch: false,
+        excludeDirs: parsed.exclude,
+        strictCwd: parsed.strictCwd,
+      });
+      if (!initialized) {
+        throw container.initError || new Error('Failed to initialize workspace container');
+      }
+    }
+
+    const result = await runCommand(parsed, container);
+
+    if (result && typeof result === 'object' && result.ok !== false && container) {
+      result.staleness = container.getStaleness();
+      result.warnings = container.snapshot.graph.buildWarnings();
+    }
+
+    let stdout = '';
+    if (parsed.format === 'ai') {
+      stdout = formatAi(parsed.command, result, {
+        depth: parsed.depth || 'detail',
+        tokenBudget: parsed.tokenBudget || null,
+        schemaVersion: SCHEMA_VERSION,
+      });
+    } else if (parsed.format === 'summary') {
+      stdout = formatSummary(parsed.command, result);
+    } else if (parsed.format === 'jsonl') {
+      stdout = formatJsonl(parsed.command, result);
+    } else if (parsed.format === 'human') {
+      stdout = formatHuman(parsed.command, result);
+    } else if (parsed.format === 'markdown' || !parsed.json) {
+      stdout = formatMarkdown(parsed.command, result);
+    } else if (parsed.json) {
+      if (result && typeof result === 'object') {
+        result.schemaVersion = SCHEMA_VERSION;
+      }
+      stdout = JSON.stringify(result, null, 2);
+    }
+
+    const status = determineExitCode(parsed.command, result, parsed.failOnFindings);
+    return { status, stdout };
+  } catch (err) {
+    const classified = classifyError(err);
+    let stdout = '';
+    if (parsed.json) {
+      stdout = JSON.stringify({ ok: false, error: err.message || String(err), schemaVersion: SCHEMA_VERSION });
+    } else {
+      stdout = `[${classified.type}] ${err.message || String(err)}\n→ ${classified.suggestion}`;
+    }
+    return { status: classified.type === 'config_error' ? 1 : 2, stdout };
+  } finally {
+    if (shouldInit) await container.shutdown();
+  }
+}
+
 async function main() {
   let parsed;
   try {
@@ -456,123 +562,17 @@ async function main() {
     }
     return;
   }
+
   if (!parsed.command) {
     printUsage(false);
     return;
   }
 
-  const isSelfManaged = SELF_MANAGED_COMMANDS.has(parsed.command) || (parsed.command === 'audit-file' && parsed.watch);
-  if (isSelfManaged) {
-    await runCommand(parsed, null);
-    return;
+  const result = await runCliInProcess(process.argv.slice(2));
+  if (result.stdout) {
+    process.stdout.write(result.stdout + (result.stdout.endsWith('\n') ? '' : '\n'));
   }
-
-  // P0: validate --cwd exists and is a directory before entering heavy init
-  const invalidCwd = validateCwd(parsed);
-  if (invalidCwd) {
-    return;
-  }
-
-  // P0: sanitize path arguments to prevent traversal outside the workspace
-  const invalidPaths = sanitizeCliPaths(parsed);
-  if (invalidPaths) {
-    if (parsed.json) {
-      console.log(JSON.stringify({ ok: false, error: invalidPaths.error, schemaVersion: SCHEMA_VERSION }));
-    } else {
-      console.error(`[path_error] ${invalidPaths.error}`);
-      console.error(`→ Check if --cwd or --file paths exist and are accessible.`);
-    }
-    process.exitCode = 1;
-    return;
-  }
-
-  // Default cacheDir: SQLite in os.tmpdir() with workspaceRoot hash
-  // (only when not explicitly overridden via --cache-dir)
-  if (!parsed.cacheDir) {
-    const { computeDefaultCacheDir } = require('./src/services/cache');
-    parsed.cacheDir = computeDefaultCacheDir(path.resolve(parsed.cwd || process.cwd()));
-  }
-
-  const container = new ServiceContainer({ quiet: parsed.quiet, cacheDir: parsed.cacheDir });
-
-  try {
-    const initStart = Date.now();
-    const initialized = await container.initialize(parsed.cwd, TIMEOUTS.INIT_TIMEOUT_MS, {
-      watch: false,
-      excludeDirs: parsed.exclude,
-      strictCwd: parsed.strictCwd,
-    });
-    const initTime = Date.now() - initStart;
-    if (!initialized) {
-      throw container.initError || new Error('Failed to initialize workspace container');
-    }
-
-    const cmdStart = Date.now();
-    const result = await runCommand(parsed, container);
-    const cmdTime = Date.now() - cmdStart;
-    if (!parsed.quiet && container._phaseTimes) {
-      const pt = container._phaseTimes;
-      process.stderr.write(
-        `[timing] init=${initTime}ms (fileIndex=${pt.fileIndex}ms, depGraph=${pt.depGraph}ms) command=${cmdTime}ms\n`
-      );
-    }
-    if (result && typeof result === 'object' && result.ok !== false && container) {
-      result.staleness = container.getStaleness();
-      result.warnings = container.snapshot.graph.buildWarnings();
-    }
-    if (parsed.format === 'ai') {
-      console.log(formatAi(parsed.command, result, {
-        depth: parsed.depth || 'detail',
-        tokenBudget: parsed.tokenBudget || null,
-        schemaVersion: SCHEMA_VERSION,
-      }));
-    } else if (parsed.format === 'summary') {
-      console.log(formatSummary(parsed.command, result));
-    } else if (parsed.format === 'jsonl') {
-      console.log(formatJsonl(parsed.command, result));
-    } else if (parsed.format === 'human') {
-      console.log(formatHuman(parsed.command, result));
-    } else if (parsed.format === 'markdown' || !parsed.json) {
-      // Default human-readable output is markdown for better AI/CI consumption.
-      console.log(formatMarkdown(parsed.command, result));
-    } else if (parsed.json) {
-      if (result && typeof result === 'object') {
-        result.schemaVersion = SCHEMA_VERSION;
-      }
-      const jsonStr = JSON.stringify(result, null, 2);
-      if (jsonStr.length > STREAMING.LARGE_JSON_THRESHOLD_BYTES && !parsed.quiet) {
-        const edges = result && result.edges ? result.edges.length : 0;
-        if (edges > DEFAULTS.LARGE_PROJECT_EDGE_WARNING_THRESHOLD && !parsed.compact) {
-          process.stderr.write(
-            '[warn] JSON output is very large (~' +
-              Math.round(jsonStr.length / 1024 / 1024) +
-              'MB). Consider using --compact for large projects.\n'
-          );
-        }
-      }
-      await writeLargeJson(jsonStr);
-    }
-
-    process.exitCode = determineExitCode(parsed.command, result, parsed.failOnFindings);
-  } catch (err) {
-    const classified = classifyError(err);
-    if (parsed.json) {
-      console.log(JSON.stringify({ ok: false, error: err.message || String(err), schemaVersion: SCHEMA_VERSION }));
-    } else {
-      const prefix = `[${classified.type}]`;
-      if (container && container.initError && err === container.initError && err.stack) {
-        console.error(`${prefix} ${err.message || String(err)}`);
-        console.error(`→ ${classified.suggestion}`);
-        console.error(err.stack);
-      } else {
-        console.error(`${prefix} ${err.message || String(err)}`);
-        console.error(`→ ${classified.suggestion}`);
-      }
-    }
-    process.exitCode = classified.type === 'config_error' ? 1 : 2;
-  } finally {
-    await container.shutdown();
-  }
+  process.exitCode = result.status;
 }
 
 function installFatalHandlers() {
@@ -595,11 +595,14 @@ function installFatalHandlers() {
   });
 }
 
-installFatalHandlers();
+module.exports = { runCliInProcess };
 
-main().catch((err) => {
-  console.error('Fatal error:', err.message || String(err));
-  if (err.stack) console.error(err.stack);
-  process.exit(2);
-});
+if (require.main === module) {
+  installFatalHandlers();
+  main().catch((err) => {
+    console.error('Fatal error:', err.message || String(err));
+    if (err.stack) console.error(err.stack);
+    process.exit(2);
+  });
+}
 

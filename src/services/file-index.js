@@ -151,7 +151,7 @@ class FileIndex {
 
     while (queue.length > 0) {
       if (signal?.aborted) return;
-      const { path: current, depth } = queue.shift();
+      const { path: current, depth } = queue.pop();
 
       if (depth > maxDepth) continue;
       
@@ -224,6 +224,13 @@ class FileIndex {
         if (stats.mtimeMs === cached.mtime && stats.size === cached.size) {
           return; // Use cached data
         }
+        // Cache stale — reuse the stat we already have to avoid double stat
+        const ok = await this.indexFile(file, stats);
+        if (ok) {
+          this.indexedCount++;
+          this.changedFiles.add(file);
+        }
+        return;
       } catch (e) {
         // File deleted or unreadable — clean up all associated cache entries
         this._removeCacheEntry(file);
@@ -343,11 +350,11 @@ class FileIndex {
     return prunedFiles;
   }
 
-  async indexFile(filePath) {
+  async indexFile(filePath, existingStats = null) {
     if (!this.active) return false;
     try {
       const fileKey = normalizePathKey(filePath);
-      const stats = await stat(filePath);
+      const stats = existingStats || await stat(filePath);
       if (!this.active) return false;
       const content = await readFile(filePath, 'utf8');
       if (!this.active) return false;

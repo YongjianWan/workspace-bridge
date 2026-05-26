@@ -1,4 +1,4 @@
-const { bfsTraverse } = require('./shared');
+const { bfsTraverse, CONFIG } = require('./shared');
 class GraphQuery {
   constructor(depGraph) {
     this.dg = depGraph;
@@ -14,6 +14,18 @@ class GraphQuery {
 
   getImpactRadius(filePath, depth = 3) {
     const start = this.dg.normalizeFilePath(filePath);
+
+    // Fast path: use precomputed impact radius if available and deep enough.
+    const precomputed = this.dg.analyzer?.getPrecomputedImpact?.(start);
+    if (precomputed?.impactRadius && CONFIG.DEFAULT_MAX_DEPTH >= depth) {
+      const results = precomputed.impactRadius.filter((r) => r.level <= depth);
+      return results.map((r) => ({
+        ...r,
+        file: this.dg._displayPath(r.file),
+        via: r.via ? r.via.map((f) => this.dg._displayPath(f)) : r.via,
+      }));
+    }
+
     const results = bfsTraverse(start, (file) => {
       // Stop diffusion at entry files: every module eventually converges to
       // cli.js / app.vue / index.js, which provides zero actionable info.
