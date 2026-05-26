@@ -37,7 +37,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；`npm run test:fast` **81/81 PASS**（~5s）。全量 runner **146/146 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~5s）或 `npm run test:smoke`（~54s）。当前 fast 层 81 个测试，slow 层 58 个。
+- 测试：**受影响测试全部 PASS**；`npm run test:fast` **82/82 PASS**（~20s）。全量 runner **153/153 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~20s）或 `npm run test:smoke`（~54s）。当前 fast 层 82 个测试，slow 层 65 个，serial 层 7 个。
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~280 文件（entry=1, mainline=133, test=147），commands/ 去壳后减少 17 个透传文件
@@ -150,17 +150,19 @@ node cli.js audit-overview --cwd . --json --quiet
 4. 跑 `echo 'invalid' > .workspace-bridge.json && node cli.js audit-summary --json` → `exit 1` 且提示 config 错误
 5. `npm run test:fast` 81/81 PASS
 
-### Wave 2：参数与边界修复（P1 决策质量，3-4 天）
+### Wave 2：参数与边界修复（P1 决策质量，2026-05-26）
 
-| # | 问题 | 目标文件 | 修复要点 |
-|---|------|---------|----------|
-| W2-1 | `--cwd` 自动逃逸到 git root | `src/services/file-index.js` | 新增 `--strict-cwd` 标志，或默认锁定传入路径，不向上遍历 |
-| W2-2 | `--exclude` glob 模式不工作 | `src/services/file-index.js` | 支持 `*.test.js`、`src/**` 等 glob，不能只做目录名匹配 |
-| W2-3 | `audit-file --file` 接受目录路径 | `src/cli/commands/audit-file.js` | `--file` 必须是文件（`fs.stat` 验证），目录 → `exit 1` |
-| W2-4 | 空文件 `severity: high` + 34 mention tests | `src/tools/affected-tests.js` | 空文件/无导出文件跳过 mention/stem 启发式，或 `severity` 降级为 `low` |
-| W2-5 | `--check-regression` 无明确结论 | `src/cli/commands/index.js` | 输出显式结论：`"regression": {"status": "clean" / "degraded", "diff": {...}}` |
-| W2-6 | `--token-budget` 降级静默发生 | `src/tools/audit-assembler.js` | 降级时注入 `"downgraded": true` 到 metadata |
-| W2-7 | `symbolImpact` 漏掉解构导入符号 | `src/services/resolvers.js` | 多符号解构导入时，每个符号都要进入 `symbolToDependents` |
+> **状态**：✅ 已完成（test:fast 82/82 PASS；全量 runner 153/153 PASS）
+
+| # | 问题 | 目标文件 | 修复要点 | 状态 |
+|---|------|---------|----------|------|
+| W2-1 | `--cwd` 自动逃逸到 git root | `cli.js` / `src/services/container.js` | 新增 `--strict-cwd` 标志，传入时锁定 `cwd` 为 workspaceRoot，不再向上遍历 | ✅ |
+| W2-2 | `--exclude` glob 模式不工作 | `src/utils/exclude-patterns.js` | `shouldExcludeCli` 对含 `*`/`?` 的模式测试路径每一后缀片段，支持 `src/**` 等路径 glob | ✅ |
+| W2-3 | `audit-file --file` 接受目录路径 | `src/cli/commands/index.js` + `audit-file.js` | `makeFileCommand` 与 `auditFileCmd` 均增加 `isDirectory()` 校验，目录 → `ok: false` | ✅ |
+| W2-4 | 空文件 `severity: high` + 34 mention tests | `src/services/dep-graph/analyzer.js` | `_findAffectedTestsByMention` 遇到 0 字节文件直接跳过，避免 mention 雪崩 | ✅ |
+| W2-5 | `--check-regression` 无明确结论 | `src/tools/regression-tools.js` | `checkRegression` 与 `checkRegressionAgainstCommit` 均计算并注入 `status: 'clean' \| 'degraded'` | ✅ |
+| W2-6 | `--token-budget` 降级静默发生 | `src/cli/formatters/human-formatters.js` | `formatAi` 在 tokenBudget 触发降级时注入 `downgraded: true` | ✅ |
+| W2-7 | `symbolImpact` 漏掉解构导入符号 | `src/services/resolvers.js` | 多符号解构导入时，每个符号都要进入 `symbolToDependents` | ✅（复现已正常，无需修复） |
 
 ### Wave 3：Formatter 与体验（P2 打磨，2-3 天）
 
