@@ -5,6 +5,12 @@
  * Keeps the existing analysis engine behind a local CLI so agents
  * can call it directly.
  */
+
+// Increase libuv thread pool for concurrent file I/O (default 4 is a bottleneck
+// on Windows+Defender where stat() can take 50-100ms per file). Must be set
+// before any async fs operation is initiated.
+process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || '16';
+
 const fs = require('fs');
 const path = require('path');
 const { version } = require('./package.json');
