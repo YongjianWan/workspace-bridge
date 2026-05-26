@@ -842,6 +842,10 @@ class GraphAnalyzer {
     const sourceStem = path.basename(filePath, path.extname(filePath));
     // Minimum stem length to avoid false positives on generic names like "a", "x", "index"
     if (!sourceStem || sourceStem.length < 4) return;
+    // Skip mention matching for empty files to avoid false-positive test avalanche
+    try {
+      if (fs.statSync(filePath).size === 0) return;
+    } catch { return; }
     const escapedStem = sourceStem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const mentionPattern = new RegExp(`\\b${escapedStem}\\b`, 'i');
     for (const candidate of this.dg.graph.keys()) {

@@ -37,6 +37,9 @@ function makeFileCommand(handler, hasFindingsFn) {
     if (!filePath || !fs.existsSync(filePath)) {
       return { ok: false, error: `File not found: ${parsed.file}`, inProject: false, hasFindings: false };
     }
+    if (fs.statSync(filePath).isDirectory()) {
+      return { ok: false, error: `Path is a directory, not a file: ${parsed.file}`, inProject: true, hasFindings: false };
+    }
     const result = await handler(parsed, container, filePath);
     if (hasFindingsFn) result.hasFindings = hasFindingsFn(result);
     return result;

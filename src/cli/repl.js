@@ -10,6 +10,7 @@ const { TIMEOUTS, DEFAULTS, SCORING } = require('../config/constants');
 const { buildProjectMap, countTreeFiles } = require('./formatters/project-map');
 const { parseArgs } = require('../utils/parse-args');
 const { resolveWorkspaceFilePath } = require('../utils/path');
+const { buildTree } = require('../tools/tree-tools');
 
 function formatImpact(result) {
   const lines = [`impactCount: ${result.length}`];
@@ -111,6 +112,38 @@ function formatStats(result) {
   ].join('\n');
 }
 
+function formatTreeNode(node, prefix = '') {
+  const lines = [];
+  if (node.imports) {
+    for (const imp of node.imports) {
+      const tag = imp.external ? ' [external]' : (imp.circular ? ' [circular]' : '');
+      lines.push(`${prefix}→ ${imp.file}${tag}`);
+      if (imp.imports || imp.dependents) {
+        lines.push(...formatTreeNode(imp, prefix + '  '));
+      }
+    }
+  }
+  if (node.dependents) {
+    for (const dep of node.dependents) {
+      const tag = dep.circular ? ' [circular]' : '';
+      lines.push(`${prefix}← ${dep.file}${tag}`);
+      if (dep.imports || dep.dependents) {
+        lines.push(...formatTreeNode(dep, prefix + '  '));
+      }
+    }
+  }
+  return lines;
+}
+
+function formatTree(tree) {
+  const lines = [];
+  if (tree) {
+    lines.push(`file: ${tree.file}`);
+    lines.push(...formatTreeNode(tree, '  '));
+  }
+  return lines.join('\n');
+}
+
 async function executeCommand(container, line, options = {}) {
   const tokens = line.trim().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return null;
@@ -122,10 +155,11 @@ async function executeCommand(container, line, options = {}) {
   switch (cmd) {
     case 'help':
       return options.structured
-        ? { commands: ['impact', 'affected-tests', 'audit-map', 'issues', 'top', 'dead-exports', 'unresolved', 'cycles', 'dependents', 'dependencies', 'stats', 'help', 'exit / quit'] }
+        ? { commands: ['impact', 'affected-tests', 'tree', 'audit-map', 'issues', 'top', 'dead-exports', 'unresolved', 'cycles', 'dependents', 'dependencies', 'stats', 'help', 'exit / quit'] }
         : `Commands:
   impact <file> [--max-depth <n>]
   affected-tests <file> [--max-depth <n>]
+  tree <file> [--max-depth <n>]
   audit-map [--compact]
   issues                  Summary of structural issues (dead-exports, unresolved, cycles)
   top                     Top 5 hotspot files by dependent count
@@ -247,6 +281,17 @@ async function executeCommand(container, line, options = {}) {
       return lines.join('\n');
     }
 
+    case 'tree': {
+      const parsed = parseArgs(['node', 'repl', ...args], {
+        '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
+      });
+      const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
+      if (!file) return options.structured ? { error: 'Usage: tree <file> [--max-depth <n>]' } : 'Usage: tree <file> [--max-depth <n>]';
+      const maxDepth = parsed.maxDepth ?? 3;
+      const tree = buildTree(file, graph, { maxDepth, direction: 'both' });
+      return options.structured ? { file, tree } : formatTree(tree);
+    }
+
     case 'top': {
       const allFiles = graph.getAllFilePaths?.() || [];
       const hotspots = [];
@@ -275,6 +320,12 @@ async function executeCommand(container, line, options = {}) {
       }
       return lines.join('\n');
     }
+
+    case 'exit':
+    case 'quit':
+      return options.structured
+        ? { ok: true, message: 'Exiting REPL.' }
+        : null;
 
     default:
       return options.structured

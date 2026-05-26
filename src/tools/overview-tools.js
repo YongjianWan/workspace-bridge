@@ -109,9 +109,11 @@ async function buildProjectOverview(args, container) {
       baselinePath = path.resolve(args.cwd || process.cwd(), regressionTools.DEFAULT_BASELINE_FILE);
     }
     if (commitBaseline) {
-      result.regression = regressionTools.checkRegressionAgainstCommit(result, commitBaseline, args.cwd || process.cwd());
+      const reg = regressionTools.checkRegressionAgainstCommit(result, commitBaseline, args.cwd || process.cwd());
+      result.regression = reg.ok ? { ...reg.regression, commit: reg.commit } : reg;
     } else {
-      result.regression = regressionTools.checkRegression(result, baselinePath);
+      const reg = regressionTools.checkRegression(result, baselinePath);
+      result.regression = reg.ok ? { ...reg.regression, baselinePath: reg.baselinePath, baselineTimestamp: reg.baselineTimestamp } : reg;
     }
   }
 

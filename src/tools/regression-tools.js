@@ -90,20 +90,29 @@ function checkRegression(currentResult, baselineFilePath) {
   const current = extractFindings(currentResult);
   const previous = baseline.data.findings;
 
+  const regression = {
+    deadExports: compareCategory(current.deadExports, previous.deadExports || [], makeDeadExportKey),
+    unresolved: compareCategory(current.unresolved, previous.unresolved || [], makeUnresolvedKey),
+    cycles: compareCategory(current.cycles, previous.cycles || [], makeCycleKey),
+    healthGaps: compareCategory(
+      current.healthGaps.map((k) => ({ check: k })),
+      (previous.healthGaps || []).map((k) => ({ check: k })),
+      makeHealthGapKey
+    ),
+  };
+
+  const hasNew =
+    regression.deadExports.new.length > 0 ||
+    regression.unresolved.new.length > 0 ||
+    regression.cycles.new.length > 0 ||
+    regression.healthGaps.new.length > 0;
+  regression.status = hasNew ? 'degraded' : 'clean';
+
   return {
     ok: true,
     baselinePath,
     baselineTimestamp: baseline.data.timestamp,
-    regression: {
-      deadExports: compareCategory(current.deadExports, previous.deadExports || [], makeDeadExportKey),
-      unresolved: compareCategory(current.unresolved, previous.unresolved || [], makeUnresolvedKey),
-      cycles: compareCategory(current.cycles, previous.cycles || [], makeCycleKey),
-      healthGaps: compareCategory(
-        current.healthGaps.map((k) => ({ check: k })),
-        (previous.healthGaps || []).map((k) => ({ check: k })),
-        makeHealthGapKey
-      ),
-    },
+    regression,
   };
 }
 
@@ -125,18 +134,25 @@ function checkRegressionAgainstCommit(currentResult, commit, cwd) {
     new: items.filter((i) => changed.has(i[key])),
     legacy: items.filter((i) => !changed.has(i[key])),
   });
+  const regression = {
+    deadExports: byOrigin(current.deadExports),
+    unresolved: byOrigin(current.unresolved),
+    cycles: {
+      new: current.cycles.filter((c) => c.files.some((f) => changed.has(f))),
+      legacy: current.cycles.filter((c) => !c.files.some((f) => changed.has(f))),
+    },
+    healthGaps: { new: [], legacy: byOrigin(current.healthGaps.map((k) => ({ check: k })), 'check').legacy },
+  };
+  const hasNew =
+    regression.deadExports.new.length > 0 ||
+    regression.unresolved.new.length > 0 ||
+    regression.cycles.new.length > 0 ||
+    regression.healthGaps.new.length > 0;
+  regression.status = hasNew ? 'degraded' : 'clean';
   return {
     ok: true,
     commit,
-    regression: {
-      deadExports: byOrigin(current.deadExports),
-      unresolved: byOrigin(current.unresolved),
-      cycles: {
-        new: current.cycles.filter((c) => c.files.some((f) => changed.has(f))),
-        legacy: current.cycles.filter((c) => !c.files.some((f) => changed.has(f))),
-      },
-      healthGaps: { new: [], legacy: byOrigin(current.healthGaps.map((k) => ({ check: k })), 'check').legacy },
-    },
+    regression,
   };
 }
 

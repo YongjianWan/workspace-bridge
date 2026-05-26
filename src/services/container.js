@@ -152,7 +152,7 @@ class ServiceContainer {
 
     try {
       this._phaseTimes = {};
-      this._findWorkspaceRoot(cwd);
+      this._findWorkspaceRoot(cwd, options);
       this._checkAborted();
       this._initCache();
       this._initProjectContext(options);
@@ -214,10 +214,18 @@ class ServiceContainer {
     }
   }
 
-  _findWorkspaceRoot(cwd) {
+  _findWorkspaceRoot(cwd, options = {}) {
+    if (options.strictCwd) {
+      const { normalizePath } = require('../utils/path');
+      this.workspaceRoot = normalizePath(cwd);
+      if (!this.quiet) {
+        console.error(`[Container] Initializing for ${this.workspaceRoot} (strict-cwd)`);
+      }
+      return;
+    }
     const { findWorkspaceRoot } = require('../utils/path');
     this.workspaceRoot = findWorkspaceRoot(cwd);
-    
+
     // 记录工作区根目录来源
     const envWorkspaceRoot = process.env.WORKSPACE_ROOT;
     const source = envWorkspaceRoot ? 'WORKSPACE_ROOT env' : 'auto-detected';

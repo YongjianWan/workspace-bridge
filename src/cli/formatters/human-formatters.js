@@ -7,6 +7,19 @@ const { AI_FORMAT } = require('../../config/constants');
 const { sanitizeForAiOutput } = require('../../utils/sanitize');
 
 /**
+ * Recursively format a stats value for human-readable output.
+ * Prevents `[object Object]` on nested objects (W3-1).
+ */
+function formatStatsValue(val) {
+  if (val === null || val === undefined) return '';
+  if (Array.isArray(val)) return val.map(formatStatsValue).join(', ');
+  if (typeof val === 'object') {
+    return Object.entries(val).map(([k, v]) => `${k}=${formatStatsValue(v)}`).join(', ');
+  }
+  return String(val);
+}
+
+/**
  * Shared audit-summary formatter across text output styles.
  */
 function formatAuditSummary(result, style) {
@@ -330,7 +343,30 @@ const FORMATTERS = {
         `- **Mainline changed**: ${r.summary?.counts?.mainlineChangedFiles ?? 0}`,
         `- **Affected tests**: ${r.summary?.counts?.affectedTests ?? 0}`,
       ];
-      if (r.validationAdvice?.phases?.length) lines.push(`- **Validation phases**: ${r.validationAdvice.phases.length}`);
+      const va = r.validationAdvice;
+      if (va) {
+        lines.push(`- **Change type**: ${va.changeType || 'unknown'}`);
+        if (va.suggestedCommand) lines.push(`- **Suggested command**: \`${va.suggestedCommand}\``);
+        if (va.commands) {
+          const cmds = va.commands;
+          if (cmds.smoke?.length) lines.push(`- **Smoke**: ${cmds.smoke.join(', ')}`);
+          if (cmds.focused?.length) lines.push(`- **Focused**: ${cmds.focused.join(', ')}`);
+          if (cmds.full?.length) lines.push(`- **Full**: ${cmds.full.join(', ')}`);
+        }
+        if (va.phases?.length) {
+          lines.push(`- **Validation phases**: ${va.phases.length}`);
+          for (const phase of va.phases.slice(0, 3)) {
+            lines.push(`  - ${phase.phase}: ${phase.description} — ${(phase.commands || []).join(', ')}`);
+          }
+        }
+        if (va.topRiskActions?.length) {
+          lines.push(`- **Top risk actions**:`);
+          for (const action of va.topRiskActions.slice(0, 3)) {
+            lines.push(`  - ${action.file}: ${(action.actions || []).join(', ')}`);
+          }
+        }
+        if (va.summary) lines.push(`- **Summary**: ${va.summary}`);
+      }
       if (r.incremental && r.incrementalFindings) {
         const inc = r.incrementalFindings;
         lines.push(``, `## Incremental Findings`, `- **Dead exports**: ${inc.deadExportsCount}`, `- **Unresolved**: ${inc.unresolvedCount}`, `- **Cycles**: ${inc.cyclesCount}`);
@@ -353,7 +389,40 @@ const FORMATTERS = {
   'audit-file': {
     human: (r) => `file: ${r.file}\nresolvedPath: ${r.resolvedPath}\nseverity: ${r.summary.severity}\nimpactCount: ${r.impact.impactCount}\naffectedTestsCount: ${r.affectedTests.affectedTestsCount}`,
     summary: (r) => `File: ${r.file}\nSeverity: ${r.summary?.severity}\nImpact: ${r.impact?.impactCount ?? 0}\nAffected tests: ${r.affectedTests?.affectedTestsCount ?? 0}`,
-    markdown: (r) => `# File Audit: ${r.file}\n\n- **Severity**: ${r.summary?.severity}\n- **Impact**: ${r.impact?.impactCount ?? 0}\n- **Affected tests**: ${r.affectedTests?.affectedTestsCount ?? 0}`,
+    markdown: (r) => {
+      const lines = [
+        `# File Audit: ${r.file}`,
+        ``,
+        `- **Severity**: ${r.summary?.severity}`,
+        `- **Impact**: ${r.impact?.impactCount ?? 0}`,
+        `- **Affected tests**: ${r.affectedTests?.affectedTestsCount ?? 0}`,
+      ];
+      const va = r.validationAdvice;
+      if (va) {
+        lines.push(``, `## Validation Advice`);
+        lines.push(`- **Change type**: ${va.changeType || 'unknown'}`);
+        if (va.suggestedCommand) lines.push(`- **Suggested command**: \`${va.suggestedCommand}\``);
+        if (va.commands) {
+          const cmds = va.commands;
+          if (cmds.smoke?.length) lines.push(`- **Smoke**: ${cmds.smoke.join(', ')}`);
+          if (cmds.focused?.length) lines.push(`- **Focused**: ${cmds.focused.join(', ')}`);
+          if (cmds.full?.length) lines.push(`- **Full**: ${cmds.full.join(', ')}`);
+        }
+        if (va.phases?.length) {
+          lines.push(`- **Phases**: ${va.phases.length}`);
+          for (const phase of va.phases.slice(0, 3)) {
+            lines.push(`  - ${phase.phase}: ${phase.description} — ${(phase.commands || []).join(', ')}`);
+          }
+        }
+        if (va.fileSpecificAdvice?.length) {
+          lines.push(`- **File-specific advice**:`);
+          for (const advice of va.fileSpecificAdvice.slice(0, 3)) {
+            lines.push(`  - ${advice}`);
+          }
+        }
+      }
+      return lines.join('\n');
+    },
   },
   'health': {
     human: (r) => `workspaceRoot: ${r.workspaceRoot}\nhealthScore: ${r.healthScore}\npackageManager: ${r.packageManager || 'unknown'}\nci: ${r.checks.ci.found ? 'yes' : 'no'}\ntests: ${r.checks.testConfig.found ? r.checks.testConfig.frameworks.join(', ') : 'none'}`,
@@ -436,34 +505,16 @@ const FORMATTERS = {
   },
   'stats': {
     human: (r) => {
-      const formatValue = (val) => {
-        if (val && typeof val === 'object') {
-          return Object.entries(val).map(([k, v]) => `${k}=${v}`).join(', ');
-        }
-        return val;
-      };
-      return Object.entries(r.stats || {}).map(([k, v]) => `${k}: ${formatValue(v)}`).join('\n');
+      return Object.entries(r.stats || {}).map(([k, v]) => `${k}: ${formatStatsValue(v)}`).join('\n');
     },
     summary: (r) => {
-      const formatValue = (val) => {
-        if (val && typeof val === 'object') {
-          return Object.entries(val).map(([k, v]) => `${k}=${v}`).join(', ');
-        }
-        return val;
-      };
-      return Object.entries(r.stats || {}).map(([k, v]) => `${k}: ${formatValue(v)}`).join(', ');
+      return Object.entries(r.stats || {}).map(([k, v]) => `${k}: ${formatStatsValue(v)}`).join(', ');
     },
     markdown: (r) => {
-      const formatValue = (val) => {
-        if (val && typeof val === 'object') {
-          return Object.entries(val).map(([k, v]) => `${k}=${v}`).join(', ');
-        }
-        return val;
-      };
       const lines = [
         `# Stats`,
         ``,
-        ...Object.entries(r.stats || {}).map(([k, v]) => `- **${k}**: ${formatValue(v)}`)
+        ...Object.entries(r.stats || {}).map(([k, v]) => `- **${k}**: ${formatStatsValue(v)}`)
       ];
       return lines.join('\n');
     },
@@ -864,16 +915,20 @@ function formatAi(command, result, options = {}) {
       return output;
     }
     let output = buildOutput(depth);
+    let downgraded = false;
     if (tokenBudget) {
       let estimatedTokens = JSON.stringify(output).length / AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN;
       if (estimatedTokens > tokenBudget && depth !== 'surface') {
         output = buildOutput('surface');
+        downgraded = true;
         estimatedTokens = JSON.stringify(output).length / AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN;
       }
       if (estimatedTokens > tokenBudget) {
         output = { ok: output.ok, severity: output.severity, counts: output.counts };
+        downgraded = true;
       }
     }
+    if (downgraded) output.downgraded = true;
     return JSON.stringify(output, null, 2);
   }
 
@@ -922,10 +977,10 @@ function formatAi(command, result, options = {}) {
   if (tokenBudget) {
     let estimatedTokens = JSON.stringify(output).length / AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN;
     if (estimatedTokens > tokenBudget) {
-      const slim = { ok: output.ok, schemaVersion, command, severity: output.severity, counts, topRisks: output.topRisks?.slice(0, 3), actions: output.actions?.slice(0, 3) };
+      const slim = { ok: output.ok, schemaVersion, command, severity: output.severity, counts, topRisks: output.topRisks?.slice(0, 3), actions: output.actions?.slice(0, 3), downgraded: true };
       estimatedTokens = JSON.stringify(slim).length / AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN;
       if (estimatedTokens <= tokenBudget) return JSON.stringify(slim, null, 2);
-      const minimal = { ok: output.ok, schemaVersion, command, severity: output.severity, counts };
+      const minimal = { ok: output.ok, schemaVersion, command, severity: output.severity, counts, downgraded: true };
       return JSON.stringify(minimal, null, 2);
     }
   }

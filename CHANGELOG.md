@@ -8,6 +8,38 @@
 
 ## [Unreleased]
 
+### Wave 3：Formatter 与体验打磨（2026-05-26）
+
+- **`stats --markdown` 根治 `[object Object]`** `src/cli/formatters/human-formatters.js`：
+  - 提取共享 `formatStatsValue`，递归序列化嵌套对象（数组 → 对象 → 原始值），彻底消除 Markdown 输出中的 `[object Object]`。
+- **Markdown 补全 `validationAdvice`** `src/cli/formatters/human-formatters.js`：
+  - `audit-file` 与 `audit-diff` 的 Markdown formatter 新增完整的 Validation Advice 渲染（changeType、commands grouped、phases、topRiskActions、summary）。
+- **`--fail-on-findings` 暴露于 help 文本** `cli.js`：
+  - `printUsage` 的精简版与完整版 Options 列表均追加 `--fail-on-findings`，不再隐藏。
+- **REPL 注册 `tree` / `exit` / `quit`** `src/cli/repl.js`：
+  - `executeCommand` 新增 `tree <file> [--max-depth <n>]` 分支，调用 `buildTree` 返回结构化或文本树形输出。
+  - `exit` 与 `quit` 在 eval 模式下返回 `{ok: true}` 而非 `Unknown command`。
+  - `help` 命令列表同步追加 `tree`。
+- **`--format` vs `--json` 优先级文档化** `cli.js`：
+  - help 文本中 `--json` 标注 `(overridden by --format)`，`--format` 标注 `Takes precedence over --json`。
+
+### Wave 2：参数与边界修复（2026-05-26）
+
+- **`--strict-cwd` 防止路径逃逸** `cli.js` + `src/services/container.js`：
+  - 新增 `--strict-cwd` 标志，当传入时 `ServiceContainer` 直接锁定 `parsed.cwd` 为 `workspaceRoot`，不再向上遍历到 git root。
+  - 修复 `workspace-info --cwd reference` 返回整个项目根目录而非 `reference/` 子目录的问题。
+- **`--exclude` glob 路径片段支持** `src/utils/exclude-patterns.js`：
+  - `shouldExcludeCli` 对 glob 模式（含 `*`/`?`）除测试 `path.basename` 外，新增测试路径每一后缀片段，使 `src/**` 等目录 glob 可正确匹配绝对路径中的相对部分。
+- **`audit-file --file` 拒绝目录路径** `src/cli/commands/index.js` + `src/cli/commands/audit-file.js`：
+  - `makeFileCommand` 与 `auditFileCmd` 均增加 `fs.statSync(filePath).isDirectory()` 校验，目录路径返回 `ok: false` 并 `error: Path is a directory...`。
+- **空文件跳过 mention 启发式** `src/services/dep-graph/analyzer.js`：
+  - `_findAffectedTestsByMention` 在匹配前检查 `fs.statSync(filePath).size === 0`，空文件直接返回，避免 `severity: high` + 34 mention tests 的误报雪崩。
+- **`--check-regression` 输出显式结论** `src/tools/regression-tools.js` + `src/tools/overview-tools.js`：
+  - `checkRegression` 与 `checkRegressionAgainstCommit` 均计算 `status: 'clean' | 'degraded'` 并注入返回的 `regression` 对象。
+  - `overview-tools.js` 扁平化嵌套结构，使 `regression.status` 直接暴露在 JSON 根级 `regression` 下。
+- **`--token-budget` 降级注入 `downgraded` 标记** `src/cli/formatters/human-formatters.js`：
+  - `formatAi` 在 tokenBudget 触发 depth 降级或字段裁剪时，向输出对象注入 `downgraded: true`，AI 可感知数据被压缩。
+
 ### Wave 1：接口契约统一（2026-05-26）
 
 - **严格参数验证** `cli.js`：

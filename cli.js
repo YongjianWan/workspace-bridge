@@ -101,8 +101,8 @@ Options:
   --stability-trend-data <path>  Write audit-overview stability trend JSON
   --trend-granularity <mode>  Trend bucket mode for stability trend: day|week (default: day)
   --overview-dashboard <path>  Write audit-overview single-file HTML dashboard
-  --json                  Print machine-readable JSON
-  --format <mode>         Output format: summary | markdown | jsonl | ai | human | json (default: markdown)
+  --json                  Print machine-readable JSON (overridden by --format)
+  --format <mode>         Output format: summary | markdown | jsonl | ai | human | json (default: markdown). Takes precedence over --json
   --token-budget <n>      Max estimated tokens for --format ai; auto-downgrades depth if exceeded
   --depth <mode>          Discovery depth for --format ai: surface | detail | full (default: detail)
   --quiet                 Suppress stderr logs during CLI execution
@@ -115,6 +115,7 @@ Options:
   --save <file>          Save audit-summary findings to a JSON baseline file
   --check-regression     Compare current audit-summary against previous baseline
   --baseline <file|commit>  Baseline file or git commit for --check-regression (default: .workspace-bridge-baseline.json)
+  --fail-on-findings     Exit with code 1 if any findings are detected
   --config <name>        Semgrep config (default: auto)
   --language <lang>      Filter security scan to one language
   --help                  Show help
@@ -179,8 +180,8 @@ Options:
   --stability-trend-data <path>  Write audit-overview stability trend JSON
   --trend-granularity <mode>  Trend bucket mode for stability trend: day|week (default: day)
   --overview-dashboard <path>  Write audit-overview single-file HTML dashboard
-  --json                  Print machine-readable JSON
-  --format <mode>         Output format: summary | markdown | jsonl | ai | human | json (default: markdown)
+  --json                  Print machine-readable JSON (overridden by --format)
+  --format <mode>         Output format: summary | markdown | jsonl | ai | human | json (default: markdown). Takes precedence over --json
   --token-budget <n>      Max estimated tokens for --format ai; auto-downgrades depth if exceeded
   --depth <mode>          Discovery depth for --format ai: surface | detail | full (default: detail)
   --quiet                 Suppress stderr logs during CLI execution
@@ -192,6 +193,7 @@ Options:
   --save <file>          Save audit-summary findings to a JSON baseline file
   --check-regression     Compare current audit-summary against previous baseline
   --baseline <file|commit>  Baseline file or git commit for --check-regression (default: .workspace-bridge-baseline.json)
+  --fail-on-findings     Exit with code 1 if any findings are detected
   --config <name>        Semgrep config (default: auto)
   --language <lang>      Filter security scan to one language
   --help                  Show help
@@ -250,6 +252,7 @@ function parseCliArgs(argv) {
     '--help': true,
     '-h': true,
     '--all': true,
+    '--strict-cwd': true,
   });
 
   const command = raw._[0] || null;
@@ -336,6 +339,7 @@ function parseCliArgs(argv) {
     helpAll: Boolean(raw['--all']),
     depth: raw.depth || null,
     tokenBudget: Number.isFinite(raw.tokenBudget) ? raw.tokenBudget : null,
+    strictCwd: Boolean(raw['--strict-cwd']),
   };
 }
 
@@ -470,6 +474,7 @@ async function main() {
     const initialized = await container.initialize(parsed.cwd, TIMEOUTS.INIT_TIMEOUT_MS, {
       watch: false,
       excludeDirs: parsed.exclude,
+      strictCwd: parsed.strictCwd,
     });
     const initTime = Date.now() - initStart;
     if (!initialized) {
