@@ -94,10 +94,10 @@ async function assembleSummary(parsed, container) {
     }
     if (commitBaseline) {
       const regResult = regressionTools.checkRegressionAgainstCommit(result, commitBaseline, parsed.cwd || process.cwd());
-      result.regression = { ...regResult.regression, commit: regResult.commit };
+      result.regression = { ok: regResult.ok, ...regResult.regression, commit: regResult.commit, error: regResult.error };
     } else {
       const regResult = regressionTools.checkRegression(result, baselinePath);
-      result.regression = { ...regResult.regression, baselinePath: regResult.baselinePath, baselineTimestamp: regResult.baselineTimestamp };
+      result.regression = { ok: regResult.ok, ...regResult.regression, baselinePath: regResult.baselinePath, baselineTimestamp: regResult.baselineTimestamp, error: regResult.error };
     }
   }
 

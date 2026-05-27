@@ -155,7 +155,7 @@ async function runCliTextInProcess(args, opts = {}) {
   assert.strictEqual(
     result.status,
     0,
-    `CLI in-process exited ${result.status}\nstdout: ${result.stdout?.slice(0, 800)}`
+    `CLI in-process exited ${result.status}\nstdout: ${result.stdout?.slice(0, 400)}\nstderr: ${result.stderr?.slice(0, 400)}`
   );
   return result.stdout;
 }

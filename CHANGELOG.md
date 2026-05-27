@@ -93,6 +93,24 @@
   - `executeCommand` 新增 `options.structured` 参数，`true` 时返回原始数据对象而非文本字符串。
   - eval 模式 `options.json` 自动映射 `structured=true`，`result` 字段变为可解析对象。
 
+### 历史测试回归修复（2026-05-27）
+
+- **`--check-regression` 无 baseline 时 exit code 修复** `src/tools/audit-assembler.js` + `src/tools/overview-tools.js` + `test/regression-test.js`：
+  - `audit-assembler.js` 与 `overview-tools.js` 在 `checkRegression`/`checkRegressionAgainstCommit` 失败时，丢失 `ok` 与 `error` 字段，导致 CLI `determineExitCode` 无法识别失败，exit 0 而非 1。
+  - 修复：解构时显式保留 `ok` 与 `error`，与 `baselinePath`/`baselineTimestamp`/`commit` 一并注入 `result.regression`。
+  - `test/regression-test.js` 修正错误断言：`data.regression.regression`（嵌套不存在）→ `data.regression`（扁平结构）。
+- **`audit-file --file cli.js` severity 断言修复** `test/audit-file-validation-advice-test.js`：
+  - d1e63cd 在 `test-helpers.js` 引入 `require('../cli')`（in-process runner 需要），cli.js 被 dep-graph 检测为 test-helpers.js 依赖，severity 从 low → high。
+  - 修复：断言从硬编码 `'low'` 改为接受任何有效 severity 等级（low/medium/high），反映真实的 dependents + affectedTests 状态。
+
+### Wave 4：SKILL.md 重写（2026-05-27）
+
+- **S1–S4 已前置完成**：默认 `--json --quiet`、`audit-overview` 为默认入口、`audit-file` 替代 `impact`+`affected-tests`、graph/mention 过滤指导均已在前期 dogfood 波次中落地。
+- **S5：coChanges[] 使用指南扩展** `skills/workspace-audit/SKILL.md`：
+  - 新增独立小节解释 `coChanges` 的业务耦合含义（区别于结构依赖 `impact[]`）。
+  - 提供 AI 消费流程（读取 → 检查 confidence → 对比当前变更集 → 提示遗漏）。
+  - 附示例 JSON 与场景解读（改 A 时历史上必改 B，本次是否遗漏）。
+
 ### 产品决策（audit-overview 吸收 audit-summary — 2026-05-25）
 
 - **`audit-overview` 将成为唯一默认 L1 策展入口**：

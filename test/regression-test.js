@@ -61,12 +61,12 @@ function testCheckRegressionWithBaseline() {
   assertOk(result, 'check regression should succeed');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.regression.ok, true, 'regression check should succeed');
-  assert(data.regression.regression, 'should have regression breakdown');
-  assert(Array.isArray(data.regression.regression.deadExports.open), 'deadExports.open should be array');
-  assert(Array.isArray(data.regression.regression.deadExports.new), 'deadExports.new should be array');
-  assert(Array.isArray(data.regression.regression.deadExports.fixed), 'deadExports.fixed should be array');
-  assert.strictEqual(data.regression.regression.deadExports.new.length, 0, 'no new dead exports against same baseline');
-  assert.strictEqual(data.regression.regression.deadExports.fixed.length, 0, 'no fixed dead exports against same baseline');
+  assert(data.regression.deadExports, 'should have regression breakdown');
+  assert(Array.isArray(data.regression.deadExports.open), 'deadExports.open should be array');
+  assert(Array.isArray(data.regression.deadExports.new), 'deadExports.new should be array');
+  assert(Array.isArray(data.regression.deadExports.fixed), 'deadExports.fixed should be array');
+  assert.strictEqual(data.regression.deadExports.new.length, 0, 'no new dead exports against same baseline');
+  assert.strictEqual(data.regression.deadExports.fixed.length, 0, 'no fixed dead exports against same baseline');
 }
 
 function testSaveAndCheckRegressionDefaultPath() {
@@ -88,11 +88,11 @@ function testCheckRegressionAgainstCommit() {
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.regression.ok, true, 'commit baseline check should succeed');
   assert.strictEqual(data.regression.commit, 'HEAD~1', 'should report commit');
-  assert(data.regression.regression, 'should have regression breakdown');
-  assert(Array.isArray(data.regression.regression.deadExports.new), 'deadExports.new should be array');
-  assert(Array.isArray(data.regression.regression.deadExports.legacy), 'deadExports.legacy should be array');
-  assert(Array.isArray(data.regression.regression.unresolved.new), 'unresolved.new should be array');
-  assert(Array.isArray(data.regression.regression.cycles.new), 'cycles.new should be array');
+  assert(data.regression.deadExports, 'should have regression breakdown');
+  assert(Array.isArray(data.regression.deadExports.new), 'deadExports.new should be array');
+  assert(Array.isArray(data.regression.deadExports.legacy), 'deadExports.legacy should be array');
+  assert(Array.isArray(data.regression.unresolved.new), 'unresolved.new should be array');
+  assert(Array.isArray(data.regression.cycles.new), 'cycles.new should be array');
 }
 
 function main() {

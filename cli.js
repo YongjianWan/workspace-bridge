@@ -430,6 +430,11 @@ async function runCommand(parsed, container) {
   return handler(parsed, container);
 }
 
+/**
+ * Run CLI command in-process (for testing).
+ * Note: self-managed commands (init, watch, audit-file --watch) are handled
+ * by main() directly. Do not call this function with those commands.
+ */
 async function runCliInProcess(args, opts = {}) {
   let parsed;
   try {
@@ -446,6 +451,12 @@ async function runCliInProcess(args, opts = {}) {
     return { status: 0, stdout: '', stderr: '' };
   }
 
+  // Guard: self-managed commands must be handled by main() to preserve their own exit codes
+  const isSelfManaged = SELF_MANAGED_COMMANDS.has(parsed.command) || (parsed.command === 'audit-file' && parsed.watch);
+  if (isSelfManaged) {
+    return { status: 2, stdout: '', stderr: `In-process runner does not support self-managed command: ${parsed.command}. Use spawn-based runner instead.` };
+  }
+
   const invalidCwd = validateCwd(parsed);
   if (invalidCwd) {
     return { status: 1, stdout: '', stderr: invalidCwd.error };
@@ -454,12 +465,13 @@ async function runCliInProcess(args, opts = {}) {
   const invalidPaths = sanitizeCliPaths(parsed);
   if (invalidPaths) {
     let stdout = '';
+    let stderr = '';
     if (parsed.json) {
       stdout = JSON.stringify({ ok: false, error: invalidPaths.error, schemaVersion: SCHEMA_VERSION });
     } else {
-      stdout = `[path_error] ${invalidPaths.error}\n→ Check if --cwd or --file paths exist and are accessible.`;
+      stderr = `[path_error] ${invalidPaths.error}\n→ Check if --cwd or --file paths exist and are accessible.`;
     }
-    return { status: 1, stdout, stderr: '' };
+    return { status: 1, stdout, stderr };
   }
 
   if (!parsed.cacheDir) {

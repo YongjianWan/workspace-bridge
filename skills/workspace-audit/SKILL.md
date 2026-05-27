@@ -154,12 +154,32 @@ workspace-bridge-cli audit-file --cwd <project> --file <path> --json --quiet
 5. `validationAdvice` → 验证建议（含 `commands.smoke/focused/full`）
 6. `frameworkPattern` → 框架模式提示
 
+**coChanges[] 使用指南（高价值，易遗漏）**
+
+`coChanges` 基于 git 历史统计：历史上与目标文件**频繁出现在同一次 commit** 中的文件列表。
+
+**为什么重要**：结构依赖（`impact[]`）只告诉你"谁 import 了它"，但 `coChanges` 告诉你"改它的时候历史上也经常改谁"。后者捕捉的是**业务耦合**和**隐性依赖**，不是代码 import 能暴露的。
+
+**AI 消费流程**：
+1. 读取 `coChanges[].file` → 获取共变文件路径
+2. 检查 `coChanges[].confidence` → `high` 表示强共变（≥5 次同 commit），`medium`/`low` 可降级参考
+3. **关键动作**：对比当前变更集（git diff / staged）→ 若 `coChanges` 中的文件**不在当前变更中**，提示用户"历史上改 A 必改 B，本次是否遗漏了 B？"
+
+**示例场景**：
+```json
+"coChanges": [
+  { "file": "src/services/order-service.js", "confidence": "high", "coChangeCount": 12 },
+  { "file": "src/models/order.js", "confidence": "medium", "coChangeCount": 5 }
+]
+```
+→ 改 `payment-gateway.js` 时历史上 12 次同时改了 `order-service.js`。若当前 PR 只改了 payment 没碰 order，需要人工确认是否遗漏业务侧联动修改。
+
 **⚠️ affectedTests 过滤规则**：
 - `source === "graph"` → **高优先级**（真实 import 依赖边）
 - `source === "mention"` → **低优先级/可忽略**（仅文件名 stem 匹配，空文件可能触发 30+ 误报）
 - `source === "heuristic"` → 中等优先级，人工确认后采纳
 
-> `audit-file --json` 已完整包含 `impact` + `affected-tests` + `validationAdvice`。**不要**再单独调用 `impact` 或 `affected-tests`。
+> `audit-file --json` 已完整包含 `impact` + `affected-tests` + `validationAdvice` + `coChanges`。**不要**再单独调用 `impact` 或 `affected-tests`。
 
 ### tree — 依赖链深入分析
 
