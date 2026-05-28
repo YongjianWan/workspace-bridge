@@ -8,6 +8,61 @@
 
 ## [Unreleased]
 
+### Wave 7：硬核收尾（Dogfood P2 缺陷集中歼灭 — 2026-05-28）
+
+- **#22: 参数验证错误分类重定向** `cli.js` + `src/cli/commands/_utils.js`：
+  - `_utils.js` 在缺少必填 `--file` 等参数校验失败时抛出的错误显式挂载 `err.code = 'VALIDATION_ERROR'`。
+  - `cli.js` 的 `classifyError(err)` 支持对 `VALIDATION_ERROR` 的校验错误和相关关键字的直接拦截，统一重定向映射为标准的 `validation_error`，退出时以 Exit Code `2` 返回，消除 `unexpected_error` 对 AI 消费管线的误导。
+  - **测试**：`test/cli-args-validation-test.js` 扩展测试用例以验证 exit code 2 与 `[validation_error]` 前缀输出。
+- **#35: `--check-regression` 缺失基线 Fail-fast 拦截** `src/tools/audit-assembler.js` + `src/tools/overview-tools.js` + `test/regression-test.js`：
+  - 在 L4 编排层（`audit-assembler.js` 和 `overview-tools.js`）的执行入口头部，前置 Fail-fast 检查。一旦开启 `--check-regression` 且指定 baseline 文件不存在（且不是合法 Git Commit），或默认 baseline 缺失，直接抛出 `Baseline file not found: <resolvedPath>`。
+  - 拦截异常被 CLI 捕获后退出并展示 `[path_error] Baseline file not found: ...`，阻止了静默且无报错非零退出的尴尬断链。
+  - **测试**：`test/regression-test.js` 修正 `testCheckRegressionNoBaseline` 断言，验证抛错、错误信息包含 `Baseline file not found` 及 Exit Code `2`。
+- **#37: REPL `--eval` 分号拆分支持** `src/cli/repl.js` + `test/repl-json-test.js`：
+  - REPL `--eval` 支持分号 `;` 分割的多条命令顺次循环执行。
+  - 维持单命令输出的 `{ ok, result }` 向下兼容，多命令时返回统一聚合 of `{ ok, results: [ { command, ok, result } ] }` 并附加 Command Headers 以供人机友好交互。
+  - **测试**：`test/repl-json-test.js` 新增 JSON 与 Human 两个多命令集成测试用例，覆盖全部预期分支。
+- **#30: 内置安全规则语言过滤与测试隔离** `src/tools/security-tools.js` + `test/security-tools-test.js`：
+  - 修复 `auditSecurity` 至 `runBuiltinSecurityScan` 的 `language` 参数透传，使内置正则规则库仅针对目标语言生效。
+  - 引入 `container.projectContext.classifyFile` 状态与正则 `isTestPath` 隔离机制，彻底跳过 `test/`、`benchmark/` 等 test 目录文件的扫描，消除了内置安全规则在非生产代码上的大量噪音与误报。
+  - **测试**：`test/security-tools-test.js` 新增 `testAuditSecurityLanguageFiltering` 和 `testAuditSecurityTestDirectoryExclusion` 两个测试，完全验证了该功能的鲁棒性。
+
+### Wave 7 代码重构与债务偿还（2026-05-28）
+
+- **消除 baseline 验证重复代码** `src/tools/regression-tools.js` + `src/tools/audit-assembler.js` + `src/tools/overview-tools.js`：
+  - 将 `audit-assembler.js` 与 `overview-tools.js` 中完全复制粘贴的 ~30 行 baseline 解析逻辑提取为 `regression-tools.js` 的 `resolveBaseline(args)` 公共函数。
+  - 两处调用方统一改为 `regressionTools.resolveBaseline(parsed/args)`，彻底消除跨文件重复（L2-7 债务）。
+- **isTestPath 硬编码列表常量化** `src/tools/security-tools.js`：
+  - 将 `isTestPath` 中 20+ 个硬编码路径模式提取为 `TEST_PATH_PATTERNS` 常量数组，以 `.some()` 循环替代冗长的 `||` 链（L2-6 裸数字/字符串债务）。
+
+### 文档规范与卫生清理（2026-05-28）
+
+- **活跃债务文档脱水与归档** `docs/TECH_DEBT.md` + `SESSION.md`：
+  - 严格执行“活跃文档只存当前状态，历史只在 CHANGELOG 里面有”的清理铁律。
+  - 物理精简 `TECH_DEBT.md` 中的 37 项 Dogfood 缺陷矩阵，删除已修复的 29 项旧缺陷细节，仅保留 8 项活跃的 P2 级体验债务。
+  - 重写 `SESSION.md`，彻底移除已完成的 Wave 1-4 各波次详细方案与验收草案，合并上一波次已完成记录，指向 CHANGELOG.md 的 unreleased 部分。
+  - 纠正 `SESSION.md` 中不一致的测试基线数据，同步校正为真实的 `85/85` 与 `159/159` PASS 基线。
+
+### Wave 6：Dogfood P1 契约与稳定性收尾（2026-05-28）
+
+- **#18: 目录角色过滤（索引剪枝）** `src/utils/project-context.js` + `src/services/file-index.js`：
+  - `project-context.js` 扩展 `.workspace-bridge.json` 中的 `directoryRoles` 键值字典结构解析，兼容老式 directories 数组模式。
+  - `file-index.js` `shouldExclude()` 对接 `projectContext.classifyDirectory()`，一旦检测到目录处于 `archive` 或 `generated` 角色，直接对目录及子文件进行扫描剪枝与过滤。
+  - **测试**：`test/bug-18-archive-role-test.js` 覆盖字典映射与剪枝验证。
+- **#7: REPL Target 存在性契约与 exit 1** `src/cli/repl.js` + `test/repl-test.js`：
+  - `repl.js` 对 `impact`/`affected-tests`/`tree`/`dependents`/`dependencies` 命令添加 `!graph.hasFile(file)` 硬门控。
+  - 拦截不存在的文件参数，向 stdout/stderr 渲染标准错误信息，并在 eval 模式下显式置 `process.exitCode = 1` 确保管线安全。
+  - `repl-test.js` 补齐 mock `DependencyGraph` 的 `hasFile()` stub 方法。
+  - **测试**：`test/bug-7-repl-nonexistent-test.js` 覆盖 eval 下 nonexistent file exit 1。
+- **#15: CLI 校验退出防污染（exit 2 统一）** `cli.js` + `test/cli-mapper-adapter-test.js`：
+  - `cli.js` 对越界校验失败（如 `--max-depth 0`, `--token-budget -1`, `--limit 0`）统一挂载 `VALIDATION_ERROR` 错误码抛出。
+  - `main()` 与 `runCliInProcess()` 针对该错误码仅打印单行错误信息并以 exit code `2` 退出，彻底消除 50+ 行 usage 指南信息对终端数据流的污染。
+  - `cli-mapper-adapter-test.js` 旧测试更新，将 invalid bounds 预期的 exit code 由 1 变更为 2，以匹配统一契约标准。
+  - **测试**：`test/bug-15-cli-bounds-validation-test.js` 覆盖多项越界参数 exit 2 与 usage 阻断。
+- **Mock 路径适配器（Windows 平台兼容）** `test/test-helpers.js`：
+  - 在 proxy-backed stub Mock `DependencyGraph` 的 `hasFile`/`getFileInfo`/`getDependents`/`getDependencies` 中引入 `getCanonicalKey` 路径清洗助手。
+  - 自动剥离 Windows 盘符（如 `C:`）及首尾斜杠，消除了单元测试对原生 POSIX 路径表示的强假设，确保了 Windows 平台环境下的全绿测试表现。
+
 ### Wave 5：边界硬化（Dogfood P1 边界安全修复 — 2026-05-28）
 
 - **空目录提前返回** `src/services/file-index.js`：

@@ -19,6 +19,24 @@ const { spawnSync } = require('child_process');
 const REPO_ROOT = path.join(__dirname, '..');
 const CLI_PATH = path.join(REPO_ROOT, 'cli.js');
 
+/**
+ * Normalizes a file path key and matches it to a canonical list of keys.
+ * Used to prevent platform path mismatch in unit tests.
+ */
+function getCanonicalKey(file, keys) {
+  const keysArray = Array.isArray(keys) ? keys : Array.from(keys || []);
+  if (keysArray.includes(file)) return file;
+  const clean = (p) => String(p || '').replace(/\\/g, '/').toLowerCase().replace(/^[a-z]:/, '').replace(/^\/+/, '');
+  const cleanFile = clean(file);
+  for (const key of keysArray) {
+    const cleanKey = clean(key);
+    if (cleanKey === cleanFile || cleanKey.endsWith('/' + cleanFile) || cleanFile.endsWith('/' + cleanKey)) {
+      return key;
+    }
+  }
+  return file;
+}
+
 /* -------------------------------------------------------------------------- */
 // CLI runners
 /* -------------------------------------------------------------------------- */
@@ -364,10 +382,10 @@ function _createStubDepGraph(opts = {}) {
   };
 
   const semanticDefaults = new Map([
-    ['getFileInfo', (file) => graphMap.get(file)],
-    ['hasFile', (file) => graphMap.has(file)],
-    ['getDependents', (file) => reverseGraph.get(file) || []],
-    ['getDependencies', (file) => graphMap.get(file)?.imports || []],
+    ['getFileInfo', (file) => graphMap.get(getCanonicalKey(file, graphMap.keys()))],
+    ['hasFile', (file) => graphMap.has(getCanonicalKey(file, graphMap.keys()))],
+    ['getDependents', (file) => reverseGraph.get(getCanonicalKey(file, graphMap.keys())) || []],
+    ['getDependencies', (file) => graphMap.get(getCanonicalKey(file, graphMap.keys()))?.imports || []],
     ['getFileCount', () => graphMap.size],
     ['getAllFilePaths', () => Array.from(graphMap.keys())],
     ['getAllFileValues', () => Array.from(graphMap.values())],
@@ -695,4 +713,5 @@ module.exports = {
   makeMockSnapshot,
   assertOk,
   assertAll,
+  getCanonicalKey,
 };

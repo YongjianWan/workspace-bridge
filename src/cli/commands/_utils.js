@@ -7,7 +7,9 @@ const { SCHEMA_VERSION } = require('../../config/constants');
 
 function requireFile(parsed, command) {
   if (!parsed.file) {
-    throw new Error(`${command} requires --file <path>`);
+    const err = new Error(`${command} requires --file <path>`);
+    err.code = 'VALIDATION_ERROR';
+    throw err;
   }
 }
 

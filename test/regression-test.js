@@ -43,11 +43,17 @@ function testSaveBaseline() {
 
 function testCheckRegressionNoBaseline() {
   cleanup();
+  // 1. JSON mode
   const result = runCliRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--json', '--quiet'], { cwd: tempDir });
-  assert.strictEqual(result.status, 1, `Exit code should be 1 (ok=false), got ${result.status}. stderr: ${result.stderr}`);
+  assert.strictEqual(result.status, 2, `Exit code should be 2 (validation/path error), got ${result.status}. stderr: ${result.stderr}`);
   const data = JSON.parse(result.stdout);
-  assert.strictEqual(data.regression.ok, false, 'should fail when no baseline exists');
-  assert(data.regression.error.includes('Failed to load baseline'), 'should report missing baseline');
+  assert.strictEqual(data.ok, false, 'should fail when no baseline exists');
+  assert(data.error.includes('Baseline file not found'), 'should report missing baseline');
+
+  // 2. Human mode
+  const resultHuman = runCliRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--quiet'], { cwd: tempDir });
+  assert.strictEqual(resultHuman.status, 2, `Human mode should exit 2, got ${resultHuman.status}`);
+  assert(resultHuman.stderr.includes('Baseline file not found'), 'should report Baseline file not found in stderr');
 }
 
 function testCheckRegressionWithBaseline() {

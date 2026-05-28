@@ -216,6 +216,12 @@ Options:
 }
 
 function parseCliArgs(argv) {
+  const throwValidationError = (msg) => {
+    const err = new Error(msg);
+    err.code = 'VALIDATION_ERROR';
+    throw err;
+  };
+
   const raw = parseArgs(argv, {
     '--cwd': { key: 'cwd' },
     '--exclude': { key: 'exclude' },
@@ -223,7 +229,7 @@ function parseCliArgs(argv) {
     '--file': { key: 'file' },
     '--max-depth': { key: 'maxDepth', transform: (v) => {
       const n = Number.parseInt(v, 10);
-      if (Number.isNaN(n)) throw new Error(`Invalid --max-depth value: ${v}. Expected a positive integer`);
+      if (Number.isNaN(n)) throwValidationError(`Invalid --max-depth value: ${v}. Expected a positive integer`);
       return n;
     } },
     '--reuse-hints': { key: 'reuseHints' },
@@ -237,7 +243,7 @@ function parseCliArgs(argv) {
     '--format': { key: 'format' },
     '--token-budget': { key: 'tokenBudget', transform: (v) => {
       const n = Number.parseInt(v, 10);
-      if (Number.isNaN(n) || n <= 0) throw new Error(`Invalid --token-budget value: ${v}. Expected a positive integer`);
+      if (Number.isNaN(n) || n <= 0) throwValidationError(`Invalid --token-budget value: ${v}. Expected a positive integer`);
       return n;
     } },
     '--depth': { key: 'depth' },
@@ -249,7 +255,7 @@ function parseCliArgs(argv) {
     '--assessment': { key: 'assessment' },
     '--limit': { key: 'limit', transform: (v) => {
       const n = Number.parseInt(v, 10);
-      if (Number.isNaN(n) || n <= 0) throw new Error(`Invalid --limit value: ${v}. Expected a positive integer`);
+      if (Number.isNaN(n) || n <= 0) throwValidationError(`Invalid --limit value: ${v}. Expected a positive integer`);
       return n;
     } },
     '--staged': true,
@@ -280,38 +286,30 @@ function parseCliArgs(argv) {
   const command = raw._[0] || null;
   const reuseHints = (raw.reuseHints || 'off').toLowerCase();
   if (reuseHints && !['on', 'off'].includes(reuseHints)) {
-    throw new Error(`Invalid --reuse-hints value: ${reuseHints}. Expected on|off`);
+    throwValidationError(`Invalid --reuse-hints value: ${reuseHints}. Expected on|off`);
   }
   const trendGranularity = (raw.trendGranularity || 'day').toLowerCase();
   if (trendGranularity && !['day', 'week'].includes(trendGranularity)) {
-    throw new Error(`Invalid --trend-granularity value: ${trendGranularity}. Expected day|week`);
+    throwValidationError(`Invalid --trend-granularity value: ${trendGranularity}. Expected day|week`);
   }
 
   if (Number.isFinite(raw.maxDepth) && raw.maxDepth <= 0) {
-    throw new Error(`Invalid --max-depth value: ${raw.maxDepth}. Expected a positive integer`);
+    throwValidationError(`Invalid --max-depth value: ${raw.maxDepth}. Expected a positive integer`);
   }
   if (raw.severity && !['high', 'medium', 'low'].includes(raw.severity)) {
-    throw new Error(`Invalid --severity value: ${raw.severity}. Expected high|medium|low`);
+    throwValidationError(`Invalid --severity value: ${raw.severity}. Expected high|medium|low`);
   }
   if (raw.format && !['summary', 'markdown', 'jsonl', 'ai', 'human', 'json'].includes(raw.format)) {
-    const err = new Error(`Invalid --format value: ${raw.format}. Expected summary|markdown|jsonl|ai|human|json`);
-    err.code = 'VALIDATION_ERROR';
-    throw err;
+    throwValidationError(`Invalid --format value: ${raw.format}. Expected summary|markdown|jsonl|ai|human|json`);
   }
   if (raw.direction && !['imports', 'dependents', 'both'].includes(raw.direction)) {
-    const err = new Error(`Invalid --direction value: ${raw.direction}. Expected imports|dependents|both`);
-    err.code = 'VALIDATION_ERROR';
-    throw err;
+    throwValidationError(`Invalid --direction value: ${raw.direction}. Expected imports|dependents|both`);
   }
   if (raw.mode && !['quick', 'full'].includes(raw.mode)) {
-    const err = new Error(`Invalid --mode value: ${raw.mode}. Expected quick|full`);
-    err.code = 'VALIDATION_ERROR';
-    throw err;
+    throwValidationError(`Invalid --mode value: ${raw.mode}. Expected quick|full`);
   }
   if (raw.depth && !['surface', 'detail', 'full'].includes(raw.depth)) {
-    const err = new Error(`Invalid --depth value: ${raw.depth}. Expected surface|detail|full`);
-    err.code = 'VALIDATION_ERROR';
-    throw err;
+    throwValidationError(`Invalid --depth value: ${raw.depth}. Expected surface|detail|full`);
   }
 
   return {
@@ -398,6 +396,9 @@ function sanitizeCliPaths(parsed) {
 
 function classifyError(err) {
   const msg = (err.message || String(err)).toLowerCase();
+  if (err.code === 'VALIDATION_ERROR' || msg.includes('requires --') || msg.includes('invalid --')) {
+    return { type: 'validation_error', suggestion: 'Please verify the command arguments.' };
+  }
   if (msg.includes('enoent') || msg.includes('no such file') || msg.includes('not found')) {
     return { type: 'path_error', suggestion: 'Check if --cwd or --file paths exist and are accessible.' };
   }

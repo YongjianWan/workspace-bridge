@@ -110,6 +110,36 @@ async function testAuditSecurityTestFilePlaceholderSecret() {
   cleanupTempDir(tmpDir);
 }
 
+async function testAuditSecurityLanguageFiltering() {
+  const tmpDir = makeTempDir('wb-security-lang-');
+  fs.writeFileSync(path.join(tmpDir, 'a.js'), "eval('1+1');\n", 'utf8');
+  fs.writeFileSync(path.join(tmpDir, 'b.py'), "eval('1+1')\n", 'utf8');
+
+  // JS only: should detect JS eval but not Py eval
+  const resultJs = await auditSecurity({ cwd: tmpDir, targets: [], builtinOnly: true, language: 'javascript' }, null);
+  assert.strictEqual(resultJs.findings.length, 1, 'should find 1 finding for javascript');
+  assert.strictEqual(resultJs.findings[0].ruleId, 'js-eval', 'should be js-eval');
+
+  // Py only: should detect Py eval but not JS eval
+  const resultPy = await auditSecurity({ cwd: tmpDir, targets: [], builtinOnly: true, language: 'python' }, null);
+  assert.strictEqual(resultPy.findings.length, 1, 'should find 1 finding for python');
+  assert.strictEqual(resultPy.findings[0].ruleId, 'py-eval', 'should be py-eval');
+
+  cleanupTempDir(tmpDir);
+}
+
+async function testAuditSecurityTestDirectoryExclusion() {
+  const tmpDir = makeTempDir('wb-security-test-dir-');
+  const testDir = path.join(tmpDir, 'test');
+  fs.mkdirSync(testDir, { recursive: true });
+  fs.writeFileSync(path.join(testDir, 'vuln.js'), "eval('1+1');\n", 'utf8');
+
+  const result = await auditSecurity({ cwd: tmpDir, targets: [], builtinOnly: true }, null);
+  assert.strictEqual(result.findings.length, 0, 'should ignore all security issues in test directories');
+
+  cleanupTempDir(tmpDir);
+}
+
 async function main() {
   testGroupBySeverity();
   testDedupeWithinTool();
@@ -119,6 +149,8 @@ async function main() {
   await testAuditSecurityAssertDefense();
   await testAuditSecurityAssertDefenseVariants();
   await testAuditSecurityTestFilePlaceholderSecret();
+  await testAuditSecurityLanguageFiltering();
+  await testAuditSecurityTestDirectoryExclusion();
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

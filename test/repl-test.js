@@ -6,7 +6,7 @@
 const assert = require('assert');
 const path = require('path');
 const { executeCommand } = require('../src/cli/repl');
-const { buildMockDepGraph } = require('./test-helpers');
+const { buildMockDepGraph, getCanonicalKey } = require('./test-helpers');
 
 function makeMockDepGraph() {
   return {
@@ -20,6 +20,18 @@ function makeMockDepGraph() {
       '/project/src/other.js': {},
     }),
     entryFiles: new Set(['/project/cli.js']),
+    hasFile: (file) => {
+      const keys = [
+        '/project/src/utils/path.js',
+        '/project/src/app.js',
+        '/project/src/services/core.js',
+        '/project/test/app.test.js',
+        '/project/cli.js',
+        '/project/src/other.js',
+      ];
+      const canonical = getCanonicalKey(file, keys);
+      return keys.includes(canonical);
+    },
     getImpactRadius: (file, maxDepth) => [
       { level: 1, file: `dep-${file}` },
       { level: 2, file: 'dep-level2.js' },

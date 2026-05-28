@@ -38,8 +38,17 @@ function testVersionFlag() {
 }
 
 function testMissingFileArgument() {
+  // JSON mode
   const result = runCliRaw(['audit-file', '--cwd', '.', '--json', '--quiet']);
-  assert.notStrictEqual(result.status, 0, 'missing --file should fail');
+  assert.strictEqual(result.status, 2, 'missing --file should exit 2');
+  const data = JSON.parse(result.stdout);
+  assert.strictEqual(data.ok, false);
+  assert(data.error.includes('requires --file'), 'should mention requires --file');
+
+  // Human mode
+  const resultHuman = runCliRaw(['audit-file', '--cwd', '.', '--quiet']);
+  assert.strictEqual(resultHuman.status, 2, 'missing --file in human mode should exit 2');
+  assert(resultHuman.stderr.includes('[validation_error]'), 'should output [validation_error]');
 }
 
 function testQuietSuppressesInfo() {

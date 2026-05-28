@@ -32,6 +32,11 @@ function severityMeetsFilter(itemSeverity, minSeverity) {
 
 async function assembleSummary(parsed, container) {
   const regressionTools = require('./regression-tools');
+
+  if (parsed.checkRegression) {
+    regressionTools.resolveBaseline(parsed);
+  }
+
   const [health, deadExports, unresolved, cycles] = await Promise.all([
     projectHealth({ cwd: parsed.cwd }, container),
     dependencyGraph({ cwd: parsed.cwd, operation: 'dead_exports' }, container),

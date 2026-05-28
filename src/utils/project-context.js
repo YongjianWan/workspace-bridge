@@ -481,7 +481,7 @@ function loadWorkspaceConfig(root, options = {}) {
   // Lightweight schema validation: warn on unknown keys / wrong types,
   // but still load the file so the user isn't blocked.
   if (!options.quiet) {
-    const validTopKeys = new Set(['directories']);
+    const validTopKeys = new Set(['directories', 'directoryRoles']);
     for (const key of Object.keys(config)) {
       if (!validTopKeys.has(key)) {
         console.error(`[Config] Warning: unknown top-level key "${key}" in ${configPath}`);
@@ -503,15 +503,39 @@ function loadWorkspaceConfig(root, options = {}) {
         }
       }
     }
+
+    const roles = config.directoryRoles;
+    if (roles !== undefined && (typeof roles !== 'object' || Array.isArray(roles))) {
+      console.error(`[Config] Warning: "directoryRoles" must be an object in ${configPath}`);
+    } else if (roles) {
+      const validRoles = new Set(['active', 'reference', 'archive', 'generated']);
+      for (const [key, value] of Object.entries(roles)) {
+        if (typeof key !== 'string' || typeof value !== 'string') {
+          console.error(`[Config] Warning: directoryRoles keys and values must be strings in ${configPath}`);
+        } else if (!validRoles.has(value)) {
+          console.error(`[Config] Warning: unknown role "${value}" for directory "${key}" in ${configPath}`);
+        }
+      }
+    }
+  }
+
+  const directories = {
+    active: ensureArray(config.directories?.active),
+    reference: ensureArray(config.directories?.reference),
+    archive: ensureArray(config.directories?.archive),
+    generated: ensureArray(config.directories?.generated),
+  };
+
+  if (config.directoryRoles && typeof config.directoryRoles === 'object') {
+    for (const [dirPath, role] of Object.entries(config.directoryRoles)) {
+      if (directories[role] && typeof dirPath === 'string' && typeof role === 'string') {
+        directories[role].push(dirPath);
+      }
+    }
   }
 
   return {
-    directories: {
-      active: ensureArray(config.directories?.active),
-      reference: ensureArray(config.directories?.reference),
-      archive: ensureArray(config.directories?.archive),
-      generated: ensureArray(config.directories?.generated),
-    },
+    directories,
   };
 }
 
@@ -559,6 +583,13 @@ class ProjectContext {
   buildDirectoryRules() {
     const configured = this.config?.directories || {};
     const rules = [];
+
+    const configuredRoles = this.config?.directoryRoles || {};
+    for (const [dirPath, role] of Object.entries(configuredRoles)) {
+      if (ROLE_PRIORITY.includes(role) && typeof dirPath === 'string') {
+        rules.push({ role, path: normalizeRelativePath(dirPath), source: 'config' });
+      }
+    }
 
     for (const role of ROLE_PRIORITY) {
       const configuredPaths = ensureArray(configured[role]).map(normalizeRelativePath).filter(Boolean);

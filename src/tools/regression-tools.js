@@ -7,6 +7,35 @@ const { execSync } = require('child_process');
 
 const DEFAULT_BASELINE_FILE = '.workspace-bridge-baseline.json';
 
+function resolveBaseline(args) {
+  let baselinePath = null;
+  let commitBaseline = null;
+  const cwd = args.cwd || process.cwd();
+  if (args.baseline && typeof args.baseline === 'string') {
+    const resolved = path.resolve(cwd, args.baseline);
+    if (fs.existsSync(resolved)) {
+      baselinePath = resolved;
+    } else {
+      let isValidCommit = false;
+      try {
+        execSync(`git rev-parse --verify ${args.baseline}`, { cwd, stdio: 'pipe' });
+        isValidCommit = true;
+      } catch (_) {}
+      if (isValidCommit) {
+        commitBaseline = args.baseline;
+      } else {
+        throw new Error(`Baseline file not found: ${resolved}`);
+      }
+    }
+  } else {
+    baselinePath = path.resolve(cwd, DEFAULT_BASELINE_FILE);
+    if (!fs.existsSync(baselinePath)) {
+      throw new Error(`Baseline file not found: ${baselinePath}`);
+    }
+  }
+  return { baselinePath, commitBaseline };
+}
+
 function makeDeadExportKey(item) {
   return `${item.file}#${item.name}`;
 }
@@ -161,4 +190,5 @@ module.exports = {
   checkRegression,
   checkRegressionAgainstCommit,
   DEFAULT_BASELINE_FILE,
+  resolveBaseline,
 };

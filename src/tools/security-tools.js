@@ -62,9 +62,29 @@ function isMatchAllowlisted(ruleId, filePath, line) {
   return ALLOWLIST_DISPATCH.some((entry) => entry.match(ruleId, filePath, line));
 }
 
-async function runBuiltinSecurityScan(cwd, targets, container) {
+const TEST_PATH_PATTERNS = [
+  '/test/', 'test/', '/tests/', 'tests/',
+  '/__tests__/', '__tests__/', '/benchmark/', 'benchmark/',
+  '/benchmarks/', 'benchmarks/', '/e2e/', 'e2e/',
+  '/mocks/', 'mocks/', '/mock/', 'mock/',
+  '/__mocks__/', '__mocks__/',
+];
+
+function isTestPath(filePath) {
+  const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+  return (
+    TEST_PATH_PATTERNS.some((p) => normalized.includes(p) || normalized.startsWith(p)) ||
+    /\.test\.[^/]+$/.test(normalized) ||
+    /\.spec\.[^/]+$/.test(normalized) ||
+    /^[\\/]test_/.test(path.basename(normalized)) ||
+    /_test\.[^/]+$/.test(normalized)
+  );
+}
+
+async function runBuiltinSecurityScan(cwd, targets, container, options = {}) {
+  const { language } = options;
   const findings = [];
-  const patterns = [
+  let patterns = [
     { lang: 'javascript', ext: /\.(js|jsx|ts|tsx|mjs|cjs|vue|svelte)$/, rules: [
       { id: 'js-eval', pattern: /\beval\s*\(/, severity: 'high', message: 'Use of eval() can lead to code injection' }, // security-scan-ignore
       { id: 'js-innerHTML', pattern: /\.innerHTML\s*=/, severity: 'medium', message: 'Assignment to innerHTML can lead to XSS' },
@@ -91,6 +111,11 @@ async function runBuiltinSecurityScan(cwd, targets, container) {
       { id: 'java-log-sensitive', pattern: /(?:System\.out\.print|log\.(?:debug|info|warn|error))\s*\([^)]*(?:password|secret|token|credential)/i, severity: 'low', message: 'Potential sensitive data in log statement' },
     ]},
   ];
+
+  if (language) {
+    const targetLang = language.toLowerCase();
+    patterns = patterns.filter((p) => p.lang === targetLang);
+  }
 
   const depGraph = container?.snapshot?.graph || container?.depGraph;
   let files = [];
@@ -145,6 +170,11 @@ async function runBuiltinSecurityScan(cwd, targets, container) {
   }
 
   for (const file of files) {
+    const isTest = container?.projectContext
+      ? container.projectContext.classifyFile(file).fileRole === 'test'
+      : isTestPath(file);
+    if (isTest) continue;
+
     const group = patterns.find((g) => g.ext.test(file));
     if (!group) continue;
     let content;
@@ -187,7 +217,7 @@ async function auditSecurity({ cwd, targets, config, language, builtinOnly }, co
   const effectiveTargets = targetList.length > 0 ? targetList : ['.'];
 
   if (builtinOnly || adapters.length === 0) {
-    const builtin = await runBuiltinSecurityScan(cwd, targetList, container);
+    const builtin = await runBuiltinSecurityScan(cwd, targetList, container, { language });
     const bySeverity = groupBySeverity(builtin.findings);
     return {
       ok: true,

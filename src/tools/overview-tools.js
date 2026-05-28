@@ -15,6 +15,12 @@ const {
 
 async function buildProjectOverview(args, container) {
   await container.ensureReady();
+
+  if (args?.checkRegression) {
+    const regressionTools = require('./regression-tools');
+    regressionTools.resolveBaseline(args);
+  }
+
   const historyProvider = args?.historyProvider || getFileHistoryRisk;
   const rawData = await assembleOverviewData(args, container, historyProvider);
   if (!rawData.ok) return rawData;

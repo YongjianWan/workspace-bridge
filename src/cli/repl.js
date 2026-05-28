@@ -178,6 +178,7 @@ async function executeCommand(container, line, options = {}) {
       });
       const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
       if (!file) return options.structured ? { error: 'Usage: impact <file>' } : 'Usage: impact <file>';
+      if (!graph.hasFile(file)) return options.structured ? { error: `File not found in graph: ${parsed._[0]}` } : `Error: File not found in graph: ${parsed._[0]}`;
       const maxDepth = parsed.maxDepth ?? DEFAULTS.WATCH_IMPACT_DEPTH;
       const result = graph.getImpactRadius(file, maxDepth);
       return options.structured ? { impactCount: result.length, impact: result } : formatImpact(result);
@@ -189,6 +190,7 @@ async function executeCommand(container, line, options = {}) {
       });
       const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
       if (!file) return options.structured ? { error: 'Usage: affected-tests <file>' } : 'Usage: affected-tests <file>';
+      if (!graph.hasFile(file)) return options.structured ? { error: `File not found in graph: ${parsed._[0]}` } : `Error: File not found in graph: ${parsed._[0]}`;
       const maxDepth = parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH;
       const result = graph.findAffectedTests(file, maxDepth);
       return options.structured ? { affectedTestsCount: result.length, affectedTests: result } : formatAffectedTests(result);
@@ -212,6 +214,7 @@ async function executeCommand(container, line, options = {}) {
     case 'dependents': {
       const file = resolveWorkspaceFilePath(args[0], container.workspaceRoot || graph?.root);
       if (!file) return options.structured ? { error: 'Usage: dependents <file>' } : 'Usage: dependents <file>';
+      if (!graph.hasFile(file)) return options.structured ? { error: `File not found in graph: ${args[0]}` } : `Error: File not found in graph: ${args[0]}`;
       const result = graph.getDependents(file);
       return options.structured ? { dependentsCount: result.length, dependents: result } : formatDependents(result);
     }
@@ -219,6 +222,7 @@ async function executeCommand(container, line, options = {}) {
     case 'dependencies': {
       const file = resolveWorkspaceFilePath(args[0], container.workspaceRoot || graph?.root);
       if (!file) return options.structured ? { error: 'Usage: dependencies <file>' } : 'Usage: dependencies <file>';
+      if (!graph.hasFile(file)) return options.structured ? { error: `File not found in graph: ${args[0]}` } : `Error: File not found in graph: ${args[0]}`;
       const result = graph.getDependencies(file);
       return options.structured ? { dependenciesCount: result.length, dependencies: result } : formatDependencies(result);
     }
@@ -287,6 +291,7 @@ async function executeCommand(container, line, options = {}) {
       });
       const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
       if (!file) return options.structured ? { error: 'Usage: tree <file> [--max-depth <n>]' } : 'Usage: tree <file> [--max-depth <n>]';
+      if (!graph.hasFile(file)) return options.structured ? { error: `File not found in graph: ${parsed._[0]}` } : `Error: File not found in graph: ${parsed._[0]}`;
       const maxDepth = parsed.maxDepth ?? 3;
       const tree = buildTree(file, graph, { maxDepth, direction: 'both' });
       return options.structured ? { file, tree } : formatTree(tree);
@@ -368,25 +373,65 @@ async function startRepl(options) {
 
     if (evalMode) {
       const startTime = Date.now();
-      try {
-        const output = await executeCommand(container, evalMode, { structured: options.json });
-        if (output !== null) {
-          if (options.json) {
-            console.log(JSON.stringify({ ok: true, result: output }));
+      const commands = evalMode.split(';').map((c) => c.trim()).filter(Boolean);
+      const results = [];
+      let hasError = false;
+
+      for (const cmdLine of commands) {
+        try {
+          const output = await executeCommand(container, cmdLine, { structured: options.json });
+          results.push({ command: cmdLine, output });
+          if (output && output.error) {
+            hasError = true;
+          }
+        } catch (e) {
+          results.push({ command: cmdLine, error: e.message });
+          hasError = true;
+        }
+      }
+
+      if (options.json) {
+        if (commands.length === 1) {
+          const single = results[0];
+          if (single.error || (single.output && single.output.error)) {
+            console.log(JSON.stringify({ ok: false, error: single.error || single.output.error }));
+            process.exitCode = 1;
           } else {
-            console.log(output);
+            console.log(JSON.stringify({ ok: true, result: single.output }));
+          }
+        } else {
+          const formattedResults = results.map((r) => {
+            if (r.error || (r.output && r.output.error)) {
+              return { command: r.command, ok: false, error: r.error || r.output.error };
+            }
+            return { command: r.command, ok: true, result: r.output };
+          });
+          console.log(JSON.stringify({ ok: !hasError, results: formattedResults }));
+          if (hasError) process.exitCode = 1;
+        }
+      } else {
+        for (let i = 0; i < results.length; i++) {
+          const r = results[i];
+          if (commands.length > 1) {
+            console.log(`=== Command: ${r.command} ===`);
+          }
+          if (r.error) {
+            console.error(`Error: ${r.error}`);
+            process.exitCode = 1;
+          } else if (r.output !== null) {
+            console.log(r.output);
+            if (typeof r.output === 'string' && (r.output.startsWith('Error:') || r.output.startsWith('Usage:'))) {
+              process.exitCode = 1;
+            }
+          }
+          if (commands.length > 1 && i < results.length - 1) {
+            console.log('');
           }
         }
-        if (!options.quiet && process.env.DEBUG) {
-          console.error(`[REPL] ${evalMode} completed in ${Date.now() - startTime}ms`);
-        }
-      } catch (e) {
-        if (options.json) {
-          console.log(JSON.stringify({ ok: false, error: e.message }));
-        } else {
-          console.error(`Error: ${e.message}`);
-        }
-        process.exitCode = 1;
+      }
+
+      if (!options.quiet && process.env.DEBUG) {
+        console.error(`[REPL] ${evalMode} completed in ${Date.now() - startTime}ms`);
       }
       return;
     }

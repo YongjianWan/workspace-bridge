@@ -281,6 +281,15 @@ class FileIndex {
     if (this.baseExcludeDirs.some((dir) => matchesPathFragment(normalized, dir))) {
       return true;
     }
+
+    if (this.projectContext) {
+      const relPath = this.projectContext.getRelativePath(filePath);
+      const role = this.projectContext.classifyDirectory(relPath).role;
+      if (role === 'archive' || role === 'generated') {
+        return true;
+      }
+    }
+
     return false;
   }
 

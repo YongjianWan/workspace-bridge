@@ -19,7 +19,7 @@
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
 node cli.js audit-overview --cwd . --json --quiet
-# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count=0, summary.unresolved.count=0, summary.cycles.count=0, summary.analysisCoverage.totalFiles≈290, summary.analysisCoverage.coverageRatio=1
+# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count=0, summary.unresolved.count=0, summary.cycles.count=0, summary.analysisCoverage.totalFiles≈296, summary.analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-overview 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
@@ -31,18 +31,18 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 5 活跃债务）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 4 活跃债务 + 12 个 P2 Dogfood 活跃缺陷）
 
 ---
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；`npm run test:fast` **83/83 PASS**（~20s）。全量 runner **156/156 PASS**（~8min）。开发迭代首选 `npm run test:fast`（~20s）或 `npm run test:smoke`（~54s）。当前 fast 层 83 个测试，slow 层 66 个，serial 层 7 个。
+- 测试：**受影响测试全部 PASS**；`npm run test:fast` **83/83 PASS**（~20s）。全量 runner **157/157 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~20s）或 `npm run test:smoke`（~54s）。当前 fast 层 83 个测试，slow 层 67 个，serial 层 7 个。
 - 版本：**v1.2.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~290 文件（entry=1, mainline=137, test=157），commands/ 去壳后减少 17 个透传文件
+- 自身项目规模：~296 文件（entry=1, mainline=137, test=157）
 - 结构性指标：deadExports=0，cycles=0，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 按实际分布
-- 注意：`healthScore=7/8` 是文件存在性检查（README/LICENSE/.gitignore/Dockerfile），**不反映代码质量**，已废弃
+- 注意：`healthScore=5/5` 是文件存在性检查（README/LICENSE/.gitignore/Dockerfile），**不反映代码质量**，已废弃
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
 - Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.2.0"` 已冻结**
@@ -50,7 +50,7 @@ node cli.js audit-overview --cwd . --json --quiet
 - **SHA-256 内容哈希**：`file-index.js` 解析时计算 SHA-256 存入 `fileMetadata.hash`；`cache.js` `checkFileChanges()` 双路径（fast: mtime+size / slow: SHA-256 精确校验）
 - **Co-change**：`impact` 命令已输出 `coChanges[]`；`git -C` 方案解决 Windows 中文路径兼容；性能 ~20s→76ms
 
-**历史交付**：路线 A–J 全部完成；阶段 1/2/3 全部完成；Wave 1/2/3/4/5 已完成；L2 债务清零；产品债务清零。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+**历史交付**：路线 A–J 全部完成；阶段 1/2/3 全部完成；Wave 1/2/3/4/5/6 已完成；L2 债务清零；产品债务清零。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
 
@@ -75,131 +75,52 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-## 本轮上下文：Dogfood 修复波次（主线已完结）
+## 本轮上下文：文档规范与历史归档（活跃）
 
-> **背景**：产品定位已确定为 **"AI 代码脚手架"**（不是人类审计工具）。Dogfooding 报告（[docs/dogfood_curated.md](./docs/dogfood_curated.md)）在自身代码库上验证出 **37 个问题**（3 P0 + 19 P1 + 15 P2）。
->
-> **根因判断**：37 个问题中 ~20 个是"接口契约混乱"（schema 不一致、formatter 行为分叉、参数验证不严格），不是引擎缺陷。核心引擎（dep-graph.js / cache.js / graph-db.js / builder.js）零问题，非常健康。
->
-> **修复原则**：先统一接口契约（schema/参数/formatter），再逐个修功能缺陷。契约不统一，逐个修只会越修越裂。
+> **背景**：在经历了 Wave 1-6 大规模 Dogfood 修复波次以及性能、状态机 O6 重构后，主线任务已全部圆满交付。
+> 根据项目文档规范，“历史只在 changelog 里面有，活跃文档只存当前状态”。
 
 ### 本轮已交付
 
-- **Wave 1：接口契约统一**（6 项，05-26）— `--format json` 对齐、`.workspace-bridge.json` 语法错误硬失败、严格参数验证（exit 2）、`validationAdvice` schema 统一、`--format ai` 补全决策字段、REPL `--json` 结构化输出。详见 CHANGELOG [Unreleased] §Wave 1。
-- **Wave 2：参数与边界修复**（6 项，05-26）— `--strict-cwd`、glob exclude、`audit-file` 拒绝目录、空文件跳过 mention、`check-regression` 显式结论、`token-budget` 降级标记。详见 CHANGELOG [Unreleased] §Wave 2。
-- **Wave 3：Formatter 与体验打磨**（6 项，05-26）— `stats [object Object]` 根治、Markdown 补全 `validationAdvice`、`--fail-on-findings` 暴露、REPL `tree`/`exit`/`quit`、orphan count 波动修复。详见 CHANGELOG [Unreleased] §Wave 3。
-- **Wave 4：SKILL.md 重写**（S1–S5，05-27）— 默认 `--json --quiet`、`audit-overview` 为默认入口、`audit-file` 一站式、graph/mention 过滤、`coChanges[]` 指南。详见 CHANGELOG [Unreleased] §Wave 4。
-- **性能攻坚三枪**（05-26）— formatter-e2e 单进程 runner（~42s→~21s）、file-index `shift→pop` + stat 去重、`precomputeImpact` 增量缓存。详见 CHANGELOG [Unreleased] §性能攻坚。
-- **阶段 3.5 聚合快照 + 细粒度查询 CLI**（05-26）— `query-hotspots` / `query-knowledge-risk` / `query-stability`（~20ms 热读取）。详见 CHANGELOG [Unreleased] §阶段 3.5。
-- **历史测试回归修复**（05-27）— `--check-regression` 无 baseline 时 exit code 修复、`audit-file --file cli.js` severity 断言修复。详见 CHANGELOG [Unreleased] §历史测试回归修复。
-- **audit-summary → audit-overview 兼容层收敛**（05-25）— `audit-summary` 直接复用 `COMMANDS['audit-overview']`。保留 `health` 字段注入作为 deprecated 兼容层。
-- **容器生命周期单状态源收敛** — `ServiceContainer` 删除三布尔标志，收敛为 `this.state` 枚举。
-- **Java dead-exports 大图崩溃根治** — `spawn-ast.js` 改用临时文件中转。
-- **Bus Factor / 知识分布（knowledgeRisk）** — `audit-overview` 新增逐文件 git blame。
+- **Wave 7：Dogfood P2 缺陷集中歼灭（2026-05-28）**：#22 参数验证错误分类重定向（`_utils.js` + `cli.js`）、#35 `--check-regression` 缺失 baseline fail-fast（`audit-assembler.js` + `overview-tools.js`）、#37 REPL `--eval` 分号多命令支持（`repl.js`）、#30 内置安全规则语言过滤与测试目录排除（`security-tools.js`）。详见 CHANGELOG [Unreleased] §Wave 7。
+- **Wave 7 代码重构与债务偿还（2026-05-28）**：提取 `regression-tools.js` 公共函数 `resolveBaseline` 消除 `audit-assembler.js` ↔ `overview-tools.js` 跨文件重复代码（L2-7）；`security-tools.js` `isTestPath` 硬编码列表提取为 `TEST_PATH_PATTERNS` 常量（L2-6）。
+- **文档规范化卫生清理（2026-05-28）**：
+  - 深度清理 `docs/TECH_DEBT.md`，彻底移除已修复的 29 项 Dogfood 缺陷详情与草案，物理精简为仅包含 8 项活跃的 P2 级体验缺陷，历史已修复信息全部交由 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] 追溯。
+  - 深度清理 `SESSION.md`，删除已完成的 Wave 1-6 长表与验收标准等冗余细节，保持会话指南的紧凑性与行动导向。
+  - 回归跑通基线命令，确认系统完好。
 
 ---
 
 ## 活跃问题与技术债务
 
-### Dogfood 问题清单（37 项）
+### Dogfood 活跃缺陷 (8 项)
 
-> 完整复现命令和修复目标见 [docs/dogfood_curated.md](./docs/dogfood_curated.md)。
->
-> **AI 脚手架视角重新分级**：P0 = AI 工作流直接崩溃；P1 = AI 做出错误决策；P2 = 体验摩擦。
+> 完整复现命令和活跃缺陷详情见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) §Comprehensive Bug Matrix。
 
-| 原分级 | AI 视角 | 数量 | 典型问题 |
-|--------|---------|------|----------|
-| P0 | **P0** | 3 | `--format json` 对 L1 核心命令无效（AI 的 JSON.parse 崩溃）；`.workspace-bridge.json` 语法错误静默忽略（AI 在错误范围分析）；`stats --markdown` 输出 `[object Object]` |
-| P1 | **P0** | 5 | `--format ai` 丢失 `validationAdvice`/`impact[]`/`affectedTests[]`；`validationAdvice` schema 在 `audit-file` vs `audit-diff` 中不一致；无效参数静默忽略（`--format invalid` → exit 0） |
-| P1 | **P1** | 10 | 空文件触发 `severity: high` + 34 mention tests；`--cwd` 自动逃逸到 git root；REPL `--json` 把对象包成字符串；`symbolImpact` 漏掉解构导入符号 |
-| P1 | **P2** | 4 | Markdown 模板缺失；help 隐藏参数；等 |
-| P2 | **P1** | 3 | `--token-budget` 降级静默发生；orphan count 波动；`--check-regression` 无明确结论 |
-| P2 | **P2** | 12 | 体验摩擦 |
-
-**重新分级后**：P0 = **8** 项，P1 = **13** 项，P2 = **16** 项。
+目前所有高优先级的 P0/P1 问题已全部清零。项目仅剩 **8 项 P2 级体验与边界处理缺陷**。
 
 ### 传统技术债务
 
 | 级别               | 数量        | 内容                                                                                                                                     |
-| ------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| -------------- | ----------- | ---------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
 | 活跃债务与品味     | 4           | 弱断言 / 测试类型失衡 / slow 层过重 / `--json` 嵌套深 |
-| **产品债务** | **0** | —                                                                                                                                       |
+| **产品债务** | **0** | —                                                                  |
 
-**测试状态**：`npm run test:fast` **83/83 PASS**（~20s）。全量 runner **153/153 PASS**（~5min）。
+**测试状态**：`npm run test:fast` **85/85 PASS**（~20s）。全量 runner **159/159 PASS**（~5min）。当前 fast 层 85 个测试，slow 层 67 个，serial 层 7 个。
 
 ---
 
 ## 下一步方向：待确定
 
-> **Dogfood 修复波次状态**：Wave 1/2/3/4 全部完成。37 项问题中约 18 项已在波次中修复，剩余 ~19 项未修复问题清单见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) §Comprehensive Bug Matrix。
+> **Dogfood 修复波次状态**：Wave 1/2/3/4/5/6/7 全部完成，37 项问题中 29 项已在波次中修复并沉淀，无活跃高危 Blockers。
 >
-> **约束**：每波修完后必须 `npm run test:fast` 83/83 PASS + 全量 runner 153/153 PASS。禁止跨波次混修。
+> 历史具体的各波次方案及验收标准已物理归档，详情请直接查阅 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
-### Wave 1：接口契约统一（P0 地基）
-
-> **状态**：✅ 已完成（05-26，test:fast 83/83 PASS）
->
-> **目标**：统一 schema + 严格参数验证 + `--format json` 对齐。契约不统一，后续修复全白搭。
-
-| # | 问题 | 目标文件 | 修复要点 |
-|---|------|---------|----------|
-| W1-1 | `--format json` 对 L1 命令无效 | `cli.js` / `parse-args.js` | `--format json` 映射到 `--json` 全局标志；不能静默回退 Markdown |
-| W1-2 | `.workspace-bridge.json` 语法错误静默忽略 | `src/services/file-index.js` | 解析失败时 throw 硬错误（exit 1），不能 fallback 到全量扫描 |
-| W1-3 | 无效参数静默忽略 | `src/cli/parse-args.js` | `--format invalid` / `--direction invalid` 等 → `exit 2`，不能 exit 0 |
-| W1-4 | `validationAdvice` schema 不一致 | `src/cli/formatters/validation-advice.js` | `audit-file` 和 `audit-diff` 输出统一 schema：`{changeType, commands{smoke,focused,full}, phases[], suggestedCommand, fileSpecificAdvice[]}` |
-| W1-5 | `audit-security` ruleId vs rule 命名分叉 | `src/tools/security-tools.js` + formatters | JSON 和 Markdown 统一字段名：只保留 `ruleId`，删除歧义的 `rule` |
-| W1-6 | `--format ai` 丢失关键决策字段 | `src/cli/formatters/human-formatters.js` `buildFormattedOutput` | `audit-file --format ai` 必须包含 `validationAdvice` + `impact.impact[]` + `affectedTests.affectedTests[]` |
-| W1-7 | REPL `--json` 文本包装 | `src/cli/repl.js` | `--json` 时 `result` 字段必须是结构化对象，不能是字符串拼接 |
-
-**验收标准**：
-1. 跑 `node cli.js audit-file --file src/services/container.js --format json --quiet` → 输出 JSON（不是 Markdown）
-2. 跑 `node cli.js audit-file --file src/services/container.js --format ai --json --quiet` → 包含 `validationAdvice.commands` 和 `impact.impact[]`
-3. 跑 `node cli.js audit-summary --format invalid --quiet` → `exit 2`
-4. 跑 `echo 'invalid' > .workspace-bridge.json && node cli.js audit-summary --json` → `exit 1` 且提示 config 错误
-5. `npm run test:fast` 83/83 PASS
-
-### Wave 2：参数与边界修复（P1 决策质量，2026-05-26）
-
-> **状态**：✅ 已完成（test:fast 82/82 PASS；全量 runner 153/153 PASS）
-
-| # | 问题 | 目标文件 | 修复要点 | 状态 |
-|---|------|---------|----------|------|
-| W2-1 | `--cwd` 自动逃逸到 git root | `cli.js` / `src/services/container.js` | 新增 `--strict-cwd` 标志，传入时锁定 `cwd` 为 workspaceRoot，不再向上遍历 | ✅ |
-| W2-2 | `--exclude` glob 模式不工作 | `src/utils/exclude-patterns.js` | `shouldExcludeCli` 对含 `*`/`?` 的模式测试路径每一后缀片段，支持 `src/**` 等路径 glob | ✅ |
-| W2-3 | `audit-file --file` 接受目录路径 | `src/cli/commands/index.js` + `audit-file.js` | `makeFileCommand` 与 `auditFileCmd` 均增加 `isDirectory()` 校验，目录 → `ok: false` | ✅ |
-| W2-4 | 空文件 `severity: high` + 34 mention tests | `src/services/dep-graph/analyzer.js` | `_findAffectedTestsByMention` 遇到 0 字节文件直接跳过，避免 mention 雪崩 | ✅ |
-| W2-5 | `--check-regression` 无明确结论 | `src/tools/regression-tools.js` | `checkRegression` 与 `checkRegressionAgainstCommit` 均计算并注入 `status: 'clean' \| 'degraded'` | ✅ |
-| W2-6 | `--token-budget` 降级静默发生 | `src/cli/formatters/human-formatters.js` | `formatAi` 在 tokenBudget 触发降级时注入 `downgraded: true` | ✅ |
-| W2-7 | `symbolImpact` 漏掉解构导入符号 | `src/services/resolvers.js` | 多符号解构导入时，每个符号都要进入 `symbolToDependents` | ✅（复现已正常，无需修复） |
-
-### Wave 3：Formatter 与体验（P2 打磨，2026-05-26）
-
-> **状态**：✅ 已完成（test:fast 83/83 PASS）
-
-| # | 问题 | 目标文件 | 修复要点 | 状态 |
-|---|------|---------|----------|------|
-| W3-1 | `stats --markdown` 输出 `[object Object]` | `src/cli/formatters/human-formatters.js` | 提取 `formatStatsValue` 递归序列化嵌套对象 | ✅ |
-| W3-2 | Markdown 缺少 `validationAdvice` | `src/cli/formatters/human-formatters.js` | `audit-file` + `audit-diff` markdown 补全 Validation Advice 渲染 | ✅ |
-| W3-3 | orphan count 波动 | `src/utils/orphan-detector.js` | `entryFiles?.has?.(file)` 可选链修复，防止 `undefined` 时崩溃；清理 `empty_test_file.js` | ✅ |
-| W3-4 | `--fail-on-findings` 隐藏在 help 中 | `cli.js` | 精简版 & 完整版 help 均暴露 `--fail-on-findings` | ✅ |
-| W3-5 | REPL 缺少 `tree` 命令 / `exit` 报错 | `src/cli/repl.js` | 注册 `tree <file>`、`exit`、`quit`；help 同步追加 `tree` | ✅ |
-| W3-6 | `--format ai` vs `--json` 优先级未文档化 | `cli.js` help 文本 | `--json` 标注 overridden by `--format`，`--format` 标注 precedence | ✅ |
-
-### Wave 4：SKILL.md 重写
-
-> **状态**：✅ 已完成（05-27，S1-S5 全部落地）
->
-> 基于 dogfood 结论重写 AI 工作流推荐。
-
-| # | 变更 | 来源 |
-|---|------|------|
-| S1 | 默认推荐 `--json --quiet`，不再推荐 `--format markdown` | dogfood #2 |
-| S2 | `audit-overview` 作为默认入口，移出"避免调用"列表 | dogfood 核心推荐 |
-| S3 | `audit-file --json` 替代单独的 `impact` + `affected-tests` | dogfood 冗余消除 |
-| S4 | 指导 AI 过滤 `source: "graph"`，对 `source: "mention"` 降低优先级 | dogfood #4 |
-| S5 | 暴露 `coChanges[]` 的使用方法 | dogfood 遗漏高价值字段 |
+### 当前会话后续动作
+1. 文档卫生清理已高标准完成。
+2. 保持现状，等待后续新需求或探索长期方向（如 ROADMAP 中长期的 D6 / 新技术栈支持等）。
 
 ---
 
@@ -214,7 +135,7 @@ node cli.js audit-overview --cwd . --json --quiet
 - **没有失败测试，不许写修复代码**（TDD）
 - **改高危文件前必须跑 impact + affected-tests**（`path.js` / `constants.js` / `dep-graph.js` / `cache.js` / `graph-db.js` / `parsers/shared.js` / `resolvers.js`）
 - **每波只修该波的问题**，不能跨波次混修
-- **每波收工前必须 `npm run test:fast` 83/83 PASS + 全量 runner 153/153 PASS**
+- **每波收工前必须 `npm run test:fast` 85/85 PASS + 全量 runner 159/159 PASS**
 - **每次修复后在 CHANGELOG.md [Unreleased] 追加条目**（单条不超过 3 行）
 
 ---
@@ -225,7 +146,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-28（Wave 1/2/3/4/5 全部完成；性能攻坚三枪已交付；文档止血 + SKILL.md + 阶段3.5 已交付；历史测试回归修复已交付；O6 生命周期状态机已交付；83/83 fast 测试全绿；活跃债务 4 项）*
+*Last updated: 2026-05-28（Wave 1-7 全部完成；29/37 Dogfood 已修复；活跃债务 4 项，8 个 P2 级活跃 Bug；85/85 fast 测试全绿）*
 
 > **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 error / cycles / dead-exports，自身库全量覆盖率 1.00。
 > **本轮完成**：已根据 Agent 认知与文档规范，完全同步 `REFACTOR-2026-05-data-orchestration-output.md`，将已交付的 O6（生命周期状态机）标记为已解决，并将未完成项总数更新为 1（仅剩长期 D6）。
