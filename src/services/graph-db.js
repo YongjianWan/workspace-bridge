@@ -5,7 +5,7 @@
  * Provides bulk load/save for cache metadata, file metadata, parse results,
  * symbol index, and diagnostics.
  */
-const Database = require('better-sqlite3');
+const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs');
 const path = require('path');
 const { CACHE_VERSION } = require('../config/constants');
@@ -92,12 +92,28 @@ class GraphDB {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    this.db = new Database(this.dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('journal_size_limit = 67108864'); // 64MB — auto-checkpoint, prevent unbounded WAL growth
-    this.db.pragma('mmap_size = 268435456');          // 256MB — memory-map hot pages, reduce read syscalls
-    this.db.pragma('synchronous = NORMAL');           // WAL mode: NORMAL is crash-safe and faster than FULL
+    this.db = new DatabaseSync(this.dbPath);
+    this.db.exec('PRAGMA journal_mode = WAL');
+    this.db.exec('PRAGMA journal_size_limit = 67108864'); // 64MB — auto-checkpoint, prevent unbounded WAL growth
+    this.db.exec('PRAGMA mmap_size = 268435456');          // 256MB — memory-map hot pages, reduce read syscalls
+    this.db.exec('PRAGMA synchronous = NORMAL');           // WAL mode: NORMAL is crash-safe and faster than FULL
     this.db.exec(SCHEMA);
+
+    // Polyfill better-sqlite3 style transaction wrapper
+    this.db.transaction = (fn) => {
+      return (...args) => {
+        this.db.exec('BEGIN');
+        try {
+          const result = fn(...args);
+          this.db.exec('COMMIT');
+          return result;
+        } catch (err) {
+          this.db.exec('ROLLBACK');
+          throw err;
+        }
+      };
+    };
+
     this._migrate();
   }
 

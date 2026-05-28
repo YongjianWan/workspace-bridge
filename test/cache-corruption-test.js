@@ -24,8 +24,8 @@ function testLoadIgnoresWrongVersion() {
   cache.save();
 
   // Tamper with version in SQLite directly
-  const Database = require('better-sqlite3');
-  const db = new Database(path.join(cache.cacheDir, 'cache.db'));
+  const { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(path.join(cache.cacheDir, 'cache.db'));
   db.prepare('UPDATE cache_metadata SET value = ? WHERE key = ?').run('999', 'version');
   db.close();
 
