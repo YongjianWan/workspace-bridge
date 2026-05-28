@@ -69,13 +69,13 @@ writeFile('dist/bundle.js', "export function generated() { return 'generated'; }
 
   const autoSummary = runCli(['audit-summary', '--cwd', autoRoot, '--json', '--quiet']);
   assert.strictEqual(autoSummary.scope.hasWorkspaceBridgeConfig, false);
-  assert.strictEqual(autoSummary.scope.counts.totalFiles, 4);
+  assert.strictEqual(autoSummary.scope.counts.totalFiles, 2);
   assert.strictEqual(autoSummary.scope.counts.mainlineFiles, 2);
-  assert.strictEqual(autoSummary.scope.counts.nonMainlineFiles, 2);
+  assert.strictEqual(autoSummary.scope.counts.nonMainlineFiles, 0);
   assert.strictEqual(autoSummary.scope.counts.testFiles, 0);
   assert.strictEqual(autoSummary.scope.directoryRoles.active, 2);
-  assert.strictEqual(autoSummary.scope.directoryRoles.reference, 1);
-  assert.strictEqual(autoSummary.scope.directoryRoles.archive, 1);
+  assert.strictEqual(autoSummary.scope.directoryRoles.reference, 0);
+  assert.strictEqual(autoSummary.scope.directoryRoles.archive, 0);
 
   const autoDeadExportFiles = autoSummary.deadExports.deadExports.map((entry) => entry.file.replace(/\\/g, '/'));
   assert(autoDeadExportFiles.some((file) => file.endsWith('/src/helper.js')));

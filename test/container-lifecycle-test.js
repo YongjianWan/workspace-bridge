@@ -17,6 +17,8 @@ async function testInitializeCreatesServices() {
   assert(container.cache);
   assert(container.fileIndex);
   assert(container.depGraph);
+  // O6: Graph should be READY after container initialization
+  assert.strictEqual(container.depGraph.state, 'READY');
 
   await container.shutdown();
   cleanupTempDir(dir);

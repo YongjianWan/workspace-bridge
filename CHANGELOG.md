@@ -8,6 +8,46 @@
 
 ## [Unreleased]
 
+### Wave 5：边界硬化（Dogfood P1 边界安全修复 — 2026-05-28）
+
+- **空目录提前返回** `src/services/file-index.js`：
+  - `build()` Phase 1 结束后若 `allFiles.length === 0`，跳过 `processFilesWithLimit`，但仍执行 `pruneDeletedCacheEntries`，确保已删除文件的缓存条目被正确清理（修复 `cache-stale-prune-test.js` 回归）。
+- **parser 异常安全加固** `src/services/dep-graph/builder.js`：
+  - `analyzeFile()` catch 块防御非 Error 抛出（字符串 / WASM crash），`e.message` → `String(e)`。
+  - `_processFilesWithLimit` 给每个 `analyzeFile` Promise 再包 `.catch(() => undefined)`，双重保险防止 rejection 逃逸。
+- **非 git 目录 execSync 超时** `src/services/container.js`：
+  - 两处 `execSync('git rev-parse HEAD')` 增加 `{ timeout: TIMEOUTS.GIT_SHORT_MS }`，防止非 git 环境或网络驱动器上永久挂起。
+- **diagnostics timeout 全覆盖** `src/tools/workspace-tools.js`：
+  - `buildChecks()` 中所有此前无 timeout 的 check（`node:typecheck`/`tsc`/`lint`/`build`/`test`、`django:check`、`python:compileall`/`pytest`）均补全 `timeout`。
+  - `runDiagnostics()` 对 `buildChecks()` 整体增加 `Promise.race` 短超时保护（`DIAGNOSTICS_SHORT_MS`），超时降级为 `noLintersDetected` 模式，避免首次运行挂起 60s+。
+- **测试**：`test/wave5-boundary-hardening-test.js` 4 项契约测试覆盖上述边界。
+
+### O6：生命周期状态机（DependencyGraph + GraphQuery 门控）（2026-05-28）
+
+- **DependencyGraph 显式状态机** `src/services/dep-graph.js`：
+  - 新增 `DG_STATES`（`IDLE`/`BUILDING`/`READY`/`UPDATING`/`ERROR`）+ `DG_VALID_TRANSITIONS`，非法转换 throw。
+  - 新增 `_transition()` + `_startBuilding()` / `_finishBuilding()` / `_startUpdating()` / `_finishUpdating()` / `_markError()`。
+  - `fromSchema()` 与 `loadGraph()` 返回前显式标记 `READY`；支持 `IDLE → UPDATING`（独立增量更新入口）。
+- **GraphBuilder 接入状态机** `src/services/dep-graph/builder.js`：
+  - `build()` 开头 `_resetState()` → `_startBuilding()`、结尾 `_finishBuilding()`（位于 `emitAsync` 之前，确保 handler 执行时状态为 `READY`）。支持重复 build（如 REPL 热重载）。
+  - `updateFiles()` 开头 `_startUpdating()`、finally 中 `_finishUpdating()`（同样在 `emitAsync` 之前）；`_updating` 布尔锁退役。
+- **Container fallback build 状态兼容** `src/services/container.js`：
+  - `_initDepGraph` 中 loadGraph 成功后若 delta > 50% fallback 到 full build，先调用 `_resetState()` 再 `build()`，避免 `READY → BUILDING` 非法转换。
+- **状态机转换补全** `src/services/dep-graph.js`：
+  - `DG_VALID_TRANSITIONS[READY]` 新增 `BUILDING` 与 `IDLE`，支持 warm-start 后重新全量构建与显式重置。
+- **Query 运行时状态拦截** `src/services/dep-graph/query.js`：
+  - 新增 `GraphNotReadyError`；`getDependencies`/`getDependents`/`getImpactRadius` 在状态非 `READY` 时 throw。
+- **向后兼容**：`_updating` 保留为只读 getter（映射到 `_state === UPDATING`），现有测试与重入逻辑零改动。
+- **测试**：`test/dep-graph-error-test.js` 新增 `testGraphStateMachine`（IDLE→READY 断言）与 `testQueryThrowsWhenNotReady`；`test/container-lifecycle-test.js` 追加 `depGraph.state === 'READY'` 断言。
+
+### D2：getScopeSummary 数据源一致性修复（2026-05-27）
+
+- **`getScopeSummary` 从 graph 读取** `src/services/dep-graph/analyzer.js`：
+  - 根因：`getScopeSummary` 原从 `cache.fileMetadata` 读取文件列表，而 `GraphBuilder.build()` 已通过 `isActiveSourceFile` 过滤掉了非 active 文件（如 `benchmark/`）。导致 `directoryRoles` 统计了不在 graph 中的文件，与 `deadExports`/`cycles`/`unresolved` 基于不同文件集合。
+  - 修复：统一从 `this.dg.getAllFilePaths()` 读取并应用 `shouldExcludeCli` 过滤，使 `scope` 与 graph 100% 对齐。
+  - 影响：`directoryRoles.reference` 从 `1` → `0`（`benchmark/compare.js` 不再被误统计）；`totalFiles` 从 `300` → `299`。
+- **`test/role-detection-test.js` 断言更新**：auto-detect 场景（无 `.workspace-bridge.json`）中，`prototypes/` 与 `examples/` 被 `GraphBuilder` 过滤，不再计入 `scope`。断言更新：`totalFiles=4→2`，`nonMainlineFiles=2→0`，`reference=1→0`，`archive=1→0`。
+
 ### 性能攻坚三枪（2026-05-26）
 
 - **formatter-e2e 单进程 runner** `cli.js` + `test/test-helpers.js` + `test/formatter-e2e-test.js`：

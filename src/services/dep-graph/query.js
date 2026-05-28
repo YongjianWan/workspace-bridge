@@ -1,18 +1,36 @@
 const { bfsTraverse, CONFIG } = require('./shared');
+
+class GraphNotReadyError extends Error {
+  constructor(state) {
+    super(`DependencyGraph is not ready (state: ${state}). Call build() first.`);
+    this.name = 'GraphNotReadyError';
+    this.state = state;
+  }
+}
+
 class GraphQuery {
   constructor(depGraph) {
     this.dg = depGraph;
   }
 
+  _ensureReady() {
+    if (this.dg._state !== 'READY') {
+      throw new GraphNotReadyError(this.dg._state);
+    }
+  }
+
   getDependencies(filePath) {
+    this._ensureReady();
     return this.dg.getFileInfo(filePath)?.imports || [];
   }
 
   getDependents(filePath) {
+    this._ensureReady();
     return this.dg.reverseGraph.get(this.dg.normalizeFilePath(filePath)) || [];
   }
 
   getImpactRadius(filePath, depth = 3) {
+    this._ensureReady();
     const start = this.dg.normalizeFilePath(filePath);
 
     // Fast path: use precomputed impact radius if available and deep enough.

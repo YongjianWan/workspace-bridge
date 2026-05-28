@@ -74,6 +74,7 @@ async function buildChecks(workspace, mode) {
         name: 'node:build',
         cmd: 'npm',
         args: ['run', '-s', 'build'],
+        timeout: TIMEOUTS.DIAGNOSTICS_LONG_MS,  // Wave 5 #13
       });
     }
     if (mode === 'full' && scripts.test) {
@@ -81,6 +82,7 @@ async function buildChecks(workspace, mode) {
         name: 'node:test',
         cmd: 'npm',
         args: ['run', '-s', 'test', '--', '--runInBand'],
+        timeout: TIMEOUTS.DIAGNOSTICS_LONG_MS,  // Wave 5 #13
       });
       hasNodeCheck = true;
     }
@@ -154,6 +156,7 @@ async function buildChecks(workspace, mode) {
           name: 'python:pytest',
           cmd: python,
           args: ['-m', 'pytest', '-q'],
+          timeout: TIMEOUTS.DIAGNOSTICS_LONG_MS,  // Wave 5 #13
         });
       }
     }
@@ -299,7 +302,13 @@ async function runDiagnostics(args, container) {
 
   const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const workspace = detectWorkspace(root);
-  const { checks, noLintersDetected } = await buildChecks(workspace, mode);
+  // Wave 5 #13: guard against buildChecks() hanging on linter discovery
+  const buildChecksTimeoutMs = 15000; // 15s cap for linter discovery
+  const buildChecksResult = await Promise.race([
+    buildChecks(workspace, mode),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('buildChecks timeout')), buildChecksTimeoutMs))
+  ]);
+  const { checks, noLintersDetected } = buildChecksResult;
 
   const checkResults = await Promise.allSettled(
     checks.map(async (check) => {

@@ -42,6 +42,11 @@ class GraphBuilder {
   async build(sourceFiles = null) {
     const startTime = Date.now();
 
+    // O6: lifecycle — reset then start building so repeated builds work
+    // regardless of current state (IDLE, READY, ERROR).
+    this.dg._resetState();
+    this.dg._startBuilding();
+
     // Refresh resolver FS caches for each build to avoid stale paths
     clearResolverCaches();
 
@@ -122,6 +127,9 @@ class GraphBuilder {
     // D1-D2: persist edges to SQLite for fast loadGraph() on next startup
     await this._saveEdges();
 
+    // O6: mark graph ready so that listeners can query safely
+    this.dg._finishBuilding();
+
     // O4: Builder no longer knows Analyzer. Post-build analysis is triggered
     // by the 'graph:built' event, which the facade (DependencyGraph) listens
     // to and coordinates precompute + persistence.
@@ -133,9 +141,9 @@ class GraphBuilder {
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const promise = this.analyzeFile(file).finally(() => {
-        executing.delete(promise);
-      });
+      const promise = this.analyzeFile(file)
+        .catch(() => undefined)          // Wave 5 #16: swallow any rejection
+        .finally(() => executing.delete(promise));
       executing.add(promise);
 
       if (executing.size >= limit) {
@@ -258,7 +266,8 @@ class GraphBuilder {
 
     } catch (e) {
       // 单个文件分析失败不应阻塞整个依赖图构建，记录日志后继续
-      console.error(`[DepGraph] Failed to analyze ${filePath}:`, e.message);
+      // Wave 5 #16: handle string rejections (some WASM loaders throw plain strings)
+      console.error(`[DepGraph] Failed to analyze ${filePath}:`, e?.message || e);
       // 删除 stale 记录，防止增量更新时 reverseGraph 与实际内容脱节
       this.dg.graph.delete(this.dg.normalizeFilePath(filePath));
       this.dg.cache.deleteParseResult(filePath);
@@ -511,7 +520,7 @@ class GraphBuilder {
       // Reentrancy guard: debounce may trigger overlapping updates
       return;
     }
-    this.dg._updating = true;
+    this.dg._startUpdating();
 
     const startTime = Date.now();
     let reParsed = 0;
@@ -679,7 +688,7 @@ class GraphBuilder {
         console.error(`[DepGraph] Incremental update: ${reParsed} re-parsed, ${skipped} skipped in ${Date.now() - startTime}ms`);
       }
     } finally {
-      this.dg._updating = false;
+      this.dg._finishUpdating();
       if (this.dg.cache && typeof this.dg.cache.save === 'function') {
         try {
           await this.dg.cache.save();
@@ -696,6 +705,7 @@ class GraphBuilder {
       this._buildSymbolRegistry();
 
       // O4: post-build analysis triggered via event, not direct call.
+      this.dg._finishUpdating();
       await this.dg.bus.emitAsync('graph:built');
     }
   }

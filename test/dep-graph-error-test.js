@@ -76,8 +76,9 @@ async function testReentrantUpdateFiles() {
   const p2 = dg.updateFiles([path.join(dir, 'src', 'x.js')]);
   await Promise.all([p1, p2]);
 
-  // Should complete without deadlock
+  // Should complete without deadlock; _updating backward compat
   assert.strictEqual(dg._updating, false);
+  assert.strictEqual(dg._state, 'READY');
 
   cleanupTempDir(dir);
 }
@@ -376,12 +377,58 @@ async function testAnalyzeFileHandlesParserCrash() {
   cleanupTempDir(dir);
 }
 
+async function testGraphStateMachine() {
+  const dir = makeTempDir('wb-dg-state-');
+  fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
+  fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'src', 'a.js'), "export const a = 1;\n", 'utf8');
+
+  const cache = new WorkspaceCache(dir);
+  const dg = new DependencyGraph(dir, cache);
+
+  // Initial state
+  assert.strictEqual(dg._state, 'IDLE', 'Initial state should be IDLE');
+  assert.strictEqual(dg._updating, false, '_updating backward-compat at IDLE');
+
+  await dg.build();
+
+  // After build
+  assert.strictEqual(dg._state, 'READY', 'State after build should be READY');
+  assert.strictEqual(dg._updating, false, '_updating backward-compat at READY');
+
+  cleanupTempDir(dir);
+}
+
+async function testQueryThrowsWhenNotReady() {
+  const dir = makeTempDir('wb-dg-query-');
+  fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
+  fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'src', 'a.js'), "export const a = 1;\n", 'utf8');
+
+  const cache = new WorkspaceCache(dir);
+  const dg = new DependencyGraph(dir, cache);
+
+  // Before build, query should throw
+  let threw = false;
+  try {
+    dg.getDependencies(path.join(dir, 'src', 'a.js'));
+  } catch (e) {
+    threw = true;
+    assert.ok(e.message.includes('not ready'), 'Error should mention not ready: ' + e.message);
+  }
+  assert.strictEqual(threw, true, 'Query should throw when graph not ready');
+
+  cleanupTempDir(dir);
+}
+
 async function main() {
   await testUpdateFilesEmptyArray();
   await testUpdateFilesDeletedFile();
   await testAnalyzeFileHandlesMissingFile();
   await testAnalyzeFileHandlesParserCrash();
   await testReentrantUpdateFiles();
+  await testGraphStateMachine();
+  await testQueryThrowsWhenNotReady();
   await testGetStatsLazyCycles();
   await testVueFrameworkCycleWhitelist();
   await testVueLongCycleWhitelist();

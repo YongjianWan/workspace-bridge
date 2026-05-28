@@ -30,6 +30,23 @@ const {
   KNOWN_CONFIG_NAMES,
   PYTHON_MAIN_PATTERN,
 } = require('./dep-graph/shared');
+
+const DG_STATES = {
+  IDLE: 'IDLE',
+  BUILDING: 'BUILDING',
+  READY: 'READY',
+  UPDATING: 'UPDATING',
+  ERROR: 'ERROR',
+};
+
+const DG_VALID_TRANSITIONS = {
+  [DG_STATES.IDLE]: [DG_STATES.BUILDING, DG_STATES.UPDATING, DG_STATES.READY, DG_STATES.ERROR],
+  [DG_STATES.BUILDING]: [DG_STATES.READY, DG_STATES.ERROR],
+  [DG_STATES.READY]: [DG_STATES.BUILDING, DG_STATES.UPDATING, DG_STATES.IDLE, DG_STATES.ERROR],
+  [DG_STATES.UPDATING]: [DG_STATES.READY, DG_STATES.ERROR],
+  [DG_STATES.ERROR]: [DG_STATES.IDLE, DG_STATES.BUILDING, DG_STATES.UPDATING],
+};
+
 class DependencyGraph {
   /**
    * Fast static factory to build a pre-populated DependencyGraph instance from a schema.
@@ -74,6 +91,9 @@ class DependencyGraph {
       depGraph.projectContext = options.projectContext;
     }
 
+    // O6: fromSchema produces a fully-formed graph — mark ready without build()
+    depGraph._finishBuilding();
+
     return depGraph;
   }
 
@@ -88,6 +108,7 @@ class DependencyGraph {
     this.cliExcludeDirs = options.cliExcludeDirs || [];
     this.projectContext = options.projectContext || null;
     this.quiet = options.quiet || false;
+    this._state = DG_STATES.IDLE;
     this.bus = new EventBus();
     // O4: Builder no longer knows Analyzer. The facade listens to 'graph:built'
     // and coordinates post-build precompute + persistence so Builder stays a
@@ -103,6 +124,14 @@ class DependencyGraph {
     this.query = new GraphQuery(this);
     this.bus.on('graph:updated', () => {
       this._entryFileCache.clear();
+    });
+
+    // O6: backward-compatible _updating getter — state managed by _transition()
+    Object.defineProperty(this, '_updating', {
+      get: () => this._state === DG_STATES.UPDATING,
+      set: () => { /* no-op for backward compat */ },
+      enumerable: false,
+      configurable: true,
     });
   }
 
@@ -123,6 +152,28 @@ class DependencyGraph {
   shouldExcludeCli(filePath) {
     return _shouldExcludeCli(filePath, this.cliExcludeDirs);
   }
+
+  get state() {
+    return this._state;
+  }
+
+  _transition(toState) {
+    const from = this._state;
+    if (from === toState) return;
+    const valid = DG_VALID_TRANSITIONS[from] || [];
+    if (!valid.includes(toState)) {
+      throw new Error(`[DependencyGraph] Invalid transition: ${from} → ${toState}`);
+    }
+    this._state = toState;
+  }
+
+  // O6: lifecycle helpers exposed to builder.js (avoids circular import of DG_STATES)
+  _startBuilding() { this._transition(DG_STATES.BUILDING); }
+  _finishBuilding() { this._transition(DG_STATES.READY); }
+  _startUpdating() { this._transition(DG_STATES.UPDATING); }
+  _finishUpdating() { this._transition(DG_STATES.READY); }
+  _markError() { this._transition(DG_STATES.ERROR); }
+  _resetState() { this._transition(DG_STATES.IDLE); }
 
   normalizeFilePath(filePath) {
     return _normalizeFilePath(filePath, this.root);
@@ -408,6 +459,9 @@ class DependencyGraph {
       console.error(`[DepGraph] Loaded graph from edges: ${this.graph.size} files, ${edges.length} edges`);
     }
 
+    // O6: loaded graph is structurally complete — mark ready
+    this._finishBuilding();
+
     // D7-D8: attempt to load precomputed aggregates + impact from SQLite
     try {
       const aggregateRows = this.cache.loadPrecomputedAggregates();
@@ -599,4 +653,5 @@ module.exports = {
   DependencyGraph,
   GraphBuilder,
   GraphAnalyzer,
+  DG_STATES,
 };

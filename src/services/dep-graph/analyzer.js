@@ -916,13 +916,15 @@ class GraphAnalyzer {
   }
 
   getScopeSummary() {
-    const files = this.dg.cache
-      ? Array.from(this.dg.cache.fileMetadata.keys()).filter((file) => {
-          if (this.dg.shouldExclude(file)) return false;
-          if (this.dg.shouldExcludeCli(file)) return false;
-          return true;
-        })
-      : this.dg.getAllFilePaths();
+    // L1 data-consistency: scope must reflect the actual graph so that
+    // directoryRoles, deadExports, cycles, and unresolved all refer to the
+    // same file set.  Previously we read from cache.fileMetadata, which
+    // kept files that GraphBuilder had filtered out (e.g. benchmark/),
+    // causing directoryRoles to count files absent from the graph.
+    const files = this.dg.getAllFilePaths().filter((file) => {
+      if (this.dg.shouldExcludeCli(file)) return false;
+      return true;
+    });
     if (this.dg.projectContext) {
       return this.dg.projectContext.summarizeFiles(files, (file) => this.dg.getDependents(file).length > 0);
     }

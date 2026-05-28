@@ -185,7 +185,7 @@ class ServiceContainer {
       let gitHead = null;
       try {
         const { execSync } = require('child_process');
-        gitHead = execSync('git rev-parse HEAD', { cwd: this.workspaceRoot, encoding: 'utf8' }).trim();
+        gitHead = execSync('git rev-parse HEAD', { cwd: this.workspaceRoot, encoding: 'utf8', timeout: TIMEOUTS.GIT_SHORT_MS }).trim();
       } catch {
         // Not a git repo or git not available — stale detection falls back to time-based only
       }
@@ -317,6 +317,8 @@ class ServiceContainer {
           if (!this.quiet) {
             console.error(`[Container] ${uniqueFiles.length} files delta (>50% of ${graphSize}), falling back to full build`);
           }
+          // Reset state so the full build can transition from IDLE → BUILDING
+          this._depGraph._resetState();
           await this._depGraph.build(this.fileIndex?._indexedFiles || null);
         } else {
           await this._depGraph.updateFiles(uniqueFiles);
@@ -534,7 +536,7 @@ class ServiceContainer {
     if (cachedHead && this.workspaceRoot) {
       try {
         const { execSync } = require('child_process');
-        const currentHead = execSync('git rev-parse HEAD', { cwd: this.workspaceRoot, encoding: 'utf8' }).trim();
+        const currentHead = execSync('git rev-parse HEAD', { cwd: this.workspaceRoot, encoding: 'utf8', timeout: TIMEOUTS.GIT_SHORT_MS }).trim();
         gitHeadChanged = currentHead !== cachedHead;
       } catch {
         // Non-git repo or git unavailable — keep gitHeadChanged false

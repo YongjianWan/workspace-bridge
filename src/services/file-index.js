@@ -85,15 +85,26 @@ class FileIndex {
       }
     }
 
-    // Phase 2: process with progress
-    if (!this.quiet && allFiles.length > 0) {
-      console.error(`[FileIndex] Discovered ${allFiles.length} files to index`);
+    // Early exit for empty directories to avoid unnecessary downstream work.
+    // Defensive: some environments hang on processFilesWithLimit or git calls
+    // when the file list is empty.
+    if (allFiles.length === 0) {
+      if (!this.quiet) {
+        console.error(`[FileIndex] No files discovered in ${this.root}`);
+      }
     }
+
+    // Phase 2: process with progress
     if (allFiles.length > 0) {
+      if (!this.quiet) {
+        console.error(`[FileIndex] Discovered ${allFiles.length} files to index`);
+      }
       await this.processFilesWithLimit(allFiles, this.concurrency, controller.signal);
     }
 
     // Remove cache entries for files deleted since last build
+    // Always run this even when allFiles is empty so stale cache entries
+    // from previously-deleted files are properly cleaned up.
     await this.pruneDeletedCacheEntries();
 
     // CLI mode does not need long-lived watchers.

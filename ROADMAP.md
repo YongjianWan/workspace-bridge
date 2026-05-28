@@ -501,6 +501,6 @@ CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
 > 本文档不重复维护具体条目；以下仅为高层备忘。
 
 - D6 消除 parseResults/graph 冗余（⏳ 长期）
-- O6 生命周期状态机（⏳ 长期）
+- ~~O6 生命周期状态机~~ ✅ **已完成**（DependencyGraph 状态机 + Query 门控）
 - U3 overview-tools 拆分（⏳ 中等）
 - U7 audit-assembler 拆分（⏳ 中等）

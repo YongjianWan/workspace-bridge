@@ -14,7 +14,7 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **4** | L3 品味问题 **1** | 合计 **5 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **3** | L3 品味问题 **1** | 合计 **4 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
@@ -72,13 +72,6 @@
 2. 剩余空间：`formatter-e2e-test.js`（~45s）和 `cli-integration-test.js`（~22s）是新的头部测试，可考虑进一步拆分或改为非 spawn 测试。
 
 ---
-
-#### Builder/Analyzer/Query 状态机（架构债 — 部分完成）
-
-**剩余**：
-- 明确状态机（`idle -> initializing -> ready -> updating -> ready`）尚未实现，当前仅靠 `_updating` 布尔锁做重入防护。
-- Query 理论上只读快照，但缺少运行时跨状态调用拦截。
-
 
 ## L3 品味问题（建议修，非债务）
 
@@ -504,6 +497,14 @@ Upper-level orchestration behavior was tested across combined and conflicting CL
 ---
 
 ## 🐛 Comprehensive Bug Matrix (37 Issues)
+
+> **状态更新（2026-05-27）**：以下 ID 已在 Dogfood 修复波次中修复，详情见 [CHANGELOG.md](../CHANGELOG.md) [Unreleased]。
+> - **Wave 1（05-26）**：#2, #3, #5, #9, #23 + `validationAdvice` schema 统一、`--format ai` 补全
+> - **Wave 2（05-26）**：#4, #6, #10, #11, #12, #24, #26
+> - **Wave 3（05-26）**：#1, #8, #19, #20, #21, #33
+> - **Wave 5（05-28）**：#13, #14, #16, #17
+>
+> 以下表格保留全部 37 项供追溯；未修复 ID 为 #7, #15, #18, #22, #25, #27, #28, #29, #30, #31, #32, #34, #35, #36, #37。
 
 Below is the definitive, unified checklist of codebase issues. Every bug includes precise **reproduction commands** and **specific file targets** to ensure the engineering team can replicate and resolve them without external lookup.
 
