@@ -5,6 +5,26 @@
  * Provides bulk load/save for cache metadata, file metadata, parse results,
  * symbol index, and diagnostics.
  */
+// Suppress only the experimental sqlite warnings to keep stderr clean
+const defaultListeners = process.listeners('warning');
+let hasWrapped = false;
+for (const listener of defaultListeners) {
+  if (listener.name === 'onWarning') {
+    process.removeListener('warning', listener);
+    process.on('warning', (warning) => {
+      if (warning.name === 'ExperimentalWarning' && warning.message.toLowerCase().includes('sqlite')) return;
+      listener(warning);
+    });
+    hasWrapped = true;
+  }
+}
+if (!hasWrapped) {
+  process.on('warning', (warning) => {
+    if (warning.name === 'ExperimentalWarning' && warning.message.toLowerCase().includes('sqlite')) return;
+    console.warn(warning);
+  });
+}
+
 const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs');
 const path = require('path');
@@ -98,23 +118,19 @@ class GraphDB {
     this.db.exec('PRAGMA mmap_size = 268435456');          // 256MB — memory-map hot pages, reduce read syscalls
     this.db.exec('PRAGMA synchronous = NORMAL');           // WAL mode: NORMAL is crash-safe and faster than FULL
     this.db.exec(SCHEMA);
-
-    // Polyfill better-sqlite3 style transaction wrapper
-    this.db.transaction = (fn) => {
-      return (...args) => {
-        this.db.exec('BEGIN');
-        try {
-          const result = fn(...args);
-          this.db.exec('COMMIT');
-          return result;
-        } catch (err) {
-          this.db.exec('ROLLBACK');
-          throw err;
-        }
-      };
-    };
-
     this._migrate();
+  }
+
+  _executeInTransaction(fn) {
+    this.db.exec('BEGIN');
+    try {
+      const result = fn();
+      this.db.exec('COMMIT');
+      return result;
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
   }
 
   _migrate() {
@@ -253,7 +269,7 @@ class GraphDB {
     try {
       this._ensureOpen();
 
-      const tx = this.db.transaction(() => {
+      this._executeInTransaction(() => {
         // Clear old data
         this.db.prepare('DELETE FROM cache_metadata').run();
         this.db.prepare('DELETE FROM file_metadata').run();
@@ -321,7 +337,6 @@ class GraphDB {
         }
       });
 
-      tx();
       return true;
     } catch (err) {
       if (process.env.DEBUG) {
@@ -352,7 +367,7 @@ class GraphDB {
         return true;
       }
 
-      const tx = this.db.transaction(() => {
+      this._executeInTransaction(() => {
         // 1. Metadata
         const insertMeta = this.db.prepare('INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?, ?)');
         insertMeta.run('version', String(CACHE_VERSION));
@@ -447,8 +462,6 @@ class GraphDB {
           }
         }
       });
-
-      tx();
       return true;
     } catch (err) {
       if (process.env.DEBUG) {
@@ -468,7 +481,7 @@ class GraphDB {
     try {
       this._ensureOpen();
 
-      const tx = this.db.transaction(() => {
+      this._executeInTransaction(() => {
         this.db.prepare('DELETE FROM edges').run();
         const insert = this.db.prepare(
           'INSERT OR REPLACE INTO edges (source, target, edge_type, confidence) VALUES (?, ?, ?, ?)'
@@ -490,7 +503,6 @@ class GraphDB {
         }
       });
 
-      tx();
       return true;
     } catch (err) {
       if (process.env.DEBUG) {
@@ -531,7 +543,7 @@ class GraphDB {
   savePrecomputedAggregates(rows) {
     try {
       this._ensureOpen();
-      const tx = this.db.transaction(() => {
+      this._executeInTransaction(() => {
         this.db.prepare('DELETE FROM precomputed_aggregates').run();
         const insert = this.db.prepare(
           'INSERT INTO precomputed_aggregates (key, data, version, file_count, computed_at) VALUES (?, ?, ?, ?, ?)'
@@ -541,7 +553,6 @@ class GraphDB {
           insert.run(row.key, row.data, row.version ?? 0, row.fileCount ?? 0, now);
         }
       });
-      tx();
       return true;
     } catch (err) {
       if (process.env.DEBUG) {
@@ -583,7 +594,7 @@ class GraphDB {
   savePrecomputedImpact(records) {
     try {
       this._ensureOpen();
-      const tx = this.db.transaction(() => {
+      this._executeInTransaction(() => {
         this.db.prepare('DELETE FROM precomputed_impact').run();
         const insert = this.db.prepare(
           'INSERT INTO precomputed_impact (file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, version) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -600,7 +611,6 @@ class GraphDB {
           );
         }
       });
-      tx();
       return true;
     } catch (err) {
       if (process.env.DEBUG) {
@@ -645,12 +655,11 @@ class GraphDB {
     try {
       this._ensureOpen();
       const stmt = this.db.prepare('DELETE FROM precomputed_impact WHERE file = ?');
-      const tx = this.db.transaction(() => {
+      this._executeInTransaction(() => {
         for (const file of files) {
           stmt.run(file);
         }
       });
-      tx();
       return true;
     } catch (err) {
       if (process.env.DEBUG) {

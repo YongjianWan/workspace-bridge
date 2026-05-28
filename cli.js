@@ -11,9 +11,6 @@
 // before any async fs operation is initiated.
 process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || '16';
 
-// Suppress experimental warnings for built-in modules like node:sqlite
-process.removeAllListeners('warning');
-
 const fs = require('fs');
 const path = require('path');
 const { version } = require('./package.json');
