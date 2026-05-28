@@ -165,6 +165,76 @@ function testAnalyzerInjectPrecomputedCorruptedRow() {
   assert.deepStrictEqual(analyzer._aggregateCache.stats, { files: 1 });
 }
 
+function testAnalyzerRestoreAggregateCache() {
+  const dg = mockDepGraph([
+    ['a.js', { imports: ['b.js'], exports: ['foo'] }],
+    ['b.js', { imports: [], exports: ['bar'] }],
+  ]);
+
+  const analyzer = new GraphAnalyzer(dg);
+  const ok = analyzer.restoreAggregateCache({
+    version: 7,
+    deadExports: [{ file: 'a.js', exports: ['foo'] }],
+    unresolved: [{ file: 'b.js', import: 'c.js' }],
+    cycles: [['a.js', 'b.js']],
+    stats: { files: 2 },
+    hotspots: [{ file: 'a.js', score: 10 }],
+    stability: [{ file: 'b.js', score: 5 }],
+  });
+  assert.strictEqual(ok, true);
+  assert.ok(analyzer._aggregateCache);
+  assert.strictEqual(analyzer._aggregateCache.version, 7);
+  assert.deepStrictEqual(analyzer._aggregateCache.deadExports, [{ file: 'a.js', exports: ['foo'] }]);
+  assert.deepStrictEqual(analyzer._aggregateCache.unresolved, [{ file: 'b.js', import: 'c.js' }]);
+  assert.deepStrictEqual(analyzer._aggregateCache.stats, { files: 2 });
+  assert.deepStrictEqual(analyzer._aggregateCache.hotspots, [{ file: 'a.js', score: 10 }]);
+  assert.deepStrictEqual(analyzer._aggregateCache.stability, [{ file: 'b.js', score: 5 }]);
+  // Cycle cache must stay in sync after restore
+  assert.deepStrictEqual(analyzer._cachedCycles, [['a.js', 'b.js']]);
+  assert.strictEqual(analyzer._cycleCount, 1);
+
+  // Invalid input should be rejected gracefully
+  assert.strictEqual(analyzer.restoreAggregateCache(null), false);
+  assert.strictEqual(analyzer.restoreAggregateCache('string'), false);
+}
+
+function testAnalyzerSetOverviewData() {
+  const dg = mockDepGraph([['a.js', { imports: [], exports: [] }]]);
+  const analyzer = new GraphAnalyzer(dg);
+
+  // When no aggregate cache exists, setOverviewData creates a skeleton
+  analyzer.setOverviewData({ hotspots: [{ file: 'a.js', score: 5 }], stability: [{ file: 'a.js', score: 3 }] });
+  assert.ok(analyzer._aggregateCache);
+  assert.strictEqual(analyzer._aggregateCache.version, analyzer._aggregateVersion);
+  assert.deepStrictEqual(analyzer._aggregateCache.hotspots, [{ file: 'a.js', score: 5 }]);
+  assert.deepStrictEqual(analyzer._aggregateCache.stability, [{ file: 'a.js', score: 3 }]);
+  assert.deepStrictEqual(analyzer._aggregateCache.deadExports, []);
+  assert.deepStrictEqual(analyzer._aggregateCache.cycles, []);
+
+  // When cache exists, only overview fields are updated
+  analyzer._aggregateCache = { version: 3, deadExports: ['x'], unresolved: [], cycles: [], stats: {}, hotspots: null, stability: null };
+  analyzer.setOverviewData({ hotspots: [{ file: 'b.js', score: 9 }] });
+  assert.deepStrictEqual(analyzer._aggregateCache.hotspots, [{ file: 'b.js', score: 9 }]);
+  assert.strictEqual(analyzer._aggregateCache.stability, null);
+  assert.deepStrictEqual(analyzer._aggregateCache.deadExports, ['x']); // preserved
+}
+
+function testFindDeadExportsClearsScanContentCache() {
+  const dg = mockDepGraph([
+    ['a.js', { imports: [], exports: ['foo'] }],
+  ]);
+  const analyzer = new GraphAnalyzer(dg);
+  // Pre-fill the cache as if a prior scan had loaded content
+  analyzer._scanContentCache.set('a.js', 'export const foo = 1;');
+  assert.strictEqual(analyzer._scanContentCache.size, 1);
+
+  // Force recomputation so the loop runs
+  analyzer.findDeadExports({ skipCache: true });
+
+  // Cache must be cleared after findDeadExports returns
+  assert.strictEqual(analyzer._scanContentCache.size, 0, '_scanContentCache should be cleared after findDeadExports');
+}
+
 // --- Run all ---
 
 const tests = [
@@ -173,6 +243,9 @@ const tests = [
   testAnalyzerPrecomputeImpact,
   testAnalyzerInjectPrecomputed,
   testAnalyzerInjectPrecomputedCorruptedRow,
+  testAnalyzerRestoreAggregateCache,
+  testAnalyzerSetOverviewData,
+  testFindDeadExportsClearsScanContentCache,
 ];
 
 let passed = 0;

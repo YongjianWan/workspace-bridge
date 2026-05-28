@@ -1,7 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { saveBaseline, checkRegression, checkRegressionAgainstCommit, DEFAULT_BASELINE_FILE } = require('../src/tools/regression-tools');
+const { saveBaseline, checkRegression, checkRegressionAgainstCommit, DEFAULT_BASELINE_FILE, resolveBaseline } = require('../src/tools/regression-tools');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function testExtractFindings() {
@@ -91,12 +91,41 @@ function testDefaultBaselineFile() {
   assert(DEFAULT_BASELINE_FILE.endsWith('.json'), 'DEFAULT_BASELINE_FILE should end with .json');
 }
 
+function testResolveBaselineRejectsInjection() {
+  // execFileSync uses argument arrays — injection payloads are treated as literal args
+  try {
+    resolveBaseline({ baseline: 'HEAD; echo pwned', cwd: process.cwd() });
+    assert.fail('should have thrown');
+  } catch (e) {
+    assert(
+      e.message.includes('Baseline file not found') || e.message.includes('not a git repository'),
+      'should reject injection safely without executing shell commands'
+    );
+  }
+}
+
+function testCheckRegressionAgainstCommitRejectsInjection() {
+  const current = {
+    schemaVersion: '1.2.0',
+    workspaceRoot: '/test',
+    deadExports: { deadExports: [] },
+    unresolved: { unresolved: [] },
+    cycles: { cycles: [] },
+    health: { checks: {} },
+  };
+  const result = checkRegressionAgainstCommit(current, 'HEAD; echo pwned', process.cwd());
+  assert.strictEqual(result.ok, false, 'should fail safely on injection attempt');
+  assert(result.error.includes('Invalid commit'), 'error should be a validation error, not a shell error');
+}
+
 function main() {
   testExtractFindings();
   testCheckRegressionFixedAndNew();
   testCheckRegressionInvalidBaseline();
   testCheckRegressionMissingFindings();
   testDefaultBaselineFile();
+  testResolveBaselineRejectsInjection();
+  testCheckRegressionAgainstCommitRejectsInjection();
 }
 
 main();

@@ -8,6 +8,34 @@
 
 ## [Unreleased]
 
+### 第三轮深度代码审查修复（架构债务集中清偿 — 2026-05-28）
+
+- **消除 Analyzer 内部结构直接操作** `src/services/dep-graph/analyzer.js` + `src/services/container.js`：
+  - 在 `GraphAnalyzer` 上暴露 `restoreAggregateCache(data)` 和 `setOverviewData({ hotspots, stability })` 正规接口，替代 `container.js` 直接戳 `_aggregateCache` 的内部赋值。
+  - `restoreAggregateCache` 规范化外部持久化数据，保持 `_aggregateVersion` 与 `_aggregateCache` 的 schema 一致性；`setOverviewData` 在 cache 不存在时自动创建完整 schema 的骨架对象。
+  - 提取 `_syncCycleCache(cycles)` 私有方法，消除 `injectPrecomputedAggregates` 与 `restoreAggregateCache` 中的 cycle 同步重复代码（L2-7）。
+  - **测试**：`test/precomputed-roundtrip-test.js` 新增 `testAnalyzerRestoreAggregateCache` 与 `testAnalyzerSetOverviewData`，验证接口语义与 cycle 同步。
+- **REPL 长会话内存泄漏路径封堵** `src/services/dep-graph/analyzer.js`：
+  - 在 `findDeadExports()` 返回前立即 `this._scanContentCache.clear()`，消除 REPL watch 模式下反复调用 dead-exports 不触发文件变更时的内存泄漏（上限 500 文件 × 100KB = 50MB）。
+  - **测试**：`test/precomputed-roundtrip-test.js` 新增 `testFindDeadExportsClearsScanContentCache`，验证 cache 在调用后被清空。
+- **saveIncremental metadata-only dirty 不一致修复** `src/services/graph-db.js`：
+  - `graph-db.js` 的 `saveIncremental()` 将 `metadata` 非空纳入 `hasWork` 计算，确保仅 metadata 变化（version/timestamp 更新）时也能触发写入事务。
+  - 消除 `cache.js` `save()` 中 `dirty=true` 但 dirty sets 全空时 `hasWork=false` 导致 metadata 被跳过的不一致状态。
+  - **测试**：`test/graph-db-test.js` 新增 `testSaveIncrementalMetadataOnly`，验证 metadata-only 更新能正确持久化。
+- **Baseline 解析 fallback 彻底统一** `src/tools/audit-assembler.js` + `src/tools/overview-tools.js`：
+  - 删除 `audit-assembler.js` 与 `overview-tools.js` 中残留的各自 fallback 路径（共 ~30 行 × 2 处），统一为 `regressionTools.resolveBaseline()` 的返回值驱动。
+  - ~~调用方以 try-catch 包裹 `resolveBaseline`~~ → **修正**：移除 try-catch 遮蔽，让 `Baseline file not found` 错误直接传播到 CLI 的 `classifyError` 层，被归类为 `path_error` 并返回 Exit Code `2`，与 `test/regression-test.js` 的断言一致。
+  - 同时修复了之前 `resolveBaseline` 被调用但返回值被丢弃、异常未捕获的隐蔽 bug。
+- **修复 `resolveBaseline` 错误被吞导致 exit code 不匹配** `src/tools/audit-assembler.js` + `src/tools/overview-tools.js` + `cli.js`：
+  - `audit-assembler.js` 与 `overview-tools.js` 原代码在 `--check-regression` 路径中用 try-catch 捕获 `resolveBaseline()` 抛出的 `Baseline file not found`，将其降级为 `result.regression = { ok: false, error }`。
+  - 这导致 `determineExitCode` 将其视为普通业务失败（exit 1），而测试期望的是路径错误（exit 2）。
+  - 移除 try-catch 后，错误自然上浮至 `runCliInProcess` 的 catch 块，`classifyError` 识别消息中的 `"not found"` 并映射为 `path_error`，最终返回 exit code `2`。
+  -  human 模式下输出 `[path_error] Baseline file not found: ...\n→ Check if --cwd or --file paths exist and are accessible.`，JSON 模式下输出 `{ ok: false, error: "...", schemaVersion }`。
+- **修复 spawnSync maxBuffer 不足导致 `status === null`** `test/test-helpers.js`：
+  - `audit-diff` 在本仓库输出约 1MB JSON，超过 Node.js `child_process.spawnSync` 默认 maxBuffer（1MB）。
+  - 超限时子进程被 SIGTERM 杀死，`spawnSync` 返回 `status: null`，导致 `validation-advice-schema-test.js` 断言失败。
+  - 将 `runCli` / `runCliText` / `runCliRaw` 的默认 `maxBuffer` 提升至 `5 * 1024 * 1024`（5MB），并通过 `opts.maxBuffer` 开放覆盖。
+
 ### Wave 7：硬核收尾（Dogfood P2 缺陷集中歼灭 — 2026-05-28）
 
 - **#22: 参数验证错误分类重定向** `cli.js` + `src/cli/commands/_utils.js`：
@@ -34,6 +62,21 @@
   - 两处调用方统一改为 `regressionTools.resolveBaseline(parsed/args)`，彻底消除跨文件重复（L2-7 债务）。
 - **isTestPath 硬编码列表常量化** `src/tools/security-tools.js`：
   - 将 `isTestPath` 中 20+ 个硬编码路径模式提取为 `TEST_PATH_PATTERNS` 常量数组，以 `.some()` 循环替代冗长的 `||` 链（L2-6 裸数字/字符串债务）。
+
+### 第二轮深度代码审查修复（安全 + 状态机 + 性能 + 封装 — 2026-05-28）
+
+- **Command Injection 根治** `src/tools/regression-tools.js`：
+  - 将 3 处裸 `execSync` 字符串拼接（`git rev-parse --verify ${commit}` 与 `git diff --name-only ${commit}...HEAD`）全部替换为 `execFileSync('git', [...args])` 参数数组调用，彻底消除 CLI `--baseline` 参数的命令注入风险。
+  - **测试**：`test/regression-tools-test.js` 新增 `testResolveBaselineRejectsInjection` 与 `testCheckRegressionAgainstCommitRejectsInjection`，验证注入载荷被安全拒绝。
+- **状态机 setter 后门封堵** `src/services/container.js`：
+  - 删除 `initialized` 与 `initializing` 的 setter，消除绕过 `VALID_TRANSITIONS` 直接修改 `_state` 的后门。当前无外部代码调用这两个 setter，属于防御性清理。
+  - **测试**：`test/container-lifecycle-test.js` 新增 `testSetterBackdoorRemoved`，验证赋值无效应且状态不被篡改。
+- **BFS 核心遍历性能优化** `src/services/dep-graph/shared.js`：
+  - 将 `bfsTraverse` 中的 `queue.shift()`（V8 中 O(n)）替换为指针索引 `queue[head++]`，将热路径上的总复杂度从 O(n² × BFS 次数) 降至 O(n × BFS 次数)。语义零变更。
+- **删除死代码** `src/services/dep-graph/builder.js`：
+  - 移除 `updateFiles()` finally 块中多余的第二次 `this.dg._finishUpdating()` 调用（O6 重构残留）。
+- **View 层封装净化** `src/models/workspace-snapshot.js`：
+  - 从 `DependencyGraphView` 中删除 `_scanSymbolUsageInImporters` 的内部方法暴露，保持只读视图不泄露内部实现细节。
 
 ### 文档规范与卫生清理（2026-05-28）
 

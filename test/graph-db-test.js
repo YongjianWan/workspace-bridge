@@ -179,6 +179,49 @@ function testEdgesLoadEmptyReturnsNull() {
   cleanupTempDir(tmpDir);
 }
 
+function testSaveIncrementalMetadataOnly() {
+  const tmpDir = makeTempDir('wb-graphdb-');
+  const dbPath = path.join(tmpDir, 'cache.db');
+  const db = new GraphDB(dbPath);
+
+  // Baseline save with dirty files
+  db.saveIncremental({
+    workspaceRoot: '/test',
+    metadata: { version: '1', timestamp: '1000' },
+    dirtyFiles: [['a.js', { mtime: 1, size: 1, hash: 'h1', lineCount: 1, originalPath: '/test/a.js' }]],
+    deletedFiles: [],
+    dirtyParseResults: [],
+    deletedParseResults: [],
+    dirtySymbols: [],
+    deletedSymbols: [],
+    dirtyDiagnostics: [],
+    deletedDiagnostics: [],
+  });
+
+  // Metadata-only update: all dirty sets are empty but metadata changed
+  const ok = db.saveIncremental({
+    workspaceRoot: '/test',
+    metadata: { version: '2', timestamp: '2000' },
+    dirtyFiles: [],
+    deletedFiles: [],
+    dirtyParseResults: [],
+    deletedParseResults: [],
+    dirtySymbols: [],
+    deletedSymbols: [],
+    dirtyDiagnostics: [],
+    deletedDiagnostics: [],
+  });
+  assert.strictEqual(ok, true, 'metadata-only saveIncremental should succeed');
+
+  const loadedVersion = db.getMetadata('version');
+  assert.strictEqual(loadedVersion, '2', 'version metadata should be updated even with empty dirty sets');
+  const loadedTimestamp = db.getMetadata('timestamp');
+  assert.strictEqual(loadedTimestamp, '2000', 'timestamp metadata should be updated');
+
+  db.close();
+  cleanupTempDir(tmpDir);
+}
+
 function main() {
   testSchemaCreation();
   testRoundTrip();
@@ -187,6 +230,7 @@ function main() {
   testWALFileGenerated();
   testEdgesRoundTrip();
   testEdgesLoadEmptyReturnsNull();
+  testSaveIncrementalMetadataOnly();
 }
 
 main();

@@ -83,16 +83,8 @@ class ServiceContainer {
     return this._state === STATES.READY;
   }
 
-  set initialized(val) {
-    this._state = val ? STATES.READY : STATES.IDLE;
-  }
-
   get initializing() {
     return this._state === STATES.INITIALIZING;
-  }
-
-  set initializing(val) {
-    this._state = val ? STATES.INITIALIZING : STATES.IDLE;
   }
 
   _transition(toState) {
@@ -170,9 +162,8 @@ class ServiceContainer {
       if (loadedAggregate && loadedAggregate.stats?.files === this._depGraph.getFileCount()) {
         // Only fallback to aggregateSummary if loadGraph didn't already inject
         // precomputed aggregates (avoids stale overwrite from dual persistence).
-        if (!this._depGraph.analyzer._aggregateCache) {
-          this._depGraph.analyzer._aggregateCache = loadedAggregate;
-          this._depGraph.analyzer._aggregateVersion = loadedAggregate.version || 0;
+        if (!this._depGraph.analyzer.getAggregateCache()) {
+          this._depGraph.analyzer.restoreAggregateCache(loadedAggregate);
         }
       }
       this._assembleSnapshot();
@@ -398,11 +389,7 @@ class ServiceContainer {
     try {
       const { precomputeHotspotsAndStability } = require('../tools/overview-tools');
       const { hotspots, stability } = await precomputeHotspotsAndStability(this._depGraph);
-      if (!this._depGraph.analyzer._aggregateCache) {
-        this._depGraph.analyzer._aggregateCache = { version: this._depGraph.analyzer._aggregateVersion };
-      }
-      if (hotspots) this._depGraph.analyzer._aggregateCache.hotspots = hotspots;
-      if (stability) this._depGraph.analyzer._aggregateCache.stability = stability;
+      this._depGraph.analyzer.setOverviewData({ hotspots, stability });
     } catch (e) {
       if (process.env.DEBUG) {
         console.error('[Container] Precompute overview failed:', e.message);

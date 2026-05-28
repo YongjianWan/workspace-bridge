@@ -33,10 +33,6 @@ function severityMeetsFilter(itemSeverity, minSeverity) {
 async function assembleSummary(parsed, container) {
   const regressionTools = require('./regression-tools');
 
-  if (parsed.checkRegression) {
-    regressionTools.resolveBaseline(parsed);
-  }
-
   const [health, deadExports, unresolved, cycles] = await Promise.all([
     projectHealth({ cwd: parsed.cwd }, container),
     dependencyGraph({ cwd: parsed.cwd, operation: 'dead_exports' }, container),
@@ -84,19 +80,7 @@ async function assembleSummary(parsed, container) {
   }
 
   if (parsed.checkRegression) {
-    let baselinePath = null;
-    let commitBaseline = null;
-    if (parsed.baseline && typeof parsed.baseline === 'string') {
-      const resolved = path.resolve(parsed.cwd || process.cwd(), parsed.baseline);
-      if (fs.existsSync(resolved)) {
-        baselinePath = resolved;
-      } else {
-        commitBaseline = parsed.baseline;
-      }
-    } else {
-      // Default baseline file resolved against target cwd
-      baselinePath = path.resolve(parsed.cwd || process.cwd(), regressionTools.DEFAULT_BASELINE_FILE);
-    }
+    const { baselinePath, commitBaseline } = regressionTools.resolveBaseline(parsed);
     if (commitBaseline) {
       const regResult = regressionTools.checkRegressionAgainstCommit(result, commitBaseline, parsed.cwd || process.cwd());
       result.regression = { ok: regResult.ok, ...regResult.regression, commit: regResult.commit, error: regResult.error };

@@ -66,7 +66,6 @@ class DependencyGraphView {
   getPageRank(...args) { return this._dg.getPageRank(...args); }
   getScopeSummary(...args) { return this._dg.getScopeSummary(...args); }
   buildWarnings(...args) { return this._dg.buildWarnings(...args); }
-  _scanSymbolUsageInImporters(...args) { return this._dg._scanSymbolUsageInImporters(...args); }
 }
 
 /**

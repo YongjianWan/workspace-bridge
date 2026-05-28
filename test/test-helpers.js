@@ -70,6 +70,7 @@ function runCli(args, opts = {}) {
     encoding: 'utf8',
     timeout: opts.timeout || 90000,
     env: opts.env || process.env,
+    maxBuffer: opts.maxBuffer || 5 * 1024 * 1024,
   });
   assert.strictEqual(
     result.status,
@@ -101,6 +102,7 @@ function runCliText(args, opts = {}) {
     encoding: 'utf8',
     timeout: opts.timeout || 60000,
     env: opts.env || process.env,
+    maxBuffer: opts.maxBuffer || 5 * 1024 * 1024,
   });
   assert.strictEqual(
     result.status,
@@ -124,7 +126,7 @@ function runCliRaw(args, opts = {}) {
     encoding: 'utf8',
     timeout: opts.timeout || 60000,
     env: opts.env || process.env,
-    maxBuffer: opts.maxBuffer,
+    maxBuffer: opts.maxBuffer || 5 * 1024 * 1024,
   });
 }
 

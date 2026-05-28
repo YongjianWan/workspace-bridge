@@ -705,7 +705,6 @@ class GraphBuilder {
       this._buildSymbolRegistry();
 
       // O4: post-build analysis triggered via event, not direct call.
-      this.dg._finishUpdating();
       await this.dg.bus.emitAsync('graph:built');
     }
   }

@@ -37,8 +37,9 @@ function bfsTraverse(startNodes, getNeighbors, options = {}) {
     return arr.reverse();
   }
 
-  while (queue.length > 0) {
-    const { node, depth, pathRef } = queue.shift();
+  let head = 0;
+  while (head < queue.length) {
+    const { node, depth, pathRef } = queue[head++];
     if (visited.has(node) || depth > maxDepth) continue;
     visited.add(node);
 

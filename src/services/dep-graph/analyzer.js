@@ -215,7 +215,11 @@ class GraphAnalyzer {
       hotspots: injected.hotspots || null,
       stability: injected.stability || null,
     };
-    // Sync _cachedCycles so direct consumers don't pay recomputation after loadGraph
+    this._syncCycleCache(cycles);
+    return true;
+  }
+
+  _syncCycleCache(cycles) {
     this._cachedCycles = cycles;
     this._cycleCount = cycles.length;
     this._cycleFiles = new Set();
@@ -224,7 +228,47 @@ class GraphAnalyzer {
         this._cycleFiles.add(this.dg.normalizeFilePath(file));
       }
     }
+  }
+
+  /**
+   * Restore aggregate cache from external persisted source (e.g. cache.loadAggregateSummary).
+   * Normalizes input and keeps internal schema invariants. Container must not
+   * touch _aggregateCache directly — this is the only supported entry point.
+   */
+  restoreAggregateCache(data) {
+    if (!data || typeof data !== 'object') return false;
+    this._aggregateVersion = data.version || 0;
+    this._aggregateCache = {
+      version: this._aggregateVersion,
+      deadExports: data.deadExports || data.dead_export || [],
+      unresolved: data.unresolved || data.unresolved_import || [],
+      cycles: data.cycles || data.cycle || [],
+      stats: data.stats || {},
+      hotspots: data.hotspots !== undefined ? data.hotspots : null,
+      stability: data.stability !== undefined ? data.stability : null,
+    };
+    this._syncCycleCache(this._aggregateCache.cycles);
     return true;
+  }
+
+  /**
+   * Set overview-level data (hotspots/stability) without breaking cache invariants.
+   * Creates a skeleton cache if none exists yet.
+   */
+  setOverviewData({ hotspots, stability } = {}) {
+    if (!this._aggregateCache) {
+      this._aggregateCache = {
+        version: this._aggregateVersion,
+        deadExports: [],
+        unresolved: [],
+        cycles: [],
+        stats: {},
+        hotspots: null,
+        stability: null,
+      };
+    }
+    if (hotspots !== undefined) this._aggregateCache.hotspots = hotspots;
+    if (stability !== undefined) this._aggregateCache.stability = stability;
   }
 
   /**
@@ -777,6 +821,11 @@ class GraphAnalyzer {
         });
       }
     }
+
+    // L1: _scanContentCache holds full file contents (up to 50MB). Clear after
+    // each findDeadExports call so REPL long sessions don't leak memory when
+    // dead-exports is invoked repeatedly without file changes.
+    this._scanContentCache.clear();
 
     return deadExports;
   }

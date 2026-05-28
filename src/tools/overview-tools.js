@@ -16,11 +16,6 @@ const {
 async function buildProjectOverview(args, container) {
   await container.ensureReady();
 
-  if (args?.checkRegression) {
-    const regressionTools = require('./regression-tools');
-    regressionTools.resolveBaseline(args);
-  }
-
   const historyProvider = args?.historyProvider || getFileHistoryRisk;
   const rawData = await assembleOverviewData(args, container, historyProvider);
   if (!rawData.ok) return rawData;
@@ -99,21 +94,8 @@ async function buildProjectOverview(args, container) {
   }
 
   if (args?.checkRegression) {
-    const fs = require('fs');
-    const path = require('path');
     const regressionTools = require('./regression-tools');
-    let baselinePath = null;
-    let commitBaseline = null;
-    if (args.baseline && typeof args.baseline === 'string') {
-      const resolved = path.resolve(args.cwd || process.cwd(), args.baseline);
-      if (fs.existsSync(resolved)) {
-        baselinePath = resolved;
-      } else {
-        commitBaseline = args.baseline;
-      }
-    } else {
-      baselinePath = path.resolve(args.cwd || process.cwd(), regressionTools.DEFAULT_BASELINE_FILE);
-    }
+    const { baselinePath, commitBaseline } = regressionTools.resolveBaseline(args);
     if (commitBaseline) {
       const regResult = regressionTools.checkRegressionAgainstCommit(result, commitBaseline, args.cwd || process.cwd());
       result.regression = { ok: regResult.ok, ...regResult.regression, commit: regResult.commit, error: regResult.error };

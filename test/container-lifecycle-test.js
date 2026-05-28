@@ -106,6 +106,20 @@ async function testStateConvergesAfterShutdown() {
   cleanupTempDir(dir);
 }
 
+function testSetterBackdoorRemoved() {
+  const container = new ServiceContainer();
+  // Setters were removed — in non-strict mode assignment to a getter-only property is a no-op.
+  assert.strictEqual(container.initialized, false);
+  container.initialized = true;
+  assert.strictEqual(container.initialized, false, 'initialized setter backdoor must be removed');
+  assert.strictEqual(container.state, STATES.IDLE, 'state must not be bypassed by setter');
+
+  assert.strictEqual(container.initializing, false);
+  container.initializing = true;
+  assert.strictEqual(container.initializing, false, 'initializing setter backdoor must be removed');
+  assert.strictEqual(container.state, STATES.IDLE, 'state must not be bypassed by setter');
+}
+
 async function main() {
   await testInitializeCreatesServices();
   await testShutdownSetsInitError();
@@ -114,6 +128,7 @@ async function main() {
   await testEnsureReadyPassesWhenInitialized();
   await testInvalidTransitionThrows();
   await testStateConvergesAfterShutdown();
+  testSetterBackdoorRemoved();
 
 }
 

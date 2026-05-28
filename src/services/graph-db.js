@@ -330,7 +330,8 @@ class GraphDB {
         (data.deletedSymbols && data.deletedSymbols.length > 0) ||
         (data.dirtySymbols && data.dirtySymbols.length > 0) ||
         (data.deletedDiagnostics && data.deletedDiagnostics.length > 0) ||
-        (data.dirtyDiagnostics && data.dirtyDiagnostics.length > 0);
+        (data.dirtyDiagnostics && data.dirtyDiagnostics.length > 0) ||
+        (data.metadata && Object.keys(data.metadata).length > 0);
       if (!hasWork) {
         return true;
       }
