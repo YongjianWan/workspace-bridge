@@ -4,9 +4,37 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-**版本导航**：[Unreleased](#unreleased) · [1.2.0](#120---2026-05-18) · [1.1.1](#111---2026-05-08) · [1.1.0](#110---2026-05-06) · [1.0.4](#104---2026-05-05) · [1.0.2](#102---2026-05-03) · [1.0.1](#101---2026-05-03) · [1.0.0](#100---2026-05-02) · [0.9.14](#0914---2026-05-02) · [0.9.13](#0913---2026-05-02) · [0.9.12](#0912---2026-05-01) · [0.9.11](#0911---2026-05-01) · [0.9.0](#090---2026-04-29) · [0.8.2](#082---2026-04-28) · [0.8.0](#080---2026-04-03) · [0.6.0](#060---2026-03-27) · [0.5.1](#051---2026-03-27) · [0.5.0](#050---2026-03-26)
+**版本导航**：[Unreleased](#unreleased) · [1.2.1](#121---2026-05-28) · [1.2.0](#120---2026-05-18) · [1.1.1](#111---2026-05-08) · [1.1.0](#110---2026-05-06) · [1.0.4](#104---2026-05-05) · [1.0.2](#102---2026-05-03) · [1.0.1](#101---2026-05-03) · [1.0.0](#100---2026-05-02) · [0.9.14](#0914---2026-05-02) · [0.9.13](#0913---2026-05-02) · [0.9.12](#0912---2026-05-01) · [0.9.11](#0911---2026-05-01) · [0.9.0](#090---2026-04-29) · [0.8.2](#082---2026-04-28) · [0.8.0](#080---2026-04-03) · [0.6.0](#060---2026-03-27) · [0.5.1](#051---2026-03-27) · [0.5.0](#050---2026-03-26)
 
 ## [Unreleased]
+
+## [1.2.1] - 2026-05-28
+
+### 致命回归修复与 Dogfood 陷阱清理（2026-05-28）
+
+- **修复 `GraphAnalyzer` API 承诺与实现不一致导致的 CLI 启动崩溃** `src/services/dep-graph/analyzer.js`：
+  - 上一轮 commit 宣称暴露 `restoreAggregateCache` / `setOverviewData` / `getAggregateCache` / `clearScanCaches` 四个接口，但代码中只实现了前两个。
+  - `container.js` 初始化路径调用 `this._depGraph.analyzer.getAggregateCache()` 时抛出 `TypeError`，导致任何需要容器初始化的命令（包括 `audit-overview`/`audit-summary` 等全部 L1 命令）启动即崩。
+  - 补回 `getAggregateCache()`（返回 `this._aggregateCache`）与 `clearScanCaches()`（清空 `_scanContentCache` + `_scanPatternCache`），恢复 CLI 可用性。
+- **Dogfood 活跃陷阱确认修复并归档**（复现验证已全部通过，从活跃文档中清理）：
+  - **Pitfall 4: 空文件 severity escalation** — `audit-file --file empty.js` 不再返回 `severity: high` 与 34 条 mention 误报，现为 `severity: low` / `affectedTests: 0`。
+  - **Structural 1: `validationAdvice` schema 不一致** — `audit-file` 与 `audit-diff` 的 `commands` 已统一为 grouped object `{ smoke, focused, full }`，不再出现 flat array vs grouped object 的双套解析逻辑。
+  - **Structural 3: REPL `--eval --json` 文本包裹** — `result` 字段现已直接返回结构化 JSON object，不再将对象序列化为字符串后二次嵌套。
+  - **Structural 5: `--format ai` 丢失关键字段** — `audit-file --format ai` 现已完整携带 `validationAdvice`（含 commands/phases/suggestedCommand）。
+  - **`stats` Markdown `[object Object]` 输出** — Markdown formatter 现已正确展开对象字段（如 `analysisCoverage` / `fileRoles`），不再打印原始 `[object Object]`。
+
+### diagnostics / debug 修复（2026-05-28）
+
+- **diagnostics `--mode full` 超时与空转修复** `src/tools/workspace-tools.js` + `src/utils/command.js`：
+  - `runDiagnostics` 中 `mode === 'full'` 时不再走 `container.cache` 缓存路径，确保 full 模式始终执行实际检查，不再被旧缓存短路为 `checksRun: 0`。
+  - 每个 check 包装 `Promise.race([runPromise, gracePromise])` + `runPromise.catch(() => {}).finally(clearTimeout)`，防止 Windows 上 `cmd.exe` 子进程杀不死导致的无限 hang。
+  - 失败的 check（包括超时、grace timeout、命令 crash）现在全部纳入 `results` 数组，消费者能看到 `checksRun >= 1` 和明确的 `failedChecks`，而不是沉默的 0。
+  - `runCommandSecure` 超时后主动 `child.stdout.destroy()` / `child.stderr.destroy()` 释放管道，并同时监听 `exit` + `close` 事件，确保 Windows 子进程树场景下 Promise 必定 resolve。
+  - **测试**：`test/diagnostics-cache-test.js` 新增 `testDiagnosticsFailedCheckIncludedInResults`，验证 rejected check 被正确归档到结果中。
+- **`debug --what graph` 支持** `src/cli/commands/debug.js` + `cli.js`：
+  - 新增 `graph` 分支，输出依赖图统计信息（`fileCount`、`edgeCount`、`sampleFiles`）。
+  - `cli.js` help 文本同步更新。
+  - **测试**：`test/cli-integration-test.js` 新增 `testDebugGraph`。
 
 ### 第三轮深度代码审查修复（架构债务集中清偿 — 2026-05-28）
 

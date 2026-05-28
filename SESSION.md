@@ -38,7 +38,7 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 基线状态
 
 - 测试：**受影响测试全部 PASS**；`npm run test:fast` **83/83 PASS**（~20s）。全量 runner **160/160 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~20s）或 `npm run test:smoke`（~54s）。当前 fast 层 83 个测试，slow 层 70 个，serial 层 7 个。
-- 版本：**v1.2.0**（以 `package.json` 为准）
+- 版本：**v1.2.1**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~296 文件（entry=1, mainline=137, test=157）
 - 结构性指标：deadExports=0，cycles=0，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 按实际分布
@@ -102,6 +102,10 @@ node cli.js audit-overview --cwd . --json --quiet
   - 深度清理 `docs/TECH_DEBT.md`，彻底移除已修复的 29 项 Dogfood 缺陷详情与草案，物理精简为仅包含 8 项活跃的 P2 级体验缺陷，历史已修复信息全部交由 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] 追溯。
   - 深度清理 `SESSION.md`，删除已完成的 Wave 1-6 长表与验收标准等冗余细节，保持会话指南的紧凑性与行动导向。
   - 回归跑通基线命令，确认系统完好。
+- **致命回归修复与 Dogfood 陷阱归档（2026-05-28）**：
+  - 修复上一轮 commit 中 `GraphAnalyzer` API 承诺与实现不一致（`getAggregateCache` / `clearScanCaches` 缺失），导致 CLI 启动崩溃的致命回归。
+  - 复现验证并归档 5 个已修复的 Dogfood 陷阱：空文件 severity 误报（Pitfall 4）、`--format ai` 丢失 validationAdvice（Structural 5）、validationAdvice schema 不一致（Structural 1）、REPL `--eval --json` 文本包裹（Structural 3）、stats Markdown `[object Object]` 输出。
+  - 同步清理 `TECH_DEBT.md` 中上述已修复陷阱的活跃记录，更新 Redundant/Broken Tier 状态。
 
 ---
 
@@ -119,7 +123,7 @@ node cli.js audit-overview --cwd . --json --quiet
 | -------------- | ----------- | ---------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
-| 活跃债务与品味     | 8           | 弱断言 / 测试类型失衡 / slow 层过重 / `--json` 嵌套深 / `_precomputeOverview` 直接操作 Analyzer 内部 / `_scanContentCache` REPL 内存泄漏 / `saveIncremental` metadata-only dirty 不一致 / baseline 解析 fallback 重复 |
+| 活跃债务与品味     | 5           | 弱断言 ~10 处（`typeof` 型 schema 契约检查）/ 测试类型失衡（单元 ~77%，集成 ~20%，端到端 ~3%）/ slow 层过重（e2e-gitnexus ~23s）/ `--json` 嵌套深 / baseline 解析 fallback 路径仍有重复 |
 | **产品债务** | **0** | —                                                                  |
 
 **测试状态**：`npm run test:fast` **83/83 PASS**（~20s）。全量 runner **160/160 PASS**（~5min）。当前 fast 层 83 个测试，slow 层 70 个，serial 层 7 个。
@@ -128,13 +132,16 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 下一步方向：待确定
 
-> **Dogfood 修复波次状态**：Wave 1/2/3/4/5/6/7 全部完成，37 项问题中 29 项已在波次中修复并沉淀，无活跃高危 Blockers。
+> **Dogfood 修复波次状态**：Wave 1/2/3/4/5/6/7 全部完成，37 项问题中 34 项已确认修复并归档（含本轮复实验证的 5 个非编号陷阱），无活跃高危 Blockers。
 >
 > 历史具体的各波次方案及验收标准已物理归档，详情请直接查阅 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ### 当前会话后续动作
-1. 文档卫生清理已高标准完成。
-2. 保持现状，等待后续新需求或探索长期方向（如 ROADMAP 中长期的 D6 / 新技术栈支持等）。
+1. 文档卫生清理与回归修复已完成。
+2. **仍活跃的真问题**（2 项）：
+   - `diagnostics --mode full` 超时卡死（`buildChecks()` 无 linter 发现超时守卫）
+   - `debug --what graph` 不支持（仅支持 `symbols`）
+3. 保持现状，等待后续新需求或探索长期方向（如 ROADMAP 中长期的 D6 / 新技术栈支持等）。
 
 ---
 
@@ -160,7 +167,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-28（Wave 1-7 全部完成；29/37 Dogfood 已修复；活跃债务 4 项，8 个 P2 级活跃 Bug；85/85 fast 测试全绿）*
+*Last updated: 2026-05-28（Wave 1-7 全部完成；34/37 Dogfood 已修复；活跃债务 5 项，8 个 P2 级活跃 Bug；83/83 fast 测试全绿）*
 
 > **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 error / cycles / dead-exports，自身库全量覆盖率 1.00。
 > **本轮完成**：已根据 Agent 认知与文档规范，完全同步 `REFACTOR-2026-05-data-orchestration-output.md`，将已交付的 O6（生命周期状态机）标记为已解决，并将未完成项总数更新为 1（仅剩长期 D6）。
