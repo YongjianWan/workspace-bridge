@@ -271,6 +271,15 @@ class GraphAnalyzer {
     if (stability !== undefined) this._aggregateCache.stability = stability;
   }
 
+  getAggregateCache() {
+    return this._aggregateCache;
+  }
+
+  clearScanCaches() {
+    this._scanContentCache.clear();
+    this._scanPatternCache.clear();
+  }
+
   /**
    * D7: Inject precomputed impact from SQLite loadGraph fast path.
    */

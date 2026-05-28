@@ -275,8 +275,8 @@ async function runDiagnostics(args, container) {
   const timeoutMs = Number.isFinite(args?.timeoutMs) ? args.timeoutMs : TIMEOUTS.DIAGNOSTICS_TOTAL_MS;
   const maxDiagnostics = Number.isFinite(args?.maxDiagnostics) ? Math.max(1, Math.floor(args.maxDiagnostics)) : 300;
 
-  // Use container cache if available
-  if (container?.cache) {
+  // Use container cache only in quick mode; full mode should always run checks.
+  if (container?.cache && mode !== 'full') {
     const cached = container.cache.getWorkspaceInfo();
     if (cached) {
       const hasEntries = typeof container.cache.hasDiagnosticEntries === 'function'
@@ -310,56 +310,90 @@ async function runDiagnostics(args, container) {
   ]);
   const { checks, noLintersDetected } = buildChecksResult;
 
+  const KILL_GRACE_MS = 10000;
   const checkResults = await Promise.allSettled(
     checks.map(async (check) => {
       const checkTimeout = check.timeout || timeoutMs;
       let result;
 
-      // Execute based on command type
-      if (check.cmd === 'npm') {
-        result = await runCommandSecure('npm', check.args, workspace.root, checkTimeout);
-      } else if (check.cmd === 'npx') {
-        result = await runNpx(check.args[0], check.args.slice(1), workspace.root, checkTimeout);
-      } else if (check.cmd === 'python' || check.cmd === 'python3') {
-        // Python module execution
-        result = await runCommandSecure(check.cmd, check.args, workspace.root, checkTimeout);
-      } else {
-        // Generic command execution
-        result = await runCommandSecure(check.cmd, check.args, workspace.root, checkTimeout);
-      }
+      const runPromise = (async () => {
+        // Execute based on command type
+        if (check.cmd === 'npm') {
+          result = await runCommandSecure('npm', check.args, workspace.root, checkTimeout);
+        } else if (check.cmd === 'npx') {
+          result = await runNpx(check.args[0], check.args.slice(1), workspace.root, checkTimeout);
+        } else if (check.cmd === 'python' || check.cmd === 'python3') {
+          // Python module execution
+          result = await runCommandSecure(check.cmd, check.args, workspace.root, checkTimeout);
+        } else {
+          // Generic command execution
+          result = await runCommandSecure(check.cmd, check.args, workspace.root, checkTimeout);
+        }
 
-      const parsed = uniqueDiagnostics([
-        ...parseDiagnosticsFromText(result.stderr, workspace.root, check.name),
-        ...parseDiagnosticsFromText(result.stdout, workspace.root, check.name),
-      ]);
+        const parsed = uniqueDiagnostics([
+          ...parseDiagnosticsFromText(result.stderr, workspace.root, check.name),
+          ...parseDiagnosticsFromText(result.stdout, workspace.root, check.name),
+        ]);
 
-      return {
-        entry: {
-          name: check.name,
-          ok: result.ok,
-          exitCode: result.exitCode,
-          command: `${check.cmd} ${check.args.join(' ')}`,
-          diagnosticsCount: parsed.length,
-          diagnostics: parsed,
-          stdout: trimOutput(result.stdout),
-          stderr: trimOutput(result.stderr),
-        },
-        parsed,
-      };
+        return {
+          entry: {
+            name: check.name,
+            ok: result.ok,
+            exitCode: result.exitCode,
+            command: `${check.cmd} ${check.args.join(' ')}`,
+            diagnosticsCount: parsed.length,
+            diagnostics: parsed,
+            stdout: trimOutput(result.stdout),
+            stderr: trimOutput(result.stderr),
+          },
+          parsed,
+        };
+      })();
+
+      // Windows safeguard: if cmd.exe child processes survive SIGTERM,
+      // force-reject after a grace period so Promise.allSettled doesn't hang forever.
+      let graceTimer;
+      const gracePromise = new Promise((_, reject) => {
+        graceTimer = setTimeout(
+          () => reject(new Error(`check grace timeout after ${checkTimeout + KILL_GRACE_MS}ms`)),
+          checkTimeout + KILL_GRACE_MS,
+        );
+      });
+
+      runPromise.catch(() => {}).finally(() => clearTimeout(graceTimer));
+      return Promise.race([runPromise, gracePromise]);
     })
   );
 
   // Handle both fulfilled and rejected promises
   const fulfilled = checkResults.filter(r => r.status === 'fulfilled').map(r => r.value);
   const rejected = checkResults.filter(r => r.status === 'rejected');
-  
+
   rejected.forEach(r => {
     console.error('[run_diagnostics] Check failed:', r.reason);
   });
 
   const allDiagnostics = fulfilled.flatMap(r => r.parsed);
   const diagnostics = uniqueDiagnostics(allDiagnostics).slice(0, maxDiagnostics);
-  const results = fulfilled.map(r => r.entry);
+
+  // Include rejected checks in results so consumers see timeouts/failures (not silent 0 checksRun)
+  const results = checkResults.map((r, i) => {
+    if (r.status === 'fulfilled') {
+      return r.value.entry;
+    }
+    const check = checks[i];
+    return {
+      name: check?.name || 'unknown',
+      ok: false,
+      exitCode: null,
+      command: check ? `${check.cmd} ${check.args.join(' ')}` : 'unknown',
+      diagnosticsCount: 0,
+      diagnostics: [],
+      stdout: '',
+      stderr: r.reason?.message || String(r.reason),
+      error: r.reason?.message || String(r.reason),
+    };
+  });
 
   const diagnosticsSummary = noLintersDetected
     ? { total: null, error: null, warning: null, information: null, hint: null, noLintersDetected: true }

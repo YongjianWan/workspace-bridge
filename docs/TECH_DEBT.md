@@ -262,25 +262,7 @@ node cli.js workspace-info --cwd reference --quiet
 # Note: Instead of locking to reference/, it traverses up and targets the entire repo.
 ```
 
-### 🚨 Pitfall 4: Empty File severity escalation
-- **Behavior**: Analyzing a 0-byte file (e.g., `empty.js`) returns `severity: high` and triggers **34 affected tests**.
-- **Impact**: This happens because the filename stem matching heuristic (`mention`) matches common test filenames. The AI will assume this empty file is core infrastructure and execute 34 irrelevant tests.
-- **Verification Evidence**:
-```bash
-node cli.js audit-file --file empty.js --json --quiet
-# -> Output payload:
-# {
-#   "severity": "high",
-#   "affectedTestsCount": 34,
-#   "affectedTests": [
-#     {"file":"test/analysis-test.js","distance":6,"source":"mention","via":["mention:stem"]},
-#     {"file":"test/phase01-quality-test.js","distance":6,"source":"mention","via":["mention:stem"]}
-#     // 32 additional mention heuristics triggered purely by stem overlaps
-#   ]
-# }
-```
-
-### 🚨 Pitfall 5: `--check-regression` is Structural Only
+### 🚨 Pitfall 4: `--check-regression` is Structural Only
 - **Behavior**: This command only compares **structural index counts** (unresolved imports, dead exports count, and cycles). It does *not* compare actual code lines or content diffs.
 - **Impact**: The AI may assume no regression occurred because the metric counts are identical, even though files have changed internally.
 
@@ -292,43 +274,7 @@ node cli.js audit-file --file empty.js --json --quiet
 
 ## 🚨 Structural Inconsistencies & Data Omissions (AI Deep Dive)
 
-### 1. `validationAdvice` Schema Discrepancy
-AI agents must parse different schemas for the same `validationAdvice` entity depending on whether they ran `audit-file` or `audit-diff`.
-
-**`audit-file --json` Payload Structure:**
-```json
-"validationAdvice": {
-  "changeType": "code",
-  "stackProfile": "node-first",
-  "commandCount": 1,
-  "commands": [
-    {"name": "node-all-tests", "command": "npm run test", "tags": []} // Flat Array
-  ],
-  "suggestedCommand": "npm run test",
-  "phases": null, // MISSING / NULL
-  "fileSpecificAdvice": []
-}
-```
-
-**`audit-diff --json` Payload Structure:**
-```json
-"validationAdvice": {
-  "changeType": "docs",
-  "commands": {
-    "smoke": ["git diff --check"], // Grouped Object mapping
-    "focused": [],
-    "full": []
-  },
-  "phases": [
-    {"phase": "smoke", "description": "Quick sanity check", "commands": ["git diff --check"]} // Phase array exists
-  ],
-  "suggestedCommand": "git diff --check",
-  "topRiskActions": [],
-  "summary": "No production code changes detected."
-}
-```
-
-### 2. `symbolImpact` Dependency Omissions
+### 1. `symbolImpact` Dependency Omissions
 Precision graph calculations miss specific dependencies when importing multiple destructured symbols.
 
 ```json
@@ -346,17 +292,7 @@ Precision graph calculations miss specific dependencies when importing multiple 
 }
 ```
 
-### 3. REPL JSON Text-Wrapping Wrapper
-Standard JSON parsing libraries crash when calling `repl --eval` with the `--json` option because structural data is stringified and nested:
-```json
-{
-  "ok": true,
-  "result": "impactCount: 16\n  level-1: C:\\Users\\sdses\\Desktop\\随机小项目\\workspace-bridge\\src\\services\\container.js\n  level-2: test\\functionality-test.js"
-}
-// Expectation: {"ok": true, "result": {"impactCount": 16, "impact": [...]}}
-```
-
-### 4. `audit-security` Rule ID vs Rule Name Mismatch
+### 2. `audit-security` Rule ID vs Rule Name Mismatch
 Markdown output formats rules as `js-hardcoded-secret`, but JSON serializes it as `ruleId` with `rule` set to `undefined`:
 ```json
 {
@@ -365,32 +301,6 @@ Markdown output formats rules as `js-hardcoded-secret`, but JSON serializes it a
   "message": "Possible hardcoded secret"
 }
 ```
-
-### 5. `--format ai` Loses Critical Decision Fields
-
-SKILL.md recommends `--format ai` for `audit-summary`, but on `audit-file` and `audit-diff` it strips data essential for pre-change evaluation.
-
-**`--format ai` payload** (missing fields):
-```json
-{"ok":true,"schemaVersion":"1.2.0","command":"audit-file","severity":"high",
- "counts":{"impact":16,"affectedTests":18},"summary":{...},
- "confidence":{...},"topRisks":[...],"actions":[{"priority":"P0","action":"Run 18 affected test(s)"}],
- "riskFiles":[]}
-```
-- ❌ No `validationAdvice`
-- ❌ No `impact.impact[]` detailed list
-- ❌ No `affectedTests.affectedTests[]` detailed list
-
-**`--json` payload** (complete):
-```json
-{"ok":true,"file":"...","summary":{...},"validationAdvice":{...},
- "impact":{"impactCount":16,"impact":[...]},"affectedTests":{...}}
-```
-- ✅ Full `validationAdvice.commands`
-- ✅ `impact.impact[]` with level/via/importedSymbols/reason
-- ✅ `affectedTests.affectedTests[]` with distance/source/via
-
-**Impact**: AI using `--format ai` for change-impact assessment cannot determine which tests to run or what validation commands to execute.
 
 ---
 
@@ -441,20 +351,18 @@ These are fully covered by L1 workflows or tree commands, but useful for raw gra
 - **`impact` & `affected-tests`**: Fully redundant; `audit-file --json` already includes both outputs along with validation advice.
 - **`dead-exports`, `unresolved`, `cycles`**: Redundant; `audit-overview` aggregates their counts and details.
 - **`dependencies`, `dependents`**: Redundant; `tree --direction imports/dependents` provides hierarchal context instead of flat lists.
-- **`repl --eval`**: Crucial for large repos, but lacks `tree` and outputs poor JSON formatting.
+- **`repl --eval`**: Crucial for large repos, but lacks `tree` command support in REPL mode. JSON formatting has been fixed.
 - **`tree`**: Excellent for hierarchical layout, but missing from REPL mode.
 - **`audit-security --builtin-only`**: Basic regex match ruleset, best combined with an external static analyzer.
 
-### 🔴 Redundant or Broken Tier: Candidates for Deprecation (5 Commands)
+### 🔴 Redundant or Broken Tier: Candidates for Deprecation (4 Commands)
 These commands are obsolete, empty, structurally broken, or absorbed by other commands:
 1. **`audit-summary`**: **Absorbed by `audit-overview`.**
    - *Evidence*: `health` checklist（文件存在性检查：README/LICENSE/.gitignore/Dockerfile）对 AI 决策零贡献。`audit-overview` 已覆盖 `deadExports`/`unresolved`/`cycles` + 新增 `hotspots`/`knowledgeRisk`/`orphans`/`languageSupport`。保留为兼容层，1 个版本后移除。
 2. **`health`**: Obsolete.
    - *Evidence*: Aggregates identical data to `audit-summary --health-only`. Both commands deprecated in favor of `audit-overview`.
-3. **`stats`**: Markdown output is completely broken.
-   - *Evidence*: `node cli.js stats --cwd . --quiet` prints raw unstringified objects like `analysisCoverage: [object Object]` and `fileRoles: [object Object]`.
-4. **`diagnostics`**: Runs dry without executing checks.
-   - *Evidence*: `node cli.js diagnostics --cwd . --mode full --quiet` outputs `checksRun: 0, failedChecks: none, diagnostics: 0`, performing absolutely zero meaningful auditing.
+3. **`diagnostics`**: `--mode full` hangs indefinitely on linter discovery; `--mode quick` works but only runs `git status`.
+   - *Evidence*: `node cli.js diagnostics --cwd . --mode full --quiet` times out after 120s without returning. `checksRun` is unreliable in full mode due to `buildChecks()` lacking timeout guards on individual linter discovery.
 4. **`debug --what symbols`**: Always returns zero unless custom symbols exist.
    - *Evidence*: `node cli.js debug --cwd . --what symbols --quiet` yields `symbolCount: 0, fileCount: 0`, and running `--what graph` immediately crashes with `Supported: symbols`.
 

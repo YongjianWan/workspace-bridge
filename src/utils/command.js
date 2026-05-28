@@ -73,10 +73,36 @@ function runCommandSecure(command, args, cwd, timeoutMs = TIMEOUTS.COMMAND_DEFAU
     let stdout = '';
     let stderr = '';
     let killed = false;
+    let resolved = false;
+    const doResolve = (value) => {
+      if (!resolved) {
+        resolved = true;
+        resolve(value);
+      }
+    };
+
+    const onFinish = (code, signal) => {
+      clearTimeout(timer);
+      const exitCode = killed ? 124 : (code !== null ? code : 1);
+      doResolve({
+        ok: exitCode === 0,
+        command: `${spawnCommand} ${spawnArgs.join(' ')}`,
+        exitCode,
+        stdout: stdout || '',
+        stderr: stderr || '',
+        timedOut: killed,
+        signal,
+      });
+    };
 
     const timer = setTimeout(() => {
       killed = true;
       child.kill('SIGTERM');
+      // Windows safeguard: destroy stdio streams to release pipes held by
+      // surviving child processes (e.g. cmd.exe grandchildren), ensuring
+      // the 'close' event fires and the Promise resolves.
+      child.stdout.destroy();
+      child.stderr.destroy();
     }, timeoutMs);
 
     child.stdout.on('data', (data) => {
@@ -98,23 +124,12 @@ function runCommandSecure(command, args, cwd, timeoutMs = TIMEOUTS.COMMAND_DEFAU
       }
     });
 
-    child.on('close', (code, signal) => {
-      clearTimeout(timer);
-      const exitCode = killed ? 124 : (code !== null ? code : 1);
-      resolve({
-        ok: exitCode === 0,
-        command: `${spawnCommand} ${spawnArgs.join(' ')}`,
-        exitCode,
-        stdout: stdout || '',
-        stderr: stderr || '',
-        timedOut: killed,
-        signal,
-      });
-    });
+    child.on('close', onFinish);
+    child.on('exit', onFinish);
 
     child.on('error', (err) => {
       clearTimeout(timer);
-      resolve({
+      doResolve({
         ok: false,
         command: `${spawnCommand} ${spawnArgs.join(' ')}`,
         exitCode: 1,

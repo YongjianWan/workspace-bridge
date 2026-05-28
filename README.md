@@ -10,7 +10,7 @@
 
 ```bash
 npm install -g workspace-bridge
-workspace-bridge-cli audit-summary --cwd . --json --quiet
+workspace-bridge-cli audit-overview --cwd . --json --quiet
 ```
 
 ### 本地使用
@@ -19,7 +19,7 @@ workspace-bridge-cli audit-summary --cwd . --json --quiet
 git clone <repo>
 cd workspace-bridge
 npm install
-node cli.js audit-summary --cwd . --json --quiet
+node cli.js audit-overview --cwd . --json --quiet
 ```
 
 可选诊断工具：
@@ -31,15 +31,14 @@ npm install -g eslint typescript # Node
 ## 核心命令
 
 ```bash
-node cli.js audit-summary --cwd .    # 整体健康度
-node cli.js audit-file --file <path> # 单文件影响
-node cli.js audit-diff --cwd .                       # 当前 git 变更 + 验证建议
-node cli.js audit-diff --cwd . --commits HEAD~5..HEAD  # 指定 commit range
-node cli.js audit-overview --cwd .   # 项目全景（热区、孤儿文件）
-node cli.js audit-map --cwd .        # 全局项目地图（大项目加 --compact）
-node cli.js watch --cwd .            # 文件保存自动打印影响面
+node cli.js audit-overview --cwd .   # 项目全景与整体健康度（热区、孤儿文件、死代码、循环依赖等）
+node cli.js audit-file --file <path> # 单文件影响评估与验证建议
+node cli.js audit-diff --cwd .                       # 当前 git 变更分析 + 验证建议
+node cli.js audit-diff --cwd . --commits HEAD~5..HEAD  # 指定 commit range 变更分析
+node cli.js audit-map --cwd .        # 全局项目依赖地图（大项目建议加 --compact）
+node cli.js watch --cwd .            # 文件保存时自动打印变更影响面
 node cli.js repl --cwd .             # REPL 交互查询模式
-node cli.js repl --cwd . --eval "impact src/app.js"  # 非交互单命令（AI/CI 可用）
+node cli.js repl --cwd . --eval "impact src/app.js"  # 非交互单命令（AI/CI 批量调用高效复用内存图）
 ```
 
 完整命令列表、参数说明与 `.workspace-bridge.json` 配置见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)。

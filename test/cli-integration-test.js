@@ -319,6 +319,15 @@ function testWasmFailureFallback() {
   }
 }
 
+function testDebugGraph() {
+  const result = runCli(['debug', '--what', 'graph', '--json', '--quiet']);
+  assert.strictEqual(result.ok, true, 'debug --what graph should return ok');
+  assert.strictEqual(result.what, 'graph', 'what should be graph');
+  assert(Number.isFinite(result.fileCount) && result.fileCount > 0, 'graph should return positive fileCount');
+  assert(Number.isFinite(result.edgeCount) && result.edgeCount >= 0, 'graph should return non-negative edgeCount');
+  assert(Array.isArray(result.sampleFiles), 'graph should return sampleFiles array');
+}
+
 function main() {
   testAuditFileDeep();
   testAuditFileCustomRunnerValidationAdvice();
@@ -334,6 +343,7 @@ function main() {
   testJavaBomParsing();
   testPathEscapePhysicalInterception();
   testWasmFailureFallback();
+  testDebugGraph();
   console.log('cli-integration-test.js: all passed');
 }
 

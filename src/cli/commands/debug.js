@@ -31,7 +31,26 @@ async function debugCmd(parsed, container) {
     };
   }
 
-  return { ok: false, error: `Unknown debug target: ${what}. Supported: symbols` };
+  if (what === 'graph') {
+    const graph = container.snapshot?.graph;
+    if (!graph) {
+      return { ok: false, error: 'Dependency graph not available' };
+    }
+    const files = graph.getAllFilePaths?.() || [];
+    let edgeCount = 0;
+    for (const file of files) {
+      edgeCount += (graph.getDependencies?.(file) || []).length;
+    }
+    return {
+      ok: true,
+      what: 'graph',
+      fileCount: files.length,
+      edgeCount,
+      sampleFiles: files.slice(0, 10),
+    };
+  }
+
+  return { ok: false, error: `Unknown debug target: ${what}. Supported: symbols, graph` };
 }
 
 module.exports = debugCmd;

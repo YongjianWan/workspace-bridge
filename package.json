@@ -50,6 +50,22 @@
     "workspace-bridge": "cli.js",
     "workspace-bridge-cli": "cli.js"
   },
+  "pkg": {
+    "targets": [
+      "node20-win-x64",
+      "node20-linux-x64",
+      "node20-macos-x64"
+    ],
+    "assets": [
+      "node_modules/tree-sitter-wasms/out/*.wasm",
+      "node_modules/better-sqlite3/build/Release/*.node",
+      "skills/**/*",
+      "scripts/**/*"
+    ],
+    "scripts": [
+      "src/**/*.js"
+    ]
+  },
   "files": [
     "cli.js",
     "src/**",
@@ -68,6 +84,7 @@
     "web-tree-sitter": "^0.25.3"
   },
   "devDependencies": {
+    "@yao-pkg/pkg": "^6.20.0",
     "c8": "^11.0.0"
   }
 }

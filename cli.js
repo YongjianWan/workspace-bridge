@@ -176,6 +176,7 @@ Commands:
     dependents --file <p>   List direct dependents of a file
     stats                   Show dependency graph statistics
     debug --what symbols    Dump symbol registry stats and duplicates
+    debug --what graph      Dump dependency graph stats (file/edge counts)
 
   其他:
     init                    Create default .workspace-bridge.json in cwd

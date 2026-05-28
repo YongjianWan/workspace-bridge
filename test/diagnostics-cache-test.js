@@ -99,12 +99,53 @@ function testHasDiagnosticEntries() {
   cleanupTempDir(tmpDir);
 }
 
+async function testDiagnosticsFailedCheckIncludedInResults() {
+  const fs = require('fs');
+  const tmpDir = makeTempDir('wb-diag-fail-');
+  fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({
+    name: 'x',
+    version: '1.0.0',
+    scripts: { lint: 'node -e "process.exit(1)"' }
+  }));
+
+  const commandModule = require('../src/utils/command');
+  const originalRunCommandSecure = commandModule.runCommandSecure;
+  const { TIMEOUTS } = require('../src/config/constants');
+  const originalGrace = TIMEOUTS.DIAGNOSTICS_KILL_GRACE_MS;
+
+  // Patch the low-level command runner to simulate an unexpected crash/rejection.
+  // This covers the grace-timeout path on Windows where SIGTERM cannot kill cmd.exe children.
+  commandModule.runCommandSecure = async () => {
+    throw new Error('simulated command crash');
+  };
+  TIMEOUTS.DIAGNOSTICS_KILL_GRACE_MS = 50;
+
+  // Reload workspace-tools so it picks up the patched runCommandSecure reference
+  delete require.cache[require.resolve('../src/tools/workspace-tools')];
+  const tools = require('../src/tools/workspace-tools');
+
+  try {
+    const result = await tools.runDiagnostics({ cwd: tmpDir, mode: 'full' }, {});
+    assert.strictEqual(result.checksRun, 1, 'should count the failed check');
+    assert.strictEqual(result.failedChecks.length, 1, 'should report 1 failed check');
+    assert.strictEqual(result.results[0].name, 'node:lint');
+    assert.strictEqual(result.results[0].ok, false, 'failed check should have ok=false');
+    assert(result.results[0].error.includes('simulated command crash'), 'failed check should carry error info');
+  } finally {
+    commandModule.runCommandSecure = originalRunCommandSecure;
+    TIMEOUTS.DIAGNOSTICS_KILL_GRACE_MS = originalGrace;
+    delete require.cache[require.resolve('../src/tools/workspace-tools')];
+    cleanupTempDir(tmpDir);
+  }
+}
+
 async function main() {
   testCacheDiagnosticsStructure();
   testHasDiagnosticEntries();
   await testDiagnosticsCacheReturnsData();
   await testDiagnosticsCacheEmptyFallsThrough();
   await testDiagnosticsCacheEmptyHits();
+  await testDiagnosticsFailedCheckIncludedInResults();
 }
 
 main().catch((e) => {
