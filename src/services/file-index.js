@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
 const { detectWorkspace, normalizePathKey, matchesPathFragment } = require('../utils/path');
-const { shouldExcludeCli: _shouldExcludeCli } = require('../utils/exclude-patterns');
+const { DEFAULT_EXCLUDE_DIRS, shouldExcludeBase, shouldExcludeCli: _shouldExcludeCli } = require('../utils/exclude-patterns');
 const { loadWorkspaceConfig } = require('../utils/project-context');
 const { EventBus } = require('../utils/event-bus');
 const { extractSymbols } = require('./file-index/symbol-extractors');
@@ -20,7 +20,6 @@ const readFile = promisify(fs.readFile);
 
 // Limit concurrent file operations to prevent memory exhaustion
 const DEFAULT_CONCURRENCY = 50;
-const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', 'target', 'bin', 'obj', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', '.idea', '.vscode', 'vendor', 'generated'];
 
 class FileIndex {
   constructor(workspaceRoot, cache, options = {}) {
@@ -270,18 +269,10 @@ class FileIndex {
   }
 
   shouldExclude(filePath) {
-    const base = path.basename(filePath);
-    if (base === 'cache.db' || base === 'cache.db-wal' || base === 'cache.db-shm') return true;
+    if (shouldExcludeBase(filePath, this.baseExcludeDirs)) return true;
 
-    const normalized = normalizePathKey(filePath);
-    // Only exclude base dirs (node_modules, .git, etc.) and workspace-configured dirs.
-    // CLI --exclude files are still indexed so they can serve as importers in the graph.
     // File Role classification (e.g. test/entry/library) is deferred to the parse/assembly
     // stage so that cold-scan does not pay the cost of running the full ROLE_RULES regex chain.
-    if (this.baseExcludeDirs.some((dir) => matchesPathFragment(normalized, dir))) {
-      return true;
-    }
-
     if (this.projectContext) {
       const relPath = this.projectContext.getRelativePath(filePath);
       const role = this.projectContext.classifyDirectory(relPath).role;

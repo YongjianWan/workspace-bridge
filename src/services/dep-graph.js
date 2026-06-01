@@ -10,7 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const { normalizePathKey, matchesPathFragment, normalizeFilePath: _normalizeFilePath } = require('../utils/path');
-const { shouldExcludeCli: _shouldExcludeCli } = require('../utils/exclude-patterns');
+const { shouldExcludeBase, shouldExcludeCli: _shouldExcludeCli } = require('../utils/exclude-patterns');
 const { ENTRY_BASE_NAMES } = require('../utils/project-context');
 const { isTestLikeFile } = require('../utils/test-detector');
 const {
@@ -136,11 +136,7 @@ class DependencyGraph {
   }
 
   shouldExclude(filePath) {
-    const base = path.basename(filePath);
-    if (base === 'cache.db') return true;
-
-    const normalized = normalizePathKey(filePath);
-    return this.excludeDirs.some((dir) => matchesPathFragment(normalized, dir));
+    return shouldExcludeBase(filePath, this.excludeDirs);
   }
 
   /**

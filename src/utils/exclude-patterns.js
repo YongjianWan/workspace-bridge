@@ -5,6 +5,25 @@
 const path = require('path');
 const { normalizePathKey, matchesPathFragment } = require('./path');
 
+const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', 'target', 'bin', 'obj', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', '.idea', '.vscode', 'vendor', 'generated'];
+
+/**
+ * Base exclusion check used by both FileIndex and DependencyGraph.
+ * Covers cache artefacts and workspace-configured/base exclude directories.
+ * CLI --exclude is handled separately by shouldExcludeCli so that
+ * CLI-excluded files remain in the graph as importers.
+ */
+function shouldExcludeBase(filePath, baseExcludeDirs) {
+  const base = path.basename(filePath);
+  if (base === 'cache.db' || base === 'cache.db-wal' || base === 'cache.db-shm') return true;
+
+  const normalized = normalizePathKey(filePath);
+  if (baseExcludeDirs && baseExcludeDirs.some((dir) => matchesPathFragment(normalized, dir))) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Check whether a file was excluded by the CLI --exclude flag.
  * These files are kept in the dependency graph (so their imports still
@@ -47,5 +66,7 @@ function shouldExcludeCli(filePath, cliExcludeDirs) {
 }
 
 module.exports = {
+  DEFAULT_EXCLUDE_DIRS,
+  shouldExcludeBase,
   shouldExcludeCli,
 };
