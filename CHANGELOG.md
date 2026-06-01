@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Wave 8 — 歼灭最后 3 项 active Dogfood 缺陷（2026-06-01）
+
+- **#27: `--exclude` glob 模式与深层级匹配支持** `src/utils/exclude-patterns.js`：
+  - 重构 `shouldExcludeCli` 匹配器。支持通过 `**` 进行跨目录递归排除（如 `test/**/*.js`），以及使用 `*` 匹配单层目录下的模式（如 `src/utils/*`），从而避免由于 glob 翻译过于天真导致排除失效的问题。
+- **#28: REPL `--eval` 错误码区分与返回** `src/cli/repl.js`：
+  - 当 eval 执行时遇到 `"Unknown command"`、`"Usage:"` 等参数越界或未知指令错误时，REPL 将准确置 `process.exitCode = 2`；在遭遇业务流程失败（如文件未找到）时设置 `process.exitCode = 1`，彻底改变之前静默吃掉 exit code 永远返回 0 的缺陷。
+- **#29: Windows 混合/反斜杠路径健壮性解析** `src/utils/path.js`：
+  - 在 `normalizePath` 和 `resolveWorkspaceFilePath` 入口前，将路径中的 `\` 反斜杠统一转换为 `/` 正斜杠进行基础解析。避免非 Windows 环境或 mixed-shell 下 backslash 路径被作为普通字符串片段而导致建图与文件查找失败的兼容性痛点。
+- **回归测试补充**：
+  - 编写了 `test/bug-27-28-29-regression-test.js` 并注入 `test/runner.js`。完整覆盖了上述 glob 递归排除、REPL `--eval` 参数与业务错误退出码验证，以及 Windows 反斜杠绝对与相对路径的跨平台还原逻辑。
+
 ### 技术债务偿还 — baseline fallback 重复消除（2026-06-01）
 
 - **消除 `audit-assembler.js` ↔ `overview-tools.js` baseline 操作重复代码** `src/tools/regression-tools.js`：
