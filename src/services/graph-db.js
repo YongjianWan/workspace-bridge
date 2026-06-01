@@ -10,6 +10,49 @@ const fs = require('fs');
 const path = require('path');
 const { CACHE_VERSION } = require('../config/constants');
 
+const CACHE_TABLE_SCHEMA = {
+  file_metadata: {
+    resultKey: 'fileMetadata',
+    idColumn: 'path',
+    columns: ['path', 'mtime', 'size', 'hash', 'line_count', 'original_path'],
+    deserialize: (row) => ({
+      mtime: Number(row.mtime),
+      size: Number(row.size),
+      hash: row.hash,
+      lineCount: Number(row.line_count),
+      originalPath: row.original_path,
+    }),
+  },
+  parse_results: {
+    resultKey: 'parseResults',
+    idColumn: 'path',
+    columns: ['path', 'mtime', 'imports', 'exports', 'import_records', 'export_records', 'function_records', 'parse_mode', 'parse_mode_reason', 'confidence'],
+    deserialize: (row) => ({
+      mtime: Number(row.mtime),
+      imports: row.imports ? JSON.parse(row.imports) : [],
+      exports: row.exports ? JSON.parse(row.exports) : [],
+      importRecords: row.import_records ? JSON.parse(row.import_records) : [],
+      exportRecords: row.export_records ? JSON.parse(row.export_records) : [],
+      functionRecords: row.function_records ? JSON.parse(row.function_records) : [],
+      parseMode: row.parse_mode,
+      parseModeReason: row.parse_mode_reason,
+      confidence: row.confidence,
+    }),
+  },
+  symbol_index: {
+    resultKey: 'symbolIndex',
+    idColumn: 'name',
+    columns: ['name', 'locations'],
+    deserialize: (row) => (row.locations ? JSON.parse(row.locations) : []),
+  },
+  diagnostics: {
+    resultKey: 'diagnostics',
+    idColumn: 'path',
+    columns: ['path', 'data'],
+    deserialize: (row) => (row.data ? JSON.parse(row.data) : { diagnostics: [] }),
+  },
+};
+
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS cache_metadata (
     key TEXT PRIMARY KEY,
@@ -216,63 +259,25 @@ class GraphDB {
       const workspaceRoot = metadata.workspaceRoot || null;
       const timestamp = Number(metadata.timestamp || 0);
 
-      // File metadata
-      const fileMetadata = new Map();
-      const fileRows = this.db.prepare('SELECT path, mtime, size, hash, line_count, original_path FROM file_metadata').all();
-      for (const row of fileRows) {
-        fileMetadata.set(row.path, {
-          mtime: Number(row.mtime),
-          size: Number(row.size),
-          hash: row.hash,
-          lineCount: Number(row.line_count),
-          originalPath: row.original_path,
-        });
-      }
-
-      // Parse results
-      const parseResults = new Map();
-      const parseRows = this.db.prepare(
-        'SELECT path, mtime, imports, exports, import_records, export_records, function_records, parse_mode, parse_mode_reason, confidence FROM parse_results'
-      ).all();
-      for (const row of parseRows) {
-        parseResults.set(row.path, {
-          mtime: Number(row.mtime),
-          imports: row.imports ? JSON.parse(row.imports) : [],
-          exports: row.exports ? JSON.parse(row.exports) : [],
-          importRecords: row.import_records ? JSON.parse(row.import_records) : [],
-          exportRecords: row.export_records ? JSON.parse(row.export_records) : [],
-          functionRecords: row.function_records ? JSON.parse(row.function_records) : [],
-          parseMode: row.parse_mode,
-          parseModeReason: row.parse_mode_reason,
-          confidence: row.confidence,
-        });
-      }
-
-      // Symbol index
-      const symbolIndex = new Map();
-      const symbolRows = this.db.prepare('SELECT name, locations FROM symbol_index').all();
-      for (const row of symbolRows) {
-        symbolIndex.set(row.name, row.locations ? JSON.parse(row.locations) : []);
-      }
-
-      // Diagnostics
-      const diagnostics = new Map();
-      const diagRows = this.db.prepare('SELECT path, data FROM diagnostics').all();
-      for (const row of diagRows) {
-        diagnostics.set(row.path, row.data ? JSON.parse(row.data) : { diagnostics: [] });
-      }
-
-      return {
+      const result = {
         version,
         workspaceInfo,
         workspaceRoot,
         timestamp,
-        fileMetadata,
-        parseResults,
-        symbolIndex,
-        diagnostics,
         _metadata: metadata, // raw metadata for schema-driven loading
       };
+
+      for (const [tableName, schema] of Object.entries(CACHE_TABLE_SCHEMA)) {
+        const columns = schema.columns.join(', ');
+        const rows = this.db.prepare(`SELECT ${columns} FROM ${tableName}`).all();
+        const map = new Map();
+        for (const row of rows) {
+          map.set(row[schema.idColumn], schema.deserialize(row));
+        }
+        result[schema.resultKey] = map;
+      }
+
+      return result;
     } catch (err) {
       _debugError('Load', err);
       return null;
