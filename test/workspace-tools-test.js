@@ -137,6 +137,36 @@ async function testBuildChecksEslintWithoutScriptsField() {
   cleanupTempDir(tmpDir);
 }
 
+async function testBuildChecksAllChecksHaveTimeout() {
+  const tmpDir = makeTempDir('wb-diag-timeout-');
+  fs.writeFileSync(
+    path.join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: 'test',
+      scripts: {
+        typecheck: 'tsc --noEmit',
+        lint: 'eslint .',
+        build: 'npm run compile',
+        test: 'jest',
+      },
+    }),
+    'utf8'
+  );
+  fs.writeFileSync(path.join(tmpDir, 'tsconfig.json'), '{}', 'utf8');
+  fs.writeFileSync(path.join(tmpDir, 'requirements.txt'), 'django', 'utf8');
+  fs.writeFileSync(path.join(tmpDir, 'manage.py'), '# django manage.py', 'utf8');
+
+  const workspace = detectWorkspace(tmpDir);
+  const { checks } = await buildChecks(workspace, 'full');
+
+  for (const check of checks) {
+    assert(Number.isFinite(check.timeout), `check "${check.name}" must have a finite timeout`);
+    assert(check.timeout > 0, `check "${check.name}" timeout must be positive`);
+  }
+
+  cleanupTempDir(tmpDir);
+}
+
 async function main() {
   await testBuildChecksDetectsEslintConfigInPackageJson();
   await testBuildChecksDetectsDotEslintrc();
@@ -145,6 +175,7 @@ async function main() {
   testDetectNodeLintersPrettierConfig();
   testWorkspaceInfoAvailableChecksReflectsActualLinters();
   testWorkspaceInfoAvailableChecksWithEslint();
+  await testBuildChecksAllChecksHaveTimeout();
   }
 
 main().catch((e) => {

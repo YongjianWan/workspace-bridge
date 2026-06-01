@@ -85,6 +85,9 @@ function testDiagnosticsBuildChecksTimeout() {
   const toolsSrc = fs.readFileSync(path.join(__dirname, '../src/tools/workspace-tools.js'), 'utf8');
   assert(toolsSrc.includes("timeout: TIMEOUTS.DIAGNOSTICS_LONG_MS"), 'node:build/node:test/pytest checks should have timeout');
   assert(toolsSrc.includes('buildChecks timeout'), 'runDiagnostics should guard buildChecks with a timeout');
+  // Wave 8: ensure all checks have explicit timeout so no check falls back to the 120s default.
+  assert(toolsSrc.includes("timeout: TIMEOUTS.DIAGNOSTICS_CHECK_MS"), 'node:tsc/node:lint/node:eslint checks should have timeout');
+  assert(toolsSrc.includes("timeout: TIMEOUTS.DIAGNOSTICS_MEDIUM_MS"), 'django:check/python:compileall checks should have timeout');
 }
 
 async function main() {

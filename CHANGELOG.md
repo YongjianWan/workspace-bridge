@@ -8,6 +8,62 @@
 
 ## [Unreleased]
 
+### 技术债务偿还 — baseline fallback 重复消除（2026-06-01）
+
+- **消除 `audit-assembler.js` ↔ `overview-tools.js` baseline 操作重复代码** `src/tools/regression-tools.js`：
+  - 新增 `applyBaselineOperations(result, args)` 公共函数，统一封装 save baseline + check regression 两套重复逻辑。
+  - `audit-assembler.js` / `overview-tools.js` 各自 10 行重复代码替换为单行调用。
+  - 补充 `test/regression-tools-test.js` `testApplyBaselineOperationsSave` / `testApplyBaselineOperationsCheckRegression` 语义测试。
+  - 从 `TECH_DEBT.md` L3 品味问题中移除。
+
+### 文档清理 — Dogfood 历史归档与已知限制迁移（2026-06-01）
+
+- **TECH_DEBT.md 删除 300+ 行历史 Dogfood 报告**：按"修复即删，历史只进 CHANGELOG"铁律，删除 Pitfalls、验证矩阵、✅ 边界行为、命令层级评估、SKILL.md 建议等全部历史归档内容。
+- **ROADMAP.md 追加已知限制**：将仍在的 10 项陷阱/❌Bug/⚠️ 未定义行为从 Dogfood 报告迁移至 ROADMAP.md §已知限制表格（`--format json` 语义混淆、配置 JSON 静默回退、`--cwd` 覆盖、ESM 注入崩溃、Glob 排除失效、REPL 错误码、Windows 反斜杠、symbolImpact 遗漏、Rule ID 映射错位等）。
+- **ROADMAP.md 同步 L3 债务计数**：`2 项活跃` → `1 项活跃`，移除 `parsers/js.js` 行（与 `TECH_DEBT.md` 实际条目对齐）。
+
+### 技术债务偿还 — 弱断言清理与 slow 层拆分（2026-06-01）
+
+- **弱断言清理** 10 处 `typeof` 型 schema 契约检查升级为语义验证：
+  - `audit-diff-incremental-test.js`：3 处计数字段 `typeof === 'number'` → `Number.isFinite()`。
+  - `cli-pipeline-depth-test.js`：`severity` 改为枚举值检查（`['low','medium','high'].includes`）；`impactCount` 改为非负有限数检查。
+  - `audit-file-watch-test.js`：`severity` / `impactCount` / `affectedTestsCount` 同步升级。
+  - `repl-json-test.js`：`impactCount` / `affectedTestsCount` 同步升级。
+- **slow 层头部瓶颈拆分**：
+  - `cli-integration-test.js`（~23s，15 个测试）拆分为 `cli-integration-core-test.js`（核心依赖图命令）+ `cli-integration-edge-test.js`（边界与特殊场景），runner.js `KNOWN_SLOW_PATTERNS` 同步更新。
+  - `formatter-e2e-test.js`（~21s，7 个测试）拆分为 `formatter-e2e-summary-test.js`（summary/overview 格式）+ `formatter-e2e-others-test.js`（file/health/stats/error 格式），`KNOWN_SLOW_PATTERNS` 同步更新。
+
+### Wave 8 — 歼灭最后 8 项 P2 Dogfood 缺陷（2026-06-01）
+
+- **#25: Mention-based affected-tests distance 写死修复** `src/services/dep-graph/analyzer.js`：
+  - `_findAffectedTestsByMention` 的 `distance: maxDepth + 1` 改为 `distance: null`，消除误导性图深度指标。
+- **#27: `--exclude` 参与 coverageRatio 计算修复** `src/tools/overview-assembler.js`：
+  - `overview-assembler` 改用 `filteredAnalysisCoverage` 替代 `analysisCoverage`，与 `audit-assembler` 保持一致，尊重 `--exclude` 参数。
+- **#28: `--staged + --commits` 组合行为定义** `src/tools/git-tools.js`：
+  - `getChangedFiles` 开头添加冲突检测：两者同时存在时返回明确的参数冲突错误（exit 2）。
+- **#29: REPL vs CLI affected-tests 一致性验证** `test/wave8-regression-test.js`：
+  - 复现验证两者输出已一致（25 count，相同 distance 分布），编写回归测试确保未来不回归；从 TECH_DEBT.md 移除。
+- **#31: `--check-regression` 文档化** `cli.js`：
+  - help 文本中 `--check-regression` 描述明确注明"仅比较结构性指标计数（deadExports/unresolved/cycles）"。
+- **#32: `--reuse-hints` 反馈机制** `src/tools/audit-assembler.js`：
+  - `audit-diff` 结果 `options` 中新增 `reuseHintsApplied` 计数，显式反馈 hints 应用数量。
+- **#34: Markdown 模板丰富化** `src/cli/formatters/human-formatters.js`：
+  - `audit-file` markdown 新增 impact radius 列表、affected tests 列表、history risk 概览。
+  - `audit-diff` markdown 新增 changed files 列表。
+  - 修复 validationAdvice `commands.full` 对象数组被 `join` 成 `[object Object]` 的序列化 bug。
+- **#36: Git stderr 污染清理** `src/tools/git-tools.js`：
+  - 新增 `cleanGitError()` 辅助函数，将 `fatal: ambiguous argument` / `bad revision` 等原始 git stderr 映射为干净的错误消息。
+  - 覆盖 `getChangedFiles` / `getChangedLineRanges` / `getFileHistoryRisk` / `getDiffNumstat` 等 6 处错误出口。
+
+- **文档同步**：清理 `SESSION.md` / `TECH_DEBT.md` 中过期的 `debug --what graph` 活跃问题标记。
+  - 该功能已在 v2.0.0 前实现（`src/cli/commands/debug.js` 已支持 `graph` 维度查询，覆盖文件数/边数/样本文件）。
+  - `test/cli-integration-test.js` 已包含 `testDebugGraph()` 回归测试，运行正常。
+- **Diagnostics 单检查超时补全** `src/tools/workspace-tools.js`：
+  - `buildChecks()` 中 5 个此前无显式 `timeout` 的 check 补全超时：`node:typecheck` (60s)、`node:tsc` (30s)、`node:lint` (30s)、`django:check` (15s)、`python:compileall` (15s)。
+  - 消除无 timeout check 回退到默认 120s 导致的长尾延迟风险。
+  - 新增 `test/workspace-tools-test.js` `testBuildChecksAllChecksHaveTimeout`：遍历 full mode 下所有生成的 check，断言每个都有正数 timeout。
+  - 扩展 `test/wave5-boundary-hardening-test.js` 源代码检查，覆盖 `DIAGNOSTICS_CHECK_MS` 和 `DIAGNOSTICS_MEDIUM_MS`。
+
 ## [2.0.0] - 2026-05-28
 
 ### 架构级重大重构：数据库引擎完全迁移至原生 node:sqlite 并支持单文件打包（2026-05-28）

@@ -1,7 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { saveBaseline, checkRegression, checkRegressionAgainstCommit, DEFAULT_BASELINE_FILE, resolveBaseline } = require('../src/tools/regression-tools');
+const { saveBaseline, checkRegression, checkRegressionAgainstCommit, DEFAULT_BASELINE_FILE, resolveBaseline, applyBaselineOperations } = require('../src/tools/regression-tools');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function testExtractFindings() {
@@ -118,6 +118,57 @@ function testCheckRegressionAgainstCommitRejectsInjection() {
   assert(result.error.includes('Invalid commit'), 'error should be a validation error, not a shell error');
 }
 
+function testApplyBaselineOperationsSave() {
+  const tmpDir = makeTempDir('wb-reg-');
+  const result = {
+    schemaVersion: '1.2.0',
+    workspaceRoot: tmpDir,
+    deadExports: { deadExports: [] },
+    unresolved: { unresolved: [] },
+    cycles: { cycles: [] },
+    health: { checks: {} },
+  };
+
+  applyBaselineOperations(result, { save: true, cwd: tmpDir });
+  assert.strictEqual(result.baselineSaved, path.join(tmpDir, DEFAULT_BASELINE_FILE), 'should save to default baseline file');
+
+  const customPath = path.join(tmpDir, 'custom-baseline.json');
+  applyBaselineOperations(result, { save: customPath, cwd: tmpDir });
+  assert.strictEqual(result.baselineSaved, customPath, 'should save to custom path');
+
+  cleanupTempDir(tmpDir);
+}
+
+function testApplyBaselineOperationsCheckRegression() {
+  const tmpDir = makeTempDir('wb-reg-');
+  const baselinePath = path.join(tmpDir, DEFAULT_BASELINE_FILE);
+
+  const previous = {
+    schemaVersion: '1.2.0',
+    workspaceRoot: tmpDir,
+    deadExports: { deadExports: [{ file: 'a.js', name: 'oldFn', confidence: 'high' }] },
+    unresolved: { unresolved: [] },
+    cycles: { cycles: [] },
+    health: { checks: {} },
+  };
+  saveBaseline(previous, baselinePath);
+
+  const current = {
+    schemaVersion: '1.2.0',
+    workspaceRoot: tmpDir,
+    deadExports: { deadExports: [] },
+    unresolved: { unresolved: [] },
+    cycles: { cycles: [] },
+    health: { checks: {} },
+  };
+
+  applyBaselineOperations(current, { checkRegression: true, cwd: tmpDir });
+  assert.strictEqual(current.regression.ok, true, 'checkRegression should succeed');
+  assert.strictEqual(current.regression.status, 'clean', 'no new findings should be clean');
+
+  cleanupTempDir(tmpDir);
+}
+
 function main() {
   testExtractFindings();
   testCheckRegressionFixedAndNew();
@@ -126,6 +177,8 @@ function main() {
   testDefaultBaselineFile();
   testResolveBaselineRejectsInjection();
   testCheckRegressionAgainstCommitRejectsInjection();
+  testApplyBaselineOperationsSave();
+  testApplyBaselineOperationsCheckRegression();
 }
 
 main();

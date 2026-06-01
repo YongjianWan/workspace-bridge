@@ -949,7 +949,7 @@ class GraphAnalyzer {
       if (mentionPattern.test(content)) {
         graphResults.push({
           file: candidate,
-          distance: maxDepth + 1,
+          distance: null,
           source: 'mention',
           via: ['mention:stem'],
         });

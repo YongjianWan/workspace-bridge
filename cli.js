@@ -121,7 +121,7 @@ Options:
   --commits <range>      Git commit range for audit-diff (e.g. HEAD~9..HEAD)
   --incremental          Only show findings related to changed files in audit-diff
   --save <file>          Save audit-summary findings to a JSON baseline file
-  --check-regression     Compare current audit-summary against previous baseline
+  --check-regression     Compare structural metrics (deadExports/unresolved/cycles counts) against previous baseline
   --baseline <file|commit>  Baseline file or git commit for --check-regression (default: .workspace-bridge-baseline.json)
   --fail-on-findings     Exit with code 1 if any findings are detected
   --config <name>        Semgrep config (default: auto)
@@ -206,7 +206,7 @@ Options:
   --files <list>         Comma-separated file list for audit-diff / audit-security
   --incremental          Only show findings related to changed files in audit-diff
   --save <file>          Save audit-summary findings to a JSON baseline file
-  --check-regression     Compare current audit-summary against previous baseline
+  --check-regression     Compare structural metrics (deadExports/unresolved/cycles counts) against previous baseline
   --baseline <file|commit>  Baseline file or git commit for --check-regression (default: .workspace-bridge-baseline.json)
   --fail-on-findings     Exit with code 1 if any findings are detected
   --config <name>        Semgrep config (default: auto)

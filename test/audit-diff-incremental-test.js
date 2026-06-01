@@ -59,11 +59,11 @@ function testIncrementalSchema() {
   assert(output.incrementalFindings, 'Should include incrementalFindings field');
 
   const inc = output.incrementalFindings;
-  assert(typeof inc.deadExportsCount === 'number', 'incrementalFindings should have deadExportsCount');
+  assert(Number.isFinite(inc.deadExportsCount), 'incrementalFindings should have finite deadExportsCount');
   assert(Array.isArray(inc.deadExports), 'incrementalFindings.deadExports should be an array');
-  assert(typeof inc.unresolvedCount === 'number', 'incrementalFindings should have unresolvedCount');
+  assert(Number.isFinite(inc.unresolvedCount), 'incrementalFindings should have finite unresolvedCount');
   assert(Array.isArray(inc.unresolved), 'incrementalFindings.unresolved should be an array');
-  assert(typeof inc.cyclesCount === 'number', 'incrementalFindings should have cyclesCount');
+  assert(Number.isFinite(inc.cyclesCount), 'incrementalFindings should have finite cyclesCount');
   assert(Array.isArray(inc.cycles), 'incrementalFindings.cycles should be an array');
 
   // Counts must match array lengths

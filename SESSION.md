@@ -31,7 +31,7 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 8 活跃债务 + 8 项 P2 Dogfood 活跃缺陷）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 2 活跃债务 + 0 项 P2 Dogfood 活跃缺陷）
 
 ---
 
@@ -111,11 +111,11 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 活跃问题与技术债务
 
-### Dogfood 活跃缺陷 (8 项)
+### Dogfood 活跃缺陷 (0 项)
 
 > 完整复现命令和活跃缺陷详情见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) §Comprehensive Bug Matrix。
 
-目前所有高优先级的 P0/P1 问题已全部清零。项目仅剩 **8 项 P2 级体验与边界处理缺陷**。
+目前所有高优先级的 P0/P1/P2 问题已全部清零。
 
 ### 传统技术债务
 
@@ -123,7 +123,7 @@ node cli.js audit-overview --cwd . --json --quiet
 | -------------- | ----------- | ---------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
-| 活跃债务与品味     | 5           | 弱断言 ~10 处（`typeof` 型 schema 契约检查）/ 测试类型失衡（单元 ~77%，集成 ~20%，端到端 ~3%）/ slow 层过重（e2e-gitnexus ~23s）/ `--json` 嵌套深 / baseline 解析 fallback 路径仍有重复 |
+| 活跃债务与品味     | 2           | 测试类型失衡（单元 ~77%，集成 ~20%，端到端 ~3%）/ `--json` 嵌套深 |
 | **产品债务** | **0** | —                                                                  |
 
 **测试状态**：`npm run test:fast` **83/83 PASS**（~20s）。全量 runner **160/160 PASS**（~5min）。当前 fast 层 83 个测试，slow 层 70 个，serial 层 7 个。
@@ -136,12 +136,15 @@ node cli.js audit-overview --cwd . --json --quiet
 >
 > 历史具体的各波次方案及验收标准已物理归档，详情请直接查阅 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
+### 本轮上下文：技术债务偿还（2026-06-01）
+
+- **弱断言清理**：10 处核心 `typeof` 型 schema 契约检查升级为语义验证（枚举值 / `Number.isFinite()` / 非负范围）。
+- **slow 层拆分**：`cli-integration-test.js` → core + edge；`formatter-e2e-test.js` → summary + others。runner.js `KNOWN_SLOW_PATTERNS` 同步更新，旧文件已物理删除。
+
 ### 当前会话后续动作
-1. 文档卫生清理与回归修复已完成。
-2. **仍活跃的真问题**（2 项）：
-   - `diagnostics --mode full` 超时卡死（`buildChecks()` 无 linter 发现超时守卫）
-   - `debug --what graph` 不支持（仅支持 `symbols`）
-3. 保持现状，等待后续新需求或探索长期方向（如 ROADMAP 中长期的 D6 / 新技术栈支持等）。
+1. 技术债务偿还已完成。
+2. **仍活跃的真问题**：0 项。
+3. 保持现状，等待后续新需求或探索长期方向。
 
 ---
 
@@ -167,7 +170,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-05-28（Wave 1-7 全部完成；34/37 Dogfood 已修复；活跃债务 5 项，8 个 P2 级活跃 Bug；83/83 fast 测试全绿）*
+*Last updated: 2026-06-01（Wave 1-8 全部完成；37/37 Dogfood 已修复；活跃债务 2 项，0 个 P2 级活跃 Bug；83/83 fast + 受影响测试全绿）*
 
 > **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 error / cycles / dead-exports，自身库全量覆盖率 1.00。
 > **本轮完成**：已根据 Agent 认知与文档规范，完全同步 `REFACTOR-2026-05-data-orchestration-output.md`，将已交付的 O6（生命周期状态机）标记为已解决，并将未完成项总数更新为 1（仅剩长期 D6）。

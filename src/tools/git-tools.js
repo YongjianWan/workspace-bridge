@@ -14,6 +14,17 @@ function parseIsoDate(value) {
   return date && !Number.isNaN(date.getTime()) ? date : null;
 }
 
+function cleanGitError(stderr, fallback) {
+  if (!stderr) return fallback;
+  if (/ambiguous argument|unknown revision|bad revision/i.test(stderr)) {
+    return 'Invalid git commit range or revision';
+  }
+  if (/not a git repository/i.test(stderr)) {
+    return 'Not a git repository';
+  }
+  return fallback;
+}
+
 function diffDays(from, to) {
   const msPerDay = 24 * 60 * 60 * 1000;
   return Math.max(0, Math.floor((to.getTime() - from.getTime()) / msPerDay));
@@ -158,6 +169,9 @@ async function getChangedFiles(root, options = {}) {
   const includeUntracked = options.includeUntracked !== false;
   const since = options.since || null;
   const commits = options.commits || null;
+  if (commits && staged) {
+    return { ok: false, error: 'Cannot use --staged and --commits together; they specify different change sources', workspaceRoot: root };
+  }
   const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
 
@@ -165,7 +179,7 @@ async function getChangedFiles(root, options = {}) {
   if (commits) {
     const result = await runGit(['diff', '--name-only', commits], root, TIMEOUTS.GIT_LONG_MS);
     if (!result.ok) {
-      return { ok: false, error: result.stderr || `Failed to read git diff for ${commits}`, workspaceRoot: root };
+      return { ok: false, error: cleanGitError(result.stderr, `Failed to read git diff for ${commits}`), workspaceRoot: root };
     }
     const files = new Set();
     for (const line of (result.stdout || '').split(/\r?\n/)) {
@@ -187,7 +201,7 @@ async function getChangedFiles(root, options = {}) {
   if (since) {
     const result = await runGit(['diff', '--name-only', `${since}...HEAD`], root, TIMEOUTS.GIT_LONG_MS);
     if (!result.ok) {
-      return { ok: false, error: result.stderr || `Failed to read git diff since ${since}`, workspaceRoot: root };
+      return { ok: false, error: cleanGitError(result.stderr, `Failed to read git diff since ${since}`), workspaceRoot: root };
     }
     const files = new Set();
     for (const line of (result.stdout || '').split(/\r?\n/)) {
@@ -209,7 +223,7 @@ async function getChangedFiles(root, options = {}) {
 
   const result = await runGit(args, root, TIMEOUTS.GIT_LONG_MS);
   if (!result.ok) {
-    return { ok: false, error: result.stderr || 'Failed to read git status', workspaceRoot: root };
+    return { ok: false, error: cleanGitError(result.stderr, 'Failed to read git status'), workspaceRoot: root };
   }
 
   const files = new Set();
@@ -366,7 +380,7 @@ async function getFileHistoryRisk(root, file, options = {}) {
   const fmt = '--format=%x00%H%n%an%n%ae%n%ai%n%s';
   const result = await runGit(['log', '--follow', `-${limit}`, fmt, '--', filePath], root, TIMEOUTS.GIT_LONG_MS);
   if (!result.ok && !result.stdout) {
-    return { ok: false, error: result.stderr || 'Failed to read git history', workspaceRoot: root, file };
+    return { ok: false, error: cleanGitError(result.stderr, 'Failed to read git history'), workspaceRoot: root, file };
   }
 
   const commits = [];
@@ -412,7 +426,7 @@ async function getDiffNumstat(root, options = {}) {
 
   const result = await runGit(args, root, TIMEOUTS.GIT_LONG_MS);
   if (!result.ok) {
-    return { ok: false, error: result.stderr || 'Failed to read diff numstat', workspaceRoot: root };
+    return { ok: false, error: cleanGitError(result.stderr, 'Failed to read diff numstat'), workspaceRoot: root };
   }
 
   const files = [];
@@ -544,7 +558,7 @@ async function getFileKnowledgeRisk(root, file, options = {}) {
   const mailmap = await loadMailmap(root);
   const result = await runGit(['blame', '--porcelain', '--', filePath], root, TIMEOUTS.GIT_LONG_MS);
   if (!result.ok && !result.stdout) {
-    return { ok: false, error: result.stderr || 'Failed to read git blame', workspaceRoot: root, file };
+    return { ok: false, error: cleanGitError(result.stderr, 'Failed to read git blame'), workspaceRoot: root, file };
   }
 
   const authors = parseBlamePorcelain(result.stdout);

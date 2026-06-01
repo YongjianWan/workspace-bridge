@@ -57,7 +57,7 @@ function testAuditSummaryAiDetail() {
 
     const result = runCli(['audit-summary', '--cwd', tempRoot, '--format', 'ai', '--depth', 'detail', '--json', '--quiet']);
     assert.strictEqual(result.ok, true);
-    assert(typeof result.severity === 'string');
+    assert(['low', 'medium', 'high'].includes(result.severity), 'severity should be a valid level');
     assert(typeof result.counts === 'object' && result.counts !== null);
     // Detail SHOULD include schemaVersion + meta + actions
     assert.strictEqual(typeof result.schemaVersion, 'string', 'detail should include schemaVersion');
@@ -135,7 +135,7 @@ function testImpactJsonFidelity() {
 
     const result = runCli(['impact', '--cwd', tempRoot, '--file', 'src/b.js', '--json', '--quiet']);
     assert.strictEqual(result.ok, true);
-    assert(typeof result.impactCount === 'number');
+    assert(Number.isFinite(result.impactCount) && result.impactCount >= 0, 'impactCount should be a non-negative finite number');
     assert(Array.isArray(result.impact));
     assert(result.symbolImpact, 'impact should include symbolImpact');
   } finally {

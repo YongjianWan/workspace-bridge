@@ -48,6 +48,7 @@ async function buildChecks(workspace, mode) {
         name: 'node:typecheck',
         cmd: 'npm',
         args: ['run', '-s', 'typecheck'],
+        timeout: TIMEOUTS.DIAGNOSTICS_LONG_MS,
       });
       hasNodeCheck = true;
       hasLinter = true;
@@ -56,6 +57,7 @@ async function buildChecks(workspace, mode) {
         name: 'node:tsc',
         cmd: 'npx',
         args: ['tsc', '--noEmit'],
+        timeout: TIMEOUTS.DIAGNOSTICS_CHECK_MS,
       });
       hasNodeCheck = true;
       hasLinter = true;
@@ -65,6 +67,7 @@ async function buildChecks(workspace, mode) {
         name: 'node:lint',
         cmd: 'npm',
         args: ['run', '-s', 'lint'],
+        timeout: TIMEOUTS.DIAGNOSTICS_CHECK_MS,
       });
       hasNodeCheck = true;
       hasLinter = true;
@@ -110,6 +113,7 @@ async function buildChecks(workspace, mode) {
         name: 'django:check',
         cmd: python,
         args: ['manage.py', 'check'],
+        timeout: TIMEOUTS.DIAGNOSTICS_MEDIUM_MS,
       });
       hasFocusedPythonCheck = true;
       hasLinter = true;
@@ -146,6 +150,7 @@ async function buildChecks(workspace, mode) {
         name: 'python:compileall',
         cmd: python,
         args: ['-m', 'compileall', '-q', '.'],
+        timeout: TIMEOUTS.DIAGNOSTICS_MEDIUM_MS,
       });
     }
 

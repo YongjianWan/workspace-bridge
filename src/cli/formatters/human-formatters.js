@@ -343,6 +343,12 @@ const FORMATTERS = {
         `- **Mainline changed**: ${r.summary?.counts?.mainlineChangedFiles ?? 0}`,
         `- **Affected tests**: ${r.summary?.counts?.affectedTests ?? 0}`,
       ];
+      if (r.changedFiles?.length) {
+        lines.push(``, `## Changed files`);
+        for (const cf of r.changedFiles.slice(0, 10)) {
+          lines.push(`- ${cf.file} (impact=${cf.impactCount ?? 0}, tests=${cf.affectedTestsCount ?? 0}${cf.compositeRisk ? `, risk=${cf.compositeRisk.level}` : ''})`);
+        }
+      }
       const va = r.validationAdvice;
       if (va) {
         lines.push(`- **Change type**: ${va.changeType || 'unknown'}`);
@@ -351,7 +357,7 @@ const FORMATTERS = {
           const cmds = va.commands;
           if (cmds.smoke?.length) lines.push(`- **Smoke**: ${cmds.smoke.join(', ')}`);
           if (cmds.focused?.length) lines.push(`- **Focused**: ${cmds.focused.join(', ')}`);
-          if (cmds.full?.length) lines.push(`- **Full**: ${cmds.full.join(', ')}`);
+          if (cmds.full?.length) lines.push(`- **Full**: ${cmds.full.map((c) => c.cmd || c.name || String(c)).join(', ')}`);
         }
         if (va.phases?.length) {
           lines.push(`- **Validation phases**: ${va.phases.length}`);
@@ -397,6 +403,25 @@ const FORMATTERS = {
         `- **Impact**: ${r.impact?.impactCount ?? 0}`,
         `- **Affected tests**: ${r.affectedTests?.affectedTestsCount ?? 0}`,
       ];
+      if (r.impact?.impact?.length) {
+        lines.push(``, `## Impact radius`);
+        for (const item of r.impact.impact.slice(0, 5)) {
+          lines.push(`- ${item.file} (level=${item.level}${item.importedSymbols?.length ? `, symbols=${item.importedSymbols.join(', ')}` : ''})`);
+        }
+      }
+      if (r.affectedTests?.affectedTests?.length) {
+        lines.push(``, `## Affected tests`);
+        for (const t of r.affectedTests.affectedTests.slice(0, 10)) {
+          lines.push(`- ${t.file}${t.distance != null ? ` (distance=${t.distance})` : ''}${t.source ? ` [${t.source}]` : ''}`);
+        }
+      }
+      if (r.historyRisk) {
+        lines.push(``, `## History risk`);
+        lines.push(`- Level: ${r.historyRisk.level} (score=${r.historyRisk.score})`);
+        if (r.historyRisk.signals?.length) {
+          for (const s of r.historyRisk.signals.slice(0, 3)) lines.push(`  - ${s}`);
+        }
+      }
       const va = r.validationAdvice;
       if (va) {
         lines.push(``, `## Validation Advice`);

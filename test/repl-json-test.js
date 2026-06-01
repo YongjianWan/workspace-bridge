@@ -10,7 +10,7 @@ function testReplImpactJson() {
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.ok, true, 'should have ok: true');
   assert(typeof data.result === 'object', 'result should be object');
-  assert(typeof data.result.impactCount === 'number', 'result should have impactCount');
+  assert(Number.isFinite(data.result.impactCount), 'result should have finite impactCount');
   assert(Array.isArray(data.result.impact), 'result should have impact array');
 }
 
@@ -20,7 +20,7 @@ function testReplAffectedTestsJson() {
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.ok, true, 'should have ok: true');
   assert(typeof data.result === 'object', 'result should be object');
-  assert(typeof data.result.affectedTestsCount === 'number', 'result should have affectedTestsCount');
+  assert(Number.isFinite(data.result.affectedTestsCount), 'result should have finite affectedTestsCount');
   assert(Array.isArray(data.result.affectedTests), 'result should have affectedTests array');
 }
 

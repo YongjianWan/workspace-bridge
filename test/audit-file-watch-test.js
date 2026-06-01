@@ -100,9 +100,9 @@ async function testAuditFileWatch() {
 
   assert(resultEvent, `Should emit auditFileResult event. stdout: ${stdout}`);
   assert(resultEvent.file === relativeTrigger.replace(/\\/g, '/') || resultEvent.file === relativeTrigger, `Result file should match trigger. Got: ${resultEvent.file}`);
-  assert(resultEvent.summary && typeof resultEvent.summary.severity === 'string', 'Should include summary with severity');
-  assert(resultEvent.impact && typeof resultEvent.impact.impactCount === 'number', 'Should include impact with impactCount');
-  assert(resultEvent.affectedTests && typeof resultEvent.affectedTests.affectedTestsCount === 'number', 'Should include affectedTests with affectedTestsCount');
+  assert(resultEvent.summary && ['low', 'medium', 'high'].includes(resultEvent.summary.severity), 'Should include summary with valid severity');
+  assert(resultEvent.impact && Number.isFinite(resultEvent.impact.impactCount), 'Should include impact with finite impactCount');
+  assert(resultEvent.affectedTests && Number.isFinite(resultEvent.affectedTests.affectedTestsCount), 'Should include affectedTests with finite affectedTestsCount');
   assert(resultEvent.validationAdvice, 'Should include validationAdvice');
 
   const events = parseJsonLines(stdout);

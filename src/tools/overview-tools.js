@@ -12,6 +12,7 @@ const {
 const {
   writeOverviewOutputs,
 } = require('../cli/formatters/dashboard-formatter');
+const { applyBaselineOperations } = require('./regression-tools');
 
 async function buildProjectOverview(args, container) {
   await container.ensureReady();
@@ -83,27 +84,7 @@ async function buildProjectOverview(args, container) {
     },
   };
 
-  if (args?.save) {
-    const fs = require('fs');
-    const path = require('path');
-    const regressionTools = require('./regression-tools');
-    const saveFilename = typeof args.save === 'string' ? args.save : regressionTools.DEFAULT_BASELINE_FILE;
-    const savePath = path.resolve(args.cwd || process.cwd(), saveFilename);
-    regressionTools.saveBaseline(result, savePath);
-    result.baselineSaved = savePath;
-  }
-
-  if (args?.checkRegression) {
-    const regressionTools = require('./regression-tools');
-    const { baselinePath, commitBaseline } = regressionTools.resolveBaseline(args);
-    if (commitBaseline) {
-      const regResult = regressionTools.checkRegressionAgainstCommit(result, commitBaseline, args.cwd || process.cwd());
-      result.regression = { ok: regResult.ok, ...regResult.regression, commit: regResult.commit, error: regResult.error };
-    } else {
-      const regResult = regressionTools.checkRegression(result, baselinePath);
-      result.regression = { ok: regResult.ok, ...regResult.regression, baselinePath: regResult.baselinePath, baselineTimestamp: regResult.baselineTimestamp, error: regResult.error };
-    }
-  }
+  applyBaselineOperations(result, args);
 
   // Stage 3.5: Persist aggregate snapshot for query-* commands
   try {

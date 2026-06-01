@@ -185,10 +185,32 @@ function checkRegressionAgainstCommit(currentResult, commit, cwd) {
   };
 }
 
+function applyBaselineOperations(result, args) {
+  const cwd = args.cwd || process.cwd();
+  if (args.save) {
+    const saveFilename = typeof args.save === 'string' ? args.save : DEFAULT_BASELINE_FILE;
+    const savePath = path.resolve(cwd, saveFilename);
+    saveBaseline(result, savePath);
+    result.baselineSaved = savePath;
+  }
+
+  if (args.checkRegression) {
+    const { baselinePath, commitBaseline } = resolveBaseline(args);
+    if (commitBaseline) {
+      const regResult = checkRegressionAgainstCommit(result, commitBaseline, cwd);
+      result.regression = { ok: regResult.ok, ...regResult.regression, commit: regResult.commit, error: regResult.error };
+    } else {
+      const regResult = checkRegression(result, baselinePath);
+      result.regression = { ok: regResult.ok, ...regResult.regression, baselinePath: regResult.baselinePath, baselineTimestamp: regResult.baselineTimestamp, error: regResult.error };
+    }
+  }
+}
+
 module.exports = {
   saveBaseline,
   checkRegression,
   checkRegressionAgainstCommit,
   DEFAULT_BASELINE_FILE,
   resolveBaseline,
+  applyBaselineOperations,
 };

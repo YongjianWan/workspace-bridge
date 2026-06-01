@@ -19,6 +19,16 @@
 | 大项目冷启动超时                | ⏳ 观察              | ~~395 文件实测 59s~~ 实测 239 文件 2s / 542 文件 7s（环境差异），但 7s 对 CI 仍不够友好       | 预热工作流 + 评估 `--cache-dir` + 大项目默认 `--compact`                                                                                                              |
 | ~~Java `dead-exports` 大图崩溃~~ | ✅ **已修复** | ~~542 文件 Java 项目跑 `dead-exports` 返回 exit code 49，零输出~~ | **根治**：`spawn-ast.js` 改用临时文件中转替代 stdin 管道，Python 脚本通过 `--file` 参数读取。彻底消除 Windows Store Python + Git Bash 管道大数据崩溃触发条件。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。 |
 | 跨仓库静态分析                  | ⏳ 评估中            | 前后端 API 契约纯文本匹配可做（`@RequestMapping` vs `axios.get`），但 CLI 只能单 `--cwd` | 评估多 `--cwd` 或 `--cross-repo` 低复杂度方案                                                                                                                         |
+| `--format json` 与 `--json` 语义混淆 | ⏳ 设计债 | AI 传递 `--format json` 被静默忽略，返回 Markdown 导致 `JSON.parse` 崩溃 | 始终使用全局 `--json`；`--format` 仅控制 formatter 内部模式 |
+| 配置 JSON 语法错误静默回退 | ⏳ 设计债 | `.workspace-bridge.json` 损坏时静默忽略，索引范围扩大到 10 倍 | 启动前校验配置 JSON 语法 |
+| `--cwd` 子目录分析被 Git root 覆盖 | ⏳ 设计债 | 期望分析子目录，实际返回整个仓库 | 明确文档化 `--cwd` 的 Git root 向上解析行为 |
+| `--check-regression` 仅比较结构计数 | ⏳ 已文档化 | 代码内容变更但结构计数不变时误判为无回归 | 已在 help 文本注明；内容级回归需人工审查 |
+| ESM 语法注入导致解析器崩溃 | ⏳ 观察 | CJS 项目中注入 `export const` 导致未处理 loader 异常 | 避免在 CJS 文件中使用 ESM 语法 |
+| `--exclude "*.test.js"` Glob 排除失效 | ❌ Bug | 仅匹配目录名，文件级 glob 不生效 | 使用 `--exclude test` 目录排除替代 |
+| REPL `--eval "invalid"` 错误码不对 | ❌ Bug | 期望 exit 2，实际 exit 0（静默吃掉错误） | 避免在自动化脚本中依赖 REPL 错误码 |
+| Windows 反斜杠路径解析失败 | ❌ Bug | `src\services\container.js` 被当作字符串而非路径 | 使用正斜杠 `/` 传递路径 |
+| symbolImpact 多符号解构遗漏 | ⏳ 观察 | 同时导入多个解构符号时部分遗漏 | 关注 `sourceSymbols` 与 `symbolToDependents` 数量是否一致 |
+| audit-security Rule ID 映射错位 | ⏳ 观察 | Markdown 输出 `js-hardcoded-secret`，JSON 中 `rule` 为 null | 按 `ruleId` 字段消费安全规则 |
 
 > 近期已修复的限制见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]：`--builtin-only`、`--since <commit>`、TTL 24h、git-aware staleness、`--format jsonl`、SKILL 文档体系重构。
 >
@@ -409,14 +419,13 @@ CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
 
 ---
 
-### L3 品味与架构债务（2 项活跃）
+### L3 品味与架构债务（1 项活跃）
 
 按 [TECH_DEBT.md](./docs/TECH_DEBT.md) 记录：
 
 | 位置 | 问题 | 优先级 |
 | ---- | ---- | ------ |
 | `cli.js` / `formatters` | `--json` 嵌套深；`determineExitCode()` 脏耦合 switch-case 链条 | 中 |
-| `parsers/js.js` | JS 正则 fallback 模式三大死角：多行模板按行切分瘫痪、解构导出捕获漏报、调用链空转 | 中 |
 
 > 已修复项（历史见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]）：`inferFileRole` 状态化 + 规则盲区消除（`project-context.js`）、`shouldExclude` 跨层热切判定解耦（`file-index.js`）、COMMAND_GUIDES 内聚归位（`cli.js`）、Resolver FIFO → LRU（`resolvers.js`）、`js.js` 解析器拆分（将 `parseJavaScriptAST` 移至 `ast-parser.js`）。
 

@@ -72,23 +72,7 @@ async function assembleSummary(parsed, container) {
     cycles,
   };
 
-  if (parsed.save) {
-    const saveFilename = typeof parsed.save === 'string' ? parsed.save : regressionTools.DEFAULT_BASELINE_FILE;
-    const savePath = path.resolve(parsed.cwd || process.cwd(), saveFilename);
-    regressionTools.saveBaseline(result, savePath);
-    result.baselineSaved = savePath;
-  }
-
-  if (parsed.checkRegression) {
-    const { baselinePath, commitBaseline } = regressionTools.resolveBaseline(parsed);
-    if (commitBaseline) {
-      const regResult = regressionTools.checkRegressionAgainstCommit(result, commitBaseline, parsed.cwd || process.cwd());
-      result.regression = { ok: regResult.ok, ...regResult.regression, commit: regResult.commit, error: regResult.error };
-    } else {
-      const regResult = regressionTools.checkRegression(result, baselinePath);
-      result.regression = { ok: regResult.ok, ...regResult.regression, baselinePath: regResult.baselinePath, baselineTimestamp: regResult.baselineTimestamp, error: regResult.error };
-    }
-  }
+  regressionTools.applyBaselineOperations(result, parsed);
 
   // Calculate hasFindings O(1) return contract
   result.hasFindings =
@@ -221,6 +205,7 @@ function buildDiffResult(safeEntries, finalEntries, changeMetrics, parsed, conta
     validationAdvice: buildValidationAdvice(finalEntries, container.workspaceRoot),
     options: {
       reuseHints: parsed.reuseHints,
+      reuseHintsApplied: finalEntries.reduce((sum, e) => sum + (e.changedFunctionImpact?.reuseHints?.length || 0), 0),
     },
     changedFiles: finalEntries,
   };
