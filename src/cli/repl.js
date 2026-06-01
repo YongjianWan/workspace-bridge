@@ -2,6 +2,12 @@
  * workspace-bridge REPL
  * Interactive query shell for large projects.
  * Dep-graph stays hot in memory — no full rebuild per query.
+ *
+ * Exit-code contract (REPL mode):
+ *   0 = success
+ *   1 = runtime / business error
+ *   2 = unknown command or usage error (invalid syntax)
+ * Consumers should treat any non-zero exit code as failure.
  */
 const readline = require('readline');
 const path = require('path');
@@ -339,6 +345,16 @@ async function executeCommand(container, line, options = {}) {
   }
 }
 
+function determineReplExitCode(error, output) {
+  const errStr = String(error || '');
+  if (errStr.includes('Unknown command') || errStr.includes('Usage:')) return 2;
+  if (typeof output === 'string') {
+    if (output.startsWith('Unknown command:') || output.startsWith('Usage:')) return 2;
+    if (output.startsWith('Error:')) return 1;
+  }
+  return 1;
+}
+
 async function startRepl(options) {
   const evalMode = options.eval || null;
 
@@ -395,9 +411,10 @@ async function startRepl(options) {
           const single = results[0];
           if (single.error || (single.output && single.output.error)) {
             console.log(JSON.stringify({ ok: false, error: single.error || single.output.error }));
-            const errStr = String(single.error || (single.output && single.output.error) || '');
-            const isUnknown = errStr.includes('Unknown command') || errStr.includes('Usage:');
-            process.exitCode = isUnknown ? 2 : 1;
+            process.exitCode = determineReplExitCode(
+              single.error || (single.output && single.output.error),
+              typeof single.output === 'string' ? single.output : null
+            );
           } else {
             console.log(JSON.stringify({ ok: true, result: single.output }));
           }
@@ -410,11 +427,10 @@ async function startRepl(options) {
           });
           console.log(JSON.stringify({ ok: !hasError, results: formattedResults }));
           if (hasError) {
-            const hasUnknown = results.some((r) => {
-              const errStr = String(r.error || (r.output && r.output.error) || '');
-              return errStr.includes('Unknown command') || errStr.includes('Usage:');
-            });
-            process.exitCode = hasUnknown ? 2 : 1;
+            process.exitCode = results.some((r) => determineReplExitCode(
+              r.error || (r.output && r.output.error),
+              typeof r.output === 'string' ? r.output : null
+            ) === 2) ? 2 : 1;
           }
         }
       } else {
@@ -425,16 +441,11 @@ async function startRepl(options) {
           }
           if (r.error) {
             console.error(`Error: ${r.error}`);
-            const isUnknown = r.error.includes('Unknown command') || r.error.includes('Usage:');
-            process.exitCode = isUnknown ? 2 : 1;
+            process.exitCode = determineReplExitCode(r.error, null);
           } else if (r.output !== null) {
             console.log(r.output);
             if (typeof r.output === 'string') {
-              if (r.output.startsWith('Unknown command:') || r.output.startsWith('Usage:')) {
-                process.exitCode = 2;
-              } else if (r.output.startsWith('Error:')) {
-                process.exitCode = 1;
-              }
+              process.exitCode = determineReplExitCode(null, r.output);
             }
           }
           if (commands.length > 1 && i < results.length - 1) {

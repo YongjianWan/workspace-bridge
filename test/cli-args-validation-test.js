@@ -40,14 +40,14 @@ function testVersionFlag() {
 function testMissingFileArgument() {
   // JSON mode
   const result = runCliRaw(['audit-file', '--cwd', '.', '--json', '--quiet']);
-  assert.strictEqual(result.status, 2, 'missing --file should exit 2');
+  assert.strictEqual(result.status, 1, 'missing --file should exit 1 (business failure)');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.ok, false);
   assert(data.error.includes('requires --file'), 'should mention requires --file');
 
   // Human mode
   const resultHuman = runCliRaw(['audit-file', '--cwd', '.', '--quiet']);
-  assert.strictEqual(resultHuman.status, 2, 'missing --file in human mode should exit 2');
+  assert.strictEqual(resultHuman.status, 1, 'missing --file in human mode should exit 1 (business failure)');
   assert(resultHuman.stderr.includes('[validation_error]'), 'should output [validation_error]');
 }
 
@@ -60,30 +60,30 @@ function testQuietSuppressesInfo() {
   assert(stdout.includes('files'), 'stats should output files count');
 }
 
-function testInvalidFormatExits2() {
+function testInvalidFormatExits1() {
   const result = runCliRaw(['audit-summary', '--cwd', '.', '--format', 'invalid', '--quiet']);
-  assert.strictEqual(result.status, 2, 'invalid --format should exit 2');
+  assert.strictEqual(result.status, 1, 'invalid --format should exit 1 (business failure)');
   const out = result.stderr || result.stdout || '';
   assert(out.toLowerCase().includes('invalid'), 'should mention invalid value');
 }
 
-function testInvalidDirectionExits2() {
+function testInvalidDirectionExits1() {
   const result = runCliRaw(['tree', '--cwd', '.', '--file', 'cli.js', '--direction', 'invalid', '--quiet']);
-  assert.strictEqual(result.status, 2, 'invalid --direction should exit 2');
+  assert.strictEqual(result.status, 1, 'invalid --direction should exit 1 (business failure)');
   const out = result.stderr || result.stdout || '';
   assert(out.toLowerCase().includes('invalid'), 'should mention invalid value');
 }
 
-function testInvalidModeExits2() {
+function testInvalidModeExits1() {
   const result = runCliRaw(['diagnostics', '--cwd', '.', '--mode', 'invalid', '--quiet']);
-  assert.strictEqual(result.status, 2, 'invalid --mode should exit 2');
+  assert.strictEqual(result.status, 1, 'invalid --mode should exit 1 (business failure)');
   const out = result.stderr || result.stdout || '';
   assert(out.toLowerCase().includes('invalid'), 'should mention invalid value');
 }
 
-function testInvalidDepthExits2() {
+function testInvalidDepthExits1() {
   const result = runCliRaw(['audit-summary', '--cwd', '.', '--depth', 'invalid', '--quiet']);
-  assert.strictEqual(result.status, 2, 'invalid --depth should exit 2');
+  assert.strictEqual(result.status, 1, 'invalid --depth should exit 1 (business failure)');
   const out = result.stderr || result.stdout || '';
   assert(out.toLowerCase().includes('invalid'), 'should mention invalid value');
 }
@@ -95,10 +95,10 @@ function main() {
   testVersionFlag();
   testMissingFileArgument();
   testQuietSuppressesInfo();
-  testInvalidFormatExits2();
-  testInvalidDirectionExits2();
-  testInvalidModeExits2();
-  testInvalidDepthExits2();
+  testInvalidFormatExits1();
+  testInvalidDirectionExits1();
+  testInvalidModeExits1();
+  testInvalidDepthExits1();
   console.log('cli-args-validation-test.js: all passed');
 }
 

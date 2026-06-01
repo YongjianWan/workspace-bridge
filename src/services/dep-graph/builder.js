@@ -98,13 +98,16 @@ class GraphBuilder {
     // Process only changed/new files with concurrency limit
     await this._processFilesWithLimit(filesToAnalyze, CONFIG.DEFAULT_CONCURRENCY);
 
-    // Build reverse graph
-    this.buildReverseGraph();
-
     // P105: run post-process phases (framework implicit imports, etc.)
     for (const phase of this.postProcessPhases) {
       await phase.fn();
     }
+
+    // Filter out non-value imports (type-only, interface, annotation, lazy/dynamic)
+    this._filterNonValueImports();
+
+    // Build reverse graph
+    this.buildReverseGraph();
 
     const cacheHitRate = files.length > 0 ? Math.round((cachedFiles.length / files.length) * 100) : 0;
     if (!this.dg.quiet) {
@@ -689,6 +692,13 @@ class GraphBuilder {
       }
     } finally {
       this.dg._finishUpdating();
+
+      // Filter out non-value imports (type-only, interface, annotation, lazy/dynamic)
+      this._filterNonValueImports();
+
+      // Rebuild reverse graph
+      this.buildReverseGraph();
+
       if (this.dg.cache && typeof this.dg.cache.save === 'function') {
         try {
           await this.dg.cache.save();
@@ -718,6 +728,81 @@ class GraphBuilder {
       if (info.exportRecords && info.exportRecords.length > 0) {
         this.symbolRegistry.register(filePath, info.exportRecords);
       }
+    }
+  }
+
+  _filterNonValueImports() {
+    for (const [fileKey, info] of this.dg.graph) {
+      if (!info.imports || info.imports.length === 0) continue;
+
+      const filteredImports = [];
+      for (const imp of info.imports) {
+        // Find matching importRecord
+        const record = info.importRecords?.find((r) => r.resolved === imp);
+        if (record) {
+          // Rule 2: Skip if import is explicitly type-only
+          if (record.importKind === 'type' || record.isTypeOnly) {
+            continue;
+          }
+
+          // Rule 3: Skip if the target file only exports types/interfaces/annotations
+          const targetInfo = this.dg.graph.get(imp);
+          if (targetInfo) {
+            const hasExports = targetInfo.exportRecords && targetInfo.exportRecords.length > 0;
+            const allTypeOrInterface = hasExports && targetInfo.exportRecords.every(
+              (r) => r.kind === 'interface' || r.kind === 'type' || r.kind === 'annotation'
+            );
+            if (allTypeOrInterface) {
+              continue;
+            }
+
+            // Check if all imported symbols in this record are types/interfaces/annotations
+            if (record.imported && record.imported.length > 0) {
+              const allImportedAreTypes = record.imported.every((sym) => {
+                const matchedExport = targetInfo.exportRecords?.find((exp) => exp.name === sym);
+                return matchedExport && (
+                  matchedExport.kind === 'interface' ||
+                  matchedExport.kind === 'type' ||
+                  matchedExport.kind === 'annotation'
+                );
+              });
+              if (allImportedAreTypes) {
+                continue;
+              }
+            }
+          }
+        }
+
+        const sourcePathLower = fileKey.toLowerCase();
+        const targetPathLower = imp.toLowerCase();
+        const extSource = path.extname(fileKey).toLowerCase();
+        const extTarget = path.extname(imp).toLowerCase();
+        const isJavaFamily = ['.java', '.kt'].includes(extSource) || ['.java', '.kt'].includes(extTarget);
+
+        if (isJavaFamily) {
+          // Rule 5: Stateless Utility Coupling
+          // If both files are stateless utility/helper files, prune the edge between them.
+          const isSourceUtil = /\/(utils|util|common|core|helper|helpers|tools)\//.test(sourcePathLower) ||
+            /(?:utils|formatter|serializer|helper|constants)\./i.test(sourcePathLower);
+          const isTargetUtil = /\/(utils|util|common|core|helper|helpers|tools)\//.test(targetPathLower) ||
+            /(?:utils|formatter|serializer|helper|constants)\./i.test(targetPathLower);
+
+          if (isSourceUtil && isTargetUtil) {
+            continue;
+          }
+
+          // Rule 6: Utility to Data Structure/Entity reference
+          // Utilities should reference logic/services, but reference to a pure data structure (domain, model, entity, POJO, DTO, VO)
+          // is a type/data reference. Prune utility-to-entity edge.
+          const isTargetEntity = /\/(domain|model|entity|po|vo|dto|bo)\//.test(targetPathLower);
+          if (isSourceUtil && isTargetEntity) {
+            continue;
+          }
+        }
+
+        filteredImports.push(imp);
+      }
+      info.imports = filteredImports;
     }
   }
 

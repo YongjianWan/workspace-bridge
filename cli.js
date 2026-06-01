@@ -442,7 +442,7 @@ async function runCliInProcess(args, opts = {}) {
   try {
     parsed = parseCliArgs(['node', 'cli.js', ...args]);
   } catch (err) {
-    return { status: err.code === 'VALIDATION_ERROR' ? 2 : 1, stdout: '', stderr: err.message };
+    return { status: err.code === 'VALIDATION_ERROR' ? 1 : 2, stdout: '', stderr: err.message };
   }
 
   if (parsed.version) {
@@ -539,7 +539,7 @@ async function runCliInProcess(args, opts = {}) {
     } else {
       stderr = `[${classified.type}] ${err.message || String(err)}\n→ ${classified.suggestion}`;
     }
-    return { status: classified.type === 'config_error' ? 1 : 2, stdout, stderr };
+    return { status: (classified.type === 'config_error' || classified.type === 'validation_error') ? 1 : 2, stdout, stderr };
   } finally {
     if (shouldInit) await container.shutdown();
   }
@@ -552,7 +552,7 @@ async function main() {
   } catch (err) {
     console.error(err.message);
     if (err.code === 'VALIDATION_ERROR') {
-      process.exit(2);
+      process.exit(1);
     }
     printUsage();
     process.exit(1);

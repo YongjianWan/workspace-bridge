@@ -424,15 +424,15 @@ async function assembleOverviewData(args, container, historyProvider) {
   const entryFiles = scope?.entryFiles || [];
   const skeleton = buildSkeleton(root, depGraph, allFiles, mainlineFiles, projectContext, entryFiles);
 
-  const aggregate = depGraph.analyzer?._aggregateCache;
-  const hasValidAggregate = aggregate && aggregate.version === depGraph.analyzer?._aggregateVersion;
+  const aggregate = depGraph.analyzer?.getAggregateCache?.();
+  const hasValidAggregate = aggregate && aggregate.version === depGraph.analyzer?.getAggregateVersion?.();
   let hotspots = (hasValidAggregate && aggregate?.hotspots) ? aggregate.hotspots : null;
   let stability = (hasValidAggregate && aggregate?.stability) ? aggregate.stability : null;
 
   if ((!hotspots || !stability) && container.ensurePrecomputed) {
     await container.ensurePrecomputed(['overview']);
-    const refreshed = depGraph.analyzer?._aggregateCache;
-    const refreshedValid = refreshed && refreshed.version === depGraph.analyzer?._aggregateVersion;
+    const refreshed = depGraph.analyzer?.getAggregateCache?.();
+    const refreshedValid = refreshed && refreshed.version === depGraph.analyzer?.getAggregateVersion?.();
     hotspots = (refreshedValid && refreshed.hotspots) ? refreshed.hotspots : hotspots;
     stability = (refreshedValid && refreshed.stability) ? refreshed.stability : stability;
   }
@@ -482,7 +482,7 @@ async function assembleOverviewData(args, container, historyProvider) {
   const aggregates = aggregateOverviewStats(hotspots, stability);
 
   const dgStats = depGraph.getStats?.() || {};
-  const analysisCoverage = dgStats.filteredAnalysisCoverage || dgStats.analysisCoverage;
+  const analysisCoverage = dgStats.filteredAnalysisCoverage !== undefined ? dgStats.filteredAnalysisCoverage : dgStats.analysisCoverage;
   if (analysisCoverage && analysisCoverage.coverageRatio < 0.5) {
     summary.severity = 'high';
     summary.recommendations.unshift(`WARNING: Analysis coverage is low (${Math.round(analysisCoverage.coverageRatio * 100)}%); findings may be incomplete.`);

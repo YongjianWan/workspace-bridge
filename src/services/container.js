@@ -432,15 +432,20 @@ class ServiceContainer {
     if (this.initialized) return;
     if (this.initError) throw this.initError;
     
+    let timer;
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`Initialization timeout after ${timeoutMs}ms`)), timeoutMs);
+      timer = setTimeout(() => reject(new Error(`Initialization timeout after ${timeoutMs}ms`)), timeoutMs);
     });
-    
-    if (this._readyPromise) {
-      await Promise.race([this._readyPromise, timeoutPromise]);
-    } else {
-      // initialize() was never called — behave like old polling: wait for timeout
-      await timeoutPromise;
+
+    try {
+      if (this._readyPromise) {
+        await Promise.race([this._readyPromise, timeoutPromise]);
+      } else {
+        // initialize() was never called — behave like old polling: wait for timeout
+        await timeoutPromise;
+      }
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -479,7 +484,7 @@ class ServiceContainer {
     if (this.cache) {
       try {
         // P2: persist aggregate summary for O(1) startup on next run
-        const aggregate = this._depGraph?.analyzer?._aggregateCache;
+        const aggregate = this._depGraph?.analyzer?.getAggregateCache();
         if (aggregate) {
           this.cache.saveAggregateSummary(aggregate);
         }

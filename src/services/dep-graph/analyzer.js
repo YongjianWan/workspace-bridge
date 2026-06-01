@@ -275,6 +275,10 @@ class GraphAnalyzer {
     return this._aggregateCache;
   }
 
+  getAggregateVersion() {
+    return this._aggregateVersion;
+  }
+
   clearScanCaches() {
     this._scanContentCache.clear();
     this._scanPatternCache.clear();
@@ -376,82 +380,42 @@ class GraphAnalyzer {
     };
   }
 
-  isLikelyFrameworkLegitimateCycle(cycle) {
-    const normalized = cycle.map((f) => f.replace(/\\/g, '/').toLowerCase());
-
-    // P96: Vue standard data flow can have length=6 (request→store→router→view→api→request)
-    const allInVue = normalized.every(
-      (f) =>
-        /\/(src|pages|views|components|store|router|layout|layouts|assets|composables|hooks|mixins|directive|directives|plugins|utils|api|http|request|services|service)\//.test(f) ||
-        /\.vue$/.test(f)
-    );
-    const maxLen = allInVue ? 6 : 5;
-    if (cycle.length > maxLen) return false;
-
-    // Vue: store ↔ router ↔ view / api / request (length ≤ 6)
-    if (allInVue) {
-      const hasStore = normalized.some((f) => /\/store\//.test(f));
-      const hasRouter = normalized.some((f) => /\/router\//.test(f));
-      const hasView = normalized.some((f) => /\.vue$/.test(f) || /\/(views|pages|components|layout|layouts)\//.test(f));
-      const hasApi = normalized.some((f) => /\/(api|http|request|services|service)\//.test(f));
-      const hasUtils = normalized.some((f) => /\/utils\//.test(f));
-      let dimensions = 0;
-      if (hasStore) dimensions++;
-      if (hasRouter) dimensions++;
-      if (hasView) dimensions++;
-      if (hasApi) dimensions++;
-      if (hasUtils) dimensions++;
-      if (dimensions >= 2) return true;
+  _getCircularDependencies(filePath) {
+    const key = this.dg.normalizeFilePath(filePath);
+    const info = this.dg.graph.get(key);
+    if (!info || !info.imports || info.imports.length === 0) {
+      return [];
     }
 
-    // P73: React context ↔ hooks ↔ components (length ≤ 4)
-    const allInReact = normalized.every(
-      (f) =>
-        /\/(src|components|hooks?|context|pages|views|lib|utils|api)\//.test(f) ||
-        /\.(jsx|tsx)$/.test(f)
-    );
-    if (allInReact && cycle.length <= 4) {
-      const hasContext = normalized.some((f) => /\/context\//.test(f));
-      const hasHooks = normalized.some((f) => /\/hooks?\//.test(f));
-      const hasComponents = normalized.some((f) => /\/components\//.test(f) || /\.(jsx|tsx)$/.test(f));
-      let dimensions = 0;
-      if (hasContext) dimensions++;
-      if (hasHooks) dimensions++;
-      if (hasComponents) dimensions++;
-      if (dimensions >= 2) return true;
-    }
-
-    // P73: Java domain/model ↔ utils/entity (common module internal cycles, length ≤ 3)
-    const allInJava = normalized.every((f) => /\.java$/.test(f));
-    if (allInJava && cycle.length <= 3) {
-      const hasDomain = normalized.some((f) => /\/(domain|model|entity|po|vo|dto|bo)\//.test(f));
-      const hasUtils = normalized.some((f) => /\/(utils|util|common|core|helper|helpers|tools)\//.test(f));
-      if (hasDomain && hasUtils) return true;
-    }
-
-    // P97: RuoYi scaffold utility mutual dependencies (length ≤ 2)
-    if (allInJava && cycle.length <= 2) {
-      const hasRuoYiMarker = normalized.some((f) => /\/(ruoyi|common\/utils|common\/core)\//.test(f));
-      if (hasRuoYiMarker) {
-        const allUtilityLike = normalized.every((f) => {
-          const base = path.basename(f);
-          if (/(?:utils|formatter|serializer|helper|constants)\.java$/i.test(base)) return true;
-          // RuoYi scaffold: annotation/serializer/config pairs are intentional design
-          if (/\/(annotation|config|serializer)\//.test(f)) return true;
-          return false;
-        });
-        if (allUtilityLike) return true;
+    const filtered = [];
+    for (const imp of info.imports) {
+      const record = info.importRecords?.find((r) => r.resolved === imp);
+      if (record) {
+        // Rule 1 (Lazy/Dynamic): Filter out if record.isLazy is true.
+        if (record.isLazy) {
+          continue;
+        }
       }
-    }
 
-    // Annotation ↔ Serializer mutual dependency (common Java framework design pattern)
-    if (allInJava && cycle.length <= 2) {
-      const hasAnnotation = normalized.some((f) => /\/annotation\//.test(f));
-      const hasSerializer = normalized.some((f) => /\/serializer\//.test(f));
-      if (hasAnnotation && hasSerializer) return true;
-    }
+      // Rule 4 (MVVM/MVC View Boundary)
+      // If the source path is a logic/model file (/store/, /router/, /api/, etc.)
+      // and target path is a Vue/React component (.vue, .jsx, .tsx or /views/, /pages/, etc.),
+      // discard the edge.
+      const sourcePathLower = key.toLowerCase().replace(/\\/g, '/');
+      const targetPathLower = imp.toLowerCase().replace(/\\/g, '/');
+      
+      const isSourceLogic = /\/(store|router|api|services|models|logic|controllers)\//.test(sourcePathLower) ||
+        /(?:store|router|api|service|model|controller)\./i.test(sourcePathLower);
+      const isTargetView = /\.(vue|jsx|tsx)$/.test(targetPathLower) ||
+        /\/(views|pages|components)\//.test(targetPathLower);
 
-    return false;
+      if (isSourceLogic && isTargetView) {
+        continue;
+      }
+
+      filtered.push(imp);
+    }
+    return filtered;
   }
 
   findCircularDependencies(options = {}) {
@@ -463,50 +427,134 @@ class GraphAnalyzer {
       return this._cachedCycles;
     }
 
-    const cycles = [];
-    const visited = new Set();
-    const stack = new Set();
-    const MAX_CYCLE_DEPTH = DEFAULTS.AFFECTED_TEST_DEPTH + 2; // conservative guard
+    // 1. Tarjan's algorithm to find all strongly connected components (SCCs) in O(V + E)
+    let index = 0;
+    const stack = [];
+    const indices = new Map();
+    const lowlinks = new Map();
+    const onStack = new Set();
+    const sccs = [];
 
-    const visit = (file, pathStack) => {
-      if (pathStack.length > MAX_CYCLE_DEPTH) {
-        // Depth guard: prevent stack overflow on extremely deep dependency chains
-        return;
-      }
-      if (stack.has(file)) {
-        // Found cycle
-        const cycleStart = pathStack.indexOf(file);
-        cycles.push(pathStack.slice(cycleStart));
-        return;
-      }
+    const strongconnect = (v) => {
+      indices.set(v, index);
+      lowlinks.set(v, index);
+      index++;
+      stack.push(v);
+      onStack.add(v);
 
-      if (visited.has(file)) return;
-
-      visited.add(file);
-      stack.add(file);
-      pathStack.push(file);
-
-      try {
-        const deps = this.dg.getDependencies(file);
-        for (const dep of deps) {
-          if (this.dg.hasFile(dep)) {
-            visit(dep, pathStack);
-          }
+      const deps = this._getCircularDependencies(v);
+      for (const w of deps) {
+        if (!this.dg.hasFile(w)) continue;
+        if (!indices.has(w)) {
+          strongconnect(w);
+          lowlinks.set(v, Math.min(lowlinks.get(v), lowlinks.get(w)));
+        } else if (onStack.has(w)) {
+          lowlinks.set(v, Math.min(lowlinks.get(v), indices.get(w)));
         }
-      } finally {
-        pathStack.pop();
-        stack.delete(file);
+      }
+
+      if (lowlinks.get(v) === indices.get(v)) {
+        const scc = [];
+        let w;
+        do {
+          w = stack.pop();
+          onStack.delete(w);
+          scc.push(w);
+        } while (w !== v);
+        sccs.push(scc);
       }
     };
 
-    for (const file of this.dg.graph.keys()) {
-      if (this.dg.shouldExcludeCli(file)) continue;
-      visit(file, []);
+    for (const v of this.dg.graph.keys()) {
+      if (this.dg.shouldExcludeCli(v)) continue;
+      if (!indices.has(v)) {
+        strongconnect(v);
+      }
+    }
+
+    // 2. Find all simple cycles within each SCC of size > 1 using Johnson's algorithm
+    const cycles = [];
+    // MAX_CYCLE_EDGE_DEPTH limits the Johnson search depth before push.
+    // pathStack.length > 7 triggers prune, so the maximum nodes in any
+    // discovered cycle = 8 (8 edges when the loop closes).
+    const MAX_CYCLE_EDGE_DEPTH = DEFAULTS.AFFECTED_TEST_DEPTH + 2; // conservative guard
+
+    for (const scc of sccs) {
+      if (scc.length <= 1) continue; // Skip SCCs of size 1 (which have no multi-node cycles)
+
+      const sccSet = new Set(scc);
+      const blocked = new Set();
+      const blockedMap = new Map();
+      const pathStack = [];
+      const sccList = Array.from(scc);
+      const nodeToIndex = new Map(sccList.map((node, idx) => [node, idx]));
+
+      const find = (startNode, currentNode) => {
+        // MAX_CYCLE_EDGE_DEPTH limits the size of the pathStack before pushing the next node.
+        // If pathStack.length is exactly MAX_CYCLE_EDGE_DEPTH (e.g. 7), the guard allows us to push 
+        // the 8th node. If that 8th node connects back to startNode, a cycle of length 8 
+        // is discovered. Hence, the maximum reported cycle length is MAX_CYCLE_EDGE_DEPTH + 1 = 8.
+        if (pathStack.length > MAX_CYCLE_EDGE_DEPTH) {
+          return false;
+        }
+
+        let foundCycle = false;
+        pathStack.push(currentNode);
+        blocked.add(currentNode);
+
+        const deps = this._getCircularDependencies(currentNode);
+        for (const dep of deps) {
+          if (!this.dg.hasFile(dep) || !sccSet.has(dep)) continue;
+          if (nodeToIndex.get(dep) < nodeToIndex.get(startNode)) continue;
+
+          if (dep === startNode) {
+            cycles.push([...pathStack]);
+            foundCycle = true;
+          } else if (!blocked.has(dep)) {
+            if (find(startNode, dep)) {
+              foundCycle = true;
+            }
+          }
+        }
+
+        if (foundCycle) {
+          unblock(currentNode);
+        } else {
+          for (const dep of deps) {
+            if (!this.dg.hasFile(dep) || !sccSet.has(dep)) continue;
+            if (nodeToIndex.get(dep) < nodeToIndex.get(startNode)) continue;
+            if (!blockedMap.has(dep)) blockedMap.set(dep, new Set());
+            blockedMap.get(dep).add(currentNode);
+          }
+        }
+
+        pathStack.pop();
+        return foundCycle;
+      };
+
+      const unblock = (node) => {
+        blocked.delete(node);
+        if (blockedMap.has(node)) {
+          for (const blockedNode of blockedMap.get(node)) {
+            if (blocked.has(blockedNode)) {
+              unblock(blockedNode);
+            }
+          }
+          blockedMap.delete(node);
+        }
+      };
+
+      for (let i = 0; i < sccList.length; i++) {
+        const startNode = sccList[i];
+        pathStack.length = 0;
+        blocked.clear();
+        blockedMap.clear();
+        find(startNode, startNode);
+      }
     }
 
     const filtered = cycles
-      .filter((cycle) => !(cycle.length <= 2 && cycle[0] === cycle[cycle.length - 1]))
-      .filter((cycle) => !this.isLikelyFrameworkLegitimateCycle(cycle));
+      .filter((cycle) => !(cycle.length <= 2 && cycle[0] === cycle[cycle.length - 1]));
 
     // P89: convert internal graph keys back to original-casing paths for output.
     const displayFiltered = filtered.map((cycle) => cycle.map((f) => this.dg._displayPath(f)));
@@ -920,6 +968,7 @@ class GraphAnalyzer {
           distance: maxDepth + 1,
           source: 'heuristic',
           via: ['heuristic:naming'],
+          terminator: true,
         });
         seen.add(candidate);
       }
@@ -949,9 +998,10 @@ class GraphAnalyzer {
       if (mentionPattern.test(content)) {
         graphResults.push({
           file: candidate,
-          distance: null,
+          distance: maxDepth + 1,
           source: 'mention',
           via: ['mention:stem'],
+          terminator: true,
         });
         seen.add(candidate);
       }

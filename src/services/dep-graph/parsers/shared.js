@@ -11,6 +11,8 @@ function exportKindFromDeclarationType(type) {
   if (type === 'FunctionDeclaration') return 'function';
   if (type === 'ClassDeclaration') return 'class';
   if (type === 'VariableDeclaration') return 'variable';
+  if (type === 'TSInterfaceDeclaration') return 'interface';
+  if (type === 'TSTypeAliasDeclaration') return 'type';
   return 'symbol';
 }
 
@@ -135,6 +137,9 @@ function createImportRecord(source, options = {}) {
     reExportAll: Boolean(options.reExportAll),
   };
   if (options.isStatic) record.isStatic = true;
+  if (options.isLazy) record.isLazy = true;
+  if (options.isTypeOnly) record.isTypeOnly = true;
+  if (options.importKind) record.importKind = options.importKind;
   return record;
 }
 

@@ -70,7 +70,6 @@ async function buildProjectOverview(args, container) {
       counts: {
         docs: rawData.orphans.docs.length,
         scripts: rawData.orphans.scripts.length,
-        counts: 0, // Unused / kept for placeholder
         configs: rawData.orphans.configs.length,
         modules: rawData.orphans.modules.length,
         total: rawData.orphanCount,

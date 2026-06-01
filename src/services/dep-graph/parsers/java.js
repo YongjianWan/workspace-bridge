@@ -29,9 +29,13 @@ function parseJavaWithRegex(content) {
     importRecords.push(createImportRecord(source, { imported, usesAllExports: isWildcard }));
   }
 
-  const exportRegex = /\bpublic\s+(?:abstract\s+|final\s+)?(?:class|interface|enum|record)\s+([A-Za-z_]\w*)/g;
+  const exportRegex = /\bpublic\s+(?:abstract\s+|final\s+)?(class|interface|enum|record|@interface)\s+([A-Za-z_]\w*)/g;
   while ((match = exportRegex.exec(content)) !== null) {
-    exportRecords.push(createExportRecord(match[1], { kind: 'class' }));
+    let kind = 'class';
+    if (match[1] === 'interface') kind = 'interface';
+    else if (match[1] === '@interface') kind = 'annotation';
+    else if (match[1] === 'enum') kind = 'enum';
+    exportRecords.push(createExportRecord(match[2], { kind }));
   }
 
   // Limit line length to bound regex execution; the pattern below has
@@ -73,8 +77,8 @@ async function parseJava(content) {
           isStatic: record.isStatic,
         })
       ),
-      exportRecords: uniqueNames(astResult.exports).map((name) =>
-        createExportRecord(name, { kind: 'symbol' })
+      exportRecords: (astResult.exportRecords || []).map((record) =>
+        createExportRecord(record.name, { kind: record.kind || 'symbol' })
       ),
       functionRecords: (astResult.functionRecords || []).map((record) => ({
         name: record.name,

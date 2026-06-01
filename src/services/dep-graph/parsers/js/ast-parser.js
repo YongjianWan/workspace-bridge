@@ -210,7 +210,7 @@ function parseJavaScriptAST(content, filePath = '') {
         ) {
           const source = node.arguments[0].value;
           imports.push(source);
-          importRecords.push(createImportRecord(source, { usesAllExports: true }));
+          importRecords.push(createImportRecord(source, { usesAllExports: true, isLazy: true }));
         }
       },
 

@@ -321,10 +321,3 @@ module.exports = {
   isStandaloneEntryPath,
   WORKSPACE_MARKERS,
 };
-// temp
-
-// temp-change-for-test-no-impact
-
-// temp-change-for-test-no-impact
-
-// temp-change-for-test-no-impact

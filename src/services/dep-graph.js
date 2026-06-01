@@ -557,13 +557,13 @@ class DependencyGraph {
 
       // Save aggregates
       const aggregateRows = [];
-      if (analyzer._aggregateCache) {
-        const cache = analyzer._aggregateCache;
+      const cache = analyzer.getAggregateCache();
+      if (cache) {
         if (cache.deadExports !== undefined) {
           aggregateRows.push({
             key: 'deadExports',
             data: JSON.stringify(cache.deadExports),
-            version: analyzer._aggregateVersion,
+            version: analyzer.getAggregateVersion(),
             fileCount: graphSize,
           });
         }
@@ -571,7 +571,7 @@ class DependencyGraph {
           aggregateRows.push({
             key: 'unresolved',
             data: JSON.stringify(cache.unresolved),
-            version: analyzer._aggregateVersion,
+            version: analyzer.getAggregateVersion(),
             fileCount: graphSize,
           });
         }
@@ -579,7 +579,7 @@ class DependencyGraph {
           aggregateRows.push({
             key: 'cycles',
             data: JSON.stringify(cache.cycles),
-            version: analyzer._aggregateVersion,
+            version: analyzer.getAggregateVersion(),
             fileCount: graphSize,
           });
         }
@@ -587,7 +587,7 @@ class DependencyGraph {
           aggregateRows.push({
             key: 'stats',
             data: JSON.stringify(cache.stats),
-            version: analyzer._aggregateVersion,
+            version: analyzer.getAggregateVersion(),
             fileCount: graphSize,
           });
         }

@@ -64,7 +64,7 @@ function testExitCodeInvalidArgs() {
     writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'arg', version: '1.0.0' }, null, 2));
 
     const noFileResult = run(['tree', '--cwd', tempRoot, '--json', '--quiet']);
-    assert.strictEqual(noFileResult.status, 2, 'tree without --file should exit 2');
+    assert.strictEqual(noFileResult.status, 1, 'tree without --file should exit 1 (validation error is business failure, not crash)');
 
     const badCwdResult = run(['audit-summary', '--cwd', path.join(tempRoot, 'nonexistent'), '--json', '--quiet']);
     assert.strictEqual(badCwdResult.status, 1, 'invalid cwd should exit 1 (business failure)');

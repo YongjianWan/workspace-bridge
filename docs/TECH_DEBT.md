@@ -14,7 +14,7 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **1** | L3 品味问题 **1** | 合计 **2 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **5** | L3 品味问题 **1** | 合计 **6 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
@@ -73,6 +73,122 @@
 
 ---
 
+#### 框架环路白名单语义识别缺失 (Heuristic Whitelisting) [已完成]
+
+**数据**：`src/services/dep-graph/analyzer.js:isLikelyFrameworkLegitimateCycle`
+
+**根因**：当前采用基于文件个数阈值 (`Vue <= 6`、`React <= 4`、`Java <= 3`) 以及路径正则关键字模糊匹配的 heuristic heuristics，强行在输出前抑制框架特定模式（如 Vue store-router-view，Java Annotation/Serializer 对）的循环依赖误报。这属于典型的“用数字魔法掩盖语义缺失”。
+
+**影响**：属于脆弱的黑盒补丁。一旦框架层面的物理依赖拓扑结构深度增加（例如 Vue 单次调用链多引入 1 个文件，或者微服务框架更改包结构），白名单便直接失效；同时对自定义架构中的合法非编译时循环（如 TypeScript type-only imports）缺乏细粒度识别。
+
+**方案 (Debt)**：
+1. **中期目标**：在 `resolvers` 和 `parsers` 层引入语义及类型级别分析（AST Type Imports Classification）。 [已完成]
+2. 在图构建或解析时，若发现 import 仅被用于类型系统（`import type` 且无 runtime 值引用），或者属于 Interface/Implementation 分离的多态引用，在建图时即抹除该物理边，从而在数据源头消除合法“非运行时”循环，替换掉顶层的长度数字魔法。 [已完成]
+
+---
+
+#### “默认宿主”效应 — 热点文件无限责任膨胀
+
+**根因**：新需求没有明确的第二选择时，就塞进最像的现有文件。facade 拆出 builder/analyzer/query 后，协调职责没有向上移交到 container 或专门编排层。
+
+| 文件 | 行数 | 变更次数 | 症状 | 根因 |
+|------|------|----------|------|------|
+| `src/services/dep-graph.js` | ~657 | 60 | DG_STATES 状态机 + fromSchema 工厂 + bus 协调 precompute/persistence 仍在 facade 内 | facade 协调职责未上移 |
+| `src/services/container.js` initialize() | ~100/556 | 42 | git HEAD / aggregate fallback / phaseTimes / strictCwd 全混在一起 | 无 pipeline/hook 机制 |
+| `src/services/file-index.js` | ~592 | 39 | DEFAULT_EXCLUDE_DIRS 硬编码 23 个目录 | 排除语义未收敛到单一模块 |
+
+**方案**：
+1. `dep-graph.js`：将 `DG_STATES`、`fromSchema`、`bus.on('graph:built')` 协调逻辑上移到 `container.js` 或新建 `src/services/orchestrator.js`。
+2. `container.js`：将 `initialize()` 拆为 `initWorkspaceRoot → initCache → initFileIndex → initDepGraph → initSnapshot` 的显式 pipeline，每个阶段可独立 mock 和重试。
+3. `file-index.js`：将 `shouldExclude()` 与 `exclude-patterns.js` 收敛，使“哪些文件该被排除”有单一事实源。
+
+---
+
+#### cache.js 重复模式 — 4 个 normalize 函数 + 8 个 dirty 跟踪集合
+
+**数据**：`src/services/cache.js`
+
+**症状**：
+- `normalizeFileMapEntries` / `normalizeDiagnosticsEntries` / `normalizeSymbolEntries` / `normalizeParseResultEntries` — 结构几乎一样，仅差 mtime 冲突合并和 locations 展平。
+- 8 个 dirty/deleted 跟踪集合（`_dirtyFiles`、`_deletedFiles`、`_dirtyParseResults`、`_deletedParseResults`……），代码注释自己写了 INVARIANT：“Any mutation MUST update the corresponding set”。
+
+**根因**：SQLite 迁移时引入了增量保存，但增量跟踪的抽象没有跟 schema 对齐——`METADATA_SCHEMA` 消除了 metadata 重复，但 file/parse/symbol/diagnostics 的 dirty 跟踪仍手写。
+
+**方案**：
+1. 提取 `normalizeEntries(entries, { mergeMtime?, flattenLocations? })` 通用函数，消灭 4 个复制粘贴变体。
+2. 用 `Map<string, Set>` 或 schema 驱动的 dirty tracker 替代 8 个手写 Set，让 INVARIANT 由数据结构保证而非注释约束。
+
+---
+
+#### graph-db.js schema 演化热点 — loadAll() 手工拼接
+
+**数据**：`src/services/graph-db.js`
+
+**症状**：`loadAll()` 手工拼接 5 张表的 SELECT + 反序列化。新增一张表就要在这里加 10 行样板。
+
+**根因**：没有 schema → 加载逻辑的映射层。`cache.js` 的 `METADATA_SCHEMA` 已经有了这个模式（register → serialize/deserialize），但 `graph-db.js` 没有对等抽象。
+
+**方案**：在 `graph-db.js` 中引入 `TABLE_SCHEMA` 注册表，每张表声明 `name`、`columns`、`serialize`、`deserialize`，`loadAll()` 遍历注册表自动生成 SELECT 和反序列化逻辑。
+
+---
+
+#### cli.js 入口膨胀 — 626 行承载 4 种职责
+
+**数据**：`cli.js` ~626 行，87 次变更
+
+**症状**：同时是命令路由器、参数验证器、格式化调度器、进程配置器（`UV_THREADPOOL_SIZE`、流式输出 `writeLargeJson`）。每次加参数、改输出格式、调性能都改 cli.js。
+
+**根因**：CLI 入口是“最方便的改动点”，但 626 行已经过载。
+
+**方案**：
+1. 参数验证 → 提取到 `src/cli/validate-args.js`
+2. 格式化路由 → 提取到 `src/cli/route-formatter.js`
+3. 进程配置 → 提取到 `src/cli/bootstrap.js`
+4. `cli.js` 只保留命令分发和顶层错误边界。
+
+---
+
+#### health-tools.js 与 audit-summary.health 数据重合
+
+**数据**：`src/tools/health-tools.js` / `src/tools/audit-assembler.js`
+
+**症状**：`health-tools.js` 独立存在并输出 `projectHealth` 结果，但 `audit-assembler.js` 将 `health` 数据直接并入 `audit-summary` 的 `summary` 和 `topRisks` 中。`health-tools.js` 的独立输出未被任何 consumer 单独使用，形成冗余数据层。
+
+**根因**：`health-tools.js` 诞生于早期版本，当时 health 数据是独立功能；随着 `audit-summary` 整合度提高，health 数据被直接嵌入 summary，但 `health-tools.js` 作为独立模块未被合并或删除。
+
+**方案**：评估 `health-tools.js` 的 `detectCiConfig` / `detectTestConfig` / `buildFixSuggestions` 是否仍有独立价值。若无，将健康检查逻辑内联到 `audit-assembler.js` 或 `overview-assembler.js`，删除独立模块；若有，明确区分 `health-tools.js` 与 `audit-summary` 的职责边界。
+
+---
+
+#### 跨文件重复模式
+
+| 模式 | 位置 | 债务信号 |
+|------|------|----------|
+| EventBus 各自实例化 | `file-index.js:41`, `dep-graph.js:112` | 不是共享总线，跨服务事件实际上不工作 |
+| `normalizeFilePath` 多处封装 | `cache.js:96`, `dep-graph.js:178` | 行为应一致，但各自包了一层 |
+| `shouldExclude` 分散 | `dep-graph.js:138`, `file-index.js`（间接）, `exclude-patterns.js` | 同一语义在三处实现 |
+
+**方案**：
+1. EventBus：确认两实例是否真需要隔离；若不需要，改为共享一个模块级实例或从 container 注入。
+2. `normalizeFilePath`：统一收敛到 `src/utils/path.js`，cache.js 和 dep-graph.js 直接引用。
+3. `shouldExclude`：将 dep-graph 的 `shouldExclude()` 和 file-index 的 `DEFAULT_EXCLUDE_DIRS` 收敛到 `exclude-patterns.js`，使排除决策单一模块化。
+
+---
+
+#### exclude-patterns.js `**` glob 的 basename 无效短路
+
+**数据**：`src/utils/exclude-patterns.js:33`
+
+**症状**：`shouldExcludeCli` 对 glob pattern 先测试 `path.basename(normalized)`，再测试路径后缀。对于 `src/**/test.js` 这类含路径前缀的 pattern，`basename` 永远匹配失败（因为 basename 不含 `src/` 前缀），成为无效尝试。虽然 suffix fallback 保证最终正确性，但浪费一次正则匹配，且误导代码阅读者以为 basename 短路对路径型 glob 有意义。
+
+**根因**：glob 分支的正则测试同时用于 basename 和 path suffix，没有区分「纯文件名 glob」（如 `*.test.js`）和「路径型 glob」（如 `src/**/test.js`）。
+
+**方案**：
+1. 轻量：删除 `path.basename` 测试，直接走 `parts.slice(i)` 后缀匹配。`[^/]*` 已确保不会跨段匹配，basename 场景会在 `i = parts.length - 1` 时自然命中。
+2. 或：先判断 pattern 是否含 `/`，含 `/` 的 pattern 跳过 basename 测试直接走后缀匹配。
+
+---
+
 ## L3 品味问题（建议修，非债务）
 
 
@@ -89,12 +205,16 @@
 | 文件                                      | 行数   | 风险  | 状态                                                                                        |
 | --------------------------------------- | ---- | --- | ----------------------------------------------------------------------------------------- |
 | `src/tools/overview-tools.js`           | ~80 | 低   | U3 拆分已完成：数据组装进 `overview-assembler.js`，HTML 渲染与 I/O 进 `dashboard-formatter.js`；薄编排层仅剩 `buildProjectOverview` |
-| `cli.js`                                | ~509 | 中   | `--json` 嵌套深，管道不友好                                                                        |
+| `cli.js`                                | ~626 | **高** | **入口膨胀**：同时承载路由/验证/格式化/进程配置，87次变更；需拆分为 `validate-args.js` + `route-formatter.js` + `bootstrap.js` |
 | `src/tools/git-tools.js`                | ~392 | 低   | L2-9 commit range 源                                                                       |
 | `src/utils/project-context.js`          | ~634 | 低   | `inferFileRole()` 已状态化并消除规则盲区；`shouldExclude` CPU 消耗已修复                                |
 | `src/utils/stack-detectors/detect.js`   | ~443 | 低   | stack-detector 检测子模块                                                                      |
 | `src/utils/stack-detectors/commands.js` | ~639 | 低   | stack-detector 命令子模块                                                                      |
-| `src/services/file-index.js`            | ~547 | 低   | 行数稳定，内部通过 `FileIndexBuilder` / `ChangeTracker` 实现认知拆分                                     |
+| `src/services/file-index.js`            | ~592 | **中** | **排除逻辑分家**：`DEFAULT_EXCLUDE_DIRS` 与 `dep-graph.js` / `exclude-patterns.js` 独立演化 |
+| `src/services/dep-graph.js`             | ~657 | **高** | **无限责任宿主**：facade 仍含 DG_STATES + fromSchema + bus 协调，60次变更 |
+| `src/services/container.js`             | ~556 | **高** | **initialize() 上帝方法**：~100行混入 git/aggregate/phaseTimes/strictCwd，42次变更 |
+| `src/services/cache.js`                 | ~625 | **中** | **重复模式**：4个normalize复制粘贴 + 8个dirty Set手动维护 |
+| `src/services/graph-db.js`              | ~678 | **中** | **schema演化热点**：`loadAll()` 手工拼接5张表，无映射层抽象 |
 
 
 ---

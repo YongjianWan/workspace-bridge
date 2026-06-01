@@ -19,16 +19,16 @@ function shouldExcludeCli(filePath, cliExcludeDirs) {
   if (!cliExcludeDirs || cliExcludeDirs.length === 0) return false;
   const normalized = normalizePathKey(filePath);
   return cliExcludeDirs.some((pattern) => {
-    // Simple glob support: *.ext, prefix*, ?ingle-char, src/**
+    // Simple glob support: *.ext, prefix*, ?ingle-char, src/**, src/**/suffix
     if (pattern.includes('*') || pattern.includes('?')) {
       const cleanPattern = pattern.trim();
       const escaped = cleanPattern
-        .replace(/\/\*\*\/+/g, 'GLOB_DIR_STAR')
+        .replace(/\*\*/g, '###GLOB_DOUBLE_STAR###')
         .replace(/[.+^${}()|[\]\\]/g, '\\$&')
         .replace(/\*/g, '[^/]*')
         .replace(/\?/g, '[^/]')
-        .replace(/GLOB_DIR_STAR/g, '/(?:.*/)?');
-      
+        .replace(/###GLOB_DOUBLE_STAR###/g, '.*');
+
       const regex = new RegExp('^' + escaped + '$');
       if (regex.test(path.basename(normalized))) return true;
       // Allow path-fragment glob matches by testing every suffix of the path

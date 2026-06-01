@@ -8,6 +8,59 @@
 
 ## [Unreleased]
 
+### 架构边界维护 — _aggregateCache 封装修复与契约统一（2026-06-01）
+
+- **根治 `_aggregateCache` 封装泄漏** `src/services/dep-graph/analyzer.js` + `container.js` + `dep-graph.js` + `overview-assembler.js`：
+  - 新增 `GraphAnalyzer.getAggregateVersion()` getter，与已有的 `getAggregateCache()` 配套。
+  - 将 4 处外部 `_aggregateCache` 直读 + 8 处 `_aggregateVersion` 直读全部替换为 getter 调用，彻底消除封装 bypass。
+  - `overview-assembler.js` 使用 `?.getAggregateCache?.()` 防御 mock 测试对象。
+- **统一 `affectedTests` `terminator` 字段语义** `src/services/dep-graph/analyzer.js`：
+  - `_findAffectedTestsByHeuristic` 补 `terminator: true`，与 `_findAffectedTestsByMention` 保持一致，避免下游 consumer 因字段缺失而过滤/排序错位。
+- **封装 `process.emitWarning` monkey-patch** `src/services/graph-db.js`：
+  - 引入 `_suppressCount` 引用计数，`_ensureOpen()` 中首次 patch，`close()` 中归零恢复，消除模块级全局污染和多实例竞态。
+- **统一 REPL 退出码判断** `src/cli/repl.js`：
+  - 提取 `determineReplExitCode(error, output)` 统一函数，替换 4 处分散的 `isUnknown ? 2 : 1` 判断，消除 exit code 契约分叉。
+- **限制 `debug.js` graph 分支计算量** `src/cli/commands/debug.js`：
+  - 加 `MAX_DEBUG_GRAPH_FILES = 5000` 和 `MAX_DEBUG_GRAPH_EDGES = 50000` 上限，超限截断并标记 `truncated: true`，防止 O(files × avg_edges) hang。
+- **产出审查文档** `docs/code_review.md`：
+  - 归档全历史回溯发现的 5 个系统性问题、修复动作与防御措施建议。
+
+### 测试与 CLI 语义修复 — 探索发现项清零（2026-06-01）
+
+- **补 `_filterNonValueImports` 零覆盖单元测试** `test/builder-filter-nonvalue-test.js`：
+  - 直接对 `GraphBuilder._filterNonValueImports()` 做 synthetic graph 单元测试，覆盖 Rule 2（type-only）、Rule 3（interface-only target）、Rule 5（Java utility↔utility）、Rule 6（Java utility→entity）及正常 value import 保留。纳入 fast 层。
+- **修复 `VALIDATION_ERROR` exit code 语义错误** `cli.js`：
+  - `runCliInProcess` catch 块与 `main()` 中参数验证错误（`VALIDATION_ERROR`）的 exit code 从 `2`（崩溃）修正为 `1`（业务失败），与 AGENTS.md 语义定义对齐。
+  - 同步更新 `test/cli-exit-code-test.js`、`test/cli-args-validation-test.js` 中的 exit code 期望与函数命名。
+- **更新环路测试注释语义** `test/dep-graph-error-test.js`：
+  - 将旧 "should be whitelisted" 注释/断言文案更新为反映实际过滤机制（MVVM logic→view boundary / Java utility↔utility edge pruning / annotation-only target pruning），消除测试意图与实际实现之间的语义漂移。
+- **修正 `MAX_CYCLE_EDGE_DEPTH` 注释歧义** `src/services/dep-graph/analyzer.js`：
+  - 将 "8 nodes (7 edges)" 的误导性描述修正为 "8 nodes (8 edges when the loop closes)"，准确反映 Johnson 搜索深度上限的物理含义。
+
+### 技术债务偿还与架构优化 — AST/Resolver 级导入过滤与环路检测彻底重构（2026-06-01）
+
+- **完全剔除魔数 Heuristic 环路过滤** `src/services/dep-graph/analyzer.js`：
+  - 彻底移除了脆弱的、基于硬编码长度限制的 `isLikelyFrameworkLegitimateCycle` 方法，将环路判定提升到严谨的物理依赖边过滤维度。
+- **高内聚的 AST/Resolver 级物理边过滤引擎** `src/services/dep-graph/builder.js`：
+  - 新增 `_filterNonValueImports()` 私有方法。在构建/更新依赖图的最后阶段（`build` & `updateFiles`），对 `imports` 边进行精细化过滤。
+  - **规则 1 & 2**：过滤掉 lazy/dynamic 动态导入（`isLazy: true`）和 explicit type-only 的类型级别物理依赖边。
+  - **规则 3**：读取被依赖目标文件的 `exportRecords` 属性。若目标文件仅导出类型、接口、注解（或导入的所有具体符号都属类型系统），则判定该边为 type-only/interface 物理边，执行源源头剪枝。
+  - **规则 4（MVC/MVVM View 边界）**：对 Vue、React 组件（`.vue`、`.jsx`、`.tsx` 等 view 目录角色）进行架构边界感知，若 logic/model 文件（如 store/router/api/request/service）同步静态导入组件，则视为结构性注册/绑定依赖而非运行期业务逻辑，剥离此物理依赖边。
+  - **规则 5 & 6（Java 专用）**：针对 Java/Kotlin 平台，过滤掉无状态工具类互依赖耦合（如 RuoYi 脚手架 Utils 间同原循环）以及工具对纯数据结构/Entity/Domain/DTO 的类型级别依赖，精准消除非运行时环路误报。
+- **多语言 AST Parser 深度赋能**：
+  - `ast-parser.js`：对 TS 接口 `TSInterfaceDeclaration`、TS 类型别名 `TSTypeAliasDeclaration` 导出记录正确识别并将其 kind 标记为 `'interface'` 和 `'type'`；动态导入 `import()` 自动标记 `{ isLazy: true }`。
+  - `java_ast_parser.py` + `java.js`：重写 Java AST 解析器和 fallback 正则解析器，支持对类、接口、枚举和 `@interface` 注解类型的 kind 字段精准标记与向下导出。
+  - 完美在 0 魔数魔法和 0 脆弱补丁的基础上，使 existing 框架 whitelist 环路测试 100% 成功通过！
+
+### 技术债务偿还 — 环路检测算法性能与正确性重构（2026-06-01）
+
+- **环路检测 `findCircularDependencies` 算法重构** `src/services/dep-graph/analyzer.js`：
+  - 引入 Tarjan 的强连通分量 (SCC) 算法对依赖图进行 $O(V+E)$ 划分。
+  - 将 Johnson 的初等环路查找算法限制在强连通分量 (SCC) 内部执行，减少冗余搜索。在大规模代码库上性能提升数个数量级。
+  - 彻底消除了原暴力 DFS 全局 `visited` 剪枝在复杂相交依赖路径下会遗漏部分环路的潜在 bug，完美通过所有 framework 环路白名单测试。
+  - 将 `MAX_CYCLE_DEPTH` 重命名为 `MAX_CYCLE_EDGE_DEPTH` 以消除“节点数 vs 边数”的歧义，并在递归入口处补齐了详尽的 off-by-one（环路长度上限为 8，对应 7 条边）的数学逻辑注释，杜绝后续开发者的猜测开销。
+  - 在 `docs/code_review.md` 中将 Issue #9 标记为 ✅ 已修复。
+
 ### Wave 8 — 歼灭最后 3 项 active Dogfood 缺陷（2026-06-01）
 
 - **#27: `--exclude` glob 模式与深层级匹配支持** `src/utils/exclude-patterns.js`：

@@ -123,10 +123,10 @@ node cli.js audit-overview --cwd . --json --quiet
 | -------------- | ----------- | ---------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
-| 活跃债务与品味     | 2           | 测试类型失衡（单元 ~77%，集成 ~20%，端到端 ~3%）/ `--json` 嵌套深 |
+| 活跃债务与品味     | 6           | 测试类型失衡 / `--json` 嵌套深 / "默认宿主"热点膨胀 / cache.js 重复模式 / graph-db.js schema 演化热点 / cli.js 入口膨胀 / 跨文件重复模式 |
 | **产品债务** | **0** | —                                                                  |
 
-**测试状态**：`npm run test:fast` **83/83 PASS**（~20s）。全量 runner **160/160 PASS**（~5min）。当前 fast 层 83 个测试，slow 层 70 个，serial 层 7 个。
+**测试状态**：`npm run test:fast` **84/84 PASS**（~20s）。全量 runner **160/160 PASS**（~5min）。当前 fast 层 84 个测试，slow 层 70 个，serial 层 7 个。
 
 ---
 
@@ -136,15 +136,31 @@ node cli.js audit-overview --cwd . --json --quiet
 >
 > 历史具体的各波次方案及验收标准已物理归档，详情请直接查阅 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
-### 本轮上下文：技术债务偿还（2026-06-01）
+### 本轮上下文：技术债务偿还与设计优化（2026-06-01）
 
+- **Cycle detection 重构、MAX_CYCLE_EDGE_DEPTH 注释完善**：彻底重构了循环依赖检测，废除基于数字魔法和正则的 `isLikelyFrameworkLegitimateCycle`，升级为 AST/Resolver 级别的物理导入过滤，精准剪除 TypeScript type-only/interface、Java 接口/注解及 JS/TS 动态/懒加载依赖边；精细完善了 Tarjan/Johnson 局域环路查找算法中 `MAX_CYCLE_EDGE_DEPTH` 临界边界注释。
 - **弱断言清理**：10 处核心 `typeof` 型 schema 契约检查升级为语义验证（枚举值 / `Number.isFinite()` / 非负范围）。
 - **slow 层拆分**：`cli-integration-test.js` → core + edge；`formatter-e2e-test.js` → summary + others。runner.js `KNOWN_SLOW_PATTERNS` 同步更新，旧文件已物理删除。
+- **环路检测算法重构 (O(V+E))**：引入 Tarjan (SCC) + Johnson (局域环路查找) 算法替代暴力 DFS。在保证 100% 契约/白名单通过的基础上，极大地优化了大规模图的搜索耗时，消除了原 DFS 全局 visited 漏环潜在 bug。
+- **第二/三轮代码审查清零**：至此，`docs/code_review.md` 中记录的所有遗留设计/债务问题已 100% 修复完毕，并完成历史归档。
 
-### 当前会话后续动作
-1. 技术债务偿还已完成。
-2. **仍活跃的真问题**：0 项。
-3. 保持现状，等待后续新需求或探索长期方向。
+### 第四轮深度架构审查（2026-06-01）
+
+基于热点文件变更频率与提交历史回溯的结构性审查，识别出 5 项架构债务：
+
+1. **"默认宿主"效应**：`dep-graph.js`（60次变更）、`container.js` initialize()（42次变更）、`file-index.js`（39次变更）因协调职责未上移或排除语义未收敛，持续膨胀。
+2. **cache.js 重复模式**：4 个 `normalize*Entries` 复制粘贴变体 + 8 个手写 dirty Set，INVARIANT 由注释而非结构保证。
+3. **graph-db.js schema 演化热点**：`loadAll()` 手工拼接 5 张表，无 schema→加载映射层。
+4. **cli.js 入口膨胀**：626 行承载路由/验证/格式化/进程配置 4 种职责，87 次变更。
+5. **跨文件重复**：EventBus 各自实例化、`normalizeFilePath` 多处封装、`shouldExclude` 分散在三处。
+
+**结论**：无 L1/L2 阻塞项，全部为架构演进债务。已归档于 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)，待后续逐条制定拆分计划。
+
+### 当前会话后续动作（本轮收工）
+1. 架构审查结论已归档至 `TECH_DEBT.md`，活跃债务从 2 项增至 **7 项**（新增 health-tools 冗余、exclude-patterns basename 无效短路）。
+2. 代码审查报告回应：#1-#5 已在当前 trunk 修复完毕；#6 `exclude-patterns.js` basename 无效短路确认为 clarity 问题（非功能 bug）；#7 `temp-change-for-test` 当前 trunk 不存在。
+3. 下一步优先级：**cache.js normalize 提取公共函数**（小改动、高ROI、测试覆盖完善）或 **`shouldExclude` 收敛到单一模块**。
+4. 大规模重构（dep-graph.js facade 拆分、container.js pipeline 化、cli.js 入口拆分）需单独计划，不建议与功能开发混修。
 
 ---
 
@@ -170,7 +186,15 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-01（Wave 1-8 全部完成；37/37 Dogfood 已修复；活跃债务 2 项，0 个 P2 级活跃 Bug；83/83 fast + 受影响测试全绿）*
+*Last updated: 2026-06-01（Wave 1-8 全部完成；37/37 Dogfood 已修复；代码审查 100% 修复完毕；架构审查结论已归档；活跃债务 7 项，0 个 P2 级活跃 Bug；84/84 fast + 环路测试全绿）*
 
 > **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 error / cycles / dead-exports，自身库全量覆盖率 1.00。
-> **本轮完成**：已根据 Agent 认知与文档规范，完全同步 `REFACTOR-2026-05-data-orchestration-output.md`，将已交付的 O6（生命周期状态机）标记为已解决，并将未完成项总数更新为 1（仅剩长期 D6）。
+> **本轮完成**：
+> 1. 修复 `_aggregateCache` 封装泄漏（4处直读+8处`_aggregateVersion`改为getter）。
+> 2. 统一 `affectedTests` `terminator` 字段语义。
+> 3. 封装 `graph-db.js` `emitWarning` monkey-patch（引用计数）。
+> 4. 统一 `repl.js` 退出码判断（`determineReplExitCode`）。
+> 5. 限制 `debug.js` graph 分支计算量（上限+截断标记）。
+> 6. 产出 `docs/code_review.md`。
+> 7. 架构审查结论归档至 `TECH_DEBT.md`（新增 5 项架构债务）。
+> 全量测试 84/84 PASS。

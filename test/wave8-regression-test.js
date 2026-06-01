@@ -51,14 +51,17 @@ function runCli(args) {
   assert.deepStrictEqual(cliByDist, replByDist, 'CLI and REPL distance distribution should match');
 }
 
-// #25: mention-based tests should have distance: null, not a hard-coded number
+// #25: mention-based tests should have distance: maxDepth+1 with terminator flag,
+// not a hard-coded number and not null (null breaks numeric comparisons).
 {
   const file = 'src/services/container.js';
   const cli = runCli(['affected-tests', '--file', file, '--json', '--quiet']);
   assert.ok(cli.ok);
+  const maxDepth = 5; // default
   const mentionTests = cli.affectedTests.filter((t) => t.source === 'mention');
   for (const t of mentionTests) {
-    assert.strictEqual(t.distance, null, `mention-based test should have distance=null, got ${t.distance}`);
+    assert.strictEqual(t.distance, maxDepth + 1, `mention-based test should have distance=${maxDepth + 1}, got ${t.distance}`);
+    assert.strictEqual(t.terminator, true, `mention-based test should have terminator=true`);
   }
 }
 

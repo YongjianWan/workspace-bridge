@@ -142,12 +142,12 @@ async function testVueFrameworkCycleWhitelist() {
   const dg = new DependencyGraph(dir, cache);
   await dg.build();
 
-  // Vue store-router-view cycle should be filtered out
+  // Vue store-router-view cycle filtered by MVVM logic→view boundary (Rule 4 in _getCircularDependencies)
   const cycles = dg.findCircularDependencies();
   const hasVueCycle = cycles.some((c) =>
     c.some((f) => f.includes('store')) && c.some((f) => f.includes('router')) && c.some((f) => f.includes('login.vue'))
   );
-  assert.strictEqual(hasVueCycle, false, 'Vue store-router-view cycle should be whitelisted');
+  assert.strictEqual(hasVueCycle, false, 'Vue store-router-view cycle should be filtered by MVVM logic→view boundary');
 
   // Non-Vue cycle in utils should remain
   const hasUtilCycle = cycles.some((c) => c.some((f) => f.includes('utils')));
@@ -195,7 +195,7 @@ async function testVueLongCycleWhitelist() {
     c.some((f) => f.includes('login.vue')) &&
     c.some((f) => f.includes('api'))
   );
-  assert.strictEqual(hasLongVueCycle, false, 'Vue length=6 cycle (request→store→router→view→api→request) should be whitelisted');
+  assert.strictEqual(hasLongVueCycle, false, 'Vue length=6 cycle (request→store→router→view→api→request) should be filtered by MVVM logic→view boundary');
 
   cleanupTempDir(dir);
 }
@@ -300,7 +300,7 @@ async function testRuoYiJavaCycleWhitelist() {
     c.some((f) => f.toLowerCase().includes('stringutils')) &&
     c.some((f) => f.toLowerCase().includes('strformatter'))
   );
-  assert.strictEqual(hasRuoYiCycle, false, 'RuoYi StringUtils↔StrFormatter cycle should be whitelisted');
+  assert.strictEqual(hasRuoYiCycle, false, 'RuoYi StringUtils↔StrFormatter cycle should be filtered by Java utility↔utility edge pruning');
 
   cleanupTempDir(dir);
 }
@@ -331,7 +331,7 @@ async function testRuoYiAnnotationSerializerCycleWhitelist() {
     c.some((f) => f.toLowerCase().includes('sensitive.java')) &&
     c.some((f) => f.toLowerCase().includes('sensitivejsonserializer'))
   );
-  assert.strictEqual(hasCycle, false, 'RuoYi Sensitive↔SensitiveJsonSerializer cycle should be whitelisted');
+  assert.strictEqual(hasCycle, false, 'RuoYi Sensitive↔SensitiveJsonSerializer cycle should be filtered by annotation-only target edge pruning');
 
   cleanupTempDir(dir);
 }
@@ -421,6 +421,52 @@ async function testQueryThrowsWhenNotReady() {
   cleanupTempDir(dir);
 }
 
+async function testTarjanJohnsonCycleRobustness() {
+  const dir = makeTempDir('wb-dg-stress-');
+  fs.writeFileSync(path.join(dir, 'package.json'), '{}', 'utf8');
+  fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+
+  const aPath = path.join(dir, 'src', 'a.js');
+  const bPath = path.join(dir, 'src', 'b.js');
+  const cPath = path.join(dir, 'src', 'c.js');
+  const dPath = path.join(dir, 'src', 'd.js');
+
+  // Construct a K_4 clique (complete graph) to stress-test overlapping cycles & blockedMap unblocking:
+  // a -> b, c, d
+  // b -> a, c, d
+  // c -> a, b, d
+  // d -> a, b, c
+  fs.writeFileSync(aPath, "import './b'; import './c'; import './d';\n", 'utf8');
+  fs.writeFileSync(bPath, "import './a'; import './c'; import './d';\n", 'utf8');
+  fs.writeFileSync(cPath, "import './a'; import './b'; import './d';\n", 'utf8');
+  fs.writeFileSync(dPath, "import './a'; import './b'; import './c';\n", 'utf8');
+
+  const cache = new WorkspaceCache(dir);
+  [aPath, bPath, cPath, dPath].forEach((p) => {
+    cache.setFileMetadata(p, { mtime: 1, size: 1 });
+  });
+
+  const dg = new DependencyGraph(dir, cache);
+  await dg.build();
+
+  // Test execution & stability
+  const cycles = dg.findCircularDependencies();
+  assert.ok(Array.isArray(cycles), 'Cycles should be an array');
+  assert.ok(cycles.length > 0, 'Should find cycles in K_4 clique');
+
+  // Verify uniqueness and stability by rotating each cycle to start with its minimum node:
+  const rotateToMin = (cycle) => {
+    const minNode = [...cycle].sort()[0];
+    const idx = cycle.indexOf(minNode);
+    return [...cycle.slice(idx), ...cycle.slice(0, idx)].join(' -> ');
+  };
+  const cycleStrings = cycles.map(rotateToMin);
+  assert.strictEqual(new Set(cycleStrings).size, cycles.length, 'All discovered cycles must be structurally unique directed loops');
+  assert.strictEqual(cycles.length, 20, 'K_4 clique should yield exactly 20 unique simple directed cycles');
+
+  cleanupTempDir(dir);
+}
+
 async function main() {
   await testUpdateFilesEmptyArray();
   await testUpdateFilesDeletedFile();
@@ -436,6 +482,7 @@ async function main() {
   await testDjangoEntryDetection();
   await testRuoYiJavaCycleWhitelist();
   await testRuoYiAnnotationSerializerCycleWhitelist();
+  await testTarjanJohnsonCycleRobustness();
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

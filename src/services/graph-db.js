@@ -5,17 +5,6 @@
  * Provides bulk load/save for cache metadata, file metadata, parse results,
  * symbol index, and diagnostics.
  */
-// Suppress only the experimental sqlite warnings to keep stderr clean.
-// Intercept at emitWarning level instead of wrapping listeners by name,
-// avoiding fragility from Node.js internal implementation details.
-const _originalEmitWarning = process.emitWarning;
-process.emitWarning = (warning, name, ctor) => {
-  const msg = typeof warning === 'string' ? warning : warning.message;
-  const type = typeof warning === 'string' ? name : warning.name;
-  if (type === 'ExperimentalWarning' && msg?.toLowerCase().includes('sqlite')) return;
-  _originalEmitWarning.call(process, warning, name, ctor);
-};
-
 const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs');
 const path = require('path');
@@ -91,6 +80,30 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_precomputed_impact_version ON precomputed_impact(version);
 `;
 
+let _originalEmitWarning;
+let _suppressCount = 0;
+
+function _suppressSqliteExperimentalWarning() {
+  if (_suppressCount === 0) {
+    _originalEmitWarning = process.emitWarning;
+    process.emitWarning = (warning, name, ctor) => {
+      const msg = typeof warning === 'string' ? warning : warning.message;
+      const type = typeof warning === 'string' ? name : warning.name;
+      if (type === 'ExperimentalWarning' && msg?.toLowerCase().includes('sqlite')) return;
+      _originalEmitWarning.call(process, warning, name, ctor);
+    };
+  }
+  _suppressCount++;
+}
+
+function _restoreEmitWarning() {
+  _suppressCount = Math.max(0, _suppressCount - 1);
+  if (_suppressCount === 0 && _originalEmitWarning) {
+    process.emitWarning = _originalEmitWarning;
+    _originalEmitWarning = undefined;
+  }
+}
+
 class GraphDB {
   constructor(dbPath) {
     this.dbPath = dbPath;
@@ -99,6 +112,7 @@ class GraphDB {
 
   _ensureOpen() {
     if (this.db) return;
+    _suppressSqliteExperimentalWarning();
     const dir = path.dirname(this.dbPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -149,6 +163,7 @@ class GraphDB {
       }
       this.db = null;
     }
+    _restoreEmitWarning();
   }
 
   getMetadata(key) {
@@ -253,9 +268,7 @@ class GraphDB {
         _metadata: metadata, // raw metadata for schema-driven loading
       };
     } catch (err) {
-      if (process.env.DEBUG) {
-        console.error('[GraphDB] Load failed:', err.message);
-      }
+      _debugError('Load', err);
       return null;
     }
   }
@@ -337,9 +350,7 @@ class GraphDB {
 
       return true;
     } catch (err) {
-      if (process.env.DEBUG) {
-        console.error('[GraphDB] Save failed:', err.message);
-      }
+      _debugError('Save', err);
       return false;
     }
   }
@@ -462,9 +473,7 @@ class GraphDB {
       });
       return true;
     } catch (err) {
-      if (process.env.DEBUG) {
-        console.error('[GraphDB] Save incremental failed:', err.message);
-      }
+      _debugError('Save incremental', err);
       return false;
     }
   }
@@ -503,9 +512,7 @@ class GraphDB {
 
       return true;
     } catch (err) {
-      if (process.env.DEBUG) {
-        console.error('[GraphDB] Save edges failed:', err.message);
-      }
+      _debugError('Save edges', err);
       return false;
     }
   }
@@ -527,9 +534,7 @@ class GraphDB {
         confidence: Number(r.confidence),
       }));
     } catch (err) {
-      if (process.env.DEBUG) {
-        console.error('[GraphDB] Load edges failed:', err.message);
-      }
+      _debugError('Load edges', err);
       return null;
     }
   }
@@ -553,9 +558,7 @@ class GraphDB {
       });
       return true;
     } catch (err) {
-      if (process.env.DEBUG) {
-        console.error('[GraphDB] Save precomputed aggregates failed:', err.message);
-      }
+      _debugError('Save precomputed aggregates', err);
       return false;
     }
   }
@@ -578,9 +581,7 @@ class GraphDB {
         computedAt: Number(r.computed_at),
       }));
     } catch (err) {
-      if (process.env.DEBUG) {
-        console.error('[GraphDB] Load precomputed aggregates failed:', err.message);
-      }
+      _debugError('Load precomputed aggregates', err);
       return null;
     }
   }
@@ -611,9 +612,7 @@ class GraphDB {
       });
       return true;
     } catch (err) {
-      if (process.env.DEBUG) {
-        console.error('[GraphDB] Save precomputed impact failed:', err.message);
-      }
+      _debugError('Save precomputed impact', err);
       return false;
     }
   }
@@ -638,9 +637,7 @@ class GraphDB {
         version: Number(r.version),
       }));
     } catch (err) {
-      if (process.env.DEBUG) {
-        console.error('[GraphDB] Load precomputed impact failed:', err.message);
-      }
+      _debugError('Load precomputed impact', err);
       return null;
     }
   }
@@ -660,9 +657,7 @@ class GraphDB {
       });
       return true;
     } catch (err) {
-      if (process.env.DEBUG) {
-        console.error('[GraphDB] Delete precomputed impact failed:', err.message);
-      }
+      _debugError('Delete precomputed impact', err);
       return false;
     }
   }
