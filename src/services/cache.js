@@ -57,6 +57,37 @@ function computeDefaultCacheDir(workspaceRoot) {
   return path.join(os.tmpdir(), 'workspace-bridge', hash);
 }
 
+class DirtyTracker {
+  constructor(dataMap) {
+    this._dataMap = dataMap;
+    this.dirty = new Set();
+    this.deleted = new Set();
+  }
+  mark(key) {
+    this.dirty.add(key);
+    this.deleted.delete(key);
+  }
+  unmark(key) {
+    this.deleted.add(key);
+    this.dirty.delete(key);
+  }
+  clear() {
+    this.dirty.clear();
+    this.deleted.clear();
+  }
+  getDirtyEntries() {
+    const entries = [];
+    for (const key of this.dirty) {
+      const val = this._dataMap.get(key);
+      if (val) entries.push([key, val]);
+    }
+    return entries;
+  }
+  getDeletedArray() {
+    return Array.from(this.deleted);
+  }
+}
+
 class WorkspaceCache {
   constructor(workspaceRoot, options = {}) {
     this.workspaceRoot = workspaceRoot;
@@ -72,17 +103,11 @@ class WorkspaceCache {
     this.symbolIndex = new Map();  // symbol -> [{file, line, type}]
     this.diagnostics = new Map();  // file -> [diagnostics]
 
-    // Incremental tracking sets
-    // INVARIANT: Any mutation to fileMetadata/parseResults/symbolIndex/diagnostics
-    // MUST update the corresponding _dirty* / _deleted* set and set this.dirty = true.
-    this._dirtyFiles = new Set();
-    this._deletedFiles = new Set();
-    this._dirtyParseResults = new Set();
-    this._deletedParseResults = new Set();
-    this._dirtySymbols = new Set();
-    this._deletedSymbols = new Set();
-    this._dirtyDiagnostics = new Set();
-    this._deletedDiagnostics = new Set();
+    // Incremental tracking — INVARIANT enforced by DirtyTracker structure
+    this._fileTracker = new DirtyTracker(this.fileMetadata);
+    this._parseTracker = new DirtyTracker(this.parseResults);
+    this._symbolTracker = new DirtyTracker(this.symbolIndex);
+    this._diagTracker = new DirtyTracker(this.diagnostics);
     this.hasLoaded = false;
 
     // Schema-driven metadata fields — register in METADATA_SCHEMA to add new ones
@@ -186,14 +211,10 @@ class WorkspaceCache {
           this[key] = typeof def.default === 'function' ? def.default() : def.default;
         }
       }
-      this._dirtyFiles.clear();
-      this._deletedFiles.clear();
-      this._dirtyParseResults.clear();
-      this._deletedParseResults.clear();
-      this._dirtySymbols.clear();
-      this._deletedSymbols.clear();
-      this._dirtyDiagnostics.clear();
-      this._deletedDiagnostics.clear();
+      this._fileTracker.clear();
+      this._parseTracker.clear();
+      this._symbolTracker.clear();
+      this._diagTracker.clear();
       this.hasLoaded = true;
 
       return true;
@@ -227,57 +248,32 @@ class WorkspaceCache {
 
       // Safeguard: if never loaded successfully, treat all current memory map entries as dirty.
       if (!this.hasLoaded) {
-        for (const key of this.fileMetadata.keys()) this._dirtyFiles.add(key);
-        for (const key of this.parseResults.keys()) this._dirtyParseResults.add(key);
-        for (const name of this.symbolIndex.keys()) this._dirtySymbols.add(name);
-        for (const key of this.diagnostics.keys()) this._dirtyDiagnostics.add(key);
+        for (const key of this.fileMetadata.keys()) this._fileTracker.mark(key);
+        for (const key of this.parseResults.keys()) this._parseTracker.mark(key);
+        for (const name of this.symbolIndex.keys()) this._symbolTracker.mark(name);
+        for (const key of this.diagnostics.keys()) this._diagTracker.mark(key);
         this.hasLoaded = true;
-      }
-
-      const dirtyFiles = [];
-      for (const key of this._dirtyFiles) {
-        const val = this.fileMetadata.get(key);
-        if (val) dirtyFiles.push([key, val]);
-      }
-      const dirtyParseResults = [];
-      for (const key of this._dirtyParseResults) {
-        const val = this.parseResults.get(key);
-        if (val) dirtyParseResults.push([key, val]);
-      }
-      const dirtySymbols = [];
-      for (const name of this._dirtySymbols) {
-        const val = this.symbolIndex.get(name);
-        if (val) dirtySymbols.push([name, val]);
-      }
-      const dirtyDiagnostics = [];
-      for (const key of this._dirtyDiagnostics) {
-        const val = this.diagnostics.get(key);
-        if (val) dirtyDiagnostics.push([key, val]);
       }
 
       const ok = this._graphDb.saveIncremental({
         workspaceRoot: this.workspaceRoot,
         workspaceInfo: this.workspaceInfo,
         metadata,
-        dirtyFiles,
-        deletedFiles: Array.from(this._deletedFiles),
-        dirtyParseResults,
-        deletedParseResults: Array.from(this._deletedParseResults),
-        dirtySymbols,
-        deletedSymbols: Array.from(this._deletedSymbols),
-        dirtyDiagnostics,
-        deletedDiagnostics: Array.from(this._deletedDiagnostics),
+        dirtyFiles: this._fileTracker.getDirtyEntries(),
+        deletedFiles: this._fileTracker.getDeletedArray(),
+        dirtyParseResults: this._parseTracker.getDirtyEntries(),
+        deletedParseResults: this._parseTracker.getDeletedArray(),
+        dirtySymbols: this._symbolTracker.getDirtyEntries(),
+        deletedSymbols: this._symbolTracker.getDeletedArray(),
+        dirtyDiagnostics: this._diagTracker.getDirtyEntries(),
+        deletedDiagnostics: this._diagTracker.getDeletedArray(),
       });
 
       if (ok) {
-        this._dirtyFiles.clear();
-        this._deletedFiles.clear();
-        this._dirtyParseResults.clear();
-        this._deletedParseResults.clear();
-        this._dirtySymbols.clear();
-        this._deletedSymbols.clear();
-        this._dirtyDiagnostics.clear();
-        this._deletedDiagnostics.clear();
+        this._fileTracker.clear();
+        this._parseTracker.clear();
+        this._symbolTracker.clear();
+        this._diagTracker.clear();
         this.lastSaved = Date.now();
         this.dirty = false;
       }
@@ -360,8 +356,7 @@ class WorkspaceCache {
     if (!key) return;
     // Preserve the platform-native path for display consistency
     this.fileMetadata.set(key, { ...metadata, originalPath: filePath });
-    this._dirtyFiles.add(key);
-    this._deletedFiles.delete(key);
+    this._fileTracker.mark(key);
     this.dirty = true;
   }
 
@@ -375,8 +370,7 @@ class WorkspaceCache {
     const key = this.normalizeFilePath(filePath);
     if (!key) return;
     this.fileMetadata.delete(key);
-    this._deletedFiles.add(key);
-    this._dirtyFiles.delete(key);
+    this._fileTracker.unmark(key);
     this.dirty = true;
   }
 
@@ -391,8 +385,7 @@ class WorkspaceCache {
     const key = this.normalizeFilePath(filePath);
     if (!key) return;
     this.parseResults.set(key, result);
-    this._dirtyParseResults.add(key);
-    this._deletedParseResults.delete(key);
+    this._parseTracker.mark(key);
     this.dirty = true;
   }
 
@@ -406,8 +399,7 @@ class WorkspaceCache {
     const key = this.normalizeFilePath(filePath);
     if (!key) return;
     this.parseResults.delete(key);
-    this._deletedParseResults.add(key);
-    this._dirtyParseResults.delete(key);
+    this._parseTracker.unmark(key);
     this.dirty = true;
   }
 
@@ -425,15 +417,13 @@ class WorkspaceCache {
       })
       .filter(Boolean);
     this.symbolIndex.set(name, normalized);
-    this._dirtySymbols.add(name);
-    this._deletedSymbols.delete(name);
+    this._symbolTracker.mark(name);
     this.dirty = true;
   }
 
   deleteSymbol(name) {
     this.symbolIndex.delete(name);
-    this._deletedSymbols.add(name);
-    this._dirtySymbols.delete(name);
+    this._symbolTracker.unmark(name);
     this.dirty = true;
   }
 
@@ -468,8 +458,7 @@ class WorkspaceCache {
     const key = this.normalizeFilePath(filePath);
     if (!key) return;
     this.diagnostics.set(key, diags);
-    this._dirtyDiagnostics.add(key);
-    this._deletedDiagnostics.delete(key);
+    this._diagTracker.mark(key);
     this.dirty = true;
   }
 
@@ -477,8 +466,7 @@ class WorkspaceCache {
     const key = this.normalizeFilePath(filePath);
     if (!key) return;
     this.diagnostics.delete(key);
-    this._deletedDiagnostics.add(key);
-    this._dirtyDiagnostics.delete(key);
+    this._diagTracker.unmark(key);
     this.dirty = true;
   }
 
@@ -544,8 +532,7 @@ class WorkspaceCache {
             // Content unchanged (e.g. git checkout); update stored mtime/size
             // so next check stays on the fast path.
             this.fileMetadata.set(key, { ...meta, mtime: stat.mtimeMs, size: stat.size });
-            this._dirtyFiles.add(key);
-            this._deletedFiles.delete(key);
+            this._fileTracker.mark(key);
             this.dirty = true;
           }
         } else {
