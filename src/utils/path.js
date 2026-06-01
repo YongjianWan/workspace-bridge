@@ -9,7 +9,8 @@ const IS_WINDOWS = process.platform === 'win32';
 
 function normalizePath(inputPath) {
   if (!inputPath) return process.cwd();
-  return path.resolve(inputPath);
+  const posix = String(inputPath).replace(/\\/g, '/');
+  return path.resolve(posix);
 }
 
 function toPosixPath(inputPath) {
@@ -208,7 +209,7 @@ function resolvePythonCommand(root) {
 
 function resolveWorkspaceFilePath(filePath, root) {
   if (!filePath || typeof filePath !== 'string') return null;
-  const trimmed = filePath.trim();
+  const trimmed = filePath.trim().replace(/\\/g, '/');
   // On Windows, a leading slash looks relative to path.join but actually
   // denotes an absolute POSIX-style path — treat it as an escape attempt.
   if (IS_WINDOWS && /^[\\/]/.test(trimmed)) return null;

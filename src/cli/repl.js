@@ -395,7 +395,9 @@ async function startRepl(options) {
           const single = results[0];
           if (single.error || (single.output && single.output.error)) {
             console.log(JSON.stringify({ ok: false, error: single.error || single.output.error }));
-            process.exitCode = 1;
+            const errStr = String(single.error || (single.output && single.output.error) || '');
+            const isUnknown = errStr.includes('Unknown command') || errStr.includes('Usage:');
+            process.exitCode = isUnknown ? 2 : 1;
           } else {
             console.log(JSON.stringify({ ok: true, result: single.output }));
           }
@@ -407,7 +409,13 @@ async function startRepl(options) {
             return { command: r.command, ok: true, result: r.output };
           });
           console.log(JSON.stringify({ ok: !hasError, results: formattedResults }));
-          if (hasError) process.exitCode = 1;
+          if (hasError) {
+            const hasUnknown = results.some((r) => {
+              const errStr = String(r.error || (r.output && r.output.error) || '');
+              return errStr.includes('Unknown command') || errStr.includes('Usage:');
+            });
+            process.exitCode = hasUnknown ? 2 : 1;
+          }
         }
       } else {
         for (let i = 0; i < results.length; i++) {
@@ -417,11 +425,16 @@ async function startRepl(options) {
           }
           if (r.error) {
             console.error(`Error: ${r.error}`);
-            process.exitCode = 1;
+            const isUnknown = r.error.includes('Unknown command') || r.error.includes('Usage:');
+            process.exitCode = isUnknown ? 2 : 1;
           } else if (r.output !== null) {
             console.log(r.output);
-            if (typeof r.output === 'string' && (r.output.startsWith('Error:') || r.output.startsWith('Usage:'))) {
-              process.exitCode = 1;
+            if (typeof r.output === 'string') {
+              if (r.output.startsWith('Unknown command:') || r.output.startsWith('Usage:')) {
+                process.exitCode = 2;
+              } else if (r.output.startsWith('Error:')) {
+                process.exitCode = 1;
+              }
             }
           }
           if (commands.length > 1 && i < results.length - 1) {

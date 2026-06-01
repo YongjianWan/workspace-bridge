@@ -21,14 +21,15 @@ function shouldExcludeCli(filePath, cliExcludeDirs) {
   return cliExcludeDirs.some((pattern) => {
     // Simple glob support: *.ext, prefix*, ?ingle-char, src/**
     if (pattern.includes('*') || pattern.includes('?')) {
-      const regex = new RegExp(
-        '^' +
-          pattern
-            .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-            .replace(/\*/g, '.*')
-            .replace(/\?/g, '.') +
-          '$'
-      );
+      const cleanPattern = pattern.trim();
+      const escaped = cleanPattern
+        .replace(/\/\*\*\/+/g, 'GLOB_DIR_STAR')
+        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*/g, '[^/]*')
+        .replace(/\?/g, '[^/]')
+        .replace(/GLOB_DIR_STAR/g, '/(?:.*/)?');
+      
+      const regex = new RegExp('^' + escaped + '$');
       if (regex.test(path.basename(normalized))) return true;
       // Allow path-fragment glob matches by testing every suffix of the path
       const parts = normalized.split('/');
