@@ -222,6 +222,56 @@ function testSaveIncrementalMetadataOnly() {
   cleanupTempDir(tmpDir);
 }
 
+function testTransactionRollbackPreservesOriginalError() {
+  const tmpDir = makeTempDir('wb-graphdb-');
+  const dbPath = path.join(tmpDir, 'cache.db');
+  const db = new GraphDB(dbPath);
+  db._ensureOpen();
+
+  // Simulate a scenario where the body throws and ROLLBACK also fails.
+  // We monkey-patch exec to fail on ROLLBACK while still allowing BEGIN.
+  let callCount = 0;
+  const originalExec = db.db.exec.bind(db.db);
+  db.db.exec = (sql) => {
+    callCount++;
+    if (sql === 'ROLLBACK') {
+      throw new Error('disk full');
+    }
+    return originalExec(sql);
+  };
+
+  try {
+    db._executeInTransaction(() => {
+      throw new Error('original failure');
+    });
+    assert.fail('should have thrown');
+  } catch (err) {
+    assert.strictEqual(err.message, 'original failure', 'original error message should be preserved');
+    assert.strictEqual(err.rollbackError, 'disk full', 'rollback error should be attached');
+  }
+
+  db.db.exec = originalExec;
+  db.close();
+  cleanupTempDir(tmpDir);
+}
+
+function testTransactionRejectsAsyncFunction() {
+  const tmpDir = makeTempDir('wb-graphdb-');
+  const dbPath = path.join(tmpDir, 'cache.db');
+  const db = new GraphDB(dbPath);
+  db._ensureOpen();
+
+  try {
+    db._executeInTransaction(async () => 'result');
+    assert.fail('should have thrown for async function');
+  } catch (err) {
+    assert(err.message.includes('does not support async'), 'should reject async functions');
+  }
+
+  db.close();
+  cleanupTempDir(tmpDir);
+}
+
 function main() {
   testSchemaCreation();
   testRoundTrip();
@@ -231,6 +281,8 @@ function main() {
   testEdgesRoundTrip();
   testEdgesLoadEmptyReturnsNull();
   testSaveIncrementalMetadataOnly();
+  testTransactionRollbackPreservesOriginalError();
+  testTransactionRejectsAsyncFunction();
 }
 
 main();

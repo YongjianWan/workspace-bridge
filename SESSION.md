@@ -38,7 +38,7 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 基线状态
 
 - 测试：**受影响测试全部 PASS**；`npm run test:fast` **83/83 PASS**（~20s）。全量 runner **160/160 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~20s）或 `npm run test:smoke`（~54s）。当前 fast 层 83 个测试，slow 层 70 个，serial 层 7 个。
-- 版本：**v1.2.1**（以 `package.json` 为准）
+- 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~296 文件（entry=1, mainline=137, test=157）
 - 结构性指标：deadExports=0，cycles=0，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 按实际分布

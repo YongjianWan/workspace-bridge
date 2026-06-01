@@ -30,6 +30,20 @@
   - 平替重构 `test/cache-corruption-test.js` 中的底层 SQLite 连接测试，全量 **160/160 项测试 100% 成功通过**，实现零警告输出！
   - 运行 `npx pkg .` 顺利构建出无任何 `.node` 资产依赖的真正独立单文件可执行文件（`workspace-bridge-win.exe`、`workspace-bridge-linux`、`workspace-bridge-macos`），实测调用 `audit-summary` 等主控命令 100% 执行成功且输出清爽。
 
+### node:sqlite 迁移后代码审查修复（2026-05-28）
+
+- **异常安全：`_executeInTransaction` ROLLBACK 失败时保留原始异常** `src/services/graph-db.js`：
+  - 原实现中 `ROLLBACK` 抛出的异常会覆盖 `fn()` 的原始异常，导致调试时丢失根因。
+  - 修复：将 `ROLLBACK` 包装在独立 try-catch 中，失败时将错误附加到原始异常的 `rollbackError` 字段，再重新抛出原始异常。
+  - 新增防御：拦截传入 async 函数的情况，提前抛出明确错误（事务不支持异步函数）。
+- **消除 warning 过滤器的 Node.js 内部实现依赖** `src/services/graph-db.js`：
+  - 原实现通过 `listener.name === 'onWarning'` 硬编码识别 Node.js 默认监听器，存在未来版本重命名导致过滤失效的风险。
+  - 修复：改用 `process.emitWarning`  monkey-patch 拦截，在 warning 发出源头判断 `ExperimentalWarning && sqlite`，完全不依赖监听器注册时序或命名。
+- **测试补充** `test/graph-db-test.js`：
+  - 新增 `testTransactionRollbackPreservesOriginalError`：mock `db.exec('ROLLBACK')` 失败，验证原始异常消息与 `rollbackError` 附加字段。
+  - 新增 `testTransactionRejectsAsyncFunction`：验证传入 async 函数时抛出明确错误。
+- **文档同步**：`AGENTS.md` / `SESSION.md` 版本号更新至 `v2.0.0`。
+
 ## [1.2.1] - 2026-05-28
 
 ### 致命回归修复与 Dogfood 陷阱清理（2026-05-28）

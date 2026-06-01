@@ -242,6 +242,6 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-28（Wave 1-7 全部完成；29/37 Dogfood 已修复；性能攻坚三枪已交付；exit code 49 已根治；knowledgeRisk 已交付；历史测试回归修复已交付；npm run test:fast 83/83 PASS；schemaVersion: 1.2.0；version: 1.2.1）*
+*Last updated: 2026-05-28（Wave 1-7 全部完成；34/37 Dogfood 已修复；性能攻坚三枪已交付；exit code 49 已根治；knowledgeRisk 已交付；历史测试回归修复已交付；node:sqlite 迁移已交付；npm run test:fast 83/83 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
 
 

@@ -31,3 +31,8 @@ zcypg_*.json
 zsgzt_*.json
 gwy_*.json
 scratch/
+
+# pkg standalone binaries
+workspace-bridge-win.exe
+workspace-bridge-linux
+workspace-bridge-macos

@@ -5,25 +5,16 @@
  * Provides bulk load/save for cache metadata, file metadata, parse results,
  * symbol index, and diagnostics.
  */
-// Suppress only the experimental sqlite warnings to keep stderr clean
-const defaultListeners = process.listeners('warning');
-let hasWrapped = false;
-for (const listener of defaultListeners) {
-  if (listener.name === 'onWarning') {
-    process.removeListener('warning', listener);
-    process.on('warning', (warning) => {
-      if (warning.name === 'ExperimentalWarning' && warning.message.toLowerCase().includes('sqlite')) return;
-      listener(warning);
-    });
-    hasWrapped = true;
-  }
-}
-if (!hasWrapped) {
-  process.on('warning', (warning) => {
-    if (warning.name === 'ExperimentalWarning' && warning.message.toLowerCase().includes('sqlite')) return;
-    console.warn(warning);
-  });
-}
+// Suppress only the experimental sqlite warnings to keep stderr clean.
+// Intercept at emitWarning level instead of wrapping listeners by name,
+// avoiding fragility from Node.js internal implementation details.
+const _originalEmitWarning = process.emitWarning;
+process.emitWarning = (warning, name, ctor) => {
+  const msg = typeof warning === 'string' ? warning : warning.message;
+  const type = typeof warning === 'string' ? name : warning.name;
+  if (type === 'ExperimentalWarning' && msg?.toLowerCase().includes('sqlite')) return;
+  _originalEmitWarning.call(process, warning, name, ctor);
+};
 
 const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs');
@@ -125,10 +116,17 @@ class GraphDB {
     this.db.exec('BEGIN');
     try {
       const result = fn();
+      if (result && typeof result.then === 'function') {
+        throw new Error('_executeInTransaction does not support async functions');
+      }
       this.db.exec('COMMIT');
       return result;
     } catch (err) {
-      this.db.exec('ROLLBACK');
+      try {
+        this.db.exec('ROLLBACK');
+      } catch (rollbackErr) {
+        err.rollbackError = rollbackErr.message;
+      }
       throw err;
     }
   }
