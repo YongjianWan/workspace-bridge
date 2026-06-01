@@ -97,64 +97,59 @@ class WorkspaceCache {
     return _normalizeFilePath(filePath, this.workspaceRoot);
   }
 
-  normalizeFileMapEntries(entries) {
+  _normalizeEntries(entries, options = {}) {
+    const {
+      keyMapper = (k) => this.normalizeFilePath(k),
+      valueMapper = (v) => v,
+      mergeMtime = false,
+    } = options;
     const normalized = new Map();
     const iterable = Array.isArray(entries) ? entries : [];
-    for (const [filePath, metadata] of iterable) {
-      const key = this.normalizeFilePath(filePath);
-      if (!key) continue;
-      const existing = normalized.get(key);
-      if (!existing) {
-        normalized.set(key, metadata);
-        continue;
+    for (const [rawKey, rawValue] of iterable) {
+      const key = keyMapper ? keyMapper(rawKey) : rawKey;
+      if (keyMapper && !key) continue;
+      let value = valueMapper(rawValue);
+      if (mergeMtime) {
+        const existing = normalized.get(key);
+        if (existing) {
+          const existingMtime = Number(existing?.mtime);
+          const nextMtime = Number(value?.mtime);
+          const existingSafe = Number.isNaN(existingMtime) ? 0 : existingMtime;
+          const nextSafe = Number.isNaN(nextMtime) ? 0 : nextMtime;
+          if (nextSafe <= existingSafe) continue;
+        }
       }
-      const existingMtime = Number(existing?.mtime);
-      const nextMtime = Number(metadata?.mtime);
-      const existingSafe = Number.isNaN(existingMtime) ? 0 : existingMtime;
-      const nextSafe = Number.isNaN(nextMtime) ? 0 : nextMtime;
-      if (nextSafe > existingSafe) {
-        normalized.set(key, metadata);
-      }
+      normalized.set(key, value);
     }
     return normalized;
+  }
+
+  normalizeFileMapEntries(entries) {
+    return this._normalizeEntries(entries, { mergeMtime: true });
   }
 
   normalizeDiagnosticsEntries(entries) {
-    const normalized = new Map();
-    const iterable = Array.isArray(entries) ? entries : [];
-    for (const [filePath, diagnostics] of iterable) {
-      const key = this.normalizeFilePath(filePath);
-      if (!key) continue;
-      normalized.set(key, diagnostics);
-    }
-    return normalized;
+    return this._normalizeEntries(entries);
   }
 
   normalizeSymbolEntries(entries) {
-    const normalized = new Map();
-    for (const [name, locations] of entries || []) {
-      const list = Array.isArray(locations) ? locations : [];
-      const mapped = list
-        .map((location) => {
-          const key = this.normalizeFilePath(location?.file);
-          if (!key) return null;
-          return { ...location, file: key };
-        })
-        .filter(Boolean);
-      normalized.set(name, mapped);
-    }
-    return normalized;
+    return this._normalizeEntries(entries, {
+      keyMapper: null,
+      valueMapper: (locations) => {
+        const list = Array.isArray(locations) ? locations : [];
+        return list
+          .map((location) => {
+            const key = this.normalizeFilePath(location?.file);
+            if (!key) return null;
+            return { ...location, file: key };
+          })
+          .filter(Boolean);
+      },
+    });
   }
 
   normalizeParseResultEntries(entries) {
-    const normalized = new Map();
-    const iterable = Array.isArray(entries) ? entries : [];
-    for (const [filePath, result] of iterable) {
-      const key = this.normalizeFilePath(filePath);
-      if (!key) continue;
-      normalized.set(key, result);
-    }
-    return normalized;
+    return this._normalizeEntries(entries);
   }
 
   /**

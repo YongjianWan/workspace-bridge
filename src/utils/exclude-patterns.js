@@ -30,7 +30,11 @@ function shouldExcludeCli(filePath, cliExcludeDirs) {
         .replace(/###GLOB_DOUBLE_STAR###/g, '.*');
 
       const regex = new RegExp('^' + escaped + '$');
-      if (regex.test(path.basename(normalized))) return true;
+      // basename shortcut only makes sense for filename-only globs (e.g. *.test.js).
+      // Path-anchored patterns like src/**/test.js will never match basename,
+      // so skip the wasted test and go straight to suffix matching.
+      const isFilenameOnlyGlob = !cleanPattern.includes('/');
+      if (isFilenameOnlyGlob && regex.test(path.basename(normalized))) return true;
       // Allow path-fragment glob matches by testing every suffix of the path
       const parts = normalized.split('/');
       for (let i = 0; i < parts.length; i++) {

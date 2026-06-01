@@ -83,6 +83,12 @@ const SCHEMA = `
 let _originalEmitWarning;
 let _suppressCount = 0;
 
+function _debugError(label, err) {
+  if (process.env.DEBUG) {
+    console.error(`[GraphDB] ${label} failed:`, err?.message || err);
+  }
+}
+
 function _suppressSqliteExperimentalWarning() {
   if (_suppressCount === 0) {
     _originalEmitWarning = process.emitWarning;
