@@ -8,6 +8,26 @@
 
 ## [Unreleased]
 
+### 技术债务偿还 — 重复模式消除与模块收敛（2026-06-01）
+
+- **cache.js 重复模式清零** `src/services/cache.js`：
+  - 提取 `_normalizeEntries(entries, options)` 通用函数，消灭 3 个复制粘贴变体（`normalizeFileMapEntries` / `normalizeDiagnosticsEntries` / `normalizeParseResultEntries`）。
+  - 提取 `DirtyTracker` 类，用结构化的 `mark(key)` / `unmark(key)` / `getDirtyEntries()` / `clear()` 替代 8 个手写 dirty/deleted Set 及 16 行成对 add/delete 调用。INVARIANT 由数据结构保证，注释约束消除。净减 13 行（-17%）。
+- **`shouldExclude` 收敛到单一模块** `src/utils/exclude-patterns.js` + `file-index.js` + `dep-graph.js`：
+  - 将 `DEFAULT_EXCLUDE_DIRS` 从 `file-index.js` 移至 `exclude-patterns.js`。
+  - 新增 `shouldExcludeBase(filePath, baseExcludeDirs)` 统一 cache.db 产物排除 + baseExcludeDirs 匹配逻辑。
+  - `file-index.js` 与 `dep-graph.js` 均委托 `shouldExcludeBase()`；dep-graph.js 顺带修复了 cache.db-wal/shm 遗漏排除的问题。
+- **health-tools.js 冗余模块删除** `src/tools/audit-assembler.js` + `health-tools.js`：
+  - 将 `projectHealth` + 5 个私有 helper（`checkHealthFile` / `hasWorkflowFiles` / `detectCiConfig` / `detectTestConfig` / `buildFixSuggestions`）内联到 `audit-assembler.js`。
+  - 删除 `src/tools/health-tools.js`（212 行），消除仅有一个 consumer 的独立数据层。导出 `projectHealth` 供现有测试继续引用。
+  - `cli/commands/index.js` 移除未使用的 `projectHealth` 死导入。
+- **`normalizeFilePath` 跨文件收敛** `src/services/cache.js` + `dep-graph.js`：
+  - 删除两文件中重复定义的 `normalizeFilePath()` 实例方法，改为 constructor 中绑定闭包直接委托 `path.js::normalizeFilePath()`。消除"同一包装、两处实现"的重复信号。
+- **exclude-patterns.js basename 无效短路修复** `src/utils/exclude-patterns.js`：
+  - 对含 `/` 的路径型 glob（如 `src/**/test.js`）跳过 `path.basename` 测试，直接走后缀匹配；保留文件名-only glob（如 `*.test.js`）的 basename 优化。消除无效正则尝试和阅读误导。
+- **graph-db.js `_debugError` 缺失定义补漏** `src/services/graph-db.js`：
+  - 上一轮 commit 在 11 处调用点引入了 `_debugError()` 但未定义函数。补全模块级 `_debugError(label, err)`  helper，避免 `DEBUG=1` 时触发 `ReferenceError`。
+
 ### 架构边界维护 — _aggregateCache 封装修复与契约统一（2026-06-01）
 
 - **根治 `_aggregateCache` 封装泄漏** `src/services/dep-graph/analyzer.js` + `container.js` + `dep-graph.js` + `overview-assembler.js`：

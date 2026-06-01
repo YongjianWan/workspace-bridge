@@ -123,7 +123,7 @@ node cli.js audit-overview --cwd . --json --quiet
 | -------------- | ----------- | ---------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
-| 活跃债务与品味     | 6           | 测试类型失衡 / `--json` 嵌套深 / "默认宿主"热点膨胀 / cache.js 重复模式 / graph-db.js schema 演化热点 / cli.js 入口膨胀 / 跨文件重复模式 |
+| 活跃债务与品味     | 7           | 弱断言分布 / 测试类型失衡 / slow 层测试过重 / "默认宿主"热点膨胀 / graph-db.js schema 演化热点 / cli.js 入口膨胀 / `--json` 嵌套深 |
 | **产品债务** | **0** | —                                                                  |
 
 **测试状态**：`npm run test:fast` **84/84 PASS**（~20s）。全量 runner **160/160 PASS**（~5min）。当前 fast 层 84 个测试，slow 层 70 个，serial 层 7 个。
@@ -159,8 +159,14 @@ node cli.js audit-overview --cwd . --json --quiet
 ### 当前会话后续动作（本轮收工）
 1. 架构审查结论已归档至 `TECH_DEBT.md`，活跃债务从 2 项增至 **7 项**（新增 health-tools 冗余、exclude-patterns basename 无效短路）。
 2. 代码审查报告回应：#1-#5 已在当前 trunk 修复完毕；#6 `exclude-patterns.js` basename 无效短路确认为 clarity 问题（非功能 bug）；#7 `temp-change-for-test` 当前 trunk 不存在。
-3. 下一步优先级：**cache.js normalize 提取公共函数**（小改动、高ROI、测试覆盖完善）或 **`shouldExclude` 收敛到单一模块**。
-4. 大规模重构（dep-graph.js facade 拆分、container.js pipeline 化、cli.js 入口拆分）需单独计划，不建议与功能开发混修。
+3. ✅ cache.js normalize 提取公共函数（`_normalizeEntries`）已完成。
+4. ✅ cache.js DirtyTracker 提取（替代 8 个手写 Set）已完成。
+5. ✅ `shouldExclude` 收敛到单一模块（`exclude-patterns.js`）已完成。
+6. ✅ health-tools.js 内联删除（冗余数据层消除）已完成。
+7. ✅ normalizeFilePath 跨文件收敛（constructor 绑定）已完成。
+8. ✅ exclude-patterns.js basename 无效短路修复已完成。
+9. ✅ graph-db.js `_debugError` 缺失定义补漏已完成。
+10. 下一步优先级：**graph-db.js schema 演化热点**（引入 `TABLE_SCHEMA` 注册表，消灭 `loadAll()` 手工拼接）或 **cli.js 入口膨胀拆分**（需单独计划，改动面大）。
 
 ---
 
@@ -186,7 +192,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-01（Wave 1-8 全部完成；37/37 Dogfood 已修复；代码审查 100% 修复完毕；架构审查结论已归档；活跃债务 7 项，0 个 P2 级活跃 Bug；84/84 fast + 环路测试全绿）*
+*Last updated: 2026-06-01（Wave 1-8 全部完成；37/37 Dogfood 已修复；代码审查 100% 修复完毕；本轮偿还 6 项技术债务；活跃债务 7 项，0 个 P2 级活跃 Bug；84/84 fast + 全量 runner 160/160 PASS）*
 
 > **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 error / cycles / dead-exports，自身库全量覆盖率 1.00。
 > **本轮完成**：
