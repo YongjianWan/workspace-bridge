@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { normalizePathKey, normalizeFilePath: _normalizeFilePath } = require('../utils/path');
+const { normalizePathKey, normalizeFilePath } = require('../utils/path');
 const { GraphDB } = require('./graph-db');
 const { CACHE_VERSION, DEFAULTS } = require('../config/constants');
 
@@ -60,6 +60,7 @@ function computeDefaultCacheDir(workspaceRoot) {
 class WorkspaceCache {
   constructor(workspaceRoot, options = {}) {
     this.workspaceRoot = workspaceRoot;
+    this.normalizeFilePath = (filePath) => normalizeFilePath(filePath, workspaceRoot);
     this.cacheDir = options.cacheDir || computeDefaultCacheDir(workspaceRoot);
     this.cachePath = path.join(this.cacheDir, 'cache.db');
     this._graphDb = new GraphDB(this.cachePath);
@@ -91,10 +92,6 @@ class WorkspaceCache {
 
     this.lastSaved = 0;
     this.dirty = false;
-  }
-
-  normalizeFilePath(filePath) {
-    return _normalizeFilePath(filePath, this.workspaceRoot);
   }
 
   _normalizeEntries(entries, options = {}) {

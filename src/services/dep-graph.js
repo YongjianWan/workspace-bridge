@@ -9,7 +9,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { normalizePathKey, matchesPathFragment, normalizeFilePath: _normalizeFilePath } = require('../utils/path');
+const { normalizePathKey, matchesPathFragment, normalizeFilePath } = require('../utils/path');
 const { shouldExcludeBase, shouldExcludeCli: _shouldExcludeCli } = require('../utils/exclude-patterns');
 const { ENTRY_BASE_NAMES } = require('../utils/project-context');
 const { isTestLikeFile } = require('../utils/test-detector');
@@ -99,6 +99,7 @@ class DependencyGraph {
 
   constructor(workspaceRoot, cache, options = {}) {
     this.root = workspaceRoot;
+    this.normalizeFilePath = (filePath) => normalizeFilePath(filePath, workspaceRoot);
     this.cache = cache;
     this.graph = new Map(); // file -> {imports: [], exports: []}
     this.reverseGraph = new Map(); // file -> [files that import it]
@@ -170,10 +171,6 @@ class DependencyGraph {
   _finishUpdating() { this._transition(DG_STATES.READY); }
   _markError() { this._transition(DG_STATES.ERROR); }
   _resetState() { this._transition(DG_STATES.IDLE); }
-
-  normalizeFilePath(filePath) {
-    return _normalizeFilePath(filePath, this.root);
-  }
 
   _displayPath(filePath) {
     const info = this.graph.get(filePath);
