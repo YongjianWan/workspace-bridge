@@ -3,7 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { projectHealth } = require('../src/tools/health-tools');
+const { projectHealth } = require('../src/tools/audit-assembler');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 async function testHealthScoreNumeric() {

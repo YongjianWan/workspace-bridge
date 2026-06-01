@@ -7,7 +7,6 @@
 const fs = require('fs');
 const { dependencyGraph } = require('../../tools/dep-tools');
 const { assembleDiff, assembleSecurity, assembleSummary } = require('../../tools/audit-assembler');
-const { projectHealth } = require('../../tools/health-tools');
 const { runDiagnostics, workspaceInfo } = require('../../tools/workspace-tools');
 const { buildProjectMap } = require('../formatters');
 const { buildProjectOverview } = require('../../tools/overview-tools');
