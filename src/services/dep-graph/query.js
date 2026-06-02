@@ -14,8 +14,8 @@ class GraphQuery {
   }
 
   _ensureReady() {
-    if (this.dg._state !== 'READY') {
-      throw new GraphNotReadyError(this.dg._state);
+    if (this.dg.state !== 'READY') {
+      throw new GraphNotReadyError(this.dg.state);
     }
   }
 

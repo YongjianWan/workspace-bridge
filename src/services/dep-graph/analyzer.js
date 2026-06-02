@@ -415,7 +415,8 @@ class GraphAnalyzer {
 
       filtered.push(imp);
     }
-    return filtered;
+    // Defensive dedup: a file may have multiple import records resolving to the same target.
+    return [...new Set(filtered)];
   }
 
   findCircularDependencies(options = {}) {

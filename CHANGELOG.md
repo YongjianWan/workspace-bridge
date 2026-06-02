@@ -8,6 +8,74 @@
 
 ## [Unreleased]
 
+### 审查修复 — 数据质量缺陷与代码清理（2026-06-02）
+
+- **修复 `parseBlamePorcelain` 解析 git blame --porcelain 压缩格式错误** `src/tools/git-tools.js`：
+  - 同一提交的连续多行中，git 只在第一行输出完整 author 元数据，后续行仅输出 SHA+行号+content。
+  - 原解析器遇到 SHA 行就重置 `currentEmail/currentName`，导致后续行被跳过，所有文件变成 `totalLines=1`、`authorCount=1`。
+  - 修复：SHA 行不再重置当前 author，保持元数据继承到同一块的后续行。
+  - 补测试 `test/git-tools-blame-test.js`：`testParseBlamePorcelainCompressedBlock` 验证 3 行压缩块正确计数。
+- **修复 cycles 重复报告同一个 cycle** `src/services/dep-graph/analyzer.js`：
+  - `dep-graph.js` 内两条 `require('./orchestrator')` 生成重复 import records，`_getCircularDependencies()` 返回的邻接表未去重，导致 Johnson 算法两次遍历同一节点。
+  - 修复：`return [...new Set(filtered)]` 防御性去重。
+  - 补测试 `test/cycle-dedup-test.js`：构造 duplicate imports mock，验证 `_getCircularDependencies()` 返回无重复。
+- **清理真死导出 `DG_VALID_TRANSITIONS`** `src/services/orchestrator.js`：
+  - 该常量导出后无任何外部模块消费，从 `module.exports` 中移除，内部 `_transition()` 仍保留定义。
+
+### 路线 A-2 收尾 — 阶段 1：提取 EntryDetector（2026-06-02）
+
+- **新建 `src/services/dep-graph/entry-detector.js`**：提取 `isKnownEntryFile()` ~55 行 + `getFrameworkHint()` ~21 行 + `_entryFileCache` + `graph:updated` 缓存失效监听。
+  - 消除 `isKnownEntryFile` 与 `getFrameworkHint` 之间的**内容扫描重复代码**（两者都读前 4096 字节 + `detectFrameworkFromContent`），提取公共纯函数 `readScanContent(filePath)`。
+  - `EntryDetector` 接收 `{ entryFiles, normalizeFilePath, bus }` 依赖注入，不持有 depGraph 引用。
+  - `dep-graph.js` 保留 `isKnownEntryFile()` / `getFrameworkHint()` thin wrapper， facade 公开 API **零变化**，所有外部调用方无需修改。
+  - 删除 dep-graph.js 中 `FRAMEWORK_MANAGED_PATTERNS`、`KNOWN_CONFIG_NAMES`、`PYTHON_MAIN_PATTERN`、`detectFrameworkFromPath`、`detectFrameworkFromContent` 的冗余 import。
+  - 补测试 `test/entry-detector-test.js`（缓存命中、框架模式匹配、已知配置名、bus 失效、手动失效、路径级 framework hint、缺失文件容错）。
+  - `test:fast` **86/86 PASS**。
+
+### 路线 A-2 收尾 — 阶段 2：提取 GraphLoader（2026-06-02）
+
+- **新建 `src/services/dep-graph/loader.js`**：提取 `loadGraph()` ~99 行到独立纯函数模块。
+  - `loadGraph(depGraph, options)` 接收 depGraph 实例作为参数，操作其 `graph`、`reverseGraph`、`cache`、`bus` 等字段。
+  - 包含 staleness guard、metadata 验证、graph 重建、orphan edge 处理、bus emit、状态机切换（`_finishBuilding`）、预计算恢复（`restorePrecomputed`）。
+  - `dep-graph.js` 保留 `loadGraph(options)` thin wrapper（`return loadGraphImpl(this, options)`），facade 公开 API **零变化**。
+  - 删除 dep-graph.js 中 `restorePrecomputed` 的冗余 import（仅在 loader.js 中使用）。
+  - 冷热启动双路径验证通过（清除缓存后冷启动 + 已有缓存热启动均正常）。
+  - `test:fast` **86/86 PASS**。
+
+### 路线 A-2 收尾 — 阶段 3：打破循环依赖（2026-06-02）
+
+- **新建 `src/services/dep-graph/state-machine.js`**：下沉 `DG_STATES` + `GraphStateMachine` + `DG_VALID_TRANSITIONS`，使 dep-graph.js 和 orchestrator.js 共享同一状态机基底，而非互相指向对方。
+- **新建 `src/services/dep-graph/persistence.js`**：收容 `registerGraphBuiltHandler` + `savePrecomputed` + `restorePrecomputed`，使 dep-graph.js 和 orchestrator.js 共享同一持久化基底。
+- **dep-graph.js 不再静态依赖 orchestrator.js**：
+  - `DG_STATES` / `GraphStateMachine` 改为从 `state-machine.js` 导入。
+  - `registerGraphBuiltHandler` 改为从 `persistence.js` 导入。
+  - `static fromSchema` 中运行时 require orchestrator.js 的 `bootstrapFromSchema`，但显式传入 `DependencyGraphClass` 参数，避免 bootstrapFromSchema 内部反向运行时 require dep-graph.js。
+- **orchestrator.js 精简**：删除本地内联的 `DG_STATES`、`GraphStateMachine`、`registerGraphBuiltHandler`、`savePrecomputed`、`restorePrecomputed` 定义，改为从子模块导入并重新导出以保持向后兼容。
+- **loader.js 更新**：`restorePrecomputed` 改为从 `persistence.js` 导入。
+- **循环依赖检测**：`node cli.js cycles --cwd .` 报告 **cyclesCount = 0**，facade ↔ orchestrator 双向耦合彻底消除。
+- `test:fast` **86/86 PASS**。
+
+### 架构债务清偿 — 路线 A-2: dep-graph.js 协调职责上移 — **部分完成**（2026-06-02）
+
+> **诚实评估**：~60% 完成。已提取的职责属实，但 facade 中仍有 ~175 行协调逻辑未动，orchestrator.js 成为了新的"职责收容所"，且引入了 facade ↔ orchestrator 循环依赖。
+
+**已提取到 `src/services/orchestrator.js`**：
+- `registerGraphBuiltHandler(depGraph)`：注册 `graph:built` 事件监听，协调 `analyzer.precomputeAggregates()` → `precomputeImpact()` → `savePrecomputed()`。
+- `savePrecomputed(depGraph)`：序列化并保存预计算 aggregates + impact 到 SQLite（原 `_savePrecomputed` 方法，~68 行）。
+- `restorePrecomputed(depGraph)`：从 SQLite 恢复预计算数据到 analyzer（原 `loadGraph()` 内联逻辑）。
+- `bootstrapFromSchema(...)`：从序列化 schema 重建 DependencyGraph（原 `fromSchema` 核心逻辑），dep-graph.js 保留 `static fromSchema` thin wrapper 保证 backward compat。
+- `initializeDepGraph(...)`：封装 container.js 中的 load/build/update 决策树（原 `_initDepGraph` ~65 行）。
+
+**仍残留在 `src/services/dep-graph.js` facade 中**：
+- `loadGraph()` ~99 行：混合 staleness guard、metadata 验证、graph 重建、orphan 处理、bus emit、状态机切换、预计算恢复。本质是加载协调器，不是 facade 数据存取。
+- `isKnownEntryFile()` ~55 行：含 `fs.statSync`/`fs.readSync` 文件 I/O + 框架语义推断，不属于 facade。
+- `getFrameworkHint()` ~21 行：与 `isKnownEntryFile()` 的内容扫描逻辑**完全重复**（都读前 800 字节 + `detectFrameworkFromContent`）。
+- 构造函数内 `graph:updated` 监听器 3 行：缓存失效协调未收拢到 orchestrator.js。
+
+**引入的新债务**：
+- `dep-graph.js` ↔ `orchestrator.js` 循环依赖：facade 静态 require orchestrator（获取 DG_STATES/GraphStateMachine），orchestrator 运行时 require facade（`bootstrapFromSchema` 中实例化 DependencyGraph）。运行时 require 打破死锁，但双向耦合仍在。
+- `orchestrator.js` 成为"职责收容所"：330 行混入工厂（`bootstrapFromSchema`）、持久化（`savePrecomputed`/`restorePrecomputed`）、状态机、编排，不是纯粹的薄编排层。`savePrecomputed` 中存在 4 个几乎相同的 `if (cache.xxx !== undefined)` 重复块。
+
 ### Added — affected-routes 端到端请求路径（2026-06-01）
 
 - **新增 `affected-routes` 命令** `src/services/dep-graph/analyzer.js` + `dep-graph.js` + `workspace-snapshot.js` + `src/tools/dep-tools/affected-routes.js` + `src/cli/commands/index.js` + `cli.js` + `human-formatters.js`：

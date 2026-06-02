@@ -498,10 +498,10 @@ function parseBlamePorcelain(stdout) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line) continue;
-    // A blame block starts with a 40-char SHA, then metadata lines, then a tab-prefixed content line
+    // A blame block starts with a 40-char SHA, then metadata lines, then a tab-prefixed content line.
+    // For consecutive lines from the same commit, git emits only the SHA line (no repeated author metadata).
+    // We must NOT reset currentEmail/currentName here — inherited from the previous block's metadata.
     if (/^[0-9a-f]{40}/.test(line)) {
-      currentEmail = null;
-      currentName = null;
       continue;
     }
     if (line.startsWith('author ')) {

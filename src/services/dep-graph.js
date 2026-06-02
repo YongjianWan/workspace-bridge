@@ -19,34 +19,15 @@ const {
   getFunctionReuseHints,
   getFunctionLevelAffectedTests,
 } = require('./dep-graph/symbol-impact');
-const { detectFrameworkFromPath, detectFrameworkFromContent } = require('./dep-graph/framework-patterns');
 const { DEFAULTS, LIMITS, CACHE_VERSION } = require('../config/constants');
 const { EventBus } = require('../utils/event-bus');
 const { GraphBuilder } = require('./dep-graph/builder');
 const { GraphAnalyzer } = require('./dep-graph/analyzer');
 const { GraphQuery } = require('./dep-graph/query');
-const {
-  FRAMEWORK_MANAGED_PATTERNS,
-  KNOWN_CONFIG_NAMES,
-  PYTHON_MAIN_PATTERN,
-} = require('./dep-graph/shared');
-
-const DG_STATES = {
-  IDLE: 'IDLE',
-  BUILDING: 'BUILDING',
-  READY: 'READY',
-  UPDATING: 'UPDATING',
-  ERROR: 'ERROR',
-};
-
-const DG_VALID_TRANSITIONS = {
-  [DG_STATES.IDLE]: [DG_STATES.BUILDING, DG_STATES.UPDATING, DG_STATES.READY, DG_STATES.ERROR],
-  [DG_STATES.BUILDING]: [DG_STATES.READY, DG_STATES.ERROR],
-  [DG_STATES.READY]: [DG_STATES.BUILDING, DG_STATES.UPDATING, DG_STATES.IDLE, DG_STATES.ERROR],
-  [DG_STATES.UPDATING]: [DG_STATES.READY, DG_STATES.ERROR],
-  [DG_STATES.ERROR]: [DG_STATES.IDLE, DG_STATES.BUILDING, DG_STATES.UPDATING],
-};
-
+const { EntryDetector } = require('./dep-graph/entry-detector');
+const { loadGraph: loadGraphImpl } = require('./dep-graph/loader');
+const { DG_STATES, GraphStateMachine } = require('./dep-graph/state-machine');
+const { registerGraphBuiltHandler } = require('./dep-graph/persistence');
 class DependencyGraph {
   /**
    * Fast static factory to build a pre-populated DependencyGraph instance from a schema.
@@ -57,44 +38,13 @@ class DependencyGraph {
    * @returns {DependencyGraph}
    */
   static fromSchema(workspaceRoot, schema, options = {}) {
-    const depGraph = new DependencyGraph(
-      workspaceRoot,
-      options.cache !== undefined ? options.cache : null,
-      {
-        quiet: true,
-        packageJson: options.packageJson || null,
-        entryFiles: options.entryFiles || new Set(),
-        ...options,
-      }
-    );
-
-    // Build node map from schema
-    for (const [file, node] of Object.entries(schema || {})) {
-      const imports = node.imports || [];
-      depGraph.graph.set(file, {
-        originalPath: node.originalPath || file,
-        imports: imports,
-        exports: node.exports || [],
-        importRecords: node.importRecords || [],
-        exportRecords: node.exportRecords || [],
-        functionRecords: node.functionRecords || [],
-        parseMode: node.parseMode || 'ast',
-        confidence: node.confidence || 'medium',
-        package: node.package || null,
-      });
-    }
-
-    // Auto-build reverseGraph using production builder method to align contracts 100%!
-    depGraph.buildReverseGraph();
-
-    if (options.projectContext) {
-      depGraph.projectContext = options.projectContext;
-    }
-
-    // O6: fromSchema produces a fully-formed graph — mark ready without build()
-    depGraph._finishBuilding();
-
-    return depGraph;
+    // A-2: core logic extracted to orchestrator.js; thin wrapper kept for
+    // backward compatibility with ~20+ tests that call it directly.
+    // Pass DependencyGraphClass explicitly to avoid circular dependency.
+    return require('./orchestrator').bootstrapFromSchema(workspaceRoot, schema, {
+      ...options,
+      DependencyGraphClass: DependencyGraph,
+    });
   }
 
   constructor(workspaceRoot, cache, options = {}) {
@@ -109,27 +59,23 @@ class DependencyGraph {
     this.cliExcludeDirs = options.cliExcludeDirs || [];
     this.projectContext = options.projectContext || null;
     this.quiet = options.quiet || false;
-    this._state = DG_STATES.IDLE;
+    this._stateMachine = new GraphStateMachine();
     this.bus = new EventBus();
-    // O4: Builder no longer knows Analyzer. The facade listens to 'graph:built'
-    // and coordinates post-build precompute + persistence so Builder stays a
-    // pure graph-construction engine.
-    this.bus.on('graph:built', async () => {
-      this.analyzer.precomputeAggregates();
-      this.analyzer.precomputeImpact();
-      await this._savePrecomputed();
+    this.entryDetector = new EntryDetector({
+      entryFiles: this.entryFiles,
+      normalizeFilePath: this.normalizeFilePath,
+      bus: this.bus,
     });
-    this._entryFileCache = new Map();
     this.builder = new GraphBuilder(this);
     this.analyzer = new GraphAnalyzer(this);
     this.query = new GraphQuery(this);
-    this.bus.on('graph:updated', () => {
-      this._entryFileCache.clear();
-    });
+    // A-2: post-build orchestration (precompute + persistence) moved to
+    // orchestrator.js so the facade doesn't carry cross-module coordination.
+    registerGraphBuiltHandler(this);
 
     // O6: backward-compatible _updating getter — state managed by _transition()
     Object.defineProperty(this, '_updating', {
-      get: () => this._state === DG_STATES.UPDATING,
+      get: () => this._stateMachine.state === DG_STATES.UPDATING,
       set: () => { /* no-op for backward compat */ },
       enumerable: false,
       configurable: true,
@@ -151,26 +97,18 @@ class DependencyGraph {
   }
 
   get state() {
-    return this._state;
+    return this._stateMachine.state;
   }
 
-  _transition(toState) {
-    const from = this._state;
-    if (from === toState) return;
-    const valid = DG_VALID_TRANSITIONS[from] || [];
-    if (!valid.includes(toState)) {
-      throw new Error(`[DependencyGraph] Invalid transition: ${from} → ${toState}`);
-    }
-    this._state = toState;
-  }
-
-  // O6: lifecycle helpers exposed to builder.js (avoids circular import of DG_STATES)
-  _startBuilding() { this._transition(DG_STATES.BUILDING); }
-  _finishBuilding() { this._transition(DG_STATES.READY); }
-  _startUpdating() { this._transition(DG_STATES.UPDATING); }
-  _finishUpdating() { this._transition(DG_STATES.READY); }
-  _markError() { this._transition(DG_STATES.ERROR); }
-  _resetState() { this._transition(DG_STATES.IDLE); }
+  // A-2: state machine logic extracted to orchestrator.js GraphStateMachine.
+  // These thin wrappers preserve backward compatibility for builder.js and tests.
+  _transition(toState) { this._stateMachine._transition(toState); }
+  _startBuilding() { this._stateMachine._startBuilding(); }
+  _finishBuilding() { this._stateMachine._finishBuilding(); }
+  _startUpdating() { this._stateMachine._startUpdating(); }
+  _finishUpdating() { this._stateMachine._finishUpdating(); }
+  _markError() { this._stateMachine._markError(); }
+  _resetState() { this._stateMachine._resetState(); }
 
   _displayPath(filePath) {
     const info = this.graph.get(filePath);
@@ -239,88 +177,11 @@ class DependencyGraph {
   }
 
   isKnownEntryFile(filePath, exports) {
-    const key = this.normalizeFilePath(filePath);
-    if (this._entryFileCache.has(key)) {
-      return this._entryFileCache.get(key);
-    }
-
-    let result = false;
-    if (this.entryFiles.has(filePath)) {
-      result = true;
-    } else {
-      const normalized = normalizePathKey(filePath);
-      const base = path.basename(normalized);
-      if (FRAMEWORK_MANAGED_PATTERNS.some((pattern) => pattern.test(normalized))) {
-        result = true;
-      } else if (KNOWN_CONFIG_NAMES.has(base)) {
-        result = true;
-      } else if (ENTRY_BASE_NAMES.has(base)) {
-        result = true;
-      } else {
-        // Framework-aware entry detection (GitNexus pattern port)
-        const pathHint = detectFrameworkFromPath(filePath);
-        if (pathHint && pathHint.isEntry) {
-          result = true;
-        } else {
-          // Content-based framework detection + shebang / python main
-          try {
-            const stats = fs.statSync(filePath);
-            if (stats.size <= LIMITS.ENTRY_FILE_MAX_BYTES) {
-              const fd = fs.openSync(filePath, 'r');
-              let content = '';
-              try {
-                const buffer = Buffer.alloc(LIMITS.ENTRY_SCAN_BYTES);
-                const bytesRead = fs.readSync(fd, buffer, 0, LIMITS.ENTRY_SCAN_BYTES, 0);
-                content = buffer.toString('utf8', 0, bytesRead);
-              } finally {
-                fs.closeSync(fd);
-              }
-
-              const contentHint = detectFrameworkFromContent(filePath, content);
-              if (contentHint && contentHint.isEntry) {
-                result = true;
-              } else if (content.startsWith('#!')) {
-                result = true;
-              } else if (PYTHON_MAIN_PATTERN.test(content)) {
-                result = true;
-              }
-            }
-          } catch (e) {
-            if (e.code !== 'ENOENT') throw e;
-          }
-        }
-      }
-    }
-
-    this._entryFileCache.set(key, result);
-    return result;
+    return this.entryDetector.isKnownEntryFile(filePath, exports);
   }
 
-  /**
-   * Get framework hint for a file (path-based detection + lightweight content fallback).
-   * @param {string} filePath
-   * @returns {{ framework: string, reason: string, isEntry: boolean } | null}
-   */
   getFrameworkHint(filePath) {
-    const pathHint = detectFrameworkFromPath(filePath);
-    if (pathHint) return pathHint;
-
-    // Fallback: scan first 800 bytes for framework signatures (decorators, imports, etc.)
-    try {
-      const stats = fs.statSync(filePath);
-      if (stats.size > LIMITS.ENTRY_FILE_MAX_BYTES) return null;
-      const fd = fs.openSync(filePath, 'r');
-      try {
-        const buffer = Buffer.alloc(LIMITS.ENTRY_SCAN_BYTES);
-        const bytesRead = fs.readSync(fd, buffer, 0, LIMITS.ENTRY_SCAN_BYTES, 0);
-        const content = buffer.toString('utf8', 0, bytesRead);
-        return detectFrameworkFromContent(filePath, content);
-      } finally {
-        fs.closeSync(fd);
-      }
-    } catch {
-      return null;
-    }
+    return this.entryDetector.getFrameworkHint(filePath);
   }
 
   getSymbolImpact(filePath, maxDepth = 4) {
@@ -361,124 +222,7 @@ class DependencyGraph {
    * Returns true on success, false to fall back to build().
    */
   loadGraph(options = {}) {
-    // Staleness guard: if files changed on disk since last edge save,
-    // fall back to full build() to ensure consistency.
-    // When skipChangeCheck is true, caller is responsible for incremental
-    // update after load (container.js hybrid path).
-    if (!options.skipChangeCheck) {
-      try {
-        const changeCheck = this.cache.checkFileChanges();
-        if (changeCheck.changed) {
-          if (!this.quiet) {
-            console.error(`[DepGraph] Files changed on disk (${changeCheck.changedFiles.length} files), skipping loadGraph`);
-          }
-          return false;
-        }
-      } catch {
-        return false;
-      }
-    }
-
-    const edges = this.cache.loadEdges();
-    if (!edges || edges.length === 0) {
-      return false;
-    }
-
-    // Validate persisted edge metadata for coarse staleness detection
-    const edgeMeta = this.cache.edgeMeta;
-    if (edgeMeta) {
-      if (edgeMeta.cacheVersion !== CACHE_VERSION) return false;
-      if (edgeMeta.fileMetadataCount !== this.cache.fileMetadata.size) return false;
-      if (edgeMeta.parseResultsCount !== this.cache.parseResults.size) return false;
-    }
-
-    this.graph.clear();
-    this.reverseGraph.clear();
-    this.bus.emit('graph:updated', { fullRebuild: true });
-
-    // Rebuild edge map and reverseGraph from persisted edges
-    const edgeMap = new Map();
-    for (const edge of edges) {
-      if (!edgeMap.has(edge.source)) {
-        edgeMap.set(edge.source, []);
-      }
-      edgeMap.get(edge.source).push(edge.target);
-
-      if (!this.reverseGraph.has(edge.target)) {
-        this.reverseGraph.set(edge.target, []);
-      }
-      const dependents = this.reverseGraph.get(edge.target);
-      if (!dependents.includes(edge.source)) {
-        dependents.push(edge.source);
-      }
-    }
-
-    // Restore graph nodes from parseResults, using edges for imports
-    for (const [filePath, result] of this.cache.parseResults) {
-      const meta = this.cache.getFileMetadata(filePath);
-      this.graph.set(filePath, {
-        originalPath: meta?.originalPath || result.originalPath || filePath,
-        imports: edgeMap.get(filePath) || result.imports || [],
-        exports: result.exports || [],
-        importRecords: result.importRecords || [],
-        exportRecords: result.exportRecords || [],
-        functionRecords: result.functionRecords || [],
-        parseMode: result.parseMode || 'none',
-        parseModeReason: result.parseModeReason || '',
-        confidence: result.confidence || 'medium',
-        package: result.package || null,
-      });
-    }
-
-    // Handle orphan edges (files in edges but missing from parseResults)
-    for (const [source, targets] of edgeMap) {
-      if (!this.graph.has(source)) {
-        this.graph.set(source, {
-          originalPath: source,
-          imports: targets,
-          exports: [],
-          importRecords: targets.map((t) => ({ source: '<edge-only>', resolved: t })),
-          exportRecords: [],
-          functionRecords: [],
-          parseMode: 'none',
-          parseModeReason: 'edge-only',
-          confidence: 'low',
-          package: null,
-        });
-      }
-    }
-
-    if (!this.quiet) {
-      console.error(`[DepGraph] Loaded graph from edges: ${this.graph.size} files, ${edges.length} edges`);
-    }
-
-    // O6: loaded graph is structurally complete — mark ready
-    this._finishBuilding();
-
-    // D7-D8: attempt to load precomputed aggregates + impact from SQLite
-    try {
-      const aggregateRows = this.cache.loadPrecomputedAggregates();
-      if (aggregateRows && aggregateRows.length > 0) {
-        const ok = this.analyzer.injectPrecomputedAggregates(aggregateRows, this.graph.size);
-        if (!this.quiet && ok) {
-          console.error('[DepGraph] Precomputed aggregates restored from cache');
-        }
-      }
-
-      const impactRows = this.cache.loadPrecomputedImpact();
-      if (impactRows && impactRows.length > 0) {
-        const ok = this.analyzer.injectPrecomputedImpact(impactRows, this.graph.size);
-        if (!this.quiet && ok) {
-          console.error('[DepGraph] Precomputed impact restored for', impactRows.length, 'files');
-        }
-      }
-    } catch (e) {
-      if (process.env.DEBUG) {
-        console.error('[DepGraph] Precomputed load failed:', e.message);
-      }
-    }
-
-    return true;
+    return loadGraphImpl(this, options);
   }
 
   getDependencies(...args) {
@@ -539,81 +283,6 @@ class DependencyGraph {
 
   _scanSymbolUsageInImporters(...args) {
     return this.analyzer._scanSymbolUsageInImporters(...args);
-  }
-
-  /**
-   * D7-D8: Serialize and save precomputed aggregates + impact to SQLite.
-   * Moved from builder.js to dep-graph.js (facade) as part of O4 decoupling:
-   * Builder no longer knows Analyzer; the facade coordinates persistence.
-   */
-  async _savePrecomputed() {
-    if (!this.cache) return;
-    try {
-      const analyzer = this.analyzer;
-      const graphSize = this.graph.size;
-
-      // Save aggregates
-      const aggregateRows = [];
-      const cache = analyzer.getAggregateCache();
-      if (cache) {
-        if (cache.deadExports !== undefined) {
-          aggregateRows.push({
-            key: 'deadExports',
-            data: JSON.stringify(cache.deadExports),
-            version: analyzer.getAggregateVersion(),
-            fileCount: graphSize,
-          });
-        }
-        if (cache.unresolved !== undefined) {
-          aggregateRows.push({
-            key: 'unresolved',
-            data: JSON.stringify(cache.unresolved),
-            version: analyzer.getAggregateVersion(),
-            fileCount: graphSize,
-          });
-        }
-        if (cache.cycles !== undefined) {
-          aggregateRows.push({
-            key: 'cycles',
-            data: JSON.stringify(cache.cycles),
-            version: analyzer.getAggregateVersion(),
-            fileCount: graphSize,
-          });
-        }
-        if (cache.stats !== undefined) {
-          aggregateRows.push({
-            key: 'stats',
-            data: JSON.stringify(cache.stats),
-            version: analyzer.getAggregateVersion(),
-            fileCount: graphSize,
-          });
-        }
-      }
-      if (aggregateRows.length > 0) {
-        this.cache.savePrecomputedAggregates(aggregateRows);
-      }
-
-      // Save impact
-      const impactRecords = [];
-      for (const [file, data] of analyzer._impactCache) {
-        impactRecords.push({
-          file,
-          directDeps: data.directDeps,
-          transitiveDeps: data.transitiveDeps,
-          directDependents: data.directDependents,
-          transitiveDependents: data.transitiveDependents,
-          affectedTests: JSON.stringify(data.affectedTests),
-          version: analyzer._impactVersion,
-        });
-      }
-      if (impactRecords.length > 0) {
-        this.cache.savePrecomputedImpact(impactRecords);
-      }
-    } catch (e) {
-      if (process.env.DEBUG) {
-        console.error('[DependencyGraph] _savePrecomputed failed:', e.message);
-      }
-    }
   }
 
   // Backwards compatibility getters/setters for test assertions and tools

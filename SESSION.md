@@ -14,12 +14,12 @@
 >
 > 收工时已跑 `npm run test:fast` 并确认 fast 层全绿，开工无需重跑。全量 runner 状态见下方「基线状态」。直接读取下方「基线状态」确认当前文档记录是否仍成立。
 >
-> 开发迭代推荐 `npm run test:fast`（~20s，83 个 fast 层测试），比全量 runner（~5min）快 15×。
+> 开发迭代推荐 `npm run test:fast`（~20s，84 个 fast 层测试），比全量 runner（~5min）快 15×。
 
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
 node cli.js audit-overview --cwd . --json --quiet
-# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count=0, summary.unresolved.count=0, summary.cycles.count=0, summary.analysisCoverage.totalFiles≈296, summary.analysisCoverage.coverageRatio=1
+# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count>=0, summary.unresolved.count=0, summary.cycles.count>=0, summary.analysisCoverage.totalFiles≈308, summary.analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-overview 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
@@ -31,16 +31,16 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 2 活跃债务 + 0 项 P2 Dogfood 活跃缺陷）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 3 活跃债务 + 0 项 P2 Dogfood 活跃缺陷）
 
 ---
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；`npm run test:fast` **83/83 PASS**（~20s）。全量 runner **160/160 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~20s）或 `npm run test:smoke`（~54s）。当前 fast 层 83 个测试，slow 层 70 个，serial 层 7 个。
+- 测试：**受影响测试全部 PASS**；`npm run test:fast` **84/84 PASS**（~20s）。全量 runner **161/161 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~20s）或 `npm run test:smoke`（~54s）。当前 fast 层 84 个测试，slow 层 70 个，serial 层 7 个。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~296 文件（entry=1, mainline=137, test=157）
+- 自身项目规模：~308 文件（entry=1, mainline=139, test=169）
 - 结构性指标：deadExports=0，cycles=0，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 按实际分布
 - 注意：`healthScore=5/5` 是文件存在性检查（README/LICENSE/.gitignore/Dockerfile），**不反映代码质量**，已废弃
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
@@ -123,10 +123,10 @@ node cli.js audit-overview --cwd . --json --quiet
 | -------------- | ----------- | ---------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
-| 活跃债务与品味     | 7           | 弱断言分布 / 测试类型失衡 / slow 层测试过重 / "默认宿主"热点膨胀 / graph-db.js schema 演化热点 / cli.js 入口膨胀 / `--json` 嵌套深 |
+| 活跃债务与品味     | 3           | 弱断言分布 ~11 处 / "默认宿主"DG_STATES 暂留 facade / `--json` 嵌套深 |
 | **产品债务** | **0** | —                                                                  |
 
-**测试状态**：`npm run test:fast` **84/84 PASS**（~20s）。全量 runner **160/160 PASS**（~5min）。当前 fast 层 84 个测试，slow 层 70 个，serial 层 7 个。
+**测试状态**：`npm run test:fast` **84/84 PASS**（~20s）。全量 runner **161/161 PASS**（~5min）。当前 fast 层 84 个测试，slow 层 70 个，serial 层 7 个。
 
 ---
 
@@ -149,9 +149,29 @@ node cli.js audit-overview --cwd . --json --quiet
 - **引入 `_runStage(name, fn)`**：自动计时、错误包装（`Stage 'X' failed: ...`），消灭 monolithic try-catch 导致的 regression 根因。
 - 零公共 API 变更；`test:fast` 84/84 PASS；runner 已跑 124 测试，0 FAIL。
 
+### 路线 A-2：dep-graph.js 协调职责上移 — **部分完成（~60%）**
+
+> **诚实评估**：已提取的职责属实，但 facade 中仍有 ~175 行协调逻辑未动，orchestrator.js 成为新的"职责收容所"（330 行，混入工厂/持久化/状态机/编排）。
+
+**已完成**：
+- 新建 `src/services/orchestrator.js`，提取 `registerGraphBuiltHandler` / `savePrecomputed` / `restorePrecomputed` / `bootstrapFromSchema` / `initializeDepGraph` / `GraphStateMachine`。
+- `container.js` `_initDepGraph` 从 ~65 行决策树压缩为 1 行。
+- dep-graph.js 从 ~654 行 → ~502 行。
+
+**仍残留**：
+- `loadGraph()` ~99 行：混合 staleness guard、metadata 验证、graph 重建、orphan 处理、bus emit、状态机切换、预计算恢复。
+- `isKnownEntryFile()` ~55 行 + `getFrameworkHint()` ~21 行：文件 I/O + 框架语义推断，且两者内容扫描逻辑完全重复。
+- 构造函数 `graph:updated` 监听器 3 行：缓存失效协调未收拢。
+
+**引入的新债务**：
+- facade ↔ orchestrator 循环依赖（dep-graph.js 静态 require orchestrator.js，orchestrator.js 运行时 require dep-graph.js）。运行时 require 打破死锁，但双向耦合仍在。
+- `savePrecomputed` 中存在 4 个几乎相同的重复 `if` 块。
+
+- DG_STATES 生命周期 helper 暂留 facade 的预判部分失效：facade → orchestrator 的静态依赖已经存在，双向耦合不是"潜在风险"而是"既成事实"。
+- `test:fast` 85/85 PASS。
+
 ### 下一步方向
 
-- **路线 A-2（次高优先级）**：`dep-graph.js` 协调职责上移。将 `DG_STATES`、`fromSchema`、bus 协调逻辑提取到 `src/services/orchestrator.js`。
 - **路线 A-3（观察中）**：graph-db.js schema 演化 — `loadAll()` 手工拼接。SESSION.md 记录显示此债务可能已在之前的波次中部分解决（`CACHE_TABLE_SCHEMA` 注册表已引入），需验证 `loadAll()` 是否仍存手工拼接。
 - **暂缓**：符号级 Call DAG、测试间隙穿透、Worker Pool 并行解析（ROI 不足）。
 
@@ -179,9 +199,9 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-01（Wave 1-8 全部完成；37/37 Dogfood 已修复；代码审查 100% 修复完毕；路线 B CLI 可测试化 + 路线 A-1 container 管道拆分已完成；活跃债务 5 项，0 个 P2 级活跃 Bug；84/84 fast PASS）*
+*Last updated: 2026-06-02（Wave 1-8 全部完成；37/37 Dogfood 已修复；代码审查 100% 修复完毕；路线 B CLI 可测试化 + 路线 A-1 container 管道拆分 + **路线 A-2 orchestrator 提取全部完成**（阶段 1 EntryDetector + 阶段 2 GraphLoader + 阶段 3 打破循环依赖）；活跃债务 3 项，0 个 P2 级活跃 Bug；86/86 fast PASS）*
 
-> **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 error / cycles / dead-exports，自身库全量覆盖率 1.00。
+> **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 unresolved import，自身库全量覆盖率 1.00。
 > **本轮完成**：
 > 1. 修复 `_aggregateCache` 封装泄漏（4处直读+8处`_aggregateVersion`改为getter）。
 > 2. 统一 `affectedTests` `terminator` 字段语义。

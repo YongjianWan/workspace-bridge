@@ -6,6 +6,7 @@ const { WorkspaceCache } = require('./cache');
 const { FileIndex } = require('./file-index');
 const { DiagnosticsEngine } = require('./diagnostics-engine');
 const { DependencyGraph } = require('./dep-graph');
+const { initializeDepGraph } = require('./orchestrator');
 const { ProjectContext } = require('../utils/project-context');
 const { TIMEOUTS, DEFAULTS } = require('../config/constants');
 const {
@@ -305,70 +306,17 @@ class ServiceContainer {
   }
 
   async _initDepGraph(options) {
-    this._depGraph = new DependencyGraph(this.workspaceRoot, this.cache, {
-      excludeDirs: this.fileIndex?.baseExcludeDirs || [],
-      cliExcludeDirs: this.fileIndex?.cliExcludeDirs || [],
+    // A-2: initialization decision tree (load/build/update) moved to
+    // orchestrator.js so container.js stays a thin pipeline stage.
+    this._depGraph = await initializeDepGraph({
+      DependencyGraphClass: DependencyGraph,
+      workspaceRoot: this.workspaceRoot,
+      cache: this.cache,
+      fileIndex: this.fileIndex,
       projectContext: this.projectContext,
       quiet: this.quiet,
+      options,
     });
-    // D3: attempt fast-path load from persisted edges; fall back to full build()
-    const loaded = this._depGraph.loadGraph({ skipChangeCheck: true });
-    if (!loaded) {
-      await this._depGraph.build(this.fileIndex?._indexedFiles || null);
-    } else {
-      // Hybrid path: edges loaded — compute delta and incrementally update
-      const indexedFiles = new Set(this.fileIndex?._indexedFiles || []);
-      const indexedKeys = new Set([...indexedFiles].map((f) => this._depGraph.normalizeFilePath(f)));
-      const graphFiles = new Set(this._depGraph.getAllFilePaths());
-      const filesToUpdate = [];
-
-      // New files: in index but not in graph
-      for (const f of indexedFiles) {
-        const key = this._depGraph.normalizeFilePath(f);
-        if (!graphFiles.has(key)) {
-          // Apply same exclusion logic as GraphBuilder.build() to avoid
-          // re-introducing files that were filtered out during build().
-          if (this._depGraph.shouldExclude(f)) continue;
-          if (this._depGraph.projectContext && !this._depGraph.projectContext.isActiveSourceFile(f)) {
-            if (!this._depGraph.shouldExcludeCli(f)) continue;
-          }
-          filesToUpdate.push(f);
-        }
-      }
-
-      // Deleted files: in graph but not in index and no metadata
-      for (const f of graphFiles) {
-        if (!indexedKeys.has(f) && !this.cache.hasFileMetadata(f)) {
-          filesToUpdate.push(f);
-        }
-      }
-
-      // Changed files: files that fileIndex re-indexed (mtime/size mismatch)
-      const changedFiles = this.fileIndex?.changedFiles || [];
-      for (const f of changedFiles) {
-        filesToUpdate.push(f);
-      }
-
-      if (filesToUpdate.length > 0) {
-        const uniqueFiles = [...new Set(filesToUpdate)];
-        const graphSize = this._depGraph.getFileCount();
-        // Fallback to full build if delta is too large (>50% of graph)
-        if (graphSize > 0 && uniqueFiles.length > graphSize * 0.5) {
-          if (!this.quiet) {
-            console.error(`[Container] ${uniqueFiles.length} files delta (>50% of ${graphSize}), falling back to full build`);
-          }
-          // Reset state so the full build can transition from IDLE → BUILDING
-          this._depGraph._resetState();
-          await this._depGraph.build(this.fileIndex?._indexedFiles || null);
-        } else {
-          await this._depGraph.updateFiles(uniqueFiles);
-        }
-      } else {
-        // Fully warm start — no files changed since last edge save
-        this._depGraph.analyzer.precomputeAggregates();
-      }
-    }
-    // Precompute-on-demand: hotspot/stability and co-changes computed on first query
   }
 
   _assembleSnapshot() {

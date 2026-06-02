@@ -84,6 +84,36 @@ function testParseBlamePorcelainEmpty() {
   assert.strictEqual(authors2.size, 0);
 }
 
+function testParseBlamePorcelainCompressedBlock() {
+  // git blame --porcelain compresses consecutive lines from the same commit:
+  // only the first line in the block has full metadata; subsequent lines
+  // only emit SHA + line numbers + content.
+  const stdout = `
+abc123def456abc123def456abc123def456abc123 1 1 3
+author Alice
+author-mail <alice@example.com>
+author-time 1700000000
+author-tz +0800
+committer Committer
+committer-mail <c@example.com>
+committer-time 1700000000
+committer-tz +0800
+summary init
+filename src/index.js
+\tconst x = 1;
+abc123def456abc123def456abc123def456abc123 2 2
+\tconst y = 2;
+abc123def456abc123def456abc123def456abc123 3 3
+\tconst z = 3;
+`;
+  const authors = parseBlamePorcelain(stdout);
+  assert.strictEqual(authors.size, 1, 'should have exactly one author');
+  const alice = authors.get('alice@example.com');
+  assert(alice, 'Alice should exist');
+  assert.strictEqual(alice.lines, 3, 'compressed block should count all 3 lines');
+  assert.strictEqual(alice.name, 'Alice');
+}
+
 function testComputeKnowledgeRisk() {
   // Single author → high
   const high = computeKnowledgeRisk({ authorCount: 1, primaryAuthorPct: 1.0 });
@@ -115,6 +145,7 @@ async function main() {
   testParseMailmapEmpty();
   testParseBlamePorcelainBasic();
   testParseBlamePorcelainEmpty();
+  testParseBlamePorcelainCompressedBlock();
   testComputeKnowledgeRisk();
 }
 

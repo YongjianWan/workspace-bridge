@@ -14,7 +14,7 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **4** | L3 品味问题 **1** | 合计 **5 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **2** | L3 品味问题 **1** | 合计 **3 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
@@ -73,7 +73,7 @@
 
 ---
 
-#### 框架环路白名单语义识别缺失 (Heuristic Whitelisting) [已完成]
+#### 【已归档】框架环路白名单语义识别缺失 (Heuristic Whitelisting) [已完成]
 
 **数据**：`src/services/dep-graph/analyzer.js:isLikelyFrameworkLegitimateCycle`
 
@@ -93,16 +93,27 @@
 
 | 文件 | 行数 | 变更次数 | 症状 | 根因 | 状态 |
 |------|------|----------|------|------|------|
-| `src/services/dep-graph.js` | ~657 | 60 | DG_STATES 状态机 + fromSchema 工厂 + bus 协调 precompute/persistence 仍在 facade 内 | facade 协调职责未上移 | **待推进** |
+| `src/services/dep-graph.js` | ~502 | 60 | fromSchema 工厂 + bus 协调 precompute/persistence 已提取到 `orchestrator.js`；但 `loadGraph()` ~99 行、入口检测 `isKnownEntryFile()` ~55 行、`getFrameworkHint()` ~21 行、构造函数 `graph:updated` 监听仍未提取。orchestrator.js 成为新的无限责任宿主（330 行，混入工厂/持久化/状态机/编排）。 | facade 协调职责**部分**上移 | ⚠️ **部分完成**：`orchestrator.js` 已收容 `registerGraphBuiltHandler` / `savePrecomputed` / `restorePrecomputed` / `bootstrapFromSchema` / `initializeDepGraph`；但 facade 仍有 ~175 行协调逻辑，且引入了 facade ↔ orchestrator 循环依赖 |
 | `src/services/container.js` initialize() | ~100/556 | 42 | git HEAD / aggregate fallback / phaseTimes / strictCwd 全混在一起 | 无 pipeline/hook 机制 | ✅ **已完成**：引入 `_runPipeline()` 10 阶段显式管道 + `_runStage()` 自动计时与错误包装 |
 | `src/services/file-index.js` | ~592 | 39 | DEFAULT_EXCLUDE_DIRS 硬编码 23 个目录 | 排除语义未收敛到单一模块 | ✅ **已收敛**：`DEFAULT_EXCLUDE_DIRS` 已移至 `exclude-patterns.js`，`shouldExcludeBase()` 统一排除逻辑 |
 
 **方案**：
-1. `dep-graph.js`：将 `DG_STATES`、`fromSchema`、`bus.on('graph:built')` 协调逻辑上移到 `container.js` 或新建 `src/services/orchestrator.js`。
-2. `container.js`：将 `initialize()` 拆为 `initWorkspaceRoot → initCache → initFileIndex → initDepGraph → initSnapshot` 的显式 pipeline，每个阶段可独立 mock 和重试。
+1. ✅ `dep-graph.js`：`fromSchema` / `bus.on('graph:built')` 协调逻辑 / `loadGraph` 预计算恢复 / `_savePrecomputed` 已提取到 `src/services/orchestrator.js`。
+2. ✅ `container.js`：`_initDepGraph` 决策树已提取到 `orchestrator.initializeDepGraph()`。
+3. ✅ **阶段 1 已完成**（2026-06-02）：`isKnownEntryFile()` + `getFrameworkHint()` + `_entryFileCache` + `graph:updated` 监听已提取到 `src/services/dep-graph/entry-detector.js`，消除了两者间的内容扫描重复代码。facade 公开 API 零变化。
+4. ✅ **阶段 2 已完成**（2026-06-02）：`loadGraph()` ~99 行已提取到 `src/services/dep-graph/loader.js`，dep-graph.js 保留 thin wrapper。冷热启动双路径验证通过。
+5. ✅ **阶段 3 已完成**（2026-06-02）：facade ↔ orchestrator 循环依赖已打破。
+  - `DG_STATES` + `GraphStateMachine` 下沉到 `src/services/dep-graph/state-machine.js`。
+  - `registerGraphBuiltHandler` + `savePrecomputed` + `restorePrecomputed` 收容到 `src/services/dep-graph/persistence.js`。
+  - dep-graph.js 不再静态依赖 orchestrator.js；`bootstrapFromSchema` 通过显式 `DependencyGraphClass` 参数消除反向运行时 require。
+  - `node cli.js cycles --cwd .` 报告 **cyclesCount = 0**。
+
+**下一步（A-2 已收尾，剩余为独立债务）**：
+- `DG_STATES` 及生命周期 helper（`_resetState` / `_startBuilding` / `_finishBuilding` / `_startUpdating` / `_finishUpdating`）暂留 facade：builder.js constructor 接收 `depGraph` 实例并直接调用 `this.dg._resetState()` 等。若将状态机提取到 orchestrator.js，builder.js 需改依赖注入模式（接收 orchestrator 而非 depGraph），改动面大。当前风险收益比不支持进一步提取。
+- 评估 `savePrecomputed` 中 4 个重复 `if` 块 → 配置表重构（L2-7）
 
 
-#### cli.js 入口膨胀 — 已完成
+#### 【已归档】cli.js 入口膨胀 — 已完成
 
 **数据**：`cli.js` 从 ~626 行精简至 ~260 行。
 
