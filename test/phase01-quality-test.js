@@ -9,7 +9,7 @@ const { getChangedFiles } = require('../src/tools/git-tools');
 const { ProjectContext } = require('../src/utils/project-context');
 const { detectStack } = require('../src/utils/stack-detector');
 const { DependencyGraph } = require('../src/services/dep-graph');
-const { detectTestConfig } = require('../src/tools/health-tools');
+const { detectTestConfig } = require('../src/tools/audit-assembler');
 const { classifyChangeType } = require('../src/cli/formatters');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 

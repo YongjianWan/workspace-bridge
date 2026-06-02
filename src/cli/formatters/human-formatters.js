@@ -489,6 +489,18 @@ const FORMATTERS = {
       return rec.map(JSON.stringify).join('\n');
     },
   },
+  'affected-routes': {
+    human: (r) => [`routesCount: ${r.routesCount}`, ...r.routes.map((e) => `${e.entry}: ${e.path.join(' -> ')}`)].join('\n'),
+    summary: (r) => [`Routes: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, 5).map((e) => `  ${e.entry}: ${e.path.join(' -> ')}`) || []].join('\n'),
+    markdown: (r) => [`# Affected Routes`, ``, `- **Total**: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, 10).map((e) => `- \`${e.entry}\`: ${e.path.join(' -> ')}`) || []].join('\n'),
+    jsonl: (r) => {
+      const rec = [];
+      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
+      push('route', r.routes);
+      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'affected-routes', severity: r.severity || r.summary?.severity });
+      return rec.map(JSON.stringify).join('\n');
+    },
+  },
   'workspace-info': {
     human: (r) => `workspaceRoot: ${r.workspaceRoot}\ndetected: ${Object.entries(r.detected).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none'}`,
     summary: (r) => `Workspace: ${r.workspaceRoot}\nDetected: ${Object.entries(r.detected || {}).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none'}`,
@@ -717,6 +729,17 @@ const AI_DIGEST = {
       counts.affectedTests = r.affectedTestsCount;
       topRisks.push({ category: 'tests', severity: 'medium', count: r.affectedTestsCount, message: `${r.affectedTestsCount} test file(s) affected`, confidence: 0.9 });
       actions.push({ priority: 'P0', action: `Run ${r.affectedTestsCount} affected test(s)` });
+    }
+    return { topRisks, actions, counts };
+  },
+  'affected-routes': (r) => {
+    const topRisks = [];
+    const actions = [];
+    const counts = {};
+    if (r.routesCount > 0) {
+      counts.routes = r.routesCount;
+      topRisks.push({ category: 'routes', severity: 'medium', count: r.routesCount, message: `${r.routesCount} route(s) reach this file`, confidence: 0.85 });
+      actions.push({ priority: 'P1', action: 'Review entry-to-file routes before modifying public API surface' });
     }
     return { topRisks, actions, counts };
   },

@@ -144,44 +144,9 @@ class ServiceContainer {
 
     try {
       this._phaseTimes = {};
-      this._findWorkspaceRoot(cwd, options);
-      this._checkAborted();
-      this._initCache();
-      this._initProjectContext(options);
-      const t0 = Date.now();
-      await this._initFileIndex(options);
-      this._phaseTimes.fileIndex = Date.now() - t0;
-      this._checkAborted();
-      this._initDiagnostics();
-      const t1 = Date.now();
-      await this._initDepGraph(options);
-      this._phaseTimes.depGraph = Date.now() - t1;
-      this._checkAborted();
-      // P2: load precomputed aggregate summary if graph hasn't changed since last run
-      const loadedAggregate = this.cache.loadAggregateSummary();
-      if (loadedAggregate && loadedAggregate.stats?.files === this._depGraph.getFileCount()) {
-        // Only fallback to aggregateSummary if loadGraph didn't already inject
-        // precomputed aggregates (avoids stale overwrite from dual persistence).
-        if (!this._depGraph.analyzer.getAggregateCache()) {
-          this._depGraph.analyzer.restoreAggregateCache(loadedAggregate);
-        }
-      }
-      this._assembleSnapshot();
-      this._registerCallbacks();
-
+      await this._runPipeline(cwd, options);
       this._transition(STATES.READY);
       this.indexBuildTime = Date.now();
-
-      // Staleness: record git HEAD so getStaleness can detect branch switches
-      let gitHead = null;
-      try {
-        const { execSync } = require('child_process');
-        gitHead = execSync('git rev-parse HEAD', { cwd: this.workspaceRoot, encoding: 'utf8', timeout: TIMEOUTS.GIT_SHORT_MS }).trim();
-      } catch {
-        // Not a git repo or git not available — stale detection falls back to time-based only
-      }
-      this._checkAborted();
-      this.cache.setWorkspaceInfo({ ...this.cache.getWorkspaceInfo(), gitHead });
 
       if (!this.quiet) {
         console.error(`[Container] Ready: ${this.fileIndex.getStats().files} files indexed`);
@@ -202,6 +167,90 @@ class ServiceContainer {
       if (this._state === STATES.INITIALIZING) {
         this._transition(STATES.ERROR);
       }
+    }
+  }
+
+  /**
+   * Explicit initialization pipeline.
+   * Each stage is named, timed, and wrapped with error context so that
+   * failures point directly to the responsible phase.
+   */
+  async _runPipeline(cwd, options) {
+    this._phaseTimes = {};
+
+    await this._runStage('workspaceRoot', () => {
+      this._findWorkspaceRoot(cwd, options);
+      this._checkAborted();
+    });
+
+    await this._runStage('cache', () => {
+      this._initCache();
+    });
+
+    await this._runStage('projectContext', () => {
+      this._initProjectContext(options);
+    });
+
+    await this._runStage('fileIndex', async () => {
+      await this._initFileIndex(options);
+      this._checkAborted();
+    });
+
+    await this._runStage('diagnostics', () => {
+      this._initDiagnostics();
+    });
+
+    await this._runStage('depGraph', async () => {
+      await this._initDepGraph(options);
+      this._checkAborted();
+    });
+
+    await this._runStage('aggregate', () => {
+      const loadedAggregate = this.cache.loadAggregateSummary();
+      if (loadedAggregate && loadedAggregate.stats?.files === this._depGraph.getFileCount()) {
+        // Only fallback to aggregateSummary if loadGraph didn't already inject
+        // precomputed aggregates (avoids stale overwrite from dual persistence).
+        if (!this._depGraph.analyzer.getAggregateCache()) {
+          this._depGraph.analyzer.restoreAggregateCache(loadedAggregate);
+        }
+      }
+    });
+
+    await this._runStage('snapshot', () => {
+      this._assembleSnapshot();
+    });
+
+    await this._runStage('callbacks', () => {
+      this._registerCallbacks();
+    });
+
+    await this._runStage('gitHead', () => {
+      let gitHead = null;
+      try {
+        const { execSync } = require('child_process');
+        gitHead = execSync('git rev-parse HEAD', {
+          cwd: this.workspaceRoot,
+          encoding: 'utf8',
+          timeout: TIMEOUTS.GIT_SHORT_MS,
+        }).trim();
+      } catch {
+        // Not a git repo or git not available — stale detection falls back to time-based only
+      }
+      this._checkAborted();
+      this.cache.setWorkspaceInfo({ ...this.cache.getWorkspaceInfo(), gitHead });
+    });
+  }
+
+  _runStage(name, fn) {
+    const t0 = Date.now();
+    try {
+      return fn();
+    } catch (err) {
+      err.message = `[Container] Stage '${name}' failed: ${err.message}`;
+      throw err;
+    } finally {
+      const elapsed = Date.now() - t0;
+      this._phaseTimes[name] = elapsed;
     }
   }
 

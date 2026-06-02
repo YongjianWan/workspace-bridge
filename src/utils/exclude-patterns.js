@@ -42,10 +42,12 @@ function shouldExcludeCli(filePath, cliExcludeDirs) {
     if (pattern.includes('*') || pattern.includes('?')) {
       const cleanPattern = pattern.trim();
       const escaped = cleanPattern
+        .replace(/\*\*\//g, '###GLOB_STAR_SLASH###')
         .replace(/\*\*/g, '###GLOB_DOUBLE_STAR###')
         .replace(/[.+^${}()|[\]\\]/g, '\\$&')
         .replace(/\*/g, '[^/]*')
         .replace(/\?/g, '[^/]')
+        .replace(/###GLOB_STAR_SLASH###/g, '(?:.*/)?')
         .replace(/###GLOB_DOUBLE_STAR###/g, '.*');
 
       const regex = new RegExp('^' + escaped + '$');

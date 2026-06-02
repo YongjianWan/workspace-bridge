@@ -1023,6 +1023,65 @@ class GraphAnalyzer {
     }));
   }
 
+  /**
+   * Find all routes from known entry files down to a target file.
+   * Returns an array of paths where each path starts at an entry file and
+   * ends at the target file. This answers "which request handlers / CLI
+   * entry points can reach this module?"
+   *
+   * @param {string} filePath
+   * @param {number} [maxDepth=CONFIG.DEFAULT_MAX_DEPTH]
+   * @param {number} [maxRoutes=50]
+   * @returns {{entry:string, path:string[], depth:number}[]}
+   */
+  findAffectedRoutes(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH, maxRoutes = 50) {
+    const start = this.dg.normalizeFilePath(filePath);
+    const routes = [];
+    const visitedGlobal = new Set();
+
+    function dfs(current, depth, pathStack, visitedLocal) {
+      if (routes.length >= maxRoutes) return;
+      if (depth > maxDepth) return;
+
+      const normalized = current;
+      if (visitedLocal.has(normalized)) return;
+      visitedLocal.add(normalized);
+
+      // If we reached an entry file (and it's not the start itself), record the route.
+      // The route goes from entry -> ... -> target, so we reverse the stack.
+      // Skip test-like files as route endpoints — they are not "request handlers".
+      if (normalized !== start && this.dg.isKnownEntryFile(normalized) && !this.dg.isTestLikeFile(normalized)) {
+        const routePath = [...pathStack, normalized];
+        routes.push({
+          entry: this.dg._displayPath(normalized),
+          path: routePath.map((f) => this.dg._displayPath(f)).reverse(),
+          depth: routePath.length,
+        });
+        // Continue searching — an entry may have other parents that are also entries
+      }
+
+      const dependents = this.dg.getDependents(normalized);
+      for (const dep of dependents) {
+        if (routes.length >= maxRoutes) break;
+        dfs.call(this, dep, depth + 1, [...pathStack, normalized], new Set(visitedLocal));
+      }
+    }
+
+    dfs.call(this, start, 0, [], new Set());
+
+    // Deduplicate by JSON-serialized path to avoid duplicate routes from diamond imports
+    const seen = new Set();
+    const uniqueRoutes = [];
+    for (const route of routes) {
+      const key = JSON.stringify(route.path);
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueRoutes.push(route);
+      }
+    }
+    return uniqueRoutes;
+  }
+
   getScopeSummary() {
     // L1 data-consistency: scope must reflect the actual graph so that
     // directoryRoles, deadExports, cycles, and unresolved all refer to the

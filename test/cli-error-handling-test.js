@@ -31,7 +31,10 @@ function main() {
     const result = runCliRaw(['audit-file', '--cwd', '.', '--file', 'definitely-missing-xyz.js', '--quiet', '--format', 'human']);
     assert.strictEqual(result.status, 1, 'should exit 1 with quiet');
     assert(result.stdout.includes('Error:'), 'quiet mode should still surface error');
-    assert(result.stderr === '', 'quiet mode should suppress stderr diagnostic logs');
+    // Filter out Node.js runtime warnings (e.g. SQLite ExperimentalWarning on v22)
+    // which leak into stderr via spawn-based runners and are unrelated to CLI quiet mode.
+    const diagnosticStderr = (result.stderr || '').split('\n').filter((line) => !line.trim().startsWith('(node:') && line.trim() !== '(Use `node --trace-warnings ...` to show where the warning was created)').join('\n');
+    assert(diagnosticStderr === '', 'quiet mode should suppress stderr diagnostic logs');
   }
 
   // Test 4: Unknown command should exit 2 and show Unknown command error

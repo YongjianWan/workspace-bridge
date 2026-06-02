@@ -130,43 +130,30 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-## 下一步方向：待确定
+## 本轮上下文：架构债务清偿（2026-06-01）
 
-> **Dogfood 修复波次状态**：Wave 1/2/3/4/5/6/7 全部完成，37 项问题中 34 项已确认修复并归档（含本轮复实验证的 5 个非编号陷阱），无活跃高危 Blockers。
+> **Dogfood 修复波次状态**：Wave 1/2/3/4/5/6/7/8 全部完成，37 项问题全部清零。
 >
-> 历史具体的各波次方案及验收标准已物理归档，详情请直接查阅 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+> 基于 git 历史、代码结构、文档状态的三维交叉分析诊断报告，执行路线 A（架构债务清零）与路线 B（CLI 可测试化）。
 
-### 本轮上下文：技术债务偿还与设计优化（2026-06-01）
+### 路线 B：CLI 可测试化 — 已完成
 
-- **Cycle detection 重构、MAX_CYCLE_EDGE_DEPTH 注释完善**：彻底重构了循环依赖检测，废除基于数字魔法和正则的 `isLikelyFrameworkLegitimateCycle`，升级为 AST/Resolver 级别的物理导入过滤，精准剪除 TypeScript type-only/interface、Java 接口/注解及 JS/TS 动态/懒加载依赖边；精细完善了 Tarjan/Johnson 局域环路查找算法中 `MAX_CYCLE_EDGE_DEPTH` 临界边界注释。
-- **弱断言清理**：10 处核心 `typeof` 型 schema 契约检查升级为语义验证（枚举值 / `Number.isFinite()` / 非负范围）。
-- **slow 层拆分**：`cli-integration-test.js` → core + edge；`formatter-e2e-test.js` → summary + others。runner.js `KNOWN_SLOW_PATTERNS` 同步更新，旧文件已物理删除。
-- **环路检测算法重构 (O(V+E))**：引入 Tarjan (SCC) + Johnson (局域环路查找) 算法替代暴力 DFS。在保证 100% 契约/白名单通过的基础上，极大地优化了大规模图的搜索耗时，消除了原 DFS 全局 visited 漏环潜在 bug。
-- **第二/三轮代码审查清零**：至此，`docs/code_review.md` 中记录的所有遗留设计/债务问题已 100% 修复完毕，并完成历史归档。
+- **新建 `src/cli/validate-args.js`**：提取 `parseCliArgs()`（参数解析+验证）、`sanitizeCliPaths()`（路径安全）、`classifyError()`（错误分类）。纯函数，支持直接单元测试。
+- **新建 `src/cli/route-formatter.js`**：提取 `writeLargeJson()`（流式 JSON）、`determineExitCode()`（退出码语义）、`formatCliResult()`（格式化器路由）、`buildErrorResponse()`（错误响应组装）。纯函数，支持直接单元测试。
+- **新建 `src/cli/bootstrap.js`**：提取 `UV_THREADPOOL_SIZE` 进程配置与 `installFatalHandlers()` 致命错误处理。必须在任何异步 I/O 之前 require。
+- **`cli.js` 精简**：从 ~628 行 → ~260 行，仅保留 `main()` 命令分发、`runCliInProcess()` 进程内入口、帮助文本。所有导出 100% 向后兼容。
 
-### 第四轮深度架构审查（2026-06-01）
+### 路线 A-1：container.js 初始化管道拆分 — 已完成
 
-基于热点文件变更频率与提交历史回溯的结构性审查，识别出 5 项架构债务：
+- **引入 `_runPipeline(cwd, options)`**：显式定义 10 个命名阶段：`workspaceRoot` → `cache` → `projectContext` → `fileIndex` → `diagnostics` → `depGraph` → `aggregate` → `snapshot` → `callbacks` → `gitHead`。
+- **引入 `_runStage(name, fn)`**：自动计时、错误包装（`Stage 'X' failed: ...`），消灭 monolithic try-catch 导致的 regression 根因。
+- 零公共 API 变更；`test:fast` 84/84 PASS；runner 已跑 124 测试，0 FAIL。
 
-1. **"默认宿主"效应**：`dep-graph.js`（60次变更）、`container.js` initialize()（42次变更）、`file-index.js`（39次变更）因协调职责未上移或排除语义未收敛，持续膨胀。
-2. **cache.js 重复模式**：4 个 `normalize*Entries` 复制粘贴变体 + 8 个手写 dirty Set，INVARIANT 由注释而非结构保证。
-3. **graph-db.js schema 演化热点**：`loadAll()` 手工拼接 5 张表，无 schema→加载映射层。
-4. **cli.js 入口膨胀**：626 行承载路由/验证/格式化/进程配置 4 种职责，87 次变更。
-5. **跨文件重复**：EventBus 各自实例化、`normalizeFilePath` 多处封装、`shouldExclude` 分散在三处。
+### 下一步方向
 
-**结论**：无 L1/L2 阻塞项，全部为架构演进债务。已归档于 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)，待后续逐条制定拆分计划。
-
-### 当前会话后续动作（本轮收工）
-1. 架构审查结论已归档至 `TECH_DEBT.md`，活跃债务从 2 项增至 **7 项**（新增 health-tools 冗余、exclude-patterns basename 无效短路）。
-2. 代码审查报告回应：#1-#5 已在当前 trunk 修复完毕；#6 `exclude-patterns.js` basename 无效短路确认为 clarity 问题（非功能 bug）；#7 `temp-change-for-test` 当前 trunk 不存在。
-3. ✅ cache.js normalize 提取公共函数（`_normalizeEntries`）已完成。
-4. ✅ cache.js DirtyTracker 提取（替代 8 个手写 Set）已完成。
-5. ✅ `shouldExclude` 收敛到单一模块（`exclude-patterns.js`）已完成。
-6. ✅ health-tools.js 内联删除（冗余数据层消除）已完成。
-7. ✅ normalizeFilePath 跨文件收敛（constructor 绑定）已完成。
-8. ✅ exclude-patterns.js basename 无效短路修复已完成。
-9. ✅ graph-db.js `_debugError` 缺失定义补漏已完成。
-10. 下一步优先级：**graph-db.js schema 演化热点**（引入 `TABLE_SCHEMA` 注册表，消灭 `loadAll()` 手工拼接）或 **cli.js 入口膨胀拆分**（需单独计划，改动面大）。
+- **路线 A-2（次高优先级）**：`dep-graph.js` 协调职责上移。将 `DG_STATES`、`fromSchema`、bus 协调逻辑提取到 `src/services/orchestrator.js`。
+- **路线 A-3（观察中）**：graph-db.js schema 演化 — `loadAll()` 手工拼接。SESSION.md 记录显示此债务可能已在之前的波次中部分解决（`CACHE_TABLE_SCHEMA` 注册表已引入），需验证 `loadAll()` 是否仍存手工拼接。
+- **暂缓**：符号级 Call DAG、测试间隙穿透、Worker Pool 并行解析（ROI 不足）。
 
 ---
 
@@ -192,7 +179,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-01（Wave 1-8 全部完成；37/37 Dogfood 已修复；代码审查 100% 修复完毕；本轮偿还 6 项技术债务；活跃债务 7 项，0 个 P2 级活跃 Bug；84/84 fast + 全量 runner 160/160 PASS）*
+*Last updated: 2026-06-01（Wave 1-8 全部完成；37/37 Dogfood 已修复；代码审查 100% 修复完毕；路线 B CLI 可测试化 + 路线 A-1 container 管道拆分已完成；活跃债务 5 项，0 个 P2 级活跃 Bug；84/84 fast PASS）*
 
 > **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 error / cycles / dead-exports，自身库全量覆盖率 1.00。
 > **本轮完成**：
@@ -203,4 +190,4 @@ node cli.js audit-overview --cwd . --json --quiet
 > 5. 限制 `debug.js` graph 分支计算量（上限+截断标记）。
 > 6. 产出 `docs/code_review.md`。
 > 7. 架构审查结论归档至 `TECH_DEBT.md`（新增 5 项架构债务）。
-> 全量测试 84/84 PASS。
+> 8. **新增 `affected-routes` 命令**：端到端请求路径追踪。给定文件反向追溯从入口到目标的完整调用链，排除 test-like 入口，支持 `--max-depth` 限制，上限 50 条自动去重。补测试 `test/affected-routes-test.js`。全量测试 84/84 PASS。

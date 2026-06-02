@@ -62,6 +62,7 @@ class DependencyGraphView {
   findCircularDependencies(...args) { return this._dg.findCircularDependencies(...args); }
   findUnresolvedImports(...args) { return this._dg.findUnresolvedImports(...args); }
   findAffectedTests(...args) { return this._dg.findAffectedTests(...args); }
+  findAffectedRoutes(...args) { return this._dg.findAffectedRoutes(...args); }
   getStats(...args) { return this._dg.getStats(...args); }
   getPageRank(...args) { return this._dg.getPageRank(...args); }
   getScopeSummary(...args) { return this._dg.getScopeSummary(...args); }

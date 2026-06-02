@@ -13,8 +13,17 @@ const { CACHE_VERSION } = require('../config/constants');
 const CACHE_TABLE_SCHEMA = {
   file_metadata: {
     resultKey: 'fileMetadata',
+    incrementalKeys: { dirty: 'dirtyFiles', deleted: 'deletedFiles' },
     idColumn: 'path',
     columns: ['path', 'mtime', 'size', 'hash', 'line_count', 'original_path'],
+    serialize: (path, meta) => [
+      path,
+      meta.mtime ?? 0,
+      meta.size ?? 0,
+      meta.hash ?? '',
+      meta.lineCount ?? 0,
+      meta.originalPath || null,
+    ],
     deserialize: (row) => ({
       mtime: Number(row.mtime),
       size: Number(row.size),
@@ -25,8 +34,21 @@ const CACHE_TABLE_SCHEMA = {
   },
   parse_results: {
     resultKey: 'parseResults',
+    incrementalKeys: { dirty: 'dirtyParseResults', deleted: 'deletedParseResults' },
     idColumn: 'path',
     columns: ['path', 'mtime', 'imports', 'exports', 'import_records', 'export_records', 'function_records', 'parse_mode', 'parse_mode_reason', 'confidence'],
+    serialize: (path, result) => [
+      path,
+      result.mtime ?? 0,
+      JSON.stringify(result.imports || []),
+      JSON.stringify(result.exports || []),
+      JSON.stringify(result.importRecords || []),
+      JSON.stringify(result.exportRecords || []),
+      JSON.stringify(result.functionRecords || []),
+      result.parseMode || '',
+      result.parseModeReason || '',
+      result.confidence || '',
+    ],
     deserialize: (row) => ({
       mtime: Number(row.mtime),
       imports: row.imports ? JSON.parse(row.imports) : [],
@@ -41,14 +63,24 @@ const CACHE_TABLE_SCHEMA = {
   },
   symbol_index: {
     resultKey: 'symbolIndex',
+    incrementalKeys: { dirty: 'dirtySymbols', deleted: 'deletedSymbols' },
     idColumn: 'name',
     columns: ['name', 'locations'],
+    serialize: (name, locations) => [
+      name,
+      JSON.stringify(locations || []),
+    ],
     deserialize: (row) => (row.locations ? JSON.parse(row.locations) : []),
   },
   diagnostics: {
     resultKey: 'diagnostics',
+    incrementalKeys: { dirty: 'dirtyDiagnostics', deleted: 'deletedDiagnostics' },
     idColumn: 'path',
     columns: ['path', 'data'],
+    serialize: (path, entry) => [
+      path,
+      JSON.stringify(entry || { diagnostics: [] }),
+    ],
     deserialize: (row) => (row.data ? JSON.parse(row.data) : { diagnostics: [] }),
   },
 };
@@ -292,12 +324,11 @@ class GraphDB {
       this._ensureOpen();
 
       this._executeInTransaction(() => {
-        // Clear old data
+        // Clear all tables via schema registry
         this.db.prepare('DELETE FROM cache_metadata').run();
-        this.db.prepare('DELETE FROM file_metadata').run();
-        this.db.prepare('DELETE FROM parse_results').run();
-        this.db.prepare('DELETE FROM symbol_index').run();
-        this.db.prepare('DELETE FROM diagnostics').run();
+        for (const tableName of Object.keys(CACHE_TABLE_SCHEMA)) {
+          this.db.prepare(`DELETE FROM ${tableName}`).run();
+        }
 
         // Insert metadata
         const insertMeta = this.db.prepare('INSERT INTO cache_metadata (key, value) VALUES (?, ?)');
@@ -312,50 +343,16 @@ class GraphDB {
           }
         }
 
-        // Insert file metadata
-        const insertFile = this.db.prepare(
-          'INSERT INTO file_metadata (path, mtime, size, hash, line_count, original_path) VALUES (?, ?, ?, ?, ?, ?)'
-        );
-        for (const [filePath, meta] of data.fileMetadata) {
-          insertFile.run(
-            filePath,
-            meta.mtime ?? 0,
-            meta.size ?? 0,
-            meta.hash ?? '',
-            meta.lineCount ?? 0,
-            meta.originalPath || null
-          );
-        }
-
-        // Insert parse results
-        const insertParse = this.db.prepare(
-          'INSERT INTO parse_results (path, mtime, imports, exports, import_records, export_records, function_records, parse_mode, parse_mode_reason, confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        );
-        for (const [filePath, result] of data.parseResults) {
-          insertParse.run(
-            filePath,
-            result.mtime ?? 0,
-            JSON.stringify(result.imports || []),
-            JSON.stringify(result.exports || []),
-            JSON.stringify(result.importRecords || []),
-            JSON.stringify(result.exportRecords || []),
-            JSON.stringify(result.functionRecords || []),
-            result.parseMode || '',
-            result.parseModeReason || '',
-            result.confidence || ''
-          );
-        }
-
-        // Insert symbol index
-        const insertSymbol = this.db.prepare('INSERT INTO symbol_index (name, locations) VALUES (?, ?)');
-        for (const [name, locations] of data.symbolIndex) {
-          insertSymbol.run(name, JSON.stringify(locations || []));
-        }
-
-        // Insert diagnostics
-        const insertDiag = this.db.prepare('INSERT INTO diagnostics (path, data) VALUES (?, ?)');
-        for (const [filePath, entry] of data.diagnostics) {
-          insertDiag.run(filePath, JSON.stringify(entry || { diagnostics: [] }));
+        // Schema-driven table inserts — add a table to CACHE_TABLE_SCHEMA and it saves automatically
+        for (const [tableName, schema] of Object.entries(CACHE_TABLE_SCHEMA)) {
+          const columns = schema.columns.join(', ');
+          const placeholders = schema.columns.map(() => '?').join(', ');
+          const insert = this.db.prepare(`INSERT INTO ${tableName} (${columns}) VALUES (${placeholders})`);
+          const map = data[schema.resultKey];
+          if (!map) continue;
+          for (const [id, value] of map) {
+            insert.run(...schema.serialize(id, value));
+          }
         }
       });
 
@@ -373,16 +370,16 @@ class GraphDB {
     try {
       this._ensureOpen();
 
-      const hasWork =
-        (data.deletedFiles && data.deletedFiles.length > 0) ||
-        (data.dirtyFiles && data.dirtyFiles.length > 0) ||
-        (data.deletedParseResults && data.deletedParseResults.length > 0) ||
-        (data.dirtyParseResults && data.dirtyParseResults.length > 0) ||
-        (data.deletedSymbols && data.deletedSymbols.length > 0) ||
-        (data.dirtySymbols && data.dirtySymbols.length > 0) ||
-        (data.deletedDiagnostics && data.deletedDiagnostics.length > 0) ||
-        (data.dirtyDiagnostics && data.dirtyDiagnostics.length > 0) ||
-        (data.metadata && Object.keys(data.metadata).length > 0);
+      let hasWork = data.metadata && Object.keys(data.metadata).length > 0;
+      if (!hasWork) {
+        for (const schema of Object.values(CACHE_TABLE_SCHEMA)) {
+          const { dirty, deleted } = schema.incrementalKeys || {};
+          if ((deleted && data[deleted]?.length > 0) || (dirty && data[dirty]?.length > 0)) {
+            hasWork = true;
+            break;
+          }
+        }
+      }
       if (!hasWork) {
         return true;
       }
@@ -404,81 +401,26 @@ class GraphDB {
           }
         }
 
-        // 2. File Metadata
-        if (data.deletedFiles && data.deletedFiles.length > 0) {
-          const deleteFile = this.db.prepare('DELETE FROM file_metadata WHERE path = ?');
-          for (const filePath of data.deletedFiles) {
-            deleteFile.run(filePath);
+        // 2. Schema-driven incremental updates — add a table to CACHE_TABLE_SCHEMA and it upserts automatically
+        for (const [tableName, schema] of Object.entries(CACHE_TABLE_SCHEMA)) {
+          const { dirty: dirtyKey, deleted: deletedKey } = schema.incrementalKeys || {};
+
+          if (deletedKey && data[deletedKey]?.length > 0) {
+            const deleteStmt = this.db.prepare(`DELETE FROM ${tableName} WHERE ${schema.idColumn} = ?`);
+            for (const id of data[deletedKey]) {
+              deleteStmt.run(id);
+            }
           }
-        }
-        if (data.dirtyFiles) {
-          const insertFile = this.db.prepare(
-            'INSERT OR REPLACE INTO file_metadata (path, mtime, size, hash, line_count, original_path) VALUES (?, ?, ?, ?, ?, ?)'
-          );
-          for (const [filePath, meta] of data.dirtyFiles) {
-            insertFile.run(
-              filePath,
-              meta.mtime ?? 0,
-              meta.size ?? 0,
-              meta.hash ?? '',
-              meta.lineCount ?? 0,
-              meta.originalPath || null
+
+          if (dirtyKey && data[dirtyKey]) {
+            const columns = schema.columns.join(', ');
+            const placeholders = schema.columns.map(() => '?').join(', ');
+            const insertStmt = this.db.prepare(
+              `INSERT OR REPLACE INTO ${tableName} (${columns}) VALUES (${placeholders})`
             );
-          }
-        }
-
-        // 3. Parse Results
-        if (data.deletedParseResults && data.deletedParseResults.length > 0) {
-          const deleteParse = this.db.prepare('DELETE FROM parse_results WHERE path = ?');
-          for (const filePath of data.deletedParseResults) {
-            deleteParse.run(filePath);
-          }
-        }
-        if (data.dirtyParseResults) {
-          const insertParse = this.db.prepare(
-            'INSERT OR REPLACE INTO parse_results (path, mtime, imports, exports, import_records, export_records, function_records, parse_mode, parse_mode_reason, confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          );
-          for (const [filePath, result] of data.dirtyParseResults) {
-            insertParse.run(
-              filePath,
-              result.mtime ?? 0,
-              JSON.stringify(result.imports || []),
-              JSON.stringify(result.exports || []),
-              JSON.stringify(result.importRecords || []),
-              JSON.stringify(result.exportRecords || []),
-              JSON.stringify(result.functionRecords || []),
-              result.parseMode || '',
-              result.parseModeReason || '',
-              result.confidence || ''
-            );
-          }
-        }
-
-        // 4. Symbol Index
-        if (data.deletedSymbols && data.deletedSymbols.length > 0) {
-          const deleteSymbol = this.db.prepare('DELETE FROM symbol_index WHERE name = ?');
-          for (const name of data.deletedSymbols) {
-            deleteSymbol.run(name);
-          }
-        }
-        if (data.dirtySymbols) {
-          const insertSymbol = this.db.prepare('INSERT OR REPLACE INTO symbol_index (name, locations) VALUES (?, ?)');
-          for (const [name, locations] of data.dirtySymbols) {
-            insertSymbol.run(name, JSON.stringify(locations || []));
-          }
-        }
-
-        // 5. Diagnostics
-        if (data.deletedDiagnostics && data.deletedDiagnostics.length > 0) {
-          const deleteDiag = this.db.prepare('DELETE FROM diagnostics WHERE path = ?');
-          for (const filePath of data.deletedDiagnostics) {
-            deleteDiag.run(filePath);
-          }
-        }
-        if (data.dirtyDiagnostics) {
-          const insertDiag = this.db.prepare('INSERT OR REPLACE INTO diagnostics (path, data) VALUES (?, ?)');
-          for (const [filePath, entry] of data.dirtyDiagnostics) {
-            insertDiag.run(filePath, JSON.stringify(entry || { diagnostics: [] }));
+            for (const [id, value] of data[dirtyKey]) {
+              insertStmt.run(...schema.serialize(id, value));
+            }
           }
         }
       });

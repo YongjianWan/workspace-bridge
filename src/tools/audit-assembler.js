@@ -558,4 +558,5 @@ module.exports = {
   assembleFile,
   assembleSecurity,
   projectHealth,
+  detectTestConfig,
 };

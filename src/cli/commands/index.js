@@ -124,6 +124,10 @@ const COMMANDS = {
     (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'affected_tests', file: parsed.file, maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH }, container),
     (r) => (r.affectedTestsCount || 0) > 0
   ),
+  'affected-routes': makeFileCommand(
+    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'affected_routes', file: parsed.file, maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH }, container),
+    (r) => (r.routesCount || 0) > 0
+  ),
   dependencies: makeFileCommand(
     (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'dependencies', file: parsed.file }, container),
     (r) => (r.dependenciesCount || 0) > 0
@@ -305,6 +309,11 @@ const COMMAND_GUIDES = {
     desc: 'Find tests related to a file',
     when: 'Before/after changes. Know which tests to run or update.',
     after: 'impact --file <path> if test mapping is empty (heuristic may miss cross-stack tests).',
+  },
+  'affected-routes': {
+    desc: 'Find entry-to-file call routes for a file',
+    when: 'When you need to know which request handlers, CLI commands, or main entry points can reach a module.',
+    after: 'impact --file <path> for the full transitive blast radius.',
   },
 };
 

@@ -14,7 +14,7 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **6** | L3 品味问题 **1** | 合计 **7 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **4** | L3 品味问题 **1** | 合计 **5 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
@@ -91,43 +91,26 @@
 
 **根因**：新需求没有明确的第二选择时，就塞进最像的现有文件。facade 拆出 builder/analyzer/query 后，协调职责没有向上移交到 container 或专门编排层。
 
-| 文件 | 行数 | 变更次数 | 症状 | 根因 |
-|------|------|----------|------|------|
-| `src/services/dep-graph.js` | ~657 | 60 | DG_STATES 状态机 + fromSchema 工厂 + bus 协调 precompute/persistence 仍在 facade 内 | facade 协调职责未上移 |
-| `src/services/container.js` initialize() | ~100/556 | 42 | git HEAD / aggregate fallback / phaseTimes / strictCwd 全混在一起 | 无 pipeline/hook 机制 |
-| `src/services/file-index.js` | ~592 | 39 | DEFAULT_EXCLUDE_DIRS 硬编码 23 个目录 | 排除语义未收敛到单一模块 |
+| 文件 | 行数 | 变更次数 | 症状 | 根因 | 状态 |
+|------|------|----------|------|------|------|
+| `src/services/dep-graph.js` | ~657 | 60 | DG_STATES 状态机 + fromSchema 工厂 + bus 协调 precompute/persistence 仍在 facade 内 | facade 协调职责未上移 | **待推进** |
+| `src/services/container.js` initialize() | ~100/556 | 42 | git HEAD / aggregate fallback / phaseTimes / strictCwd 全混在一起 | 无 pipeline/hook 机制 | ✅ **已完成**：引入 `_runPipeline()` 10 阶段显式管道 + `_runStage()` 自动计时与错误包装 |
+| `src/services/file-index.js` | ~592 | 39 | DEFAULT_EXCLUDE_DIRS 硬编码 23 个目录 | 排除语义未收敛到单一模块 | ✅ **已收敛**：`DEFAULT_EXCLUDE_DIRS` 已移至 `exclude-patterns.js`，`shouldExcludeBase()` 统一排除逻辑 |
 
 **方案**：
 1. `dep-graph.js`：将 `DG_STATES`、`fromSchema`、`bus.on('graph:built')` 协调逻辑上移到 `container.js` 或新建 `src/services/orchestrator.js`。
 2. `container.js`：将 `initialize()` 拆为 `initWorkspaceRoot → initCache → initFileIndex → initDepGraph → initSnapshot` 的显式 pipeline，每个阶段可独立 mock 和重试。
-3. `file-index.js`：将 `shouldExclude()` 与 `exclude-patterns.js` 收敛，使“哪些文件该被排除”有单一事实源。
 
 
-#### graph-db.js schema 演化热点 — loadAll() 手工拼接
+#### cli.js 入口膨胀 — 已完成
 
-**数据**：`src/services/graph-db.js`
+**数据**：`cli.js` 从 ~626 行精简至 ~260 行。
 
-**症状**：`loadAll()` 手工拼接 5 张表的 SELECT + 反序列化。新增一张表就要在这里加 10 行样板。
-
-**根因**：没有 schema → 加载逻辑的映射层。`cache.js` 的 `METADATA_SCHEMA` 已经有了这个模式（register → serialize/deserialize），但 `graph-db.js` 没有对等抽象。
-
-**方案**：在 `graph-db.js` 中引入 `TABLE_SCHEMA` 注册表，每张表声明 `name`、`columns`、`serialize`、`deserialize`，`loadAll()` 遍历注册表自动生成 SELECT 和反序列化逻辑。
-
----
-
-#### cli.js 入口膨胀 — 626 行承载 4 种职责
-
-**数据**：`cli.js` ~626 行，87 次变更
-
-**症状**：同时是命令路由器、参数验证器、格式化调度器、进程配置器（`UV_THREADPOOL_SIZE`、流式输出 `writeLargeJson`）。每次加参数、改输出格式、调性能都改 cli.js。
-
-**根因**：CLI 入口是“最方便的改动点”，但 626 行已经过载。
-
-**方案**：
-1. 参数验证 → 提取到 `src/cli/validate-args.js`
-2. 格式化路由 → 提取到 `src/cli/route-formatter.js`
-3. 进程配置 → 提取到 `src/cli/bootstrap.js`
-4. `cli.js` 只保留命令分发和顶层错误边界。
+**状态**：✅ 已完成。
+- `src/cli/validate-args.js`：提取 `parseCliArgs()` + `sanitizeCliPaths()` + `classifyError()`
+- `src/cli/route-formatter.js`：提取 `writeLargeJson()` + `determineExitCode()` + `formatCliResult()` + `buildErrorResponse()`
+- `src/cli/bootstrap.js`：提取 `UV_THREADPOOL_SIZE` + `installFatalHandlers()`
+- `cli.js` 仅保留命令分发、帮助文本、`runCliInProcess()` 进程内入口、`main()` 顶层错误边界。导出与行为 100% 向后兼容。
 
 ---
 
@@ -147,14 +130,14 @@
 | 文件                                      | 行数   | 风险  | 状态                                                                                        |
 | --------------------------------------- | ---- | --- | ----------------------------------------------------------------------------------------- |
 | `src/tools/overview-tools.js`           | ~80 | 低   | U3 拆分已完成：数据组装进 `overview-assembler.js`，HTML 渲染与 I/O 进 `dashboard-formatter.js`；薄编排层仅剩 `buildProjectOverview` |
-| `cli.js`                                | ~626 | **高** | **入口膨胀**：同时承载路由/验证/格式化/进程配置，87次变更；需拆分为 `validate-args.js` + `route-formatter.js` + `bootstrap.js` |
+| `cli.js`                                | ~260 | **低** | **入口拆分完成**：路由/验证/格式化/进程配置已分别提取到 `validate-args.js` / `route-formatter.js` / `bootstrap.js`；cli.js 仅保留命令分发与错误边界 | |
 | `src/tools/git-tools.js`                | ~392 | 低   | L2-9 commit range 源                                                                       |
 | `src/utils/project-context.js`          | ~634 | 低   | `inferFileRole()` 已状态化并消除规则盲区；`shouldExclude` CPU 消耗已修复                                |
 | `src/utils/stack-detectors/detect.js`   | ~443 | 低   | stack-detector 检测子模块                                                                      |
 | `src/utils/stack-detectors/commands.js` | ~639 | 低   | stack-detector 命令子模块                                                                      |
 | `src/services/dep-graph.js`             | ~657 | **高** | **无限责任宿主**：facade 仍含 DG_STATES + fromSchema + bus 协调，60次变更 |
 | `src/services/container.js`             | ~556 | **高** | **initialize() 上帝方法**：~100行混入 git/aggregate/phaseTimes/strictCwd，42次变更 |
-| `src/services/graph-db.js`              | ~678 | **中** | **schema演化热点**：`loadAll()` 手工拼接5张表，无映射层抽象 |
+| `src/services/graph-db.js`              | ~560 | 低   | loadAll/saveAll/saveIncremental 均已 TABLE_SCHEMA 注册表驱动；新增表只需注册一次 |
 
 
 ---

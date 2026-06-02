@@ -352,6 +352,8 @@ function determineReplExitCode(error, output) {
     if (output.startsWith('Unknown command:') || output.startsWith('Usage:')) return 2;
     if (output.startsWith('Error:')) return 1;
   }
+  // Successful command output (help, stats, etc.) should exit 0
+  if (!error && output !== null && output !== undefined) return 0;
   return 1;
 }
 

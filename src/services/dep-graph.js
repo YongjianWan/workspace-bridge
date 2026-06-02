@@ -517,6 +517,10 @@ class DependencyGraph {
     return this.analyzer.findAffectedTests(...args);
   }
 
+  findAffectedRoutes(...args) {
+    return this.analyzer.findAffectedRoutes(...args);
+  }
+
   getStats(...args) {
     return this.analyzer.getStats(...args);
   }

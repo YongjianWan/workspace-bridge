@@ -14,11 +14,12 @@ const OPERATIONS = {
   dead_exports: require('./dep-tools/dead-exports'),
   unresolved: require('./dep-tools/unresolved'),
   affected_tests: require('./dep-tools/affected-tests'),
+  affected_routes: require('./dep-tools/affected-routes'),
 };
 
 // Operations that require a resolved file path
 const FILE_REQUIRED = new Set([
-  'dependencies', 'dependents', 'impact', 'affected_tests',
+  'dependencies', 'dependents', 'impact', 'affected_tests', 'affected_routes',
 ]);
 
 async function dependencyGraph(args, container) {

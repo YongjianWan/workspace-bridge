@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+### Added — affected-routes 端到端请求路径（2026-06-01）
+
+- **新增 `affected-routes` 命令** `src/services/dep-graph/analyzer.js` + `dep-graph.js` + `workspace-snapshot.js` + `src/tools/dep-tools/affected-routes.js` + `src/cli/commands/index.js` + `cli.js` + `human-formatters.js`：
+  - 给定一个文件，反向追溯所有从已知入口文件（entry files）到该文件的完整调用/导入路径。
+  - 排除 test-like files 作为 route endpoint，避免测试结果稀释生产入口路径。
+  - 上限 50 条路径，自动去重（JSON key dedup）。
+  - 支持 `--max-depth` 限制搜索深度。
+  - 补测试 `test/affected-routes-test.js`（契约 + 语义 + maxDepth + entry 边界）。
+
 ### 技术债务偿还 — 重复模式消除与模块收敛（2026-06-01）
 
 - **cache.js 重复模式清零** `src/services/cache.js`：
@@ -56,6 +65,15 @@
   - 将旧 "should be whitelisted" 注释/断言文案更新为反映实际过滤机制（MVVM logic→view boundary / Java utility↔utility edge pruning / annotation-only target pruning），消除测试意图与实际实现之间的语义漂移。
 - **修正 `MAX_CYCLE_EDGE_DEPTH` 注释歧义** `src/services/dep-graph/analyzer.js`：
   - 将 "8 nodes (7 edges)" 的误导性描述修正为 "8 nodes (8 edges when the loop closes)"，准确反映 Johnson 搜索深度上限的物理含义。
+
+### 技术债务偿还 — graph-db.js save 系列 TABLE_SCHEMA 化（2026-06-01）
+
+- **`graph-db.js` save/saveIncremental 手工拼接 → 注册表驱动** `src/services/graph-db.js`：
+  - 给 `CACHE_TABLE_SCHEMA` 补全 `serialize` + `incrementalKeys`（`{dirty, deleted}`），实现 schema → SQL 的双向映射。
+  - `saveAll()` 遍历注册表自动生成 `DELETE` + `INSERT`，消灭 5 张表 × 2 处 = 10 处手工拼接。
+  - `saveIncremental()` 遍历注册表自动生成 `DELETE` + `INSERT OR REPLACE`，消灭 5 张表 × 2 处 = 10 处手工拼接。
+  - 新增表只需在 `CACHE_TABLE_SCHEMA` 注册一次，load/save/saveIncremental 三处自动生效，对称 `cache.js` 的 `METADATA_SCHEMA` 模式。
+  - 外部接口零变化，行为完全保持 backward compatible；`test:fast` 84/84 PASS。
 
 ### 技术债务偿还与架构优化 — AST/Resolver 级导入过滤与环路检测彻底重构（2026-06-01）
 
@@ -147,6 +165,38 @@
   - 消除无 timeout check 回退到默认 120s 导致的长尾延迟风险。
   - 新增 `test/workspace-tools-test.js` `testBuildChecksAllChecksHaveTimeout`：遍历 full mode 下所有生成的 check，断言每个都有正数 timeout。
   - 扩展 `test/wave5-boundary-hardening-test.js` 源代码检查，覆盖 `DIAGNOSTICS_CHECK_MS` 和 `DIAGNOSTICS_MEDIUM_MS`。
+
+### 架构债务清偿 — CLI 可测试化与容器初始化管道拆分（2026-06-01）
+
+- **CLI 入口拆分（路线 B）** `cli.js` → `src/cli/validate-args.js` + `src/cli/route-formatter.js` + `src/cli/bootstrap.js`：
+  - `src/cli/validate-args.js`：提取 `parseCliArgs()`（参数解析与验证）、`sanitizeCliPaths()`（路径安全）、`classifyError()`（错误分类）。纯函数，可直接单元测试。
+  - `src/cli/route-formatter.js`：提取 `writeLargeJson()`（流式 JSON 输出）、`determineExitCode()`（退出码语义）、`formatCliResult()`（格式化器路由）、`buildErrorResponse()`（错误响应组装）。纯函数，可直接单元测试。
+  - `src/cli/bootstrap.js`：提取 `UV_THREADPOOL_SIZE` 进程配置与 `installFatalHandlers()` 致命错误处理。必须在任何异步 I/O 之前 require。
+  - `cli.js` 从 ~628 行精简为 ~260 行，仅保留 `main()` 命令分发、`runCliInProcess()` 进程内执行入口、`printUsage()`/`printCommandHelp()` 帮助文本。所有导出与行为 100% 向后兼容。
+- **容器初始化管道拆分（路线 A-1）** `src/services/container.js`：
+  - 引入 `_runPipeline(cwd, options)` 显式初始化管道，将原先 monolithic try 块中的隐式阶段序列提升为 10 个命名阶段：`workspaceRoot` → `cache` → `projectContext` → `fileIndex` → `diagnostics` → `depGraph` → `aggregate` → `snapshot` → `callbacks` → `gitHead`。
+  - 引入 `_runStage(name, fn)` 阶段包装器：自动计时（存入 `this._phaseTimes[name]`）、错误包装（`Stage 'X' failed: ...`）。
+  - 阶段失败时错误信息直接指向责任阶段，消灭"restore interface / 竞态窗口"类 commit 的根因（初始化顺序变更引发 regression）。
+  - 零公共 API 变更；`test:fast` 84/84 PASS。
+
+### 回归修复 — slow 层遗留问题清零（2026-06-01）
+
+- **修复 `bug-15-cli-bounds-validation-test.js` 过时 exit code 期望**：
+  - Wave 8 已将 `VALIDATION_ERROR` exit code 从 `2` 修正为 `1`，但 `bug-15-cli-bounds-validation-test.js` 的三处断言仍期望 `2`。
+  - 同步更新为期望 `1`，与当前语义定义对齐。
+- **修复 `cli-error-handling-test.js` Node.js 警告污染**：
+  - Node.js v22 SQLite `ExperimentalWarning` 通过 `spawnSync` stderr 泄漏到测试中，导致 `quiet mode should suppress stderr diagnostic logs` 误报。
+  - 在测试中过滤 `(node:...)` 前缀的警告行，仅对诊断性 stderr 做断言。
+- **修复 `shouldExcludeCli` `**` glob 语义缺陷** `src/utils/exclude-patterns.js`：
+  - `test/**/*.js` 原正则 `^test/.*/[^/]*.js$` 要求至少一个子目录层级，漏匹配 `test/watch-test.js`（直接位于 `test/` 下的文件）。
+  - 引入 `**/` → `(?:.*/)?` 替换（在 `**` 和 `*` 替换之前），使 `test/**/*.js` 正确生成 `^test/(?:.*/)?[^/]*.js$`，同时匹配 `test/*.js` 和 `test/*/*.js`。
+- **修复 `repl.js` `determineReplExitCode` 对成功输出误报 1** `src/cli/repl.js`：
+  - `help`、`stats` 等成功命令在 `--eval` 模式下被置为 exit code `1`，因为 `determineReplExitCode` 默认返回 `1`。
+  - 补充 `if (!error && output !== null && output !== undefined) return 0;`，使成功输出正确返回 `0`。
+- **修复 `audit-assembler.js` `detectTestConfig` 未导出** `src/tools/audit-assembler.js`：
+  - `health-tools.js` 删除时 `detectTestConfig` 被内联到 `audit-assembler.js` 但未加入 `module.exports`。
+  - 导致 `phase01-quality-test.js`（slow 层）`MODULE_NOT_FOUND` 崩溃。
+  - 将 `detectTestConfig` 加入导出列表。
 
 ## [2.0.0] - 2026-05-28
 
