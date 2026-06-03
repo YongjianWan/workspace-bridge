@@ -315,8 +315,7 @@ async function runDiagnostics(args, container) {
     new Promise((_, reject) => {
       buildChecksTimer = setTimeout(() => reject(new Error('buildChecks timeout')), buildChecksTimeoutMs);
     })
-  ]);
-  clearTimeout(buildChecksTimer);
+  ]).finally(() => clearTimeout(buildChecksTimer));
   const { checks, noLintersDetected } = buildChecksResult;
 
   const KILL_GRACE_MS = 10000;
