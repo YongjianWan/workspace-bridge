@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+### 开发体验修复 — fast 层慢测试根治（2026-06-02）
+
+- **修复 `overview-tools-test.js` 与 `diagnostics-cache-test.js` 各 ~15s 挂起**：fast 层总时间从 ~36s 降至 ~6s，开发反馈循环快 **6 倍**。
+  - **根因 A**：`src/utils/command.js` `runCommandSecure` 同时使用了 `cp.spawn({ timeout })` 与自建 `setTimeout` 两套超时机制。Node.js 的 `cp.spawn({ timeout })` 在 Windows 上存在已知行为：当 spawn 失败（ENOENT / 无效 cwd）时，子进程对象的内置 timeout 仍会挂起事件循环直到超时（15s）。自建 `setTimeout` + `child.kill('SIGTERM')` 已完全覆盖超时需求，且跨平台行为一致。
+  - **修复 A**：移除 `cp.spawn` 中的 `timeout` 选项，保留自建 timer 机制。
+  - **根因 B**：`src/tools/workspace-tools.js` `runDiagnostics` 使用 `Promise.race([buildChecks(...), setTimeout(...)])` 保护 `buildChecks` 不阻塞。当 `buildChecks` 先完成（或先抛出）时，`setTimeout` 未被清理，形成 dangling timer，挂起进程 15s。
+  - **修复 B**：显式保存 timer 引用并在 `Promise.race` 完成后 `clearTimeout(timer)`。
+  - `test:fast` **86/86 PASS**，`overview-tools-test.js` 从 ~15s → 438ms，`diagnostics-cache-test.js` 从 ~15s → 293ms。
+
 ### 审查修复 — 数据质量缺陷与代码清理（2026-06-02）
 
 - **修复 `parseBlamePorcelain` 解析 git blame --porcelain 压缩格式错误** `src/tools/git-tools.js`：

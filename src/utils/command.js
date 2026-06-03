@@ -67,7 +67,6 @@ function runCommandSecure(command, args, cwd, timeoutMs = TIMEOUTS.COMMAND_DEFAU
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
-      timeout: timeoutMs,
     });
 
     let stdout = '';

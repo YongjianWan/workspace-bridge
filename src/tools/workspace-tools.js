@@ -309,10 +309,14 @@ async function runDiagnostics(args, container) {
   const workspace = detectWorkspace(root);
   // Wave 5 #13: guard against buildChecks() hanging on linter discovery
   const buildChecksTimeoutMs = 15000; // 15s cap for linter discovery
+  let buildChecksTimer;
   const buildChecksResult = await Promise.race([
     buildChecks(workspace, mode),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('buildChecks timeout')), buildChecksTimeoutMs))
+    new Promise((_, reject) => {
+      buildChecksTimer = setTimeout(() => reject(new Error('buildChecks timeout')), buildChecksTimeoutMs);
+    })
   ]);
+  clearTimeout(buildChecksTimer);
   const { checks, noLintersDetected } = buildChecksResult;
 
   const KILL_GRACE_MS = 10000;
