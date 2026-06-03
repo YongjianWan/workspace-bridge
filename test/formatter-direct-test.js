@@ -587,16 +587,28 @@ function testFormatJsonlDeadExports() {
 function testFormatJsonlAuditSummary() {
   const result = {
     ok: true,
-    deadExports: { deadExports: [{ file: 'a.js', name: 'foo' }] },
-    unresolved: { unresolved: [{ file: 'b.js', source: 'x' }] },
-    cycles: { cycles: [{ files: ['a.js', 'b.js'], length: 2 }] },
+    summary: { severity: 'medium' },
+    scope: { counts: { totalFiles: 10 } },
+    deadExports: { deadExportsCount: 1, deadExports: [{ file: 'a.js', name: 'foo' }] },
+    unresolved: { unresolvedCount: 1, unresolved: [{ file: 'b.js', source: 'x' }] },
+    cycles: { cyclesCount: 1, cycles: [{ files: ['a.js', 'b.js'], length: 2 }] },
+    orphans: { counts: { total: 1 }, samples: { modules: ['orphan.js'] } },
+    hotspots: [{ file: 'hot.js', score: 99, risk: 'high' }],
+    knowledgeRisk: { high: [{ file: 'risk.js', riskLevel: 'high' }], medium: [] },
   };
   const lines = formatJsonl('audit-summary', result).split('\n');
-  assert.strictEqual(lines.length, 3);
+  assert.strictEqual(lines.length, 7, 'should emit summary + 6 record types');
+  const first = JSON.parse(lines[0]);
+  assert.strictEqual(first._type, 'summary');
+  assert.strictEqual(first.totalFiles, 10);
+  assert.strictEqual(first.deadExports, 1);
   const types = lines.map((l) => JSON.parse(l)._type);
+  assert(types.includes('hotspot'));
   assert(types.includes('dead-export'));
-  assert(types.includes('unresolved'))
+  assert(types.includes('unresolved'));
   assert(types.includes('cycle'));
+  assert(types.includes('orphan'));
+  assert(types.includes('knowledge-risk'));
 }
 
 function testFormatJsonlEmptyResult() {

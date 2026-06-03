@@ -135,10 +135,25 @@ const FORMATTERS = {
     jsonl: (r) => {
       const rec = [];
       const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
+      rec.push({
+        _type: 'summary',
+        ok: r.ok,
+        command: 'audit-summary',
+        severity: r.summary?.severity,
+        totalFiles: r.scope?.counts?.totalFiles,
+        deadExports: r.deadExports?.deadExportsCount,
+        unresolved: r.unresolved?.unresolvedCount,
+        cycles: r.cycles?.cyclesCount,
+        orphans: r.orphans?.counts?.total,
+      });
+      push('hotspot', r.hotspots);
       push('dead-export', r.deadExports?.deadExports);
       push('unresolved', r.unresolved?.unresolved);
       push('cycle', r.cycles?.cycles);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'audit-summary', severity: r.summary?.severity });
+      push('orphan', r.orphans?.samples?.modules);
+      const krHigh = r.knowledgeRisk?.high || [];
+      const krMedium = r.knowledgeRisk?.medium || [];
+      push('knowledge-risk', [...krHigh, ...krMedium]);
       return rec.map(JSON.stringify).join('\n');
     },
   },

@@ -284,6 +284,17 @@
   - 导致 `phase01-quality-test.js`（slow 层）`MODULE_NOT_FOUND` 崩溃。
   - 将 `detectTestConfig` 加入导出列表。
 
+### L3 品味问题修复 — `audit-summary` `--format jsonl` 管道友好化（2026-06-03）
+
+- **增强 `audit-summary` 的 `jsonl` 格式化器** `src/cli/formatters/human-formatters.js`：
+  - 原 `jsonl` 仅输出 `dead-export` / `unresolved` / `cycle` 三类 record，且当这些为空时只回退一行 `_type: 'summary'` 元数据，管道可用性极低。
+  - 新增输出：`hotspot`、`orphan`、`knowledge-risk`，与原有 record 类型对齐。
+  - 元数据行（`_type: 'summary'`）现在总是第一行，包含 `totalFiles`、`deadExports`、`unresolved`、`cycles`、`orphans` 等关键计数，便于管道首行筛选。
+  - 用户可用 `--format jsonl | jq -r 'select(._type=="hotspot").file'` 直接筛选热点文件，无需再钻取深层嵌套对象。
+  - `test/formatter-direct-test.js` 扩展 `testFormatJsonlAuditSummary` 验证全部 6 种 record 类型 + 元数据行。
+  - `test:fast` **86/86 PASS**。
+- **TECH_DEBT.md L3 债务清零**：移除 `--json 嵌套深，管道不友好` 条目。
+
 ## [2.0.0] - 2026-05-28
 
 ### 架构级重大重构：数据库引擎完全迁移至原生 node:sqlite 并支持单文件打包（2026-05-28）
