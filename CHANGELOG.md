@@ -15,6 +15,7 @@
   - **修复 A**：移除 `cp.spawn` 中的 `timeout` 选项，保留自建 timer 机制。
   - **根因 B**：`src/tools/workspace-tools.js` `runDiagnostics` 使用 `Promise.race([buildChecks(...), setTimeout(...)])` 保护 `buildChecks` 不阻塞。当 `buildChecks` 先完成（或先抛出）时，`setTimeout` 未被清理，形成 dangling timer，挂起进程 15s。
   - **修复 B**：显式保存 timer 引用并在 `Promise.race` 完成后 `clearTimeout(timer)`。
+  - **修复 B+（follow-up）**：`clearTimeout` 从 `await` 后行内调用改为 `.finally(() => clearTimeout(buildChecksTimer))`，确保 `buildChecks` 先 reject（抛异常）时 timer 仍被清理，彻底消除 dangling timer。
   - `test:fast` **86/86 PASS**，`overview-tools-test.js` 从 ~15s → 438ms，`diagnostics-cache-test.js` 从 ~15s → 293ms。
 
 ### 技术债务清偿 — `savePrecomputed` 重复 `if` 块配置表重构（L2-7）（2026-06-02）

@@ -37,10 +37,10 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；`npm run test:fast` **84/84 PASS**（~20s）。全量 runner **161/161 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~20s）或 `npm run test:smoke`（~54s）。当前 fast 层 84 个测试，slow 层 70 个，serial 层 7 个。
+- 测试：**受影响测试全部 PASS**；`npm run test:fast` **86/86 PASS**（~7.5s）。全量 runner **161/161 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~7.5s）或 `npm run test:smoke`（~54s）。当前 fast 层 86 个测试，slow 层 70 个，serial 层 7 个。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~308 文件（entry=1, mainline=139, test=169）
+- 自身项目规模：~315 文件（entry=1, mainline=144, test=171）
 - 结构性指标：deadExports=0，cycles=0，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 按实际分布
 - 注意：`healthScore=5/5` 是文件存在性检查（README/LICENSE/.gitignore/Dockerfile），**不反映代码质量**，已废弃
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
