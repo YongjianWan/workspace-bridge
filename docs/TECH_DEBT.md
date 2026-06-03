@@ -110,7 +110,6 @@
 
 **下一步（A-2 已收尾，剩余为独立债务）**：
 - `DG_STATES` 及生命周期 helper（`_resetState` / `_startBuilding` / `_finishBuilding` / `_startUpdating` / `_finishUpdating`）暂留 facade：builder.js constructor 接收 `depGraph` 实例并直接调用 `this.dg._resetState()` 等。若将状态机提取到 orchestrator.js，builder.js 需改依赖注入模式（接收 orchestrator 而非 depGraph），改动面大。当前风险收益比不支持进一步提取。
-- 评估 `savePrecomputed` 中 4 个重复 `if` 块 → 配置表重构（L2-7）
 
 
 #### 【已归档】cli.js 入口膨胀 — 已完成

@@ -17,6 +17,14 @@
   - **修复 B**：显式保存 timer 引用并在 `Promise.race` 完成后 `clearTimeout(timer)`。
   - `test:fast` **86/86 PASS**，`overview-tools-test.js` 从 ~15s → 438ms，`diagnostics-cache-test.js` 从 ~15s → 293ms。
 
+### 技术债务清偿 — `savePrecomputed` 重复 `if` 块配置表重构（L2-7）（2026-06-02）
+
+- **`src/services/dep-graph/persistence.js` `savePrecomputed`**：将 4 个几乎相同的 `if (cache.xxx !== undefined)` 块重构为 `AGGREGATE_KEYS` 配置表循环。
+  - 原 32 行（4 组 × 8 行）压缩为 11 行（数组定义 + for 循环 + push），行数减少约 66%。
+  - 行为零变化：键顺序、字段结构、`undefined` 守卫、`JSON.stringify` 处理完全一致。
+  - 新增 key 只需在数组末尾追加，无需复制粘贴模板。
+  - `test:fast` **86/86 PASS**。
+
 ### 审查修复 — 数据质量缺陷与代码清理（2026-06-02）
 
 - **修复 `parseBlamePorcelain` 解析 git blame --porcelain 压缩格式错误** `src/tools/git-tools.js`：

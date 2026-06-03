@@ -35,37 +35,16 @@ async function savePrecomputed(depGraph) {
     const aggregateRows = [];
     const cache = analyzer.getAggregateCache();
     if (cache) {
-      if (cache.deadExports !== undefined) {
-        aggregateRows.push({
-          key: 'deadExports',
-          data: JSON.stringify(cache.deadExports),
-          version: analyzer.getAggregateVersion(),
-          fileCount: graphSize,
-        });
-      }
-      if (cache.unresolved !== undefined) {
-        aggregateRows.push({
-          key: 'unresolved',
-          data: JSON.stringify(cache.unresolved),
-          version: analyzer.getAggregateVersion(),
-          fileCount: graphSize,
-        });
-      }
-      if (cache.cycles !== undefined) {
-        aggregateRows.push({
-          key: 'cycles',
-          data: JSON.stringify(cache.cycles),
-          version: analyzer.getAggregateVersion(),
-          fileCount: graphSize,
-        });
-      }
-      if (cache.stats !== undefined) {
-        aggregateRows.push({
-          key: 'stats',
-          data: JSON.stringify(cache.stats),
-          version: analyzer.getAggregateVersion(),
-          fileCount: graphSize,
-        });
+      const AGGREGATE_KEYS = ['deadExports', 'unresolved', 'cycles', 'stats'];
+      for (const key of AGGREGATE_KEYS) {
+        if (cache[key] !== undefined) {
+          aggregateRows.push({
+            key,
+            data: JSON.stringify(cache[key]),
+            version: analyzer.getAggregateVersion(),
+            fileCount: graphSize,
+          });
+        }
       }
     }
     if (aggregateRows.length > 0) {
