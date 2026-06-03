@@ -31,7 +31,7 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 3 活跃债务 + 0 项 P2 Dogfood 活跃缺陷）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 0 L3 + 2 架构债务 + 0 项 P2 Dogfood 活跃缺陷）
 
 ---
 
@@ -123,7 +123,7 @@ node cli.js audit-overview --cwd . --json --quiet
 | -------------- | ----------- | ---------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
-| 活跃债务与品味     | 3           | 弱断言分布 ~11 处 / "默认宿主"DG_STATES 暂留 facade / `--json` 嵌套深 |
+| 活跃债务           | 2           | 弱断言分布 / slow 层过重（已归档）/ "默认宿主"（已归档）|
 | **产品债务** | **0** | —                                                                  |
 
 **测试状态**：`npm run test:fast` **84/84 PASS**（~20s）。全量 runner **161/161 PASS**（~5min）。当前 fast 层 84 个测试，slow 层 70 个，serial 层 7 个。
@@ -199,7 +199,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-02（Wave 1-8 全部完成；37/37 Dogfood 已修复；代码审查 100% 修复完毕；路线 B CLI 可测试化 + 路线 A-1 container 管道拆分 + **路线 A-2 orchestrator 提取全部完成**（阶段 1 EntryDetector + 阶段 2 GraphLoader + 阶段 3 打破循环依赖）；活跃债务 3 项，0 个 P2 级活跃 Bug；86/86 fast PASS）*
+*Last updated: 2026-06-02（Wave 1-8 全部完成；37/37 Dogfood 已修复；代码审查 100% 修复完毕；路线 B CLI 可测试化 + 路线 A-1 container 管道拆分 + **路线 A-2 orchestrator 提取全部完成**（阶段 1 EntryDetector + 阶段 2 GraphLoader + 阶段 3 打破循环依赖）；活跃债务 2 项，0 个 P2 级活跃 Bug；86/86 fast PASS）*
 
 > **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 unresolved import，自身库全量覆盖率 1.00。
 > **本轮完成**：
