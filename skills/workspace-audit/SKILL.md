@@ -256,6 +256,17 @@ for dir in */; do
 done
 ```
 
+`--format jsonl` 每行输出一个带 `_type` 的 JSON 对象，适合管道筛选：
+
+```bash
+# 筛选热点文件
+workspace-bridge-cli audit-summary --cwd . --format jsonl --quiet | jq -r 'select(._type=="hotspot").file'
+# 筛选知识风险文件
+workspace-bridge-cli audit-summary --cwd . --format jsonl --quiet | jq -r 'select(._type=="knowledge-risk").file'
+# 只看概要行
+workspace-bridge-cli audit-summary --cwd . --format jsonl --quiet | jq 'select(._type=="summary")'
+```
+
 或使用聚合脚本（输出合并 severity）：
 
 ```bash

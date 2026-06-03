@@ -191,6 +191,7 @@ node cli.js dead-exports --cwd . --json --quiet
 ### 输出格式注意事项
 
 - **默认输出是 human-readable**，`--json` 只是可选开关。`cli.js` 不加 `--json` 时输出紧凑的终端友好格式。
+- `--format jsonl` 输出逐行 JSON 记录（每行一个对象，带 `_type` 字段），适合管道处理（`jq`、`grep`）；`--json` 输出完整嵌套对象，适合完整结构消费。
 - `workspace-info` 的 `parserAvailability.usedFallbackPath: true` 出现在非 Node.js 项目（Java/Python/Go）是正常的，表示 tree-sitter WASM 走了无 `package.json` 的初始化路径，**不表示文件被跳过解析**。
 
 ---
