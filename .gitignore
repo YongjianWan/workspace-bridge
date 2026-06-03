@@ -36,3 +36,4 @@ scratch/
 workspace-bridge-win.exe
 workspace-bridge-linux
 workspace-bridge-macos
+/.playwright-mcp/
