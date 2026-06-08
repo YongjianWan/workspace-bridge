@@ -8,6 +8,36 @@
 
 ## [Unreleased]
 
+### 兼容性修复 — `DependencyGraph` `_state` 属性回补（2026-06-03）
+
+- **回补 `dg._state` 私有属性** `src/services/dep-graph.js`：
+  - 修复了此前将状态机 `GraphStateMachine` 拆分至独立模块后，`DependencyGraph` facade 实例遗漏 `_state` 私有属性，导致 `test/dep-graph-error-test.js` 断言失败的回归缺陷。
+  - 通过 `Object.defineProperty` 声明 backward-compatible 的 `_state` 属性映射至状态机的 `state`，恢复对老测试契约和直接访问的支持。
+
+### 阶段 3.5 — 聚合结果持久化与细粒度查询 CLI (2026-06-03)
+
+- **修复 Snapshot 缓存永久失效 bug** `src/services/graph-db.js`：
+  - 修复了 `loadPrecomputedAggregates` 在加载 precomputed aggregates 时盲目将 `version` 转换为 `Number` 的 bug。以前这会导致存储在 `version` 字段中的 Git commit hash 被转换成 `NaN`，从而在 `ensureSnapshotData` 中绕过 gitHead 变化检测，导致数据缓存匹配失效并始终触发全量 `buildProjectOverview` 的冷启动。
+  - 修复为对非数字 version 字符串类型进行判断保留，确保了 gitHead 变化检测正常工作。
+- **补全 query-* 命令格式化器** `src/cli/formatters/human-formatters.js`：
+  - 在 `FORMATTERS` 和 `AI_DIGEST` 注册表中添加了 `query-hotspots`、`query-knowledge-risk` 和 `query-stability` 的 human-friendly 格式化（输出紧凑列表与表格）、summary 格式化、markdown 表格渲染以及对齐 spec 的 jsonl 格式化（首行总是输出包含统计元数据的 summary 记录）。
+- **新增回归与单元测试** `test/query-tools-test.js`：
+  - 新增 `testQueryToolsCacheHit` 测试用例，通过直接注入 mock 数据模拟 SQLite 数据库中的 `analysis_snapshot` 缓存记录，验证 `gitHead` 和 `fileCount` 匹配时能以 `< 50ms` 速度在缓存中命中而不再重算 `buildProjectOverview`。
+  - 新增 `testQueryToolsFormatters` 测试用例，确保 `human`、`summary`、`markdown` 和 `jsonl` 格式化器能够输出正确内容。
+
+### CLI & REPL 优化 — JSONL 格式化器重构与 REPL Exit Code 修复（2026-06-03）
+
+- **重构并对齐 JSONL 格式化器** `src/cli/formatters/human-formatters.js`：
+  - 提取了重复的 `push` 本地 helper 为全局 `pushRecord` helper 函数，清偿了 L2-7 重复代码技术债。
+  - 统一并对齐了 `audit-summary` 和 `audit-overview` JSONL 输出 schema，两者均顺次输出 `hotspot`、`stability`、`knowledge-risk`、`orphan`、`dead-export`、`unresolved`、`cycle` 记录。
+  - 所有列表/Findings 导向的 JSONL 格式化器（包括 `audit-summary`、`audit-overview`、`audit-security`、`audit-diff`、`health`、`impact`、`affected-tests`、`affected-routes`、`diagnostics`、`audit-map`、`dependencies`、`dependents`  、`dead-exports`、`unresolved`、`cycles`）现在总是先输出一个包含核心统计信息的 `summary` 元数据行，不论 findings 是否为空，以便下游命令行工具（如 `jq`）首行流式读取与筛选。
+  - 更新了 [formatter-direct-test.js](file:///c:/Users/sdses/Desktop/随机小项目/workspace-bridge/test/formatter-direct-test.js) 中相应的断言，验证各命令总是先输出 summary。
+- **修复 REPL `--eval` 多命令执行 Exit Code 覆盖 bug** `src/cli/repl.js`：
+  - 修复了在 non-JSON eval 模式下，执行多条命令（如 `invalid; stats`）时后续成功命令重置并覆盖前序错误 exit code 的 bug。
+  - 引入了 `maxExitCode` 状态，确保在退出时返回所有已执行命令中最高优先级的错误代码（`2` 表示未知命令/语法错，`1` 表示业务失败，`0` 表示成功）。
+  - 在 [bug-27-28-29-regression-test.js](file:///c:/Users/sdses/Desktop/随机小项目/workspace-bridge/test/bug-27-28-29-regression-test.js) 中添加了 Cases 6, 7, 8 以防止未来回归。
+  - `npm run test:fast` 全量 **86/86 PASS**。
+
 ### 开发体验修复 — fast 层慢测试根治（2026-06-02）
 
 - **修复 `overview-tools-test.js` 与 `diagnostics-cache-test.js` 各 ~15s 挂起**：fast 层总时间从 ~36s 降至 ~6s，开发反馈循环快 **6 倍**。

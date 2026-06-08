@@ -101,6 +101,18 @@ function testBug28ReplEvalExitCodes() {
   // Case 5: JSON Mode - Business failure should exit 1
   const run5 = spawnSync('node', [CLI_PATH, 'repl', '--eval', 'dependencies nonexistent.js', '--json'], { encoding: 'utf8' });
   assert.strictEqual(run5.status, 1, `repl eval JSON nonexistent target should exit 1, got ${run5.status}`);
+
+  // Case 6: Multi-command - Invalid followed by valid command should exit 2 (highest priority)
+  const run6 = spawnSync('node', [CLI_PATH, 'repl', '--eval', 'invalid_cmd; help'], { encoding: 'utf8' });
+  assert.strictEqual(run6.status, 2, `repl eval invalid_cmd; help should exit 2, got ${run6.status}`);
+
+  // Case 7: Multi-command - Business failure followed by valid command should exit 1 (highest priority)
+  const run7 = spawnSync('node', [CLI_PATH, 'repl', '--eval', 'dependencies nonexistent.js; help'], { encoding: 'utf8' });
+  assert.strictEqual(run7.status, 1, `repl eval dependencies nonexistent.js; help should exit 1, got ${run7.status}`);
+
+  // Case 8: Multi-command - Valid followed by invalid command should exit 2 (highest priority)
+  const run8 = spawnSync('node', [CLI_PATH, 'repl', '--eval', 'help; invalid_cmd'], { encoding: 'utf8' });
+  assert.strictEqual(run8.status, 2, `repl eval help; invalid_cmd should exit 2, got ${run8.status}`);
 }
 
 function main() {

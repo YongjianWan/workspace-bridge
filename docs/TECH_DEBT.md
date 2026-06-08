@@ -14,7 +14,7 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **2** | L3 品味问题 **0** | 合计 **2 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **1** | L3 品味问题 **0** | 合计 **1 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
@@ -93,7 +93,7 @@
 
 | 文件 | 行数 | 变更次数 | 症状 | 根因 | 状态 |
 |------|------|----------|------|------|------|
-| `src/services/dep-graph.js` | ~502 | 60 | fromSchema 工厂 + bus 协调 precompute/persistence 已提取到 `orchestrator.js`；但 `loadGraph()` ~99 行、入口检测 `isKnownEntryFile()` ~55 行、`getFrameworkHint()` ~21 行、构造函数 `graph:updated` 监听仍未提取。orchestrator.js 成为新的无限责任宿主（330 行，混入工厂/持久化/状态机/编排）。 | facade 协调职责**部分**上移 | ⚠️ **部分完成**：`orchestrator.js` 已收容 `registerGraphBuiltHandler` / `savePrecomputed` / `restorePrecomputed` / `bootstrapFromSchema` / `initializeDepGraph`；但 facade 仍有 ~175 行协调逻辑，且引入了 facade ↔ orchestrator 循环依赖 |
+| `src/services/dep-graph.js` | ~323 | 60 | fromSchema 工厂 + bus 协调 precompute/persistence 已提取到 `orchestrator.js`；且 `loadGraph()`、`isKnownEntryFile()`、`getFrameworkHint()` 及 `graph:updated` 监听器等均已全部分离。 | facade 协调职责已全部上移/下沉 | ✅ **已完成**：所有协调逻辑已全部搬移至 EntryDetector、GraphLoader、GraphStateMachine 与 Persistence 模块， facade 与 orchestrator 循环依赖已打破。 |
 | `src/services/container.js` initialize() | ~100/556 | 42 | git HEAD / aggregate fallback / phaseTimes / strictCwd 全混在一起 | 无 pipeline/hook 机制 | ✅ **已完成**：引入 `_runPipeline()` 10 阶段显式管道 + `_runStage()` 自动计时与错误包装 |
 | `src/services/file-index.js` | ~592 | 39 | DEFAULT_EXCLUDE_DIRS 硬编码 23 个目录 | 排除语义未收敛到单一模块 | ✅ **已收敛**：`DEFAULT_EXCLUDE_DIRS` 已移至 `exclude-patterns.js`，`shouldExcludeBase()` 统一排除逻辑 |
 
@@ -141,7 +141,7 @@
 | `src/utils/project-context.js`          | ~634 | 低   | `inferFileRole()` 已状态化并消除规则盲区；`shouldExclude` CPU 消耗已修复                                |
 | `src/utils/stack-detectors/detect.js`   | ~443 | 低   | stack-detector 检测子模块                                                                      |
 | `src/utils/stack-detectors/commands.js` | ~639 | 低   | stack-detector 命令子模块                                                                      |
-| `src/services/dep-graph.js`             | ~657 | **高** | **无限责任宿主**：facade 仍含 DG_STATES + fromSchema + bus 协调，60次变更 |
+| `src/services/dep-graph.js`             | ~323 | 低   | ✅ **Facade 化已完成**：所有协调与 I/O 逻辑全部提取至子模块，仅作为薄数据代理 |
 | `src/services/container.js`             | ~556 | **高** | **initialize() 上帝方法**：~100行混入 git/aggregate/phaseTimes/strictCwd，42次变更 |
 | `src/services/graph-db.js`              | ~560 | 低   | loadAll/saveAll/saveIncremental 均已 TABLE_SCHEMA 注册表驱动；新增表只需注册一次 |
 

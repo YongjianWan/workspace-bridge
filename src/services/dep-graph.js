@@ -80,6 +80,14 @@ class DependencyGraph {
       enumerable: false,
       configurable: true,
     });
+
+    // Backward-compatible _state property — state managed by GraphStateMachine
+    Object.defineProperty(this, '_state', {
+      get: () => this._stateMachine.state,
+      set: (val) => { this._stateMachine._transition(val); },
+      enumerable: false,
+      configurable: true,
+    });
   }
 
   shouldExclude(filePath) {

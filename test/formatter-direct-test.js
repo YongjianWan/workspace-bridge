@@ -564,10 +564,12 @@ function testFormatJsonlAuditSecurity() {
     ],
   };
   const lines = formatJsonl('audit-security', result).split('\n');
-  assert.strictEqual(lines.length, 2, 'should emit one line per finding');
+  assert.strictEqual(lines.length, 3, 'should emit summary + findings');
   const first = JSON.parse(lines[0]);
-  assert.strictEqual(first._type, 'finding');
-  assert.strictEqual(first.ruleId, 'eval');
+  assert.strictEqual(first._type, 'summary');
+  const second = JSON.parse(lines[1]);
+  assert.strictEqual(second._type, 'finding');
+  assert.strictEqual(second.ruleId, 'eval');
 }
 
 function testFormatJsonlDeadExports() {
@@ -578,10 +580,12 @@ function testFormatJsonlDeadExports() {
     ],
   };
   const lines = formatJsonl('dead-exports', result).split('\n');
-  assert.strictEqual(lines.length, 1);
-  const row = JSON.parse(lines[0]);
-  assert.strictEqual(row._type, 'dead-export');
-  assert.strictEqual(row.file, 'a.js');
+  assert.strictEqual(lines.length, 2);
+  const first = JSON.parse(lines[0]);
+  assert.strictEqual(first._type, 'summary');
+  const second = JSON.parse(lines[1]);
+  assert.strictEqual(second._type, 'dead-export');
+  assert.strictEqual(second.file, 'a.js');
 }
 
 function testFormatJsonlAuditSummary() {

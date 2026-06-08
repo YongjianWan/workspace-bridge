@@ -19,6 +19,14 @@ function formatStatsValue(val) {
   return String(val);
 }
 
+function pushRecord(rec, type, arr) {
+  if (Array.isArray(arr)) {
+    for (const item of arr) {
+      rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item });
+    }
+  }
+}
+
 /**
  * Shared audit-summary formatter across text output styles.
  */
@@ -134,26 +142,31 @@ const FORMATTERS = {
     markdown: (r) => formatAuditSummary(r, 'markdown'),
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
       rec.push({
         _type: 'summary',
         ok: r.ok,
         command: 'audit-summary',
         severity: r.summary?.severity,
-        totalFiles: r.scope?.counts?.totalFiles,
-        deadExports: r.deadExports?.deadExportsCount,
-        unresolved: r.unresolved?.unresolvedCount,
-        cycles: r.cycles?.cyclesCount,
-        orphans: r.orphans?.counts?.total,
+        totalFiles: r.scope?.counts?.totalFiles ?? r.skeleton?.totalFiles ?? 0,
+        mainlineFiles: r.scope?.counts?.mainlineFiles ?? r.skeleton?.mainlineFiles ?? 0,
+        deadExports: r.deadExports?.deadExportsCount ?? 0,
+        unresolved: r.unresolved?.unresolvedCount ?? 0,
+        cycles: r.cycles?.cyclesCount ?? 0,
+        orphans: r.orphans?.counts?.total ?? 0,
+        hotspotsHigh: r.aggregates?.hotspotsByRisk?.high ?? 0,
+        hotspotsMedium: r.aggregates?.hotspotsByRisk?.medium ?? 0,
+        fragileModules: r.aggregates?.stabilityCounts?.fragile ?? 0,
+        knowledgeRiskHigh: r.knowledgeRisk?.high?.length ?? 0,
+        knowledgeRiskMedium: r.knowledgeRisk?.medium?.length ?? 0,
       });
-      push('hotspot', r.hotspots);
-      push('dead-export', r.deadExports?.deadExports);
-      push('unresolved', r.unresolved?.unresolved);
-      push('cycle', r.cycles?.cycles);
-      push('orphan', r.orphans?.samples?.modules);
-      const krHigh = r.knowledgeRisk?.high || [];
-      const krMedium = r.knowledgeRisk?.medium || [];
-      push('knowledge-risk', [...krHigh, ...krMedium]);
+      pushRecord(rec, 'hotspot', r.hotspots);
+      pushRecord(rec, 'stability', r.stability);
+      pushRecord(rec, 'knowledge-risk', r.knowledgeRisk?.high);
+      pushRecord(rec, 'knowledge-risk', r.knowledgeRisk?.medium);
+      pushRecord(rec, 'orphan', r.orphans?.samples?.modules);
+      pushRecord(rec, 'dead-export', r.deadExports?.deadExports);
+      pushRecord(rec, 'unresolved', r.unresolved?.unresolved);
+      pushRecord(rec, 'cycle', r.cycles?.cycles);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -276,16 +289,31 @@ const FORMATTERS = {
     },
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
-      push('hotspot', r.hotspots);
-      push('stability', r.stability);
-      push('knowledge-risk', r.knowledgeRisk?.high);
-      push('knowledge-risk', r.knowledgeRisk?.medium);
-      push('orphan', r.orphans?.samples?.modules);
-      push('dead-export', r.deadExports?.deadExports);
-      push('unresolved', r.unresolved?.unresolved);
-      push('cycle', r.cycles?.cycles);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'audit-overview', severity: r.summary?.severity });
+      rec.push({
+        _type: 'summary',
+        ok: r.ok,
+        command: 'audit-overview',
+        severity: r.summary?.severity,
+        totalFiles: r.scope?.counts?.totalFiles ?? r.skeleton?.totalFiles ?? 0,
+        mainlineFiles: r.scope?.counts?.mainlineFiles ?? r.skeleton?.mainlineFiles ?? 0,
+        deadExports: r.deadExports?.deadExportsCount ?? 0,
+        unresolved: r.unresolved?.unresolvedCount ?? 0,
+        cycles: r.cycles?.cyclesCount ?? 0,
+        orphans: r.orphans?.counts?.total ?? 0,
+        hotspotsHigh: r.aggregates?.hotspotsByRisk?.high ?? 0,
+        hotspotsMedium: r.aggregates?.hotspotsByRisk?.medium ?? 0,
+        fragileModules: r.aggregates?.stabilityCounts?.fragile ?? 0,
+        knowledgeRiskHigh: r.knowledgeRisk?.high?.length ?? 0,
+        knowledgeRiskMedium: r.knowledgeRisk?.medium?.length ?? 0,
+      });
+      pushRecord(rec, 'hotspot', r.hotspots);
+      pushRecord(rec, 'stability', r.stability);
+      pushRecord(rec, 'knowledge-risk', r.knowledgeRisk?.high);
+      pushRecord(rec, 'knowledge-risk', r.knowledgeRisk?.medium);
+      pushRecord(rec, 'orphan', r.orphans?.samples?.modules);
+      pushRecord(rec, 'dead-export', r.deadExports?.deadExports);
+      pushRecord(rec, 'unresolved', r.unresolved?.unresolved);
+      pushRecord(rec, 'cycle', r.cycles?.cycles);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -295,9 +323,8 @@ const FORMATTERS = {
     markdown: (r) => ['# Security Audit', '', ...buildSecurityLines(r, 'markdown')].join('\n'),
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
-      push('finding', r.findings);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'audit-security', severity: r.severity || r.summary?.severity });
+      rec.push({ _type: 'summary', ok: r.ok, command: 'audit-security', severity: r.severity || r.summary?.severity });
+      pushRecord(rec, 'finding', r.findings);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -400,10 +427,9 @@ const FORMATTERS = {
     },
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
-      push('changed-file', r.changedFiles);
-      push('finding', r.findings);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'audit-diff', severity: r.summary?.severity });
+      rec.push({ _type: 'summary', ok: r.ok, command: 'audit-diff', severity: r.summary?.severity });
+      pushRecord(rec, 'changed-file', r.changedFiles);
+      pushRecord(rec, 'finding', r.findings);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -474,9 +500,8 @@ const FORMATTERS = {
     },
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
-      push('check', r.checks);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'health', severity: r.severity || r.summary?.severity });
+      rec.push({ _type: 'summary', ok: r.ok, command: 'health', severity: r.severity || r.summary?.severity });
+      pushRecord(rec, 'check', r.checks);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -486,9 +511,8 @@ const FORMATTERS = {
     markdown: (r) => [`# Impact Radius`, ``, `- **Total**: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, 10).map((e) => `- ${e.level}: ${e.file}`) || []].join('\n'),
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
-      push('impact', r.impact);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'impact', severity: r.severity || r.summary?.severity });
+      rec.push({ _type: 'summary', ok: r.ok, command: 'impact', severity: r.severity || r.summary?.severity });
+      pushRecord(rec, 'impact', r.impact);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -498,9 +522,8 @@ const FORMATTERS = {
     markdown: (r) => [`# Affected Tests`, ``, `- **Total**: ${r.affectedTestsCount ?? 0}`, ...r.affectedTests?.slice(0, 10).map((e) => `- ${e.distance}: ${e.file}`) || []].join('\n'),
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
-      push('affected-test', r.affectedTests);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'affected-tests', severity: r.severity || r.summary?.severity });
+      rec.push({ _type: 'summary', ok: r.ok, command: 'affected-tests', severity: r.severity || r.summary?.severity });
+      pushRecord(rec, 'affected-test', r.affectedTests);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -510,9 +533,8 @@ const FORMATTERS = {
     markdown: (r) => [`# Affected Routes`, ``, `- **Total**: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, 10).map((e) => `- \`${e.entry}\`: ${e.path.join(' -> ')}`) || []].join('\n'),
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
-      push('route', r.routes);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'affected-routes', severity: r.severity || r.summary?.severity });
+      rec.push({ _type: 'summary', ok: r.ok, command: 'affected-routes', severity: r.severity || r.summary?.severity });
+      pushRecord(rec, 'route', r.routes);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -532,9 +554,8 @@ const FORMATTERS = {
     },
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
-      push('diagnostic', r.results);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'diagnostics', severity: r.severity || r.summary?.severity });
+      rec.push({ _type: 'summary', ok: r.ok, command: 'diagnostics', severity: r.severity || r.summary?.severity });
+      pushRecord(rec, 'diagnostic', r.results);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -548,10 +569,9 @@ const FORMATTERS = {
     summary: (r) => `Files: ${countTreeFiles(r.tree)}\nEdges: ${r.edges?.length ?? 0}\nIssues: dead=${r.issueOverlay?.deadExports?.length ?? 0} unresolved=${r.issueOverlay?.unresolved?.length ?? 0} cycles=${r.issueOverlay?.cycles?.length ?? 0}`,
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
-      push('highlighted-file', r.highlightedFiles);
-      push('edge', r.edges);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'audit-map', severity: r.summary?.severity });
+      rec.push({ _type: 'summary', ok: r.ok, command: 'audit-map', severity: r.summary?.severity });
+      pushRecord(rec, 'highlighted-file', r.highlightedFiles);
+      pushRecord(rec, 'edge', r.edges);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -577,9 +597,8 @@ const FORMATTERS = {
     summary: (r) => `Dependencies: ${r.dependenciesCount ?? 0}\n${(r.dependencies || []).slice(0, 5).join(', ') || 'none'}`,
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
-      push('dependency', r.dependencies);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'dependencies', severity: r.severity || r.summary?.severity });
+      rec.push({ _type: 'summary', ok: r.ok, command: 'dependencies', severity: r.severity || r.summary?.severity });
+      pushRecord(rec, 'dependency', r.dependencies);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -588,9 +607,8 @@ const FORMATTERS = {
     summary: (r) => `Dependents: ${r.dependentsCount ?? 0}\n${(r.dependents || []).slice(0, 5).join(', ') || 'none'}`,
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
-      push('dependent', r.dependents);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'dependents', severity: r.severity || r.summary?.severity });
+      rec.push({ _type: 'summary', ok: r.ok, command: 'dependents', severity: r.severity || r.summary?.severity });
+      pushRecord(rec, 'dependent', r.dependents);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -609,9 +627,8 @@ const FORMATTERS = {
     },
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
-      push('dead-export', r.deadExports);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'dead-exports', severity: r.severity || r.summary?.severity });
+      rec.push({ _type: 'summary', ok: r.ok, command: 'dead-exports', severity: r.severity || r.summary?.severity });
+      pushRecord(rec, 'dead-export', r.deadExports);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -630,9 +647,8 @@ const FORMATTERS = {
     },
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
-      push('unresolved', r.unresolved);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'unresolved', severity: r.severity || r.summary?.severity });
+      rec.push({ _type: 'summary', ok: r.ok, command: 'unresolved', severity: r.severity || r.summary?.severity });
+      pushRecord(rec, 'unresolved', r.unresolved);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -641,9 +657,8 @@ const FORMATTERS = {
     summary: (r) => `Cycles: ${r.cyclesCount ?? 0}\n${(r.cycles || []).slice(0, 3).map((c) => c.join(' -> ')).join('\n')}`,
     jsonl: (r) => {
       const rec = [];
-      const push = (type, arr) => { if (Array.isArray(arr)) for (const item of arr) rec.push(item && typeof item === 'object' ? { _type: type, ...item } : { _type: type, value: item }); };
-      push('cycle', r.cycles);
-      if (rec.length === 0) rec.push({ _type: 'summary', ok: r.ok, command: 'cycles', severity: r.severity || r.summary?.severity });
+      rec.push({ _type: 'summary', ok: r.ok, command: 'cycles', severity: r.severity || r.summary?.severity });
+      pushRecord(rec, 'cycle', r.cycles);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -676,6 +691,115 @@ const FORMATTERS = {
       return lines.join('\n');
     },
     jsonl: (r) => JSON.stringify({ _type: 'tree', ...r }),
+  },
+  'query-hotspots': {
+    human: (r) => {
+      const lines = [`hotspotsCount: ${r.count} (total: ${r.total})`];
+      if (Array.isArray(r.hotspots)) {
+        lines.push(...r.hotspots.map((h) => `${h.file} | score: ${h.score.toFixed(2)} | risk: ${h.risk} | lines: ${h.lines} | churn: ${h.churn}`));
+      }
+      return lines.join('\n');
+    },
+    summary: (r) => {
+      const lines = [`Hotspots: ${r.count} / ${r.total}`];
+      if (Array.isArray(r.hotspots)) {
+        lines.push(...r.hotspots.slice(0, 5).map((h) => `  ${h.file} (score: ${h.score.toFixed(1)}, ${h.risk})`));
+      }
+      return lines.join('\n');
+    },
+    markdown: (r) => {
+      const lines = [
+        `# Query Hotspots`,
+        ``,
+        `- **Count**: ${r.count} (total: ${r.total})`,
+        ``,
+        `| File | Score | Risk | Lines | Churn |`,
+        `| --- | --- | --- | --- | --- |`,
+      ];
+      if (Array.isArray(r.hotspots)) {
+        lines.push(...r.hotspots.map((h) => `| ${h.file} | ${h.score.toFixed(2)} | ${h.risk} | ${h.lines} | ${h.churn} |`));
+      }
+      return lines.join('\n');
+    },
+    jsonl: (r) => {
+      const rec = [];
+      rec.push({ _type: 'summary', ok: r.ok, command: 'query-hotspots', count: r.count, total: r.total });
+      pushRecord(rec, 'hotspot', r.hotspots);
+      return rec.map(JSON.stringify).join('\n');
+    },
+  },
+  'query-knowledge-risk': {
+    human: (r) => {
+      const lines = [`knowledgeRiskCount: ${r.count} (total: ${r.total}, level: ${r.level})`];
+      if (Array.isArray(r.files)) {
+        lines.push(...r.files.map((f) => `${f.file} | risk: ${f.riskLevel} | authorCount: ${f.authorCount} | primaryAuthor: ${f.primaryAuthor} (${(f.primaryAuthorPct * 100).toFixed(0)}%)`));
+      }
+      return lines.join('\n');
+    },
+    summary: (r) => {
+      const lines = [`Knowledge Risk (${r.level}): ${r.count} / ${r.total}`];
+      if (Array.isArray(r.files)) {
+        lines.push(...r.files.slice(0, 5).map((f) => `  ${f.file} (${f.primaryAuthor}, ${f.riskLevel})`));
+      }
+      return lines.join('\n');
+    },
+    markdown: (r) => {
+      const lines = [
+        `# Query Knowledge Risk`,
+        ``,
+        `- **Level**: ${r.level}`,
+        `- **Count**: ${r.count} (total: ${r.total})`,
+        ``,
+        `| File | Risk | Authors | Primary Author | Share |`,
+        `| --- | --- | --- | --- | --- |`,
+      ];
+      if (Array.isArray(r.files)) {
+        lines.push(...r.files.map((f) => `| ${f.file} | ${f.riskLevel} | ${f.authorCount} | ${f.primaryAuthor} | ${(f.primaryAuthorPct * 100).toFixed(0)}% |`));
+      }
+      return lines.join('\n');
+    },
+    jsonl: (r) => {
+      const rec = [];
+      rec.push({ _type: 'summary', ok: r.ok, command: 'query-knowledge-risk', level: r.level, count: r.count, total: r.total });
+      pushRecord(rec, 'knowledge-risk-item', r.files);
+      return rec.map(JSON.stringify).join('\n');
+    },
+  },
+  'query-stability': {
+    human: (r) => {
+      const lines = [`stabilityCount: ${r.count} (total: ${r.total})`];
+      if (Array.isArray(r.files)) {
+        lines.push(...r.files.map((f) => `${f.file} | cc: ${f.cc} | loc: ${f.loc} | assessment: ${f.assessment}`));
+      }
+      return lines.join('\n');
+    },
+    summary: (r) => {
+      const lines = [`Stability: ${r.count} / ${r.total}`];
+      if (Array.isArray(r.files)) {
+        lines.push(...r.files.slice(0, 5).map((f) => `  ${f.file} (cc: ${f.cc}, ${f.assessment})`));
+      }
+      return lines.join('\n');
+    },
+    markdown: (r) => {
+      const lines = [
+        `# Query Stability`,
+        ``,
+        `- **Count**: ${r.count} (total: ${r.total})`,
+        ``,
+        `| File | CC | LOC | Assessment |`,
+        `| --- | --- | --- | --- |`,
+      ];
+      if (Array.isArray(r.files)) {
+        lines.push(...r.files.map((f) => `| ${f.file} | ${f.cc} | ${f.loc} | ${f.assessment} |`));
+      }
+      return lines.join('\n');
+    },
+    jsonl: (r) => {
+      const rec = [];
+      rec.push({ _type: 'summary', ok: r.ok, command: 'query-stability', count: r.count, total: r.total });
+      pushRecord(rec, 'stability-item', r.files);
+      return rec.map(JSON.stringify).join('\n');
+    },
   },
 };
 
@@ -826,6 +950,33 @@ const AI_DIGEST = {
       if (counts.impact > 0) {
         actions.push({ priority: 'P1', action: 'Run affected-tests to find specific files' });
       }
+    }
+    return { topRisks, actions, counts };
+  },
+  'query-hotspots': (r) => {
+    const topRisks = [];
+    const actions = [];
+    const counts = { hotspots: r.count };
+    if (r.count > 0) {
+      topRisks.push({ category: 'hotspots', severity: 'medium', count: r.count, message: `${r.count} hotspot file(s) matched query` });
+    }
+    return { topRisks, actions, counts };
+  },
+  'query-knowledge-risk': (r) => {
+    const topRisks = [];
+    const actions = [];
+    const counts = { knowledgeRisk: r.count };
+    if (r.count > 0) {
+      topRisks.push({ category: 'knowledge-risk', severity: 'medium', count: r.count, message: `${r.count} knowledge risk file(s) matched query` });
+    }
+    return { topRisks, actions, counts };
+  },
+  'query-stability': (r) => {
+    const topRisks = [];
+    const actions = [];
+    const counts = { stability: r.count };
+    if (r.count > 0) {
+      topRisks.push({ category: 'stability', severity: 'low', count: r.count, message: `${r.count} stability file(s) matched query` });
     }
     return { topRisks, actions, counts };
   },

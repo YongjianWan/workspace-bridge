@@ -61,6 +61,105 @@ async function testQueryStabilityFiltersByAssessment() {
   }
 }
 
+async function testQueryToolsCacheHit() {
+  await withContainer(async (container) => {
+    // 1. Build project overview first to populate basic database cache
+    const { buildProjectOverview } = require('../src/tools/overview-tools');
+    await buildProjectOverview({}, container);
+
+    // 2. Inject a custom mock snapshot into SQLite to verify cache hit
+    const gitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || 'mock-commit-hash';
+    const mockPayload = {
+      hotspots: [{ file: 'mock-hotspot.js', score: 99.9, risk: 'high', lines: 123, churn: 45 }],
+      knowledgeRisk: { high: [{ file: 'mock-kr.js', riskLevel: 'high', authorCount: 1, primaryAuthor: 'Mock', primaryAuthorPct: 1 }] },
+      stability: [{ file: 'mock-stable.js', cc: 5, loc: 50, assessment: 'stable' }],
+      languageSupport: {},
+      deadExports: { deadExportsCount: 0, deadExports: [] },
+      unresolved: { unresolvedCount: 0, unresolved: [] },
+      cycles: { cyclesCount: 0, cycles: [] },
+      orphans: { counts: { total: 0 }, samples: {} },
+      aggregates: {},
+      summary: { severity: 'low' },
+    };
+    
+    container.cache.savePrecomputedAggregates([
+      { key: 'analysis_snapshot', data: JSON.stringify(mockPayload), version: gitHead, fileCount: container.snapshot?.graph?.getAllFilePaths?.().length || 0 }
+    ]);
+
+    // 3. Query hotspots and verify it returns the mock data
+    const result = await queryHotspots({}, container);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.count, 1);
+    assert.strictEqual(result.hotspots[0].file, 'mock-hotspot.js');
+
+    // 4. Query knowledge-risk and verify mock data
+    const krResult = await queryKnowledgeRisk({ level: 'high' }, container);
+    assert.strictEqual(krResult.ok, true);
+    assert.strictEqual(krResult.count, 1);
+    assert.strictEqual(krResult.files[0].file, 'mock-kr.js');
+
+    // 5. Query stability and verify mock data
+    const stResult = await queryStability({}, container);
+    assert.strictEqual(stResult.ok, true);
+    assert.strictEqual(stResult.count, 1);
+    assert.strictEqual(stResult.files[0].file, 'mock-stable.js');
+  });
+}
+
+async function testQueryToolsFormatters() {
+  const { formatHuman, formatSummary, formatMarkdown, formatJsonl, formatAi } = require('../src/cli/formatters/human-formatters');
+  
+  const mockResult = {
+    ok: true,
+    count: 1,
+    total: 10,
+    level: 'high',
+    hotspots: [{ file: 'foo.js', score: 12.34, risk: 'high', lines: 100, churn: 5 }],
+    files: [
+      { file: 'foo.js', riskLevel: 'high', authorCount: 1, primaryAuthor: 'Alice', primaryAuthorPct: 1, cc: 2, loc: 50, assessment: 'stable' }
+    ]
+  };
+
+  // query-hotspots formatting
+  const hotspotsHuman = formatHuman('query-hotspots', mockResult);
+  assert.ok(hotspotsHuman.includes('hotspotsCount: 1'));
+  assert.ok(hotspotsHuman.includes('foo.js'));
+
+  const hotspotsSummary = formatSummary('query-hotspots', mockResult);
+  assert.ok(hotspotsSummary.includes('Hotspots: 1'));
+
+  const hotspotsMarkdown = formatMarkdown('query-hotspots', mockResult);
+  assert.ok(hotspotsMarkdown.includes('# Query Hotspots'));
+  assert.ok(hotspotsMarkdown.includes('| foo.js | 12.34 |'));
+
+  const hotspotsJsonl = formatJsonl('query-hotspots', mockResult);
+  assert.ok(hotspotsJsonl.includes('"_type":"summary"'));
+  assert.ok(hotspotsJsonl.includes('"_type":"hotspot"'));
+
+  const hotspotsAi = formatAi('query-hotspots', mockResult);
+  assert.ok(hotspotsAi.includes('"command": "query-hotspots"'));
+
+  // query-knowledge-risk formatting
+  const krHuman = formatHuman('query-knowledge-risk', mockResult);
+  assert.ok(krHuman.includes('knowledgeRiskCount: 1'));
+
+  const krMarkdown = formatMarkdown('query-knowledge-risk', mockResult);
+  assert.ok(krMarkdown.includes('# Query Knowledge Risk'));
+
+  const krJsonl = formatJsonl('query-knowledge-risk', mockResult);
+  assert.ok(krJsonl.includes('"_type":"knowledge-risk-item"'));
+
+  // query-stability formatting
+  const stHuman = formatHuman('query-stability', mockResult);
+  assert.ok(stHuman.includes('stabilityCount: 1'));
+
+  const stMarkdown = formatMarkdown('query-stability', mockResult);
+  assert.ok(stMarkdown.includes('# Query Stability'));
+
+  const stJsonl = formatJsonl('query-stability', mockResult);
+  assert.ok(stJsonl.includes('"_type":"stability-item"'));
+}
+
 async function main() {
   await testQueryHotspotsReturnsData();
   await testQueryHotspotsFiltersByRisk();
@@ -68,6 +167,8 @@ async function main() {
   await testQueryKnowledgeRisk();
   await testQueryStability();
   await testQueryStabilityFiltersByAssessment();
+  await testQueryToolsCacheHit();
+  await testQueryToolsFormatters();
   console.log('query-tools-test: all passed');
 }
 

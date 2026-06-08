@@ -436,24 +436,30 @@ async function startRepl(options) {
           }
         }
       } else {
+        let maxExitCode = 0;
         for (let i = 0; i < results.length; i++) {
           const r = results[i];
           if (commands.length > 1) {
             console.log(`=== Command: ${r.command} ===`);
           }
+          let code = 0;
           if (r.error) {
             console.error(`Error: ${r.error}`);
-            process.exitCode = determineReplExitCode(r.error, null);
+            code = determineReplExitCode(r.error, null);
           } else if (r.output !== null) {
             console.log(r.output);
             if (typeof r.output === 'string') {
-              process.exitCode = determineReplExitCode(null, r.output);
+              code = determineReplExitCode(null, r.output);
             }
+          }
+          if (code > maxExitCode) {
+            maxExitCode = code;
           }
           if (commands.length > 1 && i < results.length - 1) {
             console.log('');
           }
         }
+        process.exitCode = maxExitCode;
       }
 
       if (!options.quiet && process.env.DEBUG) {

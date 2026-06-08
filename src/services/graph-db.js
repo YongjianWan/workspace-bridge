@@ -529,7 +529,7 @@ class GraphDB {
       return rows.map((r) => ({
         key: r.key,
         data: r.data,
-        version: Number(r.version),
+        version: isNaN(Number(r.version)) ? r.version : Number(r.version),
         fileCount: Number(r.file_count),
         computedAt: Number(r.computed_at),
       }));

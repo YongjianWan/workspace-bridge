@@ -31,7 +31,7 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 0 L3 + 2 架构债务 + 0 项 P2 Dogfood 活跃缺陷）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 0 L3 + 1 架构债务 + 0 项 P2 Dogfood 活跃缺陷）
 
 ---
 
@@ -123,7 +123,7 @@ node cli.js audit-overview --cwd . --json --quiet
 | -------------- | ----------- | ---------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
-| 活跃债务           | 2           | 弱断言分布 / slow 层过重（已归档）/ "默认宿主"（已归档）|
+| 活跃债务           | 1           | 测试类型分布失衡 |
 | **产品债务** | **0** | —                                                                  |
 
 **测试状态**：`npm run test:fast` **84/84 PASS**（~20s）。全量 runner **161/161 PASS**（~5min）。当前 fast 层 84 个测试，slow 层 70 个，serial 层 7 个。
@@ -149,26 +149,16 @@ node cli.js audit-overview --cwd . --json --quiet
 - **引入 `_runStage(name, fn)`**：自动计时、错误包装（`Stage 'X' failed: ...`），消灭 monolithic try-catch 导致的 regression 根因。
 - 零公共 API 变更；`test:fast` 84/84 PASS；runner 已跑 124 测试，0 FAIL。
 
-### 路线 A-2：dep-graph.js 协调职责上移 — **部分完成（~60%）**
+### 路线 A-2：dep-graph.js 协调职责上移 — **已完成（100%）**
 
-> **诚实评估**：已提取的职责属实，但 facade 中仍有 ~175 行协调逻辑未动，orchestrator.js 成为新的"职责收容所"（330 行，混入工厂/持久化/状态机/编排）。
-
-**已完成**：
-- 新建 `src/services/orchestrator.js`，提取 `registerGraphBuiltHandler` / `savePrecomputed` / `restorePrecomputed` / `bootstrapFromSchema` / `initializeDepGraph` / `GraphStateMachine`。
-- `container.js` `_initDepGraph` 从 ~65 行决策树压缩为 1 行。
-- dep-graph.js 从 ~654 行 → ~502 行。
-
-**仍残留**：
-- `loadGraph()` ~99 行：混合 staleness guard、metadata 验证、graph 重建、orphan 处理、bus emit、状态机切换、预计算恢复。
-- `isKnownEntryFile()` ~55 行 + `getFrameworkHint()` ~21 行：文件 I/O + 框架语义推断，且两者内容扫描逻辑完全重复。
-- 构造函数 `graph:updated` 监听器 3 行：缓存失效协调未收拢。
-
-**引入的新债务**：
-- facade ↔ orchestrator 循环依赖（dep-graph.js 静态 require orchestrator.js，orchestrator.js 运行时 require dep-graph.js）。运行时 require 打破死锁，但双向耦合仍在。
-- `savePrecomputed` 中存在 4 个几乎相同的重复 `if` 块。
-
-- DG_STATES 生命周期 helper 暂留 facade 的预判部分失效：facade → orchestrator 的静态依赖已经存在，双向耦合不是"潜在风险"而是"既成事实"。
-- `test:fast` 85/85 PASS。
+- **已完成**：
+  - 新建 `src/services/orchestrator.js`，提取 `registerGraphBuiltHandler` / `savePrecomputed` / `restorePrecomputed` / `bootstrapFromSchema` / `initializeDepGraph` / `GraphStateMachine`。
+  - `container.js` `_initDepGraph` 从 ~65 行决策树压缩为 1 行。
+  - **阶段 1：提取 EntryDetector**：`isKnownEntryFile()` + `getFrameworkHint()` + `_entryFileCache` + `graph:updated` 监听已提取到 `src/services/dep-graph/entry-detector.js`，消除了两者间的内容扫描重复代码。
+  - **阶段 2：提取 GraphLoader**：`loadGraph()` ~99 行已提取到 `src/services/dep-graph/loader.js`，dep-graph.js 保留 thin wrapper。
+  - **阶段 3：打破循环依赖**：`DG_STATES` + `GraphStateMachine` 下沉到 `src/services/dep-graph/state-machine.js`；`registerGraphBuiltHandler` + `savePrecomputed` + `restorePrecomputed` 收容到 `src/services/dep-graph/persistence.js`。dep-graph.js 不再静态依赖 orchestrator.js；`bootstrapFromSchema` 通过显式 `DependencyGraphClass` 参数消除反向运行时 require。
+  - `dep-graph.js` 行数从 ~654 行降为 **323 行**。
+  - `test:fast` **86/86 PASS**。
 
 ### 下一步方向
 
@@ -199,7 +189,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-02（Wave 1-8 全部完成；37/37 Dogfood 已修复；代码审查 100% 修复完毕；路线 B CLI 可测试化 + 路线 A-1 container 管道拆分 + **路线 A-2 orchestrator 提取全部完成**（阶段 1 EntryDetector + 阶段 2 GraphLoader + 阶段 3 打破循环依赖）；活跃债务 2 项，0 个 P2 级活跃 Bug；86/86 fast PASS）*
+*Last updated: 2026-06-03（Wave 1-8 全部完成；37/37 Dogfood 已修复；代码审查 100% 修复完毕；路线 B CLI 可测试化 + 路线 A-1 container 管道拆分 + 路线 A-2 orchestrator 提取全部完成；**阶段 3.5 聚合结果持久化与细粒度查询 CLI 已交付**；活跃债务 1 项，0 个 P2 级活跃 Bug；86/86 fast PASS）*
 
 > **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 unresolved import，自身库全量覆盖率 1.00。
 > **本轮完成**：
@@ -211,3 +201,5 @@ node cli.js audit-overview --cwd . --json --quiet
 > 6. 产出 `docs/code_review.md`。
 > 7. 架构审查结论归档至 `TECH_DEBT.md`（新增 5 项架构债务）。
 > 8. **新增 `affected-routes` 命令**：端到端请求路径追踪。给定文件反向追溯从入口到目标的完整调用链，排除 test-like 入口，支持 `--max-depth` 限制，上限 50 条自动去重。补测试 `test/affected-routes-test.js`。全量测试 84/84 PASS。
+> 9. **JSONL 格式化器与 REPL 修复**：提取全局 `pushRecord` helper 以清偿 L2-7 重复代码债务，统一对齐 `audit-overview` 和 `audit-summary` JSONL schema，使所有 findings-oriented JSONL 格式化器始终首行输出 `summary` 元数据行；修复 non-JSON REPL eval 模式多命令执行 exit code 被最后一条成功命令覆盖 of the bug，使其退出返回最高优先级错误码。补测试 `test/formatter-direct-test.js` 和 `test/bug-27-28-29-regression-test.js`，`test:fast` 全量 86/86 PASS。
+> 10. **阶段 3.5 聚合结果持久化与细粒度查询 CLI 完成**：修复 `loadPrecomputedAggregates` 盲目转换 string type 为 Number 导致 Git Commit Hash 被转成 `NaN` 而导致缓存匹配一直失效的 bug。为 `query-hotspots`、`query-knowledge-risk` 和 `query-stability` 补充了 `human`、`summary`、`markdown` 和 `jsonl` 格式化器及 AI 摘要映射。新增 `testQueryToolsCacheHit` 和 `testQueryToolsFormatters` 测试用例，并通过 `node test/query-tools-test.js` 验证全绿。
