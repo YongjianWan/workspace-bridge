@@ -5,6 +5,7 @@ const { formatHuman, formatSummary, formatMarkdown, formatJsonl, formatAi } = re
 const { buildRepoSummary } = require('../src/cli/formatters/repo-summary');
 const { buildCompositeRisk } = require('../src/cli/formatters/composite-risk');
 const { buildAuditDiffSummary, classifyChangeType } = require('../src/cli/formatters/audit-diff-summary');
+const { buildValidationAdvice, buildFileValidationAdvice } = require('../src/cli/formatters/validation-advice');
 
 // ---------------------------------------------------------------------------
 // formatHuman
@@ -938,6 +939,37 @@ function testClassifyChangeTypeReferenceArchive() {
   assert.strictEqual(classifyChangeType(entries), 'docs');
 }
 
+function testBuildValidationAdviceEmpty() {
+  const advice = buildValidationAdvice([], '.');
+  assert.strictEqual(advice.changeType, 'none');
+  assert.strictEqual(advice.summary.changedFiles, 0);
+  assert.deepStrictEqual(advice.commands, { smoke: [], focused: [], full: [] });
+}
+
+function testBuildValidationAdviceBasic() {
+  const entries = [
+    {
+      file: 'src/a.js',
+      classification: { isMainline: true, fileRole: 'library' },
+      affectedTestsCount: 1,
+      affectedTests: [{ file: 'test/a.test.js' }],
+      compositeRisk: { score: 2, level: 'medium' }
+    }
+  ];
+  const advice = buildValidationAdvice(entries, '.');
+  assert.strictEqual(advice.changeType, 'code');
+  assert.strictEqual(advice.stack.profile, 'node-first');
+  assert(Array.isArray(advice.summary));
+  assert(advice.summary.length > 0);
+}
+
+function testBuildFileValidationAdvice() {
+  const advice = buildFileValidationAdvice('src/a.js', '.');
+  assert.strictEqual(advice.changeType, 'code');
+  assert(advice.commands.smoke.length >= 0);
+  assert.strictEqual(advice.suggestedCommand, advice.suggestedCommand);
+}
+
 function main() {
   testFormatHumanError();
   testFormatHumanAuditSummary();
@@ -1012,6 +1044,9 @@ function main() {
   testClassifyChangeTypeTestMajority();
   testClassifyChangeTypeConfigMajority();
   testClassifyChangeTypeReferenceArchive();
+  testBuildValidationAdviceEmpty();
+  testBuildValidationAdviceBasic();
+  testBuildFileValidationAdvice();
 
 }
 
