@@ -24,9 +24,9 @@
 | `--cwd` 子目录分析被 Git root 覆盖 | ⏳ 设计债 | 期望分析子目录，实际返回整个仓库 | 明确文档化 `--cwd` 的 Git root 向上解析行为 |
 | `--check-regression` 仅比较结构计数 | ⏳ 已文档化 | 代码内容变更但结构计数不变时误判为无回归 | 已在 help 文本注明；内容级回归需人工审查 |
 | ESM 语法注入导致解析器崩溃 | ⏳ 观察 | CJS 项目中注入 `export const` 导致未处理 loader 异常 | 避免在 CJS 文件中使用 ESM 语法 |
-| `--exclude "*.test.js"` Glob 排除失效 | ❌ Bug | 仅匹配目录名，文件级 glob 不生效 | 使用 `--exclude test` 目录排除替代 |
-| REPL `--eval "invalid"` 错误码不对 | ❌ Bug | 期望 exit 2，实际 exit 0（静默吃掉错误） | 避免在自动化脚本中依赖 REPL 错误码 |
-| Windows 反斜杠路径解析失败 | ❌ Bug | `src\services\container.js` 被当作字符串而非路径 | 使用正斜杠 `/` 传递路径 |
+| ~~--exclude "*.test.js" Glob 排除失效~~ | ✅ **已修复** | ~~仅匹配目录名，文件级 glob 不生效~~ | **已修复**：`shouldExcludeCli` 已实现简单的 glob 通配符（如 `*.test.js` 和 `test/**/*.js`），对后缀和文件名匹配提供完整支持。详见 `test/bug-27-28-29-regression-test.js`。 |
+| ~~REPL --eval "invalid" 错误码不对~~ | ✅ **已修复** | ~~期望 exit 2，实际 exit 0（静默吃掉错误）~~ | **已修复**：REPL 的 `--eval` 执行出错时会正确设置最高优先级退出码（2=意外/崩溃，1=业务失败），并在多命令执行时防止被后续成功状态覆盖。详见 `test/bug-27-28-29-regression-test.js`。 |
+| ~~Windows 反斜杠路径解析失败~~ | ✅ **已修复** | ~~src\services\container.js 被当作字符串而非路径~~ | **已修复**：路径输入在入口处会通过 `normalizePath` / `toPosixPath` 统一转化为 POSIX 风格，并进行工作区边界安全校验。详见 `test/bug-27-28-29-regression-test.js`。 |
 | symbolImpact 多符号解构遗漏 | ⏳ 观察 | 同时导入多个解构符号时部分遗漏 | 关注 `sourceSymbols` 与 `symbolToDependents` 数量是否一致 |
 | audit-security Rule ID 映射错位 | ⏳ 观察 | Markdown 输出 `js-hardcoded-secret`，JSON 中 `rule` 为 null | 按 `ruleId` 字段消费安全规则 |
 
