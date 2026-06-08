@@ -544,6 +544,68 @@ function testBuildRepoSummaryNoNonMainline() {
   assert(!summary.nextSteps.some((s) => s.includes('mixed repositories')));
 }
 
+function testBuildRepoSummaryDeep() {
+  const health = { healthScore: '3/5', healthScoreNumeric: { passed: 3, total: 5 }, checks: { ci: { found: false }, testConfig: { found: false } } };
+  const deadExports = {
+    deadExportsCount: 5,
+    possibleFalsePositives: {
+      count: 2,
+      primaryReason: 'scaffold-code',
+      disclaimer: 'Likely dead false positives.',
+      reasons: [{ reason: 'scaffold-generated', count: 2 }]
+    }
+  };
+  const unresolved = {
+    unresolvedCount: 3,
+    possibleFalsePositives: {
+      count: 1,
+      primaryReason: 'aliasing',
+      disclaimer: 'Likely unresolved alias.'
+    }
+  };
+  const cycles = { cyclesCount: 1 };
+  const scope = { counts: { totalFiles: 50, mainlineFiles: 40, nonMainlineFiles: 10 } };
+  
+  // Test combined disclaimer & scaffold counts
+  const summary = buildRepoSummary(health, deadExports, unresolved, cycles, scope, 'python-first', null, { python: { framework: 'django' } });
+  
+  assert.strictEqual(summary.severity, 'high');
+  assert.strictEqual(summary.honesty.deadExports.scaffoldDeadExports, 2);
+  assert.strictEqual(summary.honesty.deadExports.likelyFalsePositives, 2);
+  assert.strictEqual(summary.honesty.unresolved.likelyFalsePositives, 1);
+  assert(summary.honesty.disclaimer.includes('Likely dead false positives.'));
+  assert(summary.honesty.disclaimer.includes('Likely unresolved alias.'));
+  
+  // Test python-first nextSteps
+  assert(summary.nextSteps.some(s => s.includes('manage.py test')));
+  
+  // Test java-first hygiene gaps
+  const summaryJava = buildRepoSummary(health, deadExports, unresolved, cycles, scope, 'java-first');
+  assert(summaryJava.nextSteps.some(s => s.includes('JUnit')));
+
+  // Test default stack profile hygiene gaps
+  const summaryDefault = buildRepoSummary(health, deadExports, unresolved, cycles, scope, 'unknown');
+  assert(summaryDefault.nextSteps.some(s => s.includes('LICENSE, CI, test config')));
+}
+
+function testHumanFormattersDeep() {
+  // Test formatStatsValue coverage via formatHuman('stats', ...)
+  const outStats = formatHuman('stats', {
+    stats: {
+      valNull: null,
+      valUndef: undefined,
+      arr: [1, [2, 3]],
+      obj: { a: 1, b: { c: 2 } }
+    }
+  });
+  assert(outStats.includes('arr: 1, 2, 3'));
+  assert(outStats.includes('obj: a=1, b=c=2'));
+  
+  // Test formatHuman malformed summary
+  const outMalformed = formatHuman('audit-summary', {});
+  assert(outMalformed.includes('malformed'));
+}
+
 // ---------------------------------------------------------------------------
 // formatJsonl
 // ---------------------------------------------------------------------------
@@ -917,6 +979,8 @@ function main() {
   testBuildRepoSummaryNodeStack();
   testBuildRepoSummaryJavaStack();
   testBuildRepoSummaryNoNonMainline();
+  testBuildRepoSummaryDeep();
+  testHumanFormattersDeep();
 
   testFormatJsonlError();
   testFormatJsonlAuditSecurity();
