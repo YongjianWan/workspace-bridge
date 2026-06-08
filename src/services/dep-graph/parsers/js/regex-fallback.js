@@ -31,56 +31,138 @@ function sanitizeForRegex(content) {
     }
 
     if (ch === '"') {
-      result += '""';
-      i++;
-      while (i < content.length) {
-        if (content[i] === '\\') {
-          i = Math.min(i + 2, content.length);
-        } else if (content[i] === '"') {
-          i++;
-          break;
-        } else {
-          i++;
+      const isImport = /\bfrom\s*$/i.test(result) ||
+                       /\brequire\s*\(\s*$/i.test(result) ||
+                       /\bimport\s*\(\s*$/i.test(result) ||
+                       /\bimport\s*$/i.test(result);
+      if (isImport) {
+        result += '"';
+        i++;
+        while (i < content.length) {
+          if (content[i] === '\\') {
+            result += content.slice(i, i + 2);
+            i = Math.min(i + 2, content.length);
+          } else if (content[i] === '"') {
+            result += '"';
+            i++;
+            break;
+          } else {
+            result += content[i];
+            i++;
+          }
+        }
+      } else {
+        result += '""';
+        i++;
+        while (i < content.length) {
+          if (content[i] === '\\') {
+            i = Math.min(i + 2, content.length);
+          } else if (content[i] === '"') {
+            i++;
+            break;
+          } else {
+            i++;
+          }
         }
       }
       continue;
     }
 
     if (ch === "'") {
-      result += "''";
-      i++;
-      while (i < content.length) {
-        if (content[i] === '\\') {
-          i = Math.min(i + 2, content.length);
-        } else if (content[i] === "'") {
-          i++;
-          break;
-        } else {
-          i++;
+      const isImport = /\bfrom\s*$/i.test(result) ||
+                       /\brequire\s*\(\s*$/i.test(result) ||
+                       /\bimport\s*\(\s*$/i.test(result) ||
+                       /\bimport\s*$/i.test(result);
+      if (isImport) {
+        result += "'";
+        i++;
+        while (i < content.length) {
+          if (content[i] === '\\') {
+            result += content.slice(i, i + 2);
+            i = Math.min(i + 2, content.length);
+          } else if (content[i] === "'") {
+            result += "'";
+            i++;
+            break;
+          } else {
+            result += content[i];
+            i++;
+          }
+        }
+      } else {
+        result += "''";
+        i++;
+        while (i < content.length) {
+          if (content[i] === '\\') {
+            i = Math.min(i + 2, content.length);
+          } else if (content[i] === "'") {
+            i++;
+            break;
+          } else {
+            i++;
+          }
         }
       }
       continue;
     }
 
     if (ch === '`') {
-      result += '``';
-      i++;
-      while (i < content.length) {
-        if (content[i] === '\\') {
-          i = Math.min(i + 2, content.length);
-        } else if (content[i] === '$' && content[i + 1] === '{') {
-          let depth = 1;
-          i += 2;
-          while (i < content.length && depth > 0) {
-            if (content[i] === '{') depth++;
-            else if (content[i] === '}') depth--;
+      const isImport = /\bfrom\s*$/i.test(result) ||
+                       /\brequire\s*\(\s*$/i.test(result) ||
+                       /\bimport\s*\(\s*$/i.test(result) ||
+                       /\bimport\s*$/i.test(result);
+      if (isImport) {
+        result += '`';
+        i++;
+        while (i < content.length) {
+          if (content[i] === '\\') {
+            result += content.slice(i, i + 2);
+            i = Math.min(i + 2, content.length);
+          } else if (content[i] === '$' && content[i + 1] === '{') {
+            result += '${';
+            let depth = 1;
+            i += 2;
+            while (i < content.length && depth > 0) {
+              if (content[i] === '{') {
+                depth++;
+                result += '{';
+              } else if (content[i] === '}') {
+                depth--;
+                result += '}';
+              } else {
+                result += content[i];
+              }
+              i++;
+            }
+          } else if (content[i] === '`') {
+            result += '`';
+            i++;
+            break;
+          } else {
+            result += content[i];
             i++;
           }
-        } else if (content[i] === '`') {
-          i++;
-          break;
-        } else {
-          i++;
+        }
+      } else {
+        result += '``';
+        i++;
+        while (i < content.length) {
+          if (content[i] === '\\') {
+            i = Math.min(i + 2, content.length);
+          } else if (content[i] === '$' && content[i + 1] === '{') {
+            let depth = 1;
+            i += 2;
+            while (i < content.length && depth > 0) {
+              if (content[i] === '{') depth++;
+              else if (content[i] === '}') depth--;
+              i++;
+            }
+          } else if (content[i] === '`') {
+            i++;
+            break;
+          } else {
+            i++;
+          }
         }
       }
       continue;
@@ -96,7 +178,7 @@ function extractImportsWithRegex(sanitized) {
   const imports = [];
   const importRecords = [];
 
-  const importFromRegex = /import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g;
+  const importFromRegex = /import\s+([^;]+?)\s+from\s+['"]([^'"]+)['"]/g;
   let match;
   while ((match = importFromRegex.exec(sanitized)) !== null) {
     const clause = match[1].trim();

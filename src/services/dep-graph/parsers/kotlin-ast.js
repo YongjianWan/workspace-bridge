@@ -133,6 +133,7 @@ async function parseKotlin(content) {
   } catch {
     return parseKotlinRegex(content);
   } finally {
+    try { if (tree) tree.delete(); } catch {}
     try { query.delete(); } catch {}
     try { parser.delete(); } catch {}
   }

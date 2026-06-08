@@ -525,6 +525,9 @@ class GraphBuilder {
     }
     this.dg._startUpdating();
 
+    // Refresh resolver FS caches for incremental updates to avoid stale paths
+    clearResolverCaches();
+
     const startTime = Date.now();
     let reParsed = 0;
     let skipped = 0;

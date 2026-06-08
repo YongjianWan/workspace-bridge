@@ -230,6 +230,7 @@ async function parseCppAst(content, filePath) {
   } catch {
     return parseCppRegex(content);
   } finally {
+    try { if (tree) tree.delete(); } catch {}
     try { query.delete(); } catch {}
     try { parser.delete(); } catch {}
   }

@@ -8,6 +8,18 @@
 
 ## [Unreleased]
 
+### 架构评估与代码审计修复 (2026-06-08)
+
+- **修复增量更新缓存一致性** `src/services/dep-graph/builder.js`：
+  - 在 `updateFiles()` 增量更新入口处补上 `clearResolverCaches()` 调用，确保增量更新时文件删除或修改能正确刷新 resolver 的文件系统缓存。
+- **修复 WASM AST 解析器内存泄漏** `src/services/dep-graph/parsers/` 下的 `go-ast.js` / `kotlin-ast.js` / `rust-ast.js` / `cpp-ast.js`：
+  - 在 Go、Kotlin、Rust、C++ 的 AST 解析器 `finally` 块中添加 `try { if (tree) tree.delete(); } catch {}`，确保 `tree-sitter` 语法树在解析完成后被正确释放，避免 WASM 堆内存泄漏。
+- **重构 JavaScript 正则 Fallback 正确性与回溯预防** `src/services/dep-graph/parsers/js/regex-fallback.js`：
+  - 重构了 `sanitizeForRegex` 状态机。只在检测到当前字符串字面量紧随 `from`、`require(`、`import(` 等导入上下文时才保留其字符串内容，其余情况替换为 `""`，以此防止无关字符串对正则分析的干扰，同时确保了 fallback 状态下能**正确提取到所有导入路径**（修复前会因内容被抹成 `""` 导致提取出来的 imports 全部为空）。
+  - 将 `importFromRegex` 的非贪婪匹配 `[\s\S]*?` 替换为 `[^;]+?`（即不跨越分号），有效避免了大文件/畸形输入下的灾难性正则回溯。
+- **新增回归与单元测试** `test/js-regex-import-test.js`：
+  - 新增专用测试，完整覆盖各种 imports、requires、动态 imports 以及模板字面量假 import 干扰下正则 Fallback 提取导入关系的正确性。
+
 ### 阶段 3.5 E2E集成测试 — 增加 `query-*` CLI 命令 E2E/集成测试（2026-06-08）
 
 - **新增 CLI Query 命令 E2E/集成测试** `test/cli-integration-query-test.js`：
