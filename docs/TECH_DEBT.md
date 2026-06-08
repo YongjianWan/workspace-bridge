@@ -59,7 +59,6 @@
 | `src/tools/git-tools.js`                | ~392 | 低   | L2-9 commit range 源                                                                       |
 | `src/utils/stack-detectors/detect.js`   | ~443 | 低   | stack-detector 检测子模块                                                                      |
 | `src/utils/stack-detectors/commands.js` | ~639 | 低   | stack-detector 命令子模块                                                                      |
-| `src/services/container.js`             | ~559 | 低   | ✅ **上帝方法已拆分**：引入 `_runPipeline` 与 `_runStage` 管道机制，生命周期核心剥离至 `orchestrator.js` |
 
 ---
 
@@ -73,17 +72,9 @@
 
 | 模块                                            | 状态      | 说明                                                                                                | 建议测试文件                         |
 | --------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- | ------------------------------ |
-| `src/cli/formatters/repo-summary.js`          | ⚠️ 间接覆盖 | `formatter-direct-test.js` 导入了 `buildRepoSummary` 但覆盖浅                                            | 扩展 `formatter-direct-test.js`  |
-| `src/cli/formatters/human-formatters.js`      | ⚠️ 间接覆盖 | `formatter-direct-test.js` 覆盖了部分分支                                                                | 扩展 `formatter-direct-test.js`  |
 | `src/cli/formatters/validation-advice.js`     | ⚠️ 间接覆盖 | 被 `audit-file-validation-advice-test.js` 间接覆盖                                                     | 扩展 `formatter-direct-test.js`  |
 
 ---
-
-### 有测试但可继续深化的模块
-
-| 模块                      | 测试文件                                                                   | 覆盖状态                                                                                                                            |
-| ----------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `workspace-snapshot.js` | `dep-tools-test.js` `overview-tools-test.js` `project-map-test.js`（试点） | ⚠️ 仅验证了 backward-compat（`snapshot.graph` 替代手工 mock），`getConfidence`/`knownBlindSpots`/`getSelfAwarenessSummary`/`basedOn` 零断言覆盖 |
 
 ### Flaky 根因
 
