@@ -13,66 +13,74 @@ function parseCliArgs(argv) {
     throw err;
   };
 
-  const raw = parseArgs(argv, {
-    '--cwd': { key: 'cwd' },
-    '--exclude': { key: 'exclude' },
-    '--mode': { key: 'mode' },
-    '--file': { key: 'file' },
-    '--max-depth': { key: 'maxDepth', transform: (v) => {
-      const n = Number.parseInt(v, 10);
-      if (Number.isNaN(n)) throwValidationError(`Invalid --max-depth value: ${v}. Expected a positive integer`);
-      return n;
-    } },
-    '--reuse-hints': { key: 'reuseHints' },
-    '--hotspot-data': { key: 'hotspotData' },
-    '--stability-trend-data': { key: 'stabilityTrendData' },
-    '--trend-granularity': { key: 'trendGranularity' },
-    '--overview-dashboard': { key: 'overviewDashboard' },
-    '--config': { key: 'config' },
-    '--language': { key: 'language' },
-    '--builtin-only': true,
-    '--format': { key: 'format' },
-    '--token-budget': { key: 'tokenBudget', transform: (v) => {
-      const n = Number.parseInt(v, 10);
-      if (Number.isNaN(n) || n <= 0) throwValidationError(`Invalid --token-budget value: ${v}. Expected a positive integer`);
-      return n;
-    } },
-    '--depth': { key: 'depth' },
-    '--since': { key: 'since' },
-    '--commits': { key: 'commits' },
-    '--severity': { key: 'severity' },
-    '--risk': { key: 'risk' },
-    '--level': { key: 'level' },
-    '--assessment': { key: 'assessment' },
-    '--limit': { key: 'limit', transform: (v) => {
-      const n = Number.parseInt(v, 10);
-      if (Number.isNaN(n) || n <= 0) throwValidationError(`Invalid --limit value: ${v}. Expected a positive integer`);
-      return n;
-    } },
-    '--staged': true,
-    '--files': { key: 'files' },
-    '--json': true,
-    '--quiet': true,
-    '--compact': true,
-    '--watch': true,
-    '--incremental': true,
-    '--with-impact': true,
-    '--save': { key: 'save' },
-    '--check-regression': true,
-    '--baseline': { key: 'baseline' },
-    '--cache-dir': { key: 'cacheDir' },
-    '--direction': { key: 'direction' },
-    '--eval': { key: 'eval' },
-    '--what': { key: 'what' },
-    '--fail-on-findings': true,
-    '--run-tests': true,
-    '--version': true,
-    '-v': true,
-    '--help': true,
-    '-h': true,
-    '--all': true,
-    '--strict-cwd': true,
-  });
+  let raw;
+  try {
+    raw = parseArgs(argv, {
+      '--cwd': { key: 'cwd' },
+      '--exclude': { key: 'exclude' },
+      '--mode': { key: 'mode' },
+      '--file': { key: 'file' },
+      '--max-depth': { key: 'maxDepth', transform: (v) => {
+        const n = Number.parseInt(v, 10);
+        if (Number.isNaN(n)) throwValidationError(`Invalid --max-depth value: ${v}. Expected a positive integer`);
+        return n;
+      } },
+      '--reuse-hints': { key: 'reuseHints' },
+      '--hotspot-data': { key: 'hotspotData' },
+      '--stability-trend-data': { key: 'stabilityTrendData' },
+      '--trend-granularity': { key: 'trendGranularity' },
+      '--overview-dashboard': { key: 'overviewDashboard' },
+      '--config': { key: 'config' },
+      '--language': { key: 'language' },
+      '--builtin-only': true,
+      '--format': { key: 'format' },
+      '--token-budget': { key: 'tokenBudget', transform: (v) => {
+        const n = Number.parseInt(v, 10);
+        if (Number.isNaN(n) || n <= 0) throwValidationError(`Invalid --token-budget value: ${v}. Expected a positive integer`);
+        return n;
+      } },
+      '--depth': { key: 'depth' },
+      '--since': { key: 'since' },
+      '--commits': { key: 'commits' },
+      '--severity': { key: 'severity' },
+      '--risk': { key: 'risk' },
+      '--level': { key: 'level' },
+      '--assessment': { key: 'assessment' },
+      '--limit': { key: 'limit', transform: (v) => {
+        const n = Number.parseInt(v, 10);
+        if (Number.isNaN(n) || n <= 0) throwValidationError(`Invalid --limit value: ${v}. Expected a positive integer`);
+        return n;
+      } },
+      '--staged': true,
+      '--files': { key: 'files' },
+      '--json': true,
+      '--quiet': true,
+      '--compact': true,
+      '--watch': true,
+      '--incremental': true,
+      '--with-impact': true,
+      '--save': { key: 'save' },
+      '--check-regression': true,
+      '--baseline': { key: 'baseline' },
+      '--cache-dir': { key: 'cacheDir' },
+      '--direction': { key: 'direction' },
+      '--eval': { key: 'eval' },
+      '--what': { key: 'what' },
+      '--fail-on-findings': true,
+      '--run-tests': true,
+      '--version': true,
+      '-v': true,
+      '--help': true,
+      '-h': true,
+      '--all': true,
+      '--strict-cwd': true,
+    });
+  } catch (err) {
+    if (!err.code) {
+      err.code = 'VALIDATION_ERROR';
+    }
+    throw err;
+  }
 
   const command = raw._[0] || null;
   const reuseHints = (raw.reuseHints || 'off').toLowerCase();

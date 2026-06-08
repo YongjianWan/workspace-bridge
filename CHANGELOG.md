@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### 修复 CLI 设计债：配置 schema 校验与 JSON 格式错误对齐 (2026-06-08)
+
+- **强化配置 JSON 结构校验** `src/utils/project-context.js`：
+  - 在 `ProjectContext` 构造函数和 `loadWorkspaceConfig()` 内部，统一引入并调用 `validateWorkspaceConfig()`。
+  - 对 `.workspace-bridge.json` 进行严格的 schema 校验（如错误的 top-level keys、不正确的 directories 或 directoryRoles 数组类型）。校验失败时立即抛出 Error，而不是输出被忽略的 stderr 警告，从而避免静默失效并回退到全量扫描。
+- **对齐 CLI 参数验证错误与 JSON 格式输出** `cli.js` / `src/cli/validate-args.js`：
+  - 重构了 `main()` 和 `runCliInProcess()`。如果在执行 CLI 参数解析（如无效的 `--severity` 参数）阶段抛出错误，会首先检测参数中是否要求了 `--json` 或 `--format json`。
+  - 若已要求 JSON 格式，则用 JSON 格式包装并输出错误结果 `{"ok": false, "error": ...}` 到 `stdout`，而不是在 `stderr` 打印纯文本，彻底解决 client 侧 AI 消费时反序列化崩溃的问题。
+- **新增单元与端到端测试** `test/cli-config-validation-test.js`：
+  - 新增测试用例，覆盖各种损坏配置结构的验证以及参数校验失败下的 JSON/非 JSON 错误响应转换。
+
 ### 架构评估与代码审计修复 (2026-06-08)
 
 - **修复增量更新缓存一致性** `src/services/dep-graph/builder.js`：

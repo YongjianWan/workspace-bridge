@@ -467,6 +467,49 @@ function hasEffectiveConfig(config) {
   return Object.keys(config).some((k) => k !== '$schema');
 }
 
+function validateWorkspaceConfig(config, configPath) {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    throw new Error(`Configuration root must be an object in ${configPath}`);
+  }
+
+  const validTopKeys = new Set(['directories', 'directoryRoles', '$schema']);
+  for (const key of Object.keys(config)) {
+    if (!validTopKeys.has(key)) {
+      throw new Error(`Unknown top-level key "${key}" in config file ${configPath}`);
+    }
+  }
+
+  const dirs = config.directories;
+  if (dirs !== undefined && (typeof dirs !== 'object' || Array.isArray(dirs) || dirs === null)) {
+    throw new Error(`"directories" must be an object in config file ${configPath}`);
+  } else if (dirs) {
+    const validDirKeys = new Set(['active', 'reference', 'archive', 'generated']);
+    for (const [key, value] of Object.entries(dirs)) {
+      if (!validDirKeys.has(key)) {
+        throw new Error(`Unknown directories key "${key}" in config file ${configPath}`);
+      } else if (!Array.isArray(value)) {
+        throw new Error(`directories.${key} must be an array in config file ${configPath}`);
+      } else if (!value.every((v) => typeof v === 'string')) {
+        throw new Error(`directories.${key} must be an array of strings in config file ${configPath}`);
+      }
+    }
+  }
+
+  const roles = config.directoryRoles;
+  if (roles !== undefined && (typeof roles !== 'object' || Array.isArray(roles) || roles === null)) {
+    throw new Error(`"directoryRoles" must be an object in config file ${configPath}`);
+  } else if (roles) {
+    const validRoles = new Set(['active', 'reference', 'archive', 'generated']);
+    for (const [key, value] of Object.entries(roles)) {
+      if (typeof key !== 'string' || typeof value !== 'string') {
+        throw new Error(`directoryRoles keys and values must be strings in config file ${configPath}`);
+      } else if (!validRoles.has(value)) {
+        throw new Error(`Unknown role "${value}" for directory "${key}" in config file ${configPath}`);
+      }
+    }
+  }
+}
+
 function loadWorkspaceConfig(root, options = {}) {
   const configPath = path.join(root, '.workspace-bridge.json');
   if (!pathExists(configPath)) return null;
@@ -478,46 +521,7 @@ function loadWorkspaceConfig(root, options = {}) {
     throw new Error(`Invalid JSON in config file ${configPath}: ${err.message}`);
   }
 
-  // Lightweight schema validation: warn on unknown keys / wrong types,
-  // but still load the file so the user isn't blocked.
-  if (!options.quiet) {
-    const validTopKeys = new Set(['directories', 'directoryRoles']);
-    for (const key of Object.keys(config)) {
-      if (!validTopKeys.has(key)) {
-        console.error(`[Config] Warning: unknown top-level key "${key}" in ${configPath}`);
-      }
-    }
-
-    const dirs = config.directories;
-    if (dirs !== undefined && (typeof dirs !== 'object' || Array.isArray(dirs))) {
-      console.error(`[Config] Warning: "directories" must be an object in ${configPath}`);
-    } else if (dirs) {
-      const validDirKeys = new Set(['active', 'reference', 'archive', 'generated']);
-      for (const [key, value] of Object.entries(dirs)) {
-        if (!validDirKeys.has(key)) {
-          console.error(`[Config] Warning: unknown directories key "${key}" in ${configPath}`);
-        } else if (!Array.isArray(value)) {
-          console.error(`[Config] Warning: directories.${key} must be an array in ${configPath}`);
-        } else if (!value.every((v) => typeof v === 'string')) {
-          console.error(`[Config] Warning: directories.${key} must be an array of strings in ${configPath}`);
-        }
-      }
-    }
-
-    const roles = config.directoryRoles;
-    if (roles !== undefined && (typeof roles !== 'object' || Array.isArray(roles))) {
-      console.error(`[Config] Warning: "directoryRoles" must be an object in ${configPath}`);
-    } else if (roles) {
-      const validRoles = new Set(['active', 'reference', 'archive', 'generated']);
-      for (const [key, value] of Object.entries(roles)) {
-        if (typeof key !== 'string' || typeof value !== 'string') {
-          console.error(`[Config] Warning: directoryRoles keys and values must be strings in ${configPath}`);
-        } else if (!validRoles.has(value)) {
-          console.error(`[Config] Warning: unknown role "${value}" for directory "${key}" in ${configPath}`);
-        }
-      }
-    }
-  }
+  validateWorkspaceConfig(config, configPath);
 
   const directories = {
     active: ensureArray(config.directories?.active),
@@ -573,6 +577,7 @@ class ProjectContext {
       } catch (err) {
         throw new Error(`Invalid JSON in config file ${this.configPath}: ${err.message}`);
       }
+      validateWorkspaceConfig(this.config, this.configPath);
     } else {
       this.config = {};
     }

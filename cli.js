@@ -214,6 +214,13 @@ async function runCliInProcess(args, opts = {}) {
   try {
     parsed = parseCliArgs(['node', 'cli.js', ...args]);
   } catch (err) {
+    const isJsonRequested = args.includes('--json') ||
+                            args.includes('--format=json') ||
+                            (args.indexOf('--format') >= 0 && args[args.indexOf('--format') + 1] === 'json');
+    if (isJsonRequested) {
+      const stdout = JSON.stringify({ ok: false, error: err.message || String(err), schemaVersion: SCHEMA_VERSION });
+      return { status: err.code === 'VALIDATION_ERROR' ? 1 : 2, stdout, stderr: '' };
+    }
     return { status: err.code === 'VALIDATION_ERROR' ? 1 : 2, stdout: '', stderr: err.message };
   }
 
@@ -293,12 +300,19 @@ async function main() {
   try {
     parsed = parseCliArgs(process.argv);
   } catch (err) {
-    console.error(err.message);
-    if (err.code === 'VALIDATION_ERROR') {
-      process.exit(1);
+    const args = process.argv;
+    const isJsonRequested = args.includes('--json') ||
+                            args.includes('--format=json') ||
+                            (args.indexOf('--format') >= 0 && args[args.indexOf('--format') + 1] === 'json');
+    if (isJsonRequested) {
+      console.log(JSON.stringify({ ok: false, error: err.message || String(err), schemaVersion: SCHEMA_VERSION }));
+    } else {
+      console.error(err.message);
+      if (err.code !== 'VALIDATION_ERROR') {
+        printUsage();
+      }
     }
-    printUsage();
-    process.exit(1);
+    process.exit(err.code === 'VALIDATION_ERROR' ? 1 : 2);
   }
 
   if (parsed.version) {
