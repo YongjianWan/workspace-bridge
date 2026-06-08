@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+### 阶段 3.5 E2E集成测试 — 增加 `query-*` CLI 命令 E2E/集成测试（2026-06-08）
+
+- **新增 CLI Query 命令 E2E/集成测试** `test/cli-integration-query-test.js`：
+  - 为 `query-hotspots`、`query-knowledge-risk` 和 `query-stability` 新增端到端/集成测试。
+  - 通过 `spawnSync` 模拟真实进程调用 CLI，验证不同格式化器（`human`、`summary`、`markdown`、`jsonl`、`ai`）、过滤条件（`risk`、`level`、`assessment`）与限制参数（`--limit`）的业务语义。
+  - 通过注入至少一条依赖 edge 并执行 `audit-summary` 预热，配合 `GraphDB` 成功写入 Mock `analysis_snapshot` 聚合结果，从而解决冷启动缓存重算与 precomputed_aggregates 全表清空的缓存未命中问题。
+- **注册 Slow 运行层** `test/runner.js`：
+  - 将 `cli-integration-query-test.js` 注册进 `KNOWN_SLOW_PATTERNS`，使其在慢 layer/E2E 进程隔离环境下稳定并发运行。
+
 ### 兼容性修复 — `DependencyGraph` `_state` 属性回补（2026-06-03）
 
 - **回补 `dg._state` 私有属性** `src/services/dep-graph.js`：
