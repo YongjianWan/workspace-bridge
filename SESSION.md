@@ -189,7 +189,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-03（Wave 1-8 全部完成；37/37 Dogfood 已修复；代码审查 100% 修复完毕；路线 B CLI 可测试化 + 路线 A-1 container 管道拆分 + 路线 A-2 orchestrator 提取全部完成；**阶段 3.5 聚合结果持久化与细粒度查询 CLI 已交付**；活跃债务 1 项，0 个 P2 级活跃 Bug；86/86 fast PASS）*
+*Last updated: 2026-06-08（Wave 1-8 全部完成；37/37 Dogfood 已修复；代码审查 100% 修复完毕；路线 B CLI 可测试化 + 路线 A-1 container 管道拆分 + 路线 A-2 orchestrator 提取全部完成；**阶段 3.5 聚合结果持久化与细粒度查询 CLI 已交付**；活跃债务 1 项，0 个 P2 级活跃 Bug；87/87 fast/slow tests verified PASS）*
 
 > **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 unresolved import，自身库全量覆盖率 1.00。
 > **本轮完成**：
@@ -203,3 +203,4 @@ node cli.js audit-overview --cwd . --json --quiet
 > 8. **新增 `affected-routes` 命令**：端到端请求路径追踪。给定文件反向追溯从入口到目标的完整调用链，排除 test-like 入口，支持 `--max-depth` 限制，上限 50 条自动去重。补测试 `test/affected-routes-test.js`。全量测试 84/84 PASS。
 > 9. **JSONL 格式化器与 REPL 修复**：提取全局 `pushRecord` helper 以清偿 L2-7 重复代码债务，统一对齐 `audit-overview` 和 `audit-summary` JSONL schema，使所有 findings-oriented JSONL 格式化器始终首行输出 `summary` 元数据行；修复 non-JSON REPL eval 模式多命令执行 exit code 被最后一条成功命令覆盖 of the bug，使其退出返回最高优先级错误码。补测试 `test/formatter-direct-test.js` 和 `test/bug-27-28-29-regression-test.js`，`test:fast` 全量 86/86 PASS。
 > 10. **阶段 3.5 聚合结果持久化与细粒度查询 CLI 完成**：修复 `loadPrecomputedAggregates` 盲目转换 string type 为 Number 导致 Git Commit Hash 被转成 `NaN` 而导致缓存匹配一直失效的 bug。为 `query-hotspots`、`query-knowledge-risk` 和 `query-stability` 补充了 `human`、`summary`、`markdown` 和 `jsonl` 格式化器及 AI 摘要映射。新增 `testQueryToolsCacheHit` 和 `testQueryToolsFormatters` 测试用例，并通过 `node test/query-tools-test.js` 验证全绿。
+> 11. **Stage 3.5 CLI query-* E2E/集成测试补全**：新增 `test/cli-integration-query-test.js`。通过注入 mock 数据与 `audit-summary` 进行 cache 预热，验证了 hotspots/knowledge-risk/stability 相应的命令行参数（`--risk`, `--level`, `--assessment`, `--limit`, `--cwd`）和 5 种输出格式格式化器。同时将该测试文件注册到 `runner.js` 中的 slow layer，确保测试运行的高内聚与进程级缓存隔离。
