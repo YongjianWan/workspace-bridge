@@ -81,32 +81,9 @@ node cli.js audit-overview --cwd . --json --quiet
 > 根据项目文档规范，“历史只在 changelog 里面有，活跃文档只存当前状态”。
 
 ### 本轮已交付
-
-- **Wave 7：Dogfood P2 缺陷集中歼灭（2026-05-28）**：#22 参数验证错误分类重定向（`_utils.js` + `cli.js`）、#35 `--check-regression` 缺失 baseline fail-fast（`audit-assembler.js` + `overview-tools.js`）、#37 REPL `--eval` 分号多命令支持（`repl.js`）、#30 内置安全规则语言过滤与测试目录排除（`security-tools.js`）。详见 CHANGELOG [Unreleased] §Wave 7。
-- **第二轮深度代码审查修复（2026-05-28）**：基于 `docs/code_review.md` 修复 5 项问题并补充测试。
-  - **安全**：`regression-tools.js` 3 处 `execSync` 字符串拼接全部替换为 `execFileSync` 参数数组，根治 Command Injection（`--baseline` 参数注入风险）。
-  - **状态机**：`container.js` 删除 `initialized`/`initializing` setter，消除绕过 `VALID_TRANSITIONS` 的后门。
-  - **性能**：`shared.js` `bfsTraverse` 热路径 `queue.shift()` O(n) 改为指针 `head++`，复杂度降一个数量级。
-  - **死代码**：`builder.js` 删除 O6 重构残留的第二次 `_finishUpdating()` 调用。
-  - **封装**：`workspace-snapshot.js` 删除 `DependencyGraphView` 对 `_scanSymbolUsageInImporters` 的内部方法暴露。
-  - **文档**：`code_review.md` 已清理已修复条目，`TECH_DEBT.md` 同步追加 4 项新活跃债务。
-- **第三轮深度代码审查修复 + 测试.harness 回归修复（2026-05-28）**：
-  - **Analyzer 封装**：`analyzer.js` 暴露 `restoreAggregateCache` / `setOverviewData` / `getAggregateCache` / `clearScanCaches` 正规接口；`container.js` 全部替换为 API 调用，消除直接戳 `_aggregateCache` 的内部操作。
-  - **REPL 内存泄漏封堵**：`findDeadExports()` 返回前 `clearScanCaches()`，消除 watch 模式下 500 文件 × 100KB 的泄漏上限。
-  - **metadata-only dirty 修复**：`graph-db.js` + `cache.js` 将 metadata 非空纳入 `hasWork`，确保 version/timestamp 更新能触发写入事务。
-  - **Baseline 解析统一**：删除 `audit-assembler.js` 与 `overview-tools.js` 中各自 fallback 路径，统一由 `regressionTools.resolveBaseline()` 驱动。
-  - **回归测试 exit code 对齐**：移除 `resolveBaseline` 的 try-catch 遮蔽，让 `Baseline file not found` 作为 `path_error` 传播，返回 exit code `2`，修复 `test/regression-test.js` 硬失败。
-  - **spawnSync maxBuffer 修复**：`test/test-helpers.js` 默认 `maxBuffer` 提升至 5MB，修复 `audit-diff` 大量输出导致 `status === null` 的 `validation-advice-schema-test.js` 失败。
-- **Wave 7 代码重构与债务偿还（2026-05-28）**：提取 `regression-tools.js` 公共函数 `resolveBaseline` 消除 `audit-assembler.js` ↔ `overview-tools.js` 跨文件重复代码（L2-7）；`security-tools.js` `isTestPath` 硬编码列表提取为 `TEST_PATH_PATTERNS` 常量（L2-6）。
-- **文档规范化卫生清理（2026-05-28）**：
-  - 深度清理 `docs/TECH_DEBT.md`，彻底移除已修复的 29 项 Dogfood 缺陷详情与草案，物理精简为仅包含 8 项活跃的 P2 级体验缺陷，历史已修复信息全部交由 [CHANGELOG.md](./CHANGELOG.md) [Unreleased] 追溯。
-  - 深度清理 `SESSION.md`，删除已完成的 Wave 1-6 长表与验收标准等冗余细节，保持会话指南的紧凑性与行动导向。
-  - 回归跑通基线命令，确认系统完好。
-- **致命回归修复与 Dogfood 陷阱归档（2026-05-28）**：
-  - 修复上一轮 commit 中 `GraphAnalyzer` API 承诺与实现不一致（`getAggregateCache` / `clearScanCaches` 缺失），导致 CLI 启动崩溃的致命回归。
-  - 复现验证并归档 5 个已修复的 Dogfood 陷阱：空文件 severity 误报（Pitfall 4）、`--format ai` 丢失 validationAdvice（Structural 5）、validationAdvice schema 不一致（Structural 1）、REPL `--eval --json` 文本包裹（Structural 3）、stats Markdown `[object Object]` 输出。
-  - 同步清理 `TECH_DEBT.md` 中上述已修复陷阱的活跃记录，更新 Redundant/Broken Tier 状态。
-
+> **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 unresolved import，自身库全量覆盖率 1.00。
+> **本轮完成**：
+> 11. **Stage 3.5 CLI query-* E2E/集成测试补全**：新增 `test/cli-integration-query-test.js`。通过注入 mock 数据与 `audit-summary` 进行 cache 预热，验证了 hotspots/knowledge-risk/stability 相应的命令行参数（`--risk`, `--level`, `--assessment`, `--limit`, `--cwd`）和 5 种输出格式格式化器。同时将该测试文件注册到 `runner.js` 中的 slow layer，确保测试运行的高内聚与进程级缓存隔离。
 ---
 
 ## 活跃问题与技术债务
@@ -191,16 +168,4 @@ node cli.js audit-overview --cwd . --json --quiet
 
 *Last updated: 2026-06-08（Wave 1-8 全部完成；37/37 Dogfood 已修复；代码审查 100% 修复完毕；路线 B CLI 可测试化 + 路线 A-1 container 管道拆分 + 路线 A-2 orchestrator 提取全部完成；**阶段 3.5 聚合结果持久化与细粒度查询 CLI 已交付**；活跃债务 1 项，0 个 P2 级活跃 Bug；87/87 fast/slow tests verified PASS）*
 
-> **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 unresolved import，自身库全量覆盖率 1.00。
-> **本轮完成**：
-> 1. 修复 `_aggregateCache` 封装泄漏（4处直读+8处`_aggregateVersion`改为getter）。
-> 2. 统一 `affectedTests` `terminator` 字段语义。
-> 3. 封装 `graph-db.js` `emitWarning` monkey-patch（引用计数）。
-> 4. 统一 `repl.js` 退出码判断（`determineReplExitCode`）。
-> 5. 限制 `debug.js` graph 分支计算量（上限+截断标记）。
-> 6. 产出 `docs/code_review.md`。
-> 7. 架构审查结论归档至 `TECH_DEBT.md`（新增 5 项架构债务）。
-> 8. **新增 `affected-routes` 命令**：端到端请求路径追踪。给定文件反向追溯从入口到目标的完整调用链，排除 test-like 入口，支持 `--max-depth` 限制，上限 50 条自动去重。补测试 `test/affected-routes-test.js`。全量测试 84/84 PASS。
-> 9. **JSONL 格式化器与 REPL 修复**：提取全局 `pushRecord` helper 以清偿 L2-7 重复代码债务，统一对齐 `audit-overview` 和 `audit-summary` JSONL schema，使所有 findings-oriented JSONL 格式化器始终首行输出 `summary` 元数据行；修复 non-JSON REPL eval 模式多命令执行 exit code 被最后一条成功命令覆盖 of the bug，使其退出返回最高优先级错误码。补测试 `test/formatter-direct-test.js` 和 `test/bug-27-28-29-regression-test.js`，`test:fast` 全量 86/86 PASS。
-> 10. **阶段 3.5 聚合结果持久化与细粒度查询 CLI 完成**：修复 `loadPrecomputedAggregates` 盲目转换 string type 为 Number 导致 Git Commit Hash 被转成 `NaN` 而导致缓存匹配一直失效的 bug。为 `query-hotspots`、`query-knowledge-risk` 和 `query-stability` 补充了 `human`、`summary`、`markdown` 和 `jsonl` 格式化器及 AI 摘要映射。新增 `testQueryToolsCacheHit` 和 `testQueryToolsFormatters` 测试用例，并通过 `node test/query-tools-test.js` 验证全绿。
-> 11. **Stage 3.5 CLI query-* E2E/集成测试补全**：新增 `test/cli-integration-query-test.js`。通过注入 mock 数据与 `audit-summary` 进行 cache 预热，验证了 hotspots/knowledge-risk/stability 相应的命令行参数（`--risk`, `--level`, `--assessment`, `--limit`, `--cwd`）和 5 种输出格式格式化器。同时将该测试文件注册到 `runner.js` 中的 slow layer，确保测试运行的高内聚与进程级缓存隔离。
+
