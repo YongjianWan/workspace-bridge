@@ -57,6 +57,7 @@ const KNOWN_SLOW_PATTERNS = [
   /formatter-e2e-others-test\.js$/,
   /cli-integration-core-test\.js$/,
   /cli-integration-edge-test\.js$/,
+  /cli-integration-query-test\.js$/,
   /staged-files-test\.js$/,
   /with-impact-test\.js$/,
   /gors-stack-detection-test\.js$/,
