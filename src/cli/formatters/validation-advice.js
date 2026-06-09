@@ -21,6 +21,7 @@ function buildValidationAdvice(entries, workspaceRoot) {
         rust: false,
       },
       commands: { smoke: [], focused: [], full: [] },
+      suggestedCommand: null,
       topRiskActions: [],
       phases: [],
       summary: {
