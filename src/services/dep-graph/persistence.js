@@ -6,6 +6,10 @@
  * circular dependency. Both modules now depend on this shared substrate
  * instead of each other.
  */
+const fs = require('fs');
+const { extractRoutes } = require('./framework-patterns');
+
+const DEFAULT_AFFECTED_TESTS_DEPTH = 3; // default search depth for precomputing affected tests
 
 /**
  * Register the 'graph:built' event listener that coordinates post-build
@@ -61,11 +65,88 @@ async function savePrecomputed(depGraph) {
         directDependents: data.directDependents,
         transitiveDependents: data.transitiveDependents,
         affectedTests: JSON.stringify(data.affectedTests),
+        impactRadius: JSON.stringify(data.impactRadius),
         version: analyzer._impactVersion,
       });
     }
     if (impactRecords.length > 0) {
       depGraph.cache.savePrecomputedImpact(impactRecords);
+    }
+
+    // Wave 9-2: extract and persist route declarations
+    if (depGraph.cache.saveRoutes) {
+      const allRoutes = [];
+      for (const [filePath, info] of depGraph.graph) {
+        if (!info.frameworkHint) continue;
+        try {
+          const content = await fs.promises.readFile(filePath, 'utf-8');
+          const routes = extractRoutes(filePath, content);
+          for (const r of routes) {
+            allRoutes.push({ file: filePath, ...r });
+          }
+        } catch {
+          // skip files that can't be read
+        }
+      }
+      if (allRoutes.length > 0) {
+        depGraph.cache.saveRoutes(allRoutes);
+      }
+    }
+
+    // Save metrics
+    if (depGraph.cache.saveMetrics) {
+      const metrics = [];
+      if (analyzer._pageRanks) {
+        for (const [file, val] of analyzer._pageRanks) {
+          metrics.push({ file, dimension: 'pagerank', value: val });
+        }
+      }
+      const agg = analyzer.getAggregateCache();
+      if (agg && agg.hotspots) {
+        for (const h of agg.hotspots) {
+          const fullPath = depGraph.normalizeFilePath(h.file);
+          metrics.push({ file: fullPath, dimension: 'hotspot_score', value: h.score });
+          let riskVal = 0;
+          if (h.risk === 'high') riskVal = 3;
+          else if (h.risk === 'medium') riskVal = 2;
+          else if (h.risk === 'low') riskVal = 1;
+          metrics.push({ file: fullPath, dimension: 'risk_score', value: riskVal });
+        }
+      }
+      if (depGraph.cache.coChanges && depGraph.cache.coChanges.fileChangeCounts) {
+        for (const [file, count] of depGraph.cache.coChanges.fileChangeCounts) {
+          const fullPath = depGraph.normalizeFilePath(file);
+          metrics.push({ file: fullPath, dimension: 'cochange_score', value: count });
+        }
+      }
+      if (metrics.length > 0) {
+        depGraph.cache.saveMetrics(metrics);
+      }
+    }
+
+    // Save test_map
+    if (depGraph.cache.saveTestMap) {
+      const testMaps = [];
+      for (const [filePath] of depGraph.graph) {
+        if (depGraph.isTestLikeFile(filePath)) continue;
+        const tests = depGraph.analyzer.findAffectedTests(filePath, DEFAULT_AFFECTED_TESTS_DEPTH, { includeHeuristic: true });
+        for (const t of tests) {
+          const testFileNormalized = depGraph.normalizeFilePath(t.file);
+          let signal = 'import';
+          if (t.source === 'heuristic') signal = 'heuristic';
+          else if (t.source === 'mention') signal = 'mention';
+
+          testMaps.push({
+            source: filePath,
+            testFile: testFileNormalized,
+            signal,
+            distance: t.distance,
+          });
+        }
+      }
+      if (testMaps.length > 0) {
+        depGraph.cache.saveTestMap(testMaps);
+      }
     }
   } catch (e) {
     if (process.env.DEBUG) {
@@ -98,6 +179,24 @@ function restorePrecomputed(depGraph) {
       if (!depGraph.quiet && ok) {
         // eslint-disable-next-line no-console
         console.error('[Persistence] Precomputed impact restored for', impactRows.length, 'files');
+      }
+    }
+
+    const metricsRows = depGraph.cache.loadMetrics();
+    if (metricsRows && metricsRows.length > 0) {
+      const ok = depGraph.analyzer.injectPrecomputedMetrics(metricsRows);
+      if (!depGraph.quiet && ok) {
+        // eslint-disable-next-line no-console
+        console.error('[Persistence] Precomputed metrics restored for', metricsRows.length, 'entries');
+      }
+    }
+
+    const testMapRows = depGraph.cache.loadTestMap();
+    if (testMapRows && testMapRows.length > 0) {
+      const ok = depGraph.analyzer.injectPrecomputedTestMap(testMapRows);
+      if (!depGraph.quiet && ok) {
+        // eslint-disable-next-line no-console
+        console.error('[Persistence] Precomputed test map restored for', testMapRows.length, 'entries');
       }
     }
   } catch (e) {

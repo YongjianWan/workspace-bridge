@@ -4,7 +4,7 @@ description: Use this skill when the goal is to audit a local codebase with work
 ---
 # workspace-audit
 
-> **AI-first 调用约定。** 本 skill 教 AI 如何高效使用 workspace-bridge-cli。完整命令参考见 [SKILL-REFERENCE.md](./reference/SKILL-REFERENCE.md)。
+> **AI-first 调用约定。** 本 skill 教 AI 如何高效使用 workspace-bridge-cli。
 
 ## Purpose
 
@@ -254,17 +254,6 @@ for dir in */; do
   echo "=== $dir ==="
   workspace-bridge-cli audit-overview --cwd "$dir" --format jsonl --quiet
 done
-```
-
-`--format jsonl` 每行输出一个带 `_type` 的 JSON 对象，适合管道筛选：
-
-```bash
-# 筛选热点文件
-workspace-bridge-cli audit-summary --cwd . --format jsonl --quiet | jq -r 'select(._type=="hotspot").file'
-# 筛选知识风险文件
-workspace-bridge-cli audit-summary --cwd . --format jsonl --quiet | jq -r 'select(._type=="knowledge-risk").file'
-# 只看概要行
-workspace-bridge-cli audit-summary --cwd . --format jsonl --quiet | jq 'select(._type=="summary")'
 ```
 
 或使用聚合脚本（输出合并 severity）：

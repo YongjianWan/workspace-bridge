@@ -15,7 +15,7 @@ const CACHE_TABLE_SCHEMA = {
     resultKey: 'fileMetadata',
     incrementalKeys: { dirty: 'dirtyFiles', deleted: 'deletedFiles' },
     idColumn: 'path',
-    columns: ['path', 'mtime', 'size', 'hash', 'line_count', 'original_path'],
+    columns: ['path', 'mtime', 'size', 'hash', 'line_count', 'original_path', 'type', 'role', 'lang'],
     serialize: (path, meta) => [
       path,
       meta.mtime ?? 0,
@@ -23,6 +23,9 @@ const CACHE_TABLE_SCHEMA = {
       meta.hash ?? '',
       meta.lineCount ?? 0,
       meta.originalPath || null,
+      meta.type || 'source',
+      meta.role || null,
+      meta.lang || null,
     ],
     deserialize: (row) => ({
       mtime: Number(row.mtime),
@@ -30,6 +33,9 @@ const CACHE_TABLE_SCHEMA = {
       hash: row.hash,
       lineCount: Number(row.line_count),
       originalPath: row.original_path,
+      type: row.type || 'source',
+      role: row.role || null,
+      lang: row.lang || null,
     }),
   },
   parse_results: {
@@ -97,7 +103,10 @@ const SCHEMA = `
     size INTEGER,
     hash TEXT,
     line_count INTEGER,
-    original_path TEXT
+    original_path TEXT,
+    type TEXT NOT NULL DEFAULT 'source',
+    role TEXT,
+    lang TEXT
   );
 
   CREATE TABLE IF NOT EXISTS parse_results (
@@ -128,6 +137,8 @@ const SCHEMA = `
     target TEXT NOT NULL,
     edge_type TEXT NOT NULL DEFAULT 'import',
     confidence REAL NOT NULL DEFAULT 1.0,
+    tier TEXT NOT NULL DEFAULT 'tier1',
+    resolution_method TEXT NOT NULL DEFAULT 'import',
     PRIMARY KEY (source, target, edge_type)
   );
   CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source);
@@ -150,9 +161,38 @@ const SCHEMA = `
     direct_dependents INTEGER NOT NULL DEFAULT 0,
     transitive_dependents INTEGER NOT NULL DEFAULT 0,
     affected_tests TEXT,
+    impact_radius TEXT,
     version INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS idx_precomputed_impact_version ON precomputed_impact(version);
+
+  CREATE TABLE IF NOT EXISTS routes (
+    file TEXT NOT NULL,
+    method TEXT NOT NULL,
+    path TEXT NOT NULL,
+    framework TEXT NOT NULL,
+    handler TEXT,
+    PRIMARY KEY (file, method, path)
+  );
+  CREATE INDEX IF NOT EXISTS idx_routes_file ON routes(file);
+  CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
+
+  CREATE TABLE IF NOT EXISTS metrics (
+    file TEXT NOT NULL,
+    dimension TEXT NOT NULL,
+    value REAL NOT NULL,
+    computed_at INTEGER NOT NULL,
+    PRIMARY KEY (file, dimension)
+  );
+
+  CREATE TABLE IF NOT EXISTS test_map (
+    source TEXT NOT NULL,
+    test_file TEXT NOT NULL,
+    signal TEXT NOT NULL DEFAULT 'import',
+    distance INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (source, test_file)
+  );
+  CREATE INDEX IF NOT EXISTS idx_test_map_source ON test_map(source);
 `;
 
 let _originalEmitWarning;
@@ -232,6 +272,23 @@ class GraphDB {
     const hasOriginalPath = cols.some((c) => c.name === 'original_path');
     if (!hasOriginalPath) {
       this.db.prepare('ALTER TABLE file_metadata ADD COLUMN original_path TEXT').run();
+    }
+    const hasType = cols.some((c) => c.name === 'type');
+    if (!hasType) {
+      this.db.prepare("ALTER TABLE file_metadata ADD COLUMN type TEXT NOT NULL DEFAULT 'source'").run();
+      this.db.prepare('ALTER TABLE file_metadata ADD COLUMN role TEXT').run();
+      this.db.prepare('ALTER TABLE file_metadata ADD COLUMN lang TEXT').run();
+    }
+    // Wave 9-1: add impact_radius column to precomputed_impact
+    const impactCols = this.db.prepare('PRAGMA table_info(precomputed_impact)').all();
+    if (impactCols.length > 0 && !impactCols.some((c) => c.name === 'impact_radius')) {
+      this.db.prepare('ALTER TABLE precomputed_impact ADD COLUMN impact_radius TEXT').run();
+    }
+    // Wave 10-2: add tier and resolution_method columns to edges
+    const edgeCols = this.db.prepare('PRAGMA table_info(edges)').all();
+    if (edgeCols.length > 0 && !edgeCols.some((c) => c.name === 'tier')) {
+      this.db.prepare("ALTER TABLE edges ADD COLUMN tier TEXT NOT NULL DEFAULT 'tier1'").run();
+      this.db.prepare("ALTER TABLE edges ADD COLUMN resolution_method TEXT NOT NULL DEFAULT 'import'").run();
     }
   }
 
@@ -444,14 +501,16 @@ class GraphDB {
       this._executeInTransaction(() => {
         this.db.prepare('DELETE FROM edges').run();
         const insert = this.db.prepare(
-          'INSERT OR REPLACE INTO edges (source, target, edge_type, confidence) VALUES (?, ?, ?, ?)'
+          'INSERT OR REPLACE INTO edges (source, target, edge_type, confidence, tier, resolution_method) VALUES (?, ?, ?, ?, ?, ?)'
         );
         for (const edge of edges) {
           insert.run(
             edge.source,
             edge.target,
             edge.edgeType || 'import',
-            Number(edge.confidence ?? 1.0)
+            Number(edge.confidence ?? 1.0),
+            edge.tier || 'tier1',
+            edge.resolutionMethod || 'import'
           );
         }
 
@@ -472,19 +531,21 @@ class GraphDB {
 
   /**
    * Load all dependency edges from SQLite.
-   * @returns {Array<{source:string,target:string,edgeType:string,confidence:number}>|null}
+   * @returns {Array<{source:string,target:string,edgeType:string,confidence:number,tier:string,resolutionMethod:string}>|null}
    */
   loadEdges() {
     try {
       this._ensureOpen();
       const rows = this.db.prepare(
-        'SELECT source, target, edge_type, confidence FROM edges'
+        'SELECT source, target, edge_type, confidence, tier, resolution_method FROM edges'
       ).all();
       return rows.map((r) => ({
         source: r.source,
         target: r.target,
         edgeType: r.edge_type,
         confidence: Number(r.confidence),
+        tier: r.tier || 'tier1',
+        resolutionMethod: r.resolution_method || 'import',
       }));
     } catch (err) {
       _debugError('Load edges', err);
@@ -541,7 +602,7 @@ class GraphDB {
 
   /**
    * Save precomputed per-file impact data to SQLite.
-   * @param {Array<{file:string,directDeps:number,transitiveDeps:number,directDependents:number,transitiveDependents:number,affectedTests?:string,version:number}>} records
+   * @param {Array<{file:string,directDeps:number,transitiveDeps:number,directDependents:number,transitiveDependents:number,affectedTests?:string,impactRadius?:string,version:number}>} records
    */
   savePrecomputedImpact(records) {
     try {
@@ -549,7 +610,7 @@ class GraphDB {
       this._executeInTransaction(() => {
         this.db.prepare('DELETE FROM precomputed_impact').run();
         const insert = this.db.prepare(
-          'INSERT INTO precomputed_impact (file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, version) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO precomputed_impact (file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, impact_radius, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         for (const rec of records) {
           insert.run(
@@ -559,6 +620,7 @@ class GraphDB {
             rec.directDependents ?? 0,
             rec.transitiveDependents ?? 0,
             rec.affectedTests || null,
+            rec.impactRadius || null,
             rec.version ?? 0
           );
         }
@@ -572,13 +634,13 @@ class GraphDB {
 
   /**
    * Load precomputed per-file impact data from SQLite.
-   * @returns {Array<{file:string,directDeps:number,transitiveDeps:number,directDependents:number,transitiveDependents:number,affectedTests:string|null,version:number}>|null}
+   * @returns {Array<{file:string,directDeps:number,transitiveDeps:number,directDependents:number,transitiveDependents:number,affectedTests:string|null,impactRadius:string|null,version:number}>|null}
    */
   loadPrecomputedImpact() {
     try {
       this._ensureOpen();
       const rows = this.db.prepare(
-        'SELECT file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, version FROM precomputed_impact'
+        'SELECT file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, impact_radius, version FROM precomputed_impact'
       ).all();
       return rows.map((r) => ({
         file: r.file,
@@ -587,6 +649,7 @@ class GraphDB {
         directDependents: Number(r.direct_dependents),
         transitiveDependents: Number(r.transitive_dependents),
         affectedTests: r.affected_tests,
+        impactRadius: r.impact_radius,
         version: Number(r.version),
       }));
     } catch (err) {
@@ -614,8 +677,208 @@ class GraphDB {
       return false;
     }
   }
+
+  /**
+   * Batch save helper.
+   */
+  _saveBatch(tableName, queryStr, mapperFn, items) {
+    try {
+      this._ensureOpen();
+      this._executeInTransaction(() => {
+        this.db.prepare(`DELETE FROM ${tableName}`).run();
+        const stmt = this.db.prepare(queryStr);
+        for (const item of items) {
+          stmt.run(...mapperFn(item));
+        }
+      });
+      return true;
+    } catch (err) {
+      _debugError(`Save ${tableName}`, err);
+      return false;
+    }
+  }
+
+  /**
+   * Load all helper.
+   */
+  _loadAll(tableName, queryStr, mapperFn) {
+    try {
+      this._ensureOpen();
+      const rows = this.db.prepare(queryStr).all();
+      return rows.map(mapperFn);
+    } catch (err) {
+      _debugError(`Load ${tableName}`, err);
+      return null;
+    }
+  }
+
+  /**
+   * Load helper filtered by files.
+   */
+  _loadForFiles(tableName, queryStrPattern, files, mapperFn) {
+    try {
+      this._ensureOpen();
+      if (!files || files.length === 0) return [];
+      const placeholders = files.map(() => '?').join(',');
+      const rows = this.db.prepare(
+        queryStrPattern.replace('$PLACEHOLDERS', placeholders)
+      ).all(...files);
+      return rows.map(mapperFn);
+    } catch (err) {
+      _debugError(`Load ${tableName} for files`, err);
+      return [];
+    }
+  }
+
+  /**
+   * Save HTTP route declarations to SQLite.
+   * @param {Array<{file:string,method:string,path:string,framework:string,handler?:string}>} routes
+   */
+  saveRoutes(routes) {
+    return this._saveBatch(
+      'routes',
+      'INSERT OR REPLACE INTO routes (file, method, path, framework, handler) VALUES (?, ?, ?, ?, ?)',
+      (r) => [r.file, r.method, r.path, r.framework, r.handler || null],
+      routes
+    );
+  }
+
+  /**
+   * Load all HTTP route declarations from SQLite.
+   * @returns {Array<{file:string,method:string,path:string,framework:string,handler:string|null}>|null}
+   */
+  loadRoutes() {
+    return this._loadAll(
+      'routes',
+      'SELECT file, method, path, framework, handler FROM routes',
+      (r) => ({
+        file: r.file,
+        method: r.method,
+        path: r.path,
+        framework: r.framework,
+        handler: r.handler,
+      })
+    );
+  }
+
+  /**
+   * Load routes for a specific set of files (for impact-based queries).
+   * @param {string[]} files
+   * @returns {Array<{file:string,method:string,path:string,framework:string,handler:string|null}>}
+   */
+  loadRoutesForFiles(files) {
+    return this._loadForFiles(
+      'routes',
+      'SELECT file, method, path, framework, handler FROM routes WHERE file IN ($PLACEHOLDERS)',
+      files,
+      (r) => ({
+        file: r.file,
+        method: r.method,
+        path: r.path,
+        framework: r.framework,
+        handler: r.handler,
+      })
+    );
+  }
+
+  /**
+   * Save per-file metrics (PageRank, hotspot_score, risk_score, etc.) to SQLite.
+   * @param {Array<{file:string,dimension:string,value:number}>} metrics
+   */
+  saveMetrics(metrics) {
+    const now = Math.floor(Date.now() / 1000);
+    return this._saveBatch(
+      'metrics',
+      'INSERT OR REPLACE INTO metrics (file, dimension, value, computed_at) VALUES (?, ?, ?, ?)',
+      (m) => [m.file, m.dimension, Number(m.value), now],
+      metrics
+    );
+  }
+
+  /**
+   * Load all metrics from SQLite.
+   * @returns {Array<{file:string,dimension:string,value:number,computedAt:number}>|null}
+   */
+  loadMetrics() {
+    return this._loadAll(
+      'metrics',
+      'SELECT file, dimension, value, computed_at FROM metrics',
+      (r) => ({
+        file: r.file,
+        dimension: r.dimension,
+        value: Number(r.value),
+        computedAt: Number(r.computed_at),
+      })
+    );
+  }
+
+  /**
+   * Load metrics for specific files.
+   * @param {string[]} files
+   * @returns {Array<{file:string,dimension:string,value:number,computedAt:number}>}
+   */
+  loadMetricsForFiles(files) {
+    return this._loadForFiles(
+      'metrics',
+      'SELECT file, dimension, value, computed_at FROM metrics WHERE file IN ($PLACEHOLDERS)',
+      files,
+      (r) => ({
+        file: r.file,
+        dimension: r.dimension,
+        value: Number(r.value),
+        computedAt: Number(r.computed_at),
+      })
+    );
+  }
+
+  /**
+   * Save test mappings to SQLite.
+   * @param {Array<{source:string,testFile:string,signal:string,distance:number}>} testMaps
+   */
+  saveTestMap(testMaps) {
+    return this._saveBatch(
+      'test_map',
+      'INSERT OR REPLACE INTO test_map (source, test_file, signal, distance) VALUES (?, ?, ?, ?)',
+      (tm) => [tm.source, tm.testFile, tm.signal || 'import', tm.distance ?? 1],
+      testMaps
+    );
+  }
+
+  /**
+   * Load all test maps.
+   */
+  loadTestMap() {
+    return this._loadAll(
+      'test_map',
+      'SELECT source, test_file, signal, distance FROM test_map',
+      (r) => ({
+        source: r.source,
+        testFile: r.test_file,
+        signal: r.signal,
+        distance: Number(r.distance),
+      })
+    );
+  }
+
+  /**
+   * Load test map for specific source files.
+   */
+  loadTestMapForFiles(files) {
+    return this._loadForFiles(
+      'test_map',
+      'SELECT source, test_file, signal, distance FROM test_map WHERE source IN ($PLACEHOLDERS)',
+      files,
+      (r) => ({
+        source: r.source,
+        testFile: r.test_file,
+        signal: r.signal,
+        distance: Number(r.distance),
+      })
+    );
+  }
 }
 
 module.exports = {
   GraphDB,
 };
+

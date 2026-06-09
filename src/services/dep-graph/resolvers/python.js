@@ -28,7 +28,13 @@ function tryPythonRelative(importPath, fromFile, ctx) {
     ? path.join(currentDir, ...remainder.split('.'))
     : currentDir;
 
-  return tryPythonCandidates(basePath) || basePath;
+  const resolved = tryPythonCandidates(basePath) || basePath;
+  if (resolved && ctx.outMeta) {
+    ctx.outMeta.method = 'python-relative';
+    ctx.outMeta.confidence = 1.0;
+    ctx.outMeta.tier = 'tier1';
+  }
+  return resolved;
 }
 
 function tryPythonAbsolute(importPath, _fromFile, ctx) {
@@ -58,6 +64,11 @@ function tryPythonAbsolute(importPath, _fromFile, ctx) {
   for (const searchRoot of searchRoots) {
     const resolved = tryPythonCandidates(path.join(searchRoot, modulePath));
     if (resolved) {
+      if (ctx.outMeta) {
+        ctx.outMeta.method = 'python-absolute';
+        ctx.outMeta.confidence = 1.0;
+        ctx.outMeta.tier = 'tier1';
+      }
       return resolved;
     }
   }

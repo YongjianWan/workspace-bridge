@@ -591,6 +591,30 @@ class WorkspaceCache {
     return this._graphDb.deletePrecomputedImpact(files);
   }
 
+  saveMetrics(metrics) {
+    return this._graphDb.saveMetrics(metrics);
+  }
+
+  loadMetrics() {
+    return this._graphDb.loadMetrics();
+  }
+
+  loadMetricsForFiles(files) {
+    return this._graphDb.loadMetricsForFiles(files);
+  }
+
+  saveTestMap(testMaps) {
+    return this._graphDb.saveTestMap(testMaps);
+  }
+
+  loadTestMap() {
+    return this._graphDb.loadTestMap();
+  }
+
+  loadTestMapForFiles(files) {
+    return this._graphDb.loadTestMapForFiles(files);
+  }
+
   close() {
     if (this._graphDb) {
       this._graphDb.close();

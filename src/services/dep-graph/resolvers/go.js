@@ -6,9 +6,23 @@ function tryGoRelative(importPath, fromFile, ctx) {
 
   const fromDir = path.dirname(fromFile);
   const resolved = path.resolve(fromDir, importPath);
-  if (ctx.cachedExistsSync(resolved)) return resolved;
+  if (ctx.cachedExistsSync(resolved)) {
+    if (ctx.outMeta) {
+      ctx.outMeta.method = 'go-relative';
+      ctx.outMeta.confidence = 1.0;
+      ctx.outMeta.tier = 'tier1';
+    }
+    return resolved;
+  }
   const resolvedGo = `${resolved}.go`;
-  if (ctx.cachedExistsSync(resolvedGo)) return resolvedGo;
+  if (ctx.cachedExistsSync(resolvedGo)) {
+    if (ctx.outMeta) {
+      ctx.outMeta.method = 'go-relative';
+      ctx.outMeta.confidence = 1.0;
+      ctx.outMeta.tier = 'tier1';
+    }
+    return resolvedGo;
+  }
   return null;
 }
 
@@ -31,7 +45,13 @@ function tryGoModule(importPath, _fromFile, ctx) {
     const entries = fs.readdirSync(targetDir).sort();
     const goFile = entries.find((f) => f.endsWith('.go') && !f.endsWith('_test.go'));
     if (goFile) {
-      return path.join(targetDir, goFile);
+      const resolved = path.join(targetDir, goFile);
+      if (ctx.outMeta) {
+        ctx.outMeta.method = 'go-module';
+        ctx.outMeta.confidence = 1.0;
+        ctx.outMeta.tier = 'tier1';
+      }
+      return resolved;
     }
   } catch {
     // ignore

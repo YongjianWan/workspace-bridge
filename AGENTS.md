@@ -29,7 +29,7 @@
 **定位**：AI 的代码脚手架（Code Scaffolding for AI），不是人的报告工具。
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
-- **当前债务**：L1/产品债务已清零；L2 债务已清零；L3 债务与品味 4 项（见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）
+- **当前债务**：L1/L2/产品债务已清零；架构债务 2 项（见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
@@ -231,7 +231,7 @@ THEN 拿到结果后必须执行：
   1. 阅读完整输出，记录 impactedFiles.length 和 affectedTests.length
   2. 如果 impactedFiles 包含 dep-graph.js / cache.js / graph-db.js / container.js：
       → 核心基础设施被波及，改动必须保守，优先向后兼容（保留旧接口 + 新增，不删不改现有行为）
-  3. 收工前必须跑 `npm run test:fast` 并 83/83 PASS，确认无回归
+  3. 收工前必须跑 `npm run test:fast` 并 88/88 PASS，确认无回归
 ```
 
 > 其余检查（裸数字、异常安全、语义同步、重复代码）已由 L1/L2 覆盖，无需单列。
@@ -243,6 +243,6 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-05-28（Wave 1-7 全部完成；34/37 Dogfood 已修复；性能攻坚三枪已交付；exit code 49 已根治；knowledgeRisk 已交付；历史测试回归修复已交付；node:sqlite 迁移已交付；npm run test:fast 83/83 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-09（Wave 1-10 全部完成；37/37 Dogfood 已修复；node:sqlite 与元数据置信度迁移已交付；npm run test:fast 89/89 PASS；schemaVersion: 1.2.0；version: 2.0.0；架构债务 2 项；SQLite 持久化 11/14 表已实现）*
 
 

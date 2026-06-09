@@ -53,21 +53,21 @@ function main() {
     // Test 2: CLI adapter error — invalid --max-depth should surface parse error
     {
       const result = run(['affected-tests', '--file', 'index.js', '--max-depth', 'abc']);
-      assert.strictEqual(result.status, 2, 'invalid --max-depth should exit 2');
+      assert.strictEqual(result.status, 1, 'invalid --max-depth should exit 1');
       assert(result.stderr.includes('Invalid') || result.stdout.includes('Invalid'), 'should surface validation error');
     }
 
     // Test 3: CLI adapter error — invalid --reuse-hints value
     {
       const result = run(['audit-diff', '--reuse-hints', 'maybe', '--json']);
-      assert.strictEqual(result.status, 2, 'invalid --reuse-hints should exit 2');
+      assert.strictEqual(result.status, 1, 'invalid --reuse-hints should exit 1');
       assert(result.stderr.includes('Invalid') || result.stdout.includes('Invalid'), 'should surface reuse-hints error');
     }
 
     // Test 4: CLI adapter error — invalid --trend-granularity value
     {
       const result = run(['audit-overview', '--trend-granularity', 'hour', '--json']);
-      assert.strictEqual(result.status, 2, 'invalid --trend-granularity should exit 2');
+      assert.strictEqual(result.status, 1, 'invalid --trend-granularity should exit 1');
       assert(result.stderr.includes('Invalid') || result.stdout.includes('Invalid'), 'should surface trend-granularity error');
     }
 
@@ -92,10 +92,10 @@ function main() {
       }
     }
 
-    // Test 7: CLI adapter error — invalid --token-budget should exit 2
+    // Test 7: CLI adapter error — invalid --token-budget should exit 1
     {
       const result = run(['audit-diff', '--token-budget', '-100']);
-      assert.strictEqual(result.status, 2, 'invalid --token-budget should exit 2');
+      assert.strictEqual(result.status, 1, 'invalid --token-budget should exit 1');
       assert(result.stderr.includes('Invalid --token-budget') || result.stdout.includes('Invalid --token-budget'), 'should surface token-budget error');
     }
   } finally {

@@ -12,6 +12,14 @@ async function impact(args, container, filePath) {
   }
   const relativeFile = path.relative(container.workspaceRoot, filePath).replace(/\\/g, '/');
   const coChanges = coChangeData ? getCoChangePartners(relativeFile, coChangeData, { minCount: 2, partnerLimit: 10 }) : [];
+
+  // Wave 9-2: collect affected routes from impacted files
+  let affectedRoutes = [];
+  if (container.cache?.loadRoutesForFiles) {
+    const impactedFiles = [filePath, ...impact.map((r) => r.file)];
+    affectedRoutes = container.cache.loadRoutesForFiles(impactedFiles);
+  }
+
   return {
     ok: true,
     file: args.file,
@@ -20,6 +28,7 @@ async function impact(args, container, filePath) {
     impact,
     symbolImpact,
     coChanges,
+    affectedRoutes,
   };
 }
 

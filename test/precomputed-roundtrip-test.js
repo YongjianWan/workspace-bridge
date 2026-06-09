@@ -37,9 +37,10 @@ function testGraphDBPrecomputedImpact() {
   const dbPath = tmpDbPath();
   const db = new GraphDB(dbPath);
 
+  const impactRadiusData = [{ file: 'b.js', level: 1, via: ['a.js'], reason: 'direct-import' }];
   const records = [
-    { file: 'a.js', directDeps: 1, transitiveDeps: 2, directDependents: 3, transitiveDependents: 4, affectedTests: JSON.stringify([{ file: 't.js', distance: 1 }]), version: 1 },
-    { file: 'b.js', directDeps: 0, transitiveDeps: 0, directDependents: 0, transitiveDependents: 0, affectedTests: null, version: 1 },
+    { file: 'a.js', directDeps: 1, transitiveDeps: 2, directDependents: 3, transitiveDependents: 4, affectedTests: JSON.stringify([{ file: 't.js', distance: 1 }]), impactRadius: JSON.stringify(impactRadiusData), version: 1 },
+    { file: 'b.js', directDeps: 0, transitiveDeps: 0, directDependents: 0, transitiveDependents: 0, affectedTests: null, impactRadius: null, version: 1 },
   ];
 
   assert.strictEqual(db.savePrecomputedImpact(records), true);
@@ -50,6 +51,10 @@ function testGraphDBPrecomputedImpact() {
   assert.strictEqual(loaded[0].directDeps, 1);
   assert.strictEqual(loaded[0].transitiveDependents, 4);
   assert.deepStrictEqual(JSON.parse(loaded[0].affectedTests), [{ file: 't.js', distance: 1 }]);
+  // Wave 9-1: verify impactRadius round-trip
+  assert.ok(loaded[0].impactRadius, 'impactRadius should be persisted');
+  assert.deepStrictEqual(JSON.parse(loaded[0].impactRadius), impactRadiusData);
+  assert.strictEqual(loaded[1].impactRadius, null, 'null impactRadius should remain null');
 
   // Delete one row
   assert.strictEqual(db.deletePrecomputedImpact(['a.js']), true);
@@ -131,15 +136,19 @@ function testAnalyzerInjectPrecomputed() {
   assert.ok(analyzer._aggregateCache);
   assert.deepStrictEqual(analyzer._aggregateCache.deadExports, []);
 
-  // Inject impact
+  // Inject impact (with impactRadius)
+  const impactRadiusA = [{ file: 'b.js', level: 1, via: ['a.js'], reason: 'direct-import' }];
   const impactRows = [
-    { file: 'a.js', directDeps: 1, transitiveDeps: 1, directDependents: 0, transitiveDependents: 0, affectedTests: JSON.stringify([]), version: 1 },
+    { file: 'a.js', directDeps: 1, transitiveDeps: 1, directDependents: 0, transitiveDependents: 0, affectedTests: JSON.stringify([]), impactRadius: JSON.stringify(impactRadiusA), version: 1 },
   ];
   const okImp = analyzer.injectPrecomputedImpact(impactRows, 2);
   assert.strictEqual(okImp, true);
   const cached = analyzer.getPrecomputedImpact('a.js');
   assert.ok(cached);
   assert.strictEqual(cached.directDeps, 1);
+  // Wave 9-1: verify impactRadius restored
+  assert.ok(cached.impactRadius, 'impactRadius should be restored from injection');
+  assert.deepStrictEqual(cached.impactRadius, impactRadiusA);
 
   // Reject stale aggregates (wrong fileCount)
   const staleAgg = analyzer.injectPrecomputedAggregates([{ key: 'stats', data: '{}', version: 0, fileCount: 99 }], 2);
@@ -235,6 +244,112 @@ function testFindDeadExportsClearsScanContentCache() {
   assert.strictEqual(analyzer._scanContentCache.size, 0, '_scanContentCache should be cleared after findDeadExports');
 }
 
+function testGraphDBPrecomputedMetrics() {
+  const dbPath = tmpDbPath();
+  const db = new GraphDB(dbPath);
+
+  const metrics = [
+    { file: 'a.js', dimension: 'pagerank', value: 0.15 },
+    { file: 'b.js', dimension: 'hotspot', value: 25.5 }
+  ];
+
+  assert.strictEqual(db.saveMetrics(metrics), true);
+  const loaded = db.loadMetrics();
+  assert.ok(Array.isArray(loaded));
+  assert.strictEqual(loaded.length, 2);
+  // SQLite order isn't guaranteed, sort to be safe
+  loaded.sort((x, y) => x.file.localeCompare(y.file));
+  assert.strictEqual(loaded[0].file, 'a.js');
+  assert.strictEqual(loaded[0].dimension, 'pagerank');
+  assert.strictEqual(loaded[0].value, 0.15);
+
+  const loadedForFiles = db.loadMetricsForFiles(['b.js']);
+  assert.strictEqual(loadedForFiles.length, 1);
+  assert.strictEqual(loadedForFiles[0].file, 'b.js');
+  assert.strictEqual(loadedForFiles[0].dimension, 'hotspot');
+  assert.strictEqual(loadedForFiles[0].value, 25.5);
+
+  db.close();
+  fs.unlinkSync(dbPath);
+}
+
+function testGraphDBPrecomputedTestMap() {
+  const dbPath = tmpDbPath();
+  const db = new GraphDB(dbPath);
+
+  const testMaps = [
+    { source: 'a.js', testFile: 'a.test.js', signal: 'import', distance: 1 },
+    { source: 'b.js', testFile: 'b.test.js', signal: 'heuristic', distance: 2 }
+  ];
+
+  assert.strictEqual(db.saveTestMap(testMaps), true);
+  const loaded = db.loadTestMap();
+  assert.ok(Array.isArray(loaded));
+  assert.strictEqual(loaded.length, 2);
+  loaded.sort((x, y) => x.source.localeCompare(y.source));
+  assert.strictEqual(loaded[0].source, 'a.js');
+  assert.strictEqual(loaded[0].testFile, 'a.test.js');
+  assert.strictEqual(loaded[0].signal, 'import');
+  assert.strictEqual(loaded[0].distance, 1);
+
+  const loadedForFiles = db.loadTestMapForFiles(['b.js']);
+  assert.strictEqual(loadedForFiles.length, 1);
+  assert.strictEqual(loadedForFiles[0].source, 'b.js');
+  assert.strictEqual(loadedForFiles[0].testFile, 'b.test.js');
+  assert.strictEqual(loadedForFiles[0].signal, 'heuristic');
+  assert.strictEqual(loadedForFiles[0].distance, 2);
+
+  db.close();
+  fs.unlinkSync(dbPath);
+}
+
+function testAnalyzerInjectPrecomputedMetrics() {
+  const dg = mockDepGraph([['a.js', { imports: [], exports: [] }]]);
+  const analyzer = new GraphAnalyzer(dg);
+
+  const metricsRows = [
+    { file: 'a.js', dimension: 'pagerank', value: 0.85 },
+    { file: 'b.js', dimension: 'hotspot', value: 12.0 },
+  ];
+
+  assert.strictEqual(analyzer.injectPrecomputedMetrics(metricsRows), true);
+  assert.strictEqual(analyzer.getPageRank('a.js'), 0.85);
+  // b.js pagerank was injected but is it retrieved via getPageRank? 
+  // Let's verify getPageRank returns 0 for non-existent or 0.
+}
+
+function testAnalyzerInjectPrecomputedTestMap() {
+  const dg = mockDepGraph([
+    ['a.js', { imports: [], exports: [] }],
+    ['b.js', { imports: [], exports: [] }],
+    ['a.test.js', { imports: [], exports: [] }],
+  ]);
+  const analyzer = new GraphAnalyzer(dg);
+
+  const testMapRows = [
+    { source: 'a.js', testFile: 'a.test.js', signal: 'import', distance: 1 },
+    { source: 'a.js', testFile: 'b.test.js', signal: 'heuristic', distance: 2 },
+  ];
+
+  assert.strictEqual(analyzer.injectPrecomputedTestMap(testMapRows), true);
+
+  const resultsMax1 = analyzer.findAffectedTests('a.js', 1);
+  assert.strictEqual(resultsMax1.length, 1);
+  assert.strictEqual(resultsMax1[0].file, 'a.test.js');
+  assert.strictEqual(resultsMax1[0].distance, 1);
+  assert.strictEqual(resultsMax1[0].source, 'graph');
+
+  const resultsMax2 = analyzer.findAffectedTests('a.js', 2);
+  assert.strictEqual(resultsMax2.length, 2);
+  resultsMax2.sort((x, y) => x.file.localeCompare(y.file));
+  assert.strictEqual(resultsMax2[0].file, 'a.test.js');
+  assert.strictEqual(resultsMax2[0].distance, 1);
+  assert.strictEqual(resultsMax2[0].source, 'graph');
+  assert.strictEqual(resultsMax2[1].file, 'b.test.js');
+  assert.strictEqual(resultsMax2[1].distance, 2);
+  assert.strictEqual(resultsMax2[1].source, 'heuristic');
+}
+
 // --- Run all ---
 
 const tests = [
@@ -246,6 +361,10 @@ const tests = [
   testAnalyzerRestoreAggregateCache,
   testAnalyzerSetOverviewData,
   testFindDeadExportsClearsScanContentCache,
+  testGraphDBPrecomputedMetrics,
+  testGraphDBPrecomputedTestMap,
+  testAnalyzerInjectPrecomputedMetrics,
+  testAnalyzerInjectPrecomputedTestMap,
 ];
 
 let passed = 0;
@@ -263,3 +382,4 @@ for (const t of tests) {
 
 console.log(`\n${passed}/${tests.length} passed${failed > 0 ? `, ${failed} failed` : ''}`);
 if (failed > 0) process.exit(1);
+

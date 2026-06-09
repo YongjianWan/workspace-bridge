@@ -42,7 +42,13 @@ function _resolveAlias(importPath, root) {
 
 function tryAlias(importPath, _fromFile, ctx) {
   if (importPath.startsWith('.') || importPath.startsWith('/')) return null;
-  return _resolveAlias(importPath, ctx.root);
+  const resolved = _resolveAlias(importPath, ctx.root);
+  if (resolved && ctx.outMeta) {
+    ctx.outMeta.method = 'alias';
+    ctx.outMeta.confidence = 1.0;
+    ctx.outMeta.tier = 'tier1';
+  }
+  return resolved;
 }
 
 function tryRelativeWithExtensions(importPath, fromFile, ctx) {
@@ -89,6 +95,11 @@ function tryRelativeWithExtensions(importPath, fromFile, ctx) {
       if (stat.isDirectory()) {
         continue;
       }
+      if (ctx.outMeta) {
+        ctx.outMeta.method = 'relative';
+        ctx.outMeta.confidence = 1.0;
+        ctx.outMeta.tier = 'tier1';
+      }
       return candidate;
     }
   }
@@ -96,6 +107,11 @@ function tryRelativeWithExtensions(importPath, fromFile, ctx) {
   const baseStat = ctx.cachedStatSync(resolvedBase);
   if (baseStat && baseStat.isDirectory()) {
     return null;
+  }
+  if (ctx.outMeta) {
+    ctx.outMeta.method = 'relative';
+    ctx.outMeta.confidence = 1.0;
+    ctx.outMeta.tier = 'tier1';
   }
   return resolvedBase;
 }

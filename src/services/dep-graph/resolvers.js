@@ -99,7 +99,13 @@ function trySymbolTable(importPath, fromFile, ctx) {
   if (!symbolName) return null;
 
   const fromDir = fromFile ? path.dirname(fromFile) : null;
-  return ctx.symbolRegistry.lookupUnique(symbolName, fromDir);
+  const resolved = ctx.symbolRegistry.lookupUnique(symbolName, fromDir);
+  if (resolved && ctx.outMeta) {
+    ctx.outMeta.method = 'symbol-table';
+    ctx.outMeta.confidence = 0.8;
+    ctx.outMeta.tier = 'tier2';
+  }
+  return resolved;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,7 +126,7 @@ registerResolverConfig('.go', [tryGoRelative, tryGoModule, trySymbolTable]);
 registerResolverConfig('.rs', [tryRustCrate, tryRustSuper, trySymbolTable]);
 registerResolverConfig('default', [tryAlias, tryRelativeWithExtensions, trySymbolTable]);
 
-function resolveImport(fromFile, importPath, ext, root, symbolRegistry = null) {
+function resolveImport(fromFile, importPath, ext, root, symbolRegistry = null, outMeta = null) {
   if (!importPath) return null;
   let resolver = _resolverCache.get(ext);
   if (!resolver) {
@@ -128,7 +134,11 @@ function resolveImport(fromFile, importPath, ext, root, symbolRegistry = null) {
     resolver = createResolver(strategies);
     _resolverCache.set(ext, resolver);
   }
-  return resolver(importPath, fromFile, _buildContext(root, symbolRegistry));
+  const ctx = _buildContext(root, symbolRegistry);
+  if (outMeta) {
+    ctx.outMeta = outMeta;
+  }
+  return resolver(importPath, fromFile, ctx);
 }
 
 module.exports = {

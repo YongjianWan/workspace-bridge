@@ -14,6 +14,7 @@ const { CONFIG } = require('./shared');
 const { SymbolRegistry } = require('./symbol-registry');
 
 const readFile = promisify(fs.readFile);
+const YIELD_INTERVAL = 20; // event loop yield frequency for large repos
 class GraphBuilder {
   constructor(depGraph) {
     this.dg = depGraph;
@@ -95,8 +96,35 @@ class GraphBuilder {
       }
     }
     
-    // Process only changed/new files with concurrency limit
-    await this._processFilesWithLimit(filesToAnalyze, CONFIG.DEFAULT_CONCURRENCY);
+    // Decoupled Phase 1: Parse Phase (Extract symbols and imports)
+    const parsedList = await this._parseFilesWithLimit(filesToAnalyze, CONFIG.DEFAULT_CONCURRENCY);
+    
+    for (const parsed of parsedList) {
+      this.dg.graph.set(parsed.graphKey, {
+        originalPath: parsed.filePath,
+        imports: [],
+        exports: parsed.exports,
+        importRecords: [],
+        exportRecords: parsed.exportRecords,
+        functionRecords: parsed.functionRecords,
+        parseMode: parsed.parseMode,
+        parseModeReason: parsed.parseModeReason,
+        confidence: parsed.confidence,
+        package: parsed.package,
+      });
+    }
+
+    // Build the global symbol registry with cached files + newly parsed files' exports
+    this._buildSymbolRegistry();
+
+    // Decoupled Phase 2: Link/Resolve Phase (Resolve imports using completed symbol registry)
+    for (const parsed of parsedList) {
+      try {
+        this.resolveFileOnly(parsed);
+      } catch (e) {
+        this._markParseError(parsed.graphKey, parsed.filePath, `[DepGraph] Failed to resolve imports for ${parsed.filePath}: ${e?.message || e}`);
+      }
+    }
 
     // P105: run post-process phases (framework implicit imports, etc.)
     for (const phase of this.postProcessPhases) {
@@ -153,7 +181,7 @@ class GraphBuilder {
         await Promise.race(executing);
       }
       // Yield to event loop every 20 files to prevent starvation in large repos
-      if ((i + 1) % 20 === 0) {
+      if ((i + 1) % YIELD_INTERVAL === 0) {
         await new Promise((r) => setImmediate(r));
       }
     }
@@ -161,123 +189,177 @@ class GraphBuilder {
     await Promise.all(executing);
   }
 
+  async _parseFilesWithLimit(files, limit) {
+    const executing = new Set();
+    const results = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const promise = this.parseFileOnly(file)
+        .then((res) => {
+          if (res) results.push(res);
+        })
+        .catch(() => undefined)
+        .finally(() => executing.delete(promise));
+      executing.add(promise);
+
+      if (executing.size >= limit) {
+        await Promise.race(executing);
+      }
+      if ((i + 1) % YIELD_INTERVAL === 0) {
+        await new Promise((r) => setImmediate(r));
+      }
+    }
+
+    await Promise.all(executing);
+    return results;
+  }
+
+  async parseFileOnly(filePath) {
+    const graphKey = this.dg.normalizeFilePath(filePath);
+    const content = await readFile(filePath, 'utf8');
+    const ext = path.extname(filePath);
+    
+    let imports = [];
+    let exports = [];
+    let importRecords = [];
+    let exportRecords = [];
+    let functionRecords = [];
+    let parseMode = 'none';
+    let packageName = null;
+
+    const entry = registry.findByExt(ext);
+    if (entry) {
+      const args = entry.needsFilePath ? [content, filePath] : [content];
+      const result = entry.async ? await entry.parser(...args) : entry.parser(...args);
+      if (result) {
+        imports = result.imports;
+        exports = result.exports;
+        importRecords = result.importRecords || [];
+        exportRecords = result.exportRecords || [];
+        functionRecords = result.functionRecords || [];
+        parseMode = result.parseMode || 'regex';
+        packageName = result.package || null;
+      }
+    }
+
+    let parseModeReason = 'unsupported-extension';
+    if (entry) {
+      if (parseMode === 'ast') {
+        parseModeReason = 'ast-success';
+      } else if (entry.async) {
+        parseModeReason = 'regex-fallback';
+      } else {
+        parseModeReason = 'regex-native';
+      }
+    }
+
+    return {
+      filePath,
+      graphKey,
+      content,
+      imports,
+      exports,
+      importRecords,
+      exportRecords,
+      functionRecords,
+      parseMode,
+      parseModeReason,
+      confidence: parseMode === 'ast' ? 'high' : 'medium',
+      package: packageName,
+    };
+  }
+
+  resolveFileOnly(parsed) {
+    const { filePath, graphKey, content, imports, exports, importRecords, exportRecords, functionRecords, parseMode, parseModeReason, confidence, package: packageName } = parsed;
+    const ext = path.extname(filePath);
+
+    // Resolve relative/absolute/symbol imports to absolute paths
+    const resolvedImportRecords = (importRecords.length > 0 ? importRecords : imports.map((source) => createImportRecord(source)))
+      .map((record) => {
+        const outMeta = {};
+        const resolved = resolveImport(filePath, record.source, ext, this.dg.root, this.symbolRegistry, outMeta);
+        if (!resolved) {
+          // Keep wildcard imports even if they don't resolve directly to a file
+          if (record.usesAllExports && record.source.endsWith('.*')) {
+            return record;
+          }
+          return null;
+        }
+        return {
+          ...record,
+          resolved: this.dg.normalizeFilePath(resolved),
+          tier: outMeta.tier || 'tier1',
+          resolutionMethod: outMeta.method || 'import',
+          confidence: outMeta.confidence ?? 1.0,
+        };
+      })
+      .filter(Boolean);
+
+    // Down-shift framework implicit dependencies scan
+    const implicitExts = ['.js', '.jsx', '.ts', '.tsx', '.vue', '.mjs', '.cjs'];
+    if (implicitExts.includes(ext.toLowerCase())) {
+      const implicitSources = scanAndExtractImplicitImports(filePath, content);
+      if (implicitSources.length > 0) {
+        const resolvedImps = resolveImplicitImports(filePath, implicitSources, this.dg.root);
+        for (const { source, resolved: resolvedPath, patternId } of resolvedImps) {
+          const normalizedResolved = this.dg.normalizeFilePath(resolvedPath);
+          if (normalizedResolved === graphKey) continue;
+
+          const hasRecord = resolvedImportRecords.some(
+            (r) => r.resolved === normalizedResolved && r.source === source
+          );
+          if (!hasRecord) {
+            const rec = buildImplicitImportRecord(source, normalizedResolved, patternId);
+            rec.tier = 'tier1';
+            rec.resolutionMethod = 'implicit-framework';
+            rec.confidence = 1.0;
+            resolvedImportRecords.push(rec);
+          }
+        }
+      }
+    }
+
+    const resolvedImports = resolvedImportRecords.map((record) => record.resolved).filter((imp) => imp && imp !== graphKey);
+
+    this.dg.graph.set(graphKey, {
+      originalPath: filePath,
+      imports: resolvedImports,
+      exports,
+      importRecords: resolvedImportRecords,
+      exportRecords,
+      functionRecords: functionRecords.length > 0 ? functionRecords : [],
+      parseMode,
+      parseModeReason,
+      confidence,
+      package: packageName,
+    });
+
+    // Cache parse result for incremental rebuilds
+    const meta = this.dg.cache.getFileMetadata(filePath);
+    if (meta) {
+      this.dg.cache.setParseResult(filePath, {
+        ...this.dg.graph.get(graphKey),
+        mtime: meta.mtime,
+      });
+    }
+  }
+
   async analyzeFile(filePath) {
     try {
-      const graphKey = this.dg.normalizeFilePath(filePath);
-      const content = await readFile(filePath, 'utf8');
-      const ext = path.extname(filePath);
-      
-      let imports = [];
-      let exports = [];
-      let importRecords = [];
-      let exportRecords = [];
-      let functionRecords = [];
-      let parseMode = 'none';
-      let packageName = null;
-
-      const entry = registry.findByExt(ext);
-      if (entry) {
-        const args = entry.needsFilePath ? [content, filePath] : [content];
-        const result = entry.async ? await entry.parser(...args) : entry.parser(...args);
-        if (result) {
-          imports = result.imports;
-          exports = result.exports;
-          importRecords = result.importRecords || [];
-          exportRecords = result.exportRecords || [];
-          functionRecords = result.functionRecords || [];
-          parseMode = result.parseMode || 'regex';
-          packageName = result.package || null;
-        }
-      }
-
-      // Resolve relative imports to absolute paths
-      const resolvedImportRecords = (importRecords.length > 0 ? importRecords : imports.map((source) => createImportRecord(source)))
-        .map((record) => {
-          const resolved = resolveImport(filePath, record.source, ext, this.dg.root, this.symbolRegistry);
-          if (!resolved) {
-            // Keep wildcard imports even if they don't resolve directly to a file
-            if (record.usesAllExports && record.source.endsWith('.*')) {
-              return record;
-            }
-            return null;
-          }
-          return {
-            ...record,
-            resolved: this.dg.normalizeFilePath(resolved),
-          };
-        })
-        .filter(Boolean);
-
-      // Down-shift framework implicit dependencies scan
-      const implicitExts = ['.js', '.jsx', '.ts', '.tsx', '.vue', '.mjs', '.cjs'];
-      if (implicitExts.includes(ext.toLowerCase())) {
-        const implicitSources = scanAndExtractImplicitImports(filePath, content);
-        if (implicitSources.length > 0) {
-          const resolvedImps = resolveImplicitImports(filePath, implicitSources, this.dg.root);
-          for (const { source, resolved: resolvedPath, patternId } of resolvedImps) {
-            const normalizedResolved = this.dg.normalizeFilePath(resolvedPath);
-            if (normalizedResolved === graphKey) continue;
-
-            const hasRecord = resolvedImportRecords.some(
-              (r) => r.resolved === normalizedResolved && r.source === source
-            );
-            if (!hasRecord) {
-              resolvedImportRecords.push(
-                buildImplicitImportRecord(source, normalizedResolved, patternId)
-              );
-            }
-          }
-        }
-      }
-
-      const resolvedImports = resolvedImportRecords.map((record) => record.resolved).filter((imp) => imp && imp !== graphKey);
-
-      // L2-28: infer parseModeReason so consumers can tell why a file fell back to regex.
-      let parseModeReason = 'unsupported-extension';
-      if (entry) {
-        if (parseMode === 'ast') {
-          parseModeReason = 'ast-success';
-        } else if (entry.async) {
-          parseModeReason = 'regex-fallback';
-        } else {
-          parseModeReason = 'regex-native';
-        }
-      }
-
-      this.dg.graph.set(graphKey, {
-        originalPath: filePath,
-        imports: resolvedImports,
-        exports,
-        importRecords: resolvedImportRecords,
-        // python.js now returns proper exportRecords (B3 fixed); keep fallback for other parsers
-        exportRecords,
-        functionRecords: functionRecords.length > 0 ? functionRecords : [],
-        parseMode,
-        parseModeReason,
-        confidence: parseMode === 'ast' ? 'high' : 'medium',
-        package: packageName,
-      });
-
-      // Cache parse result for incremental rebuilds
-      const meta = this.dg.cache.getFileMetadata(filePath);
-      if (meta) {
-        this.dg.cache.setParseResult(filePath, {
-          ...this.dg.graph.get(graphKey),
-          mtime: meta.mtime,
-        });
-      }
-
+      const parsed = await this.parseFileOnly(filePath);
+      this.resolveFileOnly(parsed);
     } catch (e) {
-      // 单个文件分析失败不应阻塞整个依赖图构建，记录日志后继续
-      // Wave 5 #16: handle string rejections (some WASM loaders throw plain strings)
-      console.error(`[DepGraph] Failed to analyze ${filePath}:`, e?.message || e);
-      // 删除 stale 记录，防止增量更新时 reverseGraph 与实际内容脱节
-      this.dg.graph.delete(this.dg.normalizeFilePath(filePath));
-      this.dg.cache.deleteParseResult(filePath);
-      // 记录解析失败，供 buildWarnings() 向用户报告
-      if (!this.dg._parseErrorFiles) this.dg._parseErrorFiles = new Set();
-      this.dg._parseErrorFiles.add(this.dg.normalizeFilePath(filePath));
+      this._markParseError(this.dg.normalizeFilePath(filePath), filePath, `[DepGraph] Failed to analyze ${filePath}: ${e?.message || e}`);
     }
+  }
+
+  _markParseError(fileKey, filePath, errorMsg) {
+    console.error(errorMsg);
+    this.dg.graph.delete(fileKey);
+    this.dg.cache.deleteParseResult(filePath);
+    if (!this.dg._parseErrorFiles) this.dg._parseErrorFiles = new Set();
+    this.dg._parseErrorFiles.add(fileKey);
   }
 
   _addReverseEdges(fileKey, imports, options = {}) {
@@ -323,7 +405,15 @@ class GraphBuilder {
     const edges = [];
     for (const [file, info] of this.dg.graph) {
       for (const imp of info.imports || []) {
-        edges.push({ source: file, target: imp, edgeType: 'import', confidence: 1.0 });
+        const record = info.importRecords?.find((r) => r.resolved === imp);
+        edges.push({
+          source: file,
+          target: imp,
+          edgeType: 'import',
+          confidence: record ? (record.confidence ?? 1.0) : 1.0,
+          tier: record ? (record.tier || 'tier1') : 'tier1',
+          resolutionMethod: record ? (record.resolutionMethod || 'import') : 'import',
+        });
       }
     }
     return edges;
@@ -409,6 +499,9 @@ class GraphBuilder {
               info.importRecords.push({
                 ...record,
                 resolved: targetFile,
+                tier: 'tier1',
+                resolutionMethod: 'java-wildcard',
+                confidence: 1.0,
               });
             }
           }
@@ -433,9 +526,11 @@ class GraphBuilder {
             (r) => r.resolved === targetFile && r.source === implicitSource
           );
           if (!hasRecord) {
-            info.importRecords.push(
-              buildImplicitImportRecord(implicitSource, targetFile, 'java-same-package')
-            );
+            const rec = buildImplicitImportRecord(implicitSource, targetFile, 'java-same-package');
+            rec.tier = 'tier1';
+            rec.resolutionMethod = 'java-same-package';
+            rec.confidence = 1.0;
+            info.importRecords.push(rec);
           }
         }
       }
@@ -532,6 +627,7 @@ class GraphBuilder {
     let reParsed = 0;
     let skipped = 0;
     const reParsedExts = new Set();
+    const parsedList = [];
 
     const oldInfos = new Map();
     const deletedKeys = [];
@@ -596,21 +692,56 @@ class GraphBuilder {
 
         this._removeOldReverseEdges(key);
 
-        // Re-parse
-        await this.analyzeFile(filePath);
-        reParsed++;
-        updatedKeys.push(key);
-        const ext = path.extname(filePath).toLowerCase();
-        if (ext) reParsedExts.add(ext);
-        this.dg.bus.emit('graph:updated', { changedFiles: [key] });
-
-        const newInfo = this.dg.graph.get(key);
-        if (newInfo) {
-          this._addReverseEdges(key, newInfo.imports, { skipExisting: true });
+        // Re-parse (Parse Phase)
+        try {
+          const parsed = await this.parseFileOnly(filePath);
+          if (parsed) {
+            parsedList.push(parsed);
+            // Temporarily set in graph for symbol registry building
+            this.dg.graph.set(parsed.graphKey, {
+              originalPath: parsed.filePath,
+              imports: [],
+              exports: parsed.exports,
+              importRecords: [],
+              exportRecords: parsed.exportRecords,
+              functionRecords: parsed.functionRecords,
+              parseMode: parsed.parseMode,
+              parseModeReason: parsed.parseModeReason,
+              confidence: parsed.confidence,
+              package: parsed.package,
+            });
+          }
+        } catch (e) {
+          console.error(`[DepGraph] Failed to parse ${filePath}:`, e?.message || e);
+          this.dg.graph.delete(key);
+          this.dg.cache.deleteParseResult(filePath);
+          if (!this.dg._parseErrorFiles) this.dg._parseErrorFiles = new Set();
+          this.dg._parseErrorFiles.add(key);
         }
-        // P8-1 callback slot
-        if (this.onFileUpdated) {
-          this.onFileUpdated(filePath);
+      }
+
+      // Re-build symbol registry with the newly parsed exports in graph
+      this._buildSymbolRegistry();
+
+      // Link/Resolve Phase
+      for (const parsed of parsedList) {
+        try {
+          this.resolveFileOnly(parsed);
+          reParsed++;
+          updatedKeys.push(parsed.graphKey);
+          const ext = path.extname(parsed.filePath).toLowerCase();
+          if (ext) reParsedExts.add(ext);
+          this.dg.bus.emit('graph:updated', { changedFiles: [parsed.graphKey] });
+
+          const newInfo = this.dg.graph.get(parsed.graphKey);
+          if (newInfo) {
+            this._addReverseEdges(parsed.graphKey, newInfo.imports, { skipExisting: true });
+          }
+          if (this.onFileUpdated) {
+            this.onFileUpdated(parsed.filePath);
+          }
+        } catch (e) {
+          this._markParseError(parsed.graphKey, parsed.filePath, `[DepGraph] Failed to resolve ${parsed.filePath}: ${e?.message || e}`);
         }
       }
 

@@ -26,7 +26,13 @@ function resolveRustModulePath(modulePath, root, baseDir) {
 function tryRustCrate(importPath, _fromFile, ctx) {
   if (!importPath.startsWith('crate::')) return null;
   const modulePath = importPath.slice('crate::'.length);
-  return resolveRustModulePath(modulePath, ctx.root);
+  const resolved = resolveRustModulePath(modulePath, ctx.root);
+  if (resolved && ctx.outMeta) {
+    ctx.outMeta.method = 'rust-crate';
+    ctx.outMeta.confidence = 1.0;
+    ctx.outMeta.tier = 'tier1';
+  }
+  return resolved;
 }
 
 function tryRustSuper(importPath, fromFile, ctx) {
@@ -47,7 +53,13 @@ function tryRustSuper(importPath, fromFile, ctx) {
   }
 
   if (!remaining) return null;
-  return resolveRustModulePath(remaining, ctx.root, baseDir);
+  const resolved = resolveRustModulePath(remaining, ctx.root, baseDir);
+  if (resolved && ctx.outMeta) {
+    ctx.outMeta.method = 'rust-super';
+    ctx.outMeta.confidence = 1.0;
+    ctx.outMeta.tier = 'tier1';
+  }
+  return resolved;
 }
 
 module.exports = {

@@ -11,6 +11,11 @@ function tryJava(importPath, _fromFile, ctx) {
     for (const ext of ['.java', '.kt']) {
       const fullPath = `${base}${ext}`;
       if (ctx.cachedExistsSync(fullPath)) {
+        if (ctx.outMeta) {
+          ctx.outMeta.method = 'java-package';
+          ctx.outMeta.confidence = 1.0;
+          ctx.outMeta.tier = 'tier1';
+        }
         return fullPath;
       }
     }

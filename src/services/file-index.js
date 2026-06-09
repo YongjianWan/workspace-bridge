@@ -374,6 +374,13 @@ class FileIndex {
       // Extract symbols
       const symbols = extractSymbols(content, ext);
 
+      // Resolve language, type, and role
+      const langConfig = registry.findByExt(ext);
+      const lang = langConfig ? langConfig.name : null;
+      const classification = this.projectContext ? this.projectContext.classifyFile(filePath) : null;
+      const type = classification ? classification.fileRole : 'source';
+      const role = classification ? classification.directoryRole : null;
+
       if (!this.active) return false;
       // Update file metadata cache
       const { createHash } = require('crypto');
@@ -383,6 +390,9 @@ class FileIndex {
         hash: createHash('sha256').update(content).digest('hex'),
         symbols: symbols.map(s => s.name),
         lineCount: (content.match(/\n/g)?.length || 0) + 1,
+        type,
+        role,
+        lang,
       });
 
       // Update symbol index cache

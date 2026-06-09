@@ -102,6 +102,44 @@ const AST_PATTERNS = {
   ],
 };
 
+// ============================================================================
+// ROUTE EXTRACTION PATTERNS (Wave 9-2)
+// Only extracts static route declarations — no middleware chain / DI tracing.
+// ============================================================================
+
+const ROUTE_PATTERNS = {
+  js: [
+    // Express / Koa-router: app.get('/path', ...) / router.post('/path', ...)
+    { framework: 'express', re: /(?:app|router)\.(get|post|put|delete|patch|all)\s*\(\s*['"]([^'"]+)['"]/gi },
+    // NestJS: @Get('/path') / @Post('/path')
+    { framework: 'nestjs', re: /@(Get|Post|Put|Delete|Patch)\s*\(\s*['"]([^'"]+)['"]/g },
+  ],
+  py: [
+    // FastAPI: @app.get('/path') / @router.post('/path')
+    { framework: 'fastapi', re: /@(?:app|router)\.(get|post|put|delete|patch)\s*\(\s*['"]([^'"]+)['"]/gi },
+    // Flask: @app.route('/path') / @blueprint.route('/path')
+    { framework: 'flask', re: /@(?:app|blueprint)\.route\s*\(\s*['"]([^'"]+)['"]/gi, methodIndex: null, pathIndex: 1 },
+  ],
+  java: [
+    // Spring: @GetMapping("/path") / @PostMapping("/path") / @RequestMapping("/path")
+    { framework: 'spring', re: /@(Get|Post|Put|Delete|Patch|Request)Mapping\s*\(\s*(?:value\s*=\s*)?["']([^"']+)["']/g },
+  ],
+  kt: [
+    // Spring Kotlin: same as Java
+    { framework: 'spring-kotlin', re: /@(Get|Post|Put|Delete|Patch|Request)Mapping\s*\(\s*(?:value\s*=\s*)?["']([^"']+)["']/g },
+    // Ktor: get("/path") / post("/path")
+    { framework: 'ktor', re: /\b(get|post|put|delete|patch)\s*\(\s*["']([^"']+)["']/gi },
+  ],
+  go: [
+    // Gin/Echo/Fiber: r.GET("/path", ...) / e.POST("/path", ...)
+    { framework: 'gin', re: /\.(GET|POST|PUT|DELETE|PATCH)\s*\(\s*["']([^"']+)["']/g },
+  ],
+  rs: [
+    // Actix-web / Rocket: #[get("/path")] / #[post("/path")]
+    { framework: 'actix-web', re: /#\[(get|post|put|delete|patch)\s*\(\s*["']([^"']+)["']/gi },
+  ],
+};
+
 /**
  * Lightweight framework detection from file content.
  * Only scans first ~800 bytes (where imports/decorators live).
@@ -134,7 +172,66 @@ function detectFrameworkFromContent(filePath, content) {
   return null;
 }
 
+/**
+ * Extract HTTP route declarations from file content.
+ * Only extracts static route strings — no middleware chain / DI tracing.
+ * @param {string} filePath
+ * @param {string} content
+ * @returns {Array<{method:string, path:string, framework:string, handler:string|null}>}
+ */
+function extractRoutes(filePath, content) {
+  const ext = path.extname(filePath).toLowerCase();
+  let key = null;
+  if (ext === '.js' || ext === '.ts' || ext === '.jsx' || ext === '.tsx') key = 'js';
+  else if (ext === '.py') key = 'py';
+  else if (ext === '.java') key = 'java';
+  else if (ext === '.kt') key = 'kt';
+  else if (ext === '.go') key = 'go';
+  else if (ext === '.rs') key = 'rs';
+
+  const patterns = ROUTE_PATTERNS[key];
+  if (!patterns || patterns.length === 0) return [];
+
+  const ROUTE_SCAN_MULTIPLIER = 4; // routes can be declared deeper in controller/router files than imports
+  const sample = content.slice(0, DEFAULTS.ENTRY_SCAN_BYTES * ROUTE_SCAN_MULTIPLIER);
+  const routes = [];
+  const seen = new Set();
+
+  for (const cfg of patterns) {
+    // Reset regex lastIndex for global patterns
+    cfg.re.lastIndex = 0;
+    let match;
+    while ((match = cfg.re.exec(sample)) !== null) {
+      let method, routePath;
+      if (cfg.pathIndex === 1) {
+        // Flask-style: no method in match, path is group 1
+        method = 'ALL';
+        routePath = match[1];
+      } else {
+        method = match[1].toUpperCase();
+        routePath = match[2];
+        // Spring @RequestMapping defaults to ALL methods
+        if (method === 'REQUEST') method = 'ALL';
+      }
+
+      const dedup = `${method}:${routePath}`;
+      if (seen.has(dedup)) continue;
+      seen.add(dedup);
+
+      routes.push({
+        method,
+        path: routePath,
+        framework: cfg.framework,
+        handler: null, // handler extraction is optional, skip for now
+      });
+    }
+  }
+
+  return routes;
+}
+
 module.exports = {
   detectFrameworkFromPath,
   detectFrameworkFromContent,
+  extractRoutes,
 };

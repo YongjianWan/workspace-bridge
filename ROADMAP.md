@@ -203,9 +203,14 @@ workspace-bridge 当前是**文件级**图（节点 = 文件），即使在 1329
 
 ## Schema 设计
 
+> **实现状态总览**：14 张设计表中 **12 张已实现**，2 张不做（`findings` / `precomputed_tests`）。
+>
+> 实际 DDL 见 [graph-db.js](./src/services/graph-db.js) `SCHEMA` 常量。
+
 ### 核心图结构
 
 ```sql
+-- ✅ 已实现（作为 file_metadata 表，已扩展 type/role/lang 列）
 -- 文件节点（从 file_metadata 扩展，统一节点视角）
 CREATE TABLE IF NOT EXISTS nodes (
   file TEXT PRIMARY KEY,
@@ -218,6 +223,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   line_count INTEGER
 );
 
+-- ✅ 已实现
 -- 依赖边（imports + implicit framework edges）
 CREATE TABLE IF NOT EXISTS edges (
   source TEXT NOT NULL,
@@ -234,33 +240,25 @@ CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
 ### 预计算维度
 
 ```sql
+-- ✅ 已实现（schema 与设计略有差异，实际列为 file/direct_deps/transitive_deps/direct_dependents/transitive_dependents/affected_tests/impact_radius/version）
 -- 文件级影响半径（预计算 BFS 结果）
-CREATE TABLE IF NOT EXISTS precomputed_impact (
-  source TEXT PRIMARY KEY,
-  depth INTEGER NOT NULL DEFAULT 3,
-  impact_count INTEGER NOT NULL,
-  impact_json TEXT NOT NULL,  -- JSON array of {file, level, via}
-  computed_at INTEGER NOT NULL,
-  version TEXT NOT NULL       -- hash/mtime 指纹，用于 staleness 校验
-);
+CREATE TABLE IF NOT EXISTS precomputed_impact (...);
 
+-- ❌ 不做（affected_tests 已作为 TEXT 列嵌在 precomputed_impact 中，独立表纯粹是范式化，不解决新问题）
 -- 测试映射（预计算 affected-tests）
-CREATE TABLE IF NOT EXISTS precomputed_tests (
-  source TEXT PRIMARY KEY,
-  affected_tests_count INTEGER NOT NULL,
-  affected_tests_json TEXT NOT NULL,  -- JSON array of {file, distance}
-  computed_at INTEGER NOT NULL,
-  version TEXT NOT NULL
-);
+CREATE TABLE IF NOT EXISTS precomputed_tests (...);
 
+-- ✅ 已实现
 -- 聚合摘要（precomputeAggregates 结果）
 CREATE TABLE IF NOT EXISTS precomputed_aggregates (
-  key TEXT PRIMARY KEY,  -- 'deadExports' | 'unresolved' | 'cycles' | 'stats' | 'hotspots' | 'stability'
-  value_json TEXT NOT NULL,
-  computed_at INTEGER NOT NULL,
-  file_count INTEGER NOT NULL  -- 用于 staleness 校验
+  key TEXT PRIMARY KEY,  -- 'deadExports' | 'unresolved' | 'cycles' | 'stats' | 'hotspots' | 'stability' | 'analysis_snapshot'
+  data TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 0,
+  file_count INTEGER NOT NULL,
+  computed_at INTEGER NOT NULL DEFAULT 0
 );
 
+-- ✅ 已实现
 -- 多维指标（PageRank、co-change、风险分、热点分）
 CREATE TABLE IF NOT EXISTS metrics (
   file TEXT NOT NULL,
@@ -270,28 +268,22 @@ CREATE TABLE IF NOT EXISTS metrics (
   PRIMARY KEY (file, dimension)
 );
 
+-- ❌ 不做（安全扫描本身很快，持久化需要额外 staleness 管理，收益 < 成本）
 -- 安全发现（security-tools 结果）
-CREATE TABLE IF NOT EXISTS findings (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  file TEXT NOT NULL,
-  rule TEXT NOT NULL,
-  severity TEXT NOT NULL,   -- 'high' | 'medium' | 'low'
-  data_json TEXT NOT NULL,
-  detected_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_findings_file ON findings(file);
-CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
+CREATE TABLE IF NOT EXISTS findings (...);
 
+-- ✅ 已实现
 -- 测试映射（source → test 的直接关系，用于 O(1) 查询）
 CREATE TABLE IF NOT EXISTS test_map (
   source TEXT NOT NULL,
   test_file TEXT NOT NULL,
-  signal TEXT NOT NULL DEFAULT 'import',  -- 'import' | 'symbol' | 'framework'
+  signal TEXT NOT NULL DEFAULT 'import',  -- 'import' | 'heuristic' | 'mention'
   distance INTEGER NOT NULL DEFAULT 1,
   PRIMARY KEY (source, test_file)
 );
 CREATE INDEX IF NOT EXISTS idx_test_map_source ON test_map(source);
 
+-- ✅ 已实现
 -- HTTP 路由映射（框架感知）
 CREATE TABLE IF NOT EXISTS routes (
   file TEXT NOT NULL,
@@ -308,15 +300,16 @@ CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
 
 - 所有新增表使用 `CREATE TABLE IF NOT EXISTS`
 - 旧版 CLI 读不到新表 → 正常 fallback 到 depGraph 内存重建
-- 现有 `file_metadata`、`parse_results`、`symbol_index`、`diagnostics` 表保留，逐步向 `nodes` + `edges` 迁移
+- `nodes` 表不新建独立表，改为在现有 `file_metadata` 上 ALTER TABLE 扩展 `type`/`role`/`lang` 三列
+- 已实现的基础表（`file_metadata`/`parse_results`/`symbol_index`/`diagnostics`/`cache_metadata`）通过 `CACHE_TABLE_SCHEMA` 注册表驱动 load/save/saveIncremental
 
 ---
 
 ## 实施路线
 
-### Phase 1：热缓存守护者（Hot Cache Keeper）
+### Phase 1：热缓存守护者（Hot Cache Keeper）— ✅ 已完成
 
-**目标**：Watcher 进程成为"写入端"，CLI 启动时 parseResults 100% cache hit。
+**状态**：已交付。`saveIncremental()` 增量写入 + `cache.save()` 兜底全部就位。
 
 | 改动 | 文件 | 说明 |
 |------|------|------|
@@ -326,9 +319,9 @@ CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
 
 **收益**：AST 解析时间降为 0；改动量 ~20 行；风险极低。
 
-### Phase 2：Graph 边持久化
+### Phase 2：Graph 边持久化 — ✅ 已完成
 
-**目标**：把 `graph` / `reverseGraph` 写入 `edges` 表，CLI 启动时跳过 `buildReverseGraph()`。
+**状态**：已交付。`edges` 表 + `saveEdges()`/`loadEdges()` + `loadGraph()` 从 SQLite 恢复。
 
 | 改动 | 文件 | 说明 |
 |------|------|------|
@@ -339,15 +332,20 @@ CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
 
 **收益**：跳过 O(n) reverseGraph 重建；为 Phase 3 铺好 schema 基础。
 
-### Phase 3：预计算持久化
+### Phase 3：预计算持久化 — ✅ 已完成
 
 **目标**：BFS/DFS 查询结果预计算后存入 SQLite，CLI 命令优先 SELECT。
 
-| 改动 | 文件 | 说明 |
-|------|------|------|
-| Schema 扩展 | `src/services/graph-db.js` | 新增 `precomputed_impact`、`precomputed_tests`、`precomputed_aggregates`、`metrics`、`findings`、`test_map` |
-| Watcher 写入 | `src/services/dep-graph/builder.js` | `updateFiles()` 完成后，对变更文件重新预计算 impact/tests，写入 SQLite；重新计算 aggregates |
-| CLI 薄查询层 | `src/cli/commands/*.js`、`src/tools/audit-assembler.js` | 优先查预计算表，缺失时 fallback 到 depGraph 实时计算 |
+**已完成**：
+- `precomputed_impact` 表（含 impactRadius）：`savePrecomputedImpact()` / `loadPrecomputedImpact()`
+- `precomputed_aggregates` 表：`savePrecomputedAggregates()` / `loadPrecomputedAggregates()` + `analysis_snapshot` 缓存
+- `routes` 表：`saveRoutes()` / `loadRoutes()` / `loadRoutesForFiles()`
+- `query-hotspots` / `query-knowledge-risk` / `query-stability` CLI 命令
+- `metrics` 表（per-file PageRank / hotspot_score / risk_score / cochange_score 持久化与还原）
+- `test_map` 表（source → test 的 O(1) 映射持久化与恢复）
+- `file_metadata` 列扩展（type/role/lang 列定义与索引更新）
+
+**不做**：`findings` 表（安全扫描太快没必要缓存）、`precomputed_tests` 独立表（已嵌入 precomputed_impact）
 
 **收益**：`impact --file foo.js` 从"7 秒"降到"1ms（预计算命中时）"；AI 消费者高频查询大幅加速。
 
@@ -367,7 +365,7 @@ CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
 ## 并发与一致性
 
 - **写入**：watch 进程独占写入（`saveIncremental` 单事务）
-- **读取**：CLI 命令只读（`better-sqlite3` 支持多进程并发读）
+- **读取**：CLI 命令只读（`node:sqlite` `DatabaseSync` 支持多进程并发读）
 - **Staleness**：预计算表带 `version`（hash/mtime 指纹）和 `computed_at`，CLI 查库时校验，stale 则 fallback 重建
 - **无需 IPC/文件锁**：SQLite WAL 模式天然支持一写多读
 

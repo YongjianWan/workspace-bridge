@@ -24,7 +24,7 @@ module.exports = {
   buildImpactExplanations,
   formatHuman,
   formatSummary,
-  formatMarkdown,
+  formatMarkdown, 
   formatJsonl,
   formatAi,
 };

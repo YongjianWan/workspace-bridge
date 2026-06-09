@@ -8,6 +8,47 @@
 
 ## [Unreleased]
 
+### Wave 10: 符号级智能 (2026-06-09)
+
+- **实现两阶段（Parse-and-Link）构建与增量更新** `src/services/dep-graph/builder.js`：
+  - 重构 `GraphBuilder` 机制，解耦文件解析与导入解析，提取为 `parseFileOnly()` 和 `resolveFileOnly()` 两个独立生命周期阶段。
+  - 在 `build()` 和 `updateFiles()` 增量编译中，先执行 Parse 提取所有符号并注册到 `symbolRegistry`，然后再执行 Link/Resolve，彻底解决了 cold start / 全量构建下循环/前向符号引用的无法解析问题。
+- **扩展依赖边 edges 元数据打标与持久化** `src/services/graph-db.js` / `src/services/cache.js` / `src/services/dep-graph/resolvers.js` / `resolvers/*.js`：
+  - 更新 `edges` 表结构，新增 `tier` 和 `resolution_method` 两列并配套 `_migrate()` 动态自动 Schema 变更与默认值落盘。
+  - 向后兼容重构 `resolveImport()` 方法，支持通过可选的 `outMeta` 参数返回置信飞轮的 `tier`、`confidence` 和 `resolutionMethod` 字段。
+  - 为所有 9 语言的 resolver 链策略实现精确的置信度与解析方法打标。
+- **清偿代码品味与 L2/L3 技术债务**：
+  - 在 `src/services/graph-db.js` 中重构并合并了 9 个高度重复的 CRUD 方法，提取了 `_saveBatch()`、`_loadAll()` 与 `_loadForFiles()` 通用数据库层原语。
+  - 在 `src/services/dep-graph/builder.js` 中将重复的文件分析/解析错误处理模板收回至 `_markParseError()` 统一管理，并将事件循环出让频率的 20 裸数字提取为常量 `YIELD_INTERVAL`。
+  - 移除了 `src/services/dep-graph/framework-patterns.js` 中 `ROUTE_SCAN_MULTIPLIER` (4) 裸数字，并增加了说明注释。
+  - 移除了 `src/services/dep-graph/persistence.js` 中的 `DEFAULT_AFFECTED_TESTS_DEPTH` (3) 裸数字，并使用异步 I/O `fs.promises.readFile` 替代原有的同步 `fs.readFileSync` 路由提取，消除事件循环阻塞隐患。
+- **新增回归单元测试套件** `test/wave10-symbol-intelligence-test.js`：
+  - 编写了 4 个单测场景覆盖 schema 迁移、元数据持久化 roundtrip、策略打标以及两阶段符号解析。`npm run test:fast` 89/89 PASS。
+
+
+### SQL 持久化与测试映射优化 (2026-06-09)
+
+- **实现 metrics 与 test_map 表持久化与往返读写** `src/services/graph-db.js` / `src/services/cache.js` / `src/services/dep-graph/persistence.js`：
+  - 新增 `metrics` 表（支持 PageRank、hotspot_score、risk_score、cochange_score 存储）与 `test_map` 表（存储 source 到 test 关联关系与信号）。
+  - 在 `GraphDB` 和 `WorkspaceCache` 中实现了这四个表的往返读写（save/load）接口，并在持久化层 `savePrecomputed` 和 `restorePrecomputed` 中接入。
+- **扩展 file_metadata 表属性字段** `src/services/graph-db.js` / `src/services/file-index.js`：
+  - 修改 `file_metadata` 表以支持 `type`、`role` 和 `lang` 字段。
+  - 支持在 `_migrate()` 中自动探测并 `ALTER TABLE ADD COLUMN` 扩展历史 schema，实现向后兼容。
+  - 在索引构建 `indexFile()` 时提取并保存文件的 type/role/lang。
+- **GraphAnalyzer 缓存与测试查找加速** `src/services/dep-graph/analyzer.js`：
+  - 在构造函数中定义并初始化 `_testMapCache`，实现 `injectPrecomputedTestMap()` 和 `injectPrecomputedMetrics()` 方法。
+  - 优化 `findAffectedTests()` 方法，优先利用 `_testMapCache` 缓存执行 O(1) 检索，显著提升测试定位性能。
+- **新增回归单元测试** `test/precomputed-roundtrip-test.js`：
+  - 新增 4 个针对指标和测试映射的单元测试，覆盖数据库往返、分析器注入与受影响测试快速路经查找验证。`test:fast` 88/88 绿灯通过。
+
+### 预计算深化回归测试与测试断言对齐 (2026-06-09)
+
+- **新增未解析导入回归测试档案** `test/fp_regression_unresolved.js`：
+  - 归档并覆盖未解析导入（unresolved imports）的已知误报与正确性场景，包括 Java 通配符导入、Java 同包隐式引用、Node.js 原生模块与第三方依赖导入。
+  - 验证真实未解析相对导入的检测正确性以及 `resolvedTo` 为 `null` 的契约。
+- **修正 CLI 校验错误 Exit Code 测试断言** `test/cli-mapper-adapter-test.js`：
+  - 将测试中对参数校验错误（如无效 `--max-depth`、`--reuse-hints` 等）的 Exit Code 断言由 `2`（崩溃）修正为 `1`（业务失败），与 Wave 8 引入的参数验证错误 Exit Code 规范完全对齐。
+
 ### 修复 CLI 设计债：配置 schema 校验与 JSON 格式错误对齐 (2026-06-08)
 
 - **强化配置 JSON 结构校验** `src/utils/project-context.js`：

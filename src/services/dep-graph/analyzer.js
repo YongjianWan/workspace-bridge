@@ -26,6 +26,7 @@ class GraphAnalyzer {
     this._aggregateVersion = 0;
     this._impactCache = new Map();
     this._impactVersion = 0;
+    this._testMapCache = new Map();
 
     // Encapsulate caches entirely within analyzer
     this._cachedCycles = null;
@@ -284,6 +285,29 @@ class GraphAnalyzer {
     this._scanPatternCache.clear();
   }
 
+  injectPrecomputedTestMap(rows) {
+    if (!rows) return false;
+    this._testMapCache.clear();
+    for (const row of rows) {
+      if (!this._testMapCache.has(row.source)) {
+        this._testMapCache.set(row.source, []);
+      }
+      this._testMapCache.get(row.source).push(row);
+    }
+    return true;
+  }
+
+  injectPrecomputedMetrics(rows) {
+    if (!rows) return false;
+    if (!this._pageRanks) this._pageRanks = new Map();
+    for (const row of rows) {
+      if (row.dimension === 'pagerank') {
+        this._pageRanks.set(row.file, row.value);
+      }
+    }
+    return true;
+  }
+
   /**
    * D7: Inject precomputed impact from SQLite loadGraph fast path.
    */
@@ -299,18 +323,26 @@ class GraphAnalyzer {
     this._impactVersion++;
     for (const row of rows) {
       let affectedTests = [];
+      let impactRadius = null;
       try {
         if (row.affectedTests) affectedTests = JSON.parse(row.affectedTests);
       } catch {
         // ignore corrupted
       }
-      this._impactCache.set(row.file, {
+      try {
+        if (row.impactRadius) impactRadius = JSON.parse(row.impactRadius);
+      } catch {
+        // ignore corrupted — will fall back to BFS on query
+      }
+      const entry = {
         directDeps: row.directDeps,
         transitiveDeps: row.transitiveDeps,
         directDependents: row.directDependents,
         transitiveDependents: row.transitiveDependents,
         affectedTests,
-      });
+      };
+      if (impactRadius) entry.impactRadius = impactRadius;
+      this._impactCache.set(row.file, entry);
     }
     return true;
   }
@@ -1011,6 +1043,27 @@ class GraphAnalyzer {
 
   findAffectedTests(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH, options = {}) {
     const start = this.dg.normalizeFilePath(filePath);
+
+    // Fast path: if cache has precomputed test map for this file, return it!
+    if (options?.includeHeuristic !== false && this._testMapCache && this._testMapCache.has(start)) {
+      const cached = this._testMapCache.get(start);
+      const filtered = cached.filter((c) => c.distance <= maxDepth);
+      if (filtered.length > 0) {
+        return filtered.map((c) => {
+          let source = 'graph';
+          if (c.signal === 'heuristic') source = 'heuristic';
+          else if (c.signal === 'mention') source = 'mention';
+
+          return {
+            file: this.dg._displayPath(c.testFile),
+            distance: c.distance,
+            source,
+            via: source === 'graph' ? [] : [source === 'heuristic' ? 'heuristic:naming' : 'mention:stem'],
+          };
+        });
+      }
+    }
+
     const results = this._findAffectedTestsByGraph(start, maxDepth);
     if (options?.includeHeuristic !== false) {
       this._findAffectedTestsByHeuristic(start, maxDepth, results);
