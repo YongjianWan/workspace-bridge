@@ -31,7 +31,7 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 2 L3 + 2 架构债务 + 0 项 P2 Dogfood 活跃缺陷）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 1 L3 + 1 架构债务 + 0 项 P2 Dogfood 活跃缺陷）
 
 ---
 
@@ -86,6 +86,69 @@ node cli.js audit-overview --cwd . --json --quiet
 > 11. **Stage 3.5 CLI query-* E2E/集成测试补全**：新增 `test/cli-integration-query-test.js`。通过注入 mock 数据与 `audit-summary` 进行 cache 预热，验证了 hotspots/knowledge-risk/stability 相应的命令行参数（`--risk`, `--level`, `--assessment`, `--limit`, `--cwd`）和 5 种输出格式格式化器。同时将该测试文件注册到 `runner.js` 中的 slow layer，确保测试运行的高内聚与进程级缓存隔离。
 > 12. **Wave 9-3 & ROADMAP Phase 3 SQL 持久化功能全面交付**：扩展了 `file_metadata` 表结构并添加 `type`、`role`、`lang` 字段；实现了 `metrics` 与 `test_map` 预计算持久化表及其在 `GraphDB` 和 `WorkspaceCache` 中的往返读写（save/load）接口；使 `GraphAnalyzer` 能够注入并利用这些预计算数据实现受影响测试 of O(1) 快速检索；在 `test/precomputed-roundtrip-test.js` 中补齐了 4 个完整的指标与测试映射的往返读写与注入单测，`test:fast` 88/88 全部通过。
 > 13. **Wave 10 符号级智能全面交付**：重构了 `GraphBuilder` 实现了解耦的 Parse-and-Link 两阶段构建与增量更新，确保了 circular/forward 符号查找在 cold start 下能够正确解析；更新了 `edges` 表结构，增加了 `tier` 和 `resolution_method` 元数据字段并编写了 pragma/alter table 动态自动迁移，确保了向前与向后兼容性；为所有 9 语言 resolvers 配套实现了 resolution method, confidence 和 tier 精准度打标；并在 `test/wave10-symbol-intelligence-test.js` 中补齐了针对 schema 迁移、元数据持久化、resolver 打标和两阶段构建符号解析的 4 个完整 regression 单测，`test:fast` 89/89 全部通过。
+> 14. **参考仓库同步与 GitNexus 架构探索**：拉取并同步了 `CodeGraphContext`（`5b1a1f6` → `fb093bb`）与 `GitNexus`（`b9a17f55` → `1716bf7c`）最新代码；对 GitNexus 进行了 7 个维度的架构深度探索（语言插件管道、scope resolution、call graph、路由提取、PR Swarm Review、增量更新、图存储），产出与 workspace-bridge Wave 11–15 的映射评估报告。详见下方§参考仓库探索与架构借鉴。
+---
+
+## 本轮上下文：参考仓库探索与架构借鉴（活跃）
+
+> **背景**：workspace-bridge 的 Wave 9–10 已交付，下一步 Wave 11–15 的方向已明确。为验证蓝图的技术可行性和避免闭门造车，对参考仓库进行了主动同步与架构对标。
+
+### 参考仓库状态
+
+| 仓库 | 旧 HEAD | 新 HEAD | 变更规模 | 关键更新 |
+|------|---------|---------|----------|----------|
+| **CodeGraphContext** | `5b1a1f6` | `fb093bb` | 39 文件 | E2E Bug 报告扩充、writer 路径规范化测试、watcher 轮询观察器测试 |
+| **GitNexus** | `b9a17f55` | `1716bf7c` | 1629 文件 | 多语言 scope resolution 大重构（16 语言独立 `captures/query/scope-resolver` 管道）、PR Swarm Review（7  persona 多 agent 审查）、devcontainer、i18n、CLI `uninstall`、graph-assisted 路由提取 |
+| **code-review-graph** | `0c9a5ff` | `0c9a5ff` | — | 已是最新 |
+| **qartez-mcp** | `ac6fec2` | `ac6fec2` | — | 已是最新 |
+
+### GitNexus 架构探索摘要（7 个维度）
+
+| 维度 | GitNexus 核心做法 | 对 workspace-bridge 的借鉴价值 |
+|------|-------------------|-------------------------------|
+| **1. 语言插件管道** | `LanguageProvider` + `ScopeResolver` 双契约；`satisfies Record<SupportedLanguages, LanguageProvider>` 编译时穷举表；统一捕获标签（`@definition.class`、`@reference.call.member` 等） | **高** → Wave 13-1 语言注册表统一契约可直接引用此模式，替代当前约定俗成的 parser 返回结构 |
+| **2. Scope Resolution** | 通用编排器 + 语言钩子；SCC 有序跨文件返回类型传播；MRO-aware dispatch；显式契约不变量（I1–I9） | **中** → workspace-bridge 定位"结构分析 ≠ 语义分析"，不追求完整 call graph，但**3-tier import resolution**（same-file → import-scoped → global）和 **confidence-tiered edges** 可直接强化 Wave 10 的置信飞轮 |
+| **3. Call Graph** | 跨文件、receiver-bound、arity/type-aware overload 消解 | **低（当前不做）** → 超出项目定位，但 Worker-serialized `ParsedFile` 的并行解析模式可为 Wave 15-3 ParseCache 提供参考 |
+| **4. 路由提取** | **Graph-first** 策略：优先复用 ingestion 时已产生的 `HANDLES_ROUTE` edges（符号级），fallback 才走 tree-sitter source-scan；`HttpLanguagePlugin` 契约（`scanFile` + `scanProject`） | **高** → 直接修复 TECH_DEBT.md L3 品味问题（`extractRoutes` regex + 固定 3200 字节扫描）。实施路径：将路由提取从 `savePrecomputed` 的同步 source-scan 前移到 `builder.js` parse phase，AST-based 提取并关联 handler 符号 |
+| **5. PR Swarm Review** | CLI-neutral canonical spec + 薄 wrapper；7 persona 分 lane 执行；model-tier routing（Haiku 机械验证 / Sonnet 分析）；Synthesis Critic 硬 gate | **中** → Wave 12 输出精炼可借鉴其结构化 finding 格式（Risk / Evidence / Recommended fix / Blocks merge） |
+| **6. 增量更新** | **Shadow-candidate 枚举**（`.ts` shadow `.tsx`、`foo.ts` shadow `foo/index.ts`）；**1-hop boundary expansion**（变更文件邻居自动纳入重写）；chunk-level parse cache | **高** → Wave 15-4 增量更新终极协议可直接引入 shadow-candidates + 1-hop boundary expansion，解决 `updateFiles()` 只处理直接变更文件导致的跨文件边元数据 stale 问题 |
+| **7. 图存储** | LadybugDB（KuzuDB 派生）；edge evidence traces（`{ kind, weight, note }[]`）；in-memory 3-tier lookup index；atomic swap with sidecar awareness | **中** → workspace-bridge 已用 SQLite 足够；但 **edge evidence traces** 可作为 Wave 11-4 统一 risk scoring 的输入——给 edges 的 `confidence` 附加可审计的推理链（如 `kind: 'ambiguous-symbol', note: '3 candidates, picked nearest'`） |
+
+### CodeGraphContext 架构探索摘要（8 个维度）
+
+| 维度 | CGC 核心做法 | 对 workspace-bridge 的借鉴价值 |
+|------|-------------|-------------------------------|
+| **1. 整体管道** | Discovery → Pre-scan（全局 `imports_map`）→ Parse（tree-sitter）→ Write Pass 1（nodes）→ Write Pass 2（edges：inheritance/calls/language-specific）→ Optional（embeddings） | **中** → 两阶段写入（nodes first, edges second）与 workspace-bridge Wave 10 的 Parse-and-Link 方向一致，验证了阶段拆分的正确性；Pre-scan 全局符号映射对应 Wave 10-1/ROADMAP L475 |
+| **2. 多数据库后端** | Neo4j/FalkorDB/KuzuDB/LadybugDB/Nornic 五后端；Kuzu 适配层是 ~400 行 regex 驱动的 Cypher 翻译器（处理 `SET n += $props` → 显式赋值、`uid` 注入、`UNWIND` fallback 等） | **低** → **反面教材**：强类型嵌入式图数据库需要 massive compatibility shim。workspace-bridge 的 SQLite 关系模型是更务实的 CLI 选择。但 `DatabaseManager` + `get_backend_type()` 单例模式可作为未来扩展的参考 |
+| **3. SCIP 混合索引** | 可选 SCIP（编译器级精度）+ Tree-sitter overlay（补充 source text / CC / decorators）。SCIP 失败时自动 fallback 到 Tree-sitter | **中** → workspace-bridge 零配置定位不适合 SCIP 做主路径，但"SCIP 验证/覆盖 heuristic edges"的模式可作为未来 **strict mode** 的设计参考 |
+| **4. Watcher 增量更新** | `watchdog` 轮询/事件驱动；2s debounce；**O(k) 邻居重链接**：① 变更前查询 DB 获取 caller/inheritor 邻居 → ② 更新 `imports_map` → ③ `DETACH DELETE` 变更文件 → ④ 删除邻居的 stale 出边 → ⑤ 重新解析变更文件+邻居 → ⑥ 从 DB 拉取 class lookup（避免全量重解析）→ ⑦ 重新 link | **高** → 如果 workspace-bridge 未来添加 watch 模式，CGC 的"query neighbors before delete"是最佳实践；`updateFiles()` 当前只处理直接变更文件，不处理邻居的 stale 边 |
+| **5. Bundle 系统** | `.cgc` ZIP = 预索引图快照（nodes.jsonl + edges.jsonl + metadata.json + schema.json），支持 HuggingFace registry 分发 | **低** → CLI-only 工具不需要 bundle 分发；workspace-bridge 的 SQLite cache 就是等价物 |
+| **6. 路径规范化** | `Path(p).resolve().as_posix()` 强制正斜杠；`_normalize_prefix` 确保 `STARTS WITH` 查询正确。新增 `test_writer_path_normalization.py`（361 行）作为回归防护 | **高** → **stark warning**：CGC 因 Windows 反斜杠导致 `STARTS WITH` 查询静默失败。workspace-bridge `path.js` 是高危改动文件，需审计存储路径是否统一为正斜杠（或已建立一致的 path abstraction） |
+| **7. API/MCP 层** | FastAPI + MCP SSE server；`MCPServer` 单例编排器；handlers 是纯函数注入依赖 | **低（当前不做）** → AGENTS.md 明确 CLI-only。但 handler-injection 模式（纯函数 + 依赖注入）可作为未来 CLI 命令拆分的参考 |
+| **8. 测试策略** | ① mock DB 的单元测试 ② **Golden tests**（`fixtures/goldens/` 存储 parser 预期输出，`--update-goldens` 刷新）③ **E2E parity tests**（4 后端索引后对比 node/edge 数量，±6 容差）④ Smoke tests ⑤ CLI 测试 | **高** → workspace-bridge 88 个 fast tests 中缺少 parser golden snapshot 测试和跨平台路径回归测试；CGC 的 `test_writer_path_normalization.py` 正是 `path.js` 应该补的测试类型 |
+
+### 借鉴优先级与 Wave 映射
+
+| 优先级 | 借鉴点 | 对应 Wave | 预计改动文件 | 设计参考 |
+|--------|--------|-----------|-------------|----------|
+| **P0** | 1-hop 边界扩展增量更新 | 15-4 | `builder.js`, `incremental-diff.js` | GitNexus `computeEffectiveWriteSet` + `shadow-candidates.ts` |
+| **P0** | 框架检测 query 化（替换 regex） | 15-2 | `framework-patterns.js` | GitNexus `HttpLanguagePlugin` + compiled tree-sitter queries |
+| **P1** | 语言注册表显式契约 | 13-1 | `parsers/registry.js` | GitNexus `satisfies Record<SupportedLanguages, LanguageProvider>` |
+| **P1** | Edge evidence traces | 强化 Wave 10 | `builder.js`, `graph-db.js` | GitNexus edge `evidence: Array<{kind, weight, note}>` |
+| **P2** | Graph-first 路由提取 | 修复 L3 | `builder.js`, `persistence.js` | GitNexus `HANDLES_ROUTE` graph-assisted + source-scan fallback |
+| **P3** | 结构化输出格式 | 12 | `formatters/`, `audit-assembler.js` | GitNexus PR Swarm finding 模板 |
+| **P3** | Parser golden snapshot 测试 | 补测试 | `test/` 新增 golden fixtures | CGC `fixtures/goldens/` 模式 |
+| **P3** | 跨平台路径回归测试 | 补测试 | `test/path-normalization-test.js` | CGC `test_writer_path_normalization.py` |
+
+### 不做（与定位冲突）
+
+- **跨文件 Call Graph / MRO 解析**：超出"结构分析 ≠ 语义分析"定位
+- **LadybugDB / KuzuDB / Neo4j 迁移**：CGC 的 Kuzu 适配层是 ~400 行 regex 驱动的 Cypher shim，强类型嵌入式图数据库需要巨大投入。SQLite 关系模型对 CLI 工具更务实
+- **Worker Pool 并行解析**：`Promise.all` + 信号量已满足需求（AGENTS.md 持续观察）
+- **PR Swarm 多 Agent 执行**：workspace-bridge 是 CLI 工具，不是 PR 平台
+- **MCP Server / SSE 接口**：CGC 是 MCP-first 架构，增加了 ~2000 行 setup wizard / IDE config / connection pooling。workspace-bridge CLI-only 定位明确排除
+- **`.cgc` Bundle 分发系统**：CLI-only 工具不需要预索引图快照分发；SQLite cache 已是等价物
+
 ---
 
 ## 活跃问题与技术债务
@@ -168,7 +231,7 @@ node cli.js audit-overview --cwd . --json --quiet
 |---|------|----------|------|---------|------|
 | 10-1 | **Pre-scan 全局符号映射** | `parsers/` / 新建 `pre-scan.js` | 正式解析前轻量 tree-sitter query 提取所有文件顶层定义名，构建 `symbol → [file]` 映射 | L476 | ✅ 已交付 |
 | 10-2 | **符号解析置信飞轮** | `resolvers.js` / `symbol-registry.js` / `edges` 表 | Pre-scan 粗定位 → Query 精确捕获 → Confidence Tier 标注。每条边附 `confidence` + `tier` + `resolutionMethod` | L471 | ✅ 已交付 |
-| 10-3 | **测试间隙穿透（Dispatcher Regex）** | `affected-tests` 逻辑 / `dep-tools.js` | 无 import 边但测试文件 body 提及源文件 stem → 纳入 affected-tests（`source: "mention"`） | L466 | |
+| 10-3 | **测试间隙穿透（Dispatcher Regex）** | `affected-tests` 逻辑 / `dep-tools.js` | 无 import 边但测试文件 body 提及源文件 stem → 纳入 affected-tests（`source: "mention"`） | L466 | ✅ 已交付 |
 
 **验收标准**：
 - `edges` 表每条边有 `confidence` 字段（0.0-1.0）
@@ -268,6 +331,6 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-09（Wave 1-10 全部完成；37/37 Dogfood 已修复；node:sqlite 与元数据置信度迁移已交付；npm run test:fast 89/89 PASS；schemaVersion: 1.2.0；version: 2.0.0；架构债务 2 项；SQLite 持久化 11/14 表已实现）*
+*Last updated: 2026-06-09（Wave 1-10 全部完成；37/37 Dogfood 已修复；node:sqlite 与元数据置信度迁移已交付；npm run test:fast 89/89 PASS；schemaVersion: 1.2.0；version: 2.0.0；架构债务 1 项；SQLite 持久化 11/14 表已实现）*
 
 

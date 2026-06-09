@@ -14,7 +14,7 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **2** | L3 品味问题 **2** | 合计 **4 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **1** | L3 品味问题 **1** | 合计 **2 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
@@ -32,20 +32,6 @@
 
 ---
 
-#### slow 层测试过重
-
-**数据**：slow 层 54 个测试需 ~250s，其中 `e2e-gitnexus-test.js` 单个测试占 ~23s（全层时间的 ~9%）。
-
-**根因**：GitNexus 项目规模 1329 文件，CLI 冷启动 + 全量建图 + 加载 WASM。
-
-**影响**：slow 层总时间 ~250s。预热缓存已部署，e2e-gitnexus 已使用 `SHARED_CACHE_DIR`，占比从 24% 降至 9%。
-
-**方案**：
-1. runner 预热缓存机制已部署，slow 层测试启动时复制预热缓存，跳过冷启动建图。
-2. ✅ slow 层头部拆分已完成：`cli-integration-test.js` → `cli-integration-core-test.js` + `cli-integration-edge-test.js`；`formatter-e2e-test.js` → `formatter-e2e-summary-test.js` + `formatter-e2e-others-test.js`。runner.js `KNOWN_SLOW_PATTERNS` 已同步。
-
----
-
 ## L3 品味问题（建议修，非债务）
 
 #### 静态路由提取范围限制 (Wave 9-2)
@@ -53,10 +39,6 @@
 - **风险**：在超大 Controller/Router 文件中，若路由声明写在后半部分，可能会被截断导致检测不到。
 - **建议**：后续若有用户反馈漏报，可考虑支持动态范围读取或流式正则。
 
-#### 预计算路由提取的同步 I/O 阻塞风险 (Wave 9-2)
-- **内容**：`persistence.js` 的 `savePrecomputed` 提取路由时，在循环中使用了同步的 `fs.readFileSync`。
-- **风险**：在超大项目（有几千个框架入口文件）中，每次保存时会短暂同步阻塞 Node.js 事件循环。
-- **建议**：由于只在 watcher 编译保存时触发，暂不影响 CLI 响应，未来若发现卡顿应重构为异步流或直接复用 AST parser 现有的内存缓存。
 
 ---
 
