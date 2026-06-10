@@ -310,4 +310,24 @@ AI 消费输出时，以下字段价值低，可跳过以节省上下文：
 | `fileCount: 0` | 检查 `pom.xml`/`package.json` 是否存在；Java 项目确保在 `pom.xml` 所在目录运行 |
 | 输出含 `coverageWarning` | `analysisCoverage.coverageRatio < 0.5`，部分文件 fallback 到 regex 解析，findings 可能不完整 |
 | Windows 路径问题 | `--file` 参数使用正斜杠或双反斜杠：`--file src/services/dep-graph.js` |
-| Exit code 误判 | 默认 findings 不触发 exit=1。只有 `result.ok === false` 或 `--fail-on-findings` 显式开启时才会 exit=1。exit=2 表示未捕获异常 |
+| Exit code 误判 | 默认 findings 不触发 exit=1。只有 `result.ok === false` 或 `--fail-on-findings` 显式开启时还会 exit=1。exit=2 表示未捕获异常 |
+
+## Architecture Layer Mapping (L0-L6 Mappings)
+
+For agents debugging or contributing to the engine, CLI commands trace directly to the following layers:
+
+```
+[CLI Entry: L5] ──> [Tool Assemblers: L4] ──> [Core Engine Facade: L2/L3] ──> [Parsers & Resolvers: L2.5]
+```
+
+| CLI Command | L5 CLI Code | L4 Assembly/Tool Layer | L2/L3 Engine Layer | L2.5 Parsers/Resolvers |
+|:---|:---|:---|:---|:---|
+| `audit-overview` | [cli.js](file:///src/cli.js), [commands/audit-overview.js](file:///src/commands/audit-overview.js) | [overview-assembler.js](file:///src/tools/overview-assembler.js), [overview-curator.js](file:///src/tools/overview-curator.js) | [dep-graph.js](file:///src/services/dep-graph.js) (L2), [diagnostics-engine.js](file:///src/services/diagnostics-engine.js) (L3) | [registry.js](file:///src/services/dep-graph/parsers/registry.js) (L2.5), [resolvers.js](file:///src/services/dep-graph/resolvers.js) (L2.5) |
+| `audit-diff` | [commands/audit-diff.js](file:///src/commands/audit-diff.js) | [incremental-diff.js](file:///src/tools/incremental-diff.js), [git-tools.js](file:///src/tools/git-tools.js) | [dep-graph.js](file:///src/services/dep-graph.js) (L2) | [registry.js](file:///src/services/dep-graph/parsers/registry.js) (L2.5) |
+| `audit-file` | [commands/audit-file.js](file:///src/commands/audit-file.js) | [workspace-tools.js](file:///src/tools/workspace-tools.js), [cochange-tools.js](file:///src/tools/cochange-tools.js) | [dep-graph.js](file:///src/services/dep-graph.js) (L2) via GraphQuery | [registry.js](file:///src/services/dep-graph/parsers/registry.js) (L2.5), [symbol-impact.js](file:///src/services/dep-graph/symbol-impact.js) (L2.5) |
+| `tree` | [commands/tree.js](file:///src/commands/tree.js) | [tree-tools.js](file:///src/tools/tree-tools.js) | [dep-graph.js](file:///src/services/dep-graph.js) (L2) via GraphQuery | [registry.js](file:///src/services/dep-graph/parsers/registry.js) (L2.5) |
+| `audit-security` | [commands/audit-security.js](file:///src/commands/audit-security.js) | [security-tools.js](file:///src/tools/security-tools.js) | None | None |
+| `dead-exports` | [commands/dead-exports.js](file:///src/commands/dead-exports.js) | [dep-tools.js](file:///src/tools/dep-tools.js) | [analyzer.js](file:///src/services/dep-graph/analyzer.js) (L2) | [registry.js](file:///src/services/dep-graph/parsers/registry.js) (L2.5) |
+| `cycles` | [commands/cycles.js](file:///src/commands/cycles.js) | [dep-tools.js](file:///src/tools/dep-tools.js) | [analyzer.js](file:///src/services/dep-graph/analyzer.js) (L2) | [registry.js](file:///src/services/dep-graph/parsers/registry.js) (L2.5) |
+| `unresolved` | [commands/unresolved.js](file:///src/commands/unresolved.js) | [dep-tools.js](file:///src/tools/dep-tools.js) | [dep-graph.js](file:///src/services/dep-graph.js) (L2) | [resolvers.js](file:///src/services/dep-graph/resolvers.js) (L2.5) |
+| `repl` | [repl.js](file:///src/repl.js) | Interacts directly with L4 Tool functions | [container.js](file:///src/services/container.js) (L3) | [registry.js](file:///src/services/dep-graph/parsers/registry.js) (L2.5) |

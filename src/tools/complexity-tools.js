@@ -54,8 +54,8 @@ async function getFileComplexityTrend(root, filePath, options = {}) {
 
   if (langConfig) {
     try {
-      const baseParsed = langConfig.async ? await langConfig.parser(cleanBase, filePath) : langConfig.parser(cleanBase, filePath);
-      const currentParsed = langConfig.async ? await langConfig.parser(cleanCurrent, filePath) : langConfig.parser(cleanCurrent, filePath);
+      const baseParsed = langConfig.async ? await langConfig.parse(cleanBase, filePath) : langConfig.parse(cleanBase, filePath);
+      const currentParsed = langConfig.async ? await langConfig.parse(cleanCurrent, filePath) : langConfig.parse(cleanCurrent, filePath);
 
       if (baseParsed && Array.isArray(baseParsed.functionRecords) &&
           currentParsed && Array.isArray(currentParsed.functionRecords)) {

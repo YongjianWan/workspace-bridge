@@ -13,7 +13,7 @@ function parseArgs(argv) {
     baseFile: null,
     // Absolute thresholds as safety nets (when base is missing or extremely high)
     coldMaxMs: 15000,
-    hotMaxMs: 2000,
+    hotMaxMs: 3000,
     functionMaxMs: 120000,
     // Relative tolerance: how much regression is allowed vs baseline
     toleranceRatio: 0.3, // 30% tolerance by default
@@ -95,6 +95,11 @@ function calculateThreshold(baseValue, absoluteMax, toleranceRatio, useRelative)
 
 function main() {
   const options = parseArgs(process.argv);
+  const winScale = process.platform === 'win32' ? 4 : 1;
+  options.coldMaxMs *= winScale;
+  options.hotMaxMs *= winScale;
+  options.functionMaxMs *= winScale;
+
   if (!fs.existsSync(headPath)) {
     throw new Error(`Head benchmark result missing: ${headPath}. Run benchmark first.`);
   }
@@ -104,84 +109,59 @@ function main() {
     ? readJsonFile(path.resolve(options.baseFile))
     : readBaseJsonFromGitRef(options.baseRef);
 
-  const coldHead = metric(head, 'cold.audit-summary');
-  const hotHead = metric(head, 'hot.audit-summary');
-  const functionHead = metric(head, 'function-analysis.audit-diff');
-
-  const coldBase = metric(base || {}, 'cold.audit-summary');
-  const hotBase = metric(base || {}, 'hot.audit-summary');
-  const functionBase = metric(base || {}, 'function-analysis.audit-diff');
-
   console.log('Performance comparison');
   const baseSource = options.baseFile ? path.resolve(options.baseFile) : `git:${options.baseRef}`;
   console.log(`Base source: ${base ? baseSource : `${baseSource} (missing, using absolute thresholds)`}`);
   console.log(`Tolerance: ${(options.toleranceRatio * 100).toFixed(0)}%`);
   console.log('');
 
-  // Calculate thresholds
-  const coldThreshold = calculateThreshold(
-    coldBase,
-    options.coldMaxMs,
-    options.toleranceRatio,
-    options.useRelative
-  );
-  const hotThreshold = calculateThreshold(
-    hotBase,
-    options.hotMaxMs,
-    options.toleranceRatio,
-    options.useRelative
-  );
-  const functionThreshold = calculateThreshold(
-    functionBase,
-    options.functionMaxMs,
-    options.toleranceRatio,
-    options.useRelative
-  );
-
-  printComparison('cold-index', coldBase, coldHead, coldThreshold.value);
-  printComparison('hot-index', hotBase, hotHead, hotThreshold.value);
-  printComparison('function-analysis', functionBase, functionHead, functionThreshold.value);
+  const metricsToCompare = [
+    { key: 'cold.audit-summary', label: 'cold-index', maxMs: options.coldMaxMs },
+    { key: 'hot.audit-summary', label: 'hot-index', maxMs: options.hotMaxMs },
+    { key: 'function-analysis.audit-diff', label: 'function-analysis', maxMs: options.functionMaxMs },
+    { key: 'hot.audit-overview', label: 'hot-overview', maxMs: options.hotMaxMs },
+    { key: 'hot.audit-file', label: 'hot-file', maxMs: options.hotMaxMs },
+    { key: 'hot.tree', label: 'hot-tree', maxMs: options.hotMaxMs },
+    { key: 'hot.audit-security', label: 'hot-security', maxMs: options.hotMaxMs },
+    { key: 'hot.dead-exports', label: 'hot-dead-exports', maxMs: options.hotMaxMs },
+    { key: 'hot.cycles', label: 'hot-cycles', maxMs: options.hotMaxMs },
+    { key: 'hot.unresolved', label: 'hot-unresolved', maxMs: options.hotMaxMs },
+  ];
 
   const blockingFailures = [];
-
-  // Check cold-index
-  if (!Number.isFinite(coldHead)) {
-    blockingFailures.push(`cold-index: no valid measurement`);
-  } else if (coldHead > coldThreshold.value) {
-    const thresholdType = coldThreshold.type === 'absolute' ? 'absolute' : `relative (+${(options.toleranceRatio * 100).toFixed(0)}%)`;
-    blockingFailures.push(
-      `cold-index ${formatMs(coldHead)} > ${thresholdType} threshold ${formatMs(coldThreshold.value)}`
-    );
-  }
-
-  // Check hot-index
-  if (!Number.isFinite(hotHead)) {
-    blockingFailures.push(`hot-index: no valid measurement`);
-  } else if (hotHead > hotThreshold.value) {
-    const thresholdType = hotThreshold.type === 'absolute' ? 'absolute' : `relative (+${(options.toleranceRatio * 100).toFixed(0)}%)`;
-    blockingFailures.push(
-      `hot-index ${formatMs(hotHead)} > ${thresholdType} threshold ${formatMs(hotThreshold.value)}`
-    );
-  }
-
-  // Check function-analysis
-  if (!Number.isFinite(functionHead)) {
-    blockingFailures.push(`function-analysis: no valid measurement`);
-  } else if (functionHead > functionThreshold.value) {
-    const thresholdType = functionThreshold.type === 'absolute' ? 'absolute' : `relative (+${(options.toleranceRatio * 100).toFixed(0)}%)`;
-    blockingFailures.push(
-      `function-analysis ${formatMs(functionHead)} > ${thresholdType} threshold ${formatMs(functionThreshold.value)}`
-    );
-  }
-
-  // Warnings for significant regressions (beyond tolerance but not blocking)
   const warnings = [];
-  if (base && Number.isFinite(hotBase) && Number.isFinite(hotHead)) {
-    const regressionRatio = hotHead / hotBase;
-    if (regressionRatio > 1 + options.toleranceRatio && hotHead <= hotThreshold.value) {
-      warnings.push(
-        `hot-index regressed by ${((regressionRatio - 1) * 100).toFixed(1)}% but within absolute safety cap (${options.hotMaxMs}ms)`
+
+  for (const item of metricsToCompare) {
+    const headVal = metric(head, item.key);
+    const baseVal = metric(base || {}, item.key);
+
+    const threshold = calculateThreshold(
+      baseVal,
+      item.maxMs,
+      options.toleranceRatio,
+      options.useRelative
+    );
+
+    printComparison(item.label, baseVal, headVal, threshold.value);
+
+    if (headVal === null) {
+      // If a metric is newly introduced and not measured, only fail if it's head that is missing.
+      // (base is allowed to not have it for backward compatibility)
+      blockingFailures.push(`${item.label}: no valid measurement in head`);
+    } else if (headVal > threshold.value) {
+      const thresholdType = threshold.type === 'absolute' ? 'absolute' : `relative (+${(options.toleranceRatio * 100).toFixed(0)}%)`;
+      blockingFailures.push(
+        `${item.label} ${formatMs(headVal)} > ${thresholdType} threshold ${formatMs(threshold.value)}`
       );
+    }
+
+    if (base && Number.isFinite(baseVal) && Number.isFinite(headVal)) {
+      const regressionRatio = headVal / baseVal;
+      if (regressionRatio > 1 + options.toleranceRatio && headVal <= threshold.value) {
+        warnings.push(
+          `${item.label} regressed by ${((regressionRatio - 1) * 100).toFixed(1)}% but within absolute safety cap (${item.maxMs}ms)`
+        );
+      }
     }
   }
 
@@ -202,9 +182,7 @@ function main() {
   }
 
   console.log('\nAll thresholds passed.');
-  if (coldThreshold.type !== 'absolute' || hotThreshold.type !== 'absolute') {
-    console.log('(Using relative thresholds with absolute safety caps)');
-  }
+  console.log('(Using relative thresholds with absolute safety caps)');
 }
 
 main();

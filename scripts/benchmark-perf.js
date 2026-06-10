@@ -180,8 +180,8 @@ function timeCommand(label, command, args, cwd) {
   return { label, elapsedMs: Math.round(elapsedMs), output };
 }
 
-function runCliJson(command, fixtureRoot) {
-  return ['node', [cliPath, command, '--cwd', fixtureRoot, '--json', '--quiet'], repoRoot];
+function runCliJson(command, fixtureRoot, extraArgs = []) {
+  return ['node', [cliPath, command, '--cwd', fixtureRoot, '--json', '--quiet', ...extraArgs], repoRoot];
 }
 
 function parseJson(text, label) {
@@ -254,6 +254,48 @@ function main() {
       const result = timeCommand('hot.audit-diff', cmd, args, cwd);
       timings.push(result);
     }
+    {
+      const [cmd, args, cwd] = runCliJson('audit-overview', fixtureRoot);
+      const result = timeCommand('hot.audit-overview', cmd, args, cwd);
+      parseJson(result.output, result.label);
+      timings.push(result);
+    }
+    {
+      const [cmd, args, cwd] = runCliJson('audit-file', fixtureRoot, ['--file', 'src/module-0.js']);
+      const result = timeCommand('hot.audit-file', cmd, args, cwd);
+      parseJson(result.output, result.label);
+      timings.push(result);
+    }
+    {
+      const [cmd, args, cwd] = runCliJson('tree', fixtureRoot, ['--file', 'src/module-0.js']);
+      const result = timeCommand('hot.tree', cmd, args, cwd);
+      parseJson(result.output, result.label);
+      timings.push(result);
+    }
+    {
+      const [cmd, args, cwd] = runCliJson('audit-security', fixtureRoot, ['--builtin-only']);
+      const result = timeCommand('hot.audit-security', cmd, args, cwd);
+      parseJson(result.output, result.label);
+      timings.push(result);
+    }
+    {
+      const [cmd, args, cwd] = runCliJson('dead-exports', fixtureRoot);
+      const result = timeCommand('hot.dead-exports', cmd, args, cwd);
+      parseJson(result.output, result.label);
+      timings.push(result);
+    }
+    {
+      const [cmd, args, cwd] = runCliJson('cycles', fixtureRoot);
+      const result = timeCommand('hot.cycles', cmd, args, cwd);
+      parseJson(result.output, result.label);
+      timings.push(result);
+    }
+    {
+      const [cmd, args, cwd] = runCliJson('unresolved', fixtureRoot);
+      const result = timeCommand('hot.unresolved', cmd, args, cwd);
+      parseJson(result.output, result.label);
+      timings.push(result);
+    }
 
     mutateFiles(fixtureRoot, Math.max(5, Math.floor(options.changeCount / 2)));
     {
@@ -286,10 +328,18 @@ function main() {
       timings.push(result);
     }
 
+    const winScale = process.platform === 'win32' ? 4 : 1;
     const threshold = evaluateThresholds(timings, [
-      { label: 'cold.audit-summary', maxMs: options.maxMs },
-      { label: 'cold.audit-diff', maxMs: options.maxMs },
-      { label: 'function-analysis.audit-diff', maxMs: options.maxFunctionMs },
+      { label: 'cold.audit-summary', maxMs: options.maxMs * winScale },
+      { label: 'cold.audit-diff', maxMs: options.maxMs * winScale },
+      { label: 'function-analysis.audit-diff', maxMs: options.maxFunctionMs * winScale },
+      { label: 'hot.audit-overview', maxMs: 5000 * winScale },
+      { label: 'hot.audit-file', maxMs: 3000 * winScale },
+      { label: 'hot.tree', maxMs: 3000 * winScale },
+      { label: 'hot.audit-security', maxMs: 3000 * winScale },
+      { label: 'hot.dead-exports', maxMs: 3000 * winScale },
+      { label: 'hot.cycles', maxMs: 3000 * winScale },
+      { label: 'hot.unresolved', maxMs: 3000 * winScale },
     ]);
     const report = {
       startedAt,

@@ -23,6 +23,7 @@ const { getFileComplexityTrend } = require('./complexity-tools');
 const { resolveWorkspaceFilePath } = require('../utils/path');
 const { mapWithConcurrency } = require('../utils/async');
 const { DEFAULTS } = require('../config/constants');
+const { truncateArray } = require('../utils/truncate');
 const { auditSecurity, groupBySeverity } = require('./security-tools');
 const { buildCompositeRisk } = require('../cli/formatters');
 
@@ -166,8 +167,14 @@ async function buildDiffEntry(relativeFile, container, parsed) {
   const symbolImpact = baseSymbolImpact
     ? { ...baseSymbolImpact, changedFunctionImpact }
     : null;
-  const affectedTests = graphKnown ? container.snapshot.graph.findAffectedTests(resolvedPath, maxDepth) : [];
-  const affectedRoutes = graphKnown ? container.snapshot.graph.findAffectedRoutes(resolvedPath) : [];
+  const affectedTestsRaw = graphKnown ? container.snapshot.graph.findAffectedTests(resolvedPath, maxDepth) : [];
+  const affectedTestsTrunc = truncateArray(affectedTestsRaw, DEFAULTS.JSON_OUTPUT_MAX_AFFECTED_TESTS_ITEMS);
+  const affectedTests = affectedTestsTrunc.items;
+
+  const affectedRoutesRaw = graphKnown ? container.snapshot.graph.findAffectedRoutes(resolvedPath) : [];
+  const affectedRoutesTrunc = truncateArray(affectedRoutesRaw, DEFAULTS.JSON_OUTPUT_MAX_AFFECTED_ROUTES_ITEMS);
+  const affectedRoutes = affectedRoutesTrunc.items;
+
   const history = resolvedPath ? await getFileHistoryRisk(container.workspaceRoot, resolvedPath, { limit: DEFAULTS.HISTORY_LIMIT }) : { ok: false };
   const historyRisk = history.ok ? history.historyRisk : null;
   const impactExplanations = graphKnown
@@ -187,13 +194,14 @@ async function buildDiffEntry(relativeFile, container, parsed) {
     impact,
     changedLineRanges,
     symbolImpact,
-    affectedTestsCount: affectedTests.length,
+    affectedTestsCount: affectedTestsRaw.length,
     affectedTests,
     affectedRoutes,
     historyRisk,
     recentCommits: history.ok ? history.recentCommits : [],
     impactExplanations,
     complexityTrend,
+    truncated: affectedTestsTrunc.truncated || affectedRoutesTrunc.truncated,
   };
   const compositeRisk = buildCompositeRisk(baseEntry);
 

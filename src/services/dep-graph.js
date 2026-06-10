@@ -6,6 +6,13 @@
  *   - builder.js  : GraphBuilder
  *   - analyzer.js : GraphAnalyzer
  *   - query.js    : GraphQuery
+ *
+ * Architecture Phases:
+ * 1. Parse Phase: GraphBuilder parses files (either incrementally or on a full cold build)
+ *    to extract imports, exports, functions, and symbols, storing them in local databases.
+ * 2. Link Phase: GraphBuilder / resolvers resolve raw import strings to actual file targets
+ *    in the workspace, linking the nodes. GraphAnalyzer runs topological sorting, cycle detection,
+ *    and dead export calculations across the fully resolved graph.
  */
 const fs = require('fs');
 const path = require('path');

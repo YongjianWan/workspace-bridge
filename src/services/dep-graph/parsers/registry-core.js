@@ -8,9 +8,17 @@
 
 /**
  * @param {object} config
- * @param {string} config.name
- * @param {string[]} config.exts
- * @param {Function} config.parser
+ * @param {string} [config.language]
+ * @param {string} [config.name]
+ * @param {string[]} [config.extensions]
+ * @param {string[]} [config.exts]
+ * @param {Function} [config.parse]
+ * @param {Function} [config.parser]
+ * @param {Function} [config.extractImports]
+ * @param {Function} [config.extractExports]
+ * @param {Function} [config.extractSymbols]
+ * @param {Function} [config.isBuiltIn]
+ * @param {Function[]} [config.resolveStrategies]
  * @param {boolean} [config.async=false]
  * @param {boolean} [config.needsFilePath=false]
  * @param {string[]} [config.filePatterns]
@@ -18,15 +26,46 @@
  * @returns {object}
  */
 function defineLanguage(config) {
-  return {
-    name: config.name,
-    exts: config.exts,
-    parser: config.parser,
+  const language = config.language ?? config.name;
+  const extensions = config.extensions ?? config.exts;
+  const parse = config.parse ?? config.parser;
+
+  const langObj = {
+    language,
+    extensions,
+    parse,
+    extractImports: config.extractImports,
+    extractExports: config.extractExports,
+    extractSymbols: config.extractSymbols,
+    isBuiltIn: config.isBuiltIn ?? (() => false),
+    resolveStrategies: config.resolveStrategies ?? [],
     async: config.async ?? false,
     needsFilePath: config.needsFilePath ?? false,
-    filePatterns: config.filePatterns ?? config.exts.map((e) => `**/*${e}`),
+    filePatterns: config.filePatterns ?? extensions.map((e) => `**/*${e}`),
     condition: config.condition ?? (() => true),
   };
+
+  // Compatibility getters/setters for L1 back-compat
+  Object.defineProperty(langObj, 'name', {
+    get: () => langObj.language,
+    set: (val) => { langObj.language = val; },
+    configurable: true,
+    enumerable: true,
+  });
+  Object.defineProperty(langObj, 'exts', {
+    get: () => langObj.extensions,
+    set: (val) => { langObj.extensions = val; },
+    configurable: true,
+    enumerable: true,
+  });
+  Object.defineProperty(langObj, 'parser', {
+    get: () => langObj.parse,
+    set: (val) => { langObj.parse = val; },
+    configurable: true,
+    enumerable: true,
+  });
+
+  return langObj;
 }
 
 class LanguageRegistry {
@@ -39,7 +78,8 @@ class LanguageRegistry {
 
   register(lang) {
     this.languages.push(lang);
-    for (const ext of lang.exts) {
+    const exts = lang.extensions ?? lang.exts;
+    for (const ext of exts) {
       this._extMap.set(ext, lang);
     }
   }

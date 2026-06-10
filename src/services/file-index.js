@@ -10,7 +10,6 @@ const { detectWorkspace, normalizePathKey, matchesPathFragment } = require('../u
 const { DEFAULT_EXCLUDE_DIRS, shouldExcludeBase, shouldExcludeCli: _shouldExcludeCli } = require('../utils/exclude-patterns');
 const { loadWorkspaceConfig } = require('../utils/project-context');
 const { EventBus } = require('../utils/event-bus');
-const { extractSymbols } = require('./file-index/symbol-extractors');
 const { registry } = require('./dep-graph/parsers/registry');
 const { DEFAULTS } = require('../config/constants');
 
@@ -371,12 +370,15 @@ class FileIndex {
       if (!this.active) return false;
       const ext = path.extname(filePath);
 
-      // Extract symbols
-      const symbols = extractSymbols(content, ext);
-
       // Resolve language, type, and role
       const langConfig = registry.findByExt(ext);
       const lang = langConfig ? langConfig.name : null;
+
+      // Extract symbols
+      const symbols = langConfig && typeof langConfig.extractSymbols === 'function'
+        ? langConfig.extractSymbols(content)
+        : [];
+
       const classification = this.projectContext ? this.projectContext.classifyFile(filePath) : null;
       const type = classification ? classification.fileRole : 'source';
       const role = classification ? classification.directoryRole : null;

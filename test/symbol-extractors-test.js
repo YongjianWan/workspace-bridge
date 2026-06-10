@@ -4,7 +4,12 @@
  * Covers all registered extractors and boundary cases.
  */
 const assert = require('assert');
-const { extractSymbols } = require('../src/services/file-index/symbol-extractors');
+const { registry } = require('../src/services/dep-graph/parsers/registry');
+function extractSymbols(content, ext) {
+  const langConfig = registry.findByExt(ext);
+  if (!langConfig || typeof langConfig.extractSymbols !== 'function') return [];
+  return langConfig.extractSymbols(content);
+}
 
 function main() {
 

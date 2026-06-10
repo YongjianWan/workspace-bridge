@@ -68,6 +68,16 @@ const DEFAULTS = {
   // Diagnostics debounce: 1s balances responsiveness with batching.
   // Too short = excessive re-runs; too long = stale linter feedback.
   DIAGNOSTICS_DEBOUNCE_MS: 1000,
+  // Wave 12 — JSON output truncation limits.
+  // Rationale: AI context windows are typically 8k-128k tokens. A single
+  // large-array field (e.g. impact[] with 500 files) can consume >10k tokens
+  // by itself. These limits keep individual commands well under 2k tokens.
+  JSON_OUTPUT_MAX_IMPACT_ITEMS: 50,            // 50 files × ~40 tokens ≈ 2k tokens
+  JSON_OUTPUT_MAX_AFFECTED_TESTS_ITEMS: 50,    // same rationale as impact
+  JSON_OUTPUT_MAX_AFFECTED_ROUTES_ITEMS: 30,   // routes are usually shallower
+  JSON_OUTPUT_MAX_COCHANGE_ITEMS: 20,          // co-changes beyond 20 are noise
+  JSON_OUTPUT_MAX_ARRAY_ITEMS: 100,            // generic fallback for elideDeep
+  JSON_OUTPUT_MAX_STRING_LENGTH: 500,          // ~75 tokens; cuts matchedText/code snippets
 };
 
 // Scoring weights for highlighted files in compact project map.

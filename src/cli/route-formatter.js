@@ -11,6 +11,7 @@ const {
   formatAi,
 } = require('./formatters');
 const { STREAMING, SCHEMA_VERSION } = require('../config/constants');
+const { elideDeep } = require('../utils/truncate');
 
 /**
  * Write large JSON strings to stdout in chunks to avoid blocking
@@ -64,10 +65,11 @@ function formatCliResult(parsed, result, meta = {}) {
   } else if (parsed.format === 'markdown' || !parsed.json) {
     stdout = formatMarkdown(parsed.command, result);
   } else if (parsed.json) {
-    if (result && typeof result === 'object') {
-      result.schemaVersion = schemaVersion;
+    let output = result && typeof result === 'object' ? elideDeep(result) : result;
+    if (output && typeof output === 'object') {
+      output.schemaVersion = schemaVersion;
     }
-    stdout = JSON.stringify(result, null, 2);
+    stdout = JSON.stringify(output, null, 2);
   }
   return stdout;
 }

@@ -7,6 +7,7 @@ const {
   discoverJavaSourceRoots,
   readGoMod,
 } = require('./resolvers/base');
+const { registry } = require('./parsers/registry');
 
 const {
   tryAlias,
@@ -117,13 +118,13 @@ function resolveJavaImport(importPath, root) {
   return tryJava(importPath, null, ctx);
 }
 
-// Register resolver configs for all supported extensions.
-// Adding a new language requires exactly one line here.
-registerResolverConfig('.py', [tryPythonRelative, tryPythonAbsolute, trySymbolTable]);
-registerResolverConfig('.java', [tryJava, trySymbolTable]);
-registerResolverConfig('.kt', [tryJava, trySymbolTable]);
-registerResolverConfig('.go', [tryGoRelative, tryGoModule, trySymbolTable]);
-registerResolverConfig('.rs', [tryRustCrate, tryRustSuper, trySymbolTable]);
+// Register resolver configs for all supported extensions dynamically from registry.
+for (const lang of registry.languages) {
+  const strategies = [...lang.resolveStrategies, trySymbolTable];
+  for (const ext of lang.extensions) {
+    registerResolverConfig(ext, strategies);
+  }
+}
 registerResolverConfig('default', [tryAlias, tryRelativeWithExtensions, trySymbolTable]);
 
 function resolveImport(fromFile, importPath, ext, root, symbolRegistry = null, outMeta = null) {

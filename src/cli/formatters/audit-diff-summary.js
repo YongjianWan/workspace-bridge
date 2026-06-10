@@ -478,6 +478,10 @@ function compactChangedFile(entry) {
     ? { score: entry.historyRisk.score, level: entry.historyRisk.level, authorCount: entry.historyRisk.authorCount, commitCount: entry.historyRisk.commitCount }
     : null;
 
+  const impactTrunc = impact.length > DEFAULTS.COMPACT_IMPACT_MAX;
+  const testsTrunc = affectedTests.length > DEFAULTS.COMPACT_AFFECTED_TESTS_MAX;
+  const explTrunc = impactExplanations.length > DEFAULTS.COMPACT_EXPLANATIONS_MAX;
+
   return {
     file: entry.file,
     classification: entry.classification,
@@ -489,6 +493,7 @@ function compactChangedFile(entry) {
     compositeRisk: entry.compositeRisk || null,
     historyRisk,
     impactExplanations: impactExplanations.slice(0, DEFAULTS.COMPACT_EXPLANATIONS_MAX),
+    truncated: entry.truncated || impactTrunc || testsTrunc || explTrunc,
   };
 }
 

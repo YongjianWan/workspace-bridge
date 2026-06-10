@@ -88,6 +88,8 @@ node cli.js audit-overview --cwd . --json --quiet
 > 13. **Wave 10 符号级智能全面交付**：重构了 `GraphBuilder` 实现了解耦的 Parse-and-Link 两阶段构建与增量更新，确保了 circular/forward 符号查找在 cold start 下能够正确解析；更新了 `edges` 表结构，增加了 `tier` 和 `resolution_method` 元数据字段并编写了 pragma/alter table 动态自动迁移，确保了向前与向后兼容性；为所有 9 语言 resolvers 配套实现了 resolution method, confidence 和 tier 精准度打标；并在 `test/wave10-symbol-intelligence-test.js` 中补齐了针对 schema 迁移、元数据持久化、resolver 打标和两阶段构建符号解析的 4 个完整 regression 单测，`test:fast` 89/89 全部通过。
 > 14. **参考仓库同步与 GitNexus 架构探索**：拉取并同步了 `CodeGraphContext`（`5b1a1f6` → `fb093bb`）与 `GitNexus`（`b9a17f55` → `1716bf7c`）最新代码；对 GitNexus 进行了 7 个维度的架构深度探索（语言插件管道、scope resolution、call graph、路由提取、PR Swarm Review、增量更新、图存储），产出与 workspace-bridge Wave 11–15 的映射评估报告。详见下方§参考仓库探索与架构借鉴。
 > 15. **Wave 11 分析深化全面交付**：新增 `audit-boundaries` 架构边界检查与 `audit-smells` 代码异味检测两个 CLI 命令；实现基于 git 历史的复杂度趋势分析（`complexityTrend`）；重构 `composite-risk.js` 为结构化 5 维度风险评分（flow_participation + community_crossing + test_coverage + caller_count + security_sensitive）；增强 JS/TS/Python/Java 的 AST 指纹计算以支持 `maxArms`；修复 `java.js` AST 路径丢失 fingerprint 的问题；补全 `human-formatters.js` 的格式化器与 AI_DIGEST；新增 `test/wave11-analysis-deepening-test.js` 覆盖边界验证、分支臂计数、复杂度趋势、风险评分；**重构消除 L2-7 `get2LevelPrefix` 重复代码技术债**。`npm run test:fast` **90/90 PASS**。
+> 16. **Wave 12 输出精炼全面交付**：实现诚实截断机制（12-1）——`impact`/`affected-tests`/`affected-routes`/`audit-diff` 等命令在数组超过阈值时显式设置 `truncated: true`，human/summary/markdown 格式化器同步显示截断提示；实现 JSON token 削减兜底（12-2）——新增 `elideDeep()` 在 `--json` 输出前作为最后一道防线，自动截断超长数组与字符串；新增 `test/wave12-output-truncation-test.js` 覆盖 truncateArray / elideDeep / compactChangedFile 截断标记 / formatter 提示 / 命令层截断行为。`npm run test:fast` **91/91 PASS**。
+> 17. **Wave 13 契约规范与可观测性全面交付**：统一 `defineLanguage` 注册契约（支持 9 种语言），删除 `symbol-extractors.js` 重构为 registry 动态调用；在 `resolvers.js` 中动态从 registry 加载解析器策略；补充 `builder.js`/`analyzer.js`/`dep-graph.js` Parse vs Link 生命周期阶段文档；在 `SKILL.md` 中添加 L0-L6 架构层级映射；扩展基准测试 `benchmark-perf.js` 和 `compare.js` 覆盖 8 大核心 CLI 命令，并适配 Windows 平台进程及 WASM 启动延迟。`npm run test:fast` **91/91 PASS**，`npm run benchmark:ci` 完美通过。
 ---
 
 ## 本轮上下文：参考仓库探索与架构借鉴（活跃）
@@ -195,10 +197,10 @@ node cli.js audit-overview --cwd . --json --quiet
 | -------------- | ----------- | ---------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
-| 活跃债务           | 1           | 测试类型分布失衡 |
+| 活跃债务           | 1           | 弱断言分布 ~2.3% |
 | **产品债务** | **0** | —                                                                  |
 
-**测试状态**：`npm run test:fast` **88/88 PASS**（~20s）。全量 runner **161/161 PASS**（~5min）。当前 fast 层 88 个测试，slow 层 70 个，serial 层 7 个。
+**测试状态**：`npm run test:fast` **91/91 PASS**（~12s）。全量 runner **163/163 PASS**（~5min）。当前 fast 层 91 个测试，slow 层 70 个，serial 层 7 个。
 
 ---
 
@@ -295,12 +297,12 @@ node cli.js audit-overview --cwd . --json --quiet
 
 #### Wave 13：工程契约与可观测性
 
-| # | 目标 | 成本 | 说明 | ROADMAP |
-|---|------|------|------|---------|
-| 13-1 | **语言注册表统一契约** | 低 | `{ language, extensions, parse, extractImports, extractExports, isBuiltIn }` 配置表 | L491 |
-| 13-2 | **GraphBuilder / GraphAnalyzer 职责边界** | 低 | 对外接口显式区分"节点构建期"和"边链接期"，文档化 + 生命周期 hook | L490 |
-| 13-3 | **per-tool benchmark + 回归检查** | 低 | 扩展 `benchmark/` 目录，为每个 CLI 命令建立对照实验 | L485 |
-| 13-4 | **SKILL.md 按层级重组** | 低 | 按 L1/L2/L3 分层整理，精简到 AI 只需要看 L1（~5 条命令） | ROADMAP §2.5 |
+| # | 目标 | 成本 | 说明 | ROADMAP | 状态 |
+|---|------|------|------|---------|------|
+| 13-1 | **语言注册表统一契约** | 低 | `{ language, extensions, parse, extractImports, extractExports, isBuiltIn }` 配置表 | L491 | ✅ 已交付 |
+| 13-2 | **GraphBuilder / GraphAnalyzer 职责边界** | 低 | 对外接口显式区分"节点构建期"和"边链接期"，文档化 + 生命周期 hook | L490 | ✅ 已交付 |
+| 13-3 | **per-tool benchmark + 回归检查** | 低 | 扩展 `benchmark/` 目录，为每个 CLI 命令建立对照实验 | L485 | ✅ 已交付 |
+| 13-4 | **SKILL.md 按层级重组** | 低 | 按 L1/L2/L3 分层整理，精简到 AI 只需要看 L1（~5 条命令） | ROADMAP §2.5 | ✅ 已交付 |
 
 ---
 
@@ -361,6 +363,6 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-09（Wave 1-11 全部完成；37/37 Dogfood 已修复；node:sqlite 与元数据置信度迁移已交付；npm run test:fast 90/90 PASS；schemaVersion: 1.2.0；version: 2.0.0；架构债务 1 项；SQLite 持久化 11/14 表已实现）*
+*Last updated: 2026-06-10（Wave 1-13 全部完成；37/37 Dogfood 已修复；node:sqlite 与元数据置信度迁移已交付；npm run test:fast 91/91 PASS；schemaVersion: 1.2.0；version: 2.0.0；架构债务 1 项；SQLite 持久化 11/14 表已实现）*
 
 

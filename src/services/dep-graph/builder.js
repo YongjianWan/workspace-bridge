@@ -1,3 +1,7 @@
+/**
+ * GraphBuilder - Dependency Graph Construction & Linking
+ * Responsible for the Parse Phase (file scanning and AST/regex extraction) and Link Phase (resolving imports and constructing the graph).
+ */
 const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
@@ -231,7 +235,7 @@ class GraphBuilder {
     const entry = registry.findByExt(ext);
     if (entry) {
       const args = entry.needsFilePath ? [content, filePath] : [content];
-      const result = entry.async ? await entry.parser(...args) : entry.parser(...args);
+      const result = entry.async ? await entry.parse(...args) : entry.parse(...args);
       if (result) {
         imports = result.imports;
         exports = result.exports;

@@ -508,9 +508,21 @@ const FORMATTERS = {
     },
   },
   'impact': {
-    human: (r) => [`impactCount: ${r.impactCount}`, ...r.impact.map((e) => { const via = e.via && e.via.length > 1 ? ` via ${e.via.slice(1).join(' -> ')}` : ''; return `${e.level}: ${e.file}${via}`; })].join('\n'),
-    summary: (r) => [`Impact radius: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, 5).map((e) => `  ${e.level}: ${e.file}`) || []].join('\n'),
-    markdown: (r) => [`# Impact Radius`, ``, `- **Total**: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, 10).map((e) => `- ${e.level}: ${e.file}`) || []].join('\n'),
+    human: (r) => {
+      const lines = [`impactCount: ${r.impactCount}`, ...r.impact.map((e) => { const via = e.via && e.via.length > 1 ? ` via ${e.via.slice(1).join(' -> ')}` : ''; return `${e.level}: ${e.file}${via}`; })];
+      if (r.truncated) lines.push(`... truncated (showing ${r.impact.length} of ${r.impactCount})`);
+      return lines.join('\n');
+    },
+    summary: (r) => {
+      const lines = [`Impact radius: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, 5).map((e) => `  ${e.level}: ${e.file}`) || []];
+      if (r.truncated) lines.push(`  ... truncated (showing ${r.impact.length} of ${r.impactCount})`);
+      return lines.join('\n');
+    },
+    markdown: (r) => {
+      const lines = [`# Impact Radius`, ``, `- **Total**: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, 10).map((e) => `- ${e.level}: ${e.file}`) || []];
+      if (r.truncated) lines.push(`- *... truncated (showing ${r.impact.length} of ${r.impactCount})*`);
+      return lines.join('\n');
+    },
     jsonl: (r) => {
       const rec = [];
       rec.push({ _type: 'summary', ok: r.ok, command: 'impact', severity: r.severity || r.summary?.severity });
@@ -519,9 +531,21 @@ const FORMATTERS = {
     },
   },
   'affected-tests': {
-    human: (r) => [`affectedTestsCount: ${r.affectedTestsCount}`, ...r.affectedTests.map((e) => { const via = e.via?.length > 0 ? ` via ${e.via.join(' -> ')}` : ''; return `${e.distance}: ${e.file}${via}`; })].join('\n'),
-    summary: (r) => [`Affected tests: ${r.affectedTestsCount ?? 0}`, ...r.affectedTests?.slice(0, 5).map((e) => `  ${e.distance}: ${e.file}`) || []].join('\n'),
-    markdown: (r) => [`# Affected Tests`, ``, `- **Total**: ${r.affectedTestsCount ?? 0}`, ...r.affectedTests?.slice(0, 10).map((e) => `- ${e.distance}: ${e.file}`) || []].join('\n'),
+    human: (r) => {
+      const lines = [`affectedTestsCount: ${r.affectedTestsCount}`, ...r.affectedTests.map((e) => { const via = e.via?.length > 0 ? ` via ${e.via.join(' -> ')}` : ''; return `${e.distance}: ${e.file}${via}`; })];
+      if (r.truncated) lines.push(`... truncated (showing ${r.affectedTests.length} of ${r.affectedTestsCount})`);
+      return lines.join('\n');
+    },
+    summary: (r) => {
+      const lines = [`Affected tests: ${r.affectedTestsCount ?? 0}`, ...r.affectedTests?.slice(0, 5).map((e) => `  ${e.distance}: ${e.file}`) || []];
+      if (r.truncated) lines.push(`  ... truncated (showing ${r.affectedTests.length} of ${r.affectedTestsCount})`);
+      return lines.join('\n');
+    },
+    markdown: (r) => {
+      const lines = [`# Affected Tests`, ``, `- **Total**: ${r.affectedTestsCount ?? 0}`, ...r.affectedTests?.slice(0, 10).map((e) => `- ${e.distance}: ${e.file}`) || []];
+      if (r.truncated) lines.push(`- *... truncated (showing ${r.affectedTests.length} of ${r.affectedTestsCount})*`);
+      return lines.join('\n');
+    },
     jsonl: (r) => {
       const rec = [];
       rec.push({ _type: 'summary', ok: r.ok, command: 'affected-tests', severity: r.severity || r.summary?.severity });
@@ -530,9 +554,21 @@ const FORMATTERS = {
     },
   },
   'affected-routes': {
-    human: (r) => [`routesCount: ${r.routesCount}`, ...r.routes.map((e) => `${e.entry}: ${e.path.join(' -> ')}`)].join('\n'),
-    summary: (r) => [`Routes: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, 5).map((e) => `  ${e.entry}: ${e.path.join(' -> ')}`) || []].join('\n'),
-    markdown: (r) => [`# Affected Routes`, ``, `- **Total**: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, 10).map((e) => `- \`${e.entry}\`: ${e.path.join(' -> ')}`) || []].join('\n'),
+    human: (r) => {
+      const lines = [`routesCount: ${r.routesCount}`, ...r.routes.map((e) => `${e.entry}: ${e.path.join(' -> ')}`)];
+      if (r.truncated) lines.push(`... truncated (showing ${r.routes.length} of ${r.routesCount})`);
+      return lines.join('\n');
+    },
+    summary: (r) => {
+      const lines = [`Routes: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, 5).map((e) => `  ${e.entry}: ${e.path.join(' -> ')}`) || []];
+      if (r.truncated) lines.push(`  ... truncated (showing ${r.routes.length} of ${r.routesCount})`);
+      return lines.join('\n');
+    },
+    markdown: (r) => {
+      const lines = [`# Affected Routes`, ``, `- **Total**: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, 10).map((e) => `- \`${e.entry}\`: ${e.path.join(' -> ')}`) || []];
+      if (r.truncated) lines.push(`- *... truncated (showing ${r.routes.length} of ${r.routesCount})*`);
+      return lines.join('\n');
+    },
     jsonl: (r) => {
       const rec = [];
       rec.push({ _type: 'summary', ok: r.ok, command: 'affected-routes', severity: r.severity || r.summary?.severity });

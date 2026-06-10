@@ -8,6 +8,38 @@
 
 ## [Unreleased]
 
+### Wave 13: 契约规范与可观测性 (2026-06-10)
+
+- **统一语言解析器契约** `src/services/dep-graph/parsers/registry-core.js` / `registry.js`：
+  - 规范并统一 `defineLanguage` 参数，使其支持 `language`、`extensions`、`parse`、`extractImports`、`extractExports`、`extractSymbols`、`isBuiltIn` 和 `resolveStrategies`。
+  - 保留并回补对 `.name`、`.exts` 和 `.parser` 的兼容性 Getters/Setters 访问（支持 test 侧 monkey-patch 覆盖）。
+  - 在 `registry.js` 中将 9 种语言按照新格式统一声明并注册，把 symbol 提取、isBuiltIn 标识以及具体 resolver 策略完全内敛到 registry 核心声明中。
+- **解析器与 Resolver 配置解耦** `src/services/dep-graph/resolvers.js` / `src/services/file-index.js`：
+  - 删除冗余的 [symbol-extractors.js](file:///src/services/file-index/symbol-extractors.js)。
+  - 更新 `file-index.js` 和测试 `symbol-extractors-test.js`，统一转而通过 `registry.findByExt(ext).extractSymbols()` 动态提取符号。
+  - 重构 `resolvers.js`，动态加载并循环遍历 `registry.languages` 自动完成 resolver configurations 注册，并附加 `trySymbolTable` 兜底。
+  - 将 `builder.js` 和 `complexity-tools.js` 中所有对 `.parser(...)` 的调用迁移至统一 the `.parse(...)`。
+- **架构生命周期边界文档补全** `src/services/dep-graph.js` / `builder.js` / `analyzer.js` / `skills/workspace-audit/SKILL.md`：
+  - 在 core-engine 代码头部补齐了清晰的 Parse Phase 与 Link Phase 两阶段生命周期的职责文档。
+  - 重构 `SKILL.md`，追加 "Architecture Layer Mapping" 章节详细映射 CLI 命令到 L0-L6 系统架构层级。
+- **性能基准可观测性扩展** `scripts/benchmark-perf.js` / `benchmark/compare.js`：
+  - 扩展基准测试套件，全面覆盖 8 大核心 CLI 命令的 hot cache 延迟与 JSON 正确性检查。
+  - 针对 Windows 环境下进程 spawn 及 tree-sitter WASM 载入的巨大耗时，引入 `win32` 自动乘以 4 倍的安全阈值缩放，消除 CI 偶发抖动引起的 false-positive 失败。
+
+
+### Wave 12: 输出精炼 (2026-06-10)
+
+- **诚实截断机制 (12-1)** `src/utils/truncate.js` / `src/tools/dep-tools/impact.js` / `affected-tests.js` / `affected-routes.js` / `src/tools/audit-assembler.js` / `src/cli/formatters/audit-diff-summary.js` / `human-formatters.js`：
+  - 新增 `truncateArray()` 工具函数，对 `impact[]`、`affectedTests[]`、`affectedRoutes[]`、`coChanges[]` 等数组施加硬上限（默认 50/50/30/20）。
+  - 当结果超过上限时，在返回对象中显式设置 `truncated: true`，让 AI 消费者诚实知道数据被截断。
+  - `compactChangedFile` 同步标记 `truncated` 当 impact/affectedTests/explanations 被 compact 截断时。
+  - human/summary/markdown 格式化器在截断时追加 `... truncated (showing X of Y)` 提示。
+- **JSON token 削减兜底 (12-2)** `src/utils/truncate.js` / `src/cli/route-formatter.js`：
+  - 新增 `elideDeep()` 递归工具，在 `--json` 输出前作为最后一道防线：超长数组自动切片、超长字符串自动截断（默认 500 字符）、嵌套深度超过 8 层自动归零。
+  - 新增 `JSON_OUTPUT_MAX_*` 系列阈值常量至 `src/config/defaults.js`，全部附 rationale 注释。
+- **补全 Wave 12 单元测试** `test/wave12-output-truncation-test.js`：
+  - 覆盖 truncateArray / elideString / elideDeep 纯函数、compactChangedFile 截断标记、formatter 截断提示、impact/affected-tests/affected-routes 命令层截断行为。`npm run test:fast` **91/91 PASS**。
+
 ### Wave 11: 分析深化 (2026-06-09)
 
 - **重构消除 L2-7 重复代码技术债** `src/utils/path.js` / `src/tools/dep-tools/boundaries.js` / `src/cli/formatters/composite-risk.js`：

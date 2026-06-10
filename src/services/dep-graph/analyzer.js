@@ -1,3 +1,12 @@
+/**
+ * GraphAnalyzer - Dependency Graph Analysis & Query Engine
+ * Performs post-link tasks: topological sorting, cycle detection, PageRank, and dead export analysis.
+ *
+ * Architecture Phases:
+ * - Parse Phase: Occurs in GraphBuilder (independent file scanning and symbol database population).
+ * - Link Phase: Occurs here in GraphAnalyzer. Once files are parsed, they are linked into a resolved
+ *   import-export dependency graph. This analyzer computes graph metrics and answers impact queries.
+ */
 const fs = require('fs');
 const path = require('path');
 const { computePageRank } = require('./pagerank');
