@@ -817,50 +817,57 @@ function testBuildCompositeRiskLow() {
 
 function testBuildCompositeRiskHighImpact() {
   const result = buildCompositeRisk({ impactCount: 12 });
-  assert.strictEqual(result.score, 5); // +4 large impact +1 no mapped tests
-  assert(result.reasons.some((r) => r.includes('Large impact radius')));
-  assert(result.reasons.some((r) => r.includes('No mapped tests')));
+  assert.strictEqual(result.score, 6); // 3 (critical coverage gap) + 3 (high caller count)
+  assert(result.reasons.some((r) => r.includes('High caller count')));
+  assert(result.reasons.some((r) => r.includes('Critical test coverage gap')));
 }
 
 function testBuildCompositeRiskWithTests() {
   const result = buildCompositeRisk({ impactCount: 1, affectedTestsCount: 4 });
-  assert.strictEqual(result.score, 2);
-  assert(result.reasons.some((r) => r.includes('Many mapped tests affected')));
+  assert.strictEqual(result.score, 1); // 1 (low caller count), 0 tests coverage gap because tests >= 3
+  assert(result.reasons.some((r) => r.includes('Low caller count')));
 }
 
-function testBuildCompositeRiskHistoryRisk() {
-  const result = buildCompositeRisk({ historyRisk: { score: 7 } });
-  assert.strictEqual(result.score, 2);
-  assert(result.reasons.some((r) => r.includes('History risk is high')));
+function testBuildCompositeRiskSecuritySensitive() {
+  const result = buildCompositeRisk({ file: 'src/auth/login.js', impactCount: 1 });
+  assert.strictEqual(result.score, 5); // 2 (high coverage gap) + 1 (low caller) + 2 (security sensitive)
+  assert(result.reasons.some((r) => r.includes('Security sensitive')));
 }
 
-function testBuildCompositeRiskFileFallback() {
-  const result = buildCompositeRisk({ symbolImpact: { mode: 'file-fallback' } });
-  assert.strictEqual(result.score, 1);
-  assert(result.reasons.some((r) => r.includes('fell back')));
+function testBuildCompositeRiskCommunityCrossing() {
+  const result = buildCompositeRisk({
+    impactCount: 5,
+    impact: [
+      { file: 'src/cli/cmd.js' },
+      { file: 'src/services/core.js' },
+      { file: 'src/utils/help.js' },
+    ],
+  });
+  assert.strictEqual(result.score, 8); // 3 (critical coverage) + 2 (medium caller) + 3 (high community crossing) = 8
+  assert(result.reasons.some((r) => r.includes('community crossing')));
 }
 
 function testBuildCompositeRiskNonMainlineDowngrade() {
   const result = buildCompositeRisk({ impactCount: 5, classification: { isMainline: false } });
-  assert.strictEqual(result.score, 3); // +3 broad +1 no tests -1 downgrade = 3
+  assert.strictEqual(result.score, 4); // 3 (critical coverage) + 2 (medium caller) - 1 downgrade = 4
   assert(result.reasons.some((r) => r.includes('Non-mainline')));
 }
 
-function testBuildCompositeRiskFunctionScoped() {
+function testBuildCompositeRiskDimensions() {
   const result = buildCompositeRisk({
-    symbolImpact: {
-      mode: 'function-symbol',
-      changedFunctionImpact: {
-        mode: 'function-symbol',
-        changedFunctions: ['foo'],
-        impactedFunctionDependents: [],
-        functionLevelAffectedTests: { affectedTestsCount: 0 },
-        impactedDependentCount: 0,
-      },
-    },
+    impactCount: 5,
+    affectedTestsCount: 1,
+    affectedRoutes: [{ path: '/api' }],
+    impact: [{ file: 'src/a.js' }],
+    file: 'src/core/engine.js',
   });
-  assert(result.score >= 0);
-  assert(result.reasons.some((r) => r.includes('Function-scoped')));
+  assert.strictEqual(result.score, 5); // 1 (flow) + 1 (community) + 1 (low test coverage) + 2 (medium caller) + 0 (security)
+  assert(result.dimensions);
+  assert.strictEqual(typeof result.dimensions.flow_participation, 'number');
+  assert.strictEqual(typeof result.dimensions.community_crossing, 'number');
+  assert.strictEqual(typeof result.dimensions.test_coverage, 'number');
+  assert.strictEqual(typeof result.dimensions.caller_count, 'number');
+  assert.strictEqual(typeof result.dimensions.security_sensitive, 'number');
 }
 
 // ---------------------------------------------------------------------------
@@ -1032,10 +1039,10 @@ function main() {
   testBuildCompositeRiskLow();
   testBuildCompositeRiskHighImpact();
   testBuildCompositeRiskWithTests();
-  testBuildCompositeRiskHistoryRisk();
-  testBuildCompositeRiskFileFallback();
+  testBuildCompositeRiskSecuritySensitive();
+  testBuildCompositeRiskCommunityCrossing();
   testBuildCompositeRiskNonMainlineDowngrade();
-  testBuildCompositeRiskFunctionScoped();
+  testBuildCompositeRiskDimensions();
 
   testBuildAuditDiffSummaryEmpty();
   testBuildAuditDiffSummaryWithEntries();

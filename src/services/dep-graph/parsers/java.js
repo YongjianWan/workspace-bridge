@@ -85,6 +85,7 @@ async function parseJava(content) {
         kind: record.kind || 'function',
         lineStart: record.lineStart,
         lineEnd: record.lineEnd,
+        fingerprint: record.fingerprint || null,
       })),
       package: astResult.package || null,
       parseMode: 'ast',

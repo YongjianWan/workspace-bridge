@@ -165,10 +165,9 @@ function main() {
   assert(changed.compositeRisk, 'compositeRisk should exist');
   assert(['low', 'medium', 'high'].includes(changed.compositeRisk.level), 'compositeRisk.level should be valid');
   assert(changed.compositeRisk.score >= 0, `compositeRisk.score should be >= 0, got ${changed.compositeRisk.score}`);
-  assert(
-    changed.compositeRisk.reasons.some((reason) => reason.includes('Function-scoped impact available')),
-    'compositeRisk should include function-level reasoning'
-  );
+  assert(changed.compositeRisk.dimensions, 'compositeRisk should include dimensions breakdown');
+  assert.strictEqual(typeof changed.compositeRisk.dimensions.flow_participation, 'number', 'dimensions.flow_participation should be a number');
+  assert.strictEqual(typeof changed.compositeRisk.dimensions.caller_count, 'number', 'dimensions.caller_count should be a number');
   assert(changed.affectedTestsCount >= 1, `changed.affectedTestsCount should be >= 1, got ${changed.affectedTestsCount}`);
   assert.strictEqual(changed.historyRisk.level, 'high');
   assert.strictEqual(changed.historyRisk.authorCount >= 3, true);

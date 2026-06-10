@@ -112,15 +112,15 @@ function testCrossModuleConsistency() {
     historyRisk: { score: 0 },
     symbolImpact: { mode: null },
   });
-  assert.strictEqual(medium.level, 'medium', 'composite risk with impact 5 should be medium (3 points)');
+  assert.strictEqual(medium.level, 'medium', 'composite risk with impact 5 + 0 tests should be medium (3+2=5)');
 
   const high = buildCompositeRisk({
     impactCount: 10,
-    affectedTestsCount: 3,
+    affectedTestsCount: 0,
     historyRisk: { score: 0 },
     symbolImpact: { mode: null },
   });
-  assert.strictEqual(high.level, 'high', 'composite risk with impact 10 + tests 3 should be high (4+2=6)');
+  assert.strictEqual(high.level, 'high', 'composite risk with impact 10 + 0 tests should be high (3+3=6)');
 
   // Verify historyRisk score contributes +2 and the unified mapping is applied.
   const historyDriven = buildCompositeRisk({

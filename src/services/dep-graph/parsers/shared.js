@@ -59,6 +59,8 @@ function buildFunctionFingerprint(functionNode) {
   let hasTryCatch = false;
   let branchCount = 0;
   let returnCount = 0;
+  let maxSwitchArms = 0;
+  let maxIfElseArms = 0;
   const stack = [functionNode.body];
 
   while (stack.length > 0) {
@@ -70,15 +72,38 @@ function buildFunctionFingerprint(functionNode) {
       if (callName) callCallees.add(callName);
     } else if (node.type === 'TryStatement') {
       hasTryCatch = true;
+      branchCount += 1;
     } else if (
       node.type === 'IfStatement' ||
       node.type === 'SwitchCase' ||
       node.type === 'ConditionalExpression' ||
-      node.type === 'LogicalExpression'
+      node.type === 'LogicalExpression' ||
+      node.type === 'ForStatement' ||
+      node.type === 'WhileStatement' ||
+      node.type === 'DoWhileStatement' ||
+      node.type === 'ForInStatement' ||
+      node.type === 'ForOfStatement'
     ) {
       branchCount += 1;
     } else if (node.type === 'ReturnStatement') {
       returnCount += 1;
+    }
+
+    if (node.type === 'SwitchStatement') {
+      if (Array.isArray(node.cases)) {
+        maxSwitchArms = Math.max(maxSwitchArms, node.cases.length);
+      }
+    } else if (node.type === 'IfStatement') {
+      let current = node;
+      let armsCount = 1;
+      while (current.alternate && current.alternate.type === 'IfStatement') {
+        armsCount++;
+        current = current.alternate;
+      }
+      if (current.alternate) {
+        armsCount++;
+      }
+      maxIfElseArms = Math.max(maxIfElseArms, armsCount);
     }
 
     for (const key of Object.keys(node)) {
@@ -99,6 +124,7 @@ function buildFunctionFingerprint(functionNode) {
     hasTryCatch,
     branchCount,
     returnCount,
+    maxArms: Math.max(maxSwitchArms, maxIfElseArms),
     callCallees: Array.from(callCallees).sort().slice(0, FUNCTION_FINGERPRINT_MAX_CALLEES),
   };
 }

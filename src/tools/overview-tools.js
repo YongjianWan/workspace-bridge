@@ -83,6 +83,38 @@ async function buildProjectOverview(args, container) {
     },
   };
 
+  const { checkBoundaries } = require('./dep-tools/boundaries');
+  const { checkSmells } = require('./dep-tools/smells');
+  // Deep checks can be expensive on large repos; gate by mainline file count
+  const mainlineCount = rawData.mainlineFiles?.length || 0;
+  const shouldRunDeepChecks = mainlineCount <= DEFAULTS.SMALL_PROJECT_MAX_MAINLINE;
+  const boundariesResult = shouldRunDeepChecks ? checkBoundaries(args, container) : { ok: true, violationsCount: 0, rulesApplied: [], violations: [] };
+  const smellsResult = shouldRunDeepChecks ? checkSmells(args, container) : { ok: true, smellsCount: 0, smells: [] };
+
+  result.boundaries = {
+    ok: true,
+    violationsCount: boundariesResult.violationsCount,
+    rulesAppliedCount: boundariesResult.rulesApplied?.length || 0,
+    violations: boundariesResult.violations,
+  };
+  result.smells = {
+    ok: true,
+    smellsCount: smellsResult.smellsCount,
+    smells: smellsResult.smells,
+  };
+
+  if (result.summary) {
+    if (!result.summary.counts) result.summary.counts = {};
+    result.summary.counts.boundaries = boundariesResult.violationsCount;
+    result.summary.counts.smells = smellsResult.smellsCount;
+    if (boundariesResult.violationsCount > 0) {
+      result.summary.recommendations.push(`Found ${boundariesResult.violationsCount} architecture boundary violations. Run node cli.js audit-boundaries for details.`);
+    }
+    if (smellsResult.smellsCount > 0) {
+      result.summary.recommendations.push(`Found ${smellsResult.smellsCount} code smell issues. Run node cli.js audit-smells for details.`);
+    }
+  }
+
   applyBaselineOperations(result, args);
 
   // Stage 3.5: Persist aggregate snapshot for query-* commands

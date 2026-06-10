@@ -1,87 +1,83 @@
 const { scoreToLevel } = require('../../config/risk-thresholds');
+const { get2LevelPrefix } = require('../../utils/path');
 
 function buildCompositeRisk(entry) {
   const reasons = [];
-  let score = 0;
 
   const impactCount = entry?.impactCount || 0;
   const affectedTestsCount = entry?.affectedTestsCount || 0;
-  const historyRiskScore = entry?.historyRisk?.score || 0;
-  const symbolMode = entry?.symbolImpact?.mode || null;
-  const changedFunctionImpact = entry?.symbolImpact?.changedFunctionImpact || null;
-  const changedFunctions = Array.isArray(changedFunctionImpact?.changedFunctions)
-    ? changedFunctionImpact.changedFunctions
-    : [];
+  const affectedRoutes = entry?.affectedRoutes || [];
 
-  // Structural impact: more dependents = higher risk.
-  // Thresholds chosen to surface high-radius changes early without over-weighting small utilities.
+  // 1. Flow Participation
+  let flowParticipation = 0;
+  if ((entry?.frameworkPattern !== undefined && entry?.frameworkPattern !== null) || entry?.classification?.isEntry === true) {
+    flowParticipation = 3;
+    reasons.push('High flow participation: Entry file or framework-specific entry point.');
+  } else if (affectedRoutes.length >= 5) {
+    flowParticipation = 2;
+    reasons.push(`High flow participation: Affects ${affectedRoutes.length} route(s).`);
+  } else if (affectedRoutes.length >= 1) {
+    flowParticipation = 1;
+    reasons.push(`Medium flow participation: Affects ${affectedRoutes.length} route(s).`);
+  }
+
+  // 2. Community Crossing
+  let communityCrossing = 0;
+  const uniquePrefixes = new Set();
+  if (entry?.impact) {
+    for (const imp of entry.impact) {
+      if (imp.file) {
+        uniquePrefixes.add(get2LevelPrefix(imp.file));
+      }
+    }
+  }
+  if (uniquePrefixes.size >= 3) {
+    communityCrossing = 3;
+    reasons.push(`High community crossing: Transitive dependents span ${uniquePrefixes.size} directories.`);
+  } else if (uniquePrefixes.size >= 2) {
+    communityCrossing = 2;
+    reasons.push(`Medium community crossing: Transitive dependents span ${uniquePrefixes.size} directories.`);
+  } else if (uniquePrefixes.size >= 1) {
+    communityCrossing = 1;
+    reasons.push(`Low community crossing: Transitive dependents span ${uniquePrefixes.size} directories.`);
+  }
+
+  // 3. Test Coverage
+  let testCoverage = 0;
+  if (affectedTestsCount === 0 && impactCount >= 3) {
+    testCoverage = 3;
+    reasons.push('Critical test coverage gap: 0 tests cover this file despite high impact.');
+  } else if (affectedTestsCount === 0 && impactCount > 0) {
+    testCoverage = 2;
+    reasons.push('High test coverage gap: 0 tests cover this file.');
+  } else if (affectedTestsCount === 1 || affectedTestsCount === 2) {
+    testCoverage = 1;
+    reasons.push(`Low test coverage: Only ${affectedTestsCount} test(s) cover this file.`);
+  }
+
+  // 4. Caller Count
+  let callerCount = 0;
   if (impactCount >= 10) {
-    score += 4;
-    reasons.push(`Large impact radius (${impactCount} dependents).`);
+    callerCount = 3;
+    reasons.push(`High caller count: ${impactCount} transitive dependents.`);
   } else if (impactCount >= 5) {
-    score += 3;
-    reasons.push(`Broad impact radius (${impactCount} dependents).`);
-  } else if (impactCount >= 2) {
-    score += 1;
-    reasons.push(`Has transitive impact (${impactCount} dependents).`);
+    callerCount = 2;
+    reasons.push(`Medium caller count: ${impactCount} transitive dependents.`);
+  } else if (impactCount >= 1) {
+    callerCount = 1;
+    reasons.push(`Low caller count: ${impactCount} transitive dependents.`);
   }
 
-  // Test coverage quality: many mapped tests lower risk; missing tests raise it.
-  if (affectedTestsCount >= 3) {
-    score += 2;
-    reasons.push(`Many mapped tests affected (${affectedTestsCount}).`);
-  } else if (affectedTestsCount >= 1) {
-    score += 1;
-    reasons.push(`Mapped tests affected (${affectedTestsCount}).`);
-  } else if (impactCount >= 3) {
-    // Structural impact with zero mapped tests is a coverage gap worth flagging.
-    score += 1;
-    reasons.push('No mapped tests despite structural impact.');
+  // 5. Security Sensitive
+  let securitySensitive = 0;
+  const pathLower = (entry?.file || '').toLowerCase();
+  const secKeywords = ['auth', 'login', 'crypt', 'token', 'password', 'key', 'permission', 'session', 'guard', 'jwt', 'policy', 'security'];
+  if (secKeywords.some(k => pathLower.includes(k))) {
+    securitySensitive = 2;
+    reasons.push('Security sensitive: File path matches security keywords.');
   }
 
-  // History turbulence: files with many authors/commits are riskier to change.
-  if (historyRiskScore >= 6) {
-    score += 2;
-    reasons.push(`History risk is high (${historyRiskScore}).`);
-  } else if (historyRiskScore >= 3) {
-    score += 1;
-    reasons.push(`History risk is medium (${historyRiskScore}).`);
-  }
-
-  // Symbol-level precision gap: fallback means less confidence in impact boundaries.
-  if (symbolMode === 'file-fallback') {
-    score += 1;
-    reasons.push('Symbol analysis fell back to file-level impact.');
-  }
-
-  if (changedFunctionImpact?.mode === 'function-symbol' && changedFunctions.length > 0) {
-    // Function-scoped impact reduces uncertainty, so discount slightly.
-    score = Math.max(0, score - 1);
-    reasons.push(`Function-scoped impact available (${changedFunctions.length} changed function(s)).`);
-
-    // Re-add risk if specific changed functions have high dependent counts.
-    const highImpactFunctions = (changedFunctionImpact.impactedFunctionDependents || [])
-      .filter((row) => (row?.dependentsCount || 0) >= 5);
-    if (highImpactFunctions.length > 0) {
-      // Cap at +2 to avoid runaway scores for bulk refactors.
-      score += Math.min(2, highImpactFunctions.length);
-      reasons.push(`High-impact functions changed (${highImpactFunctions.map((row) => row.function).join(', ')}).`);
-    }
-
-    // Multiple function changes increase cross-cutting concern risk.
-    if (changedFunctions.length >= 3) {
-      score += 1;
-      reasons.push('Multiple functions changed; verify cross-cutting behavior.');
-    }
-
-    const functionLevelAffectedTests = changedFunctionImpact?.functionLevelAffectedTests?.affectedTestsCount || 0;
-    const impactedFunctionDependents = changedFunctionImpact?.impactedDependentCount || 0;
-    // Function-level dependents exist but no mapped tests → coverage gap at function granularity.
-    if (impactedFunctionDependents >= 3 && functionLevelAffectedTests === 0) {
-      score += 1;
-      reasons.push('Changed functions affect dependents but no function-level tests were mapped.');
-    }
-  }
+  let score = flowParticipation + communityCrossing + testCoverage + callerCount + securitySensitive;
 
   // Downgrade non-mainline files because they usually have narrower production impact.
   if (entry?.classification?.isMainline === false && score > 0) {
@@ -90,17 +86,23 @@ function buildCompositeRisk(entry) {
   }
 
   score = Math.max(0, score);
-
   const level = scoreToLevel(score);
 
   if (reasons.length === 0) {
-    reasons.push('Low observed structural and historical risk.');
+    reasons.push('Low observed structural risk.');
   }
 
   return {
     level,
     score,
     reasons,
+    dimensions: {
+      flow_participation: flowParticipation,
+      community_crossing: communityCrossing,
+      test_coverage: testCoverage,
+      caller_count: callerCount,
+      security_sensitive: securitySensitive
+    }
   };
 }
 

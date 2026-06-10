@@ -19,6 +19,7 @@ const {
   buildFileValidationAdvice
 } = require('../cli/formatters');
 const { getChangedFiles, getChangedLineRanges, getFileHistoryRisk, getDiffNumstat } = require('./git-tools');
+const { getFileComplexityTrend } = require('./complexity-tools');
 const { resolveWorkspaceFilePath } = require('../utils/path');
 const { mapWithConcurrency } = require('../utils/async');
 const { DEFAULTS } = require('../config/constants');
@@ -166,12 +167,16 @@ async function buildDiffEntry(relativeFile, container, parsed) {
     ? { ...baseSymbolImpact, changedFunctionImpact }
     : null;
   const affectedTests = graphKnown ? container.snapshot.graph.findAffectedTests(resolvedPath, maxDepth) : [];
+  const affectedRoutes = graphKnown ? container.snapshot.graph.findAffectedRoutes(resolvedPath) : [];
   const history = resolvedPath ? await getFileHistoryRisk(container.workspaceRoot, resolvedPath, { limit: DEFAULTS.HISTORY_LIMIT }) : { ok: false };
   const historyRisk = history.ok ? history.historyRisk : null;
   const impactExplanations = graphKnown
     ? buildImpactExplanations({ file: relativeFile, impact })
     : [];
   const frameworkPattern = container.snapshot.graph.getFrameworkHint(resolvedPath);
+  const complexityTrend = resolvedPath
+    ? await getFileComplexityTrend(container.workspaceRoot, resolvedPath, { since, commits, staged }).catch(() => 'STABLE')
+    : 'STABLE';
   const baseEntry = {
     file: relativeFile,
     resolvedPath,
@@ -184,9 +189,11 @@ async function buildDiffEntry(relativeFile, container, parsed) {
     symbolImpact,
     affectedTestsCount: affectedTests.length,
     affectedTests,
+    affectedRoutes,
     historyRisk,
     recentCommits: history.ok ? history.recentCommits : [],
     impactExplanations,
+    complexityTrend,
   };
   const compositeRisk = buildCompositeRisk(baseEntry);
 

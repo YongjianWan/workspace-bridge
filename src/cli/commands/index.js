@@ -140,6 +140,16 @@ const COMMANDS = {
     (parsed, container, filePath) => treeQuery({ cwd: parsed.cwd, file: filePath, depth: parsed.maxDepth ?? 3, direction: parsed.direction || 'both' }, container),
     () => false
   ),
+  'audit-boundaries': async (parsed, container) => {
+    const result = await dependencyGraph({ cwd: parsed.cwd, operation: 'boundaries' }, container);
+    result.hasFindings = (result.violationsCount || 0) > 0;
+    return result;
+  },
+  'audit-smells': async (parsed, container) => {
+    const result = await dependencyGraph({ cwd: parsed.cwd, operation: 'smells' }, container);
+    result.hasFindings = (result.smellsCount || 0) > 0;
+    return result;
+  },
 
   // L3 — Environment & hygiene
   'workspace-info': async (parsed, container) => {
@@ -314,6 +324,16 @@ const COMMAND_GUIDES = {
     desc: 'Find entry-to-file call routes for a file',
     when: 'When you need to know which request handlers, CLI commands, or main entry points can reach a module.',
     after: 'impact --file <path> for the full transitive blast radius.',
+  },
+  'audit-boundaries': {
+    desc: 'Audit architecture boundaries and check for rule violations',
+    when: 'Verify code complies with project architecture layers.',
+    after: 'audit-overview for a global health overview.',
+  },
+  'audit-smells': {
+    desc: 'Audit codebase for common code smells (e.g., Flat Dispatcher)',
+    when: 'Identify complex or poorly structured modules during cleanup.',
+    after: 'audit-file on the specific file to analyze details.',
   },
 };
 

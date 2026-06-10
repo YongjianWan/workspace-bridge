@@ -301,6 +301,20 @@ function detectWorkspace(root) {
   };
 }
 
+function get2LevelPrefix(relPath) {
+  if (!relPath || typeof relPath !== 'string') return '.';
+  const normalized = relPath.replace(/\\/g, '/');
+  const parts = normalized.split('/').filter(Boolean);
+  // Exclude filename — we want directory prefixes only
+  const dirParts = parts.slice(0, -1);
+  if (dirParts.length >= 2) {
+    return dirParts.slice(0, 2).join('/');
+  } else if (dirParts.length === 1) {
+    return dirParts[0];
+  }
+  return '.';
+}
+
 module.exports = {
   normalizePath,
   normalizePathKey,
@@ -320,4 +334,5 @@ module.exports = {
   resolveWorkspaceFilePath,
   isStandaloneEntryPath,
   WORKSPACE_MARKERS,
+  get2LevelPrefix,
 };

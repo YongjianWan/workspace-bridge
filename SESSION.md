@@ -37,7 +37,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；`npm run test:fast` **89/89 PASS**（~7.5s）。全量 runner **162/162 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~7.5s）或 `npm run test:smoke`（~54s）。当前 fast 层 89 个测试，slow 层 70 个，serial 层 7 个。
+- 测试：**受影响测试全部 PASS**；`npm run test:fast` **90/90 PASS**（~12s）。全量 runner **163/163 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~12s）或 `npm run test:smoke`（~54s）。当前 fast 层 90 个测试，slow 层 70 个，serial 层 7 个。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~315 文件（entry=1, mainline=144, test=171）
@@ -87,6 +87,7 @@ node cli.js audit-overview --cwd . --json --quiet
 > 12. **Wave 9-3 & ROADMAP Phase 3 SQL 持久化功能全面交付**：扩展了 `file_metadata` 表结构并添加 `type`、`role`、`lang` 字段；实现了 `metrics` 与 `test_map` 预计算持久化表及其在 `GraphDB` 和 `WorkspaceCache` 中的往返读写（save/load）接口；使 `GraphAnalyzer` 能够注入并利用这些预计算数据实现受影响测试 of O(1) 快速检索；在 `test/precomputed-roundtrip-test.js` 中补齐了 4 个完整的指标与测试映射的往返读写与注入单测，`test:fast` 88/88 全部通过。
 > 13. **Wave 10 符号级智能全面交付**：重构了 `GraphBuilder` 实现了解耦的 Parse-and-Link 两阶段构建与增量更新，确保了 circular/forward 符号查找在 cold start 下能够正确解析；更新了 `edges` 表结构，增加了 `tier` 和 `resolution_method` 元数据字段并编写了 pragma/alter table 动态自动迁移，确保了向前与向后兼容性；为所有 9 语言 resolvers 配套实现了 resolution method, confidence 和 tier 精准度打标；并在 `test/wave10-symbol-intelligence-test.js` 中补齐了针对 schema 迁移、元数据持久化、resolver 打标和两阶段构建符号解析的 4 个完整 regression 单测，`test:fast` 89/89 全部通过。
 > 14. **参考仓库同步与 GitNexus 架构探索**：拉取并同步了 `CodeGraphContext`（`5b1a1f6` → `fb093bb`）与 `GitNexus`（`b9a17f55` → `1716bf7c`）最新代码；对 GitNexus 进行了 7 个维度的架构深度探索（语言插件管道、scope resolution、call graph、路由提取、PR Swarm Review、增量更新、图存储），产出与 workspace-bridge Wave 11–15 的映射评估报告。详见下方§参考仓库探索与架构借鉴。
+> 15. **Wave 11 分析深化全面交付**：新增 `audit-boundaries` 架构边界检查与 `audit-smells` 代码异味检测两个 CLI 命令；实现基于 git 历史的复杂度趋势分析（`complexityTrend`）；重构 `composite-risk.js` 为结构化 5 维度风险评分（flow_participation + community_crossing + test_coverage + caller_count + security_sensitive）；增强 JS/TS/Python/Java 的 AST 指纹计算以支持 `maxArms`；修复 `java.js` AST 路径丢失 fingerprint 的问题；补全 `human-formatters.js` 的格式化器与 AI_DIGEST；新增 `test/wave11-analysis-deepening-test.js` 覆盖边界验证、分支臂计数、复杂度趋势、风险评分；**重构消除 L2-7 `get2LevelPrefix` 重复代码技术债**。`npm run test:fast` **90/90 PASS**。
 ---
 
 ## 本轮上下文：参考仓库探索与架构借鉴（活跃）
@@ -99,8 +100,8 @@ node cli.js audit-overview --cwd . --json --quiet
 |------|---------|---------|----------|----------|
 | **CodeGraphContext** | `5b1a1f6` | `fb093bb` | 39 文件 | E2E Bug 报告扩充、writer 路径规范化测试、watcher 轮询观察器测试 |
 | **GitNexus** | `b9a17f55` | `1716bf7c` | 1629 文件 | 多语言 scope resolution 大重构（16 语言独立 `captures/query/scope-resolver` 管道）、PR Swarm Review（7  persona 多 agent 审查）、devcontainer、i18n、CLI `uninstall`、graph-assisted 路由提取 |
-| **code-review-graph** | `0c9a5ff` | `0c9a5ff` | — | 已是最新 |
-| **qartez-mcp** | `ac6fec2` | `ac6fec2` | — | 已是最新 |
+| **code-review-graph** | `0c9a5ff` | `0c9a5ff` | — | 已是最新。Python MCP server，tree-sitter + SQLite，Leiden 聚类，5 维度 risk scoring |
+| **qartez-mcp** | `ac6fec2` | `ac6fec2` | — | 已是最新。Rust MCP server + CLI 双模式，37 语言 tree-sitter，workspace fingerprint 增量，6 层启发式 scope resolution |
 
 ### GitNexus 架构探索摘要（7 个维度）
 
@@ -127,6 +128,31 @@ node cli.js audit-overview --cwd . --json --quiet
 | **7. API/MCP 层** | FastAPI + MCP SSE server；`MCPServer` 单例编排器；handlers 是纯函数注入依赖 | **低（当前不做）** → AGENTS.md 明确 CLI-only。但 handler-injection 模式（纯函数 + 依赖注入）可作为未来 CLI 命令拆分的参考 |
 | **8. 测试策略** | ① mock DB 的单元测试 ② **Golden tests**（`fixtures/goldens/` 存储 parser 预期输出，`--update-goldens` 刷新）③ **E2E parity tests**（4 后端索引后对比 node/edge 数量，±6 容差）④ Smoke tests ⑤ CLI 测试 | **高** → workspace-bridge 88 个 fast tests 中缺少 parser golden snapshot 测试和跨平台路径回归测试；CGC 的 `test_writer_path_normalization.py` 正是 `path.js` 应该补的测试类型 |
 
+### code-review-graph 架构探索摘要（6 个维度）
+
+| 维度 | CRG 核心做法 | 对 workspace-bridge 的借鉴价值 |
+|------|-------------|-------------------------------|
+| **1. 整体定位** | Python MCP server，tree-sitter + SQLite，目标：让 AI review 只读"blast radius"而非全仓库，宣称 38×–528× token 减少 | **中** → 验证了"tree-sitter + SQLite + impact radius"这个产品方向的市场价值。但 MCP-first 与 workspace-bridge CLI-only 定位不同 |
+| **2. 核心图模型** | `GraphStore` (SQLite)：nodes = `File`/`Class`/`Function`/`Type`/`Test`，edges = `CALLS`/`IMPORTS_FROM`/`INHERITS`/`IMPLEMENTS`/`CONTAINS`/`TESTED_BY`/`DEPENDS_ON`/`REFERENCES`，带 `confidence` + `confidence_tier`。BFS 用 **SQLite recursive CTE**（NetworkX 为 fallback） | **高** → SQLite recursive CTE 做 BFS 是已验证的模式，workspace-bridge 当前做 JS-side BFS，可评估迁移到 SQL CTE 以减少内存占用（双边冗余内存问题） |
+| **3. Leiden 聚类** | `igraph` 可选依赖，edge weight 调参（`CALLS=1.0` → `CONTAINS=0.3`），resolution 随图大小自适应（`max(0.05, 1.0/log10(n_nodes))`），无 igraph 时 fallback 到目录层级分组。计算 cohesion = internal / (internal + external)，跨社区耦合 >10 条边时警告 | **中** → workspace-bridge 尚无社区检测。Leiden 聚类 + cohesion 可直接增强 `audit-boundaries`（Wave 11-1）。目录 fallback 对零依赖场景很重要 |
+| **4. Risk Scoring** | 5 维度加法模型（flow participation + cross-community callers + test coverage gap + security keyword + caller count），**max 聚合**后取 top 10 `review_priorities`。另有 hub/bridge/surprise scoring | **高** → 直接对应 Wave 11-4 "统一 risk scoring（5 维度）"。CRG 的公式是现成参考：max(flow×0.25, community×0.15, coverage×0.30, security+0.20, callers/20×0.10)。surprise scoring（跨社区+0.3、跨语言+0.2）可增强 architecture advice |
+| **5. 测试策略** | 1:1 test-to-module 映射，`eval/` 目录有 YAML 配置 benchmark（token_efficiency、impact_accuracy、flow_completeness、search_quality 等），无 golden snapshot | **中** → eval/ 的 YAML 驱动 benchmark 比 workspace-bridge 的 ad-hoc `benchmark/` 更系统。precision/recall/F1 框架可直接用于验证 impact accuracy 和 mapping hit-rate |
+| **6. AGENTS.md + skills** | AGENTS.md 极简（123 行）：Beads issue tracker + MCP tool 优先 mandate。`skills/` 分散 7 个轻量 skill，每个有 token 预算（"target ≤5 tool calls and ≤800 tokens"） | **中** → 验证 workspace-bridge 的 AGENTS.md 虽大但功能完整。建议：将 `skills/workspace-audit/SKILL.md` 按任务拆分为独立 skill（如 `impact-assessment`、`dead-code-cleanup`），每个带 token 预算 |
+
+### qartez-mcp 架构探索摘要（9 个维度）
+
+| 维度 | qartez 核心做法 | 对 workspace-bridge 的借鉴价值 |
+|------|----------------|-------------------------------|
+| **1. 整体架构** | Rust MCP server + CLI 双模式，SQLite（`rusqlite` + WAL + mmap 256MiB），四阶段索引管道（parse+insert → stale cleanup → import resolution → reference resolution）。后台 indexing + 前台 serving 并行 | **中** → CLI 和 MCP 共享 `call_tool_by_name` 统一分发，零代码重复。workspace-bridge CLI-only 不适用 MCP，但 `OutputFormat` 枚举（human/json/compact）比 `--json` 布尔值更干净 |
+| **2. 解析与图构建** | 37 语言 tree-sitter，`LanguageSupport` trait（`extensions()`/`extract(source,tree)`），`ParseResult` 含 `symbols`/`imports`/`references`/`type_relations`。**shape hash**：结构指纹（标识符→`_`、字符串→`_S`、数字→`_N`）用于 clone 检测。**`owner_type`**/`parent_idx` 捕获 `impl Foo { fn bar() }` 上下文 | **高** → `owner_type` + `parent_idx` 可直接增强 workspace-bridge 的 `functionRecords`/`exportRecords`，改善 method disambiguation。`unused_excluded` 在 parse 时标记 macro-generated/trait-impl，比 post-hoc 过滤更干净 |
+| **3. Scope Resolution** | **6 层启发式**：① qualifier matching → ② receiver-type hint → ③ same impl block → ④ same file → ⑤ imported files → ⑥ unique global match。`kind` 过滤（`Call`→function/method、`TypeRef`→type-like）。**`via_method_syntax`** 防止 `filter`/`map`/`collect` 等泛型迭代器方法产生跨文件 false edges | **高** → 直接改善 JS/TS resolver：`Array.prototype.map` 等泛型方法的跨文件 fan-out 是已知误报来源。kind 过滤和 same-file 优先可提升 `symbol-impact` 准确率 |
+| **4. Workspace/Monorepo** | 自动检测 `.git`/`package.json`/`Cargo.toml`/`go.mod`/`pyproject.toml`，解析 `package.json` workspaces / `Cargo.toml` `[workspace] members` / `go.work`。多根 DB 用 root alias 前缀防止 `files.path` 碰撞 | **中** → workspace-bridge 当前靠 `.workspace-bridge.json` 手动标注。qartez 的 auto-detect 可作为 opt-in 增强（Wave 14-4 项目根自动发现） |
+| **5. ParseCache 与增量** | **Workspace fingerprint**：crate version + canonical roots + `.qartezignore` 的 DefaultHasher digest，匹配则跳过全量重索引。Watcher 200ms debounce。PageRank 重算 rate-limit（30s）。**四层 ParseCache**：`source` → `tree` → `calls` → `idents`（lazy population） | **高** → workspace fingerprint 可替代 per-file mtime 检查，实现 cold-start 秒级跳过。四层 ParseCache 直接对应 Wave 15-3 "跨调用缓存"。PageRank rate-limiting 适用于 watcher 模式 |
+| **6. 配置系统** | CLI args > `.qartez/workspace.toml` > 自动检测 > 环境变量（`QARTEZ_MAX_FILE_BYTES` 等）。无复杂层级 | **低** → workspace-bridge 的 `.workspace-bridge.json` 已足够丰富。qartez 的极简配置验证 workspace-bridge 不应当过度工程化 |
+| **7. Benchmark** | LLM-judge（Claude Opus）评分 5 轴：correctness/completeness/usability/groundedness/conciseness。token 节省率 91.8%，质量分 MCP 8.3/10 vs non-MCP 4.3/10 | **中** → workspace-bridge 的 `benchmark/` 可引入 LLM-judge 维度，验证"curation engine"定位是否真实提升 AI 消费质量 |
+| **8. 测试策略** | `fp_regression_*.rs` 按误报类别命名（`fp_regression_unused.rs`、`fp_regression_clones_smells.rs` 等）。显式 dropped 计数器（`dropped_no_candidate`/`dropped_ambiguous`）使启发式行为可测试 | **高** → workspace-bridge 已有 `fp_regression_*.js`（Wave 9-3），但可按 qartez 模式更系统地按类别命名。resolver 的 dropped 计数器可作为 telemetry 注入，量化 resolver 保守度 |
+| **9. CLI 设计** | `clap` derive macro，`OutputFormat` 枚举（human/json/compact），TTY auto-detection，unified tool dispatch | **中** → `compact` 格式可作为 CI 场景的默认输出，减少日志噪音 |
+
 ### 借鉴优先级与 Wave 映射
 
 | 优先级 | 借鉴点 | 对应 Wave | 预计改动文件 | 设计参考 |
@@ -139,6 +165,8 @@ node cli.js audit-overview --cwd . --json --quiet
 | **P3** | 结构化输出格式 | 12 | `formatters/`, `audit-assembler.js` | GitNexus PR Swarm finding 模板 |
 | **P3** | Parser golden snapshot 测试 | 补测试 | `test/` 新增 golden fixtures | CGC `fixtures/goldens/` 模式 |
 | **P3** | 跨平台路径回归测试 | 补测试 | `test/path-normalization-test.js` | CGC `test_writer_path_normalization.py` |
+| **P3** | `compact` 输出格式 | 12 | `src/cli/formatters/` | qartez `OutputFormat` 枚举（human/json/compact）+ TTY auto-detection |
+| **P3** | Skill 按任务拆分 + token 预算 | 文档 | `skills/workspace-audit/` | CRG `skills/` 分散 7 个轻量 skill 模式 |
 
 ### 不做（与定位冲突）
 
@@ -146,8 +174,10 @@ node cli.js audit-overview --cwd . --json --quiet
 - **LadybugDB / KuzuDB / Neo4j 迁移**：CGC 的 Kuzu 适配层是 ~400 行 regex 驱动的 Cypher shim，强类型嵌入式图数据库需要巨大投入。SQLite 关系模型对 CLI 工具更务实
 - **Worker Pool 并行解析**：`Promise.all` + 信号量已满足需求（AGENTS.md 持续观察）
 - **PR Swarm 多 Agent 执行**：workspace-bridge 是 CLI 工具，不是 PR 平台
-- **MCP Server / SSE 接口**：CGC 是 MCP-first 架构，增加了 ~2000 行 setup wizard / IDE config / connection pooling。workspace-bridge CLI-only 定位明确排除
+- **MCP Server / SSE 接口**：CGC/qartez 均为 MCP-first 架构，增加了 ~2000 行 setup wizard / IDE config / connection pooling。workspace-bridge CLI-only 定位明确排除
 - **`.cgc` Bundle 分发系统**：CLI-only 工具不需要预索引图快照分发；SQLite cache 已是等价物
+- **qartez dashboard / Web UI**：qartez 有 `qartez_dashboard` crate。workspace-bridge 不做 Web 层
+- **SCIP 索引做主路径**：CGC 的 SCIP 需要外部二进制 + 构建配置，与 workspace-bridge 零配置定位冲突
 
 ---
 
@@ -331,6 +361,6 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-09（Wave 1-10 全部完成；37/37 Dogfood 已修复；node:sqlite 与元数据置信度迁移已交付；npm run test:fast 89/89 PASS；schemaVersion: 1.2.0；version: 2.0.0；架构债务 1 项；SQLite 持久化 11/14 表已实现）*
+*Last updated: 2026-06-09（Wave 1-11 全部完成；37/37 Dogfood 已修复；node:sqlite 与元数据置信度迁移已交付；npm run test:fast 90/90 PASS；schemaVersion: 1.2.0；version: 2.0.0；架构债务 1 项；SQLite 持久化 11/14 表已实现）*
 
 

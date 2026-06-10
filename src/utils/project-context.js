@@ -472,7 +472,7 @@ function validateWorkspaceConfig(config, configPath) {
     throw new Error(`Configuration root must be an object in ${configPath}`);
   }
 
-  const validTopKeys = new Set(['directories', 'directoryRoles', '$schema']);
+  const validTopKeys = new Set(['directories', 'directoryRoles', '$schema', 'boundaries']);
   for (const key of Object.keys(config)) {
     if (!validTopKeys.has(key)) {
       throw new Error(`Unknown top-level key "${key}" in config file ${configPath}`);
@@ -505,6 +505,35 @@ function validateWorkspaceConfig(config, configPath) {
         throw new Error(`directoryRoles keys and values must be strings in config file ${configPath}`);
       } else if (!validRoles.has(value)) {
         throw new Error(`Unknown role "${value}" for directory "${key}" in config file ${configPath}`);
+      }
+    }
+  }
+
+  const boundaries = config.boundaries;
+  if (boundaries !== undefined) {
+    if (!Array.isArray(boundaries)) {
+      throw new Error(`"boundaries" must be an array in config file ${configPath}`);
+    }
+    for (let i = 0; i < boundaries.length; i++) {
+      const b = boundaries[i];
+      if (!b || typeof b !== 'object' || Array.isArray(b)) {
+        throw new Error(`"boundaries[${i}]" must be an object in config file ${configPath}`);
+      }
+      if (typeof b.from !== 'string') {
+        throw new Error(`"boundaries[${i}].from" must be a string in config file ${configPath}`);
+      }
+      if (b.deny !== undefined) {
+        if (!Array.isArray(b.deny) || !b.deny.every(d => typeof d === 'string')) {
+          throw new Error(`"boundaries[${i}].deny" must be an array of strings in config file ${configPath}`);
+        }
+      }
+      if (b.allow !== undefined) {
+        if (!Array.isArray(b.allow) || !b.allow.every(a => typeof a === 'string')) {
+          throw new Error(`"boundaries[${i}].allow" must be an array of strings in config file ${configPath}`);
+        }
+      }
+      if (b.deny === undefined && b.allow === undefined) {
+        throw new Error(`"boundaries[${i}]" must contain at least one of "deny" or "allow" in config file ${configPath}`);
       }
     }
   }

@@ -10,6 +10,90 @@ import sys
 from typing import Any
 
 
+def count_python_if_else_arms(node: ast.If, seen_ifs: set) -> tuple[int, int]:
+    ifNodeCount = 1
+    curr = node
+    while curr.orelse and len(curr.orelse) == 1 and isinstance(curr.orelse[0], ast.If):
+        next_if = curr.orelse[0]
+        seen_ifs.add(next_if)
+        ifNodeCount += 1
+        curr = next_if
+    
+    has_else = 0
+    if curr.orelse:
+        if len(curr.orelse) > 1 or not isinstance(curr.orelse[0], ast.If):
+            has_else = 1
+    return ifNodeCount, ifNodeCount + has_else
+
+
+def compute_function_fingerprint(func_node: ast.AST) -> dict[str, Any]:
+    branch_count = 0
+    return_count = 0
+    max_switch_arms = 0
+    max_if_else_arms = 0
+    has_try_catch = False
+    seen_ifs = set()
+    
+    stack = list(func_node.body)
+    while stack:
+        node = stack.pop()
+        if node is None:
+            continue
+        
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+            
+        if hasattr(ast, 'Match') and isinstance(node, ast.Match):
+            max_switch_arms = max(max_switch_arms, len(node.cases))
+        
+        elif isinstance(node, ast.If):
+            if node not in seen_ifs:
+                ifNodeCount, arms = count_python_if_else_arms(node, seen_ifs)
+                branch_count += ifNodeCount
+                max_if_else_arms = max(max_if_else_arms, arms)
+                
+        elif isinstance(node, (ast.For, ast.While, ast.ExceptHandler, ast.IfExp)):
+            branch_count += 1
+            if isinstance(node, ast.ExceptHandler):
+                has_try_catch = True
+                
+        elif isinstance(node, ast.Try):
+            has_try_catch = True
+            
+        elif hasattr(ast, 'match_case') and isinstance(node, ast.match_case):
+            branch_count += 1
+            
+        elif isinstance(node, ast.BoolOp):
+            branch_count += len(node.values) - 1
+            
+        elif isinstance(node, ast.Return):
+            return_count += 1
+            
+        for child in ast.iter_child_nodes(node):
+            stack.append(child)
+            
+    param_count = 0
+    if hasattr(func_node, 'args') and func_node.args:
+        param_count = len(func_node.args.args)
+        if hasattr(func_node.args, 'kwonlyargs'):
+            param_count += len(func_node.args.kwonlyargs)
+        if func_node.args.vararg:
+            param_count += 1
+        if func_node.args.kwarg:
+            param_count += 1
+            
+    return {
+        "paramCount": param_count,
+        "isAsync": isinstance(func_node, ast.AsyncFunctionDef),
+        "isGenerator": False,
+        "hasTryCatch": has_try_catch,
+        "branchCount": branch_count,
+        "returnCount": return_count,
+        "maxArms": max(max_switch_arms, max_if_else_arms),
+        "callCallees": []
+    }
+
+
 def parse_code(source: str) -> dict[str, Any]:
     """
     Parse Python source code and extract imports and exports.
@@ -89,33 +173,39 @@ def parse_code(source: str) -> dict[str, Any]:
         # Collect module-level function definitions (not starting with _)
         elif isinstance(node, ast.FunctionDef) and not node.name.startswith('_'):
             exports.append(node.name)
+            fingerprint = compute_function_fingerprint(node)
             export_records.append({
                 "name": node.name,
                 "kind": "function",
                 "lineStart": node.lineno,
-                "lineEnd": getattr(node, 'end_lineno', node.lineno)
+                "lineEnd": getattr(node, 'end_lineno', node.lineno),
+                "fingerprint": fingerprint
             })
             function_records.append({
                 "name": node.name,
                 "kind": "function",
                 "lineStart": node.lineno,
-                "lineEnd": getattr(node, 'end_lineno', node.lineno)
+                "lineEnd": getattr(node, 'end_lineno', node.lineno),
+                "fingerprint": fingerprint
             })
         
         # Also collect async function definitions
         elif isinstance(node, ast.AsyncFunctionDef) and not node.name.startswith('_'):
             exports.append(node.name)
+            fingerprint = compute_function_fingerprint(node)
             export_records.append({
                 "name": node.name,
                 "kind": "function",
                 "lineStart": node.lineno,
-                "lineEnd": getattr(node, 'end_lineno', node.lineno)
+                "lineEnd": getattr(node, 'end_lineno', node.lineno),
+                "fingerprint": fingerprint
             })
             function_records.append({
                 "name": node.name,
                 "kind": "function",
                 "lineStart": node.lineno,
-                "lineEnd": getattr(node, 'end_lineno', node.lineno)
+                "lineEnd": getattr(node, 'end_lineno', node.lineno),
+                "fingerprint": fingerprint
             })
     
     # Second pass: collect imports (walk entire tree since imports can be nested)

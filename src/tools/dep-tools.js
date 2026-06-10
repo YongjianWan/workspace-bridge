@@ -15,6 +15,8 @@ const OPERATIONS = {
   unresolved: require('./dep-tools/unresolved'),
   affected_tests: require('./dep-tools/affected-tests'),
   affected_routes: require('./dep-tools/affected-routes'),
+  boundaries: require('./dep-tools/boundaries').checkBoundaries,
+  smells: require('./dep-tools/smells').checkSmells,
 };
 
 // Operations that require a resolved file path

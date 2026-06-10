@@ -82,7 +82,7 @@ function testBuildFunctionFingerprint() {
   assert.strictEqual(fp.isAsync, false);
   assert.strictEqual(fp.isGenerator, false);
   assert.strictEqual(fp.hasTryCatch, true);
-  assert.strictEqual(fp.branchCount, 1);
+  assert.strictEqual(fp.branchCount, 2);
   assert.strictEqual(fp.returnCount, 1);
   assert(Array.isArray(fp.callCallees));
 }

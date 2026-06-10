@@ -8,6 +8,29 @@
 
 ## [Unreleased]
 
+### Wave 11: 分析深化 (2026-06-09)
+
+- **重构消除 L2-7 重复代码技术债** `src/utils/path.js` / `src/tools/dep-tools/boundaries.js` / `src/cli/formatters/composite-risk.js`：
+  - 提取 `get2LevelPrefix()` 至 `path.js` 公共路径工具模块，统一 Windows/POSIX 兼容处理，消除了边界检查与风险评分格式化中的重复定义。
+- **实现架构边界检查 (`audit-boundaries`)** `src/tools/dep-tools/boundaries.js` / `src/utils/project-context.js` / `src/cli/commands/index.js`：
+  - 新增边界验证工具，支持从 `.workspace-bridge.json` 读取 `boundaries[]` 配置规则（`from` + `deny`/`allow` glob 模式）。
+  - 无配置时自动根据目录级 import 图生成建议规则，排除测试文件、循环依赖和扁平目录。
+  - 在 `audit-overview` 中集成边界违规统计与建议。
+- **实现代码异味检测 (`audit-smells`)** `src/tools/dep-tools/smells.js` / `src/services/dep-graph/parsers/shared.js` / `scripts/python_ast_parser.py` / `scripts/java_ast_parser.py`：
+  - 新增 Flat Dispatcher 检测（arms >= 6 + cc <= arms + 5，或 arms >= 12 + arms >= cc * 0.4）。
+  - 增强 JS/TS、Python、Java 的 AST 指纹计算，统一支持 `maxArms`（if-else/switch 分支臂数）和循环语句的 branchCount。
+  - 修复 `src/services/dep-graph/parsers/java.js` 中 AST 路径丢失 fingerprint 的问题。
+- **实现复杂度趋势分析** `src/tools/complexity-tools.js` / `src/tools/audit-assembler.js`：
+  - 新增 `getFileComplexityTrend()`，基于 git 历史比较文件在 base commit 与当前版本的复杂度变化。
+  - 支持 AST 双路径解析（函数 branchCount 总和）与 LOC 回退，确保 parity。
+  - 未跟踪文件自动标记为 `GROWING`。
+- **重构统一 5 维度风险评分** `src/cli/formatters/composite-risk.js`：
+  - 将旧版加权模型替换为结构化 5 维度评分：`flow_participation` + `community_crossing` + `test_coverage` + `caller_count` + `security_sensitive`。
+  - 输出显式 `dimensions` 对象，方便下游 AI 消费。
+- **补全格式化器与测试覆盖** `src/cli/formatters/human-formatters.js` / `test/wave11-analysis-deepening-test.js`：
+  - 为 `audit-boundaries` 和 `audit-smells` 添加 human/summary/markdown/jsonl/AI 格式化器。
+  - 新增 `wave11-analysis-deepening-test.js`，覆盖边界验证、JS/Python/Java 分支臂计数、复杂度趋势、5 维度风险评分。`npm run test:fast` **90/90 PASS**。
+
 ### Wave 10: 符号级智能 (2026-06-09)
 
 - **实现两阶段（Parse-and-Link）构建与增量更新** `src/services/dep-graph/builder.js`：
