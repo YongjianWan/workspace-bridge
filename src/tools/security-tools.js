@@ -193,6 +193,7 @@ async function runBuiltinSecurityScan(cwd, targets, container, options = {}) {
           }
           findings.push({
             ruleId: rule.id,
+            rule: rule.id,
             message: rule.message,
             severity: rule.severity,
             file: depGraph?._displayPath?.(file) || file,
@@ -209,6 +210,15 @@ async function runBuiltinSecurityScan(cwd, targets, container, options = {}) {
   return { findings, summary: { total: findings.length, scanned: files.length, config: 'builtin', error: null } };
 }
 
+const { loadWorkspaceConfig } = require('../utils/project-context');
+const crypto = require('crypto');
+
+function computeFindingId(f) {
+  const file = String(f.file || '').replace(/\\/g, '/');
+  const key = `${f.tool || 'builtin'}:${f.ruleId || 'unknown'}:${file}:${f.lineStart || 0}`;
+  return crypto.createHash('sha256').update(key).digest('hex').slice(0, 12);
+}
+
 async function auditSecurity({ cwd, targets, config, language, builtinOnly }, container) {
   const targetList = Array.isArray(targets) ? targets : [];
   const adapters = await getAvailableAdapters(cwd);
@@ -216,16 +226,24 @@ async function auditSecurity({ cwd, targets, config, language, builtinOnly }, co
   // Default to scanning the workspace root when user gave no targets
   const effectiveTargets = targetList.length > 0 ? targetList : ['.'];
 
+  const wsConfig = loadWorkspaceConfig(cwd) || {};
+  const ignoredFindings = new Set(wsConfig.ignore?.findings || []);
+
   if (builtinOnly || adapters.length === 0) {
     const builtin = await runBuiltinSecurityScan(cwd, targetList, container, { language });
-    const bySeverity = groupBySeverity(builtin.findings);
+    const findingsWithId = builtin.findings.map((f) => {
+      const id = computeFindingId(f);
+      return { id, ...f };
+    });
+    const filtered = findingsWithId.filter((f) => !ignoredFindings.has(f.id));
+    const bySeverity = groupBySeverity(filtered);
     return {
       ok: true,
       adapters: ['builtin'],
-      findings: builtin.findings,
-      scanMeta: [{ name: 'builtin', summary: builtin.summary }],
+      findings: filtered,
+      scanMeta: [{ name: 'builtin', summary: { ...builtin.summary, total: filtered.length } }],
       summary: {
-        total: builtin.findings.length,
+        total: filtered.length,
         bySeverity,
         message: null,
       },
@@ -239,19 +257,24 @@ async function auditSecurity({ cwd, targets, config, language, builtinOnly }, co
   const allFindings = results.flatMap((r) => r.findings);
 
   const deduped = dedupeWithinTool(allFindings);
-  const bySeverity = groupBySeverity(deduped);
+  const findingsWithId = deduped.map((f) => {
+    const id = computeFindingId(f);
+    return { id, ...f };
+  });
+  const filtered = findingsWithId.filter((f) => !ignoredFindings.has(f.id));
+  const bySeverity = groupBySeverity(filtered);
 
   return {
     ok: true,
     adapters: adapters.map((a) => a.name),
-    findings: deduped,
+    findings: filtered,
     scanMeta,
     summary: {
-      total: deduped.length,
+      total: filtered.length,
       bySeverity,
       message: null,
     },
   };
 }
 
-module.exports = { auditSecurity, groupBySeverity, dedupeWithinTool };
+module.exports = { auditSecurity, groupBySeverity, dedupeWithinTool, computeFindingId };

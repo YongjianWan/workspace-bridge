@@ -96,7 +96,7 @@ function testNormalizeImportedName() {
 
 function testParseNamedBindings() {
   assert.deepStrictEqual(parseNamedBindings('a, b, c'), ['a', 'b', 'c']);
-  assert.deepStrictEqual(parseNamedBindings('a as A, type B as C'), ['a', 'B']);
+  assert.deepStrictEqual(parseNamedBindings('a as A, type B as C, x: y, z : w'), ['a', 'B', 'x', 'z']);
   assert.deepStrictEqual(parseNamedBindings(''), []);
 }
 

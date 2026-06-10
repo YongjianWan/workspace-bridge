@@ -35,6 +35,7 @@ class FileIndex {
     this.changedFiles = new Set();
     this.cliExcludeDirs = [...new Set((options.excludeDirs || []).map((d) => d.trim()).filter(Boolean))];
     this.baseExcludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS])];
+    this.ignorePaths = [];
     this.quiet = options.quiet || false;
     this.bus = new EventBus();
   }
@@ -258,6 +259,11 @@ class FileIndex {
 
   _applyWorkspaceExcludeDirs() {
     const wsConfig = loadWorkspaceConfig(this.root, { quiet: this.quiet });
+    if (wsConfig?.ignore?.paths) {
+      this.ignorePaths = wsConfig.ignore.paths;
+    } else {
+      this.ignorePaths = [];
+    }
     if (!wsConfig?.directories) return;
     const extra = [
       ...wsConfig.directories.reference,
@@ -269,6 +275,10 @@ class FileIndex {
 
   shouldExclude(filePath) {
     if (shouldExcludeBase(filePath, this.baseExcludeDirs)) return true;
+
+    if (this.ignorePaths && this.ignorePaths.length > 0) {
+      if (_shouldExcludeCli(filePath, this.ignorePaths)) return true;
+    }
 
     // File Role classification (e.g. test/entry/library) is deferred to the parse/assembly
     // stage so that cold-scan does not pay the cost of running the full ROLE_RULES regex chain.

@@ -10,7 +10,7 @@ function testSecurityFindingsUseRuleIdNotRule() {
   assert(Array.isArray(data.findings), 'should have findings array');
   for (const f of data.findings) {
     assert(f.ruleId !== undefined, 'every finding must have ruleId');
-    assert(f.rule === undefined, 'findings must NOT have ambiguous "rule" field');
+    assert.strictEqual(f.rule, f.ruleId, 'f.rule should be an alias of f.ruleId');
   }
 }
 

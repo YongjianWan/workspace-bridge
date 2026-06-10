@@ -8,6 +8,20 @@
 
 ## [Unreleased]
 
+### Wave 14: 配置、降噪与环境变量 (2026-06-10)
+
+- **安全扫描与符号解构缺陷修复**：
+  - 恢复 `rule` 作为 `ruleId` 的别名以确保向后兼容，更新 `test/security-ruleId-test.js`。
+  - 修复 CJS 解构别名（如 `const { a: b } = require('./foo')`）解析逻辑以确保 `symbolImpact` 匹配。
+- **降噪与噪音抑制 (Wave 14-2)**：
+  - 扩展 `.workspace-bridge.json` 结构，支持 `ignore.paths`（过滤文件索引）和 `ignore.findings`（屏蔽安全漏洞）。
+  - 实现基于 SHA-256 哈希的前 12 位唯一安全漏洞 ID（Finding ID）。
+  - 增加 `--mark-false-positive <id>` 命令行工具，支持自动将误报 ID 写入 `.workspace-bridge.json` 进行屏蔽。
+- **配置优先级与环境变量 (Wave 14-3)**：
+  - 支持 `WB_*` 系列前缀环境变量（如 `WB_FORMAT`, `WB_JSON`, `WB_QUIET`, `WB_CWD`, `WB_EXCLUDE`, `WB_LIMIT`, `WB_SEVERITY`）。
+  - 遵循 `env > cli > file` 的配置覆盖优先级，并在启动时通过命令行输出配置来源报告（Precedence Origin Report）。
+- **新增回归单元测试** `test/wave14-noise-env-test.js` 验证上述全部功能。
+
 ### Wave 13: 契约规范与可观测性 (2026-06-10)
 
 - **统一语言解析器契约** `src/services/dep-graph/parsers/registry-core.js` / `registry.js`：

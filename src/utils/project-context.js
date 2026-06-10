@@ -472,7 +472,7 @@ function validateWorkspaceConfig(config, configPath) {
     throw new Error(`Configuration root must be an object in ${configPath}`);
   }
 
-  const validTopKeys = new Set(['directories', 'directoryRoles', '$schema', 'boundaries']);
+  const validTopKeys = new Set(['directories', 'directoryRoles', '$schema', 'boundaries', 'ignore']);
   for (const key of Object.keys(config)) {
     if (!validTopKeys.has(key)) {
       throw new Error(`Unknown top-level key "${key}" in config file ${configPath}`);
@@ -537,6 +537,23 @@ function validateWorkspaceConfig(config, configPath) {
       }
     }
   }
+
+  const ignore = config.ignore;
+  if (ignore !== undefined) {
+    if (typeof ignore !== 'object' || Array.isArray(ignore) || ignore === null) {
+      throw new Error(`"ignore" must be an object in config file ${configPath}`);
+    }
+    if (ignore.paths !== undefined) {
+      if (!Array.isArray(ignore.paths) || !ignore.paths.every(p => typeof p === 'string')) {
+        throw new Error(`"ignore.paths" must be an array of strings in config file ${configPath}`);
+      }
+    }
+    if (ignore.findings !== undefined) {
+      if (!Array.isArray(ignore.findings) || !ignore.findings.every(f => typeof f === 'string')) {
+        throw new Error(`"ignore.findings" must be an array of strings in config file ${configPath}`);
+      }
+    }
+  }
 }
 
 function loadWorkspaceConfig(root, options = {}) {
@@ -569,6 +586,7 @@ function loadWorkspaceConfig(root, options = {}) {
 
   return {
     directories,
+    ignore: config.ignore,
   };
 }
 

@@ -84,6 +84,7 @@ class SemgrepAdapter extends BaseAdapter {
 
     return {
       ruleId: raw.check_id || 'unknown',
+      rule: raw.check_id || 'unknown',
       message: raw.extra?.message || raw.extra?.lines || '',
       severity,
       file: raw.path || '',

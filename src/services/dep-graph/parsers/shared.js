@@ -144,7 +144,8 @@ function parseNamedBindings(raw) {
     .map((part) => {
       const withoutType = part.replace(/^type\s+/, '').trim();
       const [imported] = withoutType.split(/\s+as\s+/i);
-      return normalizeImportedName(imported);
+      const [realImported] = imported.split(':');
+      return normalizeImportedName(realImported.trim());
     })
     .filter(Boolean);
 }

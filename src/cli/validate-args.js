@@ -74,6 +74,7 @@ function parseCliArgs(argv) {
       '-h': true,
       '--all': true,
       '--strict-cwd': true,
+      '--mark-false-positive': { key: 'markFalsePositive' },
     });
   } catch (err) {
     if (!err.code) {
@@ -83,6 +84,71 @@ function parseCliArgs(argv) {
   }
 
   const command = raw._[0] || null;
+  const sources = {};
+
+  function resolveOption(cliVal, envName, isBool = false) {
+    if (process.env[envName] !== undefined) {
+      const val = process.env[envName];
+      return {
+        value: isBool ? (val === 'true' || val === '1') : val,
+        source: 'env'
+      };
+    }
+    if (cliVal !== undefined && cliVal !== null) {
+      return { value: cliVal, source: 'cli' };
+    }
+    return { value: undefined, source: 'default' };
+  }
+
+  const cwdRes = resolveOption(raw.cwd, 'WB_CWD');
+  sources.cwd = cwdRes.source;
+  const cwd = cwdRes.value || process.cwd();
+
+  let exclude = [];
+  if (process.env.WB_EXCLUDE !== undefined) {
+    exclude = process.env.WB_EXCLUDE.split(',').map((part) => toPosixPath(part.trim())).filter(Boolean);
+    sources.exclude = 'env';
+  } else if (raw.exclude !== undefined && raw.exclude !== null) {
+    exclude = String(raw.exclude).split(',').map((part) => toPosixPath(part.trim())).filter(Boolean);
+    sources.exclude = 'cli';
+  } else {
+    sources.exclude = 'default';
+  }
+
+  const modeRes = resolveOption(raw.mode, 'WB_MODE');
+  sources.mode = modeRes.source;
+  const mode = modeRes.value || 'quick';
+
+  const formatRes = resolveOption(raw.format, 'WB_FORMAT');
+  sources.format = formatRes.source;
+  const format = formatRes.value || null;
+
+  const jsonRes = resolveOption(raw['--json'], 'WB_JSON', true);
+  sources.json = jsonRes.source;
+  const json = jsonRes.value || false;
+
+  const quietRes = resolveOption(raw['--quiet'], 'WB_QUIET', true);
+  sources.quiet = quietRes.source;
+  const quiet = quietRes.value || false;
+
+  const cacheDirRes = resolveOption(raw.cacheDir, 'WB_CACHE_DIR');
+  sources.cacheDir = cacheDirRes.source;
+  const cacheDir = cacheDirRes.value || null;
+
+  const limitRes = resolveOption(raw.limit, 'WB_LIMIT');
+  sources.limit = limitRes.source;
+  let limit = null;
+  if (limitRes.value !== undefined) {
+    limit = Number.parseInt(limitRes.value, 10);
+    if (Number.isNaN(limit) || limit <= 0) {
+      throwValidationError(`Invalid limit value: ${limitRes.value}. Expected a positive integer`);
+    }
+  }
+
+  const severityRes = resolveOption(raw.severity, 'WB_SEVERITY');
+  sources.severity = severityRes.source;
+  const severity = severityRes.value || null;
+
   const reuseHints = (raw.reuseHints || 'off').toLowerCase();
   if (reuseHints && !['on', 'off'].includes(reuseHints)) {
     throwValidationError(`Invalid --reuse-hints value: ${reuseHints}. Expected on|off`);
@@ -95,17 +161,17 @@ function parseCliArgs(argv) {
   if (Number.isFinite(raw.maxDepth) && raw.maxDepth <= 0) {
     throwValidationError(`Invalid --max-depth value: ${raw.maxDepth}. Expected a positive integer`);
   }
-  if (raw.severity && !['high', 'medium', 'low'].includes(raw.severity)) {
-    throwValidationError(`Invalid --severity value: ${raw.severity}. Expected high|medium|low`);
+  if (severity && !['high', 'medium', 'low'].includes(severity)) {
+    throwValidationError(`Invalid --severity value: ${severity}. Expected high|medium|low`);
   }
-  if (raw.format && !['summary', 'markdown', 'jsonl', 'ai', 'human', 'json'].includes(raw.format)) {
-    throwValidationError(`Invalid --format value: ${raw.format}. Expected summary|markdown|jsonl|ai|human|json`);
+  if (format && !['summary', 'markdown', 'jsonl', 'ai', 'human', 'json'].includes(format)) {
+    throwValidationError(`Invalid --format value: ${format}. Expected summary|markdown|jsonl|ai|human|json`);
   }
   if (raw.direction && !['imports', 'dependents', 'both'].includes(raw.direction)) {
     throwValidationError(`Invalid --direction value: ${raw.direction}. Expected imports|dependents|both`);
   }
-  if (raw.mode && !['quick', 'full'].includes(raw.mode)) {
-    throwValidationError(`Invalid --mode value: ${raw.mode}. Expected quick|full`);
+  if (mode && !['quick', 'full'].includes(mode)) {
+    throwValidationError(`Invalid --mode value: ${mode}. Expected quick|full`);
   }
   if (raw.depth && !['surface', 'detail', 'full'].includes(raw.depth)) {
     throwValidationError(`Invalid --depth value: ${raw.depth}. Expected surface|detail|full`);
@@ -113,14 +179,9 @@ function parseCliArgs(argv) {
 
   return {
     command,
-    cwd: raw.cwd || process.cwd(),
-    exclude: raw.exclude
-      ? String(raw.exclude)
-        .split(',')
-        .map((part) => toPosixPath(part.trim()))
-        .filter(Boolean)
-      : [],
-    mode: raw.mode || 'quick',
+    cwd,
+    exclude,
+    mode,
     file: raw.file ? toPosixPath(raw.file) : null,
     maxDepth: Number.isFinite(raw.maxDepth) ? raw.maxDepth : undefined,
     reuseHints,
@@ -131,15 +192,15 @@ function parseCliArgs(argv) {
     config: raw.config || null,
     language: raw.language || null,
     builtinOnly: Boolean(raw['--builtin-only']),
-    format: raw.format === 'json' ? null : (raw.format || null),
+    format: format === 'json' ? null : (format || null),
     since: raw.since || null,
     commits: raw.commits || null,
-    severity: raw.severity || null,
+    severity,
     staged: Boolean(raw['--staged']),
     files: raw.files || null,
     targets: raw._.slice(1),
-    json: Boolean(raw['--json']) || raw.format === 'json',
-    quiet: Boolean(raw['--quiet']),
+    json: json || format === 'json',
+    quiet,
     compact: Boolean(raw['--compact']),
     watch: Boolean(raw['--watch']),
     incremental: Boolean(raw['--incremental']),
@@ -147,14 +208,14 @@ function parseCliArgs(argv) {
     save: raw.save || null,
     checkRegression: Boolean(raw['--check-regression']),
     baseline: raw.baseline || null,
-    cacheDir: raw.cacheDir || null,
+    cacheDir,
     direction: raw.direction || null,
     eval: raw.eval || null,
     what: raw.what || null,
     risk: raw.risk || null,
     level: raw.level || null,
     assessment: raw.assessment || null,
-    limit: Number.isFinite(raw.limit) ? raw.limit : null,
+    limit,
     failOnFindings: Boolean(raw['--fail-on-findings']),
     runTests: Boolean(raw['--run-tests']),
     version: Boolean(raw['--version']) || Boolean(raw['-v']),
@@ -163,6 +224,8 @@ function parseCliArgs(argv) {
     depth: raw.depth || null,
     tokenBudget: Number.isFinite(raw.tokenBudget) ? raw.tokenBudget : null,
     strictCwd: Boolean(raw['--strict-cwd']),
+    markFalsePositive: raw.markFalsePositive || null,
+    _sources: sources,
   };
 }
 

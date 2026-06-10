@@ -228,6 +228,55 @@ async function runCliInProcess(args, opts = {}) {
     return { status: 0, stdout: `workspace-bridge ${version}\n`, stderr: '' };
   }
 
+  // Precedence Origin Report
+  if (!parsed.quiet && parsed._sources) {
+    const reportParts = [];
+    for (const [key, src] of Object.entries(parsed._sources)) {
+      if (src !== 'default') {
+        reportParts.push(`${key} from ${src}`);
+      }
+    }
+    const configPath = path.join(path.resolve(parsed.cwd), '.workspace-bridge.json');
+    if (fs.existsSync(configPath)) {
+      reportParts.push('other config from file');
+    }
+    const reportStr = reportParts.length > 0 ? reportParts.join(', ') : 'defaults only';
+    console.error(`[Config] Precedence (env > cli > file): ${reportStr}`);
+  }
+
+  // Handle Mark False Positive
+  if (parsed.markFalsePositive) {
+    const cwd = path.resolve(parsed.cwd || process.cwd());
+    const configPath = path.join(cwd, '.workspace-bridge.json');
+    let config = {};
+    if (fs.existsSync(configPath)) {
+      try {
+        config = JSON.parse(fs.readFileSync(configPath, 'utf8')) || {};
+      } catch (err) {
+        return { status: 1, stdout: '', stderr: `Failed to parse config file: ${err.message}` };
+      }
+    }
+
+    if (!config.ignore) {
+      config.ignore = {};
+    }
+    if (!config.ignore.findings) {
+      config.ignore.findings = [];
+    }
+    if (!config.ignore.findings.includes(parsed.markFalsePositive)) {
+      config.ignore.findings.push(parsed.markFalsePositive);
+    }
+
+    try {
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    } catch (err) {
+      return { status: 1, stdout: '', stderr: `Failed to write config file: ${err.message}` };
+    }
+
+    const msg = `Finding ${parsed.markFalsePositive} marked as false positive in .workspace-bridge.json`;
+    return { status: 0, stdout: msg, stderr: '' };
+  }
+
   if (parsed.help || !parsed.command) {
     return { status: 0, stdout: '', stderr: '' };
   }
@@ -329,7 +378,7 @@ async function main() {
     return;
   }
 
-  if (!parsed.command) {
+  if (!parsed.command && !parsed.markFalsePositive) {
     printUsage(false);
     return;
   }

@@ -63,7 +63,7 @@ function elideString(str, maxLen = DEFAULTS.JSON_OUTPUT_MAX_STRING_LENGTH, ellip
 function elideDeep(value, limits = {}, depth = 0) {
   const maxArrayLength = limits.maxArrayLength ?? DEFAULTS.JSON_OUTPUT_MAX_ARRAY_ITEMS;
   const maxStringLength = limits.maxStringLength ?? DEFAULTS.JSON_OUTPUT_MAX_STRING_LENGTH;
-  const maxDepth = limits.maxDepth ?? 8;
+  const maxDepth = limits.maxDepth ?? 16;
 
   if (depth > maxDepth) {
     return typeof value === 'object' && value !== null ? null : value;

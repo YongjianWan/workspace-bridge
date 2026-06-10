@@ -115,8 +115,8 @@ function buildSecurityLines(result, style) {
     else lines.push('');
     for (const f of result.findings.slice(0, max)) {
       lines.push(isMd
-        ? `- **[${f.severity.toUpperCase()}] \`${f.ruleId}\` — ${f.file}${f.lineStart ? ':' + f.lineStart : ''}`
-        : `${bp}[${f.severity.toUpperCase()}] ${f.ruleId} — ${f.file}${f.lineStart ? ':' + f.lineStart : ''}`
+        ? `- **[${f.severity.toUpperCase()}] \`${f.ruleId}\` — ${f.file}${f.lineStart ? ':' + f.lineStart : ''}** (id: \`${f.id || 'none'}\`)`
+        : `${bp}[${f.severity.toUpperCase()}] ${f.ruleId} — ${f.file}${f.lineStart ? ':' + f.lineStart : ''} (id: ${f.id || 'none'})`
       );
       if (f.message && !isSum) lines.push(isMd ? `  - ${f.message}` : `  ${f.message}`);
       if (f.matchedText) {
