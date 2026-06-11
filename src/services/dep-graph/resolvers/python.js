@@ -28,8 +28,9 @@ function tryPythonRelative(importPath, fromFile, ctx) {
     ? path.join(currentDir, ...remainder.split('.'))
     : currentDir;
 
-  const resolved = tryPythonCandidates(basePath) || basePath;
-  if (resolved && ctx.outMeta) {
+  const resolved = tryPythonCandidates(basePath);
+  if (!resolved) return null;
+  if (ctx.outMeta) {
     ctx.outMeta.method = 'python-relative';
     ctx.outMeta.confidence = 1.0;
     ctx.outMeta.tier = 'tier1';

@@ -328,7 +328,7 @@ class ServiceContainer {
         fileIndex: this.fileIndex,
         graph: new DependencyGraphView(this._depGraph),
         gitStatus: { head: this.cache?.getWorkspaceInfo?.()?.gitHead || null },
-        frameworkHints: this._collectFrameworkHints(),
+        frameworkHints: new Map(),
         projectContext: this._depGraph?.projectContext || null,
         fileIndexVersion: this.indexBuildTime || null,
         cacheStaleness: staleness,
@@ -346,18 +346,6 @@ class ServiceContainer {
         console.error('[Container] Snapshot assembly failed:', e.message);
       }
     }
-  }
-
-  _collectFrameworkHints() {
-    const hints = new Map();
-    if (!this._depGraph) return hints;
-    for (const filePath of this._depGraph.getAllFilePaths()) {
-      const hint = this._depGraph.getFrameworkHint(filePath);
-      if (hint) {
-        hints.set(filePath, hint);
-      }
-    }
-    return hints;
   }
 
   _registerCallbacks() {
@@ -517,7 +505,19 @@ class ServiceContainer {
   }
 
   getStaleness(thresholdMs = DEFAULTS.STALENESS_THRESHOLD_MS) {
-    const ageMs = this.indexBuildTime ? Date.now() - this.indexBuildTime : 0;
+    if (!this.indexBuildTime) {
+      return {
+        indexAgeMs: 0,
+        isStale: true,
+        gitHeadChanged: false,
+        filesChanged: false,
+        changedFiles: [],
+        thresholdMs,
+        thresholdDescription: formatDuration(thresholdMs),
+      };
+    }
+
+    const ageMs = Date.now() - this.indexBuildTime;
 
     let gitHeadChanged = false;
     const cachedInfo = this.cache?.getWorkspaceInfo?.();

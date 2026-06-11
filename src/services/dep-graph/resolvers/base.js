@@ -134,7 +134,13 @@ function _readTsconfigPaths(root) {
     if (cached && cached.mtime === mtime) return cached.paths;
 
     const content = fs.readFileSync(configPath, 'utf8');
-    const parsed = JSON.parse(content);
+    const cleaned = content
+      .replace(/("([^"\\]|\\.)*")|\/\*[\s\S]*?\*\/|(?:\s|^)\/\/[^\n]*/g, (m, stringLiteral) => {
+        if (stringLiteral) return stringLiteral;
+        return '';
+      })
+      .replace(/,\s*([\]}])/g, '$1');
+    const parsed = JSON.parse(cleaned);
     const paths = parsed?.compilerOptions?.paths || null;
     const baseUrl = parsed?.compilerOptions?.baseUrl || '.';
     const result = paths ? { paths, baseUrl } : null;

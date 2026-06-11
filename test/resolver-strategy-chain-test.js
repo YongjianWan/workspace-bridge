@@ -110,6 +110,18 @@ function testTryPythonRelative() {
   cleanupTempDir(dir);
 }
 
+function testTryPythonRelativeNonExistent() {
+  const dir = makeTempDir('wb-py-rel-non-');
+  fs.mkdirSync(path.join(dir, 'pkg'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'pkg', 'main.py'), '', 'utf8');
+
+  const ctx = { root: dir, cachedExistsSync: (p) => fs.existsSync(p) };
+  const result = tryPythonRelative('.nonexistent', path.join(dir, 'pkg', 'main.py'), ctx);
+  assert.strictEqual(result, null, 'relative import of non-existent python module should return null');
+
+  cleanupTempDir(dir);
+}
+
 function testTryPythonRelativeIgnoresAbsolute() {
   const ctx = { root: '/', cachedExistsSync: () => false };
   assert.strictEqual(tryPythonAbsolute('os.path', null, ctx), null, 'absolute import should not match relative strategy');
@@ -256,6 +268,30 @@ function testResolveImportFacadeRust() {
   cleanupTempDir(dir);
 }
 
+function testReadTsconfigPathsWithCommentsAndTrailingCommas() {
+  const dir = makeTempDir('wb-tsconfig-comments-');
+  const tsconfigContent = `{
+    // compilerOptions comment
+    "compilerOptions": {
+      "baseUrl": ".",
+      "paths": {
+        "@/*": ["src/*"],
+      },
+    },
+    /* block comment
+       goes here */
+  }`;
+  fs.writeFileSync(path.join(dir, 'tsconfig.json'), tsconfigContent, 'utf8');
+
+  const { _readTsconfigPaths } = require('../src/services/dep-graph/resolvers/base');
+  const result = _readTsconfigPaths(dir);
+  assert(result !== null, 'should successfully parse tsconfig with comments and trailing commas');
+  assert(result.paths && result.paths['@/*'], 'should parse paths mapping');
+  assert.strictEqual(result.paths['@/*'][0], 'src/*', 'should map paths value correctly');
+
+  cleanupTempDir(dir);
+}
+
 function main() {
   testCreateResolverFirstWin();
   testCreateResolverAllNull();
@@ -266,6 +302,7 @@ function main() {
   testTryRelativeWithExtensionsIgnoresNonRelative();
   testTryAliasIgnoresRelative();
   testTryPythonRelative();
+  testTryPythonRelativeNonExistent();
   testTryPythonRelativeIgnoresAbsolute();
   testTryJava();
   testTryGoModule();
@@ -277,7 +314,7 @@ function main() {
   testResolveImportFacadeJava();
   testResolveImportFacadeGo();
   testResolveImportFacadeRust();
-
-  }
+  testReadTsconfigPathsWithCommentsAndTrailingCommas();
+}
 
 main();
