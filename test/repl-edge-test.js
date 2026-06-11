@@ -23,6 +23,7 @@ function makeMockDepGraph(opts = {}) {
     findDeadExports: () => [],
     findUnresolvedImports: () => [],
     findCircularDependencies: () => [],
+    findOrphanFiles: () => ({ docs: [], scripts: [], configs: [], modules: [], all: [] }),
     getDependents: (file) => dependentsMap[file] || [],
     getDependencies: () => [],
     getStats: () => ({ files: 10, totalImports: 20, totalExports: 15, cycles: 0 }),

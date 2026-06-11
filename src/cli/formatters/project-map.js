@@ -1,5 +1,5 @@
 const { HIGHLIGHT_SCORES, DEFAULTS, SCORING } = require('../../config/constants');
-const { findOrphanFiles } = require('../../utils/orphan-detector');
+
 
 function toRelativePath(root, filePath) {
   if (!root || !filePath) return filePath;
@@ -330,7 +330,7 @@ function buildProjectMap(depGraph, options = {}) {
   const cycles = depGraph.findCircularDependencies?.() || [];
 
   const entrySet = depGraph.entryFiles || new Set();
-  const orphanResult = findOrphanFiles(allFiles, entrySet, depGraph, root, toRelativePath, depGraph.isKnownEntryFile?.bind(depGraph), depGraph.shouldExcludeCli?.bind(depGraph));
+  const orphanResult = depGraph.findOrphanFiles(toRelativePath);
   const orphans = orphanResult.all;
 
   // Hotspots: files with high dependent count (dependency centrality)

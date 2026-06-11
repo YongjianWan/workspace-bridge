@@ -102,8 +102,9 @@ function saveBaseline(result, filePath) {
 
 function loadBaseline(filePath) {
   try {
+    const { stripBOM } = require('../utils/sanitize');
     const raw = fs.readFileSync(filePath, 'utf8');
-    const data = JSON.parse(raw);
+    const data = JSON.parse(stripBOM(raw));
     if (!data.findings) return { ok: false, error: 'Invalid baseline file: missing findings' };
     return { ok: true, data };
   } catch (err) {

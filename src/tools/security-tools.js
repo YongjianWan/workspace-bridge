@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { getAvailableAdapters } = require('../adapters');
 const { normalizePathKey } = require('../utils/path');
-const { sanitizeForAiOutput } = require('../utils/sanitize');
+const { sanitizeForAiOutput, stripBOM } = require('../utils/sanitize');
 
 function groupBySeverity(findings) {
   const map = { high: 0, medium: 0, low: 0, unknown: 0 };
@@ -92,7 +92,7 @@ function loadAndCompileRules(cwd, configFile = null) {
     isCustom = true;
     try {
       const fileContent = fs.readFileSync(resolvedPath, 'utf8');
-      loadedConfig = JSON.parse(fileContent);
+      loadedConfig = JSON.parse(stripBOM(fileContent));
     } catch (err) {
       throw new Error(`Failed to parse custom security rules config: ${err.message}`);
     }
@@ -103,7 +103,7 @@ function loadAndCompileRules(cwd, configFile = null) {
     if (fs.existsSync(defaultPath)) {
       try {
         const fileContent = fs.readFileSync(defaultPath, 'utf8');
-        loadedConfig = JSON.parse(fileContent);
+        loadedConfig = JSON.parse(stripBOM(fileContent));
       } catch (err) {
         // Fallback silently to hardcoded defaults
       }

@@ -94,7 +94,8 @@ function pathExists(targetPath) {
 
 function readJsonSafe(filePath) {
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const { stripBOM } = require('./sanitize');
+    return JSON.parse(stripBOM(fs.readFileSync(filePath, 'utf8')));
   } catch {
     return null;
   }

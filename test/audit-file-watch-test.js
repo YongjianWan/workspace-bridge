@@ -8,7 +8,7 @@ const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const { REPO_ROOT, CLI_PATH, cleanupTempDir } = require('./test-helpers');
+const { REPO_ROOT, CLI_PATH, cleanupTempDir, terminateProcess } = require('./test-helpers');
 
 const tempDir = path.join(REPO_ROOT, 'test', '.watch-temp');
 const triggerFile = path.join(tempDir, 'trigger.js');
@@ -32,9 +32,9 @@ async function cleanup() {
   }
 }
 
-async function waitForStartup(childStderr, timeoutMs = 8000) {
+async function waitForStartup(stderrGetter, expected = 'Press Ctrl+C to stop', timeoutMs = 20000) {
   let waited = 0;
-  while (!childStderr.includes('Press Ctrl+C to stop') && waited < timeoutMs) {
+  while (!stderrGetter().includes(expected) && waited < timeoutMs) {
     await delay(100);
     waited += 100;
   }
@@ -56,7 +56,11 @@ function parseJsonLines(stdout) {
 async function testAuditFileWatch() {
 
   const relativeTrigger = path.relative(REPO_ROOT, triggerFile);
-  const child = spawn('node', [CLI_PATH, 'audit-file', '--file', relativeTrigger, '--watch', '--json'], {
+  const args = ['audit-file', '--file', relativeTrigger, '--watch', '--json'];
+  if (process.env.WB_TEST_CACHE_DIR) {
+    args.push('--cache-dir', process.env.WB_TEST_CACHE_DIR);
+  }
+  const child = spawn('node', [CLI_PATH, ...args], {
     cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -72,7 +76,11 @@ async function testAuditFileWatch() {
     stderr += data.toString();
   });
 
-  await waitForStartup(stderr);
+  await waitForStartup(() => stderr, 'Press Ctrl+C to stop');
+  if (!stderr.includes('audit-file --watch')) {
+    console.error('STDERR WAS:', JSON.stringify(stderr));
+    console.error('STDOUT WAS:', JSON.stringify(stdout));
+  }
   assert(stderr.includes('audit-file --watch'), 'Should show audit-file watch header');
   assert(stderr.includes('Press Ctrl+C to stop'), 'Should show stop message');
 
@@ -90,13 +98,7 @@ async function testAuditFileWatch() {
   }
 
   // Kill the process
-  child.kill();
-
-  await new Promise((resolve) => {
-    child.on('exit', resolve);
-    child.on('error', resolve);
-    setTimeout(resolve, 1500);
-  });
+  await terminateProcess(child);
 
   assert(resultEvent, `Should emit auditFileResult event. stdout: ${stdout}`);
   assert(resultEvent.file === relativeTrigger.replace(/\\/g, '/') || resultEvent.file === relativeTrigger, `Result file should match trigger. Got: ${resultEvent.file}`);
@@ -115,7 +117,11 @@ async function testAuditFileWatch() {
 async function testAuditFileWatchTargetFiltering() {
 
   const relativeTrigger = path.relative(REPO_ROOT, triggerFile);
-  const child = spawn('node', [CLI_PATH, 'audit-file', '--file', relativeTrigger, '--watch', '--json'], {
+  const args = ['audit-file', '--file', relativeTrigger, '--watch', '--json'];
+  if (process.env.WB_TEST_CACHE_DIR) {
+    args.push('--cache-dir', process.env.WB_TEST_CACHE_DIR);
+  }
+  const child = spawn('node', [CLI_PATH, ...args], {
     cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -131,7 +137,7 @@ async function testAuditFileWatchTargetFiltering() {
     stderr += data.toString();
   });
 
-  await waitForStartup(stderr);
+  await waitForStartup(() => stderr, 'Press Ctrl+C to stop');
 
   // Write to a different file in the same directory
   const otherFile = path.join(tempDir, 'other.js');
@@ -144,13 +150,7 @@ async function testAuditFileWatchTargetFiltering() {
   const resultForOther = events.find((e) => e.event === 'auditFileResult' && e.file && e.file.includes('other'));
 
   // Kill the process
-  child.kill();
-
-  await new Promise((resolve) => {
-    child.on('exit', resolve);
-    child.on('error', resolve);
-    setTimeout(resolve, 1500);
-  });
+  await terminateProcess(child);
 
   // We may get zero events because other.js is not the target file;
   // or we may get an event for trigger.js if the watcher fires on directory change.

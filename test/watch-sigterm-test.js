@@ -8,7 +8,7 @@ const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const { REPO_ROOT, CLI_PATH, cleanupTempDir } = require('./test-helpers');
+const { REPO_ROOT, CLI_PATH, cleanupTempDir, terminateProcess } = require('./test-helpers');
 
 const tempDir = path.join(REPO_ROOT, 'test', '.watch-sigterm-temp');
 
@@ -24,9 +24,9 @@ async function cleanup() {
   } catch {}
 }
 
-async function waitForStartup(childStderr, timeoutMs = 8000) {
+async function waitForStartup(stderrGetter, expected = 'Watching', timeoutMs = 20000) {
   let waited = 0;
-  while (!childStderr.includes('Watching for file changes') && waited < timeoutMs) {
+  while (!stderrGetter().includes(expected) && waited < timeoutMs) {
     await delay(100);
     waited += 100;
   }
@@ -36,7 +36,11 @@ async function testWatchSigterm() {
   fs.mkdirSync(tempDir, { recursive: true });
   fs.writeFileSync(path.join(tempDir, 'trigger.js'), '// initial\n');
 
-  const child = spawn('node', [CLI_PATH, 'watch', '--cwd', '.'], {
+  const args = ['watch', '--cwd', '.'];
+  if (process.env.WB_TEST_CACHE_DIR) {
+    args.push('--cache-dir', process.env.WB_TEST_CACHE_DIR);
+  }
+  const child = spawn('node', [CLI_PATH, ...args], {
     cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -46,7 +50,7 @@ async function testWatchSigterm() {
     stderr += data.toString();
   });
 
-  await waitForStartup(stderr);
+  await waitForStartup(() => stderr, 'Watching for file changes');
   assert(stderr.includes('Watching for file changes'), 'Should show watching message before SIGTERM');
 
   child.kill('SIGTERM');
@@ -73,7 +77,11 @@ async function testAuditFileWatchSigint() {
   const targetFile = path.join(tempDir, 'target.js');
   fs.writeFileSync(targetFile, '// initial\n');
 
-  const child = spawn('node', [CLI_PATH, 'audit-file', '--file', targetFile, '--watch', '--cwd', '.'], {
+  const args = ['audit-file', '--file', targetFile, '--watch', '--cwd', '.'];
+  if (process.env.WB_TEST_CACHE_DIR) {
+    args.push('--cache-dir', process.env.WB_TEST_CACHE_DIR);
+  }
+  const child = spawn('node', [CLI_PATH, ...args], {
     cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -83,10 +91,7 @@ async function testAuditFileWatchSigint() {
     stderr += data.toString();
   });
 
-  const startTime = Date.now();
-  while (!stderr.includes('Watching') && Date.now() - startTime < 8000) {
-    await delay(100);
-  }
+  await waitForStartup(() => stderr, 'Watching');
   assert(stderr.includes('Watching'), 'audit-file --watch should show watching message');
 
   child.kill('SIGINT');
@@ -115,7 +120,11 @@ async function testExecuteWatchCommandBoundaries() {
   fs.mkdirSync(tempDir, { recursive: true });
   fs.writeFileSync(path.join(tempDir, 'trigger.js'), '// initial\n');
 
-  const child = spawn('node', [CLI_PATH, 'watch', '--cwd', '.', '--run-tests'], {
+  const args = ['watch', '--cwd', '.', '--run-tests'];
+  if (process.env.WB_TEST_CACHE_DIR) {
+    args.push('--cache-dir', process.env.WB_TEST_CACHE_DIR);
+  }
+  const child = spawn('node', [CLI_PATH, ...args], {
     cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -125,7 +134,7 @@ async function testExecuteWatchCommandBoundaries() {
   child.stdout.on('data', (data) => { stdout += data.toString(); });
   child.stderr.on('data', (data) => { stderr += data.toString(); });
 
-  await waitForStartup(stderr);
+  await waitForStartup(() => stderr, 'Watching for file changes');
   await delay(200);
   assert(stderr.includes('Auto-run mode'), 'Should indicate auto-run mode');
 
@@ -143,12 +152,8 @@ async function testExecuteWatchCommandBoundaries() {
     await delay(300);
   }
 
-  child.kill();
-  await new Promise((resolve) => {
-    child.on('exit', resolve);
-    child.on('error', resolve);
-    setTimeout(resolve, 1500);
-  });
+  // Kill the process
+  await terminateProcess(child);
 
   // For an isolated temp file with no dependents, validation should complete
   // with "No affected tests detected" reason.

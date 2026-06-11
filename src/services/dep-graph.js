@@ -156,12 +156,8 @@ class DependencyGraph {
 
   _readPackageJson() {
     const packageJsonPath = path.join(this.root, 'package.json');
-    if (!fs.existsSync(packageJsonPath)) return null;
-    try {
-      return JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-    } catch {
-      return null;
-    }
+    const { readJsonSafe } = require('../utils/path');
+    return readJsonSafe(packageJsonPath);
   }
 
   _collectEntryFiles() {
@@ -294,6 +290,20 @@ class DependencyGraph {
 
   buildWarnings(...args) {
     return this.analyzer.buildWarnings(...args);
+  }
+
+  findOrphanFiles(toRelativeFn = null) {
+    const { findOrphanFiles: detectOrphans } = require('../utils/orphan-detector');
+    const allFiles = this.getAllFilePaths();
+    return detectOrphans(
+      allFiles,
+      this.entryFiles,
+      this,
+      this.root,
+      toRelativeFn,
+      this.isKnownEntryFile?.bind(this),
+      this.shouldExcludeCli?.bind(this)
+    );
   }
 
   _scanSymbolUsageInImporters(...args) {

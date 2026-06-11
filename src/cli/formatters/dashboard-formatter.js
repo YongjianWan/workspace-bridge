@@ -108,8 +108,9 @@ async function writeHotspotDataFile(filePath, payload) {
 async function readTrendHistory(filePath) {
   if (!fs.existsSync(filePath)) return [];
   try {
+    const { stripBOM } = require('../../utils/sanitize');
     const content = await fs.promises.readFile(filePath, 'utf8');
-    const parsed = JSON.parse(content);
+    const parsed = JSON.parse(stripBOM(content));
     return Array.isArray(parsed?.history) ? parsed.history : [];
   } catch {
     return [];

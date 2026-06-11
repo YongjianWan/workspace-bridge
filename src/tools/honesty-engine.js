@@ -36,15 +36,10 @@ const FRAMEWORK_IMPLICIT_PATTERNS = [
  * compilerOptions.paths configured. If not, alias imports are likely unresolved.
  */
 function hasTsconfigPaths(root) {
-  const tsconfigPath = path.join(root, 'tsconfig.json');
-  const jsconfigPath = path.join(root, 'jsconfig.json');
-  const configPath = fs.existsSync(tsconfigPath) ? tsconfigPath : (fs.existsSync(jsconfigPath) ? jsconfigPath : null);
-  if (!configPath) return false;
   try {
-    const content = fs.readFileSync(configPath, 'utf8');
-    const parsed = JSON.parse(content);
-    const paths = parsed?.compilerOptions?.paths;
-    return paths && Object.keys(paths).length > 0;
+    const { _readTsconfigPaths } = require('../services/dep-graph/resolvers/base');
+    const config = _readTsconfigPaths(root);
+    return !!(config && config.paths && Object.keys(config.paths).length > 0);
   } catch {
     return false;
   }

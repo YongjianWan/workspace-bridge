@@ -72,6 +72,7 @@ node cli.js audit-overview --cwd . --json --quiet
 | `.workspace-bridge-cache.json.bak` 泄漏到 git status | `src/tools/git-tools.js`                             | `getChangedFiles()` 已排除 `.bak` 备份文件，防止 audit-diff 误报                                                                |
 | `resolvers.js` 策略链新增策略                        | `src/services/dep-graph/resolvers.js`                | 新增语言需在 `registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null`                     |
 | `checkFileChanges()` 双路径                          | `src/services/cache.js`                              | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为                                              |
+| 动态 require 导致死导出误报                           | `src/services/dep-graph/framework-patterns.js`       | `dead-exports` 无法静态分析 `ROUTE_QUERY_REGISTRY` 动态 require，且 `java-spring.js` 无法命中 JS 启发式豁免，被判定为死导出。不影响运行，可忽略或加白 |
 
 ---
 
@@ -90,6 +91,7 @@ node cli.js audit-overview --cwd . --json --quiet
 > 15. **Wave 11 分析深化全面交付**：新增 `audit-boundaries` 架构边界检查与 `audit-smells` 代码异味检测两个 CLI 命令；实现基于 git 历史的复杂度趋势分析（`complexityTrend`）；重构 `composite-risk.js` 为结构化 5 维度风险评分（flow_participation + community_crossing + test_coverage + caller_count + security_sensitive）；增强 JS/TS/Python/Java 的 AST 指纹计算以支持 `maxArms`；修复 `java.js` AST 路径丢失 fingerprint 的问题；补全 `human-formatters.js` 的格式化器与 AI_DIGEST；新增 `test/wave11-analysis-deepening-test.js` 覆盖边界验证、分支臂计数、复杂度趋势、风险评分；**重构消除 L2-7 `get2LevelPrefix` 重复代码技术债**。`npm run test:fast` **90/90 PASS**。
 > 16. **Wave 12 输出精炼全面交付**：实现诚实截断机制（12-1）——`impact`/`affected-tests`/`affected-routes`/`audit-diff` 等命令在数组超过阈值时显式设置 `truncated: true`，human/summary/markdown 格式化器同步显示截断提示；实现 JSON token 削减兜底（12-2）——新增 `elideDeep()` 在 `--json` 输出前作为最后一道防线，自动截断超长数组与字符串；新增 `test/wave12-output-truncation-test.js` 覆盖 truncateArray / elideDeep / compactChangedFile 截断标记 / formatter 提示 / 命令层截断行为。`npm run test:fast` **91/91 PASS**。
 > 17. **Wave 13 契约规范与可观测性全面交付**：统一 `defineLanguage` 注册契约（支持 9 种语言），删除 `symbol-extractors.js` 重构为 registry 动态调用；在 `resolvers.js` 中动态从 registry 加载解析器策略；补充 `builder.js`/`analyzer.js`/`dep-graph.js` Parse vs Link 生命周期阶段文档；在 `SKILL.md` 中添加 L0-L6 架构层级映射；扩展基准测试 `benchmark-perf.js` 和 `compare.js` 覆盖 8 大核心 CLI 命令，并适配 Windows 平台进程及 WASM 启动延迟。`npm run test:fast` **91/91 PASS**，`npm run benchmark:ci` 完美通过。
+> 18. **核心痛点（PowerShell BOM、Flaky Watch 测试、孤儿文件重复）全面交付**：新增通用 `stripBOM(str)` 过滤以规避 PowerShell 管道与重定向场景下解析 `\ufeff` 导致的 JSON 崩溃；重构 `startRepl` 以支持 `cacheDir` 实现并发测试下的 SQLite 文件锁隔离；放宽 `waitForStartup()` 探测超时上限至 20 秒且支持 Setter/Getter 动态对 `stderr` 求值，修复了 Windows 平台冷启动 Flaky 时序竞争；统一了 `project-map` 和 `overview-assembler` 到门面 `findOrphanFiles()` 实例方法的调用，且在 mock/stub 级依赖图与 snapshot 生成中完成了孤儿计算路由适配。`npm run test:fast` **94/94 PASS**，`test:watch` **4/4 PASS**，`node test/runner.js --smoke` **97/97 PASS**。
 ---
 
 ## 本轮上下文：参考仓库探索与架构借鉴（活跃）
@@ -310,7 +312,8 @@ node cli.js audit-overview --cwd . --json --quiet
 
 | # | 目标 | 成本 | 说明 | ROADMAP |
 |---|------|------|------|---------|
-| 14-1 | **规则引擎层次 A（配置化）** | 低 | `security-tools.js` 硬编码规则提取为外部 YAML/JSON，`--config <file>` 接入 | L477 |
+| 14-1 | **规则引擎层次 A（配置化）** | 低 | `security-tools.js` 硬编码规则提取为外部 YAML/JSON，`--config <file>` 接入 | L477 | ✅ 已交付 |
+| 15-2 | **框架检测 Query 化** | 中 | `framework-patterns.js` 正则收敛为 tree-sitter query 声明，`queries/` 目录配置 | L492 | ✅ 已交付（Express / NestJS / Spring Boot 3 框架路由提取 query 化完成；query 编译基础设施 + LRU 缓存已就绪；框架检测内容 query 基础设施预备，完整 query 化待后续波次） |
 | 14-2 | **噪音抑制增强** | 低 | `.workspace-bridge.json` 扩展 `ignore` 配置 + `--mark-false-positive <id>` 记录误报 | L499 |
 | 14-3 | **环境变量层 + 配置来源报告** | 低 | `WB_*` 环境变量层 + 启动时来源报告（config from: env > cli > file） | L487 |
 | 14-4 | **项目根自动发现（Monorepo）** | 中 | 自动检测 `package.json`/`pom.xml`/`go.mod` 层级，支持 `--service <subpath>` 过滤 | L486 |
@@ -363,6 +366,6 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-10（Wave 1-13 全部完成；37/37 Dogfood 已修复；node:sqlite 与元数据置信度迁移已交付；npm run test:fast 91/91 PASS；schemaVersion: 1.2.0；version: 2.0.0；架构债务 1 项；SQLite 持久化 11/14 表已实现）*
+*Last updated: 2026-06-11（PowerShell BOM、Watch/REPL Flaky 修复、孤儿文件检测统一全面完成；npm run test:fast 94/94 PASS；test:watch 4/4 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
 
 

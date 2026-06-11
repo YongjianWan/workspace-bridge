@@ -80,7 +80,7 @@ async function savePrecomputed(depGraph) {
         if (!info.frameworkHint) continue;
         try {
           const content = await fs.promises.readFile(filePath, 'utf-8');
-          const routes = extractRoutes(filePath, content);
+          const routes = await extractRoutes(filePath, content);
           for (const r of routes) {
             allRoutes.push({ file: filePath, ...r });
           }

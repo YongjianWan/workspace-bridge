@@ -204,7 +204,8 @@ class DiagnosticsEngine {
       );
       
       try {
-        const json = JSON.parse(result.stdout);
+        const { stripBOM } = require('../utils/sanitize');
+        const json = JSON.parse(stripBOM(result.stdout));
         if (json.generalDiagnostics) {
           for (const d of json.generalDiagnostics) {
             if (d.file === filePath || d.file === relativePath) {

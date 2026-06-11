@@ -34,11 +34,7 @@
 
 ## L3 品味问题（建议修，非债务）
 
-#### 静态路由提取范围限制 (Wave 9-2)
-- **内容**：`framework-patterns.js` 中 `extractRoutes` 提取范围固定为前 `DEFAULTS.ENTRY_SCAN_BYTES * 4` 字节（约 3200 字符）。
-- **风险**：在超大 Controller/Router 文件中，若路由声明写在后半部分，可能会被截断导致检测不到。
-- **建议**：后续若有用户反馈漏报，可考虑支持动态范围读取或流式正则。
-
+> **当前无活跃 L3 品味问题。** `extractRoutes` 硬截断已在 Wave 15-2 通过 tree-sitter query 根治。
 
 ---
 

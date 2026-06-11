@@ -365,7 +365,7 @@ async function startRepl(options) {
     process.exitCode = 1;
     return;
   }
-  const container = new ServiceContainer({ quiet: options.quiet });
+  const container = new ServiceContainer({ quiet: options.quiet, cacheDir: options.cacheDir });
   let rl = null;
   let shuttingDown = false;
 

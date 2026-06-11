@@ -4,7 +4,7 @@
  */
 const path = require('path');
 const { toRelativePosix } = require('../utils/path');
-const { findOrphanFiles } = require('../utils/orphan-detector');
+
 const { detectStack } = require('../utils/stack-detectors/detect');
 const { DEFAULTS, SCORING, LIMITS } = require('../config/constants');
 const { getFileHistoryRisk, getFileKnowledgeRisk } = require('./git-tools');
@@ -439,7 +439,7 @@ async function assembleOverviewData(args, container, historyProvider) {
 
   hotspots = hotspots || await buildHotspots(root, depGraph, mainlineFiles, historyProvider);
   stability = stability || buildStability(root, depGraph, mainlineFiles, projectContext);
-  const orphans = findOrphanFiles(allFiles, depGraph.entryFiles, depGraph, root, null, depGraph.isKnownEntryFile?.bind(depGraph), depGraph.shouldExcludeCli?.bind(depGraph));
+  const orphans = depGraph.findOrphanFiles();
   const unresolved = depGraph.findUnresolvedImports?.() || [];
   const cycles = depGraph.findCircularDependencies?.() || [];
   const deadExports = depGraph.findDeadExports?.() || [];

@@ -208,7 +208,7 @@ async function testEvalMode() {
   console.log = (...args) => logs.push(args.join(' '));
 
   try {
-    await startRepl({ cwd: path.resolve(__dirname, '..'), quiet: true, eval: 'stats' });
+    await startRepl({ cwd: path.resolve(__dirname, '..'), quiet: true, eval: 'stats', cacheDir: process.env.WB_TEST_CACHE_DIR });
   } finally {
     console.log = originalLog;
   }
@@ -227,7 +227,7 @@ async function testEvalModeJson() {
   console.log = (...args) => logs.push(args.join(' '));
 
   try {
-    await startRepl({ cwd: path.resolve(__dirname, '..'), quiet: true, eval: 'stats', json: true });
+    await startRepl({ cwd: path.resolve(__dirname, '..'), quiet: true, eval: 'stats', json: true, cacheDir: process.env.WB_TEST_CACHE_DIR });
   } finally {
     console.log = originalLog;
   }

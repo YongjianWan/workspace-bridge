@@ -430,6 +430,27 @@ function _createStubDepGraph(opts = {}) {
     ['getFunctionLevelAffectedTests', () => []],
     ['getImpactRadius', () => []],
     ['findAffectedTests', () => []],
+    ['findOrphanFiles', (toRelativeFn = null) => {
+      const { findOrphanFiles: detectOrphans } = require('../src/utils/orphan-detector');
+      const allFiles = Array.from(graphMap.keys());
+      const getDependents = overrides.getDependents || semanticDefaults.get('getDependents');
+      const isTestLikeFile = overrides.isTestLikeFile || semanticDefaults.get('isTestLikeFile');
+      const isKnownEntryFile = overrides.isKnownEntryFile || semanticDefaults.get('isKnownEntryFile');
+      const shouldExcludeCli = overrides.shouldExcludeCli || semanticDefaults.get('shouldExcludeCli');
+      const mockGraph = {
+        getDependents,
+        isTestLikeFile,
+      };
+      return detectOrphans(
+        allFiles,
+        entryFiles,
+        mockGraph,
+        root,
+        toRelativeFn,
+        isKnownEntryFile,
+        shouldExcludeCli
+      );
+    }],
     ['_scanSymbolUsageInImporters', () => new Set()],
   ]);
 
@@ -694,6 +715,44 @@ function assertAll(arr, predicate, msg) {
   }
 }
 
+/**
+ * Gracefully terminates a child process and waits for it to exit.
+ * If it does not exit within timeoutMs, SIGKILL is sent.
+ *
+ * @param {import('child_process').ChildProcess} child
+ * @param {number} [timeoutMs=4000]
+ * @returns {Promise<void>}
+ */
+function terminateProcess(child, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    if (!child || child.exitCode !== null || child.signalCode !== null) {
+      resolve();
+      return;
+    }
+
+    let resolved = false;
+    const done = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      resolve();
+    };
+
+    child.on('exit', done);
+    child.on('error', done);
+
+    child.kill('SIGTERM');
+
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        try {
+          child.kill('SIGKILL');
+        } catch {}
+      }
+    }, timeoutMs);
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 // Exports
 /* -------------------------------------------------------------------------- */
@@ -709,6 +768,7 @@ module.exports = {
   runInDir,
   makeTempDir,
   cleanupTempDir,
+  terminateProcess,
   buildMockDepGraph,
   createMockDepGraph,
   GraphFixtures,

@@ -15,6 +15,8 @@
 const path = require('path');
 const { DEFAULTS } = require('../../config/constants');
 const { ENTRY_WEIGHT, detectFrameworkFromPath } = require('../../utils/project-context');
+const { compileQuery, runQuery } = require('./query-compiler');
+const { getParserModule, loadLanguage } = require('./parsers/tree-sitter');
 
 /**
  * @typedef {Object} FrameworkHint
@@ -103,8 +105,102 @@ const AST_PATTERNS = {
 };
 
 // ============================================================================
+// QUERY-BASED ROUTE EXTRACTION (Wave 15-2)
+// Tree-sitter query declarations loaded from queries/route-extraction/
+// ============================================================================
+
+const EXT_TO_LANGUAGE = {
+  '.js': 'typescript',
+  '.ts': 'typescript',
+  '.jsx': 'typescript',
+  '.tsx': 'typescript',
+  '.py': 'python',
+  '.java': 'java',
+  '.kt': 'kotlin',
+  '.go': 'go',
+  '.rs': 'rust',
+  '.vue': 'vue',
+};
+
+const ROUTE_QUERY_REGISTRY = new Map();
+
+function registerRouteQuery(language, framework, queryModulePath) {
+  ROUTE_QUERY_REGISTRY.set(`${language}:${framework}`, queryModulePath);
+}
+
+// Phase 2: Express (JS/TS)
+registerRouteQuery('typescript', 'express', './queries/route-extraction/js-express');
+// Phase 4: NestJS (JS/TS)
+registerRouteQuery('typescript', 'nestjs', './queries/route-extraction/js-nestjs');
+// Phase 4: Spring Boot (Java)
+registerRouteQuery('java', 'spring', './queries/route-extraction/java-spring');
+
+/**
+ * Try to extract routes using tree-sitter query.
+ * Returns routes[] on success, null on any failure (caller falls back to regex).
+ * @param {string} filePath
+ * @param {string} content
+ * @returns {Promise<Array<{method, path, framework, handler}> | null>}
+ */
+async function tryExtractRoutesWithQuery(filePath, content) {
+  const ext = path.extname(filePath).toLowerCase();
+  const lang = EXT_TO_LANGUAGE[ext];
+  if (!lang) return null;
+
+  // Collect all query definitions registered for this language
+  const queryDefs = [];
+  for (const [key, queryPath] of ROUTE_QUERY_REGISTRY) {
+    if (!key.startsWith(`${lang}:`)) continue;
+    try {
+      queryDefs.push(require(queryPath));
+    } catch {
+      continue;
+    }
+  }
+  if (queryDefs.length === 0) return null;
+
+  let mod = null;
+  let parser = null;
+  let tree = null;
+
+  try {
+    mod = await getParserModule();
+    if (!mod) return null;
+
+    const langObj = await loadLanguage(lang);
+    if (!langObj) return null;
+
+    parser = new mod.Parser();
+    parser.setLanguage(langObj);
+    tree = parser.parse(content);
+
+    const allRoutes = [];
+    for (const queryDef of queryDefs) {
+      const compiled = await compileQuery(lang, queryDef.query);
+      if (!compiled) continue;
+
+      const matches = runQuery(tree, compiled);
+      if (!matches) continue;
+
+      const routes = queryDef.postProcess(matches);
+      if (routes && routes.length > 0) {
+        allRoutes.push(...routes);
+      }
+    }
+
+    return allRoutes.length > 0 ? allRoutes : null;
+  } catch {
+    return null;
+  } finally {
+    try { tree?.delete(); } catch {}
+    try { parser?.delete(); } catch {}
+  }
+}
+
+// ============================================================================
 // ROUTE EXTRACTION PATTERNS (Wave 9-2)
 // Only extracts static route declarations — no middleware chain / DI tracing.
+// Regex fallback — kept as permanent safety net.
 // ============================================================================
 
 const ROUTE_PATTERNS = {
@@ -179,7 +275,7 @@ function detectFrameworkFromContent(filePath, content) {
  * @param {string} content
  * @returns {Array<{method:string, path:string, framework:string, handler:string|null}>}
  */
-function extractRoutes(filePath, content) {
+function extractRoutesWithRegex(filePath, content) {
   const ext = path.extname(filePath).toLowerCase();
   let key = null;
   if (ext === '.js' || ext === '.ts' || ext === '.jsx' || ext === '.tsx') key = 'js';
@@ -192,25 +288,22 @@ function extractRoutes(filePath, content) {
   const patterns = ROUTE_PATTERNS[key];
   if (!patterns || patterns.length === 0) return [];
 
-  const ROUTE_SCAN_MULTIPLIER = 4; // routes can be declared deeper in controller/router files than imports
+  const ROUTE_SCAN_MULTIPLIER = 4;
   const sample = content.slice(0, DEFAULTS.ENTRY_SCAN_BYTES * ROUTE_SCAN_MULTIPLIER);
   const routes = [];
   const seen = new Set();
 
   for (const cfg of patterns) {
-    // Reset regex lastIndex for global patterns
     cfg.re.lastIndex = 0;
     let match;
     while ((match = cfg.re.exec(sample)) !== null) {
       let method, routePath;
       if (cfg.pathIndex === 1) {
-        // Flask-style: no method in match, path is group 1
         method = 'ALL';
         routePath = match[1];
       } else {
         method = match[1].toUpperCase();
         routePath = match[2];
-        // Spring @RequestMapping defaults to ALL methods
         if (method === 'REQUEST') method = 'ALL';
       }
 
@@ -222,12 +315,23 @@ function extractRoutes(filePath, content) {
         method,
         path: routePath,
         framework: cfg.framework,
-        handler: null, // handler extraction is optional, skip for now
+        handler: null,
       });
     }
   }
 
   return routes;
+}
+
+async function extractRoutes(filePath, content) {
+  // Wave 15-2: try tree-sitter query first
+  const queryRoutes = await tryExtractRoutesWithQuery(filePath, content);
+  if (queryRoutes && queryRoutes.length > 0) {
+    return queryRoutes;
+  }
+
+  // Permanent regex fallback
+  return extractRoutesWithRegex(filePath, content);
 }
 
 module.exports = {

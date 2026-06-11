@@ -133,8 +133,9 @@ function _readTsconfigPaths(root) {
     const cached = _tsconfigPathsCache.get(configPath);
     if (cached && cached.mtime === mtime) return cached.paths;
 
+    const { stripBOM } = require('../../../utils/sanitize');
     const content = fs.readFileSync(configPath, 'utf8');
-    const cleaned = content
+    const cleaned = stripBOM(content)
       .replace(/("([^"\\]|\\.)*")|\/\*[\s\S]*?\*\/|(?:\s|^)\/\/[^\n]*/g, (m, stringLiteral) => {
         if (stringLiteral) return stringLiteral;
         return '';

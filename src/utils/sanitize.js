@@ -44,8 +44,15 @@ function sanitizeForAiOutput(text, maxLength = 256) {
   return s;
 }
 
+function stripBOM(str) {
+  if (typeof str !== 'string') return str;
+  return str.charCodeAt(0) === 0xFEFF ? str.slice(1) : str;
+}
+
 module.exports = {
   sanitizeShellArg,
   sanitizeSymbolName,
   sanitizeForAiOutput,
+  stripBOM,
 };
+

@@ -12,7 +12,7 @@ const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const { REPO_ROOT, CLI_PATH, cleanupTempDir } = require('./test-helpers');
+const { REPO_ROOT, CLI_PATH, cleanupTempDir, terminateProcess } = require('./test-helpers');
 
 const tempDir = path.join(REPO_ROOT, 'test', '.watch-temp');
 const triggerFile = path.join(tempDir, 'trigger.js');
@@ -37,9 +37,9 @@ async function cleanup() {
   }
 }
 
-async function waitForStartup(childStderr, timeoutMs = 8000) {
+async function waitForStartup(stderrGetter, expected = 'Watching', timeoutMs = 20000) {
   let waited = 0;
-  while (!childStderr.includes('Watching for file changes') && waited < timeoutMs) {
+  while (!stderrGetter().includes(expected) && waited < timeoutMs) {
     await delay(100);
     waited += 100;
   }
@@ -47,7 +47,11 @@ async function waitForStartup(childStderr, timeoutMs = 8000) {
 
 async function testWatchFileChange() {
 
-  const child = spawn('node', [CLI_PATH, 'watch', '--cwd', '.'], {
+  const args = ['watch', '--cwd', '.'];
+  if (process.env.WB_TEST_CACHE_DIR) {
+    args.push('--cache-dir', process.env.WB_TEST_CACHE_DIR);
+  }
+  const child = spawn('node', [CLI_PATH, ...args], {
     cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -63,7 +67,7 @@ async function testWatchFileChange() {
     stderr += data.toString();
   });
 
-  await waitForStartup(stderr);
+  await waitForStartup(() => stderr, 'Watching for file changes');
 
   assert(stderr.includes('workspace-bridge watch'), 'Should show watch header');
   assert(stderr.includes('Watching for file changes'), 'Should show watching message');
@@ -83,21 +87,18 @@ async function testWatchFileChange() {
   }
 
   // Kill the process
-  child.kill();
-
-  // Wait for exit (best effort)
-  await new Promise((resolve) => {
-    child.on('exit', resolve);
-    child.on('error', resolve);
-    setTimeout(resolve, 1500);
-  });
+  await terminateProcess(child);
 
   assert(found, `Should print impact for trigger file. stdout: ${stdout}`);
 }
 
 async function testWatchSigint() {
 
-  const child = spawn('node', [CLI_PATH, 'watch', '--cwd', '.'], {
+  const args = ['watch', '--cwd', '.'];
+  if (process.env.WB_TEST_CACHE_DIR) {
+    args.push('--cache-dir', process.env.WB_TEST_CACHE_DIR);
+  }
+  const child = spawn('node', [CLI_PATH, ...args], {
     cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -107,7 +108,7 @@ async function testWatchSigint() {
     stderr += data.toString();
   });
 
-  await waitForStartup(stderr);
+  await waitForStartup(() => stderr, 'Watching for file changes');
   assert(stderr.includes('Watching for file changes'), 'Should show watching message before SIGINT');
 
   // Send SIGINT. On Windows Node.js emulates this for child processes.
@@ -146,7 +147,11 @@ function parseJsonLines(stdout) {
 
 async function testWatchRunTests() {
 
-  const child = spawn('node', [CLI_PATH, 'watch', '--cwd', '.', '--run-tests'], {
+  const args = ['watch', '--cwd', '.', '--run-tests'];
+  if (process.env.WB_TEST_CACHE_DIR) {
+    args.push('--cache-dir', process.env.WB_TEST_CACHE_DIR);
+  }
+  const child = spawn('node', [CLI_PATH, ...args], {
     cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -162,7 +167,7 @@ async function testWatchRunTests() {
     stderr += data.toString();
   });
 
-  await waitForStartup(stderr);
+  await waitForStartup(() => stderr, 'Watching for file changes');
   // Give stderr a moment to receive the "Auto-run mode" line that follows immediately after.
   await delay(200);
   assert(stderr.includes('Auto-run mode'), 'Should indicate auto-run mode in stderr');
@@ -181,13 +186,7 @@ async function testWatchRunTests() {
   }
 
   // Kill the process
-  child.kill();
-
-  await new Promise((resolve) => {
-    child.on('exit', resolve);
-    child.on('error', resolve);
-    setTimeout(resolve, 1500);
-  });
+  await terminateProcess(child);
 
   const events = parseJsonLines(stdout);
   const startEvent = events.find((e) => e.event === 'validationStart');

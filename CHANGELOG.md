@@ -8,6 +8,24 @@
 
 ## [Unreleased]
 
+### 修复与可靠性提升 (2026-06-11)
+
+- **PowerShell 管道 BOM 消除 (BOM Purge)**:
+  - 新增 `stripBOM(str)` 辅助函数到 `src/utils/sanitize.js`。
+  - 在所有涉及读取或接收 JSON 输入的地方（包括 `readJsonSafe`、`loadWorkspaceConfig`、`loadBaseline`、`loadAndCompileRules`、`readTrendHistory`、tsconfig/jsconfig 注释剥离、Pyright 扫描输出、Semgrep 扫描输出以及 `package.json` 读取处）引入 BOM 过滤，彻底消除在 Windows PowerShell 管道或重定向场景下因 `\ufeff` 导致的 JSON 解析崩溃问题。
+  - 简化 `hasTsconfigPaths` 重用 `_readTsconfigPaths` 公共解析，避免重复实现。
+- **REPL 并发测试缓存隔离**:
+  - 重构 `startRepl` 使其支持 `cacheDir` 配置，并在 `repl` 命令中将 `--cache-dir` 正确路由。
+  - 在 `test/repl-test.js` 和 `test/repl-edge-test.js` 中将 `process.env.WB_TEST_CACHE_DIR` 传入 Mock 容器，保证多进程并发测试下 SQLite 缓存文件不发生物理锁冲突。
+- **Watch 单元测试可靠性提升与超时放宽**:
+  - 修复 `test/watch-test.js`、`test/watch-sigterm-test.js` 和 `test/audit-file-watch-test.js` 中 `waitForStartup` 的实参变量提前求值 bug，改用 Getter 函数形式在循环中对 live `stderr` 进行动态求值。
+  - 将 `waitForStartup` 的冷启动超时上限从固定的 8 秒放宽至 20 秒，且支持自定义预期启动就绪字符（`expected`），彻底解决了在 Windows 慢速或无缓存环境下跑 Watch 测试因超时引发的 Flaky 误报。
+  - 为 `test/audit-file-watch-test.js` 配套了测试进程优雅回收与物理资源清理。
+- **孤儿文件检测逻辑收拢与 Mock 桩适配**:
+  - 重构收拢 `project-map.js` 和 `overview-assembler.js` 中的手写孤儿检测（Orphan Detection）逻辑，统一直接调用 `depGraph.findOrphanFiles()` 实例方法。
+  - 在 `DependencyGraph` 和 `DependencyGraphView` 门面层统一定义 `findOrphanFiles`，实现单点维护。
+  - 在 `test/test-helpers.js` 的 proxy mock（`_createStubDepGraph`）及 `test/repl-edge-test.js` 的 Mock Graph 中同步适配了 `findOrphanFiles` 的真实路由计算，保证所有使用 Schema 级 Stub 缓存的 E2E 与单元测试能自动算得真实的孤儿文件结果，避免测试断言失败。
+
 ### Wave 14: 配置、降噪与环境变量 (2026-06-11)
 
 - **安全扫描规则引擎配置化 (Wave 14-1)**：
@@ -29,6 +47,29 @@
   - 支持 `WB_*` 系列前缀环境变量（如 `WB_FORMAT`, `WB_JSON`, `WB_QUIET`, `WB_CWD`, `WB_EXCLUDE`, `WB_LIMIT`, `WB_SEVERITY`）。
   - 遵循 `env > cli > file` 的配置覆盖优先级，并在启动时通过命令行输出配置来源报告（Precedence Origin Report）。
 - **新增回归单元测试** `test/wave14-noise-env-test.js` 验证上述全部功能。
+
+### Wave 15: 框架检测 Query 化 (2026-06-11)
+
+- **Query 编译基础设施** `src/services/dep-graph/query-compiler.js`：
+  - 新建 `compileQuery(language, querySource)` + `runQuery(tree, compiledQuery)` 接口，复用现有 `tree-sitter.js` 的 `getParserModule()` / `loadLanguage()`。
+  - 实现 SHA-256 缓存键 + LRU 淘汰（上限 20），避免重复编译 tree-sitter Query。
+  - 统一错误处理：任何阶段失败返回 `null`，调用方自动 fallback。
+  - 配套单元测试 `test/wave15-query-compiler-test.js` 覆盖编译、缓存命中、Go/TypeScript AST 执行、清理。
+- **路由提取 Query 化（Phase 2）** `src/services/dep-graph/framework-patterns.js`：
+  - 新建 `queries/route-extraction/` 目录，Express 试点 `js-express.js` 使用 tree-sitter TypeScript grammar 匹配 `app.get('/path')` / `router.post('/path')`。
+  - `extractRoutes()` 改为 async，query-first + regex 永久 fallback，解决 16384 字节硬截断导致的漏报问题。
+  - 超大 Controller 文件（>16KB）后半部分的路由现在可被完整提取。
+  - `persistence.js` 同步适配 `await extractRoutes()`。
+  - 配套测试 `test/wave15-express-query-test.js` 覆盖基础路由、超大文件、去重、非 Express 文件、query-regex 等价性。
+- **框架检测 Query 基础设施（Phase 3 预备）**：
+  - 新建 `queries/framework-detection/js-express.js` 声明文件，为后续 `detectFrameworkFromContent` query 化预留接口。
+  - 推迟 `detectFrameworkFromContent` 的完整 query 化至后续波次（涉及 `dep-graph.js` / `entry-detector.js` 同步→异步转换，改动面广，需单独评估）。
+- **路由提取扩展覆盖（Phase 4）**：
+  - **NestJS** `queries/route-extraction/js-nestjs.js`：tree-sitter TypeScript query 匹配 `@Get(':id')` / `@Post('items')` 等方法级装饰器，过滤 `@Controller` 前缀。
+  - **Spring Boot** `queries/route-extraction/java-spring.js`：tree-sitter Java query 匹配 `@GetMapping("/users")` / `@RequestMapping("/api")` 等注解，正确处理 `RequestMapping` → `ALL` 方法映射。
+  - `framework-patterns.js` 的 `tryExtractRoutesWithQuery` 重构为单 parse + 多 query 遍历模式，支持同一文件内多个框架路由提取。
+  - 关键修复：`web-tree-sitter` WASM 版 `query.matches()` 不自动过滤 `#match?` predicates，所有过滤逻辑移至 `postProcess`（Express / NestJS / Spring Boot 均已修正）。
+  - 配套测试 `test/wave15-nestjs-spring-query-test.js` 覆盖 NestJS 基础路由、空参数过滤、Spring Boot 基础路由、RequestMapping 映射、去重、多框架共存。
 
 ### Wave 13: 契约规范与可观测性 (2026-06-10)
 

@@ -59,6 +59,7 @@ class DependencyGraphView {
   getDependents(...args) { return this._dg.getDependents(...args); }
   getImpactRadius(...args) { return this._dg.getImpactRadius(...args); }
   findDeadExports(...args) { return this._dg.findDeadExports(...args); }
+  findOrphanFiles(...args) { return this._dg.findOrphanFiles(...args); }
   findCircularDependencies(...args) { return this._dg.findCircularDependencies(...args); }
   findUnresolvedImports(...args) { return this._dg.findUnresolvedImports(...args); }
   findAffectedTests(...args) { return this._dg.findAffectedTests(...args); }

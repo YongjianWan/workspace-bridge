@@ -562,7 +562,8 @@ function loadWorkspaceConfig(root, options = {}) {
 
   let config;
   try {
-    config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const { stripBOM } = require('./sanitize');
+    config = JSON.parse(stripBOM(fs.readFileSync(configPath, 'utf8')));
   } catch (err) {
     throw new Error(`Invalid JSON in config file ${configPath}: ${err.message}`);
   }
@@ -620,7 +621,8 @@ class ProjectContext {
     this.configPath = path.join(root, '.workspace-bridge.json');
     if (pathExists(this.configPath)) {
       try {
-        this.config = JSON.parse(fs.readFileSync(this.configPath, 'utf8')) || {};
+        const { stripBOM } = require('./sanitize');
+        this.config = JSON.parse(stripBOM(fs.readFileSync(this.configPath, 'utf8'))) || {};
       } catch (err) {
         throw new Error(`Invalid JSON in config file ${this.configPath}: ${err.message}`);
       }

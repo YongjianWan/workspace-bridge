@@ -243,6 +243,6 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-06-09（Wave 1-10 全部完成；37/37 Dogfood 已修复；node:sqlite 与元数据置信度迁移已交付；npm run test:fast 89/89 PASS；schemaVersion: 1.2.0；version: 2.0.0；架构债务 1 项；SQLite 持久化 11/14 表已实现）*
+*Last updated: 2026-06-11（PowerShell BOM、Watch/REPL Flaky 修复、孤儿文件检测统一全面完成；npm run test:fast 94/94 PASS；test:watch 4/4 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
 
 

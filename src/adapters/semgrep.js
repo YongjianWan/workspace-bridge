@@ -30,7 +30,8 @@ class SemgrepAdapter extends BaseAdapter {
 
     let parsed;
     try {
-      parsed = JSON.parse(result.stdout);
+      const { stripBOM } = require('../utils/sanitize');
+      parsed = JSON.parse(stripBOM(result.stdout));
     } catch {
       // stdout is not valid JSON — treat as hard failure regardless of exit code
       return {
