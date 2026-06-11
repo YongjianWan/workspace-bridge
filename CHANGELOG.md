@@ -8,8 +8,16 @@
 
 ## [Unreleased]
 
-### Wave 14: 配置、降噪与环境变量 (2026-06-10)
+### Wave 14: 配置、降噪与环境变量 (2026-06-11)
 
+- **安全扫描规则引擎配置化 (Wave 14-1)**：
+  - 将内置安全规则提取为独立配置文件 `src/config/security-rules.json`。
+  - 重构 `src/tools/security-tools.js` 支持从 `--config <path>` 加载自定义规则配置，并保留静态默认规则作为 Fallback 兜底。
+  - 新增 `test/wave14-configurable-rules-test.js` 验证配置载入与加白过滤逻辑。
+- **路径解析与配置文件注释解析修复**：
+  - 修复 Python 相对导入路径解析器 `tryPythonRelative` 在未找到对应文件时错误返回 `basePath` 的问题（未找到时返回 `null`）。
+  - 修复 tsconfig.json/jsconfig.json 带注释/尾随逗号解析失败的问题，支持安全剥离单行/多行注释并去除尾随逗号。
+  - 补充 `test/resolver-strategy-chain-test.js` 中相关的回归单元测试。
 - **安全扫描与符号解构缺陷修复**：
   - 恢复 `rule` 作为 `ruleId` 的别名以确保向后兼容，更新 `test/security-ruleId-test.js`。
   - 修复 CJS 解构别名（如 `const { a: b } = require('./foo')`）解析逻辑以确保 `symbolImpact` 匹配。
