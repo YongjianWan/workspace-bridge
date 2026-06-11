@@ -517,14 +517,13 @@ class GraphAnalyzer {
     // 2. Find all simple cycles within each SCC of size > 1 using Johnson's algorithm
     const cycles = [];
     let calls = 0;
-    const MAX_CALLS = 20000;
     // MAX_CYCLE_EDGE_DEPTH limits the Johnson search depth before push.
     // pathStack.length > 7 triggers prune, so the maximum nodes in any
     // discovered cycle = 8 (8 edges when the loop closes).
     const MAX_CYCLE_EDGE_DEPTH = DEFAULTS.AFFECTED_TEST_DEPTH + 2; // conservative guard
 
     for (const scc of sccs) {
-      if (cycles.length >= 1000 || calls >= MAX_CALLS) break;
+      if (cycles.length >= 1000 || calls >= LIMITS.CYCLE_FINDER_MAX_CALLS) break;
       if (scc.length <= 1) continue; // Skip SCCs of size 1 (which have no multi-node cycles)
 
       const sccSet = new Set(scc);
@@ -536,7 +535,7 @@ class GraphAnalyzer {
 
       const find = (startNode, currentNode) => {
         calls++;
-        if (cycles.length >= 1000 || calls >= MAX_CALLS) {
+        if (cycles.length >= 1000 || calls >= LIMITS.CYCLE_FINDER_MAX_CALLS) {
           return false;
         }
         // MAX_CYCLE_EDGE_DEPTH limits the size of the pathStack before pushing the next node.
@@ -594,7 +593,7 @@ class GraphAnalyzer {
       };
 
       for (let i = 0; i < sccList.length; i++) {
-        if (cycles.length >= 1000 || calls >= MAX_CALLS) break;
+        if (cycles.length >= 1000 || calls >= LIMITS.CYCLE_FINDER_MAX_CALLS) break;
         const startNode = sccList[i];
         pathStack.length = 0;
         blocked.clear();

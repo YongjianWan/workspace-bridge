@@ -4,7 +4,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { runCli, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCli, runCliRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function testDefaultSecurityRules() {
   const tempDir = makeTempDir('wb-test-default-rules-');
@@ -65,9 +65,37 @@ function testCustomSecurityRules() {
   cleanupTempDir(tempDir);
 }
 
+function testInvalidConfigErrors() {
+  const tempDir = makeTempDir('wb-test-invalid-config-');
+  fs.writeFileSync(path.join(tempDir, 'package.json'), '{}', 'utf8');
+
+  // 1. Missing config file should return exit status 1 or 2
+  const run1 = runCliRaw(['audit-security', '--builtin-only', '--config', 'non-existent.json', '--cwd', tempDir, '--json', '--quiet']);
+  assert.notStrictEqual(run1.status, 0, 'Should have failed on missing config file');
+  assert(run1.stdout.includes('Security rules config not found') || run1.stderr.includes('Security rules config not found'), 'Should report missing config error');
+
+  // 2. Config with invalid regex should return non-zero exit status
+  const badRules = {
+    rules: [
+      {
+        lang: 'javascript',
+        ext: '[invalid-regex',
+        rules: []
+      }
+    ]
+  };
+  fs.writeFileSync(path.join(tempDir, 'bad-rules.json'), JSON.stringify(badRules, null, 2), 'utf8');
+  const run2 = runCliRaw(['audit-security', '--builtin-only', '--config', 'bad-rules.json', '--cwd', tempDir, '--json', '--quiet']);
+  assert.notStrictEqual(run2.status, 0, 'Should have failed on invalid config regex');
+  assert(run2.stdout.includes('regex compilation failed') || run2.stderr.includes('regex compilation failed'), 'Should report regex compilation error');
+
+  cleanupTempDir(tempDir);
+}
+
 function main() {
   testDefaultSecurityRules();
   testCustomSecurityRules();
+  testInvalidConfigErrors();
   console.log('All Configurable Rules tests passed.');
 }
 

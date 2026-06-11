@@ -328,7 +328,6 @@ class ServiceContainer {
         fileIndex: this.fileIndex,
         graph: new DependencyGraphView(this._depGraph),
         gitStatus: { head: this.cache?.getWorkspaceInfo?.()?.gitHead || null },
-        frameworkHints: new Map(),
         projectContext: this._depGraph?.projectContext || null,
         fileIndexVersion: this.indexBuildTime || null,
         cacheStaleness: staleness,
@@ -508,7 +507,7 @@ class ServiceContainer {
     if (!this.indexBuildTime) {
       return {
         indexAgeMs: 0,
-        isStale: true,
+        isStale: false,
         gitHeadChanged: false,
         filesChanged: false,
         changedFiles: [],

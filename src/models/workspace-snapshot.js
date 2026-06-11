@@ -69,6 +69,67 @@ class DependencyGraphView {
   buildWarnings(...args) { return this._dg.buildWarnings(...args); }
 }
 
+class LazyFrameworkHintsMap extends Map {
+  constructor(graphView) {
+    super();
+    this._graphView = graphView;
+    this._cache = null;
+  }
+
+  _ensurePopulated() {
+    if (this._cache !== null) return;
+    this._cache = new Map();
+    if (this._graphView && typeof this._graphView.getAllFilePaths === 'function') {
+      for (const filePath of this._graphView.getAllFilePaths()) {
+        const hint = this._graphView.getFrameworkHint(filePath);
+        if (hint) {
+          this._cache.set(filePath, hint);
+        }
+      }
+    }
+  }
+
+  get(key) {
+    this._ensurePopulated();
+    return this._cache.get(key);
+  }
+
+  has(key) {
+    this._ensurePopulated();
+    return this._cache.has(key);
+  }
+
+  get size() {
+    this._ensurePopulated();
+    return this._cache.size;
+  }
+
+  entries() {
+    this._ensurePopulated();
+    return this._cache.entries();
+  }
+
+  keys() {
+    this._ensurePopulated();
+    return this._cache.keys();
+  }
+
+  values() {
+    this._ensurePopulated();
+    return this._cache.values();
+  }
+
+  forEach(callback, thisArg) {
+    this._ensurePopulated();
+    this._cache.forEach(callback, thisArg);
+  }
+
+  [Symbol.iterator]() {
+    this._ensurePopulated();
+    return this._cache[Symbol.iterator]();
+  }
+}
+
 /**
  * WorkspaceSnapshot — immutable-ish project state assembled at container init.
  *
@@ -90,7 +151,15 @@ class WorkspaceSnapshot {
     this.workspaceRoot = data.workspaceRoot;
     this.graph = data.graph;
     this.gitStatus = data.gitStatus || { head: null };
-    this.frameworkHints = data.frameworkHints || new Map();
+    
+    if (data.frameworkHints) {
+      this.frameworkHints = data.frameworkHints;
+    } else if (data.graph) {
+      this.frameworkHints = new LazyFrameworkHintsMap(data.graph);
+    } else {
+      this.frameworkHints = new Map();
+    }
+
     this.projectContext = data.projectContext || null;
 
     // L1 data-consistency: files can be sourced live from fileIndex (production)

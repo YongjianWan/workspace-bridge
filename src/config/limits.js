@@ -25,6 +25,8 @@ const LIMITS = {
   // Git history concurrency: cap parallel git log --follow to prevent
   // disk/CPU thrashing during hotspot analysis.
   GIT_LOG_CONCURRENCY: 8,
+  // Cycle finder recursion limit
+  CYCLE_FINDER_MAX_CALLS: 20000,
 };
 
 module.exports = LIMITS;

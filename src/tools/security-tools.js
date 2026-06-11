@@ -82,16 +82,19 @@ const DEFAULT_ALLOWLIST = [
 
 function loadAndCompileRules(cwd, configFile = null) {
   let loadedConfig = null;
+  let isCustom = false;
 
   if (configFile && typeof configFile === 'string') {
     const resolvedPath = path.resolve(cwd, configFile);
-    if (fs.existsSync(resolvedPath)) {
-      try {
-        const fileContent = fs.readFileSync(resolvedPath, 'utf8');
-        loadedConfig = JSON.parse(fileContent);
-      } catch (err) {
-        throw new Error(`Failed to parse custom security rules config: ${err.message}`);
-      }
+    if (!fs.existsSync(resolvedPath)) {
+      throw new Error(`Security rules config not found: ${resolvedPath}`);
+    }
+    isCustom = true;
+    try {
+      const fileContent = fs.readFileSync(resolvedPath, 'utf8');
+      loadedConfig = JSON.parse(fileContent);
+    } catch (err) {
+      throw new Error(`Failed to parse custom security rules config: ${err.message}`);
     }
   }
 
@@ -135,7 +138,10 @@ function loadAndCompileRules(cwd, configFile = null) {
 
       return { patterns, allowlist };
     } catch (err) {
-      console.error(`[Security Scan] Config regex compilation failed: ${err.message}. Falling back to default rules.`);
+      if (isCustom) {
+        throw new Error(`Config regex compilation failed: ${err.message}`);
+      }
+      console.error(`[Security Scan] Default config regex compilation failed: ${err.message}. Falling back to default rules.`);
     }
   }
 
