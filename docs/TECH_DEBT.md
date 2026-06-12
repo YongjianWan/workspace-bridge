@@ -14,9 +14,17 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **1** | L3 品味问题 **1** | 合计 **2 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **2** | L3 品味问题 **1** | 合计 **3 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
+
+#### Wave 11-15 多语言功能等价性债务 (Language Parity Debt)
+- **背景**：已支持的 9 种语言在核心依赖图上实现了 AST 覆盖，但后续 Wave 11-15 的高级功能在各语言间的实现存在偏斜（Parity Deviation）。
+- **重构与补齐方向**：
+  - **AST 规则引擎 (15-1)**：目前仅覆盖 Java/Kotlin/TypeScript。其余 6 种语言未映射且 `functionRecords` 缺少 `decorators`/`isExported`/`returnType` 属性。
+  - **代码异味与复杂度趋势 (11-2 & 11-3)**：Go, Rust, Kotlin, C/C++, Vue, Svelte 缺失 AST 级分支数（`maxArms`）和圈复杂度（`branchCount`）提取，目前降级退回到 LOC。
+  - **框架路由提取 (15-2)**：仅覆盖了 Express, NestJS, Spring Boot。其余框架（FastAPI/Django, Gin/Fiber, Axum/Actix-web, Nuxt/SvelteKit）缺失路由提取 Query。
+  - **Shadow Candidates (15-4)**：仅覆盖了 JS/TS。C/C++（`.h`/`.cpp` 头文件 shadow）与 Python（`.py`/`.pyi` 类型存根 shadow）缺失 shadow 映射规则。
 
 #### 框架检测 Query 基础设施（Phase 3 预备）
 - **背景**：路由提取已成功完全 Query 化，但 `detectFrameworkFromContent` 框架检测目前仍使用轻量文本正则匹配（`AST_PATTERNS`）。

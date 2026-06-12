@@ -19,14 +19,23 @@
   - **L4 WAL Checkpoint SQLite 写入节流**：新建 `src/services/dep-graph/wal-cadence.js`，在 watch/repl 增量写之后执行 SQLite 的 `PASSIVE` 写入节流，并以时间间隔（60s）/批次量（32次）阈值交替触发 `TRUNCATE` checkpoint。
 - **测试**：
   - 新增 `wave15-parse-cache-test.js`、`wave15-neighbor-aware-test.js`、`wave15-shadow-candidates-test.js`、`wave15-wal-cadence-test.js`、`wave15-ast-rules-test.js` 专项测试。
-  - 跑通 `npm run test:fast`（99/99 PASS）和 `npm run test:smoke`（102/102 PASS）。
+  - 跑通 `npm run test:fast`（100/100 PASS）和 `npm run test:smoke`（103/103 PASS）。
 
 ### 修复与内部质量 (2026-06-12)
 
+- Update project guide (`AGENTS.md`) and technical debt (`TECH_DEBT.md`) to document Wave 11-15 multi-language parity debt, and establish a development rule requiring all 9 designed languages to be updated synchronously for all features.
 - Fix `bootstrapFromSchema` path normalization inconsistency; schema keys, `imports`, and `importRecords[].resolved` are now normalized via `normalizeFilePath`, eliminating Windows mock-test workarounds.
 - `bootstrapFromSchema` now keeps the first occurrence when two schema keys normalize to the same graph key (e.g. POSIX and Windows absolute paths on Windows), making `originalPath` deterministic.
 - `_findAffectedTestsByHeuristic` now computes heuristic signatures from `node.originalPath` instead of the normalized graph key, preserving correct Java/Kotlin test-suffix stripping after key lowercasing.
 - Refactor `test/affected-tests-heuristic-test.js`: split Windows-path scenarios into a standalone `makeWindowsGraph()` so POSIX and Windows keys no longer collide in one schema, restoring strict assertions for both platforms.
+- Fix Kotlin AST parser (`src/services/dep-graph/parsers/kotlin-ast.js`) to populate `functionRecords` with `decorators`, `isExported`, and `returnType`, enabling the `batch-no-transactional` AST rule to fire on real Kotlin source. Added integration assertions in `test/kotlin-ast-parser-test.js`.
+- Fix Java AST parser (`scripts/java_ast_parser.py` + `src/services/dep-graph/parsers/java.js`) to populate `functionRecords` with `decorators`, enabling the `batch-no-transactional` AST rule to correctly skip `@Transactional` batch methods on real Java source. Added integration assertions in `test/java-parsers-test.js`.
+- Fix JS/TS AST parser (`src/services/dep-graph/parsers/js/ast-parser.js` + `src/services/dep-graph/parsers/js/shared.js`) to populate `functionRecords` with `isExported`, `returnType`, and `decorators`, enabling the `public-method-no-return-type` AST rule to fire on real TypeScript source. Added integration assertions in `test/js-ast-rules-fields-test.js`.
+- Fix JS/TS regex fallback (`src/services/dep-graph/parsers/js/regex-fallback.js`) to best-effort populate `isExported` and `returnType` for function records, correcting a bug where returnType carried a leading colon and resolving arrow function returnType search boundaries.
+- Fix shadow candidates lookup (`src/services/dep-graph/shadow-candidates.js`) on `.d.ts` files by replacing `path.extname` suffix extraction with matching against sorted extensions, ensuring correct candidates are generated.
+- Fix `GraphBuilder.updateFiles()` (`src/services/dep-graph/builder.js`) to evict deleted files from the in-memory parse cache, preventing stale cache hits after file deletion.
+- Enhance `test/wave15-ast-rules-test.js` with end-to-end real parser tests for Java, Kotlin, and TypeScript AST rules.
+- Fix `test/wave15-parse-cache-test.js` `testLruEviction` by adding real assertions that verify the 200-entry LRU cap and oldest-entry eviction behavior.
 
 ### Wave 12: 类别过滤 Summary 同步与性能优化 (2026-06-12)
 
