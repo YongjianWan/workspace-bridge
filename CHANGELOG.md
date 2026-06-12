@@ -19,7 +19,7 @@
   - **L4 WAL Checkpoint SQLite 写入节流**：新建 `src/services/dep-graph/wal-cadence.js`，在 watch/repl 增量写之后执行 SQLite 的 `PASSIVE` 写入节流，并以时间间隔（60s）/批次量（32次）阈值交替触发 `TRUNCATE` checkpoint。
 - **测试**：
   - 新增 `wave15-parse-cache-test.js`、`wave15-neighbor-aware-test.js`、`wave15-shadow-candidates-test.js`、`wave15-wal-cadence-test.js`、`wave15-ast-rules-test.js` 专项测试。
-  - 跑通 `npm run test:fast`（100/100 PASS）和 `npm run test:smoke`（103/103 PASS）。
+  - 跑通 `npm run test:fast`（101/101 PASS）和 `npm run test:smoke`（104/104 PASS）。
 
 ### 修复与内部质量 (2026-06-12)
 

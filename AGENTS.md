@@ -244,6 +244,6 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-06-12（Wave 15 AST 规则字段补齐：Java/Kotlin/TypeScript parser 输出 decorators/isExported/returnType；新增 Language Parity 架构债务；npm run test:fast 100/100 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-12（Wave 15 AST 规则字段补齐：Java/Kotlin/TypeScript/Python/Go/Rust/C/C++ parser 输出 decorators/isExported/returnType；Java branchCount/maxArms 顶层化；ast-rules.js 语言映射配置表化；Shadow Candidates 扩展 Python/C/C++；npm run test:fast 101/101 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
 
 

@@ -37,7 +37,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**所有测试全部 PASS**；`npm run test:fast` **100/100 PASS**（~18s），`npm run test:smoke` **103/103 PASS**（~36s）。开发迭代首选 `npm run test:fast`。
+- 测试：**所有测试全部 PASS**；`npm run test:fast` **101/101 PASS**（~10s），`npm run test:smoke` **104/104 PASS**（~30s）。开发迭代首选 `npm run test:fast`。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~339 文件（entry=1, mainline=152, test=187）
@@ -90,7 +90,8 @@ node cli.js audit-overview --cwd . --json --quiet
 >    - **15-3 ParseCache**：重构 `builder.js` 为 `_parseCache` LRU 内存缓存（max 200 ），大大加速增量下的邻居文件重解析。
 >    - **15-4 L1-L4 增量更新四层叠加协议**：通过 SHA-256 二次过滤排除 mtime 精度问题；支持 `Neighbor-aware` 1-hop 依赖邻居和 `shadow-candidates.js` 的 TypeScript / JavaScript basenames 相互 shadow 扩展，在 `updateFiles()` 解析前重建受波及邻居的依赖边；在长活 watch/repl 模式下，接入 `wal-cadence.js` 状态机执行 SQLite `PASSIVE` checkpoing 并依据时间/数量交替触发 `TRUNCATE` checkpoint。
 >    - **测试**：新增 `wave15-parse-cache-test.js`、`wave15-neighbor-aware-test.js`、`wave15-shadow-candidates-test.js`、`wave15-wal-cadence-test.js`、`wave15-ast-rules-test.js`。跑通全量测试：`npm run test:fast`（99/99 PASS），`npm run test:smoke`（102/102 PASS）。
-> 2. **Wave 12 输出精炼补全**：完成 12-3 分层输出过滤；完成 12-4 大项目自动 compact 截断；完成 12-5 大项目手动 `--max-files` 截断。
+> 2. **Wave 11-15 多语言功能等价性第一轮补齐**：为 Python/Go/Rust/C/C++ 的 `functionRecords` 补齐 `isExported`/`returnType`/`decorators`；Java `branchCount`/`maxArms` 提升到顶层；`ast-rules.js` 扩展名→language 改为配置表并注册全部 9 种语言；Shadow Candidates 扩展 Python（`.py` ↔ `.pyi`）与 C/C++（`.h`/`.hpp` ↔ `.c`/`.cpp`/`.cc`）。新增 `test/python-parser-fields-test.js`。`npm run test:fast` 101/101 PASS，`npm run test:smoke` 104/104 PASS。
+> 3. **Wave 12 输出精炼补全**：完成 12-3 分层输出过滤；完成 12-4 大项目自动 compact 截断；完成 12-5 大项目手动 `--max-files` 截断。
 ---
 
 ## 本轮上下文：`bootstrapFromSchema` 路径规范化不一致清偿（活跃）
