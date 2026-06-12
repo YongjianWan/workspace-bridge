@@ -24,6 +24,7 @@
 | symbolImpact 多符号解构遗漏 | ⏳ 观察 | 同时导入多个解构符号时部分遗漏 | 关注 `sourceSymbols` 与 `symbolToDependents` 数量是否一致 |
 | audit-security Rule ID 映射错位 | ⏳ 观察 | Markdown 输出 `js-hardcoded-secret`，JSON 中 `rule` 为 null | 按 `ruleId` 字段消费安全规则 |
 | 动态 require 导致死导出误报 | ⏳ 已文档化 | 路由提取 query 模块（如 `java-spring.js`）被误报为死导出（无法静态追踪其动态 require，且作为 JS 文件无法命中 JS 启发式豁免） | 运行时无功能影响，属已知静态分析局限，可在 `.workspace-bridge.json` 中加白屏蔽或忽略 |
+| Wave 11-15 功能多语言等价性偏斜 | ⏳ 架构债务 | AST 规则、代码异味/复杂度趋势、框架路由 Query、Shadow Candidates 仅在 JS/TS/Java/Kotlin 部分实现，Python/Go/Rust/C/C++/Vue/Svelte 存在缺口 | 详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) §Wave 11-15 多语言功能等价性债务；按语言优先级逐步补齐 |
 
 > 近期已修复的限制见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]：配置 JSON 语法错误与 schema 校验、`--format json` 自动映射与 JSON 格式解析错误统一、`--builtin-only`、`--since <commit>`、TTL 24h、git-aware staleness、`--format jsonl`、SKILL 文档体系重构。
 >

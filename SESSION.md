@@ -31,13 +31,13 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 1 架构债务 + 1 L3 + 0 项 P2 Dogfood 活跃缺陷）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 2 架构债务 + 1 L3 + 0 项 P2 Dogfood 活跃缺陷）
 
 ---
 
 ## 基线状态
 
-- 测试：**所有测试全部 PASS**；`npm run test:fast` **99/99 PASS**（~15s），`npm run test:smoke` **102/102 PASS**（~43s）。开发迭代首选 `npm run test:fast`。
+- 测试：**所有测试全部 PASS**；`npm run test:fast` **100/100 PASS**（~18s），`npm run test:smoke` **103/103 PASS**（~36s）。开发迭代首选 `npm run test:fast`。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~339 文件（entry=1, mainline=152, test=187）
@@ -106,7 +106,7 @@ node cli.js audit-overview --cwd . --json --quiet
   - `test/java-package-imports-test.js` 移除 `n()` 预规范化 helper，schema 使用自然绝对路径，断言通过 `depGraph.normalizeFilePath()` 获取规范化 key。
   - `test/wave14-noise-env-test.js` 移除 `testIgnoreFrameworks` 中手动 `dg.graph.set()` 建图 workaround，改用自然的 `DependencyGraph.fromSchema` schema；`testIgnoreFindingsUnresolved` 改用 `dg._displayPath(dg.normalizeFilePath(...))` 计算 cross-platform 的 finding ID。
   - `test/affected-tests-heuristic-test.js` 彻底重构：将 Windows 路径场景从混合 schema 中拆出为独立的 `makeWindowsGraph()`，消除 POSIX/Windows 重复 key 合并导致的 `originalPath` 歧义，Windows 断言恢复为严格匹配。
-- 文档同步：移除旧的 `bootstrapFromSchema` 架构债务条目。由于 `detectFrameworkFromContent` 框架检测需要大面积同步转异步重构而被推迟，已将其作为新的架构债务（Phase 3 预备）记入 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。当前活跃债务更新为 L1 0 + L2 0 + 架构债务 1 + L3 品味问题 1（弱断言分布）。
+- 文档同步：移除旧的 `bootstrapFromSchema` 架构债务条目。由于 `detectFrameworkFromContent` 框架检测需要大面积同步转异步重构而被推迟，已将其作为新的架构债务（Phase 3 预备）记入 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。同时，Wave 11-15 功能在 9 种支持语言间的实现存在偏斜（Language Parity Debt），已作为第二项架构债务记入 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。当前活跃债务更新为 L1 0 + L2 0 + 架构债务 2 + L3 品味问题 1（弱断言分布）。
 
 ---
 
