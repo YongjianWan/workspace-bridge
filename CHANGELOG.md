@@ -13,6 +13,7 @@
 - Fix `bootstrapFromSchema` path normalization inconsistency; schema keys, `imports`, and `importRecords[].resolved` are now normalized via `normalizeFilePath`, eliminating Windows mock-test workarounds.
 - `bootstrapFromSchema` now keeps the first occurrence when two schema keys normalize to the same graph key (e.g. POSIX and Windows absolute paths on Windows), making `originalPath` deterministic.
 - `_findAffectedTestsByHeuristic` now computes heuristic signatures from `node.originalPath` instead of the normalized graph key, preserving correct Java/Kotlin test-suffix stripping after key lowercasing.
+- Refactor `test/affected-tests-heuristic-test.js`: split Windows-path scenarios into a standalone `makeWindowsGraph()` so POSIX and Windows keys no longer collide in one schema, restoring strict assertions for both platforms.
 
 ### Wave 12: 类别过滤 Summary 同步与性能优化 (2026-06-12)
 

@@ -100,7 +100,7 @@ node cli.js audit-overview --cwd . --json --quiet
   - `test/dep-graph-postprocess-incremental-test.js` 移除手动 wiring 与 `normalizeFilePath` identity 覆盖，改用自然的 schema imports。
   - `test/java-package-imports-test.js` 移除 `n()` 预规范化 helper，schema 使用自然绝对路径，断言通过 `depGraph.normalizeFilePath()` 获取规范化 key。
   - `test/wave14-noise-env-test.js` 移除 `testIgnoreFrameworks` 中手动 `dg.graph.set()` 建图 workaround，改用自然的 `DependencyGraph.fromSchema` schema；`testIgnoreFindingsUnresolved` 改用 `dg._displayPath(dg.normalizeFilePath(...))` 计算 cross-platform 的 finding ID。
-  - `test/affected-tests-heuristic-test.js` 适配重复 key 合并后的显示路径行为。
+  - `test/affected-tests-heuristic-test.js` 彻底重构：将 Windows 路径场景从混合 schema 中拆出为独立的 `makeWindowsGraph()`，消除 POSIX/Windows 重复 key 合并导致的 `originalPath` 歧义，Windows 断言恢复为严格匹配。
 - 文档同步：移除 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) 对应架构债务条目，SESSION.md 已知陷阱表同步清理。活跃债务更新为 L1 0 + L2 0 + 架构债务 0 + L3 品味问题 1（弱断言分布）。
 
 ---

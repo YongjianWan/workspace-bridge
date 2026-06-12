@@ -26,9 +26,6 @@ function makeGraph() {
       '/repo/src/main/java/com/acme/Audit.java': { imports: [], exports: ['Audit'] },
       '/repo/src/test/java/com/acme/AuditTests.java': { imports: [], exports: ['AuditTests'] },
       '/repo/src/test/java/com/acme/FooIT.java': { imports: [], exports: ['FooIT'] },
-      'C:\\repo\\packages\\foo\\src\\service.js': { imports: [], exports: ['service'] },
-      'C:\\repo\\packages\\foo\\test\\service.test.js': { imports: [], exports: ['testService'] },
-      'C:\\repo\\packages\\foo\\test\\mismatch\\service.test.js': { imports: [], exports: ['testService'] },
       // __tests__ layout (React/Vue convention)
       '/repo/src/utils/request.js': { imports: [], exports: ['request'] },
       '/repo/__tests__/utils/request.test.js': { imports: [], exports: ['testRequest'] },
@@ -52,12 +49,27 @@ function makeGraph() {
   return depGraph;
 }
 
-function main() {
-  const depGraph = makeGraph();
+function makeWindowsGraph() {
+  // Separate Windows-only graph so originalPath stays in Windows format and
+  // assertions can be strict. Mixing POSIX and Windows keys in one schema makes
+  // them normalize to the same graph key and leaves only one originalPath.
+  return createMockDepGraph({
+    schema: {
+      'C:\\repo\\packages\\foo\\src\\service.js': { imports: [], exports: ['service'] },
+      'C:\\repo\\packages\\foo\\test\\service.test.js': { imports: [], exports: ['testService'] },
+      'C:\\repo\\packages\\foo\\test\\mismatch\\service.test.js': { imports: [], exports: ['testService'] },
+    }
+  });
+}
 
+function testHeuristicDisabled() {
+  const depGraph = makeGraph();
   const withoutHeuristic = depGraph.findAffectedTests('/repo/src/feature.js', 5, { includeHeuristic: false });
   assert.strictEqual(withoutHeuristic.length, 0, 'graph-only search should not find tests without dependents');
+}
 
+function testMirroredLayout() {
+  const depGraph = makeGraph();
   const withHeuristic = depGraph.findAffectedTests('/repo/src/feature.js');
   const files = withHeuristic.map((entry) => entry.file.replace(/\\/g, '/'));
 
@@ -65,11 +77,18 @@ function main() {
   assert(!files.includes('/repo/test/group-b/feature.test.js'), 'same-stem test in different layout should not be included');
   assert(!files.includes('/repo/test/client/auth/login.test.js'), 'cross-layer same-stem test should not be included');
   assert(!files.includes('/repo/src/test/java/server/auth/LoginTests.java'), 'JS source should not match Java tests via heuristic');
+}
 
+function testPackageLocalMirroredLayout() {
+  const depGraph = makeGraph();
   const packageTests = depGraph.findAffectedTests('/repo/packages/foo/src/service.js');
   const packageFiles = packageTests.map((entry) => entry.file.replace(/\\/g, '/'));
   assert(packageFiles.includes('/repo/packages/foo/test/service.test.js'), 'package-local mirrored test should be included');
   assert(!packageFiles.includes('/repo/packages/foo/test/group-b/service.test.js'), 'package-local nested test with different layout should not be included');
+}
+
+function testJavaSuffixes() {
+  const depGraph = makeGraph();
 
   const javaTests = depGraph.findAffectedTests('/repo/src/main/java/com/acme/Foo.java');
   const javaFiles = javaTests.map((entry) => entry.file.replace(/\\/g, '/'));
@@ -87,32 +106,35 @@ function main() {
   const itTests = depGraph.findAffectedTests('/repo/src/main/java/com/acme/Foo.java');
   const itFiles = itTests.map((entry) => entry.file.replace(/\\/g, '/'));
   assert(itFiles.includes('/repo/src/test/java/com/acme/FooIT.java'), 'Java IT-style test should be included');
+}
 
+function testWindowsPaths() {
+  const depGraph = makeWindowsGraph();
   const winTests = depGraph.findAffectedTests('C:\\repo\\packages\\foo\\src\\service.js');
   const winFiles = winTests.map((entry) => entry.file.replace(/\\/g, '/'));
-  // Schema POSIX and Windows keys normalize to the same graph key; the display
-  // path follows the first occurrence's originalPath, so accept either format.
-  const winMatched =
-    winFiles.includes('C:/repo/packages/foo/test/service.test.js') ||
-    winFiles.includes('/repo/packages/foo/test/service.test.js');
-  assert(winMatched, 'Windows mirrored test should be included');
+  assert(winFiles.includes('C:/repo/packages/foo/test/service.test.js'), 'Windows mirrored test should be included');
   assert(!winFiles.includes('C:/repo/packages/foo/test/mismatch/service.test.js'), 'Windows mismatched layout should not be included');
-  assert(!winFiles.includes('/repo/packages/foo/test/mismatch/service.test.js'), 'Windows mismatched layout should not be included');
+}
 
-  // __tests__ layout
+function testDunderTestsLayout() {
+  const depGraph = makeGraph();
   const dunderTests = depGraph.findAffectedTests('/repo/src/utils/request.js');
   const dunderFiles = dunderTests.map((entry) => entry.file.replace(/\\/g, '/'));
   assert(dunderFiles.includes('/repo/__tests__/utils/request.test.js'), '__tests__ mirrored layout should be included');
   assert(!dunderFiles.includes('/repo/__tests__/utils/other.test.js'), 'different __tests__ file should not be included');
+}
 
-  // Java extended suffixes
+function testJavaExtendedSuffixes() {
+  const depGraph = makeGraph();
   const javaExtendedTests = depGraph.findAffectedTests('/repo/src/main/java/com/acme/Service.java');
   const javaExtendedFiles = javaExtendedTests.map((entry) => entry.file.replace(/\\/g, '/'));
   assert(javaExtendedFiles.includes('/repo/src/test/java/com/acme/ServiceUnitTest.java'), 'Java *UnitTest should be included');
   assert(javaExtendedFiles.includes('/repo/src/test/java/com/acme/ServiceIntegrationTest.java'), 'Java *IntegrationTest should be included');
   assert(!javaExtendedFiles.includes('/repo/src/test/java/com/acme/ServiceHelperUnitTest.java'), 'different Java helper test should not be included');
+}
 
-  // Cypress / E2E
+function testCypressAndE2E() {
+  const depGraph = makeGraph();
   const cypressTests = depGraph.findAffectedTests('/repo/src/components/Button.js');
   const cypressFiles = cypressTests.map((entry) => entry.file.replace(/\\/g, '/'));
   assert(cypressFiles.includes('/repo/cypress/components/Button.cy.js'), 'Cypress .cy.js test should be included');
@@ -120,12 +142,26 @@ function main() {
   const e2eTests = depGraph.findAffectedTests('/repo/src/components/Modal.js');
   const e2eFiles = e2eTests.map((entry) => entry.file.replace(/\\/g, '/'));
   assert(e2eFiles.includes('/repo/e2e/components/Modal.e2e.js'), 'E2E .e2e.js test should be included');
+}
 
-  // Ruby
+function testRuby() {
+  const depGraph = makeGraph();
   const rubyTests = depGraph.findAffectedTests('/repo/app/models/user.rb');
   const rubyFiles = rubyTests.map((entry) => entry.file.replace(/\\/g, '/'));
   assert(rubyFiles.includes('/repo/spec/models/user_spec.rb'), 'Ruby spec should be included');
   assert(!rubyFiles.includes('/repo/spec/models/admin_spec.rb'), 'different Ruby spec should not be included');
+}
+
+function main() {
+  testHeuristicDisabled();
+  testMirroredLayout();
+  testPackageLocalMirroredLayout();
+  testJavaSuffixes();
+  testWindowsPaths();
+  testDunderTestsLayout();
+  testJavaExtendedSuffixes();
+  testCypressAndE2E();
+  testRuby();
 }
 
 main();
