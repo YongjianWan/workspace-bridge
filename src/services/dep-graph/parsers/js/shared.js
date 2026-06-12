@@ -162,6 +162,8 @@ function pushFunctionRecord(records, name, node, options = {}) {
   record.isExported = Boolean(options.isExported);
   record.returnType = options.returnType !== undefined ? options.returnType : extractReturnType(node);
   record.decorators = Array.isArray(options.decorators) ? options.decorators : extractDecoratorNames(node);
+  record.branchCount = fingerprint ? fingerprint.branchCount : 0;
+  record.maxArms = fingerprint ? fingerprint.maxArms : 0;
   records.push(record);
 }
 

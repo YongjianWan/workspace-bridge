@@ -58,6 +58,8 @@ function parsePythonWithRegex(content) {
         isExported: true,
         returnType: null,
         decorators: [],
+        branchCount: 0,
+        maxArms: 0,
       });
     }
   }
@@ -87,6 +89,8 @@ async function parsePython(content) {
         isExported: record.isExported !== undefined ? record.isExported : true,
         returnType: record.returnType || null,
         decorators: record.decorators || [],
+        branchCount: record.branchCount !== undefined ? record.branchCount : 0,
+        maxArms: record.maxArms !== undefined ? record.maxArms : 0,
       })),
       parseMode: 'ast',
     };

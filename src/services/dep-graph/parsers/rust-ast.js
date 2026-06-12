@@ -146,6 +146,75 @@ function isExportedFunction(funcNode) {
   return funcNode.children.some((c) => c.type === 'visibility_modifier');
 }
 
+function computeRustBranchStats(rootNode) {
+  let branchCount = 0;
+  let maxIfElseArms = 0;
+  let maxMatchArms = 0;
+  const stack = [rootNode];
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node || typeof node !== 'object') continue;
+
+    const type = node.type;
+
+    if (type === 'if_expression') {
+      branchCount += 1;
+      let armsCount = 1;
+      let current = node;
+      while (true) {
+        const elseClause = current.children.find((c) => c.type === 'else_clause');
+        if (!elseClause) break;
+        const nestedIf = elseClause.children.find((c) => c.type === 'if_expression');
+        if (nestedIf) {
+          armsCount += 1;
+          current = nestedIf;
+        } else {
+          armsCount += 1;
+          break;
+        }
+      }
+      maxIfElseArms = Math.max(maxIfElseArms, armsCount);
+    } else if (type === 'match_arm') {
+      branchCount += 1;
+    } else if (
+      type === 'for_expression' ||
+      type === 'while_expression' ||
+      type === 'loop_expression' ||
+      type === 'try_expression'
+    ) {
+      branchCount += 1;
+    } else if (type === 'binary_expression') {
+      if (node.children.some((c) => c.type === '&&' || c.type === '||')) {
+        branchCount += 1;
+      }
+    }
+
+    if (type === 'match_expression') {
+      const matchBlock = node.children.find((c) => c.type === 'match_block');
+      const arms = matchBlock
+        ? matchBlock.children.filter((c) => c.type === 'match_arm').length
+        : 0;
+      maxMatchArms = Math.max(maxMatchArms, arms);
+    }
+
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) {
+        stack.push(child);
+      }
+    }
+  }
+
+  return {
+    branchCount,
+    maxArms: Math.max(maxIfElseArms, maxMatchArms),
+  };
+}
+
+function getRustFunctionBody(funcNode) {
+  return funcNode.children.find((c) => c.type === 'block') || funcNode;
+}
+
 function getRustReturnType(funcNode) {
   const children = funcNode.children;
   const arrowIdx = children.findIndex((c) => c.type === '->');
@@ -278,6 +347,7 @@ async function parseRust(content) {
 
         if (tag === 'def.func') {
           const funcNode = capture.node.parent;
+          const { branchCount, maxArms } = computeRustBranchStats(getRustFunctionBody(funcNode));
           exportRecords.push(createExportRecord(name, { kind: 'function', ...base }));
           functionRecords.push({
             name,
@@ -285,6 +355,8 @@ async function parseRust(content) {
             isExported: isExportedFunction(funcNode),
             returnType: getRustReturnType(funcNode),
             decorators: getRustDecorators(funcNode),
+            branchCount,
+            maxArms,
             ...base,
           });
         } else if (tag === 'def.struct') {

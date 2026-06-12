@@ -177,6 +177,108 @@ function getDecorators(funcNode) {
 }
 
 // ---------------------------------------------------------------------------
+// Branch complexity metrics
+// ---------------------------------------------------------------------------
+
+function isLogicalBinaryOp(node) {
+  for (let i = 0; i < node.childCount; i++) {
+    const childType = node.child(i).type;
+    if (childType === '&&' || childType === '||') return true;
+  }
+  return false;
+}
+
+function countSwitchArms(switchNode) {
+  let arms = 0;
+  for (let i = 0; i < switchNode.childCount; i++) {
+    const child = switchNode.child(i);
+    if (child.type !== 'compound_statement') continue;
+    for (let j = 0; j < child.childCount; j++) {
+      if (child.child(j).type === 'case_statement') arms += 1;
+    }
+  }
+  return arms;
+}
+
+function countIfElseArms(ifNode) {
+  let arms = 1;
+  let current = ifNode;
+  while (true) {
+    let elseClause = null;
+    for (let i = 0; i < current.childCount; i++) {
+      if (current.child(i).type === 'else_clause') {
+        elseClause = current.child(i);
+        break;
+      }
+    }
+    if (!elseClause) break;
+
+    let nestedIf = null;
+    for (let i = 0; i < elseClause.childCount; i++) {
+      if (elseClause.child(i).type === 'if_statement') {
+        nestedIf = elseClause.child(i);
+        break;
+      }
+    }
+    if (nestedIf) {
+      arms += 1;
+      current = nestedIf;
+    } else {
+      arms += 1;
+      break;
+    }
+  }
+  return arms;
+}
+
+function computeBranchMetrics(funcNode) {
+  if (!funcNode) return { branchCount: 0, maxArms: 0 };
+  let branchCount = 0;
+  let maxArms = 0;
+  const stack = [];
+  for (let i = 0; i < funcNode.childCount; i++) {
+    stack.push(funcNode.child(i));
+  }
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+
+    // Do not leak branches from nested functions or lambdas into the parent.
+    if (node.type === 'function_definition' || node.type === 'lambda_expression') {
+      continue;
+    }
+
+    if (node.type === 'if_statement') {
+      branchCount += 1;
+      maxArms = Math.max(maxArms, countIfElseArms(node));
+    } else if (node.type === 'switch_statement') {
+      branchCount += 1;
+      maxArms = Math.max(maxArms, countSwitchArms(node));
+    } else if (node.type === 'conditional_expression') {
+      branchCount += 1;
+    } else if (node.type === 'try_statement') {
+      branchCount += 1;
+    } else if (
+      node.type === 'for_statement' ||
+      node.type === 'range_for_statement' ||
+      node.type === 'while_statement' ||
+      node.type === 'do_statement'
+    ) {
+      branchCount += 1;
+    } else if (node.type === 'binary_expression' && isLogicalBinaryOp(node)) {
+      branchCount += 1;
+    }
+
+    for (let i = 0; i < node.childCount; i++) {
+      stack.push(node.child(i));
+    }
+  }
+
+  return { branchCount, maxArms };
+}
+
+// ---------------------------------------------------------------------------
 // AST Parser
 // ---------------------------------------------------------------------------
 
@@ -270,6 +372,7 @@ async function parseCppAst(content, filePath) {
 
         exportRecords.push(createExportRecord(name, { kind, lineStart, lineEnd }));
         if (tag === 'def.func' || tag === 'def.method') {
+          const { branchCount, maxArms } = computeBranchMetrics(funcNode);
           functionRecords.push({
             name,
             kind: 'function',
@@ -278,6 +381,8 @@ async function parseCppAst(content, filePath) {
             isExported: true,
             returnType: getReturnType(funcNode),
             decorators: getDecorators(funcNode),
+            branchCount,
+            maxArms,
           });
         }
       }

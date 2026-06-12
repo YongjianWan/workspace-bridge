@@ -39,6 +39,13 @@ fun batchUpdateUsers() {}
 fun batchInsertUsers() {}
 
 fun batchReturnInt(): Int = 1
+
+fun dispatch(x: Int): Int {
+  if (x == 1) return 1
+  else if (x == 2) return 2
+  else if (x == 3) return 3
+  else return 0
+}
 `;
 
 async function testKotlinAstSchema() {
@@ -131,6 +138,21 @@ async function testKotlinAstSchema() {
   assert(batchReturnRec, 'Should have batchReturnInt functionRecord');
   assert.deepStrictEqual(batchReturnRec.decorators, []);
   assert.strictEqual(batchReturnRec.returnType, 'Int');
+
+  // branchCount / maxArms should be lifted to functionRecord top level
+  assert.strictEqual(topLevelFnRec.branchCount, 0, 'topLevelFun should have branchCount 0');
+  assert.strictEqual(topLevelFnRec.maxArms, 0, 'topLevelFun should have maxArms 0');
+  assert(topLevelFnRec.fingerprint, 'topLevelFun should have fingerprint');
+  assert.strictEqual(topLevelFnRec.fingerprint.branchCount, 0);
+  assert.strictEqual(topLevelFnRec.fingerprint.maxArms, 0);
+
+  const dispatchRec = result.functionRecords.find((r) => r.name === 'dispatch');
+  assert(dispatchRec, 'Should have dispatch functionRecord');
+  assert.strictEqual(dispatchRec.branchCount, 3, 'dispatch should have branchCount 3 (3 if nodes)');
+  assert.strictEqual(dispatchRec.maxArms, 4, 'dispatch should have maxArms 4 (if + 2 else-if + else)');
+  assert(dispatchRec.fingerprint, 'dispatch should have fingerprint');
+  assert.strictEqual(dispatchRec.fingerprint.branchCount, 3);
+  assert.strictEqual(dispatchRec.fingerprint.maxArms, 4);
 
   // AST rule integration: batch-no-transactional should fire on Kotlin functions
   const findings = checkFileRules('MyService.kt', {

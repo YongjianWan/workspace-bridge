@@ -395,6 +395,8 @@ function extractFunctionRecordsWithRegex(sanitized) {
       kind: 'function',
       lineStart,
       lineEnd: lineStart,
+      branchCount: 0,
+      maxArms: 0,
     };
     if (isExported) record.isExported = true;
     const returnType = extractReturnType(afterParams);
@@ -411,6 +413,8 @@ function extractFunctionRecordsWithRegex(sanitized) {
       kind: 'function',
       lineStart,
       lineEnd: lineStart,
+      branchCount: 0,
+      maxArms: 0,
     };
     if (isExported) record.isExported = true;
     const returnType = match[3] ? match[3].trim() : null;
@@ -428,6 +432,8 @@ function extractFunctionRecordsWithRegex(sanitized) {
       kind: 'function',
       lineStart,
       lineEnd: lineStart,
+      branchCount: 0,
+      maxArms: 0,
     };
     if (isExported) record.isExported = true;
     const returnType = extractReturnType(afterParams);

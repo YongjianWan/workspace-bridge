@@ -66,6 +66,48 @@ func Divide(a, b int) (quotient int, remainder int) {
 }
 `;
 
+const GO_BRANCHES = `package example
+
+func Classify(x int) string {
+    if x == 1 {
+        return "one"
+    } else if x == 2 {
+        return "two"
+    } else if x == 3 {
+        return "three"
+    } else {
+        return "other"
+    }
+}
+
+func Switcher(x int) int {
+    switch x {
+    case 1:
+        return 1
+    case 2:
+        return 2
+    case 3:
+        return 3
+    default:
+        return 0
+    }
+}
+
+func Looper(items []int) int {
+    sum := 0
+    for _, v := range items {
+        if v > 0 {
+            sum += v
+        }
+    }
+    return sum
+}
+
+func Logic(a, b bool) bool {
+    return a && b || !a
+}
+`;
+
 async function testBasicParsing() {
   const result = await parseGo(GO_SOURCE);
   assert(result.parseMode === 'ast' || result.parseMode === 'regex', 'parseMode should be ast or regex');
@@ -185,7 +227,33 @@ async function testAllFunctionRecordsHaveParityFields() {
     assert(typeof rec.isExported === 'boolean', `${rec.name} should have isExported boolean`);
     assert(Array.isArray(rec.decorators), `${rec.name} should have decorators array`);
     assert(rec.returnType === undefined || typeof rec.returnType === 'string', `${rec.name} returnType should be string or undefined`);
+    assert(Number.isFinite(rec.branchCount), `${rec.name} should have finite branchCount`);
+    assert(Number.isFinite(rec.maxArms), `${rec.name} should have finite maxArms`);
   }
+}
+
+async function testBranchCountAndMaxArms() {
+  const result = await parseGo(GO_BRANCHES);
+
+  const classifyRec = result.functionRecords.find((r) => r.name === 'Classify');
+  assert(classifyRec, 'should have Classify functionRecord');
+  assert.strictEqual(classifyRec.branchCount, 3, `Classify branchCount expected 3, got ${classifyRec.branchCount}`);
+  assert.strictEqual(classifyRec.maxArms, 4, `Classify maxArms expected 4, got ${classifyRec.maxArms}`);
+
+  const switcherRec = result.functionRecords.find((r) => r.name === 'Switcher');
+  assert(switcherRec, 'should have Switcher functionRecord');
+  assert.strictEqual(switcherRec.branchCount, 1, `Switcher branchCount expected 1, got ${switcherRec.branchCount}`);
+  assert.strictEqual(switcherRec.maxArms, 4, `Switcher maxArms expected 4, got ${switcherRec.maxArms}`);
+
+  const looperRec = result.functionRecords.find((r) => r.name === 'Looper');
+  assert(looperRec, 'should have Looper functionRecord');
+  assert.strictEqual(looperRec.branchCount, 2, `Looper branchCount expected 2, got ${looperRec.branchCount}`);
+  assert.strictEqual(looperRec.maxArms, 1, `Looper maxArms expected 1, got ${looperRec.maxArms}`);
+
+  const logicRec = result.functionRecords.find((r) => r.name === 'Logic');
+  assert(logicRec, 'should have Logic functionRecord');
+  assert.strictEqual(logicRec.branchCount, 2, `Logic branchCount expected 2, got ${logicRec.branchCount}`);
+  assert.strictEqual(logicRec.maxArms, 0, `Logic maxArms expected 0, got ${logicRec.maxArms}`);
 }
 
 async function main() {
@@ -200,6 +268,7 @@ async function main() {
   await testLineEndGreaterThanLineStart();
   await testNamedReturns();
   await testAllFunctionRecordsHaveParityFields();
+  await testBranchCountAndMaxArms();
 }
 
 main().catch((e) => {

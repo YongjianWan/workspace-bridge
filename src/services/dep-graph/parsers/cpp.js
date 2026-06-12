@@ -23,7 +23,7 @@ function parseCpp(content) {
   while ((match = funcRe.exec(content)) !== null) {
     if (match[0].length > MAX_LINE_LEN) continue;
     exportRecords.push(createExportRecord(match[1], { kind: 'function' }));
-    functionRecords.push({ name: match[1], kind: 'function' });
+    functionRecords.push({ name: match[1], kind: 'function', branchCount: 0, maxArms: 0 });
   }
 
   const macroRe = /^\s*#define\s+(\w+)/gm;

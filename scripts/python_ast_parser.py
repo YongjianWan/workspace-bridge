@@ -234,9 +234,11 @@ def parse_code(source: str) -> dict[str, Any]:
                 "fingerprint": fingerprint,
                 "decorators": extract_decorators(node),
                 "returnType": extract_return_type(node),
-                "isExported": True
+                "isExported": True,
+                "branchCount": fingerprint["branchCount"],
+                "maxArms": fingerprint["maxArms"]
             })
-        
+
         # Also collect async function definitions
         elif isinstance(node, ast.AsyncFunctionDef) and not node.name.startswith('_'):
             exports.append(node.name)
@@ -256,7 +258,9 @@ def parse_code(source: str) -> dict[str, Any]:
                 "fingerprint": fingerprint,
                 "decorators": extract_decorators(node),
                 "returnType": extract_return_type(node),
-                "isExported": True
+                "isExported": True,
+                "branchCount": fingerprint["branchCount"],
+                "maxArms": fingerprint["maxArms"]
             })
     
     # Second pass: collect imports (walk entire tree since imports can be nested)

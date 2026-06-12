@@ -48,6 +48,127 @@ function parseKotlin(content) {
   };
 }
 
+function findMatchingBrace(text, openIdx) {
+  let depth = 1;
+  let inString = false;
+  let stringChar = null;
+  let inRawString = false;
+  for (let i = openIdx + 1; i < text.length; i++) {
+    const ch = text[i];
+    const prev = text[i - 1];
+    if (inRawString) {
+      if (ch === '`') inRawString = false;
+      continue;
+    }
+    if (inString) {
+      if (ch === stringChar && prev !== '\\') inString = false;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+    if (ch === '`') {
+      inRawString = true;
+      continue;
+    }
+    if (ch === '/' && text[i + 1] === '/') {
+      while (i < text.length && text[i] !== '\n') i++;
+      continue;
+    }
+    if (ch === '{' && !inString && !inRawString) depth++;
+    else if (ch === '}' && !inString && !inRawString) {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function findMatchingParen(text, openIdx) {
+  let depth = 1;
+  let inString = false;
+  let stringChar = null;
+  let inRawString = false;
+  for (let i = openIdx + 1; i < text.length; i++) {
+    const ch = text[i];
+    const prev = text[i - 1];
+    if (inRawString) {
+      if (ch === '`') inRawString = false;
+      continue;
+    }
+    if (inString) {
+      if (ch === stringChar && prev !== '\\') inString = false;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+    if (ch === '`') {
+      inRawString = true;
+      continue;
+    }
+    if (ch === '/' && text[i + 1] === '/') {
+      while (i < text.length && text[i] !== '\n') i++;
+      continue;
+    }
+    if (ch === '(' && !inString && !inRawString) depth++;
+    else if (ch === ')' && !inString && !inRawString) {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function extractGoFunctionBody(content, declarationEnd) {
+  // declarationEnd is the index right after the opening '(' of the parameter list.
+  const paramClose = findMatchingParen(content, declarationEnd - 1);
+  if (paramClose === -1) return null;
+
+  let idx = paramClose + 1;
+  while (idx < content.length && !content.startsWith('{', idx)) {
+    if (content[idx] === '\n' && !/^[\s]*$/.test(content.slice(paramClose + 1, idx))) {
+      // No body on the same line after the signature -> likely no body.
+      return null;
+    }
+    idx++;
+  }
+  if (idx >= content.length) return null;
+
+  const bodyClose = findMatchingBrace(content, idx);
+  if (bodyClose === -1) return null;
+  return content.slice(idx + 1, bodyClose);
+}
+
+function computeGoRegexBranchStats(bodyText) {
+  if (!bodyText) return { branchCount: 0, maxArms: 0 };
+
+  const controls = [...bodyText.matchAll(/\b(if|switch|select|for)\b/g)];
+  const logicalOps = [...bodyText.matchAll(/&&|\|\|/g)];
+  let branchCount = controls.length + logicalOps.length;
+
+  let maxArms = 0;
+  const blockRegex = /\b(switch|select)\s*[^{]*\{/g;
+  let match;
+  while ((match = blockRegex.exec(bodyText)) !== null) {
+    const blockStart = match.index + match[0].length - 1;
+    const blockEnd = findMatchingBrace(bodyText, blockStart);
+    if (blockEnd === -1) continue;
+    const blockBody = bodyText.slice(blockStart + 1, blockEnd);
+    const cases = [...blockBody.matchAll(/\b(case|default)\b/g)].length;
+    maxArms = Math.max(maxArms, cases);
+  }
+
+  const ifCount = [...bodyText.matchAll(/\bif\b/g)].length;
+  maxArms = Math.max(maxArms, ifCount);
+
+  return { branchCount, maxArms };
+}
+
 function parseGoRegex(content) {
   const imports = [];
   const importRecords = [];
@@ -80,6 +201,8 @@ function parseGoRegex(content) {
   const funcRegex = /\bfunc\s+(?:\([^)]*\)\s+)?([A-Z]\w*)\s*\(/g;
   while ((match = funcRegex.exec(content)) !== null) {
     exportRecords.push(createExportRecord(match[1], { kind: 'function' }));
+    const bodyText = extractGoFunctionBody(content, match.index + match[0].length);
+    const { branchCount, maxArms } = computeGoRegexBranchStats(bodyText);
     functionRecords.push({
       name: match[1],
       kind: 'function',
@@ -88,6 +211,8 @@ function parseGoRegex(content) {
       decorators: [],
       lineStart: content.slice(0, match.index).split('\n').length,
       lineEnd: content.slice(0, match.index).split('\n').length,
+      branchCount,
+      maxArms,
     });
   }
 

@@ -308,6 +308,8 @@ def dispatch(x):
   assert(dispatchFn, 'Should find dispatch function');
   assert(dispatchFn.fingerprint, 'Should have fingerprint');
   assert.strictEqual(dispatchFn.fingerprint.maxArms, 5, `Expected 5 arms (if + 3 elif + else), got ${dispatchFn.fingerprint.maxArms}`);
+  assert.strictEqual(dispatchFn.branchCount, dispatchFn.fingerprint.branchCount, 'branchCount should be lifted to functionRecord top level');
+  assert.strictEqual(dispatchFn.maxArms, dispatchFn.fingerprint.maxArms, 'maxArms should be lifted to functionRecord top level');
 }
 
 async function testJavaElseIfChain() {

@@ -81,6 +81,155 @@ function getReturnType(node) {
   return text || null;
 }
 
+const KOTLIN_FINGERPRINT_MAX_CALLEES = 20;
+
+const KOTLIN_NESTED_DEFINITION_TYPES = new Set([
+  'function_declaration',
+  'anonymous_function',
+  'lambda_literal',
+  'class_declaration',
+  'object_declaration',
+]);
+
+function getParameterCount(funcNode) {
+  const params = funcNode.children.find((c) => c.type === 'function_value_parameters');
+  if (!params) return 0;
+  return params.children.filter((c) => c.type === 'parameter').length;
+}
+
+function isAsyncFunction(funcNode) {
+  const modifiers = funcNode.children.find((c) => c.type === 'modifiers');
+  if (!modifiers) return false;
+  return modifiers.children.some((c) => {
+    if (c.type !== 'function_modifier') return false;
+    return getNodeText(c).trim() === 'suspend';
+  });
+}
+
+function getCallName(node) {
+  const callee = node.children.find((c) => c.type !== 'call_suffix');
+  if (!callee) return null;
+  const text = getNodeText(callee).trim();
+  return text || null;
+}
+
+function countKotlinIfElseArms(node, seenIfs) {
+  seenIfs.add(node);
+  let ifNodeCount = 1;
+  let curr = node;
+
+  while (true) {
+    const elseIdx = curr.children.findIndex((c) => c.type === 'else');
+    if (elseIdx === -1 || elseIdx + 1 >= curr.children.length) break;
+    const elseBody = curr.children[elseIdx + 1];
+    if (!elseBody || elseBody.type !== 'control_structure_body') break;
+    const nestedIf = elseBody.children.find((c) => c.type === 'if_expression');
+    if (!nestedIf) break;
+    seenIfs.add(nestedIf);
+    ifNodeCount += 1;
+    curr = nestedIf;
+  }
+
+  let hasElse = false;
+  const elseIdx = curr.children.findIndex((c) => c.type === 'else');
+  if (elseIdx !== -1 && elseIdx + 1 < curr.children.length) {
+    const elseBody = curr.children[elseIdx + 1];
+    if (elseBody && elseBody.type === 'control_structure_body') {
+      const nestedIf = elseBody.children.find((c) => c.type === 'if_expression');
+      if (!nestedIf) hasElse = true;
+    }
+  }
+
+  return [ifNodeCount, ifNodeCount + (hasElse ? 1 : 0)];
+}
+
+function computeKotlinFunctionFingerprint(funcNode) {
+  let branchCount = 0;
+  let returnCount = 0;
+  let maxSwitchArms = 0;
+  let maxIfElseArms = 0;
+  let hasTryCatch = false;
+  const callCallees = new Set();
+  const seenIfs = new Set();
+
+  const body = funcNode.children.find((c) => c.type === 'function_body');
+  if (!body) {
+    return {
+      paramCount: getParameterCount(funcNode),
+      isAsync: isAsyncFunction(funcNode),
+      isGenerator: false,
+      hasTryCatch: false,
+      branchCount: 0,
+      returnCount: 0,
+      maxArms: 0,
+      callCallees: [],
+    };
+  }
+
+  const stack = [body];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node || typeof node !== 'object') continue;
+
+    if (KOTLIN_NESTED_DEFINITION_TYPES.has(node.type) && node !== funcNode) {
+      continue;
+    }
+
+    const type = node.type;
+
+    if (type === 'if_expression') {
+      if (!seenIfs.has(node)) {
+        const [ifNodeCount, arms] = countKotlinIfElseArms(node, seenIfs);
+        branchCount += ifNodeCount;
+        maxIfElseArms = Math.max(maxIfElseArms, arms);
+      }
+    } else if (type === 'when_entry') {
+      branchCount += 1;
+    } else if (type === 'when_expression') {
+      const entries = node.children.filter((c) => c.type === 'when_entry');
+      maxSwitchArms = Math.max(maxSwitchArms, entries.length);
+    } else if (type === 'catch_block') {
+      branchCount += 1;
+      hasTryCatch = true;
+    } else if (
+      type === 'for_statement' ||
+      type === 'while_statement' ||
+      type === 'do_while_statement'
+    ) {
+      branchCount += 1;
+    } else if (
+      type === 'conjunction_expression' ||
+      type === 'disjunction_expression' ||
+      type === 'elvis_expression'
+    ) {
+      branchCount += 1;
+    } else if (type === 'jump_expression') {
+      const firstChild = node.children[0];
+      if (firstChild && getNodeText(firstChild).trim() === 'return') {
+        returnCount += 1;
+      }
+    } else if (type === 'call_expression') {
+      const name = getCallName(node);
+      if (name) callCallees.add(name);
+    }
+
+    for (const child of node.children) {
+      stack.push(child);
+    }
+  }
+
+  return {
+    paramCount: getParameterCount(funcNode),
+    isAsync: isAsyncFunction(funcNode),
+    isGenerator: false,
+    hasTryCatch,
+    branchCount,
+    returnCount,
+    maxArms: Math.max(maxSwitchArms, maxIfElseArms),
+    callCallees: Array.from(callCallees).sort().slice(0, KOTLIN_FINGERPRINT_MAX_CALLEES),
+  };
+}
+
 function hasWildcardImport(importHeaderNode) {
   return importHeaderNode.children.some((c) => c.type === 'wildcard_import');
 }
@@ -153,12 +302,16 @@ async function parseKotlin(content) {
           exportRecords.push(createExportRecord(name, { kind: 'object', ...base }));
         } else if (tag === 'def.func') {
           exportRecords.push(createExportRecord(name, { kind: 'function', ...base }));
+          const fingerprint = computeKotlinFunctionFingerprint(parent);
           functionRecords.push({
             name,
             kind: 'function',
             isExported: isExported(parent),
             decorators: getDecorators(parent),
             returnType: getReturnType(parent),
+            fingerprint,
+            branchCount: fingerprint.branchCount,
+            maxArms: fingerprint.maxArms,
             ...base,
           });
         } else if (tag === 'def.prop') {

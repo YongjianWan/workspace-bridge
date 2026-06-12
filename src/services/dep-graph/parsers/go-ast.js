@@ -32,7 +32,79 @@ function extractGoReturnType(parent) {
   return text || undefined;
 }
 
+function countGoIfArms(node) {
+  let arms = 1;
+  let current = node;
+  while (true) {
+    const elseIdx = current.children.findIndex((c) => c.type === 'else');
+    if (elseIdx === -1 || elseIdx + 1 >= current.children.length) break;
+    const alternate = current.children[elseIdx + 1];
+    arms += 1;
+    if (alternate.type === 'if_statement') {
+      current = alternate;
+    } else {
+      break;
+    }
+  }
+  return arms;
+}
+
+function countGoCaseArms(node) {
+  return node.children.filter((c) =>
+    c.type === 'expression_case' ||
+    c.type === 'type_case' ||
+    c.type === 'communication_case' ||
+    c.type === 'default_case'
+  ).length;
+}
+
+function hasGoLogicalOperator(node) {
+  return node.children.some((c) => !c.isNamed && (c.type === '&&' || c.type === '||'));
+}
+
+function buildGoFunctionFingerprint(functionNode) {
+  const body = functionNode.children.find((c) => c.type === 'block');
+  if (!body) return { branchCount: 0, maxArms: 0 };
+
+  let branchCount = 0;
+  let maxArms = 0;
+  const stack = [body];
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+
+    switch (node.type) {
+      case 'if_statement':
+        branchCount += 1;
+        maxArms = Math.max(maxArms, countGoIfArms(node));
+        break;
+      case 'expression_switch_statement':
+      case 'type_switch_statement':
+      case 'select_statement':
+        branchCount += 1;
+        maxArms = Math.max(maxArms, countGoCaseArms(node));
+        break;
+      case 'for_statement':
+        branchCount += 1;
+        break;
+      case 'binary_expression':
+        if (hasGoLogicalOperator(node)) branchCount += 1;
+        break;
+      default:
+        break;
+    }
+
+    for (const child of node.children) {
+      stack.push(child);
+    }
+  }
+
+  return { branchCount, maxArms };
+}
+
 function buildGoFunctionRecord(name, parent, captureNode) {
+  const fingerprint = buildGoFunctionFingerprint(parent);
   return {
     name,
     kind: 'function',
@@ -41,6 +113,8 @@ function buildGoFunctionRecord(name, parent, captureNode) {
     decorators: [],
     lineStart: getLineStart(parent) || getLineStart(captureNode),
     lineEnd: getLineEnd(parent) || getLineEnd(captureNode),
+    branchCount: fingerprint.branchCount,
+    maxArms: fingerprint.maxArms,
   };
 }
 

@@ -27,6 +27,10 @@ def compute(x: int) -> Optional[str]:
   assert.deepStrictEqual(compute.decorators, ['deprecated'], `decorators should be [deprecated], got ${JSON.stringify(compute.decorators)}`);
   assert(compute.fingerprint, 'should preserve fingerprint');
   assert.strictEqual(compute.fingerprint.maxArms, 1, 'single if should produce 1 arm');
+  assert.strictEqual(compute.branchCount, compute.fingerprint.branchCount, 'branchCount should be lifted to functionRecord top level');
+  assert.strictEqual(compute.maxArms, compute.fingerprint.maxArms, 'maxArms should be lifted to functionRecord top level');
+  assert.strictEqual(compute.branchCount, 1, 'single if should produce branchCount 1');
+  assert.strictEqual(compute.maxArms, 1, 'single if should produce maxArms 1');
 }
 
 async function testAllOverrideMarksUnlistedAsNotExported() {

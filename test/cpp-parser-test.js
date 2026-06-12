@@ -2,6 +2,7 @@
 // @slow
 const assert = require('assert');
 const { parseCpp } = require('../src/services/dep-graph/parsers');
+const { parseCpp: parseCppRegex } = require('../src/services/dep-graph/parsers/cpp');
 
 async function testIncludes() {
   const source = `
@@ -50,11 +51,15 @@ void helper(int x) {
   assert.strictEqual(mainFunc.isExported, true, 'main should be exported');
   assert.strictEqual(mainFunc.returnType, 'int', 'main should have return type int');
   assert(Array.isArray(mainFunc.decorators), 'decorators should be an array');
+  assert.strictEqual(mainFunc.branchCount, 0, 'main should have 0 branches');
+  assert.strictEqual(mainFunc.maxArms, 0, 'main should have 0 maxArms');
 
   const helperFunc = result.functionRecords.find((r) => r.name === 'helper');
   assert(helperFunc);
   assert.strictEqual(helperFunc.returnType, 'void', 'helper should have return type void');
   assert.deepStrictEqual(helperFunc.decorators, []);
+  assert.strictEqual(helperFunc.branchCount, 0, 'helper should have 0 branches');
+  assert.strictEqual(helperFunc.maxArms, 0, 'helper should have 0 maxArms');
 }
 
 async function testMacros() {
@@ -193,6 +198,82 @@ T max(T a, T b) {
   assert(result.exportRecords.some((r) => r.name === 'max' && r.kind === 'function'));
 }
 
+async function testBranchMetrics() {
+  const source = `
+int dispatch(int x) {
+  if (x == 1) {
+    return 1;
+  } else if (x == 2) {
+    return 2;
+  } else if (x == 3) {
+    return 3;
+  } else {
+    return 0;
+  }
+}
+
+int selector(int x) {
+  switch (x) {
+    case 1:
+      return 1;
+    case 2:
+      return 2;
+    case 3:
+      return 3;
+    default:
+      return 0;
+  }
+}
+
+int mixed(int x, int y) {
+  for (int i = 0; i < x; i++) {
+    if (y > 0) {
+      return x > 0 ? 1 : 0;
+    }
+  }
+  while (x && y) {
+    do { x--; } while (x > 0);
+  }
+  try {
+    return x;
+  } catch (...) {
+    return -1;
+  }
+}
+`;
+  const result = await parseCpp(source, 'test.cpp');
+
+  const dispatchFn = result.functionRecords.find((r) => r.name === 'dispatch');
+  assert(dispatchFn, 'dispatch should be in functionRecords');
+  assert.strictEqual(dispatchFn.maxArms, 4, 'dispatch should have 4 if-else arms');
+  assert(dispatchFn.branchCount >= 1, 'dispatch should have at least 1 branch');
+
+  const selectorFn = result.functionRecords.find((r) => r.name === 'selector');
+  assert(selectorFn, 'selector should be in functionRecords');
+  assert.strictEqual(selectorFn.maxArms, 4, 'selector should have 4 switch arms');
+  assert(selectorFn.branchCount >= 1, 'selector should have at least 1 branch');
+
+  const mixedFn = result.functionRecords.find((r) => r.name === 'mixed');
+  assert(mixedFn, 'mixed should be in functionRecords');
+  assert.strictEqual(mixedFn.branchCount, 7, `mixed should have 7 branches, got ${mixedFn.branchCount}`);
+  assert.strictEqual(mixedFn.maxArms, 1, `mixed should have maxArms 1, got ${mixedFn.maxArms}`);
+}
+
+async function testRegexFallbackBranchMetrics() {
+  const source = `
+int main() {
+  if (x) return 1;
+  return 0;
+}
+`;
+  const result = parseCppRegex(source);
+  assert.strictEqual(result.parseMode, 'regex');
+  const mainFunc = result.functionRecords.find((r) => r.name === 'main');
+  assert(mainFunc, 'regex fallback should produce main function record');
+  assert.strictEqual(mainFunc.branchCount, 0, 'regex fallback should report branchCount 0');
+  assert.strictEqual(mainFunc.maxArms, 0, 'regex fallback should report maxArms 0');
+}
+
 async function testEmpty() {
   const result = await parseCpp('', 'test.c');
   assert.deepStrictEqual(result.imports, []);
@@ -214,5 +295,7 @@ async function testEmpty() {
   await testStaticFilteringC();
   await testStructClassEnumTypedef();
   await testTemplate();
+  await testBranchMetrics();
+  await testRegexFallbackBranchMetrics();
   await testEmpty();
 })();

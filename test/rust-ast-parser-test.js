@@ -36,6 +36,28 @@ impl Point {
 #[inline]
 pub fn with_return() -> bool { true }
 
+pub fn with_branches(x: i32) -> i32 {
+    if x > 0 {
+        1
+    } else if x < 0 {
+        -1
+    } else {
+        0
+    }
+}
+
+pub fn with_match(x: Option<i32>) -> i32 {
+    match x {
+        Some(v) if v > 0 => v,
+        Some(_) => 0,
+        None => -1,
+    }
+}
+
+pub fn with_logic(a: bool, b: bool, c: bool) -> bool {
+    a && b || c
+}
+
 fn not_exported() {}
 
 struct NotExported;
@@ -143,6 +165,25 @@ async function testRustAstSchema() {
   assert.strictEqual(withReturnFn.isExported, true, 'with_return should be exported');
   assert.strictEqual(withReturnFn.returnType, 'bool', 'with_return should have bool return type');
   assert.deepStrictEqual(withReturnFn.decorators, ['inline'], 'with_return should have inline decorator');
+
+  // functionRecords branchCount / maxArms (Wave 11-15 language parity)
+  assert.strictEqual(helloFn.branchCount, 0, 'hello should have branchCount 0');
+  assert.strictEqual(helloFn.maxArms, 0, 'hello should have maxArms 0');
+
+  const branchesFn = result.functionRecords.find((r) => r.name === 'with_branches');
+  assert(branchesFn, 'Should find with_branches functionRecord');
+  assert.strictEqual(branchesFn.branchCount, 2, 'with_branches should have branchCount 2');
+  assert.strictEqual(branchesFn.maxArms, 3, 'with_branches should have maxArms 3');
+
+  const matchFn = result.functionRecords.find((r) => r.name === 'with_match');
+  assert(matchFn, 'Should find with_match functionRecord');
+  assert.strictEqual(matchFn.branchCount, 3, 'with_match should have branchCount 3');
+  assert.strictEqual(matchFn.maxArms, 3, 'with_match should have maxArms 3');
+
+  const logicFn = result.functionRecords.find((r) => r.name === 'with_logic');
+  assert(logicFn, 'Should find with_logic functionRecord');
+  assert.strictEqual(logicFn.branchCount, 2, 'with_logic should have branchCount 2');
+  assert.strictEqual(logicFn.maxArms, 0, 'with_logic should have maxArms 0');
 }
 
 async function testRustAstUseListReexport() {
