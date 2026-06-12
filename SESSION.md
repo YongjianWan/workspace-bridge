@@ -31,7 +31,7 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 1 L3 + 1 架构债务 + 0 项 P2 Dogfood 活跃缺陷）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 0 架构债务 + 1 L3 + 0 项 P2 Dogfood 活跃缺陷）
 
 ---
 
@@ -42,6 +42,7 @@ node cli.js audit-overview --cwd . --json --quiet
 - 分支：`main`
 - 自身项目规模：~339 文件（entry=1, mainline=152, test=187）
 - 结构性指标：deadExports=0，cycles=0，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 按实际分布
+- 架构债务清零：`bootstrapFromSchema` 路径规范化不一致已修复，schema keys / imports / `importRecords[].resolved` 均经 `normalizeFilePath` 规范化，`originalPath` 保持原样
 - 注意：`healthScore=5/5` 是文件存在性检查（README/LICENSE/.gitignore/Dockerfile），**不反映代码质量**，已废弃
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
@@ -73,7 +74,6 @@ node cli.js audit-overview --cwd . --json --quiet
 | `resolvers.js` 策略链新增策略                        | `src/services/dep-graph/resolvers.js`                | 新增语言需在 `registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null`                     |
 | `checkFileChanges()` 双路径                          | `src/services/cache.js`                              | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为                                              |
 | 动态 require 导致死导出误报                           | `src/services/dep-graph/framework-patterns.js`       | `dead-exports` 无法静态分析 `ROUTE_QUERY_REGISTRY` 动态 require，且 `java-spring.js` 无法命中 JS 启发式豁免，被判定为死导出。不影响运行，可忽略或加白 |
-| `bootstrapFromSchema` key 规范化不匹配               | `src/services/orchestrator.js`                       | fromSchema 原样使用 schema 键值而未规范化路径。Windows Mock 测试中需手动建图或通过 normalize 适配，否则易发生键查找失败 |
 
 ---
 
@@ -86,6 +86,23 @@ node cli.js audit-overview --cwd . --json --quiet
 > **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 unresolved import，自身库全量覆盖率 1.00。
 > **本轮完成**：
 > 1. **Wave 12 输出精炼补全**：完成 12-3 分层输出过滤（`--category dead-exports/unresolved/cycles/health` 在 `audit-summary`/`audit-overview` 中过滤并置空未选类别，`--severity` 文档修正为 `high|medium|low`）；完成 12-4 大项目自动截断（基于项目总文件数 `DEFAULTS.LARGE_PROJECT_FILE_THRESHOLD: 500` 自动启用 `--compact`，`--no-compact`/`--compact`/`WB_COMPACT` 显式覆盖）；完成 12-5 大项目手动截断（`--max-files <n>` 限制 `audit-diff` 变更文件数及 `impact`/`affected-tests`/`affected-routes`/`dependencies`/`dependents`/`tree` 返回结果数）。新增 `test/wave12-large-project-compact-test.js`，扩充 `test/wave12-output-truncation-test.js` `--max-files` 命令层用例。`npm run test:fast` **95/95 PASS**，`npm run test:smoke` **98/98 PASS**。
+---
+
+## 本轮上下文：`bootstrapFromSchema` 路径规范化不一致清偿（活跃）
+
+> **背景**：`bootstrapFromSchema` 原样使用 schema 键值，未执行 `normalizeFilePath`，导致 Windows 上 Mock 测试的 graph key 与生产规范化路径不匹配，部分测试需手动建图或覆盖 `normalizeFilePath`。
+
+### 本轮已交付
+
+- 修复 `src/services/orchestrator.js` 中 `bootstrapFromSchema`：schema keys、`imports`、`importRecords[].resolved` 均通过 `depGraph.normalizeFilePath()` 规范化后再插入；`originalPath` 保持原样；重复 key 保留首次出现。
+- 修复 `src/services/dep-graph/analyzer.js` 中 `_findAffectedTestsByHeuristic`：改用 `node.originalPath` 计算启发式签名，避免规范化 key lowercase 后 Java/Kotlin 测试后缀剥离错误（如 `Audit` 误截为 `Aud`、`FooTests` 无法识别）。
+- 清理测试 workaround：
+  - `test/dep-graph-postprocess-incremental-test.js` 移除手动 wiring 与 `normalizeFilePath` identity 覆盖，改用自然的 schema imports。
+  - `test/java-package-imports-test.js` 移除 `n()` 预规范化 helper，schema 使用自然绝对路径，断言通过 `depGraph.normalizeFilePath()` 获取规范化 key。
+  - `test/wave14-noise-env-test.js` 移除 `testIgnoreFrameworks` 中手动 `dg.graph.set()` 建图 workaround，改用自然的 `DependencyGraph.fromSchema` schema；`testIgnoreFindingsUnresolved` 改用 `dg._displayPath(dg.normalizeFilePath(...))` 计算 cross-platform 的 finding ID。
+  - `test/affected-tests-heuristic-test.js` 适配重复 key 合并后的显示路径行为。
+- 文档同步：移除 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) 对应架构债务条目，SESSION.md 已知陷阱表同步清理。活跃债务更新为 L1 0 + L2 0 + 架构债务 0 + L3 品味问题 1（弱断言分布）。
+
 ---
 
 ## 本轮上下文：参考仓库探索与架构借鉴（活跃）
@@ -193,10 +210,13 @@ node cli.js audit-overview --cwd . --json --quiet
 | -------------- | ----------- | ---------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
-| 活跃债务           | 1           | 弱断言分布 ~2.3% |
+| 架构债务           | 0           | —                                                                                                                                       |
+| L3 品味问题        | 1           | 弱断言分布 ~2.3% |
 | **产品债务** | **0** | —                                                                  |
 
 **测试状态**：`npm run test:fast` **95/95 PASS**（~10s），`npm run test:smoke` **98/98 PASS**（~32s）。全量 runner 本轮未跑完（`e2e-gitnexus-test.js` 在 reference/GitNexus 上超时/失败，与 Wave 12 改动无关）。当前 fast 层 95 个测试，slow 层 71 个，serial 层 7 个。
+
+> `bootstrapFromSchema` 路径规范化不一致问题已修复（schema keys / imports / `importRecords[].resolved` 均经 `normalizeFilePath` 规范化，`originalPath` 保持原样），Windows Mock 测试无需再手动建图绕过。
 
 ---
 

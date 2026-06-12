@@ -39,14 +39,41 @@ function bootstrapFromSchema(workspaceRoot, schema, options = {}) {
     }
   );
 
-  // Build node map from schema
+  // Normalize schema keys and paths the same way production code does.
+  // On Windows, normalizeFilePath resolves relatives, uses POSIX slashes,
+  // and lowercases the drive letter, so graph keys stay consistent.
+  const keyMap = new Map();
+  for (const [file] of Object.entries(schema || {})) {
+    const normalizedKey = depGraph.normalizeFilePath(file);
+    keyMap.set(file, normalizedKey);
+    // Self-consistency: normalized values resolve to themselves.
+    keyMap.set(normalizedKey, normalizedKey);
+  }
+
+  function resolvePath(p) {
+    if (keyMap.has(p)) return keyMap.get(p);
+    return depGraph.normalizeFilePath(p);
+  }
+
+  // Build node map from schema. If two schema keys normalize to the same
+  // graph key (e.g. POSIX and Windows absolute paths on Windows), keep the
+  // first occurrence so that originalPath/output format is deterministic.
   for (const [file, node] of Object.entries(schema || {})) {
-    const imports = node.imports || [];
-    depGraph.graph.set(file, {
+    const key = keyMap.get(file);
+    if (depGraph.graph.has(key)) continue;
+    const imports = (node.imports || []).map(resolvePath).filter(Boolean);
+    const importRecords = (node.importRecords || []).map((r) => ({
+      ...r,
+      resolved:
+        typeof r.resolved === 'string' && r.resolved.length > 0
+          ? resolvePath(r.resolved)
+          : r.resolved,
+    }));
+    depGraph.graph.set(key, {
       originalPath: node.originalPath || file,
-      imports: imports,
+      imports,
       exports: node.exports || [],
-      importRecords: node.importRecords || [],
+      importRecords,
       exportRecords: node.exportRecords || [],
       functionRecords: node.functionRecords || [],
       parseMode: node.parseMode || 'ast',

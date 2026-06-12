@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// @contract — Precomputed aggregate cache hit, invalidation, and persistent round-trip behavior
+
 /**
  * Precomputed aggregate cache tests (P2)
  */

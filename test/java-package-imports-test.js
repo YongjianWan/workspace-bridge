@@ -1,12 +1,8 @@
 #!/usr/bin/env node
+// @semantic
 const assert = require('assert');
 const path = require('path');
-const { normalizePathKey } = require('../src/utils/path');
 const { DependencyGraph, GraphBuilder } = require('../src/services/dep-graph');
-
-function n(p) {
-  return normalizePathKey(p);
-}
 
 function testJavaWildcardImportExpansion() {
   const tmpDir = path.resolve('/tmp/wb-java-pkg-wildcard');
@@ -14,12 +10,8 @@ function testJavaWildcardImportExpansion() {
   const bPath = path.join(tmpDir, 'B.java');
   const cPath = path.join(tmpDir, 'C.java');
 
-  const aKey = n(aPath);
-  const bKey = n(bPath);
-  const cKey = n(cPath);
-
   const depGraph = DependencyGraph.fromSchema(tmpDir, {
-    [aKey]: {
+    [aPath]: {
       originalPath: aPath,
       imports: [],
       exports: ['A'],
@@ -35,7 +27,7 @@ function testJavaWildcardImportExpansion() {
       confidence: 'high',
       package: 'com.example',
     },
-    [bKey]: {
+    [bPath]: {
       originalPath: bPath,
       imports: [],
       exports: ['B'],
@@ -46,7 +38,7 @@ function testJavaWildcardImportExpansion() {
       confidence: 'high',
       package: 'com.other',
     },
-    [cKey]: {
+    [cPath]: {
       originalPath: cPath,
       imports: [],
       exports: ['C'],
@@ -61,6 +53,10 @@ function testJavaWildcardImportExpansion() {
 
   const builder = new GraphBuilder(depGraph);
   builder.expandJavaPackageImports();
+
+  const aKey = depGraph.normalizeFilePath(aPath);
+  const bKey = depGraph.normalizeFilePath(bPath);
+  const cKey = depGraph.normalizeFilePath(cPath);
 
   const aInfo = depGraph.graph.get(aKey);
   assert(aInfo.imports.includes(bKey), 'A should import B via wildcard expansion');
@@ -87,11 +83,8 @@ function testJavaSamePackageImplicitRefs() {
   const aPath = path.join(tmpDir, 'A.java');
   const bPath = path.join(tmpDir, 'B.java');
 
-  const aKey = n(aPath);
-  const bKey = n(bPath);
-
   const depGraph = DependencyGraph.fromSchema(tmpDir, {
-    [aKey]: {
+    [aPath]: {
       originalPath: aPath,
       imports: [],
       exports: ['A'],
@@ -102,7 +95,7 @@ function testJavaSamePackageImplicitRefs() {
       confidence: 'high',
       package: 'com.example',
     },
-    [bKey]: {
+    [bPath]: {
       originalPath: bPath,
       imports: [],
       exports: ['B'],
@@ -117,6 +110,9 @@ function testJavaSamePackageImplicitRefs() {
 
   const builder = new GraphBuilder(depGraph);
   builder.expandJavaPackageImports();
+
+  const aKey = depGraph.normalizeFilePath(aPath);
+  const bKey = depGraph.normalizeFilePath(bPath);
 
   const aInfo = depGraph.graph.get(aKey);
   const bInfo = depGraph.graph.get(bKey);
@@ -138,10 +134,8 @@ function testJavaWildcardExternalPackageIgnored() {
   const tmpDir = path.resolve('/tmp/wb-java-pkg-ext');
   const aPath = path.join(tmpDir, 'A.java');
 
-  const aKey = n(aPath);
-
   const depGraph = DependencyGraph.fromSchema(tmpDir, {
-    [aKey]: {
+    [aPath]: {
       originalPath: aPath,
       imports: [],
       exports: ['A'],
@@ -162,6 +156,7 @@ function testJavaWildcardExternalPackageIgnored() {
   const builder = new GraphBuilder(depGraph);
   builder.expandJavaPackageImports();
 
+  const aKey = depGraph.normalizeFilePath(aPath);
   const aInfo = depGraph.graph.get(aKey);
   assert.strictEqual(aInfo.imports.length, 0, 'External wildcard should not create edges');
 }

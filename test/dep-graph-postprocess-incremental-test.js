@@ -123,32 +123,29 @@ async function testJavaPackageChangeConsistency() {
 }
 
 async function testCycleCacheFineGrainedInvalidation() {
-  const { createMockDepGraph } = require('./test-helpers');
-
-  const graph = createMockDepGraph({
-    mode: 'instance',
-    schema: {
-      '/repo/src/a.js': { imports: [], exports: [] },
-      '/repo/src/b.js': { imports: [], exports: [] },
-      '/repo/src/c.js': { imports: [], exports: [] },
-      '/repo/src/d.js': { imports: [], exports: [] },
+  const root = '/repo';
+  const graph = DependencyGraph.fromSchema(
+    root,
+    {
+      'src/a.js': { imports: ['src/b.js'], exports: [] },
+      'src/b.js': { imports: ['src/c.js'], exports: [] },
+      'src/c.js': { imports: ['src/a.js'], exports: [] },
+      'src/d.js': { imports: [], exports: [] },
     },
-  });
+    { quiet: true }
+  );
 
-  // Manually wire the cycle to bypass fromSchema/normalizeFilePath mismatch on Windows
-  const aKey = Array.from(graph.graph.keys()).find((k) => k.endsWith('a.js'));
-  const bKey = Array.from(graph.graph.keys()).find((k) => k.endsWith('b.js'));
-  const cKey = Array.from(graph.graph.keys()).find((k) => k.endsWith('c.js'));
-  const dKey = Array.from(graph.graph.keys()).find((k) => k.endsWith('d.js'));
+  // Schema keys and imports are normalized by fromSchema, so relative paths
+  // work cross-platform. Resolve the normalized keys used by the graph here.
+  const aKey = graph.normalizeFilePath(path.join(root, 'src/a.js'));
+  const bKey = graph.normalizeFilePath(path.join(root, 'src/b.js'));
+  const cKey = graph.normalizeFilePath(path.join(root, 'src/c.js'));
+  const dKey = graph.normalizeFilePath(path.join(root, 'src/d.js'));
 
-  graph.graph.get(aKey).imports = [bKey];
-  graph.graph.get(bKey).imports = [cKey];
-  graph.graph.get(cKey).imports = [aKey];
-  graph.buildReverseGraph();
-
-  // Normalize normalizeFilePath to identity for stable cross-platform test
-  const origNormalize = graph.normalizeFilePath.bind(graph);
-  graph.normalizeFilePath = (p) => p;
+  // Verify the cycle is wired from the schema
+  assert(graph.getFileInfo(aKey).imports.includes(bKey), 'a.js should import b.js');
+  assert(graph.getFileInfo(bKey).imports.includes(cKey), 'b.js should import c.js');
+  assert(graph.getFileInfo(cKey).imports.includes(aKey), 'c.js should import a.js');
 
   // Compute and cache cycles
   const cycles = graph.analyzer.findCircularDependencies();
@@ -171,8 +168,6 @@ async function testCycleCacheFineGrainedInvalidation() {
   assert(graph.analyzer._cachedCycles, 'cycles recached after recomputation');
   graph.bus.emit('graph:updated', { fullRebuild: true });
   assert.strictEqual(graph.analyzer._cachedCycles, null, 'cache cleared on fullRebuild');
-
-  graph.normalizeFilePath = origNormalize;
 }
 
 async function testJavaPackageExpansionIncrementalAffectedOnly() {

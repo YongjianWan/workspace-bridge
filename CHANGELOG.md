@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+### 修复与内部质量 (2026-06-12)
+
+- Fix `bootstrapFromSchema` path normalization inconsistency; schema keys, `imports`, and `importRecords[].resolved` are now normalized via `normalizeFilePath`, eliminating Windows mock-test workarounds.
+- `bootstrapFromSchema` now keeps the first occurrence when two schema keys normalize to the same graph key (e.g. POSIX and Windows absolute paths on Windows), making `originalPath` deterministic.
+- `_findAffectedTestsByHeuristic` now computes heuristic signatures from `node.originalPath` instead of the normalized graph key, preserving correct Java/Kotlin test-suffix stripping after key lowercasing.
+
 ### Wave 12: 类别过滤 Summary 同步与性能优化 (2026-06-12)
 
 - **类别过滤与 Summary 同步 (12-3)**：修复了 `--category` 过滤时 repo / overview / incremental-diff 汇总的 counts 和 recommendations 不同步的 bug。现在，被过滤类别的 counts 指标以及 `incrementalFindings` 字段会被彻底排除，且 nextSteps/recommendations 中不再生成该类别的诊断建议，同时严重性评级（severity）也将自动剔除已省略项的影响。

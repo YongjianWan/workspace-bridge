@@ -29,7 +29,7 @@
 **定位**：AI 的代码脚手架（Code Scaffolding for AI），不是人的报告工具。
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
-- **当前债务**：L1/L2/产品债务已清零；架构债务 1 项（见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）
+- **当前债务**：L1/L2/产品债务/架构债务已清零；剩余 L3 品味问题 1 项（见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
@@ -243,6 +243,6 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-06-11（PowerShell BOM、Watch/REPL Flaky 修复、孤儿文件检测统一全面完成；npm run test:fast 94/94 PASS；test:watch 4/4 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-12（`bootstrapFromSchema` 路径规范化不一致修复；npm run test:fast 95/95 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
 
 

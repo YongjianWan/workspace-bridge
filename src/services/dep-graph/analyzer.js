@@ -997,20 +997,27 @@ class GraphAnalyzer {
   _findAffectedTestsByHeuristic(filePath, maxDepth, graphResults) {
     const isTestFile = (f) => isTestLikeFile(f);
     const seen = new Set(graphResults.map((entry) => entry.file));
-    const sourceSignature = buildHeuristicSignature(this.dg.root, filePath);
-    const sourceFamily = getHeuristicLanguageFamily(filePath);
-    const sourceLeaf = normalizeHeuristicName(filePath);
+    // Heuristic signatures should be computed from the original-casing path
+    // (stored in node.originalPath), not from the normalized graph key, so
+    // case-sensitive suffix stripping (e.g. Java *Tests / *IT) stays correct.
+    const sourceInfo = this.dg.getFileInfo(filePath);
+    const sourcePath = sourceInfo?.originalPath || filePath;
+    const sourceSignature = buildHeuristicSignature(this.dg.root, sourcePath);
+    const sourceFamily = getHeuristicLanguageFamily(sourcePath);
+    const sourceLeaf = normalizeHeuristicName(sourcePath);
 
     for (const candidate of this.dg.graph.keys()) {
       if (candidate === filePath) continue;
       if (!isTestFile(candidate)) continue;
       if (seen.has(candidate)) continue;
 
-      const candidateFamily = getHeuristicLanguageFamily(candidate);
+      const candidateInfo = this.dg.graph.get(candidate);
+      const candidatePath = candidateInfo?.originalPath || candidate;
+      const candidateFamily = getHeuristicLanguageFamily(candidatePath);
       if (sourceFamily !== candidateFamily) continue;
 
-      const candidateSignature = buildHeuristicSignature(this.dg.root, candidate);
-      const candidateLeaf = normalizeHeuristicName(candidate);
+      const candidateSignature = buildHeuristicSignature(this.dg.root, candidatePath);
+      const candidateLeaf = normalizeHeuristicName(candidatePath);
 
       let signatureMatched = candidateSignature && candidateSignature === sourceSignature;
 

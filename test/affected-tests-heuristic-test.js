@@ -90,8 +90,14 @@ function main() {
 
   const winTests = depGraph.findAffectedTests('C:\\repo\\packages\\foo\\src\\service.js');
   const winFiles = winTests.map((entry) => entry.file.replace(/\\/g, '/'));
-  assert(winFiles.includes('C:/repo/packages/foo/test/service.test.js'), 'Windows mirrored test should be included');
+  // Schema POSIX and Windows keys normalize to the same graph key; the display
+  // path follows the first occurrence's originalPath, so accept either format.
+  const winMatched =
+    winFiles.includes('C:/repo/packages/foo/test/service.test.js') ||
+    winFiles.includes('/repo/packages/foo/test/service.test.js');
+  assert(winMatched, 'Windows mirrored test should be included');
   assert(!winFiles.includes('C:/repo/packages/foo/test/mismatch/service.test.js'), 'Windows mismatched layout should not be included');
+  assert(!winFiles.includes('/repo/packages/foo/test/mismatch/service.test.js'), 'Windows mismatched layout should not be included');
 
   // __tests__ layout
   const dunderTests = depGraph.findAffectedTests('/repo/src/utils/request.js');

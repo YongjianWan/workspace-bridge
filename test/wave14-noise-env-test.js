@@ -43,10 +43,13 @@ function testIgnoreFindingsUnresolved() {
     'src/a.js': { imports: ['/mock/missing.js'], exports: [], originalPath: 'src/a.js' },
     'src/b.js': { imports: ['/mock/another-missing.js'], exports: [], originalPath: 'src/b.js' },
   });
+  // Imports are normalized via normalizeFilePath; compute expected display IDs cross-platform.
+  const missingDisplay = dg._displayPath(dg.normalizeFilePath('/mock/missing.js'));
+  const anotherMissingDisplay = dg._displayPath(dg.normalizeFilePath('/mock/another-missing.js'));
   dg.projectContext = {
     config: {
       ignore: {
-        findings: ['unresolved:src/a.js:/mock/missing.js'],
+        findings: [`unresolved:src/a.js:${missingDisplay}`],
       },
     },
   };
@@ -54,8 +57,8 @@ function testIgnoreFindingsUnresolved() {
   const result = analyzer.findUnresolvedImports({ skipCache: true });
   assert.ok(Array.isArray(result));
   const ids = result.map((r) => r.id);
-  assert.ok(!ids.includes('unresolved:src/a.js:/mock/missing.js'), 'Expected unresolved:src/a.js:/mock/missing.js to be filtered out');
-  assert.ok(ids.includes('unresolved:src/b.js:/mock/another-missing.js'), 'Expected unresolved:src/b.js:/mock/another-missing.js to remain');
+  assert.ok(!ids.includes(`unresolved:src/a.js:${missingDisplay}`), `Expected unresolved:src/a.js:${missingDisplay} to be filtered out`);
+  assert.ok(ids.includes(`unresolved:src/b.js:${anotherMissingDisplay}`), `Expected unresolved:src/b.js:${anotherMissingDisplay} to remain`);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -114,34 +117,19 @@ function testWBFailOnFindingsEnv() {
 // Test 6: ignore.frameworks 过滤
 /* -------------------------------------------------------------------------- */
 function testIgnoreFrameworks() {
-  // Build graph manually to bypass fromSchema/normalizeFilePath mismatch on Windows
-  const dg = DependencyGraph.fromSchema('/mock', {});
-  const expressKey = dg.normalizeFilePath('/mock/src/routes/express.js');
-  dg.graph.set(expressKey, {
-    originalPath: 'src/routes/express.js',
-    imports: [],
-    exports: ['router'],
-    importRecords: [],
-    exportRecords: [],
-    functionRecords: [],
-    parseMode: 'ast',
-    confidence: 'medium',
-    package: null,
-    frameworkHint: { framework: 'express', reason: 'routes-folder' },
+  const dg = DependencyGraph.fromSchema('/mock', {
+    'src/routes/express.js': {
+      imports: [],
+      exports: ['router'],
+      originalPath: 'src/routes/express.js',
+      frameworkHint: { framework: 'express', reason: 'routes-folder' },
+    },
+    'src/lib/utils.js': {
+      imports: [],
+      exports: ['helper'],
+      originalPath: 'src/lib/utils.js',
+    },
   });
-  const utilsKey = dg.normalizeFilePath('/mock/src/lib/utils.js');
-  dg.graph.set(utilsKey, {
-    originalPath: 'src/lib/utils.js',
-    imports: [],
-    exports: ['helper'],
-    importRecords: [],
-    exportRecords: [],
-    functionRecords: [],
-    parseMode: 'ast',
-    confidence: 'medium',
-    package: null,
-  });
-  dg.buildReverseGraph();
   dg.projectContext = {
     config: {
       ignore: {
@@ -149,6 +137,8 @@ function testIgnoreFrameworks() {
       },
     },
   };
+  const expressKey = dg.normalizeFilePath('/mock/src/routes/express.js');
+  const utilsKey = dg.normalizeFilePath('/mock/src/lib/utils.js');
   assert.strictEqual(dg.shouldExcludeCli(expressKey), true, 'Expected express file to be excluded');
   assert.strictEqual(dg.shouldExcludeCli(utilsKey), false, 'Expected non-express file to not be excluded');
 }
