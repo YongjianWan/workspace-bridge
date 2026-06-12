@@ -16,6 +16,8 @@ const {
 } = require('./implicit-imports');
 const { CONFIG } = require('./shared');
 const { SymbolRegistry } = require('./symbol-registry');
+const { shadowCandidatesFor } = require('./shadow-candidates');
+const { WalCadence } = require('./wal-cadence');
 
 const readFile = promisify(fs.readFile);
 const YIELD_INTERVAL = 20; // event loop yield frequency for large repos
@@ -32,6 +34,8 @@ class GraphBuilder {
       fn: () => this.expandJavaPackageImports(),
       triggers: ['.java', '.kt'],
     });
+    this._parseCache = new Map();
+    this._walCadence = new WalCadence();
   }
 
   registerPostProcessPhase(phase) {
@@ -61,6 +65,7 @@ class GraphBuilder {
     // Clear per-build caches to avoid stale content after rebuild
     this.dg._scanContentCache.clear();
     this.dg._scanPatternCache.clear();
+    this._parseCache.clear();
 
     // Get all files from cache, or use the raw file list provided by file-index
     // so that originalPath preserves platform-native casing and separators.
@@ -219,9 +224,15 @@ class GraphBuilder {
     return results;
   }
 
-  async parseFileOnly(filePath) {
+  async parseFileOnly(filePath, contentOverride = null) {
     const graphKey = this.dg.normalizeFilePath(filePath);
-    const content = await readFile(filePath, 'utf8');
+    const meta = this.dg.cache ? this.dg.cache.getFileMetadata(filePath) : null;
+    const cached = this._parseCache.get(graphKey);
+    if (cached && meta && cached.mtime === meta.mtime) {
+      return cached.result;
+    }
+
+    const content = contentOverride !== null ? contentOverride : await readFile(filePath, 'utf8');
     const ext = path.extname(filePath);
     
     let imports = [];
@@ -258,7 +269,7 @@ class GraphBuilder {
       }
     }
 
-    return {
+    const parsed = {
       filePath,
       graphKey,
       content,
@@ -272,6 +283,16 @@ class GraphBuilder {
       confidence: parseMode === 'ast' ? 'high' : 'medium',
       package: packageName,
     };
+
+    if (meta) {
+      this._parseCache.set(graphKey, { mtime: meta.mtime, result: parsed });
+      if (this._parseCache.size > 200) {
+        const oldest = this._parseCache.keys().next().value;
+        this._parseCache.delete(oldest);
+      }
+    }
+
+    return parsed;
   }
 
   resolveFileOnly(parsed) {
@@ -649,78 +670,175 @@ class GraphBuilder {
     }
 
     try {
+      const changedKeys = new Set();
+      const toEvictCache = new Set();
+      const physicalChanges = [];
+
       for (const filePath of filePaths) {
         const key = this.dg.normalizeFilePath(filePath);
-
-        // Handle deleted files FIRST — must not be masked by cache-hit fast path
+        changedKeys.add(key);
         if (!fs.existsSync(filePath)) {
-          this._removeOldReverseEdges(key);
+          deletedKeys.push(key);
+        } else {
+          physicalChanges.push(filePath);
+          toEvictCache.add(key);
+        }
+      }
 
-          // P102: Clean incoming edges — remove deleted file from all reverseGraph entries
-          for (const [dependentKey, dependents] of this.dg.reverseGraph) {
-            const idx = dependents.indexOf(key);
-            if (idx >= 0) {
-              dependents.splice(idx, 1);
-              if (dependents.length === 0) {
-                this.dg.reverseGraph.delete(dependentKey);
+      // L3: Neighbor-aware 1-hop 扩展 & Shadow Candidates
+      const dependentsKeys = new Set();
+      for (const key of changedKeys) {
+        // 1. 1-hop dependents
+        const deps = this.dg.reverseGraph.get(key) || [];
+        for (const dep of deps) {
+          if (!changedKeys.has(dep)) {
+            dependentsKeys.add(dep);
+          }
+        }
+
+        // 2. Shadow Candidates
+        const oldInfo = this.dg.graph.get(key);
+        if (!oldInfo) {
+          // It's a new file. Get original path and calculate shadow candidates.
+          const originalPath = filePaths.find(p => this.dg.normalizeFilePath(p) === key);
+          if (originalPath && fs.existsSync(originalPath)) {
+            const candidates = shadowCandidatesFor(originalPath);
+            for (const cand of candidates) {
+              const candKey = this.dg.normalizeFilePath(cand);
+              const candDeps = this.dg.reverseGraph.get(candKey) || [];
+              for (const dep of candDeps) {
+                if (!changedKeys.has(dep)) {
+                  dependentsKeys.add(dep);
+                }
               }
             }
           }
-          // P102: Clean other files' imports / importRecords referencing deleted file
-          for (const [, info] of this.dg.graph) {
-            const idx = info.imports.indexOf(key);
-            if (idx >= 0) {
-              info.imports.splice(idx, 1);
-              info.importRecords = info.importRecords.filter((r) => r.resolved !== key);
-            }
-          }
-          this.dg.reverseGraph.delete(key);
-
-          this.dg.graph.delete(key);
-          this.dg.cache.deleteFileMetadata(filePath);
-          this.dg.cache.deleteParseResult(filePath);
-          this.dg.cache.clearDiagnostics(filePath);
-          deletedKeys.push(key);
-          this.dg.bus.emit('graph:updated', { changedFiles: [key] });
-          continue;
         }
+      }
 
-        // Fast path: file unchanged (graph and cache agree on mtime)
-        const oldInfo = this.dg.graph.get(key);
-        const meta = this.dg.cache.getFileMetadata(filePath);
-        const cached = this.dg.cache.getParseResult(filePath);
-        if (oldInfo && cached && meta && cached.mtime === meta.mtime) {
-          skipped++;
-          continue;
+      const dependentsPaths = [];
+      for (const key of dependentsKeys) {
+        const info = this.dg.graph.get(key);
+        if (info && info.originalPath && fs.existsSync(info.originalPath)) {
+          dependentsPaths.push(info.originalPath);
         }
+      }
 
+      // Evict parse cache for physically changed files
+      for (const key of toEvictCache) {
+        this._parseCache.delete(key);
+      }
+
+      // Handle deleted files FIRST — must not be masked by cache-hit fast path
+      for (const key of deletedKeys) {
         this._removeOldReverseEdges(key);
 
-        // Re-parse (Parse Phase)
-        try {
-          const parsed = await this.parseFileOnly(filePath);
-          if (parsed) {
-            parsedList.push(parsed);
-            // Temporarily set in graph for symbol registry building
-            this.dg.graph.set(parsed.graphKey, {
-              originalPath: parsed.filePath,
-              imports: [],
-              exports: parsed.exports,
-              importRecords: [],
-              exportRecords: parsed.exportRecords,
-              functionRecords: parsed.functionRecords,
-              parseMode: parsed.parseMode,
-              parseModeReason: parsed.parseModeReason,
-              confidence: parsed.confidence,
-              package: parsed.package,
-            });
+        // P102: Clean incoming edges — remove deleted file from all reverseGraph entries
+        for (const [dependentKey, dependents] of this.dg.reverseGraph) {
+          const idx = dependents.indexOf(key);
+          if (idx >= 0) {
+            dependents.splice(idx, 1);
+            if (dependents.length === 0) {
+              this.dg.reverseGraph.delete(dependentKey);
+            }
           }
-        } catch (e) {
-          console.error(`[DepGraph] Failed to parse ${filePath}:`, e?.message || e);
-          this.dg.graph.delete(key);
-          this.dg.cache.deleteParseResult(filePath);
-          if (!this.dg._parseErrorFiles) this.dg._parseErrorFiles = new Set();
-          this.dg._parseErrorFiles.add(key);
+        }
+        // P102: Clean other files' imports / importRecords referencing deleted file
+        for (const [, info] of this.dg.graph) {
+          const idx = info.imports.indexOf(key);
+          if (idx >= 0) {
+            info.imports.splice(idx, 1);
+            info.importRecords = info.importRecords.filter((r) => r.resolved !== key);
+          }
+        }
+        this.dg.reverseGraph.delete(key);
+
+        this.dg.graph.delete(key);
+        const originalPath = filePaths.find(p => this.dg.normalizeFilePath(p) === key) || key;
+        if (this.dg.cache) {
+          this.dg.cache.deleteFileMetadata(originalPath);
+          this.dg.cache.deleteParseResult(originalPath);
+          this.dg.cache.clearDiagnostics(originalPath);
+        }
+        this.dg.bus.emit('graph:updated', { changedFiles: [key] });
+      }
+
+      // Process physical changes and dependents
+      const loopItems = [
+        ...physicalChanges.map(p => ({ filePath: p, isDependentOnly: false })),
+        ...dependentsPaths.map(p => ({ filePath: p, isDependentOnly: true })),
+      ];
+
+      for (const item of loopItems) {
+        const { filePath, isDependentOnly } = item;
+        const key = this.dg.normalizeFilePath(filePath);
+
+        if (isDependentOnly) {
+          this._removeOldReverseEdges(key);
+          try {
+            const parsed = await this.parseFileOnly(filePath);
+            if (parsed) {
+              parsedList.push(parsed);
+            }
+          } catch (e) {
+            console.error(`[DepGraph] Failed to parse neighbor ${filePath}:`, e?.message || e);
+          }
+        } else {
+          // Fast path: file unchanged (graph and cache agree on mtime)
+          const oldInfo = this.dg.graph.get(key);
+          const meta = this.dg.cache ? this.dg.cache.getFileMetadata(filePath) : null;
+          const cached = this.dg.cache ? this.dg.cache.getParseResult(filePath) : null;
+          if (oldInfo && cached && meta && cached.mtime === meta.mtime) {
+            skipped++;
+            continue;
+          }
+
+          // L2: SHA-256 哈希二次校验 (排除 mtime 伪阳性)
+          let content = null;
+          if (oldInfo && cached && meta && meta.hash) {
+            const crypto = require('crypto');
+            try {
+              content = await readFile(filePath, 'utf8');
+              const currentHash = crypto.createHash('sha256').update(content).digest('hex');
+              if (currentHash === meta.hash) {
+                skipped++;
+                continue;
+              }
+            } catch (err) {
+              // Read failure will be caught or re-read in parseFileOnly
+            }
+          }
+
+          this._removeOldReverseEdges(key);
+
+          // Re-parse (Parse Phase)
+          try {
+            const parsed = await this.parseFileOnly(filePath, content);
+            if (parsed) {
+              parsedList.push(parsed);
+              // Temporarily set in graph for symbol registry building
+              this.dg.graph.set(parsed.graphKey, {
+                originalPath: parsed.filePath,
+                imports: [],
+                exports: parsed.exports,
+                importRecords: [],
+                exportRecords: parsed.exportRecords,
+                functionRecords: parsed.functionRecords,
+                parseMode: parsed.parseMode,
+                parseModeReason: parsed.parseModeReason,
+                confidence: parsed.confidence,
+                package: parsed.package,
+              });
+            }
+          } catch (e) {
+            console.error(`[DepGraph] Failed to parse ${filePath}:`, e?.message || e);
+            this.dg.graph.delete(key);
+            if (this.dg.cache) {
+              this.dg.cache.deleteParseResult(filePath);
+            }
+            if (!this.dg._parseErrorFiles) this.dg._parseErrorFiles = new Set();
+            this.dg._parseErrorFiles.add(key);
+          }
         }
       }
 
@@ -840,6 +958,10 @@ class GraphBuilder {
       if (this.dg.cache && typeof this.dg.cache.save === 'function') {
         try {
           await this.dg.cache.save();
+          if (typeof this.dg.cache.walCheckpoint === 'function') {
+            const mode = this._walCadence.tick();
+            this.dg.cache.walCheckpoint(mode);
+          }
         } catch (e) {
           if (process.env.DEBUG) {
             console.error('[GraphBuilder] cache.save() failed:', e.message);

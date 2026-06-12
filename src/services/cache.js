@@ -620,6 +620,12 @@ class WorkspaceCache {
       this._graphDb.close();
     }
   }
+
+  walCheckpoint(mode) {
+    if (this._graphDb) {
+      this._graphDb.walCheckpoint(mode);
+    }
+  }
 }
 
 module.exports = {

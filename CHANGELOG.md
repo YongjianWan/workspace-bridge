@@ -8,6 +8,19 @@
 
 ## [Unreleased]
 
+### Wave 15: 深度扩展 — 增量更新、缓存优化与 AST 轻量规则引擎 (2026-06-12)
+
+- **15-1 AST 轻量规则引擎**：新建 `src/services/dep-graph/ast-rules.js`，实现单文件方法级规则匹配 findings（如 `batch*` 方法缺少 `@Transactional`、TS 导出方法缺少 `returnType` 注解）。
+- **15-1 CLI 与 Curation 接入**：在 `overview-assembler.js`、`overview-tools.js` 及 `audit-assembler.js` 中完整集成 AST Rules 检查逻辑；支持在 `audit-summary` 及 `audit-overview` 的 human, summary, markdown 和 jsonl 风格格式化器中输出 findings 统计与明细。
+- **15-3 ParseCache 跨调用缓存**：在 `builder.js` 中新增 LRU 内存缓存（上限 200），在文件 `mtime` 未变时直接复用解析结果，抵消增量邻居重解析开销。
+- **15-4 L1-L4 增量更新四层叠加协议**：
+  - **L1/L2 增量过滤**：集成 SHA-256 二次过滤机制，避免 mtime 精度问题带来的伪阳性重新解析。
+  - **L3 Neighbor-aware & Shadow Candidates**：新建 `src/services/dep-graph/shadow-candidates.js`，重构 `updateFiles()` 在解析前自动扩展 1-hop dependents 邻居及 shadow targets，实现跨文件 import 关系在增量下的精准重构，修复了以前已删除文件依赖边残留的死循环和残留问题。
+  - **L4 WAL Checkpoint SQLite 写入节流**：新建 `src/services/dep-graph/wal-cadence.js`，在 watch/repl 增量写之后执行 SQLite 的 `PASSIVE` 写入节流，并以时间间隔（60s）/批次量（32次）阈值交替触发 `TRUNCATE` checkpoint。
+- **测试**：
+  - 新增 `wave15-parse-cache-test.js`、`wave15-neighbor-aware-test.js`、`wave15-shadow-candidates-test.js`、`wave15-wal-cadence-test.js`、`wave15-ast-rules-test.js` 专项测试。
+  - 跑通 `npm run test:fast`（99/99 PASS）和 `npm run test:smoke`（102/102 PASS）。
+
 ### 修复与内部质量 (2026-06-12)
 
 - Fix `bootstrapFromSchema` path normalization inconsistency; schema keys, `imports`, and `importRecords[].resolved` are now normalized via `normalizeFilePath`, eliminating Windows mock-test workarounds.

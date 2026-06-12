@@ -304,6 +304,17 @@ class GraphDB {
     _restoreEmitWarning();
   }
 
+  walCheckpoint(mode) {
+    try {
+      this._ensureOpen();
+      this.db.exec(`PRAGMA wal_checkpoint(${mode});`);
+      return true;
+    } catch (err) {
+      _debugError(`WAL Checkpoint ${mode}`, err);
+      return false;
+    }
+  }
+
   getMetadata(key) {
     try {
       this._ensureOpen();

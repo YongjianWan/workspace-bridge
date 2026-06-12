@@ -45,6 +45,8 @@ const CATEGORY_ALIASES = {
   'smells': 'smells',
   'health': 'health',
   'security': 'security',
+  'ast-rules': 'astRules',
+  'astrules': 'astRules',
 };
 
 const EMPTY_CATEGORY_STUBS = {
@@ -69,6 +71,7 @@ const EMPTY_CATEGORY_STUBS = {
     findings: [],
     summary: { total: 0, bySeverity: { high: 0, medium: 0, low: 0 } },
   }),
+  astRules: () => ({ ok: true, findingsCount: 0, findings: [] }),
 };
 
 function parseCategories(category) {
@@ -128,8 +131,31 @@ async function assembleSummary(parsed, container) {
     }
   }
 
-  const sections = { health, deadExports, unresolved, cycles };
-  filterByCategory(sections, parsed.category, ['health', 'deadExports', 'unresolved', 'cycles']);
+  // 15-1 AST Rules Engine integration
+  const { checkAllRules } = require('../services/dep-graph/ast-rules');
+  let astRulesRaw = [];
+  if (container.snapshot && container.snapshot.graph) {
+    astRulesRaw = checkAllRules(container.snapshot.graph.graph);
+  }
+
+  if (parsed.severity) {
+    astRulesRaw = astRulesRaw.filter((f) => severityMeetsFilter(f.severity, parsed.severity));
+  }
+
+  const ignoreFindings = container.projectContext?.config?.ignore?.findings;
+  if (ignoreFindings?.length > 0) {
+    const ignoredSet = new Set(ignoreFindings);
+    astRulesRaw = astRulesRaw.filter((f) => !ignoredSet.has(f.id));
+  }
+
+  const astRules = {
+    ok: true,
+    findingsCount: astRulesRaw.length,
+    findings: astRulesRaw,
+  };
+
+  const sections = { health, deadExports, unresolved, cycles, astRules };
+  filterByCategory(sections, parsed.category, ['health', 'deadExports', 'unresolved', 'cycles', 'astRules']);
 
   const scope = container.snapshot.graph.getScopeSummary();
   const { detectStack } = require('../utils/stack-detectors/detect');
@@ -138,7 +164,7 @@ async function assembleSummary(parsed, container) {
   const filteredAnalysisCoverage = stats.filteredAnalysisCoverage || stats.analysisCoverage || null;
 
   const result = {
-    ok: [sections.health, sections.deadExports, sections.unresolved, sections.cycles].every((r) => r.ok !== false),
+    ok: [sections.health, sections.deadExports, sections.unresolved, sections.cycles, sections.astRules].every((r) => r.ok !== false),
     workspaceRoot: container.workspaceRoot,
     scope,
     summary: buildRepoSummary(sections.health, sections.deadExports, sections.unresolved, sections.cycles, scope, stack.profile, filteredAnalysisCoverage, stack),
@@ -146,6 +172,7 @@ async function assembleSummary(parsed, container) {
     deadExports: sections.deadExports,
     unresolved: sections.unresolved,
     cycles: sections.cycles,
+    astRules: sections.astRules,
   };
 
   regressionTools.applyBaselineOperations(result, parsed);
@@ -155,6 +182,7 @@ async function assembleSummary(parsed, container) {
     (result.deadExports?.deadExportsCount || 0) > 0 ||
     (result.unresolved?.unresolvedCount || 0) > 0 ||
     (result.cycles?.cyclesCount || 0) > 0 ||
+    (result.astRules?.findingsCount || 0) > 0 ||
     (result.health?.healthScoreNumeric?.ratio || 1) < 1;
 
   return result;

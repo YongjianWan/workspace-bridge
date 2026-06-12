@@ -86,13 +86,14 @@ const COMMANDS = {
 
       // Wave 12: --category filter narrows the summary to selected dimensions.
       if (parsed.category) {
-        filterByCategory(result, parsed.category, ['health', 'deadExports', 'unresolved', 'cycles', 'boundaries', 'smells']);
+        filterByCategory(result, parsed.category, ['health', 'deadExports', 'unresolved', 'cycles', 'boundaries', 'smells', 'astRules']);
         result.hasFindings =
           (result.deadExports?.deadExportsCount || 0) > 0 ||
           (result.unresolved?.unresolvedCount || 0) > 0 ||
           (result.cycles?.cyclesCount || 0) > 0 ||
           (result.boundaries?.violationsCount || 0) > 0 ||
           (result.smells?.smellsCount || 0) > 0 ||
+          (result.astRules?.findingsCount || 0) > 0 ||
           (result.hotspots?.length || 0) > 0 ||
           (result.architectureAdvice?.cycleRefactorSuggestions?.length || 0) > 0 ||
           (result.knowledgeRisk?.high?.length || 0) > 0 ||
@@ -108,7 +109,7 @@ const COMMANDS = {
     if (result.ok !== false) {
       // Wave 12-3: --category filter narrows the overview to selected dimensions.
       if (parsed.category) {
-        filterByCategory(result, parsed.category, ['deadExports', 'unresolved', 'cycles', 'boundaries', 'smells']);
+        filterByCategory(result, parsed.category, ['deadExports', 'unresolved', 'cycles', 'boundaries', 'smells', 'astRules']);
       }
       result.hasFindings =
         (result.orphans?.counts?.total || 0) > 0 ||
@@ -119,7 +120,8 @@ const COMMANDS = {
         (result.unresolved?.unresolvedCount || 0) > 0 ||
         (result.cycles?.cyclesCount || 0) > 0 ||
         (result.boundaries?.violationsCount || 0) > 0 ||
-        (result.smells?.smellsCount || 0) > 0;
+        (result.smells?.smellsCount || 0) > 0 ||
+        (result.astRules?.findingsCount || 0) > 0;
     }
     return result;
   },

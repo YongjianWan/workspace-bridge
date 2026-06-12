@@ -66,6 +66,7 @@ async function buildProjectOverview(args, container) {
     deadExports: rawData.deadExports,
     unresolved: rawData.unresolved,
     cycles: rawData.cycles,
+    astRules: rawData.astRules,
     orphans: {
       counts: {
         docs: rawData.orphans.docs.length,
@@ -123,6 +124,12 @@ async function buildProjectOverview(args, container) {
       result.summary.counts.smells = smellsResult.smellsCount;
       if (smellsResult.smellsCount > 0) {
         result.summary.recommendations.push(`Found ${smellsResult.smellsCount} code smell issues. Run node cli.js audit-smells for details.`);
+      }
+    }
+    if (rawData.astRules && !rawData.astRules.omitted) {
+      result.summary.counts.astRules = rawData.astRules.findingsCount;
+      if (rawData.astRules.findingsCount > 0) {
+        result.summary.recommendations.push(`Found ${rawData.astRules.findingsCount} AST rule findings. Run node cli.js audit-overview for details.`);
       }
     }
   }

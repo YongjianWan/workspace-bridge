@@ -31,13 +31,13 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 0 架构债务 + 1 L3 + 0 项 P2 Dogfood 活跃缺陷）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 1 架构债务 + 1 L3 + 0 项 P2 Dogfood 活跃缺陷）
 
 ---
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；`npm run test:fast` **95/95 PASS**（~10s），`npm run test:smoke` **98/98 PASS**（~32s）。全量 runner 本轮未跑完（`e2e-gitnexus-test.js` 在 reference/GitNexus 上超时/失败，与 Wave 12 改动无关），开发迭代首选 `npm run test:fast`。当前 fast 层 95 个测试，slow 层 71 个，serial 层 7 个.
+- 测试：**所有测试全部 PASS**；`npm run test:fast` **99/99 PASS**（~15s），`npm run test:smoke` **102/102 PASS**（~43s）。开发迭代首选 `npm run test:fast`。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~339 文件（entry=1, mainline=152, test=187）
@@ -85,7 +85,12 @@ node cli.js audit-overview --cwd . --json --quiet
 ### 本轮已交付
 > **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 unresolved import，自身库全量覆盖率 1.00。
 > **本轮完成**：
-> 1. **Wave 12 输出精炼补全**：完成 12-3 分层输出过滤（`--category dead-exports/unresolved/cycles/health` 在 `audit-summary`/`audit-overview` 中过滤并置空未选类别，`--severity` 文档修正为 `high|medium|low`）；完成 12-4 大项目自动截断（基于项目总文件数 `DEFAULTS.LARGE_PROJECT_FILE_THRESHOLD: 500` 自动启用 `--compact`，`--no-compact`/`--compact`/`WB_COMPACT` 显式覆盖）；完成 12-5 大项目手动截断（`--max-files <n>` 限制 `audit-diff` 变更文件数及 `impact`/`affected-tests`/`affected-routes`/`dependencies`/`dependents`/`tree` 返回结果数）。新增 `test/wave12-large-project-compact-test.js`，扩充 `test/wave12-output-truncation-test.js` `--max-files` 命令层用例。`npm run test:fast` **95/95 PASS**，`npm run test:smoke` **98/98 PASS**。
+> 1. **Wave 15 深度扩展**：
+>    - **15-1 AST 轻量规则引擎**：新建 `src/services/dep-graph/ast-rules.js`；在 `overview-assembler.js`、`overview-tools.js` 中无缝集成 `checkAllRules`，并在 `audit-summary`/`audit-overview` 的 markdown, summary, human 和 jsonl 各种风格格式化输出中闭环展示 findings 统计与明细。
+>    - **15-3 ParseCache**：重构 `builder.js` 为 `_parseCache` LRU 内存缓存（max 200 ），大大加速增量下的邻居文件重解析。
+>    - **15-4 L1-L4 增量更新四层叠加协议**：通过 SHA-256 二次过滤排除 mtime 精度问题；支持 `Neighbor-aware` 1-hop 依赖邻居和 `shadow-candidates.js` 的 TypeScript / JavaScript basenames 相互 shadow 扩展，在 `updateFiles()` 解析前重建受波及邻居的依赖边；在长活 watch/repl 模式下，接入 `wal-cadence.js` 状态机执行 SQLite `PASSIVE` checkpoing 并依据时间/数量交替触发 `TRUNCATE` checkpoint。
+>    - **测试**：新增 `wave15-parse-cache-test.js`、`wave15-neighbor-aware-test.js`、`wave15-shadow-candidates-test.js`、`wave15-wal-cadence-test.js`、`wave15-ast-rules-test.js`。跑通全量测试：`npm run test:fast`（99/99 PASS），`npm run test:smoke`（102/102 PASS）。
+> 2. **Wave 12 输出精炼补全**：完成 12-3 分层输出过滤；完成 12-4 大项目自动 compact 截断；完成 12-5 大项目手动 `--max-files` 截断。
 ---
 
 ## 本轮上下文：`bootstrapFromSchema` 路径规范化不一致清偿（活跃）
@@ -101,7 +106,7 @@ node cli.js audit-overview --cwd . --json --quiet
   - `test/java-package-imports-test.js` 移除 `n()` 预规范化 helper，schema 使用自然绝对路径，断言通过 `depGraph.normalizeFilePath()` 获取规范化 key。
   - `test/wave14-noise-env-test.js` 移除 `testIgnoreFrameworks` 中手动 `dg.graph.set()` 建图 workaround，改用自然的 `DependencyGraph.fromSchema` schema；`testIgnoreFindingsUnresolved` 改用 `dg._displayPath(dg.normalizeFilePath(...))` 计算 cross-platform 的 finding ID。
   - `test/affected-tests-heuristic-test.js` 彻底重构：将 Windows 路径场景从混合 schema 中拆出为独立的 `makeWindowsGraph()`，消除 POSIX/Windows 重复 key 合并导致的 `originalPath` 歧义，Windows 断言恢复为严格匹配。
-- 文档同步：移除 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) 对应架构债务条目，SESSION.md 已知陷阱表同步清理。活跃债务更新为 L1 0 + L2 0 + 架构债务 0 + L3 品味问题 1（弱断言分布）。
+- 文档同步：移除旧的 `bootstrapFromSchema` 架构债务条目。由于 `detectFrameworkFromContent` 框架检测需要大面积同步转异步重构而被推迟，已将其作为新的架构债务（Phase 3 预备）记入 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。当前活跃债务更新为 L1 0 + L2 0 + 架构债务 1 + L3 品味问题 1（弱断言分布）。
 
 ---
 
@@ -290,12 +295,12 @@ node cli.js audit-overview --cwd . --json --quiet
 
 #### Wave 11：分析深化
 
-| # | 目标 | 说明 | ROADMAP |
-|---|------|------|---------|
-| 11-1 | **自适应架构边界（`audit-boundaries`）** | `.workspace-bridge.json` `boundaries[]` + minimatch 违规检测 | L470 |
-| 11-2 | **代码异味检测（Flat Dispatcher）** | `switch/if-elif` 链 arms 数量检测 | L474 |
-| 11-3 | **复杂度趋势分析** | `git revwalk` + tree-sitter 重解析，输出 `GROWING/SHRINKING/STABLE` | L473 |
-| 11-4 | **统一 risk scoring（5 维度）** | `audit-diff` 引入 flow_participation + community_crossing + test_coverage + caller_count + security_sensitive | L483 |
+| # | 目标 | 改动文件 | 说明 | ROADMAP | 状态 |
+|---|------|----------|------|---------|------|
+| 11-1 | **自适应架构边界（`audit-boundaries`）** | `boundaries.js` / `project-context.js` / `index.js` | `.workspace-bridge.json` `boundaries[]` + minimatch 违规检测 | L470 | ✅ 已交付 |
+| 11-2 | **代码异味检测（Flat Dispatcher）** | `smells.js` | `switch/if-elif` 链 arms 数量检测 | L474 | ✅ 已交付 |
+| 11-3 | **复杂度趋势分析** | `complexity-tools.js` | `git revwalk` + tree-sitter 重解析，输出 `GROWING/SHRINKING/STABLE` | L473 | ✅ 已交付 |
+| 11-4 | **统一 risk scoring（5 维度）** | `composite-risk.js` / `audit-assembler.js` | `audit-diff` 引入 flow_participation + community_crossing + test_coverage + caller_count + security_sensitive | L483 | ✅ 已交付 |
 
 ---
 
@@ -328,8 +333,8 @@ node cli.js audit-overview --cwd . --json --quiet
 |---|------|------|------|---------|
 | 14-1 | **规则引擎层次 A（配置化）** | 低 | `security-tools.js` 硬编码规则提取为外部 YAML/JSON，`--config <file>` 接入 | L477 | ✅ 已交付 |
 | 15-2 | **框架检测 Query 化** | 中 | `framework-patterns.js` 正则收敛为 tree-sitter query 声明，`queries/` 目录配置 | L492 | ✅ 已交付（Express / NestJS / Spring Boot 3 框架路由提取 query 化完成；query 编译基础设施 + LRU 缓存已就绪；框架检测内容 query 基础设施预备，完整 query 化待后续波次） |
-| 14-2 | **噪音抑制增强** | 低 | `.workspace-bridge.json` 扩展 `ignore` 配置 + `--mark-false-positive <id>` 记录误报 | L499 |
-| 14-3 | **环境变量层 + 配置来源报告** | 低 | `WB_*` 环境变量层 + 启动时来源报告（config from: env > cli > file） | L487 |
+| 14-2 | **噪音抑制增强** | 低 | `.workspace-bridge.json` 扩展 `ignore` 配置 + `--mark-false-positive <id>` 记录误报 | L499 | ✅ 已交付 |
+| 14-3 | **环境变量层 + 配置来源报告** | 低 | `WB_*` 环境变量层 + 启动时来源报告（config from: env > cli > file） | L487 | ✅ 已交付 |
 | 14-4 | **项目根自动发现（Monorepo）** | 中 | 自动检测 `package.json`/`pom.xml`/`go.mod` 层级，支持 `--service <subpath>` 过滤 | L486 | ✅ 已交付
 
 ---

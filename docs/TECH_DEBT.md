@@ -14,11 +14,14 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **0** | L3 品味问题 **1** | 合计 **1 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **1** | L3 品味问题 **1** | 合计 **2 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
-> 当前无活跃的架构债务。
+#### 框架检测 Query 基础设施（Phase 3 预备）
+- **背景**：路由提取已成功完全 Query 化，但 `detectFrameworkFromContent` 框架检测目前仍使用轻量文本正则匹配（`AST_PATTERNS`）。
+- **瓶颈**：Tree-sitter WASM 语法加载在 JS 环境中必须为异步（async），而当前的 `detectFrameworkFromContent` 及其上游调用链路（含 `dep-graph.js` 和 `entry-detector.js` 内的 known entry 判定）均是同步执行。
+- **重构方向**：需将整个框架检测与 entry 判定链路进行同步转异步重构，从而能无缝接入已完成的 `queries/framework-detection` 目录下的 Tree-sitter AST queries，实现检测引擎的彻底统一，消除正则 fallback 噪音。
 
 ---
 

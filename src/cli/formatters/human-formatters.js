@@ -39,7 +39,7 @@ function formatAuditSummary(result, style) {
         `- **Severity**: ${result.summary?.severity}`,
         `- **Health**: ${result.health?.healthScore}`,
         `- **Files**: ${result.scope?.counts?.totalFiles ?? 0} total, ${result.scope?.counts?.mainlineFiles ?? 0} mainline`,
-        `- **Issues**: ${result.deadExports?.deadExportsCount ?? 0} dead exports, ${result.unresolved?.unresolvedCount ?? 0} unresolved, ${result.cycles?.cyclesCount ?? 0} cycles`,
+        `- **Issues**: ${result.deadExports?.deadExportsCount ?? 0} dead exports, ${result.unresolved?.unresolvedCount ?? 0} unresolved, ${result.cycles?.cyclesCount ?? 0} cycles, ${result.astRules?.findingsCount ?? 0} AST rule findings`,
       ];
       const cov = result.summary?.analysisCoverage;
       if (cov) {
@@ -58,7 +58,7 @@ function formatAuditSummary(result, style) {
         `Severity: ${result.summary?.severity}`,
         `Health: ${result.health?.healthScore}`,
         `Files: ${result.scope?.counts?.totalFiles ?? 0} total, ${result.scope?.counts?.mainlineFiles ?? 0} mainline`,
-        `Issues: ${result.deadExports?.deadExportsCount ?? 0} dead exports, ${result.unresolved?.unresolvedCount ?? 0} unresolved, ${result.cycles?.cyclesCount ?? 0} cycles`,
+        `Issues: ${result.deadExports?.deadExportsCount ?? 0} dead exports, ${result.unresolved?.unresolvedCount ?? 0} unresolved, ${result.cycles?.cyclesCount ?? 0} cycles, ${result.astRules?.findingsCount ?? 0} AST rule findings`,
       ];
       const cov = result.summary?.analysisCoverage;
       if (cov) {
@@ -86,6 +86,7 @@ function formatAuditSummary(result, style) {
         `deadExportsCount: ${result.deadExports.deadExportsCount}`,
         `unresolvedCount: ${result.unresolved.unresolvedCount}`,
         `cyclesCount: ${result.cycles.cyclesCount}`,
+        `astRulesCount: ${result.astRules?.findingsCount ?? 0}`,
       ];
       if (result.summary.honesty?.disclaimer) {
         lines.push(`note: ${result.summary.honesty.disclaimer}`);
@@ -152,6 +153,7 @@ const FORMATTERS = {
         deadExports: r.deadExports?.deadExportsCount ?? 0,
         unresolved: r.unresolved?.unresolvedCount ?? 0,
         cycles: r.cycles?.cyclesCount ?? 0,
+        astRules: r.astRules?.findingsCount ?? 0,
         orphans: r.orphans?.counts?.total ?? 0,
         hotspotsHigh: r.aggregates?.hotspotsByRisk?.high ?? 0,
         hotspotsMedium: r.aggregates?.hotspotsByRisk?.medium ?? 0,
@@ -167,6 +169,7 @@ const FORMATTERS = {
       pushRecord(rec, 'dead-export', r.deadExports?.deadExports);
       pushRecord(rec, 'unresolved', r.unresolved?.unresolved);
       pushRecord(rec, 'cycle', r.cycles?.cycles);
+      pushRecord(rec, 'ast-rule', r.astRules?.findings);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -188,6 +191,7 @@ const FORMATTERS = {
         `deadExportsCount: ${r.deadExports?.deadExportsCount ?? 0}`,
         `unresolvedCount: ${r.unresolved?.unresolvedCount ?? 0}`,
         `cyclesCount: ${r.cycles?.cyclesCount ?? 0}`,
+        `astRulesCount: ${r.astRules?.findingsCount ?? 0}`,
         `languages: ${ls}`,
       ].join('\n');
     },
@@ -202,7 +206,7 @@ const FORMATTERS = {
         `Fragile modules: ${agg.stabilityCounts?.fragile ?? 0}`,
         `Orphans: ${r.orphans?.counts?.total ?? 0}`,
         `Knowledge risk: ${kr.high?.length ?? 0} high, ${kr.medium?.length ?? 0} medium`,
-        `Issues: ${r.deadExports?.deadExportsCount ?? 0} dead exports, ${r.unresolved?.unresolvedCount ?? 0} unresolved, ${r.cycles?.cyclesCount ?? 0} cycles`,
+        `Issues: ${r.deadExports?.deadExportsCount ?? 0} dead exports, ${r.unresolved?.unresolvedCount ?? 0} unresolved, ${r.cycles?.cyclesCount ?? 0} cycles, ${r.astRules?.findingsCount ?? 0} AST rule findings`,
         `Languages: ${ls}`,
       ];
       if (r.hotspots?.length) {
@@ -235,6 +239,12 @@ const FORMATTERS = {
           lines.push(`  • ${c.join(' -> ')}`);
         }
       }
+      if (r.astRules?.findings?.length) {
+        lines.push('AST rule findings:');
+        for (const f of r.astRules.findings.slice(0, 3)) {
+          lines.push(`  • ${f.file} — [${f.severity.toUpperCase()}] ${f.symbol}: ${f.message}`);
+        }
+      }
       if (r.summary?.recommendations?.length) { lines.push('Recommendations:'); for (const rec of r.summary.recommendations.slice(0, 2)) lines.push(`  • ${rec}`); }
       return lines.join('\n');
     },
@@ -251,7 +261,7 @@ const FORMATTERS = {
         `- **Fragile modules**: ${agg.stabilityCounts?.fragile ?? 0}`,
         `- **Orphans**: ${r.orphans?.counts?.total ?? 0}`,
         `- **Knowledge risk**: ${kr.high?.length ?? 0} high, ${kr.medium?.length ?? 0} medium`,
-        `- **Issues**: ${r.deadExports?.deadExportsCount ?? 0} dead exports, ${r.unresolved?.unresolvedCount ?? 0} unresolved, ${r.cycles?.cyclesCount ?? 0} cycles`,
+        `- **Issues**: ${r.deadExports?.deadExportsCount ?? 0} dead exports, ${r.unresolved?.unresolvedCount ?? 0} unresolved, ${r.cycles?.cyclesCount ?? 0} cycles, ${r.astRules?.findingsCount ?? 0} AST rule findings`,
         `- **Languages**: ${ls}`,
       ];
       if (r.hotspots?.length) {
@@ -284,6 +294,12 @@ const FORMATTERS = {
           lines.push(`- ${c.join(' → ')}`);
         }
       }
+      if (r.astRules?.findings?.length) {
+        lines.push(``, `## AST Rule Findings`);
+        for (const f of r.astRules.findings.slice(0, 3)) {
+          lines.push(`- **${f.file}** — [${f.severity.toUpperCase()}] ${f.symbol}: ${f.message}`);
+        }
+      }
       if (r.summary?.recommendations?.length) { lines.push(``, `## Recommendations`); for (const rec of r.summary.recommendations.slice(0, 3)) lines.push(`- ${rec}`); }
       return lines.join('\n');
     },
@@ -299,6 +315,7 @@ const FORMATTERS = {
         deadExports: r.deadExports?.deadExportsCount ?? 0,
         unresolved: r.unresolved?.unresolvedCount ?? 0,
         cycles: r.cycles?.cyclesCount ?? 0,
+        astRules: r.astRules?.findingsCount ?? 0,
         orphans: r.orphans?.counts?.total ?? 0,
         hotspotsHigh: r.aggregates?.hotspotsByRisk?.high ?? 0,
         hotspotsMedium: r.aggregates?.hotspotsByRisk?.medium ?? 0,
@@ -314,6 +331,7 @@ const FORMATTERS = {
       pushRecord(rec, 'dead-export', r.deadExports?.deadExports);
       pushRecord(rec, 'unresolved', r.unresolved?.unresolved);
       pushRecord(rec, 'cycle', r.cycles?.cycles);
+      pushRecord(rec, 'ast-rule', r.astRules?.findings);
       return rec.map(JSON.stringify).join('\n');
     },
   },

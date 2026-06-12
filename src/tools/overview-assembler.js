@@ -444,6 +444,28 @@ async function assembleOverviewData(args, container, historyProvider) {
   const cyclesRaw = depGraph.findCircularDependencies?.() || [];
   const deadExportsRaw = depGraph.findDeadExports?.() || [];
 
+  const { checkAllRules } = require('../services/dep-graph/ast-rules');
+  let astRulesRaw = [];
+  if (depGraph && depGraph.graph) {
+    astRulesRaw = checkAllRules(depGraph.graph);
+  }
+
+  if (args?.severity) {
+    const SEVERITY_RANK = { high: 3, medium: 2, low: 1 };
+    astRulesRaw = astRulesRaw.filter((f) => {
+      const itemSeverity = f.severity || 'low';
+      const minSeverity = args.severity;
+      if (!minSeverity || !SEVERITY_RANK[minSeverity]) return true;
+      return (SEVERITY_RANK[itemSeverity] || 0) >= SEVERITY_RANK[minSeverity];
+    });
+  }
+
+  const ignoreFindings = projectContext?.config?.ignore?.findings;
+  if (ignoreFindings?.length > 0) {
+    const ignoredSet = new Set(ignoreFindings);
+    astRulesRaw = astRulesRaw.filter((f) => !ignoredSet.has(f.id));
+  }
+
   let filteredDeadExportsRaw = deadExportsRaw;
   if (args?.severity) {
     const SEVERITY_RANK = { high: 3, medium: 2, low: 1 };
@@ -471,15 +493,21 @@ async function assembleOverviewData(args, container, historyProvider) {
       cyclesCount: cyclesRaw.length,
       cycles: cyclesRaw,
     },
+    astRules: {
+      ok: true,
+      findingsCount: astRulesRaw.length,
+      findings: astRulesRaw,
+    },
   };
 
   const { filterByCategory } = require('./audit-assembler');
-  filterByCategory(sections, args?.category, ['deadExports', 'unresolved', 'cycles']);
+  filterByCategory(sections, args?.category, ['deadExports', 'unresolved', 'cycles', 'astRules']);
 
   const deadExports = sections.deadExports;
   const filteredDeadExports = deadExports.deadExports;
   const unresolved = sections.unresolved.unresolved;
   const cycles = sections.cycles.cycles;
+  const astRules = sections.astRules;
 
   const stack = detectStack(root);
   const stackProfile = stack.profile;
@@ -519,6 +547,7 @@ async function assembleOverviewData(args, container, historyProvider) {
     ...(sections.deadExports.omitted ? {} : { deadExports: filteredDeadExports.length }),
     ...(sections.unresolved.omitted ? {} : { unresolved: unresolved.length }),
     ...(sections.cycles.omitted ? {} : { cycles: cycles.length }),
+    ...(sections.astRules.omitted ? {} : { astRules: astRules.findingsCount }),
     missingHygieneChecks: 0,
   };
   if (analysisCoverage) summary.analysisCoverage = analysisCoverage;
@@ -565,6 +594,7 @@ async function assembleOverviewData(args, container, historyProvider) {
       cyclesCount: cycles.length,
       cycles: cycles,
     },
+    astRules,
   };
 }
 
