@@ -87,6 +87,8 @@ async function parseJava(content) {
         lineEnd: record.lineEnd,
         fingerprint: record.fingerprint || null,
         decorators: record.decorators || [],
+        branchCount: record.branchCount ?? record.fingerprint?.branchCount ?? 0,
+        maxArms: record.maxArms ?? record.fingerprint?.maxArms ?? 0,
       })),
       package: astResult.package || null,
       parseMode: 'ast',

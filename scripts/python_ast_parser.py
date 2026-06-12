@@ -26,6 +26,51 @@ def count_python_if_else_arms(node: ast.If, seen_ifs: set) -> tuple[int, int]:
     return ifNodeCount, ifNodeCount + has_else
 
 
+def extract_decorator_name(decorator: ast.AST) -> str | None:
+    """Extract the dotted name of a Python decorator expression."""
+    if isinstance(decorator, ast.Name):
+        return decorator.id
+    if isinstance(decorator, ast.Attribute):
+        parts = []
+        current = decorator
+        while isinstance(current, ast.Attribute):
+            parts.append(current.attr)
+            current = current.value
+        if isinstance(current, ast.Name):
+            parts.append(current.id)
+        return '.'.join(reversed(parts)) or None
+    if isinstance(decorator, ast.Call):
+        return extract_decorator_name(decorator.func)
+    return None
+
+
+def extract_decorators(func_node: ast.AST) -> list[str]:
+    """Return decorator names applied to a function (without the leading '@')."""
+    decorators = []
+    for decorator in getattr(func_node, 'decorator_list', []):
+        name = extract_decorator_name(decorator)
+        if name:
+            decorators.append(name)
+    return decorators
+
+
+def extract_return_type(func_node: ast.AST) -> str | None:
+    """Return the string representation of a function's return type annotation."""
+    returns = getattr(func_node, 'returns', None)
+    if returns is None:
+        return None
+    if hasattr(ast, 'unparse'):
+        try:
+            return ast.unparse(returns)
+        except Exception:
+            pass
+    if isinstance(returns, ast.Name):
+        return returns.id
+    if isinstance(returns, ast.Constant) and isinstance(returns.value, str):
+        return returns.value
+    return returns.__class__.__name__
+
+
 def compute_function_fingerprint(func_node: ast.AST) -> dict[str, Any]:
     branch_count = 0
     return_count = 0
@@ -186,7 +231,10 @@ def parse_code(source: str) -> dict[str, Any]:
                 "kind": "function",
                 "lineStart": node.lineno,
                 "lineEnd": getattr(node, 'end_lineno', node.lineno),
-                "fingerprint": fingerprint
+                "fingerprint": fingerprint,
+                "decorators": extract_decorators(node),
+                "returnType": extract_return_type(node),
+                "isExported": True
             })
         
         # Also collect async function definitions
@@ -205,7 +253,10 @@ def parse_code(source: str) -> dict[str, Any]:
                 "kind": "function",
                 "lineStart": node.lineno,
                 "lineEnd": getattr(node, 'end_lineno', node.lineno),
-                "fingerprint": fingerprint
+                "fingerprint": fingerprint,
+                "decorators": extract_decorators(node),
+                "returnType": extract_return_type(node),
+                "isExported": True
             })
     
     # Second pass: collect imports (walk entire tree since imports can be nested)
@@ -256,6 +307,14 @@ def parse_code(source: str) -> dict[str, Any]:
     # but the exports list is overridden by __all__
     if all_export_names is not None:
         exports = all_export_names
+    
+    # Reconcile function isExported flags with __all__ when present
+    all_export_set = set(all_export_names) if all_export_names is not None else None
+    for record in function_records:
+        if all_export_set is not None:
+            record['isExported'] = record['name'] in all_export_set
+        else:
+            record['isExported'] = not record['name'].startswith('_')
     
     # Remove duplicates while preserving order
     seen_imports = set()

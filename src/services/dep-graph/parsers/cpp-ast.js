@@ -126,6 +126,56 @@ function hasStaticKeyword(node) {
   return false;
 }
 
+function isFunctionDeclarator(node) {
+  if (!node) return false;
+  return (
+    node.type === 'function_declarator' ||
+    node.type === 'pointer_declarator' ||
+    node.type === 'reference_declarator'
+  );
+}
+
+function getReturnType(funcNode) {
+  if (!funcNode) return null;
+  let declaratorIdx = -1;
+  for (let i = 0; i < funcNode.childCount; i++) {
+    if (isFunctionDeclarator(funcNode.child(i))) {
+      declaratorIdx = i;
+      break;
+    }
+  }
+  if (declaratorIdx <= 0) return null;
+
+  const parts = [];
+  for (let i = 0; i < declaratorIdx; i++) {
+    const c = funcNode.child(i);
+    if (!c) continue;
+    if (c.type === 'storage_class_specifier') continue;
+    if (c.type === 'comment') continue;
+    if (c.type === 'attribute_declaration' || c.type === 'attribute_specifier') continue;
+    const text = getNodeText(c).trim();
+    if (text) parts.push(text);
+  }
+  return parts.length > 0 ? parts.join(' ') : null;
+}
+
+function getDecorators(funcNode) {
+  if (!funcNode) return [];
+  const decorators = [];
+  for (let i = 0; i < funcNode.childCount; i++) {
+    const c = funcNode.child(i);
+    if (!c) continue;
+    if (c.type === 'attribute_declaration') {
+      const text = getNodeText(c).trim();
+      if (text) decorators.push(text);
+    } else if (c.type === 'attribute') {
+      const text = getNodeText(c).trim();
+      if (text) decorators.push(text);
+    }
+  }
+  return decorators;
+}
+
 // ---------------------------------------------------------------------------
 // AST Parser
 // ---------------------------------------------------------------------------
@@ -197,25 +247,22 @@ async function parseCppAst(content, filePath) {
         else if (tag === 'def.macro') kind = 'macro';
         else if (tag === 'def.namespace') kind = 'namespace';
 
+        const funcNode = (tag === 'def.func' || tag === 'def.method')
+          ? findAncestor(capture.node, ['function_definition'])
+          : null;
+
         let lineStart;
         let lineEnd;
-        if (tag === 'def.func' || tag === 'def.method') {
-          const funcNode = findAncestor(capture.node, ['function_definition']);
-          if (funcNode) {
-            lineStart = getLineStart(funcNode);
-            lineEnd = getLineEnd(funcNode);
-          }
-        }
-        if (!lineStart) {
+        if (funcNode) {
+          lineStart = getLineStart(funcNode);
+          lineEnd = getLineEnd(funcNode);
+        } else {
           lineStart = getLineStart(capture.node);
           lineEnd = getLineEnd(capture.node);
         }
 
         // C: static function = internal linkage, skip export
-        if (isC && tag === 'def.func') {
-          const funcNode = findAncestor(capture.node, ['function_definition']);
-          if (funcNode && hasStaticKeyword(funcNode)) continue;
-        }
+        if (isC && tag === 'def.func' && funcNode && hasStaticKeyword(funcNode)) continue;
 
         const dedupKey = `${name}|${kind}|${lineStart ?? ''}|${lineEnd ?? ''}`;
         if (seenExports.has(dedupKey)) continue;
@@ -223,7 +270,15 @@ async function parseCppAst(content, filePath) {
 
         exportRecords.push(createExportRecord(name, { kind, lineStart, lineEnd }));
         if (tag === 'def.func' || tag === 'def.method') {
-          functionRecords.push({ name, kind: 'function', lineStart, lineEnd });
+          functionRecords.push({
+            name,
+            kind: 'function',
+            lineStart,
+            lineEnd,
+            isExported: true,
+            returnType: getReturnType(funcNode),
+            decorators: getDecorators(funcNode),
+          });
         }
       }
     }

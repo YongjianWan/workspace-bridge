@@ -47,6 +47,14 @@ void helper(int x) {
   const mainFunc = result.functionRecords.find((r) => r.name === 'main');
   assert(mainFunc);
   assert.strictEqual(mainFunc.kind, 'function');
+  assert.strictEqual(mainFunc.isExported, true, 'main should be exported');
+  assert.strictEqual(mainFunc.returnType, 'int', 'main should have return type int');
+  assert(Array.isArray(mainFunc.decorators), 'decorators should be an array');
+
+  const helperFunc = result.functionRecords.find((r) => r.name === 'helper');
+  assert(helperFunc);
+  assert.strictEqual(helperFunc.returnType, 'void', 'helper should have return type void');
+  assert.deepStrictEqual(helperFunc.decorators, []);
 }
 
 async function testMacros() {
@@ -75,6 +83,9 @@ int** bar() {
   const result = await parseCpp(source, 'test.cpp');
   assert(result.exports.includes('foo'), 'Should export pointer-return function foo');
   assert(result.exports.includes('bar'), 'Should export double-pointer-return function bar');
+  const fooFunc = result.functionRecords.find((r) => r.name === 'foo');
+  assert(fooFunc, 'foo should be in functionRecords');
+  assert.strictEqual(fooFunc.returnType, 'int');
 }
 
 async function testReferenceReturnFunction() {
@@ -86,6 +97,9 @@ int& baz() {
 `;
   const result = await parseCpp(source, 'test.cpp');
   assert(result.exports.includes('baz'), 'Should export reference-return function baz');
+  const bazFunc = result.functionRecords.find((r) => r.name === 'baz');
+  assert(bazFunc, 'baz should be in functionRecords');
+  assert.strictEqual(bazFunc.returnType, 'int');
 }
 
 async function testCppMethod() {
@@ -103,6 +117,25 @@ void MyClass::method() {
   assert(result.exports.includes('method'), 'Should export out-of-class method definition');
   const methodFunc = result.functionRecords.find((r) => r.name === 'method');
   assert(methodFunc, 'method should be in functionRecords');
+  assert.strictEqual(methodFunc.returnType, 'void');
+  assert.deepStrictEqual(methodFunc.decorators, []);
+}
+
+async function testCppAttributes() {
+  const source = `
+[[nodiscard]] int foo() { return 0; }
+[[deprecated]] void bar() {}
+`;
+  const result = await parseCpp(source, 'test.cpp');
+  const fooFunc = result.functionRecords.find((r) => r.name === 'foo');
+  assert(fooFunc, 'foo should be in functionRecords');
+  assert.strictEqual(fooFunc.returnType, 'int');
+  assert(fooFunc.decorators.some((d) => d.includes('nodiscard')));
+
+  const barFunc = result.functionRecords.find((r) => r.name === 'bar');
+  assert(barFunc, 'bar should be in functionRecords');
+  assert.strictEqual(barFunc.returnType, 'void');
+  assert(barFunc.decorators.some((d) => d.includes('deprecated')));
 }
 
 async function testStaticFilteringC() {
@@ -177,6 +210,7 @@ async function testEmpty() {
   await testPointerReturnFunction();
   await testReferenceReturnFunction();
   await testCppMethod();
+  await testCppAttributes();
   await testStaticFilteringC();
   await testStructClassEnumTypedef();
   await testTemplate();

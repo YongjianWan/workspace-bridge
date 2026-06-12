@@ -2,7 +2,7 @@
 // @contract — AST Rules Engine validation
 
 const assert = require('assert');
-const { checkFileRules, checkAllRules, RULES } = require('../src/services/dep-graph/ast-rules');
+const { checkFileRules, checkAllRules, RULES, EXT_TO_LANGUAGE } = require('../src/services/dep-graph/ast-rules');
 const { parseJava } = require('../src/services/dep-graph/parsers');
 const { parseKotlin } = require('../src/services/dep-graph/parsers/kotlin-ast');
 const { parseJavaScript } = require('../src/services/dep-graph/parsers/js.js');
@@ -95,6 +95,51 @@ function testCustomRuleViaConfig() {
   const customFinding = findings2.find(f => f.id.includes('custom-no-foo'));
   assert.ok(customFinding);
   assert.strictEqual(customFinding.severity, 'high');
+}
+
+function testExtensionToLanguageConfigTable() {
+  assert.strictEqual(EXT_TO_LANGUAGE['.java'], 'java');
+  assert.strictEqual(EXT_TO_LANGUAGE['.kt'], 'kotlin');
+  assert.strictEqual(EXT_TO_LANGUAGE['.ts'], 'typescript');
+  assert.strictEqual(EXT_TO_LANGUAGE['.tsx'], 'typescript');
+
+  assert.strictEqual(EXT_TO_LANGUAGE['.py'], 'python');
+  assert.strictEqual(EXT_TO_LANGUAGE['.go'], 'go');
+  assert.strictEqual(EXT_TO_LANGUAGE['.rs'], 'rust');
+  assert.strictEqual(EXT_TO_LANGUAGE['.c'], 'cpp');
+  assert.strictEqual(EXT_TO_LANGUAGE['.cpp'], 'cpp');
+  assert.strictEqual(EXT_TO_LANGUAGE['.vue'], 'vue');
+  assert.strictEqual(EXT_TO_LANGUAGE['.svelte'], 'svelte');
+}
+
+function testNewLanguageMappingsFireCustomRules() {
+  const customRule = {
+    id: 'parity-smoke-test',
+    language: ['python', 'go', 'rust', 'cpp', 'vue', 'svelte'],
+    match: (fn) => fn.name === 'paritySmoke',
+    severity: 'info',
+    message: (fn) => `${fn.name} matched`,
+  };
+
+  const cases = [
+    { ext: '.py', path: 'src/main.py' },
+    { ext: '.go', path: 'src/main.go' },
+    { ext: '.rs', path: 'src/main.rs' },
+    { ext: '.c', path: 'src/main.c' },
+    { ext: '.cpp', path: 'src/main.cpp' },
+    { ext: '.vue', path: 'src/main.vue' },
+    { ext: '.svelte', path: 'src/main.svelte' },
+  ];
+
+  for (const { path: originalPath } of cases) {
+    const info = {
+      originalPath,
+      functionRecords: [{ name: 'paritySmoke' }],
+    };
+    const findings = checkFileRules(originalPath, info, [customRule]);
+    assert.strictEqual(findings.length, 1, `Expected custom rule to fire for ${originalPath}`);
+    assert.strictEqual(findings[0].symbol, 'paritySmoke');
+  }
 }
 
 function testCheckAllRules() {
@@ -192,6 +237,8 @@ const tests = [
   testBatchWithTransactionalSkipped,
   testRuleLanguageFilter,
   testCustomRuleViaConfig,
+  testExtensionToLanguageConfigTable,
+  testNewLanguageMappingsFireCustomRules,
   testCheckAllRules,
   testJavaBatchNoTransactionalE2E,
   testKotlinBatchNoTransactionalE2E,

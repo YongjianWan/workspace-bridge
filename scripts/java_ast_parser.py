@@ -160,7 +160,9 @@ def parse_java(source):
                         "lineStart": member.position.line if member.position else None,
                         "lineEnd": member.position.line if member.position else None,
                         "fingerprint": fingerprint,
-                        "decorators": decorators
+                        "decorators": decorators,
+                        "branchCount": fingerprint["branchCount"],
+                        "maxArms": fingerprint["maxArms"]
                     })
                 if isinstance(member, javalang.tree.FieldDeclaration) and "public" in member.modifiers:
                     for declarator in member.declarators:
@@ -181,7 +183,9 @@ def parse_java(source):
                         "lineStart": member.position.line if member.position else None,
                         "lineEnd": member.position.line if member.position else None,
                         "fingerprint": fingerprint,
-                        "decorators": decorators
+                        "decorators": decorators,
+                        "branchCount": fingerprint["branchCount"],
+                        "maxArms": fingerprint["maxArms"]
                     })
         elif class_name == 'EnumDeclaration':
             exports.append(node.name)

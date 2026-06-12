@@ -24,6 +24,26 @@ function isExportedGoName(name) {
   return ch === ch.toUpperCase() && ch !== ch.toLowerCase();
 }
 
+function extractGoReturnType(parent) {
+  if (!parent) return undefined;
+  const resultNode = parent.childForFieldName('result');
+  if (!resultNode) return undefined;
+  const text = getNodeText(resultNode).trim();
+  return text || undefined;
+}
+
+function buildGoFunctionRecord(name, parent, captureNode) {
+  return {
+    name,
+    kind: 'function',
+    isExported: isExportedGoName(name),
+    returnType: extractGoReturnType(parent),
+    decorators: [],
+    lineStart: getLineStart(parent) || getLineStart(captureNode),
+    lineEnd: getLineEnd(parent) || getLineEnd(captureNode),
+  };
+}
+
 function getParentByTypes(node, types) {
   let current = node.parent;
   while (current) {
@@ -92,12 +112,7 @@ async function parseGo(content) {
             lineStart: getLineStart(parent) || getLineStart(capture.node),
             lineEnd: getLineEnd(parent) || getLineEnd(capture.node),
           }));
-          functionRecords.push({
-            name,
-            kind: 'function',
-            lineStart: getLineStart(parent) || getLineStart(capture.node),
-            lineEnd: getLineEnd(parent) || getLineEnd(capture.node),
-          });
+          functionRecords.push(buildGoFunctionRecord(name, parent, capture.node));
         } else if (tag === 'def.method') {
           const parent = getParentByTypes(capture.node, ['method_declaration']);
           exportRecords.push(createExportRecord(name, {
@@ -105,12 +120,7 @@ async function parseGo(content) {
             lineStart: getLineStart(parent) || getLineStart(capture.node),
             lineEnd: getLineEnd(parent) || getLineEnd(capture.node),
           }));
-          functionRecords.push({
-            name,
-            kind: 'function',
-            lineStart: getLineStart(parent) || getLineStart(capture.node),
-            lineEnd: getLineEnd(parent) || getLineEnd(capture.node),
-          });
+          functionRecords.push(buildGoFunctionRecord(name, parent, capture.node));
         } else if (tag === 'def.type') {
           const parent = getParentByTypes(capture.node, ['type_spec']);
           exportRecords.push(createExportRecord(name, {

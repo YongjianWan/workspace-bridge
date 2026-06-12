@@ -28,9 +28,13 @@ pub use std::io::Read;
 pub use crate::utils::Helper as MyHelper;
 
 impl Point {
+    #[must_use]
     pub fn new() -> Self {}
     fn private() {}
 }
+
+#[inline]
+pub fn with_return() -> bool { true }
 
 fn not_exported() {}
 
@@ -116,8 +120,29 @@ async function testRustAstSchema() {
   // functionRecords
   assert(result.functionRecords.some((r) => r.name === 'hello'), 'Should have hello functionRecord');
   assert(result.functionRecords.some((r) => r.name === 'new'), 'Should have new functionRecord from impl');
+  assert(result.functionRecords.some((r) => r.name === 'with_return'), 'Should have with_return functionRecord');
   assert(!result.functionRecords.some((r) => r.name === 'private'), 'Should not have private functionRecord');
   assert(!result.functionRecords.some((r) => r.name === 'not_exported'), 'Should not have not_exported functionRecord');
+
+  // functionRecords new fields (Wave 15 language parity)
+  const helloFn = result.functionRecords.find((r) => r.name === 'hello');
+  assert(helloFn, 'Should find hello functionRecord');
+  assert.strictEqual(helloFn.isExported, true, 'hello should be exported');
+  assert.ok(helloFn.returnType === null || helloFn.returnType === undefined, 'hello should have no return type');
+  assert(Array.isArray(helloFn.decorators), 'hello decorators should be an array');
+  assert.deepStrictEqual(helloFn.decorators, [], 'hello should have no decorators');
+
+  const newFn = result.functionRecords.find((r) => r.name === 'new');
+  assert(newFn, 'Should find new functionRecord');
+  assert.strictEqual(newFn.isExported, true, 'new should be exported');
+  assert.strictEqual(newFn.returnType, 'Self', 'new should have Self return type');
+  assert.deepStrictEqual(newFn.decorators, ['must_use'], 'new should have must_use decorator');
+
+  const withReturnFn = result.functionRecords.find((r) => r.name === 'with_return');
+  assert(withReturnFn, 'Should find with_return functionRecord');
+  assert.strictEqual(withReturnFn.isExported, true, 'with_return should be exported');
+  assert.strictEqual(withReturnFn.returnType, 'bool', 'with_return should have bool return type');
+  assert.deepStrictEqual(withReturnFn.decorators, ['inline'], 'with_return should have inline decorator');
 }
 
 async function testRustAstUseListReexport() {

@@ -55,6 +55,9 @@ function parsePythonWithRegex(content) {
         name: match[1],
         kind: 'function',
         lineStart: getLineNumber(content, match.index),
+        isExported: true,
+        returnType: null,
+        decorators: [],
       });
     }
   }
@@ -75,7 +78,16 @@ async function parsePython(content) {
         })
       ),
       exportRecords: astResult.exportRecords || [],
-      functionRecords: astResult.functionRecords || [],
+      functionRecords: (astResult.functionRecords || []).map((record) => ({
+        name: record.name,
+        kind: record.kind || 'function',
+        lineStart: record.lineStart,
+        lineEnd: record.lineEnd,
+        fingerprint: record.fingerprint || null,
+        isExported: record.isExported !== undefined ? record.isExported : true,
+        returnType: record.returnType || null,
+        decorators: record.decorators || [],
+      })),
       parseMode: 'ast',
     };
   }

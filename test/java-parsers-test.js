@@ -109,6 +109,63 @@ public class Service {
   }
 }
 
+async function testJavaBranchCountAndMaxArms() {
+  if (!JAVALANG_AVAILABLE) {
+    return;
+  }
+  const source = `
+package com.example;
+public class Logic {
+  public void decide(int x) {
+    if (x > 0) {
+      System.out.println("positive");
+    } else if (x < 0) {
+      System.out.println("negative");
+    } else {
+      System.out.println("zero");
+    }
+  }
+
+  public int pick(int n) {
+    switch (n) {
+      case 1: return 1;
+      case 2: return 2;
+      default: return 0;
+    }
+  }
+
+  public void plain() {}
+}
+`;
+  const result = await parseJava(source);
+  assert.strictEqual(result.parseMode, 'ast');
+
+  const decide = result.functionRecords.find((r) => r.name === 'decide');
+  const pick = result.functionRecords.find((r) => r.name === 'pick');
+  const plain = result.functionRecords.find((r) => r.name === 'plain');
+
+  assert(decide, 'Should have decide functionRecord');
+  assert(pick, 'Should have pick functionRecord');
+  assert(plain, 'Should have plain functionRecord');
+
+  assert.strictEqual(typeof decide.branchCount, 'number', 'decide.branchCount should be a number');
+  assert.strictEqual(typeof decide.maxArms, 'number', 'decide.maxArms should be a number');
+  assert(decide.branchCount >= 2, `decide should have at least 2 branches, got ${decide.branchCount}`);
+  assert.strictEqual(decide.maxArms, 3, `decide should have 3 if/else arms, got ${decide.maxArms}`);
+
+  assert.strictEqual(typeof pick.branchCount, 'number', 'pick.branchCount should be a number');
+  assert.strictEqual(typeof pick.maxArms, 'number', 'pick.maxArms should be a number');
+  assert(pick.branchCount >= 3, `pick should have at least 3 switch branches, got ${pick.branchCount}`);
+  assert.strictEqual(pick.maxArms, 3, `pick should have 3 switch arms, got ${pick.maxArms}`);
+
+  assert.strictEqual(plain.branchCount, 0, 'plain should have 0 branches');
+  assert.strictEqual(plain.maxArms, 0, 'plain should have 0 maxArms');
+
+  // Top-level values should mirror the values kept inside the fingerprint.
+  assert.strictEqual(decide.branchCount, decide.fingerprint.branchCount);
+  assert.strictEqual(decide.maxArms, decide.fingerprint.maxArms);
+}
+
 async function testJavaFallback() {
   // Invalid Java syntax triggers javalang exception; verify regex fallback
   const result = await parseJava('this is not java');
@@ -119,5 +176,6 @@ async function testJavaFallback() {
   await testJavaAST();
   await testJavaInterfaceMethods();
   await testJavaMethodAnnotations();
+  await testJavaBranchCountAndMaxArms();
   await testJavaFallback();
 })();

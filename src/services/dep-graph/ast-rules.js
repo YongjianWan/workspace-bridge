@@ -1,5 +1,23 @@
 const path = require('path');
 
+/**
+ * Extension → language mapping for AST rule selection.
+ * Keeps rule language resolution declarative and easy to extend.
+ */
+const EXT_TO_LANGUAGE = {
+  '.java': 'java',
+  '.kt': 'kotlin',
+  '.ts': 'typescript',
+  '.tsx': 'typescript',
+  '.py': 'python',
+  '.go': 'go',
+  '.rs': 'rust',
+  '.c': 'cpp',
+  '.cpp': 'cpp',
+  '.vue': 'vue',
+  '.svelte': 'svelte',
+};
+
 const RULES = [
   {
     id: 'batch-no-transactional',
@@ -31,10 +49,7 @@ function checkFileRules(graphKey, info, customRules = []) {
   }
 
   const ext = path.extname(info.originalPath || '').toLowerCase();
-  let lang = null;
-  if (ext === '.java') lang = 'java';
-  else if (ext === '.kt') lang = 'kotlin';
-  else if (ext === '.ts' || ext === '.tsx') lang = 'typescript';
+  const lang = EXT_TO_LANGUAGE[ext] || null;
 
   if (!lang) return [];
 
@@ -78,6 +93,7 @@ function checkAllRules(graph, customRules = []) {
 
 module.exports = {
   RULES,
+  EXT_TO_LANGUAGE,
   checkFileRules,
   checkAllRules,
 };

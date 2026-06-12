@@ -59,6 +59,13 @@ func helper() {}
 type local struct{}
 `;
 
+const GO_NAMED_RETURNS = `package example
+
+func Divide(a, b int) (quotient int, remainder int) {
+    return a / b, a % b
+}
+`;
+
 async function testBasicParsing() {
   const result = await parseGo(GO_SOURCE);
   assert(result.parseMode === 'ast' || result.parseMode === 'regex', 'parseMode should be ast or regex');
@@ -108,12 +115,20 @@ async function testFunctionRecords() {
   assert(Number.isFinite(processRec.lineStart), 'Process functionRecord should have lineStart');
   assert(Number.isFinite(processRec.lineEnd), 'Process functionRecord should have lineEnd');
   assert(processRec.lineEnd > processRec.lineStart, 'Process lineEnd should be > lineStart');
+  assert.strictEqual(processRec.isExported, true, 'Process should be exported');
+  assert(Array.isArray(processRec.decorators), 'Process decorators should be an array');
+  assert.deepStrictEqual(processRec.decorators, [], 'Go has no decorators');
+  assert.strictEqual(processRec.returnType, 'string', 'Process should have return type string');
 
   const mapRec = result.functionRecords.find((r) => r.name === 'Map');
   assert(mapRec, 'should have Map functionRecord');
+  assert.strictEqual(mapRec.isExported, true, 'Map should be exported');
+  assert.strictEqual(mapRec.returnType, '[]T', 'Map should have return type []T');
 
   const updateRec = result.functionRecords.find((r) => r.name === 'Update');
   assert(updateRec, 'should have Update method functionRecord');
+  assert.strictEqual(updateRec.isExported, true, 'Update method should be exported');
+  assert.strictEqual(updateRec.returnType, undefined, 'Update should have no return type');
 }
 
 async function testMethodDeclaration() {
@@ -157,6 +172,22 @@ async function testLineEndGreaterThanLineStart() {
   }
 }
 
+async function testNamedReturns() {
+  const result = await parseGo(GO_NAMED_RETURNS);
+  const divideRec = result.functionRecords.find((r) => r.name === 'Divide');
+  assert(divideRec, 'should have Divide functionRecord');
+  assert.strictEqual(divideRec.returnType, '(quotient int, remainder int)', 'Divide should capture named return tuple');
+}
+
+async function testAllFunctionRecordsHaveParityFields() {
+  const result = await parseGo(GO_SOURCE);
+  for (const rec of result.functionRecords) {
+    assert(typeof rec.isExported === 'boolean', `${rec.name} should have isExported boolean`);
+    assert(Array.isArray(rec.decorators), `${rec.name} should have decorators array`);
+    assert(rec.returnType === undefined || typeof rec.returnType === 'string', `${rec.name} returnType should be string or undefined`);
+  }
+}
+
 async function main() {
   await testBasicParsing();
   await testImportRecords();
@@ -167,6 +198,8 @@ async function main() {
   await testImportBlock();
   await testUnexportedFiltered();
   await testLineEndGreaterThanLineStart();
+  await testNamedReturns();
+  await testAllFunctionRecordsHaveParityFields();
 }
 
 main().catch((e) => {

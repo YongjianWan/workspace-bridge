@@ -19,12 +19,12 @@
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
 #### Wave 11-15 多语言功能等价性债务 (Language Parity Debt)
-- **背景**：已支持的 9 种语言在核心依赖图上实现了 AST 覆盖，但后续 Wave 11-15 的高级功能在各语言间的实现存在偏斜（Parity Deviation）。
-- **重构与补齐方向**：
-  - **AST 规则引擎 (15-1)**：目前仅覆盖 Java/Kotlin/TypeScript。其余 6 种语言未映射且 `functionRecords` 缺少 `decorators`/`isExported`/`returnType` 属性。
-  - **代码异味与复杂度趋势 (11-2 & 11-3)**：Go, Rust, Kotlin, C/C++, Vue, Svelte 缺失 AST 级分支数（`maxArms`）和圈复杂度（`branchCount`）提取，目前降级退回到 LOC。
+- **背景**：已支持的 9 种语言在核心依赖图上实现了 AST 覆盖，但后续 Wave 11-15 的高级功能在各语言间的实现存在偏斜（Parity Deviation）。第一轮低垂果实已补齐，但仍有不一致。
+- **当前状态与剩余缺口**：
+  - **AST 规则引擎 (15-1)**：`functionRecords` 字段（`decorators`/`isExported`/`returnType`）已覆盖 Java/Kotlin/TypeScript/Python/Go/Rust/C/C++；Vue/Svelte 继承 JS/TS 字段。`ast-rules.js` 扩展名→language 映射已注册全部 9 种语言。**但内置规则仍只针对 Java/Kotlin/TypeScript**，跨语言规则（如 Python `@app.route` 检查、Go error 返回模式等）待补充。
+  - **代码异味与复杂度趋势 (11-2 & 11-3)**：JS/TS 与 Java 已在 `functionRecords` 顶层提供 `branchCount`/`maxArms`；Python 已计算并放入 `fingerprint`，需统一提到顶层；Go/Rust/Kotlin/C/C++ 仍缺失 AST 级分支数提取，目前降级退回到 LOC。
   - **框架路由提取 (15-2)**：仅覆盖了 Express, NestJS, Spring Boot。其余框架（FastAPI/Django, Gin/Fiber, Axum/Actix-web, Nuxt/SvelteKit）缺失路由提取 Query。
-  - **Shadow Candidates (15-4)**：仅覆盖了 JS/TS。C/C++（`.h`/`.cpp` 头文件 shadow）与 Python（`.py`/`.pyi` 类型存根 shadow）缺失 shadow 映射规则。
+  - **Shadow Candidates (15-4)**：JS/TS、Python（`.py` ↔ `.pyi`）、C/C++（`.h`/`.hpp` ↔ `.c`/`.cpp`/`.cc`）已覆盖；Vue/Svelte 组件 shadow 仍缺失。
 
 #### 框架检测 Query 基础设施（Phase 3 预备）
 - **背景**：路由提取已成功完全 Query 化，但 `detectFrameworkFromContent` 框架检测目前仍使用轻量文本正则匹配（`AST_PATTERNS`）。

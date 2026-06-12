@@ -142,6 +142,38 @@ function extractReexportNames(node) {
   return names;
 }
 
+function isExportedFunction(funcNode) {
+  return funcNode.children.some((c) => c.type === 'visibility_modifier');
+}
+
+function getRustReturnType(funcNode) {
+  const children = funcNode.children;
+  const arrowIdx = children.findIndex((c) => c.type === '->');
+  if (arrowIdx === -1 || arrowIdx + 1 >= children.length) return null;
+  const text = getNodeText(children[arrowIdx + 1]).trim();
+  return text || null;
+}
+
+function getRustDecorators(funcNode) {
+  const decorators = [];
+  const parent = funcNode.parent;
+  if (!parent) return decorators;
+  const children = parent.children;
+  const idx = children.findIndex((c) => c.id === funcNode.id);
+  if (idx === -1) return decorators;
+  for (let i = idx - 1; i >= 0; i--) {
+    const sibling = children[i];
+    if (sibling.type !== 'attribute_item') break;
+    const attr = sibling.children.find((c) => c.type === 'attribute');
+    if (!attr) continue;
+    const pathNode = attr.children.find((c) => c.type === 'identifier' || c.type === 'scoped_identifier');
+    if (!pathNode) continue;
+    const name = getNodeText(pathNode).trim();
+    if (name) decorators.unshift(name);
+  }
+  return decorators;
+}
+
 async function parseRust(content) {
   let parser;
   let language;
@@ -245,8 +277,16 @@ async function parseRust(content) {
         const base = { lineStart, lineEnd };
 
         if (tag === 'def.func') {
+          const funcNode = capture.node.parent;
           exportRecords.push(createExportRecord(name, { kind: 'function', ...base }));
-          functionRecords.push({ name, kind: 'function', ...base });
+          functionRecords.push({
+            name,
+            kind: 'function',
+            isExported: isExportedFunction(funcNode),
+            returnType: getRustReturnType(funcNode),
+            decorators: getRustDecorators(funcNode),
+            ...base,
+          });
         } else if (tag === 'def.struct') {
           exportRecords.push(createExportRecord(name, { kind: 'struct', ...base }));
         } else if (tag === 'def.enum') {

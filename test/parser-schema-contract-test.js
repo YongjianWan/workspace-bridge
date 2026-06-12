@@ -77,6 +77,16 @@ function assertFunctionRecord(record, label) {
   if (record.fingerprint !== undefined) {
     assert(record.fingerprint !== null && typeof record.fingerprint === 'object', `${label}: functionRecord.fingerprint should be object`);
   }
+  if (record.isExported !== undefined) {
+    assert(typeof record.isExported === 'boolean', `${label}: functionRecord.isExported should be boolean`);
+  }
+  if (record.returnType !== undefined && record.returnType !== null) {
+    assert(typeof record.returnType === 'string', `${label}: functionRecord.returnType should be string or null`);
+  }
+  if (record.decorators !== undefined) {
+    assert(Array.isArray(record.decorators), `${label}: functionRecord.decorators should be array`);
+    assert(record.decorators.every((d) => typeof d === 'string'), `${label}: functionRecord.decorators should be string[]`);
+  }
 }
 
 function assertAllRecords(result, label) {

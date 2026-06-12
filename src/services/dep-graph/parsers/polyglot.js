@@ -83,6 +83,9 @@ function parseGoRegex(content) {
     functionRecords.push({
       name: match[1],
       kind: 'function',
+      isExported: true,
+      returnType: undefined,
+      decorators: [],
       lineStart: content.slice(0, match.index).split('\n').length,
       lineEnd: content.slice(0, match.index).split('\n').length,
     });
