@@ -96,8 +96,8 @@ class GraphAnalyzer {
     if (this._aggregateCache && this._aggregateCache.stats?.files === this.dg.graph.size) {
       return;
     }
-    const deadExports = this.findDeadExports({ skipCache: true });
-    const unresolved = this.findUnresolvedImports({ skipCache: true });
+    const deadExports = this.findDeadExports({ skipCache: true, raw: true });
+    const unresolved = this.findUnresolvedImports({ skipCache: true, raw: true });
     const cycles = this.findCircularDependencies({ skipCache: true });
     const stats = this.getStats({ skipCache: true });
     this._aggregateCache = {
@@ -859,99 +859,123 @@ class GraphAnalyzer {
   }
 
   findDeadExports(options = {}) {
+    let deadExports;
     if (!options?.skipCache && this._aggregateCache && this._aggregateCache.version === this._aggregateVersion) {
-      return this._aggregateCache.deadExports;
+      deadExports = this._aggregateCache.deadExports;
+    } else {
+      deadExports = [];
+
+      for (const [filePath, info] of this.dg.graph) {
+        if (this.dg.shouldExcludeCli(filePath)) continue;
+        if (info.exports.length === 0) continue;
+        if (this.dg.isTestLikeFile(filePath)) continue;
+        if (this.dg.isKnownEntryFile(filePath, info.exports)) continue;
+        // Rule 2: .d.ts ambient declaration files are type-only, not runtime exports
+        if (filePath.endsWith('.d.ts')) continue;
+        // P78: Detect scaffold once per file, reuse in both output branches
+        const scaffold = detectScaffold(filePath) || undefined;
+        const importers = this.dg.getDependents(filePath);
+        if (importers.length === 0) {
+          // When the dependency graph has many files but suspiciously few edges,
+          // the parser may be unavailable or the project uses an unsupported module
+          // system. Downgrade confidence to avoid high-confidence false positives.
+          const stats = this.getStats();
+          const edgeRatio = stats.files > 0 ? stats.totalImports / stats.files : 0;
+          const graphUnreliable = stats.files > 1 && edgeRatio < 0.1;
+          if (scaffold) continue;
+          const filteredExports = info.exports.filter(isConventionallyAliveSymbol);
+          if (filteredExports.length === 0) continue;
+          const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable);
+          const duplicateOf = this._buildDuplicateOf(filteredExports, filePath);
+          deadExports.push({ id: `dead-export:${this.dg._displayPath(filePath)}`, category: 'dead-exports', file: this.dg._displayPath(filePath), exports: filteredExports, confidence, confidenceValue, confidenceSource: source, confidenceReason: reason, importerCount: 0, scaffold, ...(duplicateOf ? { duplicateOf } : {}) });
+          continue;
+        }
+
+        const { usedNames, usesAllExports } = this._collectUsedExports(importers, filePath);
+        if (usesAllExports) continue;
+
+        let unused = info.exports.filter((name) => !usedNames.has(name) && isConventionallyAliveSymbol(name));
+
+        // P1: 轻量扫描 importer 文件中的实际使用点，消除 importRecords 未 capture 的误报
+        if (unused.length > 0) {
+          const scannedUsed = this._scanSymbolUsageInImporters(importers, unused, filePath);
+          unused = unused.filter((name) => !scannedUsed.has(name));
+        }
+
+        // L3-1: 扫描模块内部使用（同文件内的函数调用/属性访问），消除 barrel/internal-use 误报
+        if (unused.length > 0) {
+          const locallyUsed = this._scanLocalSymbolUsage(filePath, unused);
+          unused = unused.filter((name) => !locallyUsed.has(name));
+        }
+
+        if (unused.length > 0) {
+          const isConstantsWarehouse = isLikelyConstantsWarehouse(filePath, info.exportRecords);
+          if (isConstantsWarehouse || scaffold) continue;
+          const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false);
+          const duplicateOf = this._buildDuplicateOf(unused, filePath);
+          deadExports.push({
+            id: `dead-export:${this.dg._displayPath(filePath)}`,
+            category: 'dead-exports',
+            file: this.dg._displayPath(filePath),
+            exports: unused,
+            confidence: isConstantsWarehouse ? 'low' : confidence,
+            confidenceValue: isConstantsWarehouse ? CONFIDENCE.LOW_VALUE : confidenceValue,
+            confidenceSource: isConstantsWarehouse ? 'java-constants-warehouse' : source,
+            confidenceReason: isConstantsWarehouse
+              ? 'File matches Java constants-warehouse pattern; individual constants may be referenced via static import or reflection, bypassing static analysis'
+              : reason,
+            importerCount: importers.length,
+            scaffold,
+            ...(duplicateOf ? { duplicateOf } : {}),
+          });
+        }
+      }
+
+      // L1: _scanContentCache holds full file contents (up to 50MB). Clear after
+      // each findDeadExports call so REPL long sessions don't leak memory when
+      // dead-exports is invoked repeatedly without file changes.
+      this._scanContentCache.clear();
     }
-    const deadExports = [];
 
-    for (const [filePath, info] of this.dg.graph) {
-      if (this.dg.shouldExcludeCli(filePath)) continue;
-      if (info.exports.length === 0) continue;
-      if (this.dg.isTestLikeFile(filePath)) continue;
-      if (this.dg.isKnownEntryFile(filePath, info.exports)) continue;
-      // Rule 2: .d.ts ambient declaration files are type-only, not runtime exports
-      if (filePath.endsWith('.d.ts')) continue;
-      // P78: Detect scaffold once per file, reuse in both output branches
-      const scaffold = detectScaffold(filePath) || undefined;
-      const importers = this.dg.getDependents(filePath);
-      if (importers.length === 0) {
-        // When the dependency graph has many files but suspiciously few edges,
-        // the parser may be unavailable or the project uses an unsupported module
-        // system. Downgrade confidence to avoid high-confidence false positives.
-        const stats = this.getStats();
-        const edgeRatio = stats.files > 0 ? stats.totalImports / stats.files : 0;
-        const graphUnreliable = stats.files > 1 && edgeRatio < 0.1;
-        if (scaffold) continue;
-        const filteredExports = info.exports.filter(isConventionallyAliveSymbol);
-        if (filteredExports.length === 0) continue;
-        const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable);
-        const duplicateOf = this._buildDuplicateOf(filteredExports, filePath);
-        deadExports.push({ file: this.dg._displayPath(filePath), exports: filteredExports, confidence, confidenceValue, confidenceSource: source, confidenceReason: reason, importerCount: 0, scaffold, ...(duplicateOf ? { duplicateOf } : {}) });
-        continue;
-      }
-
-      const { usedNames, usesAllExports } = this._collectUsedExports(importers, filePath);
-      if (usesAllExports) continue;
-
-      let unused = info.exports.filter((name) => !usedNames.has(name) && isConventionallyAliveSymbol(name));
-
-      // P1: 轻量扫描 importer 文件中的实际使用点，消除 importRecords 未 capture 的误报
-      if (unused.length > 0) {
-        const scannedUsed = this._scanSymbolUsageInImporters(importers, unused, filePath);
-        unused = unused.filter((name) => !scannedUsed.has(name));
-      }
-
-      // L3-1: 扫描模块内部使用（同文件内的函数调用/属性访问），消除 barrel/internal-use 误报
-      if (unused.length > 0) {
-        const locallyUsed = this._scanLocalSymbolUsage(filePath, unused);
-        unused = unused.filter((name) => !locallyUsed.has(name));
-      }
-
-      if (unused.length > 0) {
-        const isConstantsWarehouse = isLikelyConstantsWarehouse(filePath, info.exportRecords);
-        if (isConstantsWarehouse || scaffold) continue;
-        const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false);
-        const duplicateOf = this._buildDuplicateOf(unused, filePath);
-        deadExports.push({
-          file: this.dg._displayPath(filePath),
-          exports: unused,
-          confidence: isConstantsWarehouse ? 'low' : confidence,
-          confidenceValue: isConstantsWarehouse ? CONFIDENCE.LOW_VALUE : confidenceValue,
-          confidenceSource: isConstantsWarehouse ? 'java-constants-warehouse' : source,
-          confidenceReason: isConstantsWarehouse
-            ? 'File matches Java constants-warehouse pattern; individual constants may be referenced via static import or reflection, bypassing static analysis'
-            : reason,
-          importerCount: importers.length,
-          scaffold,
-          ...(duplicateOf ? { duplicateOf } : {}),
-        });
-      }
+    if (options?.raw) {
+      return deadExports;
     }
 
-    // L1: _scanContentCache holds full file contents (up to 50MB). Clear after
-    // each findDeadExports call so REPL long sessions don't leak memory when
-    // dead-exports is invoked repeatedly without file changes.
-    this._scanContentCache.clear();
-
+    const ignoreFindings = this.dg.projectContext?.config?.ignore?.findings;
+    if (ignoreFindings?.length > 0) {
+      const ignoredSet = new Set(ignoreFindings);
+      return deadExports.filter((f) => !ignoredSet.has(f.id));
+    }
     return deadExports;
   }
 
   findUnresolvedImports(options = {}) {
+    let unresolved;
     if (!options?.skipCache && this._aggregateCache && this._aggregateCache.version === this._aggregateVersion) {
-      return this._aggregateCache.unresolved;
-    }
-    const unresolved = [];
+      unresolved = this._aggregateCache.unresolved;
+    } else {
+      unresolved = [];
 
-    for (const [filePath, info] of this.dg.graph) {
-      if (this.dg.shouldExcludeCli(filePath)) continue;
-      for (const imp of info.imports) {
-        const fsPath = fromNormalizedKey(imp);
-        if (!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath)) {
-          unresolved.push({ file: this.dg._displayPath(filePath), import: this.dg._displayPath(imp), resolvedTo: null });
+      for (const [filePath, info] of this.dg.graph) {
+        if (this.dg.shouldExcludeCli(filePath)) continue;
+        for (const imp of info.imports) {
+          const fsPath = fromNormalizedKey(imp);
+          if (!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath)) {
+            unresolved.push({ id: `unresolved:${this.dg._displayPath(filePath)}:${this.dg._displayPath(imp)}`, category: 'unresolved', file: this.dg._displayPath(filePath), import: this.dg._displayPath(imp), resolvedTo: null });
+          }
         }
       }
     }
 
+    if (options?.raw) {
+      return unresolved;
+    }
+
+    const ignoreFindings = this.dg.projectContext?.config?.ignore?.findings;
+    if (ignoreFindings?.length > 0) {
+      const ignoredSet = new Set(ignoreFindings);
+      return unresolved.filter((f) => !ignoredSet.has(f.id));
+    }
     return unresolved;
   }
 

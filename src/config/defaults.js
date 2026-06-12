@@ -41,13 +41,16 @@ const DEFAULTS = {
   // while still surfacing enough signal for action decisions.
   COMPACT_ISSUE_MAX_ITEMS: 10,          // 10 issues = ~300 tokens; beyond that noise dominates signal
   COMPACT_ORPHAN_MAX_ITEMS: 10,         // orphan files are low-priority; cap prevents scroll fatigue
-  // Audit-diff auto-compact: trigger when changed files exceed this count.
-  // Rationale: 20+ changed files usually means a large PR where per-file detail explodes output.
-  AUDIT_DIFF_AUTO_COMPACT_THRESHOLD: 20,
   COMPACT_IMPACT_MAX: 5,                // 5 impact files covers ~90% of typical change radius
   COMPACT_AFFECTED_TESTS_MAX: 5,        // AI rarely needs >5 test files to decide what to run
   COMPACT_EXPLANATIONS_MAX: 3,          // 3 explanations = enough for pattern recognition without repetition
   COMPACT_TOP_COMPOSITE_RISKS: 3,       // top-3 risks preserves P0/P1/P2 priority triage
+  // Large-project auto-compact threshold: when the indexed file count exceeds this,
+  // automatically switch to compact output unless --no-compact is explicitly provided.
+  // Rationale: 500 files is the point where full file trees and file-level edges start
+  // to exceed comfortable AI context-window budgets; compact mode drops per-file detail
+  // and aggregates to directory-level edges, cutting tokens by ~5-10×.
+  LARGE_PROJECT_FILE_THRESHOLD: 500,
   // Large-project warning: when edge count exceeds this, prompt user to use --compact.
   // Rationale: 5000 edges ≈ ~300KB JSON (pretty-printed), which exceeds typical AI context budgets.
   LARGE_PROJECT_EDGE_WARNING_THRESHOLD: 5000,
@@ -78,6 +81,11 @@ const DEFAULTS = {
   JSON_OUTPUT_MAX_COCHANGE_ITEMS: 20,          // co-changes beyond 20 are noise
   JSON_OUTPUT_MAX_ARRAY_ITEMS: 100,            // generic fallback for elideDeep
   JSON_OUTPUT_MAX_STRING_LENGTH: 500,          // ~75 tokens; cuts matchedText/code snippets
+  // Supported finding categories for --category filtering.
+  // Keep in sync with analyzer/tools that emit these categories.
+  FINDING_CATEGORIES: new Set([
+    'dead-exports', 'unresolved', 'cycles', 'smells', 'boundaries', 'security',
+  ]),
 };
 
 // Scoring weights for highlighted files in compact project map.

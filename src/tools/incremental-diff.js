@@ -51,7 +51,7 @@ function filterCycles(cycles, relatedSet) {
   return cycles.filter((cycle) => cycle.some((f) => relatedSet.has(normalizePathKey(f))));
 }
 
-function buildIncrementalFindings(changedFiles, container) {
+function buildIncrementalFindings(changedFiles, container, options = {}) {
   const depGraph = container.snapshot?.graph || container.depGraph;
   const relatedSet = collectRelatedFiles(changedFiles, depGraph);
 
@@ -59,13 +59,40 @@ function buildIncrementalFindings(changedFiles, container) {
   const unresolved = filterUnresolved(depGraph.findUnresolvedImports(), relatedSet);
   const cycles = filterCycles(depGraph.findCircularDependencies(), relatedSet);
 
+  const sections = {
+    deadExports: {
+      ok: true,
+      deadExportsCount: deadExports.length,
+      deadExports,
+    },
+    unresolved: {
+      ok: true,
+      unresolvedCount: unresolved.length,
+      unresolved,
+    },
+    cycles: {
+      ok: true,
+      cyclesCount: cycles.length,
+      cycles,
+    },
+  };
+
+  const { filterByCategory } = require('./audit-assembler');
+  filterByCategory(sections, options?.category, ['deadExports', 'unresolved', 'cycles']);
+
   return {
-    deadExportsCount: deadExports.length,
-    deadExports,
-    unresolvedCount: unresolved.length,
-    unresolved,
-    cyclesCount: cycles.length,
-    cycles,
+    ...(sections.deadExports.omitted ? {} : {
+      deadExportsCount: sections.deadExports.deadExportsCount,
+      deadExports: sections.deadExports.deadExports,
+    }),
+    ...(sections.unresolved.omitted ? {} : {
+      unresolvedCount: sections.unresolved.unresolvedCount,
+      unresolved: sections.unresolved.unresolved,
+    }),
+    ...(sections.cycles.omitted ? {} : {
+      cyclesCount: sections.cycles.cyclesCount,
+      cycles: sections.cycles.cycles,
+    }),
   };
 }
 

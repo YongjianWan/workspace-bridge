@@ -27,9 +27,9 @@ function buildOverviewSummary(
   couplingSplitSuggestions = []
 ) {
   const summary = { severity: 'low', insights: [], recommendations: [] };
-  const unresolvedCount = issueContext.unresolved?.count || 0;
-  const cyclesCount = issueContext.cycles?.count || 0;
-  const deadExportsCount = issueContext.deadExports?.count || 0;
+  const unresolvedCount = issueContext.unresolved?.omitted ? null : (issueContext.unresolved?.count || 0);
+  const cyclesCount = issueContext.cycles?.omitted ? null : (issueContext.cycles?.count || 0);
+  const deadExportsCount = issueContext.deadExports?.omitted ? null : (issueContext.deadExports?.count || 0);
 
   if (hotspots.length > 0) {
     summary.insights.push(`发现 ${hotspots.length} 个热区文件，需要重点关注`);
@@ -44,21 +44,21 @@ function buildOverviewSummary(
   if (orphanCount > 0) {
     summary.insights.push(`发现 ${orphanCount} 个孤儿文件（可能未使用）`);
   }
-  if (unresolvedCount > 0) {
+  if (unresolvedCount !== null && unresolvedCount > 0) {
     summary.insights.push(`${unresolvedCount} 个未解析的 import`);
   }
-  if (cyclesCount > 0) {
+  if (cyclesCount !== null && cyclesCount > 0) {
     summary.insights.push(`${cyclesCount} 个循环依赖`);
   }
-  if (deadExportsCount > 0) {
+  if (deadExportsCount !== null && deadExportsCount > 0) {
     summary.insights.push(`${deadExportsCount} 个死导出候选`);
   }
 
   summary.severity = overviewSeverity({
     fragileModuleCount: fragileModules.length,
-    unresolved: unresolvedCount,
-    cycles: cyclesCount,
-    deadExports: deadExportsCount,
+    unresolved: unresolvedCount || 0,
+    cycles: cyclesCount || 0,
+    deadExports: deadExportsCount || 0,
     orphans: orphanCount,
   });
 
@@ -69,9 +69,9 @@ function buildOverviewSummary(
   const isGo = stackProfile === 'go-first';
   const isRust = stackProfile === 'rust-first';
 
-  const unresolvedRec = buildUnresolvedRecommendation(unresolvedCount, issueContext.unresolved?.fp, stack);
-  const cycleRec = buildCycleRecommendation(cyclesCount, stack);
-  const deadExportRec = buildDeadExportRecommendation(deadExportsCount, issueContext.deadExports?.fp, stack);
+  const unresolvedRec = unresolvedCount === null ? null : buildUnresolvedRecommendation(unresolvedCount, issueContext.unresolved?.fp, stack);
+  const cycleRec = cyclesCount === null ? null : buildCycleRecommendation(cyclesCount, stack);
+  const deadExportRec = deadExportsCount === null ? null : buildDeadExportRecommendation(deadExportsCount, issueContext.deadExports?.fp, stack);
   if (unresolvedRec) summary.recommendations.push(unresolvedRec);
   if (cycleRec) summary.recommendations.push(cycleRec);
   if (deadExportRec) summary.recommendations.push(deadExportRec);

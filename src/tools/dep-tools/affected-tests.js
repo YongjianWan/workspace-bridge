@@ -3,7 +3,10 @@ const { truncateArray } = require('../../utils/truncate');
 
 function affectedTests(args, container, filePath) {
   const affectedTests = container.snapshot.graph.findAffectedTests(filePath, args?.maxDepth);
-  const trunc = truncateArray(affectedTests, DEFAULTS.JSON_OUTPUT_MAX_AFFECTED_TESTS_ITEMS);
+  // Wave 12-5: --max-files lets callers cap the returned list below the
+  // default JSON limit.
+  const limit = Number.isFinite(args?.maxFiles) ? args.maxFiles : DEFAULTS.JSON_OUTPUT_MAX_AFFECTED_TESTS_ITEMS;
+  const trunc = truncateArray(affectedTests, limit);
   return {
     ok: true,
     file: args.file,

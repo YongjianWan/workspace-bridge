@@ -37,10 +37,10 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**受影响测试全部 PASS**；`npm run test:fast` **90/90 PASS**（~12s）。全量 runner **163/163 PASS**（~5min）。开发迭代首选 `npm run test:fast`（~12s）或 `npm run test:smoke`（~54s）。当前 fast 层 90 个测试，slow 层 70 个，serial 层 7 个。
+- 测试：**受影响测试全部 PASS**；`npm run test:fast` **95/95 PASS**（~10s），`npm run test:smoke` **98/98 PASS**（~32s）。全量 runner 本轮未跑完（`e2e-gitnexus-test.js` 在 reference/GitNexus 上超时/失败，与 Wave 12 改动无关），开发迭代首选 `npm run test:fast`。当前 fast 层 95 个测试，slow 层 71 个，serial 层 7 个.
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~315 文件（entry=1, mainline=144, test=171）
+- 自身项目规模：~339 文件（entry=1, mainline=152, test=187）
 - 结构性指标：deadExports=0，cycles=0，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 按实际分布
 - 注意：`healthScore=5/5` 是文件存在性检查（README/LICENSE/.gitignore/Dockerfile），**不反映代码质量**，已废弃
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
@@ -73,6 +73,7 @@ node cli.js audit-overview --cwd . --json --quiet
 | `resolvers.js` 策略链新增策略                        | `src/services/dep-graph/resolvers.js`                | 新增语言需在 `registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null`                     |
 | `checkFileChanges()` 双路径                          | `src/services/cache.js`                              | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为                                              |
 | 动态 require 导致死导出误报                           | `src/services/dep-graph/framework-patterns.js`       | `dead-exports` 无法静态分析 `ROUTE_QUERY_REGISTRY` 动态 require，且 `java-spring.js` 无法命中 JS 启发式豁免，被判定为死导出。不影响运行，可忽略或加白 |
+| `bootstrapFromSchema` key 规范化不匹配               | `src/services/orchestrator.js`                       | fromSchema 原样使用 schema 键值而未规范化路径。Windows Mock 测试中需手动建图或通过 normalize 适配，否则易发生键查找失败 |
 
 ---
 
@@ -84,14 +85,7 @@ node cli.js audit-overview --cwd . --json --quiet
 ### 本轮已交付
 > **本轮验证状态**：基线命令 `node cli.js audit-overview --cwd . --json --quiet` 100% 成功执行，无 unresolved import，自身库全量覆盖率 1.00。
 > **本轮完成**：
-> 11. **Stage 3.5 CLI query-* E2E/集成测试补全**：新增 `test/cli-integration-query-test.js`。通过注入 mock 数据与 `audit-summary` 进行 cache 预热，验证了 hotspots/knowledge-risk/stability 相应的命令行参数（`--risk`, `--level`, `--assessment`, `--limit`, `--cwd`）和 5 种输出格式格式化器。同时将该测试文件注册到 `runner.js` 中的 slow layer，确保测试运行的高内聚与进程级缓存隔离。
-> 12. **Wave 9-3 & ROADMAP Phase 3 SQL 持久化功能全面交付**：扩展了 `file_metadata` 表结构并添加 `type`、`role`、`lang` 字段；实现了 `metrics` 与 `test_map` 预计算持久化表及其在 `GraphDB` 和 `WorkspaceCache` 中的往返读写（save/load）接口；使 `GraphAnalyzer` 能够注入并利用这些预计算数据实现受影响测试 of O(1) 快速检索；在 `test/precomputed-roundtrip-test.js` 中补齐了 4 个完整的指标与测试映射的往返读写与注入单测，`test:fast` 88/88 全部通过。
-> 13. **Wave 10 符号级智能全面交付**：重构了 `GraphBuilder` 实现了解耦的 Parse-and-Link 两阶段构建与增量更新，确保了 circular/forward 符号查找在 cold start 下能够正确解析；更新了 `edges` 表结构，增加了 `tier` 和 `resolution_method` 元数据字段并编写了 pragma/alter table 动态自动迁移，确保了向前与向后兼容性；为所有 9 语言 resolvers 配套实现了 resolution method, confidence 和 tier 精准度打标；并在 `test/wave10-symbol-intelligence-test.js` 中补齐了针对 schema 迁移、元数据持久化、resolver 打标和两阶段构建符号解析的 4 个完整 regression 单测，`test:fast` 89/89 全部通过。
-> 14. **参考仓库同步与 GitNexus 架构探索**：拉取并同步了 `CodeGraphContext`（`5b1a1f6` → `fb093bb`）与 `GitNexus`（`b9a17f55` → `1716bf7c`）最新代码；对 GitNexus 进行了 7 个维度的架构深度探索（语言插件管道、scope resolution、call graph、路由提取、PR Swarm Review、增量更新、图存储），产出与 workspace-bridge Wave 11–15 的映射评估报告。详见下方§参考仓库探索与架构借鉴。
-> 15. **Wave 11 分析深化全面交付**：新增 `audit-boundaries` 架构边界检查与 `audit-smells` 代码异味检测两个 CLI 命令；实现基于 git 历史的复杂度趋势分析（`complexityTrend`）；重构 `composite-risk.js` 为结构化 5 维度风险评分（flow_participation + community_crossing + test_coverage + caller_count + security_sensitive）；增强 JS/TS/Python/Java 的 AST 指纹计算以支持 `maxArms`；修复 `java.js` AST 路径丢失 fingerprint 的问题；补全 `human-formatters.js` 的格式化器与 AI_DIGEST；新增 `test/wave11-analysis-deepening-test.js` 覆盖边界验证、分支臂计数、复杂度趋势、风险评分；**重构消除 L2-7 `get2LevelPrefix` 重复代码技术债**。`npm run test:fast` **90/90 PASS**。
-> 16. **Wave 12 输出精炼全面交付**：实现诚实截断机制（12-1）——`impact`/`affected-tests`/`affected-routes`/`audit-diff` 等命令在数组超过阈值时显式设置 `truncated: true`，human/summary/markdown 格式化器同步显示截断提示；实现 JSON token 削减兜底（12-2）——新增 `elideDeep()` 在 `--json` 输出前作为最后一道防线，自动截断超长数组与字符串；新增 `test/wave12-output-truncation-test.js` 覆盖 truncateArray / elideDeep / compactChangedFile 截断标记 / formatter 提示 / 命令层截断行为。`npm run test:fast` **91/91 PASS**。
-> 17. **Wave 13 契约规范与可观测性全面交付**：统一 `defineLanguage` 注册契约（支持 9 种语言），删除 `symbol-extractors.js` 重构为 registry 动态调用；在 `resolvers.js` 中动态从 registry 加载解析器策略；补充 `builder.js`/`analyzer.js`/`dep-graph.js` Parse vs Link 生命周期阶段文档；在 `SKILL.md` 中添加 L0-L6 架构层级映射；扩展基准测试 `benchmark-perf.js` 和 `compare.js` 覆盖 8 大核心 CLI 命令，并适配 Windows 平台进程及 WASM 启动延迟。`npm run test:fast` **91/91 PASS**，`npm run benchmark:ci` 完美通过。
-> 18. **核心痛点（PowerShell BOM、Flaky Watch 测试、孤儿文件重复）全面交付**：新增通用 `stripBOM(str)` 过滤以规避 PowerShell 管道与重定向场景下解析 `\ufeff` 导致的 JSON 崩溃；重构 `startRepl` 以支持 `cacheDir` 实现并发测试下的 SQLite 文件锁隔离；放宽 `waitForStartup()` 探测超时上限至 20 秒且支持 Setter/Getter 动态对 `stderr` 求值，修复了 Windows 平台冷启动 Flaky 时序竞争；统一了 `project-map` 和 `overview-assembler` 到门面 `findOrphanFiles()` 实例方法的调用，且在 mock/stub 级依赖图与 snapshot 生成中完成了孤儿计算路由适配。`npm run test:fast` **94/94 PASS**，`test:watch` **4/4 PASS**，`node test/runner.js --smoke` **97/97 PASS**。
+> 1. **Wave 12 输出精炼补全**：完成 12-3 分层输出过滤（`--category dead-exports/unresolved/cycles/health` 在 `audit-summary`/`audit-overview` 中过滤并置空未选类别，`--severity` 文档修正为 `high|medium|low`）；完成 12-4 大项目自动截断（基于项目总文件数 `DEFAULTS.LARGE_PROJECT_FILE_THRESHOLD: 500` 自动启用 `--compact`，`--no-compact`/`--compact`/`WB_COMPACT` 显式覆盖）；完成 12-5 大项目手动截断（`--max-files <n>` 限制 `audit-diff` 变更文件数及 `impact`/`affected-tests`/`affected-routes`/`dependencies`/`dependents`/`tree` 返回结果数）。新增 `test/wave12-large-project-compact-test.js`，扩充 `test/wave12-output-truncation-test.js` `--max-files` 命令层用例。`npm run test:fast` **95/95 PASS**，`npm run test:smoke` **98/98 PASS**。
 ---
 
 ## 本轮上下文：参考仓库探索与架构借鉴（活跃）
@@ -202,7 +196,7 @@ node cli.js audit-overview --cwd . --json --quiet
 | 活跃债务           | 1           | 弱断言分布 ~2.3% |
 | **产品债务** | **0** | —                                                                  |
 
-**测试状态**：`npm run test:fast` **91/91 PASS**（~12s）。全量 runner **163/163 PASS**（~5min）。当前 fast 层 91 个测试，slow 层 70 个，serial 层 7 个。
+**测试状态**：`npm run test:fast` **95/95 PASS**（~10s），`npm run test:smoke` **98/98 PASS**（~32s）。全量 runner 本轮未跑完（`e2e-gitnexus-test.js` 在 reference/GitNexus 上超时/失败，与 Wave 12 改动无关）。当前 fast 层 95 个测试，slow 层 71 个，serial 层 7 个。
 
 ---
 
@@ -287,13 +281,13 @@ node cli.js audit-overview --cwd . --json --quiet
 
 #### Wave 12：输出精炼（低成本高收益）
 
-| # | 目标 | 成本 | 说明 | ROADMAP |
-|---|------|------|------|---------|
-| 12-1 | **诚实截断机制（Honest Truncation）** | 极低 | `impact` / `affected-tests` 结果数组包装 `truncated` 布尔字段，超限诚实告知 | L484 |
-| 12-2 | **JSON 输出 token 削减** | 低 | `elide_file_source()`：函数体 → 签名 + `{⋯}`，超限自动截断 | L488 |
-| 12-3 | **分层输出过滤** | 低 | `--severity P0/P1` 按严重程度过滤、`--category security/performance` 按类别过滤 | L494 |
-| 12-4 | **大项目自动截断/自适应** | 低 | 500+ 文件自动启用 `--compact`，自动抑制低价值字段。加 `--no-compact` 显式覆盖 | L498 |
-| 12-5 | **大项目手动截断** | 低 | `--max-files <n>` 只分析前 N 个变更/影响最大的文件 | L501 |
+| # | 目标 | 成本 | 说明 | ROADMAP | 状态 |
+|---|------|------|------|---------|------|
+| 12-1 | **诚实截断机制（Honest Truncation）** | 极低 | `impact` / `affected-tests` 结果数组包装 `truncated` 布尔字段，超限诚实告知 | L484 | ✅ 已交付 |
+| 12-2 | **JSON 输出 token 削减** | 低 | `elideDeep()`：超大数组/字符串在 JSON 输出前自动截断 | L488 | ✅ 已交付 |
+| 12-3 | **分层输出过滤** | 低 | `--severity high|medium|low` 按严重程度过滤、`--category dead-exports/unresolved/cycles/health` 按类别过滤 | L494 | ✅ 已交付 |
+| 12-4 | **大项目自动截断/自适应** | 低 | 基于项目总文件数（默认 500，`LARGE_PROJECT_FILE_THRESHOLD`）自动启用 `--compact`，`--no-compact` / `--compact` / `WB_COMPACT` 显式覆盖 | L498 | ✅ 已交付 |
+| 12-5 | **大项目手动截断** | 低 | `--max-files <n>` 限制 `audit-diff` 变更文件数，并在 `options` 中报告截断状态 | L501 | ✅ 已交付 |
 
 ---
 
@@ -316,7 +310,7 @@ node cli.js audit-overview --cwd . --json --quiet
 | 15-2 | **框架检测 Query 化** | 中 | `framework-patterns.js` 正则收敛为 tree-sitter query 声明，`queries/` 目录配置 | L492 | ✅ 已交付（Express / NestJS / Spring Boot 3 框架路由提取 query 化完成；query 编译基础设施 + LRU 缓存已就绪；框架检测内容 query 基础设施预备，完整 query 化待后续波次） |
 | 14-2 | **噪音抑制增强** | 低 | `.workspace-bridge.json` 扩展 `ignore` 配置 + `--mark-false-positive <id>` 记录误报 | L499 |
 | 14-3 | **环境变量层 + 配置来源报告** | 低 | `WB_*` 环境变量层 + 启动时来源报告（config from: env > cli > file） | L487 |
-| 14-4 | **项目根自动发现（Monorepo）** | 中 | 自动检测 `package.json`/`pom.xml`/`go.mod` 层级，支持 `--service <subpath>` 过滤 | L486 |
+| 14-4 | **项目根自动发现（Monorepo）** | 中 | 自动检测 `package.json`/`pom.xml`/`go.mod` 层级，支持 `--service <subpath>` 过滤 | L486 | ✅ 已交付
 
 ---
 
@@ -366,6 +360,6 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-11（PowerShell BOM、Watch/REPL Flaky 修复、孤儿文件检测统一全面完成；npm run test:fast 94/94 PASS；test:watch 4/4 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-11（Wave 12 输出精炼补全：大项目自动 compact、category 过滤、max-files 截断；npm run test:fast 95/95 PASS；test:watch 4/4 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
 
 

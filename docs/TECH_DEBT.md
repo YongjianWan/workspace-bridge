@@ -30,6 +30,11 @@
 | `strictEqual(result.ok, true/false)`       | ~48     | 低    | 深层嵌套防御性检查，风险低，不纳入弱断言统计                                      |
 | **合计弱断言（需修复）**                             | **~10** | —    | 从 ~44 处降至 ~10 处（仅余 `typeof` 型 schema 契约检查）                   |
 
+#### `bootstrapFromSchema` Key 规范化不一致（测试/Mock 债务）
+
+**表现**：`fromSchema` 将 schema 定义的 key 原样作为 graph key，未遵循生产代码中 `normalizeFilePath` 的规范（相对路径 → 绝对路径 → Windows 小写化）。这导致 Windows Mock 测试中的 key 和生产规范化后的路径不匹配，部分测试不得不绕过 `fromSchema` 手动建图。
+**缓解**：因修改此逻辑会导致约 20+ 使用相对路径 Key 的现有测试用例断言失效，暂不在此波次重构。后续可分步对测试用例进行迁移。
+
 ---
 
 ## L3 品味问题（建议修，非债务）

@@ -20,6 +20,7 @@ function createMockContainer(opts = {}) {
       findAffectedTests: () => Array.from({ length: affectedTestsSize }, (_, i) => ({ file: `t${i}.js`, distance: i + 1 })),
       findAffectedRoutes: () => Array.from({ length: routesSize }, (_, i) => ({ entry: `e${i}.js`, path: ['a', 'b'] })),
       _displayPath: (p) => p,
+      ...(opts.depGraphOverrides || {}),
     },
   });
   return {
@@ -219,6 +220,81 @@ async function testAffectedRoutesCommandTruncation() {
   assert.strictEqual(result.routes.length, DEFAULTS.JSON_OUTPUT_MAX_AFFECTED_ROUTES_ITEMS);
 }
 
+async function testImpactCommandMaxFiles() {
+  const container = createMockContainer({ impactSize: 10 });
+  const result = await dependencyGraph({ operation: 'impact', file: 'a.js', maxFiles: 3 }, container);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.truncated, true);
+  assert.strictEqual(result.impactCount, 10);
+  assert.strictEqual(result.impact.length, 3);
+}
+
+async function testAffectedTestsCommandMaxFiles() {
+  const container = createMockContainer({ affectedTestsSize: 10 });
+  const result = await dependencyGraph({ operation: 'affected_tests', file: 'a.js', maxFiles: 2 }, container);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.truncated, true);
+  assert.strictEqual(result.affectedTestsCount, 10);
+  assert.strictEqual(result.affectedTests.length, 2);
+}
+
+async function testAffectedRoutesCommandMaxFiles() {
+  const container = createMockContainer({ routesSize: 8 });
+  const result = await dependencyGraph({ operation: 'affected_routes', file: 'a.js', maxFiles: 4 }, container);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.truncated, true);
+  assert.strictEqual(result.routesCount, 8);
+  assert.strictEqual(result.routes.length, 4);
+}
+
+async function testDependenciesCommandMaxFiles() {
+  const container = createMockContainer({
+    depGraphOverrides: {
+      getDependencies: () => ['b.js', 'c.js', 'd.js', 'e.js'],
+      _displayPath: (p) => p,
+    },
+  });
+  const result = await dependencyGraph({ operation: 'dependencies', file: 'a.js', maxFiles: 2 }, container);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.truncated, true);
+  assert.strictEqual(result.dependenciesCount, 4);
+  assert.strictEqual(result.dependencies.length, 2);
+}
+
+async function testDependentsCommandMaxFiles() {
+  const container = createMockContainer({
+    depGraphOverrides: {
+      getDependents: () => ['b.js', 'c.js', 'd.js'],
+      _displayPath: (p) => p,
+    },
+  });
+  const result = await dependencyGraph({ operation: 'dependents', file: 'a.js', maxFiles: 1 }, container);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.truncated, true);
+  assert.strictEqual(result.dependentsCount, 3);
+  assert.strictEqual(result.dependents.length, 1);
+}
+
+async function testTreeCommandMaxFiles() {
+  const container = createMockContainer({
+    depGraphOverrides: {
+      hasFile: (f) => true,
+      normalizeFilePath: (f) => f,
+      getDependencies: () => ['b.js', 'c.js', 'd.js'],
+      getDependents: () => ['e.js', 'f.js', 'g.js'],
+      _displayPath: (p) => p,
+    },
+  });
+  const { treeQuery } = require('../src/tools/tree-tools');
+  const result = treeQuery({ cwd: '/test', file: '/test/a.js', maxFiles: 2 }, container);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.truncated, true);
+  assert.strictEqual(result.tree.imports.length, 2);
+  assert.strictEqual(result.tree.dependents.length, 2);
+  assert.strictEqual(result.tree.importsTruncated, true);
+  assert.strictEqual(result.tree.dependentsTruncated, true);
+}
+
 async function main() {
   testTruncateArrayWithinLimit();
   testTruncateArrayExceedsLimit();
@@ -241,6 +317,12 @@ async function main() {
   await testImpactCommandNoTruncation();
   await testAffectedTestsCommandTruncation();
   await testAffectedRoutesCommandTruncation();
+  await testImpactCommandMaxFiles();
+  await testAffectedTestsCommandMaxFiles();
+  await testAffectedRoutesCommandMaxFiles();
+  await testDependenciesCommandMaxFiles();
+  await testDependentsCommandMaxFiles();
+  await testTreeCommandMaxFiles();
 }
 
 main();

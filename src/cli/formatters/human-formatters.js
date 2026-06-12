@@ -654,13 +654,13 @@ const FORMATTERS = {
     human: (r) => {
       const lines = [`deadExportsCount: ${r.deadExportsCount}`];
       if (r.possibleFalsePositives?.disclaimer) lines.push(`note: ${r.possibleFalsePositives.disclaimer}`);
-      lines.push(...r.deadExports.map((e) => `${e.file}: ${e.exports.map((e) => sanitizeForAiOutput(e)).join(', ')}`));
+      lines.push(...r.deadExports.map((e) => `${e.file}: ${e.exports.map((e) => sanitizeForAiOutput(e)).join(', ')} (id: ${e.id})`));
       return lines.join('\n');
     },
     summary: (r) => {
       const lines = [`Dead exports: ${r.deadExportsCount ?? 0}`];
       if (r.possibleFalsePositives?.disclaimer) lines.push(`Note: ${r.possibleFalsePositives.disclaimer}`);
-      lines.push(...(r.deadExports || []).slice(0, 5).map((e) => `${e.file}: ${(e.exports || []).map((e) => sanitizeForAiOutput(e)).join(', ') || 'n/a'}`));
+      lines.push(...(r.deadExports || []).slice(0, 5).map((e) => `${e.file}: ${(e.exports || []).map((e) => sanitizeForAiOutput(e)).join(', ') || 'n/a'} (id: ${e.id})`));
       return lines.join('\n');
     },
     jsonl: (r) => {
@@ -674,13 +674,13 @@ const FORMATTERS = {
     human: (r) => {
       const lines = [`unresolvedCount: ${r.unresolvedCount}`];
       if (r.possibleFalsePositives?.disclaimer) lines.push(`note: ${r.possibleFalsePositives.disclaimer}`);
-      lines.push(...r.unresolved.map((e) => `${e.file}: ${e.import}`));
+      lines.push(...r.unresolved.map((e) => `${e.file}: ${e.import} (id: ${e.id})`));
       return lines.join('\n');
     },
     summary: (r) => {
       const lines = [`Unresolved: ${r.unresolvedCount ?? 0}`];
       if (r.possibleFalsePositives?.disclaimer) lines.push(`Note: ${r.possibleFalsePositives.disclaimer}`);
-      lines.push(...(r.unresolved || []).slice(0, 5).map((u) => `${u.file}: ${u.import}`));
+      lines.push(...(r.unresolved || []).slice(0, 5).map((u) => `${u.file}: ${u.import} (id: ${u.id})`));
       return lines.join('\n');
     },
     jsonl: (r) => {

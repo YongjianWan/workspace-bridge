@@ -46,7 +46,8 @@ function checkSmells(args, container) {
           lineEnd: func.lineEnd,
           arms,
           complexity: cc,
-          reason
+          reason,
+          category: 'smells',
         });
       }
     }

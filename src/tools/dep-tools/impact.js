@@ -21,8 +21,10 @@ async function impact(args, container, filePath) {
     affectedRoutes = container.cache.loadRoutesForFiles(impactedFiles);
   }
 
-  // Wave 12-1: honest truncation
-  const impactTrunc = truncateArray(impact, DEFAULTS.JSON_OUTPUT_MAX_IMPACT_ITEMS);
+  // Wave 12-1/12-5: honest truncation. --max-files overrides the default
+  // JSON cap so users can explicitly request a tighter bound.
+  const impactLimit = Number.isFinite(args?.maxFiles) ? args.maxFiles : DEFAULTS.JSON_OUTPUT_MAX_IMPACT_ITEMS;
+  const impactTrunc = truncateArray(impact, impactLimit);
   const coChangesTrunc = truncateArray(coChanges, DEFAULTS.JSON_OUTPUT_MAX_COCHANGE_ITEMS);
   const affectedRoutesTrunc = truncateArray(affectedRoutes, DEFAULTS.JSON_OUTPUT_MAX_AFFECTED_ROUTES_ITEMS);
 

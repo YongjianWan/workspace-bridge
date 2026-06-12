@@ -6,22 +6,22 @@ const {
 } = require('../../utils/recommendations');
 
 function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackProfile = 'unknown', analysisCoverage = null, stack = null) {
-  const deadExportsCount = deadExports.deadExportsCount || 0;
-  const unresolvedCount = unresolved.unresolvedCount || 0;
-  const cyclesCount = cycles.cyclesCount || 0;
+  const deadExportsCount = deadExports.omitted ? null : (deadExports.deadExportsCount || 0);
+  const unresolvedCount = unresolved.omitted ? null : (unresolved.unresolvedCount || 0);
+  const cyclesCount = cycles.omitted ? null : (cycles.cyclesCount || 0);
   const nonMainlineFiles = scope?.counts?.nonMainlineFiles || 0;
 
   const passedChecks = health.healthScoreNumeric?.passed ?? (Number.parseInt(String(health.healthScore || '0/5').split('/')[0] || '0', 10) || 0);
   const totalChecks = health.healthScoreNumeric?.total ?? (Number.parseInt(String(health.healthScore || '0/5').split('/')[1] || '5', 10) || 5);
-  const missingHygieneChecks = health.checks
+  const missingHygieneChecks = health.omitted ? null : (health.checks
     ? Object.values(health.checks).filter((c) => !c.found).length
-    : Math.max(0, totalChecks - passedChecks);
+    : Math.max(0, totalChecks - passedChecks));
 
   let severity = repoSeverity({
-    unresolved: unresolvedCount,
-    cycles: cyclesCount,
-    deadExports: deadExportsCount,
-    missingHygieneChecks,
+    unresolved: unresolvedCount || 0,
+    cycles: cyclesCount || 0,
+    deadExports: deadExportsCount || 0,
+    missingHygieneChecks: missingHygieneChecks || 0,
   });
 
   // P51: escalate severity when analysis coverage is dangerously low to prevent
@@ -40,18 +40,25 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
     return sum;
   }, 0);
   const honesty = {
-    deadExports: {
-      total: deadExportsCount,
-      likelyFalsePositives: deadFp.count || 0,
-      primaryReason: deadFp.primaryReason || null,
-      scaffoldDeadExports: scaffoldCount,
-    },
-    unresolved: {
-      total: unresolvedCount,
-      likelyFalsePositives: unresolved.possibleFalsePositives?.count || 0,
-      primaryReason: unresolved.possibleFalsePositives?.primaryReason || null,
-    },
-    disclaimer: buildCombinedDisclaimer(deadExports.possibleFalsePositives, unresolved.possibleFalsePositives),
+    ...(deadExports.omitted ? {} : {
+      deadExports: {
+        total: deadExportsCount,
+        likelyFalsePositives: deadFp.count || 0,
+        primaryReason: deadFp.primaryReason || null,
+        scaffoldDeadExports: scaffoldCount,
+      }
+    }),
+    ...(unresolved.omitted ? {} : {
+      unresolved: {
+        total: unresolvedCount,
+        likelyFalsePositives: unresolved.possibleFalsePositives?.count || 0,
+        primaryReason: unresolved.possibleFalsePositives?.primaryReason || null,
+      }
+    }),
+    disclaimer: buildCombinedDisclaimer(
+      deadExports.omitted ? null : deadExports.possibleFalsePositives,
+      unresolved.omitted ? null : unresolved.possibleFalsePositives
+    ),
   };
 
   const nextSteps = buildNextSteps({
@@ -61,17 +68,17 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
     missingHygieneChecks,
     nonMainlineFiles,
     totalFiles: scope?.counts?.totalFiles || 0,
-    unresolvedFp: unresolved.possibleFalsePositives,
-    deadExportsFp: deadExports.possibleFalsePositives,
+    unresolvedFp: unresolved.omitted ? null : unresolved.possibleFalsePositives,
+    deadExportsFp: deadExports.omitted ? null : deadExports.possibleFalsePositives,
   }, stackProfile, stack);
 
   const result = {
     severity,
     counts: {
-      deadExports: deadExportsCount,
-      unresolved: unresolvedCount,
-      cycles: cyclesCount,
-      missingHygieneChecks,
+      ...(deadExports.omitted ? {} : { deadExports: deadExportsCount }),
+      ...(unresolved.omitted ? {} : { unresolved: unresolvedCount }),
+      ...(cycles.omitted ? {} : { cycles: cyclesCount }),
+      ...(health.omitted ? {} : { missingHygieneChecks }),
     },
     honesty,
     nextSteps,
@@ -109,9 +116,9 @@ function buildNextSteps(ctx, stackProfile = 'unknown', stack = null) {
   // For Java/Python, deadExports are more actionable than unresolved (alias issues are rare)
   const prioritizeDeadExports = isJava || isPython;
 
-  const unresolvedRec = buildUnresolvedRecommendation(ctx.unresolvedCount, ctx.unresolvedFp, stack);
-  const cycleRec = buildCycleRecommendation(ctx.cyclesCount, stack);
-  const deadExportRec = buildDeadExportRecommendation(ctx.deadExportsCount, ctx.deadExportsFp, stack);
+  const unresolvedRec = ctx.unresolvedCount === null ? null : buildUnresolvedRecommendation(ctx.unresolvedCount, ctx.unresolvedFp, stack);
+  const cycleRec = ctx.cyclesCount === null ? null : buildCycleRecommendation(ctx.cyclesCount, stack);
+  const deadExportRec = ctx.deadExportsCount === null ? null : buildDeadExportRecommendation(ctx.deadExportsCount, ctx.deadExportsFp, stack);
 
   if (unresolvedRec && !prioritizeDeadExports) {
     steps.push(unresolvedRec);
@@ -126,7 +133,7 @@ function buildNextSteps(ctx, stackProfile = 'unknown', stack = null) {
     steps.push(unresolvedRec);
   }
 
-  if (ctx.missingHygieneChecks > 0) {
+  if (ctx.missingHygieneChecks !== null && ctx.missingHygieneChecks > 0) {
     if (isNode) {
       const testHint = stack?.node?.testRunner ? `test config (${stack.node.testRunner})` : 'test config';
       steps.push(`Close ${ctx.missingHygieneChecks} hygiene gap${ctx.missingHygieneChecks > 1 ? 's' : ''}: CI workflow, ${testHint}, env example, and editorconfig.`);

@@ -7,6 +7,7 @@ const path = require('path');
 function buildTree(rootFile, depGraph, options = {}) {
   const maxDepth = options.maxDepth || 3;
   const direction = options.direction || 'both'; // 'imports' | 'dependents' | 'both'
+  const maxFiles = Number.isFinite(options.maxFiles) && options.maxFiles > 0 ? options.maxFiles : null;
 
   function walk(file, depth, dir, pathStack) {
     const normalized = depGraph.normalizeFilePath?.(file) || file;
@@ -22,12 +23,18 @@ function buildTree(rootFile, depGraph, options = {}) {
     const shouldExpand = depth < maxDepth;
     const nextStack = new Set(pathStack);
     nextStack.add(normalized);
+    const isRoot = depth === 0;
 
     if (dir === 'imports' || dir === 'both') {
-      const imports = depGraph.getDependencies(normalized).map((imp) => {
+      let imports = depGraph.getDependencies(normalized).map((imp) => {
         const resolved = depGraph.hasFile(imp) ? imp : null;
         return { file: imp, resolved, external: !resolved };
       });
+      // Wave 12-5: cap root-level fan-out when --max-files is used.
+      if (isRoot && maxFiles && imports.length > maxFiles) {
+        imports = imports.slice(0, maxFiles);
+        result.importsTruncated = true;
+      }
 
       if (imports.length > 0) {
         result.imports = imports
@@ -43,7 +50,12 @@ function buildTree(rootFile, depGraph, options = {}) {
     }
 
     if (dir === 'dependents' || dir === 'both') {
-      const dependents = depGraph.getDependents(normalized);
+      let dependents = depGraph.getDependents(normalized);
+      // Wave 12-5: cap root-level fan-out when --max-files is used.
+      if (isRoot && maxFiles && dependents.length > maxFiles) {
+        dependents = dependents.slice(0, maxFiles);
+        result.dependentsTruncated = true;
+      }
       if (dependents.length > 0) {
         result.dependents = dependents
           .map((dep) => {
@@ -71,7 +83,7 @@ function buildTree(rootFile, depGraph, options = {}) {
   return tree;
 }
 
-function treeQuery({ cwd, file, depth, direction }, container) {
+function treeQuery({ cwd, file, depth, direction, maxFiles }, container) {
   if (!container || !container.ensureReady) {
     throw new Error('Container not ready');
   }
@@ -96,12 +108,14 @@ function treeQuery({ cwd, file, depth, direction }, container) {
   const tree = buildTree(normalized, depGraph, {
     maxDepth: depth,
     direction: direction || 'both',
+    maxFiles,
   });
 
   return {
     ok: true,
     file: normalized,
     tree,
+    truncated: Boolean(tree?.importsTruncated || tree?.dependentsTruncated),
     schemaVersion: '1.2.0',
   };
 }

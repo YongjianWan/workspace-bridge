@@ -17,6 +17,7 @@ require('./src/cli/bootstrap');
 const fs = require('fs');
 const path = require('path');
 const { version } = require('./package.json');
+const { stripBOM } = require('./src/utils/sanitize');
 
 const { ServiceContainer } = require('./src/services/container');
 const { toPosixPath } = require('./src/utils/path');
@@ -95,6 +96,9 @@ Options:
   --depth <mode>          Discovery depth for --format ai: surface | detail | full (default: detail)
   --quiet                 Suppress stderr logs during CLI execution
   --compact              Emit condensed tree and directory-level edges
+  --no-compact           Explicitly disable compact mode (overrides auto-compact and WB_COMPACT)
+  --category <list>      Comma-separated filter for audit-summary (dead-exports,unresolved,cycles,health)
+  --max-files <n>        Limit returned files in audit-diff, impact, affected-tests, affected-routes, dependencies, dependents, and tree
   --watch                Watch mode for audit-file: re-run on file changes
   --staged               Only analyze git staged changes in audit-diff
   --files <list>         Comma-separated file list for audit-diff / audit-security
@@ -106,6 +110,7 @@ Options:
   --fail-on-findings     Exit with code 1 if any findings are detected
   --config <name>        Semgrep config (default: auto)
   --language <lang>      Filter security scan to one language
+  --service <subpath>     Focus analysis on a single monorepo service/package (others become reference)
   --help                  Show help
   --help <command>       Show detailed guide for a command
 
@@ -181,6 +186,9 @@ Options:
   --depth <mode>          Discovery depth for --format ai: surface | detail | full (default: detail)
   --quiet                 Suppress stderr logs during CLI execution
   --compact              Emit condensed tree and directory-level edges
+  --no-compact           Explicitly disable compact mode (overrides auto-compact and WB_COMPACT)
+  --category <list>      Comma-separated filter for audit-summary (dead-exports,unresolved,cycles,health)
+  --max-files <n>        Limit returned files in audit-diff, impact, affected-tests, affected-routes, dependencies, dependents, and tree
   --watch                Watch mode for audit-file: re-run on file changes
   --staged               Only analyze git staged changes in audit-diff
   --files <list>         Comma-separated file list for audit-diff / audit-security
@@ -191,6 +199,7 @@ Options:
   --fail-on-findings     Exit with code 1 if any findings are detected
   --config <name>        Semgrep config (default: auto)
   --language <lang>      Filter security scan to one language
+  --service <subpath>     Focus analysis on a single monorepo service/package (others become reference)
   --help                  Show help
   --help <command>       Show detailed guide for a command
 `);
@@ -238,7 +247,17 @@ async function runCliInProcess(args, opts = {}) {
     }
     const configPath = path.join(path.resolve(parsed.cwd), '.workspace-bridge.json');
     if (fs.existsSync(configPath)) {
-      reportParts.push('other config from file');
+      let config = {};
+      try {
+        config = JSON.parse(stripBOM(fs.readFileSync(configPath, 'utf8'))) || {};
+      } catch {}
+      const configKeys = [];
+      if (config.directories) configKeys.push('directories');
+      if (config.ignore) configKeys.push('ignore');
+      if (config.boundaries) configKeys.push('boundaries');
+      if (configKeys.length > 0) {
+        reportParts.push(`${configKeys.join('/')} from file`);
+      }
     }
     const reportStr = reportParts.length > 0 ? reportParts.join(', ') : 'defaults only';
     console.error(`[Config] Precedence (env > cli > file): ${reportStr}`);
@@ -251,7 +270,7 @@ async function runCliInProcess(args, opts = {}) {
     let config = {};
     if (fs.existsSync(configPath)) {
       try {
-        config = JSON.parse(fs.readFileSync(configPath, 'utf8')) || {};
+        config = JSON.parse(stripBOM(fs.readFileSync(configPath, 'utf8'))) || {};
       } catch (err) {
         return { status: 1, stdout: '', stderr: `Failed to parse config file: ${err.message}` };
       }
@@ -321,6 +340,7 @@ async function runCliInProcess(args, opts = {}) {
         watch: false,
         excludeDirs: parsed.exclude,
         strictCwd: parsed.strictCwd,
+        service: parsed.service,
       });
       if (!initialized) {
         throw container.initError || new Error('Failed to initialize workspace container');

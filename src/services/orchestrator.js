@@ -52,6 +52,7 @@ function bootstrapFromSchema(workspaceRoot, schema, options = {}) {
       parseMode: node.parseMode || 'ast',
       confidence: node.confidence || 'medium',
       package: node.package || null,
+      frameworkHint: node.frameworkHint || null,
     });
   }
 

@@ -272,6 +272,7 @@ async function runBuiltinSecurityScan(cwd, targets, container, options = {}) {
             rule: rule.id,
             message: rule.message,
             severity: rule.severity,
+            category: 'security',
             file: depGraph?._displayPath?.(file) || file,
             lineStart: i + 1,
             lineEnd: i + 1,
@@ -336,7 +337,7 @@ async function auditSecurity({ cwd, targets, config, language, builtinOnly }, co
   const deduped = dedupeWithinTool(allFindings);
   const findingsWithId = deduped.map((f) => {
     const id = computeFindingId(f);
-    return { id, ...f };
+    return { id, ...f, category: f.category || 'security' };
   });
   const filtered = findingsWithId.filter((f) => !ignoredFindings.has(f.id));
   const bySeverity = groupBySeverity(filtered);

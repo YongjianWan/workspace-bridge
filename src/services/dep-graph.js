@@ -108,7 +108,26 @@ class DependencyGraph {
    * out of report output.
    */
   shouldExcludeCli(filePath) {
-    return _shouldExcludeCli(filePath, this.cliExcludeDirs);
+    if (_shouldExcludeCli(filePath, this.cliExcludeDirs)) return true;
+
+    // Exclude files in non-active directory roles from CLI findings output.
+    // Reference/archive/generated files stay in the graph to protect active
+    // code from dead-export false positives, but are filtered from reports.
+    if (this.projectContext && typeof this.projectContext.classifyFile === 'function') {
+      const classification = this.projectContext.classifyFile(filePath);
+      if (classification && !classification.isMainline) {
+        return true;
+      }
+    }
+
+    const ignoredFrameworks = this.projectContext?.config?.ignore?.frameworks;
+    if (ignoredFrameworks?.length > 0) {
+      const info = this.getFileInfo(filePath);
+      if (info?.frameworkHint?.framework && ignoredFrameworks.includes(info.frameworkHint.framework)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   get state() {
@@ -131,10 +150,13 @@ class DependencyGraph {
   }
 
   hasFile(filePath) {
+    if (this.graph.has(filePath)) return true;
     return this.graph.has(this.normalizeFilePath(filePath));
   }
 
   getFileInfo(filePath) {
+    const direct = this.graph.get(filePath);
+    if (direct !== undefined) return direct;
     return this.graph.get(this.normalizeFilePath(filePath));
   }
 

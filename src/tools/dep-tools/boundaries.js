@@ -144,7 +144,8 @@ function checkBoundaries(args, container) {
                 ruleIndex: rule.index,
                 ruleFrom: rule.original.from,
                 violationType: 'deny',
-                pattern: rule.original.deny[idx]
+                pattern: rule.original.deny[idx],
+                category: 'boundaries',
               });
             }
           }
@@ -164,7 +165,8 @@ function checkBoundaries(args, container) {
               targetFile: relTarget,
               ruleIndex: rule.index,
               ruleFrom: rule.original.from,
-              violationType: 'allow'
+              violationType: 'allow',
+              category: 'boundaries',
             });
           }
         }

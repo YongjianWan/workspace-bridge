@@ -8,6 +8,19 @@
 
 ## [Unreleased]
 
+### Wave 12: 类别过滤 Summary 同步与性能优化 (2026-06-12)
+
+- **类别过滤与 Summary 同步 (12-3)**：修复了 `--category` 过滤时 repo / overview / incremental-diff 汇总的 counts 和 recommendations 不同步的 bug。现在，被过滤类别的 counts 指标以及 `incrementalFindings` 字段会被彻底排除，且 nextSteps/recommendations 中不再生成该类别的诊断建议，同时严重性评级（severity）也将自动剔除已省略项的影响。
+- **高开销分析提前剪枝 (12-3)**：在 `audit-overview` 路径中，若未选择 `boundaries` 或 `smells` 类别，直接跳过相关检查，避免不必要的 AST/依赖分析开销，极大提升了大项目下的 CLI 响应性能。
+- **测试**: 更新 `test/wave12-category-filter-test.js` 补充了对 summary.counts 缺省键、增量 findings 排除及建议排除的断言，确保不发生回归。
+
+### Wave 12: 输出精炼补全 (2026-06-11)
+
+- **大项目自动截断 (12-4)**：新增 `DEFAULTS.LARGE_PROJECT_FILE_THRESHOLD`（500 文件）；项目总文件数超阈值时 `audit-map` / `audit-diff` 自动启用 `--compact`，`--no-compact` 显式覆盖，`--compact` / `WB_COMPACT` 仍显式生效。
+- **类别过滤 (12-3)**：`audit-summary` 支持 `--category dead-exports,unresolved,cycles,health` 过滤，未选类别置空；`--severity` 实际取值为 `high|medium|low`。
+- **手动文件截断 (12-5)**：`audit-diff` 支持 `--max-files <n>` 限制变更文件数；`impact`/`affected-tests`/`affected-routes`/`dependencies`/`dependents`/`tree` 支持 `--max-files <n>` 限制返回结果数；未指定时保持原有默认截断行为不变。
+- **测试**: 新增 `test/wave12-large-project-compact-test.js` 覆盖 compact 优先级、audit-map / audit-diff 自动 compact、`--max-files` 截断与 category 过滤；在 `test/wave12-output-truncation-test.js` 补全 6 个 `--max-files` 命令层用例。
+
 ### 修复与可靠性提升 (2026-06-11)
 
 - **PowerShell 管道 BOM 消除 (BOM Purge)**:
@@ -39,14 +52,18 @@
 - **安全扫描与符号解构缺陷修复**：
   - 恢复 `rule` 作为 `ruleId` 的别名以确保向后兼容，更新 `test/security-ruleId-test.js`。
   - 修复 CJS 解构别名（如 `const { a: b } = require('./foo')`）解析逻辑以确保 `symbolImpact` 匹配。
-- **降噪与噪音抑制 (Wave 14-2)**：
-  - 扩展 `.workspace-bridge.json` 结构，支持 `ignore.paths`（过滤文件索引）和 `ignore.findings`（屏蔽安全漏洞）。
-  - 实现基于 SHA-256 哈希的前 12 位唯一安全漏洞 ID（Finding ID）。
-  - 增加 `--mark-false-positive <id>` 命令行工具，支持自动将误报 ID 写入 `.workspace-bridge.json` 进行屏蔽。
-- **配置优先级与环境变量 (Wave 14-3)**：
-  - 支持 `WB_*` 系列前缀环境变量（如 `WB_FORMAT`, `WB_JSON`, `WB_QUIET`, `WB_CWD`, `WB_EXCLUDE`, `WB_LIMIT`, `WB_SEVERITY`）。
-  - 遵循 `env > cli > file` 的配置覆盖优先级，并在启动时通过命令行输出配置来源报告（Precedence Origin Report）。
-- **新增回归单元测试** `test/wave14-noise-env-test.js` 验证上述全部功能。
+- **降噪与噪音抑制增强 (Wave 14-2)**：
+  - 为 `findDeadExports()` / `findUnresolvedImports()` 返回的每个 finding 添加 `id` 字段（格式 `dead-export:<path>` / `unresolved:<path>:<import>`），作为 `--mark-false-positive` 的标识基础。
+  - 实现 `ignore.findings` 过滤逻辑：在 `GraphAnalyzer` 层统一过滤，被忽略的 finding ID 不再出现在 `dead-exports`、`unresolved`、`audit-overview`、`audit-diff` 等所有消费路径中。修复了命中 `_aggregateCache` 缓存时过滤失效的 Bug，通过在返回路径动态过滤使配置变更实时生效。
+  - 实现 `ignore.frameworks` 框架感知排除：在 `dep-graph.js` `shouldExcludeCli()` 中读取 `ignore.frameworks`，匹配 `frameworkHint.framework` 的文件从报告输出中排除，不影响图构建。
+  - 在 `human-formatters.js` 的 `dead-exports` / `unresolved` human 与 summary 输出中追加 `(id: ...)`，方便用户直接复制 ID 进行屏蔽。
+  - 为 `--mark-false-positive` 的 JSON 配置文件读取补上 `stripBOM` 过滤，消除 Windows PowerShell 场景下的 BOM 崩溃风险。
+- **配置优先级与环境变量层 (Wave 14-3)**：
+  - 在 `validate-args.js` 中新增 7 个 `WB_*` 环境变量支持：`WB_COMPACT`、`WB_FAIL_ON_FINDINGS`、`WB_STAGED`、`WB_RUN_TESTS`、`WB_WITH_IMPACT`、`WB_INCREMENTAL`、`WB_CHECK_REGISTRATION`，全部遵循 `env > cli > file` 优先级。
+  - 细化 CLI 启动时的 Precedence Origin Report：将笼统的 "other config from file" 细化为具体的 file 层配置 key（如 `ignore from file`、`boundaries from file`）。
+- **测试与工程契约**：
+  - 新增 `test/wave14-noise-env-test.js`（8 个测试用例），覆盖 `ignore.findings` 过滤、`ignore.frameworks` 过滤、`WB_*` 环境变量、`--mark-false-positive` 端到端、配置来源报告细化，以及动态过滤缓存 findings 的正确性（`testIgnoreFindingsDynamicCache`）。
+  - 在 `bootstrapFromSchema` 中传递 `frameworkHint` 字段到节点数据，保证 mock 场景下框架感知逻辑可用。
 
 ### Wave 15: 框架检测 Query 化 (2026-06-11)
 
@@ -515,6 +532,23 @@
   - `test/formatter-direct-test.js` 扩展 `testFormatJsonlAuditSummary` 验证全部 6 种 record 类型 + 元数据行。
   - `test:fast` **86/86 PASS**。
 - **TECH_DEBT.md L3 债务清零**：移除 `--json 嵌套深，管道不友好` 条目。
+
+### Wave 14-4: Monorepo 边界检测与服务过滤 (2026-06-11)
+
+- **`--service <subpath>` CLI 参数** `src/cli/validate-args.js` / `cli.js`：
+  - 注册 `--service` 参数，支持 `WB_SERVICE` 环境变量，遵循 `env > cli > file` 优先级。
+  - 在 `sanitizeCliPaths` 中进行路径安全验证（防穿越）和存在性检查（必须为目录），失败返回 `VALIDATION_ERROR`。
+  - `cli.js` 帮助文本新增说明，并将 `service` 传递给 `container.initialize()`。
+- **ProjectContext 自动子项目发现** `src/utils/project-context.js`：
+  - 引入 `WORKSPACE_MARKERS` 过滤 `.git` 后的 `PROJECT_MARKERS` 作为子项目边界识别依据。
+  - 新增 `detectProjectBoundaries()`：递归扫描子目录（最大深度 3，排除 `node_modules`/隐藏目录），检测边界文件存在性。
+  - 重构 `buildDirectoryRules()`：当传入 `--service` 时，将目标服务标记为 `active`（source: `service`），自动发现的兄弟子项目降级为 `reference`（source: `service-downgrade`）。
+  - 重构 `classifyDirectory()` 匹配优先级为 `cli/service > config > default`，确保 CLI 规则（`--service`、`--exclude`）始终覆盖配置文件。
+- **DependencyGraph 非 active 文件过滤** `src/services/dep-graph.js`：
+  - `shouldExcludeCli()` 新增对 `projectContext.classifyFile(filePath).isMainline` 的检查，将 `reference`/`archive`/`generated` 目录角色下的文件排除在 CLI findings 报告之外。
+  - 防御性检查 `typeof this.projectContext.classifyFile === 'function'`，保持与现有 mock 测试的向后兼容。
+- **测试覆盖** `test/wave14-monorepo-service-test.js`：
+  - 6 个测试用例覆盖：无 service 时全 active、service findings 过滤、ProjectContext 角色分类、路径穿越验证、不存在路径验证、优先级排序（cli > config）。
 
 ## [2.0.0] - 2026-05-28
 

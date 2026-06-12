@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { pathExists, readJsonSafe, toPosixPath } = require('./path');
+const { pathExists, readJsonSafe, toPosixPath, toRelativePosix, WORKSPACE_MARKERS } = require('./path');
 
 const ROLE_PRIORITY = ['generated', 'archive', 'reference', 'active'];
 const DEFAULT_DIRECTORY_HINTS = {
@@ -553,6 +553,11 @@ function validateWorkspaceConfig(config, configPath) {
         throw new Error(`"ignore.findings" must be an array of strings in config file ${configPath}`);
       }
     }
+    if (ignore.frameworks !== undefined) {
+      if (!Array.isArray(ignore.frameworks) || !ignore.frameworks.every(f => typeof f === 'string')) {
+        throw new Error(`"ignore.frameworks" must be an array of strings in config file ${configPath}`);
+      }
+    }
   }
 }
 
@@ -631,7 +636,44 @@ class ProjectContext {
       this.config = {};
     }
     this.cliExcludes = ensureArray(options.excludeDirs).map(normalizeRelativePath).filter(Boolean);
+    this.service = options.service || null;
     this.directoryRules = this.buildDirectoryRules();
+  }
+
+  detectProjectBoundaries() {
+    const PROJECT_MARKERS = WORKSPACE_MARKERS.filter((m) => m !== '.git');
+    const boundaries = new Set();
+
+    const scanDir = (dir, depth) => {
+      if (depth > 3) return;
+      let entries;
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const name = entry.name;
+        if (name.startsWith('.') || name === 'node_modules') continue;
+        const subDir = path.join(dir, name);
+        const hasMarker = PROJECT_MARKERS.some((marker) => {
+          try {
+            return fs.existsSync(path.join(subDir, marker));
+          } catch {
+            return false;
+          }
+        });
+        if (hasMarker) {
+          boundaries.add(toRelativePosix(this.root, subDir));
+        } else {
+          scanDir(subDir, depth + 1);
+        }
+      }
+    };
+
+    scanDir(this.root, 0);
+    return Array.from(boundaries);
   }
 
   buildDirectoryRules() {
@@ -663,6 +705,19 @@ class ProjectContext {
       rules.push({ role: 'reference', path: excludePath, source: 'cli' });
     }
 
+    // Monorepo service filtering (Wave 14-4)
+    if (this.service) {
+      rules.push({ role: 'active', path: normalizeRelativePath(this.service), source: 'service' });
+      const boundaries = this.detectProjectBoundaries();
+      const normalizedService = normalizeRelativePath(this.service);
+      for (const boundary of boundaries) {
+        const normalizedBoundary = normalizeRelativePath(boundary);
+        if (normalizedBoundary !== normalizedService && !pathMatchesRule(normalizedBoundary, normalizedService)) {
+          rules.push({ role: 'reference', path: normalizedBoundary, source: 'service-downgrade' });
+        }
+      }
+    }
+
     return rules;
   }
 
@@ -677,7 +732,15 @@ class ProjectContext {
       return { role: 'active', matchedRule: null };
     }
 
-    // User-configured rules take precedence over default hints.
+    // Priority 1: CLI/service rules (--service, --exclude) take precedence over everything.
+    const cliServiceMatch = this.directoryRules.find(
+      (rule) => (rule.source === 'cli' || rule.source === 'service' || rule.source === 'service-downgrade') && pathMatchesRule(normalized, rule.path)
+    );
+    if (cliServiceMatch) {
+      return { role: cliServiceMatch.role, matchedRule: cliServiceMatch };
+    }
+
+    // Priority 2: User-configured rules.
     const configuredMatch = this.directoryRules.find(
       (rule) => rule.source === 'config' && pathMatchesRule(normalized, rule.path)
     );
@@ -685,8 +748,9 @@ class ProjectContext {
       return { role: configuredMatch.role, matchedRule: configuredMatch };
     }
 
+    // Priority 3: Default hints.
     for (const role of ROLE_PRIORITY) {
-      const match = this.directoryRules.find((rule) => rule.role === role && pathMatchesRule(normalized, rule.path));
+      const match = this.directoryRules.find((rule) => rule.role === role && rule.source === 'default' && pathMatchesRule(normalized, rule.path));
       if (match) {
         return { role, matchedRule: match };
       }

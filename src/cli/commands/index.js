@@ -6,7 +6,7 @@
 
 const fs = require('fs');
 const { dependencyGraph } = require('../../tools/dep-tools');
-const { assembleDiff, assembleSecurity, assembleSummary } = require('../../tools/audit-assembler');
+const { assembleDiff, assembleSecurity, assembleSummary, resolveCompact, filterByCategory } = require('../../tools/audit-assembler');
 const { runDiagnostics, workspaceInfo } = require('../../tools/workspace-tools');
 const { buildProjectMap } = require('../formatters');
 const { buildProjectOverview } = require('../../tools/overview-tools');
@@ -83,6 +83,21 @@ const COMMANDS = {
           result.summary.analysisCoverage = filteredAnalysisCoverage;
         }
       }
+
+      // Wave 12: --category filter narrows the summary to selected dimensions.
+      if (parsed.category) {
+        filterByCategory(result, parsed.category, ['health', 'deadExports', 'unresolved', 'cycles', 'boundaries', 'smells']);
+        result.hasFindings =
+          (result.deadExports?.deadExportsCount || 0) > 0 ||
+          (result.unresolved?.unresolvedCount || 0) > 0 ||
+          (result.cycles?.cyclesCount || 0) > 0 ||
+          (result.boundaries?.violationsCount || 0) > 0 ||
+          (result.smells?.smellsCount || 0) > 0 ||
+          (result.hotspots?.length || 0) > 0 ||
+          (result.architectureAdvice?.cycleRefactorSuggestions?.length || 0) > 0 ||
+          (result.knowledgeRisk?.high?.length || 0) > 0 ||
+          (result.orphans?.counts?.total || 0) > 0;
+      }
     }
     return result;
   },
@@ -91,6 +106,10 @@ const COMMANDS = {
   'audit-overview': async (parsed, container) => {
     const result = await buildProjectOverview(parsed, container);
     if (result.ok !== false) {
+      // Wave 12-3: --category filter narrows the overview to selected dimensions.
+      if (parsed.category) {
+        filterByCategory(result, parsed.category, ['deadExports', 'unresolved', 'cycles', 'boundaries', 'smells']);
+      }
       result.hasFindings =
         (result.orphans?.counts?.total || 0) > 0 ||
         (result.hotspots?.length || 0) > 0 ||
@@ -98,13 +117,18 @@ const COMMANDS = {
         (result.knowledgeRisk?.high?.length || 0) > 0 ||
         (result.deadExports?.deadExportsCount || 0) > 0 ||
         (result.unresolved?.unresolvedCount || 0) > 0 ||
-        (result.cycles?.cyclesCount || 0) > 0;
+        (result.cycles?.cyclesCount || 0) > 0 ||
+        (result.boundaries?.violationsCount || 0) > 0 ||
+        (result.smells?.smellsCount || 0) > 0;
     }
     return result;
   },
   'audit-map': async (parsed, container) => {
     await container.ensureReady();
-    const result = buildProjectMap(container.snapshot.graph, { compact: parsed.compact });
+    const { compact, autoCompact } = resolveCompact(parsed, container);
+    const result = buildProjectMap(container.snapshot.graph, { compact });
+    result.options = { compact, autoCompact };
+
     const c = result.summary?.issueCounts || {};
     result.hasFindings =
       (c.deadExports || 0) > 0 ||
@@ -117,27 +141,27 @@ const COMMANDS = {
 
   // L2 — Targeted analysis
   impact: makeFileCommand(
-    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'impact', file: parsed.file, maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH }, container),
+    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'impact', file: parsed.file, maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH, maxFiles: parsed.maxFiles }, container),
     (r) => (r.impactCount || 0) > 0
   ),
   'affected-tests': makeFileCommand(
-    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'affected_tests', file: parsed.file, maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH }, container),
+    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'affected_tests', file: parsed.file, maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH, maxFiles: parsed.maxFiles }, container),
     (r) => (r.affectedTestsCount || 0) > 0
   ),
   'affected-routes': makeFileCommand(
-    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'affected_routes', file: parsed.file, maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH }, container),
+    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'affected_routes', file: parsed.file, maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH, maxFiles: parsed.maxFiles }, container),
     (r) => (r.routesCount || 0) > 0
   ),
   dependencies: makeFileCommand(
-    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'dependencies', file: parsed.file }, container),
+    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'dependencies', file: parsed.file, maxFiles: parsed.maxFiles }, container),
     (r) => (r.dependenciesCount || 0) > 0
   ),
   dependents: makeFileCommand(
-    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'dependents', file: parsed.file }, container),
+    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'dependents', file: parsed.file, maxFiles: parsed.maxFiles }, container),
     (r) => (r.dependentsCount || 0) > 0
   ),
   tree: makeFileCommand(
-    (parsed, container, filePath) => treeQuery({ cwd: parsed.cwd, file: filePath, depth: parsed.maxDepth ?? 3, direction: parsed.direction || 'both' }, container),
+    (parsed, container, filePath) => treeQuery({ cwd: parsed.cwd, file: filePath, depth: parsed.maxDepth ?? 3, direction: parsed.direction || 'both', maxFiles: parsed.maxFiles }, container),
     () => false
   ),
   'audit-boundaries': async (parsed, container) => {

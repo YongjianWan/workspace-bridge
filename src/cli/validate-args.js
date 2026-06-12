@@ -3,8 +3,10 @@
  * Extracted from cli.js to enable unit testing without spawning a process.
  */
 const path = require('path');
-const { toPosixPath, resolveWorkspaceFilePath } = require('../utils/path');
+const fs = require('fs');
+const { toPosixPath, resolveWorkspaceFilePath, toRelativePosix } = require('../utils/path');
 const { parseArgs } = require('../utils/parse-args');
+const { DEFAULTS } = require('../config/constants');
 
 function parseCliArgs(argv) {
   const throwValidationError = (msg) => {
@@ -43,6 +45,7 @@ function parseCliArgs(argv) {
       '--since': { key: 'since' },
       '--commits': { key: 'commits' },
       '--severity': { key: 'severity' },
+      '--category': { key: 'category' },
       '--risk': { key: 'risk' },
       '--level': { key: 'level' },
       '--assessment': { key: 'assessment' },
@@ -56,6 +59,12 @@ function parseCliArgs(argv) {
       '--json': true,
       '--quiet': true,
       '--compact': true,
+      '--no-compact': true,
+      '--max-files': { key: 'maxFiles', transform: (v) => {
+        const n = Number.parseInt(v, 10);
+        if (Number.isNaN(n) || n <= 0) throwValidationError(`Invalid --max-files value: ${v}. Expected a positive integer`);
+        return n;
+      } },
       '--watch': true,
       '--incremental': true,
       '--with-impact': true,
@@ -75,6 +84,7 @@ function parseCliArgs(argv) {
       '--all': true,
       '--strict-cwd': true,
       '--mark-false-positive': { key: 'markFalsePositive' },
+      '--service': { key: 'service' },
     });
   } catch (err) {
     if (!err.code) {
@@ -149,6 +159,62 @@ function parseCliArgs(argv) {
   sources.severity = severityRes.source;
   const severity = severityRes.value || null;
 
+  const categoryRes = resolveOption(raw.category, 'WB_CATEGORY');
+  sources.category = categoryRes.source;
+  const category = categoryRes.value || null;
+
+  let compact = false;
+  let compactSource = 'default';
+  if (raw['--no-compact']) {
+    compact = false;
+    compactSource = 'cli';
+  } else if (raw['--compact']) {
+    compact = true;
+    compactSource = 'cli';
+  } else if (process.env.WB_COMPACT !== undefined) {
+    compact = process.env.WB_COMPACT === 'true' || process.env.WB_COMPACT === '1';
+    compactSource = 'env';
+  }
+  sources.compact = compactSource;
+
+  const maxFilesRes = resolveOption(raw.maxFiles, 'WB_MAX_FILES');
+  sources.maxFiles = maxFilesRes.source;
+  let maxFiles = null;
+  if (maxFilesRes.value !== undefined) {
+    maxFiles = Number.parseInt(maxFilesRes.value, 10);
+    if (Number.isNaN(maxFiles) || maxFiles <= 0) {
+      throwValidationError(`Invalid max-files value: ${maxFilesRes.value}. Expected a positive integer`);
+    }
+  }
+
+  const failOnFindingsRes = resolveOption(raw['--fail-on-findings'], 'WB_FAIL_ON_FINDINGS', true);
+  sources.failOnFindings = failOnFindingsRes.source;
+  const failOnFindings = failOnFindingsRes.value || false;
+
+  const stagedRes = resolveOption(raw['--staged'], 'WB_STAGED', true);
+  sources.staged = stagedRes.source;
+  const staged = stagedRes.value || false;
+
+  const runTestsRes = resolveOption(raw['--run-tests'], 'WB_RUN_TESTS', true);
+  sources.runTests = runTestsRes.source;
+  const runTests = runTestsRes.value || false;
+
+  const withImpactRes = resolveOption(raw['--with-impact'], 'WB_WITH_IMPACT', true);
+  sources.withImpact = withImpactRes.source;
+  const withImpact = withImpactRes.value || false;
+
+  const incrementalRes = resolveOption(raw['--incremental'], 'WB_INCREMENTAL', true);
+  sources.incremental = incrementalRes.source;
+  const incremental = incrementalRes.value || false;
+
+  const checkRegressionRes = resolveOption(raw['--check-regression'], 'WB_CHECK_REGRESSION', true);
+  sources.checkRegression = checkRegressionRes.source;
+  const checkRegression = checkRegressionRes.value || false;
+
+  const serviceRes = resolveOption(raw.service, 'WB_SERVICE');
+  sources.service = serviceRes.source;
+  const service = serviceRes.value || null;
+
   const reuseHints = (raw.reuseHints || 'off').toLowerCase();
   if (reuseHints && !['on', 'off'].includes(reuseHints)) {
     throwValidationError(`Invalid --reuse-hints value: ${reuseHints}. Expected on|off`);
@@ -163,6 +229,14 @@ function parseCliArgs(argv) {
   }
   if (severity && !['high', 'medium', 'low'].includes(severity)) {
     throwValidationError(`Invalid --severity value: ${severity}. Expected high|medium|low`);
+  }
+  if (category) {
+    const validCategories = DEFAULTS.FINDING_CATEGORIES;
+    const requested = String(category).split(',').map((c) => c.trim()).filter(Boolean);
+    const invalid = requested.filter((c) => !validCategories.has(c));
+    if (invalid.length > 0) {
+      throwValidationError(`Invalid --category value: ${invalid.join(', ')}. Expected ${Array.from(validCategories).sort().join('|')}`);
+    }
   }
   if (format && !['summary', 'markdown', 'jsonl', 'ai', 'human', 'json'].includes(format)) {
     throwValidationError(`Invalid --format value: ${format}. Expected summary|markdown|jsonl|ai|human|json`);
@@ -196,17 +270,20 @@ function parseCliArgs(argv) {
     since: raw.since || null,
     commits: raw.commits || null,
     severity,
+    category,
     staged: Boolean(raw['--staged']),
     files: raw.files || null,
     targets: raw._.slice(1),
     json: json || format === 'json',
     quiet,
-    compact: Boolean(raw['--compact']),
+    compact,
+    noCompact: Boolean(raw['--no-compact']),
+    maxFiles,
     watch: Boolean(raw['--watch']),
-    incremental: Boolean(raw['--incremental']),
-    withImpact: Boolean(raw['--with-impact']),
+    incremental,
+    withImpact,
     save: raw.save || null,
-    checkRegression: Boolean(raw['--check-regression']),
+    checkRegression,
     baseline: raw.baseline || null,
     cacheDir,
     direction: raw.direction || null,
@@ -216,8 +293,8 @@ function parseCliArgs(argv) {
     level: raw.level || null,
     assessment: raw.assessment || null,
     limit,
-    failOnFindings: Boolean(raw['--fail-on-findings']),
-    runTests: Boolean(raw['--run-tests']),
+    failOnFindings,
+    runTests,
     version: Boolean(raw['--version']) || Boolean(raw['-v']),
     help: Boolean(raw['--help']) || Boolean(raw['-h']),
     helpAll: Boolean(raw['--all']),
@@ -225,6 +302,7 @@ function parseCliArgs(argv) {
     tokenBudget: Number.isFinite(raw.tokenBudget) ? raw.tokenBudget : null,
     strictCwd: Boolean(raw['--strict-cwd']),
     markFalsePositive: raw.markFalsePositive || null,
+    service,
     _sources: sources,
   };
 }
@@ -253,6 +331,22 @@ function sanitizeCliPaths(parsed) {
     }
     parsed.files = safeParts.join(',');
   }
+
+  if (parsed.service) {
+    const safe = resolveWorkspaceFilePath(parsed.service, root);
+    if (!safe) {
+      return { ok: false, error: `Invalid --service path: path traversal or escape detected: ${parsed.service}` };
+    }
+    try {
+      if (!fs.statSync(safe).isDirectory()) {
+        return { ok: false, error: `Invalid --service path: not a directory: ${parsed.service}` };
+      }
+    } catch (err) {
+      return { ok: false, error: `Invalid --service path: does not exist or inaccessible: ${parsed.service}` };
+    }
+    parsed.service = toRelativePosix(root, safe);
+  }
+
   return null;
 }
 

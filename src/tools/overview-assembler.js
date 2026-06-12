@@ -440,22 +440,49 @@ async function assembleOverviewData(args, container, historyProvider) {
   hotspots = hotspots || await buildHotspots(root, depGraph, mainlineFiles, historyProvider);
   stability = stability || buildStability(root, depGraph, mainlineFiles, projectContext);
   const orphans = depGraph.findOrphanFiles();
-  const unresolved = depGraph.findUnresolvedImports?.() || [];
-  const cycles = depGraph.findCircularDependencies?.() || [];
-  const deadExports = depGraph.findDeadExports?.() || [];
-  const stack = detectStack(root);
-  const stackProfile = stack.profile;
+  const unresolvedRaw = depGraph.findUnresolvedImports?.() || [];
+  const cyclesRaw = depGraph.findCircularDependencies?.() || [];
+  const deadExportsRaw = depGraph.findDeadExports?.() || [];
 
-  let filteredDeadExports = deadExports;
+  let filteredDeadExportsRaw = deadExportsRaw;
   if (args?.severity) {
     const SEVERITY_RANK = { high: 3, medium: 2, low: 1 };
-    filteredDeadExports = deadExports.filter((d) => {
+    filteredDeadExportsRaw = deadExportsRaw.filter((d) => {
       const itemSeverity = d.confidence || 'medium';
       const minSeverity = args.severity;
       if (!minSeverity || !SEVERITY_RANK[minSeverity]) return true;
       return (SEVERITY_RANK[itemSeverity] || 0) >= SEVERITY_RANK[minSeverity];
     });
   }
+
+  const sections = {
+    deadExports: {
+      ok: true,
+      deadExportsCount: filteredDeadExportsRaw.length,
+      deadExports: filteredDeadExportsRaw,
+    },
+    unresolved: {
+      ok: true,
+      unresolvedCount: unresolvedRaw.length,
+      unresolved: unresolvedRaw,
+    },
+    cycles: {
+      ok: true,
+      cyclesCount: cyclesRaw.length,
+      cycles: cyclesRaw,
+    },
+  };
+
+  const { filterByCategory } = require('./audit-assembler');
+  filterByCategory(sections, args?.category, ['deadExports', 'unresolved', 'cycles']);
+
+  const deadExports = sections.deadExports;
+  const filteredDeadExports = deadExports.deadExports;
+  const unresolved = sections.unresolved.unresolved;
+  const cycles = sections.cycles.cycles;
+
+  const stack = detectStack(root);
+  const stackProfile = stack.profile;
 
   let unresolvedFp = null;
   if (unresolved.length > 0) {
@@ -472,11 +499,11 @@ async function assembleOverviewData(args, container, historyProvider) {
   }
 
   const issueContext = {
-    unresolved: { count: unresolved.length, fp: unresolvedFp },
-    cycles: { count: cycles.length },
-    deadExports: { count: filteredDeadExports.length, fp: deadExportsFp },
+    unresolved: { count: unresolved.length, fp: unresolvedFp, omitted: sections.unresolved.omitted },
+    cycles: { count: cycles.length, omitted: sections.cycles.omitted },
+    deadExports: { count: filteredDeadExports.length, fp: deadExportsFp, omitted: sections.deadExports.omitted },
   };
-  const cycleRefactorSuggestions = buildCycleRefactorSuggestions(root, depGraph, projectContext);
+  const cycleRefactorSuggestions = sections.cycles.omitted ? [] : buildCycleRefactorSuggestions(root, depGraph, projectContext);
   const couplingSplitSuggestions = buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectContext);
   const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans, issueContext, stackProfile, stack, cycleRefactorSuggestions, couplingSplitSuggestions);
   const aggregates = aggregateOverviewStats(hotspots, stability);
@@ -489,9 +516,9 @@ async function assembleOverviewData(args, container, historyProvider) {
   }
 
   summary.counts = {
-    deadExports: filteredDeadExports.length,
-    unresolved: unresolved.length,
-    cycles: cycles.length,
+    ...(sections.deadExports.omitted ? {} : { deadExports: filteredDeadExports.length }),
+    ...(sections.unresolved.omitted ? {} : { unresolved: unresolved.length }),
+    ...(sections.cycles.omitted ? {} : { cycles: cycles.length }),
     missingHygieneChecks: 0,
   };
   if (analysisCoverage) summary.analysisCoverage = analysisCoverage;
