@@ -38,16 +38,17 @@ const VUE_COMPILER_MACROS = new Set([
   'defineModel',
 ]);
 
-function walkAST(node, callback, parent = null) {
+function walkAST(node, callback, parent = null, ancestors = []) {
   if (!node || typeof node !== 'object') return;
-  callback(node, parent);
+  callback(node, parent, ancestors);
+  const nextAncestors = [node, ...ancestors];
   for (const key of Object.keys(node)) {
     if (AST_SKIP_KEYS.has(key)) continue;
     const child = node[key];
     if (Array.isArray(child)) {
-      for (const c of child) walkAST(c, callback, node);
+      for (const c of child) walkAST(c, callback, node, nextAncestors);
     } else if (child && typeof child === 'object') {
-      walkAST(child, callback, node);
+      walkAST(child, callback, node, nextAncestors);
     }
   }
 }
@@ -69,14 +70,99 @@ function buildExportRecordFromValue(name, valueNode, fallbackLines) {
   });
 }
 
-function pushFunctionRecord(records, name, node) {
+function extractDecoratorNames(node) {
+  if (!Array.isArray(node.decorators)) return [];
+  return node.decorators
+    .map((decorator) => {
+      const expr = decorator?.expression;
+      if (!expr) return null;
+      if (expr.type === 'Identifier') return expr.name;
+      if (expr.type === 'CallExpression') {
+        const callee = expr.callee;
+        if (callee?.type === 'Identifier') return callee.name;
+        if (callee?.type === 'MemberExpression') {
+          const parts = [];
+          let current = callee;
+          while (current?.type === 'MemberExpression') {
+            if (current.property?.type === 'Identifier') parts.unshift(current.property.name);
+            current = current.object;
+          }
+          if (current?.type === 'Identifier') parts.unshift(current.name);
+          return parts.join('.') || null;
+        }
+      }
+      if (expr.type === 'MemberExpression') {
+        const parts = [];
+        let current = expr;
+        while (current?.type === 'MemberExpression') {
+          if (current.property?.type === 'Identifier') parts.unshift(current.property.name);
+          current = current.object;
+        }
+        if (current?.type === 'Identifier') parts.unshift(current.name);
+        return parts.join('.') || null;
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function extractReturnType(node) {
+  if (!node.returnType) return null;
+  const annotation = node.returnType.typeAnnotation;
+  if (!annotation) return null;
+
+  if (annotation.type === 'TSTypeReference') {
+    if (annotation.typeName?.type === 'Identifier') return annotation.typeName.name;
+    if (annotation.typeName?.type === 'TSQualifiedName') {
+      const parts = [];
+      let current = annotation.typeName;
+      while (current?.type === 'TSQualifiedName') {
+        if (current.right?.type === 'Identifier') parts.unshift(current.right.name);
+        current = current.left;
+      }
+      if (current?.type === 'Identifier') parts.unshift(current.name);
+      return parts.join('.') || annotation.type;
+    }
+  }
+  if (annotation.type === 'TSStringKeyword') return 'string';
+  if (annotation.type === 'TSNumberKeyword') return 'number';
+  if (annotation.type === 'TSBooleanKeyword') return 'boolean';
+  if (annotation.type === 'TSVoidKeyword') return 'void';
+  if (annotation.type === 'TSAnyKeyword') return 'any';
+  if (annotation.type === 'TSUnknownKeyword') return 'unknown';
+  if (annotation.type === 'TSNeverKeyword') return 'never';
+  if (annotation.type === 'TSUndefinedKeyword') return 'undefined';
+  if (annotation.type === 'TSNullKeyword') return 'null';
+  if (annotation.type === 'TSObjectKeyword') return 'object';
+  if (annotation.type === 'TSSymbolKeyword') return 'symbol';
+  if (annotation.type === 'TSThisType') return 'this';
+  if (annotation.type === 'TSArrayType') return 'Array';
+  if (annotation.type === 'TSFunctionType') return 'Function';
+  if (annotation.type === 'TSParenthesizedType') return extractReturnType({ returnType: { typeAnnotation: annotation.typeAnnotation } });
+  if (annotation.type === 'TSUnionType') {
+    return annotation.types
+      .map((t) => extractReturnType({ returnType: { typeAnnotation: t } }))
+      .filter(Boolean)
+      .join(' | ');
+  }
+  if (annotation.type === 'TSLiteralType' && annotation.literal) {
+    return annotation.literal.value !== undefined ? String(annotation.literal.value) : annotation.literal.type;
+  }
+  return annotation.type || null;
+}
+
+function pushFunctionRecord(records, name, node, options = {}) {
   const fingerprint = buildFunctionFingerprint(node);
-  records.push(createExportRecord(name, {
+  const record = createExportRecord(name, {
     kind: 'function',
     lineStart: node.loc?.start?.line,
     lineEnd: node.loc?.end?.line,
     fingerprint,
-  }));
+  });
+  record.isExported = Boolean(options.isExported);
+  record.returnType = options.returnType !== undefined ? options.returnType : extractReturnType(node);
+  record.decorators = Array.isArray(options.decorators) ? options.decorators : extractDecoratorNames(node);
+  records.push(record);
 }
 
 module.exports = {

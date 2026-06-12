@@ -42,6 +42,18 @@ function testNonJsExtReturnsEmpty() {
   assert.strictEqual(candidates.length, 0, 'Python files should yield zero shadow candidates');
 }
 
+function testDtsInputShadowCandidates() {
+  const file = path.resolve('/mock/foo.d.ts');
+  const candidates = shadowCandidatesFor(file);
+
+  // Should contain other JS/TS extensions
+  assert.ok(candidates.includes(path.resolve('/mock/foo.js')));
+  assert.ok(candidates.includes(path.resolve('/mock/foo.ts')));
+  assert.ok(candidates.includes(path.resolve('/mock/foo.tsx')));
+  // Should not contain itself
+  assert.ok(!candidates.includes(file));
+}
+
 /* -------------------------------------------------------------------------- */
 // Runner
 /* -------------------------------------------------------------------------- */
@@ -50,6 +62,7 @@ const tests = [
   testBareFileShadowsDirectoryIndex,
   testDirectoryIndexShadowsBareFile,
   testNonJsExtReturnsEmpty,
+  testDtsInputShadowCandidates,
 ];
 
 let passed = 0;
@@ -66,3 +79,4 @@ for (const t of tests) {
 }
 console.log(`\n${passed}/${tests.length} passed`);
 if (failed > 0) process.exit(1);
+

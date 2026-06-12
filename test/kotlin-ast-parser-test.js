@@ -1,5 +1,6 @@
 const assert = require('assert');
 const { parseKotlin } = require('../src/services/dep-graph/parsers/kotlin-ast');
+const { checkFileRules } = require('../src/services/dep-graph/ast-rules');
 
 const KOTLIN_SOURCE = `
 package com.example
@@ -31,6 +32,13 @@ private class PrivateClass {}
 internal fun internalFun() {}
 
 protected val protectedProp = 1
+
+@Transactional
+fun batchUpdateUsers() {}
+
+fun batchInsertUsers() {}
+
+fun batchReturnInt(): Int = 1
 `;
 
 async function testKotlinAstSchema() {
@@ -106,6 +114,34 @@ async function testKotlinAstSchema() {
   // functionRecords
   assert(result.functionRecords.some((r) => r.name === 'topLevelFun'), 'Should have topLevelFun functionRecord');
   assert(!result.functionRecords.some((r) => r.name === 'internalFun'), 'Should not have internalFun functionRecord');
+
+  const topLevelFnRec = result.functionRecords.find((r) => r.name === 'topLevelFun');
+  assert.strictEqual(topLevelFnRec.kind, 'function');
+  assert.strictEqual(topLevelFnRec.isExported, true);
+  assert.deepStrictEqual(topLevelFnRec.decorators, []);
+  assert.strictEqual(topLevelFnRec.returnType, null);
+
+  const batchUpdateRec = result.functionRecords.find((r) => r.name === 'batchUpdateUsers');
+  assert(batchUpdateRec, 'Should have batchUpdateUsers functionRecord');
+  assert.strictEqual(batchUpdateRec.isExported, true);
+  assert.deepStrictEqual(batchUpdateRec.decorators, ['Transactional']);
+  assert.strictEqual(batchUpdateRec.returnType, null);
+
+  const batchReturnRec = result.functionRecords.find((r) => r.name === 'batchReturnInt');
+  assert(batchReturnRec, 'Should have batchReturnInt functionRecord');
+  assert.deepStrictEqual(batchReturnRec.decorators, []);
+  assert.strictEqual(batchReturnRec.returnType, 'Int');
+
+  // AST rule integration: batch-no-transactional should fire on Kotlin functions
+  const findings = checkFileRules('MyService.kt', {
+    originalPath: 'src/main/kotlin/com/example/MyService.kt',
+    functionRecords: result.functionRecords,
+  });
+  const batchInsertFinding = findings.find((f) => f.symbol === 'batchInsertUsers');
+  assert(batchInsertFinding, 'batchInsertUsers should trigger batch-no-transactional');
+  assert.strictEqual(batchInsertFinding.severity, 'medium');
+  assert.ok(batchInsertFinding.message.includes('lacks @Transactional'));
+  assert(!findings.some((f) => f.symbol === 'batchUpdateUsers'), 'batchUpdateUsers has @Transactional, should not fire');
 }
 
 async function main() {

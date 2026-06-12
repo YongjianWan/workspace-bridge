@@ -754,6 +754,7 @@ class GraphBuilder {
         this.dg.reverseGraph.delete(key);
 
         this.dg.graph.delete(key);
+        this._parseCache.delete(key);
         const originalPath = filePaths.find(p => this.dg.normalizeFilePath(p) === key) || key;
         if (this.dg.cache) {
           this.dg.cache.deleteFileMetadata(originalPath);

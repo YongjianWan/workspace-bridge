@@ -15,6 +15,16 @@ except ImportError:
     sys.exit(1)
 
 
+def extract_decorators(method_node) -> list:
+    """Return annotation names applied to a method (without the leading '@')."""
+    decorators = []
+    if hasattr(method_node, 'annotations') and method_node.annotations:
+        for annotation in method_node.annotations:
+            if hasattr(annotation, 'name') and annotation.name:
+                decorators.append(annotation.name)
+    return decorators
+
+
 def compute_java_fingerprint(method_node) -> dict:
     if not hasattr(method_node, 'body') or not method_node.body:
         return {
@@ -142,13 +152,15 @@ def parse_java(source):
                 if isinstance(member, javalang.tree.MethodDeclaration) and "public" in member.modifiers:
                     exports.append(member.name)
                     fingerprint = compute_java_fingerprint(member)
+                    decorators = extract_decorators(member)
                     export_records.append({"name": member.name, "kind": "function", "fingerprint": fingerprint})
                     function_records.append({
                         "name": member.name,
                         "kind": "function",
                         "lineStart": member.position.line if member.position else None,
                         "lineEnd": member.position.line if member.position else None,
-                        "fingerprint": fingerprint
+                        "fingerprint": fingerprint,
+                        "decorators": decorators
                     })
                 if isinstance(member, javalang.tree.FieldDeclaration) and "public" in member.modifiers:
                     for declarator in member.declarators:
@@ -161,13 +173,15 @@ def parse_java(source):
                 if isinstance(member, javalang.tree.MethodDeclaration):
                     exports.append(member.name)
                     fingerprint = compute_java_fingerprint(member)
+                    decorators = extract_decorators(member)
                     export_records.append({"name": member.name, "kind": "function", "fingerprint": fingerprint})
                     function_records.append({
                         "name": member.name,
                         "kind": "function",
                         "lineStart": member.position.line if member.position else None,
                         "lineEnd": member.position.line if member.position else None,
-                        "fingerprint": fingerprint
+                        "fingerprint": fingerprint,
+                        "decorators": decorators
                     })
         elif class_name == 'EnumDeclaration':
             exports.append(node.name)

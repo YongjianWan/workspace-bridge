@@ -83,12 +83,40 @@ export const greeting = msg;
   assert.ok(result.exports.includes('greeting'), `Expected 'greeting' in exports, got: ${result.exports.join(', ')}`);
 }
 
+function testFunctionRecordsDetailsInRegexFallback() {
+  const content = `
+export function compute(): number { return 1; }
+export const infer = (): void => {};
+const internal = function(): string { return ''; };
+` + INVALID_SUFFIX;
+
+  const result = parseJavaScript(content, 'test.ts');
+  assert.strictEqual(result.parseMode, 'regex');
+
+  const compute = result.functionRecords.find((r) => r.name === 'compute');
+  assert.ok(compute, 'Should find compute');
+  assert.strictEqual(compute.isExported, true);
+  assert.strictEqual(compute.returnType, 'number');
+
+  const infer = result.functionRecords.find((r) => r.name === 'infer');
+  assert.ok(infer, 'Should find infer');
+  assert.strictEqual(infer.isExported, true);
+  assert.strictEqual(infer.returnType, 'void');
+
+  const internal = result.functionRecords.find((r) => r.name === 'internal');
+  assert.ok(internal, 'Should find internal');
+  assert.ok(!internal.isExported);
+  assert.strictEqual(internal.returnType, 'string');
+}
+
 function main() {
   testMultilineTemplateLiteralSanitization();
   testDestructuredExports();
   testFunctionRecordsInRegexFallback();
+  testFunctionRecordsDetailsInRegexFallback();
   testTemplateLiteralWithInterpolation();
   console.log('js-regex-fallback-test: all passed');
 }
 
 main();
+

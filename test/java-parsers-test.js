@@ -64,6 +64,51 @@ public interface Calculator {
   assert(result.exports.includes('subtract'));
 }
 
+async function testJavaMethodAnnotations() {
+  if (!JAVALANG_AVAILABLE) {
+    return;
+  }
+  const source = `
+package com.example;
+public class Service {
+  @Transactional
+  public void batchUpdate() {}
+
+  @org.springframework.transaction.annotation.Transactional
+  public void batchDelete() {}
+
+  public void batchRun() {}
+}
+`;
+  const result = await parseJava(source);
+  assert.strictEqual(result.parseMode, 'ast');
+
+  const batchUpdate = result.functionRecords.find((r) => r.name === 'batchUpdate');
+  const batchDelete = result.functionRecords.find((r) => r.name === 'batchDelete');
+  const batchRun = result.functionRecords.find((r) => r.name === 'batchRun');
+
+  assert(batchUpdate, 'Should have batchUpdate functionRecord');
+  assert(batchDelete, 'Should have batchDelete functionRecord');
+  assert(batchRun, 'Should have batchRun functionRecord');
+
+  assert(Array.isArray(batchUpdate.decorators), 'batchUpdate should have decorators array');
+  assert(batchUpdate.decorators.some((d) => /Transactional/i.test(d)), 'batchUpdate should have Transactional decorator');
+  assert(batchDelete.decorators.some((d) => /Transactional/i.test(d)), 'batchDelete should have Transactional decorator');
+  assert(
+    !batchRun.decorators || batchRun.decorators.length === 0 || !batchRun.decorators.some((d) => /Transactional/i.test(d)),
+    'batchRun should not have Transactional decorator'
+  );
+
+  // Existing fields must remain intact.
+  for (const record of result.functionRecords) {
+    assert.strictEqual(typeof record.name, 'string');
+    assert.strictEqual(record.kind, 'function');
+    assert(typeof record.lineStart === 'number');
+    assert(typeof record.lineEnd === 'number');
+    assert(record.fingerprint && typeof record.fingerprint.paramCount === 'number');
+  }
+}
+
 async function testJavaFallback() {
   // Invalid Java syntax triggers javalang exception; verify regex fallback
   const result = await parseJava('this is not java');
@@ -73,5 +118,6 @@ async function testJavaFallback() {
 (async () => {
   await testJavaAST();
   await testJavaInterfaceMethods();
+  await testJavaMethodAnnotations();
   await testJavaFallback();
 })();

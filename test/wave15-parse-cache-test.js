@@ -65,24 +65,40 @@ async function testCacheMissOnMtimeOrHashChange() {
   }
 }
 
-function testLruEviction() {
-  const dg = DependencyGraph.fromSchema('/mock', {});
-  const builder = new GraphBuilder(dg);
+async function testLruEviction() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-parse-cache-lru-'));
 
-  // Stub getFileMetadata to return a valid mtime for any queried file
-  dg.cache = {
-    getFileMetadata: () => ({ mtime: 100, originalPath: '' }),
-  };
+  try {
+    const dg = DependencyGraph.fromSchema(tmpDir, {});
+    const builder = new GraphBuilder(dg);
 
-  // Insert 205 items (limit is 200)
-  for (let i = 0; i < 205; i++) {
-    const key = `file-${i}.js`;
-    builder._parseCache.set(key, { mtime: 100, result: { key } });
+    // Stub getFileMetadata so parseFileOnly will cache every parsed file.
+    dg.cache = {
+      getFileMetadata: (p) => ({ mtime: 100, originalPath: p }),
+    };
+
+    // Create 202 files and parse them; the cache limit is 200, so the oldest entries should be evicted.
+    const filePaths = [];
+    for (let i = 0; i < 202; i++) {
+      const filePath = path.join(tmpDir, `file-${i}.js`);
+      fs.writeFileSync(filePath, `export const x${i} = ${i};`, 'utf8');
+      filePaths.push(filePath);
+    }
+
+    for (const filePath of filePaths) {
+      await builder.parseFileOnly(filePath);
+    }
+
+    assert.strictEqual(builder._parseCache.size, 200, 'Cache size should be capped at 200');
+    const key0 = dg.normalizeFilePath(filePaths[0]);
+    const key1 = dg.normalizeFilePath(filePaths[1]);
+    assert.ok(!builder._parseCache.has(key0), 'Oldest cached file should be evicted');
+    assert.ok(!builder._parseCache.has(key1), 'Second-oldest cached file should be evicted');
+    const keyLast = dg.normalizeFilePath(filePaths[filePaths.length - 1]);
+    assert.ok(builder._parseCache.has(keyLast), 'Most recently parsed file should still be cached');
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   }
-
-  // Trigger eviction by inserting via parseFileOnly or manually calling set logic
-  // Let's directly test LRU eviction logic in Map.
-  // We can just verify the LRU size is capped.
 }
 
 async function testCacheLifecycle() {

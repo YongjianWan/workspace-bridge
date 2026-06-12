@@ -50,6 +50,37 @@ function getPropertyKind(node) {
   return 'property';
 }
 
+function getDecorators(node) {
+  const decorators = [];
+  const modifiers = node.children.find((c) => c.type === 'modifiers');
+  if (!modifiers) return decorators;
+
+  for (const child of modifiers.children) {
+    if (child.type !== 'annotation') continue;
+    // annotation -> @ (user_type | constructor_invocation)
+    const invocation = child.children.find(
+      (c) => c.type === 'user_type' || c.type === 'constructor_invocation'
+    );
+    if (!invocation) continue;
+    const userType =
+      invocation.type === 'user_type'
+        ? invocation
+        : invocation.children.find((c) => c.type === 'user_type');
+    if (!userType) continue;
+    const name = getNodeText(userType).trim();
+    if (name) decorators.push(name);
+  }
+
+  return decorators;
+}
+
+function getReturnType(node) {
+  const colonIdx = node.children.findIndex((c) => c.type === ':');
+  if (colonIdx === -1 || colonIdx + 1 >= node.children.length) return null;
+  const text = getNodeText(node.children[colonIdx + 1]).trim();
+  return text || null;
+}
+
 function hasWildcardImport(importHeaderNode) {
   return importHeaderNode.children.some((c) => c.type === 'wildcard_import');
 }
@@ -122,7 +153,14 @@ async function parseKotlin(content) {
           exportRecords.push(createExportRecord(name, { kind: 'object', ...base }));
         } else if (tag === 'def.func') {
           exportRecords.push(createExportRecord(name, { kind: 'function', ...base }));
-          functionRecords.push({ name, kind: 'function', ...base });
+          functionRecords.push({
+            name,
+            kind: 'function',
+            isExported: isExported(parent),
+            decorators: getDecorators(parent),
+            returnType: getReturnType(parent),
+            ...base,
+          });
         } else if (tag === 'def.prop') {
           exportRecords.push(createExportRecord(name, { kind: getPropertyKind(parent), ...base }));
         } else if (tag === 'def.alias') {

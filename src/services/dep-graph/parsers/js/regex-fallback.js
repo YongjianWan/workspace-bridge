@@ -375,38 +375,64 @@ function extractFunctionRecordsWithRegex(sanitized) {
     return low + 1;
   }
 
-  const functionDeclRegex = /(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g;
+  function extractReturnType(afterParams) {
+    // Best-effort TS return-type annotation. afterParams starts inside '()',
+    // so skip to the closing ')' then look for ': Type' before '{' or '=>'.
+    const closeIdx = afterParams.indexOf(')');
+    if (closeIdx < 0) return null;
+    const rtMatch = afterParams.slice(closeIdx + 1).match(/^\s*:\s*([A-Za-z_$][\w$<>\[\]|\s&.,]*?)\s*(?=[{=>])/);
+    return rtMatch ? rtMatch[1].trim() : null;
+  }
+
+  const functionDeclRegex = /((?:export\s+)?(?:async\s+)?function)\s+([A-Za-z_$][\w$]*)\s*\(/g;
   let match;
   while ((match = functionDeclRegex.exec(sanitized)) !== null) {
     const lineStart = getLineNumber(match.index);
-    functionRecords.push({
-      name: match[1],
+    const isExported = /^export\b/.test(match[1]);
+    const afterParams = sanitized.slice(match.index + match[0].length);
+    const record = {
+      name: match[2],
       kind: 'function',
       lineStart,
       lineEnd: lineStart,
-    });
+    };
+    if (isExported) record.isExported = true;
+    const returnType = extractReturnType(afterParams);
+    if (returnType) record.returnType = returnType;
+    functionRecords.push(record);
   }
 
-  const arrowFunctionRegex = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>/g;
+  const arrowFunctionRegex = /((?:export\s+)?(?:const|let|var))\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*(?::\s*([^{=>]+))?\s*=>/g;
   while ((match = arrowFunctionRegex.exec(sanitized)) !== null) {
     const lineStart = getLineNumber(match.index);
-    functionRecords.push({
-      name: match[1],
+    const isExported = /\bexport\b/.test(match[1]);
+    const record = {
+      name: match[2],
       kind: 'function',
       lineStart,
       lineEnd: lineStart,
-    });
+    };
+    if (isExported) record.isExported = true;
+    const returnType = match[3] ? match[3].trim() : null;
+    if (returnType) record.returnType = returnType;
+    functionRecords.push(record);
   }
 
-  const functionExprRegex = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\s*(?:[A-Za-z_$][\w$]*)?\s*\(/g;
+  const functionExprRegex = /((?:export\s+)?(?:const|let|var))\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\s*(?:[A-Za-z_$][\w$]*)?\s*\(/g;
   while ((match = functionExprRegex.exec(sanitized)) !== null) {
     const lineStart = getLineNumber(match.index);
-    functionRecords.push({
-      name: match[1],
+    const isExported = /\bexport\b/.test(match[1]);
+    const afterParams = sanitized.slice(match.index + match[0].length);
+    const record = {
+      name: match[2],
       kind: 'function',
       lineStart,
       lineEnd: lineStart,
-    });
+    };
+    if (isExported) record.isExported = true;
+    const returnType = extractReturnType(afterParams);
+    if (returnType) record.returnType = returnType;
+    functionRecords.push(record);
   }
 
   return functionRecords;

@@ -10,13 +10,15 @@ const SHADOW_EXTS = ['.d.ts', '.tsx', '.ts', '.jsx', '.js', '.mjs', '.cjs'];
  * @returns {string[]} An array of de-duplicated candidate file paths
  */
 function shadowCandidatesFor(addedPath) {
-  const ext = path.extname(addedPath);
-  if (!SHADOW_EXTS.includes(ext.toLowerCase())) {
+  // Sort SHADOW_EXTS descending by length so that '.d.ts' matches before '.ts'
+  const sortedExts = SHADOW_EXTS.slice().sort((a, b) => b.length - a.length);
+  const ext = sortedExts.find(e => addedPath.toLowerCase().endsWith(e.toLowerCase())) || '';
+  if (!ext) {
     return [];
   }
 
   const dir = path.dirname(addedPath);
-  const baseWithoutExt = path.basename(addedPath, ext);
+  const baseWithoutExt = path.basename(addedPath, addedPath.slice(addedPath.length - ext.length));
   const candidates = new Set();
 
   // Scenario 1: Same basename, different extension (e.g. foo.ts and foo.js)

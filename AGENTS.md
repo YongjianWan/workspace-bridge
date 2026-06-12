@@ -16,7 +16,7 @@
 | 历史变更 | [CHANGELOG.md](./CHANGELOG.md) |
 | 代码审计 skill 用法 | [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md) |
 
-> **🔴 新会话启动红线：不默认读取 CHANGELOG.md**
+> **🔴 新会话启动红线：不默认读取 CHANGELOG.md** （如果派遣agent swarm 务必在下达的指令里面也让他们读取agent.md session techdebt 等文档，这个是强制的，不然子代理会产生架构改变或者随意修改导致各种问题）
 >
 > 确定现状只需 **AGENTS.md + SESSION.md + TECH_DEBT.md + 1 条基线验证命令**（`node cli.js audit-summary --cwd . --json --quiet`）。
 > CHANGELOG 是历史存档，不是当前状态。读它不能替代读 SESSION.md 的基线确认。
@@ -37,7 +37,7 @@
 
 > 以下铁律直接指导代码层面的决策。
 >
-> **优先级：好品味 > 形式指标。** 8 条规则分两层：L1 铁律（3 条，必须遵守），L2 标准（5 条，技术债务信号）。新增规则前必须先问："这条是否已被 L1/L2 覆盖？"
+> **优先级：好品味 > 形式指标。** 8 条规则分两层：L1 铁律（3 条，必须遵守），L2 标准（5 条，技术债务信号）。新增规则前必须先问："这条是否已被 L1/L2 覆盖？" 
 
 ### L1 铁律（违反 = 直接产生 bug 或资源泄漏）
 

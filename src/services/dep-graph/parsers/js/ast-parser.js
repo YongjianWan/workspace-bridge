@@ -281,20 +281,64 @@ function parseJavaScriptAST(content, filePath = '') {
 
     const exports = uniqueNames(exportRecords.filter((r) => !r.unknown).map((r) => r.name));
 
+    // Collect local names that are exported so function records can carry isExported.
+    const exportedNames = new Set();
+    const exportNameVisitors = {
+      ExportNamedDeclaration(node) {
+        if (node.exportKind === 'type') return;
+        if (node.declaration) {
+          const decl = node.declaration;
+          if (decl.id?.name) exportedNames.add(decl.id.name);
+          if (decl.declarations) {
+            for (const d of decl.declarations) {
+              if (d.id?.name) exportedNames.add(d.id.name);
+            }
+          }
+        }
+        for (const spec of node.specifiers || []) {
+          if (spec.type === 'ExportSpecifier') {
+            const localName = spec.local?.name || spec.local?.value;
+            if (localName) exportedNames.add(localName);
+          }
+        }
+      },
+      ExportDefaultDeclaration(node) {
+        const decl = node.declaration;
+        if (decl?.id?.name) exportedNames.add(decl.id.name);
+      },
+    };
+
+    walkAST(ast, (node) => {
+      const handler = exportNameVisitors[node.type];
+      if (handler) handler(node);
+    });
+
     const functionRecords = [];
     const functionVisitors = {
       FunctionDeclaration(node) {
-        if (node.id?.name) pushFunctionRecord(functionRecords, node.id.name, node);
+        if (node.id?.name) {
+          pushFunctionRecord(functionRecords, node.id.name, node, {
+            isExported: exportedNames.has(node.id.name),
+          });
+        }
       },
       FunctionExpression(node) {
-        if (node.id?.name) pushFunctionRecord(functionRecords, node.id.name, node);
+        if (node.id?.name) {
+          pushFunctionRecord(functionRecords, node.id.name, node, {
+            isExported: exportedNames.has(node.id.name),
+          });
+        }
       },
       ArrowFunctionExpression(node, parent) {
         let name = null;
         if (parent?.type === 'VariableDeclarator' && parent.id?.name) {
           name = parent.id.name;
         }
-        if (name) pushFunctionRecord(functionRecords, name, node);
+        if (name) {
+          pushFunctionRecord(functionRecords, name, node, {
+            isExported: exportedNames.has(name),
+          });
+        }
       },
     };
 

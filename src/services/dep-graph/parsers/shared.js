@@ -25,6 +25,9 @@ function createExportRecord(name, options = {}) {
   if (options.fingerprint && typeof options.fingerprint === 'object') {
     record.fingerprint = options.fingerprint;
   }
+  if (options.isExported === true) record.isExported = true;
+  if (options.returnType) record.returnType = options.returnType;
+  if (options.decorators && options.decorators.length > 0) record.decorators = options.decorators;
   return record;
 }
 
