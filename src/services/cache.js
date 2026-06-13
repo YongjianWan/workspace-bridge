@@ -100,6 +100,7 @@ class WorkspaceCache {
     this.workspaceInfo = null;
     this.fileMetadata = new Map(); // file -> {mtime, size, hash}
     this.parseResults = new Map(); // file -> {imports, exports, importRecords, exportRecords, functionRecords, parseMode, confidence, mtime}
+    this.parsedHashes = new Map(); // file -> hash at parse time
     this.symbolIndex = new Map();  // symbol -> [{file, line, type}]
     this.diagnostics = new Map();  // file -> [diagnostics]
 
@@ -193,6 +194,12 @@ class WorkspaceCache {
       this.workspaceInfo = data.workspaceInfo;
       this.fileMetadata = data.fileMetadata || new Map();
       this.parseResults = data.parseResults || new Map();
+      this.parsedHashes.clear();
+      for (const [key, meta] of this.fileMetadata.entries()) {
+        if (meta.hash) {
+          this.parsedHashes.set(key, meta.hash);
+        }
+      }
       this.symbolIndex = data.symbolIndex || new Map();
       this.diagnostics = data.diagnostics || new Map();
       this.lastSaved = data.timestamp || 0;
@@ -386,6 +393,13 @@ class WorkspaceCache {
     if (!key) return;
     this.parseResults.set(key, result);
     this._parseTracker.mark(key);
+    
+    // Also track the parsed content hash in memory
+    const meta = this.getFileMetadata(filePath);
+    if (meta && meta.hash) {
+      this.parsedHashes.set(key, meta.hash);
+    }
+    
     this.dirty = true;
   }
 
@@ -400,6 +414,7 @@ class WorkspaceCache {
     if (!key) return;
     this.parseResults.delete(key);
     this._parseTracker.unmark(key);
+    this.parsedHashes.delete(key);
     this.dirty = true;
   }
 

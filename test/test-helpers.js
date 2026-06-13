@@ -754,6 +754,66 @@ function terminateProcess(child, timeoutMs = 4000) {
 }
 
 /* -------------------------------------------------------------------------- */
+// Route query test helpers (Wave 15-2 query-based extraction)
+/* -------------------------------------------------------------------------- */
+
+const { getParserModule, loadLanguage } = require('../src/services/dep-graph/parsers/tree-sitter');
+const { compileQuery, runQuery } = require('../src/services/dep-graph/query-compiler');
+
+/**
+ * Run a single route-extraction query module against source content.
+ * Mirrors tryExtractRoutesWithQuery but accepts an arbitrary query definition.
+ * Returns routes[] on success, null on any failure.
+ */
+async function runRouteQuery(content, queryDef) {
+  const mod = await getParserModule();
+  if (!mod) return null;
+
+  const langObj = await loadLanguage(queryDef.language);
+  if (!langObj) return null;
+
+  let parser;
+  let tree;
+  try {
+    parser = new mod.Parser();
+    parser.setLanguage(langObj);
+    tree = parser.parse(content);
+
+    const compiled = await compileQuery(queryDef.language, queryDef.query);
+    if (!compiled) return null;
+
+    const matches = runQuery(tree, compiled);
+    if (!matches) return null;
+
+    return queryDef.postProcess(matches) || null;
+  } catch {
+    return null;
+  } finally {
+    try { tree?.delete(); } catch {}
+    try { parser?.delete(); } catch {}
+  }
+}
+
+/**
+ * Temporarily inject a route-extraction query into frameworkPatterns.extractRoutes
+ * for tests that must exercise the query path before the production registry is
+ * updated. Returns a restore function.
+ */
+function patchExtractRoutesWithQuery(frameworkPatterns, queryDef, ext) {
+  const originalExtractRoutes = frameworkPatterns.extractRoutes;
+  frameworkPatterns.extractRoutes = async (filePath, content) => {
+    if (path.extname(filePath).toLowerCase() === ext) {
+      const routes = await runRouteQuery(content, queryDef);
+      if (routes && routes.length > 0) return routes;
+    }
+    return originalExtractRoutes(filePath, content);
+  };
+  return () => {
+    frameworkPatterns.extractRoutes = originalExtractRoutes;
+  };
+}
+
+/* -------------------------------------------------------------------------- */
 // Exports
 /* -------------------------------------------------------------------------- */
 
@@ -776,4 +836,6 @@ module.exports = {
   assertOk,
   assertAll,
   getCanonicalKey,
+  runRouteQuery,
+  patchExtractRoutesWithQuery,
 };

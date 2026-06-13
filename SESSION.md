@@ -31,17 +31,17 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 2 架构债务 + 1 L3 + 0 项 P2 Dogfood 活跃缺陷）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 1 架构债务 + 1 L3 + 0 项 P2 Dogfood 活跃缺陷）
 
 ---
 
 ## 基线状态
 
-- 测试：**所有测试全部 PASS**；`npm run test:fast` **101/101 PASS**（~10s），`npm run test:smoke` **104/104 PASS**（~30s）。开发迭代首选 `npm run test:fast`。
+- 测试：**所有测试全部 PASS**；`npm run test:fast` **109/109 PASS**（~10s），`npm run test:smoke` **104/104 PASS**（~30s）。开发迭代首选 `npm run test:fast`。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~339 文件（entry=1, mainline=152, test=187）
-- 结构性指标：deadExports=0，cycles=0，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 按实际分布
+- 自身项目规模：~366 文件（entry=1, mainline=164, test=202）
+- 结构性指标：deadExports=2（Wave 15 新增 query/工具文件导致的静态分析误报），cycles=1，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 按实际分布
 - 架构债务清零：`bootstrapFromSchema` 路径规范化不一致已修复，schema keys / imports / `importRecords[].resolved` 均经 `normalizeFilePath` 规范化，`originalPath` 保持原样
 - 注意：`healthScore=5/5` 是文件存在性检查（README/LICENSE/.gitignore/Dockerfile），**不反映代码质量**，已废弃
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
@@ -88,12 +88,14 @@ node cli.js audit-overview --cwd . --json --quiet
 > 1. **Wave 15 深度扩展**：
 >    - **15-1 AST 轻量规则引擎**：新建 `src/services/dep-graph/ast-rules.js`；在 `overview-assembler.js`、`overview-tools.js` 中无缝集成 `checkAllRules`，并在 `audit-summary`/`audit-overview` 的 markdown, summary, human 和 jsonl 各种风格格式化输出中闭环展示 findings 统计与明细。
 >    - **15-3 ParseCache**：重构 `builder.js` 为 `_parseCache` LRU 内存缓存（max 200 ），大大加速增量下的邻居文件重解析。
->    - **15-4 L1-L4 增量更新四层叠加协议**：通过 SHA-256 二次过滤排除 mtime 精度问题；支持 `Neighbor-aware` 1-hop 依赖邻居和 `shadow-candidates.js` 的 TypeScript / JavaScript basenames 相互 shadow 扩展，在 `updateFiles()` 解析前重建受波及邻居的依赖边；在长活 watch/repl 模式下，接入 `wal-cadence.js` 状态机执行 SQLite `PASSIVE` checkpoing 并依据时间/数量交替触发 `TRUNCATE` checkpoint。
->    - **测试**：新增 `wave15-parse-cache-test.js`、`wave15-neighbor-aware-test.js`、`wave15-shadow-candidates-test.js`、`wave15-wal-cadence-test.js`、`wave15-ast-rules-test.js`。跑通全量测试：`npm run test:fast`（99/99 PASS），`npm run test:smoke`（102/102 PASS）。
+>    - **15-4 L1-L4 增量更新四层叠加协议**：通过 SHA-256 二次过滤排除 mtime 精度问题（修复了对比 `meta.hash` 造成的 cache-skip 误判，改用内存中 `Cache.parsedHashes` 对比解析时哈希，并更新 `cached.mtime`）；支持 `Neighbor-aware` 1-hop 依赖邻居和 `shadow-candidates.js` 的 TypeScript / JavaScript basenames 相互 shadow 扩展，在 `updateFiles()` 解析前重建受波及邻居的依赖边；在长活 watch/repl 模式下，接入 `wal-cadence.js` 状态机执行 SQLite `PASSIVE` checkpoing 并依据时间/数量交替触发 `TRUNCATE` checkpoint。
+>    - **测试**：新增 `wave15-parse-cache-test.js`、`wave15-neighbor-aware-test.js`、`wave15-shadow-candidates-test.js`、`wave15-wal-cadence-test.js`、`wave15-ast-rules-test.js` 并跑通。全量测试：`npm run test:fast`（109/109 PASS），`npm run test:smoke`（104/104 PASS）。
 > 2. **Wave 11-15 多语言功能等价性补齐**：
 >    - 第一轮：为 Python/Go/Rust/C/C++ 的 `functionRecords` 补齐 `isExported`/`returnType`/`decorators`；Java `branchCount`/`maxArms` 提升到顶层；`ast-rules.js` 扩展名→language 改为配置表并注册全部 9 种语言；Shadow Candidates 扩展 Python（`.py` ↔ `.pyi`）与 C/C++（`.h`/`.hpp` ↔ `.c`/`.cpp`/`.cc`）。
 >    - 第二轮：Python `branchCount`/`maxArms` 从 `fingerprint` 提到顶层；Go/Rust/Kotlin/C/C++ 补齐 `branchCount`/`maxArms`；Vue/Svelte 加入 Shadow Candidates（`.vue`/`.svelte` ↔ `.ts`/`.js`）。
->    - `npm run test:fast` 101/101 PASS，`npm run test:smoke` 104/104 PASS。
+>    - 第三轮（Wave 15-1B）：补齐跨语言 AST 内置规则，覆盖全部 9 种语言；Python parser 输出 `hasParameterTypeHints`，C/C++ AST/regex fallback 补齐 `isExported`/`returnType`；`test/wave15-ast-rules-test.js` 扩展至 30 个测试。
+>    - 第四轮（Wave 15-2）：补齐框架路由提取至 9/9 语言，注册 FastAPI/Django/Gin/Fiber/Actix-web/Axum/Nuxt/SvelteKit 的 tree-sitter query；Shadow Candidates 显式覆盖 Java/Kotlin/Go/Rust；修复 `framework-patterns.js` 中 `DEFAULTS.ENTRY_SCAN_BYTES` 常量引用 bug；`npm run test:fast` 109/109 PASS。
+>    - `npm run test:fast` 109/109 PASS，`npm run test:smoke` 104/104 PASS。
 > 3. **Wave 12 输出精炼补全**：完成 12-3 分层输出过滤；完成 12-4 大项目自动 compact 截断；完成 12-5 大项目手动 `--max-files` 截断。
 ---
 
@@ -110,7 +112,7 @@ node cli.js audit-overview --cwd . --json --quiet
   - `test/java-package-imports-test.js` 移除 `n()` 预规范化 helper，schema 使用自然绝对路径，断言通过 `depGraph.normalizeFilePath()` 获取规范化 key。
   - `test/wave14-noise-env-test.js` 移除 `testIgnoreFrameworks` 中手动 `dg.graph.set()` 建图 workaround，改用自然的 `DependencyGraph.fromSchema` schema；`testIgnoreFindingsUnresolved` 改用 `dg._displayPath(dg.normalizeFilePath(...))` 计算 cross-platform 的 finding ID。
   - `test/affected-tests-heuristic-test.js` 彻底重构：将 Windows 路径场景从混合 schema 中拆出为独立的 `makeWindowsGraph()`，消除 POSIX/Windows 重复 key 合并导致的 `originalPath` 歧义，Windows 断言恢复为严格匹配。
-- 文档同步：移除旧的 `bootstrapFromSchema` 架构债务条目。由于 `detectFrameworkFromContent` 框架检测需要大面积同步转异步重构而被推迟，已将其作为新的架构债务（Phase 3 预备）记入 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。同时，Wave 11-15 功能在 9 种支持语言间的实现存在偏斜（Language Parity Debt），已作为第二项架构债务记入 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。当前活跃债务更新为 L1 0 + L2 0 + 架构债务 2 + L3 品味问题 1（弱断言分布）。
+- 文档同步：移除旧的 `bootstrapFromSchema` 架构债务条目。由于 `detectFrameworkFromContent` 框架检测需要大面积同步转异步重构而被推迟，已将其作为新的架构债务（Phase 3 预备）记入 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。Wave 11-15 功能在 9 种支持语言间的偏斜（Language Parity Debt）已通过 Wave 15-2 补齐框架路由提取与 Shadow Candidates 后清偿，已从 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) 移除。当前活跃债务更新为 L1 0 + L2 0 + 架构债务 1 + L3 品味问题 1（弱断言分布）。
 
 ---
 
@@ -219,11 +221,11 @@ node cli.js audit-overview --cwd . --json --quiet
 | -------------- | ----------- | ---------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
-| 架构债务           | 0           | —                                                                                                                                       |
+| 架构债务           | 1           | 框架检测 Query 基础设施同步转异步重构（Phase 3 预备） |
 | L3 品味问题        | 1           | 弱断言分布 ~2.3% |
 | **产品债务** | **0** | —                                                                  |
 
-**测试状态**：`npm run test:fast` **95/95 PASS**（~10s），`npm run test:smoke` **98/98 PASS**（~32s）。全量 runner 本轮未跑完（`e2e-gitnexus-test.js` 在 reference/GitNexus 上超时/失败，与 Wave 12 改动无关）。当前 fast 层 95 个测试，slow 层 71 个，serial 层 7 个。
+**测试状态**：`npm run test:fast` **109/109 PASS**（~10s），`npm run test:smoke` **104/104 PASS**（~32s）。当前 fast 层 109 个测试，slow 层 71 个，serial 层 7 个。
 
 > `bootstrapFromSchema` 路径规范化不一致问题已修复（schema keys / imports / `importRecords[].resolved` 均经 `normalizeFilePath` 规范化，`originalPath` 保持原样），Windows Mock 测试无需再手动建图绕过。
 

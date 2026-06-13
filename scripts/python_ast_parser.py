@@ -71,6 +71,25 @@ def extract_return_type(func_node: ast.AST) -> str | None:
     return returns.__class__.__name__
 
 
+def has_parameter_type_hints(func_node: ast.AST) -> bool:
+    """Return True if any parameter (args, kwonly, *args, **kwargs) has a type annotation."""
+    args = getattr(func_node, 'args', None)
+    if not args:
+        return bool(getattr(func_node, 'type_comment', None))
+
+    if getattr(func_node, 'type_comment', None):
+        return True
+
+    for arg in args.args + args.posonlyargs + args.kwonlyargs:
+        if arg.annotation is not None or getattr(arg, 'type_comment', None):
+            return True
+    if args.vararg and (args.vararg.annotation is not None or getattr(args.vararg, 'type_comment', None)):
+        return True
+    if args.kwarg and (args.kwarg.annotation is not None or getattr(args.kwarg, 'type_comment', None)):
+        return True
+    return False
+
+
 def compute_function_fingerprint(func_node: ast.AST) -> dict[str, Any]:
     branch_count = 0
     return_count = 0
@@ -176,7 +195,7 @@ def parse_code(source: str) -> dict[str, Any]:
         }
     """
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(source, type_comments=True)
     except SyntaxError as e:
         # Return empty result on syntax error
         return {
@@ -234,6 +253,7 @@ def parse_code(source: str) -> dict[str, Any]:
                 "fingerprint": fingerprint,
                 "decorators": extract_decorators(node),
                 "returnType": extract_return_type(node),
+                "hasParameterTypeHints": has_parameter_type_hints(node),
                 "isExported": True,
                 "branchCount": fingerprint["branchCount"],
                 "maxArms": fingerprint["maxArms"]
@@ -258,6 +278,7 @@ def parse_code(source: str) -> dict[str, Any]:
                 "fingerprint": fingerprint,
                 "decorators": extract_decorators(node),
                 "returnType": extract_return_type(node),
+                "hasParameterTypeHints": has_parameter_type_hints(node),
                 "isExported": True,
                 "branchCount": fingerprint["branchCount"],
                 "maxArms": fingerprint["maxArms"]

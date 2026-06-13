@@ -14,21 +14,13 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **2** | L3 品味问题 **1** | 合计 **3 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **1** | L3 品味问题 **1** | 合计 **2 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
-#### Wave 11-15 多语言功能等价性债务 (Language Parity Debt)
-- **背景**：已支持的 9 种语言在核心依赖图上实现了 AST 覆盖，但后续 Wave 11-15 的高级功能在各语言间的实现存在偏斜（Parity Deviation）。第一轮低垂果实已补齐，但仍有不一致。
-- **当前状态与剩余缺口**：
-  - **AST 规则引擎 (15-1)**：`functionRecords` 字段（`decorators`/`isExported`/`returnType`）已覆盖 Java/Kotlin/TypeScript/Python/Go/Rust/C/C++；Vue/Svelte 继承 JS/TS 字段。`ast-rules.js` 扩展名→language 映射已注册全部 9 种语言。**但内置规则仍只针对 Java/Kotlin/TypeScript**，跨语言规则（如 Python `@app.route` 检查、Go error 返回模式等）待补充。
-  - **代码异味与复杂度趋势 (11-2 & 11-3)**：JS/TS/Java/Kotlin/Python/Go/Rust/C/C++ 已在 `functionRecords` 顶层提供 `branchCount`/`maxArms`；Vue/Svelte 继承 JS/TS 字段。
-  - **框架路由提取 (15-2)**：仅覆盖了 Express, NestJS, Spring Boot。其余框架（FastAPI/Django, Gin/Fiber, Axum/Actix-web, Nuxt/SvelteKit）缺失路由提取 Query。
-  - **Shadow Candidates (15-4)**：JS/TS、Python（`.py` ↔ `.pyi`）、C/C++（`.h`/`.hpp` ↔ `.c`/`.cpp`/`.cc`）、Vue/Svelte（`.vue`/`.svelte` ↔ `.ts`/`.js`）已覆盖。
-
 #### 框架检测 Query 基础设施（Phase 3 预备）
-- **背景**：路由提取已成功完全 Query 化，但 `detectFrameworkFromContent` 框架检测目前仍使用轻量文本正则匹配（`AST_PATTERNS`）。
-- **瓶颈**：Tree-sitter WASM 语法加载在 JS 环境中必须为异步（async），而当前的 `detectFrameworkFromContent` 及其上游调用链路（含 `dep-graph.js` 和 `entry-detector.js` 内的 known entry 判定）均是同步执行。
+- **背景**：路由提取已成功完全 Query 化，但 [detectFrameworkFromContent](file:///c:/Users/sdses/Desktop/随机小项目/workspace-bridge/src/services/dep-graph/framework-patterns.js#L259) 框架检测目前仍使用轻量文本正则匹配（`AST_PATTERNS`）。
+- **瓶颈**：Tree-sitter WASM 语法加载在 JS 环境中必须为异步（async），而当前的 `detectFrameworkFromContent` 及其上游调用链路（含 [builder.js](file:///c:/Users/sdses/Desktop/随机小项目/workspace-bridge/src/services/dep-graph/builder.js#L11) 和 [entry-detector.js](file:///c:/Users/sdses/Desktop/随机小项目/workspace-bridge/src/services/dep-graph/entry-detector.js#L12) 内的 known entry 判定）均是同步执行。
 - **重构方向**：需将整个框架检测与 entry 判定链路进行同步转异步重构，从而能无缝接入已完成的 `queries/framework-detection` 目录下的 Tree-sitter AST queries，实现检测引擎的彻底统一，消除正则 fallback 噪音。
 
 ---

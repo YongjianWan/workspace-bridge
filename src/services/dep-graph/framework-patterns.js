@@ -13,7 +13,7 @@
  */
 
 const path = require('path');
-const { DEFAULTS } = require('../../config/constants');
+const { DEFAULTS, LIMITS } = require('../../config/constants');
 const { ENTRY_WEIGHT, detectFrameworkFromPath } = require('../../utils/project-context');
 const { compileQuery, runQuery } = require('./query-compiler');
 const { getParserModule, loadLanguage } = require('./parsers/tree-sitter');
@@ -134,6 +134,19 @@ registerRouteQuery('typescript', 'express', './queries/route-extraction/js-expre
 registerRouteQuery('typescript', 'nestjs', './queries/route-extraction/js-nestjs');
 // Phase 4: Spring Boot (Java)
 registerRouteQuery('java', 'spring', './queries/route-extraction/java-spring');
+// Wave 11-15: Nuxt 3 (JS/TS Nitro handlers + explicit definePageMeta)
+registerRouteQuery('typescript', 'nuxt', './queries/route-extraction/js-nuxt');
+// Wave 11-15: SvelteKit (JS/TS server files)
+registerRouteQuery('typescript', 'sveltekit', './queries/route-extraction/js-sveltekit');
+// Wave 11-15: Python frameworks
+registerRouteQuery('python', 'fastapi', './queries/route-extraction/py-fastapi');
+registerRouteQuery('python', 'django', './queries/route-extraction/py-django');
+// Wave 11-15: Go frameworks
+registerRouteQuery('go', 'gin', './queries/route-extraction/go-gin');
+registerRouteQuery('go', 'fiber', './queries/route-extraction/go-fiber');
+// Wave 11-15: Rust frameworks
+registerRouteQuery('rust', 'actix-web', './queries/route-extraction/rs-actix');
+registerRouteQuery('rust', 'axum', './queries/route-extraction/rs-axum');
 
 /**
  * Try to extract routes using tree-sitter query.
@@ -257,7 +270,7 @@ function detectFrameworkFromContent(filePath, content) {
   if (!configs || configs.length === 0) return null;
 
   // Use the full provided content sample (callers already cap at ENTRY_SCAN_BYTES)
-  const sample = content.slice(0, DEFAULTS.ENTRY_SCAN_BYTES).toLowerCase();
+  const sample = content.slice(0, LIMITS.ENTRY_SCAN_BYTES).toLowerCase();
   for (const cfg of configs) {
     for (const pat of cfg.patterns) {
       if (sample.includes(pat.toLowerCase())) {
@@ -289,7 +302,7 @@ function extractRoutesWithRegex(filePath, content) {
   if (!patterns || patterns.length === 0) return [];
 
   const ROUTE_SCAN_MULTIPLIER = 4;
-  const sample = content.slice(0, DEFAULTS.ENTRY_SCAN_BYTES * ROUTE_SCAN_MULTIPLIER);
+  const sample = content.slice(0, LIMITS.ENTRY_SCAN_BYTES * ROUTE_SCAN_MULTIPLIER);
   const routes = [];
   const seen = new Set();
 

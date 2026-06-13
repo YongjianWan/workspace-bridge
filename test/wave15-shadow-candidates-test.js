@@ -38,7 +38,7 @@ function testDirectoryIndexShadowsBareFile() {
 }
 
 function testUnsupportedExtReturnsEmpty() {
-  const file = path.resolve('/mock/foo.java');
+  const file = path.resolve('/mock/foo.txt');
   const candidates = shadowCandidatesFor(file);
   assert.strictEqual(candidates.length, 0, 'Unsupported extensions should yield zero shadow candidates');
 }
@@ -165,6 +165,75 @@ function testSvelteScriptToSvelte() {
   assert.ok(!candidates.includes(file), '.js should not contain itself');
 }
 
+function testKotlinKtToKts() {
+  const file = path.resolve('/mock/Foo.kt');
+  const candidates = shadowCandidatesFor(file);
+
+  assert.ok(candidates.includes(path.resolve('/mock/Foo.kts')), '.kt should shadow .kts');
+  assert.ok(!candidates.includes(file), '.kt should not contain itself');
+}
+
+function testKotlinKtsToKt() {
+  const file = path.resolve('/mock/Foo.kts');
+  const candidates = shadowCandidatesFor(file);
+
+  assert.ok(candidates.includes(path.resolve('/mock/Foo.kt')), '.kts should shadow .kt');
+  assert.ok(!candidates.includes(file), '.kts should not contain itself');
+}
+
+function testJavaToKotlin() {
+  const file = path.resolve('/mock/Foo.java');
+  const candidates = shadowCandidatesFor(file);
+
+  assert.ok(candidates.includes(path.resolve('/mock/Foo.kt')), '.java should shadow .kt in mixed codebases');
+  assert.ok(!candidates.includes(file), '.java should not contain itself');
+  assert.ok(
+    !candidates.some((c) => c.endsWith('.kts')),
+    '.java should not shadow .kts (only .kt is the interoperability companion)'
+  );
+}
+
+function testKotlinToJava() {
+  const file = path.resolve('/mock/Foo.kt');
+  const candidates = shadowCandidatesFor(file);
+
+  assert.ok(candidates.includes(path.resolve('/mock/Foo.java')), '.kt should shadow .java in mixed codebases');
+}
+
+function testGoSingleGroupReturnsEmpty() {
+  const file = path.resolve('/mock/main.go');
+  const candidates = shadowCandidatesFor(file);
+
+  assert.strictEqual(candidates.length, 0, '.go has no basename shadow convention');
+}
+
+function testRustSingleGroupReturnsEmpty() {
+  const file = path.resolve('/mock/main.rs');
+  const candidates = shadowCandidatesFor(file);
+
+  assert.strictEqual(candidates.length, 0, '.rs has no basename shadow convention');
+}
+
+function testGoNoCrossLanguagePollution() {
+  const file = path.resolve('/mock/main.go');
+  const candidates = shadowCandidatesFor(file);
+
+  assert.ok(
+    !candidates.some((c) => /\.(py|js|ts|java|kt|rs|c|cpp|h|hpp|cc|vue|svelte)$/i.test(c)),
+    '.go should not produce candidates for other languages'
+  );
+}
+
+function testRustNoCrossLanguagePollution() {
+  const file = path.resolve('/mock/main.rs');
+  const candidates = shadowCandidatesFor(file);
+
+  assert.ok(
+    !candidates.some((c) => /\.(py|js|ts|java|kt|kts|go|c|cpp|h|hpp|cc|vue|svelte)$/i.test(c)),
+    '.rs should not produce candidates for other languages'
+  );
+}
+
 function testVueFunctionRecordFields() {
   const source = `
 <template><div></div></template>
@@ -224,6 +293,14 @@ const tests = [
   testVueScriptToVue,
   testSvelteToScriptCompanions,
   testSvelteScriptToSvelte,
+  testKotlinKtToKts,
+  testKotlinKtsToKt,
+  testJavaToKotlin,
+  testKotlinToJava,
+  testGoSingleGroupReturnsEmpty,
+  testRustSingleGroupReturnsEmpty,
+  testGoNoCrossLanguagePollution,
+  testRustNoCrossLanguagePollution,
   testVueFunctionRecordFields,
   testSvelteFunctionRecordFields,
 ];

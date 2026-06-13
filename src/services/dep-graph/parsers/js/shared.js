@@ -151,6 +151,29 @@ function extractReturnType(node) {
   return annotation.type || null;
 }
 
+function hasParameterTypeHints(node) {
+  const params = Array.isArray(node?.params) ? node.params : [];
+
+  function hasTypeAnnotation(value) {
+    if (!value || typeof value !== 'object') return false;
+    if (value.typeAnnotation) return true;
+
+    for (const key of Object.keys(value)) {
+      if (key === 'loc' || key === 'start' || key === 'end') continue;
+      const child = value[key];
+      if (Array.isArray(child)) {
+        if (child.some(hasTypeAnnotation)) return true;
+      } else if (child && typeof child === 'object') {
+        if (hasTypeAnnotation(child)) return true;
+      }
+    }
+
+    return false;
+  }
+
+  return params.some(hasTypeAnnotation);
+}
+
 function pushFunctionRecord(records, name, node, options = {}) {
   const fingerprint = buildFunctionFingerprint(node);
   const record = createExportRecord(name, {
@@ -162,6 +185,7 @@ function pushFunctionRecord(records, name, node, options = {}) {
   record.isExported = Boolean(options.isExported);
   record.returnType = options.returnType !== undefined ? options.returnType : extractReturnType(node);
   record.decorators = Array.isArray(options.decorators) ? options.decorators : extractDecoratorNames(node);
+  record.hasParameterTypeHints = options.hasParameterTypeHints !== undefined ? Boolean(options.hasParameterTypeHints) : hasParameterTypeHints(node);
   record.branchCount = fingerprint ? fingerprint.branchCount : 0;
   record.maxArms = fingerprint ? fingerprint.maxArms : 0;
   records.push(record);

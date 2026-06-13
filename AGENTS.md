@@ -29,7 +29,7 @@
 **定位**：AI 的代码脚手架（Code Scaffolding for AI），不是人的报告工具。
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
-- **当前债务**：L1/L2/产品债务已清零；剩余 **2 项架构债务** + **1 项 L3 品味问题**（见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）
+- **当前债务**：L1/L2/产品债务已清零；剩余 **1 项架构债务** + **1 项 L3 品味问题**（见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
@@ -244,6 +244,6 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-06-12（Wave 15 AST 规则字段补齐：Java/Kotlin/TypeScript/Python/Go/Rust/C/C++ parser 输出 decorators/isExported/returnType；JS/TS/Java/Kotlin/Python/Go/Rust/C/C++ branchCount/maxArms 顶层化；ast-rules.js 语言映射配置表化；Shadow Candidates 扩展 JS/TS/Python/C/C++/Vue/Svelte；npm run test:fast 101/101 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-12（Wave 15-2 框架路由提取 9/9 语言 query 化覆盖：FastAPI/Django/Gin/Fiber/Actix-web/Axum/Nuxt/SvelteKit；Shadow Candidates 显式覆盖 Java/Kotlin/Go/Rust；修复 `framework-patterns.js` `DEFAULTS.ENTRY_SCAN_BYTES` 常量引用错误；npm run test:fast 109/109 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
 
 

@@ -16,14 +16,48 @@ function parseCpp(content) {
     importRecords.push(rec);
   }
 
-  // Limit line length to bound regex execution; the pattern below has
-  // polynomial backtracking risk on very long lines due to nested quantifiers.
+  // Best-effort function detection for the regex fallback.
+  // Group 1: optional "static" storage class.
+  // Group 2: return-type prefix (may include namespace/class qualifiers).
+  // Group 3: function name.
+  // Limit line length to bound regex execution; the pattern has polynomial
+  // backtracking risk on very long lines due to nested quantifiers.
   const MAX_LINE_LEN = 512;
-  const funcRe = /^\s*(?:[\w:*&<>]+\s+)+(\w+)\s*\([^)]*\)\s*\{/gm;
+  const funcRe = /^\s*(?:(static)\s+)?([\w:*&<>\s]+?)\s+(\w+)\s*\([^)]*\)\s*\{/gm;
   while ((match = funcRe.exec(content)) !== null) {
     if (match[0].length > MAX_LINE_LEN) continue;
-    exportRecords.push(createExportRecord(match[1], { kind: 'function' }));
-    functionRecords.push({ name: match[1], kind: 'function', branchCount: 0, maxArms: 0 });
+
+    const isStatic = Boolean(match[1]);
+    let returnType = match[2].trim();
+    const name = match[3];
+
+    // Strip trailing class/namespace scope from method definitions,
+    // e.g. "void Foo::" → "void".
+    if (returnType.endsWith('::')) {
+      returnType = returnType.replace(/(?:\w+\s*::\s*)+$/, '').trim();
+    }
+
+    // Constructor detection: qualified name like "Foo::Foo" as the prefix.
+    const isConstructor = new RegExp(`\\b${name}::${name}\\s*\\(`).test(match[0]);
+    if (isConstructor) {
+      returnType = null;
+    }
+
+    if (!returnType) returnType = null;
+
+    exportRecords.push(createExportRecord(name, {
+      kind: isConstructor ? 'constructor' : 'function',
+      isExported: !isStatic,
+    }));
+    functionRecords.push({
+      name,
+      kind: isConstructor ? 'constructor' : 'function',
+      isExported: !isStatic,
+      returnType,
+      decorators: [],
+      branchCount: 0,
+      maxArms: 0,
+    });
   }
 
   const macroRe = /^\s*#define\s+(\w+)/gm;

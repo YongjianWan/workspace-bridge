@@ -10,16 +10,21 @@
 
 ### Wave 15: 深度扩展 — 增量更新、缓存优化与 AST 轻量规则引擎 (2026-06-12)
 
+- **15-4 增量缓存更新一致性修复**：修复 `GraphBuilder.updateFiles()` 二次 SHA-256 校验对比 `meta.hash` 产生的 cache-skip 误判。新增 `Cache.parsedHashes` 内存 Map 跟踪解析时的文件哈希，以正确比对物理变更，解决 `FileIndex` 先于 `updateFiles()` 更新 `meta.hash` 导致缓存检测永远失效并跳过解析的 bug。
 - **15-1 AST 轻量规则引擎**：新建 `src/services/dep-graph/ast-rules.js`，实现单文件方法级规则匹配 findings（如 `batch*` 方法缺少 `@Transactional`、TS 导出方法缺少 `returnType` 注解）。
+- **15-1B 跨语言 AST 规则补齐**：扩展 `src/services/dep-graph/ast-rules.js` 内置规则覆盖全部 9 种语言：JS/TS/Vue/Svelte 导出函数无返回类型、Python 公共函数无类型提示、Go 导出 mutator 缺少 error 返回、Rust 公共函数无显式返回类型、C/C++ 导出函数无返回类型声明；调整 TypeScript 规则在 `.ts` 文件上无条件触发，在纯 JavaScript/Vue/Svelte 文件中仅当文件已使用 TS 类型注解时触发，兼顾规则召回与低误报。
 - **15-1 CLI 与 Curation 接入**：在 `overview-assembler.js`、`overview-tools.js` 及 `audit-assembler.js` 中完整集成 AST Rules 检查逻辑；支持在 `audit-summary` 及 `audit-overview` 的 human, summary, markdown 和 jsonl 风格格式化器中输出 findings 统计与明细。
 - **15-3 ParseCache 跨调用缓存**：在 `builder.js` 中新增 LRU 内存缓存（上限 200），在文件 `mtime` 未变时直接复用解析结果，抵消增量邻居重解析开销。
 - **15-4 L1-L4 增量更新四层叠加协议**：
   - **L1/L2 增量过滤**：集成 SHA-256 二次过滤机制，避免 mtime 精度问题带来的伪阳性重新解析。
   - **L3 Neighbor-aware & Shadow Candidates**：新建 `src/services/dep-graph/shadow-candidates.js`，重构 `updateFiles()` 在解析前自动扩展 1-hop dependents 邻居及 shadow targets，实现跨文件 import 关系在增量下的精准重构，修复了以前已删除文件依赖边残留的死循环和残留问题。
   - **L4 WAL Checkpoint SQLite 写入节流**：新建 `src/services/dep-graph/wal-cadence.js`，在 watch/repl 增量写之后执行 SQLite 的 `PASSIVE` 写入节流，并以时间间隔（60s）/批次量（32次）阈值交替触发 `TRUNCATE` checkpoint。
+- **15-2 框架路由提取 9/9 语言 query 化**：在 `framework-patterns.js` 注册 FastAPI/Django/Gin/Fiber/Actix-web/Axum/Nuxt/SvelteKit 的 tree-sitter query，覆盖全部 9 种语言；query-first + regex 永久 fallback。
+- **15-4 Shadow Candidates 9/9 语言显式覆盖**：在 `shadow-candidates.js` 为 Java/Kotlin、Go、Rust 添加显式 shadow 组，补齐 Language Parity。
+- **修复 `framework-patterns.js` 常量引用错误**：将 `detectFrameworkFromContent` 中误用的 `DEFAULTS.ENTRY_SCAN_BYTES` 改为 `LIMITS.ENTRY_SCAN_BYTES`，恢复 regex fallback 路由提取。
 - **测试**：
   - 新增 `wave15-parse-cache-test.js`、`wave15-neighbor-aware-test.js`、`wave15-shadow-candidates-test.js`、`wave15-wal-cadence-test.js`、`wave15-ast-rules-test.js` 专项测试。
-  - 跑通 `npm run test:fast`（101/101 PASS）和 `npm run test:smoke`（104/104 PASS）。
+  - 跑通 `npm run test:fast`（109/109 PASS）和 `npm run test:smoke`（104/104 PASS）。
 
 ### 修复与内部质量 (2026-06-12)
 
@@ -44,7 +49,7 @@
 - Extend shadow candidates support to Vue SFC (`.vue` ↔ `.ts`/`.js`) and Svelte SFC (`.svelte` ↔ `.ts`/`.js`) with language-group isolation, allowing `.ts`/`.js` files to shadow both framework SFCs without bleeding between `.vue` and `.svelte`; update `test/wave15-shadow-candidates-test.js` with dedicated coverage.
 - Fix JS/TS/Vue/Svelte function record parity: promote `branchCount` and `maxArms` from `fingerprint` to the top level of `functionRecords` in `src/services/dep-graph/parsers/js/shared.js` (AST path) and `src/services/dep-graph/parsers/js/regex-fallback.js` (regex fallback); add top-level/fingerprint parity assertions for Vue and Svelte in `test/wave15-shadow-candidates-test.js`.
 - Fix `GraphBuilder.updateFiles()` (`src/services/dep-graph/builder.js`) to evict deleted files from the in-memory parse cache, preventing stale cache hits after file deletion.
-- Enhance `test/wave15-ast-rules-test.js` with end-to-end real parser tests for Java, Kotlin, and TypeScript AST rules.
+- Enhance `test/wave15-ast-rules-test.js` with end-to-end real parser tests for Java, Kotlin, TypeScript, JavaScript, Vue, Svelte, Python, Go, Rust, and C/C++ AST rules, plus unit tests and multi-language `checkAllRules` coverage.
 - Refactor `src/services/dep-graph/ast-rules.js` extension-to-language resolution from a hardcoded `if-else` chain into a declarative `EXT_TO_LANGUAGE` config table; register `.py/.go/.rs/.c/.cpp/.vue/.svelte` mappings to `python/go/rust/cpp/cpp/vue/svelte` while keeping `.java/.kt/.ts/.tsx` unchanged. Added config-table and custom-rule coverage in `test/wave15-ast-rules-test.js`.
 - Fix Rust AST parser (`src/services/dep-graph/parsers/rust-ast.js`) to populate `functionRecords` with `isExported`, `returnType`, and `decorators`, closing the Wave 11-15 language parity gap for Rust. Added integration assertions in `test/rust-ast-parser-test.js`.
 - Fix `test/wave15-parse-cache-test.js` `testLruEviction` by adding real assertions that verify the 200-entry LRU cap and oldest-entry eviction behavior.

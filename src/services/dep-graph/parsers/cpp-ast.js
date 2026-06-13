@@ -363,8 +363,10 @@ async function parseCppAst(content, filePath) {
           lineEnd = getLineEnd(capture.node);
         }
 
-        // C: static function = internal linkage, skip export
-        if (isC && tag === 'def.func' && funcNode && hasStaticKeyword(funcNode)) continue;
+        // C/C++: file-scope static function = internal linkage, skip export.
+        // Static member functions (def.method) remain exported because they are
+        // part of the class's public API.
+        if (tag === 'def.func' && funcNode && hasStaticKeyword(funcNode)) continue;
 
         const dedupKey = `${name}|${kind}|${lineStart ?? ''}|${lineEnd ?? ''}`;
         if (seenExports.has(dedupKey)) continue;

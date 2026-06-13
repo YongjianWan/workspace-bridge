@@ -89,6 +89,7 @@ async function parsePython(content) {
         isExported: record.isExported !== undefined ? record.isExported : true,
         returnType: record.returnType || null,
         decorators: record.decorators || [],
+        hasParameterTypeHints: record.hasParameterTypeHints === true,
         branchCount: record.branchCount !== undefined ? record.branchCount : 0,
         maxArms: record.maxArms !== undefined ? record.maxArms : 0,
       })),

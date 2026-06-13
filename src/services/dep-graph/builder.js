@@ -796,12 +796,16 @@ class GraphBuilder {
 
           // L2: SHA-256 哈希二次校验 (排除 mtime 伪阳性)
           let content = null;
-          if (oldInfo && cached && meta && meta.hash) {
+          const parsedHash = this.dg.cache ? this.dg.cache.parsedHashes?.get(key) : null;
+          if (oldInfo && cached && parsedHash) {
             const crypto = require('crypto');
             try {
               content = await readFile(filePath, 'utf8');
               const currentHash = crypto.createHash('sha256').update(content).digest('hex');
-              if (currentHash === meta.hash) {
+              if (currentHash === parsedHash) {
+                // Update cached mtime to avoid SHA-256 check next time
+                cached.mtime = meta?.mtime || cached.mtime;
+                this.dg.cache.setParseResult(filePath, cached);
                 skipped++;
                 continue;
               }

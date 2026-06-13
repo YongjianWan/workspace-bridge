@@ -19,7 +19,7 @@ function testExportedFunctionWithoutReturnType() {
     functionRecords: result.functionRecords,
   });
   assert.strictEqual(findings.length, 1, 'exported function without return type should trigger rule');
-  assert.ok(findings[0].id.includes('public-method-no-return-type'), findings[0].id);
+  assert.ok(findings[0].id.includes('exported-function-no-return-type'), findings[0].id);
   assert.strictEqual(findings[0].symbol, 'compute');
 }
 
@@ -37,6 +37,25 @@ function testExportedFunctionWithReturnType() {
     functionRecords: result.functionRecords,
   });
   assert.strictEqual(findings.length, 0, 'exported function with return type should not trigger rule');
+}
+
+function testExportedFunctionWithParameterTypeOnly() {
+  const content = `export function compute(x: number) { return x; }`;
+  const result = parseJavaScript(content, 'compute.ts');
+
+  const fn = result.functionRecords.find((r) => r.name === 'compute');
+  assert(fn, 'should have compute functionRecord');
+  assert.strictEqual(fn.isExported, true);
+  assert.strictEqual(fn.returnType, null);
+  assert.strictEqual(fn.hasParameterTypeHints, true, 'parameter type annotations should be tracked');
+
+  const findings = checkFileRules('compute.ts', {
+    originalPath: 'compute.ts',
+    functionRecords: result.functionRecords,
+  });
+  assert.strictEqual(findings.length, 1, 'exported function with parameter type hints should trigger rule');
+  assert.ok(findings[0].id.includes('exported-function-no-return-type'), findings[0].id);
+  assert.strictEqual(findings[0].symbol, 'compute');
 }
 
 function testNonExportedFunction() {
@@ -113,6 +132,7 @@ function testExistingFieldsPreserved() {
 
 testExportedFunctionWithoutReturnType();
 testExportedFunctionWithReturnType();
+testExportedFunctionWithParameterTypeOnly();
 testNonExportedFunction();
 testExportedArrowFunction();
 testUnionAndQualifiedReturnTypes();

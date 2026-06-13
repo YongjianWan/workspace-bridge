@@ -17,6 +17,25 @@ const SHADOW_GROUPS = [
   {
     exts: ['.hpp', '.h', '.cpp', '.c', '.cc'],
   },
+  {
+    // Kotlin script companions: Foo.kt <-> Foo.kts
+    exts: ['.kt', '.kts'],
+  },
+  {
+    // Java/Kotlin interoperability: the same logical class may be authored in
+    // either language within a mixed codebase (e.g. Android or Spring hybrids).
+    exts: ['.java', '.kt'],
+  },
+  {
+    // Go has no basename shadow convention; single-entry group makes the
+    // "no shadow" decision explicit and prevents accidental fallback to []unknown.
+    exts: ['.go'],
+  },
+  {
+    // Rust has no basename shadow convention; single-entry group for explicit
+    // "no shadow" coverage.
+    exts: ['.rs'],
+  },
 ];
 
 const SHADOW_EXTS = SHADOW_GROUPS.flatMap((g) => g.exts);
@@ -29,6 +48,10 @@ const SHADOW_EXTS = SHADOW_GROUPS.flatMap((g) => g.exts);
  *   - Svelte SFC (.svelte ↔ .ts/.js)
  *   - Python (.py ↔ .pyi)
  *   - C/C++ (.h/.hpp ↔ .c/.cpp/.cc)
+ *   - Kotlin (.kt ↔ .kts)
+ *   - Java/Kotlin mixed code (.java ↔ .kt)
+ *   - Go (.go — explicit single-entry group, no shadows)
+ *   - Rust (.rs — explicit single-entry group, no shadows)
  *
  * @param {string} addedPath - The absolute or relative file path
  * @returns {string[]} An array of de-duplicated candidate file paths
