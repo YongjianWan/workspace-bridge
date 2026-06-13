@@ -6,6 +6,7 @@
  */
 
 const { buildProjectOverview } = require('./overview-tools');
+const { SCHEMA_VERSION } = require('../config/constants');
 
 const SNAPSHOT_KEY = 'analysis_snapshot';
 
@@ -18,17 +19,23 @@ function findSnapshot(container) {
   }
 }
 
+function isSnapshotFresh(snapshot, container) {
+  const currentHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
+  const currentFileCount = container.snapshot?.graph?.getAllFilePaths?.().length || 0;
+  const headMatch = !currentHead || !snapshot.version || snapshot.version === currentHead;
+  const countMatch = !currentFileCount || !snapshot.fileCount || snapshot.fileCount === currentFileCount;
+  const fileChanges = container.cache?.checkFileChanges?.();
+  const noContentChanges = !fileChanges || !fileChanges.changed;
+  return headMatch && countMatch && noContentChanges;
+}
+
 async function ensureSnapshotData(parsed, container) {
   const snapshot = findSnapshot(container);
   if (snapshot?.data) {
     try {
       const payload = JSON.parse(snapshot.data);
-      // Validate freshness: match gitHead and fileCount if available
-      const currentHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
-      const currentFileCount = container.snapshot?.graph?.getAllFilePaths?.().length || 0;
-      const headMatch = !currentHead || !snapshot.version || snapshot.version === currentHead;
-      const countMatch = !currentFileCount || !snapshot.fileCount || Math.abs(snapshot.fileCount - currentFileCount) <= 5;
-      if (headMatch && countMatch && payload.hotspots) {
+      // Validate freshness: gitHead, exact fileCount, and actual content changes.
+      if (isSnapshotFresh(snapshot, container) && payload.hotspots) {
         return payload;
       }
     } catch (_) {
@@ -66,7 +73,7 @@ async function queryHotspots(parsed, container) {
 
   return {
     ok: true,
-    schemaVersion: '1.2.0',
+    schemaVersion: SCHEMA_VERSION,
     command: 'query-hotspots',
     count: hotspots.length,
     total: (data.hotspots || []).length,
@@ -86,7 +93,7 @@ async function queryKnowledgeRisk(parsed, container) {
 
   return {
     ok: true,
-    schemaVersion: '1.2.0',
+    schemaVersion: SCHEMA_VERSION,
     command: 'query-knowledge-risk',
     count: items.length,
     total: (kr[level] || []).length,
@@ -109,7 +116,7 @@ async function queryStability(parsed, container) {
 
   return {
     ok: true,
-    schemaVersion: '1.2.0',
+    schemaVersion: SCHEMA_VERSION,
     command: 'query-stability',
     count: items.length,
     total: (data.stability || []).length,
@@ -121,4 +128,5 @@ module.exports = {
   queryHotspots,
   queryKnowledgeRisk,
   queryStability,
+  isSnapshotFresh,
 };

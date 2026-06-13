@@ -6,7 +6,7 @@ const path = require('path');
 const { toRelativePosix } = require('../utils/path');
 
 const { detectStack } = require('../utils/stack-detectors/detect');
-const { DEFAULTS, SCORING, LIMITS } = require('../config/constants');
+const { DEFAULTS, SCORING, LIMITS, SCHEMA_VERSION } = require('../config/constants');
 const { getFileHistoryRisk, getFileKnowledgeRisk } = require('./git-tools');
 const {
   buildOverviewSummary,
@@ -278,7 +278,7 @@ function buildHotspotVisualizationData(root, hotspots, aggregates) {
     }));
 
   return {
-    schemaVersion: '1.2.0',
+    schemaVersion: SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
     workspaceRoot: root,
     stats: {
@@ -500,7 +500,7 @@ async function assembleOverviewData(args, container, historyProvider) {
     },
   };
 
-  const { filterByCategory } = require('./audit-assembler');
+  const { filterByCategory } = require('./category-filter');
   filterByCategory(sections, args?.category, ['deadExports', 'unresolved', 'cycles', 'astRules']);
 
   const deadExports = sections.deadExports;

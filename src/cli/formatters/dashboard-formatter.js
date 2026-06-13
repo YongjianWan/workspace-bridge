@@ -4,7 +4,7 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { DEFAULTS, SCORING } = require('../../config/constants');
+const { DEFAULTS, SCORING, SCHEMA_VERSION } = require('../../config/constants');
 const {
   buildHotspotVisualizationData,
   buildStabilityTrendSnapshot,
@@ -146,7 +146,7 @@ async function writeOverviewOutputs(args, rawData) {
     const history = [...existingHistory, stabilityTrendSnapshot];
     const series = buildStabilityTrendSeries(history, trendGranularity);
     const payload = {
-      schemaVersion: '1.2.0',
+      schemaVersion: SCHEMA_VERSION,
       generatedAt: nowIso,
       workspaceRoot: root,
       granularity: trendGranularity,

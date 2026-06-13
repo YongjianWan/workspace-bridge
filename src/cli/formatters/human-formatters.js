@@ -3,7 +3,7 @@
  * Registry-based dispatch — no more switch-case chains.
  */
 const { countTreeFiles } = require('./project-map');
-const { AI_FORMAT } = require('../../config/constants');
+const { AI_FORMAT, SCHEMA_VERSION } = require('../../config/constants');
 const { sanitizeForAiOutput } = require('../../utils/sanitize');
 
 /**
@@ -1201,7 +1201,7 @@ function formatAi(command, result, options = {}) {
 
   const depth = options.depth || 'detail';
   const tokenBudget = options.tokenBudget || null;
-  const schemaVersion = options.schemaVersion || '1.2.0';
+  const schemaVersion = options.schemaVersion || SCHEMA_VERSION;
 
   if (command === 'audit-summary') {
     function buildOutput(currentDepth) {

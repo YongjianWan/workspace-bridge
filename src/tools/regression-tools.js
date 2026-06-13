@@ -6,6 +6,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const DEFAULT_BASELINE_FILE = '.workspace-bridge-baseline.json';
+const { SCHEMA_VERSION } = require('../config/constants');
 
 function resolveBaseline(args) {
   let baselinePath = null;
@@ -87,7 +88,7 @@ function extractFindings(result) {
 
 function buildBaselineSnapshot(result) {
   return {
-    schemaVersion: result.schemaVersion || '1.2.0',
+    schemaVersion: result.schemaVersion || SCHEMA_VERSION,
     timestamp: new Date().toISOString(),
     workspaceRoot: result.workspaceRoot,
     findings: extractFindings(result),

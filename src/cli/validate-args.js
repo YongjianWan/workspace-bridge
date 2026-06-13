@@ -97,15 +97,15 @@ function parseCliArgs(argv) {
   const sources = {};
 
   function resolveOption(cliVal, envName, isBool = false) {
+    if (cliVal !== undefined && cliVal !== null) {
+      return { value: cliVal, source: 'cli' };
+    }
     if (process.env[envName] !== undefined) {
       const val = process.env[envName];
       return {
         value: isBool ? (val === 'true' || val === '1') : val,
         source: 'env'
       };
-    }
-    if (cliVal !== undefined && cliVal !== null) {
-      return { value: cliVal, source: 'cli' };
     }
     return { value: undefined, source: 'default' };
   }
@@ -115,12 +115,12 @@ function parseCliArgs(argv) {
   const cwd = cwdRes.value || process.cwd();
 
   let exclude = [];
-  if (process.env.WB_EXCLUDE !== undefined) {
-    exclude = process.env.WB_EXCLUDE.split(',').map((part) => toPosixPath(part.trim())).filter(Boolean);
-    sources.exclude = 'env';
-  } else if (raw.exclude !== undefined && raw.exclude !== null) {
+  if (raw.exclude !== undefined && raw.exclude !== null) {
     exclude = String(raw.exclude).split(',').map((part) => toPosixPath(part.trim())).filter(Boolean);
     sources.exclude = 'cli';
+  } else if (process.env.WB_EXCLUDE !== undefined) {
+    exclude = process.env.WB_EXCLUDE.split(',').map((part) => toPosixPath(part.trim())).filter(Boolean);
+    sources.exclude = 'env';
   } else {
     sources.exclude = 'default';
   }
@@ -271,7 +271,7 @@ function parseCliArgs(argv) {
     commits: raw.commits || null,
     severity,
     category,
-    staged: Boolean(raw['--staged']),
+    staged,
     files: raw.files || null,
     targets: raw._.slice(1),
     json: json || format === 'json',

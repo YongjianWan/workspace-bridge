@@ -15,6 +15,14 @@
 - **新增常规测试 CI**：新增 `.github/workflows/test.yml`，在 Node 22/24 矩阵上运行 `npm ci`、`npm run test:fast` 与 `npm run test:smoke`，作为 PR 与 main 分支推送的硬门禁。
 - **发布链路加固**：更新 `.github/workflows/release.yml`，在 `npm publish` 前增加 `npm run test:fast`、`npm run test:smoke` 与 packed tarball smoke test（验证 `--version` 与 `workspace-info` 可在 tarball 解压目录正常运行），防止失败版本被正式发布。
 
+### 数据一致性与工程治理 (2026-06-13)
+
+- **修复 `query-*` 快照 staleness**：`src/tools/query-tools.js` 原先仅比对 `gitHead` 与文件数（且允许 ±5 误差），修改后额外调用 `container.cache.checkFileChanges()` 进行 SHA-256 内容校验，并把文件数匹配改为精确相等，避免用户在修改已有文件后继续读到旧聚合快照。
+- **修复 CLI 参数优先级**：`src/cli/validate-args.js` 中 `resolveOption()` 与环境变量 `WB_EXCLUDE` 的处理逻辑原先让环境变量覆盖 CLI 参数；现已改为 `CLI args > env > default`，并统一 `--staged` 使用解析后的变量，避免 agent 显式传参被宿主环境静默改写。
+- **统一 `schemaVersion` 来源**：将 `src/tools/query-tools.js`、`src/tools/tree-tools.js`、`src/tools/regression-tools.js`、`src/tools/overview-assembler.js`、`src/cli/formatters/dashboard-formatter.js`、`src/cli/formatters/human-formatters.js` 中硬编码的 `"1.2.0"` 全部替换为 `SCHEMA_VERSION` 常量，消除版本升级时不同命令输出不一致的风险。
+- **消除 `audit-assembler.js ↔ incremental-diff.js` 循环依赖**：新增 `src/tools/category-filter.js` 共享模块，将 `filterByCategory`、`parseCategories`、`CATEGORY_ALIASES`、`EMPTY_CATEGORY_STUBS` 下沉；`incremental-diff.js`、`overview-assembler.js`、`cli/commands/index.js` 改为从 `category-filter.js` 导入，`audit-assembler.js` 保留兼容重导出。新增 `test/category-filter-cycle-test.js` 强制验证循环已断开。
+- **测试**：新增 `test/query-staleness-test.js` 覆盖快照新鲜度判断；在 `test/wave14-noise-env-test.js` 补充 CLI 覆盖环境变量的回归测试；`npm run test:fast` **111/111 PASS**。
+
 ### Wave 15: AST-Query 框架检测与同步转异步重构 (2026-06-13)
 
 - **框架检测 Query 异步化重构**：将框架检测逻辑下沉至 Parse Phase（异步），消除 tree-sitter queries 在 Link Phase 同步加载的架构瓶颈。

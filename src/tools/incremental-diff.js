@@ -77,7 +77,7 @@ function buildIncrementalFindings(changedFiles, container, options = {}) {
     },
   };
 
-  const { filterByCategory } = require('./audit-assembler');
+  const { filterByCategory } = require('./category-filter');
   filterByCategory(sections, options?.category, ['deadExports', 'unresolved', 'cycles']);
 
   return {

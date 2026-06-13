@@ -3,6 +3,7 @@
  */
 
 const path = require('path');
+const { SCHEMA_VERSION } = require('../config/constants');
 
 function buildTree(rootFile, depGraph, options = {}) {
   const maxDepth = options.maxDepth || 3;
@@ -101,7 +102,7 @@ function treeQuery({ cwd, file, depth, direction, maxFiles }, container) {
     return {
       ok: false,
       error: `File not found in dependency graph: ${file}`,
-      schemaVersion: '1.2.0',
+      schemaVersion: SCHEMA_VERSION,
     };
   }
 
@@ -116,7 +117,7 @@ function treeQuery({ cwd, file, depth, direction, maxFiles }, container) {
     file: normalized,
     tree,
     truncated: Boolean(tree?.importsTruncated || tree?.dependentsTruncated),
-    schemaVersion: '1.2.0',
+    schemaVersion: SCHEMA_VERSION,
   };
 }
 

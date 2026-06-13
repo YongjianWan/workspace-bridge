@@ -114,7 +114,41 @@ function testWBFailOnFindingsEnv() {
 }
 
 /* -------------------------------------------------------------------------- */
-// Test 6: ignore.frameworks 过滤
+// Test 6: CLI 参数优先级高于环境变量
+/* -------------------------------------------------------------------------- */
+function testCliOverridesEnv() {
+  const originals = {
+    WB_FORMAT: process.env.WB_FORMAT,
+    WB_QUIET: process.env.WB_QUIET,
+    WB_JSON: process.env.WB_JSON,
+    WB_CWD: process.env.WB_CWD,
+  };
+  try {
+    process.env.WB_FORMAT = 'markdown';
+    process.env.WB_QUIET = '0';
+    process.env.WB_JSON = '0';
+    process.env.WB_CWD = '/tmp/from-env';
+
+    const parsed = parseCliArgs(['node', 'cli.js', '--cwd', '/tmp/from-cli', '--format', 'ai', '--quiet', '--json']);
+
+    assert.strictEqual(parsed.format, 'ai', 'CLI --format should override WB_FORMAT');
+    assert.strictEqual(parsed._sources.format, 'cli', 'format source should be cli');
+    assert.strictEqual(parsed.quiet, true, 'CLI --quiet should override WB_QUIET=0');
+    assert.strictEqual(parsed._sources.quiet, 'cli', 'quiet source should be cli');
+    assert.strictEqual(parsed.json, true, 'CLI --json should override WB_JSON=0');
+    assert.strictEqual(parsed._sources.json, 'cli', 'json source should be cli');
+    assert.ok(parsed.cwd.includes('/tmp/from-cli'), 'CLI --cwd should override WB_CWD');
+    assert.strictEqual(parsed._sources.cwd, 'cli', 'cwd source should be cli');
+  } finally {
+    for (const [key, val] of Object.entries(originals)) {
+      if (val !== undefined) process.env[key] = val;
+      else delete process.env[key];
+    }
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+// Test 7: ignore.frameworks 过滤
 /* -------------------------------------------------------------------------- */
 function testIgnoreFrameworks() {
   const dg = DependencyGraph.fromSchema('/mock', {
@@ -205,6 +239,7 @@ const tests = [
   testMarkFalsePositiveEndToEnd,
   testWBCompactEnv,
   testWBFailOnFindingsEnv,
+  testCliOverridesEnv,
   testIgnoreFrameworks,
   testConfigOriginReport,
   testIgnoreFindingsDynamicCache,
