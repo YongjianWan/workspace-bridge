@@ -117,9 +117,15 @@ const EXT_TO_LANGUAGE = {
   '.py': 'python',
   '.java': 'java',
   '.kt': 'kotlin',
+  '.kts': 'kotlin',
   '.go': 'go',
   '.rs': 'rust',
-  '.vue': 'vue',
+  // C/C++ use a dedicated fallback key; query path reserved for future frameworks.
+  '.c': 'cpp',
+  '.cpp': 'cpp',
+  '.cc': 'cpp',
+  '.h': 'cpp',
+  '.hpp': 'cpp',
 };
 
 const ROUTE_QUERY_REGISTRY = new Map();
@@ -247,6 +253,14 @@ const ROUTE_PATTERNS = {
     // Actix-web / Rocket: #[get("/path")] / #[post("/path")]
     { framework: 'actix-web', re: /#\[(get|post|put|delete|patch)\s*\(\s*["']([^"']+)["']/gi },
   ],
+  cpp: [
+    // Crow: CROWD_ROUTE(app, "/path") or app.route("/path").method(...)
+    { framework: 'crow', re: /(?:CROWD_ROUTE\s*\(\s*\w+\s*,\s*|[\.\->]route\s*\(\s*)["']([^"']+)["']\s*\)/gi, methodIndex: null, pathIndex: 1 },
+    // Pistache: Routes::Get(router, "/path", ...)
+    { framework: 'pistache', re: /Routes::(Get|Post|Put|Delete|Patch)\s*\(\s*\w+\s*,\s*["']([^"']+)["']/gi },
+    // Generic C/C++ HTTP libraries: mg_http_listen, httplib::Server::Get, etc.
+    { framework: 'generic-cpp', re: /\.(Get|Post|Put|Delete|Patch)\s*\(\s*["']([^"']+)["']/gi },
+  ],
 };
 
 /**
@@ -294,9 +308,10 @@ function extractRoutesWithRegex(filePath, content) {
   if (ext === '.js' || ext === '.ts' || ext === '.jsx' || ext === '.tsx') key = 'js';
   else if (ext === '.py') key = 'py';
   else if (ext === '.java') key = 'java';
-  else if (ext === '.kt') key = 'kt';
+  else if (ext === '.kt' || ext === '.kts') key = 'kt';
   else if (ext === '.go') key = 'go';
   else if (ext === '.rs') key = 'rs';
+  else if (ext === '.c' || ext === '.cpp' || ext === '.cc' || ext === '.h' || ext === '.hpp') key = 'cpp';
 
   const patterns = ROUTE_PATTERNS[key];
   if (!patterns || patterns.length === 0) return [];

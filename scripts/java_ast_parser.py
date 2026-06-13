@@ -116,6 +116,19 @@ def compute_java_fingerprint(method_node) -> dict:
     }
 
 
+def extract_return_type(method_node):
+    """Return the declared return type of a method as a string, or None."""
+    if not hasattr(method_node, 'return_type') or not method_node.return_type:
+        return None
+    rt = method_node.return_type
+    # javalang return_type can be a ReferenceType or BasicType
+    if hasattr(rt, 'name'):
+        return rt.name
+    if hasattr(rt, 'type') and hasattr(rt.type, 'name'):
+        return rt.type.name
+    return rt.__class__.__name__
+
+
 def parse_java(source):
     tree = javalang.parse.parse(source)
     package = tree.package.name if tree.package else None
@@ -161,6 +174,9 @@ def parse_java(source):
                         "lineEnd": member.position.line if member.position else None,
                         "fingerprint": fingerprint,
                         "decorators": decorators,
+                        "isExported": True,
+                        "returnType": extract_return_type(member),
+                        "hasParameterTypeHints": True,
                         "branchCount": fingerprint["branchCount"],
                         "maxArms": fingerprint["maxArms"]
                     })
@@ -184,6 +200,9 @@ def parse_java(source):
                         "lineEnd": member.position.line if member.position else None,
                         "fingerprint": fingerprint,
                         "decorators": decorators,
+                        "isExported": True,
+                        "returnType": extract_return_type(member),
+                        "hasParameterTypeHints": True,
                         "branchCount": fingerprint["branchCount"],
                         "maxArms": fingerprint["maxArms"]
                     })

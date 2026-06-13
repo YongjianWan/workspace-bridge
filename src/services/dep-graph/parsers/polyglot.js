@@ -33,8 +33,14 @@ function parseKotlin(content) {
     functionRecords.push({
       name: match[1],
       kind: 'function',
+      isExported: true,
+      returnType: null,
+      decorators: [],
+      hasParameterTypeHints: true,
       lineStart: content.slice(0, match.index).split('\n').length,
       lineEnd: content.slice(0, match.index).split('\n').length,
+      branchCount: 0,
+      maxArms: 0,
     });
   }
 
@@ -209,6 +215,7 @@ function parseGoRegex(content) {
       isExported: true,
       returnType: undefined,
       decorators: [],
+      hasParameterTypeHints: true,
       lineStart: content.slice(0, match.index).split('\n').length,
       lineEnd: content.slice(0, match.index).split('\n').length,
       branchCount,
@@ -261,8 +268,14 @@ function parseRust(content) {
     functionRecords.push({
       name: match[1],
       kind: 'function',
+      isExported: true,
+      returnType: null,
+      decorators: [],
+      hasParameterTypeHints: true,
       lineStart: content.slice(0, match.index).split('\n').length,
       lineEnd: content.slice(0, match.index).split('\n').length,
+      branchCount: 0,
+      maxArms: 0,
     });
   }
   const structRegex = /\bpub\s+struct\s+(\w+)/g;

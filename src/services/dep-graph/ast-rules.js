@@ -11,6 +11,7 @@ const path = require('path');
 const EXT_TO_LANGUAGE = {
   '.java': 'java',
   '.kt': 'kotlin',
+  '.kts': 'kotlin',
   '.ts': 'typescript',
   '.tsx': 'typescript',
   '.mts': 'typescript',

@@ -59,9 +59,16 @@ async function getFileComplexityTrend(root, filePath, options = {}) {
 
       if (baseParsed && Array.isArray(baseParsed.functionRecords) &&
           currentParsed && Array.isArray(currentParsed.functionRecords)) {
-        useAST = true;
-        baseComplexity = baseParsed.functionRecords.reduce((sum, f) => sum + (f.fingerprint?.branchCount || 0), 0);
-        currentComplexity = currentParsed.functionRecords.reduce((sum, f) => sum + (f.fingerprint?.branchCount || 0), 0);
+        // Read top-level branchCount first; fallback to legacy fingerprint for older parsers.
+        const sumBranches = (records) => records.reduce((sum, f) => {
+          const bc = f.branchCount ?? f.fingerprint?.branchCount ?? 0;
+          return sum + (typeof bc === 'number' ? bc : 0);
+        }, 0);
+        baseComplexity = sumBranches(baseParsed.functionRecords);
+        currentComplexity = sumBranches(currentParsed.functionRecords);
+        // Only trust AST complexity when we actually got non-zero branch data;
+        // otherwise fallback to LOC trend to avoid false GROWING/STABLE signals.
+        useAST = baseComplexity > 0 || currentComplexity > 0;
       }
     } catch (e) {
       // Parse failed on one of the versions, fallback to line count

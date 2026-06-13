@@ -395,6 +395,7 @@ function extractFunctionRecordsWithRegex(sanitized) {
       kind: 'function',
       lineStart,
       lineEnd: lineStart,
+      decorators: [],
       branchCount: 0,
       maxArms: 0,
     };
@@ -413,6 +414,7 @@ function extractFunctionRecordsWithRegex(sanitized) {
       kind: 'function',
       lineStart,
       lineEnd: lineStart,
+      decorators: [],
       branchCount: 0,
       maxArms: 0,
     };
@@ -432,6 +434,7 @@ function extractFunctionRecordsWithRegex(sanitized) {
       kind: 'function',
       lineStart,
       lineEnd: lineStart,
+      decorators: [],
       branchCount: 0,
       maxArms: 0,
     };

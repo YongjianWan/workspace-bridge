@@ -54,6 +54,20 @@
 - Fix Rust AST parser (`src/services/dep-graph/parsers/rust-ast.js`) to populate `functionRecords` with `isExported`, `returnType`, and `decorators`, closing the Wave 11-15 language parity gap for Rust. Added integration assertions in `test/rust-ast-parser-test.js`.
 - Fix `test/wave15-parse-cache-test.js` `testLruEviction` by adding real assertions that verify the 200-entry LRU cap and oldest-entry eviction behavior.
 
+### Wave 11-15 多语言等价性补齐与功能完整性修复 (2026-06-13)
+
+- **修复 `audit-smells` / `audit-diff complexityTrend` 对 C/C++ 失效**：`src/tools/dep-tools/smells.js` 和 `src/tools/complexity-tools.js` 现在优先读取 `functionRecords` 顶层 `branchCount`/`maxArms`，以 `fingerprint` 作为向后兼容 fallback；当 AST 存在但无有效分支数据时回退到 LOC 趋势判断，避免 C/C++ 项目产生沉默的 0 smells 或错误 trend。
+- **补齐 C/C++ `functionRecords.fingerprint`**：`src/services/dep-graph/parsers/cpp-ast.js` 在顶层字段之外额外输出 `fingerprint: { branchCount, maxArms }`，与 smells/complexity 消费端对齐。
+- **补齐 `.kts` 到 AST rules 语言映射**：`src/services/dep-graph/ast-rules.js` 增加 `.kts: 'kotlin'`，使 Kotlin script 文件也能触发规则。
+- **补齐 C/C++ / Kotlin script 路由提取映射与 regex fallback**：`src/services/dep-graph/framework-patterns.js` 为 `.c/.cpp/.cc/.h/.hpp` 和 `.kts` 添加 `EXT_TO_LANGUAGE` 映射；`extractRoutesWithRegex` 支持 C/C++ 走专用 `cpp` key；新增 `ROUTE_PATTERNS.cpp` 覆盖 Crow/Pistache/通用 C++ HTTP 库模式。
+- **统一 `functionRecords` 顶层字段契约**：
+  - Java AST (`scripts/java_ast_parser.py`)：补充 `isExported`、`returnType`、`hasParameterTypeHints`。
+  - Kotlin/Go/Rust regex fallback (`src/services/dep-graph/parsers/polyglot.js`)：补充 `isExported`、`returnType`、`decorators`、`hasParameterTypeHints`、`branchCount`、`maxArms`。
+  - JS/TS regex fallback (`src/services/dep-graph/parsers/js/regex-fallback.js`)：补充 `decorators: []`。
+  - Go/Rust/C/C++ AST：补充 `hasParameterTypeHints: true`。
+- **回归测试**：在 `test/wave11-analysis-deepening-test.js` 新增 `testCppFlatDispatcherDetection`，覆盖 C/C++ AST 的 branchCount/maxArms 提取及 `checkSmells` 正确识别 flat dispatcher。
+- **验证**：`npm run test:fast` 109/109 PASS。
+
 ### Wave 12: 类别过滤 Summary 同步与性能优化 (2026-06-12)
 
 - **类别过滤与 Summary 同步 (12-3)**：修复了 `--category` 过滤时 repo / overview / incremental-diff 汇总的 counts 和 recommendations 不同步的 bug。现在，被过滤类别的 counts 指标以及 `incrementalFindings` 字段会被彻底排除，且 nextSteps/recommendations 中不再生成该类别的诊断建议，同时严重性评级（severity）也将自动剔除已省略项的影响。

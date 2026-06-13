@@ -18,11 +18,12 @@ function checkSmells(args, container) {
     const relPath = path.relative(workspaceRoot, file).replace(/\\/g, '/');
 
     for (const func of info.functionRecords) {
-      const fp = func.fingerprint;
-      if (!fp) continue;
+      // Prefer top-level fields (all parsers should set these), fallback to legacy fingerprint.
+      const arms = func.maxArms ?? func.fingerprint?.maxArms ?? 0;
+      const branchCount = func.branchCount ?? func.fingerprint?.branchCount ?? 0;
+      if (arms === 0 && branchCount === 0) continue;
 
-      const arms = fp.maxArms || 0;
-      const cc = (fp.branchCount !== undefined ? fp.branchCount : 0) + 1;
+      const cc = branchCount + 1;
 
       let matched = false;
       let reason = '';

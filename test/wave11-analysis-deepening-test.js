@@ -15,6 +15,7 @@ const os = require('os');
 const path = require('path');
 const { parsePython } = require('../src/services/dep-graph/parsers/python');
 const { parseJava } = require('../src/services/dep-graph/parsers/java');
+const { parseCppAst } = require('../src/services/dep-graph/parsers/cpp-ast');
 const { runGit } = require('../src/utils/command');
 
 const { checkBoundaries } = require('../src/tools/dep-tools/boundaries');
@@ -342,6 +343,39 @@ public class Dispatcher {
   assert.strictEqual(dispatchFn.fingerprint.maxArms, 5, `Expected 5 arms (if + 3 else-if + else), got ${dispatchFn.fingerprint.maxArms}`);
 }
 
+async function testCppFlatDispatcherDetection() {
+  const source = `
+int dispatch(int x) {
+  if (x == 1) return 1;
+  else if (x == 2) return 2;
+  else if (x == 3) return 3;
+  else if (x == 4) return 4;
+  else if (x == 5) return 5;
+  else if (x == 6) return 6;
+  return 0;
+}
+`;
+  const parsed = await parseCppAst(source, 'Dispatcher.c');
+  if (!parsed) {
+    console.log('C/C++ parser skipped (tree-sitter not available)');
+    return;
+  }
+  assert(Array.isArray(parsed.functionRecords), 'Should have functionRecords');
+  const dispatchFn = parsed.functionRecords.find(f => f.name === 'dispatch');
+  assert(dispatchFn, 'Should find dispatch function');
+  assert.strictEqual(dispatchFn.maxArms, 6, `Expected 6 arms for C flat dispatcher, got ${dispatchFn.maxArms}`);
+
+  const mockGraph = {
+    getAllFilePaths: () => ['/project/src/dispatch.c'],
+    getFileInfo: () => ({ functionRecords: parsed.functionRecords }),
+  };
+  const result = checkSmells({}, { snapshot: { graph: mockGraph }, workspaceRoot: '/project' });
+  assert.strictEqual(result.ok, true);
+  assert(result.smellsCount > 0, 'Should detect flat dispatcher smell in C/C++');
+  const smell = result.smells.find(s => s.functionName === 'dispatch');
+  assert(smell, 'Should report C/C++ dispatch function as smell');
+}
+
 /* -------------------------------------------------------------------------- */
 // 3. Complexity Trend
 /* -------------------------------------------------------------------------- */
@@ -508,6 +542,7 @@ async function main() {
   const asyncTests = [
     testPythonElifChain,
     testJavaElseIfChain,
+    testCppFlatDispatcherDetection,
     testComplexityTrendStable,
     testComplexityTrendUntracked,
     testComplexityTrendFallbackToLoc,

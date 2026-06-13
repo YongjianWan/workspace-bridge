@@ -111,6 +111,7 @@ function buildGoFunctionRecord(name, parent, captureNode) {
     isExported: isExportedGoName(name),
     returnType: extractGoReturnType(parent),
     decorators: [],
+    hasParameterTypeHints: true,
     lineStart: getLineStart(parent) || getLineStart(captureNode),
     lineEnd: getLineEnd(parent) || getLineEnd(captureNode),
     branchCount: fingerprint.branchCount,

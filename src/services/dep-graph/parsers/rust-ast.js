@@ -355,6 +355,7 @@ async function parseRust(content) {
             isExported: isExportedFunction(funcNode),
             returnType: getRustReturnType(funcNode),
             decorators: getRustDecorators(funcNode),
+            hasParameterTypeHints: true,
             branchCount,
             maxArms,
             ...base,

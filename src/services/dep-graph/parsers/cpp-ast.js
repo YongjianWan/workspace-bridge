@@ -383,8 +383,10 @@ async function parseCppAst(content, filePath) {
             isExported: true,
             returnType: getReturnType(funcNode),
             decorators: getDecorators(funcNode),
+            hasParameterTypeHints: true,
             branchCount,
             maxArms,
+            fingerprint: { branchCount, maxArms },
           });
         }
       }

@@ -55,6 +55,7 @@ function parseCpp(content) {
       isExported: !isStatic,
       returnType,
       decorators: [],
+      hasParameterTypeHints: true,
       branchCount: 0,
       maxArms: 0,
     });
