@@ -18,7 +18,7 @@ const {
 } = require('../../utils/test-detector');
 const { detectScaffold } = require('../../utils/scaffold-detector');
 const { DEFAULTS, LIMITS, CONFIDENCE } = require('../../config/constants');
-const { fromNormalizedKey } = require('../../utils/path');
+const { fromNormalizedKey, normalizePathKey } = require('../../utils/path');
 const {
   CONFIG,
   bfsTraverse,
@@ -27,6 +27,14 @@ const {
   DEAD_EXPORT_FILTER_RE,
   isConventionallyAliveSymbol,
 } = require('./shared');
+
+// Defensive: exclude workspace-bridge's own tree-sitter query registry files
+// from dead-export analysis. These files are dynamically required by
+// framework-patterns.js and would otherwise be flagged as unused exports.
+// Using an exact directory prefix instead of a broad /queries/ regex avoids
+// accidentally ignoring user source files in a queries/ directory.
+const QUERIES_DIR = normalizePathKey(path.join(__dirname, 'queries'));
+
 class GraphAnalyzer {
   constructor(depGraph) {
     this.dg = depGraph;
@@ -872,6 +880,8 @@ class GraphAnalyzer {
         if (this.dg.isKnownEntryFile(filePath, info.exports)) continue;
         // Rule 2: .d.ts ambient declaration files are type-only, not runtime exports
         if (filePath.endsWith('.d.ts')) continue;
+        // Ignore workspace-bridge's own tree-sitter query registry files
+        if (filePath.startsWith(QUERIES_DIR)) continue;
         // P78: Detect scaffold once per file, reuse in both output branches
         const scaffold = detectScaffold(filePath) || undefined;
         const importers = this.dg.getDependents(filePath);

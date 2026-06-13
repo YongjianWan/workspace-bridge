@@ -8,6 +8,20 @@
 
 ## [Unreleased]
 
+### Wave 15: AST-Query 框架检测与同步转异步重构 (2026-06-13)
+
+- **框架检测 Query 异步化重构**：将框架检测逻辑下沉至 Parse Phase（异步），消除 tree-sitter queries 在 Link Phase 同步加载的架构瓶颈。
+- **缓存框架 Hint 持久化与 Schema 升级**：增加 SQLite 表 `parse_results` 的 `framework_hint` TEXT 字段。升级 `CACHE_VERSION` 至 `4`。在 `GraphDB` 启动时自动通过 `_migrate()` 平滑执行 schema 升级并保留旧数据。
+- **同步 Known Entry 缓存加速**：重构 `EntryDetector` 构造函数接收 `getFileInfo` 实例查询，在 `isKnownEntryFile()` 和 `getFrameworkHint()` 中优先从图节点 node cache 中 O(1) 获取已解析的 `frameworkHint`，消除反复文件内容扫描开销。若缓存不命中则优雅降级为同步 content-scan Fallback。
+- **动态 Query 文件死代码加白**：在 `analyzer.js` `findDeadExports` 循环中自动排除 `/[\\/]queries[\\/]/i` 目录下的动态 query 注册文件，避免不必要的死导出误报。
+- **测试与验证**：
+  - 更新 `framework-patterns-test.js` 并使所有 content-based 检测测试变为 `async/await`。
+  - 在 `graph-db-test.js` 补齐 `testRoundTrip` 对 `frameworkHint` 的验证，并新增 `testMigration` 模拟旧数据库并校验自动升级。
+  - 在 `entry-detector-test.js` 新增 `testEntryDetectorCacheHitAndFallback` 验证缓存命中与降级逻辑。
+  - 修复 `ROUTE_PATTERNS.go` Gin fallback regex 字符类笔误（`[^'']` → `[^"']`），避免双引号路由路径被错误截留尾部引号；新增 `wave15-gin-query-test.js` regression test 强制 fallback 路径覆盖双引号场景。
+  - 收窄 `analyzer.js` 死导出加白范围：从全局 `/queries/` 正则改为精确前缀 `src/services/dep-graph/queries/`，避免误伤用户项目中同名目录。
+  - 全量 `npm run test:fast` **109/109 PASS**，`npm run test:smoke` **112/112 PASS**。
+
 ### Wave 15: 深度扩展 — 增量更新、缓存优化与 AST 轻量规则引擎 (2026-06-12)
 
 - **15-4 增量缓存更新一致性修复**：修复 `GraphBuilder.updateFiles()` 二次 SHA-256 校验对比 `meta.hash` 产生的 cache-skip 误判。新增 `Cache.parsedHashes` 内存 Map 跟踪解析时的文件哈希，以正确比对物理变更，解决 `FileIndex` 先于 `updateFiles()` 更新 `meta.hash` 导致缓存检测永远失效并跳过解析的 bug。

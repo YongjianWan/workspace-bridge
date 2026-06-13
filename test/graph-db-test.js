@@ -39,6 +39,7 @@ function testRoundTrip() {
         parseMode: 'ast',
         parseModeReason: 'tree-sitter',
         confidence: 'high',
+        frameworkHint: { framework: 'express', reason: 'express-route', isEntry: true, entryPointWeight: 2.5 },
       }],
     ]),
     symbolIndex: new Map([['main', [{ file: 'src/index.js', line: 1 }]]]),
@@ -68,6 +69,7 @@ function testRoundTrip() {
   assert.deepStrictEqual(parseResult.exports, ['main'], 'exports should match');
   assert.strictEqual(parseResult.parseMode, 'ast', 'parseMode should match');
   assert.strictEqual(parseResult.confidence, 'high', 'confidence should match');
+  assert.deepStrictEqual(parseResult.frameworkHint, { framework: 'express', reason: 'express-route', isEntry: true, entryPointWeight: 2.5 }, 'frameworkHint should match');
 
   assert(loaded.symbolIndex.has('main'), 'symbolIndex should contain main');
   assert.deepStrictEqual(loaded.symbolIndex.get('main'), [{ file: 'src/index.js', line: 1 }], 'symbol locations should match');
@@ -272,6 +274,49 @@ function testTransactionRejectsAsyncFunction() {
   cleanupTempDir(tmpDir);
 }
 
+function testMigration() {
+  const tmpDir = makeTempDir('wb-graphdb-');
+  const dbPath = path.join(tmpDir, 'cache.db');
+  
+  // 1. Manually create an old schema database without framework_hint column
+  const { DatabaseSync } = require('node:sqlite');
+  const rawDb = new DatabaseSync(dbPath);
+  rawDb.exec(`
+    CREATE TABLE IF NOT EXISTS parse_results (
+      path TEXT PRIMARY KEY,
+      mtime INTEGER,
+      imports TEXT,
+      exports TEXT,
+      import_records TEXT,
+      export_records TEXT,
+      function_records TEXT,
+      parse_mode TEXT,
+      parse_mode_reason TEXT,
+      confidence TEXT
+    );
+    INSERT INTO parse_results (path, mtime, imports, exports, confidence)
+    VALUES ('src/index.js', 12345, '[]', '[]', 'high');
+  `);
+  rawDb.close();
+
+  // 2. Instantiate GraphDB, which will automatically call _ensureOpen() -> _migrate()
+  const db = new GraphDB(dbPath);
+  db._ensureOpen();
+
+  // 3. Verify that the framework_hint column now exists
+  const cols = db.db.prepare('PRAGMA table_info(parse_results)').all();
+  const hasCol = cols.some((c) => c.name === 'framework_hint');
+  assert.strictEqual(hasCol, true, 'migration should add framework_hint column');
+
+  // 4. Verify original data is preserved
+  const row = db.db.prepare("SELECT * FROM parse_results WHERE path = 'src/index.js'").get();
+  assert.strictEqual(row.mtime, 12345, 'mtime should be preserved');
+  assert.strictEqual(row.framework_hint, null, 'framework_hint should default to null for existing rows');
+
+  db.close();
+  cleanupTempDir(tmpDir);
+}
+
 function main() {
   testSchemaCreation();
   testRoundTrip();
@@ -283,6 +328,7 @@ function main() {
   testSaveIncrementalMetadataOnly();
   testTransactionRollbackPreservesOriginalError();
   testTransactionRejectsAsyncFunction();
+  testMigration();
 }
 
 main();

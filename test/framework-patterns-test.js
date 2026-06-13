@@ -95,43 +95,43 @@ function testDetectFrameworkFromPath() {
   assert.strictEqual(detectFrameworkFromPath('/project/README.md'), null);
 }
 
-function testDetectFrameworkFromContent() {
+async function testDetectFrameworkFromContent() {
   // NestJS decorator
   const nestjsContent = `@Controller('users')\nexport class UserController {\n  @Get()\n  findAll() {}\n}`;
-  const nestjsHint = detectFrameworkFromContent('/project/src/users.controller.ts', nestjsContent);
+  const nestjsHint = await detectFrameworkFromContent('/project/src/users.controller.ts', nestjsContent);
   assert.strictEqual(nestjsHint.framework, 'nestjs');
 
   // Express routes
   const expressContent = `app.get('/users', (req, res) => {});`;
-  const expressHint = detectFrameworkFromContent('/project/src/routes.ts', expressContent);
+  const expressHint = await detectFrameworkFromContent('/project/src/expr.ts', expressContent);
   assert.strictEqual(expressHint.framework, 'express');
 
   // FastAPI
   const fastapiContent = `@app.get("/items/")\nasync def read_items():\n    return []`;
-  const fastapiHint = detectFrameworkFromContent('/project/main.py', fastapiContent);
+  const fastapiHint = await detectFrameworkFromContent('/project/main.py', fastapiContent);
   assert.strictEqual(fastapiHint.framework, 'fastapi');
 
   // Flask
   const flaskContent = `@app.route('/')\ndef hello():\n    return 'Hello'`;
-  const flaskHint = detectFrameworkFromContent('/project/app.py', flaskContent);
+  const flaskHint = await detectFrameworkFromContent('/project/app.py', flaskContent);
   assert.strictEqual(flaskHint.framework, 'flask');
 
   // Spring annotation
   const springContent = `@RestController\npublic class UserController {\n  @GetMapping("/users")\n}`;
-  const springHint = detectFrameworkFromContent('/project/UserController.java', springContent);
+  const springHint = await detectFrameworkFromContent('/project/MyApi.java', springContent);
   assert.strictEqual(springHint.framework, 'spring');
 
   // Spring Boot annotations
   const springBootContent = `@SpringBootApplication\npublic class DemoApplication {\n  public static void main(String[] args) {}\n}`;
-  const springBootHint = detectFrameworkFromContent('/project/DemoApplication.java', springBootContent);
+  const springBootHint = await detectFrameworkFromContent('/project/Demo.java', springBootContent);
   assert.strictEqual(springBootHint.framework, 'spring-boot');
 
   const configContent = `@Configuration\npublic class AppConfig {\n  @Bean\n}`;
-  const configHint = detectFrameworkFromContent('/project/AppConfig.java', configContent);
+  const configHint = await detectFrameworkFromContent('/project/App.java', configContent);
   assert.strictEqual(configHint.framework, 'spring-boot');
 
   const adviceContent = `@ControllerAdvice\npublic class GlobalExceptionHandler {}`;
-  const adviceHint = detectFrameworkFromContent('/project/GlobalExceptionHandler.java', adviceContent);
+  const adviceHint = await detectFrameworkFromContent('/project/GlobalException.java', adviceContent);
   assert.strictEqual(adviceHint.framework, 'spring-boot');
 
   // Spring Cloud / Task annotations (P7)
@@ -139,74 +139,74 @@ function testDetectFrameworkFromContent() {
 public interface UserClient {
   @GetMapping("/users/{id}")
 }`;
-  const feignHint = detectFrameworkFromContent('/project/UserClient.java', feignContent);
+  const feignHint = await detectFrameworkFromContent('/project/UserConnector.java', feignContent);
   assert.strictEqual(feignHint.framework, 'spring');
   assert.strictEqual(feignHint.reason, 'spring-annotation');
 
   const scheduledContent = `@Scheduled(fixedRate = 5000)
 public void reportCurrentTime() {}`;
-  const scheduledHint = detectFrameworkFromContent('/project/ScheduledTasks.java', scheduledContent);
+  const scheduledHint = await detectFrameworkFromContent('/project/ScheduledJobs.java', scheduledContent);
   assert.strictEqual(scheduledHint.framework, 'spring');
   assert.strictEqual(scheduledHint.reason, 'spring-annotation');
 
   // Spring extended annotations
   const requestMappingContent = `@RequestMapping("/api")
 public class ApiController {}`;
-  const requestMappingHint = detectFrameworkFromContent('/project/ApiController.java', requestMappingContent);
+  const requestMappingHint = await detectFrameworkFromContent('/project/Api.java', requestMappingContent);
   assert.strictEqual(requestMappingHint.framework, 'spring');
   assert.strictEqual(requestMappingHint.reason, 'spring-annotation');
 
   const asyncContent = `@Async
 public void asyncTask() {}`;
-  const asyncHint = detectFrameworkFromContent('/project/AsyncService.java', asyncContent);
+  const asyncHint = await detectFrameworkFromContent('/project/AsyncRun.java', asyncContent);
   assert.strictEqual(asyncHint.framework, 'spring');
   assert.strictEqual(asyncHint.reason, 'spring-annotation');
 
   const eventListenerContent = `@EventListener
 public void onEvent(MyEvent event) {}`;
-  const eventListenerHint = detectFrameworkFromContent('/project/EventListener.java', eventListenerContent);
+  const eventListenerHint = await detectFrameworkFromContent('/project/EventReceiver.java', eventListenerContent);
   assert.strictEqual(eventListenerHint.framework, 'spring');
   assert.strictEqual(eventListenerHint.reason, 'spring-annotation');
 
   const kafkaListenerContent = `@KafkaListener(topics = "orders")
 public void handleOrder(Order order) {}`;
-  const kafkaListenerHint = detectFrameworkFromContent('/project/OrderConsumer.java', kafkaListenerContent);
+  const kafkaListenerHint = await detectFrameworkFromContent('/project/OrderReceiver.java', kafkaListenerContent);
   assert.strictEqual(kafkaListenerHint.framework, 'spring');
   assert.strictEqual(kafkaListenerHint.reason, 'spring-annotation');
 
   // Go Gin
   const ginContent = `func handler(c *gin.Context) {\n  c.JSON(200, gin.H{})\n}`;
-  const ginHint = detectFrameworkFromContent('/project/handlers.go', ginContent);
+  const ginHint = await detectFrameworkFromContent('/project/handlers.go', ginContent);
   assert.strictEqual(ginHint.framework, 'gin');
 
   // Rust Actix
   const actixContent = `#[get("/")]\nasync fn index() -> impl Responder {\n  HttpResponse::Ok()\n}`;
-  const actixHint = detectFrameworkFromContent('/project/src/routes.rs', actixContent);
+  const actixHint = await detectFrameworkFromContent('/project/src/routes.rs', actixContent);
   assert.strictEqual(actixHint.framework, 'actix-web');
 
   // Django management command
   const djangoCommandContent = `from django.core.management.base import BaseCommand\n\nclass Command(BaseCommand):\n    help = 'Cleanup'`;
-  const djangoCommandHint = detectFrameworkFromContent('/project/core/management/commands/cleanup.py', djangoCommandContent);
+  const djangoCommandHint = await detectFrameworkFromContent('/project/core/management/commands/cleanup.py', djangoCommandContent);
   assert.strictEqual(djangoCommandHint.framework, 'django');
 
   // Django admin
   const djangoAdminContent = `from django.contrib import admin\nfrom .models import User\n\nadmin.site.register(User)`;
-  const djangoAdminHint = detectFrameworkFromContent('/project/core/admin.py', djangoAdminContent);
+  const djangoAdminHint = await detectFrameworkFromContent('/project/core/admin.py', djangoAdminContent);
   assert.strictEqual(djangoAdminHint.framework, 'django');
 
   // Celery task
   const celeryContent = `from celery import shared_task\n\n@shared_task\ndef add(x, y):\n    return x + y`;
-  const celeryHint = detectFrameworkFromContent('/project/core/tasks.py', celeryContent);
+  const celeryHint = await detectFrameworkFromContent('/project/core/celery_tasks.py', celeryContent);
   assert.strictEqual(celeryHint.framework, 'celery');
 
   // Django signals (P8)
   const signalContent = `from django.dispatch import receiver\nfrom django.db.models.signals import post_save\n\n@receiver(post_save, sender=User)\ndef user_post_save(sender, instance, created, **kwargs):\n    pass`;
-  const signalHint = detectFrameworkFromContent('/project/core/signals.py', signalContent);
+  const signalHint = await detectFrameworkFromContent('/project/core/sig.py', signalContent);
   assert.strictEqual(signalHint.framework, 'django');
   assert.strictEqual(signalHint.reason, 'django-signal');
 
   const connectContent = `post_save.connect(user_post_save, sender=User)`;
-  const connectHint = detectFrameworkFromContent('/project/core/handlers.py', connectContent);
+  const connectHint = await detectFrameworkFromContent('/project/core/hnd.py', connectContent);
   assert.strictEqual(connectHint.framework, 'django');
   assert.strictEqual(connectHint.reason, 'django-signal');
 
@@ -214,7 +214,7 @@ public void handleOrder(Order order) {}`;
   const drfViewsetContent = `from rest_framework import viewsets
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()`;
-  const drfViewsetHint = detectFrameworkFromContent('/project/core/viewsets.py', drfViewsetContent);
+  const drfViewsetHint = await detectFrameworkFromContent('/project/core/users.py', drfViewsetContent);
   assert.strictEqual(drfViewsetHint.framework, 'django');
   assert.strictEqual(drfViewsetHint.reason, 'django-rest-framework');
 
@@ -222,35 +222,35 @@ class UserViewSet(viewsets.ModelViewSet):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User`;
-  const drfSerializerHint = detectFrameworkFromContent('/project/core/serializers.py', drfSerializerContent);
+  const drfSerializerHint = await detectFrameworkFromContent('/project/core/user_serialization.py', drfSerializerContent);
   assert.strictEqual(drfSerializerHint.framework, 'django');
   assert.strictEqual(drfSerializerHint.reason, 'django-rest-framework');
 
   const drfPermissionContent = `from rest_framework.permissions import BasePermission
 class IsOwner(BasePermission):`;
-  const drfPermissionHint = detectFrameworkFromContent('/project/core/permissions.py', drfPermissionContent);
+  const drfPermissionHint = await detectFrameworkFromContent('/project/core/user_auth.py', drfPermissionContent);
   assert.strictEqual(drfPermissionHint.framework, 'django');
   assert.strictEqual(drfPermissionHint.reason, 'django-rest-framework');
 
   // Vue script setup compiler macros
   const vueMacroContent = `<script setup>\nconst props = defineProps({ foo: String });\nconst emit = defineEmits(['click']);\ndefineExpose({ bar: 1 });\n</script>`;
-  const vueMacroHint = detectFrameworkFromContent('/project/src/components/Comp.vue', vueMacroContent);
+  const vueMacroHint = await detectFrameworkFromContent('/project/comp.js', vueMacroContent);
   assert.strictEqual(vueMacroHint.framework, 'vue');
   assert.strictEqual(vueMacroHint.reason, 'vue-script-setup-macro');
   assert.strictEqual(vueMacroHint.isEntry, true);
 
   // No match
   const plainContent = `function add(a, b) { return a + b; }`;
-  assert.strictEqual(detectFrameworkFromContent('/project/utils.ts', plainContent), null);
+  assert.strictEqual(await detectFrameworkFromContent('/project/utils.ts', plainContent), null);
 }
 
-function testIsEntryFlag() {
+async function testIsEntryFlag() {
   // Entry files
   assert.strictEqual(detectFrameworkFromPath('/project/app/page.tsx').isEntry, true);
   assert.strictEqual(detectFrameworkFromPath('/project/src/main.go').isEntry, true);
   assert.strictEqual(detectFrameworkFromPath('/project/src/main.rs').isEntry, true);
   assert.strictEqual(detectFrameworkFromPath('/project/src/main/java/com/example/DemoApplication.java').isEntry, true);
-  assert.strictEqual(detectFrameworkFromContent('/project/DemoApplication.java', '@SpringBootApplication\npublic class DemoApplication {}').isEntry, true);
+  assert.strictEqual((await detectFrameworkFromContent('/project/Demo.java', '@SpringBootApplication\npublic class DemoApplication {}')).isEntry, true);
   assert.strictEqual(detectFrameworkFromPath('/project/core/management/commands/cleanup.py').isEntry, true);
   assert.strictEqual(detectFrameworkFromPath('/project/core/views/login.py').isEntry, true);
   assert.strictEqual(detectFrameworkFromPath('/project/task_management/views_coordination.py').isEntry, true);
@@ -260,11 +260,11 @@ function testIsEntryFlag() {
   // Non-entry files
   assert.strictEqual(detectFrameworkFromPath('/project/src/components/Button.tsx').isEntry, false);
   assert.strictEqual(detectFrameworkFromPath('/project/prisma/schema.prisma').isEntry, false);
-  const helperHint = detectFrameworkFromContent('/project/Helper.java', 'public class Helper {}');
+  const helperHint = await detectFrameworkFromContent('/project/Helper.java', 'public class Helper {}');
   assert.strictEqual(helperHint?.isEntry ?? false, false);
 }
 
-function testEntryPointWeight() {
+async function testEntryPointWeight() {
   // P103: HIGH (3.0) — page, controller, views, main, application
   assert.strictEqual(detectFrameworkFromPath('/project/app/page.tsx').entryPointWeight, 3.0);
   assert.strictEqual(detectFrameworkFromPath('/project/pages/index.tsx').entryPointWeight, 3.0);
@@ -290,15 +290,19 @@ function testEntryPointWeight() {
   assert.strictEqual(detectFrameworkFromPath('/project/prisma/schema.prisma').entryPointWeight, undefined);
 
   // Content-based detection also carries weight
-  const sbHint = detectFrameworkFromContent('/project/DemoApplication.java', '@SpringBootApplication\npublic class DemoApplication {}');
+  const sbHint = await detectFrameworkFromContent('/project/Demo.java', '@SpringBootApplication\npublic class DemoApplication {}');
   assert.strictEqual(sbHint.entryPointWeight, 3.0);
 }
 
-function run() {
+async function run() {
   testDetectFrameworkFromPath();
-  testDetectFrameworkFromContent();
-  testIsEntryFlag();
-  testEntryPointWeight();
+  await testDetectFrameworkFromContent();
+  await testIsEntryFlag();
+  await testEntryPointWeight();
+  console.log('framework-patterns-test.js PASS');
 }
 
-run();
+run().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

@@ -16,18 +16,28 @@ const QUERY = `
     property: (property_identifier) @method
   )
 )
-(#match? @app "^(app|router|r)$")
-(#match? @method "^(get|post|put|delete|patch|all)$")
 `;
 
 function postProcess(matches) {
-  if (matches.length > 0) {
-    return {
-      framework: 'express',
-      reason: 'express-route',
-      isEntry: true,
-      entryPointWeight: 2.5,
-    };
+  if (!matches || matches.length === 0) return null;
+
+  for (const match of matches) {
+    const appText = match.app?.text;
+    const methodText = match.method?.text;
+
+    if (
+      appText &&
+      methodText &&
+      /^(app|router|r)$/.test(appText) &&
+      /^(get|post|put|delete|patch|all)$/.test(methodText)
+    ) {
+      return {
+        framework: 'express',
+        reason: 'express-route',
+        isEntry: true,
+        entryPointWeight: 2.5,
+      };
+    }
   }
   return null;
 }

@@ -37,7 +37,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**所有测试全部 PASS**；`npm run test:fast` **109/109 PASS**（~10s），`npm run test:smoke` **104/104 PASS**（~30s）。开发迭代首选 `npm run test:fast`。
+- 测试：**所有测试全部 PASS**；`npm run test:fast` **109/109 PASS**（~10s），`npm run test:smoke` **112/112 PASS**（~60s）。开发迭代首选 `npm run test:fast`。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~366 文件（entry=1, mainline=164, test=202）
@@ -101,7 +101,25 @@ node cli.js audit-overview --cwd . --json --quiet
 > 3. **Wave 12 输出精炼补全**：完成 12-3 分层输出过滤；完成 12-4 大项目自动 compact 截断；完成 12-5 大项目手动 `--max-files` 截断。
 ---
 
-## 本轮上下文：`bootstrapFromSchema` 路径规范化不一致清偿（活跃）
+## 本轮上下文：AST-Query 框架检测与同步转异步重构（活跃）
+
+> **背景**：框架检测同步加载 tree-sitter queries 存在性能和设计瓶颈。本次重构将其完全下沉至异步的 Parse Phase 中执行，同时保存 `frameworkHint` 到 SQLite 数据库和图节点中，并修改 `EntryDetector` 支持 O(1) 同步缓存读取与 fallback。
+>
+> ### 本轮已交付
+> - **AST-Query 框架检测**：移除了 Express 框架检测匹配 query 中的 `#match?` 谓词（避免 web-tree-sitter WASM 编译崩溃），改在 JS `postProcess` 中做正则过滤。
+> - **同步转异步 Parse 改造**：在 `builder.js` 的 `parseFileOnly` (Parse Phase) 异步执行 `detectFrameworkFromContent`，并将提取出的 `frameworkHint` 保存到图节点中。
+> - **SQLite 缓存与 Schema 迁移**：升级 `CACHE_VERSION` 至 `4`；更新 `parse_results` 数据库 schema，新增 `framework_hint` TEXT 字段并进行 JSON 序列化；在 `GraphDB._migrate()` 中实现自动平滑 ALTER TABLE 迁移，并保留旧数据。
+> - **同步 entry 检测缓存加速**：重构 `EntryDetector`，使其构造函数支持可选的 `getFileInfo` 回调。在同步 entry 判定 `isKnownEntryFile()` 和获取框架 hint `getFrameworkHint()` 中优先检查图节点的 cached hint，避免重复文件 content-scan 带来的性能回归。当缓存不命中时，优雅降级到同步 content-scan。
+> - **分析引擎加白**：在 `analyzer.js` 的 `findDeadExports` 中对含有 `/queries/` 或 `\queries\` 路径的文件进行加白忽略，彻底消除动态 query 注册文件带来的死代码误报。
+> - **测试覆盖**：
+>   - 重构 `framework-patterns-test.js` 测试使其通过 `async/await` 执行，并微调测试文件路径（如 `UserController.java` → `MyApi.java`）以防触发 path-based 检测干扰 content-based 检测测试。
+>   - 更新 `graph-db-test.js` `testRoundTrip` 对 `frameworkHint` 序列化进行验证，并新增 `testMigration` 用 `node:sqlite` 的 `DatabaseSync` 模拟旧数据库并验证 `_migrate()` 自动平滑升级及原数据完好。
+>   - 更新 `entry-detector-test.js` 并新增 `testEntryDetectorCacheHitAndFallback` 测试缓存命中与降级逻辑。
+>   - 全量测试：`npm run test:fast` **109/109 PASS**，`npm run test:smoke` **112/112 PASS**。
+
+---
+
+## 本轮上下文：`bootstrapFromSchema` 路径规范化不一致清偿（已归档）
 
 > **背景**：`bootstrapFromSchema` 原样使用 schema 键值，未执行 `normalizeFilePath`，导致 Windows 上 Mock 测试的 graph key 与生产规范化路径不匹配，部分测试需手动建图或覆盖 `normalizeFilePath`。
 
@@ -223,7 +241,7 @@ node cli.js audit-overview --cwd . --json --quiet
 | -------------- | ----------- | ---------------- |
 | L1 Blocker         | 0           | —                                                                                                                                       |
 | L2 债务            | 0           | —                                                                                                                                       |
-| 架构债务           | 1           | 框架检测 Query 基础设施同步转异步重构（Phase 3 预备） |
+| 架构债务           | 1           | 框架检测 Query 语言等价性偏斜（Language Parity Debt） |
 | L3 品味问题        | 1           | 弱断言分布 ~2.3% |
 | **产品债务** | **0** | —                                                                  |
 

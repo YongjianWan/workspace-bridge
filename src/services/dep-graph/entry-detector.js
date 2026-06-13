@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { normalizePathKey } = require('../../utils/path');
 const { ENTRY_BASE_NAMES } = require('../../utils/project-context');
-const { detectFrameworkFromPath, detectFrameworkFromContent } = require('./framework-patterns');
+const { detectFrameworkFromPath, detectFrameworkFromContentSync } = require('./framework-patterns');
 const { LIMITS } = require('../../config/constants');
 const {
   FRAMEWORK_MANAGED_PATTERNS,
@@ -42,9 +42,10 @@ function readScanContent(filePath) {
 }
 
 class EntryDetector {
-  constructor({ entryFiles, normalizeFilePath, bus } = {}) {
+  constructor({ entryFiles, normalizeFilePath, bus, getFileInfo } = {}) {
     this.entryFiles = entryFiles || new Set();
     this.normalizeFilePath = normalizeFilePath || ((p) => p);
+    this.getFileInfo = getFileInfo || null;
     this._cache = new Map();
 
     if (bus) {
@@ -77,19 +78,26 @@ class EntryDetector {
       } else if (ENTRY_BASE_NAMES.has(base)) {
         result = true;
       } else {
-        const pathHint = detectFrameworkFromPath(filePath);
-        if (pathHint && pathHint.isEntry) {
-          result = true;
+        const cachedHint = this.getFileInfo ? this.getFileInfo(filePath)?.frameworkHint : null;
+        if (cachedHint) {
+          if (cachedHint.isEntry) {
+            result = true;
+          }
         } else {
-          const content = readScanContent(filePath);
-          if (content) {
-            const contentHint = detectFrameworkFromContent(filePath, content);
-            if (contentHint && contentHint.isEntry) {
-              result = true;
-            } else if (content.startsWith('#!')) {
-              result = true;
-            } else if (PYTHON_MAIN_PATTERN.test(content)) {
-              result = true;
+          const pathHint = detectFrameworkFromPath(filePath);
+          if (pathHint && pathHint.isEntry) {
+            result = true;
+          } else {
+            const content = readScanContent(filePath);
+            if (content) {
+              const contentHint = detectFrameworkFromContentSync(filePath, content);
+              if (contentHint && contentHint.isEntry) {
+                result = true;
+              } else if (content.startsWith('#!')) {
+                result = true;
+              } else if (PYTHON_MAIN_PATTERN.test(content)) {
+                result = true;
+              }
             }
           }
         }
@@ -106,12 +114,15 @@ class EntryDetector {
    * @returns {{ framework: string, reason: string, isEntry: boolean } | null}
    */
   getFrameworkHint(filePath) {
+    const cachedHint = this.getFileInfo ? this.getFileInfo(filePath)?.frameworkHint : null;
+    if (cachedHint) return cachedHint;
+
     const pathHint = detectFrameworkFromPath(filePath);
     if (pathHint) return pathHint;
 
     const content = readScanContent(filePath);
     if (content) {
-      return detectFrameworkFromContent(filePath, content);
+      return detectFrameworkFromContentSync(filePath, content);
     }
     return null;
   }

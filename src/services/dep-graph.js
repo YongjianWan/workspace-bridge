@@ -72,6 +72,7 @@ class DependencyGraph {
       entryFiles: this.entryFiles,
       normalizeFilePath: this.normalizeFilePath,
       bus: this.bus,
+      getFileInfo: (p) => this.getFileInfo(p),
     });
     this.builder = new GraphBuilder(this);
     this.analyzer = new GraphAnalyzer(this);

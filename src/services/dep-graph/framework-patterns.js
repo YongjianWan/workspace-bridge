@@ -146,29 +146,35 @@ registerRouteQuery('typescript', 'nuxt', './queries/route-extraction/js-nuxt');
 registerRouteQuery('typescript', 'sveltekit', './queries/route-extraction/js-sveltekit');
 // Wave 11-15: Python frameworks
 registerRouteQuery('python', 'fastapi', './queries/route-extraction/py-fastapi');
+// Wave 11-15: Django frameworks
 registerRouteQuery('python', 'django', './queries/route-extraction/py-django');
 // Wave 11-15: Go frameworks
 registerRouteQuery('go', 'gin', './queries/route-extraction/go-gin');
+// Wave 11-15: Fiber frameworks
 registerRouteQuery('go', 'fiber', './queries/route-extraction/go-fiber');
 // Wave 11-15: Rust frameworks
 registerRouteQuery('rust', 'actix-web', './queries/route-extraction/rs-actix');
+// Wave 11-15: Axum frameworks
 registerRouteQuery('rust', 'axum', './queries/route-extraction/rs-axum');
 
+const FRAMEWORK_QUERY_REGISTRY = new Map();
+
+function registerFrameworkQuery(language, framework, queryModulePath) {
+  FRAMEWORK_QUERY_REGISTRY.set(`${language}:${framework}`, queryModulePath);
+}
+
+registerFrameworkQuery('typescript', 'express', './queries/framework-detection/js-express');
+
 /**
- * Try to extract routes using tree-sitter query.
- * Returns routes[] on success, null on any failure (caller falls back to regex).
- * @param {string} filePath
- * @param {string} content
- * @returns {Promise<Array<{method, path, framework, handler}> | null>}
+ * Common helper to compile and run tree-sitter queries for a registered registry.
  */
-async function tryExtractRoutesWithQuery(filePath, content) {
+async function runQueryRegistry(filePath, content, registryMap, onMatch) {
   const ext = path.extname(filePath).toLowerCase();
   const lang = EXT_TO_LANGUAGE[ext];
   if (!lang) return null;
 
-  // Collect all query definitions registered for this language
   const queryDefs = [];
-  for (const [key, queryPath] of ROUTE_QUERY_REGISTRY) {
+  for (const [key, queryPath] of registryMap) {
     if (!key.startsWith(`${lang}:`)) continue;
     try {
       queryDefs.push(require(queryPath));
@@ -193,6 +199,21 @@ async function tryExtractRoutesWithQuery(filePath, content) {
     parser.setLanguage(langObj);
     tree = parser.parse(content);
 
+    return await onMatch(tree, lang, queryDefs);
+  } catch {
+    return null;
+  } finally {
+    try { tree?.delete(); } catch {}
+    try { parser?.delete(); } catch {}
+  }
+}
+
+/**
+ * Try to extract routes using tree-sitter query.
+ * Returns routes[] on success, null on any failure (caller falls back to regex).
+ */
+async function tryExtractRoutesWithQuery(filePath, content) {
+  return runQueryRegistry(filePath, content, ROUTE_QUERY_REGISTRY, async (tree, lang, queryDefs) => {
     const allRoutes = [];
     for (const queryDef of queryDefs) {
       const compiled = await compileQuery(lang, queryDef.query);
@@ -206,14 +227,8 @@ async function tryExtractRoutesWithQuery(filePath, content) {
         allRoutes.push(...routes);
       }
     }
-
     return allRoutes.length > 0 ? allRoutes : null;
-  } catch {
-    return null;
-  } finally {
-    try { tree?.delete(); } catch {}
-    try { parser?.delete(); } catch {}
-  }
+  });
 }
 
 // ============================================================================
@@ -264,13 +279,9 @@ const ROUTE_PATTERNS = {
 };
 
 /**
- * Lightweight framework detection from file content.
- * Only scans first ~800 bytes (where imports/decorators live).
- * @param {string} filePath
- * @param {string} content
- * @returns {FrameworkHint | null}
+ * Lightweight framework detection from file content (synchronous).
  */
-function detectFrameworkFromContent(filePath, content) {
+function detectFrameworkFromContentSync(filePath, content) {
   const ext = path.extname(filePath).toLowerCase();
   let key = null;
   if (ext === '.js' || ext === '.ts' || ext === '.jsx' || ext === '.tsx' || ext === '.vue' || ext === '.svelte') key = 'js';
@@ -283,7 +294,6 @@ function detectFrameworkFromContent(filePath, content) {
   const configs = AST_PATTERNS[key];
   if (!configs || configs.length === 0) return null;
 
-  // Use the full provided content sample (callers already cap at ENTRY_SCAN_BYTES)
   const sample = content.slice(0, LIMITS.ENTRY_SCAN_BYTES).toLowerCase();
   for (const cfg of configs) {
     for (const pat of cfg.patterns) {
@@ -293,6 +303,67 @@ function detectFrameworkFromContent(filePath, content) {
     }
   }
   return null;
+}
+
+/**
+ * Try to detect framework using tree-sitter query.
+ */
+async function tryDetectFrameworkWithQuery(filePath, content) {
+  // Path-based pre-filtering
+  const pathHint = detectFrameworkFromPath(filePath);
+  if (pathHint) return pathHint;
+
+  const ext = path.extname(filePath).toLowerCase();
+
+  // Regex/cheap-signature pre-filtering mapping
+  let langKey = null;
+  if (ext === '.js' || ext === '.ts' || ext === '.jsx' || ext === '.tsx' || ext === '.vue' || ext === '.svelte') langKey = 'js';
+  else if (ext === '.py') langKey = 'py';
+  else if (ext === '.java') langKey = 'java';
+  else if (ext === '.kt') langKey = 'kt';
+  else if (ext === '.go') langKey = 'go';
+  else if (ext === '.rs') langKey = 'rs';
+
+  const configs = AST_PATTERNS[langKey] || [];
+  const sample = content.slice(0, LIMITS.ENTRY_SCAN_BYTES).toLowerCase();
+
+  return runQueryRegistry(filePath, content, FRAMEWORK_QUERY_REGISTRY, async (tree, lang, queryDefs) => {
+    const activeQueryDefs = [];
+    for (const queryDef of queryDefs) {
+      const cfg = configs.find(c => c.framework === queryDef.framework);
+      if (cfg) {
+        const hasMatch = cfg.patterns.some(pat => sample.includes(pat.toLowerCase()));
+        if (!hasMatch) continue;
+      }
+      activeQueryDefs.push(queryDef);
+    }
+
+    if (activeQueryDefs.length === 0) return null;
+
+    for (const queryDef of activeQueryDefs) {
+      const compiled = await compileQuery(lang, queryDef.query);
+      if (!compiled) continue;
+
+      const matches = runQuery(tree, compiled);
+      if (!matches) continue;
+
+      const hint = queryDef.postProcess(matches);
+      if (hint) {
+        return hint;
+      }
+    }
+    return null;
+  });
+}
+
+/**
+ * Asynchronous content-based framework detection.
+ */
+async function detectFrameworkFromContent(filePath, content) {
+  const queryHint = await tryDetectFrameworkWithQuery(filePath, content);
+  if (queryHint) return queryHint;
+
+  return detectFrameworkFromContentSync(filePath, content);
 }
 
 /**
@@ -365,5 +436,7 @@ async function extractRoutes(filePath, content) {
 module.exports = {
   detectFrameworkFromPath,
   detectFrameworkFromContent,
+  detectFrameworkFromContentSync,
   extractRoutes,
+  FRAMEWORK_QUERY_REGISTRY,
 };

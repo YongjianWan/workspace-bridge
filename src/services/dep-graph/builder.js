@@ -120,6 +120,7 @@ class GraphBuilder {
         parseModeReason: parsed.parseModeReason,
         confidence: parsed.confidence,
         package: parsed.package,
+        frameworkHint: parsed.frameworkHint || null,
       });
     }
 
@@ -269,6 +270,8 @@ class GraphBuilder {
       }
     }
 
+    const frameworkHint = await detectFrameworkFromContent(filePath, content);
+
     const parsed = {
       filePath,
       graphKey,
@@ -282,6 +285,7 @@ class GraphBuilder {
       parseModeReason,
       confidence: parseMode === 'ast' ? 'high' : 'medium',
       package: packageName,
+      frameworkHint,
     };
 
     if (meta) {
@@ -358,6 +362,7 @@ class GraphBuilder {
       parseModeReason,
       confidence,
       package: packageName,
+      frameworkHint: parsed.frameworkHint || null,
     });
 
     // Cache parse result for incremental rebuilds
@@ -833,6 +838,7 @@ class GraphBuilder {
                 parseModeReason: parsed.parseModeReason,
                 confidence: parsed.confidence,
                 package: parsed.package,
+                frameworkHint: parsed.frameworkHint || null,
               });
             }
           } catch (e) {

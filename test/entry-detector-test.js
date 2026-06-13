@@ -77,6 +77,31 @@ function testReadScanContentMissingFile() {
   assert.strictEqual(content, null);
 }
 
+function testEntryDetectorCacheHitAndFallback() {
+  const mockGraph = new Map([
+    ['/repo/src/cached-express.js', { frameworkHint: { framework: 'express', reason: 'express-route', isEntry: true } }],
+    ['/repo/src/cached-none.js', { frameworkHint: null }],
+  ]);
+  const getFileInfo = (p) => mockGraph.get(p) || null;
+
+  const detectorWithCache = new EntryDetector({
+    normalizeFilePath: (p) => p,
+    getFileInfo,
+  });
+
+  assert.strictEqual(detectorWithCache.isKnownEntryFile('/repo/src/cached-express.js'), true, 'should hit cache for entry');
+
+  const hint = detectorWithCache.getFrameworkHint('/repo/src/cached-express.js');
+  assert.deepStrictEqual(hint, { framework: 'express', reason: 'express-route', isEntry: true }, 'should get cached hint');
+
+  const detectorFallback = new EntryDetector({
+    normalizeFilePath: (p) => p,
+    getFileInfo: () => null,
+  });
+  const pathHint = detectorFallback.getFrameworkHint('/repo/app/page.tsx');
+  assert.strictEqual(pathHint?.framework, 'nextjs-app', 'should fall back to path-based detection');
+}
+
 async function main() {
   testCacheHit();
   testFrameworkManagedPattern();
@@ -86,6 +111,7 @@ async function main() {
   testGetFrameworkHintPathBased();
   testGetFrameworkHintNonEntry();
   testReadScanContentMissingFile();
+  testEntryDetectorCacheHitAndFallback();
 }
 
 main();

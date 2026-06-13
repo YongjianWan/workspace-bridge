@@ -98,6 +98,18 @@ func raw(r *gin.Engine) {
   assert(paths.includes('GET:/raw'), 'should extract route from raw string literal');
 }
 
+async function testGinRegexFallbackDoubleQuotes() {
+  // Intentionally malformed Go syntax forces tree-sitter query to return null,
+  // so extractRoutes falls back to the ROUTE_PATTERNS.go regex.
+  // This is a regression guard for the `[^"']` character class in the Gin regex.
+  const content = `r.GET("/api/users", handler)`;
+  const routes = await frameworkPatterns.extractRoutes('/project/fallback.go', content);
+  assert.strictEqual(routes.length, 1, 'regex fallback should extract one route');
+  assert.strictEqual(routes[0].method, 'GET');
+  assert.strictEqual(routes[0].path, '/api/users', 'regex fallback should not include trailing quote');
+  assert.strictEqual(routes[0].framework, 'gin');
+}
+
 async function testNonGinFileReturnsEmpty() {
   const content = `
 package main
@@ -117,6 +129,7 @@ async function main() {
   await testGinLargeFileDeepRoutes();
   await testGinDedupe();
   await testGinRawStringRoute();
+  await testGinRegexFallbackDoubleQuotes();
   await testNonGinFileReturnsEmpty();
   console.log('PASS: wave15-gin-query-test');
 }

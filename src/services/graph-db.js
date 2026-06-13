@@ -42,7 +42,7 @@ const CACHE_TABLE_SCHEMA = {
     resultKey: 'parseResults',
     incrementalKeys: { dirty: 'dirtyParseResults', deleted: 'deletedParseResults' },
     idColumn: 'path',
-    columns: ['path', 'mtime', 'imports', 'exports', 'import_records', 'export_records', 'function_records', 'parse_mode', 'parse_mode_reason', 'confidence'],
+    columns: ['path', 'mtime', 'imports', 'exports', 'import_records', 'export_records', 'function_records', 'parse_mode', 'parse_mode_reason', 'confidence', 'framework_hint'],
     serialize: (path, result) => [
       path,
       result.mtime ?? 0,
@@ -54,6 +54,7 @@ const CACHE_TABLE_SCHEMA = {
       result.parseMode || '',
       result.parseModeReason || '',
       result.confidence || '',
+      result.frameworkHint ? JSON.stringify(result.frameworkHint) : null,
     ],
     deserialize: (row) => ({
       mtime: Number(row.mtime),
@@ -65,6 +66,7 @@ const CACHE_TABLE_SCHEMA = {
       parseMode: row.parse_mode,
       parseModeReason: row.parse_mode_reason,
       confidence: row.confidence,
+      frameworkHint: row.framework_hint ? JSON.parse(row.framework_hint) : null,
     }),
   },
   symbol_index: {
@@ -119,7 +121,8 @@ const SCHEMA = `
     function_records TEXT,
     parse_mode TEXT,
     parse_mode_reason TEXT,
-    confidence TEXT
+    confidence TEXT,
+    framework_hint TEXT
   );
 
   CREATE TABLE IF NOT EXISTS symbol_index (
@@ -289,6 +292,11 @@ class GraphDB {
     if (edgeCols.length > 0 && !edgeCols.some((c) => c.name === 'tier')) {
       this.db.prepare("ALTER TABLE edges ADD COLUMN tier TEXT NOT NULL DEFAULT 'tier1'").run();
       this.db.prepare("ALTER TABLE edges ADD COLUMN resolution_method TEXT NOT NULL DEFAULT 'import'").run();
+    }
+    // Increment schema migration: add framework_hint column to parse_results
+    const parseCols = this.db.prepare('PRAGMA table_info(parse_results)').all();
+    if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'framework_hint')) {
+      this.db.prepare('ALTER TABLE parse_results ADD COLUMN framework_hint TEXT').run();
     }
   }
 

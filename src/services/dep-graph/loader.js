@@ -85,6 +85,7 @@ function loadGraph(depGraph, options = {}) {
       parseModeReason: result.parseModeReason || '',
       confidence: result.confidence || 'medium',
       package: result.package || null,
+      frameworkHint: result.frameworkHint || null,
     });
   }
 
