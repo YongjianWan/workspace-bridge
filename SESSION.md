@@ -74,6 +74,8 @@ node cli.js audit-overview --cwd . --json --quiet
 | `resolvers.js` 策略链新增策略                        | `src/services/dep-graph/resolvers.js`                | 新增语言需在 `registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null`                     |
 | `checkFileChanges()` 双路径                          | `src/services/cache.js`                              | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为                                              |
 | 动态 require 导致死导出误报                           | `src/services/dep-graph/framework-patterns.js`       | `dead-exports` 无法静态分析 `ROUTE_QUERY_REGISTRY` 动态 require，且 `java-spring.js` 无法命中 JS 启发式豁免，被判定为死导出。不影响运行，可忽略或加白 |
+| C/C++ `#include` resolver 语义限制                    | `src/services/dep-graph/parsers/registry.js`         | C/C++ 目前复用 JS 的 `tryAlias`/`tryRelativeWithExtensions` 策略，对 `#include "foo.h"` / `#include <foo.h>` 的 include path、系统头、`-I` 搜索路径支持较弱，C/C++ 项目 `unresolved` 可能偏高 |
+| Vue/Svelte 路由提取设计选择                           | `src/services/dep-graph/framework-patterns.js`       | Nuxt/SvelteKit 路由 query 只处理 `.ts` server handler 文件；`.vue`/`.svelte` SFC 本身不提取路由，这是当前设计选择，与现有测试一致 |
 
 ---
 
