@@ -14,6 +14,8 @@
 - **缓存框架 Hint 持久化与 Schema 升级**：增加 SQLite 表 `parse_results` 的 `framework_hint` TEXT 字段。升级 `CACHE_VERSION` 至 `4`。在 `GraphDB` 启动时自动通过 `_migrate()` 平滑执行 schema 升级并保留旧数据。
 - **同步 Known Entry 缓存加速**：重构 `EntryDetector` 构造函数接收 `getFileInfo` 实例查询，在 `isKnownEntryFile()` 和 `getFrameworkHint()` 中优先从图节点 node cache 中 O(1) 获取已解析的 `frameworkHint`，消除反复文件内容扫描开销。若缓存不命中则优雅降级为同步 content-scan Fallback。
 - **动态 Query 文件死代码加白**：在 `analyzer.js` `findDeadExports` 循环中自动排除 `/[\\/]queries[\\/]/i` 目录下的动态 query 注册文件，避免不必要的死导出误报。
+- **Python 框架检测 AST Query 化（Django / FastAPI / Flask / Celery）**：新建 `src/services/dep-graph/queries/framework-detection/py-django.js`、`py-fastapi.js`、`py-flask.js`、`py-celery.js`，每个模块只负责单一框架，通过 tree-sitter query 广泛捕获、在 `postProcess` 中做精确验证；`framework-patterns.js` 注册全部 4 个 query。
+- **修复 Python AST-Query 预过滤过于严格**：为 `AST_PATTERNS.py` 增加 `preFilterRe` 正则字段，使 `@bp.route`、`@worker.task` 等非常规变量名也能触发 AST-Query，避免 query 被 cheap pre-filter 跳过而错误降级到 regex fallback。
 - **测试与验证**：
   - 更新 `framework-patterns-test.js` 并使所有 content-based 检测测试变为 `async/await`。
   - 在 `graph-db-test.js` 补齐 `testRoundTrip` 对 `frameworkHint` 的验证，并新增 `testMigration` 模拟旧数据库并校验自动升级。

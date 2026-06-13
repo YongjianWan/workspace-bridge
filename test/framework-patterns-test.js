@@ -110,11 +110,19 @@ async function testDetectFrameworkFromContent() {
   const fastapiContent = `@app.get("/items/")\nasync def read_items():\n    return []`;
   const fastapiHint = await detectFrameworkFromContent('/project/main.py', fastapiContent);
   assert.strictEqual(fastapiHint.framework, 'fastapi');
+  assert.strictEqual(fastapiHint.reason, 'fastapi-decorator');
 
   // Flask
   const flaskContent = `@app.route('/')\ndef hello():\n    return 'Hello'`;
   const flaskHint = await detectFrameworkFromContent('/project/app.py', flaskContent);
   assert.strictEqual(flaskHint.framework, 'flask');
+  assert.strictEqual(flaskHint.reason, 'flask-decorator');
+
+  // Flask blueprint route (verifies AST-Query pre-filter handles arbitrary object names)
+  const flaskBlueprintContent = `from flask import Blueprint\nbp = Blueprint('api', __name__)\n\n@bp.route('/users')\ndef users():\n    return []`;
+  const flaskBlueprintHint = await detectFrameworkFromContent('/project/routes.py', flaskBlueprintContent);
+  assert.strictEqual(flaskBlueprintHint.framework, 'flask');
+  assert.strictEqual(flaskBlueprintHint.reason, 'flask-decorator');
 
   // Spring annotation
   const springContent = `@RestController\npublic class UserController {\n  @GetMapping("/users")\n}`;
@@ -184,20 +192,29 @@ public void handleOrder(Order order) {}`;
   const actixHint = await detectFrameworkFromContent('/project/src/routes.rs', actixContent);
   assert.strictEqual(actixHint.framework, 'actix-web');
 
-  // Django management command
+  // Django management command (use a non-special path so content detection is exercised)
   const djangoCommandContent = `from django.core.management.base import BaseCommand\n\nclass Command(BaseCommand):\n    help = 'Cleanup'`;
-  const djangoCommandHint = await detectFrameworkFromContent('/project/core/management/commands/cleanup.py', djangoCommandContent);
+  const djangoCommandHint = await detectFrameworkFromContent('/project/core/cmd_cleanup.py', djangoCommandContent);
   assert.strictEqual(djangoCommandHint.framework, 'django');
+  assert.strictEqual(djangoCommandHint.reason, 'django-command');
 
-  // Django admin
+  // Django admin (use a non-special path so content detection is exercised)
   const djangoAdminContent = `from django.contrib import admin\nfrom .models import User\n\nadmin.site.register(User)`;
-  const djangoAdminHint = await detectFrameworkFromContent('/project/core/admin.py', djangoAdminContent);
+  const djangoAdminHint = await detectFrameworkFromContent('/project/core/site_admin.py', djangoAdminContent);
   assert.strictEqual(djangoAdminHint.framework, 'django');
+  assert.strictEqual(djangoAdminHint.reason, 'django-admin');
 
   // Celery task
   const celeryContent = `from celery import shared_task\n\n@shared_task\ndef add(x, y):\n    return x + y`;
   const celeryHint = await detectFrameworkFromContent('/project/core/celery_tasks.py', celeryContent);
   assert.strictEqual(celeryHint.framework, 'celery');
+  assert.strictEqual(celeryHint.reason, 'celery-task');
+
+  // Celery app.task (attribute decorator)
+  const celeryAppTaskContent = `from celery import Celery\napp = Celery('tasks')\n\n@app.task\ndef add(x, y):\n    return x + y`;
+  const celeryAppTaskHint = await detectFrameworkFromContent('/project/worker.py', celeryAppTaskContent);
+  assert.strictEqual(celeryAppTaskHint.framework, 'celery');
+  assert.strictEqual(celeryAppTaskHint.reason, 'celery-task');
 
   // Django signals (P8)
   const signalContent = `from django.dispatch import receiver\nfrom django.db.models.signals import post_save\n\n@receiver(post_save, sender=User)\ndef user_post_save(sender, instance, created, **kwargs):\n    pass`;

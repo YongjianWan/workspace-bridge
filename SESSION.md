@@ -111,8 +111,10 @@ node cli.js audit-overview --cwd . --json --quiet
 > - **SQLite 缓存与 Schema 迁移**：升级 `CACHE_VERSION` 至 `4`；更新 `parse_results` 数据库 schema，新增 `framework_hint` TEXT 字段并进行 JSON 序列化；在 `GraphDB._migrate()` 中实现自动平滑 ALTER TABLE 迁移，并保留旧数据。
 > - **同步 entry 检测缓存加速**：重构 `EntryDetector`，使其构造函数支持可选的 `getFileInfo` 回调。在同步 entry 判定 `isKnownEntryFile()` 和获取框架 hint `getFrameworkHint()` 中优先检查图节点的 cached hint，避免重复文件 content-scan 带来的性能回归。当缓存不命中时，优雅降级到同步 content-scan。
 > - **分析引擎加白**：在 `analyzer.js` 的 `findDeadExports` 中对含有 `/queries/` 或 `\queries\` 路径的文件进行加白忽略，彻底消除动态 query 注册文件带来的死代码误报。
+> - **Python 框架检测 Query 化**：新增 `src/services/dep-graph/queries/framework-detection/py-django.js`、`py-fastapi.js`、`py-flask.js`、`py-celery.js`，分别负责单一框架检测；`framework-patterns.js` 完成 `FRAMEWORK_QUERY_REGISTRY` 注册并修复 `preFilterRe`，让 `@bp.route`、`@worker.task` 等非常规变量名也能触发 AST-Query。
 > - **测试覆盖**：
 >   - 重构 `framework-patterns-test.js` 测试使其通过 `async/await` 执行，并微调测试文件路径（如 `UserController.java` → `MyApi.java`）以防触发 path-based 检测干扰 content-based 检测测试。
+>   - 在 `framework-patterns-test.js` 中新增 Flask blueprint route、Celery `@app.task` 内容检测用例，并为 Python 框架测试补齐 `reason` 断言。
 >   - 更新 `graph-db-test.js` `testRoundTrip` 对 `frameworkHint` 序列化进行验证，并新增 `testMigration` 用 `node:sqlite` 的 `DatabaseSync` 模拟旧数据库并验证 `_migrate()` 自动平滑升级及原数据完好。
 >   - 更新 `entry-detector-test.js` 并新增 `testEntryDetectorCacheHitAndFallback` 测试缓存命中与降级逻辑。
 >   - 全量测试：`npm run test:fast` **109/109 PASS**，`npm run test:smoke` **112/112 PASS**。

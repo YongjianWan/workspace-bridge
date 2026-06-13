@@ -65,18 +65,18 @@ const AST_PATTERNS = {
     { framework: 'vue', reason: 'vue-script-setup-macro', patterns: ['defineProps(', 'defineEmits(', 'defineExpose(', 'defineOptions(', 'defineSlots(', 'defineModel('] },
   ],
   py: [
-    { framework: 'django', reason: 'django-command', patterns: ['BaseCommand', 'class Command('] },
-    { framework: 'django', reason: 'django-admin', patterns: ['admin.site.register'] },
+    { framework: 'django', reason: 'django-command', patterns: ['BaseCommand', 'class Command('], preFilterRe: /BaseCommand|class\s+Command\s*\(/i },
+    { framework: 'django', reason: 'django-admin', patterns: ['admin.site.register'], preFilterRe: /admin\.site\.register/i },
     { framework: 'django', reason: 'django-middleware', patterns: ['MiddlewareMixin', 'class Middleware', 'def process_request', 'def process_response'] },
     { framework: 'django', reason: 'django-router', patterns: ['class DatabaseRouter', 'allow_migrate', 'db_for_read', 'db_for_write'] },
     { framework: 'django', reason: 'django-context-processors', patterns: ['def context_processors', 'def processor('] },
     { framework: 'django', reason: 'django-templatetags', patterns: ['@register.filter', '@register.simple_tag', '@register.inclusion_tag'] },
     { framework: 'django', reason: 'django-forms', patterns: ['class Form(', 'class ModelForm(', 'from django import forms'] },
-    { framework: 'django', reason: 'django-signal', patterns: ['@receiver', '.connect('] },
-    { framework: 'django', reason: 'django-rest-framework', patterns: ['@api_view', 'class APIView', 'class ModelViewSet', 'class ViewSet', 'class GenericAPIView', '@action', '@permission_classes', '@authentication_classes', '@throttle_classes', 'from rest_framework'] },
-    { framework: 'celery', reason: 'celery-task', patterns: ['@shared_task', '@app.task'] },
-    { framework: 'fastapi', reason: 'fastapi-decorator', patterns: ['@app.get', '@app.post', '@router.get'] },
-    { framework: 'flask', reason: 'flask-decorator', patterns: ['@app.route', '@blueprint.route'] },
+    { framework: 'django', reason: 'django-signal', patterns: ['@receiver', '.connect('], preFilterRe: /@receiver\s*\(|\.connect\s*\(/i },
+    { framework: 'django', reason: 'django-rest-framework', patterns: ['@api_view', 'class APIView', 'class ModelViewSet', 'class ViewSet', 'class GenericAPIView', '@action', '@permission_classes', '@authentication_classes', '@throttle_classes', 'from rest_framework'], preFilterRe: /@api_view\s*\(|\b(APIView|ModelViewSet|ViewSet|GenericAPIView)\b/i },
+    { framework: 'celery', reason: 'celery-task', patterns: ['@shared_task', '@app.task'], preFilterRe: /@shared_task|@\w+\.task/i },
+    { framework: 'fastapi', reason: 'fastapi-decorator', patterns: ['@app.get', '@app.post', '@router.get'], preFilterRe: /@\w+\.(get|post|put|delete|patch)\s*\(/i },
+    { framework: 'flask', reason: 'flask-decorator', patterns: ['@app.route', '@blueprint.route'], preFilterRe: /@\w+\.route\s*\(/i },
   ],
   java: [
     // Spring Boot annotations must come BEFORE plain Spring annotations
@@ -164,6 +164,10 @@ function registerFrameworkQuery(language, framework, queryModulePath) {
 }
 
 registerFrameworkQuery('typescript', 'express', './queries/framework-detection/js-express');
+registerFrameworkQuery('python', 'django', './queries/framework-detection/py-django');
+registerFrameworkQuery('python', 'fastapi', './queries/framework-detection/py-fastapi');
+registerFrameworkQuery('python', 'flask', './queries/framework-detection/py-flask');
+registerFrameworkQuery('python', 'celery', './queries/framework-detection/py-celery');
 
 /**
  * Common helper to compile and run tree-sitter queries for a registered registry.
@@ -332,7 +336,13 @@ async function tryDetectFrameworkWithQuery(filePath, content) {
     for (const queryDef of queryDefs) {
       const cfg = configs.find(c => c.framework === queryDef.framework);
       if (cfg) {
-        const hasMatch = cfg.patterns.some(pat => sample.includes(pat.toLowerCase()));
+        let hasMatch = false;
+        if (cfg.preFilterRe) {
+          cfg.preFilterRe.lastIndex = 0;
+          hasMatch = cfg.preFilterRe.test(sample);
+        } else {
+          hasMatch = cfg.patterns.some(pat => sample.includes(pat.toLowerCase()));
+        }
         if (!hasMatch) continue;
       }
       activeQueryDefs.push(queryDef);

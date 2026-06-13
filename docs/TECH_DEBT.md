@@ -19,8 +19,8 @@
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
 #### 框架检测 Query 语言等价性偏斜（Language Parity Debt）
-- **背景**：已成功建立 AST-Query 框架检测基础设施，但目前仅 JS/TS (Express) 实现了 AST-Query 提取，其他 8 种语言仍依赖 regex/cheap-signature 降级匹配 (`detectFrameworkFromContentSync`)。
-- **重构方向**：逐步对 Django, FastAPI, Flask, Spring, Ktor, Gin, Actix-web, SvelteKit 等框架开发 AST-Query 并集成至 `FRAMEWORK_QUERY_REGISTRY`，以消除多语言特性偏斜。
+- **背景**：已成功建立 AST-Query 框架检测基础设施。Python (Django, FastAPI, Flask, Celery) 与 JS/TS (Express) 已实现 AST-Query 提取；Java/Kotlin (Spring, Spring-Kotlin, Ktor)、Go (Gin, Echo, Fiber)、Rust (Actix-web, Axum, Rocket)、C/C++、Vue、Svelte 仍依赖 regex/cheap-signature 降级匹配 (`detectFrameworkFromContentSync`)。
+- **重构方向**：逐步对 Spring, Ktor, Gin, Echo, Fiber, Actix-web, Axum, Rocket, Vue, SvelteKit 等框架开发 AST-Query 并集成至 `FRAMEWORK_QUERY_REGISTRY`，以消除多语言特性偏斜。
 
 ---
 
