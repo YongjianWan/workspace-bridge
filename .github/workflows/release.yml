@@ -22,8 +22,25 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run fast tests
+        run: npm run test:fast
+
+      - name: Run smoke tests
+        run: npm run test:smoke
+
       - name: Pack release artifact
         run: npm pack
+
+      - name: Smoke test packed tarball
+        run: |
+          set -e
+          mkdir -p /tmp/wb-smoke
+          tar -xzf workspace-bridge-*.tgz -C /tmp/wb-smoke
+          node /tmp/wb-smoke/package/cli.js --version
+          node /tmp/wb-smoke/package/cli.js workspace-info --cwd /tmp/wb-smoke/package --json --quiet
 
       - name: Rename artifact
         run: mv workspace-bridge-*.tgz workspace-bridge-release.tgz

@@ -8,6 +8,13 @@
 
 ## [Unreleased]
 
+### 工程稳定化：换行符治理与 CI/发布门禁 (2026-06-13)
+
+- **换行符治理**：新增 `.gitattributes` 强制文本文件使用 LF 换行符；将 80 个 working tree 中仍保持 CRLF 的源码、测试与文档文件统一转换为 LF，消除 `git diff` 中的换行噪声。
+- **CI Node 版本修复**：将 `.github/workflows/perf-guardrail.yml` 的 Node 版本从 20 升级到 24，与 `package.json` 声明的 `node: ">=22.5.0"` 及 `node:sqlite` 依赖保持一致。
+- **新增常规测试 CI**：新增 `.github/workflows/test.yml`，在 Node 22/24 矩阵上运行 `npm ci`、`npm run test:fast` 与 `npm run test:smoke`，作为 PR 与 main 分支推送的硬门禁。
+- **发布链路加固**：更新 `.github/workflows/release.yml`，在 `npm publish` 前增加 `npm run test:fast`、`npm run test:smoke` 与 packed tarball smoke test（验证 `--version` 与 `workspace-info` 可在 tarball 解压目录正常运行），防止失败版本被正式发布。
+
 ### Wave 15: AST-Query 框架检测与同步转异步重构 (2026-06-13)
 
 - **框架检测 Query 异步化重构**：将框架检测逻辑下沉至 Parse Phase（异步），消除 tree-sitter queries 在 Link Phase 同步加载的架构瓶颈。
@@ -24,6 +31,11 @@
   - 修复 `ROUTE_PATTERNS.go` Gin fallback regex 字符类笔误（`[^'']` → `[^"']`），避免双引号路由路径被错误截留尾部引号；新增 `wave15-gin-query-test.js` regression test 强制 fallback 路径覆盖双引号场景。
   - 收窄 `analyzer.js` 死导出加白范围：从全局 `/queries/` 正则改为精确前缀 `src/services/dep-graph/queries/`，避免误伤用户项目中同名目录。
   - 全量 `npm run test:fast` **109/109 PASS**，`npm run test:smoke` **112/112 PASS**。
+- **文档同步**：
+  - `SESSION.md` 在「下一步候选方向」前补充「本轮已交付」活跃上下文摘要；修正基线状态中「架构债务清零」与 `TECH_DEBT.md` 不一致的描述；同步架构债务数量变为 4 项。
+  - `ROADMAP.md` 大规模同步交付状态：将 Wave 9–15 中已交付的长期方向项标记为「已交付」；更新已知限制中 Wave 11-15 多语言等价性偏斜状态；修正 L3 品味与架构债务小节；新增从参考仓库提炼的 5 个方向：缓存目录默认化到项目内、用户级配置目录、跨进程并发控制、预索引便携快照、Modification Guard。
+  - `docs/TECH_DEBT.md` 新增 3 项架构债务：缓存默认目录位于 `os.tmpdir()` 导致易失、缺少用户级配置目录、缺少跨进程并发控制；活跃债务总览更新为 L1=0 / L2=0 / 架构债务=4 / L3=1。
+  - 删除 `docs/和reference的对比.md`：该对比报告（code-review-graph / qartez-mcp / CodeGraphContext）的核心建议已提炼为 `TECH_DEBT.md` 架构债务与 `ROADMAP.md` 长期方向；原始稿存在标题混淆、大量论断已过时，使命完成后删除以避免误导新会话。
 
 ### Wave 15: 深度扩展 — 增量更新、缓存优化与 AST 轻量规则引擎 (2026-06-12)
 

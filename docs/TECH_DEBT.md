@@ -14,13 +14,25 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **1** | L3 品味问题 **1** | 合计 **2 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **4** | L3 品味问题 **1** | 合计 **5 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
 #### 框架检测 Query 语言等价性偏斜（Language Parity Debt）
 - **背景**：已成功建立 AST-Query 框架检测基础设施。Python (Django, FastAPI, Flask, Celery)、Java (Spring, Spring Boot)、Kotlin (Spring, Ktor) 与 JS/TS (Express) 已实现 AST-Query 提取；Go (Gin, Echo, Fiber)、Rust (Actix-web, Axum, Rocket)、C/C++、Vue、Svelte 仍依赖 regex/cheap-signature 降级匹配 (`detectFrameworkFromContentSync`)。
 - **重构方向**：逐步对 Gin, Echo, Fiber, Actix-web, Axum, Rocket, Vue, SvelteKit 等框架开发 AST-Query 并集成至 `FRAMEWORK_QUERY_REGISTRY`，以消除多语言特性偏斜。
+
+#### 缓存默认目录位于项目外导致易失
+- **背景**：当前 `cache.js` 默认将 SQLite 缓存置于 `os.tmpdir()/workspace-bridge/<hash>/cache.db`，系统清理或重启会导致缓存丢失，无法积累跨会话索引，CI 场景也无法利用缓存加速。参考 code-review-graph 的 `<repo>/.code-review-graph/` 与 qartez 的 `<project>/.qartez/index.db` 设计，项目内持久化是更成熟的做法。
+- **重构方向**：将默认缓存目录迁移到 `<workspaceRoot>/.workspace-bridge/`（保留 `--cache-dir` 覆盖能力）；增加 legacy 缓存自动迁移；自动写入 `.gitignore` 防止误提交；评估写权限 fallback 到 tmpdir 的降级路径。
+
+#### 缺少用户级配置目录
+- **背景**：当前配置仅来自项目级 `.workspace-bridge.json` 与 CLI/环境变量，缺少全局用户级配置目录。多 repo 场景下无法统一管理默认行为（如默认排除项、日志级别、并发参数）。参考 code-review-graph 的 `~/.code-review-graph/watch.toml` 与 CodeGraphContext 的 `~/.codegraphcontext/.env` 设计。
+- **重构方向**：引入 `~/.workspace-bridge/` 用户级目录，支持全局 `config.toml` / `.env`；配置优先级：CLI args > 环境变量 > 项目级 `.workspace-bridge.json` > 用户级配置 > 内置默认值；提供配置来源报告（config from: ...）。
+
+#### 缺少跨进程并发控制
+- **背景**：当前 SQLite 通过 WAL 模式支持一写多读，但 watch 进程与 CLI 命令之间没有显式的 advisory file lock 或进程协调。在 watch 写入的同时触发 CLI 写操作（如 `--save` 写 SQLite）理论上存在竞态风险。参考 qartez 的 `RepoLock`（`fs4` OS-level advisory lock + 指数退避 + PID 诊断）。
+- **重构方向**：在 `cache.js` / `graph-db.js` 写入路径增加轻量 advisory lock（`proper-lockfile` 或 Node.js `fs` advisory lock 跨平台封装）；默认超时 5s；Windows 单独处理读锁冲突；保留当前 WAL 一写多读能力，lock 仅保护写事务边界。
 
 ---
 

@@ -1,0 +1,16 @@
+# Auto detect text files and normalize to LF on checkout
+* text=auto eol=lf
+
+# Explicit binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.wasm binary
+*.db binary
+*.zip binary
+*.tar.gz binary
+*.tgz binary
+*.mp4 binary
+*.webm binary

@@ -31,7 +31,7 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 0 架构债务 + 1 L3 + 0 项 P2 Dogfood 活跃缺陷）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 4 架构债务 + 1 L3 + 0 项 P2 Dogfood 活跃缺陷）
 
 ---
 
@@ -42,7 +42,7 @@ node cli.js audit-overview --cwd . --json --quiet
 - 分支：`main`
 - 自身项目规模：~366 文件（entry=1, mainline=164, test=202）
 - 结构性指标：deadExports=1（`shadow-candidates.js` 的 `SHADOW_EXTS` 静态分析误报），cycles=1，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 按实际分布
-- 架构债务清零：Java/Kotlin 框架检测已全部 AST-Query 化；`bootstrapFromSchema` 路径规范化不一致已修复
+- 架构债务：当前活跃 4 项，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。概要：① 框架检测 Query 语言等价性偏斜（Go/Rust/C/C++/Vue/Svelte 仍依赖 regex）；② 缓存默认目录位于 `os.tmpdir()` 导致易失；③ 缺少用户级配置目录；④ 缺少跨进程并发控制。
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
 - Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.2.0"` 已冻结**
@@ -148,6 +148,16 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
+## 本轮已交付（活跃上下文摘要）
+
+> 以下只保留最近一轮的关键交付，便于新会话快速接上状态。完整历史见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+
+- **Wave 15-2 框架检测 AST-Query 化收官**：Java/Kotlin（Spring、Spring Boot、Ktor）与 Python（Django、FastAPI、Flask、Celery）全部完成 AST-Query 提取；`framework-patterns.js` 为已 query 化语言增加 `preFilterRe`，避免 `@bp.route`、`@worker.task` 等非常规写法被 cheap pre-filter 跳过。
+- **架构债务状态**：从参考仓库对比报告（code-review-graph / qartez-mcp / CodeGraphContext）中提炼出 3 项新增架构债务并入 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)：缓存默认目录在项目外易失、缺少用户级配置目录、缺少跨进程并发控制。原有框架检测 Query 语言等价性偏斜仍在（Java/Kotlin/Python/JS/TS 已完成；Go/Rust/C/C++/Vue/Svelte 仍依赖 regex）。
+- **测试状态**：`npm run test:fast` **109/109 PASS**，`npm run test:smoke` **112/112 PASS**。
+
+---
+
 ## 下一步候选方向与多语言框架检测矩阵
 
 ### 候选方向状态（更新于 2026-06-13）
@@ -215,4 +225,4 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-13（Wave 15-2 补全 Java/Kotlin 框架检测 AST-Query 化与测试；npm run test:fast 109/109 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-13（补充 SESSION.md「本轮已交付」上下文摘要；Wave 15-2 补全 Java/Kotlin 框架检测 AST-Query 化与测试；npm run test:fast 109/109 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
