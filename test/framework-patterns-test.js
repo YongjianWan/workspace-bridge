@@ -128,6 +128,13 @@ async function testDetectFrameworkFromContent() {
   const springContent = `@RestController\npublic class UserController {\n  @GetMapping("/users")\n}`;
   const springHint = await detectFrameworkFromContent('/project/MyApi.java', springContent);
   assert.strictEqual(springHint.framework, 'spring');
+  assert.strictEqual(springHint.reason, 'spring-annotation');
+
+  // Spring annotation on non-special path (exercises AST-Query path)
+  const springQueryContent = `@RestController\npublic class Handler {\n  @GetMapping("/items")\n  public Object items() { return null; }\n}`;
+  const springQueryHint = await detectFrameworkFromContent('/project/Handler.java', springQueryContent);
+  assert.strictEqual(springQueryHint.framework, 'spring');
+  assert.strictEqual(springQueryHint.reason, 'spring-annotation');
 
   // Spring Boot annotations
   const springBootContent = `@SpringBootApplication\npublic class DemoApplication {\n  public static void main(String[] args) {}\n}`;
@@ -141,6 +148,12 @@ async function testDetectFrameworkFromContent() {
   const adviceContent = `@ControllerAdvice\npublic class GlobalExceptionHandler {}`;
   const adviceHint = await detectFrameworkFromContent('/project/GlobalException.java', adviceContent);
   assert.strictEqual(adviceHint.framework, 'spring-boot');
+
+  // Spring Boot on non-special path (exercises AST-Query path)
+  const springBootQueryContent = `@Configuration\npublic class BootConfig {\n  @Bean\n  public Object foo() { return null; }\n}`;
+  const springBootQueryHint = await detectFrameworkFromContent('/project/BootConfig.java', springBootQueryContent);
+  assert.strictEqual(springBootQueryHint.framework, 'spring-boot');
+  assert.strictEqual(springBootQueryHint.reason, 'spring-boot-annotation');
 
   // Spring Cloud / Task annotations (P7)
   const feignContent = `@FeignClient(name = "user-service", url = "${'${user.service.url}'})
@@ -181,6 +194,18 @@ public void handleOrder(Order order) {}`;
   const kafkaListenerHint = await detectFrameworkFromContent('/project/OrderReceiver.java', kafkaListenerContent);
   assert.strictEqual(kafkaListenerHint.framework, 'spring');
   assert.strictEqual(kafkaListenerHint.reason, 'spring-annotation');
+
+  // Kotlin Spring (non-special path to exercise AST-Query)
+  const kotlinSpringContent = `@RestController\nclass Handler {\n  @GetMapping(\"/users\")\n  fun users(): List<User> = emptyList()\n}`;
+  const kotlinSpringHint = await detectFrameworkFromContent('/project/Handler.kt', kotlinSpringContent);
+  assert.strictEqual(kotlinSpringHint.framework, 'spring-kotlin');
+  assert.strictEqual(kotlinSpringHint.reason, 'spring-annotation');
+
+  // Ktor (non-special path to exercise AST-Query)
+  const ktorContent = `fun Application.module() {\n  routing {\n    get(\"/\") { call.respondText(\"Hello\") }\n  }\n}`;
+  const ktorHint = await detectFrameworkFromContent('/project/Server.kt', ktorContent);
+  assert.strictEqual(ktorHint.framework, 'ktor');
+  assert.strictEqual(ktorHint.reason, 'ktor-routing');
 
   // Go Gin
   const ginContent = `func handler(c *gin.Context) {\n  c.JSON(200, gin.H{})\n}`;

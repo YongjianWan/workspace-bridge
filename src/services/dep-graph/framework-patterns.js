@@ -81,16 +81,16 @@ const AST_PATTERNS = {
   java: [
     // Spring Boot annotations must come BEFORE plain Spring annotations
     // to avoid substring false matches (e.g. @Controller matching inside @ControllerAdvice)
-    { framework: 'spring-boot', reason: 'spring-boot-annotation', patterns: ['@SpringBootApplication', '@Configuration', '@ControllerAdvice', '@Component', '@Service', '@Repository', '@EnableAutoConfiguration', '@Aspect'] },
-    { framework: 'spring', reason: 'spring-annotation', patterns: ['@RestController', '@Controller', '@RequestMapping', '@GetMapping', '@PostMapping', '@PutMapping', '@DeleteMapping', '@PatchMapping', '@FeignClient', '@Scheduled', '@Async', '@EventListener', '@KafkaListener', '@RabbitListener', '@JmsListener', '@Retryable'] },
+    { framework: 'spring-boot', reason: 'spring-boot-annotation', patterns: ['@SpringBootApplication', '@Configuration', '@ControllerAdvice', '@Component', '@Service', '@Repository', '@EnableAutoConfiguration', '@Aspect'], preFilterRe: /@(SpringBootApplication|Configuration|ControllerAdvice|Component|Service|Repository|EnableAutoConfiguration|Aspect)\\b/i },
+    { framework: 'spring', reason: 'spring-annotation', patterns: ['@RestController', '@Controller', '@RequestMapping', '@GetMapping', '@PostMapping', '@PutMapping', '@DeleteMapping', '@PatchMapping', '@FeignClient', '@Scheduled', '@Async', '@EventListener', '@KafkaListener', '@RabbitListener', '@JmsListener', '@Retryable'], preFilterRe: /@(RestController|Controller|RequestMapping|GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|FeignClient|Scheduled|Async|EventListener|KafkaListener|RabbitListener|JmsListener|Retryable)\\b/i },
     // P79/P80/P81: runtime-assembly framework components
     { framework: 'spring', reason: 'spring-component', patterns: ['@Component', '@Service', '@Repository', '@Bean', 'FilterRegistrationBean', 'implements Filter', 'extends HttpServletRequestWrapper', 'implements Validator', 'implements HandlerInterceptor', 'implements ApplicationListener'] },
     { framework: 'quartz', reason: 'quartz-job', patterns: ['org.quartz.Job', '@DisallowConcurrentExecution', 'extends AbstractQuartzJob', 'QuartzJobExecution', 'JobInvokeUtil'] },
     { framework: 'mybatis', reason: 'mybatis-typehandler', patterns: ['implements TypeHandler', 'extends BaseTypeHandler', 'TypeHandler<'] },
   ],
   kt: [
-    { framework: 'spring-kotlin', reason: 'spring-annotation', patterns: ['@RestController', '@Controller', '@RequestMapping', '@GetMapping', '@PostMapping', '@PutMapping', '@DeleteMapping', '@PatchMapping', '@FeignClient', '@Scheduled', '@Async', '@EventListener', '@KafkaListener', '@RabbitListener', '@JmsListener', '@Retryable'] },
-    { framework: 'ktor', reason: 'ktor-routing', patterns: ['routing {', 'embeddedServer', 'Application.module'] },
+    { framework: 'spring-kotlin', reason: 'spring-annotation', patterns: ['@RestController', '@Controller', '@RequestMapping', '@GetMapping', '@PostMapping', '@PutMapping', '@DeleteMapping', '@PatchMapping', '@FeignClient', '@Scheduled', '@Async', '@EventListener', '@KafkaListener', '@RabbitListener', '@JmsListener', '@Retryable'], preFilterRe: /@(RestController|Controller|RequestMapping|GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|FeignClient|Scheduled|Async|EventListener|KafkaListener|RabbitListener|JmsListener|Retryable)\\b/i },
+    { framework: 'ktor', reason: 'ktor-routing', patterns: ['routing {', 'embeddedServer', 'Application.module'], preFilterRe: /\\brouting\\b|\\bembeddedServer\\b|\\bApplication\\.module\\b|\\b(get|post|put|delete|patch)\\b/i },
   ],
   go: [
     { framework: 'gin', reason: 'gin-handler', patterns: ['gin.Context', 'gin.Default()', 'gin.New()'] },
@@ -168,6 +168,10 @@ registerFrameworkQuery('python', 'django', './queries/framework-detection/py-dja
 registerFrameworkQuery('python', 'fastapi', './queries/framework-detection/py-fastapi');
 registerFrameworkQuery('python', 'flask', './queries/framework-detection/py-flask');
 registerFrameworkQuery('python', 'celery', './queries/framework-detection/py-celery');
+registerFrameworkQuery('java', 'spring-boot', './queries/framework-detection/java-spring-boot');
+registerFrameworkQuery('java', 'spring', './queries/framework-detection/java-spring');
+registerFrameworkQuery('kotlin', 'spring-kotlin', './queries/framework-detection/kt-spring');
+registerFrameworkQuery('kotlin', 'ktor', './queries/framework-detection/kt-ktor');
 
 /**
  * Common helper to compile and run tree-sitter queries for a registered registry.
