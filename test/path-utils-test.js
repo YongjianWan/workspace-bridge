@@ -8,16 +8,16 @@ const {
   resolveWorkspaceFilePath,
 } = require('../src/utils/path');
 
-function testNormalizePathKeyWindowsCase() {
-  if (process.platform !== 'win32') {
-    // On Unix, normalizePathKey just normalizes separators
-    const key = normalizePathKey('/Foo/Bar');
-    assert.strictEqual(key, '/foo/bar');
+function testNormalizePathKeyCaseBehavior() {
+  if (process.platform === 'win32') {
+    // On Windows, normalizePathKey lowercases for case-insensitive comparison.
+    const key = normalizePathKey('C:\\Foo\\Bar');
+    assert.strictEqual(key.includes('Foo'), false, 'should be lowercased on Windows');
     return;
   }
-  // On Windows, it should lowercase for case-insensitive comparison
-  const key = normalizePathKey('C:\\Foo\\Bar');
-  assert.strictEqual(key.includes('Foo'), false, 'should be lowercased on Windows');
+  // On POSIX filesystems, normalizePathKey preserves casing (case-sensitive keys).
+  const key = normalizePathKey('/Foo/Bar');
+  assert.strictEqual(key, '/Foo/Bar', 'Unix keys should preserve original casing');
 }
 
 function testMatchesPathFragment() {
@@ -44,9 +44,16 @@ function testResolveWorkspaceFilePath() {
 }
 
 function testTurkishLocaleSafe() {
-  // Verify that uppercase 'I' maps to lowercase 'i' even under Turkish locale
-  // by checking the implementation uses toLocaleLowerCase('en-US')
-  const key = normalizePathKey('/ITEM');
+  if (process.platform !== 'win32') {
+    // POSIX keys preserve casing, including uppercase I; no Turkish-locale risk here.
+    const key = normalizePathKey('/ITEM');
+    assert.strictEqual(key, '/ITEM', 'Unix keys should preserve casing');
+    assert.strictEqual(key.includes('ı'), false, 'Turkish ı should not appear');
+    return;
+  }
+  // On Windows, verify that uppercase 'I' maps to lowercase 'i' even under Turkish locale
+  // by checking the implementation uses toLocaleLowerCase('en-US').
+  const key = normalizePathKey('C:\\ITEM');
   assert.strictEqual(key.includes('ITEM'), false, 'should lowercase');
   assert.strictEqual(key.includes('ı'), false, 'Turkish ı should not appear');
 }
@@ -92,7 +99,7 @@ function testBfsTraverse() {
 }
 
 function main() {
-  testNormalizePathKeyWindowsCase();
+  testNormalizePathKeyCaseBehavior();
   testMatchesPathFragment();
   testIsPathInsideRoot();
   testResolveWorkspaceFilePath();

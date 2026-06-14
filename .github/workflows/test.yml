@@ -36,8 +36,16 @@ jobs:
       - name: Check Node engine compatibility
         run: node --version && npm --version
 
+      - name: Probe Python / javalang availability
+        run: |
+          which python3 || true
+          python3 --version || true
+          python3 -c "import javalang; print('javalang', javalang.__version__)" 2>&1 || true
+
       - name: Run fast tests
         run: npm run test:fast
+        env:
+          DEBUG: 1
 
       - name: Run smoke tests
         run: npm run test:smoke
