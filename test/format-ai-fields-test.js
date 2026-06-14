@@ -2,10 +2,10 @@
 // @contract
 
 const assert = require('assert');
-const { runCliRaw } = require('./test-helpers');
+const { runCliInProcessRaw } = require('./test-helpers');
 
-function testFormatAiIncludesValidationAdvice() {
-  const result = runCliRaw(['audit-file', '--file', 'src/services/container.js', '--format', 'ai', '--json', '--quiet']);
+async function testFormatAiIncludesValidationAdvice() {
+  const result = await runCliInProcessRaw(['audit-file', '--file', 'src/services/container.js', '--format', 'ai', '--json', '--quiet']);
   assert.strictEqual(result.status, 0, 'should exit 0');
   const data = JSON.parse(result.stdout);
   assert(data.validationAdvice, 'should include validationAdvice');
@@ -15,8 +15,8 @@ function testFormatAiIncludesValidationAdvice() {
   assert(Array.isArray(data.validationAdvice.commands.full), 'should have full commands');
 }
 
-function testFormatAiIncludesImpact() {
-  const result = runCliRaw(['audit-file', '--file', 'src/services/container.js', '--format', 'ai', '--json', '--quiet']);
+async function testFormatAiIncludesImpact() {
+  const result = await runCliInProcessRaw(['audit-file', '--file', 'src/services/container.js', '--format', 'ai', '--json', '--quiet']);
   assert.strictEqual(result.status, 0, 'should exit 0');
   const data = JSON.parse(result.stdout);
   assert(Array.isArray(data.impact), 'should include impact array');
@@ -24,18 +24,18 @@ function testFormatAiIncludesImpact() {
   assert(data.impact[0].file, 'impact items should have file');
 }
 
-function testFormatAiIncludesAffectedTests() {
-  const result = runCliRaw(['audit-file', '--file', 'src/services/container.js', '--format', 'ai', '--json', '--quiet']);
+async function testFormatAiIncludesAffectedTests() {
+  const result = await runCliInProcessRaw(['audit-file', '--file', 'src/services/container.js', '--format', 'ai', '--json', '--quiet']);
   assert.strictEqual(result.status, 0, 'should exit 0');
   const data = JSON.parse(result.stdout);
   assert(Array.isArray(data.affectedTests), 'should include affectedTests array');
   assert(data.affectedTests.length > 0, 'affectedTests should have items');
 }
 
-function main() {
-  testFormatAiIncludesValidationAdvice();
-  testFormatAiIncludesImpact();
-  testFormatAiIncludesAffectedTests();
+async function main() {
+  await testFormatAiIncludesValidationAdvice();
+  await testFormatAiIncludesImpact();
+  await testFormatAiIncludesAffectedTests();
   console.log('format-ai-fields-test.js: all passed');
 }
 

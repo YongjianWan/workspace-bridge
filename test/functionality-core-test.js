@@ -7,21 +7,21 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const { runCli, runCliText, runInDir, REPO_ROOT, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcess, runCliInProcessText, runInDir, REPO_ROOT, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
-function main() {
-  const workspaceInfo = runCli(['workspace-info', '--cwd', '.', '--json', '--quiet']);
+async function main() {
+  const workspaceInfo = await runCliInProcess(['workspace-info', '--cwd', '.', '--json', '--quiet']);
   assert.strictEqual(workspaceInfo.workspaceRoot, REPO_ROOT);
 
-  const health = runCli(['health', '--cwd', '.', '--json', '--quiet']);
+  const health = await runCliInProcess(['health', '--cwd', '.', '--json', '--quiet']);
   assert.strictEqual(health.ok, true);
   assert(typeof health.healthScore === 'string' && health.healthScore.includes('/'), 'health should return meaningful healthScore');
   assert(health.checks?.readme?.found === true, 'health checks should include readme');
 
-  const summary = runCli(['audit-summary', '--cwd', '.', '--json', '--quiet']);
+  const summary = await runCliInProcess(['audit-summary', '--cwd', '.', '--json', '--quiet']);
   assert(summary.scope.counts.totalFiles >= 1);
 
-  const fileAudit = runCli(['audit-file', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);
+  const fileAudit = await runCliInProcess(['audit-file', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);
   assert(fileAudit.impact.impactCount >= 0);
 
   // audit-diff runs in an isolated temp repo so it does not interfere with concurrent tests.
@@ -35,14 +35,14 @@ function main() {
   runInDir('git', ['commit', '-m', 'init'], diffDir);
   fs.writeFileSync(path.join(diffDir, 'a.js'), 'console.log(2);\n');
 
-  const diffAudit = runCli(['audit-diff', '--cwd', diffDir, '--json', '--quiet']);
+  const diffAudit = await runCliInProcess(['audit-diff', '--cwd', diffDir, '--json', '--quiet']);
   assert(diffAudit.summary.counts.changedFiles >= 0, 'audit-diff should work on clean worktree');
   assert(diffAudit.validationAdvice.stack.profile);
   assert(Array.isArray(diffAudit.validationAdvice.topRiskActions));
   assert(diffAudit.summary.counts.highCompositeRiskFiles >= 0, 'highCompositeRiskFiles should be non-negative');
   assert(diffAudit.summary.counts.maxCompositeRiskScore >= 0, 'maxCompositeRiskScore should be non-negative');
 
-  const diffHuman = runCliText(['audit-diff', '--cwd', diffDir, '--quiet', '--format', 'human']);
+  const diffHuman = await runCliInProcessText(['audit-diff', '--cwd', diffDir, '--quiet', '--format', 'human']);
   assert(diffHuman.includes('topCompositeRisk:'), 'audit-diff human output should include topCompositeRisk');
   assert(diffHuman.includes('topRiskAction:'), 'audit-diff human output should include topRiskAction');
   assert(diffHuman.includes('topRiskCommand:'), 'audit-diff human output should include topRiskCommand');
@@ -52,7 +52,7 @@ function main() {
     const overviewDataFile = path.join(overviewDataDir, 'hotspots.json');
     const trendDataFile = path.join(overviewDataDir, 'stability-trend.json');
     const dashboardFile = path.join(overviewDataDir, 'overview.html');
-    const overview = runCli([
+    const overview = await runCliInProcess([
       'audit-overview',
       '--cwd', '.',
       '--hotspot-data', overviewDataFile,
@@ -91,22 +91,22 @@ function main() {
     assert(overview.stabilityTrend?.latest?.fragileCount >= 0, `fragileCount should be >= 0, got ${overview.stabilityTrend?.latest?.fragileCount}`);
     cleanupTempDir(overviewDataDir);
 
-    const overviewHuman = runCliText(['audit-overview', '--cwd', '.', '--quiet', '--format', 'human']);
+    const overviewHuman = await runCliInProcessText(['audit-overview', '--cwd', '.', '--quiet', '--format', 'human']);
     assert(overviewHuman.includes('hotspotsHigh:'), 'audit-overview human output should include hotspot aggregates');
 
-    const deadExports = runCli(['dead-exports', '--cwd', '.', '--json', '--quiet']);
+    const deadExports = await runCliInProcess(['dead-exports', '--cwd', '.', '--json', '--quiet']);
     assert.strictEqual(deadExports.ok, true);
     assert(Array.isArray(deadExports.deadExports));
 
-    const unresolved = runCli(['unresolved', '--cwd', '.', '--json', '--quiet']);
+    const unresolved = await runCliInProcess(['unresolved', '--cwd', '.', '--json', '--quiet']);
     assert.strictEqual(unresolved.ok, true);
     assert(Array.isArray(unresolved.unresolved));
 
-    const cycles = runCli(['cycles', '--cwd', '.', '--json', '--quiet']);
+    const cycles = await runCliInProcess(['cycles', '--cwd', '.', '--json', '--quiet']);
     assert.strictEqual(cycles.ok, true);
     assert(Array.isArray(cycles.cycles));
 
-    const diagnosticsQuick = runCli(['diagnostics', '--cwd', '.', '--mode', 'quick', '--json', '--quiet']);
+    const diagnosticsQuick = await runCliInProcess(['diagnostics', '--cwd', '.', '--mode', 'quick', '--json', '--quiet']);
     assert(diagnosticsQuick.ok === true, 'quick diagnostics should succeed');
 
 }

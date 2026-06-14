@@ -9,9 +9,9 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const assert = require('assert');
-const { runCli, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcess, cleanupTempDir } = require('./test-helpers');
 
-function main() {
+async function main() {
   const testDir = path.join(os.tmpdir(), 'wb-test-routes-' + crypto.randomBytes(4).toString('hex'));
   if (!fs.existsSync(testDir)) {
     fs.mkdirSync(testDir, { recursive: true });
@@ -35,7 +35,7 @@ function main() {
 
   try {
     // 1. Basic contract: util.js should have routes from entry.js
-    const result = runCli(['affected-routes', '--cwd', testDir, '--file', 'util.js', '--json', '--quiet']);
+    const result = await runCliInProcess(['affected-routes', '--cwd', testDir, '--file', 'util.js', '--json', '--quiet']);
     assert.strictEqual(result.ok, true, 'result.ok should be true');
     assert.strictEqual(typeof result.routesCount, 'number', 'routesCount should be a number');
     assert(Array.isArray(result.routes), 'routes should be an array');
@@ -50,13 +50,13 @@ function main() {
     assert(Number.isFinite(route.depth) && route.depth >= 2, 'route.depth should be >= 2');
 
     // 3. maxDepth limits routes
-    const limited = runCli(['affected-routes', '--cwd', testDir, '--file', 'util.js', '--max-depth', '2', '--json', '--quiet']);
+    const limited = await runCliInProcess(['affected-routes', '--cwd', testDir, '--file', 'util.js', '--max-depth', '2', '--json', '--quiet']);
     assert.strictEqual(limited.maxDepth, 2, 'maxDepth should be 2');
     // With maxDepth=2, util.js is 4 hops from entry, so no routes should be found
     assert.strictEqual(limited.routesCount, 0, 'routes should be empty when maxDepth is too shallow');
 
     // 4. Entry file itself should have 0 routes (no upstream entry)
-    const entryResult = runCli(['affected-routes', '--cwd', testDir, '--file', 'entry.js', '--json', '--quiet']);
+    const entryResult = await runCliInProcess(['affected-routes', '--cwd', testDir, '--file', 'entry.js', '--json', '--quiet']);
     assert.strictEqual(entryResult.routesCount, 0, 'entry file should have 0 routes');
 
     console.log('affected-routes-test: ALL PASSED');

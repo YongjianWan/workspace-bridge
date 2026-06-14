@@ -1,11 +1,12 @@
 #!/usr/bin/env node
+// @semantic
 
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { runCli, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcess, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
-function main() {
+async function main() {
   const tempRoot = makeTempDir('workspace-bridge-role-');
 
   function writeFile(relativePath, content) {
@@ -32,7 +33,7 @@ writeFile('archive/old.js', "export function oldThing() { return 'old'; }\n");
 writeFile('dist/bundle.js', "export function generated() { return 'generated'; }\n");
 
   try {
-    const summary = runCli(['audit-summary', '--cwd', tempRoot, '--json', '--quiet']);
+    const summary = await runCliInProcess(['audit-summary', '--cwd', tempRoot, '--json', '--quiet']);
 
   assert.strictEqual(summary.scope.hasWorkspaceBridgeConfig, true);
   assert.strictEqual(summary.scope.counts.totalFiles, 2);
@@ -67,7 +68,7 @@ writeFile('dist/bundle.js', "export function generated() { return 'generated'; }
   writeAutoFile('prototypes/playground/foo.js', "export function foo() { return 'foo'; }\n");
   writeAutoFile('examples/demo/bar.js', "export function bar() { return 'bar'; }\n");
 
-  const autoSummary = runCli(['audit-summary', '--cwd', autoRoot, '--json', '--quiet']);
+  const autoSummary = await runCliInProcess(['audit-summary', '--cwd', autoRoot, '--json', '--quiet']);
   assert.strictEqual(autoSummary.scope.hasWorkspaceBridgeConfig, false);
   assert.strictEqual(autoSummary.scope.counts.totalFiles, 2);
   assert.strictEqual(autoSummary.scope.counts.mainlineFiles, 2);
@@ -98,7 +99,7 @@ writeFile('dist/bundle.js', "export function generated() { return 'generated'; }
   writeEntryFile('src/index.js', "export function main() { return 'ok'; }\n");
   writeEntryFile('manage.py', '#!/usr/bin/env python\n');
   writeEntryFile('vite.config.ts', 'export default {};\n');
-  const entrySummary = runCli(['audit-summary', '--cwd', entryRoot, '--json', '--quiet']);
+  const entrySummary = await runCliInProcess(['audit-summary', '--cwd', entryRoot, '--json', '--quiet']);
   assert(entrySummary.scope.entryFiles.includes('manage.py'));
   // L2-17: vite.config.ts is a config file, not an entry file
   assert(!entrySummary.scope.entryFiles.includes('vite.config.ts'));
@@ -115,7 +116,7 @@ writeFile('dist/bundle.js', "export function generated() { return 'generated'; }
   writeDjangoFile('manage.py', '#!/usr/bin/env python\n');
   writeDjangoFile('core/tests.py', 'from django.test import TestCase\n');
   writeDjangoFile('core/models.py', 'from django.db import models\n');
-  const djangoSummary = runCli(['audit-summary', '--cwd', djangoRoot, '--json', '--quiet']);
+  const djangoSummary = await runCliInProcess(['audit-summary', '--cwd', djangoRoot, '--json', '--quiet']);
   assert.strictEqual(djangoSummary.scope.fileRoles.test, 1, 'tests.py should be counted as test');
   assert.strictEqual(djangoSummary.scope.counts.testFiles, 1, 'tests.py should be counted in testFiles');
   cleanupTempDir(djangoRoot);
@@ -131,7 +132,7 @@ writeFile('dist/bundle.js', "export function generated() { return 'generated'; }
   writeScriptFile('fix_db_constraints.py', '# fix script\n');
   writeScriptFile('generate_sql.py', '# generate script\n');
   writeScriptFile('core/models.py', '# models\n');
-  const scriptSummary = runCli(['audit-summary', '--cwd', scriptRoot, '--json', '--quiet']);
+  const scriptSummary = await runCliInProcess(['audit-summary', '--cwd', scriptRoot, '--json', '--quiet']);
   assert.strictEqual(scriptSummary.scope.fileRoles.script, 2, 'root-level .py files should be counted as script');
   // core/models.py is not imported by any file, so it becomes 'unknown' (orphan rule), not 'library'
   assert.strictEqual(scriptSummary.scope.fileRoles.unknown, 1, 'non-root unimported .py should be unknown');
@@ -189,4 +190,7 @@ writeFile('dist/bundle.js', "export function generated() { return 'generated'; }
   }
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

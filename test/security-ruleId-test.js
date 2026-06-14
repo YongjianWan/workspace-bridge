@@ -2,10 +2,10 @@
 // @contract
 
 const assert = require('assert');
-const { runCli } = require('./test-helpers');
+const { runCliInProcess } = require('./test-helpers');
 
-function testSecurityFindingsUseRuleIdNotRule() {
-  const data = runCli(['audit-security', '--builtin-only', '--json', '--quiet']);
+async function testSecurityFindingsUseRuleIdNotRule() {
+  const data = await runCliInProcess(['audit-security', '--builtin-only', '--json', '--quiet']);
   assert(data.ok, 'audit-security should succeed');
   assert(Array.isArray(data.findings), 'should have findings array');
   for (const f of data.findings) {
@@ -14,8 +14,8 @@ function testSecurityFindingsUseRuleIdNotRule() {
   }
 }
 
-function main() {
-  testSecurityFindingsUseRuleIdNotRule();
+async function main() {
+  await testSecurityFindingsUseRuleIdNotRule();
   console.log('security-ruleId-test.js: all passed');
 }
 

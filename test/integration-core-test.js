@@ -7,13 +7,13 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const { runCli, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcess, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function toPosix(input) {
   return String(input || '').replace(/\\/g, '/');
 }
 
-function testPathVariants() {
+async function testPathVariants() {
   const tempRoot = makeTempDir('wb-core-path-');
   const write = (rel, content) => {
     const full = path.join(tempRoot, rel);
@@ -41,12 +41,12 @@ function testPathVariants() {
       }
     }
 
-    const impactResults = variants.map((file) =>
-      runCli(['impact', '--cwd', tempRoot, '--file', file, '--json', '--quiet'], { cwd: tempRoot })
-    );
-    const affectedResults = variants.map((file) =>
-      runCli(['affected-tests', '--cwd', tempRoot, '--file', file, '--json', '--quiet'], { cwd: tempRoot })
-    );
+    const impactResults = await Promise.all(variants.map((file) =>
+      runCliInProcess(['impact', '--cwd', tempRoot, '--file', file, '--json', '--quiet'], { cwd: tempRoot })
+    ));
+    const affectedResults = await Promise.all(variants.map((file) =>
+      runCliInProcess(['affected-tests', '--cwd', tempRoot, '--file', file, '--json', '--quiet'], { cwd: tempRoot })
+    ));
 
     const baseImpact = impactResults[0];
     const baseAffected = affectedResults[0];
@@ -63,7 +63,7 @@ function testPathVariants() {
   }
 }
 
-function testNonAsciiPath() {
+async function testNonAsciiPath() {
   const tempRoot = makeTempDir('wb-core-cn-');
   const write = (rel, content) => {
     const full = path.join(tempRoot, rel);
@@ -76,19 +76,19 @@ function testNonAsciiPath() {
     write('src/模块.js', 'export function 你好() { return 42; }\n');
     write('src/index.js', 'import { 你好 } from "./模块";\nexport function main() { return 你好(); }\n');
 
-    const unresolved = runCli(['unresolved', '--cwd', tempRoot, '--json', '--quiet'], { cwd: tempRoot });
+    const unresolved = await runCliInProcess(['unresolved', '--cwd', tempRoot, '--json', '--quiet'], { cwd: tempRoot });
     assert.strictEqual(unresolved.unresolvedCount, 0, 'non-ASCII import should not produce unresolved entries');
 
-    const impact = runCli(['impact', '--cwd', tempRoot, '--file', 'src/模块.js', '--json', '--quiet'], { cwd: tempRoot });
+    const impact = await runCliInProcess(['impact', '--cwd', tempRoot, '--file', 'src/模块.js', '--json', '--quiet'], { cwd: tempRoot });
     assert.strictEqual(impact.impactCount, 1, 'non-ASCII source should map one dependent');
   } finally {
     cleanupTempDir(tempRoot);
   }
 }
 
-function main() {
-  testPathVariants();
-  testNonAsciiPath();
+async function main() {
+  await testPathVariants();
+  await testNonAsciiPath();
 }
 
 main();

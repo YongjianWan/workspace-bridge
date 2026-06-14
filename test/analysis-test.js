@@ -8,9 +8,9 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const assert = require('assert');
-const { runCli, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcess, cleanupTempDir } = require('./test-helpers');
 
-function main() {
+async function main() {
 
 
   // 创建临时测试文件
@@ -73,7 +73,7 @@ function main() {
 
   try {
 
-    const deadExports = runCli(['dead-exports', '--cwd', testDir, '--json', '--quiet']);
+    const deadExports = await runCliInProcess(['dead-exports', '--cwd', testDir, '--json', '--quiet']);
     assert(Array.isArray(deadExports.deadExports), 'deadExports should be an array');
     assert(deadExports.deadExportsCount >= 1, `deadExportsCount should be >= 1, got ${deadExports.deadExportsCount}`);
     const partialEntry = deadExports.deadExports.find(item => path.basename(item.file) === 'partial-exports.js');
@@ -83,19 +83,19 @@ function main() {
 
 
 
-    const unresolved = runCli(['unresolved', '--cwd', testDir, '--json', '--quiet']);
+    const unresolved = await runCliInProcess(['unresolved', '--cwd', testDir, '--json', '--quiet']);
     assert(Array.isArray(unresolved.unresolved), 'unresolved should be an array');
     assert(unresolved.unresolvedCount >= 1, `unresolvedCount should be >= 1, got ${unresolved.unresolvedCount}`);
 
 
 
-    const affectedTests = runCli(['affected-tests', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);
+    const affectedTests = await runCliInProcess(['affected-tests', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);
     assert(Array.isArray(affectedTests.affectedTests), 'affectedTests should be an array');
     assert(affectedTests.affectedTestsCount >= 0, `affectedTestsCount should be >= 0, got ${affectedTests.affectedTestsCount}`);
 
 
 
-    const limitedAffectedTests = runCli(['affected-tests', '--cwd', '.', '--file', 'src/services/container.js', '--max-depth', '2', '--json', '--quiet']);
+    const limitedAffectedTests = await runCliInProcess(['affected-tests', '--cwd', '.', '--file', 'src/services/container.js', '--max-depth', '2', '--json', '--quiet']);
     assert(limitedAffectedTests.maxDepth === 2, 'maxDepth should be 2');
     // graph source 的结果受 maxDepth 约束；mention/heuristic 的 distance 语义为 maxDepth+1，表示超出直接依赖图范围
     const graphTests = limitedAffectedTests.affectedTests.filter(t => t.source === 'graph');
@@ -103,7 +103,7 @@ function main() {
     assert(allGraphWithinDepth, 'All graph-sourced affected tests should be within maxDepth');
 
 
-    const impact = runCli(['impact', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);
+    const impact = await runCliInProcess(['impact', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);
     assert(impact.impactCount >= 0, `impactCount should be >= 0, got ${impact.impactCount}`);
     assert(impact.symbolImpact, 'symbolImpact should exist');
     assert(['symbol', 'file-fallback'].includes(impact.symbolImpact.mode), 'symbolImpact.mode should be valid');

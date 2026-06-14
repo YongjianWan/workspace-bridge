@@ -5,7 +5,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { runCliRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcessRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 const tempDir = makeTempDir('wb-fp-de-');
 
@@ -61,8 +61,8 @@ fs.writeFileSync(
 );
 
 // ---helpers-----------------------------------------------------------------
-function runDeadExports(cwd) {
-  return runCliRaw(['dead-exports', '--cwd', cwd, '--json', '--quiet'], { cwd });
+async function runDeadExports(cwd) {
+  return await runCliInProcessRaw(['dead-exports', '--cwd', cwd, '--json', '--quiet'], { cwd });
 }
 
 function parseJsonSafe(result) {
@@ -72,8 +72,8 @@ function parseJsonSafe(result) {
 }
 
 // ---tests-------------------------------------------------------------------
-function testVueMacroNotDeadExport() {
-  const result = runDeadExports(tempDir);
+async function testVueMacroNotDeadExport() {
+  const result = await runDeadExports(tempDir);
   assert.strictEqual(result.status, 0, `CLI failed: ${result.stderr}`);
   const data = parseJsonSafe(result);
 
@@ -87,8 +87,8 @@ function testVueMacroNotDeadExport() {
   );
 }
 
-function testExplicitVueMacroReExportNotDeadExport() {
-  const result = runDeadExports(tempDir);
+async function testExplicitVueMacroReExportNotDeadExport() {
+  const result = await runDeadExports(tempDir);
   assert.strictEqual(result.status, 0, `CLI failed: ${result.stderr}`);
   const data = parseJsonSafe(result);
 
@@ -102,8 +102,8 @@ function testExplicitVueMacroReExportNotDeadExport() {
   );
 }
 
-function testBarrelReExportNotDeadExport() {
-  const result = runDeadExports(tempDir);
+async function testBarrelReExportNotDeadExport() {
+  const result = await runDeadExports(tempDir);
   assert.strictEqual(result.status, 0, `CLI failed: ${result.stderr}`);
   const data = parseJsonSafe(result);
 
@@ -129,8 +129,8 @@ function testBarrelReExportNotDeadExport() {
   }
 }
 
-function testRealUnusedStillDetected() {
-  const result = runDeadExports(tempDir);
+async function testRealUnusedStillDetected() {
+  const result = await runDeadExports(tempDir);
   assert.strictEqual(result.status, 0, `CLI failed: ${result.stderr}`);
   const data = parseJsonSafe(result);
 
@@ -147,8 +147,8 @@ function testRealUnusedStillDetected() {
   );
 }
 
-function testDeadExportCountConsistent() {
-  const result = runDeadExports(tempDir);
+async function testDeadExportCountConsistent() {
+  const result = await runDeadExports(tempDir);
   assert.strictEqual(result.status, 0, `CLI failed: ${result.stderr}`);
   const data = parseJsonSafe(result);
 
@@ -174,13 +174,13 @@ function testDeadExportCountConsistent() {
 }
 
 // ---main--------------------------------------------------------------------
-function main() {
+async function main() {
   try {
-    testVueMacroNotDeadExport();
-    testExplicitVueMacroReExportNotDeadExport();
-    testBarrelReExportNotDeadExport();
-    testRealUnusedStillDetected();
-    testDeadExportCountConsistent();
+    await testVueMacroNotDeadExport();
+    await testExplicitVueMacroReExportNotDeadExport();
+    await testBarrelReExportNotDeadExport();
+    await testRealUnusedStillDetected();
+    await testDeadExportCountConsistent();
   } finally {
     cleanupTempDir(tempDir);
   }

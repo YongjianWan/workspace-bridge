@@ -4,18 +4,18 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { runCliRaw, assertOk, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcessRaw, assertOk, makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { checkBoundaries } = require('../src/tools/dep-tools/boundaries');
 const { filterByCategory } = require('../src/tools/audit-assembler');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
-function run(args, options = {}) {
-  return runCliRaw([...args, '--json', '--quiet'], { cwd: REPO_ROOT, ...options });
+async function run(args, options = {}) {
+  return runCliInProcessRaw([...args, '--json', '--quiet'], { cwd: REPO_ROOT, ...options });
 }
 
-function runInTemp(args, tempDir) {
-  return runCliRaw([...args, '--json', '--quiet'], { cwd: tempDir });
+async function runInTemp(args, tempDir) {
+  return runCliInProcessRaw([...args, '--json', '--quiet'], { cwd: tempDir });
 }
 
 function writeFile(root, rel, content) {
@@ -56,10 +56,10 @@ function createCategoryTestProject() {
   return tempDir;
 }
 
-function testDeadExportFindingHasCategory() {
+async function testDeadExportFindingHasCategory() {
   const tempDir = createCategoryTestProject();
   try {
-    const result = runInTemp(['dead-exports'], tempDir);
+    const result = await runInTemp(['dead-exports'], tempDir);
     assertOk(result, 'dead-exports should succeed');
     const data = JSON.parse(result.stdout);
     assert(data.deadExportsCount > 0, 'should detect dead exports');
@@ -69,10 +69,10 @@ function testDeadExportFindingHasCategory() {
   }
 }
 
-function testSmellFindingHasCategory() {
+async function testSmellFindingHasCategory() {
   const tempDir = createCategoryTestProject();
   try {
-    const result = runInTemp(['audit-smells'], tempDir);
+    const result = await runInTemp(['audit-smells'], tempDir);
     assertOk(result, 'audit-smells should succeed');
     const data = JSON.parse(result.stdout);
     assert(data.smellsCount > 0, 'should detect smells');
@@ -82,10 +82,10 @@ function testSmellFindingHasCategory() {
   }
 }
 
-function testSecurityFindingHasCategory() {
+async function testSecurityFindingHasCategory() {
   const tempDir = createCategoryTestProject();
   try {
-    const result = runInTemp(['audit-security', '--builtin-only'], tempDir);
+    const result = await runInTemp(['audit-security', '--builtin-only'], tempDir);
     assertOk(result, 'audit-security should succeed');
     const data = JSON.parse(result.stdout);
     assert(data.findings.length > 0, 'should detect security findings');
@@ -120,8 +120,8 @@ function testBoundaryViolationHasCategory() {
   assert.strictEqual(result.violations[0].category, 'boundaries', 'boundary violation should have category field');
 }
 
-function testAuditSummaryCategoryFilterPreservesSelection() {
-  const result = run(['audit-summary', '--category', 'dead-exports']);
+async function testAuditSummaryCategoryFilterPreservesSelection() {
+  const result = await run(['audit-summary', '--category', 'dead-exports']);
   assertOk(result, 'audit-summary --category dead-exports should succeed');
   const data = JSON.parse(result.stdout);
 
@@ -140,9 +140,9 @@ function testAuditSummaryCategoryFilterPreservesSelection() {
   assert.strictEqual(nextStepsStr.includes('circular'), false, 'nextSteps should not contain cycle recommendation');
 }
 
-function testAuditOverviewCategoryFilter() {
-  const unfiltered = JSON.parse(run(['audit-overview']).stdout);
-  const filtered = JSON.parse(run(['audit-overview', '--category', 'smells']).stdout);
+async function testAuditOverviewCategoryFilter() {
+  const unfiltered = JSON.parse((await run(['audit-overview'])).stdout);
+  const filtered = JSON.parse((await run(['audit-overview', '--category', 'smells'])).stdout);
 
   assert.strictEqual(filtered.deadExports?.deadExportsCount || 0, 0, 'dead exports should be filtered out');
   assert.strictEqual(filtered.boundaries?.violationsCount || 0, 0, 'boundaries should be filtered out');
@@ -161,10 +161,10 @@ function testAuditOverviewCategoryFilter() {
   assert.strictEqual(filtered.summary?.counts?.boundaries === undefined, true, 'boundaries count should be omitted');
 }
 
-function testAuditSecurityCategoryFilterExcludes() {
+async function testAuditSecurityCategoryFilterExcludes() {
   const tempDir = createCategoryTestProject();
   try {
-    const result = runInTemp(['audit-security', '--builtin-only', '--category', 'dead-exports'], tempDir);
+    const result = await runInTemp(['audit-security', '--builtin-only', '--category', 'dead-exports'], tempDir);
     assertOk(result, 'audit-security --category dead-exports should succeed');
     const data = JSON.parse(result.stdout);
     assert.strictEqual(data.findings.length, 0, 'security findings should be excluded');
@@ -175,8 +175,8 @@ function testAuditSecurityCategoryFilterExcludes() {
   }
 }
 
-function testInvalidCategoryValue() {
-  const result = runCliRaw(['audit-summary', '--category', 'invalid', '--json', '--quiet'], { cwd: REPO_ROOT });
+async function testInvalidCategoryValue() {
+  const result = await runCliInProcessRaw(['audit-summary', '--category', 'invalid', '--json', '--quiet'], { cwd: REPO_ROOT });
   assert.notStrictEqual(result.status, 0, 'invalid category should exit non-zero');
   assert(result.stderr.includes('Invalid --category value'), `stderr should contain error: ${result.stderr}`);
 }
@@ -198,8 +198,8 @@ function testFilterByCategoryZerosSections() {
   assert.strictEqual(result.smells.smellsCount, 0, 'smells should be zeroed');
 }
 
-function testMultiCategoryFilter() {
-  const result = run(['audit-summary', '--category', 'dead-exports,smells']);
+async function testMultiCategoryFilter() {
+  const result = await run(['audit-summary', '--category', 'dead-exports,smells']);
   assertOk(result, 'multi-category filter should succeed');
   const data = JSON.parse(result.stdout);
 
@@ -208,10 +208,10 @@ function testMultiCategoryFilter() {
   assert.strictEqual(data.boundaries?.violationsCount || 0, 0, 'boundaries should be filtered out');
 }
 
-function testIncrementalDiffCategoryFilter() {
+async function testIncrementalDiffCategoryFilter() {
   const tempDir = createCategoryTestProject();
   try {
-    const result = runInTemp(['audit-diff', '--incremental', '--category', 'unresolved'], tempDir);
+    const result = await runInTemp(['audit-diff', '--incremental', '--category', 'unresolved'], tempDir);
     assertOk(result, 'audit-diff --incremental --category unresolved should succeed');
     const data = JSON.parse(result.stdout);
 
@@ -224,18 +224,18 @@ function testIncrementalDiffCategoryFilter() {
   }
 }
 
-function main() {
-  testDeadExportFindingHasCategory();
-  testSmellFindingHasCategory();
-  testSecurityFindingHasCategory();
-  testBoundaryViolationHasCategory();
-  testAuditSummaryCategoryFilterPreservesSelection();
-  testAuditOverviewCategoryFilter();
-  testAuditSecurityCategoryFilterExcludes();
-  testInvalidCategoryValue();
-  testFilterByCategoryZerosSections();
-  testMultiCategoryFilter();
-  testIncrementalDiffCategoryFilter();
+async function main() {
+  await testDeadExportFindingHasCategory();
+  await testSmellFindingHasCategory();
+  await testSecurityFindingHasCategory();
+  await testBoundaryViolationHasCategory();
+  await testAuditSummaryCategoryFilterPreservesSelection();
+  await testAuditOverviewCategoryFilter();
+  await testAuditSecurityCategoryFilterExcludes();
+  await testInvalidCategoryValue();
+  await testFilterByCategoryZerosSections();
+  await testMultiCategoryFilter();
+  await testIncrementalDiffCategoryFilter();
 }
 
 main();

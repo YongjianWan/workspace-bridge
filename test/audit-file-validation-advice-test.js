@@ -1,12 +1,12 @@
 const assert = require('assert');
-const { runCli } = require('./test-helpers');
+const { runCliInProcess } = require('./test-helpers');
 
-function run(args) {
-  return runCli([...args, '--json', '--quiet']);
+async function run(args) {
+  return runCliInProcess([...args, '--json', '--quiet']);
 }
 
-function testAuditFileHasValidationAdvice() {
-  const result = run(['audit-file', '--file', 'src/utils/path.js']);
+async function testAuditFileHasValidationAdvice() {
+  const result = await run(['audit-file', '--file', 'src/utils/path.js']);
   assert.ok(result.validationAdvice, 'validationAdvice should exist');
   assert.strictEqual(typeof result.validationAdvice.commands, 'object', 'commands should be grouped object');
   assert.ok(Array.isArray(result.validationAdvice.commands.smoke), 'commands.smoke should be array');
@@ -29,25 +29,25 @@ function testAuditFileHasValidationAdvice() {
   }
 }
 
-function testAuditFileHasFrameworkPattern() {
-  const result = run(['audit-file', '--file', 'cli.js']);
+async function testAuditFileHasFrameworkPattern() {
+  const result = await run(['audit-file', '--file', 'cli.js']);
   assert.strictEqual(result.file, 'cli.js', 'file should match request');
   assert.ok(['low', 'medium', 'high'].includes(result.summary.severity), `cli.js severity should be a valid level, got ${result.summary.severity}`);
   assert.strictEqual(result.frameworkPattern, null, 'cli.js should have no framework pattern');
   assert.ok('frameworkPattern' in result, 'frameworkPattern field should exist');
 }
 
-function testAuditFileFrameworkDetection() {
-  const result = run(['audit-file', '--file', 'test/vue-parser-test.js']);
+async function testAuditFileFrameworkDetection() {
+  const result = await run(['audit-file', '--file', 'test/vue-parser-test.js']);
   assert.strictEqual(result.file, 'test/vue-parser-test.js', 'file should match request');
   assert.ok(result.frameworkPattern && result.frameworkPattern.framework === 'vue', 'vue test file should detect vue framework');
   assert.strictEqual(result.frameworkPattern.isEntry, true, 'vue test file should be marked as entry');
 }
 
-function executeTests() {
-  testAuditFileHasValidationAdvice();
-  testAuditFileHasFrameworkPattern();
-  testAuditFileFrameworkDetection();
+async function executeTests() {
+  await testAuditFileHasValidationAdvice();
+  await testAuditFileHasFrameworkPattern();
+  await testAuditFileFrameworkDetection();
 }
 
 executeTests();

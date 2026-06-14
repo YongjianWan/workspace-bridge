@@ -2,7 +2,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { runCliRaw, runInDir, assertOk, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcessRaw, runInDir, assertOk, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 const tempDir = makeTempDir('wb-regression-');
 const baselineFile = path.join(tempDir, 'test-regression-baseline.json');
@@ -28,9 +28,9 @@ function cleanup() {
   try { fs.unlinkSync(path.join(tempDir, '.workspace-bridge-baseline.json')); } catch {}
 }
 
-function testSaveBaseline() {
+async function testSaveBaseline() {
   cleanup();
-  const result = runCliRaw(['audit-summary', '--cwd', tempDir, '--save', baselineFile, '--json', '--quiet'], { cwd: tempDir });
+  const result = await runCliInProcessRaw(['audit-summary', '--cwd', tempDir, '--save', baselineFile, '--json', '--quiet'], { cwd: tempDir });
   assertOk(result, 'save baseline should succeed');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.baselineSaved, baselineFile, 'should report saved path');
@@ -41,29 +41,29 @@ function testSaveBaseline() {
   assert.strictEqual(baseline.schemaVersion, '1.2.0', 'baseline should have schemaVersion');
 }
 
-function testCheckRegressionNoBaseline() {
+async function testCheckRegressionNoBaseline() {
   cleanup();
   // 1. JSON mode
-  const result = runCliRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--json', '--quiet'], { cwd: tempDir });
+  const result = await runCliInProcessRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--json', '--quiet'], { cwd: tempDir });
   assert.strictEqual(result.status, 2, `Exit code should be 2 (validation/path error), got ${result.status}. stderr: ${result.stderr}`);
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.ok, false, 'should fail when no baseline exists');
   assert(data.error.includes('Baseline file not found'), 'should report missing baseline');
 
   // 2. Human mode
-  const resultHuman = runCliRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--quiet'], { cwd: tempDir });
+  const resultHuman = await runCliInProcessRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--quiet'], { cwd: tempDir });
   assert.strictEqual(resultHuman.status, 2, `Human mode should exit 2, got ${resultHuman.status}`);
   assert(resultHuman.stderr.includes('Baseline file not found'), 'should report Baseline file not found in stderr');
 }
 
-function testCheckRegressionWithBaseline() {
+async function testCheckRegressionWithBaseline() {
   cleanup();
   // First save a baseline
-  const saveResult = runCliRaw(['audit-summary', '--cwd', tempDir, '--save', baselineFile, '--json', '--quiet'], { cwd: tempDir });
+  const saveResult = await runCliInProcessRaw(['audit-summary', '--cwd', tempDir, '--save', baselineFile, '--json', '--quiet'], { cwd: tempDir });
   assertOk(saveResult, 'save baseline should succeed');
 
   // Then check regression against it
-  const result = runCliRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--baseline', baselineFile, '--json', '--quiet'], { cwd: tempDir });
+  const result = await runCliInProcessRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--baseline', baselineFile, '--json', '--quiet'], { cwd: tempDir });
   assertOk(result, 'check regression should succeed');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.regression.ok, true, 'regression check should succeed');
@@ -75,21 +75,21 @@ function testCheckRegressionWithBaseline() {
   assert.strictEqual(data.regression.deadExports.fixed.length, 0, 'no fixed dead exports against same baseline');
 }
 
-function testSaveAndCheckRegressionDefaultPath() {
+async function testSaveAndCheckRegressionDefaultPath() {
   cleanup();
-  const saveResult = runCliRaw(['audit-summary', '--cwd', tempDir, '--save', '--json', '--quiet'], { cwd: tempDir });
+  const saveResult = await runCliInProcessRaw(['audit-summary', '--cwd', tempDir, '--save', '--json', '--quiet'], { cwd: tempDir });
   assertOk(saveResult, 'save baseline should succeed');
 
-  const result = runCliRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--json', '--quiet'], { cwd: tempDir });
+  const result = await runCliInProcessRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--json', '--quiet'], { cwd: tempDir });
   assertOk(result, 'check regression should succeed');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.regression.ok, true);
   assert.strictEqual(data.regression.baselinePath, path.join(tempDir, '.workspace-bridge-baseline.json'));
 }
 
-function testCheckRegressionAgainstCommit() {
+async function testCheckRegressionAgainstCommit() {
   cleanup();
-  const result = runCliRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--baseline', 'HEAD~1', '--json', '--quiet'], { cwd: tempDir });
+  const result = await runCliInProcessRaw(['audit-summary', '--cwd', tempDir, '--check-regression', '--baseline', 'HEAD~1', '--json', '--quiet'], { cwd: tempDir });
   assertOk(result, 'check regression against commit should succeed');
   const data = JSON.parse(result.stdout);
   assert.strictEqual(data.regression.ok, true, 'commit baseline check should succeed');
@@ -101,13 +101,13 @@ function testCheckRegressionAgainstCommit() {
   assert(Array.isArray(data.regression.cycles.new), 'cycles.new should be array');
 }
 
-function main() {
+async function main() {
   try {
-    testSaveBaseline();
-    testCheckRegressionNoBaseline();
-    testCheckRegressionWithBaseline();
-    testSaveAndCheckRegressionDefaultPath();
-    testCheckRegressionAgainstCommit();
+    await testSaveBaseline();
+    await testCheckRegressionNoBaseline();
+    await testCheckRegressionWithBaseline();
+    await testSaveAndCheckRegressionDefaultPath();
+    await testCheckRegressionAgainstCommit();
   } finally {
     cleanup();
     cleanupTempDir(tempDir);

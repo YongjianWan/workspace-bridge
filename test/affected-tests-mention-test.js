@@ -2,7 +2,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { runCliRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcessRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 async function main() {
   const tmpDir = makeTempDir('wb-mention-');
@@ -27,7 +27,7 @@ async function main() {
   // Marker for workspace root detection
   fs.writeFileSync(path.join(tmpDir, 'package.json'), '{"name":"test-proj"}\n', 'utf8');
 
-  const result = runCliRaw(['affected-tests', '--file', 'src/math/calculator.js', '--cwd', tmpDir, '--json']);
+  const result = await runCliInProcessRaw(['affected-tests', '--file', 'src/math/calculator.js', '--cwd', tmpDir, '--json']);
   assert.strictEqual(result.status, 0, `CLI failed: ${result.stderr}`);
 
   const data = JSON.parse(result.stdout.trim());

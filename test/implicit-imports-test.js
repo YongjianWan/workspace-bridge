@@ -1,7 +1,7 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const { runCli, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcess, makeTempDir, cleanupTempDir } = require('./test-helpers');
 const {
   FRAMEWORK_USAGE_PATTERNS,
   scanAndExtractImplicitImports,
@@ -179,21 +179,21 @@ async function testVueImplicitDependenciesIntegration() {
     write('src/components/SvgIcon/index.vue', '<template><svg></svg></template>\n<script>export default { name: "SvgIcon" }</script>');
 
     // 1. Verify dead-exports: view components should NOT appear (they are implicitly used by router)
-    const deadExports = runCli(['dead-exports', '--cwd', root, '--json', '--quiet'], { cwd: root });
+    const deadExports = await runCliInProcess(['dead-exports', '--cwd', root, '--json', '--quiet'], { cwd: root });
     const deadFiles = deadExports.deadExports.map((d) => path.basename(d.file));
     assert(!deadFiles.includes('UserProfile.vue'), 'UserProfile should not be dead-export (router lazy-load)');
     assert(!deadFiles.includes('AdminDashboard.vue'), 'AdminDashboard should not be dead-export (router lazy-load)');
     assert(!deadFiles.includes('index.vue'), 'SvgIcon should not be dead-export (global component)');
 
     // 2. Verify orphans via audit-map compact
-    const auditMap = runCli(['audit-map', '--cwd', root, '--compact', '--json', '--quiet'], { cwd: root });
+    const auditMap = await runCliInProcess(['audit-map', '--cwd', root, '--compact', '--json', '--quiet'], { cwd: root });
     const orphanFiles = (auditMap.issueOverlay?.orphans || []).map((f) => path.basename(f));
     assert(!orphanFiles.includes('UserProfile.vue'), 'UserProfile should not be orphan (router implicit dep)');
     assert(!orphanFiles.includes('AdminDashboard.vue'), 'AdminDashboard should not be orphan (router implicit dep)');
     assert(!orphanFiles.includes('index.vue'), 'SvgIcon should not be orphan (global component implicit dep)');
 
     // 3. Verify impact radius includes implicit dependents
-    const impact = runCli(['impact', '--cwd', root, '--file', 'src/views/UserProfile.vue', '--json', '--quiet'], { cwd: root });
+    const impact = await runCliInProcess(['impact', '--cwd', root, '--file', 'src/views/UserProfile.vue', '--json', '--quiet'], { cwd: root });
     const impactedFiles = impact.impact.map((i) => path.basename(i.file));
     assert(impactedFiles.includes('index.js'), 'router should appear in impact radius of UserProfile');
   } finally {

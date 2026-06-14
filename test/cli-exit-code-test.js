@@ -9,7 +9,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { runCliRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcessRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function writeFile(root, rel, content) {
   const full = path.join(root, rel);
@@ -17,27 +17,27 @@ function writeFile(root, rel, content) {
   fs.writeFileSync(full, content, 'utf8');
 }
 
-function run(args, opts = {}) {
-  return runCliRaw(args, { cwd: opts.cwd, timeout: opts.timeout || 30000 });
+async function run(args, opts = {}) {
+  return await runCliInProcessRaw(args, { cwd: opts.cwd, timeout: opts.timeout || 30000 });
 }
 
-function testExitCodeSuccess() {
+async function testExitCodeSuccess() {
   const tempRoot = makeTempDir('wb-exit-ok-');
   try {
     writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'ok', version: '1.0.0', main: 'src/a.js' }, null, 2));
     writeFile(tempRoot, 'src/a.js', 'export const a = 1;\n');
 
-    const treeResult = run(['tree', '--cwd', tempRoot, '--file', 'src/a.js', '--json', '--quiet']);
+    const treeResult = await run(['tree', '--cwd', tempRoot, '--file', 'src/a.js', '--json', '--quiet']);
     assert.strictEqual(treeResult.status, 0, `tree with valid args should exit 0. stderr: ${treeResult.stderr}`);
 
-    const impactResult = run(['impact', '--cwd', tempRoot, '--file', 'src/a.js', '--json', '--quiet']);
+    const impactResult = await run(['impact', '--cwd', tempRoot, '--file', 'src/a.js', '--json', '--quiet']);
     assert.strictEqual(impactResult.status, 0, `impact with valid args should exit 0. stderr: ${impactResult.stderr}`);
   } finally {
     cleanupTempDir(tempRoot);
   }
 }
 
-function testExitCodeWithFindingsDefault() {
+async function testExitCodeWithFindingsDefault() {
   const tempRoot = makeTempDir('wb-exit-findings-');
   try {
     writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'biz', version: '1.0.0', main: 'src/index.js' }, null, 2));
@@ -45,38 +45,38 @@ function testExitCodeWithFindingsDefault() {
     writeFile(tempRoot, 'src/index.js', 'import { used } from "./lib";\nconsole.log(used());\n');
 
     // Without --fail-on-findings, dead-exports exits 0 even with findings
-    const deadResult = run(['dead-exports', '--cwd', tempRoot, '--json', '--quiet']);
+    const deadResult = await run(['dead-exports', '--cwd', tempRoot, '--json', '--quiet']);
     assert.strictEqual(deadResult.status, 0, 'dead-exports without --fail-on-findings should exit 0');
     const data = JSON.parse(deadResult.stdout);
     assert(data.deadExportsCount >= 1, 'should have dead export findings');
 
     // With --fail-on-findings, dead-exports exits 1
-    const deadFailResult = run(['dead-exports', '--cwd', tempRoot, '--json', '--quiet', '--fail-on-findings']);
+    const deadFailResult = await run(['dead-exports', '--cwd', tempRoot, '--json', '--quiet', '--fail-on-findings']);
     assert.strictEqual(deadFailResult.status, 1, 'dead-exports with --fail-on-findings should exit 1');
   } finally {
     cleanupTempDir(tempRoot);
   }
 }
 
-function testExitCodeInvalidArgs() {
+async function testExitCodeInvalidArgs() {
   const tempRoot = makeTempDir('wb-exit-arg-');
   try {
     writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'arg', version: '1.0.0' }, null, 2));
 
-    const noFileResult = run(['tree', '--cwd', tempRoot, '--json', '--quiet']);
+    const noFileResult = await run(['tree', '--cwd', tempRoot, '--json', '--quiet']);
     assert.strictEqual(noFileResult.status, 1, 'tree without --file should exit 1 (validation error is business failure, not crash)');
 
-    const badCwdResult = run(['audit-summary', '--cwd', path.join(tempRoot, 'nonexistent'), '--json', '--quiet']);
+    const badCwdResult = await run(['audit-summary', '--cwd', path.join(tempRoot, 'nonexistent'), '--json', '--quiet']);
     assert.strictEqual(badCwdResult.status, 1, 'invalid cwd should exit 1 (business failure)');
   } finally {
     cleanupTempDir(tempRoot);
   }
 }
 
-function main() {
-  testExitCodeSuccess();
-  testExitCodeWithFindingsDefault();
-  testExitCodeInvalidArgs();
+async function main() {
+  await testExitCodeSuccess();
+  await testExitCodeWithFindingsDefault();
+  await testExitCodeInvalidArgs();
   console.log('cli-exit-code-test.js: all passed');
 }
 

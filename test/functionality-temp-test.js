@@ -7,9 +7,9 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const { runCli, runInDir, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcess, runInDir, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
-function testMixedStackDetection() {
+async function testMixedStackDetection() {
   const tempRoot = makeTempDir('wb-cli-mixed-');
   const write = (rel, content) => {
     const full = path.join(tempRoot, rel);
@@ -32,7 +32,7 @@ function testMixedStackDetection() {
   write('src/app.js', 'export const run = () => 2;\n');
   write('api/main.py', 'def app():\n    return 2\n');
 
-  const mixedDiff = runCli(['audit-diff', '--cwd', tempRoot, '--json', '--quiet']);
+  const mixedDiff = await runCliInProcess(['audit-diff', '--cwd', tempRoot, '--json', '--quiet']);
   assert.strictEqual(mixedDiff.validationAdvice.stack.profile, 'mixed');
   assert.strictEqual(mixedDiff.validationAdvice.stack.node.testRunner, 'vitest');
   assert.strictEqual(mixedDiff.validationAdvice.stack.python.testRunner, 'pytest');
@@ -49,7 +49,7 @@ function testMixedStackDetection() {
   cleanupTempDir(tempRoot);
 }
 
-function testPythonFrameworks() {
+async function testPythonFrameworks() {
   const flaskRoot = makeTempDir('wb-cli-flask-');
   const writeFlask = (rel, content) => {
     const full = path.join(flaskRoot, rel);
@@ -66,7 +66,7 @@ function testPythonFrameworks() {
   runInDir('git', ['commit', '-m', 'init'], flaskRoot);
   writeFlask('app/main.py', 'def app():\n    return 2\n');
 
-  const flaskDiff = runCli(['audit-diff', '--cwd', flaskRoot, '--json', '--quiet']);
+  const flaskDiff = await runCliInProcess(['audit-diff', '--cwd', flaskRoot, '--json', '--quiet']);
   assert.strictEqual(flaskDiff.validationAdvice.stack.profile, 'python-first');
   assert.strictEqual(flaskDiff.validationAdvice.stack.python.framework, 'flask');
 
@@ -89,15 +89,15 @@ function testPythonFrameworks() {
   runInDir('git', ['commit', '-m', 'init'], djangoRoot);
   writeDjango('app/views.py', 'def index():\n    return 2\n');
 
-  const djangoDiff = runCli(['audit-diff', '--cwd', djangoRoot, '--json', '--quiet']);
+  const djangoDiff = await runCliInProcess(['audit-diff', '--cwd', djangoRoot, '--json', '--quiet']);
   assert.strictEqual(djangoDiff.validationAdvice.stack.python.framework, 'django');
 
   cleanupTempDir(djangoRoot);
 }
 
-function main() {
-  testMixedStackDetection();
-  testPythonFrameworks();
+async function main() {
+  await testMixedStackDetection();
+  await testPythonFrameworks();
 }
 
 main();

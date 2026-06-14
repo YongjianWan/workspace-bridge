@@ -2,10 +2,10 @@
 // @contract
 
 const assert = require('assert');
-const { runCli } = require('./test-helpers');
+const { runCliInProcess, shutdownSharedContainer } = require('./test-helpers');
 
-function testAuditFileValidationAdviceSchema() {
-  const data = runCli(['audit-file', '--file', 'src/services/container.js', '--json', '--quiet']);
+async function testAuditFileValidationAdviceSchema() {
+  const data = await runCliInProcess(['audit-file', '--file', 'src/services/container.js', '--json', '--quiet']);
   assert(data.ok, 'audit-file should succeed');
   const va = data.validationAdvice;
   assert(va, 'should have validationAdvice');
@@ -21,8 +21,8 @@ function testAuditFileValidationAdviceSchema() {
   assert(va.commandCount === undefined, 'should not have commandCount (removed for schema uniformity)');
 }
 
-function testAuditDiffValidationAdviceSchema() {
-  const data = runCli(['audit-diff', '--json', '--quiet']);
+async function testAuditDiffValidationAdviceSchema() {
+  const data = await runCliInProcess(['audit-diff', '--json', '--quiet']);
   assert(data.ok, 'audit-diff should succeed');
   const va = data.validationAdvice;
   assert(va, 'should have validationAdvice');
@@ -35,9 +35,10 @@ function testAuditDiffValidationAdviceSchema() {
   assert(typeof va.suggestedCommand === 'string' || va.suggestedCommand === null, 'should have suggestedCommand');
 }
 
-function main() {
-  testAuditFileValidationAdviceSchema();
-  testAuditDiffValidationAdviceSchema();
+async function main() {
+  await testAuditFileValidationAdviceSchema();
+  await testAuditDiffValidationAdviceSchema();
+  shutdownSharedContainer();
   console.log('validation-advice-schema-test.js: all passed');
 }
 

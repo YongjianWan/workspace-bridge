@@ -4,10 +4,10 @@
  * Uses in-process runner (shared ServiceContainer) for speed.
  */
 const assert = require('assert');
-const { runCliTextInProcess, shutdownSharedContainer } = require('./test-helpers');
+const { runCliInProcessText, shutdownSharedContainer } = require('./test-helpers');
 
 async function testAuditSummaryHuman() {
-  const out = await runCliTextInProcess(['audit-summary', '--cwd', '.', '--quiet', '--format', 'human']);
+  const out = await runCliInProcessText(['audit-summary', '--cwd', '.', '--quiet', '--format', 'human']);
   assert(out.includes('workspaceRoot:'), 'should show workspaceRoot');
   assert(out.includes('severity:'), 'should show severity');
   assert(out.includes('healthScore:'), 'should show healthScore');
@@ -23,7 +23,7 @@ async function testAuditSummaryHuman() {
 }
 
 async function testAuditSummaryJson() {
-  const out = await runCliTextInProcess(['audit-summary', '--cwd', '.', '--json', '--quiet']);
+  const out = await runCliInProcessText(['audit-summary', '--cwd', '.', '--json', '--quiet']);
   const result = JSON.parse(out);
   assert(result.scope.counts.totalFiles >= 1, 'should have totalFiles');
   assert(result.scope.counts.mainlineFiles >= 0, 'should have mainlineFiles');
@@ -35,7 +35,7 @@ async function testAuditSummaryJson() {
 }
 
 async function testAuditOverviewHuman() {
-  const out = await runCliTextInProcess(['audit-overview', '--cwd', '.', '--quiet', '--format', 'human']);
+  const out = await runCliInProcessText(['audit-overview', '--cwd', '.', '--quiet', '--format', 'human']);
   assert(out.includes('workspaceRoot:'), 'should show workspaceRoot');
   assert(out.includes('severity:'), 'should show severity');
   assert(
@@ -49,7 +49,7 @@ async function testAuditOverviewHuman() {
 }
 
 async function testAuditOverviewJson() {
-  const out = await runCliTextInProcess(['audit-overview', '--cwd', '.', '--json', '--quiet']);
+  const out = await runCliInProcessText(['audit-overview', '--cwd', '.', '--json', '--quiet']);
   const result = JSON.parse(out);
   assert(result.skeleton.totalFiles >= 1, 'should have skeleton.totalFiles');
   assert(result.skeleton.mainlineFiles >= 0, 'should have skeleton.mainlineFiles');

@@ -7,13 +7,13 @@ const assert = require('assert');
 const os = require('os');
 const path = require('path');
 const { TIMEOUTS } = require('../src/config/constants');
-const { runCli } = require('./test-helpers');
+const { runCliInProcess } = require('./test-helpers');
 
 const GITNEXUS_ROOT = path.join(__dirname, '..', 'reference', 'GitNexus');
 const SHARED_CACHE_DIR = path.join(os.tmpdir(), 'wb-gitnexus-shared-cache');
 
-function testAuditSummaryOnGitNexus() {
-  const result = runCli(
+async function testAuditSummaryOnGitNexus() {
+  const result = await runCliInProcess(
     ['audit-summary', '--cwd', GITNEXUS_ROOT, '--json', '--quiet', '--cache-dir', SHARED_CACHE_DIR],
     {
       timeout: TIMEOUTS.TEST_RUNNER_MS,
@@ -36,8 +36,8 @@ function testAuditSummaryOnGitNexus() {
   assert.strictEqual(result.summary?.counts?.cycles, result.cycles.cycles.length, 'cycles count should match cycles array length');
 }
 
-function main() {
-  testAuditSummaryOnGitNexus();
+async function main() {
+  await testAuditSummaryOnGitNexus();
   console.log('e2e-gitnexus-test.js: all passed');
 }
 

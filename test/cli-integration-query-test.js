@@ -10,7 +10,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const os = require('os');
-const { runCli, runCliRaw, runCliText, makeTempDir, cleanupTempDir, runInDir } = require('./test-helpers');
+const { runCliInProcess, runCliInProcessRaw, runCliInProcessText, makeTempDir, cleanupTempDir, runInDir } = require('./test-helpers');
 const { GraphDB } = require('../src/services/graph-db');
 
 const createdCacheDir = !process.env.WB_TEST_CACHE_DIR;
@@ -31,7 +31,7 @@ function initGit(root) {
   runInDir('git', ['commit', '-m', 'init'], root);
 }
 
-function testQueryCommandsE2E() {
+async function testQueryCommandsE2E() {
   console.log('Running testQueryCommandsE2E...');
   const tempRoot = makeTempDir('wb-cli-query-');
   try {
@@ -45,7 +45,7 @@ function testQueryCommandsE2E() {
     const gitHead = runInDir('git', ['rev-parse', 'HEAD'], tempRoot).trim();
 
     // 3. Warm up the cache
-    runCli(['audit-summary', '--cwd', tempRoot, '--json', '--quiet']);
+    await runCliInProcess(['audit-summary', '--cwd', tempRoot, '--json', '--quiet']);
 
     // 4. Inject mock aggregates into the project's cache database
     const hash = crypto.createHash('md5').update(path.resolve(tempRoot)).digest('hex').slice(0, 8);
@@ -92,7 +92,7 @@ function testQueryCommandsE2E() {
      * query-hotspots tests
      * ========================================================================= */
     // A. Basic JSON query
-    const hsJson = runCli(['query-hotspots', '--cwd', tempRoot, '--json']);
+    const hsJson = await runCliInProcess(['query-hotspots', '--cwd', tempRoot, '--json']);
     assert.strictEqual(hsJson.ok, true);
     assert.strictEqual(hsJson.command, 'query-hotspots');
     assert.strictEqual(hsJson.count, 2);
@@ -100,28 +100,28 @@ function testQueryCommandsE2E() {
     assert.strictEqual(hsJson.hotspots[1].file, 'src/lib.js');
 
     // B. Risk filter
-    const hsHighRisk = runCli(['query-hotspots', '--cwd', tempRoot, '--risk', 'high', '--json']);
+    const hsHighRisk = await runCliInProcess(['query-hotspots', '--cwd', tempRoot, '--risk', 'high', '--json']);
     assert.strictEqual(hsHighRisk.count, 1);
     assert.strictEqual(hsHighRisk.hotspots[0].file, 'src/index.js');
 
     // C. Limit constraint
-    const hsLimit = runCli(['query-hotspots', '--cwd', tempRoot, '--limit', '1', '--json']);
+    const hsLimit = await runCliInProcess(['query-hotspots', '--cwd', tempRoot, '--limit', '1', '--json']);
     assert.strictEqual(hsLimit.count, 1);
     assert.strictEqual(hsLimit.hotspots[0].file, 'src/index.js');
 
     // D. Formatters
-    const hsHuman = runCliText(['query-hotspots', '--cwd', tempRoot, '--format', 'human']);
+    const hsHuman = await runCliInProcessText(['query-hotspots', '--cwd', tempRoot, '--format', 'human']);
     assert.ok(hsHuman.includes('hotspotsCount: 2'));
     assert.ok(hsHuman.includes('src/index.js | score: 95.50'));
 
-    const hsSummary = runCliText(['query-hotspots', '--cwd', tempRoot, '--format', 'summary']);
+    const hsSummary = await runCliInProcessText(['query-hotspots', '--cwd', tempRoot, '--format', 'summary']);
     assert.ok(hsSummary.includes('Hotspots: 2 / 2'));
 
-    const hsMarkdown = runCliText(['query-hotspots', '--cwd', tempRoot, '--format', 'markdown']);
+    const hsMarkdown = await runCliInProcessText(['query-hotspots', '--cwd', tempRoot, '--format', 'markdown']);
     assert.ok(hsMarkdown.includes('# Query Hotspots'));
     assert.ok(hsMarkdown.includes('| src/index.js | 95.50 |'));
 
-    const hsJsonl = runCliText(['query-hotspots', '--cwd', tempRoot, '--format', 'jsonl']);
+    const hsJsonl = await runCliInProcessText(['query-hotspots', '--cwd', tempRoot, '--format', 'jsonl']);
     const hsJsonlLines = hsJsonl.trim().split('\n');
     assert.strictEqual(hsJsonlLines.length, 3);
     const hsJsonlFirst = JSON.parse(hsJsonlLines[0]);
@@ -131,7 +131,7 @@ function testQueryCommandsE2E() {
     assert.strictEqual(hsJsonlSecond._type, 'hotspot');
     assert.strictEqual(hsJsonlSecond.file, 'src/index.js');
 
-    const hsAi = runCliText(['query-hotspots', '--cwd', tempRoot, '--format', 'ai']);
+    const hsAi = await runCliInProcessText(['query-hotspots', '--cwd', tempRoot, '--format', 'ai']);
     const hsAiParsed = JSON.parse(hsAi);
     assert.strictEqual(hsAiParsed.counts?.hotspots, 2);
     assert.strictEqual(hsAiParsed.topRisks[0]?.category, 'hotspots');
@@ -140,7 +140,7 @@ function testQueryCommandsE2E() {
      * query-knowledge-risk tests
      * ========================================================================= */
     // A. Basic JSON query
-    const krJson = runCli(['query-knowledge-risk', '--cwd', tempRoot, '--json']);
+    const krJson = await runCliInProcess(['query-knowledge-risk', '--cwd', tempRoot, '--json']);
     assert.strictEqual(krJson.ok, true);
     assert.strictEqual(krJson.command, 'query-knowledge-risk');
     assert.strictEqual(krJson.level, 'high');
@@ -148,34 +148,34 @@ function testQueryCommandsE2E() {
     assert.strictEqual(krJson.files[0].file, 'src/index.js');
 
     // B. Level filter
-    const krMedium = runCli(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'medium', '--json']);
+    const krMedium = await runCliInProcess(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'medium', '--json']);
     assert.strictEqual(krMedium.level, 'medium');
     assert.strictEqual(krMedium.count, 2);
     assert.strictEqual(krMedium.files[0].file, 'src/lib.js');
     assert.strictEqual(krMedium.files[1].file, 'src/other.js');
 
     // C. Limit constraint
-    const krLimit = runCli(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'medium', '--limit', '1', '--json']);
+    const krLimit = await runCliInProcess(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'medium', '--limit', '1', '--json']);
     assert.strictEqual(krLimit.count, 1);
     assert.strictEqual(krLimit.files[0].file, 'src/lib.js');
 
     // C.2 Invalid limit constraint
-    const krInvalidLimit = runCliRaw(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'medium', '--limit', '0']);
+    const krInvalidLimit = await runCliInProcessRaw(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'medium', '--limit', '0']);
     assert.strictEqual(krInvalidLimit.status, 1);
     assert.ok(krInvalidLimit.stderr.includes('Invalid --limit value'));
 
     // D. Formatters
-    const krHuman = runCliText(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'medium', '--format', 'human']);
+    const krHuman = await runCliInProcessText(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'medium', '--format', 'human']);
     assert.ok(krHuman.includes('knowledgeRiskCount: 2'));
     assert.ok(krHuman.includes('src/lib.js | risk: medium'));
 
-    const krSummary = runCliText(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'high', '--format', 'summary']);
+    const krSummary = await runCliInProcessText(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'high', '--format', 'summary']);
     assert.ok(krSummary.includes('Knowledge Risk (high): 1 / 1'));
 
-    const krMarkdown = runCliText(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'high', '--format', 'markdown']);
+    const krMarkdown = await runCliInProcessText(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'high', '--format', 'markdown']);
     assert.ok(krMarkdown.includes('# Query Knowledge Risk'));
 
-    const krJsonl = runCliText(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'high', '--format', 'jsonl']);
+    const krJsonl = await runCliInProcessText(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'high', '--format', 'jsonl']);
     const krJsonlLines = krJsonl.trim().split('\n');
     assert.strictEqual(krJsonlLines.length, 2);
     const krJsonlFirst = JSON.parse(krJsonlLines[0]);
@@ -185,7 +185,7 @@ function testQueryCommandsE2E() {
     assert.strictEqual(krJsonlSecond._type, 'knowledge-risk-item');
     assert.strictEqual(krJsonlSecond.file, 'src/index.js');
 
-    const krAi = runCliText(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'high', '--format', 'ai']);
+    const krAi = await runCliInProcessText(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'high', '--format', 'ai']);
     const krAiParsed = JSON.parse(krAi);
     assert.strictEqual(krAiParsed.counts?.knowledgeRisk, 1);
 
@@ -193,32 +193,32 @@ function testQueryCommandsE2E() {
      * query-stability tests
      * ========================================================================= */
     // A. Basic JSON query
-    const stJson = runCli(['query-stability', '--cwd', tempRoot, '--json']);
+    const stJson = await runCliInProcess(['query-stability', '--cwd', tempRoot, '--json']);
     assert.strictEqual(stJson.ok, true);
     assert.strictEqual(stJson.command, 'query-stability');
     assert.strictEqual(stJson.count, 2);
 
     // B. Assessment filter
-    const stFragile = runCli(['query-stability', '--cwd', tempRoot, '--assessment', 'fragile', '--json']);
+    const stFragile = await runCliInProcess(['query-stability', '--cwd', tempRoot, '--assessment', 'fragile', '--json']);
     assert.strictEqual(stFragile.count, 1);
     assert.strictEqual(stFragile.files[0].file, 'src/index.js');
 
     // C. Limit constraint
-    const stLimit = runCli(['query-stability', '--cwd', tempRoot, '--limit', '1', '--json']);
+    const stLimit = await runCliInProcess(['query-stability', '--cwd', tempRoot, '--limit', '1', '--json']);
     assert.strictEqual(stLimit.count, 1);
 
     // D. Formatters
-    const stHuman = runCliText(['query-stability', '--cwd', tempRoot, '--format', 'human']);
+    const stHuman = await runCliInProcessText(['query-stability', '--cwd', tempRoot, '--format', 'human']);
     assert.ok(stHuman.includes('stabilityCount: 2'));
     assert.ok(stHuman.includes('src/index.js | cc: 8 | loc: 100 | assessment: fragile'));
 
-    const stSummary = runCliText(['query-stability', '--cwd', tempRoot, '--format', 'summary']);
+    const stSummary = await runCliInProcessText(['query-stability', '--cwd', tempRoot, '--format', 'summary']);
     assert.ok(stSummary.includes('Stability: 2 / 2'));
 
-    const stMarkdown = runCliText(['query-stability', '--cwd', tempRoot, '--format', 'markdown']);
+    const stMarkdown = await runCliInProcessText(['query-stability', '--cwd', tempRoot, '--format', 'markdown']);
     assert.ok(stMarkdown.includes('# Query Stability'));
 
-    const stJsonl = runCliText(['query-stability', '--cwd', tempRoot, '--format', 'jsonl']);
+    const stJsonl = await runCliInProcessText(['query-stability', '--cwd', tempRoot, '--format', 'jsonl']);
     const stJsonlLines = stJsonl.trim().split('\n');
     assert.strictEqual(stJsonlLines.length, 3);
     const stJsonlFirst = JSON.parse(stJsonlLines[0]);
@@ -228,7 +228,7 @@ function testQueryCommandsE2E() {
     assert.strictEqual(stJsonlSecond._type, 'stability-item');
     assert.strictEqual(stJsonlSecond.file, 'src/index.js');
 
-    const stAi = runCliText(['query-stability', '--cwd', tempRoot, '--format', 'ai']);
+    const stAi = await runCliInProcessText(['query-stability', '--cwd', tempRoot, '--format', 'ai']);
     const stAiParsed = JSON.parse(stAi);
     assert.strictEqual(stAiParsed.counts?.stability, 2);
 
@@ -237,9 +237,9 @@ function testQueryCommandsE2E() {
   }
 }
 
-function main() {
+async function main() {
   try {
-    testQueryCommandsE2E();
+    await testQueryCommandsE2E();
   } finally {
     if (createdCacheDir) {
       cleanupTempDir(cacheDir);

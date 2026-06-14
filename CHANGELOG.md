@@ -8,6 +8,16 @@
 
 ## [Unreleased]
 
+### 迁移 CLI spawn 测试到 in-process runner (#21) (2026-06-14)
+
+- **问题**：约 44 个测试文件仍通过 `runCli`/`runCliRaw`/`runCliText` 走 `child_process.spawnSync`，CI 串行开销大、flaky 风险高；`runCliInProcess()` 已导出但迁移率低。
+- **修复**：
+  - `test/test-helpers.js` 新增 `runCliInProcess` / `runCliInProcessText` / `runCliInProcessRaw`，共享 `ServiceContainer` 并在 `--cwd` 非仓库根目录时自动回退到 spawn。
+  - `cli.js` 修复 `runCliInProcess` 对 `--help` 的输出（此前返回空 stdout，与真实 CLI 行为不一致）。
+  - 迁移 41 个测试文件到新的 in-process helper；保留 `repl` / `watch` / `audit-file --watch` / `cache-concurrency` / `cli-error-handling`（依赖进程级 config 隔离）/ `workspace-info-lightweight`（依赖轻量预检时间断言）等必须使用真实子进程的测试不变。
+  - 修复 `test/severity-filter-test.js` 中 `medium severity` 断言对低置信死导出的误判。
+- **验证**：`npm run test:fast` **116/116 PASS**；`npm run test:smoke` **119/119 PASS**。
+
 ### 增加 CI coverage gate (#22) (2026-06-14)
 
 - **问题**：`test:coverage` 脚本存在但 CI 不跑，无法防止覆盖率回归；缺少最低门槛时，新增未覆盖代码难以被及时发现。

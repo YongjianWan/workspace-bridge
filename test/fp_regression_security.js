@@ -5,7 +5,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { runCliRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcessRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 const tempDir = makeTempDir('wb-fp-sec-');
 
@@ -32,8 +32,8 @@ fs.writeFileSync(path.join(tempDir, 'test', 'fixture.py'), `password = 'fake_pas
 fs.writeFileSync(path.join(tempDir, 'src', 'app.js'), `const password = 'real_secret_12345678';\n`, 'utf8');
 
 // ---helpers-----------------------------------------------------------------
-function runAuditSecurity(cwd) {
-  return runCliRaw(['audit-security', '--cwd', cwd, '--builtin-only', '--json', '--quiet'], { cwd });
+async function runAuditSecurity(cwd) {
+  return runCliInProcessRaw(['audit-security', '--cwd', cwd, '--builtin-only', '--json', '--quiet'], { cwd });
 }
 
 function parseJsonSafe(result) {
@@ -43,8 +43,8 @@ function parseJsonSafe(result) {
 }
 
 // ---tests-------------------------------------------------------------------
-function testAssertDefenseSuppressesDangerousPatterns() {
-  const result = runAuditSecurity(tempDir);
+async function testAssertDefenseSuppressesDangerousPatterns() {
+  const result = await runAuditSecurity(tempDir);
   assert.strictEqual(result.status, 0, `CLI failed: ${result.stderr}`);
   const data = parseJsonSafe(result);
 
@@ -58,8 +58,8 @@ function testAssertDefenseSuppressesDangerousPatterns() {
   );
 }
 
-function testPlaceholderSecretsSuppressedInTestDirs() {
-  const result = runAuditSecurity(tempDir);
+async function testPlaceholderSecretsSuppressedInTestDirs() {
+  const result = await runAuditSecurity(tempDir);
   assert.strictEqual(result.status, 0, `CLI failed: ${result.stderr}`);
   const data = parseJsonSafe(result);
 
@@ -73,8 +73,8 @@ function testPlaceholderSecretsSuppressedInTestDirs() {
   );
 }
 
-function testRealSecretStillDetectedInSrc() {
-  const result = runAuditSecurity(tempDir);
+async function testRealSecretStillDetectedInSrc() {
+  const result = await runAuditSecurity(tempDir);
   assert.strictEqual(result.status, 0, `CLI failed: ${result.stderr}`);
   const data = parseJsonSafe(result);
 
@@ -91,8 +91,8 @@ function testRealSecretStillDetectedInSrc() {
   );
 }
 
-function testTotalFindingsConsistent() {
-  const result = runAuditSecurity(tempDir);
+async function testTotalFindingsConsistent() {
+  const result = await runAuditSecurity(tempDir);
   assert.strictEqual(result.status, 0, `CLI failed: ${result.stderr}`);
   const data = parseJsonSafe(result);
 
@@ -105,12 +105,12 @@ function testTotalFindingsConsistent() {
 }
 
 // ---main--------------------------------------------------------------------
-function main() {
+async function main() {
   try {
-    testAssertDefenseSuppressesDangerousPatterns();
-    testPlaceholderSecretsSuppressedInTestDirs();
-    testRealSecretStillDetectedInSrc();
-    testTotalFindingsConsistent();
+    await testAssertDefenseSuppressesDangerousPatterns();
+    await testPlaceholderSecretsSuppressedInTestDirs();
+    await testRealSecretStillDetectedInSrc();
+    await testTotalFindingsConsistent();
   } finally {
     cleanupTempDir(tempDir);
   }

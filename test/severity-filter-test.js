@@ -2,16 +2,16 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { runCliRaw, assertOk, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcessRaw, assertOk, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 const cwd = path.resolve(__dirname, '..');
 
-function run(args) {
-  return runCliRaw([...args, '--json', '--quiet'], { cwd });
+async function run(args) {
+  return await runCliInProcessRaw([...args, '--json', '--quiet'], { cwd });
 }
 
-function testAuditSummarySeverityHigh() {
-  const result = run(['audit-summary', '--severity', 'high']);
+async function testAuditSummarySeverityHigh() {
+  const result = await run(['audit-summary', '--severity', 'high']);
   assertOk(result, 'severity high should succeed');
   const data = JSON.parse(result.stdout);
   // If dead exports are returned, every single one must be high-confidence.
@@ -22,41 +22,48 @@ function testAuditSummarySeverityHigh() {
   assert.ok(allHigh, 'high severity filter should only include high-confidence dead exports');
 }
 
-function testAuditSummarySeverityMedium() {
+async function testAuditSummarySeverityMedium() {
   // Get total unfiltered count first so the test does not break when
   // new dead exports are added to the codebase.
-  const unfiltered = run(['audit-summary']);
+  const unfiltered = await run(['audit-summary']);
   assertOk(unfiltered, 'unfiltered audit-summary should succeed');
   const totalData = JSON.parse(unfiltered.stdout);
   const totalCount = totalData.deadExports.deadExportsCount;
 
-  const result = run(['audit-summary', '--severity', 'medium']);
+  const result = await run(['audit-summary', '--severity', 'medium']);
   assertOk(result, 'severity medium should succeed');
   const data = JSON.parse(result.stdout);
-  assert.strictEqual(
-    data.deadExports.deadExportsCount,
-    totalCount,
-    'medium severity filter should include all medium-confidence dead exports'
+  const mediumCount = data.deadExports.deadExportsCount;
+
+  // Medium filter includes medium+ confidence dead exports, so its count
+  // must not exceed the unfiltered count and must not include low-confidence
+  // items (the current codebase has one low-confidence dynamic-registry-export).
+  assert.ok(
+    mediumCount <= totalCount,
+    'medium severity count should not exceed unfiltered count'
   );
+  const deadExports = data.deadExports?.deadExports || [];
+  const noneLow = deadExports.every((d) => d.confidence !== 'low');
+  assert.ok(noneLow, 'medium severity filter should not include low-confidence dead exports');
 }
 
-function testInvalidSeverityValue() {
-  const result = runCliRaw(['audit-security', '--severity', 'invalid'], { cwd });
+async function testInvalidSeverityValue() {
+  const result = await runCliInProcessRaw(['audit-security', '--severity', 'invalid'], { cwd });
   assert.notStrictEqual(result.status, 0, 'invalid severity should exit non-zero');
   assert(result.stderr.includes('Invalid --severity value'), `stderr should contain error message, got: ${result.stderr}`);
 
-  const resultSummary = runCliRaw(['audit-summary', '--severity', 'invalid'], { cwd });
+  const resultSummary = await runCliInProcessRaw(['audit-summary', '--severity', 'invalid'], { cwd });
   assert.notStrictEqual(resultSummary.status, 0, 'invalid severity should exit non-zero for audit-summary');
   assert(resultSummary.stderr.includes('Invalid --severity value'), `stderr should contain error message, got: ${resultSummary.stderr}`);
 }
 
-function testAuditSecuritySeverityFilter() {
+async function testAuditSecuritySeverityFilter() {
   const tempDir = makeTempDir('wb-severity-');
   const tmpFile = path.join(tempDir, 'test-severity-temp.js');
   try {
     fs.writeFileSync(path.join(tempDir, 'package.json'), '{}'); // Dummy package.json
     fs.writeFileSync(tmpFile, `eval('1');\nconsole.log(password);\n`);
-    const result = runCliRaw(['audit-security', '--cwd', tempDir, '--builtin-only', '--severity', 'high', '--json', '--quiet'], { cwd: tempDir });
+    const result = await runCliInProcessRaw(['audit-security', '--cwd', tempDir, '--builtin-only', '--severity', 'high', '--json', '--quiet'], { cwd: tempDir });
     assertOk(result, 'audit-security severity filter should succeed');
     const data = JSON.parse(result.stdout);
     const highFindings = data.findings.filter((f) => f.severity === 'high');
@@ -67,11 +74,11 @@ function testAuditSecuritySeverityFilter() {
   }
 }
 
-function main() {
-  testAuditSummarySeverityHigh();
-  testAuditSummarySeverityMedium();
-  testInvalidSeverityValue();
-  testAuditSecuritySeverityFilter();
+async function main() {
+  await testAuditSummarySeverityHigh();
+  await testAuditSummarySeverityMedium();
+  await testInvalidSeverityValue();
+  await testAuditSecuritySeverityFilter();
 }
 
 main();

@@ -4,15 +4,15 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { runCliRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcessRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
-function testInvalidConfigJsonExits1() {
+async function testInvalidConfigJsonExits1() {
   const tempRoot = makeTempDir('wb-config-');
   try {
     fs.writeFileSync(path.join(tempRoot, 'package.json'), JSON.stringify({ name: 'cfg', version: '1.0.0' }), 'utf8');
     fs.writeFileSync(path.join(tempRoot, '.workspace-bridge.json'), 'this is not json', 'utf8');
 
-    const result = runCliRaw(['audit-summary', '--cwd', tempRoot, '--json', '--quiet']);
+    const result = await runCliInProcessRaw(['audit-summary', '--cwd', tempRoot, '--json', '--quiet']);
     assert.strictEqual(result.status, 1, 'invalid config should exit 1');
     const stdout = result.stdout || '';
     assert(stdout.trim().startsWith('{'), 'should output JSON to stdout');
@@ -25,8 +25,8 @@ function testInvalidConfigJsonExits1() {
   }
 }
 
-function main() {
-  testInvalidConfigJsonExits1();
+async function main() {
+  await testInvalidConfigJsonExits1();
   console.log('cli-config-error-test.js: all passed');
 }
 

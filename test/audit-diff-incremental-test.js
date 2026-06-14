@@ -9,13 +9,13 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const { runCliRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcessRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { execSync } = require('child_process');
 
 let tempDir;
 
-function run(args) {
-  return runCliRaw([...args, '--cwd', tempDir], { cwd: tempDir });
+async function run(args) {
+  return runCliInProcessRaw([...args, '--cwd', tempDir], { cwd: tempDir });
 }
 
 function setupTempRepo() {
@@ -49,8 +49,8 @@ function parseJsonOutput(stdout) {
   }
 }
 
-function testIncrementalSchema() {
-  const result = run(['audit-diff', '--incremental', '--json', '--quiet']);
+async function testIncrementalSchema() {
+  const result = await run(['audit-diff', '--incremental', '--json', '--quiet']);
   const output = parseJsonOutput(result.stdout);
 
   assert(output, `Should produce JSON output. stdout: ${result.stdout}, stderr: ${result.stderr}`);
@@ -72,9 +72,9 @@ function testIncrementalSchema() {
   assert.strictEqual(inc.cyclesCount, inc.cycles.length, 'cyclesCount must equal cycles.length');
 }
 
-function testIncrementalVsFull() {
-  const incResult = run(['audit-diff', '--incremental', '--json', '--quiet']);
-  const fullResult = run(['audit-diff', '--json', '--quiet']);
+async function testIncrementalVsFull() {
+  const incResult = await run(['audit-diff', '--incremental', '--json', '--quiet']);
+  const fullResult = await run(['audit-diff', '--json', '--quiet']);
 
   const incOutput = parseJsonOutput(incResult.stdout);
   const fullOutput = parseJsonOutput(fullResult.stdout);
@@ -98,8 +98,8 @@ function testIncrementalVsFull() {
   }
 }
 
-function testIncrementalFiltering() {
-  const result = run(['audit-diff', '--incremental', '--json', '--quiet']);
+async function testIncrementalFiltering() {
+  const result = await run(['audit-diff', '--incremental', '--json', '--quiet']);
   const output = parseJsonOutput(result.stdout);
 
   assert(output && output.ok, 'Should succeed');
@@ -116,21 +116,21 @@ function testIncrementalFiltering() {
   }
 }
 
-function testIncrementalWithFiles() {
-  const result = run(['audit-diff', '--incremental', '--files', 'index.js', '--json', '--quiet']);
+async function testIncrementalWithFiles() {
+  const result = await run(['audit-diff', '--incremental', '--files', 'index.js', '--json', '--quiet']);
   const output = parseJsonOutput(result.stdout);
   assert(output && output.ok, 'Incremental with --files should succeed');
   assert.strictEqual(output.incremental, true);
   assert(output.incrementalFindings, 'Should include incrementalFindings');
 }
 
-function main() {
+async function main() {
   setupTempRepo();
   try {
-    testIncrementalSchema();
-    testIncrementalVsFull();
-    testIncrementalFiltering();
-    testIncrementalWithFiles();
+    await testIncrementalSchema();
+    await testIncrementalVsFull();
+    await testIncrementalFiltering();
+    await testIncrementalWithFiles();
   } finally {
     cleanupTempDir(tempDir);
   }

@@ -3,9 +3,9 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { runCli, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcess, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
-function main() {
+async function main() {
   const dir = makeTempDir('wb-gors-');
   const write = (rel, content) => {
     const full = path.join(dir, rel);
@@ -30,8 +30,8 @@ function main() {
   write('src/lib.rs', 'pub fn hello() -> String { String::from("hello") }\n');
 
   try {
-    const s = runCli(['audit-summary', '--cwd', dir, '--json', '--quiet']);
-    const d = runCli(['audit-diff', '--cwd', dir, '--json', '--quiet']);
+    const s = await runCliInProcess(['audit-summary', '--cwd', dir, '--json', '--quiet']);
+    const d = await runCliInProcess(['audit-diff', '--cwd', dir, '--json', '--quiet']);
 
     assert.strictEqual(s.ok, true);
     assert(s.scope.counts.totalFiles >= 4, `expected >=4 files, got ${s.scope.counts.totalFiles}`);

@@ -7,7 +7,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { makeTempDir, cleanupTempDir, runCliRaw } = require('./test-helpers');
+const { makeTempDir, cleanupTempDir, runCliInProcessRaw } = require('./test-helpers');
 
 function setupProject(root) {
   fs.mkdirSync(path.join(root, 'src', 'views'), { recursive: true });
@@ -31,7 +31,7 @@ async function testExcludeForwardSlash() {
   const root = makeTempDir('wb-exclude-fwd-');
   setupProject(root);
 
-  const result = runCliRaw(['audit-summary', '--json', '--quiet', '--cwd', root, '--exclude', 'src/views']);
+  const result = await runCliInProcessRaw(['audit-summary', '--json', '--quiet', '--cwd', root, '--exclude', 'src/views']);
   assert.strictEqual(result.status, 0, `CLI failed: ${result.stderr?.slice(0, 200)}`);
   const parsed = getParsedFiles(result);
   assert.strictEqual(parsed, 2, `Forward-slash exclude should leave 2 files, got ${parsed}`);
@@ -43,8 +43,8 @@ async function testExcludeBackslashMatchesForwardSlash() {
   const root = makeTempDir('wb-exclude-bk-');
   setupProject(root);
 
-  const fwd = runCliRaw(['audit-summary', '--json', '--quiet', '--cwd', root, '--exclude', 'src/views']);
-  const bwd = runCliRaw(['audit-summary', '--json', '--quiet', '--cwd', root, '--exclude', 'src\\views']);
+  const fwd = await runCliInProcessRaw(['audit-summary', '--json', '--quiet', '--cwd', root, '--exclude', 'src/views']);
+  const bwd = await runCliInProcessRaw(['audit-summary', '--json', '--quiet', '--cwd', root, '--exclude', 'src\\views']);
   assert.strictEqual(fwd.status, 0, `Forward-slash CLI failed: ${fwd.stderr?.slice(0, 200)}`);
   assert.strictEqual(bwd.status, 0, `Backslash CLI failed: ${bwd.stderr?.slice(0, 200)}`);
 
@@ -63,8 +63,8 @@ async function testExcludeGlobBackslashConsistent() {
   const root = makeTempDir('wb-exclude-glob-');
   setupProject(root);
 
-  const fwd = runCliRaw(['audit-summary', '--json', '--quiet', '--cwd', root, '--exclude', 'src/views/*.js']);
-  const bwd = runCliRaw(['audit-summary', '--json', '--quiet', '--cwd', root, '--exclude', 'src\\views\\*.js']);
+  const fwd = await runCliInProcessRaw(['audit-summary', '--json', '--quiet', '--cwd', root, '--exclude', 'src/views/*.js']);
+  const bwd = await runCliInProcessRaw(['audit-summary', '--json', '--quiet', '--cwd', root, '--exclude', 'src\\views\\*.js']);
   assert.strictEqual(fwd.status, 0, `Forward-slash glob CLI failed: ${fwd.stderr?.slice(0, 200)}`);
   assert.strictEqual(bwd.status, 0, `Backslash glob CLI failed: ${bwd.stderr?.slice(0, 200)}`);
 
@@ -84,7 +84,7 @@ async function testExcludeMixedSeparators() {
   setupProject(root);
 
   // Mixed separator in a single directory name should still normalize correctly
-  const result = runCliRaw(['audit-summary', '--json', '--quiet', '--cwd', root, '--exclude', 'src\\components']);
+  const result = await runCliInProcessRaw(['audit-summary', '--json', '--quiet', '--cwd', root, '--exclude', 'src\\components']);
   assert.strictEqual(result.status, 0, `CLI failed: ${result.stderr?.slice(0, 200)}`);
   const parsed = getParsedFiles(result);
   assert.strictEqual(parsed, 2, `Mixed-separator exclude should leave 2 files, got ${parsed}`);

@@ -7,9 +7,9 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const { runCli, runCliText, runInDir, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcess, runCliInProcessText, runInDir, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
-function testPolyglotImpact() {
+async function testPolyglotImpact() {
   const tempRoot = makeTempDir('wb-cli-polyglot-');
   const write = (rel, content) => {
     const full = path.join(tempRoot, rel);
@@ -37,7 +37,7 @@ function testPolyglotImpact() {
   write('api/util.py', 'def helper():\n    return 2\n');
   write('src/main/java/com/example/Util.java', 'package com.example;\npublic class Util { public static int value() { return 2; } }\n');
 
-  const polyDiff = runCli(['audit-diff', '--cwd', tempRoot, '--json', '--quiet']);
+  const polyDiff = await runCliInProcess(['audit-diff', '--cwd', tempRoot, '--json', '--quiet']);
   assert.strictEqual(polyDiff.ok, true);
   assert(Array.isArray(polyDiff.changedFiles));
   const byFile = new Map(polyDiff.changedFiles.map((entry) => [entry.file.replace(/\\/g, '/'), entry]));
@@ -95,7 +95,7 @@ function testPolyglotImpact() {
   cleanupTempDir(tempRoot);
 }
 
-function testNonAsciiPaths() {
+async function testNonAsciiPaths() {
   const tempRoot = makeTempDir('wb-cli-cn-');
   const write = (rel, content) => {
     const full = path.join(tempRoot, rel);
@@ -106,15 +106,15 @@ function testNonAsciiPaths() {
   write('src/模块.js', 'export function 你好() { return 42; }\n');
   write('src/index.js', 'import { 你好 } from "./模块";\nexport function main() { return 你好(); }\n');
 
-  const cnUnresolved = runCli(['unresolved', '--cwd', tempRoot, '--json', '--quiet']);
-  const cnImpact = runCli(['impact', '--cwd', tempRoot, '--file', 'src/模块.js', '--json', '--quiet']);
+  const cnUnresolved = await runCliInProcess(['unresolved', '--cwd', tempRoot, '--json', '--quiet']);
+  const cnImpact = await runCliInProcess(['impact', '--cwd', tempRoot, '--file', 'src/模块.js', '--json', '--quiet']);
   assert.strictEqual(cnUnresolved.unresolvedCount, 0);
   assert.strictEqual(cnImpact.impactCount, 1);
 
   cleanupTempDir(tempRoot);
 }
 
-function testHeuristicTestMapping() {
+async function testHeuristicTestMapping() {
   const tempRoot = makeTempDir('wb-cli-heuristic-');
   const write = (rel, content) => {
     const full = path.join(tempRoot, rel);
@@ -125,13 +125,13 @@ function testHeuristicTestMapping() {
   write('src/order-service.js', 'export function calc() { return 1; }\n');
   write('test/order-service.test.js', 'describe("order", () => { it("ok", () => {}); });\n');
 
-  const affected = runCli(['affected-tests', '--cwd', tempRoot, '--file', 'src/order-service.js', '--json', '--quiet']);
+  const affected = await runCliInProcess(['affected-tests', '--cwd', tempRoot, '--file', 'src/order-service.js', '--json', '--quiet']);
   assert(affected.affectedTestsCount >= 1, 'heuristic mapping should find same-stem test file');
 
   cleanupTempDir(tempRoot);
 }
 
-function testAffectedTestsChain() {
+async function testAffectedTestsChain() {
   const tempRoot = makeTempDir('wb-cli-affected-via-');
   const write = (rel, content) => {
     const full = path.join(tempRoot, rel);
@@ -143,17 +143,17 @@ function testAffectedTestsChain() {
   write('src/mid.js', 'import { helper } from "./lib.js";\nexport function mid() { return helper(); }\n');
   write('test/mid.test.js', 'import { mid } from "../src/mid.js";\ndescribe("mid", () => { it("works", () => {}); });\n');
 
-  const text = runCliText(['affected-tests', '--cwd', tempRoot, '--file', 'src/lib.js']);
+  const text = await runCliInProcessText(['affected-tests', '--cwd', tempRoot, '--file', 'src/lib.js']);
   assert(text.includes('via'), `affected-tests human-readable should show via chain, got:\n${text}`);
 
   cleanupTempDir(tempRoot);
 }
 
-function main() {
-  testPolyglotImpact();
-  testNonAsciiPaths();
-  testHeuristicTestMapping();
-  testAffectedTestsChain();
+async function main() {
+  await testPolyglotImpact();
+  await testNonAsciiPaths();
+  await testHeuristicTestMapping();
+  await testAffectedTestsChain();
 }
 
 main();

@@ -3,9 +3,9 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const { runCliRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcessRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
-function main() {
+async function main() {
   const tmpDir = makeTempDir('wb-init-');
   fs.mkdirSync(path.join(tmpDir, 'node_modules'), { recursive: true });
   fs.mkdirSync(path.join(tmpDir, 'dist'), { recursive: true });
@@ -15,7 +15,7 @@ function main() {
 
   try {
     // 1. Basic init succeeds and classifies directories correctly
-    const result = runCliRaw(['init', '--cwd', tmpDir, '--json'], { cwd: tmpDir });
+    const result = await runCliInProcessRaw(['init', '--cwd', tmpDir, '--json'], { cwd: tmpDir });
     assert.strictEqual(result.status, 0, result.stderr || result.stdout);
     const parsed = JSON.parse(result.stdout);
     assert.strictEqual(parsed.ok, true);
@@ -37,7 +37,7 @@ function main() {
     assert(gitignore.includes('cache.db'), '.gitignore should include cache.db');
 
     // 3. Duplicate init fails
-    const dup = runCliRaw(['init', '--cwd', tmpDir, '--json'], { cwd: tmpDir });
+    const dup = await runCliInProcessRaw(['init', '--cwd', tmpDir, '--json'], { cwd: tmpDir });
     assert.strictEqual(dup.status, 1, 'init should exit with code 1 when config already exists');
     const dupParsed = JSON.parse(dup.stdout);
     assert.strictEqual(dupParsed.ok, false);
@@ -45,7 +45,7 @@ function main() {
 
     // 4. Re-init after deleting config should not duplicate gitignore entries
     fs.unlinkSync(path.join(tmpDir, '.workspace-bridge.json'));
-    const reinit = runCliRaw(['init', '--cwd', tmpDir, '--json'], { cwd: tmpDir });
+    const reinit = await runCliInProcessRaw(['init', '--cwd', tmpDir, '--json'], { cwd: tmpDir });
     assert.strictEqual(reinit.status, 0, reinit.stderr || reinit.stdout);
     const reinitParsed = JSON.parse(reinit.stdout);
     assert.strictEqual(reinitParsed.gitignoreUpdated, false, 'gitignore should not be updated when entries already exist');
@@ -54,7 +54,7 @@ function main() {
     assert.strictEqual(occurrences, 1, 'cache entry should not be duplicated in .gitignore');
 
     // 5. Init with invalid option fails
-    const invalidOpt = runCliRaw(['init', '--cwd', tmpDir, '--invalid-option-xyz', '--json'], { cwd: tmpDir });
+    const invalidOpt = await runCliInProcessRaw(['init', '--cwd', tmpDir, '--invalid-option-xyz', '--json'], { cwd: tmpDir });
     assert.strictEqual(invalidOpt.status, 1, 'should exit 1 for invalid option');
     assert(invalidOpt.stdout.includes('Unknown argument') || invalidOpt.stderr.includes('Unknown argument'), 'should surface unknown option error');
   } finally {

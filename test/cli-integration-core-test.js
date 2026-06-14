@@ -7,7 +7,7 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const { runCli, runCliRaw, makeTempDir, cleanupTempDir, runInDir } = require('./test-helpers');
+const { runCliInProcess, runCliInProcessRaw, makeTempDir, cleanupTempDir, runInDir } = require('./test-helpers');
 
 function writeFile(root, rel, content) {
   const full = path.join(root, rel);
@@ -23,7 +23,7 @@ function initGit(root) {
   runInDir('git', ['commit', '-m', 'init'], root);
 }
 
-function testAuditFileDeep() {
+async function testAuditFileDeep() {
   const tempRoot = makeTempDir('wb-cli-audit-file-');
   try {
     writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'af-test', version: '1.0.0', main: 'src/app.js' }, null, 2));
@@ -32,7 +32,7 @@ function testAuditFileDeep() {
     writeFile(tempRoot, 'test/app.test.js', 'import { run } from "../src/app";\nexport function t() { return run(); }\n');
     initGit(tempRoot);
 
-    const result = runCli(['audit-file', '--cwd', tempRoot, '--file', 'src/util.js', '--json', '--quiet']);
+    const result = await runCliInProcess(['audit-file', '--cwd', tempRoot, '--file', 'src/util.js', '--json', '--quiet']);
     assert(Number.isFinite(result.impact?.impactCount), 'audit-file should return impact.impactCount');
     assert(result.impact.impactCount >= 1, 'util.js should have at least 1 dependent');
     assert(Number.isFinite(result.affectedTests?.affectedTestsCount), 'audit-file should return affectedTests.affectedTestsCount');
@@ -43,7 +43,7 @@ function testAuditFileDeep() {
   }
 }
 
-function testAuditFileCustomRunnerValidationAdvice() {
+async function testAuditFileCustomRunnerValidationAdvice() {
   const tempRoot = makeTempDir('wb-cli-custom-runner-');
   try {
     // No jest/vitest/mocha config => detectStack returns 'custom' testRunner
@@ -52,7 +52,7 @@ function testAuditFileCustomRunnerValidationAdvice() {
     writeFile(tempRoot, 'test/app.test.js', 'import { run } from "../src/app";\nexport function t() { return run(); }\n');
     initGit(tempRoot);
 
-    const result = runCli(['audit-file', '--cwd', tempRoot, '--file', 'src/app.js', '--json', '--quiet']);
+    const result = await runCliInProcess(['audit-file', '--cwd', tempRoot, '--file', 'src/app.js', '--json', '--quiet']);
     const advice = result.validationAdvice;
     assert(advice, 'audit-file should return validationAdvice');
     // Custom runner must NOT produce meaningless 'npx custom <files>'
@@ -75,7 +75,7 @@ function testAuditFileCustomRunnerValidationAdvice() {
   }
 }
 
-function testDeadExports() {
+async function testDeadExports() {
   const tempRoot = makeTempDir('wb-cli-dead-exports-');
   try {
     writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'de-test', version: '1.0.0', main: 'src/index.js' }, null, 2));
@@ -83,7 +83,7 @@ function testDeadExports() {
     writeFile(tempRoot, 'src/index.js', 'import { used } from "./lib";\nconsole.log(used());\n');
     initGit(tempRoot);
 
-    const result = runCli(['dead-exports', '--cwd', tempRoot, '--json', '--quiet']);
+    const result = await runCliInProcess(['dead-exports', '--cwd', tempRoot, '--json', '--quiet']);
     assert(Number.isFinite(result.deadExportsCount), 'dead-exports should return deadExportsCount');
     assert(result.deadExportsCount >= 1, 'should find at least 1 dead export');
     const found = result.deadExports?.find((d) => path.basename(d.file) === 'lib.js');
@@ -96,7 +96,7 @@ function testDeadExports() {
   }
 }
 
-function testTree() {
+async function testTree() {
   const tempRoot = makeTempDir('wb-cli-tree-');
   try {
     writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'tree-test', version: '1.0.0', main: 'src/a.js' }, null, 2));
@@ -104,7 +104,7 @@ function testTree() {
     writeFile(tempRoot, 'src/b/c.js', 'export const c = 1;\n');
     initGit(tempRoot);
 
-    const result = runCli(['tree', '--cwd', tempRoot, '--file', 'src/a.js', '--json', '--quiet']);
+    const result = await runCliInProcess(['tree', '--cwd', tempRoot, '--file', 'src/a.js', '--json', '--quiet']);
     assert(result.tree && typeof result.tree === 'object', 'tree should return a tree object');
     assert(Array.isArray(result.tree.imports), 'tree.imports should be an array');
     assert(result.tree.imports.length >= 1, 'tree should have at least one import');
@@ -114,7 +114,7 @@ function testTree() {
   }
 }
 
-function testImpactDepth() {
+async function testImpactDepth() {
   const tempRoot = makeTempDir('wb-cli-impact-');
   try {
     writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'impact-test', version: '1.0.0', main: 'src/a.js' }, null, 2));
@@ -124,20 +124,20 @@ function testImpactDepth() {
     writeFile(tempRoot, 'src/d.js', 'export function d() { return 1; }\n');
     initGit(tempRoot);
 
-    const d1 = runCli(['impact', '--cwd', tempRoot, '--file', 'src/d.js', '--max-depth', '1', '--json', '--quiet']);
+    const d1 = await runCliInProcess(['impact', '--cwd', tempRoot, '--file', 'src/d.js', '--max-depth', '1', '--json', '--quiet']);
     assert.strictEqual(d1.impactCount, 1, 'depth 1 should show only direct dependent (c)');
 
-    const d2 = runCli(['impact', '--cwd', tempRoot, '--file', 'src/d.js', '--max-depth', '2', '--json', '--quiet']);
+    const d2 = await runCliInProcess(['impact', '--cwd', tempRoot, '--file', 'src/d.js', '--max-depth', '2', '--json', '--quiet']);
     assert.strictEqual(d2.impactCount, 2, 'depth 2 should show c and b');
 
-    const d3 = runCli(['impact', '--cwd', tempRoot, '--file', 'src/d.js', '--max-depth', '3', '--json', '--quiet']);
+    const d3 = await runCliInProcess(['impact', '--cwd', tempRoot, '--file', 'src/d.js', '--max-depth', '3', '--json', '--quiet']);
     assert.strictEqual(d3.impactCount, 3, 'depth 3 should show c, b, and a');
   } finally {
     cleanupTempDir(tempRoot);
   }
 }
 
-function testAffectedTests() {
+async function testAffectedTests() {
   const tempRoot = makeTempDir('wb-cli-affected-tests-');
   try {
     writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'at-test', version: '1.0.0', main: 'src/app.js' }, null, 2));
@@ -146,7 +146,7 @@ function testAffectedTests() {
     writeFile(tempRoot, 'test/app.test.js', 'import { run } from "../src/app";\nexport function t() { return run(); }\n');
     initGit(tempRoot);
 
-    const result = runCli(['affected-tests', '--cwd', tempRoot, '--file', 'src/util.js', '--json', '--quiet']);
+    const result = await runCliInProcess(['affected-tests', '--cwd', tempRoot, '--file', 'src/util.js', '--json', '--quiet']);
     assert(Number.isFinite(result.affectedTestsCount), 'affected-tests should return affectedTestsCount');
     assert(result.affectedTestsCount >= 1, 'src/util.js should affect at least 1 test');
     assert(
@@ -158,7 +158,7 @@ function testAffectedTests() {
   }
 }
 
-function testDependencies() {
+async function testDependencies() {
   const tempRoot = makeTempDir('wb-cli-dependencies-');
   try {
     writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'dep-test', version: '1.0.0', main: 'src/app.js' }, null, 2));
@@ -166,7 +166,7 @@ function testDependencies() {
     writeFile(tempRoot, 'src/app.js', 'import { x } from "./lib";\nexport const y = x;\n');
     initGit(tempRoot);
 
-    const result = runCli(['dependencies', '--cwd', tempRoot, '--file', 'src/app.js', '--json', '--quiet']);
+    const result = await runCliInProcess(['dependencies', '--cwd', tempRoot, '--file', 'src/app.js', '--json', '--quiet']);
     assert(Array.isArray(result.dependencies), 'dependencies should return an array');
     assert(result.dependencies.length >= 1, 'src/app.js should have at least 1 dependency');
     assert(
@@ -178,7 +178,7 @@ function testDependencies() {
   }
 }
 
-function testDependents() {
+async function testDependents() {
   const tempRoot = makeTempDir('wb-cli-dependents-');
   try {
     writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'dent-test', version: '1.0.0', main: 'src/app.js' }, null, 2));
@@ -186,7 +186,7 @@ function testDependents() {
     writeFile(tempRoot, 'src/app.js', 'import { x } from "./lib";\nexport const y = x;\n');
     initGit(tempRoot);
 
-    const result = runCli(['dependents', '--cwd', tempRoot, '--file', 'src/lib.js', '--json', '--quiet']);
+    const result = await runCliInProcess(['dependents', '--cwd', tempRoot, '--file', 'src/lib.js', '--json', '--quiet']);
     assert(Array.isArray(result.dependents), 'dependents should return an array');
     assert(result.dependents.length >= 1, 'src/lib.js should have at least 1 dependent');
     assert(
@@ -198,7 +198,7 @@ function testDependents() {
   }
 }
 
-function testCycles() {
+async function testCycles() {
   const tempRoot = makeTempDir('wb-cli-cycles-');
   try {
     writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'cycle-test', version: '1.0.0', main: 'src/a.js' }, null, 2));
@@ -207,7 +207,7 @@ function testCycles() {
     writeFile(tempRoot, 'src/c.js', 'import { a } from "./a";\nexport function c() { return a(); }\n');
     initGit(tempRoot);
 
-    const result = runCli(['cycles', '--cwd', tempRoot, '--json', '--quiet']);
+    const result = await runCliInProcess(['cycles', '--cwd', tempRoot, '--json', '--quiet']);
     assert(Number.isFinite(result.cyclesCount), 'cycles should return cyclesCount');
     assert(result.cyclesCount >= 1, 'should detect at least 1 cycle in a→b→c→a');
     assert(Array.isArray(result.cycles), 'cycles should return an array of cycles');
@@ -221,16 +221,16 @@ function testCycles() {
   }
 }
 
-function main() {
-  testAuditFileDeep();
-  testAuditFileCustomRunnerValidationAdvice();
-  testDeadExports();
-  testTree();
-  testImpactDepth();
-  testAffectedTests();
-  testDependencies();
-  testDependents();
-  testCycles();
+async function main() {
+  await testAuditFileDeep();
+  await testAuditFileCustomRunnerValidationAdvice();
+  await testDeadExports();
+  await testTree();
+  await testImpactDepth();
+  await testAffectedTests();
+  await testDependencies();
+  await testDependents();
+  await testCycles();
   console.log('cli-integration-core-test.js: all passed');
 }
 

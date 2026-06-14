@@ -181,6 +181,77 @@ async function runCliTextInProcess(args, opts = {}) {
 }
 
 /**
+ * Run CLI in-process and return the full result without asserting status.
+ * Falls back to spawn-based runCliRaw when a non-repo cwd is requested,
+ * because the shared ServiceContainer is initialized against REPO_ROOT.
+ *
+ * @param {string[]} args
+ * @param {{cwd?: string, cacheDir?: string, timeout?: number, env?: object, maxBuffer?: number}} [opts]
+ * @returns {Promise<{status: number, stdout: string, stderr: string}>}
+ */
+async function runCliInProcessRaw(args, opts = {}) {
+  let cwd = opts.cwd || REPO_ROOT;
+  const cwdIdx = args.indexOf('--cwd');
+  if (cwdIdx >= 0 && cwdIdx + 1 < args.length) {
+    cwd = args[cwdIdx + 1];
+  }
+  if (path.resolve(cwd) !== path.resolve(REPO_ROOT)) {
+    return runCliRaw(args, opts);
+  }
+  const { runCliInProcess } = require('../cli');
+  const injected = _injectCacheDir(args);
+  const cacheDir =
+    opts.cacheDir ||
+    (injected.includes('--cache-dir') ? injected[injected.indexOf('--cache-dir') + 1] : null);
+  const container = await _getSharedContainer(cacheDir);
+  return runCliInProcess(injected, { container });
+}
+
+/**
+ * Run CLI in-process and return parsed JSON (asserts exit status 0).
+ * Falls back to spawn-based runCli when a non-repo cwd is requested.
+ *
+ * @param {string[]} args
+ * @param {{cwd?: string, cacheDir?: string, timeout?: number, env?: object, maxBuffer?: number}} [opts]
+ * @returns {Promise<any>}
+ */
+async function runCliInProcess(args, opts = {}) {
+  const result = await runCliInProcessRaw(args, opts);
+  assert.strictEqual(
+    result.status,
+    0,
+    `CLI in-process exited ${result.status}\nstderr: ${result.stderr || ''}\nstdout: ${result.stdout || ''}`.slice(0, 800)
+  );
+  let stdout = result.stdout;
+  if (stdout && stdout.startsWith('\ufeff')) {
+    stdout = stdout.slice(1);
+  }
+  try {
+    return JSON.parse(stdout);
+  } catch (e) {
+    throw new Error(`Failed to parse CLI stdout as JSON:\n${result.stdout?.slice(0, 500)}\n${e.message}`);
+  }
+}
+
+/**
+ * Run CLI in-process and return raw stdout text (asserts exit status 0).
+ * Falls back to spawn-based runCliText when a non-repo cwd is requested.
+ *
+ * @param {string[]} args
+ * @param {{cwd?: string, cacheDir?: string, timeout?: number, env?: object, maxBuffer?: number}} [opts]
+ * @returns {Promise<string>}
+ */
+async function runCliInProcessText(args, opts = {}) {
+  const result = await runCliInProcessRaw(args, opts);
+  assert.strictEqual(
+    result.status,
+    0,
+    `CLI in-process exited ${result.status}\nstderr: ${result.stderr || ''}\nstdout: ${result.stdout || ''}`.slice(0, 800)
+  );
+  return result.stdout;
+}
+
+/**
  * Shut down the shared ServiceContainer used by in-process runners.
  * Call after all in-process tests finish.
  */
@@ -824,6 +895,9 @@ module.exports = {
   runCliText,
   runCliRaw,
   runCliTextInProcess,
+  runCliInProcess,
+  runCliInProcessText,
+  runCliInProcessRaw,
   shutdownSharedContainer,
   runInDir,
   makeTempDir,

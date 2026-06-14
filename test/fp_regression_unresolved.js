@@ -5,7 +5,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { runCliRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliInProcessRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 const tempDir = makeTempDir('wb-fp-unres-');
 
@@ -58,8 +58,8 @@ public class B {}
 );
 
 // ---helpers-----------------------------------------------------------------
-function runUnresolved(cwd) {
-  return runCliRaw(['unresolved', '--cwd', cwd, '--json', '--quiet'], { cwd });
+async function runUnresolved(cwd) {
+  return runCliInProcessRaw(['unresolved', '--cwd', cwd, '--json', '--quiet'], { cwd });
 }
 
 function parseJsonSafe(result) {
@@ -69,8 +69,8 @@ function parseJsonSafe(result) {
 }
 
 // ---tests-------------------------------------------------------------------
-function testUnresolvedImports() {
-  const result = runUnresolved(tempDir);
+async function testUnresolvedImports() {
+  const result = await runUnresolved(tempDir);
   assert.strictEqual(result.status, 0, `CLI failed: ${result.stderr}`);
   const data = parseJsonSafe(result);
 
@@ -117,9 +117,9 @@ function testUnresolvedImports() {
 }
 
 // ---main--------------------------------------------------------------------
-function main() {
+async function main() {
   try {
-    testUnresolvedImports();
+    await testUnresolvedImports();
   } finally {
     cleanupTempDir(tempDir);
   }

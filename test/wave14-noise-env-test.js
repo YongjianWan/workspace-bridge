@@ -9,7 +9,7 @@ const { parseCliArgs } = require('../src/cli/validate-args');
 const { GraphAnalyzer } = require('../src/services/dep-graph/analyzer');
 const { DependencyGraph } = require('../src/services/dep-graph');
 const { ProjectContext } = require('../src/utils/project-context');
-const { runCliRaw } = require('./test-helpers');
+const { runCliInProcessRaw } = require('./test-helpers');
 
 /* -------------------------------------------------------------------------- */
 // Test 1: ignore.findings 过滤 dead-exports
@@ -64,14 +64,14 @@ function testIgnoreFindingsUnresolved() {
 /* -------------------------------------------------------------------------- */
 // Test 3: --mark-false-positive 端到端
 /* -------------------------------------------------------------------------- */
-function testMarkFalsePositiveEndToEnd() {
+async function testMarkFalsePositiveEndToEnd() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-test-mfp-'));
   try {
     const configPath = path.join(tmpDir, '.workspace-bridge.json');
     fs.writeFileSync(configPath, JSON.stringify({ ignore: { findings: [] } }, null, 2), 'utf8');
 
     // Mark a false positive
-    const markResult = runCliRaw(['--cwd', tmpDir, '--mark-false-positive', 'dead-export:fake.js']);
+    const markResult = await runCliInProcessRaw(['--cwd', tmpDir, '--mark-false-positive', 'dead-export:fake.js']);
     assert.strictEqual(markResult.status, 0, `markFalsePositive failed: ${markResult.stderr}`);
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -180,13 +180,13 @@ function testIgnoreFrameworks() {
 /* -------------------------------------------------------------------------- */
 // Test 7: 配置来源报告细化
 /* -------------------------------------------------------------------------- */
-function testConfigOriginReport() {
+async function testConfigOriginReport() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-test-origin-'));
   try {
     const configPath = path.join(tmpDir, '.workspace-bridge.json');
     fs.writeFileSync(configPath, JSON.stringify({ ignore: { paths: ['dist'] } }, null, 2), 'utf8');
 
-    const result = runCliRaw(['--cwd', tmpDir, '--strict-cwd', '--json', 'audit-overview']);
+    const result = await runCliInProcessRaw(['--cwd', tmpDir, '--strict-cwd', '--json', 'audit-overview']);
     const status = result.status ?? (result.signal ? 1 : 0);
     assert.strictEqual(status, 0, `CLI failed: status=${result.status} signal=${result.signal} stderr=${result.stderr}`);
     const stderr = result.stderr || '';
@@ -245,17 +245,21 @@ const tests = [
   testIgnoreFindingsDynamicCache,
 ];
 
-let passed = 0;
-let failed = 0;
-for (const t of tests) {
-  try {
-    t();
-    passed++;
-    console.log(`  PASS ${t.name}`);
-  } catch (err) {
-    failed++;
-    console.error(`  FAIL ${t.name}: ${err.message}`);
+async function main() {
+  let passed = 0;
+  let failed = 0;
+  for (const t of tests) {
+    try {
+      await t();
+      passed++;
+      console.log(`  PASS ${t.name}`);
+    } catch (err) {
+      failed++;
+      console.error(`  FAIL ${t.name}: ${err.message}`);
+    }
   }
+  console.log(`\n${passed}/${tests.length} passed`);
+  if (failed > 0) process.exit(1);
 }
-console.log(`\n${passed}/${tests.length} passed`);
-if (failed > 0) process.exit(1);
+
+main();

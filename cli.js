@@ -300,7 +300,21 @@ async function runCliInProcess(args, opts = {}) {
   }
 
   if (parsed.help || !parsed.command) {
-    return { status: 0, stdout: '', stderr: '' };
+    let output = '';
+    const originalLog = console.log;
+    console.log = (...args) => {
+      output += args.join(' ') + '\n';
+    };
+    try {
+      if (parsed.command && COMMANDS[parsed.command] && COMMANDS[parsed.command].desc) {
+        printCommandHelp(parsed.command);
+      } else {
+        printUsage(parsed.helpAll);
+      }
+    } finally {
+      console.log = originalLog;
+    }
+    return { status: 0, stdout: output, stderr: '' };
   }
 
   // Guard: self-managed commands must be handled by main() to preserve their own exit codes
