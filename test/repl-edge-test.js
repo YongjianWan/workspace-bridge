@@ -24,10 +24,17 @@ function makeMockDepGraph(opts = {}) {
     findUnresolvedImports: () => [],
     findCircularDependencies: () => [],
     findOrphanFiles: () => ({ docs: [], scripts: [], configs: [], modules: [], all: [] }),
-    getDependents: (file) => dependentsMap[file] || [],
+    getDependents: (file, options = {}) => {
+      const all = dependentsMap[file] || [];
+      if (options.architectureOnly) {
+        return all.filter((d) => !d.includes('/test/') && !path.basename(d).includes('.test.'));
+      }
+      return all;
+    },
     getDependencies: () => [],
     getStats: () => ({ files: 10, totalImports: 20, totalExports: 15, cycles: 0 }),
     getAllFilePaths: () => Array.from(graph.keys()),
+    isTestLikeFile: (file) => file.includes('/test/') || path.basename(file).includes('.test.'),
     _displayPath: (f) => f,
   };
 }
@@ -72,6 +79,26 @@ async function main() {
     const container = { depGraph };
     const out = await executeCommand(container, 'top');
     assert(out.includes('No hotspots detected'), `below threshold should show no hotspots, got: ${out}`);
+
+    constants.SCORING.HOTSPOT_MIN_DEPENDENTS = originalThreshold;
+  }
+
+  // top: test-only dependents should not count as production hotspots
+  {
+    const threshold = 5;
+    const depGraph = makeMockDepGraph({
+      files: ['/project/src/source.js'],
+      dependentsMap: {
+        '/project/src/source.js': Array.from({ length: threshold }, (_, i) => `/project/test/source.test${i}.js`),
+      },
+    });
+    const constants = require('../src/config/constants');
+    const originalThreshold = constants.SCORING.HOTSPOT_MIN_DEPENDENTS;
+    constants.SCORING.HOTSPOT_MIN_DEPENDENTS = threshold;
+
+    const container = { depGraph };
+    const out = await executeCommand(container, 'top');
+    assert(out.includes('No hotspots detected'), `test-only dependents should not create hotspot, got: ${out}`);
 
     constants.SCORING.HOTSPOT_MIN_DEPENDENTS = originalThreshold;
   }

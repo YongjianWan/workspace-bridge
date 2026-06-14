@@ -82,11 +82,11 @@ node cli.js audit-overview --cwd . --json --quiet
 | 10 | `audit-summary` / `audit-overview` 默认仍跑逐文件 blame | `overview-assembler.js` 无条件调用 `buildKnowledgeRisk()` 与 `buildHotspots(..., historyProvider)` | `validate-args.js` 新增 `--with-history`（高优先级修复）；`overview-tools.js` / `overview-assembler.js` 默认不再请求 blame，仅显式 provider 或 `--with-history` 启用；`query-knowledge-risk` 显式请求历史 | `test/overview-history-optional-test.js`；`npm run test:fast` **116/116 PASS** |
 | 14 | Knowledge risk 对个人仓库失真 | `getFileKnowledgeRisk()` 逐文件 blame 将单作者仓库所有文件判 high risk；未提交行被计为 `Not Committed Yet` 作者 | `git-tools.js` 新增 `getRepoEffectiveAuthorCount()` 与 `isUncommittedAuthor()`；`overview-assembler.js` 在启用历史时检测 effective author count，<= 2 返回 `disabledReason: 'too-few-authors'`；human-formatters 展示禁用原因 | `test/knowledge-risk-test.js`、`test/overview-history-optional-test.js`；`npm run test:fast` **116/116 PASS** |
 | 23 | CI Test workflow 在 Ubuntu 上失败 | path-utils 测试断言与 POSIX 行为不符；`java.js` regex fallback 的 `methodRegex` 字符类错误导致 AST 不可用时 functionRecords 为空；CI 未安装 javalang；`affected-tests-heuristic` Windows 路径测试在 POSIX 运行 | 修复 path-utils 测试断言；修正 `methodRegex` 字符类为 `[\w<>[]]`；`.github/workflows/test.yml` 安装 javalang；Windows 路径测试在 POSIX 跳过 | GitHub Actions `Test` workflow Node 22/24 全部通过；`npm run test:fast` **116/116 PASS**，`npm run test:smoke` **119/119 PASS** |
+| 13 | 测试边污染生产架构指标 | REPL `top` 未过滤测试依赖；`audit-overview` 的 hotspot/coupling/coreModules 已使用 `{ architectureOnly: true }` 但仍需对齐所有交互入口 | `repl.js` 的 `top` 命令跳过测试文件并使用 `getDependents(..., { architectureOnly: true })` 计算生产依赖 | `test/repl-edge-test.js`；`npm run test:fast` **116/116 PASS** |
 
 ### 仍待处理
 
 | # | 问题 | 根因/位置 | 优先级 | 备注 |
-| 13 | 测试边污染生产架构指标 | `parsers/js/shared.js` 等被测试依赖计入 coupling/hotspot | 高 | 应分 impact view 与 architecture view |
 | 20 | 测试分层标记未落地 | 202 个测试仅 68 个带 `@contract/@semantic` | 低 | AGENTS 规定未执行 |
 | 21 | 大量 CLI spawn 测试未迁移 | ~44 文件仍 spawn | 低 | 已有 `runCliInProcess()` 但迁移率低 |
 | 22 | Coverage 无最低门槛 | 有 `test:coverage` 但 CI 不跑 | 低 | 无法防止回归 |

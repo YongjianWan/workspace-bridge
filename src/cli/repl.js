@@ -307,7 +307,8 @@ async function executeCommand(container, line, options = {}) {
       const allFiles = graph.getAllFilePaths?.() || [];
       const hotspots = [];
       for (const file of allFiles) {
-        const dependents = graph.getDependents?.(file) || [];
+        if (graph.isTestLikeFile?.(file)) continue;
+        const dependents = graph.getDependents?.(file, { architectureOnly: true }) || [];
         if (dependents.length >= SCORING.HOTSPOT_MIN_DEPENDENTS) {
           hotspots.push({ file: graph._displayPath?.(file) || file, dependentsCount: dependents.length });
         }

@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+### 修复测试边污染架构指标 (#13) (2026-06-14)
+
+- **问题**：REPL `top` 命令在计算热点时未过滤测试文件依赖，导致生产文件因被大量测试 import 而虚高为 hotspot；虽然 `audit-overview` 的 `buildHotspots` / `buildCouplingSplitSuggestions` / `identifyCoreModules` 已使用 `{ architectureOnly: true }`，但交互式 REPL 的架构视图与 impact view 未对齐。
+- **修复**：`src/cli/repl.js` 的 `top` 命令跳过测试文件本身，并使用 `graph.getDependents(file, { architectureOnly: true })` 统计生产依赖；扩展 `test/repl-edge-test.js` 验证纯测试依赖不会把生产文件抬成 hotspot。
+- **验证**：`npm run test:fast` **116/116 PASS**。
+
 ### 修复 CI 跨平台失败 (#23) (2026-06-14)
 
 - **问题**：新引入的 `.github/workflows/test.yml` 在 Ubuntu (Node 22/24) 上运行 `npm run test:fast` 与 `npm run test:smoke` 时失败：
