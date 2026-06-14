@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+### 增加 CI coverage gate (#22) (2026-06-14)
+
+- **问题**：`test:coverage` 脚本存在但 CI 不跑，无法防止覆盖率回归；缺少最低门槛时，新增未覆盖代码难以被及时发现。
+- **修复**：
+  - 新增 `.c8rc.json` 配置全局门槛：`lines/statements >= 72%`，`functions >= 70%`，`branches >= 68%`；基于 fast 层真实基线（~74% / ~70% / ~71% / ~74%）保留约 2% 缓冲。
+  - 调整 `package.json`：`test:coverage` 改为生成本地 HTML 完整报告，`test:coverage:check` 用于 CI gate，跑 fast 层并校验门槛。
+  - `.github/workflows/test.yml` 新增独立 `coverage` job，在 Node 22 / Ubuntu 上运行 `npm run test:coverage:check`。
+- **验证**：本地 `npm run test:coverage:check` exit 0；`npm run test:fast` **116/116 PASS**；`npm run test:smoke` **119/119 PASS**。
+
 ### 修复测试边污染架构指标 (#13) (2026-06-14)
 
 - **问题**：REPL `top` 命令在计算热点时未过滤测试文件依赖，导致生产文件因被大量测试 import 而虚高为 hotspot；虽然 `audit-overview` 的 `buildHotspots` / `buildCouplingSplitSuggestions` / `identifyCoreModules` 已使用 `{ architectureOnly: true }`，但交互式 REPL 的架构视图与 impact view 未对齐。

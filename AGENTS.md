@@ -244,6 +244,6 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-06-14（修复 CI 跨平台失败 #23；修复 REPL `top` 测试边污染架构指标 #13；npm run test:fast 116/116 PASS，npm run test:smoke 119/119 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-14（修复 CI 跨平台失败 #23；修复 REPL `top` 测试边污染架构指标 #13；新增 CI coverage gate #22；npm run test:fast 116/116 PASS，npm run test:smoke 119/119 PASS，npm run test:coverage:check 通过；schemaVersion: 1.2.0；version: 2.0.0）*
 
 

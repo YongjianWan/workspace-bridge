@@ -38,7 +38,7 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 基线状态
 
 - 测试：**所有测试全部 PASS**；`npm run test:fast` **116/116 PASS**（~25s），`npm run test:smoke` **119/119 PASS**（~57s）。开发迭代首选 `npm run test:fast`。
-- CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）。
+- CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~383 文件（entry=1, mainline=173, test=210）
@@ -83,13 +83,13 @@ node cli.js audit-overview --cwd . --json --quiet
 | 14 | Knowledge risk 对个人仓库失真 | `getFileKnowledgeRisk()` 逐文件 blame 将单作者仓库所有文件判 high risk；未提交行被计为 `Not Committed Yet` 作者 | `git-tools.js` 新增 `getRepoEffectiveAuthorCount()` 与 `isUncommittedAuthor()`；`overview-assembler.js` 在启用历史时检测 effective author count，<= 2 返回 `disabledReason: 'too-few-authors'`；human-formatters 展示禁用原因 | `test/knowledge-risk-test.js`、`test/overview-history-optional-test.js`；`npm run test:fast` **116/116 PASS** |
 | 23 | CI Test workflow 在 Ubuntu 上失败 | path-utils 测试断言与 POSIX 行为不符；`java.js` regex fallback 的 `methodRegex` 字符类错误导致 AST 不可用时 functionRecords 为空；CI 未安装 javalang；`affected-tests-heuristic` Windows 路径测试在 POSIX 运行 | 修复 path-utils 测试断言；修正 `methodRegex` 字符类为 `[\w<>[]]`；`.github/workflows/test.yml` 安装 javalang；Windows 路径测试在 POSIX 跳过 | GitHub Actions `Test` workflow Node 22/24 全部通过；`npm run test:fast` **116/116 PASS**，`npm run test:smoke` **119/119 PASS** |
 | 13 | 测试边污染生产架构指标 | REPL `top` 未过滤测试依赖；`audit-overview` 的 hotspot/coupling/coreModules 已使用 `{ architectureOnly: true }` 但仍需对齐所有交互入口 | `repl.js` 的 `top` 命令跳过测试文件并使用 `getDependents(..., { architectureOnly: true })` 计算生产依赖 | `test/repl-edge-test.js`；`npm run test:fast` **116/116 PASS** |
+| 22 | Coverage 无最低门槛 | 有 `test:coverage` 但 CI 不跑 | 新增 `.c8rc.json` 设置全局门槛（lines/statements 72%，functions 70%，branches 68%）；`package.json` 新增 `test:coverage:check`；`.github/workflows/test.yml` 新增独立 `coverage` job | `npm run test:coverage:check` exit 0；`npm run test:fast` **116/116 PASS**；`npm run test:smoke` **119/119 PASS** |
 
 ### 仍待处理
 
 | # | 问题 | 根因/位置 | 优先级 | 备注 |
 | 20 | 测试分层标记未落地 | 202 个测试仅 68 个带 `@contract/@semantic` | 低 | AGENTS 规定未执行 |
 | 21 | 大量 CLI spawn 测试未迁移 | ~44 文件仍 spawn | 低 | 已有 `runCliInProcess()` 但迁移率低 |
-| 22 | Coverage 无最低门槛 | 有 `test:coverage` 但 CI 不跑 | 低 | 无法防止回归 |
 
 ---
 
@@ -277,4 +277,4 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-14（修复 CI 跨平台失败 #23；npm run test:fast 116/116 PASS，npm run test:smoke 119/119 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-14（修复 CI 跨平台失败 #23；新增 CI coverage gate #22；npm run test:fast 116/116 PASS，npm run test:smoke 119/119 PASS，npm run test:coverage:check 通过；schemaVersion: 1.2.0；version: 2.0.0）*
