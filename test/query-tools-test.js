@@ -3,6 +3,7 @@
 const assert = require('assert');
 const { queryHotspots, queryKnowledgeRisk, queryStability } = require('../src/tools/query-tools');
 const { ServiceContainer } = require('../src/services/container');
+const { computeConfigHash } = require('../src/utils/project-context');
 
 async function withContainer(fn) {
   const container = new ServiceContainer();
@@ -67,6 +68,13 @@ async function testQueryToolsCacheHit() {
     const { buildProjectOverview } = require('../src/tools/overview-tools');
     await buildProjectOverview({}, container);
 
+    // 1b. Verify the persisted snapshot carries the current config hash
+    const currentConfigHash = computeConfigHash(container.projectContext?.config || null);
+    const persistedRows = container.cache.loadPrecomputedAggregates() || [];
+    const persistedSnapshot = persistedRows.find((r) => r.key === 'analysis_snapshot');
+    assert.ok(persistedSnapshot, 'buildProjectOverview should persist a snapshot');
+    assert.strictEqual(persistedSnapshot.configHash, currentConfigHash, 'persisted snapshot should record current config hash');
+
     // 2. Inject a custom mock snapshot into SQLite to verify cache hit
     const gitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || 'mock-commit-hash';
     const mockPayload = {
@@ -83,7 +91,13 @@ async function testQueryToolsCacheHit() {
     };
     
     container.cache.savePrecomputedAggregates([
-      { key: 'analysis_snapshot', data: JSON.stringify(mockPayload), version: gitHead, fileCount: container.snapshot?.graph?.getAllFilePaths?.().length || 0 }
+      {
+        key: 'analysis_snapshot',
+        data: JSON.stringify(mockPayload),
+        version: gitHead,
+        fileCount: container.snapshot?.graph?.getAllFilePaths?.().length || 0,
+        configHash: computeConfigHash(container.projectContext?.config || null),
+      }
     ]);
 
     // 3. Query hotspots and verify it returns the mock data

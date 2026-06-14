@@ -6,6 +6,7 @@
  */
 
 const { buildProjectOverview } = require('./overview-tools');
+const { computeConfigHash } = require('../utils/project-context');
 const { SCHEMA_VERSION } = require('../config/constants');
 
 const SNAPSHOT_KEY = 'analysis_snapshot';
@@ -26,7 +27,15 @@ function isSnapshotFresh(snapshot, container) {
   const countMatch = !currentFileCount || !snapshot.fileCount || snapshot.fileCount === currentFileCount;
   const fileChanges = container.cache?.checkFileChanges?.();
   const noContentChanges = !fileChanges || !fileChanges.changed;
-  return headMatch && countMatch && noContentChanges;
+
+  const currentConfig = container.projectContext?.config || null;
+  const currentConfigHash = computeConfigHash(currentConfig);
+  const snapshotConfigHash = snapshot.configHash ?? '';
+  // Backward-compat: legacy snapshots without configHash are only fresh when
+  // there is no effective config. Once config exists, they must recompute.
+  const configMatch = snapshotConfigHash === currentConfigHash;
+
+  return headMatch && countMatch && noContentChanges && configMatch;
 }
 
 async function ensureSnapshotData(parsed, container) {
@@ -82,7 +91,9 @@ async function queryHotspots(parsed, container) {
 }
 
 async function queryKnowledgeRisk(parsed, container) {
-  const data = await ensureSnapshotData(parsed, container);
+  // query-knowledge-risk explicitly requests blame-based data; ensure the
+  // snapshot is computed with history enabled when it falls back to a full build.
+  const data = await ensureSnapshotData({ ...parsed, withHistory: true }, container);
   if (!data) return { ok: false, error: 'Failed to load overview data' };
 
   const level = parsed.level || 'high';

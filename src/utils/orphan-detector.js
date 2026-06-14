@@ -15,9 +15,10 @@ const { ENTRY_BASE_NAMES } = require('./project-context');
  * @param {Function|null} toRelativeFn — optional (root, filePath) => relativePath
  * @param {Function|null} isKnownEntryFile — optional (filePath) => boolean
  * @param {Function|null} shouldExclude — optional (filePath) => boolean
+ * @param {Set<string>|null} registeredFiles — optional files reachable via dynamic registries (e.g. framework query modules)
  * @returns {{docs: string[], scripts: string[], configs: string[], modules: string[], all: string[]}}
  */
-function findOrphanFiles(files, entryFiles, graph, root, toRelativeFn = null, isKnownEntryFile = null, shouldExclude = null) {
+function findOrphanFiles(files, entryFiles, graph, root, toRelativeFn = null, isKnownEntryFile = null, shouldExclude = null, registeredFiles = null) {
   const orphans = { docs: [], scripts: [], configs: [], modules: [], all: [] };
   const toRel = toRelativeFn || toRelativePosix;
 
@@ -34,6 +35,7 @@ function findOrphanFiles(files, entryFiles, graph, root, toRelativeFn = null, is
     const isImported = dependents.length > 0;
 
     if (isEntry || isImported) continue;
+    if (registeredFiles?.has?.(file)) continue; // runtime-registered modules (dynamic query registries)
     if (isKnownEntryFile?.(file)) continue; // shebang / config / framework entry files
     if (ENTRY_BASE_NAMES.has(base)) continue; // common entry files (main.js, app.js, etc.)
     if (isStandaloneEntryPath(relativePath)) continue; // scripts / bin / benchmark are standalone entry points

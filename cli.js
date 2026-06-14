@@ -20,13 +20,14 @@ const { version } = require('./package.json');
 const { stripBOM } = require('./src/utils/sanitize');
 
 const { ServiceContainer } = require('./src/services/container');
-const { toPosixPath } = require('./src/utils/path');
+const { toPosixPath, findWorkspaceRoot, normalizePath } = require('./src/utils/path');
 const { TIMEOUTS, DEFAULTS, SCHEMA_VERSION } = require('./src/config/constants');
 const { COMMANDS, SELF_MANAGED_COMMANDS } = require('./src/cli/commands');
 const { validateCwd } = require('./src/cli/commands/_utils');
 const { parseCliArgs, sanitizeCliPaths } = require('./src/cli/validate-args');
 const { writeLargeJson, determineExitCode, formatCliResult, buildErrorResponse } = require('./src/cli/route-formatter');
 const { installFatalHandlers } = require('./src/cli/bootstrap');
+const { workspaceInfo } = require('./src/tools/workspace-tools');
 
 function printCommandHelp(command) {
   const handler = COMMANDS[command];
@@ -104,6 +105,7 @@ Options:
   --files <list>         Comma-separated file list for audit-diff / audit-security
   --commits <range>      Git commit range for audit-diff (e.g. HEAD~9..HEAD)
   --incremental          Only show findings related to changed files in audit-diff
+  --with-history         Enable per-file git blame/history for audit-overview/summary (slower, disabled by default)
   --save <file>          Save audit-summary findings to a JSON baseline file
   --check-regression     Compare structural metrics (deadExports/unresolved/cycles counts) against previous baseline
   --baseline <file|commit>  Baseline file or git commit for --check-regression (default: .workspace-bridge-baseline.json)
@@ -193,6 +195,7 @@ Options:
   --staged               Only analyze git staged changes in audit-diff
   --files <list>         Comma-separated file list for audit-diff / audit-security
   --incremental          Only show findings related to changed files in audit-diff
+  --with-history         Enable per-file git blame/history for audit-overview/summary (slower, disabled by default)
   --save <file>          Save audit-summary findings to a JSON baseline file
   --check-regression     Compare structural metrics (deadExports/unresolved/cycles counts) against previous baseline
   --baseline <file|commit>  Baseline file or git commit for --check-regression (default: .workspace-bridge-baseline.json)
@@ -326,6 +329,16 @@ async function runCliInProcess(args, opts = {}) {
   if (!parsed.cacheDir) {
     const { computeDefaultCacheDir } = require('./src/services/cache');
     parsed.cacheDir = computeDefaultCacheDir(path.resolve(parsed.cwd || process.cwd()));
+  }
+
+  // Lightweight preflight path: workspace-info should not pay the cost of a full ServiceContainer init.
+  if (parsed.command === 'workspace-info') {
+    const targetRoot = parsed.strictCwd ? normalizePath(parsed.cwd) : findWorkspaceRoot(parsed.cwd);
+    const result = workspaceInfo({ cwd: parsed.cwd, excludeDirs: parsed.exclude }, { workspaceRoot: targetRoot });
+    result.hasFindings = false;
+    const stdout = formatCliResult(parsed, result, { schemaVersion: SCHEMA_VERSION });
+    const status = determineExitCode(parsed.command, result, parsed.failOnFindings);
+    return { status, stdout, stderr: '' };
   }
 
   let container = opts.container;

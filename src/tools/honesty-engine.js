@@ -113,6 +113,11 @@ function classifyDeadExports(deadExportsArray, depGraph) {
 
     // P86: sink false-positive reason to individual dead-export record so users
     // can locate which items are flagged as false positives.
+    // Preserve analyzer-level registry false-positive marks (e.g. SHADOW_EXTS).
+    if (DEAD_EXPORT_FALSE_POSITIVE_REASONS.has(item.falsePositiveReason)) {
+      classifications.push({ item, reason: item.falsePositiveReason });
+      continue;
+    }
     let reason = null;
 
     // Global graph reliability downgrade
@@ -153,6 +158,17 @@ function classifyDeadExports(deadExportsArray, depGraph) {
   return classifications;
 }
 
+// Reasons that mark a dead-export finding as a known false positive.
+// These findings are still surfaced for transparency but do not drive
+// repository-level severity or deletion recommendations.
+const DEAD_EXPORT_FALSE_POSITIVE_REASONS = new Set([
+  'dynamic-registry-export',
+  'java-constants-warehouse',
+  'vendor-copy',
+  `${SCAFFOLD_REASON_PREFIX}ruoyi`,
+  `${SCAFFOLD_REASON_PREFIX}vue-admin`,
+]);
+
 /**
  * Aggregate classifications into a summary.
  */
@@ -169,10 +185,7 @@ function buildClassificationSummary(classifications) {
     'vue-page-implicit',
     'vue-component-implicit',
     'nextjs-app-router',
-    'java-constants-warehouse',
-    'vendor-copy',
-    `${SCAFFOLD_REASON_PREFIX}ruoyi`,
-    `${SCAFFOLD_REASON_PREFIX}vue-admin`,
+    ...DEAD_EXPORT_FALSE_POSITIVE_REASONS,
   ]);
   let falsePositiveCount = 0;
   for (const [reason, count] of Object.entries(counts)) {
@@ -235,6 +248,7 @@ module.exports = {
   buildClassificationSummary,
   buildDisclaimer,
   attachHonesty,
+  DEAD_EXPORT_FALSE_POSITIVE_REASONS,
   // Exposed for testing
   hasTsconfigPaths,
   isAliasImport,

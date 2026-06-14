@@ -7,7 +7,7 @@ const { toRelativePosix } = require('../utils/path');
 
 const { detectStack } = require('../utils/stack-detectors/detect');
 const { DEFAULTS, SCORING, LIMITS, SCHEMA_VERSION } = require('../config/constants');
-const { getFileHistoryRisk, getFileKnowledgeRisk } = require('./git-tools');
+const { getFileHistoryRisk, getFileKnowledgeRisk, getRepoEffectiveAuthorCount } = require('./git-tools');
 const {
   buildOverviewSummary,
   buildCycleRefactorSuggestions,
@@ -18,10 +18,37 @@ const {
   classifyUnresolved,
   classifyDeadExports,
   buildClassificationSummary,
+  DEAD_EXPORT_FALSE_POSITIVE_REASONS,
 } = require('./honesty-engine');
+const { computePageRank } = require('../services/dep-graph/pagerank');
 
 function toRelative(root, filePath) {
   return toRelativePosix(root, filePath);
+}
+
+function getArchitectureDependencies(depGraph, file) {
+  return depGraph.getDependencies?.(file, { architectureOnly: true }) || [];
+}
+
+function getArchitectureDependents(depGraph, file) {
+  return depGraph.getDependents?.(file, { architectureOnly: true }) || [];
+}
+
+function hasTestDependents(depGraph, file) {
+  return depGraph.getDependents?.(file).some((d) => depGraph.isTestLikeFile(d)) || false;
+}
+
+function computeArchitecturalPageRank(depGraph) {
+  const files = depGraph.getAllFilePaths?.() || [];
+  const edges = [];
+  for (const file of files) {
+    if (depGraph.isTestLikeFile(file)) continue;
+    for (const imp of getArchitectureDependencies(depGraph, file)) {
+      edges.push([file, imp]);
+    }
+  }
+  const productionFiles = files.filter((f) => !depGraph.isTestLikeFile(f));
+  return computePageRank(productionFiles, edges);
 }
 
 const HOTSPOT_SCORE_RULES = [
@@ -89,7 +116,7 @@ function identifyCoreModules(graph, files, projectContext, root) {
   for (const file of files) {
     const classification = projectContext?.classifyFile?.(file);
     if (!classification?.isMainline) continue;
-    const dependents = graph.getDependents?.(file) || [];
+    const dependents = graph.getDependents?.(file, { architectureOnly: true }) || [];
     if (dependents.length >= SCORING.CORE_MODULE_MIN_DEPENDENTS && classification.fileRole === 'library') {
       candidates.push({
         file: toRelative(root, file),
@@ -123,7 +150,23 @@ function buildSkeleton(root, depGraph, allFiles, mainlineFiles, projectContext, 
   };
 }
 
+function buildEmptyKnowledgeRisk(disabledReason) {
+  return {
+    high: [],
+    medium: [],
+    low: [],
+    filesAnalyzed: 0,
+    disabled: true,
+    disabledReason,
+  };
+}
+
 async function buildKnowledgeRisk(root, mainlineFiles) {
+  const repoAuthors = await getRepoEffectiveAuthorCount(root);
+  if (!repoAuthors.ok || repoAuthors.count <= SCORING.KNOWLEDGE_RISK_PERSONAL_REPO_MAX_AUTHORS) {
+    return buildEmptyKnowledgeRisk('too-few-authors');
+  }
+
   const files = mainlineFiles.slice(0, DEFAULTS.HOTSPOT_CANDIDATE_LIMIT);
   const concurrency = LIMITS.GIT_LOG_CONCURRENCY;
   const results = [];
@@ -157,13 +200,15 @@ async function buildKnowledgeRisk(root, mainlineFiles) {
   const medium = all.filter((r) => r.riskLevel === 'medium').sort((a, b) => b.primaryAuthorPct - a.primaryAuthorPct);
   const low = all.filter((r) => r.riskLevel === 'low').sort((a, b) => b.primaryAuthorPct - a.primaryAuthorPct);
 
-  return { high, medium, low, filesAnalyzed: all.length };
+  return { high, medium, low, filesAnalyzed: all.length, disabled: false, disabledReason: null };
 }
 
 async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
   const files = mainlineFiles.slice(0, DEFAULTS.HOTSPOT_CANDIDATE_LIMIT);
   const concurrency = LIMITS.GIT_LOG_CONCURRENCY;
   const candidates = [];
+  const architecturalPageRanks = computeArchitecturalPageRank(depGraph);
+  const totalFiles = depGraph.getFileCount?.() || 0;
 
   for (let i = 0; i < files.length; i += concurrency) {
     const batch = files.slice(i, i + concurrency);
@@ -171,14 +216,14 @@ async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
       batch.map(async (file) => {
         const displayFile = depGraph._displayPath?.(file) || file;
         const relativePath = toRelative(root, displayFile);
-        const dependents = depGraph.getDependents?.(file) || [];
-        const dependencies = depGraph.getDependencies?.(file) || [];
-        const historyRisk = await getHistoryRisk(root, displayFile, historyProvider);
+        const dependents = getArchitectureDependents(depGraph, file);
+        const dependencies = getArchitectureDependencies(depGraph, file);
+        const historyRisk = historyProvider ? await getHistoryRisk(root, displayFile, historyProvider) : null;
         const classification = depGraph.projectContext?.classifyFile?.(displayFile);
         const fileRole = classification?.fileRole;
         const frameworkHint = depGraph.getFrameworkHint?.(file);
-        const pageRank = depGraph.getPageRank?.(file) || 0;
-        const score = calculateHotspotScore(historyRisk, fileRole, frameworkHint?.entryPointWeight, pageRank, depGraph.getFileCount?.() || 0);
+        const pageRank = architecturalPageRanks.get(file) || 0;
+        const score = calculateHotspotScore(historyRisk, fileRole, frameworkHint?.entryPointWeight, pageRank, totalFiles);
         const coupling = calculateCoupling(dependencies, dependents);
         if (score <= SCORING.HOTSPOT_REPORT_THRESHOLD && coupling.total <= SCORING.COUPLING_MEDIUM_MIN) return null;
         const historySignal = historyRisk?.signals?.[0];
@@ -226,9 +271,9 @@ function buildStability(root, depGraph, mainlineFiles, projectContext) {
     const displayFile = depGraph._displayPath?.(file) || file;
     const relativePath = toRelative(root, displayFile);
     const classification = projectContext.classifyFile(displayFile);
-    const dependents = depGraph.getDependents?.(file) || [];
-    const dependencies = depGraph.getDependencies?.(file) || [];
-    const hasTests = dependents.some((d) => depGraph.isTestLikeFile(d));
+    const dependents = getArchitectureDependents(depGraph, file);
+    const dependencies = getArchitectureDependencies(depGraph, file);
+    const hasTests = hasTestDependents(depGraph, file);
     const inCycle = filesInCycle.has(file);
     const score = calculateStabilityScore(classification, dependents.length, hasTests, inCycle);
     const coupling = calculateCoupling(dependencies, dependents);
@@ -526,10 +571,19 @@ async function assembleOverviewData(args, container, historyProvider) {
     deadExportsFp = { count: summary.falsePositiveCount, total: summary.total, primaryReason: summary.primaryReason };
   }
 
+  const severityRelevantDeadExportsCount = filteredDeadExports.filter(
+    (d) => !d.falsePositiveReason || !DEAD_EXPORT_FALSE_POSITIVE_REASONS.has(d.falsePositiveReason)
+  ).length;
+
   const issueContext = {
     unresolved: { count: unresolved.length, fp: unresolvedFp, omitted: sections.unresolved.omitted },
     cycles: { count: cycles.length, omitted: sections.cycles.omitted },
-    deadExports: { count: filteredDeadExports.length, fp: deadExportsFp, omitted: sections.deadExports.omitted },
+    deadExports: {
+      count: filteredDeadExports.length,
+      severityRelevantCount: severityRelevantDeadExportsCount,
+      fp: deadExportsFp,
+      omitted: sections.deadExports.omitted,
+    },
   };
   const cycleRefactorSuggestions = sections.cycles.omitted ? [] : buildCycleRefactorSuggestions(root, depGraph, projectContext);
   const couplingSplitSuggestions = buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectContext);
@@ -555,7 +609,13 @@ async function assembleOverviewData(args, container, historyProvider) {
   const nowIso = args?.now || new Date().toISOString();
   const trendGranularity = args?.trendGranularity === 'week' ? 'week' : 'day';
 
-  const knowledgeRisk = await buildKnowledgeRisk(root, mainlineFiles);
+  // Per-file blame is opt-in. When history is not requested we return an empty
+  // bucket with a disabledReason so consumers can distinguish "no data" from
+  // "no risk" and avoid paying the blame cost on the hot path.
+  const shouldComputeHistory = Boolean(historyProvider) || args?.withHistory === true;
+  const knowledgeRisk = shouldComputeHistory
+    ? await buildKnowledgeRisk(root, mainlineFiles)
+    : buildEmptyKnowledgeRisk('history-not-enabled');
 
   return {
     ok: true,

@@ -4,9 +4,11 @@ const {
   buildCycleRecommendation,
   buildDeadExportRecommendation,
 } = require('../../utils/recommendations');
+const { DEAD_EXPORT_FALSE_POSITIVE_REASONS } = require('../../tools/honesty-engine');
 
 function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackProfile = 'unknown', analysisCoverage = null, stack = null) {
   const deadExportsCount = deadExports.omitted ? null : (deadExports.deadExportsCount || 0);
+  const deadExportsList = deadExports.omitted ? [] : (deadExports.deadExports || []);
   const unresolvedCount = unresolved.omitted ? null : (unresolved.unresolvedCount || 0);
   const cyclesCount = cycles.omitted ? null : (cycles.cyclesCount || 0);
   const nonMainlineFiles = scope?.counts?.nonMainlineFiles || 0;
@@ -17,10 +19,16 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
     ? Object.values(health.checks).filter((c) => !c.found).length
     : Math.max(0, totalChecks - passedChecks));
 
+  // Known false-positive dead exports (e.g. dynamic registry exports) are still
+  // surfaced in the list but must not drive repo-level severity.
+  const severityRelevantDeadExportsCount = deadExportsList.filter(
+    (d) => !d.falsePositiveReason || !DEAD_EXPORT_FALSE_POSITIVE_REASONS.has(d.falsePositiveReason)
+  ).length;
+
   let severity = repoSeverity({
     unresolved: unresolvedCount || 0,
     cycles: cyclesCount || 0,
-    deadExports: deadExportsCount || 0,
+    deadExports: severityRelevantDeadExportsCount,
     missingHygieneChecks: missingHygieneChecks || 0,
   });
 

@@ -16,6 +16,7 @@ const { queryHotspots, queryKnowledgeRisk, queryStability } = require('../../too
 const { resolveWorkspaceFilePath } = require('../../utils/path');
 const { requireFile } = require('./_utils');
 const { DEFAULTS } = require('../../config/constants');
+const { DEAD_EXPORT_FALSE_POSITIVE_REASONS } = require('../../tools/honesty-engine');
 
 // Commands with special lifecycle or branching logic kept as modules.
 const auditFile = require('./audit-file');
@@ -63,13 +64,15 @@ const COMMANDS = {
       // 兼容层：对齐旧版 repoSeverity 的阈值逻辑，缺省 hygiene 检查时评级为 medium，防止破坏 tests 断言
       const unresolvedCount = result.unresolved?.unresolvedCount || 0;
       const cyclesCount = result.cycles?.cyclesCount || 0;
-      const deadExportsCount = result.deadExports?.deadExportsCount || 0;
+      const severityRelevantDeadExportsCount = (result.deadExports?.deadExports || []).filter(
+        (d) => !d.falsePositiveReason || !DEAD_EXPORT_FALSE_POSITIVE_REASONS.has(d.falsePositiveReason)
+      ).length;
       const { repoSeverity } = require('../../config/risk-thresholds');
       if (result.summary) {
         result.summary.severity = repoSeverity({
           unresolved: unresolvedCount,
           cycles: cyclesCount,
-          deadExports: deadExportsCount,
+          deadExports: severityRelevantDeadExportsCount,
           missingHygieneChecks: 5 // mock missing checks since this is a deprecated layer
         });
         // 兼容层：对齐旧版 nextSteps 属性，注入包含 totalFiles counts 的描述以满足 tests 的断言

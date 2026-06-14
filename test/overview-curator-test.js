@@ -93,6 +93,20 @@ function testBuildOverviewSummarySeverityLevels() {
   assert.strictEqual(high.summary.severity, 'high');
 }
 
+function testBuildOverviewSummaryFalsePositiveDeadExports() {
+  // A single known registry false-positive dead export should still appear in
+  // the count/insight but must not bump severity to medium.
+  const result = buildOverviewSummary(
+    [],
+    [],
+    { all: [], modules: [] },
+    { deadExports: { count: 1, severityRelevantCount: 0 } },
+    'node-first'
+  );
+  assert.strictEqual(result.summary.severity, 'low', 'only false-positive dead exports should not bump severity');
+  assert(result.summary.insights.some((i) => i.includes('死导出')), 'insight should still mention dead exports');
+}
+
 // ── buildCycleRefactorSuggestions ──────────────────────────────────────────
 
 function testBuildCycleRefactorSuggestionsBasic() {
@@ -262,6 +276,7 @@ function main() {
   testBuildOverviewSummaryWithIssues();
   testBuildOverviewSummaryStackProfiles();
   testBuildOverviewSummarySeverityLevels();
+  testBuildOverviewSummaryFalsePositiveDeadExports();
   testBuildCycleRefactorSuggestionsBasic();
   testBuildCycleRefactorSuggestionsEmpty();
   testBuildCouplingSplitSuggestionsBasic();

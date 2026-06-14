@@ -7,6 +7,7 @@ const fs = require('fs');
 const { toPosixPath, resolveWorkspaceFilePath, toRelativePosix } = require('../utils/path');
 const { parseArgs } = require('../utils/parse-args');
 const { DEFAULTS } = require('../config/constants');
+const { validateCategories } = require('../tools/category-filter');
 
 function parseCliArgs(argv) {
   const throwValidationError = (msg) => {
@@ -68,6 +69,7 @@ function parseCliArgs(argv) {
       '--watch': true,
       '--incremental': true,
       '--with-impact': true,
+      '--with-history': true,
       '--save': { key: 'save' },
       '--check-regression': true,
       '--baseline': { key: 'baseline' },
@@ -203,6 +205,10 @@ function parseCliArgs(argv) {
   sources.withImpact = withImpactRes.source;
   const withImpact = withImpactRes.value || false;
 
+  const withHistoryRes = resolveOption(raw['--with-history'], 'WB_WITH_HISTORY', true);
+  sources.withHistory = withHistoryRes.source;
+  const withHistory = withHistoryRes.value || false;
+
   const incrementalRes = resolveOption(raw['--incremental'], 'WB_INCREMENTAL', true);
   sources.incremental = incrementalRes.source;
   const incremental = incrementalRes.value || false;
@@ -214,6 +220,18 @@ function parseCliArgs(argv) {
   const serviceRes = resolveOption(raw.service, 'WB_SERVICE');
   sources.service = serviceRes.source;
   const service = serviceRes.value || null;
+
+  const builtinOnlyRes = resolveOption(raw['--builtin-only'], 'WB_BUILTIN_ONLY', true);
+  sources.builtinOnly = builtinOnlyRes.source;
+  const builtinOnly = builtinOnlyRes.value || false;
+
+  const watchRes = resolveOption(raw['--watch'], 'WB_WATCH', true);
+  sources.watch = watchRes.source;
+  const watch = watchRes.value || false;
+
+  const strictCwdRes = resolveOption(raw['--strict-cwd'], 'WB_STRICT_CWD', true);
+  sources.strictCwd = strictCwdRes.source;
+  const strictCwd = strictCwdRes.value || false;
 
   const reuseHints = (raw.reuseHints || 'off').toLowerCase();
   if (reuseHints && !['on', 'off'].includes(reuseHints)) {
@@ -231,11 +249,9 @@ function parseCliArgs(argv) {
     throwValidationError(`Invalid --severity value: ${severity}. Expected high|medium|low`);
   }
   if (category) {
-    const validCategories = DEFAULTS.FINDING_CATEGORIES;
-    const requested = String(category).split(',').map((c) => c.trim()).filter(Boolean);
-    const invalid = requested.filter((c) => !validCategories.has(c));
-    if (invalid.length > 0) {
-      throwValidationError(`Invalid --category value: ${invalid.join(', ')}. Expected ${Array.from(validCategories).sort().join('|')}`);
+    const validation = validateCategories(category);
+    if (!validation.valid) {
+      throwValidationError(`Invalid --category value: ${validation.invalid.join(', ')}. Expected ${Array.from(DEFAULTS.FINDING_CATEGORIES).sort().join('|')}`);
     }
   }
   if (format && !['summary', 'markdown', 'jsonl', 'ai', 'human', 'json'].includes(format)) {
@@ -265,7 +281,7 @@ function parseCliArgs(argv) {
     overviewDashboard: raw.overviewDashboard || null,
     config: raw.config || null,
     language: raw.language || null,
-    builtinOnly: Boolean(raw['--builtin-only']),
+    builtinOnly,
     format: format === 'json' ? null : (format || null),
     since: raw.since || null,
     commits: raw.commits || null,
@@ -279,9 +295,10 @@ function parseCliArgs(argv) {
     compact,
     noCompact: Boolean(raw['--no-compact']),
     maxFiles,
-    watch: Boolean(raw['--watch']),
+    watch,
     incremental,
     withImpact,
+    withHistory,
     save: raw.save || null,
     checkRegression,
     baseline: raw.baseline || null,
@@ -300,7 +317,7 @@ function parseCliArgs(argv) {
     helpAll: Boolean(raw['--all']),
     depth: raw.depth || null,
     tokenBudget: Number.isFinite(raw.tokenBudget) ? raw.tokenBudget : null,
-    strictCwd: Boolean(raw['--strict-cwd']),
+    strictCwd,
     markFalsePositive: raw.markFalsePositive || null,
     service,
     _sources: sources,

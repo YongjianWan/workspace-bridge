@@ -8,6 +8,64 @@
 
 ## [Unreleased]
 
+### 收尾：修复 CRLF 残留、测试分层标记与文档同步 (2026-06-14)
+
+- 将 `src/services/dep-graph/framework-patterns.js` 规范化为 LF 行尾，消除 `.gitattributes` 生效后仍残留的 CRLF 噪音。
+- 给 `test/knowledge-risk-test.js` 头部追加 `// @slow`，修正 runner 对其包含 `spawnSync/child_process` 的误分类警告。
+- 同步 `AGENTS.md` 与 `SESSION.md` 中的 fast/smoke 测试数量及 last updated 行，统一为 `test:fast 116/116 PASS`、`test:smoke 119/119 PASS`。
+
+### 修复 audit-summary/overview 默认跑逐文件 blame (#10) 与 Knowledge risk 对个人仓库失真 (#14) (2026-06-13)
+
+- **问题**：`audit-overview` / `audit-summary` 默认会调用 `getFileKnowledgeRisk()` / `getFileHistoryRisk()` 等逐文件 blame，热缓存下仍 ~56s，与“1 秒基线”目标冲突；同时单作者或个人仓库中所有文件都被判为 high risk，未提交行被显示为 `Not Committed Yet`，指标失真且制造噪音。
+- **修复**：
+  - `src/cli/validate-args.js` 新增 `--with-history` 标志（支持 `WB_WITH_HISTORY` 环境变量）；`cli.js` 帮助文本同步更新。
+  - `src/tools/overview-tools.js` 将历史/ blame 改为 opt-in：默认 `audit-overview` / `audit-summary` 不再传入 `getFileHistoryRisk`，仅在显式 `historyProvider` 或 `--with-history` 时启用。
+  - `src/tools/overview-assembler.js` 新增 `buildEmptyKnowledgeRisk()`；`assembleOverviewData()` 未请求历史时直接返回空桶并标记 `disabledReason: 'history-not-enabled'`；`buildHotspots()` 在历史提供者不存在时跳过逐文件 `git log`；`buildKnowledgeRisk()` 在启用历史时先通过 `getRepoEffectiveAuthorCount()` 检测仓库作者分布，effective author count <= 2 时返回 `disabledReason: 'too-few-authors'`，避免个人仓库跑昂贵 blame。
+  - `src/tools/git-tools.js` 新增 `isUncommittedAuthor()` 与 `getRepoEffectiveAuthorCount()`，在 `parseBlamePorcelain()` 中过滤 `Not Committed Yet` 等伪作者。
+  - `src/tools/query-tools.js` 的 `queryKnowledgeRisk()` 显式传入 `withHistory: true`，确保查询知识风险时按需计算。
+  - `src/cli/formatters/human-formatters.js` 在 human/summary/markdown 输出中展示 knowledge risk 禁用原因，保持输出可读。
+- **测试**：新增 `test/overview-history-optional-test.js`（`// @semantic`）验证默认 overview 不调用 historyProvider、`--with-history` / 显式 provider 可启用、`assembleOverviewData()` 尊重 opt-in、个人仓库禁用、未提交行不计入作者；扩展 `test/knowledge-risk-test.js` 验证 `getRepoEffectiveAuthorCount()` 与单作者场景；`npm run test:fast` **116/116 PASS**，`npm run test:smoke` **119/119 PASS**。
+
+### 修复 SHADOW_EXTS 误报仍参与 severity (#12) (2026-06-13)
+
+- **问题**：`src/services/dep-graph/shadow-candidates.js` 导出的 `SHADOW_EXTS` 被 `findDeadExports()` 误判为死导出；该导出属于动态 registry API，静态分析无法识别消费者，但此前以 `confidence: medium` 计入 findings 并抬高 `audit-overview` / `audit-summary` severity，违反“保守判断”定位。
+- **修复**：`src/services/dep-graph/analyzer.js` 新增 `KNOWN_REGISTRY_EXPORTS`，对 `SHADOW_EXTS` 这类已知 registry 导出自动降级为 `confidence: low` 并标记 `falsePositiveReason: 'dynamic-registry-export'`；`src/tools/honesty-engine.js` 将 `dynamic-registry-export` 纳入死导出误报原因集合并导出 `DEAD_EXPORT_FALSE_POSITIVE_REASONS`；`src/tools/overview-curator.js`、`src/tools/overview-assembler.js`、`src/cli/formatters/repo-summary.js`、`src/cli/commands/index.js` 在计算仓库级 severity 时排除已知误报，仅让真实死导出驱动 severity。
+- **测试**：扩展 `test/dead-export-confidence-test.js` 验证 `SHADOW_EXTS` 被降级为 low 并标记动态 registry 误报；扩展 `test/overview-curator-test.js` 与 `test/formatter-direct-test.js` 验证仅含误报死导出时不提升 `audit-overview` / `audit-summary` severity；`npm run test:fast` **115/115 PASS**。
+
+### 修复动态 query registry 模块被误判为孤儿 (#11) (2026-06-13)
+
+- **问题**：`src/services/dep-graph/queries/...` 下的动态 query 文件（如 `java-spring.js`、`kt-ktor.js`）通过 `framework-patterns.js` 的 `FRAMEWORK_QUERY_REGISTRY` / `ROUTE_QUERY_REGISTRY` 被动态 `require`，静态依赖图无法识别其可达性，导致 `orphan-detector.js` 将其误判为孤儿模块并建议审查删除。
+- **修复**：`framework-patterns.js` 新增并导出 `getRegisteredQueryFiles()`，解析运行时 registry 中所有 query 模块的绝对路径；`src/services/dep-graph.js` 在 `findOrphanFiles()` 中将其规范化后传给 `orphan-detector.js`；`orphan-detector.js` 新增可选 `registeredFiles` 参数，命中 registry 的文件直接跳过，不进入孤儿列表。
+- **测试**：新增 `test/orphan-registered-query-test.js`（`// @semantic`）验证 registry 文件被跳过、非 registry 孤儿仍被报告、registry 文件不掩盖真实孤儿；`npm run test:fast` **115/115 PASS**。
+
+### 修复 query-* 快照未感知 .workspace-bridge.json 配置变化 (#19) (2026-06-13)
+
+- **问题**：`query-hotspots` / `query-knowledge-risk` / `query-stability` 的聚合快照只记录 `gitHead` 与文件数，修改 `.workspace-bridge.json`（如 directoryRoles）后仍可能命中旧快照，返回过期结果。
+- **修复**：新增 `src/utils/project-context.js` `computeConfigHash()` 对有效配置做稳定 SHA-256 摘要；`src/services/graph-db.js` 在 `precomputed_aggregates` 表新增 `config_hash` 列并通过 `_migrate()` 自动升级旧库；`src/tools/overview-tools.js` 保存快照时写入配置摘要，`src/tools/query-tools.js` `isSnapshotFresh()` 比对当前配置摘要，不匹配则重新计算。
+- **测试**：扩展 `test/query-staleness-test.js` 覆盖配置变化、配置一致、无配置、遗留快照四种场景；更新 `test/query-tools-test.js` 注入快照时携带正确 `configHash`；`npm run test:fast` **114/114 PASS**。
+
+### 实现 workspace-info 真正轻量预检 (#15) (2026-06-13)
+
+- **轻量路径**：`cli.js` 对 `workspace-info` 命令跳过完整 `ServiceContainer` 初始化，直接调用 `workspaceInfo()` 轻量检测；`src/tools/workspace-tools.js` 新增 `lightweightFileScan()`，按语言扩展名快速统计文件数与语言分布，不读取文件内容。
+- **排除规则对齐**：轻量扫描复用 `DEFAULT_EXCLUDE_DIRS` 与 `project-context.js` 的 `DEFAULT_DIRECTORY_HINTS`（reference/archive/generated），并读取 `.workspace-bridge.json` 的 `directories` 配置，避免进入大目录。
+- **测试**：新增 `test/workspace-info-lightweight-test.js`（`// @contract`）验证 CLI 在 2s 内完成、轻量容器下 fileCount/language 正确、不附加 `staleness`/`warnings`；`npm run test:fast` **114/114 PASS**，`npm run test:smoke` **117/117 PASS**。
+
+### 安全化 SQLite ExperimentalWarning 抑制 (#16) (2026-06-13)
+
+- **消除全局 monkey-patch**：`src/services/graph-db.js` 将 `node:sqlite` 的 `ExperimentalWarning` 抑制改为 scoped 包装器 `_withSqliteWarningSuppressed()`，仅在 `require` / `new DatabaseSync()` 期间临时替换 `process.emitWarning`，并确保 `finally` 恢复原始函数，避免多实例 / 嵌入式场景下全局 warning API 被持续覆盖。
+- **测试**：新增 `test/graph-db-warning-suppression-test.js`（`// @contract`）验证 `_ensureOpen()` 与 `close()` 后 `process.emitWarning` 均恢复为原始函数；`npm run test:fast` **114/114 PASS**。
+
+### 修复 CLI 布尔旗标 raw 读取与 category-filter 死代码 (#17 #18) (2026-06-13)
+
+- **统一布尔旗标解析**：`src/cli/validate-args.js` 中 `--builtin-only`、`--watch`、`--strict-cwd` 改为通过 `resolveOption()` 解析，支持 `WB_BUILTIN_ONLY`、`WB_WATCH`、`WB_STRICT_CWD` 环境变量覆盖，并正确记录 `_sources` 来源。
+- **消除 category-filter 死代码**：`src/cli/validate-args.js` 的 `--category` 校验改为复用 `src/tools/category-filter.js` 的 `validateCategories()`，避免与共享模块重复维护有效类别集合。
+- **测试**：新增 `test/cli-bool-flags-env-test.js` 与 `test/category-filter-validate-used-test.js`；`npm run test:fast` **113/113 PASS**。
+
+### 修复 --quiet 下 SQLite ExperimentalWarning 泄漏 (2026-06-13)
+
+- **修复 warning 泄漏**：将 `src/services/graph-db.js` 中 `node:sqlite` 的 `require` 从模块顶层延迟到 `_ensureOpen()` 内部，并在调用 `_suppressSqliteExperimentalWarning()` 之后加载，确保 SQLite 的 `ExperimentalWarning` 被 `process.emitWarning` wrapper 捕获，不再泄漏到 `--quiet` JSON 管道输出。
+- **测试**：新增 `test/graph-db-quiet-warning-test.js`（`// @slow`）强制验证子进程中打开 GraphDB 不输出 `ExperimentalWarning` / `sqlite` 到 stderr；`npm run test:fast` **111/111 PASS**。
+
 ### 工程稳定化：换行符治理与 CI/发布门禁 (2026-06-13)
 
 - **换行符治理**：新增 `.gitattributes` 强制文本文件使用 LF 换行符；将 80 个 working tree 中仍保持 CRLF 的源码、测试与文档文件统一转换为 LF，消除 `git diff` 中的换行噪声。

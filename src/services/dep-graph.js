@@ -35,6 +35,7 @@ const { EntryDetector } = require('./dep-graph/entry-detector');
 const { loadGraph: loadGraphImpl } = require('./dep-graph/loader');
 const { DG_STATES, GraphStateMachine } = require('./dep-graph/state-machine');
 const { registerGraphBuiltHandler } = require('./dep-graph/persistence');
+const { getRegisteredQueryFiles } = require('./dep-graph/framework-patterns');
 class DependencyGraph {
   /**
    * Fast static factory to build a pre-populated DependencyGraph instance from a schema.
@@ -318,6 +319,10 @@ class DependencyGraph {
   findOrphanFiles(toRelativeFn = null) {
     const { findOrphanFiles: detectOrphans } = require('../utils/orphan-detector');
     const allFiles = this.getAllFilePaths();
+    const registeredFiles = new Set();
+    for (const registeredPath of getRegisteredQueryFiles()) {
+      registeredFiles.add(this.normalizeFilePath(registeredPath));
+    }
     return detectOrphans(
       allFiles,
       this.entryFiles,
@@ -325,7 +330,8 @@ class DependencyGraph {
       this.root,
       toRelativeFn,
       this.isKnownEntryFile?.bind(this),
-      this.shouldExcludeCli?.bind(this)
+      this.shouldExcludeCli?.bind(this),
+      registeredFiles
     );
   }
 

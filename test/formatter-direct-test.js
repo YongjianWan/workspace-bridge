@@ -495,6 +495,24 @@ function testBuildRepoSummaryBasic() {
   assert(summary.nextSteps.some((s) => s.includes('totalFiles counts only parseable source files')));
 }
 
+function testBuildRepoSummaryFalsePositiveDeadExports() {
+  const health = { healthScore: '5/5', healthScoreNumeric: { passed: 5, total: 5 }, checks: {} };
+  const deadExports = {
+    deadExportsCount: 1,
+    deadExports: [
+      { file: 'src/services/dep-graph/shadow-candidates.js', exports: ['SHADOW_EXTS'], confidence: 'low', falsePositiveReason: 'dynamic-registry-export' },
+    ],
+    possibleFalsePositives: { count: 1, total: 1, primaryReason: 'dynamic-registry-export' },
+  };
+  const unresolved = { unresolvedCount: 0, possibleFalsePositives: {} };
+  const cycles = { cyclesCount: 0 };
+  const scope = { counts: { totalFiles: 10, mainlineFiles: 6, nonMainlineFiles: 4 } };
+
+  const summary = buildRepoSummary(health, deadExports, unresolved, cycles, scope);
+  assert.strictEqual(summary.severity, 'low', 'only false-positive dead exports should not bump severity');
+  assert.strictEqual(summary.counts.deadExports, 1, 'total dead exports count should still be surfaced');
+}
+
 function testBuildRepoSummaryCoverageWarning() {
   const health = { healthScore: '5/5', healthScoreNumeric: { passed: 5, total: 5 }, checks: {} };
   const deadExports = { deadExportsCount: 0, possibleFalsePositives: {} };
@@ -1014,6 +1032,7 @@ function main() {
   testFormatMarkdownError();
 
   testBuildRepoSummaryBasic();
+  testBuildRepoSummaryFalsePositiveDeadExports();
   testBuildRepoSummaryCoverageWarning();
   testBuildRepoSummaryNodeStack();
   testBuildRepoSummaryJavaStack();

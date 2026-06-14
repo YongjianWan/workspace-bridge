@@ -230,6 +230,50 @@ function testDuplicateOfAbsentWhenUnique() {
   assert.strictEqual(item.duplicateOf, undefined, 'should NOT have duplicateOf when symbol is unique');
 }
 
+function testKnownRegistryFalsePositiveIsDowngraded() {
+  const file = n('/repo/src/services/dep-graph/shadow-candidates.js');
+  const importer1 = n('/repo/builder.js');
+  const importer2 = n('/repo/incremental.js');
+  const dg = createMockDepGraph({
+    schema: {
+      [file]: {
+        imports: [],
+        exports: ['shadowCandidatesFor', 'SHADOW_EXTS'],
+        importRecords: [],
+        exportRecords: [{ name: 'shadowCandidatesFor' }, { name: 'SHADOW_EXTS' }],
+        parseMode: 'ast',
+        confidence: 'high',
+      },
+      [importer1]: {
+        imports: [file],
+        exports: [],
+        importRecords: [{ source: './shadow-candidates', imported: ['shadowCandidatesFor'], resolved: file }],
+        exportRecords: [],
+        parseMode: 'ast',
+        confidence: 'high',
+      },
+      [importer2]: {
+        imports: [file],
+        exports: [],
+        importRecords: [{ source: './shadow-candidates', imported: ['shadowCandidatesFor'], resolved: file }],
+        exportRecords: [],
+        parseMode: 'ast',
+        confidence: 'high',
+      },
+    }
+  });
+
+  const dead = dg.findDeadExports();
+  const item = dead.find((d) => d.file === file);
+  assert(item, 'should report shadow-candidates.js dead export');
+  assert.deepStrictEqual(item.exports, ['SHADOW_EXTS'], 'only SHADOW_EXTS should be flagged');
+  assert.strictEqual(item.confidence, 'low', 'known registry false positive should be downgraded to low');
+  assert.strictEqual(item.confidenceValue, 0.5, 'low confidence should have numeric value 0.5');
+  assert.strictEqual(item.confidenceSource, 'dynamic-registry-export', 'source should indicate dynamic registry export');
+  assert.ok(item.confidenceReason.includes('dynamic') || item.confidenceReason.includes('registry'), `reason should explain registry false positive: ${item.confidenceReason}`);
+  assert.strictEqual(item.falsePositiveReason, 'dynamic-registry-export', 'falsePositiveReason should be set');
+}
+
 function main() {
   testNoImporterReliableGraph();
   testNoImporterUnreliableGraph();
@@ -243,6 +287,7 @@ function main() {
   testMockLikeNamesAreFiltered();
   testDuplicateOfHint();
   testDuplicateOfAbsentWhenUnique();
+  testKnownRegistryFalsePositiveIsDowngraded();
 }
 
 main();

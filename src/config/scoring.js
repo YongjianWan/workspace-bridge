@@ -44,6 +44,10 @@ const SCORING = {
   // Sampling / display limits
   TOP_N_RECOMMENDATIONS: 3,
   TOP_N_LIST: 10,
+
+  // Knowledge risk: below this effective author count, the metric is noise in
+  // personal/single-owner repositories, so we disable it and explain why.
+  KNOWLEDGE_RISK_PERSONAL_REPO_MAX_AUTHORS: 2,
 };
 
 module.exports = SCORING;

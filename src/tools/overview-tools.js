@@ -3,6 +3,7 @@
  * 数据组装委托给 overview-assembler，文件 I/O 与渲染委托给 dashboard-formatter。
  */
 const { DEFAULTS, SCORING } = require('../config/constants');
+const { computeConfigHash } = require('../utils/project-context');
 const { getFileHistoryRisk } = require('./git-tools');
 const {
   assembleOverviewData,
@@ -17,7 +18,12 @@ const { applyBaselineOperations } = require('./regression-tools');
 async function buildProjectOverview(args, container) {
   await container.ensureReady();
 
-  const historyProvider = args?.historyProvider || getFileHistoryRisk;
+  // History/blame is opt-in: default audit-overview/summary should not pay the
+  // cost of per-file git log/blame. Explicit historyProvider is preserved for
+  // backward compatibility and tests.
+  const historyProvider = args?.historyProvider
+    ? args.historyProvider
+    : (args?.withHistory ? getFileHistoryRisk : null);
   const rawData = await assembleOverviewData(args, container, historyProvider);
   if (!rawData.ok) return rawData;
 
@@ -59,6 +65,7 @@ async function buildProjectOverview(args, container) {
       highCount: rawData.knowledgeRisk?.high?.length || 0,
       mediumCount: rawData.knowledgeRisk?.medium?.length || 0,
       lowCount: rawData.knowledgeRisk?.low?.length || 0,
+      disabledReason: rawData.knowledgeRisk?.disabledReason || null,
     },
     languageSupport: buildLanguageSupportMatrix(rawData.depGraph),
     ...(rawData.scope ? { directoryRoles: rawData.scope.directoryRoles } : {}),
@@ -152,8 +159,9 @@ async function buildProjectOverview(args, container) {
     };
     const gitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
     const fileCount = result.scope?.counts?.totalFiles || 0;
+    const configHash = computeConfigHash(container.projectContext?.config || null);
     container.cache?.savePrecomputedAggregates?.([
-      { key: 'analysis_snapshot', data: JSON.stringify(snapshotPayload), version: gitHead, fileCount },
+      { key: 'analysis_snapshot', data: JSON.stringify(snapshotPayload), version: gitHead, fileCount, configHash },
     ]);
   } catch (_) {
     // Snapshot persistence is best-effort; never block the main flow

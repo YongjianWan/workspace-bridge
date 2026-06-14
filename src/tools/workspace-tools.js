@@ -2,6 +2,7 @@
  * Workspace tools for workspace-bridge - SECURE VERSION
  * All commands use argument arrays to prevent injection
  */
+const fs = require('fs');
 const path = require('path');
 const { findWorkspaceRoot, detectWorkspace, toRelativePosix, pathExists } = require('../utils/path');
 const { runCommandSecure, runNpx, runPythonModule, trimOutput, resolvePythonCommand } = require('../utils/command');
@@ -9,6 +10,9 @@ const { TIMEOUTS, PROBE } = require('../config/constants');
 const { parseDiagnosticsFromText, uniqueDiagnostics, summarizeDiagnostics } = require('../utils/diagnostics');
 const { checkParserAvailability } = require('../utils/environment-probe');
 const { detectEslintConfig, detectPrettierConfig, detectTscConfig } = require('../utils/environment-probe');
+const { registry } = require('../services/dep-graph/parsers/registry');
+const { DEFAULT_EXCLUDE_DIRS, shouldExcludeBase, shouldExcludeCli } = require('../utils/exclude-patterns');
+const { loadWorkspaceConfig, DEFAULT_DIRECTORY_HINTS } = require('../utils/project-context');
 
 /**
  * Detect available Node.js linters/formatters based on config files and package.json.
@@ -27,6 +31,91 @@ function detectNodeLinters(workspace, root) {
   linters.tsc = detectTscConfig(root);
 
   return linters;
+}
+
+const LANG_EXT_MAP = {
+  '.js': 'javascript', '.jsx': 'javascript', '.ts': 'typescript', '.tsx': 'typescript',
+  '.mjs': 'javascript', '.cjs': 'javascript', '.mts': 'typescript', '.cts': 'typescript',
+  '.py': 'python',
+  '.java': 'java',
+  '.kt': 'kotlin',
+  '.go': 'go',
+  '.rs': 'rust',
+  '.vue': 'vue',
+  '.svelte': 'svelte',
+  '.c': 'c-cpp', '.cpp': 'c-cpp', '.cc': 'c-cpp', '.h': 'c-cpp', '.hpp': 'c-cpp',
+};
+
+function classifyLangByExt(ext) {
+  return LANG_EXT_MAP[ext.toLowerCase()] || 'other';
+}
+
+/**
+ * Lightweight file scan for workspace-info preflight.
+ * Counts source files and language distribution without reading file contents,
+ * avoiding the full ServiceContainer/FileIndex/DepGraph pipeline.
+ */
+function lightweightFileScan(root, workspace, cliExcludeDirs = []) {
+  const patterns = registry.getFilePatterns(workspace);
+  const exts = new Set();
+  for (const pat of patterns) {
+    // Patterns are '**/*.ext'; strip the glob prefix to obtain the literal extension.
+    const ext = pat.replace(/^\*\*\/\*/, '');
+    if (ext && ext.startsWith('.')) exts.add(ext);
+  }
+
+  // Fast-path: exclude directories by basename before readdir to avoid paying
+  // the I/O cost of entering large dependency / build / cache / reference directories.
+  const baseExcludeDirSet = new Set(DEFAULT_EXCLUDE_DIRS);
+  for (const role of ['reference', 'archive', 'generated']) {
+    for (const dir of DEFAULT_DIRECTORY_HINTS[role] || []) {
+      baseExcludeDirSet.add(dir);
+    }
+  }
+  const wsConfig = loadWorkspaceConfig(root, { quiet: true });
+  if (wsConfig?.directories) {
+    for (const role of ['reference', 'archive', 'generated']) {
+      for (const dir of wsConfig.directories[role] || []) {
+        baseExcludeDirSet.add(path.basename(dir));
+      }
+    }
+  }
+  const fileLangs = [];
+  const MAX_DEPTH = 8;
+
+  function visit(dir, depth) {
+    if (depth > MAX_DEPTH) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (baseExcludeDirSet.has(entry.name)) continue;
+        if (shouldExcludeBase(fullPath, DEFAULT_EXCLUDE_DIRS)) continue;
+        visit(fullPath, depth + 1);
+      } else if (entry.isFile()) {
+        if (shouldExcludeBase(fullPath, DEFAULT_EXCLUDE_DIRS)) continue;
+        if (shouldExcludeCli(fullPath, cliExcludeDirs)) continue;
+        const ext = path.extname(fullPath);
+        if (ext && exts.has(ext)) {
+          fileLangs.push(classifyLangByExt(ext));
+        }
+      }
+    }
+  }
+
+  visit(root, 0);
+
+  const langCounts = {};
+  for (const lang of fileLangs) {
+    langCounts[lang] = (langCounts[lang] || 0) + 1;
+  }
+
+  return { fileCount: fileLangs.length, langCounts, files: [] };
 }
 
 /**
@@ -189,7 +278,7 @@ function workspaceInfo(args, container) {
   const root = container?.workspaceRoot || findWorkspaceRoot(target);
   const workspace = detectWorkspace(root);
 
-  // Try to use depGraph data if container is ready; otherwise fall back to basic detection
+  // Try to use depGraph data if container is ready; otherwise fall back to lightweight scan
   const depGraph = container?.snapshot?.graph || container?.depGraph;
   const allOriginalPaths = depGraph
     ? (depGraph.getAllFileValues?.() || []).map((v) => v.originalPath).filter(Boolean)
@@ -207,22 +296,20 @@ function workspaceInfo(args, container) {
     entryFiles = Array.from(depGraph.entryFiles || []).map((f) => toRelativePosix(root, depGraph._displayPath?.(f) || f));
   }
 
-  // Language distribution from graph
-  const langCounts = {};
-  for (const file of allOriginalPaths) {
-    const ext = path.extname(file).toLowerCase();
-    const lang =
-      ext === '.js' || ext === '.jsx' || ext === '.ts' || ext === '.tsx' || ext === '.mjs' || ext === '.cjs' ? 'javascript'
-      : ext === '.py' ? 'python'
-      : ext === '.java' ? 'java'
-      : ext === '.kt' ? 'kotlin'
-      : ext === '.go' ? 'go'
-      : ext === '.rs' ? 'rust'
-      : ext === '.vue' ? 'vue'
-      : ext === '.svelte' ? 'svelte'
-      : ext === '.c' || ext === '.cpp' || ext === '.cc' || ext === '.h' || ext === '.hpp' ? 'c-cpp'
-      : 'other';
-    langCounts[lang] = (langCounts[lang] || 0) + 1;
+  let fileCount;
+  let langCounts;
+  if (allOriginalPaths.length > 0) {
+    fileCount = allOriginalPaths.length;
+    langCounts = {};
+    for (const file of allOriginalPaths) {
+      const ext = path.extname(file).toLowerCase();
+      const lang = classifyLangByExt(ext);
+      langCounts[lang] = (langCounts[lang] || 0) + 1;
+    }
+  } else {
+    const scan = lightweightFileScan(root, workspace, args?.excludeDirs);
+    fileCount = scan.fileCount;
+    langCounts = scan.langCounts;
   }
 
   const nodeLinters = detectNodeLinters(workspace, root);
@@ -248,7 +335,7 @@ function workspaceInfo(args, container) {
     ok: true,
     cwd: require('../utils/path').normalizePath(target),
     workspaceRoot: workspace.root,
-    fileCount: allOriginalPaths.length,
+    fileCount,
     totalLines: cacheStats.totalLines || 0,
     detected: {
       git: workspace.hasGit,

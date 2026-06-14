@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { pathExists, readJsonSafe, toPosixPath, toRelativePosix, WORKSPACE_MARKERS } = require('./path');
 
 const ROLE_PRIORITY = ['generated', 'archive', 'reference', 'active'];
@@ -467,6 +468,26 @@ function hasEffectiveConfig(config) {
   return Object.keys(config).some((k) => k !== '$schema');
 }
 
+/**
+ * Deterministic SHA-256 hash of a workspace config object.
+ * Used to invalidate query-* snapshots when .workspace-bridge.json changes.
+ * Null/empty config hashes to the empty string so "no config" is stable.
+ */
+function computeConfigHash(config) {
+  if (!hasEffectiveConfig(config)) return '';
+  return crypto.createHash('sha256').update(stableStringify(config)).digest('hex');
+}
+
+function stableStringify(obj) {
+  if (obj === null) return 'null';
+  if (Array.isArray(obj)) return '[' + obj.map(stableStringify).join(',') + ']';
+  if (typeof obj === 'object') {
+    const keys = Object.keys(obj).sort();
+    return '{' + keys.map((k) => JSON.stringify(k) + ':' + stableStringify(obj[k])).join(',') + '}';
+  }
+  return JSON.stringify(obj);
+}
+
 function validateWorkspaceConfig(config, configPath) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
     throw new Error(`Configuration root must be an object in ${configPath}`);
@@ -846,7 +867,9 @@ module.exports = {
   ProjectContext,
   normalizeRelativePath,
   loadWorkspaceConfig,
+  computeConfigHash,
   ENTRY_BASE_NAMES,
   ENTRY_WEIGHT,
   detectFrameworkFromPath,
+  DEFAULT_DIRECTORY_HINTS,
 };

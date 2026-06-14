@@ -74,6 +74,7 @@ const { createMockDepGraph } = require('./test-helpers');
 {
   const cliSource = fs.readFileSync(path.join(__dirname, '..', 'cli.js'), 'utf8');
   assert.ok(cliSource.includes('--fail-on-findings'), 'W3-4: cli.js help text should mention --fail-on-findings');
+  assert.ok(cliSource.includes('--with-history'), 'cli.js help text should mention --with-history');
   assert.ok(
     cliSource.includes('Takes precedence over --json') || cliSource.includes('overridden by --format'),
     'W3-6: cli.js should document --format precedence over --json'

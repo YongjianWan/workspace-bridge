@@ -490,6 +490,16 @@ async function loadMailmap(root) {
   }
 }
 
+function isUncommittedAuthor(name, email) {
+  const n = String(name || '').toLowerCase();
+  const e = String(email || '').toLowerCase();
+  // Git blame uses these placeholders for lines that have not been committed yet.
+  // They must not be treated as real authors or inflate the bus-factor metric.
+  if (n === 'not committed yet') return true;
+  if (e.includes('not.committed.yet')) return true;
+  return false;
+}
+
 function parseBlamePorcelain(stdout) {
   const lines = (stdout || '').split(/\r?\n/);
   const authors = new Map(); // email -> { name, lines }
@@ -514,7 +524,7 @@ function parseBlamePorcelain(stdout) {
     }
     if (line.startsWith('\t')) {
       // Content line — attribute to current author
-      if (currentEmail) {
+      if (currentEmail && !isUncommittedAuthor(currentName, currentEmail)) {
         const key = currentEmail.toLowerCase();
         const existing = authors.get(key);
         if (existing) {
@@ -544,6 +554,28 @@ function computeKnowledgeRisk(metrics) {
     return { riskLevel: 'medium', reason: `Dominant author (${Math.round(primaryAuthorPct * 100)}%)` };
   }
   return { riskLevel: 'low', reason: `${authorCount} authors, well distributed` };
+}
+
+async function getRepoEffectiveAuthorCount(root) {
+  const gitCheck = await ensureGitRepo(root);
+  if (gitCheck) {
+    return { ok: false, error: gitCheck.error, count: 0 };
+  }
+
+  const result = await runGit(['log', '--format=%aE'], root, TIMEOUTS.GIT_LONG_MS);
+  if (!result.ok && !result.stdout) {
+    return { ok: false, error: cleanGitError(result.stderr, 'Failed to read git log'), count: 0 };
+  }
+
+  const emails = new Set();
+  for (const line of (result.stdout || '').split(/\r?\n/)) {
+    const email = line.trim().toLowerCase();
+    if (!email) continue;
+    if (isUncommittedAuthor(null, email)) continue;
+    emails.add(email);
+  }
+
+  return { ok: true, count: emails.size };
 }
 
 async function getFileKnowledgeRisk(root, file, options = {}) {
@@ -606,9 +638,11 @@ module.exports = {
   getFileHistoryRisk,
   getDiffNumstat,
   getFileKnowledgeRisk,
+  getRepoEffectiveAuthorCount,
   // Exposed for unit testing
   parsePorcelainV1Line,
   parseMailmap,
   parseBlamePorcelain,
   computeKnowledgeRisk,
+  isUncommittedAuthor,
 };

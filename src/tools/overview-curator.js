@@ -11,6 +11,7 @@ const {
   buildCycleRecommendation,
   buildDeadExportRecommendation,
 } = require('../utils/recommendations');
+const { DEAD_EXPORT_FALSE_POSITIVE_REASONS } = require('./honesty-engine');
 
 function toRelative(root, filePath) {
   return toRelativePosix(root, filePath);
@@ -30,6 +31,7 @@ function buildOverviewSummary(
   const unresolvedCount = issueContext.unresolved?.omitted ? null : (issueContext.unresolved?.count || 0);
   const cyclesCount = issueContext.cycles?.omitted ? null : (issueContext.cycles?.count || 0);
   const deadExportsCount = issueContext.deadExports?.omitted ? null : (issueContext.deadExports?.count || 0);
+  const severityRelevantDeadExportsCount = issueContext.deadExports?.severityRelevantCount ?? deadExportsCount;
 
   if (hotspots.length > 0) {
     summary.insights.push(`发现 ${hotspots.length} 个热区文件，需要重点关注`);
@@ -58,7 +60,7 @@ function buildOverviewSummary(
     fragileModuleCount: fragileModules.length,
     unresolved: unresolvedCount || 0,
     cycles: cyclesCount || 0,
-    deadExports: deadExportsCount || 0,
+    deadExports: severityRelevantDeadExportsCount || 0,
     orphans: orphanCount,
   });
 
@@ -132,8 +134,8 @@ function pickBreakEdge(depGraph, cycleFiles) {
   for (let i = 0; i < cycleFiles.length; i += 1) {
     const from = cycleFiles[i];
     const to = cycleFiles[(i + 1) % cycleFiles.length];
-    const fromDependents = depGraph.getDependents?.(from) || [];
-    const fromDependencies = depGraph.getDependencies?.(from) || [];
+    const fromDependents = depGraph.getDependents?.(from, { architectureOnly: true }) || [];
+    const fromDependencies = depGraph.getDependencies?.(from, { architectureOnly: true }) || [];
     const score = (fromDependents.length * SCORING.BREAK_EDGE_DEPENDENT_WEIGHT) + fromDependencies.length;
     edges.push({ from, to, score, fromDependents: fromDependents.length, fromDependencies: fromDependencies.length });
   }
@@ -239,8 +241,8 @@ function buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectCon
   const isSmallProject = mainlineFiles.length < 200;
   const candidates = [];
   for (const file of mainlineFiles) {
-    const dependents = depGraph.getDependents?.(file) || [];
-    const dependencies = depGraph.getDependencies?.(file) || [];
+    const dependents = depGraph.getDependents?.(file, { architectureOnly: true }) || [];
+    const dependencies = depGraph.getDependencies?.(file, { architectureOnly: true }) || [];
     const coupling = calculateCoupling(dependencies, dependents);
     const classification = projectContext?.classifyFile?.(file);
     if (!classification?.isMainline) continue;

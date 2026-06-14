@@ -35,6 +35,18 @@ const {
 // accidentally ignoring user source files in a queries/ directory.
 const QUERIES_DIR = normalizePathKey(path.join(__dirname, 'queries'));
 
+// Known registry exports that are intentionally exposed for dynamic/runtime
+// consumption (e.g. consumed via string-based require or external tooling)
+// but appear unused to static analysis. These findings are downgraded to low
+// confidence and excluded from severity-driven recommendations while still
+// being surfaced in the dead-exports list for transparency.
+const KNOWN_REGISTRY_EXPORTS = [
+  {
+    pathSuffix: '/src/services/dep-graph/shadow-candidates.js',
+    exports: new Set(['SHADOW_EXTS']),
+  },
+];
+
 class GraphAnalyzer {
   constructor(depGraph) {
     this.dg = depGraph;
@@ -818,6 +830,27 @@ class GraphAnalyzer {
     return used;
   }
 
+  /**
+   * Downgrade dead-export findings that are known registry exports exposed for
+   * dynamic/runtime consumption but invisible to static analysis.
+   */
+  _markKnownRegistryFalsePositives(deadExports) {
+    for (const finding of deadExports) {
+      if (!finding.exports || finding.exports.length === 0) continue;
+      const normalizedFile = normalizePathKey(finding.file);
+      const match = KNOWN_REGISTRY_EXPORTS.find((rule) =>
+        normalizedFile.endsWith(rule.pathSuffix) &&
+        finding.exports.every((e) => rule.exports.has(e))
+      );
+      if (!match) continue;
+      finding.confidence = 'low';
+      finding.confidenceValue = CONFIDENCE.LOW_VALUE;
+      finding.confidenceSource = 'dynamic-registry-export';
+      finding.confidenceReason = 'Export is part of a dynamic registry API not visible to static analysis';
+      finding.falsePositiveReason = 'dynamic-registry-export';
+    }
+  }
+
   _collectUsedExports(importers, filePath) {
     let usesAllExports = false;
     const usedNames = new Set();
@@ -940,6 +973,11 @@ class GraphAnalyzer {
           });
         }
       }
+
+      // Downgrade known registry false positives before returning. These exports
+      // are intentionally public for dynamic/runtime consumers that static
+      // analysis cannot see, so they should not drive severity.
+      this._markKnownRegistryFalsePositives(deadExports);
 
       // L1: _scanContentCache holds full file contents (up to 50MB). Clear after
       // each findDeadExports call so REPL long sessions don't leak memory when

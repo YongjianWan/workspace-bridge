@@ -5,7 +5,6 @@
  * Provides bulk load/save for cache metadata, file metadata, parse results,
  * symbol index, and diagnostics.
  */
-const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs');
 const path = require('path');
 const { CACHE_VERSION } = require('../config/constants');
@@ -153,6 +152,7 @@ const SCHEMA = `
     data TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 0,
     file_count INTEGER NOT NULL,
+    config_hash TEXT NOT NULL DEFAULT '',
     computed_at INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS idx_precomputed_aggregates_version ON precomputed_aggregates(version);
@@ -198,33 +198,31 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_test_map_source ON test_map(source);
 `;
 
-let _originalEmitWarning;
-let _suppressCount = 0;
-
 function _debugError(label, err) {
   if (process.env.DEBUG) {
     console.error(`[GraphDB] ${label} failed:`, err?.message || err);
   }
 }
 
-function _suppressSqliteExperimentalWarning() {
-  if (_suppressCount === 0) {
-    _originalEmitWarning = process.emitWarning;
-    process.emitWarning = (warning, name, ctor) => {
-      const msg = typeof warning === 'string' ? warning : warning.message;
-      const type = typeof warning === 'string' ? name : warning.name;
-      if (type === 'ExperimentalWarning' && msg?.toLowerCase().includes('sqlite')) return;
-      _originalEmitWarning.call(process, warning, name, ctor);
-    };
-  }
-  _suppressCount++;
-}
-
-function _restoreEmitWarning() {
-  _suppressCount = Math.max(0, _suppressCount - 1);
-  if (_suppressCount === 0 && _originalEmitWarning) {
-    process.emitWarning = _originalEmitWarning;
-    _originalEmitWarning = undefined;
+/**
+ * Temporarily intercept process.emitWarning to swallow the node:sqlite
+ * ExperimentalWarning, then immediately restore the original function.
+ *
+ * This avoids the previous global monkey-patch that remained active for the
+ * lifetime of GraphDB instances and leaked into embedded / multi-instance use.
+ */
+function _withSqliteWarningSuppressed(fn) {
+  const originalEmitWarning = process.emitWarning;
+  process.emitWarning = (warning, name, ctor) => {
+    const msg = typeof warning === 'string' ? warning : warning.message;
+    const type = typeof warning === 'string' ? name : warning.name;
+    if (type === 'ExperimentalWarning' && msg?.toLowerCase().includes('sqlite')) return;
+    originalEmitWarning.call(process, warning, name, ctor);
+  };
+  try {
+    return fn();
+  } finally {
+    process.emitWarning = originalEmitWarning;
   }
 }
 
@@ -236,12 +234,15 @@ class GraphDB {
 
   _ensureOpen() {
     if (this.db) return;
-    _suppressSqliteExperimentalWarning();
+    // Lazy-require node:sqlite inside a scoped warning suppressor so that its
+    // ExperimentalWarning is caught without permanently replacing the global
+    // process.emitWarning function.
+    const sqlite = _withSqliteWarningSuppressed(() => require('node:sqlite'));
     const dir = path.dirname(this.dbPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    this.db = new DatabaseSync(this.dbPath);
+    this.db = _withSqliteWarningSuppressed(() => new sqlite.DatabaseSync(this.dbPath));
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec('PRAGMA journal_size_limit = 67108864'); // 64MB — auto-checkpoint, prevent unbounded WAL growth
     this.db.exec('PRAGMA mmap_size = 268435456');          // 256MB — memory-map hot pages, reduce read syscalls
@@ -298,6 +299,12 @@ class GraphDB {
     if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'framework_hint')) {
       this.db.prepare('ALTER TABLE parse_results ADD COLUMN framework_hint TEXT').run();
     }
+    // Wave B-2: add config_hash column to precomputed_aggregates so query-* snapshots
+    // can invalidate when .workspace-bridge.json changes.
+    const aggregateCols = this.db.prepare('PRAGMA table_info(precomputed_aggregates)').all();
+    if (aggregateCols.length > 0 && !aggregateCols.some((c) => c.name === 'config_hash')) {
+      this.db.prepare("ALTER TABLE precomputed_aggregates ADD COLUMN config_hash TEXT NOT NULL DEFAULT ''").run();
+    }
   }
 
   close() {
@@ -309,7 +316,6 @@ class GraphDB {
       }
       this.db = null;
     }
-    _restoreEmitWarning();
   }
 
   walCheckpoint(mode) {
@@ -574,7 +580,7 @@ class GraphDB {
 
   /**
    * Save precomputed aggregate summaries to SQLite.
-   * @param {Array<{key:string,data:string,version:number,fileCount:number}>} rows
+   * @param {Array<{key:string,data:string,version:number,fileCount:number,configHash?:string}>} rows
    */
   savePrecomputedAggregates(rows) {
     try {
@@ -582,11 +588,11 @@ class GraphDB {
       this._executeInTransaction(() => {
         this.db.prepare('DELETE FROM precomputed_aggregates').run();
         const insert = this.db.prepare(
-          'INSERT INTO precomputed_aggregates (key, data, version, file_count, computed_at) VALUES (?, ?, ?, ?, ?)'
+          'INSERT INTO precomputed_aggregates (key, data, version, file_count, config_hash, computed_at) VALUES (?, ?, ?, ?, ?, ?)'
         );
         const now = Math.floor(Date.now() / 1000);
         for (const row of rows) {
-          insert.run(row.key, row.data, row.version ?? 0, row.fileCount ?? 0, now);
+          insert.run(row.key, row.data, row.version ?? 0, row.fileCount ?? 0, row.configHash ?? '', now);
         }
       });
       return true;
@@ -598,19 +604,20 @@ class GraphDB {
 
   /**
    * Load precomputed aggregate summaries from SQLite.
-   * @returns {Array<{key:string,data:string,version:number,fileCount:number,computedAt:number}>|null}
+   * @returns {Array<{key:string,data:string,version:number,fileCount:number,configHash:string,computedAt:number}>|null}
    */
   loadPrecomputedAggregates() {
     try {
       this._ensureOpen();
       const rows = this.db.prepare(
-        'SELECT key, data, version, file_count, computed_at FROM precomputed_aggregates'
+        'SELECT key, data, version, file_count, config_hash, computed_at FROM precomputed_aggregates'
       ).all();
       return rows.map((r) => ({
         key: r.key,
         data: r.data,
         version: isNaN(Number(r.version)) ? r.version : Number(r.version),
         fileCount: Number(r.file_count),
+        configHash: r.config_hash ?? '',
         computedAt: Number(r.computed_at),
       }));
     } catch (err) {

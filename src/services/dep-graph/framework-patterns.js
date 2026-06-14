@@ -174,6 +174,30 @@ registerFrameworkQuery('kotlin', 'spring-kotlin', './queries/framework-detection
 registerFrameworkQuery('kotlin', 'ktor', './queries/framework-detection/kt-ktor');
 
 /**
+ * Return the absolute paths of all modules currently registered in the dynamic
+ * route/framework query registries. Used by orphan detection to avoid flagging
+ * runtime-required query modules as unused.
+ */
+let _registeredQueryFiles = null;
+function getRegisteredQueryFiles() {
+  if (_registeredQueryFiles) return _registeredQueryFiles;
+  const files = new Set();
+  const registries = [ROUTE_QUERY_REGISTRY, FRAMEWORK_QUERY_REGISTRY];
+  for (const registry of registries) {
+    for (const queryPath of registry.values()) {
+      try {
+        const resolved = require.resolve(queryPath, { paths: [__dirname] });
+        files.add(resolved);
+      } catch {
+        // Ignore registry entries that do not resolve on disk.
+      }
+    }
+  }
+  _registeredQueryFiles = files;
+  return files;
+}
+
+/**
  * Common helper to compile and run tree-sitter queries for a registered registry.
  */
 async function runQueryRegistry(filePath, content, registryMap, onMatch) {
@@ -453,4 +477,6 @@ module.exports = {
   detectFrameworkFromContentSync,
   extractRoutes,
   FRAMEWORK_QUERY_REGISTRY,
+  ROUTE_QUERY_REGISTRY,
+  getRegisteredQueryFiles,
 };

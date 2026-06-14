@@ -188,6 +188,7 @@ const FORMATTERS = {
         `orphansTotal: ${r.orphans?.counts?.total ?? 0}`,
         `knowledgeRiskHigh: ${kr.high?.length ?? 0}`,
         `knowledgeRiskMedium: ${kr.medium?.length ?? 0}`,
+        ...(kr.disabled ? [`knowledgeRiskDisabledReason: ${kr.disabledReason}`] : []),
         `deadExportsCount: ${r.deadExports?.deadExportsCount ?? 0}`,
         `unresolvedCount: ${r.unresolved?.unresolvedCount ?? 0}`,
         `cyclesCount: ${r.cycles?.cyclesCount ?? 0}`,
@@ -215,7 +216,9 @@ const FORMATTERS = {
           lines.push(`  • ${h.file}: ${h.reason}`);
         }
       }
-      if (kr.high?.length) {
+      if (kr.disabled) {
+        lines.push(`Knowledge risk: disabled — ${kr.disabledReason}`);
+      } else if (kr.high?.length) {
         lines.push('Knowledge risk (bus factor = 1):');
         for (const k of kr.high.slice(0, 3)) {
           lines.push(`  • ${k.file}: ${Math.round((k.primaryAuthorPct || 0) * 100)}% ${k.primaryAuthor || 'unknown'}`);
@@ -270,7 +273,9 @@ const FORMATTERS = {
           lines.push(`- **${h.file}** — ${h.reason}`);
         }
       }
-      if (kr.high?.length) {
+      if (kr.disabled) {
+        lines.push(``, `## Knowledge Risk`, `${kr.disabledReason}`);
+      } else if (kr.high?.length) {
         lines.push(``, `## Knowledge Risk (Bus Factor = 1)`);
         for (const k of kr.high.slice(0, 3)) {
           lines.push(`- **${k.file}** — ${Math.round((k.primaryAuthorPct || 0) * 100)}% ${k.primaryAuthor || 'unknown'}`);

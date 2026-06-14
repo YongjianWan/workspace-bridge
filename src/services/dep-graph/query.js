@@ -19,14 +19,22 @@ class GraphQuery {
     }
   }
 
-  getDependencies(filePath) {
+  getDependencies(filePath, options = {}) {
     this._ensureReady();
-    return this.dg.getFileInfo(filePath)?.imports || [];
+    const deps = this.dg.getFileInfo(filePath)?.imports || [];
+    if (options.architectureOnly) {
+      return deps.filter((dep) => !this.dg.isTestLikeFile(filePath) && !this.dg.isTestLikeFile(dep));
+    }
+    return deps;
   }
 
-  getDependents(filePath) {
+  getDependents(filePath, options = {}) {
     this._ensureReady();
-    return this.dg.reverseGraph.get(this.dg.normalizeFilePath(filePath)) || [];
+    const dependents = this.dg.reverseGraph.get(this.dg.normalizeFilePath(filePath)) || [];
+    if (options.architectureOnly) {
+      return dependents.filter((dep) => !this.dg.isTestLikeFile(filePath) && !this.dg.isTestLikeFile(dep));
+    }
+    return dependents;
   }
 
   getImpactRadius(filePath, depth = 3) {
