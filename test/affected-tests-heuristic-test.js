@@ -109,6 +109,10 @@ function testJavaSuffixes() {
 }
 
 function testWindowsPaths() {
+  if (process.platform !== 'win32') {
+    // Windows path heuristics require path.win32 semantics; skip on POSIX.
+    return;
+  }
   const depGraph = makeWindowsGraph();
   const winTests = depGraph.findAffectedTests('C:\\repo\\packages\\foo\\src\\service.js');
   const winFiles = winTests.map((entry) => entry.file.replace(/\\/g, '/'));
