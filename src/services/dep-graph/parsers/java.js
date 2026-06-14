@@ -41,7 +41,7 @@ function parseJavaWithRegex(content) {
   // Limit line length to bound regex execution; the pattern below has
   // polynomial backtracking risk on very long lines due to nested quantifiers.
   const MAX_LINE_LEN = 512;
-  const methodRegex = /\bpublic\s+(?:[\w<>\[]]+\s+)+(\w+)\s*\(/g;
+  const methodRegex = /\bpublic\s+(?:[\w<>\[\]]+\s+)+(\w+)\s*\(/g;
   while ((match = methodRegex.exec(content)) !== null) {
     if (match[0].length > MAX_LINE_LEN) continue;
     functionRecords.push({

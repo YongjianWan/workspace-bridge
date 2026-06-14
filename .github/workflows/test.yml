@@ -42,10 +42,11 @@ jobs:
           python3 --version || true
           python3 -c "import javalang; print('javalang', javalang.__version__)" 2>&1 || true
 
+      - name: Install javalang for Java AST parser
+        run: python3 -m pip install javalang
+
       - name: Run fast tests
         run: npm run test:fast
-        env:
-          DEBUG: 1
 
       - name: Run smoke tests
         run: npm run test:smoke
