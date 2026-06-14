@@ -8,6 +8,20 @@
 
 ## [Unreleased]
 
+### 修复 CI 跨平台失败 (#23) (2026-06-14)
+
+- **问题**：新引入的 `.github/workflows/test.yml` 在 Ubuntu (Node 22/24) 上运行 `npm run test:fast` 与 `npm run test:smoke` 时失败：
+  - `test/path-utils-test.js` 在 POSIX 上期望 `normalizePathKey` lowercase，与实现（仅 Windows lowercase）矛盾；
+  - `src/services/dep-graph/parsers/java.js` 的 regex fallback 中 `methodRegex` 字符类 `\[\w<>\[]` 被错误解析，导致 AST 不可用时 `functionRecords` 为空，进而 `wave11-analysis-deepening-test.js` 与 `wave15-ast-rules-test.js` 的 Java E2E 断言失败；
+  - CI runner 未安装 `javalang`，Java AST parser 被迫 fallback；
+  - `test/affected-tests-heuristic-test.js` 的 Windows 路径 heuristics 在 POSIX 上运行并断言失败。
+- **修复**：
+  - 修正 `path-utils-test.js` 的断言，POSIX 上验证 casing 保留，Windows 上验证 lowercase；
+  - 修正 `java.js` 的 `methodRegex` 字符类为 `[\w<>\[\]]`，恢复 regex fallback 对 public 方法签名的正确匹配；
+  - `.github/workflows/test.yml` 新增 `python3 -m pip install javalang`，确保 Java AST parser 在 CI 上可用；
+  - `affected-tests-heuristic-test.js` 的 `testWindowsPaths` 在非 Windows 平台跳过。
+- **验证**：GitHub Actions `Test` workflow Node 22/24 双矩阵 `test:fast` + `test:smoke` 全部通过；本地 `npm run test:fast` **116/116 PASS**，`npm run test:smoke` **119/119 PASS**。
+
 ### 收尾：修复 CRLF 残留、测试分层标记与文档同步 (2026-06-14)
 
 - 将 `src/services/dep-graph/framework-patterns.js` 规范化为 LF 行尾，消除 `.gitattributes` 生效后仍残留的 CRLF 噪音。

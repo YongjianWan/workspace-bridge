@@ -38,6 +38,7 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 基线状态
 
 - 测试：**所有测试全部 PASS**；`npm run test:fast` **116/116 PASS**（~25s），`npm run test:smoke` **119/119 PASS**（~57s）。开发迭代首选 `npm run test:fast`。
+- CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~383 文件（entry=1, mainline=173, test=210）
@@ -80,6 +81,7 @@ node cli.js audit-overview --cwd . --json --quiet
 | 12 | `SHADOW_EXTS` 误报仍参与 severity | `shadow-candidates.js` 的 `SHADOW_EXTS` 被 `findDeadExports()` 判定为死导出并以 medium 置信度计入 severity | `analyzer.js` 对 `SHADOW_EXTS` 标记 `dynamic-registry-export` 低置信误报；`honesty-engine.js` 导出 `DEAD_EXPORT_FALSE_POSITIVE_REASONS`；severity 计算层（overview-curator、overview-assembler、repo-summary、commands/index.js）排除已知误报 | `test/dead-export-confidence-test.js`、`test/overview-curator-test.js`、`test/formatter-direct-test.js` |
 | 10 | `audit-summary` / `audit-overview` 默认仍跑逐文件 blame | `overview-assembler.js` 无条件调用 `buildKnowledgeRisk()` 与 `buildHotspots(..., historyProvider)` | `validate-args.js` 新增 `--with-history`（高优先级修复）；`overview-tools.js` / `overview-assembler.js` 默认不再请求 blame，仅显式 provider 或 `--with-history` 启用；`query-knowledge-risk` 显式请求历史 | `test/overview-history-optional-test.js`；`npm run test:fast` **116/116 PASS** |
 | 14 | Knowledge risk 对个人仓库失真 | `getFileKnowledgeRisk()` 逐文件 blame 将单作者仓库所有文件判 high risk；未提交行被计为 `Not Committed Yet` 作者 | `git-tools.js` 新增 `getRepoEffectiveAuthorCount()` 与 `isUncommittedAuthor()`；`overview-assembler.js` 在启用历史时检测 effective author count，<= 2 返回 `disabledReason: 'too-few-authors'`；human-formatters 展示禁用原因 | `test/knowledge-risk-test.js`、`test/overview-history-optional-test.js`；`npm run test:fast` **116/116 PASS** |
+| 23 | CI Test workflow 在 Ubuntu 上失败 | path-utils 测试断言与 POSIX 行为不符；`java.js` regex fallback 的 `methodRegex` 字符类错误导致 AST 不可用时 functionRecords 为空；CI 未安装 javalang；`affected-tests-heuristic` Windows 路径测试在 POSIX 运行 | 修复 path-utils 测试断言；修正 `methodRegex` 字符类为 `[\w<>[]]`；`.github/workflows/test.yml` 安装 javalang；Windows 路径测试在 POSIX 跳过 | GitHub Actions `Test` workflow Node 22/24 全部通过；`npm run test:fast` **116/116 PASS**，`npm run test:smoke` **119/119 PASS** |
 
 ### 仍待处理
 
@@ -275,4 +277,4 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-13（修复 #11 动态 query registry 模块被误判为孤儿；npm run test:fast 116/116 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-14（修复 CI 跨平台失败 #23；npm run test:fast 116/116 PASS，npm run test:smoke 119/119 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
