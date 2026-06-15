@@ -91,5 +91,37 @@ class GraphQuery {
       via: r.via ? r.via.map((f) => this.dg._displayPath(f)) : r.via,
     }));
   }
+
+  findAffectedHttpRoutes(filePath, depth = 3) {
+    this._ensureReady();
+    const start = this.dg.normalizeFilePath(filePath);
+    const affected = [];
+
+    bfsTraverse(start, (file) => this.getDependents(file), {
+      maxDepth: depth,
+      onVisit: (file, level) => {
+        const info = this.dg.getFileInfo(file);
+        if (info && info.routes && info.routes.length > 0) {
+          for (const r of info.routes) {
+            affected.push({
+              file: this.dg._displayPath(file),
+              method: r.method,
+              path: r.path,
+              framework: r.framework,
+              handler: r.handler || null,
+            });
+          }
+        }
+      }
+    });
+
+    const seen = new Set();
+    return affected.filter(r => {
+      const key = `${r.file}:${r.method}:${r.path}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
 }
 module.exports = { GraphQuery };

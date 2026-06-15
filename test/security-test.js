@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 // @slow
 /**
  * Security test suite for workspace-bridge

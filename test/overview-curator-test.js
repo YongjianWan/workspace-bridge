@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Overview Curator — direct unit tests for pure computation / curation logic.
  * Previously zero-coverage; these tests protect against refactoring regressions

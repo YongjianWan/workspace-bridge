@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Watch command integration test.
  * Spawns the watch CLI, triggers a file change, and verifies impact output.

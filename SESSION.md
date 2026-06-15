@@ -85,11 +85,11 @@ node cli.js audit-overview --cwd . --json --quiet
 | 13 | 测试边污染生产架构指标 | REPL `top` 未过滤测试依赖；`audit-overview` 的 hotspot/coupling/coreModules 已使用 `{ architectureOnly: true }` 但仍需对齐所有交互入口 | `repl.js` 的 `top` 命令跳过测试文件并使用 `getDependents(..., { architectureOnly: true })` 计算生产依赖 | `test/repl-edge-test.js`；`npm run test:fast` **116/116 PASS** |
 | 22 | Coverage 无最低门槛 | 有 `test:coverage` 但 CI 不跑 | 新增 `.c8rc.json` 设置全局门槛（lines/statements 72%，functions 70%，branches 68%）；`package.json` 新增 `test:coverage:check`；`.github/workflows/test.yml` 新增独立 `coverage` job | `npm run test:coverage:check` exit 0；`npm run test:fast` **116/116 PASS**；`npm run test:smoke` **119/119 PASS** |
 | 21 | 大量 CLI spawn 测试未迁移 | ~44 文件仍 spawn；`runCliInProcess()` 导出但迁移率低 | `test/test-helpers.js` 新增 `runCliInProcess`/`runCliInProcessText`/`runCliInProcessRaw`；`cli.js` 修复 `--help` 输出；迁移 41 个测试文件；保留 REPL/watch/audit-file --watch/cache-concurrency/依赖进程级 config 隔离的测试 | `npm run test:fast` **116/116 PASS**；`npm run test:smoke` **119/119 PASS** |
+| 20 | 测试分层标记未落地 | 202 个测试仅 68 个带 `@contract/@semantic` | 低 | AGENTS 规定已执行 |
 
 ### 仍待处理
 
-| # | 问题 | 根因/位置 | 优先级 | 备注 |
-| 20 | 测试分层标记未落地 | 202 个测试仅 68 个带 `@contract/@semantic` | 低 | AGENTS 规定未执行 |
+> 当前已无活跃的待处理问题。所有测试已成功应用 `@contract` 或 `@semantic` 标签。
 
 ---
 

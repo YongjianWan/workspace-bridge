@@ -1,3 +1,4 @@
+// @semantic
 const assert = require('assert');
 const {
   scoreToLevel,

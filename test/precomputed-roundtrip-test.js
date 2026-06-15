@@ -1,3 +1,4 @@
+// @semantic
 const assert = require('assert');
 const { GraphDB } = require('../src/services/graph-db');
 const { GraphAnalyzer } = require('../src/services/dep-graph/analyzer');

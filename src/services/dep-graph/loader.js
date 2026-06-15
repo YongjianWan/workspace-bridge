@@ -57,6 +57,7 @@ function loadGraph(depGraph, options = {}) {
   // Rebuild edge map and reverseGraph from persisted edges
   const edgeMap = new Map();
   for (const edge of edges) {
+    if (edge.edgeType !== 'import') continue; // 过滤非 import 边，不加入主依赖关系图
     if (!edgeMap.has(edge.source)) {
       edgeMap.set(edge.source, []);
     }
@@ -86,6 +87,7 @@ function loadGraph(depGraph, options = {}) {
       confidence: result.confidence || 'medium',
       package: result.package || null,
       frameworkHint: result.frameworkHint || null,
+      routes: result.routes || [],
     });
   }
 

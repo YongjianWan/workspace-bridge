@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 // @slow
 /**
  * CLI 混合与 Python 框架/技术栈检测测试

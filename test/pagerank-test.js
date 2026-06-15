@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * PageRank algorithm tests — ported from qartez-mcp graph/pagerank.rs
  */

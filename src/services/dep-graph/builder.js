@@ -8,7 +8,7 @@ const { promisify } = require('util');
 const { createImportRecord } = require('./parsers');
 const { registry } = require('./parsers/registry');
 const { resolveImport, clearResolverCaches } = require('./resolvers');
-const { detectFrameworkFromPath, detectFrameworkFromContent } = require('./framework-patterns');
+const { detectFrameworkFromPath, detectFrameworkFromContent, extractRoutes } = require('./framework-patterns');
 const {
   scanAndExtractImplicitImports,
   resolveImplicitImports,
@@ -121,6 +121,7 @@ class GraphBuilder {
         confidence: parsed.confidence,
         package: parsed.package,
         frameworkHint: parsed.frameworkHint || null,
+        routes: parsed.routes || [],
       });
     }
 
@@ -272,6 +273,17 @@ class GraphBuilder {
 
     const frameworkHint = await detectFrameworkFromContent(filePath, content);
 
+    let routes = [];
+    if (frameworkHint) {
+      try {
+        routes = await extractRoutes(filePath, content);
+      } catch (err) {
+        if (process.env.DEBUG) {
+          console.error(`[GraphBuilder] extractRoutes failed for ${filePath}:`, err.message);
+        }
+      }
+    }
+
     const parsed = {
       filePath,
       graphKey,
@@ -286,6 +298,7 @@ class GraphBuilder {
       confidence: parseMode === 'ast' ? 'high' : 'medium',
       package: packageName,
       frameworkHint,
+      routes,
     };
 
     if (meta) {
@@ -363,6 +376,7 @@ class GraphBuilder {
       confidence,
       package: packageName,
       frameworkHint: parsed.frameworkHint || null,
+      routes: parsed.routes || [],
     });
 
     // Cache parse result for incremental rebuilds
@@ -443,6 +457,16 @@ class GraphBuilder {
           confidence: record ? (record.confidence ?? 1.0) : 1.0,
           tier: record ? (record.tier || 'tier1') : 'tier1',
           resolutionMethod: record ? (record.resolutionMethod || 'import') : 'import',
+        });
+      }
+      for (const r of info.routes || []) {
+        edges.push({
+          source: file,
+          target: `route:${r.method}:${r.path}`,
+          edgeType: 'handles-route',
+          confidence: 1.0,
+          tier: 'tier1',
+          resolutionMethod: 'handles-route',
         });
       }
     }
@@ -839,6 +863,7 @@ class GraphBuilder {
                 confidence: parsed.confidence,
                 package: parsed.package,
                 frameworkHint: parsed.frameworkHint || null,
+                routes: parsed.routes || [],
               });
             }
           } catch (e) {

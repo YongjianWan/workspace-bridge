@@ -4,10 +4,121 @@
  */
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { toPosixPath, resolveWorkspaceFilePath, toRelativePosix } = require('../utils/path');
 const { parseArgs } = require('../utils/parse-args');
 const { DEFAULTS } = require('../config/constants');
 const { validateCategories } = require('../tools/category-filter');
+
+function parseTomlContent(content) {
+  const config = {};
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('[')) continue;
+    const idx = trimmed.indexOf('=');
+    if (idx < 0) continue;
+    const key = trimmed.slice(0, idx).trim();
+    let val = trimmed.slice(idx + 1).trim();
+    if (val.startsWith('"') && val.endsWith('"')) {
+      val = val.slice(1, -1);
+    } else if (val.startsWith("'") && val.endsWith("'")) {
+      val = val.slice(1, -1);
+    } else if (val === 'true') {
+      val = true;
+    } else if (val === 'false') {
+      val = false;
+    } else if (!Number.isNaN(Number(val))) {
+      val = Number(val);
+    }
+    config[key] = val;
+  }
+  return config;
+}
+
+function parseEnvContent(content) {
+  const env = {};
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const idx = trimmed.indexOf('=');
+    if (idx < 0) continue;
+    const key = trimmed.slice(0, idx).trim();
+    const val = trimmed.slice(idx + 1).trim().replace(/^['"]|['"]$/g, '');
+    env[key] = val;
+  }
+  return env;
+}
+
+function mapEnvKeyToOptionKey(key) {
+  const mapping = {
+    'WB_CWD': 'cwd',
+    'WB_EXCLUDE': 'exclude',
+    'WB_MODE': 'mode',
+    'WB_FORMAT': 'format',
+    'WB_JSON': 'json',
+    'WB_QUIET': 'quiet',
+    'WB_CACHE_DIR': 'cacheDir',
+    'WB_LIMIT': 'limit',
+    'WB_SEVERITY': 'severity',
+    'WB_CATEGORY': 'category',
+    'WB_COMPACT': 'compact',
+    'WB_MAX_FILES': 'maxFiles',
+    'WB_FAIL_ON_FINDINGS': 'failOnFindings',
+    'WB_STAGED': 'staged',
+    'WB_RUN_TESTS': 'runTests',
+    'WB_WITH_IMPACT': 'withImpact',
+    'WB_WITH_HISTORY': 'withHistory',
+    'WB_INCREMENTAL': 'incremental',
+    'WB_CHECK_REGRESSION': 'checkRegression',
+    'WB_SERVICE': 'service',
+    'WB_BUILTIN_ONLY': 'builtinOnly',
+    'WB_WATCH': 'watch',
+    'WB_STRICT_CWD': 'strictCwd',
+  };
+  if (mapping[key]) return mapping[key];
+  const camel = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+  return camel;
+}
+
+function loadUserConfig() {
+  const homeDir = os.homedir();
+  const userConfigDir = path.join(homeDir, '.workspace-bridge');
+  const config = {};
+  const sources = {};
+
+  if (!fs.existsSync(userConfigDir)) {
+    return { config, sources };
+  }
+
+  const tomlPath = path.join(userConfigDir, 'config.toml');
+  if (fs.existsSync(tomlPath)) {
+    try {
+      const content = fs.readFileSync(tomlPath, 'utf8');
+      const parsed = parseTomlContent(content);
+      for (const [k, v] of Object.entries(parsed)) {
+        config[k] = v;
+        sources[k] = 'user-config';
+      }
+    } catch {}
+  }
+
+  const envPath = path.join(userConfigDir, '.env');
+  if (fs.existsSync(envPath)) {
+    try {
+      const content = fs.readFileSync(envPath, 'utf8');
+      const parsed = parseEnvContent(content);
+      for (const [k, v] of Object.entries(parsed)) {
+        const optionKey = mapEnvKeyToOptionKey(k);
+        if (optionKey) {
+          config[optionKey] = v;
+          sources[optionKey] = 'user-config';
+        }
+      }
+    } catch {}
+  }
+
+  return { config, sources };
+}
 
 function parseCliArgs(argv) {
   const throwValidationError = (msg) => {
@@ -98,7 +209,22 @@ function parseCliArgs(argv) {
   const command = raw._[0] || null;
   const sources = {};
 
-  function resolveOption(cliVal, envName, isBool = false) {
+  // First determine cwd so we can look up project config
+  const rawCwdRes = raw.cwd !== undefined ? raw.cwd : (process.env.WB_CWD || null);
+  const cwd = path.resolve(rawCwdRes || process.cwd());
+
+  let projectConfig = {};
+  try {
+    const configPath = path.join(cwd, '.workspace-bridge.json');
+    if (fs.existsSync(configPath)) {
+      const { stripBOM } = require('../utils/sanitize');
+      projectConfig = JSON.parse(stripBOM(fs.readFileSync(configPath, 'utf8'))) || {};
+    }
+  } catch {}
+
+  const { config: userConfig } = loadUserConfig();
+
+  function resolveOption(cliVal, envName, projectVal, userVal, isBool = false) {
     if (cliVal !== undefined && cliVal !== null) {
       return { value: cliVal, source: 'cli' };
     }
@@ -109,45 +235,49 @@ function parseCliArgs(argv) {
         source: 'env'
       };
     }
+    if (projectVal !== undefined && projectVal !== null) {
+      return { value: projectVal, source: 'project-config' };
+    }
+    if (userVal !== undefined && userVal !== null) {
+      return { value: userVal, source: 'user-config' };
+    }
     return { value: undefined, source: 'default' };
   }
 
-  const cwdRes = resolveOption(raw.cwd, 'WB_CWD');
-  sources.cwd = cwdRes.source;
-  const cwd = cwdRes.value || process.cwd();
-
+  // exclude needs special splitting logic
+  const rawExcludeRes = resolveOption(
+    raw.exclude,
+    'WB_EXCLUDE',
+    projectConfig.exclude,
+    userConfig.exclude
+  );
+  sources.exclude = rawExcludeRes.source;
   let exclude = [];
-  if (raw.exclude !== undefined && raw.exclude !== null) {
-    exclude = String(raw.exclude).split(',').map((part) => toPosixPath(part.trim())).filter(Boolean);
-    sources.exclude = 'cli';
-  } else if (process.env.WB_EXCLUDE !== undefined) {
-    exclude = process.env.WB_EXCLUDE.split(',').map((part) => toPosixPath(part.trim())).filter(Boolean);
-    sources.exclude = 'env';
-  } else {
-    sources.exclude = 'default';
+  if (rawExcludeRes.value) {
+    exclude = String(rawExcludeRes.value).split(',').map((part) => toPosixPath(part.trim())).filter(Boolean);
   }
 
-  const modeRes = resolveOption(raw.mode, 'WB_MODE');
+  const modeRes = resolveOption(raw.mode, 'WB_MODE', projectConfig.mode, userConfig.mode);
   sources.mode = modeRes.source;
   const mode = modeRes.value || 'quick';
 
-  const formatRes = resolveOption(raw.format, 'WB_FORMAT');
+  const formatRes = resolveOption(raw.format, 'WB_FORMAT', projectConfig.format, userConfig.format);
   sources.format = formatRes.source;
   const format = formatRes.value || null;
 
-  const jsonRes = resolveOption(raw['--json'], 'WB_JSON', true);
+  const jsonRes = resolveOption(raw['--json'], 'WB_JSON', projectConfig.json, userConfig.json, true);
   sources.json = jsonRes.source;
   const json = jsonRes.value || false;
 
-  const quietRes = resolveOption(raw['--quiet'], 'WB_QUIET', true);
+  const quietRes = resolveOption(raw['--quiet'], 'WB_QUIET', projectConfig.quiet, userConfig.quiet, true);
   sources.quiet = quietRes.source;
   const quiet = quietRes.value || false;
 
-  const cacheDirRes = resolveOption(raw.cacheDir, 'WB_CACHE_DIR');
+  const cacheDirRes = resolveOption(raw.cacheDir, 'WB_CACHE_DIR', projectConfig.cacheDir, userConfig.cacheDir);
   sources.cacheDir = cacheDirRes.source;
   const cacheDir = cacheDirRes.value || null;
 
-  const limitRes = resolveOption(raw.limit, 'WB_LIMIT');
+  const limitRes = resolveOption(raw.limit, 'WB_LIMIT', projectConfig.limit, userConfig.limit);
   sources.limit = limitRes.source;
   let limit = null;
   if (limitRes.value !== undefined) {
@@ -157,29 +287,31 @@ function parseCliArgs(argv) {
     }
   }
 
-  const severityRes = resolveOption(raw.severity, 'WB_SEVERITY');
+  const severityRes = resolveOption(raw.severity, 'WB_SEVERITY', projectConfig.severity, userConfig.severity);
   sources.severity = severityRes.source;
   const severity = severityRes.value || null;
 
-  const categoryRes = resolveOption(raw.category, 'WB_CATEGORY');
+  const categoryRes = resolveOption(raw.category, 'WB_CATEGORY', projectConfig.category, userConfig.category);
   sources.category = categoryRes.source;
   const category = categoryRes.value || null;
 
-  let compact = false;
-  let compactSource = 'default';
+  let compactCliVal = undefined;
   if (raw['--no-compact']) {
-    compact = false;
-    compactSource = 'cli';
+    compactCliVal = false;
   } else if (raw['--compact']) {
-    compact = true;
-    compactSource = 'cli';
-  } else if (process.env.WB_COMPACT !== undefined) {
-    compact = process.env.WB_COMPACT === 'true' || process.env.WB_COMPACT === '1';
-    compactSource = 'env';
+    compactCliVal = true;
   }
-  sources.compact = compactSource;
+  const compactRes = resolveOption(
+    compactCliVal,
+    'WB_COMPACT',
+    projectConfig.compact,
+    userConfig.compact,
+    true
+  );
+  sources.compact = compactRes.source;
+  const compact = compactRes.value || false;
 
-  const maxFilesRes = resolveOption(raw.maxFiles, 'WB_MAX_FILES');
+  const maxFilesRes = resolveOption(raw.maxFiles, 'WB_MAX_FILES', projectConfig.maxFiles, userConfig.maxFiles);
   sources.maxFiles = maxFilesRes.source;
   let maxFiles = null;
   if (maxFilesRes.value !== undefined) {
@@ -189,47 +321,47 @@ function parseCliArgs(argv) {
     }
   }
 
-  const failOnFindingsRes = resolveOption(raw['--fail-on-findings'], 'WB_FAIL_ON_FINDINGS', true);
+  const failOnFindingsRes = resolveOption(raw['--fail-on-findings'], 'WB_FAIL_ON_FINDINGS', projectConfig.failOnFindings, userConfig.failOnFindings, true);
   sources.failOnFindings = failOnFindingsRes.source;
   const failOnFindings = failOnFindingsRes.value || false;
 
-  const stagedRes = resolveOption(raw['--staged'], 'WB_STAGED', true);
+  const stagedRes = resolveOption(raw['--staged'], 'WB_STAGED', projectConfig.staged, userConfig.staged, true);
   sources.staged = stagedRes.source;
   const staged = stagedRes.value || false;
 
-  const runTestsRes = resolveOption(raw['--run-tests'], 'WB_RUN_TESTS', true);
+  const runTestsRes = resolveOption(raw['--run-tests'], 'WB_RUN_TESTS', projectConfig.runTests, userConfig.runTests, true);
   sources.runTests = runTestsRes.source;
   const runTests = runTestsRes.value || false;
 
-  const withImpactRes = resolveOption(raw['--with-impact'], 'WB_WITH_IMPACT', true);
+  const withImpactRes = resolveOption(raw['--with-impact'], 'WB_WITH_IMPACT', projectConfig.withImpact, userConfig.withImpact, true);
   sources.withImpact = withImpactRes.source;
   const withImpact = withImpactRes.value || false;
 
-  const withHistoryRes = resolveOption(raw['--with-history'], 'WB_WITH_HISTORY', true);
+  const withHistoryRes = resolveOption(raw['--with-history'], 'WB_WITH_HISTORY', projectConfig.withHistory, userConfig.withHistory, true);
   sources.withHistory = withHistoryRes.source;
   const withHistory = withHistoryRes.value || false;
 
-  const incrementalRes = resolveOption(raw['--incremental'], 'WB_INCREMENTAL', true);
+  const incrementalRes = resolveOption(raw['--incremental'], 'WB_INCREMENTAL', projectConfig.incremental, userConfig.incremental, true);
   sources.incremental = incrementalRes.source;
   const incremental = incrementalRes.value || false;
 
-  const checkRegressionRes = resolveOption(raw['--check-regression'], 'WB_CHECK_REGRESSION', true);
+  const checkRegressionRes = resolveOption(raw['--check-regression'], 'WB_CHECK_REGRESSION', projectConfig.checkRegression, userConfig.checkRegression, true);
   sources.checkRegression = checkRegressionRes.source;
   const checkRegression = checkRegressionRes.value || false;
 
-  const serviceRes = resolveOption(raw.service, 'WB_SERVICE');
+  const serviceRes = resolveOption(raw.service, 'WB_SERVICE', projectConfig.service, userConfig.service);
   sources.service = serviceRes.source;
   const service = serviceRes.value || null;
 
-  const builtinOnlyRes = resolveOption(raw['--builtin-only'], 'WB_BUILTIN_ONLY', true);
+  const builtinOnlyRes = resolveOption(raw['--builtin-only'], 'WB_BUILTIN_ONLY', projectConfig.builtinOnly, userConfig.builtinOnly, true);
   sources.builtinOnly = builtinOnlyRes.source;
   const builtinOnly = builtinOnlyRes.value || false;
 
-  const watchRes = resolveOption(raw['--watch'], 'WB_WATCH', true);
+  const watchRes = resolveOption(raw['--watch'], 'WB_WATCH', projectConfig.watch, userConfig.watch, true);
   sources.watch = watchRes.source;
   const watch = watchRes.value || false;
 
-  const strictCwdRes = resolveOption(raw['--strict-cwd'], 'WB_STRICT_CWD', true);
+  const strictCwdRes = resolveOption(raw['--strict-cwd'], 'WB_STRICT_CWD', projectConfig.strictCwd, userConfig.strictCwd, true);
   sources.strictCwd = strictCwdRes.source;
   const strictCwd = strictCwdRes.value || false;
 

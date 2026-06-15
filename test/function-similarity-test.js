@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 
 const assert = require('assert');
 const { compareFunctionRecords } = require('../src/services/dep-graph/function-similarity');

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * REPL command parsing and formatting tests.
  * Tests executeCommand with a mock container — no real dep-graph needed.

@@ -1,3 +1,4 @@
+// @semantic
 // @serial
 const assert = require('assert');
 const fs = require('fs');

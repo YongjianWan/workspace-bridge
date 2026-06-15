@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Formatter end-to-end tests — summary / overview formatters.
  * Uses in-process runner (shared ServiceContainer) for speed.

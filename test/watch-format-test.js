@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Unit tests for watch output formatter (compact curation logic).
  */

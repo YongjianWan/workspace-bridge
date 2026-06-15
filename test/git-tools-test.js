@@ -1,3 +1,4 @@
+// @semantic
 const assert = require('assert');
 const path = require('path');
 const { getChangedFiles, getChangedLineRanges, getFileHistoryRisk, getDiffNumstat, parsePorcelainV1Line } = require('../src/tools/git-tools');

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @contract
 /**
  * Test that --exclude handles Windows backslash separators correctly.
  * Issue: Windows users naturally write --exclude src\views, which should

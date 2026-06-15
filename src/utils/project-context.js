@@ -493,7 +493,13 @@ function validateWorkspaceConfig(config, configPath) {
     throw new Error(`Configuration root must be an object in ${configPath}`);
   }
 
-  const validTopKeys = new Set(['directories', 'directoryRoles', '$schema', 'boundaries', 'ignore']);
+  const validTopKeys = new Set([
+    'directories', 'directoryRoles', '$schema', 'boundaries', 'ignore',
+    'cwd', 'exclude', 'mode', 'format', 'json', 'quiet', 'cacheDir', 'limit',
+    'severity', 'category', 'compact', 'maxFiles', 'failOnFindings', 'staged',
+    'runTests', 'withImpact', 'withHistory', 'incremental', 'checkRegression',
+    'service', 'builtinOnly', 'watch', 'strictCwd', 'maxDepth'
+  ]);
   for (const key of Object.keys(config)) {
     if (!validTopKeys.has(key)) {
       throw new Error(`Unknown top-level key "${key}" in config file ${configPath}`);

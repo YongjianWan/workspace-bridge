@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * CLI 核心功能可用性测试
  * Runs on the workspace-bridge repo itself for commands that need a real project.

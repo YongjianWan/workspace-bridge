@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 const assert = require('assert');
 const { SymbolRegistry } = require('../src/services/dep-graph/symbol-registry');
 const { normalizePathKey } = require('../src/utils/path');

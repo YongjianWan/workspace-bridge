@@ -1,3 +1,4 @@
+// @semantic
 const assert = require('assert');
 const { dependencyGraph } = require('../src/tools/dep-tools');
 const { makeMockSnapshot } = require('./test-helpers');

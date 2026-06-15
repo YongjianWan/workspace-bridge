@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 const assert = require('assert');
 const { getChangedFunctionImpact, getFunctionLevelAffectedTests } = require('../src/services/dep-graph/function-impact');
 

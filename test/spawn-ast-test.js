@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 // @slow
 /**
  * Regression test for #41: Python zombie process (no SIGKILL fallback).

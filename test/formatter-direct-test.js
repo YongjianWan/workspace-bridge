@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 
 const assert = require('assert');
 const { formatHuman, formatSummary, formatMarkdown, formatJsonl, formatAi } = require('../src/cli/formatters/human-formatters');

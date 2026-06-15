@@ -1,3 +1,4 @@
+// @contract
 const assert = require('assert');
 const { parseRust } = require('../src/services/dep-graph/parsers/rust-ast');
 

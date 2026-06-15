@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 const assert = require('assert');
 const path = require('path');
 const { WorkspaceCache } = require('../src/services/cache');

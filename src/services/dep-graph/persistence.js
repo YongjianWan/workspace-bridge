@@ -73,19 +73,14 @@ async function savePrecomputed(depGraph) {
       depGraph.cache.savePrecomputedImpact(impactRecords);
     }
 
-    // Wave 9-2: extract and persist route declarations
+    // Wave 9-2: extract and persist route declarations (no disk read, graph-first!)
     if (depGraph.cache.saveRoutes) {
       const allRoutes = [];
       for (const [filePath, info] of depGraph.graph) {
-        if (!info.frameworkHint) continue;
-        try {
-          const content = await fs.promises.readFile(filePath, 'utf-8');
-          const routes = await extractRoutes(filePath, content);
-          for (const r of routes) {
+        if (info.routes && info.routes.length > 0) {
+          for (const r of info.routes) {
             allRoutes.push({ file: filePath, ...r });
           }
-        } catch {
-          // skip files that can't be read
         }
       }
       if (allRoutes.length > 0) {

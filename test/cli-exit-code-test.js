@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @contract
 /**
  * CLI exit-code semantics integration test.
  * Verifies the contract:

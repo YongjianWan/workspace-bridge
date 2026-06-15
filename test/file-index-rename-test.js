@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Regression test for #43: fs.watch rename vs delete.
  */

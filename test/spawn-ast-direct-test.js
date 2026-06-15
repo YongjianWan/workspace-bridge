@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 // @slow
 /**
  * Direct unit tests for spawn-ast.js edge cases not covered by

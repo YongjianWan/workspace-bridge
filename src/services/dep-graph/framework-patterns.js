@@ -172,6 +172,14 @@ registerFrameworkQuery('java', 'spring-boot', './queries/framework-detection/jav
 registerFrameworkQuery('java', 'spring', './queries/framework-detection/java-spring');
 registerFrameworkQuery('kotlin', 'spring-kotlin', './queries/framework-detection/kt-spring');
 registerFrameworkQuery('kotlin', 'ktor', './queries/framework-detection/kt-ktor');
+registerFrameworkQuery('go', 'gin', './queries/framework-detection/go-gin');
+registerFrameworkQuery('go', 'echo', './queries/framework-detection/go-echo');
+registerFrameworkQuery('go', 'fiber', './queries/framework-detection/go-fiber');
+registerFrameworkQuery('rust', 'actix-web', './queries/framework-detection/rs-actix');
+registerFrameworkQuery('rust', 'axum', './queries/framework-detection/rs-axum');
+registerFrameworkQuery('rust', 'rocket', './queries/framework-detection/rs-rocket');
+registerFrameworkQuery('typescript', 'vue', './queries/framework-detection/js-vue');
+registerFrameworkQuery('typescript', 'svelte', './queries/framework-detection/js-svelte');
 
 /**
  * Return the absolute paths of all modules currently registered in the dynamic
@@ -202,7 +210,23 @@ function getRegisteredQueryFiles() {
  */
 async function runQueryRegistry(filePath, content, registryMap, onMatch) {
   const ext = path.extname(filePath).toLowerCase();
-  const lang = EXT_TO_LANGUAGE[ext];
+  let lang = EXT_TO_LANGUAGE[ext];
+  let parseContent = content;
+
+  if (ext === '.vue' || ext === '.svelte') {
+    if (registryMap === ROUTE_QUERY_REGISTRY) {
+      return null;
+    }
+    lang = 'typescript';
+    const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script>/gi;
+    const scripts = [];
+    let match;
+    while ((match = scriptRegex.exec(content)) !== null) {
+      scripts.push(match[1]);
+    }
+    parseContent = scripts.join('\n');
+  }
+
   if (!lang) return null;
 
   const queryDefs = [];
@@ -229,7 +253,7 @@ async function runQueryRegistry(filePath, content, registryMap, onMatch) {
 
     parser = new mod.Parser();
     parser.setLanguage(langObj);
-    tree = parser.parse(content);
+    tree = parser.parse(parseContent);
 
     return await onMatch(tree, lang, queryDefs);
   } catch {

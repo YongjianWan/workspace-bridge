@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * 跨文件分析 CLI 测试
  */

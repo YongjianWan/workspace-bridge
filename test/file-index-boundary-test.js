@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Boundary tests for file-index.js:
  * - readdir permission-denied graceful skip

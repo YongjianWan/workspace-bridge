@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @contract
 // @slow
 const assert = require('assert');
 const { spawnSync } = require('child_process');

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @contract
 // @slow
 const assert = require('assert');
 const { parseCpp } = require('../src/services/dep-graph/parsers');

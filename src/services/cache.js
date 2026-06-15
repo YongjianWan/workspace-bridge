@@ -53,8 +53,58 @@ const METADATA_SCHEMA = {
 };
 
 function computeDefaultCacheDir(workspaceRoot) {
+  const preferredDir = path.join(workspaceRoot, '.workspace-bridge');
   const hash = crypto.createHash('md5').update(workspaceRoot).digest('hex').slice(0, 8);
-  return path.join(os.tmpdir(), 'workspace-bridge', hash);
+  const fallbackDir = path.join(os.tmpdir(), 'workspace-bridge', hash);
+
+  // Check if preferred is writeable, otherwise fallback
+  let cacheDir = preferredDir;
+  try {
+    if (!fs.existsSync(preferredDir)) {
+      fs.mkdirSync(preferredDir, { recursive: true });
+    }
+    const testFile = path.join(preferredDir, '.write-test');
+    fs.writeFileSync(testFile, 'test');
+    fs.unlinkSync(testFile);
+  } catch {
+    cacheDir = fallbackDir;
+  }
+
+  // Ensure gitignore if we are using the preferred workspace directory
+  if (cacheDir === preferredDir) {
+    try {
+      const gitignorePath = path.join(workspaceRoot, '.gitignore');
+      const entry = '.workspace-bridge/\n';
+      if (fs.existsSync(gitignorePath)) {
+        const content = fs.readFileSync(gitignorePath, 'utf8');
+        if (!content.split(/\r?\n/).some(line => line.trim() === '.workspace-bridge' || line.trim() === '.workspace-bridge/')) {
+          const separator = content.endsWith('\n') ? '' : '\n';
+          fs.appendFileSync(gitignorePath, separator + entry, 'utf8');
+        }
+      } else {
+        fs.writeFileSync(gitignorePath, entry, 'utf8');
+      }
+    } catch {}
+  }
+
+  // Migrate legacy cache.db if new location doesn't have one, but old one does
+  const newDbPath = path.join(cacheDir, 'cache.db');
+  const legacyDbPath = path.join(fallbackDir, 'cache.db');
+  if (cacheDir === preferredDir && !fs.existsSync(newDbPath) && fs.existsSync(legacyDbPath)) {
+    try {
+      fs.renameSync(legacyDbPath, newDbPath);
+      try {
+        fs.rmdirSync(fallbackDir);
+      } catch {}
+    } catch {
+      try {
+        fs.copyFileSync(legacyDbPath, newDbPath);
+        fs.unlinkSync(legacyDbPath);
+      } catch {}
+    }
+  }
+
+  return cacheDir;
 }
 
 class DirtyTracker {

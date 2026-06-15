@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @contract
 
 const assert = require('assert');
 const fs = require('fs');
@@ -53,6 +54,7 @@ async function testDisplayPathPreservesPlatformFormat() {
     assert.strictEqual(impactedFile, fileB, 'POSIX: impact file should match original path');
   }
 
+  cache.close();
   cleanupTempDir(dir);
 }
 
@@ -72,6 +74,7 @@ async function testCachedBuildRestoresOriginalPath() {
 
   // Persist to SQLite
   await cache.save();
+  cache.close();
 
   // Load fresh cache
   const cache2 = new WorkspaceCache(dir, { cacheDir });

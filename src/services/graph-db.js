@@ -41,7 +41,7 @@ const CACHE_TABLE_SCHEMA = {
     resultKey: 'parseResults',
     incrementalKeys: { dirty: 'dirtyParseResults', deleted: 'deletedParseResults' },
     idColumn: 'path',
-    columns: ['path', 'mtime', 'imports', 'exports', 'import_records', 'export_records', 'function_records', 'parse_mode', 'parse_mode_reason', 'confidence', 'framework_hint'],
+    columns: ['path', 'mtime', 'imports', 'exports', 'import_records', 'export_records', 'function_records', 'parse_mode', 'parse_mode_reason', 'confidence', 'framework_hint', 'routes'],
     serialize: (path, result) => [
       path,
       result.mtime ?? 0,
@@ -54,6 +54,7 @@ const CACHE_TABLE_SCHEMA = {
       result.parseModeReason || '',
       result.confidence || '',
       result.frameworkHint ? JSON.stringify(result.frameworkHint) : null,
+      JSON.stringify(result.routes || []),
     ],
     deserialize: (row) => ({
       mtime: Number(row.mtime),
@@ -66,6 +67,7 @@ const CACHE_TABLE_SCHEMA = {
       parseModeReason: row.parse_mode_reason,
       confidence: row.confidence,
       frameworkHint: row.framework_hint ? JSON.parse(row.framework_hint) : null,
+      routes: row.routes ? JSON.parse(row.routes) : [],
     }),
   },
   symbol_index: {
@@ -121,7 +123,8 @@ const SCHEMA = `
     parse_mode TEXT,
     parse_mode_reason TEXT,
     confidence TEXT,
-    framework_hint TEXT
+    framework_hint TEXT,
+    routes TEXT
   );
 
   CREATE TABLE IF NOT EXISTS symbol_index (
@@ -226,29 +229,118 @@ function _withSqliteWarningSuppressed(fn) {
   }
 }
 
+function acquireLockSync(lockPath, timeoutMs = 5000, retryIntervalMs = 100) {
+  const start = Date.now();
+  const dir = path.dirname(lockPath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  while (true) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      fs.writeSync(fd, String(process.pid));
+      fs.closeSync(fd);
+      return true;
+    } catch (err) {
+      if (err.code === 'EEXIST') {
+        try {
+          const content = fs.readFileSync(lockPath, 'utf8').trim();
+          const pid = Number.parseInt(content, 10);
+          if (!Number.isNaN(pid)) {
+            let processExists = true;
+            try {
+              process.kill(pid, 0);
+            } catch (killErr) {
+              processExists = killErr.code === 'EPERM';
+            }
+            if (!processExists) {
+              try {
+                fs.unlinkSync(lockPath);
+              } catch {}
+              continue; // retry
+            }
+          }
+        } catch {}
+      } else {
+        throw err;
+      }
+    }
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`Lock acquisition timed out after ${timeoutMs}ms: ${lockPath}`);
+    }
+    const delay = Math.min(retryIntervalMs, timeoutMs - (Date.now() - start));
+    if (delay <= 0) {
+      throw new Error(`Lock acquisition timed out after ${timeoutMs}ms: ${lockPath}`);
+    }
+    const sab = new SharedArrayBuffer(4);
+    const int32 = new Int32Array(sab);
+    Atomics.wait(int32, 0, 0, delay);
+  }
+}
+
+function releaseLockSync(lockPath) {
+  try {
+    const content = fs.readFileSync(lockPath, 'utf8').trim();
+    const pid = Number.parseInt(content, 10);
+    if (pid === process.pid) {
+      fs.unlinkSync(lockPath);
+    }
+  } catch {}
+}
+
+function _runWithReadRetry(fn) {
+  let retries = 3;
+  let delay = 50;
+  while (true) {
+    try {
+      return fn();
+    } catch (err) {
+      const isBusy = err.message?.includes('BUSY') || err.message?.includes('locked') || err.code === 'EBUSY';
+      if (isBusy && retries > 0 && process.platform === 'win32') {
+        retries--;
+        const sab = new SharedArrayBuffer(4);
+        const int32 = new Int32Array(sab);
+        Atomics.wait(int32, 0, 0, delay);
+        delay *= 2;
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 class GraphDB {
   constructor(dbPath) {
     this.dbPath = dbPath;
     this.db = null;
+    this.lockPath = `${dbPath}.lock`;
+  }
+
+  _withWriteLock(fn) {
+    acquireLockSync(this.lockPath);
+    try {
+      return fn();
+    } finally {
+      releaseLockSync(this.lockPath);
+    }
   }
 
   _ensureOpen() {
     if (this.db) return;
-    // Lazy-require node:sqlite inside a scoped warning suppressor so that its
-    // ExperimentalWarning is caught without permanently replacing the global
-    // process.emitWarning function.
-    const sqlite = _withSqliteWarningSuppressed(() => require('node:sqlite'));
-    const dir = path.dirname(this.dbPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    this.db = _withSqliteWarningSuppressed(() => new sqlite.DatabaseSync(this.dbPath));
-    this.db.exec('PRAGMA journal_mode = WAL');
-    this.db.exec('PRAGMA journal_size_limit = 67108864'); // 64MB — auto-checkpoint, prevent unbounded WAL growth
-    this.db.exec('PRAGMA mmap_size = 268435456');          // 256MB — memory-map hot pages, reduce read syscalls
-    this.db.exec('PRAGMA synchronous = NORMAL');           // WAL mode: NORMAL is crash-safe and faster than FULL
-    this.db.exec(SCHEMA);
-    this._migrate();
+    _runWithReadRetry(() => {
+      const sqlite = _withSqliteWarningSuppressed(() => require('node:sqlite'));
+      const dir = path.dirname(this.dbPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      this.db = _withSqliteWarningSuppressed(() => new sqlite.DatabaseSync(this.dbPath));
+      this.db.exec('PRAGMA journal_mode = WAL');
+      this.db.exec('PRAGMA journal_size_limit = 67108864'); // 64MB — auto-checkpoint, prevent unbounded WAL growth
+      this.db.exec('PRAGMA mmap_size = 268435456');          // 256MB — memory-map hot pages, reduce read syscalls
+      this.db.exec('PRAGMA synchronous = NORMAL');           // WAL mode: NORMAL is crash-safe and faster than FULL
+      this.db.exec(SCHEMA);
+      this._migrate();
+    });
   }
 
   _executeInTransaction(fn) {
@@ -299,6 +391,9 @@ class GraphDB {
     if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'framework_hint')) {
       this.db.prepare('ALTER TABLE parse_results ADD COLUMN framework_hint TEXT').run();
     }
+    if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'routes')) {
+      this.db.prepare('ALTER TABLE parse_results ADD COLUMN routes TEXT').run();
+    }
     // Wave B-2: add config_hash column to precomputed_aggregates so query-* snapshots
     // can invalidate when .workspace-bridge.json changes.
     const aggregateCols = this.db.prepare('PRAGMA table_info(precomputed_aggregates)').all();
@@ -330,23 +425,27 @@ class GraphDB {
   }
 
   getMetadata(key) {
-    try {
-      this._ensureOpen();
-      const row = this.db.prepare('SELECT value FROM cache_metadata WHERE key = ?').get(key);
-      return row ? row.value : null;
-    } catch {
-      return null;
-    }
+    return _runWithReadRetry(() => {
+      try {
+        this._ensureOpen();
+        const row = this.db.prepare('SELECT value FROM cache_metadata WHERE key = ?').get(key);
+        return row ? row.value : null;
+      } catch {
+        return null;
+      }
+    });
   }
 
   setMetadata(key, value) {
-    try {
-      this._ensureOpen();
-      this.db.prepare('INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?, ?)').run(key, value);
-      return true;
-    } catch {
-      return false;
-    }
+    return this._withWriteLock(() => {
+      try {
+        this._ensureOpen();
+        this.db.prepare('INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?, ?)').run(key, value);
+        return true;
+      } catch {
+        return false;
+      }
+    });
   }
 
   /**
@@ -354,163 +453,169 @@ class GraphDB {
    * Returns null on any error (caller should treat as cold start).
    */
   loadAll() {
-    try {
-      this._ensureOpen();
+    return _runWithReadRetry(() => {
+      try {
+        this._ensureOpen();
 
-      // Metadata
-      const metaRows = this.db.prepare('SELECT key, value FROM cache_metadata').all();
-      const metadata = {};
-      for (const row of metaRows) {
-        metadata[row.key] = row.value;
-      }
+        // Metadata
+        const metaRows = this.db.prepare('SELECT key, value FROM cache_metadata').all();
+        const metadata = {};
+        for (const row of metaRows) {
+          metadata[row.key] = row.value;
+        }
 
-      const version = Number(metadata.version || 0);
-      if (version !== CACHE_VERSION) {
+        const version = Number(metadata.version || 0);
+        if (version !== CACHE_VERSION) {
+          return null;
+        }
+
+        const workspaceInfo = metadata.workspaceInfo ? JSON.parse(metadata.workspaceInfo) : null;
+        const workspaceRoot = metadata.workspaceRoot || null;
+        const timestamp = Number(metadata.timestamp || 0);
+
+        const result = {
+          version,
+          workspaceInfo,
+          workspaceRoot,
+          timestamp,
+          _metadata: metadata, // raw metadata for schema-driven loading
+        };
+
+        for (const [tableName, schema] of Object.entries(CACHE_TABLE_SCHEMA)) {
+          const columns = schema.columns.join(', ');
+          const rows = this.db.prepare(`SELECT ${columns} FROM ${tableName}`).all();
+          const map = new Map();
+          for (const row of rows) {
+            map.set(row[schema.idColumn], schema.deserialize(row));
+          }
+          result[schema.resultKey] = map;
+        }
+
+        return result;
+      } catch (err) {
+        _debugError('Load', err);
         return null;
       }
-
-      const workspaceInfo = metadata.workspaceInfo ? JSON.parse(metadata.workspaceInfo) : null;
-      const workspaceRoot = metadata.workspaceRoot || null;
-      const timestamp = Number(metadata.timestamp || 0);
-
-      const result = {
-        version,
-        workspaceInfo,
-        workspaceRoot,
-        timestamp,
-        _metadata: metadata, // raw metadata for schema-driven loading
-      };
-
-      for (const [tableName, schema] of Object.entries(CACHE_TABLE_SCHEMA)) {
-        const columns = schema.columns.join(', ');
-        const rows = this.db.prepare(`SELECT ${columns} FROM ${tableName}`).all();
-        const map = new Map();
-        for (const row of rows) {
-          map.set(row[schema.idColumn], schema.deserialize(row));
-        }
-        result[schema.resultKey] = map;
-      }
-
-      return result;
-    } catch (err) {
-      _debugError('Load', err);
-      return null;
-    }
+    });
   }
 
   /**
    * Save all cache data to SQLite in a single transaction.
    */
   saveAll(data) {
-    try {
-      this._ensureOpen();
+    return this._withWriteLock(() => {
+      try {
+        this._ensureOpen();
 
-      this._executeInTransaction(() => {
-        // Clear all tables via schema registry
-        this.db.prepare('DELETE FROM cache_metadata').run();
-        for (const tableName of Object.keys(CACHE_TABLE_SCHEMA)) {
-          this.db.prepare(`DELETE FROM ${tableName}`).run();
-        }
-
-        // Insert metadata
-        const insertMeta = this.db.prepare('INSERT INTO cache_metadata (key, value) VALUES (?, ?)');
-        insertMeta.run('version', String(CACHE_VERSION));
-        insertMeta.run('timestamp', String(Date.now()));
-        insertMeta.run('workspaceRoot', data.workspaceRoot || '');
-        insertMeta.run('workspaceInfo', data.workspaceInfo ? JSON.stringify(data.workspaceInfo) : '');
-
-        if (data.metadata) {
-          for (const [key, value] of Object.entries(data.metadata)) {
-            insertMeta.run(key, value);
+        this._executeInTransaction(() => {
+          // Clear all tables via schema registry
+          this.db.prepare('DELETE FROM cache_metadata').run();
+          for (const tableName of Object.keys(CACHE_TABLE_SCHEMA)) {
+            this.db.prepare(`DELETE FROM ${tableName}`).run();
           }
-        }
 
-        // Schema-driven table inserts — add a table to CACHE_TABLE_SCHEMA and it saves automatically
-        for (const [tableName, schema] of Object.entries(CACHE_TABLE_SCHEMA)) {
-          const columns = schema.columns.join(', ');
-          const placeholders = schema.columns.map(() => '?').join(', ');
-          const insert = this.db.prepare(`INSERT INTO ${tableName} (${columns}) VALUES (${placeholders})`);
-          const map = data[schema.resultKey];
-          if (!map) continue;
-          for (const [id, value] of map) {
-            insert.run(...schema.serialize(id, value));
+          // Insert metadata
+          const insertMeta = this.db.prepare('INSERT INTO cache_metadata (key, value) VALUES (?, ?)');
+          insertMeta.run('version', String(CACHE_VERSION));
+          insertMeta.run('timestamp', String(Date.now()));
+          insertMeta.run('workspaceRoot', data.workspaceRoot || '');
+          insertMeta.run('workspaceInfo', data.workspaceInfo ? JSON.stringify(data.workspaceInfo) : '');
+
+          if (data.metadata) {
+            for (const [key, value] of Object.entries(data.metadata)) {
+              insertMeta.run(key, value);
+            }
           }
-        }
-      });
 
-      return true;
-    } catch (err) {
-      _debugError('Save', err);
-      return false;
-    }
+          // Schema-driven table inserts — add a table to CACHE_TABLE_SCHEMA and it saves automatically
+          for (const [tableName, schema] of Object.entries(CACHE_TABLE_SCHEMA)) {
+            const columns = schema.columns.join(', ');
+            const placeholders = schema.columns.map(() => '?').join(', ');
+            const insert = this.db.prepare(`INSERT INTO ${tableName} (${columns}) VALUES (${placeholders})`);
+            const map = data[schema.resultKey];
+            if (!map) continue;
+            for (const [id, value] of map) {
+              insert.run(...schema.serialize(id, value));
+            }
+          }
+        });
+
+        return true;
+      } catch (err) {
+        _debugError('Save', err);
+        return false;
+      }
+    });
   }
 
   /**
    * Save dirty/deleted cache data to SQLite incrementally in a single transaction.
    */
   saveIncremental(data) {
-    try {
-      this._ensureOpen();
+    return this._withWriteLock(() => {
+      try {
+        this._ensureOpen();
 
-      let hasWork = data.metadata && Object.keys(data.metadata).length > 0;
-      if (!hasWork) {
-        for (const schema of Object.values(CACHE_TABLE_SCHEMA)) {
-          const { dirty, deleted } = schema.incrementalKeys || {};
-          if ((deleted && data[deleted]?.length > 0) || (dirty && data[dirty]?.length > 0)) {
-            hasWork = true;
-            break;
+        let hasWork = data.metadata && Object.keys(data.metadata).length > 0;
+        if (!hasWork) {
+          for (const schema of Object.values(CACHE_TABLE_SCHEMA)) {
+            const { dirty, deleted } = schema.incrementalKeys || {};
+            if ((deleted && data[deleted]?.length > 0) || (dirty && data[dirty]?.length > 0)) {
+              hasWork = true;
+              break;
+            }
           }
         }
-      }
-      if (!hasWork) {
+        if (!hasWork) {
+          return true;
+        }
+
+        this._executeInTransaction(() => {
+          // 1. Metadata
+          const insertMeta = this.db.prepare('INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?, ?)');
+          insertMeta.run('version', String(CACHE_VERSION));
+          insertMeta.run('timestamp', String(Date.now()));
+          if (data.workspaceRoot !== undefined) {
+            insertMeta.run('workspaceRoot', data.workspaceRoot || '');
+          }
+          if (data.workspaceInfo !== undefined) {
+            insertMeta.run('workspaceInfo', data.workspaceInfo ? JSON.stringify(data.workspaceInfo) : '');
+          }
+          if (data.metadata) {
+            for (const [key, value] of Object.entries(data.metadata)) {
+              insertMeta.run(key, value);
+            }
+          }
+
+          // 2. Schema-driven incremental updates — add a table to CACHE_TABLE_SCHEMA and it upserts automatically
+          for (const [tableName, schema] of Object.entries(CACHE_TABLE_SCHEMA)) {
+            const { dirty: dirtyKey, deleted: deletedKey } = schema.incrementalKeys || {};
+
+            if (deletedKey && data[deletedKey]?.length > 0) {
+              const deleteStmt = this.db.prepare(`DELETE FROM ${tableName} WHERE ${schema.idColumn} = ?`);
+              for (const id of data[deletedKey]) {
+                deleteStmt.run(id);
+              }
+            }
+
+            if (dirtyKey && data[dirtyKey]) {
+              const columns = schema.columns.join(', ');
+              const placeholders = schema.columns.map(() => '?').join(', ');
+              const insertStmt = this.db.prepare(
+                `INSERT OR REPLACE INTO ${tableName} (${columns}) VALUES (${placeholders})`
+              );
+              for (const [id, value] of data[dirtyKey]) {
+                insertStmt.run(...schema.serialize(id, value));
+              }
+            }
+          }
+        });
         return true;
+      } catch (err) {
+        _debugError('Save incremental', err);
+        return false;
       }
-
-      this._executeInTransaction(() => {
-        // 1. Metadata
-        const insertMeta = this.db.prepare('INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?, ?)');
-        insertMeta.run('version', String(CACHE_VERSION));
-        insertMeta.run('timestamp', String(Date.now()));
-        if (data.workspaceRoot !== undefined) {
-          insertMeta.run('workspaceRoot', data.workspaceRoot || '');
-        }
-        if (data.workspaceInfo !== undefined) {
-          insertMeta.run('workspaceInfo', data.workspaceInfo ? JSON.stringify(data.workspaceInfo) : '');
-        }
-        if (data.metadata) {
-          for (const [key, value] of Object.entries(data.metadata)) {
-            insertMeta.run(key, value);
-          }
-        }
-
-        // 2. Schema-driven incremental updates — add a table to CACHE_TABLE_SCHEMA and it upserts automatically
-        for (const [tableName, schema] of Object.entries(CACHE_TABLE_SCHEMA)) {
-          const { dirty: dirtyKey, deleted: deletedKey } = schema.incrementalKeys || {};
-
-          if (deletedKey && data[deletedKey]?.length > 0) {
-            const deleteStmt = this.db.prepare(`DELETE FROM ${tableName} WHERE ${schema.idColumn} = ?`);
-            for (const id of data[deletedKey]) {
-              deleteStmt.run(id);
-            }
-          }
-
-          if (dirtyKey && data[dirtyKey]) {
-            const columns = schema.columns.join(', ');
-            const placeholders = schema.columns.map(() => '?').join(', ');
-            const insertStmt = this.db.prepare(
-              `INSERT OR REPLACE INTO ${tableName} (${columns}) VALUES (${placeholders})`
-            );
-            for (const [id, value] of data[dirtyKey]) {
-              insertStmt.run(...schema.serialize(id, value));
-            }
-          }
-        }
-      });
-      return true;
-    } catch (err) {
-      _debugError('Save incremental', err);
-      return false;
-    }
+    });
   }
 
   /**
@@ -520,38 +625,40 @@ class GraphDB {
    * @param {{cacheVersion?:number,fileMetadataCount?:number,parseResultsCount?:number,timestamp?:number}} [meta]
    */
   saveEdges(edges, meta = {}) {
-    try {
-      this._ensureOpen();
+    return this._withWriteLock(() => {
+      try {
+        this._ensureOpen();
 
-      this._executeInTransaction(() => {
-        this.db.prepare('DELETE FROM edges').run();
-        const insert = this.db.prepare(
-          'INSERT OR REPLACE INTO edges (source, target, edge_type, confidence, tier, resolution_method) VALUES (?, ?, ?, ?, ?, ?)'
-        );
-        for (const edge of edges) {
-          insert.run(
-            edge.source,
-            edge.target,
-            edge.edgeType || 'import',
-            Number(edge.confidence ?? 1.0),
-            edge.tier || 'tier1',
-            edge.resolutionMethod || 'import'
+        this._executeInTransaction(() => {
+          this.db.prepare('DELETE FROM edges').run();
+          const insert = this.db.prepare(
+            'INSERT OR REPLACE INTO edges (source, target, edge_type, confidence, tier, resolution_method) VALUES (?, ?, ?, ?, ?, ?)'
           );
-        }
+          for (const edge of edges) {
+            insert.run(
+              edge.source,
+              edge.target,
+              edge.edgeType || 'import',
+              Number(edge.confidence ?? 1.0),
+              edge.tier || 'tier1',
+              edge.resolutionMethod || 'import'
+            );
+          }
 
-        if (meta && Object.keys(meta).length > 0) {
-          this.db.prepare('INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?, ?)').run(
-            'edgeMeta',
-            JSON.stringify(meta)
-          );
-        }
-      });
+          if (meta && Object.keys(meta).length > 0) {
+            this.db.prepare('INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?, ?)').run(
+              'edgeMeta',
+              JSON.stringify(meta)
+            );
+          }
+        });
 
-      return true;
-    } catch (err) {
-      _debugError('Save edges', err);
-      return false;
-    }
+        return true;
+      } catch (err) {
+        _debugError('Save edges', err);
+        return false;
+      }
+    });
   }
 
   /**
@@ -559,23 +666,25 @@ class GraphDB {
    * @returns {Array<{source:string,target:string,edgeType:string,confidence:number,tier:string,resolutionMethod:string}>|null}
    */
   loadEdges() {
-    try {
-      this._ensureOpen();
-      const rows = this.db.prepare(
-        'SELECT source, target, edge_type, confidence, tier, resolution_method FROM edges'
-      ).all();
-      return rows.map((r) => ({
-        source: r.source,
-        target: r.target,
-        edgeType: r.edge_type,
-        confidence: Number(r.confidence),
-        tier: r.tier || 'tier1',
-        resolutionMethod: r.resolution_method || 'import',
-      }));
-    } catch (err) {
-      _debugError('Load edges', err);
-      return null;
-    }
+    return _runWithReadRetry(() => {
+      try {
+        this._ensureOpen();
+        const rows = this.db.prepare(
+          'SELECT source, target, edge_type, confidence, tier, resolution_method FROM edges'
+        ).all();
+        return rows.map((r) => ({
+          source: r.source,
+          target: r.target,
+          edgeType: r.edge_type,
+          confidence: Number(r.confidence),
+          tier: r.tier || 'tier1',
+          resolutionMethod: r.resolution_method || 'import',
+        }));
+      } catch (err) {
+        _debugError('Load edges', err);
+        return null;
+      }
+    });
   }
 
   /**
@@ -583,23 +692,25 @@ class GraphDB {
    * @param {Array<{key:string,data:string,version:number,fileCount:number,configHash?:string}>} rows
    */
   savePrecomputedAggregates(rows) {
-    try {
-      this._ensureOpen();
-      this._executeInTransaction(() => {
-        this.db.prepare('DELETE FROM precomputed_aggregates').run();
-        const insert = this.db.prepare(
-          'INSERT INTO precomputed_aggregates (key, data, version, file_count, config_hash, computed_at) VALUES (?, ?, ?, ?, ?, ?)'
-        );
-        const now = Math.floor(Date.now() / 1000);
-        for (const row of rows) {
-          insert.run(row.key, row.data, row.version ?? 0, row.fileCount ?? 0, row.configHash ?? '', now);
-        }
-      });
-      return true;
-    } catch (err) {
-      _debugError('Save precomputed aggregates', err);
-      return false;
-    }
+    return this._withWriteLock(() => {
+      try {
+        this._ensureOpen();
+        this._executeInTransaction(() => {
+          this.db.prepare('DELETE FROM precomputed_aggregates').run();
+          const insert = this.db.prepare(
+            'INSERT INTO precomputed_aggregates (key, data, version, file_count, config_hash, computed_at) VALUES (?, ?, ?, ?, ?, ?)'
+          );
+          const now = Math.floor(Date.now() / 1000);
+          for (const row of rows) {
+            insert.run(row.key, row.data, row.version ?? 0, row.fileCount ?? 0, row.configHash ?? '', now);
+          }
+        });
+        return true;
+      } catch (err) {
+        _debugError('Save precomputed aggregates', err);
+        return false;
+      }
+    });
   }
 
   /**
@@ -607,23 +718,25 @@ class GraphDB {
    * @returns {Array<{key:string,data:string,version:number,fileCount:number,configHash:string,computedAt:number}>|null}
    */
   loadPrecomputedAggregates() {
-    try {
-      this._ensureOpen();
-      const rows = this.db.prepare(
-        'SELECT key, data, version, file_count, config_hash, computed_at FROM precomputed_aggregates'
-      ).all();
-      return rows.map((r) => ({
-        key: r.key,
-        data: r.data,
-        version: isNaN(Number(r.version)) ? r.version : Number(r.version),
-        fileCount: Number(r.file_count),
-        configHash: r.config_hash ?? '',
-        computedAt: Number(r.computed_at),
-      }));
-    } catch (err) {
-      _debugError('Load precomputed aggregates', err);
-      return null;
-    }
+    return _runWithReadRetry(() => {
+      try {
+        this._ensureOpen();
+        const rows = this.db.prepare(
+          'SELECT key, data, version, file_count, config_hash, computed_at FROM precomputed_aggregates'
+        ).all();
+        return rows.map((r) => ({
+          key: r.key,
+          data: r.data,
+          version: isNaN(Number(r.version)) ? r.version : Number(r.version),
+          fileCount: Number(r.file_count),
+          configHash: r.config_hash ?? '',
+          computedAt: Number(r.computed_at),
+        }));
+      } catch (err) {
+        _debugError('Load precomputed aggregates', err);
+        return null;
+      }
+    });
   }
 
   /**
@@ -631,31 +744,33 @@ class GraphDB {
    * @param {Array<{file:string,directDeps:number,transitiveDeps:number,directDependents:number,transitiveDependents:number,affectedTests?:string,impactRadius?:string,version:number}>} records
    */
   savePrecomputedImpact(records) {
-    try {
-      this._ensureOpen();
-      this._executeInTransaction(() => {
-        this.db.prepare('DELETE FROM precomputed_impact').run();
-        const insert = this.db.prepare(
-          'INSERT INTO precomputed_impact (file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, impact_radius, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-        );
-        for (const rec of records) {
-          insert.run(
-            rec.file,
-            rec.directDeps ?? 0,
-            rec.transitiveDeps ?? 0,
-            rec.directDependents ?? 0,
-            rec.transitiveDependents ?? 0,
-            rec.affectedTests || null,
-            rec.impactRadius || null,
-            rec.version ?? 0
+    return this._withWriteLock(() => {
+      try {
+        this._ensureOpen();
+        this._executeInTransaction(() => {
+          this.db.prepare('DELETE FROM precomputed_impact').run();
+          const insert = this.db.prepare(
+            'INSERT INTO precomputed_impact (file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, impact_radius, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
           );
-        }
-      });
-      return true;
-    } catch (err) {
-      _debugError('Save precomputed impact', err);
-      return false;
-    }
+          for (const rec of records) {
+            insert.run(
+              rec.file,
+              rec.directDeps ?? 0,
+              rec.transitiveDeps ?? 0,
+              rec.directDependents ?? 0,
+              rec.transitiveDependents ?? 0,
+              rec.affectedTests || null,
+              rec.impactRadius || null,
+              rec.version ?? 0
+            );
+          }
+        });
+        return true;
+      } catch (err) {
+        _debugError('Save precomputed impact', err);
+        return false;
+      }
+    });
   }
 
   /**
@@ -663,25 +778,27 @@ class GraphDB {
    * @returns {Array<{file:string,directDeps:number,transitiveDeps:number,directDependents:number,transitiveDependents:number,affectedTests:string|null,impactRadius:string|null,version:number}>|null}
    */
   loadPrecomputedImpact() {
-    try {
-      this._ensureOpen();
-      const rows = this.db.prepare(
-        'SELECT file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, impact_radius, version FROM precomputed_impact'
-      ).all();
-      return rows.map((r) => ({
-        file: r.file,
-        directDeps: Number(r.direct_deps),
-        transitiveDeps: Number(r.transitive_deps),
-        directDependents: Number(r.direct_dependents),
-        transitiveDependents: Number(r.transitive_dependents),
-        affectedTests: r.affected_tests,
-        impactRadius: r.impact_radius,
-        version: Number(r.version),
-      }));
-    } catch (err) {
-      _debugError('Load precomputed impact', err);
-      return null;
-    }
+    return _runWithReadRetry(() => {
+      try {
+        this._ensureOpen();
+        const rows = this.db.prepare(
+          'SELECT file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, impact_radius, version FROM precomputed_impact'
+        ).all();
+        return rows.map((r) => ({
+          file: r.file,
+          directDeps: Number(r.direct_deps),
+          transitiveDeps: Number(r.transitive_deps),
+          directDependents: Number(r.direct_dependents),
+          transitiveDependents: Number(r.transitive_dependents),
+          affectedTests: r.affected_tests,
+          impactRadius: r.impact_radius,
+          version: Number(r.version),
+        }));
+      } catch (err) {
+        _debugError('Load precomputed impact', err);
+        return null;
+      }
+    });
   }
 
   /**
@@ -689,71 +806,79 @@ class GraphDB {
    * @param {string[]} files
    */
   deletePrecomputedImpact(files) {
-    try {
-      this._ensureOpen();
-      const stmt = this.db.prepare('DELETE FROM precomputed_impact WHERE file = ?');
-      this._executeInTransaction(() => {
-        for (const file of files) {
-          stmt.run(file);
-        }
-      });
-      return true;
-    } catch (err) {
-      _debugError('Delete precomputed impact', err);
-      return false;
-    }
+    return this._withWriteLock(() => {
+      try {
+        this._ensureOpen();
+        const stmt = this.db.prepare('DELETE FROM precomputed_impact WHERE file = ?');
+        this._executeInTransaction(() => {
+          for (const file of files) {
+            stmt.run(file);
+          }
+        });
+        return true;
+      } catch (err) {
+        _debugError('Delete precomputed impact', err);
+        return false;
+      }
+    });
   }
 
   /**
    * Batch save helper.
    */
   _saveBatch(tableName, queryStr, mapperFn, items) {
-    try {
-      this._ensureOpen();
-      this._executeInTransaction(() => {
-        this.db.prepare(`DELETE FROM ${tableName}`).run();
-        const stmt = this.db.prepare(queryStr);
-        for (const item of items) {
-          stmt.run(...mapperFn(item));
-        }
-      });
-      return true;
-    } catch (err) {
-      _debugError(`Save ${tableName}`, err);
-      return false;
-    }
+    return this._withWriteLock(() => {
+      try {
+        this._ensureOpen();
+        this._executeInTransaction(() => {
+          this.db.prepare(`DELETE FROM ${tableName}`).run();
+          const stmt = this.db.prepare(queryStr);
+          for (const item of items) {
+            stmt.run(...mapperFn(item));
+          }
+        });
+        return true;
+      } catch (err) {
+        _debugError(`Save ${tableName}`, err);
+        return false;
+      }
+    });
   }
 
   /**
    * Load all helper.
    */
   _loadAll(tableName, queryStr, mapperFn) {
-    try {
-      this._ensureOpen();
-      const rows = this.db.prepare(queryStr).all();
-      return rows.map(mapperFn);
-    } catch (err) {
-      _debugError(`Load ${tableName}`, err);
-      return null;
-    }
+    return _runWithReadRetry(() => {
+      try {
+        this._ensureOpen();
+        const rows = this.db.prepare(queryStr).all();
+        return rows.map(mapperFn);
+      } catch (err) {
+        _debugError(`Load ${tableName}`, err);
+        return null;
+      }
+    });
   }
 
   /**
    * Load helper filtered by files.
    */
   _loadForFiles(tableName, queryStrPattern, files, mapperFn) {
-    try {
-      this._ensureOpen();
-      if (!files || files.length === 0) return [];
-      const placeholders = files.map(() => '?').join(',');
-      const rows = this.db.prepare(
-        queryStrPattern.replace('$PLACEHOLDERS', placeholders)
-      ).all(...files);
-      return rows.map(mapperFn);
-    } catch (err) {
-      _debugError(`Load ${tableName} for files`, err);
-      return [];
-    }
+    return _runWithReadRetry(() => {
+      try {
+        this._ensureOpen();
+        if (!files || files.length === 0) return [];
+        const placeholders = files.map(() => '?').join(',');
+        const rows = this.db.prepare(
+          queryStrPattern.replace('$PLACEHOLDERS', placeholders)
+        ).all(...files);
+        return rows.map(mapperFn);
+      } catch (err) {
+        _debugError(`Load ${tableName} for files`, err);
+        return [];
+      }
+    });
   }
 
   /**
@@ -906,5 +1031,7 @@ class GraphDB {
 
 module.exports = {
   GraphDB,
+  acquireLockSync,
+  releaseLockSync,
 };
 

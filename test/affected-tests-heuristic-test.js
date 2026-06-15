@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 // @slow — builds large mock DependencyGraph; must not run concurrently with other graph-building tests.
 
 const assert = require('assert');

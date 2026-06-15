@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @contract
 /**
  * CLI parameter pipeline integration test.
  * Verifies that --format ai, --depth, and --token-budget flow through the

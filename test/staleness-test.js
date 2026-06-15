@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 // @slow
 /**
  * Staleness detection unit tests.

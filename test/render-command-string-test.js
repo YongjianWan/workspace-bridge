@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 const assert = require('assert');
 const { renderCommandString, parseCommandString } = require('../src/utils/stack-detectors/commands');
 

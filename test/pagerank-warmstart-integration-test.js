@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * PageRank warm-start integration test — verifies GraphAnalyzer.save/load
  * from cache and produces stable results across cold/warm runs.

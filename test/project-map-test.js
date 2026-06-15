@@ -1,3 +1,4 @@
+// @semantic
 const assert = require('assert');
 const { buildProjectMap, buildDirectoryTree, countTreeFiles } = require('../src/cli/formatters/project-map');
 const { makeMockSnapshot } = require('./test-helpers');

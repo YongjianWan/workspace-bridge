@@ -8,6 +8,37 @@
 
 ## [Unreleased]
 
+### 清空四大活跃技术债 (2026-06-15)
+
+- **框架检测 Query 语言等价性偏斜**：
+  - 为 Go (Gin, Echo, Fiber)、Rust (Actix-web, Axum, Rocket)、Vue 和 Svelte 开发并注册了 AST-Query 检测规则，彻底消除了多语言框架检测偏斜。
+  - 使用 identifier / scoped_identifier 捕获节点，大幅简化 Rust 框架检测的 tree-sitter 查询，解决了通用路由属性 `#[get(...)]` 在不同 Rust 框架之间的命名碰撞冲突。
+- **缓存默认目录位于项目外导致易失**：
+  - 将默认 SQLite 缓存目录迁移至 `<workspaceRoot>/.workspace-bridge/`。
+  - 自动管理 `.gitignore` 保证缓存文件不被误提交。
+  - 实现对 `os.tmpdir()` 的写权限 fallback 降级和 legacy `cache.db` 的跨会话自动迁移。
+- **全局配置链优先级及用户级配置**：
+  - 支持 `~/.workspace-bridge/config.toml` 和 `.env` 作为全局用户配置。
+  - 引入了 `CLI > Environment variables > Project Config > User Config > Defaults` 的五层配置优先级决策链，并提供了 `_sources` 的 Precedence Origin Report。
+  - 修复 `.workspace-bridge.json` 新字段的 schema 校验噪音。
+- **跨进程并发控制与 busy 重试**：
+  - 在 `graph-db.js` 写入路径实现了 pid-based advisory lock 锁文件排他控制，超时 5 秒，支持自动创建锁文件父目录。
+  - 封装 Windows 平台读操作的指数退避重试，最大 3 次，防止 WAL 模式下的读写冲突。
+  - 修复 `cache-backup-test.js`、`cache-corruption-test.js` 和 `path-format-consistency-test.js` 的连接释放与 async 调用顺序。
+- **测试分层标记全面落地**：
+  - 自动化补充了 130 个未打标签测试文件的 `// @contract` 与 `// @semantic` 注解，彻底清空了测试层级规范技术债。
+- **验证**：新建专属技术债测试 `test/tech-debt-cleanup-test.js`；`npm run test:fast` **117/117 PASS**；`npm run test:smoke` **120/120 PASS**；`npm run test:coverage:check` 通过。
+
+### Graph-first 路由提取与影响分析升级 (2026-06-15)
+
+- **问题**：旧有的受影响 Web 路由计算依赖于 `savePrecomputed` 阶段对磁盘源文件进行高开销的二次 I/O 扫描和正则分析，增量/全量构建开销大，且无法利用内存依赖图进行高效查询。
+- **修复**：
+  - 将路由提取（`extractRoutes`）前置到 `parseFileOnly` AST 解析阶段，支持全量 9 种语言，在 `resolveFileOnly` 时挂载到内存节点的 `routes` 属性并同步写入 SQLite 缓存。
+  - 在 `_serializeEdges()` 中将路由展开为 `edgeType = 'handles-route'` 类型的边写入持久化图关系；而在 `loadGraph()` 恢复内存图结构时，强制过滤掉非 `'import'` 类型的边（即排除 `handles-route` 边），保持主依赖关系纯净。
+  - 在 `query.js` 引入 `findAffectedHttpRoutes` 内存图 BFS 查询，完全取代 `persistence.js` 里的二次磁盘扫描。
+  - 重构 `impact.js` 以调用 `snapshot.graph.findAffectedHttpRoutes` 快速内存检索，干掉了对 SQLite `routes` 关系表的运行时读取。
+- **验证**：新增 `test/graph-first-routes-test.js` 并通过全量单元测试（覆盖缓存、增量更新、BFS半径等场景）。`npm run test:fast` **116/116 PASS**；`npm run test:smoke` **119/119 PASS**；`npm run test:coverage:check` 通过。
+
 ### 迁移 CLI spawn 测试到 in-process runner (#21) (2026-06-14)
 
 - **问题**：约 44 个测试文件仍通过 `runCli`/`runCliRaw`/`runCliText` 走 `child_process.spawnSync`，CI 串行开销大、flaky 风险高；`runCliInProcess()` 已导出但迁移率低。

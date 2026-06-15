@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');

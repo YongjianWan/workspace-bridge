@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 const assert = require('assert');
 const { generateCommands } = require('../src/utils/stack-detector');
 

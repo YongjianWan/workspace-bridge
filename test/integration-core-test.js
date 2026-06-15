@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Core integration regression:
  * - path normalization consistency (relative/absolute/backslash)

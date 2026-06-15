@@ -1,3 +1,4 @@
+// @semantic
 /**
  * Honesty engine tests — false-positive classification for dead exports and unresolved imports.
  */

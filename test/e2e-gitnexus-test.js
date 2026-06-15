@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * E2E smoke test on reference/GitNexus — a real third-party project (1329 files).
  * Verifies workspace-bridge produces valid output on non-trivial repositories.

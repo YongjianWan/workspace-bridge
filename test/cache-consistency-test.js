@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Cache consistency: deleted files must not leave ghost data in graph or cache.
  */

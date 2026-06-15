@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * SQLite persistence reliability tests for WorkspaceCache.
  * Replaces old JSON backup tests (SQLite WAL + transactions provide

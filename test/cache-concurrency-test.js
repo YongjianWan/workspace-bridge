@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Cache concurrency stress test: verify SQLite WAL mode handles parallel reads safely.
  * Two CLI processes share the same cache directory; both must succeed without lock errors.

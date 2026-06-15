@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 
 const assert = require('assert');
 const fs = require('fs');
@@ -16,12 +17,12 @@ function testLoadIgnoresMissingDatabase() {
   cleanupTempDir(dir);
 }
 
-function testLoadIgnoresWrongVersion() {
+async function testLoadIgnoresWrongVersion() {
   const dir = makeTempDir('wb-cache-');
   const cacheDir = path.join(dir, '.cache');
   const cache = new WorkspaceCache(dir, { cacheDir });
   cache.setFileMetadata(path.join(dir, 'a.js'), { mtime: 1, size: 1 });
-  cache.save();
+  await cache.save();
 
   // Tamper with version in SQLite directly
   const { DatabaseSync } = require('node:sqlite');
@@ -107,7 +108,7 @@ async function testSaveReturnsFalseOnPersistentFailure() {
 
 async function main() {
   testLoadIgnoresMissingDatabase();
-  testLoadIgnoresWrongVersion();
+  await testLoadIgnoresWrongVersion();
   await testLoadIgnoresStaleCache();
   testNormalizeFileMapEntriesHandlesNonArray();
   testNormalizeDiagnosticsEntriesHandlesNonArray();

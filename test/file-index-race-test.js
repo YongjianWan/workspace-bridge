@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Regression test for #39: processPending() atomic snapshot.
  * Ensures that updates arriving during processPending are not lost

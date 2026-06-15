@@ -1,3 +1,4 @@
+// @contract
 const assert = require('assert');
 const { parseVue } = require('../src/services/dep-graph/parsers/vue');
 

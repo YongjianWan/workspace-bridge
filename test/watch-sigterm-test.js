@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * watch.js boundary tests:
  * - SIGTERM graceful shutdown

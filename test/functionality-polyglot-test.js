@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 // @slow
 /**
  * CLI 多语言、非 ASCII 路径与 Heuristic 测试映射测试

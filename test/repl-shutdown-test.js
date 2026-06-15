@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Regression test for #40: REPL double Ctrl+C leak.
  * Verifies that container.shutdown() is called exactly once and is

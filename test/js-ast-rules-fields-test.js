@@ -1,3 +1,4 @@
+// @semantic
 const assert = require('assert');
 const { parseJavaScript } = require('../src/services/dep-graph/parsers/js.js');
 const { checkFileRules } = require('../src/services/dep-graph/ast-rules');

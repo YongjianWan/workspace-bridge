@@ -300,6 +300,10 @@ class DependencyGraph {
     return this.analyzer.findAffectedRoutes(...args);
   }
 
+  findAffectedHttpRoutes(...args) {
+    return this.query.findAffectedHttpRoutes(...args);
+  }
+
   getStats(...args) {
     return this.analyzer.getStats(...args);
   }

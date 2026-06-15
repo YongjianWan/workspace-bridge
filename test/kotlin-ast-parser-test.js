@@ -1,3 +1,4 @@
+// @contract
 const assert = require('assert');
 const { parseKotlin } = require('../src/services/dep-graph/parsers/kotlin-ast');
 const { checkFileRules } = require('../src/services/dep-graph/ast-rules');

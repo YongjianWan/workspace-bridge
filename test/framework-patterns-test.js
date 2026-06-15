@@ -1,3 +1,4 @@
+// @semantic
 const assert = require('assert');
 const { detectFrameworkFromPath, detectFrameworkFromContent } = require('../src/services/dep-graph/framework-patterns');
 

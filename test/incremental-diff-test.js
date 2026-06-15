@@ -1,3 +1,4 @@
+// @semantic
 const assert = require('assert');
 const path = require('path');
 const { buildIncrementalFindings, collectRelatedFiles } = require('../src/tools/incremental-diff');

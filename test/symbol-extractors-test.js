@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Direct unit tests for symbol-extractors.js.
  * Covers all registered extractors and boundary cases.

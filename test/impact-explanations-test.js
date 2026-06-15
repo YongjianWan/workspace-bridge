@@ -1,3 +1,4 @@
+// @semantic
 const assert = require('assert');
 const { buildImpactExplanations } = require('../src/cli/formatters/impact-explanations');
 

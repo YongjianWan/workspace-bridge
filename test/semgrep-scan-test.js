@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * SemgrepAdapter.scan() boundary tests.
  * Mocks runCommandSecure to avoid requiring semgrep to be installed.

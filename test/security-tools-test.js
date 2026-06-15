@@ -1,3 +1,4 @@
+// @semantic
 // @slow
 const assert = require('assert');
 const fs = require('fs');

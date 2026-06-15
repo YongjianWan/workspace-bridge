@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 const assert = require('assert');
 const { buildProjectMap } = require('../src/cli/formatters');
 const { createMockDepGraph } = require('./test-helpers');

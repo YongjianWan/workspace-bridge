@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @contract
 /**
  * Direct unit tests for parser shared utilities and polyglot regex parsers.
  * Previously only covered indirectly by integration tests.

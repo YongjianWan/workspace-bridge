@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @contract
 
 const assert = require('assert');
 const {

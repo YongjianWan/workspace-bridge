@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * audit-file --watch integration test.
  * Spawns the CLI in watch mode, triggers a file change, and verifies

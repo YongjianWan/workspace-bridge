@@ -1,3 +1,4 @@
+// @semantic
 /**
  * Scaffold detector tests — conservative fingerprinting for known templates.
  */

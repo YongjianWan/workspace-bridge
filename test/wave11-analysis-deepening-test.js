@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * Wave 11 Analysis Deepening Tests
  *

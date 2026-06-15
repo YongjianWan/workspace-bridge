@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @semantic
 /**
  * @slow
  * Regression test for #42: DiagnosticsEngine unbounded timer.
