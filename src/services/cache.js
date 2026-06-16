@@ -90,7 +90,25 @@ function computeDefaultCacheDir(workspaceRoot) {
   // Migrate legacy cache.db if new location doesn't have one, but old one does
   const newDbPath = path.join(cacheDir, 'cache.db');
   const legacyDbPath = path.join(fallbackDir, 'cache.db');
-  if (cacheDir === preferredDir && !fs.existsSync(newDbPath) && fs.existsSync(legacyDbPath)) {
+  const legacyLockPath = legacyDbPath + '.lock';
+
+  let isLegacyLocked = false;
+  if (fs.existsSync(legacyLockPath)) {
+    try {
+      const content = fs.readFileSync(legacyLockPath, 'utf8').trim();
+      const pid = Number.parseInt(content, 10);
+      if (!Number.isNaN(pid)) {
+        try {
+          process.kill(pid, 0);
+          isLegacyLocked = true;
+        } catch (err) {
+          isLegacyLocked = err.code === 'EPERM';
+        }
+      }
+    } catch {}
+  }
+
+  if (cacheDir === preferredDir && !isLegacyLocked && !fs.existsSync(newDbPath) && fs.existsSync(legacyDbPath)) {
     try {
       fs.renameSync(legacyDbPath, newDbPath);
       try {

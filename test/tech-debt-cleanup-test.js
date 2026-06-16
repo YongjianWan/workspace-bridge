@@ -253,6 +253,11 @@ async function testConcurrentLockingAndReadRetry() {
   acquireLockSync(lockPath, 50, 10);
   releaseLockSync(lockPath);
 
+  // 5. Test empty lock recovery: create an empty lock file manually, then try to acquire lock
+  fs.writeFileSync(lockPath, '');
+  acquireLockSync(lockPath, 50, 10); // Should succeed immediately by unlinking the empty lock
+  releaseLockSync(lockPath);
+
   cleanupTempDir(root);
   console.log('✓ Concurrent locking and read retry tests passed.');
 }

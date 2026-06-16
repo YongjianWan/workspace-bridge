@@ -136,14 +136,24 @@ function runCliRaw(args, opts = {}) {
 
 let _sharedContainer = null;
 let _sharedContainerPromise = null;
+let _sharedContainerCacheDir = null;
 
 async function _getSharedContainer(cacheDir) {
-  if (_sharedContainer) return _sharedContainer;
-  if (_sharedContainerPromise) return _sharedContainerPromise;
+  if (_sharedContainer && _sharedContainerCacheDir === cacheDir) {
+    return _sharedContainer;
+  }
+  if (_sharedContainerPromise && _sharedContainerCacheDir === cacheDir) {
+    return _sharedContainerPromise;
+  }
+
+  if (_sharedContainer && _sharedContainerCacheDir !== cacheDir) {
+    shutdownSharedContainer();
+  }
 
   const { ServiceContainer } = require('../src/services/container');
   const { TIMEOUTS } = require('../src/config/constants');
 
+  _sharedContainerCacheDir = cacheDir;
   _sharedContainerPromise = (async () => {
     const container = new ServiceContainer({ quiet: true, cacheDir });
     await container.initialize(REPO_ROOT, TIMEOUTS.INIT_TIMEOUT_MS, {
@@ -260,6 +270,7 @@ function shutdownSharedContainer() {
     _sharedContainer.shutdown().catch(() => {});
     _sharedContainer = null;
     _sharedContainerPromise = null;
+    _sharedContainerCacheDir = null;
   }
 }
 

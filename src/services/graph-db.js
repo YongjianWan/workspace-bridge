@@ -246,19 +246,23 @@ function acquireLockSync(lockPath, timeoutMs = 5000, retryIntervalMs = 100) {
         try {
           const content = fs.readFileSync(lockPath, 'utf8').trim();
           const pid = Number.parseInt(content, 10);
-          if (!Number.isNaN(pid)) {
-            let processExists = true;
+          if (Number.isNaN(pid) || content.length === 0) {
             try {
-              process.kill(pid, 0);
-            } catch (killErr) {
-              processExists = killErr.code === 'EPERM';
-            }
-            if (!processExists) {
-              try {
-                fs.unlinkSync(lockPath);
-              } catch {}
-              continue; // retry
-            }
+              fs.unlinkSync(lockPath);
+            } catch {}
+            continue; // retry
+          }
+          let processExists = true;
+          try {
+            process.kill(pid, 0);
+          } catch (killErr) {
+            processExists = killErr.code === 'EPERM';
+          }
+          if (!processExists) {
+            try {
+              fs.unlinkSync(lockPath);
+            } catch {}
+            continue; // retry
           }
         } catch {}
       } else {
@@ -364,42 +368,44 @@ class GraphDB {
 
   _migrate() {
     if (!this.db) return;
-    const cols = this.db.prepare('PRAGMA table_info(file_metadata)').all();
-    const hasOriginalPath = cols.some((c) => c.name === 'original_path');
-    if (!hasOriginalPath) {
-      this.db.prepare('ALTER TABLE file_metadata ADD COLUMN original_path TEXT').run();
-    }
-    const hasType = cols.some((c) => c.name === 'type');
-    if (!hasType) {
-      this.db.prepare("ALTER TABLE file_metadata ADD COLUMN type TEXT NOT NULL DEFAULT 'source'").run();
-      this.db.prepare('ALTER TABLE file_metadata ADD COLUMN role TEXT').run();
-      this.db.prepare('ALTER TABLE file_metadata ADD COLUMN lang TEXT').run();
-    }
-    // Wave 9-1: add impact_radius column to precomputed_impact
-    const impactCols = this.db.prepare('PRAGMA table_info(precomputed_impact)').all();
-    if (impactCols.length > 0 && !impactCols.some((c) => c.name === 'impact_radius')) {
-      this.db.prepare('ALTER TABLE precomputed_impact ADD COLUMN impact_radius TEXT').run();
-    }
-    // Wave 10-2: add tier and resolution_method columns to edges
-    const edgeCols = this.db.prepare('PRAGMA table_info(edges)').all();
-    if (edgeCols.length > 0 && !edgeCols.some((c) => c.name === 'tier')) {
-      this.db.prepare("ALTER TABLE edges ADD COLUMN tier TEXT NOT NULL DEFAULT 'tier1'").run();
-      this.db.prepare("ALTER TABLE edges ADD COLUMN resolution_method TEXT NOT NULL DEFAULT 'import'").run();
-    }
-    // Increment schema migration: add framework_hint column to parse_results
-    const parseCols = this.db.prepare('PRAGMA table_info(parse_results)').all();
-    if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'framework_hint')) {
-      this.db.prepare('ALTER TABLE parse_results ADD COLUMN framework_hint TEXT').run();
-    }
-    if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'routes')) {
-      this.db.prepare('ALTER TABLE parse_results ADD COLUMN routes TEXT').run();
-    }
-    // Wave B-2: add config_hash column to precomputed_aggregates so query-* snapshots
-    // can invalidate when .workspace-bridge.json changes.
-    const aggregateCols = this.db.prepare('PRAGMA table_info(precomputed_aggregates)').all();
-    if (aggregateCols.length > 0 && !aggregateCols.some((c) => c.name === 'config_hash')) {
-      this.db.prepare("ALTER TABLE precomputed_aggregates ADD COLUMN config_hash TEXT NOT NULL DEFAULT ''").run();
-    }
+    this._executeInTransaction(() => {
+      const cols = this.db.prepare('PRAGMA table_info(file_metadata)').all();
+      const hasOriginalPath = cols.some((c) => c.name === 'original_path');
+      if (!hasOriginalPath) {
+        this.db.prepare('ALTER TABLE file_metadata ADD COLUMN original_path TEXT').run();
+      }
+      const hasType = cols.some((c) => c.name === 'type');
+      if (!hasType) {
+        this.db.prepare("ALTER TABLE file_metadata ADD COLUMN type TEXT NOT NULL DEFAULT 'source'").run();
+        this.db.prepare('ALTER TABLE file_metadata ADD COLUMN role TEXT').run();
+        this.db.prepare('ALTER TABLE file_metadata ADD COLUMN lang TEXT').run();
+      }
+      // Wave 9-1: add impact_radius column to precomputed_impact
+      const impactCols = this.db.prepare('PRAGMA table_info(precomputed_impact)').all();
+      if (impactCols.length > 0 && !impactCols.some((c) => c.name === 'impact_radius')) {
+        this.db.prepare('ALTER TABLE precomputed_impact ADD COLUMN impact_radius TEXT').run();
+      }
+      // Wave 10-2: add tier and resolution_method columns to edges
+      const edgeCols = this.db.prepare('PRAGMA table_info(edges)').all();
+      if (edgeCols.length > 0 && !edgeCols.some((c) => c.name === 'tier')) {
+        this.db.prepare("ALTER TABLE edges ADD COLUMN tier TEXT NOT NULL DEFAULT 'tier1'").run();
+        this.db.prepare("ALTER TABLE edges ADD COLUMN resolution_method TEXT NOT NULL DEFAULT 'import'").run();
+      }
+      // Increment schema migration: add framework_hint column to parse_results
+      const parseCols = this.db.prepare('PRAGMA table_info(parse_results)').all();
+      if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'framework_hint')) {
+        this.db.prepare('ALTER TABLE parse_results ADD COLUMN framework_hint TEXT').run();
+      }
+      if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'routes')) {
+        this.db.prepare('ALTER TABLE parse_results ADD COLUMN routes TEXT').run();
+      }
+      // Wave B-2: add config_hash column to precomputed_aggregates so query-* snapshots
+      // can invalidate when .workspace-bridge.json changes.
+      const aggregateCols = this.db.prepare('PRAGMA table_info(precomputed_aggregates)').all();
+      if (aggregateCols.length > 0 && !aggregateCols.some((c) => c.name === 'config_hash')) {
+        this.db.prepare("ALTER TABLE precomputed_aggregates ADD COLUMN config_hash TEXT NOT NULL DEFAULT ''").run();
+      }
+    });
   }
 
   close() {
