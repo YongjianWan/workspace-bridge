@@ -18,6 +18,7 @@ const { CONFIG } = require('./shared');
 const { SymbolRegistry } = require('./symbol-registry');
 const { shadowCandidatesFor } = require('./shadow-candidates');
 const { WalCadence } = require('./wal-cadence');
+const { CACHE_VERSION } = require('../../config/constants');
 
 const readFile = promisify(fs.readFile);
 const YIELD_INTERVAL = 20; // event loop yield frequency for large repos
@@ -477,7 +478,12 @@ class GraphBuilder {
     if (!this.dg.cache || typeof this.dg.cache.saveEdges !== 'function') return;
     try {
       const edges = this._serializeEdges();
-      this.dg.cache.saveEdges(edges);
+      this.dg.cache.saveEdges(edges, {
+        cacheVersion: CACHE_VERSION,
+        fileMetadataCount: this.dg.cache.fileMetadata.size,
+        parseResultsCount: this.dg.cache.parseResults.size,
+        timestamp: Date.now(),
+      });
     } catch (e) {
       if (process.env.DEBUG) {
         console.error('[GraphBuilder] saveEdges failed:', e.message);

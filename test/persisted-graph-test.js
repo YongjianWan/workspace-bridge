@@ -7,6 +7,8 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { ServiceContainer } = require('../src/services/container');
+const { WorkspaceCache } = require('../src/services/cache');
+const { CACHE_VERSION } = require('../src/config/constants');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 async function testLoadGraphRestoresGraphAndReverseGraph() {
@@ -23,6 +25,13 @@ async function testLoadGraphRestoresGraphAndReverseGraph() {
   const aImports = container1._depGraph.getFileInfo(path.posix.join(tmpDir, 'src/a.js'))?.imports || [];
   assert(aImports.some((i) => i.includes('b.js')), 'a.js should import b.js');
   await container1.shutdown();
+
+  const cache = new WorkspaceCache(tmpDir);
+  assert.strictEqual(cache.load(), true, 'cache should load after cold start');
+  assert.strictEqual(cache.edgeMeta.cacheVersion, CACHE_VERSION, 'edge metadata should persist cache version');
+  assert.strictEqual(cache.edgeMeta.fileMetadataCount, cache.fileMetadata.size, 'edge metadata should match file metadata count');
+  assert.strictEqual(cache.edgeMeta.parseResultsCount, cache.parseResults.size, 'edge metadata should match parse result count');
+  cache.close();
 
   // 2. Warm start — loadGraph should restore graph from edges
   const container2 = new ServiceContainer({ quiet: true });

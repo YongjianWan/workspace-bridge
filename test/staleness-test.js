@@ -11,6 +11,10 @@ const { ServiceContainer } = require('../src/services/container');
 const { WorkspaceCache } = require('../src/services/cache');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
+function sha256(content) {
+  return require('crypto').createHash('sha256').update(content).digest('hex');
+}
+
 function main() {
 
   const container = new ServiceContainer();
@@ -173,6 +177,84 @@ function main() {
     assert.deepStrictEqual(s.changedFiles, [], 'changedFiles should be empty');
 
     cleanupTempDir(dir);
+  }
+
+  // Historical cache path drift → fall back to normalized key
+  {
+    const dir = makeTempDir('wb-staleness-');
+    const file = path.join(dir, 'path-drift.js');
+    const content = 'export const drift = 1;\n';
+    fs.writeFileSync(file, content);
+    const stats = fs.statSync(file);
+
+    const cache = new WorkspaceCache(dir, { cacheDir: path.join(dir, '.cache') });
+    cache.fileMetadata.set(file, {
+      originalPath: path.join(dir, 'missing-old-path.js'),
+      mtime: stats.mtimeMs,
+      size: stats.size,
+      hash: sha256(content),
+    });
+
+    const c = new ServiceContainer();
+    c.workspaceRoot = dir;
+    c.indexBuildTime = Date.now() - 1000;
+    c.cache = cache;
+
+    const s = c.getStaleness();
+    assert.strictEqual(s.filesChanged, false, 'should not flag unchanged file when originalPath drifted but key resolves');
+    assert.strictEqual(cache.fileMetadata.get(file).originalPath, file, 'should repair originalPath to the resolved key path');
+
+    cleanupTempDir(dir);
+  }
+
+  // Historical exact keys must be deletable even if normalizePathKey cannot
+  // interpret their old platform shape in the current shell.
+  {
+    const dir = makeTempDir('wb-staleness-');
+    const cache = new WorkspaceCache(dir, { cacheDir: path.join(dir, '.cache') });
+    const legacyKey = 'c:/legacy/workspace/src/old.js';
+    cache.fileMetadata.set(legacyKey, { originalPath: 'C:\\legacy\\workspace\\src\\old.js' });
+    cache.parseResults.set(legacyKey, { imports: [], exports: [] });
+    cache.diagnostics.set(legacyKey, { diagnostics: [{ message: 'old' }] });
+
+    cache.deleteFileMetadata(legacyKey);
+    cache.deleteParseResult(legacyKey);
+    cache.clearDiagnostics(legacyKey);
+
+    assert.strictEqual(cache.fileMetadata.has(legacyKey), false, 'deleteFileMetadata should remove exact legacy keys');
+    assert.strictEqual(cache.parseResults.has(legacyKey), false, 'deleteParseResult should remove exact legacy keys');
+    assert.strictEqual(cache.diagnostics.has(legacyKey), false, 'clearDiagnostics should remove exact legacy keys');
+
+    cleanupTempDir(dir);
+  }
+
+  // WSL shell over a Windows-populated cache → translate C:\... to /mnt/c/...
+  {
+    const repoRoot = path.resolve(__dirname, '..');
+    const match = /^\/mnt\/([a-z])\/(.+)$/i.exec(repoRoot);
+    if (match) {
+      const file = path.join(repoRoot, 'cli.js');
+      const content = fs.readFileSync(file, 'utf8');
+      const stats = fs.statSync(file);
+      const windowsPath = `${match[1].toUpperCase()}:\\${path.relative(`/mnt/${match[1]}`, file).replace(/\//g, '\\')}`;
+      const cache = new WorkspaceCache(repoRoot, { cacheDir: path.join(repoRoot, '.workspace-bridge-test-staleness') });
+      cache.fileMetadata.set(windowsPath, {
+        originalPath: windowsPath,
+        mtime: stats.mtimeMs,
+        size: stats.size,
+        hash: sha256(content),
+      });
+
+      const c = new ServiceContainer();
+      c.workspaceRoot = repoRoot;
+      c.indexBuildTime = Date.now() - 1000;
+      c.cache = cache;
+
+      const s = c.getStaleness();
+      assert.strictEqual(s.filesChanged, false, 'should translate Windows cache paths under WSL instead of reporting deletion');
+      assert.strictEqual(cache.fileMetadata.get(windowsPath).originalPath, file, 'should repair originalPath to the WSL path');
+      cache.close();
+    }
   }
 
   // File deleted → filesChanged

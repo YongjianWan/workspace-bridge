@@ -8,6 +8,20 @@
 
 ## [Unreleased]
 
+### Fast 测试基线修复 (2026-06-16)
+
+- 修复本地未安装 `javalang` 时 Java parser 落到 regex fallback 后丢失 `decorators`、`fingerprint`、`branchCount` 与 `maxArms` 的问题，恢复 Java `else-if` dispatcher 和 `batch-no-transactional` 规则的 fallback 语义。
+- 将 `cache-corruption-test.js` 的持久化失败用例从依赖 `chmod` 的权限假设改为直接模拟 SQLite 保存层失败，避免不同平台/用户权限下产生假失败。
+- 验证：`node test/cache-corruption-test.js && node test/wave11-analysis-deepening-test.js && node test/wave15-ast-rules-test.js` 通过；`npm run test:fast` **117/117 PASS**。
+
+### Overview staleness 与热缓存修复 (2026-06-16)
+
+- 修复 WSL/bash 读取 Windows 旧缓存路径时 `checkFileChanges()` 将 `C:\...` 误判为删除的问题；现在会尝试 exact key、normalized key 与 `/mnt/<drive>/...` 兼容路径，并在命中后修复 `originalPath`。
+- 修复 `WorkspaceCache.load()` 替换内存 Map 后 DirtyTracker 仍指向旧 Map，导致 load 后新增/更新的 file metadata 与 parse result 无法持久化的问题。
+- 修复 `edgeMeta` 被后续 `cache.save()` 写成 `"null"` 并抹掉的问题，并确保 `saveEdges()` 同步更新内存中的 edge metadata，使 `loadGraph()` 能走真正热缓存路径。
+- 修复 `ServiceContainer._runStage()` 未 await async stage 导致 `_phaseTimes` 性能定位失真的问题；同时隐藏非 git fixture 下 `git rev-parse` 的无意义 stderr。
+- 验证：`node test/cache-test.js && node test/staleness-test.js && node test/persisted-graph-test.js && node test/cache-corruption-test.js` 通过；`npm run test:fast` **117/117 PASS**；`audit-overview --json --quiet` 热缓存约 **14.5s**，`staleness.isStale=false`。
+
 ### 漏洞与并发稳定性问题修复 (2026-06-16)
 
 修复了在 Git 提交审计与漏洞评估中发现的 5 项关于并发、锁定与正则逃逸的稳定性问题：

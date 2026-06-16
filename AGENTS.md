@@ -48,7 +48,7 @@
    > **例外**：当 userspace 只有项目所有者本人且所有者明确要求重构时，兼容义务让位于演进效率。此时应通过 deprecation 警告 + 别名过渡期（1 个版本）平滑迁移，而非永久冻结接口。
 2. **异常安全** — `shutdown/close/cleanup` 必须逐步骤独立 try-catch；cache load 必须防御旧格式/损坏格式；SIGINT/SIGTERM 必须注册 handler
    > **触发条件**：改动涉及资源生命周期、cache 读写、进程信号处理时适用。
-3. **数据一致性** — 禁止把 cache 引用直接塞进可变结构；删除实体时必须清理所有关联缓存槽位；同一业务语义必须在单一模块实现
+3. **数据一致性** — 禁止把 cache 引用直接塞进可变结构；删除实体时必须清理所有关联缓存槽位；同一业务语义必须在单一模块实现；cache load 后若替换 Map/索引容器，必须同步重建 dirty tracker/派生索引；持久化 metadata 必须保持 DB 与内存同代一致；Windows/WSL 路径漂移必须兼容旧 cache key
    > **触发条件**：改动涉及 cache/graph/状态增删改时适用。
 
 ### L2 标准（违反 = 技术债务，短期内可接受但必须偿还）
@@ -245,5 +245,4 @@ THEN 拿到结果后必须执行：
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
 *Last updated: 2026-06-14（修复 CI 跨平台失败 #23；修复 REPL `top` 测试边污染架构指标 #13；新增 CI coverage gate #22；迁移 41 个测试文件到 in-process runner #21；npm run test:fast 116/116 PASS，npm run test:smoke 119/119 PASS，npm run test:coverage:check 通过；schemaVersion: 1.2.0；version: 2.0.0）*
-
 

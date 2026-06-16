@@ -10,6 +10,8 @@ const { GraphDB } = require('./graph-db');
 const { CACHE_VERSION, DEFAULTS } = require('../config/constants');
 
 const CACHE_STALE_MS = DEFAULTS.STALENESS_THRESHOLD_MS;
+const WINDOWS_ABSOLUTE_PATH_RE = /^([A-Za-z]):[\\/](.*)$/;
+const WSL_MOUNT_ROOT = '/mnt';
 
 /**
  * Metadata schema registry — add a new cached field by registering here.
@@ -47,7 +49,7 @@ const METADATA_SCHEMA = {
   },
   edgeMeta: {
     default: null,
-    serialize: (v) => JSON.stringify(v),
+    serialize: (v) => v ? JSON.stringify(v) : null,
     deserialize: (raw) => JSON.parse(raw),
   },
 };
@@ -125,6 +127,43 @@ function computeDefaultCacheDir(workspaceRoot) {
   return cacheDir;
 }
 
+function windowsPathToWslPath(filePath) {
+  if (!filePath || process.platform === 'win32') return null;
+  const match = WINDOWS_ABSOLUTE_PATH_RE.exec(String(filePath));
+  if (!match) return null;
+  const drive = match[1].toLowerCase();
+  const rest = match[2].replace(/\\/g, '/');
+  return path.join(WSL_MOUNT_ROOT, drive, rest);
+}
+
+function uniquePathCandidates(paths) {
+  const seen = new Set();
+  const result = [];
+  for (const candidate of paths) {
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    result.push(candidate);
+  }
+  return result;
+}
+
+function resolveCachedFilePath(filePath, key) {
+  const candidates = uniquePathCandidates([
+    filePath,
+    key,
+    windowsPathToWslPath(filePath),
+    windowsPathToWslPath(key),
+  ]);
+  for (const candidate of candidates) {
+    try {
+      return { filePath: candidate, stat: fs.statSync(candidate) };
+    } catch {
+      // Try the next historical path shape.
+    }
+  }
+  return { filePath: key || filePath, stat: null };
+}
+
 class DirtyTracker {
   constructor(dataMap) {
     this._dataMap = dataMap;
@@ -186,6 +225,13 @@ class WorkspaceCache {
 
     this.lastSaved = 0;
     this.dirty = false;
+  }
+
+  _resetTrackers() {
+    this._fileTracker = new DirtyTracker(this.fileMetadata);
+    this._parseTracker = new DirtyTracker(this.parseResults);
+    this._symbolTracker = new DirtyTracker(this.symbolIndex);
+    this._diagTracker = new DirtyTracker(this.diagnostics);
   }
 
   _normalizeEntries(entries, options = {}) {
@@ -270,6 +316,7 @@ class WorkspaceCache {
       }
       this.symbolIndex = data.symbolIndex || new Map();
       this.diagnostics = data.diagnostics || new Map();
+      this._resetTrackers();
       this.lastSaved = data.timestamp || 0;
 
       // Schema-driven metadata loading — eliminates _loadXxx boilerplate
@@ -422,7 +469,8 @@ class WorkspaceCache {
   // File metadata cache
   getFileMetadata(filePath) {
     const key = this.normalizeFilePath(filePath);
-    if (!key) return undefined;
+    if (!key) return this.fileMetadata.get(filePath);
+    if (this.fileMetadata.has(key)) return this.fileMetadata.get(key);
     return this.fileMetadata.get(key);
   }
 
@@ -437,23 +485,26 @@ class WorkspaceCache {
 
   hasFileMetadata(filePath) {
     const key = this.normalizeFilePath(filePath);
-    if (!key) return false;
-    return this.fileMetadata.has(key);
+    if (!key) return this.fileMetadata.has(filePath);
+    return this.fileMetadata.has(key) || this.fileMetadata.has(filePath);
   }
 
   deleteFileMetadata(filePath) {
     const key = this.normalizeFilePath(filePath);
-    if (!key) return;
-    this.fileMetadata.delete(key);
-    this._fileTracker.unmark(key);
+    const keys = uniquePathCandidates([key, filePath]);
+    if (keys.length === 0) return;
+    for (const candidate of keys) {
+      this.fileMetadata.delete(candidate);
+      this._fileTracker.unmark(candidate);
+    }
     this.dirty = true;
   }
 
   // Parse result cache
   getParseResult(filePath) {
     const key = this.normalizeFilePath(filePath);
-    if (!key) return undefined;
-    return this.parseResults.get(key);
+    if (!key) return this.parseResults.get(filePath);
+    return this.parseResults.get(key) || this.parseResults.get(filePath);
   }
 
   setParseResult(filePath, result) {
@@ -473,16 +524,19 @@ class WorkspaceCache {
 
   hasParseResult(filePath) {
     const key = this.normalizeFilePath(filePath);
-    if (!key) return false;
-    return this.parseResults.has(key);
+    if (!key) return this.parseResults.has(filePath);
+    return this.parseResults.has(key) || this.parseResults.has(filePath);
   }
 
   deleteParseResult(filePath) {
     const key = this.normalizeFilePath(filePath);
-    if (!key) return;
-    this.parseResults.delete(key);
-    this._parseTracker.unmark(key);
-    this.parsedHashes.delete(key);
+    const keys = uniquePathCandidates([key, filePath]);
+    if (keys.length === 0) return;
+    for (const candidate of keys) {
+      this.parseResults.delete(candidate);
+      this._parseTracker.unmark(candidate);
+      this.parsedHashes.delete(candidate);
+    }
     this.dirty = true;
   }
 
@@ -514,14 +568,14 @@ class WorkspaceCache {
   getDiagnostics(filePath) {
     const key = this.normalizeFilePath(filePath);
     if (!key) return [];
-    const entry = this.diagnostics.get(key);
+    const entry = this.diagnostics.get(key) || this.diagnostics.get(filePath);
     return entry?.diagnostics || [];
   }
 
   getDiagnosticsEntry(filePath) {
     const key = this.normalizeFilePath(filePath);
-    if (!key) return null;
-    return this.diagnostics.get(key) || null;
+    if (!key) return this.diagnostics.get(filePath) || null;
+    return this.diagnostics.get(key) || this.diagnostics.get(filePath) || null;
   }
 
   getAllDiagnostics() {
@@ -547,9 +601,12 @@ class WorkspaceCache {
 
   clearDiagnostics(filePath) {
     const key = this.normalizeFilePath(filePath);
-    if (!key) return;
-    this.diagnostics.delete(key);
-    this._diagTracker.unmark(key);
+    const keys = uniquePathCandidates([key, filePath]);
+    if (keys.length === 0) return;
+    for (const candidate of keys) {
+      this.diagnostics.delete(candidate);
+      this._diagTracker.unmark(candidate);
+    }
     this.dirty = true;
   }
 
@@ -595,13 +652,24 @@ class WorkspaceCache {
   checkFileChanges() {
     const changedFiles = [];
     for (const [key, meta] of this.fileMetadata) {
-      const filePath = meta?.originalPath || key;
+      const cachedPath = meta?.originalPath || key;
+      const resolved = resolveCachedFilePath(cachedPath, key);
+      const filePath = resolved.filePath;
       try {
-        const stat = fs.statSync(filePath);
+        if (!resolved.stat) {
+          throw new Error('cached file missing');
+        }
+        const stat = resolved.stat;
         const storedMtime = Number(meta?.mtime);
         const storedSize = Number(meta?.size);
+        const pathDrifted = filePath !== cachedPath;
         // Fast path: mtime+size identical → unchanged
         if (stat.mtimeMs === storedMtime && stat.size === storedSize) {
+          if (pathDrifted) {
+            this.fileMetadata.set(key, { ...meta, originalPath: filePath });
+            this._fileTracker.mark(key);
+            this.dirty = true;
+          }
           continue;
         }
         // Slow path: mtime/size drifted → verify with SHA-256 content hash
@@ -614,7 +682,7 @@ class WorkspaceCache {
           } else {
             // Content unchanged (e.g. git checkout); update stored mtime/size
             // so next check stays on the fast path.
-            this.fileMetadata.set(key, { ...meta, mtime: stat.mtimeMs, size: stat.size });
+            this.fileMetadata.set(key, { ...meta, originalPath: filePath, mtime: stat.mtimeMs, size: stat.size });
             this._fileTracker.mark(key);
             this.dirty = true;
           }
@@ -634,14 +702,16 @@ class WorkspaceCache {
    * Persist dependency edges to SQLite (full replacement).
    * Called by GraphBuilder after build()/updateFiles() post-process.
    */
-  saveEdges(edges) {
-    const meta = {
+  saveEdges(edges, meta = null) {
+    const edgeMeta = meta || {
       cacheVersion: CACHE_VERSION,
       fileMetadataCount: this.fileMetadata.size,
       parseResultsCount: this.parseResults.size,
       timestamp: Date.now(),
     };
-    return this._graphDb.saveEdges(edges, meta);
+    const ok = this._graphDb.saveEdges(edges, edgeMeta);
+    if (ok) this.edgeMeta = edgeMeta;
+    return ok;
   }
 
   /**

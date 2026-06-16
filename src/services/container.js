@@ -233,6 +233,7 @@ class ServiceContainer {
           cwd: this.workspaceRoot,
           encoding: 'utf8',
           timeout: TIMEOUTS.GIT_SHORT_MS,
+          stdio: ['ignore', 'pipe', 'ignore'],
         }).trim();
       } catch {
         // Not a git repo or git not available — stale detection falls back to time-based only
@@ -242,10 +243,10 @@ class ServiceContainer {
     });
   }
 
-  _runStage(name, fn) {
+  async _runStage(name, fn) {
     const t0 = Date.now();
     try {
-      return fn();
+      return await fn();
     } catch (err) {
       err.message = `[Container] Stage '${name}' failed: ${err.message}`;
       throw err;
@@ -525,7 +526,12 @@ class ServiceContainer {
     if (cachedHead && this.workspaceRoot) {
       try {
         const { execSync } = require('child_process');
-        const currentHead = execSync('git rev-parse HEAD', { cwd: this.workspaceRoot, encoding: 'utf8', timeout: TIMEOUTS.GIT_SHORT_MS }).trim();
+        const currentHead = execSync('git rev-parse HEAD', {
+          cwd: this.workspaceRoot,
+          encoding: 'utf8',
+          timeout: TIMEOUTS.GIT_SHORT_MS,
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim();
         gitHeadChanged = currentHead !== cachedHead;
       } catch {
         // Non-git repo or git unavailable — keep gitHeadChanged false

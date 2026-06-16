@@ -82,25 +82,18 @@ function testNormalizeDiagnosticsEntriesHandlesNonArray() {
 }
 
 async function testSaveReturnsFalseOnPersistentFailure() {
-  // Skip on Windows: chmod has no effect on file write permissions
-  if (process.platform === 'win32') {
-    return;
-  }
-
   const dir = makeTempDir('wb-cache-');
   const cacheDir = path.join(dir, '.cache');
   const cache = new WorkspaceCache(dir, { cacheDir });
   cache.setWorkspaceInfo({ kind: 'test' });
 
-  // Pre-create the db directory and make it read-only
-  fs.mkdirSync(cache.cacheDir, { recursive: true });
-  fs.chmodSync(cache.cacheDir, 0o555);
-
+  cache._graphDb.saveIncremental = () => {
+    throw new Error('simulated persistent failure');
+  };
   try {
     const ok = await cache.save();
     assert.strictEqual(ok, false);
   } finally {
-    fs.chmodSync(cache.cacheDir, 0o755);
     cache.close();
     cleanupTempDir(dir);
   }

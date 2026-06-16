@@ -9,6 +9,63 @@ function getLineNumber(content, index) {
   return content.slice(0, index).split('\n').length;
 }
 
+function findMatchingBrace(content, openIndex) {
+  let depth = 0;
+  for (let i = openIndex; i < content.length; i++) {
+    const ch = content[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function extractJavaDecorators(annotationBlock) {
+  if (!annotationBlock) return [];
+  const decorators = [];
+  const annotationRegex = /^\s*@([A-Za-z_][\w.]*)/gm;
+  let match;
+  while ((match = annotationRegex.exec(annotationBlock)) !== null) {
+    decorators.push(match[1].split('.').pop());
+  }
+  return decorators;
+}
+
+function countMatches(content, regex) {
+  let count = 0;
+  regex.lastIndex = 0;
+  while (regex.exec(content) !== null) count++;
+  return count;
+}
+
+function computeJavaRegexFingerprint(signature, body) {
+  const paramText = signature.slice(signature.indexOf('(') + 1, signature.lastIndexOf(')')).trim();
+  const paramCount = paramText ? paramText.split(',').filter(Boolean).length : 0;
+  const elseIfCount = countMatches(body, /\belse\s+if\s*\(/g);
+  const ifCount = countMatches(body, /\bif\s*\(/g);
+  const switchArmCounts = [...body.matchAll(/\bcase\b|\bdefault\s*:/g)].length;
+  const returnCount = countMatches(body, /\breturn\b/g);
+  const loopCount = countMatches(body, /\b(?:for|while)\s*\(/g) + countMatches(body, /\bdo\s*\{/g);
+  const catchCount = countMatches(body, /\bcatch\s*\(/g);
+  const ternaryCount = countMatches(body, /\?/g);
+  const logicalCount = countMatches(body, /&&|\|\|/g);
+  const hasFinalElse = /\belse\s*\{/.test(body.replace(/\belse\s+if\s*\([^)]*\)\s*\{/g, ''));
+  const maxIfElseArms = ifCount > 0 ? Math.max(1, elseIfCount + 1 + (hasFinalElse ? 1 : 0)) : 0;
+
+  return {
+    paramCount,
+    isAsync: false,
+    isGenerator: false,
+    hasTryCatch: catchCount > 0 || /\btry\s*\{/.test(body),
+    branchCount: ifCount + switchArmCounts + loopCount + catchCount + ternaryCount + logicalCount,
+    returnCount,
+    maxArms: Math.max(maxIfElseArms, switchArmCounts),
+    callCallees: [],
+  };
+}
+
 function parseJavaWithRegex(content) {
   const imports = [];
   const importRecords = [];
@@ -41,14 +98,22 @@ function parseJavaWithRegex(content) {
   // Limit line length to bound regex execution; the pattern below has
   // polynomial backtracking risk on very long lines due to nested quantifiers.
   const MAX_LINE_LEN = 512;
-  const methodRegex = /\bpublic\s+(?:[\w<>\[\]]+\s+)+(\w+)\s*\(/g;
+  const methodRegex = /((?:^\s*@[\w.]+(?:\([^)]*\))?\s*\r?\n)*)^\s*public\s+(?:[\w<>\[\],.?]+\s+)+(\w+)\s*\([^)]*\)\s*(?:throws\s+[^{;]+)?\{/gm;
   while ((match = methodRegex.exec(content)) !== null) {
     if (match[0].length > MAX_LINE_LEN) continue;
+    const openBrace = content.indexOf('{', match.index + match[0].length - 1);
+    const closeBrace = openBrace === -1 ? -1 : findMatchingBrace(content, openBrace);
+    const body = closeBrace === -1 ? '' : content.slice(openBrace + 1, closeBrace);
+    const fingerprint = computeJavaRegexFingerprint(match[0], body);
     functionRecords.push({
-      name: match[1],
+      name: match[2],
       kind: 'function',
       lineStart: getLineNumber(content, match.index),
       lineEnd: getLineNumber(content, match.index),
+      decorators: extractJavaDecorators(match[1]),
+      fingerprint,
+      branchCount: fingerprint.branchCount,
+      maxArms: fingerprint.maxArms,
     });
   }
 

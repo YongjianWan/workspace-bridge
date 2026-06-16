@@ -98,6 +98,57 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
+## 本轮关键根因：overview staleness / 热缓存失效（2026-06-16）
+
+> 后续 agent 排查缓存、staleness、`audit-overview` 性能时优先看这一段。历史修复条目见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]，这里保留当前排查认知。
+
+**症状**：
+
+- `audit-overview --json --quiet` 热缓存仍反复 100s+。
+- 输出 `staleness.filesChanged=true`，且列出大量 `C:\Users\...` / 测试文件；但 `git status` 只有少量真实改动。
+- `ServiceContainer._phaseTimes` 曾显示 `depGraph` 只有几十毫秒，误导性能定位。
+
+**复合根因**：
+
+1. 旧 SQLite cache 里保存 Windows 路径/key（`C:\...` / `c:/...`），当前在 WSL/bash 下真实路径是 `/mnt/c/...`；`checkFileChanges()` 直接 stat 旧 `originalPath`，把真实存在的文件误判成删除/变更。
+2. `WorkspaceCache.load()` 替换了 `fileMetadata` / `parseResults` / `symbolIndex` / `diagnostics` Map，但 DirtyTracker 仍指向构造时旧 Map；load 后新增或更新的 metadata 被标记 dirty，却无法在 `save()` 时取到 dirty value，导致 `file_metadata` / `parse_results` 没有写实。
+3. `saveEdges()` 写入 SQLite `edgeMeta` 后没有同步内存 `cache.edgeMeta`；后续 `cache.save()` 又通过 metadata schema 把 DB 里的 `edgeMeta` 覆盖成 null，导致 `loadGraph()` 每次因 edgeMeta/count 不匹配拒绝热缓存。
+4. `ServiceContainer._runStage()` 未 await async stage，导致 `_phaseTimes` 低估 `fileIndex` / `depGraph` 等异步阶段耗时。
+
+**已修复要点**：
+
+- `checkFileChanges()` 兼容 exact key、normalized key、Windows→WSL `/mnt/<drive>/...` 路径，并在命中后修复 `originalPath`。
+- `WorkspaceCache.load()` 替换 Map 后调用 `_resetTrackers()` 重建 DirtyTracker。
+- `saveEdges()` 同步更新内存 edgeMeta，且 `edgeMeta.serialize(null)` 不再写 `"null"`。
+- `GraphBuilder._saveEdges()` 写入与当前 `fileMetadata.size` / `parseResults.size` 同代的 edge metadata。
+- `_runStage()` 改为 await async stage；非 git fixture 下 `git rev-parse` stderr 已静默。
+
+**以后遇到类似问题先查**：
+
+```bash
+node - <<'NODE'
+const { WorkspaceCache } = require('./src/services/cache');
+(async () => {
+  const cache = new WorkspaceCache(process.cwd());
+  await cache.load();
+  const changes = cache.checkFileChanges();
+  console.log({
+    fileMetadata: cache.fileMetadata.size,
+    parseResults: cache.parseResults.size,
+    edgeMeta: cache.edgeMeta,
+    changed: changes.changed,
+    changedCount: changes.changedFiles.length,
+    sample: changes.changedFiles.slice(0, 5),
+  });
+  cache.close();
+})();
+NODE
+```
+
+**健康期望**：`fileMetadata` 与 `parseResults` 非 0；`edgeMeta.fileMetadataCount === fileMetadata.size`；`edgeMeta.parseResultsCount === parseResults.size`；`changed=false`；`audit-overview --json --quiet` 热缓存约十几秒量级且 `staleness.isStale=false`。
+
+---
+
 ## 已知陷阱（新 agent 必看）
 
 | 陷阱 | 位置 | 如何避免 |

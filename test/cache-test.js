@@ -69,6 +69,41 @@ async function testSaveAndLoadRoundtrip() {
   cleanupTempDir(root);
 }
 
+async function testSaveAfterLoadPersistsNewEntries() {
+  const root = makeTempDir('wb-cache-');
+  const firstFile = path.join(root, 'src', 'first.js');
+  const secondFile = path.join(root, 'src', 'second.js');
+
+  const cache = new WorkspaceCache(root);
+  cache.setFileMetadata(firstFile, { mtime: 1, size: 1, symbols: [] });
+  assert.strictEqual(await cache.save(), true, 'initial save should succeed');
+  cache.close();
+
+  const loaded = new WorkspaceCache(root);
+  assert.strictEqual(loaded.load(), true, 'load should succeed');
+  loaded.setFileMetadata(secondFile, { mtime: 2, size: 2, symbols: [] });
+  loaded.setParseResult(secondFile, {
+    imports: [],
+    exports: ['second'],
+    importRecords: [],
+    exportRecords: [{ name: 'second', kind: 'function' }],
+    functionRecords: [],
+    parseMode: 'ast',
+    confidence: 'high',
+    mtime: 2,
+  });
+  assert.strictEqual(await loaded.save(), true, 'save after load should persist dirty entries');
+  loaded.close();
+
+  const reloaded = new WorkspaceCache(root);
+  assert.strictEqual(reloaded.load(), true, 'reload should succeed');
+  assert(reloaded.getFileMetadata(secondFile), 'metadata added after load should persist');
+  assert(reloaded.hasParseResult(secondFile), 'parse result added after load should persist');
+  reloaded.close();
+
+  cleanupTempDir(root);
+}
+
 function testParseResultGetSetDelete() {
   const root = makeTempDir('wb-cache-');
   const cache = new WorkspaceCache(root);
@@ -101,6 +136,7 @@ async function main() {
   testNormalizeFileMapEntriesDeterministic();
   testParseResultGetSetDelete();
   await testSaveAndLoadRoundtrip();
+  await testSaveAfterLoadPersistsNewEntries();
 }
 
 main().catch((err) => {
