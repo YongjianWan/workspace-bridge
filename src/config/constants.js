@@ -12,6 +12,7 @@ const LIMITS = require('./limits');
 const { DEFAULTS, HIGHLIGHT_SCORES } = require('./defaults');
 const SCORING = require('./scoring');
 const { DEAD_EXPORT, CONFIDENCE } = require('./dead-export');
+const { DATA_QUALITY, REMEDIATION } = require('./data-quality');
 const PROBE = require('./probe');
 const { SCHEMA_VERSION, CACHE_VERSION } = require('./versions');
 const STREAMING = require('./streaming');
@@ -26,6 +27,8 @@ module.exports = {
   DEAD_EXPORT,
   CONFIDENCE,
   PROBE,
+  DATA_QUALITY,
+  REMEDIATION,
   CACHE_VERSION,
   SCHEMA_VERSION,
   STREAMING,

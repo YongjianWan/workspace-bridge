@@ -1,5 +1,6 @@
 const path = require('path');
 const { DEFAULTS } = require('../../config/constants');
+const { DATA_QUALITY } = require('../../config/data-quality');
 const { getCoChangePartners } = require('../cochange-tools');
 const { truncateArray } = require('../../utils/truncate');
 
@@ -13,6 +14,11 @@ async function impact(args, container, filePath) {
   }
   const relativeFile = path.relative(container.workspaceRoot, filePath).replace(/\\/g, '/');
   const coChanges = coChangeData ? getCoChangePartners(relativeFile, coChangeData, { minCount: 2, partnerLimit: 10 }) : [];
+
+  // Contamination rule: co-change edges inherit quality from their data source.
+  // AST-derived impact edges are always CERTAIN and are not annotated here.
+  const coChangesDataQuality = coChangeData?.dataQuality ?? DATA_QUALITY.UNAVAILABLE;
+  const coChangesRemediation = coChangeData?.remediation ?? null;
 
   // Wave 9-2: collect affected routes from impacted files (graph-first!)
   const affectedRoutes = container.snapshot.graph.findAffectedHttpRoutes(filePath, args?.maxDepth);
@@ -32,6 +38,8 @@ async function impact(args, container, filePath) {
     impact: impactTrunc.items,
     symbolImpact,
     coChanges: coChangesTrunc.items,
+    coChangesDataQuality,
+    ...(coChangesRemediation ? { coChangesRemediation } : {}),
     affectedRoutes: affectedRoutesTrunc.items,
     truncated: impactTrunc.truncated || coChangesTrunc.truncated || affectedRoutesTrunc.truncated,
   };

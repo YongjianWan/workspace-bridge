@@ -3,6 +3,7 @@
  * Ported from qartez-mcp git/cochange.rs heuristic.
  */
 const { spawnSync } = require('child_process');
+const { DATA_QUALITY, REMEDIATION } = require('../config/data-quality');
 
 const DEFAULT_CONFIG = {
   commitLimit: 300,
@@ -34,8 +35,24 @@ function analyzeCoChanges(workspaceRoot, options = {}) {
   );
 
   if (result.error || result.status !== 0) {
-    return { pairCounts: new Map(), fileChangeCounts: new Map(), commitCount: 0 };
+    return {
+      pairCounts: new Map(),
+      fileChangeCounts: new Map(),
+      commitCount: 0,
+      dataQuality: DATA_QUALITY.UNAVAILABLE,
+      remediation: null,
+    };
   }
+
+  // Detect shallow clone once — the environment fact, not a symptom heuristic.
+  // `git rev-parse --is-shallow-repository` prints "true" or "false" (git ≥2.15);
+  // older git or non-git dirs return non-zero, which we treat as non-shallow.
+  const shallowResult = spawnSync(
+    'git',
+    ['-C', workspaceRoot, 'rev-parse', '--is-shallow-repository'],
+    { encoding: 'utf8' }
+  );
+  const isShallow = shallowResult.status === 0 && shallowResult.stdout.trim() === 'true';
 
   const pairCounts = new Map();       // "a|b" -> count
   const fileChangeCounts = new Map(); // file -> count
@@ -65,7 +82,13 @@ function analyzeCoChanges(workspaceRoot, options = {}) {
     _accumulate(currentFiles, pairCounts, fileChangeCounts, config);
   }
 
-  return { pairCounts, fileChangeCounts, commitCount };
+  return {
+    pairCounts,
+    fileChangeCounts,
+    commitCount,
+    dataQuality: isShallow ? DATA_QUALITY.DEGRADED : DATA_QUALITY.CERTAIN,
+    remediation: isShallow ? REMEDIATION.SHALLOW_CLONE : null,
+  };
 }
 
 function _accumulate(files, pairCounts, fileChangeCounts, config) {
