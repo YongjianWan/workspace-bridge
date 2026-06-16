@@ -111,17 +111,24 @@ function computeDefaultCacheDir(workspaceRoot) {
   }
 
   if (cacheDir === preferredDir && !isLegacyLocked && !fs.existsSync(newDbPath) && fs.existsSync(legacyDbPath)) {
+    // WAL-mode SQLite produces cache.db-wal and cache.db-shm peers. Migrate
+    // them together so uncheckpointed data is not lost.
+    const migrateFile = (src, dst) => {
+      try {
+        fs.renameSync(src, dst);
+      } catch {
+        try {
+          fs.copyFileSync(src, dst);
+          fs.unlinkSync(src);
+        } catch {}
+      }
+    };
+    migrateFile(legacyDbPath, newDbPath);
+    migrateFile(legacyDbPath + '-wal', newDbPath + '-wal');
+    migrateFile(legacyDbPath + '-shm', newDbPath + '-shm');
     try {
-      fs.renameSync(legacyDbPath, newDbPath);
-      try {
-        fs.rmdirSync(fallbackDir);
-      } catch {}
-    } catch {
-      try {
-        fs.copyFileSync(legacyDbPath, newDbPath);
-        fs.unlinkSync(legacyDbPath);
-      } catch {}
-    }
+      fs.rmdirSync(fallbackDir);
+    } catch {}
   }
 
   return cacheDir;
@@ -161,7 +168,7 @@ function resolveCachedFilePath(filePath, key) {
       // Try the next historical path shape.
     }
   }
-  return { filePath: key || filePath, stat: null };
+  return { filePath: filePath || key, stat: null };
 }
 
 class DirtyTracker {
@@ -232,6 +239,11 @@ class WorkspaceCache {
     this._parseTracker = new DirtyTracker(this.parseResults);
     this._symbolTracker = new DirtyTracker(this.symbolIndex);
     this._diagTracker = new DirtyTracker(this.diagnostics);
+  }
+
+  _resolveKeys(filePath) {
+    const key = this.normalizeFilePath(filePath);
+    return uniquePathCandidates([key, filePath]);
   }
 
   _normalizeEntries(entries, options = {}) {
@@ -490,12 +502,30 @@ class WorkspaceCache {
   }
 
   deleteFileMetadata(filePath) {
-    const key = this.normalizeFilePath(filePath);
-    const keys = uniquePathCandidates([key, filePath]);
+    const keys = this._resolveKeys(filePath);
     if (keys.length === 0) return;
     for (const candidate of keys) {
       this.fileMetadata.delete(candidate);
       this._fileTracker.unmark(candidate);
+      // Cascade to associated cache slots so deletion leaves no ghost data.
+      this.parseResults.delete(candidate);
+      this._parseTracker.unmark(candidate);
+      this.parsedHashes.delete(candidate);
+      this.diagnostics.delete(candidate);
+      this._diagTracker.unmark(candidate);
+    }
+    const normalizedKey = this.normalizeFilePath(filePath);
+    if (normalizedKey) {
+      for (const [name, locations] of this.symbolIndex) {
+        const remaining = locations.filter((loc) => loc.file !== normalizedKey && loc.file !== filePath);
+        if (remaining.length === 0) {
+          this.symbolIndex.delete(name);
+          this._symbolTracker.unmark(name);
+        } else if (remaining.length !== locations.length) {
+          this.symbolIndex.set(name, remaining);
+          this._symbolTracker.mark(name);
+        }
+      }
     }
     this.dirty = true;
   }
@@ -529,8 +559,7 @@ class WorkspaceCache {
   }
 
   deleteParseResult(filePath) {
-    const key = this.normalizeFilePath(filePath);
-    const keys = uniquePathCandidates([key, filePath]);
+    const keys = this._resolveKeys(filePath);
     if (keys.length === 0) return;
     for (const candidate of keys) {
       this.parseResults.delete(candidate);
@@ -600,8 +629,7 @@ class WorkspaceCache {
   }
 
   clearDiagnostics(filePath) {
-    const key = this.normalizeFilePath(filePath);
-    const keys = uniquePathCandidates([key, filePath]);
+    const keys = this._resolveKeys(filePath);
     if (keys.length === 0) return;
     for (const candidate of keys) {
       this.diagnostics.delete(candidate);
@@ -663,8 +691,10 @@ class WorkspaceCache {
         const storedMtime = Number(meta?.mtime);
         const storedSize = Number(meta?.size);
         const pathDrifted = filePath !== cachedPath;
-        // Fast path: mtime+size identical → unchanged
-        if (stat.mtimeMs === storedMtime && stat.size === storedSize) {
+        // Fast path: mtime+size identical → unchanged.
+        // mtime is stored as SQLite INTEGER (whole milliseconds), so compare
+        // at integer precision to tolerate sub-millisecond stat drift.
+        if (Math.round(stat.mtimeMs) === Math.round(storedMtime) && stat.size === storedSize) {
           if (pathDrifted) {
             this.fileMetadata.set(key, { ...meta, originalPath: filePath });
             this._fileTracker.mark(key);
@@ -681,8 +711,9 @@ class WorkspaceCache {
             changedFiles.push(filePath);
           } else {
             // Content unchanged (e.g. git checkout); update stored mtime/size
-            // so next check stays on the fast path.
-            this.fileMetadata.set(key, { ...meta, originalPath: filePath, mtime: stat.mtimeMs, size: stat.size });
+            // so next check stays on the fast path. Round mtime to integer ms
+            // to stay aligned with SQLite INTEGER storage.
+            this.fileMetadata.set(key, { ...meta, originalPath: filePath, mtime: Math.round(stat.mtimeMs), size: stat.size });
             this._fileTracker.mark(key);
             this.dirty = true;
           }
@@ -770,13 +801,21 @@ class WorkspaceCache {
 
   close() {
     if (this._graphDb) {
-      this._graphDb.close();
+      try {
+        this._graphDb.close();
+      } catch {
+        // Best effort: avoid leaking a shutdown error to callers.
+      }
     }
   }
 
   walCheckpoint(mode) {
     if (this._graphDb) {
-      this._graphDb.walCheckpoint(mode);
+      try {
+        this._graphDb.walCheckpoint(mode);
+      } catch {
+        // Best effort: WAL checkpoint is advisory.
+      }
     }
   }
 }

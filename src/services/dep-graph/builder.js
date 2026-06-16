@@ -989,35 +989,43 @@ class GraphBuilder {
         console.error(`[DepGraph] Incremental update: ${reParsed} re-parsed, ${skipped} skipped in ${Date.now() - startTime}ms`);
       }
     } finally {
-      this.dg._finishUpdating();
+      try {
+        // Filter out non-value imports (type-only, interface, annotation, lazy/dynamic)
+        this._filterNonValueImports();
 
-      // Filter out non-value imports (type-only, interface, annotation, lazy/dynamic)
-      this._filterNonValueImports();
+        // Rebuild reverse graph
+        this.buildReverseGraph();
 
-      // Rebuild reverse graph
-      this.buildReverseGraph();
-
-      if (this.dg.cache && typeof this.dg.cache.save === 'function') {
-        try {
-          await this.dg.cache.save();
-          if (typeof this.dg.cache.walCheckpoint === 'function') {
-            const mode = this._walCadence.tick();
-            this.dg.cache.walCheckpoint(mode);
-          }
-        } catch (e) {
-          if (process.env.DEBUG) {
-            console.error('[GraphBuilder] cache.save() failed:', e.message);
+        if (this.dg.cache && typeof this.dg.cache.save === 'function') {
+          try {
+            await this.dg.cache.save();
+            if (typeof this.dg.cache.walCheckpoint === 'function') {
+              const mode = this._walCadence.tick();
+              this.dg.cache.walCheckpoint(mode);
+            }
+          } catch (e) {
+            if (process.env.DEBUG) {
+              console.error('[GraphBuilder] cache.save() failed:', e.message);
+            }
           }
         }
+        // D1-D2: persist edges after incremental update
+        await this._saveEdges();
+
+        // Wave 1: rebuild symbol registry for changed files
+        this._buildSymbolRegistry();
+
+        // O4: post-build analysis triggered via event, not direct call.
+        // Persistence listeners run while state is still UPDATING.
+        await this.dg.bus.emitAsync('graph:built');
+      } catch (e) {
+        if (process.env.DEBUG) {
+          console.error('[GraphBuilder] Incremental update cleanup failed:', e.message);
+        }
+      } finally {
+        // O6: mark graph ready only after persistence completes.
+        this.dg._finishUpdating();
       }
-      // D1-D2: persist edges after incremental update
-      await this._saveEdges();
-
-      // Wave 1: rebuild symbol registry for changed files
-      this._buildSymbolRegistry();
-
-      // O4: post-build analysis triggered via event, not direct call.
-      await this.dg.bus.emitAsync('graph:built');
     }
   }
 

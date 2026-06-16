@@ -8,6 +8,38 @@
 
 ## [Unreleased]
 
+### 文档一致性修复 (2026-06-16)
+
+- 同步 `AGENTS.md`、`SESSION.md`、`docs/TECH_DEBT.md` 测试基线为 `npm run test:fast` **118/118 PASS**、`npm run test:smoke` **121/121 PASS**（以实际 runner 输出为准），项目规模为 totalFiles≈397 / mainline=181 / test=216。
+- 统一活跃架构债务计数为 0 项；从 `AGENTS.md` L4 架构分层表中移除已删除的 `health-tools.js` 引用。
+- 更新 `SESSION.md` 多语言框架检测矩阵：Go/Rust/Vue/Svelte 标记为 AST-Query，新增 Python（Django/FastAPI/Flask/Celery）行。
+- 标记方向 4 #13（架构指标默认排除 test→source 边）为已交付；修复 `SESSION.md` 已修复清单中的重复编号。
+- 更新 `AGENTS.md`、`SESSION.md` 与 `docs/TECH_DEBT.md` last-updated 日期。
+
+### 测试分层标记补齐与跨平台断言审计 (2026-06-16)
+
+- 为缺失分层标记的测试文件补全头部注解：`test/affected-routes-test.js` 与 `test/graph-first-routes-test.js` 统一标注 `// @semantic`。
+- 审计 `staleness-test.js`、`path-utils-test.js`、`path-format-consistency-test.js` 等路径相关测试的跨平台断言：当前 fast 套件已使用平台分支或 `normalizePathKey` 进行键值比对，未发现新的 Windows/POSIX 路径回归。
+- 验证：`npm run test:fast` **118/118 PASS**。
+
+### Async 生命周期修复 (2026-06-16)
+
+- 修复 `ServiceContainer` 在 `GraphBuilder.updateFiles` 执行期间收到 `pending:processed` 批量事件时直接丢弃批次的问题：新增 `_pendingUpdateQueue` 与 `_drainPendingUpdates()` 串行处理队列，并等待 `_updating` 结束后再提交下一批。
+- 修复 `GraphBuilder.updateFiles()` 在持久化完成前就调用 `_finishUpdating()` 导致状态提前变为 `READY` 的问题：将 `_finishUpdating()` 移到 `graph:built` 事件（含 persistence 监听器）处理完成后，并用 try/finally 保证异常路径也能恢复状态。
+- 修复 `persistence.js` 中 `graph:built` 监听器在 `precomputeAggregates()` 或 `precomputeImpact()` 抛出时中断、导致 `savePrecomputed()` 未执行的问题：为两者分别加 try/catch，失败仍继续保存。
+- 修复 `ServiceContainer.initialize()` 中 `_readyPromise` 在状态已切到 `INITIALIZING` 后仍未赋值的竞态窗口：改为先创建 Promise 再 transition，并在 catch 块中使用局部引用避免 shutdown 将其置空后无法 reject。
+- 新增 `test/async-lifecycle-fixes-test.js` 覆盖上述四种场景；验证：`npm run test:fast` **118/118 PASS**。
+
+### Cache 数据一致性与跨平台修复 (2026-06-16)
+
+- 修复 `resolveCachedFilePath()` 在文件缺失时回退返回 normalized key 而非原始 `cachedPath` 的问题，使 Windows 下删除文件检测返回平台原生路径；新增 `test/cache-fixes-test.js` 回归覆盖。
+- 修复 `checkFileChanges()` mtime 快路径使用严格浮点相等导致 SQLite INTEGER 存储后反复误判变更的问题，改为整数精度比较并同步更新 repaired metadata。
+- 修复 `computeDefaultCacheDir()` 迁移 legacy `cache.db` 时遗漏 `cache.db-wal` / `cache.db-shm` 的问题，避免 WAL 模式未 checkpoint 数据丢失。
+- 修复 `deleteFileMetadata()` 未级联清理 `parseResults`、`diagnostics`、`parsedHashes` 与 `symbolIndex` 中对应条目的问题，删除文件不再留下幽灵缓存数据。
+- 为 `WorkspaceCache.close()` 与 `walCheckpoint()` 添加 try-catch，避免 GraphDB 关闭异常向上传播。
+- 提取 `_resolveKeys()` 辅助函数消除 `deleteFileMetadata()` / `deleteParseResult()` / `clearDiagnostics()` 中重复的 `uniquePathCandidates([key, filePath])` 模式。
+- 验证：`node test/staleness-test.js && node test/cache-fixes-test.js && node test/cache-test.js && node test/cache-consistency-test.js` 通过；`npm run test:fast` **118/118 PASS**。
+
 ### Fast 测试基线修复 (2026-06-16)
 
 - 修复本地未安装 `javalang` 时 Java parser 落到 regex fallback 后丢失 `decorators`、`fingerprint`、`branchCount` 与 `maxArms` 的问题，恢复 Java `else-if` dispatcher 和 `batch-no-transactional` 规则的 fallback 语义。

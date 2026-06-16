@@ -1,6 +1,6 @@
 #!/usr/bin/env node
+// @semantic
 /**
- * @semantic
  * affected-routes 端到端请求路径测试
  */
 

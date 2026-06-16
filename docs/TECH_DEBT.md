@@ -120,3 +120,7 @@
 4. **过滤 Heuristics 误报**：在消费 `affected-tests` 时，优先处理 `source: "graph"` 的确定性依赖，低优先级处理 `source: "mention"`。
 5. **消费 `coChanges`**：`audit-file --json` 输出的 `coChanges[]` 指出了历史协同变更概率高的文件，对 AI 评估潜在波及范围非常有价值。
 
+---
+
+*Last updated: 2026-06-16（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=1；docs-consistency 同步后无变化）*
+

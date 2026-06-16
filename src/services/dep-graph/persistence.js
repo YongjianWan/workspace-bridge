@@ -18,8 +18,22 @@ const DEFAULT_AFFECTED_TESTS_DEPTH = 3; // default search depth for precomputing
  */
 function registerGraphBuiltHandler(depGraph) {
   depGraph.bus.on('graph:built', async () => {
-    depGraph.analyzer.precomputeAggregates();
-    depGraph.analyzer.precomputeImpact();
+    try {
+      depGraph.analyzer.precomputeAggregates();
+    } catch (e) {
+      if (process.env.DEBUG) {
+        // eslint-disable-next-line no-console
+        console.error('[Persistence] precomputeAggregates failed:', e.message);
+      }
+    }
+    try {
+      depGraph.analyzer.precomputeImpact();
+    } catch (e) {
+      if (process.env.DEBUG) {
+        // eslint-disable-next-line no-console
+        console.error('[Persistence] precomputeImpact failed:', e.message);
+      }
+    }
     await savePrecomputed(depGraph);
   });
 }

@@ -19,7 +19,7 @@
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
 node cli.js audit-overview --cwd . --json --quiet
-# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count>=0, summary.unresolved.count=0, summary.cycles.count>=0, summary.analysisCoverage.totalFiles≈315, summary.analysisCoverage.coverageRatio=1
+# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count>=0, summary.unresolved.count=0, summary.cycles.count>=0, summary.analysisCoverage.totalFiles≈397, summary.analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-overview 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
@@ -31,19 +31,19 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 4 架构债务 + 1 L3 + 0 项 P2 Dogfood 活跃缺陷）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 0 架构债务 + 1 L3 + 0 项 P2 Dogfood 活跃缺陷）
 
 ---
 
 ## 基线状态
 
-- 测试：**所有测试全部 PASS**；`npm run test:fast` **116/116 PASS**（~28s），`npm run test:smoke` **119/119 PASS**（~60s）。开发迭代首选 `npm run test:fast`；41 个测试文件已从 spawn 迁移到 in-process runner。
+- 测试：**所有测试全部 PASS**；`npm run test:fast` **118/118 PASS**（~30s），`npm run test:smoke` **121/121 PASS**（~60s）。开发迭代首选 `npm run test:fast`；41 个测试文件已从 spawn 迁移到 in-process runner。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~383 文件（entry=1, mainline=173, test=210）
+- 自身项目规模：~397 文件（entry=1, mainline=181, test=216）
 - 结构性指标：deadExports=1（`shadow-candidates.js` 的 `SHADOW_EXTS` 静态分析误报，已标记为 `dynamic-registry-export` 低置信误报，不参与 severity），cycles=1，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 默认 `disabledReason: 'history-not-enabled'`，`--with-history` 启用
-- 架构债务：当前活跃 4 项，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。概要：① 框架检测 Query 语言等价性偏斜（Go/Rust/C/C++/Vue/Svelte 仍依赖 regex）；② 缓存默认目录位于 `os.tmpdir()` 导致易失；③ 缺少用户级配置目录；④ 缺少跨进程并发控制。
+- 架构债务：当前活跃 0 项，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（已无活跃条目）。
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
 - Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.2.0"` 已冻结**
@@ -79,18 +79,18 @@ node cli.js audit-overview --cwd . --json --quiet
 | 19 | `query-*` 未覆盖 config 变化 | `query-tools.js` snapshot 未存 config hash | `precomputed_aggregates` 新增 `config_hash` 列；保存/读取时比对 `.workspace-bridge.json` 配置摘要 | `test/query-staleness-test.js` |
 | 11 | 动态 query registry 模块被误判为孤儿 | `orphan-detector.js` 未共享运行时 registry 可达性 | `framework-patterns.js` 导出 `getRegisteredQueryFiles()`；`dep-graph.js` 将 registry 可达路径传入 `findOrphanFiles()`；`orphan-detector.js` 新增 `registeredFiles` 参数跳过 registry 文件 | `test/orphan-registered-query-test.js` |
 | 12 | `SHADOW_EXTS` 误报仍参与 severity | `shadow-candidates.js` 的 `SHADOW_EXTS` 被 `findDeadExports()` 判定为死导出并以 medium 置信度计入 severity | `analyzer.js` 对 `SHADOW_EXTS` 标记 `dynamic-registry-export` 低置信误报；`honesty-engine.js` 导出 `DEAD_EXPORT_FALSE_POSITIVE_REASONS`；severity 计算层（overview-curator、overview-assembler、repo-summary、commands/index.js）排除已知误报 | `test/dead-export-confidence-test.js`、`test/overview-curator-test.js`、`test/formatter-direct-test.js` |
-| 10 | `audit-summary` / `audit-overview` 默认仍跑逐文件 blame | `overview-assembler.js` 无条件调用 `buildKnowledgeRisk()` 与 `buildHotspots(..., historyProvider)` | `validate-args.js` 新增 `--with-history`（高优先级修复）；`overview-tools.js` / `overview-assembler.js` 默认不再请求 blame，仅显式 provider 或 `--with-history` 启用；`query-knowledge-risk` 显式请求历史 | `test/overview-history-optional-test.js`；`npm run test:fast` **116/116 PASS** |
-| 14 | Knowledge risk 对个人仓库失真 | `getFileKnowledgeRisk()` 逐文件 blame 将单作者仓库所有文件判 high risk；未提交行被计为 `Not Committed Yet` 作者 | `git-tools.js` 新增 `getRepoEffectiveAuthorCount()` 与 `isUncommittedAuthor()`；`overview-assembler.js` 在启用历史时检测 effective author count，<= 2 返回 `disabledReason: 'too-few-authors'`；human-formatters 展示禁用原因 | `test/knowledge-risk-test.js`、`test/overview-history-optional-test.js`；`npm run test:fast` **116/116 PASS** |
-| 23 | CI Test workflow 在 Ubuntu 上失败 | path-utils 测试断言与 POSIX 行为不符；`java.js` regex fallback 的 `methodRegex` 字符类错误导致 AST 不可用时 functionRecords 为空；CI 未安装 javalang；`affected-tests-heuristic` Windows 路径测试在 POSIX 运行 | 修复 path-utils 测试断言；修正 `methodRegex` 字符类为 `[\w<>[]]`；`.github/workflows/test.yml` 安装 javalang；Windows 路径测试在 POSIX 跳过 | GitHub Actions `Test` workflow Node 22/24 全部通过；`npm run test:fast` **116/116 PASS**，`npm run test:smoke` **119/119 PASS** |
-| 13 | 测试边污染生产架构指标 | REPL `top` 未过滤测试依赖；`audit-overview` 的 hotspot/coupling/coreModules 已使用 `{ architectureOnly: true }` 但仍需对齐所有交互入口 | `repl.js` 的 `top` 命令跳过测试文件并使用 `getDependents(..., { architectureOnly: true })` 计算生产依赖 | `test/repl-edge-test.js`；`npm run test:fast` **116/116 PASS** |
-| 22 | Coverage 无最低门槛 | 有 `test:coverage` 但 CI 不跑 | 新增 `.c8rc.json` 设置全局门槛（lines/statements 72%，functions 70%，branches 68%）；`package.json` 新增 `test:coverage:check`；`.github/workflows/test.yml` 新增独立 `coverage` job | `npm run test:coverage:check` exit 0；`npm run test:fast` **116/116 PASS**；`npm run test:smoke` **119/119 PASS** |
-| 21 | 大量 CLI spawn 测试未迁移 | ~44 文件仍 spawn；`runCliInProcess()` 导出但迁移率低 | `test/test-helpers.js` 新增 `runCliInProcess`/`runCliInProcessText`/`runCliInProcessRaw`；`cli.js` 修复 `--help` 输出；迁移 41 个测试文件；保留 REPL/watch/audit-file --watch/cache-concurrency/依赖进程级 config 隔离的测试 | `npm run test:fast` **116/116 PASS**；`npm run test:smoke` **119/119 PASS** |
+| 10 | `audit-summary` / `audit-overview` 默认仍跑逐文件 blame | `overview-assembler.js` 无条件调用 `buildKnowledgeRisk()` 与 `buildHotspots(..., historyProvider)` | `validate-args.js` 新增 `--with-history`（高优先级修复）；`overview-tools.js` / `overview-assembler.js` 默认不再请求 blame，仅显式 provider 或 `--with-history` 启用；`query-knowledge-risk` 显式请求历史 | `test/overview-history-optional-test.js`；`npm run test:fast` **118/118 PASS** |
+| 14 | Knowledge risk 对个人仓库失真 | `getFileKnowledgeRisk()` 逐文件 blame 将单作者仓库所有文件判 high risk；未提交行被计为 `Not Committed Yet` 作者 | `git-tools.js` 新增 `getRepoEffectiveAuthorCount()` 与 `isUncommittedAuthor()`；`overview-assembler.js` 在启用历史时检测 effective author count，<= 2 返回 `disabledReason: 'too-few-authors'`；human-formatters 展示禁用原因 | `test/knowledge-risk-test.js`、`test/overview-history-optional-test.js`；`npm run test:fast` **118/118 PASS** |
+| 23 | CI Test workflow 在 Ubuntu 上失败 | path-utils 测试断言与 POSIX 行为不符；`java.js` regex fallback 的 `methodRegex` 字符类错误导致 AST 不可用时 functionRecords 为空；CI 未安装 javalang；`affected-tests-heuristic` Windows 路径测试在 POSIX 运行 | 修复 path-utils 测试断言；修正 `methodRegex` 字符类为 `[\w<>[]]`；`.github/workflows/test.yml` 安装 javalang；Windows 路径测试在 POSIX 跳过 | GitHub Actions `Test` workflow Node 22/24 全部通过；`npm run test:fast` **118/118 PASS**，`npm run test:smoke` **121/121 PASS** |
+| 13 | 测试边污染生产架构指标 | REPL `top` 未过滤测试依赖；`audit-overview` 的 hotspot/coupling/coreModules 已使用 `{ architectureOnly: true }` 但仍需对齐所有交互入口 | `repl.js` 的 `top` 命令跳过测试文件并使用 `getDependents(..., { architectureOnly: true })` 计算生产依赖 | `test/repl-edge-test.js`；`npm run test:fast` **118/118 PASS** |
+| 22 | Coverage 无最低门槛 | 有 `test:coverage` 但 CI 不跑 | 新增 `.c8rc.json` 设置全局门槛（lines/statements 72%，functions 70%，branches 68%）；`package.json` 新增 `test:coverage:check`；`.github/workflows/test.yml` 新增独立 `coverage` job | `npm run test:coverage:check` exit 0；`npm run test:fast` **118/118 PASS**；`npm run test:smoke` **121/121 PASS** |
+| 21 | 大量 CLI spawn 测试未迁移 | ~44 文件仍 spawn；`runCliInProcess()` 导出但迁移率低 | `test/test-helpers.js` 新增 `runCliInProcess`/`runCliInProcessText`/`runCliInProcessRaw`；`cli.js` 修复 `--help` 输出；迁移 41 个测试文件；保留 REPL/watch/audit-file --watch/cache-concurrency/依赖进程级 config 隔离的测试 | `npm run test:fast` **118/118 PASS**；`npm run test:smoke` **121/121 PASS** |
 | 20 | 测试分层标记未落地 | 202 个测试仅 68 个带 `@contract/@semantic` | 低 | AGENTS 规定已执行 |
-| 21 | 空锁死锁 (Denial of Service) | `src/services/graph-db.js` | 检测到空/损坏锁文件时自动 unlink 并重试 | `test/tech-debt-cleanup-test.js` |
-| 22 | 框架正则边界逃逸 | `src/services/dep-graph/framework-patterns.js` | 将 RegExp 字面量中的 `\\b` 修正为 `\b` | `test/framework-patterns-test.js` |
-| 23 | 并发 Schema 迁移竞争 | `src/services/graph-db.js` | 将 DB schema 迁移操作封装在 SQLite 事务中 | `npm run test:fast` |
-| 24 | 缓存目录迁移并发竞争 | `src/services/cache.js` | 迁移 legacy 缓存前检查旧缓存的锁状态，防止破坏 WAL 模式 | `npm run test:fast` |
-| 25 | 单元测试 Shared Container 污染 | `test/test-helpers.js` | 重置/关闭不同 `cacheDir` 对应的 Container 实例 | `npm run test:fast` |
+| 26 | 空锁死锁 (Denial of Service) | `src/services/graph-db.js` | 检测到空/损坏锁文件时自动 unlink 并重试 | `test/tech-debt-cleanup-test.js` |
+| 27 | 框架正则边界逃逸 | `src/services/dep-graph/framework-patterns.js` | 将 RegExp 字面量中的 `\\b` 修正为 `\b` | `test/framework-patterns-test.js` |
+| 28 | 并发 Schema 迁移竞争 | `src/services/graph-db.js` | 将 DB schema 迁移操作封装在 SQLite 事务中 | `npm run test:fast` **118/118 PASS** |
+| 29 | 缓存目录迁移并发竞争 | `src/services/cache.js` | 迁移 legacy 缓存前检查旧缓存的锁状态，防止破坏 WAL 模式 | `npm run test:fast` **118/118 PASS** |
+| 30 | 单元测试 Shared Container 污染 | `test/test-helpers.js` | 重置/关闭不同 `cacheDir` 对应的 Container 实例 | `npm run test:fast` **118/118 PASS** |
 
 ### 仍待处理
 
@@ -249,11 +249,11 @@ NODE
 
 - **Wave A 工程稳定化**：新增 `.gitattributes` 并规范化 80 个 CRLF 文件；修复 CI Node 版本不匹配；新增常规测试 CI；为 release 流程增加 test + tarball smoke gate。
 - **Wave B 数据一致性**：修复 `query-*` 快照 staleness（增加 SHA-256 内容校验 + 精确文件数匹配）；修复 CLI 参数优先级（CLI > env）；统一 `schemaVersion` 来源；新增 `src/tools/category-filter.js` 打破 `audit-assembler ↔ incremental-diff` 循环依赖。
-- **Wave 15-2 框架检测 AST-Query 化收官**：Java/Kotlin（Spring、Spring Boot、Ktor）与 Python（Django、FastAPI、Flask、Celery）全部完成 AST-Query 提取；`framework-patterns.js` 为已 query 化语言增加 `preFilterRe`，避免 `@bp.route`、`@worker.task` 等非常规写法被 cheap pre-filter 跳过。
+- **Wave 15-2 框架检测 AST-Query 化收官**：Java/Kotlin（Spring、Spring Boot、Ktor）、Python（Django、FastAPI、Flask、Celery）、Go（Gin/Echo/Fiber）、Rust（Actix-web/Axum/Rocket）、Vue 与 Svelte 全部完成 AST-Query 提取；`framework-patterns.js` 为已 query 化语言增加 `preFilterRe`，避免 `@bp.route`、`@worker.task` 等非常规写法被 cheap pre-filter 跳过。
 - **方向 5 轻量预检修复**：`workspace-info` 改为真正轻量命令，`cli.js` 跳过完整 `ServiceContainer` 初始化，直接复用 `workspaceInfo()` 与新增 `lightweightFileScan()` 进行快速文件数/语言分布统计；实测 `<1s`，与 skill 宣称 `<2s` 对齐。
-- **方向 4 策展可信度（#10/#14）**：`audit-overview` / `audit-summary` 默认不再跑逐文件 blame/history，新增 `--with-history` 显式开关；`buildKnowledgeRisk()` 对 effective author count <= 2 的个人/单作者仓库返回 `disabledReason` 并跳过昂贵 blame；`git blame` 过滤 `Not Committed Yet` 等伪作者；`query-knowledge-risk` 自动启用历史计算。
-- **架构债务状态**：从参考仓库对比报告（code-review-graph / qartez-mcp / CodeGraphContext）中提炼出 3 项新增架构债务并入 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)：缓存默认目录在项目外易失、缺少用户级配置目录、缺少跨进程并发控制。原有框架检测 Query 语言等价性偏斜仍在（Java/Kotlin/Python/JS/TS 已完成；Go/Rust/C/C++/Vue/Svelte 仍依赖 regex）。
-- **测试状态**：`npm run test:fast` **116/116 PASS**，`npm run test:smoke` **119/119 PASS**。
+- **方向 4 策展可信度（#10/#13/#14）**：`audit-overview` / `audit-summary` 默认不再跑逐文件 blame/history，新增 `--with-history` 显式开关；`buildKnowledgeRisk()` 对 effective author count <= 2 的个人/单作者仓库返回 `disabledReason` 并跳过昂贵 blame；REPL `top` 等架构视图默认排除 test→source 边；`git blame` 过滤 `Not Committed Yet` 等伪作者；`query-knowledge-risk` 自动启用历史计算。
+- **架构债务状态**：当前活跃 0 项，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（已无活跃条目）。多语言框架检测 Query 语言等价性偏斜已消除：Java/Kotlin/Python/JS/TS/Go/Rust/Vue/Svelte 均已完成 AST-Query 化；C/C++ 无特定框架检测需求。
+- **测试状态**：`npm run test:fast` **118/118 PASS**，`npm run test:smoke` **121/121 PASS**。
 
 ---
 
@@ -275,9 +275,8 @@ NODE
     *   **遗留**：大量测试仍使用 child process spawn，迁移率低；文档中曾仍列为待开发，已修正。
 
 *   **方向 4：策展可信度（Wave C）**
-    *   **状态**：🔄 部分交付，高优先级。
-    *   **已完成**：动态 registry 模块已纳入 orphan 可达性（#11）；`SHADOW_EXTS` 等已知误报已排除 severity（#12）；个人仓库 knowledge risk 已关闭/降级（#14）；默认 overview 已不再跑逐文件 blame（#10）。
-    *   **待完成**：架构指标默认排除 test→source 边（#13）。
+    *   **状态**：✅ 已于 2026-06-14 交付。
+    *   **已完成**：动态 registry 模块已纳入 orphan 可达性（#11）；`SHADOW_EXTS` 等已知误报已排除 severity（#12）；个人仓库 knowledge risk 已关闭/降级（#14）；默认 overview 已不再跑逐文件 blame（#10）；REPL `top` 等架构指标默认排除 test→source 边（#13）。
 
 *   **方向 5：Agent 产品形态（Wave D）**
     *   **状态**：🔄 部分交付，中优先级。
@@ -291,23 +290,24 @@ NODE
 | 语言 | 框架 | 框架检测方式 | 已有 route-extraction query？ |
 | :--- | :--- | :--- | :--- |
 | JS/TS | NestJS | regex (`AST_PATTERNS`) | ✅ `js-nestjs.js` |
-| | Vue / Vue-router | regex + 路径推断 | ❌ |
+| | Vue / Vue-router | ✅ AST-Query (`js-vue.js`) | ❌ |
 | | Nuxt | 路径推断 + route query | ✅ `js-nuxt.js` |
 | | SvelteKit | 路径推断 + route query | ✅ `js-sveltekit.js` |
+| Python | Django / FastAPI / Flask / Celery | ✅ AST-Query (`py-django.js` / `py-fastapi.js` / `py-flask.js` / `py-celery.js`) | ✅ Django / FastAPI (`py-django.js` / `py-fastapi.js`); ❌ Flask / Celery |
 | Java | Spring / Spring Boot | ✅ AST-Query (`java-spring.js` / `java-spring-boot.js`) | ✅ `java-spring.js` |
 | | Quartz | regex | ❌ |
 | | MyBatis | regex | ❌ |
 | Kotlin | Spring-Kotlin | ✅ AST-Query (`kt-spring.js`) | ❌（复用 Java route） |
 | | Ktor | ✅ AST-Query (`kt-ktor.js`) | ❌ |
-| Go | Gin | regex | ✅ `go-gin.js` |
-| | Echo | regex | ❌ |
-| | Fiber | regex | ✅ `go-fiber.js` |
-| Rust | Actix-web | regex | ✅ `rs-actix.js` |
-| | Axum | regex | ✅ `rs-axum.js` |
-| | Rocket | regex | ❌ |
+| Go | Gin | ✅ AST-Query (`go-gin.js`) | ✅ `go-gin.js` |
+| | Echo | ✅ AST-Query (`go-echo.js`) | ❌ |
+| | Fiber | ✅ AST-Query (`go-fiber.js`) | ✅ `go-fiber.js` |
+| Rust | Actix-web | ✅ AST-Query (`rs-actix.js`) | ✅ `rs-actix.js` |
+| | Axum | ✅ AST-Query (`rs-axum.js`) | ✅ `rs-axum.js` |
+| | Rocket | ✅ AST-Query (`rs-rocket.js`) | ❌ |
 | C/C++ | 无特定框架标签 | 纯路径推断 | ❌ |
-| Svelte | Svelte / SvelteKit | 纯路径推断 | ✅ `js-sveltekit.js` |
-| Vue | Vue 组件 / Vue-router | 路径推断 + regex macro | ❌ |
+| Svelte | Svelte / SvelteKit | ✅ AST-Query (`js-svelte.js`) | ✅ `js-sveltekit.js` |
+| Vue | Vue 组件 / Vue-router | ✅ AST-Query (`js-vue.js`) | ❌ |
 
 ---
 
@@ -322,7 +322,7 @@ NODE
 - **没有失败测试，不许写修复代码**（TDD）
 - **改高危文件前必须跑 impact + affected-tests**（`path.js` / `constants.js` / `dep-graph.js` / `cache.js` / `graph-db.js` / `parsers/shared.js` / `resolvers.js`）
 - **每波只修该波的问题**，不能跨波次混修
-- **每波收工前必须 `npm run test:fast` 116/116 PASS + 全量 runner 119/119 PASS**
+- **每波收工前必须 `npm run test:fast` 118/118 PASS + 全量 runner 121/121 PASS**
 - **每次修复后在 CHANGELOG.md [Unreleased] 追加条目**（单条不超过 3 行）
 
 ---
@@ -333,4 +333,4 @@ NODE
 
 ---
 
-*Last updated: 2026-06-14（修复 CI 跨平台失败 #23；新增 CI coverage gate #22；迁移 41 个测试文件到 in-process runner #21；npm run test:fast 116/116 PASS，npm run test:smoke 119/119 PASS，npm run test:coverage:check 通过；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-16（docs-consistency：同步测试基线、项目规模与架构债务计数；更新多语言框架检测矩阵；标记方向 4 #13 已交付；npm run test:fast 118/118 PASS，npm run test:smoke 121/121 PASS；schemaVersion: 1.2.0；version: 2.0.0）*

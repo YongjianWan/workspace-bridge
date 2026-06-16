@@ -1,6 +1,6 @@
 #!/usr/bin/env node
+// @semantic
 /**
- * @semantic
  * Graph-first 路由提取与影响分析测试
  */
 

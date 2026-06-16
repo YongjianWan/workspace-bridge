@@ -74,6 +74,11 @@ class ServiceContainer {
     
     // Shared promise for concurrent waiters (eliminates busy-loop polling)
     this._readyPromise = null;
+
+    // Pending incremental update queue so batches emitted while
+    // GraphBuilder.updateFiles is running are not dropped.
+    this._pendingUpdateQueue = [];
+    this._drainingPendingUpdates = false;
   }
 
   get state() {
@@ -132,16 +137,17 @@ class ServiceContainer {
       return true;
     }
 
-    this._transition(STATES.INITIALIZING);
-    this.initError = null;
-    this._readyPromise = null;
-    
+    // Create the shared promise BEFORE transitioning so that any concurrent
+    // waiter that observes INITIALIZING can await on a non-null _readyPromise.
     let resolveReady, rejectReady;
     this._readyPromise = new Promise((resolve, reject) => {
       resolveReady = resolve;
       rejectReady = reject;
     });
     this._readyPromise.catch(() => {});
+
+    this._transition(STATES.INITIALIZING);
+    this.initError = null;
 
     try {
       this._phaseTimes = {};
@@ -156,7 +162,8 @@ class ServiceContainer {
       resolveReady(true);
       return true;
     } catch (err) {
-      if (this._readyPromise === null) {
+      const readyPromise = this._readyPromise;
+      if (readyPromise === null) {
         return false;
       }
       this._transition(STATES.ERROR);
@@ -356,18 +363,39 @@ class ServiceContainer {
     });
 
     // Phase 3: 注册批量变更回调 → 触发 dep-graph 增量更新
-    this.fileIndex.bus.on('pending:processed', async (files) => {
-      try {
-        await this._depGraph?.updateFiles?.(files);
-        // L1 data-consistency: re-assemble snapshot so that files (live view)
-        // and graph metadata stay in sync after incremental updates.
-        this._assembleSnapshot();
-        // Hotspot/stability recomputed on next query (precompute-on-demand)
-        // Co-change is based on git history, not file changes; skip here
-      } catch (e) {
-        console.error(`[Container] DepGraph incremental update failed:`, e.message);
-      }
+    // Serialize batches in a queue so a batch emitted while
+    // GraphBuilder.updateFiles is already running is not dropped.
+    this.fileIndex.bus.on('pending:processed', (files) => {
+      this._pendingUpdateQueue.push(...files);
+      this._drainPendingUpdates();
     });
+  }
+
+  async _drainPendingUpdates() {
+    if (this._drainingPendingUpdates) return;
+    this._drainingPendingUpdates = true;
+    try {
+      while (this._pendingUpdateQueue.length > 0) {
+        // Wait until GraphBuilder is not busy with another update.
+        while (this._depGraph?._updating) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        const batch = this._pendingUpdateQueue.splice(0);
+        if (batch.length === 0) continue;
+        try {
+          await this._depGraph?.updateFiles?.(batch);
+          // L1 data-consistency: re-assemble snapshot so that files (live view)
+          // and graph metadata stay in sync after incremental updates.
+          this._assembleSnapshot();
+          // Hotspot/stability recomputed on next query (precompute-on-demand)
+          // Co-change is based on git history, not file changes; skip here
+        } catch (e) {
+          console.error('[Container] DepGraph incremental update failed:', e.message);
+        }
+      }
+    } finally {
+      this._drainingPendingUpdates = false;
+    }
   }
 
   async _precomputeOverview() {
@@ -465,6 +493,12 @@ class ServiceContainer {
         this.fileIndex.stopWatching();
       } catch (e) {
         if (process.env.DEBUG) console.error('[Container] stopWatching failed:', e.message);
+      }
+      // Drain any queued incremental updates before cache save/close.
+      try {
+        await this._drainPendingUpdates();
+      } catch (e) {
+        if (process.env.DEBUG) console.error('[Container] drain pending updates failed:', e.message);
       }
     }
     if (this.cache) {
