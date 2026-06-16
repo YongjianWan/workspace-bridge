@@ -86,6 +86,11 @@ node cli.js audit-overview --cwd . --json --quiet
 | 22 | Coverage 无最低门槛 | 有 `test:coverage` 但 CI 不跑 | 新增 `.c8rc.json` 设置全局门槛（lines/statements 72%，functions 70%，branches 68%）；`package.json` 新增 `test:coverage:check`；`.github/workflows/test.yml` 新增独立 `coverage` job | `npm run test:coverage:check` exit 0；`npm run test:fast` **116/116 PASS**；`npm run test:smoke` **119/119 PASS** |
 | 21 | 大量 CLI spawn 测试未迁移 | ~44 文件仍 spawn；`runCliInProcess()` 导出但迁移率低 | `test/test-helpers.js` 新增 `runCliInProcess`/`runCliInProcessText`/`runCliInProcessRaw`；`cli.js` 修复 `--help` 输出；迁移 41 个测试文件；保留 REPL/watch/audit-file --watch/cache-concurrency/依赖进程级 config 隔离的测试 | `npm run test:fast` **116/116 PASS**；`npm run test:smoke` **119/119 PASS** |
 | 20 | 测试分层标记未落地 | 202 个测试仅 68 个带 `@contract/@semantic` | 低 | AGENTS 规定已执行 |
+| 21 | 空锁死锁 (Denial of Service) | `src/services/graph-db.js` | 检测到空/损坏锁文件时自动 unlink 并重试 | `test/tech-debt-cleanup-test.js` |
+| 22 | 框架正则边界逃逸 | `src/services/dep-graph/framework-patterns.js` | 将 RegExp 字面量中的 `\\b` 修正为 `\b` | `test/framework-patterns-test.js` |
+| 23 | 并发 Schema 迁移竞争 | `src/services/graph-db.js` | 将 DB schema 迁移操作封装在 SQLite 事务中 | `npm run test:fast` |
+| 24 | 缓存目录迁移并发竞争 | `src/services/cache.js` | 迁移 legacy 缓存前检查旧缓存的锁状态，防止破坏 WAL 模式 | `npm run test:fast` |
+| 25 | 单元测试 Shared Container 污染 | `test/test-helpers.js` | 重置/关闭不同 `cacheDir` 对应的 Container 实例 | `npm run test:fast` |
 
 ### 仍待处理
 

@@ -8,6 +8,16 @@
 
 ## [Unreleased]
 
+### 漏洞与并发稳定性问题修复 (2026-06-16)
+
+修复了在 Git 提交审计与漏洞评估中发现的 5 项关于并发、锁定与正则逃逸的稳定性问题：
+
+- **Bug 1 (空锁死锁)**：修复了 `acquireLockSync` 在遇到空/损坏的锁文件（PID 无法解析或长度为 0）时产生无限超时死锁的问题，现在会自动 unlink 该锁文件并进行重试。
+- **Bug 2 (框架正则边界逃逸)**：将 `framework-patterns.js` 正则字面量中的 `\\b` 修正为单反斜杠 `\b`，解决了 Spring Boot 和 Ktor 框架的 AST 查询匹配失效问题。
+- **Bug 3 (并发 Schema 迁移竞争)**：在 `_ensureOpen` 触发 `_migrate()` 时将 Schema 变更逻辑封装在 SQLite 事务中，防止并发只读命令初始化时抛出 `SQLITE_BUSY` 或造成 Schema 损坏。
+- **Bug 4 (缓存目录迁移并发竞争)**：在 `computeDefaultCacheDir` 迁移 legacy 缓存前，增加对旧缓存锁文件状态的检查，避免并发写入/查询时直接迁移文件导致 DB 损坏。
+- **Bug 5 (单元测试 Shared Container 污染)**：修复了 in-process 测试运行器中 `_getSharedContainer` 会忽略新 `cacheDir` 参数的 bug，加入了对不同 `cacheDir` 容器的自动销毁与重置逻辑，消除测试间的环境污染。
+
 ### Code Review 发现问题系统性修复 (2026-06-15)
 
 针对 `docs/code_review.md` 报告中指出的所有确定的正确性、一致性、可信度、发布与测试治理等 P0、P1、P2 级缺陷进行了全面彻底的修复，清空了所有已审查出的代码缺陷：
