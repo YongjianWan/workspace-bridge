@@ -79,6 +79,24 @@ class ServiceContainer {
     // GraphBuilder.updateFiles is running are not dropped.
     this._pendingUpdateQueue = [];
     this._drainingPendingUpdates = false;
+
+    // Cached git environment probe result. Computed lazily because it is only
+    // needed when commands emit git-derived signals (co-change, blame, etc.).
+    this._gitEnvironment = null;
+  }
+
+  /**
+   * Cached git workspace environment probe.
+   *
+   * Used by tools that emit git-derived signals so they can attach the
+   * appropriate DataQuality degradation instead of claiming CERTAIN.
+   */
+  get gitEnvironment() {
+    if (!this._gitEnvironment && this.workspaceRoot) {
+      const { analyzeGitEnvironment } = require('../utils/git-environment-probe');
+      this._gitEnvironment = analyzeGitEnvironment(this.workspaceRoot);
+    }
+    return this._gitEnvironment;
   }
 
   get state() {
@@ -119,6 +137,9 @@ class ServiceContainer {
 
     // Allow re-initialization after shutdown by clearing the fatal error
     this.initError = null;
+
+    // Invalidate cached environment probe so a new workspaceRoot gets re-evaluated.
+    this._gitEnvironment = null;
 
     // Mutex: if already initializing, wait on shared promise
     if (this._state === STATES.INITIALIZING) {

@@ -22,6 +22,7 @@ const { getChangedFiles, getChangedLineRanges, getFileHistoryRisk, getDiffNumsta
 const { getFileComplexityTrend } = require('./complexity-tools');
 const { resolveWorkspaceFilePath } = require('../utils/path');
 const { mapWithConcurrency } = require('../utils/async');
+const { DATA_QUALITY } = require('../config/data-quality');
 const { DEFAULTS } = require('../config/constants');
 const { truncateArray } = require('../utils/truncate');
 const { auditSecurity, groupBySeverity } = require('./security-tools');
@@ -253,6 +254,8 @@ async function buildDiffEntry(relativeFile, container, parsed) {
 function buildDiffResult(safeEntries, finalEntries, changeMetrics, parsed, container) {
   const { detectStack } = require('../utils/stack-detectors/detect');
   const stack = detectStack(container.workspaceRoot);
+  const env = container.gitEnvironment || { dataQuality: DATA_QUALITY.CERTAIN, remediation: null };
+
   const result = {
     ok: true,
     workspaceRoot: container.workspaceRoot,
@@ -264,6 +267,8 @@ function buildDiffResult(safeEntries, finalEntries, changeMetrics, parsed, conta
       reuseHintsApplied: finalEntries.reduce((sum, e) => sum + (e.changedFunctionImpact?.reuseHints?.length || 0), 0),
     },
     changedFiles: finalEntries,
+    dataQuality: env.dataQuality,
+    ...(env.remediation ? { environmentRemediation: env.remediation } : {}),
   };
   if (parsed.incremental) {
     const { buildIncrementalFindings } = require('./incremental-diff');

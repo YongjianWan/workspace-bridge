@@ -6,6 +6,7 @@ const path = require('path');
 const { toRelativePosix } = require('../utils/path');
 
 const { detectStack } = require('../utils/stack-detectors/detect');
+const { DATA_QUALITY } = require('../config/data-quality');
 const { DEFAULTS, SCORING, LIMITS, SCHEMA_VERSION } = require('../config/constants');
 const { getFileHistoryRisk, getFileKnowledgeRisk, getRepoEffectiveAuthorCount } = require('./git-tools');
 const {
@@ -158,10 +159,12 @@ function buildEmptyKnowledgeRisk(disabledReason) {
     filesAnalyzed: 0,
     disabled: true,
     disabledReason,
+    dataQuality: DATA_QUALITY.UNAVAILABLE,
+    remediation: null,
   };
 }
 
-async function buildKnowledgeRisk(root, mainlineFiles) {
+async function buildKnowledgeRisk(root, mainlineFiles, gitEnvironment) {
   const repoAuthors = await getRepoEffectiveAuthorCount(root);
   if (!repoAuthors.ok || repoAuthors.count <= SCORING.KNOWLEDGE_RISK_PERSONAL_REPO_MAX_AUTHORS) {
     return buildEmptyKnowledgeRisk('too-few-authors');
@@ -200,7 +203,18 @@ async function buildKnowledgeRisk(root, mainlineFiles) {
   const medium = all.filter((r) => r.riskLevel === 'medium').sort((a, b) => b.primaryAuthorPct - a.primaryAuthorPct);
   const low = all.filter((r) => r.riskLevel === 'low').sort((a, b) => b.primaryAuthorPct - a.primaryAuthorPct);
 
-  return { high, medium, low, filesAnalyzed: all.length, disabled: false, disabledReason: null };
+  const env = gitEnvironment || { dataQuality: DATA_QUALITY.CERTAIN, remediation: null };
+
+  return {
+    high,
+    medium,
+    low,
+    filesAnalyzed: all.length,
+    disabled: false,
+    disabledReason: null,
+    dataQuality: env.dataQuality,
+    remediation: env.remediation,
+  };
 }
 
 async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
@@ -614,7 +628,7 @@ async function assembleOverviewData(args, container, historyProvider) {
   // "no risk" and avoid paying the blame cost on the hot path.
   const shouldComputeHistory = Boolean(historyProvider) || args?.withHistory === true;
   const knowledgeRisk = shouldComputeHistory
-    ? await buildKnowledgeRisk(root, mainlineFiles)
+    ? await buildKnowledgeRisk(root, mainlineFiles, container.gitEnvironment)
     : buildEmptyKnowledgeRisk('history-not-enabled');
 
   return {

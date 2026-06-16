@@ -3,7 +3,8 @@
  * Ported from qartez-mcp git/cochange.rs heuristic.
  */
 const { spawnSync } = require('child_process');
-const { DATA_QUALITY, REMEDIATION } = require('../config/data-quality');
+const { DATA_QUALITY } = require('../config/data-quality');
+const { analyzeGitEnvironment } = require('../utils/git-environment-probe');
 
 const DEFAULT_CONFIG = {
   commitLimit: 300,
@@ -44,15 +45,9 @@ function analyzeCoChanges(workspaceRoot, options = {}) {
     };
   }
 
-  // Detect shallow clone once — the environment fact, not a symptom heuristic.
-  // `git rev-parse --is-shallow-repository` prints "true" or "false" (git ≥2.15);
-  // older git or non-git dirs return non-zero, which we treat as non-shallow.
-  const shallowResult = spawnSync(
-    'git',
-    ['-C', workspaceRoot, 'rev-parse', '--is-shallow-repository'],
-    { encoding: 'utf8' }
-  );
-  const isShallow = shallowResult.status === 0 && shallowResult.stdout.trim() === 'true';
+  // Detect environmental degradations once. Git-derived signals inherit the
+  // worst applicable dataQuality; AST-derived signals remain CERTAIN.
+  const env = analyzeGitEnvironment(workspaceRoot);
 
   const pairCounts = new Map();       // "a|b" -> count
   const fileChangeCounts = new Map(); // file -> count
@@ -86,8 +81,8 @@ function analyzeCoChanges(workspaceRoot, options = {}) {
     pairCounts,
     fileChangeCounts,
     commitCount,
-    dataQuality: isShallow ? DATA_QUALITY.DEGRADED : DATA_QUALITY.CERTAIN,
-    remediation: isShallow ? REMEDIATION.SHALLOW_CLONE : null,
+    dataQuality: env.dataQuality,
+    remediation: env.remediation,
   };
 }
 

@@ -8,6 +8,30 @@
 
 ## [Unreleased]
 
+### DataQuality 环境降级探测完整化 (2026-06-16)
+
+- 新增 `src/utils/git-environment-probe.js`：统一探测 shallow clone、sparse checkout、submodule 边界（含子仓库内/外）、Git LFS pointer 以及 monorepo 错误 workspaceRoot 五种环境降级因素。
+- 更新 `src/config/data-quality.js`：补充 `MONOREPO_ROOT` 修复提示字符串。
+- 重构 `src/tools/cochange-tools.js`：用 `analyzeGitEnvironment()` 替代仅检测 shallow clone 的本地逻辑，使 co-change 信号在任一环境降级因素下正确标记为 `DEGRADED` 并返回对应 `remediation`。
+- 修复 `src/services/cache.js` 的 `METADATA_SCHEMA.coChanges`：序列化/反序列化时保留 `dataQuality` 和 `remediation`，解决暖启动后 shallow clone 降级信号丢失为 `UNAVAILABLE` 的 bug。
+- 新增 `test/git-environment-probe-test.js`：用真实 git 仓库覆盖五种环境探测及 `analyzeCoChanges()` 的降级语义。
+- 新增 `test/cache-data-quality-test.js`：验证 co-change 降级标记经 SQLite 缓存往返后保持不变。
+- 清理 `docs/TECH_DEBT.md`：DataQuality 环境降级表已修复，L2 活跃债务归零。
+- **第二轮：降级标记扩展到所有 git 相关信号**：
+  - `src/services/container.js` 暴露懒加载 `container.gitEnvironment`，避免重复执行 git 探测。
+  - `src/tools/dep-tools/impact.js` 输出新增 `dataQuality` 与 `environmentRemediation`。
+  - `src/tools/dep-tools/dead-exports.js` 输出新增 `dataQuality` 与 `environmentRemediation`。
+  - `src/tools/overview-assembler.js` 的 `knowledgeRisk` 输出新增 `dataQuality` 与 `remediation`。
+  - `src/services/cache.js` 的 `checkFileChanges()` 对 LFS pointer 文件跳过 mtime+size 快路径，强制走 SHA-256 二次确认。
+  - 新增 `test/data-quality-propagation-test.js`：用 CLI 真实运行验证 impact、dead-exports、audit-overview knowledgeRisk 在 shallow/sparse/submodule 环境下均返回 `DEGRADED`。
+  - `test/cache-data-quality-test.js` 补充 LFS pointer 强制 hash 验证用例。
+- **第三轮：降级标记覆盖 cycles / unresolved / audit-diff**：
+  - `src/tools/dep-tools/cycles.js` 输出新增 `dataQuality` 与 `environmentRemediation`。
+  - `src/tools/dep-tools/unresolved.js` 输出新增 `dataQuality` 与 `environmentRemediation`。
+  - `src/tools/audit-assembler.js` 的 `buildDiffResult()` 为 `audit-diff` 输出新增 `dataQuality` 与 `environmentRemediation`。
+  - `test/data-quality-propagation-test.js` 扩展三个 CLI 用例：shallow clone 下 `cycles` 降级、sparse checkout 下 `unresolved` 降级、submodule 下 `audit-diff` 降级。
+- 验证：`node test/git-environment-probe-test.js`、`node test/cache-data-quality-test.js`、`node test/data-quality-propagation-test.js`、`node test/shallow-clone-integration-test.js` 通过；`npm run test:fast` **123/123 PASS**；`npm run test:smoke` **126/126 PASS**。
+
 ### Modification Guard (AI Safety Shield) 变更保护与影响审查 (2026-06-16)
 
 - 新增 `guard` CLI 命令行指令，用于在修改代码文件前审查其波及范围（依赖 blast radius）以保证 AI 安全。支持单文件 `--file`、多文件 `--files` 以及 Git 变更 `--staged` 文件的直接与传递依赖（transitive dependents）联合去重统计。

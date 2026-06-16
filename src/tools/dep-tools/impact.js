@@ -20,6 +20,12 @@ async function impact(args, container, filePath) {
   const coChangesDataQuality = coChangeData?.dataQuality ?? DATA_QUALITY.UNAVAILABLE;
   const coChangesRemediation = coChangeData?.remediation ?? null;
 
+  // Environment degradation applies to the overall impact result because sparse
+  // checkout / submodule / LFS / monorepo root can make the graph incomplete.
+  const env = container.gitEnvironment || { dataQuality: DATA_QUALITY.CERTAIN, remediation: null };
+  const dataQuality = env.dataQuality;
+  const environmentRemediation = env.remediation;
+
   // Wave 9-2: collect affected routes from impacted files (graph-first!)
   const affectedRoutes = container.snapshot.graph.findAffectedHttpRoutes(filePath, args?.maxDepth);
 
@@ -42,6 +48,8 @@ async function impact(args, container, filePath) {
     ...(coChangesRemediation ? { coChangesRemediation } : {}),
     affectedRoutes: affectedRoutesTrunc.items,
     truncated: impactTrunc.truncated || coChangesTrunc.truncated || affectedRoutesTrunc.truncated,
+    dataQuality,
+    ...(environmentRemediation ? { environmentRemediation } : {}),
   };
 }
 

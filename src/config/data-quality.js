@@ -36,6 +36,8 @@ const REMEDIATION = {
     'Co-change analysis does not cross submodule boundaries; results reflect the parent repo only.',
   LFS_POINTER:
     'Git LFS pointers detected. Cache freshness checks may be unreliable; run with --no-cache to force reanalysis.',
+  MONOREPO_ROOT:
+    'workspace-root appears to be a monorepo subpackage. Run from the repository root or set it explicitly to avoid mixing sibling-package co-change signals.',
 };
 
 module.exports = { DATA_QUALITY, REMEDIATION };

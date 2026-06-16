@@ -6,6 +6,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { normalizePathKey, normalizeFilePath } = require('../utils/path');
+const { isLfsPointerFile } = require('../utils/git-environment-probe');
 const { GraphDB } = require('./graph-db');
 const { CACHE_VERSION, DEFAULTS } = require('../config/constants');
 
@@ -26,6 +27,8 @@ const METADATA_SCHEMA = {
         pairCounts: Array.from(v.pairCounts.entries()),
         fileChangeCounts: Array.from(v.fileChangeCounts.entries()),
         commitCount: v.commitCount,
+        dataQuality: v.dataQuality,
+        remediation: v.remediation,
       });
     },
     deserialize(raw) {
@@ -34,6 +37,8 @@ const METADATA_SCHEMA = {
         pairCounts: new Map(obj.pairCounts || []),
         fileChangeCounts: new Map(obj.fileChangeCounts || []),
         commitCount: obj.commitCount || 0,
+        dataQuality: obj.dataQuality || null,
+        remediation: obj.remediation || null,
       };
     },
   },
@@ -692,10 +697,14 @@ class WorkspaceCache {
         const storedMtime = Number(meta?.mtime);
         const storedSize = Number(meta?.size);
         const pathDrifted = filePath !== cachedPath;
-        // Fast path: mtime+size identical → unchanged.
+        // LFS pointer files must not use the mtime+size fast path: the pointer
+        // content is stable even when the real binary content changes, so we
+        // force the SHA-256 slow path to avoid a false "unchanged" conclusion.
+        const lfsPointer = isLfsPointerFile(filePath);
+        // Fast path: mtime+size identical → unchanged (unless LFS pointer).
         // mtime is stored as SQLite INTEGER (whole milliseconds), so compare
         // at integer precision to tolerate sub-millisecond stat drift.
-        if (Math.round(stat.mtimeMs) === Math.round(storedMtime) && stat.size === storedSize) {
+        if (!lfsPointer && Math.round(stat.mtimeMs) === Math.round(storedMtime) && stat.size === storedSize) {
           if (pathDrifted) {
             this.fileMetadata.set(key, { ...meta, originalPath: filePath });
             this._fileTracker.mark(key);

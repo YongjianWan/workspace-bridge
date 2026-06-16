@@ -230,4 +230,4 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-16（新增 Modification Guard 变更保护、AST 黄金快照与容错测试、跨平台路径归整及测试鲁棒性修复；npm run test:fast 122/122 PASS，npm run test:smoke 125/125 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-16（DataQuality 环境降级探测完整化：shallow/sparse/submodule/LFS/monorepo 统一探测 + co-change 降级标记缓存持久化；npm run test:fast 123/123 PASS，npm run test:smoke 126/126 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
