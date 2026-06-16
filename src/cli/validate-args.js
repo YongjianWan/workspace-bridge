@@ -211,6 +211,13 @@ function parseCliArgs(argv) {
 
   // First determine cwd so we can look up project config
   const rawCwdRes = raw.cwd !== undefined ? raw.cwd : (process.env.WB_CWD || null);
+  if (raw.cwd !== undefined) {
+    sources.cwd = 'cli';
+  } else if (process.env.WB_CWD !== undefined) {
+    sources.cwd = 'env';
+  } else {
+    sources.cwd = 'default';
+  }
   const cwd = path.resolve(rawCwdRes || process.cwd());
 
   let projectConfig = {};
@@ -224,6 +231,12 @@ function parseCliArgs(argv) {
 
   const { config: userConfig } = loadUserConfig();
 
+  function isTruthyEnv(val) {
+    if (val === undefined || val === null) return false;
+    const v = String(val).toLowerCase();
+    return v === 'true' || v === 'yes' || v === 'on' || v === '1';
+  }
+
   function resolveOption(cliVal, envName, projectVal, userVal, isBool = false) {
     if (cliVal !== undefined && cliVal !== null) {
       return { value: cliVal, source: 'cli' };
@@ -231,7 +244,7 @@ function parseCliArgs(argv) {
     if (process.env[envName] !== undefined) {
       const val = process.env[envName];
       return {
-        value: isBool ? (val === 'true' || val === '1') : val,
+        value: isBool ? isTruthyEnv(val) : val,
         source: 'env'
       };
     }
@@ -259,11 +272,11 @@ function parseCliArgs(argv) {
 
   const modeRes = resolveOption(raw.mode, 'WB_MODE', projectConfig.mode, userConfig.mode);
   sources.mode = modeRes.source;
-  const mode = modeRes.value || 'quick';
+  const mode = String(modeRes.value || 'quick').toLowerCase();
 
   const formatRes = resolveOption(raw.format, 'WB_FORMAT', projectConfig.format, userConfig.format);
   sources.format = formatRes.source;
-  const format = formatRes.value || null;
+  const format = formatRes.value ? String(formatRes.value).toLowerCase() : null;
 
   const jsonRes = resolveOption(raw['--json'], 'WB_JSON', projectConfig.json, userConfig.json, true);
   sources.json = jsonRes.source;
@@ -289,11 +302,11 @@ function parseCliArgs(argv) {
 
   const severityRes = resolveOption(raw.severity, 'WB_SEVERITY', projectConfig.severity, userConfig.severity);
   sources.severity = severityRes.source;
-  const severity = severityRes.value || null;
+  const severity = severityRes.value ? String(severityRes.value).toLowerCase() : null;
 
   const categoryRes = resolveOption(raw.category, 'WB_CATEGORY', projectConfig.category, userConfig.category);
   sources.category = categoryRes.source;
-  const category = categoryRes.value || null;
+  const category = categoryRes.value ? String(categoryRes.value).toLowerCase() : null;
 
   let compactCliVal = undefined;
   if (raw['--no-compact']) {
@@ -374,6 +387,9 @@ function parseCliArgs(argv) {
     throwValidationError(`Invalid --trend-granularity value: ${trendGranularity}. Expected day|week`);
   }
 
+  const direction = raw.direction ? String(raw.direction).toLowerCase() : null;
+  const depth = raw.depth ? String(raw.depth).toLowerCase() : null;
+
   if (Number.isFinite(raw.maxDepth) && raw.maxDepth <= 0) {
     throwValidationError(`Invalid --max-depth value: ${raw.maxDepth}. Expected a positive integer`);
   }
@@ -389,14 +405,14 @@ function parseCliArgs(argv) {
   if (format && !['summary', 'markdown', 'jsonl', 'ai', 'human', 'json'].includes(format)) {
     throwValidationError(`Invalid --format value: ${format}. Expected summary|markdown|jsonl|ai|human|json`);
   }
-  if (raw.direction && !['imports', 'dependents', 'both'].includes(raw.direction)) {
-    throwValidationError(`Invalid --direction value: ${raw.direction}. Expected imports|dependents|both`);
+  if (direction && !['imports', 'dependents', 'both'].includes(direction)) {
+    throwValidationError(`Invalid --direction value: ${direction}. Expected imports|dependents|both`);
   }
   if (mode && !['quick', 'full'].includes(mode)) {
     throwValidationError(`Invalid --mode value: ${mode}. Expected quick|full`);
   }
-  if (raw.depth && !['surface', 'detail', 'full'].includes(raw.depth)) {
-    throwValidationError(`Invalid --depth value: ${raw.depth}. Expected surface|detail|full`);
+  if (depth && !['surface', 'detail', 'full'].includes(depth)) {
+    throwValidationError(`Invalid --depth value: ${depth}. Expected surface|detail|full`);
   }
 
   return {
@@ -435,7 +451,7 @@ function parseCliArgs(argv) {
     checkRegression,
     baseline: raw.baseline || null,
     cacheDir,
-    direction: raw.direction || null,
+    direction,
     eval: raw.eval || null,
     what: raw.what || null,
     risk: raw.risk || null,
@@ -447,7 +463,7 @@ function parseCliArgs(argv) {
     version: Boolean(raw['--version']) || Boolean(raw['-v']),
     help: Boolean(raw['--help']) || Boolean(raw['-h']),
     helpAll: Boolean(raw['--all']),
-    depth: raw.depth || null,
+    depth,
     tokenBudget: Number.isFinite(raw.tokenBudget) ? raw.tokenBudget : null,
     strictCwd,
     markFalsePositive: raw.markFalsePositive || null,

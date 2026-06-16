@@ -4,6 +4,8 @@
  * Grammar: Rust (tree-sitter-rust).
  */
 
+const { ENTRY_WEIGHT } = require('../../../../utils/project-context');
+
 const QUERY = `
 (scoped_identifier (identifier) @namespace (identifier) @member)
 `;
@@ -21,7 +23,7 @@ function postProcess(matches) {
         framework: 'axum',
         reason: 'axum-routing',
         isEntry: true,
-        entryPointWeight: 2.5,
+        entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH,
       };
     }
   }

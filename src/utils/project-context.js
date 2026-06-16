@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { pathExists, readJsonSafe, toPosixPath, toRelativePosix, WORKSPACE_MARKERS, BACKSLASH_RE } = require('./path');
+const { pathExists, toPosixPath, toRelativePosix, WORKSPACE_MARKERS, BACKSLASH_RE } = require('./path');
 
 const ROLE_PRIORITY = ['generated', 'archive', 'reference', 'active'];
 const DEFAULT_DIRECTORY_HINTS = {
@@ -762,7 +762,6 @@ class ProjectContext {
 
 module.exports = {
   ProjectContext,
-  normalizeRelativePath,
   loadWorkspaceConfig,
   computeConfigHash,
   ENTRY_BASE_NAMES,
@@ -770,5 +769,4 @@ module.exports = {
   detectFrameworkFromPath,
   DEFAULT_DIRECTORY_HINTS,
   FRAMEWORK_RULES,
-  JS_TS_EXTS,
 };

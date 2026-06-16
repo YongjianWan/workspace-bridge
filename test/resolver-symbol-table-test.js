@@ -4,52 +4,55 @@ const path = require('path');
 const assert = require('assert');
 const { trySymbolTable } = require('../src/services/dep-graph/resolvers');
 const { SymbolRegistry } = require('../src/services/dep-graph/symbol-registry');
+const { normalizePathKey } = require('../src/utils/path');
+
+const P = (val) => normalizePathKey(val);
 
 function testNullRegistryReturnsNull() {
   const ctx = { symbolRegistry: null };
-  const result = trySymbolTable('com.example.Foo', '/src/main.java', ctx);
+  const result = trySymbolTable('com.example.Foo', P('/src/main.java'), ctx);
   assert.strictEqual(result, null, 'should return null when symbolRegistry is absent');
 }
 
 function testRelativeImportIgnored() {
   const registry = new SymbolRegistry();
-  registry.register('/src/Foo.java', [{ name: 'Foo' }]);
+  registry.register(P('/src/Foo.java'), [{ name: 'Foo' }]);
   const ctx = { symbolRegistry: registry };
 
-  const r1 = trySymbolTable('./Foo', '/src/main.java', ctx);
+  const r1 = trySymbolTable('./Foo', P('/src/main.java'), ctx);
   assert.strictEqual(r1, null, 'relative import should bypass symbol table');
 
-  const r2 = trySymbolTable('/absolute/Foo', '/src/main.java', ctx);
+  const r2 = trySymbolTable('/absolute/Foo', P('/src/main.java'), ctx);
   assert.strictEqual(r2, null, 'absolute path import should bypass symbol table');
 }
 
 function testUniqueSymbolMatch() {
   const registry = new SymbolRegistry();
-  registry.register('/src/Utils.java', [{ name: 'Helper' }]);
+  registry.register(P('/src/Utils.java'), [{ name: 'Helper' }]);
   const ctx = { symbolRegistry: registry };
 
-  const result = trySymbolTable('com.example.Helper', '/src/main.java', ctx);
-  assert.strictEqual(result, '/src/Utils.java', 'should resolve via symbol name when unique');
+  const result = trySymbolTable('com.example.Helper', P('/src/main.java'), ctx);
+  assert.strictEqual(result, P('/src/Utils.java'), 'should resolve via symbol name when unique');
 }
 
 function testMultipleSymbolsReturnNull() {
   const registry = new SymbolRegistry();
-  registry.register('/src/A.java', [{ name: 'Helper' }]);
-  registry.register('/src/B.java', [{ name: 'Helper' }]);
+  registry.register(P('/src/A.java'), [{ name: 'Helper' }]);
+  registry.register(P('/src/B.java'), [{ name: 'Helper' }]);
   const ctx = { symbolRegistry: registry };
 
-  const result = trySymbolTable('com.example.Helper', '/src/main.java', ctx);
+  const result = trySymbolTable('com.example.Helper', P('/src/main.java'), ctx);
   assert.strictEqual(result, null, 'should return null when symbol is ambiguous');
 }
 
 function testFromDirPreference() {
   const registry = new SymbolRegistry();
-  registry.register('/src/other/Helper.java', [{ name: 'Helper' }]);
-  registry.register('/src/main/Helper.java', [{ name: 'Helper' }]);
+  registry.register(P('/src/other/Helper.java'), [{ name: 'Helper' }]);
+  registry.register(P('/src/main/Helper.java'), [{ name: 'Helper' }]);
   const ctx = { symbolRegistry: registry };
 
-  const result = trySymbolTable('com.example.Helper', '/src/main/Caller.java', ctx);
-  assert.strictEqual(result, '/src/main/Helper.java', 'should prefer symbol in same directory');
+  const result = trySymbolTable('com.example.Helper', P('/src/main/Caller.java'), ctx);
+  assert.strictEqual(result, P('/src/main/Helper.java'), 'should prefer symbol in same directory');
 }
 
 function testJavaFacadeFallback() {
@@ -77,14 +80,14 @@ function testJavaFacadeFallback() {
 
 function testDottedImportExtractsLastSegment() {
   const registry = new SymbolRegistry();
-  registry.register('/src/Handler.java', [{ name: 'Handler' }]);
+  registry.register(P('/src/Handler.java'), [{ name: 'Handler' }]);
   const ctx = { symbolRegistry: registry };
 
-  const r1 = trySymbolTable('org.foo.bar.Handler', '/src/Main.java', ctx);
-  assert.strictEqual(r1, '/src/Handler.java');
+  const r1 = trySymbolTable('org.foo.bar.Handler', P('/src/Main.java'), ctx);
+  assert.strictEqual(r1, P('/src/Handler.java'));
 
-  const r2 = trySymbolTable('Handler', '/src/Main.java', ctx);
-  assert.strictEqual(r2, '/src/Handler.java');
+  const r2 = trySymbolTable('Handler', P('/src/Main.java'), ctx);
+  assert.strictEqual(r2, P('/src/Handler.java'));
 }
 
 // ---------------------------------------------------------------------------

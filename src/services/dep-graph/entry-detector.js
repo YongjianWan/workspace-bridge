@@ -66,7 +66,7 @@ class EntryDetector {
     }
 
     let result = false;
-    if (this.entryFiles.has(filePath)) {
+    if (this.entryFiles.has(key)) {
       result = true;
     } else {
       const normalized = normalizePathKey(filePath);

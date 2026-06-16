@@ -47,6 +47,38 @@ function testLookupUnique() {
   assert.strictEqual(reg.lookupUnique('helper', 'nonexistent/'), null);
 }
 
+function testLookupUniqueNormalizesPreferredDir() {
+  const reg = new SymbolRegistry();
+  reg.register('project/src/main/Helper.java', [{ name: 'Helper' }]);
+  reg.register('project/src/other/Helper.java', [{ name: 'Helper' }]);
+
+  // Redundant separators and trailing slash should still resolve to the preferred directory.
+  assert.strictEqual(
+    reg.lookupUnique('Helper', 'project/src//main/'),
+    'project/src/main/Helper.java',
+    'should normalize preferredDir before prefix matching'
+  );
+}
+
+function testLookupUniqueWithWindowsNativePreferredDir() {
+  const reg = new SymbolRegistry();
+  // On Windows, registry keys are normalized POSIX + lowercased drive letters.
+  reg.register('c:/project/src/main/Helper.java', [{ name: 'Helper' }]);
+  reg.register('c:/project/src/other/Helper.java', [{ name: 'Helper' }]);
+
+  if (process.platform === 'win32') {
+    // preferredDir arrives from path.dirname() as a native Windows path.
+    assert.strictEqual(
+      reg.lookupUnique('Helper', 'C:\\project\\src\\main'),
+      'c:/project/src/main/Helper.java',
+      'should match Windows-native preferredDir against normalized registry keys'
+    );
+  } else {
+    // POSIX cannot meaningfully normalize a Windows absolute path; verify stability.
+    assert.strictEqual(reg.lookupUnique('Helper', 'C:\\project\\src\\main'), null);
+  }
+}
+
 function testUnregister() {
   const reg = new SymbolRegistry();
   reg.register('a.js', [{ name: 'foo' }, { name: 'bar' }]);
@@ -91,6 +123,8 @@ const tests = [
   testRegisterAndLookup,
   testDuplicateSymbols,
   testLookupUnique,
+  testLookupUniqueNormalizesPreferredDir,
+  testLookupUniqueWithWindowsNativePreferredDir,
   testUnregister,
   testClear,
   testRegisterEmpty,

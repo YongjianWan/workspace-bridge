@@ -4,9 +4,12 @@
  * Grammar: Rust (tree-sitter-rust).
  */
 
+const { ENTRY_WEIGHT } = require('../../../../utils/project-context');
+
 const QUERY = `
 [
   (identifier) @id
+  (scoped_identifier) @scoped_id
 ]
 `;
 
@@ -17,12 +20,16 @@ function postProcess(matches) {
 
   for (const match of matches) {
     const id = match.id?.text;
+    const scoped = match.scoped_id?.text;
 
     if (id === 'rocket') {
       hasRocketRef = true;
     }
     if (id === 'launch') {
       hasLaunch = true;
+    }
+    if (scoped && scoped.includes('rocket')) {
+      hasRocketRef = true;
     }
   }
 
@@ -31,7 +38,7 @@ function postProcess(matches) {
       framework: 'rocket',
       reason: 'rocket-attribute',
       isEntry: true,
-      entryPointWeight: 3.0,
+      entryPointWeight: ENTRY_WEIGHT.HIGH,
     };
   }
   return null;

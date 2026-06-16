@@ -280,7 +280,7 @@ class IsOwner(BasePermission):`;
   const vueMacroHint = await detectFrameworkFromContent('/project/comp.js', vueMacroContent);
   assert.strictEqual(vueMacroHint.framework, 'vue');
   assert.strictEqual(vueMacroHint.reason, 'vue-script-setup-macro');
-  assert.strictEqual(vueMacroHint.isEntry, true);
+  assert.strictEqual(vueMacroHint.isEntry, false);
 
   // No match
   const plainContent = `function add(a, b) { return a + b; }`;
@@ -337,11 +337,37 @@ async function testEntryPointWeight() {
   assert.strictEqual(sbHint.entryPointWeight, 3.0);
 }
 
+async function testRustFrameworkDisambiguation() {
+  // Rocket file with explicit rocket reference must not be misclassified as actix-web.
+  const rocketOnlyContent = `use rocket::get;\n\n#[get("/")]\nfn index() -> &'static str {\n    "Hello, world!"\n}`;
+  const rocketOnlyHint = await detectFrameworkFromContent('/project/src/routes.rs', rocketOnlyContent);
+  assert.notStrictEqual(rocketOnlyHint?.framework, 'actix-web', 'Rocket file misclassified as actix-web');
+  assert.strictEqual(rocketOnlyHint?.framework, 'rocket');
+
+  // Explicit actix-web reference still detected.
+  const actixContent = `use actix_web::{get, App, HttpResponse};\n#[get("/")]\nasync fn index() -> impl Responder {\n    HttpResponse::Ok()\n}`;
+  const actixHint = await detectFrameworkFromContent('/project/src/routes.rs', actixContent);
+  assert.strictEqual(actixHint?.framework, 'actix-web');
+}
+
+async function testVueScriptSetupQueryPath() {
+  // Vue <script setup> with defineProps must reach the query path even when no import from 'vue' is present.
+  // A .js fixture is used because generic .vue files hit path-based detection first.
+  const vueSetupContent = `<script setup>\nconst props = defineProps({ foo: String });\n</script>`;
+  const vueSetupHint = await detectFrameworkFromContent('/project/src/utils/card.js', vueSetupContent);
+  assert.strictEqual(vueSetupHint?.framework, 'vue');
+  assert.strictEqual(vueSetupHint?.reason, 'vue-script-setup-macro');
+  // Query path returns isEntry=false for macros; sync fallback incorrectly returned true.
+  assert.strictEqual(vueSetupHint?.isEntry, false);
+}
+
 async function run() {
   testDetectFrameworkFromPath();
   await testDetectFrameworkFromContent();
   await testIsEntryFlag();
   await testEntryPointWeight();
+  await testRustFrameworkDisambiguation();
+  await testVueScriptSetupQueryPath();
   console.log('framework-patterns-test.js PASS');
 }
 

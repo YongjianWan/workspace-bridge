@@ -77,6 +77,21 @@ function testReadScanContentMissingFile() {
   assert.strictEqual(content, null);
 }
 
+function testIsKnownEntryFileNormalizesRawPath() {
+  // Regression: isKnownEntryFile normalized filePath to key but then checked
+  // entryFiles.has(filePath) with the raw argument, so a Windows-style path
+  // failed to match a normalized entry set entry.
+  const detector = new EntryDetector({
+    entryFiles: new Set(['C:/repo/src/worker.js']),
+    normalizeFilePath: (p) => p.replace(/\\/g, '/'),
+  });
+  assert.strictEqual(
+    detector.isKnownEntryFile('C:\\repo\\src\\worker.js'),
+    true,
+    'Windows-style raw path should match normalized entry set entry'
+  );
+}
+
 function testEntryDetectorCacheHitAndFallback() {
   const mockGraph = new Map([
     ['/repo/src/cached-express.js', { frameworkHint: { framework: 'express', reason: 'express-route', isEntry: true } }],
@@ -112,6 +127,7 @@ async function main() {
   testGetFrameworkHintNonEntry();
   testReadScanContentMissingFile();
   testEntryDetectorCacheHitAndFallback();
+  testIsKnownEntryFileNormalizesRawPath();
 }
 
 main();

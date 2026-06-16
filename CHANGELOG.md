@@ -8,6 +8,26 @@
 
 ## [Unreleased]
 
+### 过滤 getStaleness() 中非代码（文档、样式、资源）变更以避免缓存过度失效
+
+- 在 `src/services/container.js` 的 `getStaleness()` 方法中，过滤由 `cache.checkFileChanges()` 返回的 `changedFiles`。排除经由 `projectContext.classifyFile()` 分类为 `docs`、`style` 或 `asset` 的文件，以防修改文档（如 `AGENTS.md`、`CHANGELOG.md`）或样式等资源文件造成不必要的缓存重建。
+- 在 `test/staleness-test.js` 中新增针对上述过滤逻辑的单元测试，验证文档、样式和资源文件的变动不会导致缓存被标记为过期。
+- 验证：`node test/staleness-test.js` 通过；`npm run test:smoke` 中 `staleness-test.js` PASS。
+
+### 收紧 project-context 导出面并将 scratch 目录标记为 archive
+
+- 从 `src/utils/project-context.js` 的 `module.exports` 中移除仅内部使用的 `JS_TS_EXTS` 与无外部调用方的 `normalizeRelativePath`；移除顶部未使用的 `readJsonSafe` 解构导入。
+- 从 `cli.js` 的 `src/config/constants` 解构中移除未使用的 `DEFAULTS`。
+- 在 `.workspace-bridge.json` 的 `directories.archive` 中增加 `scratch`，使 `scratch/*.js` 不再被报告为 orphan 模块。
+- 新增 `test/dead-exports-imports-scratch-config-test.js` 覆盖导出面与 orphan 行为。
+- 验证：`node cli.js dead-exports --cwd . --json --quiet` 不再列出 `JS_TS_EXTS`；`node test/dead-exports-imports-scratch-config-test.js` 通过。
+
+### 修复 entry-detector 使用 raw path 检查已知入口文件
+
+- 修复 `src/services/dep-graph/entry-detector.js` 的 `isKnownEntryFile()`：将 `entryFiles.has(filePath)` 改为 `entryFiles.has(key)`，避免 Windows 原生反斜杠路径无法命中已规范化的入口集合。
+- 在 `test/entry-detector-test.js` 新增回归测试 `testIsKnownEntryFileNormalizesRawPath`。
+- 验证：`node test/entry-detector-test.js` 通过；`npm run test:fast` 中 `entry-detector-test.js` PASS。
+
 ### 修复 audit-diff 在干净仓库误报 .gitignore 变更
 
 - 调整 `src/services/cache.js` 的 `computeDefaultCacheDir()`：仅向已存在的 `.gitignore` 追加 `.workspace-bridge/` 条目，不再在缺少 `.gitignore` 的仓库中自动创建新文件，避免 `audit-diff` 等只读命令把自动生成的 `.gitignore` 统计为变更文件。

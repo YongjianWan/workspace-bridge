@@ -576,8 +576,17 @@ class ServiceContainer {
     let changedFiles = [];
     if (this.cache?.checkFileChanges) {
       const fileCheck = this.cache.checkFileChanges();
-      filesChanged = fileCheck.changed;
-      changedFiles = fileCheck.changedFiles;
+      if (fileCheck.changedFiles && this.projectContext) {
+        changedFiles = fileCheck.changedFiles.filter(file => {
+          const classification = this.projectContext.classifyFile(file);
+          const role = classification.fileRole;
+          return role !== 'docs' && role !== 'style' && role !== 'asset';
+        });
+        filesChanged = changedFiles.length > 0;
+      } else {
+        filesChanged = fileCheck.changed;
+        changedFiles = fileCheck.changedFiles || [];
+      }
     }
 
     return {

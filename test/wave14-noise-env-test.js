@@ -178,7 +178,37 @@ function testIgnoreFrameworks() {
 }
 
 /* -------------------------------------------------------------------------- */
-// Test 7: 配置来源报告细化
+// Test 7: --all alone should show full command list
+/* -------------------------------------------------------------------------- */
+async function testAllHelpTrigger() {
+  const result = await runCliInProcessRaw(['--all']);
+  assert.strictEqual(result.status, 0, `--all should exit 0, got stderr: ${result.stderr}`);
+  const stdout = result.stdout || '';
+  assert.ok(stdout.includes('L1'), `Expected full command list to include L1 section, got: ${stdout.slice(0, 200)}`);
+}
+
+/* -------------------------------------------------------------------------- */
+// Test 8: WB_JSON causes parse errors to be emitted as JSON
+/* -------------------------------------------------------------------------- */
+async function testJsonErrorFromEnv() {
+  const original = process.env.WB_JSON;
+  try {
+    process.env.WB_JSON = '1';
+    const result = await runCliInProcessRaw(['--severity', 'invalid-value']);
+    assert.strictEqual(result.status, 1, `Expected validation error status 1, got ${result.status}`);
+    assert.strictEqual(result.stderr, '', `Expected no stderr when WB_JSON requests JSON errors, got: ${result.stderr}`);
+    const parsed = JSON.parse(result.stdout);
+    assert.strictEqual(parsed.ok, false, 'Expected JSON error response');
+    assert.ok(parsed.error && parsed.error.includes('severity'), `Expected severity error, got: ${parsed.error}`);
+    assert.strictEqual(parsed.schemaVersion, '1.2.0', 'Expected schema version in JSON error');
+  } finally {
+    if (original !== undefined) process.env.WB_JSON = original;
+    else delete process.env.WB_JSON;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+// Test 9: 配置来源报告细化
 /* -------------------------------------------------------------------------- */
 async function testConfigOriginReport() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-test-origin-'));
@@ -241,6 +271,8 @@ const tests = [
   testWBFailOnFindingsEnv,
   testCliOverridesEnv,
   testIgnoreFrameworks,
+  testAllHelpTrigger,
+  testJsonErrorFromEnv,
   testConfigOriginReport,
   testIgnoreFindingsDynamicCache,
 ];

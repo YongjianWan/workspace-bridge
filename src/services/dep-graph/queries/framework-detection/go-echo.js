@@ -4,6 +4,8 @@
  * Grammar: Go (tree-sitter-go).
  */
 
+const { ENTRY_WEIGHT } = require('../../../../utils/project-context');
+
 const QUERY = `
 [
   (selector_expression operand: (package_identifier) @package field: (field_identifier) @field)
@@ -21,7 +23,7 @@ function postProcess(matches) {
         framework: 'echo',
         reason: 'echo-handler',
         isEntry: true,
-        entryPointWeight: 2.5,
+        entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH,
       };
     }
   }

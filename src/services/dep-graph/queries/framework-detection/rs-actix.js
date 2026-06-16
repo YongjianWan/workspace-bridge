@@ -4,6 +4,8 @@
  * Grammar: Rust (tree-sitter-rust).
  */
 
+const { ENTRY_WEIGHT } = require('../../../../utils/project-context');
+
 const QUERY = `
 [
   (identifier) @id
@@ -15,7 +17,6 @@ function postProcess(matches) {
   if (!matches || matches.length === 0) return null;
   let hasActixRef = false;
   let hasRocketRef = false;
-  let hasGenericAttr = false;
 
   for (const match of matches) {
     const id = match.id?.text;
@@ -27,11 +28,11 @@ function postProcess(matches) {
     if (id === 'rocket') {
       hasRocketRef = true;
     }
-    if (id && /^(get|post|put|delete|patch)$/.test(id)) {
-      hasGenericAttr = true;
-    }
     if (scoped && scoped.includes('actix_web')) {
       hasActixRef = true;
+    }
+    if (scoped && scoped.includes('rocket')) {
+      hasRocketRef = true;
     }
   }
 
@@ -39,12 +40,12 @@ function postProcess(matches) {
     return null;
   }
 
-  if (hasActixRef || hasGenericAttr) {
+  if (hasActixRef) {
     return {
       framework: 'actix-web',
       reason: 'actix-attribute',
       isEntry: true,
-      entryPointWeight: 3.0,
+      entryPointWeight: ENTRY_WEIGHT.HIGH,
     };
   }
   return null;

@@ -1,3 +1,8 @@
+const path = require('path');
+const { toPosixPath, normalizePathKey } = require('../../utils/path');
+
+const IS_WINDOWS = process.platform === 'win32';
+
 /**
  * SymbolRegistry — lightweight global symbol table built from AST exportRecords.
  *
@@ -82,7 +87,10 @@ class SymbolRegistry {
     if (locations.length === 1) return locations[0].file;
 
     if (preferredDir) {
-      const inPreferred = locations.filter((loc) => loc.file.startsWith(preferredDir));
+      const normalizedPreferredDir = path.isAbsolute(preferredDir)
+        ? normalizePathKey(preferredDir)
+        : toPosixPath(path.normalize(preferredDir));
+      const inPreferred = locations.filter((loc) => loc.file.startsWith(normalizedPreferredDir));
       if (inPreferred.length === 1) return inPreferred[0].file;
     }
     return null;

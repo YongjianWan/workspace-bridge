@@ -386,15 +386,15 @@ async function tryDetectFrameworkWithQuery(filePath, content) {
   return runQueryRegistry(filePath, content, FRAMEWORK_QUERY_REGISTRY, async (tree, lang, queryDefs) => {
     const activeQueryDefs = [];
     for (const queryDef of queryDefs) {
-      const cfg = configs.find(c => c.framework === queryDef.framework);
-      if (cfg) {
-        let hasMatch = false;
-        if (cfg.preFilterRe) {
-          cfg.preFilterRe.lastIndex = 0;
-          hasMatch = cfg.preFilterRe.test(sample);
-        } else {
-          hasMatch = cfg.patterns.some(pat => sample.includes(pat.toLowerCase()));
-        }
+      const frameworkConfigs = configs.filter(c => c.framework === queryDef.framework);
+      if (frameworkConfigs.length > 0) {
+        const hasMatch = frameworkConfigs.some((cfg) => {
+          if (cfg.preFilterRe) {
+            cfg.preFilterRe.lastIndex = 0;
+            return cfg.preFilterRe.test(sample);
+          }
+          return cfg.patterns.some(pat => sample.includes(pat.toLowerCase()));
+        });
         if (!hasMatch) continue;
       }
       activeQueryDefs.push(queryDef);

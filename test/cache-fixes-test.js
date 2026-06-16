@@ -9,6 +9,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { WorkspaceCache, computeDefaultCacheDir } = require('../src/services/cache');
+const { normalizePathKey } = require('../src/utils/path');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function sha256(content) {

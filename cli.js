@@ -21,7 +21,7 @@ const { stripBOM } = require('./src/utils/sanitize');
 
 const { ServiceContainer } = require('./src/services/container');
 const { toPosixPath, findWorkspaceRoot, normalizePath } = require('./src/utils/path');
-const { TIMEOUTS, DEFAULTS, SCHEMA_VERSION } = require('./src/config/constants');
+const { TIMEOUTS, SCHEMA_VERSION } = require('./src/config/constants');
 const { COMMANDS, SELF_MANAGED_COMMANDS } = require('./src/cli/commands');
 const { validateCwd } = require('./src/cli/commands/_utils');
 const { parseCliArgs, sanitizeCliPaths } = require('./src/cli/validate-args');
@@ -64,6 +64,7 @@ const COMMON_OPTIONS = [
   '  --config <name>        Semgrep config (default: auto)',
   '  --language <lang>      Filter security scan to one language',
   '  --service <subpath>     Focus analysis on a single monorepo service/package (others become reference)',
+  '  --version, -v          Show version',
   '  --help                  Show help',
   '  --help <command>       Show detailed guide for a command',
 ];

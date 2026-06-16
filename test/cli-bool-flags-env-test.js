@@ -75,6 +75,67 @@ function testEnvFalseValues() {
   });
 }
 
+function testTruthyBooleanEnvValues() {
+  for (const value of ['TRUE', 'YES', 'ON', '1']) {
+    withEnv('WB_QUIET', value, () => {
+      const parsed = parseCliArgs(['node', 'cli.js']);
+      assert.strictEqual(parsed.quiet, true, `WB_QUIET=${value} should be truthy`);
+      assert.strictEqual(parsed._sources.quiet, 'env', `WB_QUIET=${value} source should be env`);
+    });
+    withEnv('WB_JSON', value, () => {
+      const parsed = parseCliArgs(['node', 'cli.js']);
+      assert.strictEqual(parsed.json, true, `WB_JSON=${value} should be truthy`);
+      assert.strictEqual(parsed._sources.json, 'env', `WB_JSON=${value} source should be env`);
+    });
+  }
+}
+
+function testUppercaseEnumValues() {
+  const parsedSeverity = parseCliArgs(['node', 'cli.js', '--severity', 'HIGH']);
+  assert.strictEqual(parsedSeverity.severity, 'high', '--severity HIGH should normalize to lowercase');
+  assert.strictEqual(parsedSeverity._sources.severity, 'cli', 'severity source should be cli');
+
+  withEnv('WB_SEVERITY', 'MEDIUM', () => {
+    const parsed = parseCliArgs(['node', 'cli.js']);
+    assert.strictEqual(parsed.severity, 'medium', 'WB_SEVERITY=MEDIUM should normalize to lowercase');
+    assert.strictEqual(parsed._sources.severity, 'env', 'severity source should be env');
+  });
+
+  const parsedMode = parseCliArgs(['node', 'cli.js', '--mode', 'QUICK']);
+  assert.strictEqual(parsedMode.mode, 'quick', '--mode QUICK should normalize to lowercase');
+
+  withEnv('WB_MODE', 'FULL', () => {
+    const parsed = parseCliArgs(['node', 'cli.js']);
+    assert.strictEqual(parsedMode.mode, 'quick', 'WB_MODE=FULL should normalize to lowercase');
+  });
+
+  const parsedFormat = parseCliArgs(['node', 'cli.js', '--format', 'JSON']);
+  assert.strictEqual(parsedFormat.format, null, '--format JSON normalizes to json and is then represented by json flag');
+  assert.strictEqual(parsedFormat.json, true, '--format JSON should imply json=true');
+  assert.strictEqual(parsedFormat._sources.format, 'cli', 'format source should be cli');
+}
+
+function testCwdSourceTracking() {
+  const originals = {
+    WB_CWD: process.env.WB_CWD,
+  };
+  try {
+    delete process.env.WB_CWD;
+    const parsedDefault = parseCliArgs(['node', 'cli.js']);
+    assert.strictEqual(parsedDefault._sources.cwd, 'default', 'cwd source should be default when no --cwd or WB_CWD');
+
+    const parsedCli = parseCliArgs(['node', 'cli.js', '--cwd', '.']);
+    assert.strictEqual(parsedCli._sources.cwd, 'cli', 'cwd source should be cli when --cwd provided');
+
+    process.env.WB_CWD = '.';
+    const parsedEnv = parseCliArgs(['node', 'cli.js']);
+    assert.strictEqual(parsedEnv._sources.cwd, 'env', 'cwd source should be env when WB_CWD provided');
+  } finally {
+    if (originals.WB_CWD !== undefined) process.env.WB_CWD = originals.WB_CWD;
+    else delete process.env.WB_CWD;
+  }
+}
+
 function main() {
   const tests = [
     testBuiltinOnlyFromEnv,
@@ -82,6 +143,9 @@ function main() {
     testStrictCwdFromEnv,
     testCliOverridesEnv,
     testEnvFalseValues,
+    testTruthyBooleanEnvValues,
+    testUppercaseEnumValues,
+    testCwdSourceTracking,
   ];
   let passed = 0;
   let failed = 0;

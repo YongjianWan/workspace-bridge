@@ -299,6 +299,57 @@ function main() {
     cleanupTempDir(dir);
   }
 
+  // Ignore docs/style/asset changes in getStaleness
+  {
+    const dir = makeTempDir('wb-staleness-ignore-');
+    const docFile = path.join(dir, 'README.md');
+    const styleFile = path.join(dir, 'styles.css');
+    const assetFile = path.join(dir, 'logo.png');
+    const codeFile = path.join(dir, 'main.js');
+
+    fs.writeFileSync(docFile, '# Readme\n');
+    fs.writeFileSync(styleFile, 'body { color: red; }\n');
+    fs.writeFileSync(assetFile, 'fake binary content\n');
+    fs.writeFileSync(codeFile, 'console.log("hello");\n');
+
+    const cache = new WorkspaceCache(dir, { cacheDir: path.join(dir, '.cache') });
+    const statsDoc = fs.statSync(docFile);
+    const statsStyle = fs.statSync(styleFile);
+    const statsAsset = fs.statSync(assetFile);
+    const statsCode = fs.statSync(codeFile);
+
+    cache.setFileMetadata(docFile, { mtime: statsDoc.mtimeMs, size: statsDoc.size });
+    cache.setFileMetadata(styleFile, { mtime: statsStyle.mtimeMs, size: statsStyle.size });
+    cache.setFileMetadata(assetFile, { mtime: statsAsset.mtimeMs, size: statsAsset.size });
+    cache.setFileMetadata(codeFile, { mtime: statsCode.mtimeMs, size: statsCode.size });
+
+    // Now modify the doc, style, and asset files (e.g. mismatch size/mtime)
+    cache.setFileMetadata(docFile, { mtime: 0, size: 9999 });
+    cache.setFileMetadata(styleFile, { mtime: 0, size: 9999 });
+    cache.setFileMetadata(assetFile, { mtime: 0, size: 9999 });
+
+    const c = new ServiceContainer();
+    c.workspaceRoot = dir;
+    const { ProjectContext } = require('../src/utils/project-context');
+    c.projectContext = new ProjectContext(dir);
+    c.indexBuildTime = Date.now() - 1000;
+    c.cache = cache;
+
+    const s1 = c.getStaleness();
+    assert.strictEqual(s1.filesChanged, false, 'should ignore modified docs/styles/assets in filesChanged');
+    assert.strictEqual(s1.isStale, false, 'should not be stale when only doc/style/asset files are modified');
+
+    // If code file is modified, it should trigger staleness
+    cache.setFileMetadata(codeFile, { mtime: 0, size: 9999 });
+    const s2 = c.getStaleness();
+    assert.strictEqual(s2.filesChanged, true, 'should detect modified code file');
+    assert.strictEqual(s2.isStale, true, 'should be stale when code file is modified');
+    assert.ok(s2.changedFiles.includes(codeFile), 'changedFiles should include code file');
+    assert.strictEqual(s2.changedFiles.includes(docFile), false, 'changedFiles should NOT include doc file');
+
+    cleanupTempDir(dir);
+  }
+
 }
 
 try {
