@@ -1,0 +1,30 @@
+{
+  "exportRecords": [],
+  "exports": [],
+  "functionRecords": [],
+  "importRecords": [
+    {
+      "imported": [
+        "ref"
+      ],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "vue",
+      "usesAllExports": false
+    },
+    {
+      "imported": [
+        "helper"
+      ],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "./utils",
+      "usesAllExports": false
+    }
+  ],
+  "imports": [
+    "vue",
+    "./utils"
+  ],
+  "parseMode": "ast"
+}

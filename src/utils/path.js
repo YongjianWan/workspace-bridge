@@ -76,7 +76,13 @@ function isPathInsideRoot(rootPath, targetPath) {
 }
 
 function matchesPathFragment(targetPath, fragment) {
-  const normalizedPath = normalizePathKey(targetPath);
+  let normalizedPath = String(targetPath || '');
+  if (normalizedPath.includes('\\')) {
+    normalizedPath = normalizedPath.replace(/\\/g, '/');
+  }
+  if (IS_WINDOWS) {
+    normalizedPath = normalizedPath.toLocaleLowerCase('en-US');
+  }
   const normalizedFragment = toPosixPath(String(fragment || '')).replace(/^\.?\//, '').replace(/\/+$/, '');
   if (!normalizedFragment) return false;
   const key = IS_WINDOWS ? normalizedFragment.toLocaleLowerCase('en-US') : normalizedFragment;

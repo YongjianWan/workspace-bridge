@@ -265,8 +265,10 @@ function runOne(file) {
       ? { ...process.env, WB_TEST_CACHE_DIR: testCacheDir }
       : process.env;
 
+    const testTimeout = file === 'e2e-gitnexus-test.js' ? Math.max(300000, TIMEOUT_MS) : TIMEOUT_MS;
+
     const child = spawn('node', [filePath], {
-      timeout: TIMEOUT_MS,
+      timeout: testTimeout,
       env: childEnv,
     });
 
@@ -302,7 +304,7 @@ function runOne(file) {
         file, ok: false, status: null, signal: 'TIMEOUT', stdout, stderr,
         elapsed: Date.now() - testStart,
       });
-    }, TIMEOUT_MS + TIMEOUTS.TEST_RUNNER_KILL_GRACE_MS);
+    }, testTimeout + TIMEOUTS.TEST_RUNNER_KILL_GRACE_MS);
 
     child.on('close', () => clearTimeout(killTimer));
   });

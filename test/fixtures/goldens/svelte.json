@@ -1,0 +1,30 @@
+{
+  "exportRecords": [],
+  "exports": [],
+  "functionRecords": [],
+  "importRecords": [
+    {
+      "imported": [
+        "writable"
+      ],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "svelte/store",
+      "usesAllExports": false
+    },
+    {
+      "imported": [
+        "default"
+      ],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "./LocalComponent.svelte",
+      "usesAllExports": false
+    }
+  ],
+  "imports": [
+    "svelte/store",
+    "./LocalComponent.svelte"
+  ],
+  "parseMode": "ast"
+}

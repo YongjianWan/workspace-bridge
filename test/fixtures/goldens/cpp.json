@@ -1,0 +1,60 @@
+{
+  "exportRecords": [
+    {
+      "kind": "namespace",
+      "lineEnd": 8,
+      "lineStart": 8,
+      "name": "Outer"
+    },
+    {
+      "kind": "namespace",
+      "lineEnd": 9,
+      "lineStart": 9,
+      "name": "Inner"
+    },
+    {
+      "kind": "class",
+      "lineEnd": 10,
+      "lineStart": 10,
+      "name": "Worker"
+    }
+  ],
+  "exports": [
+    "Outer",
+    "Inner",
+    "Worker"
+  ],
+  "functionRecords": [],
+  "importRecords": [
+    {
+      "imported": [],
+      "isLocal": false,
+      "reExportAll": false,
+      "reExported": [],
+      "source": "iostream",
+      "usesAllExports": true
+    },
+    {
+      "imported": [],
+      "isLocal": true,
+      "reExportAll": false,
+      "reExported": [],
+      "source": "tricky.h",
+      "usesAllExports": true
+    },
+    {
+      "imported": [],
+      "isLocal": true,
+      "reExportAll": false,
+      "reExported": [],
+      "source": "debug.h",
+      "usesAllExports": true
+    }
+  ],
+  "imports": [
+    "iostream",
+    "tricky.h",
+    "debug.h"
+  ],
+  "parseMode": "ast"
+}

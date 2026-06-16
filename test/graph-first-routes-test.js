@@ -46,7 +46,7 @@ async function main() {
   try {
     // 2. 初始化容器进行冷启动构建
     const container = new ServiceContainer({ quiet: true });
-    await container.initialize(testDir);
+    await container.initialize(testDir, 30000, { watch: false });
 
     const depGraph = container.snapshot.graph._dg;
     assert.ok(depGraph, 'DependencyGraph should be initialized');
@@ -65,7 +65,7 @@ async function main() {
     assert.strictEqual(handlesRouteEdges.length, 2, 'Should serialize 2 handles-route edges');
     assert.ok(handlesRouteEdges.every(e => e.source === depGraph.normalizeFilePath(routeFile)), 'handles-route edges source mismatch');
 
-    // --- 场景 D: 验证 findAffectedHttpRoutes 穿透多层文件依赖获取到终端的 API 路由 ---
+    // --- 场景 D: 验证 findAffectedHttpRoutes 穿透多层 file 依赖获取到终端的 API 路由 ---
     // 更改 db.js 会影响到 app.js, route.js, service.js, db.js
     // 它应该能通过 BFS 追溯到 route.js 上的路由
     const affectedHttpRoutes = depGraph.findAffectedHttpRoutes(dbFile, 3);
@@ -76,7 +76,7 @@ async function main() {
     // --- 场景 B: 验证冷启动 loadGraph 还原图结构 ---
     // 重启容器，加载缓存而不重新构建
     const newContainer = new ServiceContainer({ quiet: true });
-    await newContainer.initialize(testDir);
+    await newContainer.initialize(testDir, 30000, { watch: false });
     const loadedGraph = newContainer.snapshot.graph._dg;
 
     // 检查 loadedGraph 的依赖是否正常（没有被 handles-route 污染）

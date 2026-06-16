@@ -952,6 +952,12 @@ const FORMATTERS = {
       return rec.map(JSON.stringify).join('\n');
     },
   },
+  guard: {
+    human: (r) => require('./guard-formatter').formatGuardHuman(r),
+    summary: (r) => require('./guard-formatter').formatGuardSummary(r),
+    markdown: (r) => require('./guard-formatter').formatGuardMarkdown(r),
+    jsonl: (r) => require('./guard-formatter').formatGuardJsonl(r),
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1207,6 +1213,10 @@ function formatAi(command, result, options = {}) {
   const depth = options.depth || 'detail';
   const tokenBudget = options.tokenBudget || null;
   const schemaVersion = options.schemaVersion || SCHEMA_VERSION;
+
+  if (command === 'guard') {
+    return require('./guard-formatter').formatGuardAi(result);
+  }
 
   if (command === 'audit-summary') {
     function buildOutput(currentDepth) {

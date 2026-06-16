@@ -63,6 +63,8 @@ function mapEnvKeyToOptionKey(key) {
     'WB_CATEGORY': 'category',
     'WB_COMPACT': 'compact',
     'WB_MAX_FILES': 'maxFiles',
+    'WB_MAX_DEPENDENTS': 'maxDependents',
+    'WB_MAX_TRANSITIVE': 'maxTransitive',
     'WB_FAIL_ON_FINDINGS': 'failOnFindings',
     'WB_STAGED': 'staged',
     'WB_RUN_TESTS': 'runTests',
@@ -175,6 +177,16 @@ function parseCliArgs(argv) {
       '--max-files': { key: 'maxFiles', transform: (v) => {
         const n = Number.parseInt(v, 10);
         if (Number.isNaN(n) || n <= 0) throwValidationError(`Invalid --max-files value: ${v}. Expected a positive integer`);
+        return n;
+      } },
+      '--max-dependents': { key: 'maxDependents', transform: (v) => {
+        const n = Number.parseInt(v, 10);
+        if (Number.isNaN(n) || n < 0) throwValidationError(`Invalid --max-dependents value: ${v}. Expected a non-negative integer`);
+        return n;
+      } },
+      '--max-transitive': { key: 'maxTransitive', transform: (v) => {
+        const n = Number.parseInt(v, 10);
+        if (Number.isNaN(n) || n < 0) throwValidationError(`Invalid --max-transitive value: ${v}. Expected a non-negative integer`);
         return n;
       } },
       '--watch': true,
@@ -334,6 +346,26 @@ function parseCliArgs(argv) {
     }
   }
 
+  const maxDependentsRes = resolveOption(raw.maxDependents, 'WB_MAX_DEPENDENTS', projectConfig.maxDependents, userConfig.maxDependents);
+  sources.maxDependents = maxDependentsRes.source;
+  let maxDependents = null;
+  if (maxDependentsRes.value !== undefined) {
+    maxDependents = Number.parseInt(maxDependentsRes.value, 10);
+    if (Number.isNaN(maxDependents) || maxDependents < 0) {
+      throwValidationError(`Invalid max-dependents value: ${maxDependentsRes.value}. Expected a non-negative integer`);
+    }
+  }
+
+  const maxTransitiveRes = resolveOption(raw.maxTransitive, 'WB_MAX_TRANSITIVE', projectConfig.maxTransitive, userConfig.maxTransitive);
+  sources.maxTransitive = maxTransitiveRes.source;
+  let maxTransitive = null;
+  if (maxTransitiveRes.value !== undefined) {
+    maxTransitive = Number.parseInt(maxTransitiveRes.value, 10);
+    if (Number.isNaN(maxTransitive) || maxTransitive < 0) {
+      throwValidationError(`Invalid max-transitive value: ${maxTransitiveRes.value}. Expected a non-negative integer`);
+    }
+  }
+
   const failOnFindingsRes = resolveOption(raw['--fail-on-findings'], 'WB_FAIL_ON_FINDINGS', projectConfig.failOnFindings, userConfig.failOnFindings, true);
   sources.failOnFindings = failOnFindingsRes.source;
   const failOnFindings = failOnFindingsRes.value || false;
@@ -443,6 +475,8 @@ function parseCliArgs(argv) {
     compact,
     noCompact: Boolean(raw['--no-compact']),
     maxFiles,
+    maxDependents,
+    maxTransitive,
     watch,
     incremental,
     withImpact,

@@ -23,7 +23,6 @@ fs.writeFileSync(
   `<script setup>
 import { defineProps, defineEmits } from 'vue';
 export { defineProps, defineEmits };
-export const helper = 'ok';
 </script>
 `,
   'utf8'

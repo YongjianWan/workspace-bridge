@@ -1,0 +1,61 @@
+{
+  "exportRecords": [
+    {
+      "kind": "class",
+      "name": "TrickyController"
+    },
+    {
+      "kind": "function",
+      "name": "getUsers"
+    }
+  ],
+  "exports": [
+    "TrickyController",
+    "getUsers"
+  ],
+  "functionRecords": [
+    {
+      "branchCount": 0,
+      "decorators": [
+        "GetMapping"
+      ],
+      "fingerprint": {
+        "branchCount": 0,
+        "callCallees": [],
+        "hasTryCatch": false,
+        "isAsync": false,
+        "isGenerator": false,
+        "maxArms": 0,
+        "paramCount": 0,
+        "returnCount": 1
+      },
+      "kind": "function",
+      "lineEnd": 11,
+      "lineStart": 11,
+      "maxArms": 0,
+      "name": "getUsers"
+    }
+  ],
+  "importRecords": [
+    {
+      "imported": [],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "org.springframework.web.bind.annotation.*",
+      "usesAllExports": true
+    },
+    {
+      "imported": [],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "java.util.*",
+      "usesAllExports": true
+    }
+  ],
+  "imports": [
+    "org.springframework.web.bind.annotation.*",
+    "java.util.*"
+  ],
+  "package": "com.example.tricky",
+  "parseMode": "ast"
+}

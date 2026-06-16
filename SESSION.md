@@ -152,21 +152,6 @@ node cli.js audit-overview --cwd . --json --quiet
 | **P1** | Edge evidence traces | 强化 Wave 10 | `builder.js`, `graph-db.js` | ⏳ 规划中 |
 | **P2** | Graph-first 路由提取 | 修复 L3 | `builder.js`, `persistence.js` | **方向 2（待开发）** |
 | **P3** | Parser golden snapshot 测试 | 补测试 | `test/` | ⏳ 规划中 |
-
----
-
-## 本轮已交付（活跃上下文摘要）
-
-> 以下只保留最近一轮的关键交付，便于新会话快速接上状态。完整历史见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
-
-- **Wave A 工程稳定化**：新增 `.gitattributes` 并规范化 80 个 CRLF 文件；修复 CI Node 版本不匹配；新增常规测试 CI；为 release 流程增加 test + tarball smoke gate。
-- **Wave B 数据一致性**：修复 `query-*` 快照 staleness（增加 SHA-256 内容校验 + 精确文件数匹配）；修复 CLI 参数优先级（CLI > env）；统一 `schemaVersion` 来源；新增 `src/tools/category-filter.js` 打破 `audit-assembler ↔ incremental-diff` 循环依赖。
-- **Wave 15-2 框架检测 AST-Query 化收官**：Java/Kotlin（Spring、Spring Boot、Ktor）、Python（Django、FastAPI、Flask、Celery）、Go（Gin/Echo/Fiber）、Rust（Actix-web/Axum/Rocket）、Vue 与 Svelte 全部完成 AST-Query 提取；`framework-patterns.js` 为已 query 化语言增加 `preFilterRe`，避免 `@bp.route`、`@worker.task` 等非常规写法被 cheap pre-filter 跳过。
-- **方向 5 轻量预检修复**：`workspace-info` 改为真正轻量命令，`cli.js` 跳过完整 `ServiceContainer` 初始化，直接复用 `workspaceInfo()` 与新增 `lightweightFileScan()` 进行快速文件数/语言分布统计；实测 `<1s`，与 skill 宣称 `<2s` 对齐。
-- **方向 4 策展可信度（#10/#13/#14）**：`audit-overview` / `audit-summary` 默认不再跑逐文件 blame/history，新增 `--with-history` 显式开关；`buildKnowledgeRisk()` 对 effective author count <= 2 的个人/单作者仓库返回 `disabledReason` 并跳过昂贵 blame；REPL `top` 等架构视图默认排除 test→source 边；`git blame` 过滤 `Not Committed Yet` 等伪作者；`query-knowledge-risk` 自动启用历史计算。
-- **架构债务状态**：当前活跃 0 项，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（已无活跃条目）。多语言框架检测 Query 语言等价性偏斜已消除：Java/Kotlin/Python/JS/TS/Go/Rust/Vue/Svelte 均已完成 AST-Query 化；C/C++ 无特定框架检测需求。
-- **测试状态**：`npm run test:fast` **120/120 PASS**，`npm run test:smoke` **123/123 PASS**。
-
 ---
 
 ## 下一步候选方向与多语言框架检测矩阵
@@ -234,8 +219,8 @@ node cli.js audit-overview --cwd . --json --quiet
 - **没有失败测试，不许写修复代码**（TDD）
 - **改高危文件前必须跑 impact + affected-tests**（`path.js` / `constants.js` / `dep-graph.js` / `cache.js` / `graph-db.js` / `parsers/shared.js` / `resolvers.js`）
 - **每波只修该波的问题**，不能跨波次混修
-- **每波收工前必须 `npm run test:fast` 120/120 PASS + 全量 runner 123/123 PASS**
-- **每次修复后在 CHANGELOG.md [Unreleased] 追加条目**（单条不超过 3 行）
+- 每波收工前必须 `npm run test:fast` 122/122 PASS + 全量 runner 125/125 PASS
+- 每次修复后在 CHANGELOG.md [Unreleased] 追加条目（单条不超过 3 行）
 
 ---
 
@@ -245,4 +230,4 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-16（修复 audit-diff .gitignore 误报；CLI help 与框架检测表驱动化；缓存目录排除与产物过滤；npm run test:fast 120/120 PASS，npm run test:smoke 123/123 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-16（新增 Modification Guard 变更保护、AST 黄金快照与容错测试、跨平台路径归整及测试鲁棒性修复；npm run test:fast 122/122 PASS，npm run test:smoke 125/125 PASS；schemaVersion: 1.2.0；version: 2.0.0）*

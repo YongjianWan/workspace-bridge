@@ -64,7 +64,7 @@ function filterByCategory(result, category, availableKeys) {
   const keep = new Set(categories.filter((c) => availableKeys.includes(c)));
   for (const key of availableKeys) {
     if (!keep.has(key) && result[key] !== undefined) {
-      result[key] = EMPTY_CATEGORY_STUBS[key]();
+      result[key] = { ...EMPTY_CATEGORY_STUBS[key](), omitted: true };
     }
   }
   return result;

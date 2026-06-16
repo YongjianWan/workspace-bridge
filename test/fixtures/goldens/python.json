@@ -1,0 +1,126 @@
+{
+  "exportRecords": [
+    {
+      "fingerprint": {
+        "branchCount": 0,
+        "callCallees": [],
+        "hasTryCatch": false,
+        "isAsync": false,
+        "isGenerator": false,
+        "maxArms": 0,
+        "paramCount": 2,
+        "returnCount": 1
+      },
+      "kind": "function",
+      "lineEnd": 9,
+      "lineStart": 8,
+      "name": "read_item"
+    },
+    {
+      "fingerprint": {
+        "branchCount": 0,
+        "callCallees": [],
+        "hasTryCatch": false,
+        "isAsync": false,
+        "isGenerator": false,
+        "maxArms": 0,
+        "paramCount": 0,
+        "returnCount": 0
+      },
+      "kind": "function",
+      "lineEnd": 13,
+      "lineStart": 12,
+      "name": "background_job"
+    }
+  ],
+  "exports": [
+    "read_item",
+    "background_job"
+  ],
+  "functionRecords": [
+    {
+      "branchCount": 0,
+      "decorators": [
+        "app.get"
+      ],
+      "fingerprint": {
+        "branchCount": 0,
+        "callCallees": [],
+        "hasTryCatch": false,
+        "isAsync": false,
+        "isGenerator": false,
+        "maxArms": 0,
+        "paramCount": 2,
+        "returnCount": 1
+      },
+      "hasParameterTypeHints": true,
+      "isExported": true,
+      "kind": "function",
+      "lineEnd": 9,
+      "lineStart": 8,
+      "maxArms": 0,
+      "name": "read_item",
+      "returnType": null
+    },
+    {
+      "branchCount": 0,
+      "decorators": [
+        "celery.task"
+      ],
+      "fingerprint": {
+        "branchCount": 0,
+        "callCallees": [],
+        "hasTryCatch": false,
+        "isAsync": false,
+        "isGenerator": false,
+        "maxArms": 0,
+        "paramCount": 0,
+        "returnCount": 0
+      },
+      "hasParameterTypeHints": false,
+      "isExported": true,
+      "kind": "function",
+      "lineEnd": 13,
+      "lineStart": 12,
+      "maxArms": 0,
+      "name": "background_job",
+      "returnType": null
+    }
+  ],
+  "importRecords": [
+    {
+      "imported": [
+        "FastAPI",
+        "Depends"
+      ],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "fastapi",
+      "usesAllExports": false
+    },
+    {
+      "imported": [
+        "get_db"
+      ],
+      "reExportAll": false,
+      "reExported": [],
+      "source": ".utils",
+      "usesAllExports": false
+    },
+    {
+      "imported": [
+        "require_user"
+      ],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "..auth",
+      "usesAllExports": false
+    }
+  ],
+  "imports": [
+    "fastapi",
+    ".utils",
+    "..auth"
+  ],
+  "parseMode": "ast"
+}

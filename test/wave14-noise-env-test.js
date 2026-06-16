@@ -137,7 +137,7 @@ function testCliOverridesEnv() {
     assert.strictEqual(parsed._sources.quiet, 'cli', 'quiet source should be cli');
     assert.strictEqual(parsed.json, true, 'CLI --json should override WB_JSON=0');
     assert.strictEqual(parsed._sources.json, 'cli', 'json source should be cli');
-    assert.ok(parsed.cwd.includes('/tmp/from-cli'), 'CLI --cwd should override WB_CWD');
+    assert.strictEqual(parsed.cwd, path.resolve('/tmp/from-cli'), 'CLI --cwd should override WB_CWD');
     assert.strictEqual(parsed._sources.cwd, 'cli', 'cwd source should be cli');
   } finally {
     for (const [key, val] of Object.entries(originals)) {

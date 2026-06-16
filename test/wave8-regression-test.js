@@ -5,18 +5,11 @@
 // Git stderr sanitization (#36)
 
 const assert = require('assert');
-const { spawnSync } = require('child_process');
 const path = require('path');
-const { runCliInProcess, runCliInProcessRaw } = require('./test-helpers');
-
-const ROOT = path.resolve(__dirname, '..');
+const { runCliInProcess, runCliInProcessRaw, runCliRaw } = require('./test-helpers');
 
 function runCli(args) {
-  const result = spawnSync(process.execPath, ['cli.js', ...args], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    maxBuffer: 5 * 1024 * 1024,
-  });
+  const result = runCliRaw(args);
   const text = (result.stdout || '').replace(/^\uFEFF/, '');
   try {
     return JSON.parse(text);

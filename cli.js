@@ -51,6 +51,8 @@ const COMMON_OPTIONS = [
   '  --no-compact           Explicitly disable compact mode (overrides auto-compact and WB_COMPACT)',
   '  --category <list>      Comma-separated filter for audit-summary (dead-exports,unresolved,cycles,health)',
   '  --max-files <n>        Limit returned files in audit-diff, impact, affected-tests, affected-routes, dependencies, dependents, and tree',
+  '  --max-dependents <n>   Max allowed direct dependents for guard (default: 50)',
+  '  --max-transitive <n>   Max allowed transitive dependents for guard (default: 50)',
   '  --watch                Watch mode for audit-file: re-run on file changes',
   '  --staged               Only analyze git staged changes in audit-diff',
   '  --files <list>         Comma-separated file list for audit-diff / audit-security',
@@ -115,6 +117,8 @@ Curated Commands (Tier 1 — start here):
   affected-routes --file <path> [--max-depth <n>]
                             Find entry-to-file call routes for a file
   dead-exports            Find dead export candidates
+  guard [--file <p>|--files <list>|--staged] [--max-dependents <n>] [--max-transitive <n>]
+                            Check blast radius and dependents limits before editing
   tree --file <path> [--max-depth <n>] [--direction <imports|dependents|both>]
                             Build import/dependent tree for a file
   cycles                  Find circular dependencies
@@ -145,6 +149,7 @@ Commands:
     impact --file <path>    Find impact radius for a file
     affected-tests --file <path> [--max-depth <n>]
                             Find tests related to a file
+    guard                   Check blast radius and dependents limits before editing
     query-hotspots [--risk <high|medium|low>] [--limit <n>]
                             Query cached hotspots (fast slice, no full rebuild)
     query-knowledge-risk [--level <high|medium|low>] [--limit <n>]
@@ -201,7 +206,9 @@ async function runCliInProcess(args, opts = {}) {
   } catch (err) {
     const isJsonRequested = args.includes('--json') ||
                             args.includes('--format=json') ||
-                            (args.indexOf('--format') >= 0 && args[args.indexOf('--format') + 1] === 'json');
+                            (args.indexOf('--format') >= 0 && args[args.indexOf('--format') + 1] === 'json') ||
+                            ['1', 'true', 'yes', 'on'].includes(String(process.env.WB_JSON).toLowerCase()) ||
+                            String(process.env.WB_FORMAT).toLowerCase() === 'json';
     if (isJsonRequested) {
       const stdout = JSON.stringify({ ok: false, error: err.message || String(err), schemaVersion: SCHEMA_VERSION });
       return { status: err.code === 'VALIDATION_ERROR' ? 1 : 2, stdout, stderr: '' };

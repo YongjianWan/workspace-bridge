@@ -24,6 +24,7 @@ const debug = require('./debug');
 const init = require('./init');
 const repl = require('./repl');
 const watch = require('./watch');
+const guard = require('./guard');
 
 /**
  * Factory for file-scoped commands that share the boilerplate:
@@ -244,6 +245,7 @@ const COMMANDS = {
   watch,
   init,
   debug,
+  guard,
 };
 
 const SELF_MANAGED_COMMANDS = new Set(['repl', 'watch', 'init']);
@@ -364,6 +366,11 @@ const COMMAND_GUIDES = {
     desc: 'Audit codebase for common code smells (e.g., Flat Dispatcher)',
     when: 'Identify complex or poorly structured modules during cleanup.',
     after: 'audit-file on the specific file to analyze details.',
+  },
+  guard: {
+    desc: 'Check blast radius and dependents limits before editing',
+    when: 'Before editing files. Prevent changes with a dangerously high blast radius.',
+    after: 'affected-tests or impact for details on the blast radius.',
   },
 };
 

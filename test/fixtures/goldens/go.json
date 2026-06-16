@@ -1,0 +1,43 @@
+{
+  "exportRecords": [
+    {
+      "kind": "type",
+      "lineEnd": 13,
+      "lineStart": 10,
+      "name": "User"
+    }
+  ],
+  "exports": [
+    "User"
+  ],
+  "functionRecords": [],
+  "importRecords": [
+    {
+      "imported": [],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "fmt",
+      "usesAllExports": true
+    },
+    {
+      "imported": [],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "net/http",
+      "usesAllExports": true
+    },
+    {
+      "imported": [],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "github.com/gin-gonic/gin",
+      "usesAllExports": true
+    }
+  ],
+  "imports": [
+    "fmt",
+    "net/http",
+    "github.com/gin-gonic/gin"
+  ],
+  "parseMode": "ast"
+}

@@ -1,0 +1,46 @@
+{
+  "exportRecords": [
+    {
+      "kind": "class",
+      "name": "UserController"
+    },
+    {
+      "kind": "symbol",
+      "name": "UserController"
+    }
+  ],
+  "exports": [
+    "UserController"
+  ],
+  "functionRecords": [],
+  "importRecords": [
+    {
+      "imported": [
+        "legacyInit"
+      ],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "./legacy",
+      "usesAllExports": false
+    },
+    {
+      "imported": [],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "./legacy",
+      "usesAllExports": true
+    },
+    {
+      "imported": [],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "./user-service",
+      "usesAllExports": true
+    }
+  ],
+  "imports": [
+    "./legacy",
+    "./user-service"
+  ],
+  "parseMode": "regex"
+}

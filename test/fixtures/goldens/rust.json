@@ -1,0 +1,99 @@
+{
+  "exportRecords": [
+    {
+      "kind": "struct",
+      "lineEnd": 8,
+      "lineStart": 8,
+      "name": "Repository"
+    },
+    {
+      "kind": "function",
+      "lineEnd": 13,
+      "lineStart": 13,
+      "name": "new"
+    }
+  ],
+  "exports": [
+    "Repository",
+    "new"
+  ],
+  "functionRecords": [
+    {
+      "branchCount": 0,
+      "decorators": [],
+      "hasParameterTypeHints": true,
+      "isExported": true,
+      "kind": "function",
+      "lineEnd": 13,
+      "lineStart": 13,
+      "maxArms": 0,
+      "name": "new",
+      "returnType": "Self"
+    }
+  ],
+  "importRecords": [
+    {
+      "imported": [
+        "get"
+      ],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "actix_web::get",
+      "usesAllExports": false
+    },
+    {
+      "imported": [
+        "web"
+      ],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "actix_web::web",
+      "usesAllExports": false
+    },
+    {
+      "imported": [
+        "App"
+      ],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "actix_web::App",
+      "usesAllExports": false
+    },
+    {
+      "imported": [
+        "HttpResponse"
+      ],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "actix_web::HttpResponse",
+      "usesAllExports": false
+    },
+    {
+      "imported": [
+        "HttpServer"
+      ],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "actix_web::HttpServer",
+      "usesAllExports": false
+    },
+    {
+      "imported": [
+        "Responder"
+      ],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "actix_web::Responder",
+      "usesAllExports": false
+    }
+  ],
+  "imports": [
+    "actix_web::get",
+    "actix_web::web",
+    "actix_web::App",
+    "actix_web::HttpResponse",
+    "actix_web::HttpServer",
+    "actix_web::Responder"
+  ],
+  "parseMode": "ast"
+}

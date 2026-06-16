@@ -37,7 +37,7 @@ async function testPrecomputeHotspotsAndStability() {
     runInDir('git', ['commit', '-m', 'init'], tempRoot);
 
     const container = new ServiceContainer({ quiet: true });
-    await container.initialize(tempRoot);
+    await container.initialize(tempRoot, 30000, { watch: false });
 
     const analyzer = container.depGraph.analyzer;
     assert(analyzer._aggregateCache, 'aggregate cache should exist after build');
@@ -81,7 +81,7 @@ async function testPrecomputeWithEmptyGraph() {
     runInDir('git', ['commit', '-m', 'init'], tempRoot);
 
     const container = new ServiceContainer({ quiet: true });
-    await container.initialize(tempRoot);
+    await container.initialize(tempRoot, 30000, { watch: false });
 
     const analyzer = container.depGraph.analyzer;
     // Empty graph: hotspots/stability may be empty arrays or null

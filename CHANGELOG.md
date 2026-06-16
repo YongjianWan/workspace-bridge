@@ -8,6 +8,31 @@
 
 ## [Unreleased]
 
+### Modification Guard (AI Safety Shield) 变更保护与影响审查 (2026-06-16)
+
+- 新增 `guard` CLI 命令行指令，用于在修改代码文件前审查其波及范围（依赖 blast radius）以保证 AI 安全。支持单文件 `--file`、多文件 `--files` 以及 Git 变更 `--staged` 文件的直接与传递依赖（transitive dependents）联合去重统计。
+- 支持通过 `--max-dependents` 与 `--max-transitive` 参数（支持对应 `WB_MAX_DEPENDENTS` 与 `WB_MAX_TRANSITIVE` 环境变量）设定变更限制阈值，一旦超出限制，CLI 会以状态码 `1` 退出拦截非预期的大范围变更。
+- 新增 `guard-formatter.js` 输出格式化层，支持 `human`/`markdown`（包含警告块摘要与详细名单）、`ai`（精简提示词友好警示文本）以及 `json` 输出类型。
+- 在 `cli.js` 注册并公开 `guard` 相关参数和命令说明。
+- 新增 `test/guard-command-test.js` 并覆盖单文件、多文件、Git staged 以及超出阈值阻断 exit 1 的完整业务语义校验。
+
+### 多语言 AST 解析 Golden 镜像与容错测试 (2026-06-16)
+
+- 在 `test/fixtures/tricky/` 针对所有 9 种语言提供包含类装饰器、框架路由、动态导入、多导入块等复杂边缘特性的测试样本代码。
+- 新增 `test/parser-golden-test.js` 黄金测试门禁，解析各类 tricky 代码并对其输出执行深层路径/时间戳规范化过滤（如 `<WORKSPACE>` 占位替换、换行符 LF 对齐等），断言其与 `test/fixtures/goldens/*.json` 镜像结果深等价。
+- 支持 `UPDATE_GOLDENS=1` 环境变量一键重新生成 AST 解析黄金快照；增加语法损坏/废料输入容错测试，验证各语言 AST parser 能安全进入 fallback 模式（`parseMode: 'none'` / `ok: false`）而不是引发致命进程崩溃。
+
+### 跨平台路径归整与测试环境鲁棒性修复 (2026-06-16)
+
+- 新增 `test/path-crossplatform-regression-test.js` 以覆盖 Windows 下大小写敏感/不敏感路径映射、`git-tools` 路径转换和 mixed path resolver 规范化一致性断言。
+- 修复 `cli.js` 在异常捕获块中直接用 `args.includes('--json')` 匹配 JSON 输出请求的 bug：由于忽略了环境变量 `WB_JSON=1` / `WB_FORMAT=json`，会导致当环境开启 JSON 时输入参数校验错误仍以 stderr 形式输出，使 JSON 接收端崩溃。现在同时从 argv 与 env variables 校验并确保输出 JSON。
+- 修复 `test/wave14-noise-env-test.js` 中 `testCliOverridesEnv` 的绝对路径包含 Windows 盘符 casing 断言不一致的缺陷，改用 `path.resolve('/tmp/from-cli')` 进行跨平台精确相等比对。
+- 修复 `test/query-tools-test.js` 动态快照 freshest 比对在本地工作拷贝有修改时由于 `checkFileChanges()` 抛出 dirty files 变化而导致缓存命中测试失败的问题：在 `testQueryToolsCacheHit` 中临时 stub `checkFileChanges` 结果，消除 local workspace 变更污染。
+- 修复交互式/集成测试中开启 Chokidar 背景文件监听导致 Windows 独占锁定临时测试目录、引起 `fs.rmSync` 清理失败及 test 任务偶发 SIGTERM 锁死挂起的问题：规范化在 `query-tools-test.js`、`graph-first-routes-test.js`、`precompute-hotspot-test.js`、`persisted-graph-test.js` 等测试容器 initialize 调用中显式禁用 `watch` (`watch: false`)。
+- 修复 unified `test-helpers.js` 共享容器 `_injectCacheDir` 自动注入临时隔离 cache 目录而 `wave8-regression-test.js` 使用自定义 `spawnSync` 不带 `--cache-dir` 导致 CLI 与 REPL 针对不同缓存目录产生依赖数不一致的问题：将 `wave8` 替换为统一的 `runCliRaw` 辅助函数。
+- 调整 `test/runner.js` 使 `e2e-gitnexus-test.js` 超时阈值扩展到 5 分钟，避免在重度并发 CPU load windows 平台上冷启动 indexing 1329 个文件时因偶发超时被 killed。
+- 验证：`npm run test:fast` **122/122 PASS**；`npm run test:smoke` **125/125 PASS**。
+
 ### 过滤 getStaleness() 中非代码（文档、样式、资源）变更以避免缓存过度失效
 
 - 在 `src/services/container.js` 的 `getStaleness()` 方法中，过滤由 `cache.checkFileChanges()` 返回的 `changedFiles`。排除经由 `projectContext.classifyFile()` 分类为 `docs`、`style` 或 `asset` 的文件，以防修改文档（如 `AGENTS.md`、`CHANGELOG.md`）或样式等资源文件造成不必要的缓存重建。

@@ -36,6 +36,9 @@ async function writeLargeJson(json) {
 function determineExitCode(command, result, failOnFindings = false) {
   if (!result || result.ok === false) return 1;
   if (result.regression && result.regression.ok === false) return 1;
+  if (command === 'guard') {
+    return result.passed === false ? 1 : 0;
+  }
   return failOnFindings && result.hasFindings === true ? 1 : 0;
 }
 

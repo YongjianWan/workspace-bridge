@@ -176,7 +176,7 @@ async function testAuditSecurityCategoryFilterExcludes() {
 }
 
 async function testInvalidCategoryValue() {
-  const result = await runCliInProcessRaw(['audit-summary', '--category', 'invalid', '--json', '--quiet'], { cwd: REPO_ROOT });
+  const result = await runCliInProcessRaw(['audit-summary', '--category', 'invalid', '--quiet'], { cwd: REPO_ROOT });
   assert.notStrictEqual(result.status, 0, 'invalid category should exit non-zero');
   assert(result.stderr.includes('Invalid --category value'), `stderr should contain error: ${result.stderr}`);
 }

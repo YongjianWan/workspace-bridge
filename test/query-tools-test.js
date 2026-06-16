@@ -7,7 +7,7 @@ const { computeConfigHash } = require('../src/utils/project-context');
 
 async function withContainer(fn) {
   const container = new ServiceContainer();
-  await container.initialize(process.cwd(), 30000);
+  await container.initialize(process.cwd(), 30000, { watch: false });
   try {
     return await fn(container);
   } finally {
@@ -100,23 +100,30 @@ async function testQueryToolsCacheHit() {
       }
     ]);
 
-    // 3. Query hotspots and verify it returns the mock data
-    const result = await queryHotspots({}, container);
-    assert.strictEqual(result.ok, true);
-    assert.strictEqual(result.count, 1);
-    assert.strictEqual(result.hotspots[0].file, 'mock-hotspot.js');
+    const originalCheckFileChanges = container.cache.checkFileChanges;
+    container.cache.checkFileChanges = () => ({ changed: false, changedFiles: [] });
 
-    // 4. Query knowledge-risk and verify mock data
-    const krResult = await queryKnowledgeRisk({ level: 'high' }, container);
-    assert.strictEqual(krResult.ok, true);
-    assert.strictEqual(krResult.count, 1);
-    assert.strictEqual(krResult.files[0].file, 'mock-kr.js');
+    try {
+      // 3. Query hotspots and verify it returns the mock data
+      const result = await queryHotspots({}, container);
+      assert.strictEqual(result.ok, true);
+      assert.strictEqual(result.count, 1);
+      assert.strictEqual(result.hotspots[0].file, 'mock-hotspot.js');
 
-    // 5. Query stability and verify mock data
-    const stResult = await queryStability({}, container);
-    assert.strictEqual(stResult.ok, true);
-    assert.strictEqual(stResult.count, 1);
-    assert.strictEqual(stResult.files[0].file, 'mock-stable.js');
+      // 4. Query knowledge-risk and verify mock data
+      const krResult = await queryKnowledgeRisk({ level: 'high' }, container);
+      assert.strictEqual(krResult.ok, true);
+      assert.strictEqual(krResult.count, 1);
+      assert.strictEqual(krResult.files[0].file, 'mock-kr.js');
+
+      // 5. Query stability and verify mock data
+      const stResult = await queryStability({}, container);
+      assert.strictEqual(stResult.ok, true);
+      assert.strictEqual(stResult.count, 1);
+      assert.strictEqual(stResult.files[0].file, 'mock-stable.js');
+    } finally {
+      container.cache.checkFileChanges = originalCheckFileChanges;
+    }
   });
 }
 

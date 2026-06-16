@@ -1,0 +1,111 @@
+{
+  "exportRecords": [
+    {
+      "kind": "function",
+      "lineEnd": 13,
+      "lineStart": 7,
+      "name": "module"
+    },
+    {
+      "kind": "class",
+      "lineEnd": 20,
+      "lineStart": 15,
+      "name": "CompanionHolder"
+    },
+    {
+      "kind": "const",
+      "lineEnd": 17,
+      "lineStart": 17,
+      "name": "CONSTANT"
+    },
+    {
+      "kind": "function",
+      "lineEnd": 18,
+      "lineStart": 18,
+      "name": "create"
+    }
+  ],
+  "exports": [
+    "module",
+    "CompanionHolder",
+    "CONSTANT",
+    "create"
+  ],
+  "functionRecords": [
+    {
+      "branchCount": 0,
+      "decorators": [],
+      "fingerprint": {
+        "branchCount": 0,
+        "callCallees": [
+          "routing"
+        ],
+        "hasTryCatch": false,
+        "isAsync": false,
+        "isGenerator": false,
+        "maxArms": 0,
+        "paramCount": 0,
+        "returnCount": 0
+      },
+      "isExported": true,
+      "kind": "function",
+      "lineEnd": 13,
+      "lineStart": 7,
+      "maxArms": 0,
+      "name": "module",
+      "returnType": null
+    },
+    {
+      "branchCount": 0,
+      "decorators": [],
+      "fingerprint": {
+        "branchCount": 0,
+        "callCallees": [
+          "CompanionHolder"
+        ],
+        "hasTryCatch": false,
+        "isAsync": false,
+        "isGenerator": false,
+        "maxArms": 0,
+        "paramCount": 0,
+        "returnCount": 0
+      },
+      "isExported": true,
+      "kind": "function",
+      "lineEnd": 18,
+      "lineStart": 18,
+      "maxArms": 0,
+      "name": "create",
+      "returnType": null
+    }
+  ],
+  "importRecords": [
+    {
+      "imported": [],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "io.ktor.server.application",
+      "usesAllExports": true
+    },
+    {
+      "imported": [],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "io.ktor.server.routing",
+      "usesAllExports": true
+    },
+    {
+      "imported": [],
+      "reExportAll": false,
+      "reExported": [],
+      "source": "io.ktor.server.response",
+      "usesAllExports": true
+    }
+  ],
+  "imports": [
+    "io.ktor.server.application.*",
+    "io.ktor.server.routing.*",
+    "io.ktor.server.response.*"
+  ],
+  "parseMode": "ast"
+}
