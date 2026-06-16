@@ -218,8 +218,11 @@ class GraphAnalyzer {
   injectPrecomputedAggregates(rows, graphSize) {
     if (!rows || rows.length === 0) return false;
     // Verify consistency: all rows should share the same version/fileCount
-    const first = rows[0];
-    if (first.fileCount !== graphSize) return false;
+    const expectedVersion = rows[0].version;
+    for (const row of rows) {
+      if (row.fileCount !== graphSize) return false;
+      if (row.version !== expectedVersion) return false;
+    }
 
     const injected = {};
     for (const row of rows) {
@@ -346,6 +349,11 @@ class GraphAnalyzer {
     // the precomputed data is likely stale.
     if (Math.abs(rows.length - graphSize) > Math.max(1, graphSize * 0.1)) {
       return false;
+    }
+    // Verify consistency: all rows should share the same version
+    const expectedVersion = rows[0].version;
+    for (const row of rows) {
+      if (row.version !== expectedVersion) return false;
     }
 
     this._impactCache.clear();

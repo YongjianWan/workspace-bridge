@@ -155,9 +155,25 @@ function testAnalyzerInjectPrecomputed() {
   const staleAgg = analyzer.injectPrecomputedAggregates([{ key: 'stats', data: '{}', version: 0, fileCount: 99 }], 2);
   assert.strictEqual(staleAgg, false);
 
+  // Reject mixed-version aggregates
+  const mixedAgg = [
+    { key: 'deadExports', data: JSON.stringify([]), version: 1, fileCount: 2 },
+    { key: 'stats', data: JSON.stringify({ files: 2 }), version: 2, fileCount: 2 },
+  ];
+  const badAgg = analyzer.injectPrecomputedAggregates(mixedAgg, 2);
+  assert.strictEqual(badAgg, false, 'Should reject mixed-version aggregates');
+
   // Reject stale impact (row count mismatch)
   const staleImp = analyzer.injectPrecomputedImpact([], 2);
   assert.strictEqual(staleImp, false);
+
+  // Reject mixed-version impact
+  const mixedImpact = [
+    { file: 'a.js', directDeps: 1, transitiveDeps: 1, directDependents: 0, transitiveDependents: 0, affectedTests: JSON.stringify([]), impactRadius: JSON.stringify(impactRadiusA), version: 1 },
+    { file: 'b.js', directDeps: 0, transitiveDeps: 0, directDependents: 0, transitiveDependents: 0, affectedTests: JSON.stringify([]), impactRadius: null, version: 2 },
+  ];
+  const badImp = analyzer.injectPrecomputedImpact(mixedImpact, 2);
+  assert.strictEqual(badImp, false, 'Should reject mixed-version impact');
 }
 
 function testAnalyzerInjectPrecomputedCorruptedRow() {

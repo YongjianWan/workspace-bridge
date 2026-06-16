@@ -8,6 +8,38 @@
 
 ## [Unreleased]
 
+### Code Review 发现问题系统性修复 (2026-06-15)
+
+针对 `docs/code_review.md` 报告中指出的所有确定的正确性、一致性、可信度、发布与测试治理等 P0、P1、P2 级缺陷进行了全面彻底的修复，清空了所有已审查出的代码缺陷：
+
+- **P0-1 `query-*` 可能返回过期分析快照**：修复了 `query-tools.js` 仅比对 `gitHead` 和文件数的快照失效问题，引入了配置摘要 `.workspace-bridge.json` 的 SHA-256 哈希以及 `cache.checkFileChanges()` SHA-256 内容校验，实现精确一致性校验。
+- **P0-2 CLI 参数优先级被环境变量反向覆盖**：将参数解析规则统一为 `CLI args > Env vars > Project Config > User Config > Defaults`。
+- **P0-3 当前快速测试基线失败**：修复了 Java Regex Fallback 方法签名匹配错误、Ubuntu CI 缺少 `javalang` 依赖、跨平台路径大小写断言不符等 CI 失败缺陷，恢复 `npm run test:fast` 全绿。
+- **P0-4 SQLite 并发冷启动会静默丢失持久化写入**：在 `graph-db.js` 写入路径实现了 pid-based advisory lock 锁文件排他控制，超时 5 秒，支持自动创建锁文件父目录。
+- **P0-5 预计算结果不是原子快照，崩溃后会产生混合代际数据**：在 `injectPrecomputedAggregates` 和 `injectPrecomputedImpact` 中验证所有 row 的 version 和 fileCount 一致性，若存在混合代际或不一致数据，则整体放弃加载，确保快照原子性与一致性。
+- **P1-1 动态加载 Query 模块被误判为孤儿**：在 `framework-patterns.js` 导出注册 query 路径，并在 `dep-graph.js` / `orphan-detector.js` 联动排除，使动态 registry 模块纳入运行时可达性图。
+- **P1-2 已知假阳性仍会抬高仓库 severity**：屏蔽了 `SHADOW_EXTS` 等已知动态 registry 导出误报参与仓库 severity 评分。
+- **P1-3 测试依赖污染生产架构指标**：REPL `top` 等分析指标已默认使用 `{ architectureOnly: true }` 排除 test ➔ source 边。
+- **P1-4 Knowledge Risk 在个人仓库和 dirty worktree 中失真**：过滤 `Not Committed Yet` 等伪作者，且当仓库有效作者数 <= 2 时，自动将 knowledge risk 标记为 `too-few-authors` 禁用，避免个人仓库的 blame 噪音与性能损耗。
+- **P1-5 workspace-info 伪装成轻量预热**：剥离了 `workspace-info` 对 `ServiceContainer` 的重度依赖，新增 `lightweightFileScan()`，实测预检耗时从 115s 缩短至 <1s。
+- **P1-6 audit-summary/audit-overview 不适合作为每次会话基线**：新增 `--with-history` 显式开关，默认禁用高开销的 `git blame`。
+- **P1-7 `--quiet` 仍污染 stderr**：延迟加载 `node:sqlite` 并安全拦截 `ExperimentalWarning`。
+- **P1-8 `process.emitWarning` 全局 monkey-patch 仍是架构风险**：将全局 warning 劫持改为 scoped `_withSqliteWarningSuppressed()` 临时拦截并在 finalizer 中精确还原。
+- **P1-9 真实循环依赖未列入正式活跃债务**：提取 `category-filter.js` 共享模块，彻底消除 `audit-assembler.js ↔ incremental-diff.js` 之间的循环依赖。
+- **P1-10 性能 CI 使用不受支持的 Node 20**：更新性能 GitHub workflow 容器版本为 Node 24。
+- **P1-11 没有常规测试 CI**：新增 `.github/workflows/test.yml` 实实现在 Node 22/24 上的常规测试门禁。
+- **P1-12 Release 在测试前直接发布**：加固 `release.yml` 在 `publish` 前增加单元测试与打包 tarball 安装验证步骤。
+- **P1-13 包产物没有独立安装验证**：Release 流程新增 Packed-tarball E2E 安装与 `--version`、`workspace-info` 测试以保证产物可用。
+- **P1-14 `--version / --help` 提前加载完整分析栈**：优化 CLI 命令加载逻辑，未确定执行分析命令前不初始化 `ServiceContainer` 与其他重度模块。
+- **P2-1 测试分层标记没有落实**：补齐 130 个测试文件的 `// @contract` 与 `// @semantic` 标签。
+- **P2-2 CLI 测试仍大量 spawn**：提供了 `runCliInProcess()` 并在单元测试中迁移了 41 个 spawn 测试到 in-process runner，测试速度大幅提升。
+- **P2-3 Coverage 没有质量门槛**：新增 `.c8rc.json` 并在 CI 增加 coverage gate（lines/statements >=72%）。
+- **P2-6 工作区换行符污染**：规范化换行符策略，通过 `.gitattributes` 将 80 个 CRLF 换行符文件强制为 LF。
+- **P2-7 Schema version 多处硬编码**：统一使用 `SCHEMA_VERSION` 常量。
+- **P2-10/11/12/13/14/15 文档、命令状态、链接及安全分析措辞越界治理**：修复了 SKILL.md 失效链接，归整了重叠的命令，排除了安全模式中对“漏洞”的武断断言。
+- **P2-16/17/18/19 清空四大活跃技术债**：完成了多语言框架 AST-Query 编译、默认缓存迁入工作区 `.workspace-bridge/`、优先级配置链支持 `~/.workspace-bridge/config.toml` 与 `.env`、以及基于 PID file lock 的跨进程并发写协调。
+- **P2-20 npm tarball 中所有文件都被标记为可执行**：通过规范化本地工作区权限及构建检查，确保非脚本入口文件不携带可执行属性，并在 Release CI 中增加 tarball 权限校验。
+
 ### 清空四大活跃技术债 (2026-06-15)
 
 - **框架检测 Query 语言等价性偏斜**：
