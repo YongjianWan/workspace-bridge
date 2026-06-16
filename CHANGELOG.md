@@ -8,6 +8,33 @@
 
 ## [Unreleased]
 
+### 修复 audit-diff 在干净仓库误报 .gitignore 变更
+
+- 调整 `src/services/cache.js` 的 `computeDefaultCacheDir()`：仅向已存在的 `.gitignore` 追加 `.workspace-bridge/` 条目，不再在缺少 `.gitignore` 的仓库中自动创建新文件，避免 `audit-diff` 等只读命令把自动生成的 `.gitignore` 统计为变更文件。
+- 在 `src/cli/commands/init.js` 的默认 `.gitignore` 条目中补充 `.workspace-bridge/`，确保 `init` 命令仍正确配置缓存目录忽略。
+- 更新 `test/tech-debt-cleanup-test.js` 以匹配新行为。
+- 验证：`node test/audit-diff-test.js`、`node test/tech-debt-cleanup-test.js` 通过；`npm run test:fast` **120/120 PASS**；`npm run test:smoke` **123/123 PASS**。
+
+### L2 代码品味修复：CLI help 与框架检测表驱动化
+
+- 在 `cli.js` 提取 `COMMON_OPTIONS` 共享选项表，消除 `printUsage` 短/长帮助之间约 70 行重复选项文案。
+- 在 `src/utils/project-context.js` 将 266 行 `detectFrameworkFromPath` if-else 链重构为 `FRAMEWORK_RULES` 配置表，保持语义等价并降低新增语言/框架时的修改成本。
+- 新增 `test/cli-help-dry-test.js` 与 `test/framework-detector-table-test.js` 覆盖重构后行为。
+- 验证：`npm run test:fast` **120/120 PASS**；`npm run test:smoke` **123/123 PASS**。
+
+### 修复默认缓存目录被索引/解析导致的 EISDIR 错误
+
+- 在 `src/utils/exclude-patterns.js` 的 `DEFAULT_EXCLUDE_DIRS` 中新增 `.workspace-bridge`，确保默认 SQLite 缓存目录及其子文件不会被 `FileIndex` 发现或 `DepGraph` 尝试解析。
+- 在 `test/file-index-exclude-test.js` 新增回归测试：在 `.workspace-bridge` 下放置 `.js` 文件，验证其不被索引。
+- 修复 `test/audit-assembler-test.js` 因缓存创建 `.gitignore` 导致 `assembleDiff` 变更文件数断言失败：改用隔离的 `cacheDir` 运行 `ServiceContainer`，避免污染 fixture 仓库。
+- 验证：`node test/file-index-exclude-test.js`、`node test/audit-assembler-test.js`、`node test/git-tools-test.js` 通过；`npm run test:fast` **118/118 PASS**；`npm run test:smoke` **121/121 PASS**。
+
+### 修复 audit-diff 误报 workspace-bridge 缓存产物
+
+- 修复 `src/tools/git-tools.js` 的 `isCacheArtifact()`：除保留 `cache.db` / `cache.db-wal` / `cache.db-shm` basename 过滤外，新增对任意位于 `.workspace-bridge/` 目录下文件路径的过滤，避免缓存锁文件等产物被 `audit-diff` 统计为变更文件。
+- 导出 `isCacheArtifact` 供单元测试使用，并在 `test/git-tools-test.js` 补充路径分段与 Windows 反斜杠场景的语义断言。
+- 验证：`npm run test:fast` **118/118 PASS**；`npm run test:smoke` **121/121 PASS**。
+
 ### 文档一致性修复 (2026-06-16)
 
 - 同步 `AGENTS.md`、`SESSION.md`、`docs/TECH_DEBT.md` 测试基线为 `npm run test:fast` **118/118 PASS**、`npm run test:smoke` **121/121 PASS**（以实际 runner 输出为准），项目规模为 totalFiles≈397 / mainline=181 / test=216。

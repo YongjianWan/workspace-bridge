@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { pathExists, readJsonSafe, toPosixPath, toRelativePosix, WORKSPACE_MARKERS } = require('./path');
+const { pathExists, readJsonSafe, toPosixPath, toRelativePosix, WORKSPACE_MARKERS, BACKSLASH_RE } = require('./path');
 
 const ROLE_PRIORITY = ['generated', 'archive', 'reference', 'active'];
 const DEFAULT_DIRECTORY_HINTS = {
@@ -28,6 +28,146 @@ const ENTRY_WEIGHT = {
   MINIMAL: 1.0,     // manage.py
 };
 
+const JS_TS_EXTS = ['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs'];
+
+// L2-4/7: table-driven framework detector replacing the 266-line if-else chain.
+// Rules are grouped by language extension and evaluated in order; the first
+// match wins, so branches within a language block remain mutually exclusive.
+const FRAMEWORK_RULES = buildFrameworkRules();
+
+function buildFrameworkRules() {
+  const and = (...preds) => (...args) => preds.every((p) => p(...args));
+  const or = (...preds) => (...args) => preds.some((p) => p(...args));
+  const pathIncludes = (frag) => (p) => p.includes(frag);
+  const pathNotPrivate = (frag) => (p, _ext, basename) => p.includes(frag) && !basename.startsWith('__');
+  const pathNotUnderscore = (frag) => (p, _ext, basename) => p.includes(frag) && !basename.startsWith('_');
+  const basenameIs = (...names) => (_p, _ext, basename) => names.includes(basename);
+  const basenameStartsWith = (prefix) => (_p, _ext, basename) => basename.startsWith(prefix);
+  const basenameEndsWith = (suffix) => (_p, _ext, basename) => basename.endsWith(suffix);
+  const basenameMatches = (re) => (_p, _ext, basename) => re.test(basename);
+
+  return [
+    {
+      exts: JS_TS_EXTS,
+      rules: [
+        [and(pathIncludes('/app/'), basenameIs('page.tsx', 'page.ts', 'page.jsx', 'page.js')), { framework: 'nextjs-app', reason: 'nextjs-app-page', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [and(pathIncludes('/app/'), basenameIs('layout.tsx', 'layout.ts', 'layout.jsx', 'layout.js')), { framework: 'nextjs-app', reason: 'nextjs-layout', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH }],
+        [and(pathIncludes('/app/'), basenameIs('route.ts', 'route.js')), { framework: 'nextjs-api', reason: 'nextjs-api-route', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [and(pathIncludes('/app/'), basenameIs('loading.tsx', 'loading.ts')), { framework: 'nextjs-app', reason: 'nextjs-loading', isEntry: false }],
+        [and(pathIncludes('/app/'), basenameIs('error.tsx', 'error.ts')), { framework: 'nextjs-app', reason: 'nextjs-error', isEntry: false }],
+        [(p) => p.includes('/pages/') && !p.includes('/_') && !p.includes('/api/'), { framework: 'nextjs-pages', reason: 'nextjs-page', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [pathIncludes('/pages/api/'), { framework: 'nextjs-api', reason: 'nextjs-api-route', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [pathIncludes('/routes/'), { framework: 'express', reason: 'routes-folder', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH }],
+        [pathIncludes('/controllers/'), { framework: 'mvc', reason: 'controllers-folder', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH }],
+        [pathIncludes('/handlers/'), { framework: 'handlers', reason: 'handlers-folder', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH }],
+        [(p, _ext, basename, filePath) => (p.includes('/components/') || p.includes('/views/')) && /^[A-Z]/.test(path.basename(filePath)), { framework: 'react', reason: 'react-component', isEntry: false }],
+        [and(pathIncludes('/prisma/'), basenameIs('schema.prisma')), { framework: 'prisma', reason: 'prisma-schema', isEntry: false }],
+      ],
+    },
+    {
+      exts: ['.py'],
+      rules: [
+        [basenameIs('views.py'), { framework: 'django', reason: 'django-views', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [pathNotPrivate('/views/'), { framework: 'django', reason: 'django-views-dir', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [basenameStartsWith('views_'), { framework: 'django', reason: 'django-views-prefix', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [basenameIs('urls.py'), { framework: 'django', reason: 'django-urls', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH }],
+        [basenameIs('admin.py'), { framework: 'django', reason: 'django-admin', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [basenameIs('manage.py'), { framework: 'django', reason: 'django-manage', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MINIMAL }],
+        [pathIncludes('/management/commands/'), { framework: 'django', reason: 'django-management-command', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH }],
+        [basenameIs('tasks.py'), { framework: 'django', reason: 'django-tasks', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [or(basenameIs('middleware.py'), basenameMatches(/middleware.*\.py$/)), { framework: 'django', reason: 'django-middleware', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [or(basenameIs('database_router.py'), basenameMatches(/router.*\.py$/)), { framework: 'django', reason: 'django-router', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [basenameIs('context_processors.py'), { framework: 'django', reason: 'django-context-processors', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [pathNotPrivate('/templatetags/'), { framework: 'django', reason: 'django-templatetags', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [basenameIs('forms.py'), { framework: 'django', reason: 'django-forms', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [basenameIs('celery.py'), { framework: 'django', reason: 'django-celery-config', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [basenameIs('signals.py'), { framework: 'django', reason: 'django-signals-file', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [basenameIs('serializers.py'), { framework: 'django', reason: 'django-rest-serializers', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [basenameIs('viewsets.py'), { framework: 'django', reason: 'django-rest-viewsets', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [basenameIs('permissions.py'), { framework: 'django', reason: 'django-rest-permissions', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [basenameIs('authentication.py'), { framework: 'django', reason: 'django-rest-authentication', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [basenameIs('throttling.py'), { framework: 'django', reason: 'django-rest-throttling', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [(p, _ext, basename) => (p.includes('/routers/') || p.includes('/endpoints/') || p.includes('/routes/')) && !basename.startsWith('__'), { framework: 'fastapi', reason: 'api-routers', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH }],
+        [pathNotPrivate('/api/'), { framework: 'python-api', reason: 'api-folder', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+      ],
+    },
+    {
+      exts: ['.java'],
+      rules: [
+        [(p) => p.includes('/controller/') || p.includes('/controllers/'), { framework: 'spring', reason: 'spring-controller', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [basenameEndsWith('controller.java'), { framework: 'spring', reason: 'spring-controller-file', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [basenameEndsWith('application.java'), { framework: 'spring-boot', reason: 'spring-boot-application', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [basenameEndsWith('servletinitializer.java'), { framework: 'spring-boot', reason: 'spring-boot-servlet-initializer', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [basenameMatches(/filter|wrapper|validator|serializer|interceptor|listener/i), { framework: 'spring', reason: 'spring-component', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [basenameMatches(/quartz/i), { framework: 'quartz', reason: 'quartz-job', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [basenameIs('jobinvokeutil.java'), { framework: 'quartz', reason: 'quartz-util', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [basenameMatches(/typehandler/i), { framework: 'mybatis', reason: 'mybatis-typehandler', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [(p) => p.includes('/service/') || p.includes('/services/'), { framework: 'java-service', reason: 'java-service', isEntry: false }],
+        [(p) => p.includes('/repository/') || p.includes('/repositories/'), { framework: 'spring', reason: 'spring-repository', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [(p) => p.includes('/config/') || p.includes('/configuration/'), { framework: 'spring-boot', reason: 'spring-boot-config', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [pathIncludes('/mapper/'), { framework: 'mybatis', reason: 'mybatis-mapper', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [(p) => p.includes('/client/') || p.includes('/clients/'), { framework: 'spring', reason: 'spring-feign-client', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [(p) => p.includes('/listener/') || p.includes('/listeners/'), { framework: 'spring', reason: 'spring-listener', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [(p) => p.includes('/scheduler/') || p.includes('/schedulers/'), { framework: 'spring', reason: 'spring-scheduler', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+        [(p) => p.includes('/task/') || p.includes('/tasks/'), { framework: 'spring', reason: 'spring-task', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM }],
+      ],
+    },
+    {
+      exts: ['.kt'],
+      rules: [
+        [(p) => p.includes('/controller/') || p.includes('/controllers/'), { framework: 'spring-kotlin', reason: 'spring-kotlin-controller', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [basenameEndsWith('controller.kt'), { framework: 'spring-kotlin', reason: 'spring-kotlin-controller-file', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [and(pathIncludes('/routes/'), basenameEndsWith('.kt')), { framework: 'ktor', reason: 'ktor-routes', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH }],
+        [basenameIs('main.kt'), { framework: 'kotlin', reason: 'kotlin-main', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+      ],
+    },
+    {
+      exts: ['.go'],
+      rules: [
+        [(p) => p.includes('/handlers/') || p.includes('/handler/'), { framework: 'go-http', reason: 'go-handlers', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH }],
+        [pathIncludes('/routes/'), { framework: 'go-http', reason: 'go-routes', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH }],
+        [pathIncludes('/controllers/'), { framework: 'go-mvc', reason: 'go-controller', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH }],
+        [basenameIs('main.go'), { framework: 'go', reason: 'go-main', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+      ],
+    },
+    {
+      exts: ['.rs'],
+      rules: [
+        [(p) => p.includes('/handlers/') || p.includes('/routes/'), { framework: 'rust-web', reason: 'rust-handlers', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH }],
+        [basenameIs('main.rs'), { framework: 'rust', reason: 'rust-main', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [pathIncludes('/bin/'), { framework: 'rust', reason: 'rust-bin', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+      ],
+    },
+    {
+      exts: ['.c', '.cpp', '.cc'],
+      rules: [
+        [basenameIs('main.c', 'main.cpp', 'main.cc'), { framework: 'c-cpp', reason: 'c-main', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+      ],
+    },
+    {
+      exts: null,
+      rules: [
+        [and(pathIncludes('/prisma/'), basenameIs('schema.prisma')), { framework: 'prisma', reason: 'prisma-schema', isEntry: false }],
+      ],
+    },
+    {
+      exts: ['.vue'],
+      rules: [
+        [basenameIs('app.vue'), { framework: 'vue', reason: 'vue-app-entry', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [(p, _ext, basename) => (p.includes('/pages/') || p.includes('/views/')) && !basename.startsWith('_'), { framework: 'vue-router', reason: 'vue-page', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [() => true, { framework: 'vue', reason: 'vue-component', isEntry: false }],
+      ],
+    },
+    {
+      exts: ['.svelte'],
+      rules: [
+        [pathIncludes('/routes/'), { framework: 'sveltekit', reason: 'sveltekit-route', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH }],
+        [() => true, { framework: 'svelte', reason: 'svelte-component', isEntry: false }],
+      ],
+    },
+  ];
+}
+
 /**
  * Detect framework from file path patterns.
  * Pure path inference — belongs to project-context layer.
@@ -35,270 +175,21 @@ const ENTRY_WEIGHT = {
  * @returns {{framework: string, reason: string, isEntry: boolean, entryPointWeight?: number} | null}
  */
 function detectFrameworkFromPath(filePath) {
-  const normalized = filePath.replace(/\\/g, '/');
+  const normalized = filePath.replace(BACKSLASH_RE, '/');
   let p = normalized.toLowerCase();
   if (!p.startsWith('/')) p = '/' + p;
 
   const ext = path.extname(filePath).toLowerCase();
   const basename = path.basename(filePath).toLowerCase();
 
-  // ========== JAVASCRIPT / TYPESCRIPT ==========
-  if (ext === '.js' || ext === '.ts' || ext === '.jsx' || ext === '.tsx' || ext === '.mjs' || ext === '.cjs') {
-    // Next.js App Router
-    if (p.includes('/app/')) {
-      if (basename === 'page.tsx' || basename === 'page.ts' || basename === 'page.jsx' || basename === 'page.js') {
-        return { framework: 'nextjs-app', reason: 'nextjs-app-page', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-      }
-      if (basename === 'layout.tsx' || basename === 'layout.ts' || basename === 'layout.jsx' || basename === 'layout.js') {
-        return { framework: 'nextjs-app', reason: 'nextjs-layout', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH };
-      }
-      if (basename === 'route.ts' || basename === 'route.js') {
-        return { framework: 'nextjs-api', reason: 'nextjs-api-route', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-      }
-      if (basename === 'loading.tsx' || basename === 'loading.ts') {
-        return { framework: 'nextjs-app', reason: 'nextjs-loading', isEntry: false };
-      }
-      if (basename === 'error.tsx' || basename === 'error.ts') {
-        return { framework: 'nextjs-app', reason: 'nextjs-error', isEntry: false };
+  for (const language of FRAMEWORK_RULES) {
+    if (language.exts && !language.exts.includes(ext)) continue;
+    for (const [match, result] of language.rules) {
+      if (match(p, ext, basename, filePath)) {
+        return result;
       }
     }
-
-    // Next.js Pages Router
-    if (p.includes('/pages/') && !p.includes('/_') && !p.includes('/api/')) {
-      return { framework: 'nextjs-pages', reason: 'nextjs-page', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-    if (p.includes('/pages/api/')) {
-      return { framework: 'nextjs-api', reason: 'nextjs-api-route', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-
-    // Express / generic routes & controllers
-    if (p.includes('/routes/')) {
-      return { framework: 'express', reason: 'routes-folder', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH };
-    }
-    if (p.includes('/controllers/')) {
-      return { framework: 'mvc', reason: 'controllers-folder', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH };
-    }
-    if (p.includes('/handlers/')) {
-      return { framework: 'handlers', reason: 'handlers-folder', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH };
-    }
-
-    // React components (PascalCase filename)
-    if ((p.includes('/components/') || p.includes('/views/')) && /^[A-Z]/.test(path.basename(filePath))) {
-      return { framework: 'react', reason: 'react-component', isEntry: false };
-    }
-
-    // Prisma schema
-    if (p.includes('/prisma/') && basename === 'schema.prisma') {
-      return { framework: 'prisma', reason: 'prisma-schema', isEntry: false };
-    }
   }
-
-  // ========== PYTHON ==========
-  if (ext === '.py') {
-    if (basename === 'views.py') {
-      return { framework: 'django', reason: 'django-views', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-    if (p.includes('/views/') && !basename.startsWith('__')) {
-      return { framework: 'django', reason: 'django-views-dir', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-    if (basename.startsWith('views_') && ext === '.py') {
-      return { framework: 'django', reason: 'django-views-prefix', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-    if (basename === 'urls.py') {
-      return { framework: 'django', reason: 'django-urls', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH };
-    }
-    if (basename === 'admin.py') {
-      return { framework: 'django', reason: 'django-admin', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (basename === 'manage.py') {
-      return { framework: 'django', reason: 'django-manage', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MINIMAL };
-    }
-    if (p.includes('/management/commands/')) {
-      return { framework: 'django', reason: 'django-management-command', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH };
-    }
-    if (basename === 'tasks.py') {
-      return { framework: 'django', reason: 'django-tasks', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    // P71: Django configuration-driven entry points
-    if (basename === 'middleware.py' || /middleware.*\.py$/.test(basename)) {
-      return { framework: 'django', reason: 'django-middleware', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (basename === 'database_router.py' || /router.*\.py$/.test(basename)) {
-      return { framework: 'django', reason: 'django-router', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (basename === 'context_processors.py') {
-      return { framework: 'django', reason: 'django-context-processors', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (p.includes('/templatetags/') && !basename.startsWith('__')) {
-      return { framework: 'django', reason: 'django-templatetags', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (basename === 'forms.py') {
-      return { framework: 'django', reason: 'django-forms', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (basename === 'celery.py') {
-      return { framework: 'django', reason: 'django-celery-config', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (basename === 'signals.py') {
-      return { framework: 'django', reason: 'django-signals-file', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    // Django REST framework
-    if (basename === 'serializers.py') {
-      return { framework: 'django', reason: 'django-rest-serializers', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (basename === 'viewsets.py') {
-      return { framework: 'django', reason: 'django-rest-viewsets', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (basename === 'permissions.py') {
-      return { framework: 'django', reason: 'django-rest-permissions', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (basename === 'authentication.py') {
-      return { framework: 'django', reason: 'django-rest-authentication', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (basename === 'throttling.py') {
-      return { framework: 'django', reason: 'django-rest-throttling', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (
-      (p.includes('/routers/') || p.includes('/endpoints/') || p.includes('/routes/')) &&
-      !basename.startsWith('__')
-    ) {
-      return { framework: 'fastapi', reason: 'api-routers', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH };
-    }
-    if (p.includes('/api/') && !basename.startsWith('__')) {
-      return { framework: 'python-api', reason: 'api-folder', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-  }
-
-  // ========== JAVA ==========
-  if (ext === '.java') {
-    if (p.includes('/controller/') || p.includes('/controllers/')) {
-      return { framework: 'spring', reason: 'spring-controller', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-    if (basename.endsWith('controller.java')) {
-      return { framework: 'spring', reason: 'spring-controller-file', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-    // Spring Boot application entry classes
-    if (basename.endsWith('application.java')) {
-      return { framework: 'spring-boot', reason: 'spring-boot-application', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-    if (basename.endsWith('servletinitializer.java')) {
-      return { framework: 'spring-boot', reason: 'spring-boot-servlet-initializer', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-    // P79: Spring runtime-assembly components (Filter/Wrapper/Validator/Serializer/Interceptor/Listener)
-    if (/filter/i.test(basename) || /wrapper/i.test(basename) || /validator/i.test(basename) ||
-        /serializer/i.test(basename) || /interceptor/i.test(basename) || /listener/i.test(basename)) {
-      return { framework: 'spring', reason: 'spring-component', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    // P80: Quartz scheduler classes
-    if (/quartz/i.test(basename)) {
-      return { framework: 'quartz', reason: 'quartz-job', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (basename === 'jobinvokeutil.java') {
-      return { framework: 'quartz', reason: 'quartz-util', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    // P81: MyBatis TypeHandler
-    if (/typehandler/i.test(basename)) {
-      return { framework: 'mybatis', reason: 'mybatis-typehandler', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (p.includes('/service/') || p.includes('/services/')) {
-      return { framework: 'java-service', reason: 'java-service', isEntry: false };
-    }
-    if (p.includes('/repository/') || p.includes('/repositories/')) {
-      return { framework: 'spring', reason: 'spring-repository', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (p.includes('/config/') || p.includes('/configuration/')) {
-      return { framework: 'spring-boot', reason: 'spring-boot-config', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (p.includes('/mapper/')) {
-      return { framework: 'mybatis', reason: 'mybatis-mapper', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (p.includes('/client/') || p.includes('/clients/')) {
-      return { framework: 'spring', reason: 'spring-feign-client', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (p.includes('/listener/') || p.includes('/listeners/')) {
-      return { framework: 'spring', reason: 'spring-listener', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (p.includes('/scheduler/') || p.includes('/schedulers/')) {
-      return { framework: 'spring', reason: 'spring-scheduler', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-    if (p.includes('/task/') || p.includes('/tasks/')) {
-      return { framework: 'spring', reason: 'spring-task', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM };
-    }
-  }
-
-  // ========== KOTLIN ==========
-  if (ext === '.kt') {
-    if (p.includes('/controller/') || p.includes('/controllers/')) {
-      return { framework: 'spring-kotlin', reason: 'spring-kotlin-controller', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-    if (basename.endsWith('controller.kt')) {
-      return { framework: 'spring-kotlin', reason: 'spring-kotlin-controller-file', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-    if (p.includes('/routes/') && basename.endsWith('.kt')) {
-      return { framework: 'ktor', reason: 'ktor-routes', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH };
-    }
-    if (basename === 'main.kt') {
-      return { framework: 'kotlin', reason: 'kotlin-main', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-  }
-
-  // ========== GO ==========
-  if (ext === '.go') {
-    if (p.includes('/handlers/') || p.includes('/handler/')) {
-      return { framework: 'go-http', reason: 'go-handlers', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH };
-    }
-    if (p.includes('/routes/')) {
-      return { framework: 'go-http', reason: 'go-routes', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH };
-    }
-    if (p.includes('/controllers/')) {
-      return { framework: 'go-mvc', reason: 'go-controller', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH };
-    }
-    if (basename === 'main.go') {
-      return { framework: 'go', reason: 'go-main', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-  }
-
-  // ========== RUST ==========
-  if (ext === '.rs') {
-    if (p.includes('/handlers/') || p.includes('/routes/')) {
-      return { framework: 'rust-web', reason: 'rust-handlers', isEntry: true, entryPointWeight: ENTRY_WEIGHT.MEDIUM_HIGH };
-    }
-    if (basename === 'main.rs') {
-      return { framework: 'rust', reason: 'rust-main', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-    if (p.includes('/bin/')) {
-      return { framework: 'rust', reason: 'rust-bin', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-  }
-
-  // ========== C / C++ ==========
-  if (ext === '.c' || ext === '.cpp' || ext === '.cc') {
-    if (basename === 'main.c' || basename === 'main.cpp' || basename === 'main.cc') {
-      return { framework: 'c-cpp', reason: 'c-main', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-  }
-
-  // ========== PRISMA ==========
-  if (basename === 'schema.prisma' && p.includes('/prisma/')) {
-    return { framework: 'prisma', reason: 'prisma-schema', isEntry: false };
-  }
-
-  // ========== VUE / SVELTE ==========
-  if (ext === '.vue') {
-    if (basename === 'app.vue') {
-      return { framework: 'vue', reason: 'vue-app-entry', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-    if ((p.includes('/pages/') || p.includes('/views/')) && !basename.startsWith('_')) {
-      return { framework: 'vue-router', reason: 'vue-page', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-    return { framework: 'vue', reason: 'vue-component', isEntry: false };
-  }
-  if (ext === '.svelte') {
-    if (p.includes('/routes/')) {
-      return { framework: 'sveltekit', reason: 'sveltekit-route', isEntry: true, entryPointWeight: ENTRY_WEIGHT.HIGH };
-    }
-    return { framework: 'svelte', reason: 'svelte-component', isEntry: false };
-  }
-
   return null;
 }
 
@@ -878,4 +769,6 @@ module.exports = {
   ENTRY_WEIGHT,
   detectFrameworkFromPath,
   DEFAULT_DIRECTORY_HINTS,
+  FRAMEWORK_RULES,
+  JS_TS_EXTS,
 };

@@ -121,12 +121,35 @@ async function testActiveDirNotExcluded() {
   cleanupTempDir(root);
 }
 
+async function testWorkspaceBridgeCacheDirExcluded() {
+  const root = makeTempDir('wb-exclude-cache-dir-');
+  fs.mkdirSync(path.join(root, 'src'));
+  fs.mkdirSync(path.join(root, '.workspace-bridge'));
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'test' }), 'utf8');
+  fs.writeFileSync(path.join(root, 'src', 'app.js'), 'export const x = 1;\n');
+  // Place a .js file inside the cache directory so the test would fail if
+  // FileIndex recursed into .workspace-bridge (regression guard for EISDIR).
+  fs.writeFileSync(path.join(root, '.workspace-bridge', 'cached.js'), 'export const cached = 1;\n');
+
+  const cache = new WorkspaceCache(root);
+  const index = new FileIndex(root, cache);
+  await index.build(30000, { watch: false });
+
+  const files = Array.from(cache.fileMetadata.keys());
+  assert.strictEqual(files.length, 1, `expected 1 indexed file, got ${files.length}`);
+  assert(files.some((f) => f.includes('app.js')), 'app.js should be indexed');
+  assert(!files.some((f) => f.includes('.workspace-bridge')), '.workspace-bridge cache dir should NOT be indexed');
+
+  cleanupTempDir(root);
+}
+
 async function main() {
   await testArchiveDirExcluded();
   await testReferenceDirExcluded();
   await testGeneratedDirExcluded();
   await testGeneratedDirExcludedByDefault();
   await testActiveDirNotExcluded();
+  await testWorkspaceBridgeCacheDirExcluded();
 }
 
 main().catch((e) => {

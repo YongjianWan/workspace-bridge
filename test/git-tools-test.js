@@ -1,7 +1,7 @@
 // @semantic
 const assert = require('assert');
 const path = require('path');
-const { getChangedFiles, getChangedLineRanges, getFileHistoryRisk, getDiffNumstat, parsePorcelainV1Line } = require('../src/tools/git-tools');
+const { getChangedFiles, getChangedLineRanges, getFileHistoryRisk, getDiffNumstat, parsePorcelainV1Line, isCacheArtifact } = require('../src/tools/git-tools');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -117,6 +117,27 @@ function testParsePorcelainV1Line() {
   assert.strictEqual(parsePorcelainV1Line('?? '), null); // empty path
 }
 
+function testIsCacheArtifact() {
+  // Basename checks (preserved for backward compatibility)
+  assert.strictEqual(isCacheArtifact('cache.db'), true);
+  assert.strictEqual(isCacheArtifact('cache.db-wal'), true);
+  assert.strictEqual(isCacheArtifact('cache.db-shm'), true);
+  assert.strictEqual(isCacheArtifact('src/cache.db'), true);
+
+  // Any file inside a .workspace-bridge/ directory should be filtered,
+  // including lock files and other artifacts that share cache.db basenames.
+  assert.strictEqual(isCacheArtifact('.workspace-bridge/lock'), true);
+  assert.strictEqual(isCacheArtifact('.workspace-bridge/cache.db'), true);
+  assert.strictEqual(isCacheArtifact('.workspace-bridge/any-file.txt'), true);
+  assert.strictEqual(isCacheArtifact('path/to/.workspace-bridge/artifact.lock'), true);
+  assert.strictEqual(isCacheArtifact('C:\\Users\\project\\.workspace-bridge\\lock'), true);
+
+  // Negative cases
+  assert.strictEqual(isCacheArtifact('foo.workspace-bridge/file.txt'), false);
+  assert.strictEqual(isCacheArtifact('src/cache.db.bak'), false);
+  assert.strictEqual(isCacheArtifact('readme.md'), false);
+}
+
 async function main() {
   await testGetChangedFilesStaged();
   await testGetChangedFilesSince();
@@ -126,6 +147,7 @@ async function main() {
   await testGetFileHistoryRisk();
   await testGetDiffNumstat();
   testParsePorcelainV1Line();
+  testIsCacheArtifact();
 }
 
 main();

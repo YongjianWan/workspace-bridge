@@ -84,8 +84,10 @@ async function runTests() {
   runInDir('git', ['add', '.'], tempRoot);
   commitAll(tempRoot, 'Initial commit');
 
-  // Initialize container
-  container = new ServiceContainer({ quiet: true });
+  // Initialize container with an isolated cache dir so the default
+  // .workspace-bridge cache directory and its .gitignore entry are not
+  // created inside the fixture repository.
+  container = new ServiceContainer({ quiet: true, cacheDir: path.join(tempRoot, '.cache') });
   await container.initialize(tempRoot);
 
   // 1. Test assembleSummary

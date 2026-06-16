@@ -43,6 +43,7 @@ async function initCmd(parsed, _container) {
   const gitignorePath = path.join(root, '.gitignore');
   const GITIGNORE_ENTRIES = [
     '# workspace-bridge cache',
+    '.workspace-bridge/',
     '.workspace-bridge-cache.json',
     '.workspace-bridge-cache.json.bak',
     '.tmp-*.json',

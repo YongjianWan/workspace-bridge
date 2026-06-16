@@ -72,7 +72,10 @@ function computeDefaultCacheDir(workspaceRoot) {
     cacheDir = fallbackDir;
   }
 
-  // Ensure gitignore if we are using the preferred workspace directory
+  // Ensure gitignore if we are using the preferred workspace directory.
+  // Only append to an existing .gitignore; do not create a new one, so
+  // read-only commands like audit-diff do not surprise the user with an
+  // untracked .gitignore file. Users can run `init` to create one.
   if (cacheDir === preferredDir) {
     try {
       const gitignorePath = path.join(workspaceRoot, '.gitignore');
@@ -83,8 +86,6 @@ function computeDefaultCacheDir(workspaceRoot) {
           const separator = content.endsWith('\n') ? '' : '\n';
           fs.appendFileSync(gitignorePath, separator + entry, 'utf8');
         }
-      } else {
-        fs.writeFileSync(gitignorePath, entry, 'utf8');
       }
     } catch {}
   }

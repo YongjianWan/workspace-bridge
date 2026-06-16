@@ -5,7 +5,7 @@
 const path = require('path');
 const { normalizePathKey, matchesPathFragment } = require('./path');
 
-const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', 'target', 'bin', 'obj', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', '.idea', '.vscode', 'vendor', 'generated'];
+const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', 'target', 'bin', 'obj', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', '.idea', '.vscode', 'vendor', 'generated', '.workspace-bridge'];
 
 /**
  * Base exclusion check used by both FileIndex and DependencyGraph.

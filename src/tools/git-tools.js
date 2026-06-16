@@ -119,11 +119,17 @@ async function ensureGitRepo(root) {
   return null;
 }
 
+// Match .workspace-bridge/ as a complete path segment, regardless of
+// leading/trailing context or path separator style (forward/backslash).
+const WORKSPACE_BRIDGE_DIR_RE = /(^|\/)\.workspace-bridge\//;
+
 function isCacheArtifact(filePath) {
   const base = path.basename(filePath);
+  const normalized = filePath.replace(/\\/g, '/');
   return base === 'cache.db'
     || base === 'cache.db-wal'
-    || base === 'cache.db-shm';
+    || base === 'cache.db-shm'
+    || WORKSPACE_BRIDGE_DIR_RE.test(normalized);
 }
 
 /**
@@ -645,4 +651,5 @@ module.exports = {
   parseBlamePorcelain,
   computeKnowledgeRisk,
   isUncommittedAuthor,
+  isCacheArtifact,
 };

@@ -122,5 +122,5 @@
 
 ---
 
-*Last updated: 2026-06-16（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=1；docs-consistency 同步后无变化）*
+*Last updated: 2026-06-16（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=1；本轮新增修复：audit-diff .gitignore 误报、缓存目录排除与产物过滤、CLI help 与框架检测表驱动化）*
 
