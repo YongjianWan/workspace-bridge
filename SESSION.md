@@ -37,7 +37,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**所有测试全部 PASS**；`npm run test:fast` **120/120 PASS**（~30s），`npm run test:smoke` **123/123 PASS**（~60s）。开发迭代首选 `npm run test:fast`；41 个测试文件已从 spawn 迁移到 in-process runner。
+- 测试：**所有测试全部 PASS**；`npm run test:fast` **123/123 PASS**（~30s），`npm run test:smoke` **126/126 PASS**（~60s）。开发迭代首选 `npm run test:fast`；41 个测试文件已从 spawn 迁移到 in-process runner。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
@@ -84,7 +84,105 @@ node cli.js audit-overview --cwd . --json --quiet
 | Vue/Svelte 路由提取设计选择 | `src/services/dep-graph/framework-patterns.js` | Nuxt/SvelteKit 路由 query 只处理 `.ts` server handler；SFC 本身不提取路由 |
 
 ---
+直说我的判断。
 
+## 项目处在什么阶段
+
+workspace-bridge 过去几轮做了大量的**内省循环**：写功能 → code review → 修 review 发现 → 更新文档 → 再 review。这个循环已经把 P0-P2 清零了，测试 123/123 全绿，9 语言 AST 全覆盖。
+
+但问题是：**你已经在研磨精度递减的抛光工作了。** §3.5 聚合持久化、SKILL.md 精简、弱断言清理——这些都是 5%-to-5.5% 的改进，不是 0-to-1。
+
+## 两条路线
+
+### 路线 A：继续打磨（安全、低风险、递减回报）
+
+按 ROADMAP §3.5 走：
+1. `analysis_snapshots` 落盘 + `--fields` 白名单（~100 行）
+2. 热缓存压到 <2s（需要 profile 瓶颈在哪）
+3. SKILL.md 从 264 行砍到 80 行
+4. 文档数字漂移修复
+5. `.npmignore` 排除 CHANGELOG
+
+**2-3 个会话搞完。然后呢？** 又回到找下一个打磨点的循环。
+
+### 路线 B：换个姿势——真实项目实战验证（有风险、高信息密度）
+
+你有实战基地（`C:\Users\sdses\Desktop\神思\code` 四个仓库）。但从文档看，实战主要是"跑 CLI 看输出对不对"，不是"让 AI agent 真正用 workspace-bridge 的输出来改代码，看它在哪里卡住"。
+
+**真正的产品验证是**：
+1. 拿一个真实任务（不是 workspace-bridge 自己）
+2. 让 AI agent（你自己）只通过 workspace-bridge 的 CLI 输出来理解项目结构
+3. 基于输出做代码修改
+4. 记录哪里输出有用、哪里废话、哪里缺了关键信息
+
+这会产生**比 code review 高 10 倍价值的反馈**——因为你不是在检查"代码有没有 bug"，而是在回答"这个工具作为 AI 的眼睛，看得够不够清楚"。
+
+## 我的建议
+
+**先做 30 分钟路线 A 的无脑活**（文档数字修复 + `.npmignore`），然后切路线 B。
+
+原因很简单：workspace-bridge 定位是"AI 的代码脚手架"，但你一直在用**人类工程师视角**审计它。code_review.md 是人写的 review，TECH_DEBT.md 是人的品味标准，§3.5 是人设计的 query API。
+
+缺的是：**从 AI 消费者视角回答——当我拿到 `audit-file --json` 的输出，我能不能在 5 秒内决定改这个文件要跑哪些测试、会波及哪些路由、有没有环路风险？**
+
+如果答案是"能"——那 §3.5 不急。
+如果答案是"不能，因为 X"——那 X 才是真正的下一步。
+路线 C：Stage 4 — 符号级调用图（大工程）
+ROADMAP 写的长期目标。把文件级依赖图升级到符号级 Call DAG。意味着：
+
+impact --file foo.js --symbol handleLogin 能精确告诉你只有 3 个调用者受影响，不是整个文件的 47 个 dependents
+affected-tests 从"这个文件被测试 import 了"变成"这个函数被测试调用了"
+dead-exports 从启发式猜测变成确定性判断
+成本极高（ROADMAP 自己写了"当前不做"）。需要跨文件 receiver-bound 调用解析、重载消解、继承链追踪。Spring DI / Vue 模板 / 动态 require 仍然解不了。
+
+但—— 你已经有 functionRecords、symbolRegistry、symbol-impact.js。基础设施在那里。问题是从"文件 A import 了文件 B 的 foo"到"文件 A 的 bar() 调用了文件 B 的 foo()"这一步的工程量。
+
+值得做的前提：你认为文件级粒度已经不够用了，AI 在实际修改代码时需要函数级精度。
+
+路线 D：从工具变产品 — guard 命令深化
+你刚交付了 guard 命令。这可能是 workspace-bridge 最有产品直觉的功能——在 AI 改代码之前拦截它，告诉它"你要改的这个文件会波及 47 个模块，你确定？"
+
+深化方向：
+
+pre-commit hook 集成：guard --staged --max-transitive 50 失败则阻止提交
+AI agent 自动调用：改任何文件前自动跑 guard，超阈值自动拆分修改计划
+blast radius 可视化：输出依赖扇出的 ASCII 树或 mermaid 图
+这是把 workspace-bridge 从"分析工具"变成"AI 安全护栏"的方向。卖点从"告诉你项目结构"变成"阻止 AI 搞砸事情"。
+
+路线 E：减法 — 砍功能、砍文档、砍复杂度
+反直觉的方向。项目积累了：
+
+4679 行 CHANGELOG
+760 行 code_review.md
+525 行 ROADMAP
+234 行 SESSION.md
+129 行 TECH_DEBT.md
+30+ CLI 命令
+9 语言 × 20+ 框架检测
+文档和流程正在变成产品本身的负担。 每个新会话的 agent 要读完 AGENTS.md + SESSION.md + TECH_DEBT.md 才能开工。这些文档的维护成本已经不低于代码维护。
+
+减法方向：
+
+砍掉 L2 层命令（query-hotspots/query-stability 用的人是谁？）
+把 ROADMAP 的已完成项全部移进 CHANGELOG，ROADMAP 只留未来
+SESSION.md 从 234 行砍到 50 行
+code_review.md 归档，别再维护
+从 30 个命令砍到 10 个核心命令
+路线 F：换赛道 — 把 workspace-bridge 变成 SKILL 本身
+现在的架构：CLI 是引擎，SKILL.md 是 264 行驾驶手册。AI agent 读 SKILL → 调 CLI → 解析输出 → 做决策。
+
+但如果把 workspace-bridge 的能力直接编码进 skill 的决策逻辑呢？不是"告诉 AI 有哪些命令"，而是"skill 自己判断什么时候该跑什么分析，然后直接把结论注入 AI 的上下文"。
+
+类似于从"给你一把锤子"变成"我帮你钉钉子"。
+
+总结：6 条路线的性质
+路线	性质	风险	回报
+A：继续打磨	维护	零	递减
+B：实战验证	产品发现	低	高信息密度
+C：符号级调用图	技术攻坚	高	质变（如果成功）
+D：guard 深化	产品聚焦	中	明确卖点
+E：减法	认知减负	低	可持续性
+F：SKILL 自动化	形态转换	中	改变使用方式
 ## 本轮上下文：参考仓库探索与架构借鉴（活跃）
 
 > **背景**：为验证蓝图的技术可行性和避免闭门造车，对参考仓库进行了主动同步与架构对标。
@@ -163,9 +261,8 @@ node cli.js audit-overview --cwd . --json --quiet
     *   **内容**：新建了 `java-spring.js`、`java-spring-boot.js`、`kt-spring.js`、`kt-ktor.js` 动态 Query 模块，并完成注册与测试。
 
 *   **方向 2：Graph-first 路由提取升级**
-    *   **状态**：⏳ 待开发。
-    *   **理由**：ROADMAP 中标记为 P2 高价值，能让 `impact` 输出的 `affectedRoutes[]` 走图查询，而不是重新进行高开销的 source-scan。
-    *   **交付物**：在 `builder.js` 的 parse phase 把 `extractRoutes` 结果写成 `HANDLES_ROUTE` 边或节点属性，重构 `impact` 使其通过图查询获取 affectedRoutes。
+    *   **状态**：✅ 已于 2026-06-17 交付。
+    *   **内容**：实现了通过 SQLite 递归 CTE 直接进行图查询获取 affectedRoutes，避免了全量 BFS 或 disk source-scan 开销；补全了 cache.js 中的 saveRoutes 等持久化方法与测试。
 
 *   **方向 3：CLI 可测试化入口**
     *   **状态**：✅ 已交付（`cli.js` 已导出 `runCliInProcess()`）。
@@ -219,7 +316,7 @@ node cli.js audit-overview --cwd . --json --quiet
 - **没有失败测试，不许写修复代码**（TDD）
 - **改高危文件前必须跑 impact + affected-tests**（`path.js` / `constants.js` / `dep-graph.js` / `cache.js` / `graph-db.js` / `parsers/shared.js` / `resolvers.js`）
 - **每波只修该波的问题**，不能跨波次混修
-- 每波收工前必须 `npm run test:fast` 122/122 PASS + 全量 runner 125/125 PASS
+- 每波收工前必须 `npm run test:fast` 123/123 PASS + 全量 runner 126/126 PASS
 - 每次修复后在 CHANGELOG.md [Unreleased] 追加条目（单条不超过 3 行）
 
 ---
@@ -230,4 +327,4 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ---
 
-*Last updated: 2026-06-16（DataQuality 环境降级探测完整化：shallow/sparse/submodule/LFS/monorepo 统一探测 + co-change 降级标记缓存持久化；npm run test:fast 123/123 PASS，npm run test:smoke 126/126 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-17（Phase 3.5 聚合结果持久化与细粒度查询 CLI；npm run test:fast 123/123 PASS，npm run test:smoke 126/126 PASS；schemaVersion: 1.2.0；version: 2.0.0）*

@@ -13,6 +13,17 @@ const SNAPSHOT_KEY = 'analysis_snapshot';
 
 function findSnapshot(container) {
   try {
+    const newSnapshot = container.cache?.loadAnalysisSnapshot?.('overview');
+    if (newSnapshot) {
+      return {
+        key: 'analysis_snapshot',
+        data: JSON.stringify(newSnapshot.data),
+        version: newSnapshot.version,
+        fileCount: newSnapshot.fileCount,
+        configHash: newSnapshot.configHash,
+        computedAt: newSnapshot.computedAt,
+      };
+    }
     const rows = container.cache?.loadPrecomputedAggregates?.() || [];
     return rows.find((r) => r.key === SNAPSHOT_KEY) || null;
   } catch (_) {
@@ -22,7 +33,10 @@ function findSnapshot(container) {
 
 function isSnapshotFresh(snapshot, container) {
   const currentHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
-  const currentFileCount = container.snapshot?.graph?.getAllFilePaths?.().length || 0;
+  const currentFileCount =
+    container.snapshot?.graph?.getScopeSummary?.()?.counts?.totalFiles ||
+    container.snapshot?.graph?.getAllFilePaths?.().length ||
+    0;
   const headMatch = !currentHead || !snapshot.version || snapshot.version === currentHead;
   const countMatch = !currentFileCount || !snapshot.fileCount || snapshot.fileCount === currentFileCount;
   const fileChanges = container.cache?.checkFileChanges?.();

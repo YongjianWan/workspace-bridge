@@ -76,6 +76,8 @@ function mapEnvKeyToOptionKey(key) {
     'WB_BUILTIN_ONLY': 'builtinOnly',
     'WB_WATCH': 'watch',
     'WB_STRICT_CWD': 'strictCwd',
+    'WB_FIELDS': 'fields',
+    'WB_SQL': 'sql',
   };
   if (mapping[key]) return mapping[key];
   const camel = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
@@ -210,6 +212,8 @@ function parseCliArgs(argv) {
       '--strict-cwd': true,
       '--mark-false-positive': { key: 'markFalsePositive' },
       '--service': { key: 'service' },
+      '--fields': { key: 'fields' },
+      '--sql': { key: 'sql' },
     });
   } catch (err) {
     if (!err.code) {
@@ -410,6 +414,14 @@ function parseCliArgs(argv) {
   sources.strictCwd = strictCwdRes.source;
   const strictCwd = strictCwdRes.value || false;
 
+  const fieldsRes = resolveOption(raw.fields, 'WB_FIELDS', projectConfig.fields, userConfig.fields);
+  sources.fields = fieldsRes.source;
+  const fields = fieldsRes.value ? String(fieldsRes.value) : null;
+
+  const sqlRes = resolveOption(raw.sql, 'WB_SQL', projectConfig.sql, userConfig.sql);
+  sources.sql = sqlRes.source;
+  const sql = sqlRes.value ? String(sqlRes.value) : null;
+
   const reuseHints = (raw.reuseHints || 'off').toLowerCase();
   if (reuseHints && !['on', 'off'].includes(reuseHints)) {
     throwValidationError(`Invalid --reuse-hints value: ${reuseHints}. Expected on|off`);
@@ -502,6 +514,8 @@ function parseCliArgs(argv) {
     strictCwd,
     markFalsePositive: raw.markFalsePositive || null,
     service,
+    fields,
+    sql,
     _sources: sources,
   };
 }

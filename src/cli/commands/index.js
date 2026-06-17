@@ -49,6 +49,17 @@ function makeFileCommand(handler, hasFindingsFn) {
   };
 }
 
+function applyFieldsFilter(result, fields) {
+  if (!fields) return;
+  const allowed = new Set(fields.split(',').map((f) => f.trim()));
+  const essential = ['ok', 'error', 'schemaVersion', 'command', 'hasFindings', 'staleness', 'warnings'];
+  for (const key of Object.keys(result)) {
+    if (!essential.includes(key) && !allowed.has(key)) {
+      delete result[key];
+    }
+  }
+}
+
 const COMMANDS = {
   // L1 — Curated aggregates
   'audit-summary': async (parsed, container) => {
@@ -104,6 +115,7 @@ const COMMANDS = {
           (result.knowledgeRisk?.high?.length || 0) > 0 ||
           (result.orphans?.counts?.total || 0) > 0;
       }
+      applyFieldsFilter(result, parsed.fields);
     }
     return result;
   },
@@ -127,6 +139,7 @@ const COMMANDS = {
         (result.boundaries?.violationsCount || 0) > 0 ||
         (result.smells?.smellsCount || 0) > 0 ||
         (result.astRules?.findingsCount || 0) > 0;
+      applyFieldsFilter(result, parsed.fields);
     }
     return result;
   },
@@ -239,6 +252,38 @@ const COMMANDS = {
   'query-hotspots': async (parsed, container) => queryHotspots(parsed, container),
   'query-knowledge-risk': async (parsed, container) => queryKnowledgeRisk(parsed, container),
   'query-stability': async (parsed, container) => queryStability(parsed, container),
+  'query': async (parsed, container) => {
+    if (!parsed.sql) {
+      return { ok: false, error: 'Missing --sql query string' };
+    }
+    const cleanSql = parsed.sql.trim().toLowerCase();
+    if (!cleanSql.startsWith('select') && !cleanSql.startsWith('explain select') && !cleanSql.startsWith('pragma table_info')) {
+      return { ok: false, error: 'Only SELECT, EXPLAIN SELECT, or PRAGMA table_info queries are allowed' };
+    }
+    const forbidden = /\b(insert|update|delete|drop|create|alter|replace|vacuum|pragma\s+journal_mode)\b/i;
+    if (forbidden.test(parsed.sql)) {
+      return { ok: false, error: 'Database modification keywords are not allowed' };
+    }
+    try {
+      await container.ensureReady();
+      const db = container.cache?._graphDb?.db;
+      if (!db) {
+        return { ok: false, error: 'Database not initialized' };
+      }
+      const stmt = db.prepare(parsed.sql);
+      const rows = stmt.all();
+      const { SCHEMA_VERSION } = require('../../config/constants');
+      return {
+        ok: true,
+        schemaVersion: SCHEMA_VERSION,
+        command: 'query',
+        count: rows.length,
+        rows
+      };
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    }
+  },
 
   // Self-managed (lifecycle handled internally)
   repl,
@@ -371,6 +416,11 @@ const COMMAND_GUIDES = {
     desc: 'Check blast radius and dependents limits before editing',
     when: 'Before editing files. Prevent changes with a dangerously high blast radius.',
     after: 'affected-tests or impact for details on the blast radius.',
+  },
+  query: {
+    desc: 'Execute read-only SQL query against the cache DB',
+    when: 'Need fine-grained querying of database tables like analysis_snapshots or file_metadata.',
+    after: 'None.',
   },
 };
 

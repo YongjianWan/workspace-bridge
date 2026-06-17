@@ -71,6 +71,9 @@ function formatCliResult(parsed, result, meta = {}) {
     let output = result && typeof result === 'object' ? elideDeep(result) : result;
     if (output && typeof output === 'object') {
       output.schemaVersion = schemaVersion;
+      if (parsed.command) {
+        output.command = parsed.command;
+      }
     }
     stdout = JSON.stringify(output, null, 2);
   }

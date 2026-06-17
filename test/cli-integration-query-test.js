@@ -78,6 +78,7 @@ async function testQueryCommandsE2E() {
     db.close();
 
     db = new GraphDB(dbPath);
+    db.saveAnalysisSnapshot('overview', mockPayload, gitHead, 2, '');
     const updatedRows = rows.filter(r => r.key !== 'analysis_snapshot');
     updatedRows.push({
       key: 'analysis_snapshot',

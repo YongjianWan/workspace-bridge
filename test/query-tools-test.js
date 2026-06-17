@@ -90,13 +90,20 @@ async function testQueryToolsCacheHit() {
       summary: { severity: 'low' },
     };
     
+    const fileCount =
+      container.snapshot?.graph?.getScopeSummary?.()?.counts?.totalFiles ||
+      container.snapshot?.graph?.getAllFilePaths?.().length ||
+      0;
+    const configHash = computeConfigHash(container.projectContext?.config || null);
+
+    container.cache.saveAnalysisSnapshot('overview', mockPayload, gitHead, fileCount, configHash);
     container.cache.savePrecomputedAggregates([
       {
         key: 'analysis_snapshot',
         data: JSON.stringify(mockPayload),
         version: gitHead,
-        fileCount: container.snapshot?.graph?.getAllFilePaths?.().length || 0,
-        configHash: computeConfigHash(container.projectContext?.config || null),
+        fileCount,
+        configHash,
       }
     ]);
 

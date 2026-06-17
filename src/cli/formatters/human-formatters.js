@@ -958,6 +958,47 @@ const FORMATTERS = {
     markdown: (r) => require('./guard-formatter').formatGuardMarkdown(r),
     jsonl: (r) => require('./guard-formatter').formatGuardJsonl(r),
   },
+  query: {
+    human: (r) => {
+      const lines = [`queryCount: ${r.count}`];
+      if (r.rows && r.rows.length > 0) {
+        const keys = Object.keys(r.rows[0]);
+        lines.push(keys.join(' | '));
+        lines.push('-'.repeat(keys.join(' | ').length));
+        for (const row of r.rows) {
+          lines.push(keys.map(k => String(row[k] ?? '')).join(' | '));
+        }
+      }
+      return lines.join('\n');
+    },
+    summary: (r) => `Query results: ${r.count} row(s) matched`,
+    markdown: (r) => {
+      const lines = [
+        `# SQL Query Result`,
+        ``,
+        `- **Count**: ${r.count}`,
+        ``,
+      ];
+      if (r.rows && r.rows.length > 0) {
+        const keys = Object.keys(r.rows[0]);
+        lines.push(`| ${keys.join(' | ')} |`);
+        lines.push(`| ${keys.map(() => '---').join(' | ')} |`);
+        for (const row of r.rows) {
+          lines.push(`| ${keys.map(k => String(row[k] ?? '')).join(' | ')} |`);
+        }
+      }
+      return lines.join('\n');
+    },
+    jsonl: (r) => {
+      const rec = [{ _type: 'summary', ok: r.ok, command: 'query', count: r.count }];
+      if (r.rows) {
+        for (const row of r.rows) {
+          rec.push({ _type: 'row', ...row });
+        }
+      }
+      return rec.map(JSON.stringify).join('\n');
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

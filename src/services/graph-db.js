@@ -199,6 +199,15 @@ const SCHEMA = `
     PRIMARY KEY (source, test_file)
   );
   CREATE INDEX IF NOT EXISTS idx_test_map_source ON test_map(source);
+
+  CREATE TABLE IF NOT EXISTS analysis_snapshots (
+    key TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    version TEXT NOT NULL,
+    file_count INTEGER NOT NULL,
+    config_hash TEXT NOT NULL DEFAULT '',
+    computed_at INTEGER NOT NULL DEFAULT 0
+  );
 `;
 
 function _debugError(label, err) {
@@ -1070,6 +1079,57 @@ class GraphDB {
         distance: Number(r.distance),
       })
     );
+  }
+
+  /**
+   * Save analysis snapshot to SQLite.
+   * @param {string} key
+   * @param {object} data
+   * @param {string} version
+   * @param {number} fileCount
+   * @param {string} configHash
+   */
+  saveAnalysisSnapshot(key, data, version, fileCount, configHash) {
+    return this._withWriteLock(() => {
+      try {
+        this._ensureOpen();
+        const stmt = this.db.prepare(
+          'INSERT OR REPLACE INTO analysis_snapshots (key, data, version, file_count, config_hash, computed_at) VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        const now = Math.floor(Date.now() / 1000);
+        stmt.run(key, JSON.stringify(data), version || '', fileCount ?? 0, configHash || '', now);
+        return true;
+      } catch (err) {
+        _debugError('Save analysis snapshot', err);
+        return false;
+      }
+    });
+  }
+
+  /**
+   * Load analysis snapshot from SQLite.
+   * @param {string} key
+   */
+  loadAnalysisSnapshot(key) {
+    return _runWithReadRetry(() => {
+      try {
+        this._ensureOpen();
+        const row = this.db.prepare(
+          'SELECT data, version, file_count, config_hash, computed_at FROM analysis_snapshots WHERE key = ?'
+        ).get(key);
+        if (!row) return null;
+        return {
+          data: JSON.parse(row.data),
+          version: row.version,
+          fileCount: Number(row.file_count),
+          configHash: row.config_hash,
+          computedAt: Number(row.computed_at),
+        };
+      } catch (err) {
+        _debugError('Load analysis snapshot', err);
+        return null;
+      }
+    });
   }
 }
 

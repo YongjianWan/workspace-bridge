@@ -50,6 +50,8 @@ const COMMON_OPTIONS = [
   '  --compact              Emit condensed tree and directory-level edges',
   '  --no-compact           Explicitly disable compact mode (overrides auto-compact and WB_COMPACT)',
   '  --category <list>      Comma-separated filter for audit-summary (dead-exports,unresolved,cycles,health)',
+  '  --fields <list>         Comma-separated list of fields to include in audit-overview / audit-summary',
+  '  --sql <query>           SQL select query to run against analysis_snapshots or other tables in query command',
   '  --max-files <n>        Limit returned files in audit-diff, impact, affected-tests, affected-routes, dependencies, dependents, and tree',
   '  --max-dependents <n>   Max allowed direct dependents for guard (default: 50)',
   '  --max-transitive <n>   Max allowed transitive dependents for guard (default: 50)',
@@ -111,6 +113,7 @@ Curated Commands (Tier 1 — start here):
   audit-map               Global project map (tree + edges + issue overlay)
   query-hotspots [--risk <high|medium|low>] [--limit <n>]
                             Query cached hotspots (fast slice, no full rebuild)
+  query --sql <query>     Execute read-only SQL query against the cache DB
   impact --file <path>    Find impact radius for a file
   affected-tests --file <path> [--max-depth <n>]
                             Find tests related to a file
@@ -156,6 +159,7 @@ Commands:
                             Query cached knowledge-risk files
     query-stability [--assessment <fragile|moderate|stable>] [--limit <n>]
                             Query cached stability assessment
+    query --sql <query>     Execute read-only SQL query against the cache DB
 
   L3 环境诊断 (Environment & hygiene):
     workspace-info          Detect workspace type and root

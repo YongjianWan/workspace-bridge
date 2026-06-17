@@ -773,6 +773,14 @@ class WorkspaceCache {
     return this._graphDb.loadPrecomputedAggregates();
   }
 
+  saveAnalysisSnapshot(key, data, version, fileCount, configHash) {
+    return this._graphDb.saveAnalysisSnapshot(key, data, version, fileCount, configHash);
+  }
+
+  loadAnalysisSnapshot(key) {
+    return this._graphDb.loadAnalysisSnapshot(key);
+  }
+
   savePrecomputedImpact(records) {
     return this._graphDb.savePrecomputedImpact(records);
   }

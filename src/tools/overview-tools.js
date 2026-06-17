@@ -15,8 +15,44 @@ const {
 } = require('../cli/formatters/dashboard-formatter');
 const { applyBaselineOperations } = require('./regression-tools');
 
+function isSnapshotFresh(snapshot, container, args) {
+  if (args?.hotspotData || args?.stabilityTrendData || args?.overviewDashboard) {
+    return false;
+  }
+  const currentHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
+  const currentFileCount =
+    container.snapshot?.graph?.getScopeSummary?.()?.counts?.totalFiles ||
+    container.snapshot?.graph?.getAllFilePaths?.().length ||
+    0;
+  const headMatch = !currentHead || !snapshot.version || snapshot.version === currentHead;
+  const countMatch = !currentFileCount || !snapshot.fileCount || snapshot.fileCount === currentFileCount;
+  const fileChanges = container.cache?.checkFileChanges?.();
+  const noContentChanges = !fileChanges || !fileChanges.changed;
+
+  const currentConfig = container.projectContext?.config || null;
+  const currentConfigHash = computeConfigHash(currentConfig);
+  const snapshotConfigHash = snapshot.configHash ?? '';
+  const configMatch = snapshotConfigHash === currentConfigHash;
+
+  const snapshotData = snapshot.data;
+  const historyMatch = !args?.withHistory || (snapshotData?.knowledgeRisk && !snapshotData.knowledgeRisk.disabled);
+
+  return headMatch && countMatch && noContentChanges && configMatch && historyMatch;
+}
+
 async function buildProjectOverview(args, container) {
   await container.ensureReady();
+
+  try {
+    const snapshot = container.cache?.loadAnalysisSnapshot?.('overview');
+    if (snapshot && isSnapshotFresh(snapshot, container, args)) {
+      const cloned = JSON.parse(JSON.stringify(snapshot.data));
+      applyBaselineOperations(cloned, args);
+      return cloned;
+    }
+  } catch (_) {
+    // Snapshot load failed or was corrupted; fall back to recompute
+  }
 
   // History/blame is opt-in: default audit-overview/summary should not pay the
   // cost of per-file git log/blame. Explicit historyProvider is preserved for
@@ -145,6 +181,14 @@ async function buildProjectOverview(args, container) {
 
   // Stage 3.5: Persist aggregate snapshot for query-* commands
   try {
+    const gitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
+    const fileCount = result.scope?.counts?.totalFiles || 0;
+    const configHash = computeConfigHash(container.projectContext?.config || null);
+
+    // Save to the new analysis_snapshots table
+    container.cache?.saveAnalysisSnapshot?.('overview', result, gitHead, fileCount, configHash);
+
+    // Keep writing to precomputed_aggregates for backwards-compatibility
     const snapshotPayload = {
       hotspots: result.hotspots,
       knowledgeRisk: result.knowledgeRisk,
@@ -157,9 +201,6 @@ async function buildProjectOverview(args, container) {
       aggregates: result.aggregates,
       summary: result.summary,
     };
-    const gitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
-    const fileCount = result.scope?.counts?.totalFiles || 0;
-    const configHash = computeConfigHash(container.projectContext?.config || null);
     container.cache?.savePrecomputedAggregates?.([
       { key: 'analysis_snapshot', data: JSON.stringify(snapshotPayload), version: gitHead, fileCount, configHash },
     ]);

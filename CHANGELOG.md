@@ -8,12 +8,26 @@
 
 ## [Unreleased]
 
+### Bug Fixes (2026-06-17)
+
+- **Restore `--all` CLI help flag**: Re-added `--all` to argument parser configuration in `src/cli/validate-args.js` to fix E2E help commands validation.
+- **Isolate mock query testing**: Fixed query E2E test mock injection by writing mock payload directly to the newly introduced `analysis_snapshots` table as well as `precomputed_aggregates`, avoiding cache-miss fallback issues.
+- **Deep object formatting safety**: Increased safety-net `maxDepth` limit of `elideDeep` from 8 to 12 in `src/utils/truncate.js` to prevent deep nested arrays/objects (like `functionLevelAffectedTests` list elements at depth 9) from being incorrectly elided to `null`.
+
 ### Phase 2: Graph-first HTTP Route Query (2026-06-17)
 
 - **WorkspaceCache Route Wrappers**: Added `saveRoutes`, `loadRoutes`, and `loadRoutesForFiles` to `cache.js` to enable route table persistence in SQLite.
 - **SQLite CTE Route Analysis**: Implemented `findAffectedHttpRoutes(filePath, depth)` in `graph-db.js` using a recursive CTE query that traces dependents and yields affected HTTP routes.
 - **Graph-First Route Query Integration**: Optimized `findAffectedHttpRoutes` in `query.js` to utilize the SQLite CTE path when cache is present, falling back to in-memory BFS traversal when missing.
 - **Verification**: Created [graph-first-http-routes-db-test.js](file:///c:/Users/sdses/Desktop/随机小项目/workspace-bridge/test/graph-first-http-routes-db-test.js) asserting direct DB route queries, fallback correctness, and incremental route updates.
+
+### Phase 3.5: Persistent aggregate snapshots, fine-grained queries, and SQL query CLI (2026-06-17)
+
+- **Persistent analysis snapshots**: Added `analysis_snapshots` table to SQLite cache DB schema. Implemented migration logic to auto-upgrade existing caches. Saved computed aggregates to the new table.
+- **Short-circuiting**: Integrated cache lookup into `buildProjectOverview` to skip graph computation and directly load cached snapshot if git HEAD, file count (scope-filtered), and config hash are identical.
+- **Fine-grained SQL CLI query**: Added `query` CLI command to run read-only SELECT/EXPLAIN queries against the cache DB. Built custom formatters (human/markdown/jsonl/summary) for query output. Added strict SQL injection and modification syntax validation to restrict commands to SELECT, EXPLAIN SELECT, and PRAGMA table_info.
+- **Fields filtering**: Added `--fields` argument to `audit-overview` and `audit-summary` CLI commands to prune output keys.
+- **Verification**: Created [phase35-query-sql-test.js](file:///c:/Users/sdses/Desktop/随机小项目/workspace-bridge/test/phase35-query-sql-test.js) and ensured `npm run test:fast` (123/123 PASS) and `npm run test:smoke` (126/126 PASS) run completely clean.
 
 ### DataQuality 环境降级探测完整化 (2026-06-16)
 
