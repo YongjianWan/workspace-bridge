@@ -809,6 +809,22 @@ class WorkspaceCache {
     return this._graphDb.loadTestMapForFiles(files);
   }
 
+  saveRoutes(routes) {
+    return this._graphDb.saveRoutes(routes);
+  }
+
+  loadRoutes() {
+    return this._graphDb.loadRoutes();
+  }
+
+  loadRoutesForFiles(files) {
+    return this._graphDb.loadRoutesForFiles(files);
+  }
+
+  findAffectedHttpRoutes(filePath, depth) {
+    return this._graphDb.findAffectedHttpRoutes(filePath, depth);
+  }
+
   close() {
     if (this._graphDb) {
       try {

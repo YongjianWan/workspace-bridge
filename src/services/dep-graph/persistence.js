@@ -88,6 +88,8 @@ async function savePrecomputed(depGraph) {
     }
 
     // Wave 9-2: extract and persist route declarations (no disk read, graph-first!)
+    // Always call saveRoutes so stale routes are cleared even when the graph
+    // currently has no route declarations.
     if (depGraph.cache.saveRoutes) {
       const allRoutes = [];
       for (const [filePath, info] of depGraph.graph) {
@@ -97,9 +99,7 @@ async function savePrecomputed(depGraph) {
           }
         }
       }
-      if (allRoutes.length > 0) {
-        depGraph.cache.saveRoutes(allRoutes);
-      }
+      depGraph.cache.saveRoutes(allRoutes);
     }
 
     // Save metrics

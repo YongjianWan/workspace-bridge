@@ -8,6 +8,13 @@
 
 ## [Unreleased]
 
+### Phase 2: Graph-first HTTP Route Query (2026-06-17)
+
+- **WorkspaceCache Route Wrappers**: Added `saveRoutes`, `loadRoutes`, and `loadRoutesForFiles` to `cache.js` to enable route table persistence in SQLite.
+- **SQLite CTE Route Analysis**: Implemented `findAffectedHttpRoutes(filePath, depth)` in `graph-db.js` using a recursive CTE query that traces dependents and yields affected HTTP routes.
+- **Graph-First Route Query Integration**: Optimized `findAffectedHttpRoutes` in `query.js` to utilize the SQLite CTE path when cache is present, falling back to in-memory BFS traversal when missing.
+- **Verification**: Created [graph-first-http-routes-db-test.js](file:///c:/Users/sdses/Desktop/随机小项目/workspace-bridge/test/graph-first-http-routes-db-test.js) asserting direct DB route queries, fallback correctness, and incremental route updates.
+
 ### DataQuality 环境降级探测完整化 (2026-06-16)
 
 - 新增 `src/utils/git-environment-probe.js`：统一探测 shallow clone、sparse checkout、submodule 边界（含子仓库内/外）、Git LFS pointer 以及 monorepo 错误 workspaceRoot 五种环境降级因素。

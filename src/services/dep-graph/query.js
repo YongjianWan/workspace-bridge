@@ -95,6 +95,28 @@ class GraphQuery {
   findAffectedHttpRoutes(filePath, depth = 3) {
     this._ensureReady();
     const start = this.dg.normalizeFilePath(filePath);
+
+    // Graph-first: try direct SQLite query first if cache supports it
+    if (this.dg.cache && typeof this.dg.cache.findAffectedHttpRoutes === 'function') {
+      try {
+        const dbRoutes = this.dg.cache.findAffectedHttpRoutes(start, depth);
+        if (dbRoutes) {
+          return dbRoutes.map((r) => ({
+            file: this.dg._displayPath(r.file),
+            method: r.method,
+            path: r.path,
+            framework: r.framework,
+            handler: r.handler || null,
+          }));
+        }
+      } catch (err) {
+        if (process.env.DEBUG) {
+          // eslint-disable-next-line no-console
+          console.error('[GraphQuery] findAffectedHttpRoutes SQLite fallback:', err.message);
+        }
+      }
+    }
+
     const affected = [];
 
     bfsTraverse(start, (file) => this.getDependents(file), {

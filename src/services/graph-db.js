@@ -405,6 +405,7 @@ class GraphDB {
       if (aggregateCols.length > 0 && !aggregateCols.some((c) => c.name === 'config_hash')) {
         this.db.prepare("ALTER TABLE precomputed_aggregates ADD COLUMN config_hash TEXT NOT NULL DEFAULT ''").run();
       }
+
     });
   }
 
@@ -936,6 +937,43 @@ class GraphDB {
         handler: r.handler,
       })
     );
+  }
+
+  /**
+   * Find affected HTTP routes by traversing dependents via SQLite recursive CTE.
+   * @param {string} filePath
+   * @param {number} depth
+   * @returns {Array<{file:string,method:string,path:string,framework:string,handler:string|null}>|null}
+   */
+  findAffectedHttpRoutes(filePath, depth = 3) {
+    return _runWithReadRetry(() => {
+      try {
+        this._ensureOpen();
+        const rows = this.db.prepare(`
+          WITH RECURSIVE dependents(file_path, lvl) AS (
+            SELECT ?, 0
+            UNION
+            SELECT e.source, d.lvl + 1
+            FROM edges e
+            JOIN dependents d ON e.target = d.file_path
+            WHERE e.edge_type = 'import' AND d.lvl < ?
+          )
+          SELECT DISTINCT r.file, r.method, r.path, r.framework, r.handler
+          FROM routes r
+          JOIN dependents d ON r.file = d.file_path
+        `).all(filePath, depth);
+        return rows.map((r) => ({
+          file: r.file,
+          method: r.method,
+          path: r.path,
+          framework: r.framework,
+          handler: r.handler,
+        }));
+      } catch (err) {
+        _debugError('findAffectedHttpRoutes query', err);
+        return null;
+      }
+    });
   }
 
   /**
