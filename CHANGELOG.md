@@ -18,6 +18,9 @@
 - **Refactor `audit-assembler.js` `buildFixSuggestions`**: Replaced the 6-arm flat dispatcher with an ordered `resolveTestAction()` rule table, eliminating the `flat-dispatcher` code smell while preserving identical output semantics.
 - **Document `--fields` behavior**: Updated `--help` text and `applyFieldsFilter()` JSDoc to clarify that essential envelope keys are always kept and that `audit-summary`'s deprecated `health` field must be explicitly requested.
 - **Workspace hygiene**: Removed accidentally-committed JetBrains inspection viewer artifacts (`index.html`, `script.js`, `styles.css`) from the repository root and added them to `.gitignore` so they cannot be indexed as project orphans again.
+- **IO safety: prevent symlink directory loops**: `src/services/file-index.js` `findFilesAsync()` now resolves real paths and tracks visited directories, preventing symlink cycles from causing repeated scans or stack exhaustion.
+- **IO safety: cap parser file size**: Added `LIMITS.PARSER_MAX_FILE_BYTES` (1 MB) and enforced it in `src/services/dep-graph/builder.js` `parseFileOnly()`; oversized files return `parseMode: 'none'` / `parseModeReason: 'file-too-large'` instead of being read entirely into memory.
+- **Docs fix**: Corrected `src/utils/truncate.js` JSDoc that still claimed `elideDeep` depth was capped at 8; the actual default is 12.
 
 ### Documentation: archive historical SQLite graph-storage ADR from ROADMAP (2026-06-24)
 

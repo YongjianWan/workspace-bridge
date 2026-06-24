@@ -15,6 +15,7 @@ const { DEFAULTS } = require('../config/constants');
 
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
+const realpath = promisify(fs.realpath);
 const readFile = promisify(fs.readFile);
 
 // Limit concurrent file operations to prevent memory exhaustion
@@ -158,13 +159,25 @@ class FileIndex {
    */
   async* findFilesAsync(dir, ext, maxDepth, signal) {
     const queue = [{ path: dir, depth: 0 }];
+    // Track real paths to avoid symlink loops and duplicate directory visits.
+    const visitedRealPaths = new Set();
 
     while (queue.length > 0) {
       if (signal?.aborted) return;
       const { path: current, depth } = queue.pop();
 
       if (depth > maxDepth) continue;
-      
+
+      // Resolve real path before visiting to prevent symlink loops.
+      let realCurrent;
+      try {
+        realCurrent = await realpath(current);
+      } catch {
+        realCurrent = current;
+      }
+      if (visitedRealPaths.has(realCurrent)) continue;
+      visitedRealPaths.add(realCurrent);
+
       let entries;
       try {
         entries = await readdir(current, { withFileTypes: true });
@@ -175,19 +188,32 @@ class FileIndex {
         }
         continue;
       }
-      
+
       // Process entries in batches to allow event loop to breathe
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         const fullPath = path.join(current, entry.name);
-        
-        if (entry.isDirectory()) {
+
+        let isDir = entry.isDirectory();
+        if (entry.isSymbolicLink()) {
+          try {
+            const linkStats = await stat(fullPath);
+            isDir = linkStats.isDirectory();
+          } catch {
+            // Broken symlink, skip.
+            continue;
+          }
+        }
+
+        if (isDir) {
           if (this.shouldExclude(fullPath)) continue;
+          // For symlinks, realpath resolution above will handle cycles once
+          // the directory is popped from the queue.
           queue.push({ path: fullPath, depth: depth + 1 });
         } else if (!this.shouldExclude(fullPath) && fullPath.endsWith(ext)) {
           yield fullPath;
         }
-        
+
         // Yield to event loop every N entries to prevent blocking
         if (i % DEFAULTS.FILE_INDEX_PROGRESS_BATCH === 0) {
           await new Promise(resolve => setImmediate(resolve));

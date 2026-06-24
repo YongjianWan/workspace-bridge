@@ -50,7 +50,7 @@ function elideString(str, maxLen = DEFAULTS.JSON_OUTPUT_MAX_STRING_LENGTH, ellip
  * Limits applied:
  *   - Arrays longer than `maxArrayLength` → sliced to limit
  *   - Strings longer than `maxStringLength` → elided
- *   - Objects are traversed recursively (depth capped at 8)
+ *   - Objects are traversed recursively (depth capped at 12 by default)
  *
  * @param {*} value
  * @param {object} [limits]

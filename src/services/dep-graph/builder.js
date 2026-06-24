@@ -18,9 +18,10 @@ const { CONFIG } = require('./shared');
 const { SymbolRegistry } = require('./symbol-registry');
 const { shadowCandidatesFor } = require('./shadow-candidates');
 const { WalCadence } = require('./wal-cadence');
-const { CACHE_VERSION } = require('../../config/constants');
+const { CACHE_VERSION, LIMITS } = require('../../config/constants');
 
 const readFile = promisify(fs.readFile);
+const stat = promisify(fs.stat);
 const YIELD_INTERVAL = 20; // event loop yield frequency for large repos
 class GraphBuilder {
   constructor(depGraph) {
@@ -235,7 +236,29 @@ class GraphBuilder {
       return cached.result;
     }
 
-    const content = contentOverride !== null ? contentOverride : await readFile(filePath, 'utf8');
+    let content = contentOverride;
+    if (content === null) {
+      const stats = await stat(filePath);
+      if (stats.size > LIMITS.PARSER_MAX_FILE_BYTES) {
+        return {
+          filePath,
+          graphKey,
+          content: '',
+          imports: [],
+          exports: [],
+          importRecords: [],
+          exportRecords: [],
+          functionRecords: [],
+          parseMode: 'none',
+          parseModeReason: 'file-too-large',
+          confidence: 'low',
+          package: null,
+          frameworkHint: null,
+          routes: [],
+        };
+      }
+      content = await readFile(filePath, 'utf8');
+    }
     const ext = path.extname(filePath);
     
     let imports = [];

@@ -170,5 +170,5 @@
 
 ---
 
-*Last updated: 2026-06-24（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=1；本轮修复：Rust 并发解析回退 + audit-file 验证命令生成 + mention 注释误报 + query 命令 SQL 安全加固 + snapshot short-circuit 保守化 + C-family/Python/Ruby 注释剥离状态机 + 清理 JetBrains 检查报告残留 + audit-assembler flat dispatcher 重构 + ROADMAP ADR 归档 CHANGELOG + --fields 文档化；剩余：弱断言分布）*
+*Last updated: 2026-06-24（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=1；本轮修复：Rust 并发解析回退 + audit-file 验证命令生成 + mention 注释误报 + query 命令 SQL 安全加固 + snapshot short-circuit 保守化 + C-family/Python/Ruby 注释剥离状态机 + 清理 JetBrains 检查报告残留 + audit-assembler flat dispatcher 重构 + ROADMAP ADR 归档 CHANGELOG + --fields 文档化 + IO 安全（symlink 目录循环保护 + parser 文件大小上限）+ truncate JSDoc 修正；剩余：弱断言分布）*
 

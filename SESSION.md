@@ -381,4 +381,4 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-06-24（Route B 六个 AI 消费体验/质量缺口全部修复 + 两波代码审查后续修复：query 命令 SQL 安全加固、snapshot short-circuit 保守化、C-family/Python/Ruby 注释剥离状态机、清理 JetBrains 检查报告残留、audit-assembler flat dispatcher 重构、ROADMAP ADR 归档 CHANGELOG、--fields 文档化；npm run test:fast 124/124 PASS，npm run test:smoke 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-24（Route B 六个 AI 消费体验/质量缺口全部修复 + 三波代码审查后续修复：query 命令 SQL 安全加固、snapshot short-circuit 保守化、C-family/Python/Ruby 注释剥离状态机、清理 JetBrains 检查报告残留、audit-assembler flat dispatcher 重构、ROADMAP ADR 归档 CHANGELOG、--fields 文档化、IO 安全（symlink 目录循环保护 + parser 文件大小上限）、truncate JSDoc 修正；npm run test:fast 124/124 PASS，npm run test:smoke 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
