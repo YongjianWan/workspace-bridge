@@ -27,7 +27,9 @@ function isSnapshotFresh(snapshot, container, args) {
   const headMatch = !currentHead || !snapshot.version || snapshot.version === currentHead;
   const countMatch = !currentFileCount || !snapshot.fileCount || snapshot.fileCount === currentFileCount;
   const fileChanges = container.cache?.checkFileChanges?.();
-  const noContentChanges = !fileChanges || !fileChanges.changed;
+  // Conservative: if we cannot determine whether files changed, treat the
+  // snapshot as stale rather than risk serving stale aggregates.
+  const noContentChanges = !!fileChanges && fileChanges.changed === false;
 
   const currentConfig = container.projectContext?.config || null;
   const currentConfigHash = computeConfigHash(currentConfig);

@@ -256,29 +256,23 @@ const COMMANDS = {
     if (!parsed.sql) {
       return { ok: false, error: 'Missing --sql query string' };
     }
-    const cleanSql = parsed.sql.trim().toLowerCase();
-    if (!cleanSql.startsWith('select') && !cleanSql.startsWith('explain select') && !cleanSql.startsWith('pragma table_info')) {
-      return { ok: false, error: 'Only SELECT, EXPLAIN SELECT, or PRAGMA table_info queries are allowed' };
-    }
-    const forbidden = /\b(insert|update|delete|drop|create|alter|replace|vacuum|pragma\s+journal_mode)\b/i;
-    if (forbidden.test(parsed.sql)) {
-      return { ok: false, error: 'Database modification keywords are not allowed' };
-    }
     try {
       await container.ensureReady();
-      const db = container.cache?._graphDb?.db;
-      if (!db) {
+      const queryResult = container.cache?.queryReadOnly?.(parsed.sql, { maxRows: 1000 });
+      if (!queryResult) {
         return { ok: false, error: 'Database not initialized' };
       }
-      const stmt = db.prepare(parsed.sql);
-      const rows = stmt.all();
+      if (!queryResult.ok) {
+        return queryResult;
+      }
       const { SCHEMA_VERSION } = require('../../config/constants');
       return {
         ok: true,
         schemaVersion: SCHEMA_VERSION,
         command: 'query',
-        count: rows.length,
-        rows
+        count: queryResult.count,
+        rows: queryResult.rows,
+        truncated: queryResult.truncated || false,
       };
     } catch (err) {
       return { ok: false, error: err.message || String(err) };

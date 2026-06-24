@@ -19,7 +19,7 @@
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
 node cli.js audit-overview --cwd . --json --quiet
-# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count>=0, summary.unresolved.count=0, summary.cycles.count>=0, summary.analysisCoverage.totalFiles≈415, summary.analysisCoverage.coverageRatio=1
+# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count>=0, summary.unresolved.count=0, summary.cycles.count>=0, summary.analysisCoverage.totalFiles≈413, summary.analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-overview 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
@@ -41,8 +41,8 @@ node cli.js audit-overview --cwd . --json --quiet
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~415 文件（entry=1, mainline=189, test=225）
-- 结构性指标：deadExports=1（`shadow-candidates.js` 的 `SHADOW_EXTS` 静态分析误报，已标记为 `dynamic-registry-export` 低置信误报，不参与 severity），cycles=0，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 默认 `disabledReason: 'history-not-enabled'`，`--with-history` 启用
+- 自身项目规模：~413 文件（entry=1, mainline=189, test=225）
+- 结构性指标：deadExports=1（`shadow-candidates.js` 的 `SHADOW_EXTS` 静态分析误报，已标记为 `dynamic-registry-export` 低置信误报，不参与 severity），cycles=0，unresolved=0，orphans=0；overview 维度：hotspots>0，knowledgeRisk 默认 `disabledReason: 'history-not-enabled'`，`--with-history` 启用
 - 架构债务：当前活跃 0 项，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（已无活跃条目）。
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
@@ -381,4 +381,4 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-06-20（Route B 六个 AI 消费体验/质量缺口全部修复：Rust 并发解析回退、audit-file 验证命令、affected-tests 注释误报、affectedRoutes source 标记、Rust tests/ 集成测试命令、Rust 公共 API 死导出降级；npm run test:fast 124/124 PASS，npm run test:smoke 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-24（Route B 六个 AI 消费体验/质量缺口全部修复 + 代码审查后续修复：query 命令 SQL 安全加固、snapshot short-circuit 保守化、C-family 注释剥离状态机、清理 JetBrains 检查报告残留；npm run test:fast 124/124 PASS，npm run test:smoke 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*

@@ -54,7 +54,7 @@
 | 项目 | 内容 |
 | :--- | :--- |
 | 状态 | ✅ 已修复（2026-06-20） |
-| 修复 | `analyzer.js` 新增 `stripComments()`，在 `_findAffectedTestsByMention` 中按语言族（C-family、Python、Ruby）去除注释/文档字符串后再做 mention 匹配；`affected-tests-mention-test.js` 新增 comment-only 负例 |
+| 修复 | `analyzer.js` 新增 `stripComments()`，在 `_findAffectedTestsByMention` 中按语言族（C-family / Python / Ruby）去除注释/文档字符串后再做 mention 匹配；C-family 使用小型状态机保留字符串字面量，避免误伤代码中的 `//` 或 `/*` 序列；`affected-tests-mention-test.js` 新增 comment-only 负例 |
 
 **缺口 3：`impact.affectedRoutes` 未区分生产路由与测试路由**
 
@@ -170,5 +170,5 @@
 
 ---
 
-*Last updated: 2026-06-20（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=1；本轮修复：Rust 并发解析回退 + audit-file 验证命令生成 + mention 注释误报；剩余：弱断言分布）*
+*Last updated: 2026-06-24（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=1；本轮修复：Rust 并发解析回退 + audit-file 验证命令生成 + mention 注释误报 + query 命令 SQL 安全加固 + snapshot short-circuit 保守化 + C-family 注释剥离状态机 + 清理 JetBrains 检查报告残留；剩余：弱断言分布）*
 

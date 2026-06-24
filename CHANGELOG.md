@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### Code Review Follow-up: query CLI security, snapshot freshness, and comment stripping (2026-06-24)
+
+- **Secure `query` command**: Moved SQL execution from `src/cli/commands/index.js` directly touching `container.cache._graphDb.db` into a dedicated `GraphDB.queryReadOnly()` method exposed through `WorkspaceCache`. This removes knowledge of private storage internals from the CLI layer.
+- **Stronger read-only validation**: `queryReadOnly()` now explicitly whitelists `SELECT`, `EXPLAIN SELECT`, and `PRAGMA table_info(...)`, rejects data-modification keywords, rejects multi-statement queries by checking for embedded semicolons, and caps results to 1000 rows to avoid dumping huge tables like `edges`.
+- **Conservative snapshot short-circuiting**: `src/tools/overview-tools.js` `isSnapshotFresh()` now treats an unavailable or malformed `checkFileChanges()` result as stale instead of optimistically assuming no changes.
+- **Improved C-family comment stripping**: `src/services/dep-graph/analyzer.js` `stripComments()` now uses a small state machine for C-family languages to preserve string literals while removing `//` and `/* */` comments, preventing mention-heuristic false negatives when a source stem appears inside a string.
+- **Workspace hygiene**: Removed accidentally-committed JetBrains inspection viewer artifacts (`index.html`, `script.js`, `styles.css`) from the repository root and added them to `.gitignore` so they cannot be indexed as project orphans again.
+
 ### Bug Fixes: Rust parser no longer falls back to regex under concurrent parsing (2026-06-20)
 
 - **Route B follow-up (qartez-mcp)**: During full-graph builds of Rust workspaces, some `.rs` files (especially in `tests/`) were stored with `parse_mode='regex'` / `parse_mode_reason='regex-fallback'` even though the same files parsed successfully in isolation. Root cause: tree-sitter's WASM backend is not safe for concurrent parser/query use across separate `Parser` instances sharing the same language module.
@@ -56,7 +64,7 @@
 
 - **Restore `--all` CLI help flag**: Re-added `--all` to argument parser configuration in `src/cli/validate-args.js` to fix E2E help commands validation.
 - **Isolate mock query testing**: Fixed query E2E test mock injection by writing mock payload directly to the newly introduced `analysis_snapshots` table as well as `precomputed_aggregates`, avoiding cache-miss fallback issues.
-- **Deep object formatting safety**: Increased safety-net `maxDepth` limit of `elideDeep` from 8 to 12 in `src/utils/truncate.js` to prevent deep nested arrays/objects (like `functionLevelAffectedTests` list elements at depth 9) from being incorrectly elided to `null`.
+- **Deep object formatting safety**: Increased safety-net `maxDepth` limit of `elideDeep` from 16 to 12 in `src/utils/truncate.js` to prevent deep nested arrays/objects (like `functionLevelAffectedTests` list elements at depth 9) from being incorrectly elided to `null`.
 
 ### Phase 2: Graph-first HTTP Route Query (2026-06-17)
 

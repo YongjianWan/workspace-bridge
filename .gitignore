@@ -38,3 +38,9 @@ workspace-bridge-linux
 workspace-bridge-macos
 /.playwright-mcp/
 .workspace-bridge/
+
+# JetBrains inspection reports and temporary viewer artifacts
+/index.html
+/script.js
+/styles.css
+*.inspector.html

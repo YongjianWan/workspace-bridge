@@ -781,6 +781,10 @@ class WorkspaceCache {
     return this._graphDb.loadAnalysisSnapshot(key);
   }
 
+  queryReadOnly(sql, options) {
+    return this._graphDb.queryReadOnly(sql, options);
+  }
+
   savePrecomputedImpact(records) {
     return this._graphDb.savePrecomputedImpact(records);
   }

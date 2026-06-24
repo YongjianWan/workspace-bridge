@@ -1131,6 +1131,64 @@ class GraphDB {
       }
     });
   }
+
+  /**
+   * Execute a read-only SQL query against the cache DB.
+   * Only SELECT, EXPLAIN SELECT, and PRAGMA table_info are allowed.
+   * Multi-statement queries and modification keywords are rejected.
+   * Results are capped to avoid dumping huge tables (e.g. edges).
+   *
+   * @param {string} sql
+   * @param {object} [options]
+   * @param {number} [options.maxRows]
+   * @returns {{ok: true, rows: object[], count: number, truncated: boolean} | {ok: false, error: string}}
+   */
+  queryReadOnly(sql, options = {}) {
+    return _runWithReadRetry(() => {
+      try {
+        this._ensureOpen();
+        const normalized = String(sql || '').trim();
+        if (!normalized) {
+          return { ok: false, error: 'Empty SQL query' };
+        }
+
+        const lower = normalized.toLowerCase();
+        const isSelect = lower.startsWith('select ');
+        const isExplainSelect = lower.startsWith('explain ') && lower.includes('select');
+        const isPragmaTableInfo = /^pragma\s+table_info\s*\(/i.test(normalized);
+        if (!isSelect && !isExplainSelect && !isPragmaTableInfo) {
+          return { ok: false, error: 'Only SELECT, EXPLAIN SELECT, or PRAGMA table_info are allowed' };
+        }
+
+        // Independent defense layer: reject data-modification keywords.
+        const forbidden = /\b(insert|update|delete|drop|create|alter|replace|vacuum|attach|detach|begin|commit|rollback|savepoint)\b/i;
+        if (forbidden.test(normalized)) {
+          return { ok: false, error: 'Database modification keywords are not allowed' };
+        }
+
+        // Strip a single trailing semicolon, then reject any remaining semicolons
+        // to prevent multi-statement attacks.
+        const singleStatement = normalized.replace(/;\s*$/, '');
+        if (singleStatement.includes(';')) {
+          return { ok: false, error: 'Multiple statements are not allowed' };
+        }
+
+        const maxRows = options.maxRows ?? 1000;
+        const stmt = this.db.prepare(singleStatement);
+        const rows = stmt.all();
+        const limited = rows.slice(0, maxRows);
+        return {
+          ok: true,
+          rows: limited,
+          count: limited.length,
+          truncated: rows.length > maxRows,
+        };
+      } catch (err) {
+        _debugError('Read-only query', err);
+        return { ok: false, error: err.message || String(err) };
+      }
+    });
+  }
 }
 
 module.exports = {

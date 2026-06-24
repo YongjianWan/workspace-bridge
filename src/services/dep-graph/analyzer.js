@@ -66,9 +66,7 @@ function stripComments(content, languageFamily) {
     languageFamily === 'go-family' ||
     languageFamily === 'rust-family'
   ) {
-    return content
-      .replace(/\/\*[\s\S]*?\*\//g, ' ')
-      .replace(/\/\/.*$/gm, ' ');
+    return stripCFamilyComments(content);
   }
 
   if (languageFamily === 'python-family') {
@@ -83,6 +81,67 @@ function stripComments(content, languageFamily) {
 
   // Unknown/other families: do not strip; keep existing behavior.
   return content;
+}
+
+/**
+ * Remove C-style comments while preserving string literals.
+ * Handles single/double/backtick quotes and escape sequences.
+ * Rust raw strings (r#"..."#) and JS template literal interpolation are not
+ * fully parsed; this is intentional for speed.
+ */
+function stripCFamilyComments(content) {
+  let result = '';
+  let i = 0;
+  while (i < content.length) {
+    const ch = content[i];
+    const next = content[i + 1];
+
+    // String literals: skip their entire contents so comment-like sequences
+    // inside strings are preserved.
+    if (ch === '"' || ch === "'" || ch === '`') {
+      const quote = ch;
+      let j = i + 1;
+      while (j < content.length) {
+        if (content[j] === '\\') {
+          j += 2;
+        } else if (content[j] === quote) {
+          j += 1;
+          break;
+        } else {
+          j += 1;
+        }
+      }
+      result += content.slice(i, j);
+      i = j;
+      continue;
+    }
+
+    // Block comment.
+    if (ch === '/' && next === '*') {
+      let j = i + 2;
+      while (j < content.length - 1 && !(content[j] === '*' && content[j + 1] === '/')) {
+        j += 1;
+      }
+      result += ' ';
+      i = j + 2;
+      continue;
+    }
+
+    // Line comment.
+    if (ch === '/' && next === '/') {
+      result += ' ';
+      let j = i + 2;
+      while (j < content.length && content[j] !== '\n') {
+        j += 1;
+      }
+      i = j;
+      continue;
+    }
+
+    result += ch;
+    i += 1;
+  }
+  return result;
 }
 
 class GraphAnalyzer {
