@@ -8,13 +8,21 @@
 
 ## [Unreleased]
 
-### Code Review Follow-up: query CLI security, snapshot freshness, and comment stripping (2026-06-24)
+### Code Review Follow-up: query CLI security, snapshot freshness, comment stripping, and workspace hygiene (2026-06-24)
 
 - **Secure `query` command**: Moved SQL execution from `src/cli/commands/index.js` directly touching `container.cache._graphDb.db` into a dedicated `GraphDB.queryReadOnly()` method exposed through `WorkspaceCache`. This removes knowledge of private storage internals from the CLI layer.
 - **Stronger read-only validation**: `queryReadOnly()` now explicitly whitelists `SELECT`, `EXPLAIN SELECT`, and `PRAGMA table_info(...)`, rejects data-modification keywords, rejects multi-statement queries by checking for embedded semicolons, and caps results to 1000 rows to avoid dumping huge tables like `edges`.
 - **Conservative snapshot short-circuiting**: `src/tools/overview-tools.js` `isSnapshotFresh()` now treats an unavailable or malformed `checkFileChanges()` result as stale instead of optimistically assuming no changes.
 - **Improved C-family comment stripping**: `src/services/dep-graph/analyzer.js` `stripComments()` now uses a small state machine for C-family languages to preserve string literals while removing `//` and `/* */` comments, preventing mention-heuristic false negatives when a source stem appears inside a string.
+- **Improved Python/Ruby comment stripping**: Added `stripHashFamilyComments()` to preserve single/double/triple-quoted strings while removing `#` line comments, avoiding mention-heuristic false negatives for Python/Ruby source stems inside strings.
+- **Refactor `audit-assembler.js` `buildFixSuggestions`**: Replaced the 6-arm flat dispatcher with an ordered `resolveTestAction()` rule table, eliminating the `flat-dispatcher` code smell while preserving identical output semantics.
+- **Document `--fields` behavior**: Updated `--help` text and `applyFieldsFilter()` JSDoc to clarify that essential envelope keys are always kept and that `audit-summary`'s deprecated `health` field must be explicitly requested.
 - **Workspace hygiene**: Removed accidentally-committed JetBrains inspection viewer artifacts (`index.html`, `script.js`, `styles.css`) from the repository root and added them to `.gitignore` so they cannot be indexed as project orphans again.
+
+### Documentation: archive historical SQLite graph-storage ADR from ROADMAP (2026-06-24)
+
+- **Background**: `ROADMAP.md` was trimmed to keep only active/future directions. The delivered ADR section covering the SQLite graph-storage decision, target architecture, schema design, implementation phases, concurrency model, and rollback rationale has been migrated to the `Historical Architecture Records` section at the end of this CHANGELOG to preserve decision history.
+- This satisfies the project rule: *active documents keep only current state; historical information goes into CHANGELOG*.
 
 ### Bug Fixes: Rust parser no longer falls back to regex under concurrent parsing (2026-06-20)
 
@@ -4749,3 +4757,244 @@
 [0.6.0]: https://github.com/user/workspace-bridge/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/user/workspace-bridge/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/user/workspace-bridge/releases/tag/v0.5.0
+
+## Historical Architecture Records
+
+> Decision records and design documents that were removed from active roadmaps/docs
+> to keep them focused on current/future work. They are preserved here as history.
+
+## ADR: 持久化图存储（SQLite）
+
+> 状态：**已交付**  
+> 决策：SQLite 作为核心图存储，不引入图数据库  
+> 交付内容：`saveIncremental()` 增量写入、`updateFiles()` 增量更新内存图、`fileIndex` 监听 + 批量回调、预计算 aggregates 落盘。  
+> 详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
+
+---
+
+## 决策
+
+**用 SQLite 作为核心图存储和预计算存储，不引入图数据库。**
+
+### 为什么不是图数据库？
+
+| 维度 | SQLite (better-sqlite3) | KuzuDB 等嵌入式图库 |
+|------|------------------------|---------------------|
+| 依赖大小 | 已有，0 新增 | ~50MB+ native binding |
+| Windows 编译 | 无风险 | node-gyp / prebuild 风险 |
+| 查询语言 | SQL（递归 CTE 已验证 1ms 级） | Cypher（需要学习成本） |
+| 增量更新 | WAL + INSERT OR REPLACE 已验证 | 增量更新文档稀缺 |
+| 表格查询 | 绝对主场 | 需要把简单 SELECT 包装成 Cypher |
+| 调试 | `sqlite3 cache.db` 直接查 | 需要专用工具 |
+
+workspace-bridge 当前是**文件级**图（节点 = 文件），即使在 1329 文件的 GitNexus 项目上，节点数也仅千级。SQLite `WITH RECURSIVE` 处理这个规模绰绰有余。若未来进入符号级 call graph（十万级节点），再考虑迁移，数据迁出只需 `SELECT * FROM edges`。
+
+> **不为未来可能的需求付现在确定的成本。**
+
+---
+
+## 目标架构
+
+```
+[文件系统 Watcher] → [增量分析器] → [SQLite 知识库]
+                                          ↑
+                              AI 直接查库 / CLI 薄查询层
+```
+
+- **Watcher**：写入端。文件保存 → 增量解析 → 增量更新边 → 预计算影响半径/测试映射 → 写入 SQLite。
+- **CLI**：读取端。优先查预计算表，fallback 到内存图重建。
+
+---
+
+## Schema 设计
+
+> **实现状态总览**：14 张设计表中 **12 张已实现**，2 张不做（`findings` / `precomputed_tests`）。
+>
+> 实际 DDL 见 [graph-db.js](./src/services/graph-db.js) `SCHEMA` 常量。
+
+### 核心图结构
+
+```sql
+-- ✅ 已实现（作为 file_metadata 表，已扩展 type/role/lang 列）
+-- 文件节点（从 file_metadata 扩展，统一节点视角）
+CREATE TABLE IF NOT EXISTS nodes (
+  file TEXT PRIMARY KEY,
+  type TEXT NOT NULL DEFAULT 'source',   -- 'source' | 'test' | 'config' | 'generated' | 'entry'
+  role TEXT,                             -- 项目上下文推断的角色
+  lang TEXT,                             -- 'js' | 'ts' | 'java' | ...
+  mtime INTEGER,
+  hash TEXT,
+  parse_mode TEXT,                       -- 'ast' | 'regex' | 'none'
+  line_count INTEGER
+);
+
+-- ✅ 已实现
+-- 依赖边（imports + implicit framework edges）
+CREATE TABLE IF NOT EXISTS edges (
+  source TEXT NOT NULL,
+  target TEXT NOT NULL,
+  edge_type TEXT NOT NULL DEFAULT 'import',  -- 'import' | 'implicit-framework' | 'package'
+  confidence REAL NOT NULL DEFAULT 1.0,      -- 0.0-1.0，用于 heuristic edges
+  PRIMARY KEY (source, target, edge_type)
+);
+CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source);
+CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target);
+CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
+```
+
+### 预计算维度
+
+```sql
+-- ✅ 已实现（schema 与设计略有差异，实际列为 file/direct_deps/transitive_deps/direct_dependents/transitive_dependents/affected_tests/impact_radius/version）
+-- 文件级影响半径（预计算 BFS 结果）
+CREATE TABLE IF NOT EXISTS precomputed_impact (...);
+
+-- ❌ 不做（affected_tests 已作为 TEXT 列嵌在 precomputed_impact 中，独立表纯粹是范式化，不解决新问题）
+-- 测试映射（预计算 affected-tests）
+CREATE TABLE IF NOT EXISTS precomputed_tests (...);
+
+-- ✅ 已实现
+-- 聚合摘要（precomputeAggregates 结果）
+CREATE TABLE IF NOT EXISTS precomputed_aggregates (
+  key TEXT PRIMARY KEY,  -- 'deadExports' | 'unresolved' | 'cycles' | 'stats' | 'hotspots' | 'stability' | 'analysis_snapshot'
+  data TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 0,
+  file_count INTEGER NOT NULL,
+  computed_at INTEGER NOT NULL DEFAULT 0
+);
+
+-- ✅ 已实现
+-- 多维指标（PageRank、co-change、风险分、热点分）
+CREATE TABLE IF NOT EXISTS metrics (
+  file TEXT NOT NULL,
+  dimension TEXT NOT NULL,  -- 'pagerank' | 'cochange_score' | 'risk_score' | 'hotspot_score'
+  value REAL NOT NULL,
+  computed_at INTEGER NOT NULL,
+  PRIMARY KEY (file, dimension)
+);
+
+-- ❌ 不做（安全扫描本身很快，持久化需要额外 staleness 管理，收益 < 成本）
+-- 安全发现（security-tools 结果）
+CREATE TABLE IF NOT EXISTS findings (...);
+
+-- ✅ 已实现
+-- 测试映射（source → test 的直接关系，用于 O(1) 查询）
+CREATE TABLE IF NOT EXISTS test_map (
+  source TEXT NOT NULL,
+  test_file TEXT NOT NULL,
+  signal TEXT NOT NULL DEFAULT 'import',  -- 'import' | 'heuristic' | 'mention'
+  distance INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (source, test_file)
+);
+CREATE INDEX IF NOT EXISTS idx_test_map_source ON test_map(source);
+
+-- ✅ 已实现
+-- HTTP 路由映射（框架感知）
+CREATE TABLE IF NOT EXISTS routes (
+  file TEXT NOT NULL,
+  method TEXT NOT NULL,
+  path TEXT NOT NULL,
+  framework TEXT NOT NULL,
+  handler TEXT,             -- 函数名
+  PRIMARY KEY (file, method, path)
+);
+CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
+```
+
+### 向后兼容
+
+- 所有新增表使用 `CREATE TABLE IF NOT EXISTS`
+- 旧版 CLI 读不到新表 → 正常 fallback 到 depGraph 内存重建
+- `nodes` 表不新建独立表，改为在现有 `file_metadata` 上 ALTER TABLE 扩展 `type`/`role`/`lang` 三列
+- 已实现的基础表（`file_metadata`/`parse_results`/`symbol_index`/`diagnostics`/`cache_metadata`）通过 `CACHE_TABLE_SCHEMA` 注册表驱动 load/save/saveIncremental
+
+---
+
+## 实施路线
+
+### Phase 1：热缓存守护者（Hot Cache Keeper）— ✅ 已完成
+
+**状态**：已交付。`saveIncremental()` 增量写入 + `cache.save()` 兜底全部就位。
+
+| 改动 | 文件 | 说明 |
+|------|------|------|
+| `updateFiles()` 后触发 save | `src/services/dep-graph/builder.js` | 在 `finally` 块中 `await cache.save()`，把增量 parseResults 落盘 |
+| Watcher 静默化 | `src/cli/watch.js` | 删除 `formatWatchOutput` 终端打印，保留 JSON Lines；默认 `--quiet` |
+| 自动 save 兜底 | `src/services/file-index.js` | `processPending()` 完成后，若 dirty=true 自动触发 `cache.save()` |
+
+**收益**：AST 解析时间降为 0；改动量 ~20 行；风险极低。
+
+### Phase 2：Graph 边持久化 — ✅ 已完成
+
+**状态**：已交付。`edges` 表 + `saveEdges()`/`loadEdges()` + `loadGraph()` 从 SQLite 恢复。
+
+| 改动 | 文件 | 说明 |
+|------|------|------|
+| Schema 扩展 | `src/services/graph-db.js` | 新增 `nodes`、`edges` 表 DDL；`saveEdges()` / `loadEdges()` |
+| 写入端 | `src/services/dep-graph/builder.js` | `build()` 完成后序列化 edges；`updateFiles()` 增量更新 edges |
+| 消费端 | `src/services/dep-graph.js` | 新增 `loadGraph()`：从 SQLite 加载 edges 恢复 graph + reverseGraph |
+| 集成 | `src/services/container.js` | `_initDepGraph()` 优先 `loadGraph()`，缺失时 fallback 到 `build()` |
+
+**收益**：跳过 O(n) reverseGraph 重建；为 Phase 3 铺好 schema 基础。
+
+### Phase 3：预计算持久化 — ✅ 已完成
+
+**目标**：BFS/DFS 查询结果预计算后存入 SQLite，CLI 命令优先 SELECT。
+
+**已完成**：
+- `precomputed_impact` 表（含 impactRadius）：`savePrecomputedImpact()` / `loadPrecomputedImpact()`
+- `precomputed_aggregates` 表：`savePrecomputedAggregates()` / `loadPrecomputedAggregates()` + `analysis_snapshot` 缓存
+- `routes` 表：`saveRoutes()` / `loadRoutes()` / `loadRoutesForFiles()`
+- `query-hotspots` / `query-knowledge-risk` / `query-stability` CLI 命令
+- `metrics` 表（per-file PageRank / hotspot_score / risk_score / cochange_score 持久化与还原）
+- `test_map` 表（source → test 的 O(1) 映射持久化与恢复）
+- `file_metadata` 列扩展（type/role/lang 列定义与索引更新）
+
+**不做**：`findings` 表（安全扫描太快没必要缓存）、`precomputed_tests` 独立表（已嵌入 precomputed_impact）
+
+**收益**：`impact --file foo.js` 从"7 秒"降到"1ms（预计算命中时）"；AI 消费者高频查询大幅加速。
+
+### Phase 4：CLI 彻底薄化（可选/远期）
+
+**目标**：CLI 命令不再初始化 depGraph，只查 SQLite。
+
+| 前提 | 说明 |
+|------|------|
+| watch 进程成为"必须" | 或首次运行时自动后台启动 watcher |
+| 所有预计算数据可用 | SQLite 中 impact/tests/aggregates 完整且 fresh |
+
+**改动**：`container.initialize()` 检测到热 SQLite 时跳过 `_initDepGraph()`；CLI 直接通过 `cache` 查询。
+
+---
+
+## 并发与一致性
+
+- **写入**：watch 进程独占写入（`saveIncremental` 单事务）
+- **读取**：CLI 命令只读（`node:sqlite` `DatabaseSync` 支持多进程并发读）
+- **Staleness**：预计算表带 `version`（hash/mtime 指纹）和 `computed_at`，CLI 查库时校验，stale 则 fallback 重建
+- **无需 IPC/文件锁**：SQLite WAL 模式天然支持一写多读
+
+---
+
+## 测试策略
+
+| 层级 | 测试内容 |
+|------|---------|
+| 单元 | `GraphDB.saveEdges()` / `loadEdges()` 正确性；增量更新后 edges 一致性 |
+| 集成 | Watcher 修改文件 → SQLite edges 更新 → CLI `loadGraph()` 读取 → 结果与内存重建一致 |
+| 回归 | 大项目（GitNexus 1329 文件）冷启动时间对比；预计算命中率统计 |
+| 并发 | 多个 CLI 实例同时读 + watch 进程写，无 SQLite 锁错误 |
+
+---
+
+## 风险与回退
+
+| 风险 | 缓解 |
+|------|------|
+| SQLite schema 膨胀 | 旧表保留，新表 `IF NOT EXISTS`；旧版 CLI 完全兼容 |
+| 预计算 stale | 带 version 指纹校验，stale 时 fallback 到现有内存重建逻辑 |
+| Watcher 崩溃丢失更新 | `file-index.js` 自动 save 兜底；进程重启后从 SQLite 恢复 |
+| 大项目 edges 表过大 | 千级节点 × 平均 10 条边 = 万级 rows，SQLite 无压力 |
+
+---
+

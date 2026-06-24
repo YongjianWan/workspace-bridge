@@ -521,7 +521,7 @@ function detectTestConfig(root) {
   return { found: frameworks.length > 0, frameworks };
 }
 
-function buildFixSuggestions(stack) {
+function resolveTestAction(stack) {
   const profile = stack?.profile || 'unknown';
   const isNode = stack?.node?.enabled;
   const isJava = stack?.java?.enabled;
@@ -530,26 +530,33 @@ function buildFixSuggestions(stack) {
   const isRust = stack?.rust?.enabled;
   const isCpp = stack?.cpp?.enabled;
 
-  let testAction = 'Set up a test runner (e.g., Jest, pytest, cargo test)';
-  if (isJava) {
-    testAction = 'Set up Java tests (e.g., mvn test, gradle test)';
-  } else if (isPython) {
-    testAction = 'Set up a Python test runner (e.g., pytest)';
-  } else if (isGo) {
-    testAction = 'Go testing is built-in with go test; ensure module structure supports your test files';
-  } else if (isRust) {
-    testAction = 'Rust testing is built-in with cargo test; ensure workspace members are configured';
-  } else if (isCpp) {
-    testAction = 'Set up a C++ test runner (e.g., CTest, Google Test)';
-  } else if (isNode || profile === 'mixed') {
-    const runner = stack?.node?.testRunner;
-    if (runner && runner !== 'custom') {
-      testAction = `Complete ${runner} setup (runner detected but test script or config may be missing)`;
-    } else {
-      testAction = 'Set up a test runner (e.g., Vitest for Vite projects, Jest for plain Node)';
+  // Ordered dispatch table: first matching rule wins.
+  const rules = [
+    { match: () => isJava, action: 'Set up Java tests (e.g., mvn test, gradle test)' },
+    { match: () => isPython, action: 'Set up a Python test runner (e.g., pytest)' },
+    { match: () => isGo, action: 'Go testing is built-in with go test; ensure module structure supports your test files' },
+    { match: () => isRust, action: 'Rust testing is built-in with cargo test; ensure workspace members are configured' },
+    { match: () => isCpp, action: 'Set up a C++ test runner (e.g., CTest, Google Test)' },
+    {
+      match: () => isNode || profile === 'mixed',
+      action: () => {
+        const runner = stack?.node?.testRunner;
+        return runner && runner !== 'custom'
+          ? `Complete ${runner} setup (runner detected but test script or config may be missing)`
+          : 'Set up a test runner (e.g., Vitest for Vite projects, Jest for plain Node)';
+      },
+    },
+  ];
+
+  for (const rule of rules) {
+    if (rule.match()) {
+      return typeof rule.action === 'function' ? rule.action() : rule.action;
     }
   }
+  return 'Set up a test runner (e.g., Jest, pytest, cargo test)';
+}
 
+function buildFixSuggestions(stack) {
   return {
     readme: { action: 'Create README.md with project description and usage instructions', severity: 'medium' },
     license: { action: 'Add a LICENSE file (e.g., MIT, Apache-2.0)', severity: 'low' },
@@ -558,7 +565,7 @@ function buildFixSuggestions(stack) {
     envExample: { action: 'Create .env.example documenting required environment variables', severity: 'medium' },
     dockerConfig: { action: 'Add Dockerfile or docker-compose.yml for containerized deployment', severity: 'low' },
     ci: { action: 'Add CI configuration (e.g., .github/workflows/ci.yml)', severity: 'medium' },
-    testConfig: { action: testAction, severity: 'high' },
+    testConfig: { action: resolveTestAction(stack), severity: 'high' },
   };
 }
 

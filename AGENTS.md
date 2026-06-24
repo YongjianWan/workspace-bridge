@@ -244,5 +244,5 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-06-24（Route B 六个 AI 消费体验/质量缺口修复 + 代码审查后续修复：query 命令 SQL 安全加固、snapshot short-circuit 保守化、C-family 注释剥离状态机、清理 JetBrains 检查报告残留；npm run test:fast 124/124 PASS，npm run test:smoke 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-24（Route B 六个 AI 消费体验/质量缺口修复 + 两波代码审查后续修复：query 命令 SQL 安全加固、snapshot short-circuit 保守化、C-family/Python/Ruby 注释剥离状态机、清理 JetBrains 检查报告残留、audit-assembler flat dispatcher 重构、ROADMAP ADR 归档 CHANGELOG、--fields 文档化；npm run test:fast 124/124 PASS，npm run test:smoke 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
 

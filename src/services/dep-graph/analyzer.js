@@ -69,18 +69,83 @@ function stripComments(content, languageFamily) {
     return stripCFamilyComments(content);
   }
 
-  if (languageFamily === 'python-family') {
-    return content
-      .replace(/("""[\s\S]*?""")|('''[\s\S]*?''')/g, ' ')
-      .replace(/#.*$/gm, ' ');
-  }
-
-  if (languageFamily === 'ruby-family') {
-    return content.replace(/#.*$/gm, ' ');
+  if (languageFamily === 'python-family' || languageFamily === 'ruby-family') {
+    return stripHashFamilyComments(content, languageFamily === 'python-family');
   }
 
   // Unknown/other families: do not strip; keep existing behavior.
   return content;
+}
+
+/**
+ * Remove hash-style line comments while preserving string literals.
+ * Supports Python triple-quoted strings/docstrings and single/double quotes
+ * with escape sequences. Ruby here-docs and `%q`/`%w` literals are not parsed.
+ */
+function stripHashFamilyComments(content, supportTripleQuotes) {
+  let result = '';
+  let i = 0;
+  while (i < content.length) {
+    const ch = content[i];
+    const next = content[i + 1];
+    const next2 = content[i + 2];
+
+    // Python triple-quoted strings/docstrings.
+    if (
+      supportTripleQuotes &&
+      ((ch === '"' && next === '"' && next2 === '"') || (ch === "'" && next === "'" && next2 === "'"))
+    ) {
+      const quote = ch === '"' ? '"""' : "'''";
+      let j = i + 3;
+      while (j < content.length - 2) {
+        if (content[j] === '\\') {
+          j += 2;
+        } else if (content.slice(j, j + 3) === quote) {
+          j += 3;
+          break;
+        } else {
+          j += 1;
+        }
+      }
+      result += content.slice(i, j);
+      i = j;
+      continue;
+    }
+
+    // Single/double-quoted strings.
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      let j = i + 1;
+      while (j < content.length) {
+        if (content[j] === '\\') {
+          j += 2;
+        } else if (content[j] === quote) {
+          j += 1;
+          break;
+        } else {
+          j += 1;
+        }
+      }
+      result += content.slice(i, j);
+      i = j;
+      continue;
+    }
+
+    // Line comment.
+    if (ch === '#') {
+      result += ' ';
+      let j = i + 1;
+      while (j < content.length && content[j] !== '\n') {
+        j += 1;
+      }
+      i = j;
+      continue;
+    }
+
+    result += ch;
+    i += 1;
+  }
+  return result;
 }
 
 /**

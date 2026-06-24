@@ -51,6 +51,8 @@ const COMMON_OPTIONS = [
   '  --no-compact           Explicitly disable compact mode (overrides auto-compact and WB_COMPACT)',
   '  --category <list>      Comma-separated filter for audit-summary (dead-exports,unresolved,cycles,health)',
   '  --fields <list>         Comma-separated list of fields to include in audit-overview / audit-summary',
+  '                         Essential fields (ok, error, schemaVersion, command, hasFindings, staleness, warnings) are always kept.',
+  '                         For audit-summary, include "health" explicitly if you need the deprecated health compatibility field.',
   '  --sql <query>           SQL select query to run against analysis_snapshots or other tables in query command',
   '  --max-files <n>        Limit returned files in audit-diff, impact, affected-tests, affected-routes, dependencies, dependents, and tree',
   '  --max-dependents <n>   Max allowed direct dependents for guard (default: 50)',

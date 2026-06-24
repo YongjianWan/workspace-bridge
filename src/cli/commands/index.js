@@ -49,6 +49,12 @@ function makeFileCommand(handler, hasFindingsFn) {
   };
 }
 
+/**
+ * Prune result keys to the requested field list. Essential envelope keys are
+ * always preserved. Callers that inject compatibility fields (e.g. audit-summary
+ * adds `health`) must include those field names in `--fields` if they want them
+ * kept; otherwise they are pruned like any other non-essential key.
+ */
 function applyFieldsFilter(result, fields) {
   if (!fields) return;
   const allowed = new Set(fields.split(',').map((f) => f.trim()));
