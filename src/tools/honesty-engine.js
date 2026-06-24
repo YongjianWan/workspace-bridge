@@ -165,6 +165,7 @@ const DEAD_EXPORT_FALSE_POSITIVE_REASONS = new Set([
   'dynamic-registry-export',
   'java-constants-warehouse',
   'vendor-copy',
+  'rust-public-api',
   `${SCAFFOLD_REASON_PREFIX}ruoyi`,
   `${SCAFFOLD_REASON_PREFIX}vue-admin`,
 ]);

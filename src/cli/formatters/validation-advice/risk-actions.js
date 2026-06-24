@@ -2,7 +2,8 @@
  * Top-risk action builder: per-file actionable advice for high composite-risk entries.
  */
 function pickSuggestedCommand(allCommands) {
-  const names = ['focused-tests', 'all-tests', 'type-check', 'lint'];
+  // Direct affected tests are more precise than per-file focused tests.
+  const names = ['direct-tests', 'focused-tests', 'all-tests', 'type-check', 'lint'];
   for (const key of names) {
     const hit = allCommands.find((cmd) => String(cmd.name || '').includes(key));
     if (hit?.cmd) return hit.cmd;

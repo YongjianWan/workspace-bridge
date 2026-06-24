@@ -1,6 +1,9 @@
 // @semantic
 const assert = require('assert');
-const { runCliInProcess } = require('./test-helpers');
+const fs = require('fs');
+const path = require('path');
+const { runCliInProcess, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { buildFileValidationAdvice } = require('../src/cli/formatters/validation-advice');
 
 async function run(args) {
   return runCliInProcess([...args, '--json', '--quiet']);
@@ -45,10 +48,55 @@ async function testAuditFileFrameworkDetection() {
   assert.strictEqual(result.frameworkPattern.isEntry, true, 'vue test file should be marked as entry');
 }
 
+async function testAuditFileGeneratesFocusedTestCommands() {
+  const tmpDir = makeTempDir('wb-audit-file-vitest-');
+  try {
+    // Minimal vitest project fixture
+    fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, 'test'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ name: 'vitest-fixture', scripts: { test: 'vitest run' } })
+    );
+    fs.writeFileSync(path.join(tmpDir, 'vitest.config.js'), 'export default { test: { globals: true } };\n');
+    fs.writeFileSync(path.join(tmpDir, 'src', 'helpers.js'), 'export function helper() { return 1; }\n');
+    fs.writeFileSync(
+      path.join(tmpDir, 'test', 'helpers.test.js'),
+      "import { helper } from '../src/helpers.js';\nimport { test, expect } from 'vitest';\ntest('helper', () => expect(helper()).toBe(1));\n"
+    );
+
+    const sourceFile = path.join(tmpDir, 'src', 'helpers.js');
+    const testFile = path.join(tmpDir, 'test', 'helpers.test.js');
+    const affectedTests = {
+      affectedTestsCount: 1,
+      affectedTests: [{ file: testFile, distance: 1, source: 'graph', via: [] }],
+    };
+
+    const advice = buildFileValidationAdvice(sourceFile, tmpDir, affectedTests);
+
+    assert.ok(advice.commands.focused.length > 0, 'focused commands should be generated when affected tests exist');
+    const directTestCmd = advice.commands.focused.find((c) => c.name === 'node-direct-tests');
+    assert.ok(directTestCmd, 'node-direct-tests command should exist');
+    assert.ok(directTestCmd.executable, 'command should have executable metadata');
+    assert.strictEqual(directTestCmd.executable.command, 'npx', 'vitest command should use npx');
+    assert.ok(directTestCmd.executable.args.includes('vitest'), 'args should include vitest');
+    assert.ok(directTestCmd.executable.args.includes('run'), 'args should include run');
+    const relativeTestFile = path.relative(tmpDir, testFile);
+    assert.ok(
+      directTestCmd.executable.args.some((arg) => arg.replace(/\\/g, '/') === relativeTestFile.replace(/\\/g, '/')),
+      `args should include the affected test file ${relativeTestFile}`
+    );
+    assert.strictEqual(advice.suggestedCommand, directTestCmd.cmd, 'suggestedCommand should prefer focused direct tests');
+  } finally {
+    cleanupTempDir(tmpDir);
+  }
+}
+
 async function executeTests() {
   await testAuditFileHasValidationAdvice();
   await testAuditFileHasFrameworkPattern();
   await testAuditFileFrameworkDetection();
+  await testAuditFileGeneratesFocusedTestCommands();
 }
 
 executeTests();

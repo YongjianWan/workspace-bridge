@@ -232,7 +232,7 @@ THEN 拿到结果后必须执行：
   1. 阅读完整输出，记录 impactedFiles.length 和 affectedTests.length
   2. 如果 impactedFiles 包含 dep-graph.js / cache.js / graph-db.js / container.js：
       → 核心基础设施被波及，改动必须保守，优先向后兼容（保留旧接口 + 新增，不删不改现有行为）
-  3. 收工前必须跑 `npm run test:fast` 并 122/122 PASS，确认无回归
+  3. 收工前必须跑 `npm run test:fast` 并 124/124 PASS，确认无回归
 ```
 
 > 其余检查（裸数字、异常安全、语义同步、重复代码）已由 L1/L2 覆盖，无需单列。
@@ -244,5 +244,5 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-06-16（新增 Modification Guard 与 AST Golden 镜像测试；npm run test:fast 122/122 PASS，npm run test:smoke 125/125 PASS，npm run test:coverage:check 通过；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-20（Route B 六个 AI 消费体验/质量缺口修复：Rust 并发解析回退、audit-file 验证命令、affected-tests 注释误报、affectedRoutes source 标记、Rust tests/ 集成测试命令、Rust 公共 API 死导出降级；npm run test:fast 124/124 PASS，npm run test:smoke 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
 

@@ -47,6 +47,44 @@ const KNOWN_REGISTRY_EXPORTS = [
   },
 ];
 
+/**
+ * Strip comments and docstrings from source content before running
+ * mention-style heuristic matching. This prevents a test file from being
+ * flagged as "affected" just because it mentions a source stem in a comment.
+ *
+ * Note: This is a heuristic preprocessor, not a parser. It intentionally
+ * trades perfect string-literal accuracy for simplicity and speed.
+ */
+function stripComments(content, languageFamily) {
+  if (!content) return content;
+
+  // C-style comments cover the majority of supported languages:
+  // JS/TS, Java/Kotlin, Go, Rust, C/C++, Vue, Svelte.
+  if (
+    languageFamily === 'js-family' ||
+    languageFamily === 'java-family' ||
+    languageFamily === 'go-family' ||
+    languageFamily === 'rust-family'
+  ) {
+    return content
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/\/\/.*$/gm, ' ');
+  }
+
+  if (languageFamily === 'python-family') {
+    return content
+      .replace(/("""[\s\S]*?""")|('''[\s\S]*?''')/g, ' ')
+      .replace(/#.*$/gm, ' ');
+  }
+
+  if (languageFamily === 'ruby-family') {
+    return content.replace(/#.*$/gm, ' ');
+  }
+
+  // Unknown/other families: do not strip; keep existing behavior.
+  return content;
+}
+
 class GraphAnalyzer {
   constructor(depGraph) {
     this.dg = depGraph;
@@ -859,6 +897,72 @@ class GraphAnalyzer {
     }
   }
 
+  /**
+   * Downgrade dead-export findings that live in Rust library public API modules.
+   * A crate's src/lib.rs re-exports modules via `pub mod <name>;`; those modules
+   * may in turn re-export submodules. The `pub` items inside these modules are
+   * intended for external consumers and static analysis within the workspace
+   * cannot see cross-crate usage. Mark them as known false positives so they do
+   * not drive severity while staying visible.
+   */
+  _markRustPublicApiFalsePositives(deadExports) {
+    const publicApiFiles = new Set();
+
+    // Find each crate root (src/lib.rs) and walk the public module tree.
+    for (const [filePath, info] of this.dg.graph) {
+      if (!filePath.endsWith('/lib.rs') && !filePath.endsWith('\\lib.rs')) continue;
+      if (!info?.exportRecords) continue;
+
+      const crateSrcDir = path.dirname(filePath);
+      const queue = [];
+      for (const record of info.exportRecords) {
+        if (record.kind !== 'module' || !record.name) continue;
+        queue.push(record.name);
+      }
+
+      const visited = new Set();
+      while (queue.length > 0) {
+        const modName = queue.shift();
+        if (visited.has(modName)) continue;
+        visited.add(modName);
+
+        // Rust module file resolution: src/<name>.rs or src/<name>/mod.rs
+        const candidates = [
+          normalizePathKey(path.join(crateSrcDir, `${modName}.rs`)),
+          normalizePathKey(path.join(crateSrcDir, modName, 'mod.rs')),
+        ];
+
+        for (const candidate of candidates) {
+          if (publicApiFiles.has(candidate)) continue;
+          publicApiFiles.add(candidate);
+
+          const modInfo = this.dg.graph.get(candidate);
+          if (!modInfo?.exportRecords) continue;
+          for (const record of modInfo.exportRecords) {
+            if (record.kind !== 'module' || !record.name) continue;
+            // Submodule paths are relative to the parent module file.
+            // lib.rs -> foo -> bar resolves to src/foo/bar.rs or src/foo/bar/mod.rs.
+            queue.push(`${modName}/${record.name}`);
+          }
+        }
+      }
+    }
+
+    if (publicApiFiles.size === 0) return;
+
+    for (const finding of deadExports) {
+      if (!finding.exports || finding.exports.length === 0) continue;
+      if (finding.falsePositiveReason) continue;
+      const normalizedFile = normalizePathKey(finding.file);
+      if (!publicApiFiles.has(normalizedFile)) continue;
+      finding.confidence = 'low';
+      finding.confidenceValue = CONFIDENCE.LOW_VALUE;
+      finding.confidenceSource = 'rust-public-api';
+      finding.confidenceReason = 'Module is part of the Rust public API surface; cross-crate usage is invisible to static analysis';
+      finding.falsePositiveReason = 'rust-public-api';
+    }
+  }
+
   _collectUsedExports(importers, filePath) {
     let usesAllExports = false;
     const usedNames = new Set();
@@ -986,6 +1090,11 @@ class GraphAnalyzer {
       // are intentionally public for dynamic/runtime consumers that static
       // analysis cannot see, so they should not drive severity.
       this._markKnownRegistryFalsePositives(deadExports);
+
+      // Downgrade Rust library public API modules. Items re-exported by
+      // src/lib.rs are meant for external crate consumers and appear unused
+      // when only the workspace itself is analyzed.
+      this._markRustPublicApiFalsePositives(deadExports);
 
       // L1: _scanContentCache holds full file contents (up to 50MB). Clear after
       // each findDeadExports call so REPL long sessions don't leak memory when
@@ -1131,7 +1240,9 @@ class GraphAnalyzer {
       try {
         content = fs.readFileSync(candidate, 'utf8');
       } catch { continue; }
-      if (mentionPattern.test(content)) {
+      const candidateFamily = getHeuristicLanguageFamily(candidate);
+      const searchableContent = stripComments(content, candidateFamily);
+      if (mentionPattern.test(searchableContent)) {
         graphResults.push({
           file: candidate,
           distance: maxDepth + 1,

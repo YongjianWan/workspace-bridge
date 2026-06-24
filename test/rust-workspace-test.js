@@ -80,9 +80,61 @@ version = "0.1.0"
   cleanupTempDir(tmpDir);
 }
 
+function testIntegrationTestCommands() {
+  const tmpDir = makeTempDir('wb-rust-integ-');
+
+  fs.writeFileSync(path.join(tmpDir, 'Cargo.toml'), `
+[package]
+name = "single-crate"
+version = "0.1.0"
+`);
+  fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(tmpDir, 'tests'), { recursive: true });
+
+  const stack = detectStack(tmpDir);
+  assert(stack.rust?.enabled, 'Rust stack should be detected');
+
+  // Integration tests in tests/*.rs should be surfaced as --test <stem>.
+  const commands = generateCommands(stack, 'code', ['src/graph/builder.rs', 'tests/smoke.rs', 'tests/edge_cases.rs']);
+  const integration = commands.focused.find((c) => c.name === 'rust-focused-integration-tests');
+  assert(integration, 'Should generate rust-focused-integration-tests for tests/*.rs files');
+  assert(integration.cmd.includes('--test smoke'), 'Integration command should include --test smoke');
+  assert(integration.cmd.includes('--test edge_cases'), 'Integration command should include --test edge_cases');
+
+  const unit = commands.focused.find((c) => c.name === 'rust-focused-tests');
+  assert(unit, 'Should generate rust-focused-tests for source modules');
+  assert(unit.cmd.includes('graph::builder'), 'Unit command should include graph::builder module filter');
+
+  cleanupTempDir(tmpDir);
+}
+
+function testIntegrationTestOnlyCommands() {
+  const tmpDir = makeTempDir('wb-rust-integ-only-');
+
+  fs.writeFileSync(path.join(tmpDir, 'Cargo.toml'), `
+[package]
+name = "single-crate"
+version = "0.1.0"
+`);
+  fs.mkdirSync(path.join(tmpDir, 'tests'), { recursive: true });
+
+  const stack = detectStack(tmpDir);
+  assert(stack.rust?.enabled, 'Rust stack should be detected');
+
+  // When only integration tests are affected, the integration command is still emitted.
+  const commands = generateCommands(stack, 'code', ['tests/smoke.rs']);
+  const integration = commands.focused.find((c) => c.name === 'rust-focused-integration-tests');
+  assert(integration, 'Should generate rust-focused-integration-tests when only integration tests are affected');
+  assert(integration.cmd.includes('--test smoke'), 'Integration-only command should include --test smoke');
+
+  cleanupTempDir(tmpDir);
+}
+
 function main() {
   testDetectRustWorkspaceMembers();
   testNonWorkspaceRust();
+  testIntegrationTestCommands();
+  testIntegrationTestOnlyCommands();
   }
 
 main();

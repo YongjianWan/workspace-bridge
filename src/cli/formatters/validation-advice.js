@@ -94,7 +94,7 @@ function buildFileSpecificAdvice(ext, stackProfile) {
   return advice;
 }
 
-function buildFileValidationAdvice(filePath, workspaceRoot) {
+function buildFileValidationAdvice(filePath, workspaceRoot, affectedTests) {
   const stack = detectStack(workspaceRoot);
   const ext = path.extname(filePath).toLowerCase();
 
@@ -104,7 +104,18 @@ function buildFileValidationAdvice(filePath, workspaceRoot) {
   else if (/\.(json|yaml|yml|toml)$/.test(ext)) changeType = 'config';
   else if (/\.(sh|ps1|bat)$/.test(ext)) changeType = 'scripts';
 
-  const commands = generateCommands(stack, changeType, [filePath]);
+  // Route B fix: surface affected tests as direct validation targets so
+  // generateCommands can emit focused test commands (vitest/pytest/go/...).
+  const testFiles = (affectedTests?.affectedTests || [])
+    .map((entry) => entry?.file)
+    .filter(Boolean)
+    .map((absolutePath) => path.relative(workspaceRoot, absolutePath));
+
+  const steps = testFiles.length > 0
+    ? [{ name: 'run-direct-tests', targets: testFiles }]
+    : [];
+
+  const commands = generateCommands(stack, changeType, [filePath], steps);
 
   // Deduplicate within each group by cmd string
   const dedupe = (arr) => {
@@ -119,6 +130,13 @@ function buildFileValidationAdvice(filePath, workspaceRoot) {
   commands.smoke = dedupe(commands.smoke);
   commands.focused = dedupe(commands.focused);
   commands.full = dedupe(commands.full);
+
+  // Route B fix: when we have graph-derived direct affected tests, suppress
+  // the coarser per-file focused-tests command that would pass the source
+  // file itself to the test runner.
+  if (steps.length > 0 && commands.focused.some((c) => c.name?.endsWith('-direct-tests'))) {
+    commands.focused = commands.focused.filter((c) => !c.name?.endsWith('-focused-tests'));
+  }
 
   // P8-2: enrich each command with structured executable metadata
   for (const group of ['smoke', 'focused', 'full']) {

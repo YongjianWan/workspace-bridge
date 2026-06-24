@@ -38,6 +38,52 @@
 | `strictEqual(result.ok, true/false)`       | ~48     | 低    | 深层嵌套防御性检查，风险低，不纳入弱断言统计                                      |
 | **合计弱断言（需修复）**                             | **~10** | —    | 从 ~44 处降至 ~10 处（仅余 `typeof` 型 schema 契约检查）                   |
 
+#### Route B 验证发现：AI 消费体验缺口
+
+**背景**：2026-06-20 在 `reference/GitNexus` 上执行 Route B 实战验证，聚焦 `gitnexus/src/core/ingestion/scope-resolution/scope/walkers.ts`。完整报告见 `scratch/gitnexus-validation-report.md`。
+
+**缺口 1：`audit-file` 未生成可执行验证命令**
+
+| 项目 | 内容 |
+| :--- | :--- |
+| 状态 | ✅ 已修复（2026-06-20） |
+| 修复 | `audit-assembler.js` 将 `affectedTests` 传入 `buildFileValidationAdvice`；`validation-advice.js` 构造 `run-direct-tests` step 复用 `generateCommands` 生成 `node-direct-tests` 等命令；`pickSuggestedCommand` 优先推荐 `direct-tests` |
+
+**缺口 2：`affected-tests` `mention` 启发式误报注释引用**
+
+| 项目 | 内容 |
+| :--- | :--- |
+| 状态 | ✅ 已修复（2026-06-20） |
+| 修复 | `analyzer.js` 新增 `stripComments()`，在 `_findAffectedTestsByMention` 中按语言族（C-family、Python、Ruby）去除注释/文档字符串后再做 mention 匹配；`affected-tests-mention-test.js` 新增 comment-only 负例 |
+
+**缺口 3：`impact.affectedRoutes` 未区分生产路由与测试路由**
+
+| 项目 | 内容 |
+| :--- | :--- |
+| 状态 | ✅ 已修复（2026-06-20） |
+| 修复 | `src/services/dep-graph/query.js` 的 `findAffectedHttpRoutes` 为每个路由对象新增 `source: 'src' \| 'test'` 字段，覆盖 SQLite 与内存 BFS 两条路径；新增 `test/affected-http-routes-source-test.js` 验证两种来源标记 |
+
+**缺口 4：Rust `tests/` 目录集成测试在验证命令中丢失**
+
+| 项目 | 内容 |
+| :--- | :--- |
+| 状态 | ✅ 已修复（2026-06-20） |
+| 修复 | `src/utils/stack-detectors/commands.js` 的 `buildRustTestCommands()` 将 Rust 测试目标拆分为单元模块（`cargo test <module>`）与集成测试（`cargo test --test <stem>`），`audit-file` / `impact` 的 focused 命令现在会同时覆盖 `src/**/*.rs` 内联测试与 `tests/*.rs` 集成测试 |
+
+**缺口 5：Rust 库公共 API 死导出被报告为高置信度**
+
+| 项目 | 内容 |
+| :--- | :--- |
+| 状态 | ✅ 已修复（2026-06-20） |
+| 修复 | `src/services/dep-graph/analyzer.js` 新增 `_markRustPublicApiFalsePositives()`，递归识别 `src/lib.rs` 通过 `pub mod` 链式公开的模块，将其死导出标记为 `rust-public-api` 并降级为 `low` confidence；`src/tools/honesty-engine.js` 将该原因纳入已知误报集合，使其不再驱动仓库级 severity |
+
+**缺口 6：Rust 解析在并发构建时部分文件回退到 regex**
+
+| 项目 | 内容 |
+| :--- | :--- |
+| 状态 | ✅ 已修复（2026-06-20） |
+| 修复 | `src/services/dep-graph/parsers/rust-ast.js` 增加模块级异步锁，将所有 Rust WASM 解析串行化；`test/rust-ast-parser-test.js` 新增 `testRustConcurrentParsing()` 并发回归测试；冷缓存验证 `reference/qartez-mcp` 的 `fallbackFiles` 从 19 降到 0 |
+
 ---
 
 ## 文件级雷区地图
@@ -124,5 +170,5 @@
 
 ---
 
-*Last updated: 2026-06-17（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=1；本轮新增修复：Phase 3.5 聚合结果持久化与细粒度查询 CLI）*
+*Last updated: 2026-06-20（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=1；本轮修复：Rust 并发解析回退 + audit-file 验证命令生成 + mention 注释误报；剩余：弱断言分布）*
 

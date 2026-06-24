@@ -8,6 +8,50 @@
 
 ## [Unreleased]
 
+### Bug Fixes: Rust parser no longer falls back to regex under concurrent parsing (2026-06-20)
+
+- **Route B follow-up (qartez-mcp)**: During full-graph builds of Rust workspaces, some `.rs` files (especially in `tests/`) were stored with `parse_mode='regex'` / `parse_mode_reason='regex-fallback'` even though the same files parsed successfully in isolation. Root cause: tree-sitter's WASM backend is not safe for concurrent parser/query use across separate `Parser` instances sharing the same language module.
+- `src/services/dep-graph/parsers/rust-ast.js`: added a module-level async serialization lock so all Rust WASM parsing happens sequentially. The exported `parseRust()` interface is unchanged.
+- `test/rust-ast-parser-test.js`: added `testRustConcurrentParsing()` which fires 10 concurrent `parseRust()` calls and asserts every result uses `parseMode: 'ast'` with the expected imports/exports.
+- Verified on `reference/qartez-mcp` with a cold cache: `analysisCoverage.fallbackFiles` went from 19 to 0, `coverageRatio` = 1.00, and `languageSupport.rust.regexFiles` = 0.
+
+### AI Consumption: `audit-file` now emits executable focused test commands (2026-06-20)
+
+- **Route B follow-up**: `audit-file` previously reported affected tests but left `validationAdvice.commands.focused` empty. It now generates stack-aware focused test commands (`node-direct-tests`, `python-direct-tests`, `go-direct-tests`, etc.) by passing `affectedTests` into `buildFileValidationAdvice` and reusing the existing `run-direct-tests` step in `generateCommands`.
+- `src/tools/audit-assembler.js`: forwards the `affectedTests` result to `buildFileValidationAdvice()`.
+- `src/cli/formatters/validation-advice.js`: constructs `run-direct-tests` steps from affected test files and suppresses the coarser `*-focused-tests` command when direct tests are available.
+- `src/cli/formatters/validation-advice/risk-actions.js`: `pickSuggestedCommand` now prefers `direct-tests` over `focused-tests`, so the AI gets the most precise runnable command first.
+- `src/utils/stack-detectors/commands.js`: `buildNodeTestCommand` no longer emits `npx null <files>` when no specific runner is detected; it falls back to `npm run test` instead.
+- Added `test/audit-file-validation-advice-test.js` case with a temporary vitest fixture to assert focused command generation, executable metadata, and command arguments.
+
+### AI Consumption: `affected-tests` mention heuristic ignores comment-only references (2026-06-20)
+
+- **Route B follow-up**: `affected-tests` `mention` source previously counted a test file as affected if the source stem appeared anywhere in the file, including comments. It now strips comments/docstrings by language family before matching.
+- `src/services/dep-graph/analyzer.js`: added `stripComments(content, languageFamily)` supporting C-family (JS/TS/Java/Kotlin/Go/Rust/C/C++/Vue/Svelte), Python-family, and Ruby-family; applied in `_findAffectedTestsByMention`.
+- `test/affected-tests-mention-test.js`: refactored into positive and negative cases; added comment-only mention test that asserts the test file is excluded.
+
+### AI Consumption: `impact.affectedRoutes` now tagged with `source: 'src' | 'test'` (2026-06-20)
+
+- **Route B follow-up**: `impact --json` returned `affectedRoutes` without distinguishing production routes from routes defined in test fixtures. Each route object now includes a `source` field derived from `DependencyGraph.isTestLikeFile()`.
+- `src/services/dep-graph/query.js`: added `_routeToOutput(file, r)` helper to centralize route object construction; `findAffectedHttpRoutes` now emits `source` for both the SQLite CTE fast path and the in-memory BFS fallback.
+- `test/affected-http-routes-source-test.js`: new test asserting `source: 'src'` for production routes and `source: 'test'` for test-file routes, covering both SQLite and in-memory paths.
+- Verified on `reference/GitNexus`: test-file routes from `fastapi-prefix-pipeline.test.ts` and `receiver-extraction.test.ts` are now correctly tagged `source: 'test'`.
+
+### AI Consumption: Rust focused test commands now include `tests/` integration tests (2026-06-20)
+
+- **Route B follow-up (qartez-mcp)**: Rust validation advice previously dropped integration tests in `tests/*.rs` because `inferRustModuleName()` returns `null` for those paths. Only inline test modules in `src/**/*.rs` were surfaced.
+- `src/utils/stack-detectors/commands.js`: `buildRustTestCommands()` now splits Rust targets into unit modules (`cargo test <module-path>`) and integration tests (`cargo test --test <stem>`), emitting separate commands when both are present. Workspace `-p <crate>` args are preserved.
+- `test/rust-workspace-test.js`: added `testIntegrationTestCommands()` and `testIntegrationTestOnlyCommands()` to assert `--test <stem>` generation and correct handling when integration and unit targets are mixed.
+- Verified on `reference/qartez-mcp`: `audit-file --file src/guard.rs` now emits both `cargo test server::tools::test_gaps` and `cargo test --test <all-affected-integration-tests>`.
+
+### AI Consumption: Rust library public API dead exports are no longer high-confidence false positives (2026-06-20)
+
+- **Route B follow-up (qartez-mcp)**: `dead-exports` reported 113 findings in `reference/qartez-mcp`, most of which were `pub` items in modules re-exported by `src/lib.rs`. These items are the crate's public API surface and are invisible to intra-workspace static analysis.
+- `src/services/dep-graph/analyzer.js`: added `_markRustPublicApiFalsePositives()` which walks `src/lib.rs` → `pub mod` → submodule chains recursively and marks matching dead-export findings with `confidence: 'low'` and `falsePositiveReason: 'rust-public-api'`.
+- `src/tools/honesty-engine.js`: added `'rust-public-api'` to `DEAD_EXPORT_FALSE_POSITIVE_REASONS` so these findings are excluded from severity-driving counts.
+- `test/rust-dead-export-public-api-test.js`: new semantic tests covering direct lib.rs re-exports, nested `src/<name>/mod.rs` modules, private internal modules, and binary crates without `lib.rs`.
+- Verified on `reference/qartez-mcp`: 75/113 dead-export findings are now correctly downgraded to low-confidence `rust-public-api`; only 25 remain as high/medium confidence candidates.
+
 ### Bug Fixes (2026-06-17)
 
 - **Restore `--all` CLI help flag**: Re-added `--all` to argument parser configuration in `src/cli/validate-args.js` to fix E2E help commands validation.

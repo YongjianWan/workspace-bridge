@@ -25,7 +25,7 @@ function buildNodeTestCommand(runner, files, execConfig) {
   // Custom/unknown runner: cannot reliably run focused tests per-file
   if (runner === 'custom') return null;
   // Best-effort for other unknown runners: exec the runner with files if any
-  if (files.length > 0) {
+  if (runner && files.length > 0) {
     return { command, args: [...args, runner, ...files] };
   }
   const run = splitCommand(execConfig.run);
@@ -52,15 +52,33 @@ function buildGoModuleTestCommands(modules, files, namePrefix) {
 }
 
 function buildRustTestCommands(rustStack, rustFiles, namePrefix) {
+  // Split Rust test targets into two buckets:
+  // 1. Inline #[cfg(test)] modules inside src/**/*.rs -> cargo test <module-path>
+  // 2. Integration tests in tests/<name>.rs -> cargo test --test <name>
+  // Cargo treats --test and positional module filters differently, so we emit
+  // separate commands when both buckets are present to avoid surprising filter
+  // semantics.
   const moduleFilters = [];
+  const integrationStems = [];
   for (const file of rustFiles) {
-    const modName = inferRustModuleName(file);
-    if (modName) moduleFilters.push(modName);
+    const normalized = file.replace(/\\/g, '/');
+    const integrationMatch = normalized.match(/(?:^|\/)tests\/([^/]+)\.rs$/);
+    if (integrationMatch) {
+      integrationStems.push(integrationMatch[1]);
+    } else {
+      const modName = inferRustModuleName(file);
+      if (modName) moduleFilters.push(modName);
+    }
   }
+
   const moduleArgs = moduleFilters.length > 0
     ? Array.from(new Set(moduleFilters)).sort()
     : [];
+  const integrationArgs = integrationStems.length > 0
+    ? Array.from(new Set(integrationStems)).sort().flatMap((name) => ['--test', name])
+    : [];
 
+  const crateArgs = [];
   if (rustStack.workspaceMembers) {
     const affectedCrates = new Set();
     for (const file of rustFiles) {
@@ -73,27 +91,37 @@ function buildRustTestCommands(rustStack, rustFiles, namePrefix) {
       }
     }
     if (affectedCrates.size > 0) {
-      const crateArgs = Array.from(affectedCrates).sort().flatMap((name) => ['-p', name]);
-      return [{
-        name: `${namePrefix}-tests`,
-        description: 'Run affected workspace crates',
-        executable: { command: 'cargo', args: ['test', ...crateArgs, ...moduleArgs] },
-      }];
+      crateArgs.push(...Array.from(affectedCrates).sort().flatMap((name) => ['-p', name]));
     }
-  } else if (moduleArgs.length > 0) {
-    return [{
+  }
+
+  const commands = [];
+
+  if (moduleArgs.length > 0) {
+    commands.push({
       name: `${namePrefix}-tests`,
-      description: 'Run affected Rust modules',
-      executable: { command: 'cargo', args: ['test', ...moduleArgs] },
-    }];
-  } else if (rustFiles.length > 0) {
-    return [{
+      description: 'Run affected Rust unit test modules',
+      executable: { command: 'cargo', args: ['test', ...crateArgs, ...moduleArgs] },
+    });
+  }
+
+  if (integrationArgs.length > 0) {
+    commands.push({
+      name: `${namePrefix}-integration-tests`,
+      description: 'Run affected Rust integration tests',
+      executable: { command: 'cargo', args: ['test', ...crateArgs, ...integrationArgs] },
+    });
+  }
+
+  if (commands.length === 0 && rustFiles.length > 0) {
+    commands.push({
       name: `${namePrefix}-tests`,
       description: 'Run affected Rust crate',
-      executable: { command: 'cargo', args: ['test'] },
-    }];
+      executable: { command: 'cargo', args: crateArgs.length > 0 ? ['test', ...crateArgs] : ['test'] },
+    });
   }
-  return [];
+
+  return commands;
 }
 
 function buildStackCommands(stack, changeType, builderFn, options = {}) {

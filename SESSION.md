@@ -19,7 +19,7 @@
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
 node cli.js audit-overview --cwd . --json --quiet
-# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count>=0, summary.unresolved.count=0, summary.cycles.count>=0, summary.analysisCoverage.totalFiles≈402, summary.analysisCoverage.coverageRatio=1
+# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count>=0, summary.unresolved.count=0, summary.cycles.count>=0, summary.analysisCoverage.totalFiles≈415, summary.analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-overview 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
@@ -37,12 +37,12 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**所有测试全部 PASS**；`npm run test:fast` **123/123 PASS**（~30s），`npm run test:smoke` **126/126 PASS**（~60s）。开发迭代首选 `npm run test:fast`；41 个测试文件已从 spawn 迁移到 in-process runner。
+- 测试：**所有测试全部 PASS**；`npm run test:fast` **124/124 PASS**（~25s），`npm run test:smoke` **127/127 PASS**（~60s）。开发迭代首选 `npm run test:fast`；41 个测试文件已从 spawn 迁移到 in-process runner。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~402 文件（entry=1, mainline=182, test=218）
-- 结构性指标：deadExports=1（`shadow-candidates.js` 的 `SHADOW_EXTS` 静态分析误报，已标记为 `dynamic-registry-export` 低置信误报，不参与 severity），cycles=1，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 默认 `disabledReason: 'history-not-enabled'`，`--with-history` 启用
+- 自身项目规模：~415 文件（entry=1, mainline=189, test=225）
+- 结构性指标：deadExports=1（`shadow-candidates.js` 的 `SHADOW_EXTS` 静态分析误报，已标记为 `dynamic-registry-export` 低置信误报，不参与 severity），cycles=0，unresolved=0；overview 维度：hotspots>0，knowledgeRisk 默认 `disabledReason: 'history-not-enabled'`，`--with-history` 启用
 - 架构债务：当前活跃 0 项，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（已无活跃条目）。
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
@@ -250,6 +250,60 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 | **P1** | Edge evidence traces | 强化 Wave 10 | `builder.js`, `graph-db.js` | ⏳ 规划中 |
 | **P2** | Graph-first 路由提取 | 修复 L3 | `builder.js`, `persistence.js` | **方向 2（待开发）** |
 | **P3** | Parser golden snapshot 测试 | 补测试 | `test/` | ⏳ 规划中 |
+
+### Route B 实战验证（本轮新增）
+
+> **目标**：验证 workspace-bridge 的输出是否足以让 AI agent 在真实项目中做修改决策。
+> 详见完整报告：`scratch/gitnexus-validation-report.md`
+
+**验证对象**：`reference/GitNexus`（TypeScript，1290 文件）  
+**聚焦文件**：`gitnexus/src/core/ingestion/scope-resolution/scope/walkers.ts`（30 直接依赖，最近 #2038 大重构涉及）
+
+**关键发现**：
+
+| 维度 | 结果 | 评估 |
+| :--- | :--- | :--- |
+| 依赖图准确性 | `impact` = 63 文件，`affected-tests` = 27 个测试，symbol-level 导入细节准确 | ✅ 高价值 |
+| 循环依赖风险 | `cycles = 0` | ✅ 无风险 |
+| 解析完整性 | `coverageRatio = 1.00` | ✅ 可信 |
+| 验证命令建议 | `audit-file` 的 `validationAdvice.commands.focused/full` 为空，仅建议 `git diff --check` | ❌ 最后一英里断裂 |
+| 启发式误报 | `csharp-hooks.test.ts` 因注释中提到 `lookupBindingsAt` 被 `mention:stem` 算入 affected tests | ⚠️ 低置信度噪音 |
+| 路由噪音 | `affectedRoutes` 包含测试文件中的 Express 路由，未区分 `src/` vs `test/` | ⚠️ 相关性低 |
+
+**验证结果**：
+- ✅ `audit-file` 现在会生成 `node-direct-tests` / `python-direct-tests` 等 focused 命令（复用 `generateCommands` 的 `run-direct-tests` step）。
+- ✅ `pickSuggestedCommand` 优先推荐 `direct-tests`，AI 拿到输出后可直接执行。
+- ⚠️ GitNexus 根目录未检测到 vitest（子包在 `gitnexus/`），命令回退为 `npm run test`；这是 stack-detector 的 monorepo 边界问题，非本次修复范围。
+
+**验证结果**：
+- ✅ `affected-tests` `mention` 启发式现在在匹配前会按语言族去除注释（C-family / Python / Ruby），`csharp-hooks.test.ts` 这种仅注释引用的情况不再被误报。
+- ⚠️ 旧缓存可能仍保留修复前的 mention 结果；新缓存或 `--cache-dir` 刷新后生效。
+
+**验证结果**：
+- ✅ `impact.affectedRoutes` 现在为每条路由附加 `source: 'src' | 'test'`，AI 消费者可直接过滤掉测试夹具路由。
+- 实现路径：`src/services/dep-graph/query.js` 在 SQLite CTE 快速路径和内存 BFS 回退路径统一通过 `isTestLikeFile()` 计算 `source`。
+
+**Route B 扩展验证：qartez-mcp（Rust，223 文件）**
+
+**聚焦文件**：`src/guard.rs`（35 直接依赖，14 个 affected tests）
+
+| 维度 | 结果 | 评估 |
+| :--- | :--- | :--- |
+| 依赖图准确性 | `impact` = 35 文件，`affected-tests` = 14 个测试，symbol-level 准确 | ✅ 高价值 |
+| 验证命令建议 | `audit-file` 生成 `cargo test server::tools::test_gaps`，但 13 个 `tests/*.rs` 集成测试丢失 | ❌ 最后一英里断裂 |
+| 死导出 | `deadExports = 113`，大量 `pub` 项为库公共 API 误报 | ⚠️ 已知限制 |
+| 解析完整性 | `coverageRatio = 0.91`，19 个 Rust 测试文件 regex fallback | ⚠️ 可接受 |
+
+**验证结果**：
+- ✅ Rust focused/direct 命令现在拆分单元模块与集成测试：`cargo test <module>` 与 `cargo test --test <stem>`，14 个 affected tests 全部可执行。
+
+**验证结果**：
+- ✅ Rust 库公共 API 死导出误报已修复。`src/lib.rs` 通过 `pub mod` 链式公开的模块中，`pub` 未使用项会被标记为 `rust-public-api` 并降级为 `low` confidence，不再驱动仓库级 severity。
+- 在 `reference/qartez-mcp` 上：113 个死导出候选中 75 个被正确识别为公共 API 误报并降级。
+
+**剩余缺口**（按 ROI）：
+- Route B 在 GitNexus / qartez-mcp 上发现的 5 个消费体验缺口已全部修复。
+
 ---
 
 ## 下一步候选方向与多语言框架检测矩阵
@@ -327,4 +381,4 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-06-17（Phase 3.5 聚合结果持久化与细粒度查询 CLI；npm run test:fast 123/123 PASS，npm run test:smoke 126/126 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-20（Route B 六个 AI 消费体验/质量缺口全部修复：Rust 并发解析回退、audit-file 验证命令、affected-tests 注释误报、affectedRoutes source 标记、Rust tests/ 集成测试命令、Rust 公共 API 死导出降级；npm run test:fast 124/124 PASS，npm run test:smoke 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*

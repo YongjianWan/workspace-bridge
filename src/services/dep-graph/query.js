@@ -92,6 +92,17 @@ class GraphQuery {
     }));
   }
 
+  _routeToOutput(file, r) {
+    return {
+      file: this.dg._displayPath(file),
+      method: r.method,
+      path: r.path,
+      framework: r.framework,
+      handler: r.handler || null,
+      source: this.dg.isTestLikeFile(file) ? 'test' : 'src',
+    };
+  }
+
   findAffectedHttpRoutes(filePath, depth = 3) {
     this._ensureReady();
     const start = this.dg.normalizeFilePath(filePath);
@@ -101,13 +112,7 @@ class GraphQuery {
       try {
         const dbRoutes = this.dg.cache.findAffectedHttpRoutes(start, depth);
         if (dbRoutes) {
-          return dbRoutes.map((r) => ({
-            file: this.dg._displayPath(r.file),
-            method: r.method,
-            path: r.path,
-            framework: r.framework,
-            handler: r.handler || null,
-          }));
+          return dbRoutes.map((r) => this._routeToOutput(r.file, r));
         }
       } catch (err) {
         if (process.env.DEBUG) {
@@ -125,13 +130,7 @@ class GraphQuery {
         const info = this.dg.getFileInfo(file);
         if (info && info.routes && info.routes.length > 0) {
           for (const r of info.routes) {
-            affected.push({
-              file: this.dg._displayPath(file),
-              method: r.method,
-              path: r.path,
-              framework: r.framework,
-              handler: r.handler || null,
-            });
+            affected.push(this._routeToOutput(file, r));
           }
         }
       }

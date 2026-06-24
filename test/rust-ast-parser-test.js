@@ -196,9 +196,30 @@ pub use std::io::{self, Write};
   assert(result.exports.includes('Write'), 'Should reexport Write');
 }
 
+async function testRustConcurrentParsing() {
+  // Regression guard for tree-sitter WASM races: concurrent Rust parses
+  // must not silently degrade to regex fallback.
+  const sources = Array.from({ length: 10 }, (_, i) => `
+use std::io::Read;
+use crate::module${i}::helper${i};
+
+pub fn function_${i}() -> i32 { ${i} }
+pub struct Struct_${i};
+pub enum Enum_${i} { A, B }
+`);
+
+  const results = await Promise.all(sources.map((src) => parseRust(src)));
+  for (let i = 0; i < results.length; i++) {
+    assert.strictEqual(results[i].parseMode, 'ast', `source ${i} should use AST mode`);
+    assert(results[i].exports.includes(`function_${i}`), `source ${i} should export function_${i}`);
+    assert(results[i].imports.includes(`crate::module${i}::helper${i}`), `source ${i} should import helper${i}`);
+  }
+}
+
 async function main() {
   await testRustAstSchema();
   await testRustAstUseListReexport();
+  await testRustConcurrentParsing();
 }
 
 main().catch((e) => {

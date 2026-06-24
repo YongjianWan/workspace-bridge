@@ -8,6 +8,10 @@ const {
 const { uniqueNames, createExportRecord, createImportRecord } = require('./shared');
 const { parseRust: parseRustRegex } = require('./polyglot');
 
+// Serialize all Rust WASM parsing because tree-sitter's WASM backend is not
+// safe for concurrent parser/query use across separate Parser instances.
+let rustParseLock = Promise.resolve();
+
 const RUST_QUERY = `
 (use_declaration
   argument: [
@@ -243,7 +247,7 @@ function getRustDecorators(funcNode) {
   return decorators;
 }
 
-async function parseRust(content) {
+async function parseRustImpl(content) {
   let parser;
   let language;
   try {
@@ -393,6 +397,23 @@ async function parseRust(content) {
     functionRecords,
     parseMode: 'ast',
   };
+}
+
+async function parseRust(content) {
+  const release = await new Promise((resolve) => {
+    rustParseLock = rustParseLock.then(() => {
+      let done;
+      const donePromise = new Promise((r) => { done = r; });
+      resolve(done);
+      return donePromise;
+    });
+  });
+
+  try {
+    return await parseRustImpl(content);
+  } finally {
+    release();
+  }
 }
 
 module.exports = { parseRust };
