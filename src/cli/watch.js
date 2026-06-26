@@ -16,6 +16,7 @@ const WATCH_COMMAND_TIMEOUT_MS = TIMEOUTS.WATCH_COMMAND_TIMEOUT_MS;
 const WATCH_MAX_STDOUT_BYTES = LIMITS.WATCH_MAX_STDOUT_BYTES;
 const { detectStack } = require('../utils/stack-detectors/detect');
 const { generateCommands } = require('../utils/stack-detectors/commands');
+const { buildSafeEnv } = require('../utils/command');
 const { buildFileSummary } = require('./formatters/file-summary');
 const { buildFileValidationAdvice } = require('./formatters/validation-advice');
 const { normalizePathKey } = require('../utils/path');
@@ -104,7 +105,7 @@ function executeWatchCommand(entry, workspaceRoot, timeoutMs = WATCH_COMMAND_TIM
       cwd,
       shell: useShell,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: process.env,
+      env: buildSafeEnv(),
     });
 
     let stdout = '';

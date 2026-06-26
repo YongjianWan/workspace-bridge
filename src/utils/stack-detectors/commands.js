@@ -416,11 +416,16 @@ function parseCommandString(cmd) {
     rest = cdMatch[2];
   }
 
-  // If still contains shell operators, mark as shell-required
-  const hasShellOps = /[|&;<>()]/.test(rest);
+  // If rest contains real shell operators (pipes, redirections, multiple
+  // statements, subshells), mark as shell-required. A plain
+  // "cd <dir> && <command> <args>" pattern does not need shell execution
+  // because we have already extracted cwd above.
+  const trimmedRest = rest.trim();
+  const isSingleCommand = /^[^\s|;&<>()]+(?:\s+[^\s|;&<>()]+)*$/.test(trimmedRest);
+  const hasShellOps = !isSingleCommand;
 
   // Naive split (doesn't handle quotes perfectly, but good enough for CLI args)
-  const parts = rest.trim().split(/\s+/).filter(Boolean);
+  const parts = trimmedRest.split(/\s+/).filter(Boolean);
   const command = parts[0] || null;
   const args = parts.slice(1);
 

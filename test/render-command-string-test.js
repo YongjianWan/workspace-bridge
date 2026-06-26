@@ -107,6 +107,21 @@ function testParsePushdSemicolon() {
   assert.deepStrictEqual(parsed.args, ['test', './...']);
 }
 
+function testParseCdPrefixDoesNotRequireShell() {
+  const parsed = parseCommandString('cd backend && go test ./...');
+  assert.strictEqual(parsed.cwd, 'backend');
+  assert.strictEqual(parsed.command, 'go');
+  assert.deepStrictEqual(parsed.args, ['test', './...']);
+  assert.strictEqual(parsed.shell, null, 'plain cd prefix + single command should not require shell');
+}
+
+function testParseRealShellOpsRequireShell() {
+  const parsed = parseCommandString('cat file.txt | grep x');
+  assert.strictEqual(parsed.command, 'cat');
+  assert.deepStrictEqual(parsed.args, ['file.txt', '|', 'grep', 'x']);
+  assert.strictEqual(parsed.shell, 'cat file.txt | grep x', 'pipes require shell execution');
+}
+
 function main() {
   testBasicCommand();
   testCwdPrefix();
@@ -121,6 +136,9 @@ function main() {
   testParsePushd();
   testParseSemicolon();
   testParsePushdSemicolon();
+  testParseCdPrefixDoesNotRequireShell();
+  testParseRealShellOpsRequireShell();
+  console.log('test/render-command-string-test.js ... PASS');
 }
 
 main();

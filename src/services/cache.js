@@ -77,23 +77,10 @@ function computeDefaultCacheDir(workspaceRoot) {
     cacheDir = fallbackDir;
   }
 
-  // Ensure gitignore if we are using the preferred workspace directory.
-  // Only append to an existing .gitignore; do not create a new one, so
-  // read-only commands like audit-diff do not surprise the user with an
-  // untracked .gitignore file. Users can run `init` to create one.
-  if (cacheDir === preferredDir) {
-    try {
-      const gitignorePath = path.join(workspaceRoot, '.gitignore');
-      const entry = '.workspace-bridge/\n';
-      if (fs.existsSync(gitignorePath)) {
-        const content = fs.readFileSync(gitignorePath, 'utf8');
-        if (!content.split(/\r?\n/).some(line => line.trim() === '.workspace-bridge' || line.trim() === '.workspace-bridge/')) {
-          const separator = content.endsWith('\n') ? '' : '\n';
-          fs.appendFileSync(gitignorePath, separator + entry, 'utf8');
-        }
-      }
-    } catch {}
-  }
+  // Note: .gitignore management for the cache directory is intentionally
+  // performed only by the explicit `init` command. Auto-appending to a user's
+  // .gitignore on every cache initialization is a surprise side-effect and can
+  // leave dirty git state in CI/read-only environments.
 
   // Migrate legacy cache.db if new location doesn't have one, but old one does
   const newDbPath = path.join(cacheDir, 'cache.db');

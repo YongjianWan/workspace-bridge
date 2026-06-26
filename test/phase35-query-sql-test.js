@@ -128,6 +128,22 @@ async function testSqlQueryValidationAndSecurity() {
   const data2 = JSON.parse(invalidRes2.stdout);
   assert.strictEqual(data2.ok, false);
   assert.ok(data2.error.includes('allowed') || data2.error.includes('modification'));
+                
+  // 3. Reject set-operation attacks (UNION / INTERSECT / EXCEPT) that could leak schema
+  for (const setOp of ['UNION', 'INTERSECT', 'EXCEPT']) {
+    const attackRes = await runCliInProcess([
+      'query', '--sql',
+      `SELECT key FROM analysis_snapshots ${setOp} SELECT sql FROM sqlite_master`,
+      '--json', '--quiet',
+    ]);
+    assert.strictEqual(attackRes.status, 1, `${setOp} set operation should be rejected`);
+    const attackData = JSON.parse(attackRes.stdout);
+    assert.strictEqual(attackData.ok, false, `${setOp} set operation should return ok=false`);
+    assert.ok(
+      attackData.error.includes('allowed') || attackData.error.includes('modification'),
+      `${setOp} set operation should report disallowed error, got: ${attackData.error}`,
+    );
+  }
 }
 
 async function testSqlQueryFormatting() {

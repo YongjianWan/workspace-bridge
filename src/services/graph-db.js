@@ -1160,10 +1160,12 @@ class GraphDB {
           return { ok: false, error: 'Only SELECT, EXPLAIN SELECT, or PRAGMA table_info are allowed' };
         }
 
-        // Independent defense layer: reject data-modification keywords.
-        const forbidden = /\b(insert|update|delete|drop|create|alter|replace|vacuum|attach|detach|begin|commit|rollback|savepoint)\b/i;
+        // Independent defense layer: reject data-modification keywords
+        // and set operations (UNION/INTERSECT/EXCEPT) that can be used to
+        // leak schema or cross-table data through an otherwise valid SELECT.
+        const forbidden = /\b(insert|update|delete|drop|create|alter|replace|vacuum|attach|detach|begin|commit|rollback|savepoint|union|intersect|except)\b/i;
         if (forbidden.test(normalized)) {
-          return { ok: false, error: 'Database modification keywords are not allowed' };
+          return { ok: false, error: 'Database modification or set-operation keywords are not allowed' };
         }
 
         // Strip a single trailing semicolon, then reject any remaining semicolons

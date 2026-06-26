@@ -125,14 +125,14 @@ async function testCacheDirectoryPrecedenceAndMigration() {
   console.log('--- Testing Cache Directory Fallback, Gitignore & Migration ---');
   const root = makeTempDir('wb-cache-debt-');
 
-  // Scenario 1: Writable workspace, should use preferred local dir and append gitignore
+  // Scenario 1: Writable workspace, should use preferred local dir but NOT auto-append gitignore
   const gitignorePath = path.join(root, '.gitignore');
   fs.writeFileSync(gitignorePath, '# existing\n');
   const dir1 = computeDefaultCacheDir(root);
   assert.strictEqual(dir1, path.join(root, '.workspace-bridge'), 'Should use preferred workspace-local dir');
   assert(fs.existsSync(gitignorePath), 'Should keep existing .gitignore');
   const gitignoreContent = fs.readFileSync(gitignorePath, 'utf8');
-  assert(gitignoreContent.includes('.workspace-bridge/'), 'Should write preferred dir to gitignore');
+  assert(!gitignoreContent.includes('.workspace-bridge/'), 'Should NOT auto-append cache dir to gitignore; only `init` command should manage gitignore');
 
   // Scenario 2: Preferred dir not writable, should fallback to tmpdir
   // Create a file at the preferred path so mkdirSync will fail

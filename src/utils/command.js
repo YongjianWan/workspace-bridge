@@ -67,6 +67,7 @@ function runCommandSecure(command, args, cwd, timeoutMs = TIMEOUTS.COMMAND_DEFAU
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      env: buildSafeEnv(),
     });
 
     let stdout = '';
@@ -202,6 +203,43 @@ function trimOutput(value, limit = LIMITS.TRIM_OUTPUT_DEFAULT_CHARS) {
   return `${value.slice(0, limit)}\n...<truncated>`;
 }
 
+/**
+ * Build a minimal environment object for child processes.
+ * Avoids leaking sensitive parent env vars (tokens, DB URLs, etc.) to
+ * spawned Python/shell helpers while preserving the variables they actually
+ * need to function across platforms.
+ *
+ * @param {Record<string, string>} extraEnv - Additional vars to include/override.
+ * @returns {Record<string, string>}
+ */
+function buildSafeEnv(extraEnv = {}) {
+  const allowed = {
+    PATH: process.env.PATH,
+    HOME: process.env.HOME,
+    USERPROFILE: process.env.USERPROFILE,
+    APPDATA: process.env.APPDATA,
+    LOCALAPPDATA: process.env.LOCALAPPDATA,
+    PROGRAMDATA: process.env.PROGRAMDATA,
+    SYSTEMROOT: process.env.SYSTEMROOT,
+    WINDIR: process.env.WINDIR,
+    TEMP: process.env.TEMP,
+    TMP: process.env.TMP,
+    TMPDIR: process.env.TMPDIR,
+    LANG: process.env.LANG,
+    LC_ALL: process.env.LC_ALL,
+    LC_CTYPE: process.env.LC_CTYPE,
+    PYTHONIOENCODING: 'utf-8',
+    UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE,
+    DEBUG: process.env.DEBUG,
+  };
+
+  const env = {};
+  for (const [key, value] of Object.entries(allowed)) {
+    if (value !== undefined) env[key] = value;
+  }
+  return { ...env, ...extraEnv };
+}
+
 module.exports = {
   // Secure methods (RECOMMENDED)
   runCommandSecure,
@@ -211,4 +249,5 @@ module.exports = {
   commandExists,
   trimOutput,
   resolvePythonCommand,
+  buildSafeEnv,
 };

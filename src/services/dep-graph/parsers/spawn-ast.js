@@ -4,6 +4,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { TIMEOUTS, LIMITS } = require('../../../config/constants');
+const { buildSafeEnv } = require('../../../utils/command');
 
 // Module-level semaphore to bound Python sub-process memory.
 // Each Python process uses 30-80MB; on large Java/Python repos,
@@ -76,7 +77,7 @@ function _spawnPythonASTParser(scriptName, content, timeoutMs) {
     const python = spawn(pythonCmd, [scriptPath, '--file', tempPath], {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
-      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      env: buildSafeEnv({ PYTHONIOENCODING: 'utf-8' }),
     });
 
     // Do not let a hung Python parser keep the Node event loop alive.
