@@ -14,7 +14,7 @@
 >
 > 收工时已跑 `npm run test:fast` 并确认 fast 层全绿，开工无需重跑。全量 runner 状态见下方「基线状态」。直接读取下方「基线状态」确认当前文档记录是否仍成立。
 >
-> 开发迭代推荐 `npm run test:fast`（~16s，116 个 fast 层测试），比全量 runner（~5min）快 18×。
+> 开发迭代推荐 `npm run test:fast`（~18s，126 个 fast 层测试），比全量 runner（~5min）快 16×。
 
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
@@ -37,7 +37,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**所有测试全部 PASS**；`npm run test:fast` **124/124 PASS**（~25s），`npm run test:smoke` **127/127 PASS**（~60s）。开发迭代首选 `npm run test:fast`；41 个测试文件已从 spawn 迁移到 in-process runner。
+- 测试：**所有测试全部 PASS**；`npm run test:fast` **126/126 PASS**（~18s），`npm run test:smoke` **129/129 PASS**（~60s）。开发迭代首选 `npm run test:fast`；41 个测试文件已从 spawn 迁移到 in-process runner。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
@@ -52,36 +52,6 @@ node cli.js audit-overview --cwd . --json --quiet
 - **Co-change**：`impact` 命令已输出 `coChanges[]`；`git -C` 方案解决 Windows 中文路径兼容；性能 ~20s→76ms
 
 **历史交付**：路线 A–J 全部完成；阶段 1/2/3 全部完成；Wave 1-15 全部完成；L2 债务清零；产品债务清零。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
-
----
-
-## 历史变更详情
-
-所有本轮已修复的问题与详细根因分析均已归档于 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
-
----
-
-## 已知陷阱（新 agent 必看）
-
-| 陷阱 | 位置 | 如何避免 |
-| :--- | :--- | :--- |
-| `DEFAULT_EXCLUDE_DIRS` 全局污染 | `src/services/file-index.js` | 任何新增排除项必须是通用目录名（如 `node_modules`），不能是项目特定名称 |
-| orphan 检测不同步 | `project-map.js` vs `overview-tools.js` | 两处 orphan 逻辑必须保持同步（scripts/bin/benchmark 跳过） |
-| compact 模式只改 project-map.js | `cli.js` 也需要同步 | human-readable 输出和 `countTreeFiles()` 必须兼容 skeleton 模式（`totalFileCount`） |
-| Windows PowerShell 管道 BOM | 所有 `node cli.js ... \| node -e` 命令 | PowerShell 管道传 JSON 会带 BOM，导致 `JSON.parse` 必 crash。当前 workaround：用文件中转（`> file`）再读取 |
-| cache.save() 已改为 async | `src/services/cache.js` | 调用方必须 `await`（container.js、测试均已适配） |
-| repl-test.js flaky | `test/repl-test.js` | runner.js 串行执行时偶发失败，单独 `node test/repl-test.js` 稳定通过；若遇到，先重跑确认 |
-| audit-file-watch-test.js flaky | `test/audit-file-watch-test.js` | runner.js 串行执行时 watcher 事件偶发丢失，单独 `node test/audit-file-watch-test.js` 稳定通过 |
-| `framework-patterns.js` 新增框架时 | `src/services/dep-graph/framework-patterns.js` | 路径检测逻辑按语言分块，新增语言需同时更新 `isEntry` 标记和测试 |
-| `buildFileValidationAdvice` 导出链 | `validation-advice.js` → `index.js` → `cli.js` | 新增 formatter 函数必须在 `src/cli/formatters/index.js` 中显式导出，否则 cli.js 解构为 `undefined` |
-| `--quiet` 不再 monkey-patch `console.error` | `cli.js` / `container.js` | `quiet` 通过 `ServiceContainer` 传递；错误日志仍用 `console.error` |
-| `findDeadExports()` edges/files 降级 | `src/services/dep-graph.js` | 单文件项目（files=1）不受降级影响；多文件项目 edges/files < 0.1 时 confidence 降为 low |
-| `.workspace-bridge-cache.json.bak` 泄漏到 git status | `src/tools/git-tools.js` | `getChangedFiles()` 已排除 `.bak` 备份文件，防止 audit-diff 误报 |
-| `resolvers.js` 策略链新增策略 | `src/services/dep-graph/resolvers.js` | 新增语言需在 `registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null` |
-| `checkFileChanges()` 双路径 | `src/services/cache.js` | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为 |
-| 动态 require 导致死导出误报 | `src/services/dep-graph/framework-patterns.js` | `dead-exports` 无法静态分析 `ROUTE_QUERY_REGISTRY` 动态 require，可忽略或加白 |
-| C/C++ `#include` resolver 语义限制 | `src/services/dep-graph/parsers/registry.js` | C/C++ 对系统头、`-I` 搜索路径支持较弱，`unresolved` 可能偏高 |
-| Vue/Svelte 路由提取设计选择 | `src/services/dep-graph/framework-patterns.js` | Nuxt/SvelteKit 路由 query 只处理 `.ts` server handler；SFC 本身不提取路由 |
 
 ---
 直说我的判断。
@@ -359,19 +329,9 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-## 修复流程（严谨版，新 Agent 必遵守）
+## 修复流程
 
-```
-1. 读问题 → 2. 读复现命令 → 3. 本地复现 → 4. 读目标文件 → 5. 写失败测试 →
-6. 修复根因 → 7. 跑 test:fast → 8. 跑全量 runner → 9. 更新 CHANGELOG.md → 10. 标记 dogfood 问题为已修复
-```
-
-**铁律**：
-- **没有失败测试，不许写修复代码**（TDD）
-- **改高危文件前必须跑 impact + affected-tests**（`path.js` / `constants.js` / `dep-graph.js` / `cache.js` / `graph-db.js` / `parsers/shared.js` / `resolvers.js`）
-- **每波只修该波的问题**，不能跨波次混修
-- 每波收工前必须 `npm run test:fast` 123/123 PASS + 全量 runner 126/126 PASS
-- 每次修复后在 CHANGELOG.md [Unreleased] 追加条目（单条不超过 3 行）
+详见 [AGENTS.md §验证与调试](./AGENTS.md#验证与调试） 与 §Agent 认知边界。
 
 ---
 
@@ -381,4 +341,4 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-06-24（Route B 六个 AI 消费体验/质量缺口全部修复 + 三波代码审查后续修复：query 命令 SQL 安全加固、snapshot short-circuit 保守化、C-family/Python/Ruby 注释剥离状态机、清理 JetBrains 检查报告残留、audit-assembler flat dispatcher 重构、ROADMAP ADR 归档 CHANGELOG、--fields 文档化、IO 安全（symlink 目录循环保护 + parser 文件大小上限）、truncate JSDoc 修正；npm run test:fast 124/124 PASS，npm run test:smoke 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-26（文档整合：创建 docs/README.md 导航页，将已知陷阱与修复流程从 SESSION.md 迁移至 AGENTS.md，清理 ROADMAP.md 已完成项与格式残骸，标记 code_review.md 为历史归档并清理审计残留文字、补齐测试分层标注、同步 fast/smoke 测试基线；npm run test:fast 126/126 PASS，npm run test:smoke 129/129 PASS；schemaVersion: 1.2.0；version: 2.0.0）*

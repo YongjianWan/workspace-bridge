@@ -83,7 +83,7 @@
 **调试流程（遇到失败时执行）**
 1. **Root Cause**：仔细阅读错误信息 → 稳定复现 → git diff 近期变更 → 追踪数据流 → 找正常工作的示例对比差异
 2. **Hypothesis**：提出单一假设，最小化验证
-3. **Fix**：写失败测试 → 修复根因 → 回到收工前验证
+3. **Fix**：写失败测试 → 修复根因 → 跑 `npm run test:fast` 确认全绿 → 跑全量 runner 确认无回归 → 在 CHANGELOG.md `[Unreleased]` 追加条目 → 若涉及 dogfood 问题则标记为已修复
 
 **铁律**：跳过任何一步 = 说谎。不做根因调查，不许提修复方案。三次修不好 → 质疑架构。
 
@@ -195,6 +195,28 @@ node cli.js dead-exports --cwd . --json --quiet
 - `--format jsonl` 输出逐行 JSON 记录（每行一个对象，带 `_type` 字段），适合管道处理（`jq`、`grep`）；`--json` 输出完整嵌套对象，适合完整结构消费。
 - `workspace-info` 的 `parserAvailability.usedFallbackPath: true` 出现在非 Node.js 项目（Java/Python/Go）是正常的，表示 tree-sitter WASM 走了无 `package.json` 的初始化路径，**不表示文件被跳过解析**。
 
+### 已知陷阱（新 agent 必看）
+
+| 陷阱 | 位置 | 如何避免 |
+| :--- | :--- | :--- |
+| `DEFAULT_EXCLUDE_DIRS` 全局污染 | `src/services/file-index.js` | 任何新增排除项必须是通用目录名（如 `node_modules`），不能是项目特定名称 |
+| orphan 检测不同步 | `project-map.js` vs `overview-tools.js` | 两处 orphan 逻辑必须保持同步（scripts/bin/benchmark 跳过） |
+| compact 模式只改 project-map.js | `cli.js` 也需要同步 | human-readable 输出和 `countTreeFiles()` 必须兼容 skeleton 模式（`totalFileCount`） |
+| Windows PowerShell 管道 BOM | 所有 `node cli.js ... \| node -e` 命令 | PowerShell 管道传 JSON 会带 BOM，导致 `JSON.parse` 必 crash。当前 workaround：用文件中转（`> file`）再读取 |
+| cache.save() 已改为 async | `src/services/cache.js` | 调用方必须 `await`（container.js、测试均已适配） |
+| repl-test.js flaky | `test/repl-test.js` | runner.js 串行执行时偶发失败，单独 `node test/repl-test.js` 稳定通过；若遇到，先重跑确认 |
+| audit-file-watch-test.js flaky | `test/audit-file-watch-test.js` | runner.js 串行执行时 watcher 事件偶发丢失，单独 `node test/audit-file-watch-test.js` 稳定通过 |
+| `framework-patterns.js` 新增框架时 | `src/services/dep-graph/framework-patterns.js` | 路径检测逻辑按语言分块，新增语言需同时更新 `isEntry` 标记和测试 |
+| `buildFileValidationAdvice` 导出链 | `validation-advice.js` → `index.js` → `cli.js` | 新增 formatter 函数必须在 `src/cli/formatters/index.js` 中显式导出，否则 cli.js 解构为 `undefined` |
+| `--quiet` 不再 monkey-patch `console.error` | `cli.js` / `container.js` | `quiet` 通过 `ServiceContainer` 传递；错误日志仍用 `console.error` |
+| `findDeadExports()` edges/files 降级 | `src/services/dep-graph.js` | 单文件项目（files=1）不受降级影响；多文件项目 edges/files < 0.1 时 confidence 降为 low |
+| `.workspace-bridge-cache.json.bak` 泄漏到 git status | `src/tools/git-tools.js` | `getChangedFiles()` 已排除 `.bak` 备份文件，防止 audit-diff 误报 |
+| `resolvers.js` 策略链新增策略 | `src/services/dep-graph/resolvers.js` | 新增语言需在 `registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null` |
+| `checkFileChanges()` 双路径 | `src/services/cache.js` | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为 |
+| 动态 require 导致死导出误报 | `src/services/dep-graph/framework-patterns.js` | `dead-exports` 无法静态分析 `ROUTE_QUERY_REGISTRY` 动态 require，可忽略或加白 |
+| C/C++ `#include` resolver 语义限制 | `src/services/dep-graph/parsers/registry.js` | C/C++ 对系统头、`-I` 搜索路径支持较弱，`unresolved` 可能偏高 |
+| Vue/Svelte 路由提取设计选择 | `src/services/dep-graph/framework-patterns.js` | Nuxt/SvelteKit 路由 query 只处理 `.ts` server handler；SFC 本身不提取路由 |
+
 ---
 
 ## Agent 认知边界（决策检查表）
@@ -232,7 +254,7 @@ THEN 拿到结果后必须执行：
   1. 阅读完整输出，记录 impactedFiles.length 和 affectedTests.length
   2. 如果 impactedFiles 包含 dep-graph.js / cache.js / graph-db.js / container.js：
       → 核心基础设施被波及，改动必须保守，优先向后兼容（保留旧接口 + 新增，不删不改现有行为）
-  3. 收工前必须跑 `npm run test:fast` 并 124/124 PASS，确认无回归
+  3. 收工前必须跑 `npm run test:fast` 并 126/126 PASS，确认无回归
 ```
 
 > 其余检查（裸数字、异常安全、语义同步、重复代码）已由 L1/L2 覆盖，无需单列。
@@ -244,5 +266,5 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-06-24（Route B 六个 AI 消费体验/质量缺口修复 + 三波代码审查后续修复：query 命令 SQL 安全加固、snapshot short-circuit 保守化、C-family/Python/Ruby 注释剥离状态机、清理 JetBrains 检查报告残留、audit-assembler flat dispatcher 重构、ROADMAP ADR 归档 CHANGELOG、--fields 文档化、IO 安全（symlink 目录循环保护 + parser 文件大小上限）、truncate JSDoc 修正；npm run test:fast 124/124 PASS，npm run test:smoke 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-26（文档整合：创建 docs/README.md 导航页，将已知陷阱与修复流程从 SESSION.md 迁移至 AGENTS.md，清理 ROADMAP.md 已完成项与格式残骸，标记 code_review.md 为历史归档；npm run test:fast 126/126 PASS，npm run test:smoke 129/129 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
 

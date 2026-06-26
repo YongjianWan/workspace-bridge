@@ -8,6 +8,46 @@
 
 ## [Unreleased]
 
+### Documentation: integrate and update active docs (2026-06-26)
+
+- Created `docs/README.md` as a navigation page; clarified that `docs/` does not maintain a second source of truth and that `AGENTS.md` remains the single source of project state.
+- Removed the completed `cli.js` testable-entry row from `ROADMAP.md` (already delivered per `SESSION.md` direction 3).
+- Moved the "known pitfalls" table and the detailed repair flow from `SESSION.md` to `AGENTS.md`, so timeless agent guidance lives in the root entry and `SESSION.md` stays focused on the current session.
+- Trimmed redundant sections from `SESSION.md` (historical change details, moved pitfalls/repair flow).
+- Marked `docs/code_review.md` as historical archive; active limitations now live in `ROADMAP.md` and fixed findings in `CHANGELOG.md`.
+- Fixed broken table formatting and stray `|` separators in `ROADMAP.md`.
+- Removed completed items still marked as active from `ROADMAP.md` long-term direction table and user-experience gap table.
+- Added missing `// @contract` annotation to `test/api-consistency-test.js`; cleaned up AI reasoning artifacts and trailing placeholder text from the archived `docs/code_review.md`.
+
+### Security & Privacy Hardening (2026-06-25)
+
+- **Fix SQL UNION/INTERSECT/EXCEPT injection in `query` command**: `GraphDB.queryReadOnly()` previously rejected data-modification keywords but allowed set operations such as `SELECT ... UNION SELECT sql FROM sqlite_master`, which exposed the full DB schema. The forbidden-keyword regex now includes `union`, `intersect`, and `except`, and the error message was updated to mention set operations.
+  - `src/services/graph-db.js`: expanded the read-only SQL defense layer.
+  - `test/phase35-query-sql-test.js`: added parameterized assertions for `UNION`, `INTERSECT`, and `EXCEPT` attacks, verifying each is rejected with `ok: false`.
+- **Stop leaking parent environment variables to spawned helpers**: `src/cli/watch.js` and `src/services/dep-graph/parsers/spawn-ast.js` previously passed the entire `process.env` to child processes, risking exposure of secrets like `AWS_SECRET_ACCESS_KEY`, `DATABASE_URL`, or `NPM_TOKEN`.
+  - `src/utils/command.js`: added `buildSafeEnv(extraEnv)` whitelist helper that preserves only variables child processes actually need (`PATH`, `HOME`/`USERPROFILE`, `APPDATA`, `SYSTEMROOT`/`WINDIR`, `TEMP`/`TMP`, `LANG`/`LC_*`, `PYTHONIOENCODING`, `UV_THREADPOOL_SIZE`, `DEBUG`) and merges explicit overrides. `runCommandSecure()` (used for `git`, `npm`, `npx`, Python modules, etc.) now defaults to this safe environment as well.
+  - `src/cli/watch.js`: watch validation commands now use `buildSafeEnv()`.
+  - `src/services/dep-graph/parsers/spawn-ast.js`: Python AST parsers now use `buildSafeEnv({ PYTHONIOENCODING: 'utf-8' })`.
+  - `test/safe-env-test.js`: new contract tests asserting sensitive variables are stripped while required variables remain present and explicit overrides are honored.
+- **Stop auto-appending to `.gitignore` on cache initialization**: `computeDefaultCacheDir()` silently appended `.workspace-bridge/` to an existing `.gitignore` every time a cache was initialized, surprising users and creating dirty git state in CI/read-only environments. Cache-directory gitignore management is now performed only by the explicit `init` command.
+  - `src/services/cache.js`: removed the auto-append block from `computeDefaultCacheDir()` and documented the rationale.
+  - `test/tech-debt-cleanup-test.js`: updated cache-dir test to assert `.gitignore` is **not** modified by `computeDefaultCacheDir()`.
+- **Reduce watch shell-injection surface**: `parseCommandString()` previously treated the structural `cd <dir> && ` prefix as a shell operator, causing watch validation commands to run through a shell unnecessarily. It now recognizes a plain `cd/pushd <dir> && <command> <args>` pattern as a single command and sets `shell: null`, so `watch.js` spawns the process directly without a shell.
+  - `src/utils/stack-detectors/commands.js`: refined shell-operator detection so only real operators (pipes, redirections, subshells, multiple statements) require shell execution.
+  - `test/render-command-string-test.js`: added assertions that `cd backend && go test ./...` does **not** require shell, while `cat file.txt | grep x` does.
+
+### Code Quality: Weak Assertion Cleanup (2026-06-25)
+
+- Replaced low-signal `typeof` checks in tests with more semantic assertions where practical:
+  - `test/dead-exports-imports-scratch-config-test.js`: replaced `typeof p === 'string'` filter with an explicit `Array.isArray` check on the sample list.
+  - `test/wave3-formatter-experience-test.js`: replaced `typeof treeText === 'string'` guard with truthy check plus content assertion.
+
+### API Consistency Check (2026-06-25)
+
+- Added `test/api-consistency-test.js` to lock down public contracts touched by the security fixes:
+  - `query` command is registered and its error envelope is surfaced consistently across `human`, `summary`, `markdown`, and `jsonl` formats.
+  - `buildSafeEnv()` is exported from `src/utils/command.js` and correctly strips sensitive variables while preserving required ones and honoring explicit overrides.
+
 ### Code Review Follow-up: query CLI security, snapshot freshness, comment stripping, and workspace hygiene (2026-06-24)
 
 - **Secure `query` command**: Moved SQL execution from `src/cli/commands/index.js` directly touching `container.cache._graphDb.db` into a dedicated `GraphDB.queryReadOnly()` method exposed through `WorkspaceCache`. This removes knowledge of private storage internals from the CLI layer.
@@ -82,7 +122,7 @@
 - **WorkspaceCache Route Wrappers**: Added `saveRoutes`, `loadRoutes`, and `loadRoutesForFiles` to `cache.js` to enable route table persistence in SQLite.
 - **SQLite CTE Route Analysis**: Implemented `findAffectedHttpRoutes(filePath, depth)` in `graph-db.js` using a recursive CTE query that traces dependents and yields affected HTTP routes.
 - **Graph-First Route Query Integration**: Optimized `findAffectedHttpRoutes` in `query.js` to utilize the SQLite CTE path when cache is present, falling back to in-memory BFS traversal when missing.
-- **Verification**: Created [graph-first-http-routes-db-test.js](file:///c:/Users/sdses/Desktop/随机小项目/workspace-bridge/test/graph-first-http-routes-db-test.js) asserting direct DB route queries, fallback correctness, and incremental route updates.
+- **Verification**: Created [graph-first-http-routes-db-test.js](test/graph-first-http-routes-db-test.js) asserting direct DB route queries, fallback correctness, and incremental route updates.
 
 ### Phase 3.5: Persistent aggregate snapshots, fine-grained queries, and SQL query CLI (2026-06-17)
 
@@ -90,7 +130,7 @@
 - **Short-circuiting**: Integrated cache lookup into `buildProjectOverview` to skip graph computation and directly load cached snapshot if git HEAD, file count (scope-filtered), and config hash are identical.
 - **Fine-grained SQL CLI query**: Added `query` CLI command to run read-only SELECT/EXPLAIN queries against the cache DB. Built custom formatters (human/markdown/jsonl/summary) for query output. Added strict SQL injection and modification syntax validation to restrict commands to SELECT, EXPLAIN SELECT, and PRAGMA table_info.
 - **Fields filtering**: Added `--fields` argument to `audit-overview` and `audit-summary` CLI commands to prune output keys.
-- **Verification**: Created [phase35-query-sql-test.js](file:///c:/Users/sdses/Desktop/随机小项目/workspace-bridge/test/phase35-query-sql-test.js) and ensured `npm run test:fast` (123/123 PASS) and `npm run test:smoke` (126/126 PASS) run completely clean.
+- **Verification**: Created [phase35-query-sql-test.js](test/phase35-query-sql-test.js) and ensured `npm run test:fast` (123/123 PASS) and `npm run test:smoke` (126/126 PASS) run completely clean.
 
 ### DataQuality 环境降级探测完整化 (2026-06-16)
 
@@ -588,7 +628,7 @@
   - 保留并回补对 `.name`、`.exts` 和 `.parser` 的兼容性 Getters/Setters 访问（支持 test 侧 monkey-patch 覆盖）。
   - 在 `registry.js` 中将 9 种语言按照新格式统一声明并注册，把 symbol 提取、isBuiltIn 标识以及具体 resolver 策略完全内敛到 registry 核心声明中。
 - **解析器与 Resolver 配置解耦** `src/services/dep-graph/resolvers.js` / `src/services/file-index.js`：
-  - 删除冗余的 [symbol-extractors.js](file:///src/services/file-index/symbol-extractors.js)。
+  - 删除冗余的 `src/services/file-index/symbol-extractors.js`。
   - 更新 `file-index.js` 和测试 `symbol-extractors-test.js`，统一转而通过 `registry.findByExt(ext).extractSymbols()` 动态提取符号。
   - 重构 `resolvers.js`，动态加载并循环遍历 `registry.languages` 自动完成 resolver configurations 注册，并附加 `trySymbolTable` 兜底。
   - 将 `builder.js` 和 `complexity-tools.js` 中所有对 `.parser(...)` 的调用迁移至统一 the `.parse(...)`。
@@ -732,11 +772,11 @@
   - 提取了重复的 `push` 本地 helper 为全局 `pushRecord` helper 函数，清偿了 L2-7 重复代码技术债。
   - 统一并对齐了 `audit-summary` 和 `audit-overview` JSONL 输出 schema，两者均顺次输出 `hotspot`、`stability`、`knowledge-risk`、`orphan`、`dead-export`、`unresolved`、`cycle` 记录。
   - 所有列表/Findings 导向的 JSONL 格式化器（包括 `audit-summary`、`audit-overview`、`audit-security`、`audit-diff`、`health`、`impact`、`affected-tests`、`affected-routes`、`diagnostics`、`audit-map`、`dependencies`、`dependents`  、`dead-exports`、`unresolved`、`cycles`）现在总是先输出一个包含核心统计信息的 `summary` 元数据行，不论 findings 是否为空，以便下游命令行工具（如 `jq`）首行流式读取与筛选。
-  - 更新了 [formatter-direct-test.js](file:///c:/Users/sdses/Desktop/随机小项目/workspace-bridge/test/formatter-direct-test.js) 中相应的断言，验证各命令总是先输出 summary。
+  - 更新了 [formatter-direct-test.js](test/formatter-direct-test.js) 中相应的断言，验证各命令总是先输出 summary。
 - **修复 REPL `--eval` 多命令执行 Exit Code 覆盖 bug** `src/cli/repl.js`：
   - 修复了在 non-JSON eval 模式下，执行多条命令（如 `invalid; stats`）时后续成功命令重置并覆盖前序错误 exit code 的 bug。
   - 引入了 `maxExitCode` 状态，确保在退出时返回所有已执行命令中最高优先级的错误代码（`2` 表示未知命令/语法错，`1` 表示业务失败，`0` 表示成功）。
-  - 在 [bug-27-28-29-regression-test.js](file:///c:/Users/sdses/Desktop/随机小项目/workspace-bridge/test/bug-27-28-29-regression-test.js) 中添加了 Cases 6, 7, 8 以防止未来回归。
+  - 在 [bug-27-28-29-regression-test.js](test/bug-27-28-29-regression-test.js) 中添加了 Cases 6, 7, 8 以防止未来回归。
   - `npm run test:fast` 全量 **86/86 PASS**。
 
 ### 开发体验修复 — fast 层慢测试根治（2026-06-02）

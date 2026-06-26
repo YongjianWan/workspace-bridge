@@ -87,20 +87,11 @@
 
 ---
 
-| 目标                                            | 改动文件                                                               | 预期收益                                                                                                                                                             | 边界                                     |
-| ----------------------------------------------- | ------------------------------------------------- | -------------------------------- | ---------------------------------------- |
-| **cli.js 抽出可测试入口**                 | `cli.js` / `src/cli/commands/`                                     | 将命令处理逻辑从 `process.argv` 解析中解耦，暴露 `runCommand(config, command)` 纯函数入口，支持单元测试直接调用而无需 spawn                                      | 参考 qartez `cli_runner::run`          |
-
-**决策逻辑**：投入可控（每项 ~5–80 行），收益明确（减少误报、提升稳定性或可测试性）。不碰 call graph / 数据流。
-
----
-
 ### 阶段 2.5：CLI 减负与认知负担（短期）
 
 | # | 目标                                     | 改动文件                            | 预期收益                                                        | 工作量 | 状态      |
 | - | ---------------------------------------- | ----------------------------------- | --------------------------------------------------------------- | ------ | --------- |
-| 2 | **SKILL.md 按层级重组**            | `skills/workspace-audit/SKILL.md` | 从 264 行缩至 ~80 行；只保留"何时用/何时不用/标准工作流"        | ~30 行 | ⏳ 待评估 |
-
+| 1 | **SKILL.md 按层级重组**            | `skills/workspace-audit/SKILL.md` | 从 264 行缩至 ~80 行；只保留"何时用/何时不用/标准工作流"        | ~30 行 | ⏳ 待评估 |
 
 **原则**：不删除命令、不合并命令、不改接口。只改暴露策略（默认折叠低频命令）和可观测性（计时/进度/错误提示）。
 
@@ -150,15 +141,6 @@
 
 ---
 
-
-### 向后兼容
-
-- 所有新增表使用 `CREATE TABLE IF NOT EXISTS`
-- 旧版 CLI 读不到新表 → 正常 fallback 到 depGraph 内存重建
-- `nodes` 表不新建独立表，改为在现有 `file_metadata` 上 ALTER TABLE 扩展 `type`/`role`/`lang` 三列
-- 已实现的基础表（`file_metadata`/`parse_results`/`symbol_index`/`diagnostics`/`cache_metadata`）通过 `CACHE_TABLE_SCHEMA` 注册表驱动 load/save/saveIncremental
-
----
 ### Phase 4：CLI 彻底薄化（可选/远期）
 
 **目标**：CLI 命令不再初始化 depGraph，只查 SQLite。
@@ -228,32 +210,24 @@
 | -------- | --------- | ----------------------- | ------------------ |
 | 配置     | ⏳ 待评估 | `.workspace-bridge.json` schema 校验可更严格                      | 未知字段/类型错误警告（非阻塞）                                                |
 | 进度     | ⏳ 待评估 | 超大仓库（>10k 文件）索引进度粒度不足；用户不知道是在工作还是卡住了 | 按百分比或按模块打印进度；或按 PhaseTimer 阶段输出"解析中…/建图中…/查询中…" |
-| 错误     | ⏳ 待评估 | 异常抛出 raw stack trace，AI 被迫自己解析错误根因                   | 错误分类 + 可操作建议：如"路径不存在 → 检查 --cwd 是否正确"                   |
-| 路径安全 | ⏳ 待评估 | `--file`/`--cwd` 等路径参数未做注入清洗                         | 拒绝 `../` 逃逸和绝对路径注入，与 `sanitize.js` 职责对齐                   |
 
 ---
 
 ## 长期方向（非承诺，见路线 I-2 深度评估）
 
-| 方向                                             | 价值 | 成本 | 判断                        | 触发条件 / 现状|
+| 方向                                             | 价值 | 成本 | 判断                        | 触发条件 / 现状 |
 | -------------------------------------- | ---- | ---- | --------------------------- | ------------------------- |
-| 符号级调用解析（Call-Resolution DAG）            | 高   | 很高 | **当前不做**          | 需要新增 call graph 子系统；即使做了，Spring DI / Vue 模板 / MyBatis XML 等运行时绑定问题仍解不了                                                                                                                                                                                                     |
-| 字段读写追踪（ACCESSES 边）                      | 高   | 高   | **当前不做**          | 同污点追踪，需要跨文件数据流分析，与"结构分析 ≠ 语义分析"原则冲突                                                                                                                                                                                                                                                   |
-| CI Schema Parity 测试                            | 中   | 低   | 观察                        | 下一次 schema 变更前                                                                                                                                                                                                               |
-| **安全白名单分派表 + Assert Defense**      | 高   | 低   | **接受**              | `security-tools.js` 每条规则独立 `is_match_allowlisted()`；测试内防御性匹配（`expect(error)`）抑制误报。参考 qartez 集中式白名单分派表                                                                                                                                                                                                                                                            |
-| **端到端请求路径（路由提取）**             | 高   | 低   | **⏳ 暂缓**           | 越界语义分析风险：路由注册（`app.get('/users/:id', handler)`）是运行时语义，不是静态 import 边。若未来评估通过，只能做成可选适配器，不可成为默认依赖。参考 GitNexus `HANDLES_ROUTE` 边 + CRG entry point 检测|
-|
-| **SQLite pragma 调优**                     | 中   | 极低 | **接受 / 已交付**     | WAL + mmap + temp_store 调优，提升缓存写入和查询性能。P0 已交付。参考 qartez SQLite 配置|
-| **AI 预消化输出（`--format ai`）**       | 高   | 低   | **接受 / 已交付**     | `--format ai` 已覆盖全部高频命令（`audit-summary` + `dead-exports`/`impact`/`affected-tests`/`cycles`/`unresolved`/`audit-security`/`audit-diff`），统一输出 `severity`/`counts`/`topRisks`/`actions`/`confidence`/`depth`/`tokenBudget`。skill 精简待深化。                                                                                                                                                                                     |                                                                                                                                                                                     |
-| **per-tool benchmark + 回归检查**          | 中   | 低   | **接受**              | 扩展 `benchmark/` 目录，为每个 CLI 命令建立"有工具 vs 无工具"对照实验，检测性能回归。参考 qartez `benchmark/report.rs`（LLM-judge 评分 5 轴：correctness/completeness/usability/groundedness/conciseness + token 节省率 91.8%）                                                                                                                                      |
-| **Parser golden snapshot 测试**            | 中   | 低   | **接受**              | 为各语言 parser 的 tricky 文件建立预期 AST 输出快照（`fixtures/goldens/`），`--update-goldens` 刷新。防止 parser 规则调整导致隐性误报。参考 CGC `fixtures/goldens/` + `test_parser_goldens.py`                                                                                                                               |
-| **跨平台路径回归测试**                     | 中   | 极低 | **接受**              | 模拟 Windows 反斜杠路径输入，断言存储/查询格式一致（正斜杠或统一 abstraction）。参考 CGC `test_writer_path_normalization.py`（361 行回归防护）                                                                                                                  |
-| **项目根自动发现（Monorepo）**             | 中   | 中   | **接受 / 已交付**     | 已实现 `--service <subpath>` CLI 参数 + `WB_SERVICE` 环境变量；`ProjectContext.detectProjectBoundaries()` 自动扫描 `PROJECT_MARKERS` 边界文件；兄弟子项目自动降级为 `reference` 角色，保护共享代码不被误报。参考 qartez Workspace 扩展|
-| **默认输出模式校准**                       | 中   | 低   | **接受 / 已交付**     | 默认输出已改为 `--format markdown`（~5 行，cli.js 第 474 行）。`--format human` 显式恢复人工输出已支持。                                                                                                                                               |
-| **命令分层暴露**                           | 高   | 低   | **接受 / 已交付**     | `--help` 已按 L1/L2/L3/L4 四层分组；L4 命令标记为 debug 层级；`health` 标注 deprecated；`runCommand` 已拆分注册表。默认 `--help` 只展示 Tier 1（~5 个命令），其余折叠到 `--help --all`。SKILL.md 精简待深化。                                                                                                                                                      |
+| 符号级调用解析（Call-Resolution DAG）            | 高   | 很高 | **当前不做**          | 需要新增 call graph 子系统；即使做了，Spring DI / Vue 模板 / MyBatis XML 等运行时绑定问题仍解不了 |
+| 字段读写追踪（ACCESSES 边）                      | 高   | 高   | **当前不做**          | 同污点追踪，需要跨文件数据流分析，与"结构分析 ≠ 语义分析"原则冲突 |
+| CI Schema Parity 测试                            | 中   | 低   | 观察                        | 下一次 schema 变更前 |
+| **安全白名单分派表 + Assert Defense**      | 高   | 低   | **接受**              | `security-tools.js` 每条规则独立 `is_match_allowlisted()`；测试内防御性匹配（`expect(error)`）抑制误报。参考 qartez 集中式白名单分派表 |
+| **端到端请求路径（路由提取）**             | 高   | 低   | **⏳ 暂缓**           | 越界语义分析风险：路由注册（`app.get('/users/:id', handler)`）是运行时语义，不是静态 import 边。若未来评估通过，只能做成可选适配器，不可成为默认依赖。参考 GitNexus `HANDLES_ROUTE` 边 + CRG entry point 检测 |
+| **per-tool benchmark + 回归检查**          | 中   | 低   | **接受**              | 扩展 `benchmark/` 目录，为每个 CLI 命令建立"有工具 vs 无工具"对照实验，检测性能回归。参考 qartez `benchmark/report.rs`（LLM-judge 评分 5 轴：correctness/completeness/usability/groundedness/conciseness + token 节省率 91.8%） |
+| **Parser golden snapshot 测试**            | 中   | 低   | **接受**              | 为各语言 parser 的 tricky 文件建立预期 AST 输出快照（`fixtures/goldens/`），`--update-goldens` 刷新。防止 parser 规则调整导致隐性误报。参考 CGC `fixtures/goldens/` + `test_parser_goldens.py` |
+| **跨平台路径回归测试**                     | 中   | 极低 | **接受**              | 模拟 Windows 反斜杠路径输入，断言存储/查询格式一致（正斜杠或统一 abstraction）。参考 CGC `test_writer_path_normalization.py`（361 行回归防护） |
+| **预索引便携快照**                         | 中   | 中   | **接受**              | 导出 `.wbbundle`（ZIP = metadata.json + nodes.jsonl + edges.jsonl + stats.json），支持预索引分发、CI 缓存、跨机器加载。参考 CodeGraphContext `.cgc` bundle。 |
+| **Modification Guard**                     | 中   | 中   | **接受**              | 在 AI 工具执行文件修改前检查影响半径，高影响（如 transitiveCount > 50）时要求确认或拆分变更。参考 qartez `src/bin/guard.rs`。 |
 
-| **预索引便携快照**                         | 中   | 中   | **接受**              | 导出 `.wbbundle`（ZIP = metadata.json + nodes.jsonl + edges.jsonl + stats.json），支持预索引分发、CI 缓存、跨机器加载。参考 CodeGraphContext `.cgc` bundle。                                                                                                                                                                                                                                       |
-| **Modification Guard**                     | 中   | 中   | **接受**              | 在 AI 工具执行文件修改前检查影响半径，高影响（如 transitiveCount > 50）时要求确认或拆分变更。参考 qartez `src/bin/guard.rs`。                                                                                                                                                                                                                                                                    |
 > 路线 I-2 GitNexus 深度对比 of 9 项发现中，数值 confidence / yieldToEventLoop / confidenceSource 标签 / git-aware staleness / import 策略链抽象 5 项已吸收并完成。详见 [CHANGELOG.md](./CHANGELOG.md)。
 >
 > 历史评估更新见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。

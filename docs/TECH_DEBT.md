@@ -16,7 +16,7 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **0** | L3 品味问题 **1** | 合计 **1 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **0** | L3 品味问题 **0** | 合计 **0 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
@@ -26,17 +26,9 @@
 
 ## L3 品味问题（建议修，非债务）
 
-#### 弱断言分布 — 占总断言数 ~2.3%
-
-**数据**：
-
-| 弱断言模式                                      | 数量      | 风险等级 | 说明                                                          |
-| ------------------------------------------ | ------- | ---- | ----------------------------------------------------------- |
-| `typeof x === 'string'/'number'/'boolean'` | ~10 → 0 已清理 | 低    | 核心 schema 字段（severity/impactCount/affectedTestsCount 等）已升级为语义验证；剩余边缘字段维持 `typeof` 防御性检查         |
-| `.status === 0`                            | 1       | 中    | `java-parsers-test.js` 环境检测逻辑 `isJavalangAvailable()`，非测试断言 |
-| `!== null/undefined`                       | ~20     | 低    | 存在性检查，属防御性验证，不纳入弱断言统计                                       |
-| `strictEqual(result.ok, true/false)`       | ~48     | 低    | 深层嵌套防御性检查，风险低，不纳入弱断言统计                                      |
-| **合计弱断言（需修复）**                             | **~10** | —    | 从 ~44 处降至 ~10 处（仅余 `typeof` 型 schema 契约检查）                   |
+> 当前无活跃的 L3 品味问题。
+>
+> 历史记录：弱断言分布已清理至 schema 契约测试中的防御性 `typeof` 检查；其余 `status === 0` 均为环境探测 helper，不属于测试断言。详见 [CHANGELOG.md](../CHANGELOG.md) [Unreleased] §Code Quality: Weak Assertion Cleanup。
 
 #### Route B 验证发现：AI 消费体验缺口
 
@@ -44,55 +36,55 @@
 
 **缺口 1：`audit-file` 未生成可执行验证命令**
 
-| 项目 | 内容 |
-| :--- | :--- |
-| 状态 | ✅ 已修复（2026-06-20） |
+| 项目 | 内容                                                                                                                                                                                                                                                    |
+| :--- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 状态 | ✅ 已修复（2026-06-20）                                                                                                                                                                                                                                 |
 | 修复 | `audit-assembler.js` 将 `affectedTests` 传入 `buildFileValidationAdvice`；`validation-advice.js` 构造 `run-direct-tests` step 复用 `generateCommands` 生成 `node-direct-tests` 等命令；`pickSuggestedCommand` 优先推荐 `direct-tests` |
 
 **缺口 2：`affected-tests` `mention` 启发式误报注释引用**
 
-| 项目 | 内容 |
-| :--- | :--- |
-| 状态 | ✅ 已修复（2026-06-20） |
+| 项目 | 内容                                                                                                                                                                                                                                                                                                     |
+| :--- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 状态 | ✅ 已修复（2026-06-20）                                                                                                                                                                                                          |
 | 修复 | `analyzer.js` 新增 `stripComments()`，在 `_findAffectedTestsByMention` 中按语言族（C-family / Python / Ruby）去除注释/文档字符串后再做 mention 匹配；C-family 与 Python/Ruby 均使用小型状态机保留字符串字面量，避免误伤代码中的注释标记；`affected-tests-mention-test.js` 新增 comment-only 负例 |
 
 **缺口 3：`impact.affectedRoutes` 未区分生产路由与测试路由**
 
-| 项目 | 内容 |
-| :--- | :--- |
-| 状态 | ✅ 已修复（2026-06-20） |
+| 项目 | 内容                                                                                                                                                                                                                      |
+| :--- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 状态 | ✅ 已修复（2026-06-20）                                                                                                                                                                                                   |
 | 修复 | `src/services/dep-graph/query.js` 的 `findAffectedHttpRoutes` 为每个路由对象新增 `source: 'src' \| 'test'` 字段，覆盖 SQLite 与内存 BFS 两条路径；新增 `test/affected-http-routes-source-test.js` 验证两种来源标记 |
 
 **缺口 4：Rust `tests/` 目录集成测试在验证命令中丢失**
 
-| 项目 | 内容 |
-| :--- | :--- |
-| 状态 | ✅ 已修复（2026-06-20） |
+| 项目 | 内容                                                                                                                                                                                                                                                                                       |
+| :--- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 状态 | ✅ 已修复（2026-06-20）                                                                                                                                                                                                                                                                    |
 | 修复 | `src/utils/stack-detectors/commands.js` 的 `buildRustTestCommands()` 将 Rust 测试目标拆分为单元模块（`cargo test <module>`）与集成测试（`cargo test --test <stem>`），`audit-file` / `impact` 的 focused 命令现在会同时覆盖 `src/**/*.rs` 内联测试与 `tests/*.rs` 集成测试 |
 
 **缺口 5：Rust 库公共 API 死导出被报告为高置信度**
 
-| 项目 | 内容 |
-| :--- | :--- |
-| 状态 | ✅ 已修复（2026-06-20） |
+| 项目 | 内容                                                                                                                                                                                                                                                                                                 |
+| :--- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 状态 | ✅ 已修复（2026-06-20）                                                                                                                                                                                                                                                                              |
 | 修复 | `src/services/dep-graph/analyzer.js` 新增 `_markRustPublicApiFalsePositives()`，递归识别 `src/lib.rs` 通过 `pub mod` 链式公开的模块，将其死导出标记为 `rust-public-api` 并降级为 `low` confidence；`src/tools/honesty-engine.js` 将该原因纳入已知误报集合，使其不再驱动仓库级 severity |
 
 **缺口 6：Rust 解析在并发构建时部分文件回退到 regex**
 
-| 项目 | 内容 |
-| :--- | :--- |
-| 状态 | ✅ 已修复（2026-06-20） |
+| 项目 | 内容                                                                                                                                                                                                                                                    |
+| :--- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 状态 | ✅ 已修复（2026-06-20）                                                                                                                                                                                                                                 |
 | 修复 | `src/services/dep-graph/parsers/rust-ast.js` 增加模块级异步锁，将所有 Rust WASM 解析串行化；`test/rust-ast-parser-test.js` 新增 `testRustConcurrentParsing()` 并发回归测试；冷缓存验证 `reference/qartez-mcp` 的 `fallbackFiles` 从 19 降到 0 |
 
 ---
 
 ## 文件级雷区地图
 
-| 文件                                      | 行数   | 风险  | 状态                                                                                        |
-| --------------------------------------- | ---- | --- | ----------------------------------------------------------------------------------------- |
-| `src/tools/git-tools.js`                | ~392 | 低   | L2-9 commit range 源                                                                       |
-| `src/utils/stack-detectors/detect.js`   | ~443 | 低   | stack-detector 检测子模块                                                                      |
-| `src/utils/stack-detectors/commands.js` | ~639 | 低   | stack-detector 命令子模块                                                                      |
+| 文件                                      | 行数 | 风险 | 状态                      |
+| ----------------------------------------- | ---- | ---- | ------------------------- |
+| `src/tools/git-tools.js`                | ~392 | 低   | L2-9 commit range 源      |
+| `src/utils/stack-detectors/detect.js`   | ~443 | 低   | stack-detector 检测子模块 |
+| `src/utils/stack-detectors/commands.js` | ~639 | 低   | stack-detector 命令子模块 |
 
 ---
 
@@ -104,9 +96,9 @@
 
 ### Flaky 根因
 
-| 测试文件           | 根因                           | 建议修复                                                            |
-| -------------- | ---------------------------- | --------------------------------------------------------------- |
-| `repl-test.js` | runner.js 串行执行时偶发失败；单独运行稳定通过 | 已记录于 SESSION.md §已知陷阱；若遇失败先重跑确认，再单独 `node test/repl-test.js` 验证 |
+| 测试文件         | 根因                                           | 建议修复                                                                                  |
+| ---------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `repl-test.js` | runner.js 串行执行时偶发失败；单独运行稳定通过 | 已记录于 SESSION.md §已知陷阱；若遇失败先重跑确认，再单独`node test/repl-test.js` 验证 |
 
 > CLI Dogfooding 历史缺陷已全部修复，并按"修复即删"铁律完成清理（历史详情归档于 [CHANGELOG.md](../CHANGELOG.md) [Unreleased]）。
 > 仍在的已知限制与陷阱详见 [ROADMAP.md](../ROADMAP.md) §已知限制。
@@ -117,48 +109,48 @@
 
 ### ✅ 已验证的边界安全行为 (Verified Safe Boundary Behaviors)
 
-| # | 边界场景 | 结果 | 评估 |
-|---|----------|------|------|
-| 1 | **仅注释文件** | `severity=low`, `impact=0`, `affectedTests=0` | ✅ 正确处理 |
-| 2 | **Shebang 脚本（无后缀）** | `file-fallback`, `reason="source-not-indexed"` | ✅ 正确处理 |
-| 3 | **伪装成 `.js` 的二进制文件** | `file-fallback`, `reason="ast-unavailable"` | ✅ 优雅降级 |
-| 4 | **UTF-16 BOM 文件** | `file-fallback`, `reason="ast-unavailable"` | ✅ 优雅降级 |
-| 5 | **超大文件（5万行 / ~350KB）** | `file-fallback`, `reason="ast-unavailable"`, 无超时 | ✅ 性能安全 |
-| 6 | **语法损坏的文件** | `file-fallback`, `reason="ast-unavailable"`, 不崩溃 | ✅ 优雅降级 |
-| 7 | **符号链接 (Symbolic link)** | 解析至真实目标，正常分析 | ✅ 正确处理 |
-| 8 | **表情/中文 Unicode 文件名** | 符号正常解析 | ✅ 正确处理 |
-| 9 | **`--save /dev/null`** | 成功写入无报错 | ✅ 正确处理 |
-| 10 | **自定义 `--cache-dir` + 删除重构** | 自动创建 `cache.db`，正常重构 | ✅ 正确处理 |
-| 11 | **源文件修改后立即审计** | 结果实时反映变更 | ✅ 正确处理 |
-| 12 | **极短时间内连续运行相同命令** | 命中缓存，结果稳定 | ✅ 正确处理 |
+| #  | 边界场景                                    | 结果                                                    | 评估        |
+| -- | ------------------------------------------- | ------------------------------------------------------- | ----------- |
+| 1  | **仅注释文件**                        | `severity=low`, `impact=0`, `affectedTests=0`     | ✅ 正确处理 |
+| 2  | **Shebang 脚本（无后缀）**            | `file-fallback`, `reason="source-not-indexed"`      | ✅ 正确处理 |
+| 3  | **伪装成 `.js` 的二进制文件**       | `file-fallback`, `reason="ast-unavailable"`         | ✅ 优雅降级 |
+| 4  | **UTF-16 BOM 文件**                   | `file-fallback`, `reason="ast-unavailable"`         | ✅ 优雅降级 |
+| 5  | **超大文件（5万行 / ~350KB）**        | `file-fallback`, `reason="ast-unavailable"`, 无超时 | ✅ 性能安全 |
+| 6  | **语法损坏的文件**                    | `file-fallback`, `reason="ast-unavailable"`, 不崩溃 | ✅ 优雅降级 |
+| 7  | **符号链接 (Symbolic link)**          | 解析至真实目标，正常分析                                | ✅ 正确处理 |
+| 8  | **表情/中文 Unicode 文件名**          | 符号正常解析                                            | ✅ 正确处理 |
+| 9  | **`--save /dev/null`**              | 成功写入无报错                                          | ✅ 正确处理 |
+| 10 | **自定义 `--cache-dir` + 删除重构** | 自动创建`cache.db`，正常重构                          | ✅ 正确处理 |
+| 11 | **源文件修改后立即审计**              | 结果实时反映变更                                        | ✅ 正确处理 |
+| 12 | **极短时间内连续运行相同命令**        | 命中缓存，结果稳定                                      | ✅ 正确处理 |
 
 ### 🔍 验证矩阵 (Validation Matrices & Behavior)
 
 #### Exit Code 契约矩阵
 
-| 执行情况 | 命令示例 | 实际退出码 | 预期语义 | 状态 |
-|---|---|---|---|---|
-| **干净运行** | `node cli.js audit-summary` | `0` | 执行成功 | ✅ Pass |
-| **无问题 + 严格模式**| `node cli.js dead-exports --fail-on-findings` | `0` | 成功（未发现债务） | ✅ Pass |
-| **发现债务 + 严格模式** | `node cli.js audit-summary --fail-on-findings` | `1` | 业务/校验失败 | ✅ Pass |
-| **缺少参数** | `node cli.js impact` (无 `--file`) | `2` | 参数错误 | ✅ Pass |
-| **无效命令** | `node cli.js invalid-command` | `2` | 执行失败 | ✅ Pass |
-| **未找到目标文件** | `node cli.js tree --file missing.js` | `1` | 业务/校验失败 | ✅ Pass |
-| **路径越权 (Traversal)** | `node cli.js audit-file --file /tmp/x.js` | `1` | 安全违规 (受保护工作区) | ✅ Pass |
-| **REPL 错误命令** | `repl --eval "invalid"` | `2` | 预期执行失败 | ✅ Pass |
+| 执行情况                       | 命令示例                                         | 实际退出码 | 预期语义                | 状态    |
+| ------------------------------ | ------------------------------------------------ | ---------- | ----------------------- | ------- |
+| **干净运行**             | `node cli.js audit-summary`                    | `0`      | 执行成功                | ✅ Pass |
+| **无问题 + 严格模式**    | `node cli.js dead-exports --fail-on-findings`  | `0`      | 成功（未发现债务）      | ✅ Pass |
+| **发现债务 + 严格模式**  | `node cli.js audit-summary --fail-on-findings` | `1`      | 业务/校验失败           | ✅ Pass |
+| **缺少参数**             | `node cli.js impact` (无 `--file`)           | `2`      | 参数错误                | ✅ Pass |
+| **无效命令**             | `node cli.js invalid-command`                  | `2`      | 执行失败                | ✅ Pass |
+| **未找到目标文件**       | `node cli.js tree --file missing.js`           | `1`      | 业务/校验失败           | ✅ Pass |
+| **路径越权 (Traversal)** | `node cli.js audit-file --file /tmp/x.js`      | `1`      | 安全违规 (受保护工作区) | ✅ Pass |
+| **REPL 错误命令**        | `repl --eval "invalid"`                        | `2`      | 预期执行失败            | ✅ Pass |
 
 #### 路径边界处理矩阵
 
-| 路径语法 | 示例 | 解析状态 | 备注 |
-|---|---|---|---|
-| **相对路径** | `src/services/container.js` | ✅ 已解析 | 正常工作。 |
-| **含 `./` 相对路径**| `./src/services/container.js` | ✅ 已解析 | 正常工作。 |
-| **绝对路径** | `C:/Users/sdses/.../container.js`| ✅ 已解析 | 正常工作。 |
-| **Windows 反斜杠**| `src\services\container.js` | ✅ 已解析 | 兼容支持。 |
-| **Unicode / 中文**| 原生路径字符串 | ✅ 已解析 | fs 标准支持。 |
-| **目录** | `src/services/` | ⚠️ 已接受 | 接受但产生空统计。 |
-| **非项目文件** | `/tmp/external.js` | ✅ 已拒绝 | 被 path-traversal 防御拦截。 |
-| **非代码文件** | `README.md` | ✅ 优雅降级| 安全排除在 dep-graph 之外。 |
+| 路径语法                     | 示例                                | 解析状态    | 备注                         |
+| ---------------------------- | ----------------------------------- | ----------- | ---------------------------- |
+| **相对路径**           | `src/services/container.js`       | ✅ 已解析   | 正常工作。                   |
+| **含 `./` 相对路径** | `./src/services/container.js`     | ✅ 已解析   | 正常工作。                   |
+| **绝对路径**           | `C:/Users/sdses/.../container.js` | ✅ 已解析   | 正常工作。                   |
+| **Windows 反斜杠**     | `src\services\container.js`       | ✅ 已解析   | 兼容支持。                   |
+| **Unicode / 中文**     | 原生路径字符串                      | ✅ 已解析   | fs 标准支持。                |
+| **目录**               | `src/services/`                   | ⚠️ 已接受 | 接受但产生空统计。           |
+| **非项目文件**         | `/tmp/external.js`                | ✅ 已拒绝   | 被 path-traversal 防御拦截。 |
+| **非代码文件**         | `README.md`                       | ✅ 优雅降级 | 安全排除在 dep-graph 之外。  |
 
 ### 💡 SKILL.md 适配建议
 
@@ -170,5 +162,4 @@
 
 ---
 
-*Last updated: 2026-06-24（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=1；本轮修复：Rust 并发解析回退 + audit-file 验证命令生成 + mention 注释误报 + query 命令 SQL 安全加固 + snapshot short-circuit 保守化 + C-family/Python/Ruby 注释剥离状态机 + 清理 JetBrains 检查报告残留 + audit-assembler flat dispatcher 重构 + ROADMAP ADR 归档 CHANGELOG + --fields 文档化 + IO 安全（symlink 目录循环保护 + parser 文件大小上限）+ truncate JSDoc 修正；剩余：弱断言分布）*
-
+*Last updated: 2026-06-26（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=0；本轮修复：SQL UNION/INTERSECT/EXCEPT 注入、子进程环境变量泄露、自动追加 `.gitignore`、watch shell 注入风险、弱断言清理、API 一致性检查；npm run test:fast 126/126 PASS，test:smoke 129/129 PASS）*
