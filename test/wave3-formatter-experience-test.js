@@ -110,7 +110,7 @@ const { createMockDepGraph } = require('./test-helpers');
 
   // tree text
   const treeText = await executeCommand(container, 'tree src/app.js', { structured: false });
-  assert.ok(typeof treeText === 'string' && treeText.includes('file:'), `W3-5: tree text should contain file:, got: ${treeText}`);
+  assert.ok(treeText && treeText.includes('file:'), `W3-5: tree text should contain file:, got: ${treeText}`);
 
   // exit
   const exitResult = await executeCommand(container, 'exit', { structured: true });

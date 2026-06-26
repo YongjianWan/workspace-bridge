@@ -16,7 +16,8 @@ async function testScratchFilesAreNotOrphanModules() {
   assert.ok(result && result.orphans, 'audit-overview should return orphans');
 
   const moduleSamples = result.orphans.samples?.modules || result.orphans.modules || [];
-  const scratchOrphans = moduleSamples.filter((p) => typeof p === 'string' && p.startsWith('scratch/'));
+  assert.ok(Array.isArray(moduleSamples), 'orphans modules should be an array');
+  const scratchOrphans = moduleSamples.filter((p) => p.startsWith('scratch/'));
   assert.strictEqual(scratchOrphans.length, 0, `scratch/*.js files should not be reported as orphan modules, got: ${scratchOrphans.join(', ')}`);
   assert.strictEqual(result.orphans.counts?.modules, 0, 'orphans.modules count should be 0 after scratch is archived');
 }
