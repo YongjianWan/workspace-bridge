@@ -271,8 +271,24 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 - ✅ Rust 库公共 API 死导出误报已修复。`src/lib.rs` 通过 `pub mod` 链式公开的模块中，`pub` 未使用项会被标记为 `rust-public-api` 并降级为 `low` confidence，不再驱动仓库级 severity。
 - 在 `reference/qartez-mcp` 上：113 个死导出候选中 75 个被正确识别为公共 API 误报并降级。
 
+**Route B 扩展验证：ai_zcypg_backend（Java Spring Boot，395 文件）**
+
+**聚焦文件**：`aizcypg-biz/src/main/java/com/aizcypg/biz/controller/PolicyMissingController.java`  
+**真实任务**：实现 `checkMissing` 方法 TODO（`/policy/policies/{policyId}/missing-check` 缺漏检查逻辑）  
+**完整报告**：`scratch/route-b-report-ai-zcypg-backend.md`
+
+| 维度 | 结果 | 评估 |
+| :--- | :--- | :--- |
+| 解析完整性 | `coverageRatio = 1.00`（395/395） | ✅ 可信 |
+| 框架识别 | `spring-controller-file` / `isEntry=true` | ✅ 高价值 |
+| 依赖图准确性 | `impact` = 13 文件，但全为同包 Controller 可见性误报；全项目搜索无真实 `PolicyMissingController` 引用 | ❌ **核心误报** |
+| 路由噪音 | `affectedRoutes` 包含 30+ 条路由，大量来自被误报的 Controller | ⚠️ 噪音高 |
+| 验证命令 | `mvn -q -Dtest=*Test test`，但项目无 `src/test/java` | ❌ 不匹配实际 |
+| symbolImpact | 10 个符号全部 `dependentsCount=0` | ⚠️ Java Spring DI/反射无法静态解析 |
+
 **剩余缺口**（按 ROI）：
 - Route B 在 GitNexus / qartez-mcp 上发现的 5 个消费体验缺口已全部修复。
+- Route B 在 ai_zcypg_backend 上发现的 **Java 同包可见性误报** 缺口已修复；剩余 P1/P2 缺口（affectedRoutes 分组、无测试项目验证命令降级、Java Spring symbolImpact 说明、多模块 Maven 命令感知）待后续处理。
 
 ---
 
@@ -341,4 +357,4 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-06-29（债务状态全量同步：ROADMAP.md 活跃债务表格、AGENTS.md 当前债务描述与 TECH_DEBT.md 对齐为全零；验证弱断言与框架检测 Query 偏斜已真实清零；npm run test:fast 126/126 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-30（完成 Route B 实战验证：在 ai_zcypg_backend 上修复 Java 同包可见性误报；新增 `scratch/route-b-report-ai-zcypg-backend.md`；`java-same-package` 边降级为 `tier3`/`confidence=0.3` 并输出 `implicit-same-package` reason；L1/L2/架构/L3 债务恢复全零；npm run test:fast 126/126 PASS；schemaVersion: 1.2.0；version: 2.0.0）*

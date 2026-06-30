@@ -335,6 +335,7 @@ class GraphAnalyzer {
           const currentInfo = this.dg.getFileInfo ? this.dg.getFileInfo(f) : null;
           let importedSymbols = [];
           let importedSymbolsAvailable = false;
+          let reason = level === 1 ? 'direct-import' : 'transitive-dependency';
           if (currentInfo?.importRecords) {
             const parentFile = via[via.length - 1];
             const matchingImports = currentInfo.importRecords.filter((r) => r.resolved === parentFile);
@@ -342,6 +343,9 @@ class GraphAnalyzer {
               if (record.imported) importedSymbols.push(...record.imported);
             }
             importedSymbolsAvailable = matchingImports.length > 0 && matchingImports.some((r) => r.imported && r.imported.length > 0);
+            if (matchingImports.some((r) => r.resolutionMethod === 'java-same-package')) {
+              reason = 'implicit-same-package';
+            }
           }
           impactRadius.push({
             file: f,
@@ -349,7 +353,7 @@ class GraphAnalyzer {
             via: [...via],
             importedSymbols: [...new Set(importedSymbols)],
             importedSymbolsAvailable,
-            reason: level === 1 ? 'direct-import' : 'transitive-dependency',
+            reason,
           });
         },
       });

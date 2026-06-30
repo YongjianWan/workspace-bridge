@@ -124,10 +124,21 @@ function testJavaSamePackageImplicitRefs() {
   const aRecord = aInfo.importRecords.find((r) => r.source === '<same-package:com.example>');
   assert(aRecord, 'A should have same-package import record');
   assert.strictEqual(aRecord.resolved, bKey);
+  assert.strictEqual(aRecord.tier, 'tier3', 'same-package refs should be low-confidence tier3');
+  assert.strictEqual(aRecord.confidence, 0.3, 'same-package refs should have reduced confidence');
+  assert.strictEqual(aRecord.resolutionMethod, 'java-same-package');
 
   const bRecord = bInfo.importRecords.find((r) => r.source === '<same-package:com.example>');
   assert(bRecord, 'B should have same-package import record');
   assert.strictEqual(bRecord.resolved, aKey);
+  assert.strictEqual(bRecord.tier, 'tier3');
+  assert.strictEqual(bRecord.confidence, 0.3);
+
+  // GraphQuery should expose the implicit reason, not pretend it's a real direct-import
+  const impact = depGraph.query.getImpactRadius(aPath, 3);
+  const bImpact = impact.find((r) => r.file === bPath);
+  assert(bImpact, 'A should impact B via same-package visibility');
+  assert.strictEqual(bImpact.reason, 'implicit-same-package', 'same-package visibility should be labelled as implicit');
 }
 
 function testJavaWildcardExternalPackageIgnored() {

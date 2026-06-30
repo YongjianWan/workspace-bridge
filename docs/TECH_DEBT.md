@@ -76,6 +76,19 @@
 | 状态 | ✅ 已修复（2026-06-20）                                                                                                                                                                                                                                 |
 | 修复 | `src/services/dep-graph/parsers/rust-ast.js` 增加模块级异步锁，将所有 Rust WASM 解析串行化；`test/rust-ast-parser-test.js` 新增 `testRustConcurrentParsing()` 并发回归测试；冷缓存验证 `reference/qartez-mcp` 的 `fallbackFiles` 从 19 降到 0 |
 
+**缺口 7：Java 同包可见性被误报为高置信依赖**
+
+| 项目 | 内容 |
+| :--- | :--- |
+| 状态 | ✅ 已修复（2026-06-30） |
+| 背景 | 在 `C:/Users/sdses/Desktop/神思/code/ai_zcypg_backend` 上执行 Route B 实战验证，聚焦 `aizcypg-biz/src/main/java/com/aizcypg/biz/controller/PolicyMissingController.java` |
+| 现象 | `audit-file` 报告 `impact=13`，`reason=direct-import`；但全项目搜索无其他 Java 文件引用 `PolicyMissingController` |
+| 根因 | `builder.js` 的 `_expandJavaForFile()` 把同 package 的所有类自动连边，且置信度设为 `tier1`/`1.0` |
+| 影响 | AI 会高估修改影响面 10 倍以上；`affectedRoutes` 混入大量无关路由；`severity=high` 被 impact radius 放大 |
+| 修复 | `builder.js` 降级为 `tier3`/`confidence=0.3`；`query.js` 与 `analyzer.js` 输出 reason 改为 `implicit-same-package`；新增 `test/java-package-imports-test.js` 断言 |
+| 验证 | `npm run test:fast` 126/126 PASS；重新跑 `audit-file` 后 13 个 impact 全部显示 `implicit-same-package` |
+| 完整报告 | `scratch/route-b-report-ai-zcypg-backend.md` |
+
 ---
 
 ## 文件级雷区地图
@@ -162,4 +175,4 @@
 
 ---
 
-*Last updated: 2026-06-26（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=0；本轮修复：SQL UNION/INTERSECT/EXCEPT 注入、子进程环境变量泄露、自动追加 `.gitignore`、watch shell 注入风险、弱断言清理、API 一致性检查；npm run test:fast 126/126 PASS，test:smoke 129/129 PASS）*
+*Last updated: 2026-06-30（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=0；本轮修复：Route B 发现的 Java 同包可见性误报，降级为 `tier3`/`confidence=0.3` 并输出 `implicit-same-package` reason；npm run test:fast 126/126 PASS）*

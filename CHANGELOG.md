@@ -8,6 +8,25 @@
 
 ## [Unreleased]
 
+### Route B: Java Spring Boot real-project validation (2026-06-30)
+
+- Validated workspace-bridge consumer experience on `C:/Users/sdses/Desktop/神思/code/ai_zcypg_backend` (Java Spring Boot multi-module, 395 files).
+- Focus file: `aizcypg-biz/src/main/java/com/aizcypg/biz/controller/PolicyMissingController.java`.
+- Real task: implement the `checkMissing` TODO at `POST /{policyId}/missing-check`.
+- Findings captured in `scratch/route-b-report-ai-zcypg-backend.md`:
+  - ✅ Framework detection works: `spring-controller-file`, `isEntry=true`.
+  - ✅ AST coverage is solid: `coverageRatio = 1.00`.
+  - ❌ **Java same-package visibility is reported as `direct-import` with `impact=13`**, even though no other file references `PolicyMissingController`.
+  - ⚠️ `affectedRoutes` is flooded with unrelated routes from the same-package controllers.
+  - ⚠️ `validationAdvice` suggests `mvn -q -Dtest=*Test test` even though the project has no test files.
+  - ⚠️ `symbolImpact` reports zero dependents for all methods, which is expected for Spring DI/reflective calls but not explained in the output.
+- **Fixed** the P0 Java same-package false-positive:
+  - `src/services/dep-graph/builder.js`: downgrade `java-same-package` edges to `tier3` / `confidence=0.3`.
+  - `src/services/dep-graph/query.js` + `src/services/dep-graph/analyzer.js`: emit `reason: "implicit-same-package"` instead of `direct-import`.
+  - `test/java-package-imports-test.js`: added assertions for tier, confidence, and reason.
+  - Validation: `npm run test:fast` 126/126 PASS; re-audited `PolicyMissingController.java` and confirmed all 13 same-package dependents now carry `implicit-same-package`.
+- Updated `docs/TECH_DEBT.md`, `SESSION.md`, and `AGENTS.md` debt tallies.
+
 ### Debt: confirm full zero active debt and sync active docs (2026-06-29)
 
 - Verified that all previously claimed fixed debts are truly resolved:

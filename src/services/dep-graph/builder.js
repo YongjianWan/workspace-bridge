@@ -610,9 +610,9 @@ class GraphBuilder {
           );
           if (!hasRecord) {
             const rec = buildImplicitImportRecord(implicitSource, targetFile, 'java-same-package');
-            rec.tier = 'tier1';
+            rec.tier = 'tier3';
             rec.resolutionMethod = 'java-same-package';
-            rec.confidence = 1.0;
+            rec.confidence = 0.3;
             info.importRecords.push(rec);
           }
         }
