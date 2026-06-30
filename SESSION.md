@@ -341,4 +341,4 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-06-26（文档整合：创建 docs/README.md 导航页，将已知陷阱与修复流程从 SESSION.md 迁移至 AGENTS.md，清理 ROADMAP.md 已完成项与格式残骸，标记 code_review.md 为历史归档并清理审计残留文字、补齐测试分层标注、同步 fast/smoke 测试基线；npm run test:fast 126/126 PASS，npm run test:smoke 129/129 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-29（债务状态全量同步：ROADMAP.md 活跃债务表格、AGENTS.md 当前债务描述与 TECH_DEBT.md 对齐为全零；验证弱断言与框架检测 Query 偏斜已真实清零；npm run test:fast 126/126 PASS；schemaVersion: 1.2.0；version: 2.0.0）*

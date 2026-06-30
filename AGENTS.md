@@ -29,7 +29,7 @@
 **定位**：AI 的代码脚手架（Code Scaffolding for AI），不是人的报告工具。
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
-- **当前债务**：L1/L2/产品/架构债务已清零；剩余 **1 项 L3 品味问题**（见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）
+- **当前债务**：L1/L2/产品/架构/L3 债务已清零（详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
@@ -266,5 +266,5 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-06-26（文档整合：创建 docs/README.md 导航页，将已知陷阱与修复流程从 SESSION.md 迁移至 AGENTS.md，清理 ROADMAP.md 已完成项与格式残骸，标记 code_review.md 为历史归档；npm run test:fast 126/126 PASS，npm run test:smoke 129/129 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-29（债务状态全量同步：ROADMAP.md 活跃债务表格、AGENTS.md 当前债务描述与 TECH_DEBT.md 对齐为 L1/L2/架构/L3 全零；验证弱断言与框架检测 Query 偏斜已真实清零；npm run test:fast 126/126 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
 

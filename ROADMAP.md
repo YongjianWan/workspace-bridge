@@ -24,7 +24,7 @@
 | symbolImpact 多符号解构遗漏 | ⏳ 观察 | 同时导入多个解构符号时部分遗漏 | 关注 `sourceSymbols` 与 `symbolToDependents` 数量是否一致 |
 | audit-security Rule ID 映射错位 | ⏳ 观察 | Markdown 输出 `js-hardcoded-secret`，JSON 中 `rule` 为 null | 按 `ruleId` 字段消费安全规则 |
 | 动态 require 导致死导出误报 | ⏳ 已文档化 | 路由提取 query 模块（如 `java-spring.js`）被误报为死导出（无法静态追踪其动态 require，且作为 JS 文件无法命中 JS 启发式豁免） | 运行时无功能影响，属已知静态分析局限，可在 `.workspace-bridge.json` 中加白屏蔽或忽略 |
-| Wave 11-15 功能多语言等价性偏斜 | ⏳ 架构债务（字段、shadow、AST 规则与部分框架路由已补齐） | `functionRecords` 字段（decorators/isExported/returnType）与 `branchCount`/`maxArms` 已覆盖 9 种语言；Shadow Candidates 已覆盖 JS/TS/Python/C/C++/Vue/Svelte；跨语言 AST 内置规则已覆盖 9 种语言；框架路由 Query 已覆盖 FastAPI/Django/Gin/Fiber/Actix-web/Axum/Nuxt/SvelteKit。剩余：框架检测 Query（Go/Rust/C/C++/Vue/Svelte 仍依赖 regex/cheap-signature）。 | 详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) §框架检测 Query 语言等价性偏斜；按语言优先级逐步补齐 |
+| Wave 11-15 功能多语言等价性偏斜 | ✅ 已完成（框架检测 Query 已补齐） | `functionRecords` 字段（decorators/isExported/returnType）与 `branchCount`/`maxArms` 已覆盖 9 种语言；Shadow Candidates 已覆盖 JS/TS/Python/C/C++/Vue/Svelte；跨语言 AST 内置规则已覆盖 9 种语言；框架路由 Query 已覆盖 FastAPI/Django/Gin/Fiber/Actix-web/Axum/Nuxt/SvelteKit；框架检测 Query 已覆盖 JS/TS/Python/Java/Kotlin/Go/Rust/Vue/Svelte。`AST_PATTERNS` 仅作为 tree-sitter query 的 cheap pre-filter 及同步 fallback 保留，不属于未清零债务。 | 详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)；新增框架优先注册 tree-sitter query |
 
 > 近期已修复的限制见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]：配置 JSON 语法错误与 schema 校验、`--format json` 自动映射与 JSON 格式解析错误统一、`--builtin-only`、`--since <commit>`、TTL 24h、git-aware staleness、`--format jsonl`、SKILL 文档体系重构。
 >
@@ -186,8 +186,8 @@
 | ---- | ---- | ---- |
 | L1 Blocker | 0 | — |
 | L2 债务 | 0 | — |
-| 架构债务 | 1 | **框架检测 Query 语言等价性偏斜**：JS/TS/Python/Java/Kotlin 已完成 AST-Query 化；Go/Rust/C/C++/Vue/Svelte 仍依赖 regex/cheap-signature。 |
-| L3 品味问题 | 1 | **弱断言分布**：约 ~10 处 `typeof` 型 schema 契约检查待强化为语义断言（数据见 [TECH_DEBT.md](./docs/TECH_DEBT.md)）。 |
+| 架构债务 | 0 | — |
+| L3 品味问题 | 0 | — |
 
 > 已修复项（历史见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]）：`inferFileRole` 状态化 + 规则盲区消除（`project-context.js`）、`shouldExclude` 跨层热切判定解耦（`file-index.js`）、COMMAND_GUIDES 内聚归位（`cli.js`）、Resolver FIFO → LRU（`resolvers.js`）、`js.js` 解析器拆分（将 `parseJavaScriptAST` 移至 `ast-parser.js`）、`bootstrapFromSchema` 路径规范化不一致。
 

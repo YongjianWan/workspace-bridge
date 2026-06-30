@@ -8,6 +8,18 @@
 
 ## [Unreleased]
 
+### Debt: confirm full zero active debt and sync active docs (2026-06-29)
+
+- Verified that all previously claimed fixed debts are truly resolved:
+  - **Weak assertion cleanup**: remaining `typeof` checks are defensive schema-contract assertions or runner/environment helpers, not low-signal test assertions.
+  - **Framework-detection Query language parity**: `FRAMEWORK_QUERY_REGISTRY` covers JS/TS/Python/Java/Kotlin/Go/Rust/Vue/Svelte via tree-sitter queries; `AST_PATTERNS` remains only as a cheap pre-filter and synchronous fallback, not an unclosed parity gap.
+- Synchronized active-doc debt tallies with `docs/TECH_DEBT.md` (the single source of truth for active debt):
+  - `ROADMAP.md` §active-debt table: L1/L2/architecture/L3 all set to **0**.
+  - `ROADMAP.md` §known-limitations row 27 updated to reflect completed framework-detection Query parity.
+  - `AGENTS.md` project-state summary updated from "1 remaining L3 taste issue" to "L1/L2/product/architecture/L3 debt fully zero".
+  - `SESSION.md` last-updated timestamp refreshed to record the verification.
+- Validation: `npm run test:fast` 126/126 PASS.
+
 ### Documentation: integrate and update active docs (2026-06-26)
 
 - Created `docs/README.md` as a navigation page; clarified that `docs/` does not maintain a second source of truth and that `AGENTS.md` remains the single source of project state.
