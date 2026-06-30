@@ -25,6 +25,11 @@
   - `src/services/dep-graph/query.js` + `src/services/dep-graph/analyzer.js`: emit `reason: "implicit-same-package"` instead of `direct-import`.
   - `test/java-package-imports-test.js`: added assertions for tier, confidence, and reason.
   - Validation: `npm run test:fast` 126/126 PASS; re-audited `PolicyMissingController.java` and confirmed all 13 same-package dependents now carry `implicit-same-package`.
+- **Fixed** the P1 Java no-tests validation advice issue found in Route B round 2:
+  - `src/utils/stack-detectors/detect.js`: detect real `src/test/java` test files and expose `stack.java.hasTests`.
+  - `src/utils/stack-detectors/commands.js`: when `hasTests` is false, downgrade focused/full commands from `test` to `compile`/`package -DskipTests` (Maven) or `build -x test` (Gradle); default to `true` for backward compatibility.
+  - `test/audit-file-validation-advice-test.js`: added `testJavaNoTestsFallsBackToCompileAndPackage` and `testJavaWithTestsKeepsTestCommands`.
+  - Validation: `npm run test:fast` 126/126 PASS; re-audited `PolicyChatController.java` and confirmed suggested command is now `mvn -q -DskipTests compile`.
 - Updated `docs/TECH_DEBT.md`, `SESSION.md`, and `AGENTS.md` debt tallies.
 
 ### Debt: confirm full zero active debt and sync active docs (2026-06-29)

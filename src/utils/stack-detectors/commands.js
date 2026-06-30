@@ -208,6 +208,7 @@ function mapJavaFilesToModules(files, modules) {
 function getJavaCommands(javaStack, changeType, targets) {
   if (!javaStack) return { smoke: [], focused: [], full: [] };
   const hasJavaFiles = targets.some((file) => /\.java$/.test(file));
+  const hasTests = javaStack.hasTests !== false;
   const javaCmd = javaStack.buildCommand || (javaStack.buildTool === 'maven' ? 'mvn' : javaStack.buildTool === 'gradle' ? 'gradle' : null);
   if (!javaCmd) return { smoke: [], focused: [], full: [] };
 
@@ -229,22 +230,42 @@ function getJavaCommands(javaStack, changeType, targets) {
       });
 
       if (hasJavaFiles) {
-        commands.focused.push({
-          name: 'java-focused-tests',
-          description: 'Run focused Maven tests',
-          executable: hasModules
-            ? { command: javaCmd, args: ['-pl', plArg, '-am', '-q', '-Dtest=*Test', 'test'] }
-            : { command: javaCmd, args: ['-q', '-Dtest=*Test', 'test'] },
-        });
+        if (hasTests) {
+          commands.focused.push({
+            name: 'java-focused-tests',
+            description: 'Run focused Maven tests',
+            executable: hasModules
+              ? { command: javaCmd, args: ['-pl', plArg, '-am', '-q', '-Dtest=*Test', 'test'] }
+              : { command: javaCmd, args: ['-q', '-Dtest=*Test', 'test'] },
+          });
+        } else {
+          commands.focused.push({
+            name: 'java-compile-check',
+            description: 'Run Maven compile check (no tests detected)',
+            executable: hasModules
+              ? { command: javaCmd, args: ['-pl', plArg, '-am', '-q', '-DskipTests', 'compile'] }
+              : { command: javaCmd, args: ['-q', '-DskipTests', 'compile'] },
+          });
+        }
       }
 
-      commands.full.push({
-        name: 'java-all-tests',
-        description: 'Run Java full test suite',
-        executable: hasModules
-          ? { command: javaCmd, args: ['-pl', plArg, '-am', '-q', 'test'] }
-          : { command: javaCmd, args: ['-q', 'test'] },
-      });
+      if (hasTests) {
+        commands.full.push({
+          name: 'java-all-tests',
+          description: 'Run Java full test suite',
+          executable: hasModules
+            ? { command: javaCmd, args: ['-pl', plArg, '-am', '-q', 'test'] }
+            : { command: javaCmd, args: ['-q', 'test'] },
+        });
+      } else {
+        commands.full.push({
+          name: 'java-package-check',
+          description: 'Run Maven package check skipping tests (no tests detected)',
+          executable: hasModules
+            ? { command: javaCmd, args: ['-pl', plArg, '-am', '-q', '-DskipTests', 'package'] }
+            : { command: javaCmd, args: ['-q', '-DskipTests', 'package'] },
+        });
+      }
     } else if (javaStack.buildTool === 'gradle') {
       const modules = javaStack.modules || javaStack.subprojects;
       const affectedModules = (modules && hasJavaFiles)
@@ -263,17 +284,33 @@ function getJavaCommands(javaStack, changeType, targets) {
         executable: { command: javaCmd, args: ['-q', ...compileTasks] },
       });
       if (hasJavaFiles) {
-        commands.focused.push({
-          name: 'java-focused-tests',
-          description: 'Run focused Gradle tests',
-          executable: { command: javaCmd, args: ['-q', ...testTasks, '--tests', '*Test'] },
+        if (hasTests) {
+          commands.focused.push({
+            name: 'java-focused-tests',
+            description: 'Run focused Gradle tests',
+            executable: { command: javaCmd, args: ['-q', ...testTasks, '--tests', '*Test'] },
+          });
+        } else {
+          commands.focused.push({
+            name: 'java-compile-check',
+            description: 'Run Gradle compile check (no tests detected)',
+            executable: { command: javaCmd, args: ['-q', ...compileTasks] },
+          });
+        }
+      }
+      if (hasTests) {
+        commands.full.push({
+          name: 'java-all-tests',
+          description: 'Run Java full test suite',
+          executable: { command: javaCmd, args: ['-q', 'test'] },
+        });
+      } else {
+        commands.full.push({
+          name: 'java-package-check',
+          description: 'Run Gradle build skipping tests (no tests detected)',
+          executable: { command: javaCmd, args: ['-q', 'build', '-x', 'test'] },
         });
       }
-      commands.full.push({
-        name: 'java-all-tests',
-        description: 'Run Java full test suite',
-        executable: { command: javaCmd, args: ['-q', 'test'] },
-      });
       if (javaStack.linters.includes('checkstyle')) {
         const checkstyleTasks = hasModules
           ? affectedModules.flatMap((m) => [`${m}:checkstyleMain`, `${m}:checkstyleTest`])

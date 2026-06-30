@@ -266,5 +266,5 @@ THEN 拿到结果后必须执行：
 ---
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-06-30（Route B 在 ai_zcypg_backend 上完成 Java Spring Boot 实战验证并修复 Java 同包可见性误报；L1/L2/架构/L3 债务恢复全零；npm run test:fast 126/126 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-30（Route B 在 ai_zcypg_backend 上完成两轮 Java Spring Boot 实战验证，修复 Java 同包可见性误报与无测试项目验证命令降级；L1/L2/架构/L3 债务保持全零；npm run test:fast 126/126 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
 

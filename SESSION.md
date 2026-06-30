@@ -286,9 +286,24 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 | 验证命令 | `mvn -q -Dtest=*Test test`，但项目无 `src/test/java` | ❌ 不匹配实际 |
 | symbolImpact | 10 个符号全部 `dependentsCount=0` | ⚠️ Java Spring DI/反射无法静态解析 |
 
+**Route B 第二轮验证：ai_zcypg_backend / PolicyChatController.java**
+
+**聚焦文件**：`aizcypg-biz/src/main/java/com/aizcypg/biz/controller/PolicyChatController.java`  
+**真实任务**：实现 `callAiForAnswer` 方法 TODO（对接 Dify 聊天 API）  
+**完整报告**：`scratch/route-b-report-ai-zcypg-backend-02.md`
+
+| 维度 | 结果 | 评估 |
+| :--- | :--- | :--- |
+| 上一轮修复持续性 | 13 个 impact 全部 `implicit-same-package` | ✅ 修复稳定 |
+| 验证命令 | 修复前：`mvn -q -Dtest=*Test test`；修复后：`mvn -q -DskipTests compile` / `package` | ✅ **本轮修复** |
+| 路由噪音 | `affectedRoutes` 30+ 条，大量来自其他 Controller | ❌ 仍是主要噪音源 |
+| symbolImpact | 全 0，无说明 | ⚠️ 待处理 |
+| 多模块命令 | 未按子模块带 `-pl` | ⚠️ 待处理 |
+
 **剩余缺口**（按 ROI）：
 - Route B 在 GitNexus / qartez-mcp 上发现的 5 个消费体验缺口已全部修复。
-- Route B 在 ai_zcypg_backend 上发现的 **Java 同包可见性误报** 缺口已修复；剩余 P1/P2 缺口（affectedRoutes 分组、无测试项目验证命令降级、Java Spring symbolImpact 说明、多模块 Maven 命令感知）待后续处理。
+- Route B 在 ai_zcypg_backend 上发现的 **Java 同包可见性误报** 与 **无测试项目验证命令降级** 缺口已修复。
+- 仍待处理：affectedRoutes 分组/过滤、Java Spring symbolImpact 说明、多模块 Maven 命令感知。
 
 ---
 
@@ -357,4 +372,4 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-06-30（完成 Route B 实战验证：在 ai_zcypg_backend 上修复 Java 同包可见性误报；新增 `scratch/route-b-report-ai-zcypg-backend.md`；`java-same-package` 边降级为 `tier3`/`confidence=0.3` 并输出 `implicit-same-package` reason；L1/L2/架构/L3 债务恢复全零；npm run test:fast 126/126 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-06-30（完成 Route B 两轮实战验证：在 ai_zcypg_backend 上修复 Java 同包可见性误报与无测试项目验证命令降级；新增 `scratch/route-b-report-ai-zcypg-backend.md` 与 `-02.md`；L1/L2/架构/L3 债务保持全零；npm run test:fast 126/126 PASS；schemaVersion: 1.2.0；version: 2.0.0）*

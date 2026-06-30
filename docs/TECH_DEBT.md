@@ -89,6 +89,19 @@
 | 验证 | `npm run test:fast` 126/126 PASS；重新跑 `audit-file` 后 13 个 impact 全部显示 `implicit-same-package` |
 | 完整报告 | `scratch/route-b-report-ai-zcypg-backend.md` |
 
+**缺口 8：Java 无测试项目仍建议跑 test 命令**
+
+| 项目 | 内容 |
+| :--- | :--- |
+| 状态 | ✅ 已修复（2026-06-30） |
+| 背景 | Route B 第二轮在 `ai_zcypg_backend` 验证 `PolicyChatController.java`；该仓库无 `src/test/java` 测试文件 |
+| 现象 | `validationAdvice.suggestedCommand` 建议 `mvn -q -Dtest=*Test test`，执行会跑空测试套件 |
+| 根因 | `commands.js` 默认生成 Maven/Gradle test 命令，未检测项目是否真有测试文件 |
+| 影响 | AI 执行建议命令后得到失败或空跑结果，降低对 workspace-bridge 的信任 |
+| 修复 | `detect.js` 新增 `hasJavaTestFiles()` 检测并暴露 `stack.java.hasTests`；`commands.js` 无测试时 focused 降级为 compile、full 降级为 package -DskipTests / build -x test；默认 `hasTests=true` 保持向后兼容 |
+| 验证 | `npm run test:fast` 126/126 PASS；重新跑 `audit-file` 后 suggestedCommand 变为 `mvn -q -DskipTests compile` |
+| 完整报告 | `scratch/route-b-report-ai-zcypg-backend-02.md` |
+
 ---
 
 ## 文件级雷区地图
@@ -175,4 +188,4 @@
 
 ---
 
-*Last updated: 2026-06-30（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=0；本轮修复：Route B 发现的 Java 同包可见性误报，降级为 `tier3`/`confidence=0.3` 并输出 `implicit-same-package` reason；npm run test:fast 126/126 PASS）*
+*Last updated: 2026-06-30（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=0；本轮修复：Route B 发现的 Java 同包可见性误报与无测试项目验证命令降级；npm run test:fast 126/126 PASS）*

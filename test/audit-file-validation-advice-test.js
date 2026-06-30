@@ -92,11 +92,81 @@ async function testAuditFileGeneratesFocusedTestCommands() {
   }
 }
 
+async function testJavaNoTestsFallsBackToCompileAndPackage() {
+  const tmpDir = makeTempDir('wb-audit-file-java-no-tests-');
+  try {
+    fs.mkdirSync(path.join(tmpDir, 'src', 'main', 'java', 'com', 'example'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, 'pom.xml'),
+      '<?xml version="1.0"?><project><modelVersion>4.0.0</modelVersion></project>\n'
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, 'src', 'main', 'java', 'com', 'example', 'A.java'),
+      'package com.example; public class A {}\n'
+    );
+
+    const sourceFile = path.join(tmpDir, 'src', 'main', 'java', 'com', 'example', 'A.java');
+    const advice = buildFileValidationAdvice(sourceFile, tmpDir, { affectedTestsCount: 0, affectedTests: [] });
+
+    assert.strictEqual(advice.stack.profile, 'java-first', 'should detect java-first profile');
+
+    const focused = advice.commands.focused.find((c) => c.name === 'java-compile-check');
+    assert.ok(focused, 'focused command should fall back to java-compile-check when no tests exist');
+    assert.ok(focused.executable.args.includes('-DskipTests'), 'fallback focused should skip tests');
+    assert.ok(focused.executable.args.includes('compile'), 'fallback focused should compile');
+    assert.ok(
+      !advice.commands.focused.some((c) => c.name === 'java-focused-tests'),
+      'should not suggest java-focused-tests when no tests exist'
+    );
+
+    const full = advice.commands.full.find((c) => c.name === 'java-package-check');
+    assert.ok(full, 'full command should fall back to java-package-check when no tests exist');
+    assert.ok(full.executable.args.includes('-DskipTests'), 'fallback full should skip tests');
+    assert.ok(full.executable.args.includes('package'), 'fallback full should package');
+    assert.ok(
+      !advice.commands.full.some((c) => c.name === 'java-all-tests'),
+      'should not suggest java-all-tests when no tests exist'
+    );
+  } finally {
+    cleanupTempDir(tmpDir);
+  }
+}
+
+async function testJavaWithTestsKeepsTestCommands() {
+  const tmpDir = makeTempDir('wb-audit-file-java-with-tests-');
+  try {
+    fs.mkdirSync(path.join(tmpDir, 'src', 'main', 'java'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, 'src', 'test', 'java'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, 'pom.xml'),
+      '<?xml version="1.0"?><project><modelVersion>4.0.0</modelVersion></project>\n'
+    );
+    fs.writeFileSync(path.join(tmpDir, 'src', 'main', 'java', 'A.java'), 'public class A {}\n');
+    fs.writeFileSync(path.join(tmpDir, 'src', 'test', 'java', 'ATest.java'), 'public class ATest {}\n');
+
+    const sourceFile = path.join(tmpDir, 'src', 'main', 'java', 'A.java');
+    const advice = buildFileValidationAdvice(sourceFile, tmpDir, { affectedTestsCount: 0, affectedTests: [] });
+
+    assert.ok(
+      advice.commands.focused.some((c) => c.name === 'java-focused-tests'),
+      'should suggest java-focused-tests when tests exist'
+    );
+    assert.ok(
+      advice.commands.full.some((c) => c.name === 'java-all-tests'),
+      'should suggest java-all-tests when tests exist'
+    );
+  } finally {
+    cleanupTempDir(tmpDir);
+  }
+}
+
 async function executeTests() {
   await testAuditFileHasValidationAdvice();
   await testAuditFileHasFrameworkPattern();
   await testAuditFileFrameworkDetection();
   await testAuditFileGeneratesFocusedTestCommands();
+  await testJavaNoTestsFallsBackToCompileAndPackage();
+  await testJavaWithTestsKeepsTestCommands();
 }
 
 executeTests();

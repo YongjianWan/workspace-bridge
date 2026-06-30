@@ -353,6 +353,23 @@ function detectDocsTool(root) {
   return null;
 }
 
+function hasJavaTestFiles(root, modules) {
+  const candidates = ['src/test/java'];
+  if (modules) {
+    for (const mod of modules) {
+      candidates.push(path.join(mod.dir, 'src/test/java'));
+    }
+  }
+  for (const dir of candidates) {
+    try {
+      const full = path.join(root, dir);
+      const entries = fs.readdirSync(full, { withFileTypes: true });
+      if (entries.some((e) => e.isFile() && e.name.endsWith('.java'))) return true;
+    } catch { /* ignore */ }
+  }
+  return false;
+}
+
 function detectStack(root) {
   const pyprojectText = readTextIfExists(path.join(root, 'pyproject.toml'));
   const hasNode = hasNodeProject(root);
@@ -371,6 +388,7 @@ function detectStack(root) {
     : javaBuildTool === 'maven'
       ? detectMavenModules(root)
       : null;
+  const javaHasTests = hasJava ? hasJavaTestFiles(root, javaModules) : false;
   const testRunner = detectTestRunner(root);
   const pythonTestRunner = detectPythonTestRunner(root, pyprojectText);
   const linters = detectLinters(root, pyprojectText);
@@ -411,6 +429,7 @@ function detectStack(root) {
       buildTool: javaBuildTool,
       buildCommand: javaBuildCommand,
       testRunner: javaBuildTool === 'maven' ? 'surefire' : javaBuildTool === 'gradle' ? 'junit' : null,
+      hasTests: javaHasTests,
       linters: linters.java,
       typeChecker: typeCheckers.java,
       modules: javaModules,
