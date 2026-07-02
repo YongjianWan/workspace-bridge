@@ -8,6 +8,13 @@
 
 ## [Unreleased]
 
+### SKILL.md Tiered Reorganization (2026-07-02)
+
+- **Reduced** `skills/workspace-audit/SKILL.md` from 333 lines to ~112 lines:
+  - Removed redundant per-command deep dives, Architecture Layer Mapping table, and duplicated guidance.
+  - Kept the essential AI contract: default parameters, core decision tree, when-not-to-use list, warm-up workflow, and security checklist.
+  - Aligned the skill with the Stage 2.5 "CLI减负与认知负担" goal.
+
 ### query-* Snapshot Cache Optimization (2026-07-02)
 
 - **Fixed** `audit-overview` and `query-*` to actually hit the persisted aggregate snapshot:
