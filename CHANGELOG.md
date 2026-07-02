@@ -8,6 +8,13 @@
 
 ## [Unreleased]
 
+### Indexing Progress Reporting (2026-07-02)
+
+- **Added** large-repository indexing progress visibility:
+  - `ServiceContainer._runStage` now prints phase-level progress (e.g. `[Container] Phase: fileIndex ...`) so users know which initialization stage is running.
+  - `FileIndex.processFilesWithLimit` emits percentage progress via `this.bus.emit('progress', { phase, current, total, percent })` and prints `[FileIndex] 24% (100/419 files indexed)` to stderr during human-facing runs.
+  - Added `test/indexing-progress-test.js` to assert progress events and CLI phase output.
+
 ### Guard Command Visualization (2026-07-02)
 
 - **Added** visual blast radius representation to `guard` command:

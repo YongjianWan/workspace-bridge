@@ -234,8 +234,17 @@ class FileIndex {
       const promise = this.processFile(file).finally(() => {
         executing.delete(promise);
         this.processedCount++;
-        if (!this.quiet && total > 0 && this.processedCount % DEFAULTS.FILE_INDEX_PROGRESS_BATCH === 0) {
-          console.error(`[FileIndex] ${this.processedCount}/${total} indexed...`);
+        if (total > 0 && this.processedCount % DEFAULTS.FILE_INDEX_PROGRESS_BATCH === 0) {
+          const percent = Math.round((this.processedCount / total) * 100);
+          this.bus.emit('progress', {
+            phase: 'index',
+            current: this.processedCount,
+            total,
+            percent,
+          });
+          if (!this.quiet) {
+            console.error(`[FileIndex] ${percent}% (${this.processedCount}/${total} files indexed)`);
+          }
         }
       });
       executing.add(promise);

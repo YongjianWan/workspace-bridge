@@ -273,6 +273,9 @@ class ServiceContainer {
 
   async _runStage(name, fn) {
     const t0 = Date.now();
+    if (!this.quiet) {
+      console.error(`[Container] Phase: ${name} ...`);
+    }
     try {
       return await fn();
     } catch (err) {
@@ -281,6 +284,9 @@ class ServiceContainer {
     } finally {
       const elapsed = Date.now() - t0;
       this._phaseTimes[name] = elapsed;
+      if (!this.quiet) {
+        console.error(`[Container] Phase: ${name} done (${formatDuration(elapsed)})`);
+      }
     }
   }
 
