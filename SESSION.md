@@ -379,3 +379,22 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 ---
 
 *Last updated: 2026-07-02（聚合快照缓存命中修复；大仓库索引进度可视化；SKILL.md 按层级精简至 ~112 行；配置文件非阻塞校验警告机制上线；新增跨平台路径归一化回归防护测试；全量 `npm run test:fast` 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+
+---
+
+## 架构判断校准记录（2026-07-02）
+
+> 以下结论来自对当前实现的一次审问式复盘，用于修正文档中可能过于自满的描述。
+
+| 原判断 | 修正后判断 | 依据 |
+| :--- | :--- | :--- |
+| `dep-graph.js` 是“单概念”门面 | **单主契约 + 邻近消费者**：`dep-graph.js:39` 只是门面，真实契约分散在 `builder.js:114`、`analyzer.js:339`、`query.js:40`；同包可见性修正 `450986d` 跨 3 个文件，路由修正 `2fc3340` 跨 2 个文件 | 近期修复实际跨多个文件 |
+| resolver 策略链是隐式全局状态 | **显式有序策略链**：`registry.js:18` + `resolvers.js:65` 按注册顺序命中即停；顺序本身就是契约 | 代码结构明确 |
+| dead exports 11/12 命中证明可靠 | **只证明 precision，不证明 recall**：现有测试验证高置信命中与 FP 降级，但没有 ground-truth 语料计算漏报率 | 测试覆盖的是保守性 |
+| 增量更新是否真实有效 | **真实增量**：`cache.js:673` mtime+size → SHA-256 双路径；`builder.js:699` 只重建 changed files、1-hop dependents、Java 包扩展；query snapshot 宽松 freshness 是设计选择 | 多份测试覆盖 |
+| 9 语言测试是否充分 | **强于 happy path，弱于全面证明**：已有 Java 同包、增量更新、缓存精度、删除清理等语义回归，但缺少系统性的 resolver 冲突表驱动测试和 ground-truth recall 语料 | 测试矩阵现状 |
+
+**后续两个最值钱补强方向**：
+1. **Resolver 冲突表驱动测试**：明确“同一 import 在不同策略顺序下谁赢”。
+2. **Dead exports ground-truth 语料**：至少能同时报告 precision 和 recall，而不是只报高置信命中。
+
