@@ -37,7 +37,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**所有测试全部 PASS**；`npm run test:fast` **126/126 PASS**（~18s），`npm run test:smoke` **129/129 PASS**（~60s）。开发迭代首选 `npm run test:fast`；41 个测试文件已从 spawn 迁移到 in-process runner。
+- 测试：**所有测试全部 PASS**；`npm run test:fast` **127/127 PASS**（~19s），`npm run test:smoke` **130/130 PASS**（~40s）。开发迭代首选 `npm run test:fast`；新增 `test/js-destructured-export-test.js`（slow 层，覆盖解构导出符号影响回归）。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`

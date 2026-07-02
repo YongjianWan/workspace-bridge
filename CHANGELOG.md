@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+### JS/TS Destructured Export Symbol Impact Fix (2026-07-02)
+
+- **Fixed** `symbolImpact` missing multi-symbol destructured exports in JS/TS files:
+  - `export const { foo, bar } = ...`, `export const [a, b] = ...`, nested patterns (`{ nested: { leaf } }`), and renamed properties (`{ x, y: aliasY }`) are now extracted as individual source symbols.
+  - Added `extractPatternBindingNames` helper in `src/services/dep-graph/parsers/js/ast-parser.js` to recursively walk `ObjectPattern` / `ArrayPattern` / `AssignmentPattern` / `RestElement` bindings.
+  - Rest elements (`{ ...rest }`) emit an `unknown` export record (`name: '*'`) so consumers know additional exports exist without inflating `sourceSymbols`.
+  - Updated `exportedNames` collection to include destructured bindings, ensuring `functionRecords.isExported` is correctly set for arrow functions declared via destructuring.
+- **Added** `test/js-destructured-export-test.js` to assert that destructured export symbols are indexed and propagate correctly through symbol-level impact analysis.
+
 ### SKILL.md Tiered Reorganization (2026-07-02)
 
 - **Reduced** `skills/workspace-audit/SKILL.md` from 333 lines to ~112 lines:

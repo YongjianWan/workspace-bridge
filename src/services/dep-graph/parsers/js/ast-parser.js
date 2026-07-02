@@ -15,6 +15,44 @@ const {
   pushFunctionRecord,
 } = require('./shared');
 
+function extractPatternBindingNames(patternNode) {
+  const names = [];
+  let hasRest = false;
+
+  function walk(node) {
+    if (!node) return;
+    if (node.type === 'Identifier') {
+      names.push(node.name);
+      return;
+    }
+    if (node.type === 'ObjectPattern') {
+      for (const prop of node.properties || []) {
+        if (prop.type === 'RestElement') {
+          hasRest = true;
+          if (prop.argument?.type === 'Identifier') {
+            names.push(prop.argument.name);
+          }
+        } else if (prop.type === 'ObjectProperty' || prop.type === 'Property') {
+          walk(prop.value);
+        }
+      }
+      return;
+    }
+    if (node.type === 'ArrayPattern') {
+      for (const element of node.elements || []) {
+        walk(element);
+      }
+      return;
+    }
+    if (node.type === 'AssignmentPattern') {
+      walk(node.left);
+    }
+  }
+
+  walk(patternNode);
+  return { names: uniqueNames(names), hasRest };
+}
+
 function parseJavaScriptAST(content, filePath = '') {
   if (!babelParser) {
     return null;
@@ -154,6 +192,26 @@ function parseJavaScriptAST(content, filePath = '') {
                   lineEnd: d.loc?.end?.line || decl.loc?.end?.line || node.loc?.end?.line,
                   fingerprint,
                 }));
+              } else if (d.id?.type === 'ObjectPattern' || d.id?.type === 'ArrayPattern') {
+                const { names, hasRest } = extractPatternBindingNames(d.id);
+                const variableKind = isFunctionLikeNode(d.init) ? 'function' : kind;
+                for (const name of names) {
+                  const fingerprint = variableKind === 'function' ? buildFunctionFingerprint(d.init) : null;
+                  exportRecords.push(createExportRecord(name, {
+                    kind: variableKind,
+                    lineStart: d.loc?.start?.line || decl.loc?.start?.line || node.loc?.start?.line,
+                    lineEnd: d.loc?.end?.line || decl.loc?.end?.line || node.loc?.end?.line,
+                    fingerprint,
+                  }));
+                }
+                if (hasRest) {
+                  exportRecords.push(createExportRecord('*', {
+                    unknown: true,
+                    kind: 'symbol',
+                    lineStart: d.loc?.start?.line || decl.loc?.start?.line || node.loc?.start?.line,
+                    lineEnd: d.loc?.end?.line || decl.loc?.end?.line || node.loc?.end?.line,
+                  }));
+                }
               }
             }
           }
@@ -291,7 +349,12 @@ function parseJavaScriptAST(content, filePath = '') {
           if (decl.id?.name) exportedNames.add(decl.id.name);
           if (decl.declarations) {
             for (const d of decl.declarations) {
-              if (d.id?.name) exportedNames.add(d.id.name);
+              if (d.id?.name) {
+                exportedNames.add(d.id.name);
+              } else if (d.id?.type === 'ObjectPattern' || d.id?.type === 'ArrayPattern') {
+                const { names } = extractPatternBindingNames(d.id);
+                for (const name of names) exportedNames.add(name);
+              }
             }
           }
         }
