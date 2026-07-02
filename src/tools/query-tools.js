@@ -39,8 +39,6 @@ function isSnapshotFresh(snapshot, container) {
     0;
   const headMatch = !currentHead || !snapshot.version || snapshot.version === currentHead;
   const countMatch = !currentFileCount || !snapshot.fileCount || snapshot.fileCount === currentFileCount;
-  const fileChanges = container.cache?.checkFileChanges?.();
-  const noContentChanges = !fileChanges || !fileChanges.changed;
 
   const currentConfig = container.projectContext?.config || null;
   const currentConfigHash = computeConfigHash(currentConfig);
@@ -49,7 +47,11 @@ function isSnapshotFresh(snapshot, container) {
   // there is no effective config. Once config exists, they must recompute.
   const configMatch = snapshotConfigHash === currentConfigHash;
 
-  return headMatch && countMatch && noContentChanges && configMatch;
+  // Intentionally skip content-change checks: query-* commands are designed as
+  // fast cached-aggregate readers. File-level edits that do not change the
+  // commit hash or file count should not trigger a full audit-overview rebuild.
+  // Users who need real-time results should run `audit-overview` directly.
+  return headMatch && countMatch && configMatch;
 }
 
 async function ensureSnapshotData(parsed, container) {

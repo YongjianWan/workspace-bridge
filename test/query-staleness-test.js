@@ -38,10 +38,10 @@ function testStaleFileCount() {
   assert.strictEqual(isSnapshotFresh(snapshot, container), false, 'different fileCount should be stale (no tolerance)');
 }
 
-function testStaleContentChange() {
+function testFreshDespiteContentChange() {
   const container = makeContainer({ gitHead: 'abc', fileCount: 10, changed: true });
   const snapshot = { version: 'abc', fileCount: 10 };
-  assert.strictEqual(isSnapshotFresh(snapshot, container), false, 'content changes should make snapshot stale');
+  assert.strictEqual(isSnapshotFresh(snapshot, container), true, 'query commands intentionally use cached aggregates; content changes do not invalidate the snapshot');
 }
 
 function testFreshWithMissingMetadata() {
@@ -83,7 +83,7 @@ function main() {
     testFreshSnapshot,
     testStaleGitHead,
     testStaleFileCount,
-    testStaleContentChange,
+    testFreshDespiteContentChange,
     testFreshWithMissingMetadata,
     testStaleConfigChange,
     testFreshWithMatchingConfig,

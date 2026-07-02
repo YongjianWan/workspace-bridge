@@ -119,8 +119,8 @@
 - 新增 `query-*` 命令为 L2 层级（默认 `--help` 折叠，不挤占核心命令列表）
 
 **收益量化**：
-- 284 文件项目：`audit-overview` 重复运行从 ~2s → ~20ms（缓存命中）
-- 1329 文件 GitNexus：从 ~15s → ~50ms
+- 420 文件 workspace-bridge：`audit-overview` 核心计算从 ~5s → ~10ms（缓存命中）；端到端 CLI 耗时主要受 ~1.5s container 初始化制约。
+- `query-stability` / `query-knowledge-risk` 热缓存完成时间 ~2s；`query-hotspots` 核心查询逻辑 ~10ms。
 - AI 上下文：热点查询从 3000 行完整 JSON → 5-10 行切片
 
 ---

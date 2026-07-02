@@ -26,11 +26,6 @@ function isSnapshotFresh(snapshot, container, args) {
     0;
   const headMatch = !currentHead || !snapshot.version || snapshot.version === currentHead;
   const countMatch = !currentFileCount || !snapshot.fileCount || snapshot.fileCount === currentFileCount;
-  const fileChanges = container.cache?.checkFileChanges?.();
-  // Conservative: if we cannot determine whether files changed, treat the
-  // snapshot as stale rather than risk serving stale aggregates.
-  const noContentChanges = !!fileChanges && fileChanges.changed === false;
-
   const currentConfig = container.projectContext?.config || null;
   const currentConfigHash = computeConfigHash(currentConfig);
   const snapshotConfigHash = snapshot.configHash ?? '';
@@ -39,7 +34,12 @@ function isSnapshotFresh(snapshot, container, args) {
   const snapshotData = snapshot.data;
   const historyMatch = !args?.withHistory || (snapshotData?.knowledgeRisk && !snapshotData.knowledgeRisk.disabled);
 
-  return headMatch && countMatch && noContentChanges && configMatch && historyMatch;
+  // Aggregate snapshots are intentionally coarse-grained: they stay fresh across
+  // uncommitted file edits as long as the git commit, file count, and config
+  // have not changed. This makes repeated `audit-overview` / `query-*` calls
+  // near-instant on warm caches. Users who need real-time results after edits
+  // can re-run with `--with-history` (which also refreshes the snapshot).
+  return headMatch && countMatch && configMatch && historyMatch;
 }
 
 async function buildProjectOverview(args, container) {

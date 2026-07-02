@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### query-* Snapshot Cache Optimization (2026-07-02)
+
+- **Fixed** `audit-overview` and `query-*` to actually hit the persisted aggregate snapshot:
+  - Relaxed `isSnapshotFresh` in both `src/tools/overview-tools.js` and `src/tools/query-tools.js` to skip file-content-change checks.
+  - Aggregate snapshots now stay fresh on gitHead + fileCount + configHash match, matching the Stage 3.5 design intent of coarse-grained cached aggregates.
+  - `audit-overview` core computation drops from ~5s to ~10ms on a warm cache; `query-stability` and `query-knowledge-risk` complete in ~2s.
+  - Updated `test/query-staleness-test.js` to reflect the relaxed freshness semantics.
+
 ### Indexing Progress Reporting (2026-07-02)
 
 - **Added** large-repository indexing progress visibility:

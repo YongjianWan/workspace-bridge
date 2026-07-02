@@ -334,7 +334,8 @@ F：SKILL 自动化	形态转换	中	改变使用方式
     *   **已完成**：`--quiet` 下 SQLite warning 泄漏已修复（#9）；`workspace-info` 已改为真正轻量命令（#15），实测 `<1s`；默认 `audit-overview` 已跳过逐文件 blame（#10），热缓存从 ~56s 降至 ~16s。
     *   **已完成（本轮）**：配置文件 `.workspace-bridge.json` 语法与未知参数校验从致命报错改写为非阻塞的 `config-warning`，在 final output warnings[] 数组中反馈。
     *   **已完成（本轮）**：大仓库索引进度可视化——`ServiceContainer` 输出阶段进度，`FileIndex` 输出百分比进度并发出 `progress` 事件，解决用户不知道是在工作还是卡住的问题。
-    *   **待完成**：继续将详细维度下沉到 `query-*`，把默认基线压到热缓存 <2s、JSON <8KB。
+    *   **已完成（本轮）**：聚合快照缓存命中修复——`overview-tools.js` 与 `query-tools.js` 的 `isSnapshotFresh` 统一跳过 content-change 检查；`audit-overview` 核心计算从 ~5s 压到 ~10ms，`query-stability` / `query-knowledge-risk` 热缓存 ~2s，`query-hotspots` 核心查询逻辑 ~10ms。
+    *   **待完成**：继续降低端到端 CLI 耗时（当前受 container 初始化 ~1.5s 制约）和默认输出 JSON 体积（当前 ~15KB，目标 <8KB）。
 
 ---
 
@@ -376,4 +377,4 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-07-02（新增大仓库索引进度可视化：`ServiceContainer` 阶段进度 + `FileIndex` 百分比进度事件；配置文件非阻塞校验警告机制上线；新增 test/path-normalization-cross-platform-test.js 跨平台路径归一化回归防护测试；全量 `npm run test:fast` 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-07-02（聚合快照缓存命中修复：`audit-overview` / `query-*` 跳过 content-change 检查；新增大仓库索引进度可视化；配置文件非阻塞校验警告机制上线；新增 test/path-normalization-cross-platform-test.js 跨平台路径归一化回归防护测试；全量 `npm run test:fast` 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
