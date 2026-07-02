@@ -197,6 +197,39 @@ async function testJsonCliFormatArgErrors() {
   assert.ok(payload.error.includes('Invalid --severity value'));
 }
 
+async function testNonBlockingConfigWarnings() {
+  const { tmpDir, configPath } = setupTempWorkspace();
+  try {
+    const invalidConfig = {
+      directories: { active: ['src'], unknownKey: ['oops'] },
+      directoryRoles: { 'src/utils': 'invalid-role' },
+      unknownTopKey: 'what'
+    };
+    fs.writeFileSync(configPath, JSON.stringify(invalidConfig), 'utf8');
+
+    const warnings1 = [];
+    const wsConfig = loadWorkspaceConfig(tmpDir, { warnings: warnings1 });
+    assert.ok(wsConfig);
+    assert.ok(warnings1.length >= 3);
+    assert.ok(warnings1.some(w => w.includes('Unknown top-level key "unknownTopKey"')));
+    assert.ok(warnings1.some(w => w.includes('Unknown directories key "unknownKey"')));
+    const warnings2 = [];
+    const ctx = new ProjectContext(tmpDir, { warnings: warnings2 });
+    assert.ok(ctx);
+    assert.ok(ctx.warnings.length >= 3);
+    assert.ok(ctx.warnings.some(w => w.includes('Unknown top-level key "unknownTopKey"')));
+
+    const result = await runCliInProcess(['audit-summary', '--cwd', tmpDir, '--json', '--quiet']);
+    assert.strictEqual(result.status, 0);
+    const payload = JSON.parse(result.stdout);
+    assert.strictEqual(payload.ok, true);
+    assert.ok(Array.isArray(payload.warnings));
+    assert.ok(payload.warnings.some(w => w.type === 'config-warning' && w.message.includes('unknownTopKey')));
+  } finally {
+    cleanupTempWorkspace(tmpDir);
+  }
+}
+
 async function main() {
   testValidConfig();
   testUnknownTopLevelKey();
@@ -208,6 +241,7 @@ async function main() {
   testInvalidDirectoryRoleValue();
   await testJsonCliArgErrors();
   await testJsonCliFormatArgErrors();
+  await testNonBlockingConfigWarnings();
   console.log('cli-config-validation-test: all passed');
 }
 

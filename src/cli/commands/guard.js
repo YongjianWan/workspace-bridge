@@ -70,12 +70,18 @@ async function guardCmd(parsed, container) {
   }
   const directDependents = [...directSet].sort();
 
-  // Union of transitive dependents
+  // Union of transitive dependents & collect details
   const transitiveSet = new Set();
+  const impactItems = [];
+  const seenImpactFiles = new Set();
   for (const resolvedFile of resolvedFiles) {
     const impact = depGraph.getImpactRadius(resolvedFile, parsed.maxDepth);
     for (const item of impact) {
       transitiveSet.add(item.file);
+      if (!seenImpactFiles.has(item.file)) {
+        seenImpactFiles.add(item.file);
+        impactItems.push(item);
+      }
     }
   }
   const transitiveDependents = [...transitiveSet].sort();
@@ -104,6 +110,7 @@ async function guardCmd(parsed, container) {
     },
     directDependents,
     transitiveDependents,
+    impactItems,
     exceeded,
     hasFindings: !passed,
   };

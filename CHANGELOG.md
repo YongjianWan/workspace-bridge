@@ -8,6 +8,36 @@
 
 ## [Unreleased]
 
+### Guard Command Visualization (2026-07-02)
+
+- **Added** visual blast radius representation to `guard` command:
+  - Collected BFS `impactItems` with full `via` path links and `level` inside `src/cli/commands/guard.js`.
+  - Implemented `buildAsciiTree` and `buildMermaidGraph` formatting helpers inside `src/cli/formatters/guard-formatter.js`.
+  - Displayed dependency propagation paths as an ASCII Tree in Human/Summary output, and as a Mermaid Diagram in Markdown output.
+  - Extended `test/guard-command-test.js` to ensure visual components are rendered properly.
+
+### Non-Blocking Config Warnings & Path Normalization Protection (2026-07-02)
+
+- **Fixed** `.workspace-bridge.json` config validation to be non-blocking:
+  - Refactored `validateWorkspaceConfig` in `src/utils/project-context.js` to collect warnings instead of throwing exceptions for unknown keys or type mismatches when a warnings array is provided.
+  - Implemented warning propagation in `DependencyGraphAnalyzer.buildWarnings()` to ensure config warnings are included in the final JSON schema `warnings[]` output.
+  - Refactored `FileIndex._applyWorkspaceExcludeDirs` to leverage `ProjectContext` configuration to prevent duplicate validation parsing and throwing.
+  - Extended `test/cli-config-validation-test.js` to assert non-blocking warnings work correctly.
+- **Fixed** `matchesPathFragment` path matching:
+  - Pre-filter relative paths inside `src/utils/path.js` to prefix them with a leading slash, allowing relative head-directory paths (e.g. `src/services`) to match correctly.
+- **Added** cross-platform path normalization regression tests:
+  - Created `test/path-normalization-cross-platform-test.js` to verify path resolution behavior (backslashes, mixed slashes, casing, etc.) on Windows and POSIX logic layers.
+
+### Subdirectory Restricted Analysis (strictCwd) Support (2026-07-02)
+
+> **⚠️ BREAKING CHANGE**: `--strict-cwd` now defaults to `true`. Previously, running `--cwd` inside a Git subdirectory silently elevated analysis to the repository root. To restore the old behavior, set `WB_STRICT_CWD=false` or add `"strictCwd": false` to `.workspace-bridge.json`.
+
+- **Fixed** `--cwd` subdirectory behavior:
+  - Enabled `--strict-cwd` by default (i.e. default `strictCwd` to `true`) so that analyzing a Git sub-directory limits the analysis to that subdirectory instead of automatically elevating to the Git root.
+  - Added `--strict-cwd` to the `COMMON_OPTIONS` list in `cli.js` so it is visible in `--help`.
+  - Updated `getChangedFiles` and `getDiffNumstat` in `src/tools/git-tools.js` to resolve Git-relative paths against the top-level Git root (using `git rev-parse --show-toplevel`) and filter out files outside the current `workspaceRoot` subdirectory scope.
+  - Added dedicated semantic test suite `test/subdirectory-strict-cwd-test.js` to verify subdirectory restricted analysis.
+
 ### Route B Fixes: Java Spring Gaps Resolution (2026-07-02)
 
 - **Fixed** `affectedRoutes` grouping/implicit tracking:

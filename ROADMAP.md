@@ -18,7 +18,6 @@
 | 多模块 Maven 模块边界未显式标注 | ⏳ 观察              | 模块间耦合强度丢失                                                                             | 评估是否输出模块级聚合视图                                                                                                                                                |
 | 大项目冷启动超时                | ⏳ 观察              | ~~395 文件实测 59s~~ 实测 239 文件 2s / 542 文件 7s（环境差异），但 7s 对 CI 仍不够友好       | 预热工作流 + 评估 `--cache-dir` + 大项目默认 `--compact`                                                                                  |
 | 跨仓库静态分析                  | ⏳ 评估中            | 前后端 API 契约纯文本匹配可做（`@RequestMapping` vs `axios.get`），但 CLI 只能单 `--cwd` | 评估多 `--cwd` 或 `--cross-repo` 低复杂度方案                                                                                                                         |
-| `--cwd` 子目录分析被 Git root 覆盖 | ⏳ 设计债 | 期望分析子目录，实际返回整个仓库 | 明确文档化 `--cwd` 的 Git root 向上解析行为 |
 | `--check-regression` 仅比较结构计数 | ⏳ 已文档化 | 代码内容变更但结构计数不变时误判为无回归 | 已在 help 文本注明；内容级回归需人工审查 |
 | ESM 语法注入导致解析器崩溃 | ⏳ 观察 | CJS 项目中注入 `export const` 导致未处理 loader 异常 | 避免在 CJS 文件中使用 ESM 语法 
 | symbolImpact 多符号解构遗漏 | ⏳ 观察 | 同时导入多个解构符号时部分遗漏 | 关注 `sourceSymbols` 与 `symbolToDependents` 数量是否一致 |
@@ -26,7 +25,7 @@
 | 动态 require 导致死导出误报 | ⏳ 已文档化 | 路由提取 query 模块（如 `java-spring.js`）被误报为死导出（无法静态追踪其动态 require，且作为 JS 文件无法命中 JS 启发式豁免） | 运行时无功能影响，属已知静态分析局限，可在 `.workspace-bridge.json` 中加白屏蔽或忽略 |
 | Wave 11-15 功能多语言等价性偏斜 | ✅ 已完成（框架检测 Query 已补齐） | `functionRecords` 字段（decorators/isExported/returnType）与 `branchCount`/`maxArms` 已覆盖 9 种语言；Shadow Candidates 已覆盖 JS/TS/Python/C/C++/Vue/Svelte；跨语言 AST 内置规则已覆盖 9 种语言；框架路由 Query 已覆盖 FastAPI/Django/Gin/Fiber/Actix-web/Axum/Nuxt/SvelteKit；框架检测 Query 已覆盖 JS/TS/Python/Java/Kotlin/Go/Rust/Vue/Svelte。`AST_PATTERNS` 仅作为 tree-sitter query 的 cheap pre-filter 及同步 fallback 保留，不属于未清零债务。 | 详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)；新增框架优先注册 tree-sitter query |
 
-> 近期已修复的限制见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]：配置 JSON 语法错误与 schema 校验、`--format json` 自动映射与 JSON 格式解析错误统一、`--builtin-only`、`--since <commit>`、TTL 24h、git-aware staleness、`--format jsonl`、SKILL 文档体系重构。
+> 近期已修复的限制见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]：`--strict-cwd` 默认开启以支持真正的子目录限制分析、配置 JSON 语法错误与 schema 校验、`--format json` 自动映射与 JSON 格式解析错误统一、`--builtin-only`、`--since <commit>`、TTL 24h、git-aware staleness、`--format jsonl`、`SKILL.md` 文档体系重构。
 >
 > 历史修复记录见 [CHANGELOG.md](./CHANGELOG.md)。
 
@@ -208,7 +207,7 @@
 
 | 维度     | 问题      | 当前表现                                                            | 理想表现                                                                       |
 | -------- | --------- | ----------------------- | ------------------ |
-| 配置     | ⏳ 待评估 | `.workspace-bridge.json` schema 校验可更严格                      | 未知字段/类型错误警告（非阻塞）                                                |
+| 配置     | ✅ 已完成 | `.workspace-bridge.json` schema 校验支持非阻塞警告                      | 未知字段/非致命类型错误生成 warnings 警告而不报错                            |
 | 进度     | ⏳ 待评估 | 超大仓库（>10k 文件）索引进度粒度不足；用户不知道是在工作还是卡住了 | 按百分比或按模块打印进度；或按 PhaseTimer 阶段输出"解析中…/建图中…/查询中…" |
 
 ---
@@ -223,10 +222,10 @@
 | **安全白名单分派表 + Assert Defense**      | 高   | 低   | **接受**              | `security-tools.js` 每条规则独立 `is_match_allowlisted()`；测试内防御性匹配（`expect(error)`）抑制误报。参考 qartez 集中式白名单分派表 |
 | **端到端请求路径（路由提取）**             | 高   | 低   | **⏳ 暂缓**           | 越界语义分析风险：路由注册（`app.get('/users/:id', handler)`）是运行时语义，不是静态 import 边。若未来评估通过，只能做成可选适配器，不可成为默认依赖。参考 GitNexus `HANDLES_ROUTE` 边 + CRG entry point 检测 |
 | **per-tool benchmark + 回归检查**          | 中   | 低   | **接受**              | 扩展 `benchmark/` 目录，为每个 CLI 命令建立"有工具 vs 无工具"对照实验，检测性能回归。参考 qartez `benchmark/report.rs`（LLM-judge 评分 5 轴：correctness/completeness/usability/groundedness/conciseness + token 节省率 91.8%） |
-| **Parser golden snapshot 测试**            | 中   | 低   | **接受**              | 为各语言 parser 的 tricky 文件建立预期 AST 输出快照（`fixtures/goldens/`），`--update-goldens` 刷新。防止 parser 规则调整导致隐性误报。参考 CGC `fixtures/goldens/` + `test_parser_goldens.py` |
-| **跨平台路径回归测试**                     | 中   | 极低 | **接受**              | 模拟 Windows 反斜杠路径输入，断言存储/查询格式一致（正斜杠或统一 abstraction）。参考 CGC `test_writer_path_normalization.py`（361 行回归防护） |
+| **Parser golden snapshot 测试**            | 中   | 低   | **✅ 已交付**              | 为各语言 parser 的 tricky 文件建立预期 AST 输出快照并验证 parser 规则，防止误报与回归。 |
+| **跨平台路径回归测试**                     | 中   | 极低 | **✅ 已交付**              | 模拟 Windows 反斜杠路径输入，断言存储/查询格式一致（正斜杠并防护 regression） |
 | **预索引便携快照**                         | 中   | 中   | **接受**              | 导出 `.wbbundle`（ZIP = metadata.json + nodes.jsonl + edges.jsonl + stats.json），支持预索引分发、CI 缓存、跨机器加载。参考 CodeGraphContext `.cgc` bundle。 |
-| **Modification Guard**                     | 中   | 中   | **接受**              | 在 AI 工具执行文件修改前检查影响半径，高影响（如 transitiveCount > 50）时要求确认或拆分变更。参考 qartez `src/bin/guard.rs`。 |
+| **Modification Guard**                     | 中   | 中   | **✅ 已交付**              | 在 AI 工具执行文件修改前检查影响半径，当 transitiveCount > 50 时触发 Gate 阻断。并在 markdown/human 格式中提供依赖爆破半径的 ASCII 树和 Mermaid 树可视化。 |
 
 > 路线 I-2 GitNexus 深度对比 of 9 项发现中，数值 confidence / yieldToEventLoop / confidenceSource 标签 / git-aware staleness / import 策略链抽象 5 项已吸收并完成。详见 [CHANGELOG.md](./CHANGELOG.md)。
 >

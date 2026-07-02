@@ -412,7 +412,7 @@ function parseCliArgs(argv) {
 
   const strictCwdRes = resolveOption(raw['--strict-cwd'], 'WB_STRICT_CWD', projectConfig.strictCwd, userConfig.strictCwd, true);
   sources.strictCwd = strictCwdRes.source;
-  const strictCwd = strictCwdRes.value || false;
+  const strictCwd = strictCwdRes.value !== undefined ? strictCwdRes.value : true;
 
   const fieldsRes = resolveOption(raw.fields, 'WB_FIELDS', projectConfig.fields, userConfig.fields);
   sources.fields = fieldsRes.source;

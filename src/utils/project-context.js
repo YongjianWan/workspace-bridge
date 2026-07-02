@@ -379,10 +379,22 @@ function stableStringify(obj) {
   return JSON.stringify(obj);
 }
 
-function validateWorkspaceConfig(config, configPath) {
+function validateWorkspaceConfig(config, configPath, warnings = null) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
     throw new Error(`Configuration root must be an object in ${configPath}`);
   }
+
+  const hasWarnings = Array.isArray(warnings);
+  let hasErrors = false;
+  const addError = (msg) => {
+    if (hasWarnings) {
+      warnings.push(msg);
+      hasErrors = true;
+      return false;
+    } else {
+      throw new Error(msg);
+    }
+  };
 
   const validTopKeys = new Set([
     'directories', 'directoryRoles', '$schema', 'boundaries', 'ignore',
@@ -393,36 +405,40 @@ function validateWorkspaceConfig(config, configPath) {
   ]);
   for (const key of Object.keys(config)) {
     if (!validTopKeys.has(key)) {
-      throw new Error(`Unknown top-level key "${key}" in config file ${configPath}`);
+      addError(`Unknown top-level key "${key}" in config file ${configPath}`);
     }
   }
 
   const dirs = config.directories;
-  if (dirs !== undefined && (typeof dirs !== 'object' || Array.isArray(dirs) || dirs === null)) {
-    throw new Error(`"directories" must be an object in config file ${configPath}`);
-  } else if (dirs) {
-    const validDirKeys = new Set(['active', 'reference', 'archive', 'generated']);
-    for (const [key, value] of Object.entries(dirs)) {
-      if (!validDirKeys.has(key)) {
-        throw new Error(`Unknown directories key "${key}" in config file ${configPath}`);
-      } else if (!Array.isArray(value)) {
-        throw new Error(`directories.${key} must be an array in config file ${configPath}`);
-      } else if (!value.every((v) => typeof v === 'string')) {
-        throw new Error(`directories.${key} must be an array of strings in config file ${configPath}`);
+  if (dirs !== undefined) {
+    if (typeof dirs !== 'object' || Array.isArray(dirs) || dirs === null) {
+      addError(`"directories" must be an object in config file ${configPath}`);
+    } else {
+      const validDirKeys = new Set(['active', 'reference', 'archive', 'generated']);
+      for (const [key, value] of Object.entries(dirs)) {
+        if (!validDirKeys.has(key)) {
+          addError(`Unknown directories key "${key}" in config file ${configPath}`);
+        } else if (!Array.isArray(value)) {
+          addError(`directories.${key} must be an array in config file ${configPath}`);
+        } else if (!value.every((v) => typeof v === 'string')) {
+          addError(`directories.${key} must be an array of strings in config file ${configPath}`);
+        }
       }
     }
   }
 
   const roles = config.directoryRoles;
-  if (roles !== undefined && (typeof roles !== 'object' || Array.isArray(roles) || roles === null)) {
-    throw new Error(`"directoryRoles" must be an object in config file ${configPath}`);
-  } else if (roles) {
-    const validRoles = new Set(['active', 'reference', 'archive', 'generated']);
-    for (const [key, value] of Object.entries(roles)) {
-      if (typeof key !== 'string' || typeof value !== 'string') {
-        throw new Error(`directoryRoles keys and values must be strings in config file ${configPath}`);
-      } else if (!validRoles.has(value)) {
-        throw new Error(`Unknown role "${value}" for directory "${key}" in config file ${configPath}`);
+  if (roles !== undefined) {
+    if (typeof roles !== 'object' || Array.isArray(roles) || roles === null) {
+      addError(`"directoryRoles" must be an object in config file ${configPath}`);
+    } else {
+      const validRoles = new Set(['active', 'reference', 'archive', 'generated']);
+      for (const [key, value] of Object.entries(roles)) {
+        if (typeof key !== 'string' || typeof value !== 'string') {
+          addError(`directoryRoles keys and values must be strings in config file ${configPath}`);
+        } else if (!validRoles.has(value)) {
+          addError(`Unknown role "${value}" for directory "${key}" in config file ${configPath}`);
+        }
       }
     }
   }
@@ -430,28 +446,30 @@ function validateWorkspaceConfig(config, configPath) {
   const boundaries = config.boundaries;
   if (boundaries !== undefined) {
     if (!Array.isArray(boundaries)) {
-      throw new Error(`"boundaries" must be an array in config file ${configPath}`);
-    }
-    for (let i = 0; i < boundaries.length; i++) {
-      const b = boundaries[i];
-      if (!b || typeof b !== 'object' || Array.isArray(b)) {
-        throw new Error(`"boundaries[${i}]" must be an object in config file ${configPath}`);
-      }
-      if (typeof b.from !== 'string') {
-        throw new Error(`"boundaries[${i}].from" must be a string in config file ${configPath}`);
-      }
-      if (b.deny !== undefined) {
-        if (!Array.isArray(b.deny) || !b.deny.every(d => typeof d === 'string')) {
-          throw new Error(`"boundaries[${i}].deny" must be an array of strings in config file ${configPath}`);
+      addError(`"boundaries" must be an array in config file ${configPath}`);
+    } else {
+      for (let i = 0; i < boundaries.length; i++) {
+        const b = boundaries[i];
+        if (!b || typeof b !== 'object' || Array.isArray(b)) {
+          addError(`"boundaries[${i}]" must be an object in config file ${configPath}`);
+          continue;
         }
-      }
-      if (b.allow !== undefined) {
-        if (!Array.isArray(b.allow) || !b.allow.every(a => typeof a === 'string')) {
-          throw new Error(`"boundaries[${i}].allow" must be an array of strings in config file ${configPath}`);
+        if (typeof b.from !== 'string') {
+          addError(`"boundaries[${i}].from" must be a string in config file ${configPath}`);
         }
-      }
-      if (b.deny === undefined && b.allow === undefined) {
-        throw new Error(`"boundaries[${i}]" must contain at least one of "deny" or "allow" in config file ${configPath}`);
+        if (b.deny !== undefined) {
+          if (!Array.isArray(b.deny) || !b.deny.every(d => typeof d === 'string')) {
+            addError(`"boundaries[${i}].deny" must be an array of strings in config file ${configPath}`);
+          }
+        }
+        if (b.allow !== undefined) {
+          if (!Array.isArray(b.allow) || !b.allow.every(a => typeof a === 'string')) {
+            addError(`"boundaries[${i}].allow" must be an array of strings in config file ${configPath}`);
+          }
+        }
+        if (b.deny === undefined && b.allow === undefined) {
+          addError(`"boundaries[${i}]" must contain at least one of "deny" or "allow" in config file ${configPath}`);
+        }
       }
     }
   }
@@ -459,24 +477,27 @@ function validateWorkspaceConfig(config, configPath) {
   const ignore = config.ignore;
   if (ignore !== undefined) {
     if (typeof ignore !== 'object' || Array.isArray(ignore) || ignore === null) {
-      throw new Error(`"ignore" must be an object in config file ${configPath}`);
-    }
-    if (ignore.paths !== undefined) {
-      if (!Array.isArray(ignore.paths) || !ignore.paths.every(p => typeof p === 'string')) {
-        throw new Error(`"ignore.paths" must be an array of strings in config file ${configPath}`);
+      addError(`"ignore" must be an object in config file ${configPath}`);
+    } else {
+      if (ignore.paths !== undefined) {
+        if (!Array.isArray(ignore.paths) || !ignore.paths.every(p => typeof p === 'string')) {
+          addError(`"ignore.paths" must be an array of strings in config file ${configPath}`);
+        }
       }
-    }
-    if (ignore.findings !== undefined) {
-      if (!Array.isArray(ignore.findings) || !ignore.findings.every(f => typeof f === 'string')) {
-        throw new Error(`"ignore.findings" must be an array of strings in config file ${configPath}`);
+      if (ignore.findings !== undefined) {
+        if (!Array.isArray(ignore.findings) || !ignore.findings.every(f => typeof f === 'string')) {
+          addError(`"ignore.findings" must be an array of strings in config file ${configPath}`);
+        }
       }
-    }
-    if (ignore.frameworks !== undefined) {
-      if (!Array.isArray(ignore.frameworks) || !ignore.frameworks.every(f => typeof f === 'string')) {
-        throw new Error(`"ignore.frameworks" must be an array of strings in config file ${configPath}`);
+      if (ignore.frameworks !== undefined) {
+        if (!Array.isArray(ignore.frameworks) || !ignore.frameworks.every(f => typeof f === 'string')) {
+          addError(`"ignore.frameworks" must be an array of strings in config file ${configPath}`);
+        }
       }
     }
   }
+
+  return !hasErrors;
 }
 
 function loadWorkspaceConfig(root, options = {}) {
@@ -491,7 +512,10 @@ function loadWorkspaceConfig(root, options = {}) {
     throw new Error(`Invalid JSON in config file ${configPath}: ${err.message}`);
   }
 
-  validateWorkspaceConfig(config, configPath);
+  const configValid = validateWorkspaceConfig(config, configPath, options.warnings);
+  if (options.warnings && !configValid) {
+    options.warnings.push(`Configuration validation failed for ${configPath}; malformed sections were ignored. See preceding warnings for details.`);
+  }
 
   const directories = {
     active: ensureArray(config.directories?.active),
@@ -542,6 +566,7 @@ class ProjectContext {
   constructor(root, options = {}) {
     this.root = root;
     this.configPath = path.join(root, '.workspace-bridge.json');
+    this.warnings = options.warnings || [];
     if (pathExists(this.configPath)) {
       try {
         const { stripBOM } = require('./sanitize');
@@ -549,7 +574,10 @@ class ProjectContext {
       } catch (err) {
         throw new Error(`Invalid JSON in config file ${this.configPath}: ${err.message}`);
       }
-      validateWorkspaceConfig(this.config, this.configPath);
+      const configValid = validateWorkspaceConfig(this.config, this.configPath, options.warnings || null);
+      if (this.warnings && !configValid) {
+        this.warnings.push(`Configuration validation failed for ${this.configPath}; malformed sections were ignored. See preceding warnings for details.`);
+      }
     } else {
       this.config = {};
     }

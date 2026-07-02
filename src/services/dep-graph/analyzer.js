@@ -867,6 +867,17 @@ class GraphAnalyzer {
 
   buildWarnings() {
     const warnings = [];
+
+    if (this.dg.projectContext && Array.isArray(this.dg.projectContext.warnings)) {
+      for (const msg of this.dg.projectContext.warnings) {
+        warnings.push({
+          type: 'config-warning',
+          severity: 'medium',
+          message: msg,
+        });
+      }
+    }
+
     let regexFallbackCount = 0;
     let regexNativeCount = 0;
     let unsupportedCount = 0;

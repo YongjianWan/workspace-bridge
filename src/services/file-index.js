@@ -284,17 +284,33 @@ class FileIndex {
   }
 
   _applyWorkspaceExcludeDirs() {
-    const wsConfig = loadWorkspaceConfig(this.root, { quiet: this.quiet });
-    if (wsConfig?.ignore?.paths) {
-      this.ignorePaths = wsConfig.ignore.paths;
+    let directories = null;
+    let ignorePaths = null;
+
+    if (this.projectContext) {
+      const config = this.projectContext.config;
+      directories = config?.directories;
+      ignorePaths = config?.ignore?.paths;
+    } else {
+      const parsed = loadWorkspaceConfig(this.root, { quiet: this.quiet });
+      if (parsed) {
+        directories = parsed.directories;
+        ignorePaths = parsed.ignore?.paths;
+      }
+    }
+
+    if (ignorePaths) {
+      this.ignorePaths = ignorePaths;
     } else {
       this.ignorePaths = [];
     }
-    if (!wsConfig?.directories) return;
+
+    if (!directories) return;
+    const ensureArr = (v) => Array.isArray(v) ? v : (v ? [v] : []);
     const extra = [
-      ...wsConfig.directories.reference,
-      ...wsConfig.directories.archive,
-      ...wsConfig.directories.generated,
+      ...ensureArr(directories.reference),
+      ...ensureArr(directories.archive),
+      ...ensureArr(directories.generated),
     ].filter(Boolean);
     this.baseExcludeDirs = [...new Set([...this.baseExcludeDirs, ...extra])];
   }

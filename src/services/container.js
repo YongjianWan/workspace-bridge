@@ -316,6 +316,7 @@ class ServiceContainer {
     this.projectContext = new ProjectContext(this.workspaceRoot, {
       excludeDirs: options.excludeDirs || [],
       service: options.service || null,
+      warnings: [],
     });
   }
 

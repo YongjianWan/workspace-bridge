@@ -1,3 +1,89 @@
+function buildAsciiTree(rootFiles, impactItems) {
+  const childrenMap = new Map();
+
+  for (const root of rootFiles) {
+    childrenMap.set(root, []);
+  }
+
+  for (const item of impactItems) {
+    const parent = item.via && item.via.length > 0 ? item.via[item.via.length - 1] : null;
+    if (parent) {
+      if (!childrenMap.has(parent)) {
+        childrenMap.set(parent, []);
+      }
+      childrenMap.get(parent).push(item.file);
+    }
+  }
+
+  for (const [parent, list] of childrenMap.entries()) {
+    childrenMap.set(parent, [...new Set(list)].sort());
+  }
+
+  const lines = [];
+
+  function walk(node, prefix = '') {
+    const children = childrenMap.get(node) || [];
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      const isLast = i === children.length - 1;
+      const connector = isLast ? '└── ' : '├── ';
+      lines.push(`${prefix}${connector}${child}`);
+
+      const nextPrefix = prefix + (isLast ? '    ' : '│   ');
+      walk(child, nextPrefix);
+    }
+  }
+
+  for (const root of rootFiles) {
+    lines.push(`Target: ${root}`);
+    walk(root);
+  }
+
+  return lines.join('\n');
+}
+
+function buildMermaidGraph(rootFiles, impactItems) {
+  const allNodes = new Set([...rootFiles]);
+  const edges = [];
+
+  for (const item of impactItems) {
+    allNodes.add(item.file);
+    const parent = item.via && item.via.length > 0 ? item.via[item.via.length - 1] : null;
+    if (parent) {
+      allNodes.add(parent);
+      edges.push({ from: parent, to: item.file });
+    }
+  }
+
+  const nodesArr = [...allNodes].sort();
+  const idMap = new Map();
+  nodesArr.forEach((node, idx) => {
+    idMap.set(node, `n${idx}`);
+  });
+
+  const lines = ['graph TD'];
+
+  for (const node of nodesArr) {
+    const isRoot = rootFiles.includes(node);
+    const label = node.replace(/\\/g, '/');
+    const id = idMap.get(node);
+    if (isRoot) {
+      lines.push(`  ${id}["📢 ${label}"]`);
+    } else {
+      lines.push(`  ${id}["${label}"]`);
+    }
+  }
+
+  edges.sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
+  for (const edge of edges) {
+    const fromId = idMap.get(edge.from);
+    const toId = idMap.get(edge.to);
+    lines.push(`  ${fromId} --> ${toId}`);
+  }
+
+  return '```mermaid\n' + lines.join('\n') + '\n```';
+}
+
 function formatGuardHuman(r) {
   if (!r.ok) {
     return `Guard Check Failed: ${r.error || 'Unknown error'}`;
@@ -11,6 +97,11 @@ function formatGuardHuman(r) {
   if (!r.passed) {
     lines.push(`Exceeded Limits: ${r.exceeded.join(', ')}`);
   }
+
+  if (r.impactItems && r.impactItems.length > 0) {
+    lines.push('', 'Dependency Blast Radius Tree:', buildAsciiTree(r.files, r.impactItems));
+  }
+
   return lines.join('\n');
 }
 
@@ -42,6 +133,15 @@ function formatGuardMarkdown(r) {
     lines.push(
       `> [!NOTE]`,
       `> **Guard Passed**: Change blast radius is within configured safety limits.`,
+      ``
+    );
+  }
+
+  if (r.impactItems && r.impactItems.length > 0) {
+    lines.push(
+      `### Dependency Blast Radius Map`,
+      ``,
+      buildMermaidGraph(r.files, r.impactItems),
       ``
     );
   }

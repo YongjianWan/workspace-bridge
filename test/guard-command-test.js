@@ -100,16 +100,36 @@ async function testGuardFormatterOutputs() {
     writeFile(tempRoot, 'src/b.js', 'export const b = 1;\n');
     writeFile(tempRoot, 'src/a.js', 'import { b } from "./b"; export const a = 2;\n');
 
+    // 0. Test JSON impactItems
+    const resJson = await run(['guard', '--file', 'src/b.js', '--max-dependents', '0', '--max-transitive', '0', '--json', '--quiet'], tempRoot);
+    assert.strictEqual(resJson.status, 1);
+    const dataJson = JSON.parse(resJson.stdout);
+    assert.ok(dataJson.impactItems);
+    assert.strictEqual(dataJson.impactItems.length, 1);
+    const norm = (p) => p.replace(/\\/g, '/');
+    assert.ok(norm(dataJson.impactItems[0].file).endsWith('src/a.js'));
+    assert.ok(norm(dataJson.impactItems[0].via[0]).endsWith('src/b.js'));
+
+    const normText = (txt) => txt.replace(/\\/g, '/');
+
     // 1. Test markdown format
     const resMd = await run(['guard', '--file', 'src/b.js', '--max-dependents', '0', '--max-transitive', '0', '--format', 'markdown', '--quiet'], tempRoot);
     assert.strictEqual(resMd.status, 1);
     assert(resMd.stdout.includes('# Modification Guard: BLOCKED'));
     assert(resMd.stdout.includes('[EXCEEDED]'));
+    assert(resMd.stdout.includes('### Dependency Blast Radius Map'));
+    assert(resMd.stdout.includes('graph TD'));
+    assert(normText(resMd.stdout).includes('src/b.js'));
+    assert(normText(resMd.stdout).includes('src/a.js'));
+    assert(resMd.stdout.includes(' --> '));
 
     // 2. Test human format
     const resHuman = await run(['guard', '--file', 'src/b.js', '--max-dependents', '0', '--max-transitive', '0', '--format', 'human', '--quiet'], tempRoot);
     assert.strictEqual(resHuman.status, 1);
     assert(resHuman.stdout.includes('Guard Status: BLOCKED'));
+    assert(resHuman.stdout.includes('Dependency Blast Radius Tree:'));
+    assert(normText(resHuman.stdout).includes('src/b.js'));
+    assert(normText(resHuman.stdout).includes('src/a.js'));
 
     // 3. Test AI format
     const resAi = await run(['guard', '--file', 'src/b.js', '--max-dependents', '0', '--max-transitive', '0', '--format', 'ai', '--quiet'], tempRoot);

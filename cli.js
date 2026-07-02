@@ -70,6 +70,7 @@ const COMMON_OPTIONS = [
   '  --config <name>        Semgrep config (default: auto)',
   '  --language <lang>      Filter security scan to one language',
   '  --service <subpath>     Focus analysis on a single monorepo service/package (others become reference)',
+  '  --strict-cwd            Disable Git root elevation (enabled by default; set WB_STRICT_CWD=false or "strictCwd": false in .workspace-bridge.json to opt out)',
   '  --version, -v          Show version',
   '  --help                  Show help',
   '  --help <command>       Show detailed guide for a command',

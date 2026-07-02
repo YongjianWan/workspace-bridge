@@ -4,7 +4,7 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { findWorkspaceRoot, resolveWorkspaceFilePath, toRelativePosix } = require('../utils/path');
+const { findWorkspaceRoot, resolveWorkspaceFilePath, toRelativePosix, isPathInsideRoot } = require('../utils/path');
 const { runGit, trimOutput } = require('../utils/command');
 const { scoreToLevel } = require('../config/risk-thresholds');
 const { TIMEOUTS, LIMITS } = require('../config/constants');
@@ -181,6 +181,9 @@ async function getChangedFiles(root, options = {}) {
   const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
 
+  const toplevelResult = await runGit(['rev-parse', '--show-toplevel'], root, TIMEOUTS.GIT_SHORT_MS);
+  const gitRoot = toplevelResult.ok ? path.resolve(toplevelResult.stdout.trim()) : root;
+
   // Commit range mode: use git diff --name-only for explicit range
   if (commits) {
     const result = await runGit(['diff', '--name-only', commits], root, TIMEOUTS.GIT_LONG_MS);
@@ -191,8 +194,11 @@ async function getChangedFiles(root, options = {}) {
     for (const line of (result.stdout || '').split(/\r?\n/)) {
       const file = line.trim();
       if (!file) continue;
-      if (isCacheArtifact(file)) continue;
-      files.add(file);
+      const absolute = path.resolve(gitRoot, file);
+      if (!isPathInsideRoot(root, absolute)) continue;
+      const relToWorkspaceRoot = path.relative(root, absolute).replace(/\\/g, '/');
+      if (isCacheArtifact(relToWorkspaceRoot)) continue;
+      files.add(relToWorkspaceRoot);
     }
     return {
       ok: true,
@@ -213,8 +219,11 @@ async function getChangedFiles(root, options = {}) {
     for (const line of (result.stdout || '').split(/\r?\n/)) {
       const file = line.trim();
       if (!file) continue;
-      if (isCacheArtifact(file)) continue;
-      files.add(file);
+      const absolute = path.resolve(gitRoot, file);
+      if (!isPathInsideRoot(root, absolute)) continue;
+      const relToWorkspaceRoot = path.relative(root, absolute).replace(/\\/g, '/');
+      if (isCacheArtifact(relToWorkspaceRoot)) continue;
+      files.add(relToWorkspaceRoot);
     }
     return {
       ok: true,
@@ -249,24 +258,28 @@ async function getChangedFiles(root, options = {}) {
       continue;
     }
 
+    const absolute = path.resolve(gitRoot, file);
+    if (!isPathInsideRoot(root, absolute)) {
+      continue;
+    }
+
+    const relToWorkspaceRoot = path.relative(root, absolute).replace(/\\/g, '/');
+
     if (staged) {
-      if (parsed.isStaged && !isCacheArtifact(file)) files.add(file);
+      if (parsed.isStaged && !isCacheArtifact(relToWorkspaceRoot)) files.add(relToWorkspaceRoot);
       continue;
     }
 
     if (parsed.isUntracked || parsed.isStaged || parsed.isUnstaged) {
-      const absolute = resolveWorkspaceFilePath(file, root);
-      if (absolute) {
-        try {
-          if (fs.existsSync(absolute) && fs.statSync(absolute).isDirectory()) {
-            continue;
-          }
-        } catch {
-          // Keep path when stat is unavailable (e.g., deleted file)
+      try {
+        if (fs.existsSync(absolute) && fs.statSync(absolute).isDirectory()) {
+          continue;
         }
+      } catch {
+        // Keep path when stat is unavailable (e.g., deleted file)
       }
-      if (isCacheArtifact(file)) continue;
-      files.add(file);
+      if (isCacheArtifact(relToWorkspaceRoot)) continue;
+      files.add(relToWorkspaceRoot);
     }
   }
 
@@ -430,6 +443,9 @@ async function getDiffNumstat(root, options = {}) {
     args.push('--', '.');
   }
 
+  const toplevelResult = await runGit(['rev-parse', '--show-toplevel'], root, TIMEOUTS.GIT_SHORT_MS);
+  const gitRoot = toplevelResult.ok ? path.resolve(toplevelResult.stdout.trim()) : root;
+
   const result = await runGit(args, root, TIMEOUTS.GIT_LONG_MS);
   if (!result.ok) {
     return { ok: false, error: cleanGitError(result.stderr, 'Failed to read diff numstat'), workspaceRoot: root };
@@ -448,7 +464,14 @@ async function getDiffNumstat(root, options = {}) {
     const removed = parts[1] === '-' ? 0 : Number.parseInt(parts[1], 10);
     const file = parts[2];
     if (!Number.isFinite(added) || !Number.isFinite(removed)) continue;
-    files.push({ file, added, removed });
+
+    const absolute = path.resolve(gitRoot, file);
+    if (!isPathInsideRoot(root, absolute)) {
+      continue;
+    }
+
+    const relToWorkspaceRoot = path.relative(root, absolute).replace(/\\/g, '/');
+    files.push({ file: relToWorkspaceRoot, added, removed });
     totalAdditions += added;
     totalDeletions += removed;
   }

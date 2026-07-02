@@ -80,6 +80,9 @@ function matchesPathFragment(targetPath, fragment) {
   if (normalizedPath.includes('\\')) {
     normalizedPath = normalizedPath.replace(/\\/g, '/');
   }
+  if (!normalizedPath.startsWith('/')) {
+    normalizedPath = '/' + normalizedPath;
+  }
   if (IS_WINDOWS) {
     normalizedPath = normalizedPath.toLocaleLowerCase('en-US');
   }

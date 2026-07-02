@@ -295,21 +295,23 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 | 维度 | 结果 | 评估 |
 | :--- | :--- | :--- |
 | 上一轮修复持续性 | 13 个 impact 全部 `implicit-same-package` | ✅ 修复稳定 |
-| 验证命令 | 修复前：`mvn -q -Dtest=*Test test`；修复后：`mvn -q -DskipTests compile` / `package` | ✅ **本轮修复** |
-| 路由噪音 | `affectedRoutes` 30+ 条，大量来自其他 Controller | ❌ 仍是主要噪音源 |
-| symbolImpact | 全 0，无说明 | ⚠️ 待处理 |
-| 多模块命令 | 未按子模块带 `-pl` | ⚠️ 待处理 |
+| 验证命令 | 修复前：`mvn -q -Dtest=*Test test`；修复后：`mvn -q -DskipTests compile` / `package` | ✅ 已修复 |
+| 路由噪音 | `affectedRoutes` 30+ 条，已按 direct 和 non-implicit 排序并过滤/分组 | ✅ 已修复 |
+| symbolImpact | 已追加 Java Spring DI 限制说明注解 | ✅ 已修复 |
+| 多模块命令 | 模块路径已正常识别并追加 `-pl` 与 `-am` 参数 | ✅ 已修复 |
+| `--cwd` 子目录行为 | 子目录下运行 `--cwd` 被自动提升至 Git 根目录 | ✅ **本轮修复**（`strictCwd` 默认开启，Git 路径自动相对映射与过滤） |
 
-**剩余缺口**（按 ROI）：
-- Route B 在 GitNexus / qartez-mcp 上发现的 5 个消费体验缺口已全部修复。
-- Route B 在 ai_zcypg_backend 上发现的 **Java 同包可见性误报** 与 **无测试项目验证命令降级** 缺口已修复。
-- 仍待处理：affectedRoutes 分组/过滤、Java Spring symbolImpact 说明、多模块 Maven 命令感知。
+**剩余缺口**：
+- Route B 实战验证发现的所有 7 个消费体验缺口已全部修复并验证通过。
+- `--cwd` 子目录限制分析已完美支持。
+- 配置文件的非阻塞警告（warnings 收集）已完成支持，且跨平台路径归一化回归测试套件 100% PASS。
+- 全量测试套件 `npm run test:fast` 达到 127/127 PASS。
 
 ---
 
 ## 下一步候选方向与多语言框架检测矩阵
 
-### 候选方向状态（更新于 2026-06-13）
+### 候选方向状态（更新于 2026-07-02）
 
 *   **方向 1：Java / Kotlin 框架检测 Query 化**
     *   **状态**：✅ 已于 2026-06-13 交付。
@@ -330,6 +332,7 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 *   **方向 5：Agent 产品形态（Wave D）**
     *   **状态**：🔄 部分交付，中优先级。
     *   **已完成**：`--quiet` 下 SQLite warning 泄漏已修复（#9）；`workspace-info` 已改为真正轻量命令（#15），实测 `<1s`；默认 `audit-overview` 已跳过逐文件 blame（#10），热缓存从 ~56s 降至 ~16s。
+    *   **已完成（本轮）**：配置文件 `.workspace-bridge.json` 语法与未知参数校验从致命报错改写为非阻塞的 `config-warning`，在 final output warnings[] 数组中反馈。
     *   **待完成**：继续将详细维度下沉到 `query-*`，把默认基线压到热缓存 <2s、JSON <8KB。
 
 ---
@@ -372,4 +375,4 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-06-30（完成 Route B 两轮实战验证：在 ai_zcypg_backend 上修复 Java 同包可见性误报与无测试项目验证命令降级；新增 `scratch/route-b-report-ai-zcypg-backend.md` 与 `-02.md`；L1/L2/架构/L3 债务保持全零；npm run test:fast 126/126 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-07-02（配置文件非阻塞校验警告机制上线；新增 test/path-normalization-cross-platform-test.js 跨平台路径归一化回归防护测试；全量 `npm run test:fast` 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
