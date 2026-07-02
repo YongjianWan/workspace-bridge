@@ -27,6 +27,7 @@ async function main() {
     extra: { message: 'Avoid eval', metadata: { severity: 'HIGH' } },
   });
   assert.strictEqual(finding.ruleId, 'python.lang.security.eval');
+  assert.strictEqual(finding.rule, 'python.lang.security.eval', 'Semgrep finding should expose rule alias equal to ruleId');
   assert.strictEqual(finding.severity, 'high');
   assert.strictEqual(finding.file, 'src/app.py');
   assert.strictEqual(finding.lineStart, 10);
@@ -111,16 +112,23 @@ async function main() {
     if (idx >= 0) ADAPTERS.splice(idx, 1);
   }
 
-  // --- auditSecurity builtinOnly forces builtin scan even when adapters available ---
+  // --- auditSecurity normalizes rule alias for external adapter findings ---
   const fakeAdapter2 = {
     name: 'fake2',
     async isAvailable() { return true; },
     async scan() {
-      return { findings: [{ severity: 'high', ruleId: 'fake', file: 'a.js', lineStart: 1, lineEnd: 1, message: 'm', tool: 'fake2' }], summary: { total: 1 } };
+      // Deliberately omit `rule` to assert auditSecurity normalizes it from ruleId
+      return { findings: [{ severity: 'high', ruleId: 'fake-rule', file: 'a.js', lineStart: 1, lineEnd: 1, message: 'm', tool: 'fake2' }], summary: { total: 1 } };
     },
   };
   ADAPTERS.push(fakeAdapter2);
   try {
+    const adapterResult = await auditSecurity({ cwd: process.cwd(), targets: [] }, null);
+    const fakeFinding = adapterResult.findings.find((f) => f.tool === 'fake2');
+    assert.ok(fakeFinding, 'external adapter finding should be present');
+    assert.strictEqual(fakeFinding.ruleId, 'fake-rule');
+    assert.strictEqual(fakeFinding.rule, 'fake-rule', 'auditSecurity should normalize missing rule to ruleId');
+
     const builtinResult = await auditSecurity({ cwd: process.cwd(), targets: [], builtinOnly: true }, null);
     assert.deepStrictEqual(builtinResult.adapters, ['builtin'], 'builtinOnly should skip external adapters');
     assert.strictEqual(builtinResult.scanMeta[0]?.name, 'builtin');

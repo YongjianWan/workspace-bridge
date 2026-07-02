@@ -337,7 +337,14 @@ async function auditSecurity({ cwd, targets, config, language, builtinOnly }, co
   const deduped = dedupeWithinTool(allFindings);
   const findingsWithId = deduped.map((f) => {
     const id = computeFindingId(f);
-    return { id, ...f, category: f.category || 'security' };
+    const ruleId = f.ruleId || 'unknown';
+    return {
+      id,
+      ...f,
+      ruleId,
+      rule: f.rule || ruleId,
+      category: f.category || 'security',
+    };
   });
   const filtered = findingsWithId.filter((f) => !ignoredFindings.has(f.id));
   const bySeverity = groupBySeverity(filtered);

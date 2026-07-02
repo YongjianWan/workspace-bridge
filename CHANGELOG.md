@@ -8,6 +8,13 @@
 
 ## [Unreleased]
 
+### audit-security Rule ID Consistency Fix (2026-07-02)
+
+- **Fixed** `audit-security` JSON/Markdown rule ID inconsistency:
+  - External scanner findings that only provide `ruleId` now get a normalized `rule` alias equal to `ruleId` in `src/tools/security-tools.js`.
+  - Builtin findings already exposed both fields; the adapter path is now equally consistent.
+  - Strengthened `test/security-adapter-test.js` to assert Semgrep `normalizeFinding` returns `rule === ruleId` and that `auditSecurity` normalizes adapter findings missing `rule`.
+
 ### JS/TS Destructured Export Symbol Impact Fix (2026-07-02)
 
 - **Fixed** `symbolImpact` missing multi-symbol destructured exports in JS/TS files:
