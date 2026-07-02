@@ -196,7 +196,7 @@ function mapJavaFilesToModules(files, modules) {
     const normalized = file.replace(/\\/g, '/');
     for (const mod of modules) {
       const prefix = mod.dir + '/';
-      if (normalized === mod.dir || normalized.startsWith(prefix)) {
+      if (normalized === mod.dir || normalized.startsWith(prefix) || normalized.includes('/' + prefix)) {
         affected.add(mod.name);
         break;
       }
@@ -635,33 +635,52 @@ function generateCommands(stack, changeType, targets, steps = []) {
     if (javaFiles.length > 0 && stack.java?.enabled) {
       let javaExec = null;
       const javaModules = stack.java.modules || stack.java.subprojects;
+      const hasTests = stack.java.hasTests !== false;
       if (stack.java.buildTool === 'maven') {
         const affectedModules = javaModules
           ? mapJavaFilesToModules(javaFiles, javaModules)
           : [];
         const mvn = stack.java.buildCommand || 'mvn';
-        if (affectedModules.length > 0) {
-          const plArg = affectedModules.join(',');
-          javaExec = { command: mvn, args: ['-pl', plArg, '-am', '-q', '-Dtest=*Test', 'test'] };
+        if (hasTests) {
+          if (affectedModules.length > 0) {
+            const plArg = affectedModules.join(',');
+            javaExec = { command: mvn, args: ['-pl', plArg, '-am', '-q', '-Dtest=*Test', 'test'] };
+          } else {
+            javaExec = { command: mvn, args: ['-q', '-Dtest=*Test', 'test'] };
+          }
         } else {
-          javaExec = { command: mvn, args: ['-q', '-Dtest=*Test', 'test'] };
+          if (affectedModules.length > 0) {
+            const plArg = affectedModules.join(',');
+            javaExec = { command: mvn, args: ['-pl', plArg, '-am', '-q', '-DskipTests', 'compile'] };
+          } else {
+            javaExec = { command: mvn, args: ['-q', '-DskipTests', 'compile'] };
+          }
         }
       } else if (stack.java.buildTool === 'gradle') {
         const affectedModules = javaModules
           ? mapJavaFilesToModules(javaFiles, javaModules)
           : [];
         const gradle = stack.java.buildCommand || 'gradle';
-        if (affectedModules.length > 0) {
-          const testTasks = affectedModules.flatMap((m) => [`${m}:test`]);
-          javaExec = { command: gradle, args: ['-q', ...testTasks, '--tests', '*Test'] };
+        if (hasTests) {
+          if (affectedModules.length > 0) {
+            const testTasks = affectedModules.flatMap((m) => [`${m}:test`]);
+            javaExec = { command: gradle, args: ['-q', ...testTasks, '--tests', '*Test'] };
+          } else {
+            javaExec = { command: gradle, args: ['-q', 'test', '--tests', '*Test'] };
+          }
         } else {
-          javaExec = { command: gradle, args: ['-q', 'test', '--tests', '*Test'] };
+          if (affectedModules.length > 0) {
+            const compileTasks = affectedModules.flatMap((m) => [`${m}:classes`]);
+            javaExec = { command: gradle, args: ['-q', ...compileTasks] };
+          } else {
+            javaExec = { command: gradle, args: ['-q', 'classes'] };
+          }
         }
       }
       if (javaExec) {
         addUniqueCommand(merged, 'focused', {
-          name: 'java-direct-tests',
-          description: 'Run java direct affected tests',
+          name: hasTests ? 'java-direct-tests' : 'java-compile-check',
+          description: hasTests ? 'Run java direct affected tests' : 'Run Java compile check (no tests detected)',
           executable: javaExec,
         });
       }

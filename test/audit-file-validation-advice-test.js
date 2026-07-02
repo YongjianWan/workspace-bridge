@@ -160,6 +160,51 @@ async function testJavaWithTestsKeepsTestCommands() {
   }
 }
 
+async function testJavaMultiModuleAbsolutePaths() {
+  const tmpDir = makeTempDir('wb-audit-file-java-multimodule-');
+  try {
+    fs.mkdirSync(path.join(tmpDir, 'module-a', 'src', 'main', 'java', 'com', 'example'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, 'module-a', 'src', 'test', 'java'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, 'pom.xml'),
+      '<?xml version="1.0"?><project><modules><module>module-a</module></modules></project>\n'
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, 'module-a', 'pom.xml'),
+      '<?xml version="1.0"?><project><parent><groupId>com.example</groupId><artifactId>parent</artifactId></parent></project>\n'
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, 'module-a', 'src', 'main', 'java', 'com', 'example', 'A.java'),
+      'package com.example; public class A {}\n'
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, 'module-a', 'src', 'test', 'java', 'ATest.java'),
+      'public class ATest {}\n'
+    );
+
+    const sourceFile = path.join(tmpDir, 'module-a', 'src', 'main', 'java', 'com', 'example', 'A.java');
+    
+    // Test case 1: With tests
+    const adviceWithTests = buildFileValidationAdvice(sourceFile, tmpDir, { affectedTestsCount: 0, affectedTests: [] });
+    assert.strictEqual(adviceWithTests.stack.profile, 'java-first');
+    
+    const focusedTest = adviceWithTests.commands.focused.find((c) => c.name === 'java-focused-tests');
+    assert.ok(focusedTest, 'Should generate java-focused-tests command');
+    assert.deepStrictEqual(focusedTest.executable.args, ['-pl', 'module-a', '-am', '-q', '-Dtest=*Test', 'test']);
+
+    // Test case 2: Without tests
+    // Manually delete test file to simulate no-test scenario
+    fs.unlinkSync(path.join(tmpDir, 'module-a', 'src', 'test', 'java', 'ATest.java'));
+    
+    const adviceNoTests = buildFileValidationAdvice(sourceFile, tmpDir, { affectedTestsCount: 0, affectedTests: [] });
+    const focusedCompile = adviceNoTests.commands.focused.find((c) => c.name === 'java-compile-check');
+    assert.ok(focusedCompile, 'Should generate java-compile-check command when hasTests is false');
+    assert.deepStrictEqual(focusedCompile.executable.args, ['-pl', 'module-a', '-am', '-q', '-DskipTests', 'compile']);
+  } finally {
+    cleanupTempDir(tmpDir);
+  }
+}
+
 async function executeTests() {
   await testAuditFileHasValidationAdvice();
   await testAuditFileHasFrameworkPattern();
@@ -167,6 +212,7 @@ async function executeTests() {
   await testAuditFileGeneratesFocusedTestCommands();
   await testJavaNoTestsFallsBackToCompileAndPackage();
   await testJavaWithTestsKeepsTestCommands();
+  await testJavaMultiModuleAbsolutePaths();
 }
 
 executeTests();

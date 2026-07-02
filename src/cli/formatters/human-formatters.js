@@ -578,17 +578,17 @@ const FORMATTERS = {
   },
   'affected-routes': {
     human: (r) => {
-      const lines = [`routesCount: ${r.routesCount}`, ...r.routes.map((e) => `${e.entry}: ${e.path.join(' -> ')}`)];
+      const lines = [`routesCount: ${r.routesCount}`, ...r.routes.map((e) => `${e.entry}${e.hasImplicit ? ' (implicit)' : ''}: ${e.path.join(' -> ')}`)];
       if (r.truncated) lines.push(`... truncated (showing ${r.routes.length} of ${r.routesCount})`);
       return lines.join('\n');
     },
     summary: (r) => {
-      const lines = [`Routes: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, 5).map((e) => `  ${e.entry}: ${e.path.join(' -> ')}`) || []];
+      const lines = [`Routes: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, 5).map((e) => `  ${e.entry}${e.hasImplicit ? ' (implicit)' : ''}: ${e.path.join(' -> ')}`) || []];
       if (r.truncated) lines.push(`  ... truncated (showing ${r.routes.length} of ${r.routesCount})`);
       return lines.join('\n');
     },
     markdown: (r) => {
-      const lines = [`# Affected Routes`, ``, `- **Total**: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, 10).map((e) => `- \`${e.entry}\`: ${e.path.join(' -> ')}`) || []];
+      const lines = [`# Affected Routes`, ``, `- **Total**: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, 10).map((e) => `- \`${e.entry}\`${e.hasImplicit ? ' (implicit)' : ''}: ${e.path.join(' -> ')}`) || []];
       if (r.truncated) lines.push(`- *... truncated (showing ${r.routes.length} of ${r.routesCount})*`);
       return lines.join('\n');
     },

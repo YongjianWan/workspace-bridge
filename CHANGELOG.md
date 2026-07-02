@@ -8,6 +8,21 @@
 
 ## [Unreleased]
 
+### Route B Fixes: Java Spring Gaps Resolution (2026-07-02)
+
+- **Fixed** `affectedRoutes` grouping/implicit tracking:
+  - Track recursive level (`lvl`) and implicit/low-confidence edges in SQLite CTE and in-memory BFS.
+  - Enrich output schema with `routeType: 'direct' | 'indirect'` and `hasImplicit: boolean`.
+  - Prioritize and sort direct and non-implicit routes first.
+  - Suffix implicit routes with ` (implicit)` in human, summary, and markdown outputs.
+  - Added new test suite `test/affected-http-routes-implicit-test.js`.
+- **Fixed** Java Spring `symbolImpact` clarity:
+  - Append a warning note to `symbolImpact` if the file's framework hint contains `spring` or `springboot` to clarify DI/reflection static analysis limits.
+- **Fixed** multi-module Maven command mapping:
+  - Normalize and match absolute paths in `mapJavaFilesToModules` and `buildFileValidationAdvice`.
+  - Respect `stack.java.hasTests` within the direct test generator in `generateCommands`.
+  - Added test case `testJavaMultiModuleAbsolutePaths` to `test/audit-file-validation-advice-test.js`.
+
 ### Route B: Java Spring Boot real-project validation (2026-06-30)
 
 - Validated workspace-bridge consumer experience on `C:/Users/sdses/Desktop/神思/code/ai_zcypg_backend` (Java Spring Boot multi-module, 395 files).

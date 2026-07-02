@@ -254,10 +254,16 @@ const { DEFAULTS } = require('../../config/constants');
 function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_DEPTH) {
   const sourceFile = depGraph.normalizeFilePath(filePath);
   const sourceInfo = depGraph.getFileInfo(sourceFile);
+  const frameworkHint = depGraph.getFrameworkHint?.(sourceFile);
+  const frameworkName = typeof frameworkHint === 'string'
+    ? frameworkHint
+    : (frameworkHint && typeof frameworkHint.framework === 'string' ? frameworkHint.framework : '');
+  const isSpring = frameworkName.includes('spring') || frameworkName.includes('springboot');
+
   if (!sourceInfo) {
     const impactedFiles = depGraph.getImpactRadius(sourceFile, maxDepth);
     const transitive = impactedFiles.filter((f) => f.level >= 2);
-    return {
+    const result = {
       mode: 'file-fallback',
       reason: 'source-not-indexed',
       impactedFiles,
@@ -269,12 +275,16 @@ function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_D
       transitiveCount: transitive.length,
       transitiveDependents: transitive,
     };
+    if (isSpring) {
+      result.note = 'Java Spring 依赖注入与反射调用无法静态解析，symbol-level dependents 可能不完整';
+    }
+    return result;
   }
 
   if (shouldFallbackToFileImpact(depGraph, sourceFile)) {
     const impactedFiles = depGraph.getImpactRadius(sourceFile, maxDepth);
     const transitive = impactedFiles.filter((f) => f.level >= 2);
-    return {
+    const result = {
       mode: 'file-fallback',
       reason: 'ast-unavailable',
       impactedFiles,
@@ -286,6 +296,10 @@ function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_D
       transitiveCount: transitive.length,
       transitiveDependents: transitive,
     };
+    if (isSpring) {
+      result.note = 'Java Spring 依赖注入与反射调用无法静态解析，symbol-level dependents 可能不完整';
+    }
+    return result;
   }
 
   const sourceSymbols = sourceInfo.exports || [];
@@ -299,7 +313,7 @@ function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_D
   const impactedFiles = depGraph.getImpactRadius(sourceFile, maxDepth);
   const transitiveFromImpact = impactedFiles.filter((f) => f.level >= 2);
 
-  return {
+  const result = {
     mode: 'symbol',
     sourceFile,
     sourceSymbols,
@@ -311,6 +325,10 @@ function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_D
     transitiveCount: transitiveFromImpact.length,
     transitiveDependents: transitiveFromImpact,
   };
+  if (isSpring) {
+    result.note = 'Java Spring 依赖注入与反射调用无法静态解析，symbol-level dependents 可能不完整';
+  }
+  return result;
 }
 
 module.exports = {

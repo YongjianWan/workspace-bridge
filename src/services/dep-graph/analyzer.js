@@ -1448,10 +1448,24 @@ class GraphAnalyzer {
       // Skip test-like files as route endpoints — they are not "request handlers".
       if (normalized !== start && this.dg.isKnownEntryFile(normalized) && !this.dg.isTestLikeFile(normalized)) {
         const routePath = [...pathStack, normalized];
+        let hasImplicit = false;
+        for (let i = 0; i < routePath.length - 1; i++) {
+          const prev = routePath[i];
+          const curr = routePath[i + 1];
+          const info = this.dg.getFileInfo(curr);
+          if (info && info.importRecords) {
+            const matching = info.importRecords.filter((rec) => rec.resolved === prev);
+            if (matching.some((rec) => rec.resolutionMethod === 'java-same-package' || (rec.confidence != null && rec.confidence < 0.5))) {
+              hasImplicit = true;
+              break;
+            }
+          }
+        }
         routes.push({
           entry: this.dg._displayPath(normalized),
           path: routePath.map((f) => this.dg._displayPath(f)).reverse(),
           depth: routePath.length,
+          hasImplicit,
         });
         // Continue searching — an entry may have other parents that are also entries
       }
@@ -1475,6 +1489,14 @@ class GraphAnalyzer {
         uniqueRoutes.push(route);
       }
     }
+
+    // Sort uniqueRoutes: non-implicit first, then by depth ascending
+    uniqueRoutes.sort((a, b) => {
+      if (!a.hasImplicit && b.hasImplicit) return -1;
+      if (a.hasImplicit && !b.hasImplicit) return 1;
+      return a.depth - b.depth;
+    });
+
     return uniqueRoutes;
   }
 

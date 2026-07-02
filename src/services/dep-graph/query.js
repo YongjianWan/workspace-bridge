@@ -96,7 +96,7 @@ class GraphQuery {
     }));
   }
 
-  _routeToOutput(file, r) {
+  _routeToOutput(file, r, isDirect, hasImplicit) {
     return {
       file: this.dg._displayPath(file),
       method: r.method,
@@ -104,7 +104,27 @@ class GraphQuery {
       framework: r.framework,
       handler: r.handler || null,
       source: this.dg.isTestLikeFile(file) ? 'test' : 'src',
+      routeType: isDirect ? 'direct' : 'indirect',
+      hasImplicit: !!hasImplicit,
     };
+  }
+
+  _isPathImplicit(pathNodes) {
+    for (let i = 0; i < pathNodes.length - 1; i++) {
+      const prevNode = pathNodes[i];
+      const currNode = pathNodes[i + 1];
+      const currentInfo = this.dg.getFileInfo(currNode);
+      if (currentInfo?.importRecords) {
+        const matchingImports = currentInfo.importRecords.filter((rec) => rec.resolved === prevNode);
+        const isImplicitEdge = matchingImports.some(
+          (rec) => rec.resolutionMethod === 'java-same-package' || (rec.confidence != null && rec.confidence < 0.5)
+        );
+        if (isImplicitEdge) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   findAffectedHttpRoutes(filePath, depth = 3) {
@@ -116,7 +136,29 @@ class GraphQuery {
       try {
         const dbRoutes = this.dg.cache.findAffectedHttpRoutes(start, depth);
         if (dbRoutes) {
-          return dbRoutes.map((r) => this._routeToOutput(r.file, r));
+          const mapped = dbRoutes.map((r) => this._routeToOutput(r.file, r, r.lvl === 0, r.hasImplicit));
+          // Deduplicate and prioritize direct & non-implicit routes
+          const seen = new Map();
+          for (const r of mapped) {
+            const key = `${r.file}:${r.method}:${r.path}`;
+            const existing = seen.get(key);
+            if (!existing) {
+              seen.set(key, r);
+            } else {
+              if (existing.hasImplicit && !r.hasImplicit) {
+                seen.set(key, r);
+              }
+            }
+          }
+          const unique = Array.from(seen.values());
+          unique.sort((a, b) => {
+            if (a.routeType === 'direct' && b.routeType !== 'direct') return -1;
+            if (a.routeType !== 'direct' && b.routeType === 'direct') return 1;
+            if (!a.hasImplicit && b.hasImplicit) return -1;
+            if (a.hasImplicit && !b.hasImplicit) return 1;
+            return 0;
+          });
+          return unique;
         }
       } catch (err) {
         if (process.env.DEBUG) {
@@ -130,23 +172,39 @@ class GraphQuery {
 
     bfsTraverse(start, (file) => this.getDependents(file), {
       maxDepth: depth,
-      onVisit: (file, level) => {
+      onVisit: (file, level, via) => {
         const info = this.dg.getFileInfo(file);
         if (info && info.routes && info.routes.length > 0) {
+          const isDirect = (level === 0 || file === start);
+          const hasImplicit = this._isPathImplicit([...via, file]);
           for (const r of info.routes) {
-            affected.push(this._routeToOutput(file, r));
+            affected.push(this._routeToOutput(file, r, isDirect, hasImplicit));
           }
         }
       }
     });
 
-    const seen = new Set();
-    return affected.filter(r => {
+    const seen = new Map();
+    for (const r of affected) {
       const key = `${r.file}:${r.method}:${r.path}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
+      const existing = seen.get(key);
+      if (!existing) {
+        seen.set(key, r);
+      } else {
+        if (existing.hasImplicit && !r.hasImplicit) {
+          seen.set(key, r);
+        }
+      }
+    }
+    const uniqueRoutes = Array.from(seen.values());
+    uniqueRoutes.sort((a, b) => {
+      if (a.routeType === 'direct' && b.routeType !== 'direct') return -1;
+      if (a.routeType !== 'direct' && b.routeType === 'direct') return 1;
+      if (!a.hasImplicit && b.hasImplicit) return -1;
+      if (a.hasImplicit && !b.hasImplicit) return 1;
+      return 0;
     });
+    return uniqueRoutes;
   }
 }
 module.exports = { GraphQuery };

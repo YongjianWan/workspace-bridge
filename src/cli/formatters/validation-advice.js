@@ -115,7 +115,8 @@ function buildFileValidationAdvice(filePath, workspaceRoot, affectedTests) {
     ? [{ name: 'run-direct-tests', targets: testFiles }]
     : [];
 
-  const commands = generateCommands(stack, changeType, [filePath], steps);
+  const relativeFilePath = path.relative(workspaceRoot, filePath).replace(/\\/g, '/');
+  const commands = generateCommands(stack, changeType, [relativeFilePath], steps);
 
   // Deduplicate within each group by cmd string
   const dedupe = (arr) => {
@@ -154,6 +155,14 @@ function buildFileValidationAdvice(filePath, workspaceRoot, affectedTests) {
 
   return {
     changeType,
+    stack: {
+      profile: stack.profile,
+      js: stack.js,
+      python: stack.python,
+      java: stack.java,
+      go: stack.go,
+      rust: stack.rust,
+    },
     commands,
     phases: [],
     suggestedCommand: pickSuggestedCommand(allCommands),

@@ -948,26 +948,21 @@ class GraphDB {
     );
   }
 
-  /**
-   * Find affected HTTP routes by traversing dependents via SQLite recursive CTE.
-   * @param {string} filePath
-   * @param {number} depth
-   * @returns {Array<{file:string,method:string,path:string,framework:string,handler:string|null}>|null}
-   */
   findAffectedHttpRoutes(filePath, depth = 3) {
     return _runWithReadRetry(() => {
       try {
         this._ensureOpen();
         const rows = this.db.prepare(`
-          WITH RECURSIVE dependents(file_path, lvl) AS (
-            SELECT ?, 0
+          WITH RECURSIVE dependents(file_path, lvl, has_implicit) AS (
+            SELECT ?, 0, 0
             UNION
-            SELECT e.source, d.lvl + 1
+            SELECT e.source, d.lvl + 1,
+                   CASE WHEN e.resolution_method = 'java-same-package' OR e.confidence < 0.5 OR d.has_implicit = 1 THEN 1 ELSE 0 END
             FROM edges e
             JOIN dependents d ON e.target = d.file_path
             WHERE e.edge_type = 'import' AND d.lvl < ?
           )
-          SELECT DISTINCT r.file, r.method, r.path, r.framework, r.handler
+          SELECT DISTINCT r.file, r.method, r.path, r.framework, r.handler, d.lvl, d.has_implicit
           FROM routes r
           JOIN dependents d ON r.file = d.file_path
         `).all(filePath, depth);
@@ -977,6 +972,8 @@ class GraphDB {
           path: r.path,
           framework: r.framework,
           handler: r.handler,
+          lvl: r.lvl,
+          hasImplicit: r.has_implicit === 1,
         }));
       } catch (err) {
         _debugError('findAffectedHttpRoutes query', err);
