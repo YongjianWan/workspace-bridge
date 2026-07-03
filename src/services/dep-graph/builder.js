@@ -50,6 +50,28 @@ class GraphBuilder {
     }
   }
 
+  /**
+   * Single-entry invalidation for ALL parse-cache layers (memory + SQLite).
+   *
+   * RATIONALE: Multiple caches (in-memory _parseCache, SQLite-backed
+   * cache.parseResults, and cache.parsedHashes) must be evicted together
+   * whenever a file's content changes. Evicting only one layer leaves the
+   * fast-path mtime check vulnerable to stale content with an updated mtime.
+   *
+   * DO NOT add per-layer eviction in updateFiles / delete-files paths.
+   * Call `this._invalidateParseCache(key)` instead — it is the only
+   * function permitted to touch parse-cache layers individually.
+   *
+   * @param {string} keyOrPath — normalized graph key OR original file path.
+   *   The SQLite cache's _resolveKeys handles both formats.
+   */
+  _invalidateParseCache(keyOrPath) {
+    this._parseCache.delete(keyOrPath);
+    if (this.dg.cache) {
+      this.dg.cache.deleteParseResult(keyOrPath);
+    }
+  }
+
   async build(sourceFiles = null) {
     const startTime = Date.now();
 
@@ -782,9 +804,11 @@ class GraphBuilder {
         }
       }
 
-      // Evict parse cache for physically changed files
+      // Invalidate all parse-cache layers for physically changed files.
+      // Single entry-point: _invalidateParseCache covers memory + SQLite.
+      // Adding a new cache layer does NOT require changes here.
       for (const key of toEvictCache) {
-        this._parseCache.delete(key);
+        this._invalidateParseCache(key);
       }
 
       // Handle deleted files FIRST — must not be masked by cache-hit fast path
@@ -812,11 +836,11 @@ class GraphBuilder {
         this.dg.reverseGraph.delete(key);
 
         this.dg.graph.delete(key);
-        this._parseCache.delete(key);
+        // Single-entry parse-cache invalidation (covers memory + SQLite layers)
+        this._invalidateParseCache(key);
         const originalPath = filePaths.find(p => this.dg.normalizeFilePath(p) === key) || key;
         if (this.dg.cache) {
           this.dg.cache.deleteFileMetadata(originalPath);
-          this.dg.cache.deleteParseResult(originalPath);
           this.dg.cache.clearDiagnostics(originalPath);
         }
         this.dg.bus.emit('graph:updated', { changedFiles: [key] });

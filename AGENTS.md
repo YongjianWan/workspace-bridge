@@ -7,14 +7,15 @@
 > **本文档是项目状态的单一事实源。** 功能状态、版本能力、下一步方向以本文档为准。
 
 **文档速查**：
-| 你想知道 | 看这里 |
-|----------|--------|
-| 项目是什么、怎么用 | [README.md](./README.md) |
-| 当前活跃债务 | [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) |
-| 本轮做了什么、下一步 | [SESSION.md](./SESSION.md) |
-| 长期路线、成功标准 | [ROADMAP.md](./ROADMAP.md) |
-| 历史变更 | [CHANGELOG.md](./CHANGELOG.md) |
-| 代码审计 skill 用法 | [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md) |
+
+| 你想知道             | 看这里                                                              |
+| -------------------- | ------------------------------------------------------------------- |
+| 项目是什么、怎么用   | [README.md](./README.md)                                             |
+| 当前活跃债务         | [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)                             |
+| 本轮做了什么、下一步 | [SESSION.md](./SESSION.md)                                           |
+| 长期路线、成功标准   | [ROADMAP.md](./ROADMAP.md)                                           |
+| 历史变更             | [CHANGELOG.md](./CHANGELOG.md)                                       |
+| 代码审计 skill 用法  | [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md) |
 
 > **🔴 新会话启动红线：不默认读取 CHANGELOG.md** （如果派遣agent swarm 务必在下达的指令里面也让他们读取agent.md session techdebt 等文档，这个是强制的，不然子代理会产生架构改变或者随意修改导致各种问题）
 >
@@ -27,6 +28,7 @@
 ## 项目概述
 
 **定位**：AI 的代码脚手架（Code Scaffolding for AI），不是人的报告工具。
+
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
 - **当前债务**：L1/L2/产品/架构/L3 债务已清零（详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）
@@ -37,7 +39,7 @@
 
 > 以下铁律直接指导代码层面的决策。
 >
-> **优先级：好品味 > 形式指标。** 8 条规则分两层：L1 铁律（3 条，必须遵守），L2 标准（5 条，技术债务信号）。新增规则前必须先问："这条是否已被 L1/L2 覆盖？" 
+> **优先级：好品味 > 形式指标。** 9 条规则分两层：L1 铁律（4 条，必须遵守），L2 标准（5 条，技术债务信号）。新增规则前必须先问："这条是否已被 L1/L2 覆盖？"
 
 ### L1 铁律（违反 = 直接产生 bug 或资源泄漏）
 
@@ -46,10 +48,17 @@
 
 1. **Never break userspace** — 向后兼容性神圣不可侵犯，任何导致现有程序崩溃的改动都是 bug
    > **例外**：当 userspace 只有项目所有者本人且所有者明确要求重构时，兼容义务让位于演进效率。此时应通过 deprecation 警告 + 别名过渡期（1 个版本）平滑迁移，而非永久冻结接口。
+   >
 2. **异常安全** — `shutdown/close/cleanup` 必须逐步骤独立 try-catch；cache load 必须防御旧格式/损坏格式；SIGINT/SIGTERM 必须注册 handler
    > **触发条件**：改动涉及资源生命周期、cache 读写、进程信号处理时适用。
+   >
 3. **数据一致性** — 禁止把 cache 引用直接塞进可变结构；删除实体时必须清理所有关联缓存槽位；同一业务语义必须在单一模块实现；cache load 后若替换 Map/索引容器，必须同步重建 dirty tracker/派生索引；持久化 metadata 必须保持 DB 与内存同代一致；Windows/WSL 路径漂移必须兼容旧 cache key
    > **触发条件**：改动涉及 cache/graph/状态增删改时适用。
+   >
+4. **静默错误必须是显式的** — 任何可能产生过期/不可信数据的代码路径（缓存命中但内容可能过期、增量更新未传播到所有下游、环境降级导致结果不完整）必须通过 `dataQuality: 'degraded'`、`warnings[]` 或 `confidence: 'low'` 等机制向消费者发出信号。**禁止**让 AI agent 在无任何警告的情况下消费到静默过期数据——AI agent 不像人类会怀疑输出，它会直接信。
+   > **案例**：2026-07-03 发现 `builder.js` 增量更新的 fast path 在 SQLite 缓存未 evict 时静默返回旧导出列表，130 个测试全 PASS 但 `updateFiles` 对任何文件修改都返回 stale 数据，无 warning 无 dataQuality 标记。修复后将 cache 失效收敛为单一入口 `_invalidateParseCache()`，并对所有 parse-cache 层统一 evict。
+   > **触发条件**：改动涉及缓存读写、增量更新、环境探测、fallback 路径时适用。
+   >
 
 ### L2 标准（违反 = 技术债务，短期内可接受但必须偿还）
 
@@ -58,29 +67,37 @@
 
 4. **边界消除 > if** — 让边界情况消失，不是用 if 堆出来；重构 if-else 链为配置表时先判断互斥性
    > **触发条件**：新增/重构控制流、新增功能分支时适用。
+   >
 5. **删除 > 添加** — 无当前用途的抽象 → 删；死代码 → 删；冗余特殊处理 → 删
    > **触发条件**：清理代码、重构模块时适用。不要为"可能未来有用"而保留代码。
+   >
 6. **裸数字归零** — 新数字进 `constants.js`；新 regex 提到循环外；新阈值写注释说明 rationale
    > **触发条件**：新增任何字面量数字、regex、阈值时适用。
+   >
 7. **重复即债务** — 同文件内明显重复的逻辑必须提取为纯函数。
    跨文件重复：目标层级已有合适宿主模块则提取，否则标记为债务，不强行新建模块。
    > **触发条件**：发现复制粘贴代码、提取公共逻辑时适用。
+   >
 8. **内聚优先** — 文件只做一件事，命名口语化（避免教科书式），注释写"为什么"不写"做什么"。行数不重要——`dep-graph.js` ~1685 行仍保持不物理拆分，因为内部已通过 `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` 实现认知拆分。判断标准：修改时通常只需理解一个主契约和它的邻近消费者；如果改动同时穿过写入、分析、查询三层，就不要再把它描述成单概念。
    > **触发条件**：新增模块、拆分文件、调整目录结构时适用。
+   >
 
 ### 验证与调试
 
 **TDD 原则**：没有失败的测试，就不写生产代码；测试必须验证业务语义（`typeof result === 'object'` 或 `code === 0` 但不验证行为 = 沉默的测试）。
+
 - **测试升级规则**：低信号测试只保留 1 个版本，下一轮必须补语义断言或合并掉，防止再堆积。
 - **轻量分层标记**：所有测试文件头部必须显式标注 `// @contract`（契约校验/CLI参数/Schema边界）或 `// @semantic`（算法/流程/业务逻辑断言），让新会话一眼识别测试分层与性质。
 
 **收工前验证（4 步，不许跳）**
+
 1. 确定：什么命令能证明这个结论？
 2. 运行：执行完整命令，重新运行，完整执行
 3. 阅读：完整输出，检查退出码，统计失败数
 4. 验证：输出是否支持这个结论？否 → 进入调试流程；是 → 宣称完成
 
 **调试流程（遇到失败时执行）**
+
 1. **Root Cause**：仔细阅读错误信息 → 稳定复现 → git diff 近期变更 → 追踪数据流 → 找正常工作的示例对比差异
 2. **Hypothesis**：提出单一假设，最小化验证
 3. **Fix**：写失败测试 → 修复根因 → 跑 `npm run test:fast` 确认全绿 → 跑全量 runner 确认无回归 → 在 CHANGELOG.md `[Unreleased]` 追加条目 → 若涉及 dogfood 问题则标记为已修复
@@ -120,16 +137,16 @@
 
 **架构分层（按依赖方向，从上到下）**
 
-| 层级 | 代表文件 | 职责 |
-|------|----------|------|
-| L0 基础设施 | `path.js`, `constants.js`, `sanitize.js`, `command.js`, `parse-args.js`, `async.js`, `event-bus.js` | 路径工具、常量、shell 参数与符号名过滤、spawn 安全包装、并发控制、事件总线 |
-| L1 存储/索引 | `cache.js`, `graph-db.js`, `file-index.js` | SQLite 缓存与持久化图存储（项目隔离：按 workspaceRoot md5 hash 分目录）、文件索引构建 |
-| L2 核心引擎 | `dep-graph.js`, `builder.js`, `analyzer.js`, `query.js`, `pagerank.js` | `DependencyGraph` facade + `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` / PageRank |
-| L2.5 子引擎 | `parsers/*`, `resolvers.js` + `resolvers/*`, `symbol-registry.js`, `symbol-impact.js`, `function-impact.js`, `function-similarity.js`, `framework-patterns.js`, `implicit-imports.js` | 多语言 parser、import 解析、全局符号映射、符号级影响、函数相似度、框架模式检测（9 语言 × 20+ 框架） |
-| L3 服务组装 | `container.js`, `diagnostics-engine.js` | `ServiceContainer` 组装所有服务 + `DiagnosticsEngine` |
-| L4 工具编排 | `audit-assembler.js`, `dep-tools.js`, `git-tools.js`, `overview-tools.js` + `overview-assembler.js` + `overview-curator.js`, `security-tools.js`, `workspace-tools.js`, `honesty-engine.js`, `incremental-diff.js`, `cochange-tools.js`, `tree-tools.js` | 对外暴露的分析工具函数与 Curation/拼装层 |
-| L5 CLI/格式化 | `cli.js`, `commands/`, `repl.js`, `watch.js`, `formatters/` | 命令分发、REPL 引擎、文件监听、JSON/文本/Markdown/HTML 输出聚合 |
-| L6 外围 | `scripts/`, `test/`, `benchmark/` | 辅助脚本、全覆盖测试、性能基准 |
+| 层级          | 代表文件                                                                                                                                                                                                                                                                         | 职责                                                                                                 |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| L0 基础设施   | `path.js`, `constants.js`, `sanitize.js`, `command.js`, `parse-args.js`, `async.js`, `event-bus.js`                                                                                                                                                                | 路径工具、常量、shell 参数与符号名过滤、spawn 安全包装、并发控制、事件总线                           |
+| L1 存储/索引  | `cache.js`, `graph-db.js`, `file-index.js`                                                                                                                                                                                                                                 | SQLite 缓存与持久化图存储（项目隔离：按 workspaceRoot md5 hash 分目录）、文件索引构建                |
+| L2 核心引擎   | `dep-graph.js`, `builder.js`, `analyzer.js`, `query.js`, `pagerank.js`                                                                                                                                                                                                 | `DependencyGraph` facade + `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` / PageRank        |
+| L2.5 子引擎   | `parsers/*`, `resolvers.js` + `resolvers/*`, `symbol-registry.js`, `symbol-impact.js`, `function-impact.js`, `function-similarity.js`, `framework-patterns.js`, `implicit-imports.js`                                                                          | 多语言 parser、import 解析、全局符号映射、符号级影响、函数相似度、框架模式检测（9 语言 × 20+ 框架） |
+| L3 服务组装   | `container.js`, `diagnostics-engine.js`                                                                                                                                                                                                                                      | `ServiceContainer` 组装所有服务 + `DiagnosticsEngine`                                            |
+| L4 工具编排   | `audit-assembler.js`, `dep-tools.js`, `git-tools.js`, `overview-tools.js` + `overview-assembler.js` + `overview-curator.js`, `security-tools.js`, `workspace-tools.js`, `honesty-engine.js`, `incremental-diff.js`, `cochange-tools.js`, `tree-tools.js` | 对外暴露的分析工具函数与 Curation/拼装层                                                             |
+| L5 CLI/格式化 | `cli.js`, `commands/`, `repl.js`, `watch.js`, `formatters/`                                                                                                                                                                                                            | 命令分发、REPL 引擎、文件监听、JSON/文本/Markdown/HTML 输出聚合                                      |
+| L6 外围       | `scripts/`, `test/`, `benchmark/`                                                                                                                                                                                                                                          | 辅助脚本、全覆盖测试、性能基准                                                                       |
 
 **高危改动文件**：`path.js` / `constants.js` / `dep-graph.js` / `builder.js` / `analyzer.js` / `cache.js`+`graph-db.js` / `parsers/shared.js` / `resolvers.js` — 改前必须跑 impact + affected-tests。
 
@@ -139,14 +156,15 @@
 
 > 历史信息只进 CHANGELOG，活跃状态只在当前文档。
 
-| 文档 | 职责 | 不存什么 |
-|------|------|----------|
-| `CHANGELOG.md` | **唯一历史存档**。已修复 bug、新增功能、重构变更 | — |
-| `TECH_DEBT.md` | **当前活跃债务**。只列还在的 L1/L2/P 条目 | 已修复条目的详细背景、修复过程、历史版本 |
-| `SESSION.md` | **当前会话上下文**。本轮做了什么、下一步方向 | 上一轮详细记录（只保留指向 CHANGELOG 的引用） |
-| `AGENTS.md` | **项目状态单一事实源**。功能状态、版本能力、下一步方向 | 历史变更细节 |
+| 文档             | 职责                                                         | 不存什么                                      |
+| ---------------- | ------------------------------------------------------------ | --------------------------------------------- |
+| `CHANGELOG.md` | **唯一历史存档**。已修复 bug、新增功能、重构变更       | —                                            |
+| `TECH_DEBT.md` | **当前活跃债务**。只列还在的 L1/L2/P 条目              | 已修复条目的详细背景、修复过程、历史版本      |
+| `SESSION.md`   | **当前会话上下文**。本轮做了什么、下一步方向           | 上一轮详细记录（只保留指向 CHANGELOG 的引用） |
+| `AGENTS.md`    | **项目状态单一事实源**。功能状态、版本能力、下一步方向 | 历史变更细节                                  |
 
 **清理铁律**：
+
 - 任何活跃文档只存当前状态。修复即删，历史只进 CHANGELOG。
 - 任何代码变更完成后，必须立即在 CHANGELOG.md顶层位置 `[Unreleased]` 追加条目。
 - 标"已修复"前必须跑命令验证。无法验证则标"⚠️ 待验证"，不得标"✅ 已修复"。
@@ -166,25 +184,32 @@
 workspace-bridge 不是代码审查主力（发现不了逻辑 bug），但以下三个场景 ROI 最高：
 
 **场景 1：新会话快速摸底**
+
 ```bash
 node cli.js audit-overview --cwd . --json --quiet
 ```
+
 → 10 秒知道项目规模、热点文件、有没有循环依赖、未解析 import。
 
 **场景 2：改前影响评估**
+
 ```bash
 node cli.js impact --cwd . --file <target-file> --json --quiet
 node cli.js affected-tests --cwd . --file <target-file> --json --quiet
 ```
+
 → 改一个文件之前，知道会波及多少模块、哪些测试需要跑。
 
 **场景 3：定期清理死代码**
+
 ```bash
 node cli.js dead-exports --cwd . --json --quiet
 ```
+
 → 按月清理一次 0 引用符号，但只删确认是死代码的（Java 常量仓库、Spring DI 类误报率极高）。
 
 **不应做的事**：
+
 - 把它当代码审查主力（逻辑问题靠人工/AI 语义审查）
 - 按 architectureAdvice 拆分模块（单体项目已自动抑制激进建议）
 - 盯着死导出数字做 KPI（误报太多）
@@ -197,25 +222,25 @@ node cli.js dead-exports --cwd . --json --quiet
 
 ### 已知陷阱（新 agent 必看）
 
-| 陷阱 | 位置 | 如何避免 |
-| :--- | :--- | :--- |
-| `DEFAULT_EXCLUDE_DIRS` 全局污染 | `src/services/file-index.js` | 任何新增排除项必须是通用目录名（如 `node_modules`），不能是项目特定名称 |
-| orphan 检测不同步 | `project-map.js` vs `overview-tools.js` | 两处 orphan 逻辑必须保持同步（scripts/bin/benchmark 跳过） |
-| compact 模式只改 project-map.js | `cli.js` 也需要同步 | human-readable 输出和 `countTreeFiles()` 必须兼容 skeleton 模式（`totalFileCount`） |
-| Windows PowerShell 管道 BOM | 所有 `node cli.js ... \| node -e` 命令 | PowerShell 管道传 JSON 会带 BOM，导致 `JSON.parse` 必 crash。当前 workaround：用文件中转（`> file`）再读取 |
-| cache.save() 已改为 async | `src/services/cache.js` | 调用方必须 `await`（container.js、测试均已适配） |
-| repl-test.js flaky | `test/repl-test.js` | runner.js 串行执行时偶发失败，单独 `node test/repl-test.js` 稳定通过；若遇到，先重跑确认 |
-| audit-file-watch-test.js flaky | `test/audit-file-watch-test.js` | runner.js 串行执行时 watcher 事件偶发丢失，单独 `node test/audit-file-watch-test.js` 稳定通过 |
-| `framework-patterns.js` 新增框架时 | `src/services/dep-graph/framework-patterns.js` | 路径检测逻辑按语言分块，新增语言需同时更新 `isEntry` 标记和测试 |
-| `buildFileValidationAdvice` 导出链 | `validation-advice.js` → `index.js` → `cli.js` | 新增 formatter 函数必须在 `src/cli/formatters/index.js` 中显式导出，否则 cli.js 解构为 `undefined` |
-| `--quiet` 不再 monkey-patch `console.error` | `cli.js` / `container.js` | `quiet` 通过 `ServiceContainer` 传递；错误日志仍用 `console.error` |
-| `findDeadExports()` edges/files 降级 | `src/services/dep-graph.js` | 单文件项目（files=1）不受降级影响；多文件项目 edges/files < 0.1 时 confidence 降为 low |
-| `.workspace-bridge-cache.json.bak` 泄漏到 git status | `src/tools/git-tools.js` | `getChangedFiles()` 已排除 `.bak` 备份文件，防止 audit-diff 误报 |
-| `resolvers.js` 策略链新增策略 | `src/services/dep-graph/resolvers.js` | 新增语言需在 `registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null` |
-| `checkFileChanges()` 双路径 | `src/services/cache.js` | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为 |
-| 动态 require 导致死导出误报 | `src/services/dep-graph/framework-patterns.js` | `dead-exports` 无法静态分析 `ROUTE_QUERY_REGISTRY` 动态 require，可忽略或加白 |
-| C/C++ `#include` resolver 语义限制 | `src/services/dep-graph/parsers/registry.js` | C/C++ 对系统头、`-I` 搜索路径支持较弱，`unresolved` 可能偏高 |
-| Vue/Svelte 路由提取设计选择 | `src/services/dep-graph/framework-patterns.js` | Nuxt/SvelteKit 路由 query 只处理 `.ts` server handler；SFC 本身不提取路由 |
+| 陷阱                                                   | 位置                                                   | 如何避免                                                                                                       |
+| :----------------------------------------------------- | :----------------------------------------------------- | :------------------------------------------------------------------------------------------------------------- |
+| `DEFAULT_EXCLUDE_DIRS` 全局污染                      | `src/services/file-index.js`                         | 任何新增排除项必须是通用目录名（如`node_modules`），不能是项目特定名称                                       |
+| orphan 检测不同步                                      | `project-map.js` vs `overview-tools.js`            | 两处 orphan 逻辑必须保持同步（scripts/bin/benchmark 跳过）                                                     |
+| compact 模式只改 project-map.js                        | `cli.js` 也需要同步                                  | human-readable 输出和`countTreeFiles()` 必须兼容 skeleton 模式（`totalFileCount`）                         |
+| Windows PowerShell 管道 BOM                            | 所有`node cli.js ... \| node -e` 命令                 | PowerShell 管道传 JSON 会带 BOM，导致`JSON.parse` 必 crash。当前 workaround：用文件中转（`> file`）再读取  |
+| cache.save() 已改为 async                              | `src/services/cache.js`                              | 调用方必须`await`（container.js、测试均已适配）                                                              |
+| repl-test.js flaky                                     | `test/repl-test.js`                                  | runner.js 串行执行时偶发失败，单独`node test/repl-test.js` 稳定通过；若遇到，先重跑确认                      |
+| audit-file-watch-test.js flaky                         | `test/audit-file-watch-test.js`                      | runner.js 串行执行时 watcher 事件偶发丢失，单独`node test/audit-file-watch-test.js` 稳定通过                 |
+| `framework-patterns.js` 新增框架时                   | `src/services/dep-graph/framework-patterns.js`       | 路径检测逻辑按语言分块，新增语言需同时更新`isEntry` 标记和测试                                               |
+| `buildFileValidationAdvice` 导出链                   | `validation-advice.js` → `index.js` → `cli.js` | 新增 formatter 函数必须在`src/cli/formatters/index.js` 中显式导出，否则 cli.js 解构为 `undefined`          |
+| `--quiet` 不再 monkey-patch `console.error`        | `cli.js` / `container.js`                          | `quiet` 通过 `ServiceContainer` 传递；错误日志仍用 `console.error`                                       |
+| `findDeadExports()` edges/files 降级                 | `src/services/dep-graph.js`                          | 单文件项目（files=1）不受降级影响；多文件项目 edges/files < 0.1 时 confidence 降为 low                         |
+| `.workspace-bridge-cache.json.bak` 泄漏到 git status | `src/tools/git-tools.js`                             | `getChangedFiles()` 已排除 `.bak` 备份文件，防止 audit-diff 误报                                           |
+| `resolvers.js` 策略链新增策略                        | `src/services/dep-graph/resolvers.js`                | 新增语言需在`registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null` |
+| `checkFileChanges()` 双路径                          | `src/services/cache.js`                              | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为                         |
+| 动态 require 导致死导出误报                            | `src/services/dep-graph/framework-patterns.js`       | `dead-exports` 无法静态分析 `ROUTE_QUERY_REGISTRY` 动态 require，可忽略或加白                              |
+| C/C++`#include` resolver 语义限制                    | `src/services/dep-graph/parsers/registry.js`         | C/C++ 对系统头、`-I` 搜索路径支持较弱，`unresolved` 可能偏高                                               |
+| Vue/Svelte 路由提取设计选择                            | `src/services/dep-graph/framework-patterns.js`       | Nuxt/SvelteKit 路由 query 只处理`.ts` server handler；SFC 本身不提取路由                                     |
 
 ---
 
@@ -266,6 +291,7 @@ THEN 拿到结果后必须执行：
 ---
 
 **当前判断**：
+
 - `dead-exports` 已补上最小 ground-truth smoke，能证明 corpus-level 的 precision/recall 检查方式，但不能据此宣称全局召回已证实。
 - resolver 的关键契约是顺序语义而不是状态漂移，`alias` / `symbol-table` / fallback 的优先级变化必须有冲突矩阵保护。
 - Java AST 以 `javalang` 为前提；缺失时是可接受的 degraded mode，不应把 regex fallback 误读为 AST regression。

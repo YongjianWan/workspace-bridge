@@ -12,7 +12,15 @@
 
 > 当前无活跃的 L2 债务。
 
-（DataQuality 环境降级探测表已在本次修复中完成；历史背景见 [CHANGELOG.md](../CHANGELOG.md) [Unreleased]。）
+### ⚠️ 预防性约束：`_invalidateParseCache()` 是 parse cache 的唯一失效入口
+
+**状态**：已收敛（`builder.js` 中 `_invalidateParseCache(keyOrPath)` 统一负责内存 `_parseCache` 和 SQLite `cache.parseResults` + `parsedHashes` 的失效）。
+
+**约束**：`builder.js` 的 `updateFiles()` 和删除文件循环中，parse cache 失效**只允许**通过 `this._invalidateParseCache(keyOrPath)`，**禁止**直接调用 `this._parseCache.delete()` 或 `this.dg.cache.deleteParseResult()`。
+
+**为什么这是约束而非已修复债务**：当前只有两层 parse cache（内存 + SQLite），`_invalidateParseCache` 已覆盖。但如果未来新增第三层缓存（如聚合 summary 快照、内存 LRU 的热路径缓存），**必须在该方法内追加失效逻辑，不能在其他地方手工补 evict**。违反此约束会导致静默 stale（2026-07-03 的 mtime 失效 bug 便是先例：SQLite 层忘记 evict，内存层清了，fast path 读到 SQLite 旧数据 + 新 mtime → 跳过重解析）。
+
+**触发条件**：新增任何与文件解析结果相关的缓存层时。
 
 ---
 
@@ -30,77 +38,24 @@
 >
 > 历史记录：弱断言分布已清理至 schema 契约测试中的防御性 `typeof` 检查；其余 `status === 0` 均为环境探测 helper，不属于测试断言。详见 [CHANGELOG.md](../CHANGELOG.md) [Unreleased] §Code Quality: Weak Assertion Cleanup。
 
-#### Route B 验证发现：AI 消费体验缺口
+---
 
-**背景**：2026-06-20 在 `reference/GitNexus` 上执行 Route B 实战验证，聚焦 `gitnexus/src/core/ingestion/scope-resolution/scope/walkers.ts`。完整报告见 `scratch/gitnexus-validation-report.md`。
+## 开发纪律（不是代码债，是踩坑教训，必须记住）
 
-**缺口 1：`audit-file` 未生成可执行验证命令**
+### ⚠️ 「全绿」有盲区：测试覆盖了你想到的场景，没覆盖你没想到的
 
-| 项目 | 内容                                                                                                                                                                                                                                                    |
-| :--- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 状态 | ✅ 已修复（2026-06-20）                                                                                                                                                                                                                                 |
-| 修复 | `audit-assembler.js` 将 `affectedTests` 传入 `buildFileValidationAdvice`；`validation-advice.js` 构造 `run-direct-tests` step 复用 `generateCommands` 生成 `node-direct-tests` 等命令；`pickSuggestedCommand` 优先推荐 `direct-tests` |
+**案例**：2026-07-03 发现 `builder.js` 增量更新缓存失效 bug。`npm run test:fast` 130/130 全绿，但 bug 一直存在。原因是所有增量测试（`dep-graph-incremental-test.js`）只测了命名 import / 直接依赖，没有一个用 wildcard re-export（`export * from`）当探针。wildcard re-export 的导出列表依赖上游文件的实际解析结果，上游变更后如果缓存失效没传播，下游导出列表静默过期——而命名 re-export（`export { foo } from`）的导出列表来自自身源码，上游变更不影响它，所以假绿。
 
-**缺口 2：`affected-tests` `mention` 启发式误报注释引用**
+**纪律**：
+1. **「全绿」只证明你想到的场景对，证明不了你没想到的场景不存在。** 每次声称"全绿"，心里必须补一句"在我测过的场景下"。
+2. **增量逻辑的测试必须覆盖「依赖数据源变更后，下游数据是否刷新」，不只测「修改文件后自己的数据是否刷新」。** 典型探针：wildcard re-export、barrel file、`__init__.py` 重导出、TypeScript `export * from`。
+3. **如果同一个被测模块有两种语法路径（命名 vs wildcard），两种都测。** 不能因为第一种 PASS 就假设第二种也 PASS。
 
-| 项目 | 内容                                                                                                                                                                                                                                                                                                     |
-| :--- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 状态 | ✅ 已修复（2026-06-20）                                                                                                                                                                                                          |
-| 修复 | `analyzer.js` 新增 `stripComments()`，在 `_findAffectedTestsByMention` 中按语言族（C-family / Python / Ruby）去除注释/文档字符串后再做 mention 匹配；C-family 与 Python/Ruby 均使用小型状态机保留字符串字面量，避免误伤代码中的注释标记；`affected-tests-mention-test.js` 新增 comment-only 负例 |
+### ⚠️ 假绿比红更危险
 
-**缺口 3：`impact.affectedRoutes` 未区分生产路由与测试路由**
+红的测试告诉你"这里有问题"→ 你会修。假绿告诉你"这里没问题"→ 你信了，然后带着 bug 上线。2026-07-03 的 mtime 失效 bug 是典型案例：130 个测试全 PASS，没有一个失败，但增量更新对任何文件修改都在静默返回旧数据。
 
-| 项目 | 内容                                                                                                                                                                                                                      |
-| :--- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 状态 | ✅ 已修复（2026-06-20）                                                                                                                                                                                                   |
-| 修复 | `src/services/dep-graph/query.js` 的 `findAffectedHttpRoutes` 为每个路由对象新增 `source: 'src' \| 'test'` 字段，覆盖 SQLite 与内存 BFS 两条路径；新增 `test/affected-http-routes-source-test.js` 验证两种来源标记 |
-
-**缺口 4：Rust `tests/` 目录集成测试在验证命令中丢失**
-
-| 项目 | 内容                                                                                                                                                                                                                                                                                       |
-| :--- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 状态 | ✅ 已修复（2026-06-20）                                                                                                                                                                                                                                                                    |
-| 修复 | `src/utils/stack-detectors/commands.js` 的 `buildRustTestCommands()` 将 Rust 测试目标拆分为单元模块（`cargo test <module>`）与集成测试（`cargo test --test <stem>`），`audit-file` / `impact` 的 focused 命令现在会同时覆盖 `src/**/*.rs` 内联测试与 `tests/*.rs` 集成测试 |
-
-**缺口 5：Rust 库公共 API 死导出被报告为高置信度**
-
-| 项目 | 内容                                                                                                                                                                                                                                                                                                 |
-| :--- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 状态 | ✅ 已修复（2026-06-20）                                                                                                                                                                                                                                                                              |
-| 修复 | `src/services/dep-graph/analyzer.js` 新增 `_markRustPublicApiFalsePositives()`，递归识别 `src/lib.rs` 通过 `pub mod` 链式公开的模块，将其死导出标记为 `rust-public-api` 并降级为 `low` confidence；`src/tools/honesty-engine.js` 将该原因纳入已知误报集合，使其不再驱动仓库级 severity |
-
-**缺口 6：Rust 解析在并发构建时部分文件回退到 regex**
-
-| 项目 | 内容                                                                                                                                                                                                                                                    |
-| :--- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 状态 | ✅ 已修复（2026-06-20）                                                                                                                                                                                                                                 |
-| 修复 | `src/services/dep-graph/parsers/rust-ast.js` 增加模块级异步锁，将所有 Rust WASM 解析串行化；`test/rust-ast-parser-test.js` 新增 `testRustConcurrentParsing()` 并发回归测试；冷缓存验证 `reference/qartez-mcp` 的 `fallbackFiles` 从 19 降到 0 |
-
-**缺口 7：Java 同包可见性被误报为高置信依赖**
-
-| 项目 | 内容 |
-| :--- | :--- |
-| 状态 | ✅ 已修复（2026-06-30） |
-| 背景 | 在 `C:/Users/sdses/Desktop/神思/code/ai_zcypg_backend` 上执行 Route B 实战验证，聚焦 `aizcypg-biz/src/main/java/com/aizcypg/biz/controller/PolicyMissingController.java` |
-| 现象 | `audit-file` 报告 `impact=13`，`reason=direct-import`；但全项目搜索无其他 Java 文件引用 `PolicyMissingController` |
-| 根因 | `builder.js` 的 `_expandJavaForFile()` 把同 package 的所有类自动连边，且置信度设为 `tier1`/`1.0` |
-| 影响 | AI 会高估修改影响面 10 倍以上；`affectedRoutes` 混入大量无关路由；`severity=high` 被 impact radius 放大 |
-| 修复 | `builder.js` 降级为 `tier3`/`confidence=0.3`；`query.js` 与 `analyzer.js` 输出 reason 改为 `implicit-same-package`；新增 `test/java-package-imports-test.js` 断言 |
-| 验证 | `npm run test:fast` 126/126 PASS；重新跑 `audit-file` 后 13 个 impact 全部显示 `implicit-same-package` |
-| 完整报告 | `scratch/route-b-report-ai-zcypg-backend.md` |
-
-**缺口 8：Java 无测试项目仍建议跑 test 命令**
-
-| 项目 | 内容 |
-| :--- | :--- |
-| 状态 | ✅ 已修复（2026-06-30） |
-| 背景 | Route B 第二轮在 `ai_zcypg_backend` 验证 `PolicyChatController.java`；该仓库无 `src/test/java` 测试文件 |
-| 现象 | `validationAdvice.suggestedCommand` 建议 `mvn -q -Dtest=*Test test`，执行会跑空测试套件 |
-| 根因 | `commands.js` 默认生成 Maven/Gradle test 命令，未检测项目是否真有测试文件 |
-| 影响 | AI 执行建议命令后得到失败或空跑结果，降低对 workspace-bridge 的信任 |
-| 修复 | `detect.js` 新增 `hasJavaTestFiles()` 检测并暴露 `stack.java.hasTests`；`commands.js` 无测试时 focused 降级为 compile、full 降级为 package -DskipTests / build -x test；默认 `hasTests=true` 保持向后兼容 |
-| 验证 | `npm run test:fast` 126/126 PASS；重新跑 `audit-file` 后 suggestedCommand 变为 `mvn -q -DskipTests compile` |
-| 完整报告 | `scratch/route-b-report-ai-zcypg-backend-02.md` |
+**纪律**：看到全绿时，问自己"我有没有测过反向路径/边界条件/失效场景？"如果没有，全绿不表示安全。
 
 ---
 

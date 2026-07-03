@@ -6,6 +6,50 @@
 
 ---
 
+## 本轮会话 (2026-07-03)
+
+### 会话上下文
+
+- 对 AGENTS.md 信息密度、工具完整度、workspace-bridge 对 AI agent 的价值进行了多轮深入讨论。
+- 确认 workspace-bridge 对无 LSP 的 CLI agent（如 Claude Code）是核心拐杖，对有 LSP 的 agent（如 Copilot）是卫星图。
+- 项目当前处于成熟 polish 阶段：主要在补安全漏洞、边缘 case、AI 消费体验。
+
+### Route B 实战验证 — 死代码删除闭环
+
+- 在 `ai_gwy_backend`（556 文件 Django 项目）上用 CLI 完成死代码识别→删除→验证闭环。
+- 发现 4 个 CLI 消费体验问题，修复 3 个（详见下方）。详细报告：`scratch/route-b-live-report.md`
+
+### 增量更新缓存失效 bug — 本轮最大发现
+
+- 用户赌注：re-export 增量更新超 1-hop 下游静默过期。
+- 实际发现：**`updateFiles` 对任何文件修改都静默返回旧数据**——`builder.js` 的 fast path 只 evict 了内存 `_parseCache`，未 evict SQLite 持久化缓存。SQLite 中旧解析结果的 mtime 被抢先更新为新文件 mtime → `cached.mtime === meta.mtime` 命中快路径 → 跳过重解析。
+- wildcard re-export（`export * from`）是让 bug 可见的探针——命名 re-export（`export { foo } from`）因为导出列表来自自身源码，假绿。
+- 修复：新增 `_invalidateParseCache(keyOrPath)` 单一入口，同时失效内存 `_parseCache` + SQLite `parseResults` + `parsedHashes`。消除边界，不是补丁。
+- 关键教训：130 测试全 PASS 下藏着一个对所有文件修改都静默失效的 bug。假绿比红更危险。
+
+### 本轮修复清单
+
+| 修复 | 文件 | L1/L2 |
+|------|------|:---:|
+| `fileSpecificAdvice` 上下文感知 | `validation-advice.js` | — |
+| 死导出 `safeToDelete` 信号 | `honesty-engine.js` | — |
+| `suggestedCommand` 无测试时不瞎建议 | `validation-advice.js` | — |
+| `_invalidateParseCache()` 统一入口 | `builder.js` | L1-4 |
+
+### 文档更新
+
+- **AGENTS.md**：L1-4 新增「静默错误必须是显式的」——禁止让 AI agent 在无警告情况下消费静默过期数据。
+- **TECH_DEBT.md**：新增预防性约束（parse cache 唯一失效入口）+ 开发纪律（全绿有盲区、假绿比红更危险）。
+- **CHANGELOG.md**：[Unreleased] 追加 3 条条目。
+- **SESSION.md**：本文档。
+
+### 基线验证
+
+- `npm run test:fast` **130/130 PASS**
+- 项目自审 `audit-overview`：ok=true, deadExports=0, cycles=0, coverageRatio=1
+
+---
+
 ## 新会话启动检查表（确认状态即可，不用跑 runner）
 
 > **定位**：workspace-bridge 是**AI 的代码脚手架**，不是人类审计工具。CLI 负责策展（预组装、去噪、按优先级排序），skill 负责驾驶手册（什么时候用/不用/标准工作流）。

@@ -81,23 +81,46 @@ function buildValidationAdvice(entries, workspaceRoot) {
  * Lightweight validation advice for a single file (audit-file).
  * Detects stack and returns focused commands without full phase orchestration.
  */
-function buildFileSpecificAdvice(ext, stackProfile) {
+/**
+ * Build file-specific advice with context awareness.
+ *
+ * Route B fix: suppresses irrelevant advice when the file has 0 downstream
+ * impact (e.g., a dead file being deleted doesn't need migration warnings).
+ *
+ * @param {string} ext - file extension
+ * @param {string} stackProfile - detected stack profile
+ * @param {object} [context] - optional impact context
+ * @param {number} [context.impactCount] - number of impacted dependents
+ * @param {number} [context.affectedTestsCount] - number of affected tests
+ * @param {boolean} [context.isDeadExport] - whether this file has no importers
+ */
+function buildFileSpecificAdvice(ext, stackProfile, context = {}) {
+  const { impactCount = 1, affectedTestsCount = 0, isDeadExport = false } = context;
   const advice = [];
-  if (ext === '.vue' && stackProfile === 'node-first') {
+
+  // Route B: when the file has zero downstream impact (dead code removal),
+  // suppress model/migration/interface advice — it's irrelevant noise.
+  const hasNoImpact = impactCount === 0 && affectedTestsCount === 0;
+
+  if (ext === '.vue' && stackProfile === 'node-first' && !hasNoImpact) {
     advice.push('Verify template bindings and component prop changes are synchronized.');
-  } else if (ext === '.java' && stackProfile === 'java-first') {
+  } else if (ext === '.java' && stackProfile === 'java-first' && !hasNoImpact) {
     advice.push('Check interface contract changes and downstream Controller/Service caller compatibility.');
   } else if (ext === '.py' && stackProfile === 'python-first') {
-    advice.push('Check if model field changes require a companion migration script.');
-  } else if (ext === '.go' && stackProfile === 'go-first') {
+    if (isDeadExport && hasNoImpact) {
+      advice.push('This file has no downstream dependents and no affected tests. Safe to delete or archive.');
+    } else if (!hasNoImpact) {
+      advice.push('Check if model field changes require a companion migration script.');
+    }
+  } else if (ext === '.go' && stackProfile === 'go-first' && !hasNoImpact) {
     advice.push('Verify interface changes do not break existing implementers (interface compliance).');
-  } else if (ext === '.rs' && stackProfile === 'rust-first') {
+  } else if (ext === '.rs' && stackProfile === 'rust-first' && !hasNoImpact) {
     advice.push('Check trait implementation changes affect downstream dependencies (trait bound compliance).');
   }
   return advice;
 }
 
-function buildFileValidationAdvice(filePath, workspaceRoot, affectedTests) {
+function buildFileValidationAdvice(filePath, workspaceRoot, affectedTests, impact) {
   const stack = detectStack(workspaceRoot);
   const ext = path.extname(filePath).toLowerCase();
 
@@ -114,12 +137,16 @@ function buildFileValidationAdvice(filePath, workspaceRoot, affectedTests) {
     .filter(Boolean)
     .map((absolutePath) => path.relative(workspaceRoot, absolutePath));
 
-  const steps = testFiles.length > 0
+  const hasDirectAffectedTests = testFiles.length > 0;
+  const steps = hasDirectAffectedTests
     ? [{ name: 'run-direct-tests', targets: testFiles }]
     : [];
 
+  // Route B: when there are no affected tests, omit focused test commands
+  // entirely so suggestedCommand doesn't point to a non-existent test file.
   const relativeFilePath = path.relative(workspaceRoot, filePath).replace(/\\/g, '/');
-  const commands = generateCommands(stack, changeType, [relativeFilePath], steps, workspaceRoot);
+  const changedTargets = hasDirectAffectedTests ? [relativeFilePath] : [];
+  const commands = generateCommands(stack, changeType, changedTargets, steps, workspaceRoot);
   const environmentNotes = probePythonTestEnvironment(workspaceRoot, stack.python);
 
   // Deduplicate within each group by cmd string
@@ -150,7 +177,16 @@ function buildFileValidationAdvice(filePath, workspaceRoot, affectedTests) {
     }
   }
 
-  const fileSpecificAdvice = buildFileSpecificAdvice(ext, stack.profile);
+  // Route B: pass impact context so fileSpecificAdvice can suppress irrelevant advice
+  // impactCount comes from the `impact` parameter, not affectedTests (which is a different operation).
+  const impactCount = impact?.impactCount ?? affectedTests?.impactCount ?? 1;
+  const affectedTestsCount = affectedTests?.affectedTestsCount ?? 0;
+  const impactContext = {
+    impactCount,
+    affectedTestsCount,
+    isDeadExport: impactCount === 0 && affectedTestsCount === 0,
+  };
+  const fileSpecificAdvice = buildFileSpecificAdvice(ext, stack.profile, impactContext);
   const allCommands = [
     ...(commands.focused || []),
     ...(commands.smoke || []),

@@ -409,7 +409,7 @@ async function assembleFile(parsed, container) {
     }, container),
   ]);
   const frameworkPattern = container.snapshot.graph.getFrameworkHint(resolvedPath);
-  const validationAdvice = buildFileValidationAdvice(resolvedPath, container.workspaceRoot, affectedTests);
+  const validationAdvice = buildFileValidationAdvice(resolvedPath, container.workspaceRoot, affectedTests, impact);
   const result = {
     ok: impact.ok !== false && affectedTests.ok !== false,
     workspaceRoot: container.workspaceRoot,

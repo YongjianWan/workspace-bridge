@@ -153,6 +153,13 @@ function classifyDeadExports(deadExportsArray, depGraph) {
 
     item.falsePositiveReason = reason;
     classifications.push({ item, reason });
+
+    // Route B: annotate dead exports with explicit safe-to-delete signal.
+    // A dead export is safe to delete when no files import it AND the
+    // confidence is not low (low = dynamic-registry, vendor-copy, etc.).
+    if (importerCount === 0 && confidence !== 'low' && reason !== 'graph-unreliable') {
+      item.safeToDelete = true;
+    }
   }
 
   return classifications;
