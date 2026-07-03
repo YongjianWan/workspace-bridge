@@ -271,4 +271,4 @@ THEN 拿到结果后必须执行：
 - Java AST 以 `javalang` 为前提；缺失时是可接受的 degraded mode，不应把 regex fallback 误读为 AST regression。
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-07-03（dead-export ground-truth corpus 扩展为 JS 多文件真值集，resolver 冲突矩阵补上真实 alias/symbol-table 对撞与 symbol-table > fallback 用例，Java parser golden 对 javalang 缺失显式降级，6/22–7/2 commit 根因归档，DataQuality 三态契约与 Spring symbolImpact 降级说明回归测试补缺；npm run test:fast 128/128 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-07-03（validationAdvice.commands 修复 Python/Django 测试路径推导与环境依赖探测，新增 Python test path derivation 与 pytest-django probe 回归测试；npm run test:fast 130/130 PASS；schemaVersion: 1.2.0；version: 2.0.0）*

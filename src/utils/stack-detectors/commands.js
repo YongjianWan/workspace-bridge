@@ -2,6 +2,7 @@
  * Command generation logic — generate concrete validation commands per stack.
  */
 const path = require('path');
+const { pathExists } = require('../path');
 const { mapFileToGoModule } = require('./detect');
 
 function nodeExec(packageManager) {
@@ -15,6 +16,57 @@ function nodeExec(packageManager) {
 function splitCommand(commandStr) {
   const parts = commandStr.split(/\s+/);
   return { command: parts[0], args: parts.slice(1) };
+}
+
+/**
+ * Derive likely Python test file paths for a given source file.
+ * Covers Django app conventions (app/tests/test_<module>.py, app/tests.py),
+ * project-level tests/ directory, and same-directory test_*.py / *_test.py.
+ */
+function derivePythonTestCandidates(sourceFile) {
+  const normalized = sourceFile.replace(/\\/g, '/');
+  const dir = path.dirname(normalized).replace(/\.$/, '');
+  const base = path.basename(normalized, '.py');
+  const parts = dir.split('/').filter(Boolean);
+  const appRoot = parts.length > 0 ? parts[0] : null;
+  const stems = [`test_${base}`, `${base}_test`];
+
+  const candidates = [];
+  for (const stem of stems) {
+    candidates.push(`tests/${stem}.py`);
+  }
+  if (appRoot) {
+    for (const stem of stems) {
+      candidates.push(`${appRoot}/tests/${stem}.py`);
+    }
+    candidates.push(`${appRoot}/tests.py`);
+  }
+  if (dir && dir !== '.') {
+    for (const stem of stems) {
+      candidates.push(`${dir}/${stem}.py`);
+    }
+    candidates.push(`${dir}/tests.py`);
+  }
+
+  return Array.from(new Set(candidates));
+}
+
+/**
+ * For a list of source files, return the subset of derived test files that
+ * actually exist on disk. Falls back to an empty array when workspaceRoot is
+ * unavailable so callers never accidentally run source files as tests.
+ */
+function findExistingTestFiles(workspaceRoot, sourceFiles) {
+  if (!workspaceRoot || !Array.isArray(sourceFiles)) return [];
+  const existing = new Set();
+  for (const file of sourceFiles) {
+    for (const candidate of derivePythonTestCandidates(file)) {
+      if (pathExists(path.join(workspaceRoot, candidate))) {
+        existing.add(candidate);
+      }
+    }
+  }
+  return Array.from(existing).sort();
 }
 
 function buildNodeTestCommand(runner, files, execConfig) {
@@ -166,10 +218,18 @@ function getNodeCommands(nodeStack, changeType, targets) {
   });
 }
 
-function getPythonCommands(pythonStack, changeType, targets) {
+function getPythonCommands(pythonStack, changeType, targets, workspaceRoot = null) {
   if (!pythonStack) return { smoke: [], focused: [], full: [] };
   const targetList = Array.isArray(targets) ? targets : [];
   const fileArgs = targetList.length > 0 ? targetList.join(' ') : '.';
+
+  // Route B fix: do not pass source .py files to pytest. Derive the
+  // conventional test file paths and only emit focused tests when at least
+  // one corresponding test exists. When no workspaceRoot is provided we
+  // keep the legacy behavior for backwards compatibility.
+  const testTargets = workspaceRoot
+    ? findExistingTestFiles(workspaceRoot, targetList)
+    : targetList;
 
   return buildStackCommands(pythonStack, changeType, (commands) => {
     if (pythonStack.linters.includes('ruff')) {
@@ -179,8 +239,8 @@ function getPythonCommands(pythonStack, changeType, targets) {
       commands.smoke.push({ name: 'python-type-check', description: 'Run Pyright', executable: { command: 'pyright', args: [] } });
     }
     if (pythonStack.testRunner === 'pytest') {
-      if (targetList.length > 0) {
-        commands.focused.push({ name: 'python-focused-tests', description: 'Run python-side focused tests', executable: { command: 'pytest', args: targetList } });
+      if (testTargets.length > 0) {
+        commands.focused.push({ name: 'python-focused-tests', description: 'Run python-side focused tests', executable: { command: 'pytest', args: testTargets } });
       }
       commands.full.push({ name: 'python-all-tests', description: 'Run python-side full test suite', executable: { command: 'pytest', args: [] } });
     }
@@ -541,7 +601,7 @@ function getDocsCommands(stack, changeType) {
   }
 }
 
-function generateCommands(stack, changeType, targets, steps = []) {
+function generateCommands(stack, changeType, targets, steps = [], workspaceRoot = null) {
   const docsCommands = getDocsCommands(stack, changeType);
   if (changeType === 'docs' && docsCommands) {
     const serveCmd = splitCommand(docsCommands.serve);
@@ -556,7 +616,7 @@ function generateCommands(stack, changeType, targets, steps = []) {
   const split = splitTargetsByStack(targets);
 
   const nodeCommands = getNodeCommands(stack.node, changeType, split.node);
-  const pythonCommands = getPythonCommands(stack.python, changeType, split.python);
+  const pythonCommands = getPythonCommands(stack.python, changeType, split.python, workspaceRoot);
   const javaCommands = getJavaCommands(stack.java, changeType, split.java);
   const goCommands = getGoCommands(stack.go, changeType, split.go);
   const rustCommands = getRustCommands(stack.rust, changeType, split.rust);
@@ -725,4 +785,6 @@ module.exports = {
   renderCommandString,
   enrichCommandEntry,
   enrichCommandSet,
+  derivePythonTestCandidates,
+  findExistingTestFiles,
 };

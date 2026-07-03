@@ -438,6 +438,12 @@ const FORMATTERS = {
             lines.push(`  - ${action.file}: ${(action.actions || []).join(', ')}`);
           }
         }
+        if (va.environmentNotes?.length) {
+          lines.push(`- **Environment notes**:`);
+          for (const note of va.environmentNotes.slice(0, 5)) {
+            lines.push(`  - ${note.message}${note.remediation ? ` (${note.remediation})` : ''}`);
+          }
+        }
         if (va.summary) lines.push(`- **Summary**: ${va.summary}`);
       }
       if (r.incremental && r.incrementalFindings) {
@@ -509,6 +515,12 @@ const FORMATTERS = {
           lines.push(`- **File-specific advice**:`);
           for (const advice of va.fileSpecificAdvice.slice(0, 3)) {
             lines.push(`  - ${advice}`);
+          }
+        }
+        if (va.environmentNotes?.length) {
+          lines.push(`- **Environment notes**:`);
+          for (const note of va.environmentNotes.slice(0, 5)) {
+            lines.push(`  - ${note.message}${note.remediation ? ` (${note.remediation})` : ''}`);
           }
         }
       }

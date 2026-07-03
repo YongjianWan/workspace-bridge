@@ -8,6 +8,23 @@
 
 ## [Unreleased]
 
+### validationAdvice.commands Python/Django usability fix (2026-07-03)
+
+- **Fixed** Python focused test commands in `src/utils/stack-detectors/commands.js` so they no longer pass source `.py` files directly to pytest:
+  - Added `derivePythonTestCandidates()` covering Django app conventions (`app/tests/test_<module>.py`, `app/tests.py`), project-level `tests/`, and same-directory `test_*.py` / `*_test.py`.
+  - Added `findExistingTestFiles()` to map changed source files to actually-existing test files before emitting focused pytest commands.
+  - `generateCommands()` now accepts an optional `workspaceRoot` and routes it to Python command generation; callers in `validation-advice.js` supply it.
+  - When no matching test file exists, focused pytest commands are omitted instead of suggesting `pytest <source-file>`.
+- **Added** Python/Django test environment probing in `src/utils/environment-probe.js`:
+  - `probePythonTestEnvironment()` statically detects Django + pytest projects and warns when `pytest-django` is not declared in `requirements*.txt` or `pyproject.toml`.
+  - Always emits a database-reachability prerequisite note for Django projects so users do not mistake a local PostgreSQL failure for a product regression.
+- **Exposed** `environmentNotes` on validation advice output (`validationAdvice.environmentNotes`) in both `buildValidationAdvice()` and `buildFileValidationAdvice()`.
+- **Updated** `src/cli/formatters/human-formatters.js` markdown output to render `environmentNotes` for `audit-diff` and `audit-file`.
+- **Added** regression tests:
+  - `test/python-test-path-derivation-test.js` (fast layer)
+  - `test/python-environment-probe-test.js` (fast layer)
+  - Fixture trees under `test/fixtures/python-test-paths/` and `test/fixtures/python-env-probe/`.
+
 ### Evidence-chain completion for conservative judgments (2026-07-03)
 
 - **Extended** `test/dead-export-ground-truth-test.js` with additional JS corpus samples:

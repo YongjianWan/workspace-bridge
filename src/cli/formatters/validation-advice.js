@@ -1,5 +1,6 @@
 const path = require('path');
 const { detectStack, generateCommands, enrichCommandEntry } = require('../../utils/stack-detector');
+const { probePythonTestEnvironment } = require('../../utils/environment-probe');
 const { classifyChangeType, getValidationTemplate } = require('./audit-diff-summary');
 const { collectEntryMetrics } = require('./validation-advice/metrics');
 const { buildPhases } = require('./validation-advice/phases');
@@ -45,7 +46,8 @@ function buildValidationAdvice(entries, workspaceRoot) {
   const { phases, smokeTargets, focusedSteps } = buildPhases(metrics, template);
   const summary = buildSummary(metrics);
 
-  const commands = generateCommands(stack, changeType, smokeTargets, focusedSteps);
+  const commands = generateCommands(stack, changeType, smokeTargets, focusedSteps, workspaceRoot);
+  const environmentNotes = workspaceRoot ? probePythonTestEnvironment(workspaceRoot, stack.python) : [];
 
   const allCommands = [
     ...(commands.focused || []),
@@ -71,6 +73,7 @@ function buildValidationAdvice(entries, workspaceRoot) {
     topRiskActions,
     phases,
     summary,
+    environmentNotes,
   };
 }
 
@@ -116,7 +119,8 @@ function buildFileValidationAdvice(filePath, workspaceRoot, affectedTests) {
     : [];
 
   const relativeFilePath = path.relative(workspaceRoot, filePath).replace(/\\/g, '/');
-  const commands = generateCommands(stack, changeType, [relativeFilePath], steps);
+  const commands = generateCommands(stack, changeType, [relativeFilePath], steps, workspaceRoot);
+  const environmentNotes = probePythonTestEnvironment(workspaceRoot, stack.python);
 
   // Deduplicate within each group by cmd string
   const dedupe = (arr) => {
@@ -167,6 +171,7 @@ function buildFileValidationAdvice(filePath, workspaceRoot, affectedTests) {
     phases: [],
     suggestedCommand: pickSuggestedCommand(allCommands),
     fileSpecificAdvice,
+    environmentNotes,
   };
 }
 

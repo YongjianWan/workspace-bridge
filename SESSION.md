@@ -37,7 +37,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**所有测试全部 PASS**；`npm run test:fast` **128/128 PASS**（~19s），`npm run test:smoke` **131/131 PASS**（~40s）。开发迭代首选 `npm run test:fast`；新增 `test/data-quality-contract-test.js`、`test/java-spring-symbol-impact-note-test.js`（fast 层，分别锁定 DataQuality 三态契约与 Spring symbolImpact 降级说明）。
+- 测试：**所有测试全部 PASS**；`npm run test:fast` **130/130 PASS**（~17s），`npm run test:smoke` **133/133 PASS**（~40s）。开发迭代首选 `npm run test:fast`；新增 `test/python-test-path-derivation-test.js`、`test/python-environment-probe-test.js`（fast 层，分别锁定 Python/Django 测试路径推导与环境依赖探测契约）。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
