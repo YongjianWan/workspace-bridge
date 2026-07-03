@@ -1,3 +1,5 @@
+    a
+
 # SESSION.md
 
 > 新会话启动指南。通用项目信息见 [AGENTS.md](./AGENTS.md)，历史变更见 [CHANGELOG.md](./CHANGELOG.md)，长期路线见 [ROADMAP.md](./ROADMAP.md)。
@@ -29,12 +31,12 @@
 
 ### 本轮修复清单
 
-| 修复 | 文件 | L1/L2 |
-|------|------|:---:|
-| `fileSpecificAdvice` 上下文感知 | `validation-advice.js` | — |
-| 死导出 `safeToDelete` 信号 | `honesty-engine.js` | — |
-| `suggestedCommand` 无测试时不瞎建议 | `validation-advice.js` | — |
-| `_invalidateParseCache()` 统一入口 | `builder.js` | L1-4 |
+| 修复                                  | 文件                     | L1/L2 |
+| ------------------------------------- | ------------------------ | :---: |
+| `fileSpecificAdvice` 上下文感知     | `validation-advice.js` |  —  |
+| 死导出`safeToDelete` 信号           | `honesty-engine.js`    |  —  |
+| `suggestedCommand` 无测试时不瞎建议 | `validation-advice.js` |  —  |
+| `_invalidateParseCache()` 统一入口  | `builder.js`           | L1-4 |
 
 ### 文档更新
 
@@ -98,6 +100,7 @@ node cli.js audit-overview --cwd . --json --quiet
 **历史交付**：路线 A–J 全部完成；阶段 1/2/3 全部完成；Wave 1-15 全部完成；L2 债务清零；产品债务清零。详见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]。
 
 ---
+
 直说我的判断。
 
 ## 项目处在什么阶段
@@ -111,6 +114,7 @@ workspace-bridge 过去几轮做了大量的**内省循环**：写功能 → cod
 ### 路线 A：继续打磨（安全、低风险、递减回报）
 
 按 ROADMAP §3.5 走：
+
 1. `analysis_snapshots` 落盘 + `--fields` 白名单（~100 行）
 2. 热缓存压到 <2s（需要 profile 瓶颈在哪）
 3. SKILL.md 从 264 行砍到 80 行
@@ -124,6 +128,7 @@ workspace-bridge 过去几轮做了大量的**内省循环**：写功能 → cod
 你有实战基地（`C:\Users\sdses\Desktop\神思\code` 四个仓库）。但从文档看，实战主要是"跑 CLI 看输出对不对"，不是"让 AI agent 真正用 workspace-bridge 的输出来改代码，看它在哪里卡住"。
 
 **真正的产品验证是**：
+
 1. 拿一个真实任务（不是 workspace-bridge 自己）
 2. 让 AI agent（你自己）只通过 workspace-bridge 的 CLI 输出来理解项目结构
 3. 基于输出做代码修改
@@ -197,103 +202,107 @@ C：符号级调用图	技术攻坚	高	质变（如果成功）
 D：guard 深化	产品聚焦	中	明确卖点
 E：减法	认知减负	低	可持续性
 F：SKILL 自动化	形态转换	中	改变使用方式
+
 ## 本轮上下文：参考仓库探索与架构借鉴（活跃）
 
 > **背景**：为验证蓝图的技术可行性和避免闭门造车，对参考仓库进行了主动同步与架构对标。
 
 ### 参考仓库状态
 
-| 仓库 | 旧 HEAD | 新 HEAD | 变更规模 | 关键更新 |
-| :--- | :--- | :--- | :--- | :--- |
-| **CodeGraphContext** | `5b1a1f6` | `fb093bb` | 39 文件 | E2E Bug 报告扩充、writer 路径规范化测试、watcher 轮询观察器测试 |
-| **GitNexus** | `b9a17f55` | `1716bf7c` | 1629 文件 | 多语言 scope resolution 大重构、PR Swarm Review、devcontainer、i18n、CLI `uninstall`、graph-assisted 路由提取 |
-| **code-review-graph** | `0c9a5ff` | `0c9a5ff` | — | 已是最新。Python MCP server，tree-sitter + SQLite，Leiden 聚类，5 维度 risk scoring |
-| **qartez-mcp** | `ac6fec2` | `ac6fec2` | — | 已是最新。Rust MCP server + CLI 双模式，37 语言 tree-sitter，workspace fingerprint 增量，6 层启发式 scope resolution |
+| 仓库                        | 旧 HEAD      | 新 HEAD      | 变更规模  | 关键更新                                                                                                             |
+| :-------------------------- | :----------- | :----------- | :-------- | :------------------------------------------------------------------------------------------------------------------- |
+| **CodeGraphContext**  | `5b1a1f6`  | `fb093bb`  | 39 文件   | E2E Bug 报告扩充、writer 路径规范化测试、watcher 轮询观察器测试                                                      |
+| **GitNexus**          | `b9a17f55` | `1716bf7c` | 1629 文件 | 多语言 scope resolution 大重构、PR Swarm Review、devcontainer、i18n、CLI`uninstall`、graph-assisted 路由提取       |
+| **code-review-graph** | `0c9a5ff`  | `0c9a5ff`  | —        | 已是最新。Python MCP server，tree-sitter + SQLite，Leiden 聚类，5 维度 risk scoring                                  |
+| **qartez-mcp**        | `ac6fec2`  | `ac6fec2`  | —        | 已是最新。Rust MCP server + CLI 双模式，37 语言 tree-sitter，workspace fingerprint 增量，6 层启发式 scope resolution |
 
 ### GitNexus 架构探索摘要（7 个维度）
 
-| 维度 | GitNexus 核心做法 | 对 workspace-bridge 的借鉴价值 |
-| :--- | :--- | :--- |
-| **1. 语言插件管道** | `LanguageProvider` + `ScopeResolver` 双契约；`satisfies Record<SupportedLanguages, LanguageProvider>` 编译时穷举表；统一捕获标签 | **高** → Wave 13-1 语言注册表统一契约可直接引用此模式，替代当前约定俗成的 parser 返回结构 |
-| **2. Scope Resolution** | 通用编排器 + 语言钩子；SCC 有序跨文件返回类型传播；MRO-aware dispatch | **中** → workspace-bridge 定位"结构分析 ≠ 语义分析"，不追求完整 call graph，但 **3-tier import resolution** 和 **confidence-tiered edges** 可直接强化 Wave 10 的置信飞轮 |
-| **3. Call Graph** | 跨文件、receiver-bound、arity/type-aware overload 消解 | **低（当前不做）** → 超出项目定位 |
-| **4. 路由提取** | **Graph-first** 策略：优先复用 ingestion 时已产生的 `HANDLES_ROUTE` edges（符号级），fallback 才走 tree-sitter source-scan | **高** → 对应下一步**方向 2**。实施路径：将路由提取从 `savePrecomputed` 的同步 source-scan 前移到 `builder.js` parse phase，AST-based 提取并关联 handler 符号 |
-| **5. PR Swarm Review** | CLI-neutral canonical spec + 薄 wrapper；7 persona 分 lane 执行；model-tier routing；Synthesis Critic 硬 gate | **中** → Wave 12 输出精炼可借鉴其结构化 finding 格式 |
-| **6. 增量更新** | **Shadow-candidate 枚举**；**1-hop boundary expansion**；chunk-level parse cache | **高** → Wave 15-4 增量更新已引入 shadow-candidates + 1-hop boundary expansion，解决了跨文件边元数据 stale 问题 |
-| **7. 图存储** | LadybugDB（KuzuDB 派生）；edge evidence traces | **中** → SQLite 足够；但 **edge evidence traces** 可作为 Wave 11-4 统一 risk scoring 的输入 |
+| 维度                          | GitNexus 核心做法                                                                                                                      | 对 workspace-bridge 的借鉴价值                                                                                                                                                               |
+| :---------------------------- | :------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. 语言插件管道**     | `LanguageProvider` + `ScopeResolver` 双契约；`satisfies Record<SupportedLanguages, LanguageProvider>` 编译时穷举表；统一捕获标签 | **高** → Wave 13-1 语言注册表统一契约可直接引用此模式，替代当前约定俗成的 parser 返回结构                                                                                             |
+| **2. Scope Resolution** | 通用编排器 + 语言钩子；SCC 有序跨文件返回类型传播；MRO-aware dispatch                                                                  | **中** → workspace-bridge 定位"结构分析 ≠ 语义分析"，不追求完整 call graph，但 **3-tier import resolution** 和 **confidence-tiered edges** 可直接强化 Wave 10 的置信飞轮 |
+| **3. Call Graph**       | 跨文件、receiver-bound、arity/type-aware overload 消解                                                                                 | **低（当前不做）** → 超出项目定位                                                                                                                                                     |
+| **4. 路由提取**         | **Graph-first** 策略：优先复用 ingestion 时已产生的 `HANDLES_ROUTE` edges（符号级），fallback 才走 tree-sitter source-scan     | **高** → 对应下一步**方向 2**。实施路径：将路由提取从 `savePrecomputed` 的同步 source-scan 前移到 `builder.js` parse phase，AST-based 提取并关联 handler 符号               |
+| **5. PR Swarm Review**  | CLI-neutral canonical spec + 薄 wrapper；7 persona 分 lane 执行；model-tier routing；Synthesis Critic 硬 gate                          | **中** → Wave 12 输出精炼可借鉴其结构化 finding 格式                                                                                                                                  |
+| **6. 增量更新**         | **Shadow-candidate 枚举**；**1-hop boundary expansion**；chunk-level parse cache                                           | **高** → Wave 15-4 增量更新已引入 shadow-candidates + 1-hop boundary expansion，解决了跨文件边元数据 stale 问题                                                                       |
+| **7. 图存储**           | LadybugDB（KuzuDB 派生）；edge evidence traces                                                                                         | **中** → SQLite 足够；但 **edge evidence traces** 可作为 Wave 11-4 统一 risk scoring 的输入                                                                                     |
 
 ### CodeGraphContext 架构探索摘要
 
-| 维度 | CGC 核心做法 | 对 workspace-bridge 的借鉴价值 |
-| :--- | :--- | :--- |
-| **1. 整体管道** | Discovery → Pre-scan（全局 `imports_map`）→ Parse → Write Pass 1 → Write Pass 2 | **中** → 两阶段写入（nodes first, edges second）与 Wave 10 的 Parse-and-Link 一致 |
-| **2. 多数据库后端** | Neo4j/FalkorDB/KuzuDB/LadybugDB/Nornic 五后端 | **低** → SQLite 关系模型对 CLI 更务实 |
-| **3. SCIP 混合索引** | 可选 SCIP + Tree-sitter overlay | **中** → "SCIP 验证/覆盖 heuristic edges"的模式可作为未来 **strict mode** 的设计参考 |
-| **4. Watcher 增量更新** | `watchdog` 轮询/事件驱动；2s debounce；**O(k) 邻居重链接** | **高** → CGC 的 "query neighbors before delete" 是 watch 模式的最佳实践 |
-| **5. Bundle 系统** | `.cgc` ZIP 预索引图快照 | **低** → 我们的 SQLite cache 已是等价物 |
-| **6. 路径规范化** | `Path(p).resolve().as_posix()` 强制正斜杠 | **高** → **stark warning**。已审计并修复 `path.js` 跨平台路径回归，防范 Windows 反斜杠查询静默失败 |
-| **7. API/MCP 层** | FastAPI + MCP SSE server | **低** → 明确排除，保持 CLI-only |
-| **8. 测试策略** | Golden tests；E2E parity tests | **高** → 计划引入 parser golden snapshot 测试和路径回归测试 |
+| 维度                          | CGC 核心做法                                                                         | 对 workspace-bridge 的借鉴价值                                                                                    |
+| :---------------------------- | :----------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------- |
+| **1. 整体管道**         | Discovery → Pre-scan（全局`imports_map`）→ Parse → Write Pass 1 → Write Pass 2 | **中** → 两阶段写入（nodes first, edges second）与 Wave 10 的 Parse-and-Link 一致                          |
+| **2. 多数据库后端**     | Neo4j/FalkorDB/KuzuDB/LadybugDB/Nornic 五后端                                        | **低** → SQLite 关系模型对 CLI 更务实                                                                      |
+| **3. SCIP 混合索引**    | 可选 SCIP + Tree-sitter overlay                                                      | **中** → "SCIP 验证/覆盖 heuristic edges"的模式可作为未来 **strict mode** 的设计参考                 |
+| **4. Watcher 增量更新** | `watchdog` 轮询/事件驱动；2s debounce；**O(k) 邻居重链接**                   | **高** → CGC 的 "query neighbors before delete" 是 watch 模式的最佳实践                                    |
+| **5. Bundle 系统**      | `.cgc` ZIP 预索引图快照                                                            | **低** → 我们的 SQLite cache 已是等价物                                                                    |
+| **6. 路径规范化**       | `Path(p).resolve().as_posix()` 强制正斜杠                                          | **高** → **stark warning**。已审计并修复 `path.js` 跨平台路径回归，防范 Windows 反斜杠查询静默失败 |
+| **7. API/MCP 层**       | FastAPI + MCP SSE server                                                             | **低** → 明确排除，保持 CLI-only                                                                           |
+| **8. 测试策略**         | Golden tests；E2E parity tests                                                       | **高** → 计划引入 parser golden snapshot 测试和路径回归测试                                                |
 
 ### code-review-graph 架构探索摘要
 
-| 维度 | CRG 核心做法 | 对 workspace-bridge 的借鉴价值 |
-| :--- | :--- | :--- |
-| **1. 整体定位** | Python MCP server，tree-sitter + SQLite | **中** → 验证了 "tree-sitter + SQLite + impact radius" 方向的市场价值 |
-| **2. 核心图模型** | 节点 = `File`/`Class`/`Function`，边 = `CALLS`/`IMPORTS_FROM`等；递归 CTE 查找 | **高** → SQLite recursive CTE 做 BFS，可评估迁移以减少 JS-side BFS 内存占用 |
-| **3. Leiden 聚类** | igraph 依赖， co-change cohesion 计算 | **中** → 可直接用于增强 `audit-boundaries` 目录划分 |
-| **4. Risk Scoring** | 5 维度加法模型（flow + community + test + security + caller），max 聚合 | **高** → 直接对应 Wave 11-4 "统一 risk scoring（5 维度）" |
+| 维度                      | CRG 核心做法                                                                            | 对 workspace-bridge 的借鉴价值                                                     |
+| :------------------------ | :-------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------- |
+| **1. 整体定位**     | Python MCP server，tree-sitter + SQLite                                                 | **中** → 验证了 "tree-sitter + SQLite + impact radius" 方向的市场价值       |
+| **2. 核心图模型**   | 节点 =`File`/`Class`/`Function`，边 = `CALLS`/`IMPORTS_FROM`等；递归 CTE 查找 | **高** → SQLite recursive CTE 做 BFS，可评估迁移以减少 JS-side BFS 内存占用 |
+| **3. Leiden 聚类**  | igraph 依赖， co-change cohesion 计算                                                   | **中** → 可直接用于增强 `audit-boundaries` 目录划分                       |
+| **4. Risk Scoring** | 5 维度加法模型（flow + community + test + security + caller），max 聚合                 | **高** → 直接对应 Wave 11-4 "统一 risk scoring（5 维度）"                   |
 
 ### qartez-mcp 架构探索摘要
 
-| 维度 | qartez 核心做法 | 对 workspace-bridge 的借鉴价值 |
-| :--- | :--- | :--- |
-| **1. 整体架构** | Rust MCP server + CLI 双模式，SQLite WAL+mmap | **中** → `OutputFormat` 枚举设计更干净 |
-| **2. 解析与图构建** | shape hash；`owner_type`/`parent_idx` 捕获 | **高** → 强化 `functionRecords`/`exportRecords` 以改善方法重载消解（method disambiguation） |
-| **3. Scope Resolution** | 6 层启发式逻辑；`via_method_syntax` 规避泛型迭代器 | **高** → `via_method_syntax` 防止类似 `map`/`filter` 的迭代器方法在 JS 中产生大量跨文件 false edges |
-| **4. Workspace/Monorepo** | 自动解析包管理器配置文件中的 workspace 定义 | **中** → 对应 Wave 14-4 自动发现 |
-| **5. ParseCache 与增量** | Workspace fingerprint 级别的冷启动跳过 | **高** → 替代逐文件 mtime 检查，实现 cold-start 秒级跳过 |
+| 维度                            | qartez 核心做法                                      | 对 workspace-bridge 的借鉴价值                                                                                   |
+| :------------------------------ | :--------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------- |
+| **1. 整体架构**           | Rust MCP server + CLI 双模式，SQLite WAL+mmap        | **中** → `OutputFormat` 枚举设计更干净                                                                  |
+| **2. 解析与图构建**       | shape hash；`owner_type`/`parent_idx` 捕获       | **高** → 强化 `functionRecords`/`exportRecords` 以改善方法重载消解（method disambiguation）           |
+| **3. Scope Resolution**   | 6 层启发式逻辑；`via_method_syntax` 规避泛型迭代器 | **高** → `via_method_syntax` 防止类似 `map`/`filter` 的迭代器方法在 JS 中产生大量跨文件 false edges |
+| **4. Workspace/Monorepo** | 自动解析包管理器配置文件中的 workspace 定义          | **中** → 对应 Wave 14-4 自动发现                                                                          |
+| **5. ParseCache 与增量**  | Workspace fingerprint 级别的冷启动跳过               | **高** → 替代逐文件 mtime 检查，实现 cold-start 秒级跳过                                                  |
 
 ### 借鉴优先级与 Wave 映射
 
-| 优先级 | 借鉴点 | 对应 Wave | 预计改动文件 | 设计参考 |
-| :--- | :--- | :--- | :--- | :--- |
-| **P0** | 1-hop 边界扩展增量更新 | 15-4 | `builder.js` | ✅ 已交付 (GitNexus 模式) |
-| **P0** | 框架检测 query 化 | 15-2 | `framework-patterns.js` | ✅ 已交付 (Java/Kotlin/Python/JS) |
-| **P1** | 语言注册表显式契约 | 13-1 | `parsers/registry.js` | ✅ 已交付 (GitNexus 模式) |
-| **P1** | Edge evidence traces | 强化 Wave 10 | `builder.js`, `graph-db.js` | ⏳ 规划中 |
-| **P2** | Graph-first 路由提取 | 修复 L3 | `builder.js`, `persistence.js` | **方向 2（待开发）** |
-| **P3** | Parser golden snapshot 测试 | 补测试 | `test/` | ⏳ 规划中 |
+| 优先级       | 借鉴点                      | 对应 Wave    | 预计改动文件                       | 设计参考                          |
+| :----------- | :-------------------------- | :----------- | :--------------------------------- | :-------------------------------- |
+| **P0** | 1-hop 边界扩展增量更新      | 15-4         | `builder.js`                     | ✅ 已交付 (GitNexus 模式)         |
+| **P0** | 框架检测 query 化           | 15-2         | `framework-patterns.js`          | ✅ 已交付 (Java/Kotlin/Python/JS) |
+| **P1** | 语言注册表显式契约          | 13-1         | `parsers/registry.js`            | ✅ 已交付 (GitNexus 模式)         |
+| **P1** | Edge evidence traces        | 强化 Wave 10 | `builder.js`, `graph-db.js`    | ⏳ 规划中                         |
+| **P2** | Graph-first 路由提取        | 修复 L3      | `builder.js`, `persistence.js` | **方向 2（待开发）**        |
+| **P3** | Parser golden snapshot 测试 | 补测试       | `test/`                          | ⏳ 规划中                         |
 
 ### Route B 实战验证（本轮新增）
 
 > **目标**：验证 workspace-bridge 的输出是否足以让 AI agent 在真实项目中做修改决策。
 > 详见完整报告：`scratch/gitnexus-validation-report.md`
 
-**验证对象**：`reference/GitNexus`（TypeScript，1290 文件）  
+**验证对象**：`reference/GitNexus`（TypeScript，1290 文件）
 **聚焦文件**：`gitnexus/src/core/ingestion/scope-resolution/scope/walkers.ts`（30 直接依赖，最近 #2038 大重构涉及）
 
 **关键发现**：
 
-| 维度 | 结果 | 评估 |
-| :--- | :--- | :--- |
-| 依赖图准确性 | `impact` = 63 文件，`affected-tests` = 27 个测试，symbol-level 导入细节准确 | ✅ 高价值 |
-| 循环依赖风险 | `cycles = 0` | ✅ 无风险 |
-| 解析完整性 | `coverageRatio = 1.00` | ✅ 可信 |
-| 验证命令建议 | `audit-file` 的 `validationAdvice.commands.focused/full` 为空，仅建议 `git diff --check` | ❌ 最后一英里断裂 |
-| 启发式误报 | `csharp-hooks.test.ts` 因注释中提到 `lookupBindingsAt` 被 `mention:stem` 算入 affected tests | ⚠️ 低置信度噪音 |
-| 路由噪音 | `affectedRoutes` 包含测试文件中的 Express 路由，未区分 `src/` vs `test/` | ⚠️ 相关性低 |
+| 维度         | 结果                                                                                               | 评估              |
+| :----------- | :------------------------------------------------------------------------------------------------- | :---------------- |
+| 依赖图准确性 | `impact` = 63 文件，`affected-tests` = 27 个测试，symbol-level 导入细节准确                    | ✅ 高价值         |
+| 循环依赖风险 | `cycles = 0`                                                                                     | ✅ 无风险         |
+| 解析完整性   | `coverageRatio = 1.00`                                                                           | ✅ 可信           |
+| 验证命令建议 | `audit-file` 的 `validationAdvice.commands.focused/full` 为空，仅建议 `git diff --check`     | ❌ 最后一英里断裂 |
+| 启发式误报   | `csharp-hooks.test.ts` 因注释中提到 `lookupBindingsAt` 被 `mention:stem` 算入 affected tests | ⚠️ 低置信度噪音 |
+| 路由噪音     | `affectedRoutes` 包含测试文件中的 Express 路由，未区分 `src/` vs `test/`                     | ⚠️ 相关性低     |
 
 **验证结果**：
+
 - ✅ `audit-file` 现在会生成 `node-direct-tests` / `python-direct-tests` 等 focused 命令（复用 `generateCommands` 的 `run-direct-tests` step）。
 - ✅ `pickSuggestedCommand` 优先推荐 `direct-tests`，AI 拿到输出后可直接执行。
 - ⚠️ GitNexus 根目录未检测到 vitest（子包在 `gitnexus/`），命令回退为 `npm run test`；这是 stack-detector 的 monorepo 边界问题，非本次修复范围。
 
 **验证结果**：
+
 - ✅ `affected-tests` `mention` 启发式现在在匹配前会按语言族去除注释（C-family / Python / Ruby），`csharp-hooks.test.ts` 这种仅注释引用的情况不再被误报。
 - ⚠️ 旧缓存可能仍保留修复前的 mention 结果；新缓存或 `--cache-dir` 刷新后生效。
 
 **验证结果**：
+
 - ✅ `impact.affectedRoutes` 现在为每条路由附加 `source: 'src' | 'test'`，AI 消费者可直接过滤掉测试夹具路由。
 - 实现路径：`src/services/dep-graph/query.js` 在 SQLite CTE 快速路径和内存 BFS 回退路径统一通过 `isTestLikeFile()` 计算 `source`。
 
@@ -301,51 +310,54 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 **聚焦文件**：`src/guard.rs`（35 直接依赖，14 个 affected tests）
 
-| 维度 | 结果 | 评估 |
-| :--- | :--- | :--- |
-| 依赖图准确性 | `impact` = 35 文件，`affected-tests` = 14 个测试，symbol-level 准确 | ✅ 高价值 |
+| 维度         | 结果                                                                                              | 评估              |
+| :----------- | :------------------------------------------------------------------------------------------------ | :---------------- |
+| 依赖图准确性 | `impact` = 35 文件，`affected-tests` = 14 个测试，symbol-level 准确                           | ✅ 高价值         |
 | 验证命令建议 | `audit-file` 生成 `cargo test server::tools::test_gaps`，但 13 个 `tests/*.rs` 集成测试丢失 | ❌ 最后一英里断裂 |
-| 死导出 | `deadExports = 113`，大量 `pub` 项为库公共 API 误报 | ⚠️ 已知限制 |
-| 解析完整性 | `coverageRatio = 0.91`，19 个 Rust 测试文件 regex fallback | ⚠️ 可接受 |
+| 死导出       | `deadExports = 113`，大量 `pub` 项为库公共 API 误报                                           | ⚠️ 已知限制     |
+| 解析完整性   | `coverageRatio = 0.91`，19 个 Rust 测试文件 regex fallback                                      | ⚠️ 可接受       |
 
 **验证结果**：
+
 - ✅ Rust focused/direct 命令现在拆分单元模块与集成测试：`cargo test <module>` 与 `cargo test --test <stem>`，14 个 affected tests 全部可执行。
 
 **验证结果**：
+
 - ✅ Rust 库公共 API 死导出误报已修复。`src/lib.rs` 通过 `pub mod` 链式公开的模块中，`pub` 未使用项会被标记为 `rust-public-api` 并降级为 `low` confidence，不再驱动仓库级 severity。
 - 在 `reference/qartez-mcp` 上：113 个死导出候选中 75 个被正确识别为公共 API 误报并降级。
 
 **Route B 扩展验证：ai_zcypg_backend（Java Spring Boot，395 文件）**
 
-**聚焦文件**：`aizcypg-biz/src/main/java/com/aizcypg/biz/controller/PolicyMissingController.java`  
-**真实任务**：实现 `checkMissing` 方法 TODO（`/policy/policies/{policyId}/missing-check` 缺漏检查逻辑）  
+**聚焦文件**：`aizcypg-biz/src/main/java/com/aizcypg/biz/controller/PolicyMissingController.java`
+**真实任务**：实现 `checkMissing` 方法 TODO（`/policy/policies/{policyId}/missing-check` 缺漏检查逻辑）
 **完整报告**：`scratch/route-b-report-ai-zcypg-backend.md`
 
-| 维度 | 结果 | 评估 |
-| :--- | :--- | :--- |
-| 解析完整性 | `coverageRatio = 1.00`（395/395） | ✅ 可信 |
-| 框架识别 | `spring-controller-file` / `isEntry=true` | ✅ 高价值 |
-| 依赖图准确性 | `impact` = 13 文件，但全为同包 Controller 可见性误报；全项目搜索无真实 `PolicyMissingController` 引用 | ❌ **核心误报** |
-| 路由噪音 | `affectedRoutes` 包含 30+ 条路由，大量来自被误报的 Controller | ⚠️ 噪音高 |
-| 验证命令 | `mvn -q -Dtest=*Test test`，但项目无 `src/test/java` | ❌ 不匹配实际 |
-| symbolImpact | 10 个符号全部 `dependentsCount=0` | ⚠️ Java Spring DI/反射无法静态解析 |
+| 维度         | 结果                                                                                                      | 评估                                 |
+| :----------- | :-------------------------------------------------------------------------------------------------------- | :----------------------------------- |
+| 解析完整性   | `coverageRatio = 1.00`（395/395）                                                                       | ✅ 可信                              |
+| 框架识别     | `spring-controller-file` / `isEntry=true`                                                             | ✅ 高价值                            |
+| 依赖图准确性 | `impact` = 13 文件，但全为同包 Controller 可见性误报；全项目搜索无真实 `PolicyMissingController` 引用 | ❌**核心误报**                 |
+| 路由噪音     | `affectedRoutes` 包含 30+ 条路由，大量来自被误报的 Controller                                           | ⚠️ 噪音高                          |
+| 验证命令     | `mvn -q -Dtest=*Test test`，但项目无 `src/test/java`                                                  | ❌ 不匹配实际                        |
+| symbolImpact | 10 个符号全部`dependentsCount=0`                                                                        | ⚠️ Java Spring DI/反射无法静态解析 |
 
 **Route B 第二轮验证：ai_zcypg_backend / PolicyChatController.java**
 
-**聚焦文件**：`aizcypg-biz/src/main/java/com/aizcypg/biz/controller/PolicyChatController.java`  
-**真实任务**：实现 `callAiForAnswer` 方法 TODO（对接 Dify 聊天 API）  
+**聚焦文件**：`aizcypg-biz/src/main/java/com/aizcypg/biz/controller/PolicyChatController.java`
+**真实任务**：实现 `callAiForAnswer` 方法 TODO（对接 Dify 聊天 API）
 **完整报告**：`scratch/route-b-report-ai-zcypg-backend-02.md`
 
-| 维度 | 结果 | 评估 |
-| :--- | :--- | :--- |
-| 上一轮修复持续性 | 13 个 impact 全部 `implicit-same-package` | ✅ 修复稳定 |
-| 验证命令 | 修复前：`mvn -q -Dtest=*Test test`；修复后：`mvn -q -DskipTests compile` / `package` | ✅ 已修复 |
-| 路由噪音 | `affectedRoutes` 30+ 条，已按 direct 和 non-implicit 排序并过滤/分组 | ✅ 已修复 |
-| symbolImpact | 已追加 Java Spring DI 限制说明注解 | ✅ 已修复 |
-| 多模块命令 | 模块路径已正常识别并追加 `-pl` 与 `-am` 参数 | ✅ 已修复 |
-| `--cwd` 子目录行为 | 子目录下运行 `--cwd` 被自动提升至 Git 根目录 | ✅ **本轮修复**（`strictCwd` 默认开启，Git 路径自动相对映射与过滤） |
+| 维度                 | 结果                                                                                       | 评估                                                                       |
+| :------------------- | :----------------------------------------------------------------------------------------- | :------------------------------------------------------------------------- |
+| 上一轮修复持续性     | 13 个 impact 全部`implicit-same-package`                                                 | ✅ 修复稳定                                                                |
+| 验证命令             | 修复前：`mvn -q -Dtest=*Test test`；修复后：`mvn -q -DskipTests compile` / `package` | ✅ 已修复                                                                  |
+| 路由噪音             | `affectedRoutes` 30+ 条，已按 direct 和 non-implicit 排序并过滤/分组                     | ✅ 已修复                                                                  |
+| symbolImpact         | 已追加 Java Spring DI 限制说明注解                                                         | ✅ 已修复                                                                  |
+| 多模块命令           | 模块路径已正常识别并追加`-pl` 与 `-am` 参数                                            | ✅ 已修复                                                                  |
+| `--cwd` 子目录行为 | 子目录下运行`--cwd` 被自动提升至 Git 根目录                                              | ✅**本轮修复**（`strictCwd` 默认开启，Git 路径自动相对映射与过滤） |
 
 **剩余缺口**：
+
 - Route B 实战验证发现的所有 7 个消费体验缺口已全部修复并验证通过。
 - `--cwd` 子目录限制分析已完美支持。
 - 配置文件的非阻塞警告（warnings 收集）已完成支持，且跨平台路径归一化回归测试套件 100% PASS。
@@ -357,56 +369,57 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ### 候选方向状态（更新于 2026-07-02）
 
-*   **方向 1：Java / Kotlin 框架检测 Query 化**
-    *   **状态**：✅ 已于 2026-06-13 交付。
-    *   **内容**：新建了 `java-spring.js`、`java-spring-boot.js`、`kt-spring.js`、`kt-ktor.js` 动态 Query 模块，并完成注册与测试。
+* **方向 1：Java / Kotlin 框架检测 Query 化**
 
-*   **方向 2：Graph-first 路由提取升级**
-    *   **状态**：✅ 已于 2026-06-17 交付。
-    *   **内容**：实现了通过 SQLite 递归 CTE 直接进行图查询获取 affectedRoutes，避免了全量 BFS 或 disk source-scan 开销；补全了 cache.js 中的 saveRoutes 等持久化方法与测试。
+  * **状态**：✅ 已于 2026-06-13 交付。
+  * **内容**：新建了 `java-spring.js`、`java-spring-boot.js`、`kt-spring.js`、`kt-ktor.js` 动态 Query 模块，并完成注册与测试。
+* **方向 2：Graph-first 路由提取升级**
 
-*   **方向 3：CLI 可测试化入口**
-    *   **状态**：✅ 已交付（`cli.js` 已导出 `runCliInProcess()`）。
-    *   **遗留**：大量测试仍使用 child process spawn，迁移率低；文档中曾仍列为待开发，已修正。
+  * **状态**：✅ 已于 2026-06-17 交付。
+  * **内容**：实现了通过 SQLite 递归 CTE 直接进行图查询获取 affectedRoutes，避免了全量 BFS 或 disk source-scan 开销；补全了 cache.js 中的 saveRoutes 等持久化方法与测试。
+* **方向 3：CLI 可测试化入口**
 
-*   **方向 4：策展可信度（Wave C）**
-    *   **状态**：✅ 已于 2026-06-14 交付。
-    *   **已完成**：动态 registry 模块已纳入 orphan 可达性（#11）；`SHADOW_EXTS` 等已知误报已排除 severity（#12）；个人仓库 knowledge risk 已关闭/降级（#14）；默认 overview 已不再跑逐文件 blame（#10）；REPL `top` 等架构指标默认排除 test→source 边（#13）。
+  * **状态**：✅ 已交付（`cli.js` 已导出 `runCliInProcess()`）。
+  * **遗留**：大量测试仍使用 child process spawn，迁移率低；文档中曾仍列为待开发，已修正。
+* **方向 4：策展可信度（Wave C）**
 
-*   **方向 5：Agent 产品形态（Wave D）**
-    *   **状态**：🔄 部分交付，中优先级。
-    *   **已完成**：`--quiet` 下 SQLite warning 泄漏已修复（#9）；`workspace-info` 已改为真正轻量命令（#15），实测 `<1s`；默认 `audit-overview` 已跳过逐文件 blame（#10），热缓存从 ~56s 降至 ~16s。
-    *   **已完成（本轮）**：配置文件 `.workspace-bridge.json` 语法与未知参数校验从致命报错改写为非阻塞的 `config-warning`，在 final output warnings[] 数组中反馈。
-    *   **已完成（本轮）**：大仓库索引进度可视化——`ServiceContainer` 输出阶段进度，`FileIndex` 输出百分比进度并发出 `progress` 事件，解决用户不知道是在工作还是卡住的问题。
-    *   **已完成（本轮）**：聚合快照缓存命中修复——`overview-tools.js` 与 `query-tools.js` 的 `isSnapshotFresh` 统一跳过 content-change 检查；`audit-overview` 核心计算从 ~5s 压到 ~10ms，`query-stability` / `query-knowledge-risk` 热缓存 ~2s，`query-hotspots` 核心查询逻辑 ~10ms。
-    *   **已完成（本轮）**：`skills/workspace-audit/SKILL.md` 按层级重组，从 333 行精简到 ~112 行，保留"默认参数 / 核心决策树 / 何时不用 / 预热工作流 / 安全清单"。
-    *   **待完成**：继续降低端到端 CLI 耗时（当前受 container 初始化 ~1.5s 制约）和默认输出 JSON 体积（当前 ~15KB，目标 <8KB）。
+  * **状态**：✅ 已于 2026-06-14 交付。
+  * **已完成**：动态 registry 模块已纳入 orphan 可达性（#11）；`SHADOW_EXTS` 等已知误报已排除 severity（#12）；个人仓库 knowledge risk 已关闭/降级（#14）；默认 overview 已不再跑逐文件 blame（#10）；REPL `top` 等架构指标默认排除 test→source 边（#13）。
+* **方向 5：Agent 产品形态（Wave D）**
+
+  * **状态**：🔄 部分交付，中优先级。
+  * **已完成**：`--quiet` 下 SQLite warning 泄漏已修复（#9）；`workspace-info` 已改为真正轻量命令（#15），实测 `<1s`；默认 `audit-overview` 已跳过逐文件 blame（#10），热缓存从 ~56s 降至 ~16s。
+  * **已完成（本轮）**：配置文件 `.workspace-bridge.json` 语法与未知参数校验从致命报错改写为非阻塞的 `config-warning`，在 final output warnings[] 数组中反馈。
+  * **已完成（本轮）**：大仓库索引进度可视化——`ServiceContainer` 输出阶段进度，`FileIndex` 输出百分比进度并发出 `progress` 事件，解决用户不知道是在工作还是卡住的问题。
+  * **已完成（本轮）**：聚合快照缓存命中修复——`overview-tools.js` 与 `query-tools.js` 的 `isSnapshotFresh` 统一跳过 content-change 检查；`audit-overview` 核心计算从 ~5s 压到 ~10ms，`query-stability` / `query-knowledge-risk` 热缓存 ~2s，`query-hotspots` 核心查询逻辑 ~10ms。
+  * **已完成（本轮）**：`skills/workspace-audit/SKILL.md` 按层级重组，从 333 行精简到 ~112 行，保留"默认参数 / 核心决策树 / 何时不用 / 预热工作流 / 安全清单"。
+  * **待完成**：继续降低端到端 CLI 耗时（当前受 container 初始化 ~1.5s 制约）和默认输出 JSON 体积（当前 ~15KB，目标 <8KB）。
 
 ---
 
 ### 多语言框架检测与路由提取支持矩阵
 
-| 语言 | 框架 | 框架检测方式 | 已有 route-extraction query？ |
-| :--- | :--- | :--- | :--- |
-| JS/TS | NestJS | regex (`AST_PATTERNS`) | ✅ `js-nestjs.js` |
-| | Vue / Vue-router | ✅ AST-Query (`js-vue.js`) | ❌ |
-| | Nuxt | 路径推断 + route query | ✅ `js-nuxt.js` |
-| | SvelteKit | 路径推断 + route query | ✅ `js-sveltekit.js` |
+| 语言   | 框架                              | 框架检测方式                                                                             | 已有 route-extraction query？                                                 |
+| :----- | :-------------------------------- | :--------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------- |
+| JS/TS  | NestJS                            | regex (`AST_PATTERNS`)                                                                 | ✅`js-nestjs.js`                                                            |
+|        | Vue / Vue-router                  | ✅ AST-Query (`js-vue.js`)                                                             | ❌                                                                            |
+|        | Nuxt                              | 路径推断 + route query                                                                   | ✅`js-nuxt.js`                                                              |
+|        | SvelteKit                         | 路径推断 + route query                                                                   | ✅`js-sveltekit.js`                                                         |
 | Python | Django / FastAPI / Flask / Celery | ✅ AST-Query (`py-django.js` / `py-fastapi.js` / `py-flask.js` / `py-celery.js`) | ✅ Django / FastAPI (`py-django.js` / `py-fastapi.js`); ❌ Flask / Celery |
-| Java | Spring / Spring Boot | ✅ AST-Query (`java-spring.js` / `java-spring-boot.js`) | ✅ `java-spring.js` |
-| | Quartz | regex | ❌ |
-| | MyBatis | regex | ❌ |
-| Kotlin | Spring-Kotlin | ✅ AST-Query (`kt-spring.js`) | ❌（复用 Java route） |
-| | Ktor | ✅ AST-Query (`kt-ktor.js`) | ❌ |
-| Go | Gin | ✅ AST-Query (`go-gin.js`) | ✅ `go-gin.js` |
-| | Echo | ✅ AST-Query (`go-echo.js`) | ❌ |
-| | Fiber | ✅ AST-Query (`go-fiber.js`) | ✅ `go-fiber.js` |
-| Rust | Actix-web | ✅ AST-Query (`rs-actix.js`) | ✅ `rs-actix.js` |
-| | Axum | ✅ AST-Query (`rs-axum.js`) | ✅ `rs-axum.js` |
-| | Rocket | ✅ AST-Query (`rs-rocket.js`) | ❌ |
-| C/C++ | 无特定框架标签 | 纯路径推断 | ❌ |
-| Svelte | Svelte / SvelteKit | ✅ AST-Query (`js-svelte.js`) | ✅ `js-sveltekit.js` |
-| Vue | Vue 组件 / Vue-router | ✅ AST-Query (`js-vue.js`) | ❌ |
+| Java   | Spring / Spring Boot              | ✅ AST-Query (`java-spring.js` / `java-spring-boot.js`)                              | ✅`java-spring.js`                                                          |
+|        | Quartz                            | regex                                                                                    | ❌                                                                            |
+|        | MyBatis                           | regex                                                                                    | ❌                                                                            |
+| Kotlin | Spring-Kotlin                     | ✅ AST-Query (`kt-spring.js`)                                                          | ❌（复用 Java route）                                                         |
+|        | Ktor                              | ✅ AST-Query (`kt-ktor.js`)                                                            | ❌                                                                            |
+| Go     | Gin                               | ✅ AST-Query (`go-gin.js`)                                                             | ✅`go-gin.js`                                                               |
+|        | Echo                              | ✅ AST-Query (`go-echo.js`)                                                            | ❌                                                                            |
+|        | Fiber                             | ✅ AST-Query (`go-fiber.js`)                                                           | ✅`go-fiber.js`                                                             |
+| Rust   | Actix-web                         | ✅ AST-Query (`rs-actix.js`)                                                           | ✅`rs-actix.js`                                                             |
+|        | Axum                              | ✅ AST-Query (`rs-axum.js`)                                                            | ✅`rs-axum.js`                                                              |
+|        | Rocket                            | ✅ AST-Query (`rs-rocket.js`)                                                          | ❌                                                                            |
+| C/C++  | 无特定框架标签                    | 纯路径推断                                                                               | ❌                                                                            |
+| Svelte | Svelte / SvelteKit                | ✅ AST-Query (`js-svelte.js`)                                                          | ✅`js-sveltekit.js`                                                         |
+| Vue    | Vue 组件 / Vue-router             | ✅ AST-Query (`js-vue.js`)                                                             | ❌                                                                            |
 
 ---
 
@@ -430,15 +443,16 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 > 以下结论来自对当前实现的一次审问式复盘，用于修正文档中可能过于自满的描述。
 
-| 原判断 | 修正后判断 | 依据 |
-| :--- | :--- | :--- |
+| 原判断                            | 修正后判断                                                                                                                                                                                                       | 依据                   |
+| :-------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------- |
 | `dep-graph.js` 是“单概念”门面 | **单主契约 + 邻近消费者**：`dep-graph.js:39` 只是门面，真实契约分散在 `builder.js:114`、`analyzer.js:339`、`query.js:40`；同包可见性修正 `450986d` 跨 3 个文件，路由修正 `2fc3340` 跨 2 个文件 | 近期修复实际跨多个文件 |
-| resolver 策略链是隐式全局状态 | **显式有序策略链**：`registry.js:18` + `resolvers.js:65` 按注册顺序命中即停；顺序本身就是契约 | 代码结构明确 |
-| dead exports 11/12 命中证明可靠 | **只证明 precision，不证明 recall**：现有测试验证高置信命中与 FP 降级，但没有 ground-truth 语料计算漏报率 | 测试覆盖的是保守性 |
-| 增量更新是否真实有效 | **真实增量**：`cache.js:673` mtime+size → SHA-256 双路径；`builder.js:699` 只重建 changed files、1-hop dependents、Java 包扩展；query snapshot 宽松 freshness 是设计选择 | 多份测试覆盖 |
-| 9 语言测试是否充分 | **强于 happy path，弱于全面证明**：已有 Java 同包、增量更新、缓存精度、删除清理等语义回归，但缺少系统性的 resolver 冲突表驱动测试和 ground-truth recall 语料 | 测试矩阵现状 |
+| resolver 策略链是隐式全局状态     | **显式有序策略链**：`registry.js:18` + `resolvers.js:65` 按注册顺序命中即停；顺序本身就是契约                                                                                                          | 代码结构明确           |
+| dead exports 11/12 命中证明可靠   | **只证明 precision，不证明 recall**：现有测试验证高置信命中与 FP 降级，但没有 ground-truth 语料计算漏报率                                                                                                  | 测试覆盖的是保守性     |
+| 增量更新是否真实有效              | **真实增量**：`cache.js:673` mtime+size → SHA-256 双路径；`builder.js:699` 只重建 changed files、1-hop dependents、Java 包扩展；query snapshot 宽松 freshness 是设计选择                              | 多份测试覆盖           |
+| 9 语言测试是否充分                | **强于 happy path，弱于全面证明**：已有 Java 同包、增量更新、缓存精度、删除清理等语义回归，但缺少系统性的 resolver 冲突表驱动测试和 ground-truth recall 语料                                               | 测试矩阵现状           |
 
 **后续两个最值钱补强方向**：
+
 1. **Resolver 冲突表驱动测试**：明确“同一 import 在不同策略顺序下谁赢”。
 2. **Dead exports ground-truth 语料**：至少能同时报告 precision 和 recall，而不是只报高置信命中。
 

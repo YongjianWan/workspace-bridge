@@ -23,6 +23,7 @@ node cli.js audit-overview --cwd . --json --quiet
 ```
 
 可选诊断工具：
+
 ```bash
 pip install ruff pyright        # Python
 pip install javalang            # Java AST（缺失时自动回退到 regex）
@@ -47,6 +48,7 @@ node cli.js repl --cwd . --eval "impact src/app.js"  # 非交互单命令（AI/C
 Java 解析默认优先走 AST；如果本机没有安装 `javalang`，Java parser 会自动回退到 regex。这个退化是可用的，但 AST 级字段和 golden snapshot 不应被当成已启用状态来解读。
 
 当前结论：
+
 - `dead-exports` 已有最小 ground-truth smoke，但它证明的是 corpus-level 的 precision/recall，而不是全局召回率。
 - resolver 的真实风险是顺序语义；`alias`、`symbol-table`、fallback 的优先级变化必须用冲突矩阵锁住。
 - Java AST 的前提依赖是 `javalang`；缺失时应按 degraded mode 读结果，而不是把 fallback 当回归。
@@ -65,22 +67,22 @@ Java 解析默认优先走 AST；如果本机没有安装 `javalang`，Java pars
 }
 ```
 
-| 字段 | 作用 |
-|------|------|
-| `archive` | 归档/历史代码目录，不参与主线分析和死代码检测 |
-| `reference` | 参考实现/示例代码，不视为项目主线 |
-| `generated` | 构建产物/生成代码，跳过孤儿文件和死代码检测 |
+| 字段          | 作用                                          |
+| ------------- | --------------------------------------------- |
+| `archive`   | 归档/历史代码目录，不参与主线分析和死代码检测 |
+| `reference` | 参考实现/示例代码，不视为项目主线             |
+| `generated` | 构建产物/生成代码，跳过孤儿文件和死代码检测   |
 
 完整命令契约与使用指南见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)。
 
 ## 适用场景
 
-| 项目规模 | 推荐度 | 注意事项 |
-|----------|--------|----------|
-| 小型（<100文件） | ✅ 推荐 | 直接使用 |
-| 中型（100-500文件） | ✅ 可用 | 使用 `--exclude` 过滤参考目录 |
-| 大型（>500文件） | ⚠️ 谨慎 | 首次索引较慢，建议定期清理缓存 |
-| 混合仓库 | ⚠️ 需配置 | 创建 `.workspace-bridge.json` 标注目录角色 |
+| 项目规模            | 推荐度      | 注意事项                                    |
+| ------------------- | ----------- | ------------------------------------------- |
+| 小型（<100文件）    | ✅ 推荐     | 直接使用                                    |
+| 中型（100-500文件） | ✅ 可用     | 使用`--exclude` 过滤参考目录              |
+| 大型（>500文件）    | ⚠️ 谨慎   | 首次索引较慢，建议定期清理缓存              |
+| 混合仓库            | ⚠️ 需配置 | 创建`.workspace-bridge.json` 标注目录角色 |
 
 ## 相关文档
 

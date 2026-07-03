@@ -273,11 +273,11 @@ class GraphAnalyzer {
   }
 
   precomputeAggregates() {
-    // If a persistent aggregate was loaded and the graph size hasn't changed,
-    // skip recomputation and reuse the loaded cache.
-    if (this._aggregateCache && this._aggregateCache.stats?.files === this.dg.graph.size) {
-      return;
-    }
+    // Always recompute on graph:built — file count alone is not a reliable
+    // staleness signal because edges (imports) can change while file count
+    // stays the same. A stale aggregate cache can cause audit-overview to
+    // report different cycle/dead-export counts than L4 atomic commands,
+    // which is a correctness violation (L1-4: 静默错误必须是显式的).
     const deadExports = this.findDeadExports({ skipCache: true, raw: true });
     const unresolved = this.findUnresolvedImports({ skipCache: true, raw: true });
     const cycles = this.findCircularDependencies({ skipCache: true });

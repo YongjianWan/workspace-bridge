@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+### precomputeAggregates 不再按文件数跳过重算 (2026-07-03)
+
+- **Fixed** `analyzer.js` `precomputeAggregates()` which previously had an early-return guard: if `_aggregateCache.stats.files === this.dg.graph.size`, it skipped recomputation. This caused `audit-overview` and L4 atomic commands (e.g. `cycles`) to return different results when `graph:built` fired multiple times during build — the first call cached a partial result, and subsequent calls were skipped because file count hadn't changed (even though import edges had). Observed on a Python project where `audit-overview` reported 10 cycles while `cycles` reported 0.
+- **Fix**: Removed the early-return guard. `precomputeAggregates()` now always recomputes on `graph:built` — the event itself means data may have changed. File count alone is not a reliable staleness signal.
+- **Relates to**: L1-4 (静默错误必须是显式的) — two commands must not give different answers.
+
 ### Incremental update cache eviction — unified invalidation (2026-07-03)
 
 - **Fixed** `builder.js` `updateFiles()` fast-path cache serving stale exports after file modification.
