@@ -630,6 +630,16 @@ class GraphAnalyzer {
         if (record.isLazy) {
           continue;
         }
+        // Rule 5 (Implicit same-package): Filter out tier3 same-package edges.
+        // Java same-package expansion creates implicit edges between all files
+        // in the same package. These are not real runtime imports and would
+        // otherwise generate thousands of false cycles (e.g., 1006 cycles in
+        // a project where no file actually imports another same-package file).
+        // tier1 (wildcard imports, confidence 1.0) and tier2 (normal imports)
+        // are kept — only tier3 (same-package, confidence 0.3) is excluded.
+        if (record.tier === 'tier3' || record.resolutionMethod === 'java-same-package') {
+          continue;
+        }
       }
 
       // Rule 4 (MVVM/MVC View Boundary)
@@ -654,12 +664,33 @@ class GraphAnalyzer {
     return [...new Set(filtered)];
   }
 
+  /**
+   * Check whether a cycle is composed entirely of same-package implicit edges.
+   * Java same-package expansion (tier3, confidence=0.3) creates edges between
+   * all files in the same package even when no explicit import exists. Cycles
+   * formed solely from these edges are false positives and should not be reported.
+   */
+  _isSamePackageCycle(cycle) {
+    if (!cycle || cycle.length < 2) return false;
+    for (let i = 0; i < cycle.length; i++) {
+      const from = cycle[i];
+      const to = cycle[(i + 1) % cycle.length];
+      const info = this.dg.graph.get(from);
+      if (!info) return false;
+      const record = info.importRecords?.find((r) => r.resolved === to);
+      // If no record found, or the record is NOT same-package implicit, this
+      // edge is a real import — the cycle may be genuine.
+      if (!record || record.tier !== 'tier3') return false;
+    }
+    return true;
+  }
+
   findCircularDependencies(options = {}) {
     // P85: return cached filtered cycles so all consumers see the same data.
     if (!options?.skipCache && this._aggregateCache && this._aggregateCache.version === this._aggregateVersion) {
       return this._aggregateCache.cycles;
     }
-    if (this._cachedCycles) {
+    if (!options?.skipCache && this._cachedCycles) {
       return this._cachedCycles;
     }
 
@@ -797,7 +828,8 @@ class GraphAnalyzer {
     }
 
     const filtered = cycles
-      .filter((cycle) => !(cycle.length <= 2 && cycle[0] === cycle[cycle.length - 1]));
+      .filter((cycle) => !(cycle.length <= 2 && cycle[0] === cycle[cycle.length - 1]))
+      .filter((cycle) => !this._isSamePackageCycle(cycle));
 
     // P89: convert internal graph keys back to original-casing paths for output.
     const displayFiltered = filtered.map((cycle) => cycle.map((f) => this.dg._displayPath(f)));
