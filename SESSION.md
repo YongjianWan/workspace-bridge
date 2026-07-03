@@ -37,7 +37,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**所有测试全部 PASS**；`npm run test:fast` **127/127 PASS**（~19s），`npm run test:smoke` **130/130 PASS**（~40s）。开发迭代首选 `npm run test:fast`；新增 `test/js-destructured-export-test.js`（slow 层，覆盖解构导出符号影响回归）。
+- 测试：**所有测试全部 PASS**；`npm run test:fast` **128/128 PASS**（~19s），`npm run test:smoke` **131/131 PASS**（~40s）。开发迭代首选 `npm run test:fast`；新增 `test/data-quality-contract-test.js`、`test/java-spring-symbol-impact-note-test.js`（fast 层，分别锁定 DataQuality 三态契约与 Spring symbolImpact 降级说明）。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.0.0**（以 `package.json` 为准）
 - 分支：`main`
@@ -378,7 +378,7 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-07-02（聚合快照缓存命中修复；大仓库索引进度可视化；SKILL.md 按层级精简至 ~112 行；配置文件非阻塞校验警告机制上线；新增跨平台路径归一化回归防护测试；全量 `npm run test:fast` 127/127 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-07-03（dead-export ground-truth 扩展、resolver 真实冲突矩阵补强、Java parser golden 环境边界显式化、6/22–7/2 commit 根因归档、DataQuality 与 Spring symbolImpact 回归测试补缺；全量 `npm run test:fast` 128/128 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
 
 ---
 
@@ -398,3 +398,11 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 1. **Resolver 冲突表驱动测试**：明确“同一 import 在不同策略顺序下谁赢”。
 2. **Dead exports ground-truth 语料**：至少能同时报告 precision 和 recall，而不是只报高置信命中。
 
+### 7/3 follow-up
+
+- **已补强**：`test/resolver-strategy-chain-test.js` 现在包含真实的 alias vs symbol-table 冲突矩阵，并清理了注册表测试的 `.custom` / `.matrix` 污染；新增 `testSymbolTableBeatsFallback()` 证明 symbol-table 优先于 fallback。
+- **已扩展**：`test/dead-export-ground-truth-test.js` 已从单文件 smoke 扩到 JS 多文件真值集，覆盖 direct import、barrel re-export、rename re-export、dynamic import 与 test-like negative；明确排除 namespace import 样本并注释原因。
+- **已显式化**：`README.md` 与 `skills/workspace-audit/SKILL.md` 现在均明确写出 `javalang` 是 Java AST 的可选前提，缺失时应把 regex fallback 当成 degraded mode。
+- **已归档**：`scratch/commit-root-cause-archive.md` 完成 8 个 6/22–7/2 关键 commit 的“根因-影响文件-回归测试”三件套梳理。
+- **已补缺**：新增 `test/data-quality-contract-test.js` 锁定 DataQuality 三态契约；新增 `test/java-spring-symbol-impact-note-test.js` 锁定 Spring DI/reflection 降级说明。
+- **仍然成立**：dead-exports 的“recall”只能算 corpus-level smoke，不应被解读成全局证明。

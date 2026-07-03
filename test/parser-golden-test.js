@@ -1,7 +1,10 @@
 // @contract
+// @slow
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
+const { TIMEOUTS } = require('../src/config/constants');
 const {
   parsePython,
   parseJavaScript,
@@ -13,6 +16,17 @@ const {
   parseCpp,
   parseSvelte,
 } = require('../src/services/dep-graph/parsers');
+
+function isJavalangAvailable() {
+  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  const result = spawnSync(pythonCmd, ['-c', 'import javalang; print("ok")'], {
+    encoding: 'utf8',
+    timeout: TIMEOUTS.HEALTH_SHORT_TIMEOUT_MS,
+  });
+  return result.status === 0 && result.stdout.includes('ok');
+}
+
+const JAVALANG_AVAILABLE = isJavalangAvailable();
 
 const fixtures = [
   { lang: 'javascript', file: 'tricky.js', parse: (content, fp) => parseJavaScript(content, fp) },
@@ -76,6 +90,23 @@ async function main() {
 
     const sanitizedResult = sanitize(rawResult, workspaceRoot);
     const goldenFile = path.join(goldenDir, `${fixture.lang}.json`);
+
+    if (fixture.lang === 'java' && !JAVALANG_AVAILABLE) {
+      assert.strictEqual(
+        sanitizedResult.parseMode,
+        'regex',
+        'Java should fall back to regex when javalang is unavailable'
+      );
+      assert(
+        sanitizedResult.exports.includes('TrickyController'),
+        'Java regex fallback should still capture the class export'
+      );
+      assert(
+        sanitizedResult.functionRecords.some((record) => record.name === 'getUsers'),
+        'Java regex fallback should still capture the public method'
+      );
+      continue;
+    }
 
     if (updateMode) {
       fs.writeFileSync(goldenFile, JSON.stringify(sanitizedResult, null, 2), 'utf8');

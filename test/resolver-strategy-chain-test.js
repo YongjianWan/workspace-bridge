@@ -7,6 +7,7 @@ const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const {
   createResolver,
   registerResolverConfig,
+  clearResolverCaches,
   RESOLVER_CONFIGS,
   tryAlias,
   tryRelativeWithExtensions,
@@ -17,8 +18,10 @@ const {
   tryGoModule,
   tryRustCrate,
   tryRustSuper,
+  trySymbolTable,
   resolveImport,
 } = require('../src/services/dep-graph/resolvers');
+const { SymbolRegistry } = require('../src/services/dep-graph/symbol-registry');
 
 // ============================================================================
 // Test: createResolver chain — first non-null wins
@@ -208,6 +211,139 @@ function testRegisterResolverConfig() {
   const strategies = RESOLVER_CONFIGS.get('.custom');
   assert.strictEqual(strategies.length, 1);
   assert.strictEqual(strategies[0](), 'custom-result');
+
+  RESOLVER_CONFIGS.delete('.custom');
+  registerResolverConfig('default', [tryAlias, tryRelativeWithExtensions, trySymbolTable]);
+  clearResolverCaches();
+}
+
+function testResolverConflictMatrix() {
+  clearResolverCaches();
+
+  const defaultStrategyV1 = () => 'default-v1';
+  const defaultStrategyV2 = () => 'default-v2';
+  const matrixStrategyV1 = () => 'matrix-v1';
+  const matrixStrategyV2 = () => 'matrix-v2';
+
+  registerResolverConfig('default', [defaultStrategyV1]);
+  registerResolverConfig('.matrix', [matrixStrategyV1]);
+
+  const unknownBefore = resolveImport('/repo/src/app.js', 'pkg/Thing', '.unknown-matrix', '/repo');
+  const matrixBefore = resolveImport('/repo/src/app.js', 'pkg/Thing', '.matrix', '/repo');
+
+  assert.strictEqual(unknownBefore, 'default-v1', 'unknown extensions should use default resolver');
+  assert.strictEqual(matrixBefore, 'matrix-v1', 'registered extension should use its own strategy chain');
+
+  registerResolverConfig('default', [defaultStrategyV2]);
+  const unknownAfter = resolveImport('/repo/src/app.js', 'pkg/Thing', '.unknown-matrix', '/repo');
+  assert.strictEqual(
+    unknownAfter,
+    'default-v2',
+    're-registering default should invalidate cached fallback resolvers for unknown extensions'
+  );
+
+  registerResolverConfig('.matrix', [matrixStrategyV2]);
+  const matrixAfter = resolveImport('/repo/src/app.js', 'pkg/Thing', '.matrix', '/repo');
+  assert.strictEqual(matrixAfter, 'matrix-v2', 're-registering an extension should refresh its cached resolver');
+
+  RESOLVER_CONFIGS.delete('.matrix');
+  registerResolverConfig('default', [tryAlias, tryRelativeWithExtensions, trySymbolTable]);
+  clearResolverCaches();
+}
+
+function testResolverConflictMatrixRealStrategies() {
+  const dir = makeTempDir('wb-resolver-matrix-');
+  try {
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          baseUrl: '.',
+          paths: {
+            foo: ['src/alias-target'],
+          },
+        },
+      }),
+      'utf8'
+    );
+    fs.writeFileSync(path.join(dir, 'src', 'alias-target.js'), 'export const viaAlias = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'src', 'symbol-target.js'), 'export const foo = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'src', 'consumer.js'), '', 'utf8');
+
+    const registry = new SymbolRegistry();
+    registry.register(path.join(dir, 'src', 'symbol-target.js'), [{ name: 'foo' }]);
+
+    clearResolverCaches();
+    registerResolverConfig('default', [tryAlias, tryRelativeWithExtensions, trySymbolTable]);
+
+    const aliasWins = resolveImport(
+      path.join(dir, 'src', 'consumer.js'),
+      'foo',
+      '.js',
+      dir,
+      registry
+    );
+    assert.strictEqual(
+      aliasWins,
+      path.join(dir, 'src', 'alias-target.js'),
+      'default JS chain should prefer alias before symbol-table fallback'
+    );
+
+    registerResolverConfig('.matrix', [trySymbolTable, tryAlias]);
+    const symbolWins = resolveImport(
+      path.join(dir, 'src', 'consumer.js'),
+      'foo',
+      '.matrix',
+      dir,
+      registry
+    );
+    assert.strictEqual(
+      symbolWins,
+      path.join(dir, 'src', 'symbol-target.js'),
+      'custom chain should be able to flip precedence when symbol-table is first'
+    );
+  } finally {
+    RESOLVER_CONFIGS.delete('.matrix');
+    registerResolverConfig('default', [tryAlias, tryRelativeWithExtensions, trySymbolTable]);
+    clearResolverCaches();
+    cleanupTempDir(dir);
+  }
+}
+
+function testSymbolTableBeatsFallback() {
+  const dir = makeTempDir('wb-resolver-st-fb-');
+  try {
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src', 'symbol-target.js'), 'export const foo = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'src', 'consumer.js'), '', 'utf8');
+
+    const registry = new SymbolRegistry();
+    registry.register(path.join(dir, 'src', 'symbol-target.js'), [{ name: 'foo' }]);
+
+    clearResolverCaches();
+    const fallbackResult = path.join(dir, 'src', 'fallback-would-win.js');
+    const fakeFallback = () => fallbackResult;
+
+    registerResolverConfig('.matrix2', [trySymbolTable, fakeFallback]);
+    const symbolWins = resolveImport(
+      path.join(dir, 'src', 'consumer.js'),
+      'foo',
+      '.matrix2',
+      dir,
+      registry
+    );
+    assert.strictEqual(
+      symbolWins,
+      path.join(dir, 'src', 'symbol-target.js'),
+      'symbol-table should win over a downstream fallback strategy'
+    );
+  } finally {
+    RESOLVER_CONFIGS.delete('.matrix2');
+    registerResolverConfig('default', [tryAlias, tryRelativeWithExtensions, trySymbolTable]);
+    clearResolverCaches();
+    cleanupTempDir(dir);
+  }
 }
 
 // ============================================================================
@@ -310,6 +446,9 @@ function main() {
   testTryRustCrate();
   testTryRustSuper();
   testRegisterResolverConfig();
+  testResolverConflictMatrix();
+  testResolverConflictMatrixRealStrategies();
+  testSymbolTableBeatsFallback();
   testResolveImportFacadeJs();
   testResolveImportFacadePython();
   testResolveImportFacadeJava();

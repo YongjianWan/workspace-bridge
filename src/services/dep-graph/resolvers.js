@@ -64,7 +64,11 @@ const RESOLVER_CONFIGS = new Map();
  */
 function registerResolverConfig(ext, strategies) {
   RESOLVER_CONFIGS.set(ext, strategies);
-  _resolverCache.delete(ext);
+  if (ext === 'default') {
+    _resolverCache.clear();
+  } else {
+    _resolverCache.delete(ext);
+  }
 }
 
 /**

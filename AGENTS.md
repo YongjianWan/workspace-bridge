@@ -65,7 +65,7 @@
 7. **重复即债务** — 同文件内明显重复的逻辑必须提取为纯函数。
    跨文件重复：目标层级已有合适宿主模块则提取，否则标记为债务，不强行新建模块。
    > **触发条件**：发现复制粘贴代码、提取公共逻辑时适用。
-8. **内聚优先** — 文件只做一件事，命名口语化（避免教科书式），注释写"为什么"不写"做什么"。行数不重要——`dep-graph.js` ~1685 行仍保持不物理拆分，因为内部已通过 `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` 实现认知拆分。判断标准：修改时是否只需理解一个概念。
+8. **内聚优先** — 文件只做一件事，命名口语化（避免教科书式），注释写"为什么"不写"做什么"。行数不重要——`dep-graph.js` ~1685 行仍保持不物理拆分，因为内部已通过 `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` 实现认知拆分。判断标准：修改时通常只需理解一个主契约和它的邻近消费者；如果改动同时穿过写入、分析、查询三层，就不要再把它描述成单概念。
    > **触发条件**：新增模块、拆分文件、调整目录结构时适用。
 
 ### 验证与调试
@@ -265,6 +265,10 @@ THEN 拿到结果后必须执行：
 
 ---
 
-*使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-06-30（Route B 在 ai_zcypg_backend 上完成两轮 Java Spring Boot 实战验证，修复 Java 同包可见性误报与无测试项目验证命令降级；L1/L2/架构/L3 债务保持全零；npm run test:fast 126/126 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+**当前判断**：
+- `dead-exports` 已补上最小 ground-truth smoke，能证明 corpus-level 的 precision/recall 检查方式，但不能据此宣称全局召回已证实。
+- resolver 的关键契约是顺序语义而不是状态漂移，`alias` / `symbol-table` / fallback 的优先级变化必须有冲突矩阵保护。
+- Java AST 以 `javalang` 为前提；缺失时是可接受的 degraded mode，不应把 regex fallback 误读为 AST regression。
 
+*使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
+*Last updated: 2026-07-03（dead-export ground-truth corpus 扩展为 JS 多文件真值集，resolver 冲突矩阵补上真实 alias/symbol-table 对撞与 symbol-table > fallback 用例，Java parser golden 对 javalang 缺失显式降级，6/22–7/2 commit 根因归档，DataQuality 三态契约与 Spring symbolImpact 降级说明回归测试补缺；npm run test:fast 128/128 PASS；schemaVersion: 1.2.0；version: 2.0.0）*

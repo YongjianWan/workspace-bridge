@@ -8,6 +8,37 @@
 
 ## [Unreleased]
 
+### Evidence-chain completion for conservative judgments (2026-07-03)
+
+- **Extended** `test/dead-export-ground-truth-test.js` with additional JS corpus samples:
+  - Added rename re-export (`export { usedFn as renamedFn }`), dynamic import usage, and their consumers as known negatives.
+  - Documented that `import * as lib from './lib.js'` is intentionally excluded because the current analyzer conservatively treats namespace imports as consuming every export.
+  - Corpus now reports precision=1 and recall=1 on the supported subset, while honestly stating that global recall remains unproven.
+- **Strengthened** `test/resolver-strategy-chain-test.js` conflict matrix:
+  - Added `testSymbolTableBeatsFallback()` using real `trySymbolTable` and a fake fallback strategy to prove `symbol-table` wins before fallback when ordered first.
+  - All conflict-matrix tests restore the default chain and call `clearResolverCaches()` in `finally` to prevent registry pollution.
+- **Documented** Java AST environment boundary in `skills/workspace-audit/SKILL.md`:
+  - Added troubleshooting row explaining that missing `javalang` triggers regex fallback and that AST golden snapshots should not be compared in that mode.
+- **Archived** 6/22–7/2 critical commit root causes in `scratch/commit-root-cause-archive.md`:
+  - For each of 8 commits: root cause, affected files (by architectural layer), and existing regression tests.
+  - Identified two gaps and closed them with new tests.
+- **Added** `test/data-quality-contract-test.js` to lock the `DATA_QUALITY` three-state contract (`certain`/`degraded`/`unavailable`) and remediation keys.
+- **Added** `test/java-spring-symbol-impact-note-test.js` to assert that Spring / Spring Boot framework hints add the DI/reflection limitation note to `symbolImpact` output.
+
+### Dead-export ground-truth smoke test (2026-07-03)
+
+- **Added** `test/dead-export-ground-truth-test.js` as a minimal precision/recall smoke test for `dead-exports`:
+  - Builds a temp workspace with two positive files (`lib.js`, `orphan.js`) and multiple live negatives (`consumer.js`, `live.test.js`, `barrel.js`, `barrel-consumer.js`).
+  - Verifies the CLI reports the exact known dead exports from the JS corpus and no known live files.
+  - This does not prove global recall, but it turns the "recall is unmeasured" critique into a repeatable corpus-level check.
+
+### Java parser golden test becomes environment-aware (2026-07-03)
+
+- **Fixed** `test/parser-golden-test.js` so the Java golden snapshot no longer fails when `javalang` is missing from the local Python environment:
+  - Added an explicit `javalang` availability probe, matching the existing pattern in `test/java-parsers-test.js`.
+  - When `javalang` is unavailable, the test now asserts the Java parser's regex fallback semantics instead of overwriting or comparing against AST goldens.
+  - This keeps the test suite honest about the optional AST dependency without turning environment drift into a false product regression.
+
 ### audit-security Rule ID Consistency Fix (2026-07-02)
 
 - **Fixed** `audit-security` JSON/Markdown rule ID inconsistency:
@@ -5159,4 +5190,3 @@ CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
 | 大项目 edges 表过大 | 千级节点 × 平均 10 条边 = 万级 rows，SQLite 无压力 |
 
 ---
-

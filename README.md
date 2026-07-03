@@ -25,6 +25,7 @@ node cli.js audit-overview --cwd . --json --quiet
 可选诊断工具：
 ```bash
 pip install ruff pyright        # Python
+pip install javalang            # Java AST（缺失时自动回退到 regex）
 npm install -g eslint typescript # Node
 ```
 
@@ -42,6 +43,13 @@ node cli.js repl --cwd . --eval "impact src/app.js"  # 非交互单命令（AI/C
 ```
 
 完整命令列表、参数说明与 `.workspace-bridge.json` 配置见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)。
+
+Java 解析默认优先走 AST；如果本机没有安装 `javalang`，Java parser 会自动回退到 regex。这个退化是可用的，但 AST 级字段和 golden snapshot 不应被当成已启用状态来解读。
+
+当前结论：
+- `dead-exports` 已有最小 ground-truth smoke，但它证明的是 corpus-level 的 precision/recall，而不是全局召回率。
+- resolver 的真实风险是顺序语义；`alias`、`symbol-table`、fallback 的优先级变化必须用冲突矩阵锁住。
+- Java AST 的前提依赖是 `javalang`；缺失时应按 degraded mode 读结果，而不是把 fallback 当回归。
 
 ## 配置
 
