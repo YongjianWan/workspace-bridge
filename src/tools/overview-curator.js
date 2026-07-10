@@ -11,7 +11,6 @@ const {
   buildCycleRecommendation,
   buildDeadExportRecommendation,
 } = require('../utils/recommendations');
-const { DEAD_EXPORT_FALSE_POSITIVE_REASONS } = require('./honesty-engine');
 
 function toRelative(root, filePath) {
   return toRelativePosix(root, filePath);
@@ -178,7 +177,7 @@ function buildCycleRefactorSuggestions(root, depGraph, projectContext) {
 }
 
 const COUPLING_ADVICE_RULES = [
-  { match: (r, inD) => r === 'entry', advice: ['entry 点天然需要聚合依赖，关注是否可提取子命令分发层', '避免在 entry 中直接包含业务实现，将具体逻辑下沉到独立服务'] },
+  { match: (r ) => r === 'entry', advice: ['entry 点天然需要聚合依赖，关注是否可提取子命令分发层', '避免在 entry 中直接包含业务实现，将具体逻辑下沉到独立服务'] },
   { match: (r, inD, outD) => inD > 0 && outD === 0, advice: ['被大量模块依赖，修改影响面大，建议保持接口稳定，新增功能优先开新模块', '保持原子性，避免吸收不相关职责；若规模膨胀再按主题拆分'] },
   { match: (r, inD, outD) => inD === 0 && outD > 0, advice: ['零被依赖但高 outward 耦合，检查是否有重复初始化逻辑可下沉为独立模块', '评估是否可通过依赖注入或工厂模式减少直接引用数量'] },
   { match: (r) => r === 'script', advice: ['工具模块被多处引用，提取可复用核心逻辑到独立库，避免业务状态沉淀', '保持工具函数无副作用，按领域拆分为专用工具子模块'] },

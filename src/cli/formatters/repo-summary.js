@@ -118,7 +118,6 @@ function buildNextSteps(ctx, stackProfile = 'unknown', stack = null) {
   const isPython = stackProfile === 'python-first';
 
   // Framework detection for actionable, specific advice
-  const nodeFramework = stack?.node?.framework || null;
   const pythonFramework = stack?.python?.framework || null;
 
   // For Java/Python, deadExports are more actionable than unresolved (alias issues are rare)

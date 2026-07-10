@@ -380,7 +380,7 @@ function extractFunctionRecordsWithRegex(sanitized) {
     // so skip to the closing ')' then look for ': Type' before '{' or '=>'.
     const closeIdx = afterParams.indexOf(')');
     if (closeIdx < 0) return null;
-    const rtMatch = afterParams.slice(closeIdx + 1).match(/^\s*:\s*([A-Za-z_$][\w$<>\[\]|\s&.,]*?)\s*(?=[{=>])/);
+    const rtMatch = afterParams.slice(closeIdx + 1).match(/^\s*:\s*([A-Za-z_$][\w$<>[\]|\s&.,]*?)\s*(?=[{=>])/);
     return rtMatch ? rtMatch[1].trim() : null;
   }
 

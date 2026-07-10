@@ -6,7 +6,6 @@
  * visible to static import analysis. These edges are injected into the
  * dependency graph to eliminate orphan / dead-export false positives.
  */
-const fs = require('fs');
 const path = require('path');
 const { resolveImport, cachedExistsSync } = require('./resolvers');
 const { createImportRecord } = require('./parsers/shared');

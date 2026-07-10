@@ -139,7 +139,7 @@ function findNestedWorkspaceRoot(startPath) {
   let bestPath = root;
   let bestScore = scoreDirectory(root);
 
-  let children = [];
+  let children;
   try {
     children = fs.readdirSync(root, { withFileTypes: true });
   } catch {

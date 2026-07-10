@@ -89,7 +89,7 @@ function testBfsTraverse() {
   // Test 2: Early termination using 'STOP'
   const visited2 = [];
   const results2 = bfsTraverse('A', getNeighbors, {
-    onVisit: (node, depth, path) => {
+    onVisit: (node, _depth, _path) => {
       visited2.push(node);
       if (node === 'B') return 'STOP';
       return node;

@@ -6,11 +6,9 @@
  */
 
 const assert = require('assert');
-const path = require('path');
 const pathUtils = require('../src/utils/path');
 
 function testNormalizePathKey() {
-  const root = 'C:\\Users\\test\\project';
   const p1 = 'C:\\Users\\test\\project\\src\\core\\walkers.js';
   const p2 = 'C:/Users/test/project/src/core/walkers.js';
   const p3 = 'c:\\users\\test\\project\\src\\core\\walkers.js';

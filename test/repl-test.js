@@ -33,11 +33,11 @@ function makeMockDepGraph() {
       const canonical = getCanonicalKey(file, keys);
       return keys.includes(canonical);
     },
-    getImpactRadius: (file, maxDepth) => [
+    getImpactRadius: (file, _maxDepth) => [
       { level: 1, file: `dep-${file}` },
       { level: 2, file: 'dep-level2.js' },
     ],
-    findAffectedTests: (file, maxDepth) => [
+    findAffectedTests: (file, _maxDepth) => [
       { file: `test-${file}`, distance: 1 },
     ],
     findDeadExports: () => [

@@ -115,7 +115,7 @@ registry.register(defineLanguage({
       if (typeMatch) {
         symbols.push({ name: typeMatch[2], type: typeMatch[1], line: idx + 1, signature: line.trim() });
       }
-      const methodMatch = line.match(/\bpublic\s+(?:static\s+)?(?:[\w<>,\[\]\s]+)\s+(\w+)\s*\(/);
+      const methodMatch = line.match(/\bpublic\s+(?:static\s+)?(?:[\w<>,[\]\s]+)\s+(\w+)\s*\(/);
       if (methodMatch) {
         symbols.push({ name: methodMatch[1], type: 'method', line: idx + 1, signature: line.trim() });
       }

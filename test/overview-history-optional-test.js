@@ -48,7 +48,7 @@ async function testDefaultOverviewSkipsKnowledgeRisk() {
 
 async function testExplicitHistoryProviderStillCalled() {
   let calls = 0;
-  const historyProvider = async (calledRoot, file) => {
+  const historyProvider = async (calledRoot, _file) => {
     calls++;
     assert.strictEqual(calledRoot, root);
     return { ok: true, historyRisk: { level: 'low', commitCount: 1, authorCount: 1, signals: ['quiet'] } };

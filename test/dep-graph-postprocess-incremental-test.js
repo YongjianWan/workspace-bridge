@@ -194,10 +194,6 @@ async function testJavaPackageExpansionIncrementalAffectedOnly() {
 
     await graph.build();
 
-    const aKey = graph.normalizeFilePath(path.join(root, 'src/A.java'));
-    const bKey = graph.normalizeFilePath(path.join(root, 'src/B.java'));
-    const uKey = graph.normalizeFilePath(path.join(root, 'src/Unrelated.java'));
-
     // Count expansions of _expandJavaForFile to verify O(k) behavior
     let expansionCount = 0;
     const originalExpand = graph.builder._expandJavaForFile;

@@ -5,7 +5,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { runPythonModule, runNpx, runCommandSecure, resolvePythonCommand } = require('../utils/command');
+const { runPythonModule, runNpx,  resolvePythonCommand } = require('../utils/command');
 const { parseDiagnosticsFromText, uniqueDiagnostics } = require('../utils/diagnostics');
 const { TIMEOUTS, DEFAULTS } = require('../config/constants');
 const { detectEslintConfig } = require('../utils/environment-probe');
@@ -47,7 +47,7 @@ class DiagnosticsEngine {
       return this.checkerCache.get(name);
     }
 
-    let result = false;
+    let result;
 
     switch (name) {
       case 'ruff':
@@ -288,8 +288,7 @@ class DiagnosticsEngine {
    */
   getAllDiagnostics() {
     const all = [];
-    // Iterate over Map entries: [filePath, {mtime, diagnostics}]
-    for (const [file, data] of this.cache.diagnostics.entries()) {
+    for (const data of this.cache.diagnostics.values()) {
       if (data && data.diagnostics) {
         all.push(...data.diagnostics);
       }

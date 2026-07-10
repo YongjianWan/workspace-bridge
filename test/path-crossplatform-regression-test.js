@@ -5,9 +5,7 @@
 // and path resolvers handle mixed slashes correctly.
 
 const assert = require('assert');
-const path = require('path');
 const {
-  normalizePath,
   normalizePathKey,
   normalizeFilePath,
   toRelativePosix,

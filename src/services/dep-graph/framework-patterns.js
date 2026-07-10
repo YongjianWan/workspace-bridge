@@ -13,7 +13,7 @@
  */
 
 const path = require('path');
-const { DEFAULTS, LIMITS } = require('../../config/constants');
+const { LIMITS } = require('../../config/constants');
 const { ENTRY_WEIGHT, detectFrameworkFromPath } = require('../../utils/project-context');
 const { compileQuery, runQuery } = require('./query-compiler');
 const { getParserModule, loadLanguage } = require('./parsers/tree-sitter');
@@ -240,7 +240,7 @@ async function runQueryRegistry(filePath, content, registryMap, onMatch) {
   }
   if (queryDefs.length === 0) return null;
 
-  let mod = null;
+  let mod;
   let parser = null;
   let tree = null;
 
@@ -326,7 +326,7 @@ const ROUTE_PATTERNS = {
   ],
   cpp: [
     // Crow: CROWD_ROUTE(app, "/path") or app.route("/path").method(...)
-    { framework: 'crow', re: /(?:CROWD_ROUTE\s*\(\s*\w+\s*,\s*|[\.\->]route\s*\(\s*)["']([^"']+)["']\s*\)/gi, methodIndex: null, pathIndex: 1 },
+    { framework: 'crow', re: /(?:CROWD_ROUTE\s*\(\s*\w+\s*,\s*|[.\->]route\s*\(\s*)["']([^"']+)["']\s*\)/gi, methodIndex: null, pathIndex: 1 },
     // Pistache: Routes::Get(router, "/path", ...)
     { framework: 'pistache', re: /Routes::(Get|Post|Put|Delete|Patch)\s*\(\s*\w+\s*,\s*["']([^"']+)["']/gi },
     // Generic C/C++ HTTP libraries: mg_http_listen, httplib::Server::Get, etc.

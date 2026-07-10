@@ -10,7 +10,6 @@ function main() {
   // Test 1: Plain text error and exit code 1
   const run1 = spawnSync('node', [cliPath, 'repl', '--eval', 'dependencies nonexistent.js', '--quiet']);
   const stdout1 = run1.stdout.toString().trim();
-  const stderr1 = run1.stderr.toString().trim();
 
   assert.strictEqual(run1.status, 1, 'REPL eval of nonexistent file should return exit status 1');
   assert(stdout1.includes('Error: File not found in graph: nonexistent.js'), 'Output should contain clear error message');

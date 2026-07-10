@@ -1,12 +1,11 @@
 // @semantic
 const assert = require('assert');
-const path = require('path');
 const { buildIncrementalFindings, collectRelatedFiles } = require('../src/tools/incremental-diff');
 const { normalizePathKey } = require('../src/utils/path');
 
 function createMockDepGraph() {
   return {
-    getImpactRadius: (file, depth = 2) => {
+    getImpactRadius: (file, _depth = 2) => {
       const map = {
         'src/a.js': [
           { file: 'src/b.js', depth: 1 },

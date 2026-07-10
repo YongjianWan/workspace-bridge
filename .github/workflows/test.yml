@@ -10,12 +10,13 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
 
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         node-version: [22, 24]
 
     steps:
@@ -37,13 +38,16 @@ jobs:
         run: node --version && npm --version
 
       - name: Probe Python / javalang availability
+        shell: bash
         run: |
-          which python3 || true
-          python3 --version || true
-          python3 -c "import javalang; print('javalang', javalang.__version__)" 2>&1 || true
+          python --version || true
+          python -c "import javalang; print('javalang', javalang.__version__)" 2>&1 || true
 
       - name: Install javalang for Java AST parser
-        run: python3 -m pip install javalang
+        run: python -m pip install javalang
+
+      - name: Lint
+        run: npm run lint
 
       - name: Run fast tests
         run: npm run test:fast

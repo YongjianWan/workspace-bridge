@@ -74,7 +74,7 @@ function testProjectMapWithIssues() {
     cycles: [['/repo/src/a.js', '/repo/src/b.js', '/repo/src/a.js']],
     entryFiles: new Set(['/repo/src/a.js']),
     projectContext: {
-      classifyFile(file) {
+      classifyFile(_file) {
         return { isMainline: true, fileRole: 'library' };
       },
     },

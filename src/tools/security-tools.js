@@ -94,7 +94,7 @@ function loadAndCompileRules(cwd, configFile = null) {
       const fileContent = fs.readFileSync(resolvedPath, 'utf8');
       loadedConfig = JSON.parse(stripBOM(fileContent));
     } catch (err) {
-      throw new Error(`Failed to parse custom security rules config: ${err.message}`);
+      throw new Error(`Failed to parse custom security rules config: ${err.message}`, { cause: err });
     }
   }
 
@@ -139,7 +139,7 @@ function loadAndCompileRules(cwd, configFile = null) {
       return { patterns, allowlist };
     } catch (err) {
       if (isCustom) {
-        throw new Error(`Config regex compilation failed: ${err.message}`);
+        throw new Error(`Config regex compilation failed: ${err.message}`, { cause: err });
       }
       console.error(`[Security Scan] Default config regex compilation failed: ${err.message}. Falling back to default rules.`);
     }

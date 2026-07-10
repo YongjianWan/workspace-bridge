@@ -118,7 +118,7 @@ function classifyDeadExports(deadExportsArray, depGraph) {
       classifications.push({ item, reason: item.falsePositiveReason });
       continue;
     }
-    let reason = null;
+    let reason;
 
     // Global graph reliability downgrade
     if (graphUnreliable) {
@@ -231,7 +231,7 @@ function buildDisclaimer(label, summary) {
 /**
  * Attach possibleFalsePositives metadata to a dep-tools result object.
  */
-function attachHonesty(result, operation, classifications, root) {
+function attachHonesty(result, operation, classifications, _root) {
   const summary = buildClassificationSummary(classifications);
   const disclaimer = buildDisclaimer(
     operation === 'unresolved' ? 'unresolved imports' : 'dead exports',

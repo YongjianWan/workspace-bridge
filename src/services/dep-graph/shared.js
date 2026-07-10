@@ -1,5 +1,5 @@
 const path = require('path');
-const { DEFAULTS, LIMITS, DEAD_EXPORT, CONFIDENCE } = require('../../config/constants');
+const { DEFAULTS,  DEAD_EXPORT, CONFIDENCE } = require('../../config/constants');
 
 // 配置常量
 const CONFIG = {

@@ -13,18 +13,12 @@ const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { FileIndex } = require('../src/services/file-index');
 const { WorkspaceCache } = require('../src/services/cache');
 
-const originalReaddir = fs.promises.readdir;
-
 async function testReaddirPermissionDeniedSkipped() {
   const root = makeTempDir('wb-fidx-');
   fs.mkdirSync(path.join(root, 'readable'));
   fs.writeFileSync(path.join(root, 'readable', 'a.js'), 'export const a = 1;\n');
   fs.mkdirSync(path.join(root, 'unreadable'));
   fs.writeFileSync(path.join(root, 'unreadable', 'b.js'), 'export const b = 2;\n');
-
-  // Patch the promisified readdir used by FileIndex
-  const { promisify } = require('util');
-  const realReaddir = promisify(fs.readdir);
 
   // We need to patch fs.readdir itself because FileIndex uses promisify(fs.readdir)
   const originalFsReaddir = fs.readdir;

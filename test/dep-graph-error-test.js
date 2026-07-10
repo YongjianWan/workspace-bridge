@@ -223,7 +223,6 @@ async function testSpringBootEntryDetection() {
   await dg.build();
 
   const dead = dg.findDeadExports();
-  const deadFiles = dead.map((d) => d.file);
 
   // Use lowercase basename comparison to avoid Windows path normalization mismatches
   const deadBasenames = dead.map((d) => path.basename(d.file).toLowerCase());

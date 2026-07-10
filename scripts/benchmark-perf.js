@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* eslint-disable no-console */
+ 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -188,7 +188,7 @@ function parseJson(text, label) {
   try {
     return JSON.parse(text);
   } catch (error) {
-    throw new Error(`Failed to parse ${label} JSON output: ${error.message}`);
+    throw new Error(`Failed to parse ${label} JSON output: ${error.message}`, { cause: error });
   }
 }
 
@@ -221,7 +221,7 @@ function main() {
   const options = parseBenchmarkArgs(process.argv);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-bridge-bench-'));
   const startedAt = new Date().toISOString();
-  let fixtureInfo = null;
+  let fixtureInfo;
   const timings = [];
 
   try {

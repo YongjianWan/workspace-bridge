@@ -6,17 +6,22 @@
 
 ## 快速开始
 
-### 全局安装（推荐）
+> ⚠️ 本包**尚未发布到 npm registry**，请从源码安装。
+
+### 从源码全局安装（推荐）
 
 ```bash
-npm install -g workspace-bridge
-workspace-bridge-cli audit-overview --cwd . --json --quiet
+git clone https://github.com/YongjianWan/workspace-bridge.git
+cd workspace-bridge
+npm install
+npm install -g .    # 注册 workspace-bridge-cli 全局命令
+workspace-bridge-cli audit-overview --cwd <your-project> --json --quiet
 ```
 
-### 本地使用
+### 本地直接使用（不装全局）
 
 ```bash
-git clone <repo>
+git clone https://github.com/YongjianWan/workspace-bridge.git
 cd workspace-bridge
 npm install
 node cli.js audit-overview --cwd . --json --quiet

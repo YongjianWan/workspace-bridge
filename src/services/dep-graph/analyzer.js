@@ -24,7 +24,6 @@ const {
   bfsTraverse,
   isLikelyConstantsWarehouse,
   computeDeadExportConfidence,
-  DEAD_EXPORT_FILTER_RE,
   isConventionallyAliveSymbol,
 } = require('./shared');
 
@@ -911,16 +910,13 @@ class GraphAnalyzer {
     }
 
     let regexFallbackCount = 0;
-    let regexNativeCount = 0;
     let unsupportedCount = 0;
 
     for (const [, info] of this.dg.graph) {
       if (info.parseModeReason === 'regex-fallback') regexFallbackCount++;
-      else if (info.parseModeReason === 'regex-native') regexNativeCount++;
       else if (info.parseModeReason === 'unsupported-extension') unsupportedCount++;
     }
 
-    const total = this.dg.graph.size;
     if (regexFallbackCount > 0) {
       warnings.push({
         type: 'regex-fallback',
@@ -1476,7 +1472,6 @@ class GraphAnalyzer {
   findAffectedRoutes(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH, maxRoutes = 50) {
     const start = this.dg.normalizeFilePath(filePath);
     const routes = [];
-    const visitedGlobal = new Set();
 
     function dfs(current, depth, pathStack, visitedLocal) {
       if (routes.length >= maxRoutes) return;

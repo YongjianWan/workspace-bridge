@@ -6,7 +6,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { runInDir, makeTempDir, cleanupTempDir, REPO_ROOT, CLI_PATH } = require('./test-helpers');
+const { runInDir, makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { ServiceContainer } = require('../src/services/container');
 const { formatAi } = require('../src/cli/formatters/human-formatters');
 const {

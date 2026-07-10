@@ -123,7 +123,6 @@ function extractReexportNames(node) {
       } else if (item.type === 'self') {
         names.push(prefix.split('::').pop() || prefix);
       } else if (item.type === 'use_as_clause') {
-        const alias = item.children.find((c) => c.type === 'identifier' && c !== item.children.find((x) => x.type === 'identifier' || x.type === 'self'));
         // The alias is the last identifier child in use_as_clause
         const idents = item.children.filter((c) => c.type === 'identifier');
         if (idents.length > 0) {

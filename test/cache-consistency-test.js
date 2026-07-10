@@ -64,7 +64,7 @@ function normalizeKey(filePath) {
 async function testGraphClearedOnRebuild() {
   const root = setupTempWorkspace();
   try {
-    const { cache, fileIndex, depGraph } = await buildServices(root);
+    const { depGraph } = await buildServices(root);
 
     const ghostFile = path.join(root, 'src', 'ghost.js');
     const ghostKey = normalizeKey(ghostFile);

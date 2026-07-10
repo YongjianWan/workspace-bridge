@@ -59,7 +59,7 @@ class EntryDetector {
    * @param {Array} [exports]
    * @returns {boolean}
    */
-  isKnownEntryFile(filePath, exports) {
+  isKnownEntryFile(filePath, _exports) {
     const key = this.normalizeFilePath(filePath);
     if (this._cache.has(key)) {
       return this._cache.get(key);

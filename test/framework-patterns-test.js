@@ -197,13 +197,13 @@ public void handleOrder(Order order) {}`;
   assert.strictEqual(kafkaListenerHint.reason, 'spring-annotation');
 
   // Kotlin Spring (non-special path to exercise AST-Query)
-  const kotlinSpringContent = `@RestController\nclass Handler {\n  @GetMapping(\"/users\")\n  fun users(): List<User> = emptyList()\n}`;
+  const kotlinSpringContent = `@RestController\nclass Handler {\n  @GetMapping("/users")\n  fun users(): List<User> = emptyList()\n}`;
   const kotlinSpringHint = await detectFrameworkFromContent('/project/Handler.kt', kotlinSpringContent);
   assert.strictEqual(kotlinSpringHint.framework, 'spring-kotlin');
   assert.strictEqual(kotlinSpringHint.reason, 'spring-annotation');
 
   // Ktor (non-special path to exercise AST-Query)
-  const ktorContent = `fun Application.module() {\n  routing {\n    get(\"/\") { call.respondText(\"Hello\") }\n  }\n}`;
+  const ktorContent = `fun Application.module() {\n  routing {\n    get("/") { call.respondText("Hello") }\n  }\n}`;
   const ktorHint = await detectFrameworkFromContent('/project/Server.kt', ktorContent);
   assert.strictEqual(ktorHint.framework, 'ktor');
   assert.strictEqual(ktorHint.reason, 'ktor-routing');

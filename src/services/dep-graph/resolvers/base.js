@@ -46,7 +46,7 @@ function cachedStatSync(filePath) {
     _touchCache(_statCache, filePath);
     return _statCache.get(filePath);
   }
-  let stat = null;
+  let stat;
   try {
     stat = fs.statSync(filePath);
   } catch {
@@ -98,7 +98,7 @@ function discoverJavaSourceRoots(root) {
 
 function readGoMod(root) {
   const goModPath = path.join(root, 'go.mod');
-  let currentMtime = 0;
+  let currentMtime;
   try {
     currentMtime = fs.statSync(goModPath).mtimeMs;
   } catch {

@@ -8,7 +8,6 @@ const path = require('path');
 const { parseCliArgs } = require('../src/cli/validate-args');
 const { GraphAnalyzer } = require('../src/services/dep-graph/analyzer');
 const { DependencyGraph } = require('../src/services/dep-graph');
-const { ProjectContext } = require('../src/utils/project-context');
 const { runCliInProcessRaw } = require('./test-helpers');
 
 /* -------------------------------------------------------------------------- */

@@ -40,7 +40,6 @@ function buildFrameworkRules() {
   const or = (...preds) => (...args) => preds.some((p) => p(...args));
   const pathIncludes = (frag) => (p) => p.includes(frag);
   const pathNotPrivate = (frag) => (p, _ext, basename) => p.includes(frag) && !basename.startsWith('__');
-  const pathNotUnderscore = (frag) => (p, _ext, basename) => p.includes(frag) && !basename.startsWith('_');
   const basenameIs = (...names) => (_p, _ext, basename) => names.includes(basename);
   const basenameStartsWith = (prefix) => (_p, _ext, basename) => basename.startsWith(prefix);
   const basenameEndsWith = (suffix) => (_p, _ext, basename) => basename.endsWith(suffix);
@@ -509,7 +508,7 @@ function loadWorkspaceConfig(root, options = {}) {
     const { stripBOM } = require('./sanitize');
     config = JSON.parse(stripBOM(fs.readFileSync(configPath, 'utf8')));
   } catch (err) {
-    throw new Error(`Invalid JSON in config file ${configPath}: ${err.message}`);
+    throw new Error(`Invalid JSON in config file ${configPath}: ${err.message}`, { cause: err });
   }
 
   const configValid = validateWorkspaceConfig(config, configPath, options.warnings);
@@ -572,7 +571,7 @@ class ProjectContext {
         const { stripBOM } = require('./sanitize');
         this.config = JSON.parse(stripBOM(fs.readFileSync(this.configPath, 'utf8'))) || {};
       } catch (err) {
-        throw new Error(`Invalid JSON in config file ${this.configPath}: ${err.message}`);
+        throw new Error(`Invalid JSON in config file ${this.configPath}: ${err.message}`, { cause: err });
       }
       const configValid = validateWorkspaceConfig(this.config, this.configPath, options.warnings || null);
       if (this.warnings && !configValid) {

@@ -12,7 +12,6 @@
 
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { parsePython } = require('../src/services/dep-graph/parsers/python');
 const { parseJava } = require('../src/services/dep-graph/parsers/java');

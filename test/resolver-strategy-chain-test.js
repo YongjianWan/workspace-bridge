@@ -14,7 +14,6 @@ const {
   tryPythonRelative,
   tryPythonAbsolute,
   tryJava,
-  tryGoRelative,
   tryGoModule,
   tryRustCrate,
   tryRustSuper,

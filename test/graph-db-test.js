@@ -233,10 +233,8 @@ function testTransactionRollbackPreservesOriginalError() {
 
   // Simulate a scenario where the body throws and ROLLBACK also fails.
   // We monkey-patch exec to fail on ROLLBACK while still allowing BEGIN.
-  let callCount = 0;
   const originalExec = db.db.exec.bind(db.db);
   db.db.exec = (sql) => {
-    callCount++;
     if (sql === 'ROLLBACK') {
       throw new Error('disk full');
     }

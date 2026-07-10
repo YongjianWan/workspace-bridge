@@ -1,5 +1,3 @@
-    a
-
 # SESSION.md
 
 > 新会话启动指南。通用项目信息见 [AGENTS.md](./AGENTS.md)，历史变更见 [CHANGELOG.md](./CHANGELOG.md)，长期路线见 [ROADMAP.md](./ROADMAP.md)。
@@ -8,7 +6,39 @@
 
 ---
 
-## 本轮会话 (2026-07-03)
+## 本轮会话 (2026-07-10)
+
+### 会话上下文
+
+- 对项目做全面评估（分发、CI、仓库卫生、工具链、文档），随后按评估结论集中修复。详见 CHANGELOG [Unreleased] §工程基线补全。
+
+### 本轮完成
+
+1. **eslint 工具链落地**：flat config + `npm run lint` + CI Lint 步骤，清零 148 个错误（约 120 处死代码删除、7 处 error cause 补链、2 个沉默测试断言修正）。
+2. **CI 缺口补齐**：test.yml 矩阵加 `windows-latest`；新增 `test-slow.yml`（push main + 每日定时）——slow 层此前从不进 CI。
+3. **slow 层首次全量本地跑，挖出 3 个存量回归并修复**（全部在改动前 HEAD 可复现）：
+   - `--category` 快照毒化（overview 快照不含 category 维度，过滤子集毒化全量消费者）→ 双向绕过快照；
+   - `hasJavaTestFiles` 不递归 → 几乎所有真实 Java 项目被判无测试 → 有界递归修复；
+   - Route B 清空 changedTargets 误伤 Java/Go/Rust/C++ compile-check fallback → 编译型语言始终传入。
+4. **仓库卫生**：CHANGELOG 归档（586KB→158KB，历史入 `docs/changelog/`）；untrack reference 二进制；删根目录杂物。
+5. **README 安装说明改为源码安装**（npm 包未发布）；**SKILL.md 补全** guard/query-*/token 控制/CI 基线/Exit Code 契约。
+
+### 待办 / 下一步
+
+- [ ] 决定是否发布 npm 包（README 已注明未发布；`npm publish` 是唯一让外部用户可用的路径）。
+- [ ] 考虑切一个 2.1.0 版本释放 [Unreleased]（当前未发布区已积累 5 周变更）。
+- [ ] `repl-test.js` / `audit-file-watch-test.js` 串行 flaky 根因仍未修（记录在 TECH_DEBT）。
+- [ ] git stash 中留有一份本轮改动的冗余备份（`lint-session-wip`），确认无需后可 `git stash drop`。
+
+### 基线验证
+
+- `npx eslint .` exit 0
+- `npm run test:fast` **130/130 PASS**
+- slow 层 3 个存量失败修复后单测 PASS（audit-file-validation-advice / functionality-polyglot / wave12-category-filter）
+
+---
+
+## 上轮会话 (2026-07-03)
 
 ### 会话上下文
 

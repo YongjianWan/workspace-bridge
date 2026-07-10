@@ -106,7 +106,7 @@ function testUppercaseEnumValues() {
 
   withEnv('WB_MODE', 'FULL', () => {
     const parsed = parseCliArgs(['node', 'cli.js']);
-    assert.strictEqual(parsedMode.mode, 'quick', 'WB_MODE=FULL should normalize to lowercase');
+    assert.strictEqual(parsed.mode, 'full', 'WB_MODE=FULL should normalize to lowercase');
   });
 
   const parsedFormat = parseCliArgs(['node', 'cli.js', '--format', 'JSON']);

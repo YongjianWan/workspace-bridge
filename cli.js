@@ -20,12 +20,12 @@ const { version } = require('./package.json');
 const { stripBOM } = require('./src/utils/sanitize');
 
 const { ServiceContainer } = require('./src/services/container');
-const { toPosixPath, findWorkspaceRoot, normalizePath } = require('./src/utils/path');
+const { findWorkspaceRoot, normalizePath } = require('./src/utils/path');
 const { TIMEOUTS, SCHEMA_VERSION } = require('./src/config/constants');
 const { COMMANDS, SELF_MANAGED_COMMANDS } = require('./src/cli/commands');
 const { validateCwd } = require('./src/cli/commands/_utils');
 const { parseCliArgs, sanitizeCliPaths } = require('./src/cli/validate-args');
-const { writeLargeJson, determineExitCode, formatCliResult, buildErrorResponse } = require('./src/cli/route-formatter');
+const { determineExitCode, formatCliResult, buildErrorResponse } = require('./src/cli/route-formatter');
 const { installFatalHandlers } = require('./src/cli/bootstrap');
 const { workspaceInfo } = require('./src/tools/workspace-tools');
 

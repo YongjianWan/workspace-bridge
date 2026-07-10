@@ -83,7 +83,7 @@ function classifyTest(file) {
   }
 
   let content = '';
-  let readOk = false;
+  let readOk;
   try {
     content = fs.readFileSync(path.join(TEST_DIR, file), 'utf8');
     readOk = true;

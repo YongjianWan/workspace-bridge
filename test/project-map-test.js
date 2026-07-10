@@ -21,7 +21,7 @@ function createMockDepGraph() {
     entryFiles: new Set(['src/d.js']),
     projectContext: {
       mainlineFiles: new Set(['src/a.js', 'src/b.js', 'src/c.js', 'src/d.js']),
-      classifyFile: (file) => ({ fileRole: 'library', isMainline: true }),
+      classifyFile: (_file) => ({ fileRole: 'library', isMainline: true }),
     },
     depGraphOverrides: {
       getFileInfo: (file) => fileInfo[file] || {},

@@ -26,11 +26,15 @@ async function testAuditFileHasValidationAdvice() {
   ];
   for (const cmd of allCommands) {
     assert.ok(cmd.executable != null, `command ${cmd.name} should have executable object`);
-    assert.strictEqual(cmd.executable.command, 'npm', `command ${cmd.name} should use npm`);
-    assert.deepStrictEqual(cmd.executable.args, ['run', 'test'], `command ${cmd.name} should have ['run', 'test'] arguments`);
+    assert.ok(['npm', 'npx'].includes(cmd.executable.command), `command ${cmd.name} should use npm or npx, got ${cmd.executable.command}`);
     assert.strictEqual(cmd.executable.expectedExitCode, 0, `command ${cmd.name} expected exit code should be 0`);
     assert.strictEqual(cmd.executable.onFailure, 'abort', `command ${cmd.name} failure action should be abort`);
   }
+  // 仓库自身带 eslint 后会额外生成 node-lint（npx）命令；
+  // 'npm run test' 的完整形态只对测试命令断言，不再对所有命令硬编码
+  const npmTestCmd = allCommands.find((c) => c.executable.command === 'npm');
+  assert.ok(npmTestCmd, 'should include an npm-based test command');
+  assert.deepStrictEqual(npmTestCmd.executable.args, ['run', 'test'], `command ${npmTestCmd.name} should have ['run', 'test'] arguments`);
 }
 
 async function testAuditFileHasFrameworkPattern() {

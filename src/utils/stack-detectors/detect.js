@@ -353,6 +353,20 @@ function detectDocsTool(root) {
   return null;
 }
 
+// Java 测试文件按惯例位于包路径子目录（src/test/java/com/example/...），
+// 必须递归查找；深度上限防御异常深的目录树。
+function dirContainsJavaFile(dir, depth = 8) {
+  if (depth < 0) return false;
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  if (entries.some((e) => e.isFile() && e.name.endsWith('.java'))) return true;
+  return entries.some((e) => e.isDirectory() && dirContainsJavaFile(path.join(dir, e.name), depth - 1));
+}
+
 function hasJavaTestFiles(root, modules) {
   const candidates = ['src/test/java'];
   if (modules) {
@@ -360,14 +374,7 @@ function hasJavaTestFiles(root, modules) {
       candidates.push(path.join(mod.dir, 'src/test/java'));
     }
   }
-  for (const dir of candidates) {
-    try {
-      const full = path.join(root, dir);
-      const entries = fs.readdirSync(full, { withFileTypes: true });
-      if (entries.some((e) => e.isFile() && e.name.endsWith('.java'))) return true;
-    } catch { /* ignore */ }
-  }
-  return false;
+  return candidates.some((dir) => dirContainsJavaFile(path.join(root, dir)));
 }
 
 function detectStack(root) {

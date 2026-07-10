@@ -1,7 +1,5 @@
 const fs = require('fs');
-const path = require('path');
-const { requireFile } = require('./_utils');
-const { resolveWorkspaceFilePath, normalizePathKey } = require('../../utils/path');
+const { resolveWorkspaceFilePath } = require('../../utils/path');
 
 async function guardCmd(parsed, container) {
   await container.ensureReady();

@@ -8,7 +8,7 @@ const { promisify } = require('util');
 const { createImportRecord } = require('./parsers');
 const { registry } = require('./parsers/registry');
 const { resolveImport, clearResolverCaches } = require('./resolvers');
-const { detectFrameworkFromPath, detectFrameworkFromContent, extractRoutes } = require('./framework-patterns');
+const { detectFrameworkFromContent, extractRoutes } = require('./framework-patterns');
 const {
   scanAndExtractImplicitImports,
   resolveImplicitImports,

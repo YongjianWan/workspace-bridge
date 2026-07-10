@@ -107,7 +107,7 @@ async function testIncrementalFiltering() {
 
   // Every dead export in incremental findings must be related to a changed file
   for (const de of output.incrementalFindings.deadExports) {
-    assert(de.file, 'Dead export entry should have a file');
+    assert(changedSet.has(de.file), `Dead export ${de.file} should be one of the changed files`);
   }
 
   // Every unresolved in incremental findings must be related to a changed file

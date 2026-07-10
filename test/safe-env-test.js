@@ -10,7 +10,6 @@ const { buildSafeEnv } = require('../src/utils/command');
 
 function testSafeEnvWhitelist() {
   // Simulate a parent environment with sensitive variables
-  const originalEnv = process.env;
   const sensitiveKeys = [
     'AWS_SECRET_ACCESS_KEY',
     'DATABASE_URL',

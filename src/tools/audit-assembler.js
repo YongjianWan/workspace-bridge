@@ -36,7 +36,7 @@ function severityMeetsFilter(itemSeverity, minSeverity) {
   return (SEVERITY_RANK[itemSeverity] || 0) >= SEVERITY_RANK[minSeverity];
 }
 
-function resolveCompact(parsed, container, changedFileCount = 0) {
+function resolveCompact(parsed, container, _changedFileCount = 0) {
   if (parsed.noCompact) return { compact: false, autoCompact: false };
   if (parsed.compact) return { compact: true, autoCompact: false };
   const totalFiles = container?.snapshot?.graph?.getStats?.()?.files ?? 0;

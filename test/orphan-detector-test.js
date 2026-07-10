@@ -2,7 +2,6 @@
 // @semantic
 
 const assert = require('assert');
-const path = require('path');
 const { findOrphanFiles } = require('../src/utils/orphan-detector');
 
 function mockGraph(testLike = [], dependents = {}) {

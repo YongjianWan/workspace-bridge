@@ -9,7 +9,6 @@ const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const os = require('os');
 const { runCliInProcess, runCliInProcessRaw, runCliInProcessText, makeTempDir, cleanupTempDir, runInDir } = require('./test-helpers');
 const { GraphDB } = require('../src/services/graph-db');
 

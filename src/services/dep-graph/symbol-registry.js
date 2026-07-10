@@ -1,8 +1,6 @@
 const path = require('path');
 const { toPosixPath, normalizePathKey } = require('../../utils/path');
 
-const IS_WINDOWS = process.platform === 'win32';
-
 /**
  * SymbolRegistry — lightweight global symbol table built from AST exportRecords.
  *

@@ -9,7 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const assert = require('assert');
-const { runCliInProcess, cleanupTempDir } = require('./test-helpers');
+const { cleanupTempDir } = require('./test-helpers');
 const { ServiceContainer } = require('../src/services/container');
 
 async function main() {

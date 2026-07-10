@@ -45,15 +45,24 @@ function isSnapshotFresh(snapshot, container, args) {
 async function buildProjectOverview(args, container) {
   await container.ensureReady();
 
-  try {
-    const snapshot = container.cache?.loadAnalysisSnapshot?.('overview');
-    if (snapshot && isSnapshotFresh(snapshot, container, args)) {
-      const cloned = JSON.parse(JSON.stringify(snapshot.data));
-      applyBaselineOperations(cloned, args);
-      return cloned;
+  // --category 过滤的运行必须双向绕过 'overview' 快照：
+  // 1) 不读——快照存的是全量数据，直接返回会漏掉过滤语义；
+  // 2) 不写——过滤后的子集一旦存成 'overview'，后续全量请求和 query-* 会
+  //    静默消费残缺数据（快照 key 不含 category，无法区分）。
+  const { parseCategories } = require('./audit-assembler');
+  const requestedCategories = parseCategories(args?.category);
+
+  if (!requestedCategories) {
+    try {
+      const snapshot = container.cache?.loadAnalysisSnapshot?.('overview');
+      if (snapshot && isSnapshotFresh(snapshot, container, args)) {
+        const cloned = JSON.parse(JSON.stringify(snapshot.data));
+        applyBaselineOperations(cloned, args);
+        return cloned;
+      }
+    } catch (_) {
+      // Snapshot load failed or was corrupted; fall back to recompute
     }
-  } catch (_) {
-    // Snapshot load failed or was corrupted; fall back to recompute
   }
 
   // History/blame is opt-in: default audit-overview/summary should not pay the
@@ -131,9 +140,8 @@ async function buildProjectOverview(args, container) {
 
   const { checkBoundaries } = require('./dep-tools/boundaries');
   const { checkSmells } = require('./dep-tools/smells');
-  const { parseCategories } = require('./audit-assembler');
 
-  const categories = parseCategories(args?.category);
+  const categories = requestedCategories;
   const shouldRunBoundaries = !categories || categories.includes('boundaries');
   const shouldRunSmells = !categories || categories.includes('smells');
 
@@ -182,6 +190,8 @@ async function buildProjectOverview(args, container) {
   applyBaselineOperations(result, args);
 
   // Stage 3.5: Persist aggregate snapshot for query-* commands
+  // 仅全量运行可写快照；category 过滤的子集写入会毒化所有后续消费者
+  if (requestedCategories) return result;
   try {
     const gitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
     const fileCount = result.scope?.counts?.totalFiles || 0;

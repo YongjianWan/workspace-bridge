@@ -169,7 +169,7 @@ async function initializeDepGraph({
       // Fallback to full build if delta is too large (>50% of graph)
       if (graphSize > 0 && uniqueFiles.length > graphSize * 0.5) {
         if (!quiet) {
-          // eslint-disable-next-line no-console
+           
           console.error(`[Container] ${uniqueFiles.length} files delta (>50% of ${graphSize}), falling back to full build`);
         }
         // Reset state so the full build can transition from IDLE → BUILDING

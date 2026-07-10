@@ -2,10 +2,9 @@
 // @semantic
 // @slow
 const assert = require('assert');
-const path = require('path');
 const { BaseAdapter } = require('../src/adapters/base');
 const { SemgrepAdapter } = require('../src/adapters/semgrep');
-const { getAllAdapters, getAvailableAdapters } = require('../src/adapters');
+const { getAllAdapters } = require('../src/adapters');
 const { auditSecurity, groupBySeverity, dedupeWithinTool } = require('../src/tools/security-tools');
 
 async function main() {

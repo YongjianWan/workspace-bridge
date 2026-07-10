@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
-const { detectWorkspace, normalizePathKey, matchesPathFragment } = require('../utils/path');
+const { detectWorkspace, normalizePathKey } = require('../utils/path');
 const { DEFAULT_EXCLUDE_DIRS, shouldExcludeBase, shouldExcludeCli: _shouldExcludeCli } = require('../utils/exclude-patterns');
 const { loadWorkspaceConfig } = require('../utils/project-context');
 const { EventBus } = require('../utils/event-bus');

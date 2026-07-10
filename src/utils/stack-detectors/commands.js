@@ -197,7 +197,6 @@ function getNodeCommands(nodeStack, changeType, targets) {
   // Only actual source files should be passed to linters/test runners.
   const targetList = Array.isArray(targets) ? targets : [];
   const codeTargets = targetList.filter((f) => /\.(js|jsx|ts|tsx|mjs|cjs)$/.test(f));
-  const fileArgs = codeTargets.length > 0 ? codeTargets.join(' ') : '.';
 
   return buildStackCommands(nodeStack, changeType, (commands) => {
     if (nodeStack.linters.includes('eslint')) {
@@ -221,7 +220,6 @@ function getNodeCommands(nodeStack, changeType, targets) {
 function getPythonCommands(pythonStack, changeType, targets, workspaceRoot = null) {
   if (!pythonStack) return { smoke: [], focused: [], full: [] };
   const targetList = Array.isArray(targets) ? targets : [];
-  const fileArgs = targetList.length > 0 ? targetList.join(' ') : '.';
 
   // Route B fix: do not pass source .py files to pytest. Derive the
   // conventional test file paths and only emit focused tests when at least

@@ -1,6 +1,5 @@
 // @semantic
 const assert = require('assert');
-const path = require('path');
 const { normalizePathKey } = require('../src/utils/path');
 const { createMockDepGraph } = require('./test-helpers');
 

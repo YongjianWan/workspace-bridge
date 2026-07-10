@@ -307,7 +307,8 @@ function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_D
   const functionToDependents = buildFunctionToDependents(sourceInfo, symbolToDependents);
 
   const { direct, reExportQueue } = buildDirectUsage(depGraph, sourceFile, sourceSymbols);
-  const transitive = buildTransitiveUsage(depGraph, reExportQueue, maxDepth, direct);
+  // 返回值不消费，但它会把 wildcard re-export 的传播结果 push 进 direct，调用必须保留
+  buildTransitiveUsage(depGraph, reExportQueue, maxDepth, direct);
   const uniqueDirect = deduplicateDirectDependents(direct);
 
   const impactedFiles = depGraph.getImpactRadius(sourceFile, maxDepth);

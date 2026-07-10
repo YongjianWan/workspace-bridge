@@ -5,7 +5,6 @@
 // Git stderr sanitization (#36)
 
 const assert = require('assert');
-const path = require('path');
 const { runCliInProcess, runCliInProcessRaw, runCliRaw } = require('./test-helpers');
 
 function runCli(args) {

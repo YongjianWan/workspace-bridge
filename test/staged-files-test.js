@@ -5,7 +5,6 @@ const path = require('path');
 const { runCliInProcessRaw, assertOk, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 const cwd = path.resolve(__dirname, '..');
-const targetFile = path.join(cwd, 'src', 'utils', 'path.js');
 
 async function run(args) {
   return runCliInProcessRaw([...args, '--json', '--quiet'], { cwd });

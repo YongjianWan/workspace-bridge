@@ -130,7 +130,7 @@ class ServiceContainer {
   /**
    * Initialize all services. Thread-safe with mutex-like behavior.
    */
-  async initialize(cwd, timeoutMs = TIMEOUTS.INIT_TIMEOUT_MS, options = {}) {
+  async initialize(cwd, _timeoutMs = TIMEOUTS.INIT_TIMEOUT_MS, options = {}) {
     if (this._state === STATES.SHUTTING_DOWN) {
       throw new Error('Container is shutting down');
     }

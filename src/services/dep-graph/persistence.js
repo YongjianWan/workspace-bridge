@@ -6,8 +6,6 @@
  * circular dependency. Both modules now depend on this shared substrate
  * instead of each other.
  */
-const fs = require('fs');
-const { extractRoutes } = require('./framework-patterns');
 
 const DEFAULT_AFFECTED_TESTS_DEPTH = 3; // default search depth for precomputing affected tests
 
@@ -22,7 +20,7 @@ function registerGraphBuiltHandler(depGraph) {
       depGraph.analyzer.precomputeAggregates();
     } catch (e) {
       if (process.env.DEBUG) {
-        // eslint-disable-next-line no-console
+         
         console.error('[Persistence] precomputeAggregates failed:', e.message);
       }
     }
@@ -30,7 +28,7 @@ function registerGraphBuiltHandler(depGraph) {
       depGraph.analyzer.precomputeImpact();
     } catch (e) {
       if (process.env.DEBUG) {
-        // eslint-disable-next-line no-console
+         
         console.error('[Persistence] precomputeImpact failed:', e.message);
       }
     }
@@ -159,7 +157,7 @@ async function savePrecomputed(depGraph) {
     }
   } catch (e) {
     if (process.env.DEBUG) {
-      // eslint-disable-next-line no-console
+       
       console.error('[Persistence] savePrecomputed failed:', e.message);
     }
   }
@@ -177,7 +175,7 @@ function restorePrecomputed(depGraph) {
     if (aggregateRows && aggregateRows.length > 0) {
       const ok = depGraph.analyzer.injectPrecomputedAggregates(aggregateRows, depGraph.graph.size);
       if (!depGraph.quiet && ok) {
-        // eslint-disable-next-line no-console
+         
         console.error('[Persistence] Precomputed aggregates restored from cache');
       }
     }
@@ -186,7 +184,7 @@ function restorePrecomputed(depGraph) {
     if (impactRows && impactRows.length > 0) {
       const ok = depGraph.analyzer.injectPrecomputedImpact(impactRows, depGraph.graph.size);
       if (!depGraph.quiet && ok) {
-        // eslint-disable-next-line no-console
+         
         console.error('[Persistence] Precomputed impact restored for', impactRows.length, 'files');
       }
     }
@@ -195,7 +193,7 @@ function restorePrecomputed(depGraph) {
     if (metricsRows && metricsRows.length > 0) {
       const ok = depGraph.analyzer.injectPrecomputedMetrics(metricsRows);
       if (!depGraph.quiet && ok) {
-        // eslint-disable-next-line no-console
+         
         console.error('[Persistence] Precomputed metrics restored for', metricsRows.length, 'entries');
       }
     }
@@ -204,13 +202,13 @@ function restorePrecomputed(depGraph) {
     if (testMapRows && testMapRows.length > 0) {
       const ok = depGraph.analyzer.injectPrecomputedTestMap(testMapRows);
       if (!depGraph.quiet && ok) {
-        // eslint-disable-next-line no-console
+         
         console.error('[Persistence] Precomputed test map restored for', testMapRows.length, 'entries');
       }
     }
   } catch (e) {
     if (process.env.DEBUG) {
-      // eslint-disable-next-line no-console
+       
       console.error('[Persistence] Precomputed load failed:', e.message);
     }
   }

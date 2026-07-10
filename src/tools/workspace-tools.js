@@ -4,9 +4,9 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { findWorkspaceRoot, detectWorkspace, toRelativePosix, pathExists } = require('../utils/path');
+const { findWorkspaceRoot, detectWorkspace, toRelativePosix } = require('../utils/path');
 const { runCommandSecure, runNpx, runPythonModule, trimOutput, resolvePythonCommand } = require('../utils/command');
-const { TIMEOUTS, PROBE } = require('../config/constants');
+const { TIMEOUTS } = require('../config/constants');
 const { parseDiagnosticsFromText, uniqueDiagnostics, summarizeDiagnostics } = require('../utils/diagnostics');
 const { checkParserAvailability } = require('../utils/environment-probe');
 const { detectEslintConfig, detectPrettierConfig, detectTscConfig } = require('../utils/environment-probe');
@@ -23,8 +23,6 @@ function detectNodeLinters(workspace, root) {
   if (!workspace.hasPackageJson || !workspace.packageJson) {
     return linters;
   }
-
-  const pj = workspace.packageJson;
 
   linters.eslint = detectEslintConfig(root);
   linters.prettier = detectPrettierConfig(root);
@@ -130,7 +128,6 @@ async function buildChecks(workspace, mode) {
 
   if (workspace.hasPackageJson) {
     const scripts = workspace.packageJson?.scripts || {};
-    let hasNodeCheck = false;
 
     if (scripts.typecheck) {
       checks.push({
@@ -139,7 +136,6 @@ async function buildChecks(workspace, mode) {
         args: ['run', '-s', 'typecheck'],
         timeout: TIMEOUTS.DIAGNOSTICS_LONG_MS,
       });
-      hasNodeCheck = true;
       hasLinter = true;
     } else if (workspace.hasTsconfig) {
       checks.push({
@@ -148,7 +144,6 @@ async function buildChecks(workspace, mode) {
         args: ['tsc', '--noEmit'],
         timeout: TIMEOUTS.DIAGNOSTICS_CHECK_MS,
       });
-      hasNodeCheck = true;
       hasLinter = true;
     }
     if (scripts.lint) {
@@ -158,7 +153,6 @@ async function buildChecks(workspace, mode) {
         args: ['run', '-s', 'lint'],
         timeout: TIMEOUTS.DIAGNOSTICS_CHECK_MS,
       });
-      hasNodeCheck = true;
       hasLinter = true;
     }
     if (mode === 'full' && scripts.build) {
@@ -176,7 +170,6 @@ async function buildChecks(workspace, mode) {
         args: ['run', '-s', 'test', '--', '--runInBand'],
         timeout: TIMEOUTS.DIAGNOSTICS_LONG_MS,  // Wave 5 #13
       });
-      hasNodeCheck = true;
     }
 
     // Auto-detect eslint if no lint script but config exists
@@ -187,7 +180,6 @@ async function buildChecks(workspace, mode) {
         args: ['eslint', '.'],
         timeout: TIMEOUTS.DIAGNOSTICS_CHECK_MS,
       });
-      hasNodeCheck = true;
       hasLinter = true;
     }
 

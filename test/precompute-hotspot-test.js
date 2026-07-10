@@ -59,7 +59,7 @@ async function testPrecomputeHotspotsAndStability() {
     // so .sort() mutates the cache array. Second call will see already-sorted
     // array and not change it — the reference stays stable.
     const cacheRefBefore = analyzer._aggregateCache.hotspots;
-    const result2 = await buildProjectOverview({ quiet: true }, container);
+    await buildProjectOverview({ quiet: true }, container);
     const cacheRefAfter = analyzer._aggregateCache.hotspots;
     assert.strictEqual(cacheRefBefore, cacheRefAfter, 'cache hotspots array should not be replaced on second call');
 

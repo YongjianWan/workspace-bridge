@@ -11,9 +11,8 @@ const originalSpawn = cp.spawn;
 
 let activeMockProcesses = 0;
 let maxConcurrentMockProcesses = 0;
-let closeCallbacks = [];
 
-function mockSpawn(command, args, options) {
+function mockSpawn(_command, _args, _options) {
   const stdout = new EventEmitter();
   const stderr = new EventEmitter();
   const stdin = {
@@ -93,11 +92,11 @@ async function testParserQueueDrainsCorrectly() {
     const { spawnPythonASTParser, getActiveParserCount } = require('../src/services/dep-graph/parsers/spawn-ast');
 
     // Sequential calls should not queue (active < limit)
-    const r1 = await spawnPythonASTParser('python_ast_parser.py', 'a');
+    await spawnPythonASTParser('python_ast_parser.py', 'a');
     assert.strictEqual(getActiveParserCount(), 0);
 
     // A second sequential call should also go through without queueing
-    const r2 = await spawnPythonASTParser('python_ast_parser.py', 'b');
+    await spawnPythonASTParser('python_ast_parser.py', 'b');
     assert.strictEqual(getActiveParserCount(), 0);
     assert.strictEqual(maxConcurrentMockProcesses, 1, 'sequential calls should never exceed 1 concurrent');
   } finally {

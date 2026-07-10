@@ -9,7 +9,6 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
 const { runCliInProcessRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { execSync } = require('child_process');
 

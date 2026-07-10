@@ -25,10 +25,16 @@ workspace-bridge-cli <command> --cwd <project> --json --quiet
 | 用户意图 | 推荐命令 | 层级 |
 |---------|---------|------|
 | 首次摸底 / 定期健康检查 | **`audit-overview`** | **L1 默认入口** |
-| 有 git 变更，需审查 | `audit-diff` | L1 |
+| 有 git 变更，需审查 | `audit-diff`（`--staged` / `--commits <range>` / `--incremental`） | L1 |
 | 改特定文件前，评估影响 | `audit-file --file <path>` | L1 |
+| **改高危文件前，先做防爆检查** | `guard --file <path>`（超过 `--max-dependents` / `--max-transitive` 直接 exit 1） | L2 |
+| 缓存已热，只要一个切片（免重建，<2s） | `query-hotspots` / `query-knowledge-risk` / `query-stability`（各支持 `--limit`） | L2 |
+| 结构化自由查询 | `query --sql "<select …>"`（只读 SQL，查 cache DB） | L2 |
 | 安全扫描 | `audit-security --builtin-only` | L3 |
 | 项目结构太复杂，理一理 | `audit-map --compact` | L1 |
+| CI 门禁 / 结构回归监控 | `audit-overview --save <baseline>` → 之后 `--check-regression [--baseline <file\|commit>] --fail-on-findings` | CI |
+| 同一项目连续多次查询（AI/CI 批量） | `repl --cwd <p> --eval "<cmd>"`（复用内存图，避免每次冷启动） | 批量 |
+| monorepo 只看一个服务 | 任意命令 + `--service <subpath>`（其余目录降为 reference） | 修饰符 |
 | 深入理解模块依赖链 | `tree --file <path>` | L4 debug |
 | 死代码清理 | `dead-exports` | L4 debug |
 | 循环依赖/架构问题 | `cycles` | L4 debug |
@@ -37,6 +43,23 @@ workspace-bridge-cli <command> --cwd <project> --json --quiet
 **L4 命令仅在需要原始数据或调试时调用**。日常审计优先用 L1（`audit-overview` / `audit-file` / `audit-diff`），数据已被策展去噪。
 
 **避免调用**：`audit-summary`（已废弃，redirect 到 `audit-overview`）、`health`（已废弃）、`stats` / `dependencies` / `dependents`（太 raw）、`impact` / `affected-tests`（已被 `audit-file` 覆盖）、`watch`（交互式，不适合批量调用）。
+
+## Token 控制（AI 消费必读）
+
+大项目的完整 JSON 可能超出上下文预算，按需裁剪：
+
+- `--format ai --token-budget <n>`：AI 预消化格式，超预算自动降级深度；`--depth surface|detail|full` 手动控制（默认 detail）。仅 `audit-overview`。
+- `--fields <list>`：白名单字段（`ok/error/schemaVersion/command/hasFindings/staleness/warnings` 恒保留），如 `--fields summary,hotspots`。
+- `--max-files <n>`：限制 `audit-diff` / `impact` / `tree` 等返回的文件条数。
+- `--compact`：目录级聚合边 + 精简树（大项目自动触发；`--no-compact` 关闭）。
+
+## Exit Code 契约
+
+| 退出码 | 语义 | 处理 |
+|-------|------|------|
+| 0 | 成功（含"无 findings"） | 正常消费 JSON |
+| 1 | 业务失败（文件未找到 / `--fail-on-findings` 命中 / guard 超限 / 路径越权） | 读 `error` 字段，不要重试同一命令 |
+| 2 | 参数错误或未捕获异常 | 检查命令拼写与参数，属调用方错误 |
 
 ## 预热工作流
 

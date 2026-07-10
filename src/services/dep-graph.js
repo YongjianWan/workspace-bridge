@@ -14,11 +14,9 @@
  *    in the workspace, linking the nodes. GraphAnalyzer runs topological sorting, cycle detection,
  *    and dead export calculations across the fully resolved graph.
  */
-const fs = require('fs');
 const path = require('path');
-const { normalizePathKey, matchesPathFragment, normalizeFilePath } = require('../utils/path');
+const { normalizePathKey,  normalizeFilePath } = require('../utils/path');
 const { shouldExcludeBase, shouldExcludeCli: _shouldExcludeCli } = require('../utils/exclude-patterns');
-const { ENTRY_BASE_NAMES } = require('../utils/project-context');
 const { isTestLikeFile } = require('../utils/test-detector');
 const {
   getSymbolImpact,
@@ -26,7 +24,6 @@ const {
   getFunctionReuseHints,
   getFunctionLevelAffectedTests,
 } = require('./dep-graph/symbol-impact');
-const { DEFAULTS, LIMITS, CACHE_VERSION } = require('../config/constants');
 const { EventBus } = require('../utils/event-bus');
 const { GraphBuilder } = require('./dep-graph/builder');
 const { GraphAnalyzer } = require('./dep-graph/analyzer');

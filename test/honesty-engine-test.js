@@ -12,7 +12,6 @@ const {
   buildDisclaimer,
   isAliasImport,
 } = require('../src/tools/honesty-engine');
-const { SCAFFOLD_FINGERPRINTS } = require('../src/utils/scaffold-detector');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function mockDepGraph(stats) {
@@ -275,13 +274,11 @@ const tests = [
   testIsAliasImport,
 ];
 
-let passed = 0;
 let failed = 0;
 
 for (const test of tests) {
   try {
     test();
-    passed++;
   } catch (e) {
     console.error(`→ ${test.name} ... FAIL`);
     console.error(`  ${e.message}`);

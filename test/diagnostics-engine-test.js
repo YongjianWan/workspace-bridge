@@ -12,8 +12,7 @@ function testScheduleCheckDebouncing() {
   const cache = new WorkspaceCache(dir);
   const engine = new DiagnosticsEngine(dir, cache);
 
-  let callCount = 0;
-  engine.checkFile = async () => { callCount++; return []; };
+  engine.checkFile = async () => [];
 
   // Schedule multiple checks for the same file rapidly
   engine.scheduleCheck(path.join(dir, 'test.js'));

@@ -11,7 +11,7 @@ const { spawnSync } = require('child_process');
 
 // Import functions to test
 const { sanitizeSymbolName, sanitizeShellArg } = require('../src/utils/sanitize');
-const { runCommandSecure, runGit } = require('../src/utils/command');
+const { runCommandSecure } = require('../src/utils/command');
 const { resolveWorkspaceFilePath } = require('../src/utils/path');
 /** Minimal ReDoS query validator (inlined after search-tools removal) */
 function validateQuery(query) {
@@ -142,8 +142,6 @@ async function runAsyncTests() {
   if (process.exitCode === 1) {
 
     process.exit(1);
-  } else {
-
   }
 }
 

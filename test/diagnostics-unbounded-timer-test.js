@@ -59,7 +59,7 @@ async function testQueueDrainedWhenSlotFrees() {
   const engine = new DiagnosticsEngine(dir, new MockCache());
   let checkCount = 0;
 
-  engine.checkFile = async function (filePath) {
+  engine.checkFile = async function (_filePath) {
     checkCount++;
     return [];
   };

@@ -7,7 +7,7 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const { runCliInProcess, runCliInProcessRaw, makeTempDir, cleanupTempDir, runInDir } = require('./test-helpers');
+const { runCliInProcess,  makeTempDir, cleanupTempDir, runInDir } = require('./test-helpers');
 
 function writeFile(root, rel, content) {
   const full = path.join(root, rel);

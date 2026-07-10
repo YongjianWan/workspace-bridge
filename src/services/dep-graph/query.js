@@ -162,7 +162,7 @@ class GraphQuery {
         }
       } catch (err) {
         if (process.env.DEBUG) {
-          // eslint-disable-next-line no-console
+           
           console.error('[GraphQuery] findAffectedHttpRoutes SQLite fallback:', err.message);
         }
       }

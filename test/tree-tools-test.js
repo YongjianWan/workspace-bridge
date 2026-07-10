@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 // @semantic
 const assert = require('assert');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
 const { buildTree } = require('../src/tools/tree-tools');
 
 function createMockDepGraph(dependencies, dependents) {

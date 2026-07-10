@@ -3,7 +3,6 @@
 
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { DependencyGraph } = require('../src/services/dep-graph');
 const { WorkspaceCache } = require('../src/services/cache');

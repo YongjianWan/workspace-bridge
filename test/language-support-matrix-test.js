@@ -28,7 +28,6 @@ function testBuildLanguageSupportMatrix() {
 }
 
 function testBuildLanguageSupportMatrixEmpty() {
-  const root = '/repo';
   const depGraph = createMockDepGraph({ schema: {} });
   const { buildLanguageSupportMatrix } = require('../src/tools/overview-assembler');
   const matrix = buildLanguageSupportMatrix(depGraph);

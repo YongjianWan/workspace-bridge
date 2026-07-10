@@ -90,12 +90,10 @@ function testPathEscapePhysicalInterception() {
     const cliPath = path.join(__dirname, '..', 'cli.js');
     const cliCmd = `node "${cliPath}" impact --cwd "${tempRoot}" --file "../outside.js" --json --quiet`;
     let exitedWithOne = false;
-    let output = '';
     try {
-      output = execSync(cliCmd, { encoding: 'utf8', stdio: 'pipe' });
+      execSync(cliCmd, { encoding: 'utf8', stdio: 'pipe' });
     } catch (err) {
       exitedWithOne = (err.status === 1);
-      output = err.stdout + err.stderr;
     }
     assert(exitedWithOne, 'Should exit with code 1 on path traversal escape');
   } finally {

@@ -84,7 +84,7 @@ function runCli(args, opts = {}) {
   try {
     return JSON.parse(stdout);
   } catch (e) {
-    throw new Error(`Failed to parse CLI stdout as JSON:\n${result.stdout?.slice(0, 500)}\n${e.message}`);
+    throw new Error(`Failed to parse CLI stdout as JSON:\n${result.stdout?.slice(0, 500)}\n${e.message}`, { cause: e });
   }
 }
 
@@ -239,7 +239,7 @@ async function runCliInProcess(args, opts = {}) {
   try {
     return JSON.parse(stdout);
   } catch (e) {
-    throw new Error(`Failed to parse CLI stdout as JSON:\n${result.stdout?.slice(0, 500)}\n${e.message}`);
+    throw new Error(`Failed to parse CLI stdout as JSON:\n${result.stdout?.slice(0, 500)}\n${e.message}`, { cause: e });
   }
 }
 

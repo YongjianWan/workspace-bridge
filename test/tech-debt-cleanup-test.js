@@ -6,7 +6,6 @@ const os = require('os');
 const { detectFrameworkFromContent } = require('../src/services/dep-graph/framework-patterns');
 const { computeDefaultCacheDir } = require('../src/services/cache');
 const { parseCliArgs } = require('../src/cli/validate-args');
-const { GraphDB } = require('../src/services/graph-db');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 async function testFrameworkDetectionParity() {

@@ -20,6 +20,10 @@ coverage/
 
 *.bak
 /reference/GitNexus
+# reference 下的二进制资料只留本地，不进 git
+/reference/*.zip
+/reference/*.docx
+*.stderr
 
 # Temporary audit artifacts generated during local analysis sessions
 _audit_*.py

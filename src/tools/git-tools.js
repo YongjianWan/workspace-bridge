@@ -4,8 +4,8 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { findWorkspaceRoot, resolveWorkspaceFilePath, toRelativePosix, isPathInsideRoot } = require('../utils/path');
-const { runGit, trimOutput } = require('../utils/command');
+const { resolveWorkspaceFilePath, toRelativePosix, isPathInsideRoot } = require('../utils/path');
+const { runGit } = require('../utils/command');
 const { scoreToLevel } = require('../config/risk-thresholds');
 const { TIMEOUTS, LIMITS } = require('../config/constants');
 
@@ -607,7 +607,7 @@ async function getRepoEffectiveAuthorCount(root) {
   return { ok: true, count: emails.size };
 }
 
-async function getFileKnowledgeRisk(root, file, options = {}) {
+async function getFileKnowledgeRisk(root, file, _options = {}) {
   const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
 

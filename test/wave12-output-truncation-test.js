@@ -278,7 +278,7 @@ async function testDependentsCommandMaxFiles() {
 async function testTreeCommandMaxFiles() {
   const container = createMockContainer({
     depGraphOverrides: {
-      hasFile: (f) => true,
+      hasFile: (_f) => true,
       normalizeFilePath: (f) => f,
       getDependencies: () => ['b.js', 'c.js', 'd.js'],
       getDependents: () => ['e.js', 'f.js', 'g.js'],

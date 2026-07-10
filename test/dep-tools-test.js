@@ -11,11 +11,11 @@ function createMockContainer() {
       getDependencies: (file) => (file.includes('a.js') ? ['b.js', 'c.js'] : []),
       getDependents: (file) => (file.includes('a.js') ? ['d.js'] : []),
       getImpactRadius: (file) => (file.includes('a.js') ? ['b.js', 'c.js', 'd.js'] : []),
-      getSymbolImpact: (file) => ({ mode: 'file-fallback', impactedFiles: [] }),
+      getSymbolImpact: (_file) => ({ mode: 'file-fallback', impactedFiles: [] }),
       findCircularDependencies: () => [{ files: ['a.js', 'b.js'], length: 2 }],
       findDeadExports: () => [{ file: 'x.js', exports: ['unused'] }],
       findUnresolvedImports: () => [{ file: 'y.js', import: 'missing' }],
-      findAffectedTests: (file, depth) => (file.includes('a.js') ? ['test/a.test.js'] : []),
+      findAffectedTests: (file, _depth) => (file.includes('a.js') ? ['test/a.test.js'] : []),
       _displayPath: (p) => p,
     },
   });

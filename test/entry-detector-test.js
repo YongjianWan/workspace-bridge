@@ -1,6 +1,5 @@
 // @contract — EntryDetector extracted from dep-graph.js: cache, entry detection, framework hint
 const assert = require('assert');
-const path = require('path');
 const { EntryDetector, readScanContent } = require('../src/services/dep-graph/entry-detector');
 const { EventBus } = require('../src/utils/event-bus');
 

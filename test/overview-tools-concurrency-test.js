@@ -64,7 +64,7 @@ async function testHotspotBatchOrdering() {
     },
   };
 
-  const results = await buildHotspots('/fake/root', mockDepGraph, mainlineFiles, mockHistoryProvider);
+  await buildHotspots('/fake/root', mockDepGraph, mainlineFiles, mockHistoryProvider);
 
   // With only 3 files and concurrency 8, everything runs in one batch
   // and ordering should be preserved.

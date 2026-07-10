@@ -3,7 +3,7 @@
 
 const assert = require('assert');
 const path = require('path');
-const { checkFileRules, checkAllRules, RULES, EXT_TO_LANGUAGE } = require('../src/services/dep-graph/ast-rules');
+const { checkFileRules, checkAllRules,  EXT_TO_LANGUAGE } = require('../src/services/dep-graph/ast-rules');
 const { parseJava } = require('../src/services/dep-graph/parsers');
 const { parseKotlin } = require('../src/services/dep-graph/parsers/kotlin-ast');
 const { parseJavaScript } = require('../src/services/dep-graph/parsers/js.js');

@@ -144,8 +144,12 @@ function buildFileValidationAdvice(filePath, workspaceRoot, affectedTests, impac
 
   // Route B: when there are no affected tests, omit focused test commands
   // entirely so suggestedCommand doesn't point to a non-existent test file.
+  // 例外：编译型语言（Java/Kotlin/Go/Rust/C++）的 compile-check fallback 依赖
+  // targets 里出现该语言文件才会生成，且这些命令不引用源文件路径本身，
+  // 不存在“指向不存在的测试文件”问题——必须始终传入变更文件。
   const relativeFilePath = path.relative(workspaceRoot, filePath).replace(/\\/g, '/');
-  const changedTargets = hasDirectAffectedTests ? [relativeFilePath] : [];
+  const isCompiledLanguageFile = /\.(java|kt|kts|go|rs|c|cc|cpp|h|hpp)$/i.test(relativeFilePath);
+  const changedTargets = (hasDirectAffectedTests || isCompiledLanguageFile) ? [relativeFilePath] : [];
   const commands = generateCommands(stack, changeType, changedTargets, steps, workspaceRoot);
   const environmentNotes = probePythonTestEnvironment(workspaceRoot, stack.python);
 

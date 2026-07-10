@@ -5,7 +5,6 @@
  * Mocks runCommandSecure to avoid requiring semgrep to be installed.
  */
 const assert = require('assert');
-const path = require('path');
 const commandModule = require('../src/utils/command');
 
 const originalRunCommandSecure = commandModule.runCommandSecure;

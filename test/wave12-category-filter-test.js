@@ -104,7 +104,7 @@ function testBoundaryViolationHasCategory() {
     getDependencies: (file) => (file === '/project/src/api/index.js' ? ['/project/src/utils/index.js'] : []),
     projectContext: {
       root: '/project',
-      classifyFile: (filePath) => ({ isMainline: true }),
+      classifyFile: (_filePath) => ({ isMainline: true }),
       config: {
         boundaries: [{ from: 'src/api/**', deny: ['src/utils/**'] }],
       },

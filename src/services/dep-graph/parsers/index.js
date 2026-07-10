@@ -2,7 +2,6 @@ const { createImportRecord } = require('./shared');
 const { parsePython } = require('./python');
 const { parseJavaScript } = require('./js');
 const { parseJava } = require('./java');
-const { parseGoRegex } = require('./polyglot');
 const { parseGo } = require('./go-ast');
 const { parseRust } = require('./rust-ast');
 const { parseKotlin } = require('./kotlin-ast');

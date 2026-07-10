@@ -98,7 +98,7 @@ function parseJavaWithRegex(content) {
   // Limit line length to bound regex execution; the pattern below has
   // polynomial backtracking risk on very long lines due to nested quantifiers.
   const MAX_LINE_LEN = 512;
-  const methodRegex = /((?:^\s*@[\w.]+(?:\([^)]*\))?\s*\r?\n)*)^\s*public\s+(?:[\w<>\[\],.?]+\s+)+(\w+)\s*\([^)]*\)\s*(?:throws\s+[^{;]+)?\{/gm;
+  const methodRegex = /((?:^\s*@[\w.]+(?:\([^)]*\))?\s*\r?\n)*)^\s*public\s+(?:[\w<>[\],.?]+\s+)+(\w+)\s*\([^)]*\)\s*(?:throws\s+[^{;]+)?\{/gm;
   while ((match = methodRegex.exec(content)) !== null) {
     if (match[0].length > MAX_LINE_LEN) continue;
     const openBrace = content.indexOf('{', match.index + match[0].length - 1);

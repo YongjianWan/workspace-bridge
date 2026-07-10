@@ -32,10 +32,10 @@ async function getFileComplexityTrend(root, filePath, options = {}) {
   const baseContent = gitShowResult.stdout;
 
   // 2. Fetch current version content from disk
-  let currentContent = '';
+  let currentContent;
   try {
     currentContent = fs.readFileSync(filePath, 'utf8');
-  } catch (err) {
+  } catch {
     return 'STABLE';
   }
 

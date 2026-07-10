@@ -10,7 +10,7 @@ function sanitizeShellArg(arg) {
   
   // Remove dangerous characters: ; | & $ ` \n \r / \
   // Allow: Unicode letters, digits, _ - .
-  return arg.replace(/[^\p{L}\p{N}_\-\.]/gu, '');
+  return arg.replace(/[^\p{L}\p{N}_\-.]/gu, '');
 }
 
 /**
@@ -40,6 +40,7 @@ function sanitizeForAiOutput(text, maxLength = 256) {
   if (typeof text !== 'string') return '';
   let s = text.length > maxLength ? text.slice(0, maxLength) + '⋯' : text;
   // C0 (U+0000–U+001F), DEL (U+007F), zero-width spaces / directional marks / BOM
+  // eslint-disable-next-line no-control-regex -- 剥离控制字符正是本函数的职责
   s = s.replace(/[\x00-\x1F\x7F\u200B-\u200F\uFEFF]/g, '');
   return s;
 }
