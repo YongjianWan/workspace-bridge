@@ -45,7 +45,7 @@ const COMMON_OPTIONS = [
   '  --json                  Print machine-readable JSON (overridden by --format)',
   '  --format <mode>         Output format: summary | markdown | jsonl | ai | human | json (default: markdown). Takes precedence over --json',
   '  --token-budget <n>      Max estimated tokens for --format ai; auto-downgrades depth if exceeded',
-  '  --depth <mode>          Discovery depth for --format ai: surface | detail | full (default: detail)',
+  '  --depth <mode>          Output depth: surface | detail | full (default: detail). Controls --format ai discovery depth and text truncation; use --max-depth for graph traversal',
   '  --quiet                 Suppress stderr logs during CLI execution',
   '  --compact              Emit condensed tree, directory-level edges, and capped list output',
   '  --no-compact           Explicitly disable compact mode (overrides auto-compact and WB_COMPACT)',

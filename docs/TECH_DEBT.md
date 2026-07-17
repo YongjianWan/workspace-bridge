@@ -6,12 +6,7 @@
 
 ## L1 Blocker（违反铁律，必须修）
 
-### `audit-file --depth` 语义重载导致分析结果静默变化
-
-**文件**：`src/tools/audit-assembler.js:398-408`、`cli.js:48`
-**问题**：help 文档把 `--depth` 描述为 `--format ai` 的输出深度（`surface|detail|full`），但 `audit-file` 的 `assembleFile()` 把它映射为 affected-tests 的真实图遍历深度（`surface=1`、`detail=4`、`full=undefined`）。用户用 `--depth surface --format human` 时，会静默把测试影响半径截断到 1 层，可能漏掉应运行的测试。
-**违反**：AGENTS.md L1-4（静默错误必须显式）——参数改变了分析结果，但输出没有任何 `dataQuality`/`warnings` 标记。
-**修复方向**：把 `audit-file` 的遍历深度控制交给 `--max-depth`；`--depth` 仅保留给 `--format ai` 的输出塑形，或在文档中明确区分两种语义。
+> 当前无活跃的 L1 Blocker。
 
 ## L2 债务（阻塞演进或导致结果不可信）
 
@@ -29,7 +24,7 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **1** | L2 债务 **0** | 架构债务 **0** | L3 品味问题 **0** | 合计 **1 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **0** | L3 品味问题 **0** | 合计 **0 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
@@ -148,4 +143,4 @@
 
 ---
 
-*Last updated: 2026-07-15（活跃债务：L1=1 / L2=0 / 架构债务=0 / L3=0；本轮修复：formatter 接收统一输出限制参数，`formatHuman`/`formatMarkdown`/`formatSummary` 现在透传 `--max-files`/`--limit`/`--depth`；human 格式默认保持向后兼容（无显式参数时不截断），summary/markdown 默认仍回退到 `LIMITS.*`；移除 `--depth` 对文本格式的无效 warning；新增 `testTextFormatterLimits` 与 `testFormatCliResultTextLimits`；`audit-file` 普通模式支持 `--compact`；`api-contracts` 支持 `--compact`；`tree --max-files` 子节点截断；`audit-file` / `api-contracts` / `guard` 透传 `--max-files`；`guard` 支持 `--compact`；`--format json` 与 `--json` 抽象泄漏已修复；formatter 裸数字截断阈值集中到 `LIMITS`；npm run test:fast 132/132 PASS）*
+*Last updated: 2026-07-17（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=0，全部清零；本轮修复：`audit-file --depth` 语义重载（L1）——affected-tests 遍历深度改由 `--max-depth` 唯一控制，`--depth` 仅保留输出塑形语义；新增 `test/audit-file-depth-decoupling-test.js` 锁定契约；npm run test:fast 133/133 PASS）*

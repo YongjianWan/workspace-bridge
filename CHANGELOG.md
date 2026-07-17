@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### 修复 `audit-file --depth` 语义重载导致的静默分析变更 (2026-07-17)
+
+- **Fixed** `audit-file --depth surface` 会把 affected-tests 的图遍历深度静默截断到 1 层（`detail` 映射为 4）的问题：help 文档把 `--depth` 描述为 `--format ai` 的输出深度，但 `src/tools/audit-assembler.js` 的 `assembleFile()` 同时把它映射为真实遍历深度，且输出无任何 `dataQuality`/`warnings` 标记（L1-4：静默错误必须显式）。
+- **Changed** affected-tests 遍历深度改由 `--max-depth` 唯一控制；未传时使用 `DEFAULTS.AFFECTED_TEST_DEPTH`（5），与独立 `affected-tests` 命令默认行为对齐；`--depth` 仅保留 `--format ai` 输出深度与 human/summary/markdown 文本截断语义。
+- **Added** 回归测试 `test/audit-file-depth-decoupling-test.js`（fast 层）：锁定 `--depth surface/detail` 不改变遍历深度、`--max-depth` 在 `--depth` 存在时仍唯一生效的参数契约。
+- **Verified**: `npm run test:fast` 133/133 PASS；`npx eslint .` exit 0。
+
 ### 修复 formatter 未接收统一输出限制参数的 L2 债务 (2026-07-15)
 
 - **Fixed** `formatHuman` / `formatMarkdown` / `formatSummary` 不接收 CLI 限制参数的问题：

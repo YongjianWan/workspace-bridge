@@ -395,9 +395,9 @@ async function assembleFile(parsed, container) {
   if (!resolvedPath || !fs.existsSync(resolvedPath)) {
     return { ok: false, error: `File not found: ${parsed.file}`, inProject: false, hasFindings: false };
   }
-  // Honor --depth parameter (surface | detail | full)
-  const maxDepth = parsed.depth === 'surface' ? 1 : parsed.depth === 'detail' ? DEFAULTS.SYMBOL_IMPACT_DEPTH : undefined;
-  const actualMaxDepth = parsed.maxDepth ?? maxDepth;
+  // --max-depth 是 affected-tests 遍历深度的唯一控制；--depth 只做输出塑形
+  // （--format ai 深度 / 文本截断级别），不允许静默改变分析结果（L1-4）。
+  const actualMaxDepth = parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH;
   const { compact, autoCompact } = resolveCompact(parsed, container);
 
   const depGraphArgs = { cwd: parsed.cwd, file: parsed.file };
