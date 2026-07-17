@@ -6,7 +6,35 @@
 
 ---
 
-## 本轮会话 (2026-07-14)
+## 本轮会话 (2026-07-17)
+
+### 会话上下文
+
+- 用户要求评估最近修复与 git 提交过程。发现：7/14–7/15 会话 22 项工作全部未提交、TECH_DEBT 记录 1 条活跃 L1（`audit-file --depth` 语义重载）、三份活跃文档数字互相矛盾、施工脚本与 stash 残留。按 write-goal 设定的目标逐项处理完毕。
+
+### 本轮完成
+
+1. **抢救性提交**：7/14–7/15 全部工作提交为 `4643a73`（api-contracts 命令 + 输出塑形一致性，33 文件）。两股改动在 `cli.js` / `human-formatters.js` 等共享文件中交织，hunk 级拆分会产生无法通过测试的中间 commit，按会话内聚性整体提交。
+2. **L1 修复（TDD）**：`audit-file --depth surface` 静默截断 affected-tests 遍历深度 → 遍历深度改由 `--max-depth` 唯一控制，缺省回退 `DEFAULTS.AFFECTED_TEST_DEPTH(5)`；新增 `test/audit-file-depth-decoupling-test.js` 锁定契约；TECH_DEBT 活跃债务清零（commit `b6f9638`）。
+3. **仓库卫生**：删除一次性 code-mod 脚本 `scripts/patch-*.py`×3；验证 `lint-session-wip` stash 冗余（102 文件反向 apply 干净，3 个上下文漂移文件逐 hunk 确认已含于 HEAD）后 drop。
+4. **切版 2.1.0**：`package.json` 2.0.0→2.1.0，CHANGELOG [Unreleased] 积累约 6 周的内容移入 `[2.1.0]` 段落。
+5. **文档数字对齐**：SESSION 基线状态/默认动作/页脚、AGENTS 页脚更新到实测值（test:fast 133/133、smoke 136/136、totalFiles≈434、deadExports=0、orphans=2 已知项）。
+
+### 基线验证
+
+- `npx eslint .` exit 0
+- `npm run test:fast` **133/133 PASS**；`npm run test:smoke` **136/136 PASS**
+- `node cli.js audit-overview --cwd . --json --quiet`：ok=true, unresolved=0, cycles=0, deadExports=0, coverageRatio=1
+
+### 待办 / 下一步
+
+- [ ] 决定是否 `npm publish`（2.1.0 已切版，README 仍注明未发布）。
+- [ ] `repl-test.js` / `audit-file-watch-test.js` 串行 flaky 根因仍未修（记录在 TECH_DEBT）。
+- [ ] `api-contracts` 后续可扩展：Spring 类级别 `@RequestMapping` 前缀组合、更多前端 http client、字段级契约（需评估项目定位）。
+
+---
+
+## 上轮会话 (2026-07-14)
 
 ### 会话上下文
 
@@ -153,7 +181,7 @@
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
 node cli.js audit-overview --cwd . --json --quiet
-# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count>=0, summary.unresolved.count=0, summary.cycles.count>=0, summary.analysisCoverage.totalFiles≈413, summary.analysisCoverage.coverageRatio=1
+# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count>=0, summary.unresolved.count=0, summary.cycles.count>=0, summary.analysisCoverage.totalFiles≈434, summary.analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-overview 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
@@ -165,18 +193,18 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 0 架构债务 + 1 L3 + 0 项 P2 Dogfood 活跃缺陷）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 0 架构债务 + 0 L3 + 0 项 P2 Dogfood 活跃缺陷——全部清零）
 
 ---
 
 ## 基线状态
 
-- 测试：**所有测试全部 PASS**；`npm run test:fast` **130/130 PASS**（~17s），`npm run test:smoke` **133/133 PASS**（~40s）。开发迭代首选 `npm run test:fast`；新增 `test/python-test-path-derivation-test.js`、`test/python-environment-probe-test.js`（fast 层，分别锁定 Python/Django 测试路径推导与环境依赖探测契约）。
+- 测试：**所有测试全部 PASS**；`npm run test:fast` **133/133 PASS**（~18s），`npm run test:smoke` **136/136 PASS**（~48s）。开发迭代首选 `npm run test:fast`。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
-- 版本：**v2.0.0**（以 `package.json` 为准）
+- 版本：**v2.1.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~413 文件（entry=1, mainline=189, test=225）
-- 结构性指标：deadExports=1（`shadow-candidates.js` 的 `SHADOW_EXTS` 静态分析误报，已标记为 `dynamic-registry-export` 低置信误报，不参与 severity），cycles=0，unresolved=0，orphans≈2（`.workspace-bridge.json` 作为 config 文件正常，以及 Windows 大小写不敏感路径 `agents.md`/`AGENTS.md` 被重复识别）；overview 维度：hotspots>0，knowledgeRisk 默认 `disabledReason: 'history-not-enabled'`，`--with-history` 启用
+- 自身项目规模：~434 文件（以 `audit-overview` 实测为准）
+- 结构性指标：deadExports=0（原 `shadow-candidates.js` 的 `SHADOW_EXTS` 低置信误报已不再计入），cycles=0，unresolved=0，orphans=2（`.workspace-bridge.json` 作为 config 文件正常，以及 Windows 大小写不敏感路径 `agents.md`/`AGENTS.md` 被重复识别）；overview 维度：hotspots>0，knowledgeRisk 默认 `disabledReason: 'history-not-enabled'`，`--with-history` 启用
 - 架构债务：当前活跃 0 项，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（已无活跃条目）。
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
@@ -523,7 +551,7 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-07-03（dead-export ground-truth 扩展、resolver 真实冲突矩阵补强、Java parser golden 环境边界显式化、6/22–7/2 commit 根因归档、DataQuality 与 Spring symbolImpact 回归测试补缺；全量 `npm run test:fast` 128/128 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-07-17（L1 修复：`audit-file --depth` 遍历深度解耦、活跃债务清零；7/14–7/15 工作抢救性提交 `4643a73`；切版 2.1.0；文档数字对齐实测值；`npm run test:fast` 133/133 PASS；schemaVersion: 1.2.0；version: 2.1.0）*
 
 ---
 

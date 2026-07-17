@@ -297,4 +297,4 @@ THEN 拿到结果后必须执行：
 - Java AST 以 `javalang` 为前提；缺失时是可接受的 degraded mode，不应把 regex fallback 误读为 AST regression。
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-07-03（validationAdvice.commands 修复 Python/Django 测试路径推导与环境依赖探测，新增 Python test path derivation 与 pytest-django probe 回归测试；npm run test:fast 130/130 PASS；schemaVersion: 1.2.0；version: 2.0.0）*
+*Last updated: 2026-07-17（L1 修复：`audit-file --depth` 语义重载解耦，遍历深度由 `--max-depth` 唯一控制，活跃债务清零；7/14–7/15 会话工作（api-contracts 命令 + 输出塑形一致性）提交并切版 2.1.0；npm run test:fast 133/133 PASS；schemaVersion: 1.2.0；version: 2.1.0）*
