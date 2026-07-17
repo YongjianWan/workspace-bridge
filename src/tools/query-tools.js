@@ -94,7 +94,9 @@ async function queryHotspots(parsed, container) {
     hotspots = hotspots.filter((h) => h.risk === riskFilter);
   }
   const limit = Number(parsed.limit) || 0;
-  if (limit > 0) hotspots = hotspots.slice(0, limit);
+  const maxFiles = Number(parsed.maxFiles) || 0;
+  const cap = maxFiles > 0 ? (limit > 0 ? Math.min(limit, maxFiles) : maxFiles) : limit;
+  if (cap > 0) hotspots = hotspots.slice(0, cap);
 
   return {
     ok: true,
@@ -116,7 +118,9 @@ async function queryKnowledgeRisk(parsed, container) {
   const kr = data.knowledgeRisk || {};
   let items = kr[level] || [];
   const limit = Number(parsed.limit) || 0;
-  if (limit > 0) items = items.slice(0, limit);
+  const maxFiles = Number(parsed.maxFiles) || 0;
+  const cap = maxFiles > 0 ? (limit > 0 ? Math.min(limit, maxFiles) : maxFiles) : limit;
+  if (cap > 0) items = items.slice(0, cap);
 
   return {
     ok: true,
@@ -139,7 +143,9 @@ async function queryStability(parsed, container) {
     items = items.filter((s) => s.assessment === assessmentFilter);
   }
   const limit = Number(parsed.limit) || 0;
-  if (limit > 0) items = items.slice(0, limit);
+  const maxFiles = Number(parsed.maxFiles) || 0;
+  const cap = maxFiles > 0 ? (limit > 0 ? Math.min(limit, maxFiles) : maxFiles) : limit;
+  if (cap > 0) items = items.slice(0, cap);
 
   return {
     ok: true,

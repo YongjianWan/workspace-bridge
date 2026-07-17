@@ -84,7 +84,7 @@ const DEFAULTS = {
   // Supported finding categories for --category filtering.
   // Keep in sync with analyzer/tools that emit these categories.
   FINDING_CATEGORIES: new Set([
-    'dead-exports', 'unresolved', 'cycles', 'smells', 'boundaries', 'security',
+    'dead-exports', 'unresolved', 'cycles', 'smells', 'boundaries', 'security', 'health', 'ast-rules',
   ]),
 };
 

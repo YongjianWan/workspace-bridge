@@ -6,7 +6,72 @@
 
 ---
 
-## 本轮会话 (2026-07-10)
+## 本轮会话 (2026-07-14)
+
+### 会话上下文
+
+- 用户反馈：ROADMAP 中提到的前后端 API 契约对接能力当前 CLI 无法提供。按 Plan Mode 评估后，交付一个最小可行命令 `api-contracts`，作为可选适配器，不侵入核心引擎。
+
+### 本轮完成
+
+1. **新增 `api-contracts` 命令**：`node cli.js api-contracts --frontend <dir> --backend <dir>` 静态对齐前端 HTTP 调用与后端路由，输出 matched / unmatched client / unmatched server / coverageRatio / warnings。
+2. **前端调用提取器**：支持 axios shorthand / axios config / fetch；跳过模板字符串与动态拼接；生成 warnings。
+3. **后端复用现有 route extraction**：Express / NestJS / Spring / FastAPI / Django / Flask / Gin / Fiber / Actix / Axum 等框架自动识别。
+4. **契约匹配器**：按 `(method, 归一化 path)` 对齐，路径变量段归一为 `{}`；明确不做字段级契约对比。
+5. **双 workspace 独立初始化**：frontend/backend 各自 `ServiceContainer`（`strictCwd: true`），缓存隔离，不污染 `--cwd`。
+6. **完整 CLI 集成**：参数解析、help 文本、formatter（human/markdown/summary/jsonl）、命令注册、回归测试 `test/api-contracts-test.js`。
+7. **修复 `api-contracts` 引入的两项 L2 技术债务**：
+   - `cli.js` 中 `parsed.command !== 'api-contracts'` 硬编码改为声明式 `SELF_CONTAINER_COMMANDS`。
+   - `src/tools/api-contract-tools.js` 删除独立 `TEST_LIKE_PATTERNS`，复用 `src/utils/project-context.js` 导出的 `isTestLikeFile()`。
+8. **修复 `api-contracts` 提取器与格式化输出缺陷**：
+   - formatter 现在展示 `warnings`（human/summary/markdown/jsonl）。
+   - 无插值反引号模板字符串不再被静默跳过。
+   - 注释中的示例代码不再被误提取为真实调用。
+   - `axios(...)` / `axios.request(...)` 正则收窄，避免 `apiConfig` / `myApi.request` 等误匹配。
+9. **优化 `api-contracts --format ai` 输出**：新增 `AI_DIGEST['api-contracts']` 输出结构化 `counts` / `topRisks` / `actions` / `keyContracts`，AI 无需再解析 summary 字符串即可拿到未匹配接口和行动建议。
+10. **扩展 `--format ai` 至更多命令**：为 `diagnostics`、`health`、`tree`、`query` 以及此前已适配的 `stats`、`workspace-info`、`dependencies`、`dependents`、`audit-map` 补全 `AI_DIGEST`，统一由 `formatAi()` 通用分支渲染 `counts` / `topRisks` / `actions` / `details`，避免 AI 消化原始 summary 字符串。
+11. **修复 CLI 输出塑形参数全局一致性缺口**：
+    - 将 `--fields` 白名单过滤下沉到 `src/cli/route-formatter.js`，在 `--json` / `--format ai` / `--format jsonl` 结构化输出前统一应用；`human` / `markdown` / `summary` 文本输出不再被 `--fields` 裁剪。
+    - `--format ai` 与 `--fields` 组合时输出 warning，防止 AI 静默拿到被降级的 digest。
+    - `--token-budget` / `--depth` 在非 `--format ai` 场景下不再静默忽略，输出 warning 明确只对 `--format ai` 有效。
+    - 修复 `--category health` help 示例与校验集合不一致（`FINDING_CATEGORIES` 新增 `health` / `ast-rules`）。
+    - 修复 `audit-summary --format human --fields <不含 health>` 的 `TypeError`。
+    - 同步更新 `TECH_DEBT.md` / `CHANGELOG.md` / `SKILL.md`。
+12. **扩展 `--max-files` / `--compact` 到 `audit-overview` / `audit-map` / `query-*`**：
+    - `audit-map` 支持 `--max-files`，对文件/边/issueOverlay 同步裁剪。
+    - `audit-overview` 支持 `--max-files` / `--compact`，统一截断热点、稳定性、死导出、循环依赖等数组；带这些参数时跳过快照写入，避免毒化 `query-*`。
+    - `query-hotspots` / `query-knowledge-risk` / `query-stability` 支持 `--max-files`（与 `--limit` 取较小值）。
+    - 更新 `cli.js` help、`SKILL.md`、`TECH_DEBT.md`、`CHANGELOG.md`，并补充单元测试。
+13. **修复 `tree --max-files` 只截断根节点、子节点不受限的问题**：
+    - 改为每个节点按 `imports` / `dependents` 方向独立应用 `maxFiles`，子节点也被截断，保留 `importsTruncated` / `dependentsTruncated` 标记。
+    - 修复 `test/wave12-output-truncation-test.js` 回归；`npm run test:fast` 131/131 PASS。
+    - 更新 `TECH_DEBT.md`、`CHANGELOG.md`。
+14. **清理 `--limit` 债务**：确认 `query-hotspots` / `query-knowledge-risk` / `query-stability` 已正确消费 `--limit` 并与 `--max-files` 取较小值；从 `TECH_DEBT.md` 移除过时条目，活跃 L2 债务降至 2 项。
+15. **重构 `test/query-tools-test.js`**：将 `--limit` / `--max-files` / filter 测试改为 mock snapshot，消除对真实项目数据的不稳定依赖；`npm run test:fast` 131/131 PASS。
+16. **修复 `audit-file` 普通模式忽略 `--max-files` 的问题**：将 `parsed.maxFiles` 透传给 `impact` / `affected_tests`，统一截断两个列表；新增 `test/audit-file-max-files-test.js`。
+17. **修复 `--format json` 与 `--json` 抽象泄漏**：`validate-args.js` 保留 `format: 'json'`；`route-formatter.js` 显式处理 `format === 'json'`；更新 `test/cli-bool-flags-env-test.js`。
+18. **集中 formatter 截断阈值**：在 `src/config/limits.js` 新增 `OUTPUT_*` 常量，替换 `human-formatters.js`、`project-map.js`、`validation-advice/risk-actions.js` 中所有裸数字 `slice(0, N)`。
+19. **修复 `api-contracts` 忽略 `--max-files` 的问题**：将 `parsed.maxFiles` 透传至 `runApiContracts()`；`buildResult()` 截断 `matched[]` / `unmatchedClient[]` / `unmatchedServer[]` / `warnings[]` 并标记 `truncated`；formatter 追加截断提示；新增 `testBuildResultMaxFiles`。
+20. **修复 `guard` 不支持 `--max-files` / `--compact` 的问题**：`src/cli/commands/guard.js` 截断 `directDependents[]` / `transitiveDependents[]` / `impactItems[]` 并标记 `truncated`；`--compact` 省略详细列表；`src/cli/formatters/guard-formatter.js` 显示 compact/truncated 提示；新增 `testGuardMaxFilesAndCompact`；`npm run test:fast` 132/132 PASS。
+21. **补全 `audit-file` / `api-contracts` 的 `--compact` 支持**：`audit-file` 普通模式在 `assembleFile()` 中清空详细列表、保留 counts；`api-contracts` 在 `buildResult()` 中清空 `matched[]` / `unmatchedClient[]` / `unmatchedServer[]` / `warnings[]` 并标记 `compact`；human/summary/markdown formatter 均追加 compact 提示；新增 `testBuildResultCompact`；`npm run test:fast` 132/132 PASS。
+22. **修复 formatter 未接收统一输出限制参数的 L2 债务**：`formatHuman` / `formatMarkdown` / `formatSummary` 现在接收并透传 `--max-files` / `--limit` / `--depth`；`route-formatter.js` 在调用文本 formatter 时传入限制参数；`human` 格式默认保持不截断以兼容旧行为，`summary`/`markdown` 默认仍回退到 `LIMITS.*`；移除 `--depth` 对文本格式的无效 warning；新增 `testTextFormatterLimits` 与 `testFormatCliResultTextLimits`；活跃 L2 债务清零；`npm run test:fast` 132/132 PASS。
+
+### 待办 / 下一步
+
+- [ ] 决定是否发布 npm 包（README 已注明未发布；`npm publish` 是唯一让外部用户可用的路径）。
+- [ ] 考虑切一个 2.1.0 版本释放 [Unreleased]（当前未发布区已积累 6 周变更）。
+- [ ] `repl-test.js` / `audit-file-watch-test.js` 串行 flaky 根因仍未修（记录在 TECH_DEBT）。
+- [ ] git stash 中留有一份上轮改动的冗余备份（`lint-session-wip`），确认无需后可 `git stash drop`。
+- [ ] `api-contracts` 后续可扩展：Spring 类级别 `@RequestMapping` 前缀组合、更多前端 http client（如 Vue `$http`）、请求/响应字段级契约（仅在项目定位允许范围内评估）。
+
+### 基线验证
+
+- `npx eslint .` exit 0
+- `npm run test:fast` **132/132 PASS**
+
+---
+
+## 上轮会话 (2026-07-10)
 
 ### 会话上下文
 
@@ -22,13 +87,6 @@
    - Route B 清空 changedTargets 误伤 Java/Go/Rust/C++ compile-check fallback → 编译型语言始终传入。
 4. **仓库卫生**：CHANGELOG 归档（586KB→158KB，历史入 `docs/changelog/`）；untrack reference 二进制；删根目录杂物。
 5. **README 安装说明改为源码安装**（npm 包未发布）；**SKILL.md 补全** guard/query-*/token 控制/CI 基线/Exit Code 契约。
-
-### 待办 / 下一步
-
-- [ ] 决定是否发布 npm 包（README 已注明未发布；`npm publish` 是唯一让外部用户可用的路径）。
-- [ ] 考虑切一个 2.1.0 版本释放 [Unreleased]（当前未发布区已积累 5 周变更）。
-- [ ] `repl-test.js` / `audit-file-watch-test.js` 串行 flaky 根因仍未修（记录在 TECH_DEBT）。
-- [ ] git stash 中留有一份本轮改动的冗余备份（`lint-session-wip`），确认无需后可 `git stash drop`。
 
 ### 基线验证
 

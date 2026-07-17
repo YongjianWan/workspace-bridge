@@ -7,6 +7,109 @@
 
 ## [Unreleased]
 
+### 修复 formatter 未接收统一输出限制参数的 L2 债务 (2026-07-15)
+
+- **Fixed** `formatHuman` / `formatMarkdown` / `formatSummary` 不接收 CLI 限制参数的问题：
+  - `src/cli/formatters/human-formatters.js` 新增 `resolveOutputLimit(defaultLimit, options)`，按 `--max-files` > `--limit` > `--depth surface|detail|full` 的优先级解析输出上限；`surface` 收紧到 `LIMITS.OUTPUT_SHORT`，`full` 对应 `Infinity`（不截断）。
+  - 所有 formatter registry 函数签名改为 `(r, _options = {}) => ...`，`summary`/`markdown` 的 `slice(0, LIMITS.OUTPUT_*)` 全部改为 `slice(0, resolveOutputLimit(LIMITS.OUTPUT_*, _options))`。
+  - 对原本不截断的 `human` formatter（`impact`、`affected-tests`、`affected-routes`、`dependencies`、`dependents`、`dead-exports`、`unresolved`、`cycles`）新增 `slice(0, resolveOutputLimit(Infinity, _options))`，保持默认行为不变，仅在用户传入 `--max-files`/`--limit`/`--depth` 时才截断。
+  - `formatAuditSummary()` 与 `buildSecurityLines()` 同样接收并透传 `options`。
+- **Fixed** `src/cli/route-formatter.js` 的 `formatCliResult()` 现在向 `formatHuman` / `formatSummary` / `formatMarkdown` 透传 `{ maxFiles: parsed.maxFiles, limit: parsed.limit, depth: parsed.depth }`。
+- **Changed** `--depth` 非 AI 场景的 warning 逻辑：由于 `--depth` 现在对 `human`/`summary`/`markdown` 也有意义（控制截断级别），仅在 `json`/`jsonl` 下遇到 `--depth` 时才输出 ignored warning。
+- **Added** 回归测试 `testTextFormatterLimits` 与 `testFormatCliResultTextLimits`（`test/formatter-direct-test.js`），覆盖 `--max-files` / `--limit` / `--depth` 对 human/summary/markdown 的截断行为。
+- **Verified**: `npx eslint .` exit 0；`npm run test:fast` 132/132 PASS。
+
+### 补全 `audit-file` / `api-contracts` 的 `--compact` 支持 (2026-07-15)
+
+- **Fixed** `audit-file` 普通模式忽略 `--compact` 的问题：
+  - `src/tools/audit-assembler.js` 在 `assembleFile()` 中识别 `compact` 标志，清空 `impact.impact[]` / `impact.coChanges[]` / `impact.affectedRoutes[]` / `affectedTests.affectedTests[]` / `validationAdvice.commands[]` 等详细列表，仅保留 counts 与 `suggestedCommand`。
+  - `src/cli/formatters/human-formatters.js` 的 `audit-file` human formatter 在 compact 模式下追加提示，避免用户误以为数据缺失。
+- **Fixed** `api-contracts` 忽略 `--compact` 的问题：
+  - `src/tools/api-contract-tools.js` 的 `buildResult()` 在 `options.compact` 下清空 `matched[]` / `unmatchedClient[]` / `unmatchedServer[]` / `warnings[]`，保留 counts 并设置 `compact: true`。
+  - `src/cli/formatters/human-formatters.js` 的 `api-contracts` human/summary/markdown formatter 均追加 compact 提示（此前仅截断提示）。
+- **Added** 回归测试 `testBuildResultCompact`（`test/api-contracts-test.js`），验证 compact 标志对数组的清空行为、counts 的保留，以及 human/summary/markdown 输出中的 compact 提示。
+- **Verified**: `npm run test:fast` 132/132 PASS；`npx eslint .` exit 0。
+
+### 扩展 `--max-files` / `--compact` 到 audit-overview / audit-map / query-* (2026-07-14)
+
+- **Fixed** `audit-map --max-files <n>` 被忽略的问题：
+  - `src/cli/formatters/project-map.js` 的 `buildProjectMap()` 新增 `options.maxFiles`，对文件列表排序后取前 N，并同步过滤 edges / issueOverlay / hotspots，保证输出内部一致。
+  - `src/cli/commands/index.js` 的 `audit-map` 命令将 `parsed.maxFiles` 透传到底层。
+- **Fixed** `audit-overview --max-files <n>` / `--compact` 被忽略的问题：
+  - `src/tools/overview-tools.js` 新增 `applyOutputLimits()`，对 `hotspots`、`stability`、`deadExports`、`unresolved`、`cycles`、`astRules`、`boundaries`、`smells`、`knowledgeRisk`、`orphans.samples` 等数组进行统一截断。
+  - `--compact` 未配 `--max-files` 时使用 `DEFAULTS.COMPACT_ISSUE_MAX_ITEMS`（10）作为默认上限。
+  - 带 `--max-files` / `--compact` 的运行跳过 aggregate snapshot 写入，防止子集结果毒化后续 `query-*` 消费者（与 `--category` 过滤采用相同策略）。
+- **Fixed** `query-hotspots` / `query-knowledge-risk` / `query-stability` 忽略 `--max-files` 的问题：现在 `--max-files` 与 `--limit` 同时存在时取较小值；仅有 `--max-files` 时直接作为上限。
+- **Fixed** `tree --max-files <n>` 只截断根节点、子节点完全不受限的问题：改为每个节点按方向（imports / dependents）独立应用 `maxFiles`，根节点与子节点均被截断，保留 `importsTruncated` / `dependentsTruncated` 标记以兼容 `treeQuery` 的 `truncated` 计算。
+- **Fixed** `audit-file` 普通模式忽略 `--max-files` 的问题：将 `parsed.maxFiles` 透传给底层 `impact` 与 `affected_tests` 查询，统一截断 `impact[]` 与 `affectedTests[]`。
+- **Fixed** `api-contracts` 忽略 `--max-files` 的问题：`src/cli/commands/api-contracts.js` 将 `parsed.maxFiles` 透传至 `src/tools/api-contract-tools.js` 的 `runApiContracts()`；`buildResult()` 对 `matched[]` / `unmatchedClient[]` / `unmatchedServer[]` / `warnings[]` 统一截断并设置 `truncated` 标记；human/summary/markdown formatter 在输出被截断时追加提示。
+- **Fixed** `guard` 不支持 `--max-files` / `--compact` 的问题：`src/cli/commands/guard.js` 现在截断 `directDependents[]` / `transitiveDependents[]` / `impactItems[]` 并设置 `truncated` 标记；`--compact` 模式下省略详细列表，仅保留统计与阈值；`src/cli/formatters/guard-formatter.js` 同步显示 compact/truncated 提示；新增 `test/guard-command-test.js` 回归测试。
+- **Fixed** `--format json` 与 `--json` 抽象泄漏：`src/cli/validate-args.js` 现在保留 `format: 'json'` 而不是置为 `null`；`src/cli/route-formatter.js` 显式处理 `format === 'json'`，与 `--json` 等价输出结构化 JSON；同步更新 `test/cli-bool-flags-env-test.js` 断言。
+- **Refactored** formatter 硬编码截断阈值：在 `src/config/limits.js` 新增 `OUTPUT_TINY`/`OUTPUT_SHORT`/`OUTPUT_MEDIUM`/`OUTPUT_LONG`/`OUTPUT_EXTRA_LONG`/`STRING_SNIPPET_MAX_CHARS`，并替换 `src/cli/formatters/human-formatters.js`、`src/cli/formatters/project-map.js`、`src/cli/formatters/validation-advice/risk-actions.js` 中的所有 `slice(0, N)` 为对应常量（L2-6 裸数字归零）。
+- **Verified** `query-hotspots` / `query-knowledge-risk` / `query-stability` 正确消费 `--limit` 并与 `--max-files` 取较小值；移除 `TECH_DEBT.md` 中对应过时条目。
+- **Improved** `test/query-tools-test.js`：将 `--limit` / `--max-files` / `--risk` / `--assessment` 等边界测试从真实 `ServiceContainer` 迁移到 mock snapshot，消除对 workspace-bridge 自身项目 hotspots 数量的不稳定依赖。
+- **Changed** `cli.js` help 与 `skills/workspace-audit/SKILL.md` 更新 `--max-files` / `--compact` 适用范围。
+- **Verified**: `npm run test:fast` 131/131 PASS；`npx eslint .` exit 0。
+
+### 修复 CLI 输出塑形参数全局一致性缺口 (2026-07-14)
+
+- **Fixed** `--fields` 白名单仅在 `audit-summary` / `audit-overview` 生效的问题：
+  - 将 `applyFieldsFilter` 从 `src/cli/commands/index.js` 下沉到 `src/cli/route-formatter.js`，在 `--json` / `--format ai` / `--format jsonl` 等结构化输出前统一应用， Essential 字段（`ok/error/schemaVersion/command/hasFindings/staleness/warnings`）始终保留。
+  - 人类可读格式（`human` / `markdown` / `summary`）不再受 `--fields` 裁剪，避免 formatter 访问已被删除的字段而崩溃。
+  - 当 `--format ai` 与 `--fields` 同时使用时，输出 `warnings` 中追加 `--fields reduced AI digest input; counts and topRisks may be incomplete`，防止 AI 消费者静默拿到被降级的 digest。
+- **Fixed** `--token-budget` / `--depth` 在非 `--format ai` 场景下静默忽略的问题：现在在结构化输出结果中追加 warning，明确告知这两个参数只对 `--format ai` 有效。
+- **Fixed** `--category health` 等 help 示例与校验集合不一致的问题：
+  - `src/config/defaults.js` 的 `FINDING_CATEGORIES` 新增 `health` 与 `ast-rules`，与 `src/tools/category-filter.js` 的 `CATEGORY_ALIASES` 保持一致。
+  - `cli.js` help 文案更新为 `audit-summary / audit-overview` 及完整可用类别列表。
+- **Fixed** `audit-summary --format human --fields <不含 health>` 崩溃： human formatter 对 `result.health`、`result.scope.counts` 等字段使用可选链与默认值，避免 `TypeError`。
+- **Verified**: `npm run test:fast` 131/131 PASS；`npx eslint .` exit 0。
+
+### 扩展 `--format ai` 至 diagnostics/health/tree/query 等剩余命令 (2026-07-14)
+
+- **Added** `AI_DIGEST` 注册表条目覆盖 `diagnostics`、`health`、`tree`、`query`，连同此前已适配的 `stats`、`workspace-info`、`dependencies`、`dependents`、`audit-map`，使这些命令在 `--format ai` 下输出结构化 `counts` / `topRisks` / `actions` / `details`，不再只返回 `counts: {}` + `summary` 字符串。
+  - `diagnostics`：输出 checksRun / failedChecks / diagnostics / errors / warnings，失败检查与诊断问题按 severity 分级并给出 P0/P1/P2 行动建议。
+  - `health`：复用 `audit-overview` digest 并叠加 `healthScore` 计数（deprecated 命令保持兼容）。
+  - `tree`：递归统计 imports / dependents / circular edges，标记循环依赖与高 fan-in 风险，detail/full 深度附带树片段。
+  - `query`：输出行数、列名与样本行，避免 AI 直接消化原始 SQL 结果表。
+- **Refactored** `formatAi()` 通用分支：由 `AI_DIGEST` 函数统一返回 `details` / `fullDetails`，`formatAi` 按 `depth` 自动附加，不再为单个命令写特化 `else if`。
+- **Added** 回归测试 `testAiDigestForOtherCommands` 覆盖 `diagnostics`、`health`、`tree`、`query` 的 `--format ai` 结构与关键字段断言。
+- **Verified**: `npm run test:fast` PASS；`npx eslint .` exit 0。
+
+### 新增 `api-contracts` 命令：前后端 API 契约对接 MVP (2026-07-14)
+
+- **Added** `api-contracts --frontend <dir> --backend <dir>` CLI 命令，静态对齐前端 HTTP 调用与后端路由。
+  - 前端提取器（`src/services/dep-graph/api-contracts/client-call-extractor.js`）：支持 `axios.get/post/...`、 `axios({ url, method })`、`fetch(..., { method })` 等静态 URL 调用；跳过模板字符串与动态拼接，并生成 `warnings`。
+  - 后端复用现有 `framework-patterns.extractRoutes()`，支持 Express/NestJS/Spring/FastAPI/Django/Flask/Gin/Fiber/Actix/Axum 等框架。
+  - 匹配器（`src/services/dep-graph/api-contracts/contract-matcher.js`）：按 `(HTTP method, 归一化 path)` 对齐，路径变量段（`:id` / `{id}`）统一归一为 `{}`；不做字段级契约对比。
+  - 输出 `matched[]`、`unmatchedClient[]`、`unmatchedServer[]`、`coverageRatio` 与 `warnings[]`，并支持 human/markdown/summary/jsonl 格式化。
+- **Added** 编排层 `src/tools/api-contracts-tools.js` 与命令入口 `src/cli/commands/api-contracts.js`：独立初始化 frontend/backend 两个 `ServiceContainer`（`strictCwd: true`），避免与 `--cwd` 的缓存/工作区混淆。
+- **Added** CLI 参数 `--frontend` / `--backend`（`src/cli/validate-args.js`）、help 文本、`src/cli/formatters/human-formatters.js` 格式化输出。
+- **Added** 回归测试 `test/api-contracts-test.js`（fast 层）：覆盖 axios/fetch/config 提取、路径归一化、匹配算法、端到端对齐与缺失参数错误。
+- **Verified**: `npm run test:fast` 131/131 PASS；`npx eslint` 新文件零错误。
+
+### 修复 `api-contracts` 引入的两项 L2 技术债务 (2026-07-14)
+
+- **Refactored** `cli.js` 中 `api-contracts` 的生命周期例外：新增声明式集合 `SELF_CONTAINER_COMMANDS`（`src/cli/commands/index.js`），由命令注册表声明哪些命令自行管理 `ServiceContainer`，CLI 编排层不再硬编码 `parsed.command !== 'api-contracts'`。
+- **Refactored** `src/tools/api-contract-tools.js` 不再独立维护 `TEST_LIKE_PATTERNS`：改为复用 `src/utils/project-context.js` 导出的 `isTestLikeFile()`，消除 test-like 判定规则的重复来源。
+- **Verified**: `npm run test:fast` 131/131 PASS；`npx eslint .` exit 0。
+
+### 修复 `api-contracts` 提取器与格式化输出缺陷 (2026-07-14)
+
+- **Fixed** `src/cli/formatters/human-formatters.js` 中 `api-contracts` 的 human/summary/markdown/jsonl formatter 不展示 `warnings` 的问题；现在动态 URL 跳过、路径变量归一化等警告会透传到所有输出格式。
+- **Fixed** `src/services/dep-graph/api-contracts/client-call-extractor.js` 中无插值反引号模板字符串（`` `/api/users` ``）被静默跳过的问题；`isStaticPath()` 现在将反引号视为合法静态引号。
+- **Fixed** `client-call-extractor.js` regex 扫描会命中注释中代码导致的假阳性；新增 `stripComments()` 在保留字符串字面量的前提下剥离 `//` 与 `/* */` 注释。
+- **Fixed** `extractAxiosConfigCalls()` 正则过于宽松导致 `apiConfig({...})`、`myApi.request({...})` 等非 axios 调用被误匹配；现在只匹配字面量 `axios(...)` 或 `axios.request(...)`。
+- **Added** 回归测试覆盖上述四种场景（`test/api-contracts-test.js`）。
+- **Verified**: `npm run test:fast` 131/131 PASS；`npx eslint .` exit 0。
+
+### 优化 `api-contracts` `--format ai` 输出，降低 AI 消化成本 (2026-07-14)
+
+- **Added** `AI_DIGEST['api-contracts']`（`src/cli/formatters/human-formatters.js`）：为 `api-contracts` 输出结构化 `counts`（clientCalls / serverRoutes / matched / unmatchedClient / unmatchedServer / coverageRatio）、`topRisks`（按 unmatched-client / unmatched-server / extraction-limitations 分类）、`actions`（P0/P1 建议）。
+- **Added** `formatAi()` 中对 `api-contracts` 的 severity 推导：有未匹配前端调用时为 `high`，仅有未匹配后端路由时为 `medium`。
+- **Added** `depth=detail/full` 时的 `keyContracts` 字段，直接携带前 5 条 matched / unmatchedClient / unmatchedServer / warnings；`depth=full` 时输出完整 `details`。
+- **Added** 回归测试 `testAiFormatDigest` 覆盖 `--format ai` detail / surface 两种深度。
+- **Verified**: `npm run test:fast` 131/131 PASS；`npx eslint .` exit 0。
+
 ### 工程基线补全：eslint 工具链 + CI Windows/slow 层 + 仓库卫生 + SKILL.md 补全 (2026-07-10)
 
 - **Added** eslint flat config（`eslint.config.js`，recommended 级 + 少量正确性规则，无风格约束）、`npm run lint`、CI `Lint` 步骤。清零全仓 148 个 lint 错误：

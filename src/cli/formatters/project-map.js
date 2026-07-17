@@ -1,4 +1,4 @@
-const { HIGHLIGHT_SCORES, DEFAULTS, SCORING } = require('../../config/constants');
+const { HIGHLIGHT_SCORES, DEFAULTS, SCORING, LIMITS } = require('../../config/constants');
 
 
 function toRelativePath(root, filePath) {
@@ -182,7 +182,7 @@ function getModuleOf(dirPath) {
   if (dirPath === '.') return '.';
   const parts = dirPath.split('/');
   if (parts.length <= 2) return dirPath;
-  return parts.slice(0, 3).join('/');
+  return parts.slice(0, LIMITS.OUTPUT_SHORT).join('/');
 }
 
 function buildProjectMap(depGraph, options = {}) {
@@ -191,9 +191,17 @@ function buildProjectMap(depGraph, options = {}) {
   }
 
   const compact = options.compact || false;
+  const maxFiles = options.maxFiles && Number.isFinite(options.maxFiles) && options.maxFiles > 0
+    ? options.maxFiles
+    : null;
   const root = depGraph.root || depGraph.workspaceRoot || '';
   const projectContext = depGraph.projectContext || null;
-  const allFiles = (depGraph.getAllFilePaths?.() || []).map((k) => depGraph._displayPath?.(k) || k);
+  let allFiles = (depGraph.getAllFilePaths?.() || []).map((k) => depGraph._displayPath?.(k) || k);
+  allFiles.sort((a, b) => toRelativePath(root, a).localeCompare(toRelativePath(root, b)));
+  if (maxFiles && allFiles.length > maxFiles) {
+    allFiles = allFiles.slice(0, maxFiles);
+  }
+  const allowedFiles = new Set(allFiles.map((f) => toRelativePath(root, f)));
 
   // Flat tree: all files with roles
   const flatTree = allFiles.map((file) => {
@@ -211,7 +219,7 @@ function buildProjectMap(depGraph, options = {}) {
         typeof r === 'string' ? r : r?.name
       ).filter(Boolean),
     };
-  }).sort((a, b) => a.file.localeCompare(b.file));
+  });
 
   // Tree: directory-aggregated structure
   let tree = buildDirectoryTree(flatTree);
@@ -241,6 +249,7 @@ function buildProjectMap(depGraph, options = {}) {
         const resolved = record.resolved || record.source;
         if (!resolved) continue;
         const toRel = toRelativePath(root, resolved);
+        if (!allowedFiles.has(toRel)) continue;
         const toDir = getDirectoryOf(toRel);
         if (fromDir === toDir) continue;
         const toMod = getModuleOf(toDir);
@@ -276,6 +285,7 @@ function buildProjectMap(depGraph, options = {}) {
         const resolved = record.resolved || record.source;
         if (!resolved) continue;
         const toRel = toRelativePath(root, resolved);
+        if (!allowedFiles.has(toRel)) continue;
         const edgeKey = `${fromRel}|${toRel}`;
         const existing = edgeMap.get(edgeKey);
         if (existing) {
@@ -348,18 +358,27 @@ function buildProjectMap(depGraph, options = {}) {
   hotspots.sort((a, b) => (b.dependentsCount || 0) - (a.dependentsCount || 0));
 
   const issueOverlay = {
-    deadExports: deadExports.map((item) => compact
-      ? { file: toRelativePath(root, item.file), confidence: item.confidence || 'medium' }
-      : { file: toRelativePath(root, item.file), exports: item.exports, confidence: item.confidence || 'medium' }
-    ).slice(0, compact ? DEFAULTS.COMPACT_ISSUE_MAX_ITEMS : deadExports.length),
-    unresolved: unresolved.map((item) => ({
-      file: toRelativePath(root, item.file),
-      import: item.import,
-      resolvedTo: item.resolvedTo || null,
-    })).slice(0, compact ? DEFAULTS.COMPACT_ISSUE_MAX_ITEMS : unresolved.length),
-    cycles: cycles.map((cycle) => cycle.map((f) => toRelativePath(root, f))),
-    orphans: compact ? orphans.slice(0, DEFAULTS.COMPACT_ORPHAN_MAX_ITEMS) : orphans,
-    hotspots: hotspots.slice(0, 10),
+    deadExports: deadExports
+      .filter((item) => allowedFiles.has(toRelativePath(root, item.file)))
+      .map((item) => compact
+        ? { file: toRelativePath(root, item.file), confidence: item.confidence || 'medium' }
+        : { file: toRelativePath(root, item.file), exports: item.exports, confidence: item.confidence || 'medium' }
+      )
+      .slice(0, compact ? DEFAULTS.COMPACT_ISSUE_MAX_ITEMS : deadExports.length),
+    unresolved: unresolved
+      .filter((item) => allowedFiles.has(toRelativePath(root, item.file)))
+      .map((item) => ({
+        file: toRelativePath(root, item.file),
+        import: item.import,
+        resolvedTo: item.resolvedTo || null,
+      }))
+      .slice(0, compact ? DEFAULTS.COMPACT_ISSUE_MAX_ITEMS : unresolved.length),
+    cycles: cycles
+      .filter((cycle) => cycle.every((f) => allowedFiles.has(toRelativePath(root, f))))
+      .map((cycle) => cycle.map((f) => toRelativePath(root, f))),
+    orphans: (compact ? orphans.slice(0, DEFAULTS.COMPACT_ORPHAN_MAX_ITEMS) : orphans)
+      .filter((item) => allowedFiles.has(typeof item === 'string' ? item : (item.file || ''))),
+    hotspots: hotspots.slice(0, LIMITS.OUTPUT_LONG),
   };
 
   // In compact mode AI can't see the full file list; surface noteworthy files explicitly.

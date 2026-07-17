@@ -5,6 +5,44 @@
 const { DEFAULTS, SCORING } = require('../config/constants');
 const { computeConfigHash } = require('../utils/project-context');
 const { getFileHistoryRisk } = require('./git-tools');
+
+function sliceArray(arr, limit) {
+  if (!Array.isArray(arr) || arr.length <= limit) return arr;
+  const truncated = arr.slice(0, limit);
+  truncated.truncated = true;
+  truncated.total = arr.length;
+  return truncated;
+}
+
+function applyOutputLimits(result, args) {
+  const maxFiles = args?.maxFiles && Number.isFinite(args.maxFiles) && args.maxFiles > 0 ? args.maxFiles : null;
+  const compact = args?.compact;
+  const limit = maxFiles || (compact ? DEFAULTS.COMPACT_ISSUE_MAX_ITEMS : null);
+  if (!limit || limit <= 0) return;
+
+  result.hotspots = sliceArray(result.hotspots, limit);
+  result.stability = sliceArray(result.stability, limit);
+  if (result.architectureAdvice) {
+    result.architectureAdvice.cycleRefactorSuggestions = sliceArray(result.architectureAdvice.cycleRefactorSuggestions, limit);
+    result.architectureAdvice.couplingSplitSuggestions = sliceArray(result.architectureAdvice.couplingSplitSuggestions, limit);
+  }
+  if (result.deadExports) result.deadExports.deadExports = sliceArray(result.deadExports.deadExports, limit);
+  if (result.unresolved) result.unresolved.unresolved = sliceArray(result.unresolved.unresolved, limit);
+  if (result.cycles) result.cycles.cycles = sliceArray(result.cycles.cycles, limit);
+  if (result.astRules) result.astRules.findings = sliceArray(result.astRules.findings, limit);
+  if (result.boundaries) result.boundaries.violations = sliceArray(result.boundaries.violations, limit);
+  if (result.smells) result.smells.smells = sliceArray(result.smells.smells, limit);
+  if (result.knowledgeRisk) {
+    result.knowledgeRisk.high = sliceArray(result.knowledgeRisk.high, limit);
+    result.knowledgeRisk.medium = sliceArray(result.knowledgeRisk.medium, limit);
+    result.knowledgeRisk.low = sliceArray(result.knowledgeRisk.low, limit);
+  }
+  if (result.orphans?.samples) {
+    for (const k of ['docs', 'scripts', 'configs', 'modules']) {
+      result.orphans.samples[k] = sliceArray(result.orphans.samples[k], limit);
+    }
+  }
+}
 const {
   assembleOverviewData,
   precomputeHotspotsAndStability,
@@ -58,6 +96,7 @@ async function buildProjectOverview(args, container) {
       if (snapshot && isSnapshotFresh(snapshot, container, args)) {
         const cloned = JSON.parse(JSON.stringify(snapshot.data));
         applyBaselineOperations(cloned, args);
+        applyOutputLimits(cloned, args);
         return cloned;
       }
     } catch (_) {
@@ -188,10 +227,11 @@ async function buildProjectOverview(args, container) {
   }
 
   applyBaselineOperations(result, args);
+  applyOutputLimits(result, args);
 
   // Stage 3.5: Persist aggregate snapshot for query-* commands
-  // 仅全量运行可写快照；category 过滤的子集写入会毒化所有后续消费者
-  if (requestedCategories) return result;
+  // 仅全量运行可写快照；category / maxFiles / compact 过滤后的子集写入会毒化所有后续消费者
+  if (requestedCategories || args?.maxFiles || args?.compact) return result;
   try {
     const gitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
     const fileCount = result.scope?.counts?.totalFiles || 0;

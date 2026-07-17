@@ -15,6 +15,58 @@ async function withContainer(fn) {
   }
 }
 
+function makeMockContainer(snapshotData, opts = {}) {
+  const gitHead = opts.gitHead || 'mock-head';
+  const fileCount = opts.fileCount ?? 3;
+  const config = opts.config ?? null;
+  const configHash = computeConfigHash(config);
+  return {
+    projectContext: { config },
+    snapshot: {
+      graph: {
+        getScopeSummary: () => ({ counts: { totalFiles: fileCount } }),
+        getAllFilePaths: () => [],
+      },
+    },
+    cache: {
+      loadAnalysisSnapshot: () => ({
+        data: snapshotData,
+        version: gitHead,
+        fileCount,
+        configHash,
+        computedAt: Date.now(),
+      }),
+      getWorkspaceInfo: () => ({ gitHead }),
+    },
+  };
+}
+
+const MOCK_OVERVIEW = {
+  hotspots: [
+    { file: 'a.js', score: 99, risk: 'high', lines: 100, churn: 10 },
+    { file: 'b.js', score: 88, risk: 'high', lines: 80, churn: 8 },
+    { file: 'c.js', score: 77, risk: 'medium', lines: 60, churn: 6 },
+    { file: 'd.js', score: 66, risk: 'low', lines: 40, churn: 4 },
+  ],
+  knowledgeRisk: {
+    high: [
+      { file: 'kr-high-1.js', riskLevel: 'high', authorCount: 1, primaryAuthor: 'Alice', primaryAuthorPct: 1 },
+      { file: 'kr-high-2.js', riskLevel: 'high', authorCount: 1, primaryAuthor: 'Bob', primaryAuthorPct: 1 },
+      { file: 'kr-high-3.js', riskLevel: 'high', authorCount: 1, primaryAuthor: 'Carol', primaryAuthorPct: 1 },
+    ],
+    medium: [
+      { file: 'kr-medium-1.js', riskLevel: 'medium', authorCount: 2, primaryAuthor: 'Dave', primaryAuthorPct: 0.6 },
+    ],
+    low: [],
+  },
+  stability: [
+    { file: 's-fragile-1.js', cc: 15, loc: 200, assessment: 'fragile' },
+    { file: 's-fragile-2.js', cc: 12, loc: 180, assessment: 'fragile' },
+    { file: 's-moderate-1.js', cc: 8, loc: 120, assessment: 'moderate' },
+    { file: 's-stable-1.js', cc: 3, loc: 50, assessment: 'stable' },
+  ],
+};
+
 async function testQueryHotspotsReturnsData() {
   const result = await withContainer((c) => queryHotspots({}, c));
   assert.strictEqual(result.ok, true);
@@ -24,41 +76,67 @@ async function testQueryHotspotsReturnsData() {
 }
 
 async function testQueryHotspotsFiltersByRisk() {
-  const result = await withContainer((c) => queryHotspots({ risk: 'high' }, c));
+  const container = makeMockContainer(MOCK_OVERVIEW);
+  const result = await queryHotspots({ risk: 'high' }, container);
   assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.count, 2);
   for (const h of result.hotspots) {
     assert.strictEqual(h.risk, 'high');
   }
 }
 
 async function testQueryHotspotsRespectsLimit() {
-  const result = await withContainer((c) => queryHotspots({ limit: 2 }, c));
+  const container = makeMockContainer(MOCK_OVERVIEW);
+  const result = await queryHotspots({ limit: 2 }, container);
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.count, 2);
   assert.strictEqual(result.hotspots.length, 2);
+  assert.strictEqual(result.total, 4);
+}
+
+async function testQueryHotspotsRespectsMaxFiles() {
+  const container = makeMockContainer(MOCK_OVERVIEW);
+  const result = await queryHotspots({ maxFiles: 2 }, container);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.count, 2, '--max-files should cap returned hotspots');
+  assert.strictEqual(result.hotspots.length, 2);
+  assert.strictEqual(result.total, 4);
+}
+
+async function testQueryHotspotsMaxFilesAndLimit() {
+  const container = makeMockContainer(MOCK_OVERVIEW);
+  const result = await queryHotspots({ limit: 5, maxFiles: 2 }, container);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.count, 2, '--max-files should win over --limit when smaller');
 }
 
 async function testQueryKnowledgeRisk() {
-  const result = await withContainer((c) => queryKnowledgeRisk({ level: 'high', limit: 5 }, c));
+  const container = makeMockContainer(MOCK_OVERVIEW);
+  const result = await queryKnowledgeRisk({ level: 'high', limit: 2 }, container);
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.command, 'query-knowledge-risk');
   assert.ok(Array.isArray(result.files));
-  assert.ok(result.count <= 5);
+  assert.strictEqual(result.count, 2);
+  assert.strictEqual(result.total, 3);
 }
 
 async function testQueryStability() {
-  const result = await withContainer((c) => queryStability({ limit: 5 }, c));
+  const container = makeMockContainer(MOCK_OVERVIEW);
+  const result = await queryStability({ limit: 2 }, container);
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.command, 'query-stability');
   assert.ok(Array.isArray(result.files));
-  assert.ok(result.count <= 5);
+  assert.strictEqual(result.count, 2);
+  assert.strictEqual(result.total, 4);
 }
 
 async function testQueryStabilityFiltersByAssessment() {
-  const result = await withContainer((c) => queryStability({ assessment: 'moderate', limit: 3 }, c));
+  const container = makeMockContainer(MOCK_OVERVIEW);
+  const result = await queryStability({ assessment: 'fragile', limit: 5 }, container);
   assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.count, 2);
   for (const s of result.files) {
-    assert.strictEqual(s.assessment, 'moderate');
+    assert.strictEqual(s.assessment, 'fragile');
   }
 }
 
@@ -192,6 +270,8 @@ async function main() {
   await testQueryHotspotsReturnsData();
   await testQueryHotspotsFiltersByRisk();
   await testQueryHotspotsRespectsLimit();
+  await testQueryHotspotsRespectsMaxFiles();
+  await testQueryHotspotsMaxFilesAndLimit();
   await testQueryKnowledgeRisk();
   await testQueryStability();
   await testQueryStabilityFiltersByAssessment();

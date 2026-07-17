@@ -153,6 +153,19 @@ async function main() {
   const hotspotA = result.hotspots.find((h) => h.file.endsWith('src/a.js'));
   assert(hotspotA && hotspotA.reason.includes('耦合'), 'high-coupling hotspot reason should include coupling prefix');
 
+  // --max-files should cap file-bearing arrays
+  const capped = await buildProjectOverview({ historyProvider, maxFiles: 2 }, container);
+  assert.strictEqual(capped.hotspots.length <= 2, true, '--max-files should cap hotspots');
+  assert.strictEqual(capped.stability.length <= 2, true, '--max-files should cap stability');
+  assert.strictEqual(capped.architectureAdvice.cycleRefactorSuggestions.length <= 2, true, '--max-files should cap cycle suggestions');
+  assert.strictEqual(capped.deadExports.deadExports.length <= 2, true, '--max-files should cap deadExports');
+  assert.strictEqual(capped.cycles.cycles.length <= 2, true, '--max-files should cap cycles');
+
+  // --compact should cap arrays to COMPACT_ISSUE_MAX_ITEMS when maxFiles is absent
+  const compacted = await buildProjectOverview({ historyProvider, compact: true }, container);
+  assert.strictEqual(compacted.hotspots.length <= 10, true, '--compact should cap hotspots');
+  assert.strictEqual(compacted.stability.length <= 10, true, '--compact should cap stability');
+
   const outDir = makeTempDir('wb-overview-');
   const outFile = path.join(outDir, 'hotspots.json');
   const resultWithFile = await buildProjectOverview({ historyProvider, hotspotData: outFile }, container);

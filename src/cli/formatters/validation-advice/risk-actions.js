@@ -1,3 +1,5 @@
+const { LIMITS } = require('../../../config/constants');
+
 /**
  * Top-risk action builder: per-file actionable advice for high composite-risk entries.
  */
@@ -15,7 +17,7 @@ function buildTopRiskActions(entries, allCommands) {
   return entries
     .filter((entry) => entry?.compositeRisk)
     .sort((a, b) => (b.compositeRisk.score || 0) - (a.compositeRisk.score || 0))
-    .slice(0, 3)
+    .slice(0, LIMITS.OUTPUT_SHORT)
     .map((entry) => {
       const actions = [];
       if (entry.affectedTestsCount > 0) {
@@ -41,10 +43,10 @@ function buildTopRiskActions(entries, allCommands) {
           impactCount: entry.impactCount || 0,
           affectedTestsCount: entry.affectedTestsCount || 0,
           historyRiskLevel: entry.historyRisk?.level || 'low',
-          historySignals: (entry.historyRisk?.signals || []).slice(0, 2),
+          historySignals: (entry.historyRisk?.signals || []).slice(0, LIMITS.OUTPUT_TINY),
           symbolMode: entry.symbolImpact?.mode || 'unknown',
           topImpactedSymbols: (entry.symbolImpact?.symbolToDependents || [])
-            .slice(0, 3)
+            .slice(0, LIMITS.OUTPUT_SHORT)
             .map((item) => ({ symbol: item.symbol, dependentsCount: item.dependentsCount })),
         },
       };

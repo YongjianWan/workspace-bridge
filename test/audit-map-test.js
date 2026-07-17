@@ -2,6 +2,7 @@
 // @semantic
 const assert = require('assert');
 const { buildProjectMap } = require('../src/cli/formatters');
+const { countTreeFiles } = require('../src/cli/formatters/project-map');
 const { createMockDepGraph } = require('./test-helpers');
 
 function testProjectMapStructure() {
@@ -175,6 +176,59 @@ function testProjectMapToRelativePathBoundary() {
 
 }
 
+function testProjectMapMaxFiles() {
+  const depGraph = createMockDepGraph({
+    mode: 'stub',
+    schema: {
+      '/repo/src/a.js': {
+        imports: ['/repo/src/b.js'],
+        exports: ['a'],
+        exportRecords: [{ name: 'a', kind: 'function' }],
+        importRecords: [{ source: './b.js', resolved: '/repo/src/b.js', imported: ['b'], usesAllExports: false }],
+        parseMode: 'ast',
+      },
+      '/repo/src/b.js': {
+        imports: [],
+        exports: ['b'],
+        exportRecords: [{ name: 'b', kind: 'function' }],
+        importRecords: [],
+        parseMode: 'ast',
+      },
+      '/repo/src/c.js': {
+        imports: ['/repo/src/d.js'],
+        exports: ['c'],
+        exportRecords: [{ name: 'c', kind: 'function' }],
+        importRecords: [{ source: './d.js', resolved: '/repo/src/d.js', imported: ['d'], usesAllExports: false }],
+        parseMode: 'ast',
+      },
+      '/repo/src/d.js': {
+        imports: [],
+        exports: ['d'],
+        exportRecords: [{ name: 'd', kind: 'function' }],
+        importRecords: [],
+        parseMode: 'ast',
+      },
+    },
+    deadExports: [{ file: '/repo/src/d.js', exports: ['unused'], confidence: 'medium' }],
+    unresolved: [{ file: '/repo/src/c.js', import: './missing' }],
+    entryFiles: new Set(['/repo/src/a.js']),
+    projectContext: {
+      classifyFile() { return { isMainline: true, fileRole: 'library' }; },
+    },
+  });
+
+  const result = buildProjectMap(depGraph, { maxFiles: 2 });
+  assert.strictEqual(countTreeFiles(result.tree) <= 2, true, '--max-files should cap tree file nodes');
+  assert.strictEqual(result.edges.length <= 2, true, '--max-files should cap edges');
+  // c.js / d.js should be filtered out of issueOverlay because they are outside the top-N file set
+  assert.strictEqual(result.issueOverlay.deadExports.length, 0, 'dead exports outside maxFiles should be filtered');
+  assert.strictEqual(result.issueOverlay.unresolved.length, 0, 'unresolved outside maxFiles should be filtered');
+
+  const full = buildProjectMap(depGraph);
+  assert.strictEqual(countTreeFiles(full.tree), 4, 'without maxFiles all files should appear');
+  assert.strictEqual(full.issueOverlay.deadExports.length, 1, 'without maxFiles dead exports should appear');
+}
+
 function testProjectMapCompactMode() {
   const depGraph = createMockDepGraph({
     mode: 'stub',
@@ -281,6 +335,7 @@ testProjectMapWithIssues();
 testProjectMapReExportEdges();
 testProjectMapHotspots();
 testProjectMapToRelativePathBoundary();
+testProjectMapMaxFiles();
 function testProjectMapCompactDepthLimit() {
   const depGraph = createMockDepGraph({
     mode: 'stub',

@@ -18,7 +18,7 @@ workspace-bridge-cli <command> --cwd <project> --json --quiet
 
 - `--json`：结构化输出，`schemaVersion: "1.2.0"` 已冻结。
 - `--quiet`：消除 stderr 日志污染。
-- 人类可读时用 `--format markdown`；AI 预消化时用 `--format ai`（仅 `audit-overview`）。
+- 人类可读时用 `--format markdown`；AI 预消化时用 `--format ai`（`audit-overview` / `audit-file` / `audit-diff` / `guard` / `api-contracts` / `query-*` / `stats` / `workspace-info` / `dependencies` / `dependents` / `audit-map` / `diagnostics` / `health` / `tree` / `query` 已适配；未列出的命令走通用路径）。
 
 ## 核心决策树
 
@@ -48,10 +48,12 @@ workspace-bridge-cli <command> --cwd <project> --json --quiet
 
 大项目的完整 JSON 可能超出上下文预算，按需裁剪：
 
-- `--format ai --token-budget <n>`：AI 预消化格式，超预算自动降级深度；`--depth surface|detail|full` 手动控制（默认 detail）。仅 `audit-overview`。
-- `--fields <list>`：白名单字段（`ok/error/schemaVersion/command/hasFindings/staleness/warnings` 恒保留），如 `--fields summary,hotspots`。
-- `--max-files <n>`：限制 `audit-diff` / `impact` / `tree` 等返回的文件条数。
-- `--compact`：目录级聚合边 + 精简树（大项目自动触发；`--no-compact` 关闭）。
+- `--format ai --token-budget <n>`：AI 预消化格式，超预算自动降级深度；`--depth surface|detail|full` 手动控制（默认 detail）。L1/L2 命令已适配，L4 debug 命令走通用路径。
+  - 注意：`--token-budget` 与 `--depth` 只对 `--format ai` 生效；若与其他格式混用，输出 `warnings` 会提示被忽略。
+- `--fields <list>`：结构化输出（`--json` / `--format ai` / `--format jsonl`）的白名单字段（`ok/error/schemaVersion/command/hasFindings/staleness/warnings` 恒保留），如 `--fields summary,hotspots`。
+  - 注意：与 `--format ai` 同时使用时，输出 `warnings` 会提示 digest 输入被裁剪，避免 AI 拿到被静默降级的风险视图。
+- `--max-files <n>`：限制 `audit-overview` / `audit-map` / `query-*` / `audit-diff` / `impact` / `affected-*` / `tree` 等返回的文件条数。
+- `--compact`：目录级聚合边 + 精简树 + 列表 capped（`audit-map` / `audit-overview` 生效；大项目自动触发；`--no-compact` 关闭）。
 
 ## Exit Code 契约
 

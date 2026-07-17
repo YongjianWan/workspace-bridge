@@ -145,10 +145,48 @@ async function testGuardFormatterOutputs() {
   }
 }
 
+async function testGuardMaxFilesAndCompact() {
+  const tempRoot = makeTempDir('wb-guard-maxfiles-');
+  try {
+    writeFile(tempRoot, 'package.json', JSON.stringify({ name: 'guard-maxfiles', version: '1.0.0' }, null, 2));
+    writeFile(tempRoot, 'src/d.js', 'export const d = 1;\n');
+    writeFile(tempRoot, 'src/c.js', 'import { d } from "./d"; export const c = d + 1;\n');
+    writeFile(tempRoot, 'src/b.js', 'import { c } from "./c"; export const b = c + 1;\n');
+    writeFile(tempRoot, 'src/a.js', 'import { b } from "./b"; export const a = b + 1;\n');
+
+    // max-files caps returned lists while stats remain total.
+    const res = await run(['guard', '--file', 'src/d.js', '--max-dependents', '10', '--max-transitive', '10', '--max-files', '1', '--json', '--quiet'], tempRoot);
+    assert.strictEqual(res.status, 0, `max-files guard should pass: ${res.stderr}`);
+    const data = JSON.parse(res.stdout);
+    assert.strictEqual(data.ok, true);
+    assert.strictEqual(data.passed, true);
+    assert.strictEqual(data.stats.directDependentsCount, 1);
+    assert.strictEqual(data.stats.transitiveDependentsCount, 3);
+    assert.strictEqual(data.directDependents.length, 1);
+    assert.strictEqual(data.transitiveDependents.length, 1);
+    assert.strictEqual(data.impactItems.length, 1);
+    assert.strictEqual(data.truncated, true);
+
+    // compact omits detailed lists but keeps stats.
+    const resCompact = await run(['guard', '--file', 'src/d.js', '--max-dependents', '10', '--max-transitive', '10', '--compact', '--json', '--quiet'], tempRoot);
+    assert.strictEqual(resCompact.status, 0, `compact guard should pass: ${resCompact.stderr}`);
+    const dataCompact = JSON.parse(resCompact.stdout);
+    assert.strictEqual(dataCompact.ok, true);
+    assert.strictEqual(dataCompact.compact, true);
+    assert.strictEqual(dataCompact.stats.transitiveDependentsCount, 3);
+    assert.deepStrictEqual(dataCompact.directDependents, []);
+    assert.deepStrictEqual(dataCompact.transitiveDependents, []);
+    assert.deepStrictEqual(dataCompact.impactItems, []);
+  } finally {
+    cleanupTempDir(tempRoot);
+  }
+}
+
 async function main() {
   await testSingleFileGuard();
   await testMultiFileGuardUnion();
   await testGuardFormatterOutputs();
+  await testGuardMaxFilesAndCompact();
   console.log('guard-command-test.js: all passed');
 }
 

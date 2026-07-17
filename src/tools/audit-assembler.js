@@ -398,18 +398,37 @@ async function assembleFile(parsed, container) {
   // Honor --depth parameter (surface | detail | full)
   const maxDepth = parsed.depth === 'surface' ? 1 : parsed.depth === 'detail' ? DEFAULTS.SYMBOL_IMPACT_DEPTH : undefined;
   const actualMaxDepth = parsed.maxDepth ?? maxDepth;
+  const { compact, autoCompact } = resolveCompact(parsed, container);
+
+  const depGraphArgs = { cwd: parsed.cwd, file: parsed.file };
+  if (Number.isFinite(parsed.maxFiles) && parsed.maxFiles > 0) {
+    depGraphArgs.maxFiles = parsed.maxFiles;
+  }
 
   const [impact, affectedTests] = await Promise.all([
-    dependencyGraph({ cwd: parsed.cwd, operation: 'impact', file: parsed.file }, container),
+    dependencyGraph({ ...depGraphArgs, operation: 'impact' }, container),
     dependencyGraph({
-      cwd: parsed.cwd,
+      ...depGraphArgs,
       operation: 'affected_tests',
-      file: parsed.file,
       maxDepth: actualMaxDepth,
     }, container),
   ]);
   const frameworkPattern = container.snapshot.graph.getFrameworkHint(resolvedPath);
   const validationAdvice = buildFileValidationAdvice(resolvedPath, container.workspaceRoot, affectedTests, impact);
+
+  // Compact mode: keep counts/summary and the single suggested command, drop
+  // verbose lists so large files do not flood human-readable output.
+  if (compact) {
+    impact.impact = [];
+    impact.coChanges = [];
+    impact.affectedRoutes = [];
+    affectedTests.affectedTests = [];
+    validationAdvice.commands = { smoke: [], focused: [], full: [] };
+    validationAdvice.phases = [];
+    validationAdvice.fileSpecificAdvice = [];
+    validationAdvice.environmentNotes = [];
+  }
+
   const result = {
     ok: impact.ok !== false && affectedTests.ok !== false,
     workspaceRoot: container.workspaceRoot,
@@ -420,6 +439,8 @@ async function assembleFile(parsed, container) {
     validationAdvice,
     impact,
     affectedTests,
+    compact,
+    autoCompact,
   };
 
   // Calculate hasFindings O(1) return contract

@@ -22,7 +22,7 @@ const { stripBOM } = require('./src/utils/sanitize');
 const { ServiceContainer } = require('./src/services/container');
 const { findWorkspaceRoot, normalizePath } = require('./src/utils/path');
 const { TIMEOUTS, SCHEMA_VERSION } = require('./src/config/constants');
-const { COMMANDS, SELF_MANAGED_COMMANDS } = require('./src/cli/commands');
+const { COMMANDS, SELF_MANAGED_COMMANDS, SELF_CONTAINER_COMMANDS } = require('./src/cli/commands');
 const { validateCwd } = require('./src/cli/commands/_utils');
 const { parseCliArgs, sanitizeCliPaths } = require('./src/cli/validate-args');
 const { determineExitCode, formatCliResult, buildErrorResponse } = require('./src/cli/route-formatter');
@@ -47,14 +47,14 @@ const COMMON_OPTIONS = [
   '  --token-budget <n>      Max estimated tokens for --format ai; auto-downgrades depth if exceeded',
   '  --depth <mode>          Discovery depth for --format ai: surface | detail | full (default: detail)',
   '  --quiet                 Suppress stderr logs during CLI execution',
-  '  --compact              Emit condensed tree and directory-level edges',
+  '  --compact              Emit condensed tree, directory-level edges, and capped list output',
   '  --no-compact           Explicitly disable compact mode (overrides auto-compact and WB_COMPACT)',
-  '  --category <list>      Comma-separated filter for audit-summary (dead-exports,unresolved,cycles,health)',
-  '  --fields <list>         Comma-separated list of fields to include in audit-overview / audit-summary',
+  '  --category <list>      Comma-separated filter for audit-summary / audit-overview (dead-exports,unresolved,cycles,smells,boundaries,security,health,ast-rules)',
+  '  --fields <list>         Comma-separated list of fields to include in structured output (--json / --format ai / --format jsonl)',
   '                         Essential fields (ok, error, schemaVersion, command, hasFindings, staleness, warnings) are always kept.',
   '                         For audit-summary, include "health" explicitly if you need the deprecated health compatibility field.',
   '  --sql <query>           SQL select query to run against analysis_snapshots or other tables in query command',
-  '  --max-files <n>        Limit returned files in audit-diff, impact, affected-tests, affected-routes, dependencies, dependents, and tree',
+  '  --max-files <n>        Limit returned files in audit-overview, audit-map, query-*, audit-diff, impact, affected-tests, affected-routes, dependencies, dependents, and tree',
   '  --max-dependents <n>   Max allowed direct dependents for guard (default: 50)',
   '  --max-transitive <n>   Max allowed transitive dependents for guard (default: 50)',
   '  --watch                Watch mode for audit-file: re-run on file changes',
@@ -70,6 +70,8 @@ const COMMON_OPTIONS = [
   '  --config <name>        Semgrep config (default: auto)',
   '  --language <lang>      Filter security scan to one language',
   '  --service <subpath>     Focus analysis on a single monorepo service/package (others become reference)',
+  '  --frontend <dir>        Frontend/client workspace for api-contracts',
+  '  --backend <dir>         Backend/server workspace for api-contracts',
   '  --strict-cwd            Disable Git root elevation (enabled by default; set WB_STRICT_CWD=false or "strictCwd": false in .workspace-bridge.json to opt out)',
   '  --version, -v          Show version',
   '  --help                  Show help',
@@ -114,6 +116,8 @@ Curated Commands (Tier 1 — start here):
                             Aggregate changed files + impact + affected tests
   audit-overview          Project panoramic view (hotspots, stability, orphans, dead-exports, unresolved, cycles)
   audit-map               Global project map (tree + edges + issue overlay)
+  api-contracts --frontend <dir> --backend <dir>
+                            Align frontend HTTP calls with backend routes
   query-hotspots [--risk <high|medium|low>] [--limit <n>]
                             Query cached hotspots (fast slice, no full rebuild)
   query --sql <query>     Execute read-only SQL query against the cache DB
@@ -152,6 +156,8 @@ Commands:
     audit-map               Global project map (tree + edges + issue overlay)
 
   L2 专项工具 (Targeted analysis):
+    api-contracts --frontend <dir> --backend <dir>
+                            Align frontend HTTP calls with backend routes
     impact --file <path>    Find impact radius for a file
     affected-tests --file <path> [--max-depth <n>]
                             Find tests related to a file
@@ -343,8 +349,9 @@ async function runCliInProcess(args, opts = {}) {
   }
 
   let container = opts.container;
-  const shouldInit = !container;
-  if (!container) {
+  const needsContainer = !SELF_CONTAINER_COMMANDS.has(parsed.command);
+  const shouldInit = !container && needsContainer;
+  if (!container && needsContainer) {
     container = new ServiceContainer({ quiet: parsed.quiet, cacheDir: parsed.cacheDir });
   }
 
@@ -363,7 +370,7 @@ async function runCliInProcess(args, opts = {}) {
 
     const result = await runCommand(parsed, container);
 
-    if (result && typeof result === 'object' && result.ok !== false && container) {
+    if (needsContainer && result && typeof result === 'object' && result.ok !== false && container) {
       result.staleness = container.getStaleness();
       result.warnings = container.snapshot.graph.buildWarnings();
     }

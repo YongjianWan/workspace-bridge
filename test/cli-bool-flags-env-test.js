@@ -110,7 +110,7 @@ function testUppercaseEnumValues() {
   });
 
   const parsedFormat = parseCliArgs(['node', 'cli.js', '--format', 'JSON']);
-  assert.strictEqual(parsedFormat.format, null, '--format JSON normalizes to json and is then represented by json flag');
+  assert.strictEqual(parsedFormat.format, 'json', '--format JSON normalizes to lowercase json');
   assert.strictEqual(parsedFormat.json, true, '--format JSON should imply json=true');
   assert.strictEqual(parsedFormat._sources.format, 'cli', 'format source should be cli');
 }

@@ -3,7 +3,7 @@
  * Registry-based dispatch — no more switch-case chains.
  */
 const { countTreeFiles } = require('./project-map');
-const { AI_FORMAT, SCHEMA_VERSION } = require('../../config/constants');
+const { AI_FORMAT, SCHEMA_VERSION, LIMITS } = require('../../config/constants');
 const { sanitizeForAiOutput } = require('../../utils/sanitize');
 
 /**
@@ -30,7 +30,7 @@ function pushRecord(rec, type, arr) {
 /**
  * Shared audit-summary formatter across text output styles.
  */
-function formatAuditSummary(result, style) {
+function formatAuditSummary(result, style, options = {}) {
   switch (style) {
     case 'markdown': {
       const lines = [
@@ -47,7 +47,7 @@ function formatAuditSummary(result, style) {
       }
       if (result.summary?.nextSteps?.length) {
         lines.push('', `## Next Steps`);
-        for (const step of result.summary.nextSteps.slice(0, 3)) {
+        for (const step of result.summary.nextSteps.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, options))) {
           lines.push(`- ${step}`);
         }
       }
@@ -66,7 +66,7 @@ function formatAuditSummary(result, style) {
       }
       if (result.summary?.nextSteps?.length) {
         lines.push('Next steps:');
-        for (const step of result.summary.nextSteps.slice(0, 3)) {
+        for (const step of result.summary.nextSteps.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, options))) {
           lines.push(`  • ${step}`);
         }
       }
@@ -76,16 +76,17 @@ function formatAuditSummary(result, style) {
       if (!result.summary || typeof result.summary !== 'object') {
         return `Error: malformed audit-summary result (missing summary)`;
       }
+      const counts = result.scope?.counts || {};
       const lines = [
         `workspaceRoot: ${result.workspaceRoot}`,
         `severity: ${result.summary.severity}`,
-        `healthScore: ${result.health.healthScore}`,
-        `totalFiles: ${result.scope.counts.totalFiles} (parseable source only; excludes assets/build artifacts/excluded dirs)`,
-        `mainlineFiles: ${result.scope.counts.mainlineFiles}`,
-        `nonMainlineFiles: ${result.scope.counts.nonMainlineFiles}`,
-        `deadExportsCount: ${result.deadExports.deadExportsCount}`,
-        `unresolvedCount: ${result.unresolved.unresolvedCount}`,
-        `cyclesCount: ${result.cycles.cyclesCount}`,
+        `healthScore: ${result.health?.healthScore ?? 'n/a'}`,
+        `totalFiles: ${counts.totalFiles ?? 0} (parseable source only; excludes assets/build artifacts/excluded dirs)`,
+        `mainlineFiles: ${counts.mainlineFiles ?? 0}`,
+        `nonMainlineFiles: ${counts.nonMainlineFiles ?? 0}`,
+        `deadExportsCount: ${result.deadExports?.deadExportsCount ?? 0}`,
+        `unresolvedCount: ${result.unresolved?.unresolvedCount ?? 0}`,
+        `cyclesCount: ${result.cycles?.cyclesCount ?? 0}`,
         `astRulesCount: ${result.astRules?.findingsCount ?? 0}`,
       ];
       if (result.summary.honesty?.disclaimer) {
@@ -98,10 +99,11 @@ function formatAuditSummary(result, style) {
   }
 }
 
-function buildSecurityLines(result, style) {
+function buildSecurityLines(result, style, options = {}) {
   const isMd = style === 'markdown';
   const isSum = style === 'summary';
-  const max = isMd ? 10 : isSum ? 5 : 20;
+  const defaultMax = isMd ? LIMITS.OUTPUT_LONG : isSum ? LIMITS.OUTPUT_MEDIUM : LIMITS.OUTPUT_EXTRA_LONG;
+  const max = resolveOutputLimit(defaultMax, options);
   const bp = isMd ? '- ' : (isSum ? '  ' : '');
   const bold = (t) => isMd ? `**${t}**` : t;
   const sep = ': ';
@@ -121,7 +123,7 @@ function buildSecurityLines(result, style) {
       );
       if (f.message && !isSum) lines.push(isMd ? `  - ${f.message}` : `  ${f.message}`);
       if (f.matchedText) {
-        const m = `Matched: \`${sanitizeForAiOutput(f.matchedText, 120)}\``;
+        const m = `Matched: \`${sanitizeForAiOutput(f.matchedText, LIMITS.STRING_SNIPPET_MAX_CHARS)}\``;
         lines.push(isMd ? `  - ${m}` : (isSum ? `    ${m}` : `  ${m}`));
       }
     }
@@ -138,9 +140,9 @@ function buildSecurityLines(result, style) {
 // ---------------------------------------------------------------------------
 const FORMATTERS = {
   'audit-summary': {
-    human: (r) => formatAuditSummary(r, 'human'),
-    summary: (r) => formatAuditSummary(r, 'summary'),
-    markdown: (r) => formatAuditSummary(r, 'markdown'),
+    human: (r, _options = {}) => formatAuditSummary(r, 'human', _options),
+    summary: (r, _options = {}) => formatAuditSummary(r, 'summary', _options),
+    markdown: (r, _options = {}) => formatAuditSummary(r, 'markdown', _options),
     jsonl: (r) => {
       const rec = [];
       rec.push({
@@ -174,7 +176,7 @@ const FORMATTERS = {
     },
   },
   'audit-overview': {
-    human: (r) => {
+    human: (r, _options = {}) => {
       const ls = Object.entries(r.languageSupport || {}).map(([l, i]) => `${l}(${i.level}/${i.confidence})`).join(', ') || 'none';
       const kr = r.knowledgeRisk || {};
       return [
@@ -196,7 +198,7 @@ const FORMATTERS = {
         `languages: ${ls}`,
       ].join('\n');
     },
-    summary: (r) => {
+    summary: (r, _options = {}) => {
       const agg = r.aggregates || {};
       const ls = Object.entries(r.languageSupport || {}).map(([l, i]) => `${l}(${i.level}/${i.confidence})`).join(', ') || 'none';
       const kr = r.knowledgeRisk || {};
@@ -212,7 +214,7 @@ const FORMATTERS = {
       ];
       if (r.hotspots?.length) {
         lines.push('Top hotspots:');
-        for (const h of r.hotspots.slice(0, 3)) {
+        for (const h of r.hotspots.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
           lines.push(`  • ${h.file}: ${h.reason}`);
         }
       }
@@ -220,38 +222,38 @@ const FORMATTERS = {
         lines.push(`Knowledge risk: disabled — ${kr.disabledReason}`);
       } else if (kr.high?.length) {
         lines.push('Knowledge risk (bus factor = 1):');
-        for (const k of kr.high.slice(0, 3)) {
+        for (const k of kr.high.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
           lines.push(`  • ${k.file}: ${Math.round((k.primaryAuthorPct || 0) * 100)}% ${k.primaryAuthor || 'unknown'}`);
         }
       }
       if (r.deadExports?.deadExports?.length) {
         lines.push('Dead exports:');
-        for (const de of r.deadExports.deadExports.slice(0, 3)) {
+        for (const de of r.deadExports.deadExports.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
           lines.push(`  • ${de.file}: ${(de.exports || []).map(e => sanitizeForAiOutput(e)).join(', ')}`);
         }
       }
       if (r.unresolved?.unresolved?.length) {
         lines.push('Unresolved imports:');
-        for (const u of r.unresolved.unresolved.slice(0, 3)) {
+        for (const u of r.unresolved.unresolved.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
           lines.push(`  • ${u.file}: ${u.import}`);
         }
       }
       if (r.cycles?.cycles?.length) {
         lines.push('Dependency cycles:');
-        for (const c of r.cycles.cycles.slice(0, 3)) {
+        for (const c of r.cycles.cycles.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
           lines.push(`  • ${c.join(' -> ')}`);
         }
       }
       if (r.astRules?.findings?.length) {
         lines.push('AST rule findings:');
-        for (const f of r.astRules.findings.slice(0, 3)) {
+        for (const f of r.astRules.findings.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
           lines.push(`  • ${f.file} — [${f.severity.toUpperCase()}] ${f.symbol}: ${f.message}`);
         }
       }
-      if (r.summary?.recommendations?.length) { lines.push('Recommendations:'); for (const rec of r.summary.recommendations.slice(0, 2)) lines.push(`  • ${rec}`); }
+      if (r.summary?.recommendations?.length) { lines.push('Recommendations:'); for (const rec of r.summary.recommendations.slice(0, resolveOutputLimit(LIMITS.OUTPUT_TINY, _options))) lines.push(`  • ${rec}`); }
       return lines.join('\n');
     },
-    markdown: (r) => {
+    markdown: (r, _options = {}) => {
       const agg = r.aggregates || {};
       const ls = Object.entries(r.languageSupport || {}).map(([l, i]) => `${l}(${i.level}/${i.confidence})`).join(', ') || 'none';
       const kr = r.knowledgeRisk || {};
@@ -269,7 +271,7 @@ const FORMATTERS = {
       ];
       if (r.hotspots?.length) {
         lines.push(``, `## Top Hotspots`);
-        for (const h of r.hotspots.slice(0, 3)) {
+        for (const h of r.hotspots.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
           lines.push(`- **${h.file}** — ${h.reason}`);
         }
       }
@@ -277,35 +279,35 @@ const FORMATTERS = {
         lines.push(``, `## Knowledge Risk`, `${kr.disabledReason}`);
       } else if (kr.high?.length) {
         lines.push(``, `## Knowledge Risk (Bus Factor = 1)`);
-        for (const k of kr.high.slice(0, 3)) {
+        for (const k of kr.high.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
           lines.push(`- **${k.file}** — ${Math.round((k.primaryAuthorPct || 0) * 100)}% ${k.primaryAuthor || 'unknown'}`);
         }
       }
       if (r.deadExports?.deadExports?.length) {
         lines.push(``, `## Dead Exports`);
-        for (const de of r.deadExports.deadExports.slice(0, 3)) {
+        for (const de of r.deadExports.deadExports.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
           lines.push(`- **${de.file}**: ${(de.exports || []).map(e => sanitizeForAiOutput(e)).join(', ')}`);
         }
       }
       if (r.unresolved?.unresolved?.length) {
         lines.push(``, `## Unresolved Imports`);
-        for (const u of r.unresolved.unresolved.slice(0, 3)) {
+        for (const u of r.unresolved.unresolved.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
           lines.push(`- **${u.file}**: ${u.import}`);
         }
       }
       if (r.cycles?.cycles?.length) {
         lines.push(``, `## Dependency Cycles`);
-        for (const c of r.cycles.cycles.slice(0, 3)) {
+        for (const c of r.cycles.cycles.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
           lines.push(`- ${c.join(' → ')}`);
         }
       }
       if (r.astRules?.findings?.length) {
         lines.push(``, `## AST Rule Findings`);
-        for (const f of r.astRules.findings.slice(0, 3)) {
+        for (const f of r.astRules.findings.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
           lines.push(`- **${f.file}** — [${f.severity.toUpperCase()}] ${f.symbol}: ${f.message}`);
         }
       }
-      if (r.summary?.recommendations?.length) { lines.push(``, `## Recommendations`); for (const rec of r.summary.recommendations.slice(0, 3)) lines.push(`- ${rec}`); }
+      if (r.summary?.recommendations?.length) { lines.push(``, `## Recommendations`); for (const rec of r.summary.recommendations.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) lines.push(`- ${rec}`); }
       return lines.join('\n');
     },
     jsonl: (r) => {
@@ -341,9 +343,9 @@ const FORMATTERS = {
     },
   },
   'audit-security': {
-    human: (r) => r.summary?.message ? r.summary.message : buildSecurityLines(r, 'human').join('\n'),
-    summary: (r) => buildSecurityLines(r, 'summary').join('\n'),
-    markdown: (r) => ['# Security Audit', '', ...buildSecurityLines(r, 'markdown')].join('\n'),
+    human: (r, _options = {}) => r.summary?.message ? r.summary.message : buildSecurityLines(r, 'human', _options).join('\n'),
+    summary: (r, _options = {}) => buildSecurityLines(r, 'summary', _options).join('\n'),
+    markdown: (r, _options = {}) => ['# Security Audit', '', ...buildSecurityLines(r, 'markdown', _options)].join('\n'),
     jsonl: (r) => {
       const rec = [];
       rec.push({ _type: 'summary', ok: r.ok, command: 'audit-security', severity: r.severity || r.summary?.severity });
@@ -352,7 +354,7 @@ const FORMATTERS = {
     },
   },
   'audit-diff': {
-    human: (r) => {
+    human: (r, _options = {}) => {
       const topRisk = Array.isArray(r.changedFiles) ? r.changedFiles.filter((e) => e?.compositeRisk).sort((a, b) => (b.compositeRisk.score || 0) - (a.compositeRisk.score || 0))[0] : null;
       const topRiskAction = Array.isArray(r.validationAdvice?.topRiskActions) ? r.validationAdvice.topRiskActions[0] : null;
       const lines = [
@@ -374,14 +376,14 @@ const FORMATTERS = {
       if (r.incremental && r.incrementalFindings) {
         const inc = r.incrementalFindings;
         lines.push('', '--- incremental findings (related to changed files) ---', `deadExports: ${inc.deadExportsCount}`, `unresolved: ${inc.unresolvedCount}`, `cycles: ${inc.cyclesCount}`);
-        for (const de of inc.deadExports.slice(0, 3)) lines.push(`  dead-export: ${de.file}: ${(de.exports || []).map((e) => sanitizeForAiOutput(e)).join(', ') || 'n/a'}`);
-        for (const u of inc.unresolved.slice(0, 3)) lines.push(`  unresolved: ${u.file}: ${u.import}`);
-        for (const c of inc.cycles.slice(0, 3)) lines.push(`  cycle: ${c.join(' -> ')}`);
+        for (const de of inc.deadExports.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) lines.push(`  dead-export: ${de.file}: ${(de.exports || []).map((e) => sanitizeForAiOutput(e)).join(', ') || 'n/a'}`);
+        for (const u of inc.unresolved.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) lines.push(`  unresolved: ${u.file}: ${u.import}`);
+        for (const c of inc.cycles.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) lines.push(`  cycle: ${c.join(' -> ')}`);
         if (inc.deadExportsCount + inc.unresolvedCount + inc.cyclesCount === 0) lines.push('  (none)');
       }
       return lines.join('\n');
     },
-    summary: (r) => {
+    summary: (r, _options = {}) => {
       const lines = [
         `Severity: ${r.summary?.severity}`,
         `Changed files: ${r.summary?.counts?.changedFiles ?? 0}`,
@@ -393,13 +395,13 @@ const FORMATTERS = {
       if (r.incremental && r.incrementalFindings) {
         const inc = r.incrementalFindings;
         lines.push(`Incremental: dead=${inc.deadExportsCount} unresolved=${inc.unresolvedCount} cycles=${inc.cyclesCount}`);
-        for (const de of inc.deadExports.slice(0, 3)) lines.push(`  dead-export: ${de.file}`);
-        for (const u of inc.unresolved.slice(0, 3)) lines.push(`  unresolved: ${u.file}`);
-        for (const c of inc.cycles.slice(0, 3)) lines.push(`  cycle: ${c.join(' -> ')}`);
+        for (const de of inc.deadExports.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) lines.push(`  dead-export: ${de.file}`);
+        for (const u of inc.unresolved.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) lines.push(`  unresolved: ${u.file}`);
+        for (const c of inc.cycles.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) lines.push(`  cycle: ${c.join(' -> ')}`);
       }
       return lines.join('\n');
     },
-    markdown: (r) => {
+    markdown: (r, _options = {}) => {
       const lines = [
         `# Diff Audit`,
         ``,
@@ -410,7 +412,7 @@ const FORMATTERS = {
       ];
       if (r.changedFiles?.length) {
         lines.push(``, `## Changed files`);
-        for (const cf of r.changedFiles.slice(0, 10)) {
+        for (const cf of r.changedFiles.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
           const trend = cf.complexityTrend ? `, trend=${cf.complexityTrend}` : '';
           const dims = cf.compositeRisk?.dimensions ? `, risk=${cf.compositeRisk.level}` : '';
           lines.push(`- ${cf.file} (impact=${cf.impactCount ?? 0}, tests=${cf.affectedTestsCount ?? 0}${trend}${dims})`);
@@ -428,19 +430,19 @@ const FORMATTERS = {
         }
         if (va.phases?.length) {
           lines.push(`- **Validation phases**: ${va.phases.length}`);
-          for (const phase of va.phases.slice(0, 3)) {
+          for (const phase of va.phases.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
             lines.push(`  - ${phase.phase}: ${phase.description} — ${(phase.commands || []).join(', ')}`);
           }
         }
         if (va.topRiskActions?.length) {
           lines.push(`- **Top risk actions**:`);
-          for (const action of va.topRiskActions.slice(0, 3)) {
+          for (const action of va.topRiskActions.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
             lines.push(`  - ${action.file}: ${(action.actions || []).join(', ')}`);
           }
         }
         if (va.environmentNotes?.length) {
           lines.push(`- **Environment notes**:`);
-          for (const note of va.environmentNotes.slice(0, 5)) {
+          for (const note of va.environmentNotes.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options))) {
             lines.push(`  - ${note.message}${note.remediation ? ` (${note.remediation})` : ''}`);
           }
         }
@@ -449,9 +451,9 @@ const FORMATTERS = {
       if (r.incremental && r.incrementalFindings) {
         const inc = r.incrementalFindings;
         lines.push(``, `## Incremental Findings`, `- **Dead exports**: ${inc.deadExportsCount}`, `- **Unresolved**: ${inc.unresolvedCount}`, `- **Cycles**: ${inc.cyclesCount}`);
-        for (const de of inc.deadExports.slice(0, 3)) lines.push(`  - \`${de.file}\`: ${(de.exports || []).map((e) => sanitizeForAiOutput(e)).join(', ') || 'n/a'}`);
-        for (const u of inc.unresolved.slice(0, 3)) lines.push(`  - \`${u.file}\`: ${u.import}`);
-        for (const c of inc.cycles.slice(0, 3)) lines.push(`  - ${c.join(' → ')}`);
+        for (const de of inc.deadExports.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) lines.push(`  - \`${de.file}\`: ${(de.exports || []).map((e) => sanitizeForAiOutput(e)).join(', ') || 'n/a'}`);
+        for (const u of inc.unresolved.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) lines.push(`  - \`${u.file}\`: ${u.import}`);
+        for (const c of inc.cycles.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) lines.push(`  - ${c.join(' → ')}`);
         if (inc.deadExportsCount + inc.unresolvedCount + inc.cyclesCount === 0) lines.push('*No incremental findings related to changed files.*');
       }
       return lines.join('\n');
@@ -465,9 +467,15 @@ const FORMATTERS = {
     },
   },
   'audit-file': {
-    human: (r) => `file: ${r.file}\nresolvedPath: ${r.resolvedPath}\nseverity: ${r.summary.severity}\nimpactCount: ${r.impact.impactCount}\naffectedTestsCount: ${r.affectedTests.affectedTestsCount}`,
-    summary: (r) => `File: ${r.file}\nSeverity: ${r.summary?.severity}\nImpact: ${r.impact?.impactCount ?? 0}\nAffected tests: ${r.affectedTests?.affectedTestsCount ?? 0}`,
-    markdown: (r) => {
+    human: (r, _options = {}) => {
+      const base = `file: ${r.file}\nresolvedPath: ${r.resolvedPath}\nseverity: ${r.summary.severity}\nimpactCount: ${r.impact.impactCount}\naffectedTestsCount: ${r.affectedTests.affectedTestsCount}`;
+      return r.compact ? `${base}\nmode: compact (detailed lists omitted)` : base;
+    },
+    summary: (r, _options = {}) => {
+      const base = `File: ${r.file}\nSeverity: ${r.summary?.severity}\nImpact: ${r.impact?.impactCount ?? 0}\nAffected tests: ${r.affectedTests?.affectedTestsCount ?? 0}`;
+      return r.compact ? `${base}\nMode: compact` : base;
+    },
+    markdown: (r, _options = {}) => {
       const lines = [
         `# File Audit: ${r.file}`,
         ``,
@@ -475,15 +483,18 @@ const FORMATTERS = {
         `- **Impact**: ${r.impact?.impactCount ?? 0}`,
         `- **Affected tests**: ${r.affectedTests?.affectedTestsCount ?? 0}`,
       ];
+      if (r.compact) {
+        lines.push('', '> Compact mode: detailed impact/tests lists and validation phases omitted.');
+      }
       if (r.impact?.impact?.length) {
         lines.push(``, `## Impact radius`);
-        for (const item of r.impact.impact.slice(0, 5)) {
+        for (const item of r.impact.impact.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options))) {
           lines.push(`- ${item.file} (level=${item.level}${item.importedSymbols?.length ? `, symbols=${item.importedSymbols.join(', ')}` : ''})`);
         }
       }
       if (r.affectedTests?.affectedTests?.length) {
         lines.push(``, `## Affected tests`);
-        for (const t of r.affectedTests.affectedTests.slice(0, 10)) {
+        for (const t of r.affectedTests.affectedTests.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
           lines.push(`- ${t.file}${t.distance != null ? ` (distance=${t.distance})` : ''}${t.source ? ` [${t.source}]` : ''}`);
         }
       }
@@ -491,7 +502,7 @@ const FORMATTERS = {
         lines.push(``, `## History risk`);
         lines.push(`- Level: ${r.historyRisk.level} (score=${r.historyRisk.score})`);
         if (r.historyRisk.signals?.length) {
-          for (const s of r.historyRisk.signals.slice(0, 3)) lines.push(`  - ${s}`);
+          for (const s of r.historyRisk.signals.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) lines.push(`  - ${s}`);
         }
       }
       const va = r.validationAdvice;
@@ -507,19 +518,19 @@ const FORMATTERS = {
         }
         if (va.phases?.length) {
           lines.push(`- **Phases**: ${va.phases.length}`);
-          for (const phase of va.phases.slice(0, 3)) {
+          for (const phase of va.phases.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
             lines.push(`  - ${phase.phase}: ${phase.description} — ${(phase.commands || []).join(', ')}`);
           }
         }
         if (va.fileSpecificAdvice?.length) {
           lines.push(`- **File-specific advice**:`);
-          for (const advice of va.fileSpecificAdvice.slice(0, 3)) {
+          for (const advice of va.fileSpecificAdvice.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
             lines.push(`  - ${advice}`);
           }
         }
         if (va.environmentNotes?.length) {
           lines.push(`- **Environment notes**:`);
-          for (const note of va.environmentNotes.slice(0, 5)) {
+          for (const note of va.environmentNotes.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options))) {
             lines.push(`  - ${note.message}${note.remediation ? ` (${note.remediation})` : ''}`);
           }
         }
@@ -527,10 +538,129 @@ const FORMATTERS = {
       return lines.join('\n');
     },
   },
+  'api-contracts': {
+    human: (r, _options = {}) => {
+      const lines = [
+        `frontend: ${r.frontend}`,
+        `backend: ${r.backend}`,
+        `clientCalls: ${r.clientCallsCount}`,
+        `serverRoutes: ${r.serverRoutesCount}`,
+        `matched: ${r.matchedCount}`,
+        `unmatchedClient: ${r.unmatchedClientCount}`,
+        `unmatchedServer: ${r.unmatchedServerCount}`,
+        `coverageRatio: ${r.coverageRatio}`,
+      ];
+      if (r.matched?.length) {
+        lines.push('matched:');
+        for (const m of r.matched.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
+          lines.push(`  ${m.method} ${m.path}`);
+        }
+      }
+      if (r.unmatchedClient?.length) {
+        lines.push('unmatchedClient:');
+        for (const u of r.unmatchedClient.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
+          lines.push(`  ${u.method} ${u.path}`);
+        }
+      }
+      if (r.unmatchedServer?.length) {
+        lines.push('unmatchedServer:');
+        for (const u of r.unmatchedServer.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
+          lines.push(`  ${u.method} ${u.path}`);
+        }
+      }
+      if (r.warnings?.length) {
+        lines.push('', `warnings (${r.warnings.length}):`);
+        for (const w of r.warnings.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
+          const prefix = w.file ? `${w.file}: ` : '';
+          lines.push(`  [${w.reason}] ${prefix}${w.message}`);
+        }
+      }
+      if (r.compact) lines.push('', 'compact mode: detailed contract lists omitted');
+      else if (r.truncated) lines.push('', 'output truncated; use --max-files <n> to see more or --json for full data');
+      return lines.join('\n');
+    },
+    summary: (r, _options = {}) => {
+      const lines = [
+        `API contracts: ${r.matchedCount} matched, ${r.unmatchedClientCount} client-only, ${r.unmatchedServerCount} server-only`,
+        `Coverage: ${Math.round(r.coverageRatio * 100)}%`,
+      ];
+      if (r.unmatchedClient?.length) {
+        lines.push('Client calls without server route:');
+        for (const u of r.unmatchedClient.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options))) {
+          lines.push(`  ${u.method} ${u.path}`);
+        }
+      }
+      if (r.unmatchedServer?.length) {
+        lines.push('Server routes without client call:');
+        for (const u of r.unmatchedServer.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options))) {
+          lines.push(`  ${u.method} ${u.path}`);
+        }
+      }
+      if (r.warnings?.length) {
+        lines.push('', `Warnings (${r.warnings.length}):`);
+        for (const w of r.warnings.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options))) {
+          const prefix = w.file ? `${w.file}: ` : '';
+          lines.push(`  [${w.reason}] ${prefix}${w.message}`);
+        }
+      }
+      if (r.compact) lines.push('', '> Compact mode: detailed contract lists omitted.');
+      else if (r.truncated) lines.push('', '> Output truncated; use `--max-files <n>` to see more or `--json` for full data.');
+      return lines.join('\n');
+    },
+    markdown: (r, _options = {}) => {
+      const lines = [
+        `# API Contracts`,
+        ``,
+        `- **Frontend**: ${r.frontend}`,
+        `- **Backend**: ${r.backend}`,
+        `- **Client calls**: ${r.clientCallsCount}`,
+        `- **Server routes**: ${r.serverRoutesCount}`,
+        `- **Matched**: ${r.matchedCount}`,
+        `- **Coverage**: ${Math.round(r.coverageRatio * 100)}%`,
+      ];
+      if (r.matched?.length) {
+        lines.push('', `## Matched`);
+        for (const m of r.matched.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
+          lines.push(`- \`${m.method}\` \`${m.path}\``);
+        }
+      }
+      if (r.unmatchedClient?.length) {
+        lines.push('', `## Unmatched client calls`);
+        for (const u of r.unmatchedClient.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
+          lines.push(`- \`${u.method}\` \`${u.path}\``);
+        }
+      }
+      if (r.unmatchedServer?.length) {
+        lines.push('', `## Unmatched server routes`);
+        for (const u of r.unmatchedServer.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
+          lines.push(`- \`${u.method}\` \`${u.path}\``);
+        }
+      }
+      if (r.warnings?.length) {
+        lines.push('', `## Warnings`);
+        for (const w of r.warnings.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
+          const prefix = w.file ? `${w.file}: ` : '';
+          lines.push(`- **[${w.reason}]** ${prefix}${w.message}`);
+        }
+      }
+      if (r.compact) lines.push('', '> Compact mode: detailed contract lists omitted.');
+      else if (r.truncated) lines.push('', '> Output truncated; use `--max-files <n>` to see more or `--json` for full data.');
+      return lines.join('\n');
+    },
+    jsonl: (r) => {
+      const rec = [];
+      rec.push({ _type: 'summary', ok: r.ok, command: 'api-contracts', clientCalls: r.clientCallsCount, serverRoutes: r.serverRoutesCount, matched: r.matchedCount, coverageRatio: r.coverageRatio });
+      pushRecord(rec, 'matched', r.matched);
+      pushRecord(rec, 'unmatched-client', r.unmatchedClient);
+      pushRecord(rec, 'unmatched-server', r.unmatchedServer);
+      pushRecord(rec, 'warning', r.warnings);
+      return rec.map(JSON.stringify).join('\n');
+    },
+  },
   'health': {
-    human: (r) => `workspaceRoot: ${r.workspaceRoot}\nhealthScore: ${r.healthScore}\npackageManager: ${r.packageManager || 'unknown'}\nci: ${r.checks.ci.found ? 'yes' : 'no'}\ntests: ${r.checks.testConfig.found ? r.checks.testConfig.frameworks.join(', ') : 'none'}`,
-    summary: (r) => `Health: ${r.healthScore}\nPassed: ${r.healthScoreNumeric?.passed}/${r.healthScoreNumeric?.total}\nMissing: ${r.fixes?.map((f) => f.check).join(', ') || 'none'}`,
-    markdown: (r) => {
+    human: (r, _options = {}) => `workspaceRoot: ${r.workspaceRoot}\nhealthScore: ${r.healthScore}\npackageManager: ${r.packageManager || 'unknown'}\nci: ${r.checks.ci.found ? 'yes' : 'no'}\ntests: ${r.checks.testConfig.found ? r.checks.testConfig.frameworks.join(', ') : 'none'}`,
+    summary: (r, _options = {}) => `Health: ${r.healthScore}\nPassed: ${r.healthScoreNumeric?.passed}/${r.healthScoreNumeric?.total}\nMissing: ${r.fixes?.map((f) => f.check).join(', ') || 'none'}`,
+    markdown: (r, _options = {}) => {
       const lines = [`# Health Check`, ``, `- **Score**: ${r.healthScore}`, `- **Passed**: ${r.healthScoreNumeric?.passed}/${r.healthScoreNumeric?.total}`];
       if (r.fixes?.length) { lines.push(``, `## Missing`); for (const f of r.fixes) lines.push(`- **${f.check}** (${f.severity}): ${f.action}`); }
       return lines.join('\n');
@@ -543,18 +673,20 @@ const FORMATTERS = {
     },
   },
   'impact': {
-    human: (r) => {
-      const lines = [`impactCount: ${r.impactCount}`, ...r.impact.map((e) => { const via = e.via && e.via.length > 1 ? ` via ${e.via.slice(1).join(' -> ')}` : ''; return `${e.level}: ${e.file}${via}`; })];
-      if (r.truncated) lines.push(`... truncated (showing ${r.impact.length} of ${r.impactCount})`);
+    human: (r, _options = {}) => {
+      const limit = resolveOutputLimit(Infinity, _options);
+      const shown = r.impact.slice(0, limit);
+      const lines = [`impactCount: ${r.impactCount}`, ...shown.map((e) => { const via = e.via && e.via.length > 1 ? ` via ${e.via.slice(1).join(' -> ')}` : ''; return `${e.level}: ${e.file}${via}`; })];
+      if (r.truncated || r.impact.length > limit) lines.push(`... truncated (showing ${shown.length} of ${r.impactCount})`);
       return lines.join('\n');
     },
-    summary: (r) => {
-      const lines = [`Impact radius: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, 5).map((e) => `  ${e.level}: ${e.file}`) || []];
+    summary: (r, _options = {}) => {
+      const lines = [`Impact radius: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((e) => `  ${e.level}: ${e.file}`) || []];
       if (r.truncated) lines.push(`  ... truncated (showing ${r.impact.length} of ${r.impactCount})`);
       return lines.join('\n');
     },
-    markdown: (r) => {
-      const lines = [`# Impact Radius`, ``, `- **Total**: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, 10).map((e) => `- ${e.level}: ${e.file}`) || []];
+    markdown: (r, _options = {}) => {
+      const lines = [`# Impact Radius`, ``, `- **Total**: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options)).map((e) => `- ${e.level}: ${e.file}`) || []];
       if (r.truncated) lines.push(`- *... truncated (showing ${r.impact.length} of ${r.impactCount})*`);
       return lines.join('\n');
     },
@@ -566,18 +698,20 @@ const FORMATTERS = {
     },
   },
   'affected-tests': {
-    human: (r) => {
-      const lines = [`affectedTestsCount: ${r.affectedTestsCount}`, ...r.affectedTests.map((e) => { const via = e.via?.length > 0 ? ` via ${e.via.join(' -> ')}` : ''; return `${e.distance}: ${e.file}${via}`; })];
-      if (r.truncated) lines.push(`... truncated (showing ${r.affectedTests.length} of ${r.affectedTestsCount})`);
+    human: (r, _options = {}) => {
+      const limit = resolveOutputLimit(Infinity, _options);
+      const shown = r.affectedTests.slice(0, limit);
+      const lines = [`affectedTestsCount: ${r.affectedTestsCount}`, ...shown.map((e) => { const via = e.via?.length > 0 ? ` via ${e.via.join(' -> ')}` : ''; return `${e.distance}: ${e.file}${via}`; })];
+      if (r.truncated || r.affectedTests.length > limit) lines.push(`... truncated (showing ${shown.length} of ${r.affectedTestsCount})`);
       return lines.join('\n');
     },
-    summary: (r) => {
-      const lines = [`Affected tests: ${r.affectedTestsCount ?? 0}`, ...r.affectedTests?.slice(0, 5).map((e) => `  ${e.distance}: ${e.file}`) || []];
+    summary: (r, _options = {}) => {
+      const lines = [`Affected tests: ${r.affectedTestsCount ?? 0}`, ...r.affectedTests?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((e) => `  ${e.distance}: ${e.file}`) || []];
       if (r.truncated) lines.push(`  ... truncated (showing ${r.affectedTests.length} of ${r.affectedTestsCount})`);
       return lines.join('\n');
     },
-    markdown: (r) => {
-      const lines = [`# Affected Tests`, ``, `- **Total**: ${r.affectedTestsCount ?? 0}`, ...r.affectedTests?.slice(0, 10).map((e) => `- ${e.distance}: ${e.file}`) || []];
+    markdown: (r, _options = {}) => {
+      const lines = [`# Affected Tests`, ``, `- **Total**: ${r.affectedTestsCount ?? 0}`, ...r.affectedTests?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options)).map((e) => `- ${e.distance}: ${e.file}`) || []];
       if (r.truncated) lines.push(`- *... truncated (showing ${r.affectedTests.length} of ${r.affectedTestsCount})*`);
       return lines.join('\n');
     },
@@ -589,18 +723,20 @@ const FORMATTERS = {
     },
   },
   'affected-routes': {
-    human: (r) => {
-      const lines = [`routesCount: ${r.routesCount}`, ...r.routes.map((e) => `${e.entry}${e.hasImplicit ? ' (implicit)' : ''}: ${e.path.join(' -> ')}`)];
-      if (r.truncated) lines.push(`... truncated (showing ${r.routes.length} of ${r.routesCount})`);
+    human: (r, _options = {}) => {
+      const limit = resolveOutputLimit(Infinity, _options);
+      const shown = r.routes.slice(0, limit);
+      const lines = [`routesCount: ${r.routesCount}`, ...shown.map((e) => `${e.entry}${e.hasImplicit ? ' (implicit)' : ''}: ${e.path.join(' -> ')}`)];
+      if (r.truncated || r.routes.length > limit) lines.push(`... truncated (showing ${shown.length} of ${r.routesCount})`);
       return lines.join('\n');
     },
-    summary: (r) => {
-      const lines = [`Routes: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, 5).map((e) => `  ${e.entry}${e.hasImplicit ? ' (implicit)' : ''}: ${e.path.join(' -> ')}`) || []];
+    summary: (r, _options = {}) => {
+      const lines = [`Routes: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((e) => `  ${e.entry}${e.hasImplicit ? ' (implicit)' : ''}: ${e.path.join(' -> ')}`) || []];
       if (r.truncated) lines.push(`  ... truncated (showing ${r.routes.length} of ${r.routesCount})`);
       return lines.join('\n');
     },
-    markdown: (r) => {
-      const lines = [`# Affected Routes`, ``, `- **Total**: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, 10).map((e) => `- \`${e.entry}\`${e.hasImplicit ? ' (implicit)' : ''}: ${e.path.join(' -> ')}`) || []];
+    markdown: (r, _options = {}) => {
+      const lines = [`# Affected Routes`, ``, `- **Total**: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options)).map((e) => `- \`${e.entry}\`${e.hasImplicit ? ' (implicit)' : ''}: ${e.path.join(' -> ')}`) || []];
       if (r.truncated) lines.push(`- *... truncated (showing ${r.routes.length} of ${r.routesCount})*`);
       return lines.join('\n');
     },
@@ -612,18 +748,47 @@ const FORMATTERS = {
     },
   },
   'workspace-info': {
-    human: (r) => `workspaceRoot: ${r.workspaceRoot}\ndetected: ${Object.entries(r.detected).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none'}`,
-    summary: (r) => `Workspace: ${r.workspaceRoot}\nDetected: ${Object.entries(r.detected || {}).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none'}`,
+    human: (r, _options = {}) => `workspaceRoot: ${r.workspaceRoot}\ndetected: ${Object.entries(r.detected).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none'}`,
+    summary: (r, _options = {}) => `Workspace: ${r.workspaceRoot}\nDetected: ${Object.entries(r.detected || {}).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none'}`,
+    markdown: (r, _options = {}) => {
+      const lines = [`# Workspace Info`, ``, `- **workspaceRoot**: ${r.workspaceRoot}`];
+      const detected = Object.entries(r.detected || {}).filter(([, v]) => v).map(([k]) => k);
+      if (detected.length) lines.push(`- **Detected**: ${detected.join(', ')}`);
+      if (r.fileCount != null) lines.push(`- **Files**: ${r.fileCount}`);
+      if (r.languages && Object.keys(r.languages).length) {
+        lines.push(`- **Languages**: ${Object.entries(r.languages).map(([k, v]) => `${k}=${v}`).join(', ')}`);
+      }
+      return lines.join('\n');
+    },
     jsonl: (r) => JSON.stringify({ _type: 'workspace-info', ...r }),
   },
   'diagnostics': {
-    human: (r) => {
+    human: (r, _options = {}) => {
       const diagTotal = r.diagnosticsSummary?.noLintersDetected ? 'no linters detected' : r.diagnosticsSummary?.total;
       return `checksRun: ${r.checksRun}\nfailedChecks: ${r.failedChecks.join(', ') || 'none'}\ndiagnostics: ${diagTotal}`;
     },
-    summary: (r) => {
+    summary: (r, _options = {}) => {
       const diagTotal = r.diagnosticsSummary?.noLintersDetected ? 'no linters detected' : r.diagnosticsSummary?.total;
       return `Checks: ${r.checksRun ?? 0}, Failed: ${r.failedChecks?.length ?? 0}\nDiagnostics: ${diagTotal ?? 'none'}`;
+    },
+    markdown: (r, _options = {}) => {
+      const lines = [`# Diagnostics`, ``];
+      lines.push(`- **Checks run**: ${r.checksRun ?? 0}`);
+      if (r.failedChecks?.length) lines.push(`- **Failed checks**: ${r.failedChecks.join(', ')}`);
+      const ds = r.diagnosticsSummary || {};
+      if (ds.noLintersDetected) {
+        lines.push(`- **Diagnostics**: no linters detected`);
+      } else if (ds.total != null) {
+        lines.push(`- **Diagnostics**: ${ds.total} (error=${ds.error ?? 0}, warning=${ds.warning ?? 0})`);
+      }
+      if (r.results?.length) {
+        lines.push(``, `| Check | OK | Diagnostics |`);
+        lines.push(`| --- | --- | --- |`);
+        for (const res of r.results.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
+          lines.push(`| ${res.name} | ${res.ok ? 'yes' : 'no'} | ${res.diagnosticsCount ?? 0} |`);
+        }
+      }
+      return lines.join('\n');
     },
     jsonl: (r) => {
       const rec = [];
@@ -633,13 +798,28 @@ const FORMATTERS = {
     },
   },
   'audit-map': {
-    human: (r) => {
+    human: (r, _options = {}) => {
       if (r.summary) {
         return `severity: ${r.summary.severity}\nfiles: ${countTreeFiles(r.tree)}\nedges: ${r.edges?.length ?? 0}\nunresolved: ${r.issueOverlay?.unresolved?.length ?? 0}\ncycles: ${r.issueOverlay?.cycles?.length ?? 0}\ndeadExports: ${r.issueOverlay?.deadExports?.length ?? 0}\norphans: ${r.issueOverlay?.orphans?.length ?? 0}\nhotspots: ${r.issueOverlay?.hotspots?.length ?? 0}\nnext: ${r.summary.nextSteps[0]}`;
       }
       return `workspaceRoot: ${r.workspaceRoot}\nfiles: ${countTreeFiles(r.tree)}\nedges: ${r.edges?.length ?? 0}\ndeadExports: ${r.issueOverlay?.deadExports?.length ?? 0}\nunresolved: ${r.issueOverlay?.unresolved?.length ?? 0}\ncycles: ${r.issueOverlay?.cycles?.length ?? 0}\norphans: ${r.issueOverlay?.orphans?.length ?? 0}\nhotspots: ${r.issueOverlay?.hotspots?.length ?? 0}`;
     },
-    summary: (r) => `Files: ${countTreeFiles(r.tree)}\nEdges: ${r.edges?.length ?? 0}\nIssues: dead=${r.issueOverlay?.deadExports?.length ?? 0} unresolved=${r.issueOverlay?.unresolved?.length ?? 0} cycles=${r.issueOverlay?.cycles?.length ?? 0}`,
+    summary: (r, _options = {}) => `Files: ${countTreeFiles(r.tree)}\nEdges: ${r.edges?.length ?? 0}\nIssues: dead=${r.issueOverlay?.deadExports?.length ?? 0} unresolved=${r.issueOverlay?.unresolved?.length ?? 0} cycles=${r.issueOverlay?.cycles?.length ?? 0}`,
+    markdown: (r, _options = {}) => {
+      const lines = [`# Audit Map`, ``];
+      lines.push(`- **Files**: ${countTreeFiles(r.tree)}`);
+      lines.push(`- **Edges**: ${r.edges?.length ?? 0}`);
+      const overlay = r.issueOverlay || {};
+      const issueKeys = ['deadExports', 'unresolved', 'cycles', 'orphans', 'hotspots'];
+      for (const k of issueKeys) {
+        if (overlay[k]?.length) lines.push(`- **${k}**: ${overlay[k].length}`);
+      }
+      if (r.summary?.nextSteps?.length) {
+        lines.push(``, `## Next steps`);
+        for (const step of r.summary.nextSteps.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) lines.push(`- ${step}`);
+      }
+      return lines.join('\n');
+    },
     jsonl: (r) => {
       const rec = [];
       rec.push({ _type: 'summary', ok: r.ok, command: 'audit-map', severity: r.summary?.severity });
@@ -649,13 +829,13 @@ const FORMATTERS = {
     },
   },
   'stats': {
-    human: (r) => {
+    human: (r, _options = {}) => {
       return Object.entries(r.stats || {}).map(([k, v]) => `${k}: ${formatStatsValue(v)}`).join('\n');
     },
-    summary: (r) => {
+    summary: (r, _options = {}) => {
       return Object.entries(r.stats || {}).map(([k, v]) => `${k}: ${formatStatsValue(v)}`).join(', ');
     },
-    markdown: (r) => {
+    markdown: (r, _options = {}) => {
       const lines = [
         `# Stats`,
         ``,
@@ -666,8 +846,23 @@ const FORMATTERS = {
     jsonl: (r) => JSON.stringify({ _type: 'stats', ...r }),
   },
   'dependencies': {
-    human: (r) => `file: ${r.file}\ndependenciesCount: ${r.dependenciesCount}\n${r.dependencies.map((d) => `  → ${d}`).join('\n')}`,
-    summary: (r) => `Dependencies: ${r.dependenciesCount ?? 0}\n${(r.dependencies || []).slice(0, 5).join(', ') || 'none'}`,
+    human: (r, _options = {}) => {
+      const limit = resolveOutputLimit(Infinity, _options);
+      const shown = r.dependencies.slice(0, limit);
+      let out = `file: ${r.file}\ndependenciesCount: ${r.dependenciesCount}\n${shown.map((d) => `  → ${d}`).join('\n')}`;
+      if (r.dependencies.length > limit) out += `\n... truncated (showing ${shown.length} of ${r.dependenciesCount})`;
+      return out;
+    },
+    summary: (r, _options = {}) => `Dependencies: ${r.dependenciesCount ?? 0}\n${(r.dependencies || []).slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).join(', ') || 'none'}`,
+    markdown: (r, _options = {}) => {
+      const lines = [`# Dependencies: ${r.file}`, ``];
+      lines.push(`- **Count**: ${r.dependenciesCount ?? 0}`);
+      if (r.dependencies?.length) {
+        lines.push(``, `## Direct dependencies`);
+        for (const d of r.dependencies.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) lines.push(`- ${d}`);
+      }
+      return lines.join('\n');
+    },
     jsonl: (r) => {
       const rec = [];
       rec.push({ _type: 'summary', ok: r.ok, command: 'dependencies', severity: r.severity || r.summary?.severity });
@@ -676,8 +871,23 @@ const FORMATTERS = {
     },
   },
   'dependents': {
-    human: (r) => `file: ${r.file}\ndependentsCount: ${r.dependentsCount}\n${r.dependents.map((d) => `  ← ${d}`).join('\n')}`,
-    summary: (r) => `Dependents: ${r.dependentsCount ?? 0}\n${(r.dependents || []).slice(0, 5).join(', ') || 'none'}`,
+    human: (r, _options = {}) => {
+      const limit = resolveOutputLimit(Infinity, _options);
+      const shown = r.dependents.slice(0, limit);
+      let out = `file: ${r.file}\ndependentsCount: ${r.dependentsCount}\n${shown.map((d) => `  ← ${d}`).join('\n')}`;
+      if (r.dependents.length > limit) out += `\n... truncated (showing ${shown.length} of ${r.dependentsCount})`;
+      return out;
+    },
+    summary: (r, _options = {}) => `Dependents: ${r.dependentsCount ?? 0}\n${(r.dependents || []).slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).join(', ') || 'none'}`,
+    markdown: (r, _options = {}) => {
+      const lines = [`# Dependents: ${r.file}`, ``];
+      lines.push(`- **Count**: ${r.dependentsCount ?? 0}`);
+      if (r.dependents?.length) {
+        lines.push(``, `## Direct dependents`);
+        for (const d of r.dependents.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) lines.push(`- ${d}`);
+      }
+      return lines.join('\n');
+    },
     jsonl: (r) => {
       const rec = [];
       rec.push({ _type: 'summary', ok: r.ok, command: 'dependents', severity: r.severity || r.summary?.severity });
@@ -686,16 +896,32 @@ const FORMATTERS = {
     },
   },
   'dead-exports': {
-    human: (r) => {
+    human: (r, _options = {}) => {
+      const limit = resolveOutputLimit(Infinity, _options);
       const lines = [`deadExportsCount: ${r.deadExportsCount}`];
       if (r.possibleFalsePositives?.disclaimer) lines.push(`note: ${r.possibleFalsePositives.disclaimer}`);
-      lines.push(...r.deadExports.map((e) => `${e.file}: ${e.exports.map((e) => sanitizeForAiOutput(e)).join(', ')} (id: ${e.id})`));
+      const shown = r.deadExports.slice(0, limit);
+      lines.push(...shown.map((e) => `${e.file}: ${e.exports.map((e) => sanitizeForAiOutput(e)).join(', ')} (id: ${e.id})`));
+      if (r.deadExports.length > limit) lines.push(`... truncated (showing ${shown.length} of ${r.deadExportsCount})`);
       return lines.join('\n');
     },
-    summary: (r) => {
+    summary: (r, _options = {}) => {
       const lines = [`Dead exports: ${r.deadExportsCount ?? 0}`];
       if (r.possibleFalsePositives?.disclaimer) lines.push(`Note: ${r.possibleFalsePositives.disclaimer}`);
-      lines.push(...(r.deadExports || []).slice(0, 5).map((e) => `${e.file}: ${(e.exports || []).map((e) => sanitizeForAiOutput(e)).join(', ') || 'n/a'} (id: ${e.id})`));
+      lines.push(...(r.deadExports || []).slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((e) => `${e.file}: ${(e.exports || []).map((e) => sanitizeForAiOutput(e)).join(', ') || 'n/a'} (id: ${e.id})`));
+      return lines.join('\n');
+    },
+    markdown: (r, _options = {}) => {
+      const lines = [`# Dead Exports`, ``];
+      lines.push(`- **Count**: ${r.deadExportsCount ?? 0}`);
+      if (r.possibleFalsePositives?.disclaimer) lines.push(`- **Note**: ${r.possibleFalsePositives.disclaimer}`);
+      if (r.deadExports?.length) {
+        lines.push(``, `| File | Exports | ID |`);
+        lines.push(`| --- | --- | --- |`);
+        for (const e of r.deadExports.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
+          lines.push(`| ${e.file} | ${(e.exports || []).map((x) => sanitizeForAiOutput(x)).join(', ')} | ${e.id} |`);
+        }
+      }
       return lines.join('\n');
     },
     jsonl: (r) => {
@@ -706,16 +932,32 @@ const FORMATTERS = {
     },
   },
   'unresolved': {
-    human: (r) => {
+    human: (r, _options = {}) => {
+      const limit = resolveOutputLimit(Infinity, _options);
       const lines = [`unresolvedCount: ${r.unresolvedCount}`];
       if (r.possibleFalsePositives?.disclaimer) lines.push(`note: ${r.possibleFalsePositives.disclaimer}`);
-      lines.push(...r.unresolved.map((e) => `${e.file}: ${e.import} (id: ${e.id})`));
+      const shown = r.unresolved.slice(0, limit);
+      lines.push(...shown.map((e) => `${e.file}: ${e.import} (id: ${e.id})`));
+      if (r.unresolved.length > limit) lines.push(`... truncated (showing ${shown.length} of ${r.unresolvedCount})`);
       return lines.join('\n');
     },
-    summary: (r) => {
+    summary: (r, _options = {}) => {
       const lines = [`Unresolved: ${r.unresolvedCount ?? 0}`];
       if (r.possibleFalsePositives?.disclaimer) lines.push(`Note: ${r.possibleFalsePositives.disclaimer}`);
-      lines.push(...(r.unresolved || []).slice(0, 5).map((u) => `${u.file}: ${u.import} (id: ${u.id})`));
+      lines.push(...(r.unresolved || []).slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((u) => `${u.file}: ${u.import} (id: ${u.id})`));
+      return lines.join('\n');
+    },
+    markdown: (r, _options = {}) => {
+      const lines = [`# Unresolved Imports`, ``];
+      lines.push(`- **Count**: ${r.unresolvedCount ?? 0}`);
+      if (r.possibleFalsePositives?.disclaimer) lines.push(`- **Note**: ${r.possibleFalsePositives?.disclaimer}`);
+      if (r.unresolved?.length) {
+        lines.push(``, `| File | Import | ID |`);
+        lines.push(`| --- | --- | --- |`);
+        for (const u of r.unresolved.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
+          lines.push(`| ${u.file} | ${u.import} | ${u.id} |`);
+        }
+      }
       return lines.join('\n');
     },
     jsonl: (r) => {
@@ -726,8 +968,23 @@ const FORMATTERS = {
     },
   },
   'cycles': {
-    human: (r) => [`cyclesCount: ${r.cyclesCount}`, ...r.cycles.map((c) => c.join(' -> '))].join('\n'),
-    summary: (r) => `Cycles: ${r.cyclesCount ?? 0}\n${(r.cycles || []).slice(0, 3).map((c) => c.join(' -> ')).join('\n')}`,
+    human: (r, _options = {}) => {
+      const limit = resolveOutputLimit(Infinity, _options);
+      const shown = r.cycles.slice(0, limit);
+      const lines = [`cyclesCount: ${r.cyclesCount}`, ...shown.map((c) => c.join(' -> '))];
+      if (r.cycles.length > limit) lines.push(`... truncated (showing ${shown.length} of ${r.cyclesCount})`);
+      return lines.join('\n');
+    },
+    summary: (r, _options = {}) => `Cycles: ${r.cyclesCount ?? 0}\n${(r.cycles || []).slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options)).map((c) => c.join(' -> ')).join('\n')}`,
+    markdown: (r, _options = {}) => {
+      const lines = [`# Dependency Cycles`, ``];
+      lines.push(`- **Count**: ${r.cyclesCount ?? 0}`);
+      if (r.cycles?.length) {
+        lines.push(``);
+        for (const c of r.cycles.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) lines.push(`- ${c.join(' -> ')}`);
+      }
+      return lines.join('\n');
+    },
     jsonl: (r) => {
       const rec = [];
       rec.push({ _type: 'summary', ok: r.ok, command: 'cycles', severity: r.severity || r.summary?.severity });
@@ -736,7 +993,7 @@ const FORMATTERS = {
     },
   },
   'tree': {
-    human: (r) => {
+    human: (r, _options = {}) => {
       const lines = [`file: ${r.file}`];
       function render(node, prefix = '') {
         if (node.imports) {
@@ -757,30 +1014,51 @@ const FORMATTERS = {
       if (r.tree) render(r.tree);
       return lines.join('\n');
     },
-    summary: (r) => {
+    summary: (r, _options = {}) => {
       const lines = [`File: ${r.file}`];
       if (r.tree?.imports) lines.push(`Imports: ${r.tree.imports.length}`);
       if (r.tree?.dependents) lines.push(`Dependents: ${r.tree.dependents.length}`);
       return lines.join('\n');
     },
+    markdown: (r, _options = {}) => {
+      const lines = [`# Dependency Tree: ${r.file}`, ``];
+      function render(node, prefix = '') {
+        if (node.imports) {
+          for (const imp of node.imports) {
+            const tag = imp.external ? ' [external]' : (imp.circular ? ' [circular]' : '');
+            lines.push(`${prefix}- → ${imp.file}${tag}`);
+            if (imp.imports || imp.dependents) render(imp, prefix + '  ');
+          }
+        }
+        if (node.dependents) {
+          for (const dep of node.dependents) {
+            const tag = dep.circular ? ' [circular]' : '';
+            lines.push(`${prefix}- ← ${dep.file}${tag}`);
+            if (dep.imports || dep.dependents) render(dep, prefix + '  ');
+          }
+        }
+      }
+      if (r.tree) render(r.tree);
+      return lines.join('\n');
+    },
     jsonl: (r) => JSON.stringify({ _type: 'tree', ...r }),
   },
   'query-hotspots': {
-    human: (r) => {
+    human: (r, _options = {}) => {
       const lines = [`hotspotsCount: ${r.count} (total: ${r.total})`];
       if (Array.isArray(r.hotspots)) {
         lines.push(...r.hotspots.map((h) => `${h.file} | score: ${h.score.toFixed(2)} | risk: ${h.risk} | lines: ${h.lines} | churn: ${h.churn}`));
       }
       return lines.join('\n');
     },
-    summary: (r) => {
+    summary: (r, _options = {}) => {
       const lines = [`Hotspots: ${r.count} / ${r.total}`];
       if (Array.isArray(r.hotspots)) {
-        lines.push(...r.hotspots.slice(0, 5).map((h) => `  ${h.file} (score: ${h.score.toFixed(1)}, ${h.risk})`));
+        lines.push(...r.hotspots.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((h) => `  ${h.file} (score: ${h.score.toFixed(1)}, ${h.risk})`));
       }
       return lines.join('\n');
     },
-    markdown: (r) => {
+    markdown: (r, _options = {}) => {
       const lines = [
         `# Query Hotspots`,
         ``,
@@ -802,21 +1080,21 @@ const FORMATTERS = {
     },
   },
   'query-knowledge-risk': {
-    human: (r) => {
+    human: (r, _options = {}) => {
       const lines = [`knowledgeRiskCount: ${r.count} (total: ${r.total}, level: ${r.level})`];
       if (Array.isArray(r.files)) {
         lines.push(...r.files.map((f) => `${f.file} | risk: ${f.riskLevel} | authorCount: ${f.authorCount} | primaryAuthor: ${f.primaryAuthor} (${(f.primaryAuthorPct * 100).toFixed(0)}%)`));
       }
       return lines.join('\n');
     },
-    summary: (r) => {
+    summary: (r, _options = {}) => {
       const lines = [`Knowledge Risk (${r.level}): ${r.count} / ${r.total}`];
       if (Array.isArray(r.files)) {
-        lines.push(...r.files.slice(0, 5).map((f) => `  ${f.file} (${f.primaryAuthor}, ${f.riskLevel})`));
+        lines.push(...r.files.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((f) => `  ${f.file} (${f.primaryAuthor}, ${f.riskLevel})`));
       }
       return lines.join('\n');
     },
-    markdown: (r) => {
+    markdown: (r, _options = {}) => {
       const lines = [
         `# Query Knowledge Risk`,
         ``,
@@ -839,14 +1117,14 @@ const FORMATTERS = {
     },
   },
   'audit-boundaries': {
-    human: (r) => {
+    human: (r, _options = {}) => {
       const lines = [
         `Architecture boundaries: ${r.violationsCount} violation(s)`,
         `Rules applied: ${r.rulesApplied?.length || 0} (${r.isAutogenerated ? 'autogenerated' : 'configured'})`,
       ];
       if (r.rulesApplied?.length) {
         lines.push('Rules:');
-        for (const rule of r.rulesApplied.slice(0, 5)) {
+        for (const rule of r.rulesApplied.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options))) {
           const deny = rule.deny ? `deny: ${rule.deny.join(', ')}` : '';
           const allow = rule.allow ? `allow: ${rule.allow.join(', ')}` : '';
           lines.push(`  • from: ${rule.from} | ${deny}${allow}`);
@@ -854,20 +1132,20 @@ const FORMATTERS = {
       }
       if (r.violations?.length) {
         lines.push('Violations:');
-        for (const v of r.violations.slice(0, 10)) {
+        for (const v of r.violations.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
           lines.push(`  • ${v.sourceFile} -> ${v.targetFile} (${v.violationType})`);
         }
       }
       return lines.join('\n');
     },
-    summary: (r) => {
+    summary: (r, _options = {}) => {
       const lines = [`Boundaries: ${r.violationsCount} violation(s), ${r.rulesApplied?.length || 0} rule(s)`];
       if (r.violations?.length) {
-        lines.push(...r.violations.slice(0, 5).map((v) => `  • ${v.sourceFile} -> ${v.targetFile}`));
+        lines.push(...r.violations.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((v) => `  • ${v.sourceFile} -> ${v.targetFile}`));
       }
       return lines.join('\n');
     },
-    markdown: (r) => {
+    markdown: (r, _options = {}) => {
       const lines = [
         `# Architecture Boundaries`,
         ``,
@@ -890,24 +1168,24 @@ const FORMATTERS = {
     },
   },
   'audit-smells': {
-    human: (r) => {
+    human: (r, _options = {}) => {
       const lines = [`Code smells: ${r.smellsCount} finding(s)`];
       if (r.smells?.length) {
         lines.push('Findings:');
-        for (const s of r.smells.slice(0, 10)) {
+        for (const s of r.smells.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
           lines.push(`  • ${s.file}:${s.lineStart || '?'} ${s.functionName} | arms=${s.arms}, cc=${s.complexity}`);
         }
       }
       return lines.join('\n');
     },
-    summary: (r) => {
+    summary: (r, _options = {}) => {
       const lines = [`Smells: ${r.smellsCount} finding(s)`];
       if (r.smells?.length) {
-        lines.push(...r.smells.slice(0, 5).map((s) => `  • ${s.file}:${s.lineStart || '?'} ${s.functionName} (arms=${s.arms})`));
+        lines.push(...r.smells.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((s) => `  • ${s.file}:${s.lineStart || '?'} ${s.functionName} (arms=${s.arms})`));
       }
       return lines.join('\n');
     },
-    markdown: (r) => {
+    markdown: (r, _options = {}) => {
       const lines = [
         `# Code Smells`,
         ``,
@@ -929,21 +1207,21 @@ const FORMATTERS = {
     },
   },
   'query-stability': {
-    human: (r) => {
+    human: (r, _options = {}) => {
       const lines = [`stabilityCount: ${r.count} (total: ${r.total})`];
       if (Array.isArray(r.files)) {
         lines.push(...r.files.map((f) => `${f.file} | cc: ${f.cc} | loc: ${f.loc} | assessment: ${f.assessment}`));
       }
       return lines.join('\n');
     },
-    summary: (r) => {
+    summary: (r, _options = {}) => {
       const lines = [`Stability: ${r.count} / ${r.total}`];
       if (Array.isArray(r.files)) {
-        lines.push(...r.files.slice(0, 5).map((f) => `  ${f.file} (cc: ${f.cc}, ${f.assessment})`));
+        lines.push(...r.files.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((f) => `  ${f.file} (cc: ${f.cc}, ${f.assessment})`));
       }
       return lines.join('\n');
     },
-    markdown: (r) => {
+    markdown: (r, _options = {}) => {
       const lines = [
         `# Query Stability`,
         ``,
@@ -965,13 +1243,13 @@ const FORMATTERS = {
     },
   },
   guard: {
-    human: (r) => require('./guard-formatter').formatGuardHuman(r),
-    summary: (r) => require('./guard-formatter').formatGuardSummary(r),
-    markdown: (r) => require('./guard-formatter').formatGuardMarkdown(r),
+    human: (r, _options = {}) => require('./guard-formatter').formatGuardHuman(r),
+    summary: (r, _options = {}) => require('./guard-formatter').formatGuardSummary(r),
+    markdown: (r, _options = {}) => require('./guard-formatter').formatGuardMarkdown(r),
     jsonl: (r) => require('./guard-formatter').formatGuardJsonl(r),
   },
   query: {
-    human: (r) => {
+    human: (r, _options = {}) => {
       const lines = [`queryCount: ${r.count}`];
       if (r.rows && r.rows.length > 0) {
         const keys = Object.keys(r.rows[0]);
@@ -983,8 +1261,8 @@ const FORMATTERS = {
       }
       return lines.join('\n');
     },
-    summary: (r) => `Query results: ${r.count} row(s) matched`,
-    markdown: (r) => {
+    summary: (r, _options = {}) => `Query results: ${r.count} row(s) matched`,
+    markdown: (r, _options = {}) => {
       const lines = [
         `# SQL Query Result`,
         ``,
@@ -1017,6 +1295,83 @@ const FORMATTERS = {
 // AI digest registry — per-command risk/action/count extraction
 // ---------------------------------------------------------------------------
 const AI_DIGEST = {
+
+  'stats': (r) => {
+    const stats = r.stats || {};
+    const counts = {
+      files: stats.files || 0,
+      imports: stats.totalImports || 0,
+      exports: stats.totalExports || 0,
+      cycles: stats.cycles || 0,
+      coverageRatio: stats.analysisCoverage?.coverageRatio ?? stats.filteredAnalysisCoverage?.coverageRatio ?? null,
+    };
+    const topRisks = [];
+    const actions = [];
+    if (counts.cycles > 0) {
+      topRisks.push({ category: 'cycles', severity: 'high', count: counts.cycles, message: `${counts.cycles} dependency cycle(s)`, confidence: 0.95 });
+      actions.push({ priority: 'P0', action: 'Run cycles --json --quiet to inspect cycle details' });
+    }
+    if (counts.coverageRatio !== null && counts.coverageRatio < 0.5) {
+      topRisks.push({ category: 'coverage', severity: 'medium', message: `Analysis coverage is low (${Math.round(counts.coverageRatio * 100)}%); findings may be incomplete`, confidence: 0.9 });
+    }
+    return { topRisks, actions, counts };
+  },
+  'workspace-info': (r) => {
+    const counts = { fileCount: r.fileCount || 0 };
+    const topRisks = [];
+    const actions = [];
+    if (counts.fileCount === 0) {
+      topRisks.push({ category: 'empty-workspace', severity: 'high', message: 'No parseable source files found', confidence: 0.95 });
+      actions.push({ priority: 'P0', action: 'Check --cwd path and .workspace-bridge.json exclude rules' });
+    }
+    const details = {
+      detected: Object.entries(r.detected || {}).filter(([, v]) => v).map(([k]) => k),
+      languages: r.languages || {},
+      availableChecks: r.availableChecks || [],
+    };
+    return { topRisks, actions, counts, details };
+  },
+  'dependencies': (r) => {
+    const counts = { dependencies: r.dependenciesCount || 0 };
+    const details = { target: r.file || null, dependencies: (r.dependencies || []).slice(0, LIMITS.OUTPUT_MEDIUM) };
+    return { topRisks: [], actions: [], counts, details };
+  },
+  'dependents': (r) => {
+    const counts = { dependents: r.dependentsCount || 0 };
+    const topRisks = [];
+    const actions = [];
+    if (counts.dependents > 20) {
+      topRisks.push({ category: 'high-fan-in', severity: 'high', count: counts.dependents, message: `${counts.dependents} direct dependents; changes have broad blast radius`, confidence: 0.9 });
+      actions.push({ priority: 'P0', action: 'Run affected-tests --file <path> to identify impacted tests' });
+    } else if (counts.dependents > 0) {
+      topRisks.push({ category: 'dependents', severity: 'low', count: counts.dependents, message: `${counts.dependents} direct dependent(s)`, confidence: 0.9 });
+    }
+    const details = { target: r.file || null, dependents: (r.dependents || []).slice(0, LIMITS.OUTPUT_MEDIUM) };
+    return { topRisks, actions, counts, details };
+  },
+  'audit-map': (r) => {
+    const issueCounts = r.summary?.issueCounts || {};
+    const counts = {
+      deadExports: issueCounts.deadExports || 0,
+      unresolved: issueCounts.unresolved || 0,
+      cycles: issueCounts.cycles || 0,
+      orphans: issueCounts.orphans || 0,
+      hotspots: issueCounts.hotspots || 0,
+    };
+    const topRisks = [];
+    const actions = [];
+    if (counts.cycles > 0) topRisks.push({ category: 'cycles', severity: 'high', count: counts.cycles, message: `${counts.cycles} dependency cycle(s)`, confidence: 0.95 });
+    if (counts.orphans > 0) topRisks.push({ category: 'orphans', severity: 'medium', count: counts.orphans, message: `${counts.orphans} orphan file(s)`, confidence: 0.85 });
+    if (counts.deadExports > 0) topRisks.push({ category: 'dead-exports', severity: 'medium', count: counts.deadExports, message: `${counts.deadExports} dead export(s)`, confidence: 0.85 });
+    if (counts.hotspots > 0) topRisks.push({ category: 'hotspots', severity: 'medium', count: counts.hotspots, message: `${counts.hotspots} hotspot file(s)`, confidence: 0.9 });
+    if (counts.unresolved > 0) topRisks.push({ category: 'unresolved', severity: 'medium', count: counts.unresolved, message: `${counts.unresolved} unresolved import(s)`, confidence: 0.85 });
+    if (r.summary?.nextSteps?.length > 0) {
+      for (const step of r.summary.nextSteps.slice(0, LIMITS.OUTPUT_SHORT)) {
+        actions.push({ priority: actions.length === 0 ? 'P0' : `P${actions.length}`, action: step });
+      }
+    }
+    return { topRisks, actions, counts };
+  },
   'audit-overview': (r) => {
     const topRisks = [];
     const actions = [];
@@ -1211,36 +1566,189 @@ const AI_DIGEST = {
     }
     return { topRisks, actions, counts };
   },
+  'diagnostics': (r) => {
+    const summary = r.diagnosticsSummary || {};
+    const counts = {
+      checksRun: r.checksRun || 0,
+      failedChecks: r.failedChecks?.length || 0,
+      diagnostics: summary.total || 0,
+      errors: summary.error || 0,
+      warnings: summary.warning || 0,
+    };
+    const topRisks = [];
+    const actions = [];
+    if (counts.failedChecks > 0) {
+      topRisks.push({ category: 'diagnostic-failure', severity: 'high', count: counts.failedChecks, message: `${counts.failedChecks} diagnostic check(s) failed to run`, confidence: 0.9 });
+      actions.push({ priority: 'P0', action: 'Investigate failed diagnostic checks (timeout / missing linter)' });
+    }
+    if (counts.diagnostics > 0) {
+      const sev = counts.errors > 0 ? 'high' : counts.warnings > 0 ? 'medium' : 'low';
+      topRisks.push({ category: 'diagnostics', severity: sev, count: counts.diagnostics, message: `${counts.diagnostics} diagnostic issue(s)${counts.errors > 0 ? ` including ${counts.errors} error(s)` : ''}`, confidence: 0.85 });
+      actions.push({ priority: counts.errors > 0 ? 'P0' : 'P1', action: 'Review diagnostics output and fix reported issues' });
+    }
+    if (r.noLintersDetected) {
+      topRisks.push({ category: 'no-linters', severity: 'low', message: 'No linters detected; diagnostics coverage is degraded', confidence: 0.9 });
+      actions.push({ priority: 'P2', action: 'Install/configure a linter for the project language(s)' });
+    }
+    const details = {
+      failedChecks: r.failedChecks || [],
+      diagnosticsSummary: summary,
+      results: (r.results || []).slice(0, LIMITS.OUTPUT_MEDIUM).map((res) => ({ name: res.name, ok: res.ok, diagnosticsCount: res.diagnosticsCount, error: res.error })),
+    };
+    const fullDetails = {
+      failedChecks: r.failedChecks || [],
+      diagnosticsSummary: summary,
+      results: r.results || [],
+      diagnostics: r.diagnostics || [],
+    };
+    return { topRisks, actions, counts, details, fullDetails };
+  },
+  'health': (r) => {
+    const base = AI_DIGEST['audit-overview'](r);
+    return {
+      ...base,
+      counts: { ...base.counts, healthScore: r.healthScoreNumeric?.ratio ?? 1.0 },
+    };
+  },
+  'tree': (r) => {
+    function summarizeTree(node) {
+      const result = { imports: 0, dependents: 0, circular: 0 };
+      if (!node) return result;
+      for (const imp of node.imports || []) {
+        result.imports += 1;
+        if (imp.circular) result.circular += 1;
+        const child = summarizeTree(imp);
+        result.imports += child.imports;
+        result.dependents += child.dependents;
+        result.circular += child.circular;
+      }
+      for (const dep of node.dependents || []) {
+        result.dependents += 1;
+        if (dep.circular) result.circular += 1;
+        const child = summarizeTree(dep);
+        result.imports += child.imports;
+        result.dependents += child.dependents;
+        result.circular += child.circular;
+      }
+      return result;
+    }
+    const counts = summarizeTree(r.tree);
+    const topRisks = [];
+    const actions = [];
+    if (counts.circular > 0) {
+      topRisks.push({ category: 'cycles', severity: 'high', count: counts.circular, message: `${counts.circular} circular edge(s) in dependency tree`, confidence: 0.95 });
+      actions.push({ priority: 'P0', action: 'Break circular dependencies reachable from this file' });
+    }
+    if (counts.dependents > 20) {
+      topRisks.push({ category: 'high-fan-in', severity: 'high', count: counts.dependents, message: `${counts.dependents} direct/transitive dependents; high blast radius`, confidence: 0.9 });
+      actions.push({ priority: 'P0', action: `Run affected-tests --file ${r.file} before modifying this file` });
+    } else if (counts.dependents > 0) {
+      topRisks.push({ category: 'dependents', severity: 'low', count: counts.dependents, message: `${counts.dependents} dependent(s)`, confidence: 0.9 });
+    }
+    const details = {
+      target: r.file || null,
+      imports: (r.tree?.imports || []).slice(0, LIMITS.OUTPUT_MEDIUM).map((i) => ({ file: i.file, external: i.external, circular: i.circular })),
+      dependents: (r.tree?.dependents || []).slice(0, LIMITS.OUTPUT_MEDIUM).map((d) => ({ file: d.file, circular: d.circular })),
+      truncated: r.truncated || false,
+    };
+    const fullDetails = { target: r.file || null, tree: r.tree || null, truncated: r.truncated || false };
+    return { topRisks, actions, counts, details, fullDetails };
+  },
+  'query': (r) => {
+    const counts = { rows: r.count || 0 };
+    const columns = r.rows && r.rows.length > 0 ? Object.keys(r.rows[0]) : [];
+    const details = { columns, rows: (r.rows || []).slice(0, LIMITS.OUTPUT_MEDIUM), truncated: r.truncated || false };
+    const fullDetails = { columns, rows: r.rows || [], truncated: r.truncated || false };
+    return { topRisks: [], actions: [], counts, details, fullDetails };
+  },
+
+  'api-contracts': (r) => {
+    const counts = {
+      clientCalls: r.clientCallsCount || 0,
+      serverRoutes: r.serverRoutesCount || 0,
+      matched: r.matchedCount || 0,
+      unmatchedClient: r.unmatchedClientCount || 0,
+      unmatchedServer: r.unmatchedServerCount || 0,
+      coverageRatio: r.coverageRatio ?? 0,
+    };
+    const topRisks = [];
+    const actions = [];
+    if (counts.unmatchedClient > 0) {
+      topRisks.push({ category: 'unmatched-client', severity: 'high', count: counts.unmatchedClient, message: `${counts.unmatchedClient} frontend call(s) have no matching backend route`, confidence: 0.9 });
+      actions.push({ priority: 'P0', action: 'Review unmatched client calls; add backend routes or remove dead client code' });
+    }
+    if (counts.unmatchedServer > 0) {
+      const riskSeverity = counts.coverageRatio < 0.5 ? 'medium' : 'low';
+      topRisks.push({ category: 'unmatched-server', severity: riskSeverity, count: counts.unmatchedServer, message: `${counts.unmatchedServer} backend route(s) have no frontend caller`, confidence: 0.85 });
+      actions.push({ priority: 'P1', action: 'Review unused server routes to confirm they are public/scheduled/legacy' });
+    }
+    if (r.warnings?.length > 0) {
+      topRisks.push({ category: 'extraction-limitations', severity: 'low', count: r.warnings.length, message: `${r.warnings.length} extraction warning(s); some dynamic URLs may not be statically analyzed`, confidence: 0.9 });
+    }
+    let severity = 'low';
+    if (counts.unmatchedClient > 0) severity = 'high';
+    else if (counts.unmatchedServer > 0) severity = 'medium';
+    const details = {
+      matched: (r.matched || []).slice(0, LIMITS.OUTPUT_MEDIUM),
+      unmatchedClient: (r.unmatchedClient || []).slice(0, LIMITS.OUTPUT_MEDIUM),
+      unmatchedServer: (r.unmatchedServer || []).slice(0, LIMITS.OUTPUT_MEDIUM),
+    };
+    if (r.warnings?.length > 0) details.warnings = r.warnings.slice(0, LIMITS.OUTPUT_MEDIUM);
+    const fullDetails = {
+      matched: r.matched || [],
+      unmatchedClient: r.unmatchedClient || [],
+      unmatchedServer: r.unmatchedServer || [],
+      warnings: r.warnings || [],
+    };
+    return { topRisks, actions, counts, severity, details, fullDetails };
+  },
 };
+
+// ---------------------------------------------------------------------------
+// Output-limit helpers — wire CLI --max-files / --limit / --depth into text
+// formatters while keeping LIMITS.* as the safe default fallback.
+// ---------------------------------------------------------------------------
+function resolveOutputLimit(defaultLimit, options) {
+  if (!options || typeof options !== 'object') return defaultLimit;
+  if (options.maxFiles != null && Number.isFinite(options.maxFiles) && options.maxFiles > 0) {
+    return options.maxFiles;
+  }
+  if (options.limit != null && Number.isFinite(options.limit) && options.limit > 0) {
+    return options.limit;
+  }
+  if (options.depth === 'surface') return Math.min(defaultLimit, LIMITS.OUTPUT_SHORT);
+  if (options.depth === 'full') return Infinity;
+  return defaultLimit;
+}
 
 // ---------------------------------------------------------------------------
 // Dispatch functions — pure registry lookup, zero switch-case
 // ---------------------------------------------------------------------------
-function formatHuman(command, result) {
+function formatHuman(command, result, options = {}) {
   if (!result || result.ok === false) {
     return `Error: ${result?.error || 'Command failed'}`;
   }
   const fn = FORMATTERS[command]?.human;
-  if (fn) return fn(result);
+  if (fn) return fn(result, options);
   return JSON.stringify(result, null, 2);
 }
 
-function formatSummary(command, result) {
+function formatSummary(command, result, options = {}) {
   if (!result || result.ok === false) {
     return `Error: ${result?.error || 'Command failed'}`;
   }
   const fn = FORMATTERS[command]?.summary;
-  if (fn) return fn(result);
-  return formatHuman(command, result);
+  if (fn) return fn(result, options);
+  return formatHuman(command, result, options);
 }
 
-function formatMarkdown(command, result) {
+function formatMarkdown(command, result, options = {}) {
   if (!result || result.ok === false) {
     return `## Error\n\n${result?.error || 'Command failed'}`;
   }
   const fn = FORMATTERS[command]?.markdown;
-  if (fn) return fn(result);
-  return formatHuman(command, result);
+  if (fn) return fn(result, options);
+  return formatHuman(command, result, options);
 }
 
 function formatJsonl(command, result) {
@@ -1328,9 +1836,9 @@ function formatAi(command, result, options = {}) {
       if (coverage && coverage.coverageRatio < 0.5) actions.push({ priority: 'P2', action: 'run: workspace-bridge-cli audit-map --compact --json --quiet' });
       if (actions.length === 0) {
         const steps = result.summary?.nextSteps || result.summary?.recommendations || [];
-        for (const step of steps.slice(0, 3)) actions.push({ priority: actions.length === 0 ? 'P0' : `P${actions.length}`, action: step });
+        for (const step of steps.slice(0, LIMITS.OUTPUT_SHORT)) actions.push({ priority: actions.length === 0 ? 'P0' : `P${actions.length}`, action: step });
       }
-      output.actions = actions.slice(0, 3);
+      output.actions = actions.slice(0, LIMITS.OUTPUT_SHORT);
 
       if (result.warnings && result.warnings.length > 0) output.warnings = result.warnings;
 
@@ -1350,16 +1858,16 @@ function formatAi(command, result, options = {}) {
 
       if (currentDepth === 'detail' || currentDepth === 'full') {
         output.riskFiles = {};
-        if (result.deadExports?.deadExports?.length > 0) output.riskFiles.deadExports = result.deadExports.deadExports.slice(0, 3).map((d) => ({ file: d.file, exports: (d.exports || []).slice(0, 3).map((e) => sanitizeForAiOutput(e)), confidence: d.confidence }));
-        if (result.unresolved?.unresolved?.length > 0) output.riskFiles.unresolved = result.unresolved.unresolved.slice(0, 3).map((u) => ({ file: u.file, import: u.import }));
-        if (result.cycles?.cycles?.length > 0) output.riskFiles.cycles = result.cycles.cycles.slice(0, 3).map((c) => ({ files: c.files, length: c.length }));
+        if (result.deadExports?.deadExports?.length > 0) output.riskFiles.deadExports = result.deadExports.deadExports.slice(0, LIMITS.OUTPUT_SHORT).map((d) => ({ file: d.file, exports: (d.exports || []).slice(0, LIMITS.OUTPUT_SHORT).map((e) => sanitizeForAiOutput(e)), confidence: d.confidence }));
+        if (result.unresolved?.unresolved?.length > 0) output.riskFiles.unresolved = result.unresolved.unresolved.slice(0, LIMITS.OUTPUT_SHORT).map((u) => ({ file: u.file, import: u.import }));
+        if (result.cycles?.cycles?.length > 0) output.riskFiles.cycles = result.cycles.cycles.slice(0, LIMITS.OUTPUT_SHORT).map((c) => ({ files: c.files, length: c.length }));
         if (Object.keys(output.riskFiles).length === 0) delete output.riskFiles;
       }
       if (currentDepth === 'full') {
         output.details = { deadExports: result.deadExports?.deadExports || [], unresolved: result.unresolved?.unresolved || [], cycles: result.cycles?.cycles || [] };
       }
       if (currentDepth === 'surface') {
-        return { ok: true, severity: result.summary?.severity || 'low', counts: output.counts, topRisks: output.topRisks.slice(0, 3).map((rr) => ({ category: rr.category, severity: rr.severity, ...(rr.count !== undefined ? { count: rr.count } : {}) })) };
+        return { ok: true, severity: result.summary?.severity || 'low', counts: output.counts, topRisks: output.topRisks.slice(0, LIMITS.OUTPUT_SHORT).map((rr) => ({ category: rr.category, severity: rr.severity, ...(rr.count !== undefined ? { count: rr.count } : {}) })) };
       }
       return output;
     }
@@ -1381,12 +1889,14 @@ function formatAi(command, result, options = {}) {
     return JSON.stringify(output, null, 2);
   }
 
-  const { topRisks, actions, counts } = buildCommandAiDigest(command, result);
+  const digest = buildCommandAiDigest(command, result);
+  const { topRisks, actions, counts } = digest;
+  const severity = digest.severity ?? (result.summary?.severity || 'low');
 
   if (depth === 'surface') {
-    const surface = { ok: true, schemaVersion, command, severity: result.summary?.severity || 'low', counts };
-    if (topRisks.length > 0) surface.topRisks = topRisks.slice(0, 3).map((rr) => ({ category: rr.category, severity: rr.severity, ...(rr.count !== undefined ? { count: rr.count } : {}) }));
-    if (actions.length > 0) surface.actions = actions.slice(0, 3);
+    const surface = { ok: true, schemaVersion, command, severity, counts };
+    if (topRisks.length > 0) surface.topRisks = topRisks.slice(0, LIMITS.OUTPUT_SHORT).map((rr) => ({ category: rr.category, severity: rr.severity, ...(rr.count !== undefined ? { count: rr.count } : {}) }));
+    if (actions.length > 0) surface.actions = actions.slice(0, LIMITS.OUTPUT_SHORT);
     return JSON.stringify(surface);
   }
 
@@ -1394,7 +1904,7 @@ function formatAi(command, result, options = {}) {
     ok: true,
     schemaVersion,
     command,
-    severity: result.summary?.severity || 'low',
+    severity,
     counts,
     summary: formatSummary(command, result),
     confidence: { overall: 1.0 },
@@ -1408,8 +1918,8 @@ function formatAi(command, result, options = {}) {
     }
     if (depth === 'detail' || depth === 'full') {
       output.riskFiles = {};
-      if (result.impact?.impact?.length > 0) output.riskFiles.impact = result.impact.impact.slice(0, 3).map((i) => ({ file: i.file, level: i.level }));
-      if (result.affectedTests?.affectedTests?.length > 0) output.riskFiles.affectedTests = result.affectedTests.affectedTests.slice(0, 3).map((t) => ({ file: t.file, distance: t.distance }));
+      if (result.impact?.impact?.length > 0) output.riskFiles.impact = result.impact.impact.slice(0, LIMITS.OUTPUT_SHORT).map((i) => ({ file: i.file, level: i.level }));
+      if (result.affectedTests?.affectedTests?.length > 0) output.riskFiles.affectedTests = result.affectedTests.affectedTests.slice(0, LIMITS.OUTPUT_SHORT).map((t) => ({ file: t.file, distance: t.distance }));
       if (Object.keys(output.riskFiles).length === 0) delete output.riskFiles;
     }
     if (depth === 'detail' || depth === 'full') {
@@ -1420,13 +1930,17 @@ function formatAi(command, result, options = {}) {
       output.details = { impact: result.impact?.impact || [], affectedTests: result.affectedTests?.affectedTests || [] };
     }
   } else {
-    if (depth === 'full' && result.details) output.details = result.details;
+    if (depth === 'detail' && digest.details) output.details = digest.details;
+    if (depth === 'full') {
+      if (digest.fullDetails) output.details = digest.fullDetails;
+      else if (result.details) output.details = result.details;
+    }
   }
 
   if (tokenBudget) {
     let estimatedTokens = JSON.stringify(output).length / AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN;
     if (estimatedTokens > tokenBudget) {
-      const slim = { ok: output.ok, schemaVersion, command, severity: output.severity, counts, topRisks: output.topRisks?.slice(0, 3), actions: output.actions?.slice(0, 3), downgraded: true };
+      const slim = { ok: output.ok, schemaVersion, command, severity: output.severity, counts, topRisks: output.topRisks?.slice(0, LIMITS.OUTPUT_SHORT), actions: output.actions?.slice(0, LIMITS.OUTPUT_SHORT), downgraded: true };
       estimatedTokens = JSON.stringify(slim).length / AI_FORMAT.ESTIMATED_CHARS_PER_TOKEN;
       if (estimatedTokens <= tokenBudget) return JSON.stringify(slim, null, 2);
       const minimal = { ok: output.ok, schemaVersion, command, severity: output.severity, counts, downgraded: true };

@@ -29,6 +29,15 @@ const LIMITS = {
   GIT_LOG_CONCURRENCY: 8,
   // Cycle finder recursion limit
   CYCLE_FINDER_MAX_CALLS: 20000,
+  // Output formatter list caps. Centralized so human/markdown/ai formatters
+  // do not drift independently and so future --limit wiring has one place to
+  // read from (W3-1 / L2-6).
+  OUTPUT_TINY: 2,
+  OUTPUT_SHORT: 3,
+  OUTPUT_MEDIUM: 5,
+  OUTPUT_LONG: 10,
+  OUTPUT_EXTRA_LONG: 20,
+  STRING_SNIPPET_MAX_CHARS: 120,
 };
 
 module.exports = LIMITS;

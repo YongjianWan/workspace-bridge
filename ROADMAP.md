@@ -17,7 +17,7 @@
 | 文档与代码状态同步              | ⏳ 需人工            | ROADMAP/SESSION/CHANGELOG 可能不同步                                                           | 自审后手动对齐                                                                                                                                                            |
 | 多模块 Maven 模块边界未显式标注 | ⏳ 观察              | 模块间耦合强度丢失                                                                             | 评估是否输出模块级聚合视图                                                                                                                                                |
 | 大项目冷启动超时                | ⏳ 观察              | ~~395 文件实测 59s~~ 实测 239 文件 2s / 542 文件 7s（环境差异），但 7s 对 CI 仍不够友好       | 预热工作流 + 评估 `--cache-dir` + 大项目默认 `--compact`                                                                                  |
-| 跨仓库静态分析                  | ⏳ 评估中            | 前后端 API 契约纯文本匹配可做（`@RequestMapping` vs `axios.get`），但 CLI 只能单 `--cwd` | 评估多 `--cwd` 或 `--cross-repo` 低复杂度方案                                                                                                                         |
+| 跨仓库静态分析                  | ✅ 部分交付（MVP）   | `api-contracts --frontend <dir> --backend <dir>` 已支持 axios/fetch vs Express/NestJS/Spring/FastAPI/Django/Flask/Gin/Fiber/Actix/Axum 的路径级匹配；字段级契约与 OpenAPI 对比仍不做 | 使用 `api-contracts` 做路径覆盖检查；字段级契约需人工/外部工具                                                                   |
 | `--check-regression` 仅比较结构计数 | ⏳ 已文档化 | 代码内容变更但结构计数不变时误判为无回归 | 已在 help 文本注明；内容级回归需人工审查 |
 | ESM 语法注入导致解析器崩溃 | ⏳ 观察 | CJS 项目中注入 `export const` 导致未处理 loader 异常 | 避免在 CJS 文件中使用 ESM 语法 
 | symbolImpact 多符号解构遗漏 | ✅ 已修复 | `export const { foo, bar } = ...` / `[a, b]` / 嵌套/重命名解构的绑定未被收集为 source symbols，导致 symbol-level impact 遗漏 | 修复于 `src/services/dep-graph/parsers/js/ast-parser.js`；新增 `test/js-destructured-export-test.js` |
@@ -127,7 +127,7 @@
 
 ### 阶段 4：长期（观察中）
 
-- **跨仓库 API 契约检查**：frontend `axios.get('/api/policy/xxx')` vs backend `@GetMapping('/api/policy/xxx')`，纯静态文本匹配，评估低复杂度实现方案
+- **跨仓库 API 契约检查（MVP 已交付）**：frontend `axios.get('/api/policy/xxx')` vs backend `@GetMapping('/api/policy/xxx')` 已通过 `api-contracts --frontend <dir> --backend <dir>` 实现路径级匹配。字段级契约/OpenAPI 对比仍保留在观察中。
 - **增量脚手架**：`watch --on-change "audit-file --file {changedFile}"`，AI 启动后持续监听，文件保存自动推送 impact
 - **自适应架构边界（`audit-boundaries`）**：读取 `.workspace-bridge.json` 中可选 `boundaries[]` 字段，用 minimatch 匹配路径遍历 import edges 做违规检测；无配置时用目录层级聚类（2 层前缀）自动生成建议规则（参考 qartez `BoundaryRule` + CRG Leiden 聚类）
 - **增量更新终极协议（四层叠加）**：L1 git diff → L2 SHA-256 过滤（排除内容未变的 dependent）→ L3 Neighbor-aware（只重解析 caller/inheritor；参考 GitNexus `computeEffectiveWriteSet` 1-hop 边界扩展 + `shadow-candidates.ts` 模块解析权抢占枚举）→ L4 WAL Cadence（SQLite 写入不阻塞 + WAL 截断）。按层渐进，不一次性全做
@@ -171,7 +171,7 @@
 | **修复代码自动生成（`--suggest`）** | 这是 AI 语义理解的能力圈，不是结构分析的产出。给出具体重构建议需要理解代码语义                                                          | 需要内置 LLM 调用，与轻量本地属性冲突                                                            |
 | **`rules --config` 重规则引擎**     | 将 `security-tools.js` 硬编码规则提取为外部 YAML/JSON 属于"规则引擎层次 A"，但完整的 `rules --list/run/config` CLI 是重规则引擎产品 | 与"轻量 CLI"定位冲突。层次 A 可在不新增命令的前提下实现（如 `--config <file>` 覆盖内置规则集） |
 | **AGENTS.md 语义联动**                | AGENTS 红线多为语义规则，需要数据流分析才能判断来源是否安全                                                                             | 与"结构分析 ≠ 语义分析"原则冲突                                                                 |
-| **`--cross-repo` 跨仓库关联**       | 需要解析前后端接口契约（OpenAPI/REST）并对比字段变更                                                                                    | 属于跨项目语义关联，需要接口契约解析子系统，投入 ~1 个月                                         |
+| **`--cross-repo` 跨仓库关联（字段级）** | 需要解析前后端接口契约（OpenAPI/REST）并对比字段变更                                                                                    | 属于跨项目语义关联，需要接口契约解析子系统，投入 ~1 个月。轻量路径级匹配已由 `api-contracts` 命令覆盖 |
 | **`--field` 数据库字段级追踪**      | 需要数据库 schema 解析 + 跨语言字段引用追踪                                                                                             | 属于数据流分析，与"结构分析 ≠ 语义分析"原则冲突                                                 |
 | **`--method` 方法级追踪**           | 需要完整的 call graph 子系统（caller/callee 解析 + 重载消解 + 继承链追踪）                                                              | 属于符号级调用解析，工作量大但收益高。可在持久化图存储阶段评估                                   |
 | **`--workers 4` 多线程**            | Node.js 单线程，worker_threads 引入共享内存/消息传递复杂度                                                                              | 当前 `Promise.all` + 信号量限流已满足需求，多线程收益有限                                      |

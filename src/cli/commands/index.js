@@ -20,6 +20,7 @@ const { DEAD_EXPORT_FALSE_POSITIVE_REASONS } = require('../../tools/honesty-engi
 
 // Commands with special lifecycle or branching logic kept as modules.
 const auditFile = require('./audit-file');
+const apiContracts = require('./api-contracts');
 const debug = require('./debug');
 const init = require('./init');
 const repl = require('./repl');
@@ -47,23 +48,6 @@ function makeFileCommand(handler, hasFindingsFn) {
     if (hasFindingsFn) result.hasFindings = hasFindingsFn(result);
     return result;
   };
-}
-
-/**
- * Prune result keys to the requested field list. Essential envelope keys are
- * always preserved. Callers that inject compatibility fields (e.g. audit-summary
- * adds `health`) must include those field names in `--fields` if they want them
- * kept; otherwise they are pruned like any other non-essential key.
- */
-function applyFieldsFilter(result, fields) {
-  if (!fields) return;
-  const allowed = new Set(fields.split(',').map((f) => f.trim()));
-  const essential = ['ok', 'error', 'schemaVersion', 'command', 'hasFindings', 'staleness', 'warnings'];
-  for (const key of Object.keys(result)) {
-    if (!essential.includes(key) && !allowed.has(key)) {
-      delete result[key];
-    }
-  }
 }
 
 const COMMANDS = {
@@ -121,7 +105,6 @@ const COMMANDS = {
           (result.knowledgeRisk?.high?.length || 0) > 0 ||
           (result.orphans?.counts?.total || 0) > 0;
       }
-      applyFieldsFilter(result, parsed.fields);
     }
     return result;
   },
@@ -145,15 +128,14 @@ const COMMANDS = {
         (result.boundaries?.violationsCount || 0) > 0 ||
         (result.smells?.smellsCount || 0) > 0 ||
         (result.astRules?.findingsCount || 0) > 0;
-      applyFieldsFilter(result, parsed.fields);
     }
     return result;
   },
   'audit-map': async (parsed, container) => {
     await container.ensureReady();
     const { compact, autoCompact } = resolveCompact(parsed, container);
-    const result = buildProjectMap(container.snapshot.graph, { compact });
-    result.options = { compact, autoCompact };
+    const result = buildProjectMap(container.snapshot.graph, { compact, maxFiles: parsed.maxFiles });
+    result.options = { compact, autoCompact, maxFiles: parsed.maxFiles };
 
     const c = result.summary?.issueCounts || {};
     result.hasFindings =
@@ -166,6 +148,7 @@ const COMMANDS = {
   },
 
   // L2 — Targeted analysis
+  'api-contracts': apiContracts,
   impact: makeFileCommand(
     (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'impact', file: parsed.file, maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH, maxFiles: parsed.maxFiles }, container),
     (r) => (r.impactCount || 0) > 0
@@ -295,6 +278,10 @@ const COMMANDS = {
 
 const SELF_MANAGED_COMMANDS = new Set(['repl', 'watch', 'init']);
 
+// Commands that manage their own ServiceContainer lifecycle and do not need
+// the CLI orchestration layer to provide a default container.
+const SELF_CONTAINER_COMMANDS = new Set(['api-contracts']);
+
 const COMMAND_GUIDES = {
   'workspace-info': {
     desc: 'Detect workspace type and root',
@@ -402,6 +389,11 @@ const COMMAND_GUIDES = {
     when: 'When you need to know which request handlers, CLI commands, or main entry points can reach a module.',
     after: 'impact --file <path> for the full transitive blast radius.',
   },
+  'api-contracts': {
+    desc: 'Align frontend HTTP calls with backend routes across two workspaces',
+    when: 'When you need to know which backend endpoints are consumed by the frontend, and which endpoints or client calls have no counterpart.',
+    after: 'audit-file --file <path> on any unmatched endpoint to assess impact before changing it.',
+  },
   'audit-boundaries': {
     desc: 'Audit architecture boundaries and check for rule violations',
     when: 'Verify code complies with project architecture layers.',
@@ -433,4 +425,4 @@ for (const [name, guide] of Object.entries(COMMAND_GUIDES)) {
   }
 }
 
-module.exports = { COMMANDS, SELF_MANAGED_COMMANDS };
+module.exports = { COMMANDS, SELF_MANAGED_COMMANDS, SELF_CONTAINER_COMMANDS };

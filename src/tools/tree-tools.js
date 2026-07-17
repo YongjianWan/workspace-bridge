@@ -24,15 +24,15 @@ function buildTree(rootFile, depGraph, options = {}) {
     const shouldExpand = depth < maxDepth;
     const nextStack = new Set(pathStack);
     nextStack.add(normalized);
-    const isRoot = depth === 0;
 
     if (dir === 'imports' || dir === 'both') {
       let imports = depGraph.getDependencies(normalized).map((imp) => {
         const resolved = depGraph.hasFile(imp) ? imp : null;
         return { file: imp, resolved, external: !resolved };
       });
-      // Wave 12-5: cap root-level fan-out when --max-files is used.
-      if (isRoot && maxFiles && imports.length > maxFiles) {
+      // Cap fan-out at every level, not just the root, while keeping each
+      // direction independent. External/unresolved nodes count toward the cap.
+      if (maxFiles && imports.length > maxFiles) {
         imports = imports.slice(0, maxFiles);
         result.importsTruncated = true;
       }
@@ -52,8 +52,7 @@ function buildTree(rootFile, depGraph, options = {}) {
 
     if (dir === 'dependents' || dir === 'both') {
       let dependents = depGraph.getDependents(normalized);
-      // Wave 12-5: cap root-level fan-out when --max-files is used.
-      if (isRoot && maxFiles && dependents.length > maxFiles) {
+      if (maxFiles && dependents.length > maxFiles) {
         dependents = dependents.slice(0, maxFiles);
         result.dependentsTruncated = true;
       }
@@ -116,7 +115,7 @@ function treeQuery({ cwd, file, depth, direction, maxFiles }, container) {
     ok: true,
     file: normalized,
     tree,
-    truncated: Boolean(tree?.importsTruncated || tree?.dependentsTruncated),
+    truncated: Boolean(tree?.truncated || tree?.importsTruncated || tree?.dependentsTruncated),
     schemaVersion: SCHEMA_VERSION,
   };
 }

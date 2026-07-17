@@ -97,9 +97,15 @@ function formatGuardHuman(r) {
   if (!r.passed) {
     lines.push(`Exceeded Limits: ${r.exceeded.join(', ')}`);
   }
-
-  if (r.impactItems && r.impactItems.length > 0) {
-    lines.push('', 'Dependency Blast Radius Tree:', buildAsciiTree(r.files, r.impactItems));
+  if (r.compact) {
+    lines.push('', 'compact mode: detailed dependent lists omitted');
+  } else {
+    if (r.truncated) {
+      lines.push('', 'output truncated; use --max-files <n> to see more or --json for full data');
+    }
+    if (r.impactItems && r.impactItems.length > 0) {
+      lines.push('', 'Dependency Blast Radius Tree:', buildAsciiTree(r.files, r.impactItems));
+    }
   }
 
   return lines.join('\n');
@@ -137,21 +143,34 @@ function formatGuardMarkdown(r) {
     );
   }
 
-  if (r.impactItems && r.impactItems.length > 0) {
+  if (r.compact) {
     lines.push(
-      `### Dependency Blast Radius Map`,
-      ``,
-      buildMermaidGraph(r.files, r.impactItems),
+      `> Compact mode: detailed dependent lists omitted. Use <code>--max-files</code> or remove <code>--compact</code> to see the full blast radius.`,
       ``
     );
-  }
+  } else {
+    if (r.truncated) {
+      lines.push(
+        `> Output truncated. Use <code>--max-files <n></code> or <code>--json</code> for full data.`,
+        ``
+      );
+    }
+    if (r.impactItems && r.impactItems.length > 0) {
+      lines.push(
+        `### Dependency Blast Radius Map`,
+        ``,
+        buildMermaidGraph(r.files, r.impactItems),
+        ``
+      );
+    }
 
-  if (r.directDependents.length > 0) {
-    lines.push(`### Direct Dependents`, ...r.directDependents.map((d) => `- \`${d}\``), '');
-  }
+    if (r.directDependents.length > 0) {
+      lines.push(`### Direct Dependents`, ...r.directDependents.map((d) => `- \`${d}\``), '');
+    }
 
-  if (r.transitiveDependents.length > 0) {
-    lines.push(`### Transitive Dependents`, ...r.transitiveDependents.map((t) => `- \`${t}\``), '');
+    if (r.transitiveDependents.length > 0) {
+      lines.push(`### Transitive Dependents`, ...r.transitiveDependents.map((t) => `- \`${t}\``), '');
+    }
   }
 
   return lines.join('\n').trim();
@@ -168,13 +187,17 @@ function formatGuardJsonl(r) {
       directDependentsCount: r.stats.directDependentsCount,
       transitiveDependentsCount: r.stats.transitiveDependentsCount,
       exceeded: r.exceeded,
+      compact: r.compact || false,
+      truncated: r.truncated || false,
     }),
   ];
-  for (const d of r.directDependents) {
-    recs.push(JSON.stringify({ _type: 'direct-dependent', file: d }));
-  }
-  for (const t of r.transitiveDependents) {
-    recs.push(JSON.stringify({ _type: 'transitive-dependent', file: t }));
+  if (!r.compact) {
+    for (const d of r.directDependents) {
+      recs.push(JSON.stringify({ _type: 'direct-dependent', file: d }));
+    }
+    for (const t of r.transitiveDependents) {
+      recs.push(JSON.stringify({ _type: 'transitive-dependent', file: t }));
+    }
   }
   return recs.join('\n');
 }

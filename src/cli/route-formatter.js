@@ -13,6 +13,41 @@ const {
 const { STREAMING, SCHEMA_VERSION } = require('../config/constants');
 const { elideDeep } = require('../utils/truncate');
 
+const ESSENTIAL_FIELDS = ['ok', 'error', 'schemaVersion', 'command', 'hasFindings', 'staleness', 'warnings'];
+
+/**
+ * Prune result keys to the requested field list. Essential envelope keys are
+ * always preserved.
+ */
+function applyFieldsFilter(result, fields) {
+  if (!fields || !result || typeof result !== 'object' || result.ok === false) return;
+  const allowed = new Set(fields.split(',').map((f) => f.trim()).filter(Boolean));
+  for (const key of Object.keys(result)) {
+    if (!ESSENTIAL_FIELDS.includes(key) && !allowed.has(key)) {
+      delete result[key];
+    }
+  }
+}
+
+function appendWarning(result, message) {
+  if (!result || typeof result !== 'object' || result.ok === false) return;
+  if (!Array.isArray(result.warnings)) result.warnings = [];
+  if (!result.warnings.includes(message)) result.warnings.push(message);
+}
+
+function maybeWarnIgnoredOptions(parsed, result) {
+  if (!result || typeof result !== 'object' || result.ok === false) return;
+  if (parsed.format !== 'ai') {
+    if (parsed.tokenBudget) appendWarning(result, '--token-budget only applies to --format ai; ignored here');
+  }
+  // --depth is now consumed by human/summary/markdown/ai as a truncation/detail level.
+  // Only json/jsonl ignore it. When no --format is given the default is markdown.
+  const isTextFormat = !parsed.format || ['human', 'summary', 'markdown'].includes(parsed.format);
+  if (parsed.depth && parsed.format !== 'ai' && !isTextFormat) {
+    appendWarning(result, '--depth only applies to --format ai/human/summary/markdown; ignored here');
+  }
+}
+
 /**
  * Write large JSON strings to stdout in chunks to avoid blocking
  * the event loop on huge strings (e.g. audit-map with 10k+ edges).
@@ -52,7 +87,25 @@ function determineExitCode(command, result, failOnFindings = false) {
  */
 function formatCliResult(parsed, result, meta = {}) {
   const schemaVersion = meta.schemaVersion || SCHEMA_VERSION;
-  let stdout = '';
+
+  const isStructuredOutput =
+    parsed.json ||
+    parsed.format === 'ai' ||
+    parsed.format === 'jsonl' ||
+    parsed.format === 'json';
+
+  if (result && typeof result === 'object' && result.ok !== false) {
+    if (isStructuredOutput) {
+      applyFieldsFilter(result, parsed.fields);
+    }
+    if (parsed.format === 'ai' && parsed.fields) {
+      appendWarning(result, '--fields reduced AI digest input; counts and topRisks may be incomplete');
+    }
+    maybeWarnIgnoredOptions(parsed, result);
+  }
+
+  let stdout;
+  const textOptions = { maxFiles: parsed.maxFiles, limit: parsed.limit, depth: parsed.depth };
   if (parsed.format === 'ai') {
     stdout = formatAi(parsed.command, result, {
       depth: parsed.depth || 'detail',
@@ -60,14 +113,13 @@ function formatCliResult(parsed, result, meta = {}) {
       schemaVersion,
     });
   } else if (parsed.format === 'summary') {
-    stdout = formatSummary(parsed.command, result);
+    stdout = formatSummary(parsed.command, result, textOptions);
   } else if (parsed.format === 'jsonl') {
     stdout = formatJsonl(parsed.command, result);
   } else if (parsed.format === 'human') {
-    stdout = formatHuman(parsed.command, result);
-  } else if (parsed.format === 'markdown' || !parsed.json) {
-    stdout = formatMarkdown(parsed.command, result);
-  } else if (parsed.json) {
+    stdout = formatHuman(parsed.command, result, textOptions);
+  } else if (parsed.format === 'json' || parsed.json) {
+    // --format json and --json are equivalent for structured output.
     let output = result && typeof result === 'object' ? elideDeep(result) : result;
     if (output && typeof output === 'object') {
       output.schemaVersion = schemaVersion;
@@ -76,6 +128,9 @@ function formatCliResult(parsed, result, meta = {}) {
       }
     }
     stdout = JSON.stringify(output, null, 2);
+  } else {
+    // Default and explicit --format markdown
+    stdout = formatMarkdown(parsed.command, result, textOptions);
   }
   return stdout;
 }

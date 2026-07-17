@@ -3,6 +3,7 @@
 
 const assert = require('assert');
 const { formatHuman, formatSummary, formatMarkdown, formatJsonl, formatAi } = require('../src/cli/formatters/human-formatters');
+const { LIMITS } = require('../src/config/constants');
 const { buildRepoSummary } = require('../src/cli/formatters/repo-summary');
 const { buildCompositeRisk } = require('../src/cli/formatters/composite-risk');
 const { buildAuditDiffSummary, classifyChangeType } = require('../src/cli/formatters/audit-diff-summary');
@@ -996,6 +997,79 @@ function testBuildFileValidationAdvice() {
   assert.strictEqual(advice.suggestedCommand, advice.suggestedCommand);
 }
 
+function testTextFormatterLimits() {
+  const impact = {
+    ok: true,
+    impactCount: 5,
+    impact: [
+      { level: 1, file: 'b.js' },
+      { level: 1, file: 'c.js' },
+      { level: 1, file: 'd.js' },
+      { level: 1, file: 'e.js' },
+      { level: 1, file: 'f.js' },
+    ],
+  };
+  const humanCapped = formatHuman('impact', impact, { maxFiles: 2 });
+  assert.strictEqual((humanCapped.match(/^1: /gm) || []).length, 2, 'human --max-files should cap list items');
+  assert(humanCapped.includes('truncated'), 'human capped output should mention truncation');
+
+  const dead = {
+    ok: true,
+    deadExportsCount: 3,
+    deadExports: [
+      { file: 'a.js', exports: ['x'], id: '1' },
+      { file: 'b.js', exports: ['y'], id: '2' },
+      { file: 'c.js', exports: ['z'], id: '3' },
+    ],
+  };
+  const mdCapped = formatMarkdown('dead-exports', dead, { limit: 1 });
+  assert.strictEqual((mdCapped.match(/^\| [a-z0-9.]+ \| [xyz] \| \d+ \|/gm) || []).length, 1, 'markdown --limit should cap table rows');
+
+  const deps = {
+    ok: true,
+    file: 'src/a.js',
+    dependenciesCount: 5,
+    dependencies: ['b.js', 'c.js', 'd.js', 'e.js', 'f.js'],
+  };
+  const summaryDefault = formatSummary('dependencies', deps);
+  const summaryFull = formatSummary('dependencies', deps, { depth: 'full' });
+  assert(summaryFull.includes('b.js, c.js, d.js, e.js, f.js'), 'summary --depth full should show all items');
+  assert(!summaryDefault.includes('b.js, c.js, d.js, e.js, f.js') || summaryDefault === summaryFull, 'summary default should be shorter than full');
+
+  const cycles = {
+    ok: true,
+    cyclesCount: 5,
+    cycles: [['a', 'b'], ['c', 'd'], ['e', 'f'], ['g', 'h'], ['i', 'j']],
+  };
+  const mdSurface = formatMarkdown('cycles', cycles, { depth: 'surface' });
+  const mdDetail = formatMarkdown('cycles', cycles, { depth: 'detail' });
+  assert.strictEqual((mdSurface.match(/ -> /g) || []).length, LIMITS.OUTPUT_SHORT, 'markdown --depth surface should cap to OUTPUT_SHORT');
+  assert((mdDetail.match(/ -> /g) || []).length > (mdSurface.match(/ -> /g) || []).length, 'markdown --depth detail should show more than surface');
+}
+
+function testFormatCliResultTextLimits() {
+  const { formatCliResult } = require('../src/cli/route-formatter');
+  const result = {
+    ok: true,
+    impactCount: 5,
+    impact: [
+      { level: 1, file: 'b.js' },
+      { level: 1, file: 'c.js' },
+      { level: 1, file: 'd.js' },
+      { level: 1, file: 'e.js' },
+      { level: 1, file: 'f.js' },
+    ],
+  };
+  const parsed = { command: 'impact', format: 'human', maxFiles: 2 };
+  const out = formatCliResult(parsed, result);
+  assert.strictEqual((out.match(/^1: /gm) || []).length, 2, 'formatCliResult should pass maxFiles to human formatter');
+
+  const parsedLimit = { command: 'impact', format: 'markdown', limit: 1 };
+  const outLimit = formatCliResult(parsedLimit, result);
+  assert.strictEqual((outLimit.match(/\*\*Total\*\*/g) || []).length, 1, 'formatCliResult should pass limit to markdown formatter');
+  assert.strictEqual((outLimit.match(/b\.js/g) || []).length, 1, 'formatCliResult markdown --limit should cap items');
+}
+
 function main() {
   testFormatHumanError();
   testFormatHumanAuditSummary();
@@ -1075,6 +1149,9 @@ function main() {
   testBuildValidationAdviceBasic();
   testBuildFileValidationAdvice();
 
+  testTextFormatterLimits();
+  testFormatCliResultTextLimits();
+
 }
 
 function testCrossFormatCoverage() {
@@ -1090,16 +1167,16 @@ function testCrossFormatCoverage() {
     { cmd: 'impact', r: { ok: true, impactCount: 2, impact: [{ level: 1, file: 'b.js', via: ['a.js', 'b.js'] }, { level: 2, file: 'c.js' }] }, h: ['impactCount: 2'], s: ['Impact radius: 2'], m: ['# Impact Radius'], a: ['"command": "impact"', '"impact": 2'], j: ['"_type":"impact"'] },
     { cmd: 'affected-tests', r: { ok: true, affectedTestsCount: 1, affectedTests: [{ distance: 1, file: 'test/a.test.js', via: ['src/a.js'] }] }, h: ['affectedTestsCount: 1'], s: ['Affected tests: 1'], m: ['# Affected Tests'], a: ['"command": "affected-tests"', '"tests"'], j: ['"_type":"affected-test"'] },
     { cmd: 'affected-routes', r: { ok: true, routesCount: 1, routes: [{ entry: 'entry.js', path: ['entry.js', 'controller.js', 'service.js'], depth: 3 }] }, h: ['routesCount: 1'], s: ['Routes: 1'], m: ['# Affected Routes'], a: ['"command": "affected-routes"', '"routes"'], j: ['"_type":"route"'] },
-    { cmd: 'workspace-info', r: { ok: true, workspaceRoot: '/project', detected: { node: true, python: false } }, h: ['workspaceRoot: /project'], s: ['Workspace: /project'], m: ['workspaceRoot: /project'], a: ['"command": "workspace-info"'], j: ['"ok":true'] },
-    { cmd: 'diagnostics', r: { ok: true, checksRun: 5, failedChecks: ['lint'], diagnosticsSummary: { total: 3 }, results: [{ file: 'a.js', messages: 2 }] }, h: ['checksRun: 5'], s: ['Checks: 5'], m: ['checksRun: 5'], a: ['"command": "diagnostics"'], j: ['"_type":"diagnostic"'] },
-    { cmd: 'audit-map', r: { ok: true, summary: { severity: 'low', nextSteps: ['Check'] }, tree: [{ type: 'file', name: 'a.js', path: 'a.js' }], edges: [{ source: 'a.js', target: 'b.js' }], highlightedFiles: [{ file: 'a.js', reason: 'hotspot' }], issueOverlay: { unresolved: [], cycles: [], deadExports: [], orphans: [], hotspots: [] } }, h: ['severity: low'], s: ['Files: 1'], m: ['severity: low'], a: ['"command": "audit-map"'], j: ['"_type":"highlighted-file"'] },
+    { cmd: 'workspace-info', r: { ok: true, workspaceRoot: '/project', detected: { node: true, python: false } }, h: ['workspaceRoot: /project'], s: ['Workspace: /project'], m: ['# Workspace Info'], a: ['"command": "workspace-info"'], j: ['"ok":true'] },
+    { cmd: 'diagnostics', r: { ok: true, checksRun: 5, failedChecks: ['lint'], diagnosticsSummary: { total: 3 }, results: [{ file: 'a.js', messages: 2 }] }, h: ['checksRun: 5'], s: ['Checks: 5'], m: ['# Diagnostics'], a: ['"command": "diagnostics"'], j: ['"_type":"diagnostic"'] },
+    { cmd: 'audit-map', r: { ok: true, summary: { severity: 'low', nextSteps: ['Check'] }, tree: [{ type: 'file', name: 'a.js', path: 'a.js' }], edges: [{ source: 'a.js', target: 'b.js' }], highlightedFiles: [{ file: 'a.js', reason: 'hotspot' }], issueOverlay: { unresolved: [], cycles: [], deadExports: [], orphans: [], hotspots: [] } }, h: ['severity: low'], s: ['Files: 1'], m: ['# Audit Map'], a: ['"command": "audit-map"'], j: ['"_type":"highlighted-file"'] },
     { cmd: 'stats', r: { ok: true, stats: { files: 10, imports: 20 } }, h: ['files: 10'], s: ['files: 10'], m: ['**files**: 10'], a: ['"command": "stats"'], j: ['"ok":true'] },
-    { cmd: 'dependencies', r: { ok: true, file: 'src/a.js', dependenciesCount: 2, dependencies: ['src/b.js', 'src/c.js'] }, h: ['dependenciesCount: 2'], s: ['Dependencies: 2'], m: ['dependenciesCount: 2'], a: ['"command": "dependencies"'], j: ['"_type":"dependency"'] },
-    { cmd: 'dependents', r: { ok: true, file: 'src/a.js', dependentsCount: 1, dependents: ['src/b.js'] }, h: ['dependentsCount: 1'], s: ['Dependents: 1'], m: ['dependentsCount: 1'], a: ['"command": "dependents"'], j: ['"_type":"dependent"'] },
-    { cmd: 'dead-exports', r: { ok: true, deadExportsCount: 1, deadExports: [{ file: 'a.js', exports: ['x'] }], possibleFalsePositives: { disclaimer: 'May be false.' } }, h: ['deadExportsCount: 1'], s: ['Dead exports: 1'], m: ['deadExportsCount: 1'], a: ['"command": "dead-exports"', '"dead-exports"'], j: ['"_type":"dead-export"'] },
-    { cmd: 'unresolved', r: { ok: true, unresolvedCount: 1, unresolved: [{ file: 'a.js', import: './missing' }], possibleFalsePositives: { disclaimer: 'May be alias.' } }, h: ['unresolvedCount: 1'], s: ['Unresolved: 1'], m: ['unresolvedCount: 1'], a: ['"command": "unresolved"'], j: ['"_type":"unresolved"'] },
-    { cmd: 'cycles', r: { ok: true, cyclesCount: 1, cycles: [['a.js', 'b.js', 'a.js']] }, h: ['cyclesCount: 1'], s: ['Cycles: 1'], m: ['cyclesCount: 1'], a: ['"command": "cycles"', '"cycles"'], j: ['"_type":"cycle"'] },
-    { cmd: 'tree', r: { ok: true, file: 'src/a.js', tree: { file: 'src/a.js', imports: [{ file: 'src/b.js' }], dependents: [{ file: 'src/c.js' }] } }, h: ['file: src/a.js'], s: ['File: src/a.js'], m: ['file: src/a.js'], a: ['"command": "tree"'], j: ['"_type":"tree"'] },
+    { cmd: 'dependencies', r: { ok: true, file: 'src/a.js', dependenciesCount: 2, dependencies: ['src/b.js', 'src/c.js'] }, h: ['dependenciesCount: 2'], s: ['Dependencies: 2'], m: ['# Dependencies: src/a.js'], a: ['"command": "dependencies"'], j: ['"_type":"dependency"'] },
+    { cmd: 'dependents', r: { ok: true, file: 'src/a.js', dependentsCount: 1, dependents: ['src/b.js'] }, h: ['dependentsCount: 1'], s: ['Dependents: 1'], m: ['# Dependents: src/a.js'], a: ['"command": "dependents"'], j: ['"_type":"dependent"'] },
+    { cmd: 'dead-exports', r: { ok: true, deadExportsCount: 1, deadExports: [{ file: 'a.js', exports: ['x'] }], possibleFalsePositives: { disclaimer: 'May be false.' } }, h: ['deadExportsCount: 1'], s: ['Dead exports: 1'], m: ['# Dead Exports'], a: ['"command": "dead-exports"', '"dead-exports"'], j: ['"_type":"dead-export"'] },
+    { cmd: 'unresolved', r: { ok: true, unresolvedCount: 1, unresolved: [{ file: 'a.js', import: './missing' }], possibleFalsePositives: { disclaimer: 'May be alias.' } }, h: ['unresolvedCount: 1'], s: ['Unresolved: 1'], m: ['# Unresolved Imports'], a: ['"command": "unresolved"'], j: ['"_type":"unresolved"'] },
+    { cmd: 'cycles', r: { ok: true, cyclesCount: 1, cycles: [['a.js', 'b.js', 'a.js']] }, h: ['cyclesCount: 1'], s: ['Cycles: 1'], m: ['# Dependency Cycles'], a: ['"command": "cycles"', '"cycles"'], j: ['"_type":"cycle"'] },
+    { cmd: 'tree', r: { ok: true, file: 'src/a.js', tree: { file: 'src/a.js', imports: [{ file: 'src/b.js' }], dependents: [{ file: 'src/c.js' }] } }, h: ['file: src/a.js'], s: ['File: src/a.js'], m: ['# Dependency Tree: src/a.js'], a: ['"command": "tree"'], j: ['"_type":"tree"'] },
     { cmd: 'audit-security', r: { ok: true, adapters: ['builtin'], summary: { total: 2, bySeverity: { high: 1, medium: 1, low: 0 } }, findings: [{ severity: 'high', ruleId: 'r1', file: 'a.js', lineStart: 1, message: 'm1' }, { severity: 'medium', ruleId: 'r2', file: 'b.js', lineStart: 2, message: 'm2' }] }, h: ['findings: 2'], s: ['Findings: 2'], m: ['# Security Audit'], a: ['"command": "audit-security"', '"security"'], j: ['"_type":"finding"'] },
   ];
 

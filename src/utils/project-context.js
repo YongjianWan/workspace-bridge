@@ -561,6 +561,20 @@ function inferFileRole(relativePath, context = null) {
   return 'library';
 }
 
+/**
+ * Lightweight test-file heuristic based on the shared ROLE_RULES table.
+ * Exported as a standalone helper so callers that do not have a ProjectContext
+ * instance can still reuse the same canonical definition.
+ * @param {string} filePath
+ * @returns {boolean}
+ */
+function isTestLikeFile(filePath) {
+  const normalized = normalizeRelativePath(filePath);
+  const base = path.basename(normalized);
+  const testRule = ROLE_RULES.find((rule) => rule.role === 'test');
+  return testRule ? testRule.test(normalized, base, null) : false;
+}
+
 class ProjectContext {
   constructor(root, options = {}) {
     this.root = root;
@@ -791,6 +805,7 @@ module.exports = {
   ProjectContext,
   loadWorkspaceConfig,
   computeConfigHash,
+  isTestLikeFile,
   ENTRY_BASE_NAMES,
   ENTRY_WEIGHT,
   detectFrameworkFromPath,

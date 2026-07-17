@@ -27,6 +27,8 @@ async function guardCmd(parsed, container) {
 
   const maxDependentsLimit = parsed.maxDependents ?? 50;
   const maxTransitiveLimit = parsed.maxTransitive ?? 50;
+  const compact = Boolean(parsed.compact);
+  const maxFiles = Number.isFinite(parsed.maxFiles) && parsed.maxFiles > 0 ? parsed.maxFiles : null;
 
   const resolvedFiles = [];
   const displayFiles = [];
@@ -66,7 +68,7 @@ async function guardCmd(parsed, container) {
       directSet.add(depGraph._displayPath(d));
     }
   }
-  const directDependents = [...directSet].sort();
+  let directDependents = [...directSet].sort();
 
   // Union of transitive dependents & collect details
   const transitiveSet = new Set();
@@ -82,13 +84,36 @@ async function guardCmd(parsed, container) {
       }
     }
   }
-  const transitiveDependents = [...transitiveSet].sort();
+  let transitiveDependents = [...transitiveSet].sort();
+  let impactItemsOutput = impactItems;
+
+  let truncated = false;
+  if (maxFiles !== null) {
+    if (directDependents.length > maxFiles) {
+      directDependents = directDependents.slice(0, maxFiles);
+      truncated = true;
+    }
+    if (transitiveDependents.length > maxFiles) {
+      transitiveDependents = transitiveDependents.slice(0, maxFiles);
+      truncated = true;
+    }
+    if (impactItemsOutput.length > maxFiles) {
+      impactItemsOutput = impactItemsOutput.slice(0, maxFiles);
+      truncated = true;
+    }
+  }
+
+  if (compact) {
+    directDependents = [];
+    transitiveDependents = [];
+    impactItemsOutput = [];
+  }
 
   const exceeded = [];
-  if (directDependents.length > maxDependentsLimit) {
+  if (directSet.size > maxDependentsLimit) {
     exceeded.push('direct');
   }
-  if (transitiveDependents.length > maxTransitiveLimit) {
+  if (transitiveSet.size > maxTransitiveLimit) {
     exceeded.push('transitive');
   }
 
@@ -103,12 +128,14 @@ async function guardCmd(parsed, container) {
       maxTransitive: maxTransitiveLimit,
     },
     stats: {
-      directDependentsCount: directDependents.length,
-      transitiveDependentsCount: transitiveDependents.length,
+      directDependentsCount: directSet.size,
+      transitiveDependentsCount: transitiveSet.size,
     },
     directDependents,
     transitiveDependents,
-    impactItems,
+    impactItems: impactItemsOutput,
+    truncated,
+    compact,
     exceeded,
     hasFindings: !passed,
   };
