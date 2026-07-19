@@ -75,12 +75,8 @@
 
 ---
 
-
-
 > CLI Dogfooding 历史缺陷已全部修复，并按"修复即删"铁律完成清理（历史详情归档于 [CHANGELOG.md](../CHANGELOG.md) [Unreleased]）。
 > 仍在的已知限制与陷阱详见 [ROADMAP.md](../ROADMAP.md) §已知限制。
-
----
 
 ## 规格参考与边界行为（非债务，供 Agent 查阅）
 
