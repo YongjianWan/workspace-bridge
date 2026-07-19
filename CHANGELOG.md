@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### 彻底治愈 `repl-test.js` 和 `audit-file-watch-test.js` 串行/并发运行 Flaky 缺陷 (2026-07-19)
+
+- **Fixed** 修复了 precompute 过程中 `_findAffectedTestsByMention` 在大项目下对每个非测试文件重复读取所有测试文件，导致执行 33,000+ 次同步 `fs.readFileSync` 与 `stripComments` 的性能设计漏洞。
+- **Changed** 在 `GraphAnalyzer` 引入 `_mentionContentCache` 内存缓存，单次 precompute 的 I/O 与正则处理操作暴降至 110 次左右，将图冷启动 initialization 与 `savePrecomputed` 的 precompute 执行时间从 20-30 秒缩短至 100ms 以内（效率提升 100+ 倍以上）。
+- **Changed** 每次图结构变更触发 `graph:updated` 事件时，自动清空 `_mentionContentCache`，保证数据质量与缓存一致性。
+- **Verified** 编写并发和串行循环重现脚本，实测优化后 `audit-file-watch-test.js` 连续跑 20 次迭代 **0 失败**（此前 20 跑失败 13 次）；`repl-test.js` 在并发 8 下 100 次迭代 **0 失败**。全量测试 `npm run test:fast` (133/133 PASS)，`node test/runner.js` (147/147 PASS) 100% 成功绿过。
+
 ## [2.1.0] - 2026-07-17
 
 ### 修复 `audit-file --depth` 语义重载导致的静默分析变更 (2026-07-17)

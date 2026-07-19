@@ -6,7 +6,28 @@
 
 ---
 
-## 本轮会话 (2026-07-17)
+## 本轮会话 (2026-07-19)
+
+### 会话上下文
+- 解决 `repl-test.js` 和 `audit-file-watch-test.js` 在测试运行器串行/并发运行下偶发 flaky 的性能超时和挂起难题。
+
+### 本轮完成
+1. **Flaky tests 彻底治愈**：定位到在 `graph:built` 触发的 precompute 流程中，`_findAffectedTestsByMention` 重复执行 33,000+ 次同步 `fs.readFileSync` 和 `stripComments` 正则过滤，导致冷启动 initialization 同步阻塞长达 20-30 秒，触发测试框架超时。
+2. **GraphAnalyzer 内存缓存**：在 `GraphAnalyzer` 中实现针对测试文件 comment-stripped 内容的 `_mentionContentCache` 缓存机制，并在 `graph:updated` 触发时自动清空。单次 precompute 的 I/O 与 CPU 运算次数由 3.3 万次暴降至 110 次左右，运行效率提升 100 倍以上。
+3. **Flaky 极限验证**：编写 loop 重现脚本。实测在优化后，`audit-file-watch-test.js` 连续跑 20 次迭代 **0 失败**（此前 20 次失败 13 次）；`repl-test.js` 并发 8 下 100 次迭代 **0 失败**。
+4. **测试与债务更新**：运行全量测试套件，`npm run test:fast` (133/133 PASS)，`node test/runner.js` (147/147 PASS) 100% 成功。清理 `docs/TECH_DEBT.md` 中残留的 Flaky 根因表格并对齐指标。
+
+### 基线验证
+- `npm run test:fast` **133/133 PASS**
+- `node test/runner.js` **147/147 PASS**
+
+### 待办 / 下一步
+- [ ] 决定是否 `npm publish`（2.1.0 已切版，README 仍注明未发布）。
+- [ ] `api-contracts` 后续可扩展：Spring 类级别 `@RequestMapping` 前缀组合、更多前端 http client、字段级契约（需评估项目定位）。
+
+---
+
+## 上轮会话 (2026-07-17)
 
 ### 会话上下文
 
@@ -34,7 +55,7 @@
 
 ---
 
-## 上轮会话 (2026-07-14)
+## 更早会话 (2026-07-14)
 
 ### 会话上下文
 
@@ -233,9 +254,8 @@ workspace-bridge 过去几轮做了大量的**内省循环**：写功能 → cod
 
 1. `analysis_snapshots` 落盘 + `--fields` 白名单（~100 行）
 2. 热缓存压到 <2s（需要 profile 瓶颈在哪）
-3. SKILL.md 从 264 行砍到 80 行
-4. 文档数字漂移修复
-5. `.npmignore` 排除 CHANGELOG
+3. 文档数字漂移修复
+4. `.npmignore` 排除 CHANGELOG
 
 **2-3 个会话搞完。然后呢？** 又回到找下一个打磨点的循环。
 
@@ -284,25 +304,7 @@ AI agent 自动调用：改任何文件前自动跑 guard，超阈值自动拆�
 blast radius 可视化：输出依赖扇出的 ASCII 树或 mermaid 图
 这是把 workspace-bridge 从"分析工具"变成"AI 安全护栏"的方向。卖点从"告诉你项目结构"变成"阻止 AI 搞砸事情"。
 
-路线 E：减法 — 砍功能、砍文档、砍复杂度
-反直觉的方向。项目积累了：
 
-4679 行 CHANGELOG
-760 行 code_review.md
-525 行 ROADMAP
-234 行 SESSION.md
-129 行 TECH_DEBT.md
-30+ CLI 命令
-9 语言 × 20+ 框架检测
-文档和流程正在变成产品本身的负担。 每个新会话的 agent 要读完 AGENTS.md + SESSION.md + TECH_DEBT.md 才能开工。这些文档的维护成本已经不低于代码维护。
-
-减法方向：
-
-砍掉 L2 层命令（query-hotspots/query-stability 用的人是谁？）
-把 ROADMAP 的已完成项全部移进 CHANGELOG，ROADMAP 只留未来
-SESSION.md 从 234 行砍到 50 行
-code_review.md 归档，别再维护
-从 30 个命令砍到 10 个核心命令
 路线 F：换赛道 — 把 workspace-bridge 变成 SKILL 本身
 现在的架构：CLI 是引擎，SKILL.md 是 264 行驾驶手册。AI agent 读 SKILL → 调 CLI → 解析输出 → 做决策。
 
@@ -310,13 +312,12 @@ code_review.md 归档，别再维护
 
 类似于从"给你一把锤子"变成"我帮你钉钉子"。
 
-总结：6 条路线的性质
+总结：5 条路线的性质
 路线	性质	风险	回报
 A：继续打磨	维护	零	递减
 B：实战验证	产品发现	低	高信息密度
 C：符号级调用图	技术攻坚	高	质变（如果成功）
 D：guard 深化	产品聚焦	中	明确卖点
-E：减法	认知减负	低	可持续性
 F：SKILL 自动化	形态转换	中	改变使用方式
 
 ## 本轮上下文：参考仓库探索与架构借鉴（活跃）

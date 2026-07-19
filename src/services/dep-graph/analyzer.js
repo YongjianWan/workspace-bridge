@@ -225,12 +225,14 @@ class GraphAnalyzer {
     this._scanPatternCache = new Map();
 
     this._cycleFiles = null;
+    this._mentionContentCache = new Map();
 
     this.dg.bus.on('graph:updated', (ctx) => {
       this._bumpAggregateCache();
       this._invalidateCycles(ctx);
       this._scanContentCache.clear();
       this._scanPatternCache.clear();
+      this._mentionContentCache.clear();
     });
   }
 
@@ -1403,12 +1405,20 @@ class GraphAnalyzer {
       if (candidate === filePath) continue;
       if (!isTestFile(candidate)) continue;
       if (seen.has(candidate)) continue;
-      let content;
-      try {
-        content = fs.readFileSync(candidate, 'utf8');
-      } catch { continue; }
-      const candidateFamily = getHeuristicLanguageFamily(candidate);
-      const searchableContent = stripComments(content, candidateFamily);
+      let searchableContent = this._mentionContentCache.get(candidate);
+      if (searchableContent === undefined) {
+        let content;
+        try {
+          content = fs.readFileSync(candidate, 'utf8');
+        } catch {
+          this._mentionContentCache.set(candidate, null);
+          continue;
+        }
+        const candidateFamily = getHeuristicLanguageFamily(candidate);
+        searchableContent = stripComments(content, candidateFamily) || '';
+        this._mentionContentCache.set(candidate, searchableContent);
+      }
+      if (searchableContent === null || searchableContent === '') continue;
       if (mentionPattern.test(searchableContent)) {
         graphResults.push({
           file: candidate,

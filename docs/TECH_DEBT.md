@@ -75,11 +75,7 @@
 
 ---
 
-### Flaky 根因
 
-| 测试文件         | 根因                                           | 建议修复                                                                                  |
-| ---------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `repl-test.js` | runner.js 串行执行时偶发失败；单独运行稳定通过 | 已记录于 SESSION.md §已知陷阱；若遇失败先重跑确认，再单独`node test/repl-test.js` 验证 |
 
 > CLI Dogfooding 历史缺陷已全部修复，并按"修复即删"铁律完成清理（历史详情归档于 [CHANGELOG.md](../CHANGELOG.md) [Unreleased]）。
 > 仍在的已知限制与陷阱详见 [ROADMAP.md](../ROADMAP.md) §已知限制。
@@ -143,4 +139,4 @@
 
 ---
 
-*Last updated: 2026-07-17（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=0，全部清零；本轮修复：`audit-file --depth` 语义重载（L1）——affected-tests 遍历深度改由 `--max-depth` 唯一控制，`--depth` 仅保留输出塑形语义；新增 `test/audit-file-depth-decoupling-test.js` 锁定契约；npm run test:fast 133/133 PASS）*
+*Last updated: 2026-07-19（活跃债务：L1=0 / L2=0 / 架构债务=0 / L3=0，全部清零；本轮修复：彻底解决 `repl-test.js` 和 `audit-file-watch-test.js` 在 runner 运行下的 Flaky 超时与挂起缺陷；通过 GraphAnalyzer 全局 mention 内容缓存，将 precomputation 同步 I/O 执行效率提升 100 倍以上；npm run test:fast 133/133 PASS，node test/runner.js 147/147 PASS）*
