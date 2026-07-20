@@ -61,6 +61,7 @@ class DependencyGraphView {
   findDeadExports(...args) { return this._dg.findDeadExports(...args); }
   findOrphanFiles(...args) { return this._dg.findOrphanFiles(...args); }
   findCircularDependencies(...args) { return this._dg.findCircularDependencies(...args); }
+  getCycleMeta(...args) { return this._dg.getCycleMeta(...args); }
   findUnresolvedImports(...args) { return this._dg.findUnresolvedImports(...args); }
   findAffectedTests(...args) { return this._dg.findAffectedTests(...args); }
   findAffectedRoutes(...args) { return this._dg.findAffectedRoutes(...args); }

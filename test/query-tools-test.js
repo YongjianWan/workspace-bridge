@@ -144,7 +144,7 @@ async function testQueryToolsCacheHit() {
   await withContainer(async (container) => {
     // 1. Build project overview first to populate basic database cache
     const { buildProjectOverview } = require('../src/tools/overview-tools');
-    await buildProjectOverview({}, container);
+    const firstResult = await buildProjectOverview({}, container);
 
     // 1b. Verify the persisted snapshot carries the current config hash
     const currentConfigHash = computeConfigHash(container.projectContext?.config || null);
@@ -208,6 +208,10 @@ async function testQueryToolsCacheHit() {
       assert.strictEqual(stResult.files[0].file, 'mock-stable.js');
     } finally {
       container.cache.checkFileChanges = originalCheckFileChanges;
+      // Restore the real overview snapshot so subsequent tests
+      // don't consume the mock data.
+      const realGitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
+      container.cache?.saveAnalysisSnapshot?.('overview', firstResult, realGitHead, fileCount, configHash);
     }
   });
 }

@@ -72,6 +72,23 @@ class GraphBuilder {
     }
   }
 
+  /**
+   * A cache entry produced while the external AST toolchain was missing
+   * (regex-fallback) is never trusted: the toolchain may have been fixed
+   * since (e.g. `pip install javalang`), and the cache key (mtime/hash)
+   * cannot see that. Re-parsing upgrades the entry to AST on the next run.
+   * regex-native languages (C/C++, Svelte — regex IS their parser) are
+   * unaffected.
+   */
+  _isDegradedCacheEntry(result) {
+    return Boolean(result) && result.parseMode === 'regex' && result.parseModeReason === 'regex-fallback';
+  }
+
+  _isParseCacheUsable(cached, meta, result = cached) {
+    if (!cached || !meta || cached.mtime !== meta.mtime) return false;
+    return !this._isDegradedCacheEntry(result);
+  }
+
   async build(sourceFiles = null) {
     const startTime = Date.now();
 
@@ -118,7 +135,7 @@ class GraphBuilder {
     for (const file of files) {
       const meta = this.dg.cache.getFileMetadata(file);
       const cached = this.dg.cache.getParseResult(file);
-      if (cached && meta && cached.mtime === meta.mtime) {
+      if (this._isParseCacheUsable(cached, meta)) {
         const key = this.dg.normalizeFilePath(file);
         // Ensure originalPath uses the platform-native path from sourceFiles
         // even when the cached parse result lacks it (SQLite schema omit).
@@ -254,7 +271,7 @@ class GraphBuilder {
     const graphKey = this.dg.normalizeFilePath(filePath);
     const meta = this.dg.cache ? this.dg.cache.getFileMetadata(filePath) : null;
     const cached = this._parseCache.get(graphKey);
-    if (cached && meta && cached.mtime === meta.mtime) {
+    if (this._isParseCacheUsable(cached, meta, cached && cached.result)) {
       return cached.result;
     }
 
@@ -294,6 +311,7 @@ class GraphBuilder {
     const entry = registry.findByExt(ext);
     if (entry) {
       const args = entry.needsFilePath ? [content, filePath] : [content];
+      if (entry.needsWorkspaceRoot) args.push(this.dg.root);
       const result = entry.async ? await entry.parse(...args) : entry.parse(...args);
       if (result) {
         imports = result.imports;
@@ -871,7 +889,7 @@ class GraphBuilder {
           const oldInfo = this.dg.graph.get(key);
           const meta = this.dg.cache ? this.dg.cache.getFileMetadata(filePath) : null;
           const cached = this.dg.cache ? this.dg.cache.getParseResult(filePath) : null;
-          if (oldInfo && cached && meta && cached.mtime === meta.mtime) {
+          if (oldInfo && this._isParseCacheUsable(cached, meta)) {
             skipped++;
             continue;
           }
@@ -879,7 +897,7 @@ class GraphBuilder {
           // L2: SHA-256 哈希二次校验 (排除 mtime 伪阳性)
           let content = null;
           const parsedHash = this.dg.cache ? this.dg.cache.parsedHashes?.get(key) : null;
-          if (oldInfo && cached && parsedHash) {
+          if (oldInfo && cached && parsedHash && !this._isDegradedCacheEntry(cached)) {
             const crypto = require('crypto');
             try {
               content = await readFile(filePath, 'utf8');

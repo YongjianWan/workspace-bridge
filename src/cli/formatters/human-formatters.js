@@ -179,7 +179,7 @@ const FORMATTERS = {
     human: (r, _options = {}) => {
       const ls = Object.entries(r.languageSupport || {}).map(([l, i]) => `${l}(${i.level}/${i.confidence})`).join(', ') || 'none';
       const kr = r.knowledgeRisk || {};
-      return [
+      const lines = [
         `workspaceRoot: ${r.workspaceRoot}`,
         `severity: ${r.summary?.severity || 'low'}`,
         `totalFiles: ${r.skeleton?.totalFiles ?? 0} (parseable source only; excludes assets/build artifacts/excluded dirs)`,
@@ -196,7 +196,9 @@ const FORMATTERS = {
         `cyclesCount: ${r.cycles?.cyclesCount ?? 0}`,
         `astRulesCount: ${r.astRules?.findingsCount ?? 0}`,
         `languages: ${ls}`,
-      ].join('\n');
+      ];
+      appendWarnings(lines, r.warnings, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options));
+      return lines.join('\n');
     },
     summary: (r, _options = {}) => {
       const agg = r.aggregates || {};
@@ -240,8 +242,15 @@ const FORMATTERS = {
       }
       if (r.cycles?.cycles?.length) {
         lines.push('Dependency cycles:');
-        for (const c of r.cycles.cycles.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
+        const cycleLimit = resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options);
+        for (const c of r.cycles.cycles.slice(0, cycleLimit)) {
           lines.push(`  • ${c.join(' -> ')}`);
+        }
+        const cycleTotal = r.cycles.cycles.total ?? r.cycles.totalPaths ?? r.cycles.cyclesCount ?? r.cycles.cycles.length;
+        const cycleShown = Math.min(r.cycles.cycles.length, cycleLimit);
+        if (cycleShown < cycleTotal) {
+          const sccPart = r.cycles.sccCount != null ? ` across ${r.cycles.sccCount} SCC(s)` : '';
+          lines.push(`  ... and ${cycleTotal - cycleShown} more cycle paths${sccPart}`);
         }
       }
       if (r.astRules?.findings?.length) {
@@ -251,6 +260,7 @@ const FORMATTERS = {
         }
       }
       if (r.summary?.recommendations?.length) { lines.push('Recommendations:'); for (const rec of r.summary.recommendations.slice(0, resolveOutputLimit(LIMITS.OUTPUT_TINY, _options))) lines.push(`  • ${rec}`); }
+      appendWarnings(lines, r.warnings, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options));
       return lines.join('\n');
     },
     markdown: (r, _options = {}) => {
@@ -297,8 +307,15 @@ const FORMATTERS = {
       }
       if (r.cycles?.cycles?.length) {
         lines.push(``, `## Dependency Cycles`);
-        for (const c of r.cycles.cycles.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) {
+        const cycleLimitMd = resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options);
+        for (const c of r.cycles.cycles.slice(0, cycleLimitMd)) {
           lines.push(`- ${c.join(' → ')}`);
+        }
+        const cycleTotalMd = r.cycles.cycles.total ?? r.cycles.totalPaths ?? r.cycles.cyclesCount ?? r.cycles.cycles.length;
+        const cycleShownMd = Math.min(r.cycles.cycles.length, cycleLimitMd);
+        if (cycleShownMd < cycleTotalMd) {
+          const sccPartMd = r.cycles.sccCount != null ? ` across ${r.cycles.sccCount} SCC(s)` : '';
+          lines.push(`- _... and ${cycleTotalMd - cycleShownMd} more cycle paths${sccPartMd}_`);
         }
       }
       if (r.astRules?.findings?.length) {
@@ -308,6 +325,7 @@ const FORMATTERS = {
         }
       }
       if (r.summary?.recommendations?.length) { lines.push(``, `## Recommendations`); for (const rec of r.summary.recommendations.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) lines.push(`- ${rec}`); }
+      appendWarnings(lines, r.warnings, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options));
       return lines.join('\n');
     },
     jsonl: (r) => {
@@ -903,12 +921,14 @@ const FORMATTERS = {
       const shown = r.deadExports.slice(0, limit);
       lines.push(...shown.map((e) => `${e.file}: ${e.exports.map((e) => sanitizeForAiOutput(e)).join(', ')} (id: ${e.id})`));
       if (r.deadExports.length > limit) lines.push(`... truncated (showing ${shown.length} of ${r.deadExportsCount})`);
+      appendWarnings(lines, r.warnings, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options));
       return lines.join('\n');
     },
     summary: (r, _options = {}) => {
       const lines = [`Dead exports: ${r.deadExportsCount ?? 0}`];
       if (r.possibleFalsePositives?.disclaimer) lines.push(`Note: ${r.possibleFalsePositives.disclaimer}`);
       lines.push(...(r.deadExports || []).slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((e) => `${e.file}: ${(e.exports || []).map((e) => sanitizeForAiOutput(e)).join(', ') || 'n/a'} (id: ${e.id})`));
+      appendWarnings(lines, r.warnings, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options));
       return lines.join('\n');
     },
     markdown: (r, _options = {}) => {
@@ -922,6 +942,7 @@ const FORMATTERS = {
           lines.push(`| ${e.file} | ${(e.exports || []).map((x) => sanitizeForAiOutput(x)).join(', ')} | ${e.id} |`);
         }
       }
+      appendWarnings(lines, r.warnings, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options));
       return lines.join('\n');
     },
     jsonl: (r) => {
@@ -971,18 +992,31 @@ const FORMATTERS = {
     human: (r, _options = {}) => {
       const limit = resolveOutputLimit(Infinity, _options);
       const shown = r.cycles.slice(0, limit);
-      const lines = [`cyclesCount: ${r.cyclesCount}`, ...shown.map((c) => c.join(' -> '))];
-      if (r.cycles.length > limit) lines.push(`... truncated (showing ${shown.length} of ${r.cyclesCount})`);
+      const sccPart = r.sccCount != null ? `, sccCount: ${r.sccCount}` : '';
+      const lines = [`cyclesCount: ${r.cyclesCount}${sccPart}`, ...shown.map((c) => c.join(' -> '))];
+      const total = r.totalPaths ?? r.cyclesCount;
+      if (r.cycles.length > limit || shown.length < total) lines.push(`... truncated (showing ${shown.length} of ${total} cycle paths${r.truncated ? ', enumeration capped' : ''})`);
       return lines.join('\n');
     },
-    summary: (r, _options = {}) => `Cycles: ${r.cyclesCount ?? 0}\n${(r.cycles || []).slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options)).map((c) => c.join(' -> ')).join('\n')}`,
+    summary: (r, _options = {}) => {
+      const sccPart = r.sccCount != null ? ` in ${r.sccCount} SCC(s)` : '';
+      const body = (r.cycles || []).slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options)).map((c) => c.join(' -> ')).join('\n');
+      const total = r.totalPaths ?? r.cyclesCount ?? 0;
+      const shown = Math.min((r.cycles || []).length, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options));
+      const more = shown < total ? `\n... and ${total - shown} more cycle paths` : '';
+      return `Cycles: ${r.cyclesCount ?? 0}${sccPart}\n${body}${more}`;
+    },
     markdown: (r, _options = {}) => {
       const lines = [`# Dependency Cycles`, ``];
       lines.push(`- **Count**: ${r.cyclesCount ?? 0}`);
+      if (r.sccCount != null) lines.push(`- **SCCs**: ${r.sccCount}`);
       if (r.cycles?.length) {
         lines.push(``);
         for (const c of r.cycles.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) lines.push(`- ${c.join(' -> ')}`);
       }
+      const total = r.totalPaths ?? r.cyclesCount ?? 0;
+      const shownMd = Math.min((r.cycles || []).length, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options));
+      if (shownMd < total) lines.push(``, `_... and ${total - shownMd} more cycle paths${r.truncated ? ' (enumeration capped)' : ''}_`);
       return lines.join('\n');
     },
     jsonl: (r) => {
@@ -1721,6 +1755,19 @@ function resolveOutputLimit(defaultLimit, options) {
   return defaultLimit;
 }
 
+// Render GraphAnalyzer.buildWarnings() entries ({type, severity, message}).
+// Degraded-mode signals (regex-fallback, parser-error, empty-graph) must be
+// visible in text output too — burying them in --json-only fields is exactly
+// the silent-degradation failure mode L1-4 forbids.
+function appendWarnings(lines, warnings, limit = LIMITS.OUTPUT_MEDIUM) {
+  if (!Array.isArray(warnings) || warnings.length === 0) return lines;
+  lines.push('', `warnings (${warnings.length}):`);
+  for (const w of warnings.slice(0, limit)) {
+    lines.push(`  [${w.type}] ${w.message}`);
+  }
+  return lines;
+}
+
 // ---------------------------------------------------------------------------
 // Dispatch functions — pure registry lookup, zero switch-case
 // ---------------------------------------------------------------------------
@@ -1828,12 +1875,12 @@ function formatAi(command, result, options = {}) {
       }
 
       const actions = [];
-      if (result.deadExports?.deadExportsCount > 0) actions.push({ priority: 'P0', action: 'run: workspace-bridge-cli dead-exports --json --quiet' });
-      if (result.cycles?.cyclesCount > 0) actions.push({ priority: 'P0', action: 'run: workspace-bridge-cli cycles --json --quiet' });
-      if (result.unresolved?.unresolvedCount > 0) actions.push({ priority: 'P0', action: 'run: workspace-bridge-cli unresolved --json --quiet' });
-      if (result.health?.healthScoreNumeric?.ratio < 1) actions.push({ priority: 'P1', action: 'run: workspace-bridge-cli diagnostics --mode full --json --quiet' });
+      if (result.deadExports?.deadExportsCount > 0) actions.push({ priority: 'P0', action: 'run: node cli.js dead-exports --json --quiet' });
+      if (result.cycles?.cyclesCount > 0) actions.push({ priority: 'P0', action: 'run: node cli.js cycles --json --quiet' });
+      if (result.unresolved?.unresolvedCount > 0) actions.push({ priority: 'P0', action: 'run: node cli.js unresolved --json --quiet' });
+      if (result.health?.healthScoreNumeric?.ratio < 1) actions.push({ priority: 'P1', action: 'run: node cli.js diagnostics --mode full --json --quiet' });
       const coverage = result.summary?.analysisCoverage;
-      if (coverage && coverage.coverageRatio < 0.5) actions.push({ priority: 'P2', action: 'run: workspace-bridge-cli audit-map --compact --json --quiet' });
+      if (coverage && coverage.coverageRatio < 0.5) actions.push({ priority: 'P2', action: 'run: node cli.js audit-map --compact --json --quiet' });
       if (actions.length === 0) {
         const steps = result.summary?.nextSteps || result.summary?.recommendations || [];
         for (const step of steps.slice(0, LIMITS.OUTPUT_SHORT)) actions.push({ priority: actions.length === 0 ? 'P0' : `P${actions.length}`, action: step });

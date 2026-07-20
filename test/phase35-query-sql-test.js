@@ -81,6 +81,10 @@ async function testOverviewShortCircuitAndSave() {
       assert.strictEqual(secondResult.hotspots[0].file, 'mocked-file.js');
     } finally {
       container.cache.checkFileChanges = originalCheckFileChanges;
+      // Restore the real overview snapshot so subsequent tests (e.g. testFieldsFiltering)
+      // don't consume the mock data which lacks cycles/deadExports/unresolved/etc.
+      const realGitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
+      container.cache?.saveAnalysisSnapshot?.('overview', firstResult, realGitHead, snapshot.fileCount, snapshot.configHash);
     }
   });
 }

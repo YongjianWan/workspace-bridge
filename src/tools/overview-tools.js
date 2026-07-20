@@ -42,6 +42,30 @@ function applyOutputLimits(result, args) {
       result.orphans.samples[k] = sliceArray(result.orphans.samples[k], limit);
     }
   }
+
+  // sliceArray marks truncation via array extra-props, which JSON.stringify
+  // drops — under --json/--jsonl the signal would silently vanish (L1-4).
+  // Mirror it into a plain object that survives serialization.
+  const truncation = {};
+  const collect = (label, arr) => {
+    if (arr && arr.truncated) truncation[label] = { shown: arr.length, total: arr.total };
+  };
+  collect('hotspots', result.hotspots);
+  collect('stability', result.stability);
+  collect('cycleRefactorSuggestions', result.architectureAdvice?.cycleRefactorSuggestions);
+  collect('couplingSplitSuggestions', result.architectureAdvice?.couplingSplitSuggestions);
+  collect('deadExports', result.deadExports?.deadExports);
+  collect('unresolved', result.unresolved?.unresolved);
+  collect('cycles', result.cycles?.cycles);
+  collect('astRulesFindings', result.astRules?.findings);
+  collect('boundariesViolations', result.boundaries?.violations);
+  collect('smells', result.smells?.smells);
+  collect('knowledgeRiskHigh', result.knowledgeRisk?.high);
+  collect('knowledgeRiskMedium', result.knowledgeRisk?.medium);
+  collect('knowledgeRiskLow', result.knowledgeRisk?.low);
+  if (Object.keys(truncation).length > 0) {
+    result.outputTruncation = truncation;
+  }
 }
 const {
   assembleOverviewData,

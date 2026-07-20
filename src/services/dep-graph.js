@@ -285,6 +285,10 @@ class DependencyGraph {
     return this.analyzer.findCircularDependencies(...args);
   }
 
+  getCycleMeta(...args) {
+    return this.analyzer.getCycleMeta(...args);
+  }
+
   findUnresolvedImports(...args) {
     return this.analyzer.findUnresolvedImports(...args);
   }

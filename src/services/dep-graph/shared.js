@@ -92,8 +92,21 @@ function isLikelyConstantsWarehouse(filePath, exportRecords) {
   return true;
 }
 
-function computeDeadExportConfidence(importerCount, parseMode, graphUnreliable) {
+function computeDeadExportConfidence(importerCount, parseMode, graphUnreliable, parseModeReason) {
   if (importerCount === 0) {
+    // Degraded toolchain: the file was parsed by regex because the external
+    // AST parser was unavailable (e.g. javalang missing). Imports may be
+    // incomplete, so "no importers" proves nothing — never report high.
+    // regex-native languages (C/C++, Svelte) are NOT penalized: for them
+    // regex is the designed parser, not a fallback.
+    if (parseModeReason === 'regex-fallback') {
+      return {
+        confidence: 'low',
+        confidenceValue: CONFIDENCE.LOW_VALUE,
+        source: 'regex-fallback',
+        reason: 'External AST parser unavailable; file parsed via regex fallback, so import/export extraction may be incomplete',
+      };
+    }
     if (graphUnreliable) {
       return {
         confidence: 'low',

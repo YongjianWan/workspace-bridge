@@ -6,24 +6,58 @@
 
 ---
 
-## 本轮会话 (2026-07-19)
+## 本轮会话 (2026-07-20 续)
 
 ### 会话上下文
-- 解决 `repl-test.js` 和 `audit-file-watch-test.js` 在测试运行器串行/并发运行下偶发 flaky 的性能超时和挂起难题。
+- 上轮 5+1 个问题修复后的收尾验证：全量 runner 246/248 残留 2 个失败（phase35-query-sql-test.js + wave8-regression-test.js）。
 
 ### 本轮完成
-1. **Flaky tests 彻底治愈**：定位到在 `graph:built` 触发的 precompute 流程中，`_findAffectedTestsByMention` 重复执行 33,000+ 次同步 `fs.readFileSync` 和 `stripComments` 正则过滤，导致冷启动 initialization 同步阻塞长达 20-30 秒，触发测试框架超时。
-2. **GraphAnalyzer 内存缓存**：在 `GraphAnalyzer` 中实现针对测试文件 comment-stripped 内容的 `_mentionContentCache` 缓存机制，并在 `graph:updated` 触发时自动清空。单次 precompute 的 I/O 与 CPU 运算次数由 3.3 万次暴降至 110 次左右，运行效率提升 100 倍以上。
-3. **Flaky 极限验证**：编写 loop 重现脚本。实测在优化后，`audit-file-watch-test.js` 连续跑 20 次迭代 **0 失败**（此前 20 次失败 13 次）；`repl-test.js` 并发 8 下 100 次迭代 **0 失败**。
-4. **测试与债务更新**：运行全量测试套件，`npm run test:fast` (133/133 PASS)，`node test/runner.js` (147/147 PASS) 100% 成功。清理 `docs/TECH_DEBT.md` 中残留的 Flaky 根因表格并对齐指标。
+1. **修复 phase35-query-sql-test 缓存污染**：`testOverviewShortCircuitAndSave` 向 `analysis_snapshots` 注入残缺 mock（不含 `cycles`/`deadExports` 等字段）后未恢复，导致后续 `testFieldsFiltering` 和 runner 中其他测试加载残缺数据。`finally` 块中恢复原始 `firstResult` 到 `saveAnalysisSnapshot('overview', ...)`。
+2. **修复 query-tools-test 同样问题**：`testQueryToolsCacheHit` 同样注入 mock 后未恢复，同样修复。
+3. **wave8-regression-test 预存问题确认**：全量 runner 中 247/248（wave8 仍失败，`44 !== 16`），但单独运行和精确 runner 模拟均通过。该失败为 7/20 代码变更引入的预存问题（7/19 基线 147/147 PASS），非本轮缓存修复导致。疑与 warm cache + 并发条件下 `_getSharedContainer` 和 REPL 进程的图加载差异有关。
+
+### 验证状态
+- `npm run test:fast` **135/135 PASS** ✅
+- `npx eslint .` exit 0 ✅
+- phase35 单独运行 3/3 PASS ✅
+- query-tools-test 单独运行 PASS ✅
+- wave8 单独运行 PASS ✅
+- 全量 runner: **247/248**（1 预存失败：wave8-regression-test）
+
+### 待办
+- [ ] 深入排查 wave8 runner 环境下的 CLI vs REPL affected-tests 计数差异（44 vs 16）
+
+---
+
+## 本轮会话 (2026-07-20)
+
+### 会话上下文
+- 用户 dogfood 实战反馈（真实 Java 仓库深用 `audit-overview --format ai`）：curated 层在 AST 语言上好用（抓到前端断链已修、新循环、后端 116→40 的水分），但挖出 5 个真问题，核心主题是**降级路径静默自信**（违反 L1-4）。
+
+### 本轮完成（5 个问题全部修复，TDD）
+1. **🔴 静默降级（最致命）**：`computeDeadExportConfidence` 0-importer 分支此前忽略 parseMode，regex-fallback 的垃圾数字拿 high confidence + `safeToDelete=true`。现第 4 参 `parseModeReason==='regex-fallback'` 时降 `low`；`regex-native` 不受连坐。同步补 `orchestrator.js` 丢弃 `parseModeReason` 的缺口。`dead-exports`/`audit-overview` 的 human/summary/markdown 格式器现在渲染 `warnings[]`（此前只进 JSON）；warning 文案区分 javalang 缺失/python 缺失/超时。
+2. **🔴 缓存不随工具链失效**：`builder.js` 新增 `_isParseCacheUsable()`，regex-fallback 条目永不信任缓存、每次重解析（工具链修复后自动升级为 AST 并恢复命中）；统一四处命中判定。零 schema 变更。
+3. **🟡 win32 python 硬编码**：`spawn-ast.js` 改走 venv-aware `resolvePythonCommand()`（registry 新增 `needsWorkspaceRoot`，java/python entry 透传 root）；新增环境级失败 memo（python-missing/dependency-missing 同进程短路，瞬时不 memo）。
+4. **🟡 cycles 组合爆炸**：per-SCC cap（`PER_SCC_CYCLE_CAP`=25）+ `getCycleMeta()`（sccCount/truncated）；`cycles` 命令与 `audit-overview` 透传 sccCount/truncated/totalPaths；文本输出补 "... and N more cycle paths"；修复 `sliceArray` 截断标记被 `JSON.stringify` 丢弃（新增 `outputTruncation` 汇总对象）。
+5. **skill 副本分裂**：user-scope 副本（教旧命令 `workspace-bridge-cli`）已从项目内权威副本同步覆盖；AGENTS.md 陷阱表新增"改 SKILL.md 后记得同步"。
+
+### 新增测试
+- `test/cache-regex-fallback-invalidation-test.js`、`test/spawn-ast-env-test.js`（@slow）、`test/dead-export-regex-fallback-confidence-test.js`、`test/cycles-scc-cap-test.js`
 
 ### 基线验证
-- `npm run test:fast` **133/133 PASS**
-- `node test/runner.js` **147/147 PASS**
+- `npm run test:fast` **135/135 PASS**（spawn-ast-env 按约定归 slow 层后）
+- `npx eslint .` exit 0
+- 全量 runner 结果见本节前文（收工时更新）
 
 ### 待办 / 下一步
 - [ ] 决定是否 `npm publish`（2.1.0 已切版，README 仍注明未发布）。
 - [ ] `api-contracts` 后续可扩展：Spring 类级别 `@RequestMapping` 前缀组合、更多前端 http client、字段级契约（需评估项目定位）。
+
+---
+
+## 上轮会话 (2026-07-19)
+
+- 彻底治愈 `repl-test.js` / `audit-file-watch-test.js` flaky：`GraphAnalyzer._mentionContentCache` 消除 precompute 的 3.3 万次重复同步 I/O（效率 100×+）；20/100 次循环重现 0 失败。详见 CHANGELOG [Unreleased] §Flaky 条目。
 
 ---
 
@@ -214,19 +248,19 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 0 L1 + 0 L2 + 0 架构债务 + 0 L3 + 0 项 P2 Dogfood 活跃缺陷——全部清零）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 L1 1 项：Java same-package 隐式边 build/loadGraph 路径语义不一致，2026-07-20 发现待设计决策；其余清零）
 
 ---
 
 ## 基线状态
 
-- 测试：**所有测试全部 PASS**；`npm run test:fast` **133/133 PASS**（~18s），`npm run test:smoke` **136/136 PASS**（~48s）。开发迭代首选 `npm run test:fast`。
+- 测试：**所有测试全部 PASS**；`npm run test:fast` **135/135 PASS**（~25s）。开发迭代首选 `npm run test:fast`。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.1.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~434 文件（以 `audit-overview` 实测为准）
 - 结构性指标：deadExports=0（原 `shadow-candidates.js` 的 `SHADOW_EXTS` 低置信误报已不再计入），cycles=0，unresolved=0，orphans=2（`.workspace-bridge.json` 作为 config 文件正常，以及 Windows 大小写不敏感路径 `agents.md`/`AGENTS.md` 被重复识别）；overview 维度：hotspots>0，knowledgeRisk 默认 `disabledReason: 'history-not-enabled'`，`--with-history` 启用
-- 架构债务：当前活跃 0 项，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（已无活跃条目）。
+- 架构债务：当前活跃 L1 **1 项**（Java same-package 隐式边 build/loadGraph 路径语义不一致，2026-07-20 发现，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）。
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
 - Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.2.0"` 已冻结**
@@ -552,7 +586,7 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-07-17（L1 修复：`audit-file --depth` 遍历深度解耦、活跃债务清零；7/14–7/15 工作抢救性提交 `4643a73`；切版 2.1.0；文档数字对齐实测值；`npm run test:fast` 133/133 PASS；schemaVersion: 1.2.0；version: 2.1.0）*
+*Last updated: 2026-07-20（dogfood 反馈 5 问题全部修复：regex-fallback 静默降级显式化、缓存随工具链失效（含 loadGraph 路径）、venv-aware python spawn、cycles per-SCC cap + sccCount、skill 副本同步；新发现 L1 债务 1 项（Java same-package build/loadGraph 路径分歧）录入 TECH_DEBT；`npm run test:fast` 135/135 PASS；schemaVersion: 1.2.0；version: 2.1.0）*
 
 ---
 

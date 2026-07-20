@@ -41,6 +41,7 @@ function defineLanguage(config) {
     resolveStrategies: config.resolveStrategies ?? [],
     async: config.async ?? false,
     needsFilePath: config.needsFilePath ?? false,
+    needsWorkspaceRoot: config.needsWorkspaceRoot ?? false,
     filePatterns: config.filePatterns ?? extensions.map((e) => `**/*${e}`),
     condition: config.condition ?? (() => true),
   };

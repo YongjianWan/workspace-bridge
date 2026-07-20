@@ -50,6 +50,20 @@ function loadGraph(depGraph, options = {}) {
     if (edgeMeta.parseResultsCount !== depGraph.cache.parseResults.size) return false;
   }
 
+  // Degraded parse entries (external AST toolchain was missing, e.g. no
+  // javalang) are never trusted from persistence: the toolchain may have
+  // been fixed since, and mtime/hash cannot see that. Fall back to build(),
+  // which re-parses them via GraphBuilder._isParseCacheUsable and upgrades
+  // the entries to AST on success.
+  for (const [, result] of depGraph.cache.parseResults) {
+    if (result.parseMode === 'regex' && result.parseModeReason === 'regex-fallback') {
+      if (!depGraph.quiet) {
+        console.error('[DepGraph] Cache contains regex-fallback parse results (degraded toolchain); rebuilding instead of loading');
+      }
+      return false;
+    }
+  }
+
   depGraph.graph.clear();
   depGraph.reverseGraph.clear();
   depGraph.bus.emit('graph:updated', { fullRebuild: true });

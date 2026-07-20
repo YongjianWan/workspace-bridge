@@ -501,6 +501,12 @@ async function assembleOverviewData(args, container, historyProvider) {
   const orphans = depGraph.findOrphanFiles();
   const unresolvedRaw = depGraph.findUnresolvedImports?.() || [];
   const cyclesRaw = depGraph.findCircularDependencies?.() || [];
+  // Curated cycle metadata: multi-node SCC count (the severity signal) and
+  // whether path enumeration hit a cap. Path count alone misleads — one
+  // dense SCC can yield 100+ paths but is a single structural problem.
+  const cycleMeta = typeof depGraph.getCycleMeta === 'function'
+    ? depGraph.getCycleMeta()
+    : { sccCount: null, truncated: false };
   const deadExportsRaw = depGraph.findDeadExports?.() || [];
 
   const { checkAllRules } = require('../services/dep-graph/ast-rules');
@@ -550,6 +556,8 @@ async function assembleOverviewData(args, container, historyProvider) {
     cycles: {
       ok: true,
       cyclesCount: cyclesRaw.length,
+      sccCount: cycleMeta.sccCount,
+      truncated: cycleMeta.truncated,
       cycles: cyclesRaw,
     },
     astRules: {
@@ -666,6 +674,8 @@ async function assembleOverviewData(args, container, historyProvider) {
     cycles: {
       ok: true,
       cyclesCount: cycles.length,
+      sccCount: cycleMeta.sccCount,
+      truncated: cycleMeta.truncated,
       cycles: cycles,
     },
     astRules,

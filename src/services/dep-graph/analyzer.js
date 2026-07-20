@@ -26,6 +26,7 @@ const {
   computeDeadExportConfidence,
   isConventionallyAliveSymbol,
 } = require('./shared');
+const { getParserEnvFailure } = require('./parsers/spawn-ast');
 
 // Defensive: exclude workspace-bridge's own tree-sitter query registry files
 // from dead-export analysis. These files are dynamically required by
@@ -221,6 +222,7 @@ class GraphAnalyzer {
     // Encapsulate caches entirely within analyzer
     this._cachedCycles = null;
     this._cycleCount = undefined;
+    this._cycleMeta = null;
     this._scanContentCache = new Map();
     this._scanPatternCache = new Map();
 
@@ -251,6 +253,7 @@ class GraphAnalyzer {
       this._cachedCycles = null;
       this._cycleCount = undefined;
       this._cycleFiles = null;
+      this._cycleMeta = null;
       return;
     }
 
@@ -258,6 +261,7 @@ class GraphAnalyzer {
       this._cachedCycles = null;
       this._cycleCount = undefined;
       this._cycleFiles = null;
+      this._cycleMeta = null;
       return;
     }
 
@@ -268,6 +272,7 @@ class GraphAnalyzer {
       this._cachedCycles = null;
       this._cycleCount = undefined;
       this._cycleFiles = null;
+      this._cycleMeta = null;
     }
     // If no changed file is in any existing cycle, keep the cache.
     // New cycles from new imports are rare in watch-mode incremental edits.
@@ -743,15 +748,22 @@ class GraphAnalyzer {
     // 2. Find all simple cycles within each SCC of size > 1 using Johnson's algorithm
     const cycles = [];
     let calls = 0;
+    // True when any cap (global / per-SCC / recursion) stopped enumeration:
+    // the returned path list is then illustrative, not exhaustive. Consumers
+    // must see this flag (L1-4) — silent truncation once hid 100+ path walls.
+    let capHit = false;
+    const multiNodeSccCount = sccs.reduce((acc, s) => acc + (s.length > 1 ? 1 : 0), 0);
     // MAX_CYCLE_EDGE_DEPTH limits the Johnson search depth before push.
     // pathStack.length > 7 triggers prune, so the maximum nodes in any
     // discovered cycle = 8 (8 edges when the loop closes).
     const MAX_CYCLE_EDGE_DEPTH = DEFAULTS.AFFECTED_TEST_DEPTH + 2; // conservative guard
 
     for (const scc of sccs) {
-      if (cycles.length >= 1000 || calls >= LIMITS.CYCLE_FINDER_MAX_CALLS) break;
+      if (cycles.length >= 1000 || calls >= LIMITS.CYCLE_FINDER_MAX_CALLS) { capHit = true; break; }
       if (scc.length <= 1) continue; // Skip SCCs of size 1 (which have no multi-node cycles)
 
+      // Per-SCC path budget: one dense SCC must not starve the others.
+      let sccCycleCount = 0;
       const sccSet = new Set(scc);
       const blocked = new Set();
       const blockedMap = new Map();
@@ -762,6 +774,11 @@ class GraphAnalyzer {
       const find = (startNode, currentNode) => {
         calls++;
         if (cycles.length >= 1000 || calls >= LIMITS.CYCLE_FINDER_MAX_CALLS) {
+          capHit = true;
+          return false;
+        }
+        if (sccCycleCount >= LIMITS.PER_SCC_CYCLE_CAP) {
+          capHit = true;
           return false;
         }
         // MAX_CYCLE_EDGE_DEPTH limits the size of the pathStack before pushing the next node.
@@ -782,7 +799,12 @@ class GraphAnalyzer {
           if (nodeToIndex.get(dep) < nodeToIndex.get(startNode)) continue;
 
           if (dep === startNode) {
-            cycles.push([...pathStack]);
+            if (sccCycleCount < LIMITS.PER_SCC_CYCLE_CAP) {
+              cycles.push([...pathStack]);
+              sccCycleCount++;
+            } else {
+              capHit = true;
+            }
             foundCycle = true;
           } else if (!blocked.has(dep)) {
             if (find(startNode, dep)) {
@@ -819,7 +841,7 @@ class GraphAnalyzer {
       };
 
       for (let i = 0; i < sccList.length; i++) {
-        if (cycles.length >= 1000 || calls >= LIMITS.CYCLE_FINDER_MAX_CALLS) break;
+        if (cycles.length >= 1000 || calls >= LIMITS.CYCLE_FINDER_MAX_CALLS || sccCycleCount >= LIMITS.PER_SCC_CYCLE_CAP) { capHit = true; break; }
         const startNode = sccList[i];
         pathStack.length = 0;
         blocked.clear();
@@ -835,8 +857,22 @@ class GraphAnalyzer {
     // P89: convert internal graph keys back to original-casing paths for output.
     const displayFiltered = filtered.map((cycle) => cycle.map((f) => this.dg._displayPath(f)));
     this._cachedCycles = displayFiltered;
+    this._cycleMeta = { sccCount: multiNodeSccCount, truncated: capHit };
     this._cycleFiles = new Set(displayFiltered.flatMap((cycle) => cycle.map((f) => this.dg.normalizeFilePath(f))));
     return displayFiltered;
+  }
+
+  /**
+   * Curated cycle metadata: how many multi-node SCCs exist (the severity
+   * signal) and whether path enumeration hit a cap (the path list is then
+   * illustrative, not exhaustive). Recomputes only when no enumeration has
+   * run in this process (e.g. cycles restored from persisted cache).
+   */
+  getCycleMeta() {
+    if (!this._cycleMeta) {
+      this.findCircularDependencies({ skipCache: true });
+    }
+    return this._cycleMeta || { sccCount: 0, truncated: false };
   }
 
   getStats(options = {}) {
@@ -920,11 +956,22 @@ class GraphAnalyzer {
     }
 
     if (regexFallbackCount > 0) {
+      // Name the actual environment failure when known (memoized by spawn-ast
+      // during this process), so the warning tells the user HOW to fix it
+      // instead of a generic "possible timeout" that sends them debugging
+      // the wrong thing.
+      const envFailure = getParserEnvFailure('java_ast_parser.py') || getParserEnvFailure('python_ast_parser.py');
+      let detail = 'possible spawn timeout or WASM failure';
+      if (envFailure === 'dependency-missing') {
+        detail = 'external parser dependency missing (e.g. pip install javalang)';
+      } else if (envFailure === 'python-missing') {
+        detail = 'python executable not found on PATH';
+      }
       warnings.push({
         type: 'regex-fallback',
         severity: 'medium',
         files: regexFallbackCount,
-        message: `${regexFallbackCount} file(s) fell back from AST to regex parsing (possible spawn timeout or WASM failure)`,
+        message: `${regexFallbackCount} file(s) fell back from AST to regex parsing (${detail}); structural findings for these files are low-confidence`,
       });
     }
     if (unsupportedCount > 0) {
@@ -1209,7 +1256,7 @@ class GraphAnalyzer {
           if (scaffold) continue;
           const filteredExports = info.exports.filter(isConventionallyAliveSymbol);
           if (filteredExports.length === 0) continue;
-          const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable);
+          const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable, info.parseModeReason);
           const duplicateOf = this._buildDuplicateOf(filteredExports, filePath);
           deadExports.push({ id: `dead-export:${this.dg._displayPath(filePath)}`, category: 'dead-exports', file: this.dg._displayPath(filePath), exports: filteredExports, confidence, confidenceValue, confidenceSource: source, confidenceReason: reason, importerCount: 0, scaffold, ...(duplicateOf ? { duplicateOf } : {}) });
           continue;
@@ -1235,7 +1282,7 @@ class GraphAnalyzer {
         if (unused.length > 0) {
           const isConstantsWarehouse = isLikelyConstantsWarehouse(filePath, info.exportRecords);
           if (isConstantsWarehouse || scaffold) continue;
-          const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false);
+          const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false, info.parseModeReason);
           const duplicateOf = this._buildDuplicateOf(unused, filePath);
           deadExports.push({
             id: `dead-export:${this.dg._displayPath(filePath)}`,

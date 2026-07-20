@@ -1,8 +1,8 @@
 const { uniqueNames, createImportRecord } = require('./shared');
 const { spawnPythonASTParser } = require('./spawn-ast');
 
-async function parsePythonAST(content) {
-  return spawnPythonASTParser('python_ast_parser.py', content);
+async function parsePythonAST(content, root) {
+  return spawnPythonASTParser('python_ast_parser.py', content, undefined, root);
 }
 
 function getLineNumber(content, index) {
@@ -67,8 +67,8 @@ function parsePythonWithRegex(content) {
   return { imports, exports, importRecords, exportRecords, functionRecords, parseMode: 'regex' };
 }
 
-async function parsePython(content) {
-  const astResult = await parsePythonAST(content);
+async function parsePython(content, root) {
+  const astResult = await parsePythonAST(content, root);
   if (astResult) {
     return {
       imports: uniqueNames(astResult.imports),

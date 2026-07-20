@@ -7,6 +7,25 @@
 
 ## [Unreleased]
 
+### 修复测试间共享缓存污染（2026-07-20）
+
+- **Fixed** `test/phase35-query-sql-test.js` 中 `testOverviewShortCircuitAndSave` 向 `analysis_snapshots` 注入残缺 mock（不含 `cycles`/`deadExports`/`unresolved` 等字段）后未恢复原始快照，导致后续测试（`testFieldsFiltering`）和全量 runner 中其他测试（`wave8-regression-test.js`）从缓存加载残缺数据。现 `finally` 块中恢复原始 `firstResult` 到 `saveAnalysisSnapshot('overview', ...)`。
+- **Fixed** `test/query-tools-test.js` 中 `testQueryToolsCacheHit` 同样注入 mock 后未恢复，现同样修复。
+- **Root cause** mock 数据缺少 `cycles` 字段 → `--fields hotspots,cycles` 输出中 `cycles` 为 `undefined` → `assert.ok(data.cycles !== undefined)` 失败。全量 runner 中 wave8 因 overview 快照残缺导致 CLI vs REPL 的 `affectedTestsCount` 不一致（44 vs 16）。
+
+### 修复降级路径静默自信：dogfood 实战挖出的 5 个问题 (2026-07-20)
+
+> 背景：在真实 Java 仓库深用 `audit-overview --format ai` 后发现——curated 层在 AST 语言上好用，但降级路径会悄悄退化成低价值输出却不改变可信的脸（违反 L1-4）。本轮全部修复。
+
+- **Fixed（L1-4，最致命）regex-fallback 的 0-importer 死导出拿 high confidence + safeToDelete**：`src/services/dep-graph/shared.js` 的 `computeDeadExportConfidence()` 0-importer 分支此前完全忽略 parseMode，Java 无 javalang 时 import 正则照常产边导致 graph-sparse 保护不触发，垃圾数字拿 `high`/`ast-no-importer` 并被 honesty-engine 标 `safeToDelete=true`。现新增第 4 参 `parseModeReason`，`'regex-fallback'` 时降级 `low`/`regex-fallback`；`'regex-native'`（C/C++/Svelte，regex 即原生 parser）不受连坐。同步修复 `src/services/orchestrator.js` `bootstrapFromSchema` 丢弃 `parseModeReason` 的缺口（影响所有 schema 测试）。
+- **Fixed（L1-4）缓存不随工具链变化失效**：无 javalang 时的 regex-fallback 结果入 SQLite 缓存后，装好 javalang 重跑仍命中旧缓存（key 只看 mtime/SHA-256，不感知 parser 状态），必须手删 cache.db。`builder.js` 新增 `_isDegradedCacheEntry()` / `_isParseCacheUsable()`，对 `parseMode='regex' && parseModeReason='regex-fallback'` 的条目**永不信任缓存**、每次重解析（AST 成功后自动恢复命中）；统一应用于 `build()` / `parseFileOnly()` / `updateFiles()` fast path + SHA-256 path 四处命中判定；`loader.js` 的 `loadGraph()`（SQLite 整图恢复路径）发现降级条目同样回退 build()——这是用户实际踩中的路径，E2E 实测"装好 javalang 后同 cache dir 重跑自动升级"。零 schema 变更，利用已持久化但未被消费的 `parse_mode_reason` 字段。
+- **Fixed win32 python 硬编码 + 环境级失败逐文件白 spawn**：`spawn-ast.js` 此前 `win32 ? 'python' : 'python3'`，不走项目自己的 venv-aware `resolvePythonCommand()`——用 venv 装 javalang 的机器上永远找不到。现支持 workspace root 透传（registry 新增 `needsWorkspaceRoot` 标记，java/python 两个 entry 启用），优先 `.venv`/`venv` python，无 venv 时保持平台默认不变。新增环境级失败 memo：python 缺失（`python-missing`）/ parser 依赖缺失（`dependency-missing`，识别 stderr 中 `ModuleNotFoundError` 等）在同进程内短路后续 spawn；瞬时失败（超时/坏 JSON/脚本崩溃）不 memo，下个文件照常重试。
+- **Fixed warnings 呈现断点**：`buildWarnings()` 的 `regex-fallback` 信号此前只进 JSON `warnings[]`，`dead-exports` / `audit-overview` 的 human/summary/markdown 格式器完全不渲染——默认输出下降级不可见。现照 api-contracts 模式统一渲染（新增 `appendWarnings()` helper）；warning 文案按 spawn-ast memo 区分"依赖缺失（e.g. pip install javalang）"vs"python 未找到"vs"超时/WASM"，不再一句误导性的 "possible spawn timeout" 打发。
+- **Fixed cycles 组合爆炸与口径不一致**：单个稠密 SCC 的 Johnson 枚举无 per-SCC 上限，可独吞全局 1000 条路径额度饿死其他 SCC，且上限触发完全静默。现新增 `LIMITS.PER_SCC_CYCLE_CAP`（25），analyzer 暴露 `getCycleMeta()`（`{sccCount, truncated}`——SCC 数是严重度信号，路径列表仅是示例）；`cycles` 命令输出新增 `sccCount`/`totalPaths`/`truncated` 并把路径列表截到 `OUTPUT_EXTRA_LONG`；`audit-overview` 透传 `sccCount`/`truncated`；human/summary/markdown 展示补 "... and N more cycle paths (across N SCCs)" 提示。`cyclesCount`（路径数）语义不变，regression 快照格式不变。
+- **Fixed `--json --compact` 下载断标记丢失**：`overview-tools.js` 的 `sliceArray` 把 `truncated`/`total` 挂在数组对象属性上，`JSON.stringify` 会丢弃。现 `applyOutputLimits()` 同步产出 JSON 安全的 `outputTruncation` 汇总对象。
+- **Fixed skill 副本分裂与幽灵命令**：user-scope `workspace-audit` skill 副本仍是旧版（教 `workspace-bridge-cli`），已从项目内权威副本（`node cli.js` 入口）同步覆盖；同时把 `--format ai` digest 的 `actions[]` 与 `overview-curator.js` 的 validation command 从不存在的 `workspace-bridge-cli` 改为 `node cli.js`（npm 包未发布，该命令在源码安装下不存在，`cli-fallback.js` 的全局命令探测机制保留）。
+- **Added** 回归测试：`test/cache-regex-fallback-invalidation-test.js`、`test/spawn-ast-env-test.js`、`test/dead-export-regex-fallback-confidence-test.js`、`test/cycles-scc-cap-test.js`（全部 `@semantic`）。
+
 ### 彻底治愈 `repl-test.js` 和 `audit-file-watch-test.js` 串行/并发运行 Flaky 缺陷 (2026-07-19)
 
 - **Fixed** 修复了 precompute 过程中 `_findAffectedTestsByMention` 在大项目下对每个非测试文件重复读取所有测试文件，导致执行 33,000+ 次同步 `fs.readFileSync` 与 `stripComments` 的性能设计漏洞。

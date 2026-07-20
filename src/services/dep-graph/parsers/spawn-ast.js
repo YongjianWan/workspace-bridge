@@ -4,13 +4,26 @@ const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { TIMEOUTS, LIMITS } = require('../../../config/constants');
-const { buildSafeEnv } = require('../../../utils/command');
+const { buildSafeEnv, resolvePythonCommand } = require('../../../utils/command');
 
 // Module-level semaphore to bound Python sub-process memory.
 // Each Python process uses 30-80MB; on large Java/Python repos,
 // unbounded concurrency can spike to 600MB-1.6GB.
 let activeParsers = 0;
 const parserQueue = [];
+
+// Environment-level parser failures memoized per script for this process.
+// 'python-missing' (spawn ENOENT) and 'dependency-missing' (ModuleNotFoundError)
+// recur for every file — retrying per-file just burns spawn cycles, so
+// subsequent calls for the same script short-circuit to null.
+// Transient failures (timeout, bad JSON, script-level crash) are NOT memoized:
+// they may be file-specific. In-memory only; a new process re-probes, so
+// installing the missing dependency mid-session requires no cache clearing.
+const parserEnvFailures = new Map();
+
+function getParserEnvFailure(scriptName) {
+  return parserEnvFailures.get(scriptName);
+}
 
 function acquireParserSlot() {
   if (activeParsers < LIMITS.PYTHON_AST_CONCURRENCY) {
@@ -29,18 +42,33 @@ function releaseParserSlot() {
   }
 }
 
-async function spawnPythonASTParser(scriptName, content, timeoutMs = TIMEOUTS.PYTHON_AST_PARSE_MS) {
+// Prefer the workspace virtualenv python (where the project actually installs
+// deps like javalang); fall back to the historical platform default.
+// resolvePythonCommand returns bare 'python' when no venv exists — detect
+// that and keep the platform default so non-Windows keeps python3.
+function resolveParserPython(root) {
+  if (root) {
+    const resolved = resolvePythonCommand(root);
+    if (resolved && resolved !== 'python') return resolved;
+  }
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
+
+async function spawnPythonASTParser(scriptName, content, timeoutMs = TIMEOUTS.PYTHON_AST_PARSE_MS, root = null) {
+  if (parserEnvFailures.has(scriptName)) {
+    return null;
+  }
   await acquireParserSlot();
   try {
-    return await _spawnPythonASTParser(scriptName, content, timeoutMs);
+    return await _spawnPythonASTParser(scriptName, content, timeoutMs, root);
   } finally {
     releaseParserSlot();
   }
 }
 
-function _spawnPythonASTParser(scriptName, content, timeoutMs) {
+function _spawnPythonASTParser(scriptName, content, timeoutMs, root) {
   return new Promise((resolve) => {
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+    const pythonCmd = resolveParserPython(root);
     const scriptPath = path.join(__dirname, '..', '..', '..', '..', 'scripts', scriptName);
 
     if (!fs.existsSync(scriptPath)) {
@@ -125,6 +153,10 @@ function _spawnPythonASTParser(scriptName, content, timeoutMs) {
       clearTimeout(killTimer);
       cleanupTempFile();
       if (killed || code !== 0) {
+        if (!killed && /ModuleNotFoundError|ImportError|No module named/.test(errorOutput)) {
+          // External parser dependency not installed (e.g. javalang) — env-level, memoize.
+          parserEnvFailures.set(scriptName, 'dependency-missing');
+        }
         if (process.env.DEBUG) {
           console.error(`[DepGraph] ${scriptName} parse failed: exitCode=${code}, stderr=${errorOutput}`);
         }
@@ -150,6 +182,8 @@ function _spawnPythonASTParser(scriptName, content, timeoutMs) {
       clearTimeout(termTimer);
       clearTimeout(killTimer);
       cleanupTempFile();
+      // spawn failure (e.g. ENOENT — python executable not found) is env-level.
+      parserEnvFailures.set(scriptName, 'python-missing');
       if (process.env.DEBUG) {
         console.error(`[DepGraph] ${scriptName} spawn failed: ${err.message}`);
       }
@@ -162,6 +196,7 @@ function _spawnPythonASTParser(scriptName, content, timeoutMs) {
 
 module.exports = {
   spawnPythonASTParser,
+  getParserEnvFailure,
   // Exposed for testing the concurrency semaphore
   getActiveParserCount: () => activeParsers,
 };

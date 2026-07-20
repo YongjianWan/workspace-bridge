@@ -77,6 +77,7 @@ function bootstrapFromSchema(workspaceRoot, schema, options = {}) {
       exportRecords: node.exportRecords || [],
       functionRecords: node.functionRecords || [],
       parseMode: node.parseMode || 'ast',
+      parseModeReason: node.parseModeReason || '',
       confidence: node.confidence || 'medium',
       package: node.package || null,
       frameworkHint: node.frameworkHint || null,

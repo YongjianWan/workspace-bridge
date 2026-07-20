@@ -29,6 +29,12 @@ const LIMITS = {
   GIT_LOG_CONCURRENCY: 8,
   // Cycle finder recursion limit
   CYCLE_FINDER_MAX_CALLS: 20000,
+  // Per-SCC cap on enumerated cycle paths. One dense SCC can produce 100+
+  // combinatorial paths that add noise, not signal, and would otherwise
+  // exhaust the global 1000-path budget and starve other SCCs. The SCC
+  // count (see getCycleMeta) is the curated severity signal; the path
+  // list is illustrative, and truncation is flagged via cycleMeta.truncated.
+  PER_SCC_CYCLE_CAP: 25,
   // Output formatter list caps. Centralized so human/markdown/ai formatters
   // do not drift independently and so future --limit wiring has one place to
   // read from (W3-1 / L2-6).

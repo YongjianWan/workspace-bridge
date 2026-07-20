@@ -240,6 +240,9 @@ node cli.js dead-exports --cwd . --json --quiet
 | `checkFileChanges()` 双路径                          | `src/services/cache.js`                              | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为                         |
 | 动态 require 导致死导出误报                            | `src/services/dep-graph/framework-patterns.js`       | `dead-exports` 无法静态分析 `ROUTE_QUERY_REGISTRY` 动态 require，可忽略或加白                              |
 | C/C++`#include` resolver 语义限制                    | `src/services/dep-graph/parsers/registry.js`         | C/C++ 对系统头、`-I` 搜索路径支持较弱，`unresolved` 可能偏高                                               |
+| `regex-fallback` 缓存条目永不命中                    | `src/services/dep-graph/builder.js`                  | 工具链降级产物（如无 javalang 的 Java）每次重解析是**刻意设计**（`_isParseCacheUsable`），不是缓存失效 bug |
+| `cycles` 路径数是示例口径，SCC 数才是严重度信号      | `src/services/dep-graph/analyzer.js`                 | 单 SCC 路径上限 `PER_SCC_CYCLE_CAP`(25)；消费方应读 `getCycleMeta()` 的 `sccCount`/`truncated`             |
+| skill 权威副本在项目内                               | `skills/workspace-audit/SKILL.md`                    | user-scope 副本（`~/.agents/skills/`）需手动同步；改 SKILL.md 后记得同步，否则会教出旧命令                 |
 | Vue/Svelte 路由提取设计选择                            | `src/services/dep-graph/framework-patterns.js`       | Nuxt/SvelteKit 路由 query 只处理`.ts` server handler；SFC 本身不提取路由                                     |
 
 ---
@@ -294,7 +297,7 @@ THEN 拿到结果后必须执行：
 
 - `dead-exports` 已补上最小 ground-truth smoke，能证明 corpus-level 的 precision/recall 检查方式，但不能据此宣称全局召回已证实。
 - resolver 的关键契约是顺序语义而不是状态漂移，`alias` / `symbol-table` / fallback 的优先级变化必须有冲突矩阵保护。
-- Java AST 以 `javalang` 为前提；缺失时是可接受的 degraded mode，不应把 regex fallback 误读为 AST regression。
+- Java AST 以 `javalang` 为前提；缺失时是 degraded mode——2026-07-20 起该路径已显式化：0-importer 死导出降 `low` confidence、`warnings[]` 在文本输出可见、regex-fallback 缓存条目永不命中（工具链修复后自动升级）。
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-07-17（L1 修复：`audit-file --depth` 语义重载解耦，遍历深度由 `--max-depth` 唯一控制，活跃债务清零；7/14–7/15 会话工作（api-contracts 命令 + 输出塑形一致性）提交并切版 2.1.0；npm run test:fast 133/133 PASS；schemaVersion: 1.2.0；version: 2.1.0）*
+*Last updated: 2026-07-20（dogfood 反馈 5 问题全部修复：regex-fallback 静默降级显式化（0-importer 死导出降 low + warnings 文本可见）、缓存随工具链失效（builder 四处命中判定 + loadGraph 回退）、spawn-ast 走 venv-aware python + 环境级失败 memo、cycles per-SCC cap + `getCycleMeta()`、skill 副本同步与幽灵命令修正；新发现活跃 L1 1 项（Java same-package build/loadGraph 路径分歧，见 TECH_DEBT）；npm run test:fast 135/135 PASS；schemaVersion: 1.2.0；version: 2.1.0）*

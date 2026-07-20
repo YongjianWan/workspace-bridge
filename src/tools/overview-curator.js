@@ -167,7 +167,7 @@ function buildCycleRefactorSuggestions(root, depGraph, projectContext) {
         `把共享常量或类型下沉到独立模块，避免双向 import`,
       ],
       validation: {
-        command: 'workspace-bridge-cli cycles --cwd . --json --quiet',
+        command: 'node cli.js cycles --cwd . --json --quiet',
         expectation: 'cyclesCount 下降或至少该 cycle 不再出现',
       },
     });
@@ -271,7 +271,7 @@ function buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectCon
       reason: `耦合过高（in=${item.coupling.inDegree}, out=${item.coupling.outDegree}, total=${item.coupling.total}）`,
       splitPlan: generateCouplingSplitPlan(item.role, item.coupling, isSmallProject),
       validation: {
-        command: 'workspace-bridge-cli audit-overview --cwd . --json --quiet',
+        command: 'node cli.js audit-overview --cwd . --json --quiet',
         expectation: '目标模块 coupling.total 下降，stabilityScore 不回退',
       },
     }));
