@@ -569,6 +569,11 @@ const STACK_TARGET_PATTERNS = {
   cpp: /\.(c|cpp|cc|h|hpp)$/,
 };
 
+// Files that don't belong to any specific language stack but whose changes
+// should trigger a cross-stack review in mixed repos. Anchored to basename
+// end so directories like Dockerfiles/ or Makefiles/ don't false-positive.
+const INFRA_PATTERNS = /(^|\/)(Dockerfile(\.[\w.-]+)?|(docker-)?compose(\.[\w-]+)?\.ya?ml|\.env(\.[\w-]+)?|Makefile|makefile|CMakeLists\.txt|Jenkinsfile|\.gitlab-ci\.ya?ml|\.github\/workflows\/[^/]+\.ya?ml)$/;
+
 function splitTargetsByStack(targets) {
   const list = Array.isArray(targets) ? targets : [];
   return {
@@ -639,6 +644,35 @@ function generateCommands(stack, changeType, targets, steps = [], workspaceRoot 
       if (!hasCpp && cmd.name.startsWith('cpp-')) return false;
       return true;
     });
+
+    // Layer 1: infra/config files (Dockerfile, CI, .env, Makefile) don't
+    // belong to any language stack. When they change in a mixed repo,
+    // suggest a full-stack smoke to catch cross-cutting regressions.
+    // Unshift unconditionally — dropping the reminder when full happens to
+    // be empty would be exactly the silent degradation L1-4 forbids.
+    const stackPatterns = Object.values(STACK_TARGET_PATTERNS);
+    const targetList = Array.isArray(targets) ? targets : [];
+    const infraFiles = targetList.filter((f) =>
+      !stackPatterns.some((re) => re.test(f)) && INFRA_PATTERNS.test(f));
+    if (infraFiles.length > 0) {
+      merged.full.unshift({
+        name: 'mixed-infra-smoke',
+        description: `Infra/config files changed (${infraFiles.slice(0, 3).map((f) => path.basename(f)).join(', ')}${infraFiles.length > 3 ? '…' : ''}); run full-stack smoke to catch cross-cutting regressions`,
+        executable: null,
+      });
+    }
+
+    // Layer 2: when 2+ stacks have changed files simultaneously, the change
+    // may cross stack boundaries. Append a cross-stack full-test reminder
+    // so the reviewer doesn't miss integration-level breakage.
+    const changedStacks = Object.values(split).filter((files) => files.length > 0).length;
+    if (changedStacks >= 2) {
+      merged.full.push({
+        name: 'cross-stack-full-tests',
+        description: `${changedStacks} stacks changed; consider running all stacks' full test suites before merge`,
+        executable: null,
+      });
+    }
   }
 
   // Prefer direct test targets from focused steps when available.
@@ -778,6 +812,7 @@ function generateCommands(stack, changeType, targets, steps = [], workspaceRoot 
 
 module.exports = {
   generateCommands,
+  INFRA_PATTERNS,
   inferRustModuleName,
   parseCommandString,
   renderCommandString,

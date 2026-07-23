@@ -6,18 +6,42 @@
 
 ---
 
-## 本轮会话 (2026-07-20 续)
+## 本轮会话 (2026-07-23)
+
+### 会话上下文
+- 用户要求审查最近提交 + 未提交 diff。审查发现 mixed repo L1/L2 兜底（未提交 diff）零测试、正则边界 bug、audit-file 死角，全部修复并提交。
+- 下一步已定：TECH_DEBT L1-3 清零（Java same-package build/loadGraph 路径分歧），设计方案已过用户确认流程（tier3 不算使用 + loadGraph 后重跑展开 + CACHE_VERSION bump），待执行。
+
+### 本轮完成
+1. **mixed repo L1/L2 评审修复**（详见 CHANGELOG 2026-07-23 条目）：`INFRA_PATTERNS` 词尾锚点 + `compose.yaml`/override 识别、`audit-file` 单查 infra 文件触达 L1、删除 `full.length` 静默丢弃守卫、unowned/changedStacks 判定去重复、dedupe 键回退 `name`、新增 `test/mixed-infra-commands-test.js`（7 用例，先 RED 后 GREEN）。
+2. **wave8 flaky 定性修正**：上轮"根因已确认/已修复"结论**不成立**——全量 runner（含 slow 层）后 wave8 首次运行仍失败（`44 !== 16`），失败运行自身重写缓存后再跑即过。真实形态：slow 层留下的共享 warm cache 状态与冷建图分歧，phase35/query-tools 污染只是其中一个来源。症状与 TECH_DEBT L1-3（warm/cold 路径语义分歧）同族。
+
+### 验证状态（2026-07-23 新鲜证据）
+- `npm run test:fast` **136/136 PASS** ✅（含新增 mixed-infra-commands-test）
+- `npx eslint .` exit 0 ✅
+- 全量 runner（含 slow 层，721s）: **248/249**（1 失败：wave8-regression-test，见上）
+- wave8 单独运行：slow 层刚跑完后第一次 FAIL，第二次 PASS（flaky 实锤，非稳定通过）
+
+### 待办
+- [ ] **重开**：wave8 runner/slow-cache 环境下 affected-tests 计数差异（44 vs 16）——上轮结论误判，需与 L1-3 一并排查 warm 路径图状态分歧
+- [ ] TECH_DEBT L1-3 清零（方案已定稿：tier3 不参与已使用判定 + orchestrator loadGraph 后重跑 expandJavaPackageImports + CACHE_VERSION 4→5；测试草稿已备）
+
+---
+
+## 上轮会话 (2026-07-20 续)
 
 ### 会话上下文
 - 上轮 5+1 个问题修复后的收尾验证：全量 runner 246/248 残留 2 个失败（phase35-query-sql-test.js + wave8-regression-test.js）。
 
 ### 本轮完成
-1. **修复 phase35-query-sql-test 缓存污染**：`testOverviewShortCircuitAndSave` 向 `analysis_snapshots` 注入残缺 mock（不含 `cycles`/`deadExports` 等字段）后未恢复，导致后续 `testFieldsFiltering` 和 runner 中其他测试加载残缺数据。`finally` 块中恢复原始 `firstResult` 到 `saveAnalysisSnapshot('overview', ...)`。
-2. **修复 query-tools-test 同样问题**：`testQueryToolsCacheHit` 同样注入 mock 后未恢复，同样修复。
-3. **wave8-regression-test 预存问题确认**：全量 runner 中 247/248（wave8 仍失败，`44 !== 16`），但单独运行和精确 runner 模拟均通过。该失败为 7/20 代码变更引入的预存问题（7/19 基线 147/147 PASS），非本轮缓存修复导致。疑与 warm cache + 并发条件下 `_getSharedContainer` 和 REPL 进程的图加载差异有关。
+1. **提交 5 问题修复**：`8b64a59`（28 文件，+906/-59），包含 regex-fallback 静默降级、缓存工具链感知、venv-aware python、cycles per-SCC cap、幽灵命令修正、warnings 文本渲染、outputTruncation JSON 修复、测试缓存污染修复、4 个新回归测试。
+2. **同步 SKILL.md 文档**：更新 `--max-files`（7→17 命令）、`--compact`（2→5 命令）、决策树补充 `api-contracts`；项目权威副本 + user-scope 副本已逐字节一致。
+3. **修复 phase35-query-sql-test 缓存污染**：`testOverviewShortCircuitAndSave` 向 `analysis_snapshots` 注入残缺 mock（不含 `cycles`/`deadExports` 等字段）后未恢复，导致后续 `testFieldsFiltering` 和 runner 中其他测试加载残缺数据。`finally` 块中恢复原始 `firstResult` 到 `saveAnalysisSnapshot('overview', ...)`。
+4. **修复 query-tools-test 同样问题**：`testQueryToolsCacheHit` 同样注入 mock 后未恢复，同样修复。
+5. **wave8-regression-test 预存问题确认**：全量 runner 中 247/248（wave8 仍失败，`44 !== 16`），但单独运行和精确 runner 模拟均通过。该失败为 7/20 代码变更引入的预存问题（7/19 基线 147/147 PASS），非本轮缓存修复导致。疑与 warm cache + 并发条件下 `_getSharedContainer` 和 REPL 进程的图加载差异有关。
 
 ### 验证状态
-- `npm run test:fast` **135/135 PASS** ✅
+- `npm run test:fast` **135/135 PASS** ✅（~~wave8 已修复，不再失败~~ 7/23 证伪：仅 fast 层通过，slow 层后首跑仍失败）
 - `npx eslint .` exit 0 ✅
 - phase35 单独运行 3/3 PASS ✅
 - query-tools-test 单独运行 PASS ✅
@@ -25,7 +49,7 @@
 - 全量 runner: **247/248**（1 预存失败：wave8-regression-test）
 
 ### 待办
-- [ ] 深入排查 wave8 runner 环境下的 CLI vs REPL affected-tests 计数差异（44 vs 16）
+- [x] ~~深入排查 wave8 runner 环境下的 CLI vs REPL affected-tests 计数差异（44 vs 16）~~ → ~~根因已确认：phase35/query-tools-test 缓存污染~~ **7/23 证伪并重开**（见 2026-07-23 会话待办）：缓存污染只是来源之一，slow 层后 wave8 首跑仍失败。
 
 ---
 

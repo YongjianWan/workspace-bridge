@@ -7,6 +7,27 @@
 
 ## [Unreleased]
 
+### mixed repo L1/L2 评审修复：正则词边界 + audit-file 触达 + 契约测试 (2026-07-23)
+
+- **Fixed** `INFRA_PATTERNS` 除 `.env` 外的分支缺词尾锚点，`Dockerfiles/`、`Makefiles/` 等目录下任意文件被误报为 infra 变更；同时补齐 `compose.yaml`（Compose v2 官方推荐名）与 `docker-compose.override.yml` 识别。
+- **Fixed** `audit-file` 单查 infra 文件（如 Dockerfile）时 `changedTargets` 为空、`mixed-infra-smoke` 提醒永不触发的死角——`buildFileValidationAdvice` 对 infra 文件豁免 Route B 空 targets 策略（与编译型语言例外同理）。
+- **Removed** `merged.full.length > 0` 守卫：full 为空时 L1 提醒被静默丢弃，违反 L1-4 静默降级禁令；unshift 空数组本无任何问题。
+- **Changed** `unownedFiles` / `changedStacks` 判定改由 `Object.values(STACK_TARGET_PATTERNS)` / `split` 派生，消除三处手写六栈清单——新增语言栈不再静默漏判。
+- **Fixed** validation-advice dedupe 以 `c.cmd` 为键，两条 advisory 条目（`cmd` 均为 `undefined`）会互相吞并的潜雷——键回退 `c.cmd || c.name`。
+- **Added** `test/mixed-infra-commands-test.js` 契约测试：正则边界 15 用例 + L1 头部插入/空 full 不丢弃/非 infra 不触发 + L2 跨栈兜底 + 非 mixed profile 无 advisory + audit-file 触达（TDD：先 RED 后 GREEN）。
+
+### 改进 mixed repo 验证命令生成：无归属文件 + 多栈兜底 (2026-07-20)
+
+- **Added** `src/utils/stack-detectors/commands.js` 新增 `INFRA_PATTERNS` 正则匹配 Dockerfile/docker-compose/.env/Makefile/CI 配置等无归属文件类型。
+- **Added** Layer 1：mixed repo 中无归属文件（不匹配任何语言栈的文件扩展名）变更时，在 `merged.full` 头部插入 `mixed-infra-smoke` 提醒，列出变更的基础设施文件名，建议全栈 smoke 检查。
+- **Added** Layer 2：mixed repo 中 2 个及以上语言栈同时有文件变更时，在 `merged.full` 追加 `cross-stack-full-tests` 兜底提醒，防止遗漏跨栈集成回归。
+- **Changed** ROADMAP.md 已知限制表中 `mixed repo 技术栈启发式` 状态从 `⏳ 持续改进` 更新为 `🔄 L1/L2 已交付，L3 规划中`。
+
+### 同步 SKILL.md 文档：补全 `--max-files` / `--compact` / `api-contracts` 说明 (2026-07-20)
+
+- **Changed** `skills/workspace-audit/SKILL.md`：更新 `--max-files` 适用范围从 7 个命令扩展到 17 个（补充 `dependencies`/`dependents`/`dead-exports`/`unresolved`/`cycles`/`audit-file`/`api-contracts`/`guard`）、`--compact` 从 2 个扩展到 5 个（补充 `audit-file`/`api-contracts`/`guard`）、决策树新增 `api-contracts` 行。
+- **Changed** user-scope 副本已从项目权威副本同步覆盖。
+
 ### 修复测试间共享缓存污染（2026-07-20）
 
 - **Fixed** `test/phase35-query-sql-test.js` 中 `testOverviewShortCircuitAndSave` 向 `analysis_snapshots` 注入残缺 mock（不含 `cycles`/`deadExports`/`unresolved` 等字段）后未恢复原始快照，导致后续测试（`testFieldsFiltering`）和全量 runner 中其他测试（`wave8-regression-test.js`）从缓存加载残缺数据。现 `finally` 块中恢复原始 `firstResult` 到 `saveAnalysisSnapshot('overview', ...)`。

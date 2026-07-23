@@ -27,6 +27,7 @@ workspace-bridge-cli <command> --cwd <project> --json --quiet
 | 首次摸底 / 定期健康检查 | **`audit-overview`** | **L1 默认入口** |
 | 有 git 变更，需审查 | `audit-diff`（`--staged` / `--commits <range>` / `--incremental`） | L1 |
 | 改特定文件前，评估影响 | `audit-file --file <path>` | L1 |
+| 前后端 API 契约对齐 | `api-contracts --frontend <dir> --backend <dir>`（路径级匹配，axios/fetch vs Express/NestJS/Spring/FastAPI/Django 等） | L1 |
 | **改高危文件前，先做防爆检查** | `guard --file <path>`（超过 `--max-dependents` / `--max-transitive` 直接 exit 1） | L2 |
 | 缓存已热，只要一个切片（免重建，<2s） | `query-hotspots` / `query-knowledge-risk` / `query-stability`（各支持 `--limit`） | L2 |
 | 结构化自由查询 | `query --sql "<select …>"`（只读 SQL，查 cache DB） | L2 |
@@ -52,8 +53,8 @@ workspace-bridge-cli <command> --cwd <project> --json --quiet
   - 注意：`--token-budget` 与 `--depth` 只对 `--format ai` 生效；若与其他格式混用，输出 `warnings` 会提示被忽略。
 - `--fields <list>`：结构化输出（`--json` / `--format ai` / `--format jsonl`）的白名单字段（`ok/error/schemaVersion/command/hasFindings/staleness/warnings` 恒保留），如 `--fields summary,hotspots`。
   - 注意：与 `--format ai` 同时使用时，输出 `warnings` 会提示 digest 输入被裁剪，避免 AI 拿到被静默降级的风险视图。
-- `--max-files <n>`：限制 `audit-overview` / `audit-map` / `query-*` / `audit-diff` / `impact` / `affected-*` / `tree` 等返回的文件条数。
-- `--compact`：目录级聚合边 + 精简树 + 列表 capped（`audit-map` / `audit-overview` 生效；大项目自动触发；`--no-compact` 关闭）。
+- `--max-files <n>`：限制大部分命令返回的文件/条目数（`audit-overview` / `audit-map` / `audit-file` / `audit-diff` / `query-*` / `impact` / `affected-*` / `dependencies` / `dependents` / `dead-exports` / `unresolved` / `cycles` / `tree` / `guard` / `api-contracts` 均支持）。
+- `--compact`：目录级聚合边 + 精简树 + 列表 capped（`audit-map` / `audit-overview` / `audit-file` / `api-contracts` / `guard` 生效；大项目自动触发；`--no-compact` 关闭）。
 
 ## Exit Code 契约
 

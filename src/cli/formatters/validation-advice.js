@@ -1,5 +1,5 @@
 const path = require('path');
-const { detectStack, generateCommands, enrichCommandEntry } = require('../../utils/stack-detector');
+const { detectStack, generateCommands, enrichCommandEntry, INFRA_PATTERNS } = require('../../utils/stack-detector');
 const { probePythonTestEnvironment } = require('../../utils/environment-probe');
 const { classifyChangeType, getValidationTemplate } = require('./audit-diff-summary');
 const { collectEntryMetrics } = require('./validation-advice/metrics');
@@ -147,18 +147,24 @@ function buildFileValidationAdvice(filePath, workspaceRoot, affectedTests, impac
   // 例外：编译型语言（Java/Kotlin/Go/Rust/C++）的 compile-check fallback 依赖
   // targets 里出现该语言文件才会生成，且这些命令不引用源文件路径本身，
   // 不存在“指向不存在的测试文件”问题——必须始终传入变更文件。
+  // infra 文件（Dockerfile/CI/.env）同理：mixed repo 的 mixed-infra-smoke 提醒
+  // 依赖 targets 里出现该文件，且提醒不引用测试路径——必须传入。
   const relativeFilePath = path.relative(workspaceRoot, filePath).replace(/\\/g, '/');
   const isCompiledLanguageFile = /\.(java|kt|kts|go|rs|c|cc|cpp|h|hpp)$/i.test(relativeFilePath);
-  const changedTargets = (hasDirectAffectedTests || isCompiledLanguageFile) ? [relativeFilePath] : [];
+  const isInfraFile = INFRA_PATTERNS.test(relativeFilePath);
+  const changedTargets = (hasDirectAffectedTests || isCompiledLanguageFile || isInfraFile) ? [relativeFilePath] : [];
   const commands = generateCommands(stack, changeType, changedTargets, steps, workspaceRoot);
   const environmentNotes = probePythonTestEnvironment(workspaceRoot, stack.python);
 
-  // Deduplicate within each group by cmd string
+  // Deduplicate within each group by cmd string. Advisory entries
+  // (executable: null) have no cmd — fall back to name so two distinct
+  // advisories don't collide on undefined.
   const dedupe = (arr) => {
     const seen = new Set();
     return (arr || []).filter((c) => {
-      if (seen.has(c.cmd)) return false;
-      seen.add(c.cmd);
+      const key = c.cmd || c.name;
+      if (seen.has(key)) return false;
+      seen.add(key);
       return true;
     });
   };
