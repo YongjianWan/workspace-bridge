@@ -300,4 +300,4 @@ THEN 拿到结果后必须执行：
 - Java AST 以 `javalang` 为前提；缺失时是 degraded mode——2026-07-20 起该路径已显式化：0-importer 死导出降 `low` confidence、`warnings[]` 在文本输出可见、regex-fallback 缓存条目永不命中（工具链修复后自动升级）。
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-07-23（mixed repo L1/L2 兜底经评审修复后提交：INFRA_PATTERNS 词边界 + audit-file 触达 + 静默丢弃守卫删除 + 契约测试；SKILL.md 文档同步：`--max-files` 7→17 命令、`--compact` 2→5 命令、决策树补 `api-contracts`；活跃 L1 1 项待清零（Java same-package build/loadGraph 路径分歧，见 TECH_DEBT）；wave8 flaky 重开（slow 层共享缓存状态分歧，与 L1-3 同族）；npm run test:fast 136/136 PASS；全量 runner 248/249；schemaVersion: 1.2.0；version: 2.1.0）*
+*Last updated: 2026-07-23（mixed repo L1/L2 兜底评审修复提交 `b50baac`；**TECH_DEBT L1-3 清零**：tier3 不参与已使用判定 + loadGraph 后重跑 java 展开 + CACHE_VERSION 4→5，活跃债务归零；wave8 flaky 重开（JS 仓库 warm 分歧另有机制，Java 展开修复未治愈）；npm run test:fast 136/136 PASS；全量 runner 249/250（唯一失败即 wave8 预存 flaky）；schemaVersion: 1.2.0；version: 2.1.0）*

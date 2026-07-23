@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### L1-3 清零：Java same-package 隐式边 build/loadGraph 路径语义统一 (2026-07-23)
+
+- **Fixed** dead-exports 在「刚 build」与「loadGraph 恢复」两条路径下结果不一致（TECH_DEBT L1-3）：`setParseResult` 在 postProcess 之前持久化，tier1 wildcard-resolved 与 tier3 same-package 展开记录均不落盘，warm 路径边在、记录缺。现 `orchestrator.js` 在 loadGraph 成功后重跑 `expandJavaPackageImports()`（幂等 strip-and-rebuild，非 Java 项目建索引后早退），warm 路径与冷 build 内存态完全一致。
+- **Changed** 语义决策落地（TECH_DEBT 既定倾向）：tier3 same-package 记录不再参与死导出「已使用」判定——与 cycles Rule 5 排除 tier3 的先例一致。同包真实引用由 importer 内容扫描兜底；仅剩隐式 importer 的死导出照报，但强制 `confidence: low` + `confidenceSource: 'implicit-same-package'`。**Java 项目 dead-exports 数字会变**：原被同包边掩盖的死类现以低置信度可见。
+- **Changed** `CACHE_VERSION` 4→5：旧缓存中按 v4 语义计算的 deadExports 聚合必须失效；所有项目下次运行冷启动重建一次（一次性代价）。
+- **Added** `test/java-same-package-dead-export-consistency-test.js` 契约测试：cold 报出低置信同包死类、warm 恢复态重展开后与 cold 一致、同包真实引用内容扫描抑制、wildcard tier1 双路径抑制一致（TDD：先 RED 后 GREEN）。
+- **Added** TECH_DEBT 新预防性约束：postProcess 注入的 importRecords 不落盘——新增此类注入必须同步 loadGraph 分支重跑或持久化元数据。
+
 ### mixed repo L1/L2 评审修复：正则词边界 + audit-file 触达 + 契约测试 (2026-07-23)
 
 - **Fixed** `INFRA_PATTERNS` 除 `.env` 外的分支缺词尾锚点，`Dockerfiles/`、`Makefiles/` 等目录下任意文件被误报为 infra 变更；同时补齐 `compose.yaml`（Compose v2 官方推荐名）与 `docker-compose.override.yml` 识别。

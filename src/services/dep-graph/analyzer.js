@@ -1181,17 +1181,25 @@ class GraphAnalyzer {
 
   _collectUsedExports(importers, filePath) {
     let usesAllExports = false;
+    let hasExplicitImporter = false;
     const usedNames = new Set();
 
     for (const importerPath of importers) {
       const importerInfo = this.dg.getFileInfo(importerPath);
       if (!importerInfo?.importRecords) {
         usesAllExports = true;
+        hasExplicitImporter = true;
         break;
       }
 
       const matchingImports = importerInfo.importRecords.filter((record) => record.resolved === filePath);
       for (const record of matchingImports) {
+        // L1-3: tier3 same-package implicit edges do not count as usage —
+        // mirrors cycles Rule 5. Real same-package references are caught by
+        // the importer content scan downstream; findings backed only by
+        // implicit importers are downgraded to low confidence by the caller.
+        if (record.tier === 'tier3' || record.resolutionMethod === 'java-same-package') continue;
+        hasExplicitImporter = true;
         if (record.usesAllExports) {
           usesAllExports = true;
           break;
@@ -1204,7 +1212,7 @@ class GraphAnalyzer {
       if (usesAllExports) break;
     }
 
-    return { usedNames, usesAllExports };
+    return { usedNames, usesAllExports, hasExplicitImporter };
   }
 
   _findDuplicateOf(symbolName, currentFile) {
@@ -1262,7 +1270,7 @@ class GraphAnalyzer {
           continue;
         }
 
-        const { usedNames, usesAllExports } = this._collectUsedExports(importers, filePath);
+        const { usedNames, usesAllExports, hasExplicitImporter } = this._collectUsedExports(importers, filePath);
         if (usesAllExports) continue;
 
         let unused = info.exports.filter((name) => !usedNames.has(name) && isConventionallyAliveSymbol(name));
@@ -1282,7 +1290,17 @@ class GraphAnalyzer {
         if (unused.length > 0) {
           const isConstantsWarehouse = isLikelyConstantsWarehouse(filePath, info.exportRecords);
           if (isConstantsWarehouse || scaffold) continue;
-          const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false, info.parseModeReason);
+          let { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false, info.parseModeReason);
+          // L1-3: every importer is an implicit same-package edge — the class
+          // survived the content scan, but runtime bindings (Spring DI,
+          // reflection) are invisible to static records. Report, but never
+          // with confidence above low.
+          if (!hasExplicitImporter) {
+            confidence = 'low';
+            confidenceValue = CONFIDENCE.LOW_VALUE;
+            source = 'implicit-same-package';
+            reason = 'All importers are same-package implicit edges; no explicit import or scanned usage found, but runtime bindings (e.g. Spring DI) are invisible to static analysis';
+          }
           const duplicateOf = this._buildDuplicateOf(unused, filePath);
           deadExports.push({
             id: `dead-export:${this.dg._displayPath(filePath)}`,

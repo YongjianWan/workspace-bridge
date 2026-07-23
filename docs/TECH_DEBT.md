@@ -6,29 +6,19 @@
 
 ## L1 Blocker（违反铁律，必须修）
 
-### L1-3：Java same-package 隐式边在 build 路径与 loadGraph 路径下语义不一致（2026-07-20 发现，待设计决策）
+> 当前无活跃的 L1 债务。
+>
+> L1-3（Java same-package 隐式边 build/loadGraph 路径语义不一致）已于 2026-07-23 清零：
+> orchestrator 在 loadGraph 成功后重跑 `expandJavaPackageImports()` 统一两路径数据；
+> tier3 记录不参与死导出「已使用」判定（与 cycles Rule 5 先例一致），仅剩隐式 importer
+> 的死导出报出但强制 `low` + `implicit-same-package`；`CACHE_VERSION` 4→5 作废旧语义聚合。
+> 契约锁定：`test/java-same-package-dead-export-consistency-test.js`。详见 CHANGELOG。
 
-**现象**：Java 项目的 `dead-exports` 结果在「刚 build 完」和「从 SQLite loadGraph 恢复」两种路径下不同：
+### ⚠️ 预防性约束：postProcess 注入的 importRecords 不落盘
 
-- build 路径：`expandJavaPackageImports()` 的 postProcess 给同包类互加 tier3 隐式边，importRecords 带 `usesAllExports` 标记 → 死导出分析把同包类全部视为「被使用」→ 同包死类被完全掩盖（0 报告）。
-- loadGraph 路径：边从 edges 表恢复（含 tier3 边），但 importRecords 从 parse_results 恢复（**不含 tier3 记录的 usesAllExports 元数据**，因为 `setParseResult` 在 postProcess 之前就持久化了）→ 同包类被当作普通 importer 扫描 → 报告死导出。
+**约束**：`setParseResult` 在 postProcess **之前**持久化——任何在 postProcess 阶段注入 importRecords 的新逻辑（现有：java wildcard tier1 / same-package tier3），其记录都不会进 parse_results。新增此类注入时，**必须**同步在 orchestrator 的 loadGraph 成功分支重跑注入，或改为持久化元数据，否则 warm 路径静默丢数据（L1-3 的根因即此）。
 
-**实测**（2026-07-20，fixture：Foo/Bar 同包、Bar 无任何真实引用，javalang AST 模式）：build 后立刻跑 dead-exports = 0；重跑（loadGraph）= 2。**与用户是否操作无关，同一个项目两次运行数字不同。**
-
-**设计冲突（按开发原则 7 暴露，不折中）**：tier3 隐式边到底算不算「使用」？
-
-- 算（build 路径现状）：保守、不误报，但同包死类对 dead-exports 完全不可见，Java 死导出检测形同虚设。
-- 不算（loadGraph 路径现状）：能报出死类，但 Spring DI 等同包真实引用会混入，需要 confidence 机制兜底。
-
-**修复方向（下一轮）**：先统一两条路径的数据（persist tier3 importRecords 元数据，或 loadGraph 后重跑 `expandJavaPackageImports`），再决定语义。倾向：tier3 边不参与死导出的「已使用」判定（与 cycles 检测排除 tier3 的既有先例一致，`analyzer.js:646`），让死导出可见但标 `implicit-same-package` 低置信。
-
-**验证命令**：
-
-```bash
-# fixture: 两个同 package 的 java 类，互相无真实引用
-node cli.js dead-exports --cwd <fixture> --cache-dir <tmp> --json --quiet   # cold: build 路径
-node cli.js dead-exports --cwd <fixture> --cache-dir <tmp> --json --quiet   # warm: loadGraph 路径，两次 count 应相等
-```
+**触发条件**：新增任何 postProcess 阶段的图结构/记录注入逻辑时。
 
 ---
 
@@ -58,7 +48,7 @@ node cli.js dead-exports --cwd <fixture> --cache-dir <tmp> --json --quiet   # wa
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **1** | L2 债务 **0** | 架构债务 **0** | L3 品味问题 **0** | 合计 **1 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **0** | L3 品味问题 **0** | 合计 **0 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
@@ -169,4 +159,4 @@ node cli.js dead-exports --cwd <fixture> --cache-dir <tmp> --json --quiet   # wa
 
 ---
 
-*Last updated: 2026-07-20（活跃债务：L1=1（Java same-package 隐式边 build/loadGraph 路径语义不一致，待设计决策）/ L2=0 / 架构债务=0 / L3=0；本轮修复 dogfood 反馈 5 问题：regex-fallback 静默降级显式化、缓存随工具链失效、venv-aware python spawn、cycles per-SCC cap、skill 副本同步；npm run test:fast 135/135 PASS）*
+*Last updated: 2026-07-23（活跃债务清零：L1=0 / L2=0 / 架构债务=0 / L3=0；本轮 L1-3 清零：tier3 不参与已使用判定 + loadGraph 后重跑展开 + CACHE_VERSION 4→5 + 契约测试；新增预防性约束「postProcess 注入的 importRecords 不落盘」；npm run test:fast 136/136 PASS；全量 runner 249/250，唯一失败为 wave8 预存 flaky）*

@@ -133,6 +133,13 @@ async function initializeDepGraph({
   if (!loaded) {
     await depGraph.build(fileIndex?._indexedFiles || null);
   } else {
+    // L1-3: persisted parse_results lack the postProcess java expansion
+    // records (tier1 wildcard-resolved + tier3 same-package) because
+    // setParseResult runs before postProcess. Re-run the expansion so the
+    // warm path is semantically identical to a fresh build; it strips and
+    // rebuilds idempotently and early-returns on non-Java projects.
+    await depGraph.builder.expandJavaPackageImports();
+
     // Hybrid path: edges loaded — compute delta and incrementally update
     const indexedFiles = new Set(fileIndex?._indexedFiles || []);
     const indexedKeys = new Set([...indexedFiles].map((f) => depGraph.normalizeFilePath(f)));

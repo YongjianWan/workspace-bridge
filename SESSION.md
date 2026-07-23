@@ -15,16 +15,18 @@
 ### 本轮完成
 1. **mixed repo L1/L2 评审修复**（详见 CHANGELOG 2026-07-23 条目）：`INFRA_PATTERNS` 词尾锚点 + `compose.yaml`/override 识别、`audit-file` 单查 infra 文件触达 L1、删除 `full.length` 静默丢弃守卫、unowned/changedStacks 判定去重复、dedupe 键回退 `name`、新增 `test/mixed-infra-commands-test.js`（7 用例，先 RED 后 GREEN）。
 2. **wave8 flaky 定性修正**：上轮"根因已确认/已修复"结论**不成立**——全量 runner（含 slow 层）后 wave8 首次运行仍失败（`44 !== 16`），失败运行自身重写缓存后再跑即过。真实形态：slow 层留下的共享 warm cache 状态与冷建图分歧，phase35/query-tools 污染只是其中一个来源。症状与 TECH_DEBT L1-3（warm/cold 路径语义分歧）同族。
+3. **TECH_DEBT L1-3 清零**（提交待入）：analyzer tier3 记录不参与「已使用」判定 + 仅隐式 importer 强制 `low`/`implicit-same-package`、orchestrator loadGraph 后重跑 `expandJavaPackageImports()`（顺带修掉 wildcard tier1 同样不落盘的另半病灶）、CACHE_VERSION 4→5、新契约测试 4 用例（TDD RED→GREEN）。活跃债务归零。TECH_DEBT 新增预防性约束：postProcess 注入的 importRecords 不落盘。
 
 ### 验证状态（2026-07-23 新鲜证据）
 - `npm run test:fast` **136/136 PASS** ✅（含新增 mixed-infra-commands-test）
 - `npx eslint .` exit 0 ✅
-- 全量 runner（含 slow 层，721s）: **248/249**（1 失败：wave8-regression-test，见上）
+- L1-3 前全量 runner（含 slow 层，721s）: 248/249（1 失败：wave8）
+- **L1-3 后全量 runner（含 slow 层，774s，CACHE_VERSION bump 全 fixture 冷重建）: 249/250**（唯一失败仍为 wave8，与修复前基线一致）
 - wave8 单独运行：slow 层刚跑完后第一次 FAIL，第二次 PASS（flaky 实锤，非稳定通过）
 
 ### 待办
-- [ ] **重开**：wave8 runner/slow-cache 环境下 affected-tests 计数差异（44 vs 16）——上轮结论误判，需与 L1-3 一并排查 warm 路径图状态分歧
-- [ ] TECH_DEBT L1-3 清零（方案已定稿：tier3 不参与已使用判定 + orchestrator loadGraph 后重跑 expandJavaPackageImports + CACHE_VERSION 4→5；测试草稿已备）
+- [ ] **重开**：wave8 runner/slow-cache 环境下 affected-tests 计数差异（44 vs 16）——上轮结论误判；L1-3 修复（Java 展开重跑）未治愈它，JS 仓库的 warm 分歧另有机制，需单独排查
+- [x] ~~TECH_DEBT L1-3 清零~~ → 2026-07-23 完成，见本轮完成 3
 
 ---
 
