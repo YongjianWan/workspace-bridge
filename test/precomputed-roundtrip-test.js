@@ -82,11 +82,13 @@ function mockDepGraph(graphData) {
   return {
     graph,
     reverseGraph,
+    root: process.cwd(),
     normalizeFilePath: (f) => f,
     bus: { emit: () => {}, on: () => {} },
     getDependencies: (f) => graph.get(f)?.imports || [],
     getDependents: (f) => reverseGraph.get(f) || [],
     shouldExcludeCli: () => false,
+    getFileInfo: (f) => graph.get(f),
     isTestLikeFile: (f) => f.includes('test'),
     isKnownEntryFile: () => false,
     _displayPath: (f) => f,
@@ -350,21 +352,49 @@ function testAnalyzerInjectPrecomputedTestMap() {
 
   assert.strictEqual(analyzer.injectPrecomputedTestMap(testMapRows), true);
 
-  const resultsMax1 = analyzer.findAffectedTests('a.js', 1);
-  assert.strictEqual(resultsMax1.length, 1);
-  assert.strictEqual(resultsMax1[0].file, 'a.test.js');
-  assert.strictEqual(resultsMax1[0].distance, 1);
-  assert.strictEqual(resultsMax1[0].source, 'graph');
+  // fast path 仅在预计算深度（CONFIG.DEFAULT_MAX_DEPTH）服务：graph 条目原样直出，
+  // 终结符 distance = maxDepth+1 + terminator: true（冷路径 schema 对齐）
+  const DEFAULT_DEPTH = require('../src/config/defaults').DEFAULTS.AFFECTED_TEST_DEPTH;
+  const resultsDefault = analyzer.findAffectedTests('a.js', DEFAULT_DEPTH);
+  assert.strictEqual(resultsDefault.length, 2);
+  resultsDefault.sort((x, y) => x.file.localeCompare(y.file));
+  assert.strictEqual(resultsDefault[0].file, 'a.test.js');
+  assert.strictEqual(resultsDefault[0].distance, 1);
+  assert.strictEqual(resultsDefault[0].source, 'graph');
+  assert.strictEqual(resultsDefault[1].file, 'b.test.js');
+  assert.strictEqual(resultsDefault[1].distance, DEFAULT_DEPTH + 1);
+  assert.strictEqual(resultsDefault[1].source, 'heuristic');
+  assert.strictEqual(resultsDefault[1].terminator, true);
 
-  const resultsMax2 = analyzer.findAffectedTests('a.js', 2);
-  assert.strictEqual(resultsMax2.length, 2);
-  resultsMax2.sort((x, y) => x.file.localeCompare(y.file));
-  assert.strictEqual(resultsMax2[0].file, 'a.test.js');
-  assert.strictEqual(resultsMax2[0].distance, 1);
-  assert.strictEqual(resultsMax2[0].source, 'graph');
-  assert.strictEqual(resultsMax2[1].file, 'b.test.js');
-  assert.strictEqual(resultsMax2[1].distance, 2);
-  assert.strictEqual(resultsMax2[1].source, 'heuristic');
+  // 外来深度必须绕过 fast path：不在图里的 b.test.js（仅存在于预计算 map）不得出现
+  const resultsMax1 = analyzer.findAffectedTests('a.js', 1);
+  assert.ok(
+    !resultsMax1.some((r) => r.file === 'b.test.js'),
+    `foreign-depth query must bypass the precomputed map, got ${JSON.stringify(resultsMax1)}`
+  );
+}
+
+// analysis_snapshots 必须受 CACHE_VERSION 门禁：旧版本语义算出的快照
+// （dead-exports 口径等随版本变化）不得在版本 bump 后继续被
+// buildProjectOverview 短路 / query-* 消费。行级 cache_version 戳 + load 门禁。
+function testGraphDBAnalysisSnapshotVersionGate() {
+  const dbPath = tmpDbPath();
+  let db = new GraphDB(dbPath);
+  assert.strictEqual(db.saveAnalysisSnapshot('overview', { marker: 1 }, 'head123', 10, 'cfg'), true);
+  const fresh = db.loadAnalysisSnapshot('overview');
+  assert.ok(fresh && fresh.data && fresh.data.marker === 1, 'current-version snapshot must load');
+  db.close();
+
+  // 模拟老 CACHE_VERSION 时代写入的快照行
+  const { DatabaseSync } = require('node:sqlite');
+  const raw = new DatabaseSync(dbPath);
+  raw.prepare('UPDATE analysis_snapshots SET cache_version = cache_version - 1').run();
+  raw.close();
+
+  db = new GraphDB(dbPath);
+  assert.strictEqual(db.loadAnalysisSnapshot('overview'), null, 'stale-version snapshot must NOT be served');
+  db.close();
+  fs.unlinkSync(dbPath);
 }
 
 // --- Run all ---
@@ -382,6 +412,7 @@ const tests = [
   testGraphDBPrecomputedTestMap,
   testAnalyzerInjectPrecomputedMetrics,
   testAnalyzerInjectPrecomputedTestMap,
+  testGraphDBAnalysisSnapshotVersionGate,
 ];
 
 let passed = 0;

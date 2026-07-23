@@ -146,10 +146,11 @@ async function testQueryToolsCacheHit() {
     const { buildProjectOverview } = require('../src/tools/overview-tools');
     const firstResult = await buildProjectOverview({}, container);
 
-    // 1b. Verify the persisted snapshot carries the current config hash
+    // 1b. Verify the persisted snapshot carries the current config hash.
+    // 断言打 analysis_snapshots 真表——precomputed_aggregates 里的镜像行已废除
+    // （它是 DELETE-全表上两个写入方互删的牺牲品，按构造不可靠）。
     const currentConfigHash = computeConfigHash(container.projectContext?.config || null);
-    const persistedRows = container.cache.loadPrecomputedAggregates() || [];
-    const persistedSnapshot = persistedRows.find((r) => r.key === 'analysis_snapshot');
+    const persistedSnapshot = container.cache.loadAnalysisSnapshot('overview');
     assert.ok(persistedSnapshot, 'buildProjectOverview should persist a snapshot');
     assert.strictEqual(persistedSnapshot.configHash, currentConfigHash, 'persisted snapshot should record current config hash');
 
@@ -175,15 +176,6 @@ async function testQueryToolsCacheHit() {
     const configHash = computeConfigHash(container.projectContext?.config || null);
 
     container.cache.saveAnalysisSnapshot('overview', mockPayload, gitHead, fileCount, configHash);
-    container.cache.savePrecomputedAggregates([
-      {
-        key: 'analysis_snapshot',
-        data: JSON.stringify(mockPayload),
-        version: gitHead,
-        fileCount,
-        configHash,
-      }
-    ]);
 
     const originalCheckFileChanges = container.cache.checkFileChanges;
     container.cache.checkFileChanges = () => ({ changed: false, changedFiles: [] });
@@ -213,6 +205,33 @@ async function testQueryToolsCacheHit() {
       const realGitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
       container.cache?.saveAnalysisSnapshot?.('overview', firstResult, realGitHead, fileCount, configHash);
     }
+  });
+}
+
+// @contract：precomputed_aggregates 单一写入方（savePrecomputed）。
+// 历史 bug：buildProjectOverview 落镜像行时经 DELETE-全表的 savePrecomputedAggregates
+// 清掉 deadExports/unresolved/cycles/stats；反向地，任何 graph:built 又清掉镜像行。
+// 两写入方互删 → runner 并发下 warm 聚合静默丢失。overview 不得再写这张表。
+async function testOverviewDoesNotClobberAggregates() {
+  await withContainer(async (container) => {
+    const seeded = [
+      { key: 'stats', data: JSON.stringify({ files: 1 }), version: 1, fileCount: 1 },
+    ];
+    assert.strictEqual(container.cache.savePrecomputedAggregates(seeded), true);
+    // 写入过期快照（head/fileCount 不匹配）强制 buildProjectOverview 走全量计算路径
+    container.cache.saveAnalysisSnapshot('overview', { stale: true }, 'stale-head', 1, 'stale-cfg');
+
+    const { buildProjectOverview } = require('../src/tools/overview-tools');
+    const result = await buildProjectOverview({}, container);
+    assert.strictEqual(result.ok, true);
+
+    const rows = container.cache.loadPrecomputedAggregates() || [];
+    assert.ok(
+      rows.some((r) => r.key === 'stats'),
+      `buildProjectOverview must not clobber precomputed aggregate keys, table now: ${JSON.stringify(rows.map((r) => r.key))}`
+    );
+    const snap = container.cache.loadAnalysisSnapshot('overview');
+    assert.ok(snap && snap.data && snap.data.hotspots, 'overview must persist its snapshot to analysis_snapshots');
   });
 }
 
@@ -280,6 +299,7 @@ async function main() {
   await testQueryStability();
   await testQueryStabilityFiltersByAssessment();
   await testQueryToolsCacheHit();
+  await testOverviewDoesNotClobberAggregates();
   await testQueryToolsFormatters();
   console.log('query-tools-test: all passed');
 }

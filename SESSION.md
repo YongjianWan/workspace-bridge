@@ -14,19 +14,26 @@
 
 ### 本轮完成
 1. **mixed repo L1/L2 评审修复**（详见 CHANGELOG 2026-07-23 条目）：`INFRA_PATTERNS` 词尾锚点 + `compose.yaml`/override 识别、`audit-file` 单查 infra 文件触达 L1、删除 `full.length` 静默丢弃守卫、unowned/changedStacks 判定去重复、dedupe 键回退 `name`、新增 `test/mixed-infra-commands-test.js`（7 用例，先 RED 后 GREEN）。
-2. **wave8 flaky 定性修正**：上轮"根因已确认/已修复"结论**不成立**——全量 runner（含 slow 层）后 wave8 首次运行仍失败（`44 !== 16`），失败运行自身重写缓存后再跑即过。真实形态：slow 层留下的共享 warm cache 状态与冷建图分歧，phase35/query-tools 污染只是其中一个来源。症状与 TECH_DEBT L1-3（warm/cold 路径语义分歧）同族。
-3. **TECH_DEBT L1-3 清零**（提交待入）：analyzer tier3 记录不参与「已使用」判定 + 仅隐式 importer 强制 `low`/`implicit-same-package`、orchestrator loadGraph 后重跑 `expandJavaPackageImports()`（顺带修掉 wildcard tier1 同样不落盘的另半病灶）、CACHE_VERSION 4→5、新契约测试 4 用例（TDD RED→GREEN）。活跃债务归零。TECH_DEBT 新增预防性约束：postProcess 注入的 importRecords 不落盘。
+2. **wave8 flaky 彻底根治**（三层病灶）：（a）预计算深度裸数字 `3` vs 查询默认 `CONFIG.DEFAULT_MAX_DEPTH=5`，统一引用同一常量；（b）`findAffectedTests` 的 `_testMapCache` fast path 增加 `maxDepth === CONFIG.DEFAULT_MAX_DEPTH` 强门禁并删除行级过滤——`mention` 终结符集合是 `maxDepth` 的函数，预计算 map 是按深度参数化的答案，非匹配深度绕过走冷路径活算；（c）终结符条目与冷路径 `terminator: true` Schema 对齐。
+3. **persistence 预计算旧缓存污染治理**：`savePrecomputed` 生成 `test_map` 前显式调用 `injectPrecomputedTestMap([])` 清场，彻底杜绝“旧图内存快照被再次写进新图 DB/缓存”的隐性问题；存盘后用新行刷新内存。
+4. **TECH_DEBT L1-3 清零**：analyzer tier3 记录不参与「已使用」判定 + 仅隐式 importer 强制 `low`/`implicit-same-package`、orchestrator loadGraph 后重跑 `expandJavaPackageImports()`、CACHE_VERSION 5→6。
+5. **analysis_snapshots 版本门禁**：该表此前是 CACHE_VERSION 的后门——版本 mismatch 只拒读不清表，旧语义快照在 head/count/config 匹配时被 overview 短路 / query-* 消费。现逐行盖 `cache_version` 戳（迁移 DEFAULT 0 自动作废存量行），`loadAnalysisSnapshot` 门禁拒收。
+6. **precomputed_aggregates 单一写入方**（runner 里 query-tools-test 间歇失败的真凶）：DELETE-全表语义上 `savePrecomputed` 与 `buildProjectOverview` 两写入方互删（后者还每次静默清空 warm 聚合预计算）。修法为删除：overview 镜像行写入与 query-tools 兼容回退全部移除，`analysis_snapshots` 是快照唯一归宿。
 
 ### 验证状态（2026-07-23 新鲜证据）
-- `npm run test:fast` **136/136 PASS** ✅（含新增 mixed-infra-commands-test）
+- **全量 runner 251/251 全绿** ✅（wave8 + query-tools 两个历史 flaky 根治后首次零失败；三轮 runner 迭代：250/251 wave8 挂 → 250/251 query-tools 挂 → 251/251）
+- `npm run test:fast` **137/137 PASS** ✅
 - `npx eslint .` exit 0 ✅
-- L1-3 前全量 runner（含 slow 层，721s）: 248/249（1 失败：wave8）
-- **L1-3 后全量 runner（含 slow 层，774s，CACHE_VERSION bump 全 fixture 冷重建）: 249/250**（唯一失败仍为 wave8，与修复前基线一致）
-- wave8 单独运行：slow 层刚跑完后第一次 FAIL，第二次 PASS（flaky 实锤，非稳定通过）
+- 新增契约测试：`affected-tests-testmap-terminator-test.js`（深度门禁 + Schema 同构）、`testGraphDBAnalysisSnapshotVersionGate`（版本门禁）、`testOverviewDoesNotClobberAggregates`（单一写入方）全部先 RED 后 GREEN ✅
 
 ### 待办
-- [ ] **重开**：wave8 runner/slow-cache 环境下 affected-tests 计数差异（44 vs 16）——上轮结论误判；L1-3 修复（Java 展开重跑）未治愈它，JS 仓库的 warm 分歧另有机制，需单独排查
+- [x] ~~wave8 runner/slow-cache 环境下 affected-tests 计数差异（44 vs 16）~~ → 2026-07-23 完成（深浅深度 mention 集合非单调递增性定位 + 深度门禁锁死）
 - [x] ~~TECH_DEBT L1-3 清零~~ → 2026-07-23 完成，见本轮完成 3
+
+### 本轮方法论教训
+- **"单独跑 PASS"证明不了 runner 环境**：wave8/query-tools 都要用 runner 自己的机制（warm cache 拷贝 + `WB_TEST_CACHE_DIR`）复现才算数；query-tools-test 不带 cacheDir，打的是真仓库默认缓存。
+- **后台跑 runner 必须全量日志落盘**（`> log 2>&1`），管道截尾会把失败断言详情丢掉。
+- 本轮五只 bug 同族：缓存拿旧语义答案冒充新鲜（哨兵过滤、深度错位、savePrecomputed 回环、快照免检版本、双写入方互删）。缓存修复的验收标准永远是"warm 输出与 cold 逐字节一致"。
 
 ---
 
@@ -274,19 +281,19 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（当前 L1 1 项：Java same-package 隐式边 build/loadGraph 路径语义不一致，2026-07-20 发现待设计决策；其余清零）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（2026-07-23：活跃债务全部清零，L1=0 / L2=0 / L3=0）
 
 ---
 
 ## 基线状态
 
-- 测试：**所有测试全部 PASS**；`npm run test:fast` **135/135 PASS**（~25s）。开发迭代首选 `npm run test:fast`。
+- 测试：**全量 runner 251/251 全绿**（2026-07-23，wave8/query-tools 历史 flaky 根治后首次零失败）；`npm run test:fast` **137/137 PASS**（~22s）。开发迭代首选 `npm run test:fast`。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.1.0**（以 `package.json` 为准）
 - 分支：`main`
 - 自身项目规模：~434 文件（以 `audit-overview` 实测为准）
 - 结构性指标：deadExports=0（原 `shadow-candidates.js` 的 `SHADOW_EXTS` 低置信误报已不再计入），cycles=0，unresolved=0，orphans=2（`.workspace-bridge.json` 作为 config 文件正常，以及 Windows 大小写不敏感路径 `agents.md`/`AGENTS.md` 被重复识别）；overview 维度：hotspots>0，knowledgeRisk 默认 `disabledReason: 'history-not-enabled'`，`--with-history` 启用
-- 架构债务：当前活跃 L1 **1 项**（Java same-package 隐式边 build/loadGraph 路径语义不一致，2026-07-20 发现，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）。
+- 架构债务：**活跃债务全部清零**（2026-07-23，L1-3 于本日关闭，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）。
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
 - Schema 冻结：**核心子集 `{ ok, error, severity, summary }` + `schemaVersion: "1.2.0"` 已冻结**
@@ -612,7 +619,7 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-07-20（dogfood 反馈 5 问题全部修复：regex-fallback 静默降级显式化、缓存随工具链失效（含 loadGraph 路径）、venv-aware python spawn、cycles per-SCC cap + sccCount、skill 副本同步；新发现 L1 债务 1 项（Java same-package build/loadGraph 路径分歧）录入 TECH_DEBT；`npm run test:fast` 135/135 PASS；schemaVersion: 1.2.0；version: 2.1.0）*
+*Last updated: 2026-07-23（wave8 + query-tools 两个历史 flaky 彻底根治：affected-tests 深度门禁 + 预计算深度常量统一 + savePrecomputed 清场 + analysis_snapshots 版本门禁 + precomputed_aggregates 单一写入方；CACHE_VERSION 5→6；全量 runner **251/251 全绿**；`npm run test:fast` 137/137 PASS；活跃债务清零；schemaVersion: 1.2.0；version: 2.1.0）*
 
 ---
 

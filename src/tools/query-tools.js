@@ -9,23 +9,22 @@ const { buildProjectOverview } = require('./overview-tools');
 const { computeConfigHash } = require('../utils/project-context');
 const { SCHEMA_VERSION } = require('../config/constants');
 
-const SNAPSHOT_KEY = 'analysis_snapshot';
-
 function findSnapshot(container) {
   try {
-    const newSnapshot = container.cache?.loadAnalysisSnapshot?.('overview');
-    if (newSnapshot) {
-      return {
-        key: 'analysis_snapshot',
-        data: JSON.stringify(newSnapshot.data),
-        version: newSnapshot.version,
-        fileCount: newSnapshot.fileCount,
-        configHash: newSnapshot.configHash,
-        computedAt: newSnapshot.computedAt,
-      };
-    }
-    const rows = container.cache?.loadPrecomputedAggregates?.() || [];
-    return rows.find((r) => r.key === SNAPSHOT_KEY) || null;
+    // analysis_snapshots is the single source of truth (version-gated in
+    // GraphDB.loadAnalysisSnapshot). The old precomputed_aggregates
+    // 'analysis_snapshot' fallback row is gone: it carried no cache_version
+    // stamp (bypassing the version gate) and was wiped by every graph:built
+    // full-replace write anyway.
+    const snapshot = container.cache?.loadAnalysisSnapshot?.('overview');
+    if (!snapshot) return null;
+    return {
+      data: JSON.stringify(snapshot.data),
+      version: snapshot.version,
+      fileCount: snapshot.fileCount,
+      configHash: snapshot.configHash,
+      computedAt: snapshot.computedAt,
+    };
   } catch (_) {
     return null;
   }

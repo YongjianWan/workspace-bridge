@@ -7,7 +7,11 @@
  * instead of each other.
  */
 
-const DEFAULT_AFFECTED_TESTS_DEPTH = 3; // default search depth for precomputing affected tests
+// Precompute MUST run at the same depth the query-side fast path is gated on
+// (analyzer.findAffectedTests serves the cached map only when
+// maxDepth === CONFIG.DEFAULT_MAX_DEPTH). A diverging constant here silently
+// poisons every warm affected-tests answer — that was wave8's second root cause.
+const { CONFIG } = require('./shared');
 
 /**
  * Register the 'graph:built' event listener that coordinates post-build
@@ -133,10 +137,12 @@ async function savePrecomputed(depGraph) {
 
     // Save test_map
     if (depGraph.cache.saveTestMap) {
+      // Force-clear in-memory map cache so findAffectedTests computes fresh cold answers against the new graph
+      depGraph.analyzer.injectPrecomputedTestMap([]);
       const testMaps = [];
       for (const [filePath] of depGraph.graph) {
         if (depGraph.isTestLikeFile(filePath)) continue;
-        const tests = depGraph.analyzer.findAffectedTests(filePath, DEFAULT_AFFECTED_TESTS_DEPTH, { includeHeuristic: true });
+        const tests = depGraph.analyzer.findAffectedTests(filePath, CONFIG.DEFAULT_MAX_DEPTH, { includeHeuristic: true });
         for (const t of tests) {
           const testFileNormalized = depGraph.normalizeFilePath(t.file);
           let signal = 'import';
@@ -153,6 +159,7 @@ async function savePrecomputed(depGraph) {
       }
       if (testMaps.length > 0) {
         depGraph.cache.saveTestMap(testMaps);
+        depGraph.analyzer.injectPrecomputedTestMap(testMaps);
       }
     }
   } catch (e) {

@@ -206,7 +206,8 @@ const SCHEMA = `
     version TEXT NOT NULL,
     file_count INTEGER NOT NULL,
     config_hash TEXT NOT NULL DEFAULT '',
-    computed_at INTEGER NOT NULL DEFAULT 0
+    computed_at INTEGER NOT NULL DEFAULT 0,
+    cache_version INTEGER NOT NULL DEFAULT 0
   );
 `;
 
@@ -413,6 +414,17 @@ class GraphDB {
       const aggregateCols = this.db.prepare('PRAGMA table_info(precomputed_aggregates)').all();
       if (aggregateCols.length > 0 && !aggregateCols.some((c) => c.name === 'config_hash')) {
         this.db.prepare("ALTER TABLE precomputed_aggregates ADD COLUMN config_hash TEXT NOT NULL DEFAULT ''").run();
+      }
+
+      // v6: stamp analysis_snapshots rows with the CACHE_VERSION they were
+      // computed under. analysis_snapshots survives the version-mismatch
+      // discard (loadAll returns null but deletes nothing), so without a
+      // per-row gate a version bump lets buildProjectOverview / query-*
+      // short-circuit on snapshots computed under obsolete semantics.
+      // DEFAULT 0 intentionally invalidates all pre-migration rows.
+      const snapshotCols = this.db.prepare('PRAGMA table_info(analysis_snapshots)').all();
+      if (snapshotCols.length > 0 && !snapshotCols.some((c) => c.name === 'cache_version')) {
+        this.db.prepare('ALTER TABLE analysis_snapshots ADD COLUMN cache_version INTEGER NOT NULL DEFAULT 0').run();
       }
 
     });
@@ -1091,10 +1103,10 @@ class GraphDB {
       try {
         this._ensureOpen();
         const stmt = this.db.prepare(
-          'INSERT OR REPLACE INTO analysis_snapshots (key, data, version, file_count, config_hash, computed_at) VALUES (?, ?, ?, ?, ?, ?)'
+          'INSERT OR REPLACE INTO analysis_snapshots (key, data, version, file_count, config_hash, computed_at, cache_version) VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         const now = Math.floor(Date.now() / 1000);
-        stmt.run(key, JSON.stringify(data), version || '', fileCount ?? 0, configHash || '', now);
+        stmt.run(key, JSON.stringify(data), version || '', fileCount ?? 0, configHash || '', now, CACHE_VERSION);
         return true;
       } catch (err) {
         _debugError('Save analysis snapshot', err);
@@ -1112,9 +1124,14 @@ class GraphDB {
       try {
         this._ensureOpen();
         const row = this.db.prepare(
-          'SELECT data, version, file_count, config_hash, computed_at FROM analysis_snapshots WHERE key = ?'
+          'SELECT data, version, file_count, config_hash, computed_at, cache_version FROM analysis_snapshots WHERE key = ?'
         ).get(key);
         if (!row) return null;
+        // Version gate: a snapshot computed under a different CACHE_VERSION
+        // encodes obsolete analysis semantics — never serve it. Consumers
+        // (buildProjectOverview short-circuit, query-*) treat null as a cache
+        // miss and recompute.
+        if (Number(row.cache_version) !== CACHE_VERSION) return null;
         return {
           data: JSON.parse(row.data),
           version: row.version,

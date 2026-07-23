@@ -159,4 +159,4 @@
 
 ---
 
-*Last updated: 2026-07-23（活跃债务清零：L1=0 / L2=0 / 架构债务=0 / L3=0；本轮 L1-3 清零：tier3 不参与已使用判定 + loadGraph 后重跑展开 + CACHE_VERSION 4→5 + 契约测试；新增预防性约束「postProcess 注入的 importRecords 不落盘」；npm run test:fast 136/136 PASS；全量 runner 249/250，唯一失败为 wave8 预存 flaky）*
+*Last updated: 2026-07-23（活跃债务清零：L1=0 / L2=0 / 架构债务=0 / L3=0；本轮 L1-3 清零：tier3 不参与已使用判定 + loadGraph 后重跑展开 + CACHE_VERSION bump + 契约测试；新增预防性约束「postProcess 注入的 importRecords 不落盘」；wave8 与 query-tools 历史 flaky 同日根治（深度门禁 + 版本戳门禁 + 单一写入方）；npm run test:fast 137/137 PASS；**全量 runner 251/251 全绿**）*

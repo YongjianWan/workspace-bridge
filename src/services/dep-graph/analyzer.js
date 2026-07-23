@@ -1500,21 +1500,35 @@ class GraphAnalyzer {
   findAffectedTests(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH, options = {}) {
     const start = this.dg.normalizeFilePath(filePath);
 
-    // Fast path: if cache has precomputed test map for this file, return it!
-    if (options?.includeHeuristic !== false && this._testMapCache && this._testMapCache.has(start)) {
+    // Fast path: serve the precomputed test map — ONLY for queries at the
+    // exact depth it was computed with (CONFIG.DEFAULT_MAX_DEPTH). The map is
+    // a depth-parametrized answer: at any other depth both the BFS frontier
+    // and the terminator set change (a test reachable at distance 3 is a
+    // 'graph' hit at depth 5 but a 'mention' terminator at depth 1), so no
+    // amount of row filtering can reproduce the cold path (wave8: cold 44 vs
+    // warm 16/23). Foreign depths fall through to live computation. At the
+    // matching depth no filtering is needed: stored graph rows are all
+    // <= maxDepth by construction.
+    if (
+      options?.includeHeuristic !== false &&
+      maxDepth === CONFIG.DEFAULT_MAX_DEPTH &&
+      this._testMapCache &&
+      this._testMapCache.has(start)
+    ) {
       const cached = this._testMapCache.get(start);
-      const filtered = cached.filter((c) => c.distance <= maxDepth);
-      if (filtered.length > 0) {
-        return filtered.map((c) => {
-          let source = 'graph';
-          if (c.signal === 'heuristic') source = 'heuristic';
-          else if (c.signal === 'mention') source = 'mention';
-
+      if (cached.length > 0) {
+        return cached.map((c) => {
+          if (c.signal !== 'heuristic' && c.signal !== 'mention') {
+            return { file: this.dg._displayPath(c.testFile), distance: c.distance, source: 'graph', via: [] };
+          }
+          // Terminator rows carry a sentinel distance, not a graph distance:
+          // remap to maxDepth+1 and flag, byte-for-byte matching cold-path schema.
           return {
             file: this.dg._displayPath(c.testFile),
-            distance: c.distance,
-            source,
-            via: source === 'graph' ? [] : [source === 'heuristic' ? 'heuristic:naming' : 'mention:stem'],
+            distance: maxDepth + 1,
+            source: c.signal,
+            via: [c.signal === 'heuristic' ? 'heuristic:naming' : 'mention:stem'],
+            terminator: true,
           };
         });
       }

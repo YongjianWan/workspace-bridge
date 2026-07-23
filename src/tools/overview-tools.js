@@ -261,25 +261,12 @@ async function buildProjectOverview(args, container) {
     const fileCount = result.scope?.counts?.totalFiles || 0;
     const configHash = computeConfigHash(container.projectContext?.config || null);
 
-    // Save to the new analysis_snapshots table
+    // analysis_snapshots is the ONLY home for the overview snapshot.
+    // Never write it into precomputed_aggregates: that table is full-replace
+    // (DELETE all + INSERT) and owned by savePrecomputed — a second writer
+    // wipes the aggregate keys here and gets its own row wiped by the next
+    // graph:built, so the "mirror" row was unreliable by construction.
     container.cache?.saveAnalysisSnapshot?.('overview', result, gitHead, fileCount, configHash);
-
-    // Keep writing to precomputed_aggregates for backwards-compatibility
-    const snapshotPayload = {
-      hotspots: result.hotspots,
-      knowledgeRisk: result.knowledgeRisk,
-      stability: result.stability,
-      languageSupport: result.languageSupport,
-      deadExports: result.deadExports,
-      unresolved: result.unresolved,
-      cycles: result.cycles,
-      orphans: result.orphans,
-      aggregates: result.aggregates,
-      summary: result.summary,
-    };
-    container.cache?.savePrecomputedAggregates?.([
-      { key: 'analysis_snapshot', data: JSON.stringify(snapshotPayload), version: gitHead, fileCount, configHash },
-    ]);
   } catch (_) {
     // Snapshot persistence is best-effort; never block the main flow
   }

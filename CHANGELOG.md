@@ -5,7 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
-## [Unreleased]
+### analysis_snapshots 版本门禁 + precomputed_aggregates 单一写入方 (2026-07-23)
+
+- **Fixed** `analysis_snapshots` 是 CACHE_VERSION 门禁的后门：版本 mismatch 时 `loadAll` 只拒读不清表，旧语义（如 v5 dead-exports 口径）算出的 overview 快照存活，gitHead/fileCount/configHash 恰好匹配时被 `buildProjectOverview` 短路 / `query-*` 直接消费。现 `analysis_snapshots` 逐行盖 `cache_version` 戳（`_migrate()` 加列，DEFAULT 0 自动作废所有存量行），`loadAnalysisSnapshot` 门禁拒收非当前版本行，消费方视为 cache miss 重算。
+- **Fixed** `precomputed_aggregates` 两写入方互删（runner 并发下 query-tools-test 间歇性失败的真凶）：该表是 DELETE-全表 + INSERT 语义，`savePrecomputed`（graph:built 触发）写 4 个聚合 key 时清掉 overview 的 `analysis_snapshot` 镜像行，`buildProjectOverview` 写镜像行时反向清掉 4 个聚合 key——后者还意味着 **overview 每次落库都静默清空 warm 聚合预计算**（长期存在的静默性能回退）。修法为删除：overview 不再写该表（`analysis_snapshots` 是快照唯一归宿），`query-tools` 的镜像行兼容回退一并删除（该行无版本戳，是版本门禁的第二个后门）。
+- **Added** `test/query-tools-test.js` 新契约用例 `testOverviewDoesNotClobberAggregates`：预置聚合 key → 强制 overview 全量计算 → 聚合 key 必须存活 + 快照落 `analysis_snapshots` 真表（TDD：先 RED 后 GREEN）。`testQueryToolsCacheHit` 断言改打 `analysis_snapshots` 真表。
+- **Added** `test/precomputed-roundtrip-test.js` 新契约用例 `testGraphDBAnalysisSnapshotVersionGate`：当前版本快照可读、篡改为旧版本后必须拒收。
+- **验证**：全量 runner **251/251 全绿**（wave8 与 query-tools 两个历史 flaky 全部根治后首次零失败）。
+
+### wave8 flaky 根治：affected-tests 深度门禁 + 预计算旧缓存污染清理 (2026-07-23)
+
+- **Fixed** `findAffectedTests` 中 `_testMapCache` fast path 的计数分歧（wave8 `44 !== 16`）：两层病灶——(a) 预计算深度是裸数字 `3`（persistence.js）而查询默认深度是 `CONFIG.DEFAULT_MAX_DEPTH = 5`，两个"默认"各过各的，现统一引用同一常量；(b) `mention` 启发式终结符集合是 `maxDepth` 的函数（深图条目在浅查询里会被冷路径重分类为 mention），预计算 map 是按深度参数化的答案，行级 `distance <= maxDepth` 过滤在数学上无法复现冷路径。现 fast path 仅在 `maxDepth === CONFIG.DEFAULT_MAX_DEPTH` 时服务且不做任何过滤（按构造无需），外来深度绕过走冷路径活算；同时给终结符加上 `terminator: true` 与冷路径 Schema 保持 100% 同构。
+- **Fixed** `savePrecomputed` 生成 `test_map` 时的旧内存快照污染：在算 `test_map` 之前先调用 `depGraph.analyzer.injectPrecomputedTestMap([])` 强清内存，确保 `findAffectedTests` 针对新图跑冷算，存盘后再用新结果刷新内存 cache。
+- **Changed** `CACHE_VERSION` 5→6：作废按 v5 存储的在非默认深度下缺项的 test_map 缓存。
+- **Added** `test/affected-tests-testmap-terminator-test.js` 契约测试：匹配深度出完整 map 与 `terminator: true`、外来深度（`maxDepth != DEFAULT`）强制 bypass fast path 走活算、`includeHeuristic: false` 不打终结符。
 
 ### L1-3 清零：Java same-package 隐式边 build/loadGraph 路径语义统一 (2026-07-23)
 
