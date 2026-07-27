@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### 评审跟进：CACHE_VERSION 门禁补漏 + 接线契约补测 (2026-07-27)
+
+对 `02ce28a`（L1-3）与 `eda0e8c`（wave8 + query-tools flaky）的复审产出。两个 commit 的语义修复都成立，漏的是同一类东西：**契约测试锁语义、不锁接线**。
+
+- **Fixed** `loader.js` 的 `CACHE_VERSION` 门禁在 `edgeMeta` 缺失时被整体跳过：原判断是 `if (edgeMeta) { ...三项校验... }`，即"没有元数据 = 没有要检查的东西"。但 `edgeMeta` 是 warm 路径上 CACHE_VERSION 的**唯一**执行点——`loadAll` 版本不匹配只返回 null 不清表，而 `loadEdges`/`loadTestMap`/`loadMetrics`/`loadRoutes`/`loadPrecomputedImpact` 全是直读表无版本检查。元数据缺失应当意味着"整张 DB 不可信"，现改为 `if (!edgeMeta) return false` 回落冷建。
+- **Fixed** `savePrecomputed` 在新图算不出任何 `test_map` 时跳过写入，而 `saveTestMap` 是 DELETE-全表 + INSERT 语义——DB 里留着上一次 build 的映射，内存却已被清空，下一个进程 `restorePrecomputed` 把旧图映射注入 analyzer 当新鲜的用（wave8 病族的另一个入口）。现无条件重写，与相邻 `saveRoutes` 早已注释说明的处理保持一致。
+- **Added** `test/orchestrator-warm-java-expansion-test.js` 接线契约测试：L1-3 的真实病灶是"loadGraph 成功后没人重跑 `expandJavaPackageImports()`"，但既有的 `java-same-package-dead-export-consistency-test.js` 自己手动调该方法，把 `orchestrator.js` 里那行删掉 4 个用例照样全绿（已实测确认）。新测试锁调用与顺序：warm 必跑且必须早于增量 delta，cold 不得重复跑。
+- **Added** `test/loader-edge-meta-gate-test.js` 与 `test/savepre-testmap-stale-clear-test.js` 契约测试（均先 RED 后 GREEN）。
+- **Fixed** `e2e-gitnexus-test.js` 在 `reference/GitNexus`（本地 gitignored fixture）缺失时硬 FAIL——任何干净 clone 或 git worktree 里跑全量 runner 都会挂在这条，且报错长得像真回归。现缺 fixture 时 SKIP。
+- **Changed** `cli-integration-query-test.js` 清理已废除的 `precomputed_aggregates` `analysis_snapshot` 镜像行预置：该路径上个 commit 已删除，残留 fixture 会让人以为它仍受支持。
+
 ### Stage 4 Step 1：Pre-scan 全局符号映射完成 (Pilot: JS/TS + Python) (2026-07-23)
 
 - **Fixed** `dep-graph.js` 的 `loadGraph()` 载入 SQLite 节点后恢复缺失 `SymbolRegistry` 的死穴 bug，实现 Warm / Cold 路径 100% 相同同构性。

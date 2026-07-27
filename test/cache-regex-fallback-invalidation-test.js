@@ -9,6 +9,7 @@ const os = require('os');
 const path = require('path');
 const { DependencyGraph } = require('../src/services/dep-graph');
 const { GraphBuilder } = require('../src/services/dep-graph/builder');
+const { CACHE_VERSION } = require('../src/config/constants');
 
 function makeTmpFile(content) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-degraded-'));
@@ -120,12 +121,22 @@ function testIsParseCacheUsableMatrix() {  const dg = DependencyGraph.fromSchema
 }
 
 function stubLoaderCache(dg, parseResults) {
+  const fileMetadata = new Map();
   dg.cache = {
     checkFileChanges: () => ({ changed: false, changedFiles: [] }),
     loadEdges: () => [{ source: 'a.js', target: 'b.js', edgeType: 'import' }],
-    edgeMeta: null,
+    // A valid edgeMeta is required to reach the parseMode branch under test:
+    // loadGraph now rejects edges whose metadata is missing, because edgeMeta
+    // is the only place CACHE_VERSION is enforced on the warm path
+    // (see loader-edge-meta-gate-test.js). This stub previously passed null,
+    // which only worked while that gate was skippable.
+    edgeMeta: {
+      cacheVersion: CACHE_VERSION,
+      fileMetadataCount: fileMetadata.size,
+      parseResultsCount: parseResults.size,
+    },
     parseResults,
-    fileMetadata: new Map(),
+    fileMetadata,
     getFileMetadata: () => null,
   };
 }

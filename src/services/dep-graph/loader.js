@@ -42,13 +42,17 @@ function loadGraph(depGraph, options = {}) {
     return false;
   }
 
-  // Validate persisted edge metadata for coarse staleness detection
+  // Validate persisted edge metadata for coarse staleness detection.
+  // edgeMeta is the ONLY place CACHE_VERSION is enforced on the warm path:
+  // GraphDB.loadAll returns null on a version mismatch but deletes nothing, and
+  // loadEdges/loadTestMap/loadMetrics/loadRoutes/loadPrecomputedImpact all read
+  // their tables raw. So "no metadata" must mean "don't trust the tables" —
+  // treating it as "nothing to check" would load an arbitrary-version graph.
   const edgeMeta = depGraph.cache.edgeMeta;
-  if (edgeMeta) {
-    if (edgeMeta.cacheVersion !== CACHE_VERSION) return false;
-    if (edgeMeta.fileMetadataCount !== depGraph.cache.fileMetadata.size) return false;
-    if (edgeMeta.parseResultsCount !== depGraph.cache.parseResults.size) return false;
-  }
+  if (!edgeMeta) return false;
+  if (edgeMeta.cacheVersion !== CACHE_VERSION) return false;
+  if (edgeMeta.fileMetadataCount !== depGraph.cache.fileMetadata.size) return false;
+  if (edgeMeta.parseResultsCount !== depGraph.cache.parseResults.size) return false;
 
   // Degraded parse entries (external AST toolchain was missing, e.g. no
   // javalang) are never trusted from persistence: the toolchain may have

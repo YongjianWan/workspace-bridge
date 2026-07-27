@@ -72,20 +72,12 @@ async function testQueryCommandsE2E() {
     };
 
     // Open and write to the isolated DB
-    let db = new GraphDB(dbPath);
-    let rows = db.loadPrecomputedAggregates() || [];
-    db.close();
-
-    db = new GraphDB(dbPath);
+    const db = new GraphDB(dbPath);
+    // analysis_snapshots is the only home for the overview snapshot. The old
+    // precomputed_aggregates 'analysis_snapshot' mirror row was abolished
+    // (two writers on a DELETE-all table wiped each other); don't reseed it here
+    // or this fixture reads as if that path were still supported.
     db.saveAnalysisSnapshot('overview', mockPayload, gitHead, 2, '');
-    const updatedRows = rows.filter(r => r.key !== 'analysis_snapshot');
-    updatedRows.push({
-      key: 'analysis_snapshot',
-      data: JSON.stringify(mockPayload),
-      version: gitHead,
-      fileCount: 2
-    });
-    db.savePrecomputedAggregates(updatedRows);
     db.close();
 
     /* =========================================================================

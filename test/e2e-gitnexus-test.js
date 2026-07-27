@@ -5,9 +5,11 @@
  * Verifies workspace-bridge produces valid output on non-trivial repositories.
  */
 const assert = require('assert');
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { TIMEOUTS } = require('../src/config/constants');
+const { DEFAULTS } = require('../src/config/defaults');
 const { runCliInProcess } = require('./test-helpers');
 
 const GITNEXUS_ROOT = path.join(__dirname, '..', 'reference', 'GitNexus');
@@ -31,13 +33,24 @@ async function testAuditSummaryOnGitNexus() {
   assert(Array.isArray(result.unresolved?.unresolved), 'unresolved array should be present');
   assert(Array.isArray(result.cycles?.cycles), 'cycles array should be present');
 
-  // High-signal cross-field consistency assertions
-  assert.strictEqual(result.summary?.counts?.deadExports, result.deadExports.deadExports.length, 'deadExports count should match deadExports array length');
-  assert.strictEqual(result.summary?.counts?.unresolved, result.unresolved.unresolved.length, 'unresolved count should match unresolved array length');
-  assert.strictEqual(result.summary?.counts?.cycles, result.cycles.cycles.length, 'cycles count should match cycles array length');
+  // High-signal cross-field consistency assertions.
+  // JSON output elides arrays at JSON_OUTPUT_MAX_ARRAY_ITEMS (elideDeep) while
+  // summary.counts carries true totals: below the cap they must be equal,
+  // above it the array must sit exactly at the cap.
+  const cap = DEFAULTS.JSON_OUTPUT_MAX_ARRAY_ITEMS;
+  assert.strictEqual(result.deadExports.deadExports.length, Math.min(result.summary?.counts?.deadExports, cap), 'deadExports array length should match counts (elided at cap)');
+  assert.strictEqual(result.unresolved.unresolved.length, Math.min(result.summary?.counts?.unresolved, cap), 'unresolved array length should match counts (elided at cap)');
+  assert.strictEqual(result.cycles.cycles.length, Math.min(result.summary?.counts?.cycles, cap), 'cycles array length should match counts (elided at cap)');
 }
 
 async function main() {
+  // reference/GitNexus is a local, gitignored fixture. Without this guard the
+  // full runner hard-FAILs on any clean clone (and in any git worktree) with a
+  // "Directory not found" that looks like a real regression.
+  if (!fs.existsSync(GITNEXUS_ROOT)) {
+    console.log(`e2e-gitnexus-test.js: SKIP (fixture not present at ${GITNEXUS_ROOT})`);
+    return;
+  }
   await testAuditSummaryOnGitNexus();
   console.log('e2e-gitnexus-test.js: all passed');
 }

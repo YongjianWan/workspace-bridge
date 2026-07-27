@@ -157,10 +157,12 @@ async function savePrecomputed(depGraph) {
           });
         }
       }
-      if (testMaps.length > 0) {
-        depGraph.cache.saveTestMap(testMaps);
-        depGraph.analyzer.injectPrecomputedTestMap(testMaps);
-      }
+      // Always write, even when empty — saveTestMap is DELETE-all + INSERT, so
+      // skipping on an empty result leaves the PREVIOUS build's map in the table
+      // while memory holds none. The next process would restore that stale map
+      // and serve it as fresh (same disease as wave8). Mirrors saveRoutes above.
+      depGraph.cache.saveTestMap(testMaps);
+      depGraph.analyzer.injectPrecomputedTestMap(testMaps);
     }
   } catch (e) {
     if (process.env.DEBUG) {

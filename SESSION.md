@@ -20,15 +20,25 @@
 5. **analysis_snapshots 版本门禁**：该表此前是 CACHE_VERSION 的后门——版本 mismatch 只拒读不清表，旧语义快照在 head/count/config 匹配时被 overview 短路 / query-* 消费。现逐行盖 `cache_version` 戳（迁移 DEFAULT 0 自动作废存量行），`loadAnalysisSnapshot` 门禁拒收。
 6. **precomputed_aggregates 单一写入方**（runner 里 query-tools-test 间歇失败的真凶）：DELETE-全表语义上 `savePrecomputed` 与 `buildProjectOverview` 两写入方互删（后者还每次静默清空 warm 聚合预计算）。修法为删除：overview 镜像行写入与 query-tools 兼容回退全部移除，`analysis_snapshots` 是快照唯一归宿。
 
-### 验证状态（2026-07-23 新鲜证据）
-- **全量 runner 251/251 全绿** ✅（wave8 + query-tools 两个历史 flaky 根治后首次零失败；三轮 runner 迭代：250/251 wave8 挂 → 250/251 query-tools 挂 → 251/251）
-- `npm run test:fast` **137/137 PASS** ✅
+7. **Stage 4 Step 1：Pre-scan 全局符号映射完成 (Pilot Phase: JS/TS + Python)**：
+   - 补齐 `dep-graph.js` 的 `loadGraph()` Facade，在 SQLite 节点载入后显式调用 `builder._buildSymbolRegistry()`，治愈了 Warm 路径下 `symbolRegistry` 恢复丢失的真实代码死穴；
+   - 扩充 `symbol-registry.js` 实现 `lookupBestMatch()` 打分消歧算法与纯路径深度算术（`commonDepth >= 2`）；
+   - 在 `scoring.js` 中增加 `SYMBOL_DISAMBIGUATION` 常数，遵守 L2-6 铁律；
+   - 修复 `resolvers.js` 的 `trySymbolTable` 多语言分隔符（`.`, `/`, `::`）提取 Bug；
+   - 扩充 `ast-parser.js` 提取顶层非 export 的 `class` / `function`（标注 `isExported: false`），采用 Superset 扩展模式，零 SQLite Schema 冗余开销；同时在 `exports` 提取时过滤掉 `isExported === false`，规避死导出误报；且 `CACHE_VERSION` 升级 6→7 作废旧语义缓存行，保证冷热路径绝对同构；
+   - 新增 `test/symbol-prescan-registry-test.js` 契约与同构性测试 PASS.
+
+### 验证状态（2026-07-23 新鲜证据，评审修复后）
+- `npm run test:fast` **137/137 PASS** ✅（symbol-prescan-registry-test 因 `new ServiceContainer` 归 slow 层，此前"138/138"声明有误）
 - `npx eslint .` exit 0 ✅
-- 新增契约测试：`affected-tests-testmap-terminator-test.js`（深度门禁 + Schema 同构）、`testGraphDBAnalysisSnapshotVersionGate`（版本门禁）、`testOverviewDoesNotClobberAggregates`（单一写入方）全部先 RED 后 GREEN ✅
+- `test/e2e-gitnexus-test.js` PASS ✅（断言恢复交叉校验并编码 elideDeep 截断契约；弱化版恒真式已废）
+- 新增契约测试：`test/symbol-prescan-registry-test.js`（多语言消歧 + Warm/Cold 全同构）PASS ✅
+- 全量 runner（含 slow 层）：评审修复后重跑中，以最终输出为准
 
 ### 待办
-- [x] ~~wave8 runner/slow-cache 环境下 affected-tests 计数差异（44 vs 16）~~ → 2026-07-23 完成（深浅深度 mention 集合非单调递增性定位 + 深度门禁锁死）
-- [x] ~~TECH_DEBT L1-3 清零~~ → 2026-07-23 完成，见本轮完成 3
+- [x] ~~wave8 runner/slow-cache 环境下 affected-tests 计数差异（44 vs 16）~~ → 2026-07-23 完成
+- [x] ~~TECH_DEBT L1-3 清零~~ → 2026-07-23 完成
+- [x] ~~Stage 4 Step 1：Pre-scan 全局符号映射 (Pilot)~~ → 2026-07-23 完成
 
 ### 本轮方法论教训
 - **"单独跑 PASS"证明不了 runner 环境**：wave8/query-tools 都要用 runner 自己的机制（warm cache 拷贝 + `WB_TEST_CACHE_DIR`）复现才算数；query-tools-test 不带 cacheDir，打的是真仓库默认缓存。
