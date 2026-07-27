@@ -1,6 +1,9 @@
 /**
  * debug — internal diagnostic commands for development and verification.
  */
+// Cap the duplicate list so a pathological repo cannot explode the payload.
+const MAX_DEBUG_DUPLICATE_SYMBOLS = 50;
+
 async function debugCmd(parsed, container) {
   await container.ensureReady();
 
@@ -12,21 +15,16 @@ async function debugCmd(parsed, container) {
       return { ok: false, error: 'Symbol registry not available' };
     }
     const stats = registry.getRegistryStats();
-    const duplicates = [];
-    for (const [name, locations] of registry.exports) {
-      if (locations.length > 1) {
-        duplicates.push({ name, count: locations.length, files: locations.map((l) => l.file) });
-      }
-    }
-    // Sort by count desc, limit to top 50 to avoid output explosion
-    duplicates.sort((a, b) => b.count - a.count);
-    const topDuplicates = duplicates.slice(0, 50);
+    // Registry owns the definition of "duplicate" (exported-from-2+-files);
+    // walking registry.exports here would report private declarations and
+    // disagree with stats.duplicateSymbols in the same payload.
+    const duplicates = registry.getDuplicateSymbols();
 
     return {
       ok: true,
       what: 'symbols',
       stats,
-      duplicates: topDuplicates,
+      duplicates: duplicates.slice(0, MAX_DEBUG_DUPLICATE_SYMBOLS),
       duplicateCount: duplicates.length,
     };
   }

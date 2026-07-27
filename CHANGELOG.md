@@ -5,6 +5,14 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### warm 路径后处理泛化 + `debug --what symbols` 重复符号口径修正 (2026-07-28)
+
+- **Fixed** `orchestrator.js` 的 warm 分支写死 `expandJavaPackageImports()`，而 `build()` 是遍历 `postProcessPhases` 数组——**任何经 `registerPostProcessPhase()` 注册的新阶段在 warm 路径被静默跳过**，L1-3 正是这个形状的第一例。现两条路径共用 `builder.runPostProcessPhases()`，"注册即两路径生效"从纪律变成机制。阶段作者的契约（幂等）写进方法文档。`orchestrator-warm-java-expansion-test.js` 借用真实 `runPostProcessPhases` 实现 + 假 phases 列表，新增用例锁自定义阶段必须在 warm 重放（变异验证：只跑 java 阶段 → RED）。
+- **Fixed** `debug --what symbols` 直接遍历 `registry.exports` 原始 locations 统计重复符号，不过滤 `isExported: false`：同一份 JSON 里 `duplicateCount`（未过滤）与 `stats.duplicateSymbols`（已过滤）自相矛盾，且把本仓 227 个测试文件各自私有的 `function main()` 报成"重复符号"。这条命令的全部用途就是找同名碰撞。现新增 `SymbolRegistry.getDuplicateSymbols()` 作为"重复"的唯一定义，`getRegistryStats()` 与 debug 命令都走它（实测本仓 86/86 一致，top 重复为 28 个语言模块各自导出的 `language`/`framework` 等真碰撞）。
+- **Added** `test/debug-symbols-command-test.js`：该命令此前零测试。四条契约——私有声明不算重复、`duplicateCount` 与 `stats.duplicateSymbols` 必须描述同一集合、一导出一私有不算碰撞、registry 缺失时干净报错。
+- **Changed** `builder.js` 的第二次 `_buildSymbolRegistry()` 加实测注释：两次调用产出同 hash（2193 符号），当前纯重复，但保留为 fail-safe 方向，删除需先立"post-process 阶段不得注入 exportRecords"的契约。
+- **Changed** `docs/dogfood.md` 四处基于空数据的过期判断作废：`debug` 曾被标记"🔴 应废弃（symbolCount=0，graph 不支持）"，实测 symbols/graph 均有真实数据——原结论建立在符号表功能尚未落地时。
+
 ### symbol-table 外部依赖闸：本仓 209 条假边清零 (2026-07-27)
 
 `trySymbolTable` 挂在每条 resolver 链的链尾，也就是说**凡是解析不到文件的 import 都会拿末段名字去全局符号表赌一把**——第三方依赖天然全部走这条路。实测代价（本仓 dogfood）：

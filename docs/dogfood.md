@@ -10,7 +10,7 @@
 |------|------|---------|
 | **`health`** | 明确 deprecated（help 文本已写 `use audit-summary --health-only`）；数据与 `audit-summary.health` 完全重合 | 直接用 `audit-summary` |
 | **`stats`** | Markdown 格式完全损坏（`[object Object]`）；JSON 数据极度 raw（files/imports/exports/cycles/lines），`audit-map --compact` 和 `audit-overview` 提供更有价值的统计；唯一独特字段 `totalLines` 对决策无帮助 | `audit-map --compact` 或 `audit-overview` |
-| **`debug --what symbols`** | 当前项目 symbolCount=0；`--what graph` 直接报错 `Supported: symbols`；日常审计从不使用 | 无（调试专用，但当前无数据） |
+| ~~**`debug --what symbols`**~~ | ~~symbolCount=0；`--what graph` 直接报错~~ **判断已作废（2026-07-28 复核）**：预扫描符号表 2026-07-23 落地后 `symbolCount=2192 / fileCount=433 / duplicateSymbols=86`，`--what graph` 亦已支持（`fileCount=445 / edgeCount=950`）。原结论建立在功能尚未存在时的空数据上。 | 保留 |
 | **`diagnostics`** | `quick` 模式只检测 linter 是否存在；`full` 模式返回 `checksRun: 0`（未执行任何检查）；**这个命令实际上没有诊断任何东西** | 无 |
 
 **具体证据**：
@@ -101,7 +101,7 @@ node cli.js impact --file src/services/container.js --quiet
 |------|----------------|----------------------|
 | `health` | 与 audit-summary 完全重合 | ✅ 设计如此（已标记 deprecated） |
 | `stats` | Markdown 损坏 + 数据 raw | 🐛 **实现缺陷**（formatter 未处理嵌套对象） |
-| `debug` | symbolCount=0，graph 不支持 | ⚠️ 可能设计如此（symbol registry 未在本项目启用） |
+| `debug` | ~~symbolCount=0，graph 不支持~~ → 2026-07-28 复核：symbols 与 graph 均有真实数据 | ✅ 已有数据（符号表 2026-07-23 落地） |
 | `diagnostics` | full 模式 checksRun=0 | 🐛 **实现缺陷**（full 模式未实际执行检查） |
 | `repl` 缺 `tree` | CLI 有但 repl 无 | 🐛 **实现缺陷**（命令注册表不完整） |
 | `--format json` 无效 | `--json` 有效但 `--format json` 无效 | 🐛 **实现缺陷**（formatter 参数被忽略） |
@@ -706,7 +706,7 @@ mkdir -p /tmp/empty && node cli.js audit-summary --cwd /tmp/empty --quiet
 | 16 | `dependencies --file` | ✅ | `container.js` → 10 个直接依赖 | 无 |
 | 17 | `dependents --file` | ✅ | `container.js` ← 9 个直接依赖方 | 无 |
 | 18 | `stats` | ✅ | `--json` 格式完整；**`--format markdown` 输出 `[object Object]`** | 🐛 **Bug：Markdown formatter 未序列化嵌套对象** |
-| 19 | `debug --what symbols` | ✅ | symbolCount=0（本项目无全局符号表数据） | ⚠️ `--what graph` 报错 `Unknown debug target`，仅支持 `symbols` |
+| 19 | `debug --what symbols` | ✅ | 2026-07-28 复核：symbolCount=2192、duplicateSymbols=86（曾为 0，因功能未落地） | ✅ `--what graph` 已支持 |
 
 ---
 
@@ -1033,7 +1033,7 @@ JSON 中正确的字段名是 `ruleId`，但 Markdown 输出中显示的是 `js-
 | **`health`** | 🔴 应废弃 | 数据与 audit-summary 完全重合，已 deprecated |
 | **`stats`** | 🔴 应废弃 | Markdown 损坏，JSON 数据 raw，audit-map/audit-overview 覆盖 |
 | **`diagnostics`** | 🔴 应废弃 | full 模式空转（checksRun: 0），quick 模式无价值 |
-| **`debug`** | 🔴 应废弃 | symbolCount=0，graph 不支持，对 AI 决策零贡献 |
+| **`debug`** | ✅ 保留 | 2026-07-28 复核推翻原废弃判断：symbols/graph 均有真实数据，`duplicates` 是查同名符号碰撞的唯一入口 |
 | **`workspace-info`** | 🟡 价值极低 | 信息已在 audit-summary.meta 中；唯一价值是预热 |
 | **`impact`** | 🟡 被覆盖 | audit-file --json 已包含完整 impact 数据 |
 | **`affected-tests`** | 🟡 被覆盖 | audit-file --json 已包含完整 affectedTests 数据 |

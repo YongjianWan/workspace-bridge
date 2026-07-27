@@ -133,12 +133,14 @@ async function initializeDepGraph({
   if (!loaded) {
     await depGraph.build(fileIndex?._indexedFiles || null);
   } else {
-    // L1-3: persisted parse_results lack the postProcess java expansion
-    // records (tier1 wildcard-resolved + tier3 same-package) because
-    // setParseResult runs before postProcess. Re-run the expansion so the
-    // warm path is semantically identical to a fresh build; it strips and
-    // rebuilds idempotently and early-returns on non-Java projects.
-    await depGraph.builder.expandJavaPackageImports();
+    // L1-3: persisted parse_results lack postProcess-injected importRecords
+    // (java tier1 wildcard-resolved + tier3 same-package) because
+    // setParseResult runs before postProcess. Replay the whole phase list so
+    // the warm path is semantically identical to a fresh build. Replaying the
+    // list — not one hardcoded phase — is the point: anything registered via
+    // registerPostProcessPhase() would otherwise be silently skipped here,
+    // which is exactly how L1-3 happened. Phases are idempotent by contract.
+    await depGraph.builder.runPostProcessPhases();
 
     // Hybrid path: edges loaded — compute delta and incrementally update
     const indexedFiles = new Set(fileIndex?._indexedFiles || []);

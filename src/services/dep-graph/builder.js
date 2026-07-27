@@ -40,6 +40,25 @@ class GraphBuilder {
     this._walCadence = new WalCadence();
   }
 
+  /**
+   * Run every registered post-process phase in registration order.
+   *
+   * Single entry point for both graph paths: `build()` calls it after the
+   * resolve phase, and the warm path (orchestrator, after a successful
+   * `loadGraph()`) replays it because postProcess-injected importRecords are
+   * never persisted — `setParseResult` runs before postProcess. Hardcoding one
+   * phase at the warm call site is what let L1-3 happen; anything registered
+   * through `registerPostProcessPhase()` must reach both paths automatically.
+   *
+   * Contract for phase authors: phases must be idempotent (the warm path may
+   * run them over a graph that already contains their output).
+   */
+  async runPostProcessPhases() {
+    for (const phase of this.postProcessPhases) {
+      await phase.fn();
+    }
+  }
+
   registerPostProcessPhase(phase) {
     if (typeof phase === 'function') {
       this.postProcessPhases.push({ fn: phase });
@@ -179,9 +198,7 @@ class GraphBuilder {
     }
 
     // P105: run post-process phases (framework implicit imports, etc.)
-    for (const phase of this.postProcessPhases) {
-      await phase.fn();
-    }
+    await this.runPostProcessPhases();
 
     // Filter out non-value imports (type-only, interface, annotation, lazy/dynamic)
     this._filterNonValueImports();
@@ -204,7 +221,14 @@ class GraphBuilder {
       this.onBuildComplete({ fileCount: this.dg.graph.size, cacheHitRate });
     }
 
-    // Wave 1: build global symbol registry from exportRecords
+    // Wave 1: rebuild the global symbol registry from exportRecords.
+    // 2026-07-28 measured on this repo: identical output to the pre-resolve
+    // build above (same 2193 symbols, same hash) — nothing between the two
+    // calls mutates exportRecords today. Kept anyway because it is the
+    // fail-safe direction: a post-process phase that ever injects export
+    // records must not leave a stale registry behind, and a rebuild costs
+    // milliseconds. Delete only together with a contract that forbids phases
+    // from touching exportRecords.
     this._buildSymbolRegistry();
 
     // D1-D2: persist edges to SQLite for fast loadGraph() on next startup

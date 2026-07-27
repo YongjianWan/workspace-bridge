@@ -8,10 +8,15 @@
 // - warm 路径（loadGraph 返回 true）必须重跑 expandJavaPackageImports()
 // - 且必须在增量 delta 更新之前跑（updateFiles 的 postProcess 要基于一致的基线）
 // - cold 路径（loadGraph 返回 false）不得重复跑——build() 内部的 postProcess 已经做了
+// 2026-07-28 泛化：warm 分支曾写死 expandJavaPackageImports()，于是任何通过
+// registerPostProcessPhase() 注册的新阶段在 warm 路径被静默跳过（第三个阶段
+// 会继续掉）。现在两条路径都遍历同一个 postProcessPhases 数组，本测试借用
+// GraphBuilder 的真实 runPostProcessPhases 实现来锁这条契约。
 const assert = require('assert');
 const { initializeDepGraph } = require('../src/services/orchestrator');
+const { GraphBuilder } = require('../src/services/dep-graph/builder');
 
-function makeHarness({ loaded, changedFiles = [] }) {
+function makeHarness({ loaded, changedFiles = [], extraPhases = [] }) {
   const calls = [];
   const depGraph = {
     loadGraph: () => {
@@ -25,9 +30,18 @@ function makeHarness({ loaded, changedFiles = [] }) {
       calls.push('updateFiles');
     },
     builder: {
-      expandJavaPackageImports: async () => {
-        calls.push('expandJavaPackageImports');
-      },
+      // Real implementation, fake phase list: the wiring under test is
+      // "warm replays the registered phases", not "warm calls one method".
+      runPostProcessPhases: GraphBuilder.prototype.runPostProcessPhases,
+      postProcessPhases: [
+        {
+          id: 'expand-java-packages',
+          fn: async () => {
+            calls.push('expandJavaPackageImports');
+          },
+        },
+        ...extraPhases,
+      ],
     },
     analyzer: {
       precomputeAggregates: () => {
@@ -96,10 +110,26 @@ async function testColdPathDoesNotDoubleExpand() {
   );
 }
 
+async function testWarmPathReplaysCustomRegisteredPhases() {
+  const calls2 = [];
+  const { calls, args } = makeHarness({
+    loaded: true,
+    extraPhases: [{ id: 'custom-phase', fn: async () => { calls2.push('custom-phase'); } }],
+  });
+  await initializeDepGraph(args);
+
+  assert.deepStrictEqual(
+    calls2,
+    ['custom-phase'],
+    `a phase registered via registerPostProcessPhase() must also run on the warm path, got ${JSON.stringify(calls)}`
+  );
+}
+
 async function main() {
   await testWarmPathReExpandsBeforeDelta();
   await testWarmPathWithoutDeltaStillExpands();
   await testColdPathDoesNotDoubleExpand();
+  await testWarmPathReplaysCustomRegisteredPhases();
   console.log('orchestrator-warm-java-expansion-test: all passed');
 }
 

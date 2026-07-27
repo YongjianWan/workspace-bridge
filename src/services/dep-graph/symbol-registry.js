@@ -176,18 +176,38 @@ class SymbolRegistry {
   }
 
   /**
+   * Names exported from more than one file, most-collided first.
+   *
+   * Single source of truth for "duplicate symbol": prescan registers every
+   * top-level declaration (isExported: false) so lookups can see them, but a
+   * private declaration shares nothing — 227 test files each declaring their
+   * own `main` is not a collision. Every consumer must go through here rather
+   * than walking `this.exports` raw.
+   *
+   * @param {{limit?:number}} [options]
+   * @returns {Array<{name:string,count:number,files:string[]}>}
+   */
+  getDuplicateSymbols({ limit } = {}) {
+    const duplicates = [];
+    for (const [name, locations] of this.exports) {
+      const exported = locations.filter((loc) => loc.isExported !== false);
+      if (exported.length > 1) {
+        duplicates.push({ name, count: exported.length, files: exported.map((loc) => loc.file) });
+      }
+    }
+    duplicates.sort((a, b) => b.count - a.count);
+    return typeof limit === 'number' ? duplicates.slice(0, limit) : duplicates;
+  }
+
+  /**
    * Get registry statistics.
    * @returns {{symbolCount:number,fileCount:number,duplicateSymbols:number}}
    */
   getRegistryStats() {
-    let duplicateSymbols = 0;
-    for (const locations of this.exports.values()) {
-      if (locations.filter((loc) => loc.isExported !== false).length > 1) duplicateSymbols++;
-    }
     return {
       symbolCount: this.exports.size,
       fileCount: this.files.size,
-      duplicateSymbols,
+      duplicateSymbols: this.getDuplicateSymbols().length,
     };
   }
 
