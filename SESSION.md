@@ -19,15 +19,19 @@
 4. **CACHE_VERSION 门禁收敛**（P2，架构-2 清零）：`_readGuard` 成为 11 个读入口的唯一闸口，`_stampVersionIfUnset` 补齐写侧出处。人工审计逮到漏网的 `findAffectedHttpRoutes`（递归 CTE 直读 edges+routes，名字里没有 `load`）。
 5. **文档**：`docs/TECH_DEBT.md` 从"0 项"改为如实登记（现 5 项活跃）；`docs/dogfood.md` 四处基于空数据的过期判断作废（`debug` 曾被判"🔴 应废弃"，实测 symbols 2192 / graph 445 文件均有真实数据）。
 
+6. **warm/cold 同构契约**（`22fdfff`，架构-1 降级为约束）：`warm-cold-parity-test.js` 比较可观察输出而非内部字段，并断言第二次启动 `build()` 调用数为 0（否则 warm 静默回落 cold 时测试会退化成"cold 比 cold"）。刻意未做 `finalize()` 抽取，理由见 TECH_DEBT。
+7. **resolver 精度基准 + Rust 外部闸**（P3）：`scripts/resolver-precision.js` 首测五仓——**JS/TS/Python 四仓 symbol-table 贡献恒为 0，Rust 的 qartez-mcp 却是 361/642 = 56%**，其中 156 条 crate 绝对路径正确、48 条是 `std::`/`rmcp::`/`tokio::` 假边。补 Rust 闸后 361→313，正好少 48，正确边未伤。`CACHE_VERSION` 9→10。新记 L2-12：剩下的 127 条 `super::` + 26 条 `crate::` 本该由结构解析算出，靠猜名字命中说明 `resolvers/rust.js` 有覆盖缺口。
+
 ### 验证状态
-- `npm test` 全量三轮全绿：255/255（745s）→ 255/255（807s）→ 256/256（818s）；P2 轮见下一次记录。
+- `npm test` 全量六轮全绿：255/255（745s）→ 255/255（807s）→ 256/256（818s）→ 257/257（782s）→ 258/258（802s）→ 258/258（823s，含 Rust 闸 + CACHE_VERSION 10）。
 - `npm run test:fast` 142/142，`npx eslint .` exit 0。
 - 每项修复均先 RED 后 GREEN，且做了变异验证（注释掉修复行 → 对应测试必须红）。
 
 ### 待办
-- [ ] **L2-10 resolver 精度基准**（P3）：给 `SYMBOL_DISAMBIGUATION` 四个常数一个可复跑的数字；若 JS 家族命中率持续为 0，把 `trySymbolTable` 从 JS 链摘掉只留 JVM。
-- [ ] **L2-11 外部依赖闸多语言化**：当前只覆盖 JS 家族，违反 AGENTS.md 铁律 #8。
-- [ ] **架构-1 `finalize()` + warm/cold 全量同构断言**：后处理泛化只做了 phases 那一半，符号表重建仍是 loader 里单独补的一句。
+- [ ] **L2-10 判决 symbol-table 在 JS 家族的去留**：已有首批数据（四个 JS/TS/Py 仓命中恒为 0），再取两三个真实仓复测即可拍板；摘掉能让 L2-11 的 JS 闸与 L3-4 的分支一起消失。
+- [ ] **L2-11 补 Python / Go / JVM 的外部闸**：JS + Rust 已有。注意**没有闸的语言，其精度数据不可信**（假边混在命中里），所以补闸必须先于测量。
+- [ ] **L2-12 `resolvers/rust.js` 结构解析缺口**：153 条 `super::`/`crate::` 靠猜名字命中，应转由路径算术解析。
+- [x] ~~架构-1 warm/cold 同构~~ → 2026-07-28 以「阶段遍历机制 + 同构契约测试」收敛，`finalize()` 抽取刻意不做。
 
 ### 本轮方法论教训
 - **先测量再下结论**。前一晚在"是环境还是回归"上判断错两次，都是先下结论后测量。正确做法是 15 秒的受控探针：`rm -rf $CACHE && time node cli.js audit-summary --cwd . --cache-dir $CACHE --quiet --json`，健康值 12–14s。

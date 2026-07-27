@@ -14,6 +14,7 @@ const _tsconfigPathsCache = new Map(); // root -> { paths, mtime }
 const _resolverCache = new Map();
 const _goModCache = new Map(); // root -> { modulePath, mtime }
 const _packageDepsCache = new Map(); // root -> { names: Set<string>, mtime }
+const _cargoDepsCache = new Map(); // root -> { names: Set<string>, mtime }
 
 const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
 
@@ -24,6 +25,7 @@ function clearResolverCaches() {
   _tsconfigPathsCache.clear();
   _goModCache.clear();
   _packageDepsCache.clear();
+  _cargoDepsCache.clear();
 }
 
 function _touchCache(map, key) {
@@ -160,6 +162,66 @@ function readPackageDeps(root) {
   }
 }
 
+/**
+ * Crate names declared as external dependencies in the root Cargo.toml.
+ *
+ * Path dependencies are deliberately excluded: their sources live inside the
+ * workspace and are in the graph, so resolving them is legitimate work rather
+ * than a guess at somebody else's package.
+ *
+ * @param {string} root
+ * @returns {Set<string>|null} names normalized to their path form (hyphens → underscores)
+ */
+function readCargoDeps(root) {
+  const cargoPath = path.join(root, 'Cargo.toml');
+  let currentMtime;
+  try {
+    currentMtime = fs.statSync(cargoPath).mtimeMs;
+  } catch {
+    _cargoDepsCache.delete(root);
+    return null;
+  }
+
+  const cached = _cargoDepsCache.get(root);
+  if (cached && cached.mtime === currentMtime) {
+    return cached.names;
+  }
+
+  try {
+    const content = fs.readFileSync(cargoPath, 'utf8');
+    const names = new Set();
+    const add = (name) => {
+      const trimmed = String(name).trim().replace(/^["']|["']$/g, '');
+      if (trimmed) names.add(trimmed.replace(/-/g, '_'));
+    };
+
+    let inDependencySection = false;
+    for (const rawLine of content.split('\n')) {
+      const line = rawLine.trim();
+      if (line.startsWith('[')) {
+        const header = line.slice(1, line.indexOf(']') === -1 ? line.length : line.indexOf(']')).trim();
+        // [dependencies] / [dev-dependencies] / [target.'cfg(unix)'.dependencies]
+        inDependencySection = /(^|\.)(dev-|build-)?dependencies$/.test(header);
+        // [dependencies.serde] declares `serde` in the header itself
+        const sub = header.match(/(?:^|\.)(?:dev-|build-)?dependencies\.([A-Za-z0-9_-]+)$/);
+        if (sub) add(sub[1]);
+        continue;
+      }
+      if (!inDependencySection || !line || line.startsWith('#')) continue;
+      const eq = line.indexOf('=');
+      if (eq === -1) continue;
+      // A path dependency is a workspace member, not a foreign package.
+      if (/\bpath\s*=/.test(line.slice(eq + 1))) continue;
+      add(line.slice(0, eq));
+    }
+
+    _cargoDepsCache.set(root, { names, mtime: currentMtime });
+    return names;
+  } catch {
+    return null;
+  }
+}
+
 function _readTsconfigPaths(root) {
   const tsconfigPath = path.join(root, 'tsconfig.json');
   const jsconfigPath = path.join(root, 'jsconfig.json');
@@ -219,6 +281,7 @@ module.exports = {
   discoverJavaSourceRoots,
   readGoMod,
   readPackageDeps,
+  readCargoDeps,
   _readTsconfigPaths,
   _tryResolveWithExtensions,
 };

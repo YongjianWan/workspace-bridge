@@ -19,6 +19,8 @@ const SCHEMA_VERSION = '1.2.0';
 //     caches persist those fabricated edges (209 of this repo's own 1219, all
 //     from `require('path')` hitting a re-exported `path` binding) and would
 //     serve them as fresh.
-const CACHE_VERSION = 9;
+// v10: 外部依赖闸扩到 Rust（std/core/alloc 前缀 + Cargo.toml 声明的 crate）。
+//      v9 缓存里存着 reference/qartez-mcp 那 48 条 std::/rmcp::/tokio:: 假边。
+const CACHE_VERSION = 10;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

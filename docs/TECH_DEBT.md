@@ -26,25 +26,35 @@
 
 ### L2-10：symbol-table 解析策略没有精度基准，两个真实仓实测净产出为负
 
-**状态**：已止血未定性（2026-07-27）。外部依赖闸已挡住已证实的病灶（见 CHANGELOG §symbol-table 外部依赖闸），但这个策略剩下的价值仍然没有任何测量。
+**状态**：已有首批测量（2026-07-28），判决未下。`scripts/resolver-precision.js` 首测五仓：GitNexus / CodeGraphContext / code-review-graph / workspace-bridge 上 symbol-table 贡献 **0 条**；qartez-mcp（Rust）**313/594 = 52.7%**，其中 156 条 `qartez_mcp::` crate 绝对路径全部正确。**即该策略在 JS/TS/Python 上零产出、在 Rust 上撑起半张图**。
 
 **证据**：本仓 dogfood，闸前 1219 条边里 209 条由 `trySymbolTable` 产出，**全部是假边**（`parsers/js/shared.js` 把 `const path = require('path')` 带进了 `module.exports`，全仓每个 `require('path')` 都被解析成指向它的边，confidence 0.8/tier2），`impact parsers/js/shared.js` 因此报 212 个被依赖文件，真值 3。GitNexus（2621 边）上该策略贡献 0 条。
 
 **为什么是债**：`SYMBOL_DISAMBIGUATION` 的 `SCORE_SAME_DIR: 40 / SCORE_SAME_MODULE: 20 / SCORE_SAME_EXT: 10 / MIN_GAP_THRESHOLD: 20` 四个常数没有任何实测依据，单测只锁了不变量（不解析非导出符号、平分返回 null），锁不住精度。没有基准，这四个数字没人敢动，也无法判断策略该留该删。
 
-**建议动作**：建可复跑的 resolver 精度基准（`reference/` 下多个真实仓 × 统计 `resolution_method='symbol-table'` 边的人工确认率），输出一个数字。若 JS 家族命中率持续为 0 或假阳性占多数，就把 `trySymbolTable` 从 JS 链上摘掉，只留 Java/Kotlin（"文件名 ≠ 类名"是它的原始用途，`resolver-symbol-table-test.js` 的老用例全是 Java）。
+**建议动作**：再取两三个 JS/TS 真实仓复测，若命中仍恒为 0，就把 `trySymbolTable` 从 JS 家族链上摘掉（保留 Rust/JVM）——那能同时让 L2-11 的 JS 闸和 L3-4 的分支一起消失。Python/Go 目前无外部闸，其命中率数据不可信，须先补闸再测。
 
-**触发条件**：调整 `SYMBOL_DISAMBIGUATION` 任一常数、或把符号表铺到新语言之前。
+**触发条件**：调整 `SYMBOL_DISAMBIGUATION` 任一常数、或把符号表铺到新语言之前。跑 `node scripts/resolver-precision.js reference/*` 取数。
 
 ### L2-11：外部依赖闸只覆盖 JS 家族 — 违反 AGENTS.md 铁律 #8（多语言等价性）
 
-**状态**：活跃（2026-07-27 引入）。`trySymbolTable` 里的外部归属判定（node 内建 / `package.json` 四类依赖字段 / `node_modules` 存在性）只在调用方扩展名属于 JS 家族时生效。
+**状态**：部分收敛（2026-07-28）。JS 家族（node 内建 / `package.json` 四类依赖字段 / `node_modules`）与 Rust（`std`/`core`/`alloc`/`proc_macro` 前缀 / `Cargo.toml` 声明的 crate，`path = ` 依赖不拦）已有闸，经 `EXTERNAL_DEPENDENCY_CHECKS` 表分派。**Python / Go / Java / Kotlin 仍无闸**。
 
-**为什么是债**：病灶机制与语言无关——Python `import requests` 撞上本地导出的 `requests`、Go/Rust/Java 的第三方包名撞本地符号，都会产同一类假边，只是尚未实测到实例。按铁律 #8，功能必须对 9 种语言同步适配；当前是明知的语言偏斜，只因为证据只出现在 JS 上就先做了 JS。
+**为什么是债**：病灶机制与语言无关，且已在两种语言上实测到实例——JS 的 `require('path')`（本仓 209 条）与 Rust 的 `std::process::Command` / `rmcp::` / `tokio::`（qartez-mcp 48 条）。Python `import requests` 撞上本地导出的 `requests` 是同一形状，只是尚未取到样本。按铁律 #8 仍属语言偏斜。
 
-**建议动作**：各语言 manifest 读取器（`requirements.txt`/`pyproject.toml`、`go.mod` require 段、`Cargo.toml` dependencies、`pom.xml`/`build.gradle`）+ 各语言标准库名单，接入同一道闸；实现形态见 L3-4（按语言注册策略，而不是在共享函数里继续按扩展名分支）。
+**建议动作**：补 `requirements.txt`/`pyproject.toml`、`go.mod` require 段、`pom.xml`/`build.gradle` 三个 manifest 读取器 + 各自标准库名单，各加一行进 `EXTERNAL_DEPENDENCY_CHECKS`。注意：没有闸的语言，其 resolver 精度数据不可信（假边混在命中里）。
 
 **触发条件**：任何语言的 unresolved import 报出"疑似被解析到本地同名符号"时，优先补该语言的闸。
+
+### L2-12：Rust 的 `super::` / `crate::` 靠符号表猜名字命中，说明结构解析有缺口
+
+**状态**：活跃（2026-07-28 测量发现）。qartez-mcp 闸后剩下的 313 条 symbol-table 边里，127 条根段是 `super::`、26 条是 `crate::`。
+
+**为什么是债**：这两类是**结构可解析**的模块路径——`crate::a::b` 就是 crate 根往下走，`super::x` 就是父模块——本该由 `tryRustCrate` / `tryRustSuper` 按路径算出确定答案，而不是落到链尾拿末段名字去全局猜。猜对了也是运气：同名符号一多就会静默指错，且这类边带 confidence 0.8 的"较可信"标签。
+
+**建议动作**：查 `resolvers/rust.js` 两个策略的覆盖缺口（很可能是 `mod.rs` / `lib.rs` 布局或多级 `super::super::` 未处理），补齐后这 153 条应当从 symbol-table 转到结构解析方法名下。用 `node scripts/resolver-precision.js reference/qartez-mcp` 验证转移。
+
+**触发条件**：修改 `resolvers/rust.js` 时；或 Rust 项目报出可疑的跨模块边时。
 
 ### ⚠️ 预防性约束：`_invalidateParseCache()` 是 parse cache 的唯一失效入口
 
@@ -68,7 +78,7 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **2**（L2-10 符号表精度无基准 / L2-11 外部依赖闸语言偏斜） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **2**（L3-4 扩展名分支 / L3-5 死方法） | 合计 **4 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **3**（L2-10 符号表精度待判决 / L2-11 外部闸缺 Py·Go·JVM / L2-12 Rust 结构解析缺口） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **2**（L3-4 扩展名分支 / L3-5 死方法） | 合计 **5 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 

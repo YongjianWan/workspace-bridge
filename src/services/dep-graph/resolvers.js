@@ -8,6 +8,7 @@ const {
   discoverJavaSourceRoots,
   readGoMod,
   readPackageDeps,
+  readCargoDeps,
 } = require('./resolvers/base');
 const { registry } = require('./parsers/registry');
 
@@ -107,12 +108,32 @@ function _packageNameOf(specifier) {
   return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
 }
 
+// Rust paths that can never name a workspace file.
+const RUST_STDLIB_ROOTS = new Set(['std', 'core', 'alloc', 'proc_macro', 'test']);
+
+/**
+ * True when a Rust path is rooted at the standard library or at a crate the
+ * manifest declares. Measured on reference/qartez-mcp: 48 of its 361
+ * symbol-table edges came from `std::process::Command`, `rmcp::…` and
+ * `tokio::…` landing on local files that happened to declare the trailing
+ * name. `crate::` / `super::` / `self::` are workspace-internal by definition
+ * and stay resolvable.
+ */
+function _isExternalRustCrate(specifier, root) {
+  const rootSegment = specifier.split('::')[0].trim();
+  if (!rootSegment) return false;
+  if (RUST_STDLIB_ROOTS.has(rootSegment)) return true;
+  if (!root) return false;
+  const declared = readCargoDeps(root);
+  return Boolean(declared && declared.has(rootSegment.replace(/-/g, '_')));
+}
+
 /**
  * True when a bare specifier names something that lives outside the workspace:
- * a node builtin, a declared dependency, or an installed package. Such a
- * specifier has a known owner, so the symbol table must not guess at it — its
- * last segment collides with local export names often enough (debug, config,
- * glob, semver, path) that a hit would be a fabricated edge.
+ * a node builtin, a declared dependency, or an installed package. Its last
+ * segment collides with local export names often enough (debug, config, glob,
+ * semver, path) that a hit would be a fabricated edge — 209 of this repo's own
+ * 1219 edges were exactly that before the gate existed.
  */
 function _isExternalJsPackage(specifier, root) {
   // Protocol-prefixed specifiers (node:fs, bun:sqlite, data:, http:) and
@@ -126,21 +147,38 @@ function _isExternalJsPackage(specifier, root) {
   return cachedExistsSync(path.join(root, 'node_modules', pkgName));
 }
 
+/**
+ * Per-language dispatch for "does this specifier belong to somebody else".
+ *
+ * One table instead of a chain of extension tests inside trySymbolTable; adding
+ * a language means adding a row plus its manifest reader (TECH_DEBT L2-11).
+ */
+const EXTERNAL_DEPENDENCY_CHECKS = [
+  { matches: (ext) => JS_FAMILY_EXTENSIONS.has(ext), isExternal: _isExternalJsPackage },
+  { matches: (ext) => ext === '.rs', isExternal: _isExternalRustCrate },
+];
+
+function _isExternalDependency(specifier, fromExt, root) {
+  const check = EXTERNAL_DEPENDENCY_CHECKS.find((c) => c.matches(fromExt));
+  return check ? check.isExternal(specifier, root) : false;
+}
+
 function trySymbolTable(importPath, fromFile, ctx) {
   if (!ctx.symbolRegistry) return null;
   // Relative and absolute filesystem paths are out of scope for symbol lookup.
   if (importPath.startsWith('.') || importPath.startsWith('/')) return null;
 
   // Third-party ownership is a deterministic fact, so it outranks the whole
-  // heuristic: JS/TS callers never guess a specifier npm already owns.
-  const fromExt = fromFile ? path.extname(fromFile).toLowerCase() : '';
-  if (JS_FAMILY_EXTENSIONS.has(fromExt) && _isExternalJsPackage(importPath, ctx.root)) return null;
+  // heuristic: a specifier the ecosystem's manifest already assigns to someone
+  // else is never guessed against local symbols. Languages whose manifest we
+  // cannot read yet (Python, Go, Java) fall through — see TECH_DEBT L2-11.
+  const ext = fromFile ? path.extname(fromFile).toLowerCase() : '';
+  if (_isExternalDependency(importPath, ext, ctx.root)) return null;
 
   // Delimiter set is language-scoped: '::' for Rust paths, '/' + '.' for Go
   // package paths ('pkg/sub.Func'). Everything else (JS/TS, Python, Java)
   // keeps '.' only — splitting npm subpath imports ('lodash/merge') would
   // alias them onto same-named local symbols.
-  const ext = fromFile ? path.extname(fromFile).toLowerCase() : '';
   const delimiters = ext === '.rs' ? /:+/ : ext === '.go' ? /[./]+/ : /\./;
   const parts = importPath.split(delimiters).filter(Boolean);
   const symbolName = parts.length > 0 ? parts[parts.length - 1] : importPath;

@@ -5,6 +5,26 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### resolver 精度基准 + 外部依赖闸扩到 Rust (2026-07-28)
+
+**Added** `scripts/resolver-precision.js`（TECH_DEBT L2-10 的判决工具）：join `edges.resolution_method` 与 `parse_results.import_records`，输出「导入方 —[原始 specifier]→ 目标」三元组——只数数字无法判断对错，人工确认需要看见源码里写的是什么。首次测量（五个真实仓）：
+
+| repo | 总边 | symbol-table | 占比 |
+| --- | ---: | ---: | ---: |
+| GitNexus (TS/Py) | 2621 | 0 | 0% |
+| CodeGraphContext (Py/TS) | 400 | 0 | 0% |
+| code-review-graph (Py/Java/Go) | 252 | 0 | 0% |
+| workspace-bridge (JS) | 1018 | 0 | 0% |
+| qartez-mcp (Rust) | 642 | **361** | **56.2%** |
+
+结论有两面：**JS/TS/Python 上这个策略贡献恒为 0**（L2-10 判决所需的第一个数字），而 **Rust 上它撑起半张图**——Rust 集成测试用 crate 绝对路径（`qartez_mcp::server::QartezServer`）引用自己的 crate，符号表正好解得动，156 条这类边全部正确。
+
+- **Fixed** 但那 361 条里混着 48 条与 `require('path')` 同病的假边：`std::process::Command` → 本地 `src/cli.rs`、`rmcp::…`（外部 MCP SDK crate）40 条、`tokio::…` 1 条。现 Rust 调用方同样先判外部归属：`std`/`core`/`alloc`/`proc_macro`/`test` 前缀 + `Cargo.toml` 四类依赖段声明的 crate（含 `[dependencies.foo]` 子表、`[target.'cfg(...)'.dependencies]`，包名连字符按 Rust 路径形态归一为下划线）。**`path = ` 依赖刻意不拦**——那是工作区内的本地 crate，源码就在图里。实测 361 → 313，正好少 48，156 条正确边一条未伤。
+- **Added** `base.js` 的 `readCargoDeps(root)`，mtime 缓存，形状同 `readGoMod`/`readPackageDeps`，接入 `clearResolverCaches()`。
+- **Changed** 两处外部判定收进按语言分派的 `EXTERNAL_DEPENDENCY_CHECKS` 表（原先是 `trySymbolTable` 里的扩展名 if），加语言 = 加一行 + 一个 manifest 读取器。L3-4 的形状债因此缩小但未清零（分隔符选择仍是扩展名分支）。
+- **Changed** `CACHE_VERSION` 9→10：v9 缓存存着那 48 条假边。
+- 遗留观察（未修）：qartez-mcp 剩下的 313 条里有 127 条 `super::` 与 26 条 `crate::`——这两类是结构可解析的模块路径，本不该靠猜名字命中，说明 `tryRustSuper`/`tryRustCrate` 有覆盖缺口。已记入 TECH_DEBT。
+
 ### warm/cold 同构契约测试：接线测试的替代品 (2026-07-28)
 
 - **Added** `test/warm-cold-parity-test.js`（slow 层）：同一 fixture 冷启一次、暖启一次，比较**可观察输出**必须完全一致——边集、每文件被依赖数、符号表（含 `isExported`）、重复符号数、`affected-tests`（含 `distance` 与 `source`，wave8 当年正是在这两个字段上 warm/cold 分叉：cold 44 vs warm 16/23）。此前每发现一处 warm 遗漏，就补一句调用 + 写一条锁调用顺序的接线测试（L1-3 的 java 展开、符号表重建各一次）；接线测试锁的是症状，这条锁的是契约，内部怎么重构都不影响它。

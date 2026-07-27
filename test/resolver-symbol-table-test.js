@@ -184,6 +184,73 @@ function testNonJsCallerUnaffectedByJsPackageGate() {
 }
 
 // ---------------------------------------------------------------------------
+// Rust: same disease, measured on reference/qartez-mcp — 361 of its 642 edges
+// came from the symbol table, and 48 of those pointed at local files from
+// `std::process::Command`, `rmcp::…` (an external crate) and `tokio::…`.
+// ---------------------------------------------------------------------------
+function makeRustProject(cargoToml) {
+  const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'wb-sym-rust-'));
+  fs.writeFileSync(path.join(tmpDir, 'Cargo.toml'), cargoToml);
+  return tmpDir;
+}
+
+function rustRegistry(tmpDir, name, file) {
+  const registry = new SymbolRegistry();
+  const target = P(path.join(tmpDir, 'src', file));
+  registry.register(target, [{ name, kind: 'struct', isExported: true }]);
+  return { registry, target };
+}
+
+function testRustStdlibNotGuessed() {
+  const tmpDir = makeRustProject('[package]\nname = "app"\n\n[dependencies]\n');
+  const { registry } = rustRegistry(tmpDir, 'Command', 'cli.rs');
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+
+  const result = trySymbolTable('std::process::Command', P(path.join(tmpDir, 'tests', 'it.rs')), ctx);
+  assert.strictEqual(result, null, 'std:: paths must not resolve to a local file that happens to declare the name');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testDeclaredCrateNotGuessed() {
+  // Cargo package names are hyphenated; code refers to them with underscores.
+  const tmpDir = makeRustProject(
+    '[package]\nname = "app"\n\n[dependencies]\nrmcp = "0.1"\nsome-crate = { version = "1", features = ["x"] }\n\n[dev-dependencies]\ntokio = "1"\n'
+  );
+  const { registry } = rustRegistry(tmpDir, 'QartezServer', 'server.rs');
+  registry.register(P(path.join(tmpDir, 'src', 'runtime.rs')), [{ name: 'spawn', isExported: true }]);
+  registry.register(P(path.join(tmpDir, 'src', 'helper.rs')), [{ name: 'thing', isExported: true }]);
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+  const from = P(path.join(tmpDir, 'tests', 'it.rs'));
+
+  assert.strictEqual(trySymbolTable('rmcp::QartezServer', from, ctx), null, 'declared crate must not be guessed');
+  assert.strictEqual(trySymbolTable('tokio::spawn', from, ctx), null, 'dev-dependency crate must not be guessed');
+  assert.strictEqual(
+    trySymbolTable('some_crate::thing', from, ctx),
+    null,
+    'hyphenated package name must match its underscored path form'
+  );
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testCrateInternalRustPathStillResolves() {
+  // Positive control: the 156 qartez_mcp:: edges are the reason this strategy
+  // exists for Rust at all — integration tests address their own crate by name.
+  const tmpDir = makeRustProject('[package]\nname = "qartez-mcp"\n\n[dependencies]\nrmcp = "0.1"\n');
+  const { registry, target } = rustRegistry(tmpDir, 'QartezServer', 'server.rs');
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+
+  assert.strictEqual(
+    trySymbolTable('qartez_mcp::server::QartezServer', P(path.join(tmpDir, 'tests', 'it.rs')), ctx),
+    target,
+    'a path rooted at the crate itself is not external and must still resolve'
+  );
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+// ---------------------------------------------------------------------------
 // Runner
 // ---------------------------------------------------------------------------
 const tests = [
@@ -193,6 +260,9 @@ const tests = [
   testScopedDependencySubpathNotGuessed,
   testUnknownBareSpecifierStillResolves,
   testNonJsCallerUnaffectedByJsPackageGate,
+  testRustStdlibNotGuessed,
+  testDeclaredCrateNotGuessed,
+  testCrateInternalRustPathStillResolves,
   testNullRegistryReturnsNull,
   testRelativeImportIgnored,
   testUniqueSymbolMatch,
