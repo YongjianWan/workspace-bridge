@@ -5,6 +5,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### CACHE_VERSION 门禁收敛到单一读侧闸口（补漏第五次 → 归零）(2026-07-28)
+
+同一个不变量此前在四个地方各补了一次：wave8 预计算污染（`eda0e8c`）→ `analysis_snapshots` 逐行盖戳 → `loader.js` 的 `edgeMeta` 门禁 → `savePrecomputed` 的 test_map 无条件重写（均见下方条目）。根因不是四个 bug，是**读侧没有唯一闸口**：`loadAll()` 版本不符只 `return null` 而不清表，其余 `loadXxx` 各自裸读。
+
+- **Added** `graph-db.js` 的 `_readGuard(label, fn, fallback)`：所有表读取的唯一入口，版本不符即返回该调用点语义下的"缓存未命中"。改写 11 个读入口经由它——`loadAll` / `loadEdges` / `loadRoutes` / `loadMetrics` / `loadTestMap` / `loadPrecomputedAggregates` / `loadPrecomputedImpact` / 三个 `*ForFiles` 变体 / `findAffectedHttpRoutes`。最后那个是审计中发现的漏网：它用递归 CTE 直读 `edges` + `routes`，长得不像 `loadXxx`，正是最容易漏的形状。`loadAll` 内部那份重复的版本判断随之删除，规则只剩一处。
+- **Added** `_stampVersionIfUnset()`，挂在 `_withWriteLock` 上：读侧闸只做了一半——只查戳不建立出处，导致只经历过分表写入（`saveEdges`/`saveRoutes`，无 `saveAll`）的库因"无戳"被自己写的进程拒读。现任何写入都会给**无戳**库盖戳。刻意只在无戳时盖：戳存在但不同 = 别的语义写的库，覆盖它等于把闸重新开向读不懂的数据，只有整库重建（`saveAll` 清表 + 重盖）才恢复可读。
+- **Fixed** `loadAll()` 把"从未被完整写过的库"当成暖启动空结果返回：仅 `saveAll`/`saveIncremental` 写 `timestamp`，缺它即不是缓存，必须回落冷启动（`cache-backup-test.js` 的"无数据库时 load 必须 false"契约捕获）。
+- **Changed** `queryReadOnly` 明确标注**不设闸**：它是 `query-sql` 这个人工排查入口，盖上闸就正好藏起了排查者要看的行。
+- **Added** `test/graph-db-version-gate-test.js`：五条契约，核心是枚举**每一个读入口**（新增 `loadXxx` 必须来这里加一行，加不进来说明它绕过了闸），外加"无戳库可读且被盖戳""外来戳不被分表写入覆盖""重建后恢复可读（否则一次版本 bump 会把用户 cache 目录永久砖掉）"。变异验证：摘掉闸内那一行 → RED。
+
 ### warm 路径后处理泛化 + `debug --what symbols` 重复符号口径修正 (2026-07-28)
 
 - **Fixed** `orchestrator.js` 的 warm 分支写死 `expandJavaPackageImports()`，而 `build()` 是遍历 `postProcessPhases` 数组——**任何经 `registerPostProcessPhase()` 注册的新阶段在 warm 路径被静默跳过**，L1-3 正是这个形状的第一例。现两条路径共用 `builder.runPostProcessPhases()`，"注册即两路径生效"从纪律变成机制。阶段作者的契约（幂等）写进方法文档。`orchestrator-warm-java-expansion-test.js` 借用真实 `runPostProcessPhases` 实现 + 假 phases 列表，新增用例锁自定义阶段必须在 warm 重放（变异验证：只跑 java 阶段 → RED）。

@@ -333,9 +333,38 @@ class GraphDB {
   _withWriteLock(fn) {
     acquireLockSync(this.lockPath);
     try {
-      return fn();
+      const result = fn();
+      this._stampVersionIfUnset();
+      return result;
     } finally {
       releaseLockSync(this.lockPath);
+    }
+  }
+
+  /**
+   * Give an unstamped database its provenance, once.
+   *
+   * The read gate rejects anything whose stamp is not the current
+   * CACHE_VERSION, and "no stamp at all" must not be a way in. A database that
+   * only ever received partial writes (saveEdges / saveRoutes / saveMetrics
+   * without a full saveAll) had no stamp, so without this its own rows would
+   * be unreadable by the process that just wrote them.
+   *
+   * Deliberately *if unset*: a stamp that exists but differs marks a database
+   * written under other semantics. Overwriting it would re-open the gate onto
+   * rows this build cannot interpret — which is the exact failure this whole
+   * mechanism exists to prevent. Such a database becomes readable only after a
+   * full rebuild, because saveAll clears every table and re-stamps.
+   */
+  _stampVersionIfUnset() {
+    if (!this.db) return;
+    try {
+      const row = this.db.prepare("SELECT value FROM cache_metadata WHERE key = 'version'").get();
+      if (row === undefined) {
+        this.db.prepare("INSERT INTO cache_metadata (key, value) VALUES ('version', ?)").run(String(CACHE_VERSION));
+      }
+    } catch (err) {
+      _debugError('Stamp cache version', err);
     }
   }
 
@@ -354,6 +383,54 @@ class GraphDB {
       this.db.exec('PRAGMA synchronous = NORMAL');           // WAL mode: NORMAL is crash-safe and faster than FULL
       this.db.exec(SCHEMA);
       this._migrate();
+    });
+  }
+
+  /**
+   * True when the database on disk was written by this build's CACHE_VERSION.
+   *
+   * Deliberately queried per read rather than cached on the connection: another
+   * process may rebuild the cache underneath us, and a cached "current" would
+   * then serve rows written under semantics we no longer speak.
+   */
+  _isStoredVersionCurrent() {
+    const row = this.db.prepare("SELECT value FROM cache_metadata WHERE key = 'version'").get();
+    // No stamp is not a mismatch. Every write path stamps an unstamped
+    // database (see _stampVersionIfUnset), so the only way to observe a
+    // missing stamp is an empty database — nothing to serve, nothing to
+    // misinterpret. Rejecting it would turn "fresh cache" into "null" and
+    // break the loadXxx-returns-[] contract on a cold directory.
+    if (row === undefined) return true;
+    return Number(row.value || 0) === CACHE_VERSION;
+  }
+
+  /**
+   * The single choke point every table read must pass through.
+   *
+   * History: this invariant was patched four times in four places (wave8
+   * precompute pollution → per-row analysis_snapshots stamps → loader.js
+   * edgeMeta gate → savePrecomputed's unconditional test_map rewrite) because
+   * `loadAll()` returned null on a version mismatch **without clearing the
+   * tables**, and every other loadXxx read its table raw. Enforcing it here
+   * means a new loadXxx cannot forget the gate — it inherits it.
+   *
+   * Reads fall back to a miss rather than wiping rows: a concurrent process may
+   * be mid-write, and a rebuild re-stamps the version anyway (see saveAll).
+   *
+   * @param {string} label — debug label
+   * @param {() => any} fn — the actual read, run only when the version matches
+   * @param {any} fallback — value meaning "cache miss" for this call site
+   */
+  _readGuard(label, fn, fallback = null) {
+    return _runWithReadRetry(() => {
+      try {
+        this._ensureOpen();
+        if (!this._isStoredVersionCurrent()) return fallback;
+        return fn();
+      } catch (err) {
+        _debugError(label, err);
+        return fallback;
+      }
     });
   }
 
@@ -481,10 +558,8 @@ class GraphDB {
    * Returns null on any error (caller should treat as cold start).
    */
   loadAll() {
-    return _runWithReadRetry(() => {
-      try {
-        this._ensureOpen();
-
+    return this._readGuard('Load all', () => {
+      {
         // Metadata
         const metaRows = this.db.prepare('SELECT key, value FROM cache_metadata').all();
         const metadata = {};
@@ -492,10 +567,15 @@ class GraphDB {
           metadata[row.key] = row.value;
         }
 
+        // Only saveAll / saveIncremental write 'timestamp'. Without it this
+        // database never received a full save — it is a directory that happens
+        // to contain some tables (or nothing at all), not a cache. Callers must
+        // treat that as a cold start, not as a successful empty load.
+        if (metadata.timestamp === undefined) return null;
+
+        // Version mismatch is rejected by _readGuard before this body runs;
+        // the stamp is read here only to report it back to the caller.
         const version = Number(metadata.version || 0);
-        if (version !== CACHE_VERSION) {
-          return null;
-        }
 
         const workspaceInfo = metadata.workspaceInfo ? JSON.parse(metadata.workspaceInfo) : null;
         const workspaceRoot = metadata.workspaceRoot || null;
@@ -520,11 +600,8 @@ class GraphDB {
         }
 
         return result;
-      } catch (err) {
-        _debugError('Load', err);
-        return null;
       }
-    });
+    }, null);
   }
 
   /**
@@ -694,25 +771,19 @@ class GraphDB {
    * @returns {Array<{source:string,target:string,edgeType:string,confidence:number,tier:string,resolutionMethod:string}>|null}
    */
   loadEdges() {
-    return _runWithReadRetry(() => {
-      try {
-        this._ensureOpen();
-        const rows = this.db.prepare(
-          'SELECT source, target, edge_type, confidence, tier, resolution_method FROM edges'
-        ).all();
-        return rows.map((r) => ({
-          source: r.source,
-          target: r.target,
-          edgeType: r.edge_type,
-          confidence: Number(r.confidence),
-          tier: r.tier || 'tier1',
-          resolutionMethod: r.resolution_method || 'import',
-        }));
-      } catch (err) {
-        _debugError('Load edges', err);
-        return null;
-      }
-    });
+    return this._readGuard('Load edges', () => {
+      const rows = this.db.prepare(
+        'SELECT source, target, edge_type, confidence, tier, resolution_method FROM edges'
+      ).all();
+      return rows.map((r) => ({
+        source: r.source,
+        target: r.target,
+        edgeType: r.edge_type,
+        confidence: Number(r.confidence),
+        tier: r.tier || 'tier1',
+        resolutionMethod: r.resolution_method || 'import',
+      }));
+    }, null);
   }
 
   /**
@@ -746,25 +817,19 @@ class GraphDB {
    * @returns {Array<{key:string,data:string,version:number,fileCount:number,configHash:string,computedAt:number}>|null}
    */
   loadPrecomputedAggregates() {
-    return _runWithReadRetry(() => {
-      try {
-        this._ensureOpen();
-        const rows = this.db.prepare(
-          'SELECT key, data, version, file_count, config_hash, computed_at FROM precomputed_aggregates'
-        ).all();
-        return rows.map((r) => ({
-          key: r.key,
-          data: r.data,
-          version: isNaN(Number(r.version)) ? r.version : Number(r.version),
-          fileCount: Number(r.file_count),
-          configHash: r.config_hash ?? '',
-          computedAt: Number(r.computed_at),
-        }));
-      } catch (err) {
-        _debugError('Load precomputed aggregates', err);
-        return null;
-      }
-    });
+    return this._readGuard('Load precomputed aggregates', () => {
+      const rows = this.db.prepare(
+        'SELECT key, data, version, file_count, config_hash, computed_at FROM precomputed_aggregates'
+      ).all();
+      return rows.map((r) => ({
+        key: r.key,
+        data: r.data,
+        version: isNaN(Number(r.version)) ? r.version : Number(r.version),
+        fileCount: Number(r.file_count),
+        configHash: r.config_hash ?? '',
+        computedAt: Number(r.computed_at),
+      }));
+    }, null);
   }
 
   /**
@@ -806,27 +871,21 @@ class GraphDB {
    * @returns {Array<{file:string,directDeps:number,transitiveDeps:number,directDependents:number,transitiveDependents:number,affectedTests:string|null,impactRadius:string|null,version:number}>|null}
    */
   loadPrecomputedImpact() {
-    return _runWithReadRetry(() => {
-      try {
-        this._ensureOpen();
-        const rows = this.db.prepare(
-          'SELECT file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, impact_radius, version FROM precomputed_impact'
-        ).all();
-        return rows.map((r) => ({
-          file: r.file,
-          directDeps: Number(r.direct_deps),
-          transitiveDeps: Number(r.transitive_deps),
-          directDependents: Number(r.direct_dependents),
-          transitiveDependents: Number(r.transitive_dependents),
-          affectedTests: r.affected_tests,
-          impactRadius: r.impact_radius,
-          version: Number(r.version),
-        }));
-      } catch (err) {
-        _debugError('Load precomputed impact', err);
-        return null;
-      }
-    });
+    return this._readGuard('Load precomputed impact', () => {
+      const rows = this.db.prepare(
+        'SELECT file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, impact_radius, version FROM precomputed_impact'
+      ).all();
+      return rows.map((r) => ({
+        file: r.file,
+        directDeps: Number(r.direct_deps),
+        transitiveDeps: Number(r.transitive_deps),
+        directDependents: Number(r.direct_dependents),
+        transitiveDependents: Number(r.transitive_dependents),
+        affectedTests: r.affected_tests,
+        impactRadius: r.impact_radius,
+        version: Number(r.version),
+      }));
+    }, null);
   }
 
   /**
@@ -877,36 +936,24 @@ class GraphDB {
    * Load all helper.
    */
   _loadAll(tableName, queryStr, mapperFn) {
-    return _runWithReadRetry(() => {
-      try {
-        this._ensureOpen();
-        const rows = this.db.prepare(queryStr).all();
-        return rows.map(mapperFn);
-      } catch (err) {
-        _debugError(`Load ${tableName}`, err);
-        return null;
-      }
-    });
+    return this._readGuard(`Load ${tableName}`, () => {
+      const rows = this.db.prepare(queryStr).all();
+      return rows.map(mapperFn);
+    }, null);
   }
 
   /**
    * Load helper filtered by files.
    */
   _loadForFiles(tableName, queryStrPattern, files, mapperFn) {
-    return _runWithReadRetry(() => {
-      try {
-        this._ensureOpen();
-        if (!files || files.length === 0) return [];
-        const placeholders = files.map(() => '?').join(',');
-        const rows = this.db.prepare(
-          queryStrPattern.replace('$PLACEHOLDERS', placeholders)
-        ).all(...files);
-        return rows.map(mapperFn);
-      } catch (err) {
-        _debugError(`Load ${tableName} for files`, err);
-        return [];
-      }
-    });
+    return this._readGuard(`Load ${tableName} for files`, () => {
+      if (!files || files.length === 0) return [];
+      const placeholders = files.map(() => '?').join(',');
+      const rows = this.db.prepare(
+        queryStrPattern.replace('$PLACEHOLDERS', placeholders)
+      ).all(...files);
+      return rows.map(mapperFn);
+    }, []);
   }
 
   /**
@@ -961,9 +1008,10 @@ class GraphDB {
   }
 
   findAffectedHttpRoutes(filePath, depth = 3) {
-    return _runWithReadRetry(() => {
-      try {
-        this._ensureOpen();
+    // Joins edges and routes — both versioned tables — so it needs the same
+    // gate as any loadXxx even though it does not read like one.
+    return this._readGuard('findAffectedHttpRoutes query', () => {
+      {
         const rows = this.db.prepare(`
           WITH RECURSIVE dependents(file_path, lvl, has_implicit) AS (
             SELECT ?, 0, 0
@@ -987,11 +1035,8 @@ class GraphDB {
           lvl: r.lvl,
           hasImplicit: r.has_implicit === 1,
         }));
-      } catch (err) {
-        _debugError('findAffectedHttpRoutes query', err);
-        return null;
       }
-    });
+    }, null);
   }
 
   /**
@@ -1120,30 +1165,25 @@ class GraphDB {
    * @param {string} key
    */
   loadAnalysisSnapshot(key) {
-    return _runWithReadRetry(() => {
-      try {
-        this._ensureOpen();
-        const row = this.db.prepare(
-          'SELECT data, version, file_count, config_hash, computed_at, cache_version FROM analysis_snapshots WHERE key = ?'
-        ).get(key);
-        if (!row) return null;
-        // Version gate: a snapshot computed under a different CACHE_VERSION
-        // encodes obsolete analysis semantics — never serve it. Consumers
-        // (buildProjectOverview short-circuit, query-*) treat null as a cache
-        // miss and recompute.
-        if (Number(row.cache_version) !== CACHE_VERSION) return null;
-        return {
-          data: JSON.parse(row.data),
-          version: row.version,
-          fileCount: Number(row.file_count),
-          configHash: row.config_hash,
-          computedAt: Number(row.computed_at),
-        };
-      } catch (err) {
-        _debugError('Load analysis snapshot', err);
-        return null;
-      }
-    });
+    return this._readGuard('Load analysis snapshot', () => {
+      const row = this.db.prepare(
+        'SELECT data, version, file_count, config_hash, computed_at, cache_version FROM analysis_snapshots WHERE key = ?'
+      ).get(key);
+      if (!row) return null;
+      // Per-row gate on top of _readGuard's database-level one: snapshot rows
+      // outlive individual writes (saveAnalysisSnapshot does not clear the
+      // table), so a row can carry an obsolete stamp inside an otherwise
+      // current database. Consumers (buildProjectOverview short-circuit,
+      // query-*) treat null as a cache miss and recompute.
+      if (Number(row.cache_version) !== CACHE_VERSION) return null;
+      return {
+        data: JSON.parse(row.data),
+        version: row.version,
+        fileCount: Number(row.file_count),
+        configHash: row.config_hash,
+        computedAt: Number(row.computed_at),
+      };
+    }, null);
   }
 
   /**
@@ -1157,6 +1197,10 @@ class GraphDB {
    * @param {number} [options.maxRows]
    * @returns {{ok: true, rows: object[], count: number, truncated: boolean} | {ok: false, error: string}}
    */
+  // Deliberately NOT behind _readGuard: this is the operator escape hatch
+  // (`query-sql`) for inspecting a cache database, including a stale one.
+  // Gating it would hide exactly the rows someone runs it to look at. Callers
+  // that turn its output into analysis results must apply their own gate.
   queryReadOnly(sql, options = {}) {
     return _runWithReadRetry(() => {
       try {

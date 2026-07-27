@@ -68,7 +68,7 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **2**（L2-10 符号表精度无基准 / L2-11 外部依赖闸语言偏斜） | 架构债务 **2**（warm 后处理靠人记 / 版本门禁多入口） | L3 品味问题 **2**（L3-4 扩展名分支 / L3-5 死方法） | 合计 **6 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **2**（L2-10 符号表精度无基准 / L2-11 外部依赖闸语言偏斜） | 架构债务 **1**（warm 后处理靠人记；版本门禁已清零） | L3 品味问题 **2**（L3-4 扩展名分支 / L3-5 死方法） | 合计 **5 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
@@ -82,15 +82,17 @@
 
 **触发条件**：新增任何 postProcess 阶段的图结构/记录注入逻辑（与 L1 区那条约束同源，做完本项即可废除该约束）。
 
-### 架构-2：CACHE_VERSION 门禁分散在读侧多个入口，已补漏四次
+### ✅ 架构-2 已清零（2026-07-28）：CACHE_VERSION 门禁收敛到单一读侧闸口
 
-**状态**：活跃。史：wave8 预计算污染（`eda0e8c`）→ `analysis_snapshots` 逐行盖戳 → `loader.js` 的 `edgeMeta` 门禁（`dfac598`）→ `savePrecomputed` 的 test_map 无条件重写（同上）。四次都是同一句话：**新鲜度门禁只开在读侧的某一个入口，别的入口裸读**。
+**状态**：已修复。史：wave8 预计算污染 → `analysis_snapshots` 逐行盖戳 → `loader.js` 的 `edgeMeta` 门禁 → `savePrecomputed` 的 test_map 无条件重写，同一不变量补了四次。现 `graph-db.js` 的 `_readGuard` 是所有表读取的唯一入口（11 个读入口全部经由它，含长得不像 `loadXxx` 的 `findAffectedHttpRoutes` 递归 CTE），写侧 `_stampVersionIfUnset` 补齐出处。详见 CHANGELOG 2026-07-28 条目。
 
-**为什么是债**：`loadAll()` 版本不符时只 `return null` 而不清表，`loadEdges` / `loadTestMap` / `loadMetrics` / `loadRoutes` / `loadPrecomputedImpact` 各自裸读，靠人记得在上面挂闸。按调试纪律，同一类问题修到第三次就该质疑架构——现在是第四次。
+### ⚠️ 预防性约束：新增 SQLite 读方法必须走 `_readGuard`
 
-**建议动作**：闸收敛到 `GraphDB` 读侧一处（统一在 `_loadAll`/`prepare` 层校验版本），或更简单：`loadAll()` 版本不符时直接清表，让"旧语义存活"在物理上不可能。做之前先确认清表对 `--cache-dir` 复用场景无副作用。
+**约束**：任何从 SQLite 读取版本化数据的新方法，**必须**通过 `this._readGuard(label, fn, fallback)`，并在 `test/graph-db-version-gate-test.js` 的 `READ_ENTRY_POINTS` 表里加一行。加不进那张表 = 它绕过了闸。唯一豁免是 `queryReadOnly`（人工排查入口，见其注释）。
 
-**触发条件**：新增任何从 SQLite 直读的 `loadXxx` 方法时。
+**为什么是约束而非债务**：闸已收敛，但"读侧入口"是个会长的集合——`findAffectedHttpRoutes` 这次就是靠人工审计才发现的漏网，它用递归 CTE 直读 `edges` + `routes`，方法名里没有 `load`。
+
+**触发条件**：新增任何直读 SQLite 表的方法时。
 
 ---
 

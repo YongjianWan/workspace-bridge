@@ -6,7 +6,38 @@
 
 ---
 
-## 本轮会话 (2026-07-23)
+## 本轮会话 (2026-07-27 → 07-28)
+
+### 会话上下文
+- 起点：用户要求评审前一晚未提交的两摊改动（符号表 Stage 4 + 评审跟进），确认后提交；随后授权连续推进，按 P0→P3 优先级做到工作三小时。
+- 前一晚三次全量（13→42→81 分钟、13 失败）**全部作废**：失败项清一色 spawn 子进程超时（exit `null`/SIGTERM），根因是环境而非代码。诊断方法教训见下方。
+
+### 本轮完成
+1. **符号表 Stage 4 + 评审跟进提交**（`22bd54d` / `dfac598`）：按 hunk 拆两摊——`loader.js` 的 `_buildSymbolRegistry` 归符号表、`edgeMeta` 门禁归评审跟进。评审中发现并修掉一个真 bug：`lookupBestMatch` 的"非导出符号不解析 import"只在单命中分支成立，多候选打分路径漏掉（全部候选皆私有时，同目录那个靠 locality 分数胜出）。修法是打分前先滤非导出，`length===1` 特例与 `SCORE_EXPLICIT_EXPORT` 死项随之消失。
+2. **symbol-table 外部依赖闸**（`3a35180`，P0）：`trySymbolTable` 挂在每条 resolver 链尾，第三方依赖天然全部走它。本仓 dogfood 实测 **1219 边中 209 条是假边**（`shared.js` 把 `const path = require('path')` 带进 `module.exports`，全仓 `require('path')` 都指向它），`impact parsers/js/shared.js` 报 212 个受影响文件、真值 3。闸后 209→0，GitNexus 上该策略贡献本就为 0。`CACHE_VERSION` 8→9。
+3. **warm 后处理泛化 + debug 重复符号口径**（`b13d29f`，P1 一半）：orchestrator warm 分支写死 `expandJavaPackageImports()`，改为遍历 `postProcessPhases`——任何 `registerPostProcessPhase()` 注册的阶段自动两路径生效。`debug --what symbols` 把 227 个私有 `function main()` 报成重复符号且与自身 stats 矛盾，收敛到 `getDuplicateSymbols()` 单一定义。
+4. **CACHE_VERSION 门禁收敛**（P2，架构-2 清零）：`_readGuard` 成为 11 个读入口的唯一闸口，`_stampVersionIfUnset` 补齐写侧出处。人工审计逮到漏网的 `findAffectedHttpRoutes`（递归 CTE 直读 edges+routes，名字里没有 `load`）。
+5. **文档**：`docs/TECH_DEBT.md` 从"0 项"改为如实登记（现 5 项活跃）；`docs/dogfood.md` 四处基于空数据的过期判断作废（`debug` 曾被判"🔴 应废弃"，实测 symbols 2192 / graph 445 文件均有真实数据）。
+
+### 验证状态
+- `npm test` 全量三轮全绿：255/255（745s）→ 255/255（807s）→ 256/256（818s）；P2 轮见下一次记录。
+- `npm run test:fast` 142/142，`npx eslint .` exit 0。
+- 每项修复均先 RED 后 GREEN，且做了变异验证（注释掉修复行 → 对应测试必须红）。
+
+### 待办
+- [ ] **L2-10 resolver 精度基准**（P3）：给 `SYMBOL_DISAMBIGUATION` 四个常数一个可复跑的数字；若 JS 家族命中率持续为 0，把 `trySymbolTable` 从 JS 链摘掉只留 JVM。
+- [ ] **L2-11 外部依赖闸多语言化**：当前只覆盖 JS 家族，违反 AGENTS.md 铁律 #8。
+- [ ] **架构-1 `finalize()` + warm/cold 全量同构断言**：后处理泛化只做了 phases 那一半，符号表重建仍是 loader 里单独补的一句。
+
+### 本轮方法论教训
+- **先测量再下结论**。前一晚在"是环境还是回归"上判断错两次，都是先下结论后测量。正确做法是 15 秒的受控探针：`rm -rf $CACHE && time node cli.js audit-summary --cwd . --cache-dir $CACHE --quiet --json`，健康值 12–14s。
+- **WMI 的 `CurrentClockSpeed` 在这台机器上没有诊断价值**：Core Ultra 5 125H 恒定回报 1200（P 核基频），健康时读数一模一样。
+- **闸只做一半比不做更危险**：读侧查戳而写侧不建立出处，导致进程读不回自己刚写的数据；而写侧无条件盖戳又会把旧库重新开闸。正确形态是"读侧查、写侧仅在无戳时盖"。
+- **审计"每一个入口"时，别按名字找**：`findAffectedHttpRoutes` 就是靠通读而非 `grep load` 才发现的。
+
+---
+
+## 上轮会话 (2026-07-23)
 
 ### 会话上下文
 - 用户要求审查最近提交 + 未提交 diff。审查发现 mixed repo L1/L2 兜底（未提交 diff）零测试、正则边界 bug、audit-file 死角，全部修复并提交。
