@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### warm/cold 同构契约测试：接线测试的替代品 (2026-07-28)
+
+- **Added** `test/warm-cold-parity-test.js`（slow 层）：同一 fixture 冷启一次、暖启一次，比较**可观察输出**必须完全一致——边集、每文件被依赖数、符号表（含 `isExported`）、重复符号数、`affected-tests`（含 `distance` 与 `source`，wave8 当年正是在这两个字段上 warm/cold 分叉：cold 44 vs warm 16/23）。此前每发现一处 warm 遗漏，就补一句调用 + 写一条锁调用顺序的接线测试（L1-3 的 java 展开、符号表重建各一次）；接线测试锁的是症状，这条锁的是契约，内部怎么重构都不影响它。
+- 该测试同时断言第二次启动的 `build()` 调用数为 0——否则 warm 一旦静默回落 cold，它会退化成"cold 比 cold"，在保护对象消失后依然全绿（`docs/TECH_DEBT.md` 的"假绿比红更危险"纪律）。变异验证：注释掉 `loader.js` 的 `_buildSymbolRegistry()` → RED（符号表全空、`duplicateSymbols` 2→0）。
+- **Changed** `docs/TECH_DEBT.md` 架构-1 降级为预防性约束。**刻意未做**把后处理抽成单一 `finalize()`：两条路径重建图的方式本质不同（cold 解析 import，warm 从持久化边恢复），塞进一个函数需要 warm/cold 条件分支——那是以消除边界之名增加判断。分歧交给契约测试兜底，不由结构强行统一。
+
 ### CACHE_VERSION 门禁收敛到单一读侧闸口（补漏第五次 → 归零）(2026-07-28)
 
 同一个不变量此前在四个地方各补了一次：wave8 预计算污染（`eda0e8c`）→ `analysis_snapshots` 逐行盖戳 → `loader.js` 的 `edgeMeta` 门禁 → `savePrecomputed` 的 test_map 无条件重写（均见下方条目）。根因不是四个 bug，是**读侧没有唯一闸口**：`loadAll()` 版本不符只 `return null` 而不清表，其余 `loadXxx` 各自裸读。

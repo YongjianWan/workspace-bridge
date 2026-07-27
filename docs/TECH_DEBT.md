@@ -68,19 +68,19 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **2**（L2-10 符号表精度无基准 / L2-11 外部依赖闸语言偏斜） | 架构债务 **1**（warm 后处理靠人记；版本门禁已清零） | L3 品味问题 **2**（L3-4 扩展名分支 / L3-5 死方法） | 合计 **5 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **2**（L2-10 符号表精度无基准 / L2-11 外部依赖闸语言偏斜） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **2**（L3-4 扩展名分支 / L3-5 死方法） | 合计 **4 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
-### 架构-1：warm 路径要"记得补做" cold 路径的后处理，第二例已经出现
+### ⚠️ 预防性约束（原架构-1，2026-07-28 降级）：warm 与 cold 的产出必须逐字节一致
 
-**状态**：活跃。上面 L1 区那条预防性约束（postProcess 注入的 importRecords 不落盘）只是纪律，机制没建。2026-07-23 又出现第二例：`loadGraph()` 载入节点后必须重跑 `_buildSymbolRegistry()`，否则 warm 路径的符号表是空的——修法仍然是"在 loader 里再补一句"，而且是跨模块调 `depGraph.builder._buildSymbolRegistry()` 这个下划线私有方法。
+**已建立的机制**：
+1. 后处理阶段由 `builder.runPostProcessPhases()` 统一执行，cold（`build()`）与 warm（orchestrator 的 loadGraph 成功分支）走同一个数组——经 `registerPostProcessPhase()` 注册的阶段自动两路径生效，不再需要在 warm 分支手工补调用。阶段必须幂等。
+2. `test/warm-cold-parity-test.js` 锁契约而非接线：同一 fixture 冷启一次、暖启一次，比较**可观察输出**（边集、被依赖数、符号表含 `isExported`、重复符号数、`affected-tests` 含 `distance` 与 `source`）必须 deepStrictEqual。该测试同时断言第二次启动确实没调 `build()`——否则它会退化成"cold 比 cold"，在保护对象消失后依然全绿。变异验证：注释掉 loader 的 `_buildSymbolRegistry()` → RED。
 
-**为什么是债**：`build()` 的后处理是一串步骤，`loadGraph()` 只恢复图结构，两边靠人记得同步。每出现一个新的后处理步骤，就多一个静默丢数据的入口，而且只能靠"锁调用与顺序"的接线测试（`orchestrator-warm-java-expansion-test.js`）事后捕捉——那种测试锁的是症状不是契约。
+**未做且刻意不做**：把 build 的后处理抽成单一 `finalize()` 序列。两条路径重建图的方式本质不同（cold 解析 import，warm 从持久化边恢复），塞进一个函数需要 warm/cold 条件分支——那是在消除边界的名义下增加判断。分歧由上面第 2 条的契约测试兜底，而不是由结构强行统一。
 
-**建议动作**：把 build 的后处理抽成一个 `finalize()` 序列，cold 与 warm 都过同一个入口；把 `symbol-prescan-registry-test.js` 里的 `testWarmColdSymbolRegistryParity` 推广成通用同构断言（warm/cold 的 graph + symbolRegistry + testMap 全量指纹相等）。有了这条断言，第三、第四个"忘记补做"当场暴露，不必为每一处再写接线测试。
-
-**触发条件**：新增任何 postProcess 阶段的图结构/记录注入逻辑（与 L1 区那条约束同源，做完本项即可废除该约束）。
+**约束**：新增任何 post-process 阶段或 warm 需要重建的派生状态时，走 `registerPostProcessPhase()`；如果它体现在可观察输出上，`warm-cold-parity-test.js` 会自动捕捉——**不要**为它单独写"锁调用顺序"的接线测试。
 
 ### ✅ 架构-2 已清零（2026-07-28）：CACHE_VERSION 门禁收敛到单一读侧闸口
 
