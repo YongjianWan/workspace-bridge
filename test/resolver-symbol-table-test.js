@@ -91,9 +91,108 @@ function testDottedImportExtractsLastSegment() {
 }
 
 // ---------------------------------------------------------------------------
+// External-package gate: a specifier naming a known third-party package must
+// never be guessed against the local symbol table. Its last segment collides
+// with local export names often enough (debug, config, glob, semver, path) that
+// every such hit is a fabricated edge carrying confidence 0.8.
+// ---------------------------------------------------------------------------
+function makeJsProject(packageJson, dirs = []) {
+  const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'wb-sym-external-'));
+  fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify(packageJson));
+  for (const d of dirs) fs.mkdirSync(path.join(tmpDir, d), { recursive: true });
+  return tmpDir;
+}
+
+function withLocalSymbol(tmpDir, name) {
+  const registry = new SymbolRegistry();
+  const file = P(path.join(tmpDir, 'src', 'utils', `${name}.js`));
+  registry.register(file, [{ name, kind: 'function', isExported: true }]);
+  return { registry, file };
+}
+
+function testDeclaredNpmDependencyNotGuessed() {
+  const tmpDir = makeJsProject({ name: 't', dependencies: { debug: '^4.3.0' } });
+  const { registry } = withLocalSymbol(tmpDir, 'debug');
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+
+  const result = trySymbolTable('debug', P(path.join(tmpDir, 'src', 'app.js')), ctx);
+  assert.strictEqual(result, null, 'a declared npm dependency must not resolve to a local same-named export');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testNodeBuiltinNotGuessed() {
+  const tmpDir = makeJsProject({ name: 't' });
+  const { registry } = withLocalSymbol(tmpDir, 'path');
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+  const from = P(path.join(tmpDir, 'src', 'app.js'));
+
+  assert.strictEqual(trySymbolTable('path', from, ctx), null, 'node builtin must not resolve to a local export');
+  assert.strictEqual(trySymbolTable('node:path', from, ctx), null, 'node: protocol specifier must not resolve to a local export');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testInstalledButUndeclaredPackageNotGuessed() {
+  // No dependencies field at all — presence in node_modules is enough.
+  const tmpDir = makeJsProject({ name: 't' }, [path.join('node_modules', 'chalk')]);
+  const { registry } = withLocalSymbol(tmpDir, 'chalk');
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+
+  const result = trySymbolTable('chalk', P(path.join(tmpDir, 'src', 'app.js')), ctx);
+  assert.strictEqual(result, null, 'a package present in node_modules must not resolve to a local export');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testScopedDependencySubpathNotGuessed() {
+  const tmpDir = makeJsProject({ name: 't', devDependencies: { '@scope/kit': '^1.0.0' } });
+  const { registry } = withLocalSymbol(tmpDir, 'merge');
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+
+  const result = trySymbolTable('@scope/kit/merge', P(path.join(tmpDir, 'src', 'app.js')), ctx);
+  assert.strictEqual(result, null, 'scoped-package subpath must be attributed to the package, not a local symbol');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testUnknownBareSpecifierStillResolves() {
+  // Positive control: the gate must not disable the strategy itself. Nothing
+  // declares "Helper", so guessing remains the intended behaviour.
+  const tmpDir = makeJsProject({ name: 't', dependencies: { debug: '^4.3.0' } });
+  const { registry, file } = withLocalSymbol(tmpDir, 'Helper');
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+
+  const result = trySymbolTable('Helper', P(path.join(tmpDir, 'src', 'app.js')), ctx);
+  assert.strictEqual(result, file, 'an undeclared bare specifier should still fall back to the symbol table');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testNonJsCallerUnaffectedByJsPackageGate() {
+  // package.json deps and node builtins say nothing about a Java import.
+  const tmpDir = makeJsProject({ name: 't', dependencies: { path: '^1.0.0' } });
+  const registry = new SymbolRegistry();
+  const javaFile = P(path.join(tmpDir, 'src', 'Utils.java'));
+  registry.register(javaFile, [{ name: 'path' }]);
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+
+  const result = trySymbolTable('com.example.path', P(path.join(tmpDir, 'src', 'Main.java')), ctx);
+  assert.strictEqual(result, javaFile, 'the JS package gate must not apply to non-JS callers');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+// ---------------------------------------------------------------------------
 // Runner
 // ---------------------------------------------------------------------------
 const tests = [
+  testDeclaredNpmDependencyNotGuessed,
+  testNodeBuiltinNotGuessed,
+  testInstalledButUndeclaredPackageNotGuessed,
+  testScopedDependencySubpathNotGuessed,
+  testUnknownBareSpecifierStillResolves,
+  testNonJsCallerUnaffectedByJsPackageGate,
   testNullRegistryReturnsNull,
   testRelativeImportIgnored,
   testUniqueSymbolMatch,

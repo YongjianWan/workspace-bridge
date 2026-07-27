@@ -15,6 +15,10 @@ const SCHEMA_VERSION = '1.2.0';
 // v7: Pre-scan Global Symbol Mapping (Pilot). export_records stores top-level declarations with isExported: false.
 // v8: review fix — restores the CJS ObjectMethod export branch (v7-era caches
 //     miss shorthand-method exports and carry duplicate ObjectProperty records).
-const CACHE_VERSION = 8;
+// v9: symbol-table resolution no longer guesses at specifiers npm owns. v8-era
+//     caches persist those fabricated edges (209 of this repo's own 1219, all
+//     from `require('path')` hitting a re-exported `path` binding) and would
+//     serve them as fresh.
+const CACHE_VERSION = 9;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

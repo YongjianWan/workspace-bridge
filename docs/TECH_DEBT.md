@@ -24,7 +24,27 @@
 
 ## L2 债务（阻塞演进或导致结果不可信）
 
-> 当前无活跃的 L2 债务。
+### L2-10：symbol-table 解析策略没有精度基准，两个真实仓实测净产出为负
+
+**状态**：已止血未定性（2026-07-27）。外部依赖闸已挡住已证实的病灶（见 CHANGELOG §symbol-table 外部依赖闸），但这个策略剩下的价值仍然没有任何测量。
+
+**证据**：本仓 dogfood，闸前 1219 条边里 209 条由 `trySymbolTable` 产出，**全部是假边**（`parsers/js/shared.js` 把 `const path = require('path')` 带进了 `module.exports`，全仓每个 `require('path')` 都被解析成指向它的边，confidence 0.8/tier2），`impact parsers/js/shared.js` 因此报 212 个被依赖文件，真值 3。GitNexus（2621 边）上该策略贡献 0 条。
+
+**为什么是债**：`SYMBOL_DISAMBIGUATION` 的 `SCORE_SAME_DIR: 40 / SCORE_SAME_MODULE: 20 / SCORE_SAME_EXT: 10 / MIN_GAP_THRESHOLD: 20` 四个常数没有任何实测依据，单测只锁了不变量（不解析非导出符号、平分返回 null），锁不住精度。没有基准，这四个数字没人敢动，也无法判断策略该留该删。
+
+**建议动作**：建可复跑的 resolver 精度基准（`reference/` 下多个真实仓 × 统计 `resolution_method='symbol-table'` 边的人工确认率），输出一个数字。若 JS 家族命中率持续为 0 或假阳性占多数，就把 `trySymbolTable` 从 JS 链上摘掉，只留 Java/Kotlin（"文件名 ≠ 类名"是它的原始用途，`resolver-symbol-table-test.js` 的老用例全是 Java）。
+
+**触发条件**：调整 `SYMBOL_DISAMBIGUATION` 任一常数、或把符号表铺到新语言之前。
+
+### L2-11：外部依赖闸只覆盖 JS 家族 — 违反 AGENTS.md 铁律 #8（多语言等价性）
+
+**状态**：活跃（2026-07-27 引入）。`trySymbolTable` 里的外部归属判定（node 内建 / `package.json` 四类依赖字段 / `node_modules` 存在性）只在调用方扩展名属于 JS 家族时生效。
+
+**为什么是债**：病灶机制与语言无关——Python `import requests` 撞上本地导出的 `requests`、Go/Rust/Java 的第三方包名撞本地符号，都会产同一类假边，只是尚未实测到实例。按铁律 #8，功能必须对 9 种语言同步适配；当前是明知的语言偏斜，只因为证据只出现在 JS 上就先做了 JS。
+
+**建议动作**：各语言 manifest 读取器（`requirements.txt`/`pyproject.toml`、`go.mod` require 段、`Cargo.toml` dependencies、`pom.xml`/`build.gradle`）+ 各语言标准库名单，接入同一道闸；实现形态见 L3-4（按语言注册策略，而不是在共享函数里继续按扩展名分支）。
+
+**触发条件**：任何语言的 unresolved import 报出"疑似被解析到本地同名符号"时，优先补该语言的闸。
 
 ### ⚠️ 预防性约束：`_invalidateParseCache()` 是 parse cache 的唯一失效入口
 
@@ -48,18 +68,42 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **0** | 架构债务 **0** | L3 品味问题 **0** | 合计 **0 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **2**（L2-10 符号表精度无基准 / L2-11 外部依赖闸语言偏斜） | 架构债务 **2**（warm 后处理靠人记 / 版本门禁多入口） | L3 品味问题 **2**（L3-4 扩展名分支 / L3-5 死方法） | 合计 **6 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
-> 当前无活跃的架构债务。
+### 架构-1：warm 路径要"记得补做" cold 路径的后处理，第二例已经出现
+
+**状态**：活跃。上面 L1 区那条预防性约束（postProcess 注入的 importRecords 不落盘）只是纪律，机制没建。2026-07-23 又出现第二例：`loadGraph()` 载入节点后必须重跑 `_buildSymbolRegistry()`，否则 warm 路径的符号表是空的——修法仍然是"在 loader 里再补一句"，而且是跨模块调 `depGraph.builder._buildSymbolRegistry()` 这个下划线私有方法。
+
+**为什么是债**：`build()` 的后处理是一串步骤，`loadGraph()` 只恢复图结构，两边靠人记得同步。每出现一个新的后处理步骤，就多一个静默丢数据的入口，而且只能靠"锁调用与顺序"的接线测试（`orchestrator-warm-java-expansion-test.js`）事后捕捉——那种测试锁的是症状不是契约。
+
+**建议动作**：把 build 的后处理抽成一个 `finalize()` 序列，cold 与 warm 都过同一个入口；把 `symbol-prescan-registry-test.js` 里的 `testWarmColdSymbolRegistryParity` 推广成通用同构断言（warm/cold 的 graph + symbolRegistry + testMap 全量指纹相等）。有了这条断言，第三、第四个"忘记补做"当场暴露，不必为每一处再写接线测试。
+
+**触发条件**：新增任何 postProcess 阶段的图结构/记录注入逻辑（与 L1 区那条约束同源，做完本项即可废除该约束）。
+
+### 架构-2：CACHE_VERSION 门禁分散在读侧多个入口，已补漏四次
+
+**状态**：活跃。史：wave8 预计算污染（`eda0e8c`）→ `analysis_snapshots` 逐行盖戳 → `loader.js` 的 `edgeMeta` 门禁（`dfac598`）→ `savePrecomputed` 的 test_map 无条件重写（同上）。四次都是同一句话：**新鲜度门禁只开在读侧的某一个入口，别的入口裸读**。
+
+**为什么是债**：`loadAll()` 版本不符时只 `return null` 而不清表，`loadEdges` / `loadTestMap` / `loadMetrics` / `loadRoutes` / `loadPrecomputedImpact` 各自裸读，靠人记得在上面挂闸。按调试纪律，同一类问题修到第三次就该质疑架构——现在是第四次。
+
+**建议动作**：闸收敛到 `GraphDB` 读侧一处（统一在 `_loadAll`/`prepare` 层校验版本），或更简单：`loadAll()` 版本不符时直接清表，让"旧语义存活"在物理上不可能。做之前先确认清表对 `--cache-dir` 复用场景无副作用。
+
+**触发条件**：新增任何从 SQLite 直读的 `loadXxx` 方法时。
 
 ---
 
 ## L3 品味问题（建议修，非债务）
 
-> 当前无活跃的 L3 品味问题。
->
+### L3-4：`trySymbolTable` 内部按扩展名分支两次，而链本身已经是按语言组装的
+
+`resolvers.js` 的注册循环是 `[...lang.resolveStrategies, trySymbolTable]`——语言信息在组装时就有。但函数内部又按 `path.extname(fromFile)` 分支了两次：一次挑分隔符（`.rs` / `.go` / 其余），一次判外部依赖闸是否生效（JS 家族）。这是把语言差异塞进共享函数的边界判断，正是"消除边界优于加判断"要消掉的形状。改法：按语言注册不同的符号表策略（`trySymbolTableJs` / `trySymbolTableJvm` / …），共享打分内核。L2-11 补其他语言的闸时应当顺势做掉，否则第三、第四个语言分支会继续往里堆。
+
+### L3-5：`lookupUnique()` 生产代码零调用
+
+`symbol-registry.js` 的 `lookupUnique(symbolName, preferredDir)` 自 2026-07-23 被 `lookupBestMatch(symbolName, fromFile)` 取代后，生产路径已无调用方，只剩 `symbol-registry-test.js` 里 6 条用例还在测它。按"删除 > 添加、重复即债务"，应连同那 6 条用例一起删；保留的唯一理由是它的路径规范化用例（Windows 原生分隔符、冗余分隔符）——若删除，需确认 `lookupBestMatch` 侧有等价覆盖。
+
 > 历史记录：弱断言分布已清理至 schema 契约测试中的防御性 `typeof` 检查；其余 `status === 0` 均为环境探测 helper，不属于测试断言。详见 [CHANGELOG.md](../CHANGELOG.md) [Unreleased] §Code Quality: Weak Assertion Cleanup。
 
 ---

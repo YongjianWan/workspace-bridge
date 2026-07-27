@@ -5,6 +5,22 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### symbol-table 外部依赖闸：本仓 209 条假边清零 (2026-07-27)
+
+`trySymbolTable` 挂在每条 resolver 链的链尾，也就是说**凡是解析不到文件的 import 都会拿末段名字去全局符号表赌一把**——第三方依赖天然全部走这条路。实测代价（本仓 dogfood）：
+
+| | 总边数 | symbol-table 边 | `parsers/js/shared.js` 的被依赖数 |
+|---|---|---|---|
+| 闸前 | 1219 | 209 | 212 |
+| 闸后 | 1010 | 0 | 3 |
+
+209 条全部同一个成因：`parsers/js/shared.js` 把 `const path = require('path')` 带进了 `module.exports`，于是全仓 209 个 `require('path')` 都被解析成指向它的边，confidence 0.8 / tier2。`impact parsers/js/shared.js` 因此会报"影响 212 个文件"，真值 3。GitNexus（2621 边）上该策略贡献 0 条，即实测净产出为负。
+
+- **Fixed** `trySymbolTable` 在 JS/TS 调用方处先判外部归属，命中即不猜：`node:` 等协议前缀、node 内建模块、`package.json` 四类依赖字段里声明的包、`node_modules/<pkg>` 实际存在。这是确定性事实而非又一层启发式，所以排在整个打分逻辑之前。作用域限定在 JS 家族扩展名，Java/Python/Go/Rust 调用方不受影响（Java 的"文件名 ≠ 类名"才是该策略的原始用途）。
+- **Added** `base.js` 的 `readPackageDeps(root)`：mtime 缓存的根 package.json 依赖名集合，形状与既有 `readGoMod` 一致，并接入 `clearResolverCaches()`。
+- **Added** `resolver-symbol-table-test.js` 六条闸门契约测试（声明依赖 / node 内建 / `node:` 前缀 / 仅存在于 node_modules / scoped 子路径 / 非 JS 调用方不受影响），含正向对照：未声明的裸 specifier 仍然回落符号表，闸门不得把策略本身关掉。
+- **Changed** `CACHE_VERSION` 8→9：v8 缓存里持久化着那 209 条假边，不作废会被当新鲜数据服务。
+
 ### 评审跟进：CACHE_VERSION 门禁补漏 + 接线契约补测 (2026-07-27)
 
 对 `02ce28a`（L1-3）与 `eda0e8c`（wave8 + query-tools flaky）的复审产出。两个 commit 的语义修复都成立，漏的是同一类东西：**契约测试锁语义、不锁接线**。

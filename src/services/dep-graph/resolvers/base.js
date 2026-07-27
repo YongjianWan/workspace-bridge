@@ -13,6 +13,9 @@ const _statCache = new Map();
 const _tsconfigPathsCache = new Map(); // root -> { paths, mtime }
 const _resolverCache = new Map();
 const _goModCache = new Map(); // root -> { modulePath, mtime }
+const _packageDepsCache = new Map(); // root -> { names: Set<string>, mtime }
+
+const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
 
 function clearResolverCaches() {
   _statCache.clear();
@@ -20,6 +23,7 @@ function clearResolverCaches() {
   _javaSourceRootsCache.clear();
   _tsconfigPathsCache.clear();
   _goModCache.clear();
+  _packageDepsCache.clear();
 }
 
 function _touchCache(map, key) {
@@ -122,6 +126,40 @@ function readGoMod(root) {
   }
 }
 
+/**
+ * Read every declared package name from the root package.json (all four
+ * dependency fields). mtime-cached, same shape as readGoMod.
+ * @param {string} root
+ * @returns {Set<string>|null} null when there is no readable package.json
+ */
+function readPackageDeps(root) {
+  const pkgPath = path.join(root, 'package.json');
+  let currentMtime;
+  try {
+    currentMtime = fs.statSync(pkgPath).mtimeMs;
+  } catch {
+    _packageDepsCache.delete(root);
+    return null;
+  }
+
+  const cached = _packageDepsCache.get(root);
+  if (cached && cached.mtime === currentMtime) {
+    return cached.names;
+  }
+
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const names = new Set();
+    for (const field of DEPENDENCY_FIELDS) {
+      for (const name of Object.keys(pkg[field] || {})) names.add(name);
+    }
+    _packageDepsCache.set(root, { names, mtime: currentMtime });
+    return names;
+  } catch {
+    return null;
+  }
+}
+
 function _readTsconfigPaths(root) {
   const tsconfigPath = path.join(root, 'tsconfig.json');
   const jsconfigPath = path.join(root, 'jsconfig.json');
@@ -180,6 +218,7 @@ module.exports = {
   cachedExistsSync,
   discoverJavaSourceRoots,
   readGoMod,
+  readPackageDeps,
   _readTsconfigPaths,
   _tryResolveWithExtensions,
 };

@@ -1,4 +1,5 @@
 const path = require('path');
+const { builtinModules } = require('module');
 const {
   _resolverCache,
   clearResolverCaches,
@@ -6,6 +7,7 @@ const {
   cachedStatSync,
   discoverJavaSourceRoots,
   readGoMod,
+  readPackageDeps,
 } = require('./resolvers/base');
 const { registry } = require('./parsers/registry');
 
@@ -93,10 +95,46 @@ function createResolver(strategies) {
 // Looks up the last segment of the import path as a symbol name in the
 // workspace-wide SymbolRegistry. Only activates when a registry is provided.
 // ---------------------------------------------------------------------------
+const JS_FAMILY_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.mts', '.cts', '.vue']);
+const NODE_BUILTINS = new Set(builtinModules);
+
+/**
+ * Package name a bare specifier belongs to: 'lodash/merge' -> 'lodash',
+ * '@scope/kit/merge' -> '@scope/kit'.
+ */
+function _packageNameOf(specifier) {
+  const parts = specifier.split('/');
+  return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+}
+
+/**
+ * True when a bare specifier names something that lives outside the workspace:
+ * a node builtin, a declared dependency, or an installed package. Such a
+ * specifier has a known owner, so the symbol table must not guess at it — its
+ * last segment collides with local export names often enough (debug, config,
+ * glob, semver, path) that a hit would be a fabricated edge.
+ */
+function _isExternalJsPackage(specifier, root) {
+  // Protocol-prefixed specifiers (node:fs, bun:sqlite, data:, http:) and
+  // Windows drive-absolute paths are never workspace symbols.
+  if (specifier.includes(':')) return true;
+  const pkgName = _packageNameOf(specifier);
+  if (NODE_BUILTINS.has(pkgName)) return true;
+  if (!root) return false;
+  const declared = readPackageDeps(root);
+  if (declared && declared.has(pkgName)) return true;
+  return cachedExistsSync(path.join(root, 'node_modules', pkgName));
+}
+
 function trySymbolTable(importPath, fromFile, ctx) {
   if (!ctx.symbolRegistry) return null;
   // Relative and absolute filesystem paths are out of scope for symbol lookup.
   if (importPath.startsWith('.') || importPath.startsWith('/')) return null;
+
+  // Third-party ownership is a deterministic fact, so it outranks the whole
+  // heuristic: JS/TS callers never guess a specifier npm already owns.
+  const fromExt = fromFile ? path.extname(fromFile).toLowerCase() : '';
+  if (JS_FAMILY_EXTENSIONS.has(fromExt) && _isExternalJsPackage(importPath, ctx.root)) return null;
 
   // Delimiter set is language-scoped: '::' for Rust paths, '/' + '.' for Go
   // package paths ('pkg/sub.Func'). Everything else (JS/TS, Python, Java)
