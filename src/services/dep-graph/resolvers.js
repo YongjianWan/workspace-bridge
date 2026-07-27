@@ -98,13 +98,18 @@ function trySymbolTable(importPath, fromFile, ctx) {
   // Relative and absolute filesystem paths are out of scope for symbol lookup.
   if (importPath.startsWith('.') || importPath.startsWith('/')) return null;
 
-  const symbolName = importPath.includes('.')
-    ? importPath.split('.').pop()
-    : importPath;
+  // Delimiter set is language-scoped: '::' for Rust paths, '/' + '.' for Go
+  // package paths ('pkg/sub.Func'). Everything else (JS/TS, Python, Java)
+  // keeps '.' only — splitting npm subpath imports ('lodash/merge') would
+  // alias them onto same-named local symbols.
+  const ext = fromFile ? path.extname(fromFile).toLowerCase() : '';
+  const delimiters = ext === '.rs' ? /:+/ : ext === '.go' ? /[./]+/ : /\./;
+  const parts = importPath.split(delimiters).filter(Boolean);
+  const symbolName = parts.length > 0 ? parts[parts.length - 1] : importPath;
   if (!symbolName) return null;
 
-  const fromDir = fromFile ? path.dirname(fromFile) : null;
-  const resolved = ctx.symbolRegistry.lookupUnique(symbolName, fromDir);
+  const resolved = ctx.symbolRegistry.lookupBestMatch(symbolName, fromFile);
+
   if (resolved && ctx.outMeta) {
     ctx.outMeta.method = 'symbol-table';
     ctx.outMeta.confidence = 0.8;

@@ -12,6 +12,9 @@ const SCHEMA_VERSION = '1.2.0';
 //     maps stored under v5 miss import rows at distance 4-5 and carry sentinel 4.
 //     analysis_snapshots rows now carry a per-row cache_version stamp; unstamped
 //     (pre-v6) snapshots are rejected on load instead of short-circuiting overview.
-const CACHE_VERSION = 6;
+// v7: Pre-scan Global Symbol Mapping (Pilot). export_records stores top-level declarations with isExported: false.
+// v8: review fix — restores the CJS ObjectMethod export branch (v7-era caches
+//     miss shorthand-method exports and carry duplicate ObjectProperty records).
+const CACHE_VERSION = 8;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

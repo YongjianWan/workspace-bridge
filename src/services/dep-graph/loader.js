@@ -127,6 +127,11 @@ function loadGraph(depGraph, options = {}) {
     console.error(`[DepGraph] Loaded graph from edges: ${depGraph.graph.size} files, ${edges.length} edges`);
   }
 
+  // Warm path must restore the same symbol registry build() creates on the
+  // cold path. Doing it here — inside the load mechanism — keeps every
+  // loader entry point warm/cold isomorphic instead of patching one facade.
+  depGraph.builder._buildSymbolRegistry();
+
   // O6: loaded graph is structurally complete — mark ready
   depGraph._finishBuilding();
 

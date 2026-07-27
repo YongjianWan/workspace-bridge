@@ -1,5 +1,6 @@
 const path = require('path');
 const { toPosixPath, normalizePathKey } = require('../../utils/path');
+const { SYMBOL_DISAMBIGUATION: DISAMBIG } = require('../../config/scoring');
 
 /**
  * SymbolRegistry — lightweight global symbol table built from AST exportRecords.
@@ -36,6 +37,7 @@ class SymbolRegistry {
         kind: record.kind || 'unknown',
         lineStart: record.lineStart ?? null,
         lineEnd: record.lineEnd ?? null,
+        isExported: record.isExported !== false,
       });
       this.exports.set(name, locations);
     }
@@ -95,13 +97,82 @@ class SymbolRegistry {
   }
 
   /**
+   * Look up a symbol using score-based disambiguation (same dir, path depth math).
+   * @param {string} symbolName
+   * @param {string} [fromFile]
+   * @returns {string|null}
+   */
+  lookupBestMatch(symbolName, fromFile) {
+    // A non-exported top-level declaration (recorded by the prescan for lookup
+    // purposes) must never resolve an import. Dropping those candidates up
+    // front — instead of scoring them and hoping an exported one outranks them —
+    // is what makes that invariant hold: with locality bonuses alone, a private
+    // sibling beats a private stranger and would win the whole election.
+    const locations = (this.exports.get(symbolName) || []).filter((loc) => loc.isExported !== false);
+    if (locations.length === 0) return null;
+    if (locations.length === 1) return locations[0].file;
+
+    const fromNormalized = fromFile ? normalizePathKey(fromFile) : null;
+    const fromDir = fromNormalized ? path.dirname(fromNormalized) : null;
+    const fromExt = fromNormalized ? path.extname(fromNormalized) : null;
+    const fromParts = fromDir ? fromDir.split('/') : [];
+
+    let bestMatch = null;
+    let highestScore = -1;
+    let secondHighestScore = -1;
+
+    for (const loc of locations) {
+      let score = 0;
+      const candidateNormalized = normalizePathKey(loc.file);
+      const candidateDir = path.dirname(candidateNormalized);
+      const candidateExt = path.extname(candidateNormalized);
+
+      if (fromDir && candidateDir === fromDir) {
+        score += DISAMBIG.SCORE_SAME_DIR;
+      } else if (fromParts.length > 0) {
+        const candidateParts = candidateDir.split('/');
+        let commonDepth = 0;
+        for (let i = 0; i < Math.min(fromParts.length, candidateParts.length); i++) {
+          if (fromParts[i] === candidateParts[i]) commonDepth++;
+          else break;
+        }
+        if (commonDepth >= 2) {
+          score += DISAMBIG.SCORE_SAME_MODULE;
+        }
+      }
+
+      if (fromExt && candidateExt === fromExt) {
+        score += DISAMBIG.SCORE_SAME_EXT;
+      }
+
+      if (score > highestScore) {
+        secondHighestScore = highestScore;
+        highestScore = score;
+        bestMatch = loc.file;
+      } else if (score > secondHighestScore) {
+        secondHighestScore = score;
+      }
+    }
+
+    if (highestScore - secondHighestScore >= DISAMBIG.MIN_GAP_THRESHOLD) {
+      return bestMatch;
+    }
+    return null;
+  }
+
+  /**
    * Get all symbol names exported by a file.
    * @param {string} filePath
    * @returns {string[]}
    */
   getExportedSymbols(filePath) {
     const names = this.files.get(filePath);
-    return names ? Array.from(names) : [];
+    if (!names) return [];
+    // this.files holds every registered name (needed for unregister cleanup);
+    // the public contract is exported symbols only.
+    return Array.from(names).filter((name) =>
+      (this.exports.get(name) || []).some((loc) => loc.file === filePath && loc.isExported !== false)
+    );
   }
 
   /**
@@ -111,7 +182,7 @@ class SymbolRegistry {
   getRegistryStats() {
     let duplicateSymbols = 0;
     for (const locations of this.exports.values()) {
-      if (locations.length > 1) duplicateSymbols++;
+      if (locations.filter((loc) => loc.isExported !== false).length > 1) duplicateSymbols++;
     }
     return {
       symbolCount: this.exports.size,

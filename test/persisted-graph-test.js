@@ -39,6 +39,7 @@ async function testLoadGraphRestoresGraphAndReverseGraph() {
   assert.strictEqual(container2._depGraph.getFileCount(), 2, 'loadGraph should restore 2 files');
   const aImports2 = container2._depGraph.getFileInfo(path.posix.join(tmpDir, 'src/a.js'))?.imports || [];
   assert(aImports2.some((i) => i.includes('b.js')), 'loadGraph should restore import edge');
+  assert.ok(container2._depGraph.symbolRegistry.exports.size > 0, 'loadGraph should rebuild non-empty symbolRegistry');
   await container2.shutdown();
 
   cleanupTempDir(tmpDir);

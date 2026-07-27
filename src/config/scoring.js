@@ -48,6 +48,16 @@ const SCORING = {
   // Knowledge risk: below this effective author count, the metric is noise in
   // personal/single-owner repositories, so we disable it and explain why.
   KNOWLEDGE_RISK_PERSONAL_REPO_MAX_AUTHORS: 2,
+
+  // Symbol Registry Disambiguation Thresholds (L2-6 compliance).
+  // Non-exported declarations are filtered before scoring, not penalised by it,
+  // so there is no "explicit export" term — every candidate is already exported.
+  SYMBOL_DISAMBIGUATION: {
+    SCORE_SAME_DIR: 40,         // Sibling file in same directory
+    SCORE_SAME_MODULE: 20,      // Common parent directory depth >= 2
+    SCORE_SAME_EXT: 10,         // Exact extension match (.ts <-> .ts; .tsx does NOT match .ts)
+    MIN_GAP_THRESHOLD: 20,      // Required score gap to select winner; else returns null
+  },
 };
 
 module.exports = SCORING;

@@ -31,6 +31,31 @@ function testDuplicateSymbols() {
   assert.strictEqual(stats.duplicateSymbols, 1);
 }
 
+function testLookupBestMatchNeverResolvesToNonExported() {
+  const reg = new SymbolRegistry();
+  // Both candidates are top-level-but-private declarations, as recorded by the
+  // JS prescan (FunctionDeclaration/ClassDeclaration at Program level).
+  reg.register('src/services/debug.js', [{ name: 'debug', isExported: false }]);
+  reg.register('src/utils/debug.js', [{ name: 'debug', isExported: false }]);
+
+  // A locality bonus must not promote a private declaration into a resolution:
+  // same invariant the single-location branch already enforces.
+  assert.strictEqual(
+    reg.lookupBestMatch('debug', 'src/services/other.js'),
+    null,
+    'no exported candidate exists — must not resolve to a private declaration'
+  );
+  assert.strictEqual(reg.lookupBestMatch('debug', 'src/utils/other.js'), null);
+
+  // Once one of them is genuinely exported, it wins regardless of locality.
+  reg.register('src/utils/debug.js', [{ name: 'debug', isExported: true }]);
+  assert.strictEqual(
+    reg.lookupBestMatch('debug', 'src/services/other.js'),
+    'src/utils/debug.js',
+    'the only exported candidate must win even when a private one sits next door'
+  );
+}
+
 function testLookupUnique() {
   const reg = new SymbolRegistry();
   reg.register('a.js', [{ name: 'foo' }]);
@@ -122,6 +147,7 @@ function testLookupMissing() {
 const tests = [
   testRegisterAndLookup,
   testDuplicateSymbols,
+  testLookupBestMatchNeverResolvesToNonExported,
   testLookupUnique,
   testLookupUniqueNormalizesPreferredDir,
   testLookupUniqueWithWindowsNativePreferredDir,

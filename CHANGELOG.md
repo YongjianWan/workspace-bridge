@@ -5,6 +5,18 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### Stage 4 Step 1：Pre-scan 全局符号映射完成 (Pilot: JS/TS + Python) (2026-07-23)
+
+- **Fixed** `dep-graph.js` 的 `loadGraph()` 载入 SQLite 节点后恢复缺失 `SymbolRegistry` 的死穴 bug，实现 Warm / Cold 路径 100% 相同同构性。
+- **Added** `symbol-registry.js` 重构升级：实现 `lookupBestMatch()` 得分消歧算法（显式 export、同目录亲和、公共路径深度算术），定义 `CONFIG.SYMBOL_DISAMBIGUATION` 门禁常数（遵守 L2-6）。
+- **Fixed** `resolvers.js` 中 `trySymbolTable` 支持多语言分隔符（`.`, `/`, `::`），避免 Go (`pkg/sub.Func`) 与 Rust (`mod::Struct`) 分割错误。
+- **Added** `ast-parser.js` 支持顶层非 export 声明提取入 Superset（标注 `isExported: false`），零 SQLite 列扩展冗余成本；同时在 `exports` 提取时过滤非导出符号以防止死导出误报风险。
+- **Changed** `CACHE_VERSION` 6→7：作废未解析非导出符号的旧缓存，确保冷热启动均能加载最新符号。
+- **Added** `test/symbol-prescan-registry-test.js` 同构与消歧契约测试（含 ServiceContainer 冷热对比，归 slow 层）。
+- **Fixed**（评审修复 10 项）：恢复 `ast-parser.js` 被误删的 CJS `ObjectMethod` 分支（shorthand method 导出丢失 + ObjectProperty 双记录曾致 `lookupBestMatch` 平分返回 null）；`trySymbolTable` 分隔符按语言收口（`::` 仅 Rust、`/` 仅 Go，JS/TS 保持 `.`，杜绝 npm 子路径 import 误配本地符号）并删除 `lookupBestMatch` 存在性死分支；`lookupBestMatch` 单命中尊重 `isExported: false`（非导出符号不解析 import）；消歧常数改为顶部引用 `scoring.js`（删兜底副本），`SCORE_SAME_LANG_FAMILY` 更名 `SCORE_SAME_EXT`（实现即扩展名全等）；`getExportedSymbols()`/`getRegistryStats()` 过滤非导出记录维持公共契约；registry 重建从 facade 下沉到 `loader.js` load 机制内（warm/cold 单一机制）；`CACHE_VERSION` 7→8 作废坏 parser 写出的 v7 缓存行。
+- **Fixed**（评审修复 11 项之补）`lookupBestMatch` 的"非导出符号不解析 import"只在单命中分支成立，多候选打分路径漏掉：当**全部**候选都是 `isExported: false`（顶层预扫描记录）时，同目录候选拿 `SCORE_SAME_DIR + SCORE_SAME_EXT` = 50、远处候选拿 10，gap 40 过阈值，于是返回一个私有函数所在文件——裸 import 末段名字撞上两处同名私有函数即产假边。现改为**打分前先滤掉非导出候选**：`length === 1` 特例随之消失，`SCORE_EXPLICIT_EXPORT` 成为对 gap 数学无影响的死项，已从 `scoring.js` 删除。测试见 `symbol-registry-test.js: testLookupBestMatchNeverResolvesToNonExported`（先 RED 后 GREEN）。
+- **Fixed** `e2e-gitnexus-test.js` 交叉校验断言：曾被弱化为恒真式（count 对 count），现编码真实契约——JSON 输出经 `elideDeep` 在 `JSON_OUTPUT_MAX_ARRAY_ITEMS`(100) 截断而 `summary.counts` 保真值，断言 `数组长度 === min(counts, cap)`（GitNexus 死导出 104 > 100 首次踩中该边界）。
+
 ### analysis_snapshots 版本门禁 + precomputed_aggregates 单一写入方 (2026-07-23)
 
 - **Fixed** `analysis_snapshots` 是 CACHE_VERSION 门禁的后门：版本 mismatch 时 `loadAll` 只拒读不清表，旧语义（如 v5 dead-exports 口径）算出的 overview 快照存活，gitHead/fileCount/configHash 恰好匹配时被 `buildProjectOverview` 短路 / `query-*` 直接消费。现 `analysis_snapshots` 逐行盖 `cache_version` 戳（`_migrate()` 加列，DEFAULT 0 自动作废所有存量行），`loadAnalysisSnapshot` 门禁拒收非当前版本行，消费方视为 cache miss 重算。

@@ -179,6 +179,7 @@ function parseJavaScriptAST(content, filePath = '') {
               lineStart: decl.loc?.start?.line || node.loc?.start?.line,
               lineEnd: decl.loc?.end?.line || node.loc?.end?.line,
               fingerprint,
+              isExported: true,
             }));
           }
           if (decl.declarations) {
@@ -330,6 +331,30 @@ function parseJavaScriptAST(content, filePath = '') {
           }));
         }
       },
+
+      FunctionDeclaration(node, parent) {
+        if (parent?.type === 'Program' && node.id?.name) {
+          const fingerprint = buildFunctionFingerprint(node);
+          exportRecords.push(createExportRecord(node.id.name, {
+            kind: 'function',
+            lineStart: node.loc?.start?.line,
+            lineEnd: node.loc?.end?.line,
+            fingerprint,
+            isExported: false,
+          }));
+        }
+      },
+
+      ClassDeclaration(node, parent) {
+        if (parent?.type === 'Program' && node.id?.name) {
+          exportRecords.push(createExportRecord(node.id.name, {
+            kind: 'class',
+            lineStart: node.loc?.start?.line,
+            lineEnd: node.loc?.end?.line,
+            isExported: false,
+          }));
+        }
+      },
     };
 
     walkAST(ast, (node, parent) => {
@@ -337,7 +362,7 @@ function parseJavaScriptAST(content, filePath = '') {
       if (handler) handler(node, parent);
     });
 
-    const exports = uniqueNames(exportRecords.filter((r) => !r.unknown).map((r) => r.name));
+    const exports = uniqueNames(exportRecords.filter((r) => !r.unknown && r.isExported !== false).map((r) => r.name));
 
     // Collect local names that are exported so function records can carry isExported.
     const exportedNames = new Set();
