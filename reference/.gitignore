@@ -4,3 +4,5 @@ qartez-mcp/
 code-review-graph/
 CodeGraphContext/
 .workspace-bridge/
+zod/
+execa/
