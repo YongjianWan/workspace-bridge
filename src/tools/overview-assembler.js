@@ -668,9 +668,27 @@ async function assembleOverviewData(args, container, historyProvider) {
     unresolved: {
       ok: true,
       unresolvedCount: unresolved.length,
+      // L2-13 alias transition: what this field actually counts is *stale
+      // resolved edges* (imports that once resolved to an absolute path whose
+      // file is gone), NOT imports that failed to resolve — those are dropped
+      // upstream and counted in `droppedImports`. New consumers should read
+      // staleResolvedImportsCount; `unresolved` / `unresolvedCount` remain as
+      // deprecated aliases (Never break userspace).
+      staleResolvedImportsCount: unresolved.length,
       unresolved: unresolved,
       possibleFalsePositives: unresolvedFp,
     },
+    // L2-13: imports that looked local but could not be resolved and were
+    // dropped from the graph (cold-build accounting; 0 on the warm path).
+    droppedImports: (() => {
+      const dropped = depGraph.getDroppedImports?.() || { count: 0, files: 0, samples: [] };
+      return {
+        ok: true,
+        droppedCount: dropped.count,
+        filesWithDrops: dropped.files,
+        samples: dropped.samples.slice(0, 10),
+      };
+    })(),
     cycles: {
       ok: true,
       cyclesCount: cycles.length,

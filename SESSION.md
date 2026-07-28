@@ -82,7 +82,9 @@
 - **剩下的真活**：Java/Kotlin 的**第三方** jar（`java.`/`javax.` 之外的 groupId）需要 `pom.xml` / `build.gradle` manifest 读取器。难点是 **groupId 与 import 包名不同构**（`com.google.guava` ↔ `com.google.common.collect`），不能直接匹配，可能只能做到「顶级域名段 + 组织段」前缀匹配。**这一半可以单独排期，别和方案 A 捆在一起**。
 - **验证**：真实仓 `reference/okhttp`（Kotlin/Gradle）与 `reference/spring-petclinic`（Java/Gradle）跑 precision，对比接线前后 symbol-table 边数下降量，抽样人工确认下降的都是外部依赖。
 
-#### T5 — L2-13：让「解析失败」不再静默
+#### T5 — L2-13：让「解析失败」不再静默 ✅ 已完成
+
+> 已落地：丢弃记账（gate 外部不计）+ `getDroppedImports()` + `unresolved-dropped` 警告 + `droppedImports` 段（additive）+ `staleResolvedImportsCount` 别名；parity 第二条断言已打开（十 fixture dropped:0）。变异验证通过。**意外发现**：`require('./missing')` 走 phantom 路径而非丢弃分支（幽灵边 = `unresolved` 现有条目来源），已留档未改。无 CACHE_VERSION bump。CHANGELOG「T5」条目。下方原始计划留档。
 
 - **前置**：无强依赖，但**做完它 T1 的第二条断言才能打开**。
 - **做什么**：

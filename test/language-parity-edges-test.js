@@ -77,7 +77,22 @@ try {
       const structuralHits = fixture.expectedMethods.reduce((n, m) => n + (methods[m] || 0), 0);
       const methodList = Object.entries(methods).map(([m, c]) => `${m}:${c}`).join(' ') || '(none)';
       line = `${fixture.language}: ${total} edges [${methodList}]`;
-      if (total < 1 || structuralHits < 1) {
+
+      // L2-13 (T5): imports that looked local but resolved to null are now
+      // counted. A parity fixture must drop ZERO — every import in it is
+      // either structurally resolvable or gate-known external. A non-zero
+      // count here is a language resolution gap reporting itself.
+      let droppedCount = 0;
+      try {
+        const summary = JSON.parse(res.stdout);
+        droppedCount = summary.droppedImports?.droppedCount ?? 0;
+      } catch {
+        // stdout not parseable — droppedCount stays 0 and the edge assertions
+        // below remain the arbiter.
+      }
+      line += ` dropped:${droppedCount}`;
+
+      if (total < 1 || structuralHits < 1 || droppedCount > 0) {
         const envSkip = fixture.needsPython && !hasPython;
         if (envSkip) {
           // Toolchain degradation must not masquerade as a language defect:
@@ -88,7 +103,7 @@ try {
           results.push(line);
           continue;
         }
-        line += ` — FAIL (need >= 1 edge via ${fixture.expectedMethods.join('/')})`;
+        line += ` — FAIL (need >= 1 edge via ${fixture.expectedMethods.join('/')}, dropped == 0)`;
         failures.push(line);
       }
     }
@@ -101,10 +116,6 @@ try {
 
 console.log('[language-parity] per-language edge production:');
 for (const line of results) console.log(`  ${line}`);
-
-// TODO(T5): also assert import_records dropped count === 0 per fixture once
-// builder.js accumulates droppedImports — a dropped import is currently
-// invisible here unless it takes the edge count to zero (L2-13).
 
 assert.strictEqual(
   failures.length,

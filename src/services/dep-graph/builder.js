@@ -7,7 +7,7 @@ const path = require('path');
 const { promisify } = require('util');
 const { createImportRecord } = require('./parsers');
 const { registry } = require('./parsers/registry');
-const { resolveImport, clearResolverCaches } = require('./resolvers');
+const { resolveImport, clearResolverCaches, isExternalDependency } = require('./resolvers');
 const { detectFrameworkFromContent, extractRoutes } = require('./framework-patterns');
 const {
   scanAndExtractImplicitImports,
@@ -126,6 +126,8 @@ class GraphBuilder {
     this.dg._scanContentCache.clear();
     this.dg._scanPatternCache.clear();
     this._parseCache.clear();
+    // L2-13: drop accounting is per-build; a rebuild starts from zero.
+    this.dg._droppedImports = null;
 
     // Get all files from cache, or use the raw file list provided by file-index
     // so that originalPath preserves platform-native casing and separators.
@@ -413,6 +415,20 @@ class GraphBuilder {
           // Keep wildcard imports even if they don't resolve directly to a file
           if (record.usesAllExports && record.source.endsWith('.*')) {
             return record;
+          }
+          // L2-13: a failed resolve counts only when the specifier looked like
+          // one of ours. Gate-known externals (node builtins, stdlib, declared
+          // deps) produce no edge *by design* — counting them would cry wolf on
+          // every 'import os'. This accounting is what makes a language-wide
+          // resolution gap (L1-4) visible instead of silent.
+          if (!isExternalDependency(record.source, ext.toLowerCase(), this.dg.root, { importHints: { isLocal: record.isLocal } })) {
+            if (!this.dg._droppedImports) this.dg._droppedImports = { count: 0, files: new Set(), samples: [] };
+            const dropped = this.dg._droppedImports;
+            dropped.count++;
+            dropped.files.add(graphKey);
+            if (dropped.samples.length < 50) {
+              dropped.samples.push({ file: graphKey, specifier: record.source });
+            }
           }
           return null;
         }

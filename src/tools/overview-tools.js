@@ -182,6 +182,7 @@ async function buildProjectOverview(args, container) {
     ...(rawData.analysisCoverage ? { analysisCoverage: rawData.analysisCoverage } : {}),
     deadExports: rawData.deadExports,
     unresolved: rawData.unresolved,
+    droppedImports: rawData.droppedImports,
     cycles: rawData.cycles,
     astRules: rawData.astRules,
     orphans: {

@@ -1001,6 +1001,23 @@ class GraphAnalyzer {
       });
     }
 
+    // L2-13: imports that looked local but resolved to null were previously
+    // dropped without a trace — an entire language disappeared through that
+    // gap once (L1-4). Cold-build only: the warm path restores edges without
+    // re-resolving, so there is nothing to count (getDroppedImports() → 0).
+    const droppedImports = this.dg._droppedImports;
+    if (droppedImports && droppedImports.count > 0) {
+      const filesWithDrops = droppedImports.files.size;
+      const ratio = stats.files > 0 ? filesWithDrops / stats.files : 0;
+      const sampleList = droppedImports.samples.slice(0, 3).map((s) => s.specifier).join(', ');
+      warnings.push({
+        type: 'unresolved-dropped',
+        severity: ratio > 0.1 ? 'medium' : 'low',
+        files: filesWithDrops,
+        message: `${droppedImports.count} import(s) across ${filesWithDrops} file(s) looked local but could not be resolved and were dropped from the graph (e.g. ${sampleList})`,
+      });
+    }
+
     return warnings;
   }
 

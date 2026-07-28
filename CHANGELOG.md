@@ -5,6 +5,14 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### T5：L2-13 — 解析失败不再静默（droppedImports + unresolved 正名） (2026-07-28)
+
+- **Added** `resolveFileOnly()` 丢弃分支记账（L1-4 能藏住整整一个语言的机制根源）：gate 已知的外部 specifier（node 内建 / 标准库 / manifest 声明）**不计**——不成边是设计行为；只数「看着像自己的」丢弃。经 `dg.getDroppedImports()`、`buildWarnings()` 的 `unresolved-dropped` 警告（丢弃文件占比 >10% → medium）、`audit-overview`/`audit-summary` 的 `droppedImports` 段（additive）三处出面。无 CACHE_VERSION bump（不改边语义）。
+- **Added** parity 基准第二条断言：十个 fixture `droppedCount` 必须全为 0（T1 留的 TODO 打开）——Go fixture 的 `fmt` 被闸正确排除、Rust `mod b;` 无丢弃，实测全 0。下一个语言缺口会自己在这条断言上报出来。
+- **Changed** `unresolved` 段新增 `staleResolvedImportsCount` 别名并注明真实语义（数的是「曾解析成绝对路径但文件已消失」的失效边，不是解不开的 import）；旧字段保留为弃用别名（Never break userspace）。
+- **留档发现**：`require('./missing')` 这类相对路径写错**不走丢弃分支**——`tryRelativeWithExtensions` 对不存在的目标无条件返回 phantom 路径（`resolvers/javascript.js:116`），成为幽灵边，正是 `findUnresolvedImports()` 现有条目的来源。行为未改（边语义 + impact 有消费方），分工已写进 TECH_DEBT：`staleResolvedImportsCount` 管相对路径写错，`droppedImports` 管裸 specifier 无人认领。
+- **验证**：`test/dropped-imports-test.js`（先 RED——首次跑还顺手暴露了 phantom 路径那条真相——后 GREEN）；变异（记账条件置 false）→ RED；parity 十语言 `dropped:0` 全绿；fast 层 143/143；eslint 干净。
+
 ### T4：`isBuiltIn` 接线 — JVM 标准库闸 + L3-6 清零 (2026-07-28)
 
 - **Added** `_isExternalDependency()` 在 `EXTERNAL_DEPENDENCY_CHECKS` 未命中时回退 `registry.findByExt(ext)?.isBuiltIn?.(specifier)`——九个语言条目里躺着的 `java.`/`javax.`/`kotlin.` 前缀声明首次有了消费方（L3-6 清零，方案 A）。如实说明消费深度：实际经回退生效的只有 `.java`/`.kt`，其余有闸表行的语言行优先。Java/Kotlin 的**第三方 jar** 仍放行（无 pom/gradle 读取器，L2-11 剩余一半，`testJavaThirdPartyStillGuessesForNow` 把这个缺口锁成显式契约——manifest 读取器落地时该测试必须反转）。

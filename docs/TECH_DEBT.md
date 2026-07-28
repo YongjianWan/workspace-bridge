@@ -105,15 +105,11 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 ### L2-13：`unresolved` 统计的不是「解不开的 import」，所以它永远看不见被丢弃的记录
 
-**状态**：活跃（2026-07-28 九语言实测发现）。十个 fixture **全部**报 `unresolved: 0`，包括丢掉了两条 `#include` 的 C/C++ 仓。
+**状态**：✅ 已修复（2026-07-28，T5）。（b）`resolveFileOnly()` 的丢弃分支现在记账：gate 已知的外部 specifier（node 内建 / 标准库 / manifest 声明的依赖）**不计**——它们不成边是设计行为，计数等于对每句 `import os` 狼来了；只数「看着像自己的」丢弃，进 `dg.getDroppedImports()` + `buildWarnings()` 的 `unresolved-dropped` 警告（severity 按丢弃文件占比，>10% → medium）+ `audit-overview`/`audit-summary` 新增 `droppedImports` 段（additive，无破坏）。parity 基准已打开第二条断言：十个 fixture `droppedCount` 必须全为 0——下一个语言缺口会自己在这里报出来。（a）`unresolved` 段新增 `staleResolvedImportsCount` 别名并注明真实语义（数的是「曾解析但文件已消失」的失效边）；`unresolved`/`unresolvedCount` 保留为弃用别名（Never break userspace），消费方迁移后再删。
 
-**根因**：`analyzer.js` 的 `findUnresolvedImports()` 判定条件是
+**发现的相邻真相**（留档）：相对路径写错（`require('./missing')`）**不走丢弃分支**——`tryRelativeWithExtensions` 对不存在的目标无条件返回 phantom 路径（`resolvers/javascript.js:116`），成为图里的幽灵边，正是 `findUnresolvedImports()` 现有条目的来源。这条行为未改（改了是边语义变化，且 phantom 边在 impact 里有消费方），但它说明两个字段的分工：`staleResolvedImportsCount` 管「相对路径写错」，`droppedImports` 管「裸 specifier 无人认领」。
 
-```js
-if (!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath))
-```
-
-它数的是「**曾经解析成绝对路径、但那个文件现在不在磁盘上**」——即失效的已解析边。而真正解不开的 import 从来不是绝对路径（它还是源码里那个裸 specifier），且早在 `resolveFileOnly()` 就因 resolve 返回 null 被丢弃，根本进不了 `info.imports`。两道门都进不去。
+以下为发现时的原始记录（留档）：十个 fixture **全部**报 `unresolved: 0`，包括丢掉了两条 `#include` 的 C/C++ 仓。`analyzer.js` 的 `findUnresolvedImports()` 判定条件是 `!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath)`——数的是「曾经解析成绝对路径、但文件已不在磁盘」，而真正解不开的 import 从来不是绝对路径、且早在 `resolveFileOnly()` 就被丢弃，两道门都进不去。
 
 **为什么是债**：这个字段是 `audit-summary` / `audit-overview` 的一线指标，AI agent 会拿它判断"这个仓的依赖图完不完整"。它结构上无法回答那个问题，却长得像能回答——违反铁律 #4。L1-4 只是把它暴露得最彻底（丢 2 条报 0），但**所有语言都受影响**：任何 resolve 失败的 import 都静默消失，无计数、无 warning。
 
@@ -165,7 +161,7 @@ if (!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath))
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0**（L1-4 已由 T2 修复） | L2 债务 **4**（L2-10 符号表精度待判决 / L2-11 外部闸只剩 JVM 第三方 manifest 一半 / L2-13 `unresolved` 语义错位 / L2-14 JVM 非标源根布局） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **3**（L3-4 扩展名分支 / L3-5 死方法 / L3-7 Vue·Svelte 正则抽符号；L3-6 已由 T4 接线清零） | 合计 **7 项**
+> **当前活跃债务总览**：L1 Blocker **0**（L1-4 已由 T2 修复） | L2 债务 **3**（L2-10 符号表精度待判决 / L2-11 外部闸只剩 JVM 第三方 manifest 一半 / L2-14 JVM 非标源根布局；L2-13 已由 T5 修复） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **3**（L3-4 扩展名分支 / L3-5 死方法 / L3-7 Vue·Svelte 正则抽符号） | 合计 **6 项**
 >
 > L1-4 / L2-11 的四条腿 / L2-13 / L3-6 / L3-7 均来自 2026-07-28 的九语言等价性实测（十个最小 fixture + 闸隔离探针），复现脚本与判据见各条目。
 
@@ -331,4 +327,4 @@ if (!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath))
 
 ---
 
-*Last updated: 2026-07-28（活跃债务 **7 项**：L1=0（L1-4 已由 T2 修复）/ L2=4（L2-10 待拍板 / L2-11 只剩 JVM 第三方 manifest 半 / L2-13 `unresolved` 语义错位 / L2-14 JVM 非标源根布局）/ 架构债务=0（两条均已降级为预防性约束）/ L3=3（L3-6 已由 T4 接线清零）；本轮：T1 边层等价性基准 + T2 L1-4 修复 + T3 Svelte 闸 + T4 isBuiltIn 接线——okhttp 实测发现 L2-14 并改写 L2-10 的 JVM 判决材料，83 条 JVM 第三方假边成为 L2-11 剩余半的首批实测样本）*
+*Last updated: 2026-07-28（活跃债务 **6 项**：L1=0 / L2=3（L2-10 待拍板 / L2-11 只剩 JVM 第三方 manifest 半 / L2-14 JVM 非标源根布局）/ 架构债务=0 / L3=3；本轮：T1–T5 全部落地——边层等价性基准（含 dropped:0 断言）、L1-4 C/C++ 修复、Svelte 闸、JVM 标准库闸 + L3-6 接线、L2-13 解析失败记账；okhttp 实测发现 L2-14 并改写 L2-10 的 JVM 判决材料，83 条 JVM 第三方假边成为 L2-11 剩余半的首批实测样本）*

@@ -376,4 +376,7 @@ module.exports = {
   tryRustSuper,
   tryCppInclude,
   trySymbolTable,
+  // Public gate query for "would this specifier be dropped *expectedly*"
+  // (builder's droppedImports accounting, L2-13).
+  isExternalDependency: _isExternalDependency,
 };
