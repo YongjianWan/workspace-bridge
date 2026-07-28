@@ -200,6 +200,58 @@ function testSvelteCallerCoveredByJsFamilyGate() {
 }
 
 // ---------------------------------------------------------------------------
+// JVM: no manifest reader yet, but the registry already declares the stdlib
+// prefixes (isBuiltIn — formerly dead config, L3-6). The gate must consult it
+// for languages that have no EXTERNAL_DEPENDENCY_CHECKS row.
+// ---------------------------------------------------------------------------
+
+function testJavaStdlibNotGuessed() {
+  const registry = new SymbolRegistry();
+  registry.register(P('/src/Utils.java'), [{ name: 'List', kind: 'class', isExported: true }]);
+  const ctx = { symbolRegistry: registry, root: '/repo' };
+
+  assert.strictEqual(
+    trySymbolTable('java.util.List', P('/src/Main.java'), ctx),
+    null,
+    'java.* must not resolve to a local same-named class'
+  );
+  assert.strictEqual(
+    trySymbolTable('javax.annotation.Nonnull', P('/src/Main.java'), ctx),
+    null,
+    'javax.* must not resolve to a local same-named class'
+  );
+}
+
+function testKotlinStdlibNotGuessed() {
+  const registry = new SymbolRegistry();
+  registry.register(P('/src/Helpers.kt'), [{ name: 'List', kind: 'class', isExported: true }]);
+  const ctx = { symbolRegistry: registry, root: '/repo' };
+
+  assert.strictEqual(
+    trySymbolTable('kotlin.collections.List', P('/src/Main.kt'), ctx),
+    null,
+    'kotlin.* must not resolve to a local same-named class'
+  );
+}
+
+function testJavaThirdPartyStillGuessesForNow() {
+  // Documents the remaining half of L2-11: without a pom/gradle reader the
+  // gate cannot tell com.google.* from com.example.*, so it stays out of the
+  // way. When the manifest reader lands this test must be INVERTED — its
+  // current green is the debt, not the goal.
+  const registry = new SymbolRegistry();
+  const file = P('/src/Utils.java');
+  registry.register(file, [{ name: 'Helper', kind: 'class', isExported: true }]);
+  const ctx = { symbolRegistry: registry, root: '/repo' };
+
+  assert.strictEqual(
+    trySymbolTable('com.example.Helper', P('/src/Main.java'), ctx),
+    file,
+    'a non-stdlib Java import must still reach the symbol table'
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Rust: same disease, measured on reference/qartez-mcp — 361 of its 642 edges
 // came from the symbol table, and 48 of those pointed at local files from
 // `std::process::Command`, `rmcp::…` (an external crate) and `tokio::…`.
@@ -446,6 +498,9 @@ const tests = [
   testUnknownBareSpecifierStillResolves,
   testNonJsCallerUnaffectedByJsPackageGate,
   testSvelteCallerCoveredByJsFamilyGate,
+  testJavaStdlibNotGuessed,
+  testKotlinStdlibNotGuessed,
+  testJavaThirdPartyStillGuessesForNow,
   testRustStdlibNotGuessed,
   testDeclaredCrateNotGuessed,
   testCrateInternalRustPathStillResolves,

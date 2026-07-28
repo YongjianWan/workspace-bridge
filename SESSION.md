@@ -70,7 +70,9 @@
 - **验证**：`test/resolver-symbol-table-test.js` 加一条——`.svelte` 文件 import `path` 必须返回 null（先 RED）。变异：摘掉 `.svelte` → 该条 RED。真实仓 `reference/realworld`（SvelteKit）跑 precision，symbol-table 应为 0。
 - **注意**：`.svelte` 进 JS 家族后，`_isExternalJsPackage` 会读 `package.json`——SvelteKit 项目的 `svelte`/`@sveltejs/kit` 都在 devDependencies，确认 `readPackageDeps` 覆盖四类依赖字段（它应该已经覆盖）。
 
-#### T4 — L3-6 `isBuiltIn` 接线 → 顺带收掉 L2-11 的 JVM 腿
+#### T4 — L3-6 `isBuiltIn` 接线 → 顺带收掉 L2-11 的 JVM 腿 ✅ 已完成（内建半）
+
+> 已落地（方案 A）：`_isExternalDependency()` 表外回退 `registry.findByExt(ext)?.isBuiltIn?.(specifier)`，实际生效 `.java`/`.kt` 两个。两条 RED→GREEN + 变异验证；CACHE_VERSION 16。**剩余**：JVM 第三方 manifest 读取器（单独排期，已有 83 条实测假边样本）。**意外产出**：okhttp 实测发现 L2-14（KMP 源根布局，~950 条真边靠符号表兜底）——改写了 L2-10 的 JVM 侧判决材料。CHANGELOG「T4」条目。下方原始计划留档。
 
 - **前置**：T2 建立起「闸表新增一行」的形状之后做，能复用同一套测试骨架。
 - **背景**：`parsers/registry.js` 九个语言条目各声明了 `isBuiltIn`（`java.`/`javax.` 前缀、`kotlin.`、`CPP_BUILTINS`、`GO_BUILTINS`、`PYTHON_BUILTINS`），**全仓零调用方**（已实测，对照组其余五个钩子都有消费方）。而 `EXTERNAL_DEPENDENCY_CHECKS` 在另一个文件重新实现了同一份知识。

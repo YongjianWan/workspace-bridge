@@ -67,19 +67,21 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 加上 Python 两仓（CodeGraphContext 502 / code-review-graph 413，均为 2026-07-28 最新代码复测的 0），该策略在 JS/TS/Python 六个仓上**从未产出过一条正确边**；唯一的正产出在 Rust。qartez-mcp v0.11.0（L2-12 修复后）：709 边 / symbol-table 167 = 23.6%，占比从 52.7% 降半的原因是分母被 tier1 真边喂大，且抽样显示剩余的几乎全是 `qartez_mcp::` 集成测试 crate 自引用——L2-12 之后，Rust 侧 symbol-table 收敛到它唯一合法的形态。注意口径：闸后 JS 侧命中为 0 部分**是因为闸把裸 specifier 全拦了**——闸前本仓那 212 条说明没拦时它只会猜错。两种情况都不支持保留。
 
+**边界（2026-07-28 T4 实测补）**：「零正产出」只在 JS/TS/Python 成立，**不覆盖 JVM**。okhttp 2415 边里 1037 条 symbol-table（43%），按包前缀分组后：~950 条仓内自引用（`okhttp3.*`/`mockwebserver3.*`——KMP 源根布局与类名≠文件名两种结构落空，符号表兜底命中为真，见 L2-14）+ **83 条第三方假边**（`org.junit`/`assertk`/`okio` 等，第三方 specifier 配本地 target 必假，L2-11 第三方半的实测样本）。「JS 摘」的判决不受影响；「JVM 摘不摘」要等 L2-14 修完再量——结构解析覆盖后还剩多少正产出，才是 JVM 侧的判决数据。
+
 **证据**：本仓 dogfood，闸前 1230 条边里 212 条由 `trySymbolTable` 产出，**全部是假边**，且全部同构——212 条的 specifier 无一例外是 `path`、target 无一例外是 `parsers/js/shared.js`（该文件把 `const path = require('path')` 带进了 `module.exports`），confidence 0.8/tier2；`impact parsers/js/shared.js` 因此报 212 个被依赖文件，真值 3。GitNexus（4110 边）上该策略贡献 0 条。
 
 **根因已于 2026-07-28 单独清除**（见 CHANGELOG）：那行转手再导出已删，闸关闭时本仓假边 212→0。这削弱了「本仓 212 条」作为摘除论据的分量——它证明的是**该策略对导出卫生零容错**（一处手滑放大成 212 条假边），而非它在 JS 上必然产出垃圾。L2-10 的判决因此主要靠下面这张表的「零正产出」，而不是靠假边计数。
 
 **为什么是债**：`SYMBOL_DISAMBIGUATION` 的 `SCORE_SAME_DIR: 40 / SCORE_SAME_MODULE: 20 / SCORE_SAME_EXT: 10 / MIN_GAP_THRESHOLD: 20` 四个常数没有任何实测依据，单测只锁了不变量（不解析非导出符号、平分返回 null），锁不住精度。没有基准，这四个数字没人敢动，也无法判断策略该留该删。
 
-**建议动作**：把 `trySymbolTable` 从 JS 家族链上摘掉（保留 Rust，JVM 保留待 L2-11 一并定）——连带收益：L2-11 的 JS 闸（`readPackageDeps`/`NODE_BUILTINS`/`node_modules` 探测）与 L3-4 的扩展名分支一起消失。Python/Go 链同理可摘（贡献同为 0，且闸已让它们的命中不可能为真），但 Python/Go 各有 `tryPythonAbsolute`/`tryGoModule` 结构解析在前，摘符号表影响面与 JS 相同。**这是结构性决定，等用户拍板。**
+**建议动作**：把 `trySymbolTable` 从 JS 家族链上摘掉（保留 Rust；JVM 保留待 L2-14 修完重量——okhttp 实测 symbol-table 在 JVM 非标布局上是正产出，见上方边界段）——连带收益：L2-11 的 JS 闸（`readPackageDeps`/`NODE_BUILTINS`/`node_modules` 探测）与 L3-4 的扩展名分支一起消失。Python/Go 链同理可摘（贡献同为 0，且闸已让它们的命中不可能为真），但 Python/Go 各有 `tryPythonAbsolute`/`tryGoModule` 结构解析在前，摘符号表影响面与 JS 相同。**这是结构性决定，等用户拍板。**
 
 **触发条件**：调整 `SYMBOL_DISAMBIGUATION` 任一常数、或把符号表铺到新语言之前。跑 `node scripts/resolver-precision.js reference/<repo> [...]` 逐仓点名取数（勿用 `reference/*` 通配，目录里混着非仓文件；编制与闸状态见 `reference/README.md`）。
 
 ### L2-11：外部依赖闸只覆盖 JS 家族 — 违反 AGENTS.md 铁律 #8（多语言等价性）
 
-**状态**：大部分收敛（2026-07-28）。JS 家族（node 内建 / `package.json` 四类依赖字段 / `node_modules`，**含 .svelte**）、Rust（`std`/`core`/`alloc`/`proc_macro` 前缀 / `Cargo.toml` 声明的 crate，`path = ` 依赖不拦）、Python（标准库根段名单 / `requirements.txt` + `pyproject.toml` 的 `[project]` 与 poetry 依赖段，PEP 503 归一 + 别名表）、Go（无需名单——import 永远带完整路径：module 路径之外的一切都不猜，dotted 首段 = 外部模块、无点首段 = 标准库）与 **C/C++**（angle 形式不猜 / 无扩展名不猜 / C·POSIX 系统头名单，与 L1-4 修复同轮落地）已有闸，经 `EXTERNAL_DEPENDENCY_CHECKS` 表分派。**仍无闸的是两个：Java / Kotlin**（Svelte、C/C++ 腿已清零）。
+**状态**：大部分收敛（2026-07-28）。JS 家族（node 内建 / `package.json` 四类依赖字段 / `node_modules`，**含 .svelte**）、Rust（`std`/`core`/`alloc`/`proc_macro` 前缀 / `Cargo.toml` 声明的 crate，`path = ` 依赖不拦）、Python（标准库根段名单 / `requirements.txt` + `pyproject.toml` 的 `[project]` 与 poetry 依赖段，PEP 503 归一 + 别名表）、Go（无需名单——import 永远带完整路径：module 路径之外的一切都不猜，dotted 首段 = 外部模块、无点首段 = 标准库）、**C/C++**（angle 形式不猜 / 无扩展名不猜 / C·POSIX 系统头名单，与 L1-4 修复同轮落地）与 **Java / Kotlin 的标准库半**（`java.`/`javax.`/`kotlin.` 前缀，经 `isBuiltIn` 回退接线，T4）已有闸。**剩余唯一缺口：Java / Kotlin 的第三方 jar**（`java.` 之外的 groupId，需要 `pom.xml`/`build.gradle` manifest 读取器）。
 
 实测方法：让符号表对任何名字都命中，隔离出闸本身的行为（`null` = 闸拦住）——
 
@@ -87,8 +89,8 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 | --- | --- | --- | --- | --- | --- | --- |
 | `.ts` | `path` | 拦住 | | `.svelte` | `path` | 拦住（T3 后） |
 | `.vue` | `path` | 拦住 | | `.cpp` | `vector` | 拦住（T2 后） |
-| `.py` | `os` | 拦住 | | `.java` | `java.util.List` | **放行→猜** |
-| `.go` | `fmt` | 拦住 | | `.kt` | `kotlin.collections.List` | **放行→猜** |
+| `.py` | `os` | 拦住 | | `.java` | `java.util.List` | 拦住（T4 后） |
+| `.go` | `fmt` | 拦住 | | `.kt` | `kotlin.collections.List` | 拦住（T4 后） |
 | `.rs` | `std::vec::Vec` | 拦住 | | | | |
 
 ~~**Svelte 的原因很蠢**~~：已修（T3）——`.svelte` 进 `JS_FAMILY_EXTENSIONS`，一个字符串。`testSvelteCallerCoveredByJsFamilyGate` 锁契约（node 内建 + devDependencies 声明的 `svelte` 两条），变异验证通过；`reference/realworld`（SvelteKit）实测 12 条边、symbol-table 0。CACHE_VERSION 15。
@@ -97,7 +99,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **为什么是债**：病灶机制与语言无关，且已在两种语言上实测到实例——JS 的 `require('path')`（本仓 212 条）与 Rust 的 `std::process::Command` / `rmcp::` / `tokio::`（qartez-mcp 48 条）。Python `import requests` 撞上本地导出的 `requests` 是同一形状，只是尚未取到样本。按铁律 #8 仍属语言偏斜。
 
-**建议动作**：只剩 JVM 一条腿，分两半。（a）Java/Kotlin 的**内建前缀名单已经存在**，见 L3-6——`isBuiltIn` 死配置里躺着 `java.`/`javax.` 前缀、`kotlin.`，接线即可，不必新写名单；（b）**第三方** jar 才需要 `pom.xml`/`build.gradle` manifest 读取器（groupId 与 import 包名不同构的那部分）。注意：没有闸的语言，其 resolver 精度数据不可信（假边混在命中里）。**验证仓已入编待闸**（`reference/README.md`）：spring-petclinic / okhttp（JVM）——补闸后立刻有真实基准可量；cJSON / fmt（C/C++）已在 T2 量过（96/96 与 135/136 条结构边，symbol-table 贡献 0）、realworld（Svelte）已在 T3 量过（12 边，symbol-table 0）；cobra（Go）现在就可测。
+**建议动作**：只剩 JVM 第三方 jar 一半。（a）~~内建前缀接线~~ 已做（T4，经 `isBuiltIn` 回退）；（b）**第三方** jar 需要 `pom.xml`/`build.gradle` manifest 读取器——难点是 groupId 与 import 包名不同构（`com.google.guava:guava` ↔ `com.google.common.collect`），只能做到「顶级域名段 + 组织段」前缀匹配。**这一半已有实测样本**（T4，okhttp）：83 条第三方假边在图里（`org.junit` 37 / `assertk` 27 / `okio` 13 / `org.mockserver` 3 / `org.gradle` 3，第三方 specifier 配本地 target 必假）。**验证仓已入编待闸**（`reference/README.md`）：spring-petclinic / okhttp（JVM）；cJSON / fmt（C/C++）已在 T2 量过（96/96 与 135/136 条结构边，symbol-table 贡献 0）、realworld（Svelte）已在 T3 量过（12 边，symbol-table 0）；cobra（Go）现在就可测。
 
 **触发条件**：任何语言的 unresolved import 报出"疑似被解析到本地同名符号"时，优先补该语言的闸。
 
@@ -118,6 +120,18 @@ if (!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath))
 **建议动作**：两件事分开。（a）给字段正名或改语义——要么改名为 `staleResolvedImports`，要么让它真的统计 resolve 失败数。（b）在 `resolveFileOnly()` 丢弃记录处累计一个 `droppedImports` 计数并进 `warnings[]`，这是 L1-4 之所以"静默"的机制根源，修了它，未来任何语言的解析缺口都会自己报出来。
 
 **触发条件**：修改 `resolveFileOnly()` 的记录丢弃分支、或消费 `unresolvedCount` 做判断时。
+
+### L2-14：`tryJava` 的源根发现不认识 Gradle KMP / 非标布局，okhttp 43% 的边靠符号表兜底
+
+**状态**：活跃（2026-07-28 T4 实测发现）。okhttp 2415 条边里 1037 条（43%）`resolution_method = symbol-table`。按包前缀分组：**~950 条是仓内自引用**（`okhttp3.*` / `mockwebserver3.*`），命中为真；**83 条是第三方假边**（`org.junit` 37 / `assertk` 27 / `okio` 13 / `org.mockserver` 3 / `org.gradle` 3——第三方 specifier 配本地 target 必假，okio 未 vendored 已核实），归 L2-11 的第三方 manifest 半，不在本条范围。
+
+**根因**（自引用那 ~950 条）：`discoverJavaSourceRoots`（`resolvers/base.js`）只认 `src/main/java`、`src/main/kotlin` 等 Maven/Gradle 标准布局。okhttp 主源码在 `okhttp/src/commonJvmAndroid/kotlin/`（Kotlin Multiplatform 的 sourceSet 布局），不在名单里——`tryJava` 拿 `okhttp3.HttpUrl` 找 `okhttp3/HttpUrl.(java|kt)` 全部落空，掉进符号表。另有一小部分是类名≠文件名（`mockwebserver3.SocketEffect` 这类，路径算术天然无解，`testJavaFacadeFallback` 同款），那部分符号表是**唯一**可行策略。
+
+**为什么现在才看见**：这些边是**对的**——JVM 的「类名 = 文件名 = 包路径」语义让末段猜测可靠，所以没人报错。但它们是 confidence 0.8/tier2 的猜测：一旦本地出现同名类（导出卫生问题，本仓 `path` 那 212 条的形状）就静默错指，且 `impact` 的置信度传播把 tier2 当次等证据。结构解析能给 tier1/confidence 1.0。
+
+**建议动作**：`discoverJavaSourceRoots` 支持 KMP sourceSet 布局——扫描项目两级子目录内名为 `kotlin`/`java` 的源根（`src/<sourceSet>/kotlin`、`src/<sourceSet>/java`），别硬编码 `commonJvmAndroid` 这个具体 sourceSet 名。修完重量 okhttp：symbol-table 应大幅萎缩，**剩下的才是 L2-10 JVM 侧的判决材料**。验证基准就是现状：okhttp 1037 条。
+
+**触发条件**：JVM 仓 symbol-table 占比异常高（>10%）、或 `impact` 对 JVM 类返回 tier2 证据为主时。
 
 ### ✅ L2-12 已清零（2026-07-28）：Rust 的 `super::` / `crate::` 转回模块算术
 
@@ -151,7 +165,7 @@ if (!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath))
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0**（L1-4 已由 T2 修复） | L2 债务 **3**（L2-10 符号表精度待判决 / L2-11 外部闸缺 Java·Kotlin / L2-13 `unresolved` 语义错位） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **4**（L3-4 扩展名分支 / L3-5 死方法 / L3-6 `isBuiltIn` 死配置 / L3-7 Vue·Svelte 正则抽符号） | 合计 **7 项**
+> **当前活跃债务总览**：L1 Blocker **0**（L1-4 已由 T2 修复） | L2 债务 **4**（L2-10 符号表精度待判决 / L2-11 外部闸只剩 JVM 第三方 manifest 一半 / L2-13 `unresolved` 语义错位 / L2-14 JVM 非标源根布局） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **3**（L3-4 扩展名分支 / L3-5 死方法 / L3-7 Vue·Svelte 正则抽符号；L3-6 已由 T4 接线清零） | 合计 **7 项**
 >
 > L1-4 / L2-11 的四条腿 / L2-13 / L3-6 / L3-7 均来自 2026-07-28 的九语言等价性实测（十个最小 fixture + 闸隔离探针），复现脚本与判据见各条目。
 
@@ -193,7 +207,9 @@ if (!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath))
 
 ### L3-6：`isBuiltIn` 是死配置，而它正装着 L2-11 补闸需要的名单
 
-`parsers/registry.js` 里九个语言条目每个都声明了 `isBuiltIn`——`java.`/`javax.` 前缀、`kotlin.`、`CPP_BUILTINS`、`GO_BUILTINS`、`PYTHON_BUILTINS`。全仓（`src` / `test` / `scripts`）**零调用方**，`registry-core.js` 里也只有默认值填充，没有任何读取。
+**状态**：✅ 已清零（2026-07-28，T4 方案 A）。`_isExternalDependency()` 在闸表未命中时回退 `registry.findByExt(ext)?.isBuiltIn?.(specifier)`，九处声明首次有了消费方。**如实说明消费深度**：实际经这条回退生效的只有 `.java` / `.kt` 两个（JS 家族 / Rust / Python / Go / C-C++ 各有闸表行，行优先于声明；Vue / Svelte 的 `() => false` 永不触及）。`java.util.List` / `kotlin.collections.List` 猜向本地同名类的路径已堵（`testJavaStdlibNotGuessed` / `testKotlinStdlibNotGuessed`，先 RED 后 GREEN，变异验证通过）。CPP_BUILTINS 已收进 `resolvers/cpp.js` 单一出处（T2）。
+
+以下为发现时的原始记录（留档）：`parsers/registry.js` 里九个语言条目每个都声明了 `isBuiltIn`——`java.`/`javax.` 前缀、`kotlin.`、`CPP_BUILTINS`、`GO_BUILTINS`、`PYTHON_BUILTINS`。全仓（`src` / `test` / `scripts`）**零调用方**，`registry-core.js` 里也只有默认值填充，没有任何读取。
 
 对照其余五个钩子的消费情况（2026-07-28 实测）：`resolveStrategies` 1 处、`extractSymbols` 1 处（`file-index.js`）、`condition` 与 `filePatterns` 由 `registry-core.js` 的 `getFilePatterns()` 消费、`needsWorkspaceRoot` 1 处——只有 `isBuiltIn` 是死的。
 
@@ -315,4 +331,4 @@ if (!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath))
 
 ---
 
-*Last updated: 2026-07-28（活跃债务 **7 项**：L1=0（L1-4 已由 T2 修复：C/C++ 解析 + 闸同轮，CACHE_VERSION 14）/ L2=3（L2-10 待拍板 / L2-11 缺 Java·Kotlin·Svelte 三语言闸 / L2-13 `unresolved` 语义错位）/ 架构债务=0（两条均已降级为预防性约束）/ L3=4；本轮：T1 边层等价性基准入库 + T2 L1-4 修复——cJSON 96/96、fmt 135/136 条结构边，C/C++ symbol-table 贡献 0，双变异验证通过）*
+*Last updated: 2026-07-28（活跃债务 **7 项**：L1=0（L1-4 已由 T2 修复）/ L2=4（L2-10 待拍板 / L2-11 只剩 JVM 第三方 manifest 半 / L2-13 `unresolved` 语义错位 / L2-14 JVM 非标源根布局）/ 架构债务=0（两条均已降级为预防性约束）/ L3=3（L3-6 已由 T4 接线清零）；本轮：T1 边层等价性基准 + T2 L1-4 修复 + T3 Svelte 闸 + T4 isBuiltIn 接线——okhttp 实测发现 L2-14 并改写 L2-10 的 JVM 判决材料，83 条 JVM 第三方假边成为 L2-11 剩余半的首批实测样本）*

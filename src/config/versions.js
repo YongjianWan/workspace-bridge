@@ -34,6 +34,8 @@ const SCHEMA_VERSION = '1.2.0';
 //      且混仓里 C/C++ 部分静默丢边，必须作废重建。
 // v15: 外部依赖闸补 Svelte 腿——.svelte 进 JS_FAMILY_EXTENSIONS。SvelteKit
 //      项目里 svelte/store 等导入此前会被猜向本地同名符号。
-const CACHE_VERSION = 15;
+// v16: 外部闸接上 registry 的 isBuiltIn 声明——java./javax./kotlin. 标准库
+//      前缀不再被猜向本地同名类（L2-11 JVM 腿的内建半、L3-6 清零）。
+const CACHE_VERSION = 16;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

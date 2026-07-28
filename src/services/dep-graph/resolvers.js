@@ -282,7 +282,14 @@ const EXTERNAL_DEPENDENCY_CHECKS = [
 
 function _isExternalDependency(specifier, fromExt, root, ctx = null) {
   const check = EXTERNAL_DEPENDENCY_CHECKS.find((c) => c.matches(fromExt));
-  return check ? check.isExternal(specifier, root, ctx) : false;
+  if (check) return check.isExternal(specifier, root, ctx);
+  // Languages without a manifest reader still own a builtin list: the
+  // registry's isBuiltIn declarations (java./javax./kotlin. stdlib prefixes).
+  // Consulting them here closes the JVM half of L2-11 and retires L3-6 (the
+  // declarations had zero consumers until this line). Third-party jars still
+  // fall through — that half needs a pom/gradle reader.
+  const lang = registry.findByExt(fromExt);
+  return Boolean(lang && typeof lang.isBuiltIn === 'function' && lang.isBuiltIn(specifier));
 }
 
 function trySymbolTable(importPath, fromFile, ctx) {

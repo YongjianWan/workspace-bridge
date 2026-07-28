@@ -5,6 +5,13 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### T4：`isBuiltIn` 接线 — JVM 标准库闸 + L3-6 清零 (2026-07-28)
+
+- **Added** `_isExternalDependency()` 在 `EXTERNAL_DEPENDENCY_CHECKS` 未命中时回退 `registry.findByExt(ext)?.isBuiltIn?.(specifier)`——九个语言条目里躺着的 `java.`/`javax.`/`kotlin.` 前缀声明首次有了消费方（L3-6 清零，方案 A）。如实说明消费深度：实际经回退生效的只有 `.java`/`.kt`，其余有闸表行的语言行优先。Java/Kotlin 的**第三方 jar** 仍放行（无 pom/gradle 读取器，L2-11 剩余一半，`testJavaThirdPartyStillGuessesForNow` 把这个缺口锁成显式契约——manifest 读取器落地时该测试必须反转）。
+- **验证**：`testJavaStdlibNotGuessed` / `testKotlinStdlibNotGuessed` 先 RED 后 GREEN；变异（回退置 false）→ 恰好这两条 RED；fast 层 143/143。
+- **实测**（reference/okhttp、reference/spring-petclinic）：spring-petclinic 511 边 / symbol-table 0；okhttp 2415 边 / symbol-table 1037（43%）。对 1037 条按包前缀分组后两种成分分明——**~950 条仓内自引用**（`okhttp3.*` / `mockwebserver3.*`），成因是 `tryJava` 的源根发现不认识 KMP 布局（`okhttp/src/commonJvmAndroid/kotlin`）与类名≠文件名两种落空，符号表按类名兜底命中为真（JVM「类名=文件名=包路径」语义让末段猜测可靠，新登记 L2-14）；**83 条第三方假边**（`org.junit` 37 / `assertk` 27 / `okio` 13 / `org.mockserver` 3 / `org.gradle` 3——第三方 specifier 配本地 target 必假，okio 未 vendored 已核实），是 L2-11 剩余那半（JVM 第三方 manifest）的首批实测样本。这条实测同时改写 L2-10 的判决材料：「零正产出」结论只在 JS/TS/Python 成立，JVM 侧 symbol-table 有真实正产出，判决要等 L2-14 修完重量。
+- **Changed** `CACHE_VERSION` 15→16。
+
 ### T3：外部闸 Svelte 腿 — `.svelte` 进 JS 家族 (2026-07-28)
 
 - **Fixed** `JS_FAMILY_EXTENSIONS` 漏 `.svelte`（列了八个 JS 后缀加 `.vue` 唯独漏它）——SvelteKit 项目里 `svelte/store`、node 内建等 specifier 此前会被猜向本地同名符号。一个字符串的修复，但走的是完整流程：先 RED（`testSvelteCallerCoveredByJsFamilyGate`，node 内建 + devDependencies 声明的 `svelte` 两条断言）、GREEN、变异验证（摘掉 `.svelte` → RED，恢复 → 25/25）。
