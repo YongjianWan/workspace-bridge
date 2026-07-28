@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### 删掉 `shared.js` 转手再导出的 `path` — 假边的根因，不再只靠闸盖住 (2026-07-28)
+
+外部依赖闸挡住了 212 条假边，但没人问过**为什么本仓会有 212 条**。答案是一行 shorthand：`parsers/js/shared.js` 第 1 行 `require('path')`，第 195 行原样再导出，于是符号表登记了「shared.js 导出一个叫 `path` 的符号」，全仓 215 个 `require('path')` 的文件在闸出现前全部解析到它。`impact parsers/js/shared.js` 因此报 212 个被依赖文件，真值 3（`js.js` / `ast-parser.js` / `regex-fallback.js`）。
+
+- **Removed** `shared.js` 的 `const path = require('path')` 与 `module.exports.path`——该文件自身零处使用 `path`，这行 require 纯粹为了转手。全仓唯一消费者 `ast-parser.js` 改为自己 `require('path')`（只用在一处 `path.extname()`）。
+- 变异验证（闸不是遮羞布的证据）：临时让 `_isExternalJsPackage()` 恒返回 false，改前 1230 边 / **212 条** symbol-table（212 条 specifier 全是 `path`、target 全是 `shared.js`，无第二种形状），改后 1018 边 / **0 条**，总边数与闸开启时一致——根因已除，且没有任何真边依赖这条路径。探针已撤，未入库。
+- **Changed** `_isExternalJsPackage()` 的文档注释口径修正：原文称 `debug`/`config`/`glob`/`semver`/`path` 「碰撞够频繁」，实测本仓只有 `path` 真的撞了，其余是假想例子；数字 209/1219 亦为过期快照，改为 212/1230 并注明根因已删除。`scripts/resolver-precision.js` 头部同步——清洁树上重跑会得到 0，要看机制须先关闸。
+- 无 `CACHE_VERSION` bump：闸已在 v9 起作废这类边，本次删除不改变任何在用缓存的语义。
+
+**L2-10 复测（`reference/` 四仓新鲜数据）**：GitNexus (TS) 2621/**0**、CodeGraphContext (Py) 400/**0**、code-review-graph (Py) 252/**0**、workspace-bridge (JS) 1018/**0**；qartez-mcp (Rust) 594/**313**，拆分为 156 条 `qartez_mcp::` + 127 条 `super::` + 26 条 `crate::`（后两类正是 L2-12 记的结构解析缺口）。zod / execa 不在本地 `reference/` 下，那两条仍是 2026-07-28 的记录而非本次复测。
+
 ### 外部依赖闸扩到 Go (2026-07-28)
 
 四条语言腿里最便宜的一条：Go import 永远带完整路径，归属判断不需要任何名单——

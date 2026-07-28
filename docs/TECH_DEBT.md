@@ -28,16 +28,18 @@
 
 **状态**：复测完成（2026-07-28），**判决数据齐备，待拍板**。JS/TS 家族四个真实仓命中恒为 0：
 
-| repo | 总边 | symbol-table |
-| --- | ---: | ---: |
-| GitNexus (TS) | 2621 | 0 |
-| zod (TS) | 374 | 0 |
-| execa (TS) | 1044 | 0 |
-| workspace-bridge (JS) | 1018 | 0（闸前 209，全是假边） |
+| repo | 总边 | symbol-table | 数据新鲜度 |
+| --- | ---: | ---: | --- |
+| GitNexus (TS) | 2621 | 0 | 2026-07-28 复测 |
+| zod (TS) | 374 | 0 | 首测记录（仓不在本地 `reference/`，未复测） |
+| execa (TS) | 1044 | 0 | 首测记录（仓不在本地 `reference/`，未复测） |
+| workspace-bridge (JS) | 1018 | 0（闸前 212，全是假边） | 2026-07-28 复测 |
 
 加上 Python 两仓（CodeGraphContext 400 / code-review-graph 252，均 0），该策略在 JS/TS/Python 六个仓上**从未产出过一条正确边**；唯一的正产出在 Rust（qartez-mcp 313/594 = 52.7%，156 条 crate 绝对路径全对）。注意口径：闸后 JS 侧命中为 0 部分**是因为闸把裸 specifier 全拦了**——闸前本仓那 209 条说明没拦时它只会猜错。两种情况都不支持保留。
 
-**证据**：本仓 dogfood，闸前 1219 条边里 209 条由 `trySymbolTable` 产出，**全部是假边**（`parsers/js/shared.js` 把 `const path = require('path')` 带进了 `module.exports`，全仓每个 `require('path')` 都被解析成指向它的边，confidence 0.8/tier2），`impact parsers/js/shared.js` 因此报 212 个被依赖文件，真值 3。GitNexus（2621 边）上该策略贡献 0 条。
+**证据**：本仓 dogfood，闸前 1230 条边里 212 条由 `trySymbolTable` 产出，**全部是假边**，且全部同构——212 条的 specifier 无一例外是 `path`、target 无一例外是 `parsers/js/shared.js`（该文件把 `const path = require('path')` 带进了 `module.exports`），confidence 0.8/tier2；`impact parsers/js/shared.js` 因此报 212 个被依赖文件，真值 3。GitNexus（2621 边）上该策略贡献 0 条。
+
+**根因已于 2026-07-28 单独清除**（见 CHANGELOG）：那行转手再导出已删，闸关闭时本仓假边 212→0。这削弱了「本仓 212 条」作为摘除论据的分量——它证明的是**该策略对导出卫生零容错**（一处手滑放大成 212 条假边），而非它在 JS 上必然产出垃圾。L2-10 的判决因此主要靠下面这张表的「零正产出」，而不是靠假边计数。
 
 **为什么是债**：`SYMBOL_DISAMBIGUATION` 的 `SCORE_SAME_DIR: 40 / SCORE_SAME_MODULE: 20 / SCORE_SAME_EXT: 10 / MIN_GAP_THRESHOLD: 20` 四个常数没有任何实测依据，单测只锁了不变量（不解析非导出符号、平分返回 null），锁不住精度。没有基准，这四个数字没人敢动，也无法判断策略该留该删。
 
@@ -224,4 +226,4 @@
 
 ---
 
-*Last updated: 2026-07-23（活跃债务清零：L1=0 / L2=0 / 架构债务=0 / L3=0；本轮 L1-3 清零：tier3 不参与已使用判定 + loadGraph 后重跑展开 + CACHE_VERSION bump + 契约测试；新增预防性约束「postProcess 注入的 importRecords 不落盘」；wave8 与 query-tools 历史 flaky 同日根治（深度门禁 + 版本戳门禁 + 单一写入方）；npm run test:fast 137/137 PASS；**全量 runner 251/251 全绿**）*
+*Last updated: 2026-07-28（活跃债务 **5 项**：L1=0 / L2=3（L2-10 待拍板 / L2-11 缺 JVM 闸 / L2-12 Rust 结构解析缺口）/ 架构债务=0（两条均已降级为预防性约束）/ L3=2；本轮：resolver 精度基准四仓复测 + `shared.js` 转手再导出的 `path` 删除（假边根因，闸关时 212→0）；`npm run test:fast` 142/142 PASS）*

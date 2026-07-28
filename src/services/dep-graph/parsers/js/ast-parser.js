@@ -1,5 +1,5 @@
+const path = require('path');
 const {
-  path,
   babelParser,
   uniqueNames,
   exportKindFromDeclarationType,

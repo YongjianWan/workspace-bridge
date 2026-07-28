@@ -131,10 +131,14 @@ function _isExternalRustCrate(specifier, root) {
 
 /**
  * True when a bare specifier names something that lives outside the workspace:
- * a node builtin, a declared dependency, or an installed package. Its last
- * segment collides with local export names often enough (debug, config, glob,
- * semver, path) that a hit would be a fabricated edge — 209 of this repo's own
- * 1219 edges were exactly that before the gate existed.
+ * a node builtin, a declared dependency, or an installed package. Any hit on
+ * such a specifier is a fabricated edge, and one sloppy re-export is enough to
+ * mass-produce them: `parsers/js/shared.js` used to re-export its own
+ * `require('path')`, which made every one of this repo's 212 `require('path')`
+ * files resolve to it (measured 2026-07-28; that re-export has since been
+ * deleted, so the gate now has nothing to catch here). Names like `debug`,
+ * `config`, `glob` and `semver` are the same shape waiting to happen — the gate
+ * exists so that ownership, a deterministic fact, outranks name guessing.
  */
 function _isExternalJsPackage(specifier, root) {
   // Protocol-prefixed specifiers (node:fs, bun:sqlite, data:, http:) and

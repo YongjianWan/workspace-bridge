@@ -1,4 +1,3 @@
-const path = require('path');
 const {
   uniqueNames,
   exportKindFromDeclarationType,
@@ -192,7 +191,6 @@ function pushFunctionRecord(records, name, node, options = {}) {
 }
 
 module.exports = {
-  path,
   uniqueNames,
   exportKindFromDeclarationType,
   createExportRecord,
