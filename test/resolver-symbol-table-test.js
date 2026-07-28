@@ -335,6 +335,91 @@ function testPythonWorkspaceModuleStillResolves() {
 }
 
 // ---------------------------------------------------------------------------
+// Go: the cheapest gate of all — Go imports always carry their full path, so
+// ownership is deterministic. A specifier rooted at the module's own path
+// (go.mod `module …`) is workspace-internal; a dotted first segment is an
+// external module; a dot-less one is the standard library. Only the first
+// kind may be guessed against local symbols.
+// ---------------------------------------------------------------------------
+function makeGoProject(files) {
+  const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'wb-sym-go-'));
+  for (const [name, content] of Object.entries(files)) {
+    fs.writeFileSync(path.join(tmpDir, name), content);
+  }
+  return tmpDir;
+}
+
+function goRegistry(tmpDir, name) {
+  const registry = new SymbolRegistry();
+  const target = P(path.join(tmpDir, 'pkg', `${name}.go`));
+  registry.register(target, [{ name, kind: 'function', isExported: true }]);
+  return { registry, target };
+}
+
+function testGoStdlibNotGuessed() {
+  const tmpDir = makeGoProject({ 'go.mod': 'module example.com/mymod\n\ngo 1.22\n' });
+  const { registry } = goRegistry(tmpDir, 'json');
+  registry.register(P(path.join(tmpDir, 'pkg', 'fmt.go')), [{ name: 'fmt', isExported: true }]);
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+  const from = P(path.join(tmpDir, 'cmd', 'main.go'));
+
+  assert.strictEqual(trySymbolTable('encoding/json', from, ctx), null, 'stdlib package path must not be guessed');
+  assert.strictEqual(trySymbolTable('fmt', from, ctx), null, 'stdlib top-level package must not be guessed');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testGoExternalModuleNotGuessed() {
+  const tmpDir = makeGoProject({
+    'go.mod': 'module example.com/mymod\n\ngo 1.22\n\nrequire github.com/gorilla/mux v1.8.0\n',
+  });
+  const { registry } = goRegistry(tmpDir, 'mux');
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+
+  assert.strictEqual(
+    trySymbolTable('github.com/gorilla/mux', P(path.join(tmpDir, 'cmd', 'main.go')), ctx),
+    null,
+    'a dotted module path is somebody else\u2019s module and must not be guessed'
+  );
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testGoNoModFileStillGates() {
+  // Without go.mod we cannot know the own module path, but the two external
+  // classes are still deterministic: dotted = external module, dot-less =
+  // stdlib. Guessing those against local symbols was pure risk.
+  const tmpDir = makeGoProject({});
+  const { registry } = goRegistry(tmpDir, 'bar');
+  registry.register(P(path.join(tmpDir, 'pkg', 'fmt.go')), [{ name: 'fmt', isExported: true }]);
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+  const from = P(path.join(tmpDir, 'cmd', 'main.go'));
+
+  assert.strictEqual(trySymbolTable('github.com/foo/bar', from, ctx), null, 'dotted path must be gated even without go.mod');
+  assert.strictEqual(trySymbolTable('fmt', from, ctx), null, 'dot-less path is stdlib and must be gated even without go.mod');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testGoOwnModuleStillResolves() {
+  // Positive control, symmetric to the qartez_mcp:: Rust case: packages inside
+  // the module itself are legitimately resolvable by name.
+  const tmpDir = makeGoProject({
+    'go.mod': 'module example.com/mymod\n\ngo 1.22\n\nrequire github.com/gorilla/mux v1.8.0\n',
+  });
+  const { registry, target } = goRegistry(tmpDir, 'helper');
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+
+  assert.strictEqual(
+    trySymbolTable('example.com/mymod/pkg/helper', P(path.join(tmpDir, 'cmd', 'main.go')), ctx),
+    target,
+    'a path rooted at the module itself is not external and must still resolve'
+  );
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+// ---------------------------------------------------------------------------
 // Runner
 // ---------------------------------------------------------------------------
 const tests = [
@@ -351,6 +436,10 @@ const tests = [
   testPythonRequirementsDeclaredNotGuessed,
   testPythonPyprojectDeclaredNotGuessed,
   testPythonWorkspaceModuleStillResolves,
+  testGoStdlibNotGuessed,
+  testGoExternalModuleNotGuessed,
+  testGoNoModFileStillGates,
+  testGoOwnModuleStillResolves,
   testNullRegistryReturnsNull,
   testRelativeImportIgnored,
   testUniqueSymbolMatch,

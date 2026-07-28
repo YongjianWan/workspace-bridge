@@ -5,6 +5,14 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### 外部依赖闸扩到 Go (2026-07-28)
+
+四条语言腿里最便宜的一条：Go import 永远带完整路径，归属判断不需要任何名单——
+
+- **Added** `_isExternalGoModule()`：specifier 以 `go.mod` 的 module 路径为根 = 工作区内部（与 Rust 的 `qartez_mcp::` 情形同构，放行）；dotted 首段 = 外部模块（`github.com/…`）、无点首段 = 标准库（`fmt`、`encoding/json`），两类都拦。无 `go.mod` 可读时后两类依旧确定，照常拦——那时猜名字是纯风险，Go 仓 symbol-table 实测贡献为 0。作为一行加进 `EXTERNAL_DEPENDENCY_CHECKS`，复用既有 `readGoMod`，零新 manifest 读取器。
+- **Changed** `CACHE_VERSION` 11→12。
+- 验证：`resolver-symbol-table-test.js` 24/24（新增 4 条：stdlib 不猜 / 外部模块不猜 / 无 go.mod 仍拦 / 本 module 路径仍解析的正向对照），先 RED 3 条；变异摘掉 Go 分派行 → 恰那 3 条 RED。TECH_DEBT L2-11 只剩 Java / Kotlin。
+
 ### 外部依赖闸扩到 Python (2026-07-28)
 
 `import requests` 撞上本地导出的 `requests`，与 `require('path')`、`std::process::Command` 是同一形状的假边。闸的第三条语言腿：

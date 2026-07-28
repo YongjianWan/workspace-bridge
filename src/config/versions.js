@@ -24,6 +24,8 @@ const SCHEMA_VERSION = '1.2.0';
 // v11: 外部依赖闸扩到 Python（标准库根段 + requirements.txt/pyproject.toml
 //      声明的包，PEP 503 归一 + 常见包名/导入名别名）。v10 缓存里 Python 仓
 //      的 symbol-table 边可能混着 import requests → 本地同名模块的假边。
-const CACHE_VERSION = 11;
+// v12: 外部依赖闸扩到 Go。Go import 永远带完整路径，归属是确定的：module
+//      路径之外的一切（dotted 首段 = 外部模块，无点首段 = 标准库）不再猜。
+const CACHE_VERSION = 12;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

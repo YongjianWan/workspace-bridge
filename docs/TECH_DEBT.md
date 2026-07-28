@@ -38,11 +38,11 @@
 
 ### L2-11：外部依赖闸只覆盖 JS 家族 — 违反 AGENTS.md 铁律 #8（多语言等价性）
 
-**状态**：部分收敛（2026-07-28）。JS 家族（node 内建 / `package.json` 四类依赖字段 / `node_modules`）、Rust（`std`/`core`/`alloc`/`proc_macro` 前缀 / `Cargo.toml` 声明的 crate，`path = ` 依赖不拦）与 Python（标准库根段名单 / `requirements.txt` + `pyproject.toml` 的 `[project]` 与 poetry 依赖段，PEP 503 归一 + `python-dotenv→dotenv` 等别名）已有闸，经 `EXTERNAL_DEPENDENCY_CHECKS` 表分派。**Go / Java / Kotlin 仍无闸**。
+**状态**：大部分收敛（2026-07-28）。JS 家族（node 内建 / `package.json` 四类依赖字段 / `node_modules`）、Rust（`std`/`core`/`alloc`/`proc_macro` 前缀 / `Cargo.toml` 声明的 crate，`path = ` 依赖不拦）、Python（标准库根段名单 / `requirements.txt` + `pyproject.toml` 的 `[project]` 与 poetry 依赖段，PEP 503 归一 + 别名表）与 Go（无需名单——import 永远带完整路径：module 路径之外的一切都不猜，dotted 首段 = 外部模块、无点首段 = 标准库）已有闸，经 `EXTERNAL_DEPENDENCY_CHECKS` 表分派。**Java / Kotlin 仍无闸**。
 
 **为什么是债**：病灶机制与语言无关，且已在两种语言上实测到实例——JS 的 `require('path')`（本仓 209 条）与 Rust 的 `std::process::Command` / `rmcp::` / `tokio::`（qartez-mcp 48 条）。Python `import requests` 撞上本地导出的 `requests` 是同一形状，只是尚未取到样本。按铁律 #8 仍属语言偏斜。
 
-**建议动作**：补 `go.mod` require 段、`pom.xml`/`build.gradle` 两个 manifest 读取器 + 各自标准库名单，各加一行进 `EXTERNAL_DEPENDENCY_CHECKS`。注意：没有闸的语言，其 resolver 精度数据不可信（假边混在命中里）。
+**建议动作**：补 `pom.xml`/`build.gradle` manifest 读取器 + JDK 包名前缀名单（`java.`/`javax.`/`jdk.` 已是确定前缀，拦的就是第三方 groupId 与 import 包名不同构的那部分），加一行进 `EXTERNAL_DEPENDENCY_CHECKS`。注意：没有闸的语言，其 resolver 精度数据不可信（假边混在命中里）。
 
 **触发条件**：任何语言的 unresolved import 报出"疑似被解析到本地同名符号"时，优先补该语言的闸。
 
@@ -78,7 +78,7 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **3**（L2-10 符号表精度待判决 / L2-11 外部闸缺 Go·JVM / L2-12 Rust 结构解析缺口） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **2**（L3-4 扩展名分支 / L3-5 死方法） | 合计 **5 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **3**（L2-10 符号表精度待判决 / L2-11 外部闸缺 JVM / L2-12 Rust 结构解析缺口） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **2**（L3-4 扩展名分支 / L3-5 死方法） | 合计 **5 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 

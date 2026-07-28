@@ -201,6 +201,26 @@ function _isExternalPythonModule(specifier, root) {
 }
 
 /**
+ * True when a Go import names anything outside the module's own packages.
+ * Go imports always carry their full path, so ownership is deterministic and
+ * needs no stdlib list: a specifier rooted at the module path from go.mod is
+ * workspace-internal (symmetric to Rust's qartez_mcp:: case); a dotted first
+ * segment is an external module (github.com/…); a dot-less one is the
+ * standard library (fmt, encoding/json). Guessing either external class
+ * against local symbols is pure fabrication risk — the measured symbol-table
+ * contribution on Go repos is 0 anyway.
+ */
+function _isExternalGoModule(specifier, root) {
+  if (root) {
+    const modulePath = readGoMod(root);
+    if (modulePath && (specifier === modulePath || specifier.startsWith(`${modulePath}/`))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Per-language dispatch for "does this specifier belong to somebody else".
  *
  * One table instead of a chain of extension tests inside trySymbolTable; adding
@@ -210,6 +230,7 @@ const EXTERNAL_DEPENDENCY_CHECKS = [
   { matches: (ext) => JS_FAMILY_EXTENSIONS.has(ext), isExternal: _isExternalJsPackage },
   { matches: (ext) => ext === '.rs', isExternal: _isExternalRustCrate },
   { matches: (ext) => ext === '.py', isExternal: _isExternalPythonModule },
+  { matches: (ext) => ext === '.go', isExternal: _isExternalGoModule },
 ];
 
 function _isExternalDependency(specifier, fromExt, root) {
@@ -225,7 +246,7 @@ function trySymbolTable(importPath, fromFile, ctx) {
   // Third-party ownership is a deterministic fact, so it outranks the whole
   // heuristic: a specifier the ecosystem's manifest already assigns to someone
   // else is never guessed against local symbols. Languages whose manifest we
-  // cannot read yet (Go, Java) fall through — see TECH_DEBT L2-11.
+  // cannot read yet (Java, Kotlin) fall through — see TECH_DEBT L2-11.
   const ext = fromFile ? path.extname(fromFile).toLowerCase() : '';
   if (_isExternalDependency(importPath, ext, ctx.root)) return null;
 
