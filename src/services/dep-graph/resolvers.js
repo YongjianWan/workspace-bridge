@@ -37,6 +37,13 @@ const {
   tryRustSuper,
 } = require('./resolvers/rust');
 
+const {
+  tryCppInclude,
+  CPP_EXTENSIONS,
+  CPP_BUILTINS,
+  C_SYSTEM_HEADERS,
+} = require('./resolvers/cpp');
+
 // ============================================================================
 // Resolver Context and Strategy Registry — inspired by GitNexus pattern.
 // ============================================================================
@@ -45,9 +52,12 @@ const {
  * Build a resolution context shared across strategies for a single resolveImport call.
  * @param {string} root
  * @param {object|null} symbolRegistry
+ * @param {object|null} importHints — parser-written facts about the specifier
+ *   (e.g. `{ isLocal: false }` for an angle-bracket C/C++ include). Null when
+ *   the caller only knows the bare specifier.
  * @returns {object}
  */
-function _buildContext(root, symbolRegistry = null) {
+function _buildContext(root, symbolRegistry = null, importHints = null) {
   return {
     root,
     cachedExistsSync,
@@ -55,6 +65,7 @@ function _buildContext(root, symbolRegistry = null) {
     discoverJavaSourceRoots,
     readGoMod,
     symbolRegistry,
+    importHints,
   };
 }
 
@@ -225,21 +236,53 @@ function _isExternalGoModule(specifier, root) {
 }
 
 /**
+ * True when a C/C++ include names a header owned by the toolchain, not the repo.
+ *
+ * Three deterministic rules, in decreasing strength:
+ *  1. Angle-bracket form (`importHints.isLocal === false`, written by the
+ *     parser) is toolchain territory by definition — even third-party angle
+ *     includes like <boost/...> are never local-symbol guesses. Without this,
+ *     the '.'-only delimiter reduces 'boost/algorithm/string.hpp' to 'hpp'
+ *     and guesses a symbol named after an extension.
+ *  2. Extensionless specifiers follow C++ stdlib naming (vector, algorithm) —
+ *     extensionless local headers are already resolved by tryCppInclude before
+ *     this gate ever runs, so blocking here costs nothing.
+ *  3. The named C/POSIX system header lists (C_SYSTEM_HEADERS, CPP_BUILTINS).
+ *
+ * What this deliberately does NOT cover: quote-form third-party headers that
+ * failed local resolution ('generated.h' from a build step). Their guess key
+ * is the extension, which misses harmlessly.
+ */
+function _isExternalCppHeader(specifier, root, ctx) {
+  if (ctx && ctx.importHints && ctx.importHints.isLocal === false) return true;
+  const base = specifier.replace(/\\/g, '/').split('/').pop();
+  const dot = base.lastIndexOf('.');
+  if (dot === -1) return true;
+  const lower = base.toLowerCase();
+  if (C_SYSTEM_HEADERS.has(lower)) return true;
+  if (CPP_BUILTINS.has(base.slice(0, dot))) return true;
+  return false;
+}
+
+/**
  * Per-language dispatch for "does this specifier belong to somebody else".
  *
  * One table instead of a chain of extension tests inside trySymbolTable; adding
  * a language means adding a row plus its manifest reader (TECH_DEBT L2-11).
+ * isExternal receives (specifier, root, ctx); ctx is null-safe for rows that
+ * only need the specifier.
  */
 const EXTERNAL_DEPENDENCY_CHECKS = [
   { matches: (ext) => JS_FAMILY_EXTENSIONS.has(ext), isExternal: _isExternalJsPackage },
   { matches: (ext) => ext === '.rs', isExternal: _isExternalRustCrate },
   { matches: (ext) => ext === '.py', isExternal: _isExternalPythonModule },
   { matches: (ext) => ext === '.go', isExternal: _isExternalGoModule },
+  { matches: (ext) => CPP_EXTENSIONS.has(ext), isExternal: _isExternalCppHeader },
 ];
 
-function _isExternalDependency(specifier, fromExt, root) {
+function _isExternalDependency(specifier, fromExt, root, ctx = null) {
   const check = EXTERNAL_DEPENDENCY_CHECKS.find((c) => c.matches(fromExt));
-  return check ? check.isExternal(specifier, root) : false;
+  return check ? check.isExternal(specifier, root, ctx) : false;
 }
 
 function trySymbolTable(importPath, fromFile, ctx) {
@@ -252,7 +295,7 @@ function trySymbolTable(importPath, fromFile, ctx) {
   // else is never guessed against local symbols. Languages whose manifest we
   // cannot read yet (Java, Kotlin) fall through — see TECH_DEBT L2-11.
   const ext = fromFile ? path.extname(fromFile).toLowerCase() : '';
-  if (_isExternalDependency(importPath, ext, ctx.root)) return null;
+  if (_isExternalDependency(importPath, ext, ctx.root, ctx)) return null;
 
   // Delimiter set is language-scoped: '::' for Rust paths, '/' + '.' for Go
   // package paths ('pkg/sub.Func'). Everything else (JS/TS, Python, Java)
@@ -291,7 +334,7 @@ for (const lang of registry.languages) {
 }
 registerResolverConfig('default', [tryAlias, tryRelativeWithExtensions, trySymbolTable]);
 
-function resolveImport(fromFile, importPath, ext, root, symbolRegistry = null, outMeta = null) {
+function resolveImport(fromFile, importPath, ext, root, symbolRegistry = null, outMeta = null, importHints = null) {
   if (!importPath) return null;
   let resolver = _resolverCache.get(ext);
   if (!resolver) {
@@ -299,7 +342,7 @@ function resolveImport(fromFile, importPath, ext, root, symbolRegistry = null, o
     resolver = createResolver(strategies);
     _resolverCache.set(ext, resolver);
   }
-  const ctx = _buildContext(root, symbolRegistry);
+  const ctx = _buildContext(root, symbolRegistry, importHints);
   if (outMeta) {
     ctx.outMeta = outMeta;
   }
@@ -324,5 +367,6 @@ module.exports = {
   tryGoModule,
   tryRustCrate,
   tryRustSuper,
+  tryCppInclude,
   trySymbolTable,
 };

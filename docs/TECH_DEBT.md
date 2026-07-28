@@ -8,7 +8,9 @@
 
 ### L1-4：C/C++ 产不出任何依赖边，且据此给出「删除被引用头文件」的建议
 
-**状态**：活跃（2026-07-28 九语言等价性实测发现）。十个最小 fixture（每个仓一条「A 依赖 B」）里 C/C++ 是**唯一** `edges: 0` 的，5 次重跑全部为 0。**RED 测试已入库**：`test/language-parity-edges-test.js`（@slow）把这条实测固化成断言——cpp 条红、其余九条绿且全部走结构解析方法；T2（`tryCppInclude` + C/C++ 闸）落地后转绿。
+**状态**：✅ 已修复（2026-07-28，T2，CACHE_VERSION 14）。`tryCppInclude`（`resolvers/cpp.js`）：引号形式按语言定义相对包含文件解析 + `include/`/`src/` 回退；尖括号形式永不解析到仓内文件。闸同轮落地（`_isExternalCppHeader`：angle 形式不猜 / 无扩展名不猜 / C·POSIX 系统头名单），引号/尖括号区分复用 parser 写的 `isLocal`（`importHints` 透传，不重新猜）。实测：cJSON 96/96 条边全 `cpp-include`、fmt 135 条 `cpp-include`（另 1 条 symbol-table 是 Python 侧 vendored docopt，真边），symbol-table 在 C/C++ 上贡献 0；`#include "../cJSON.h"`（爬升）与 `#include "fmt/format-inl.h"`（include 根回退）两种形状人工核对正确。双变异验证通过（摘注册 → parity cpp 条 RED；摘闸行 → `boost/.../string.hpp` 猜中诱饵符号 `hpp`，测试 RED）。回归约束：`test/language-parity-edges-test.js` 的 cpp 条 + `test/cpp-resolver-test.js` 七条。
+
+以下为发现时的原始记录（留档）：十个最小 fixture（每个仓一条「A 依赖 B」）里 C/C++ 是**唯一** `edges: 0` 的，5 次重跑全部为 0。RED 测试 `test/language-parity-edges-test.js` 当时入库，本修复后转绿。
 
 | 语言 | 边 | 解析方法 | | 语言 | 边 | 解析方法 |
 | --- | ---: | --- | --- | --- | ---: | --- |
@@ -77,25 +79,25 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 ### L2-11：外部依赖闸只覆盖 JS 家族 — 违反 AGENTS.md 铁律 #8（多语言等价性）
 
-**状态**：大部分收敛（2026-07-28）。JS 家族（node 内建 / `package.json` 四类依赖字段 / `node_modules`）、Rust（`std`/`core`/`alloc`/`proc_macro` 前缀 / `Cargo.toml` 声明的 crate，`path = ` 依赖不拦）、Python（标准库根段名单 / `requirements.txt` + `pyproject.toml` 的 `[project]` 与 poetry 依赖段，PEP 503 归一 + 别名表）与 Go（无需名单——import 永远带完整路径：module 路径之外的一切都不猜，dotted 首段 = 外部模块、无点首段 = 标准库）已有闸，经 `EXTERNAL_DEPENDENCY_CHECKS` 表分派。**仍无闸的是四个而不是两个：Java / Kotlin / Svelte / C-C++**（2026-07-28 实测订正，此前只记了 JVM 两个）。
+**状态**：大部分收敛（2026-07-28）。JS 家族（node 内建 / `package.json` 四类依赖字段 / `node_modules`）、Rust（`std`/`core`/`alloc`/`proc_macro` 前缀 / `Cargo.toml` 声明的 crate，`path = ` 依赖不拦）、Python（标准库根段名单 / `requirements.txt` + `pyproject.toml` 的 `[project]` 与 poetry 依赖段，PEP 503 归一 + 别名表）、Go（无需名单——import 永远带完整路径：module 路径之外的一切都不猜，dotted 首段 = 外部模块、无点首段 = 标准库）与 **C/C++**（angle 形式不猜 / 无扩展名不猜 / C·POSIX 系统头名单，与 L1-4 修复同轮落地）已有闸，经 `EXTERNAL_DEPENDENCY_CHECKS` 表分派。**仍无闸的是三个：Java / Kotlin / Svelte**（C/C++ 腿已清零）。
 
 实测方法：让符号表对任何名字都命中，隔离出闸本身的行为（`null` = 闸拦住）——
 
 | 来源文件 | specifier | 结果 | | 来源文件 | specifier | 结果 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `.ts` | `path` | 拦住 | | `.svelte` | `path` | **放行→猜** |
-| `.vue` | `path` | 拦住 | | `.cpp` | `vector` | **放行→猜** |
+| `.vue` | `path` | 拦住 | | `.cpp` | `vector` | 拦住（T2 后） |
 | `.py` | `os` | 拦住 | | `.java` | `java.util.List` | **放行→猜** |
 | `.go` | `fmt` | 拦住 | | `.kt` | `kotlin.collections.List` | **放行→猜** |
 | `.rs` | `std::vec::Vec` | 拦住 | | | | |
 
 **Svelte 的原因很蠢**：`JS_FAMILY_EXTENSIONS` 列了八个 JS 后缀加 `.vue`，唯独漏了 `.svelte`。Svelte 项目同样有 `package.json`、同样 `import { writable } from 'svelte/store'`，病灶形状与 JS 完全一致，补一个字符串即可。
 
-**C/C++ 的闸与 L1-4 强耦合**：现在 C/C++ 的 import 到不了链尾（L1-4：全被 resolver 丢弃），所以缺闸暂时没造成假边。修好 L1-4 的同一轮必须补闸，否则立刻产假边。
+~~**C/C++ 的闸与 L1-4 强耦合**~~：已按计划在 L1-4 修复的同一提交落地（T2）——尖括号形式经 `importHints.isLocal === false` 不解析也不猜，无扩展名 specifier 与 C/POSIX 系统头名单兜底无 hints 的入口。实测 fmt 135 条新边零 symbol-table。
 
 **为什么是债**：病灶机制与语言无关，且已在两种语言上实测到实例——JS 的 `require('path')`（本仓 212 条）与 Rust 的 `std::process::Command` / `rmcp::` / `tokio::`（qartez-mcp 48 条）。Python `import requests` 撞上本地导出的 `requests` 是同一形状，只是尚未取到样本。按铁律 #8 仍属语言偏斜。
 
-**建议动作**：四条腿分三种成本。（a）Svelte：把 `.svelte` 加进 `JS_FAMILY_EXTENSIONS`，一个字符串。（b）Java/Kotlin/C-C++ 的**内建前缀名单已经存在**，见 L3-6——`isBuiltIn` 死配置里躺着 `java.`/`javax.` 前缀、`kotlin.`、`CPP_BUILTINS`，接线即可，不必新写名单。（c）真正要补的只有 `pom.xml`/`build.gradle` 的第三方 manifest 读取器（groupId 与 import 包名不同构的那部分）。注意：没有闸的语言，其 resolver 精度数据不可信（假边混在命中里）。**验证仓已入编待闸**（`reference/README.md`）：spring-petclinic / okhttp（JVM）、cJSON / fmt（C/C++）、realworld（Svelte）——补闸后立刻有真实基准可量；cobra（Go）现在就可测。
+**建议动作**：三条腿分两种成本。（a）Svelte：把 `.svelte` 加进 `JS_FAMILY_EXTENSIONS`，一个字符串。（b）Java/Kotlin 的**内建前缀名单已经存在**，见 L3-6——`isBuiltIn` 死配置里躺着 `java.`/`javax.` 前缀、`kotlin.`，接线即可，不必新写名单；**第三方** jar 才需要 `pom.xml`/`build.gradle` manifest 读取器（groupId 与 import 包名不同构的那部分）。注意：没有闸的语言，其 resolver 精度数据不可信（假边混在命中里）。**验证仓已入编待闸**（`reference/README.md`）：spring-petclinic / okhttp（JVM）、realworld（Svelte）——补闸后立刻有真实基准可量；cJSON / fmt（C/C++）已在 T2 量过（96/96 与 135/136 条结构边，symbol-table 贡献 0）；cobra（Go）现在就可测。
 
 **触发条件**：任何语言的 unresolved import 报出"疑似被解析到本地同名符号"时，优先补该语言的闸。
 
@@ -149,7 +151,7 @@ if (!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath))
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **1**（L1-4 C/C++ 零边 + 错误删除建议） | L2 债务 **3**（L2-10 符号表精度待判决 / L2-11 外部闸缺 Java·Kotlin·Svelte·C-C++ / L2-13 `unresolved` 语义错位） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **4**（L3-4 扩展名分支 / L3-5 死方法 / L3-6 `isBuiltIn` 死配置 / L3-7 Vue·Svelte 正则抽符号） | 合计 **8 项**
+> **当前活跃债务总览**：L1 Blocker **0**（L1-4 已由 T2 修复） | L2 债务 **3**（L2-10 符号表精度待判决 / L2-11 外部闸缺 Java·Kotlin·Svelte / L2-13 `unresolved` 语义错位） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **4**（L3-4 扩展名分支 / L3-5 死方法 / L3-6 `isBuiltIn` 死配置 / L3-7 Vue·Svelte 正则抽符号） | 合计 **7 项**
 >
 > L1-4 / L2-11 的四条腿 / L2-13 / L3-6 / L3-7 均来自 2026-07-28 的九语言等价性实测（十个最小 fixture + 闸隔离探针），复现脚本与判据见各条目。
 
@@ -313,4 +315,4 @@ if (!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath))
 
 ---
 
-*Last updated: 2026-07-28（活跃债务 **8 项**：L1=1（L1-4 C/C++ 零边）/ L2=3（L2-10 待拍板 / L2-11 缺四语言闸 / L2-13 `unresolved` 语义错位）/ 架构债务=0（两条均已降级为预防性约束）/ L3=4；本轮：九语言等价性实测——十个最小 fixture 逐语言量边产出 + 闸隔离探针 + 注册表钩子消费审计，新登记 L1-4 / L2-13 / L3-6 / L3-7 并把 L2-11 的缺口从 2 个语言订正到 4 个。均为文档登记，未改生产代码）*
+*Last updated: 2026-07-28（活跃债务 **7 项**：L1=0（L1-4 已由 T2 修复：C/C++ 解析 + 闸同轮，CACHE_VERSION 14）/ L2=3（L2-10 待拍板 / L2-11 缺 Java·Kotlin·Svelte 三语言闸 / L2-13 `unresolved` 语义错位）/ 架构债务=0（两条均已降级为预防性约束）/ L3=4；本轮：T1 边层等价性基准入库 + T2 L1-4 修复——cJSON 96/96、fmt 135/136 条结构边，C/C++ symbol-table 贡献 0，双变异验证通过）*

@@ -41,7 +41,9 @@
 - **完成判据**：跑起来 **cpp 一条 RED，其余九条 GREEN**。如果 cpp 之外还有红的，先查是不是 fixture 写错了（我这轮实测其余八种语言都产边）。
 - **风险**：Java/Python 走 spawn 外部工具链（python + javalang），CI 或干净机器上可能降级 regex-fallback。测试里要显式跳过或标注环境依赖，别让工具链缺失伪装成语言缺陷。
 
-#### T2 — L1-4：C/C++ 解析 + C/C++ 外部闸（**必须同一次提交**）
+#### T2 — L1-4：C/C++ 解析 + C/C++ 外部闸（**必须同一次提交**）✅ 已完成
+
+> 已落地：`resolvers/cpp.js`（tryCppInclude + CPP_BUILTINS/C_SYSTEM_HEADERS 单一出处）+ `_isExternalCppHeader` 闸行 + `importHints` 透传 + CACHE_VERSION 14。cJSON 96/96、fmt 135/136 条结构边，C/C++ symbol-table 贡献 0，双变异验证通过。parity cpp 条转绿，十语言全绿。CHANGELOG 2026-07-28「T2」条目。下方原始计划留档。
 
 - **前置**：T1 的 RED。
 - **为什么必须同轮**：现在 C/C++ 的 import 到不了链尾纯属侥幸（全被丢弃）。一旦能解析，`#include <stdio.h>` 会去查名为 `"h"` 的符号——`resolvers.js:261` 的分隔符对非 Rust/Go 是 `/\./`，末段取到的是**扩展名**；`boost/algorithm/string.hpp` 查 `"hpp"`。单修解析 = 把 `require('path')` 那 212 条的病重新引进来。

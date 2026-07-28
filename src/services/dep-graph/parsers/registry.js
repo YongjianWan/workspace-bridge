@@ -21,6 +21,7 @@ const { tryPythonRelative, tryPythonAbsolute } = require('../resolvers/python');
 const { tryJava } = require('../resolvers/java');
 const { tryGoRelative, tryGoModule } = require('../resolvers/go');
 const { tryRustCrate, tryRustSuper } = require('../resolvers/rust');
+const { tryCppInclude, CPP_BUILTINS } = require('../resolvers/cpp');
 
 const registry = new LanguageRegistry();
 
@@ -38,10 +39,8 @@ const GO_BUILTINS = new Set([
   'sync', 'bytes', 'context', 'path', 'filepath', 'strconv', 'reflect'
 ]);
 
-const CPP_BUILTINS = new Set([
-  'iostream', 'vector', 'string', 'map', 'set', 'algorithm', 'memory', 'cmath',
-  'cstdio', 'cstdlib', 'cstring', 'fstream', 'sstream', 'thread', 'mutex', 'future'
-]);
+// CPP_BUILTINS lives in resolvers/cpp.js (single home, imported above) —
+// the resolver gate and this isBuiltIn declaration share the same list.
 
 // -----------------------------------------------------------------------------
 // Language Registrations
@@ -241,7 +240,10 @@ registry.register(defineLanguage({
   filePatterns: ['**/*.c', '**/*.cpp', '**/*.cc', '**/*.h', '**/*.hpp'],
   condition: (workspace) => workspace.hasCpp,
   isBuiltIn: (imp) => CPP_BUILTINS.has(imp),
-  resolveStrategies: [tryAlias, tryRelativeWithExtensions],
+  // tryCppInclude owns quote-form relative semantics; tryRelativeWithExtensions
+  // stays for the rare explicit './x.h'. tryAlias (tsconfig paths) is gone —
+  // it never meant anything for C/C++ (L1-4).
+  resolveStrategies: [tryCppInclude, tryRelativeWithExtensions],
   extractSymbols: () => [] // C++ uses AST-only symbol extraction
 }));
 

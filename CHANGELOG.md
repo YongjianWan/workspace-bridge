@@ -5,6 +5,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### T2：L1-4 修复 — C/C++ 首次产边 + 外部闸同轮落地 (2026-07-28)
+
+- **Added** `src/services/dep-graph/resolvers/cpp.js` 的 `tryCppInclude`：引号形式 `#include "b.h"` 按语言定义相对包含文件解析（C/C++ 从不写 `./`），失败回退 `include/`/`src/` 惯例根；尖括号形式永不解析到仓内文件。解析方法 `cpp-include`，tier1/confidence 1.0。
+- **Added** C/C++ 外部闸 `_isExternalCppHeader`（`EXTERNAL_DEPENDENCY_CHECKS` 第五行）：angle 形式（parser 写的 `isLocal === false`）不猜、无扩展名 specifier（C++ stdlib 命名）不猜、C/POSIX 系统头名单不猜。**与解析修复同一提交**——没有闸的解析会把 `boost/algorithm/string.hpp` 猜成名叫 `hpp` 的符号（`.` 分隔符末段是扩展名），正是 `require('path')` 那 212 条的形状。
+- **Added** `importHints` 透传：`builder.js → resolveImport → ctx.importHints`，引号/尖括号区分复用 parser 写的 `isLocal`，不在 resolver 重新猜。`CPP_BUILTINS` 收进 `resolvers/cpp.js` 单一出处（registry 的 `isBuiltIn` 声明改为导入）。
+- **Changed** registry 的 cpp 条目 `resolveStrategies` 从照抄 JS 的 `[tryAlias, tryRelativeWithExtensions]` 改为 `[tryCppInclude, tryRelativeWithExtensions]`（`tryAlias` 是 tsconfig paths，对 C/C++ 无意义）；`CACHE_VERSION` 13→14（旧缓存 C/C++ 仓 0 边且混仓静默丢边，必须作废）。
+- **实测**：`reference/cJSON` 0 → 96 条边（96/96 `cpp-include`）、`reference/fmt` → 135 条 `cpp-include`（另 1 条 symbol-table 是 Python 侧 vendored docopt，真边）；C/C++ 上 symbol-table 贡献 0。`#include "../cJSON.h"`（爬升）与 `#include "fmt/format-inl.h"`（include 根回退）人工核对正确。T1 的 parity 基准 cpp 条转绿（`cpp-include:2`），十语言全绿。
+- **变异验证**：摘 `tryCppInclude` 注册 → parity cpp 条 RED（0 边）；摘闸行 → `boost/algorithm/string.hpp` 猜中诱饵符号 `hpp`、测试 RED。两个变异各自独立生效。
+- **Added** `test/cpp-resolver-test.js` 七条契约（引号相对 / include 根回退 / angle 不解析 / angle 不猜 / 无 hints 时系统头与无扩展名兜底 / 本地头过闸正向对照），先 RED 后 GREEN。
+
 ### T1：每语言边产出基准测试入库 — L1-4 的 RED (2026-07-28)
 
 - **Added** `test/language-parity-edges-test.js`（`@semantic @slow`，十次冷构建）：十个最小「A 依赖 B」fixture（`test/fixtures/language-parity/build-fixtures.js`，各带项目标记——package.json / tsconfig.json / requirements.txt / pom.xml / build.gradle.kts / go.mod / Cargo.toml / CMakeLists.txt），逐语言跑 `audit-summary` 后直读 cache.db，断言**每语言 ≥1 条边且来自结构解析方法**（`relative` / `python-absolute` / `java-package` / `go-module` / `rust-crate`），symbol-table 命中不算等价（L2-10）。等价性验收从 parser 层下放到边层——TECH_DEBT「测试覆盖缺口」条目建议的落地。

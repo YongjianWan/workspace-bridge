@@ -29,6 +29,9 @@ const SCHEMA_VERSION = '1.2.0';
 // v13: L2-12 清零——super:: 模块算术修正（非 mod 文件首个 super 不爬升）+
 //      crate:: 锚定最近 Cargo.toml。qartez-mcp 实测 153 条 symbol-table 边
 //      转 tier1，另 82 条原先连猜都猜不出的 import 首次成边。
-const CACHE_VERSION = 13;
+// v14: L1-4 修复——C/C++ 首次产边（tryCppInclude：引号形式相对包含文件 +
+//      include/src 回退；尖括号形式不解析不猜）。旧缓存里 C/C++ 仓是 0 边，
+//      且混仓里 C/C++ 部分静默丢边，必须作废重建。
+const CACHE_VERSION = 14;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };
