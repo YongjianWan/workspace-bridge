@@ -9,6 +9,7 @@ const {
   readGoMod,
   readPackageDeps,
   readCargoDeps,
+  readPythonDeps,
 } = require('./resolvers/base');
 const { registry } = require('./parsers/registry');
 
@@ -147,6 +148,58 @@ function _isExternalJsPackage(specifier, root) {
   return cachedExistsSync(path.join(root, 'node_modules', pkgName));
 }
 
+// Python 3 standard library top-level modules can never name a workspace
+// file, exactly like node builtins. (`os`, `sys`, `json`… colliding with a
+// local module is the same fabricated-edge shape as require('path').)
+const PYTHON_STDLIB_ROOTS = new Set([
+  'abc', 'aifc', 'argparse', 'array', 'ast', 'asyncio', 'atexit', 'audioop',
+  'base64', 'bdb', 'binascii', 'binhex', 'bisect', 'builtins', 'bz2',
+  'calendar', 'cgi', 'cgitb', 'chunk', 'cmath', 'cmd', 'code', 'codecs',
+  'codeop', 'collections', 'colorsys', 'compileall', 'concurrent', 'configparser',
+  'contextlib', 'contextvars', 'copy', 'copyreg', 'crypt', 'csv', 'ctypes',
+  'curses', 'dataclasses', 'datetime', 'dbm', 'decimal', 'difflib', 'dis',
+  'distutils', 'doctest', 'email', 'encodings', 'enum', 'errno', 'faulthandler',
+  'fcntl', 'filecmp', 'fileinput', 'fnmatch', 'fractions', 'ftplib', 'functools',
+  'gc', 'getopt', 'getpass', 'gettext', 'glob', 'graphlib', 'grp', 'gzip',
+  'hashlib', 'heapq', 'hmac', 'html', 'http', 'imaplib', 'imghdr', 'importlib',
+  'inspect', 'io', 'ipaddress', 'itertools', 'json', 'keyword', 'linecache',
+  'locale', 'logging', 'lzma', 'mailbox', 'mailcap', 'marshal', 'math',
+  'mimetypes', 'mmap', 'modulefinder', 'multiprocessing', 'netrc', 'nis',
+  'nntplib', 'numbers', 'operator', 'optparse', 'os', 'ossaudiodev', 'pathlib',
+  'pdb', 'pickle', 'pickletools', 'pipes', 'pkgutil', 'platform', 'plistlib',
+  'poplib', 'posix', 'pprint', 'profile', 'pstats', 'pty', 'pwd', 'py_compile',
+  'pyclbr', 'pydoc', 'queue', 'quopri', 'random', 're', 'readline', 'reprlib',
+  'resource', 'rlcompleter', 'runpy', 'sched', 'secrets', 'select', 'selectors',
+  'shelve', 'shlex', 'shutil', 'signal', 'site', 'smtpd', 'smtplib', 'sndhdr',
+  'socket', 'socketserver', 'sqlite3', 'ssl', 'stat', 'statistics', 'string',
+  'stringprep', 'struct', 'subprocess', 'sunau', 'symtable', 'sys', 'sysconfig',
+  'syslog', 'tabnanny', 'tarfile', 'telnetlib', 'tempfile', 'termios', 'test',
+  'textwrap', 'threading', 'time', 'timeit', 'tkinter', 'token', 'tokenize',
+  'trace', 'traceback', 'tracemalloc', 'tty', 'turtle', 'types', 'typing',
+  'unicodedata', 'unittest', 'urllib', 'uu', 'uuid', 'venv', 'warnings',
+  'wave', 'weakref', 'webbrowser', 'winreg', 'winsound', 'wsgiref', 'xdrlib',
+  'xml', 'xmlrpc', 'zipapp', 'zipfile', 'zipimport', 'zlib', '_thread',
+]);
+
+/**
+ * True when a Python import is rooted at the standard library or at a package
+ * the project manifest declares (requirements.txt / pyproject.toml, both
+ * formats merged by readPythonDeps). Dotted submodule paths are attributed to
+ * their root: `os.path.join` belongs to `os`. Relative imports (leading dot)
+ * never reach this function — trySymbolTable already filtered them.
+ */
+function _isExternalPythonModule(specifier, root) {
+  const rootSegment = specifier.split('.')[0].trim();
+  if (!rootSegment) return false;
+  if (PYTHON_STDLIB_ROOTS.has(rootSegment)) return true;
+  if (!root) return false;
+  const declared = readPythonDeps(root);
+  // Import names use underscores where package names use hyphens; the
+  // manifest reader stores PEP 503-normalized names, so normalize the same
+  // way before matching (`tree_sitter` ↔ `tree-sitter`).
+  return Boolean(declared && declared.has(rootSegment.toLowerCase().replace(/[-_.]+/g, '-')));
+}
+
 /**
  * Per-language dispatch for "does this specifier belong to somebody else".
  *
@@ -156,6 +209,7 @@ function _isExternalJsPackage(specifier, root) {
 const EXTERNAL_DEPENDENCY_CHECKS = [
   { matches: (ext) => JS_FAMILY_EXTENSIONS.has(ext), isExternal: _isExternalJsPackage },
   { matches: (ext) => ext === '.rs', isExternal: _isExternalRustCrate },
+  { matches: (ext) => ext === '.py', isExternal: _isExternalPythonModule },
 ];
 
 function _isExternalDependency(specifier, fromExt, root) {
@@ -171,7 +225,7 @@ function trySymbolTable(importPath, fromFile, ctx) {
   // Third-party ownership is a deterministic fact, so it outranks the whole
   // heuristic: a specifier the ecosystem's manifest already assigns to someone
   // else is never guessed against local symbols. Languages whose manifest we
-  // cannot read yet (Python, Go, Java) fall through — see TECH_DEBT L2-11.
+  // cannot read yet (Go, Java) fall through — see TECH_DEBT L2-11.
   const ext = fromFile ? path.extname(fromFile).toLowerCase() : '';
   if (_isExternalDependency(importPath, ext, ctx.root)) return null;
 

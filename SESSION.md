@@ -22,6 +22,9 @@
 6. **warm/cold 同构契约**（`22fdfff`，架构-1 降级为约束）：`warm-cold-parity-test.js` 比较可观察输出而非内部字段，并断言第二次启动 `build()` 调用数为 0（否则 warm 静默回落 cold 时测试会退化成"cold 比 cold"）。刻意未做 `finalize()` 抽取，理由见 TECH_DEBT。
 7. **resolver 精度基准 + Rust 外部闸**（P3）：`scripts/resolver-precision.js` 首测五仓——**JS/TS/Python 四仓 symbol-table 贡献恒为 0，Rust 的 qartez-mcp 却是 361/642 = 56%**，其中 156 条 crate 绝对路径正确、48 条是 `std::`/`rmcp::`/`tokio::` 假边。补 Rust 闸后 361→313，正好少 48，正确边未伤。`CACHE_VERSION` 9→10。新记 L2-12：剩下的 127 条 `super::` + 26 条 `crate::` 本该由结构解析算出，靠猜名字命中说明 `resolvers/rust.js` 有覆盖缺口。
 
+### 续轮 (2026-07-28，定向验证模式，不跑全量)
+8. **Python 外部闸**（L2-11 第三条语言腿）：`readPythonDeps(root)` 合并 `requirements.txt` + `pyproject.toml`（`[project]`/optional-dependencies/poetry 三段），PEP 503 归一 + 六个包名/导入名别名；`PYTHON_STDLIB_ROOTS` + `_isExternalPythonModule` 加一行进 `EXTERNAL_DEPENDENCY_CHECKS`。`CACHE_VERSION` 10→11。定向验证：`resolver-symbol-table-test.js` 20/20（先 RED 3 条）、变异摘分派行→恰那 3 条 RED、真实 manifest 抽查（CodeGraphContext 39 名含别名 / code-review-graph 30 名 / qartez-mcp 正确 null）、resolver 五个测试文件全绿、`graph-db-version-gate-test.js` 5/5、eslint exit 0。**诚实记录：precision 基准上 Python 仓 symbol-table 实测贡献为 0，此闸是铁律 #8 等价性保险，非修复已测到的假边。**
+
 ### 验证状态
 - `npm test` 全量六轮全绿：255/255（745s）→ 255/255（807s）→ 256/256（818s）→ 257/257（782s）→ 258/258（802s）→ 258/258（823s，含 Rust 闸 + CACHE_VERSION 10）。
 - `npm run test:fast` 142/142，`npx eslint .` exit 0。
@@ -29,7 +32,7 @@
 
 ### 待办
 - [ ] **L2-10 判决 symbol-table 在 JS 家族的去留**：已有首批数据（四个 JS/TS/Py 仓命中恒为 0），再取两三个真实仓复测即可拍板；摘掉能让 L2-11 的 JS 闸与 L3-4 的分支一起消失。
-- [ ] **L2-11 补 Python / Go / JVM 的外部闸**：JS + Rust 已有。注意**没有闸的语言，其精度数据不可信**（假边混在命中里），所以补闸必须先于测量。
+- [ ] **L2-11 补 Go / JVM 的外部闸**：JS + Rust + Python（stdlib 名单 + `requirements.txt`/`pyproject.toml` 合并读取，PEP 503 归一 + 别名表）已有。注意**没有闸的语言，其精度数据不可信**（假边混在命中里），所以补闸必须先于测量。
 - [ ] **L2-12 `resolvers/rust.js` 结构解析缺口**：153 条 `super::`/`crate::` 靠猜名字命中，应转由路径算术解析。
 - [x] ~~架构-1 warm/cold 同构~~ → 2026-07-28 以「阶段遍历机制 + 同构契约测试」收敛，`finalize()` 抽取刻意不做。
 

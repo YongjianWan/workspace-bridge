@@ -251,6 +251,90 @@ function testCrateInternalRustPathStillResolves() {
 }
 
 // ---------------------------------------------------------------------------
+// Python: same disease again. `import requests` must never land on a local
+// module that happens to export `requests` — stdlib ownership and the two
+// manifest formats (requirements.txt, pyproject.toml [project] dependencies)
+// are deterministic facts and outrank the guess.
+// ---------------------------------------------------------------------------
+function makePythonProject(files) {
+  const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'wb-sym-py-'));
+  for (const [name, content] of Object.entries(files)) {
+    fs.writeFileSync(path.join(tmpDir, name), content);
+  }
+  return tmpDir;
+}
+
+function pythonRegistry(tmpDir, name) {
+  const registry = new SymbolRegistry();
+  const target = P(path.join(tmpDir, 'src', `${name}.py`));
+  registry.register(target, [{ name, kind: 'function', isExported: true }]);
+  return { registry, target };
+}
+
+function testPythonStdlibNotGuessed() {
+  const tmpDir = makePythonProject({});
+  const { registry } = pythonRegistry(tmpDir, 'join');
+  registry.register(P(path.join(tmpDir, 'src', 'json.py')), [{ name: 'json', isExported: true }]);
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+  const from = P(path.join(tmpDir, 'src', 'app.py'));
+
+  assert.strictEqual(trySymbolTable('os.path.join', from, ctx), null, 'stdlib submodule path must not be guessed');
+  assert.strictEqual(trySymbolTable('json', from, ctx), null, 'stdlib top-level module must not be guessed');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testPythonRequirementsDeclaredNotGuessed() {
+  const tmpDir = makePythonProject({
+    'requirements.txt': '# comment\nrequests\nflask>=2.0\nuvicorn[standard]\n',
+  });
+  const { registry } = pythonRegistry(tmpDir, 'requests');
+  registry.register(P(path.join(tmpDir, 'src', 'flask.py')), [{ name: 'flask', isExported: true }]);
+  registry.register(P(path.join(tmpDir, 'src', 'uvicorn.py')), [{ name: 'uvicorn', isExported: true }]);
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+  const from = P(path.join(tmpDir, 'src', 'app.py'));
+
+  assert.strictEqual(trySymbolTable('requests', from, ctx), null, 'requirements.txt entry must not be guessed');
+  assert.strictEqual(trySymbolTable('flask', from, ctx), null, 'version specifier must be stripped before matching');
+  assert.strictEqual(trySymbolTable('uvicorn', from, ctx), null, 'extras bracket must be stripped before matching');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testPythonPyprojectDeclaredNotGuessed() {
+  const tmpDir = makePythonProject({
+    'pyproject.toml': '[project]\nname = "app"\ndependencies = [\n  "rich>=13",\n  "python-dotenv",\n]\n',
+  });
+  const { registry } = pythonRegistry(tmpDir, 'rich');
+  registry.register(P(path.join(tmpDir, 'src', 'dotenv.py')), [{ name: 'dotenv', isExported: true }]);
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+  const from = P(path.join(tmpDir, 'src', 'app.py'));
+
+  assert.strictEqual(trySymbolTable('rich', from, ctx), null, 'pyproject dependency must not be guessed');
+  assert.strictEqual(trySymbolTable('dotenv', from, ctx), null, 'python-dotenv must match its import name dotenv');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testPythonWorkspaceModuleStillResolves() {
+  // Positive control: nothing owns `mymod`, so the guess remains intended.
+  const tmpDir = makePythonProject({
+    'requirements.txt': 'requests\n',
+    'pyproject.toml': '[project]\nname = "app"\ndependencies = ["rich"]\n',
+  });
+  const { registry, target } = pythonRegistry(tmpDir, 'mymod');
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+
+  assert.strictEqual(
+    trySymbolTable('mymod', P(path.join(tmpDir, 'src', 'app.py')), ctx),
+    target,
+    'an unowned specifier must still fall back to the symbol table'
+  );
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+// ---------------------------------------------------------------------------
 // Runner
 // ---------------------------------------------------------------------------
 const tests = [
@@ -263,6 +347,10 @@ const tests = [
   testRustStdlibNotGuessed,
   testDeclaredCrateNotGuessed,
   testCrateInternalRustPathStillResolves,
+  testPythonStdlibNotGuessed,
+  testPythonRequirementsDeclaredNotGuessed,
+  testPythonPyprojectDeclaredNotGuessed,
+  testPythonWorkspaceModuleStillResolves,
   testNullRegistryReturnsNull,
   testRelativeImportIgnored,
   testUniqueSymbolMatch,

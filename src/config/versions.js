@@ -21,6 +21,9 @@ const SCHEMA_VERSION = '1.2.0';
 //     serve them as fresh.
 // v10: 外部依赖闸扩到 Rust（std/core/alloc 前缀 + Cargo.toml 声明的 crate）。
 //      v9 缓存里存着 reference/qartez-mcp 那 48 条 std::/rmcp::/tokio:: 假边。
-const CACHE_VERSION = 10;
+// v11: 外部依赖闸扩到 Python（标准库根段 + requirements.txt/pyproject.toml
+//      声明的包，PEP 503 归一 + 常见包名/导入名别名）。v10 缓存里 Python 仓
+//      的 symbol-table 边可能混着 import requests → 本地同名模块的假边。
+const CACHE_VERSION = 11;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

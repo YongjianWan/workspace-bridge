@@ -5,6 +5,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### 外部依赖闸扩到 Python (2026-07-28)
+
+`import requests` 撞上本地导出的 `requests`，与 `require('path')`、`std::process::Command` 是同一形状的假边。闸的第三条语言腿：
+
+- **Added** `base.js` 的 `readPythonDeps(root)`：合并 `requirements.txt` 与 `pyproject.toml`（`[project] dependencies` / `[project.optional-dependencies]` 数组 + `[tool.poetry...dependencies]` 表），mtime 双文件联合缓存，接入 `clearResolverCaches()`。包名 PEP 503 归一（小写、`-_.` 连段坍缩为 `-`），所以 `tree-sitter` 匹配导入名 `tree_sitter`；`python-dotenv→dotenv`、`pyyaml→yaml`、`pillow→pil`、`beautifulsoup4→bs4`、`scikit-learn→sklearn`、`opencv-python→cv2` 六个著名错配走别名表。
+- **Added** `resolvers.js` 的 `PYTHON_STDLIB_ROOTS`（Python 3 标准库顶层模块名单）+ `_isExternalPythonModule()`，根段判定（`os.path.join` 归属 `os`），作为一行加进 `EXTERNAL_DEPENDENCY_CHECKS` 分派表。
+- **Changed** `CACHE_VERSION` 10→11：v10 缓存里 Python 仓的 symbol-table 边可能混着这类假边。
+- 验证：`test/resolver-symbol-table-test.js` 20/20（新增 4 条：stdlib 不猜 / requirements 不猜（含 `>=` 版本符与 `[extras]` 剥离）/ pyproject 不猜（含别名）/ 无归属 specifier 仍解析的正向对照）。变异验证：摘掉 Python 分派行 → 恰好那 3 条闸门测试 RED。真实 manifest 抽查：CodeGraphContext 39 个名（含 `dotenv`/`yaml` 别名与 `tree-sitter` 归一）、code-review-graph 30 个、qartez-mcp 正确返回 null（无 Python manifest，Rust 闸不受影响）。诚实记录：precision 基准上两个 Python reference 仓的 symbol-table 贡献实测为 0，此闸是铁律 #8 的等价性保险而非修复已测到的假边。
+- TECH_DEBT L2-11 状态更新：剩 Go / Java / Kotlin 无闸。
+
 ### resolver 精度基准 + 外部依赖闸扩到 Rust (2026-07-28)
 
 **Added** `scripts/resolver-precision.js`（TECH_DEBT L2-10 的判决工具）：join `edges.resolution_method` 与 `parse_results.import_records`，输出「导入方 —[原始 specifier]→ 目标」三元组——只数数字无法判断对错，人工确认需要看见源码里写的是什么。首次测量（五个真实仓）：

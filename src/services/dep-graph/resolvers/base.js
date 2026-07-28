@@ -15,6 +15,7 @@ const _resolverCache = new Map();
 const _goModCache = new Map(); // root -> { modulePath, mtime }
 const _packageDepsCache = new Map(); // root -> { names: Set<string>, mtime }
 const _cargoDepsCache = new Map(); // root -> { names: Set<string>, mtime }
+const _pythonDepsCache = new Map(); // root -> { names: Set<string>, stamp }
 
 const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
 
@@ -26,6 +27,7 @@ function clearResolverCaches() {
   _goModCache.clear();
   _packageDepsCache.clear();
   _cargoDepsCache.clear();
+  _pythonDepsCache.clear();
 }
 
 function _touchCache(map, key) {
@@ -222,6 +224,114 @@ function readCargoDeps(root) {
   }
 }
 
+/**
+ * Package names declared for a Python project: requirements.txt lines plus
+ * pyproject.toml `[project] dependencies` / `[project.optional-dependencies]`
+ * arrays and `[tool.poetry...dependencies]` tables. Both manifests are merged;
+ * either one alone is enough. Names are PEP 503-normalized (lowercase, runs of
+ * `-_.` collapse to `-`) so `tree-sitter` matches its import name
+ * `tree_sitter`; a handful of famous package-name/import-name mismatches are
+ * bridged by PYTHON_IMPORT_ALIASES.
+ *
+ * @param {string} root
+ * @returns {Set<string>|null} null when neither manifest is readable
+ */
+const PYTHON_IMPORT_ALIASES = new Map([
+  ['python-dotenv', 'dotenv'],
+  ['pyyaml', 'yaml'],
+  ['pillow', 'pil'],
+  ['beautifulsoup4', 'bs4'],
+  ['scikit-learn', 'sklearn'],
+  ['opencv-python', 'cv2'],
+]);
+
+function _normalizePythonName(name) {
+  return String(name).trim().toLowerCase().replace(/[-_.]+/g, '-');
+}
+
+function _pep508Name(requirement) {
+  const match = String(requirement).trim().match(/^[A-Za-z0-9._-]+/);
+  return match ? match[0] : null;
+}
+
+function readPythonDeps(root) {
+  const reqPath = path.join(root, 'requirements.txt');
+  const pyPath = path.join(root, 'pyproject.toml');
+  const stampOf = (p) => {
+    try {
+      return fs.statSync(p).mtimeMs;
+    } catch {
+      return 0;
+    }
+  };
+  const stamp = `${stampOf(reqPath)}:${stampOf(pyPath)}`;
+  if (stamp === '0:0') {
+    _pythonDepsCache.delete(root);
+    return null;
+  }
+
+  const cached = _pythonDepsCache.get(root);
+  if (cached && cached.stamp === stamp) {
+    return cached.names;
+  }
+
+  const names = new Set();
+  const add = (raw) => {
+    const name = _pep508Name(raw);
+    if (!name) return;
+    const normalized = _normalizePythonName(name);
+    if (!normalized || normalized === 'python') return;
+    names.add(normalized);
+    const alias = PYTHON_IMPORT_ALIASES.get(normalized);
+    if (alias) names.add(alias);
+  };
+
+  try {
+    if (stampOf(reqPath)) {
+      for (const rawLine of fs.readFileSync(reqPath, 'utf8').split('\n')) {
+        const line = rawLine.replace(/\s+#.*$/, '').trim();
+        if (!line || line.startsWith('#') || line.startsWith('-')) continue;
+        add(line.split(';')[0]); // drop environment markers
+      }
+    }
+  } catch {
+    // unreadable requirements.txt — pyproject may still carry the facts
+  }
+
+  try {
+    if (stampOf(pyPath)) {
+      let section = '';
+      let collecting = false;
+      for (const rawLine of fs.readFileSync(pyPath, 'utf8').split('\n')) {
+        const line = rawLine.trim();
+        const header = line.match(/^\[([^\]]+)\]/);
+        if (header) {
+          section = header[1].trim();
+          collecting = false;
+          continue;
+        }
+        if (section === 'project' || section === 'project.optional-dependencies') {
+          if (/^[\w-]*\s*=\s*\[/.test(line)) collecting = true;
+          if (collecting) {
+            for (const m of line.matchAll(/["']([^"']+)["']/g)) add(m[1]);
+            if (line.includes(']')) collecting = false;
+            continue;
+          }
+        }
+        if (/^tool\.poetry\.(group\.[\w-]+\.)?dependencies$/.test(section)) {
+          const eq = line.indexOf('=');
+          if (eq > 0) add(line.slice(0, eq));
+        }
+      }
+    }
+  } catch {
+    // unreadable pyproject.toml — requirements.txt may still carry the facts
+  }
+
+  _pythonDepsCache.set(root, { names, stamp });
+  return names;
+}
+
 function _readTsconfigPaths(root) {
   const tsconfigPath = path.join(root, 'tsconfig.json');
   const jsconfigPath = path.join(root, 'jsconfig.json');
@@ -282,6 +392,7 @@ module.exports = {
   readGoMod,
   readPackageDeps,
   readCargoDeps,
+  readPythonDeps,
   _readTsconfigPaths,
   _tryResolveWithExtensions,
 };
