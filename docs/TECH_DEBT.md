@@ -26,13 +26,22 @@
 
 ### L2-10：symbol-table 解析策略没有精度基准，两个真实仓实测净产出为负
 
-**状态**：已有首批测量（2026-07-28），判决未下。`scripts/resolver-precision.js` 首测五仓：GitNexus / CodeGraphContext / code-review-graph / workspace-bridge 上 symbol-table 贡献 **0 条**；qartez-mcp（Rust）**313/594 = 52.7%**，其中 156 条 `qartez_mcp::` crate 绝对路径全部正确。**即该策略在 JS/TS/Python 上零产出、在 Rust 上撑起半张图**。
+**状态**：复测完成（2026-07-28），**判决数据齐备，待拍板**。JS/TS 家族四个真实仓命中恒为 0：
+
+| repo | 总边 | symbol-table |
+| --- | ---: | ---: |
+| GitNexus (TS) | 2621 | 0 |
+| zod (TS) | 374 | 0 |
+| execa (TS) | 1044 | 0 |
+| workspace-bridge (JS) | 1018 | 0（闸前 209，全是假边） |
+
+加上 Python 两仓（CodeGraphContext 400 / code-review-graph 252，均 0），该策略在 JS/TS/Python 六个仓上**从未产出过一条正确边**；唯一的正产出在 Rust（qartez-mcp 313/594 = 52.7%，156 条 crate 绝对路径全对）。注意口径：闸后 JS 侧命中为 0 部分**是因为闸把裸 specifier 全拦了**——闸前本仓那 209 条说明没拦时它只会猜错。两种情况都不支持保留。
 
 **证据**：本仓 dogfood，闸前 1219 条边里 209 条由 `trySymbolTable` 产出，**全部是假边**（`parsers/js/shared.js` 把 `const path = require('path')` 带进了 `module.exports`，全仓每个 `require('path')` 都被解析成指向它的边，confidence 0.8/tier2），`impact parsers/js/shared.js` 因此报 212 个被依赖文件，真值 3。GitNexus（2621 边）上该策略贡献 0 条。
 
 **为什么是债**：`SYMBOL_DISAMBIGUATION` 的 `SCORE_SAME_DIR: 40 / SCORE_SAME_MODULE: 20 / SCORE_SAME_EXT: 10 / MIN_GAP_THRESHOLD: 20` 四个常数没有任何实测依据，单测只锁了不变量（不解析非导出符号、平分返回 null），锁不住精度。没有基准，这四个数字没人敢动，也无法判断策略该留该删。
 
-**建议动作**：再取两三个 JS/TS 真实仓复测，若命中仍恒为 0，就把 `trySymbolTable` 从 JS 家族链上摘掉（保留 Rust/JVM）——那能同时让 L2-11 的 JS 闸和 L3-4 的分支一起消失。Python/Go 目前无外部闸，其命中率数据不可信，须先补闸再测。
+**建议动作**：把 `trySymbolTable` 从 JS 家族链上摘掉（保留 Rust，JVM 保留待 L2-11 一并定）——连带收益：L2-11 的 JS 闸（`readPackageDeps`/`NODE_BUILTINS`/`node_modules` 探测）与 L3-4 的扩展名分支一起消失。Python/Go 链同理可摘（贡献同为 0，且闸已让它们的命中不可能为真），但 Python/Go 各有 `tryPythonAbsolute`/`tryGoModule` 结构解析在前，摘符号表影响面与 JS 相同。**这是结构性决定，等用户拍板。**
 
 **触发条件**：调整 `SYMBOL_DISAMBIGUATION` 任一常数、或把符号表铺到新语言之前。跑 `node scripts/resolver-precision.js reference/*` 取数。
 
