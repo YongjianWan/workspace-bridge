@@ -26,6 +26,9 @@ const SCHEMA_VERSION = '1.2.0';
 //      的 symbol-table 边可能混着 import requests → 本地同名模块的假边。
 // v12: 外部依赖闸扩到 Go。Go import 永远带完整路径，归属是确定的：module
 //      路径之外的一切（dotted 首段 = 外部模块，无点首段 = 标准库）不再猜。
-const CACHE_VERSION = 12;
+// v13: L2-12 清零——super:: 模块算术修正（非 mod 文件首个 super 不爬升）+
+//      crate:: 锚定最近 Cargo.toml。qartez-mcp 实测 153 条 symbol-table 边
+//      转 tier1，另 82 条原先连猜都猜不出的 import 首次成边。
+const CACHE_VERSION = 13;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

@@ -57,15 +57,15 @@
 
 **触发条件**：任何语言的 unresolved import 报出"疑似被解析到本地同名符号"时，优先补该语言的闸。
 
-### L2-12：Rust 的 `super::` / `crate::` 靠符号表猜名字命中，说明结构解析有缺口
+### ✅ L2-12 已清零（2026-07-28）：Rust 的 `super::` / `crate::` 转回模块算术
 
-**状态**：活跃（2026-07-28 测量发现）。qartez-mcp 闸后剩下的 313 条 symbol-table 边里，127 条根段是 `super::`、26 条是 `crate::`。
+**诊断**：两个独立缺口。(1) `tryRustSuper` 把 `super` 当**目录**爬升——非 mod 文件的第一个 `super` 命名的是文件所属模块本身（子模块目录就是文件所在目录），不该爬；旧代码每级必爬一层，导致非 mod 文件的所有 `super::` 路径全部落空。(2) `tryRustCrate` 锚在工作区根的 `src`——多 crate 工作区（qartez-mcp/qartez-dashboard）里 `crate::` 应锚定**最近的 Cargo.toml** 的 src。另有第三类：末段命名的是基模块的**条目**而非子模块（`super::QartezServer` → `server/mod.rs`），单段时回退基模块文件（`mod.rs`/`baseDir.rs`/`lib.rs`/`main.rs`）。
 
-**为什么是债**：这两类是**结构可解析**的模块路径——`crate::a::b` 就是 crate 根往下走，`super::x` 就是父模块——本该由 `tryRustCrate` / `tryRustSuper` 按路径算出确定答案，而不是落到链尾拿末段名字去全局猜。猜对了也是运气：同名符号一多就会静默指错，且这类边带 confidence 0.8 的"较可信"标签。
+**实测验证**（qartez-mcp 重建）：symbol-table 313 → **160**（正好少 153，剩 156 条 `qartez_mcp::` 真命中 + 4 个单例），rust-crate 292 / rust-super 206。总边 594 → **676**（+82）——那不是转移，是 82 条原先连猜都猜不出、被静默丢弃的 import 首次成边。随机抽 6 条新 tier1 边人工核对全对；零重复 (source,target) 对。
 
-**建议动作**：查 `resolvers/rust.js` 两个策略的覆盖缺口（很可能是 `mod.rs` / `lib.rs` 布局或多级 `super::super::` 未处理），补齐后这 153 条应当从 symbol-table 转到结构解析方法名下。用 `node scripts/resolver-precision.js reference/qartez-mcp` 验证转移。
+**契约**：`test/gors-resolver-test.js` 新增 4 条（非 mod 首级不爬 / 基模块条目回退 / mod.rs 立即爬 / 最近 Cargo.toml 锚定），对旧 `rust.js` 验证 RED 后转绿。旧断言 `super::super::lib → null` 锁的正是 off-by-one bug，已改为 crate 根语义（`foo::bar` 上两级 = crate root = `src/lib.rs`）。
 
-**触发条件**：修改 `resolvers/rust.js` 时；或 Rust 项目报出可疑的跨模块边时。
+**副产品**：`base.js` 新增 `findCargoCrateRoot(fromFile, root)`，缓存进 `clearResolverCaches()`。`CACHE_VERSION` 12→13。
 
 ### ⚠️ 预防性约束：`_invalidateParseCache()` 是 parse cache 的唯一失效入口
 
@@ -89,7 +89,7 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **3**（L2-10 符号表精度待判决 / L2-11 外部闸缺 JVM / L2-12 Rust 结构解析缺口） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **2**（L3-4 扩展名分支 / L3-5 死方法） | 合计 **5 项**
+> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **2**（L2-10 符号表精度待判决 / L2-11 外部闸缺 JVM） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **2**（L3-4 扩展名分支 / L3-5 死方法） | 合计 **4 项**
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 

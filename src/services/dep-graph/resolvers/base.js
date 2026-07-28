@@ -16,6 +16,7 @@ const _goModCache = new Map(); // root -> { modulePath, mtime }
 const _packageDepsCache = new Map(); // root -> { names: Set<string>, mtime }
 const _cargoDepsCache = new Map(); // root -> { names: Set<string>, mtime }
 const _pythonDepsCache = new Map(); // root -> { names: Set<string>, stamp }
+const _cargoCrateRootCache = new Map(); // dir -> nearest ancestor dir containing Cargo.toml
 
 const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
 
@@ -28,6 +29,7 @@ function clearResolverCaches() {
   _packageDepsCache.clear();
   _cargoDepsCache.clear();
   _pythonDepsCache.clear();
+  _cargoCrateRootCache.clear();
 }
 
 function _touchCache(map, key) {
@@ -379,6 +381,39 @@ function _tryResolveWithExtensions(basePath) {
   return null;
 }
 
+/**
+ * The crate root that owns `fromFile`: the nearest ancestor directory (bounded
+ * by `root`) containing a Cargo.toml. Workspaces routinely hold multiple
+ * crates (qartez-mcp/qartez-dashboard), and `crate::` paths are relative to
+ * their own crate's src, not the workspace root's.
+ *
+ * @param {string|null} fromFile
+ * @param {string} root
+ * @returns {string} falls back to `root` when no Cargo.toml is found
+ */
+function findCargoCrateRoot(fromFile, root) {
+  if (!fromFile) return root;
+  let dir = path.dirname(fromFile);
+  if (_cargoCrateRootCache.has(dir)) {
+    return _cargoCrateRootCache.get(dir);
+  }
+  const startDir = dir;
+  let found = null;
+  const normalizedRoot = path.resolve(root);
+  while (dir.startsWith(normalizedRoot)) {
+    if (cachedExistsSync(path.join(dir, 'Cargo.toml'))) {
+      found = dir;
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  const result = found || root;
+  _cargoCrateRootCache.set(startDir, result);
+  return result;
+}
+
 module.exports = {
   RESOLVER_EXTENSIONS,
   TS_EXTENSIONS,
@@ -393,6 +428,7 @@ module.exports = {
   readPackageDeps,
   readCargoDeps,
   readPythonDeps,
+  findCargoCrateRoot,
   _readTsconfigPaths,
   _tryResolveWithExtensions,
 };

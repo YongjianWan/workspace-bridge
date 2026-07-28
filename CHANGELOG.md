@@ -5,6 +5,14 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L2-12 清零：Rust `super::`/`crate::` 从猜名字回到模块算术 (2026-07-28)
+
+- **Fixed** `tryRustSuper` 的 off-by-one：`super` 是模块概念不是目录概念——非 mod 文件（`blame.rs`）的第一个 `super` 命名文件所属模块本身，子模块目录就是文件所在目录，不爬升；`mod.rs` 文件本身就是父目录命名的模块，每级 `super` 才爬。旧代码每级必爬，非 mod 文件的 `super::` 路径全部落空掉进符号表。
+- **Fixed** `tryRustCrate` 锚定错误：`crate::` 改锚**最近的 Cargo.toml** 的 src（`base.js` 新增 `findCargoCrateRoot`，缓存进 `clearResolverCaches()`）——多 crate 工作区（qartez-mcp/qartez-dashboard）里原来锚工作区根，member crate 的 `crate::` 全部落空。
+- **Added** 单段末条的基模块回退：末段命名基模块的**条目**而非子模块时（`super::QartezServer`），回退基模块文件（`mod.rs` / `baseDir.rs` / `lib.rs` / `main.rs`）。多段失败不回退——`super::foo::Bar` 要求 foo 是模块。
+- **实测**（qartez-mcp 重建）：symbol-table 313 → 160（正好 −153），总边 594 → 676（+82 条原先连猜都猜不出、被静默丢弃的 import 首次成边），随机抽 6 条新 tier1 边人工核对全对，零重复 (source,target) 对。
+- **Changed** `CACHE_VERSION` 12→13。`test/gors-resolver-test.js` 新增 4 条契约（对旧 `rust.js` 验证 RED）；旧断言 `super::super::lib → null` 锁的正是 off-by-one，改为 crate 根语义。
+
 ### 删掉 `shared.js` 转手再导出的 `path` — 假边的根因，不再只靠闸盖住 (2026-07-28)
 
 外部依赖闸挡住了 212 条假边，但没人问过**为什么本仓会有 212 条**。答案是一行 shorthand：`parsers/js/shared.js` 第 1 行 `require('path')`，第 195 行原样再导出，于是符号表登记了「shared.js 导出一个叫 `path` 的符号」，全仓 215 个 `require('path')` 的文件在闸出现前全部解析到它。`impact parsers/js/shared.js` 因此报 212 个被依赖文件，真值 3（`js.js` / `ast-parser.js` / `regex-fallback.js`）。

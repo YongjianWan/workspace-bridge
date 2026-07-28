@@ -25,6 +25,7 @@
 ### 续轮 (2026-07-28，定向验证模式，不跑全量)
 8. **Python 外部闸**（L2-11 第三条语言腿）：`readPythonDeps(root)` 合并 `requirements.txt` + `pyproject.toml`（`[project]`/optional-dependencies/poetry 三段），PEP 503 归一 + 六个包名/导入名别名；`PYTHON_STDLIB_ROOTS` + `_isExternalPythonModule` 加一行进 `EXTERNAL_DEPENDENCY_CHECKS`。`CACHE_VERSION` 10→11。定向验证：`resolver-symbol-table-test.js` 20/20（先 RED 3 条）、变异摘分派行→恰那 3 条 RED、真实 manifest 抽查（CodeGraphContext 39 名含别名 / code-review-graph 30 名 / qartez-mcp 正确 null）、resolver 五个测试文件全绿、`graph-db-version-gate-test.js` 5/5、eslint exit 0。**诚实记录：precision 基准上 Python 仓 symbol-table 实测贡献为 0，此闸是铁律 #8 等价性保险，非修复已测到的假边。**
 9. **Go 外部闸**（L2-11 第四条腿，最便宜的一条）：Go import 永远带完整路径，`_isExternalGoModule` 零名单——`go.mod` module 路径为根 = 内部放行，dotted 首段 = 外部模块、无点首段 = 标准库，都拦。无 `go.mod` 时后两类依旧确定照常拦。`CACHE_VERSION` 11→12。24/24（先 RED 3 条 + 变异验证）。L2-11 只剩 Java / Kotlin，与 L2-10 判决联动。
+10. **L2-12 清零**（Rust super::/crate:: 回模块算术）：两个独立缺口——`tryRustSuper` 把 super 当目录爬（非 mod 文件首级不该爬），`tryRustCrate` 锚工作区根（该锚最近 Cargo.toml）；加单段基模块条目回退。qartez-mcp 实测 symbol-table 313→160（正好 −153），总边 594→676（+82 条原先连猜都猜不出的 import 首次成边），抽 6 条全对。`CACHE_VERSION` 12→13。另有 Claude 线：`shared.js` 假边根因（path shorthand）拔除 + 六仓新鲜数据齐备，L2-10 待用户拍板。
 
 ### 验证状态
 - `npm test` 全量六轮全绿：255/255（745s）→ 255/255（807s）→ 256/256（818s）→ 257/257（782s）→ 258/258（802s）→ 258/258（823s，含 Rust 闸 + CACHE_VERSION 10）。
@@ -34,7 +35,7 @@
 ### 待办
 - [ ] **L2-10 判决 symbol-table 在 JS 家族的去留**：已有首批数据（四个 JS/TS/Py 仓命中恒为 0），再取两三个真实仓复测即可拍板；摘掉能让 L2-11 的 JS 闸与 L3-4 的分支一起消失。
 - [ ] **L2-11 补 JVM 的外部闸**：JS + Rust + Python + Go 已有（Go 无需名单：module 路径之外一切不拦则已一拦俱全）。JVM 麻烦在 pom/gradle 两种格式且 groupId 与 import 包名不同构，建议和 L2-10 判决联动。
-- [ ] **L2-12 `resolvers/rust.js` 结构解析缺口**：153 条 `super::`/`crate::` 靠猜名字命中，应转由路径算术解析。
+- [x] ~~**L2-12 `resolvers/rust.js` 结构解析缺口**~~ → 2026-07-28 清零：super:: 模块算术修正 + crate:: 最近 Cargo.toml 锚定 + 基模块条目回退，153 条转 tier1、另 82 条首成边，`CACHE_VERSION` 13。
 - [x] ~~架构-1 warm/cold 同构~~ → 2026-07-28 以「阶段遍历机制 + 同构契约测试」收敛，`finalize()` 抽取刻意不做。
 
 ### 本轮方法论教训
