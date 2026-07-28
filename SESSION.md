@@ -22,12 +22,80 @@
 - 闸隔离探针：`.svelte`/`.cpp`/`.java`/`.kt` 放行去猜，其余五类拦住。
 - `isBuiltIn` 全仓（src/test/scripts）零调用方；对照组其余五钩子均有消费方。
 
-### 待办
-- [ ] **L1-4 修 C/C++**：新增 `tryCppInclude`（引号形式相对当前文件、尖括号判系统头不猜），**必须与 L2-11 的 C/C++ 闸同轮**，否则立刻产假边。先写失败测试锁「`#include "helper.h"` 必须成边」。
-- [ ] **L2-11 四条腿**：Svelte 是一个字符串（`.svelte` 进 `JS_FAMILY_EXTENSIONS`）；Java/Kotlin/C-C++ 的内建名单已在 `isBuiltIn` 死配置里，接线即可（同时消 L3-6）；只有 pom/gradle 第三方 manifest 读取器要真写。
-- [ ] **L2-13**：给 `unresolved` 正名或改语义 + 在 `resolveFileOnly()` 丢弃处累计 `droppedImports` 进 `warnings[]`——这是 L1-4 之所以静默的机制根源。
-- [ ] **测试**：把 `resolver-precision.js` 扩成每语言边产出基准，输入用这十个 fixture，断言「每语言 ≥1 条边、丢弃数 0」。
-- [ ] **L2-10 判决**：数据齐（六仓零正产出，唯一正产出在 Rust），仍待拍板。
+### 待办（下一轮执行清单，按依赖顺序，不可乱序）
+
+> 顺序是被约束死的，不是偏好：T1 是 T2 的 RED，T2 内部两件事必须同一次提交，T4 依赖 T2 建立的闸表形状。
+> 每项完成后立刻在 CHANGELOG `[Unreleased]` 追加条目（铁律），并更新 TECH_DEBT 对应条目状态。
+
+---
+
+#### T1 — 每语言边产出基准测试（先 RED）
+
+- **前置**：无。这是 T2 的失败测试，TDD 红线要求先做。
+- **做什么**：
+  1. fixture 生成器落进仓（现在只在临时目录）。建议 `test/fixtures/language-parity/build-fixtures.js`：九种语言各一个「A 依赖 B」最小仓（十个，JS/TS 分测），带各自的项目标记（`package.json` / `tsconfig.json` / `requirements.txt` / `pom.xml` / `build.gradle.kts` / `go.mod` / `Cargo.toml` / `CMakeLists.txt`）。生成到临时目录，测试结束清理。
+  2. 新增 `test/language-parity-edges-test.js`（`// @semantic` + `// @slow`，它 spawn CLI）。对每个 fixture 跑 `audit-summary --cache-dir <tmp> --json`，读 cache.db 断言：**每语言 `edges >= 1`**，且 **`import_records` 里被丢弃的条数为 0**（后者依赖 T5 的 `droppedImports`；T5 未做前先只断言边数，留 TODO 注释）。
+  3. 断言里带上解析方法（`resolution_method`），别只数数量——`relative:1` 和 `symbol-table:1` 意义完全不同。
+- **完成判据**：跑起来 **cpp 一条 RED，其余九条 GREEN**。如果 cpp 之外还有红的，先查是不是 fixture 写错了（我这轮实测其余八种语言都产边）。
+- **风险**：Java/Python 走 spawn 外部工具链（python + javalang），CI 或干净机器上可能降级 regex-fallback。测试里要显式跳过或标注环境依赖，别让工具链缺失伪装成语言缺陷。
+
+#### T2 — L1-4：C/C++ 解析 + C/C++ 外部闸（**必须同一次提交**）
+
+- **前置**：T1 的 RED。
+- **为什么必须同轮**：现在 C/C++ 的 import 到不了链尾纯属侥幸（全被丢弃）。一旦能解析，`#include <stdio.h>` 会去查名为 `"h"` 的符号——`resolvers.js:261` 的分隔符对非 Rust/Go 是 `/\./`，末段取到的是**扩展名**；`boost/algorithm/string.hpp` 查 `"hpp"`。单修解析 = 把 `require('path')` 那 212 条的病重新引进来。
+- **做什么**：
+  1. 新建 `src/services/dep-graph/resolvers/cpp.js`，实现 `tryCppInclude`：
+     - 引号形式 `#include "foo.h"` → 相对当前文件目录解析（**这是 C/C++ 语言定义，不写 `./`**），失败再试项目 include 根（`include/` / `src/`）。
+     - 尖括号形式 `#include <vector>` → 系统头，**直接返回 null 不猜**（归 T2.2 的闸，或在此直接短路）。
+     - parser 是否区分引号/尖括号需先确认：`parseCppAst` 当前把两者都塞进 `importRecords.source`，`isLocal` 字段可能已带这个信息（我这轮见到 `local.h` 标了 `isLocal: true`、`stdio.h` 标了 `false`）——**优先复用 `isLocal`，别重新猜**。
+  2. `parsers/registry.js` 的 cpp 条目：`resolveStrategies` 从 `[tryAlias, tryRelativeWithExtensions]`（照抄 JS 的）改为 `[tryCppInclude, tryRelativeWithExtensions]`。`tryAlias` 是 tsconfig paths，对 C/C++ 无意义，顺手删掉。
+  3. 加一行进 `resolvers.js:233` 的 `EXTERNAL_DEPENDENCY_CHECKS`：`{ matches: (ext) => CPP_EXTENSIONS.has(ext), isExternal: _isExternalCppHeader }`。名单**不用新写**，`registry.js` 的 `CPP_BUILTINS` 已存在（见 T4）。
+  4. `CACHE_VERSION` 13→14（`src/config/versions.js:32`）——边集语义变了，旧缓存里 C/C++ 仓是 0 边。
+- **验证**：
+  - T1 的 cpp 条转 GREEN，其余九条不变。
+  - **变异验证**：注释掉 `tryCppInclude` 的注册 → cpp 条必须 RED；注释掉 C/C++ 闸那行 → 需要有一条测试断言 `#include <stdio.h>` 不产边，也必须 RED。两个变异都做。
+  - **真实仓**：`reference/cJSON`（纯 C，扁平布局）与 `reference/fmt`（C++，`include/fmt/` 分离布局）。跑 `node scripts/resolver-precision.js reference/cJSON reference/fmt`，记录边数与 `resolution_method` 分布；重点看 symbol-table 是否为 0（应为 0，闸生效）。
+- **完成判据**：两个真实 C/C++ 仓产出非零边、symbol-table 贡献 0、`impact` 对某个 .c 文件返回合理的被依赖集（人工抽查 3 条边对不对，别只看数字）。
+
+#### T3 — L2-11 Svelte 腿（一个字符串）
+
+- **前置**：无，可与 T2 并行，但**单独提交**（不相关的改动别混）。
+- **做什么**：`resolvers.js:100` 的 `JS_FAMILY_EXTENSIONS` 加 `.svelte`。
+- **验证**：`test/resolver-symbol-table-test.js` 加一条——`.svelte` 文件 import `path` 必须返回 null（先 RED）。变异：摘掉 `.svelte` → 该条 RED。真实仓 `reference/realworld`（SvelteKit）跑 precision，symbol-table 应为 0。
+- **注意**：`.svelte` 进 JS 家族后，`_isExternalJsPackage` 会读 `package.json`——SvelteKit 项目的 `svelte`/`@sveltejs/kit` 都在 devDependencies，确认 `readPackageDeps` 覆盖四类依赖字段（它应该已经覆盖）。
+
+#### T4 — L3-6 `isBuiltIn` 接线 → 顺带收掉 L2-11 的 JVM 腿
+
+- **前置**：T2 建立起「闸表新增一行」的形状之后做，能复用同一套测试骨架。
+- **背景**：`parsers/registry.js` 九个语言条目各声明了 `isBuiltIn`（`java.`/`javax.` 前缀、`kotlin.`、`CPP_BUILTINS`、`GO_BUILTINS`、`PYTHON_BUILTINS`），**全仓零调用方**（已实测，对照组其余五个钩子都有消费方）。而 `EXTERNAL_DEPENDENCY_CHECKS` 在另一个文件重新实现了同一份知识。
+- **做什么**（二选一，**别留着**）：
+  - **方案 A（推荐）**：让 `_isExternalDependency()` 在表内未命中时回退到 `registry.findByExt(ext)?.isBuiltIn?.(specifier)`。一处接线，Java/Kotlin/C-C++ 的内建部分同时拿到闸，L3-6 清零、L2-11 只剩「第三方 manifest」这一半。
+  - **方案 B**：删掉九处 `isBuiltIn` 声明与 `registry-core.js` 的默认值填充。
+- **剩下的真活**：Java/Kotlin 的**第三方** jar（`java.`/`javax.` 之外的 groupId）需要 `pom.xml` / `build.gradle` manifest 读取器。难点是 **groupId 与 import 包名不同构**（`com.google.guava` ↔ `com.google.common.collect`），不能直接匹配，可能只能做到「顶级域名段 + 组织段」前缀匹配。**这一半可以单独排期，别和方案 A 捆在一起**。
+- **验证**：真实仓 `reference/okhttp`（Kotlin/Gradle）与 `reference/spring-petclinic`（Java/Gradle）跑 precision，对比接线前后 symbol-table 边数下降量，抽样人工确认下降的都是外部依赖。
+
+#### T5 — L2-13：让「解析失败」不再静默
+
+- **前置**：无强依赖，但**做完它 T1 的第二条断言才能打开**。
+- **做什么**：
+  1. `builder.js` 的 `resolveFileOnly()`（约 417 行 `return null` 处）累计 `droppedImports`，把 `{file, specifier}` 收进结果，汇总进 `warnings[]`（type 建议 `unresolved-dropped`，severity 按占比定：>10% 的文件有丢弃 → medium）。
+  2. `unresolved` 正名或改语义：`analyzer.js` 的 `findUnresolvedImports()` 判定是 `path.isAbsolute(fsPath) && !fs.existsSync(fsPath)`，数的是**失效的已解析边**，不是解不开的 import。要么改名 `staleResolvedImports`，要么让它合并 `droppedImports`。**改名是 breaking change**（`audit-summary` schema 有消费方），按铁律 #1 走别名过渡期。
+- **验证**：C/C++ 修复**前**的状态可以当反向测试——造一个含无法解析 import 的 fixture（如 JS `require('./does-not-exist')`），断言 `warnings[]` 里有条目且计数正确。变异：注释掉累计逻辑 → RED。
+- **为什么值得做**：这是 L1-4 之所以能藏住整整一个语言的机制根源。修了它，**下一个语言缺口会自己报出来**，不用再靠人手建十个 fixture 去挖。
+
+#### T6 — L2-10 判决（**阻塞在用户，不是技术问题**）
+
+- 数据齐备：JS/TS/Python 六仓 symbol-table 零正产出（四仓 2026-07-28 复测，zod/execa 已入 `reference/`）；唯一正产出在 Rust（L2-12 修复后 qartez-mcp 709 边 / 167 = 23.6%，且几乎全是 `qartez_mcp::` 集成测试自引用）。
+- 摘掉 JS 家族的 `trySymbolTable` 连带收益：L2-11 的 JS 闸、L3-4 的扩展名分支一起消失。
+- **等拍板。别替用户做这个结构性决定。**
+
+---
+
+#### 跨任务注意
+
+- **并行会话风险**：2026-07-28 期间本仓有另一路在同时提交（`117a179` L2-12 清零、`de7e1f4`/`0e22080` reference 编制）。动 `resolvers.js` 前先 `git log --oneline -5 -- src/services/dep-graph/resolvers.js` 确认没人在改，避免撞车。
+- **验证仓已满编**（`reference/`）：cJSON / fmt（C/C++）、okhttp / spring-petclinic（JVM）、realworld（Svelte）、cobra（Go）、zod / execa / GitNexus（TS）、qartez-mcp（Rust）、CodeGraphContext / code-review-graph（Python）、vue-realworld-example-app（Vue）。**每补一条闸，立刻有真实基准可量，别只靠 fixture。**
+- **收工前**：`npm test` 全量（约 13 分钟起步）+ `npx eslint .`。改了 `CACHE_VERSION` 的轮次尤其要跑全量——旧缓存作废会暴露 warm/cold 分歧。
 
 ### 本轮方法论教训
 - **覆盖率声明必须写清在哪一层验收**。"全栈 AST 覆盖 9/9 = 100%"是真的，C/C++ 的 `parse_mode` 老实写着 `ast`——但能出 AST ≠ 能出边，中间隔着 resolver，整整一个语言从缝里漏掉而所有绿灯不变色。已记入 TECH_DEBT 开发纪律。
