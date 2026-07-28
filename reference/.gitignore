@@ -6,3 +6,10 @@ CodeGraphContext/
 .workspace-bridge/
 zod/
 execa/
+spring-petclinic/
+okhttp/
+cobra/
+cJSON/
+fmt/
+vue-realworld-example-app/
+realworld/
