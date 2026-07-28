@@ -31,8 +31,8 @@
 | repo | 总边 | symbol-table | 数据新鲜度 |
 | --- | ---: | ---: | --- |
 | GitNexus (TS) | 2621 | 0 | 2026-07-28 复测 |
-| zod (TS) | 374 | 0 | 首测记录（仓不在本地 `reference/`，未复测） |
-| execa (TS) | 1044 | 0 | 首测记录（仓不在本地 `reference/`，未复测） |
+| zod (TS) | 374 | 0 | 2026-07-28 复测（本地 `scratch/l2-10/`，gitignored） |
+| execa (TS) | 1044 | 0 | 2026-07-28 复测（本地 `scratch/l2-10/`，gitignored） |
 | workspace-bridge (JS) | 1018 | 0（闸前 212，全是假边） | 2026-07-28 复测 |
 
 加上 Python 两仓（CodeGraphContext 400 / code-review-graph 252，均 0），该策略在 JS/TS/Python 六个仓上**从未产出过一条正确边**；唯一的正产出在 Rust（qartez-mcp 313/594 = 52.7%，156 条 crate 绝对路径全对）。注意口径：闸后 JS 侧命中为 0 部分**是因为闸把裸 specifier 全拦了**——闸前本仓那 209 条说明没拦时它只会猜错。两种情况都不支持保留。
