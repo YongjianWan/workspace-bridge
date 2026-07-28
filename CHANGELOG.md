@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### T1：每语言边产出基准测试入库 — L1-4 的 RED (2026-07-28)
+
+- **Added** `test/language-parity-edges-test.js`（`@semantic @slow`，十次冷构建）：十个最小「A 依赖 B」fixture（`test/fixtures/language-parity/build-fixtures.js`，各带项目标记——package.json / tsconfig.json / requirements.txt / pom.xml / build.gradle.kts / go.mod / Cargo.toml / CMakeLists.txt），逐语言跑 `audit-summary` 后直读 cache.db，断言**每语言 ≥1 条边且来自结构解析方法**（`relative` / `python-absolute` / `java-package` / `go-module` / `rust-crate`），symbol-table 命中不算等价（L2-10）。等价性验收从 parser 层下放到边层——TECH_DEBT「测试覆盖缺口」条目建议的落地。
+- **现状**：cpp 一条 RED（L1-4，预期内——T2 的修复对象），其余九条 GREEN，无一条靠 symbol-table。环境降级防护：java/python fixture 的 AST 解析 spawn Python（`spawn-ast.js`），机器无 python 时报 SKIP 并在输出注明，不让工具链缺失伪装成语言缺陷。
+- **留口**：`droppedImports === 0` 断言以 TODO 形式挂在测试尾部，等 T5（builder 累计丢弃数，L2-13）落地后打开。
+
 ### 九语言等价性实测：发现 C/C++ 零边（L1-4）+ 三项新债登记 (2026-07-28)
 
 铁律 #8 的等价性此前只在 **parser 层**验收，本轮把探针下放到**边**这一层：给九种语言各建一个「A 依赖 B」的最小 fixture（十个仓，含 JS/TS 分测），逐语言量边产出；另做闸隔离探针（让符号表对任何名字都命中，`null` 即闸拦住）与注册表六钩子消费审计。**纯文档登记，未改任何生产代码。**

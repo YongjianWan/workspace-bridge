@@ -29,7 +29,9 @@
 
 ---
 
-#### T1 — 每语言边产出基准测试（先 RED）
+#### T1 — 每语言边产出基准测试（先 RED）✅ 已完成
+
+> 已落地：`test/language-parity-edges-test.js` + `test/fixtures/language-parity/build-fixtures.js`。实测 cpp 一条 RED、其余九条 GREEN（全走结构方法，无 symbol-table），与完成判据一致。CHANGELOG 2026-07-28「T1」条目。下方原始计划留档。
 
 - **前置**：无。这是 T2 的失败测试，TDD 红线要求先做。
 - **做什么**：
