@@ -44,11 +44,12 @@
 | 1 | 混合仓库结果稳定                     |      80%      | 无配置时 reference/prototype 仍污染结果                           |
 | 2 | TS/Python/前端项目可信主线结论       |      90%      | React hooks 隐式依赖、Java 多模块 AST 深度                        |
 | 3 | 从"哪里有问题"推进到"怎么改、测什么" |      95%      | 极端框架（Nuxt layers）的 fileSpecificAdvice 精度                 |
-| 4 | symbol-level impact 可用             |      90%      | 仅 C/C++ regex 无 functionRecords                                 |
+| 4 | symbol-level impact 可用             |      90%      | ~~仅 C/C++ regex 无 functionRecords~~（已过期：`cpp-ast.js` 产出 functionRecords）。真实缺口是 **C/C++ 产不出依赖边**，symbol-level impact 在该语言上无输入——见 [TECH_DEBT L1-4](./docs/TECH_DEBT.md) |
 | 5 | 大仓库性能可接受                     |      97%      | 双边冗余内存（路径整数化评估中）、chunked 解析（实测 OOM 时触发） |
 | 6 | 可选外部工具后端（Semgrep）          |      100%      | —                                                                |
 | 7 | 全栈语言覆盖（9 种）                 |      100%      | —                                                                |
-| 8 | 全栈 AST 覆盖（9/9 语言）            | **100%** | —                                                                |
+| 8 | 全栈 AST 覆盖（9/9 语言）            | **100%** | 口径：**在 parser 层** 9/9 出 AST。这不等于 9/9 出依赖边——见标准 8b |
+| 8b | **全栈依赖边覆盖（8/9 语言）**    |   **89%**   | 2026-07-28 实测：十个最小 fixture 逐语言量边，C/C++ 恒为 0（[L1-4](./docs/TECH_DEBT.md)）。其余八种均正常产边 |
 | 9 | 闭环验证（P8）                       | **100%** | onGitStaged 触发、失败信息注入 AI 上下文                          |
 
 ---

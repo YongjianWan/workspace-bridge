@@ -5,6 +5,27 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### 九语言等价性实测：发现 C/C++ 零边（L1-4）+ 三项新债登记 (2026-07-28)
+
+铁律 #8 的等价性此前只在 **parser 层**验收，本轮把探针下放到**边**这一层：给九种语言各建一个「A 依赖 B」的最小 fixture（十个仓，含 JS/TS 分测），逐语言量边产出；另做闸隔离探针（让符号表对任何名字都命中，`null` 即闸拦住）与注册表六钩子消费审计。**纯文档登记，未改任何生产代码。**
+
+实测结果（当前 HEAD，5 次重跑一致）：
+
+| 语言 | 边 | 解析方法 | | 语言 | 边 | 解析方法 |
+| --- | ---: | --- | --- | --- | ---: | --- |
+| js / ts | 1 | `relative` | | go | 1 | `go-module` |
+| python | 1 | `python-absolute` | | rust | 1 | `rust-crate` |
+| java | 2 | `java-package` + 同包隐式 | | vue / svelte | 1 | `relative` |
+| kotlin | 1 | `java-package` | | **cpp** | **0** | **—** |
+
+- **新登记 L1-4（Blocker）**：C/C++ 产不出任何依赖边。parser 正常（`parse_mode: ast`，直调 `parseCppAst` 能拿到 `importRecords`、`isLocal: true`），死在 resolver——注册表给 C/C++ 配的是 JavaScript 那套 `[tryAlias, tryRelativeWithExtensions]`，而 `#include "foo.h"` 按 C/C++ 语义就是相对当前文件、从不写 `./`，于是被当 npm 包找、找不到、被 `resolveFileOnly()` 丢弃。实测 `resolveImport('main.cpp','helper.h','.cpp') → null` 而 `'./helper.h' → 成功`。后果是错误的行动建议：工具报「审查孤儿模块是否可删除: helper.h」，而 `main.cpp` 正 include 它。纯 C/C++ 仓有 `empty-graph`(high) 警告兜底，**混合仓没有**（其他语言的边让该警告不触发）。
+- **订正 L2-11 缺口范围**：从「只剩 Java / Kotlin」订正为 **Java / Kotlin / Svelte / C-C++ 四个**。Svelte 的原因是 `JS_FAMILY_EXTENSIONS` 列了八个 JS 后缀加 `.vue` 却漏了 `.svelte`，补一个字符串即可；C/C++ 的闸与 L1-4 强耦合，必须同轮做——否则 `#include <stdio.h>` 会去查名为 `"h"` 的符号（非 Rust/Go 分隔符是 `.`，末段取到扩展名），等于把 `require('path')` 那 212 条的病重新引进来。
+- **新登记 L2-13**：`unresolved` 统计的是「曾解析成绝对路径、但文件已不在磁盘」，不是「解不开的 import」。十个 fixture 全报 `unresolved: 0`，包括丢了两条 `#include` 的 C/C++ 仓——解不开的 specifier 不是绝对路径、且早被丢弃，两道门都进不去。该字段是 `audit-summary` 一线指标，结构上无法回答它看起来在回答的问题。
+- **新登记 L3-6**：`isBuiltIn` 死配置。九个语言条目各声明一份内建名单（`java.`/`javax.`、`kotlin.`、`CPP_BUILTINS`、`GO_BUILTINS`、`PYTHON_BUILTINS`），全仓零调用方；同批审计的其余五个钩子（`resolveStrategies` / `extractSymbols` / `condition` / `filePatterns` / `needsWorkspaceRoot`）均有消费方。而 L2-11 缺闸的三个语言所需名单正躺在这里——接线即可推进，不必新写。
+- **新登记 L3-7**：Vue / Svelte 的 `extractSymbols` 是逐行正则，而其 `parse` 走 babel AST；`file-index.js` 消费的是正则那条。
+- **Changed** ROADMAP 成功标准：标准 8「全栈 AST 覆盖 100%」补注口径为**在 parser 层**，新增标准 8b「全栈依赖边覆盖 8/9 = 89%」；标准 4 的「仅 C/C++ regex 无 functionRecords」已过期作废（`cpp-ast.js` 产出 functionRecords），真实缺口指向 L1-4。
+- **Added** 开发纪律条目「覆盖率声明必须写清在哪一层验收」+ 测试覆盖缺口条目：建议把 `scripts/resolver-precision.js` 扩成每语言边产出基准，用这十个 fixture 断言「每语言至少 1 条边、丢弃数为 0」，L1-4 与 L2-13 会被同一条测试兜住。
+
 ### L2-12 清零：Rust `super::`/`crate::` 从猜名字回到模块算术 (2026-07-28)
 
 - **Fixed** `tryRustSuper` 的 off-by-one：`super` 是模块概念不是目录概念——非 mod 文件（`blame.rs`）的第一个 `super` 命名文件所属模块本身，子模块目录就是文件所在目录，不爬升；`mod.rs` 文件本身就是父目录命名的模块，每级 `super` 才爬。旧代码每级必爬，非 mod 文件的 `super::` 路径全部落空掉进符号表。
