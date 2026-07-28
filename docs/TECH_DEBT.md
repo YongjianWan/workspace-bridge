@@ -6,8 +6,36 @@
 
 ## L1 Blocker（违反铁律，必须修）
 
-> 当前无活跃的 L1 债务。
->
+### L1-4：C/C++ 产不出任何依赖边，且据此给出「删除被引用头文件」的建议
+
+**状态**：活跃（2026-07-28 九语言等价性实测发现）。十个最小 fixture（每个仓一条「A 依赖 B」）里 C/C++ 是**唯一** `edges: 0` 的，5 次重跑全部为 0。
+
+| 语言 | 边 | 解析方法 | | 语言 | 边 | 解析方法 |
+| --- | ---: | --- | --- | --- | ---: | --- |
+| js / ts | 1 | `relative` | | go | 1 | `go-module` |
+| python | 1 | `python-absolute` | | rust | 1 | `rust-crate` |
+| java | 2 | `java-package` + 同包隐式 | | vue / svelte | 1 | `relative` |
+| kotlin | 1 | `java-package` | | **cpp** | **0** | **—** |
+
+**根因**：parser 是好的（`main.cpp:ast` / `helper.h:ast`，直接调 `parseCppAst` 能拿到 `importRecords`，`local.h` 还正确标了 `isLocal: true`）。死在 resolver——注册表里 C/C++ 的 `resolveStrategies` 是 `[tryAlias, tryRelativeWithExtensions]`，**整套照抄 JavaScript**：
+
+```
+resolveImport('main.cpp', 'helper.h',   '.cpp') → null
+resolveImport('main.cpp', './helper.h', '.cpp') → 解析成功
+```
+
+JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引号形式**按语言定义就是相对当前文件**，从不写 `./`。于是每条 include 都被当包找，找不到，`builder.js` 的 `resolveFileOnly()` 把 resolve 失败的记录直接 `return null` 丢弃。
+
+**为什么是 L1**：违反铁律 #4（静默错误必须显式）且已产出**错误的行动建议**——fixture 里工具报 `审查孤儿模块是否可删除: helper.h`，而 `main.cpp` 正 `#include` 它。连带 `impact` 对 .cpp 返回空、环检测看不见 C/C++ 的环、所有头文件被判孤儿。
+
+纯 C/C++ 仓会触发 `empty-graph`（severity high）警告，所以不是完全静默；但**混合仓（如 Python 主仓带 C 扩展）图里有大量其他语言的边，该警告不触发，C/C++ 部分静默丢边**——那才是真实风险场景。
+
+**建议动作**：新增 `tryCppInclude` 策略（引号形式相对当前文件；尖括号形式判系统头直接不猜），注册进 C/C++ 的 `resolveStrategies`。**必须与 L2-11 的 C/C++ 闸同一轮做**：当前 C/C++ 的 import 到不了链尾纯属侥幸，一旦能解析，`#include <stdio.h>` 会去查一个叫 `"h"` 的符号（非 Rust/Go 的分隔符是 `.`，末段取到的是扩展名），`boost/algorithm/string.hpp` 查 `"hpp"`——等于把 `require('path')` 那 212 条的病重新引进来。
+
+**触发条件**：修改 `parsers/registry.js` 的 C/C++ 条目、或任何 C/C++ 项目报出 0 边 / 全量孤儿时。复现：建两文件仓（`main.cpp` 内 `#include "helper.h"` + `CMakeLists.txt`），跑 `audit-summary --json` 看 `edges`。
+
+---
+
 > L1-3（Java same-package 隐式边 build/loadGraph 路径语义不一致）已于 2026-07-23 清零：
 > orchestrator 在 loadGraph 成功后重跑 `expandJavaPackageImports()` 统一两路径数据；
 > tier3 记录不参与死导出「已使用」判定（与 cycles Rule 5 先例一致），仅剩隐式 importer
@@ -45,17 +73,49 @@
 
 **建议动作**：把 `trySymbolTable` 从 JS 家族链上摘掉（保留 Rust，JVM 保留待 L2-11 一并定）——连带收益：L2-11 的 JS 闸（`readPackageDeps`/`NODE_BUILTINS`/`node_modules` 探测）与 L3-4 的扩展名分支一起消失。Python/Go 链同理可摘（贡献同为 0，且闸已让它们的命中不可能为真），但 Python/Go 各有 `tryPythonAbsolute`/`tryGoModule` 结构解析在前，摘符号表影响面与 JS 相同。**这是结构性决定，等用户拍板。**
 
-**触发条件**：调整 `SYMBOL_DISAMBIGUATION` 任一常数、或把符号表铺到新语言之前。跑 `node scripts/resolver-precision.js reference/*` 取数。
+**触发条件**：调整 `SYMBOL_DISAMBIGUATION` 任一常数、或把符号表铺到新语言之前。跑 `node scripts/resolver-precision.js reference/<repo> [...]` 逐仓点名取数（勿用 `reference/*` 通配，目录里混着非仓文件；编制与闸状态见 `reference/README.md`）。
 
 ### L2-11：外部依赖闸只覆盖 JS 家族 — 违反 AGENTS.md 铁律 #8（多语言等价性）
 
-**状态**：大部分收敛（2026-07-28）。JS 家族（node 内建 / `package.json` 四类依赖字段 / `node_modules`）、Rust（`std`/`core`/`alloc`/`proc_macro` 前缀 / `Cargo.toml` 声明的 crate，`path = ` 依赖不拦）、Python（标准库根段名单 / `requirements.txt` + `pyproject.toml` 的 `[project]` 与 poetry 依赖段，PEP 503 归一 + 别名表）与 Go（无需名单——import 永远带完整路径：module 路径之外的一切都不猜，dotted 首段 = 外部模块、无点首段 = 标准库）已有闸，经 `EXTERNAL_DEPENDENCY_CHECKS` 表分派。**Java / Kotlin 仍无闸**。
+**状态**：大部分收敛（2026-07-28）。JS 家族（node 内建 / `package.json` 四类依赖字段 / `node_modules`）、Rust（`std`/`core`/`alloc`/`proc_macro` 前缀 / `Cargo.toml` 声明的 crate，`path = ` 依赖不拦）、Python（标准库根段名单 / `requirements.txt` + `pyproject.toml` 的 `[project]` 与 poetry 依赖段，PEP 503 归一 + 别名表）与 Go（无需名单——import 永远带完整路径：module 路径之外的一切都不猜，dotted 首段 = 外部模块、无点首段 = 标准库）已有闸，经 `EXTERNAL_DEPENDENCY_CHECKS` 表分派。**仍无闸的是四个而不是两个：Java / Kotlin / Svelte / C-C++**（2026-07-28 实测订正，此前只记了 JVM 两个）。
 
-**为什么是债**：病灶机制与语言无关，且已在两种语言上实测到实例——JS 的 `require('path')`（本仓 209 条）与 Rust 的 `std::process::Command` / `rmcp::` / `tokio::`（qartez-mcp 48 条）。Python `import requests` 撞上本地导出的 `requests` 是同一形状，只是尚未取到样本。按铁律 #8 仍属语言偏斜。
+实测方法：让符号表对任何名字都命中，隔离出闸本身的行为（`null` = 闸拦住）——
 
-**建议动作**：补 `pom.xml`/`build.gradle` manifest 读取器 + JDK 包名前缀名单（`java.`/`javax.`/`jdk.` 已是确定前缀，拦的就是第三方 groupId 与 import 包名不同构的那部分），加一行进 `EXTERNAL_DEPENDENCY_CHECKS`。注意：没有闸的语言，其 resolver 精度数据不可信（假边混在命中里）。
+| 来源文件 | specifier | 结果 | | 来源文件 | specifier | 结果 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `.ts` | `path` | 拦住 | | `.svelte` | `path` | **放行→猜** |
+| `.vue` | `path` | 拦住 | | `.cpp` | `vector` | **放行→猜** |
+| `.py` | `os` | 拦住 | | `.java` | `java.util.List` | **放行→猜** |
+| `.go` | `fmt` | 拦住 | | `.kt` | `kotlin.collections.List` | **放行→猜** |
+| `.rs` | `std::vec::Vec` | 拦住 | | | | |
+
+**Svelte 的原因很蠢**：`JS_FAMILY_EXTENSIONS` 列了八个 JS 后缀加 `.vue`，唯独漏了 `.svelte`。Svelte 项目同样有 `package.json`、同样 `import { writable } from 'svelte/store'`，病灶形状与 JS 完全一致，补一个字符串即可。
+
+**C/C++ 的闸与 L1-4 强耦合**：现在 C/C++ 的 import 到不了链尾（L1-4：全被 resolver 丢弃），所以缺闸暂时没造成假边。修好 L1-4 的同一轮必须补闸，否则立刻产假边。
+
+**为什么是债**：病灶机制与语言无关，且已在两种语言上实测到实例——JS 的 `require('path')`（本仓 212 条）与 Rust 的 `std::process::Command` / `rmcp::` / `tokio::`（qartez-mcp 48 条）。Python `import requests` 撞上本地导出的 `requests` 是同一形状，只是尚未取到样本。按铁律 #8 仍属语言偏斜。
+
+**建议动作**：四条腿分三种成本。（a）Svelte：把 `.svelte` 加进 `JS_FAMILY_EXTENSIONS`，一个字符串。（b）Java/Kotlin/C-C++ 的**内建前缀名单已经存在**，见 L3-6——`isBuiltIn` 死配置里躺着 `java.`/`javax.` 前缀、`kotlin.`、`CPP_BUILTINS`，接线即可，不必新写名单。（c）真正要补的只有 `pom.xml`/`build.gradle` 的第三方 manifest 读取器（groupId 与 import 包名不同构的那部分）。注意：没有闸的语言，其 resolver 精度数据不可信（假边混在命中里）。**验证仓已入编待闸**（`reference/README.md`）：spring-petclinic / okhttp（JVM）、cJSON / fmt（C/C++）、realworld（Svelte）——补闸后立刻有真实基准可量；cobra（Go）现在就可测。
 
 **触发条件**：任何语言的 unresolved import 报出"疑似被解析到本地同名符号"时，优先补该语言的闸。
+
+### L2-13：`unresolved` 统计的不是「解不开的 import」，所以它永远看不见被丢弃的记录
+
+**状态**：活跃（2026-07-28 九语言实测发现）。十个 fixture **全部**报 `unresolved: 0`，包括丢掉了两条 `#include` 的 C/C++ 仓。
+
+**根因**：`analyzer.js` 的 `findUnresolvedImports()` 判定条件是
+
+```js
+if (!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath))
+```
+
+它数的是「**曾经解析成绝对路径、但那个文件现在不在磁盘上**」——即失效的已解析边。而真正解不开的 import 从来不是绝对路径（它还是源码里那个裸 specifier），且早在 `resolveFileOnly()` 就因 resolve 返回 null 被丢弃，根本进不了 `info.imports`。两道门都进不去。
+
+**为什么是债**：这个字段是 `audit-summary` / `audit-overview` 的一线指标，AI agent 会拿它判断"这个仓的依赖图完不完整"。它结构上无法回答那个问题，却长得像能回答——违反铁律 #4。L1-4 只是把它暴露得最彻底（丢 2 条报 0），但**所有语言都受影响**：任何 resolve 失败的 import 都静默消失，无计数、无 warning。
+
+**建议动作**：两件事分开。（a）给字段正名或改语义——要么改名为 `staleResolvedImports`，要么让它真的统计 resolve 失败数。（b）在 `resolveFileOnly()` 丢弃记录处累计一个 `droppedImports` 计数并进 `warnings[]`，这是 L1-4 之所以"静默"的机制根源，修了它，未来任何语言的解析缺口都会自己报出来。
+
+**触发条件**：修改 `resolveFileOnly()` 的记录丢弃分支、或消费 `unresolvedCount` 做判断时。
 
 ### ✅ L2-12 已清零（2026-07-28）：Rust 的 `super::` / `crate::` 转回模块算术
 
@@ -89,7 +149,9 @@
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0** | L2 债务 **2**（L2-10 符号表精度待判决 / L2-11 外部闸缺 JVM） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **2**（L3-4 扩展名分支 / L3-5 死方法） | 合计 **4 项**
+> **当前活跃债务总览**：L1 Blocker **1**（L1-4 C/C++ 零边 + 错误删除建议） | L2 债务 **3**（L2-10 符号表精度待判决 / L2-11 外部闸缺 Java·Kotlin·Svelte·C-C++ / L2-13 `unresolved` 语义错位） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **4**（L3-4 扩展名分支 / L3-5 死方法 / L3-6 `isBuiltIn` 死配置 / L3-7 Vue·Svelte 正则抽符号） | 合计 **8 项**
+>
+> L1-4 / L2-11 的四条腿 / L2-13 / L3-6 / L3-7 均来自 2026-07-28 的九语言等价性实测（十个最小 fixture + 闸隔离探针），复现脚本与判据见各条目。
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
@@ -127,11 +189,32 @@
 
 `symbol-registry.js` 的 `lookupUnique(symbolName, preferredDir)` 自 2026-07-23 被 `lookupBestMatch(symbolName, fromFile)` 取代后，生产路径已无调用方，只剩 `symbol-registry-test.js` 里 6 条用例还在测它。按"删除 > 添加、重复即债务"，应连同那 6 条用例一起删；保留的唯一理由是它的路径规范化用例（Windows 原生分隔符、冗余分隔符）——若删除，需确认 `lookupBestMatch` 侧有等价覆盖。
 
+### L3-6：`isBuiltIn` 是死配置，而它正装着 L2-11 补闸需要的名单
+
+`parsers/registry.js` 里九个语言条目每个都声明了 `isBuiltIn`——`java.`/`javax.` 前缀、`kotlin.`、`CPP_BUILTINS`、`GO_BUILTINS`、`PYTHON_BUILTINS`。全仓（`src` / `test` / `scripts`）**零调用方**，`registry-core.js` 里也只有默认值填充，没有任何读取。
+
+对照其余五个钩子的消费情况（2026-07-28 实测）：`resolveStrategies` 1 处、`extractSymbols` 1 处（`file-index.js`）、`condition` 与 `filePatterns` 由 `registry-core.js` 的 `getFilePatterns()` 消费、`needsWorkspaceRoot` 1 处——只有 `isBuiltIn` 是死的。
+
+讽刺之处：`EXTERNAL_DEPENDENCY_CHECKS`（L2-11 的闸表）在另一个文件里重新实现的正是同一份知识，而缺闸的 Java / Kotlin / C-C++ 所需名单已经写好躺在这里。二选一，别留着：接进闸表（顺手推进 L2-11），或按"删除 > 添加"删掉九处声明。
+
+### L3-7：Vue / Svelte 的 `extractSymbols` 是逐行正则
+
+注册表里这两个语言的 `extractSymbols` 用正则匹配 `class` / `function` / `const` 逐行抽符号，而它们的 `parse` 走的是 babel AST。同一语言两条路径两种精度。这不影响依赖边（边来自 `parse`），但它是"9 种语言 AST 覆盖 100%"这一说法的折扣项——`file-index.js` 消费的是正则那条。
+
 > 历史记录：弱断言分布已清理至 schema 契约测试中的防御性 `typeof` 检查；其余 `status === 0` 均为环境探测 helper，不属于测试断言。详见 [CHANGELOG.md](../CHANGELOG.md) [Unreleased] §Code Quality: Weak Assertion Cleanup。
 
 ---
 
 ## 开发纪律（不是代码债，是踩坑教训，必须记住）
+
+### ⚠️ 覆盖率声明必须写清「在哪一层验收」，否则它保护的是层，不是能力
+
+**案例**：2026-07-28 发现 C/C++ 产不出任何依赖边（L1-4），而 ROADMAP 同期写着"全栈 AST 覆盖 9/9 = 100%"——**这句话是真的**，C/C++ 的 tree-sitter 确实跑通，`parse_mode` 老实写着 `ast`，`parseCppAst` 直接调也能拿到 `importRecords`。问题在于铁律 #8 的等价性一直在 parser 层验收，而用户拿到的能力（边、impact、孤儿判定）在 resolver 之后。两层之间隔着一个把 resolve 失败记录直接丢弃的分支，整整一个语言从那里漏掉，所有绿灯都没变色。
+
+**纪律**：
+1. **写"X 覆盖 100%"时必须补上在哪一层测的。** "AST 覆盖 100%"和"依赖边覆盖 100%"是两个命题，前者推不出后者。
+2. **验收点要选在用户消费的那一层。** 中间层全绿而末端为空，是最难发现的一类假绿——因为每个模块的测试都是对的。
+3. **多语言等价性的最小探针是"A 依赖 B 能不能成边"。** 十行 fixture、每语言一个，比任何 parser 单测都更能证明这门语言真的可用。
 
 ### ⚠️ 「全绿」有盲区：测试覆盖了你想到的场景，没覆盖你没想到的
 
@@ -163,6 +246,10 @@
 ## 测试覆盖缺口
 
 > 所有核心/分析模块均已实现专属/直接单元测试覆盖（无遗留的零专属测试模块）。
+
+**缺的不是模块覆盖，是层级覆盖**：多语言等价性（铁律 #8）目前只在 **parser 层**被验收——"9/9 语言 AST 覆盖 100%"是真的，C/C++ 的 `parse_mode` 老实写着 `ast`。但**能出 AST ≠ 能出边**，中间隔着 resolver，而没有任何测试在"边"这一层做横向对比。L1-4 就是从这个缝里漏了整整一个语言。
+
+**建议**：把 `scripts/resolver-precision.js` 扩成每语言边产出基准（现在只测 symbol-table 一条策略），输入用 2026-07-28 那十个最小 fixture（每仓一条「A 依赖 B」），断言每种语言至少产出 1 条边、且 resolve 失败丢弃数为 0。L1-4 / L2-13 都会被这一条测试同时兜住。
 
 ---
 
@@ -226,4 +313,4 @@
 
 ---
 
-*Last updated: 2026-07-28（活跃债务 **5 项**：L1=0 / L2=3（L2-10 待拍板 / L2-11 缺 JVM 闸 / L2-12 Rust 结构解析缺口）/ 架构债务=0（两条均已降级为预防性约束）/ L3=2；本轮：resolver 精度基准四仓复测 + `shared.js` 转手再导出的 `path` 删除（假边根因，闸关时 212→0）；`npm run test:fast` 142/142 PASS）*
+*Last updated: 2026-07-28（活跃债务 **8 项**：L1=1（L1-4 C/C++ 零边）/ L2=3（L2-10 待拍板 / L2-11 缺四语言闸 / L2-13 `unresolved` 语义错位）/ 架构债务=0（两条均已降级为预防性约束）/ L3=4；本轮：九语言等价性实测——十个最小 fixture 逐语言量边产出 + 闸隔离探针 + 注册表钩子消费审计，新登记 L1-4 / L2-13 / L3-6 / L3-7 并把 L2-11 的缺口从 2 个语言订正到 4 个。均为文档登记，未改生产代码）*

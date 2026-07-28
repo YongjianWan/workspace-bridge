@@ -4,8 +4,11 @@
  *
  * Usage:
  *   node scripts/resolver-precision.js <repo> [<repo> ...]
- *   node scripts/resolver-precision.js reference/*          # all sample repos
+ *   node scripts/resolver-precision.js reference/zod reference/execa   # 逐仓点名
  *   node scripts/resolver-precision.js --json reference/GitNexus
+ *
+ * 勿用 reference/* 通配：该目录混有非仓文件；编制与各仓闸状态见
+ * reference/README.md（无闸仓的精度数据不可信，先补闸再测）。
  *
  * Why this exists (TECH_DEBT L2-10): `trySymbolTable` is the last strategy in
  * every resolver chain, so it fires on every import no other strategy could
