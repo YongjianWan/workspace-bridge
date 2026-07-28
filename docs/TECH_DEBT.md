@@ -79,25 +79,25 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 ### L2-11：外部依赖闸只覆盖 JS 家族 — 违反 AGENTS.md 铁律 #8（多语言等价性）
 
-**状态**：大部分收敛（2026-07-28）。JS 家族（node 内建 / `package.json` 四类依赖字段 / `node_modules`）、Rust（`std`/`core`/`alloc`/`proc_macro` 前缀 / `Cargo.toml` 声明的 crate，`path = ` 依赖不拦）、Python（标准库根段名单 / `requirements.txt` + `pyproject.toml` 的 `[project]` 与 poetry 依赖段，PEP 503 归一 + 别名表）、Go（无需名单——import 永远带完整路径：module 路径之外的一切都不猜，dotted 首段 = 外部模块、无点首段 = 标准库）与 **C/C++**（angle 形式不猜 / 无扩展名不猜 / C·POSIX 系统头名单，与 L1-4 修复同轮落地）已有闸，经 `EXTERNAL_DEPENDENCY_CHECKS` 表分派。**仍无闸的是三个：Java / Kotlin / Svelte**（C/C++ 腿已清零）。
+**状态**：大部分收敛（2026-07-28）。JS 家族（node 内建 / `package.json` 四类依赖字段 / `node_modules`，**含 .svelte**）、Rust（`std`/`core`/`alloc`/`proc_macro` 前缀 / `Cargo.toml` 声明的 crate，`path = ` 依赖不拦）、Python（标准库根段名单 / `requirements.txt` + `pyproject.toml` 的 `[project]` 与 poetry 依赖段，PEP 503 归一 + 别名表）、Go（无需名单——import 永远带完整路径：module 路径之外的一切都不猜，dotted 首段 = 外部模块、无点首段 = 标准库）与 **C/C++**（angle 形式不猜 / 无扩展名不猜 / C·POSIX 系统头名单，与 L1-4 修复同轮落地）已有闸，经 `EXTERNAL_DEPENDENCY_CHECKS` 表分派。**仍无闸的是两个：Java / Kotlin**（Svelte、C/C++ 腿已清零）。
 
 实测方法：让符号表对任何名字都命中，隔离出闸本身的行为（`null` = 闸拦住）——
 
 | 来源文件 | specifier | 结果 | | 来源文件 | specifier | 结果 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `.ts` | `path` | 拦住 | | `.svelte` | `path` | **放行→猜** |
+| `.ts` | `path` | 拦住 | | `.svelte` | `path` | 拦住（T3 后） |
 | `.vue` | `path` | 拦住 | | `.cpp` | `vector` | 拦住（T2 后） |
 | `.py` | `os` | 拦住 | | `.java` | `java.util.List` | **放行→猜** |
 | `.go` | `fmt` | 拦住 | | `.kt` | `kotlin.collections.List` | **放行→猜** |
 | `.rs` | `std::vec::Vec` | 拦住 | | | | |
 
-**Svelte 的原因很蠢**：`JS_FAMILY_EXTENSIONS` 列了八个 JS 后缀加 `.vue`，唯独漏了 `.svelte`。Svelte 项目同样有 `package.json`、同样 `import { writable } from 'svelte/store'`，病灶形状与 JS 完全一致，补一个字符串即可。
+~~**Svelte 的原因很蠢**~~：已修（T3）——`.svelte` 进 `JS_FAMILY_EXTENSIONS`，一个字符串。`testSvelteCallerCoveredByJsFamilyGate` 锁契约（node 内建 + devDependencies 声明的 `svelte` 两条），变异验证通过；`reference/realworld`（SvelteKit）实测 12 条边、symbol-table 0。CACHE_VERSION 15。
 
 ~~**C/C++ 的闸与 L1-4 强耦合**~~：已按计划在 L1-4 修复的同一提交落地（T2）——尖括号形式经 `importHints.isLocal === false` 不解析也不猜，无扩展名 specifier 与 C/POSIX 系统头名单兜底无 hints 的入口。实测 fmt 135 条新边零 symbol-table。
 
 **为什么是债**：病灶机制与语言无关，且已在两种语言上实测到实例——JS 的 `require('path')`（本仓 212 条）与 Rust 的 `std::process::Command` / `rmcp::` / `tokio::`（qartez-mcp 48 条）。Python `import requests` 撞上本地导出的 `requests` 是同一形状，只是尚未取到样本。按铁律 #8 仍属语言偏斜。
 
-**建议动作**：三条腿分两种成本。（a）Svelte：把 `.svelte` 加进 `JS_FAMILY_EXTENSIONS`，一个字符串。（b）Java/Kotlin 的**内建前缀名单已经存在**，见 L3-6——`isBuiltIn` 死配置里躺着 `java.`/`javax.` 前缀、`kotlin.`，接线即可，不必新写名单；**第三方** jar 才需要 `pom.xml`/`build.gradle` manifest 读取器（groupId 与 import 包名不同构的那部分）。注意：没有闸的语言，其 resolver 精度数据不可信（假边混在命中里）。**验证仓已入编待闸**（`reference/README.md`）：spring-petclinic / okhttp（JVM）、realworld（Svelte）——补闸后立刻有真实基准可量；cJSON / fmt（C/C++）已在 T2 量过（96/96 与 135/136 条结构边，symbol-table 贡献 0）；cobra（Go）现在就可测。
+**建议动作**：只剩 JVM 一条腿，分两半。（a）Java/Kotlin 的**内建前缀名单已经存在**，见 L3-6——`isBuiltIn` 死配置里躺着 `java.`/`javax.` 前缀、`kotlin.`，接线即可，不必新写名单；（b）**第三方** jar 才需要 `pom.xml`/`build.gradle` manifest 读取器（groupId 与 import 包名不同构的那部分）。注意：没有闸的语言，其 resolver 精度数据不可信（假边混在命中里）。**验证仓已入编待闸**（`reference/README.md`）：spring-petclinic / okhttp（JVM）——补闸后立刻有真实基准可量；cJSON / fmt（C/C++）已在 T2 量过（96/96 与 135/136 条结构边，symbol-table 贡献 0）、realworld（Svelte）已在 T3 量过（12 边，symbol-table 0）；cobra（Go）现在就可测。
 
 **触发条件**：任何语言的 unresolved import 报出"疑似被解析到本地同名符号"时，优先补该语言的闸。
 
@@ -151,7 +151,7 @@ if (!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath))
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0**（L1-4 已由 T2 修复） | L2 债务 **3**（L2-10 符号表精度待判决 / L2-11 外部闸缺 Java·Kotlin·Svelte / L2-13 `unresolved` 语义错位） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **4**（L3-4 扩展名分支 / L3-5 死方法 / L3-6 `isBuiltIn` 死配置 / L3-7 Vue·Svelte 正则抽符号） | 合计 **7 项**
+> **当前活跃债务总览**：L1 Blocker **0**（L1-4 已由 T2 修复） | L2 债务 **3**（L2-10 符号表精度待判决 / L2-11 外部闸缺 Java·Kotlin / L2-13 `unresolved` 语义错位） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **4**（L3-4 扩展名分支 / L3-5 死方法 / L3-6 `isBuiltIn` 死配置 / L3-7 Vue·Svelte 正则抽符号） | 合计 **7 项**
 >
 > L1-4 / L2-11 的四条腿 / L2-13 / L3-6 / L3-7 均来自 2026-07-28 的九语言等价性实测（十个最小 fixture + 闸隔离探针），复现脚本与判据见各条目。
 

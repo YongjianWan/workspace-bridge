@@ -183,6 +183,22 @@ function testNonJsCallerUnaffectedByJsPackageGate() {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
 
+function testSvelteCallerCoveredByJsFamilyGate() {
+  // .svelte shares the JS family's whole disease shape — package.json, node
+  // builtins, same import syntax — and belongs inside the same gate
+  // (TECH_DEBT L2-11 Svelte leg: JS_FAMILY_EXTENSIONS listed .vue but
+  // forgot .svelte).
+  const tmpDir = makeJsProject({ name: 't', devDependencies: { svelte: '^4.0.0' } });
+  const { registry } = withLocalSymbol(tmpDir, 'path');
+  const ctx = { symbolRegistry: registry, root: tmpDir };
+  const from = P(path.join(tmpDir, 'src', 'App.svelte'));
+
+  assert.strictEqual(trySymbolTable('path', from, ctx), null, 'a .svelte caller must not guess node builtins against local symbols');
+  assert.strictEqual(trySymbolTable('svelte', from, ctx), null, 'a .svelte caller must not guess declared deps against local symbols');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
 // ---------------------------------------------------------------------------
 // Rust: same disease, measured on reference/qartez-mcp — 361 of its 642 edges
 // came from the symbol table, and 48 of those pointed at local files from
@@ -429,6 +445,7 @@ const tests = [
   testScopedDependencySubpathNotGuessed,
   testUnknownBareSpecifierStillResolves,
   testNonJsCallerUnaffectedByJsPackageGate,
+  testSvelteCallerCoveredByJsFamilyGate,
   testRustStdlibNotGuessed,
   testDeclaredCrateNotGuessed,
   testCrateInternalRustPathStillResolves,

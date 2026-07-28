@@ -61,7 +61,9 @@
   - **真实仓**：`reference/cJSON`（纯 C，扁平布局）与 `reference/fmt`（C++，`include/fmt/` 分离布局）。跑 `node scripts/resolver-precision.js reference/cJSON reference/fmt`，记录边数与 `resolution_method` 分布；重点看 symbol-table 是否为 0（应为 0，闸生效）。
 - **完成判据**：两个真实 C/C++ 仓产出非零边、symbol-table 贡献 0、`impact` 对某个 .c 文件返回合理的被依赖集（人工抽查 3 条边对不对，别只看数字）。
 
-#### T3 — L2-11 Svelte 腿（一个字符串）
+#### T3 — L2-11 Svelte 腿（一个字符串）✅ 已完成
+
+> 已落地：`.svelte` 进 `JS_FAMILY_EXTENSIONS`，`testSvelteCallerCoveredByJsFamilyGate` 双断言（内建 + devDeps），变异验证通过，realworld 实测 12 边 / symbol-table 0，CACHE_VERSION 15。CHANGELOG「T3」条目。
 
 - **前置**：无，可与 T2 并行，但**单独提交**（不相关的改动别混）。
 - **做什么**：`resolvers.js:100` 的 `JS_FAMILY_EXTENSIONS` 加 `.svelte`。

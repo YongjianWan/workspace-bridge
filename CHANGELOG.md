@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### T3：外部闸 Svelte 腿 — `.svelte` 进 JS 家族 (2026-07-28)
+
+- **Fixed** `JS_FAMILY_EXTENSIONS` 漏 `.svelte`（列了八个 JS 后缀加 `.vue` 唯独漏它）——SvelteKit 项目里 `svelte/store`、node 内建等 specifier 此前会被猜向本地同名符号。一个字符串的修复，但走的是完整流程：先 RED（`testSvelteCallerCoveredByJsFamilyGate`，node 内建 + devDependencies 声明的 `svelte` 两条断言）、GREEN、变异验证（摘掉 `.svelte` → RED，恢复 → 25/25）。
+- **实测** `reference/realworld`（SvelteKit）：12 条边、symbol-table 0。
+- **Changed** `CACHE_VERSION` 14→15（闸覆盖变化 = 边语义变化）。
+
 ### T2：L1-4 修复 — C/C++ 首次产边 + 外部闸同轮落地 (2026-07-28)
 
 - **Added** `src/services/dep-graph/resolvers/cpp.js` 的 `tryCppInclude`：引号形式 `#include "b.h"` 按语言定义相对包含文件解析（C/C++ 从不写 `./`），失败回退 `include/`/`src/` 惯例根；尖括号形式永不解析到仓内文件。解析方法 `cpp-include`，tier1/confidence 1.0。

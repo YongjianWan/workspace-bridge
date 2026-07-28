@@ -32,6 +32,8 @@ const SCHEMA_VERSION = '1.2.0';
 // v14: L1-4 修复——C/C++ 首次产边（tryCppInclude：引号形式相对包含文件 +
 //      include/src 回退；尖括号形式不解析不猜）。旧缓存里 C/C++ 仓是 0 边，
 //      且混仓里 C/C++ 部分静默丢边，必须作废重建。
-const CACHE_VERSION = 14;
+// v15: 外部依赖闸补 Svelte 腿——.svelte 进 JS_FAMILY_EXTENSIONS。SvelteKit
+//      项目里 svelte/store 等导入此前会被猜向本地同名符号。
+const CACHE_VERSION = 15;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

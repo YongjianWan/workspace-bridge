@@ -108,7 +108,7 @@ function createResolver(strategies) {
 // Looks up the last segment of the import path as a symbol name in the
 // workspace-wide SymbolRegistry. Only activates when a registry is provided.
 // ---------------------------------------------------------------------------
-const JS_FAMILY_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.mts', '.cts', '.vue']);
+const JS_FAMILY_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.mts', '.cts', '.vue', '.svelte']);
 const NODE_BUILTINS = new Set(builtinModules);
 
 /**
