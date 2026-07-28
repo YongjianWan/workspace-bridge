@@ -30,14 +30,14 @@
 
 | repo | 总边 | symbol-table | 数据新鲜度 |
 | --- | ---: | ---: | --- |
-| GitNexus (TS) | 2621 | 0 | 2026-07-28 复测 |
-| zod (TS) | 374 | 0 | 2026-07-28 复测（本地 `scratch/l2-10/`，gitignored） |
-| execa (TS) | 1044 | 0 | 2026-07-28 复测（本地 `scratch/l2-10/`，gitignored） |
+| GitNexus (TS) | 4110 | 0 | 2026-07-28 最新代码复测（pull 后 +495 commits） |
+| zod (TS) | 374 | 0 | 2026-07-28 复测（`reference/zod`） |
+| execa (TS) | 1044 | 0 | 2026-07-28 复测（`reference/execa`） |
 | workspace-bridge (JS) | 1018 | 0（闸前 212，全是假边） | 2026-07-28 复测 |
 
-加上 Python 两仓（CodeGraphContext 400 / code-review-graph 252，均 0），该策略在 JS/TS/Python 六个仓上**从未产出过一条正确边**；唯一的正产出在 Rust（qartez-mcp 313/594 = 52.7%，156 条 crate 绝对路径全对）。注意口径：闸后 JS 侧命中为 0 部分**是因为闸把裸 specifier 全拦了**——闸前本仓那 209 条说明没拦时它只会猜错。两种情况都不支持保留。
+加上 Python 两仓（CodeGraphContext 502 / code-review-graph 413，均为 2026-07-28 最新代码复测的 0），该策略在 JS/TS/Python 六个仓上**从未产出过一条正确边**；唯一的正产出在 Rust。qartez-mcp v0.11.0（L2-12 修复后）：709 边 / symbol-table 167 = 23.6%，占比从 52.7% 降半的原因是分母被 tier1 真边喂大，且抽样显示剩余的几乎全是 `qartez_mcp::` 集成测试 crate 自引用——L2-12 之后，Rust 侧 symbol-table 收敛到它唯一合法的形态。注意口径：闸后 JS 侧命中为 0 部分**是因为闸把裸 specifier 全拦了**——闸前本仓那 212 条说明没拦时它只会猜错。两种情况都不支持保留。
 
-**证据**：本仓 dogfood，闸前 1230 条边里 212 条由 `trySymbolTable` 产出，**全部是假边**，且全部同构——212 条的 specifier 无一例外是 `path`、target 无一例外是 `parsers/js/shared.js`（该文件把 `const path = require('path')` 带进了 `module.exports`），confidence 0.8/tier2；`impact parsers/js/shared.js` 因此报 212 个被依赖文件，真值 3。GitNexus（2621 边）上该策略贡献 0 条。
+**证据**：本仓 dogfood，闸前 1230 条边里 212 条由 `trySymbolTable` 产出，**全部是假边**，且全部同构——212 条的 specifier 无一例外是 `path`、target 无一例外是 `parsers/js/shared.js`（该文件把 `const path = require('path')` 带进了 `module.exports`），confidence 0.8/tier2；`impact parsers/js/shared.js` 因此报 212 个被依赖文件，真值 3。GitNexus（4110 边）上该策略贡献 0 条。
 
 **根因已于 2026-07-28 单独清除**（见 CHANGELOG）：那行转手再导出已删，闸关闭时本仓假边 212→0。这削弱了「本仓 212 条」作为摘除论据的分量——它证明的是**该策略对导出卫生零容错**（一处手滑放大成 212 条假边），而非它在 JS 上必然产出垃圾。L2-10 的判决因此主要靠下面这张表的「零正产出」，而不是靠假边计数。
 
