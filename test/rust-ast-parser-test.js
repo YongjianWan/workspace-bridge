@@ -220,6 +220,44 @@ async function main() {
   await testRustAstSchema();
   await testRustAstUseListReexport();
   await testRustConcurrentParsing();
+  await testRustUseListKeywordPrefixes();
+}
+
+// L2-18: brace lists prefixed by `super`/`self`/`crate` keyword nodes must keep
+// their prefix (tree-sitter emits them as distinct node types, not identifiers),
+// and nested scoped items inside a list must keep their full path.
+async function testRustUseListKeywordPrefixes() {
+  const src = `
+use super::{count_same_file_refs_outside_range, summarize};
+use crate::{config::AppConfig, db};
+use self::inner::{Thing};
+use super::{self, helpers};
+use super::tools::{a as A, b};
+pub use crate::{grounding::FileFacts};
+`;
+  const result = await parseRust(src);
+  assert.strictEqual(result.parseMode, 'ast', 'Should use AST mode');
+
+  const sources = result.importRecords.map((r) => r.source);
+  assert(sources.includes('super::count_same_file_refs_outside_range'), `super:: list keeps prefix, got ${JSON.stringify(sources)}`);
+  assert(sources.includes('super::summarize'), 'super:: second item keeps prefix');
+  assert(sources.includes('crate::config::AppConfig'), 'nested scoped item keeps full path');
+  assert(sources.includes('crate::db'), 'crate:: plain item keeps prefix');
+  assert(sources.includes('self::inner::Thing'), 'self:: list keeps prefix');
+  assert(sources.includes('super'), 'self item inside list resolves to the prefix itself');
+  assert(sources.includes('super::helpers'), 'mixed self/ident list keeps prefix');
+  assert(sources.includes('super::tools::a'), 'aliased item keeps prefix');
+  assert(sources.includes('super::tools::b'), 'list after alias keeps prefix');
+  assert(
+    !sources.some((s) => s.startsWith('::')),
+    `no orphan leading-:: sources, got ${JSON.stringify(sources)}`
+  );
+
+  const cfg = result.importRecords.find((r) => r.source === 'crate::config::AppConfig');
+  assert(cfg, 'Should have crate::config::AppConfig importRecord');
+  assert.deepStrictEqual(cfg.imported, ['AppConfig'], 'nested scoped item imported symbol is last segment');
+
+  assert(result.exports.includes('FileFacts'), 'reexport list with nested scoped item exports last segment');
 }
 
 main().catch((e) => {

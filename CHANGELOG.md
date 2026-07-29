@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L2-18：Rust parser 花括号列表关键字前缀 — `use super::{a,b}` 不再抽成 `::a` (2026-07-28)
+
+- **Fixed** 根因：tree-sitter 把花括号列表前缀位置的 `super`/`self`/`crate` 发成**独立节点类型**（关键字，不是 identifier），`getUseListPrefix` 只认 `scoped_identifier`/`identifier` → 前缀取空串 → 列表项拼出 `::a` 这种非法 specifier。qartez-mcp 实测 22 条丢弃全是这一族（L2-16 分组统计分出）。同刀补齐两个同函数缺口：列表内**嵌套 scoped 项**（`use crate::{config::AppConfig}` 的 `config::AppConfig` 原本整项被跳过，import 与 reexport 名单两侧都丢）与 `use_as_clause` 的 scoped 原路径。regex fallback（polyglot）本就拼前缀，parity 无需对齐。
+- **实测**（qartez-mcp 冷构建）：丢弃 **34 → 12**，`::ident` 一族清零；剩余 12 条全是裸首段（`grounding::FileFacts` 类），即 L2-19 的账，报警形状与债条预言完全一致。
+- **Added** `testRustUseListKeywordPrefixes`（rust-ast-parser）：fixture 覆盖 `super::{…}` / `crate::{嵌套 scoped}` / `self::inner::{…}` / 列表内 `self` / 列表内别名 全形状，外加全称断言「不存在任何 `::` 前导的 source」——先 RED（咬在第一条 super 断言上）后实现。CACHE_VERSION 20 → 21。
+
 ### L2-16：Rust crate 名归一 + member manifest — own-crate 路径回到模块算术 (2026-07-28)
 
 - **Fixed** Cargo 包名 `qartez-mcp` → crate 名 `qartez_mcp`（`-`→`_`），`tryRustCrate` 与外部闸此前都按字面比对：own-crate 路径（集成测试的 `qartez_mcp::graph`）两边不认——猜中的进符号表、猜不中的进丢弃（qartez-mcp 152 丢弃 / 167 symbol-table，同一缺口两侧）。新增 `readCargoCrateName`（`[lib] name` 优先，`[package] name` 按 Cargo 规则归一）与共享 `normalizeCrateName`（resolver / 闸 / `readCargoDeps` 三处共用，不复制）；own-crate 路径按 `crate::` 同构解析。

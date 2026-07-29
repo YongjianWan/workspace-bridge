@@ -52,6 +52,11 @@ const SCHEMA_VERSION = '1.2.0';
 //      Cargo.toml。v19 缓存里 Rust 仓存着 own-crate 的假丢弃与符号表假命中
 //      （qartez-mcp 152 条丢弃 / 167 条 symbol-table，同一缺口两侧），及
 //      member manifest 声明依赖的假丢弃（axum/tower/http 等）。
-const CACHE_VERSION = 20;
+// v21: Rust parser 花括号列表关键字前缀（L2-18）——tree-sitter 把列表前缀的
+//      super/self/crate 发成独立节点类型，旧抽取只认 identifier 系，把
+//      `use super::{a,b}` 抽成 `::a`。同刀补齐列表内嵌套 scoped 项
+//      （`use crate::{config::X}`）与 reexport 名单的嵌套项。v20 缓存里
+//      Rust 仓存着 22 条 `::ident` 假丢弃（qartez-mcp 实测）。
+const CACHE_VERSION = 21;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

@@ -100,7 +100,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 | cobra | Go | 36 | **0** | 0 | 干净（零名单闸的红利） |
 | zod | TS | 409 | 80 → **4**（缺口 A 修复后复测） | 42 | ~~闸缺口 A~~（已修，2026-07-28；剩 4 条为根层 rollup config import 子包 devDeps，真阳性） |
 | CodeGraphContext | Py | 284 | 70 → **34**（缺口 B 修复后复测） | 60 | ~~闸缺口 B~~（已修，2026-07-28）+ 结构缺口（见 L2-17）+ 传递依赖（httpx/anyio，manifest 未声明） |
-| qartez-mcp | Rust | 230 | 152 → **34**（L2-16 修复后复测） | 35 | ~~结构缺口为主~~（L2-16 已修 2026-07-28；剩 22 条 parser 账 L2-18 + 12 条裸首段 L2-19） |
+| qartez-mcp | Rust | 230 | 152 → 34 → **12**（L2-16 / L2-18 修复后复测） | 35 | ~~结构缺口为主~~（L2-16、L2-18 已修 2026-07-28；剩 12 条裸首段 = L2-19） |
 | spring-petclinic | Java | 49 | 362 → **0**（缺口 C 修复后复测） | ~~44 / 49~~ 0 | ~~闸缺口 C~~（已修 2026-07-28，零名单仓内包前缀闸） |
 
 - **缺口 A — monorepo 子包依赖**：✅ **已修（2026-07-28）**。`readPackageDeps(root)` 只读工作区根的 `package.json`；zod 是 pnpm workspace，`@rollup/plugin-*` 声明在 `packages/treeshake/package.json` 里 → 80 条全被当成「看着像自己的」丢弃。改法按债条处方落地：`packageManifestChain(fromDir, root)`（`resolvers/base.js`）从导入方文件向上到根逐层收集含 `package.json` 的目录（缓存键 = fromDir+root 归一化对，与 `_cargoCrateRootCache` 同形），`_isExternalJsPackage` 沿链查 manifest 声明与 `node_modules` 探测（node 语义），`fromFile` 经 ctx 穿进闸（`trySymbolTable` 与 builder 丢弃记账两个消费方都接了）。**踩到的坑**：链的包含比较必须过 `normalizePathKey`——测试与 builder 给的是归一化路径（Windows 上小写+正斜杠），直接 `startsWith` 比原始字符串会静默把链截断成只剩根 manifest，修复等于没修。实测 zod **80 → 4**；剩 4 条是 `.configs/rollup.config.js` 位于根层却 import 只挂在子包 devDeps 上的包——它的 manifest 链上确实没人声明，pnpm hoist 运行时侥幸而已，算真阳性不设机制。CACHE_VERSION 18。
@@ -197,7 +197,9 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 ### L2-18：Rust parser 把 `use super::{a, b}` 的花括号列表项抽成 `::a`
 
-**状态**：活跃（2026-07-28 L2-16 分组统计发现）。qartez-mcp 剩 34 条丢弃里 22 条是 `::count_same_file_refs_outside_range` 这类**前导双冒号** specifier——不是合法 Rust import 写法。源码实证（`src/server/tools/mv.rs:741`）：`use super::{a, b, c}` 的花括号列表项被 parser 逐个抽成 `::a`、`::b`——前缀 `super::` 丢了还留个 `::`。同文件 `use grounding::{X, Y}` 却保留前缀抽成 `grounding::X`，两种行为不一致。修复方向：花括号列表展开时正确拼接前缀（`super::{a,b}` → `super::a` / `super::b`，之后 tryRustSuper 现有算术就能解开）。**触发条件**：Rust 仓 `droppedImports` 出现 `::` 前导样本、或改动 Rust parser 的 import 抽取。
+**状态**：✅ **已修（2026-07-28）**。根因比条目预估的更精确：tree-sitter 把花括号列表前缀位置的 `super`/`self`/`crate` 发成**独立节点类型**（不是 identifier），`getUseListPrefix` 只认 `scoped_identifier`/`identifier` → 前缀取空串 → 拼出 `::a`。同刀补齐两个同函数缺口：列表内**嵌套 scoped 项**（`use crate::{config::AppConfig}` 的 `config::AppConfig` 原本整个被跳过，import 与 reexport 名单两侧都丢）与 `use_as_clause` 的 scoped 原路径。regex fallback（polyglot）本就拼前缀，无需对齐。RED 断言带牙：fixture 含 `super::`/`self::inner::`/`crate::{嵌套}` 全形状 + 「无任何 `::` 前导 source」全称断言，先咬在正点。实测 qartez-mcp 丢弃 **34 → 12**（22 条 `::ident` 清零，剩余全为 L2-19 裸首段）；rust-ast 31 断言层 + fast 143/143 + parity/dropped-imports 全绿。CACHE_VERSION 21。
+
+**原始记录（留档）**：活跃（2026-07-28 L2-16 分组统计发现）。qartez-mcp 剩 34 条丢弃里 22 条是 `::count_same_file_refs_outside_range` 这类**前导双冒号** specifier——不是合法 Rust import 写法。源码实证（`src/server/tools/mv.rs:741`）：`use super::{a, b, c}` 的花括号列表项被 parser 逐个抽成 `::a`、`::b`——前缀 `super::` 丢了还留个 `::`。同文件 `use grounding::{X, Y}` 却保留前缀抽成 `grounding::X`，两种行为不一致（根因见上：grounding 是 identifier，super 是关键字节点）。
 
 ### L2-19：Rust 2018+ `use` 的裸首段路径按当前模块作用域解析（`pub use grounding::FileFacts`）
 
@@ -250,7 +252,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 > | 层 | 条目 | 为什么在这一层 |
 > | --- | --- | --- |
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
-> | **P1 紧随** | ~~L2-16 Rust crate 名归一~~ ✅（2026-07-28，symbol-table 167→5） · L2-17 Python 仓内包路径 · L2-18 Rust parser 花括号列表前缀 · L2-19 Rust 裸首段 use | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
+> | **P1 紧随** | ~~L2-16 Rust crate 名归一~~ ✅（2026-07-28，symbol-table 167→5） · L2-17 Python 仓内包路径 · ~~L2-18 Rust parser 花括号列表前缀~~ ✅（2026-07-28，丢弃 34→12） · L2-19 Rust 裸首段 use | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
 > | **P2 依赖前两层** | L2-10 符号表判决（T6）· L2-14 JVM 源根（Java 侧） | 数据齐了才能拍；顺序与理由写在 L2-10 内 |
 > | **P3 记账不排期** | L2-15 的动作 2–3（freshness 细化 / section 级设计；动作 0+1 已于 2026-07-28 完成——门禁拒绝 + `replayedFrom` 标记） · L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 | 粗粒度换速度是真实收益，报告路径只补抓手；L3-8 走"接触即修"，不做大扫除 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |

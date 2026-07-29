@@ -58,7 +58,15 @@ const RUST_QUERY = `
 
 function getUseListPrefix(node) {
   for (const child of node.children) {
-    if (child.type === 'scoped_identifier' || child.type === 'identifier') {
+    // tree-sitter emits the path-leading keywords as distinct node types
+    // (`super`/`self`/`crate`), not as identifiers — they are valid prefixes.
+    if (
+      child.type === 'scoped_identifier' ||
+      child.type === 'identifier' ||
+      child.type === 'super' ||
+      child.type === 'self' ||
+      child.type === 'crate'
+    ) {
       return getNodeText(child);
     }
   }
@@ -80,12 +88,14 @@ function extractUsePaths(node) {
     const prefix = getUseListPrefix(node);
     const items = getUseListItems(node);
     for (const item of items) {
-      if (item.type === 'identifier') {
+      if (item.type === 'identifier' || item.type === 'scoped_identifier') {
         paths.push(`${prefix}::${getNodeText(item)}`);
       } else if (item.type === 'self') {
         paths.push(prefix);
       } else if (item.type === 'use_as_clause') {
-        const original = item.children.find((c) => c.type === 'identifier' || c.type === 'self');
+        const original = item.children.find(
+          (c) => c.type === 'scoped_identifier' || c.type === 'identifier' || c.type === 'self'
+        );
         if (original) {
           if (original.type === 'self') {
             paths.push(prefix);
@@ -97,10 +107,10 @@ function extractUsePaths(node) {
     }
   } else if (node.type === 'use_list') {
     for (const item of node.children) {
-      if (item.type === 'identifier') {
+      if (item.type === 'identifier' || item.type === 'scoped_identifier') {
         paths.push(getNodeText(item));
       } else if (item.type === 'use_as_clause') {
-        const original = item.children.find((c) => c.type === 'identifier');
+        const original = item.children.find((c) => c.type === 'scoped_identifier' || c.type === 'identifier');
         if (original) paths.push(getNodeText(original));
       }
     }
@@ -120,6 +130,8 @@ function extractReexportNames(node) {
     for (const item of items) {
       if (item.type === 'identifier') {
         names.push(getNodeText(item));
+      } else if (item.type === 'scoped_identifier') {
+        names.push(getNodeText(item).split('::').pop());
       } else if (item.type === 'self') {
         names.push(prefix.split('::').pop() || prefix);
       } else if (item.type === 'use_as_clause') {
@@ -134,6 +146,8 @@ function extractReexportNames(node) {
     for (const item of node.children) {
       if (item.type === 'identifier') {
         names.push(getNodeText(item));
+      } else if (item.type === 'scoped_identifier') {
+        names.push(getNodeText(item).split('::').pop());
       } else if (item.type === 'use_as_clause') {
         const idents = item.children.filter((c) => c.type === 'identifier');
         if (idents.length > 0) {
