@@ -332,7 +332,14 @@ class DependencyGraph {
   getDroppedImports() {
     const dropped = this._droppedImports;
     if (!dropped) return { count: 0, files: 0, samples: [], measured: false };
-    return { count: dropped.count, files: dropped.files.size, samples: dropped.samples.slice(), measured: true };
+    return {
+      count: dropped.count,
+      files: dropped.files.size,
+      // Display-path convention (native-cased originalPath), same as the
+      // deadExports / unresolved fields — not the normalized lowercase key.
+      samples: dropped.samples.map((s) => ({ file: this._displayPath(s.file), specifier: s.specifier })),
+      measured: true,
+    };
   }
 
   findOrphanFiles(toRelativeFn = null) {

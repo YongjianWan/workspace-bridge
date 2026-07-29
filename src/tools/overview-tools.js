@@ -119,6 +119,14 @@ async function buildProjectOverview(args, container) {
       const snapshot = container.cache?.loadAnalysisSnapshot?.('overview');
       if (snapshot && isSnapshotFresh(snapshot, container, args)) {
         const cloned = JSON.parse(JSON.stringify(snapshot.data));
+        // `measured` answers "was this number measured in THIS run?" — it must
+        // never be replayed from the snapshot, where it would read true forever.
+        // Recompute from the live graph: a warm restore runs no cold build, so
+        // the replayed count honestly reads as "from the last cold build".
+        if (cloned.droppedImports) {
+          const liveGraph = container.snapshot?.graph || container.depGraph;
+          cloned.droppedImports.measured = liveGraph ? liveGraph.getDroppedImports().measured === true : false;
+        }
         applyBaselineOperations(cloned, args);
         applyOutputLimits(cloned, args);
         return cloned;

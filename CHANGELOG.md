@@ -12,7 +12,8 @@
 - **Added** `getDroppedImports()` 返回 `measured: boolean`（additive）：builder 冷构建入口把 `_droppedImports` 从 `null` 改为初始化空账，warm-only 图保持未初始化 → `measured: false`。overview 段透传该字段。
 - **Fixed** `test/test-helpers.js` mock 补 `getDroppedImports` 语义默认值：Proxy 兜底 `() => []` 返回的是**真值数组**，view 委托接通后 `dropped.samples.slice` 直接炸（overview-tools / overview-history-optional 两个测试 RED）——委托把「静默全零」变成了「暴露 mock 谎言」，这是对的方向。
 - **Changed** `AGENTS.md` 债务行更正：L1=1→0（L1-4 已由 T2 修复）、L3=4→3，与 TECH_DEBT 总览一致。
-- **验证**：parity 先 RED（11/11 FAIL：`measured` 缺失 + 负向 fixture `dropped:0≠1`）后 GREEN（`js-dropped-import: 1 edges [relative:1] dropped:1`）；变异（注释掉 view 委托）→ parity 11/11 RED + `dropped-imports-test` 的 view 断言 TypeError，恢复即绿；`dropped-imports-test` 同时锁裸图与 snapshot view 两条路径；fast 层全绿；eslint 干净。无 CACHE_VERSION bump（不改边语义）。
+- **Fixed**（同日三轮）`measured` 被存进 `analysis_snapshots` 的 overview 快照并随 replay 原样返回——它存在的理由是回答「这个数字是不是这轮真测的」，一旦跟着 replay 走就永远答「是」，包括根本没测的那些轮（warm 三跑探针：import 已在磁盘删除，字段仍报 `droppedCount:1, measured:true`，与现算的 warnings 方向相反地自相矛盾）。修法不动快照粗粒度设计（deadExports/cycles 同理，刻意保留）：replay 出口按当前图的 `getDroppedImports().measured` 现算覆盖——warm 跑出来 `count:1, measured:false`，读起来就是「这数来自上次冷构建」，本来是实话。顺带 `samples[].file` 从小写化 graph key 改为 `_displayPath`（native 大小写 originalPath），与 deadExports/unresolved 字段同一约定。
+- **验证**：parity 先 RED（11/11 FAIL：`measured` 缺失 + 负向 fixture `dropped:0≠1`）后 GREEN（`js-dropped-import: 1 edges [relative:1] dropped:1`）；变异（注释掉 view 委托）→ parity 11/11 RED + `dropped-imports-test` 的 view 断言 TypeError，恢复即绿；`dropped-imports-test` 同时锁裸图与 snapshot view 两条路径；三轮的两条断言（samples 显示路径 / warm replay `measured:false`）均先见 RED 后见 GREEN；fast 层 143/143；eslint 干净。无 CACHE_VERSION bump（不改边语义）。
 
 ### T5：L2-13 — 解析失败不再静默（droppedImports + unresolved 正名） (2026-07-28)
 

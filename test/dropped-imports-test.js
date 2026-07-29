@@ -68,7 +68,40 @@ async function main() {
   assert.strictEqual(warning.severity, 'medium', 'severity follows the >10%-of-files rule');
   assert.ok(warning.message.includes('my-local-helper'), 'warning message names a sample specifier');
 
+  // Samples must use the display path convention the rest of the output uses
+  // (_displayPath → originalPath, native casing), not the normalized
+  // lowercase graph key.
+  assert.strictEqual(
+    dropped.samples[0].file,
+    dg._displayPath(dg.normalizeFilePath(path.join(root, 'src', 'a.js'))),
+    'sample file must be the display path, not the normalized graph key'
+  );
+
+  // Cold run through the real overview entry point: saves the 'overview'
+  // analysis snapshot the warm run below will replay.
+  const { buildProjectOverview } = require('../src/tools/overview-tools');
+  const cold = await buildProjectOverview({}, container);
+  assert.strictEqual(cold.droppedImports.droppedCount, 1, 'cold overview reports the drop');
+  assert.strictEqual(cold.droppedImports.measured, true, 'cold overview measured it this run');
+
   await container.shutdown();
+
+  // Warm run: a fresh container over the SAME cache dir restores the graph
+  // without a cold build. The replayed snapshot must keep the cold count but
+  // must NOT stamp measured:true on it — this run measured nothing. A
+  // replayed measured:true answers "was this measured now?" with "yes"
+  // forever, including on runs that never measured.
+  const warm = new ServiceContainer({ quiet: true, cacheDir });
+  await warm.initialize(root, 60000, { watch: false });
+  const replayed = await buildProjectOverview({}, warm);
+  assert.strictEqual(replayed.droppedImports.droppedCount, 1, 'replay keeps the cold measurement');
+  assert.strictEqual(
+    replayed.droppedImports.measured,
+    false,
+    'warm replay must report measured: false — the number is from the last cold build, not this run'
+  );
+  await warm.shutdown();
+
   cleanupTempDir(root);
   console.log('dropped-imports-test: all passed');
 }
