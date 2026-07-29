@@ -217,6 +217,12 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **触发条件**：Python 仓 `droppedImports` 非零、或改动 `resolvers/python.js` 时。
 
+### L2-20：tree-sitter WASM 并发竞态——只有 rust-ast 有串行锁，go/kotlin/cpp 裸奔
+
+**状态**：活跃（2026-07-28 九仓解析深度实测发现）。tree-sitter 的 WASM 后端跨 Parser 实例并发不安全——`rust-ast.js` 为此带了文件级 `rustParseLock`，但 **go-ast / kotlin-ast / cpp-ast 三个 AST parser 全裸奔**：builder 并行 parse 时 WASM 互踩，**静默降级 regex**（无任何警告）。实测：cobra 冷构建 36 个 Go 文件只有 17 个 `parseMode='ast'`，同批文件串行直跑 parseGo **36/36 全 AST**——fallback 率 53% 全是竞态产物，不是 parser 能力。cJSON 18/99 同病（cpp-ast 无锁）。且 rust 那把锁**层级也错了**：锁在 parser 文件里只串行 Rust 自己，混仓里 Go parse 照样能跟 Rust parse 互踩。修复方向：锁上提到 `tree-sitter.js` 做进程级共享串行器（`withTreeSitterLock(fn)`），四个 AST parser 共用——WASM 后端是进程全局的，per-language 锁在混仓下不构成保护。RED 形状现成：`testRustConcurrentParsing`（rust-ast-parser-test.js）就是模板，扩成跨语言混排并发断言 `parseMode==='ast'`。**注意**：现有的「regex-fallback 缓存条目永不信任」约束挡的是工具链缺失，竞态降级的条目 `parseModeReason` 不是 `regex-fallback`，**会带着降级结果正常入缓存**——污染比 javalang 那条更隐蔽。修复后 CACHE_VERSION bump。
+
+**触发条件**：Go/Kotlin/C/C++ 仓 `analysisCoverage.fallbackFiles` 非零、或改动任一 tree-sitter parser 时。
+
 ### ✅ L2-12 已清零（2026-07-28）：Rust 的 `super::` / `crate::` 转回模块算术
 
 **诊断**：两个独立缺口。(1) `tryRustSuper` 把 `super` 当**目录**爬升——非 mod 文件的第一个 `super` 命名的是文件所属模块本身（子模块目录就是文件所在目录），不该爬；旧代码每级必爬一层，导致非 mod 文件的所有 `super::` 路径全部落空。(2) `tryRustCrate` 锚在工作区根的 `src`——多 crate 工作区（qartez-mcp/qartez-dashboard）里 `crate::` 应锚定**最近的 Cargo.toml** 的 src。另有第三类：末段命名的是基模块的**条目**而非子模块（`super::QartezServer` → `server/mod.rs`），单段时回退基模块文件（`mod.rs`/`baseDir.rs`/`lib.rs`/`main.rs`）。
@@ -254,9 +260,9 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 > | 层 | 条目 | 为什么在这一层 |
 > | --- | --- | --- |
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
-> | **P1 紧随** | ~~L2-16 Rust crate 名归一~~ ✅（2026-07-28，symbol-table 167→5） · L2-17 Python 仓内包路径 · ~~L2-18 Rust parser 花括号列表前缀~~ ✅（2026-07-28，丢弃 34→12） · ~~L2-19 Rust 裸首段 use~~ ✅（2026-07-28，丢弃 12→0，**Rust 侧清零**） | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
+> | **P1 紧随** | ~~L2-16 Rust crate 名归一~~ ✅（2026-07-28，symbol-table 167→5） · L2-17 Python 仓内包路径 · ~~L2-18 Rust parser 花括号列表前缀~~ ✅（2026-07-28，丢弃 34→12） · ~~L2-19 Rust 裸首段 use~~ ✅（2026-07-28，丢弃 12→0，**Rust 侧清零**） · **L2-20 tree-sitter WASM 竞态**（新，2026-07-28 深度实测发现——cobra 53% 文件静默降级 regex，它污染解析深度数据本身，建议先于 L2-17） | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
 > | **P2 依赖前两层** | L2-10 符号表判决（T6）· L2-14 JVM 源根（Java 侧） | 数据齐了才能拍；顺序与理由写在 L2-10 内 |
-> | **P3 记账不排期** | L2-15 的动作 2–3（freshness 细化 / section 级设计；动作 0+1 已于 2026-07-28 完成——门禁拒绝 + `replayedFrom` 标记） · L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 | 粗粒度换速度是真实收益，报告路径只补抓手；L3-8 走"接触即修"，不做大扫除 |
+> | **P3 记账不排期** | L2-15 的动作 2–3（freshness 细化 / section 级设计；动作 0+1 已于 2026-07-28 完成——门禁拒绝 + `replayedFrom` 标记） · L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 | 粗粒度换速度是真实收益，报告路径只补抓手；L3-8 走"接触即修"，不做大扫除 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
 > | **预防性约束** | postProcess 记录不落盘 · `_invalidateParseCache` 单一入口 · regex-fallback 缓存不信任 · warm/cold 逐字节一致 · `_readGuard` 单一读闸 · **DependencyGraphView 白名单同步**（新） · **「本轮实测」字段不进快照**（新） · **门禁型出口不吃 replay**（新） | 这些是已修债务转移后的形态：实例没了，让实例发生的结构还在 |
 >
@@ -349,6 +355,18 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 **触发条件**：写下任何 `?.()` 或 `|| { 空值 }` 时；review 时看到跨层调用带兜底时。
 
 > 历史记录：弱断言分布已清理至 schema 契约测试中的防御性 `typeof` 检查；其余 `status === 0` 均为环境探测 helper，不属于测试断言。详见 [CHANGELOG.md](../CHANGELOG.md) [Unreleased] §Code Quality: Weak Assertion Cleanup。
+
+### L3-9：Python / Java AST 走 spawn Python 进程——部署脆性 + 成本离群，tree-sitter WASM 已在 node_modules 里躺着
+
+**状态**：活跃（2026-07-28 语言解析深度盘点发现）。九语言里七门是进程内解析（Babel / tree-sitter WASM），唯独 Python 与 Java 每文件 **spawn 一个 Python 进程**（`scripts/python_ast_parser.py` / `java_ast_parser.py`，后者靠 javalang）。三层代价：(1) **部署脆性**——用户机器没有 python / javalang 就静默永远 regex（`spawn-ast.js` 自己承认 `'python-missing'` 会 recur，README 只写了 javalang 这条，Python 那条同病未写）；(2) **冷构建成本离群**——每文件一次进程创建，这两语言的冷构建贵一个量级；(3) **体系割裂**——`tree-sitter-wasms/out/` 35 个 grammar 里 `tree-sitter-python.wasm` 与 `tree-sitter-java.wasm` **都在**，偏偏这两门没用。迁移代价：重写 tree-sitter 查询与字段映射（fingerprint / `package` 抽取 / 装饰器 / 分支统计），java 侧要验证 tree-sitter-java 的 `package` 声明抽取与 javalang 等价（闸的零名单前缀集合全靠它，L2-11 缺口 C 的地基）。迁移后 L2-20 的共享串行锁自然覆盖这两门。
+
+**触发条件**：动 `spawn-ast.js` / `python.js` / `java.js`、或用户报"没装 python 的机器上 Python/Java 仓解析质量差"时。
+
+### L3-10：`hasCpp` 条件疑似不覆盖纯 `.c` 仓——cJSON 的 `languageSupport` 是空表
+
+**状态**：活跃（2026-07-28 九仓实测发现，**未单独验证**）。cJSON（99 个 `.c`/`.h`）冷构建 `languageSupport: []`，但文件照样进图、照样记了 124 条 dropped——说明 parse 走了（扩展名映射层），语言支持声明层却没认这门语言。疑点：`registry.js` 的 cpp 条件 `workspace.hasCpp` 的探测逻辑可能只看 `.cpp`/`.cc`/`.hpp`，纯 `.c` 仓落空。后果待查：`languageSupport` 空会影响哪些消费方（能力声明 / 报告展示）没摸清；124 条 dropped 的构成也没分组（angle include 不解析是设计，但 124 是否全是设计内待验）。先验证条件探测再定改法——可能就一行（`.c` 加进探测列表）。
+
+**触发条件**：纯 C 仓 `languageSupport` 为空、或改动 stack 探测 / registry 条件时。
 
 ---
 
