@@ -79,7 +79,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **判决顺序已修正（2026-07-28，六仓 `droppedImports` 实测后）**：原计划是「T5 落地即可摘——丢弃会被记账，风险从静默降级为报警」。实测推翻了这个时机判断：**报警器本身噪声太大**（Java 44/49 文件报警、zod 42/409 文件报警，绝大多数是闸缺口造成的假阳性，见 L2-11），此时摘符号表 = 在一个一直响的警报器旁边动刀。正确顺序：
 
-1. L2-11 三个闸缺口（`__future__` 一行 / Java 仓内包前缀闸 / monorepo 子包 deps）→ 把假警报压掉
+1. L2-11 闸缺口（~~`__future__`~~ 已修 2026-07-28 / Java 仓内包前缀闸 / monorepo 子包 deps）→ 把假警报压掉
 2. L2-16 Rust crate 名归一 → **Rust 保留符号表的依据本身要重量**（那 167 条与 152 条丢弃是同一缺口两侧）
 3. L2-14 JVM 源根（Kotlin 已降 P3，Java 侧按需）→ JVM 判决材料
 4. 再拍 JS/TS/Python/Go 的摘除，此时 `droppedImports` 才是可信的安全网
@@ -99,12 +99,12 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 | execa | TS | 438 | **0** | 0 | 干净 |
 | cobra | Go | 36 | **0** | 0 | 干净（零名单闸的红利） |
 | zod | TS | 409 | 80 | 42 | **闸缺口 A**：monorepo 子包 deps |
-| CodeGraphContext | Py | 284 | 70 | 60 | **闸缺口 B**（`__future__`）+ 结构缺口（见 L2-17） |
+| CodeGraphContext | Py | 284 | 70 → **34**（缺口 B 修复后复测） | 60 | ~~闸缺口 B~~（已修，2026-07-28）+ 结构缺口（见 L2-17）+ 传递依赖（httpx/anyio，manifest 未声明） |
 | qartez-mcp | Rust | 230 | 152 | 35 | 结构缺口为主（见 L2-16） |
 | spring-petclinic | Java | 49 | **362** | **44 / 49** | **闸缺口 C**：第三方 jar 全裸 |
 
 - **缺口 A — monorepo 子包依赖**：`readPackageDeps(root)` 只读工作区根的 `package.json`。zod 是 pnpm workspace，`@rollup/plugin-*` 声明在 `packages/treeshake/package.json` 里，根上没有 → 80 条全被当成「看着像自己的」丢弃。影响面是所有 pnpm/yarn/npm workspace 仓，**而那正是 workspace-bridge 的主力场景**。改法：从导入方文件向上找最近的 `package.json`，与根合并（缓存键要带这个目录，别只按 root 缓存）。
-- **缺口 B — Python 标准库名单漏项**：`__future__` 不在 `PYTHON_STDLIB_ROOTS`（`resolvers.js:169`）。一行。名单式闸的通病，补一个是一个；不值得为它设计机制。
+- **缺口 B — Python 标准库名单漏项**：✅ **已修（2026-07-28）**。`__future__` 补进 `PYTHON_STDLIB_ROOTS`（`resolvers.js:169`），同批复测带出同病的 `tomllib`（3.11+，实测出现在 CodeGraphContext 的 droppedImports 里）与 `zoneinfo`（3.9 同 cohort 漏项）一并补上。CodeGraphContext 实测 70 → 34 条；剩余是 L2-17 结构缺口（`codegraphcontext.*` 仓内绝对导入）与 httpx/anyio 这类**传递依赖**（manifest 未声明、非标准库——名单+manifest 两道路径都够不着，要么接受要么上 site-packages 探测，那是另一个设计题）。CACHE_VERSION 17。
 - **缺口 C — Java 第三方 jar**：spring-petclinic 49 个文件里 44 个报丢弃、362 条全是 `org.junit.*` / `org.assertj.*` / `org.apache.commons.*`。Java 用户现在看到的 `droppedImports` 是纯噪音。
 
 **建议动作（缺口 C 别按老方案做）**：TECH_DEBT 早先写的方案是「读 `pom.xml`/`build.gradle`，难点是 groupId 与包名不同构」——**这条路没必要走**。Java/Kotlin 的 import 永远是全限定包名，而**仓内有哪些包是已知的**：parser 已经把每个文件的 `package` 声明抽进图（`builder.js` 的 `parsed.package`）。所以闸的判据是「仓内包前缀集合之外的一切 = 外部」，零名单、零 manifest 解析、零 groupId 猜测——与 Go 那道零名单闸同构，且比读 pom 更准（pom 未声明但 classpath 上有的照样判对）。代价是需要在图建完之后才能定型，实现上要么走 postProcess 阶段，要么在 builder 首轮扫描时先收集 package 集合。
@@ -243,7 +243,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 >
 > | 层 | 条目 | 为什么在这一层 |
 > | --- | --- | --- |
-> | **P0 现在做**（降噪，四步有序） | L2-11 三个闸缺口（`__future__` 一行 / Java 仓内包前缀闸 / monorepo 子包 deps） | 报警器现在响的多半是假警报（Java 44/49 文件、zod 42/409 文件），不压掉，后面所有判决都没有可信数据 |
+> | **P0 现在做**（降噪，有序） | L2-11 剩余两个闸缺口（Java 仓内包前缀闸 / monorepo 子包 deps；~~`__future__`~~ 缺口 B 已修 2026-07-28） | 报警器现在响的多半是假警报（Java 44/49 文件、zod 42/409 文件），不压掉，后面所有判决都没有可信数据 |
 > | **P1 紧随** | L2-16 Rust crate 名归一 · L2-17 Python 仓内包路径 | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
 > | **P2 依赖前两层** | L2-10 符号表判决（T6）· L2-14 JVM 源根（Java 侧） | 数据齐了才能拍；顺序与理由写在 L2-10 内 |
 > | **P3 记账不排期** | L2-15 的动作 2–3（freshness 细化 / section 级设计；动作 0+1 已于 2026-07-28 完成——门禁拒绝 + `replayedFrom` 标记） · L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 | 粗粒度换速度是真实收益，报告路径只补抓手；L3-8 走"接触即修"，不做大扫除 |

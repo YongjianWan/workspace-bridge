@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L2-11 缺口 B：Python 标准库名单补漏（`__future__` / `tomllib` / `zoneinfo`） (2026-07-28)
+
+- **Fixed** `PYTHON_STDLIB_ROOTS`（`resolvers.js`）补三个漏项：`__future__`（债条点名的那一行）、`tomllib`（3.11+，**修完复测时实测带出**——CodeGraphContext 的 droppedImports 里它就排在 `__future__` 旁边）、`zoneinfo`（3.9，与名单里已有的 `graphlib` 同 cohort 的漏项）。名单式闸的通病，补一个是一个，不设机制。
+- **实测**：CodeGraphContext 冷构建 droppedCount **70 → 34**，`__future__` 与 `tomllib` 从样本清零。剩余构成：L2-17 结构缺口（`codegraphcontext.*` 仓内绝对导入）+ httpx/anyio 这类**传递依赖**（manifest 未声明、非标准库——名单与 manifest 两道闸都够不着，要么接受要么上 site-packages 探测，属另一个设计题，已记入 L2-11）。
+- **Changed** `testPythonStdlibNotGuessed` 补 `__future__.annotations` / `__future__` / `tomllib` 三条断言（本地注册同名符号，闸不拦就会被猜中——断言有牙，非 vacuous）。先 RED 后补名单。CACHE_VERSION 16 → 17（与历次闸扩张同例：旧缓存可能存着这三个 specifier 的假边）。
+
 ### L2-15 动作 0+1：门禁不吃 replay + 响应级 `replayedFrom` 标记 (2026-07-28)
 
 - **Added** replay 响应盖 `replayedFrom: { computedAt, gitHead, fileCount }` 标记（`overview-tools.js` replay 分支）——报告路径消费方可区分「本次现算」vs「replay 自某次冷构建」，与 `measured`（字段级）同一思路升到响应级。

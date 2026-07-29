@@ -343,11 +343,16 @@ function testPythonStdlibNotGuessed() {
   const tmpDir = makePythonProject({});
   const { registry } = pythonRegistry(tmpDir, 'join');
   registry.register(P(path.join(tmpDir, 'src', 'json.py')), [{ name: 'json', isExported: true }]);
+  registry.register(P(path.join(tmpDir, 'src', '__future__.py')), [{ name: 'annotations', isExported: true }, { name: '__future__', isExported: true }]);
+  registry.register(P(path.join(tmpDir, 'src', 'tomllib.py')), [{ name: 'tomllib', isExported: true }]);
   const ctx = { symbolRegistry: registry, root: tmpDir };
   const from = P(path.join(tmpDir, 'src', 'app.py'));
 
   assert.strictEqual(trySymbolTable('os.path.join', from, ctx), null, 'stdlib submodule path must not be guessed');
   assert.strictEqual(trySymbolTable('json', from, ctx), null, 'stdlib top-level module must not be guessed');
+  assert.strictEqual(trySymbolTable('__future__.annotations', from, ctx), null, '__future__ submodule path must not be guessed (L2-11 gap B)');
+  assert.strictEqual(trySymbolTable('__future__', from, ctx), null, '__future__ top-level module must not be guessed (L2-11 gap B)');
+  assert.strictEqual(trySymbolTable('tomllib', from, ctx), null, 'tomllib (3.11+ stdlib) must not be guessed — measured in CodeGraphContext droppedImports');
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }

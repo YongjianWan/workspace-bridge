@@ -36,6 +36,9 @@ const SCHEMA_VERSION = '1.2.0';
 //      项目里 svelte/store 等导入此前会被猜向本地同名符号。
 // v16: 外部闸接上 registry 的 isBuiltIn 声明——java./javax./kotlin. 标准库
 //      前缀不再被猜向本地同名类（L2-11 JVM 腿的内建半、L3-6 清零）。
-const CACHE_VERSION = 16;
+// v17: Python 标准库名单补漏——__future__ / tomllib / zoneinfo（L2-11 缺口 B）。
+//      v16 缓存里 Python 仓可能有 from __future__ import ... 猜向本地
+//      同名符号的假边；CodeGraphContext 实测 70 条丢弃里 __future__ 占约一半。
+const CACHE_VERSION = 17;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

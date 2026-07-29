@@ -167,6 +167,7 @@ function _isExternalJsPackage(specifier, root) {
 // file, exactly like node builtins. (`os`, `sys`, `json`… colliding with a
 // local module is the same fabricated-edge shape as require('path').)
 const PYTHON_STDLIB_ROOTS = new Set([
+  '__future__', // L2-11 gap B: `from __future__ import ...` is stdlib, never a workspace file
   'abc', 'aifc', 'argparse', 'array', 'ast', 'asyncio', 'atexit', 'audioop',
   'base64', 'bdb', 'binascii', 'binhex', 'bisect', 'builtins', 'bz2',
   'calendar', 'cgi', 'cgitb', 'chunk', 'cmath', 'cmd', 'code', 'codecs',
@@ -190,10 +191,11 @@ const PYTHON_STDLIB_ROOTS = new Set([
   'stringprep', 'struct', 'subprocess', 'sunau', 'symtable', 'sys', 'sysconfig',
   'syslog', 'tabnanny', 'tarfile', 'telnetlib', 'tempfile', 'termios', 'test',
   'textwrap', 'threading', 'time', 'timeit', 'tkinter', 'token', 'tokenize',
+  'tomllib', // 3.11+; measured in CodeGraphContext droppedImports (L2-11 gap B cohort)
   'trace', 'traceback', 'tracemalloc', 'tty', 'turtle', 'types', 'typing',
   'unicodedata', 'unittest', 'urllib', 'uu', 'uuid', 'venv', 'warnings',
   'wave', 'weakref', 'webbrowser', 'winreg', 'winsound', 'wsgiref', 'xdrlib',
-  'xml', 'xmlrpc', 'zipapp', 'zipfile', 'zipimport', 'zlib', '_thread',
+  'xml', 'xmlrpc', 'zipapp', 'zipfile', 'zipimport', 'zlib', 'zoneinfo', '_thread',
 ]);
 
 /**
