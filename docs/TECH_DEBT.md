@@ -77,11 +77,39 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **建议动作**：把 `trySymbolTable` 从 JS 家族链上摘掉（保留 Rust；JVM 保留待 L2-14 修完重量——okhttp 实测 symbol-table 在 JVM 非标布局上是正产出，见上方边界段）——连带收益：L2-11 的 JS 闸（`readPackageDeps`/`NODE_BUILTINS`/`node_modules` 探测）与 L3-4 的扩展名分支一起消失。Python/Go 链同理可摘（贡献同为 0，且闸已让它们的命中不可能为真），但 Python/Go 各有 `tryPythonAbsolute`/`tryGoModule` 结构解析在前，摘符号表影响面与 JS 相同。**这是结构性决定，等用户拍板。**
 
+**判决顺序已修正（2026-07-28，六仓 `droppedImports` 实测后）**：原计划是「T5 落地即可摘——丢弃会被记账，风险从静默降级为报警」。实测推翻了这个时机判断：**报警器本身噪声太大**（Java 44/49 文件报警、zod 42/409 文件报警，绝大多数是闸缺口造成的假阳性，见 L2-11），此时摘符号表 = 在一个一直响的警报器旁边动刀。正确顺序：
+
+1. L2-11 三个闸缺口（`__future__` 一行 / Java 仓内包前缀闸 / monorepo 子包 deps）→ 把假警报压掉
+2. L2-16 Rust crate 名归一 → **Rust 保留符号表的依据本身要重量**（那 167 条与 152 条丢弃是同一缺口两侧）
+3. L2-14 JVM 源根（Kotlin 已降 P3，Java 侧按需）→ JVM 判决材料
+4. 再拍 JS/TS/Python/Go 的摘除，此时 `droppedImports` 才是可信的安全网
+
+**另一处需要订正的旧结论**：「摘掉能连带让 L2-11 的 JS 闸和 L3-4 分支一起消失」——**已过期**。T5 之后 `isExternalDependency` 有了第二个消费方（builder 的丢弃记账用它区分「该丢的」和「漏掉的」），闸删不掉了，连带收益缩水成只剩 L3-4 那个分支。
+
 **触发条件**：调整 `SYMBOL_DISAMBIGUATION` 任一常数、或把符号表铺到新语言之前。跑 `node scripts/resolver-precision.js reference/<repo> [...]` 逐仓点名取数（勿用 `reference/*` 通配，目录里混着非仓文件；编制与闸状态见 `reference/README.md`）。
 
 ### L2-11：外部依赖闸只覆盖 JS 家族 — 违反 AGENTS.md 铁律 #8（多语言等价性）
 
-**状态**：大部分收敛（2026-07-28）。JS 家族（node 内建 / `package.json` 四类依赖字段 / `node_modules`，**含 .svelte**）、Rust（`std`/`core`/`alloc`/`proc_macro` 前缀 / `Cargo.toml` 声明的 crate，`path = ` 依赖不拦）、Python（标准库根段名单 / `requirements.txt` + `pyproject.toml` 的 `[project]` 与 poetry 依赖段，PEP 503 归一 + 别名表）、Go（无需名单——import 永远带完整路径：module 路径之外的一切都不猜，dotted 首段 = 外部模块、无点首段 = 标准库）、**C/C++**（angle 形式不猜 / 无扩展名不猜 / C·POSIX 系统头名单，与 L1-4 修复同轮落地）与 **Java / Kotlin 的标准库半**（`java.`/`javax.`/`kotlin.` 前缀，经 `isBuiltIn` 回退接线，T4）已有闸。**剩余唯一缺口：Java / Kotlin 的第三方 jar**（`java.` 之外的 groupId，需要 `pom.xml`/`build.gradle` manifest 读取器）。
+**状态**：语言维度大部分收敛，但**知识来源维度有三个缺口**（2026-07-28 六仓实测订正）。JS 家族（node 内建 / `package.json` 四类依赖字段 / `node_modules`，**含 .svelte**）、Rust（`std`/`core`/`alloc`/`proc_macro` 前缀 / `Cargo.toml` 声明的 crate，`path = ` 依赖不拦）、Python（标准库根段名单 / `requirements.txt` + `pyproject.toml` 的 `[project]` 与 poetry 依赖段，PEP 503 归一 + 别名表）、Go（无需名单——import 永远带完整路径：module 路径之外的一切都不猜，dotted 首段 = 外部模块、无点首段 = 标准库）、**C/C++**（angle 形式不猜 / 无扩展名不猜 / C·POSIX 系统头名单，与 L1-4 修复同轮落地）与 **Java / Kotlin 的标准库半**（`java.`/`javax.`/`kotlin.` 前缀，经 `isBuiltIn` 回退接线，T4）已有闸。
+
+**「剩余唯一缺口是 JVM 第三方」这句话已被实测推翻**（2026-07-28，L2-13 的 `droppedImports` 首次在真实仓上接触）。闸漏认的每一个外部 specifier，现在不再只是「可能被猜成假边」，它还会被记进 `droppedImports` 并触发 `unresolved-dropped` 警告——**闸的缺口 = 报警器的假警报**。六个在范围内的仓冷构建实测：
+
+| 仓 | 语言 | 文件 | droppedCount | 涉及文件 | 性质 |
+| --- | --- | ---: | ---: | ---: | --- |
+| execa | TS | 438 | **0** | 0 | 干净 |
+| cobra | Go | 36 | **0** | 0 | 干净（零名单闸的红利） |
+| zod | TS | 409 | 80 | 42 | **闸缺口 A**：monorepo 子包 deps |
+| CodeGraphContext | Py | 284 | 70 | 60 | **闸缺口 B**（`__future__`）+ 结构缺口（见 L2-17） |
+| qartez-mcp | Rust | 230 | 152 | 35 | 结构缺口为主（见 L2-16） |
+| spring-petclinic | Java | 49 | **362** | **44 / 49** | **闸缺口 C**：第三方 jar 全裸 |
+
+- **缺口 A — monorepo 子包依赖**：`readPackageDeps(root)` 只读工作区根的 `package.json`。zod 是 pnpm workspace，`@rollup/plugin-*` 声明在 `packages/treeshake/package.json` 里，根上没有 → 80 条全被当成「看着像自己的」丢弃。影响面是所有 pnpm/yarn/npm workspace 仓，**而那正是 workspace-bridge 的主力场景**。改法：从导入方文件向上找最近的 `package.json`，与根合并（缓存键要带这个目录，别只按 root 缓存）。
+- **缺口 B — Python 标准库名单漏项**：`__future__` 不在 `PYTHON_STDLIB_ROOTS`（`resolvers.js:169`）。一行。名单式闸的通病，补一个是一个；不值得为它设计机制。
+- **缺口 C — Java 第三方 jar**：spring-petclinic 49 个文件里 44 个报丢弃、362 条全是 `org.junit.*` / `org.assertj.*` / `org.apache.commons.*`。Java 用户现在看到的 `droppedImports` 是纯噪音。
+
+**建议动作（缺口 C 别按老方案做）**：TECH_DEBT 早先写的方案是「读 `pom.xml`/`build.gradle`，难点是 groupId 与包名不同构」——**这条路没必要走**。Java/Kotlin 的 import 永远是全限定包名，而**仓内有哪些包是已知的**：parser 已经把每个文件的 `package` 声明抽进图（`builder.js` 的 `parsed.package`）。所以闸的判据是「仓内包前缀集合之外的一切 = 外部」，零名单、零 manifest 解析、零 groupId 猜测——与 Go 那道零名单闸同构，且比读 pom 更准（pom 未声明但 classpath 上有的照样判对）。代价是需要在图建完之后才能定型，实现上要么走 postProcess 阶段，要么在 builder 首轮扫描时先收集 package 集合。
+
+**旧方案的实测样本留档**（T4，okhttp）：83 条第三方假边在图里（`org.junit` 37 / `assertk` 27 / `okio` 13 / `org.mockserver` 3 / `org.gradle` 3，第三方 specifier 配本地 target 必假）。
 
 实测方法：让符号表对任何名字都命中，隔离出闸本身的行为（`null` = 闸拦住）——
 
@@ -99,9 +127,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **为什么是债**：病灶机制与语言无关，且已在两种语言上实测到实例——JS 的 `require('path')`（本仓 212 条）与 Rust 的 `std::process::Command` / `rmcp::` / `tokio::`（qartez-mcp 48 条）。Python `import requests` 撞上本地导出的 `requests` 是同一形状，只是尚未取到样本。按铁律 #8 仍属语言偏斜。
 
-**建议动作**：只剩 JVM 第三方 jar 一半。（a）~~内建前缀接线~~ 已做（T4，经 `isBuiltIn` 回退）；（b）**第三方** jar 需要 `pom.xml`/`build.gradle` manifest 读取器——难点是 groupId 与 import 包名不同构（`com.google.guava:guava` ↔ `com.google.common.collect`），只能做到「顶级域名段 + 组织段」前缀匹配。**这一半已有实测样本**（T4，okhttp）：83 条第三方假边在图里（`org.junit` 37 / `assertk` 27 / `okio` 13 / `org.mockserver` 3 / `org.gradle` 3，第三方 specifier 配本地 target 必假）。**验证仓已入编待闸**（`reference/README.md`）：spring-petclinic / okhttp（JVM）；cJSON / fmt（C/C++）已在 T2 量过（96/96 与 135/136 条结构边，symbol-table 贡献 0）、realworld（Svelte）已在 T3 量过（12 边，symbol-table 0）；cobra（Go）现在就可测。
-
-**触发条件**：任何语言的 unresolved import 报出"疑似被解析到本地同名符号"时，优先补该语言的闸。
+**触发条件**：任何语言的 unresolved import 报出"疑似被解析到本地同名符号"时、或某语言的 `droppedImports` 占比异常高时，优先补该语言的闸。复现取数：`node cli.js audit-summary --cwd reference/<repo> --cache-dir <tmp> --quiet --json`，读 `droppedImports.samples`（冷构建才有值，`measured` 必须为 true）。
 
 ### L2-13：`unresolved` 统计的不是「解不开的 import」，所以它永远看不见被丢弃的记录
 
@@ -137,14 +163,49 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **为什么是债**：「假绿比红更危险」同款——输出看起来像一次完整的当前分析，实际一半是上一轮的结果，且**没有任何标记**告诉消费方哪些 section 是现算的、哪些是 replay 的。AI agent 拿 `deadExports` 做删除决策时，删的可能是已经改过的代码；拿 `droppedImports` 判断图完整度时，读的是上次构建的账本。
 
+**影响面比「AI 读到旧数字」更远（2026-07-28 追加核实）**：replay 的字段会一路走进**决策型出口**，不只是给人/agent 看的报告——
+
+| 出口 | 位置 | 后果 |
+| --- | --- | --- |
+| `hasFindings` | `cli/commands/index.js:98,121` 由 `deadExports` / `unresolved` / `cycles` / `boundaries` / `smells` / `astRules` / `orphans` 汇总 | 全部来自 replay |
+| exit code | `cli/route-formatter.js:77`（`failOnFindings && hasFindings → 1`） | **CI 的红绿灯建立在上次冷构建的数据上** |
+| `summary.severity` | `cli/commands/index.js:74` `repoSeverity({unresolved, cycles, deadExports})` | 同上 |
+| `--check-regression` | `tools/regression-tools.js:116,150` 拿 `currentResult` 比基线 | 回归可能被旧值掩盖，或凭空造出一个 |
+
+也就是说：改完代码立刻跑一次 `audit-summary --fail-on-findings`，只要 git head / 文件数 / config 三项没变，**拿到的是改动前的判决**。这条把 L2-15 从「输出可观测性」抬到「门禁可信度」。
+
 **建议动作**（不动设计本身，先动可观测性；按成本排序，拍板在人）：
+
+0. **先于三档、且不该等拍板**：决策型入口不吃 replay——`--fail-on-findings` / `--check-regression` / 写基线的 `--save` 三条路径要么绕过快照强制现算，要么在响应带 replay 标记时直接拒绝并说明原因。报告可以旧，门禁不能旧；这两者的可容忍度天然不同，混在一个 freshness 策略里就是把边界抹掉。
 1. **最小**：replay 出口给整个响应盖 `replayedFrom` 标记（快照 generatedAt / gitHead / fileCount）——和 `measured` 同一思路，从字段级升到响应级，消费方一眼能区分「本次现算」vs「replay 自某次冷构建」。
 2. **中**：freshness 信号细化——快照存内容 hash 集或 mtime 上界，编辑即失效。成本是每次调用扫一遍 stat，丢掉的正是粗粒度想省的那部分速度。
 3. **大**：快照降级为「预计算聚合缓存」，section 级 freshness——哪些段可 replay、哪些必须与 warnings 同源现算。
 
-粗粒度换速度是真实收益，不是纯错误——所以这条是「记账 + 给消费方抓手」，不是「必须改掉」。
+粗粒度换速度是真实收益，不是纯错误——所以这条是「记账 + 给消费方抓手」，不是「必须改掉」。**但这个定性只对报告路径成立**：门禁路径（上表第 2、4 行）不存在「旧一点也行」的容忍度，那部分是 bug 不是取舍，见动作 0。
 
-**触发条件**：修改 `isSnapshotFresh` / `saveAnalysisSnapshot`、或消费 `audit-overview` 输出做删除/重构决策时。
+**触发条件**：修改 `isSnapshotFresh` / `saveAnalysisSnapshot`、消费 `audit-overview` 输出做删除/重构决策、或给 `hasFindings` 增删汇总项时。
+
+### L2-16：Rust crate 名 `-`/`_` 不同构，qartez-mcp 152 条自引用掉进丢弃/符号表
+
+**状态**：活跃（2026-07-28 `droppedImports` 六仓实测发现）。qartez-mcp 230 文件报 **152 条丢弃 / 35 个文件**，样本首位是 `qartez_mcp::cli::WorkspaceAction`、`qartez_mcp::graph`——**crate 自引用**。Cargo 包名是 `qartez-mcp`，crate 名是 `qartez_mcp`（Cargo 自动把 `-` 换成 `_`），`tryRustCrate` / 外部闸两侧都按字面比对，两边都不认这个 specifier：既解不成边，也不被判为外部。
+
+**为什么它对 L2-10（T6）有直接影响**：L2-12 清零后 qartez-mcp 还剩 167 条 symbol-table，当时归因为「`qartez_mcp::` 集成测试自引用，是该策略唯一合法形态」。现在看，那 167 条与这 152 条丢弃是**同一个缺口的两侧**——猜中的进符号表、猜不中的进丢弃。所以「Rust 是符号表唯一有正产出的语言」这个判决依据**是被结构缺口撑起来的**，与 JVM 那 ~950 条（L2-14）形状完全一致。**修完这条再量 Rust 的符号表占比，才是 T6 的真判决材料。**
+
+**建议动作**：crate 名归一——读 `Cargo.toml` 的 `[package] name` 后按 Cargo 规则做 `-`→`_` 转换（`[lib] name` 显式声明时以它为准），`tryRustCrate` 与 `_isExternalRustCrate` 共用同一个归一函数，别在两处各写一遍（L2-7 重复即债务）。验证基准就是现状：qartez-mcp 152 条丢弃 / 167 条 symbol-table，修完两个数都应大幅下降，且总边数上升。
+
+**另有一类待确认**：样本里出现 `::count_same_file_refs_outside_range` 这种**前导双冒号**的 specifier，不是合法的 Rust import 写法，疑似 parser 抽取产物而非 resolver 问题。修 crate 名之前先分组统计一次，别把 parser 的账记到 resolver 头上。
+
+**触发条件**：Rust 仓 `droppedImports` 非零、或改动 `resolvers/rust.js` / `_isExternalRustCrate` 时。
+
+### L2-17：Python 仓内绝对包路径解不开（`codegraphcontext.tools.handlers`）
+
+**状态**：活跃（2026-07-28 实测发现，**待分组定量**）。CodeGraphContext 284 文件报 70 条丢弃 / 60 个文件，样本里混着三类：`__future__`（标准库名单漏项，归 L2-11 缺口 B）、`httpx`（第三方，需核对是否在 manifest 里声明）、`codegraphcontext.tools.handlers`（**仓内包的绝对导入，本该由 `tryPythonAbsolute` 解开**）。三类的占比没分组统计过，**先取数再动手**——本条的范围只是第三类。
+
+**为什么值得查**：Python 的 `tryPythonAbsolute` 在 parity fixture 上是绿的（`python-absolute:1`），说明基本能力在；真实仓里落空，大概率是包根发现（`src/` 布局、`__init__.py` 缺失、namespace package）或多级包路径的问题。这与 L2-14（JVM 源根）、L2-16（Rust crate 名）是同一族：**结构解析在真实布局上落空 → 符号表兜底或静默丢弃**，三个语言各一个实例。
+
+**建议动作**：先跑分组统计（按 specifier 首段是否等于仓内已知顶级包名分三类），再决定改 `tryPythonAbsolute` 的哪一段。
+
+**触发条件**：Python 仓 `droppedImports` 非零、或改动 `resolvers/python.js` 时。
 
 ### ✅ L2-12 已清零（2026-07-28）：Rust 的 `super::` / `crate::` 转回模块算术
 
@@ -178,7 +239,19 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0**（L1-4 已由 T2 修复） | L2 债务 **4**（L2-10 符号表精度待判决 / L2-11 外部闸只剩 JVM 第三方 manifest 一半 / L2-14 JVM 非标源根布局 / L2-15 overview 快照粗粒度新鲜度；L2-13 已由 T5 修复） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **3**（L3-4 扩展名分支 / L3-5 死方法 / L3-7 Vue·Svelte 正则抽符号） | 合计 **7 项**
+> **债务总览（2026-07-28 重排）**——记账口径按用户要求改了：**债务不会消失，只会转移优先级**。所以下面不写"清零"，写"现在排在哪一层"。已修条目的机制债（不是那个实例，是让它能发生的结构）一律留在预防性约束里，那才是它转移之后的位置。
+>
+> | 层 | 条目 | 为什么在这一层 |
+> | --- | --- | --- |
+> | **P0 现在做**（降噪，四步有序） | L2-11 三个闸缺口（`__future__` 一行 / Java 仓内包前缀闸 / monorepo 子包 deps） | 报警器现在响的多半是假警报（Java 44/49 文件、zod 42/409 文件），不压掉，后面所有判决都没有可信数据 |
+> | **P1 紧随** | L2-16 Rust crate 名归一 · L2-17 Python 仓内包路径 | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
+> | **P2 依赖前两层** | L2-10 符号表判决（T6）· L2-14 JVM 源根（Java 侧） | 数据齐了才能拍；顺序与理由写在 L2-10 内 |
+> | **P0 现在做**（并列第二项） | L2-15 的**动作 0**：决策型入口（`--fail-on-findings` / `--check-regression` / `--save`）不吃 replay | 报告可以旧，门禁不能旧。exit code 与回归判定当前建立在上次冷构建的数据上——这一格是 bug，不是速度取舍 |
+> | **P3 记账不排期** | L2-15 的动作 1–3（可观测性/freshness 设计） · L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 | 粗粒度换速度是真实收益，报告路径只补抓手；L3-8 走"接触即修"，不做大扫除 |
+> | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
+> | **预防性约束** | postProcess 记录不落盘 · `_invalidateParseCache` 单一入口 · regex-fallback 缓存不信任 · warm/cold 逐字节一致 · `_readGuard` 单一读闸 · **DependencyGraphView 白名单同步**（新） · **「本轮实测」字段不进快照**（新） | 这些是已修债务转移后的形态：实例没了，让实例发生的结构还在 |
+>
+> 本轮（2026-07-28 复核）新增：L2-16 / L2-17 / L3-8 / 两条预防性约束 / P4 冻结区五条。全部来自 `droppedImports` 的六仓首次实测与三轮外部探针，**没有一条是读代码读出来的**——见「开发纪律」里"全绿有盲区"。
 >
 > L1-4 / L2-11 的四条腿 / L2-13 / L3-6 / L3-7 均来自 2026-07-28 的九语言等价性实测（十个最小 fixture + 闸隔离探针），复现脚本与判据见各条目。
 
@@ -206,6 +279,26 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **触发条件**：新增任何直读 SQLite 表的方法时。
 
+### ⚠️ 预防性约束（2026-07-28 新登记）：`DependencyGraphView` 是白名单，新增 facade 方法必须同步
+
+**约束**：任何加进 `DependencyGraph`（`src/services/dep-graph.js`）的公开读方法，**必须**同步加进 `DependencyGraphView`（`src/models/workspace-snapshot.js`）的委托列表。工具层拿到的是 `container.snapshot.graph`（视图），不是裸图——漏一行 = 该方法在整条产品路径上不存在。
+
+**病史**：T5 的 `getDroppedImports` 就漏了。视图上不存在 + 调用点写了 `?.()` 兜底 = 输出段恒为 0，**261 个测试全绿**。测试没抓住是因为它拿的是 `container._depGraph`（裸图），锁的语义对、锁的入口错。
+
+**衍生纪律（比约束本身重要）**：新增 facade 方法的契约测试**必须至少有一条走 `container.snapshot.graph`**，不能只测裸图。裸图断言证明的是"算得对"，视图断言才证明"用户拿得到"。
+
+**为什么不改成默认委托 + 黑名单**：视图的白名单是有意的——它挡住 `build`/`updateFiles`/`analyzeFile` 这些生命周期方法，改成 Proxy 默认转发会把可变入口一起放出去。代价就是这条同步义务，认了；用上面那条测试纪律兜底，而不是靠记性。
+
+**触发条件**：给 `DependencyGraph` 加任何公开方法时。
+
+### ⚠️ 预防性约束（2026-07-28 新登记）：「本轮实测」型字段不得随快照 replay
+
+**约束**：任何回答「这个数字是不是**这一轮**算出来的」的字段（当前只有 `droppedImports.measured`），**必须**在 replay 出口按当前图现算覆盖，不能让它跟着 `analysis_snapshots` 的数据一起搬。
+
+**病史**：`measured` 加进来的当天就随快照 replay 了——warm 跑（甚至把出错的 import 删掉之后再跑）照样报 `measured: true`，一个专门用来标注「测没测过」的字段，答的是上一轮的答案。修法在 `overview-tools.js` 的 replay 分支（`5f0dbc0`）。
+
+**为什么是约束**：`L2-15` 那条粗粒度新鲜度短期不会动，只要 replay 还在，**下一个「本轮实测」型字段会掉进同一个坑**。设计判据很简单：这个字段描述的是**数据**还是**这次运行**？描述运行的，一律不进快照。
+
 ---
 
 ## L3 品味问题（建议修，非债务）
@@ -232,7 +325,33 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 注册表里这两个语言的 `extractSymbols` 用正则匹配 `class` / `function` / `const` 逐行抽符号，而它们的 `parse` 走的是 babel AST。同一语言两条路径两种精度。这不影响依赖边（边来自 `parse`），但它是"9 种语言 AST 覆盖 100%"这一说法的折扣项——`file-index.js` 消费的是正则那条。
 
+> **Vue 的范围说明**（2026-07-28）：Vue **在范围内且边层健康**——`.vue` 在 `JS_FAMILY_EXTENSIONS` 闸内（`resolvers.js:111`）、parity 实测 `relative:1 / dropped:0`、`reference/vue-realworld-example-app` 是编制内基准仓、framework-patterns 有 vue-script 与 script-setup 宏两条检测。降级的只有本条 L3-7（符号抽取精度），**不是语言支持**。Svelte 的边层同样通着（T3 的闸 + realworld 12 边），只是它的语言级债务整体降 P3。
+
+### L3-8：防御性兜底是这个项目复杂度的主要来源（`?.()` / `|| {}` / Proxy fallback）
+
+**状态**：活跃（2026-07-28 登记，系统性问题，不指向单个文件）。同一轮里两个 bug 都不在逻辑里，都在**兜底**里：`getDroppedImports?.()` 把「视图没这个方法」兜成 0；test-helpers 的 Proxy 兜底 `() => []` 把「mock 没实现」兜成空数组（委托接通后立刻炸出两个 overview 测试——那是**好事**，静默的谎言变成了显式失败）。
+
+**形状**：每一层都替下一层擦屁股。builder 记账 → facade → view → assembler → snapshot replay → CLI，六层，每层都写了「拿不到就当没有」。单看每处都叫稳健，合起来的效果是**错误永远传不到人眼前**，只能靠外部探针撞出来。这与铁律 #4「静默错误必须显式」是正面冲突——铁律写在 AGENTS.md 里，可选链写在代码里，代码赢了。
+
+**判据（新增代码时问一句）**：这个 `?.` / `||` 兜的是**真实可能发生且可恢复**的情况，还是**结构性不该发生**的情况？后者一律让它炸。内部模块之间互相信任，不做防御性检查——只在真正的外部边界（用户输入、文件系统、spawn 子进程）设防。
+
+**建议动作**：不做一次性大扫除（改动面太大、收益不可测）。改为**接触即修**：任何一次触碰到带兜底的调用点，顺手判断一次并处理掉。已处理：`overview-assembler` 的 `getDroppedImports?.()`（`cc82b0d`）。
+
+**触发条件**：写下任何 `?.()` 或 `|| { 空值 }` 时；review 时看到跨层调用带兜底时。
+
 > 历史记录：弱断言分布已清理至 schema 契约测试中的防御性 `typeof` 检查；其余 `status === 0` 均为环境探测 helper，不属于测试断言。详见 [CHANGELOG.md](../CHANGELOG.md) [Unreleased] §Code Quality: Weak Assertion Cleanup。
+
+---
+
+## P4 冻结区（已登记，不排期；解冻条件写在每条里）
+
+> 这些不是"已解决"，是**优先级被移走**。语言范围（2026-07-28 用户拍板）：TS/JS（含 `.jsx`/`.tsx`，即 React——它不是独立语言，走同一 parser / 同一链 / 同一闸）、Python、Go、Rust、Java、Vue 在范围内；Kotlin / C·C++ / Svelte 边层通着但债务降级。
+
+- **C/C++ `tryCppInclude` 不校验命中类型与仓外爬升**（`resolvers/cpp.js`）：`cachedExistsSync` 只判 stat 非 null，`#include "utils"` 撞上同名**目录**会返回目录当边；`#include "../../../x.h"` 会把仓外文件拉进图。`tryRelativeWithExtensions` 同款（既有行为，非本轮引入）。解冻条件：C/C++ 回到范围内，或任何仓报出目录型节点 / 仓外路径节点。改法：命中后加 `isFile()` + root 包含判定。
+- **`resolveFileOnly` 的 ext 大小写不一致**（`builder.js:407`）：`resolveImport` 拿裸 `path.extname(filePath)`，而 T5 的闸调用拿 `ext.toLowerCase()`。`MAIN.C` / `Foo.H` 这类文件 resolver 链落到 default（等于回到 L1-4 的病），而丢弃记账走 cpp 闸——两边判定分叉。解冻条件：出现大写扩展名的真实仓，或统一 ext 归一时顺手做掉（一行）。
+- **仓库根目录两个垃圾目录**：`UserssdsesAppDataLocalTempwb-test-b331ad95` / `UserssdsesAppDataLocalTempwb-test-cache`（2026-07-20 遗留，某测试把 Windows 绝对路径当相对目录用、分隔符被吃掉）。`git status` 看不见是因为里面只有被 ignore 的 `cache.db`。可直接删；根因是哪个测试没查。
+- **Next.js 路由提取缺失**（`framework-patterns.js`）：有 Nuxt（:143）与 SvelteKit（:145）的 route query，**没有 React/Next**（该文件 `react`/`next` 零命中）。后果：Next 的文件系统路由（`app/` / `pages/api/`）抽不出，`api-contracts` 拿 Next 当后端全部对不上。**明确不做**——它是加特性不是减债，与当前"只做减法"的方向冲突。解冻条件：噪声治理完成（L2-11 三缺口 + L2-16）之后，若真实 Next 仓的实测数据支持，再评估。
+- **TECH_DEBT.md 自身臃肿**：已修条目保留大段"以下为发现时的原始记录（留档）"，与文档铁律「修复即删，历史只进 CHANGELOG」冲突，本文件已 200+ 行且一半是坟头。不擅自删——留档里有复现路径与判据，删之前要确认 CHANGELOG 侧等价覆盖。解冻条件：文件超过阅读预算（新会话读它超过一屏就该压缩）。
 
 ---
 

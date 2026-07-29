@@ -31,7 +31,8 @@
 
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
-- **当前债务**：**L1=0** / 架构=0，活跃 L2 四项 + L3 三项（合计 7 项），**以 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) 为准**（本行只给量级，别在这里维护第二份清单）
+- **当前债务**：**L1=0**，其余按优先级分层记账（P0 降噪 → P1 结构解析缺口 → P2 符号表判决 → P3 记账不排期 → P4 冻结），**以 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) 的总览表为准**（本行只给形状，别在这里维护第二份清单）。记账口径：债务不会消失，只会转移优先级——已修实例的机制债留在"预防性约束"里。
+- **语言范围**（2026-07-28）：TS/JS（含 `.jsx`/`.tsx`，React 不是独立语言）、Python、Go、Rust、Java、Vue 在范围内；Kotlin / C·C++ / Svelte 边层通着但债务降 P3/P4。
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
