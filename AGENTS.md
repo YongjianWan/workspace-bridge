@@ -31,7 +31,7 @@
 
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
-- **当前债务**：**L1=0** / 架构=0，活跃 L2 三项 + L3 三项（合计 6 项），**以 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) 为准**（本行只给量级，别在这里维护第二份清单）
+- **当前债务**：**L1=0** / 架构=0，活跃 L2 四项 + L3 三项（合计 7 项），**以 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) 为准**（本行只给量级，别在这里维护第二份清单）
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 

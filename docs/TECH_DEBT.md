@@ -131,6 +131,21 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **触发条件**：JVM 仓 symbol-table 占比异常高（>10%）、或 `impact` 对 JVM 类返回 tier2 证据为主时。
 
+### L2-15：overview 快照的粗粒度新鲜度——warm 输出整体可以是旧的，而 warnings 是现算的，同一份输出自相矛盾
+
+**状态**：活跃（2026-07-28 warm 三跑探针发现，用户明确要求入债）。`isSnapshotFresh`（`overview-tools.js:85-105`）只核三项：git head + 文件数 + config hash——「跨未提交编辑保持新鲜」是写在注释里的刻意设计，换的是重复调用近乎零成本。代价：`audit-overview`/`audit-summary` 在文件编辑后 replay 的 `deadExports`/`cycles`/`aggregates`/`droppedImports` 等**全部是上次冷构建的旧值**，而同一份输出里的 `warnings` 不在快照里、每次现算。探针实测：import 已从磁盘删除，字段仍报 `droppedCount:1`，warnings 为空——这个自相矛盾**对快照里每个字段都成立**，不只是 droppedImports。`measured` 的 replay 覆盖（`5f0dbc0`）只修了「谎称这轮测过」那一格，**旧数字本身还是旧的**。
+
+**为什么是债**：「假绿比红更危险」同款——输出看起来像一次完整的当前分析，实际一半是上一轮的结果，且**没有任何标记**告诉消费方哪些 section 是现算的、哪些是 replay 的。AI agent 拿 `deadExports` 做删除决策时，删的可能是已经改过的代码；拿 `droppedImports` 判断图完整度时，读的是上次构建的账本。
+
+**建议动作**（不动设计本身，先动可观测性；按成本排序，拍板在人）：
+1. **最小**：replay 出口给整个响应盖 `replayedFrom` 标记（快照 generatedAt / gitHead / fileCount）——和 `measured` 同一思路，从字段级升到响应级，消费方一眼能区分「本次现算」vs「replay 自某次冷构建」。
+2. **中**：freshness 信号细化——快照存内容 hash 集或 mtime 上界，编辑即失效。成本是每次调用扫一遍 stat，丢掉的正是粗粒度想省的那部分速度。
+3. **大**：快照降级为「预计算聚合缓存」，section 级 freshness——哪些段可 replay、哪些必须与 warnings 同源现算。
+
+粗粒度换速度是真实收益，不是纯错误——所以这条是「记账 + 给消费方抓手」，不是「必须改掉」。
+
+**触发条件**：修改 `isSnapshotFresh` / `saveAnalysisSnapshot`、或消费 `audit-overview` 输出做删除/重构决策时。
+
 ### ✅ L2-12 已清零（2026-07-28）：Rust 的 `super::` / `crate::` 转回模块算术
 
 **诊断**：两个独立缺口。(1) `tryRustSuper` 把 `super` 当**目录**爬升——非 mod 文件的第一个 `super` 命名的是文件所属模块本身（子模块目录就是文件所在目录），不该爬；旧代码每级必爬一层，导致非 mod 文件的所有 `super::` 路径全部落空。(2) `tryRustCrate` 锚在工作区根的 `src`——多 crate 工作区（qartez-mcp/qartez-dashboard）里 `crate::` 应锚定**最近的 Cargo.toml** 的 src。另有第三类：末段命名的是基模块的**条目**而非子模块（`super::QartezServer` → `server/mod.rs`），单段时回退基模块文件（`mod.rs`/`baseDir.rs`/`lib.rs`/`main.rs`）。
@@ -163,7 +178,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 ---
 
-> **当前活跃债务总览**：L1 Blocker **0**（L1-4 已由 T2 修复） | L2 债务 **3**（L2-10 符号表精度待判决 / L2-11 外部闸只剩 JVM 第三方 manifest 一半 / L2-14 JVM 非标源根布局；L2-13 已由 T5 修复） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **3**（L3-4 扩展名分支 / L3-5 死方法 / L3-7 Vue·Svelte 正则抽符号） | 合计 **6 项**
+> **当前活跃债务总览**：L1 Blocker **0**（L1-4 已由 T2 修复） | L2 债务 **4**（L2-10 符号表精度待判决 / L2-11 外部闸只剩 JVM 第三方 manifest 一半 / L2-14 JVM 非标源根布局 / L2-15 overview 快照粗粒度新鲜度；L2-13 已由 T5 修复） | 架构债务 **0**（warm 后处理与版本门禁均已清零，转为预防性约束） | L3 品味问题 **3**（L3-4 扩展名分支 / L3-5 死方法 / L3-7 Vue·Svelte 正则抽符号） | 合计 **7 项**
 >
 > L1-4 / L2-11 的四条腿 / L2-13 / L3-6 / L3-7 均来自 2026-07-28 的九语言等价性实测（十个最小 fixture + 闸隔离探针），复现脚本与判据见各条目。
 
@@ -329,4 +344,4 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 ---
 
-*Last updated: 2026-07-28（活跃债务 **6 项**：L1=0 / L2=3（L2-10 待拍板 / L2-11 只剩 JVM 第三方 manifest 半 / L2-14 JVM 非标源根布局）/ 架构债务=0 / L3=3；本轮：T1–T5 全部落地——边层等价性基准（含 dropped:0 断言）、L1-4 C/C++ 修复、Svelte 闸、JVM 标准库闸 + L3-6 接线、L2-13 解析失败记账；okhttp 实测发现 L2-14 并改写 L2-10 的 JVM 判决材料，83 条 JVM 第三方假边成为 L2-11 剩余半的首批实测样本）*
+*Last updated: 2026-07-28（活跃债务 **7 项**：L1=0 / L2=4（L2-10 待拍板 / L2-11 只剩 JVM 第三方 manifest 半 / L2-14 JVM 非标源根布局 / L2-15 overview 快照粗粒度新鲜度）/ 架构债务=0 / L3=3；本轮：T1–T5 全部落地——边层等价性基准（含 dropped:0 断言）、L1-4 C/C++ 修复、Svelte 闸、JVM 标准库闸 + L3-6 接线、L2-13 解析失败记账；okhttp 实测发现 L2-14 并改写 L2-10 的 JVM 判决材料，83 条 JVM 第三方假边成为 L2-11 剩余半的首批实测样本）*
