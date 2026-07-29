@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { LIMITS } = require('../../../config/constants');
+const { normalizePathKey } = require('../../../utils/path');
 
 const RESOLVER_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.json', '.css', '.vue'];
 const TS_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts'];
@@ -14,6 +15,7 @@ const _tsconfigPathsCache = new Map(); // root -> { paths, mtime }
 const _resolverCache = new Map();
 const _goModCache = new Map(); // root -> { modulePath, mtime }
 const _packageDepsCache = new Map(); // root -> { names: Set<string>, mtime }
+const _packageDirChainCache = new Map(); // fromDir\nroot -> string[] manifest dirs, nearest first
 const _cargoDepsCache = new Map(); // root -> { names: Set<string>, mtime }
 const _pythonDepsCache = new Map(); // root -> { names: Set<string>, stamp }
 const _cargoCrateRootCache = new Map(); // dir -> nearest ancestor dir containing Cargo.toml
@@ -27,6 +29,7 @@ function clearResolverCaches() {
   _tsconfigPathsCache.clear();
   _goModCache.clear();
   _packageDepsCache.clear();
+  _packageDirChainCache.clear();
   _cargoDepsCache.clear();
   _pythonDepsCache.clear();
   _cargoCrateRootCache.clear();
@@ -164,6 +167,44 @@ function readPackageDeps(root) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Directories holding a package.json from fromDir up to (and including) the
+ * workspace root, nearest first — the manifest chain node resolution consults
+ * for a file at fromDir. Monorepo sub-packages declare their own deps, so a
+ * gate that reads only the root manifest miscounts every sub-package dep as
+ * an unclaimed drop (L2-11 gap A: zod's @rollup/plugin-* lived only in
+ * packages/treeshake/package.json — 80 false drops across 42 files).
+ * A fromDir outside root falls back to the root manifest alone.
+ * @param {string|null} fromDir
+ * @param {string} root
+ * @returns {string[]} manifest dirs, nearest first
+ */
+function packageManifestChain(fromDir, root) {
+  if (!root) return [];
+  // Containment compares go through normalizePathKey: callers hand us paths
+  // in either raw or normalized shape, and on Windows those differ in case
+  // and separators. Comparing raw strings would silently truncate the chain
+  // to the root manifest alone.
+  const resolvedRoot = normalizePathKey(root);
+  const start = fromDir ? normalizePathKey(fromDir) : resolvedRoot;
+  const key = `${start}\n${resolvedRoot}`;
+  const cached = _packageDirChainCache.get(key);
+  if (cached) return cached;
+
+  const chain = [];
+  let dir = start;
+  while (dir === resolvedRoot || dir.startsWith(resolvedRoot + '/')) {
+    if (cachedExistsSync(path.join(dir, 'package.json'))) chain.push(dir);
+    if (dir === resolvedRoot) break;
+    dir = path.posix.dirname(dir);
+  }
+  if (chain.length === 0 && cachedExistsSync(path.join(resolvedRoot, 'package.json'))) {
+    chain.push(resolvedRoot);
+  }
+  _packageDirChainCache.set(key, chain);
+  return chain;
 }
 
 /**
@@ -426,6 +467,7 @@ module.exports = {
   discoverJavaSourceRoots,
   readGoMod,
   readPackageDeps,
+  packageManifestChain,
   readCargoDeps,
   readPythonDeps,
   findCargoCrateRoot,

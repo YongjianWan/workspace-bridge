@@ -424,7 +424,7 @@ class GraphBuilder {
           // deps) produce no edge *by design* — counting them would cry wolf on
           // every 'import os'. This accounting is what makes a language-wide
           // resolution gap (L1-4) visible instead of silent.
-          if (!isExternalDependency(record.source, ext.toLowerCase(), this.dg.root, { importHints: { isLocal: record.isLocal } })) {
+          if (!isExternalDependency(record.source, ext.toLowerCase(), this.dg.root, { importHints: { isLocal: record.isLocal }, fromFile: filePath })) {
             if (!this.dg._droppedImports) this.dg._droppedImports = { count: 0, files: new Set(), samples: [] };
             const dropped = this.dg._droppedImports;
             dropped.count++;

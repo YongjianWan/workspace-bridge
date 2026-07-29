@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
-const { trySymbolTable } = require('../src/services/dep-graph/resolvers');
+const { trySymbolTable, isExternalDependency } = require('../src/services/dep-graph/resolvers');
 const { SymbolRegistry } = require('../src/services/dep-graph/symbol-registry');
 const { normalizePathKey } = require('../src/utils/path');
 
@@ -117,6 +117,42 @@ function testDeclaredNpmDependencyNotGuessed() {
 
   const result = trySymbolTable('debug', P(path.join(tmpDir, 'src', 'app.js')), ctx);
   assert.strictEqual(result, null, 'a declared npm dependency must not resolve to a local same-named export');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testMonorepoSubPackageDepsRecognized() {
+  // L2-11 gap A (zod shape): pnpm workspace — the root package.json declares
+  // only shared deps, the sub-package's own package.json declares its own
+  // (@rollup/plugin-* in packages/treeshake). The gate must read the manifest
+  // chain from the IMPORTING FILE upward, not only the workspace root's —
+  // otherwise every sub-package dep is counted as a "looked like ours" drop
+  // (zod: 80 false drops across 42 files).
+  const tmpDir = makeJsProject(
+    { name: 'mono-root', private: true, dependencies: { zod: '^3.0.0' } },
+    ['packages/treeshake/src']
+  );
+  fs.writeFileSync(
+    path.join(tmpDir, 'packages', 'treeshake', 'package.json'),
+    JSON.stringify({ name: 'treeshake', devDependencies: { '@rollup/plugin-node-resolve': '^16.0.0' } })
+  );
+  const fromFile = P(path.join(tmpDir, 'packages', 'treeshake', 'src', 'index.js'));
+
+  assert.strictEqual(
+    isExternalDependency('@rollup/plugin-node-resolve', '.js', tmpDir, { fromFile }),
+    true,
+    'a dep declared in the sub-package package.json is external — the root manifest saying nothing must not fool the gate'
+  );
+  assert.strictEqual(
+    isExternalDependency('zod', '.js', tmpDir, { fromFile }),
+    true,
+    'a dep declared at the workspace root must still gate a sub-package importer (merge, not replace)'
+  );
+  assert.strictEqual(
+    isExternalDependency('undeclared-anywhere', '.js', tmpDir, { fromFile }),
+    false,
+    'an undeclared specifier must still fall through to the symbol table'
+  );
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
@@ -497,6 +533,7 @@ function testGoOwnModuleStillResolves() {
 // ---------------------------------------------------------------------------
 const tests = [
   testDeclaredNpmDependencyNotGuessed,
+  testMonorepoSubPackageDepsRecognized,
   testNodeBuiltinNotGuessed,
   testInstalledButUndeclaredPackageNotGuessed,
   testScopedDependencySubpathNotGuessed,

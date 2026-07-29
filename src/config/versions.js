@@ -39,6 +39,9 @@ const SCHEMA_VERSION = '1.2.0';
 // v17: Python 标准库名单补漏——__future__ / tomllib / zoneinfo（L2-11 缺口 B）。
 //      v16 缓存里 Python 仓可能有 from __future__ import ... 猜向本地
 //      同名符号的假边；CodeGraphContext 实测 70 条丢弃里 __future__ 占约一半。
-const CACHE_VERSION = 17;
+// v18: JS 外部闸读 manifest 链（L2-11 缺口 A）——从导入方文件向上到工作区根
+//      逐层读 package.json（含 node_modules 探测），不再只读根的。v17 缓存在
+//      monorepo 仓（zod 型）存着子包 deps 的假丢弃与潜在假边。
+const CACHE_VERSION = 18;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

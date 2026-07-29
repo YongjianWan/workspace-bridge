@@ -8,6 +8,7 @@ const {
   discoverJavaSourceRoots,
   readGoMod,
   readPackageDeps,
+  packageManifestChain,
   readCargoDeps,
   readPythonDeps,
 } = require('./resolvers/base');
@@ -151,16 +152,24 @@ function _isExternalRustCrate(specifier, root) {
  * `config`, `glob` and `semver` are the same shape waiting to happen — the gate
  * exists so that ownership, a deterministic fact, outranks name guessing.
  */
-function _isExternalJsPackage(specifier, root) {
+function _isExternalJsPackage(specifier, root, ctx) {
   // Protocol-prefixed specifiers (node:fs, bun:sqlite, data:, http:) and
   // Windows drive-absolute paths are never workspace symbols.
   if (specifier.includes(':')) return true;
   const pkgName = _packageNameOf(specifier);
   if (NODE_BUILTINS.has(pkgName)) return true;
   if (!root) return false;
-  const declared = readPackageDeps(root);
-  if (declared && declared.has(pkgName)) return true;
-  return cachedExistsSync(path.join(root, 'node_modules', pkgName));
+  // Manifest chain from the importing file up to the workspace root: monorepo
+  // sub-packages declare their own deps, so the root manifest alone is not
+  // the whole truth (L2-11 gap A). No fromFile → root manifest only, same as
+  // before.
+  const fromDir = ctx && ctx.fromFile ? path.dirname(ctx.fromFile) : null;
+  for (const dir of packageManifestChain(fromDir, root)) {
+    const declared = readPackageDeps(dir);
+    if (declared && declared.has(pkgName)) return true;
+    if (cachedExistsSync(path.join(dir, 'node_modules', pkgName))) return true;
+  }
+  return false;
 }
 
 // Python 3 standard library top-level modules can never name a workspace
@@ -304,7 +313,7 @@ function trySymbolTable(importPath, fromFile, ctx) {
   // else is never guessed against local symbols. Languages whose manifest we
   // cannot read yet (Java, Kotlin) fall through — see TECH_DEBT L2-11.
   const ext = fromFile ? path.extname(fromFile).toLowerCase() : '';
-  if (_isExternalDependency(importPath, ext, ctx.root, ctx)) return null;
+  if (_isExternalDependency(importPath, ext, ctx.root, { ...ctx, fromFile })) return null;
 
   // Delimiter set is language-scoped: '::' for Rust paths, '/' + '.' for Go
   // package paths ('pkg/sub.Func'). Everything else (JS/TS, Python, Java)

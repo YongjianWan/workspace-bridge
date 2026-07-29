@@ -5,6 +5,13 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L2-11 缺口 A：JS 外部闸读 manifest 链（monorepo 子包 deps） (2026-07-28)
+
+- **Fixed** JS 外部依赖闸此前只读工作区根的 `package.json`：monorepo 子包自己声明的 deps 全部漏认。zod（pnpm workspace）实测 `@rollup/plugin-*` 声明在 `packages/treeshake/package.json`，根上没有 → 80 条丢弃全是假警报（42/409 文件）。新增 `packageManifestChain(fromDir, root)`（`resolvers/base.js`）：从导入方文件向上到根逐层收集含 `package.json` 的目录（缓存键为归一化 fromDir+root 对，与 `_cargoCrateRootCache` 同形）；`_isExternalJsPackage` 沿链查 manifest 声明与 `node_modules` 探测（node 语义，无 `fromFile` 时退化为根 manifest，行为与旧版一致）。`fromFile` 经 ctx 穿进闸的两个消费方（`trySymbolTable` 与 builder 的 droppedImports 记账）。
+- **踩坑**：链的包含比较必须过 `normalizePathKey`——调用方给的路径有原始与归一化两种形态（Windows 上差大小写与分隔符），直接 `startsWith` 会把链静默截断成只剩根 manifest，修复等于没修。RED 先抓住这个。
+- **实测**：zod 冷构建 droppedCount **80 → 4**。残余 4 条是 `.configs/rollup.config.js` 位于根层、import 只挂在子包 devDeps 上的包——它的 manifest 链上确实无人声明（pnpm hoist 运行时侥幸），属真阳性，不设机制。
+- **Added** `testMonorepoSubPackageDepsRecognized`：子包声明被闸认 / 根声明对深层导入方仍生效（合并非替换）/ 未声明 specifier 照常落到符号表。CACHE_VERSION 17 → 18。
+
 ### L2-11 缺口 B：Python 标准库名单补漏（`__future__` / `tomllib` / `zoneinfo`） (2026-07-28)
 
 - **Fixed** `PYTHON_STDLIB_ROOTS`（`resolvers.js`）补三个漏项：`__future__`（债条点名的那一行）、`tomllib`（3.11+，**修完复测时实测带出**——CodeGraphContext 的 droppedImports 里它就排在 `__future__` 旁边）、`zoneinfo`（3.9，与名单里已有的 `graphlib` 同 cohort 的漏项）。名单式闸的通病，补一个是一个，不设机制。
