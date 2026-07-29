@@ -4,46 +4,6 @@
 
 ---
 
-## L1 Blocker（违反铁律，必须修）
-
-### L1-4：C/C++ 产不出任何依赖边，且据此给出「删除被引用头文件」的建议
-
-**状态**：✅ 已修复（2026-07-28，T2，CACHE_VERSION 14）。`tryCppInclude`（`resolvers/cpp.js`）：引号形式按语言定义相对包含文件解析 + `include/`/`src/` 回退；尖括号形式永不解析到仓内文件。闸同轮落地（`_isExternalCppHeader`：angle 形式不猜 / 无扩展名不猜 / C·POSIX 系统头名单），引号/尖括号区分复用 parser 写的 `isLocal`（`importHints` 透传，不重新猜）。实测：cJSON 96/96 条边全 `cpp-include`、fmt 135 条 `cpp-include`（另 1 条 symbol-table 是 Python 侧 vendored docopt，真边），symbol-table 在 C/C++ 上贡献 0；`#include "../cJSON.h"`（爬升）与 `#include "fmt/format-inl.h"`（include 根回退）两种形状人工核对正确。双变异验证通过（摘注册 → parity cpp 条 RED；摘闸行 → `boost/.../string.hpp` 猜中诱饵符号 `hpp`，测试 RED）。回归约束：`test/language-parity-edges-test.js` 的 cpp 条 + `test/cpp-resolver-test.js` 七条。
-
-以下为发现时的原始记录（留档）：十个最小 fixture（每个仓一条「A 依赖 B」）里 C/C++ 是**唯一** `edges: 0` 的，5 次重跑全部为 0。RED 测试 `test/language-parity-edges-test.js` 当时入库，本修复后转绿。
-
-| 语言 | 边 | 解析方法 | | 语言 | 边 | 解析方法 |
-| --- | ---: | --- | --- | --- | ---: | --- |
-| js / ts | 1 | `relative` | | go | 1 | `go-module` |
-| python | 1 | `python-absolute` | | rust | 1 | `rust-crate` |
-| java | 2 | `java-package` + 同包隐式 | | vue / svelte | 1 | `relative` |
-| kotlin | 1 | `java-package` | | **cpp** | **0** | **—** |
-
-**根因**：parser 是好的（`main.cpp:ast` / `helper.h:ast`，直接调 `parseCppAst` 能拿到 `importRecords`，`local.h` 还正确标了 `isLocal: true`）。死在 resolver——注册表里 C/C++ 的 `resolveStrategies` 是 `[tryAlias, tryRelativeWithExtensions]`，**整套照抄 JavaScript**：
-
-```
-resolveImport('main.cpp', 'helper.h',   '.cpp') → null
-resolveImport('main.cpp', './helper.h', '.cpp') → 解析成功
-```
-
-JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引号形式**按语言定义就是相对当前文件**，从不写 `./`。于是每条 include 都被当包找，找不到，`builder.js` 的 `resolveFileOnly()` 把 resolve 失败的记录直接 `return null` 丢弃。
-
-**为什么是 L1**：违反铁律 #4（静默错误必须显式）且已产出**错误的行动建议**——fixture 里工具报 `审查孤儿模块是否可删除: helper.h`，而 `main.cpp` 正 `#include` 它。连带 `impact` 对 .cpp 返回空、环检测看不见 C/C++ 的环、所有头文件被判孤儿。
-
-纯 C/C++ 仓会触发 `empty-graph`（severity high）警告，所以不是完全静默；但**混合仓（如 Python 主仓带 C 扩展）图里有大量其他语言的边，该警告不触发，C/C++ 部分静默丢边**——那才是真实风险场景。
-
-**建议动作**：新增 `tryCppInclude` 策略（引号形式相对当前文件；尖括号形式判系统头直接不猜），注册进 C/C++ 的 `resolveStrategies`。**必须与 L2-11 的 C/C++ 闸同一轮做**：当前 C/C++ 的 import 到不了链尾纯属侥幸，一旦能解析，`#include <stdio.h>` 会去查一个叫 `"h"` 的符号（非 Rust/Go 的分隔符是 `.`，末段取到的是扩展名），`boost/algorithm/string.hpp` 查 `"hpp"`——等于把 `require('path')` 那 212 条的病重新引进来。
-
-**触发条件**：修改 `parsers/registry.js` 的 C/C++ 条目、或任何 C/C++ 项目报出 0 边 / 全量孤儿时。复现：建两文件仓（`main.cpp` 内 `#include "helper.h"` + `CMakeLists.txt`），跑 `audit-summary --json` 看 `edges`。
-
----
-
-> L1-3（Java same-package 隐式边 build/loadGraph 路径语义不一致）已于 2026-07-23 清零：
-> orchestrator 在 loadGraph 成功后重跑 `expandJavaPackageImports()` 统一两路径数据；
-> tier3 记录不参与死导出「已使用」判定（与 cycles Rule 5 先例一致），仅剩隐式 importer
-> 的死导出报出但强制 `low` + `implicit-same-package`；`CACHE_VERSION` 4→5 作废旧语义聚合。
-> 契约锁定：`test/java-same-package-dead-export-consistency-test.js`。详见 CHANGELOG。
-
 ### ⚠️ 预防性约束：postProcess 注入的 importRecords 不落盘
 
 **约束**：`setParseResult` 在 postProcess **之前**持久化——任何在 postProcess 阶段注入 importRecords 的新逻辑（现有：java wildcard tier1 / same-package tier3），其记录都不会进 parse_results。新增此类注入时，**必须**同步在 orchestrator 的 loadGraph 成功分支重跑注入，或改为持久化元数据，否则 warm 路径静默丢数据（L1-3 的根因即此）。
@@ -77,9 +37,9 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **建议动作**：把 `trySymbolTable` 从 JS 家族链上摘掉（保留 Rust；JVM 保留待 L2-14 修完重量——okhttp 实测 symbol-table 在 JVM 非标布局上是正产出，见上方边界段）——连带收益：L2-11 的 JS 闸（`readPackageDeps`/`NODE_BUILTINS`/`node_modules` 探测）与 L3-4 的扩展名分支一起消失。Python/Go 链同理可摘（贡献同为 0，且闸已让它们的命中不可能为真），但 Python/Go 各有 `tryPythonAbsolute`/`tryGoModule` 结构解析在前，摘符号表影响面与 JS 相同。**这是结构性决定，等用户拍板。**
 
-**判决顺序已修正（2026-07-28，六仓 `droppedImports` 实测后）**：原计划是「T5 落地即可摘——丢弃会被记账，风险从静默降级为报警」。实测推翻了这个时机判断：**报警器本身噪声太大**（Java 44/49 文件报警、zod 42/409 文件报警，绝大多数是闸缺口造成的假阳性，见 L2-11），此时摘符号表 = 在一个一直响的警报器旁边动刀。正确顺序：
+**判决顺序已修正（2026-07-28，六仓 `droppedImports` 实测后）**：原计划是「T5 落地即可摘——丢弃会被记账，风险从静默降级为报警」。实测推翻了这个时机判断：**报警器本身噪声太大**（Java 44/49 文件报警、zod 42/409 文件报警，绝大多数是闸缺口造成的假阳性，史见 CHANGELOG 缺口条目），此时摘符号表 = 在一个一直响的警报器旁边动刀。正确顺序：
 
-1. ~~L2-11 闸缺口~~ ✅ 全部修复（2026-07-28，A/B/C 同日清零）→ 假警报已压掉（zod 80→4、CodeGraphContext 70→34、spring-petclinic 362→0）
+1. ~~L2-11 闸缺口~~ ✅ 全部修复（2026-07-28，A/B/C 同日清零，史见 CHANGELOG 缺口条目）→ 假警报已压掉（zod 80→4、CodeGraphContext 70→34、spring-petclinic 362→0）
 2. ~~L2-16 Rust crate 名归一~~ ✅ 已修（2026-07-28）→ **Rust 符号表占比已重量：167 → 5**——「唯一有正产出」的依据 ~97% 是结构缺口；剩 5 条仓内宏/re-export 形状，T6 拍板时就拿这个数
 3. L2-14 JVM 源根（Kotlin 已降 P3，Java 侧按需）→ JVM 判决材料
 4. 再拍 JS/TS/Python/Go 的摘除，此时 `droppedImports` 才是可信的安全网
@@ -88,66 +48,9 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **触发条件**：调整 `SYMBOL_DISAMBIGUATION` 任一常数、或把符号表铺到新语言之前。跑 `node scripts/resolver-precision.js reference/<repo> [...]` 逐仓点名取数（勿用 `reference/*` 通配，目录里混着非仓文件；编制与闸状态见 `reference/README.md`）。
 
-### L2-11：外部依赖闸只覆盖 JS 家族 — 违反 AGENTS.md 铁律 #8（多语言等价性）
-
-**状态**：✅ **清零（2026-07-28）**——语言维度与知识来源维度双双收敛。JS 家族（node 内建 / **manifest 链**：从导入方文件向上逐层 `package.json` 四类依赖字段 / `node_modules` 逐层探测，**含 .svelte 与 monorepo 子包**）、Rust（`std`/`core`/`alloc`/`proc_macro` 前缀 / `Cargo.toml` 声明的 crate，`path = ` 依赖不拦）、Python（标准库根段名单 / `requirements.txt` + `pyproject.toml` 的 `[project]` 与 poetry 依赖段，PEP 503 归一 + 别名表）、Go（无需名单——import 永远带完整路径：module 路径之外的一切都不猜，dotted 首段 = 外部模块、无点首段 = 标准库）、**C/C++**（angle 形式不猜 / 无扩展名不猜 / C·POSIX 系统头名单，与 L1-4 修复同轮落地）与 **Java / Kotlin**（标准库 `java.`/`javax.`/`kotlin.` 前缀经 `isBuiltIn` + **零名单仓内包前缀闸**：仓内包集合之外的一切 = 外部）均有闸。三个知识来源缺口（A monorepo 子包 / B 标准库名单漏项 / C JVM 第三方）同日全部修复，实测见下。遗留非闸问题：Python 传递依赖（httpx/anyio 类，manifest 未声明则两道路径够不着，见缺口 B 条目）与各语言结构解析缺口（L2-14 / L2-16 / L2-17——那些是解析器的债，闸管不着也不该管）。
-
-**「剩余唯一缺口是 JVM 第三方」这句话已被实测推翻**（2026-07-28，L2-13 的 `droppedImports` 首次在真实仓上接触）。闸漏认的每一个外部 specifier，现在不再只是「可能被猜成假边」，它还会被记进 `droppedImports` 并触发 `unresolved-dropped` 警告——**闸的缺口 = 报警器的假警报**。六个在范围内的仓冷构建实测：
-
-| 仓 | 语言 | 文件 | droppedCount | 涉及文件 | 性质 |
-| --- | --- | ---: | ---: | ---: | --- |
-| execa | TS | 438 | **0** | 0 | 干净 |
-| cobra | Go | 36 | **0** | 0 | 干净（零名单闸的红利） |
-| zod | TS | 409 | 80 → **4**（缺口 A 修复后复测） | 42 | ~~闸缺口 A~~（已修，2026-07-28；剩 4 条为根层 rollup config import 子包 devDeps，真阳性） |
-| CodeGraphContext | Py | 284 | 70 → 34 → **26**（缺口 B / L2-17 修复后复测） | ~~60~~ 21 | ~~闸缺口 B~~ + ~~结构缺口 L2-17~~（均修，2026-07-28）；剩 26 = 传递依赖（httpx/anyio 类，manifest 未声明）+ tests/fixtures 平铺 script-dir 导入 |
-| qartez-mcp | Rust | 230 | 152 → 34 → 12 → **0**（L2-16 / L2-18 / L2-19 修复后复测） | ~~35~~ 0 | ~~结构缺口~~ **清零**（L2-16/18/19 全修，2026-07-28） |
-| spring-petclinic | Java | 49 | 362 → **0**（缺口 C 修复后复测） | ~~44 / 49~~ 0 | ~~闸缺口 C~~（已修 2026-07-28，零名单仓内包前缀闸） |
-
-- **缺口 A — monorepo 子包依赖**：✅ **已修（2026-07-28）**。`readPackageDeps(root)` 只读工作区根的 `package.json`；zod 是 pnpm workspace，`@rollup/plugin-*` 声明在 `packages/treeshake/package.json` 里 → 80 条全被当成「看着像自己的」丢弃。改法按债条处方落地：`packageManifestChain(fromDir, root)`（`resolvers/base.js`）从导入方文件向上到根逐层收集含 `package.json` 的目录（缓存键 = fromDir+root 归一化对，与 `_cargoCrateRootCache` 同形），`_isExternalJsPackage` 沿链查 manifest 声明与 `node_modules` 探测（node 语义），`fromFile` 经 ctx 穿进闸（`trySymbolTable` 与 builder 丢弃记账两个消费方都接了）。**踩到的坑**：链的包含比较必须过 `normalizePathKey`——测试与 builder 给的是归一化路径（Windows 上小写+正斜杠），直接 `startsWith` 比原始字符串会静默把链截断成只剩根 manifest，修复等于没修。实测 zod **80 → 4**；剩 4 条是 `.configs/rollup.config.js` 位于根层却 import 只挂在子包 devDeps 上的包——它的 manifest 链上确实没人声明，pnpm hoist 运行时侥幸而已，算真阳性不设机制。CACHE_VERSION 18。
-- **缺口 B — Python 标准库名单漏项**：✅ **已修（2026-07-28）**。`__future__` 补进 `PYTHON_STDLIB_ROOTS`（`resolvers.js:169`），同批复测带出同病的 `tomllib`（3.11+，实测出现在 CodeGraphContext 的 droppedImports 里）与 `zoneinfo`（3.9 同 cohort 漏项）一并补上。CodeGraphContext 实测 70 → 34 条；剩余是 L2-17 结构缺口（`codegraphcontext.*` 仓内绝对导入）与 httpx/anyio 这类**传递依赖**（manifest 未声明、非标准库——名单+manifest 两道路径都够不着，要么接受要么上 site-packages 探测，那是另一个设计题）。CACHE_VERSION 17。
-- **缺口 C — Java 第三方 jar**：✅ **已修（2026-07-28）**，且没走读 pom 的老方案——按 2026-07-28 订正后的零名单设计落地：parser 已把每个文件的 `package` 声明抽进图，闸的判据是「仓内包前缀集合之外的一切 = 外部」（`_isExternalJvmPackage`，`resolvers.js`；标准库半仍走 registry `isBuiltIn` 单一知识源）。builder 在每次 resolve 批边界刷新 `workspacePackages`（全量 parse 阶段后 / 增量 link 阶段前 / 单文件 analyzeFile——批内 resolve 不会新增包，免脏标记机制）；集合缺失或为空时闸让位（旧行为），不瞎拦。实测：spring-petclinic droppedCount **362 → 0**；okhttp symbol-table 边 **1037 → 937**，第三方假边（org.junit/assertk/okio/org.mockserver/org.gradle）**清零**，~950 条仓内真命中保住。okhttp 剩 841 条丢弃全是 `okhttp3.*` 仓内 specifier 结构解析落空——**仓内包不被闸，L2-14 的报警原样保留**，正是设计意图。CACHE_VERSION 19。
-
-**建议动作（缺口 C 别按老方案做）**：TECH_DEBT 早先写的方案是「读 `pom.xml`/`build.gradle`，难点是 groupId 与包名不同构」——**这条路没必要走**。Java/Kotlin 的 import 永远是全限定包名，而**仓内有哪些包是已知的**：parser 已经把每个文件的 `package` 声明抽进图（`builder.js` 的 `parsed.package`）。所以闸的判据是「仓内包前缀集合之外的一切 = 外部」，零名单、零 manifest 解析、零 groupId 猜测——与 Go 那道零名单闸同构，且比读 pom 更准（pom 未声明但 classpath 上有的照样判对）。代价是需要在图建完之后才能定型，实现上要么走 postProcess 阶段，要么在 builder 首轮扫描时先收集 package 集合。
-
-**旧方案的实测样本留档**（T4，okhttp）：83 条第三方假边在图里（`org.junit` 37 / `assertk` 27 / `okio` 13 / `org.mockserver` 3 / `org.gradle` 3，第三方 specifier 配本地 target 必假）。
-
-实测方法：让符号表对任何名字都命中，隔离出闸本身的行为（`null` = 闸拦住）——
-
-| 来源文件 | specifier | 结果 | | 来源文件 | specifier | 结果 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `.ts` | `path` | 拦住 | | `.svelte` | `path` | 拦住（T3 后） |
-| `.vue` | `path` | 拦住 | | `.cpp` | `vector` | 拦住（T2 后） |
-| `.py` | `os` | 拦住 | | `.java` | `java.util.List` | 拦住（T4 后） |
-| `.go` | `fmt` | 拦住 | | `.kt` | `kotlin.collections.List` | 拦住（T4 后） |
-| `.rs` | `std::vec::Vec` | 拦住 | | | | |
-
-~~**Svelte 的原因很蠢**~~：已修（T3）——`.svelte` 进 `JS_FAMILY_EXTENSIONS`，一个字符串。`testSvelteCallerCoveredByJsFamilyGate` 锁契约（node 内建 + devDependencies 声明的 `svelte` 两条），变异验证通过；`reference/realworld`（SvelteKit）实测 12 条边、symbol-table 0。CACHE_VERSION 15。
-
-~~**C/C++ 的闸与 L1-4 强耦合**~~：已按计划在 L1-4 修复的同一提交落地（T2）——尖括号形式经 `importHints.isLocal === false` 不解析也不猜，无扩展名 specifier 与 C/POSIX 系统头名单兜底无 hints 的入口。实测 fmt 135 条新边零 symbol-table。
-
-**为什么是债**：病灶机制与语言无关，且已在两种语言上实测到实例——JS 的 `require('path')`（本仓 212 条）与 Rust 的 `std::process::Command` / `rmcp::` / `tokio::`（qartez-mcp 48 条）。Python `import requests` 撞上本地导出的 `requests` 是同一形状，只是尚未取到样本。按铁律 #8 仍属语言偏斜。
-
-**触发条件**：任何语言的 unresolved import 报出"疑似被解析到本地同名符号"时、或某语言的 `droppedImports` 占比异常高时，优先补该语言的闸。复现取数：`node cli.js audit-summary --cwd reference/<repo> --cache-dir <tmp> --quiet --json`，读 `droppedImports.samples`（冷构建才有值，`measured` 必须为 true）。
-
-### L2-13：`unresolved` 统计的不是「解不开的 import」，所以它永远看不见被丢弃的记录
-
-**状态**：✅ 已修复（2026-07-28，T5）。（b）`resolveFileOnly()` 的丢弃分支现在记账：gate 已知的外部 specifier（node 内建 / 标准库 / manifest 声明的依赖）**不计**——它们不成边是设计行为，计数等于对每句 `import os` 狼来了；只数「看着像自己的」丢弃，进 `dg.getDroppedImports()` + `buildWarnings()` 的 `unresolved-dropped` 警告（severity 按丢弃文件占比，>10% → medium）+ `audit-overview`/`audit-summary` 新增 `droppedImports` 段（additive，无破坏）。parity 基准已打开第二条断言：十个 fixture `droppedCount` 必须全为 0——下一个语言缺口会自己在这里报出来。（a）`unresolved` 段新增 `staleResolvedImportsCount` 别名并注明真实语义（数的是「曾解析但文件已消失」的失效边）；`unresolved`/`unresolvedCount` 保留为弃用别名（Never break userspace），消费方迁移后再删。
-
-**输出层补漏（2026-07-28 同日）**：T5 的 overview `droppedImports` 段当时恒为 0——`DependencyGraphView` 白名单漏加 `getDroppedImports`，`?.()` 静默兜零，parity 第二条断言读死字段等于没断。已修：view 补委托；新增 `measured` 字段区分「实测 0」与「没测」（warm/方法缺失 → false）；parity 改断 `measured === true` 并加负向 fixture `js-dropped-import`（断言 `droppedCount === 1` 走完整 CLI JSON 路径）；test-helpers mock 补 `getDroppedImports` 默认值（Proxy 兜底 `() => []` 是真值数组，委托接通后会把消费方炸出来）。
-
-**发现的相邻真相**（留档）：相对路径写错（`require('./missing')`）**不走丢弃分支**——`tryRelativeWithExtensions` 对不存在的目标无条件返回 phantom 路径（`resolvers/javascript.js:116`），成为图里的幽灵边，正是 `findUnresolvedImports()` 现有条目的来源。这条行为未改（改了是边语义变化，且 phantom 边在 impact 里有消费方），但它说明两个字段的分工：`staleResolvedImportsCount` 管「相对路径写错」，`droppedImports` 管「裸 specifier 无人认领」。
-
-以下为发现时的原始记录（留档）：十个 fixture **全部**报 `unresolved: 0`，包括丢掉了两条 `#include` 的 C/C++ 仓。`analyzer.js` 的 `findUnresolvedImports()` 判定条件是 `!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath)`——数的是「曾经解析成绝对路径、但文件已不在磁盘」，而真正解不开的 import 从来不是绝对路径、且早在 `resolveFileOnly()` 就被丢弃，两道门都进不去。
-
-**为什么是债**：这个字段是 `audit-summary` / `audit-overview` 的一线指标，AI agent 会拿它判断"这个仓的依赖图完不完整"。它结构上无法回答那个问题，却长得像能回答——违反铁律 #4。L1-4 只是把它暴露得最彻底（丢 2 条报 0），但**所有语言都受影响**：任何 resolve 失败的 import 都静默消失，无计数、无 warning。
-
-**建议动作**：两件事分开。（a）给字段正名或改语义——要么改名为 `staleResolvedImports`，要么让它真的统计 resolve 失败数。（b）在 `resolveFileOnly()` 丢弃记录处累计一个 `droppedImports` 计数并进 `warnings[]`，这是 L1-4 之所以"静默"的机制根源，修了它，未来任何语言的解析缺口都会自己报出来。
-
-**触发条件**：修改 `resolveFileOnly()` 的记录丢弃分支、或消费 `unresolvedCount` 做判断时。
-
 ### L2-14：`tryJava` 的源根发现不认识 Gradle KMP / 非标布局，okhttp 43% 的边靠符号表兜底
 
-**状态**：活跃（2026-07-28 T4 实测发现）。okhttp 2415 条边里 1037 条（43%）`resolution_method = symbol-table`。按包前缀分组：**~950 条是仓内自引用**（`okhttp3.*` / `mockwebserver3.*`），命中为真；**83 条是第三方假边**（`org.junit` 37 / `assertk` 27 / `okio` 13 / `org.mockserver` 3 / `org.gradle` 3——第三方 specifier 配本地 target 必假，okio 未 vendored 已核实），归 L2-11 的第三方 manifest 半，不在本条范围。
+**状态**：活跃（2026-07-28 T4 实测发现）。okhttp 2415 条边里 1037 条（43%）`resolution_method = symbol-table`。按包前缀分组：**~950 条是仓内自引用**（`okhttp3.*` / `mockwebserver3.*`），命中为真；**83 条是第三方假边**（`org.junit` 37 / `assertk` 27 / `okio` 13 / `org.mockserver` 3 / `org.gradle` 3——第三方 specifier 配本地 target 必假，okio 未 vendored 已核实），曾归 L2-11 的第三方 manifest 半（已随缺口修复清零，史见 CHANGELOG），不在本条范围。
 
 **根因**（自引用那 ~950 条）：`discoverJavaSourceRoots`（`resolvers/base.js`）只认 `src/main/java`、`src/main/kotlin` 等 Maven/Gradle 标准布局。okhttp 主源码在 `okhttp/src/commonJvmAndroid/kotlin/`（Kotlin Multiplatform 的 sourceSet 布局），不在名单里——`tryJava` 拿 `okhttp3.HttpUrl` 找 `okhttp3/HttpUrl.(java|kt)` 全部落空，掉进符号表。另有一小部分是类名≠文件名（`mockwebserver3.SocketEffect` 这类，路径算术天然无解，`testJavaFacadeFallback` 同款），那部分符号表是**唯一**可行策略。
 
@@ -185,52 +88,6 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **触发条件**：修改 `isSnapshotFresh` / `saveAnalysisSnapshot`、消费 `audit-overview` 输出做删除/重构决策、或给 `hasFindings` 增删汇总项时。
 
-### ✅ L2-16 已修复（2026-07-28）：Rust crate 名 `-`/`_` 不同构，qartez-mcp 152 条自引用掉进丢弃/符号表
-
-**修复**：crate 名归一落地——`readCargoCrateName(crateRoot)`（`base.js`：`[lib] name` 显式优先，否则 `[package] name` 按 Cargo 规则 `-`→`_`），`normalizeCrateName` 单一归一函数被 `tryRustCrate` / `_isExternalRustCrate` / `readCargoDeps` 三处共用。`tryRustCrate` 把 own-crate 路径（`qartez_mcp::graph`）按 `crate::` 同构解析；外部闸改读**导入方所属 crate 的最近 Cargo.toml**（Cargo 无 manifest 链：`workspace = true` 依赖在 member 自己的文件里重新声明，最近 manifest 即全部真相），own-crate 名显式让位。同批顺手修 `findCargoCrateRoot` 的 normalizePathKey 比较（与缺口 A 同一陷阱，但这次修反过：归一化只用于比较与缓存键，返回值必须保持原始大小写——消费方拿返回值与 fromFile 原始路径做 startsWith 算术）。
-
-**实测**（qartez-mcp 重建）：丢弃 **152 → 34**；symbol-table **167 → 5**（债条预言坐实——「Rust 是符号表唯一有正产出的语言」的依据 ~97% 是结构缺口撑出来的，T6 判决材料取到）；rust-crate 292 → 513；总边 676 → **745**（+69，原先丢弃/猜测的 import 首次结构化成边）。剩 5 条 symbol-table 全仓内（宏/re-export 形状，待 T6 一并掂量）。
-
-**分组统计的另两组（已分流，不在本条）**：债条要求先分组再动手，分出来四组——own-crate（本条修）/ member manifest（本条修）/ **前导 `::` 的 `::ident`**（22 条，parser 把 `use super::{a,b}` 的花括号列表项抽成 `::a`，**parser 的账** → L2-18）/ **裸模块路径 `pub use grounding::X`**（12 条，rustc 实证 edition 2024 合法：2018+ `use` 首段按当前模块作用域解析 → resolver 缺口 → L2-19）。
-
-**原始记录（留档）**：活跃（2026-07-28 `droppedImports` 六仓实测发现）。qartez-mcp 230 文件报 **152 条丢弃 / 35 个文件**，样本首位是 `qartez_mcp::cli::WorkspaceAction`、`qartez_mcp::graph`——**crate 自引用**。Cargo 包名是 `qartez-mcp`，crate 名是 `qartez_mcp`，`tryRustCrate` / 外部闸两侧都按字面比对。L2-12 清零后剩的 167 条 symbol-table 与这 152 条丢弃是**同一个缺口的两侧**——猜中的进符号表、猜不中的进丢弃。
-
-### L2-18：Rust parser 把 `use super::{a, b}` 的花括号列表项抽成 `::a`
-
-**状态**：✅ **已修（2026-07-28）**。根因比条目预估的更精确：tree-sitter 把花括号列表前缀位置的 `super`/`self`/`crate` 发成**独立节点类型**（不是 identifier），`getUseListPrefix` 只认 `scoped_identifier`/`identifier` → 前缀取空串 → 拼出 `::a`。同刀补齐两个同函数缺口：列表内**嵌套 scoped 项**（`use crate::{config::AppConfig}` 的 `config::AppConfig` 原本整个被跳过，import 与 reexport 名单两侧都丢）与 `use_as_clause` 的 scoped 原路径。regex fallback（polyglot）本就拼前缀，无需对齐。RED 断言带牙：fixture 含 `super::`/`self::inner::`/`crate::{嵌套}` 全形状 + 「无任何 `::` 前导 source」全称断言，先咬在正点。实测 qartez-mcp 丢弃 **34 → 12**（22 条 `::ident` 清零，剩余全为 L2-19 裸首段）；rust-ast 31 断言层 + fast 143/143 + parity/dropped-imports 全绿。CACHE_VERSION 21。
-
-**原始记录（留档）**：活跃（2026-07-28 L2-16 分组统计发现）。qartez-mcp 剩 34 条丢弃里 22 条是 `::count_same_file_refs_outside_range` 这类**前导双冒号** specifier——不是合法 Rust import 写法。源码实证（`src/server/tools/mv.rs:741`）：`use super::{a, b, c}` 的花括号列表项被 parser 逐个抽成 `::a`、`::b`——前缀 `super::` 丢了还留个 `::`。同文件 `use grounding::{X, Y}` 却保留前缀抽成 `grounding::X`，两种行为不一致（根因见上：grounding 是 identifier，super 是关键字节点）。
-
-### L2-19：Rust 2018+ `use` 的裸首段路径按当前模块作用域解析（`pub use grounding::FileFacts`）
-
-**状态**：✅ **已修（2026-07-28）**。新策略 `tryRustScoped`（`resolvers/rust.js`）注册进 `.rs` 链（tryRustCrate / tryRustSuper 之后）：裸首段 = **当前模块的子模块**——mod.rs/lib.rs/main.rs 的子模块在旁侧目录，其他文件（server.rs）的在 `<stem>/` 下（2018 路径规则）；锚定最近 Cargo.toml 的 src，越界即 null。**明确不做祖先模块回溯**：祖先模块项在 2018+ 没有 super::/crate:: 不在作用域内，回溯会给编译不过的代码造边——真出现 rustc 可见的祖先形状，丢弃报警会点名。实测 qartez-mcp 丢弃 **12 → 0**（benchmark/mod.rs 11 条子模块形状 + qartez-dashboard/src/lib.rs 1 条 crate 根形状全解开），**Rust 侧丢弃清零**；fast 143/143 + eslint + parity/dropped-imports 全绿。CACHE_VERSION 22。
-
-**原始记录（留档）**：活跃（2026-07-28 L2-16 分组统计发现，rustc 实证）。qartez-mcp 剩 34 条里 12 条是 `grounding::FileFacts` / `cli::DashboardCommand` 这类裸首段路径，全部来自 `pub use grounding::{…}`（`src/benchmark/mod.rs`）这类语句。最小复现 + rustc 实证：edition 2024 下 `use grounding::X` 合法——2018+ 的 `use` 首段在**当前模块作用域**解析（子模块/祖先模块/外部 crate 皆可），不是 2015 的 crate 根绝对路径。resolver 没有对应策略（tryRustCrate 管 `crate::`/own-crate，tryRustSuper 管 `super::`，裸首段无人管）。
-
-### L2-17：Python 仓内绝对包路径解不开（`codegraphcontext.tools.handlers`）
-
-**状态**：✅ **已修（2026-07-28）**。按债条要求先分组定量，34 条分四组，只有一组是本条：`codegraphcontext.*` 6 条，全部来自 tests/ 按安装名导入。根因是债条三个候选假设里的第三个坐实：**PEP 420 namespace 包**——`src/codegraphcontext/tools/handlers/` 与 `tools/languages/` 是没有 `__init__.py` 的目录（`src` 本来就在 searchRoots 里，候选只有 `X.py` 与 `X/__init__.py` 两种）。且全部 6 条都是 `from PKG import <子模块>` 形状——namespace 包没有自己的代码，X 不是子模块就是 ImportError，绑定子模块不是猜，是该语句的唯一语义。修法：`_tryNamespaceSubmodule` 兜底（plain 候选永远优先，常规包仍解析到 `__init__.py`），`tryPythonAbsolute` / `tryPythonRelative` 双侧共用（复测带出同病的 `.tools.handlers` / `..languages` 两条相对导入形状，同刀修复），python.js 顺手去重（两个策略的候选逻辑原本各抄一份）。builder 把 `record.imported` 经 extraCtx 穿进策略（additive，与 JVM 闸同例）。实测 CodeGraphContext 丢弃 **34 → 26**（6 + 2 清零）；fast 144/144 + eslint + parity/dropped-imports 绿。CACHE_VERSION 23。
-
-**剩余两组（不归本条，留档）**：第三方传递依赖（httpx/anyio/numpy/pydantic/ujson/google.protobuf/openai/sentence_transformers/fastembed/cassandra/mysql/redislite/tree_sitter_languages/gcf——manifest 未声明，名单+manifest 两道闸都够不着，L2-11 已记设计题）与 tests/fixtures 平铺 script-dir 导入（circular1/2、advanced_functions、module_b、module_c——`import 同目录模块` 的脚本语义，另一个机制，fixture 噪声为主）。
-
-**原始记录（留档）**：活跃（2026-07-28 实测发现，**待分组定量**）。CodeGraphContext 284 文件报 70 条丢弃 / 60 个文件，样本里混着三类：`__future__`（标准库名单漏项，归 L2-11 缺口 B）、`httpx`（第三方，需核对是否在 manifest 里声明）、`codegraphcontext.tools.handlers`（**仓内包的绝对导入，本该由 `tryPythonAbsolute` 解开**）。三类的占比没分组统计过，**先取数再动手**——本条的范围只是第三类。
-
-### L2-20：tree-sitter WASM 并发竞态——根因是 loadLanguage 装填竞态，不是 parse 竞态
-
-**状态**：✅ **已修（2026-07-28）**。登记时的初步诊断（parse 互踩）被实验证伪后修正：三个 catch 埋点抓到真错误是 init 阶段的 **`Incompatible language version 0`** ×19——`loadLanguage` 同步查缓存、异步装填后才写缓存，N 个并发首调全看到 miss、各自跑 `Language.load`，竞态窗口里产出 version 0 的损坏 Language 对象（getParserModule 同形竞态，`Parser.init()` 可能被并发调多次）。`parser.parse`/`query.matches` 本身是同步调用，同线程不存在真互踩——所以修 loader 而不是加三把 parse 锁。修法：**promise-cache**——`tree-sitter.js` 两个缓存都改存 in-flight promise，并发调用者共享同一次装填；装填失败（resolve null）自动 eviction 允许重试，保持旧的"失败不缓存"语义。rust-ast 的既有串行锁保留（无害，不赌）。RED 确定性咬在机制上：16 个并发首调必须返回**同一个** Language 对象（`Promise.all` 的 map 同步展开，全部先于任何装填 settle 通过缓存检查——无 promise-cache 必然 16 个 distinct，探针实证 24/24 distinct）。**CACHE_VERSION 不 bump**：竞态降级条目 `parseModeReason='regex-fallback'`，本来就命中"regex-fallback 缓存永不信任"约束每次重解析，旧缓存自愈——登记时写的"修复后 bump"判断作废。实测：cobra **36/36 AST（fallback 19 → 0）**、cJSON **99/99 AST（fallback 18 → 0）**；fast 144/144（+1 新测试）、eslint 0、parity/dropped-imports 绿。
-
-**原始记录（留档）**：登记时的实测与初步假设——cobra 冷构建 36 个 Go 文件只有 17 个 `parseMode='ast'`，串行直跑 36/36 全 AST；cJSON 18/99 同病。初步假设"WASM 后端跨实例并发不安全 → parse 互踩"被两个探针证伪：(1) 36 路并发直跑 parseGo 零降级；(2) 埋点抓到 version 0 错误全部在 init 阶段。教训与"假绿断言"同族：**先抓真错误再定修法**，catch-all 吞错误让根因藏了两层。
-
-### ✅ L2-12 已清零（2026-07-28）：Rust 的 `super::` / `crate::` 转回模块算术
-
-**诊断**：两个独立缺口。(1) `tryRustSuper` 把 `super` 当**目录**爬升——非 mod 文件的第一个 `super` 命名的是文件所属模块本身（子模块目录就是文件所在目录），不该爬；旧代码每级必爬一层，导致非 mod 文件的所有 `super::` 路径全部落空。(2) `tryRustCrate` 锚在工作区根的 `src`——多 crate 工作区（qartez-mcp/qartez-dashboard）里 `crate::` 应锚定**最近的 Cargo.toml** 的 src。另有第三类：末段命名的是基模块的**条目**而非子模块（`super::QartezServer` → `server/mod.rs`），单段时回退基模块文件（`mod.rs`/`baseDir.rs`/`lib.rs`/`main.rs`）。
-
-**实测验证**（qartez-mcp 重建）：symbol-table 313 → **160**（正好少 153，剩 156 条 `qartez_mcp::` 真命中 + 4 个单例），rust-crate 292 / rust-super 206。总边 594 → **676**（+82）——那不是转移，是 82 条原先连猜都猜不出、被静默丢弃的 import 首次成边。随机抽 6 条新 tier1 边人工核对全对；零重复 (source,target) 对。
-
-**契约**：`test/gors-resolver-test.js` 新增 4 条（非 mod 首级不爬 / 基模块条目回退 / mod.rs 立即爬 / 最近 Cargo.toml 锚定），对旧 `rust.js` 验证 RED 后转绿。旧断言 `super::super::lib → null` 锁的正是 off-by-one bug，已改为 crate 根语义（`foo::bar` 上两级 = crate root = `src/lib.rs`）。
-
-**副产品**：`base.js` 新增 `findCargoCrateRoot(fromFile, root)`，缓存进 `clearResolverCaches()`。`CACHE_VERSION` 12→13。
-
 ### ⚠️ 预防性约束：`_invalidateParseCache()` 是 parse cache 的唯一失效入口
 
 **状态**：已收敛（`builder.js` 中 `_invalidateParseCache(keyOrPath)` 统一负责内存 `_parseCache` 和 SQLite `cache.parseResults` + `parsedHashes` 的失效）。
@@ -240,6 +97,14 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 **为什么这是约束而非已修复债务**：当前只有两层 parse cache（内存 + SQLite），`_invalidateParseCache` 已覆盖。但如果未来新增第三层缓存（如聚合 summary 快照、内存 LRU 的热路径缓存），**必须在该方法内追加失效逻辑，不能在其他地方手工补 evict**。违反此约束会导致静默 stale（2026-07-03 的 mtime 失效 bug 便是先例：SQLite 层忘记 evict，内存层清了，fast path 读到 SQLite 旧数据 + 新 mtime → 跳过重解析）。
 
 **触发条件**：新增任何与文件解析结果相关的缓存层时。
+
+### ⚠️ 预防性约束：路径归一化只进比较与缓存键，不进返回值
+
+**约束**：任何**走树**的 helper（`findCargoCrateRoot` / `packageManifestChain` / 未来的同类），比较与缓存键必须过 `normalizePathKey`（调用方给的路径有原始与归一化两种形态，Windows 上差大小写与分隔符，裸 `startsWith` 会静默截断），但**返回值必须保持平台原生、原大小写**——消费方拿返回值 `path.join` / `startsWith` 对齐 file-index 的原生路径，归一化返回会反向打破另一边的算术，还会把按路径键控的缓存劈成两份。
+
+**病史**：同一陷阱三个实例，两个方向都踩过——缺口 A 的比较方（不归一化比较，链静默只剩根 manifest）、`findCargoCrateRoot` 的返回方（归一化后返回，gors 测试当场红）、`packageManifestChain` 的返回方（同形，2026-07-28 收刀）。契约锁在 `testPackageManifestChainReturnsNativePaths`。
+
+**触发条件**：写任何「归一化后做路径算术，再把路径还给调用方」的函数时。
 
 ### ⚠️ 预防性约束：`regex-fallback` 缓存条目永不信任
 
@@ -262,11 +127,9 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 > | **P2 依赖前两层** | L2-10 符号表判决（T6）· L2-14 JVM 源根（Java 侧） | 数据齐了才能拍；顺序与理由写在 L2-10 内 |
 > | **P3 记账不排期** | L2-15 的动作 2–3（freshness 细化 / section 级设计；动作 0+1 已于 2026-07-28 完成——门禁拒绝 + `replayedFrom` 标记） · L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 | 粗粒度换速度是真实收益，报告路径只补抓手；L3-8 走"接触即修"，不做大扫除 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
-> | **预防性约束** | postProcess 记录不落盘 · `_invalidateParseCache` 单一入口 · regex-fallback 缓存不信任 · warm/cold 逐字节一致 · `_readGuard` 单一读闸 · **DependencyGraphView 白名单同步**（新） · **「本轮实测」字段不进快照**（新） · **门禁型出口不吃 replay**（新） | 这些是已修债务转移后的形态：实例没了，让实例发生的结构还在 |
+> | **预防性约束** | postProcess 记录不落盘 · `_invalidateParseCache` 单一入口 · regex-fallback 缓存不信任 · warm/cold 逐字节一致 · `_readGuard` 单一读闸 · DependencyGraphView 白名单同步 · 「本轮实测」字段不进快照 · 门禁型出口不吃 replay · **路径归一化不进返回值**（新，三个实例后的收刀） | 这些是已修债务转移后的形态：实例没了，让实例发生的结构还在 |
 >
-> 本轮（2026-07-28 复核）新增：L2-16 / L2-17 / L3-8 / 两条预防性约束 / P4 冻结区五条。全部来自 `droppedImports` 的六仓首次实测与三轮外部探针，**没有一条是读代码读出来的**——见「开发纪律」里"全绿有盲区"。
->
-> L1-4 / L2-11 的四条腿 / L2-13 / L3-6 / L3-7 均来自 2026-07-28 的九语言等价性实测（十个最小 fixture + 闸隔离探针），复现脚本与判据见各条目。
+> 2026-07-28 同日按「修复即删，历史只进 CHANGELOG」清理：L1-3 / L1-4 / L2-11 / L2-12 / L2-13 / L2-16 / L2-17 / L2-18 / L2-19 / L2-20 / L3-6 / 架构-2 / 测试覆盖缺口（T1 已兜住）的实例记录已移除（CHANGELOG 等价覆盖逐条核实），机制债转移进预防性约束。
 
 ## 架构债务（不阻塞功能，但阻塞演进速度）
 
@@ -279,10 +142,6 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 **未做且刻意不做**：把 build 的后处理抽成单一 `finalize()` 序列。两条路径重建图的方式本质不同（cold 解析 import，warm 从持久化边恢复），塞进一个函数需要 warm/cold 条件分支——那是在消除边界的名义下增加判断。分歧由上面第 2 条的契约测试兜底，而不是由结构强行统一。
 
 **约束**：新增任何 post-process 阶段或 warm 需要重建的派生状态时，走 `registerPostProcessPhase()`；如果它体现在可观察输出上，`warm-cold-parity-test.js` 会自动捕捉——**不要**为它单独写"锁调用顺序"的接线测试。
-
-### ✅ 架构-2 已清零（2026-07-28）：CACHE_VERSION 门禁收敛到单一读侧闸口
-
-**状态**：已修复。史：wave8 预计算污染 → `analysis_snapshots` 逐行盖戳 → `loader.js` 的 `edgeMeta` 门禁 → `savePrecomputed` 的 test_map 无条件重写，同一不变量补了四次。现 `graph-db.js` 的 `_readGuard` 是所有表读取的唯一入口（11 个读入口全部经由它，含长得不像 `loadXxx` 的 `findAffectedHttpRoutes` 递归 CTE），写侧 `_stampVersionIfUnset` 补齐出处。详见 CHANGELOG 2026-07-28 条目。
 
 ### ⚠️ 预防性约束：新增 SQLite 读方法必须走 `_readGuard`
 
@@ -318,21 +177,11 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 ### L3-4：`trySymbolTable` 内部按扩展名分支两次，而链本身已经是按语言组装的
 
-`resolvers.js` 的注册循环是 `[...lang.resolveStrategies, trySymbolTable]`——语言信息在组装时就有。但函数内部又按 `path.extname(fromFile)` 分支了两次：一次挑分隔符（`.rs` / `.go` / 其余），一次判外部依赖闸是否生效（JS 家族）。这是把语言差异塞进共享函数的边界判断，正是"消除边界优于加判断"要消掉的形状。改法：按语言注册不同的符号表策略（`trySymbolTableJs` / `trySymbolTableJvm` / …），共享打分内核。L2-11 补其他语言的闸时应当顺势做掉，否则第三、第四个语言分支会继续往里堆。
+`resolvers.js` 的注册循环是 `[...lang.resolveStrategies, trySymbolTable]`——语言信息在组装时就有。但函数内部又按 `path.extname(fromFile)` 分支了两次：一次挑分隔符（`.rs` / `.go` / 其余），一次判外部依赖闸是否生效（JS 家族）。这是把语言差异塞进共享函数的边界判断，正是"消除边界优于加判断"要消掉的形状。改法：按语言注册不同的符号表策略（`trySymbolTableJs` / `trySymbolTableJvm` / …），共享打分内核。T6 若拍板摘符号表应顺势做掉，否则第三、第四个语言分支会继续往里堆。
 
 ### L3-5：`lookupUnique()` 生产代码零调用
 
 `symbol-registry.js` 的 `lookupUnique(symbolName, preferredDir)` 自 2026-07-23 被 `lookupBestMatch(symbolName, fromFile)` 取代后，生产路径已无调用方，只剩 `symbol-registry-test.js` 里 6 条用例还在测它。按"删除 > 添加、重复即债务"，应连同那 6 条用例一起删；保留的唯一理由是它的路径规范化用例（Windows 原生分隔符、冗余分隔符）——若删除，需确认 `lookupBestMatch` 侧有等价覆盖。
-
-### L3-6：`isBuiltIn` 是死配置，而它正装着 L2-11 补闸需要的名单
-
-**状态**：✅ 已清零（2026-07-28，T4 方案 A）。`_isExternalDependency()` 在闸表未命中时回退 `registry.findByExt(ext)?.isBuiltIn?.(specifier)`，九处声明首次有了消费方。**如实说明消费深度**：实际经这条回退生效的只有 `.java` / `.kt` 两个（JS 家族 / Rust / Python / Go / C-C++ 各有闸表行，行优先于声明；Vue / Svelte 的 `() => false` 永不触及）。`java.util.List` / `kotlin.collections.List` 猜向本地同名类的路径已堵（`testJavaStdlibNotGuessed` / `testKotlinStdlibNotGuessed`，先 RED 后 GREEN，变异验证通过）。CPP_BUILTINS 已收进 `resolvers/cpp.js` 单一出处（T2）。
-
-以下为发现时的原始记录（留档）：`parsers/registry.js` 里九个语言条目每个都声明了 `isBuiltIn`——`java.`/`javax.` 前缀、`kotlin.`、`CPP_BUILTINS`、`GO_BUILTINS`、`PYTHON_BUILTINS`。全仓（`src` / `test` / `scripts`）**零调用方**，`registry-core.js` 里也只有默认值填充，没有任何读取。
-
-对照其余五个钩子的消费情况（2026-07-28 实测）：`resolveStrategies` 1 处、`extractSymbols` 1 处（`file-index.js`）、`condition` 与 `filePatterns` 由 `registry-core.js` 的 `getFilePatterns()` 消费、`needsWorkspaceRoot` 1 处——只有 `isBuiltIn` 是死的。
-
-讽刺之处：`EXTERNAL_DEPENDENCY_CHECKS`（L2-11 的闸表）在另一个文件里重新实现的正是同一份知识，而缺闸的 Java / Kotlin / C-C++ 所需名单已经写好躺在这里。二选一，别留着：接进闸表（顺手推进 L2-11），或按"删除 > 添加"删掉九处声明。
 
 ### L3-7：Vue / Svelte 的 `extractSymbols` 是逐行正则
 
@@ -376,7 +225,6 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 - **`resolveFileOnly` 的 ext 大小写不一致**（`builder.js:407`）：`resolveImport` 拿裸 `path.extname(filePath)`，而 T5 的闸调用拿 `ext.toLowerCase()`。`MAIN.C` / `Foo.H` 这类文件 resolver 链落到 default（等于回到 L1-4 的病），而丢弃记账走 cpp 闸——两边判定分叉。解冻条件：出现大写扩展名的真实仓，或统一 ext 归一时顺手做掉（一行）。
 - **仓库根目录两个垃圾目录**：`UserssdsesAppDataLocalTempwb-test-b331ad95` / `UserssdsesAppDataLocalTempwb-test-cache`（2026-07-20 遗留，某测试把 Windows 绝对路径当相对目录用、分隔符被吃掉）。`git status` 看不见是因为里面只有被 ignore 的 `cache.db`。可直接删；根因是哪个测试没查。
 - **Next.js 路由提取缺失**（`framework-patterns.js`）：有 Nuxt（:143）与 SvelteKit（:145）的 route query，**没有 React/Next**（该文件 `react`/`next` 零命中）。后果：Next 的文件系统路由（`app/` / `pages/api/`）抽不出，`api-contracts` 拿 Next 当后端全部对不上。**明确不做**——它是加特性不是减债，与当前"只做减法"的方向冲突。解冻条件：噪声治理完成（L2-11 三缺口 + L2-16）之后，若真实 Next 仓的实测数据支持，再评估。
-- **TECH_DEBT.md 自身臃肿**：已修条目保留大段"以下为发现时的原始记录（留档）"，与文档铁律「修复即删，历史只进 CHANGELOG」冲突，本文件已 200+ 行且一半是坟头。不擅自删——留档里有复现路径与判据，删之前要确认 CHANGELOG 侧等价覆盖。解冻条件：文件超过阅读预算（新会话读它超过一屏就该压缩）。
 
 ---
 
@@ -420,11 +268,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 ## 测试覆盖缺口
 
-> 所有核心/分析模块均已实现专属/直接单元测试覆盖（无遗留的零专属测试模块）。
-
-**缺的不是模块覆盖，是层级覆盖**：多语言等价性（铁律 #8）目前只在 **parser 层**被验收——"9/9 语言 AST 覆盖 100%"是真的，C/C++ 的 `parse_mode` 老实写着 `ast`。但**能出 AST ≠ 能出边**，中间隔着 resolver，而没有任何测试在"边"这一层做横向对比。L1-4 就是从这个缝里漏了整整一个语言。
-
-**建议**：把 `scripts/resolver-precision.js` 扩成每语言边产出基准（现在只测 symbol-table 一条策略），输入用 2026-07-28 那十个最小 fixture（每仓一条「A 依赖 B」），断言每种语言至少产出 1 条边、且 resolve 失败丢弃数为 0。L1-4 / L2-13 都会被这一条测试同时兜住。
+> 所有核心/分析模块均已实现专属/直接单元测试覆盖（无遗留的零专属测试模块）。层级覆盖缺口（边层横向对比）已由 T1 的 `test/language-parity-edges-test.js` 兜住——十语言 fixture 各一条「A 依赖 B」，断言至少 1 条边且 `droppedCount` 全 0（史见 CHANGELOG T1 条目）。教训沉淀在上方「开发纪律」第一节。
 
 ---
 
@@ -464,6 +308,9 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 | **未找到目标文件**       | `node cli.js tree --file missing.js`           | `1`      | 业务/校验失败           | ✅ Pass |
 | **路径越权 (Traversal)** | `node cli.js audit-file --file /tmp/x.js`      | `1`      | 安全违规 (受保护工作区) | ✅ Pass |
 | **REPL 错误命令**        | `repl --eval "invalid"`                        | `2`      | 预期执行失败            | ✅ Pass |
+| **门禁拒绝（replay 数据）** | `node cli.js audit-summary --fail-on-findings`（快照为 replay） | `2` | 未产出判决（`EXIT_CODES.GATE_REFUSED`） | ✅ Pass |
+
+> 注：GATE_REFUSED 与参数错误同号 2——同属「未产出业务判决」桶，分辨靠 stderr 的 `gate_on_replay` 标签。CI 若需按码区分「用法错」与「门禁拒绝」，需改独立码（拍板在人，见 CHANGELOG 2026-07-28 退出码条目）。
 
 #### 路径边界处理矩阵
 
@@ -488,4 +335,4 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 ---
 
-*Last updated: 2026-07-28（活跃债务 **7 项**：L1=0 / L2=4（L2-10 待拍板 / L2-11 只剩 JVM 第三方 manifest 半 / L2-14 JVM 非标源根布局 / L2-15 overview 快照粗粒度新鲜度）/ 架构债务=0 / L3=3；本轮：T1–T5 全部落地——边层等价性基准（含 dropped:0 断言）、L1-4 C/C++ 修复、Svelte 闸、JVM 标准库闸 + L3-6 接线、L2-13 解析失败记账；okhttp 实测发现 L2-14 并改写 L2-10 的 JVM 判决材料，83 条 JVM 第三方假边成为 L2-11 剩余半的首批实测样本）*
+*Last updated: 2026-07-28（活跃债务 **9 项**：L1=0 / L2=3（L2-10 符号表判决待拍板 / L2-14 JVM 非标源根布局 / L2-15 overview 快照粗粒度新鲜度）/ 架构债务=0 / L3=6（L3-4/5/7/8/9/10）；P4 冻结 4 条。P0/P1 已出空，下一步：L2-14 → T6/L2-10 拍板。同日按「修复即删，历史只进 CHANGELOG」完成坟头清理：L1-3/L1-4/L2-11/L2-12/L2-13/L2-16~L2-20/L3-6/架构-2/测试覆盖缺口的实例记录移除，机制债转入预防性约束）*

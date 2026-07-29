@@ -5,6 +5,25 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### CLI：门禁拒绝独立退出码 — EXIT_CODES.GATE_REFUSED (2026-07-28)
+
+- **Added** `src/config/exit-codes.js`：`OK=0 / FINDINGS=1 / GATE_REFUSED=2`。「我拒绝判决」与「我判决了、有 findings」对 CI 是相反的响应（重跑刷新快照 vs 修代码），同压 1 号会逼每个消费方 grep stderr 才能分辨。`--fail-on-findings` 在 `cli.js` 出口拦到 replay 标记时返回 GATE_REFUSED；`determineExitCode`（`route-formatter.js`）全表改走常量，不再裸写字面量。
+- **注意**：GATE_REFUSED 与既有「参数错误 / 无效命令」同号 2——同属「未产出业务判决」桶，分辨靠 stderr 的 `gate_on_replay` 标签；TECH_DEBT 的 Exit Code 契约矩阵已同步此行。若 CI 需要按码区分「用法错」与「门禁拒绝」，这里得换成独立码（如 3），拍板在人。
+- **Changed** `test/gate-on-replay-test.js` Phase 3 断言从「非 0 + stderr 标签」收紧为「恰好 GATE_REFUSED 且 ≠ FINDINGS」——上轮的教训同族：断「非 0」挡不住语义漂移。
+
+### Resolver 两处路径形状修正：manifest 链原生返回 + Python absolute 两遍搜索 (2026-07-28)
+
+- **Fixed** `packageManifestChain`（`resolvers/base.js`）与 `findCargoCrateRoot` 同病——normalizePathKey 陷阱的**第三个实例**：归一化只能进比较与缓存键，**返回值必须平台原生、原大小写**。消费方拿返回值 `path.join` / `startsWith` 对齐 file-index 的原生路径，归一化返回会反向打破算术；Windows 上还会把 `readPackageDeps` 的 mtime 缓存劈成同目录两份。这病三个实例了（缺口 A 的比较方、findCargoCrateRoot 的返回方、本条的返回方），预防性约束见 TECH_DEBT。
+- **Fixed** `tryPythonAbsolute` 改**两遍搜索**（`resolvers/python.js`）：namespace 兜底是对全部 searchRoots 的兜底，不是逐 root 短路——L2-17 的单循环让前位 root 的弱证据（恰好持有同名文件的 namespace 目录）压过后位 root 的真 `__init__.py`。src-layout 仓根残留同名目录正是此形状。CACHE_VERSION 23 → 24。
+- **Added** 契约测试三条，全在真实入口上：`testTryPythonAbsoluteRegularPackageWinsAcrossSearchRoots`（后位 root 的强证据必赢前位的弱兜底）、`testPackageManifestChainReturnsNativePaths`（路径形状契约，与 `findCargoCrateRoot` 共享同一条纪律）、JVM 闸**反向包含只限通配符**三条断言（仓拥有 `org.junit.support` ≠ 拥有 `org.junit.Assert`——普通类导入保持外部，`org.junit.*` 通配才算仓内；生产行为本已如此，补锁防漂移）。
+
+### TECH_DEBT 坟头清理：修复即删，历史只进 CHANGELOG (2026-07-28)
+
+- **Changed** `docs/TECH_DEBT.md` 按文档铁律「修复即删，历史只进 CHANGELOG」清理已修条目的实例记录：L1-3 / L1-4 / L2-11（A/B/C 三缺口）/ L2-12 / L2-13 / L2-16 / L2-17 / L2-18 / L2-19 / L2-20 / L3-6 / 架构-2 共 12 节移除，CHANGELOG 等价覆盖删前逐条核实（对应上方 T2 / 缺口 A·B·C / T5 / L2-16~L2-20 等条目）。机制债（让实例能发生的结构）不删，留在预防性约束区。
+- **Removed** P4 冻结区「TECH_DEBT.md 自身臃肿」一条——本次清理即其解冻条件达成；「测试覆盖缺口」小节同步收敛为一行（其建议动作已被 T1 的 `language-parity-edges-test.js` 实现：十语言 fixture 边产出 + `droppedCount` 全 0 断言）。
+- **Fixed** 清理带出的悬挂引用：L2-10/L2-14/L3-4 正文里指向已删节的「见 L2-11」「归 L2-11 第三方半」改为「史见 CHANGELOG」；footer 重计数——活跃债务 7 → **9 项**口径修正（旧 footer 漏数：L2=3 待决/活跃 + L3=6，P0/P1 已出空）。编号不重排：L2-10/L2-14/L2-15、L3-4/5/7/8/9/10 是稳定标识不是序号。
+
+
 ### L2-17：Python PEP 420 namespace 包 — `from PKG import X` 绑定子模块 PKG/X (2026-07-28)
 
 - **Fixed** 分组定量先救场（债条要求）：CodeGraphContext 34 条丢弃里 `codegraphcontext.*` 6 条全部来自 tests/ 按安装名导入，根因是 **namespace 包**——`tools/handlers/` 与 `tools/languages/` 是无 `__init__.py` 的目录，候选只有 `X.py` / `X/__init__.py` 两种。全部 6 条都是 `from PKG import <子模块>` 形状：namespace 包没有自己的代码，X 不是子模块就是 ImportError，绑定子模块是该语句的唯一语义，不是猜。新增 `_tryNamespaceSubmodule` 兜底（plain 候选永远优先，常规包仍解析 `__init__.py`），`tryPythonAbsolute` / `tryPythonRelative` 双侧共用——复测带出同病的 `.tools.handlers` / `..languages` 两条相对导入形状，同刀修复；python.js 顺手去重（两个策略的候选逻辑原各抄一份）。builder 把 `record.imported` 经 extraCtx 穿进策略（additive，与 JVM 闸同例）。
