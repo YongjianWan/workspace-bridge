@@ -23,6 +23,8 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { ServiceContainer } = require('../src/services/container');
 const { buildProjectOverview } = require('../src/tools/overview-tools');
+const { EXIT_CODES } = require('../src/config/constants');
+const EXIT_GATE_REFUSED = EXIT_CODES.GATE_REFUSED;
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -74,16 +76,17 @@ async function main() {
 
   await warm.shutdown();
 
-  // Phase 3 — the exit-code path, through the real CLI. The refusal is
-  // identifiable ONLY by its stderr tag: exit 1 alone proves nothing
-  // (hasFindings also exits 1) and stdout's replayedFrom marker would match
-  // a naive /replay/ grep even without the refusal.
+  // Phase 3 — the exit-code path, through the real CLI. The refusal gets its
+  // OWN exit code: "I refuse to judge" and "I judged, there are findings" call
+  // for opposite responses from CI (re-run vs fix the code), so collapsing both
+  // onto 1 would force every consumer to grep stderr to tell them apart.
   const cli = spawnSync(
     process.execPath,
     [CLI_PATH, 'audit-summary', '--cwd', root, '--cache-dir', cacheDir, '--quiet', '--json', '--fail-on-findings'],
     { encoding: 'utf-8', maxBuffer: 16 * 1024 * 1024 }
   );
-  assert.notStrictEqual(cli.status, 0, '--fail-on-findings on replayed data must not exit 0');
+  assert.strictEqual(cli.status, EXIT_GATE_REFUSED, 'gate refusal must use its own exit code, not the findings code');
+  assert.notStrictEqual(EXIT_GATE_REFUSED, 1, 'the refusal code must be distinguishable from the findings code');
   assert.match(cli.stderr, /gate_on_replay/, 'CLI refusal must carry the gate_on_replay tag on stderr');
 
   // Sanity: the same warm cache WITHOUT a gate flag is a normal report run.

@@ -10,7 +10,7 @@ const {
   formatJsonl,
   formatAi,
 } = require('./formatters');
-const { STREAMING, SCHEMA_VERSION } = require('../config/constants');
+const { STREAMING, SCHEMA_VERSION, EXIT_CODES } = require('../config/constants');
 const { elideDeep } = require('../utils/truncate');
 
 const ESSENTIAL_FIELDS = ['ok', 'error', 'schemaVersion', 'command', 'hasFindings', 'staleness', 'warnings'];
@@ -69,12 +69,13 @@ async function writeLargeJson(json) {
 }
 
 function determineExitCode(command, result, failOnFindings = false) {
-  if (!result || result.ok === false) return 1;
-  if (result.regression && result.regression.ok === false) return 1;
+  const { OK, FINDINGS } = EXIT_CODES;
+  if (!result || result.ok === false) return FINDINGS;
+  if (result.regression && result.regression.ok === false) return FINDINGS;
   if (command === 'guard') {
-    return result.passed === false ? 1 : 0;
+    return result.passed === false ? FINDINGS : OK;
   }
-  return failOnFindings && result.hasFindings === true ? 1 : 0;
+  return failOnFindings && result.hasFindings === true ? FINDINGS : OK;
 }
 
 /**

@@ -21,7 +21,7 @@ const { stripBOM } = require('./src/utils/sanitize');
 
 const { ServiceContainer } = require('./src/services/container');
 const { findWorkspaceRoot, normalizePath } = require('./src/utils/path');
-const { TIMEOUTS, SCHEMA_VERSION } = require('./src/config/constants');
+const { TIMEOUTS, SCHEMA_VERSION, EXIT_CODES } = require('./src/config/constants');
 const { COMMANDS, SELF_MANAGED_COMMANDS, SELF_CONTAINER_COMMANDS } = require('./src/cli/commands');
 const { validateCwd } = require('./src/cli/commands/_utils');
 const { parseCliArgs, sanitizeCliPaths } = require('./src/cli/validate-args');
@@ -382,7 +382,9 @@ async function runCliInProcess(args, opts = {}) {
         `${result.replayedFrom.fileCount} files).\n` +
         '→ Re-run without --fail-on-findings first to refresh the snapshot after edits, ' +
         'or use a fresh --cache-dir, then run the gate.';
-      return { status: 1, stdout: '', stderr };
+      // Its own exit code: "I refuse to judge" must not read to CI as "I judged
+      // and your code has findings" — those call for opposite responses.
+      return { status: EXIT_CODES.GATE_REFUSED, stdout: '', stderr };
     }
 
     if (needsContainer && result && typeof result === 'object' && result.ok !== false && container) {
