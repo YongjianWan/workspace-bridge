@@ -5,6 +5,14 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L2-16：Rust crate 名归一 + member manifest — own-crate 路径回到模块算术 (2026-07-28)
+
+- **Fixed** Cargo 包名 `qartez-mcp` → crate 名 `qartez_mcp`（`-`→`_`），`tryRustCrate` 与外部闸此前都按字面比对：own-crate 路径（集成测试的 `qartez_mcp::graph`）两边不认——猜中的进符号表、猜不中的进丢弃（qartez-mcp 152 丢弃 / 167 symbol-table，同一缺口两侧）。新增 `readCargoCrateName`（`[lib] name` 优先，`[package] name` 按 Cargo 规则归一）与共享 `normalizeCrateName`（resolver / 闸 / `readCargoDeps` 三处共用，不复制）；own-crate 路径按 `crate::` 同构解析。
+- **Fixed** 同仓带出的第二组：member crate 的依赖声明在自己的 Cargo.toml（qartez-dashboard 声明 axum/tower/http，根包没有）——外部闸改读导入方所属 crate 的**最近** Cargo.toml（Cargo 无 manifest 链，`workspace = true` 在 member 文件里重新声明，最近 manifest 即全部真相）；own-crate 名显式让位。
+- **Fixed** 同批顺手修 `findCargoCrateRoot` 的路径比较：与缺口 A 同一 normalizePathKey 陷阱，但方向相反——归一化只能用于比较与缓存键，**返回值必须保持原始大小写**（消费方拿返回值与 fromFile 原始路径做 startsWith 算术，归一化返回会把那边的算术打破；gors 测试当场抓住）。
+- **实测**（qartez-mcp 冷构建）：丢弃 **152 → 34**；symbol-table **167 → 5**（TECH_DEBT 的预言坐实：「Rust 是符号表唯一有正产出的语言」的依据 ~97% 由结构缺口撑出——T6 判决材料取到）；rust-crate 292 → 513；总边 676 → **745**（+69 条首次结构化成边）。
+- **Added** `testRustOwnCrateNameImport` / `testRustLibNameOverridesPackageName`（gors-resolver）与 `testRustMemberManifestDepsRecognized`（resolver-symbol-table），均先 RED。分组统计分出的另两组已分流登记：**L2-18**（parser 把 `use super::{a,b}` 抽成 `::a`，22 条）与 **L2-19**（Rust 2018+ 裸首段 `use` 按当前模块作用域解析，rustc 实证合法，12 条）。CACHE_VERSION 19 → 20。
+
 ### L2-11 缺口 C：JVM 零名单闸 — 仓内包前缀集合之外 = 外部 (2026-07-28)
 
 - **Fixed** Java/Kotlin 第三方 import 此前全裸：spring-petclinic 49 文件 44 个报丢弃、362 条全是 `org.junit.*`/`org.assertj.*`/`org.apache.commons.*` 假警报；okhttp 图里躺着 83 条第三方假边（`org.junit`/`assertk`/`okio` 等猜向本地同名类）。**没走读 pom/gradle 的老方案**（groupId 与包名不同构，且 pom 未声明但 classpath 上有的照样判错）——按 TECH_DEBT 订正后的零名单设计：parser 已把每个文件的 `package` 声明抽进图，「仓内包前缀集合之外的一切 = 外部」是确定事实，与 Go 那道零名单闸同构。

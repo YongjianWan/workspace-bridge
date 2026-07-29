@@ -165,6 +165,61 @@ function testGoModMalformed() {
   cleanupTempDir(tmpDir);
 }
 
+function testRustOwnCrateNameImport() {
+  // L2-16: Cargo's package name `qartez-mcp` becomes the crate name
+  // `qartez_mcp` ('-' → '_'). Integration tests (and any cross-crate consumer)
+  // address the crate by that name; it is crate::-rooted module arithmetic,
+  // not a symbol-table guess (qartez-mcp: 152 drops / 167 symbol-table edges
+  // were the two sides of this one gap).
+  const tmpDir = makeTempDir('wb-rs-owncrate-');
+  fs.writeFileSync(path.join(tmpDir, 'Cargo.toml'), '[package]\nname = "qartez-mcp"\n');
+  fs.mkdirSync(path.join(tmpDir, 'src', 'graph'), { recursive: true });
+  fs.writeFileSync(path.join(tmpDir, 'src', 'lib.rs'), '');
+  fs.writeFileSync(path.join(tmpDir, 'src', 'graph.rs'), '');
+  fs.writeFileSync(path.join(tmpDir, 'src', 'graph', 'blast.rs'), '');
+  fs.mkdirSync(path.join(tmpDir, 'tests'), { recursive: true });
+  fs.writeFileSync(path.join(tmpDir, 'tests', 'it.rs'), '');
+
+  const it = path.join(tmpDir, 'tests', 'it.rs');
+  const r1 = resolveImport(it, 'qartez_mcp::graph', '.rs', tmpDir);
+  assert(r1 && r1.endsWith(path.join('src', 'graph.rs')), `qartez_mcp::graph -> src/graph.rs, got ${r1}`);
+
+  const r2 = resolveImport(it, 'qartez_mcp::graph::blast', '.rs', tmpDir);
+  assert(r2 && r2.endsWith(path.join('src', 'graph', 'blast.rs')), `qartez_mcp::graph::blast -> src/graph/blast.rs, got ${r2}`);
+
+  // Single segment naming an item of the crate root falls back to lib.rs,
+  // same as crate::QartezServer.
+  const r3 = resolveImport(it, 'qartez_mcp::QartezServer', '.rs', tmpDir);
+  assert(r3 && r3.endsWith(path.join('src', 'lib.rs')), `qartez_mcp::QartezServer -> src/lib.rs, got ${r3}`);
+
+  // A different crate's name must NOT resolve here.
+  const r4 = resolveImport(it, 'someone_else::graph', '.rs', tmpDir);
+  assert(r4 === null, `another crate's name must not resolve against this crate, got ${r4}`);
+
+  cleanupTempDir(tmpDir);
+}
+
+function testRustLibNameOverridesPackageName() {
+  // [lib] name, when explicit, is the crate name — [package] name is not
+  // consulted (qartez-dashboard declares both).
+  const tmpDir = makeTempDir('wb-rs-libname-');
+  fs.writeFileSync(
+    path.join(tmpDir, 'Cargo.toml'),
+    '[package]\nname = "qartez-dashboard-pkg"\n\n[lib]\nname = "qartez_dashboard"\npath = "src/lib.rs"\n'
+  );
+  fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(tmpDir, 'src', 'lib.rs'), '');
+  fs.writeFileSync(path.join(tmpDir, 'src', 'auth.rs'), '');
+
+  const r1 = resolveImport(path.join(tmpDir, 'src', 'auth.rs'), 'qartez_dashboard::auth', '.rs', tmpDir);
+  assert(r1 && r1.endsWith(path.join('src', 'auth.rs')), `[lib] name must be the crate name, got ${r1}`);
+
+  const r2 = resolveImport(path.join(tmpDir, 'src', 'auth.rs'), 'qartez_dashboard_pkg::auth', '.rs', tmpDir);
+  assert(r2 === null, `[package] name must not resolve when [lib] name is explicit, got ${r2}`);
+
+  cleanupTempDir(tmpDir);
+}
+
 testGoModuleImport();
 testGoModMissing();
 testGoModMalformed();
@@ -174,3 +229,6 @@ testRustSuperFromNonModFileCostsNoClimb();
 testRustSuperItemOfBaseModule();
 testRustSuperFromModFileClimbsImmediately();
 testRustCrateAnchorsAtNearestCargoToml();
+testRustOwnCrateNameImport();
+testRustLibNameOverridesPackageName();
+console.log('gors-resolver-test: all passed');

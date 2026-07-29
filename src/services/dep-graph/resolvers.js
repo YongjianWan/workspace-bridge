@@ -9,6 +9,9 @@ const {
   readGoMod,
   readPackageDeps,
   packageManifestChain,
+  normalizeCrateName,
+  readCargoCrateName,
+  findCargoCrateRoot,
   readCargoDeps,
   readPythonDeps,
 } = require('./resolvers/base');
@@ -132,13 +135,22 @@ const RUST_STDLIB_ROOTS = new Set(['std', 'core', 'alloc', 'proc_macro', 'test']
  * name. `crate::` / `super::` / `self::` are workspace-internal by definition
  * and stay resolvable.
  */
-function _isExternalRustCrate(specifier, root) {
+function _isExternalRustCrate(specifier, root, ctx) {
   const rootSegment = specifier.split('::')[0].trim();
   if (!rootSegment) return false;
   if (RUST_STDLIB_ROOTS.has(rootSegment)) return true;
   if (!root) return false;
-  const declared = readCargoDeps(root);
-  return Boolean(declared && declared.has(rootSegment.replace(/-/g, '_')));
+  // Cargo workspaces: a member crate's deps live in ITS Cargo.toml
+  // (qartez-dashboard declares axum; the root package does not). Cargo has no
+  // manifest chain — `workspace = true` deps are re-declared in the member's
+  // own file — so the nearest manifest is the whole truth.
+  const crateRoot = ctx && ctx.fromFile ? findCargoCrateRoot(ctx.fromFile, root) : root;
+  // The crate the file belongs to is internal by definition — never gate the
+  // own-crate name (`qartez_mcp::…` must resolve, not be dropped).
+  const ownCrate = readCargoCrateName(crateRoot);
+  if (ownCrate && rootSegment === ownCrate) return false;
+  const declared = readCargoDeps(crateRoot);
+  return Boolean(declared && declared.has(normalizeCrateName(rootSegment)));
 }
 
 /**

@@ -17,6 +17,7 @@ const _goModCache = new Map(); // root -> { modulePath, mtime }
 const _packageDepsCache = new Map(); // root -> { names: Set<string>, mtime }
 const _packageDirChainCache = new Map(); // fromDir\nroot -> string[] manifest dirs, nearest first
 const _cargoDepsCache = new Map(); // root -> { names: Set<string>, mtime }
+const _cargoNameCache = new Map(); // crateRoot -> { crateName, mtime }
 const _pythonDepsCache = new Map(); // root -> { names: Set<string>, stamp }
 const _cargoCrateRootCache = new Map(); // dir -> nearest ancestor dir containing Cargo.toml
 
@@ -31,6 +32,7 @@ function clearResolverCaches() {
   _packageDepsCache.clear();
   _packageDirChainCache.clear();
   _cargoDepsCache.clear();
+  _cargoNameCache.clear();
   _pythonDepsCache.clear();
   _cargoCrateRootCache.clear();
 }
@@ -208,6 +210,62 @@ function packageManifestChain(fromDir, root) {
 }
 
 /**
+ * Cargo's package-name → crate-name rule: hyphens become underscores. Shared
+ * by the resolver (own-crate paths), the external gate, and readCargoDeps —
+ * one home, not three copies of the same rule (L2-7: 重复即债务).
+ */
+function normalizeCrateName(name) {
+  return String(name || '').trim().replace(/^["']|["']$/g, '').replace(/-/g, '_');
+}
+
+/**
+ * The crate name of the crate rooted at crateRoot: `[lib] name` when explicit
+ * (it is the crate name, not the package name), else `[package] name` with
+ * Cargo's hyphen rule applied. mtime-cached, same shape as readGoMod.
+ * @param {string} crateRoot directory containing Cargo.toml
+ * @returns {string|null} normalized crate name
+ */
+function readCargoCrateName(crateRoot) {
+  const cargoPath = path.join(crateRoot, 'Cargo.toml');
+  let currentMtime;
+  try {
+    currentMtime = fs.statSync(cargoPath).mtimeMs;
+  } catch {
+    _cargoNameCache.delete(crateRoot);
+    return null;
+  }
+
+  const cached = _cargoNameCache.get(crateRoot);
+  if (cached && cached.mtime === currentMtime) {
+    return cached.crateName;
+  }
+
+  try {
+    const content = fs.readFileSync(cargoPath, 'utf8');
+    let section = '';
+    let packageName = null;
+    let libName = null;
+    for (const rawLine of content.split('\n')) {
+      const line = rawLine.trim();
+      if (line.startsWith('[')) {
+        section = line.slice(1, line.indexOf(']') === -1 ? line.length : line.indexOf(']')).trim();
+        continue;
+      }
+      if (!line || line.startsWith('#')) continue;
+      const m = line.match(/^name\s*=\s*["']([^"']+)["']/);
+      if (!m) continue;
+      if (section === 'package' && packageName === null) packageName = m[1];
+      if (section === 'lib' && libName === null) libName = m[1];
+    }
+    const crateName = normalizeCrateName(libName || packageName) || null;
+    _cargoNameCache.set(crateRoot, { crateName, mtime: currentMtime });
+    return crateName;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Crate names declared as external dependencies in the root Cargo.toml.
  *
  * Path dependencies are deliberately excluded: their sources live inside the
@@ -236,8 +294,8 @@ function readCargoDeps(root) {
     const content = fs.readFileSync(cargoPath, 'utf8');
     const names = new Set();
     const add = (name) => {
-      const trimmed = String(name).trim().replace(/^["']|["']$/g, '');
-      if (trimmed) names.add(trimmed.replace(/-/g, '_'));
+      const trimmed = normalizeCrateName(name);
+      if (trimmed) names.add(trimmed);
     };
 
     let inDependencySection = false;
@@ -434,14 +492,21 @@ function _tryResolveWithExtensions(basePath) {
  */
 function findCargoCrateRoot(fromFile, root) {
   if (!fromFile) return root;
+  // Compare in normalizePathKey space (callers hand us raw or normalized
+  // paths; on Windows those differ in case and separators) — but RETURN the
+  // original-case directory: consumers climb/path-join against fromFile's own
+  // casing, and a normalized return value would break their startsWith
+  // arithmetic the other way.
+  const rootNorm = normalizePathKey(root);
   let dir = path.dirname(fromFile);
-  if (_cargoCrateRootCache.has(dir)) {
-    return _cargoCrateRootCache.get(dir);
+  const cacheKey = normalizePathKey(dir);
+  if (_cargoCrateRootCache.has(cacheKey)) {
+    return _cargoCrateRootCache.get(cacheKey);
   }
-  const startDir = dir;
   let found = null;
-  const normalizedRoot = path.resolve(root);
-  while (dir.startsWith(normalizedRoot)) {
+  for (;;) {
+    const dirNorm = normalizePathKey(dir);
+    if (dirNorm !== rootNorm && !dirNorm.startsWith(rootNorm + '/')) break;
     if (cachedExistsSync(path.join(dir, 'Cargo.toml'))) {
       found = dir;
       break;
@@ -451,7 +516,7 @@ function findCargoCrateRoot(fromFile, root) {
     dir = parent;
   }
   const result = found || root;
-  _cargoCrateRootCache.set(startDir, result);
+  _cargoCrateRootCache.set(cacheKey, result);
   return result;
 }
 
@@ -468,6 +533,8 @@ module.exports = {
   readGoMod,
   readPackageDeps,
   packageManifestChain,
+  normalizeCrateName,
+  readCargoCrateName,
   readCargoDeps,
   readPythonDeps,
   findCargoCrateRoot,

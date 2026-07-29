@@ -351,6 +351,48 @@ function testJvmWorkspacePackageGate() {
   );
 }
 
+function testRustMemberManifestDepsRecognized() {
+  // Cargo workspace: a member crate declares its own deps in ITS Cargo.toml
+  // (qartez-dashboard declares axum; the workspace root package does not).
+  // The gate must read the manifest of the crate the importing file belongs
+  // to — Cargo semantics, not just monorepo politeness (member files
+  // dropping axum::*/http::*/tower::* were false alarms on qartez-mcp).
+  // Cargo has no manifest chain: member deps usable via `workspace = true`
+  // are re-declared in the member's own file, so the nearest manifest is
+  // the whole truth.
+  const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'wb-sym-rs-member-'));
+  fs.writeFileSync(path.join(tmpDir, 'Cargo.toml'), '[workspace]\nmembers = [".", "dashboard"]\n\n[package]\nname = "root-crate"\n\n[dependencies]\nrmcp = "1.4"\n');
+  fs.mkdirSync(path.join(tmpDir, 'dashboard', 'src'), { recursive: true });
+  fs.writeFileSync(path.join(tmpDir, 'dashboard', 'Cargo.toml'), '[package]\nname = "dashboard"\n\n[dependencies]\naxum = "0.8"\nanyhow = { workspace = true }\n');
+
+  const memberFile = P(path.join(tmpDir, 'dashboard', 'src', 'auth.rs'));
+  assert.strictEqual(
+    isExternalDependency('axum::Router', '.rs', tmpDir, { fromFile: memberFile }),
+    true,
+    'a dep declared in the member crate Cargo.toml must be gated for member files'
+  );
+  assert.strictEqual(
+    isExternalDependency('anyhow::Error', '.rs', tmpDir, { fromFile: memberFile }),
+    true,
+    'a `workspace = true` dep re-declared in the member manifest must be gated'
+  );
+  // Root-package files still gate root-package deps (nearest manifest = root).
+  const rootFile = P(path.join(tmpDir, 'src', 'main.rs'));
+  assert.strictEqual(
+    isExternalDependency('rmcp::model::Content', '.rs', tmpDir, { fromFile: rootFile }),
+    true,
+    'a dep declared in the root package Cargo.toml must still gate root files'
+  );
+  // Undeclared everywhere: still not gate-known.
+  assert.strictEqual(
+    isExternalDependency('undeclared_crate::Thing', '.rs', tmpDir, { fromFile: memberFile }),
+    false,
+    'an undeclared crate must still fall through'
+  );
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
 // ---------------------------------------------------------------------------
 // Rust: same disease, measured on reference/qartez-mcp — 361 of its 642 edges
 // came from the symbol table, and 48 of those pointed at local files from
@@ -610,6 +652,7 @@ const tests = [
   testJvmWorkspacePackageGate,
   testRustStdlibNotGuessed,
   testDeclaredCrateNotGuessed,
+  testRustMemberManifestDepsRecognized,
   testCrateInternalRustPathStillResolves,
   testPythonStdlibNotGuessed,
   testPythonRequirementsDeclaredNotGuessed,

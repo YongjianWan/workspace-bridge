@@ -1,5 +1,5 @@
 const path = require('path');
-const { cachedExistsSync, findCargoCrateRoot } = require('./base');
+const { cachedExistsSync, findCargoCrateRoot, readCargoCrateName } = require('./base');
 
 function resolveRustModulePath(modulePath, root, baseDir) {
   const segments = modulePath.split('::').filter(Boolean);
@@ -47,11 +47,22 @@ function _baseModuleFile(baseDir) {
 }
 
 function tryRustCrate(importPath, fromFile, ctx) {
-  if (!importPath.startsWith('crate::')) return null;
-  const modulePath = importPath.slice('crate::'.length);
+  const crateRoot = findCargoCrateRoot(fromFile, ctx.root);
+  let modulePath;
+  if (importPath.startsWith('crate::')) {
+    modulePath = importPath.slice('crate::'.length);
+  } else {
+    // L2-16: own-crate-name paths are crate::-rooted with the Cargo-normalized
+    // crate name (`qartez-mcp` → `qartez_mcp`, [lib] name wins when explicit).
+    // Integration tests address their crate this way; guessing them against
+    // the symbol table was the false "Rust symbol-table 正产出" (TECH_DEBT
+    // L2-16: 152 drops + 167 symbol-table edges, one gap's two sides).
+    const crateName = readCargoCrateName(crateRoot);
+    if (!crateName || !importPath.startsWith(crateName + '::')) return null;
+    modulePath = importPath.slice(crateName.length + 2);
+  }
   // crate:: is rooted at the *nearest* Cargo.toml's src — a workspace can hold
   // several crates, each with its own crate root (qartez-mcp/qartez-dashboard).
-  const crateRoot = findCargoCrateRoot(fromFile, ctx.root);
   const searchBase = path.join(crateRoot, 'src');
   const resolved = resolveRustModulePath(modulePath, crateRoot, searchBase)
     // Single segment that is not a submodule names an item of the crate root

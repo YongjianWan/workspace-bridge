@@ -80,7 +80,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 **判决顺序已修正（2026-07-28，六仓 `droppedImports` 实测后）**：原计划是「T5 落地即可摘——丢弃会被记账，风险从静默降级为报警」。实测推翻了这个时机判断：**报警器本身噪声太大**（Java 44/49 文件报警、zod 42/409 文件报警，绝大多数是闸缺口造成的假阳性，见 L2-11），此时摘符号表 = 在一个一直响的警报器旁边动刀。正确顺序：
 
 1. ~~L2-11 闸缺口~~ ✅ 全部修复（2026-07-28，A/B/C 同日清零）→ 假警报已压掉（zod 80→4、CodeGraphContext 70→34、spring-petclinic 362→0）
-2. L2-16 Rust crate 名归一 → **Rust 保留符号表的依据本身要重量**（那 167 条与 152 条丢弃是同一缺口两侧）
+2. ~~L2-16 Rust crate 名归一~~ ✅ 已修（2026-07-28）→ **Rust 符号表占比已重量：167 → 5**——「唯一有正产出」的依据 ~97% 是结构缺口；剩 5 条仓内宏/re-export 形状，T6 拍板时就拿这个数
 3. L2-14 JVM 源根（Kotlin 已降 P3，Java 侧按需）→ JVM 判决材料
 4. 再拍 JS/TS/Python/Go 的摘除，此时 `droppedImports` 才是可信的安全网
 
@@ -100,7 +100,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 | cobra | Go | 36 | **0** | 0 | 干净（零名单闸的红利） |
 | zod | TS | 409 | 80 → **4**（缺口 A 修复后复测） | 42 | ~~闸缺口 A~~（已修，2026-07-28；剩 4 条为根层 rollup config import 子包 devDeps，真阳性） |
 | CodeGraphContext | Py | 284 | 70 → **34**（缺口 B 修复后复测） | 60 | ~~闸缺口 B~~（已修，2026-07-28）+ 结构缺口（见 L2-17）+ 传递依赖（httpx/anyio，manifest 未声明） |
-| qartez-mcp | Rust | 230 | 152 | 35 | 结构缺口为主（见 L2-16） |
+| qartez-mcp | Rust | 230 | 152 → **34**（L2-16 修复后复测） | 35 | ~~结构缺口为主~~（L2-16 已修 2026-07-28；剩 22 条 parser 账 L2-18 + 12 条裸首段 L2-19） |
 | spring-petclinic | Java | 49 | 362 → **0**（缺口 C 修复后复测） | ~~44 / 49~~ 0 | ~~闸缺口 C~~（已修 2026-07-28，零名单仓内包前缀闸） |
 
 - **缺口 A — monorepo 子包依赖**：✅ **已修（2026-07-28）**。`readPackageDeps(root)` 只读工作区根的 `package.json`；zod 是 pnpm workspace，`@rollup/plugin-*` 声明在 `packages/treeshake/package.json` 里 → 80 条全被当成「看着像自己的」丢弃。改法按债条处方落地：`packageManifestChain(fromDir, root)`（`resolvers/base.js`）从导入方文件向上到根逐层收集含 `package.json` 的目录（缓存键 = fromDir+root 归一化对，与 `_cargoCrateRootCache` 同形），`_isExternalJsPackage` 沿链查 manifest 声明与 `node_modules` 探测（node 语义），`fromFile` 经 ctx 穿进闸（`trySymbolTable` 与 builder 丢弃记账两个消费方都接了）。**踩到的坑**：链的包含比较必须过 `normalizePathKey`——测试与 builder 给的是归一化路径（Windows 上小写+正斜杠），直接 `startsWith` 比原始字符串会静默把链截断成只剩根 manifest，修复等于没修。实测 zod **80 → 4**；剩 4 条是 `.configs/rollup.config.js` 位于根层却 import 只挂在子包 devDeps 上的包——它的 manifest 链上确实没人声明，pnpm hoist 运行时侥幸而已，算真阳性不设机制。CACHE_VERSION 18。
@@ -185,17 +185,23 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **触发条件**：修改 `isSnapshotFresh` / `saveAnalysisSnapshot`、消费 `audit-overview` 输出做删除/重构决策、或给 `hasFindings` 增删汇总项时。
 
-### L2-16：Rust crate 名 `-`/`_` 不同构，qartez-mcp 152 条自引用掉进丢弃/符号表
+### ✅ L2-16 已修复（2026-07-28）：Rust crate 名 `-`/`_` 不同构，qartez-mcp 152 条自引用掉进丢弃/符号表
 
-**状态**：活跃（2026-07-28 `droppedImports` 六仓实测发现）。qartez-mcp 230 文件报 **152 条丢弃 / 35 个文件**，样本首位是 `qartez_mcp::cli::WorkspaceAction`、`qartez_mcp::graph`——**crate 自引用**。Cargo 包名是 `qartez-mcp`，crate 名是 `qartez_mcp`（Cargo 自动把 `-` 换成 `_`），`tryRustCrate` / 外部闸两侧都按字面比对，两边都不认这个 specifier：既解不成边，也不被判为外部。
+**修复**：crate 名归一落地——`readCargoCrateName(crateRoot)`（`base.js`：`[lib] name` 显式优先，否则 `[package] name` 按 Cargo 规则 `-`→`_`），`normalizeCrateName` 单一归一函数被 `tryRustCrate` / `_isExternalRustCrate` / `readCargoDeps` 三处共用。`tryRustCrate` 把 own-crate 路径（`qartez_mcp::graph`）按 `crate::` 同构解析；外部闸改读**导入方所属 crate 的最近 Cargo.toml**（Cargo 无 manifest 链：`workspace = true` 依赖在 member 自己的文件里重新声明，最近 manifest 即全部真相），own-crate 名显式让位。同批顺手修 `findCargoCrateRoot` 的 normalizePathKey 比较（与缺口 A 同一陷阱，但这次修反过：归一化只用于比较与缓存键，返回值必须保持原始大小写——消费方拿返回值与 fromFile 原始路径做 startsWith 算术）。
 
-**为什么它对 L2-10（T6）有直接影响**：L2-12 清零后 qartez-mcp 还剩 167 条 symbol-table，当时归因为「`qartez_mcp::` 集成测试自引用，是该策略唯一合法形态」。现在看，那 167 条与这 152 条丢弃是**同一个缺口的两侧**——猜中的进符号表、猜不中的进丢弃。所以「Rust 是符号表唯一有正产出的语言」这个判决依据**是被结构缺口撑起来的**，与 JVM 那 ~950 条（L2-14）形状完全一致。**修完这条再量 Rust 的符号表占比，才是 T6 的真判决材料。**
+**实测**（qartez-mcp 重建）：丢弃 **152 → 34**；symbol-table **167 → 5**（债条预言坐实——「Rust 是符号表唯一有正产出的语言」的依据 ~97% 是结构缺口撑出来的，T6 判决材料取到）；rust-crate 292 → 513；总边 676 → **745**（+69，原先丢弃/猜测的 import 首次结构化成边）。剩 5 条 symbol-table 全仓内（宏/re-export 形状，待 T6 一并掂量）。
 
-**建议动作**：crate 名归一——读 `Cargo.toml` 的 `[package] name` 后按 Cargo 规则做 `-`→`_` 转换（`[lib] name` 显式声明时以它为准），`tryRustCrate` 与 `_isExternalRustCrate` 共用同一个归一函数，别在两处各写一遍（L2-7 重复即债务）。验证基准就是现状：qartez-mcp 152 条丢弃 / 167 条 symbol-table，修完两个数都应大幅下降，且总边数上升。
+**分组统计的另两组（已分流，不在本条）**：债条要求先分组再动手，分出来四组——own-crate（本条修）/ member manifest（本条修）/ **前导 `::` 的 `::ident`**（22 条，parser 把 `use super::{a,b}` 的花括号列表项抽成 `::a`，**parser 的账** → L2-18）/ **裸模块路径 `pub use grounding::X`**（12 条，rustc 实证 edition 2024 合法：2018+ `use` 首段按当前模块作用域解析 → resolver 缺口 → L2-19）。
 
-**另有一类待确认**：样本里出现 `::count_same_file_refs_outside_range` 这种**前导双冒号**的 specifier，不是合法的 Rust import 写法，疑似 parser 抽取产物而非 resolver 问题。修 crate 名之前先分组统计一次，别把 parser 的账记到 resolver 头上。
+**原始记录（留档）**：活跃（2026-07-28 `droppedImports` 六仓实测发现）。qartez-mcp 230 文件报 **152 条丢弃 / 35 个文件**，样本首位是 `qartez_mcp::cli::WorkspaceAction`、`qartez_mcp::graph`——**crate 自引用**。Cargo 包名是 `qartez-mcp`，crate 名是 `qartez_mcp`，`tryRustCrate` / 外部闸两侧都按字面比对。L2-12 清零后剩的 167 条 symbol-table 与这 152 条丢弃是**同一个缺口的两侧**——猜中的进符号表、猜不中的进丢弃。
 
-**触发条件**：Rust 仓 `droppedImports` 非零、或改动 `resolvers/rust.js` / `_isExternalRustCrate` 时。
+### L2-18：Rust parser 把 `use super::{a, b}` 的花括号列表项抽成 `::a`
+
+**状态**：活跃（2026-07-28 L2-16 分组统计发现）。qartez-mcp 剩 34 条丢弃里 22 条是 `::count_same_file_refs_outside_range` 这类**前导双冒号** specifier——不是合法 Rust import 写法。源码实证（`src/server/tools/mv.rs:741`）：`use super::{a, b, c}` 的花括号列表项被 parser 逐个抽成 `::a`、`::b`——前缀 `super::` 丢了还留个 `::`。同文件 `use grounding::{X, Y}` 却保留前缀抽成 `grounding::X`，两种行为不一致。修复方向：花括号列表展开时正确拼接前缀（`super::{a,b}` → `super::a` / `super::b`，之后 tryRustSuper 现有算术就能解开）。**触发条件**：Rust 仓 `droppedImports` 出现 `::` 前导样本、或改动 Rust parser 的 import 抽取。
+
+### L2-19：Rust 2018+ `use` 的裸首段路径按当前模块作用域解析（`pub use grounding::FileFacts`）
+
+**状态**：活跃（2026-07-28 L2-16 分组统计发现，rustc 实证）。qartez-mcp 剩 34 条里 12 条是 `grounding::FileFacts` / `cli::DashboardCommand` 这类裸首段路径，全部来自 `pub use grounding::{…}`（`src/benchmark/mod.rs`）这类语句。最小复现 + rustc 实证：edition 2024 下 `use grounding::X` 合法——2018+ 的 `use` 首段在**当前模块作用域**解析（子模块/祖先模块/外部 crate 皆可），不是 2015 的 crate 根绝对路径。resolver 没有对应策略（tryRustCrate 管 `crate::`/own-crate，tryRustSuper 管 `super::`，裸首段无人管）。修复方向：`tryRustScoped`——首段对当前模块的子模块、逐级祖先（词法作用域）做模块算术，全部落空再交给外部闸/符号表。**触发条件**：Rust 仓 `droppedImports` 出现裸首段样本、或改动 `resolvers/rust.js`。
 
 ### L2-17：Python 仓内绝对包路径解不开（`codegraphcontext.tools.handlers`）
 
@@ -244,7 +250,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 > | 层 | 条目 | 为什么在这一层 |
 > | --- | --- | --- |
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
-> | **P1 紧随** | L2-16 Rust crate 名归一 · L2-17 Python 仓内包路径 | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
+> | **P1 紧随** | ~~L2-16 Rust crate 名归一~~ ✅（2026-07-28，symbol-table 167→5） · L2-17 Python 仓内包路径 · L2-18 Rust parser 花括号列表前缀 · L2-19 Rust 裸首段 use | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
 > | **P2 依赖前两层** | L2-10 符号表判决（T6）· L2-14 JVM 源根（Java 侧） | 数据齐了才能拍；顺序与理由写在 L2-10 内 |
 > | **P3 记账不排期** | L2-15 的动作 2–3（freshness 细化 / section 级设计；动作 0+1 已于 2026-07-28 完成——门禁拒绝 + `replayedFrom` 标记） · L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 | 粗粒度换速度是真实收益，报告路径只补抓手；L3-8 走"接触即修"，不做大扫除 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |

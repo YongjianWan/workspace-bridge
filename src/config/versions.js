@@ -46,6 +46,12 @@ const SCHEMA_VERSION = '1.2.0';
 //      （java./javax./kotlin. 标准库仍走 registry isBuiltIn）。v18 缓存里
 //      JVM 仓存着第三方假边（okhttp 实测 83 条：org.junit/assertk/okio 等
 //      猜向本地同名类）与第三方 import 的假丢弃（spring-petclinic 362 条）。
-const CACHE_VERSION = 19;
+// v20: Rust crate 名归一 + member manifest（L2-16）——own-crate 路径
+//      （`qartez_mcp::…`，[lib] name 优先、[package] name 按 Cargo 规则
+//      '-'→'_'）按 crate:: 同构解析；外部闸读导入方所属 crate 的最近
+//      Cargo.toml。v19 缓存里 Rust 仓存着 own-crate 的假丢弃与符号表假命中
+//      （qartez-mcp 152 条丢弃 / 167 条 symbol-table，同一缺口两侧），及
+//      member manifest 声明依赖的假丢弃（axum/tower/http 等）。
+const CACHE_VERSION = 20;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };
