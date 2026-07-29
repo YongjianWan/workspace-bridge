@@ -1,20 +1,44 @@
 const path = require('path');
 
+function _tryPythonCandidates(basePath, ctx) {
+  const candidates = [
+    `${basePath}.py`,
+    path.join(basePath, '__init__.py'),
+  ];
+  for (const candidate of candidates) {
+    if (ctx.cachedExistsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+// PEP 420 namespace package: the specifier names a directory WITHOUT
+// __init__.py (CodeGraphContext tools/handlers, tools/languages — L2-17).
+// `from PKG import X` on a namespace package binds the submodule PKG/X —
+// that is not a guess, it is the only thing the statement CAN mean (a
+// namespace package has no code of its own, so X is a submodule or an
+// ImportError). Callers must try the plain candidates first, so regular
+// packages keep resolving to __init__.py and this stays a fallback.
+function _tryNamespaceSubmodule(basePath, ctx) {
+  if (!ctx.imported || ctx.imported.length === 0) return null;
+  for (const name of ctx.imported) {
+    if (!name || name === '*') continue;
+    const submodule = _tryPythonCandidates(path.join(basePath, name), ctx);
+    if (submodule) return submodule;
+  }
+  return null;
+}
+
+function _markResolved(ctx) {
+  if (ctx.outMeta) {
+    ctx.outMeta.confidence = 1.0;
+    ctx.outMeta.tier = 'tier1';
+  }
+}
+
 function tryPythonRelative(importPath, fromFile, ctx) {
   if (!importPath.startsWith('.')) return null;
-
-  const tryPythonCandidates = (basePath) => {
-    const candidates = [
-      `${basePath}.py`,
-      path.join(basePath, '__init__.py'),
-    ];
-    for (const candidate of candidates) {
-      if (ctx.cachedExistsSync(candidate)) {
-        return candidate;
-      }
-    }
-    return null;
-  };
 
   const leadingDots = importPath.match(/^\.+/)[0].length;
   const remainder = importPath.slice(leadingDots);
@@ -28,31 +52,15 @@ function tryPythonRelative(importPath, fromFile, ctx) {
     ? path.join(currentDir, ...remainder.split('.'))
     : currentDir;
 
-  const resolved = tryPythonCandidates(basePath);
+  const resolved = _tryPythonCandidates(basePath, ctx) || _tryNamespaceSubmodule(basePath, ctx);
   if (!resolved) return null;
-  if (ctx.outMeta) {
-    ctx.outMeta.method = 'python-relative';
-    ctx.outMeta.confidence = 1.0;
-    ctx.outMeta.tier = 'tier1';
-  }
+  _markResolved(ctx);
+  if (ctx.outMeta) ctx.outMeta.method = 'python-relative';
   return resolved;
 }
 
 function tryPythonAbsolute(importPath, _fromFile, ctx) {
   if (importPath.startsWith('.')) return null;
-
-  const tryPythonCandidates = (basePath) => {
-    const candidates = [
-      `${basePath}.py`,
-      path.join(basePath, '__init__.py'),
-    ];
-    for (const candidate of candidates) {
-      if (ctx.cachedExistsSync(candidate)) {
-        return candidate;
-      }
-    }
-    return null;
-  };
 
   const modulePath = importPath.split('.').join(path.sep);
   const searchRoots = [
@@ -63,13 +71,11 @@ function tryPythonAbsolute(importPath, _fromFile, ctx) {
   ];
 
   for (const searchRoot of searchRoots) {
-    const resolved = tryPythonCandidates(path.join(searchRoot, modulePath));
+    const basePath = path.join(searchRoot, modulePath);
+    const resolved = _tryPythonCandidates(basePath, ctx) || _tryNamespaceSubmodule(basePath, ctx);
     if (resolved) {
-      if (ctx.outMeta) {
-        ctx.outMeta.method = 'python-absolute';
-        ctx.outMeta.confidence = 1.0;
-        ctx.outMeta.tier = 'tier1';
-      }
+      _markResolved(ctx);
+      if (ctx.outMeta) ctx.outMeta.method = 'python-absolute';
       return resolved;
     }
   }

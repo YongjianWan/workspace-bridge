@@ -61,6 +61,11 @@ const SCHEMA_VERSION = '1.2.0';
 //      2018+ `use grounding::X` 首段 = 当前模块的子模块（mod.rs/lib.rs/
 //      main.rs 的子模块在旁侧目录，其他文件的在 <stem>/ 下）。v21 缓存里
 //      Rust 仓存着 12 条裸首段假丢弃（qartez-mcp 实测）。
-const CACHE_VERSION = 22;
+// v23: Python PEP 420 namespace 包（L2-17）——`from PKG import X` 中 PKG
+//      是无 __init__.py 的目录时，X 绑定子模块 PKG/X（tryPythonAbsolute/
+//      tryPythonRelative 双侧，builder 把 record.imported 穿进 extraCtx）。
+//      v22 缓存里 Python 仓存着 namespace 假丢弃（CodeGraphContext 实测
+//      6 条 codegraphcontext.* + 2 条相对导入点号形状）。
+const CACHE_VERSION = 23;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

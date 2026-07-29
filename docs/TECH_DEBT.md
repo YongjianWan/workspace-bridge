@@ -99,7 +99,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 | execa | TS | 438 | **0** | 0 | 干净 |
 | cobra | Go | 36 | **0** | 0 | 干净（零名单闸的红利） |
 | zod | TS | 409 | 80 → **4**（缺口 A 修复后复测） | 42 | ~~闸缺口 A~~（已修，2026-07-28；剩 4 条为根层 rollup config import 子包 devDeps，真阳性） |
-| CodeGraphContext | Py | 284 | 70 → **34**（缺口 B 修复后复测） | 60 | ~~闸缺口 B~~（已修，2026-07-28）+ 结构缺口（见 L2-17）+ 传递依赖（httpx/anyio，manifest 未声明） |
+| CodeGraphContext | Py | 284 | 70 → 34 → **26**（缺口 B / L2-17 修复后复测） | ~~60~~ 21 | ~~闸缺口 B~~ + ~~结构缺口 L2-17~~（均修，2026-07-28）；剩 26 = 传递依赖（httpx/anyio 类，manifest 未声明）+ tests/fixtures 平铺 script-dir 导入 |
 | qartez-mcp | Rust | 230 | 152 → 34 → 12 → **0**（L2-16 / L2-18 / L2-19 修复后复测） | ~~35~~ 0 | ~~结构缺口~~ **清零**（L2-16/18/19 全修，2026-07-28） |
 | spring-petclinic | Java | 49 | 362 → **0**（缺口 C 修复后复测） | ~~44 / 49~~ 0 | ~~闸缺口 C~~（已修 2026-07-28，零名单仓内包前缀闸） |
 
@@ -209,13 +209,11 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 ### L2-17：Python 仓内绝对包路径解不开（`codegraphcontext.tools.handlers`）
 
-**状态**：活跃（2026-07-28 实测发现，**待分组定量**）。CodeGraphContext 284 文件报 70 条丢弃 / 60 个文件，样本里混着三类：`__future__`（标准库名单漏项，归 L2-11 缺口 B）、`httpx`（第三方，需核对是否在 manifest 里声明）、`codegraphcontext.tools.handlers`（**仓内包的绝对导入，本该由 `tryPythonAbsolute` 解开**）。三类的占比没分组统计过，**先取数再动手**——本条的范围只是第三类。
+**状态**：✅ **已修（2026-07-28）**。按债条要求先分组定量，34 条分四组，只有一组是本条：`codegraphcontext.*` 6 条，全部来自 tests/ 按安装名导入。根因是债条三个候选假设里的第三个坐实：**PEP 420 namespace 包**——`src/codegraphcontext/tools/handlers/` 与 `tools/languages/` 是没有 `__init__.py` 的目录（`src` 本来就在 searchRoots 里，候选只有 `X.py` 与 `X/__init__.py` 两种）。且全部 6 条都是 `from PKG import <子模块>` 形状——namespace 包没有自己的代码，X 不是子模块就是 ImportError，绑定子模块不是猜，是该语句的唯一语义。修法：`_tryNamespaceSubmodule` 兜底（plain 候选永远优先，常规包仍解析到 `__init__.py`），`tryPythonAbsolute` / `tryPythonRelative` 双侧共用（复测带出同病的 `.tools.handlers` / `..languages` 两条相对导入形状，同刀修复），python.js 顺手去重（两个策略的候选逻辑原本各抄一份）。builder 把 `record.imported` 经 extraCtx 穿进策略（additive，与 JVM 闸同例）。实测 CodeGraphContext 丢弃 **34 → 26**（6 + 2 清零）；fast 144/144 + eslint + parity/dropped-imports 绿。CACHE_VERSION 23。
 
-**为什么值得查**：Python 的 `tryPythonAbsolute` 在 parity fixture 上是绿的（`python-absolute:1`），说明基本能力在；真实仓里落空，大概率是包根发现（`src/` 布局、`__init__.py` 缺失、namespace package）或多级包路径的问题。这与 L2-14（JVM 源根）、L2-16（Rust crate 名）是同一族：**结构解析在真实布局上落空 → 符号表兜底或静默丢弃**，三个语言各一个实例。
+**剩余两组（不归本条，留档）**：第三方传递依赖（httpx/anyio/numpy/pydantic/ujson/google.protobuf/openai/sentence_transformers/fastembed/cassandra/mysql/redislite/tree_sitter_languages/gcf——manifest 未声明，名单+manifest 两道闸都够不着，L2-11 已记设计题）与 tests/fixtures 平铺 script-dir 导入（circular1/2、advanced_functions、module_b、module_c——`import 同目录模块` 的脚本语义，另一个机制，fixture 噪声为主）。
 
-**建议动作**：先跑分组统计（按 specifier 首段是否等于仓内已知顶级包名分三类），再决定改 `tryPythonAbsolute` 的哪一段。
-
-**触发条件**：Python 仓 `droppedImports` 非零、或改动 `resolvers/python.js` 时。
+**原始记录（留档）**：活跃（2026-07-28 实测发现，**待分组定量**）。CodeGraphContext 284 文件报 70 条丢弃 / 60 个文件，样本里混着三类：`__future__`（标准库名单漏项，归 L2-11 缺口 B）、`httpx`（第三方，需核对是否在 manifest 里声明）、`codegraphcontext.tools.handlers`（**仓内包的绝对导入，本该由 `tryPythonAbsolute` 解开**）。三类的占比没分组统计过，**先取数再动手**——本条的范围只是第三类。
 
 ### L2-20：tree-sitter WASM 并发竞态——根因是 loadLanguage 装填竞态，不是 parse 竞态
 
@@ -260,7 +258,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 > | 层 | 条目 | 为什么在这一层 |
 > | --- | --- | --- |
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
-> | **P1 紧随** | ~~L2-16 Rust crate 名归一~~ ✅ · L2-17 Python 仓内包路径 · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅（2026-07-28，cobra fallback 19→0 / cJSON 18→0，**九仓 AST 覆盖率全部实测归真**） | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
+> | **P1 紧随** | ~~L2-16 Rust crate 名归一~~ ✅ · ~~L2-17 Python namespace 包~~ ✅（2026-07-28，丢弃 34→26） · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅——**P1 出空，P2 自动顶上来（T6/L2-10 判决 + L2-14 JVM 源根）** | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
 > | **P2 依赖前两层** | L2-10 符号表判决（T6）· L2-14 JVM 源根（Java 侧） | 数据齐了才能拍；顺序与理由写在 L2-10 内 |
 > | **P3 记账不排期** | L2-15 的动作 2–3（freshness 细化 / section 级设计；动作 0+1 已于 2026-07-28 完成——门禁拒绝 + `replayedFrom` 标记） · L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 | 粗粒度换速度是真实收益，报告路径只补抓手；L3-8 走"接触即修"，不做大扫除 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |

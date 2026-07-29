@@ -433,7 +433,7 @@ class GraphBuilder {
     const resolvedImportRecords = (importRecords.length > 0 ? importRecords : imports.map((source) => createImportRecord(source)))
       .map((record) => {
         const outMeta = {};
-        const resolved = resolveImport(filePath, record.source, ext, this.dg.root, this.symbolRegistry, outMeta, { isLocal: record.isLocal }, { workspacePackages: this.workspacePackages });
+        const resolved = resolveImport(filePath, record.source, ext, this.dg.root, this.symbolRegistry, outMeta, { isLocal: record.isLocal }, { workspacePackages: this.workspacePackages, imported: record.imported });
         if (!resolved) {
           // Keep wildcard imports even if they don't resolve directly to a file
           if (record.usesAllExports && record.source.endsWith('.*')) {

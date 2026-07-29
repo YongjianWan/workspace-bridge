@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L2-17：Python PEP 420 namespace 包 — `from PKG import X` 绑定子模块 PKG/X (2026-07-28)
+
+- **Fixed** 分组定量先救场（债条要求）：CodeGraphContext 34 条丢弃里 `codegraphcontext.*` 6 条全部来自 tests/ 按安装名导入，根因是 **namespace 包**——`tools/handlers/` 与 `tools/languages/` 是无 `__init__.py` 的目录，候选只有 `X.py` / `X/__init__.py` 两种。全部 6 条都是 `from PKG import <子模块>` 形状：namespace 包没有自己的代码，X 不是子模块就是 ImportError，绑定子模块是该语句的唯一语义，不是猜。新增 `_tryNamespaceSubmodule` 兜底（plain 候选永远优先，常规包仍解析 `__init__.py`），`tryPythonAbsolute` / `tryPythonRelative` 双侧共用——复测带出同病的 `.tools.handlers` / `..languages` 两条相对导入形状，同刀修复；python.js 顺手去重（两个策略的候选逻辑原各抄一份）。builder 把 `record.imported` 经 extraCtx 穿进策略（additive，与 JVM 闸同例）。
+- **实测**：CodeGraphContext 丢弃 **34 → 26**（6 + 2 清零，`codegraphcontext.*` 与相对点号两组归零）。剩余 26 = 第三方传递依赖（manifest 未声明，L2-11 留档的设计题）+ tests/fixtures 平铺 script-dir 导入（另一个机制）。**P1 层出空**。
+- **Added** resolver-strategy-chain 五条：absolute namespace 命中 / 不造边（非模块名不猜、裸 `import PKG` 无文件目标）/ 常规包 `__init__.py` 优先不被抢 / facade 穿 imported / relative namespace 命中 + 不造边。全先 RED。CACHE_VERSION 22 → 23。
+
 ### L2-20：tree-sitter 装填竞态 — 并发首调共享一次 Language.load (2026-07-28)
 
 - **Fixed** 实测发现：cobra 冷构建 36 个 Go 文件 19 个静默降级 regex（cJSON 18/99 同病），但串行直跑 parseGo 36/36 全 AST、36 路并发直跑也零降级。埋点抓到的真错误是 init 阶段的 `Incompatible language version 0` ×19——根因是 `loadLanguage` 的**装填竞态**：同步查缓存、异步 `Language.load` 后才写缓存，N 个并发首调全部看到 miss 各自装填，竞态窗口产出 version 0 损坏对象；`getParserModule` 同形（`Parser.init()` 可被并发调多次）。parse/query 本身是同步调用，同线程无真互踩——所以修 loader 而不是给 go/kotlin/cpp 补三把 parse 锁（登记时的初步方案被实验证伪后修正）。
