@@ -82,17 +82,23 @@ try {
       // counted. A parity fixture must drop ZERO — every import in it is
       // either structurally resolvable or gate-known external. A non-zero
       // count here is a language resolution gap reporting itself.
+      // `measured === true` locks the wiring itself: the count must come from
+      // a real cold-build accounting, not a silent `?.()` fallback on a view
+      // that never delegated the method (the L2-13 output-layer bug).
+      const expectDropped = fixture.expectDropped || 0;
       let droppedCount = 0;
+      let measured = false;
       try {
         const summary = JSON.parse(res.stdout);
         droppedCount = summary.droppedImports?.droppedCount ?? 0;
+        measured = summary.droppedImports?.measured === true;
       } catch {
         // stdout not parseable — droppedCount stays 0 and the edge assertions
         // below remain the arbiter.
       }
       line += ` dropped:${droppedCount}`;
 
-      if (total < 1 || structuralHits < 1 || droppedCount > 0) {
+      if (total < 1 || structuralHits < 1 || droppedCount !== expectDropped || !measured) {
         const envSkip = fixture.needsPython && !hasPython;
         if (envSkip) {
           // Toolchain degradation must not masquerade as a language defect:
@@ -103,7 +109,7 @@ try {
           results.push(line);
           continue;
         }
-        line += ` — FAIL (need >= 1 edge via ${fixture.expectedMethods.join('/')}, dropped == 0)`;
+        line += ` — FAIL (need >= 1 edge via ${fixture.expectedMethods.join('/')}, dropped == ${expectDropped}, measured == true)`;
         failures.push(line);
       }
     }

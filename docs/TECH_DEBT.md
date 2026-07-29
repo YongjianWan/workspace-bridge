@@ -107,6 +107,8 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **状态**：✅ 已修复（2026-07-28，T5）。（b）`resolveFileOnly()` 的丢弃分支现在记账：gate 已知的外部 specifier（node 内建 / 标准库 / manifest 声明的依赖）**不计**——它们不成边是设计行为，计数等于对每句 `import os` 狼来了；只数「看着像自己的」丢弃，进 `dg.getDroppedImports()` + `buildWarnings()` 的 `unresolved-dropped` 警告（severity 按丢弃文件占比，>10% → medium）+ `audit-overview`/`audit-summary` 新增 `droppedImports` 段（additive，无破坏）。parity 基准已打开第二条断言：十个 fixture `droppedCount` 必须全为 0——下一个语言缺口会自己在这里报出来。（a）`unresolved` 段新增 `staleResolvedImportsCount` 别名并注明真实语义（数的是「曾解析但文件已消失」的失效边）；`unresolved`/`unresolvedCount` 保留为弃用别名（Never break userspace），消费方迁移后再删。
 
+**输出层补漏（2026-07-28 同日）**：T5 的 overview `droppedImports` 段当时恒为 0——`DependencyGraphView` 白名单漏加 `getDroppedImports`，`?.()` 静默兜零，parity 第二条断言读死字段等于没断。已修：view 补委托；新增 `measured` 字段区分「实测 0」与「没测」（warm/方法缺失 → false）；parity 改断 `measured === true` 并加负向 fixture `js-dropped-import`（断言 `droppedCount === 1` 走完整 CLI JSON 路径）；test-helpers mock 补 `getDroppedImports` 默认值（Proxy 兜底 `() => []` 是真值数组，委托接通后会把消费方炸出来）。
+
 **发现的相邻真相**（留档）：相对路径写错（`require('./missing')`）**不走丢弃分支**——`tryRelativeWithExtensions` 对不存在的目标无条件返回 phantom 路径（`resolvers/javascript.js:116`），成为图里的幽灵边，正是 `findUnresolvedImports()` 现有条目的来源。这条行为未改（改了是边语义变化，且 phantom 边在 impact 里有消费方），但它说明两个字段的分工：`staleResolvedImportsCount` 管「相对路径写错」，`droppedImports` 管「裸 specifier 无人认领」。
 
 以下为发现时的原始记录（留档）：十个 fixture **全部**报 `unresolved: 0`，包括丢掉了两条 `#include` 的 C/C++ 仓。`analyzer.js` 的 `findUnresolvedImports()` 判定条件是 `!this.dg.hasFile(imp) && path.isAbsolute(fsPath) && !fs.existsSync(fsPath)`——数的是「曾经解析成绝对路径、但文件已不在磁盘」，而真正解不开的 import 从来不是绝对路径、且早在 `resolveFileOnly()` 就被丢弃，两道门都进不去。

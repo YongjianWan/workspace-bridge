@@ -324,14 +324,15 @@ class DependencyGraph {
   /**
    * L2-13: imports that looked local but resolved to null and were dropped
    * during the last cold build. Gate-known externals are excluded by
-   * construction (builder.js resolveFileOnly). Empty on the warm path —
-   * warm restores edges without re-resolving, so there is nothing to count.
-   * @returns {{count: number, files: number, samples: Array<{file: string, specifier: string}>}}
+   * construction (builder.js resolveFileOnly). On the warm path no build ran,
+   * so there is nothing to count — `measured: false` marks that explicitly,
+   * because a warm "0" reads as "no problem" when it really means "not measured".
+   * @returns {{count: number, files: number, samples: Array<{file: string, specifier: string}>, measured: boolean}}
    */
   getDroppedImports() {
     const dropped = this._droppedImports;
-    if (!dropped) return { count: 0, files: 0, samples: [] };
-    return { count: dropped.count, files: dropped.files.size, samples: dropped.samples.slice() };
+    if (!dropped) return { count: 0, files: 0, samples: [], measured: false };
+    return { count: dropped.count, files: dropped.files.size, samples: dropped.samples.slice(), measured: true };
   }
 
   findOrphanFiles(toRelativeFn = null) {

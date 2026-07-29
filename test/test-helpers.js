@@ -501,6 +501,11 @@ function _createStubDepGraph(opts = {}) {
     ['getPageRank', () => new Map()],
     ['getScopeSummary', () => ({})],
     ['buildWarnings', () => []],
+    // Must model the real contract (dep-graph.js getDroppedImports): the
+    // Proxy's `() => []` fallback returns an *array*, which is truthy and
+    // crashes consumers reading `.samples`. measured: true because the mock
+    // pretends a cold-built graph.
+    ['getDroppedImports', () => ({ count: 0, files: 0, samples: [], measured: true })],
     ['_displayPath', (p) => p],
     ['normalizeFilePath', (p) => p],
     ['shouldExclude', () => false],

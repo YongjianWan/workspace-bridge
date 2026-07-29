@@ -85,6 +85,8 @@
 #### T5 — L2-13：让「解析失败」不再静默 ✅ 已完成
 
 > 已落地：丢弃记账（gate 外部不计）+ `getDroppedImports()` + `unresolved-dropped` 警告 + `droppedImports` 段（additive）+ `staleResolvedImportsCount` 别名；parity 第二条断言已打开（十 fixture dropped:0）。变异验证通过。**意外发现**：`require('./missing')` 走 phantom 路径而非丢弃分支（幽灵边 = `unresolved` 现有条目来源），已留档未改。无 CACHE_VERSION bump。CHANGELOG「T5」条目。下方原始计划留档。
+>
+> **输出层补漏（同日二轮）**：一轮复核发现 overview `droppedImports` 段恒为 0——`DependencyGraphView` 白名单漏委托，`?.()` 兜零，上面那句「parity 第二条断言已打开」实际读的是死字段、没验证任何事。二轮修复：view 补委托 + `measured` 字段（区分「实测 0」/「没测」）+ parity 断言 `measured === true` + 负向 fixture `js-dropped-import`（断 `droppedCount === 1` 走完整 CLI JSON 路径）+ test-helpers mock 补 `getDroppedImports` 默认值。先 RED（11/11）后 GREEN，变异（注释委托）两层都 RED。**教训**：写「经某字段出面」的功能时，测试必须走用户真实路径（snapshot view → assembler → CLI JSON），只测裸图等于没测接线；`?.()` + 白名单委托类的组合会把缺失方法变成静默零值，用显式 `measured` 标记代替。CHANGELOG「T5 输出层补漏」条目。
 
 - **前置**：无强依赖，但**做完它 T1 的第二条断言才能打开**。
 - **做什么**：

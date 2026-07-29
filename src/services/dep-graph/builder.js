@@ -127,7 +127,10 @@ class GraphBuilder {
     this.dg._scanPatternCache.clear();
     this._parseCache.clear();
     // L2-13: drop accounting is per-build; a rebuild starts from zero.
-    this.dg._droppedImports = null;
+    // Initialize (not null) so "a cold build ran and measured zero drops" is
+    // distinguishable from "never measured" (warm-only graph) — see
+    // getDroppedImports().measured.
+    this.dg._droppedImports = { count: 0, files: new Set(), samples: [] };
 
     // Get all files from cache, or use the raw file list provided by file-index
     // so that originalPath preserves platform-native casing and separators.

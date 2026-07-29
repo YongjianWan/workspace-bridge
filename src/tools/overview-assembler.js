@@ -679,14 +679,17 @@ async function assembleOverviewData(args, container, historyProvider) {
       possibleFalsePositives: unresolvedFp,
     },
     // L2-13: imports that looked local but could not be resolved and were
-    // dropped from the graph (cold-build accounting; 0 on the warm path).
+    // dropped from the graph. `measured` distinguishes "cold build ran and
+    // counted N drops" from "nothing was measured" (warm path, or a view
+    // lacking the method) — a bare 0 must not read as "graph is complete".
     droppedImports: (() => {
-      const dropped = depGraph.getDroppedImports?.() || { count: 0, files: 0, samples: [] };
+      const dropped = depGraph.getDroppedImports?.() || { count: 0, files: 0, samples: [], measured: false };
       return {
         ok: true,
         droppedCount: dropped.count,
         filesWithDrops: dropped.files,
         samples: dropped.samples.slice(0, 10),
+        measured: dropped.measured === true,
       };
     })(),
     cycles: {

@@ -70,6 +70,7 @@ class DependencyGraphView {
   getPageRank(...args) { return this._dg.getPageRank(...args); }
   getScopeSummary(...args) { return this._dg.getScopeSummary(...args); }
   buildWarnings(...args) { return this._dg.buildWarnings(...args); }
+  getDroppedImports(...args) { return this._dg.getDroppedImports(...args); }
 }
 
 class LazyFrameworkHintsMap extends Map {

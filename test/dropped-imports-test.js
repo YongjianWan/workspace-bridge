@@ -51,6 +51,15 @@ async function main() {
     'the counted drop must be the unclaimed bare specifier, not the node builtin'
   );
   assert.strictEqual(dropped.files, 1, 'one file has drops');
+  assert.strictEqual(dropped.measured, true, 'a cold build must report measured: true');
+
+  // The same data must flow through the snapshot DependencyGraphView — the
+  // path real consumers (overview-assembler) actually take. Locking only the
+  // bare graph leaves a missing view delegation invisible (that exact bug
+  // made the overview `droppedImports` section read 0 forever).
+  const viaView = container.snapshot.graph.getDroppedImports();
+  assert.strictEqual(viaView.count, 1, 'snapshot view must delegate getDroppedImports');
+  assert.strictEqual(viaView.measured, true, 'snapshot view must report measured: true');
 
   const warnings = dg.buildWarnings();
   const warning = warnings.find((w) => w.type === 'unresolved-dropped');

@@ -143,6 +143,29 @@ const FIXTURES = [
     },
   },
   {
+    // Negative control for the droppedImports accounting (L2-13): one good
+    // relative edge plus one import that looks local but cannot resolve.
+    // The parity test asserts droppedCount === 1 *through the CLI JSON path*
+    // (snapshot DependencyGraphView → overview-assembler), so a wiring break
+    // like "view never delegated getDroppedImports" fails here on its own.
+    language: 'js-dropped-import',
+    needsPython: false,
+    expectedMethods: ['relative'],
+    expectDropped: 1,
+    files: {
+      'package.json': JSON.stringify({ name: 'parity-js-dropped', version: '1.0.0' }),
+      'src/b.js': 'function helper() { return 1; }\nmodule.exports = { helper };\n',
+      'src/a.js':
+        "const { helper } = require('./b');\n" +
+        // Bare, undeclared, not a builtin: nothing claims it, nothing resolves
+        // it → dropped, and the drop must be counted. (A relative './nope'
+        // would NOT exercise this: tryRelativeWithExtensions returns a phantom
+        // path for missing targets — that is the staleResolvedImports bucket.)
+        "const gone = require('my-local-helper');\n" +
+        'module.exports = { run: () => helper() + (gone ? 1 : 0) };\n',
+    },
+  },
+  {
     language: 'svelte',
     needsPython: false,
     expectedMethods: ['relative'],
