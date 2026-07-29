@@ -5,6 +5,13 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L2-20：tree-sitter 装填竞态 — 并发首调共享一次 Language.load (2026-07-28)
+
+- **Fixed** 实测发现：cobra 冷构建 36 个 Go 文件 19 个静默降级 regex（cJSON 18/99 同病），但串行直跑 parseGo 36/36 全 AST、36 路并发直跑也零降级。埋点抓到的真错误是 init 阶段的 `Incompatible language version 0` ×19——根因是 `loadLanguage` 的**装填竞态**：同步查缓存、异步 `Language.load` 后才写缓存，N 个并发首调全部看到 miss 各自装填，竞态窗口产出 version 0 损坏对象；`getParserModule` 同形（`Parser.init()` 可被并发调多次）。parse/query 本身是同步调用，同线程无真互踩——所以修 loader 而不是给 go/kotlin/cpp 补三把 parse 锁（登记时的初步方案被实验证伪后修正）。
+- **Changed** `tree-sitter.js` 两个缓存改存 **in-flight promise**：并发调用者共享同一次装填；装填失败自动 eviction 允许重试（保持旧的失败不缓存语义）。rust-ast 既有串行锁保留不赌。CACHE_VERSION **不 bump**：竞态降级条目 `parseModeReason='regex-fallback'`，本来就命中「regex-fallback 缓存永不信任」约束每次重解析，旧缓存自愈。
+- **实测**：cobra **fallback 19 → 0（36/36 AST）**；cJSON **fallback 18 → 0（99/99 AST）**——九仓 AST 覆盖率全部实测归真。
+- **Added** `tree-sitter-loader-race-test`：16 并发首调必须返回同一 Language 对象（确定性咬在机制上——`Promise.all` map 同步展开，无 promise-cache 必然 N 个 distinct，探针实证 24/24 distinct）+ 混语言四路各只装一次。先 RED 后修。
+
 ### L2-19：Rust 裸首段 `use` 按当前模块作用域解析 — tryRustScoped (2026-07-28)
 
 - **Added** `tryRustScoped`（`resolvers/rust.js`，`.rs` 链第三位）：Rust 2018+ 的裸首段 `use grounding::FileFacts` 首段 = **当前模块的子模块**（rustc 实证 edition 2024 合法，不是 2015 的 crate 根绝对路径）。模块算术按 2018 路径规则：mod.rs/lib.rs/main.rs 的子模块在旁侧目录，其他文件（`server.rs`）的在 `<stem>/` 下；锚定最近 Cargo.toml 的 src，越界即 null 交给外部闸/符号表——extern crate 与 `std::` 在此不存在文件，自然落空，不抢闸的活。

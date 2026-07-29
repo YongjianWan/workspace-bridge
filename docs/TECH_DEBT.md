@@ -217,11 +217,11 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **触发条件**：Python 仓 `droppedImports` 非零、或改动 `resolvers/python.js` 时。
 
-### L2-20：tree-sitter WASM 并发竞态——只有 rust-ast 有串行锁，go/kotlin/cpp 裸奔
+### L2-20：tree-sitter WASM 并发竞态——根因是 loadLanguage 装填竞态，不是 parse 竞态
 
-**状态**：活跃（2026-07-28 九仓解析深度实测发现）。tree-sitter 的 WASM 后端跨 Parser 实例并发不安全——`rust-ast.js` 为此带了文件级 `rustParseLock`，但 **go-ast / kotlin-ast / cpp-ast 三个 AST parser 全裸奔**：builder 并行 parse 时 WASM 互踩，**静默降级 regex**（无任何警告）。实测：cobra 冷构建 36 个 Go 文件只有 17 个 `parseMode='ast'`，同批文件串行直跑 parseGo **36/36 全 AST**——fallback 率 53% 全是竞态产物，不是 parser 能力。cJSON 18/99 同病（cpp-ast 无锁）。且 rust 那把锁**层级也错了**：锁在 parser 文件里只串行 Rust 自己，混仓里 Go parse 照样能跟 Rust parse 互踩。修复方向：锁上提到 `tree-sitter.js` 做进程级共享串行器（`withTreeSitterLock(fn)`），四个 AST parser 共用——WASM 后端是进程全局的，per-language 锁在混仓下不构成保护。RED 形状现成：`testRustConcurrentParsing`（rust-ast-parser-test.js）就是模板，扩成跨语言混排并发断言 `parseMode==='ast'`。**注意**：现有的「regex-fallback 缓存条目永不信任」约束挡的是工具链缺失，竞态降级的条目 `parseModeReason` 不是 `regex-fallback`，**会带着降级结果正常入缓存**——污染比 javalang 那条更隐蔽。修复后 CACHE_VERSION bump。
+**状态**：✅ **已修（2026-07-28）**。登记时的初步诊断（parse 互踩）被实验证伪后修正：三个 catch 埋点抓到真错误是 init 阶段的 **`Incompatible language version 0`** ×19——`loadLanguage` 同步查缓存、异步装填后才写缓存，N 个并发首调全看到 miss、各自跑 `Language.load`，竞态窗口里产出 version 0 的损坏 Language 对象（getParserModule 同形竞态，`Parser.init()` 可能被并发调多次）。`parser.parse`/`query.matches` 本身是同步调用，同线程不存在真互踩——所以修 loader 而不是加三把 parse 锁。修法：**promise-cache**——`tree-sitter.js` 两个缓存都改存 in-flight promise，并发调用者共享同一次装填；装填失败（resolve null）自动 eviction 允许重试，保持旧的"失败不缓存"语义。rust-ast 的既有串行锁保留（无害，不赌）。RED 确定性咬在机制上：16 个并发首调必须返回**同一个** Language 对象（`Promise.all` 的 map 同步展开，全部先于任何装填 settle 通过缓存检查——无 promise-cache 必然 16 个 distinct，探针实证 24/24 distinct）。**CACHE_VERSION 不 bump**：竞态降级条目 `parseModeReason='regex-fallback'`，本来就命中"regex-fallback 缓存永不信任"约束每次重解析，旧缓存自愈——登记时写的"修复后 bump"判断作废。实测：cobra **36/36 AST（fallback 19 → 0）**、cJSON **99/99 AST（fallback 18 → 0）**；fast 144/144（+1 新测试）、eslint 0、parity/dropped-imports 绿。
 
-**触发条件**：Go/Kotlin/C/C++ 仓 `analysisCoverage.fallbackFiles` 非零、或改动任一 tree-sitter parser 时。
+**原始记录（留档）**：登记时的实测与初步假设——cobra 冷构建 36 个 Go 文件只有 17 个 `parseMode='ast'`，串行直跑 36/36 全 AST；cJSON 18/99 同病。初步假设"WASM 后端跨实例并发不安全 → parse 互踩"被两个探针证伪：(1) 36 路并发直跑 parseGo 零降级；(2) 埋点抓到 version 0 错误全部在 init 阶段。教训与"假绿断言"同族：**先抓真错误再定修法**，catch-all 吞错误让根因藏了两层。
 
 ### ✅ L2-12 已清零（2026-07-28）：Rust 的 `super::` / `crate::` 转回模块算术
 
@@ -260,7 +260,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 > | 层 | 条目 | 为什么在这一层 |
 > | --- | --- | --- |
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
-> | **P1 紧随** | ~~L2-16 Rust crate 名归一~~ ✅（2026-07-28，symbol-table 167→5） · L2-17 Python 仓内包路径 · ~~L2-18 Rust parser 花括号列表前缀~~ ✅（2026-07-28，丢弃 34→12） · ~~L2-19 Rust 裸首段 use~~ ✅（2026-07-28，丢弃 12→0，**Rust 侧清零**） · **L2-20 tree-sitter WASM 竞态**（新，2026-07-28 深度实测发现——cobra 53% 文件静默降级 regex，它污染解析深度数据本身，建议先于 L2-17） | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
+> | **P1 紧随** | ~~L2-16 Rust crate 名归一~~ ✅ · L2-17 Python 仓内包路径 · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅（2026-07-28，cobra fallback 19→0 / cJSON 18→0，**九仓 AST 覆盖率全部实测归真**） | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
 > | **P2 依赖前两层** | L2-10 符号表判决（T6）· L2-14 JVM 源根（Java 侧） | 数据齐了才能拍；顺序与理由写在 L2-10 内 |
 > | **P3 记账不排期** | L2-15 的动作 2–3（freshness 细化 / section 级设计；动作 0+1 已于 2026-07-28 完成——门禁拒绝 + `replayedFrom` 标记） · L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 | 粗粒度换速度是真实收益，报告路径只补抓手；L3-8 走"接触即修"，不做大扫除 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
