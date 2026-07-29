@@ -220,6 +220,95 @@ function testRustLibNameOverridesPackageName() {
   cleanupTempDir(tmpDir);
 }
 
+// ---------------------------------------------------------------------------
+// L2-19: Rust 2018+ bare first segment names a submodule of the CURRENT
+// module (`use grounding::FileFacts` in benchmark/mod.rs where
+// `pub mod grounding;` is declared). Fixtures mirror the 12 measured drops on
+// reference/qartez-mcp: benchmark/mod.rs + qartez-dashboard/src/lib.rs.
+// ---------------------------------------------------------------------------
+function makeRustScopedCrate(prefix) {
+  const tmpDir = makeTempDir(prefix);
+  fs.writeFileSync(path.join(tmpDir, 'Cargo.toml'), '[package]\nname = "app"\n');
+  fs.mkdirSync(path.join(tmpDir, 'src', 'benchmark'), { recursive: true });
+  fs.mkdirSync(path.join(tmpDir, 'src', 'server'), { recursive: true });
+  for (const f of [
+    path.join('src', 'lib.rs'),
+    path.join('src', 'cli.rs'),
+    path.join('src', 'server.rs'),
+    path.join('src', 'server', 'api.rs'),
+    path.join('src', 'benchmark', 'mod.rs'),
+    path.join('src', 'benchmark', 'grounding.rs'),
+    path.join('src', 'benchmark', 'report.rs'),
+  ]) {
+    fs.writeFileSync(path.join(tmpDir, f), '');
+  }
+  return tmpDir;
+}
+
+function testRustScopedFromModFile() {
+  const tmpDir = makeRustScopedCrate('wb-rs-scoped-mod-');
+
+  // benchmark/mod.rs declares `pub mod grounding;` — a bare first segment is a
+  // submodule of the current module, searched beside the mod.rs.
+  const mod = path.join(tmpDir, 'src', 'benchmark', 'mod.rs');
+  const r1 = resolveImport(mod, 'grounding::FileFacts', '.rs', tmpDir);
+  assert(r1 && r1.endsWith(path.join('src', 'benchmark', 'grounding.rs')), `grounding::FileFacts from benchmark/mod.rs -> benchmark/grounding.rs, got ${r1}`);
+
+  const r2 = resolveImport(mod, 'report::BenchmarkReport', '.rs', tmpDir);
+  assert(r2 && r2.endsWith(path.join('src', 'benchmark', 'report.rs')), `report::BenchmarkReport from benchmark/mod.rs -> benchmark/report.rs, got ${r2}`);
+
+  cleanupTempDir(tmpDir);
+}
+
+function testRustScopedFromCrateRootFile() {
+  const tmpDir = makeRustScopedCrate('wb-rs-scoped-root-');
+
+  // lib.rs/main.rs ARE the crate root module: submodules live in the same dir
+  // (qartez-dashboard/src/lib.rs: `pub mod cli;` + `pub use cli::DashboardCommand`).
+  const lib = path.join(tmpDir, 'src', 'lib.rs');
+  const r1 = resolveImport(lib, 'cli::DashboardCommand', '.rs', tmpDir);
+  assert(r1 && r1.endsWith(path.join('src', 'cli.rs')), `cli::DashboardCommand from src/lib.rs -> src/cli.rs, got ${r1}`);
+
+  cleanupTempDir(tmpDir);
+}
+
+function testRustScopedFromNonModFileUsesStemDir() {
+  const tmpDir = makeRustScopedCrate('wb-rs-scoped-stem-');
+
+  // src/server.rs is module `server`; its submodules live in src/server/
+  // (2018 path rules: a non-mod.rs file's submodules live under <stem>/).
+  const server = path.join(tmpDir, 'src', 'server.rs');
+  const r1 = resolveImport(server, 'api::Client', '.rs', tmpDir);
+  assert(r1 && r1.endsWith(path.join('src', 'server', 'api.rs')), `api::Client from src/server.rs -> src/server/api.rs, got ${r1}`);
+
+  cleanupTempDir(tmpDir);
+}
+
+function testRustScopedDoesNotFabricate() {
+  const tmpDir = makeRustScopedCrate('wb-rs-scoped-null-');
+
+  const mod = path.join(tmpDir, 'src', 'benchmark', 'mod.rs');
+  // No submodule named `phantom` anywhere in the current module: must fall
+  // through (external gate / symbol table), not guess.
+  const r1 = resolveImport(mod, 'phantom::Nope', '.rs', tmpDir);
+  assert(r1 === null, `unknown bare segment must not resolve, got ${r1}`);
+
+  // std:: names a builtin, not a local file — nothing must be fabricated.
+  const r2 = resolveImport(mod, 'std::io::Read', '.rs', tmpDir);
+  assert(r2 === null, `std:: must stay with the builtin gate, got ${r2}`);
+
+  // Sibling-module shapes must NOT leak across modules: grounding is a
+  // submodule of benchmark, not of server.rs.
+  const r3 = resolveImport(path.join(tmpDir, 'src', 'server.rs'), 'grounding::FileFacts', '.rs', tmpDir);
+  assert(r3 === null, `benchmark's submodule must not resolve from server.rs, got ${r3}`);
+
+  // crate::/super::/self:: stay with their own strategies.
+  const r4 = resolveImport(mod, 'self::grounding::FileFacts', '.rs', tmpDir);
+  assert(r4 === null, `self:: is not this strategy's job (no self:: handler today), got ${r4}`);
+
+  cleanupTempDir(tmpDir);
+}
+
 testGoModuleImport();
 testGoModMissing();
 testGoModMalformed();
@@ -231,4 +320,8 @@ testRustSuperFromModFileClimbsImmediately();
 testRustCrateAnchorsAtNearestCargoToml();
 testRustOwnCrateNameImport();
 testRustLibNameOverridesPackageName();
+testRustScopedFromModFile();
+testRustScopedFromCrateRootFile();
+testRustScopedFromNonModFileUsesStemDir();
+testRustScopedDoesNotFabricate();
 console.log('gors-resolver-test: all passed');

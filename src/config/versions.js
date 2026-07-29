@@ -57,6 +57,10 @@ const SCHEMA_VERSION = '1.2.0';
 //      `use super::{a,b}` 抽成 `::a`。同刀补齐列表内嵌套 scoped 项
 //      （`use crate::{config::X}`）与 reexport 名单的嵌套项。v20 缓存里
 //      Rust 仓存着 22 条 `::ident` 假丢弃（qartez-mcp 实测）。
-const CACHE_VERSION = 21;
+// v22: Rust 裸首段 use 按当前模块作用域解析（L2-19）——tryRustScoped：
+//      2018+ `use grounding::X` 首段 = 当前模块的子模块（mod.rs/lib.rs/
+//      main.rs 的子模块在旁侧目录，其他文件的在 <stem>/ 下）。v21 缓存里
+//      Rust 仓存着 12 条裸首段假丢弃（qartez-mcp 实测）。
+const CACHE_VERSION = 22;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

@@ -20,7 +20,7 @@ const { tryAlias, tryRelativeWithExtensions } = require('../resolvers/javascript
 const { tryPythonRelative, tryPythonAbsolute } = require('../resolvers/python');
 const { tryJava } = require('../resolvers/java');
 const { tryGoRelative, tryGoModule } = require('../resolvers/go');
-const { tryRustCrate, tryRustSuper } = require('../resolvers/rust');
+const { tryRustCrate, tryRustSuper, tryRustScoped } = require('../resolvers/rust');
 const { tryCppInclude, CPP_BUILTINS } = require('../resolvers/cpp');
 
 const registry = new LanguageRegistry();
@@ -182,7 +182,7 @@ registry.register(defineLanguage({
   filePatterns: ['**/*.rs'],
   condition: (workspace) => workspace.hasRust,
   isBuiltIn: (imp) => imp === 'std' || imp === 'core' || imp === 'alloc',
-  resolveStrategies: [tryRustCrate, tryRustSuper],
+  resolveStrategies: [tryRustCrate, tryRustSuper, tryRustScoped],
   extractSymbols: (content) => {
     const symbols = [];
     content.split('\n').forEach((line, idx) => {

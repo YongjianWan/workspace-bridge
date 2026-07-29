@@ -39,6 +39,7 @@ const {
 const {
   tryRustCrate,
   tryRustSuper,
+  tryRustScoped,
 } = require('./resolvers/rust');
 
 const {
@@ -419,6 +420,7 @@ module.exports = {
   tryGoModule,
   tryRustCrate,
   tryRustSuper,
+  tryRustScoped,
   tryCppInclude,
   trySymbolTable,
   // Public gate query for "would this specifier be dropped *expectedly*"

@@ -79,7 +79,6 @@ function tryRustCrate(importPath, fromFile, ctx) {
 
 function tryRustSuper(importPath, fromFile, ctx) {
   if (!importPath.startsWith('super::')) return null;
-
   let climbs = 0;
   let remaining = importPath;
   while (remaining.startsWith('super::')) {
@@ -123,8 +122,53 @@ function tryRustSuper(importPath, fromFile, ctx) {
   return resolved;
 }
 
+/**
+ * Rust 2018+ bare first segment (`use grounding::FileFacts`) names a
+ * submodule of the CURRENT module — verified against rustc on edition 2024
+ * (TECH_DEBT L2-19: 12 measured drops on qartez-mcp, all of this shape).
+ *
+ * Scope rules (2018 path rules): mod.rs/lib.rs/main.rs ARE the module named by
+ * their parent (or the crate root), so their submodules live beside them; any
+ * other file (server.rs) is a module whose submodules live in <stem>/. An
+ * unknown segment returns null and falls through to the external gate / symbol
+ * table — extern crate names and std/core/alloc exist as no file here.
+ *
+ * Deliberately NOT implemented: ancestor-module lookup. Ancestor module items
+ * are not in scope in Rust 2018+ without super::/crate:: — walking up would
+ * fabricate edges for code that does not compile. If rustc-visible ancestor
+ * shapes ever appear, the dropped-imports alarm will name them.
+ */
+function tryRustScoped(importPath, fromFile, ctx) {
+  if (
+    importPath.startsWith('crate::') ||
+    importPath.startsWith('super::') ||
+    importPath.startsWith('self::')
+  ) {
+    return null;
+  }
+
+  const fromDir = path.dirname(fromFile);
+  const base = path.basename(fromFile);
+  const isModuleFile = base === 'mod.rs' || base === 'lib.rs' || base === 'main.rs';
+  const baseDir = isModuleFile ? fromDir : path.join(fromDir, base.replace(/\.rs$/, ''));
+
+  // A bare segment never names a module outside the current crate's src.
+  const crateRoot = findCargoCrateRoot(fromFile, ctx.root);
+  const srcRoot = path.join(crateRoot, 'src');
+  if (baseDir !== srcRoot && !baseDir.startsWith(srcRoot + path.sep)) return null;
+
+  const resolved = resolveRustModulePath(importPath, ctx.root, baseDir);
+  if (resolved && ctx.outMeta) {
+    ctx.outMeta.method = 'rust-scoped';
+    ctx.outMeta.confidence = 1.0;
+    ctx.outMeta.tier = 'tier1';
+  }
+  return resolved;
+}
+
 module.exports = {
   tryRustCrate,
   tryRustSuper,
+  tryRustScoped,
   resolveRustModulePath,
 };

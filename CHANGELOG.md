@@ -5,6 +5,13 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L2-19：Rust 裸首段 `use` 按当前模块作用域解析 — tryRustScoped (2026-07-28)
+
+- **Added** `tryRustScoped`（`resolvers/rust.js`，`.rs` 链第三位）：Rust 2018+ 的裸首段 `use grounding::FileFacts` 首段 = **当前模块的子模块**（rustc 实证 edition 2024 合法，不是 2015 的 crate 根绝对路径）。模块算术按 2018 路径规则：mod.rs/lib.rs/main.rs 的子模块在旁侧目录，其他文件（`server.rs`）的在 `<stem>/` 下；锚定最近 Cargo.toml 的 src，越界即 null 交给外部闸/符号表——extern crate 与 `std::` 在此不存在文件，自然落空，不抢闸的活。
+- **明确不做**祖先模块回溯：祖先模块项在 2018+ 没有 `super::`/`crate::` 不在作用域，回溯 = 给编译不过的代码造边。债条原方案含逐级祖先，实现时按 rustc 语义收窄，理由写进代码注释与 TECH_DEBT。
+- **实测**（qartez-mcp 冷构建）：丢弃 **12 → 0**——benchmark/mod.rs 11 条子模块形状 + qartez-dashboard/src/lib.rs 1 条 crate 根形状（`cli::DashboardCommand`）全解开，**Rust 侧 droppedImports 清零**（152 → 0 全程：L2-16 → L2-18 → L2-19）。
+- **Added** gors-resolver 四条：mod.rs 子模块 / crate 根文件 / 非 mod 文件 stem 目录 / 不造边（未知段落空、`std::` 留给闸、跨模块不泄漏、`self::` 不归本条）。全先 RED。CACHE_VERSION 21 → 22。
+
 ### L2-18：Rust parser 花括号列表关键字前缀 — `use super::{a,b}` 不再抽成 `::a` (2026-07-28)
 
 - **Fixed** 根因：tree-sitter 把花括号列表前缀位置的 `super`/`self`/`crate` 发成**独立节点类型**（关键字，不是 identifier），`getUseListPrefix` 只认 `scoped_identifier`/`identifier` → 前缀取空串 → 列表项拼出 `::a` 这种非法 specifier。qartez-mcp 实测 22 条丢弃全是这一族（L2-16 分组统计分出）。同刀补齐两个同函数缺口：列表内**嵌套 scoped 项**（`use crate::{config::AppConfig}` 的 `config::AppConfig` 原本整项被跳过，import 与 reexport 名单两侧都丢）与 `use_as_clause` 的 scoped 原路径。regex fallback（polyglot）本就拼前缀，parity 无需对齐。

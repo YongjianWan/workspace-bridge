@@ -100,7 +100,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 | cobra | Go | 36 | **0** | 0 | 干净（零名单闸的红利） |
 | zod | TS | 409 | 80 → **4**（缺口 A 修复后复测） | 42 | ~~闸缺口 A~~（已修，2026-07-28；剩 4 条为根层 rollup config import 子包 devDeps，真阳性） |
 | CodeGraphContext | Py | 284 | 70 → **34**（缺口 B 修复后复测） | 60 | ~~闸缺口 B~~（已修，2026-07-28）+ 结构缺口（见 L2-17）+ 传递依赖（httpx/anyio，manifest 未声明） |
-| qartez-mcp | Rust | 230 | 152 → 34 → **12**（L2-16 / L2-18 修复后复测） | 35 | ~~结构缺口为主~~（L2-16、L2-18 已修 2026-07-28；剩 12 条裸首段 = L2-19） |
+| qartez-mcp | Rust | 230 | 152 → 34 → 12 → **0**（L2-16 / L2-18 / L2-19 修复后复测） | ~~35~~ 0 | ~~结构缺口~~ **清零**（L2-16/18/19 全修，2026-07-28） |
 | spring-petclinic | Java | 49 | 362 → **0**（缺口 C 修复后复测） | ~~44 / 49~~ 0 | ~~闸缺口 C~~（已修 2026-07-28，零名单仓内包前缀闸） |
 
 - **缺口 A — monorepo 子包依赖**：✅ **已修（2026-07-28）**。`readPackageDeps(root)` 只读工作区根的 `package.json`；zod 是 pnpm workspace，`@rollup/plugin-*` 声明在 `packages/treeshake/package.json` 里 → 80 条全被当成「看着像自己的」丢弃。改法按债条处方落地：`packageManifestChain(fromDir, root)`（`resolvers/base.js`）从导入方文件向上到根逐层收集含 `package.json` 的目录（缓存键 = fromDir+root 归一化对，与 `_cargoCrateRootCache` 同形），`_isExternalJsPackage` 沿链查 manifest 声明与 `node_modules` 探测（node 语义），`fromFile` 经 ctx 穿进闸（`trySymbolTable` 与 builder 丢弃记账两个消费方都接了）。**踩到的坑**：链的包含比较必须过 `normalizePathKey`——测试与 builder 给的是归一化路径（Windows 上小写+正斜杠），直接 `startsWith` 比原始字符串会静默把链截断成只剩根 manifest，修复等于没修。实测 zod **80 → 4**；剩 4 条是 `.configs/rollup.config.js` 位于根层却 import 只挂在子包 devDeps 上的包——它的 manifest 链上确实没人声明，pnpm hoist 运行时侥幸而已，算真阳性不设机制。CACHE_VERSION 18。
@@ -203,7 +203,9 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 ### L2-19：Rust 2018+ `use` 的裸首段路径按当前模块作用域解析（`pub use grounding::FileFacts`）
 
-**状态**：活跃（2026-07-28 L2-16 分组统计发现，rustc 实证）。qartez-mcp 剩 34 条里 12 条是 `grounding::FileFacts` / `cli::DashboardCommand` 这类裸首段路径，全部来自 `pub use grounding::{…}`（`src/benchmark/mod.rs`）这类语句。最小复现 + rustc 实证：edition 2024 下 `use grounding::X` 合法——2018+ 的 `use` 首段在**当前模块作用域**解析（子模块/祖先模块/外部 crate 皆可），不是 2015 的 crate 根绝对路径。resolver 没有对应策略（tryRustCrate 管 `crate::`/own-crate，tryRustSuper 管 `super::`，裸首段无人管）。修复方向：`tryRustScoped`——首段对当前模块的子模块、逐级祖先（词法作用域）做模块算术，全部落空再交给外部闸/符号表。**触发条件**：Rust 仓 `droppedImports` 出现裸首段样本、或改动 `resolvers/rust.js`。
+**状态**：✅ **已修（2026-07-28）**。新策略 `tryRustScoped`（`resolvers/rust.js`）注册进 `.rs` 链（tryRustCrate / tryRustSuper 之后）：裸首段 = **当前模块的子模块**——mod.rs/lib.rs/main.rs 的子模块在旁侧目录，其他文件（server.rs）的在 `<stem>/` 下（2018 路径规则）；锚定最近 Cargo.toml 的 src，越界即 null。**明确不做祖先模块回溯**：祖先模块项在 2018+ 没有 super::/crate:: 不在作用域内，回溯会给编译不过的代码造边——真出现 rustc 可见的祖先形状，丢弃报警会点名。实测 qartez-mcp 丢弃 **12 → 0**（benchmark/mod.rs 11 条子模块形状 + qartez-dashboard/src/lib.rs 1 条 crate 根形状全解开），**Rust 侧丢弃清零**；fast 143/143 + eslint + parity/dropped-imports 全绿。CACHE_VERSION 22。
+
+**原始记录（留档）**：活跃（2026-07-28 L2-16 分组统计发现，rustc 实证）。qartez-mcp 剩 34 条里 12 条是 `grounding::FileFacts` / `cli::DashboardCommand` 这类裸首段路径，全部来自 `pub use grounding::{…}`（`src/benchmark/mod.rs`）这类语句。最小复现 + rustc 实证：edition 2024 下 `use grounding::X` 合法——2018+ 的 `use` 首段在**当前模块作用域**解析（子模块/祖先模块/外部 crate 皆可），不是 2015 的 crate 根绝对路径。resolver 没有对应策略（tryRustCrate 管 `crate::`/own-crate，tryRustSuper 管 `super::`，裸首段无人管）。
 
 ### L2-17：Python 仓内绝对包路径解不开（`codegraphcontext.tools.handlers`）
 
@@ -252,7 +254,7 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 > | 层 | 条目 | 为什么在这一层 |
 > | --- | --- | --- |
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
-> | **P1 紧随** | ~~L2-16 Rust crate 名归一~~ ✅（2026-07-28，symbol-table 167→5） · L2-17 Python 仓内包路径 · ~~L2-18 Rust parser 花括号列表前缀~~ ✅（2026-07-28，丢弃 34→12） · L2-19 Rust 裸首段 use | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
+> | **P1 紧随** | ~~L2-16 Rust crate 名归一~~ ✅（2026-07-28，symbol-table 167→5） · L2-17 Python 仓内包路径 · ~~L2-18 Rust parser 花括号列表前缀~~ ✅（2026-07-28，丢弃 34→12） · ~~L2-19 Rust 裸首段 use~~ ✅（2026-07-28，丢弃 12→0，**Rust 侧清零**） | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
 > | **P2 依赖前两层** | L2-10 符号表判决（T6）· L2-14 JVM 源根（Java 侧） | 数据齐了才能拍；顺序与理由写在 L2-10 内 |
 > | **P3 记账不排期** | L2-15 的动作 2–3（freshness 细化 / section 级设计；动作 0+1 已于 2026-07-28 完成——门禁拒绝 + `replayedFrom` 标记） · L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 | 粗粒度换速度是真实收益，报告路径只补抓手；L3-8 走"接触即修"，不做大扫除 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
