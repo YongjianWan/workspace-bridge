@@ -283,22 +283,43 @@ function _isExternalCppHeader(specifier, root, ctx) {
  * isExternal receives (specifier, root, ctx); ctx is null-safe for rows that
  * only need the specifier.
  */
+/**
+ * JVM zero-list gate (L2-11 gap C). Java/Kotlin imports are always
+ * fully-qualified, and the parser already extracts every workspace file's
+ * `package` declaration into the graph — so "not inside any workspace
+ * package = external" is a deterministic fact. No pom/gradle reader, no
+ * groupId guessing, same shape as Go's zero-list gate. The package set comes
+ * from the builder via ctx.workspacePackages; absent or empty means "unknown"
+ * and the gate stays out of the way (old behavior: only stdlib gated).
+ * Stdlib prefixes keep their single home in the registry's isBuiltIn.
+ */
+function _isExternalJvmPackage(specifier, root, ctx, fromExt) {
+  const lang = registry.findByExt(fromExt);
+  if (lang && typeof lang.isBuiltIn === 'function' && lang.isBuiltIn(specifier)) return true;
+  const pkgs = ctx && ctx.workspacePackages;
+  if (!pkgs || pkgs.size === 0) return false;
+  const base = specifier.endsWith('.*') ? specifier.slice(0, -2) : specifier;
+  for (const pkg of pkgs) {
+    if (base === pkg || base.startsWith(pkg + '.') || pkg.startsWith(base + '.')) return false;
+  }
+  return true;
+}
+
 const EXTERNAL_DEPENDENCY_CHECKS = [
   { matches: (ext) => JS_FAMILY_EXTENSIONS.has(ext), isExternal: _isExternalJsPackage },
   { matches: (ext) => ext === '.rs', isExternal: _isExternalRustCrate },
   { matches: (ext) => ext === '.py', isExternal: _isExternalPythonModule },
   { matches: (ext) => ext === '.go', isExternal: _isExternalGoModule },
   { matches: (ext) => CPP_EXTENSIONS.has(ext), isExternal: _isExternalCppHeader },
+  { matches: (ext) => ext === '.java' || ext === '.kt', isExternal: _isExternalJvmPackage },
 ];
 
 function _isExternalDependency(specifier, fromExt, root, ctx = null) {
   const check = EXTERNAL_DEPENDENCY_CHECKS.find((c) => c.matches(fromExt));
-  if (check) return check.isExternal(specifier, root, ctx);
-  // Languages without a manifest reader still own a builtin list: the
-  // registry's isBuiltIn declarations (java./javax./kotlin. stdlib prefixes).
-  // Consulting them here closes the JVM half of L2-11 and retires L3-6 (the
-  // declarations had zero consumers until this line). Third-party jars still
-  // fall through — that half needs a pom/gradle reader.
+  if (check) return check.isExternal(specifier, root, ctx, fromExt);
+  // Languages without a gate row still own a builtin list: the registry's
+  // isBuiltIn declarations. Consulting them here retired L3-6 (the
+  // declarations had zero consumers until this line).
   const lang = registry.findByExt(fromExt);
   return Boolean(lang && typeof lang.isBuiltIn === 'function' && lang.isBuiltIn(specifier));
 }
@@ -352,7 +373,7 @@ for (const lang of registry.languages) {
 }
 registerResolverConfig('default', [tryAlias, tryRelativeWithExtensions, trySymbolTable]);
 
-function resolveImport(fromFile, importPath, ext, root, symbolRegistry = null, outMeta = null, importHints = null) {
+function resolveImport(fromFile, importPath, ext, root, symbolRegistry = null, outMeta = null, importHints = null, extraCtx = null) {
   if (!importPath) return null;
   let resolver = _resolverCache.get(ext);
   if (!resolver) {
@@ -361,6 +382,7 @@ function resolveImport(fromFile, importPath, ext, root, symbolRegistry = null, o
     _resolverCache.set(ext, resolver);
   }
   const ctx = _buildContext(root, symbolRegistry, importHints);
+  if (extraCtx) Object.assign(ctx, extraCtx);
   if (outMeta) {
     ctx.outMeta = outMeta;
   }

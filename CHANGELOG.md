@@ -5,6 +5,13 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L2-11 缺口 C：JVM 零名单闸 — 仓内包前缀集合之外 = 外部 (2026-07-28)
+
+- **Fixed** Java/Kotlin 第三方 import 此前全裸：spring-petclinic 49 文件 44 个报丢弃、362 条全是 `org.junit.*`/`org.assertj.*`/`org.apache.commons.*` 假警报；okhttp 图里躺着 83 条第三方假边（`org.junit`/`assertk`/`okio` 等猜向本地同名类）。**没走读 pom/gradle 的老方案**（groupId 与包名不同构，且 pom 未声明但 classpath 上有的照样判错）——按 TECH_DEBT 订正后的零名单设计：parser 已把每个文件的 `package` 声明抽进图，「仓内包前缀集合之外的一切 = 外部」是确定事实，与 Go 那道零名单闸同构。
+- **Added** `_isExternalJvmPackage` 闸行（`resolvers.js`，闸表行 now 收 `fromExt`——标准库半仍走 registry `isBuiltIn` 单一知识源，不复制名单）；builder 在每次 resolve 批边界刷新 `workspacePackages`（全量 parse 阶段后 / 增量 link 阶段前 / 单文件 `analyzeFile`——批内 resolve 不新增包，免脏标记）。集合缺失或为空时闸让位（旧行为），不瞎拦。`resolveImport` 加可选第 8 参 `extraCtx`（additive）。
+- **实测**：spring-petclinic droppedCount **362 → 0**；okhttp symbol-table 边 **1037 → 937**，第三方假边**清零**、`okhttp3.*` 仓内真命中 933+ 条保住。okhttp 剩 841 条丢弃全是仓内 specifier 结构解析落空（L2-14 的地界）——仓内包不被闸，结构缺口的报警原样保留，正是设计意图。
+- **Added** `testJvmWorkspacePackageGate`：第三方闸死不猜 / 仓内包与子包照常命中 / 通配符内部 / 空集合让位；`testJavaThirdPartyStillGuessesForNow` 改写为「无集合时的让位契约」（其原注释本就写着「该测试的绿是债，方案落地时必须反转」）。**L2-11 至此清零**，P0 层出空。CACHE_VERSION 18 → 19。
+
 ### L2-11 缺口 A：JS 外部闸读 manifest 链（monorepo 子包 deps） (2026-07-28)
 
 - **Fixed** JS 外部依赖闸此前只读工作区根的 `package.json`：monorepo 子包自己声明的 deps 全部漏认。zod（pnpm workspace）实测 `@rollup/plugin-*` 声明在 `packages/treeshake/package.json`，根上没有 → 80 条丢弃全是假警报（42/409 文件）。新增 `packageManifestChain(fromDir, root)`（`resolvers/base.js`）：从导入方文件向上到根逐层收集含 `package.json` 的目录（缓存键为归一化 fromDir+root 对，与 `_cargoCrateRootCache` 同形）；`_isExternalJsPackage` 沿链查 manifest 声明与 `node_modules` 探测（node 语义，无 `fromFile` 时退化为根 manifest，行为与旧版一致）。`fromFile` 经 ctx 穿进闸的两个消费方（`trySymbolTable` 与 builder 的 droppedImports 记账）。

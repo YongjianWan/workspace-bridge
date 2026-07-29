@@ -271,10 +271,10 @@ function testKotlinStdlibNotGuessed() {
 }
 
 function testJavaThirdPartyStillGuessesForNow() {
-  // Documents the remaining half of L2-11: without a pom/gradle reader the
-  // gate cannot tell com.google.* from com.example.*, so it stays out of the
-  // way. When the manifest reader lands this test must be INVERTED — its
-  // current green is the debt, not the goal.
+  // Fallback contract: when the builder's workspace package set is UNAVAILABLE
+  // (ctx carries none — e.g. direct resolver use outside a build), the gate
+  // stays out of the way rather than gate blindly. The gate proper is
+  // testJvmWorkspacePackageGate below.
   const registry = new SymbolRegistry();
   const file = P('/src/Utils.java');
   registry.register(file, [{ name: 'Helper', kind: 'class', isExported: true }]);
@@ -283,7 +283,71 @@ function testJavaThirdPartyStillGuessesForNow() {
   assert.strictEqual(
     trySymbolTable('com.example.Helper', P('/src/Main.java'), ctx),
     file,
-    'a non-stdlib Java import must still reach the symbol table'
+    'without a workspace package set, a non-stdlib Java import must still reach the symbol table'
+  );
+}
+
+function testJvmWorkspacePackageGate() {
+  // L2-11 gap C — the zero-list JVM gate. Java/Kotlin imports are always
+  // fully-qualified, and the parser already extracts every workspace file's
+  // `package` declaration, so "outside the workspace package set = external"
+  // is a deterministic fact: no pom/gradle reader, no groupId guessing
+  // (spring-petclinic: 362 false drops across 44/49 files, all org.junit /
+  // org.assertj / org.apache.commons; okhttp: 83 fabricated third-party edges).
+  const registry = new SymbolRegistry();
+  const localAssert = P('/src/Assert.java');
+  registry.register(localAssert, [{ name: 'Assert', kind: 'class', isExported: true }]);
+  const localHelper = P('/src/Helper.java');
+  registry.register(localHelper, [{ name: 'Helper', kind: 'class', isExported: true }]);
+  const ctx = {
+    symbolRegistry: registry,
+    root: '/repo',
+    workspacePackages: new Set(['org.springframework.samples.petclinic']),
+  };
+  const from = P('/src/Main.java');
+
+  // Third-party outside the workspace package set: gated, never guessed.
+  assert.strictEqual(
+    trySymbolTable('org.junit.Assert', from, ctx),
+    null,
+    'a third-party import outside the workspace package set must not be guessed against local symbols'
+  );
+  // Same-package-root specifier shares only the first segment — prefix must
+  // match at a segment boundary, not on a raw string prefix.
+  assert.strictEqual(
+    isExternalDependency('org.junit.Assert', '.java', '/repo', ctx),
+    true,
+    'org.junit is external when the workspace owns only org.springframework.samples.petclinic'
+  );
+
+  // Workspace package imports stay internal and resolve (okhttp's ~950 true
+  // symbol-table hits on okhttp3.* rely on this).
+  const internalCtx = {
+    symbolRegistry: registry,
+    root: '/repo',
+    workspacePackages: new Set(['com.example']),
+  };
+  assert.strictEqual(
+    trySymbolTable('com.example.Helper', from, internalCtx),
+    localHelper,
+    'an import inside the workspace package set must still reach the symbol table'
+  );
+  assert.strictEqual(
+    isExternalDependency('com.example.sub.Helper', '.java', '/repo', internalCtx),
+    false,
+    'a sub-package of a workspace package is internal'
+  );
+  assert.strictEqual(
+    isExternalDependency('com.example.*', '.java', '/repo', internalCtx),
+    false,
+    'a wildcard import of a workspace package is internal'
+  );
+
+  // Empty set = unknown, same fallback as no set: do not gate blindly.
+  assert.strictEqual(
+    isExternalDependency('org.junit.Assert', '.java', '/repo', { ...ctx, workspacePackages: new Set() }),
+    false,
+    'an empty workspace package set must not gate anything'
   );
 }
 
@@ -543,6 +607,7 @@ const tests = [
   testJavaStdlibNotGuessed,
   testKotlinStdlibNotGuessed,
   testJavaThirdPartyStillGuessesForNow,
+  testJvmWorkspacePackageGate,
   testRustStdlibNotGuessed,
   testDeclaredCrateNotGuessed,
   testCrateInternalRustPathStillResolves,

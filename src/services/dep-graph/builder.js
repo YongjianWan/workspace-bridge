@@ -193,6 +193,11 @@ class GraphBuilder {
     // Build the global symbol registry with cached files + newly parsed files' exports
     this._buildSymbolRegistry();
 
+    // L2-11 gap C: the JVM zero-list gate reads this set ("outside every
+    // workspace package = external"). All packages are known once the parse
+    // phase has run — refresh before the resolve phase consumes it.
+    this._refreshWorkspacePackages();
+
     // Decoupled Phase 2: Link/Resolve Phase (Resolve imports using completed symbol registry)
     for (const parsed of parsedList) {
       try {
@@ -405,6 +410,21 @@ class GraphBuilder {
     return parsed;
   }
 
+  /**
+   * L2-11 gap C: rebuild the workspace package set the JVM zero-list gate
+   * consults ("outside every workspace package = external"). Recomputed at
+   * each resolve batch boundary (full build / incremental / single-file) —
+   * resolutions never add packages, so a per-batch refresh cannot go stale
+   * mid-batch and needs no dirty-flag machinery.
+   */
+  _refreshWorkspacePackages() {
+    const pkgs = new Set();
+    for (const info of this.dg.graph.values()) {
+      if (info.package) pkgs.add(info.package);
+    }
+    this.workspacePackages = pkgs;
+  }
+
   resolveFileOnly(parsed) {
     const { filePath, graphKey, content, imports, exports, importRecords, exportRecords, functionRecords, parseMode, parseModeReason, confidence, package: packageName } = parsed;
     const ext = path.extname(filePath);
@@ -413,7 +433,7 @@ class GraphBuilder {
     const resolvedImportRecords = (importRecords.length > 0 ? importRecords : imports.map((source) => createImportRecord(source)))
       .map((record) => {
         const outMeta = {};
-        const resolved = resolveImport(filePath, record.source, ext, this.dg.root, this.symbolRegistry, outMeta, { isLocal: record.isLocal });
+        const resolved = resolveImport(filePath, record.source, ext, this.dg.root, this.symbolRegistry, outMeta, { isLocal: record.isLocal }, { workspacePackages: this.workspacePackages });
         if (!resolved) {
           // Keep wildcard imports even if they don't resolve directly to a file
           if (record.usesAllExports && record.source.endsWith('.*')) {
@@ -424,7 +444,7 @@ class GraphBuilder {
           // deps) produce no edge *by design* — counting them would cry wolf on
           // every 'import os'. This accounting is what makes a language-wide
           // resolution gap (L1-4) visible instead of silent.
-          if (!isExternalDependency(record.source, ext.toLowerCase(), this.dg.root, { importHints: { isLocal: record.isLocal }, fromFile: filePath })) {
+          if (!isExternalDependency(record.source, ext.toLowerCase(), this.dg.root, { importHints: { isLocal: record.isLocal }, fromFile: filePath, workspacePackages: this.workspacePackages })) {
             if (!this.dg._droppedImports) this.dg._droppedImports = { count: 0, files: new Set(), samples: [] };
             const dropped = this.dg._droppedImports;
             dropped.count++;
@@ -499,6 +519,7 @@ class GraphBuilder {
   async analyzeFile(filePath) {
     try {
       const parsed = await this.parseFileOnly(filePath);
+      this._refreshWorkspacePackages();
       this.resolveFileOnly(parsed);
     } catch (e) {
       this._markParseError(this.dg.normalizeFilePath(filePath), filePath, `[DepGraph] Failed to analyze ${filePath}: ${e?.message || e}`);
@@ -994,6 +1015,7 @@ class GraphBuilder {
 
       // Re-build symbol registry with the newly parsed exports in graph
       this._buildSymbolRegistry();
+      this._refreshWorkspacePackages();
 
       // Link/Resolve Phase
       for (const parsed of parsedList) {

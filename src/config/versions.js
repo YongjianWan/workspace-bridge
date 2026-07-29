@@ -42,6 +42,10 @@ const SCHEMA_VERSION = '1.2.0';
 // v18: JS 外部闸读 manifest 链（L2-11 缺口 A）——从导入方文件向上到工作区根
 //      逐层读 package.json（含 node_modules 探测），不再只读根的。v17 缓存在
 //      monorepo 仓（zod 型）存着子包 deps 的假丢弃与潜在假边。
-const CACHE_VERSION = 18;
+// v19: JVM 零名单闸（L2-11 缺口 C）——仓内包前缀集合之外的一切 = 外部
+//      （java./javax./kotlin. 标准库仍走 registry isBuiltIn）。v18 缓存里
+//      JVM 仓存着第三方假边（okhttp 实测 83 条：org.junit/assertk/okio 等
+//      猜向本地同名类）与第三方 import 的假丢弃（spring-petclinic 362 条）。
+const CACHE_VERSION = 19;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };
