@@ -343,6 +343,32 @@ function testJvmWorkspacePackageGate() {
     'a wildcard import of a workspace package is internal'
   );
 
+  // The reverse containment (workspace package sits BELOW the specifier) is a
+  // wildcard-only rule. `import com.example.*` claims the whole package, so
+  // owning com.example.sub makes it internal. A plain class import says nothing
+  // of the sort: owning org.junit.support does not make org.junit.Assert ours —
+  // that is exactly the fabricated third-party edge this gate exists to kill.
+  const belowCtx = {
+    symbolRegistry: registry,
+    root: '/repo',
+    workspacePackages: new Set(['org.junit.support']),
+  };
+  assert.strictEqual(
+    isExternalDependency('org.junit.Assert', '.java', '/repo', belowCtx),
+    true,
+    'a third-party class import stays external when the workspace merely owns a package below it'
+  );
+  assert.strictEqual(
+    isExternalDependency('org.junit.*', '.java', '/repo', belowCtx),
+    false,
+    'a wildcard import stays internal when the workspace owns a package below it'
+  );
+  assert.strictEqual(
+    trySymbolTable('org.junit.Assert', from, belowCtx),
+    null,
+    'the below-package case must not reopen symbol-table guessing for third-party classes'
+  );
+
   // Empty set = unknown, same fallback as no set: do not gate blindly.
   assert.strictEqual(
     isExternalDependency('org.junit.Assert', '.java', '/repo', { ...ctx, workspacePackages: new Set() }),

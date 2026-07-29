@@ -185,25 +185,33 @@ function readPackageDeps(root) {
  */
 function packageManifestChain(fromDir, root) {
   if (!root) return [];
-  // Containment compares go through normalizePathKey: callers hand us paths
-  // in either raw or normalized shape, and on Windows those differ in case
-  // and separators. Comparing raw strings would silently truncate the chain
-  // to the root manifest alone.
-  const resolvedRoot = normalizePathKey(root);
-  const start = fromDir ? normalizePathKey(fromDir) : resolvedRoot;
-  const key = `${start}\n${resolvedRoot}`;
+  // Compare in normalizePathKey space, RETURN platform-native original-case
+  // dirs — the same split findCargoCrateRoot makes, for the same reason.
+  // Callers hand us paths in either shape and on Windows those differ in case
+  // and separators, so raw-string containment would silently truncate the
+  // chain to the root manifest alone; but consumers path.join and cache-key
+  // against file-index paths (native casing), so a normalized return value
+  // breaks their arithmetic the other way.
+  const nativeRoot = path.resolve(root);
+  const rootNorm = normalizePathKey(nativeRoot);
+  const start = fromDir ? path.resolve(fromDir) : nativeRoot;
+  const key = `${normalizePathKey(start)}\n${rootNorm}`;
   const cached = _packageDirChainCache.get(key);
   if (cached) return cached;
 
   const chain = [];
   let dir = start;
-  while (dir === resolvedRoot || dir.startsWith(resolvedRoot + '/')) {
+  for (;;) {
+    const dirNorm = normalizePathKey(dir);
+    if (dirNorm !== rootNorm && !dirNorm.startsWith(rootNorm + '/')) break;
     if (cachedExistsSync(path.join(dir, 'package.json'))) chain.push(dir);
-    if (dir === resolvedRoot) break;
-    dir = path.posix.dirname(dir);
+    if (dirNorm === rootNorm) break;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
   }
-  if (chain.length === 0 && cachedExistsSync(path.join(resolvedRoot, 'package.json'))) {
-    chain.push(resolvedRoot);
+  if (chain.length === 0 && cachedExistsSync(path.join(nativeRoot, 'package.json'))) {
+    chain.push(nativeRoot);
   }
   _packageDirChainCache.set(key, chain);
   return chain;

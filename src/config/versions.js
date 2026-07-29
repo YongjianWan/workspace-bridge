@@ -66,6 +66,10 @@ const SCHEMA_VERSION = '1.2.0';
 //      tryPythonRelative 双侧，builder 把 record.imported 穿进 extraCtx）。
 //      v22 缓存里 Python 仓存着 namespace 假丢弃（CodeGraphContext 实测
 //      6 条 codegraphcontext.* + 2 条相对导入点号形状）。
-const CACHE_VERSION = 23;
+// v24: Python absolute 两遍搜索——namespace 兜底是对全部 searchRoots 的兜底，
+//      不是逐 root 短路：v23 下单循环让前位 root 的弱证据（恰好持有同名文件
+//      的 namespace 目录）压过后位 root 的真 __init__.py（src-layout 仓根
+//      残留同名目录即此形状）。v23 缓存里此类仓存着指错目标的 tier1 边。
+const CACHE_VERSION = 24;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

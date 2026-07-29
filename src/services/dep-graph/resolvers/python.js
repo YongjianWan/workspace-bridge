@@ -30,8 +30,9 @@ function _tryNamespaceSubmodule(basePath, ctx) {
   return null;
 }
 
-function _markResolved(ctx) {
+function _markResolved(ctx, method) {
   if (ctx.outMeta) {
+    ctx.outMeta.method = method;
     ctx.outMeta.confidence = 1.0;
     ctx.outMeta.tier = 'tier1';
   }
@@ -52,10 +53,11 @@ function tryPythonRelative(importPath, fromFile, ctx) {
     ? path.join(currentDir, ...remainder.split('.'))
     : currentDir;
 
+  // Single base path here, so "plain first" needs no second pass — unlike
+  // tryPythonAbsolute, which searches several roots.
   const resolved = _tryPythonCandidates(basePath, ctx) || _tryNamespaceSubmodule(basePath, ctx);
   if (!resolved) return null;
-  _markResolved(ctx);
-  if (ctx.outMeta) ctx.outMeta.method = 'python-relative';
+  _markResolved(ctx, 'python-relative');
   return resolved;
 }
 
@@ -70,12 +72,23 @@ function tryPythonAbsolute(importPath, _fromFile, ctx) {
     path.join(ctx.root, 'app'),
   ];
 
+  // Two passes, not one per root. searchRoots is a heuristic priority list, so
+  // a single `plain || namespace` loop would let an earlier root's namespace
+  // fallback (weak: a directory that merely holds a matching filename) beat a
+  // later root's real __init__.py (strong). The fallback is a fallback against
+  // ALL roots, which is what "plain candidates always win" has to mean.
   for (const searchRoot of searchRoots) {
-    const basePath = path.join(searchRoot, modulePath);
-    const resolved = _tryPythonCandidates(basePath, ctx) || _tryNamespaceSubmodule(basePath, ctx);
+    const resolved = _tryPythonCandidates(path.join(searchRoot, modulePath), ctx);
     if (resolved) {
-      _markResolved(ctx);
-      if (ctx.outMeta) ctx.outMeta.method = 'python-absolute';
+      _markResolved(ctx, 'python-absolute');
+      return resolved;
+    }
+  }
+
+  for (const searchRoot of searchRoots) {
+    const resolved = _tryNamespaceSubmodule(path.join(searchRoot, modulePath), ctx);
+    if (resolved) {
+      _markResolved(ctx, 'python-absolute');
       return resolved;
     }
   }

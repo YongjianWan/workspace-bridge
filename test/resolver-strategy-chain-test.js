@@ -20,6 +20,7 @@ const {
   trySymbolTable,
   resolveImport,
 } = require('../src/services/dep-graph/resolvers');
+const { packageManifestChain } = require('../src/services/dep-graph/resolvers/base');
 
 // ============================================================================
 // Test: createResolver chain — first non-null wins
@@ -356,6 +357,8 @@ function main() {
   testTryPythonAbsoluteRegularPackageStillWinsInit();
   testResolveImportFacadePythonNamespace();
   testTryPythonRelativeNamespacePackageSubmodule();
+  testTryPythonAbsoluteRegularPackageWinsAcrossSearchRoots();
+  testPackageManifestChainReturnsNativePaths();
 }
 
 // ============================================================================
@@ -436,6 +439,55 @@ function testTryPythonRelativeNamespacePackageSubmodule() {
   const ctx2 = { root: dir, cachedExistsSync: (p) => fs.existsSync(p), imported: ['WatcherHandler'] };
   const r2 = tryPythonRelative('.tools.handlers', path.join(dir, 'pkg', 'server.py'), ctx2);
   assert.strictEqual(r2, null, `non-module imported name must not fabricate, got ${r2}`);
+
+  cleanupTempDir(dir);
+}
+
+// The namespace fallback is a fallback GLOBALLY, not per searchRoot. searchRoots
+// is a heuristic priority list ([root, backend, src, app]), so short-circuiting
+// `plain || namespace` inside each root lets an earlier root's WEAK evidence (a
+// namespace dir that happens to hold a matching filename) beat a later root's
+// STRONG evidence (a real __init__.py). src-layout repos with a same-named
+// directory left at the root are exactly this shape.
+function testTryPythonAbsoluteRegularPackageWinsAcrossSearchRoots() {
+  const dir = makeTempDir('wb-py-ns-rootorder-');
+  // <root>/mypkg/ — namespace dir (no __init__.py) that happens to hold thing.py
+  fs.mkdirSync(path.join(dir, 'mypkg'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'mypkg', 'thing.py'), '');
+  // <root>/src/mypkg/ — the REAL regular package, later in searchRoots
+  fs.mkdirSync(path.join(dir, 'src', 'mypkg'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'src', 'mypkg', '__init__.py'), '');
+  fs.writeFileSync(path.join(dir, 'src', 'mypkg', 'thing.py'), '');
+  fs.mkdirSync(path.join(dir, 'tests'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'tests', 'test_x.py'), '');
+
+  const ctx = { root: dir, cachedExistsSync: (p) => fs.existsSync(p), imported: ['thing'] };
+  const r = tryPythonAbsolute('mypkg', path.join(dir, 'tests', 'test_x.py'), ctx);
+  assert(
+    r && r.endsWith(path.join('src', 'mypkg', '__init__.py')),
+    `a real __init__.py in a later searchRoot must beat an earlier root's namespace fallback, got ${r}`
+  );
+
+  cleanupTempDir(dir);
+}
+
+// Path-shape contract, shared with findCargoCrateRoot: helpers that WALK the
+// tree compare in normalizePathKey space but RETURN platform-native,
+// original-case directories. Consumers path.join / startsWith against paths
+// that came from the file index (native casing), so a normalized return value
+// breaks their arithmetic — and on Windows it also splits readPackageDeps's
+// mtime cache into two entries for the same directory.
+function testPackageManifestChainReturnsNativePaths() {
+  const dir = makeTempDir('wb-Manifest-Case-');
+  fs.writeFileSync(path.join(dir, 'package.json'), '{}');
+  fs.mkdirSync(path.join(dir, 'packages', 'SubPkg'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'packages', 'SubPkg', 'package.json'), '{}');
+
+  const subDir = path.join(dir, 'packages', 'SubPkg');
+  const chain = packageManifestChain(subDir, dir);
+  assert.strictEqual(chain.length, 2, `chain must hold both manifests, got ${JSON.stringify(chain)}`);
+  assert.strictEqual(chain[0], subDir, 'nearest manifest dir must come back platform-native and original-case');
+  assert.strictEqual(chain[1], path.resolve(dir), 'root manifest dir must come back platform-native and original-case');
 
   cleanupTempDir(dir);
 }
