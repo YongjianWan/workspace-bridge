@@ -679,11 +679,13 @@ async function assembleOverviewData(args, container, historyProvider) {
       possibleFalsePositives: unresolvedFp,
     },
     // L2-13: imports that looked local but could not be resolved and were
-    // dropped from the graph. `measured` distinguishes "cold build ran and
-    // counted N drops" from "nothing was measured" (warm path, or a view
-    // lacking the method) — a bare 0 must not read as "graph is complete".
+    // dropped from the graph. Direct call on purpose: probe failure must
+    // throw, not fall back to a silent zero (that fallback is how this
+    // section read 0 forever while 261 tests stayed green). `measured`
+    // distinguishes "cold build ran and counted N drops" from "nothing was
+    // measured" (warm path) — a bare 0 must not read as "graph is complete".
     droppedImports: (() => {
-      const dropped = depGraph.getDroppedImports?.() || { count: 0, files: 0, samples: [], measured: false };
+      const dropped = depGraph.getDroppedImports();
       return {
         ok: true,
         droppedCount: dropped.count,

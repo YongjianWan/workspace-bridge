@@ -7,7 +7,7 @@
 
 ### T5 输出层补漏：droppedImports 不再恒为 0 (2026-07-28)
 
-- **Fixed** `audit-overview`/`audit-summary` 的 `droppedImports` 段此前**恒为 0**：`DependencyGraphView`（workspace-snapshot.js）是显式白名单委托类，T5 忘了把 `getDroppedImports` 加进名单，`overview-assembler` 的 `?.()` 静默兜成全零——warnings 侧说丢了 N 条，结构化字段说 0 条，同一份输出自相矛盾。消费它的 AI agent 拿到「依赖图完整」的假信号，正是 T5 要修的 L1-4 形状在输出层换位置又长了一个。修复是 view 补一行委托。
+- **Fixed** `audit-overview`/`audit-summary` 的 `droppedImports` 段此前**恒为 0**：`DependencyGraphView`（workspace-snapshot.js）是显式白名单委托类，T5 忘了把 `getDroppedImports` 加进名单，`overview-assembler` 的 `?.()` 静默兜成全零——warnings 侧说丢了 N 条，结构化字段说 0 条，同一份输出自相矛盾。消费它的 AI agent 拿到「依赖图完整」的假信号，正是 T5 要修的 L1-4 形状在输出层换位置又长了一个。全量 runner **261/261 全绿**期间该段照样恒为 0——不是测试挂了没人管，是没有任何测试站在用户实际走的入口上（「假绿比红更危险」的又一实例）。修复是 view 补一行委托；`?.()` 兜底同时摘除，探测失败直接抛错，不再能兜成 0。
 - **如实更正 T5 条目**：T5 写的「parity 基准第二条断言……实测全 0」当时**没有验证任何事**——它读的就是那个死字段。本轮给断言装上牙：新增 `measured` 字段区分「冷构建实测 0 丢弃」与「根本没测」（warm 路径 / 方法缺失），parity 十一个 fixture 全部断言 `measured === true`；新增负向 fixture `js-dropped-import`（一条好边 + 一条无人认领的裸 specifier）断言 `droppedCount === 1` **走完整 CLI JSON 路径**（snapshot view → overview-assembler → stdout）。
 - **Added** `getDroppedImports()` 返回 `measured: boolean`（additive）：builder 冷构建入口把 `_droppedImports` 从 `null` 改为初始化空账，warm-only 图保持未初始化 → `measured: false`。overview 段透传该字段。
 - **Fixed** `test/test-helpers.js` mock 补 `getDroppedImports` 语义默认值：Proxy 兜底 `() => []` 返回的是**真值数组**，view 委托接通后 `dropped.samples.slice` 直接炸（overview-tools / overview-history-optional 两个测试 RED）——委托把「静默全零」变成了「暴露 mock 谎言」，这是对的方向。
