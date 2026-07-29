@@ -118,7 +118,30 @@ async function buildProjectOverview(args, container) {
     try {
       const snapshot = container.cache?.loadAnalysisSnapshot?.('overview');
       if (snapshot && isSnapshotFresh(snapshot, container, args)) {
+        // L2-15 动作 0: reports may be stale; gates may not. --save and
+        // --check-regression turn this response into a *verdict* (a baseline
+        // file, a regression comparison) — on replayed data that verdict
+        // describes the last cold build, not the current tree. Refuse loudly
+        // instead of writing/comparing stale numbers.
+        if (args?.save || args?.checkRegression) {
+          return {
+            ok: false,
+            error:
+              'Refusing to run a decision gate on replayed snapshot data ' +
+              `(computed at ${new Date(snapshot.computedAt * 1000).toISOString()}, ` +
+              `${snapshot.fileCount} files). --save / --check-regression require freshly ` +
+              'computed results. Re-run without the gate flag first to refresh the snapshot ' +
+              'after edits, or use a fresh --cache-dir, then run the gate.',
+          };
+        }
         const cloned = JSON.parse(JSON.stringify(snapshot.data));
+        // L2-15 动作 1: mark the response as a replay so consumers can tell
+        // "computed this run" apart from "from an earlier cold build".
+        cloned.replayedFrom = {
+          computedAt: snapshot.computedAt,
+          gitHead: snapshot.version || null,
+          fileCount: snapshot.fileCount,
+        };
         // `measured` answers "was this number measured in THIS run?" — it must
         // never be replayed from the snapshot, where it would read true forever.
         // Recompute from the live graph: a warm restore runs no cold build, so

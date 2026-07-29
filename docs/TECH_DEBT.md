@@ -176,8 +176,8 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 
 **建议动作**（不动设计本身，先动可观测性；按成本排序，拍板在人）：
 
-0. **先于三档、且不该等拍板**：决策型入口不吃 replay——`--fail-on-findings` / `--check-regression` / 写基线的 `--save` 三条路径要么绕过快照强制现算，要么在响应带 replay 标记时直接拒绝并说明原因。报告可以旧，门禁不能旧；这两者的可容忍度天然不同，混在一个 freshness 策略里就是把边界抹掉。
-1. **最小**：replay 出口给整个响应盖 `replayedFrom` 标记（快照 generatedAt / gitHead / fileCount）——和 `measured` 同一思路，从字段级升到响应级，消费方一眼能区分「本次现算」vs「replay 自某次冷构建」。
+0. ✅ **已完成（2026-07-28，`test/gate-on-replay-test.js`）**：决策型入口不吃 replay——`--save` / `--check-regression` 在 `buildProjectOverview` 的 replay 分支直接拒绝（不写基线、不比回归，错误说明原因与刷新方法）；`--fail-on-findings` 在 `cli.js` 出口拦截带 replay 标记的响应（exit 1 + `gate_on_replay` stderr 标签）。报告可以旧，门禁不能旧；这两者的可容忍度天然不同，混在一个 freshness 策略里就是把边界抹掉。两个拒绝点各自做过变异验证（置假条件 → 恰好对应断言 RED）。
+1. ✅ **已完成（同批）**：replay 出口给整个响应盖 `replayedFrom: { computedAt, gitHead, fileCount }` 标记——和 `measured` 同一思路，从字段级升到响应级；动作 0 的拒绝正是以它为判据。
 2. **中**：freshness 信号细化——快照存内容 hash 集或 mtime 上界，编辑即失效。成本是每次调用扫一遍 stat，丢掉的正是粗粒度想省的那部分速度。
 3. **大**：快照降级为「预计算聚合缓存」，section 级 freshness——哪些段可 replay、哪些必须与 warnings 同源现算。
 
@@ -246,10 +246,9 @@ JS 语义里裸 specifier = npm 包；C/C++ 语义里 `#include "foo.h"` 的引�
 > | **P0 现在做**（降噪，四步有序） | L2-11 三个闸缺口（`__future__` 一行 / Java 仓内包前缀闸 / monorepo 子包 deps） | 报警器现在响的多半是假警报（Java 44/49 文件、zod 42/409 文件），不压掉，后面所有判决都没有可信数据 |
 > | **P1 紧随** | L2-16 Rust crate 名归一 · L2-17 Python 仓内包路径 | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
 > | **P2 依赖前两层** | L2-10 符号表判决（T6）· L2-14 JVM 源根（Java 侧） | 数据齐了才能拍；顺序与理由写在 L2-10 内 |
-> | **P0 现在做**（并列第二项） | L2-15 的**动作 0**：决策型入口（`--fail-on-findings` / `--check-regression` / `--save`）不吃 replay | 报告可以旧，门禁不能旧。exit code 与回归判定当前建立在上次冷构建的数据上——这一格是 bug，不是速度取舍 |
-> | **P3 记账不排期** | L2-15 的动作 1–3（可观测性/freshness 设计） · L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 | 粗粒度换速度是真实收益，报告路径只补抓手；L3-8 走"接触即修"，不做大扫除 |
+> | **P3 记账不排期** | L2-15 的动作 2–3（freshness 细化 / section 级设计；动作 0+1 已于 2026-07-28 完成——门禁拒绝 + `replayedFrom` 标记） · L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 | 粗粒度换速度是真实收益，报告路径只补抓手；L3-8 走"接触即修"，不做大扫除 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
-> | **预防性约束** | postProcess 记录不落盘 · `_invalidateParseCache` 单一入口 · regex-fallback 缓存不信任 · warm/cold 逐字节一致 · `_readGuard` 单一读闸 · **DependencyGraphView 白名单同步**（新） · **「本轮实测」字段不进快照**（新） | 这些是已修债务转移后的形态：实例没了，让实例发生的结构还在 |
+> | **预防性约束** | postProcess 记录不落盘 · `_invalidateParseCache` 单一入口 · regex-fallback 缓存不信任 · warm/cold 逐字节一致 · `_readGuard` 单一读闸 · **DependencyGraphView 白名单同步**（新） · **「本轮实测」字段不进快照**（新） · **门禁型出口不吃 replay**（新） | 这些是已修债务转移后的形态：实例没了，让实例发生的结构还在 |
 >
 > 本轮（2026-07-28 复核）新增：L2-16 / L2-17 / L3-8 / 两条预防性约束 / P4 冻结区五条。全部来自 `droppedImports` 的六仓首次实测与三轮外部探针，**没有一条是读代码读出来的**——见「开发纪律」里"全绿有盲区"。
 >

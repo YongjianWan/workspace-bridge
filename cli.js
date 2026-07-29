@@ -370,6 +370,21 @@ async function runCliInProcess(args, opts = {}) {
 
     const result = await runCommand(parsed, container);
 
+    // L2-15 动作 0: --fail-on-findings turns the result into a CI verdict via
+    // the exit code. A verdict computed on replayed snapshot data describes
+    // the last cold build, not the current tree — refuse instead of letting
+    // a stale hasFindings decide the exit code. Reports may be stale; gates
+    // may not.
+    if (result && result.ok !== false && result.replayedFrom && parsed.failOnFindings) {
+      const stderr =
+        '[gate_on_replay] --fail-on-findings requires freshly computed data, but this result ' +
+        `was replayed from a cached analysis snapshot (computed at ${new Date(result.replayedFrom.computedAt * 1000).toISOString()}, ` +
+        `${result.replayedFrom.fileCount} files).\n` +
+        '→ Re-run without --fail-on-findings first to refresh the snapshot after edits, ' +
+        'or use a fresh --cache-dir, then run the gate.';
+      return { status: 1, stdout: '', stderr };
+    }
+
     if (needsContainer && result && typeof result === 'object' && result.ok !== false && container) {
       result.staleness = container.getStaleness();
       result.warnings = container.snapshot.graph.buildWarnings();

@@ -5,6 +5,15 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L2-15 动作 0+1：门禁不吃 replay + 响应级 `replayedFrom` 标记 (2026-07-28)
+
+- **Added** replay 响应盖 `replayedFrom: { computedAt, gitHead, fileCount }` 标记（`overview-tools.js` replay 分支）——报告路径消费方可区分「本次现算」vs「replay 自某次冷构建」，与 `measured`（字段级）同一思路升到响应级。
+- **Changed** 三条决策型入口吃到 replay 时**直接拒绝**，不再静默拿上次冷构建的数据做判决（L2-15 核实：exit code / 回归判定 / 基线文件此前全部可以建立在 replay 上）：
+  - `--save` / `--check-regression`：`buildProjectOverview` replay 分支返回 `ok:false` + 原因与刷新方法，**不写基线、不比回归**；
+  - `--fail-on-findings`：`cli.js` 出口拦截带 replay 标记的响应，exit 1 + `gate_on_replay` stderr 标签。此前「修了循环依赖退出码还是 1、引入新的还是 0」成立。
+- **Added** `test/gate-on-replay-test.js`（@semantic @slow）：报告路径放行且带标记 / 两条门禁拒绝且基线不落盘 / CLI 退出码路径拦截 / 同缓存不带门禁旗标照常通过。两个拒绝点各自变异验证（env 探针置假条件 → 恰好对应断言 RED，恢复即绿）。**测试本身的教训**：CLI 断言初稿用 `exit≠0 + /replay/` ——exit 1 也能来自 hasFindings、`replayedFrom` 标记本身就能匹配 /replay/，变异探针一跑发现假绿，改为断 stderr 的 `gate_on_replay` 专属标签才有牙。
+- **Changed** TECH_DEBT 总览：P0 并列第二项（L2-15 动作 0）清零出表，机制债转入预防性约束「门禁型出口不吃 replay」；L2-15 本体保留（动作 2–3 freshness 设计，P3 记账不排期）。无 CACHE_VERSION bump（不改边语义、不改快照格式——`replayedFrom` 只在 replay 出口现盖）。
+
 ### T5 输出层补漏：droppedImports 不再恒为 0 (2026-07-28)
 
 - **Fixed** `audit-overview`/`audit-summary` 的 `droppedImports` 段此前**恒为 0**：`DependencyGraphView`（workspace-snapshot.js）是显式白名单委托类，T5 忘了把 `getDroppedImports` 加进名单，`overview-assembler` 的 `?.()` 静默兜成全零——warnings 侧说丢了 N 条，结构化字段说 0 条，同一份输出自相矛盾。消费它的 AI agent 拿到「依赖图完整」的假信号，正是 T5 要修的 L1-4 形状在输出层换位置又长了一个。全量 runner **261/261 全绿**期间该段照样恒为 0——不是测试挂了没人管，是没有任何测试站在用户实际走的入口上（「假绿比红更危险」的又一实例）。修复是 view 补一行委托；`?.()` 兜底同时摘除，探测失败直接抛错，不再能兜成 0。
