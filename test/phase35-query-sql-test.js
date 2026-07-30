@@ -68,11 +68,11 @@ async function testOverviewShortCircuitAndSave() {
       knowledgeRisk: firstResult.knowledgeRisk,
     };
     const gitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
-    container.cache?.saveAnalysisSnapshot?.('overview', mockOverview, gitHead, snapshot.fileCount, snapshot.configHash);
-
-    // Disable file change checking to simulate fresh environment
-    const originalCheckFileChanges = container.cache.checkFileChanges;
-    container.cache.checkFileChanges = () => ({ changed: false, changedFiles: [] });
+    // The content signature is part of snapshot freshness (L2-15): a snapshot
+    // stored without one is treated as unverifiable and never replayed. No file
+    // is touched during this test, so the current signature is the honest one.
+    const contentSignature = container.cache?.getContentSignature?.() || '';
+    container.cache?.saveAnalysisSnapshot?.('overview', mockOverview, gitHead, snapshot.fileCount, snapshot.configHash, contentSignature);
 
     try {
       // 3. Call buildProjectOverview again; it should short-circuit and return our mock Overview
@@ -80,11 +80,10 @@ async function testOverviewShortCircuitAndSave() {
       assert.strictEqual(secondResult.isMock, true, 'Should short-circuit with cached snapshot');
       assert.strictEqual(secondResult.hotspots[0].file, 'mocked-file.js');
     } finally {
-      container.cache.checkFileChanges = originalCheckFileChanges;
       // Restore the real overview snapshot so subsequent tests (e.g. testFieldsFiltering)
       // don't consume the mock data which lacks cycles/deadExports/unresolved/etc.
       const realGitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
-      container.cache?.saveAnalysisSnapshot?.('overview', firstResult, realGitHead, snapshot.fileCount, snapshot.configHash);
+      container.cache?.saveAnalysisSnapshot?.('overview', firstResult, realGitHead, snapshot.fileCount, snapshot.configHash, contentSignature);
     }
   });
 }

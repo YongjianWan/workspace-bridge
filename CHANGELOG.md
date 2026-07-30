@@ -5,6 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### Fixed：`--severity` 过滤运行双向绕过 'overview' 快照 (2026-07-30)
+
+- **Fixed** 老 bug，L2-15 收官的 slow 层验证把它咬了出来：快照 key 不含 severity，但 `--severity` 运行此前既不绕读也不绕写——读侧：replay 全量快照时 severity 过滤被整个跳过（replay 分支只跑 baseline/output-limits，没有 severity 逻辑，`severity-filter-test` 据此转红）；写侧：过滤运行把子集写进共享 'overview' key，后续全量消费者静默少数（本仓 dogfood 实测：一次 `--severity high` 直跑把 0 条死导出的子集写进快照，后续普通运行 replay 到它）。与 `--category` 同形同刀：读绕 + 写绕（`overview-tools.js`）。
+- **Added** `testSeverityFilterAppliesOnSnapshotReplay`（读侧：先存全量快照，同 cache 带 `--severity high` replay 仍必须过滤）与 `testSeverityRunMustNotPoisonSnapshot`（写侧：severity 先行，后续普通运行不得 replay 到过滤子集），先 RED 后修。写侧做变异验证：摘除写绕 → 咬中的恰是毒化链（`--severity high` 写入子集 → 下一测试的"全量"运行 replay 它 → `mediumCount <= totalCount` 反转），断言过的是用户真实路径。
+
+### L2-15 收官：快照新鲜度认内容签名，门禁拒绝机制整体退休 (2026-07-29)
+
+- **发现过程**：本轮第一次跑完整 slow 层（112 个测试），`regression-test.js` 与 `phase35-query-sql-test.js` 两条 FAIL。`git stash` 全部本轮改动后仍 FAIL，再把 `9e372f8` 的 `cli.js` + `overview-tools.js` 回退到父提交即 PASS——**归属实证到 L2-15 动作 0 自身**。8c6802d 那批只跑了 fast，「slow 层曾腐烂」的教训再次应验：门禁类改动尤其不能只看 fast。
+- **Fixed** 根因是 freshness 判据太粗，不是门禁吃了 replay。`isSnapshotFresh` 的三项（git head / 文件数 / config）在**原地编辑**时全都不变——那正是 replay 会说谎的唯一场景。动作 0 的「拒绝」是对症状下药，而且误伤：树没动时 replay 与冷算逐字节相同，拒绝是纯误报，`regression-test.js` 三处 `--save` 全被拒即实证。
+- **Added** `analysis_snapshots.content_signature` 列（`_migrate()` 增量迁移，`DEFAULT ''` 让迁移前的行判为不可验证并重算）+ `cache.getContentSignature()`：全部被索引文件的 `路径|mtime|size` 排序后 sha256。**独立列，不并入 `config_hash`**——`query-*` 刻意用粗粒度换速度（其注释明写），并进共享字段会连带把它拖慢。债条动作 2 原估「成本是每次调用扫一遍 stat」，实际实现只读 container 初始化时已填好的 `fileMetadata`，**不碰磁盘**，成本远低于预估。
+- **Removed** 拒绝机制整体退休：`overview-tools.js` 的 replay 拒绝分支、`cli.js` 的 `--fail-on-findings` replay 拦截、`EXIT_CODES.GATE_REFUSED` 三处一并删除。freshness 诚实之后，门禁与报告可以共用同一份快照，不需要任何特例——**一个正确的判据替掉一整套特例**。`EXIT_CODES` 保留 `OK/FINDINGS/CLI_ERROR`（`CLI_ERROR=2` 收编 `buildErrorResponse` 原本的裸字面量）。
+- **Fixed** 门禁前置校验提到快照分支之前（`buildProjectOverview` 开头，try/catch **之外**）：`--check-regression` 无基线时抛 `Baseline file not found` 并走 `CLI_ERROR`。留在快照分支内的话，它的 throw 会被那个 `catch`（语义是「快照读不了，重算」）吞掉，命令白付一次完整冷构建再报同一个错。
+- **Changed** `test/gate-on-replay-test.js` 按新契约重写四阶段：未编辑树 replay 可服务且门禁照跑 / 无基线报基线缺失 / **原地编辑后必须不 replay**（git head、文件数、config 三项全不变的那一格，正是旧判据漏掉的）/ CLI 门禁回到普通判决。`phase35-query-sql-test.js` 的手工快照注入补上签名，并删掉已无意义的 `checkFileChanges` mock。
+
 ### CLI：门禁拒绝独立退出码 — EXIT_CODES.GATE_REFUSED (2026-07-28)
 
 - **Added** `src/config/exit-codes.js`：`OK=0 / FINDINGS=1 / GATE_REFUSED=2`。「我拒绝判决」与「我判决了、有 findings」对 CI 是相反的响应（重跑刷新快照 vs 修代码），同压 1 号会逼每个消费方 grep stderr 才能分辨。`--fail-on-findings` 在 `cli.js` 出口拦到 replay 标记时返回 GATE_REFUSED；`determineExitCode`（`route-formatter.js`）全表改走常量，不再裸写字面量。

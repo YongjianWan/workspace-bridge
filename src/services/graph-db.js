@@ -207,7 +207,12 @@ const SCHEMA = `
     file_count INTEGER NOT NULL,
     config_hash TEXT NOT NULL DEFAULT '',
     computed_at INTEGER NOT NULL DEFAULT 0,
-    cache_version INTEGER NOT NULL DEFAULT 0
+    cache_version INTEGER NOT NULL DEFAULT 0,
+    -- L2-15: fingerprint of the indexed file set (path|mtime|size). Freshness
+    -- needs it because git head, file count and config all survive an in-place
+    -- edit. '' means "written before this column existed" → unverifiable →
+    -- recompute. _migrate() adds it to pre-existing databases.
+    content_signature TEXT NOT NULL DEFAULT ''
   );
 `;
 
@@ -492,7 +497,6 @@ class GraphDB {
       if (aggregateCols.length > 0 && !aggregateCols.some((c) => c.name === 'config_hash')) {
         this.db.prepare("ALTER TABLE precomputed_aggregates ADD COLUMN config_hash TEXT NOT NULL DEFAULT ''").run();
       }
-
       // v6: stamp analysis_snapshots rows with the CACHE_VERSION they were
       // computed under. analysis_snapshots survives the version-mismatch
       // discard (loadAll returns null but deletes nothing), so without a
@@ -502,6 +506,14 @@ class GraphDB {
       const snapshotCols = this.db.prepare('PRAGMA table_info(analysis_snapshots)').all();
       if (snapshotCols.length > 0 && !snapshotCols.some((c) => c.name === 'cache_version')) {
         this.db.prepare('ALTER TABLE analysis_snapshots ADD COLUMN cache_version INTEGER NOT NULL DEFAULT 0').run();
+      }
+      // L2-15: content_signature makes a snapshot invalidate on an in-place
+      // edit, which moves no git head, no file count and no config. Its own
+      // column on purpose — folding it into config_hash would also invalidate
+      // query-*, which deliberately trades content freshness for speed.
+      // DEFAULT '' marks pre-migration rows as unverifiable, so they recompute.
+      if (snapshotCols.length > 0 && !snapshotCols.some((c) => c.name === 'content_signature')) {
+        this.db.prepare("ALTER TABLE analysis_snapshots ADD COLUMN content_signature TEXT NOT NULL DEFAULT ''").run();
       }
 
     });
@@ -1142,16 +1154,17 @@ class GraphDB {
    * @param {string} version
    * @param {number} fileCount
    * @param {string} configHash
+   * @param {string} [contentSignature] fingerprint of the indexed file set
    */
-  saveAnalysisSnapshot(key, data, version, fileCount, configHash) {
+  saveAnalysisSnapshot(key, data, version, fileCount, configHash, contentSignature) {
     return this._withWriteLock(() => {
       try {
         this._ensureOpen();
         const stmt = this.db.prepare(
-          'INSERT OR REPLACE INTO analysis_snapshots (key, data, version, file_count, config_hash, computed_at, cache_version) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          'INSERT OR REPLACE INTO analysis_snapshots (key, data, version, file_count, config_hash, computed_at, cache_version, content_signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         const now = Math.floor(Date.now() / 1000);
-        stmt.run(key, JSON.stringify(data), version || '', fileCount ?? 0, configHash || '', now, CACHE_VERSION);
+        stmt.run(key, JSON.stringify(data), version || '', fileCount ?? 0, configHash || '', now, CACHE_VERSION, contentSignature || '');
         return true;
       } catch (err) {
         _debugError('Save analysis snapshot', err);
@@ -1167,7 +1180,7 @@ class GraphDB {
   loadAnalysisSnapshot(key) {
     return this._readGuard('Load analysis snapshot', () => {
       const row = this.db.prepare(
-        'SELECT data, version, file_count, config_hash, computed_at, cache_version FROM analysis_snapshots WHERE key = ?'
+        'SELECT data, version, file_count, config_hash, computed_at, cache_version, content_signature FROM analysis_snapshots WHERE key = ?'
       ).get(key);
       if (!row) return null;
       // Per-row gate on top of _readGuard's database-level one: snapshot rows
@@ -1182,6 +1195,7 @@ class GraphDB {
         fileCount: Number(row.file_count),
         configHash: row.config_hash,
         computedAt: Number(row.computed_at),
+        contentSignature: row.content_signature || '',
       };
     }, null);
   }

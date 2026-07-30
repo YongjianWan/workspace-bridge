@@ -1,30 +1,34 @@
 // @semantic @slow — spawns the CLI once for the exit-code path
-// L2-15 动作 0+1: reports may be replayed from the analysis snapshot;
-// decision gates may not.
+// L2-15: snapshot freshness decides whether a replay is honest; gates then
+// need no special case.
 //
-// The 'overview' snapshot is intentionally coarse-grained (git head + file
-// count + config), so a replayed response can describe the LAST cold build.
-// That is a speed trade-off for report paths — but three exits consume the
-// same data as a *verdict*: --fail-on-findings (CI exit code), --save
-// (baseline file), --check-regression (baseline comparison). A gate on
-// replayed data is a bug, not a trade-off: fixing a cycle still exits 1,
-// introducing one still exits 0.
+// The 'overview' snapshot used to be deliberately coarse-grained (git head +
+// file count + config), so it stayed "fresh" across uncommitted edits — which
+// is exactly when a replayed verdict lies. The first fix refused to run gates
+// on any replay, but that punished the common case too: on an UNCHANGED tree
+// the replay is byte-for-byte what a cold build would produce, so refusing was
+// a false alarm that broke `--save` on every warm cache.
+//
+// The freshness check now also asks cache.checkFileChanges() (mtime+size, with
+// a SHA-256 fallback on drift — the same probe getStaleness already runs). A
+// replay therefore only happens when the tree genuinely has not moved, which
+// makes the replay trustworthy for reports AND gates alike. No refusal branch,
+// no special exit code: one honest freshness judgement replaces the whole
+// special case.
 //
 // Contract locked here:
-//   1. Report path: replay carries a `replayedFrom` marker (computedAt /
-//      gitHead / fileCount) so consumers can tell "computed now" apart from
-//      "replayed from an earlier cold build".
-//   2. Gate paths: --save / --check-regression / --fail-on-findings on a
-//      replayed response are REFUSED with an explicit reason — never
-//      silently evaluated on stale numbers.
+//   1. Unchanged tree: replay is served, carries a `replayedFrom` marker, and
+//      gates (--save / --check-regression) run normally on it.
+//   2. Edited tree (git head, file count and config all unchanged): NO replay.
+//      The stale snapshot must not be served to anyone.
+//   3. Invalid gate commands still report their own cause (a missing baseline
+//      is "Baseline file not found", never something about replays).
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { ServiceContainer } = require('../src/services/container');
 const { buildProjectOverview } = require('../src/tools/overview-tools');
-const { EXIT_CODES } = require('../src/config/constants');
-const EXIT_GATE_REFUSED = EXIT_CODES.GATE_REFUSED;
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -51,53 +55,80 @@ async function main() {
   assert.ok(!coldResult.replayedFrom, 'freshly computed result must NOT carry a replay marker');
   await cold.shutdown();
 
-  // Phase 2 — warm container over the same cache dir replays the snapshot.
+  // Phase 2 — warm container over the same cache, tree untouched.
   const warm = new ServiceContainer({ quiet: true, cacheDir });
   await warm.initialize(root, 60000, { watch: false });
 
-  // (1) Report path: allowed, but must carry the marker.
+  // (1) Report path: replay served, marker present.
   const report = await buildProjectOverview({ cwd: root }, warm);
   assert.strictEqual(report.ok, true, 'report path may consume the replay');
   assert.ok(report.replayedFrom, 'replayed response must carry replayedFrom');
   assert.strictEqual(typeof report.replayedFrom.computedAt, 'number', 'marker names when the data was computed');
   assert.ok(report.replayedFrom.fileCount > 0, 'marker names the file count the data describes');
 
-  // (2) --save on a replay: refuse, and must NOT write the baseline file.
+  // (2) A gate command whose PRECONDITION fails must report that cause — not
+  // anything about replays. (No baseline file exists yet.)
+  let preconditionErr = null;
+  try {
+    await buildProjectOverview({ cwd: root, checkRegression: true }, warm);
+  } catch (e) {
+    preconditionErr = e;
+  }
+  assert.ok(preconditionErr, '--check-regression with no baseline must fail');
+  assert.match(
+    preconditionErr.message,
+    /Baseline file not found/,
+    `the error must name the missing baseline; got: ${preconditionErr && preconditionErr.message}`
+  );
+
+  // (3) --save on an UNCHANGED tree: allowed, and it must really write. The
+  // replay is identical to what a cold build would produce, so refusing here
+  // was a false alarm (it broke every repeated `--save` on a warm cache).
   const baselinePath = path.join(root, 'baseline.json');
   const saveAttempt = await buildProjectOverview({ cwd: root, save: 'baseline.json' }, warm);
-  assert.strictEqual(saveAttempt.ok, false, '--save on replayed data must be refused');
-  assert.match(saveAttempt.error, /replay/i, 'refusal must name replay as the reason');
-  assert.ok(!fs.existsSync(baselinePath), 'refused --save must not write a baseline file');
+  assert.strictEqual(saveAttempt.ok, true, `--save on an unchanged tree must succeed, got: ${saveAttempt.error}`);
+  assert.ok(fs.existsSync(baselinePath), '--save must actually write the baseline file');
 
-  // (3) --check-regression on a replay: refuse.
-  const regressionAttempt = await buildProjectOverview({ cwd: root, checkRegression: true }, warm);
-  assert.strictEqual(regressionAttempt.ok, false, '--check-regression on replayed data must be refused');
-  assert.match(regressionAttempt.error, /replay/i, 'refusal must name replay as the reason');
+  // (4) --check-regression on an unchanged tree with a valid baseline: runs.
+  const regressionAttempt = await buildProjectOverview(
+    { cwd: root, checkRegression: true, baseline: 'baseline.json' },
+    warm
+  );
+  assert.strictEqual(regressionAttempt.ok, true, `--check-regression must run on an unchanged tree, got: ${regressionAttempt.error}`);
+  assert.ok(regressionAttempt.regression, 'a regression verdict must be produced');
 
   await warm.shutdown();
 
-  // Phase 3 — the exit-code path, through the real CLI. The refusal gets its
-  // OWN exit code: "I refuse to judge" and "I judged, there are findings" call
-  // for opposite responses from CI (re-run vs fix the code), so collapsing both
-  // onto 1 would force every consumer to grep stderr to tell them apart.
+  // Phase 3 — the case the coarse check missed: edit a file IN PLACE. Git head
+  // is unchanged (nothing committed), file count is unchanged (no file added),
+  // config is unchanged. Only the content moved — and that must kill the replay.
+  fs.writeFileSync(
+    path.join(root, 'src', 'b.js'),
+    'module.exports = { helper: () => 1, extra: () => 2 };\n'
+  );
+
+  const edited = new ServiceContainer({ quiet: true, cacheDir });
+  await edited.initialize(root, 60000, { watch: false });
+  const afterEdit = await buildProjectOverview({ cwd: root }, edited);
+  assert.strictEqual(afterEdit.ok, true, 'overview after an edit must succeed');
+  assert.ok(
+    !afterEdit.replayedFrom,
+    'an edited tree must NOT be served the stale snapshot — freshness has to see content changes'
+  );
+  await edited.shutdown();
+
+  // Phase 4 — the exit-code path through the real CLI: a gate on a warm cache
+  // is now an ordinary run, not a refusal.
   const cli = spawnSync(
     process.execPath,
     [CLI_PATH, 'audit-summary', '--cwd', root, '--cache-dir', cacheDir, '--quiet', '--json', '--fail-on-findings'],
     { encoding: 'utf-8', maxBuffer: 16 * 1024 * 1024 }
   );
-  assert.strictEqual(cli.status, EXIT_GATE_REFUSED, 'gate refusal must use its own exit code, not the findings code');
-  assert.notStrictEqual(EXIT_GATE_REFUSED, 1, 'the refusal code must be distinguishable from the findings code');
-  assert.match(cli.stderr, /gate_on_replay/, 'CLI refusal must carry the gate_on_replay tag on stderr');
-
-  // Sanity: the same warm cache WITHOUT a gate flag is a normal report run.
-  const cliReport = spawnSync(
-    process.execPath,
-    [CLI_PATH, 'audit-summary', '--cwd', root, '--cache-dir', cacheDir, '--quiet', '--json'],
-    { encoding: 'utf-8', maxBuffer: 16 * 1024 * 1024 }
+  assert.ok(
+    cli.status === 0 || cli.status === 1,
+    `a gate on a warm cache must produce an ordinary verdict (0 or 1), got ${cli.status}: ${cli.stderr.slice(0, 300)}`
   );
-  assert.strictEqual(cliReport.status, 0, `report run must pass through, stderr: ${cli.stderr.slice(0, 300)}`);
-  const reportJson = JSON.parse(cliReport.stdout);
-  assert.ok(reportJson.replayedFrom, 'CLI report path must expose the replay marker');
+  assert.doesNotMatch(cli.stderr, /gate_on_replay/, 'the refusal branch must be gone');
 
   cleanupTempDir(root);
   console.log('gate-on-replay-test: all passed');

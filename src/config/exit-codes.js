@@ -1,17 +1,21 @@
 /**
  * CLI exit codes — the part of the contract CI scripts actually branch on.
  *
- * OK / FINDINGS is the ordinary verdict axis: the run completed and either
- * found nothing or found something. GATE_REFUSED is a different axis entirely
- * — no verdict was produced, because the data a gate was asked to judge could
- * not support a verdict (replayed snapshot, see L2-15). Collapsing it onto
- * FINDINGS would tell CI "your code has problems" when the truth is "re-run
- * me"; those call for opposite responses, so they get different codes.
+ * OK / FINDINGS is the verdict axis: the run completed and either found
+ * nothing or found something. CLI_ERROR (2) is every non-config,
+ * non-validation runtime failure, including unknown commands; several tests
+ * lock that value, so it is not free for reuse.
+ *
+ * There is deliberately no "gate refused" code. Gates used to refuse to run on
+ * replayed snapshot data, but the real defect was the freshness check being
+ * too coarse to notice in-place edits (L2-15). Once isSnapshotFresh consults
+ * cache.checkFileChanges(), a replay only survives on an unchanged tree, so
+ * there is nothing left for a gate to refuse.
  */
 const EXIT_CODES = {
   OK: 0,
   FINDINGS: 1,
-  GATE_REFUSED: 2,
+  CLI_ERROR: 2,
 };
 
 module.exports = EXIT_CODES;

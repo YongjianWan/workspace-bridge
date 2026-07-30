@@ -75,7 +75,7 @@ const {
 const {
   writeOverviewOutputs,
 } = require('../cli/formatters/dashboard-formatter');
-const { applyBaselineOperations } = require('./regression-tools');
+const { applyBaselineOperations, resolveBaseline } = require('./regression-tools');
 
 function isSnapshotFresh(snapshot, container, args) {
   if (args?.hotspotData || args?.stabilityTrendData || args?.overviewDashboard) {
@@ -96,44 +96,47 @@ function isSnapshotFresh(snapshot, container, args) {
   const snapshotData = snapshot.data;
   const historyMatch = !args?.withHistory || (snapshotData?.knowledgeRisk && !snapshotData.knowledgeRisk.disabled);
 
-  // Aggregate snapshots are intentionally coarse-grained: they stay fresh across
-  // uncommitted file edits as long as the git commit, file count, and config
-  // have not changed. This makes repeated `audit-overview` / `query-*` calls
-  // near-instant on warm caches. Users who need real-time results after edits
-  // can re-run with `--with-history` (which also refreshes the snapshot).
-  return headMatch && countMatch && configMatch && historyMatch;
+  // L2-15: content changes are the whole point. Git head, file count and config
+  // all stay identical when a file is edited in place — precisely when a
+  // replayed answer lies. The stored signature covers path+mtime+size of every
+  // indexed file, so an edit invalidates the snapshot even though the three
+  // coarse keys above still match. This is what lets reports AND gates share
+  // one snapshot with no special case for either.
+  //
+  // A snapshot written before this column existed carries '' and is treated as
+  // unverifiable: recomputing is always safe, serving unvalidated data is not.
+  const currentSignature = container.cache?.getContentSignature?.() || '';
+  const contentMatch = Boolean(snapshot.contentSignature) && snapshot.contentSignature === currentSignature;
+
+  return headMatch && countMatch && configMatch && historyMatch && contentMatch;
 }
 
 async function buildProjectOverview(args, container) {
   await container.ensureReady();
 
-  // --category 过滤的运行必须双向绕过 'overview' 快照：
+  // Gate preconditions are validated up front, OUTSIDE the try/catch below.
+  // `--check-regression` with no baseline is an invalid command whatever the
+  // data's provenance. Left to run inside the snapshot branch, its throw would
+  // be caught by that catch — which reads any throw as "snapshot unreadable,
+  // recompute" — and the command would silently pay for a full cold build
+  // before failing with the same error anyway.
+  if (args?.checkRegression) resolveBaseline(args);
+
+  // --category / --severity 过滤的运行必须双向绕过 'overview' 快照：
   // 1) 不读——快照存的是全量数据，直接返回会漏掉过滤语义；
   // 2) 不写——过滤后的子集一旦存成 'overview'，后续全量请求和 query-* 会
-  //    静默消费残缺数据（快照 key 不含 category，无法区分）。
+  //    静默消费残缺数据（快照 key 不含 category/severity，无法区分）。
   const { parseCategories } = require('./audit-assembler');
   const requestedCategories = parseCategories(args?.category);
 
-  if (!requestedCategories) {
+  if (!requestedCategories && !args?.severity) {
     try {
       const snapshot = container.cache?.loadAnalysisSnapshot?.('overview');
       if (snapshot && isSnapshotFresh(snapshot, container, args)) {
-        // L2-15 动作 0: reports may be stale; gates may not. --save and
-        // --check-regression turn this response into a *verdict* (a baseline
-        // file, a regression comparison) — on replayed data that verdict
-        // describes the last cold build, not the current tree. Refuse loudly
-        // instead of writing/comparing stale numbers.
-        if (args?.save || args?.checkRegression) {
-          return {
-            ok: false,
-            error:
-              'Refusing to run a decision gate on replayed snapshot data ' +
-              `(computed at ${new Date(snapshot.computedAt * 1000).toISOString()}, ` +
-              `${snapshot.fileCount} files). --save / --check-regression require freshly ` +
-              'computed results. Re-run without the gate flag first to refresh the snapshot ' +
-              'after edits, or use a fresh --cache-dir, then run the gate.',
-          };
-        }
+        // No gate special case: isSnapshotFresh now includes a content check,
+        // so reaching this line means the tree has not moved and the replay is
+        // what a cold build would have produced. Gates run on it like any
+        // other consumer.
         const cloned = JSON.parse(JSON.stringify(snapshot.data));
         // L2-15 动作 1: mark the response as a replay so consumers can tell
         // "computed this run" apart from "from an earlier cold build".
@@ -286,8 +289,8 @@ async function buildProjectOverview(args, container) {
   applyOutputLimits(result, args);
 
   // Stage 3.5: Persist aggregate snapshot for query-* commands
-  // 仅全量运行可写快照；category / maxFiles / compact 过滤后的子集写入会毒化所有后续消费者
-  if (requestedCategories || args?.maxFiles || args?.compact) return result;
+  // 仅全量运行可写快照；category / severity / maxFiles / compact 过滤后的子集写入会毒化所有后续消费者
+  if (requestedCategories || args?.severity || args?.maxFiles || args?.compact) return result;
   try {
     const gitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
     const fileCount = result.scope?.counts?.totalFiles || 0;
@@ -298,7 +301,8 @@ async function buildProjectOverview(args, container) {
     // (DELETE all + INSERT) and owned by savePrecomputed — a second writer
     // wipes the aggregate keys here and gets its own row wiped by the next
     // graph:built, so the "mirror" row was unreliable by construction.
-    container.cache?.saveAnalysisSnapshot?.('overview', result, gitHead, fileCount, configHash);
+    const contentSignature = container.cache?.getContentSignature?.() || '';
+    container.cache?.saveAnalysisSnapshot?.('overview', result, gitHead, fileCount, configHash, contentSignature);
   } catch (_) {
     // Snapshot persistence is best-effort; never block the main flow
   }

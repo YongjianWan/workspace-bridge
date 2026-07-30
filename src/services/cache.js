@@ -760,8 +760,34 @@ class WorkspaceCache {
     return this._graphDb.loadPrecomputedAggregates();
   }
 
-  saveAnalysisSnapshot(key, data, version, fileCount, configHash) {
-    return this._graphDb.saveAnalysisSnapshot(key, data, version, fileCount, configHash);
+  saveAnalysisSnapshot(key, data, version, fileCount, configHash, contentSignature) {
+    return this._graphDb.saveAnalysisSnapshot(key, data, version, fileCount, configHash, contentSignature);
+  }
+
+  /**
+   * Fingerprint of the indexed file set: path + mtime + size for every tracked
+   * file. Snapshot freshness compares this so that an in-place edit — which
+   * moves no git head, no file count and no config — still invalidates a
+   * stored snapshot (L2-15).
+   *
+   * Reads the metadata the index already holds; it does not stat the disk.
+   * Callers must therefore compare signatures taken at the same point in the
+   * lifecycle (both post-initialize), which is what snapshot save/load do.
+   * @returns {string} hex digest, or '' when nothing is indexed
+   */
+  getContentSignature() {
+    if (!this.fileMetadata || this.fileMetadata.size === 0) return '';
+    const hash = crypto.createHash('sha256');
+    for (const key of [...this.fileMetadata.keys()].sort()) {
+      const meta = this.fileMetadata.get(key);
+      hash.update(key)
+        .update('|')
+        .update(String(Math.round(Number(meta?.mtime) || 0)))
+        .update('|')
+        .update(String(Number(meta?.size) || 0))
+        .update('\n');
+    }
+    return hash.digest('hex');
   }
 
   loadAnalysisSnapshot(key) {

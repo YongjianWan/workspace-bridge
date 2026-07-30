@@ -74,11 +74,60 @@ async function testAuditSecuritySeverityFilter() {
   }
 }
 
+// Snapshot key does not include severity, so a severity-filtered run must
+// bypass the 'overview' snapshot BOTH ways — same contract as --category.
+// Read side: replaying an unfiltered snapshot must not skip the filter.
+// Write side: a filtered run must not store its subset and poison every
+// later consumer. Deterministic via fresh --cache-dir per phase.
+async function testSeverityFilterAppliesOnSnapshotReplay() {
+  const tempCache = makeTempDir('wb-sev-cache-');
+  try {
+    // Phase 1: fresh cache, plain run → computes unfiltered, stores snapshot
+    const plain = await run(['audit-summary', '--cache-dir', tempCache]);
+    assertOk(plain, 'plain run should succeed');
+
+    // Phase 2: same cache + --severity high → replays the phase-1 snapshot.
+    // The filter must still apply; replay is no excuse for unfiltered data.
+    const high = await run(['audit-summary', '--severity', 'high', '--cache-dir', tempCache]);
+    assertOk(high, 'severity run on replayed snapshot should succeed');
+    const deadExports = JSON.parse(high.stdout).deadExports?.deadExports || [];
+    assert.ok(
+      deadExports.every((d) => d.confidence === 'high'),
+      'severity filter must apply even when the response is a snapshot replay'
+    );
+  } finally {
+    cleanupTempDir(tempCache);
+  }
+}
+
+async function testSeverityRunMustNotPoisonSnapshot() {
+  const tempCache = makeTempDir('wb-sev-poison-');
+  try {
+    // Phase 1: severity run FIRST on a fresh cache → computes and stores.
+    // If it stores its filtered subset under the shared 'overview' key,
+    // every later plain consumer is silently undercounted.
+    await run(['audit-summary', '--severity', 'high', '--cache-dir', tempCache]);
+    // Phase 2: plain run replays whatever phase 1 stored
+    const plain = await run(['audit-summary', '--cache-dir', tempCache]);
+    assertOk(plain, 'plain run after severity run should succeed');
+    const count = JSON.parse(plain.stdout).deadExports.deadExportsCount;
+    const deadExports = JSON.parse(plain.stdout).deadExports?.deadExports || [];
+    assert.ok(
+      count === 0 || deadExports.some((d) => d.confidence !== 'high') || count > deadExports.filter((d) => d.confidence === 'high').length,
+      'a severity-filtered run must not leave its subset in the shared snapshot (plain replay must not be severity-shaped)'
+    );
+  } finally {
+    cleanupTempDir(tempCache);
+  }
+}
+
 async function main() {
   await testAuditSummarySeverityHigh();
   await testAuditSummarySeverityMedium();
   await testInvalidSeverityValue();
   await testAuditSecuritySeverityFilter();
+  await testSeverityFilterAppliesOnSnapshotReplay();
+  await testSeverityRunMustNotPoisonSnapshot();
 }
 
 main();

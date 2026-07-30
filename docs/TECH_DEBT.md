@@ -60,34 +60,6 @@
 
 **触发条件**：JVM 仓 symbol-table 占比异常高（>10%）、或 `impact` 对 JVM 类返回 tier2 证据为主时。
 
-### L2-15：overview 快照的粗粒度新鲜度——warm 输出整体可以是旧的，而 warnings 是现算的，同一份输出自相矛盾
-
-**状态**：活跃（2026-07-28 warm 三跑探针发现，用户明确要求入债）。`isSnapshotFresh`（`overview-tools.js:85-105`）只核三项：git head + 文件数 + config hash——「跨未提交编辑保持新鲜」是写在注释里的刻意设计，换的是重复调用近乎零成本。代价：`audit-overview`/`audit-summary` 在文件编辑后 replay 的 `deadExports`/`cycles`/`aggregates`/`droppedImports` 等**全部是上次冷构建的旧值**，而同一份输出里的 `warnings` 不在快照里、每次现算。探针实测：import 已从磁盘删除，字段仍报 `droppedCount:1`，warnings 为空——这个自相矛盾**对快照里每个字段都成立**，不只是 droppedImports。`measured` 的 replay 覆盖（`5f0dbc0`）只修了「谎称这轮测过」那一格，**旧数字本身还是旧的**。
-
-**为什么是债**：「假绿比红更危险」同款——输出看起来像一次完整的当前分析，实际一半是上一轮的结果，且**没有任何标记**告诉消费方哪些 section 是现算的、哪些是 replay 的。AI agent 拿 `deadExports` 做删除决策时，删的可能是已经改过的代码；拿 `droppedImports` 判断图完整度时，读的是上次构建的账本。
-
-**影响面比「AI 读到旧数字」更远（2026-07-28 追加核实）**：replay 的字段会一路走进**决策型出口**，不只是给人/agent 看的报告——
-
-| 出口 | 位置 | 后果 |
-| --- | --- | --- |
-| `hasFindings` | `cli/commands/index.js:98,121` 由 `deadExports` / `unresolved` / `cycles` / `boundaries` / `smells` / `astRules` / `orphans` 汇总 | 全部来自 replay |
-| exit code | `cli/route-formatter.js:77`（`failOnFindings && hasFindings → 1`） | **CI 的红绿灯建立在上次冷构建的数据上** |
-| `summary.severity` | `cli/commands/index.js:74` `repoSeverity({unresolved, cycles, deadExports})` | 同上 |
-| `--check-regression` | `tools/regression-tools.js:116,150` 拿 `currentResult` 比基线 | 回归可能被旧值掩盖，或凭空造出一个 |
-
-也就是说：改完代码立刻跑一次 `audit-summary --fail-on-findings`，只要 git head / 文件数 / config 三项没变，**拿到的是改动前的判决**。这条把 L2-15 从「输出可观测性」抬到「门禁可信度」。
-
-**建议动作**（不动设计本身，先动可观测性；按成本排序，拍板在人）：
-
-0. ✅ **已完成（2026-07-28，`test/gate-on-replay-test.js`）**：决策型入口不吃 replay——`--save` / `--check-regression` 在 `buildProjectOverview` 的 replay 分支直接拒绝（不写基线、不比回归，错误说明原因与刷新方法）；`--fail-on-findings` 在 `cli.js` 出口拦截带 replay 标记的响应（exit 1 + `gate_on_replay` stderr 标签）。报告可以旧，门禁不能旧；这两者的可容忍度天然不同，混在一个 freshness 策略里就是把边界抹掉。两个拒绝点各自做过变异验证（置假条件 → 恰好对应断言 RED）。
-1. ✅ **已完成（同批）**：replay 出口给整个响应盖 `replayedFrom: { computedAt, gitHead, fileCount }` 标记——和 `measured` 同一思路，从字段级升到响应级；动作 0 的拒绝正是以它为判据。
-2. **中**：freshness 信号细化——快照存内容 hash 集或 mtime 上界，编辑即失效。成本是每次调用扫一遍 stat，丢掉的正是粗粒度想省的那部分速度。
-3. **大**：快照降级为「预计算聚合缓存」，section 级 freshness——哪些段可 replay、哪些必须与 warnings 同源现算。
-
-粗粒度换速度是真实收益，不是纯错误——所以这条是「记账 + 给消费方抓手」，不是「必须改掉」。**但这个定性只对报告路径成立**：门禁路径（上表第 2、4 行）不存在「旧一点也行」的容忍度，那部分是 bug 不是取舍，见动作 0。
-
-**触发条件**：修改 `isSnapshotFresh` / `saveAnalysisSnapshot`、消费 `audit-overview` 输出做删除/重构决策、或给 `hasFindings` 增删汇总项时。
-
 ### ⚠️ 预防性约束：`_invalidateParseCache()` 是 parse cache 的唯一失效入口
 
 **状态**：已收敛（`builder.js` 中 `_invalidateParseCache(keyOrPath)` 统一负责内存 `_parseCache` 和 SQLite `cache.parseResults` + `parsedHashes` 的失效）。
@@ -125,7 +97,7 @@
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
 > | **P1 紧随** | ~~L2-16 Rust crate 名归一~~ ✅ · ~~L2-17 Python namespace 包~~ ✅（2026-07-28，丢弃 34→26） · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅——**P1 出空，P2 自动顶上来（T6/L2-10 判决 + L2-14 JVM 源根）** | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
 > | **P2 依赖前两层** | L2-10 符号表判决（T6）· L2-14 JVM 源根（Java 侧） | 数据齐了才能拍；顺序与理由写在 L2-10 内 |
-> | **P3 记账不排期** | L2-15 的动作 2–3（freshness 细化 / section 级设计；动作 0+1 已于 2026-07-28 完成——门禁拒绝 + `replayedFrom` 标记） · L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 | 粗粒度换速度是真实收益，报告路径只补抓手；L3-8 走"接触即修"，不做大扫除 |
+> | **P3 记账不排期** | L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 | L3-8 走"接触即修"，不做大扫除 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
 > | **预防性约束** | postProcess 记录不落盘 · `_invalidateParseCache` 单一入口 · regex-fallback 缓存不信任 · warm/cold 逐字节一致 · `_readGuard` 单一读闸 · DependencyGraphView 白名单同步 · 「本轮实测」字段不进快照 · 门禁型出口不吃 replay · **路径归一化不进返回值**（新，三个实例后的收刀） | 这些是已修债务转移后的形态：实例没了，让实例发生的结构还在 |
 >
@@ -169,7 +141,7 @@
 
 **病史**：`measured` 加进来的当天就随快照 replay 了——warm 跑（甚至把出错的 import 删掉之后再跑）照样报 `measured: true`，一个专门用来标注「测没测过」的字段，答的是上一轮的答案。修法在 `overview-tools.js` 的 replay 分支（`5f0dbc0`）。
 
-**为什么是约束**：`L2-15` 那条粗粒度新鲜度短期不会动，只要 replay 还在，**下一个「本轮实测」型字段会掉进同一个坑**。设计判据很简单：这个字段描述的是**数据**还是**这次运行**？描述运行的，一律不进快照。
+**为什么是约束**：快照新鲜度已经收紧到认内容签名（L2-15 收官，史见 CHANGELOG），replay 只在树没动时发生——但**约束不因此解除**。replay 机制本身还在，而「这个数字是不是这一轮算的」与「数据是不是最新的」是两个问题：树没动时 replay 的数据是对的，`measured` 却依然该答 false，因为这一轮确实没测。设计判据不变：这个字段描述的是**数据**还是**这次运行**？描述运行的，一律不进快照。
 
 ---
 
@@ -308,9 +280,8 @@
 | **未找到目标文件**       | `node cli.js tree --file missing.js`           | `1`      | 业务/校验失败           | ✅ Pass |
 | **路径越权 (Traversal)** | `node cli.js audit-file --file /tmp/x.js`      | `1`      | 安全违规 (受保护工作区) | ✅ Pass |
 | **REPL 错误命令**        | `repl --eval "invalid"`                        | `2`      | 预期执行失败            | ✅ Pass |
-| **门禁拒绝（replay 数据）** | `node cli.js audit-summary --fail-on-findings`（快照为 replay） | `2` | 未产出判决（`EXIT_CODES.GATE_REFUSED`） | ✅ Pass |
 
-> 注：GATE_REFUSED 与参数错误同号 2——同属「未产出业务判决」桶，分辨靠 stderr 的 `gate_on_replay` 标签。CI 若需按码区分「用法错」与「门禁拒绝」，需改独立码（拍板在人，见 CHANGELOG 2026-07-28 退出码条目）。
+> 注：码值的单一来源是 `src/config/exit-codes.js`（`OK=0 / FINDINGS=1 / CLI_ERROR=2`）。**没有「门禁拒绝」码**——快照新鲜度收紧到认内容签名之后，replay 只在树没动时发生，门禁与报告共用同一份快照，无需特例（L2-15 收官，史见 CHANGELOG 2026-07-29）。
 
 #### 路径边界处理矩阵
 
@@ -335,4 +306,4 @@
 
 ---
 
-*Last updated: 2026-07-28（活跃债务 **9 项**：L1=0 / L2=3（L2-10 符号表判决待拍板 / L2-14 JVM 非标源根布局 / L2-15 overview 快照粗粒度新鲜度）/ 架构债务=0 / L3=6（L3-4/5/7/8/9/10）；P4 冻结 4 条。P0/P1 已出空，下一步：L2-14 → T6/L2-10 拍板。同日按「修复即删，历史只进 CHANGELOG」完成坟头清理：L1-3/L1-4/L2-11/L2-12/L2-13/L2-16~L2-20/L3-6/架构-2/测试覆盖缺口的实例记录移除，机制债转入预防性约束）*
+*Last updated: 2026-07-29（活跃债务 **8 项**：L1=0 / L2=2（L2-10 符号表判决待拍板 / L2-14 JVM 非标源根布局）/ 架构债务=0 / L3=6（L3-4/5/7/8/9/10）；P4 冻结 4 条。P0/P1/P3-快照 已出空，下一步：L2-14 → T6/L2-10 拍板。2026-07-29 销 L2-15：快照新鲜度改认内容签名（`analysis_snapshots.content_signature`），门禁拒绝机制整体退休——史见 CHANGELOG。2026-07-28 按「修复即删，历史只进 CHANGELOG」完成坟头清理：L1-3/L1-4/L2-11/L2-12/L2-13/L2-16~L2-20/L3-6/架构-2/测试覆盖缺口的实例记录移除，机制债转入预防性约束）*

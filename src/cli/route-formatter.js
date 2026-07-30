@@ -153,7 +153,9 @@ function buildErrorResponse(parsed, err, schemaVersion = SCHEMA_VERSION) {
   } else {
     stderr = `[${classified.type}] ${err.message || String(err)}\n→ ${classified.suggestion}`;
   }
-  const status = (classified.type === 'config_error' || classified.type === 'validation_error') ? 1 : 2;
+  const status = (classified.type === 'config_error' || classified.type === 'validation_error')
+    ? EXIT_CODES.FINDINGS
+    : EXIT_CODES.CLI_ERROR;
   return { status, stdout, stderr };
 }
 
