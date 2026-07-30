@@ -4,9 +4,10 @@ const path = require('path');
 // Checking the cache synchronously but populating it after an async load let
 // N concurrent first-time callers all see a miss and run N duplicate loads —
 // in the builder that race produced "Incompatible language version 0" objects
-// (19/36 cobra files silently degraded to regex, 2026-07-28). A rejected or
-// null-settling load is evicted so a later call retries (toolchain may have
-// been fixed), matching the old no-cache-on-failure behavior.
+// (19/36 cobra files silently degraded to regex, 2026-07-28). Both loaders
+// catch internally and never reject — they settle null on failure, and a
+// null-settling load is evicted so a later call retries (the toolchain may
+// have been fixed), matching the old no-cache-on-failure behavior.
 let parserModulePromise = null;
 const languageCache = new Map();
 const MAX_LANGUAGE_CACHE_SIZE = 12; // defensive cap: 9 langs + headroom

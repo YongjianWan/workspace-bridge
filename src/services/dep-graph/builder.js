@@ -38,6 +38,11 @@ class GraphBuilder {
     });
     this._parseCache = new Map();
     this._walCadence = new WalCadence();
+    // L2-11 gap C: the JVM gate's input. null means "not computed yet" — an
+    // empty Set is a legitimate answer (a workspace with no package
+    // declarations) and the two must not share a value, because the gate reads
+    // an absent set as "unknown" and switches itself off.
+    this.workspacePackages = null;
   }
 
   /**
@@ -426,6 +431,16 @@ class GraphBuilder {
   }
 
   resolveFileOnly(parsed) {
+    // Every resolve batch refreshes the package set first. Reaching here
+    // without it is a wiring bug, and the failure mode is invisible — the JVM
+    // gate would quietly step aside and third-party imports would go back to
+    // being guessed against local class names. Blow up instead.
+    if (this.workspacePackages === null) {
+      throw new Error(
+        '[GraphBuilder] resolveFileOnly called before workspacePackages was computed — ' +
+        'call _refreshWorkspacePackages() at the start of the resolve batch (L2-11 gap C)'
+      );
+    }
     const { filePath, graphKey, content, imports, exports, importRecords, exportRecords, functionRecords, parseMode, parseModeReason, confidence, package: packageName } = parsed;
     const ext = path.extname(filePath);
 

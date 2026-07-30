@@ -372,7 +372,13 @@ async function runCliInProcess(args, opts = {}) {
 
     if (needsContainer && result && typeof result === 'object' && result.ok !== false && container) {
       result.staleness = container.getStaleness();
-      result.warnings = container.snapshot.graph.buildWarnings();
+      // Append, never assign: a command that raised its own warnings (query-*
+      // content drift) would otherwise have them deleted here — the graph is
+      // one source of warnings, not the only one.
+      const graphWarnings = container.snapshot.graph.buildWarnings();
+      result.warnings = Array.isArray(result.warnings)
+        ? [...result.warnings, ...graphWarnings]
+        : graphWarnings;
     }
 
     const stdout = formatCliResult(parsed, result, { schemaVersion: SCHEMA_VERSION });

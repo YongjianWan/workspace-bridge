@@ -5,6 +5,18 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### 评审修复：query-* 的 replay 从此有出处，JVM 闸的接线从此会炸 (2026-07-30)
+
+评审 07-29 全天 18 个提交时挖到的两条，加两处清理。共同形状还是 L1-4：**新加的诚实机制只接了一半，另一半静默**。
+
+- **Fixed** `query-*` 服务快照时零信号（L1-4 正面冲突）。L2-15 给 `audit-overview` 的 `isSnapshotFresh` 加了内容签名，但 `query-tools.js` 有自己那份 coarse `isSnapshotFresh`（gitHead + 文件数 + config），读的是**同一行快照**——原地编辑后 `audit-overview` 重算、`query-hotspots` 照旧返回旧数字，且 `findSnapshot` 连 `contentSignature` 字段都直接丢掉了。粗粒度换速度是刻意的设计，**保留**；被修掉的是沉默：`ensureSnapshotData` 改返回 `{data, replayedFrom}`，三个 query 命令经 `withReplayProvenance()` 挂上 `replayedFrom{computedAt, gitHead, fileCount, contentMatch}`，`contentMatch === false` 时追加 `snapshot-content-drift` 警告。未签名的旧行（`''`）判为**不可验证**而非"验证过相等"，同样告警。
+- **Fixed** `cli.js` 用 `result.warnings = buildWarnings()` **覆盖**命令自产的 warnings，改为追加。上一条的 drift 警告在真实 CLI 路径上本会被这行整条抹掉——正是 T5 那条教训（测裸函数只证明"算得对"，测用户路径才证明"拿得到"）的第二个实例。变异验证：改回覆盖式 → CLI 路径那条断言恰好转红。
+- **Fixed** `GraphBuilder.workspacePackages` 无初始值，`undefined` 与"算过但为空集"共用同一个返回分支——JVM 零名单闸把两者都读成"未知"并自我关闭，第三方 import 无声退回符号表猜测，边数不动、无 warning。构造函数显式置 `null`（= 未计算），`resolveFileOnly` 见 `null` 直接抛（L3-8 判据：结构性不该发生的，让它炸）。变异验证：摘掉 `build()` 里的 `_refreshWorkspacePackages()` → 报错点名该方法，`dropped-imports-test` 转红；此前同一变异是完全静默的。
+- **Added** `test/query-replay-provenance-test.js`（5 例：未动树 replay 标记且不告警 / 动过树告警且仍服务 / 未签名旧行判不可验证 / 三个 query 命令都带出处 / **走完整 CLI 路径**验证警告不被抹）、`test/jvm-gate-wiring-test.js`（2 例：未刷新即 resolve 必抛 / 刷新后合法）。全部先 RED 后修。
+- **Changed** 两处注释纠偏：`query-tools.js` 的 "Validate freshness: … and actual content changes" 与函数体里的 "Intentionally skip content-change checks" 自相矛盾（前者是假的）；`tree-sitter.js` 的 "A rejected … load is evicted" 描述了一个不存在的分支（两个 loader 内部全 catch，只会 settle null，永不 reject）。
+- **Removed** `src/.workspace-bridge/cache.db`（3.4MB，2026-07-02 遗留，某次以 `src/` 为 cwd 的运行留下；被 gitignore 遮住所以 `git status` 看不见）。与 P4 冻结区那两个 `UserssdsesAppDataLocalTemp*` 目录同族。
+- **不改**：`_isExternalJvmPackage` 的 `pkg.startsWith(base + '.')` 反向前缀分支，评审初判为"外部依赖的免检通道"，**复核后撤回**——该分支只在指定符是仓内包的**严格祖先**时命中，而类导入要成为包路径的严格祖先，需要仓内存在以类名为段的包（`org.junit.Assert.helpers`），Java 命名约定下不成立。契约已由 `testJvmWorkspacePackageGate` 的 `belowCtx` 两条断言锁住（类导入 → external、通配导入 → internal），实测通过。
+
 ### L2-14：JVM 源根发现支持 KMP 布局 + 成员导入逐段剥尾 — okhttp symbol-table 1037→111 (2026-07-30)
 
 - **Fixed** 两个结构缺口，第二个是修完第一个复测时带出来的：(1) `discoverJavaSourceRoots`（`resolvers/base.js`）只认 Maven/Gradle 标准布局，KMP 的 `<module>/src/<sourceSet>/{kotlin,java}` 深一层且 sourceSet 名任意——改按叶名 `kotlin`/`java` 扫描，**不硬编码 sourceSet 名**；与标准布局扫描的重叠处去重（`src/main/java` 两路都会命中）。(2) **成员导入**：`import okhttp3.HttpUrl.Companion.toHttpUrl`（Kotlin Companion/扩展）与 `com.foo.Outer.Inner`（Java 嵌套类）的指定符**越过类名**，全路径当文件路径必然落空——`tryJava` 改逐段剥尾、最长命中赢（成员必随类文件，剥到首个存在的文件即停，不会 overshoot 成包级猜测）。光源根修复后复测剩 272 条 symbol-table，195+ 条是这一族。
