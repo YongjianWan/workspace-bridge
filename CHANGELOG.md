@@ -5,6 +5,28 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### 测试执行：批屏障换工作池 + 每跑落 JSON 报告 — slow 层 775s → 317s (2026-07-30)
+
+先建可观测性再优化，两刀单变量分开测。**所有对照跑的 `warmup` 均在 12–14s 健康带内**，是校准过的比较。
+
+- **Added** run report：每条测试落 `{file, layer, classifiedBy, phase, concurrency, finishOffsetMs, elapsedMs, ok, status, signal, error}` 进 `test/.reports/run-<ISO>.json` + `latest.json`（已 gitignore），**写在 `process.exit(1)` 之前**——失败那次的耗时分布才是最想看的一次。`classifyTest` 拆出 `classifyTestDetail`，`reason` 区分**声明**（`annotation-slow` / `known-slow-pattern`）与**猜测**（`heuristic-runcli` / `heuristic-heavy-api`）。环境段记 `warmup{ms,source}`：`warmCache()` 那次冷 `audit-summary` 是本机唯一有健康带的校准探针。**刻意不记 `CurrentClockSpeed`**——本机 `Current == Max == P 核基频`恒为 1200，健康与否读数完全一样（2026-07-27 已实证，2026-07-30 复核：电源策略处理器最大状态 AC/DC 均 100%，探针 12.3s 正常），记它等于给每份报告盖一个无鉴别力的戳。
+- **Fixed** `runConcurrentPhase` 原本是 `for i += concurrency { await Promise.all(slice) }`——**批屏障，不是工作池**，每批等最慢那条。基线实测：940s CPU 摊在 775s 墙钟上，**其中 579s 是空转**；一个批次把 `e2e-gitnexus`(92.1s) 与 `file-index-boundary`(0.4s) 配对，一个 worker 干等 91.7s。换成 `runPool`（任一 slot 空出立刻补下一条）。
+- **Changed** `SLOW_CONCURRENCY` 从硬编码 `min(2, …)` 改为随机器推导 `min(4, max(2, ⌊cpus/4⌋), FAST)`：2 核 CI runner 仍得 2，本机 18 线程得 4。定 4 不定 6 的依据是交换率与超时余量，不是墙钟——C=6 用 21% 额外 CPU 换 18% 墙钟（基本平价），且把最长单条的超时余量从 3.3x 压到 2.7x；本套件的历史故障模式正是 spawn 测试在负载下超时并被误读为回归，排查成本远超它省下的 57s。
+- **实测**（114 条 slow，本机 18 线程，四跑全部 114/114）：
+
+  | | 墙钟 | 边际 | CPU 累计 | 最长单条 | 超时余量 |
+  | --- | ---: | ---: | ---: | ---: | ---: |
+  | batch C=2（基线） | 775s | — | 940s | 92.1s | 2.0x |
+  | pool C=2 | 466s | −39.9% | 903s | 42.9s | 4.2x |
+  | **pool C=4（新默认）** | **317s** | −32.0% | 1167s | 55.4s | 3.3x |
+  | pool C=6 | 260s | −18.0% | 1413s | 66.8s | 2.7x |
+
+  fast 层同一刀 15.6s → 9.8s（−37%），145/145 不变。调度那刀是净赚（CPU 累计反降，它消的是空转）；并发那刀是买的（+29% CPU 换 −32% 墙钟，114 条里 108 条各自变慢）。
+- **已知污染，不修饰**：`e2e-gitnexus-test.js` 在基线跑 92.1s、池子跑 11.3s，**八倍差未查清**（候选解释：该测试吃 `reference/GitNexus`，首跑操作系统页缓存冷）。775s 那份基线因此可能含一次性冷盘代价，调度刀的真实收益大概率低于 −39.9%。要证实需清页缓存重跑，未做。
+- **Added** `test/runner-classification-test.js`（6 例）锁 `reason` 标签——L3-12 的统计靠它们，标签一漂统计静默归零、看着像债还完了。`runner.js` 的 `main()` 加 `require.main` 守卫以便被 require。
+- **Added** TECH_DEBT L3-12（分层靠猜：49/114 是启发式塞进去的，30 条比 fast 最慢那条还快；`needsCacheDir()` 把缓存隔离绑在层上，抽查 5 个候选全无隔离锚点，重分类不是一行改动）与 L3-13（每条各自冷启动：CPU 累计 903s / 114 条 ≈ 7.9s，一次冷构建 12–13s，调度与并发只能摊开不能消除）。
+- **口径订正**：原计划称"73 个文件被内容启发式静默降级"，实测是 **49**（heavy-api 25 + runcli 24）。原数以 217 为基数，而全仓只有 266 个测试文件。
+
 ### 评审修复：query-* 的 replay 从此有出处，JVM 闸的接线从此会炸 (2026-07-30)
 
 评审 07-29 全天 18 个提交时挖到的两条，加两处清理。共同形状还是 L1-4：**新加的诚实机制只接了一半，另一半静默**。

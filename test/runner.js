@@ -232,8 +232,19 @@ const concurrentFiles = files.filter((f) => !/watch/.test(f) && classifyTest(f) 
 /* -------------------------------------------------------------------------- */
 const FAST_CONCURRENCY = parseInt(process.env.TEST_CONCURRENCY, 10)
   || Math.min(12, os.cpus().length || 4);
+// Derived from the machine, not a magic 2. Slow tests spawn a CLI each, so the
+// right ceiling scales with cores — a fixed 2 under-uses an 18-thread laptop
+// and a fixed 6 would thrash a 2-core CI runner.
+//
+// Measured 2026-07-30 (114 slow tests, pool scheduling, this 18-thread box):
+//   C=2 466s | C=4 317s (-32%) | C=6 260s (-18%)
+// CPU cost rose 903s → 1167s → 1413s, so C=6 trades 21% more CPU for 18% less
+// wall clock — roughly break-even, and it cut timeout headroom on the longest
+// test from 3.3x to 2.7x. This suite's historical failure mode is spawn tests
+// timing out under load and reading as regressions, which costs far more to
+// investigate than the 57s C=6 would save. Hence the cap at 4.
 const SLOW_CONCURRENCY = parseInt(process.env.TEST_SLOW_CONCURRENCY, 10)
-  || Math.min(2, FAST_CONCURRENCY);
+  || Math.min(4, Math.max(2, Math.floor((os.cpus().length || 4) / 4)), FAST_CONCURRENCY);
 
 let passed = 0;
 let failed = 0;

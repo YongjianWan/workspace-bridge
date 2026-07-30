@@ -9,7 +9,6 @@
 // Requiring runner.js is safe: main() is guarded by require.main.
 const assert = require('assert');
 const fs = require('fs');
-const path = require('path');
 const { classifyTestDetail } = require('./runner');
 
 const TEST_DIR = __dirname;
