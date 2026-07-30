@@ -72,15 +72,31 @@ const KNOWN_SLOW_PATTERNS = [
   /repl-test\.js$/,
 ];
 
-const classificationCache = new Map();
+const classificationCache = new Map(); // file -> { layer, reason }
 
-function classifyTest(file) {
-  if (classificationCache.has(file)) return classificationCache.get(file);
+/**
+ * Classify a test AND record which rule decided it.
+ *
+ * The reason matters as much as the layer: rules 1–2 are declarations (someone
+ * wrote `@slow` / listed the filename), rule 3 is a GUESS from which API the
+ * file mentions — `new ServiceContainer` means "probably slow", never "measured
+ * slow". A file demoted by rule 3 lands in the concurrency-2 queue without
+ * anyone deciding it should, and nothing in the output ever said so. Emitting
+ * the reason into the run report is what turns that into a countable fact
+ * (see docs/TECH_DEBT.md 测试执行债 阶段 1).
+ * @returns {{layer: string, reason: string}}
+ */
+function classifyTestDetail(file) {
+  const cached = classificationCache.get(file);
+  if (cached) return cached;
 
-  if (/watch/.test(file)) {
-    classificationCache.set(file, 'watch');
-    return 'watch';
-  }
+  const decide = (layer, reason) => {
+    const value = { layer, reason };
+    classificationCache.set(file, value);
+    return value;
+  };
+
+  if (/watch/.test(file)) return decide('watch', 'filename-watch');
 
   let content = '';
   let readOk;
@@ -94,45 +110,35 @@ function classifyTest(file) {
   // Priority 1: file-level annotation in first 10 lines
   if (readOk) {
     const header = content.split('\n').slice(0, 10).join('\n');
-    if (header.includes('@slow')) {
-      classificationCache.set(file, 'slow');
-      return 'slow';
-    }
-    if (header.includes('@watch')) {
-      classificationCache.set(file, 'watch');
-      return 'watch';
-    }
-    if (header.includes('@serial')) {
-      classificationCache.set(file, 'serial');
-      return 'serial';
-    }
+    if (header.includes('@slow')) return decide('slow', 'annotation-slow');
+    if (header.includes('@watch')) return decide('watch', 'annotation-watch');
+    if (header.includes('@serial')) return decide('serial', 'annotation-serial');
   }
 
   // Priority 2: known filename patterns
   if (KNOWN_SLOW_PATTERNS.some((p) => p.test(file))) {
-    classificationCache.set(file, 'slow');
-    return 'slow';
+    return decide('slow', 'known-slow-pattern');
   }
 
-  // Priority 3: content heuristics
+  // Priority 3: content heuristics — a guess, not a measurement.
   if (readOk) {
     if (/runCli|runCliRaw|runCliText/.test(content)) {
-      classificationCache.set(file, 'slow');
-      return 'slow';
+      return decide('slow', 'heuristic-runcli');
     }
     if (/spawnSync\(['"]node['"].*cli\.js/.test(content)) {
-      classificationCache.set(file, 'slow');
-      return 'slow';
+      return decide('slow', 'heuristic-spawn-cli');
     }
     // Heavy internal API usage ≈ a full CLI cold start (ServiceContainer init, graph build, etc.)
     if (/(new\s+ServiceContainer|new\s+FileIndex|DependencyGraph\.fromSchema|createServiceContainer)/.test(content)) {
-      classificationCache.set(file, 'slow');
-      return 'slow';
+      return decide('slow', 'heuristic-heavy-api');
     }
   }
 
-  classificationCache.set(file, 'fast');
-  return 'fast';
+  return decide('fast', 'default-fast');
+}
+
+function classifyTest(file) {
+  return classifyTestDetail(file).layer;
 }
 
 /**
@@ -234,6 +240,83 @@ let failed = 0;
 const failures = [];
 const start = Date.now();
 
+/* -------------------------------------------------------------------------- */
+// Run report: per-test timing/layer/batch/exit-code to a JSON file.
+//
+// stdout is not a record. A backgrounded run keeps its tail and loses the
+// distribution, which is exactly what happened on 2026-07-29 — the question
+// "which slow tests are actually slow" had no answer afterwards. Everything
+// needed to answer it already passes through this file; it was just never
+// written down.
+/* -------------------------------------------------------------------------- */
+const REPORT_DIR = process.env.TEST_REPORT_DIR || path.join(TEST_DIR, '.reports');
+const REPORT_DISABLED = process.env.TEST_REPORT === '0';
+const runRecords = [];
+// Calibration probe: the warm-cache build is a cold `audit-summary` on this
+// repo — the one timing on this machine with a known-healthy band (12–14s).
+// Deliberately NOT WMI clock speed: on this hardware CurrentClockSpeed equals
+// MaxClockSpeed equals the P-core base frequency at all times, so it reports
+// 1200 whether the machine is healthy or crawling. Recording it would stamp
+// every report with a number that cannot discriminate.
+let warmup = { ms: null, source: 'skipped' };
+
+function recordResult(r, phase, concurrency, phaseStart) {
+  const { layer, reason } = classifyTestDetail(r.file);
+  runRecords.push({
+    file: r.file,
+    layer,
+    classifiedBy: reason,
+    phase,
+    concurrency,
+    // Completion offset from the phase start. Replaces the old batch index:
+    // the pool has no batches, and offsets are what let you reconstruct the
+    // timeline and spot idle gaps (see runPool).
+    finishOffsetMs: phaseStart ? Date.now() - phaseStart : 0,
+    elapsedMs: r.elapsed,
+    ok: r.ok,
+    status: r.status,
+    signal: r.signal || null,
+    error: r.err ? String(r.err.message || r.err) : null,
+  });
+}
+
+function writeRunReport(totalMs) {
+  if (REPORT_DISABLED) return null;
+  const report = {
+    startedAt: new Date(start).toISOString(),
+    totalMs,
+    layer: requestedLayer || (smokeMode ? 'smoke' : 'all'),
+    counts: { total: files.length, passed, failed },
+    env: {
+      node: process.version,
+      platform: process.platform,
+      cpus: os.cpus().length,
+      fastConcurrency: FAST_CONCURRENCY,
+      slowConcurrency: SLOW_CONCURRENCY,
+      timeoutMs: TIMEOUT_MS,
+      // source 'built' → ms is a fresh cold `audit-summary`; compare against
+      // the 12–14s healthy band before trusting any timing here as a baseline.
+      // 'reused'/'skipped' → this run measured nothing, so it carries no
+      // calibration of its own.
+      warmup,
+    },
+    tests: runRecords,
+  };
+  try {
+    fs.mkdirSync(REPORT_DIR, { recursive: true });
+    const stamp = new Date(start).toISOString().replace(/[:.]/g, '-');
+    const file = path.join(REPORT_DIR, `run-${stamp}.json`);
+    const json = JSON.stringify(report, null, 2);
+    fs.writeFileSync(file, json);
+    // Stable name so tooling does not have to glob for the newest stamp.
+    fs.writeFileSync(path.join(REPORT_DIR, 'latest.json'), json);
+    return file;
+  } catch (e) {
+    console.warn(`[runner] could not write run report: ${e.message}`);
+    return null;
+  }
+}
+
 function runOne(file) {
   const filePath = path.join(TEST_DIR, file);
   const testStart = Date.now();
@@ -310,13 +393,39 @@ function runOne(file) {
   });
 }
 
-async function runBatch(batch) {
-  return Promise.all(batch.map(runOne));
+/**
+ * Keep `concurrency` tests in flight at all times, starting the next one the
+ * moment any slot frees.
+ *
+ * Was: lock-step batches (`for i += concurrency { await Promise.all(slice) }`),
+ * which is a barrier, not a pool — every batch waited for its slowest member.
+ * Measured on the 2026-07-30 baseline (114 slow tests, concurrency 2): 940s of
+ * CPU work spread over 775s of wall clock, **579s of it idle waiting**. One
+ * batch paired e2e-gitnexus (92.1s) with file-index-boundary (0.4s) and burned
+ * 91.7s of a worker doing nothing. A pool's wall-clock floor is
+ * max(totalWork/concurrency, longestSingleTest) = max(470s, 92s).
+ *
+ * Results are handled in completion order, which is why the report records
+ * startOffsetMs instead of a batch index — with a pool there are no batches,
+ * and the offset is what reconstructs the timeline.
+ */
+async function runPool(phaseFiles, concurrency, onResult) {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(concurrency, phaseFiles.length) }, async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= phaseFiles.length) return;
+      const result = await runOne(phaseFiles[index]);
+      onResult(result);
+    }
+  });
+  await Promise.all(workers);
 }
 
 async function runSerial(filesList) {
   for (const file of filesList) {
     const r = await runOne(file);
+    recordResult(r, 'serial', 1, null);
     if (r.ok) {
       passed += 1;
       const label = r.elapsed > TIMEOUTS.TEST_SLOW_THRESHOLD_MS ? `PASS (${r.elapsed}ms) SLOW` : `PASS (${r.elapsed}ms)`;
@@ -337,25 +446,22 @@ async function runConcurrentPhase(phaseFiles, concurrency, phaseLabel) {
   if (phaseLabel) {
     console.log(`\n[${phaseLabel}] ${phaseFiles.length} tests (concurrency=${concurrency})`);
   }
-  for (let i = 0; i < phaseFiles.length; i += concurrency) {
-    const batch = phaseFiles.slice(i, i + concurrency);
-    const results = await runBatch(batch);
-
-    for (const r of results) {
-      if (r.ok) {
-        passed += 1;
-        const label = r.elapsed > TIMEOUTS.TEST_SLOW_THRESHOLD_MS ? `PASS (${r.elapsed}ms) SLOW` : `PASS (${r.elapsed}ms)`;
-        console.log(`→ ${r.file} ... ${label}`);
-      } else {
-        failed += 1;
-        console.log(`→ ${r.file} ... FAIL`);
-        failures.push(r);
-        if (r.stdout) console.log(r.stdout);
-        if (r.stderr) console.error(r.stderr);
-        if (r.err) console.error(r.err.message);
-      }
+  const phaseStart = Date.now();
+  await runPool(phaseFiles, concurrency, (r) => {
+    recordResult(r, phaseLabel || 'concurrent', concurrency, phaseStart);
+    if (r.ok) {
+      passed += 1;
+      const label = r.elapsed > TIMEOUTS.TEST_SLOW_THRESHOLD_MS ? `PASS (${r.elapsed}ms) SLOW` : `PASS (${r.elapsed}ms)`;
+      console.log(`→ ${r.file} ... ${label}`);
+    } else {
+      failed += 1;
+      console.log(`→ ${r.file} ... FAIL`);
+      failures.push(r);
+      if (r.stdout) console.log(r.stdout);
+      if (r.stderr) console.error(r.stderr);
+      if (r.err) console.error(r.err.message);
     }
-  }
+  });
 }
 
 /**
@@ -373,6 +479,7 @@ function warmCache() {
     try {
       const stat = fs.statSync(WARM_CACHE_READY);
       if (Date.now() - stat.mtimeMs < 5 * 60 * 1000) {
+        warmup = { ms: null, source: 'reused' };
         return;
       }
     } catch {
@@ -395,8 +502,10 @@ function warmCache() {
 
   if (result.status === 0) {
     fs.writeFileSync(WARM_CACHE_READY, '');
-    console.log(`[runner] Cache warmed in ${Date.now() - warmStart}ms`);
+    warmup = { ms: Date.now() - warmStart, source: 'built' };
+    console.log(`[runner] Cache warmed in ${warmup.ms}ms`);
   } else {
+    warmup = { ms: Date.now() - warmStart, source: 'failed' };
     console.warn(`[runner] Cache warm-up failed (exit ${result.status}), slow tests will cold-start. stderr: ${(result.stderr || '').slice(0, 200)}`);
   }
 }
@@ -430,6 +539,11 @@ async function main() {
   console.log(`Ran ${files.length} tests in ${elapsed}ms${layerLabel}`);
   console.log(`${passed} passed, ${failed} failed`);
 
+  // Before the failure exit, not after: a failed run is the one whose timing
+  // distribution you most want to read afterwards.
+  const reportPath = writeRunReport(elapsed);
+  if (reportPath) console.log(`Run report: ${path.relative(REPO_ROOT, reportPath)}`);
+
   if (failures.length > 0) {
     console.log(`\nFailed tests:`);
     for (const f of failures) {
@@ -448,4 +562,10 @@ async function main() {
   console.log('\nAll tests passed.');
 }
 
-main();
+// Guarded so the classification rules can be required and asserted without
+// launching a full run (test/runner-report-test.js).
+if (require.main === module) {
+  main();
+}
+
+module.exports = { classifyTest, classifyTestDetail };
