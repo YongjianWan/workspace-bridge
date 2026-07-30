@@ -27,7 +27,7 @@
 
 加上 Python 两仓（CodeGraphContext 502 / code-review-graph 413，均为 2026-07-28 最新代码复测的 0），该策略在 JS/TS/Python 六个仓上**从未产出过一条正确边**；唯一的正产出在 Rust。qartez-mcp v0.11.0（L2-12 修复后）：709 边 / symbol-table 167 = 23.6%，占比从 52.7% 降半的原因是分母被 tier1 真边喂大，且抽样显示剩余的几乎全是 `qartez_mcp::` 集成测试 crate 自引用——L2-12 之后，Rust 侧 symbol-table 收敛到它唯一合法的形态。注意口径：闸后 JS 侧命中为 0 部分**是因为闸把裸 specifier 全拦了**——闸前本仓那 212 条说明没拦时它只会猜错。两种情况都不支持保留。
 
-**边界（2026-07-28 T4 实测补）**：「零正产出」只在 JS/TS/Python 成立，**不覆盖 JVM**。okhttp 2415 边里 1037 条 symbol-table（43%），按包前缀分组后：~950 条仓内自引用（`okhttp3.*`/`mockwebserver3.*`——KMP 源根布局与类名≠文件名两种结构落空，符号表兜底命中为真，见 L2-14）+ **83 条第三方假边**（`org.junit`/`assertk`/`okio` 等，第三方 specifier 配本地 target 必假，L2-11 第三方半的实测样本）。「JS 摘」的判决不受影响；「JVM 摘不摘」要等 L2-14 修完再量——结构解析覆盖后还剩多少正产出，才是 JVM 侧的判决数据。
+**边界（2026-07-30 L2-14 修后重量）**：「零正产出」只在 JS/TS/Python 成立，**不覆盖 JVM**。L2-14（KMP 源根 + 成员导入剥尾，史见 CHANGELOG）修完后 okhttp 冷构建：symbol-table **1037 → 111**，丢弃 **841 → 241**，java-package tier1 **→ 1723**，总边 2415 → 2760。剩余 111 条 symbol-table **全是类名≠文件名族**（`-HostnamesCommon.kt` 连字符前缀文件、`TestUtilJvm.kt` 多类文件）——该族路径算术天然无解，**符号表是它唯一可行的策略**，命中为真。这就是 JVM 侧的判决数据：结构解析覆盖后，JVM 符号表正产出 ~111 条全部落在它唯一合法的形态。「JVM 摘不摘」的答案因此与 JS 相反：JVM 的符号表不是噪音源，是刚需兜底。
 
 **证据**：本仓 dogfood，闸前 1230 条边里 212 条由 `trySymbolTable` 产出，**全部是假边**，且全部同构——212 条的 specifier 无一例外是 `path`、target 无一例外是 `parsers/js/shared.js`（该文件把 `const path = require('path')` 带进了 `module.exports`），confidence 0.8/tier2；`impact parsers/js/shared.js` 因此报 212 个被依赖文件，真值 3。GitNexus（4110 边）上该策略贡献 0 条。
 
@@ -35,30 +35,18 @@
 
 **为什么是债**：`SYMBOL_DISAMBIGUATION` 的 `SCORE_SAME_DIR: 40 / SCORE_SAME_MODULE: 20 / SCORE_SAME_EXT: 10 / MIN_GAP_THRESHOLD: 20` 四个常数没有任何实测依据，单测只锁了不变量（不解析非导出符号、平分返回 null），锁不住精度。没有基准，这四个数字没人敢动，也无法判断策略该留该删。
 
-**建议动作**：把 `trySymbolTable` 从 JS 家族链上摘掉（保留 Rust；JVM 保留待 L2-14 修完重量——okhttp 实测 symbol-table 在 JVM 非标布局上是正产出，见上方边界段）——连带收益：L2-11 的 JS 闸（`readPackageDeps`/`NODE_BUILTINS`/`node_modules` 探测）与 L3-4 的扩展名分支一起消失。Python/Go 链同理可摘（贡献同为 0，且闸已让它们的命中不可能为真），但 Python/Go 各有 `tryPythonAbsolute`/`tryGoModule` 结构解析在前，摘符号表影响面与 JS 相同。**这是结构性决定，等用户拍板。**
+**建议动作**：把 `trySymbolTable` 从 JS 家族链上摘掉（保留 Rust；**JVM 保留**——L2-14 修后实测 symbol-table 在 JVM 剩 111 条全是类名≠文件名族，是它唯一合法的刚需兜底，见上方边界段）——连带收益：L2-11 的 JS 闸（`readPackageDeps`/`NODE_BUILTINS`/`node_modules` 探测）与 L3-4 的扩展名分支一起消失。Python/Go 链同理可摘（贡献同为 0，且闸已让它们的命中不可能为真），但 Python/Go 各有 `tryPythonAbsolute`/`tryGoModule` 结构解析在前，摘符号表影响面与 JS 相同。**这是结构性决定，等用户拍板。**
 
 **判决顺序已修正（2026-07-28，六仓 `droppedImports` 实测后）**：原计划是「T5 落地即可摘——丢弃会被记账，风险从静默降级为报警」。实测推翻了这个时机判断：**报警器本身噪声太大**（Java 44/49 文件报警、zod 42/409 文件报警，绝大多数是闸缺口造成的假阳性，史见 CHANGELOG 缺口条目），此时摘符号表 = 在一个一直响的警报器旁边动刀。正确顺序：
 
 1. ~~L2-11 闸缺口~~ ✅ 全部修复（2026-07-28，A/B/C 同日清零，史见 CHANGELOG 缺口条目）→ 假警报已压掉（zod 80→4、CodeGraphContext 70→34、spring-petclinic 362→0）
 2. ~~L2-16 Rust crate 名归一~~ ✅ 已修（2026-07-28）→ **Rust 符号表占比已重量：167 → 5**——「唯一有正产出」的依据 ~97% 是结构缺口；剩 5 条仓内宏/re-export 形状，T6 拍板时就拿这个数
-3. L2-14 JVM 源根（Kotlin 已降 P3，Java 侧按需）→ JVM 判决材料
-4. 再拍 JS/TS/Python/Go 的摘除，此时 `droppedImports` 才是可信的安全网
+3. ~~L2-14 JVM 源根~~ ✅ 已修（2026-07-30，KMP 源根 + 成员导入剥尾，史见 CHANGELOG）→ **JVM 符号表占比已重量：1037 → 111**，剩余全是类名≠文件名族（符号表唯一合法形态）；判决材料取到
+4. 再拍 JS/TS/Python/Go 的摘除，此时 `droppedImports` 才是可信的安全网——**四步前置至此全部完成，T6 可随时拍板**
 
 **另一处需要订正的旧结论**：「摘掉能连带让 L2-11 的 JS 闸和 L3-4 分支一起消失」——**已过期**。T5 之后 `isExternalDependency` 有了第二个消费方（builder 的丢弃记账用它区分「该丢的」和「漏掉的」），闸删不掉了，连带收益缩水成只剩 L3-4 那个分支。
 
 **触发条件**：调整 `SYMBOL_DISAMBIGUATION` 任一常数、或把符号表铺到新语言之前。跑 `node scripts/resolver-precision.js reference/<repo> [...]` 逐仓点名取数（勿用 `reference/*` 通配，目录里混着非仓文件；编制与闸状态见 `reference/README.md`）。
-
-### L2-14：`tryJava` 的源根发现不认识 Gradle KMP / 非标布局，okhttp 43% 的边靠符号表兜底
-
-**状态**：活跃（2026-07-28 T4 实测发现）。okhttp 2415 条边里 1037 条（43%）`resolution_method = symbol-table`。按包前缀分组：**~950 条是仓内自引用**（`okhttp3.*` / `mockwebserver3.*`），命中为真；**83 条是第三方假边**（`org.junit` 37 / `assertk` 27 / `okio` 13 / `org.mockserver` 3 / `org.gradle` 3——第三方 specifier 配本地 target 必假，okio 未 vendored 已核实），曾归 L2-11 的第三方 manifest 半（已随缺口修复清零，史见 CHANGELOG），不在本条范围。
-
-**根因**（自引用那 ~950 条）：`discoverJavaSourceRoots`（`resolvers/base.js`）只认 `src/main/java`、`src/main/kotlin` 等 Maven/Gradle 标准布局。okhttp 主源码在 `okhttp/src/commonJvmAndroid/kotlin/`（Kotlin Multiplatform 的 sourceSet 布局），不在名单里——`tryJava` 拿 `okhttp3.HttpUrl` 找 `okhttp3/HttpUrl.(java|kt)` 全部落空，掉进符号表。另有一小部分是类名≠文件名（`mockwebserver3.SocketEffect` 这类，路径算术天然无解，`testJavaFacadeFallback` 同款），那部分符号表是**唯一**可行策略。
-
-**为什么现在才看见**：这些边是**对的**——JVM 的「类名 = 文件名 = 包路径」语义让末段猜测可靠，所以没人报错。但它们是 confidence 0.8/tier2 的猜测：一旦本地出现同名类（导出卫生问题，本仓 `path` 那 212 条的形状）就静默错指，且 `impact` 的置信度传播把 tier2 当次等证据。结构解析能给 tier1/confidence 1.0。
-
-**建议动作**：`discoverJavaSourceRoots` 支持 KMP sourceSet 布局——扫描项目两级子目录内名为 `kotlin`/`java` 的源根（`src/<sourceSet>/kotlin`、`src/<sourceSet>/java`），别硬编码 `commonJvmAndroid` 这个具体 sourceSet 名。修完重量 okhttp：symbol-table 应大幅萎缩，**剩下的才是 L2-10 JVM 侧的判决材料**。验证基准就是现状：okhttp 1037 条。
-
-**触发条件**：JVM 仓 symbol-table 占比异常高（>10%）、或 `impact` 对 JVM 类返回 tier2 证据为主时。
 
 ### ⚠️ 预防性约束：`_invalidateParseCache()` 是 parse cache 的唯一失效入口
 
@@ -96,7 +84,7 @@
 > | --- | --- | --- |
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
 > | **P1 紧随** | ~~L2-16 Rust crate 名归一~~ ✅ · ~~L2-17 Python namespace 包~~ ✅（2026-07-28，丢弃 34→26） · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅——**P1 出空，P2 自动顶上来（T6/L2-10 判决 + L2-14 JVM 源根）** | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
-> | **P2 依赖前两层** | L2-10 符号表判决（T6）· L2-14 JVM 源根（Java 侧） | 数据齐了才能拍；顺序与理由写在 L2-10 内 |
+> | **P2 依赖前两层** | L2-10 符号表判决（T6） · ~~L2-14 JVM 源根~~ ✅（2026-07-30，KMP 布局 + 成员导入，st 1037→111）——**前置全齐，T6 随时可拍** | 数据齐了才能拍；四步前置全部完成，JVM 判决材料取到 |
 > | **P3 记账不排期** | L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 | L3-8 走"接触即修"，不做大扫除 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
 > | **预防性约束** | postProcess 记录不落盘 · `_invalidateParseCache` 单一入口 · regex-fallback 缓存不信任 · warm/cold 逐字节一致 · `_readGuard` 单一读闸 · DependencyGraphView 白名单同步 · 「本轮实测」字段不进快照 · 门禁型出口不吃 replay · **路径归一化不进返回值**（新，三个实例后的收刀） | 这些是已修债务转移后的形态：实例没了，让实例发生的结构还在 |
@@ -306,4 +294,4 @@
 
 ---
 
-*Last updated: 2026-07-29（活跃债务 **8 项**：L1=0 / L2=2（L2-10 符号表判决待拍板 / L2-14 JVM 非标源根布局）/ 架构债务=0 / L3=6（L3-4/5/7/8/9/10）；P4 冻结 4 条。P0/P1/P3-快照 已出空，下一步：L2-14 → T6/L2-10 拍板。2026-07-29 销 L2-15：快照新鲜度改认内容签名（`analysis_snapshots.content_signature`），门禁拒绝机制整体退休——史见 CHANGELOG。2026-07-28 按「修复即删，历史只进 CHANGELOG」完成坟头清理：L1-3/L1-4/L2-11/L2-12/L2-13/L2-16~L2-20/L3-6/架构-2/测试覆盖缺口的实例记录移除，机制债转入预防性约束）*
+*Last updated: 2026-07-30（活跃债务 **7 项**：L1=0 / L2=1（L2-10 符号表判决待拍板——四步前置全齐，JVM 判决材料取到）/ 架构债务=0 / L3=6（L3-4/5/7/8/9/10）；P4 冻结 4 条。2026-07-30 销 L2-14：KMP 源根 + 成员导入剥尾（okhttp st 1037→111），同刀修 `--severity` 快照读写绕过老 bug。2026-07-29 销 L2-15：快照新鲜度改认内容签名，门禁拒绝机制整体退休。2026-07-28 按「修复即删，历史只进 CHANGELOG」完成坟头清理——以上均史见 CHANGELOG）*

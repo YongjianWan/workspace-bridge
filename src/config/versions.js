@@ -70,6 +70,11 @@ const SCHEMA_VERSION = '1.2.0';
 //      不是逐 root 短路：v23 下单循环让前位 root 的弱证据（恰好持有同名文件
 //      的 namespace 目录）压过后位 root 的真 __init__.py（src-layout 仓根
 //      残留同名目录即此形状）。v23 缓存里此类仓存着指错目标的 tier1 边。
-const CACHE_VERSION = 24;
+// v25: JVM 源根发现支持 KMP/非标 Gradle 布局 + 成员导入逐段剥尾（L2-14）——
+//      扫描 src/<sourceSet>/{kotlin,java}（sourceSet 名任意，按叶名识别）；
+//      tryJava 对越过类名的指定符（Companion 成员 / 嵌套类）剥尾到首个命中。
+//      v24 缓存里 KMP 仓（okhttp 型）存着大量 symbol-table 兜底边与假丢弃，
+//      结构解析覆盖后这些应变成 java-package tier1 边（实测 st 937→111）。
+const CACHE_VERSION = 25;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

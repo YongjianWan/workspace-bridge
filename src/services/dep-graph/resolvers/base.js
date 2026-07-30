@@ -8,6 +8,10 @@ const TS_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts'];
 const JS_IMPORT_EXTENSIONS = ['.js', '.mjs', '.cjs'];
 const INDEX_EXTENSIONS = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'];
 const JAVA_SOURCE_ROOTS = ['src/main/java', 'src/test/java', 'src/main/kotlin', 'src/test/kotlin'];
+// KMP / non-standard Gradle layouts put sources at src/<sourceSet>/<leaf> —
+// the sourceSet name is arbitrary (commonJvmAndroid, jvmTest, desktopMain…),
+// so the scan keys on the leaf names, never the middle component.
+const SOURCESET_LEAVES = ['kotlin', 'java'];
 
 const _javaSourceRootsCache = new Map(); // root -> string[]
 const _statCache = new Map();
@@ -90,6 +94,7 @@ function discoverJavaSourceRoots(root) {
       roots.push(candidate);
     }
   }
+  collectSourceSetRoots(root, roots);
 
   // Multi-module projects
   try {
@@ -102,13 +107,41 @@ function discoverJavaSourceRoots(root) {
           roots.push(candidate);
         }
       }
+      collectSourceSetRoots(sub, roots);
     }
   } catch (e) {
     // root unreadable, ignore
   }
 
-  _javaSourceRootsCache.set(root, roots);
-  return roots;
+  // The standard-layout and sourceSet scans overlap (src/main/java is both a
+  // JAVA_SOURCE_ROOT and a <sourceSet>/<leaf> hit) — dedupe or every tryJava
+  // candidate gets probed twice.
+  const deduped = [...new Set(roots)];
+  _javaSourceRootsCache.set(root, deduped);
+  return deduped;
+}
+
+// L2-14: <base>/src/<sourceSet>/{kotlin,java} — one level deeper than the
+// Maven standard, arbitrary sourceSet name. okhttp's main sources live at
+// okhttp/src/commonJvmAndroid/kotlin, which the standard list cannot see.
+function collectSourceSetRoots(base, roots) {
+  const srcDir = path.join(base, 'src');
+  if (!cachedExistsSync(srcDir)) return;
+  let sourceSets;
+  try {
+    sourceSets = fs.readdirSync(srcDir, { withFileTypes: true });
+  } catch {
+    return; // src unreadable, ignore
+  }
+  for (const ss of sourceSets) {
+    if (!ss.isDirectory()) continue;
+    for (const leaf of SOURCESET_LEAVES) {
+      const candidate = path.join(srcDir, ss.name, leaf);
+      if (cachedExistsSync(candidate)) {
+        roots.push(candidate);
+      }
+    }
+  }
 }
 
 function readGoMod(root) {

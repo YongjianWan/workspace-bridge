@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L2-14：JVM 源根发现支持 KMP 布局 + 成员导入逐段剥尾 — okhttp symbol-table 1037→111 (2026-07-30)
+
+- **Fixed** 两个结构缺口，第二个是修完第一个复测时带出来的：(1) `discoverJavaSourceRoots`（`resolvers/base.js`）只认 Maven/Gradle 标准布局，KMP 的 `<module>/src/<sourceSet>/{kotlin,java}` 深一层且 sourceSet 名任意——改按叶名 `kotlin`/`java` 扫描，**不硬编码 sourceSet 名**；与标准布局扫描的重叠处去重（`src/main/java` 两路都会命中）。(2) **成员导入**：`import okhttp3.HttpUrl.Companion.toHttpUrl`（Kotlin Companion/扩展）与 `com.foo.Outer.Inner`（Java 嵌套类）的指定符**越过类名**，全路径当文件路径必然落空——`tryJava` 改逐段剥尾、最长命中赢（成员必随类文件，剥到首个存在的文件即停，不会 overshoot 成包级猜测）。光源根修复后复测剩 272 条 symbol-table，195+ 条是这一族。
+- **实测**（okhttp 冷构建，两轮递进；基准为缺口 C 后的 937——债条登记时的 1037 含 83 条第三方假边，已被闸清零）：symbol-table **937 → 272（源根）→ 111（成员导入）**；丢弃 **841 → 459 → 241**；java-package tier1 **→ 1723**；总边 2415 → **2760**（+345 条首次结构化成边）。剩余 111 条 symbol-table 全是**类名≠文件名**族（`-HostnamesCommon.kt` 连字符前缀文件、`TestUtilJvm.kt` 多类文件、`Client.kt` 小写命名）——债条早已判定该族路径算术天然无解、符号表是唯一可行策略。**T6 JVM 侧判决材料取到：结构解析覆盖后符号表正产出 ~111 条，全部落在它唯一合法的形态——JVM 的答案因此与 JS 相反，符号表在 JVM 是刚需兜底不是噪音源**。剩余 241 条丢弃 = 顶层函数导入（`okhttp3.internal.closeQuietly`，函数名不含文件信息，路径算术与符号表两侧都够不着）+ 深层成员链扎进多类文件。- **对照**：spring-petclinic 冷构建 `droppedCount` 保持 **0**、symbol-table 边 0——逐段剥尾未给纯 Java 仓引入第三方假边。
+- **Added** `testDiscoverJavaSourceRootsKmpSourceSetLayout`（KMP kotlin/java 两叶发现 / resources 叶不混入 / 标准布局不回归 / 根列表去重 / tryJava 端到端命中）与 `testTryJavaMemberImportsStripToClassFile`（Companion 成员 / 嵌套类 / 深链剥尾 / 直达路径不受扰 / 无命中仍 null），全先 RED 后实现。CACHE_VERSION 24 → 25。
+
 ### Fixed：`--severity` 过滤运行双向绕过 'overview' 快照 (2026-07-30)
 
 - **Fixed** 老 bug，L2-15 收官的 slow 层验证把它咬了出来：快照 key 不含 severity，但 `--severity` 运行此前既不绕读也不绕写——读侧：replay 全量快照时 severity 过滤被整个跳过（replay 分支只跑 baseline/output-limits，没有 severity 逻辑，`severity-filter-test` 据此转红）；写侧：过滤运行把子集写进共享 'overview' key，后续全量消费者静默少数（本仓 dogfood 实测：一次 `--severity high` 直跑把 0 条死导出的子集写进快照，后续普通运行 replay 到它）。与 `--category` 同形同刀：读绕 + 写绕（`overview-tools.js`）。

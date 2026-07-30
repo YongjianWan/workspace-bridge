@@ -20,7 +20,7 @@ const {
   trySymbolTable,
   resolveImport,
 } = require('../src/services/dep-graph/resolvers');
-const { packageManifestChain } = require('../src/services/dep-graph/resolvers/base');
+const { packageManifestChain, discoverJavaSourceRoots } = require('../src/services/dep-graph/resolvers/base');
 
 // ============================================================================
 // Test: createResolver chain — first non-null wins
@@ -359,6 +359,8 @@ function main() {
   testTryPythonRelativeNamespacePackageSubmodule();
   testTryPythonAbsoluteRegularPackageWinsAcrossSearchRoots();
   testPackageManifestChainReturnsNativePaths();
+  testDiscoverJavaSourceRootsKmpSourceSetLayout();
+  testTryJavaMemberImportsStripToClassFile();
 }
 
 // ============================================================================
@@ -488,6 +490,115 @@ function testPackageManifestChainReturnsNativePaths() {
   assert.strictEqual(chain.length, 2, `chain must hold both manifests, got ${JSON.stringify(chain)}`);
   assert.strictEqual(chain[0], subDir, 'nearest manifest dir must come back platform-native and original-case');
   assert.strictEqual(chain[1], path.resolve(dir), 'root manifest dir must come back platform-native and original-case');
+
+  cleanupTempDir(dir);
+}
+
+// L2-14: KMP / non-standard Gradle layouts put sources at
+// <module>/src/<sourceSet>/{kotlin,java} — one level deeper than the Maven
+// standard and with an ARBITRARY sourceSet name (commonJvmAndroid, jvmTest,
+// desktopMain, …). Hardcoding sourceSet names would just be the same bug
+// wearing a list; the scan must key on the leaf names `kotlin`/`java`.
+// okhttp's main sources live exactly there, which is why 43% of its edges
+// fell through to symbol-table guessing.
+function testDiscoverJavaSourceRootsKmpSourceSetLayout() {
+  const dir = makeTempDir('wb-java-kmp-');
+  // KMP layout, arbitrary sourceSet names
+  const kmpKotlin = path.join(dir, 'okhttp', 'src', 'commonJvmAndroid', 'kotlin');
+  fs.mkdirSync(path.join(kmpKotlin, 'okhttp3'), { recursive: true });
+  fs.writeFileSync(path.join(kmpKotlin, 'okhttp3', 'HttpUrl.kt'), '');
+  const kmpJava = path.join(dir, 'okhttp', 'src', 'jvmTest', 'java');
+  fs.mkdirSync(path.join(kmpJava, 'okhttp3'), { recursive: true });
+  fs.writeFileSync(path.join(kmpJava, 'okhttp3', 'HttpUrlTest.java'), '');
+  // non-code leaves under a sourceSet must NOT become roots
+  fs.mkdirSync(path.join(dir, 'okhttp', 'src', 'commonJvmAndroid', 'resources'), { recursive: true });
+  // standard Maven layout in a sibling module still works
+  const stdRoot = path.join(dir, 'mockwebserver3', 'src', 'main', 'kotlin');
+  fs.mkdirSync(path.join(stdRoot, 'mockwebserver3'), { recursive: true });
+  fs.writeFileSync(path.join(stdRoot, 'mockwebserver3', 'MockWebServer.kt'), '');
+
+  const roots = discoverJavaSourceRoots(dir);
+  assert(
+    roots.some((r) => r === kmpKotlin),
+    `KMP sourceSet kotlin root must be discovered, got ${JSON.stringify(roots)}`
+  );
+  assert(
+    roots.some((r) => r === kmpJava),
+    `KMP sourceSet java root must be discovered, got ${JSON.stringify(roots)}`
+  );
+  assert(
+    roots.some((r) => r === stdRoot),
+    `standard module layout must keep working, got ${JSON.stringify(roots)}`
+  );
+  assert(
+    !roots.some((r) => r.endsWith('resources')),
+    `non-code leaves must not become source roots, got ${JSON.stringify(roots)}`
+  );
+  const dupes = roots.filter((r, i) => roots.indexOf(r) !== i);
+  assert.strictEqual(dupes.length, 0, `roots must be deduplicated, got ${JSON.stringify(dupes)}`);
+
+  // End-to-end: tryJava resolves through a discovered KMP root — this is the
+  // layer the user consumes, not the roots list itself.
+  const ctx = { root: dir, cachedExistsSync: (p) => fs.existsSync(p), discoverJavaSourceRoots };
+  const hit = tryJava('okhttp3.HttpUrl', null, ctx);
+  assert(
+    hit && hit.endsWith(path.join('okhttp3', 'HttpUrl.kt')),
+    `tryJava must resolve a package whose source root is a KMP sourceSet, got ${hit}`
+  );
+
+  cleanupTempDir(dir);
+}
+
+// Kotlin companion/extension and Java nested-class imports extend PAST the
+// class name: `import okhttp3.HttpUrl.Companion.toHttpUrl` is a member of
+// HttpUrl, and the file binding is still HttpUrl.kt. tryJava must strip
+// trailing segments (longest match wins) instead of treating the whole
+// dotted path as a file path — okhttp's samples are full of this shape, and
+// every one of them fell through to symbol-table or droppedImports.
+function testTryJavaMemberImportsStripToClassFile() {
+  const dir = makeTempDir('wb-java-member-');
+  fs.mkdirSync(path.join(dir, 'src', 'main', 'kotlin', 'okhttp3'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'src', 'main', 'kotlin', 'okhttp3', 'HttpUrl.kt'), '', 'utf8');
+  fs.mkdirSync(path.join(dir, 'src', 'main', 'java', 'com', 'example'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'src', 'main', 'java', 'com', 'example', 'Outer.java'), '', 'utf8');
+
+  const ctx = {
+    root: dir,
+    cachedExistsSync: (p) => fs.existsSync(p),
+    discoverJavaSourceRoots: () => [path.join(dir, 'src', 'main', 'kotlin'), path.join(dir, 'src', 'main', 'java')],
+  };
+
+  // Kotlin companion member import → the class's file
+  const companion = tryJava('okhttp3.HttpUrl.Companion.toHttpUrl', null, ctx);
+  assert.strictEqual(
+    companion,
+    path.join(dir, 'src', 'main', 'kotlin', 'okhttp3', 'HttpUrl.kt'),
+    `companion member import must bind the class file, got ${companion}`
+  );
+  // Kotlin nested class import → outer class's file
+  const nested = tryJava('okhttp3.HttpUrl.Builder', null, ctx);
+  assert.strictEqual(
+    nested,
+    path.join(dir, 'src', 'main', 'kotlin', 'okhttp3', 'HttpUrl.kt'),
+    `nested class import must bind the outer class file, got ${nested}`
+  );
+  // Java nested class, deeper chain
+  const javaNested = tryJava('com.example.Outer.Inner.Deep', null, ctx);
+  assert.strictEqual(
+    javaNested,
+    path.join(dir, 'src', 'main', 'java', 'com', 'example', 'Outer.java'),
+    `java nested chain must strip to the outer class file, got ${javaNested}`
+  );
+  // Full path that resolves directly must NOT be disturbed by stripping
+  const direct = tryJava('okhttp3.HttpUrl', null, ctx);
+  assert.strictEqual(
+    direct,
+    path.join(dir, 'src', 'main', 'kotlin', 'okhttp3', 'HttpUrl.kt'),
+    `direct class import must keep resolving as before, got ${direct}`
+  );
+  // No prefix matches a file → still null, do not bind a package-level shot
+  const miss = tryJava('okhttp3.Nonexistent.Member', null, ctx);
+  assert.strictEqual(miss, null, `unknown class must stay unresolved, got ${miss}`);
 
   cleanupTempDir(dir);
 }
