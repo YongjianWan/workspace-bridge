@@ -14,54 +14,27 @@
 
 ## L2 债务（阻塞演进或导致结果不可信）
 
-### L2-10：symbol-table 解析策略没有精度基准，两个真实仓实测净产出为负
+### L2-21：Go 侧图完整性存疑——cobra 体量仓仅 12 条边进图
 
-**状态**：复测完成（2026-07-28），**判决数据齐备，待拍板**。JS/TS 家族四个真实仓命中恒为 0：
+**状态**：2026-07-31 T6 复测时登记，未查。
 
-| repo | 总边 | symbol-table | 数据新鲜度 |
-| --- | ---: | ---: | --- |
-| GitNexus (TS) | 4110 | 0 | 2026-07-28 最新代码复测（pull 后 +495 commits） |
-| zod (TS) | 374 | 0 | 2026-07-28 复测（`reference/zod`） |
-| execa (TS) | 1044 | 0 | 2026-07-28 复测（`reference/execa`） |
-| workspace-bridge (JS) | 1018 | 0（闸前 212，全是假边） | 2026-07-28 复测 |
+**实测**：`scripts/resolver-precision.js reference/cobra`（当日 HEAD）：总边 **12**，symbol-table 0。cobra 是一个有几十个 cmd 文件、多个内部包的成熟 Go 项目——12 条边意味着 Go 侧要么 parser 提取很浅，要么闸把仓内导入也拦了。「Go 的 symbol-table 贡献 0」在这个分母上不是结论（T6 因此判 Go 路不动，史见 CHANGELOG T6 条目）。
 
-加上 Python 两仓（CodeGraphContext 502 / code-review-graph 413，均为 2026-07-28 最新代码复测的 0），该策略在 JS/TS/Python 六个仓上**从未产出过一条正确边**；唯一的正产出在 Rust。qartez-mcp v0.11.0（L2-12 修复后）：709 边 / symbol-table 167 = 23.6%，占比从 52.7% 降半的原因是分母被 tier1 真边喂大，且抽样显示剩余的几乎全是 `qartez_mcp::` 集成测试 crate 自引用——L2-12 之后，Rust 侧 symbol-table 收敛到它唯一合法的形态。注意口径：闸后 JS 侧命中为 0 部分**是因为闸把裸 specifier 全拦了**——闸前本仓那 212 条说明没拦时它只会猜错。两种情况都不支持保留。
+**排查方向**：（1）`reference/cobra` 冷构建后开 `cache.db` 看 `droppedImports`——被丢的 specifier 形状会直接指认是 parser 没提取还是 `tryGoModule`/`_isExternalGoModule` 误拦；（2）对照 `test/gors-resolver-test.js` 锁的 Go 解析覆盖面。
 
-**边界（2026-07-30 L2-14 修后重量；2026-07-31 复测订正）**：「零正产出」只在 JS/TS/Python 成立，**不覆盖 JVM**。L2-14（KMP 源根 + 成员导入剥尾，史见 CHANGELOG）修完后 okhttp 冷构建：symbol-table **1037 → 111**，丢弃 **841 → 241**，java-package tier1 **→ 1723**，总边 2415 → 2760。剩余 111 条 symbol-table ~~全是类名≠文件名族~~——**2026-07-31 复测订正：101 条成立，10 条不成立**（见下方复测段）。成立的 101 条是类名≠文件名族（`-HostnamesCommon.kt` 连字符前缀文件、`TestUtilJvm.kt` 多类文件、顶层函数入 `certificates.kt`），该族路径算术天然无解，**符号表是它唯一可行的策略**，命中为真；不成立的 10 条全在 `samples/tlssurvey/`，类名与文件名精确相等（`Client` → `Client.kt`），是 `discoverJavaSourceRoots` 只扫根+一层子目录的结构缺口在借符号表兜底（`samples/` 是无 `src` 的纯容器目录，8 个平级模块全落在扫描范围外），**不是符号表的合法形态**。这就是 JVM 侧的判决数据：结构解析覆盖补齐后，JVM 符号表正产出收敛到 ~101 条、全部落在它唯一合法的形态。「JVM 摘不摘」的答案因此与 JS 相反：JVM 的符号表不是噪音源，是刚需兜底。**2026-07-31 depth≥2 缺口已修**（`discoverJavaSourceRoots` 多模块扫描下一层 + 噪音闸，史见 CHANGELOG）：okhttp 冷构建复测 symbol-table **111 → 101**、java-package tier1 **1723 → 1733**、总边 **2760 不变**——那 10 条原地从 tier2 升到 tier1，不是新造边也不是丢边，是同一批依赖被正确归因了。**全量核对（不是抽样）：剩余 101 条里「类名 == 文件名基名」的有 0 条，`moduleDepth=2` 桶为空**——归因假设完全坐实，JVM 保留论据如预期收窄且更干净。冷构建墙钟 177s（含 `resolver-precision.js` 自身开销）。
+**为什么值得查**：T6 评审原话——「那本身可能是个比 T6 更值钱的 bug」。Go 的边层如果一直是这个覆盖率，所有 Go 仓的 impact/affected-tests 输出都在静默低估。
 
-**2026-07-31 复测（当日 HEAD，十仓逐仓点名，`scripts/resolver-precision.js`，三元组可抽样自查）**：旧表数据整体复现，一处不符已订正（上方边界段），一处证据降级（Go）。
+### L2-22：Rust symbol-table 去留——「必须保留」论据已蒸发，摘的论据未到线，缺第二仓
 
-| repo | 总边 | symbol-table | 与旧数对照 |
-| --- | ---: | ---: | --- |
-| zod / execa / GitNexus (TS) | 374 / 1044 / 4110 | 0 / 0 / 0 | ✅ 复现 |
-| CodeGraphContext / code-review-graph (Py) | 510 / 414 | 0 / 0 | ✅ 复现（旧记 502 / 413，分母随 tier1 真边增长） |
-| spring-petclinic (JVM) / workspace-bridge (JS) | 511 / 1041 | 0 / 0 | ✅ 复现（旧记 1018） |
-| okhttp (JVM) | 2760 | 111 | ✅ 复现；但 111 = 101 合法 + 10 结构缺口（上方边界段）。**depth≥2 修复后同日再测：2760 / 101**，10 条挪进结构解析 |
-| qartez-mcp (Rust) | 763 | **1** | 旧记 5（709 边时）——总边涨、st 反而收敛；唯一存活的是 `fuzz/fuzz_targets/parse_security_config.rs` 引 `qartez_mcp::graph::security::SecurityConfig`，正是 L2-16 后预测的 fuzz/集成测试 crate 自引用形状。「唯一有正产出的语言」字面意义上是**一条边** |
-| cobra (Go) | **12** | 0 | ⚠️ **证据无效**：体量不小的 Go 仓只进图 12 条边，说明 Go 侧解析很浅或闸拦得过狠。「Go 的 symbol-table 贡献 0」在这个分母上近乎空话——没证明策略无用，只证明仓几乎没进图。T6 若拍板，**Go 一路要么单独取数要么与 JS 分开处理** |
+**状态**：2026-07-31 T6 判决：不动，待取数。
 
-另：L2-10 名下登记的 okhttp 冷构建墙钟**只取到一半**。depth≥2 修复后 HEAD 实测 **177s**（`resolver-precision.js reference/okhttp` 整脚本墙钟，含收集开销，构建占大头，2760 边）。**这是现状绝对值，不是登记要的那个数**——缺口登记的是 L2-14 剥尾改动的**前后对照**（probe 从 `roots×2` 变 `segments×roots×2`，怀疑 miss 路径翻五倍），而绝对值回答不了「有没有变慢」。取「前」需在 `053e17a~1` 开 worktree（无 `node_modules`，得挂 junction）单独跑一次。**未取，缺口仍开着。**
+**实测**：qartez-mcp（当日 HEAD）763 边 / symbol-table **1**——唯一存活的是 `fuzz/fuzz_targets/parse_security_config.rs` 引 `qartez_mcp::graph::security::SecurityConfig`（fuzz crate 自引用，L2-16 后预测的合法形状）。「唯一有正产出的语言」字面意义上是一条边。
 
-**证据**：本仓 dogfood，闸前 1230 条边里 212 条由 `trySymbolTable` 产出，**全部是假边**，且全部同构——212 条的 specifier 无一例外是 `path`、target 无一例外是 `parsers/js/shared.js`（该文件把 `const path = require('path')` 带进了 `module.exports`），confidence 0.8/tier2；`impact parsers/js/shared.js` 因此报 212 个被依赖文件，真值 3。GitNexus（4110 边）上该策略贡献 0 条。
+**判决逻辑（同一把尺）**：Go 被「1 个仓且分母坏了」否掉，Rust 就不能拿「1 个仓」拍摘——**再取一个 Rust 仓的数再定**。取数方法：挑一个编制外 Rust 仓（编制见 `reference/README.md`），`scripts/resolver-precision.js` 点名跑。
 
-**根因已于 2026-07-28 单独清除**（见 CHANGELOG）：那行转手再导出已删，闸关闭时本仓假边 212→0。这削弱了「本仓 212 条」作为摘除论据的分量——它证明的是**该策略对导出卫生零容错**（一处手滑放大成 212 条假边），而非它在 JS 上必然产出垃圾。L2-10 的判决因此主要靠下面这张表的「零正产出」，而不是靠假边计数。
+**回报**：若第二仓也是零/近零，`trySymbolTable` 塌成 JVM 专用——L3-4 的扩展名分支（`.rs`/`.go` 分隔符 + 闸表）整体消亡，直接一个 `trySymbolTableJvm`，是「消除边界」的完整形态。
 
-**为什么是债**：`SYMBOL_DISAMBIGUATION` 的 `SCORE_SAME_DIR: 40 / SCORE_SAME_MODULE: 20 / SCORE_SAME_EXT: 10 / MIN_GAP_THRESHOLD: 20` 四个常数没有任何实测依据，单测只锁了不变量（不解析非导出符号、平分返回 null），锁不住精度。没有基准，这四个数字没人敢动，也无法判断策略该留该删。
-
-**建议动作**：把 `trySymbolTable` 从 JS 家族链上摘掉（保留 Rust；**JVM 保留**——L2-14 修后实测 symbol-table 在 JVM 剩 111 条，2026-07-31 复测拆分为 101 条合法兜底 + 10 条 depth≥2 源根缺口；缺口已于当日修复并实测复核——收敛到 101 条，全量核对无一条类名==文件名，是它唯一合法的刚需兜底，见上方边界段与复测段）——连带收益：L2-11 的 JS 闸（`readPackageDeps`/`NODE_BUILTINS`/`node_modules` 探测）与 L3-4 的扩展名分支一起消失。Python 链同理可摘（贡献同为 0，且闸已让它的命中不可能为真），Python 有 `tryPythonAbsolute` 结构解析在前，摘符号表影响面与 JS 相同。**Go 一路证据无效**（cobra 总边仅 12，分母失真，见复测段），不与 JS/TS/Python 同批处理。**这是结构性决定，等用户拍板。**
-
-**判决顺序已修正（2026-07-28，六仓 `droppedImports` 实测后）**：原计划是「T5 落地即可摘——丢弃会被记账，风险从静默降级为报警」。实测推翻了这个时机判断：**报警器本身噪声太大**（Java 44/49 文件报警、zod 42/409 文件报警，绝大多数是闸缺口造成的假阳性，史见 CHANGELOG 缺口条目），此时摘符号表 = 在一个一直响的警报器旁边动刀。正确顺序：
-
-1. ~~L2-11 闸缺口~~ ✅ 全部修复（2026-07-28，A/B/C 同日清零，史见 CHANGELOG 缺口条目）→ 假警报已压掉（zod 80→4、CodeGraphContext 70→34、spring-petclinic 362→0）
-2. ~~L2-16 Rust crate 名归一~~ ✅ 已修（2026-07-28）→ **Rust 符号表占比已重量：167 → 5**——「唯一有正产出」的依据 ~97% 是结构缺口；剩 5 条仓内宏/re-export 形状，T6 拍板时就拿这个数。**2026-07-31 复测：5 → 1**（总边 709 → 763），唯一存活的是 fuzz crate 自引用，见上方复测段
-3. ~~L2-14 JVM 源根~~ ✅ 已修（2026-07-30，KMP 源根 + 成员导入剥尾，史见 CHANGELOG）→ **JVM 符号表占比已重量：1037 → 111**，剩余~~全是类名≠文件名族~~——2026-07-31 复测订正：101 合法 + 10 depth≥2 源根缺口（`samples/` 容器目录）。缺口已于 2026-07-31 修复，实测复核 111 → 101（tier1 +10、总边不变、剩余 101 条全量核对无一条类名==文件名）；判决材料取齐
-4. 再拍 JS/TS/Python 的摘除（**Go 除外**——cobra 总边仅 12，证据无效，单独取数或分开处理，见复测段），此时 `droppedImports` 才是可信的安全网——**四步前置至此全部完成，T6 可随时拍板**
-
-**另一处需要订正的旧结论**：「摘掉能连带让 L2-11 的 JS 闸和 L3-4 分支一起消失」——**已过期**。T5 之后 `isExternalDependency` 有了第二个消费方（builder 的丢弃记账用它区分「该丢的」和「漏掉的」），闸删不掉了，连带收益缩水成只剩 L3-4 那个分支。
-
-**拍板前应补的一个测量（2026-07-31 评审登记；同日补了一半，对照仍缺）**：L2-14 的成员导入逐段剥尾把 `tryJava` 的 probe 数从 `roots × 2` 变成 `segments × roots × 2`——KMP 多模块仓源根本来就多（`collectSourceSetRoots` 对根和每个一级子目录各扫一遍 `src/*`），5 段导入的 **miss** 会翻五倍。`_statCache` 有 `LIMITS.RESOLVER_STAT_CACHE_MAX` 上限做 LRU，不会爆内存，但**淘汰率上升正是这种放大最容易咬人的地方**。CHANGELOG 的 L2-14 条目记的全是边数（937→111、dropped 841→241、总边 +345），**没有一个冷构建墙钟数**——同批 runner 那两刀记了四组对照、CPU 累计和超时余量，唯独这条改了热路径复杂度的没记。**2026-07-31 只补到一半：okhttp 冷构建现状 177s**（depth≥2 修复后 HEAD，2760 边，整脚本墙钟）。**这不构成对照**——绝对值说明不了剥尾改动有没有让它变慢，取「前」需在 `053e17a~1` 开 worktree 单独跑，未取。**为什么放在 T6 名下**：现在 `tryJava` 慢一点有符号表在后面兜；T6 一摘，JVM 侧就只剩它承重，那时候再发现它慢就晚了。177s 这个量级本身不吓人，但「不吓人」和「没变慢」是两句话，后者仍未验证。
-
-**触发条件**：调整 `SYMBOL_DISAMBIGUATION` 任一常数、或把符号表铺到新语言之前。跑 `node scripts/resolver-precision.js reference/<repo> [...]` 逐仓点名取数（勿用 `reference/*` 通配，目录里混着非仓文件；编制与闸状态见 `reference/README.md`）。
+（L2-10 的历史——十仓复测全表、101/10 订正、212 假边证据、判决顺序、墙钟测量——已按「修复即删」移入 CHANGELOG 2026-07-31 T6 条目；L2-14 前后对照测量缺口转登记为 L3-14，见 L3 区。）
 
 ### ⚠️ 预防性约束：`_invalidateParseCache()` 是 parse cache 的唯一失效入口
 
@@ -98,9 +71,9 @@
 > | 层 | 条目 | 为什么在这一层 |
 > | --- | --- | --- |
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
-> | **P1 紧随** | ~~L2-16 Rust crate 名归一~~ ✅ · ~~L2-17 Python namespace 包~~ ✅（2026-07-28，丢弃 34→26） · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅——**P1 出空，P2 自动顶上来（T6/L2-10 判决 + L2-14 JVM 源根）** | 结构解析在真实布局上落空 → 符号表兜底/静默丢弃，与 L2-14 同族；直接决定 T6 的判决材料 |
-> | **P2 依赖前两层** | L2-10 符号表判决（T6） · ~~L2-14 JVM 源根~~ ✅（2026-07-30，KMP 布局 + 成员导入，st 1037→111）——**前置全齐，T6 随时可拍** | 数据齐了才能拍；四步前置全部完成，JVM 判决材料取到 |
-> | **P3 记账不排期** | L3-4 扩展名分支 · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 · L3-11 双 freshness 判据 · L3-12 分层靠猜 · L3-13 每条各自冷启动 | L3-8 走"接触即修"，不做大扫除；L3-11 的沉默已修、分歧留档；L3-12/13 是测试执行债，可观测性与调度已落地，剩下两条都要"先测再改" |
+> | **P1 紧随** | **L2-21 Go 图完整性（cobra 仅 12 边）** · ~~L2-16 Rust crate 名归一~~ ✅ · ~~L2-17 Python namespace 包~~ ✅（2026-07-28，丢弃 34→26） · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅ | Go 边层覆盖率存疑 = 所有 Go 仓输出静默低估，T6 评审原话「可能比 T6 更值钱」 |
+> | **P2 依赖前两层** | ~~L2-10 符号表判决（T6）~~ ✅ 已拍已执行（2026-07-31：摘 JS/TS/Python、留 JVM、Go/Rust 不动，史见 CHANGELOG） · **L2-22 Rust 去留待第二仓取数** · ~~L2-14 JVM 源根~~ ✅（2026-07-30，KMP 布局 + 成员导入，st 1037→111） | T6 的 Rust 半局卡在同一把尺上：n=1 不拍摘；取数即判 |
+> | **P3 记账不排期** | L3-4 扩展名分支（T6 后只剩 JVM/Rust/Go/C++ 共享段，终态见 L2-22） · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 · L3-11 双 freshness 判据 · L3-12 分层靠猜 · L3-13 每条各自冷启动 · L3-14 tryJava probe 放大缺前后对照 | L3-8 走"接触即修"，不做大扫除；L3-11 的沉默已修、分歧留档；L3-12/13 是测试执行债，可观测性与调度已落地，剩下两条都要"先测再改"；L3-14 是纯测量债，有变慢迹象再取 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
 > | **预防性约束** | postProcess 记录不落盘 · `_invalidateParseCache` 单一入口 · regex-fallback 缓存不信任 · warm/cold 逐字节一致 · `_readGuard` 单一读闸 · DependencyGraphView 白名单同步 · 「本轮实测」字段不进快照 · 门禁型出口不吃 replay · **路径归一化不进返回值**（新，三个实例后的收刀） | 这些是已修债务转移后的形态：实例没了，让实例发生的结构还在 |
 >
@@ -153,6 +126,8 @@
 ### L3-4：`trySymbolTable` 内部按扩展名分支两次，而链本身已经是按语言组装的
 
 `resolvers.js` 的注册循环是 `[...lang.resolveStrategies, trySymbolTable]`——语言信息在组装时就有。但函数内部又按 `path.extname(fromFile)` 分支了两次：一次挑分隔符（`.rs` / `.go` / 其余），一次判外部依赖闸是否生效（JS 家族）。这是把语言差异塞进共享函数的边界判断，正是"消除边界优于加判断"要消掉的形状。改法：按语言注册不同的符号表策略（`trySymbolTableJs` / `trySymbolTableJvm` / …），共享打分内核。T6 若拍板摘符号表应顺势做掉，否则第三、第四个语言分支会继续往里堆。
+
+**进展（2026-07-31 T6 执行）**：按语言组装的机制已落地——registry 条目声明 `symbolTableFallback: false`（JS 家族四语言 + Python），注册循环按它挂/不挂 `trySymbolTable`，JS/Python 链上的符号表分支**已随链一起消失**（不再是函数内分支，是链成员）。剩下的分支只服务还在链上的语言：分隔符 `.rs`/`.go` 分支 + `EXTERNAL_DEPENDENCY_CHECKS` 闸表。终态路径已写进 L2-22：若 Rust/Go/C++ 的测量也走到摘，`trySymbolTable` 塌成 JVM 专用，这些内部分支整体消亡，本条随之关闭。
 
 ### L3-5：`lookupUnique()` 生产代码零调用
 
@@ -242,6 +217,20 @@
 **相邻但不同的问题（别混进来）**：`runner --affected`——用仓库自己的 `affected-tests` 从 git diff 算要跑的子集。那解决的是"我只想跑相关的"（选择），不是"跑得快"（速度）；它不会让全量变快，CI 仍要跑全量。想做可以做，但它不属于本条债的修复路径。
 
 **触发条件**：动 `warmCache()` / 测试的容器初始化方式时；或 slow 层墙钟的瓶颈从 CPU 累计项转到最长单条项时（此时本条债升级为唯一出路）。
+
+### L3-14：`tryJava` 逐段剥尾的 probe 放大缺前后对照（测量债，非阻塞）
+
+**状态**：2026-07-31 登记（原挂 L2-10/T6 名下，T6 执行后转独立条目）。
+
+**缺口**：L2-14 的成员导入逐段剥尾把 `tryJava` 的 probe 数从 `roots × 2` 变成 `segments × roots × 2`，depth≥2 下潜又让 roots 变多——miss 路径的 probe 数被两级放大。CHANGELOG 记的全是边数，**没有一次前后对照的冷构建墙钟**。
+
+**已知的**：depth≥2 修复后 HEAD 现状两次独立实测 **186.5s / 177s**（okhttp 2760 边，整脚本墙钟含收集开销）。量级不吓人。
+
+**不知道的**：「不吓人」和「没变慢」是两句话——没有「前」（`053e17a~1`），绝对值回答不了 L2-14 有没有引入回归。取法：在 `053e17a~1` 开 worktree（无 `node_modules`，得挂 junction）单独跑一次。
+
+**为什么不阻塞任何决定**：原登记理由是「T6 一摘 JVM 就只剩 `tryJava` 承重」——T6 判决 **JVM 保留符号表**，前提已消失。剩下的动机只是量化 L2-14 的性能回归本身，有用户感知变慢的迹象时再做。
+
+**触发条件**：收到 JVM 仓构建变慢的报告；或动 `tryJava` probe 路径 / `discoverJavaSourceRoots` 扫描深度时顺手补。
 
 ---
 
@@ -362,4 +351,4 @@
 
 ---
 
-*Last updated: 2026-07-31（活跃债务 **10 项**：L1=0 / L2=1（L2-10 符号表判决待拍板——四步前置全齐，JVM 判决材料取到；2026-07-31 当日 HEAD 十仓复测：JS/TS/Python/JVM/Rust 五路复现，Go 因 cobra 总边仅 12 证据降级为无效，「111 全是类名≠文件名族」订正为 101 合法 + 10 depth≥2 源根缺口；同日销 depth≥2 缺口（okhttp st 111→101、tier1 1723→1733、总边 2760 不变、剩余 101 条全量核对 0 条类名==文件名——两 session 独立冷构建复现），冷构建墙钟现状两次独立实测 186.5s / 177s，L2-14 前后对照仍缺（053e17a~1 worktree 未取））/ 架构债务=0 / L3=9（L3-4/5/7/8/9/10/11/12/13）；P4 冻结 4 条。2026-07-30 登记测试执行债 L3-12（分层靠猜：slow 层 49/114 是启发式塞进去的，30 条比 fast 最慢那条还快；`needsCacheDir` 与层耦合使重分类不是一行改动）与 L3-13（每条各自冷启动：CPU 累计 903s / 114 条 ≈ 7.9s，一次冷构建 12–13s）——可观测性与调度已落地（775s→317s，史见 CHANGELOG），这两条都要"先测再改"。2026-07-30 评审登记 L3-11 双 freshness 判据（沉默已修、分歧留档），并按"接触即修"处理两个 L3-8 实例（workspacePackages 静默闸、cli.js warnings 覆盖）。2026-07-30 销 L2-14：KMP 源根 + 成员导入剥尾（okhttp st 1037→111），同刀修 `--severity` 快照读写绕过老 bug。2026-07-29 销 L2-15：快照新鲜度改认内容签名，门禁拒绝机制整体退休。2026-07-28 按「修复即删，历史只进 CHANGELOG」完成坟头清理——以上均史见 CHANGELOG）*
+*Last updated: 2026-07-31（活跃债务 **12 项**：L1=0 / L2=2（L2-21 Go 图完整性 cobra 仅 12 边 · L2-22 Rust symbol-table 去留待第二仓）/ 架构债务=0 / L3=10（L3-4/5/7/8/9/10/11/12/13/14）；P4 冻结 4 条。**2026-07-31 T6 判决并执行**：摘 JS/TS/Python（六仓实测零真产出，registry 条目声明 `symbolTableFallback: false`，CACHE_VERSION 26→27，六仓复测零 delta）、保 JVM（101 条全合法辖区）、Go 不动（证据无效，转 L2-21）、Rust 不动（n=1 不拍摘，转 L2-22）——L2-10 修复即删，史见 CHANGELOG T6 条目；同日销 depth≥2 源根缺口（okhttp st 111→101、tier1 1723→1733、总边 2760 不变、全量核对 0 条类名==文件名，两 session 独立冷构建复现）；墙钟现状 186.5s/177s 两次独立实测，L2-14 前后对照转 L3-14 非阻塞测量债。2026-07-30 登记测试执行债 L3-12（分层靠猜：slow 层 49/114 是启发式塞进去的，30 条比 fast 最慢那条还快；`needsCacheDir` 与层耦合使重分类不是一行改动）与 L3-13（每条各自冷启动：CPU 累计 903s / 114 条 ≈ 7.9s，一次冷构建 12–13s）——可观测性与调度已落地（775s→317s，史见 CHANGELOG），这两条都要"先测再改"。2026-07-30 评审登记 L3-11 双 freshness 判据（沉默已修、分歧留档），并按"接触即修"处理两个 L3-8 实例（workspacePackages 静默闸、cli.js warnings 覆盖）。2026-07-30 销 L2-14：KMP 源根 + 成员导入剥尾（okhttp st 1037→111），同刀修 `--severity` 快照读写绕过老 bug。2026-07-29 销 L2-15：快照新鲜度改认内容签名，门禁拒绝机制整体退休。2026-07-28 按「修复即删，历史只进 CHANGELOG」完成坟头清理——以上均史见 CHANGELOG）*
