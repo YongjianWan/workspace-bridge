@@ -5,6 +5,28 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### T6 判决并执行：symbol-table 摘 JS/TS/Python、保 JVM、Go/Rust 不动 (2026-07-31)
+
+挂了三个月的 L2-10 今日落槌。**判决是四路不是一个**（用户拍板，原话：之前把它们捆成一个「摘不摘」是错的框法）。判决材料全程两个 session 交叉验证：一方测、另一方不信记录亲手复测，包括两次独立冷构建（186.5s / 177s）、全量核对代替抽样、两次变异各自复现。
+
+**判决与依据**：
+
+| 路 | 判决 | 依据（均为 2026-07-31 当日 HEAD 实测） |
+| --- | --- | --- |
+| JS/TS（含 vue/svelte） | **摘** | zod 374 / execa 1044 / GitNexus 4110 / workspace-bridge 1041，symbol-table 恒 0；闸前本仓 212 条假边（全部 `require('path')` → `parsers/js/shared.js`，一次导出手滑放大而成，`impact` 报 212 真值 3）证明失效模式：**对导出卫生零容错且从未产出正确边** |
+| Python | **摘** | CodeGraphContext 510 / code-review-graph 414，恒 0；`tryPythonAbsolute` 结构解析已吃满（315+254 条） |
+| JVM | **保** | okhttp 101 条全量核对**无一条类名==文件名**——顶层函数入 `certificates.kt`、`-HostnamesCommon.kt` 连字符前缀、`TestUtilJvm.kt` 多类文件，路径算术天然无解；spring-petclinic 0 无假边。符号表在 JVM 有**界限清晰的合法辖区**，且该判断已被证伪测试验过：我们说 10 条不属于辖区（depth≥2 缺口），修完它们原地 tier2→tier1、总边 2760 一条不变 |
+| Go | **不动** | cobra 总边仅 **12**——分母失真，「贡献 0」是噪音不是结论。转 L2-21（图完整性存疑，可能比 T6 更值钱） |
+| Rust | **不动** | qartez-mcp 763 边 / st **1 条**（fuzz crate 自引用）——「必须保留」的论据已蒸发，但同一把尺：n=1 不拍摘。转 L2-22（第二仓取数即判；若摘，`trySymbolTable` 塌成 JVM 专用，L3-4 内部分支整体消亡） |
+
+- **Changed** 注册机制：registry 条目声明 `symbolTableFallback`（`defineLanguage` 透传，默认 `true`），`resolvers.js` 注册循环按它挂/不挂 `trySymbolTable`——**按语言组装**，正是 L3-4 要的方向。javascript / python / vue / svelte 四条声明 `false`（vue/svelte 属 JS 家族：同一道闸、同一失效模式，script block 就是 JS/TS；无直接测量，`droppedImports` 记账覆盖）。JVM / Rust / Go / C++ 与 `default` 链保留。JS 闸（`_isExternalJsPackage` 等）**不删**——builder 的丢弃记账是它的第二个消费方。
+- **Added** `testT6SymbolTableChainMembership` + `testT6JsBareSymbolNoLongerResolves`（`resolver-strategy-chain-test.js`）：11 个摘除扩展名链上无 `trySymbolTable`、9 个保留扩展名 + `default` 链上有；e2e 同注册表 JS 调用者返回 null、Java 调用者照中。均先 RED 后修，**两次变异**：循环退回无条件挂 → 咬中 `.js`；vue 单点 flag 翻转 → 咬中 `.vue`。
+- **Changed** `wave10-symbol-intelligence-test.js` 的 outMeta 测试迁移到 `.java` 调用者——它锁的 `symbol-table` 元数据契约（method/tier2/0.8）活在 `trySymbolTable` 内部、与语言无关；死的只是 JS 链成员。
+- **Changed** CACHE_VERSION 26→27：v26 缓存里 JS/Python 仓的 symbol-table tier2 边应变成 droppedImports 记账。
+- **实测复核（摘除后六仓）**：zod 374 / execa 1044 / GitNexus 4110 / CodeGraphContext 510 / code-review-graph 414——**与摘除前逐边相同，零 delta**；本仓 1041 → 1042（+1，系当日新增测试代码的 require 边，非丢边）。零产出策略的摘除就该是这个形状：什么都没变，因为本来就没有。
+- **Changed** TECH_DEBT：L2-10 修复即删（历史等价覆盖于本条目）；新立 L2-21（Go 图完整性）、L2-22（Rust 待第二仓）、L3-14（tryJava probe 前后对照——原挂 T6 名下的墙钟缺口，「JVM 只剩 tryJava 承重」的前提随 JVM 保留判决消失，转非阻塞测量债）；L3-4 记进展（JS/Python 分支已随链消失，剩余分支终态路径见 L2-22）；P 表与 footer 同步，活跃债务 10 → 12 项。
+- **验证**：`test:fast` 145/145、eslint exit 0、`resolver-strategy-chain-test` / `resolver-symbol-table-test`（31/31）/ `wave10-symbol-intelligence-test` 直跑全 exit 0、六仓 `resolver-precision` 复核（上文）。**未跑 slow 全量**（本机约 35 分钟）。
+
 ### resolver：JVM 源根扫描下一层 — okhttp symbol-table 111 → 101，冷构建墙钟补齐 (2026-07-31)
 
 T6 判决材料复测（当日 HEAD 十仓逐仓点名）时挖到的：L2-14 记的「剩余 111 条 symbol-table 全是类名≠文件名族」**不实**——101 条成立，10 条全在 `samples/tlssurvey/`、类名与文件名精确相等（`okhttp3.survey.types.Client` → `types/Client.kt`）。真因是 `discoverJavaSourceRoots` 的多模块扫描只到根+一层子目录，而 `samples/` 是无 `src` 的纯容器目录，8 个平级模块全部落在扫描范围外——符号表在替一个结构缺口兜底，不是它的合法形态。

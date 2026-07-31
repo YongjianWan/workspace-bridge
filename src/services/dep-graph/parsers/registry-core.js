@@ -39,6 +39,10 @@ function defineLanguage(config) {
     extractSymbols: config.extractSymbols,
     isBuiltIn: config.isBuiltIn ?? (() => false),
     resolveStrategies: config.resolveStrategies ?? [],
+    // T6: opt out of the symbol-table fallback on this language's resolver
+    // chain. Default true; languages with measured zero-true-positive
+    // contribution (JS family, Python) declare false — TECH_DEBT L2-10.
+    symbolTableFallback: config.symbolTableFallback ?? true,
     async: config.async ?? false,
     needsFilePath: config.needsFilePath ?? false,
     needsWorkspaceRoot: config.needsWorkspaceRoot ?? false,

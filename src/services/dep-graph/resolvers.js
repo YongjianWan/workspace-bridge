@@ -379,7 +379,13 @@ function resolveJavaImport(importPath, root) {
 
 // Register resolver configs for all supported extensions dynamically from registry.
 for (const lang of registry.languages) {
-  const strategies = [...lang.resolveStrategies, trySymbolTable];
+  // T6 (2026-07-31): the symbol-table fallback is per-language, declared on
+  // the registry entry (symbolTableFallback). Off for JS family + Python
+  // (measured zero true-positive, TECH_DEBT L2-10); on for JVM (its only
+  // legal shape) and Rust/Go/C++ (pending their own measurements).
+  const strategies = lang.symbolTableFallback === false
+    ? [...lang.resolveStrategies]
+    : [...lang.resolveStrategies, trySymbolTable];
   for (const ext of lang.extensions) {
     registerResolverConfig(ext, strategies);
   }

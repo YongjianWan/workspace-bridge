@@ -91,14 +91,16 @@ function testMetadataPersistenceRoundtrip() {
 function testResolverOutMetaUpdates() {
   const { SymbolRegistry } = require('../src/services/dep-graph/symbol-registry');
   const registry = new SymbolRegistry();
-  registry.register('/src/target.js', [{ name: 'UniqueSymbol' }]);
+  registry.register('/src/Target.java', [{ name: 'UniqueSymbol' }]);
 
   const outMeta = {};
   const root = '/';
 
-  // Use trySymbolTable fallback
-  const resolved = resolveImport('/src/caller.js', 'UniqueSymbol', '.js', root, registry, outMeta);
-  assert.strictEqual(resolved, '/src/target.js');
+  // Use trySymbolTable fallback — via a JVM caller: T6 (2026-07-31) removed
+  // the fallback from JS/Python chains; the outMeta contract it locks lives
+  // in trySymbolTable itself and is language-agnostic.
+  const resolved = resolveImport('/src/Caller.java', 'UniqueSymbol', '.java', root, registry, outMeta);
+  assert.strictEqual(resolved, '/src/Target.java');
   assert.strictEqual(outMeta.method, 'symbol-table');
   assert.strictEqual(outMeta.tier, 'tier2');
   assert.strictEqual(outMeta.confidence, 0.8);

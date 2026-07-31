@@ -79,6 +79,9 @@ const SCHEMA_VERSION = '1.2.0';
 //      持有平级模块，止步 root+1 会把它们整批漏掉。v25 缓存里这些仓存着由
 //      symbol-table 兜底的 tier2 边（okhttp 实测 10 条，类名与文件名精确相等，
 //      纯结构缺口），结构解析补齐后应变成 java-package tier1 边。
-const CACHE_VERSION = 26;
+// v27: T6 — JS 家族（含 vue/svelte）与 Python 链摘掉 symbol-table 兜底
+//      （六仓实测零真产出，判决见 CHANGELOG）。v26 缓存里 JS/Python 仓的
+//      symbol-table tier2 边（闸漏时猜出来的）应变成 droppedImports 记账。
+const CACHE_VERSION = 27;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

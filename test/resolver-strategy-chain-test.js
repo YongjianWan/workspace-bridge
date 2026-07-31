@@ -362,6 +362,8 @@ function main() {
   testDiscoverJavaSourceRootsKmpSourceSetLayout();
   testDiscoverJavaSourceRootsContainerDirDepth2();
   testTryJavaMemberImportsStripToClassFile();
+  testT6SymbolTableChainMembership();
+  testT6JsBareSymbolNoLongerResolves();
 }
 
 // ============================================================================
@@ -657,6 +659,47 @@ function testDiscoverJavaSourceRootsContainerDirDepth2() {
   );
 
   cleanupTempDir(dir);
+}
+
+// ============================================================================
+// T6 (2026-07-31, user verdict): symbol-table fallback off the JS-family and
+// Python chains — zero true-positive edges measured across six real repos
+// (TECH_DEBT L2-10; JS failure mode: one sloppy re-export → 212 fabricated
+// edges). Kept on JVM (its only legal shape: okhttp 101/101 class≠file after
+// the depth≥2 fix) and on Rust/Go/C++ pending their own measurements.
+// ============================================================================
+function testT6SymbolTableChainMembership() {
+  const dropped = ['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.mts', '.cts', '.py', '.vue', '.svelte'];
+  const kept = ['.java', '.kt', '.rs', '.go', '.c', '.cpp', '.cc', '.h', '.hpp'];
+  for (const ext of dropped) {
+    const chain = RESOLVER_CONFIGS.get(ext);
+    assert(chain, `no resolver config for ${ext}`);
+    assert(!chain.includes(trySymbolTable), `${ext} chain must NOT include trySymbolTable after T6`);
+  }
+  for (const ext of kept) {
+    const chain = RESOLVER_CONFIGS.get(ext);
+    assert(chain, `no resolver config for ${ext}`);
+    assert(chain.includes(trySymbolTable), `${ext} chain must keep trySymbolTable`);
+  }
+  assert(
+    RESOLVER_CONFIGS.get('default').includes(trySymbolTable),
+    'default chain (unknown extensions) keeps trySymbolTable'
+  );
+}
+
+function testT6JsBareSymbolNoLongerResolves() {
+  // End-to-end: a bare specifier naming a unique local symbol used to resolve
+  // through the symbol table for JS callers; after T6 it must not. Java
+  // callers keep the fallback — same registry, same call.
+  const { SymbolRegistry } = require('../src/services/dep-graph/symbol-registry');
+  const registry = new SymbolRegistry();
+  registry.register('/src/Target.java', [{ name: 'UniqueSymbol' }]);
+
+  const jsHit = resolveImport('/src/caller.js', 'UniqueSymbol', '.js', '/', registry, {});
+  assert.strictEqual(jsHit, null, `JS bare-symbol guess must be gone after T6, got ${jsHit}`);
+
+  const javaHit = resolveImport('/src/Caller.java', 'UniqueSymbol', '.java', '/', registry, {});
+  assert.strictEqual(javaHit, '/src/Target.java', `JVM symbol-table fallback must keep working, got ${javaHit}`);
 }
 
 main();

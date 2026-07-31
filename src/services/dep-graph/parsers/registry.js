@@ -56,6 +56,10 @@ registry.register(defineLanguage({
   condition: (workspace) => workspace.hasPackageJson,
   isBuiltIn: (imp) => imp.startsWith('node:') || require('module').builtinModules.includes(imp),
   resolveStrategies: [tryAlias, tryRelativeWithExtensions],
+  // T6 (2026-07-31): zero true-positive symbol-table edges in four measured
+  // JS/TS repos (5528 edges total); failure mode is zero-tolerance to export
+  // hygiene (one sloppy re-export → 212 fabricated edges).
+  symbolTableFallback: false,
   extractSymbols: (content) => {
     const symbols = [];
     content.split('\n').forEach((line, idx) => {
@@ -84,6 +88,10 @@ registry.register(defineLanguage({
   condition: (workspace) => workspace.hasPythonFiles || workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy,
   isBuiltIn: (imp) => PYTHON_BUILTINS.has(imp.split('.')[0]),
   resolveStrategies: [tryPythonRelative, tryPythonAbsolute],
+  // T6 (2026-07-31): zero true-positive symbol-table edges in two measured
+  // Python repos (924 edges total); tryPythonAbsolute already covers the
+  // structural cases.
+  symbolTableFallback: false,
   extractSymbols: (content) => {
     const symbols = [];
     content.split('\n').forEach((line, idx) => {
@@ -208,6 +216,9 @@ registry.register(defineLanguage({
   condition: (workspace) => workspace.hasPackageJson,
   isBuiltIn: () => false,
   resolveStrategies: [tryAlias, tryRelativeWithExtensions],
+  // T6: JS family — same gate, same failure mode as javascript (script block
+  // IS JS/TS). No direct vue measurement; droppedImports accounting covers.
+  symbolTableFallback: false,
   extractSymbols: (content) => {
     // Vue delegates to JS/TS script block or empty
     const symbols = [];
@@ -257,6 +268,9 @@ registry.register(defineLanguage({
   condition: (workspace) => workspace.hasPackageJson,
   isBuiltIn: () => false,
   resolveStrategies: [tryAlias, tryRelativeWithExtensions],
+  // T6: JS family — same gate, same failure mode as javascript (script block
+  // IS JS/TS). No direct svelte measurement; droppedImports accounting covers.
+  symbolTableFallback: false,
   extractSymbols: (content) => {
     const symbols = [];
     const scriptBlock = content.match(/<script\b[^>]*>([\s\S]*?)<\/script>/i);
