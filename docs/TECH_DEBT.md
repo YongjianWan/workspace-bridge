@@ -83,7 +83,7 @@
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
 > | **P1 紧随** | **L2-21 Go 包级依赖无图（已诊断：`tryGoModule` 绑字母序首文件 + 同包互引零边；修复卡在「泛化 vs 平行」架构选择）** · ~~L2-16 Rust crate 名归一~~ ✅ · ~~L2-17 Python namespace 包~~ ✅（2026-07-28，丢弃 34→26） · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅ | Go 边层不是覆盖率低，是文件粒度图装不下包语义——`impact` 对 Go 核心文件静默漏报 |
 > | **P2 依赖前两层** | ~~L2-10 符号表判决（T6）~~ ✅ 已拍已执行（2026-07-31：摘 JS/TS/Python、留 JVM、Go/Rust 不动，史见 CHANGELOG） · **L2-22 Rust 去留待第二仓取数** · ~~L2-14 JVM 源根~~ ✅（2026-07-30，KMP 布局 + 成员导入，st 1037→111） | T6 的 Rust 半局卡在同一把尺上：n=1 不拍摘；取数即判 |
-> | **P3 记账不排期** | L3-4 扩展名分支（T6 后只剩 JVM/Rust/Go/C++ 共享段，终态见 L2-22） · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 · L3-11 双 freshness 判据 · L3-12 分层靠猜 · L3-13 每条各自冷启动 · L3-14 tryJava probe 放大缺前后对照 | L3-8 走"接触即修"，不做大扫除；L3-11 的沉默已修、分歧留档；L3-12/13 是测试执行债，可观测性与调度已落地，剩下两条都要"先测再改"；L3-14 是纯测量债，有变慢迹象再取 |
+> | **P3 记账不排期** | L3-4 扩展名分支（T6 后只剩 JVM/Rust/Go/C++ 共享段，终态见 L2-22） · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 · L3-11 双 freshness 判据 · L3-12 分层靠猜 · L3-13 每条各自冷启动 · L3-14 tryJava probe 放大缺前后对照 · L3-15 Python 标准库判定手抄 23 名（权威源 290 就在已 spawn 的解释器里） | L3-8 走"接触即修"，不做大扫除；L3-11 的沉默已修、分歧留档；L3-12/13 是测试执行债，可观测性与调度已落地，剩下两条都要"先测再改"；L3-14 是纯测量债，有变慢迹象再取 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
 > | **预防性约束** | postProcess 记录不落盘 · `_invalidateParseCache` 单一入口 · regex-fallback 缓存不信任 · warm/cold 逐字节一致 · `_readGuard` 单一读闸 · DependencyGraphView 白名单同步 · 「本轮实测」字段不进快照 · 门禁型出口不吃 replay · **路径归一化不进返回值**（新，三个实例后的收刀） | 这些是已修债务转移后的形态：实例没了，让实例发生的结构还在 |
 >
@@ -242,6 +242,35 @@
 
 **触发条件**：收到 JVM 仓构建变慢的报告；或动 `tryJava` probe 路径 / `discoverJavaSourceRoots` 扫描深度时顺手补。
 
+
+### L3-15：Python 标准库判定是手抄的 23 个名字，而进程里就坐着权威来源
+
+**状态**：2026-07-31 登记（评审"要不要用语言核心包增强 tree-sitter"时挖出）。**层次订正**：这不是 parser 的事——tree-sitter 只管文本→AST，"标准库还是仓内"是 resolve 阶段的分类，住在 `resolvers.js:311/337` 的闸里。
+
+**现状**：`PYTHON_BUILTINS`（`registry.js:31`）是**手写的 23 个模块名**。Python 真实标准库 `sys.stdlib_module_names` 是 **290 个**，覆盖率 **8%**。
+
+**为什么只有 Python 是这样**：其余四门全部用结构性或权威来源——
+
+| 语言 | 判定方式 | 性质 |
+| --- | --- | --- |
+| JS/TS | `require('module').builtinModules`（68） | 权威，运行时给的 |
+| Java/Kotlin | `java.`/`javax.`/`kotlin.` 前缀 + 零名单闸 | 结构性，构造上完整 |
+| Go | `_isExternalGoModule`：go.mod 模块路径之外一切为外部 | 结构性，零名单 |
+| Rust | `std`/`core`/`alloc` + Cargo.toml | 结构性 |
+| **Python** | **手抄 23 个名字** | **手工清单** |
+
+**已经咬过三次**：v11 建表 → v17 补 `__future__`/`tomllib`/`zoneinfo`（CodeGraphContext 70 条丢弃里约一半是 `__future__`）。每次都是"发现一个补一个"。**只有 Python 用手抄清单，也只有 Python 被咬过——这不是巧合。**
+
+**T6 后的严重性变了（降了一档，但没消失）**：Python 链已无 symbol-table 兜底，漏判的标准库导入**不再伪造边**，而是变成 `droppedImports` 里的一条"非预期丢弃"。所以后果从"假边"降级成"安全网噪音"——**而那张网正是 T6 判决所依赖的那张**。噪音直接削弱它的可信度。
+
+**建议动作**：不是"补一份更好的清单"，是**别再手工维护**。这个工具每解析一个 `.py` 就 spawn 一次 python 解释器，`sys.stdlib_module_names` 就在那个进程里，随解释器版本自动正确、零维护。落地要解决的是**管道**：该值要从 python 侧传到 JS 侧的闸，且只取一次并缓存（不能每文件问一遍）；python 缺失的 regex 降级路径仍需保留一份硬编码兜底。**改动会改变分类 → 改变丢弃记账 → CACHE_VERSION 必须 bump。**
+
+**顺手可删（同族，独立成立）**：`GO_BUILTINS` 里有**永远不可能命中**的条目——`'http'`/`'json'`/`'filepath'`，而 Go 的 import 路径是 `net/http`/`encoding/json`/`path/filepath`，判定是 `has(imp)` 精确匹配。且 Go 的外部闸走 `_isExternalGoModule` 零名单，**压根不查这张表**。核一遍 `resolvers.js:311/337` 两处消费点对 Go 的实际影响，大概率直接删（删除 > 添加）。
+
+**未验证**：改这张表**在真实仓上会不会真的动数字**，没测过。落地前先在 `reference/CodeGraphContext` + `reference/code-review-graph` 上取 `droppedImports` 前后对照——**如果两仓的非预期丢弃都是 0，这条债就只是卫生问题，不是正确性问题**，优先级应下调。
+
+**触发条件**：Python 仓报出非预期丢弃里混着标准库模块；或第四次需要往 `PYTHON_BUILTINS` 手工补名字时——那次就别补了，直接换来源。
+
 ---
 
 ## P4 冻结区（已登记，不排期；解冻条件写在每条里）
@@ -361,4 +390,4 @@
 
 ---
 
-*Last updated: 2026-07-31（活跃债务 **12 项**：L1=0 / L2=2（L2-21 Go 图完整性 cobra 仅 12 边 · L2-22 Rust symbol-table 去留待第二仓）/ 架构债务=0 / L3=10（L3-4/5/7/8/9/10/11/12/13/14）；P4 冻结 4 条。**2026-07-31 T6 判决并执行**：摘 JS/TS/Python（六仓实测零真产出，registry 条目声明 `symbolTableFallback: false`，CACHE_VERSION 26→27，六仓复测零 delta）、保 JVM（101 条全合法辖区）、Go 不动（证据无效，转 L2-21）、Rust 不动（n=1 不拍摘，转 L2-22）——L2-10 修复即删，史见 CHANGELOG T6 条目；同日销 depth≥2 源根缺口（okhttp st 111→101、tier1 1723→1733、总边 2760 不变、全量核对 0 条类名==文件名，两 session 独立冷构建复现）；墙钟现状 186.5s/177s 两次独立实测，L2-14 前后对照转 L3-14 非阻塞测量债。2026-07-30 登记测试执行债 L3-12（分层靠猜：slow 层 49/114 是启发式塞进去的，30 条比 fast 最慢那条还快；`needsCacheDir` 与层耦合使重分类不是一行改动）与 L3-13（每条各自冷启动：CPU 累计 903s / 114 条 ≈ 7.9s，一次冷构建 12–13s）——可观测性与调度已落地（775s→317s，史见 CHANGELOG），这两条都要"先测再改"。2026-07-30 评审登记 L3-11 双 freshness 判据（沉默已修、分歧留档），并按"接触即修"处理两个 L3-8 实例（workspacePackages 静默闸、cli.js warnings 覆盖）。2026-07-30 销 L2-14：KMP 源根 + 成员导入剥尾（okhttp st 1037→111），同刀修 `--severity` 快照读写绕过老 bug。2026-07-29 销 L2-15：快照新鲜度改认内容签名，门禁拒绝机制整体退休。2026-07-28 按「修复即删，历史只进 CHANGELOG」完成坟头清理——以上均史见 CHANGELOG）*
+*Last updated: 2026-07-31（活跃债务 **13 项**：L1=0 / L2=2（L2-21 Go 图完整性 cobra 仅 12 边 · L2-22 Rust symbol-table 去留待第二仓）/ 架构债务=0 / L3=11（L3-4/5/7/8/9/10/11/12/13/14/15）；P4 冻结 4 条。**2026-07-31 T6 判决并执行**：摘 JS/TS/Python（六仓实测零真产出，registry 条目声明 `symbolTableFallback: false`，CACHE_VERSION 26→27，六仓复测零 delta）、保 JVM（101 条全合法辖区）、Go 不动（证据无效，转 L2-21）、Rust 不动（n=1 不拍摘，转 L2-22）——L2-10 修复即删，史见 CHANGELOG T6 条目；同日销 depth≥2 源根缺口（okhttp st 111→101、tier1 1723→1733、总边 2760 不变、全量核对 0 条类名==文件名，两 session 独立冷构建复现）；墙钟现状 186.5s/177s 两次独立实测，L2-14 前后对照转 L3-14 非阻塞测量债。2026-07-30 登记测试执行债 L3-12（分层靠猜：slow 层 49/114 是启发式塞进去的，30 条比 fast 最慢那条还快；`needsCacheDir` 与层耦合使重分类不是一行改动）与 L3-13（每条各自冷启动：CPU 累计 903s / 114 条 ≈ 7.9s，一次冷构建 12–13s）——可观测性与调度已落地（775s→317s，史见 CHANGELOG），这两条都要"先测再改"。2026-07-30 评审登记 L3-11 双 freshness 判据（沉默已修、分歧留档），并按"接触即修"处理两个 L3-8 实例（workspacePackages 静默闸、cli.js warnings 覆盖）。2026-07-30 销 L2-14：KMP 源根 + 成员导入剥尾（okhttp st 1037→111），同刀修 `--severity` 快照读写绕过老 bug。2026-07-29 销 L2-15：快照新鲜度改认内容签名，门禁拒绝机制整体退休。2026-07-28 按「修复即删，历史只进 CHANGELOG」完成坟头清理——以上均史见 CHANGELOG）*
