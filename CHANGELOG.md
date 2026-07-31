@@ -5,6 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### 评审后续：query-* 重算分支把 replay 标记吞了 + 三条撒谎注释 (2026-07-31)
+
+审 07-30 那四笔提交挖到的。诚实机制又只接了一半——这次漏的是**第二条路径**：4617ec2 给 replay 路径接上了出处，重算路径却硬写 `replayedFrom: null`。
+
+- **Fixed** `ensureSnapshotData`（`query-tools.js`）的 fallthrough 分支无条件返回 `replayedFrom: null`，而它调用的 `buildProjectOverview` 有**更严格**的 freshness 判据，能 replay 掉 query-* 刚刚拒绝的同一行快照并在结果上挂自己的 `replayedFrom`。入口是 coarse 判据通过但载荷缺 `hotspots` 键：query-* 落到重算 → overview 判定新鲜并 replay → 标记被覆盖成 null → **响应宣称"本轮算的"，实际是 replay**。正是 4617ec2 要杀的那个谎，往上挪了一层。改为 `result.replayedFrom || null` 透传。
+- **Changed** `replayedFrom` 统一成一个形状：`overview-tools.js` 的 replay 标记补 `contentMatch: true`。它在那个位置**定义上为真**——`contentMatch` 是 `isSnapshotFresh` 返回值的合取项之一，走到挂标记那行说明它已经成立。写出来而不是留给读者推导，是为了让消费方**不需要知道自己在读哪个生产者**就能解释这个字段（query-* 用粗判据服务 replay，报 `contentMatch: false`）。附加字段，无消费方做 deepStrictEqual，`replayedFrom` 自身在 c3e0352 新增时也未 bump，故 SCHEMA_VERSION 保持 1.2.0。
+- **Added** `test/query-replay-provenance-test.js` 第 6 例 `testProvenanceSurvivesTheRecomputeBranch`：冷跑落快照 → 直接开 `cache.db` 把 `hotspots` 键摘掉、**freshness 四项（head/count/config/signature）逐字节保留** → `query-hotspots` 必须仍带出处且 `contentMatch: true`。先 RED（红在 `assert.ok(data.replayedFrom)`，前置断言全通过）后修。**两处改动各自做了变异验证**：摘 `contentMatch: true` → 咬中 contentMatch 断言；`replayedFrom` 改回 null → 咬中出处断言。
+- **Changed** 三条与实现不符的注释——4617ec2 刚修完两条同类，同批新代码里又写下三条：
+  - `exit-codes.js` 说 freshness "consults `cache.checkFileChanges()`"。实际走 `getContentSignature()` + `content_signature` 列；`checkFileChanges()` 是另一个仍然活着的方法，同批 CHANGELOG 甚至写了"删掉已无意义的 `checkFileChanges` mock"。会把下一个读者领到错的函数上。顺带写明 `FINDINGS` 的**实际用途宽于其名**（config/validation 错误也走它，值一直是 1，本次收编裸字面量未改行为）。
+  - `runner.js` `runPool` 文档说 report 记 `startOffsetMs`，字段实际叫 `finishOffsetMs`（`recordResult` 那处注释是对的，两处自相矛盾；全仓 `startOffsetMs` 零命中）。
+  - `runner.js` `require.main` 守卫注释指向不存在的 `test/runner-report-test.js`，实为 `runner-classification-test.js`。
+- **Added** TECH_DEBT：L3-8 追加两条新写下的 `?.()` 实例（`getContentSignature?.()` × 2，方向 fail-safe 但形状同族）；L2-10 追加 T6 前置的测量缺口（`tryJava` 逐段剥尾把 probe 数从 `roots×2` 变成 `segments×roots×2`，L2-14 只记了边数没记冷构建墙钟，而 T6 一摘符号表 JVM 侧就只剩它承重）。
+- **验证**：`test:fast` 145/145、eslint exit 0、query-replay-provenance / gate-on-replay / phase35-query-sql / severity-filter / query-tools / runner-classification 直跑全 exit 0。**未跑 slow 全量**（本机约 35 分钟）。
+
 ### 测试执行：批屏障换工作池 + 每跑落 JSON 报告 — slow 层 775s → 317s (2026-07-30)
 
 先建可观测性再优化，两刀单变量分开测。**所有对照跑的 `warmup` 均在 12–14s 健康带内**，是校准过的比较。

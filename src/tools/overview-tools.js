@@ -144,6 +144,13 @@ async function buildProjectOverview(args, container) {
           computedAt: snapshot.computedAt,
           gitHead: snapshot.version || null,
           fileCount: snapshot.fileCount,
+          // Always true here — contentMatch is one of the conjuncts
+          // isSnapshotFresh had to satisfy to reach this line. It is stated
+          // rather than implied so that `replayedFrom` has ONE shape wherever
+          // it appears: query-* serves replays under a coarser check and
+          // reports contentMatch false, and a consumer must not have to know
+          // which producer it is reading to interpret the field.
+          contentMatch: true,
         };
         // `measured` answers "was this number measured in THIS run?" — it must
         // never be replayed from the snapshot, where it would read true forever.

@@ -417,7 +417,7 @@ function runOne(file) {
  * max(totalWork/concurrency, longestSingleTest) = max(470s, 92s).
  *
  * Results are handled in completion order, which is why the report records
- * startOffsetMs instead of a batch index — with a pool there are no batches,
+ * finishOffsetMs instead of a batch index — with a pool there are no batches,
  * and the offset is what reconstructs the timeline.
  */
 async function runPool(phaseFiles, concurrency, onResult) {
@@ -574,7 +574,7 @@ async function main() {
 }
 
 // Guarded so the classification rules can be required and asserted without
-// launching a full run (test/runner-report-test.js).
+// launching a full run (test/runner-classification-test.js).
 if (require.main === module) {
   main();
 }

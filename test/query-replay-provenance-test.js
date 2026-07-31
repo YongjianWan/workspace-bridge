@@ -18,6 +18,7 @@ const path = require('path');
 const { queryHotspots, queryKnowledgeRisk, queryStability } = require('../src/tools/query-tools');
 const { computeConfigHash } = require('../src/utils/project-context');
 const { runCliInProcessRaw, assertOk, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { GraphDB } = require('../src/services/graph-db');
 
 const MOCK_OVERVIEW = {
   hotspots: [{ file: 'a.js', score: 99, risk: 'high', lines: 100, churn: 10 }],
@@ -143,12 +144,92 @@ async function testDriftWarningSurvivesTheRealCliPath() {
   }
 }
 
+// The recompute branch is not automatically honest. When the coarse check
+// passes but the row carries no `hotspots`, query-* falls through to
+// buildProjectOverview — which finds the SAME row fresh by its own (stricter)
+// check and replays it, tagging its result with `replayedFrom`. That tag has
+// to travel back out: hardcoding `replayedFrom: null` on the fallthrough path
+// makes the response claim "computed this run" about a replay, which is the
+// exact lie the rest of this file exists to prevent, one layer up.
+async function testProvenanceSurvivesTheRecomputeBranch() {
+  const repo = makeTempDir('wb-qprov-recompute-repo-');
+  const cache = makeTempDir('wb-qprov-recompute-cache-');
+  try {
+    fs.writeFileSync(path.join(repo, 'package.json'), '{"name":"qprov2","version":"1.0.0"}');
+    fs.writeFileSync(path.join(repo, 'a.js'), "const b = require('./b');\nmodule.exports = { b };\n");
+    fs.writeFileSync(path.join(repo, 'b.js'), 'module.exports = 1;\n');
+
+    const cold = await runCliInProcessRaw(
+      ['audit-overview', '--cwd', repo, '--cache-dir', cache, '--json', '--quiet'],
+      { cwd: repo }
+    );
+    assertOk(cold, 'cold audit-overview should succeed');
+
+    // Strip `hotspots` from the stored row while leaving every freshness key
+    // (head / count / config / signature) byte-identical. The tree has not
+    // moved — only query-*'s own payload precondition fails.
+    const dbPath = findCacheDb(cache);
+    assert.ok(dbPath, 'cold run should have produced a cache.db');
+    const db = new GraphDB(dbPath);
+    let stored;
+    try {
+      stored = db.loadAnalysisSnapshot('overview');
+      assert.ok(stored && stored.data, 'cold run should have stored an overview snapshot');
+      const { hotspots: _dropped, ...withoutHotspots } = stored.data;
+      assert.ok('hotspots' in stored.data, 'precondition: the cold snapshot carries hotspots');
+      db.saveAnalysisSnapshot(
+        'overview',
+        withoutHotspots,
+        stored.version,
+        stored.fileCount,
+        stored.configHash,
+        stored.contentSignature
+      );
+    } finally {
+      db.close();
+    }
+
+    const warm = await runCliInProcessRaw(
+      ['query-hotspots', '--cwd', repo, '--cache-dir', cache, '--json', '--quiet'],
+      { cwd: repo }
+    );
+    assertOk(warm, 'query-hotspots should still succeed on a hotspot-less snapshot');
+    const data = JSON.parse(warm.stdout);
+    assert.ok(
+      data.replayedFrom,
+      'a response served from a replayed overview must declare provenance even when it reached the replay through the recompute branch'
+    );
+    assert.strictEqual(
+      data.replayedFrom.contentMatch,
+      true,
+      'the tree never moved, so the replayed data must report contentMatch true'
+    );
+  } finally {
+    cleanupTempDir(repo);
+    cleanupTempDir(cache);
+  }
+}
+
+function findCacheDb(dir) {
+  const stack = [dir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else if (entry.name === 'cache.db') return full;
+    }
+  }
+  return null;
+}
+
 async function main() {
   await testUnmovedTreeReplayIsMarkedAndSilent();
   await testMovedTreeReplayRaisesDriftWarning();
   await testLegacySnapshotCountsAsUnverifiable();
   await testAllThreeQueryCommandsCarryProvenance();
   await testDriftWarningSurvivesTheRealCliPath();
+  await testProvenanceSurvivesTheRecomputeBranch();
 }
 
 main();

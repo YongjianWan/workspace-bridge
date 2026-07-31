@@ -115,11 +115,16 @@ async function ensureSnapshotData(parsed, container) {
       // corrupted snapshot — fall through to recompute
     }
   }
-  // Cache miss or stale: run full audit-overview and return its raw data
+  // Cache miss or stale: run full audit-overview and return its raw data.
   const result = await buildProjectOverview(parsed, container);
   if (result.ok === false) return null;
   return {
-    replayedFrom: null,
+    // NOT unconditionally null: buildProjectOverview has its own, stricter
+    // freshness check, so it can replay the very row this function just
+    // declined (the coarse check passes but the payload carries no `hotspots`).
+    // Overwriting its marker here would relabel a replay as "computed this
+    // run" — the same silence this module exists to break, one layer up.
+    replayedFrom: result.replayedFrom || null,
     data: {
       hotspots: result.hotspots,
       knowledgeRisk: result.knowledgeRisk,

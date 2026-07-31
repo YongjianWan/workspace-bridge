@@ -46,6 +46,8 @@
 
 **另一处需要订正的旧结论**：「摘掉能连带让 L2-11 的 JS 闸和 L3-4 分支一起消失」——**已过期**。T5 之后 `isExternalDependency` 有了第二个消费方（builder 的丢弃记账用它区分「该丢的」和「漏掉的」），闸删不掉了，连带收益缩水成只剩 L3-4 那个分支。
 
+**拍板前应补的一个测量（2026-07-31 评审登记）**：L2-14 的成员导入逐段剥尾把 `tryJava` 的 probe 数从 `roots × 2` 变成 `segments × roots × 2`——KMP 多模块仓源根本来就多（`collectSourceSetRoots` 对根和每个一级子目录各扫一遍 `src/*`），5 段导入的 **miss** 会翻五倍。`_statCache` 有 `LIMITS.RESOLVER_STAT_CACHE_MAX` 上限做 LRU，不会爆内存，但**淘汰率上升正是这种放大最容易咬人的地方**。CHANGELOG 的 L2-14 条目记的全是边数（937→111、dropped 841→241、总边 +345），**没有一个冷构建墙钟数**——同批 runner 那两刀记了四组对照、CPU 累计和超时余量，唯独这条改了热路径复杂度的没记。补一次 okhttp 冷构建前后耗时即可。**为什么放在 T6 名下**：现在 `tryJava` 慢一点有符号表在后面兜；T6 一摘，JVM 侧就只剩它承重，那时候再发现它慢就晚了。
+
 **触发条件**：调整 `SYMBOL_DISAMBIGUATION` 任一常数、或把符号表铺到新语言之前。跑 `node scripts/resolver-precision.js reference/<repo> [...]` 逐仓点名取数（勿用 `reference/*` 通配，目录里混着非仓文件；编制与闸状态见 `reference/README.md`）。
 
 ### ⚠️ 预防性约束：`_invalidateParseCache()` 是 parse cache 的唯一失效入口
@@ -158,6 +160,8 @@
 **判据（新增代码时问一句）**：这个 `?.` / `||` 兜的是**真实可能发生且可恢复**的情况，还是**结构性不该发生**的情况？后者一律让它炸。内部模块之间互相信任，不做防御性检查——只在真正的外部边界（用户输入、文件系统、spawn 子进程）设防。
 
 **建议动作**：不做一次性大扫除（改动面太大、收益不可测）。改为**接触即修**：任何一次触碰到带兜底的调用点，顺手判断一次并处理掉。已处理：`overview-assembler` 的 `getDroppedImports?.()`（`cc82b0d`）；`GraphBuilder.workspacePackages` 的"未计算 = 空集 = 闸自我关闭"（2026-07-30，改为 `null` + `resolveFileOnly` 直抛）。
+
+**待处理（2026-07-31 评审登记，L2-15 那批新写下的同族实例）**：`container.cache?.getContentSignature?.()` 两处（`overview-tools.js` 的 `isSnapshotFresh`、`query-tools.js` 的 `describeReplay`）+ `getContentSignature()` 内部的 `meta?.mtime` / `meta?.size`（`meta` 取自同一个 Map 的 keys，`undefined` 结构上不可能）。**方向都是 fail-safe** ——方法缺失退回重算/告警，不产出假数据，比 `getDroppedImports?.()` 那次轻一档；但形状一模一样，且是规则写进本文档**之后**新写的。这说明"接触即修"只在改老代码时生效，写新代码时没人想起来。下次碰 freshness 链时一并清掉。
 
 **同族但形状不同的一个变种（同轮发现）**：不是兜底，是**覆盖**——`cli.js` 出口 `result.warnings = graph.buildWarnings()` 把命令自产的 warnings 整条删掉。兜底把"没有"说成 0，覆盖把"有"说成没有，殊途同归都是让信号到不了人眼前。写任何"统一填充响应字段"的出口逻辑时，先问一句：这个字段命令自己会不会已经填过？
 
