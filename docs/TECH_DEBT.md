@@ -14,15 +14,25 @@
 
 ## L2 债务（阻塞演进或导致结果不可信）
 
-### L2-21：Go 侧图完整性存疑——cobra 体量仓仅 12 条边进图
+### L2-21：Go 文件级图丢包级依赖——包导入绑给字母序第一个文件，同包引用完全无图
 
-**状态**：2026-07-31 T6 复测时登记，未查。
+**状态**：2026-07-31 登记，**同日已诊断，方向定了，待修复**。
 
-**实测**：`scripts/resolver-precision.js reference/cobra`（当日 HEAD）：总边 **12**，symbol-table 0。cobra 是一个有几十个 cmd 文件、多个内部包的成熟 Go 项目——12 条边意味着 Go 侧要么 parser 提取很浅，要么闸把仓内导入也拦了。「Go 的 symbol-table 贡献 0」在这个分母上不是结论（T6 因此判 Go 路不动，史见 CHANGELOG T6 条目）。
+**触发疑问**：cobra 冷构建总边仅 12（`scripts/resolver-precision.js`，当日 HEAD），初判「解析浅或闸拦过狠」。**诊断（开 `cache.db` 逐表查 + 对照源码）两个假设都不成立**：
 
-**排查方向**：（1）`reference/cobra` 冷构建后开 `cache.db` 看 `droppedImports`——被丢的 specifier 形状会直接指认是 parser 没提取还是 `tryGoModule`/`_isExternalGoModule` 误拦；（2）对照 `test/gors-resolver-test.js` 锁的 Go 解析覆盖面。
+1. **不是 parser 浅**：36/36 文件全部 `ast-success` 吃进。
+2. **不是闸拦狠**：`droppedCount: 0`（只记非预期丢弃）——外部导入（stdlib + pflag）全是 expected drop，正常。
+3. **12 条大体是真相**：cobra 是扁平单包仓，根目录 25 个文件全是 `package cobra`——**Go 同包文件之间没有 import 语句**，它们的 import 只有 stdlib + pflag。跨包导入全在 `doc/`：5 个非测试 + 6 个测试文件引 `github.com/spf13/cobra`（及 `cobra/doc`），合计正好 12。文件级 import 图在单包 Go 仓上天然稀疏——分母不是失真，是 Go 包语义的真实形状。
 
-**为什么值得查**：T6 评审原话——「那本身可能是个比 T6 更值钱的 bug」。Go 的边层如果一直是这个覆盖率，所有 Go 仓的 impact/affected-tests 输出都在静默低估。
+**但诊断抓到一个真 bug（比原疑问值钱）**：`tryGoModule`（`resolvers/go.js:44-46`）把**包导入**解析成 `readdirSync().sort()` 后**字母序第一个非测试 `.go` 文件**。`import "github.com/spf13/cobra"` 依赖的是整个包 25 个文件，12 条边却全指向 `active_help.go`——**`impact command.go` 查不到 `doc/*` 的任何依赖方**，cobra 最核心的文件在图上显得没人依赖。这直接砸在 impact 分析这个核心卖点上。
+
+**结构错配（为什么是同族病）**：Go 的每个 import 都是包级导入（等价于 Java 的 `import com.example.*`），而 Go 侧既没有 Java 的 **wildcard 展开**（`builder.js` `wildcardCount`），也没有 **same-package 展开**（tier3 `java-same-package` 隐式边）。后者导致同包文件互引完全无图——`command.go` 调 `cobra.go` 的函数，图上一片空白。
+
+**修复方向（与 Java 机制同形）**：包导入不再绑单文件，展开为到该包全部非测试 `.go` 的边（Go package = 目录 + package 子句，判定比 Java 还简单）；同包互引走 tier3 隐式边。**障碍**：`java-same-package` 是硬编码字面量，builder + analyzer（cycles Rule 5、L1-3 死导出、impact 归因）+ query + graph-db **8+ 处**消费方按字符串特判——Go 搭车要么泛化方法名（动缓存语义，CACHE_VERSION bump），要么平行加 `go-same-package`（每处消费方都要加条件，正是 L3-4 要消的形状）。这是个架构级选择，值得对齐再动手。
+
+**排障弯路记录（下一个人省 10 分钟）**：`import_records` 只存 **resolved** 记录、`droppedCount` 只记**非预期**丢弃——expected 外部丢弃在缓存里完全无痕，所以「闸拦过狠」假设无法从 droppedImports 直接证实/证伪，必须对照源码数真值。
+
+**触发条件**：修 Go 边层之前先对齐「泛化 vs 平行」的架构选择；修完 CACHE_VERSION bump + cobra 复测（预期：doc→root 边展开、同包 tier3 出现、总边数大涨但全部可解释）。
 
 ### L2-22：Rust symbol-table 去留——「必须保留」论据已蒸发，摘的论据未到线，缺第二仓
 
@@ -71,7 +81,7 @@
 > | 层 | 条目 | 为什么在这一层 |
 > | --- | --- | --- |
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
-> | **P1 紧随** | **L2-21 Go 图完整性（cobra 仅 12 边）** · ~~L2-16 Rust crate 名归一~~ ✅ · ~~L2-17 Python namespace 包~~ ✅（2026-07-28，丢弃 34→26） · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅ | Go 边层覆盖率存疑 = 所有 Go 仓输出静默低估，T6 评审原话「可能比 T6 更值钱」 |
+> | **P1 紧随** | **L2-21 Go 包级依赖无图（已诊断：`tryGoModule` 绑字母序首文件 + 同包互引零边；修复卡在「泛化 vs 平行」架构选择）** · ~~L2-16 Rust crate 名归一~~ ✅ · ~~L2-17 Python namespace 包~~ ✅（2026-07-28，丢弃 34→26） · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅ | Go 边层不是覆盖率低，是文件粒度图装不下包语义——`impact` 对 Go 核心文件静默漏报 |
 > | **P2 依赖前两层** | ~~L2-10 符号表判决（T6）~~ ✅ 已拍已执行（2026-07-31：摘 JS/TS/Python、留 JVM、Go/Rust 不动，史见 CHANGELOG） · **L2-22 Rust 去留待第二仓取数** · ~~L2-14 JVM 源根~~ ✅（2026-07-30，KMP 布局 + 成员导入，st 1037→111） | T6 的 Rust 半局卡在同一把尺上：n=1 不拍摘；取数即判 |
 > | **P3 记账不排期** | L3-4 扩展名分支（T6 后只剩 JVM/Rust/Go/C++ 共享段，终态见 L2-22） · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 · L3-11 双 freshness 判据 · L3-12 分层靠猜 · L3-13 每条各自冷启动 · L3-14 tryJava probe 放大缺前后对照 | L3-8 走"接触即修"，不做大扫除；L3-11 的沉默已修、分歧留档；L3-12/13 是测试执行债，可观测性与调度已落地，剩下两条都要"先测再改"；L3-14 是纯测量债，有变慢迹象再取 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
