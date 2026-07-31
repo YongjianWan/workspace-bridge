@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### resolver：JVM 源根扫描下一层 — okhttp symbol-table 111 → 101，冷构建墙钟补齐 (2026-07-31)
+
+T6 判决材料复测（当日 HEAD 十仓逐仓点名）时挖到的：L2-14 记的「剩余 111 条 symbol-table 全是类名≠文件名族」**不实**——101 条成立，10 条全在 `samples/tlssurvey/`、类名与文件名精确相等（`okhttp3.survey.types.Client` → `types/Client.kt`）。真因是 `discoverJavaSourceRoots` 的多模块扫描只到根+一层子目录，而 `samples/` 是无 `src` 的纯容器目录，8 个平级模块全部落在扫描范围外——符号表在替一个结构缺口兜底，不是它的合法形态。
+
+- **Fixed** `discoverJavaSourceRoots`（`resolvers/base.js`）：抽出 `collectModuleRoots(dir, roots)`（标准布局 + sourceSet 两层扫描，单模块段与多模块段原各抄一遍，顺手消重），多模块扫描对每个一级子目录**再下一层**。下潜带噪音闸：`node_modules`/`build`/`dist`/`out`/`target` + 所有点目录不进——npm 包的 fixture（`node_modules/x/src/main/java`）不是源根，变异 2 实测过没有闸时两个噪音根都会混进来。
+- **实测**（okhttp 冷构建，修复后 HEAD）：总边 **2760 → 2760 不变**，symbol-table **111 → 101**——10 条 tlssurvey 边从符号表挪进结构解析，一条没丢。抽样 40 条三元组全是合法族（`-hostnamescommon.kt` 连字符前缀、`testutiljvm.kt` 多类文件、顶层函数入 `certificates.kt`），`samples/tlssurvey/` 一条不剩。JVM 保留符号表的论据如预期变得更干净：它承担的范围收敛到真正无解的那族。
+- **实测** 冷构建墙钟 **3m6.5s**（2760 边，整脚本含收集开销、构建占绝对大头）——补掉 L2-10 名下 07-31 评审登记的测量缺口。口径说明：这是 L2-14 **之后**的现状基线，「前后对照」的「前」需 checkout 旧 commit 单独取，未取；判决需要的「T6 摘除后 `tryJava` 独自承重的现状成本」就是这个数，3 分钟级落在可接受区间。
+- **Added** `test/resolver-strategy-chain-test.js` `testDiscoverJavaSourceRootsContainerDirDepth2`：容器目录（无 `src`）下的 depth-2 模块必须被发现、depth-1 模块不受影响、`node_modules`/`build` 不得下潜、端到端 `tryJava('okhttp3.survey.types.Client')` 直中。先 RED（容器模块未发现）后修，**两次变异验证**：砍下潜循环 → 咬中发现断言；去噪音闸 → 咬中 node_modules 断言。
+- **Changed** TECH_DEBT L2-10 三处订正：「全是类名≠文件名族」→ 101/10 拆分（判决顺序条目与建议动作段同步）；新增 2026-07-31 十仓复测段——五路复现，**Go 证据降级为无效**（cobra 总边仅 12，分母失真，「Go 贡献 0」近乎空话，T6 拍板时 Go 一路须单独取数或分开处理）；Rust 复测 5 → 1（唯一存活是 fuzz crate 自引用）。
+- **验证**：`test:fast` 145/145、eslint exit 0、`resolver-strategy-chain-test` 直跑 exit 0、okhttp `resolver-precision` 复测（上文两数）。**未跑 slow 全量**（本机约 35 分钟）。
+
 ### 评审后续：query-* 重算分支把 replay 标记吞了 + 三条撒谎注释 (2026-07-31)
 
 审 07-30 那四笔提交挖到的。诚实机制又只接了一半——这次漏的是**第二条路径**：4617ec2 给 replay 路径接上了出处，重算路径却硬写 `replayedFrom: null`。

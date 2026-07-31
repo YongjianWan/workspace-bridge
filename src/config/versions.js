@@ -75,6 +75,10 @@ const SCHEMA_VERSION = '1.2.0';
 //      tryJava 对越过类名的指定符（Companion 成员 / 嵌套类）剥尾到首个命中。
 //      v24 缓存里 KMP 仓（okhttp 型）存着大量 symbol-table 兜底边与假丢弃，
 //      结构解析覆盖后这些应变成 java-package tier1 边（实测 st 937→111）。
-const CACHE_VERSION = 25;
+// v26: JVM 多模块源根扫描下潜到二层——`samples/` 这类自身无 src 的纯容器目录
+//      持有平级模块，止步 root+1 会把它们整批漏掉。v25 缓存里这些仓存着由
+//      symbol-table 兜底的 tier2 边（okhttp 实测 10 条，类名与文件名精确相等，
+//      纯结构缺口），结构解析补齐后应变成 java-package tier1 边。
+const CACHE_VERSION = 26;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

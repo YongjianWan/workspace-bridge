@@ -360,6 +360,7 @@ function main() {
   testTryPythonAbsoluteRegularPackageWinsAcrossSearchRoots();
   testPackageManifestChainReturnsNativePaths();
   testDiscoverJavaSourceRootsKmpSourceSetLayout();
+  testDiscoverJavaSourceRootsContainerDirDepth2();
   testTryJavaMemberImportsStripToClassFile();
 }
 
@@ -599,6 +600,61 @@ function testTryJavaMemberImportsStripToClassFile() {
   // No prefix matches a file → still null, do not bind a package-level shot
   const miss = tryJava('okhttp3.Nonexistent.Member', null, ctx);
   assert.strictEqual(miss, null, `unknown class must stay unresolved, got ${miss}`);
+
+  cleanupTempDir(dir);
+}
+
+// ============================================================================
+// depth≥2 container modules: a directory with no src of its own can hold
+// sibling modules one level deeper (okhttp's samples/ holds 8 modules, each
+// with src/main/kotlin — measured 2026-07-31: 10 symbol-table edges in
+// samples/tlssurvey had class name == file name, pure structure gap). The
+// multi-module scan used to stop at root+1. Dependency/build noise dirs must
+// NOT be descended into — an npm fixture (node_modules/x/src/main/java) or
+// generated output is not a source root.
+// ============================================================================
+function testDiscoverJavaSourceRootsContainerDirDepth2() {
+  const dir = makeTempDir('wb-java-depth2-');
+  // Container dir with NO src of its own, holding a module one level deeper
+  const deepKotlin = path.join(dir, 'samples', 'tlssurvey', 'src', 'main', 'kotlin');
+  fs.mkdirSync(path.join(deepKotlin, 'okhttp3', 'survey', 'types'), { recursive: true });
+  fs.writeFileSync(path.join(deepKotlin, 'okhttp3', 'survey', 'types', 'Client.kt'), '');
+  // A normal depth-1 module keeps working
+  const stdRoot = path.join(dir, 'okhttp', 'src', 'main', 'kotlin');
+  fs.mkdirSync(path.join(stdRoot, 'okhttp3'), { recursive: true });
+  fs.writeFileSync(path.join(stdRoot, 'okhttp3', 'HttpUrl.kt'), '');
+  // Noise dirs that must NOT be descended into
+  const nmRoot = path.join(dir, 'node_modules', 'somepkg', 'src', 'main', 'java');
+  fs.mkdirSync(nmRoot, { recursive: true });
+  const buildRoot = path.join(dir, 'build', 'generated', 'src', 'main', 'java');
+  fs.mkdirSync(buildRoot, { recursive: true });
+
+  const roots = discoverJavaSourceRoots(dir);
+  assert(
+    roots.some((r) => r === deepKotlin),
+    `module under a src-less container dir must be discovered, got ${JSON.stringify(roots)}`
+  );
+  assert(
+    roots.some((r) => r === stdRoot),
+    `depth-1 module must keep working, got ${JSON.stringify(roots)}`
+  );
+  assert(
+    !roots.some((r) => r.includes('node_modules')),
+    `node_modules must not be descended into, got ${JSON.stringify(roots)}`
+  );
+  assert(
+    !roots.some((r) => r === buildRoot),
+    `build output must not be descended into, got ${JSON.stringify(roots)}`
+  );
+
+  // End-to-end: the okhttp samples/tlssurvey shape resolves through tryJava,
+  // no symbol-table fallback needed.
+  const ctx = { root: dir, cachedExistsSync: (p) => fs.existsSync(p), discoverJavaSourceRoots };
+  const hit = tryJava('okhttp3.survey.types.Client', null, ctx);
+  assert(
+    hit && hit.endsWith(path.join('okhttp3', 'survey', 'types', 'Client.kt')),
+    `tryJava must resolve a class under a depth-2 container module, got ${hit}`
+  );
 
   cleanupTempDir(dir);
 }

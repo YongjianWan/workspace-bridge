@@ -12,6 +12,10 @@ const JAVA_SOURCE_ROOTS = ['src/main/java', 'src/test/java', 'src/main/kotlin', 
 // the sourceSet name is arbitrary (commonJvmAndroid, jvmTest, desktopMain…),
 // so the scan keys on the leaf names, never the middle component.
 const SOURCESET_LEAVES = ['kotlin', 'java'];
+// Container-dir descent skips dependency/build noise — a fixture under
+// node_modules or generated output under build/ is not a source root.
+// Hidden dirs are skipped too: no legitimate JVM module lives in a dotdir.
+const CONTAINER_DESCENT_SKIP = new Set(['node_modules', 'build', 'dist', 'out', 'target']);
 
 const _javaSourceRootsCache = new Map(); // root -> string[]
 const _statCache = new Map();
@@ -88,26 +92,29 @@ function discoverJavaSourceRoots(root) {
   const roots = [root, path.join(root, 'src'), path.join(root, 'app')];
 
   // Single-module projects
-  for (const srcDir of JAVA_SOURCE_ROOTS) {
-    const candidate = path.join(root, srcDir);
-    if (cachedExistsSync(candidate)) {
-      roots.push(candidate);
-    }
-  }
-  collectSourceSetRoots(root, roots);
+  collectModuleRoots(root, roots);
 
-  // Multi-module projects
+  // Multi-module projects: scan each first-level subdir, and one level
+  // deeper for container dirs (okhttp's samples/ has no src of its own but
+  // holds 8 sibling modules, each with src/main/kotlin — stopping at root+1
+  // pushed those edges to symbol-table guessing even with class == file
+  // name). Dependency/build noise and hidden dirs are not descended into.
   try {
     for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const sub = path.join(root, entry.name);
-      for (const srcDir of JAVA_SOURCE_ROOTS) {
-        const candidate = path.join(sub, srcDir);
-        if (cachedExistsSync(candidate)) {
-          roots.push(candidate);
-        }
+      collectModuleRoots(sub, roots);
+      if (CONTAINER_DESCENT_SKIP.has(entry.name) || entry.name.startsWith('.')) continue;
+      let grandchildren;
+      try {
+        grandchildren = fs.readdirSync(sub, { withFileTypes: true });
+      } catch {
+        continue; // sub unreadable, ignore
       }
-      collectSourceSetRoots(sub, roots);
+      for (const grand of grandchildren) {
+        if (!grand.isDirectory()) continue;
+        collectModuleRoots(path.join(sub, grand.name), roots);
+      }
     }
   } catch (e) {
     // root unreadable, ignore
@@ -119,6 +126,18 @@ function discoverJavaSourceRoots(root) {
   const deduped = [...new Set(roots)];
   _javaSourceRootsCache.set(root, deduped);
   return deduped;
+}
+
+// One module dir → its standard-layout roots plus its sourceSet roots.
+// Shared by the single-module scan and both depths of the multi-module scan.
+function collectModuleRoots(dir, roots) {
+  for (const srcDir of JAVA_SOURCE_ROOTS) {
+    const candidate = path.join(dir, srcDir);
+    if (cachedExistsSync(candidate)) {
+      roots.push(candidate);
+    }
+  }
+  collectSourceSetRoots(dir, roots);
 }
 
 // L2-14: <base>/src/<sourceSet>/{kotlin,java} — one level deeper than the
