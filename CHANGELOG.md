@@ -5,6 +5,25 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L2-21 收口：Go 包级依赖入图 —— 包导入展开到全包文件 + 同包 tier3 边，cobra 12 → 279 (2026-08-01)
+
+L2-21（2026-07-31 登记：Go 包导入绑字母序首文件、同包引用完全无图）今日修复即删，历史等价覆盖于本条。
+
+**变异实验收口（先证据后修复）**：上一轮「读侧字符串判据冗余」被独立复核降级（承重跑 ② 落在变异被中途 revert 的污染窗口内、④ 合并变异无逐处归因权），本轮补两笔闭合证据链：
+
+- **② 受控复跑**：7 处变异（5 处删 `|| resolutionMethod === 'java-same-package'` 析取半 + `analyzer.js:352` / `query.js:76` 两处唯一判据换 `tier === 'tier3'`），跑前/中/后三次 `git diff` 核实变异在位，不接管道取 runner 退出码——**266/266 全绿**。「5/7 冗余 + 2/7 等价」升级为已证。
+- **四处单点归因**（每处单独杀成 `if (false)`、单独全量、跑前跑后验 diff）：`analyzer.js:1218` 红 `java-same-package-dead-export-consistency-test.js`、`query.js:76` 红 `java-package-imports-test.js`——两处守护测试坐实；`analyzer.js:646`（cycles Rule 5）与 `analyzer.js:352`（GraphAnalyzer 版 reason 标签）**全绿——零覆盖坐实**，登记测试覆盖缺口。646 首跑被 `cli-error-handling-test.js` 写坏仓库根配置的竞态污染（红的是 `cli-integration-edge-test.js`，与变异无因果路径），重跑干净。
+
+**结论**：判别器（tier/confidence）本就语言中立，「泛化 vs 平行」的架构选择不存在。Go 同包边只要带 `tier='tier3'/confidence=0.3`，读侧（hasImplicit 族、L1-3 死导出、cycles Rule 5）不需要知道 Go 存在。读侧 7 处字符串判据**未删**——冗余已证但删除是另一笔清理，本轮不动。
+
+- **Fixed** `tryGoModule`（`resolvers/go.js`）包导入绑字母序首文件：锚文件降级为只满足单路径 resolver 契约，`outMeta.goPackageDir` 携带包目录，绑定语义移入后处理阶段。修复前 cobra 上 `import "github.com/spf13/cobra"` 只产一条指向 `active_help.go` 的边——`impact command.go` 查不到 `doc/*` 的任何依赖方。
+- **Added** `expand-go-packages` 后处理阶段（`builder.js`，照 Java `expand-java-packages` 同形）：go-module 包导入展开为该包**全部非测试** `.go` 文件（tier1/confidence 1.0，锚记录之外的注入记录带 `goPackageExpansion` 标记供 strip 识别）；同包（同目录）文件互引生成隐式边（`go-same-package`，tier3/confidence 0.3，source `<same-package:<dir>>`）。`_test.go` 既不作源也不作目标。阶段注册进 `postProcessPhases`（triggers `['.go']`），cold/warm 两路径自动重放，strip-then-expand 幂等；watch 增量走既有「非 Java 阶段整跑」回退。`_stripGoExpansions` 清 imports 数组时保留仍被存活记录引用的边（锚记录覆盖的锚文件不被误摘）。
+- **Added** `test/go-package-imports-test.js`（4 条）：resolver 标包目录 / 同包 tier3 边形状（tier3、0.3、`go-same-package`、反向边）/ 包导入展开到全包且排除 `_test.go` / 二次运行幂等。先 RED（`outMeta.goPackageDir` undefined）后 GREEN。
+- **Changed** CACHE_VERSION 27→28：v27 缓存里 Go 仓的包导入只有锚文件单条边、且无同包边。
+- **实测** cobra（`scripts/resolver-precision.js`，修复后 HEAD 冷构建）：总边 **12 → 279**，分解 `go-same-package` 202 + `go-module` 77、symbol-table 0——202 = 根包 14 非测试文件 14×13 + `doc/` 5 文件 5×4；77 = doc 5 文件 × 根包 14 + 7 条 `cobra/doc` 被引。**全部可解释**。
+- **Changed** TECH_DEBT：L2-21 修复即删；「依赖准确性缺口排序」第 1 项（Go 绑首文件）随修复移除，Python 23/290 与 JVM manifest 未读两项保留；测试覆盖缺口的 ⚠️ 待验注摘除（646/352 零覆盖经单点归因坐实）；预防性约束「postProcess 注入的 importRecords 不落盘」覆盖范围补 Go 阶段；P1 行 L2-21 销记，P1 出空。
+- **验证**：全量 `node test/runner.js`（含 slow）**267/267**、runner exit 0（266 + 新增 go-package-imports-test）。本轮机器降速（基线 387s → 本轮 530–550s 档），判读只看红绿不看墙钟。
+
 ### T6 判决并执行：symbol-table 摘 JS/TS/Python、保 JVM、Go/Rust 不动 (2026-07-31)
 
 挂了三个月的 L2-10 今日落槌。**判决是四路不是一个**（用户拍板，原话：之前把它们捆成一个「摘不摘」是错的框法）。判决材料全程两个 session 交叉验证：一方测、另一方不信记录亲手复测，包括两次独立冷构建（186.5s / 177s）、全量核对代替抽样、两次变异各自复现。

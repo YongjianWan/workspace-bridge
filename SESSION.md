@@ -6,7 +6,29 @@
 
 ---
 
-## 本轮会话 (2026-08-01，L2-21 变异实验证据核查 → 依赖准确性缺口排序)
+## 本轮会话 (2026-08-01 续，L2-21 收口：② 复跑 + 四处单点归因 + Go 写侧修复)
+
+> 本轮有生产代码变更（Go 写侧修复），CHANGELOG 2026-08-01 L2-21 条目是主记录。
+
+### 本轮完成
+1. **② 受控复跑**：7 处变异（5 处删 `|| resolutionMethod === 'java-same-package'` 析取半 + 2 处唯一判据换 `tier==='tier3'`），跑前/中/后三次 `git diff` 核实变异在位、不接管道取 exit code——**266/266 全绿**。「5/7 冗余 + 2/7 等价」从待验升级为已证。
+2. **四处单点归因**（每处单独杀成 `if (false)` + 单独全量 + 三次验 diff）：`analyzer.js:1218` 红 `java-same-package-dead-export-consistency-test.js`、`query.js:76` 红 `java-package-imports-test.js`（守护坐实）；`analyzer.js:646`、`:352` 全绿（**零覆盖坐实**，登记测试缺口）。
+3. **Go 写侧修复（TDD）**：`tryGoModule` 锚文件降级为契约载体（`outMeta.goPackageDir` 标包目录）；`builder.js` 新增 `expand-go-packages` 后处理阶段——go-module 包导入展开到该包全部非测试 `.go`（tier1/1.0）+ 同目录互引生成 `go-same-package` tier3/0.3 隐式边，照 Java 同形，strip-then-expand 幂等，注册进 `postProcessPhases`（triggers `['.go']`）cold/warm 自动两路径。`test/go-package-imports-test.js` 4 条先 RED 后 GREEN。CACHE_VERSION 27→28。全量 **267/267** exit 0。
+4. **cobra 复测**：**12 → 279**（`go-same-package` 202 + `go-module` 77、symbol-table 0）——202 = 根包 14 非测试文件 14×13 + `doc/` 5×4；77 = doc 5 文件 × 根包 14 + 7 条 `cobra/doc` 被引。全部可解释。
+5. **文档收口**：L2-21 修复即删（史见 CHANGELOG）；P1 出空；零覆盖登记摘 ⚠️ 待验注；postProcess 约束补 Go；依赖准确性排序删已修第 1 项。
+
+### 踩到的坑（下一轮省时间）
+- **`cli-error-handling-test.js:60` 故意把仓库根 `.workspace-bridge.json` 写成非法 JSON**（finally 恢复），并行下 `cli-integration-edge-test.js` 撞上窗口即红（报 "Expected property name or '}' in JSON"）——646 首跑那条红就是这么来的，与变异无因果路径。测试基建竞态，本轮未修（出范围）。**再遇到「红的测试与变异八竿子打不着」，先查这个文件。**
+- 机器降速依旧：全量从首轮基线 387s 到本轮 505–549s 档，**判读只看红绿不看墙钟**，本轮耗时数字一律不与历史基线比。
+
+### 下一步
+- 活跃 L2 只剩 **L2-22**（Rust symbol-table 去留待第二仓取数，`scripts/resolver-precision.js` 点名一个编制外 Rust 仓即判）。
+- 测试缺口（排期由用户拍板）：`analyzer.js:646` cycles Rule 5 与 `:352` GraphAnalyzer 版 reason 标签零覆盖——同族守护测试（1218/76 两条）可当模板。
+- 读侧 7 处字符串判据**未删**：冗余已证，但删除是另一笔清理（行为零变化已背书），要删另起一轮。
+
+---
+
+## 上一轮会话 (2026-08-01，L2-21 变异实验证据核查 → 依赖准确性缺口排序)
 
 > **本轮零生产代码变更**。工作区里出现过的 7 行 `if (false)` 全是变异实验，已还原（`grep "if (false)" src/` 归零）。因此**没有 CHANGELOG 条目**——按铁律 CHANGELOG 只记代码变更。
 
