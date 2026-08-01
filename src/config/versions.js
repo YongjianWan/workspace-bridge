@@ -82,6 +82,9 @@ const SCHEMA_VERSION = '1.2.0';
 // v27: T6 — JS 家族（含 vue/svelte）与 Python 链摘掉 symbol-table 兜底
 //      （六仓实测零真产出，判决见 CHANGELOG）。v26 缓存里 JS/Python 仓的
 //      symbol-table tier2 边（闸漏时猜出来的）应变成 droppedImports 记账。
-const CACHE_VERSION = 27;
+// v28: L2-21 — Go 包导入展开为该包全部非测试 .go 文件（不再绑字母序首文件），
+//      同包文件互引生成 tier3/confidence 0.3 的 go-same-package 隐式边。
+//      v27 缓存里 Go 仓的包导入只有锚文件单条边，且无同包边。
+const CACHE_VERSION = 28;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

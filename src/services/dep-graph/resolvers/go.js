@@ -50,6 +50,11 @@ function tryGoModule(importPath, _fromFile, ctx) {
         ctx.outMeta.method = 'go-module';
         ctx.outMeta.confidence = 1.0;
         ctx.outMeta.tier = 'tier1';
+        // L2-21: the import binds the whole package, not this anchor file.
+        // The anchor only satisfies the single-path resolver contract; the
+        // expand-go-packages post-process phase adds edges to every non-test
+        // .go file in this dir.
+        ctx.outMeta.goPackageDir = targetDir;
       }
       return resolved;
     }

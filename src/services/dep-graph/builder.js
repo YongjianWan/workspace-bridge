@@ -36,6 +36,11 @@ class GraphBuilder {
       fn: () => this.expandJavaPackageImports(),
       triggers: ['.java', '.kt'],
     });
+    this.postProcessPhases.push({
+      id: 'expand-go-packages',
+      fn: () => this.expandGoPackageImports(),
+      triggers: ['.go'],
+    });
     this._parseCache = new Map();
     this._walCadence = new WalCadence();
     // L2-11 gap C: the JVM gate's input. null means "not computed yet" — an
@@ -476,6 +481,9 @@ class GraphBuilder {
           tier: outMeta.tier || 'tier1',
           resolutionMethod: outMeta.method || 'import',
           confidence: outMeta.confidence ?? 1.0,
+          // L2-21: go-module package imports carry their package dir so the
+          // expand-go-packages phase can bind every non-test .go file.
+          ...(outMeta.goPackageDir ? { goPackageDir: outMeta.goPackageDir } : {}),
         };
       })
       .filter(Boolean);
@@ -813,6 +821,158 @@ class GraphBuilder {
     // Defensive: emit even when edgeCount is 0, because _stripJavaExpansions
     // may have removed edges without adding new ones.
     this.dg.bus.emit('graph:updated', { changedFiles: Array.from(affectedFiles) });
+  }
+
+  // ---------------------------------------------------------------------------
+  // L2-21: Go package expansion — mirrors the Java phase above.
+  // A Go package is a directory: files in one dir share package scope without
+  // any import statement (implicit tier3 same-package edges), and a go-module
+  // import binds EVERY non-test .go file of the target package, not just the
+  // anchor file the resolver named.
+  // ---------------------------------------------------------------------------
+
+  _buildGoPackageIndex() {
+    this.goPackageIndex = new Map();
+    for (const [fileKey] of this.dg.graph) {
+      if (!fileKey.endsWith('.go') || fileKey.endsWith('_test.go')) continue;
+      const dir = fileKey.slice(0, fileKey.lastIndexOf('/'));
+      if (!this.goPackageIndex.has(dir)) {
+        this.goPackageIndex.set(dir, new Set());
+      }
+      this.goPackageIndex.get(dir).add(fileKey);
+    }
+  }
+
+  _stripGoExpansions(info) {
+    if (!info || !info.importRecords) return;
+    const toRemove = new Set();
+    info.importRecords = info.importRecords.filter((r) => {
+      // 1. Same-package implicit records
+      if (r.isImplicit && r.patternId === 'go-same-package') {
+        toRemove.add(r.resolved);
+        return false;
+      }
+      // 2. Package-import expansion records (the anchor record created by the
+      // resolve phase survives — it has no goPackageExpansion marker)
+      if (r.goPackageExpansion) {
+        toRemove.add(r.resolved);
+        return false;
+      }
+      return true;
+    });
+    if (toRemove.size > 0 && info.imports) {
+      info.imports = info.imports.filter((imp) => {
+        if (!toRemove.has(imp)) return true;
+        // Keep the edge when a surviving record still resolves to it (e.g.
+        // the anchor record of the same package import).
+        return info.importRecords.some((r) => r.resolved === imp);
+      });
+    }
+  }
+
+  _expandGoForFile(fileKey, info) {
+    let edgeCount = 0;
+    let samePackageCount = 0;
+    let expansionCount = 0;
+
+    // Defensive copy to avoid mutating cached arrays (same pattern as Java)
+    if (!info._implicitMutated) {
+      info.imports = info.imports.slice();
+      info.importRecords = info.importRecords.slice();
+      info._implicitMutated = true;
+      this.dg.graph.set(fileKey, info);
+    }
+
+    // 1. Same-package implicit references: Go files in one dir share package
+    // scope — no import statement exists to resolve (tier3, java-same-package
+    // shape so every read-side tier/confidence check applies unchanged).
+    const dir = fileKey.slice(0, fileKey.lastIndexOf('/'));
+    const pkgFiles = this.goPackageIndex.get(dir);
+    if (pkgFiles) {
+      const implicitSource = `<same-package:${dir}>`;
+      for (const targetFile of pkgFiles) {
+        if (targetFile === fileKey) continue;
+        if (!info.imports.includes(targetFile)) {
+          info.imports.push(targetFile);
+          edgeCount++;
+          samePackageCount++;
+        }
+        const hasRecord = info.importRecords.some(
+          (r) => r.resolved === targetFile && r.source === implicitSource
+        );
+        if (!hasRecord) {
+          const rec = buildImplicitImportRecord(implicitSource, targetFile, 'go-same-package');
+          rec.tier = 'tier3';
+          rec.resolutionMethod = 'go-same-package';
+          rec.confidence = 0.3;
+          info.importRecords.push(rec);
+        }
+      }
+    }
+
+    // 2. go-module package imports bind every non-test .go file of the
+    // package; the resolver only named one anchor file to satisfy the
+    // single-path contract.
+    for (const record of info.importRecords || []) {
+      if (record.resolutionMethod !== 'go-module' || !record.goPackageDir) continue;
+      if (record.goPackageExpansion) continue; // injected below; do not re-process
+      const pkgDir = this.dg.normalizeFilePath(record.goPackageDir);
+      const targetFiles = this.goPackageIndex.get(pkgDir);
+      if (!targetFiles) continue;
+      for (const targetFile of targetFiles) {
+        if (targetFile === fileKey) continue;
+        const hasRecord = info.importRecords.some(
+          (r) => r.resolved === targetFile && r.source === record.source
+        );
+        if (hasRecord) continue; // the anchor record already covers this file
+        if (!info.imports.includes(targetFile)) {
+          info.imports.push(targetFile);
+          edgeCount++;
+          expansionCount++;
+        }
+        info.importRecords.push({
+          ...record,
+          resolved: targetFile,
+          goPackageExpansion: true,
+        });
+      }
+    }
+
+    return { edgeCount, samePackageCount, expansionCount };
+  }
+
+  async expandGoPackageImports() {
+    const startTime = Date.now();
+    this._buildGoPackageIndex();
+    if (this.goPackageIndex.size === 0) return;
+
+    let edgeCount = 0;
+    let samePackageCount = 0;
+    let expansionCount = 0;
+
+    for (const [fileKey, info] of this.dg.graph) {
+      if (!fileKey.endsWith('.go') || fileKey.endsWith('_test.go')) continue;
+
+      this._removeOldReverseEdges(fileKey);
+      this._stripGoExpansions(info);
+
+      const expanded = this._expandGoForFile(fileKey, info);
+      this._addReverseEdges(fileKey, info.imports, { skipExisting: true });
+
+      edgeCount += expanded.edgeCount;
+      samePackageCount += expanded.samePackageCount;
+      expansionCount += expanded.expansionCount;
+    }
+
+    if (!this.dg.quiet && (samePackageCount > 0 || expansionCount > 0)) {
+      console.error(
+        `[DepGraph] Expanded ${expansionCount} go-module package imports + ${samePackageCount} same-package refs ` +
+          `(${edgeCount} edges) in ${Date.now() - startTime}ms`
+      );
+    }
+    // Emit graph:updated whenever the graph structure may have changed,
+    // even if edgeCount is 0 (edges may have been removed by _stripGoExpansions).
+    this.dg.bus.emit('graph:updated', {});
   }
 
   async updateFiles(filePaths) {
