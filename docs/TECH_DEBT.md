@@ -34,6 +34,21 @@
 
 **触发条件**：修 Go 边层之前先对齐「泛化 vs 平行」的架构选择；修完 CACHE_VERSION bump + cobra 复测（预期：doc→root 边展开、同包 tier3 出现、总边数大涨但全部可解释）。
 
+**2026-08-01 变异实验：「泛化 vs 平行」障碍实证消解——读侧字符串判据是冗余，不再需要架构选择**。四轮全量（266 条含 slow）变异测试：① 基线 HEAD 266/266 ✅；② 读侧 7 处改造（5 处删 `|| resolutionMethod === 'java-same-package'` 析取半 + 2 处唯一判据换成 `tier === 'tier3'`）266/266 ✅；③ 对照杀 hasImplicit 三处（`analyzer.js:1602` / `query.js:120` / `graph-db.js:1032`）→ 红 `affected-http-routes-implicit-test.js`，覆盖确认；④ 对照杀另外 4 处（`analyzer.js:352/646/1218` / `query.js:76`）→ 红 `java-package-imports-test.js`（76 的 reason 标签）与 `java-same-package-dead-export-consistency-test.js`（1218 的 L1-3），覆盖确认。②绿 + ③④红 = 经典杀变异证明：**在全部有测试背书的路径上，`tier='tier3'`/`confidence<0.5` 与 `java-same-package` 恒同生**（写侧唯一产出点在 `builder.js`），字符串判据从不独立触发。结论：**Go 同包边只要生成时带 `tier='tier3'` / `confidence=0.3`，hasImplicit 族、L1-3 死导出、query 侧 impact 归因全部免费识别**——不泛化方法名（不动缓存语义），不平行加 `go-same-package`（不堆条件），写侧照 Java 同形展开即可。残余未证：`analyzer.js:646`（cycles Rule 5）与 `analyzer.js:352`（GraphAnalyzer 版 reason 标签）零覆盖（杀了无红），这两处的等价只有代码阅读背书，已登记测试覆盖缺口。注意：③ 的变异状态曾受外部环境干扰（部分 edit 在跑前被 revert，由「子集变异反而更多红」的悖论 + 测试逻辑反推证实），④ 为受控复跑——**变异实验起跑后必须复核 diff 才可信**。
+
+**2026-08-01 独立复核（另一 session）——上面两处结论必须降级读**：
+
+1. **② 的绿没有一次可信跑支撑。** ② 跑在 16:55–17:04，与「变异被中途 revert」是同一个窗口。本轮独立复跑 ③（7 处变异、隔离 cache、runner 退出码直取 `RUNNER_EXIT=1`）复现同样的 265/1、只红 `affected-http-routes-implicit`，**且跑到一半实测源文件已被还原**（`grep "if (false)" src/` 归零）——起跑 7 处、收尾 0 处。这坐实了 revert 机制，但同一机制对 ② 一样成立：② 的变异若也在跑中途被还原，它测的就是干净代码，绿毫无意义。所以「5/7 经测试背书」**目前是没有实测支撑的**，要补一次跑前跑后各验 diff 的 ② 才成立。
+2. **④ 的逐处归因超出实验能给的。** ④ 是 4 处**一起**杀得到 2 条红，只能证明「这组里至少有覆盖」，证不出哪条红来自哪一处，也证不出 `:646`/`:352` 零覆盖。上面把红分派给 `query.js:76` 与 `analyzer.js:1218`、并据此判另两处零覆盖，是推断不是实测——**要逐处单跑才有归因权**。
+
+**依赖准确性缺口排序（2026-08-01，目标：文件/函数级依赖更准，按回报）**：
+
+1. **Go 包导入绑字母序首文件**（即本条）——错得**不可辨**：边有源有目标、tier1、confidence 1.0，没有任何信号说它是错的，比假边危险得多。cobra 上 `impact command.go` 查不到 `doc/*` 任何依赖方。
+2. **Python 标准库判定 23/290**（L3-15）——向已 spawn 的解释器要 `sys.stdlib_module_names`，一行换 23 个硬编码名字。
+3. **JVM 第三方 manifest 未读**——实测 grep：`src/` 里 `pom.xml` / `build.gradle` **零次出现**。`resolvers/base.js` 已读 go.mod、package.json（四类依赖字段）、Cargo.toml、requirements.txt + pyproject.toml 五种 manifest，唯独 JVM 没有，因此 `java.`/`javax.`/`kotlin.` 三个前缀之外的第三方 jar（`com.google.common.*`、`org.apache.*`）一律挡不住。难点：groupId 与 import 包名**不同构**（`com.google.guava` ↔ `com.google.common.collect`），精度有天花板。
+
+> **标准库/官方包本体不引入图中**（反复被问，留档）：影响分析从变更文件流向依赖方，标准库既不是变更源也不是你代码的依赖方，**永远不出现在任何一次查询的答案里**，拉进来是纯成本（Python stdlib 数千文件、JDK 数万 class，且 Python/Java 每文件一次 spawn）。需要的是官方 **manifest**（项目自己声明、不会腐烂），不是官方**包**。
+
 ### L2-22：Rust symbol-table 去留——「必须保留」论据已蒸发，摘的论据未到线，缺第二仓
 
 **状态**：2026-07-31 T6 判决：不动，待取数。
@@ -81,7 +96,7 @@
 > | 层 | 条目 | 为什么在这一层 |
 > | --- | --- | --- |
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
-> | **P1 紧随** | **L2-21 Go 包级依赖无图（已诊断：`tryGoModule` 绑字母序首文件 + 同包互引零边；修复卡在「泛化 vs 平行」架构选择）** · ~~L2-16 Rust crate 名归一~~ ✅ · ~~L2-17 Python namespace 包~~ ✅（2026-07-28，丢弃 34→26） · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅ | Go 边层不是覆盖率低，是文件粒度图装不下包语义——`impact` 对 Go 核心文件静默漏报 |
+> | **P1 紧随** | **L2-21 Go 包级依赖无图（已诊断；变异实验方向成立但**证据未收口**——「读侧字符串判据冗余」的承重跑 ② 落在污染窗口内、无可信复跑，逐处归因亦未做，见本条 2026-08-01 独立复核。架构层面：判别器 tier/confidence 本就语言中立，Go 边带 tier3/confidence=0.3 读侧即可识别，「泛化 vs 平行」不成立——这半是读代码得出的，不依赖测试）** · ~~L2-16 Rust crate 名归一~~ ✅ · ~~L2-17 Python namespace 包~~ ✅（2026-07-28，丢弃 34→26） · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅ | Go 边层不是覆盖率低，是文件粒度图装不下包语义——`impact` 对 Go 核心文件静默漏报 |
 > | **P2 依赖前两层** | ~~L2-10 符号表判决（T6）~~ ✅ 已拍已执行（2026-07-31：摘 JS/TS/Python、留 JVM、Go/Rust 不动，史见 CHANGELOG） · **L2-22 Rust 去留待第二仓取数** · ~~L2-14 JVM 源根~~ ✅（2026-07-30，KMP 布局 + 成员导入，st 1037→111） | T6 的 Rust 半局卡在同一把尺上：n=1 不拍摘；取数即判 |
 > | **P3 记账不排期** | L3-4 扩展名分支（T6 后只剩 JVM/Rust/Go/C++ 共享段，终态见 L2-22） · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 · L3-11 双 freshness 判据 · L3-12 分层靠猜 · L3-13 每条各自冷启动 · L3-14 tryJava probe 放大缺前后对照 · L3-15 Python 标准库判定手抄 23 名（权威源 290 就在已 spawn 的解释器里） | L3-8 走"接触即修"，不做大扫除；L3-11 的沉默已修、分歧留档；L3-12/13 是测试执行债，可观测性与调度已落地，剩下两条都要"先测再改"；L3-14 是纯测量债，有变慢迹象再取 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
@@ -326,6 +341,10 @@
 
 > 所有核心/分析模块均已实现专属/直接单元测试覆盖（无遗留的零专属测试模块）。层级覆盖缺口（边层横向对比）已由 T1 的 `test/language-parity-edges-test.js` 兜住——十语言 fixture 各一条「A 依赖 B」，断言至少 1 条边且 `droppedCount` 全 0（史见 CHANGELOG T1 条目）。教训沉淀在上方「开发纪律」第一节。
 
+> **2026-08-01 变异实验新登记两处零覆盖**（实验经过见 L2-21 附录）：`analyzer.js:646` **cycles Rule 5**（tier3 同包边不计入环）与 `analyzer.js:352` GraphAnalyzer 版 `implicit-same-package` reason 标签——两处条件整个打成 `false` 跑全量 266 条无一红。它们的同族防线其实都有测试：L1-3 死导出排除（`analyzer.js:1218`）有 `java-same-package-dead-export-consistency-test.js` 守着，query 版 reason 标签（`query.js:76`）有 `java-package-imports-test.js` 守着——唯独这两处没有。补上之前，对这两处的任何删改只有代码阅读背书，变异杀不死。
+>
+> **⚠️ 该登记的证据强度（2026-08-01 独立复核）**：上述「两处零覆盖」与「另两处各由某测试守着」的分派，来自**一次 4 处合并变异**得到的 2 条红。合并变异只能证明「这组里至少有覆盖」，**不能把某条红归因到具体某一处**，也就推不出另两处零覆盖。四处各自单跑一次才能坐实——在那之前，这条按**待验**读，别当已确认的覆盖缺口去排期补测试。
+
 ---
 
 > CLI Dogfooding 历史缺陷已全部修复，并按"修复即删"铁律完成清理（历史详情归档于 [CHANGELOG.md](../CHANGELOG.md) [Unreleased]）。
@@ -390,4 +409,4 @@
 
 ---
 
-*Last updated: 2026-07-31（活跃债务 **13 项**：L1=0 / L2=2（L2-21 Go 图完整性 cobra 仅 12 边 · L2-22 Rust symbol-table 去留待第二仓）/ 架构债务=0 / L3=11（L3-4/5/7/8/9/10/11/12/13/14/15）；P4 冻结 4 条。**2026-07-31 T6 判决并执行**：摘 JS/TS/Python（六仓实测零真产出，registry 条目声明 `symbolTableFallback: false`，CACHE_VERSION 26→27，六仓复测零 delta）、保 JVM（101 条全合法辖区）、Go 不动（证据无效，转 L2-21）、Rust 不动（n=1 不拍摘，转 L2-22）——L2-10 修复即删，史见 CHANGELOG T6 条目；同日销 depth≥2 源根缺口（okhttp st 111→101、tier1 1723→1733、总边 2760 不变、全量核对 0 条类名==文件名，两 session 独立冷构建复现）；墙钟现状 186.5s/177s 两次独立实测，L2-14 前后对照转 L3-14 非阻塞测量债。2026-07-30 登记测试执行债 L3-12（分层靠猜：slow 层 49/114 是启发式塞进去的，30 条比 fast 最慢那条还快；`needsCacheDir` 与层耦合使重分类不是一行改动）与 L3-13（每条各自冷启动：CPU 累计 903s / 114 条 ≈ 7.9s，一次冷构建 12–13s）——可观测性与调度已落地（775s→317s，史见 CHANGELOG），这两条都要"先测再改"。2026-07-30 评审登记 L3-11 双 freshness 判据（沉默已修、分歧留档），并按"接触即修"处理两个 L3-8 实例（workspacePackages 静默闸、cli.js warnings 覆盖）。2026-07-30 销 L2-14：KMP 源根 + 成员导入剥尾（okhttp st 1037→111），同刀修 `--severity` 快照读写绕过老 bug。2026-07-29 销 L2-15：快照新鲜度改认内容签名，门禁拒绝机制整体退休。2026-07-28 按「修复即删，历史只进 CHANGELOG」完成坟头清理——以上均史见 CHANGELOG）*
+*Last updated: 2026-08-01（活跃债务 **13 项**：L1=0 / L2=2（L2-21 Go 图完整性 cobra 仅 12 边 · L2-22 Rust symbol-table 去留待第二仓）/ 架构债务=0 / L3=11（L3-4/5/7/8/9/10/11/12/13/14/15）；P4 冻结 4 条。**2026-07-31 T6 判决并执行**：摘 JS/TS/Python（六仓实测零真产出，registry 条目声明 `symbolTableFallback: false`，CACHE_VERSION 26→27，六仓复测零 delta）、保 JVM（101 条全合法辖区）、Go 不动（证据无效，转 L2-21）、Rust 不动（n=1 不拍摘，转 L2-22）——L2-10 修复即删，史见 CHANGELOG T6 条目；同日销 depth≥2 源根缺口（okhttp st 111→101、tier1 1723→1733、总边 2760 不变、全量核对 0 条类名==文件名，两 session 独立冷构建复现）；墙钟现状 186.5s/177s 两次独立实测，L2-14 前后对照转 L3-14 非阻塞测量债。2026-07-30 登记测试执行债 L3-12（分层靠猜：slow 层 49/114 是启发式塞进去的，30 条比 fast 最慢那条还快；`needsCacheDir` 与层耦合使重分类不是一行改动）与 L3-13（每条各自冷启动：CPU 累计 903s / 114 条 ≈ 7.9s，一次冷构建 12–13s）——可观测性与调度已落地（775s→317s，史见 CHANGELOG），这两条都要"先测再改"。2026-07-30 评审登记 L3-11 双 freshness 判据（沉默已修、分歧留档），并按"接触即修"处理两个 L3-8 实例（workspacePackages 静默闸、cli.js warnings 覆盖）。2026-07-30 销 L2-14：KMP 源根 + 成员导入剥尾（okhttp st 1037→111），同刀修 `--severity` 快照读写绕过老 bug。2026-07-29 销 L2-15：快照新鲜度改认内容签名，门禁拒绝机制整体退休。2026-07-28 按「修复即删，历史只进 CHANGELOG」完成坟头清理——以上均史见 CHANGELOG。2026-08-01 L2-21 四轮变异实验：读侧 7 处 `java-same-package` 判据中 5 处冗余经杀变异测试背书（2 处唯一判据换 `tier==='tier3'` 等价成立），「泛化 vs 平行」架构障碍实证消解，Go 修复不再卡架构选择；`analyzer.js:646` cycles Rule 5 与 `:352` GraphAnalyzer 版 reason 标签零覆盖登记入测试缺口。**同日独立复核对该实验降级**：承重跑 ② 落在「变异被中途 revert」窗口内、无可信复跑，逐处归因未做，两条结论均转**待验**（架构判断「泛化 vs 平行不成立」不受影响，那半由读代码得出）；同时登记依赖准确性缺口排序（Go 绑首文件 > Python 23/290 > JVM manifest 未读，`src/` 里 pom.xml/build.gradle 零次出现），并留档「标准库/官方包本体不引入图中，需要的是官方 manifest」）*
