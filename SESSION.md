@@ -6,7 +6,28 @@
 
 ---
 
-## 本轮会话 (2026-08-01 续，L2-21 收口：② 复跑 + 四处单点归因 + Go 写侧修复)
+## 本轮会话 (2026-08-01 续二，L2-22 判留 + 竞态修复 + 守护测试/清理进行中)
+
+> 截至目前的生产代码变更：零（①是判决、③是测试基建、⑥是测量）。CHANGELOG 2026-08-01 L2-22 条目是主记录。
+
+### 本轮完成
+1. **① L2-22 取数判决 → 判留**：选仓 ripgrep（tokio/serde proc-macro 太重会污染判决）。129 边 / symbol-table **45 条（34.88%）**，逐条人工核对形状全合法（`crate::` 绝对路径 / workspace 跨 crate `grep_matcher::` / `self::`），与 qartez-mcp 1 条合法边互证。L3-4 塌缩终态作废。TECH_DEBT L2-22 修复即删，**L2 层清零**。
+2. **③ `cli-error-handling-test.js` 竞态修复**：Test 5 坏配置从写仓库根改为 `mkdtemp` 临时 cwd，单跑 PASS。646 首跑假红的根源除名。
+3. **⑥ hugo 复测（选仓 hugo，etcd 属 k8s 生态撇不干净）**：**12094 边** = `go-module` 7796 + `go-same-package` 4298，symbol-table 0——279 式展开坐实非 cobra 特例，Go 证据 n=2。
+4. **编制 12 → 14**：ripgrep / hugo 入编（reference/README.md 已登记）。
+
+### 进行中（按依赖顺序）
+- 全部落地：**②** 守护测试 4 例（杀变异双红验讫）→ **④** 7 处字符串判据已删（同族全绿）→ **⑤** L3-15 换源 + 双死名单删除（前后对照零 delta）→ **⑥** hugo 12094 边坐实。
+- **验证终态**：`npm run test:fast` 146/146（exit 0）；全量 `node test/runner.js` **269/269**（exit 0，267 + 2 个新测试文件）。
+
+### 下一轮入口
+- L2 出空后依赖准确性新榜首：**JVM 第三方 manifest 未读**（TECH_DEBT 排序第 3 项，groupId↔包名不同构，是个真项目，别当一行改动）。
+- P3 层最大单笔：L3-9 tree-sitter 迁移（Python/Java 去 spawn）。
+- L3-5（`lookupUnique` 零调用）是笔小删除，适合顺手。
+
+---
+
+## 上一轮会话 (2026-08-01 续，L2-21 收口：② 复跑 + 四处单点归因 + Go 写侧修复)
 
 > 本轮有生产代码变更（Go 写侧修复），CHANGELOG 2026-08-01 L2-21 条目是主记录。
 

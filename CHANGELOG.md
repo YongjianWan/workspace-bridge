@@ -5,6 +5,26 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L2-22 判决：Rust symbol-table 判留 —— ripgrep 第二仓取数坐实合法辖区 (2026-08-01)
+
+T6 留下的 Rust 半局（n=1 不拍摘）今日由第二仓闭合。零生产代码变更（判决 + 测试基建修复）。
+
+- **Measured** ripgrep（编制外第二仓，2026-08-01 浅克隆，`scripts/resolver-precision.js`）：129 边 / symbol-table **45 条（34.88%）**，45 条逐条人工核对**形状全合法**——`crate::` 绝对路径（`crate::hay::SHERLOCK` → `tests/hay.rs`）、workspace 跨 crate 引用（`grep_matcher::Matcher` → `crates/matcher/src/lib.rs`，Cargo workspace 的外部 crate 名正是模块解析器静态够不到、符号表该接的形状）、`self::` 模块引用。与 qartez-mcp 的 1 条合法边（fuzz crate 自引用）互证：两仓无一假边。
+- **Decision** Rust symbol-table **判留**：「必须保留」的论据不再是预测，是 45 条可核对的真边。L3-4 的终态路径（`trySymbolTable` 塌成 JVM 专用、扩展名分支整体消亡）**作废**，分支继续服务 JVM/Rust/Go。
+- **Fixed** `test/cli-error-handling-test.js` Test 5 竞态：坏 `.workspace-bridge.json` 不再写进仓库根（并行下随机红别的测试，正是 analyzer.js:646 首跑假红的根源），改为 `mkdtemp` 临时 cwd 写配置。单跑 PASS。
+- **Changed** reference 编制 12 → 14：ripgrep（Rust 第二仓，L2-22 取证）、hugo（Go 第二仓，验证 cobra 279 边展开非特例）。
+- **Changed** TECH_DEBT：L2-22 修复即删（判留也是判决，史见本条），**L2 出空**；L3-4 终态句更新；P2 行 L2-22 销记。
+
+### 读侧字符串判据清理（④）+ 646/352 守护测试（②）+ L3-15 Python stdlib 换源（⑤）+ hugo 复测（⑥）(2026-08-01)
+
+- **Added** `test/analyzer-same-package-guards-test.js`（4 例，@semantic）：补齐变异实验坐实的两处零覆盖。646（cycles Rule 5）Java/Go 双 fixture 断言 `getCycleMeta().sccCount === 0`——**cycles 列表断言守不住这条**：`_isSamePackageCycle` 后过滤会兜底，SCC 数才是杀伤信号（杀 646 → 双例 sccCount 0→1 红，逐例单独验证）；352（GraphAnalyzer 版 reason 标签）锁定 `implicit-same-package`（杀 352 → 退 `'direct-import'` 红）。还原后全绿。
+- **Changed** 读侧 7 处 `java-same-package` 字符串判据清除（冗余/等价已证 + 646/352 现有守护）：5 处析取半删除（`analyzer.js:646`/`:1218`/`:1602`、`query.js:120`、`graph-db.js:1032` SQL），2 处唯一判据换 `tier === 'tier3'`（`analyzer.js:352`、`query.js:76`）——换后 reason 标签语言中立，Go 同包边同权（守护测试第 4 例锁定）。写侧（builder.js 的 patternId/resolutionMethod 赋值）不动。CACHE_VERSION 不动（行为零变化已背书）。
+- **Changed** L3-15：Python 标准库判定换源 `sys.stdlib_module_names`——新模块 `resolvers/python-stdlib.js`，一次性 spawnSync + 进程 memo（同步闸无法 await，此形状杀掉取数与解析的排序不确定性），手抄 150 名降级为 python-missing / <3.10 兜底。同刀删死配置：`PYTHON_BUILTINS`（23 名）、`GO_BUILTINS` 及 python/go 的 `isBuiltIn` 声明——两语言有闸行，`_isExternalDependency` 的 :337 兜底永远到不了它们（L3-6 同形）。CACHE_VERSION 28→29。
+- **Measured** ⑤ 前后对照**零 delta**：CodeGraphContext dropped 26→26、code-review-graph 6→6——现存丢弃全是正当形状（manifest 外第三方 httpx/starlette/tiktoken 等 + fixture 互引），本条是卫生债不是正确性债；回报是手抄名单不再有第四次被咬（v11 / v17 已有三次）。
+- **Added** `test/python-stdlib-names-test.js`（4 例，先 RED 后 GREEN）：权威名单超出兜底 ≥50 名 / 兜底外名字经 `isExternalDependency` 分类为 external / 进程内 memo / 兜底保留 `__future__`/`tomllib`/`zoneinfo`。
+- **Measured** ⑥ hugo（Go 第二仓，非 k8s 生态）：**12094 边** = go-module 7796 + go-same-package 4298、symbol-table 0——cobra 的 279 式展开非特例，Go 修复证据 n=2。
+- **验证**：`npm run test:fast` 146/146 PASS（exit 0）；全量 runner 见 SESSION 本轮记录。
+
 ### L2-21 收口：Go 包级依赖入图 —— 包导入展开到全包文件 + 同包 tier3 边，cobra 12 → 279 (2026-08-01)
 
 L2-21（2026-07-31 登记：Go 包导入绑字母序首文件、同包引用完全无图）今日修复即删，历史等价覆盖于本条。

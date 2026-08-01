@@ -17,24 +17,16 @@
 ### 依赖准确性缺口排序（2026-08-01 登记；目标：文件/函数级依赖更准，按回报）
 
 1. ~~Go 包导入绑字母序首文件~~ ✅（2026-08-01 随 L2-21 修复销记，史见 CHANGELOG）
-2. **Python 标准库判定 23/290**（L3-15）——向已 spawn 的解释器要 `sys.stdlib_module_names`，一行换 23 个硬编码名字。
+2. ~~Python 标准库判定 23/290~~ ✅（2026-08-01 随 L3-15 修复销记：换源 `sys.stdlib_module_names`，史见 CHANGELOG）
 3. **JVM 第三方 manifest 未读**——实测 grep：`src/` 里 `pom.xml` / `build.gradle` **零次出现**。`resolvers/base.js` 已读 go.mod、package.json（四类依赖字段）、Cargo.toml、requirements.txt + pyproject.toml 五种 manifest，唯独 JVM 没有，因此 `java.`/`javax.`/`kotlin.` 三个前缀之外的第三方 jar（`com.google.common.*`、`org.apache.*`）一律挡不住。难点：groupId 与 import 包名**不同构**（`com.google.guava` ↔ `com.google.common.collect`），精度有天花板。
 
 > **标准库/官方包本体不引入图中**（反复被问，留档）：影响分析从变更文件流向依赖方，标准库既不是变更源也不是你代码的依赖方，**永远不出现在任何一次查询的答案里**，拉进来是纯成本（Python stdlib 数千文件、JDK 数万 class，且 Python/Java 每文件一次 spawn）。需要的是官方 **manifest**（项目自己声明、不会腐烂），不是官方**包**。
 
 （L2-21 的历史——cobra 12 边诊断、tryGoModule 绑首文件 bug、四轮变异实验与独立复核降级、② 受控复跑 + 四处单点归因、Go 写侧修复与 cobra 12→279 复测——已按「修复即删」移入 CHANGELOG 2026-08-01 条目。）
 
-### L2-22：Rust symbol-table 去留——「必须保留」论据已蒸发，摘的论据未到线，缺第二仓
+### ~~L2-22：Rust symbol-table 去留~~ ✅ 判留（2026-08-01，史见 CHANGELOG 同日条目）
 
-**状态**：2026-07-31 T6 判决：不动，待取数。
-
-**实测**：qartez-mcp（当日 HEAD）763 边 / symbol-table **1**——唯一存活的是 `fuzz/fuzz_targets/parse_security_config.rs` 引 `qartez_mcp::graph::security::SecurityConfig`（fuzz crate 自引用，L2-16 后预测的合法形状）。「唯一有正产出的语言」字面意义上是一条边。
-
-**判决逻辑（同一把尺）**：Go 被「1 个仓且分母坏了」否掉，Rust 就不能拿「1 个仓」拍摘——**再取一个 Rust 仓的数再定**。取数方法：挑一个编制外 Rust 仓（编制见 `reference/README.md`），`scripts/resolver-precision.js` 点名跑。
-
-**回报**：若第二仓也是零/近零，`trySymbolTable` 塌成 JVM 专用——L3-4 的扩展名分支（`.rs`/`.go` 分隔符 + 闸表）整体消亡，直接一个 `trySymbolTableJvm`，是「消除边界」的完整形态。
-
-（L2-10 的历史——十仓复测全表、101/10 订正、212 假边证据、判决顺序、墙钟测量——已按「修复即删」移入 CHANGELOG 2026-07-31 T6 条目；L2-14 前后对照测量缺口转登记为 L3-14，见 L3 区。）
+> ripgrep 第二仓取数：129 边 / symbol-table 45 条（34.88%），逐条人工核对形状全合法（`crate::` 绝对路径 / workspace 跨 crate / `self::`），与 qartez-mcp 互证无一假边——合法辖区坐实，符号表在 Rust 保留。L3-4 的「塌成 JVM 专用」终态路径随之作废。
 
 ### ⚠️ 预防性约束：`_invalidateParseCache()` 是 parse cache 的唯一失效入口
 
@@ -72,8 +64,8 @@
 > | --- | --- | --- |
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
 > | **P1 紧随** | ~~L2-21 Go 包级依赖无图~~ ✅（2026-08-01：变异实验收口 + 包导入展开全包 + 同包 tier3 边，cobra 12→279 全可解释，史见 CHANGELOG） · ~~L2-16 Rust crate 名归一~~ ✅ · ~~L2-17 Python namespace 包~~ ✅（2026-07-28，丢弃 34→26） · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅——**P1 出空，下一层自动顶上来** | L2-21 销记：Go 边层不再是文件粒度图装不下包语义——包导入绑全包、同包互引有 tier3 边 |
-> | **P2 依赖前两层** | ~~L2-10 符号表判决（T6）~~ ✅ 已拍已执行（2026-07-31：摘 JS/TS/Python、留 JVM、Go/Rust 不动，史见 CHANGELOG） · **L2-22 Rust 去留待第二仓取数** · ~~L2-14 JVM 源根~~ ✅（2026-07-30，KMP 布局 + 成员导入，st 1037→111） | T6 的 Rust 半局卡在同一把尺上：n=1 不拍摘；取数即判 |
-> | **P3 记账不排期** | L3-4 扩展名分支（T6 后只剩 JVM/Rust/Go/C++ 共享段，终态见 L2-22） · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 · L3-11 双 freshness 判据 · L3-12 分层靠猜 · L3-13 每条各自冷启动 · L3-14 tryJava probe 放大缺前后对照 · L3-15 Python 标准库判定手抄 23 名（权威源 290 就在已 spawn 的解释器里） | L3-8 走"接触即修"，不做大扫除；L3-11 的沉默已修、分歧留档；L3-12/13 是测试执行债，可观测性与调度已落地，剩下两条都要"先测再改"；L3-14 是纯测量债，有变慢迹象再取 |
+> | **P2 依赖前两层** | ~~L2-10 符号表判决（T6）~~ ✅ 已拍已执行（2026-07-31：摘 JS/TS/Python、留 JVM、Go/Rust 不动，史见 CHANGELOG） · ~~L2-22 Rust 去留~~ ✅ 判留（2026-08-01，ripgrep 45 条全真边坐实辖区） · ~~L2-14 JVM 源根~~ ✅（2026-07-30，KMP 布局 + 成员导入，st 1037→111）——**P2 出空，L2 层清零** | T6 的 Rust 半局由第二仓闭合：45 条可核对真边，判留 |
+> | **P3 记账不排期** | L3-4 扩展名分支（T6 后只剩 JVM/Rust/Go/C++ 共享段，L2-22 判留后塌缩终态作废） · L3-5 死方法 · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · L3-9 Python/Java spawn AST → tree-sitter 迁移 · L3-10 hasCpp 不覆盖纯 .c 仓 · L3-11 双 freshness 判据 · L3-12 分层靠猜 · L3-13 每条各自冷启动 · L3-14 tryJava probe 放大缺前后对照 · ~~L3-15 Python stdlib 手抄名单~~ ✅（2026-08-01 换源 sys.stdlib_module_names） | L3-8 走"接触即修"，不做大扫除；L3-11 的沉默已修、分歧留档；L3-12/13 是测试执行债，可观测性与调度已落地，剩下两条都要"先测再改"；L3-14 是纯测量债，有变慢迹象再取 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
 > | **预防性约束** | postProcess 记录不落盘 · `_invalidateParseCache` 单一入口 · regex-fallback 缓存不信任 · warm/cold 逐字节一致 · `_readGuard` 单一读闸 · DependencyGraphView 白名单同步 · 「本轮实测」字段不进快照 · 门禁型出口不吃 replay · **路径归一化不进返回值**（新，三个实例后的收刀） | 这些是已修债务转移后的形态：实例没了，让实例发生的结构还在 |
 >
@@ -127,7 +119,7 @@
 
 `resolvers.js` 的注册循环是 `[...lang.resolveStrategies, trySymbolTable]`——语言信息在组装时就有。但函数内部又按 `path.extname(fromFile)` 分支了两次：一次挑分隔符（`.rs` / `.go` / 其余），一次判外部依赖闸是否生效（JS 家族）。这是把语言差异塞进共享函数的边界判断，正是"消除边界优于加判断"要消掉的形状。改法：按语言注册不同的符号表策略（`trySymbolTableJs` / `trySymbolTableJvm` / …），共享打分内核。T6 若拍板摘符号表应顺势做掉，否则第三、第四个语言分支会继续往里堆。
 
-**进展（2026-07-31 T6 执行）**：按语言组装的机制已落地——registry 条目声明 `symbolTableFallback: false`（JS 家族四语言 + Python），注册循环按它挂/不挂 `trySymbolTable`，JS/Python 链上的符号表分支**已随链一起消失**（不再是函数内分支，是链成员）。剩下的分支只服务还在链上的语言：分隔符 `.rs`/`.go` 分支 + `EXTERNAL_DEPENDENCY_CHECKS` 闸表。终态路径已写进 L2-22：若 Rust/Go/C++ 的测量也走到摘，`trySymbolTable` 塌成 JVM 专用，这些内部分支整体消亡，本条随之关闭。
+**进展（2026-07-31 T6 执行）**：按语言组装的机制已落地——registry 条目声明 `symbolTableFallback: false`（JS 家族四语言 + Python），注册循环按它挂/不挂 `trySymbolTable`，JS/Python 链上的符号表分支**已随链一起消失**（不再是函数内分支，是链成员）。剩下的分支只服务还在链上的语言：分隔符 `.rs`/`.go` 分支 + `EXTERNAL_DEPENDENCY_CHECKS` 闸表。~~终态路径已写进 L2-22~~ **L2-22 已判留**（2026-08-01，ripgrep 45 条全真边）——塌成 JVM 专用的路径作废，这些分支长期服务 JVM/Rust/Go，本条维持 P3。
 
 ### L3-5：`lookupUnique()` 生产代码零调用
 
@@ -233,33 +225,9 @@
 **触发条件**：收到 JVM 仓构建变慢的报告；或动 `tryJava` probe 路径 / `discoverJavaSourceRoots` 扫描深度时顺手补。
 
 
-### L3-15：Python 标准库判定是手抄的 23 个名字，而进程里就坐着权威来源
+### ~~L3-15：Python 标准库判定是手抄的 23 个名字，而进程里就坐着权威来源~~ ✅（2026-08-01，史见 CHANGELOG 同日条目）
 
-**状态**：2026-07-31 登记（评审"要不要用语言核心包增强 tree-sitter"时挖出）。**层次订正**：这不是 parser 的事——tree-sitter 只管文本→AST，"标准库还是仓内"是 resolve 阶段的分类，住在 `resolvers.js:311/337` 的闸里。
-
-**现状**：`PYTHON_BUILTINS`（`registry.js:31`）是**手写的 23 个模块名**。Python 真实标准库 `sys.stdlib_module_names` 是 **290 个**，覆盖率 **8%**。
-
-**为什么只有 Python 是这样**：其余四门全部用结构性或权威来源——
-
-| 语言 | 判定方式 | 性质 |
-| --- | --- | --- |
-| JS/TS | `require('module').builtinModules`（68） | 权威，运行时给的 |
-| Java/Kotlin | `java.`/`javax.`/`kotlin.` 前缀 + 零名单闸 | 结构性，构造上完整 |
-| Go | `_isExternalGoModule`：go.mod 模块路径之外一切为外部 | 结构性，零名单 |
-| Rust | `std`/`core`/`alloc` + Cargo.toml | 结构性 |
-| **Python** | **手抄 23 个名字** | **手工清单** |
-
-**已经咬过三次**：v11 建表 → v17 补 `__future__`/`tomllib`/`zoneinfo`（CodeGraphContext 70 条丢弃里约一半是 `__future__`）。每次都是"发现一个补一个"。**只有 Python 用手抄清单，也只有 Python 被咬过——这不是巧合。**
-
-**T6 后的严重性变了（降了一档，但没消失）**：Python 链已无 symbol-table 兜底，漏判的标准库导入**不再伪造边**，而是变成 `droppedImports` 里的一条"非预期丢弃"。所以后果从"假边"降级成"安全网噪音"——**而那张网正是 T6 判决所依赖的那张**。噪音直接削弱它的可信度。
-
-**建议动作**：不是"补一份更好的清单"，是**别再手工维护**。这个工具每解析一个 `.py` 就 spawn 一次 python 解释器，`sys.stdlib_module_names` 就在那个进程里，随解释器版本自动正确、零维护。落地要解决的是**管道**：该值要从 python 侧传到 JS 侧的闸，且只取一次并缓存（不能每文件问一遍）；python 缺失的 regex 降级路径仍需保留一份硬编码兜底。**改动会改变分类 → 改变丢弃记账 → CACHE_VERSION 必须 bump。**
-
-**顺手可删（同族，独立成立）**：`GO_BUILTINS` 里有**永远不可能命中**的条目——`'http'`/`'json'`/`'filepath'`，而 Go 的 import 路径是 `net/http`/`encoding/json`/`path/filepath`，判定是 `has(imp)` 精确匹配。且 Go 的外部闸走 `_isExternalGoModule` 零名单，**压根不查这张表**。核一遍 `resolvers.js:311/337` 两处消费点对 Go 的实际影响，大概率直接删（删除 > 添加）。
-
-**未验证**：改这张表**在真实仓上会不会真的动数字**，没测过。落地前先在 `reference/CodeGraphContext` + `reference/code-review-graph` 上取 `droppedImports` 前后对照——**如果两仓的非预期丢弃都是 0，这条债就只是卫生问题，不是正确性问题**，优先级应下调。
-
-**触发条件**：Python 仓报出非预期丢弃里混着标准库模块；或第四次需要往 `PYTHON_BUILTINS` 手工补名字时——那次就别补了，直接换来源。
+> 换源 `sys.stdlib_module_names`（新模块 `resolvers/python-stdlib.js`，spawnSync + 进程 memo），手抄名单降级为 python-missing 兜底；同刀删 `PYTHON_BUILTINS`/`GO_BUILTINS` 死名单与死 `isBuiltIn`。前后对照零 delta（CodeGraphContext 26→26、code-review-graph 6→6）——卫生债，不是正确性债。
 
 ---
 
@@ -316,7 +284,7 @@
 
 > 所有核心/分析模块均已实现专属/直接单元测试覆盖（无遗留的零专属测试模块）。层级覆盖缺口（边层横向对比）已由 T1 的 `test/language-parity-edges-test.js` 兜住——十语言 fixture 各一条「A 依赖 B」，断言至少 1 条边且 `droppedCount` 全 0（史见 CHANGELOG T1 条目）。教训沉淀在上方「开发纪律」第一节。
 
-> **2026-08-01 变异实验登记两处零覆盖（逐处单点归因坐实）**：`analyzer.js:646` **cycles Rule 5**（tier3 同包边不计入环）与 `analyzer.js:352` GraphAnalyzer 版 `implicit-same-package` reason 标签——两处各自单独整条件打成 `false`、单独跑全量 266 条，无一红（646 首跑被 `cli-error-handling-test.js` 的仓库根配置竞态污染，重跑干净后确认）。它们的同族防线都有测试守着，且经同法单杀变红坐实：L1-3 死导出排除（`analyzer.js:1218`）由 `java-same-package-dead-export-consistency-test.js` 守着，query 版 reason 标签（`query.js:76`）由 `java-package-imports-test.js` 守着。补上之前，对 646/352 的任何删改只有代码阅读背书，变异杀不死。实验全程史见 CHANGELOG 2026-08-01 L2-21 条目。
+> **2026-08-01 两处零覆盖已补守护（同日登记同日渐补）**：`analyzer.js:646`（cycles Rule 5）与 `:352`（GraphAnalyzer 版 reason 标签）由 `test/analyzer-same-package-guards-test.js`（4 例）锁定——646 锁 Java/Go 双语言 `getCycleMeta().sccCount === 0`（**cycles 列表断言守不住**：`_isSamePackageCycle` 后过滤兜底，SCC 数才是杀伤信号），352 锁 `implicit-same-package` reason 标签（Java+Go）。杀变异逐例验红、还原验绿。守护就位后，读侧 7 处字符串判据已删（史见 CHANGELOG 同日条目）。同族防线不变：L1-3 死导出排除（`analyzer.js:1218`）由 `java-same-package-dead-export-consistency-test.js` 守着，query 版 reason 标签（`query.js:76`）由 `java-package-imports-test.js` 守着。
 
 ---
 
@@ -382,4 +350,4 @@
 
 ---
 
-*Last updated: 2026-08-01（活跃债务 **12 项**：L1=0 / L2=1（L2-22 Rust symbol-table 去留待第二仓）/ 架构债务=0 / L3=11（L3-4/5/7/8/9/10/11/12/13/14/15）；P4 冻结 4 条。**2026-07-31 T6 判决并执行**：摘 JS/TS/Python（六仓实测零真产出，registry 条目声明 `symbolTableFallback: false`，CACHE_VERSION 26→27，六仓复测零 delta）、保 JVM（101 条全合法辖区）、Go 不动（证据无效，转 L2-21）、Rust 不动（n=1 不拍摘，转 L2-22）——L2-10 修复即删，史见 CHANGELOG T6 条目；同日销 depth≥2 源根缺口（okhttp st 111→101、tier1 1723→1733、总边 2760 不变、全量核对 0 条类名==文件名，两 session 独立冷构建复现）；墙钟现状 186.5s/177s 两次独立实测，L2-14 前后对照转 L3-14 非阻塞测量债。2026-07-30 登记测试执行债 L3-12（分层靠猜：slow 层 49/114 是启发式塞进去的，30 条比 fast 最慢那条还快；`needsCacheDir` 与层耦合使重分类不是一行改动）与 L3-13（每条各自冷启动：CPU 累计 903s / 114 条 ≈ 7.9s，一次冷构建 12–13s）——可观测性与调度已落地（775s→317s，史见 CHANGELOG），这两条都要"先测再改"。2026-07-30 评审登记 L3-11 双 freshness 判据（沉默已修、分歧留档），并按"接触即修"处理两个 L3-8 实例（workspacePackages 静默闸、cli.js warnings 覆盖）。2026-07-30 销 L2-14：KMP 源根 + 成员导入剥尾（okhttp st 1037→111），同刀修 `--severity` 快照读写绕过老 bug。2026-07-29 销 L2-15：快照新鲜度改认内容签名，门禁拒绝机制整体退休。2026-07-28 按「修复即删，历史只进 CHANGELOG」完成坟头清理——以上均史见 CHANGELOG。2026-08-01 销 L2-21：变异实验收口（② 受控复跑 266/266 全绿——「5/7 字符串判据冗余 + 2/7 tier 等价」升级为已证；四处单点归因——`analyzer.js:1218`/`query.js:76` 各有守护测试坐实，`analyzer.js:646` cycles Rule 5 与 `:352` GraphAnalyzer 版 reason 标签零覆盖坐实、登记测试缺口），Go 写侧修复（go-module 包导入展开到全包非测试文件 + 同包 `go-same-package` tier3 边，`expand-go-packages` 后处理阶段照 Java 同形，CACHE_VERSION 27→28），cobra 12→279（go-same-package 202 + go-module 77，全可解释），全量 267/267——修复即删，史见 CHANGELOG 2026-08-01 条目。依赖准确性缺口排序第 1 项随修复移除，Python 23/290 与 JVM manifest 未读两项保留。）*
+*Last updated: 2026-08-01（活跃债务 **10 项**：L1=0 / **L2=0**（L2-22 判留销记，L2 层清零）/ 架构债务=0 / L3=10（L3-4/5/7/8/9/10/11/12/13/14）；P4 冻结 4 条。**2026-08-01 续二**：L2-22 判留（ripgrep 第二仓 129 边 / symbol-table 45 条逐人工核对全合法形状——`crate::` 绝对路径 / workspace 跨 crate / `self::`，与 qartez-mcp 互证，L3-4 塌缩终态作废）；修 `cli-error-handling-test.js` 仓库根配置竞态（646 假红根源，改临时 cwd）；补 646/352 守护测试（`analyzer-same-package-guards-test.js` 4 例，杀变异逐例验红——646 的杀伤信号是 sccCount 不是 cycles 列表，`:855` 后过滤会兜底）；删读侧 7 处字符串判据（5 析取半 + 2 换 `tier==='tier3'`，reason 标签语言中立化）；销 L3-15（Python stdlib 换源 `sys.stdlib_module_names`，前后对照零 delta——卫生债；同刀删 PYTHON/GO_BUILTINS 死名单与死 isBuiltIn，CACHE_VERSION 28→29）；hugo 复测 12094 边（go-module 7796 + same-pkg 4298）坐实 279 式展开非 cobra 特例；reference 编制 12→14（ripgrep / hugo）；test:fast 146/146——史见 CHANGELOG 2026-08-01 各条目。2026-08-01 销 L2-21：变异实验收口（② 受控复跑 266/266 全绿——「5/7 字符串判据冗余 + 2/7 tier 等价」升级为已证；四处单点归因——`analyzer.js:1218`/`query.js:76` 各有守护测试坐实，`analyzer.js:646` cycles Rule 5 与 `:352` GraphAnalyzer 版 reason 标签零覆盖坐实、登记测试缺口），Go 写侧修复（go-module 包导入展开到全包非测试文件 + 同包 `go-same-package` tier3 边，`expand-go-packages` 后处理阶段照 Java 同形，CACHE_VERSION 27→28），cobra 12→279（go-same-package 202 + go-module 77，全可解释），全量 267/267——修复即删，史见 CHANGELOG 2026-08-01 条目。依赖准确性缺口排序第 1 项随修复移除，Python 23/290 与 JVM manifest 未读两项保留。）*

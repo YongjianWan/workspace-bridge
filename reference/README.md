@@ -96,7 +96,9 @@
 | zod / execa | TS / JS | package.json | ✅ |
 | CodeGraphContext / code-review-graph | Python | pyproject.toml | ✅ |
 | qartez-mcp | Rust（多 crate 工作区） | Cargo.toml | ✅ |
+| ripgrep | Rust（多 crate 工作区，L2-22 第二仓，2026-08-01 入编） | Cargo.toml | ✅ |
 | cobra | Go | go.mod | ✅ |
+| hugo | Go（第二仓，验 279 展开非 cobra 特例，2026-08-01 入编） | go.mod | ✅ |
 | spring-petclinic / okhttp | Java / Kotlin | pom.xml / Gradle | ❌ 先补闸再测 |
 | cJSON / fmt | C / C++ | — | ❌ 同上 |
 | vue-realworld-example-app / realworld | Vue / Svelte | package.json | ❌ 同上（Svelte 闸见 L2-11） |
