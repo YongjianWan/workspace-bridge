@@ -197,6 +197,7 @@ function _spawnPythonASTParser(scriptName, content, timeoutMs, root) {
 module.exports = {
   spawnPythonASTParser,
   getParserEnvFailure,
+  resolveParserPython,
   // Exposed for testing the concurrency semaphore
   getActiveParserCount: () => activeParsers,
 };

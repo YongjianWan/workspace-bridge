@@ -28,16 +28,11 @@ const registry = new LanguageRegistry();
 // -----------------------------------------------------------------------------
 // Built-in standard library definitions
 // -----------------------------------------------------------------------------
-const PYTHON_BUILTINS = new Set([
-  'sys', 'os', 'pathlib', 'json', 'math', 'time', 're', 'collections', 'itertools',
-  'urllib', 'hashlib', 'datetime', 'random', 'shutil', 'subprocess', 'tempfile',
-  'threading', 'multiprocessing', 'socket', 'select', 'logging', 'argparse', 'typing'
-]);
-
-const GO_BUILTINS = new Set([
-  'fmt', 'os', 'io', 'time', 'errors', 'strings', 'math', 'net', 'http', 'json',
-  'sync', 'bytes', 'context', 'path', 'filepath', 'strconv', 'reflect'
-]);
+// Python and Go have no isBuiltIn declaration: both languages own a structural
+// zero-list gate (sys.stdlib_module_names via resolvers/python-stdlib.js;
+// go.mod module path via _isExternalGoModule), so a hand-copied name list here
+// was dead config — the gated fallback in resolvers.js never reaches gated
+// languages (deleted 2026-08-01, L3-15).
 
 // CPP_BUILTINS lives in resolvers/cpp.js (single home, imported above) —
 // the resolver gate and this isBuiltIn declaration share the same list.
@@ -86,7 +81,6 @@ registry.register(defineLanguage({
   needsWorkspaceRoot: true,
   filePatterns: ['**/*.py'],
   condition: (workspace) => workspace.hasPythonFiles || workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy,
-  isBuiltIn: (imp) => PYTHON_BUILTINS.has(imp.split('.')[0]),
   resolveStrategies: [tryPythonRelative, tryPythonAbsolute],
   // T6 (2026-07-31): zero true-positive symbol-table edges in two measured
   // Python repos (924 edges total); tryPythonAbsolute already covers the
@@ -165,7 +159,6 @@ registry.register(defineLanguage({
   async: true,
   filePatterns: ['**/*.go'],
   condition: (workspace) => workspace.hasGo,
-  isBuiltIn: (imp) => GO_BUILTINS.has(imp),
   resolveStrategies: [tryGoRelative, tryGoModule],
   extractSymbols: (content) => {
     const symbols = [];

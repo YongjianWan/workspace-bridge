@@ -48,27 +48,19 @@ function main() {
   // Test 5: corrupted .workspace-bridge.json must exit 1 and show config_error
   {
     const fs = require('fs');
+    const os = require('os');
     const path = require('path');
-    const configPath = path.join(__dirname, '..', '.workspace-bridge.json');
-    const backupPath = configPath + '.bak-test';
-    let backedUp = false;
-    if (fs.existsSync(configPath)) {
-      fs.copyFileSync(configPath, backupPath);
-      backedUp = true;
-    }
+    // Throwaway cwd: writing the corrupted config into the repo root races with
+    // other tests running in parallel (they read the repo config mid-window).
+    const tmpCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cli-err-'));
     try {
-      fs.writeFileSync(configPath, '{invalid json,', 'utf8');
-      const result = runCliRaw(['audit-summary', '--cwd', '.', '--json']);
+      fs.writeFileSync(path.join(tmpCwd, '.workspace-bridge.json'), '{invalid json,', 'utf8');
+      const result = runCliRaw(['audit-summary', '--cwd', tmpCwd, '--json']);
       assert.strictEqual(result.status, 1, 'should exit 1 for corrupted config json');
       const out = result.stdout + result.stderr;
       assert(out.includes('config_error') || out.includes('Invalid JSON in config file'), 'error should mention config_error or invalid JSON');
     } finally {
-      if (backedUp) {
-        fs.copyFileSync(backupPath, configPath);
-        fs.unlinkSync(backupPath);
-      } else if (fs.existsSync(configPath)) {
-        fs.unlinkSync(configPath);
-      }
+      fs.rmSync(tmpCwd, { recursive: true, force: true });
     }
   }
 

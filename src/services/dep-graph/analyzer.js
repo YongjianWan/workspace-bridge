@@ -349,7 +349,7 @@ class GraphAnalyzer {
               if (record.imported) importedSymbols.push(...record.imported);
             }
             importedSymbolsAvailable = matchingImports.length > 0 && matchingImports.some((r) => r.imported && r.imported.length > 0);
-            if (matchingImports.some((r) => r.resolutionMethod === 'java-same-package')) {
+            if (matchingImports.some((r) => r.tier === 'tier3')) {
               reason = 'implicit-same-package';
             }
           }
@@ -643,7 +643,7 @@ class GraphAnalyzer {
         // a project where no file actually imports another same-package file).
         // tier1 (wildcard imports, confidence 1.0) and tier2 (normal imports)
         // are kept — only tier3 (same-package, confidence 0.3) is excluded.
-        if (record.tier === 'tier3' || record.resolutionMethod === 'java-same-package') {
+        if (record.tier === 'tier3') {
           continue;
         }
       }
@@ -1215,7 +1215,7 @@ class GraphAnalyzer {
         // mirrors cycles Rule 5. Real same-package references are caught by
         // the importer content scan downstream; findings backed only by
         // implicit importers are downgraded to low confidence by the caller.
-        if (record.tier === 'tier3' || record.resolutionMethod === 'java-same-package') continue;
+        if (record.tier === 'tier3') continue;
         hasExplicitImporter = true;
         if (record.usesAllExports) {
           usesAllExports = true;
@@ -1599,7 +1599,7 @@ class GraphAnalyzer {
           const info = this.dg.getFileInfo(curr);
           if (info && info.importRecords) {
             const matching = info.importRecords.filter((rec) => rec.resolved === prev);
-            if (matching.some((rec) => rec.resolutionMethod === 'java-same-package' || (rec.confidence != null && rec.confidence < 0.5))) {
+            if (matching.some((rec) => rec.confidence != null && rec.confidence < 0.5)) {
               hasImplicit = true;
               break;
             }

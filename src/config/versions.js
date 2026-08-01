@@ -85,6 +85,10 @@ const SCHEMA_VERSION = '1.2.0';
 // v28: L2-21 — Go 包导入展开为该包全部非测试 .go 文件（不再绑字母序首文件），
 //      同包文件互引生成 tier3/confidence 0.3 的 go-same-package 隐式边。
 //      v27 缓存里 Go 仓的包导入只有锚文件单条边，且无同包边。
-const CACHE_VERSION = 28;
+// v29: L3-15 — Python 标准库判定换源 sys.stdlib_module_names（~290 名，
+//      随解释器版本自动正确），手抄 150 名降级为 python-missing 兜底。
+//      v28 缓存里 Python 仓的丢弃记账按 150 名分类，权威源下部分「非预期
+//      丢弃」应归为 stdlib；同刀删除 PYTHON/GO_BUILTINS 死名单与死 isBuiltIn。
+const CACHE_VERSION = 29;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

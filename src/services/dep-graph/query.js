@@ -73,7 +73,7 @@ class GraphQuery {
             if (record.imported) importedSymbols.push(...record.imported);
           }
           importedSymbolsAvailable = matchingImports.length > 0 && matchingImports.some((r) => r.imported && r.imported.length > 0);
-          if (matchingImports.some((r) => r.resolutionMethod === 'java-same-package')) {
+          if (matchingImports.some((r) => r.tier === 'tier3')) {
             reason = 'implicit-same-package';
           }
         }
@@ -117,7 +117,7 @@ class GraphQuery {
       if (currentInfo?.importRecords) {
         const matchingImports = currentInfo.importRecords.filter((rec) => rec.resolved === prevNode);
         const isImplicitEdge = matchingImports.some(
-          (rec) => rec.resolutionMethod === 'java-same-package' || (rec.confidence != null && rec.confidence < 0.5)
+          (rec) => rec.confidence != null && rec.confidence < 0.5
         );
         if (isImplicitEdge) {
           return true;

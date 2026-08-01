@@ -16,6 +16,7 @@ const {
   readPythonDeps,
 } = require('./resolvers/base');
 const { registry } = require('./parsers/registry');
+const { getPythonStdlibNames } = require('./resolvers/python-stdlib');
 
 const {
   tryAlias,
@@ -185,40 +186,8 @@ function _isExternalJsPackage(specifier, root, ctx) {
   return false;
 }
 
-// Python 3 standard library top-level modules can never name a workspace
-// file, exactly like node builtins. (`os`, `sys`, `json`… colliding with a
-// local module is the same fabricated-edge shape as require('path').)
-const PYTHON_STDLIB_ROOTS = new Set([
-  '__future__', // L2-11 gap B: `from __future__ import ...` is stdlib, never a workspace file
-  'abc', 'aifc', 'argparse', 'array', 'ast', 'asyncio', 'atexit', 'audioop',
-  'base64', 'bdb', 'binascii', 'binhex', 'bisect', 'builtins', 'bz2',
-  'calendar', 'cgi', 'cgitb', 'chunk', 'cmath', 'cmd', 'code', 'codecs',
-  'codeop', 'collections', 'colorsys', 'compileall', 'concurrent', 'configparser',
-  'contextlib', 'contextvars', 'copy', 'copyreg', 'crypt', 'csv', 'ctypes',
-  'curses', 'dataclasses', 'datetime', 'dbm', 'decimal', 'difflib', 'dis',
-  'distutils', 'doctest', 'email', 'encodings', 'enum', 'errno', 'faulthandler',
-  'fcntl', 'filecmp', 'fileinput', 'fnmatch', 'fractions', 'ftplib', 'functools',
-  'gc', 'getopt', 'getpass', 'gettext', 'glob', 'graphlib', 'grp', 'gzip',
-  'hashlib', 'heapq', 'hmac', 'html', 'http', 'imaplib', 'imghdr', 'importlib',
-  'inspect', 'io', 'ipaddress', 'itertools', 'json', 'keyword', 'linecache',
-  'locale', 'logging', 'lzma', 'mailbox', 'mailcap', 'marshal', 'math',
-  'mimetypes', 'mmap', 'modulefinder', 'multiprocessing', 'netrc', 'nis',
-  'nntplib', 'numbers', 'operator', 'optparse', 'os', 'ossaudiodev', 'pathlib',
-  'pdb', 'pickle', 'pickletools', 'pipes', 'pkgutil', 'platform', 'plistlib',
-  'poplib', 'posix', 'pprint', 'profile', 'pstats', 'pty', 'pwd', 'py_compile',
-  'pyclbr', 'pydoc', 'queue', 'quopri', 'random', 're', 'readline', 'reprlib',
-  'resource', 'rlcompleter', 'runpy', 'sched', 'secrets', 'select', 'selectors',
-  'shelve', 'shlex', 'shutil', 'signal', 'site', 'smtpd', 'smtplib', 'sndhdr',
-  'socket', 'socketserver', 'sqlite3', 'ssl', 'stat', 'statistics', 'string',
-  'stringprep', 'struct', 'subprocess', 'sunau', 'symtable', 'sys', 'sysconfig',
-  'syslog', 'tabnanny', 'tarfile', 'telnetlib', 'tempfile', 'termios', 'test',
-  'textwrap', 'threading', 'time', 'timeit', 'tkinter', 'token', 'tokenize',
-  'tomllib', // 3.11+; measured in CodeGraphContext droppedImports (L2-11 gap B cohort)
-  'trace', 'traceback', 'tracemalloc', 'tty', 'turtle', 'types', 'typing',
-  'unicodedata', 'unittest', 'urllib', 'uu', 'uuid', 'venv', 'warnings',
-  'wave', 'weakref', 'webbrowser', 'winreg', 'winsound', 'wsgiref', 'xdrlib',
-  'xml', 'xmlrpc', 'zipapp', 'zipfile', 'zipimport', 'zlib', 'zoneinfo', '_thread',
-]);
+// Python stdlib membership has a single home: resolvers/python-stdlib.js
+// (authoritative sys.stdlib_module_names + degraded-path fallback, L3-15).
 
 /**
  * True when a Python import is rooted at the standard library or at a package
@@ -230,7 +199,7 @@ const PYTHON_STDLIB_ROOTS = new Set([
 function _isExternalPythonModule(specifier, root) {
   const rootSegment = specifier.split('.')[0].trim();
   if (!rootSegment) return false;
-  if (PYTHON_STDLIB_ROOTS.has(rootSegment)) return true;
+  if (getPythonStdlibNames(root).has(rootSegment)) return true;
   if (!root) return false;
   const declared = readPythonDeps(root);
   // Import names use underscores where package names use hyphens; the

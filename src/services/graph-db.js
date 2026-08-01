@@ -1029,7 +1029,7 @@ class GraphDB {
             SELECT ?, 0, 0
             UNION
             SELECT e.source, d.lvl + 1,
-                   CASE WHEN e.resolution_method = 'java-same-package' OR e.confidence < 0.5 OR d.has_implicit = 1 THEN 1 ELSE 0 END
+                   CASE WHEN e.confidence < 0.5 OR d.has_implicit = 1 THEN 1 ELSE 0 END
             FROM edges e
             JOIN dependents d ON e.target = d.file_path
             WHERE e.edge_type = 'import' AND d.lvl < ?
