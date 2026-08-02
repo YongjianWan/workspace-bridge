@@ -6,7 +6,26 @@
 
 ---
 
-## 本轮会话 (2026-08-02 续二，Kotlin `package` 零抽取修复 + JVM manifest v1)
+## 本轮会话 (2026-08-02 续三，v1 取数复测 → 伞形回归修复 + v2 判死)
+
+> 一笔生产代码提交：`e2437c1`（伞形修复，CACHE_VERSION 31→32）。CHANGELOG 2026-08-02 伞形条目是主记录。
+
+### 本轮完成
+1. **取数复测（先取数再动手，首轮即值回票价）**：okhttp / spring-petclinic 冷建图对照 07-31 基线。okhttp 总边 2760 → **34953**（`java-same-package` 33117——Kotlin `package` 修复的预期产物）；symbol-table **103 条全部仓内**（合法辖区保全，第三方零泄漏）；spring-petclinic 511 / st 0 / drop 0 逐数一致。dropped 241 → 254，样本审计钓出 `com.squareup.zstd.okio.*` 两条第三方被误记「非预期丢弃」。
+2. **伞形 groupId 回归修复**（`e2437c1`）：catalog 合法声明裸伞 `com.squareup`（kotlinpoet 挂伞下），`_matchJvmDeclared` 先撞伞压过真属主 `com.squareup.zstd`；守卫只问「pkg 在 g 之下」，伞下兄弟包 `com.squareup.okhttp3.maventest` 误判源码在场 → 第三方判 internal，pre-v1 零名单本判 external——manifest 层把判决做差。修复：最长匹配 + 守卫双要求（覆盖 base 且细于 g）。**杀变异真发现**：F（先撞匹配）初跑存活——覆盖守卫独自过伞形测试，最长匹配缺独立锁定；补裸伞包分叉角落测试后 F/G 双红。测试 10 → 13 例。
+3. **修复实证**：okhttp 复测 zstd 样本 **0**、dropped 254 → **248**（zstd 库 6 个 import 位点全部被闸认领）、边集 34953 逐方法构成零扰动、st 103 原样。
+4. **v2 判死**：zstd 漏判不是根目录-only 的锅（catalog 在根），是伞形守卫 bug；编制内两 JVM 仓**零条剩余泄漏可归因子模块 manifest**（okhttp 子模块声明全是根 catalog 重复；spring-petclinic 全根声明）。多模块 manifest 链无实测证据立项，冻结。
+
+### 验证终态
+- `npm run test:fast` 147/147（exit 0）；修复后 okhttp 复测（上文数字）；全量 `node test/runner.js` **270/270**（exit 0，475s）——首跑 269/270 唯一失败系本轮实验脚本 `.measure-v1.js`/`.repro-zstd.js` 残留仓库根被 orphan 检测计数（实验垃圾未清，非代码回归；清场后单跑 PASS，全量重跑盖章）。
+
+### 下一轮入口
+- **L3-9 Python 侧 tree-sitter 迁移**——目标已拍板，goal 模式开工中（parity 对照器先行 → python-ast.js → 删 spawn Python 半；Java 另一刀）。
+- JVM manifest v2（多模块链）：**冻结**，解冻条件——出现「子模块独立声明 + 根 manifest 无证据」导致泄漏的实测案例。
+
+---
+
+## 上一轮会话 (2026-08-02 续二，Kotlin `package` 零抽取修复 + JVM manifest v1)
 
 > 两笔生产代码提交：`e7b86e8`（Kotlin package）+ `d78e16f`（JVM manifest v1）。CHANGELOG 2026-08-02 同日条目是主记录。
 

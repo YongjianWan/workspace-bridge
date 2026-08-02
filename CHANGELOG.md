@@ -5,6 +5,15 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### JVM 闸伞形 groupId 漏判修复 — v1 取数复测钓出的回归（2026-08-02）
+
+「先取数再动手」首轮就值回票价：okhttp 复测（CACHE_VERSION 31，对照 07-31 基线 2760 边 / st 101 / dropped 241）发现 `com.squareup.zstd.okio.zstdCompress/Decompress` 两条第三方 import 被记成「非预期丢弃」——闸没认走它们。根因双叠加：(1) catalog 合法声明裸伞形 groupId `com.squareup`（kotlinpoet 就挂在伞下，`libs.versions.toml:138`），`_matchJvmDeclared` 按 Set 插入序先撞伞，压过真属主 `com.squareup.zstd`；(2) reactor 守卫只问「有没有 workspace package 在 g 之下」——`com.squareup.okhttp3.maventest`（maven-tests 模块 2 个 .java）恰在同伞下，守卫误判「源码在场」→ 第三方判 internal。pre-v1 零名单规则本判 external（无交集），manifest 层在此角落把判决做差，违反 v1 自己的设计红线。
+
+- **Fixed** `_matchJvmDeclared` 取**最长匹配 g**（具体声明才是 import 的真属主）；reactor 守卫改为**覆盖 + 细度双要求**：pkg 必须与 base 有零名单同款交集（覆盖）且细于等于 g（细度）——「同伞」不是所有权。CACHE_VERSION 31→32。
+- **Added** `jvm-manifest-deps-test.js` 3 例：伞下兄弟包不得庇护第三方（okhttp 原形状）、更细但不覆盖 base 的包不得认领 internal、裸伞包分叉角落（仅锁定最长匹配——变异 F「先撞匹配」初跑**存活**，暴露前两例未独立锁定此行为，补例后验红）。杀变异 F/G 逐处验红，还原全绿。
+- **Measured**（修复前，v31）：okhttp 总边 2760 → **34953**（`java-same-package` 33117——Kotlin `package` 修复的预期产物，553 个 .kt 首次参与同包分组）；symbol-table **103 条全仓内**（`okhttp3.*`/`mockwebserver3.*`，合法辖区保全，第三方零泄漏）；spring-petclinic 511 边 / st 0 / dropped 0 与基线逐数一致。dropped 241 → 254（+13），样本构成：深层成员链 + internal 可见性类（合法族）+ zstd 两条（本条修复对象）。
+- **验证**：`npm run test:fast` 147/147（exit 0）；修复后 okhttp 复测与全量 runner 见 SESSION 本轮记录。
+
 ### Kotlin `package` 零抽取修复 + JVM manifest v1（`readJvmDeps` 三源 + 闸否决证据 + jdk/sun 名单）(2026-08-02)
 
 JVM manifest 侦察（08-01 续二）坐实原 L2-11 条目「第三方一律挡不住」过时后，按「Kotlin 抽取先行、manifest 随后」顺序两笔独立提交落地。真缺口三个，本轮全闭合：Kotlin 从不贡献 `package`（空集洞根因）、前缀碰撞、`jdk.*`/`sun.*`/`com.sun.*` 无名单。
