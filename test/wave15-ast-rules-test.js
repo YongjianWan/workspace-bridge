@@ -568,7 +568,10 @@ def no_params():
   assert.ok(findings[0].id.includes('public-function-no-type-hints'));
 }
 
-async function testPythonTypeCommentSkippedE2E() {
+// L3-9: the tree-sitter Python parser cannot see `# type:` comments (CPython
+// parsed them with type_comments=True). This is the one documented semantic
+// narrowing of the migration — the rule now FIRES for comment-only hints.
+async function testPythonTypeCommentFiresE2E() {
   const source = `
 def typed_by_comment(x):  # type: (int) -> None
     pass
@@ -580,7 +583,8 @@ def typed_by_comment(x):  # type: (int) -> None
   };
 
   const findings = checkFileRules('service.py', info);
-  assert.strictEqual(findings.length, 0, 'type comments should count as type hints');
+  assert.strictEqual(findings.length, 1, 'type comments are invisible to tree-sitter (documented L3-9 narrowing)');
+  assert.strictEqual(findings[0].symbol, 'typed_by_comment');
 }
 
 async function testGoMissingErrorReturnE2E() {
@@ -671,7 +675,7 @@ const tests = [
   testVueNoReturnTypeE2E,
   testSvelteNoReturnTypeE2E,
   testPythonNoTypeHintsE2E,
-  testPythonTypeCommentSkippedE2E,
+  testPythonTypeCommentFiresE2E,
   testGoMissingErrorReturnE2E,
   testRustNoReturnTypeE2E,
   testCppNoReturnTypeE2E,

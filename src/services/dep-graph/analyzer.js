@@ -959,8 +959,9 @@ class GraphAnalyzer {
       // Name the actual environment failure when known (memoized by spawn-ast
       // during this process), so the warning tells the user HOW to fix it
       // instead of a generic "possible timeout" that sends them debugging
-      // the wrong thing.
-      const envFailure = getParserEnvFailure('java_ast_parser.py') || getParserEnvFailure('python_ast_parser.py');
+      // the wrong thing. Java is the only remaining spawn-parsed language
+      // (L3-9 moved Python to in-process tree-sitter WASM).
+      const envFailure = getParserEnvFailure('java_ast_parser.py');
       let detail = 'possible spawn timeout or WASM failure';
       if (envFailure === 'dependency-missing') {
         detail = 'external parser dependency missing (e.g. pip install javalang)';

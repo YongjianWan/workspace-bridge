@@ -1,9 +1,5 @@
 const { uniqueNames, createImportRecord } = require('./shared');
-const { spawnPythonASTParser } = require('./spawn-ast');
-
-async function parsePythonAST(content, root) {
-  return spawnPythonASTParser('python_ast_parser.py', content, undefined, root);
-}
+const { parsePythonAst } = require('./python-ast');
 
 function getLineNumber(content, index) {
   return content.slice(0, index).split('\n').length;
@@ -67,37 +63,49 @@ function parsePythonWithRegex(content) {
   return { imports, exports, importRecords, exportRecords, functionRecords, parseMode: 'regex' };
 }
 
+/**
+ * Map raw parser JSON (tree-sitter python-ast.js) onto the parser-contract
+ * records. scripts/parser-parity-python.js judges the retired spawn path
+ * (scripts/python_ast_parser.py, removed in L3-9) against the tree-sitter
+ * path only after this identical normalization.
+ */
+function normalizePythonAstResult(astResult) {
+  return {
+    imports: uniqueNames(astResult.imports),
+    exports: uniqueNames(astResult.exports),
+    importRecords: astResult.importRecords.map((record) =>
+      createImportRecord(record.source, {
+        imported: record.imported,
+        usesAllExports: record.usesAllExports,
+      })
+    ),
+    exportRecords: astResult.exportRecords || [],
+    functionRecords: (astResult.functionRecords || []).map((record) => ({
+      name: record.name,
+      kind: record.kind || 'function',
+      lineStart: record.lineStart,
+      lineEnd: record.lineEnd,
+      fingerprint: record.fingerprint || null,
+      isExported: record.isExported !== undefined ? record.isExported : true,
+      returnType: record.returnType || null,
+      decorators: record.decorators || [],
+      hasParameterTypeHints: record.hasParameterTypeHints === true,
+      branchCount: record.branchCount !== undefined ? record.branchCount : 0,
+      maxArms: record.maxArms !== undefined ? record.maxArms : 0,
+    })),
+    parseMode: 'ast',
+  };
+}
+
+// root is unused by the tree-sitter path (in-process WASM, no per-file
+// process to point at a venv); kept for the parser-registry signature.
 async function parsePython(content, root) {
-  const astResult = await parsePythonAST(content, root);
+  const astResult = await parsePythonAst(content);
   if (astResult) {
-    return {
-      imports: uniqueNames(astResult.imports),
-      exports: uniqueNames(astResult.exports),
-      importRecords: astResult.importRecords.map((record) =>
-        createImportRecord(record.source, {
-          imported: record.imported,
-          usesAllExports: record.usesAllExports,
-        })
-      ),
-      exportRecords: astResult.exportRecords || [],
-      functionRecords: (astResult.functionRecords || []).map((record) => ({
-        name: record.name,
-        kind: record.kind || 'function',
-        lineStart: record.lineStart,
-        lineEnd: record.lineEnd,
-        fingerprint: record.fingerprint || null,
-        isExported: record.isExported !== undefined ? record.isExported : true,
-        returnType: record.returnType || null,
-        decorators: record.decorators || [],
-        hasParameterTypeHints: record.hasParameterTypeHints === true,
-        branchCount: record.branchCount !== undefined ? record.branchCount : 0,
-        maxArms: record.maxArms !== undefined ? record.maxArms : 0,
-      })),
-      parseMode: 'ast',
-    };
+    return normalizePythonAstResult(astResult);
   }
 
   return parsePythonWithRegex(content);
 }
 
-module.exports = { parsePython };
+module.exports = { parsePython, normalizePythonAstResult };

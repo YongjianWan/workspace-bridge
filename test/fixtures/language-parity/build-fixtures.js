@@ -47,7 +47,7 @@ const FIXTURES = [
   },
   {
     language: 'python',
-    needsPython: true, // python_ast_parser.py; regex fallback still extracts imports
+    needsPython: false, // L3-9: tree-sitter WASM, no toolchain dependency
     expectedMethods: ['python-absolute', 'python-relative'],
     files: {
       'requirements.txt': '# parity fixture — intentionally empty\n',

@@ -55,7 +55,7 @@ async function testParserConcurrencyLimit() {
     // fs.existsSync passes and spawn is actually invoked.
     const promises = [];
     for (let i = 0; i < 10; i++) {
-      promises.push(spawnPythonASTParser('python_ast_parser.py', 'dummy content'));
+      promises.push(spawnPythonASTParser('java_ast_parser.py', 'dummy content'));
     }
 
     // Give the event loop a tick to let some spawns start
@@ -92,11 +92,11 @@ async function testParserQueueDrainsCorrectly() {
     const { spawnPythonASTParser, getActiveParserCount } = require('../src/services/dep-graph/parsers/spawn-ast');
 
     // Sequential calls should not queue (active < limit)
-    await spawnPythonASTParser('python_ast_parser.py', 'a');
+    await spawnPythonASTParser('java_ast_parser.py', 'a');
     assert.strictEqual(getActiveParserCount(), 0);
 
     // A second sequential call should also go through without queueing
-    await spawnPythonASTParser('python_ast_parser.py', 'b');
+    await spawnPythonASTParser('java_ast_parser.py', 'b');
     assert.strictEqual(getActiveParserCount(), 0);
     assert.strictEqual(maxConcurrentMockProcesses, 1, 'sequential calls should never exceed 1 concurrent');
   } finally {

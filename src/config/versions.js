@@ -102,6 +102,11 @@ const SCHEMA_VERSION = '1.2.0';
 //      要求 pkg 覆盖 base 且细于 g（okhttp 实测：伞下兄弟包
 //      com.squareup.okhttp3.maventest 把第三方 zstd 误判 internal，
 //      pre-v1 零名单本判 external）。
-const CACHE_VERSION = 32;
+// v33: L3-9 Python 半——Python 解析从每文件 spawn scripts/python_ast_parser.py
+//      迁到进程内 tree-sitter WASM（parsers/python-ast.js）。437 文件 parity
+//      对照零 diff（scripts/parser-parity-python.js），唯一收窄：# type:
+//      注释对 tree-sitter 不可见，hasParameterTypeHints 不再认它。v32 缓存里
+//      Python 文件的 parse 产物来自 spawn 路径，来源字段不可比，作废重建。
+const CACHE_VERSION = 33;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };
