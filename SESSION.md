@@ -6,7 +6,25 @@
 
 ---
 
-## 本轮会话 (2026-08-01 续二，L2-22 判留 + 竞态修复 + 守护测试/清理进行中)
+## 本轮会话 (2026-08-02，L3-5 销记：`lookupUnique` 死方法删除)
+
+> 本轮有生产代码变更（symbol-registry.js 死方法删除），CHANGELOG 2026-08-02 L3-5 条目是主记录。
+
+### 本轮完成
+1. **L3-5 销记（删除 > 添加）**：`lookupUnique()` 生产零调用坐实（grep 全仓，唯一生产调用方是 `resolvers.js:330` 的 `lookupBestMatch`）。
+2. **前置条件实测不成立 → 先补覆盖**：L3-5 自记「删除需确认 `lookupBestMatch` 侧有等价路径规范化覆盖」——实测**零覆盖**。补 `testLookupBestMatchNormalizesFromFile`（冗余分隔符 + Windows 原生反斜杠 → 同目录候选双断言）。**杀变异验红**：摘掉 `:115` 的 `normalizePathKey(fromFile)` → 相对撞绝对、commonDepth 0、双候选平局 → null，RED；还原 GREEN。
+3. **删除**：`symbol-registry.js` 的 `lookupUnique()` + `toPosixPath` 导入（该方法为唯一消费方）；`symbol-registry-test.js` 三个孤儿测试函数；`testLookupMissing` 换 `lookupBestMatch` 等价断言。CACHE_VERSION 不动（死代码删除，行为零变化）。
+
+### 验证终态
+- `symbol-registry-test.js` 8/8、`symbol-prescan-registry-test.js` PASS、`npm run test:fast` 146/146（exit 0）；全量 `node test/runner.js` **269/269**（exit 0）。
+
+### 下一轮入口
+- 依赖准确性新榜首：**JVM 第三方 manifest 未读**（TECH_DEBT 排序第 3 项，groupId↔包名不同构，是个真项目，别当一行改动）。
+- P3 层最大单笔：L3-9 tree-sitter 迁移（Python/Java 去 spawn）。
+
+---
+
+## 上一轮会话 (2026-08-01 续二，L2-22 判留 + 竞态修复 + 守护测试/清理/换源/hugo)
 
 > 截至目前的生产代码变更：零（①是判决、③是测试基建、⑥是测量）。CHANGELOG 2026-08-01 L2-22 条目是主记录。
 

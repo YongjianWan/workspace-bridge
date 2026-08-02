@@ -5,6 +5,14 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L3-5 销记：`lookupUnique()` 死方法连测试删除，路径规范化覆盖先移植到 `lookupBestMatch` (2026-08-02)
+
+`lookupUnique(symbolName, preferredDir)` 自 2026-07-23 被 `lookupBestMatch(symbolName, fromFile)` 取代后生产零调用（唯一生产调用方是 `resolvers.js:330` 的 `lookupBestMatch`），按「删除 > 添加」连方法带 3 个孤儿测试函数一起删。CACHE_VERSION 不动（死代码删除，行为零变化）。
+
+- **Added** `test/symbol-registry-test.js` `testLookupBestMatchNormalizesFromFile`：删除的前置条件（L3-5 自记：须先确认 `lookupBestMatch` 侧有等价路径规范化覆盖——实测**没有**）。`lookupUnique` 旧用例守的风险类（调用方传原生/冗余分隔符路径，注册表键已归一化，匹配不能因此失效）移植为对 `lookupBestMatch` 的两条断言：冗余分隔符（`project/src//main/Caller.java`）与 Windows 原生反斜杠（`project\src\main\Caller.java`）都必须解析到同目录候选。**杀变异验红**：`:115` 摘掉 `normalizePathKey(fromFile)` → 相对路径撞绝对候选键，commonDepth 0、双候选只剩 SAME_EXT 平局 → null，RED；还原 GREEN。
+- **Removed** `symbol-registry.js` `lookupUnique()`（含 `toPosixPath` 导入，该方法为其唯一消费方）；`symbol-registry-test.js` 三个孤儿测试函数（`testLookupUnique` / `testLookupUniqueNormalizesPreferredDir` / `testLookupUniqueWithWindowsNativePreferredDir`）；`testLookupMissing` 的 `lookupUnique` 断言换成 `lookupBestMatch` 等价断言。
+- **验证**：`symbol-registry-test.js` 8/8、`symbol-prescan-registry-test.js` PASS、`npm run test:fast` 146/146（exit 0）；全量 runner 见 SESSION 本轮记录。
+
 ### L2-22 判决：Rust symbol-table 判留 —— ripgrep 第二仓取数坐实合法辖区 (2026-08-01)
 
 T6 留下的 Rust 半局（n=1 不拍摘）今日由第二仓闭合。零生产代码变更（判决 + 测试基建修复）。
