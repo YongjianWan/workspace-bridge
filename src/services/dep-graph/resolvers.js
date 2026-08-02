@@ -293,20 +293,29 @@ const JVM_IMPORT_ALIASES = [
   ['org.apache.http', 'org.apache.httpcomponents'], // httpclient / httpcore
 ];
 
-// The declared groupId that claims `base`, or null. Aliases loosen only the
+// The declared groupId that claims `base`, or null. Longest match wins:
+// umbrella groupIds are real (Square publishes kotlinpoet as bare
+// com.squareup), and a first-found umbrella would outrank the specific
+// declaration that actually owns the import. Aliases loosen only the
 // *comparison*, never the conclusion: the matched groupId is what the caller
 // weighs against workspace packages.
 function _matchJvmDeclared(base, declared) {
+  let best = null;
   for (const g of declared) {
-    if (base === g || base.startsWith(g + '.')) return g;
+    if ((base === g || base.startsWith(g + '.')) && (best === null || g.length > best.length)) {
+      best = g;
+    }
   }
+  if (best) return best;
   for (const [importPrefix, groupPrefix] of JVM_IMPORT_ALIASES) {
     if (base !== importPrefix && !base.startsWith(importPrefix + '.')) continue;
     for (const g of declared) {
-      if (g === groupPrefix || g.startsWith(groupPrefix + '.')) return g;
+      if ((g === groupPrefix || g.startsWith(groupPrefix + '.')) && (best === null || g.length > best.length)) {
+        best = g;
+      }
     }
   }
-  return null;
+  return best;
 }
 
 function _isExternalJvmPackage(specifier, root, ctx, fromExt) {
@@ -321,7 +330,15 @@ function _isExternalJvmPackage(specifier, root, ctx, fromExt) {
     if (g) {
       if (pkgs) {
         for (const pkg of pkgs) {
-          if (pkg === g || pkg.startsWith(g + '.')) return false;
+          // Internal wins only when the workspace demonstrably hosts the
+          // import itself: the package must cover base (same intersection as
+          // the zero-list rule) AND be at least as specific as the declared
+          // groupId. "Under the same umbrella" is not ownership — okhttp's
+          // com.squareup.okhttp3.maventest must not shield the declared
+          // third-party com.squareup.zstd (measured 2026-08-02).
+          const covers = base === pkg || base.startsWith(pkg + '.') || pkg.startsWith(base + '.');
+          const finer = pkg === g || pkg.startsWith(g + '.');
+          if (covers && finer) return false;
         }
       }
       return true;

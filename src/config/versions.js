@@ -97,6 +97,11 @@ const SCHEMA_VERSION = '1.2.0';
 //      合并第三方 groupId，闸在空集与前缀碰撞两种降级场景获得否决证据
 //      （reactor 模块源码优先）；jdk.*/sun.*/com.sun.* 进 isBuiltIn。
 //      v30 缓存里这两类场景的第三方 tier2 边应变成 droppedImports 记账。
-const CACHE_VERSION = 31;
+// v32: JVM 闸 manifest 层修伞形 groupId 漏判——匹配取最长 g（Square 把
+//      kotlinpoet 挂在裸 com.squareup 伞下，先撞伞会压过真属主），守卫
+//      要求 pkg 覆盖 base 且细于 g（okhttp 实测：伞下兄弟包
+//      com.squareup.okhttp3.maventest 把第三方 zstd 误判 internal，
+//      pre-v1 零名单本判 external）。
+const CACHE_VERSION = 32;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

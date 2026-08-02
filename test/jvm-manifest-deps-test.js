@@ -273,6 +273,72 @@ function testGateJdkInternalPrefixes() {
   }
 }
 
+function testGateUmbrellaGroupIdDoesNotShieldThirdParty() {
+  // okhttp 实测钓出的 v1 回归（2026-08-02）：catalog 同时有裸伞形 groupId
+  // com.squareup（kotlinpoet 就挂在伞下，合法声明）与 com.squareup.zstd；
+  // maven-tests 模块的源码包 com.squareup.okhttp3.maventest 在同一伞下。
+  // 匹配若取先撞上的伞、守卫若只问「pkg 在 g 之下」，伞下兄弟包会把第三方
+  // zstd 误判 internal——pre-v1 零名单本判 external，manifest 层不得做差。
+  const dir = makeTempDir('wb-jvm-gate-umbrella-');
+  try {
+    fs.mkdirSync(path.join(dir, 'gradle'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'gradle', 'libs.versions.toml'), `
+[libraries]
+kotlinpoet = { module = "com.squareup:kotlinpoet", version = "1.14.2" }
+zstd = { module = "com.squareup.zstd:zstd-kmp-okio", version = "0.4.0" }
+`, 'utf8');
+    const ctx = { workspacePackages: new Set(['okhttp3', 'com.squareup.okhttp3.maventest']) };
+    assert.strictEqual(
+      isExternalDependency('com.squareup.zstd.okio.zstdCompress', '.kt', dir, ctx),
+      true,
+      'an umbrella sibling package must not shield a declared third-party import'
+    );
+  } finally {
+    cleanupTempDir(dir);
+  }
+}
+
+function testGateReactorFinerButNonCoveringPackageIsExternal() {
+  // pkg 比 g 更细但不覆盖 base：源码在场的是 .impl 子包，而被 import 的
+  // com.company.sharedlib.Foo 并不在工作区——internal 只会让符号表瞎猜。
+  const dir = makeTempDir('wb-jvm-gate-noncover-');
+  try {
+    writeGuavaPom(dir);
+    const ctx = { workspacePackages: new Set(['com.company.sharedlib.impl']) };
+    assert.strictEqual(
+      isExternalDependency('com.company.sharedlib.Foo', '.java', dir, ctx),
+      true,
+      'a finer package that does not cover the import must not claim it internal'
+    );
+  } finally {
+    cleanupTempDir(dir);
+  }
+}
+
+function testGateLongestMatchBeatsBareUmbrellaPackage() {
+  // 覆盖守卫管不住的分叉角落：workspace 直接把代码放进裸伞包
+  // com.squareup（比 okhttp 形状再上一层）。先撞伞的匹配会让 pkg === g 的
+  // 守卫放行（internal），最长匹配取到 com.squareup.zstd 后伞包不再够细
+  // ——declared 的具体声明才是 import 的真属主。
+  const dir = makeTempDir('wb-jvm-gate-longest-');
+  try {
+    fs.mkdirSync(path.join(dir, 'gradle'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'gradle', 'libs.versions.toml'), `
+[libraries]
+kotlinpoet = { module = "com.squareup:kotlinpoet", version = "1.14.2" }
+zstd = { module = "com.squareup.zstd:zstd-kmp-okio", version = "0.4.0" }
+`, 'utf8');
+    const ctx = { workspacePackages: new Set(['com.squareup']) };
+    assert.strictEqual(
+      isExternalDependency('com.squareup.zstd.okio.zstdCompress', '.kt', dir, ctx),
+      true,
+      'bare umbrella package must not outrank the specific declared groupId'
+    );
+  } finally {
+    cleanupTempDir(dir);
+  }
+}
+
 function main() {
   testPomExtraction();
   testGradleExtraction();
@@ -284,7 +350,10 @@ function main() {
   testGateReactorModuleInternalWins();
   testGatePreV1BehaviorPreserved();
   testGateJdkInternalPrefixes();
-  console.log('jvm-manifest-deps: 10/10 passed');
+  testGateUmbrellaGroupIdDoesNotShieldThirdParty();
+  testGateReactorFinerButNonCoveringPackageIsExternal();
+  testGateLongestMatchBeatsBareUmbrellaPackage();
+  console.log('jvm-manifest-deps: 13/13 passed');
 }
 
 main();
