@@ -12,7 +12,10 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { readJvmDeps, clearResolverCaches } = require('../src/services/dep-graph/resolvers/base');
+// 缓存隔离靠每个用例独立的 mkdtemp 目录（_jvmDepsCache 以 root 为 key），
+// 同目录改写的 testMtimeCacheInvalidation 自己用 utimesSync 顶开 mtime 别名
+// —— 都不需要 clearResolverCaches。
+const { readJvmDeps } = require('../src/services/dep-graph/resolvers/base');
 const { isExternalDependency } = require('../src/services/dep-graph/resolvers');
 
 function makeTempDir(prefix) {
