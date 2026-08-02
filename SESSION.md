@@ -24,9 +24,25 @@
 ### 验证终态
 - `npm run test:fast` **148/148**（exit 0）；parity **738/738 零 diff**（旧边从 `git show 7548d7b:scripts/python_ast_parser.py` 复活对照）；全量 `node test/runner.js` **271/271**（exit 0，460s）；`npm run lint` 剩 1 处遗留报错（`test/jvm-manifest-deps-test.js:15` `clearResolverCaches` 未使用，上一轮带入，未动其测试语义）。
 
-### 下一轮入口
-- **L3-9 Java 半**（spawn java_ast_parser.py → tree-sitter-java）：可复用 Python 半的 parity 对照器模式；额外验证点——`package` 声明抽取与 javalang 等价（L2-11 缺口 C 闸的地基）、fingerprint 字段映射。
-- 其余按 TECH_DEBT 总览表（L3 层最大单笔已清，剩 L3-4/7/8/10/11/12/13/14 + L3-9 Java 半）。
+### 下一轮入口（2026-08-03 重排，依据见 TECH_DEBT「解析器选型判据」决策原则）
+
+**1. L3-9 Java 半 —— 排第一，且性质变了。** 实测坐实 javalang 0.13.0（2020 停更）读不了 record(16)/sealed(17)/text block(15)/switch expression(14)/instanceof 模式(16)；拿 `record` 走完整链路是 `parseMode=regex`——**装了 javalang 也是正则质量数据**。所以这不是"迁移图个快"，是止血。
+
+前置条件已验：`javalang 0.13.0` 在（oracle 活着）、`tree-sitter-java.wasm` 依赖自带、语料 370 个 `.java`。要点：
+- `package` 声明抽取必须与 javalang 逐字段等价（L2-11 缺口 C 闸的地基，Kotlin 半栽过一次）；
+- **验收根集先扫语法特性命中率再定，不按仓库名挑**（437→738 的教训）——泛型/注解/内部类/匿名类/lambda/switch expression/record/sealed/text block/var/instanceof 模式，370 文件覆盖不到的先补 fixture 再开跑；
+- 顺手取 L3-14 的 probe 前后对照（换解析器是唯一时机，错过成本翻倍）；
+- 收工后 `spawn-ast.js` 200 行整体删除，`scripts/` 下最后一个 Python 脚本消失。
+
+**2. L3-7 Vue 半** —— `tree-sitter-vue.wasm` 已在 `node_modules` 内，零新依赖。大头不是符号精度，是**模板里的组件引用现在一条边都抽不出来**。Svelte 半维持冻结（无 tree-sitter 语法 + 官方编译器 4/5 版本耦合）。
+
+**3. 两条一行债** —— `resolveFileOnly` 的 ext 大小写不一致（`builder.js:407`）；仓库根两个垃圾目录（顺带查出是哪个测试写的）。
+
+**4. L3-12 + L3-13 一组做（先测再改）** —— 全量 460s，slow 层是主要成本且 43% 是启发式塞的。先给 runner 加每条测试的真实耗时与冷启动次数统计，用数据重排分层，**然后**才谈池化。ROADMAP 的「per-tool benchmark 回归检查」正好做数据地基，合并。
+
+**5. L3-16（新登记）排期前先量** —— tsconfig `extends` 不跟，官方 `typescript` 包可解且进程内。但回报是推理不是实测，先扫真实 monorepo 统计因此落进 dropped 的 import 数，数字不支持就维持 P3。
+
+**不做**：性能两条 P1（ROADMAP 自述"接受现状"，10k 文件才显形）；Call-Resolution DAG / ACCESSES 边 / Next.js 路由（越界语义分析）；L3-4（L2-22 判留后终态作废，剩纯审美）；L3-8（定的就是接触即修）。
 
 ---
 

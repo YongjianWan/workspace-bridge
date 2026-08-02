@@ -65,7 +65,8 @@
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
 > | **P1 紧随** | ~~L2-21 Go 包级依赖无图~~ ✅（2026-08-01：变异实验收口 + 包导入展开全包 + 同包 tier3 边，cobra 12→279 全可解释，史见 CHANGELOG） · ~~L2-16 Rust crate 名归一~~ ✅ · ~~L2-17 Python namespace 包~~ ✅（2026-07-28，丢弃 34→26） · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅——**P1 出空，下一层自动顶上来** | L2-21 销记：Go 边层不再是文件粒度图装不下包语义——包导入绑全包、同包互引有 tier3 边 |
 > | **P2 依赖前两层** | ~~L2-10 符号表判决（T6）~~ ✅ 已拍已执行（2026-07-31：摘 JS/TS/Python、留 JVM、Go/Rust 不动，史见 CHANGELOG） · ~~L2-22 Rust 去留~~ ✅ 判留（2026-08-01，ripgrep 45 条全真边坐实辖区） · ~~L2-14 JVM 源根~~ ✅（2026-07-30，KMP 布局 + 成员导入，st 1037→111）——**P2 出空，L2 层清零** | T6 的 Rust 半局由第二仓闭合：45 条可核对真边，判留 |
-> | **P3 记账不排期** | L3-4 扩展名分支（T6 后只剩 JVM/Rust/Go/C++ 共享段，L2-22 判留后塌缩终态作废） · ~~L3-5 死方法~~ ✅（2026-08-02 `lookupUnique` 连测试删除） · L3-7 Vue/Svelte 正则抽符号 · L3-8 防御性兜底 · ~~L3-9 Python 半~~ ✅（2026-08-02 tree-sitter 迁移，**738 文件 parity 零 diff**——437 根集按仓库名挑，漏了 3.11+ 的 `except*`，扩到 `reference/` + `test/fixtures/` 全量才封口；**Java 半活跃**） · L3-10 hasCpp 不覆盖纯 .c 仓 · L3-11 双 freshness 判据 · L3-12 分层靠猜 · L3-13 每条各自冷启动 · L3-14 tryJava probe 放大缺前后对照 · ~~L3-15 Python stdlib 手抄名单~~ ✅（2026-08-01 换源 sys.stdlib_module_names） | L3-8 走"接触即修"，不做大扫除；L3-11 的沉默已修、分歧留档；L3-12/13 是测试执行债，可观测性与调度已落地，剩下两条都要"先测再改"；L3-14 是纯测量债，有变慢迹象再取 |
+> | **P2.5 下一批（2026-08-03 重估）** | **L3-9 Java 半**（javalang 实测读不了 Java 14+，装了也 regex——从"品味问题"升格为能力缺口，P3 里最该先做的一条） · **L3-7 Vue 半**（`tree-sitter-vue.wasm` 已在包内，零新依赖；模板组件引用现在零边） | 这两条不是审美，是"现在拿到的数据就是错的"。Svelte 半仍冻结 |
+> | **P3 记账不排期** | L3-4 扩展名分支（T6 后只剩 JVM/Rust/Go/C++ 共享段，L2-22 判留后塌缩终态作废） · ~~L3-5 死方法~~ ✅（2026-08-02 `lookupUnique` 连测试删除） · L3-8 防御性兜底 · ~~L3-9 Python 半~~ ✅（2026-08-02 tree-sitter 迁移，**738 文件 parity 零 diff**——437 根集按仓库名挑，漏了 3.11+ 的 `except*`，扩到 `reference/` + `test/fixtures/` 全量才封口） · L3-10 hasCpp 不覆盖纯 .c 仓 · L3-11 双 freshness 判据 · L3-12 分层靠猜 · L3-13 每条各自冷启动 · L3-14 tryJava probe 放大缺前后对照 · ~~L3-15 Python stdlib 手抄名单~~ ✅（2026-08-01 换源 sys.stdlib_module_names） · **L3-16 tsconfig `extends` 不跟**（新登记，官方 `typescript` 包可解，回报待实测） | L3-8 走"接触即修"，不做大扫除；L3-11 的沉默已修、分歧留档；L3-12/13 是测试执行债，可观测性与调度已落地，剩下两条都要"先测再改"；L3-14 是纯测量债，Java 半换解析器时顺手取前后对照，错过成本翻倍 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
 > | **预防性约束** | postProcess 记录不落盘 · `_invalidateParseCache` 单一入口 · regex-fallback 缓存不信任 · warm/cold 逐字节一致 · `_readGuard` 单一读闸 · DependencyGraphView 白名单同步 · 「本轮实测」字段不进快照 · 门禁型出口不吃 replay · **路径归一化不进返回值**（新，三个实例后的收刀） | 这些是已修债务转移后的形态：实例没了，让实例发生的结构还在 |
 >
@@ -129,6 +130,13 @@
 
 注册表里这两个语言的 `extractSymbols` 用正则匹配 `class` / `function` / `const` 逐行抽符号，而它们的 `parse` 走的是 babel AST。同一语言两条路径两种精度。这不影响依赖边（边来自 `parse`），但它是"9 种语言 AST 覆盖 100%"这一说法的折扣项——`file-index.js` 消费的是正则那条。
 
+**拆分（2026-08-03，按「官方解析器能否进程内」判据重估）**：这两半的解法成本差一个量级，不该继续捆在一条里。
+
+- **Vue 半——有零依赖解法，顺位提前**：`tree-sitter-vue.wasm` 已经在 `node_modules/tree-sitter-wasms/out/` 里躺着（和 Go/Rust/Kotlin 同一来源），不需要新依赖。更准的是官方 `@vue/compiler-sfc`（npm 包，进程内），代价是引入 Vue 2/3 SFC 编译器版本耦合。除符号抽取外还能补上**模板里的组件引用**（`<MyComponent />` 是隐式依赖，现在一条边都抽不出来）——这才是 Vue 半的大头，比符号精度值钱。
+- **Svelte 半——维持冻结**：`tree-sitter-wasms` 里**没有** svelte 语法，唯一路径是官方 `svelte/compiler`，而 Svelte 4/5 差异大、版本耦合更重，且 Svelte 本就是降级语言。解冻条件：真实 Svelte 仓报出问题。
+
+> 精确说，现状不是"Vue/Svelte 用正则解析"：`<script>` **内容**由 babel 解析，质量没问题；正则的是抠 `<script>` 标签这一步（字符串里含 `</script>`、注释里的标签会错）和 `extractSymbols`，而**模板整个不看**。
+
 > **Vue 的范围说明**（2026-07-28）：Vue **在范围内且边层健康**——`.vue` 在 `JS_FAMILY_EXTENSIONS` 闸内（`resolvers.js:111`）、parity 实测 `relative:1 / dropped:0`、`reference/vue-realworld-example-app` 是编制内基准仓、framework-patterns 有 vue-script 与 script-setup 宏两条检测。降级的只有本条 L3-7（符号抽取精度），**不是语言支持**。Svelte 的边层同样通着（T3 的闸 + realworld 12 边），只是它的语言级债务整体降 P3。
 
 ### L3-8：防御性兜底是这个项目复杂度的主要来源（`?.()` / `|| {}` / Proxy fallback）
@@ -149,11 +157,48 @@
 
 > 历史记录：弱断言分布已清理至 schema 契约测试中的防御性 `typeof` 检查；其余 `status === 0` 均为环境探测 helper，不属于测试断言。详见 [CHANGELOG.md](../CHANGELOG.md) [Unreleased] §Code Quality: Weak Assertion Cleanup。
 
+### ⚠️ 决策原则（2026-08-03 登记）：解析器选型的判据是「官方解析器能不能在 Node 进程里跑」
+
+**判据**：不是"官方 vs tree-sitter"，是**官方解析器能否进程内**。能进程内的，官方优先（保真度必然更高）；不能的，用 tree-sitter，不要为了保真度去背外部工具链。
+
+| 语言 | 现在用的 | 官方/原生选项 | 能进程内? |
+| --- | --- | --- | --- |
+| JS/TS/JSX/TSX | `@babel/parser` | Babel / tsc API | ✅ **已经是官方** |
+| Vue | 正则抠 `<script>` → babel | `@vue/compiler-sfc` | ✅ npm 包，未采用（L3-7） |
+| Svelte | 正则抠 `<script>` → babel | `svelte/compiler` | ✅ npm 包，冻结（L3-7） |
+| Python | tree-sitter | CPython `ast` | ❌ 要起进程 |
+| Java | javalang（spawn，2020 停更） | JDK compiler API / Eclipse JDT | ❌ 要 JVM |
+| Kotlin | tree-sitter | Kotlin compiler embeddable | ❌ 要 JVM，几百 MB |
+| Go | tree-sitter | `go/ast` 标准库 | ❌ 要 Go 工具链 + 助手二进制 |
+| Rust | tree-sitter | `syn` crate | ❌ 要 Rust 工具链 |
+| C/C++ | tree-sitter（`cpp.js` 正则兜底） | libclang | ❌ 要 LLVM，且缺 `compile_commands.json` 照样不准 |
+
+**为什么不全面官方化**：官方解析器相对 tree-sitter 的增量**主要在语义层**（tsc 的解析后类型、libclang 的预处理展开、`go/types` 的包路径解析、javac 的完整泛型签名），而本项目原则写死「结构分析 ≠ 语义分析」，ROADMAP 已拒 Call-Resolution DAG 与 ACCESSES 边。**付工具链的钱，买的是已经说过不要的东西。** 语法层的实际差距有量：Python 半 738 文件双跑只差 7 处角落，且全部可补。
+
+推到底的形状也要记着：全面官方化 = 一个 Node CLI 分发并调度 5 个不同语言写的助手程序，各带构建 / 版本 / 平台矩阵 / JSON 协议，单人维护。JVM 型助手还必须改成常驻批处理（每进程启动 300ms+，不能每文件 spawn）。
+
+**"装上不就行了"为什么不成立（针对 javalang）**：① 依赖方向拧巴——解析 Java 需要的是 Python + 一个 pip 包，Java 开发者机器上恰好两样都没有；② 装了版本也未必够——CPython `ast` 的语法能力锁死在本机解释器上，仓库用 3.12 语法而机器是 3.10 时整个文件返回**空**（不是降级）；③ 混合仓要求单机同时具备全部工具链；④ **决定性的一条：装了也读不了 Java 14+**（见 L3-9 实测表）。
+
+**触发条件**：新增语言支持、或考虑替换任一语言的解析器时。
+
 ### L3-9：~~Python~~ / Java AST 走 spawn Python 进程——部署脆性 + 成本离群，tree-sitter WASM 已在 node_modules 里躺着
 
-**状态**：**Python 半 ✅ 已修复（2026-08-02，CACHE_VERSION 33）**——Python 迁进程内 tree-sitter WASM（`parsers/python-ast.js`），parity 对照器 437 文件零 diff 后 spawn 路径删除；唯一收窄 `# type:` 注释不可见（CHANGELOG 2026-08-02 条目据实记录）。**Java 半活跃**：`scripts/java_ast_parser.py` 仍每文件 spawn（靠 javalang），迁移要验证 tree-sitter-java 的 `package` 声明抽取与 javalang 等价（闸的零名单前缀集合全靠它，L2-11 缺口 C 的地基）+ fingerprint/字段映射，可照 Python 半的 parity 对照器模式复用（`scripts/parser-parity-python.js` 骨架）。迁移后 L2-20 的共享串行锁自然覆盖。
+**状态**：**Python 半 ✅ 已修复（2026-08-02，CACHE_VERSION 34）**——迁进程内 tree-sitter WASM（`parsers/python-ast.js`），parity 对照器 **738 文件零 diff** 后 spawn 路径删除；唯一收窄 `# type:` 注释不可见（CHANGELOG 2026-08-02 条目据实记录）。
 
-**触发条件**：动 `spawn-ast.js` / `python.js` / `java.js`、或用户报"没装 python 的机器上 Python/Java 仓解析质量差"时。
+**Java 半活跃，且不再是"品味问题"——2026-08-03 实测坐实它是能力缺口**：
+
+| javalang 0.13.0（2020 年最后一版） | tree-sitter-java |
+| --- | --- |
+| ❌ record(16) / sealed(17) / text block(15) / switch expression(14) / instanceof 模式(16) | ✅ 八项全过 |
+| ✅ var(10) / 泛型 / lambda | ✅ |
+
+**装了 javalang 也没用**：拿 `public record Point(int x, int y) {}` 走完整链路实测 `parseMode=regex`——任何用 Java 14+ 语法的文件，今天拿到的都是正则质量数据，而且静默。这条把"缺失时自动回退 regex"（README:34）的适用面从"没装"扩大到"装了但语法超出 Java 8"，后者用户完全无感。
+
+迁移要点不变：**`package` 声明抽取必须与 javalang 逐字段等价**（闸的零名单前缀集合全靠它，L2-11 缺口 C 的地基；Kotlin 半已在此栽过一次，见 CHANGELOG `1176b35`），照 Python 半的 parity 对照器模式复用（`scripts/parser-parity-python.js` 骨架，oracle 从 git 复活做旧边）。**验收根集按语法特性覆盖挑，不按仓库名挑**——Python 半的 437→738 教训，语料里没有的语法证明不了任何事。迁移后 spawn 基建（`spawn-ast.js` 200 行：信号量 / env memo / 临时文件绕 Windows exit-49 / SIGTERM+SIGKILL 双定时器 / venv 解析）+ analyzer env 探测整体删除，L2-20 共享串行锁自然覆盖。
+
+**性能基线（2026-08-03 实测，738 个 .py）**：spawn CPython 串行 85.8 ms/文件，按 `PYTHON_AST_CONCURRENCY: 4` 折算真实墙钟约 21.5 ms/文件；tree-sitter 3.8 ms/文件——**约 5-6x**（不是串行对比的 22.6x，那个数字夸大）。Java 侧可参照，但 JVM 型官方桥另算。
+
+**触发条件**：动 `spawn-ast.js` / `python.js` / `java.js`、或用户报"Java 仓解析质量差 / 现代语法读不出"时。
 
 ### L3-10：`hasCpp` 条件疑似不覆盖纯 `.c` 仓——cJSON 的 `languageSupport` 是空表
 
@@ -228,6 +273,18 @@
 ### ~~L3-15：Python 标准库判定是手抄的 23 个名字，而进程里就坐着权威来源~~ ✅（2026-08-01，史见 CHANGELOG 同日条目）
 
 > 换源 `sys.stdlib_module_names`（新模块 `resolvers/python-stdlib.js`，spawnSync + 进程 memo），手抄名单降级为 python-missing 兜底；同刀删 `PYTHON_BUILTINS`/`GO_BUILTINS` 死名单与死 `isBuiltIn`。前后对照零 delta（CodeGraphContext 26→26、code-review-graph 6→6）——卫生债，不是正确性债。
+
+### L3-16：`_readTsconfigPaths` 只读仓库根、不跟 `extends`——手写了一个 tsc 的残缺版（2026-08-03 登记）
+
+`resolvers/base.js:604` 手写 tsconfig paths 读取：只看仓库根的 `tsconfig.json` / `jsconfig.json`，用正则剥 JSONC 注释再 `JSON.parse`，取 `compilerOptions.paths` + `baseUrl`。**不跟 `extends` 链**。
+
+后果（推理，未实测）：monorepo 里 `packages/*/tsconfig.json` 继承根 base 的 paths → 看不见；`extends: "@company/tsconfig-base"` → 看不见；project references → 不处理。别名 import 解析不出来就落进 dropped 记账。
+
+官方解法是 `typescript` npm 包的 `ts.readConfigFile` + `ts.parseJsonConfigFileContent`——**进程内**，extends 链 / baseUrl / references 全算好，顺带能删掉那段手写的 JSONC 正则。按上面的决策原则，这是"官方能进程内跑"档里唯一还没采用的一格，且 TS/JS 通常是真实仓文件数最多的语言。`typescript` 当前**不在** `package.json` 里。
+
+**为什么不直接排第一**：回报是推理不是实测。排期前先量——扫真实 monorepo 语料，统计有多少 import 因不跟 `extends` 而落进 dropped。数字不支持就维持 P3。
+
+**触发条件**：动 JS/TS resolver、或用户报"monorepo 里路径别名解析不出来"时。
 
 ---
 
