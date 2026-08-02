@@ -1,5 +1,5 @@
 const path = require('path');
-const { toPosixPath, normalizePathKey } = require('../../utils/path');
+const { normalizePathKey } = require('../../utils/path');
 const { SYMBOL_DISAMBIGUATION: DISAMBIG } = require('../../config/scoring');
 
 /**
@@ -72,28 +72,6 @@ class SymbolRegistry {
    */
   lookup(symbolName) {
     return this.exports.get(symbolName) || [];
-  }
-
-  /**
-   * Look up a symbol and return the unique file if exactly one exports it.
-   * If multiple files export the same symbol, returns null.
-   * @param {string} symbolName
-   * @param {string} [preferredDir] — if multiple matches, prefer files in this directory
-   * @returns {string|null}
-   */
-  lookupUnique(symbolName, preferredDir) {
-    const locations = this.exports.get(symbolName);
-    if (!locations || locations.length === 0) return null;
-    if (locations.length === 1) return locations[0].file;
-
-    if (preferredDir) {
-      const normalizedPreferredDir = path.isAbsolute(preferredDir)
-        ? normalizePathKey(preferredDir)
-        : toPosixPath(path.normalize(preferredDir));
-      const inPreferred = locations.filter((loc) => loc.file.startsWith(normalizedPreferredDir));
-      if (inPreferred.length === 1) return inPreferred[0].file;
-    }
-    return null;
   }
 
   /**

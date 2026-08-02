@@ -56,52 +56,27 @@ function testLookupBestMatchNeverResolvesToNonExported() {
   );
 }
 
-function testLookupUnique() {
-  const reg = new SymbolRegistry();
-  reg.register('a.js', [{ name: 'foo' }]);
-  assert.strictEqual(reg.lookupUnique('foo'), 'a.js');
-
-  reg.register('b.js', [{ name: 'foo' }]);
-  assert.strictEqual(reg.lookupUnique('foo'), null);
-
-  // With preferredDir
-  reg.register('src/utils/x.js', [{ name: 'helper' }]);
-  reg.register('src/components/y.js', [{ name: 'helper' }]);
-  assert.strictEqual(reg.lookupUnique('helper', 'src/utils/'), 'src/utils/x.js');
-  assert.strictEqual(reg.lookupUnique('helper', 'src/components/'), 'src/components/y.js');
-  assert.strictEqual(reg.lookupUnique('helper', 'nonexistent/'), null);
-}
-
-function testLookupUniqueNormalizesPreferredDir() {
+function testLookupBestMatchNormalizesFromFile() {
   const reg = new SymbolRegistry();
   reg.register('project/src/main/Helper.java', [{ name: 'Helper' }]);
   reg.register('project/src/other/Helper.java', [{ name: 'Helper' }]);
 
-  // Redundant separators and trailing slash should still resolve to the preferred directory.
+  // The caller side must be normalized before any dirname/segment math:
+  // redundant separators would otherwise poison both the same-dir comparison
+  // and the common-depth split, collapsing the gap to a tie (null).
   assert.strictEqual(
-    reg.lookupUnique('Helper', 'project/src//main/'),
+    reg.lookupBestMatch('Helper', 'project/src//main/Caller.java'),
     'project/src/main/Helper.java',
-    'should normalize preferredDir before prefix matching'
+    'redundant separators in fromFile must be normalized before scoring'
   );
-}
 
-function testLookupUniqueWithWindowsNativePreferredDir() {
-  const reg = new SymbolRegistry();
-  // On Windows, registry keys are normalized POSIX + lowercased drive letters.
-  reg.register('c:/project/src/main/Helper.java', [{ name: 'Helper' }]);
-  reg.register('c:/project/src/other/Helper.java', [{ name: 'Helper' }]);
-
-  if (process.platform === 'win32') {
-    // preferredDir arrives from path.dirname() as a native Windows path.
-    assert.strictEqual(
-      reg.lookupUnique('Helper', 'C:\\project\\src\\main'),
-      'c:/project/src/main/Helper.java',
-      'should match Windows-native preferredDir against normalized registry keys'
-    );
-  } else {
-    // POSIX cannot meaningfully normalize a Windows absolute path; verify stability.
-    assert.strictEqual(reg.lookupUnique('Helper', 'C:\\project\\src\\main'), null);
-  }
+  // Windows-native backslash form of the same path must resolve identically
+  // (normalizePathKey converts separators before resolving, platform-independent).
+  assert.strictEqual(
+    reg.lookupBestMatch('Helper', 'project\\src\\main\\Caller.java'),
+    'project/src/main/Helper.java',
+    'Windows-native fromFile must be normalized before scoring'
+  );
 }
 
 function testUnregister() {
@@ -139,7 +114,7 @@ function testRegisterEmpty() {
 function testLookupMissing() {
   const reg = new SymbolRegistry();
   assert.deepStrictEqual(reg.lookup('nonexistent'), []);
-  assert.strictEqual(reg.lookupUnique('nonexistent'), null);
+  assert.strictEqual(reg.lookupBestMatch('nonexistent'), null);
 }
 
 // --- Run all ---
@@ -148,9 +123,7 @@ const tests = [
   testRegisterAndLookup,
   testDuplicateSymbols,
   testLookupBestMatchNeverResolvesToNonExported,
-  testLookupUnique,
-  testLookupUniqueNormalizesPreferredDir,
-  testLookupUniqueWithWindowsNativePreferredDir,
+  testLookupBestMatchNormalizesFromFile,
   testUnregister,
   testClear,
   testRegisterEmpty,
