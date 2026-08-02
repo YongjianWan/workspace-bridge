@@ -37,6 +37,14 @@ const registry = new LanguageRegistry();
 // CPP_BUILTINS lives in resolvers/cpp.js (single home, imported above) —
 // the resolver gate and this isBuiltIn declaration share the same list.
 
+// JVM stdlib prefixes — one home for both JVM languages' isBuiltIn (the
+// resolver gate consults lang.isBuiltIn). jdk.*/sun.*/com.sun.* are
+// JDK-internal territory exactly like java.*. kotlinx.* is deliberately NOT
+// here: it is a published library (org.jetbrains.kotlinx), owned by the
+// manifest gate, not the runtime.
+const JVM_STDLIB_PREFIXES = ['java.', 'javax.', 'jdk.', 'sun.', 'com.sun.'];
+const isJvmStdlibImport = (imp) => JVM_STDLIB_PREFIXES.some((p) => imp.startsWith(p));
+
 // -----------------------------------------------------------------------------
 // Language Registrations
 // -----------------------------------------------------------------------------
@@ -109,7 +117,7 @@ registry.register(defineLanguage({
   needsWorkspaceRoot: true,
   filePatterns: ['**/*.java'],
   condition: (workspace) => workspace.hasJava,
-  isBuiltIn: (imp) => imp.startsWith('java.') || imp.startsWith('javax.'),
+  isBuiltIn: (imp) => isJvmStdlibImport(imp),
   resolveStrategies: [tryJava],
   extractSymbols: (content) => {
     const symbols = [];
@@ -134,7 +142,7 @@ registry.register(defineLanguage({
   async: true,
   filePatterns: ['**/*.kt'],
   condition: (workspace) => workspace.hasJava,
-  isBuiltIn: (imp) => imp.startsWith('java.') || imp.startsWith('javax.') || imp.startsWith('kotlin.'),
+  isBuiltIn: (imp) => isJvmStdlibImport(imp) || imp.startsWith('kotlin.'),
   resolveStrategies: [tryJava],
   extractSymbols: (content) => {
     const symbols = [];

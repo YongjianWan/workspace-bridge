@@ -14,6 +14,7 @@ const {
   findCargoCrateRoot,
   readCargoDeps,
   readPythonDeps,
+  readJvmDeps,
 } = require('./resolvers/base');
 const { registry } = require('./parsers/registry');
 const { getPythonStdlibNames } = require('./resolvers/python-stdlib');
@@ -266,21 +267,68 @@ function _isExternalCppHeader(specifier, root, ctx) {
  * only need the specifier.
  */
 /**
- * JVM zero-list gate (L2-11 gap C). Java/Kotlin imports are always
- * fully-qualified, and the parser already extracts every workspace file's
- * `package` declaration into the graph — so "not inside any workspace
- * package = external" is a deterministic fact. No pom/gradle reader, no
- * groupId guessing, same shape as Go's zero-list gate. The package set comes
- * from the builder via ctx.workspacePackages; absent or empty means "unknown"
- * and the gate stays out of the way (old behavior: only stdlib gated).
- * Stdlib prefixes keep their single home in the registry's isBuiltIn.
+ * JVM zero-list gate (L2-11 gap C) + manifest evidence (v1).
+ *
+ * Layer 1 — stdlib prefixes (single home: the registry's isBuiltIn).
+ * Layer 2 — declared third-party groupIds from the root manifests
+ *   (readJvmDeps). A declaration is explicit external ownership; it decides
+ *   the two degraded scenes the zero-list rule cannot: an empty package set
+ *   (gate off) and a coarse-prefix collision (com.company workspace vs a
+ *   com.company.sharedlib dependency). It yields whenever a workspace package
+ *   is as specific as the declared groupId — a reactor module present as
+ *   source beats its own pom line. Famous groupId/import-prefix mismatches
+ *   (guava, gson, jackson, apache-http) are bridged by JVM_IMPORT_ALIASES.
+ * Layer 3 — the zero-list rule itself: Java/Kotlin imports are always
+ *   fully-qualified and the parser extracts every workspace file's `package`
+ *   into the graph, so "not inside any workspace package = external" is a
+ *   deterministic fact. Absent or empty set means "unknown" and the rule
+ *   stays out of the way. No manifest at all means the same for layer 2 —
+ *   both miss directions fall back to pre-v1 behavior, never worse.
  */
+const JVM_IMPORT_ALIASES = [
+  // import root                 declared groupId prefix
+  ['com.google.common', 'com.google.guava'], // guava
+  ['com.google.gson', 'com.google.code.gson'], // gson
+  ['com.fasterxml.jackson', 'com.fasterxml.jackson'], // jackson groupIds carry .core/.datatype/...
+  ['org.apache.http', 'org.apache.httpcomponents'], // httpclient / httpcore
+];
+
+// The declared groupId that claims `base`, or null. Aliases loosen only the
+// *comparison*, never the conclusion: the matched groupId is what the caller
+// weighs against workspace packages.
+function _matchJvmDeclared(base, declared) {
+  for (const g of declared) {
+    if (base === g || base.startsWith(g + '.')) return g;
+  }
+  for (const [importPrefix, groupPrefix] of JVM_IMPORT_ALIASES) {
+    if (base !== importPrefix && !base.startsWith(importPrefix + '.')) continue;
+    for (const g of declared) {
+      if (g === groupPrefix || g.startsWith(groupPrefix + '.')) return g;
+    }
+  }
+  return null;
+}
+
 function _isExternalJvmPackage(specifier, root, ctx, fromExt) {
   const lang = registry.findByExt(fromExt);
   if (lang && typeof lang.isBuiltIn === 'function' && lang.isBuiltIn(specifier)) return true;
-  const pkgs = ctx && ctx.workspacePackages;
-  if (!pkgs || pkgs.size === 0) return false;
   const base = specifier.endsWith('.*') ? specifier.slice(0, -2) : specifier;
+  const pkgs = ctx && ctx.workspacePackages;
+
+  const declared = root ? readJvmDeps(root) : null;
+  if (declared) {
+    const g = _matchJvmDeclared(base, declared);
+    if (g) {
+      if (pkgs) {
+        for (const pkg of pkgs) {
+          if (pkg === g || pkg.startsWith(g + '.')) return false;
+        }
+      }
+      return true;
+    }
+  }
+
+  if (!pkgs || pkgs.size === 0) return false;
   for (const pkg of pkgs) {
     if (base === pkg || base.startsWith(pkg + '.') || pkg.startsWith(base + '.')) return false;
   }
@@ -313,8 +361,7 @@ function trySymbolTable(importPath, fromFile, ctx) {
 
   // Third-party ownership is a deterministic fact, so it outranks the whole
   // heuristic: a specifier the ecosystem's manifest already assigns to someone
-  // else is never guessed against local symbols. Languages whose manifest we
-  // cannot read yet (Java, Kotlin) fall through — see TECH_DEBT L2-11.
+  // else is never guessed against local symbols.
   const ext = fromFile ? path.extname(fromFile).toLowerCase() : '';
   if (_isExternalDependency(importPath, ext, ctx.root, { ...ctx, fromFile })) return null;
 

@@ -93,6 +93,10 @@ const SCHEMA_VERSION = '1.2.0';
 //      v29 缓存里 .kt 文件无 package 字段，纯 Kotlin 仓 workspacePackages
 //      为空 → L2-11 gap C 闸自动关闭、第三方 import 全落 symbol-table 瞎猜；
 //      升级后闸恢复生效，相关 tier2 边应变成 droppedImports 记账。
-const CACHE_VERSION = 30;
+// v31: JVM manifest v1 — readJvmDeps 三源（pom/gradle/libs.versions.toml）
+//      合并第三方 groupId，闸在空集与前缀碰撞两种降级场景获得否决证据
+//      （reactor 模块源码优先）；jdk.*/sun.*/com.sun.* 进 isBuiltIn。
+//      v30 缓存里这两类场景的第三方 tier2 边应变成 droppedImports 记账。
+const CACHE_VERSION = 31;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

@@ -27,6 +27,7 @@ const _packageDirChainCache = new Map(); // fromDir\nroot -> string[] manifest d
 const _cargoDepsCache = new Map(); // root -> { names: Set<string>, mtime }
 const _cargoNameCache = new Map(); // crateRoot -> { crateName, mtime }
 const _pythonDepsCache = new Map(); // root -> { names: Set<string>, stamp }
+const _jvmDepsCache = new Map(); // root -> { prefixes: Set<string>, stamp }
 const _cargoCrateRootCache = new Map(); // dir -> nearest ancestor dir containing Cargo.toml
 
 const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
@@ -42,6 +43,7 @@ function clearResolverCaches() {
   _cargoDepsCache.clear();
   _cargoNameCache.clear();
   _pythonDepsCache.clear();
+  _jvmDepsCache.clear();
   _cargoCrateRootCache.clear();
 }
 
@@ -493,6 +495,112 @@ function readPythonDeps(root) {
   return names;
 }
 
+/**
+ * Third-party groupId prefixes declared by the root JVM manifests, merged
+ * from three hand-rolled sources (no XML/TOML parser dependency, same
+ * precedent as readCargoDeps):
+ *
+ *  - pom.xml: <groupId> inside <dependency> / <parent> blocks only. The
+ *    project's own <groupId> is skipped — it names the workspace, and the
+ *    gate's "workspace package finer than declared groupId" check already
+ *    protects reactor modules, so including it would only add noise. XML
+ *    comments are stripped first: a commented-out dependency declares nothing.
+ *  - build.gradle / build.gradle.kts: literal "group:artifact:version"
+ *    coordinates. `group = 'com.example'` has no colon and never matches —
+ *    own-group exclusion falls out of the coordinate shape, not an if.
+ *    Catalog references (libs.guava) carry no groupId; the TOML covers those.
+ *  - gradle/libs.versions.toml: [libraries] entries only — explicit
+ *    module = "group:artifact" and the "group:artifact:version" shorthand.
+ *    [versions] and [plugins] never name a groupId.
+ *
+ * v1 reads the root manifests only; multi-module chains are v2 territory.
+ * null when no manifest file exists (no evidence — the gate step stays out
+ * of the way); an empty Set is a legitimate "manifests exist, declare
+ * nothing" answer. mtime-stamped across all four files, like readPythonDeps.
+ *
+ * @param {string} root
+ * @returns {Set<string>|null}
+ */
+const JVM_MANIFEST_FILES = ['pom.xml', 'build.gradle', 'build.gradle.kts', path.join('gradle', 'libs.versions.toml')];
+
+function readJvmDeps(root) {
+  const stampOf = (p) => {
+    try {
+      return fs.statSync(p).mtimeMs;
+    } catch {
+      return 0;
+    }
+  };
+  const files = JVM_MANIFEST_FILES.map((f) => path.join(root, f));
+  const stamp = files.map(stampOf).join(':');
+  if (stamp === '0:0:0:0') {
+    _jvmDepsCache.delete(root);
+    return null;
+  }
+
+  const cached = _jvmDepsCache.get(root);
+  if (cached && cached.stamp === stamp) {
+    return cached.prefixes;
+  }
+
+  const prefixes = new Set();
+  const add = (raw) => {
+    const g = String(raw || '').trim();
+    // Property placeholders (${parent.groupId}) name nothing concrete.
+    if (!g || g.includes('$')) return;
+    prefixes.add(g);
+  };
+
+  try {
+    if (stampOf(files[0])) {
+      const content = fs.readFileSync(files[0], 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+      const blockRegex = /<(?:dependency|parent)\b[\s\S]*?<groupId>([^<]+)<\/groupId>[\s\S]*?<\/(?:dependency|parent)>/g;
+      let m;
+      while ((m = blockRegex.exec(content)) !== null) add(m[1]);
+    }
+  } catch {
+    // unreadable pom.xml — gradle sources may still carry the facts
+  }
+
+  for (const idx of [1, 2]) {
+    try {
+      if (!stampOf(files[idx])) continue;
+      const content = fs.readFileSync(files[idx], 'utf8');
+      const coordRegex = /["']([A-Za-z][\w-]*(?:\.[\w-]+)+):[\w.-]+(?::[\w.+-]+)?["']/g;
+      let m;
+      while ((m = coordRegex.exec(content)) !== null) add(m[1]);
+    } catch {
+      // unreadable gradle file — other sources may still carry the facts
+    }
+  }
+
+  try {
+    if (stampOf(files[3])) {
+      let inLibraries = false;
+      for (const rawLine of fs.readFileSync(files[3], 'utf8').split('\n')) {
+        const line = rawLine.replace(/#.*$/, '').trim();
+        if (line.startsWith('[')) {
+          inLibraries = line === '[libraries]';
+          continue;
+        }
+        if (!inLibraries || !line) continue;
+        const moduleMatch = line.match(/\bmodule\s*=\s*["']([^"':]+):/);
+        if (moduleMatch) {
+          add(moduleMatch[1]);
+          continue;
+        }
+        const shorthand = line.match(/^[\w.-]+\s*=\s*["']([A-Za-z][\w-]*(?:\.[\w-]+)+):[\w.-]+/);
+        if (shorthand) add(shorthand[1]);
+      }
+    }
+  } catch {
+    // unreadable version catalog — other sources may still carry the facts
+  }
+
+  _jvmDepsCache.set(root, { prefixes, stamp });
+  return prefixes;
+}
+
 function _readTsconfigPaths(root) {
   const tsconfigPath = path.join(root, 'tsconfig.json');
   const jsconfigPath = path.join(root, 'jsconfig.json');
@@ -597,6 +705,7 @@ module.exports = {
   readCargoCrateName,
   readCargoDeps,
   readPythonDeps,
+  readJvmDeps,
   findCargoCrateRoot,
   _readTsconfigPaths,
   _tryResolveWithExtensions,
