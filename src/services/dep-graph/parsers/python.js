@@ -99,7 +99,7 @@ function normalizePythonAstResult(astResult) {
 
 // root is unused by the tree-sitter path (in-process WASM, no per-file
 // process to point at a venv); kept for the parser-registry signature.
-async function parsePython(content, root) {
+async function parsePython(content, _root) {
   const astResult = await parsePythonAst(content);
   if (astResult) {
     return normalizePythonAstResult(astResult);

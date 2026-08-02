@@ -107,6 +107,10 @@ const SCHEMA_VERSION = '1.2.0';
 //      对照零 diff（scripts/parser-parity-python.js），唯一收窄：# type:
 //      注释对 tree-sitter 不可见，hasParameterTypeHints 不再认它。v32 缓存里
 //      Python 文件的 parse 产物来自 spawn 路径，来源字段不可比，作废重建。
-const CACHE_VERSION = 33;
+// v34: L3-9 复审续——PEP 654 `except*` 的 branchCount 漏计。CPython TryStar
+//      复用 ast.ExceptHandler 照数 +1，tree-sitter 拆出独立的
+//      except_group_clause，v33 只 case 了 except_clause。v33 缓存里含
+//      `except*` 的函数 fingerprint.branchCount 少 1，作废重建。
+const CACHE_VERSION = 34;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

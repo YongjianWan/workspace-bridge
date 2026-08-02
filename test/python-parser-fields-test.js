@@ -147,6 +147,14 @@ async function testReviewProbes() {
   assert.strictEqual(rt.b, 'List[int]', `bracket spacing, got ${rt.b}`);
   assert.strictEqual(rt.c, 'int', `redundant parens stripped, got ${rt.c}`);
   assert.strictEqual(rt.d, 'int | str', `union spacing, got ${rt.d}`);
+
+  // 7. PEP 654 `except*` handlers are ast.ExceptHandler in CPython (TryStar
+  //    reuses the node type), so they count as branches like plain `except`.
+  //    tree-sitter gives them a distinct node type, except_group_clause.
+  const p7 = await parsePython(`def f(payload):\n    try:\n        body(payload)\n    except* ValueError as eg:\n        handle(eg)\n`, 't.py');
+  const g = p7.functionRecords[0].fingerprint;
+  assert.strictEqual(g.branchCount, 1, `except* counts as a branch, got ${g.branchCount}`);
+  assert.strictEqual(g.hasTryCatch, true, 'except* sets hasTryCatch');
 }
 
 function assertTopLevelSchema(result) {

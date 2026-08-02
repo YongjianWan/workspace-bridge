@@ -36,6 +36,17 @@ Python 是九语言里最后一个每文件 spawn 一个 Python 进程的非 Jav
 
 六处杀变异 M4-M9 逐处验红（`testReviewProbes` 六类断言锁定），oracle（`python_ast_parser.py`）复审期从 git 复活做对照、零 diff 确认后重删。
 
+**第三轮（同日，根集扩面钓出第七处）**：复审的 437 文件根集（CodeGraphContext + code-review-graph + fixtures）零 diff 不代表语料够——把根集扩到 `reference/` + `test/fixtures/` 全量 **738 个 .py** 后，`reference/GitNexus/.../python-hazards.py` 钓出最后一处发散：
+
+- **PEP 654 `except*` 的 branchCount 漏计**：CPython `TryStar` 复用 `ast.ExceptHandler` 节点类型，`except*` handler 照数 +1；tree-sitter 拆出独立的 `except_group_clause`，v33 的 switch 只 case 了 `except_clause`，于是每个 `except*` handler 少算 1 个 branch（`hasTryCatch` 未受影响，`try_statement` 那条兜住了）。修复后 **738/738 逐字段零 diff**。
+
+杀变异验过（注释掉 `case 'except_group_clause'` 即回红）。教训与前两轮同构且更钝：零 diff 的说服力上限由根集决定，`except*` 这类 3.11+ 语法就躺在自家 fixture 里、只是不在当时的对照根集内——**下次定验收根集先按语法特性覆盖挑，不按仓库名挑**。
+
+- **Fixed** `parsers/python-ast.js` fingerprint switch 补 `except_group_clause`。
+- **Added** `test/python-parser-fields-test.js` 第七条 `testReviewProbes` 断言（`except*` branchCount/hasTryCatch）。
+- CACHE_VERSION 33→34（含 `except*` 的函数 fingerprint.branchCount 变化）。
+- 对照器现状备注：`scripts/parser-parity-python.js` 的旧边（`scripts/python_ast_parser.py`）已随迁移删除，脚本在 `oldParseFailed > 0` 时 `exit 2`（不会伪造绿灯）。需要复跑时从 `git show 7548d7b:scripts/python_ast_parser.py` 恢复旧边。
+
 ### JVM 闸伞形 groupId 漏判修复 — v1 取数复测钓出的回归（2026-08-02）
 
 「先取数再动手」首轮就值回票价：okhttp 复测（CACHE_VERSION 31，对照 07-31 基线 2760 边 / st 101 / dropped 241）发现 `com.squareup.zstd.okio.zstdCompress/Decompress` 两条第三方 import 被记成「非预期丢弃」——闸没认走它们。根因双叠加：(1) catalog 合法声明裸伞形 groupId `com.squareup`（kotlinpoet 就挂在伞下，`libs.versions.toml:138`），`_matchJvmDeclared` 按 Set 插入序先撞伞，压过真属主 `com.squareup.zstd`；(2) reactor 守卫只问「有没有 workspace package 在 g 之下」——`com.squareup.okhttp3.maventest`（maven-tests 模块 2 个 .java）恰在同伞下，守卫误判「源码在场」→ 第三方判 internal。pre-v1 零名单规则本判 external（无交集），manifest 层在此角落把判决做差，违反 v1 自己的设计红线。

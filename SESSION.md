@@ -19,8 +19,10 @@
 6. **杀变异三处初跑全存活**（typed_default / __future__ / else-single-if 链——parity 语料外的守护盲区），补 `testParityGuards` 断言后三处全 RED；M3 首版测试值不判别变异（无链时 maxArms 巧合相同），改嵌套 if 带 elif 形状后才真 RED——杀变异本身的教训：判别力要先验。
 7. **复审轮（第二评审探针钓出，证明 437 零 diff ≠ 语义等价）**：六类形状没踩到的角落全部本地复现 RED 后修复——非字面量 `__all__` 返回 `[]` 语义、paramCount `/` 判断写反（初版探针因巧合值未暴露）、`async for` 多计 1（AsyncFor 非 For 子类）、嵌套 decorated def 装饰器表达式漏走进外层 fingerprint、多 `__all__` 最后者胜、returnType 是 `ast.unparse` 重打印非原文（用户拍板 token 级 normalize 兜 95%+，非规范手写角落记例外）。修复后探针 + fixtures 11/11 零 diff、437 文件复跑零 diff；杀变异 M4-M9 逐处验红（`testReviewProbes` 六类锁定）。**流程教训**：oracle 复审期从 git 复活做对照、确认零 diff 后重删——删脚本前必须有可比对象盖章。
 
+8. **第三轮（根集扩面）**：437 的根集按仓库名挑，覆盖不到 3.11+ 语法。把根集扩到 `reference/` + `test/fixtures/` 全量 **738 个 .py** 后钓出第七处——PEP 654 `except*` 的 branchCount 漏计（CPython `TryStar` 复用 `ast.ExceptHandler` 照数 +1，tree-sitter 拆出 `except_group_clause`，v33 只 case 了 `except_clause`），命中文件 `reference/GitNexus/.../python-hazards.py` 就在自家 fixture 里。补 case 后 **738/738 零 diff**，杀变异验红，CACHE_VERSION 33→34。**教训**：零 diff 的说服力上限由根集决定，验收根集要按语法特性覆盖挑、不按仓库名挑。
+
 ### 验证终态
-- `npm run test:fast` **148/148**（exit 0）；parity 437/437 零 diff；全量 `node test/runner.js` **271/271**（exit 0，747s，干净复跑盖章——首跑 270/271 唯一失败系 `e2e-gitnexus-test.js` 超时（spawn status null），根因是并行杀变异/单跑任务抢 CPU 的非代码性负载干扰，干净复跑该项 20s PASS，非回归）。
+- `npm run test:fast` **148/148**（exit 0）；parity **738/738 零 diff**（旧边从 `git show 7548d7b:scripts/python_ast_parser.py` 复活对照）；全量 `node test/runner.js` **271/271**（exit 0，460s）；`npm run lint` 剩 1 处遗留报错（`test/jvm-manifest-deps-test.js:15` `clearResolverCaches` 未使用，上一轮带入，未动其测试语义）。
 
 ### 下一轮入口
 - **L3-9 Java 半**（spawn java_ast_parser.py → tree-sitter-java）：可复用 Python 半的 parity 对照器模式；额外验证点——`package` 声明抽取与 javalang 等价（L2-11 缺口 C 闸的地基）、fingerprint 字段映射。

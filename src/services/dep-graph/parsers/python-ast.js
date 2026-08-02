@@ -512,7 +512,11 @@ function computeFunctionFingerprint(funcNode) {
         case 'conditional_expression':
           branchCount += 1;
           break;
+        // PEP 654 `except*` is still an ast.ExceptHandler in CPython (TryStar
+        // reuses the handler node type); tree-sitter splits it into its own
+        // node, so both clause types must land here.
         case 'except_clause':
+        case 'except_group_clause':
           branchCount += 1;
           hasTryCatch = true;
           break;
