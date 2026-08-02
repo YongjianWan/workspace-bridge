@@ -6,7 +6,29 @@
 
 ---
 
-## 本轮会话 (2026-08-02 续三，v1 取数复测 → 伞形回归修复 + v2 判死)
+## 本轮会话 (2026-08-02 续五，L3-9 Python 半：tree-sitter 迁移 + spawn 路径删除)
+
+> goal 模式执行（目标全文见上轮「下一轮入口」）。CHANGELOG 2026-08-02 L3-9 条目是主记录。
+
+### 本轮完成
+1. **parity 对照器先行**（`scripts/parser-parity-python.js`，进库存档）：同一归一化（`normalizePythonAstResult`，从 python.js 提取）下双跑旧 spawn 与新 tree-sitter，逐字段 deep-diff。起步 RED（exit 3，new parser missing）。
+2. **`parsers/python-ast.js` 新写**（照 kotlin-ast.js 先例）：tree-sitter WASM 主路径，契约逐条译自 `python_ast_parser.py`（imports 全树 BFS / relative 点前缀 / 模块级 defs / `__all__` 覆盖 + isExported 重判 / fingerprint / 语法损坏回空结果）。**零 diff 前对照器连钓六类分歧，全部按 CPython 语义修正**：`future_import_statement` 独立节点、`typed_default_parameter` 漏计、end_lineno 尾部注释吞并、`ast.walk` BFS 层级（depth+position 排序不等价）、else-single-if 链合并（ast 分不清 elif 与 else 套单 if）、elif 逐级嵌套层级。
+3. **验收盖章**：reference/CodeGraphContext + reference/code-review-graph + fixtures 共 **437 个 .py 文件逐字段零 diff**（PARITY_EXIT=0）。
+4. **swap + 删除**：python.js 主路径换 tree-sitter（regex 仅 WASM 失败时）；`python-tree-sitter-path-test.js` 锁路径选择（**swap 前实测 RED**）；删 `scripts/python_ast_parser.py` + package.json 条目 + analyzer Python env 探测 + spawn-concurrency 测试改指 Java 脚本；CACHE_VERSION 32→33。
+5. **type_comment 收窄据实落地**：`# type:` 注释 tree-sitter 不可见——437 文件零例命中，wave15 唯一失败用例改为锁定新契约（规则对注释型注解现在会 fire）。
+6. **杀变异三处初跑全存活**（typed_default / __future__ / else-single-if 链——parity 语料外的守护盲区），补 `testParityGuards` 断言后三处全 RED；M3 首版测试值不判别变异（无链时 maxArms 巧合相同），改嵌套 if 带 elif 形状后才真 RED——杀变异本身的教训：判别力要先验。
+7. **复审轮（第二评审探针钓出，证明 437 零 diff ≠ 语义等价）**：六类形状没踩到的角落全部本地复现 RED 后修复——非字面量 `__all__` 返回 `[]` 语义、paramCount `/` 判断写反（初版探针因巧合值未暴露）、`async for` 多计 1（AsyncFor 非 For 子类）、嵌套 decorated def 装饰器表达式漏走进外层 fingerprint、多 `__all__` 最后者胜、returnType 是 `ast.unparse` 重打印非原文（用户拍板 token 级 normalize 兜 95%+，非规范手写角落记例外）。修复后探针 + fixtures 11/11 零 diff、437 文件复跑零 diff；杀变异 M4-M9 逐处验红（`testReviewProbes` 六类锁定）。**流程教训**：oracle 复审期从 git 复活做对照、确认零 diff 后重删——删脚本前必须有可比对象盖章。
+
+### 验证终态
+- `npm run test:fast` **148/148**（exit 0）；parity 437/437 零 diff；全量 `node test/runner.js` **271/271**（exit 0，747s，干净复跑盖章——首跑 270/271 唯一失败系 `e2e-gitnexus-test.js` 超时（spawn status null），根因是并行杀变异/单跑任务抢 CPU 的非代码性负载干扰，干净复跑该项 20s PASS，非回归）。
+
+### 下一轮入口
+- **L3-9 Java 半**（spawn java_ast_parser.py → tree-sitter-java）：可复用 Python 半的 parity 对照器模式；额外验证点——`package` 声明抽取与 javalang 等价（L2-11 缺口 C 闸的地基）、fingerprint 字段映射。
+- 其余按 TECH_DEBT 总览表（L3 层最大单笔已清，剩 L3-4/7/8/10/11/12/13/14 + L3-9 Java 半）。
+
+---
+
+## 上一轮会话 (2026-08-02 续三，v1 取数复测 → 伞形回归修复 + v2 判死)
 
 > 一笔生产代码提交：`e2437c1`（伞形修复，CACHE_VERSION 31→32）。CHANGELOG 2026-08-02 伞形条目是主记录。
 

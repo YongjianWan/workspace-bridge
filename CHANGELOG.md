@@ -5,6 +5,37 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L3-9 Python 半：AST 解析迁进进程内 tree-sitter WASM，spawn Python 路径删除（2026-08-02）
+
+Python 是九语言里最后一个每文件 spawn 一个 Python 进程的非 Java 语言（`scripts/python_ast_parser.py`）——无 Python 环境的机器静默永远 regex，冷构建贵一个量级。迁移到进程内 tree-sitter WASM（`src/services/dep-graph/parsers/python-ast.js`，照 kotlin-ast.js 先例），spawn 路径整体删除不留二级回退（WASM 是 npm 依赖自带，无环境缺失场景）。Java 侧（javalang）原样保留，是另一刀。
+
+验收主力是 parity 对照器（`scripts/parser-parity-python.js`，进库存档）：同一归一化（`normalizePythonAstResult`）下双跑旧 spawn 与新 tree-sitter，在 reference/CodeGraphContext + reference/code-review-graph + fixtures 共 **437 个 .py 文件上逐字段零 diff**（imports/exports/importRecords/exportRecords/functionRecords 含 fingerprint 数值、decorators、returnType、`__all__`/isExported）。零 diff 之前对照器连钓六类分歧，全部按 CPython ast 语义修正而非放宽标准：
+
+- `from __future__ import x` 是独立节点类型 `future_import_statement`，不是 `import_from_statement`；
+- `typed_default_parameter`（`x: int = 5`）漏进 paramCount/hasParameterTypeHints；
+- CPython `end_lineno` 是最后一条语句的结束，tree-sitter 容器 span 连尾部注释一起吞——按非注释子节点递归取有效结束行；
+- import 顺序必须复现 `ast.walk` 的 BFS 层级——block/decorated/else/finally 透明化，且 `(depth, position)` 排序不等价（同层顺序按父节点发现序）；
+- CPython 分不清 `elif` 与「else 里只装一个 if」——都是 orelse 里的 If，链式计数要合并穿过（含 seen_ifs 防复数）；
+- elif 在 ast 里是逐级嵌套的 If，不是平铺兄弟——else 分支的孩子挂到最末 elif 层级。
+
+**唯一收窄（据实记录）**：`# type:` 注释对 tree-sitter 不可见（CPython 以 `type_comments=True` 解析），`hasParameterTypeHints` 不再认注释型注解——`wave15-ast-rules-test.js` 的 type-comment 用例已改为锁定新契约（规则现在会 fire）。本仓 reference 语料 437 文件零例命中该收窄。
+
+- **Changed** `parsers/python.js` 主路径换 tree-sitter（regex fallback 仅在 WASM 加载失败时）；`spawn-ast.js`/信号量/memo 保留给 Java。
+- **Removed** `scripts/python_ast_parser.py`（427 行）+ package.json files 条目 + analyzer 的 Python env-failure 探测；`spawn-ast-concurrency-test.js` 改指 `java_ast_parser.py`。
+- **Added** `test/python-tree-sitter-path-test.js`（路径选择契约：WASM 失败→regex，正常→ast；swap 前 RED 验证过）+ `test/python-parser-fields-test.js` 补 parity 守护断言（__future__/typed_default/else-single-if 链——三个杀变异初跑全存活、补断言后全 RED 的实测盲区）。
+- CACHE_VERSION 32→33（Python 文件 parse 产物来源路径变化）。
+
+**复审轮（同日，第二评审探针钓出，逐条复现 RED 后修复）**：首轮零 diff 后复审探针再钓六类发散，证明 437 文件零 diff 不等于语义等价——形状没踩到的角落单测也全绿。修复后探针 + fixtures 11/11 零 diff，437 文件复跑仍零 diff：
+
+- 非字面量 `__all__`（`__all__ = ['x'] + other.__all__`）：CPython `extract_all_exports` 返回 `[]` 不是 None，exports 被覆盖为空、isExported 全翻——新版非 list/tuple 也返回 `[]`；
+- paramCount 的 `positional_separator`（`/`）判断**写反了**：CPython `args.args` 排除 posonly，数的是 `/` 之后，初版数成了之前（探针 `posonly(a,b,/,c,*,d,**kw)` 因 2+1 与 1+1+1 同值巧合未暴露）；
+- `async for` 多计 1 branch：ast.AsyncFor 不是 ast.For 子类，spawn 版不数，tree-sitter 里同为 `for_statement` 需显式排除 `async` 子节点；
+- 嵌套 decorated def 的装饰器表达式（如 `@lru_cache(maxsize=1 if True else 2)`）漏走进外层函数 fingerprint——`NESTED_DEFINITION_TYPES` 补 `decorated_definition`；
+- 多个 `__all__` 赋值 CPython 逐次覆盖**最后者胜**，初版 find-first 取反；
+- returnType 是 `ast.unparse` **重打印**不是原文（`Dict[str,int]`→`Dict[str, int]`、`(int)`→`int`、`int|str`→`int | str`）：用户拍板 token 级 normalize 兜住（字符串字面量分段保护、空白规范化、整包冗余括号剥离但 tuple 保留、引号统一单引号），覆盖真实语料 95%+ 的 PEP8/black 形状；非规范格式手写注解的极端角落记为例外，不写完整 unparser。
+
+六处杀变异 M4-M9 逐处验红（`testReviewProbes` 六类断言锁定），oracle（`python_ast_parser.py`）复审期从 git 复活做对照、零 diff 确认后重删。
+
 ### JVM 闸伞形 groupId 漏判修复 — v1 取数复测钓出的回归（2026-08-02）
 
 「先取数再动手」首轮就值回票价：okhttp 复测（CACHE_VERSION 31，对照 07-31 基线 2760 边 / st 101 / dropped 241）发现 `com.squareup.zstd.okio.zstdCompress/Decompress` 两条第三方 import 被记成「非预期丢弃」——闸没认走它们。根因双叠加：(1) catalog 合法声明裸伞形 groupId `com.squareup`（kotlinpoet 就挂在伞下，`libs.versions.toml:138`），`_matchJvmDeclared` 按 Set 插入序先撞伞，压过真属主 `com.squareup.zstd`；(2) reactor 守卫只问「有没有 workspace package 在 g 之下」——`com.squareup.okhttp3.maventest`（maven-tests 模块 2 个 .java）恰在同伞下，守卫误判「源码在场」→ 第三方判 internal。pre-v1 零名单规则本判 external（无交集），manifest 层在此角落把判决做差，违反 v1 自己的设计红线。
