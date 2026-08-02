@@ -89,6 +89,10 @@ const SCHEMA_VERSION = '1.2.0';
 //      随解释器版本自动正确），手抄 150 名降级为 python-missing 兜底。
 //      v28 缓存里 Python 仓的丢弃记账按 150 名分类，权威源下部分「非预期
 //      丢弃」应归为 stdlib；同刀删除 PYTHON/GO_BUILTINS 死名单与死 isBuiltIn。
-const CACHE_VERSION = 29;
+// v30: Kotlin 双解析路径（tree-sitter + regex fallback）补抽 package 声明。
+//      v29 缓存里 .kt 文件无 package 字段，纯 Kotlin 仓 workspacePackages
+//      为空 → L2-11 gap C 闸自动关闭、第三方 import 全落 symbol-table 瞎猜；
+//      升级后闸恢复生效，相关 tier2 边应变成 droppedImports 记账。
+const CACHE_VERSION = 30;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

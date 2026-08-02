@@ -9,6 +9,7 @@ const { uniqueNames, createExportRecord, createImportRecord } = require('./share
 const { parseKotlin: parseKotlinRegex } = require('./polyglot');
 
 const KOTLIN_QUERY = `
+(package_header (identifier) @package.name)
 (import_header (identifier) @import.source)
 (class_declaration (type_identifier) @def.class)
 (object_declaration (type_identifier) @def.object)
@@ -267,6 +268,7 @@ async function parseKotlin(content) {
   const importRecords = [];
   const exportRecords = [];
   const functionRecords = [];
+  let packageName = null;
 
   try {
     const matches = query.matches(tree.rootNode);
@@ -274,6 +276,11 @@ async function parseKotlin(content) {
       for (const capture of match.captures) {
         const name = getNodeText(capture.node);
         const tag = capture.name;
+
+        if (tag === 'package.name') {
+          packageName = name;
+          continue;
+        }
 
         if (tag === 'import.source') {
           const parent = capture.node.parent;
@@ -335,6 +342,7 @@ async function parseKotlin(content) {
     importRecords,
     exportRecords,
     functionRecords,
+    package: packageName,
     parseMode: 'ast',
   };
 }

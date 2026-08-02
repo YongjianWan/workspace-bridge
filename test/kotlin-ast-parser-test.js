@@ -54,6 +54,10 @@ async function testKotlinAstSchema() {
 
   assert.strictEqual(result.parseMode, 'ast', 'Should use AST mode');
 
+  // package declaration feeds the L2-11 gap C JVM gate (workspacePackages);
+  // without it a pure-Kotlin workspace leaves the gate switched off.
+  assert.strictEqual(result.package, 'com.example', 'Should extract package declaration');
+
   // imports
   assert(result.imports.includes('java.io.File'), 'Should have java.io.File import');
   assert(result.imports.includes('java.util.*'), 'Should have java.util.* wildcard import');

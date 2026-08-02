@@ -107,5 +107,6 @@
     "io.ktor.server.routing.*",
     "io.ktor.server.response.*"
   ],
+  "package": "com.example.tricky",
   "parseMode": "ast"
 }

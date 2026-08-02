@@ -197,6 +197,17 @@ pub use std::io;
   assert.strictEqual(result.parseMode, 'regex');
 }
 
+function testParseKotlinPackage() {
+  // Regex path parity with java.js:75 — the package declaration is the JVM
+  // gate's only workspace-side input; a pure-Kotlin repo gets nothing without it.
+  const withPackage = parseKotlin('package com.example.pkg\n\nclass Foo\n');
+  assert.strictEqual(withPackage.package, 'com.example.pkg');
+  const annotated = parseKotlin('@file:JvmName("Utils")\npackage com.example.pkg\n\nclass Foo\n');
+  assert.strictEqual(annotated.package, 'com.example.pkg', '@file: annotation before package must not hide it');
+  const withoutPackage = parseKotlin('import java.util.List\nclass Foo\n');
+  assert.strictEqual(withoutPackage.package, null, 'no package declaration → null');
+}
+
 function testPolyglotEmpty() {
   assert.deepStrictEqual(parseKotlin('').imports, []);
   assert.deepStrictEqual(parseGoRegex('').imports, []);
@@ -215,6 +226,7 @@ function main() {
   testCreateImportRecord();
 
   testParseKotlin();
+  testParseKotlinPackage();
   testParseGoRegex();
   testParseRust();
   testPolyglotEmpty();
