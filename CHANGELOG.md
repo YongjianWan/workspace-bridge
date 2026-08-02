@@ -5,6 +5,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### Kotlin `package` 零抽取修复 + JVM manifest v1（`readJvmDeps` 三源 + 闸否决证据 + jdk/sun 名单）(2026-08-02)
+
+JVM manifest 侦察（08-01 续二）坐实原 L2-11 条目「第三方一律挡不住」过时后，按「Kotlin 抽取先行、manifest 随后」顺序两笔独立提交落地。真缺口三个，本轮全闭合：Kotlin 从不贡献 `package`（空集洞根因）、前缀碰撞、`jdk.*`/`sun.*`/`com.sun.*` 无名单。
+
+- **Fixed** Kotlin 双解析路径补抽 `package` 声明（`kotlin-ast.js` tree-sitter 加 `(package_header (identifier) @package.name)` 捕获；`polyglot.js` regex 路径照 `java.js:75` 形制，无分号变体）。此前纯 Kotlin 仓（okhttp 553 .kt / 71 .java，87% 文件不参与）`workspacePackages` 为空 → gap C 闸自动关闭 → 第三方 import 全落 symbol-table 瞎猜。kotlin golden 仅 +`package` 一行。CACHE_VERSION 29→30。
+- **Added** `resolvers/base.js` `readJvmDeps(root)`：三源手撸合并（项目先例一致，不引 XML/TOML parser）——pom.xml 的 `<dependency>`/`<parent>` 块 `<groupId>`（XML 注释先剥离、项目 own groupId 跳过、`${...}` 占位符拒收）；`build.gradle[.kts]` 字面 `"group:artifact:version"` 坐标（`group = 'com.example'` 无冒号天然不匹配，own-group 排除是形状结果不是 if）；`gradle/libs.versions.toml` `[libraries]` 的 `module=` 与 shorthand 两形态（`[versions]`/`[plugins]` 不读）。四文件 mtime 联合 stamp 缓存（readPythonDeps 同构）；无 manifest → `null`（无证据，闸步骤让路），空 Set 是合法答案。v1 只读根目录，多模块链 v2。
+- **Changed** `_isExternalJvmPackage` 加 manifest 层（`resolvers.js`）：声明的 groupId 是显式第三方所有权，裁决零名单规则覆盖不了的两种降级场景——空 package 集（闸关闭态）与前缀碰撞（`com.company` 工作区 vs `com.company.sharedlib` 依赖）。**reactor 优先规则**：存在与声明 groupId 同等或更具体的 workspace package 时内部获胜（源码在场胜过自己的 pom 行），保证多模块仓不失真。`JVM_IMPORT_ALIASES` 四条（guava / gson / jackson / apache-http）桥接 groupId↔import 前缀错配——别名只放宽比较、不放松结论。漏判方向全部回落 pre-v1 行为。`jdk.*`/`sun.*`/`com.sun.*` 进 registry `JVM_STDLIB_PREFIXES`（java/kotlin `isBuiltIn` 单一归宿，`kotlinx.*` 刻意不在——它是发行库，归 manifest 闸管）。CACHE_VERSION 30→31。
+- **Added** `test/jvm-manifest-deps-test.js`（10 例 @semantic）：pom/gradle/toml 三源抽取（含注释依赖、占位符、own groupId、插件 id 反例）、null/空集语义、mtime 失效；闸集成五场景——空集用 manifest、碰撞 manifest 否决粗前缀、reactor 内部获胜、pre-v1 行为保持（无 manifest 时两层都让路）、jdk/sun/com.sun 双语言。**杀变异**：C（manifest 层摘除）/ D（reactor 守卫失效）/ E（别名表清空）逐处单独验红，还原全绿。
+- **验证**：`npm run test:fast` 147/147 PASS（exit 0，含新测试）；全量 runner 见 SESSION 本轮记录。
+
 ### L3-5 销记：`lookupUnique()` 死方法连测试删除，路径规范化覆盖先移植到 `lookupBestMatch` (2026-08-02)
 
 `lookupUnique(symbolName, preferredDir)` 自 2026-07-23 被 `lookupBestMatch(symbolName, fromFile)` 取代后生产零调用（唯一生产调用方是 `resolvers.js:330` 的 `lookupBestMatch`），按「删除 > 添加」连方法带 3 个孤儿测试函数一起删。CACHE_VERSION 不动（死代码删除，行为零变化）。

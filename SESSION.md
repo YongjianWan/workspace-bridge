@@ -6,7 +6,25 @@
 
 ---
 
-## 本轮会话 (2026-08-02，L3-5 销记：`lookupUnique` 死方法删除)
+## 本轮会话 (2026-08-02 续二，Kotlin `package` 零抽取修复 + JVM manifest v1)
+
+> 两笔生产代码提交：`e7b86e8`（Kotlin package）+ `d78e16f`（JVM manifest v1）。CHANGELOG 2026-08-02 同日条目是主记录。
+
+### 本轮完成
+1. **Kotlin `package` 零抽取修复**（`e7b86e8`）：侦察坐实的空集洞根因——`kotlin-ast.js`（tree-sitter）与 `polyglot.js`（regex）双路径都不抽 `package`，纯 Kotlin 仓（okhttp 87% 文件）`workspacePackages` 为空 → gap C 闸自动关闭。照 `java.js:75` 形制补齐（tree-sitter 加 `(package_header (identifier) @package.name)` 捕获；regex 路径无分号变体）。TDD：双测试先 RED，杀变异 A（ast 路径摘赋值）/ B（regex 路径摘抽取）各验一处守护；kotlin golden 仅 +`package` 一行。CACHE_VERSION 29→30。
+2. **JVM manifest v1**（`d78e16f`）：`readJvmDeps(root)` 三源手撸合并——pom.xml 的 `<dependency>`/`<parent>` 块（XML 注释剥离、own groupId 跳过、`${}` 占位符拒收）、`build.gradle[.kts]` 字面坐标（`group = 'com.example'` 无冒号天然不匹配，排除是形状结果不是 if）、`libs.versions.toml` `[libraries]` 的 `module=` 与 shorthand 双形态；四文件 mtime 联合 stamp，无 manifest → `null`、空 Set 合法。闸 `_isExternalJvmPackage` 加 manifest 层：裁决空 package 集与前缀碰撞两种降级场景；**reactor 优先规则**（存在与声明 groupId 同等/更具体的 workspace package → 内部获胜）保证多模块仓不失真；`JVM_IMPORT_ALIASES` 四条（guava/gson/jackson/apache-http）桥接 groupId↔import 前缀错配；`jdk.*`/`sun.*`/`com.sun.*` 进 registry `JVM_STDLIB_PREFIXES` 单一归宿（`kotlinx.*` 刻意归 manifest 闸）。漏判方向全部回落 pre-v1 行为。v1 只读根目录。CACHE_VERSION 30→31。
+3. **测试**：`test/jvm-manifest-deps-test.js` 10 例（@semantic）——三源抽取（注释依赖/占位符/own groupId/插件 id 反例）、null/空集语义、mtime 失效、闸五场景（空集用 manifest / 碰撞否决粗前缀 / reactor 内部获胜 / pre-v1 行为保持 / jdk-sun 双语言）。杀变异 C（manifest 层摘除）/ D（reactor 守卫失效）/ E（别名表清空）逐处单独验红，还原全绿。
+
+### 验证终态
+- Kotlin 笔后 `npm run test:fast` 146/146；manifest 笔后 147/147（exit 0，含新测试）；全量 `node test/runner.js` **270/270**（exit 0）。
+
+### 下一轮入口
+- JVM manifest **v2 候选**：多模块 manifest 链（v1 只读根目录，子模块独立声明的依赖仍无证据）；groupId↔包名不同构的精度天花板仍在，`JVM_IMPORT_ALIASES` 按实测扩充。**先取数再动手**：拿真实 JVM 仓（okhttp / spring-petclinic）复测 v1 的 dropped 构成变化，再决定 v2 值不值。
+- P3 层最大单笔：L3-9 tree-sitter 迁移（Python/Java 去 spawn）。
+
+---
+
+## 上一轮会话 (2026-08-02，L3-5 销记：`lookupUnique` 死方法删除)
 
 > 本轮有生产代码变更（symbol-registry.js 死方法删除），CHANGELOG 2026-08-02 L3-5 条目是主记录。
 
