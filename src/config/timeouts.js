@@ -9,8 +9,9 @@ const TIMEOUTS = {
   GIT_LONG_MS: 30000,
   PYTHON_MODULE_DEFAULT_MS: 30000,
   NPX_DEFAULT_MS: 30000,
+  // Only consumer left after L3-9: the sys.stdlib_module_names probe in
+  // resolvers/python-stdlib.js (no AST parser spawns Python any more).
   PYTHON_AST_PARSE_MS: 30000,
-  PYTHON_AST_SIGKILL_DELAY_MS: 5000,
   CONTAINER_ENSURE_READY_TIMEOUT_MS: 30000,
   // Container initialization: file indexing + dep-graph build + cache warm.
   // Large repos (10k+ files) may need the full minute.

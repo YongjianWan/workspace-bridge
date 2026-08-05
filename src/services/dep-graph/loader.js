@@ -54,9 +54,9 @@ function loadGraph(depGraph, options = {}) {
   if (edgeMeta.fileMetadataCount !== depGraph.cache.fileMetadata.size) return false;
   if (edgeMeta.parseResultsCount !== depGraph.cache.parseResults.size) return false;
 
-  // Degraded parse entries (external AST toolchain was missing, e.g. no
-  // javalang) are never trusted from persistence: the toolchain may have
-  // been fixed since, and mtime/hash cannot see that. Fall back to build(),
+  // Degraded parse entries (the tree-sitter WASM load failed for that run) are
+  // never trusted from persistence: the failure is transient and mtime/hash
+  // cannot see that it has passed. Fall back to build(),
   // which re-parses them via GraphBuilder._isParseCacheUsable and upgrades
   // the entries to AST on success.
   for (const [, result] of depGraph.cache.parseResults) {

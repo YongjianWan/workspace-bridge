@@ -94,9 +94,9 @@ function isLikelyConstantsWarehouse(filePath, exportRecords) {
 
 function computeDeadExportConfidence(importerCount, parseMode, graphUnreliable, parseModeReason) {
   if (importerCount === 0) {
-    // Degraded toolchain: the file was parsed by regex because the external
-    // AST parser was unavailable (e.g. javalang missing). Imports may be
-    // incomplete, so "no importers" proves nothing — never report high.
+    // Degraded parse: the file fell back to regex because the tree-sitter AST
+    // path did not produce a result. Imports may be incomplete, so "no
+    // importers" proves nothing — never report high.
     // regex-native languages (C/C++, Svelte) are NOT penalized: for them
     // regex is the designed parser, not a fallback.
     if (parseModeReason === 'regex-fallback') {

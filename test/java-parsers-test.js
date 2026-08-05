@@ -2,25 +2,15 @@
 // @contract
 // @slow
 const assert = require('assert');
-const { spawnSync } = require('child_process');
-const { TIMEOUTS } = require('../src/config/constants');
 const { parseJava } = require('../src/services/dep-graph/parsers');
 
-function isJavalangAvailable() {
-  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-  const result = spawnSync(pythonCmd, ['-c', 'import javalang; print("ok")'], {
-    encoding: 'utf8',
-    timeout: TIMEOUTS.HEALTH_SHORT_TIMEOUT_MS,
-  });
-  return result.status === 0 && result.stdout.includes('ok');
-}
-
-const JAVALANG_AVAILABLE = isJavalangAvailable();
+// L3-9: the javalang availability gate is gone. It used to make four of the
+// five tests below return without asserting anything on a machine with no
+// python/javalang — i.e. the layer these tests guard was unguarded exactly
+// where it was most likely to break. tree-sitter WASM ships as an npm
+// dependency, so the AST path is now unconditionally exercised.
 
 async function testJavaAST() {
-  if (!JAVALANG_AVAILABLE) {
-    return;
-  }
   const source = `
 package com.example;
 import java.util.List;
@@ -32,7 +22,7 @@ public class Foo {
 }
 `;
   const result = await parseJava(source);
-  assert.strictEqual(result.parseMode, 'ast', 'Should use AST when javalang available');
+  assert.strictEqual(result.parseMode, 'ast', 'tree-sitter AST is the only primary path');
   assert.strictEqual(result.package, 'com.example', 'Should parse package declaration');
   assert(result.imports.includes('java.util.List'));
   assert(result.imports.includes('org.junit.Assert'));
@@ -48,9 +38,6 @@ public class Foo {
 }
 
 async function testJavaInterfaceMethods() {
-  if (!JAVALANG_AVAILABLE) {
-    return;
-  }
   const source = `
 package com.example;
 public interface Calculator {
@@ -66,9 +53,6 @@ public interface Calculator {
 }
 
 async function testJavaMethodAnnotations() {
-  if (!JAVALANG_AVAILABLE) {
-    return;
-  }
   const source = `
 package com.example;
 public class Service {
@@ -111,9 +95,6 @@ public class Service {
 }
 
 async function testJavaBranchCountAndMaxArms() {
-  if (!JAVALANG_AVAILABLE) {
-    return;
-  }
   const source = `
 package com.example;
 public class Logic {
@@ -168,13 +149,56 @@ public class Logic {
 }
 
 async function testJavaFallback() {
-  // Invalid Java syntax triggers javalang exception; verify regex fallback
+  // Invalid Java syntax makes tree-sitter report hasError; verify regex fallback
   const result = await parseJava('this is not java');
   assert.strictEqual(result.parseMode, 'regex');
 }
 
+async function testJavaEnumAndAnnotationBodies() {
+  // Two corners scripts/parser-parity-java.js cannot police on its own:
+  //  - the enum/annotation "name only" guard in collectTypeMembers is redundant
+  //    with tree-sitter's node shapes, so mutating it does not go red there;
+  //  - `@interface` is the ONE intentional divergence from the javalang oracle
+  //    (javalang's node class is AnnotationDeclaration, so java_ast_parser.py's
+  //    AnnotationTypeDeclaration branch was dead and emitted nothing).
+  const source = `
+package com.example;
+public enum Color {
+  RED, GREEN;
+  public void shout() {}
+  public static final int COUNT = 2;
+}
+public @interface Marker {
+  String value();
+}
+`;
+  const result = await parseJava(source);
+  assert.strictEqual(result.parseMode, 'ast');
+
+  assert(result.exports.includes('Color'), 'enum type name is exported');
+  assert(!result.exports.includes('shout'), 'enum body methods are NOT exported');
+  assert(!result.exports.includes('COUNT'), 'enum body fields are NOT exported');
+  assert(!result.exports.includes('RED'), 'enum constants are NOT exported');
+
+  const marker = result.exportRecords.find((r) => r.name === 'Marker');
+  assert(marker, '@interface must be exported (regex path always did)');
+  assert.strictEqual(marker.kind, 'annotation');
+  assert(!result.exports.includes('value'), 'annotation elements are NOT exported');
+}
+
+async function testJavaRecordIsExportedAsRecord() {
+  // javalang could not parse this at all — the file used to degrade to regex.
+  const result = await parseJava('public record Point(int x, int y) {}\n');
+  assert.strictEqual(result.parseMode, 'ast', 'record must not degrade to regex');
+  const point = result.exportRecords.find((r) => r.name === 'Point');
+  assert(point, 'record type must be exported');
+  assert.strictEqual(point.kind, 'record', 'both parse modes agree on kind record');
+}
+
 (async () => {
   await testJavaAST();
+  await testJavaEnumAndAnnotationBodies();
+  await testJavaRecordIsExportedAsRecord();
   await testJavaInterfaceMethods();
   await testJavaMethodAnnotations();
   await testJavaBranchCountAndMaxArms();

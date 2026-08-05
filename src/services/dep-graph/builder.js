@@ -102,10 +102,10 @@ class GraphBuilder {
   }
 
   /**
-   * A cache entry produced while the external AST toolchain was missing
-   * (regex-fallback) is never trusted: the toolchain may have been fixed
-   * since (e.g. `pip install javalang`), and the cache key (mtime/hash)
-   * cannot see that. Re-parsing upgrades the entry to AST on the next run.
+   * A cache entry produced while the AST path was unavailable (regex-fallback)
+   * is never trusted: since L3-9 that means a tree-sitter WASM load failure,
+   * which is transient (cold-start race, memory pressure) and invisible to the
+   * cache key (mtime/hash). Re-parsing upgrades the entry to AST next run.
    * regex-native languages (C/C++, Svelte — regex IS their parser) are
    * unaffected.
    */

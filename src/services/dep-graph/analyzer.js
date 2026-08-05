@@ -26,7 +26,6 @@ const {
   computeDeadExportConfidence,
   isConventionallyAliveSymbol,
 } = require('./shared');
-const { getParserEnvFailure } = require('./parsers/spawn-ast');
 
 // Defensive: exclude workspace-bridge's own tree-sitter query registry files
 // from dead-export analysis. These files are dynamically required by
@@ -956,18 +955,11 @@ class GraphAnalyzer {
     }
 
     if (regexFallbackCount > 0) {
-      // Name the actual environment failure when known (memoized by spawn-ast
-      // during this process), so the warning tells the user HOW to fix it
-      // instead of a generic "possible timeout" that sends them debugging
-      // the wrong thing. Java is the only remaining spawn-parsed language
-      // (L3-9 moved Python to in-process tree-sitter WASM).
-      const envFailure = getParserEnvFailure('java_ast_parser.py');
-      let detail = 'possible spawn timeout or WASM failure';
-      if (envFailure === 'dependency-missing') {
-        detail = 'external parser dependency missing (e.g. pip install javalang)';
-      } else if (envFailure === 'python-missing') {
-        detail = 'python executable not found on PATH';
-      }
+      // L3-9 closed the last spawned parser (Java/javalang), so there is no
+      // per-language environment failure left to name: every AST path is
+      // in-process tree-sitter WASM, and the only two ways to land here are a
+      // WASM load failure or source the grammar could not parse.
+      const detail = 'WASM load failure or unparsable source';
       warnings.push({
         type: 'regex-fallback',
         severity: 'medium',

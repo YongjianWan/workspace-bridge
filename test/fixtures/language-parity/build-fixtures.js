@@ -13,10 +13,9 @@
  * 'symbol-table' edge is name-guessing and does not count as parity — see
  * TECH_DEBT L2-10 for why.
  *
- * `needsPython` marks fixtures whose AST parser spawns a Python script
- * (spawn-ast.js); on machines without the toolchain they degrade to the regex
- * fallback, and the test reports an environment skip instead of a language
- * defect.
+ * L3-9 removed the last `needsPython` fixture: no parser spawns anything any
+ * more, so every language here is unconditionally comparable and an
+ * environment skip can no longer hide a real language defect.
  */
 
 const fs = require('fs');
@@ -25,7 +24,6 @@ const path = require('path');
 const FIXTURES = [
   {
     language: 'javascript',
-    needsPython: false,
     expectedMethods: ['relative'],
     files: {
       'package.json': JSON.stringify({ name: 'parity-js', version: '1.0.0' }),
@@ -36,7 +34,6 @@ const FIXTURES = [
   },
   {
     language: 'typescript',
-    needsPython: false,
     expectedMethods: ['relative'],
     files: {
       'package.json': JSON.stringify({ name: 'parity-ts', version: '1.0.0' }),
@@ -47,7 +44,6 @@ const FIXTURES = [
   },
   {
     language: 'python',
-    needsPython: false, // L3-9: tree-sitter WASM, no toolchain dependency
     expectedMethods: ['python-absolute', 'python-relative'],
     files: {
       'requirements.txt': '# parity fixture — intentionally empty\n',
@@ -57,7 +53,6 @@ const FIXTURES = [
   },
   {
     language: 'java',
-    needsPython: true, // java_ast_parser.py needs python + javalang
     expectedMethods: ['java-package'],
     files: {
       'pom.xml':
@@ -75,7 +70,6 @@ const FIXTURES = [
   },
   {
     language: 'kotlin',
-    needsPython: false,
     expectedMethods: ['java-package'],
     files: {
       'build.gradle.kts': '// parity fixture marker\nplugins {\n    kotlin("jvm") version "1.9.0"\n}\n',
@@ -87,7 +81,6 @@ const FIXTURES = [
   },
   {
     language: 'go',
-    needsPython: false,
     expectedMethods: ['go-module', 'go-relative'],
     files: {
       'go.mod': 'module example.com/parity\n\ngo 1.21\n',
@@ -98,7 +91,6 @@ const FIXTURES = [
   },
   {
     language: 'rust',
-    needsPython: false,
     expectedMethods: ['rust-crate', 'rust-super'],
     files: {
       'Cargo.toml': '[package]\nname = "parity-fixture"\nversion = "0.1.0"\nedition = "2021"\n',
@@ -108,7 +100,6 @@ const FIXTURES = [
   },
   {
     language: 'cpp',
-    needsPython: false,
     // '#include "b.h"' is quote-form — C/C++ relative semantics without the './'.
     // Method name lands with T2 (tryCppInclude); there is no structural resolver
     // for C/C++ before that (L1-4).
@@ -123,7 +114,6 @@ const FIXTURES = [
   },
   {
     language: 'vue',
-    needsPython: false,
     expectedMethods: ['relative'],
     files: {
       'package.json': JSON.stringify({ name: 'parity-vue', version: '1.0.0' }),
@@ -149,7 +139,6 @@ const FIXTURES = [
     // (snapshot DependencyGraphView → overview-assembler), so a wiring break
     // like "view never delegated getDroppedImports" fails here on its own.
     language: 'js-dropped-import',
-    needsPython: false,
     expectedMethods: ['relative'],
     expectDropped: 1,
     files: {
@@ -167,7 +156,6 @@ const FIXTURES = [
   },
   {
     language: 'svelte',
-    needsPython: false,
     expectedMethods: ['relative'],
     files: {
       'package.json': JSON.stringify({ name: 'parity-svelte', version: '1.0.0' }),

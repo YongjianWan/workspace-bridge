@@ -1,9 +1,5 @@
 const { uniqueNames, createExportRecord, createImportRecord } = require('./shared');
-const { spawnPythonASTParser } = require('./spawn-ast');
-
-async function parseJavaAST(content, root) {
-  return spawnPythonASTParser('java_ast_parser.py', content, undefined, root);
-}
+const { parseJavaAst } = require('./java-ast');
 
 function getLineNumber(content, index) {
   return content.slice(0, index).split('\n').length;
@@ -92,6 +88,8 @@ function parseJavaWithRegex(content) {
     if (match[1] === 'interface') kind = 'interface';
     else if (match[1] === '@interface') kind = 'annotation';
     else if (match[1] === 'enum') kind = 'enum';
+    // Keep the two modes' kinds aligned: java-ast.js emits 'record' too.
+    else if (match[1] === 'record') kind = 'record';
     exportRecords.push(createExportRecord(match[2], { kind }));
   }
 
@@ -129,38 +127,50 @@ function parseJavaWithRegex(content) {
   };
 }
 
-async function parseJava(content, root) {
-  const astResult = await parseJavaAST(content, root);
-  if (astResult) {
-    return {
-      imports: uniqueNames(astResult.imports),
-      exports: uniqueNames(astResult.exports),
-      importRecords: (astResult.importRecords || []).map((record) =>
-        createImportRecord(record.source, {
-          imported: record.imported,
-          usesAllExports: record.usesAllExports,
-          isStatic: record.isStatic,
-        })
-      ),
-      exportRecords: (astResult.exportRecords || []).map((record) =>
-        createExportRecord(record.name, { kind: record.kind || 'symbol' })
-      ),
-      functionRecords: (astResult.functionRecords || []).map((record) => ({
-        name: record.name,
-        kind: record.kind || 'function',
-        lineStart: record.lineStart,
-        lineEnd: record.lineEnd,
-        fingerprint: record.fingerprint || null,
-        decorators: record.decorators || [],
-        branchCount: record.branchCount ?? record.fingerprint?.branchCount ?? 0,
-        maxArms: record.maxArms ?? record.fingerprint?.maxArms ?? 0,
-      })),
-      package: astResult.package || null,
-      parseMode: 'ast',
-    };
-  }
-  const regexResult = parseJavaWithRegex(content);
-  return { ...regexResult, parseMode: 'regex' };
+/**
+ * Map raw parser JSON (tree-sitter java-ast.js) onto the parser-contract
+ * records. scripts/parser-parity-java.js judges the retired spawn path
+ * (scripts/java_ast_parser.py, javalang) against the tree-sitter path on the
+ * RAW shape, before this mapping — normalizing first would stop checking
+ * returnType / isExported / hasParameterTypeHints, which this mapping drops.
+ */
+function normalizeJavaAstResult(astResult) {
+  return {
+    imports: uniqueNames(astResult.imports),
+    exports: uniqueNames(astResult.exports),
+    importRecords: (astResult.importRecords || []).map((record) =>
+      createImportRecord(record.source, {
+        imported: record.imported,
+        usesAllExports: record.usesAllExports,
+        isStatic: record.isStatic,
+      })
+    ),
+    exportRecords: (astResult.exportRecords || []).map((record) =>
+      createExportRecord(record.name, { kind: record.kind || 'symbol' })
+    ),
+    functionRecords: (astResult.functionRecords || []).map((record) => ({
+      name: record.name,
+      kind: record.kind || 'function',
+      lineStart: record.lineStart,
+      lineEnd: record.lineEnd,
+      fingerprint: record.fingerprint || null,
+      decorators: record.decorators || [],
+      branchCount: record.branchCount ?? record.fingerprint?.branchCount ?? 0,
+      maxArms: record.maxArms ?? record.fingerprint?.maxArms ?? 0,
+    })),
+    package: astResult.package || null,
+    parseMode: 'ast',
+  };
 }
 
-module.exports = { parseJava };
+// root is unused by the tree-sitter path (in-process WASM, no per-file process
+// to point at a toolchain); kept for the parser-registry signature.
+async function parseJava(content, _root) {
+  const astResult = await parseJavaAst(content);
+  if (astResult) {
+    return normalizeJavaAstResult(astResult);
+  }
+  return parseJavaWithRegex(content);
+}
+
+module.exports = { parseJava, normalizeJavaAstResult };

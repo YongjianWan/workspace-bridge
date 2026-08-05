@@ -111,6 +111,15 @@ const SCHEMA_VERSION = '1.2.0';
 //      复用 ast.ExceptHandler 照数 +1，tree-sitter 拆出独立的
 //      except_group_clause，v33 只 case 了 except_clause。v33 缓存里含
 //      `except*` 的函数 fingerprint.branchCount 少 1，作废重建。
-const CACHE_VERSION = 34;
+// v35: L3-9 Java 半——Java 解析从每文件 spawn scripts/java_ast_parser.py
+//      （javalang 0.13.0，2020 年停更）迁到进程内 tree-sitter WASM
+//      （parsers/java-ast.js）。javalang 能读的子集 341 文件 parity 零 diff
+//      （scripts/parser-parity-java.js）；它读不了的 23 文件（record/sealed/
+//      text block/switch expression/instanceof 模式/module-info）v34 缓存里
+//      是 parseMode=regex 的正则质量产物，作废重建。另有一处刻意分歧：
+//      javalang 无 AnnotationTypeDeclaration 类（真名 AnnotationDeclaration），
+//      旧脚本那支是死代码，@interface 零导出；新路径按 regex 路径的既有契约
+//      发 kind='annotation' 导出。record 的 kind 两条路径统一为 'record'。
+const CACHE_VERSION = 35;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

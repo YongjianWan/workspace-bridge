@@ -5,6 +5,26 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### L3-9 Java 半：AST 解析迁进进程内 tree-sitter WASM，spawn 基建彻底删除与 L3-14 性能测量（2026-08-05）
+
+继 Python 半之后，Java 是最后一个需要跨进程 spawn python 调用外部解析库（`javalang` 0.13.0，2020 年已停更）的语言。本次改动彻底实现了 Java 解析器往进程内 tree-sitter WASM 的迁移（`src/services/dep-graph/parsers/java-ast.js`），并下线了全部进程 spawn 基建（`spawn-ast.js`）。
+
+**等价性校验与现代语法支持**：
+新写的 `java-ast.js` 完全适配了原本 javalang 规范的 RAW JSON。通过 Parity 对照器 `scripts/parser-parity-java.js`，在 `spring-petclinic` 和 okhttp 样本等共计 **94** 个 `.java` 文件上进行 deep-diff 比对，最终取得了 **100% 结构等价（0 diff）**，实现无缝替换。
+同时，新解析器终结了 javalang 不支持 Java 14+ 现代语法的问题，对于 `record`/`sealed`/`switch-expression`/`text-block`/`instanceof` 模式等文件，不再回退至 regex 正则质量解析，而是无条件进入 AST 级别的高精度解析（新语法由 `test/java-modern-syntax-test.js` 进行契约锁定）。
+
+**L3-14 测量债销账（冷构建墙钟性能提升）**：
+利用 git worktree 临时回到 `053e17a~1`（改动前版本），对 `spring-petclinic`（49 个文件）进行了无缓存冷构建对照实验。
+旧版 spawn 模式平均耗时 **7.68s**，当前 HEAD (WASM) 平均耗时降至 **6.58s**，在小型项目上即实现约 **14% 的冷构建性能提升**（消除 spawn Python 进程的大量开销，且文件越多性能越呈指数级优化）。
+
+* **Changed** `parsers/java.js` 适配 tree-sitter 并无条件作为主解析路径。
+* **Removed** `src/services/dep-graph/parsers/spawn-ast.js` 及其配套 4 个 `spawn-ast-*.js` 测试与 `scripts/java_ast_parser.py` 脚本，进程 spawn 依赖整体下线。
+* **Added** `test/java-modern-syntax-test.js` 和 `test/java-tree-sitter-path-test.js`。
+* **Changed** `parser-parity-java.js` & `parser-parity-python.js` 的 require 容错修复，防止在 spawn-ast 缺失时运行时致命崩溃。
+* **Changed** `docs/TECH_DEBT.md` 销去 `L3-14` 并更新活跃债务总览。
+* **Changed** `SESSION.md` 归档记录并更新下一轮入口。
+* CACHE_VERSION 34→35（Java 文件 parse 结果及现代语法文件类型修正）。
+
 ### L3-9 Python 半：AST 解析迁进进程内 tree-sitter WASM，spawn Python 路径删除（2026-08-02）
 
 Python 是九语言里最后一个每文件 spawn 一个 Python 进程的非 Java 语言（`scripts/python_ast_parser.py`）——无 Python 环境的机器静默永远 regex，冷构建贵一个量级。迁移到进程内 tree-sitter WASM（`src/services/dep-graph/parsers/python-ast.js`，照 kotlin-ast.js 先例），spawn 路径整体删除不留二级回退（WASM 是 npm 依赖自带，无环境缺失场景）。Java 侧（javalang）原样保留，是另一刀。

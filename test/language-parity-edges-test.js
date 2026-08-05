@@ -24,13 +24,6 @@ const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const REPO_ROOT = path.resolve(__dirname, '..');
 const CLI_PATH = path.join(REPO_ROOT, 'cli.js');
 
-// Match the parser's own probe (spawn-ast.js resolveParserPython).
-function pythonAvailable() {
-  const bin = process.platform === 'win32' ? 'python' : 'python3';
-  const res = spawnSync(bin, ['--version'], { encoding: 'utf-8' });
-  return !res.error && res.status === 0;
-}
-
 function buildGraph(dir) {
   const cacheDir = makeTempDir('wb-parity-cache-');
   const res = spawnSync(
@@ -60,7 +53,6 @@ function edgeStats(cacheDir) {
   }
 }
 
-const hasPython = pythonAvailable();
 const fixturesRoot = makeTempDir('wb-parity-fixtures-');
 const results = [];
 const failures = [];
@@ -99,16 +91,6 @@ try {
       line += ` dropped:${droppedCount}`;
 
       if (total < 1 || structuralHits < 1 || droppedCount !== expectDropped || !measured) {
-        const envSkip = fixture.needsPython && !hasPython;
-        if (envSkip) {
-          // Toolchain degradation must not masquerade as a language defect:
-          // the AST parser spawns Python and this machine has none (spawn-ast.js).
-          line += ' — SKIP (python not on PATH, parser degraded to regex)';
-          console.warn(`[language-parity] ${line}`);
-          cleanupTempDir(cacheDir);
-          results.push(line);
-          continue;
-        }
         line += ` — FAIL (need >= 1 edge via ${fixture.expectedMethods.join('/')}, dropped == ${expectDropped}, measured == true)`;
         failures.push(line);
       }

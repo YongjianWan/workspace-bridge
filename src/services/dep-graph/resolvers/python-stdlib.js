@@ -1,20 +1,35 @@
 /**
  * Python standard library membership — single home (L3-15).
  *
- * The authoritative source is sys.stdlib_module_names from the interpreter
- * that already gets spawned for AST parsing: version-correct by construction,
- * zero maintenance. Fetched once per process (spawnSync, memoized) on first
- * consultation; the hand-copied fallback below only serves the python-missing
- * degraded path and interpreters < 3.10 (no stdlib_module_names).
+ * The authoritative source is sys.stdlib_module_names from a local
+ * interpreter: version-correct by construction, zero maintenance. Fetched once
+ * per process (spawnSync, memoized) on first consultation; the hand-copied
+ * fallback below only serves the python-missing degraded path and interpreters
+ * < 3.10 (no stdlib_module_names).
  *
  * The sync gate (_isExternalPythonModule) cannot await, so the fetch is lazy
  * sync + memo — one extra interpreter spawn per process, deterministic within
  * the process: every gate call in a run sees the same Set.
+ *
+ * L3-9 note: this is now the ONLY place workspace-bridge spawns Python at all.
+ * Both AST parsers that used to (python_ast_parser.py, java_ast_parser.py) are
+ * gone, and with them parsers/spawn-ast.js — so the interpreter resolution that
+ * lived there moved here, to its last consumer.
  */
 const { spawnSync } = require('child_process');
 const { TIMEOUTS } = require('../../../config/constants');
-const { buildSafeEnv } = require('../../../utils/command');
-const { resolveParserPython } = require('../parsers/spawn-ast');
+const { buildSafeEnv, resolvePythonCommand } = require('../../../utils/command');
+
+// Prefer the workspace virtualenv python; fall back to the platform default.
+// resolvePythonCommand returns bare 'python' when no venv exists — detect that
+// and keep the platform default so non-Windows keeps python3.
+function resolveStdlibPython(root) {
+  if (root) {
+    const resolved = resolvePythonCommand(root);
+    if (resolved && resolved !== 'python') return resolved;
+  }
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
 
 // Hand-copied fallback, last synced 2026-08-01 (was PYTHON_STDLIB_ROOTS in
 // resolvers.js). Bitten three times as the primary source (v11, v17
@@ -55,7 +70,7 @@ let _stdlibNames = null; // Set — memoized for the process, success or fallbac
 
 function _fetchStdlibNames(root) {
   const res = spawnSync(
-    resolveParserPython(root),
+    resolveStdlibPython(root),
     ['-c', 'import sys, json; print(json.dumps(sorted(sys.stdlib_module_names)))'],
     {
       encoding: 'utf-8',

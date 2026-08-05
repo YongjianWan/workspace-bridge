@@ -31,7 +31,13 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawnPythonASTParser } = require('../src/services/dep-graph/parsers/spawn-ast');
+
+let spawnPythonASTParser = null;
+try {
+  spawnPythonASTParser = require('../src/services/dep-graph/parsers/spawn-ast').spawnPythonASTParser;
+} catch (_) {
+  // Spawn parser not available (e.g. after spawn-ast.js cleanup)
+}
 const { normalizePythonAstResult } = require('../src/services/dep-graph/parsers/python');
 
 const args = process.argv.slice(2);

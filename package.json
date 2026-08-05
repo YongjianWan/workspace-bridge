@@ -72,7 +72,6 @@
     "src/**",
     "skills/**",
     "scripts/cli-fallback.js",
-    "scripts/java_ast_parser.py",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"

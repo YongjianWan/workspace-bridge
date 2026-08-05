@@ -37,15 +37,6 @@ jobs:
       - name: Check Node engine compatibility
         run: node --version && npm --version
 
-      - name: Probe Python / javalang availability
-        shell: bash
-        run: |
-          python --version || true
-          python -c "import javalang; print('javalang', javalang.__version__)" 2>&1 || true
-
-      - name: Install javalang for Java AST parser
-        run: python -m pip install javalang
-
       - name: Lint
         run: npm run lint
 
@@ -73,9 +64,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Install javalang for Java AST parser
-        run: python3 -m pip install javalang
 
       - name: Check coverage gate
         run: npm run test:coverage:check

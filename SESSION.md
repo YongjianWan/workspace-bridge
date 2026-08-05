@@ -6,7 +6,31 @@
 
 ---
 
-## 本轮会话 (2026-08-02 续五，L3-9 Python 半：tree-sitter 迁移 + spawn 路径删除)
+## 本轮会话 (2026-08-05，L3-9 Java 半：tree-sitter 迁移 + spawn 路径删除 + L3-14 性能测量)
+
+### 本轮完成
+1. **`parsers/java-ast.js` 新写**：基于 tree-sitter WASM 进程内解析替代原 `spawn-ast.js` + `java_ast_parser.py` (javalang) 进程。适配 javalang 原生 JSON 字段规范，支持 package / imports 提取及 exports 树级前序走访（嵌套类、内部类可识别，匿名类主体过滤）。
+2. **零 diff 验收**：对 okhttp-samples 及 spring-petclinic 合计 94 个 `.java` 文件进行 parity deep-diff 验证，最终结果 `files=94 identical=93 diffed=0 oracleCannotParse=1 newParserNull=0`，在 Java-8 子集下取得完美的 **100% 结构等价（零 diff）**，现代语法 `Modern.java` 由 WASM 成功解析（旧版 oracle 无法解析，预期进入 `oracleCannotParse`）。
+3. **彻底删除 spawn 路径**：物理删除了 `spawn-ast.js`、`java_ast_parser.py` 及相关的 4 个 `spawn-ast-*.js` 测试。
+4. **测量债 L3-14 销账**：利用 git worktree 临时回到 `053e17a~1`（改动前版本），对 `spring-petclinic` 进行冷构建前后对照。旧版平均耗时 **7.68s**，当前 HEAD (WASM) 降至 **6.58s**，在小型项目上实现约 **14% 的性能提升**，L3-14 顺利销账并从 `docs/TECH_DEBT.md` 移除。
+5. **健壮性修复**：修复了 `parser-parity-java.js` 和 `parser-parity-python.js` 归档对照器中对已删除 `spawn-ast.js` 的 require 崩溃问题，增加 try-catch 容错。
+6. **全量测试通过**：全量测试集 `node test/runner.js` **269/269 全部通过**，零回归。
+
+### 下一轮入口（2026-08-05 重排，依据见 TECH_DEBT「解析器选型判据」决策原则）
+
+**1. L3-7 Vue 半** —— `tree-sitter-vue.wasm` 已在 `node_modules` 内，零新依赖。大头不是符号精度，是**模板里的组件引用现在一条边都抽不出来**。Svelte 半维持冻结（无 tree-sitter 语法 + 官方编译器 4/5 版本耦合）。
+
+**2. 两条一行债** —— `resolveFileOnly` 的 ext 大小写不一致（`builder.js:407`）；仓库根两个垃圾目录（顺带查出是哪个测试写的）。
+
+**3. L3-12 + L3-13 一组做（先测再改）** —— 全量 511s，slow 层是主要成本且 43% 是启发式塞的。先给 runner 加每条测试的真实耗时与冷启动次数统计，用数据重排分层，**然后**才谈池化。ROADMAP 的「per-tool benchmark 回归检查」正好做数据地基，合并。
+
+**4. L3-16（新登记）排期前先量** —— tsconfig `extends` 不跟，官方 `typescript` 包可解且进程内。但回报是推理不是实测，先扫真实 monorepo 统计因此落进 dropped 的 import 数，数字不支持就维持 P3。
+
+**不做**：性能两条 P1（ROADMAP 自述"接受现状"，10k 文件才显形）；Call-Resolution DAG / ACCESSES 边 / Next.js 路由（越界语义分析）；L3-4（L2-22 判留后终态作废，剩纯审美）；L3-8（定的就是接触即修）。
+
+---
+
+## 上一轮会话 (2026-08-02 续五，L3-9 Python 半：tree-sitter 迁移 + spawn 路径删除)
 
 > goal 模式执行（目标全文见上轮「下一轮入口」）。CHANGELOG 2026-08-02 L3-9 条目是主记录。
 
