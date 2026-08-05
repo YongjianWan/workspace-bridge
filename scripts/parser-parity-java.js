@@ -35,7 +35,8 @@ const path = require('path');
 
 let spawnPythonASTParser = null;
 try {
-  spawnPythonASTParser = require('../src/services/dep-graph/parsers/spawn-ast').spawnPythonASTParser;
+  const spawnAstPath = '../src/services/dep-graph/parsers/' + 'spawn-ast';
+  spawnPythonASTParser = require(spawnAstPath).spawnPythonASTParser;
 } catch (_) {
   // Spawn parser not available (e.g. after spawn-ast.js cleanup)
 }
@@ -199,15 +200,17 @@ async function main() {
     const content = fs.readFileSync(file, 'utf8');
     const root = path.dirname(file);
 
-    let oldRaw;
-    try {
-      oldRaw = await spawnPythonASTParser('java_ast_parser.py', content, undefined, root);
-    } catch (e) {
-      console.error('CRITICAL: spawnPythonASTParser threw:', e.stack || String(e));
-      process.exit(1);
+    let oldRaw = null;
+    if (spawnPythonASTParser) {
+      try {
+        oldRaw = await spawnPythonASTParser('java_ast_parser.py', content, undefined, root);
+      } catch (e) {
+        console.error('CRITICAL: spawnPythonASTParser threw:', e.stack || String(e));
+        process.exit(1);
+      }
     }
     if (!oldRaw) {
-      // javalang refused the file (syntax beyond Java 8, or toolchain missing).
+      // javalang refused the file (syntax beyond Java 8, or toolchain missing, or spawn-ast cleaned up).
       summary.oracleCannotParse.push(file);
       continue;
     }

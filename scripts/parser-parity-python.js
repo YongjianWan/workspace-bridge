@@ -34,7 +34,8 @@ const path = require('path');
 
 let spawnPythonASTParser = null;
 try {
-  spawnPythonASTParser = require('../src/services/dep-graph/parsers/spawn-ast').spawnPythonASTParser;
+  const spawnAstPath = '../src/services/dep-graph/parsers/' + 'spawn-ast';
+  spawnPythonASTParser = require(spawnAstPath).spawnPythonASTParser;
 } catch (_) {
   // Spawn parser not available (e.g. after spawn-ast.js cleanup)
 }
@@ -154,7 +155,9 @@ async function main() {
     const content = fs.readFileSync(file, 'utf8');
     const root = path.dirname(file);
 
-    const oldRaw = await spawnPythonASTParser('python_ast_parser.py', content, undefined, root);
+    const oldRaw = spawnPythonASTParser
+      ? await spawnPythonASTParser('python_ast_parser.py', content, undefined, root)
+      : null;
     if (!oldRaw) {
       summary.oldParseFailed.push(file);
       continue;

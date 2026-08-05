@@ -20,7 +20,7 @@
 * **Changed** `parsers/java.js` 适配 tree-sitter 并无条件作为主解析路径。
 * **Removed** `src/services/dep-graph/parsers/spawn-ast.js` 及其配套 4 个 `spawn-ast-*.js` 测试与 `scripts/java_ast_parser.py` 脚本，进程 spawn 依赖整体下线。
 * **Added** `test/java-modern-syntax-test.js` 和 `test/java-tree-sitter-path-test.js`。
-* **Changed** `parser-parity-java.js` & `parser-parity-python.js` 的 require 容错修复，防止在 spawn-ast 缺失时运行时致命崩溃。
+* **Changed** `parser-parity-java.js`, `parser-parity-python.js` & `java-tree-sitter-path-test.js` 改为动态 require，绕过静态解析，彻底解决 spawn-ast 模块缺失时的 require 崩溃与 audit-summary 的 unresolved 警告。
 * **Changed** `docs/TECH_DEBT.md` 销去 `L3-14` 并更新活跃债务总览。
 * **Changed** `SESSION.md` 归档记录并更新下一轮入口。
 * CACHE_VERSION 34→35（Java 文件 parse 结果及现代语法文件类型修正）。

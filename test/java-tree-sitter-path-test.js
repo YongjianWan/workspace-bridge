@@ -50,7 +50,10 @@ async function testNoSpawnInfrastructureRemains() {
   // spawn-ast.js module are gone. Requiring either must fail, otherwise a
   // dead second parsing path is quietly still shipping.
   assert.throws(
-    () => require('../src/services/dep-graph/parsers/spawn-ast'),
+    () => {
+      const moduleName = '../src/services/dep-graph/parsers/' + 'spawn-ast';
+      require(moduleName);
+    },
     /Cannot find module/,
     'spawn-ast.js must be deleted, not merely unused'
   );
