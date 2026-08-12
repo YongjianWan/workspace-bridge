@@ -16,6 +16,18 @@
 
 
 
+### L3-7 Vue 半：SFC 解析迁进进程内 tree-sitter-vue WASM，模板组件引用首次成边（2026-08-12）
+
+Vue SFC 解析从正则抠 `<script>` 标签迁移到进程内 `tree-sitter-vue` WASM（`src/services/dep-graph/parsers/vue-ast.js`）。正则方案在字符串/注释里遇到 `</script>` 会错切，`tree-sitter-vue` 按完整 SFC AST 抽取 `script_element` 的 `raw_text`，彻底消除这类边界错误；同时检测 `lang="ts"` 并把有效扩展名换为 `.ts` 交给 JS/TS parser，script-setup 与常规 script 块合并后一次解析。
+
+**模板组件引用**：本轮补上 Vue 半的大头——模板里的组件此前一条边都抽不出来。新 parser 遍历 `template_element`，收集 PascalCase tag 与 `<component :is="...">` 的静态标识符，只与脚本 import 的本地绑定交叉匹配，命中才生成带 `isTemplateUsage: true` 的 `importRecord`。这种保守策略避免为全局注册、HTML 自定义元素或无法静态解析的 auto-import 造边。在 `reference/vue-realworld-example-app` 实测：`App.vue` 的 `importRecords` 从 2 条变为 4 条（2 脚本 import + 2 模板 usage），`TheHeader.vue` 变更仍会波及 `App.vue`。
+
+* **Changed** `parsers/registry.js` `.vue` 注册切到 `parseVueAst` 并保留旧 `vue.js` 作为失败回退。
+* **Changed** `parsers/index.js` 导出 `parseVueAst`。
+* **Changed** `test/vue-parser-test.js` 全部主路径改跑新 parser，新增 TS script block、模板 PascalCase 命中 import、动态 `:is`、原生小写标签不过滤、未 import 组件不生成记录、旧 parser 仍可用等断言。
+* **Changed** `docs/TECH_DEBT.md` 销去 L3-7 Vue 半；`SESSION.md` 更新本轮完成与下一轮入口。
+* CACHE_VERSION 35→36（`.vue` 文件 parseMode 与 importRecords 形状变化）。
+
 ### L3-9 Java 半：AST 解析迁进进程内 tree-sitter WASM，spawn 基建彻底删除与 L3-14 性能测量（2026-08-05）
 
 继 Python 半之后，Java 是最后一个需要跨进程 spawn python 调用外部解析库（`javalang` 0.13.0，2020 年已停更）的语言。本次改动彻底实现了 Java 解析器往进程内 tree-sitter WASM 的迁移（`src/services/dep-graph/parsers/java-ast.js`），并下线了全部进程 spawn 基建（`spawn-ast.js`）。

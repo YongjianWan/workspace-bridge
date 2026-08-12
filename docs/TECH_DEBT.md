@@ -65,8 +65,8 @@
 > | **P0 现在做** | ~~L2-11 三个闸缺口~~ ✅ 清零（2026-07-28，A/B/C 同日：manifest 链 / 标准库名单补漏 / JVM 零名单闸）——**P0 出空，下一层自动顶上来** | zod 80→4 / CodeGraphContext 70→34 / spring-petclinic 362→0；报警器现在的每一次响都默认是真信号 |
 > | **P1 紧随** | ~~L2-21 Go 包级依赖无图~~ ✅（2026-08-01：变异实验收口 + 包导入展开全包 + 同包 tier3 边，cobra 12→279 全可解释，史见 CHANGELOG） · ~~L2-16 Rust crate 名归一~~ ✅ · ~~L2-17 Python namespace 包~~ ✅（2026-07-28，丢弃 34→26） · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅——**P1 出空，下一层自动顶上来** | L2-21 销记：Go 边层不再是文件粒度图装不下包语义——包导入绑全包、同包互引有 tier3 边 |
 > | **P2 依赖前两层** | ~~L2-10 符号表判决（T6）~~ ✅ 已拍已执行（2026-07-31：摘 JS/TS/Python、留 JVM、Go/Rust 不动，史见 CHANGELOG） · ~~L2-22 Rust 去留~~ ✅ 判留（2026-08-01，ripgrep 45 条全真边坐实辖区） · ~~L2-14 JVM 源根~~ ✅（2026-07-30，KMP 布局 + 成员导入，st 1037→111）——**P2 出空，L2 层清零** | T6 的 Rust 半局由第二仓闭合：45 条可核对真边，判留 |
-> | **P2.5 下一批（2026-08-03 重估）** | **L3-9 Java 半**（javalang 实测读不了 Java 14+，装了也 regex——从"品味问题"升格为能力缺口，P3 里最该先做的一条） · **L3-7 Vue 半**（`tree-sitter-vue.wasm` 已在包内，零新依赖；模板组件引用现在零边） | 这两条不是审美，是"现在拿到的数据就是错的"。Svelte 半仍冻结 |
-> | **P3 记账不排期** | L3-4 扩展名分支（T6 后只剩 JVM/Rust/Go/C++ 共享段，L2-22 判留后塌缩终态作废） · ~~L3-5 死方法~~ ✅（2026-08-02 `lookupUnique` 连测试删除） · L3-8 防御性兜底 · ~~L3-9 Python 半~~ ✅（2026-08-02 tree-sitter 迁移，**738 文件 parity 零 diff**——437 根集按仓库名挑，漏了 3.11+ 的 `except*`，扩到 `reference/` + `test/fixtures/` 全量才封口） · L3-10 hasCpp 不覆盖纯 .c 仓 · L3-11 双 freshness 判据 · L3-12 分层靠猜 · L3-13 每条各自冷启动 · ~~L3-14 tryJava probe 放大缺前后对照~~ ✅ · ~~L3-15 Python stdlib 手抄名单~~ ✅（2026-08-01 换源 sys.stdlib_module_names） · **L3-16 tsconfig `extends` 不跟**（新登记，官方 `typescript` 包可解，回报待实测） | L3-8 走"接触即修"，不做大扫除；L3-11 的沉默已修、分歧留档；L3-12/13 是测试执行债，可观测性与调度已落地，剩下两条都要"先测再改"；L3-14 测量债已于 2026-08-05 完成前后对照验证并销账 |
+> | **P2.5 下一批（2026-08-03 重估）** | ~~**L3-9 Java 半**~~ ✅（2026-08-05 tree-sitter 迁移 + spawn 路径删除 + L3-14 测量销账，史见 CHANGELOG） · ~~**L3-7 Vue 半**~~ ✅（2026-08-12 tree-sitter-vue WASM + 模板组件引用成边，史见 CHANGELOG） | 这两条不是审美，是"现在拿到的数据就是错的"。**P2.5 出空**。Svelte 半仍冻结 |
+> | **P3 记账不排期** | L3-4 扩展名分支（T6 后只剩 JVM/Rust/Go/C++ 共享段，L2-22 判留后塌缩终态作废） · ~~L3-5 死方法~~ ✅（2026-08-02 `lookupUnique` 连测试删除） · L3-8 防御性兜底 · ~~L3-9 Python 半~~ ✅（2026-08-02 tree-sitter 迁移，**738 文件 parity 零 diff**——437 根集按仓库名挑，漏了 3.11+ 的 `except*`，扩到 `reference/` + `test/fixtures/` 全量才封口） · ~~**L3-9 Java 半**~~ ✅（2026-08-05，史见 CHANGELOG） · L3-10 hasCpp 不覆盖纯 .c 仓 · L3-11 双 freshness 判据 · L3-12 分层靠猜 · L3-13 每条各自冷启动 · ~~L3-14 tryJava probe 放大缺前后对照~~ ✅ · ~~L3-15 Python stdlib 手抄名单~~ ✅（2026-08-01 换源 sys.stdlib_module_names） · **L3-16 tsconfig `extends` 不跟**（新登记，官方 `typescript` 包可解，回报待实测） | L3-8 走"接触即修"，不做大扫除；L3-11 的沉默已修、分歧留档；L3-12/13 是测试执行债，可观测性与调度已落地，剩下两条都要"先测再改"；L3-14 测量债已于 2026-08-05 完成前后对照验证并销账 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
 > | **预防性约束** | postProcess 记录不落盘 · `_invalidateParseCache` 单一入口 · regex-fallback 缓存不信任 · warm/cold 逐字节一致 · `_readGuard` 单一读闸 · DependencyGraphView 白名单同步 · 「本轮实测」字段不进快照 · 门禁型出口不吃 replay · **路径归一化不进返回值**（新，三个实例后的收刀） | 这些是已修债务转移后的形态：实例没了，让实例发生的结构还在 |
 >
@@ -126,13 +126,13 @@
 
 > 删除前置条件（`lookupBestMatch` 侧需有等价路径规范化覆盖）实测不成立——先补 `testLookupBestMatchNormalizesFromFile`（冗余分隔符 + Windows 原生反斜杠两断言，杀变异验红），再连方法带 3 个孤儿测试函数删除。CACHE_VERSION 不动。
 
-### L3-7：Vue / Svelte 的 `extractSymbols` 是逐行正则
+### ~~L3-7：Vue 半——SFC 解析与模板组件引用~~ ✅ 已修复（2026-08-12，史见 CHANGELOG 同日条目）
 
 注册表里这两个语言的 `extractSymbols` 用正则匹配 `class` / `function` / `const` 逐行抽符号，而它们的 `parse` 走的是 babel AST。同一语言两条路径两种精度。这不影响依赖边（边来自 `parse`），但它是"9 种语言 AST 覆盖 100%"这一说法的折扣项——`file-index.js` 消费的是正则那条。
 
 **拆分（2026-08-03，按「官方解析器能否进程内」判据重估）**：这两半的解法成本差一个量级，不该继续捆在一条里。
 
-- **Vue 半——有零依赖解法，顺位提前**：`tree-sitter-vue.wasm` 已经在 `node_modules/tree-sitter-wasms/out/` 里躺着（和 Go/Rust/Kotlin 同一来源），不需要新依赖。更准的是官方 `@vue/compiler-sfc`（npm 包，进程内），代价是引入 Vue 2/3 SFC 编译器版本耦合。除符号抽取外还能补上**模板里的组件引用**（`<MyComponent />` 是隐式依赖，现在一条边都抽不出来）——这才是 Vue 半的大头，比符号精度值钱。
+- ~~**Vue 半——有零依赖解法，顺位提前**~~ ✅：`tree-sitter-vue.wasm` 已经在 `node_modules/tree-sitter-wasms/out/` 里躺着（和 Go/Rust/Kotlin 同一来源），不需要新依赖。本次已迁移到 `src/services/dep-graph/parsers/vue-ast.js`，脚本块按 AST 抽取更稳健，并补上**模板里的组件引用**（`<MyComponent />` 与 `<component :is="...">` 命中脚本 import 时生成 `isTemplateUsage` 边）。`reference/vue-realworld-example-app` 实测 `App.vue` importRecords 2→4。
 - **Svelte 半——维持冻结**：`tree-sitter-wasms` 里**没有** svelte 语法，唯一路径是官方 `svelte/compiler`，而 Svelte 4/5 差异大、版本耦合更重，且 Svelte 本就是降级语言。解冻条件：真实 Svelte 仓报出问题。
 
 > 精确说，现状不是"Vue/Svelte 用正则解析"：`<script>` **内容**由 babel 解析，质量没问题；正则的是抠 `<script>` 标签这一步（字符串里含 `</script>`、注释里的标签会错）和 `extractSymbols`，而**模板整个不看**。

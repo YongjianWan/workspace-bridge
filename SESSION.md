@@ -6,27 +6,24 @@
 
 ---
 
-## 本轮会话 (2026-08-05，L3-9 Java 半：tree-sitter 迁移 + spawn 路径删除 + L3-14 性能测量)
+## 本轮会话 (2026-08-12，L3-7 Vue 半：tree-sitter-vue WASM + 模板组件引用成边)
 
 ### 本轮完成
-1. **`parsers/java-ast.js` 新写**：基于 tree-sitter WASM 进程内解析替代原 `spawn-ast.js` + `java_ast_parser.py` (javalang) 进程。适配 javalang 原生 JSON 字段规范，支持 package / imports 提取及 exports 树级前序走访（嵌套类、内部类可识别，匿名类主体过滤）。
-2. **零 diff 验收**：对 okhttp-samples 及 spring-petclinic 合计 94 个 `.java` 文件进行 parity deep-diff 验证，最终结果 `files=94 identical=93 diffed=0 oracleCannotParse=1 newParserNull=0`，在 Java-8 子集下取得完美的 **100% 结构等价（零 diff）**，现代语法 `Modern.java` 由 WASM 成功解析（旧版 oracle 无法解析，预期进入 `oracleCannotParse`）。
-3. **彻底删除 spawn 路径**：物理删除了 `spawn-ast.js`、`java_ast_parser.py` 及相关的 4 个 `spawn-ast-*.js` 测试。
-4. **测量债 L3-14 销账**：利用 git worktree 临时回到 `053e17a~1`（改动前版本），对 `spring-petclinic` 进行冷构建前后对照。旧版平均耗时 **7.68s**，当前 HEAD (WASM) 降至 **6.58s**，在小型项目上实现约 **14% 的性能提升**，L3-14 顺利销账并从 `docs/TECH_DEBT.md` 移除。
-5. **健壮性修复**：修复了 `parser-parity-java.js` 和 `parser-parity-python.js` 归档对照器中对已删除 `spawn-ast.js` 的 require 崩溃问题，增加 try-catch 容错。
-6. **全量测试通过**：全量测试集 `node test/runner.js` **269/269 全部通过**，零回归。
+1. **`parsers/vue-ast.js` 新写**：基于 `tree-sitter-vue` WASM 进程内解析完整 SFC，替代正则抠 `<script>` 标签的旧路径。按 AST 抽取 `script_element` 的 `raw_text`，消除字符串/注释里 `</script>` 的错切边界；检测 `lang="ts"` 并把有效扩展名换为 `.ts` 交给 JS/TS parser。
+2. **模板组件引用成边**：遍历 `template_element`，收集 PascalCase tag 与 `<component :is="...">` 的静态标识符，只与脚本 import 的本地绑定交叉匹配，命中后生成带 `isTemplateUsage: true` 的 `importRecord`。在 `reference/vue-realworld-example-app` 实测：`App.vue` 的 `importRecords` 从 2 条变为 4 条（2 脚本 import + 2 模板 usage），`TheHeader.vue` 变更仍会波及 `App.vue`。
+3. **保守策略**：不 import 的组件不生成记录；原生小写 HTML 标签与 Vue 内建标签（`component`/`slot`/`template`/transition 系）不过滤；全局注册/自定义元素/auto-import 等无法静态解析的场景不造边。
+4. **测试更新**：`test/vue-parser-test.js` 全部主路径改跑新 parser，新增 TS script block、模板 PascalCase 命中 import、动态 `:is`、未 import 组件不生成记录、旧 parser 仍可用等断言；`npm run test:fast` **150/150 PASS**。
+5. **缓存版本**：`CACHE_VERSION` 35→36，`.vue` 文件 parseMode 与 importRecords 形状变化导致旧缓存不可比。
 
-### 下一轮入口（2026-08-05 重排，依据见 TECH_DEBT「解析器选型判据」决策原则）
+### 下一轮入口（2026-08-12 重排）
 
-**1. L3-7 Vue 半** —— `tree-sitter-vue.wasm` 已在 `node_modules` 内，零新依赖。大头不是符号精度，是**模板里的组件引用现在一条边都抽不出来**。Svelte 半维持冻结（无 tree-sitter 语法 + 官方编译器 4/5 版本耦合）。
+**1. 两条一行债** —— `resolveFileOnly` 的 ext 大小写不一致（`builder.js:407`）；仓库根两个垃圾目录（顺带查出是哪个测试写的）。
 
-**2. 两条一行债** —— `resolveFileOnly` 的 ext 大小写不一致（`builder.js:407`）；仓库根两个垃圾目录（顺带查出是哪个测试写的）。
+**2. L3-12 + L3-13 一组做（先测再改）** —— 全量 511s，slow 层是主要成本且 43% 是启发式塞的。先给 runner 加每条测试的真实耗时与冷启动次数统计，用数据重排分层，**然后**才谈池化。ROADMAP 的「per-tool benchmark 回归检查」正好做数据地基，合并。
 
-**3. L3-12 + L3-13 一组做（先测再改）** —— 全量 511s，slow 层是主要成本且 43% 是启发式塞的。先给 runner 加每条测试的真实耗时与冷启动次数统计，用数据重排分层，**然后**才谈池化。ROADMAP 的「per-tool benchmark 回归检查」正好做数据地基，合并。
+**3. L3-16（新登记）排期前先量** —— tsconfig `extends` 不跟，官方 `typescript` 包可解且进程内。但回报是推理不是实测，先扫真实 monorepo 统计因此落进 dropped 的 import 数，数字不支持就维持 P3。
 
-**4. L3-16（新登记）排期前先量** —— tsconfig `extends` 不跟，官方 `typescript` 包可解且进程内。但回报是推理不是实测，先扫真实 monorepo 统计因此落进 dropped 的 import 数，数字不支持就维持 P3。
-
-**不做**：性能两条 P1（ROADMAP 自述"接受现状"，10k 文件才显形）；Call-Resolution DAG / ACCESSES 边 / Next.js 路由（越界语义分析）；L3-4（L2-22 判留后终态作废，剩纯审美）；L3-8（定的就是接触即修）。
+**不做**：性能两条 P1（ROADMAP 自述"接受现状"，10k 文件才显形）；Call-Resolution DAG / ACCESSES 边 / Next.js 路由（越界语义分析）；L3-4（L2-22 判留后终态作废，剩纯审美）；L3-8（定的就是接触即修）；Svelte 半仍冻结（无 tree-sitter 语法 + 官方编译器 4/5 版本耦合）。
 
 ---
 
@@ -36,6 +33,8 @@
 
 | 时间 | 关键里程碑 | CHANGELOG |
 | :--- | :--- | :--- |
+| 2026-08-12 | L3-7 Vue 半：tree-sitter-vue WASM + 模板组件引用成边 | 2026-08-12 L3-7 |
+| 2026-08-05 | L3-9 Java 半：tree-sitter 迁移 + spawn 路径删除 + L3-14 性能测量 | 2026-08-05 L3-9 |
 | 2026-08-02 续五 | L3-9 Python tree-sitter 迁移，738/738 零 diff，删 spawn Python 半 | 2026-08-02 L3-9 |
 | 2026-08-02 续三 | 伞形 groupId 修复 e2437c1，CACHE_VERSION 31→32 | 2026-08-02 伞形 |
 | 2026-08-02 续二 | Kotlin package 修复 + JVM manifest v1（e7b86e8/d78e16f） | 2026-08-02 |
@@ -59,7 +58,7 @@
 >
 > 收工时已跑 `npm run test:fast` 并确认 fast 层全绿，开工无需重跑。全量 runner 状态见下方「基线状态」。直接读取下方「基线状态」确认当前文档记录是否仍成立。
 >
-> 开发迭代推荐 `npm run test:fast`（~18s，126 个 fast 层测试），比全量 runner（~5min）快 16×。
+> 开发迭代推荐 `npm run test:fast`（~22s，150 个 fast 层测试），比全量 runner（~15min）快 40×。
 
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
@@ -82,7 +81,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**全量 runner 251/251 全绿**（2026-07-23，wave8/query-tools 历史 flaky 根治后首次零失败）；`npm run test:fast` **137/137 PASS**（~22s）。开发迭代首选 `npm run test:fast`。
+- 测试：**全量 runner 269 tests，268 passed，1 flaky fail 单独复跑 PASS**（2026-08-12，`git-environment-probe-test.js` 在并发 runner 中偶发 SIGTERM，单独重跑稳定通过）；`npm run test:fast` **150/150 PASS**（~22s）。开发迭代首选 `npm run test:fast`。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.1.0**（以 `package.json` 为准）
 - 分支：`main`
