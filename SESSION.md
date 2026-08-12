@@ -17,7 +17,7 @@
 
 ### 下一轮入口（2026-08-12 重排）
 
-**1. 两条一行债** —— `resolveFileOnly` 的 ext 大小写不一致（`builder.js:407`）；仓库根两个垃圾目录（顺带查出是哪个测试写的）。
+**1. 一条一行债已修，另一条未复现** —— `resolveFileOnly` 的 ext 大小写不一致已修复（`builder.js` 归一化 + `test/builder-ext-case-test.js` 回归）。仓库根两个垃圾目录当前 `git clean -fdxn` 未出现，疑似已被相关测试清理；如后续复现再定位写目录的测试。
 
 **2. L3-12 + L3-13 一组做（先测再改）** —— 全量 511s，slow 层是主要成本且 43% 是启发式塞的。先给 runner 加每条测试的真实耗时与冷启动次数统计，用数据重排分层，**然后**才谈池化。ROADMAP 的「per-tool benchmark 回归检查」正好做数据地基，合并。
 
@@ -81,7 +81,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**全量 runner 269 tests，268 passed，1 flaky fail 单独复跑 PASS**（2026-08-12，`git-environment-probe-test.js` 在并发 runner 中偶发 SIGTERM，单独重跑稳定通过）；`npm run test:fast` **150/150 PASS**（~22s）。开发迭代首选 `npm run test:fast`。
+- 测试：**全量 runner 269 tests，268 passed，1 flaky fail 单独复跑 PASS**（2026-08-12，`git-environment-probe-test.js` 在并发 runner 中偶发 SIGTERM，单独重跑稳定通过）；`npm run test:fast` **151/151 PASS**（~22s）。开发迭代首选 `npm run test:fast`。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.1.0**（以 `package.json` 为准）
 - 分支：`main`

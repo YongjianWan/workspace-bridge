@@ -16,6 +16,10 @@
 
 
 
+### Fix: `GraphBuilder.resolveFileOnly` 扩展名大小写归一化（2026-08-12）
+
+`resolveFileOnly` 现在将 `path.extname(filePath)` 转为小写后再传给 resolver 策略与缓存。此前在大小写不敏感文件系统上，名为 `App.JAVA` 的文件会错过 Java 专用 resolver 配置，回退到默认策略后无法解析同包 Java import。新增 `test/builder-ext-case-test.js` 回归锁定该行为。
+
 ### L3-7 Vue 半：SFC 解析迁进进程内 tree-sitter-vue WASM，模板组件引用首次成边（2026-08-12）
 
 Vue SFC 解析从正则抠 `<script>` 标签迁移到进程内 `tree-sitter-vue` WASM（`src/services/dep-graph/parsers/vue-ast.js`）。正则方案在字符串/注释里遇到 `</script>` 会错切，`tree-sitter-vue` 按完整 SFC AST 抽取 `script_element` 的 `raw_text`，彻底消除这类边界错误；同时检测 `lang="ts"` 并把有效扩展名换为 `.ts` 交给 JS/TS parser，script-setup 与常规 script 块合并后一次解析。
