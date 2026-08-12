@@ -364,7 +364,9 @@ function main() {
   testTryJavaMemberImportsStripToClassFile();
   testT6SymbolTableChainMembership();
   testT6JsBareSymbolNoLongerResolves();
+  testResolverTableDrivenPrecedenceMatrix();
 }
+
 
 // ============================================================================
 // L2-17: PEP 420 namespace packages — `from PKG import X` where PKG is a
@@ -702,4 +704,217 @@ function testT6JsBareSymbolNoLongerResolves() {
   assert.strictEqual(javaHit, '/src/Target.java', `JVM symbol-table fallback must keep working, got ${javaHit}`);
 }
 
+// ============================================================================
+// Table-Driven Strategy Precedence & Collision Matrix
+// Validates strategy order and ownership gates when multiple candidate matches
+// exist for an import specifier across all 9 languages (JS/TS, Python, Java,
+// Kotlin, Go, Rust, C/C++, Vue SFC, Svelte).
+// ============================================================================
+
+function testResolverTableDrivenPrecedenceMatrix() {
+  const { SymbolRegistry } = require('../src/services/dep-graph/symbol-registry');
+
+  const matrixCases = [
+    {
+      name: 'JS: tsconfig alias wins over fallback',
+      ext: '.js',
+      fromFile: 'src/app.js',
+      importPath: '@/components/Button',
+      setup: (dir, registry) => {
+        fs.writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } } }));
+        fs.mkdirSync(path.join(dir, 'src', 'components'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'src', 'components', 'Button.js'), '');
+        registry.register(path.join(dir, 'src', 'other', 'Button.js'), [{ name: 'Button' }]);
+      },
+      assertResult: (res, dir) => assert.strictEqual(res, path.join(dir, 'src', 'components', 'Button.js')),
+    },
+    {
+      name: 'JS: Relative import wins over alias pattern matching ./',
+      ext: '.js',
+      fromFile: 'src/components/Card.js',
+      importPath: './Button',
+      setup: (dir) => {
+        fs.writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { './*': ['src/other/*'] } } }));
+        fs.mkdirSync(path.join(dir, 'src', 'components'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'src', 'components', 'Button.js'), '');
+      },
+      assertResult: (res, dir) => assert.strictEqual(res, path.join(dir, 'src', 'components', 'Button.js')),
+    },
+    {
+      name: 'JS: Declared package in package.json blocks symbol table lookup',
+      ext: '.js',
+      fromFile: 'src/app.js',
+      importPath: 'lodash',
+      setup: (dir, registry) => {
+        fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: { lodash: '^4.0.0' } }));
+        registry.register(path.join(dir, 'src', 'fake-lodash.js'), [{ name: 'lodash' }]);
+      },
+      assertResult: (res) => assert.strictEqual(res, null),
+    },
+    {
+      name: 'Java: tryJava direct class wins over Symbol Table match',
+      ext: '.java',
+      fromFile: 'src/main/java/com/example/Main.java',
+      importPath: 'com.example.Service',
+      setup: (dir, registry) => {
+        fs.mkdirSync(path.join(dir, 'src', 'main', 'java', 'com', 'example'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'src', 'main', 'java', 'com', 'example', 'Service.java'), '');
+        registry.register(path.join(dir, 'src', 'main', 'java', 'com', 'other', 'FakeService.java'), [{ name: 'Service' }]);
+      },
+      assertResult: (res, dir) => assert.strictEqual(res, path.join(dir, 'src', 'main', 'java', 'com', 'example', 'Service.java')),
+    },
+    {
+      name: 'Java: Declared Maven dependency blocks Symbol Table fallback',
+      ext: '.java',
+      fromFile: 'src/main/java/com/example/Main.java',
+      importPath: 'com.google.common.base.Preconditions',
+      setup: (dir, registry) => {
+        fs.writeFileSync(path.join(dir, 'pom.xml'), '<project><dependencies><dependency><groupId>com.google.guava</groupId><artifactId>guava</artifactId></dependency></dependencies></project>');
+        registry.register(path.join(dir, 'src', 'main', 'java', 'com', 'example', 'Preconditions.java'), [{ name: 'Preconditions' }]);
+      },
+      assertResult: (res) => assert.strictEqual(res, null),
+    },
+    {
+      name: 'Python: Relative import wins over absolute/symbol-table matches',
+      ext: '.py',
+      fromFile: 'pkg/main.py',
+      importPath: '.mod',
+      setup: (dir, registry) => {
+        fs.mkdirSync(path.join(dir, 'pkg'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'pkg', 'mod.py'), '');
+        registry.register(path.join(dir, 'other', 'mod.py'), [{ name: 'mod' }]);
+      },
+      assertResult: (res, dir) => assert.strictEqual(res, path.join(dir, 'pkg', 'mod.py')),
+    },
+    {
+      name: 'Python: Declared pyproject dependency blocks Symbol Table fallback',
+      ext: '.py',
+      fromFile: 'src/main.py',
+      importPath: 'requests',
+      setup: (dir, registry) => {
+        fs.writeFileSync(path.join(dir, 'pyproject.toml'), '[project]\ndependencies = ["requests>=2.0"]\n');
+        registry.register(path.join(dir, 'src', 'my_requests.py'), [{ name: 'requests' }]);
+      },
+      assertResult: (res) => assert.strictEqual(res, null),
+    },
+    {
+      name: 'Rust: tryRustCrate wins over Symbol Table',
+      ext: '.rs',
+      fromFile: 'src/main.rs',
+      importPath: 'crate::pkg::helper',
+      setup: (dir, registry) => {
+        fs.mkdirSync(path.join(dir, 'src', 'pkg'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'src', 'pkg', 'helper.rs'), '');
+        registry.register(path.join(dir, 'src', 'other.rs'), [{ name: 'helper' }]);
+      },
+      assertResult: (res, dir) => assert.strictEqual(res, path.join(dir, 'src', 'pkg', 'helper.rs')),
+    },
+    {
+      name: 'Rust: Stdlib path std::process::Command blocks Symbol Table',
+      ext: '.rs',
+      fromFile: 'src/main.rs',
+      importPath: 'std::process::Command',
+      setup: (dir, registry) => {
+        registry.register(path.join(dir, 'src', 'cmd.rs'), [{ name: 'Command' }]);
+      },
+      assertResult: (res) => assert.strictEqual(res, null),
+    },
+    {
+      name: 'Go: tryGoModule wins over Symbol Table',
+      ext: '.go',
+      fromFile: 'main.go',
+      importPath: 'example.com/test/pkg/foo',
+      setup: (dir, registry) => {
+        fs.writeFileSync(path.join(dir, 'go.mod'), 'module example.com/test\n');
+        fs.mkdirSync(path.join(dir, 'pkg', 'foo'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'pkg', 'foo', 'foo.go'), 'package foo\n');
+        registry.register(path.join(dir, 'other', 'foo.go'), [{ name: 'foo' }]);
+      },
+      assertResult: (res, dir) => assert(res && res.includes(path.join('pkg', 'foo', 'foo.go'))),
+    },
+    {
+      name: 'Go: Stdlib import fmt blocks Symbol Table fallback',
+      ext: '.go',
+      fromFile: 'main.go',
+      importPath: 'fmt',
+      setup: (dir, registry) => {
+        registry.register(path.join(dir, 'src', 'fmt.go'), [{ name: 'fmt' }]);
+      },
+      assertResult: (res) => assert.strictEqual(res, null),
+    },
+    {
+      name: 'Kotlin: tryJava/Kotlin direct class wins over Symbol Table match',
+      ext: '.kt',
+      fromFile: 'src/main/kotlin/com/example/Main.kt',
+      importPath: 'com.example.Service',
+      setup: (dir, registry) => {
+        fs.mkdirSync(path.join(dir, 'src', 'main', 'kotlin', 'com', 'example'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'src', 'main', 'kotlin', 'com', 'example', 'Service.kt'), '');
+        registry.register(path.join(dir, 'src', 'main', 'kotlin', 'com', 'other', 'FakeService.kt'), [{ name: 'Service' }]);
+      },
+      assertResult: (res, dir) => assert.strictEqual(res, path.join(dir, 'src', 'main', 'kotlin', 'com', 'example', 'Service.kt')),
+    },
+    {
+      name: 'C/C++: Local quote-include wins over Symbol Table',
+      ext: '.cpp',
+      fromFile: 'src/main.cpp',
+      importPath: 'helper.h',
+      setup: (dir, registry) => {
+        fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'src', 'helper.h'), '');
+        registry.register(path.join(dir, 'other', 'helper.h'), [{ name: 'helper' }]);
+      },
+      assertResult: (res, dir) => assert.strictEqual(res, path.join(dir, 'src', 'helper.h')),
+    },
+    {
+      name: 'C/C++: System header name vector blocks Symbol Table',
+      ext: '.cpp',
+      fromFile: 'src/main.cpp',
+      importPath: 'vector',
+      setup: (dir, registry) => {
+        registry.register(path.join(dir, 'src', 'vector.h'), [{ name: 'vector' }]);
+      },
+      assertResult: (res) => assert.strictEqual(res, null),
+    },
+    {
+      name: 'Vue SFC: Relative import resolves .vue component file',
+      ext: '.vue',
+      fromFile: 'src/components/Parent.vue',
+      importPath: './Child.vue',
+      setup: (dir) => {
+        fs.mkdirSync(path.join(dir, 'src', 'components'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'src', 'components', 'Child.vue'), '<template></template>');
+      },
+      assertResult: (res, dir) => assert.strictEqual(res, path.join(dir, 'src', 'components', 'Child.vue')),
+    },
+    {
+      name: 'Svelte: Relative import resolves .svelte component file',
+      ext: '.svelte',
+      fromFile: 'src/lib/App.svelte',
+      importPath: './Widget.svelte',
+      setup: (dir) => {
+        fs.mkdirSync(path.join(dir, 'src', 'lib'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'src', 'lib', 'Widget.svelte'), '<script></script>');
+      },
+      assertResult: (res, dir) => assert.strictEqual(res, path.join(dir, 'src', 'lib', 'Widget.svelte')),
+    },
+  ];
+
+
+  for (const tc of matrixCases) {
+    clearResolverCaches();
+    const dir = makeTempDir('wb-matrix-');
+    try {
+      const registry = new SymbolRegistry();
+      tc.setup(dir, registry);
+      const absFromFile = path.join(dir, tc.fromFile);
+      const res = resolveImport(absFromFile, tc.importPath, tc.ext, dir, registry, {});
+      tc.assertResult(res, dir);
+    } finally {
+      cleanupTempDir(dir);
+    }
+  }
+}
+
 main();
+
