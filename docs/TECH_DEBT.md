@@ -293,8 +293,8 @@
 > 这些不是"已解决"，是**优先级被移走**。语言范围（2026-07-28 用户拍板）：TS/JS（含 `.jsx`/`.tsx`，即 React——它不是独立语言，走同一 parser / 同一链 / 同一闸）、Python、Go、Rust、Java、Vue 在范围内；Kotlin / C·C++ / Svelte 边层通着但债务降级。
 
 - **C/C++ `tryCppInclude` 不校验命中类型与仓外爬升**（`resolvers/cpp.js`）：`cachedExistsSync` 只判 stat 非 null，`#include "utils"` 撞上同名**目录**会返回目录当边；`#include "../../../x.h"` 会把仓外文件拉进图。`tryRelativeWithExtensions` 同款（既有行为，非本轮引入）。解冻条件：C/C++ 回到范围内，或任何仓报出目录型节点 / 仓外路径节点。改法：命中后加 `isFile()` + root 包含判定。
-- **`resolveFileOnly` 的 ext 大小写不一致**（`builder.js:407`）：`resolveImport` 拿裸 `path.extname(filePath)`，而 T5 的闸调用拿 `ext.toLowerCase()`。`MAIN.C` / `Foo.H` 这类文件 resolver 链落到 default（等于回到 L1-4 的病），而丢弃记账走 cpp 闸——两边判定分叉。解冻条件：出现大写扩展名的真实仓，或统一 ext 归一时顺手做掉（一行）。
-- **仓库根目录两个垃圾目录**：`UserssdsesAppDataLocalTempwb-test-b331ad95` / `UserssdsesAppDataLocalTempwb-test-cache`（2026-07-20 遗留，某测试把 Windows 绝对路径当相对目录用、分隔符被吃掉）。`git status` 看不见是因为里面只有被 ignore 的 `cache.db`。可直接删；根因是哪个测试没查。
+- ~~**`resolveFileOnly` 的 ext 大小写不一致**~~ ✅（2026-08-12，`builder.js` 归一化 + `test/builder-ext-case-test.js` 回归锁定，史见 CHANGELOG 同日条目）。
+- **仓库根目录两个垃圾目录**：`UserssdsesAppDataLocalTempwb-test-b331ad95` / `UserssdsesAppDataLocalTempwb-test-cache`（2026-07-20 遗留）。当前工作区已不存在这两个目录；如复现，定位写目录的测试并修路径拼接。
 - **Next.js 路由提取缺失**（`framework-patterns.js`）：有 Nuxt（:143）与 SvelteKit（:145）的 route query，**没有 React/Next**（该文件 `react`/`next` 零命中）。后果：Next 的文件系统路由（`app/` / `pages/api/`）抽不出，`api-contracts` 拿 Next 当后端全部对不上。**明确不做**——它是加特性不是减债，与当前"只做减法"的方向冲突。解冻条件：噪声治理完成（L2-11 三缺口 + L2-16）之后，若真实 Next 仓的实测数据支持，再评估。
 
 ---
