@@ -120,6 +120,11 @@ const SCHEMA_VERSION = '1.2.0';
 //      javalang 无 AnnotationTypeDeclaration 类（真名 AnnotationDeclaration），
 //      旧脚本那支是死代码，@interface 零导出；新路径按 regex 路径的既有契约
 //      发 kind='annotation' 导出。record 的 kind 两条路径统一为 'record'。
-const CACHE_VERSION = 35;
+// v36: L3-7 Vue 半——Vue SFC 解析从正则抠 <script> 标签迁移到进程内
+//      tree-sitter-vue WASM（parsers/vue-ast.js）。脚本块提取更稳健，新增
+//      模板组件引用抽取（命中脚本 import 的 PascalCase tag / :is 生成
+//      isTemplateUsage importRecord）。v35 缓存里 .vue 文件的 parseMode 与
+//      importRecords 形状与新路径不可比，作废重建。
+const CACHE_VERSION = 36;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };
