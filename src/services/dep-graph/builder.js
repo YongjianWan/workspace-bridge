@@ -447,7 +447,9 @@ class GraphBuilder {
       );
     }
     const { filePath, graphKey, content, imports, exports, importRecords, exportRecords, functionRecords, parseMode, parseModeReason, confidence, package: packageName } = parsed;
-    const ext = path.extname(filePath);
+    // Normalize extension case so resolver cache and strategy lookup behave
+    // consistently on case-insensitive filesystems (e.g., App.Vue).
+    const ext = path.extname(filePath).toLowerCase();
 
     // Resolve relative/absolute/symbol imports to absolute paths
     const resolvedImportRecords = (importRecords.length > 0 ? importRecords : imports.map((source) => createImportRecord(source)))
