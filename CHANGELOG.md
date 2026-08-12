@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### Test: 9 大语言死代码 Ground-Truth 语料与 Precision/Recall 断言（2026-08-05）
+
+* **Changed** `test/dead-export-ground-truth-test.js` 扩展至完全覆盖 9 大语言（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue SFC、Svelte），构造多语言混合真实语料集，严格断言 `precision === 1` 与 `recall === 1`。
+
+### Test: Resolver 策略冲突表驱动矩阵测试（2026-08-05）
+
+* **Added** `testResolverTableDrivenPrecedenceMatrix()` 于 `test/resolver-strategy-chain-test.js`，完全覆盖 9 大语言（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue SFC、Svelte）的多策略优先级与第三方包/标准库遮蔽边界表驱动测试矩阵。
+
+
+
+
 ### L3-9 Java 半：AST 解析迁进进程内 tree-sitter WASM，spawn 基建彻底删除与 L3-14 性能测量（2026-08-05）
 
 继 Python 半之后，Java 是最后一个需要跨进程 spawn python 调用外部解析库（`javalang` 0.13.0，2020 年已停更）的语言。本次改动彻底实现了 Java 解析器往进程内 tree-sitter WASM 的迁移（`src/services/dep-graph/parsers/java-ast.js`），并下线了全部进程 spawn 基建（`spawn-ast.js`）。
