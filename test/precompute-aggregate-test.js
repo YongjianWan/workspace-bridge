@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @contract — Precomputed aggregate cache hit, invalidation, and persistent round-trip behavior
 
 /**

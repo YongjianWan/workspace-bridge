@@ -1,3 +1,4 @@
+// @fast
 // @contract
 //
 // Locks the runner's classification LABELS, not its layers. Phase 1 of the
@@ -15,7 +16,7 @@ const TEST_DIR = __dirname;
 
 // Rules 1–2 are declarations (a human said so). Rule 3 is a guess from which
 // API the file mentions. The distinction is the whole point of the field.
-const DECLARED = new Set(['annotation-slow', 'annotation-watch', 'annotation-serial', 'known-slow-pattern', 'filename-watch']);
+const DECLARED = new Set(['annotation-slow', 'annotation-watch', 'annotation-serial', 'annotation-fast', 'known-slow-pattern', 'filename-watch']);
 const GUESSED = new Set(['heuristic-runcli', 'heuristic-spawn-cli', 'heuristic-heavy-api']);
 const ALL_REASONS = new Set([...DECLARED, ...GUESSED, 'default-fast']);
 
@@ -32,6 +33,22 @@ function testExplicitSlowAnnotationIsReportedAsDeclared() {
   const d = classifyTestDetail('query-tools-test.js'); // header: // @slow
   assert.strictEqual(d.layer, 'slow');
   assert.strictEqual(d.reason, 'annotation-slow', 'an @slow header must be reported as a declaration');
+}
+
+function testFastAnnotationOutranksHeuristics() {
+  // A synthetic file that would be heuristic-slow because it mentions runCli,
+  // but carries // @fast in its header.
+  const synthetic = '// @fast\nconst { runCli } = require("./helpers");\n';
+  const d = classifyTestDetail('synthetic-fast-annotation.js', synthetic);
+  assert.strictEqual(d.layer, 'fast');
+  assert.strictEqual(d.reason, 'annotation-fast', '@fast must outrank runCli heuristic');
+}
+
+function testSlowAnnotationOutranksFastAnnotation() {
+  const synthetic = '// @slow\n// @fast\n';
+  const d = classifyTestDetail('synthetic-slow-beats-fast.js', synthetic);
+  assert.strictEqual(d.layer, 'slow');
+  assert.strictEqual(d.reason, 'annotation-slow', '@slow must outrank @fast when both are present');
 }
 
 function testHeuristicDemotionIsLabelledAsAGuess() {
@@ -80,11 +97,13 @@ function testHeuristicDemotionIsMeasurablyCommon() {
 function main() {
   testAnnotationBeatsHeuristic();
   testExplicitSlowAnnotationIsReportedAsDeclared();
+  testFastAnnotationOutranksHeuristics();
+  testSlowAnnotationOutranksFastAnnotation();
   testHeuristicDemotionIsLabelledAsAGuess();
   testPlainUnitTestFallsThroughToFast();
   testEveryTestFileGetsAKnownReason();
   testHeuristicDemotionIsMeasurablyCommon();
-  console.log('runner-classification: 6/6 passed');
+  console.log('runner-classification: 8/8 passed');
 }
 
 main();

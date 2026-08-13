@@ -1,3 +1,4 @@
+// @fast
 // @semantic
 // Cross-platform path normalization regression tests.
 // Validates that POSIX forward slashes and Windows backslashes resolve to

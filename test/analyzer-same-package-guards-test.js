@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @semantic
 /**
  * Guards for two spots registered as zero-coverage on 2026-08-01 (mutation

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @contract — Monorepo boundary detection, --service filtering, reference role downgrade
 
 const assert = require('assert');

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @semantic
 // L2-21: Go package imports bind the PACKAGE (all non-test .go files), not the
 // alphabetically first file; files in the same package (same dir) reference

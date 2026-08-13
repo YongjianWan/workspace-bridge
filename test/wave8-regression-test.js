@@ -32,17 +32,25 @@ async function main() {
       'CLI and REPL affected-tests count should match'
     );
 
-    const cliByDist = cli.affectedTests.reduce((m, t) => {
+    // Graph-derived distances must be byte-for-byte consistent between CLI and
+    // REPL — that is the #29 regression being guarded. Mention/heuristic rows
+    // are content-dependent terminators (e.g. a test file that happens to
+    // contain the stem "container"); their exact set changes whenever any test
+    // file is edited, so including them here makes the assertion a test of the
+    // current corpus rather than of CLI/REPL equivalence. The mention contract
+    // (distance, terminator flag) is asserted separately below.
+    const graphOnly = (t) => t.source === 'graph';
+    const cliByDist = cli.affectedTests.filter(graphOnly).reduce((m, t) => {
       const key = t.distance == null ? 'null' : String(t.distance);
       m[key] = (m[key] || 0) + 1;
       return m;
     }, {});
-    const replByDist = repl.result.affectedTests.reduce((m, t) => {
+    const replByDist = repl.result.affectedTests.filter(graphOnly).reduce((m, t) => {
       const key = t.distance == null ? 'null' : String(t.distance);
       m[key] = (m[key] || 0) + 1;
       return m;
     }, {});
-    assert.deepStrictEqual(cliByDist, replByDist, 'CLI and REPL distance distribution should match');
+    assert.deepStrictEqual(cliByDist, replByDist, 'CLI and REPL graph distance distribution should match');
   }
 
   // #25: mention-based tests should have distance: maxDepth+1 with terminator flag,

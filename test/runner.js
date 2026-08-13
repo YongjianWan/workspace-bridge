@@ -86,7 +86,7 @@ const classificationCache = new Map(); // file -> { layer, reason }
  * (see docs/TECH_DEBT.md 测试执行债 阶段 1).
  * @returns {{layer: string, reason: string}}
  */
-function classifyTestDetail(file) {
+function classifyTestDetail(file, providedContent = null) {
   const cached = classificationCache.get(file);
   if (cached) return cached;
 
@@ -100,11 +100,16 @@ function classifyTestDetail(file) {
 
   let content = '';
   let readOk;
-  try {
-    content = fs.readFileSync(path.join(TEST_DIR, file), 'utf8');
+  if (providedContent !== null) {
+    content = providedContent;
     readOk = true;
-  } catch {
-    readOk = false;
+  } else {
+    try {
+      content = fs.readFileSync(path.join(TEST_DIR, file), 'utf8');
+      readOk = true;
+    } catch {
+      readOk = false;
+    }
   }
 
   // Priority 1: file-level annotation in first 10 lines
@@ -113,6 +118,7 @@ function classifyTestDetail(file) {
     if (header.includes('@slow')) return decide('slow', 'annotation-slow');
     if (header.includes('@watch')) return decide('watch', 'annotation-watch');
     if (header.includes('@serial')) return decide('serial', 'annotation-serial');
+    if (header.includes('@fast')) return decide('fast', 'annotation-fast');
   }
 
   // Priority 2: known filename patterns
@@ -143,17 +149,38 @@ function classifyTest(file) {
 
 /**
  * Determine whether a test needs an isolated per-test cache directory.
- * Fast tests that do not spawn child processes or touch the cache directly
- * do not need a WB_TEST_CACHE_DIR, saving NTFS mkdtemp/rm overhead.
+ *
+ * Decoupled from layer (L3-12): isolation is decided by what the test actually
+ * does, not by whether a heuristic classified it as slow. Declared slow/serial/
+ * watch tests and known-slow filename patterns keep isolation as a safety net.
  */
 function needsCacheDir(file) {
-  if (classifyTest(file) !== 'fast') return true;
+  let content;
   try {
-    const content = fs.readFileSync(path.join(TEST_DIR, file), 'utf8');
-    return /runCli|runCliRaw|runCliText|spawnSync|child_process|WB_TEST_CACHE_DIR/.test(content);
+    content = fs.readFileSync(path.join(TEST_DIR, file), 'utf8');
   } catch {
     return true;
   }
+
+  // Direct cache / subprocess / heavy-container usage requires isolation.
+  if (/runCli|runCliRaw|runCliText|spawnSync|child_process|WB_TEST_CACHE_DIR/.test(content)) {
+    return true;
+  }
+  if (/(new\s+ServiceContainer|new\s+FileIndex|DependencyGraph\.fromSchema|createServiceContainer)/.test(content)) {
+    return true;
+  }
+
+  // Declared slow / serial / watch tests and known filename patterns keep
+  // isolation even if they do not explicitly match the anchors above.
+  const detail = classifyTestDetail(file);
+  if (detail.reason === 'annotation-slow' || detail.reason === 'annotation-serial' || detail.reason === 'annotation-watch') {
+    return true;
+  }
+  if (detail.reason === 'known-slow-pattern') {
+    return true;
+  }
+
+  return false;
 }
 
 /* --------------------------------------------------------------------------
@@ -288,6 +315,11 @@ function recordResult(r, phase, concurrency, phaseStart) {
     status: r.status,
     signal: r.signal || null,
     error: r.err ? String(r.err.message || r.err) : null,
+    // Cache/isolation observability (L3-12/13).
+    needsCacheDir: r.needsCacheDir,
+    cacheCopyMs: r.cacheCopyMs ?? null,
+    cacheWarm: !!r.cacheWarm,
+    cacheCold: !!r.cacheCold,
   });
 }
 
@@ -339,11 +371,22 @@ function runOne(file) {
     : null;
 
   // Copy warm cache for slow tests to skip expensive cold-start rebuild.
-  if (testCacheDir && classifyTest(file) === 'slow' && fs.existsSync(WARM_CACHE_READY)) {
-    try {
-      fs.cpSync(WARM_CACHE_DIR, testCacheDir, { recursive: true, force: true, dereference: true });
-    } catch {
-      // Non-fatal: fall back to cold start.
+  // Measure the copy so we can see per-test cache overhead in the run report.
+  let cacheCopyMs = null;
+  let cacheWarm = false;
+  let cacheCold = false;
+  if (testCacheDir) {
+    cacheCold = true;
+    if (classifyTest(file) === 'slow' && fs.existsSync(WARM_CACHE_READY)) {
+      const copyStart = Date.now();
+      try {
+        fs.cpSync(WARM_CACHE_DIR, testCacheDir, { recursive: true, force: true, dereference: true });
+        cacheCopyMs = Date.now() - copyStart;
+        cacheWarm = true;
+        cacheCold = false;
+      } catch {
+        // Non-fatal: fall back to cold start.
+      }
     }
   }
 
@@ -377,6 +420,7 @@ function runOne(file) {
       settle({
         file, ok: false, status: null, signal: null, err, stdout, stderr,
         elapsed: Date.now() - testStart,
+        needsCacheDir: useCache, cacheCopyMs, cacheWarm, cacheCold,
       });
     });
 
@@ -387,7 +431,7 @@ function runOne(file) {
       if (testCacheDir) {
         try { fs.rmSync(testCacheDir, { recursive: true, force: true }); } catch {}
       }
-      settle({ file, ok, status, signal, stdout, stderr, elapsed });
+      settle({ file, ok, status, signal, stdout, stderr, elapsed, needsCacheDir: useCache, cacheCopyMs, cacheWarm, cacheCold });
     });
 
     // Ultimate safety net: if the child refuses to die after spawn timeout,
@@ -397,6 +441,7 @@ function runOne(file) {
       settle({
         file, ok: false, status: null, signal: 'TIMEOUT', stdout, stderr,
         elapsed: Date.now() - testStart,
+        needsCacheDir: useCache, cacheCopyMs, cacheWarm, cacheCold,
       });
     }, testTimeout + TIMEOUTS.TEST_RUNNER_KILL_GRACE_MS);
 

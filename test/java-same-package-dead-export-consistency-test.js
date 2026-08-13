@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @contract
 // L1-3: Java same-package 隐式边（tier3）在 build 路径与 loadGraph 路径下的
 // dead-exports 语义必须一致（TECH_DEBT L1-3，2026-07-20 发现）：
