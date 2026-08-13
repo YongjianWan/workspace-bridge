@@ -25,6 +25,14 @@ const TIMEOUT_MS = parseInt(process.env.TEST_TIMEOUT_MS, 10) || TIMEOUTS.TEST_RU
 const WARM_CACHE_DIR = path.join(os.tmpdir(), 'wb-runner-warm-cache');
 const WARM_CACHE_READY = path.join(WARM_CACHE_DIR, '.ready');
 
+// Content anchors used to decide both layer (heuristic-slow) and cache isolation.
+// Keep them in one place: the safety argument in needsCacheDir relies on these
+// anchors covering every heuristic reason produced by classifyTestDetail.
+const RUNCLI_ANCHOR = /runCli|runCliRaw|runCliText/;
+const SPAWN_CLI_ANCHOR = /spawnSync\(['"]node['"].*cli\.js/;
+const HEAVY_API_ANCHOR = /(new\s+ServiceContainer|new\s+FileIndex|DependencyGraph\.fromSchema|createServiceContainer)/;
+const SUBPROCESS_ANCHOR = /spawnSync|child_process|WB_TEST_CACHE_DIR/;
+
 /* -------------------------------------------------------------------------- */
 // CLI argument parsing
 /* -------------------------------------------------------------------------- */
@@ -128,14 +136,14 @@ function classifyTestDetail(file, providedContent = null) {
 
   // Priority 3: content heuristics — a guess, not a measurement.
   if (readOk) {
-    if (/runCli|runCliRaw|runCliText/.test(content)) {
+    if (RUNCLI_ANCHOR.test(content)) {
       return decide('slow', 'heuristic-runcli');
     }
-    if (/spawnSync\(['"]node['"].*cli\.js/.test(content)) {
+    if (SPAWN_CLI_ANCHOR.test(content)) {
       return decide('slow', 'heuristic-spawn-cli');
     }
     // Heavy internal API usage ≈ a full CLI cold start (ServiceContainer init, graph build, etc.)
-    if (/(new\s+ServiceContainer|new\s+FileIndex|DependencyGraph\.fromSchema|createServiceContainer)/.test(content)) {
+    if (HEAVY_API_ANCHOR.test(content)) {
       return decide('slow', 'heuristic-heavy-api');
     }
   }
@@ -163,17 +171,20 @@ function needsCacheDir(file) {
   }
 
   // Direct cache / subprocess / heavy-container usage requires isolation.
-  if (/runCli|runCliRaw|runCliText|spawnSync|child_process|WB_TEST_CACHE_DIR/.test(content)) {
+  // The union of RUNCLI_ANCHOR + SUBPROCESS_ANCHOR must cover every heuristic
+  // reason that classifyTestDetail can produce from content; otherwise a test
+  // could be marked slow yet not receive an isolated cache directory.
+  if (RUNCLI_ANCHOR.test(content) || SUBPROCESS_ANCHOR.test(content)) {
     return true;
   }
-  if (/(new\s+ServiceContainer|new\s+FileIndex|DependencyGraph\.fromSchema|createServiceContainer)/.test(content)) {
+  if (HEAVY_API_ANCHOR.test(content)) {
     return true;
   }
 
   // Declared slow / serial / watch tests and known filename patterns keep
   // isolation even if they do not explicitly match the anchors above.
-  const detail = classifyTestDetail(file);
-  if (detail.reason === 'annotation-slow' || detail.reason === 'annotation-serial' || detail.reason === 'annotation-watch') {
+  const detail = classifyTestDetail(file, content);
+  if (detail.reason === 'annotation-slow' || detail.reason === 'annotation-serial' || detail.reason === 'annotation-watch' || detail.reason === 'filename-watch') {
     return true;
   }
   if (detail.reason === 'known-slow-pattern') {
@@ -192,7 +203,7 @@ function validateSlowClassification(files) {
     if (classifyTest(file) !== 'fast') continue;
     try {
       const content = fs.readFileSync(path.join(TEST_DIR, file), 'utf8');
-      if (/runCli|runCliRaw|runCliText|spawnSync|child_process|(new\s+ServiceContainer|new\s+FileIndex|DependencyGraph\.fromSchema|createServiceContainer)/.test(content)) {
+      if (RUNCLI_ANCHOR.test(content) || SUBPROCESS_ANCHOR.test(content) || HEAVY_API_ANCHOR.test(content)) {
         warnings.push(`  ${file}: contains runCli/spawnSync/child_process/heavy-API but classified as fast. Add // @slow to its header.`);
       }
     } catch {

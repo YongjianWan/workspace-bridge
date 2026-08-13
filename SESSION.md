@@ -14,10 +14,17 @@
 3. **引入 `// @fast` 标注**：`classifyTestDetail` 支持传入内容并识别 `@fast`；优先级高于 `runCli`/`spawnSync`/`ServiceContainer` 启发式，低于 `@slow`/`@serial`/`@watch`。
 4. **首批 11 条测试降级到 fast 层**：按 run report 实测耗时，把 `path-crossplatform-regression-test.js`、`runner-classification-test.js`、`analyzer-same-package-guards-test.js`、`wave14-monorepo-service-test.js`、`precompute-aggregate-test.js`、`go-package-imports-test.js`、`java-package-imports-test.js`、`java-same-package-dead-export-consistency-test.js`、`file-index-race-test.js`、`file-index-boundary-test.js`、`file-index-rename-test.js` 标记 `@fast` 并降级。`npm run test:fast` 从 151 条增至 **162/162 PASS**；slow 层从 112 条降到 101 条，启发式猜测条目从 51 降到 41。
 5. **`wave8-regression-test.js` 去 brittle**：根因是新 runner.js 包含 `container` 词干，被 mention 启发式标为 distance-2 受影响测试，而 CLI 与 REPL 的容器生命周期差异使 mention 集合不一致。修改断言为只比较 `source === 'graph'` 的距离分布，mention 终止项的距离与 `terminator` 标志仍单独断言，保留 #29 的回归保护同时避免测试文件内容变化导致假失败。
+6. **runner.js 复审后修疵**：
+   - `needsCacheDir` 隔离安全网补入 `filename-watch`，与 `annotation-watch` 对齐；
+   - `needsCacheDir` 已读 content 传给 `classifyTestDetail`，避免二次读取；
+   - 把 RUNCLI/SPAWN_CLI/HEAVY_API/SUBPROCESS 锚点正则提取为顶部常量，三处判定共用，消除 L2-7 重复。
 
 ### 验证
 - `npm run test:fast`：**162/162 PASS**（~22s）。
-- slow layer：后台跑 `node test/runner.js --layer slow` 验证中；此前干净环境下 wave8 单独复跑 5/5 PASS。
+- slow layer：`101 tests / 100 PASS / 1 FAIL`（`git-environment-probe-test.js` SIGTERM，SESSION 基线已登记为已知 flaky，单独重跑稳定通过）；`wave8-regression-test.js` PASS。
+
+### 债务处理
+- **P4 新增**：`builder.js:345` parse 分发与 `file-index.js:432` language lookup 的扩展名大小写未归一化——真实 `App.JAVA` 仍会错过 Java parser。这是 2026-08-12 ext 大小写修复的上游缺口，本次按用户建议记为 P4 冻结，待真实仓报出或顺手补修时处理。
 
 ### 下一轮入口（2026-08-13 重排）
 
@@ -26,6 +33,8 @@
 **2. 分析 L3-13 数据** —— run report 已能看 `cacheCopyMs`/`cacheWarm`/`cacheCold`。下一步看 slow 层 CPU 累计与最长单条，判断共享 warm fixture 是否值得做。
 
 **3. L3-16（tsconfig `extends`）仍维持 P3** —— 本轮未触及，回报仍是推理，待真实 monorepo 量化。
+
+**4. P4 扩展名大小写上游缺口** —— 顺手补修成本不高（两处 `.toLowerCase()` + 扩展回归测试），若后续任何真实仓出现 `.JAVA`/`.Vue`/`.TS` 误分类即解冻。
 
 **不做**：性能两条 P1；Call-Resolution DAG / ACCESSES 边 / Next.js 路由；L3-4；L3-8 接触即修；Svelte 半仍冻结。
 
@@ -86,7 +95,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：`npm run test:fast` **162/162 PASS**（~22s，2026-08-13）。全量 runner 待本轮 slow 层后台跑完更新；历史 flaky `git-environment-probe-test.js` 在并发 runner 中偶发 SIGTERM，单独重跑稳定通过。开发迭代首选 `npm run test:fast`。
+- 测试：`npm run test:fast` **162/162 PASS**（~22s，2026-08-13）；slow layer `101 tests / 100 PASS / 1 FAIL`（`git-environment-probe-test.js` SIGTERM，已知 flaky，单独重跑稳定通过）。开发迭代首选 `npm run test:fast`。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.1.0**（以 `package.json` 为准）
 - 分支：`main`
@@ -418,7 +427,7 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-08-13（L3-12/13 第一阶段：runner 可观测性、`// @fast`、needsCacheDir 解耦、首批 11 条降级；wave8 mention 启发式 brittle 断言修复；`npm run test:fast` 162/162 PASS；slow 层后台验证中；version: 2.1.0）*
+*Last updated: 2026-08-13（L3-12/13 第一阶段 + 复审修疵：runner 可观测性、`// @fast`、needsCacheDir 解耦、首批 11 条降级、共享锚点常量、filename-watch 安全网、content 复用；wave8 mention 启发式 brittle 断言修复；`npm run test:fast` 162/162 PASS；slow layer 100/101 通过（1 已知 flaky）；version: 2.1.0）*
 
 ---
 
