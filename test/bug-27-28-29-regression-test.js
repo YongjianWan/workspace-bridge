@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow — spawns CLI and REPL subprocesses.
 // @contract
 // Regression tests for Bug 27, 28, and 29.
 

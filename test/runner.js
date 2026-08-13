@@ -59,7 +59,7 @@ const KNOWN_SLOW_PATTERNS = [
   /audit-file-validation-advice-test\.js$/,
   /audit-diff-test\.js$/,
   /functionality-test\.js$/,
-  /regression-test\.js$/,
+
   /integration-core-test\.js$/,
   /formatter-e2e-summary-test\.js$/,
   /formatter-e2e-others-test\.js$/,
@@ -98,13 +98,19 @@ function classifyTestDetail(file, providedContent = null) {
   const cached = classificationCache.get(file);
   if (cached) return cached;
 
-  const decide = (layer, reason) => {
+  const decide = (layer, reason, shouldCache = true) => {
     const value = { layer, reason };
-    classificationCache.set(file, value);
+    if (shouldCache) {
+      classificationCache.set(file, value);
+    }
     return value;
   };
 
-  if (/watch/.test(file)) return decide('watch', 'filename-watch');
+  // Synthetic content (e.g. unit tests injecting source) must not poison the
+  // filename-keyed cache — a fake filename could shadow a real test file.
+  const shouldCache = providedContent === null;
+
+  if (/watch/.test(file)) return decide('watch', 'filename-watch', shouldCache);
 
   let content = '';
   let readOk;
@@ -123,32 +129,32 @@ function classifyTestDetail(file, providedContent = null) {
   // Priority 1: file-level annotation in first 10 lines
   if (readOk) {
     const header = content.split('\n').slice(0, 10).join('\n');
-    if (header.includes('@slow')) return decide('slow', 'annotation-slow');
-    if (header.includes('@watch')) return decide('watch', 'annotation-watch');
-    if (header.includes('@serial')) return decide('serial', 'annotation-serial');
-    if (header.includes('@fast')) return decide('fast', 'annotation-fast');
+    if (header.includes('@slow')) return decide('slow', 'annotation-slow', shouldCache);
+    if (header.includes('@watch')) return decide('watch', 'annotation-watch', shouldCache);
+    if (header.includes('@serial')) return decide('serial', 'annotation-serial', shouldCache);
+    if (header.includes('@fast')) return decide('fast', 'annotation-fast', shouldCache);
   }
 
   // Priority 2: known filename patterns
   if (KNOWN_SLOW_PATTERNS.some((p) => p.test(file))) {
-    return decide('slow', 'known-slow-pattern');
+    return decide('slow', 'known-slow-pattern', shouldCache);
   }
 
   // Priority 3: content heuristics — a guess, not a measurement.
   if (readOk) {
     if (RUNCLI_ANCHOR.test(content)) {
-      return decide('slow', 'heuristic-runcli');
+      return decide('slow', 'heuristic-runcli', shouldCache);
     }
     if (SPAWN_CLI_ANCHOR.test(content)) {
-      return decide('slow', 'heuristic-spawn-cli');
+      return decide('slow', 'heuristic-spawn-cli', shouldCache);
     }
     // Heavy internal API usage ≈ a full CLI cold start (ServiceContainer init, graph build, etc.)
     if (HEAVY_API_ANCHOR.test(content)) {
-      return decide('slow', 'heuristic-heavy-api');
+      return decide('slow', 'heuristic-heavy-api', shouldCache);
     }
   }
 
-  return decide('fast', 'default-fast');
+  return decide('fast', 'default-fast', shouldCache);
 }
 
 function classifyTest(file) {
@@ -197,24 +203,35 @@ function needsCacheDir(file) {
 /* --------------------------------------------------------------------------
 // Self-validation: warn if fast-classified tests contain slow indicators
 // -------------------------------------------------------------------------- */
+function isKnownSlowPatternConflict(file, reason) {
+  return reason === 'annotation-fast' && KNOWN_SLOW_PATTERNS.some((p) => p.test(file));
+}
+
 function validateSlowClassification(files) {
-  const warnings = [];
+  const misclassWarnings = [];
+  const conflictWarnings = [];
   for (const file of files) {
-    if (classifyTest(file) !== 'fast') continue;
+    const detail = classifyTestDetail(file);
+    if (detail.layer !== 'fast') continue;
+    // Explicit @fast is a declaration that overrides heuristics — do not warn.
+    if (detail.reason === 'annotation-fast') {
+      // But flag when @fast also matches a known-slow filename pattern: the
+      // known-slow-pattern safety net becomes unreachable for this file.
+      if (isKnownSlowPatternConflict(file, detail.reason)) {
+        conflictWarnings.push(`  ${file}: @fast annotation overrides known-slow filename pattern. Remove @fast if the file should stay slow, or remove the pattern if it no longer applies.`);
+      }
+      continue;
+    }
     try {
       const content = fs.readFileSync(path.join(TEST_DIR, file), 'utf8');
       if (RUNCLI_ANCHOR.test(content) || SUBPROCESS_ANCHOR.test(content) || HEAVY_API_ANCHOR.test(content)) {
-        warnings.push(`  ${file}: contains runCli/spawnSync/child_process/heavy-API but classified as fast. Add // @slow to its header.`);
+        misclassWarnings.push(`  ${file}: contains runCli/spawnSync/child_process/heavy-API but classified as fast. Add // @slow to its header.`);
       }
     } catch {
       // ignore read errors
     }
   }
-  if (warnings.length > 0) {
-    console.warn('\n[runner] WARNING: potential slow-test misclassification detected:');
-    for (const w of warnings) console.warn(w);
-    console.warn('');
-  }
+  return [...misclassWarnings, ...conflictWarnings];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -579,7 +596,12 @@ function warmCache() {
 
 async function main() {
   // Self-check: warn about tests that look slow but are classified as fast.
-  validateSlowClassification(files);
+  const validationWarnings = validateSlowClassification(files);
+  if (validationWarnings.length > 0) {
+    console.warn('\n[runner] WARNING: potential slow-test misclassification detected:');
+    for (const w of validationWarnings) console.warn(w);
+    console.warn('');
+  }
 
   // Pre-warm cache before any slow tests run.
   warmCache();
@@ -635,4 +657,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { classifyTest, classifyTestDetail };
+module.exports = { classifyTest, classifyTestDetail, needsCacheDir, validateSlowClassification, isKnownSlowPatternConflict };

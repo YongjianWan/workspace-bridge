@@ -193,13 +193,19 @@ async function executeCommand(container, line, options = {}) {
     case 'affected-tests': {
       const parsed = parseArgs(['node', 'repl', ...args], {
         '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
+        '--max-files': { key: 'maxFiles', transform: (v) => Number.parseInt(v, 10) },
       });
       const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
       if (!file) return options.structured ? { error: 'Usage: affected-tests <file>' } : 'Usage: affected-tests <file>';
       if (!graph.hasFile(file)) return options.structured ? { error: `File not found in graph: ${parsed._[0]}` } : `Error: File not found in graph: ${parsed._[0]}`;
       const maxDepth = parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH;
-      const result = graph.findAffectedTests(file, maxDepth);
-      return options.structured ? { affectedTestsCount: result.length, affectedTests: result } : formatAffectedTests(result);
+      const maxFiles = Number.isFinite(parsed.maxFiles) && parsed.maxFiles > 0 ? parsed.maxFiles : null;
+      const raw = graph.findAffectedTests(file, maxDepth);
+      const result = maxFiles != null ? raw.slice(0, maxFiles) : raw;
+      const truncated = maxFiles != null && raw.length > maxFiles;
+      return options.structured
+        ? { affectedTestsCount: raw.length, affectedTests: result, truncated }
+        : formatAffectedTests(result) + (truncated ? `\n... ${raw.length - maxFiles} more` : '');
     }
 
     case 'dead-exports': {

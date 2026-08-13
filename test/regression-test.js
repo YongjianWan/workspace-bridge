@@ -1,3 +1,4 @@
+// @slow — builds a hermetic git repo and runs audit-summary regression end-to-end.
 // @semantic
 const assert = require('assert');
 const fs = require('fs');
