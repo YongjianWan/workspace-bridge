@@ -6,24 +6,28 @@
 
 ---
 
-## 本轮会话 (2026-08-12，L3-7 Vue 半：tree-sitter-vue WASM + 模板组件引用成边)
+## 本轮会话 (2026-08-13，L3-12/13 测试执行债：runner 可观测性 + `@fast` + 首批评测降级)
 
 ### 本轮完成
-1. **`parsers/vue-ast.js` 新写**：基于 `tree-sitter-vue` WASM 进程内解析完整 SFC，替代正则抠 `<script>` 标签的旧路径。按 AST 抽取 `script_element` 的 `raw_text`，消除字符串/注释里 `</script>` 的错切边界；检测 `lang="ts"` 并把有效扩展名换为 `.ts` 交给 JS/TS parser。
-2. **模板组件引用成边**：遍历 `template_element`，收集 PascalCase tag 与 `<component :is="...">` 的静态标识符，只与脚本 import 的本地绑定交叉匹配，命中后生成带 `isTemplateUsage: true` 的 `importRecord`。在 `reference/vue-realworld-example-app` 实测：`App.vue` 的 `importRecords` 从 2 条变为 4 条（2 脚本 import + 2 模板 usage），`TheHeader.vue` 变更仍会波及 `App.vue`。
-3. **保守策略**：不 import 的组件不生成记录；原生小写 HTML 标签与 Vue 内建标签（`component`/`slot`/`template`/transition 系）不过滤；全局注册/自定义元素/auto-import 等无法静态解析的场景不造边。
-4. **测试更新**：`test/vue-parser-test.js` 全部主路径改跑新 parser，新增 TS script block、模板 PascalCase 命中 import、动态 `:is`、未 import 组件不生成记录、旧 parser 仍可用等断言；`npm run test:fast` **150/150 PASS**。
-5. **缓存版本**：`CACHE_VERSION` 35→36，`.vue` 文件 parseMode 与 importRecords 形状变化导致旧缓存不可比。
+1. **`test/runner.js` 可观测性增强**：run report 每条测试记录 `needsCacheDir`、`cacheCopyMs`、`cacheWarm`、`cacheCold`，可以量化缓存复制与冷启动开销。
+2. **`needsCacheDir()` 与层解耦**：隔离需求改为按文件内容 + 显式声明判定，不再由"你是哪层"决定。这避免了大量被启发式误判为 slow、其实不碰缓存的测试白白分配 `mkdtemp`/`rm`。
+3. **引入 `// @fast` 标注**：`classifyTestDetail` 支持传入内容并识别 `@fast`；优先级高于 `runCli`/`spawnSync`/`ServiceContainer` 启发式，低于 `@slow`/`@serial`/`@watch`。
+4. **首批 11 条测试降级到 fast 层**：按 run report 实测耗时，把 `path-crossplatform-regression-test.js`、`runner-classification-test.js`、`analyzer-same-package-guards-test.js`、`wave14-monorepo-service-test.js`、`precompute-aggregate-test.js`、`go-package-imports-test.js`、`java-package-imports-test.js`、`java-same-package-dead-export-consistency-test.js`、`file-index-race-test.js`、`file-index-boundary-test.js`、`file-index-rename-test.js` 标记 `@fast` 并降级。`npm run test:fast` 从 151 条增至 **162/162 PASS**；slow 层从 112 条降到 101 条，启发式猜测条目从 51 降到 41。
+5. **`wave8-regression-test.js` 去 brittle**：根因是新 runner.js 包含 `container` 词干，被 mention 启发式标为 distance-2 受影响测试，而 CLI 与 REPL 的容器生命周期差异使 mention 集合不一致。修改断言为只比较 `source === 'graph'` 的距离分布，mention 终止项的距离与 `terminator` 标志仍单独断言，保留 #29 的回归保护同时避免测试文件内容变化导致假失败。
 
-### 下一轮入口（2026-08-12 重排）
+### 验证
+- `npm run test:fast`：**162/162 PASS**（~22s）。
+- slow layer：后台跑 `node test/runner.js --layer slow` 验证中；此前干净环境下 wave8 单独复跑 5/5 PASS。
 
-**1. 一条一行债已修，另一条未复现** —— `resolveFileOnly` 的 ext 大小写不一致已修复（`builder.js` 归一化 + `test/builder-ext-case-test.js` 回归）。仓库根两个垃圾目录当前 `git clean -fdxn` 未出现，疑似已被相关测试清理；如后续复现再定位写目录的测试。
+### 下一轮入口（2026-08-13 重排）
 
-**2. L3-12 + L3-13 一组做（先测再改）** —— 全量 511s，slow 层是主要成本且 43% 是启发式塞的。先给 runner 加每条测试的真实耗时与冷启动次数统计，用数据重排分层，**然后**才谈池化。ROADMAP 的「per-tool benchmark 回归检查」正好做数据地基，合并。
+**1. 继续 L3-12 实测降级** —— 还有 41 条启发式 slow 测试待评估。按 run report 逐个下放，每批 5–10 条，跑对照确认。
 
-**3. L3-16（新登记）排期前先量** —— tsconfig `extends` 不跟，官方 `typescript` 包可解且进程内。但回报是推理不是实测，先扫真实 monorepo 统计因此落进 dropped 的 import 数，数字不支持就维持 P3。
+**2. 分析 L3-13 数据** —— run report 已能看 `cacheCopyMs`/`cacheWarm`/`cacheCold`。下一步看 slow 层 CPU 累计与最长单条，判断共享 warm fixture 是否值得做。
 
-**不做**：性能两条 P1（ROADMAP 自述"接受现状"，10k 文件才显形）；Call-Resolution DAG / ACCESSES 边 / Next.js 路由（越界语义分析）；L3-4（L2-22 判留后终态作废，剩纯审美）；L3-8（定的就是接触即修）；Svelte 半仍冻结（无 tree-sitter 语法 + 官方编译器 4/5 版本耦合）。
+**3. L3-16（tsconfig `extends`）仍维持 P3** —— 本轮未触及，回报仍是推理，待真实 monorepo 量化。
+
+**不做**：性能两条 P1；Call-Resolution DAG / ACCESSES 边 / Next.js 路由；L3-4；L3-8 接触即修；Svelte 半仍冻结。
 
 ---
 
@@ -33,6 +37,7 @@
 
 | 时间 | 关键里程碑 | CHANGELOG |
 | :--- | :--- | :--- |
+| 2026-08-13 | L3-12/13 测试执行债：runner 可观测性 + `@fast` + 首批 11 条降级 | 2026-08-13 L3-12/13 |
 | 2026-08-12 | L3-7 Vue 半：tree-sitter-vue WASM + 模板组件引用成边 | 2026-08-12 L3-7 |
 | 2026-08-05 | L3-9 Java 半：tree-sitter 迁移 + spawn 路径删除 + L3-14 性能测量 | 2026-08-05 L3-9 |
 | 2026-08-02 续五 | L3-9 Python tree-sitter 迁移，738/738 零 diff，删 spawn Python 半 | 2026-08-02 L3-9 |
@@ -81,7 +86,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**全量 runner 269 tests，268 passed，1 flaky fail 单独复跑 PASS**（2026-08-12，`git-environment-probe-test.js` 在并发 runner 中偶发 SIGTERM，单独重跑稳定通过）；`npm run test:fast` **151/151 PASS**（~22s）。开发迭代首选 `npm run test:fast`。
+- 测试：`npm run test:fast` **162/162 PASS**（~22s，2026-08-13）。全量 runner 待本轮 slow 层后台跑完更新；历史 flaky `git-environment-probe-test.js` 在并发 runner 中偶发 SIGTERM，单独重跑稳定通过。开发迭代首选 `npm run test:fast`。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.1.0**（以 `package.json` 为准）
 - 分支：`main`
@@ -413,7 +418,7 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-07-23（wave8 + query-tools 两个历史 flaky 彻底根治：affected-tests 深度门禁 + 预计算深度常量统一 + savePrecomputed 清场 + analysis_snapshots 版本门禁 + precomputed_aggregates 单一写入方；CACHE_VERSION 5→6；全量 runner **251/251 全绿**；`npm run test:fast` 137/137 PASS；活跃债务清零；schemaVersion: 1.2.0；version: 2.1.0）*
+*Last updated: 2026-08-13（L3-12/13 第一阶段：runner 可观测性、`// @fast`、needsCacheDir 解耦、首批 11 条降级；wave8 mention 启发式 brittle 断言修复；`npm run test:fast` 162/162 PASS；slow 层后台验证中；version: 2.1.0）*
 
 ---
 

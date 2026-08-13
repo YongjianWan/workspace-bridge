@@ -66,7 +66,7 @@
 > | **P1 紧随** | ~~L2-21 Go 包级依赖无图~~ ✅（2026-08-01：变异实验收口 + 包导入展开全包 + 同包 tier3 边，cobra 12→279 全可解释，史见 CHANGELOG） · ~~L2-16 Rust crate 名归一~~ ✅ · ~~L2-17 Python namespace 包~~ ✅（2026-07-28，丢弃 34→26） · ~~L2-18 Rust parser 花括号列表前缀~~ ✅ · ~~L2-19 Rust 裸首段 use~~ ✅ · ~~L2-20 tree-sitter 装填竞态~~ ✅——**P1 出空，下一层自动顶上来** | L2-21 销记：Go 边层不再是文件粒度图装不下包语义——包导入绑全包、同包互引有 tier3 边 |
 > | **P2 依赖前两层** | ~~L2-10 符号表判决（T6）~~ ✅ 已拍已执行（2026-07-31：摘 JS/TS/Python、留 JVM、Go/Rust 不动，史见 CHANGELOG） · ~~L2-22 Rust 去留~~ ✅ 判留（2026-08-01，ripgrep 45 条全真边坐实辖区） · ~~L2-14 JVM 源根~~ ✅（2026-07-30，KMP 布局 + 成员导入，st 1037→111）——**P2 出空，L2 层清零** | T6 的 Rust 半局由第二仓闭合：45 条可核对真边，判留 |
 > | **P2.5 下一批（2026-08-03 重估）** | ~~**L3-9 Java 半**~~ ✅（2026-08-05 tree-sitter 迁移 + spawn 路径删除 + L3-14 测量销账，史见 CHANGELOG） · ~~**L3-7 Vue 半**~~ ✅（2026-08-12 tree-sitter-vue WASM + 模板组件引用成边，史见 CHANGELOG） | 这两条不是审美，是"现在拿到的数据就是错的"。**P2.5 出空**。Svelte 半仍冻结 |
-> | **P3 记账不排期** | L3-4 扩展名分支（T6 后只剩 JVM/Rust/Go/C++ 共享段，L2-22 判留后塌缩终态作废） · ~~L3-5 死方法~~ ✅（2026-08-02 `lookupUnique` 连测试删除） · L3-8 防御性兜底 · ~~L3-9 Python 半~~ ✅（2026-08-02 tree-sitter 迁移，**738 文件 parity 零 diff**——437 根集按仓库名挑，漏了 3.11+ 的 `except*`，扩到 `reference/` + `test/fixtures/` 全量才封口） · ~~**L3-9 Java 半**~~ ✅（2026-08-05，史见 CHANGELOG） · L3-10 hasCpp 不覆盖纯 .c 仓 · L3-11 双 freshness 判据 · L3-12 分层靠猜 · L3-13 每条各自冷启动 · ~~L3-14 tryJava probe 放大缺前后对照~~ ✅ · ~~L3-15 Python stdlib 手抄名单~~ ✅（2026-08-01 换源 sys.stdlib_module_names） · **L3-16 tsconfig `extends` 不跟**（新登记，官方 `typescript` 包可解，回报待实测） | L3-8 走"接触即修"，不做大扫除；L3-11 的沉默已修、分歧留档；L3-12/13 是测试执行债，可观测性与调度已落地，剩下两条都要"先测再改"；L3-14 测量债已于 2026-08-05 完成前后对照验证并销账 |
+> | **P3 记账不排期** | L3-4 扩展名分支（T6 后只剩 JVM/Rust/Go/C++ 共享段，L2-22 判留后塌缩终态作废） · ~~L3-5 死方法~~ ✅（2026-08-02 `lookupUnique` 连测试删除） · L3-8 防御性兜底 · ~~L3-9 Python 半~~ ✅（2026-08-02 tree-sitter 迁移，**738 文件 parity 零 diff**——437 根集按仓库名挑，漏了 3.11+ 的 `except*`，扩到 `reference/` + `test/fixtures/` 全量才封口） · ~~**L3-9 Java 半**~~ ✅（2026-08-05，史见 CHANGELOG） · L3-10 hasCpp 不覆盖纯 .c 仓 · L3-11 双 freshness 判据 · **L3-12 分层靠猜（已落地可观测性 + `@fast` + 首批评测降级，待继续）** · **L3-13 每条各自冷启动（可观测性已落地，结构方案待论证）** · ~~L3-14 tryJava probe 放大缺前后对照~~ ✅ · ~~L3-15 Python stdlib 手抄名单~~ ✅（2026-08-01 换源 sys.stdlib_module_names） · **L3-16 tsconfig `extends` 不跟**（新登记，官方 `typescript` 包可解，回报待实测） | L3-8 走"接触即修"，不做大扫除；L3-11 的沉默已修、分歧留档；L3-12/13 本轮完成第一阶段（runner 可观测性、`@fast`、needsCacheDir 解耦、首批 11 条降级），剩余按实测继续；L3-14 测量债已于 2026-08-05 完成前后对照验证并销账 |
 > | **P4 冻结** | 见下方 P4 冻结区 | 语言出范围 / 明确不做，每条带解冻条件 |
 > | **预防性约束** | postProcess 记录不落盘 · `_invalidateParseCache` 单一入口 · regex-fallback 缓存不信任 · warm/cold 逐字节一致 · `_readGuard` 单一读闸 · DependencyGraphView 白名单同步 · 「本轮实测」字段不进快照 · 门禁型出口不吃 replay · **路径归一化不进返回值**（新，三个实例后的收刀） | 这些是已修债务转移后的形态：实例没了，让实例发生的结构还在 |
 >
@@ -218,36 +218,36 @@
 
 ### L3-12：测试分层靠猜不靠测——slow 层 43% 是启发式塞进去的
 
-**状态**：活跃（2026-07-30 实测登记）。`runner.js` 的 `classifyTest` 第三优先级按"文件里提到什么 API"判层：出现 `runCli` / `new ServiceContainer` / `new FileIndex` → slow。**这是猜测，不是测量**。run report 的 `classifiedBy` 字段现在把它变成了可数事实：
+**状态**：进行中（2026-08-13 完成第一阶段）。`runner.js` 的 `classifyTest` 第三优先级按"文件里提到什么 API"判层：出现 `runCli` / `new ServiceContainer` / `new FileIndex` → slow。**这是猜测，不是测量**。本轮把 `needsCacheDir()` 与层解耦、引入 `// @fast` 显式标注，并按实测耗时降级了第一批 11 条测试。
 
 | 来源 | 条数 | 中位耗时 |
 | --- | ---: | ---: |
-| `annotation-slow` + `known-slow-pattern`（声明） | 65 | 4394ms |
-| `heuristic-runcli` + `heuristic-heavy-api`（**猜测**） | **49** | **1275ms** |
+| `annotation-slow` + `known-slow-pattern`（声明） | 60 | ~待测 |
+| `heuristic-runcli` + `heuristic-heavy-api`（**猜测**） | **41** | ~待测 |
 
-猜测那 49 条里 **30 条比 fast 层自己最慢的那条（3003ms）还快**，最快的 175ms，30 条加起来才 27.3s。它们全程排在 slow 队列里。
+> 最新基数（2026-08-13）：slow 层 101 文件，其中 41 条来自启发式猜测；fast 层 162 文件。首批降级后猜测条目从 51 降到 41。
 
-> 口径订正：这条债最初被描述为"73 个文件被静默降级"。那个数是拿"header 注解 fast 217 − 实跑 144"算的，而全仓只有 266 个测试文件，217 这个基数不成立。**实测是 49。** 结论方向不变，量级要按这里的表。
+**已完成**：
+1. `needsCacheDir()` 与层解耦——隔离需求由内容/声明单独判定，不再问"你是哪层"。run report 新增 `needsCacheDir` / `cacheCopyMs` / `cacheWarm` / `cacheCold` 字段，可观测每条测试的缓存开销。
+2. 引入 `// @fast` 显式标注（优先级 1，声明压过猜测）。
+3. 首批 11 条实测 <2s 的测试标记 `@fast` 并降级到 fast 层：`path-crossplatform-regression-test.js`、`runner-classification-test.js`、`analyzer-same-package-guards-test.js`、`wave14-monorepo-service-test.js`、`precompute-aggregate-test.js`、`go-package-imports-test.js`、`java-package-imports-test.js`、`java-same-package-dead-export-consistency-test.js`、`file-index-race-test.js`、`file-index-boundary-test.js`、`file-index-rename-test.js`。
 
-**为什么不是一行改动**：`needsCacheDir()` 把**缓存隔离绑死在层上**——非 fast 一律发独立 cache 目录，fast 只在文件内容命中 `runCli|spawnSync|child_process|WB_TEST_CACHE_DIR` 时才发。抽查 5 个候选（`java-package-imports` / `precompute-aggregate` / `cache-stale-prune` / `file-index-rename` / `container-workspace-info`）**全部不含这些锚点**：直接改层 = 它们掉进真实项目缓存，互相串味。这个仓库被缓存串味咬过两次（2026-07-20 phase35/query-tools 快照注入未恢复、2026-07-03 mtime 失效），代价都是"全绿但数据是假的"。
-
-**建议动作（按成本升序，前两条必须一起做）**：
-1. 把 `needsCacheDir()` 与层解耦——隔离需求由内容单独判定，不再问"你是哪层"。这是前置，单独做也有价值（它现在给一批不需要隔离的 slow 测试白发目录，NTFS 上 mkdtemp/rm 不便宜）。
-2. 引入 `// @fast` 显式标注（优先级 1，声明压过猜测），按 report 实测耗时逐个下放，**每下放一批就跑一次对照**——成员集合变了，别和调度/并发改动混在一起归因。
-3. 长期：把 `classifiedBy` 为猜测且实测 < 3s 的条目做成 CI 提示，让分层随实测自动收敛，而不是靠人记得回来看。
+**剩余动作**：
+1. 继续按 run report 实测耗时逐个下放，**每下放一批就跑一次对照**。
+2. 长期：把 `classifiedBy` 为猜测且实测 < 3s 的条目做成 CI 提示，让分层随实测自动收敛。
 
 **触发条件**：改 `classifyTest` / `needsCacheDir` / `KNOWN_SLOW_PATTERNS` 时；或 `runner-classification-test.js` 的启发式计数掉到 0（那说明这条债已清，连同该测试一起删）。
 
 ### L3-13：slow 层每条测试各自冷启动——池子和并发只能摊开它，消不掉
 
-**状态**：活跃（2026-07-30 实测登记）。114 条 slow 测试 CPU 累计 903s（并发 2 实测），**平均每条 7.9s**；而 `warmCache()` 一次冷 `audit-summary` 是 12–13s。每条测试各自 `new ServiceContainer` + 建图 + 建 cache，warm cache 拷贝只省掉一部分。
+**状态**：可观测性已落地，结构方案待论证（2026-08-13）。run report 现在记录每条测试的 `cacheCopyMs`、`cacheWarm`、`cacheCold`，可以量化 warm cache 到底省了多少。`warmCache()` 一次冷 `audit-summary` 约 12–22s（随负载波动），拷贝到独立目录约 20–60ms/条。
 
 **为什么是债**：这是**结构问题不是配置问题**。2026-07-30 的两刀已经把调度和并发的水挤干了——775s → 466s（换工作池）→ 317s（并发 2→4），但那些收益全部来自"把同样多的启动费并行摊开"。CPU 累计不降反升（903s → 1167s）。剩下的路只有消除重复启动本身。
 
-**影响面**：本地开发循环 + CI 的 `test-slow.yml`。当前墙钟 317s（本机 18 线程，C=4）。理论下界 `max(CPU/并发, 最长单条)`——目前是 CPU 项主导，说明还有空间；一旦最长单条成为主导项，加机器就没用了。
+**影响面**：本地开发循环 + CI 的 `test-slow.yml`。当前 wall clock 随负载在 6–13min 之间波动；理论下界 `max(CPU/并发, 最长单条)`——目前是 CPU 项主导，说明还有空间；一旦最长单条成为主导项，加机器就没用了。
 
 **建议动作（按成本升序）**：
-1. **先测再改**：从 run report 里挑 CPU 占比最高的 10 条，确认它们的时间真花在容器初始化上而不是别处。没有这一步就上共享 fixture 是在优化一个假设。
+1. **先测再改**：从 run report 里挑 CPU 占比最高的 10 条，确认它们的时间真花在容器初始化上而不是别处。没有这一步就上共享 fixture 是在优化一个假设。**现在数据有了，下一步是分析 report。**
 2. 共享 warm fixture：一份预建图，测试只读不写。**风险是这套方案里最高的**——共享状态引入测试间耦合，而"slow 层曾腐烂"那次的病根正是这类耦合。必须配一条"每个测试单独跑也必须过"的检查，否则耦合会伪装成通过。
 3. 把真正需要写的测试留在独立容器里，别为了统一硬塞。
 

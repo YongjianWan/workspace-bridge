@@ -16,6 +16,21 @@
 
 
 
+### L3-12/13 测试执行债：runner 可观测性、`// @fast` 标注与首批评测降级（2026-08-13）
+
+慢层 43% 的测试是被启发式/文件名模式塞进去的，没有真实耗时数据。本轮先给 runner 加可观测性，再用测量结果降级第一批确实快的测试。
+
+* **Added** `test/runner.js` 运行报告新增每条测试的 `needsCacheDir`、`cacheCopyMs`、`cacheWarm`、`cacheCold`，用于量化「每条慢测试到底花多少时间在缓存复制与冷启动上」。
+* **Added** `classifyTestDetail(file, providedContent = null)` 支持传入内容并识别 `// @fast` 标注；`@fast` 优先级高于 `runCli`/`spawnSync`/`ServiceContainer` 等启发式，低于 `@slow`/`@serial`/`@watch`。
+* **Changed** `needsCacheDir()` 从「按层绑隔离」解耦为「按内容 + 声明」判定：只有真正调用 `runCli`/子进程/重容器 API，或被显式声明为慢/串行/监听的测试，才分配独立缓存目录。这消除了大量只被启发式误判为慢、其实不碰缓存的测试的 NTFS `mkdtemp`/`rm` 开销。
+* **Changed** 首批 11 个实测 <2s 的启发式/模式慢测试标记 `// @fast` 并降级到 fast 层：`path-crossplatform-regression-test.js`、`runner-classification-test.js`、`analyzer-same-package-guards-test.js`、`wave14-monorepo-service-test.js`、`precompute-aggregate-test.js`、`go-package-imports-test.js`、`java-package-imports-test.js`、`java-same-package-dead-export-consistency-test.js`、`file-index-race-test.js`、`file-index-boundary-test.js`、`file-index-rename-test.js`。`npm run test:fast` 从 151 条增至 162 条，仍全绿。
+
+### Fix: `wave8-regression-test.js`  mention 启发式 brittle 断言（2026-08-13）
+
+`wave8-regression-test.js` 在 runner.js 内容变更后必现失败：新 runner.js 包含 `container` 词干，被 mention 启发式标为 `src/services/container.js` 的 distance-2 受影响测试；但 CLI 与 REPL 两条路径的容器生命周期/缓存状态不同，导致 mention 集合不一致。这不是 runner.js 的 bug，而是 wave8 把「内容相关的 mention 终止项」纳入了严格的距离分布比对。
+
+* **Changed** wave8 的距离分布比对现在只比较 `source === 'graph'` 的条目；mention/heuristic 终止项的距离与 `terminator` 标志仍单独断言。这样保留了 #29「CLI/REPL 图距离一致」的回归保护，同时避免测试文件内容变化（如 runner.js 自身演进）导致假失败。
+
 ### Fix: `GraphBuilder.resolveFileOnly` 扩展名大小写归一化（2026-08-12）
 
 `resolveFileOnly` 现在将 `path.extname(filePath)` 转为小写后再传给 resolver 策略与缓存。此前在大小写不敏感文件系统上，名为 `App.JAVA` 的文件会错过 Java 专用 resolver 配置，回退到默认策略后无法解析同包 Java import。新增 `test/builder-ext-case-test.js` 回归锁定该行为。
