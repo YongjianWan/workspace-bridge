@@ -25,11 +25,21 @@
 * **Changed** `needsCacheDir()` 从「按层绑隔离」解耦为「按内容 + 声明」判定：只有真正调用 `runCli`/子进程/重容器 API，或被显式声明为慢/串行/监听的测试，才分配独立缓存目录。这消除了大量只被启发式误判为慢、其实不碰缓存的测试的 NTFS `mkdtemp`/`rm` 开销。
 * **Changed** 首批 11 个实测 <2s 的启发式/模式慢测试标记 `// @fast` 并降级到 fast 层：`path-crossplatform-regression-test.js`、`runner-classification-test.js`、`analyzer-same-package-guards-test.js`、`wave14-monorepo-service-test.js`、`precompute-aggregate-test.js`、`go-package-imports-test.js`、`java-package-imports-test.js`、`java-same-package-dead-export-consistency-test.js`、`file-index-race-test.js`、`file-index-boundary-test.js`、`file-index-rename-test.js`。`npm run test:fast` 从 151 条增至 162 条，仍全绿。
 
-### Fix: `wave8-regression-test.js`  mention 启发式 brittle 断言（2026-08-13）
+#### L3-12/13 复审修疵（2026-08-13 续）
 
-`wave8-regression-test.js` 在 runner.js 内容变更后必现失败：新 runner.js 包含 `container` 词干，被 mention 启发式标为 `src/services/container.js` 的 distance-2 受影响测试；但 CLI 与 REPL 两条路径的容器生命周期/缓存状态不同，导致 mention 集合不一致。这不是 runner.js 的 bug，而是 wave8 把「内容相关的 mention 终止项」纳入了严格的距离分布比对。
+首轮落地后 review 发现 `runner.js` 与 `wave8-regression-test.js` 多处缺陷，修后补测试并提交：
 
-* **Changed** wave8 的距离分布比对现在只比较 `source === 'graph'` 的条目；mention/heuristic 终止项的距离与 `terminator` 标志仍单独断言。这样保留了 #29「CLI/REPL 图距离一致」的回归保护，同时避免测试文件内容变化（如 runner.js 自身演进）导致假失败。
+* **Fixed** `validateSlowClassification()` 对显式 `@fast` 测试仍报「包含 heavy-API 请加 @slow」的自我矛盾警告。声明优先于猜测，`@fast` 覆盖的启发式 slow 测试不再触发该警告。
+* **Fixed** `classifyTestDetail(file, providedContent)` 会把注入内容的结果写入按文件名键控的缓存，导致合成文件名可能污染真实测试分类。现在传入 `providedContent` 时不落缓存。
+* **Added** `@fast` 与 `known-slow-pattern` 冲突检测与 warning；把过宽的 `/regression-test\.js$/` 从 `KNOWN_SLOW_PATTERNS` 移除，给 `bug-27-28-29-regression-test.js`、`regression-test.js`、`wave8-regression-test.js` 显式标 `@slow`，`path-crossplatform-regression-test.js` 变为干净的 `@fast`。
+* **Changed** `needsCacheDir()` 加入 `module.exports`；`test/runner-classification-test.js` 新增 9 条契约测试：heavy-API anchor 的 `@fast` 文件仍需要隔离、纯单元测试不需要隔离、无 anchor 的 `@slow` 声明仍需要隔离、文件名 watch 测试需要隔离、合成内容不污染缓存、@fast/known-slow-pattern 冲突可检测、当前无未解决冲突、clean fast 无警告、@fast+heavy-API 无警告。
+
+### Fix: `wave8-regression-test.js` CLI/REPL 截断不一致（2026-08-13 续）
+
+上轮把 `wave8-regression-test.js` 的 #29 断言削成只比较 `source === 'graph'` 的距离分布，诊断是「mention 集合内容相关」。实测发现真因是 CLI 默认把 `affectedTests` 截断到 `JSON_OUTPUT_MAX_AFFECTED_TESTS_ITEMS`（50 条）而 REPL 不截断：CLI 返回 50 行但 `affectedTestsCount` 报 51，REPL 返回 51 行，导致两侧距离分布不一致。这不是 mention 启发式的问题，是拿截断数组与未截断数组做等价比对。
+
+* **Changed** `src/cli/repl.js` 的 `affected-tests` 命令支持 `--max-files`，行为与 CLI 对齐（超出限制时返回截断数组并带 `truncated: true`）。
+* **Changed** `test/wave8-regression-test.js` 两侧同传 `--max-files 1000`，恢复为比较全部 `source` 的距离分布，并断言 `cli.truncated === false` 与 `repl.result.truncated === false`。这样 #29「CLI/REPL 图距离一致」的守护对象才真正保住，而不是被过滤掉。
 
 ### Fix: `GraphBuilder.resolveFileOnly` 扩展名大小写归一化（2026-08-12）
 

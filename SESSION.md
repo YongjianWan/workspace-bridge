@@ -18,10 +18,18 @@
    - `needsCacheDir` 隔离安全网补入 `filename-watch`，与 `annotation-watch` 对齐；
    - `needsCacheDir` 已读 content 传给 `classifyTestDetail`，避免二次读取；
    - 把 RUNCLI/SPAWN_CLI/HEAVY_API/SUBPROCESS 锚点正则提取为顶部常量，三处判定共用，消除 L2-7 重复。
+7. **runner.js 二轮修疵 + 测试锁定**：
+   - `validateSlowClassification()` 跳过 `@fast` 声明，不再对降级测试自我矛盾地喊「请加 @slow」；
+   - 修复 `classifyTestDetail()` 合成内容污染文件名缓存的 footgun；
+   - 导出 `needsCacheDir` 并在 `runner-classification-test.js` 加 5 条契约测试（heavy-API anchor、纯单元、无 anchor 的 @slow、filename-watch、缓存不污染）。
+8. **wave8-regression-test.js 还原等价性断言**：上轮把 #29 断言削成只比 `source === 'graph'` 的距离分布，诊断是「mention 集合内容相关」。实测发现真因是 CLI 默认截断到 50 条而 REPL 不截断，数组长度 50 vs 51 导致分布不一致。修复方案：REPL `affected-tests` 支持 `--max-files`，测试两侧同传 `--max-files 1000` 并断言 `truncated: false`，再恢复全 source 的距离分布比对。这样 #29 的守护对象（CLI/REPL 等价）才真正保住。
+9. **消除 `@fast` 与 `known-slow-pattern` 的静默冲突**：新增 `isKnownSlowPatternConflict()` 检测与 warning；把过宽的 `/regression-test\.js$/` 从 `KNOWN_SLOW_PATTERNS` 移除，给 `bug-27-28-29-regression-test.js`、`regression-test.js`、`wave8-regression-test.js` 显式标 `@slow`。`path-crossplatform-regression-test.js` 变为干净的 `@fast`，runner 输出不再刷冲突 warning。
 
 ### 验证
-- `npm run test:fast`：**162/162 PASS**（~22s）。
-- slow layer：`101 tests / 100 PASS / 1 FAIL`（`git-environment-probe-test.js` SIGTERM，SESSION 基线已登记为已知 flaky，单独重跑稳定通过）；`wave8-regression-test.js` PASS。
+- `node test/runner-classification-test.js`：**17/17 passed**。
+- `npm run test:fast`：**162/162 PASS**（~25–40s，随负载波动），输出无 warning。
+- `node test/wave8-regression-test.js` → PASS。
+- slow layer：`101 tests / 100 PASS / 1 FAIL`（`git-environment-probe-test.js` SIGTERM，SESSION 基线已登记为已知 flaky，单独重跑稳定通过）。全量 runner 在重负载下 `e2e-gitnexus-test.js` 也偶发 `CLI in-process exited null`，单独重跑稳定通过，同样记为 flaky。
 
 ### 债务处理
 - **P4 新增**：`builder.js:345` parse 分发与 `file-index.js:432` language lookup 的扩展名大小写未归一化——真实 `App.JAVA` 仍会错过 Java parser。这是 2026-08-12 ext 大小写修复的上游缺口，本次按用户建议记为 P4 冻结，待真实仓报出或顺手补修时处理。
@@ -72,7 +80,7 @@
 >
 > 收工时已跑 `npm run test:fast` 并确认 fast 层全绿，开工无需重跑。全量 runner 状态见下方「基线状态」。直接读取下方「基线状态」确认当前文档记录是否仍成立。
 >
-> 开发迭代推荐 `npm run test:fast`（~22s，150 个 fast 层测试），比全量 runner（~15min）快 40×。
+> 开发迭代推荐 `npm run test:fast`（~25–40s，162 个 fast 层测试），比全量 runner（~10–15min）快 20–30×。
 
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
@@ -95,7 +103,7 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：`npm run test:fast` **162/162 PASS**（~22s，2026-08-13）；slow layer `101 tests / 100 PASS / 1 FAIL`（`git-environment-probe-test.js` SIGTERM，已知 flaky，单独重跑稳定通过）。开发迭代首选 `npm run test:fast`。
+- 测试：`npm run test:fast` **162/162 PASS**（~25–40s，2026-08-13）；slow layer `101 tests / 100 PASS / 1 FAIL`（`git-environment-probe-test.js` SIGTERM，已知 flaky，单独重跑稳定通过）。全量 runner 重负载下 `e2e-gitnexus-test.js` 偶发 `CLI in-process exited null`，单独重跑稳定通过，记为 flaky。开发迭代首选 `npm run test:fast`。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.1.0**（以 `package.json` 为准）
 - 分支：`main`
