@@ -6,9 +6,11 @@
 
 ---
 
-## 本轮会话 (2026-08-17，独立验证轮：L3-12/13 二轮修疵 + wave8 截断修复的第三方复核)
+## 本轮会话 (2026-08-17，上午独立验证轮 + 下午 Vue/ext 审核修复批)
 
-> 上一轮（2026-08-13，L3-12/13 第一阶段 + 两轮修疵 + wave8 修复）的完成细节已进 [CHANGELOG.md](./CHANGELOG.md) 2026-08-13 条目。本轮**零代码变更**，纯验证。
+> 上一轮（2026-08-13，L3-12/13 第一阶段 + 两轮修疵 + wave8 修复）的完成细节已进 [CHANGELOG.md](./CHANGELOG.md) 2026-08-13 条目。
+
+### 上午：独立验证轮（零代码变更）
 
 ### 本轮完成
 1. **逐项核实修复声明**（commit `5582df7` + `efa0ce0`，工作树干净）：
@@ -25,6 +27,24 @@
 
 ### 结论
 上一轮修复声明全部属实，完成边界画得对：修的 5 个洞都修实了，留的 4 项债都够格留着。
+
+### 下午：Vue parser + ext 大小写审核修复批（goal 模式）
+
+另一会话对 08-12 两条代码提交的审核发现 7 项缺陷，本轮全部关闭（每项先 RED 测试再实现 + 变异验红）：
+
+1. **vue-ast.js WASM 资源泄漏**（L1-2）：`parseVueAst` 是 7 个 tree-sitter parser 中唯一不释放的。重写为 python-ast 三段式（init/parse/主体 finally 释放），原型计数器测试锁所有退出路径各释放一次。
+2. **ext 大小写上游缺口解冻**（P4 销记）：`builder.js:345` + `file-index.js:432` 补 `.toLowerCase()`；`App.JAVA` 不再以 `parseMode:'none'` 静默孤儿化。parse 侧 + file-index 侧双断言、双变异验红。
+3. **Vue 静默降级改可数信号**（L1-4）：registry `.vue` 回退结果打 `parseMode:'regex'` 戳 → builder 标 `regex-fallback`（warnings 计数 + 缓存永不信任）。此前回退伪装 ast-success，双重不可见。
+4. **无 script SFC `parseMode:'regex'` 谎报修正**为 `'ast'`（谎报曾使 builder 误标 regex-fallback，缓存不命中 + 降级计数虚增）。
+5. **`v-bind:is` 全称指令识别**（tree-sitter-vue 节点实测 `directive_name='v-bind'`）。
+6. **`extractScriptImportBindings` 二次 babel 解析删除**（L2-7 + 漂移）：ast-parser ImportDeclaration visitor 顺手产出 `localBindings`（type-only 上游排除），vue-ast 直接取。`import type` 伪造模板边的 RED 测试锁定。
+7. **文档**：CHANGELOG 08-12 条目「原生小写标签不过滤」写反已改正；ROADMAP 已知限制表补 Vue kebab-case 边界。
+
+CACHE_VERSION 36→37（四类旧缓存条目不可比）。`builder-ext-case-test.js` 因新增 `new FileIndex` 被 heavy-API 启发式扫进 slow 层，已标 `// @fast` 留在 fast 层。
+
+**验证**：`npm run test:fast` 162/162（post-bump）；全量 runner 264/270——6 条 FAIL 全部归因闭合：`parser-golden-test.js` 是真回归（localBindings 新字段进 vue/svelte 快照），已 `UPDATE_GOLDENS=1` 更新并复跑转绿；`phase35-query-sql`（跨进程版本戳污染，runner 进程 v36 + bump 后子进程 v37）、`cli-error-handling` / `cli-integration-core`（exit null 负载杀进程）、`e2e-gitnexus` / `git-environment-probe`（已知 flaky）五条单独复跑全部 EXIT=0。
+
+**踩坑自记**：① 变异验红后误用 `git checkout --` 还原（修复未提交，被一起冲掉），重打修复后变异流程改为 Edit 回退；② CACHE_VERSION bump 时全量 runner 已在后台跑，该轮 runner 结果按 pre-bump 代码快照解读，post-bump 由 test:fast 162/162 补验。
 
 ### 下一轮入口（2026-08-17 重排）
 
@@ -425,7 +445,7 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-08-17（**独立验证轮**：5582df7/efa0ce0 五项修复逐行核实 + needsCacheDir 变异验红 + 亲跑 17/17、wave8 PASS、test:fast 162/162 + 两条 flaky 单独复验双 EXIT=0 + 四项「未动」债务对照 TECH_DEBT 确认无漏修；下一轮入口重排为 L3-16 量化 → L3-12 下一批 → L3-13 数据分析；version: 2.1.0）*
+*Last updated: 2026-08-17（上午**独立验证轮**：5582df7/efa0ce0 五项修复逐行核实 + needsCacheDir 变异验红 + 亲跑 17/17、wave8 PASS、test:fast 162/162 + 两条 flaky 单独复验双 EXIT=0；下午**Vue/ext 审核修复批**：7 项缺陷全部关闭（WASM 泄漏 / ext 大小写解冻 P4 销记 / 降级可数信号 / parseMode 谎报 / v-bind:is / 二次解析删除 / 文档口径），全部 RED→修→变异验红，CACHE_VERSION 36→37，test:fast 162/162；下一轮入口重排为 L3-16 量化 → L3-12 下一批 → L3-13 数据分析；version: 2.1.0）*
 
 ---
 

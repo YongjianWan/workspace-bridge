@@ -5,6 +5,19 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### Fix: Vue parser 与扩展名大小写审核修复批（2026-08-17）
+
+独立审核（08-12 的 Vue parser 与 ext 大小写两条代码提交）发现的缺陷集中修复，全部按「先 RED 测试再实现 + 变异验红」落地：
+
+* **Fixed** `parsers/vue-ast.js` WASM 资源泄漏（L1-2 违反）：`parseVueAst` 此前是 7 个 tree-sitter parser 中唯一不释放资源的——成功路径、无 script 早退、`parseJavaScript` 返回 null、catch 路径均不调用 `delete()`，400 文件 Vue 仓即 400 组泄漏的 Parser+Tree。重写为 python-ast 式三段结构（init try / parse try / 主体 try-catch-finally），所有退出路径释放 parser 与 tree。`test/vue-parser-test.js` 新增原型计数器断言各路径恰好各释放一次。
+* **Fixed** 扩展名大小写上游缺口（P4 解冻销记）：`builder.js:345` parse 分发与 `file-index.js:432` language lookup 补 `.toLowerCase()`。此前 `App.JAVA` 在 parse 侧找不到任何 parser，以 `parseMode: 'none'` 静默进图（零 import 零导出，变成孤儿）——比 08-12 修掉的 resolver 侧降级重一档。`test/builder-ext-case-test.js` 扩展 parse 侧（`parseFileOnly` 命中 parser、package 检测）与 file-index 侧（`fileMetadata.lang === 'java'`）断言。
+* **Fixed** Vue 静默降级（L1-4 违反）：`registry.js` `.vue` 条目的 regex 回退此前直接返回 `parseVue` 的 babel 结果（`parseMode: 'ast'`），`tree-sitter-vue.wasm` 缺失/失败时全仓 `.vue` 伪装成 ast-success——warning 不可见、缓存永久信任。现在回退结果打 `parseMode: 'regex'` 戳，builder 据此标记 `regex-fallback`：进入 warnings 计数且缓存条目永不命中（工具链修复后自动升级）。
+* **Fixed** 无 script 块 SFC 的 `parseMode: 'regex'` 谎报：该文件明明走完 tree-sitter AST，谎报使 builder 误标 `regex-fallback`（缓存不命中 + 降级计数虚增）。现返回 `'ast'`；`testNoScript` 断言相应反转。
+* **Fixed** `getDirectiveAttributeValue` 只认 `:is` 缩写，`v-bind:is` 全称漏识别（tree-sitter-vue 节点实测 `directive_name` 为 `v-bind`）。两种拼写均识别。
+* **Fixed** `extractScriptImportBindings` 重复解析删除（L2-7）：它对 `mergedScript` 跑第二次完整 babel 解析，且与 `ast-parser.js` 已漂移（不跳 `importKind === 'type'`，`import type { Foo }` 会伪造模板组件边）。改为 `ast-parser.js` 的 ImportDeclaration visitor 顺手产出 `localBindings`（local 名→导出名，type-only 已上游排除），vue-ast 直接从 `baseResult.importRecords` 取——一次解析、一份判据。
+* **Fixed** 文档口径：本文件 08-12 L3-7 条目「原生小写标签不过滤」写反（代码与测试均为过滤）；ROADMAP 已知限制表新增 Vue kebab-case 模板标签不成边的边界说明（实测 realworld 仓 kebab 仅全局注册的 `router-link`/`router-view`，本不该造边）。
+* CACHE_VERSION 36→37（四类旧缓存条目不可比：伪装 ast 的降级 vue、谎报 regex 的无脚本 vue、缺 localBindings 的 importRecords、大写扩展名的 'none' 结果）。
+
 ### Test: 9 大语言死代码 Ground-Truth 语料与 Precision/Recall 断言（2026-08-05）
 
 * **Changed** `test/dead-export-ground-truth-test.js` 扩展至完全覆盖 9 大语言（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue SFC、Svelte），构造多语言混合真实语料集，严格断言 `precision === 1` 与 `recall === 1`。
@@ -53,7 +66,7 @@ Vue SFC 解析从正则抠 `<script>` 标签迁移到进程内 `tree-sitter-vue`
 
 * **Changed** `parsers/registry.js` `.vue` 注册切到 `parseVueAst` 并保留旧 `vue.js` 作为失败回退。
 * **Changed** `parsers/index.js` 导出 `parseVueAst`。
-* **Changed** `test/vue-parser-test.js` 全部主路径改跑新 parser，新增 TS script block、模板 PascalCase 命中 import、动态 `:is`、原生小写标签不过滤、未 import 组件不生成记录、旧 parser 仍可用等断言。
+* **Changed** `test/vue-parser-test.js` 全部主路径改跑新 parser，新增 TS script block、模板 PascalCase 命中 import、动态 `:is`、原生小写标签与 Vue 内建标签被过滤（不生成记录）、未 import 组件不生成记录、旧 parser 仍可用等断言。
 * **Changed** `docs/TECH_DEBT.md` 销去 L3-7 Vue 半；`SESSION.md` 更新本轮完成与下一轮入口。
 * CACHE_VERSION 35→36（`.vue` 文件 parseMode 与 importRecords 形状变化）。
 

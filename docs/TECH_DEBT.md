@@ -294,7 +294,7 @@
 
 - **C/C++ `tryCppInclude` 不校验命中类型与仓外爬升**（`resolvers/cpp.js`）：`cachedExistsSync` 只判 stat 非 null，`#include "utils"` 撞上同名**目录**会返回目录当边；`#include "../../../x.h"` 会把仓外文件拉进图。`tryRelativeWithExtensions` 同款（既有行为，非本轮引入）。解冻条件：C/C++ 回到范围内，或任何仓报出目录型节点 / 仓外路径节点。改法：命中后加 `isFile()` + root 包含判定。
 - ~~**`resolveFileOnly` 的 ext 大小写不一致**~~ ✅（2026-08-12，`builder.js:447` 归一化 + `test/builder-ext-case-test.js` 回归锁定，史见 CHANGELOG 同日条目）。
-- **扩展名大小写归一化上游缺口**（`builder.js:345` parse 分发、`file-index.js:432` language lookup）：这两处仍直接拿 `path.extname(filePath)` 做 registry 查找，没有 `.toLowerCase()`。真实 `App.JAVA` 文件会错过 Java parser 与语言分类。解冻条件：有真实仓报出 `.JAVA`/`.Vue`/`.TS` 等大写扩展名文件被误分类/解析，或顺手补修时加回归测试覆盖解析路径与 file-index 路径。改法：两处补 `.toLowerCase()`，并扩展 `test/builder-ext-case-test.js` 断言 AST parse 与 `fileMetadata.lang`。
+- ~~**扩展名大小写归一化上游缺口**~~ ✅（2026-08-17 解冻修复，`builder.js:345` parse 分发与 `file-index.js:432` language lookup 补 `.toLowerCase()`，`test/builder-ext-case-test.js` 扩展 parse 侧与 `fileMetadata.lang` 断言 + 双变异验红，史见 CHANGELOG 同日修复批条目）。
 - **仓库根目录两个垃圾目录**：`UserssdsesAppDataLocalTempwb-test-b331ad95` / `UserssdsesAppDataLocalTempwb-test-cache`（2026-07-20 遗留）。当前工作区已不存在这两个目录；如复现，定位写目录的测试并修路径拼接。
 - **Next.js 路由提取缺失**（`framework-patterns.js`）：有 Nuxt（:143）与 SvelteKit（:145）的 route query，**没有 React/Next**（该文件 `react`/`next` 零命中）。后果：Next 的文件系统路由（`app/` / `pages/api/`）抽不出，`api-contracts` 拿 Next 当后端全部对不上。**明确不做**——它是加特性不是减债，与当前"只做减法"的方向冲突。解冻条件：噪声治理完成（L2-11 三缺口 + L2-16）之后，若真实 Next 仓的实测数据支持，再评估。
 
