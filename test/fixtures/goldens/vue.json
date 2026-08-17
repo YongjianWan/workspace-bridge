@@ -7,6 +7,9 @@
       "imported": [
         "ref"
       ],
+      "localBindings": {
+        "ref": "ref"
+      },
       "reExportAll": false,
       "reExported": [],
       "source": "vue",
@@ -16,6 +19,9 @@
       "imported": [
         "helper"
       ],
+      "localBindings": {
+        "helper": "helper"
+      },
       "reExportAll": false,
       "reExported": [],
       "source": "./utils",

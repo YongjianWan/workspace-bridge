@@ -91,22 +91,31 @@ function parseJavaScriptAST(content, filePath = '') {
 
         const imported = [];
         let usesAllExports = false;
+        // local name -> exported-side name, for consumers that match template
+        // tags / identifiers against bindings (vue-ast template usage). Kept
+        // in the SAME single parse so there is only one import-spec judge.
+        const localBindings = {};
 
         for (const spec of node.specifiers || []) {
           if (spec.type === 'ImportNamespaceSpecifier') {
             usesAllExports = true;
+            if (spec.local?.name) localBindings[spec.local.name] = '*';
           } else if (spec.type === 'ImportDefaultSpecifier') {
             imported.push('default');
+            if (spec.local?.name) localBindings[spec.local.name] = 'default';
           } else if (spec.type === 'ImportSpecifier') {
             if (spec.importKind === 'type') continue;
             const name = spec.imported?.name || spec.imported?.value;
             if (name && name !== 'type') {
               imported.push(name);
+              if (spec.local?.name) localBindings[spec.local.name] = name;
             }
           }
         }
 
-        importRecords.push(createImportRecord(source, { imported, usesAllExports }));
+        const record = createImportRecord(source, { imported, usesAllExports });
+        if (Object.keys(localBindings).length > 0) record.localBindings = localBindings;
+        importRecords.push(record);
       },
 
       ExportAllDeclaration(node) {

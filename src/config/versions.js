@@ -125,6 +125,11 @@ const SCHEMA_VERSION = '1.2.0';
 //      模板组件引用抽取（命中脚本 import 的 PascalCase tag / :is 生成
 //      isTemplateUsage importRecord）。v35 缓存里 .vue 文件的 parseMode 与
 //      importRecords 形状与新路径不可比，作废重建。
-const CACHE_VERSION = 36;
+// v37: Vue/ext 修复批——① vue-ast 降级回退现在打 parseMode 'regex' 戳
+//      （builder 标记 regex-fallback，旧缓存里伪装 ast-success 的降级条目
+//      不可比）；② 无 script 块 SFC parseMode regex→ast 修正；③ importRecords
+//      新增 localBindings 字段；④ builder/file-index 大写扩展名（.JAVA 等）
+//      从 parseMode 'none' 变为正常解析。四类旧缓存条目均作废重建。
+const CACHE_VERSION = 37;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

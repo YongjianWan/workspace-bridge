@@ -14,7 +14,6 @@
  */
 
 const { parseJavaScript } = require('./js');
-const { babelParser } = require('./js/shared');
 const {
   getParserModule,
   loadLanguage,
@@ -98,7 +97,8 @@ function getDirectiveAttributeValue(startOrSelfClosingTag, directiveName) {
       else if (part.type === 'directive_argument') argument = getNodeText(part);
       else if (part.type === 'quoted_attribute_value') value = getNodeText(part);
     }
-    if (name === ':' && argument === directiveName && value) {
+    // Both shorthand (`:is`) and full (`v-bind:is`) directive spellings.
+    if ((name === ':' || name === 'v-bind') && argument === directiveName && value) {
       // Strip quotes.
       return value.replace(/^['"]|['"]$/g, '').trim();
     }
@@ -133,48 +133,21 @@ function extractTemplateComponentNames(rootNode) {
   return [...new Set(names)];
 }
 
-function extractScriptImportBindings(scriptContent, filePath) {
-  if (!babelParser) return new Map();
-  const ext = filePath.toLowerCase().endsWith('.ts') ? '.ts' : '.js';
-  try {
-    const ast = babelParser.parse(scriptContent, {
-      sourceType: 'module',
-      allowImportExportEverywhere: true,
-      allowReturnOutsideFunction: true,
-      plugins: [
-        'jsx',
-        'dynamicImport',
-        'exportDefaultFrom',
-        'exportNamespaceFrom',
-        'importMeta',
-        ...(ext === '.ts' ? ['typescript'] : []),
-      ],
-    });
-    const bindings = new Map();
-    for (const node of ast.program.body || []) {
-      if (node.type !== 'ImportDeclaration' || !node.source?.value) continue;
-      const source = node.source.value;
-      for (const spec of node.specifiers || []) {
-        if (spec.type === 'ImportDefaultSpecifier') {
-          if (spec.local?.name) {
-            bindings.set(spec.local.name, { source, importedName: 'default' });
-          }
-        } else if (spec.type === 'ImportNamespaceSpecifier') {
-          if (spec.local?.name) {
-            bindings.set(spec.local.name, { source, importedName: '*' });
-          }
-        } else if (spec.type === 'ImportSpecifier') {
-          if (spec.local?.name) {
-            const importedName = spec.imported?.name || spec.imported?.value || spec.local.name;
-            bindings.set(spec.local.name, { source, importedName });
-          }
-        }
-      }
+/**
+ * Local import bindings (local name -> { source, importedName }) taken from
+ * the importRecords ast-parser already produced — one parse, one judge.
+ * Type-only imports are already excluded upstream (ast-parser skips
+ * importKind === 'type'), so `import type { Foo }` can never fabricate a
+ * template usage edge.
+ */
+function collectLocalImportBindings(importRecords) {
+  const bindings = new Map();
+  for (const record of importRecords || []) {
+    for (const [local, importedName] of Object.entries(record.localBindings || {})) {
+      bindings.set(local, { source: record.source, importedName });
     }
-    return bindings;
-  } catch {
-    return new Map();
   }
+  return bindings;
 }
 
 function buildTemplateUsageRecords(templateBindings) {
@@ -189,26 +162,53 @@ function buildTemplateUsageRecords(templateBindings) {
 }
 
 async function parseVueAst(content, filePath = '') {
+  let parser;
   try {
     const mod = await getParserModule();
     if (!mod) return null;
     const lang = await loadLanguage('vue');
     if (!lang) return null;
 
-    const parser = new mod.Parser();
+    parser = new mod.Parser();
     parser.setLanguage(lang);
-    const tree = parser.parse(content);
+  } catch (err) {
+    if (process.env.DEBUG) {
+      console.error(`[vue-ast] parser init failed for ${filePath}:`, err.message);
+    }
+    return null;
+  }
+
+  // From here on a Parser (and soon a Tree) exists: every exit path must
+  // release both. web-tree-sitter objects live on the WASM heap — without an
+  // explicit delete() they leak (the other 6 tree-sitter parsers all release;
+  // see python-ast.js for the canonical three-block shape).
+  let tree;
+  try {
+    tree = parser.parse(content);
+  } catch (err) {
+    if (process.env.DEBUG) {
+      console.error(`[vue-ast] parse failed for ${filePath}:`, err.message);
+    }
+    try { parser.delete(); } catch {}
+    return null;
+  }
+
+  try {
     const rootNode = tree.rootNode;
 
     const scriptBlocks = collectScriptBlocks(rootNode);
     if (scriptBlocks.length === 0) {
+      // The SFC itself WAS AST-parsed — "no script block" is a content fact,
+      // not a fallback. Returning 'regex' here would make builder.js stamp
+      // parseModeReason 'regex-fallback' (untrusted cache + inflated degraded
+      // counters) for a perfectly good parse.
       return {
         imports: [],
         exports: [],
         importRecords: [],
         exportRecords: [],
         functionRecords: [],
-        parseMode: 'regex',
+        parseMode: 'ast',
       };
     }
 
@@ -222,8 +222,9 @@ async function parseVueAst(content, filePath = '') {
     const baseResult = parseJavaScript(mergedScript, effectivePath);
     if (!baseResult) return null;
 
-    // Extract local import bindings so template tags can be mapped back to sources.
-    const importBindings = extractScriptImportBindings(mergedScript, effectivePath);
+    // Local import bindings from the SAME parse, so template tags map back to
+    // sources without a second babel pass.
+    const importBindings = collectLocalImportBindings(baseResult.importRecords);
 
     // Build template usage records for PascalCase component tags that match imports.
     const templateTagNames = extractTemplateComponentNames(rootNode);
@@ -256,6 +257,9 @@ async function parseVueAst(content, filePath = '') {
       console.error(`[vue-ast] parse failed for ${filePath}:`, err.message);
     }
     return null;
+  } finally {
+    try { if (tree) tree.delete(); } catch {}
+    try { if (parser) parser.delete(); } catch {}
   }
 }
 

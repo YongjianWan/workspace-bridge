@@ -214,7 +214,14 @@ registry.register(defineLanguage({
   parse: async (content, filePath) => {
     const result = await parseVueAst(content, filePath);
     if (result) return result;
-    return parseVue(content, filePath);
+    // Degraded path: tree-sitter-vue unavailable or failed. parseVue's babel
+    // result would report parseMode 'ast', masquerading as ast-success —
+    // invisible in warnings and permanently trusted by the cache. Stamp
+    // 'regex' so builder.js marks it 'regex-fallback': countable in
+    // warnings[] and never cache-trusted (L1-4: no silent degradation).
+    const fallback = parseVue(content, filePath);
+    if (fallback) fallback.parseMode = 'regex';
+    return fallback;
   },
   async: true,
   needsFilePath: true,

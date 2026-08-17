@@ -429,7 +429,7 @@ class FileIndex {
       if (!this.active) return false;
       const content = await readFile(filePath, 'utf8');
       if (!this.active) return false;
-      const ext = path.extname(filePath);
+      const ext = path.extname(filePath).toLowerCase();
 
       // Resolve language, type, and role
       const langConfig = registry.findByExt(ext);

@@ -7,6 +7,9 @@
       "imported": [
         "writable"
       ],
+      "localBindings": {
+        "writable": "writable"
+      },
       "reExportAll": false,
       "reExported": [],
       "source": "svelte/store",
@@ -16,6 +19,9 @@
       "imported": [
         "default"
       ],
+      "localBindings": {
+        "LocalComponent": "default"
+      },
       "reExportAll": false,
       "reExported": [],
       "source": "./LocalComponent.svelte",

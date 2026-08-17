@@ -342,7 +342,7 @@ class GraphBuilder {
       }
       content = await readFile(filePath, 'utf8');
     }
-    const ext = path.extname(filePath);
+    const ext = path.extname(filePath).toLowerCase();
     
     let imports = [];
     let exports = [];
