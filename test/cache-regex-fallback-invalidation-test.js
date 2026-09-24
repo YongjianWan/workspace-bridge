@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @semantic — 工具链降级（regex-fallback）产生的缓存条目永不信任
+// @fast
 // 复现 2026-07-20 dogfood bug：无 javalang 时 java 文件走 regex fallback，
 // 结果入缓存；装好 javalang 后重跑仍命中旧缓存（key 只看 mtime/hash），
 // 拿到一模一样的垃圾数字。修复后 regex-fallback 条目必须每次重解析。

@@ -61,7 +61,6 @@ const DEFAULTS = {
   REUSE_HINTS_MIN_SCORE: 0.5,
   REUSE_HINTS_MAX_PER_FUNCTION: 3,
   // File-index timeouts
-  FILE_INDEX_PATTERN_TIMEOUT_MS: 120000,
   WATCH_DEBOUNCE_MS: 500,
   FILE_INDEX_BUILD_TIMEOUT_MS: 300000,
   // Staleness threshold: 24 hours suits AI async review workflows.

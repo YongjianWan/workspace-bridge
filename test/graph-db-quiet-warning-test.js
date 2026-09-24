@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @contract
-// @slow
+// @fast
 /**
  * GraphDB quiet warning test
  * Verifies that opening a GraphDB database does not leak the

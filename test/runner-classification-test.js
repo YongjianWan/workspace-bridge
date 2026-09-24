@@ -107,9 +107,9 @@ function testNeedsCacheDirFalseForPlainUnitTest() {
 }
 
 function testNeedsCacheDirForDeclaredSlowWithoutAnchor() {
-  // affected-tests-heuristic-test.js is @slow but does not mention runCli or
+  // async-lifecycle-fixes-test.js is @slow but does not mention runCli or
   // heavy API — declared slow tests must keep isolation regardless.
-  assert.strictEqual(needsCacheDir('affected-tests-heuristic-test.js'), true, '@slow declaration must keep cache isolation even without content anchors');
+  assert.strictEqual(needsCacheDir('async-lifecycle-fixes-test.js'), true, '@slow declaration must keep cache isolation even without content anchors');
 }
 
 function testNeedsCacheDirForFilenameWatch() {

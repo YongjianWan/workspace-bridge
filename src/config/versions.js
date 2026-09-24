@@ -130,6 +130,6 @@ const SCHEMA_VERSION = '1.2.0';
 //      不可比）；② 无 script 块 SFC parseMode regex→ast 修正；③ importRecords
 //      新增 localBindings 字段；④ builder/file-index 大写扩展名（.JAVA 等）
 //      从 parseMode 'none' 变为正常解析。四类旧缓存条目均作废重建。
-const CACHE_VERSION = 37;
+const CACHE_VERSION = 38;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

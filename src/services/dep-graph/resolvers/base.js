@@ -418,7 +418,11 @@ function _pep508Name(requirement) {
 }
 
 function readPythonDeps(root) {
-  const reqPath = path.join(root, 'requirements.txt');
+  // 声明面 = 根 requirements{,-dev}.txt + pyproject 的全部依赖段。
+  // dev 声明同为第三方（gate 只影响 dropped 记账，本地文件解析永远优先）——
+  // 2026-09-24 实测缺口：pytest 只写在 requirements-dev.txt 时被判"像本地
+  // import"，121 条误入 dropped。
+  const reqPaths = ['requirements.txt', 'requirements-dev.txt'].map((f) => path.join(root, f));
   const pyPath = path.join(root, 'pyproject.toml');
   const stampOf = (p) => {
     try {
@@ -427,8 +431,9 @@ function readPythonDeps(root) {
       return 0;
     }
   };
-  const stamp = `${stampOf(reqPath)}:${stampOf(pyPath)}`;
-  if (stamp === '0:0') {
+  const stamps = [...reqPaths.map(stampOf), stampOf(pyPath)];
+  const stamp = stamps.join(':');
+  if (stamps.every((s) => s === 0)) {
     _pythonDepsCache.delete(root);
     return null;
   }
@@ -449,16 +454,18 @@ function readPythonDeps(root) {
     if (alias) names.add(alias);
   };
 
-  try {
-    if (stampOf(reqPath)) {
-      for (const rawLine of fs.readFileSync(reqPath, 'utf8').split('\n')) {
-        const line = rawLine.replace(/\s+#.*$/, '').trim();
-        if (!line || line.startsWith('#') || line.startsWith('-')) continue;
-        add(line.split(';')[0]); // drop environment markers
+  for (const reqPath of reqPaths) {
+    try {
+      if (stampOf(reqPath)) {
+        for (const rawLine of fs.readFileSync(reqPath, 'utf8').split('\n')) {
+          const line = rawLine.replace(/\s+#.*$/, '').trim();
+          if (!line || line.startsWith('#') || line.startsWith('-')) continue;
+          add(line.split(';')[0]); // drop environment markers
+        }
       }
+    } catch {
+      // unreadable requirements file — pyproject may still carry the facts
     }
-  } catch {
-    // unreadable requirements.txt — pyproject may still carry the facts
   }
 
   try {
@@ -473,22 +480,29 @@ function readPythonDeps(root) {
           collecting = false;
           continue;
         }
-        if (section === 'project' || section === 'project.optional-dependencies') {
-          if (/^[\w-]*\s*=\s*\[/.test(line)) collecting = true;
+        // [project] 只有 dependencies 是声明（classifiers/keywords 不是）；
+        // optional-dependencies / dependency-groups 每个键都是一个声明数组。
+        const multiArraySection =
+          section === 'project.optional-dependencies' || section === 'dependency-groups';
+        if (section === 'project' || multiArraySection) {
+          const startsArray = multiArraySection
+            ? /^[\w-]+\s*=\s*\[/.test(line)
+            : /^dependencies\s*=\s*\[/.test(line);
+          if (startsArray) collecting = true;
           if (collecting) {
             for (const m of line.matchAll(/["']([^"']+)["']/g)) add(m[1]);
             if (line.includes(']')) collecting = false;
             continue;
           }
         }
-        if (/^tool\.poetry\.(group\.[\w-]+\.)?dependencies$/.test(section)) {
+        if (/^tool\.poetry\.(dev-dependencies|(group\.[\w-]+\.)?dependencies)$/.test(section)) {
           const eq = line.indexOf('=');
           if (eq > 0) add(line.slice(0, eq));
         }
       }
     }
   } catch {
-    // unreadable pyproject.toml — requirements.txt may still carry the facts
+    // unreadable pyproject.toml — requirements files may still carry the facts
   }
 
   _pythonDepsCache.set(root, { names, stamp });
@@ -601,16 +615,15 @@ function readJvmDeps(root) {
   return prefixes;
 }
 
-function _readTsconfigPaths(root) {
-  const tsconfigPath = path.join(root, 'tsconfig.json');
-  const jsconfigPath = path.join(root, 'jsconfig.json');
-  const configPath = cachedExistsSync(tsconfigPath) ? tsconfigPath : (cachedExistsSync(jsconfigPath) ? jsconfigPath : null);
-  if (!configPath) return null;
+const _tsconfigFileCache = new Map(); // configPath -> { parsed, mtime }
 
+function _parseTsconfigFile(configPath) {
   try {
-    const mtime = fs.statSync(configPath).mtimeMs;
-    const cached = _tsconfigPathsCache.get(configPath);
-    if (cached && cached.mtime === mtime) return cached.paths;
+    const stat = cachedStatSync(configPath);
+    if (!stat || stat.isDirectory()) return null;
+    const mtime = stat.mtimeMs;
+    const cached = _tsconfigFileCache.get(configPath);
+    if (cached && cached.mtime === mtime) return cached.parsed;
 
     const { stripBOM } = require('../../../utils/sanitize');
     const content = fs.readFileSync(configPath, 'utf8');
@@ -621,10 +634,138 @@ function _readTsconfigPaths(root) {
       })
       .replace(/,\s*([\]}])/g, '$1');
     const parsed = JSON.parse(cleaned);
-    const paths = parsed?.compilerOptions?.paths || null;
-    const baseUrl = parsed?.compilerOptions?.baseUrl || '.';
-    const result = paths ? { paths, baseUrl } : null;
-    _tsconfigPathsCache.set(configPath, { paths: result, mtime });
+    _tsconfigFileCache.set(configPath, { parsed, mtime });
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function _resolveExtendedConfigPath(baseDir, extendsPath) {
+  if (typeof extendsPath !== 'string' || !extendsPath) return null;
+  let target = path.isAbsolute(extendsPath) ? extendsPath : path.resolve(baseDir, extendsPath);
+  if (cachedExistsSync(target)) {
+    const stat = cachedStatSync(target);
+    if (stat && !stat.isDirectory()) return target;
+    const insideJson = path.join(target, 'tsconfig.json');
+    if (cachedExistsSync(insideJson)) return insideJson;
+  }
+  if (!target.endsWith('.json')) {
+    const withJson = target + '.json';
+    if (cachedExistsSync(withJson)) return withJson;
+  }
+  return null;
+}
+
+function _loadTsconfigHierarchy(configPath, visited = new Set(), depth = 0) {
+  if (!configPath || depth > 5 || visited.has(configPath)) return null;
+  visited.add(configPath);
+
+  const parsed = _parseTsconfigFile(configPath);
+  if (!parsed) return null;
+
+  const configDir = path.dirname(configPath);
+  let parentEntries = [];
+  let parentPaths = {};
+  let parentBaseUrl = '.';
+
+  if (parsed.extends) {
+    const extendsList = Array.isArray(parsed.extends) ? parsed.extends : [parsed.extends];
+    for (const extRef of extendsList) {
+      const resolvedExtPath = _resolveExtendedConfigPath(configDir, extRef);
+      if (resolvedExtPath) {
+        const parentResult = _loadTsconfigHierarchy(resolvedExtPath, new Set(visited), depth + 1);
+        if (parentResult) {
+          if (parentResult.entries) parentEntries = [...parentEntries, ...parentResult.entries];
+          if (parentResult.paths) parentPaths = { ...parentPaths, ...parentResult.paths };
+          if (parentResult.baseUrl) parentBaseUrl = parentResult.baseUrl;
+        }
+      }
+    }
+  }
+
+  const rawPaths = parsed?.compilerOptions?.paths || null;
+  const baseUrl = parsed?.compilerOptions?.baseUrl || parentBaseUrl || '.';
+  const effectiveBaseDir = path.resolve(configDir, baseUrl);
+
+  const currentEntries = [];
+  if (rawPaths && typeof rawPaths === 'object') {
+    for (const [pattern, targets] of Object.entries(rawPaths)) {
+      const prefix = pattern.replace(/\*$/, '');
+      const targetList = Array.isArray(targets) ? targets : [targets];
+      const normalizedTargets = targetList.map((t) => {
+        const hasWildcard = t.includes('*');
+        return {
+          target: t,
+          hasWildcard,
+          prefix: t.replace(/\*$/, ''),
+          baseDir: effectiveBaseDir,
+        };
+      });
+      currentEntries.push({
+        pattern,
+        prefix,
+        targets: normalizedTargets,
+      });
+    }
+  }
+
+  const mergedEntriesMap = new Map();
+  for (const e of parentEntries) {
+    mergedEntriesMap.set(e.pattern, e);
+  }
+  for (const e of currentEntries) {
+    mergedEntriesMap.set(e.pattern, e);
+  }
+
+  const mergedPaths = { ...parentPaths, ...(rawPaths || {}) };
+  const mergedEntries = Array.from(mergedEntriesMap.values());
+
+  return {
+    paths: Object.keys(mergedPaths).length > 0 ? mergedPaths : null,
+    baseUrl,
+    baseDir: configDir,
+    entries: mergedEntries.length > 0 ? mergedEntries : null,
+  };
+}
+
+function _findNearestTsconfig(dir, root) {
+  let curr = path.resolve(dir);
+  const normalizedRoot = path.resolve(root);
+  while (true) {
+    const tsconfig = path.join(curr, 'tsconfig.json');
+    if (cachedExistsSync(tsconfig)) return tsconfig;
+    const jsconfig = path.join(curr, 'jsconfig.json');
+    if (cachedExistsSync(jsconfig)) return jsconfig;
+    if (curr === normalizedRoot || curr === path.dirname(curr)) break;
+    curr = path.dirname(curr);
+  }
+  return null;
+}
+
+function _readTsconfigPaths(root, fromFile = null) {
+  if (!root) return null;
+  let targetConfig = null;
+  if (fromFile) {
+    const startDir = path.dirname(path.isAbsolute(fromFile) ? fromFile : path.join(root, fromFile));
+    targetConfig = _findNearestTsconfig(startDir, root);
+  }
+  if (!targetConfig) {
+    const rootTs = path.join(root, 'tsconfig.json');
+    const rootJs = path.join(root, 'jsconfig.json');
+    targetConfig = cachedExistsSync(rootTs) ? rootTs : (cachedExistsSync(rootJs) ? rootJs : null);
+  }
+  if (!targetConfig) return null;
+
+  try {
+    const stat = cachedStatSync(targetConfig);
+    if (!stat) return null;
+    const mtime = stat.mtimeMs;
+    const cached = _tsconfigPathsCache.get(targetConfig);
+    if (cached && cached.mtime === mtime) return cached.paths;
+
+    const result = _loadTsconfigHierarchy(targetConfig);
+    _tsconfigPathsCache.set(targetConfig, { paths: result, mtime });
     return result;
   } catch {
     return null;

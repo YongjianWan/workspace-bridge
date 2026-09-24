@@ -132,7 +132,7 @@ CLI 只给结构线索，安全判断必须 AI 手动执行。
 | 输出含 `coverageWarning` | `analysisCoverage.coverageRatio < 0.5`，findings 可能不完整 |
 | Windows 路径问题 | `--file src/services/dep-graph.js`（正斜杠） |
 | Exit code 2 | 未捕获异常；exit=1 是业务失败 |
-| Java 项目 `coverageRatio=1` 但缺少 AST 字段 | 本地未安装 `javalang`（`pip install javalang`），parser 已回退到 regex；fallback 结果可用，但不应与 AST golden 对比 |
+| Java/Python 项目 `coverageRatio=1` 但缺少 AST 字段 | 先检查 tree-sitter WASM 是否加载；`regex-fallback` 是显式降级结果，可用但不应与 AST golden 对比 |
 
 ---
 

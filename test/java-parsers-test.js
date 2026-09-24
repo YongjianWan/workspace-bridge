@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @contract
-// @slow
+// @fast — in-process tree-sitter WASM (~700ms)
 const assert = require('assert');
 const { parseJava } = require('../src/services/dep-graph/parsers');
 

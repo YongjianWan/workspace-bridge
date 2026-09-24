@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @semantic
-// @slow — builds large mock DependencyGraph; must not run concurrently with other graph-building tests.
+// @fast — in-memory mock DependencyGraph (~700ms)
 
 const assert = require('assert');
 const { createMockDepGraph } = require('./test-helpers');

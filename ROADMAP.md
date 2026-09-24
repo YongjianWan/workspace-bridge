@@ -183,15 +183,15 @@
 
 ### 活跃债务（按 [TECH_DEBT.md](./docs/TECH_DEBT.md)）
 
-> 计数口径（2026-08-03 对齐）：本表此前 L3 恒写 0，与 [TECH_DEBT.md](./docs/TECH_DEBT.md) 的 P3 清单矛盾。**以 TECH_DEBT 总览表为准**，本表只做数量索引。
+> 计数口径（2026-09-14 对齐）：本表只做数量索引，**以 [TECH_DEBT.md](./docs/TECH_DEBT.md) 和 Git HEAD 为准**；工作区未提交的实现不算已关闭。
 
 | 类型 | 数量 | 内容 |
 | ---- | ---- | ---- |
 | L1 Blocker | 0 | — |
 | L2 债务 | 0 | — |
 | 架构债务 | 0 | 已全部转为预防性约束 |
-| L3（P2.5 下一批） | 2 | L3-9 Java 半（javalang 读不了 Java 14+，装了也 regex）· L3-7 Vue 半（模板组件引用零边，`tree-sitter-vue.wasm` 零新依赖可解） |
-| L3（P3 记账不排期） | 8 | L3-4 / L3-8 / L3-10 / L3-11 / L3-12 / L3-13 / L3-14 / L3-16（tsconfig `extends` 不跟，新登记） |
+| L3（P2.5 下一批） | 0 | Java 与 Vue 已在 HEAD 中完成；Svelte 半仍冻结，不计入当前待办 |
+| L3（P3 记账不排期） | 7 | L3-4 / L3-8 / L3-10 / L3-11 / L3-12 / L3-13 / L3-16；其中 L3-10、L3-16 只有工作区实现，尚未提交验收 |
 | 决策原则 | 1 | 解析器选型判据：官方能进程内跑就用官方，否则 tree-sitter——不为保真度背外部工具链 |
 
 > 已修复项（历史见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]）：`inferFileRole` 状态化 + 规则盲区消除（`project-context.js`）、`shouldExclude` 跨层热切判定解耦（`file-index.js`）、COMMAND_GUIDES 内聚归位（`cli.js`）、Resolver FIFO → LRU（`resolvers.js`）、`js.js` 解析器拆分（将 `parseJavaScriptAST` 移至 `ast-parser.js`）、`bootstrapFromSchema` 路径规范化不一致。

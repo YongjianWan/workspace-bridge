@@ -985,6 +985,15 @@ class GraphAnalyzer {
       });
     }
 
+    if (Array.isArray(this.dg._indexWarnings) && this.dg._indexWarnings.length > 0) {
+      // FileIndex 本轮遍历的降级信号（如 depth-truncated）。与
+      // projectContext.warnings 的 config-warning 同形注入，但保留自己的
+      // type——描述的是索引完整性，不是配置问题。
+      for (const w of this.dg._indexWarnings) {
+        warnings.push(w);
+      }
+    }
+
     const stats = this.getStats();
     if (stats.files > 0 && stats.totalImports === 0) {
       warnings.push({

@@ -4,8 +4,7 @@
 /**
  * Boundary tests for file-index.js:
  * - readdir permission-denied graceful skip
- * - AbortController timeout in build()
- * - AbortController timeout in indexByPattern()
+ * - AbortController timeout in build() (findFilesAsync signature contract)
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -58,26 +57,29 @@ async function testBuildAbortControllerTimeout() {
   try {
     const cache = new WorkspaceCache(root);
     const index = new FileIndex(root, cache);
-    // Very short timeout to force abort
-    await index.build(1, { watch: false });
-    // Should complete without throwing even if aborted
-  } finally {
-    cleanupTempDir(root);
-  }
-}
+    let sawAbort = false;
+    index.findFilesAsync = async function* (_dir, _maxDepth, signal) {
+      assert(
+        typeof _maxDepth === 'number' && signal && typeof signal === 'object',
+        `findFilesAsync 签名应为 (dir, maxDepth, signal)，实际 (${typeof _dir}, ${typeof _maxDepth}, ${typeof signal})`
+      );
+      const stallUntil = Date.now() + 250;
+      while (Date.now() < stallUntil) {
+        if (signal.aborted) {
+          sawAbort = true;
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        yield path.join(root, 'src', 'a.js');
+      }
+    };
 
-async function testIndexByPatternAbortTimeout() {
-  const root = makeTempDir('wb-fidx-ptn-');
-  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'test' }));
-  fs.mkdirSync(path.join(root, 'src'));
-  fs.writeFileSync(path.join(root, 'src', 'a.js'), 'export const a = 1;\n');
+    const startedAt = Date.now();
+    await index.build(20, { watch: false });
+    const elapsedMs = Date.now() - startedAt;
 
-  try {
-    const cache = new WorkspaceCache(root);
-    const index = new FileIndex(root, cache);
-    // Very short timeout to force abort
-    await index.indexByPattern('**/*.js', 10, 1);
-    // Should complete without throwing even if aborted
+    assert.strictEqual(sawAbort, true, 'build timeout should abort a scan stuck inside the walk');
+    assert(elapsedMs < 150, `build timeout should stop promptly, took ${elapsedMs}ms`);
   } finally {
     cleanupTempDir(root);
   }
@@ -86,7 +88,6 @@ async function testIndexByPatternAbortTimeout() {
 async function main() {
   await testReaddirPermissionDeniedSkipped();
   await testBuildAbortControllerTimeout();
-  await testIndexByPatternAbortTimeout();
 }
 
 main().catch((err) => {

@@ -52,9 +52,11 @@ function resolvePythonCommand(root) {
  * @param {string[]} args - Arguments array (each element is safely passed)
  * @param {string} cwd - Working directory
  * @param {number} timeoutMs - Timeout in ms
+ * @param {object} [options] - Extra spawn options
+ * @param {string} [options.stdinData] - String fed to the child's stdin (e.g. `git check-ignore --stdin`)
  * @returns {Promise<{ok: boolean, command: string, exitCode: number, stdout: string, stderr: string}>}
  */
-function runCommandSecure(command, args, cwd, timeoutMs = TIMEOUTS.COMMAND_DEFAULT_MS) {
+function runCommandSecure(command, args, cwd, timeoutMs = TIMEOUTS.COMMAND_DEFAULT_MS, options = {}) {
   return new Promise((resolve) => {
     const resolvedCommand = resolveCommandForPlatform(command);
     const useWindowsCmdShim = process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolvedCommand);
@@ -63,12 +65,20 @@ function runCommandSecure(command, args, cwd, timeoutMs = TIMEOUTS.COMMAND_DEFAU
       ? ['/d', '/s', '/c', resolvedCommand, ...args]
       : args;
 
+    // stdinData: feed the child's stdin; otherwise stdin stays ignored exactly
+    // as before — zero behavior change for existing callers.
+    const hasStdin = typeof options.stdinData === 'string';
     const child = cp.spawn(spawnCommand, spawnArgs, {
       cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [hasStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       windowsHide: true,
       env: buildSafeEnv(),
     });
+    if (hasStdin) {
+      child.stdin.on('error', () => {}); // EPIPE when the child exits before reading
+      child.stdin.write(options.stdinData);
+      child.stdin.end();
+    }
 
     let stdout = '';
     let stderr = '';

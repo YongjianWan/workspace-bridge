@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @semantic
+// @fast
 /**
  * Verify ServiceContainer.initialize() sets workspaceInfo on cache,
  * enabling runDiagnostics() fast-path.

@@ -5,6 +5,53 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### Fix: Python manifest 声明面缺口——dev 依赖不再是误报源（2026-09-24）
+
+串围标智能体仓实测 `unresolved-dropped` 121 条（pytest 一族跨 72 文件）：`readPythonDeps` 只读根 `requirements.txt` + `pyproject.toml` 两个文件，**dev 声明面整块缺席**——pytest 写在 `requirements-dev.txt` 的仓全数被当"像本地 import"记入 dropped。
+
+* **Fixed** `resolvers/base.js` `readPythonDeps` 声明面扩为：根 `requirements.txt` + `requirements-dev.txt`（mtime 双文件同代戳）、`[project].dependencies`、`[project.optional-dependencies]`、**`[dependency-groups]`**（PEP 735 / uv 原生）、poetry 旧式 `tool.poetry.dev-dependencies`。方向安全：manifest 命中只喂外部闸（dropped 记账 + symbol-table 归属），本地文件解析永远优先，多认一个第三方名藏不掉真边。
+* **Fixed** `[project]` 段收集过宽：`classifiers`/`keywords`/`authors` 等数组里的字符串会被当依赖名收进名单（`"Framework :: Django"` 收成 `Framework`），现 `[project]` 只认 `dependencies` 键。
+* CACHE_VERSION 37→38（gate 判决语义变化，旧缓存的 dropped 记账作废重建）。
+* 前后对照（串围标：92k 文件混合仓）：`unresolved-dropped` **121 → 76**（pytest 一族全消）。剩余 76 条是另一性质的缺口——skill 包内裸名 import（`run_task`/`acceptance`/`criteria_format`）在 `tryPython{Relative,Absolute}` 下解析不到 `.agents/skills/*` 深处的目标，属 Python 绝对导入解析问题，不在本批范围，如实记账不混说。
+* 测试：新增 `test/python-manifest-deps-test.js` 4 例（dev 文件提取 / 闸判外部含点号子模块归根 / dependency-groups + poetry dev 段 + classifiers 排除 / mtime 同代失契约），首例对旧实现必红。
+
+### Feature & Fix: .gitignore 摄入——忽略语义交还 git 终审（2026-09-24）
+
+三套排除体系（硬编码 defaults / `.workspace-bridge.json` / CLI `--exclude`）此前对 `.gitignore` 全然无视：混合仓的 data 重目录只能靠人手抄一份配置救，`data` 也不在 `DEFAULT_EXCLUDE_DIRS` 里——下一个没配配置的仓直接裸奔。本批把 gitignore 接进来：
+
+* **Added** `src/utils/gitignore.js` `filterGitIgnored(root, files)`：`git check-ignore --stdin -z` 单次批量终审候选代码文件，忽略 / `!` 回含语义由 git 自己算（anchored / dir-only / negation / 嵌套 `.gitignore` 是一整套规格，手写必然漂移，git 是现成 oracle）。判定层级：无 `.git` 且无 `.gitignore` = 无承诺，不警告；exit 1 = 无人被忽略；git 缺席 / fatal / 超时 = `warnings[]: gitignore-unavailable` 显式降级 + 原样保留（L1-4，禁止静默照单全收）。只承担**文件级**过滤，目录剪枝仍归 defaults / 配置层；CLI `--exclude`「保留在图中当 importer、只滤输出」的既有语义不动。
+* **Changed** `file-index.js` `build()` 发现阶段之后接一道 gitignore 过滤，`_indexedFiles` / 索引面同步收窄。
+* **Changed** `command.js` `runCommandSecure` 增加可选 `options.stdinData`（喂子进程 stdin，EPIPE 静默容忍）；未传时行为零变化。
+* 验收对照（串围标智能体：92,307 文件 / 12GB 混合仓）：带配置 discovered **137 → 137 零 diff**；**无配置模拟**（纯 gitignore 裁决，1,449 个代码候选）→ kept **191** / dropped 1,258，kept 构成 = pipeline 15 + scripts 16 + tests 34 + conftest 1 + `.agents` 71 + data 白名单 54——与配置驱动 137 的差恰是 `.gitignore` `!` 回含的 54 个已入库 data 脚本（git 视角它们是跟踪真相；配置的 `generated:[data]` 整目录切是更钝的刀，两者不一致属配置侧既有行为，优先级维持配置 > gitignore 不变）。
+* 测试：新增 `test/file-index-gitignore-test.js` 3 例（串围标真实形状 `/data/* + !` 白名单必须按 git 语义裁决 / git 不可用时显式降级且照常索引 / 无承诺时不乱叫），首例对旧实现必红（`data/skipme.py` 被照单全收）。
+
+### Fix & Performance: FileIndex 单趟发现——O(patterns×树) → O(树)（2026-09-24）
+
+定性来自真实混合仓实测（串围标智能体：92,307 文件 / 12GB，代码仅 137 个，13,335 个目录）——分析启动慢的主因是发现阶段的重复遍历，不是解析：
+
+* **Fixed 发现阶段 O(patterns × 树)（核心缺陷）**：`file-index.js` `build()` 此前对 `getFilePatterns()` 的 20 个扩展名 pattern 各自从根完整走一遍树，且每目录一次 `realpath`——13,335 目录 × 20 pattern ≈ 26.7 万次 realpath 系统调用。实测对照（11 目录 fixture）：旧实现 readdir 110 次，新实现 11 次（测试内杀变异锁定）；92k 文件树单趟 3.3s，旧形状推算 ≥66s。现为单趟遍历 + 注册表 ext 集合逐条目匹配，语言条件过滤沿用 `getFilePatterns(workspace)` 同一来源，激活语义不变。
+* **Fixed 发现侧扩展名大小写漏收**：旧匹配 `fullPath.endsWith(ext)` 大小写敏感，`App.TS` 之类大写扩展文件从不进索引（builder/resolver 侧归一是 08-17 修的，发现侧是最后缺口）。现按 `path.extname().toLowerCase()` 查表。串围标仓实测影响面 0（无大写扩展代码文件），discovered 137 → 137 零 diff。
+* **Fixed 深度截断静默丢子树（L1-4）**：`FILE_INDEX_MAX_DEPTH=12` 之外的目录此前纯静默跳过；现计入截断数并以 `warnings[]: depth-truncated` 显式上报——`analyzer.buildWarnings()` 新增 `_indexWarnings` 注入通道（`_parseErrorFiles` 同款形状），`orchestrator.initializeDepGraph` 接线，CLI `warnings[]` 端到端实测可见。
+* **Fixed realpath 放大**：`findFilesAsync` 只对符号链接/junction 做 `realpath`（Node 对 junction 的 `isSymbolicLink()` 返 true，v25/Windows 实测；POSIX 目录 symlink 等价处理），普通子目录继承 `parentReal + name` 零系统调用；`visitedRealPaths` 环/别名检测语义不变，junction 环 fixture 锁定（不挂起、不重复、无别名路径）。
+* **Removed** `indexByPattern()`（生产零调用方，超时断言已并入 build 路径）与孤儿常量 `FILE_INDEX_PATTERN_TIMEOUT_MS`（L2-5）。
+* 测试：新增 `test/file-index-single-pass-test.js` 4 例（readdir 计数杀变异 / 20 扩展 + 大写 parity / junction 环 / depth 截断警告），`file-index-boundary-test.js` 更新 `findFilesAsync` 签名契约断言。四例对旧实现全红（110 次 readdir、大写漏收、warnings 缺失），现全绿；小 fixture 索引 235ms → 15-20ms。
+
+### Fix & Optimization: L3-10 纯 C 探测、L3-16 tsconfig extends 链继承与 L3-12/13 测试分层优化（2026-08-28）
+
+按规划完成工程收尾与技术债清理（L3-10、L3-16、L3-12/13 第二批下放）：
+
+* **Fixed L3-10 纯 C 仓库语言探测与支持（三处链路闭环）**：
+  * 修复 `overview-assembler.js` 的 `EXT_TO_LANG` 字典缺少 `.c, .cpp, .cc, .cxx, .h, .hpp` 导致 C/C++ 概览矩阵漏报的问题。
+  * 修复 `path.js` 与 `detect.js` 中 `hasCpp` / `hasCppProject` 仅检查构建文件（`CMakeLists.txt`/`Makefile`）的缺陷，新增 `_hasCppFiles(root)` 探测 C/C++ 源码文件，使纯 C 仓库及无构建文件的项目能准确识别技术栈并注册 C/C++ 解析策略。
+  * `test/language-support-matrix-test.js` 扩展覆盖断言。
+* **Fixed L3-16 tsconfig `extends` 链与多包别名解析**：
+  * 重写 `resolvers/base.js` 的 `_readTsconfigPaths(root, fromFile)`：支持从 `fromFile` 向上寻找最近的 `tsconfig.json`/`jsconfig.json`；支持递归解析 `extends`（单级/多级继承）；规范化各级 `paths` 绑定至其自身 `baseUrl` 与配置目录；内置访问集合与深度防环（上限 5 级）。
+  * 更新 `resolvers/javascript.js` 中的 `tryAlias` 与 `_resolveAlias`，传入 `fromFile` 并在 `entries` 中利用独立的 `baseDir` 解析多包路径别名。
+  * 新增 `test/tsconfig-extends-test.js`，覆盖单级继承、Monorepo 子包继承、循环继承防御等场景。
+* **Changed L3-12 / L3-13 测试分层与运行优化（第二批下放）**：
+  * 基于慢层运行耗时实测报告，对实测 `<2s` 的 9 个测试文件添加 `// @fast` 显式标注并下放至 fast 层：`affected-tests-heuristic-test.js`、`java-parsers-test.js`、`graph-db-quiet-warning-test.js`、`bug-18-archive-role-test.js`、`file-index-exclude-test.js`、`cli-config-error-test.js`、`container-workspace-info-test.js`、`cache-stale-prune-test.js`、`cache-regex-fallback-invalidation-test.js`。
+  * 慢层启发式未测量猜测项由 41 项降至 35 项；fast 层测试由 162 项扩充至 172 项，全量保持秒级（~30s）执行。
+
 ### Fix: Vue parser 与扩展名大小写审核修复批（2026-08-17）
 
 独立审核（08-12 的 Vue parser 与 ext 大小写两条代码提交）发现的缺陷集中修复，全部按「先 RED 测试再实现 + 变异验红」落地：

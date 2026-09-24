@@ -30,8 +30,8 @@ node cli.js audit-overview --cwd . --json --quiet
 可选诊断工具：
 
 ```bash
-pip install ruff pyright        # Python
-pip install javalang            # Java AST（缺失时自动回退到 regex）
+pip install ruff pyright        # 可选：Python lint/type check
+# Java/Python AST 使用随包提供的 tree-sitter WASM，无需额外安装 Python/JVM 解析器
 npm install -g eslint typescript # Node
 ```
 
@@ -50,13 +50,13 @@ node cli.js repl --cwd . --eval "impact src/app.js"  # 非交互单命令（AI/C
 
 完整命令列表、参数说明与 `.workspace-bridge.json` 配置见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)。
 
-Java 解析默认优先走 AST；如果本机没有安装 `javalang`，Java parser 会自动回退到 regex。这个退化是可用的，但 AST 级字段和 golden snapshot 不应被当成已启用状态来解读。Python 同路：AST 抽取依赖本机 `python` 可执行文件（spawn `ast` 模块），缺失时同样静默回退 regex。
+Java 与 Python 解析默认走进程内 tree-sitter WASM；如果 WASM 加载或解析失败，才会显式降级为 `regex-fallback`。降级结果可用，但不能当成 AST 级字段或 golden snapshot 的等价结果。
 
 当前结论：
 
 - `dead-exports` 已有最小 ground-truth smoke，但它证明的是 corpus-level 的 precision/recall，而不是全局召回率。
 - resolver 的真实风险是顺序语义；`alias`、`symbol-table`、fallback 的优先级变化必须用冲突矩阵锁住。
-- Java AST 的前提依赖是 `javalang`；缺失时应按 degraded mode 读结果，而不是把 fallback 当回归。
+- Java/Python AST 的前提是随包提供的 tree-sitter WASM；出现 `regex-fallback` 时按 degraded mode 读结果，不要把 fallback 当成 AST 回归或等价结果。
 
 ## 配置
 

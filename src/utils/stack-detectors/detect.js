@@ -26,8 +26,23 @@ const hasJavaProject   = (root) => hasStack(root, 'java');
 const hasRustProject   = (root) => hasStack(root, 'rust');
 
 function hasCppProject(root) {
-  const markers = ['CMakeLists.txt', 'Makefile', 'makefile'];
-  return markers.some((f) => pathExists(path.join(root, f)));
+  const markers = ['CMakeLists.txt', 'Makefile', 'makefile', 'meson.build'];
+  if (markers.some((f) => pathExists(path.join(root, f)))) return true;
+  try {
+    const cppExts = new Set(['.c', '.cpp', '.cc', '.cxx', '.h', '.hpp']);
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        if (cppExts.has(path.extname(entry.name).toLowerCase())) return true;
+        continue;
+      }
+      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'vendor' || entry.name === 'build' || entry.name === 'dist') continue;
+      const sub = path.join(root, entry.name);
+      for (const subEntry of fs.readdirSync(sub, { withFileTypes: true })) {
+        if (!subEntry.isDirectory() && cppExts.has(path.extname(subEntry.name).toLowerCase())) return true;
+      }
+    }
+  } catch { /* ignore */ }
+  return false;
 }
 
 function hasGoProject(root) {

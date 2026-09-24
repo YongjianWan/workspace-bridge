@@ -415,6 +415,7 @@ const EXT_TO_LANG = {
   '.kt': 'kotlin',
   '.go': 'go',
   '.rs': 'rust',
+  '.c': 'cpp', '.cpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp', '.h': 'cpp', '.hpp': 'cpp',
 };
 
 function buildLanguageSupportMatrix(depGraph) {

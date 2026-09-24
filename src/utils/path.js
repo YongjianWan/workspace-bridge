@@ -277,6 +277,29 @@ function _hasPythonFiles(root) {
   return false;
 }
 
+const CPP_FILE_EXTENSIONS = new Set(['.c', '.cpp', '.cc', '.cxx', '.h', '.hpp']);
+
+function _hasCppFiles(root) {
+  try {
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (CPP_FILE_EXTENSIONS.has(ext)) return true;
+        continue;
+      }
+      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'vendor' || entry.name === 'build' || entry.name === 'dist') continue;
+      const sub = path.join(root, entry.name);
+      for (const subEntry of fs.readdirSync(sub, { withFileTypes: true })) {
+        if (!subEntry.isDirectory()) {
+          const ext = path.extname(subEntry.name).toLowerCase();
+          if (CPP_FILE_EXTENSIONS.has(ext)) return true;
+        }
+      }
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
 function detectWorkspace(root) {
   const packageJsonPath = path.join(root, 'package.json');
   const pyprojectPath = path.join(root, 'pyproject.toml');
@@ -306,7 +329,7 @@ function detectWorkspace(root) {
     hasJava: _hasJavaInSubdirs(root),
     hasGo: pathExists(goModPath),
     hasRust: pathExists(cargoPath),
-    hasCpp: pathExists(cmakePath) || pathExists(makePath),
+    hasCpp: pathExists(cmakePath) || pathExists(makePath) || _hasCppFiles(root),
     packageJson,
   };
 }

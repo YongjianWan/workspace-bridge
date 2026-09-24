@@ -8,6 +8,7 @@ const path = require('path');
 const { promisify } = require('util');
 const { detectWorkspace, normalizePathKey } = require('../utils/path');
 const { DEFAULT_EXCLUDE_DIRS, shouldExcludeBase, shouldExcludeCli: _shouldExcludeCli } = require('../utils/exclude-patterns');
+const { filterGitIgnored } = require('../utils/gitignore');
 const { loadWorkspaceConfig } = require('../utils/project-context');
 const { EventBus } = require('../utils/event-bus');
 const { registry } = require('./dep-graph/parsers/registry');
@@ -49,40 +50,63 @@ class FileIndex {
     this.indexedCount = 0;
     this.processedCount = 0;
     this.changedFiles.clear();
+    this.warnings = [];
+    this._depthTruncatedDirs = 0;
     const shouldWatch = options.watch !== false;
     if (Array.isArray(options.excludeDirs)) {
       this.cliExcludeDirs = [...new Set(options.excludeDirs.map((d) => d.trim()).filter(Boolean))];
       this.baseExcludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS])];
     }
     this._applyWorkspaceExcludeDirs();
-    const patterns = this.getFilePatterns();
+    // Active extension universe = the same source of truth discovery always
+    // used (language conditions via getFilePatterns), now consulted per-entry
+    // instead of per-walk.
+    this._extSet = new Set(this.getFilePatterns().map((p) => p.replace('**/*', '')));
 
     this.pruneExcludedCacheEntries();
 
-    const controller = new AbortController();
-    const allFiles = [];
+    // A deadline checked only between patterns cannot stop a single expensive
+    // traversal. AbortSignal.timeout keeps the deadline live inside the async
+    // generator and the processing phase as well.
+    const signal = AbortSignal.timeout(timeoutMs);
+    let allFiles = [];
 
-    // Phase 1: discover all files across patterns
-    for (const pattern of patterns) {
-      if (Date.now() - startTime > timeoutMs) {
-        console.error(`[FileIndex] Build timed out after ${Date.now() - startTime}ms`);
-        controller.abort();
-        break;
+    // Single-pass discovery: one walk matches every registered extension
+    // (O(tree)). The old shape re-walked the whole tree once per extension
+    // pattern (O(patterns × tree)) and paid a per-dir realpath each pass —
+    // 20 patterns × 13k dirs ≈ 267k syscalls on a data-heavy repo.
+    try {
+      for await (const file of this.findFilesAsync(this.root, DEFAULTS.FILE_INDEX_MAX_DEPTH, signal)) {
+        allFiles.push(file);
       }
-      if (controller.signal.aborted) break;
+    } catch (e) {
+      if (!signal.aborted) {
+        throw e;
+      }
+    }
 
-      const ext = pattern.replace('**/*', '');
-      try {
-        for await (const file of this.findFilesAsync(this.root, ext, DEFAULTS.FILE_INDEX_MAX_DEPTH, controller.signal)) {
-          allFiles.push(file);
-        }
-      } catch (e) {
-        if (controller.signal.aborted) {
-          console.error(`[FileIndex] Build timed out after ${Date.now() - startTime}ms`);
-        } else {
-          throw e;
-        }
-      }
+    if (signal.aborted) {
+      console.error(`[FileIndex] Build timed out after ${Date.now() - startTime}ms`);
+    }
+
+    // .gitignore 摄入：忽略/! 回含语义由 git check-ignore 批量终审，只过滤
+    // 发现后的候选代码文件；目录剪枝仍归 defaults/config 层。过滤不可用时
+    // filterGitIgnored 自带显式降级警告。
+    const gitFiltered = await filterGitIgnored(this.root, allFiles);
+    if (gitFiltered.warning) {
+      this.warnings.push(gitFiltered.warning);
+    }
+    allFiles = gitFiltered.kept;
+
+    if (this._depthTruncatedDirs > 0) {
+      // L1-4: an index missing deep subtrees is degraded data — say so via
+      // warnings[] (consumed by analyzer.buildWarnings), never silently.
+      this.warnings.push({
+        type: 'depth-truncated',
+        severity: 'medium',
+        files: this._depthTruncatedDirs,
+        message: `${this._depthTruncatedDirs} director(ies) beyond max depth ${DEFAULTS.FILE_INDEX_MAX_DEPTH} were not indexed; coverage for deep subtrees is incomplete`,
+      });
     }
 
     // Early exit for empty directories to avoid unnecessary downstream work.
@@ -99,7 +123,7 @@ class FileIndex {
       if (!this.quiet) {
         console.error(`[FileIndex] Discovered ${allFiles.length} files to index`);
       }
-      await this.processFilesWithLimit(allFiles, this.concurrency, controller.signal);
+      await this.processFilesWithLimit(allFiles, this.concurrency, signal);
     }
 
     // Remove cache entries for files deleted since last build
@@ -127,53 +151,37 @@ class FileIndex {
   }
 
   /**
-   * Index files by pattern with async iteration and concurrency control
-   * Includes timeout protection for large repositories
+   * Async generator for finding source files in ONE pass (non-blocking for
+   * large repos). Extension matching is per-entry via the active ext set —
+   * one walk serves every language.
    */
-  async indexByPattern(pattern, maxDepth = DEFAULTS.FILE_INDEX_MAX_DEPTH, timeoutMs = DEFAULTS.FILE_INDEX_PATTERN_TIMEOUT_MS) {
-    const ext = pattern.replace('**/*', '');
-    const files = [];
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      for await (const file of this.findFilesAsync(this.root, ext, maxDepth, controller.signal)) {
-        files.push(file);
-      }
-      if (!controller.signal.aborted) {
-        await this.processFilesWithLimit(files, this.concurrency, controller.signal);
-      }
-    } catch (e) {
-      if (controller.signal.aborted) {
-        console.error(`[FileIndex] Pattern ${pattern} timed out, indexed ${files.length} files`);
-      } else {
-        throw e;
-      }
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-
-  /**
-   * Async generator for finding files (non-blocking for large repos)
-   */
-  async* findFilesAsync(dir, ext, maxDepth, signal) {
-    const queue = [{ path: dir, depth: 0 }];
-    // Track real paths to avoid symlink loops and duplicate directory visits.
+  async* findFilesAsync(dir, maxDepth, signal) {
+    // real: resolved directory identity for loop/alias detection. Root and
+    // symlink-reached dirs pay one realpath; plain child dirs inherit
+    // parentReal + name (zero syscalls). Junctions report
+    // isSymbolicLink() === true in Node (verified v25/Windows), so they hit
+    // the realpath branch — test/file-index-single-pass-test.js locks it.
+    const queue = [{ path: dir, depth: 0, real: null }];
     const visitedRealPaths = new Set();
 
     while (queue.length > 0) {
       if (signal?.aborted) return;
-      const { path: current, depth } = queue.pop();
+      const { path: current, depth, real } = queue.pop();
 
-      if (depth > maxDepth) continue;
+      if (depth > maxDepth) {
+        // L1-4: record and surface via build() warnings[] instead of silently
+        // dropping whole subtrees.
+        this._depthTruncatedDirs++;
+        continue;
+      }
 
-      // Resolve real path before visiting to prevent symlink loops.
-      let realCurrent;
-      try {
-        realCurrent = await realpath(current);
-      } catch {
-        realCurrent = current;
+      let realCurrent = real;
+      if (realCurrent === null) {
+        try {
+          realCurrent = await realpath(current);
+        } catch {
+          realCurrent = current;
+        }
       }
       if (visitedRealPaths.has(realCurrent)) continue;
       visitedRealPaths.add(realCurrent);
@@ -195,7 +203,8 @@ class FileIndex {
         const fullPath = path.join(current, entry.name);
 
         let isDir = entry.isDirectory();
-        if (entry.isSymbolicLink()) {
+        const isLink = entry.isSymbolicLink();
+        if (isLink) {
           try {
             const linkStats = await stat(fullPath);
             isDir = linkStats.isDirectory();
@@ -207,10 +216,14 @@ class FileIndex {
 
         if (isDir) {
           if (this.shouldExclude(fullPath)) continue;
-          // For symlinks, realpath resolution above will handle cycles once
-          // the directory is popped from the queue.
-          queue.push({ path: fullPath, depth: depth + 1 });
-        } else if (!this.shouldExclude(fullPath) && fullPath.endsWith(ext)) {
+          queue.push({
+            path: fullPath,
+            depth: depth + 1,
+            // Non-link children inherit the parent's resolved identity;
+            // links resolve lazily at pop (real=null → realpath).
+            real: isLink ? null : realCurrent + path.sep + entry.name,
+          });
+        } else if (!this.shouldExclude(fullPath) && this._extSet.has(path.extname(fullPath).toLowerCase())) {
           yield fullPath;
         }
 

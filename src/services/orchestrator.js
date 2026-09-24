@@ -128,6 +128,13 @@ async function initializeDepGraph({
     ...options,
   });
 
+  // FileIndex 本轮遍历的降级信号（depth-truncated 等）挂到图上，走
+  // analyzer.buildWarnings() 的统一出口（_parseErrorFiles 同款形状）。
+  // 冷热两条路都要走这里——FileIndex 的遍历每轮都真实发生。
+  if (fileIndex && Array.isArray(fileIndex.warnings)) {
+    depGraph._indexWarnings = fileIndex.warnings;
+  }
+
   // D3: attempt fast-path load from persisted edges; fall back to full build()
   const loaded = depGraph.loadGraph({ skipChangeCheck: true });
   if (!loaded) {

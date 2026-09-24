@@ -19,7 +19,7 @@
 
 > **🔴 新会话启动红线：不默认读取 CHANGELOG.md** （如果派遣agent swarm 务必在下达的指令里面也让他们读取agent.md session techdebt 等文档，这个是强制的，不然子代理会产生架构改变或者随意修改导致各种问题）
 >
-> 确定现状只需 **AGENTS.md + SESSION.md + TECH_DEBT.md + 1 条基线验证命令**（`node cli.js audit-summary --cwd . --json --quiet`）。
+> 确定现状只需 **AGENTS.md + SESSION.md + TECH_DEBT.md + 1 条基线验证命令**（`node cli.js audit-overview --cwd . --json --quiet`）。
 > CHANGELOG 是历史存档，不是当前状态。读它不能替代读 SESSION.md 的基线确认。
 > 只有三种场景允许打开 CHANGELOG：追查回归 / 修老 bug / 写 CHANGELOG 条目。
 
@@ -35,6 +35,10 @@
 - **语言范围**（2026-07-28）：TS/JS（含 `.jsx`/`.tsx`，React 不是独立语言）、Python、Go、Rust、Java、Vue 在范围内；Kotlin / C·C++ / Svelte 边层通着但债务降 P3/P4。
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
+
+## 当前核验（2026-09-24）
+
+`node cli.js audit-overview --cwd . --json --quiet` 已通过：469 个文件全部解析，`coverageRatio=1.00`，`fallbackFiles=0`，`schemaVersion=1.2.0`。`npm run test:fast` 选择 175 个测试，最近一次为 173 通过、2 个子进程以 `3221226505` 异常退出（wave15-ast-rules / wave15-neighbor-aware）；两条单独运行断言全过（32/32、3/3），退出码仅来自收尾的 Windows libuv `UV_HANDLE_CLOSING` 断言。因此当前工作区**不能报作全绿**——回归判据口径是「与该已知基线对照无新增红」。
 
 ## 工程品味（TASTE）
 
@@ -132,7 +136,7 @@
 
 ---
 
-## 项目骨架（运行 `node cli.js audit-summary --cwd .` 获取最新数据）
+## 项目骨架（运行 `node cli.js audit-overview --cwd . --json --quiet` 获取最新数据）
 
 > 本段不存储具体数字，数字会过期。以下结构是稳定的。
 
@@ -242,7 +246,7 @@ node cli.js dead-exports --cwd . --json --quiet
 | `checkFileChanges()` 双路径                          | `src/services/cache.js`                              | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为                         |
 | 动态 require 导致死导出误报                            | `src/services/dep-graph/framework-patterns.js`       | `dead-exports` 无法静态分析 `ROUTE_QUERY_REGISTRY` 动态 require，可忽略或加白                              |
 | C/C++`#include` resolver 语义限制                    | `src/services/dep-graph/parsers/registry.js`         | C/C++ 对系统头、`-I` 搜索路径支持较弱，`unresolved` 可能偏高                                               |
-| `regex-fallback` 缓存条目永不命中                    | `src/services/dep-graph/builder.js`                  | 工具链降级产物（如无 javalang 的 Java）每次重解析是**刻意设计**（`_isParseCacheUsable`），不是缓存失效 bug |
+| `regex-fallback` 缓存条目永不命中                    | `src/services/dep-graph/builder.js`                  | tree-sitter WASM 不可用或解析失败时的降级产物每次重解析是**刻意设计**（`_isParseCacheUsable`），不是缓存失效 bug |
 | `cycles` 路径数是示例口径，SCC 数才是严重度信号      | `src/services/dep-graph/analyzer.js`                 | 单 SCC 路径上限 `PER_SCC_CYCLE_CAP`(25)；消费方应读 `getCycleMeta()` 的 `sccCount`/`truncated`             |
 | skill 权威副本在项目内                               | `skills/workspace-audit/SKILL.md`                    | user-scope 副本（`~/.agents/skills/`）需手动同步；改 SKILL.md 后记得同步，否则会教出旧命令                 |
 | Vue/Svelte 路由提取设计选择                            | `src/services/dep-graph/framework-patterns.js`       | Nuxt/SvelteKit 路由 query 只处理`.ts` server handler；SFC 本身不提取路由                                     |
@@ -284,7 +288,7 @@ THEN 拿到结果后必须执行：
   1. 阅读完整输出，记录 impactedFiles.length 和 affectedTests.length
   2. 如果 impactedFiles 包含 dep-graph.js / cache.js / graph-db.js / container.js：
       → 核心基础设施被波及，改动必须保守，优先向后兼容（保留旧接口 + 新增，不删不改现有行为）
-  3. 收工前必须跑 `npm run test:fast` 并 126/126 PASS，确认无回归
+ 3. 收工前必须跑 `npm run test:fast`，以退出码 0 且无 failed/error 为准确认无回归；不要硬编码历史测试总数
 ```
 
 > 其余检查（裸数字、异常安全、语义同步、重复代码）已由 L1/L2 覆盖，无需单列。
@@ -299,7 +303,7 @@ THEN 拿到结果后必须执行：
 
 - `dead-exports` 已补上最小 ground-truth smoke，能证明 corpus-level 的 precision/recall 检查方式，但不能据此宣称全局召回已证实。
 - resolver 的关键契约是顺序语义而不是状态漂移，`alias` / `symbol-table` / fallback 的优先级变化必须有冲突矩阵保护。
-- Java AST 以 `javalang` 为前提；缺失时是 degraded mode——2026-07-20 起该路径已显式化：0-importer 死导出降 `low` confidence、`warnings[]` 在文本输出可见、regex-fallback 缓存条目永不命中（工具链修复后自动升级）。
+- Java/Python AST 使用随包提供的 tree-sitter WASM；WASM 不可用或解析失败时进入显式 degraded mode：0-importer 死导出降 `low` confidence、`warnings[]` 在文本输出可见、`regex-fallback` 缓存条目永不命中（工具链恢复后自动升级）。
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
 *Last updated: 2026-07-23（**wave8 + query-tools 历史 flaky 彻底根治**：affected-tests 预计算深度常量统一（裸数字 3→CONFIG.DEFAULT_MAX_DEPTH）+ fast path 深度门禁 + savePrecomputed 清场 + analysis_snapshots 逐行版本戳门禁 + precomputed_aggregates 单一写入方（overview 镜像行与兼容回退删除）；CACHE_VERSION 5→6；**全量 runner 251/251 全绿**（首次零失败）；npm run test:fast 137/137 PASS；活跃债务清零；schemaVersion: 1.2.0；version: 2.1.0）*

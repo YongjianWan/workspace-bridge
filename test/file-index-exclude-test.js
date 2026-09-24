@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @semantic
+// @fast
 /**
  * Test that FileIndex excludes directories marked as archive/reference/generated
  * in .workspace-bridge.json from indexing.

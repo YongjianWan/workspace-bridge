@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @semantic
+// @fast
 /**
  * Test that FileIndex prunes deleted files from cache on rebuild.
  */

@@ -9,17 +9,30 @@ const {
   cachedExistsSync,
 } = require('./base');
 
-function _resolveAlias(importPath, root) {
+function _resolveAlias(importPath, root, fromFile = null) {
   if (!root) return null;
-  const tsconfig = _readTsconfigPaths(root);
-  if (tsconfig?.paths) {
+  const tsconfig = _readTsconfigPaths(root, fromFile);
+  if (tsconfig?.entries) {
+    for (const entry of tsconfig.entries) {
+      if (importPath.startsWith(entry.prefix)) {
+        const suffix = importPath.slice(entry.prefix.length);
+        for (const target of entry.targets) {
+          const targetPath = target.hasWildcard
+            ? path.join(target.baseDir, target.prefix + suffix)
+            : path.join(target.baseDir, target.target);
+          const found = _tryResolveWithExtensions(targetPath) || targetPath;
+          if (cachedExistsSync(found)) return found;
+        }
+      }
+    }
+  } else if (tsconfig?.paths) {
     for (const [key, values] of Object.entries(tsconfig.paths)) {
       const prefix = key.replace(/\*$/, '');
       if (importPath.startsWith(prefix)) {
         const suffix = importPath.slice(prefix.length);
         for (const mapped of values) {
           const mappedPrefix = mapped.replace(/\*$/, '');
-          const resolved = path.join(root, tsconfig.baseUrl, mappedPrefix + suffix);
+          const resolved = path.join(tsconfig.baseDir || root, tsconfig.baseUrl || '.', mappedPrefix + suffix);
           const found = _tryResolveWithExtensions(resolved) || resolved;
           if (cachedExistsSync(found)) return found;
         }
@@ -40,9 +53,9 @@ function _resolveAlias(importPath, root) {
   return null;
 }
 
-function tryAlias(importPath, _fromFile, ctx) {
+function tryAlias(importPath, fromFile, ctx) {
   if (importPath.startsWith('.') || importPath.startsWith('/')) return null;
-  const resolved = _resolveAlias(importPath, ctx.root);
+  const resolved = _resolveAlias(importPath, ctx.root, fromFile);
   if (resolved && ctx.outMeta) {
     ctx.outMeta.method = 'alias';
     ctx.outMeta.confidence = 1.0;

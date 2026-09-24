@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @contract
+// @fast
 
 const assert = require('assert');
 const fs = require('fs');

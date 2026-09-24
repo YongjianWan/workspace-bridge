@@ -6,81 +6,29 @@
 
 ---
 
-## 本轮会话 (2026-08-17，上午独立验证轮 + 下午 Vue/ext 审核修复批)
+## 本轮会话 (2026-09-24，混合仓索引批：单趟发现 + gitignore 摄入 + Python manifest 声明面)
 
-> 上一轮（2026-08-13，L3-12/13 第一阶段 + 两轮修疵 + wave8 修复）的完成细节已进 [CHANGELOG.md](./CHANGELOG.md) 2026-08-13 条目。
-
-### 上午：独立验证轮（零代码变更）
+> 背景：对串围标智能体仓（92,307 文件 / 12GB，代码仅 137 个）的实测评估——分析慢的主因是 FileIndex 发现阶段 O(patterns×树) 重复遍历（20 pattern × 13,335 目录 ≈ 26.7 万次 realpath）、三套排除体系不读 `.gitignore`、Python dev 依赖声明面缺口。三批全部 RED→GREEN 落地，史见 CHANGELOG [Unreleased] 同日三条。
 
 ### 本轮完成
-1. **逐项核实修复声明**（commit `5582df7` + `efa0ce0`，工作树干净）：
-   - `validateSlowClassification` 跳过 `annotation-fast`（runner.js:217），`@fast` × known-slow-pattern 冲突走 `isKnownSlowPatternConflict` 单独 warning（runner.js:206）；
-   - `needsCacheDir` 已导出（runner.js:660），`runner-classification-test.js` 契约断言在场；
-   - `providedContent` 不污染 `classificationCache`（runner.js:111）；
-   - 过宽的 `/regression-test\.js$/` 已移出 KNOWN_SLOW_PATTERNS，3 个回归测试显式 `@slow`，path-crossplatform 为干净 `@fast`；
-   - REPL `affected-tests` 支持 `--max-files`（repl.js:196-208），wave8 测试两侧同传 `--max-files 1000` 并断言 `truncated: false`，全 source 距离分布比对已恢复；
-   - 上轮审核点名的 filename-watch 安全网与锚点正则常量提取实际在更早的 `f07571a` 已修，本轮复核确认在场（runner.js:113/193、四处锚点单一定义）。
-2. **变异验红**（上轮审核阻塞项的核心要求）：注释 `needsCacheDir` 的 heavy-API 分支 → `file-index-race-test.js` 隔离断言立刻 RED；还原后 17/17 复绿。契约测试是真安全网，不是摆设。
-3. **亲跑验证**：`runner-classification-test.js` 17/17；`wave8-regression-test.js` PASS；`npm run test:fast` **162/162**（23.5s）。
-4. **flaky 单独复验**：`git-environment-probe-test.js` 与 `e2e-gitnexus-test.js` 单独重跑均 EXIT=0——「单独重跑稳定通过」的记录属实。
-5. **四项「未动」债务逐条对照 TECH_DEBT，确认无漏修**：P4 ext 大小写上游缺口（冻结条件未触发）；L3-16（登记时写明「先量后排」，量化还没人做）；L3-12 下一批（需每批全量对照，且不能与 L3-13 混做）；L3-13（支撑判断的数据刚落地、尚未积累）。
 
-### 结论
-上一轮修复声明全部属实，完成边界画得对：修的 5 个洞都修实了，留的 4 项债都够格留着。
+1. **FileIndex 单趟发现**（O(20×树) → O(树)）：单趟遍历 + ext 集合逐条目匹配；发现侧扩展名大小写归一（`App.TS` 类不再漏）；depth>12 截断显式 `warnings[]: depth-truncated`（L1-4）；链接/junction 才 `realpath`；`indexByPattern` 与 `FILE_INDEX_PATTERN_TIMEOUT_MS` 连删。杀变异锁：readdir 计数测试（110 次 → 11 次）。
+2. **.gitignore 摄入**：`git check-ignore --stdin -z` 单次批量终审，忽略/`!` 回含按 git 语义；git 不可用显式降级警告；`runCommandSecure` 增 `stdinData`。无配置模拟（串围标）：1,449 候选 → kept 191 / dropped 1,258。
+3. **Python manifest 声明面补齐**：`requirements-dev.txt` / `[dependency-groups]` / poetry `dev-dependencies` 全部纳入，`[project]` 收窄至 `dependencies` 键（classifiers 噪音出局）。串围标 `unresolved-dropped` **121 → 76**。CACHE_VERSION 37→38。
+4. **验证**：`npm run test:fast` 175 选 173 过，仅 2 条已知 libuv flaky（wave15 两条单独跑 32/32、3/3 断言全过，退出码只来自收尾 `UV_HANDLE_CLOSING`）；串围标 discovered **137 → 137 零 diff**。
 
-### 下午：Vue parser + ext 大小写审核修复批（goal 模式）
+### 下一轮入口
 
-另一会话对 08-12 两条代码提交的审核发现 7 项缺陷，本轮全部关闭（每项先 RED 测试再实现 + 变异验红）：
-
-1. **vue-ast.js WASM 资源泄漏**（L1-2）：`parseVueAst` 是 7 个 tree-sitter parser 中唯一不释放的。重写为 python-ast 三段式（init/parse/主体 finally 释放），原型计数器测试锁所有退出路径各释放一次。
-2. **ext 大小写上游缺口解冻**（P4 销记）：`builder.js:345` + `file-index.js:432` 补 `.toLowerCase()`；`App.JAVA` 不再以 `parseMode:'none'` 静默孤儿化。parse 侧 + file-index 侧双断言、双变异验红。
-3. **Vue 静默降级改可数信号**（L1-4）：registry `.vue` 回退结果打 `parseMode:'regex'` 戳 → builder 标 `regex-fallback`（warnings 计数 + 缓存永不信任）。此前回退伪装 ast-success，双重不可见。
-4. **无 script SFC `parseMode:'regex'` 谎报修正**为 `'ast'`（谎报曾使 builder 误标 regex-fallback，缓存不命中 + 降级计数虚增）。
-5. **`v-bind:is` 全称指令识别**（tree-sitter-vue 节点实测 `directive_name='v-bind'`）。
-6. **`extractScriptImportBindings` 二次 babel 解析删除**（L2-7 + 漂移）：ast-parser ImportDeclaration visitor 顺手产出 `localBindings`（type-only 上游排除），vue-ast 直接取。`import type` 伪造模板边的 RED 测试锁定。
-7. **文档**：CHANGELOG 08-12 条目「原生小写标签不过滤」写反已改正；ROADMAP 已知限制表补 Vue kebab-case 边界。
-
-CACHE_VERSION 36→37（四类旧缓存条目不可比）。`builder-ext-case-test.js` 因新增 `new FileIndex` 被 heavy-API 启发式扫进 slow 层，已标 `// @fast` 留在 fast 层。
-
-**验证**：`npm run test:fast` 162/162（post-bump）；全量 runner 264/270——6 条 FAIL 全部归因闭合：`parser-golden-test.js` 是真回归（localBindings 新字段进 vue/svelte 快照），已 `UPDATE_GOLDENS=1` 更新并复跑转绿；`phase35-query-sql`（跨进程版本戳污染，runner 进程 v36 + bump 后子进程 v37）、`cli-error-handling` / `cli-integration-core`（exit null 负载杀进程）、`e2e-gitnexus` / `git-environment-probe`（已知 flaky）五条单独复跑全部 EXIT=0。
-
-**踩坑自记**：① 变异验红后误用 `git checkout --` 还原（修复未提交，被一起冲掉），重打修复后变异流程改为 Edit 回退；② CACHE_VERSION bump 时全量 runner 已在后台跑，该轮 runner 结果按 pre-bump 代码快照解读，post-bump 由 test:fast 162/162 补验。
-
-### 下一轮入口（2026-08-17 重排）
-
-**1. L3-16 量化（tsconfig `extends`）** —— 扫 reference/ 真实 monorepo，统计多少 import 因 `_readTsconfigPaths` 不跟 `extends` 落进 dropped。只读、不写生产代码、不碰 test/；数字决定它升 P2 还是钉死 P3。
-
-**2. L3-12 下一批实测降级** —— 还有 41 条启发式 slow 待评估。按 run report 每批 5–10 条下放 + 全量对照；不与 L3-13 池化混做（成员集合变化会污染归因）。
-
-**3. L3-13 数据分析** —— 等 run report 的 `cacheCopyMs`/`cacheWarm`/`cacheCold` 数据积累后，再判断共享 warm fixture 值不值得做。
-
-**不做**：性能两条 P1；Call-Resolution DAG / ACCESSES 边 / Next.js 路由；L3-4；L3-8 接触即修；Svelte 半仍冻结。
+1. **串围标剩余 76 条 dropped**：skill 包内裸名 import（`run_task`/`acceptance`/`criteria_format`）在 `tryPython{Relative,Absolute}` 下解析不到 `.agents/skills/*` 深处——Python 绝对导入解析缺口，与 manifest 闸不同性质。
+2. **串围标仓侧待决**（按其 AGENTS.md §二.15，删除由人发起）：14 个 `data/` 已跟踪文件删除残留收口（清单已出）；`nul` 垃圾文件（46B）；`.git` 1.7GB 历史瘦身拍板。`git gc` 已跑：packs 5→2，garbage 11.7MB→314B。
+3. L3-11 双 freshness 判据 / L3-13 慢层池化（原入口顺延，见 TECH_DEBT）。
 
 ---
 
-## 历史会话摘要
+## 上一轮会话（2026-08-28，L3-10 纯 C 探测 + L3-16 tsconfig extends 继承 + L3-12/13 测试分层优化）——详情见 CHANGELOG 2026-08-28 条目与 git `36b76a4`
 
-> 各轮详细记录已归入 [CHANGELOG.md](./CHANGELOG.md)，按日期定位。
+---
 
-| 时间 | 关键里程碑 | CHANGELOG |
-| :--- | :--- | :--- |
-| 2026-08-13 | L3-12/13 测试执行债：runner 可观测性 + `@fast` + 首批 11 条降级 | 2026-08-13 L3-12/13 |
-| 2026-08-12 | L3-7 Vue 半：tree-sitter-vue WASM + 模板组件引用成边 | 2026-08-12 L3-7 |
-| 2026-08-05 | L3-9 Java 半：tree-sitter 迁移 + spawn 路径删除 + L3-14 性能测量 | 2026-08-05 L3-9 |
-| 2026-08-02 续五 | L3-9 Python tree-sitter 迁移，738/738 零 diff，删 spawn Python 半 | 2026-08-02 L3-9 |
-| 2026-08-02 续三 | 伞形 groupId 修复 e2437c1，CACHE_VERSION 31→32 | 2026-08-02 伞形 |
-| 2026-08-02 续二 | Kotlin package 修复 + JVM manifest v1（e7b86e8/d78e16f） | 2026-08-02 |
-| 2026-08-02 | L3-5 lookupUnique 死方法删除 | 2026-08-02 L3-5 |
-| 2026-08-01 续二 | L2-22 判留 + Go 写侧修复 + L2 层清零 | 2026-08-01 L2-22 |
-| 2026-08-01 | L2-21 收口：变异证据核查 + Go 写侧 TDD | 2026-08-01 L2-21 |
-| 2026-07-28 | T1-T6 执行：九语言等价性 / C++ 解析 / Svelte / isBuiltIn / droppedImports | 2026-07-28 |
-| 2026-07-27 | 符号表 Stage 4 + symbol-table 外部依赖闸 + resolver 精度基准 | 2026-07-27 |
-| 2026-07-23 | wave8/query-tools flaky 根治 + L1-3 清零 + Stage 4 Step 1 | 2026-07-23 |
-| 2026-07-20 | 5 问题修复：静默降级 / 缓存工具链感知 / cycles cap 等 | 2026-07-20 |
-| 2026-07-17 | 抢救性提交 4643a73 + audit-file L1 修复 + 切版 v2.1.0 | 2026-07-17 |
-| 2026-07-14 | api-contracts 命令 + 输出塑形一致性 22 项 | 2026-07-14 |
-| 2026-07-10 | eslint 落地 + CI 补齐 + slow 层首次全量 + 仓库卫生 | 2026-07-10 |
-| 2026-07-03 | _invalidateParseCache() 统一入口 + Route B 实战验证 | 2026-07-03 |
 
 ## 新会话启动检查表（确认状态即可，不用跑 runner）
 
@@ -90,7 +38,7 @@ CACHE_VERSION 36→37（四类旧缓存条目不可比）。`builder-ext-case-te
 >
 > 收工时已跑 `npm run test:fast` 并确认 fast 层全绿，开工无需重跑。全量 runner 状态见下方「基线状态」。直接读取下方「基线状态」确认当前文档记录是否仍成立。
 >
-> 开发迭代推荐 `npm run test:fast`（~25–40s，162 个 fast 层测试），比全量 runner（~10–15min）快 20–30×。
+> 开发迭代推荐 `npm run test:fast`（~18s，126 个 fast 层测试），比全量 runner（~5min）快 16×。
 
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
@@ -107,17 +55,17 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（以总览表为准；当前 L1=0 / L2=0，L3 余项与 P4 冻结条目见该文档）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（2026-07-23：活跃债务全部清零，L1=0 / L2=0 / L3=0）
 
 ---
 
 ## 基线状态
 
-- 测试：`npm run test:fast` **162/162 PASS**（~25s，2026-08-17 复跑确认）；slow layer `101 tests / 100 PASS / 1 FAIL`（`git-environment-probe-test.js` SIGTERM，已知 flaky）。全量 runner 重负载下 `e2e-gitnexus-test.js` 偶发 `CLI in-process exited null`。两条 flaky 于 2026-08-17 单独复验均 EXIT=0。开发迭代首选 `npm run test:fast`。
+- 测试：**全量 runner 251/251 全绿**（2026-07-23，wave8/query-tools 历史 flaky 根治后首次零失败）；`npm run test:fast` **175 选 173 过 + 2 已知 libuv flaky**（2026-09-24；wave15 两条单独跑 32/32、3/3 断言全过）。回归判据：与该基线对照无新增红。开发迭代首选 `npm run test:fast`。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.1.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：~434 文件（以 `audit-overview` 实测为准）
+- 自身项目规模：469 文件（以 `audit-overview` 实测为准，2026-09-24）
 - 结构性指标：deadExports=0（原 `shadow-candidates.js` 的 `SHADOW_EXTS` 低置信误报已不再计入），cycles=0，unresolved=0，orphans=2（`.workspace-bridge.json` 作为 config 文件正常，以及 Windows 大小写不敏感路径 `agents.md`/`AGENTS.md` 被重复识别）；overview 维度：hotspots>0，knowledgeRisk 默认 `disabledReason: 'history-not-enabled'`，`--with-history` 启用
 - 架构债务：**活跃债务全部清零**（2026-07-23，L1-3 于本日关闭，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）。
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
@@ -445,7 +393,7 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-08-17（上午**独立验证轮**：5582df7/efa0ce0 五项修复逐行核实 + needsCacheDir 变异验红 + 亲跑 17/17、wave8 PASS、test:fast 162/162 + 两条 flaky 单独复验双 EXIT=0；下午**Vue/ext 审核修复批**：7 项缺陷全部关闭（WASM 泄漏 / ext 大小写解冻 P4 销记 / 降级可数信号 / parseMode 谎报 / v-bind:is / 二次解析删除 / 文档口径），全部 RED→修→变异验红，CACHE_VERSION 36→37，test:fast 162/162；下一轮入口重排为 L3-16 量化 → L3-12 下一批 → L3-13 数据分析；version: 2.1.0）*
+*Last updated: 2026-07-23（wave8 + query-tools 两个历史 flaky 彻底根治：affected-tests 深度门禁 + 预计算深度常量统一 + savePrecomputed 清场 + analysis_snapshots 版本门禁 + precomputed_aggregates 单一写入方；CACHE_VERSION 5→6；全量 runner **251/251 全绿**；`npm run test:fast` 137/137 PASS；活跃债务清零；schemaVersion: 1.2.0；version: 2.1.0）*
 
 ---
 
@@ -459,18 +407,9 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 | resolver 策略链是隐式全局状态     | **显式有序策略链**：`registry.js:18` + `resolvers.js:65` 按注册顺序命中即停；顺序本身就是契约                                                                                                          | 代码结构明确           |
 | dead exports 11/12 命中证明可靠   | **只证明 precision，不证明 recall**：现有测试验证高置信命中与 FP 降级，但没有 ground-truth 语料计算漏报率                                                                                                  | 测试覆盖的是保守性     |
 | 增量更新是否真实有效              | **真实增量**：`cache.js:673` mtime+size → SHA-256 双路径；`builder.js:699` 只重建 changed files、1-hop dependents、Java 包扩展；query snapshot 宽松 freshness 是设计选择                              | 多份测试覆盖           |
-| 9 语言测试是否充分                | **全 9 语言矩阵已补齐**：`test/resolver-strategy-chain-test.js` 表驱动冲突矩阵与 `test/dead-export-ground-truth-test.js` ground-truth 语料已完全覆盖 9 大语言（JS/TS, Python, Java, Kotlin, Go, Rust, C/C++, Vue SFC, Svelte）。 | 测试矩阵已补强         |
+| 9 语言测试是否充分                | **强于 happy path，弱于全面证明**：已有 Java 同包、增量更新、缓存精度、删除清理等语义回归，但缺少系统性的 resolver 冲突表驱动测试和 ground-truth recall 语料                                               | 测试矩阵现状           |
 
-**已完成的两个核心补强方向（2026-08-05）**：
+**后续两个最值钱补强方向**：
 
-1. **Resolver 冲突表驱动测试**：`test/resolver-strategy-chain-test.js` 中的 `testResolverTableDrivenPrecedenceMatrix()` 完全覆盖 9 大语言在多策略重叠时的优先权与第三方包/标准库遮蔽边界。
-2. **Dead exports ground-truth 语料**：`test/dead-export-ground-truth-test.js` 已扩展为 9 大语言的多语言混合 ground-truth 语料，断言 `precision === 1` 与 `recall === 1`。
-
-### 8/5 follow-up
-
-- **已补强**：`test/resolver-strategy-chain-test.js` 现包含覆盖全 9 大语言的 Resolver 策略冲突表驱动矩阵测试（`testResolverTableDrivenPrecedenceMatrix()`）。
-- **已扩展**：`test/dead-export-ground-truth-test.js` 已扩展为全 9 大语言（JS/TS, Python, Java, Kotlin, Go, Rust, C/C++, Vue SFC, Svelte）的多语言混合真值集，并断言 `precision === 1` 与 `recall === 1`。
-- **已显式化**：`README.md` 明确写出 `javalang` 是 Java AST 的可选前提，缺失时应把 regex fallback 当成 degraded mode。
-- **已归档**：`scratch/commit-root-cause-archive.md` 完成 8 个 6/22–7/2 关键 commit 的“根因-影响文件-回归测试”三件套梳理。
-- **已补缺**：新增 `test/data-quality-contract-test.js` 锁定 DataQuality 三态契约；新增 `test/java-spring-symbol-impact-note-test.js` 锁定 Spring DI/reflection 降级说明。
-- **仍然成立**：dead-exports 的“recall”针对 9 语言语料库达到 100% 契约验证，仍为 corpus-level ground-truth smoke。
+1. **Resolver 冲突表驱动测试**：明确“同一 import 在不同策略顺序下谁赢”。
+2. **Dead exports ground-truth 语料**：至少能同时报告 precision 和 recall，而不是只报高置信命中。
