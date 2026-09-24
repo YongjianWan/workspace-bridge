@@ -6,26 +6,27 @@
 
 ---
 
-## 本轮会话 (2026-09-24 二轮，Python 解析缺口批：module-index + manifest 链 + fitz 别名)
+## 本轮会话 (2026-09-24 三轮，双胞胎就近消歧批 + findWorkspaceRoot 陷阱定位)
 
-> 背景：上批留账的串围标 76 条 `unresolved-dropped` 根因定位 + 修复；顺带补上全量 runner 的验证缺口。三件套全部 RED→GREEN 落地，详见 CHANGELOG [Unreleased] 同日第二条。
+> 背景：上批残余 11 条 dropped 收口。RED→GREEN 落地，详见 CHANGELOG [Unreleased] 同日第三条。**额外代价**：「init 挂死」假象烧掉约两小时，根因 = 测试 fixture 缺工作区根标记 + `findWorkspaceRoot` 上爬命中 `C:\Users\sdses\package.json`（主目录）→ 在索引整个家目录。已入 AGENTS 陷阱表与 TECH_DEBT L2-23。
 
 ### 本轮完成
 
-1. **全量 runner 补验证**（上轮唯一没打勾的格子）：274 选 272 过，仅 2 条已知 wave15 libuv flaky（断言全过，`3221226505` 收尾断言），warm-cold-parity 通过——`initializeDepGraph` warm 路径接线无回归。
-2. **76 条根因定位**（50 条样本直方图）：skill 裸名 import 33（same-dir 15 + 唯一后缀 17 + 图内唯一 1）+ 子包 manifest 链缺口 6（pdf-inspector/rapidocr 只在 skill 的 requirements.txt）+ fitz 别名 1 + 真未声明 2（numpy/cv2）+ 双胞胎歧义 8（af_client/model_call_audit/deepseek_client 两 skill 各一份）。
-3. **三件套修复**：`tryPythonModuleIndex`（same-dir 优先 + 图内唯一后缀 + 歧义不猜 + 外部闸先行）；`readPythonDepsChain`（importer→根 manifest 链，`_dirChainUp` 抽出与 packageManifestChain 共用行走）；`pymupdf→fitz` 别名。builder `_refreshWorkspacePackages` → `_refreshResolveFacts` 同批次刷新两事实，`resolveFileOnly` 守卫扩双事实（L1-4）。CACHE 38→39。
-4. **验证**：串围标同脚本冷构建对照 dropped **76 → 11**（残余 9 双胞胎 + 2 真未声明，形态与设计逐条吻合）；test:fast 175 选 173 过（对照基线零新增红；中途 2 条新红 = 改名打破测试旧契约，按新契约修复复绿）；全量 runner 274 选 272。
+1. **就近消歧**：`tryPythonModuleIndex` 候选 >1 时按公共路径段数取严格最深者，confidence 0.6（弱于唯一命中 0.8，推断降档显式化）；平手不猜。CACHE 39→40。
+2. **串围标声明欠账**（该仓侧改动，**未在该仓提交**，等用户过目）：`numpy` → 根 `requirements-dev.txt`；`opencv-python` → `pdf-toc-extraction-v2/requirements.txt`。
+3. **前后对照**：串围标 dropped **11 → 1**，残余 = `probe_af_latency.py` 的 `af_client` 等距平手（设计内 honest drop），unresolved 保持 0。
+4. **验证**：nearest 测试 4 例全绿（RED 实测正确失败）；modidx 旧契约全绿；test:fast 175 选 173（对照基线零新增红）。
 
 ### 下一轮入口
 
-1. **双胞胎消歧（sys.path 提示求值）**：9 条残余 dropped 的正解——静态求值 `sys.path.insert(0, <路径表达式>)`（单层 NAME 赋值 + `Path(__file__).parents[N]` 锚定 + `.parent` 链 + 字面 join），把求出的目录当该文件的额外搜索根。`gen.SKILL_SCRIPTS` 形态（importlib 动态加载的跨模块属性）不在求值范围，维持 honest drop。动手前先取 sys.path 表达式分布确认覆盖率，别为 9 条建大炮。
-2. **串围标仓侧待决**（按其 AGENTS.md §二.15，删除由人发起）：14 个 `data/` 删除残留收口；`nul` 垃圾文件（46B）；`.git` 1.43GB 历史瘦身拍板。
-3. L3-11 双 freshness 判据 / L3-13 慢层池化（原入口顺延，见 TECH_DEBT）。
+1. **findWorkspaceRoot 攀爬策略拍板**（TECH_DEBT L2-23，产品行为决策，等用户）：无标记目录上爬命中巨型祖先 → 索引整个家目录。候选：① 上爬边界（N 层封顶 / 只认含 `.git` 的根）；② 无标记回退 cwd；③ 维持现状靠 fixture 规范 + 文档防线。
+2. **串围标仓侧待决**（按其 AGENTS.md §二.15，删除由人发起）：14 个 `data/` 删除残留收口；`nul` 垃圾文件（46B）；`.git` 1.43GB 历史瘦身拍板；本轮两处 requirements 声明待过目提交。
+3. **双胞胎 sys.path 提示求值降级为可选**：残余仅 1 条等距平手案例，不立案不排期——除非 dropped 记账里此类案例再涨。
+4. L3-11 双 freshness 判据 / L3-13 慢层池化（原入口顺延，见 TECH_DEBT）。
 
 ---
 
-## 上一轮会话（2026-09-24，混合仓索引批：单趟发现 + gitignore 摄入 + Python manifest 声明面）——详见 CHANGELOG [Unreleased] 同日三条
+## 上一轮会话（2026-09-24 二轮，Python 解析缺口批：module-index + manifest 链 + fitz 别名）——详见 CHANGELOG [Unreleased] 同日第二条
 
 ---
 

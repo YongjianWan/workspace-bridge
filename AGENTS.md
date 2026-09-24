@@ -36,9 +36,9 @@
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
-## 当前核验（2026-09-24，Python 解析缺口批后）
+## 当前核验（2026-09-24，双胞胎就近消歧批后）
 
-`node cli.js audit-overview --cwd . --json --quiet` 已通过：470 个文件全部解析，`coverageRatio=1.00`，`fallbackFiles=0`，`schemaVersion=1.2.0`，`CACHE_VERSION=39`。`npm run test:fast` 选择 175 个测试，最近一次为 173 通过、2 个子进程以 `3221226505` 异常退出（wave15-ast-rules / wave15-neighbor-aware）；两条单独运行断言全过（32/32、3/3），退出码仅来自收尾的 Windows libuv `UV_HANDLE_CLOSING` 断言。全量 runner（含慢层）2026-09-24 首次补跑：274 选 272 过，仅上述 2 条已知 flaky，warm-cold-parity 通过。因此当前工作区**不能报作全绿**——回归判据口径是「与该已知基线对照无新增红」。
+`node cli.js audit-overview --cwd . --json --quiet` 已通过：471 个文件全部解析，`coverageRatio=1.00`，`fallbackFiles=0`，`schemaVersion=1.2.0`，`CACHE_VERSION=40`。`npm run test:fast` 选择 175 个测试，最近一次为 173 通过、2 个子进程以 `3221226505` 异常退出（wave15-ast-rules / wave15-neighbor-aware）；两条单独运行断言全过（32/32、3/3），退出码仅来自收尾的 Windows libuv `UV_HANDLE_CLOSING` 断言。全量 runner（含慢层）2026-09-24 补跑口径：274 选 272 过，仅上述 2 条已知 flaky，warm-cold-parity 通过。因此当前工作区**不能报作全绿**——回归判据口径是「与该已知基线对照无新增红」。
 
 ## 工程品味（TASTE）
 
@@ -250,6 +250,7 @@ node cli.js dead-exports --cwd . --json --quiet
 | `cycles` 路径数是示例口径，SCC 数才是严重度信号      | `src/services/dep-graph/analyzer.js`                 | 单 SCC 路径上限 `PER_SCC_CYCLE_CAP`(25)；消费方应读 `getCycleMeta()` 的 `sccCount`/`truncated`             |
 | skill 权威副本在项目内                               | `skills/workspace-audit/SKILL.md`                    | user-scope 副本（`~/.agents/skills/`）需手动同步；改 SKILL.md 后记得同步，否则会教出旧命令                 |
 | Vue/Svelte 路由提取设计选择                            | `src/services/dep-graph/framework-patterns.js`       | Nuxt/SvelteKit 路由 query 只处理`.ts` server handler；SFC 本身不提取路由                                     |
+| `findWorkspaceRoot` 无标记目录上爬无边界               | `src/utils/path.js`                                  | marker-less 目录会定根到恰好带标记的巨型祖先（本机 `C:\Users\sdses\package.json` → 工作区=主目录），init 变成索引整个家目录且与挂死无法区分。fixture 必须带根标记（一行 `requirements.txt`）；策略拍板见 TECH_DEBT L2-23 |
 
 ---
 
@@ -306,4 +307,4 @@ THEN 拿到结果后必须执行：
 - Java/Python AST 使用随包提供的 tree-sitter WASM；WASM 不可用或解析失败时进入显式 degraded mode：0-importer 死导出降 `low` confidence、`warnings[]` 在文本输出可见、`regex-fallback` 缓存条目永不命中（工具链恢复后自动升级）。
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-09-24（**Python 解析缺口批**：裸名 module-index（same-dir 优先 + 图内唯一后缀，tier2）接入 .py 策略链 + 外部闸 manifest 链化（`readPythonDepsChain`，拉平 JS `packageManifestChain` 语义）+ `pymupdf→fitz` 别名；builder resolve 批次事实改 `_refreshResolveFacts`（workspacePackages + pythonModuleIndex 同批刷新，`resolveFileOnly` 双事实守卫）；CACHE_VERSION 38→39；串围标 dropped **76→11**；全量 runner 274 选 272、test:fast 175 选 173（对照已知 flaky 基线零新增红）；schemaVersion: 1.2.0；version: 2.1.0）*
+*Last updated: 2026-09-24（**双胞胎就近消歧批**：module-index 第三级消歧——候选 >1 按与 fromFile 的公共路径段数取严格最深者（tier2，就近 confidence 0.6 弱于唯一命中 0.8），平手不猜；CACHE_VERSION 39→40；串围标 dropped **11→1**（残余 1 条等距平手 honest drop；numpy/cv2 由串围标仓 requirements 补声明，该仓侧改动未提交）；findWorkspaceRoot 无标记上爬陷阱（测试 fixture 必带根标记）入陷阱表 + TECH_DEBT L2-23；test:fast 175 选 173（对照已知 flaky 基线零新增红）；schemaVersion: 1.2.0；version: 2.1.0）*

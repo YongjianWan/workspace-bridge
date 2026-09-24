@@ -14,6 +14,16 @@
 
 ## L2 债务（阻塞演进或导致结果不可信）
 
+### L2-23：findWorkspaceRoot 无标记目录上爬无边界（2026-09-24 立案）
+
+**症状**：`findWorkspaceRoot`（`utils/path.js`）对无工作区标记的目录逐级向上找 `WORKSPACE_MARKERS`，命中第一个带标记的祖先即定根。本机 `C:\Users\sdses\package.json` 存在（工具残留）→ **任何**无标记的 scratch/临时目录最终定根到用户主目录，`container.initialize` 变成索引整个家目录（实测探针 90k+ 文件仍在走树，现象与 promise 挂死无法区分；一次定位耗约两小时——期间误判过「无 manifest 挂死」「子进程泄漏」「并发锁」三个假设，全部被对照实验否掉）。
+
+**影响面**：marker-less 目录跑 CLI / ServiceContainer（测试 fixture、scratch 目录、纯笔记目录）→ 极慢 + 结果噪音爆炸。带标记的正常仓库不受影响。
+
+**候选方案（未拍板，产品行为决策）**：① 上爬边界（N 层封顶 / 只认含 `.git` 的根）；② 无标记即回退 cwd（`findNestedWorkspaceRoot` 兜底形状类似，需核实语义）；③ 维持现状，靠 fixture 规范 + 文档防线。
+
+**当前防线**：测试 fixture 必须带根标记（一行 `requirements.txt` 即可）；AGENTS 陷阱表有对照条目。
+
 ### 依赖准确性缺口排序（2026-08-01 登记；目标：文件/函数级依赖更准，按回报）
 
 1. ~~Go 包导入绑字母序首文件~~ ✅（2026-08-01 随 L2-21 修复销记，史见 CHANGELOG）

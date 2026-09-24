@@ -5,6 +5,18 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### Feature & Fix: Python module-index 多胞胎就近消歧 + 串围标残余 dropped 收口（2026-09-24）
+
+上批残余的 11 条 `unresolved-dropped` 拆成两摊：9 条双胞胎歧义（`af_client` / `model_call_audit` / `deepseek_client` 在两个 skill 的 `scripts/` 各存一份，skill 的 tests/ 靠 conftest 注入自己 scripts/ 后裸名 import）+ 2 条真未声明三方（`numpy` / `cv2`，仓库声明欠账）。
+
+* **Added** `tryPythonModuleIndex` 第三级消歧（就近）：候选 >1 时按「与 fromFile 的公共路径段数」取严格最深者（skill 的 tests/ 命中自己 scripts/ 的那份拷贝），唯一时解析；**平手不猜**，维持 honest drop。就近消歧是弱推断，confidence **0.6**（低于唯一命中的 0.8，tier 同为 tier2）——运行时 sys.path 顺序若偏爱另一份拷贝，消费方能从置信度察觉（L1-4 显式化）。顺序无关（纯 argmax over 前缀深度），路径比较走大小写折叠 + 分隔符归一。
+* **Fixed** 串围标仓声明欠账（该仓侧改动，不入本仓提交）：`numpy` 入根 `requirements-dev.txt`（探针脚本开发依赖）；`opencv-python` 入 `pdf-toc-extraction-v2/requirements.txt`（`toc_v2.py` 的 OCR 并发路径直接 `import cv2`（setNumThreads(1) 防线），随 rapidocr 传递安装但直接使用者直接声明；`opencv-python→cv2` 别名已在 `PYTHON_IMPORT_ALIASES`）。
+* CACHE_VERSION 39→40（判决语义变化：v39 停在 dropped 的双胞胎 import 现出 tier2 边，作废重建）。
+* 前后对照（串围标 92k 混合仓，全新缓存冷构建）：`unresolved-dropped` **11 → 1**（−90.9%）。残余 1 条 = `scripts/probes/probe_af_latency.py` 的 `af_client`：根级 probes 目录 importer 对两个 skill 的拷贝**路径等距**（平手），设计内 honest drop——其唯一正解是 sys.path 提示求值，单条案例性价比不足，降级为可选不立案（见 SESSION）。
+* 测试：新增 `test/python-module-index-nearest-test.js` 4 例（就近命中含 confidence 0.6 契约 / g3 对称消歧（证明看邻近不看候选顺序）/ 平手不猜 / graph 级接线），首例对旧实现必红（RED 实测 `null ≠ g2 拷贝`）；`python-module-index-test.js` 契约注释跟进（「歧义不猜」→「平手不猜」）。
+* **陷阱记录**（定位耗约两小时，已入 AGENTS 陷阱表 + TECH_DEBT L2-23）：测试 fixture 无工作区根标记时，`findWorkspaceRoot` 逐级上爬命中恰好带标记的巨型祖先（本机 `C:\Users\sdses\package.json` 存在 → 工作区=用户主目录），`container.initialize` 变成「索引半个硬盘」，现象与 promise 挂死无法区分。fixture 必须带根标记（一行 `requirements.txt` 即可）。
+* 验证：`python-module-index-nearest-test.js` 全绿（1.9s）；`python-module-index-test.js` 全绿；`npm run test:fast` 175 选 173 过（对照已知 flaky 基线零新增红）。
+
 ### Feature & Fix: Python 解析缺口批——裸名 module-index + manifest 链化 + fitz 别名（2026-09-24）
 
 上一批留账的 76 条 `unresolved-dropped` 根因定位为三机制：skill 包 `sys.path.insert + 裸名 import` 指向 `.agents/skills/*/scripts|tests` 深处（`tryPythonAbsolute` 四个搜索根够不着）、子包 manifest 只声明在 skill 自己的 `requirements.txt`（gate 只读根）、import 名≠包名（`fitz`）。50 条样本直方图：same-dir 15 / 图内唯一后缀 17 / 图内唯一 1（对手在 reference/ 不在图内）/ manifest 链 6 / fitz 别名 1 / 真未声明三方 2 / 双胞胎歧义 8。
