@@ -5,6 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### Fix: L2-23 findWorkspaceRoot 定根语义——攀爬只到 git 根，仓外不爬（2026-09-24）
+
+无标记目录逐级上爬命中任意 WORKSPACE_MARKERS 祖先即定根——本机 `C:\Users\sdses\package.json`（工具残留）意味着任何 scratch/临时目录最终定根到用户主目录，`container.initialize` 变成索引整个家目录（实测探针 90k+ 文件仍在走树），与 promise 挂死无法区分（同日一次定位耗约两小时，「无 manifest 挂死」「子进程泄漏」「并发锁」三个假设全被对照实验否掉）。
+
+* **Fixed** `utils/path.js` `findWorkspaceRoot` 信任边界显式化：**攀爬最多到自己仓库的 git 根**（`.git` 在 WORKSPACE_MARKERS 里，攀到必然命中）；**完全在 git 仓之外的目录给什么认什么**，不向上爬——环境标记祖先（家目录 / Temp 层的 package.json 形状）从此够不着任何工作区。`findNestedWorkspaceRoot` 挑战者语义保留；同族防线：挑战者扫描跳过 `node_modules`（依赖噪音不当工作区）。
+* **有意的行为变化**（方案②，用户拍板）：仓外**非 git** 项目的子目录不再上爬到带 manifest 的父级——`myapp/sub` 的根就是 `myapp/sub`。git 仓内子目录上爬到仓根、start 自带标记、`WORKSPACE_ROOT` env / `options.workspaceRoot` 语义均不变。无需 CACHE_VERSION bump（schema 未变，根变化时缓存目录键自动分流）。
+* 测试：新增 `test/find-workspace-root-test.js` 6 例（环境噪音不信任〔核心 bug 形状，RED 实测命中 ambient 噪音祖先〕/ git 子目录上爬回归锁 / start 标记胜出回归锁 / 仓外不爬〔方案②语义锁〕/ 子工作区挑战者 / 文件入口回归锁），首例对旧实现必红。
+* 验证：新测试 6/6 全绿（1.2s）；`python-module-index-nearest-test` 回归全绿；`npm run test:fast` 176 选 174；全量 runner 277 选 274——wave15 两条为已知 libuv 基线，`git-environment-probe-test`（SIGTERM）判定为**超时边缘 flaky 而非本批回归**：runner 单测上限 180s、该测常态实测 150~180s（本次 180.06s 被杀、同日 09:16 场次 150.5s 险过、2026-08-28 场次已有同款 SIGTERM 前科），单独复跑全过（136s），且与本批改动零代码交集（该测不经过 `findWorkspaceRoot`）。
+* 同刀销记 TECH_DEBT L2-23 与 AGENTS 陷阱表条目。
+
+### Docs: TECH_DEBT 销账清理——四条 ✅ 遗留正文收编 + 解析器判据表对齐（2026-09-24）
+
+总览表早已销账的 L3-9（Java 半）/ L3-10 / L3-14 / L3-16 四条正文还挂着「活跃」详述，「解析器选型判据」表的 Java/Vue 行还写着迁移前状态，尾注计数停在 2026-08-02——违反「修复即删，历史只进 CHANGELOG」，会误导后续会话把已清债务当活债。逐条核实 CHANGELOG 有史可查（L3-9 Java 半 + L3-14 见 2026-08-05 条目；L3-10 / L3-16 见 2026-08-28 条目）后收编为 ✅ 一行 stub；判据表 Java/Vue 两行对齐现状（tree-sitter / tree-sitter-vue）。纯文档变更，无代码行为变化。
+
 ### Feature & Fix: Python module-index 多胞胎就近消歧 + 串围标残余 dropped 收口（2026-09-24）
 
 上批残余的 11 条 `unresolved-dropped` 拆成两摊：9 条双胞胎歧义（`af_client` / `model_call_audit` / `deepseek_client` 在两个 skill 的 `scripts/` 各存一份，skill 的 tests/ 靠 conftest 注入自己 scripts/ 后裸名 import）+ 2 条真未声明三方（`numpy` / `cv2`，仓库声明欠账）。

@@ -14,15 +14,7 @@
 
 ## L2 债务（阻塞演进或导致结果不可信）
 
-### L2-23：findWorkspaceRoot 无标记目录上爬无边界（2026-09-24 立案）
-
-**症状**：`findWorkspaceRoot`（`utils/path.js`）对无工作区标记的目录逐级向上找 `WORKSPACE_MARKERS`，命中第一个带标记的祖先即定根。本机 `C:\Users\sdses\package.json` 存在（工具残留）→ **任何**无标记的 scratch/临时目录最终定根到用户主目录，`container.initialize` 变成索引整个家目录（实测探针 90k+ 文件仍在走树，现象与 promise 挂死无法区分；一次定位耗约两小时——期间误判过「无 manifest 挂死」「子进程泄漏」「并发锁」三个假设，全部被对照实验否掉）。
-
-**影响面**：marker-less 目录跑 CLI / ServiceContainer（测试 fixture、scratch 目录、纯笔记目录）→ 极慢 + 结果噪音爆炸。带标记的正常仓库不受影响。
-
-**候选方案（未拍板，产品行为决策）**：① 上爬边界（N 层封顶 / 只认含 `.git` 的根）；② 无标记即回退 cwd（`findNestedWorkspaceRoot` 兜底形状类似，需核实语义）；③ 维持现状，靠 fixture 规范 + 文档防线。
-
-**当前防线**：测试 fixture 必须带根标记（一行 `requirements.txt` 即可）；AGENTS 陷阱表有对照条目。
+### ~~L2-23：findWorkspaceRoot 无标记目录上爬无边界~~ ✅（2026-09-24 当日修复：攀爬只到 git 根、仓外不爬（方案②，用户拍板），`test/find-workspace-root-test.js` 6 例锁语义，史见 CHANGELOG 同日条目）
 
 ### 依赖准确性缺口排序（2026-08-01 登记；目标：文件/函数级依赖更准，按回报）
 
@@ -174,10 +166,10 @@
 | 语言 | 现在用的 | 官方/原生选项 | 能进程内? |
 | --- | --- | --- | --- |
 | JS/TS/JSX/TSX | `@babel/parser` | Babel / tsc API | ✅ **已经是官方** |
-| Vue | 正则抠 `<script>` → babel | `@vue/compiler-sfc` | ✅ npm 包，未采用（L3-7） |
+| Vue | tree-sitter-vue WASM（原「正则抠 `<script>` → babel」已收口，L3-7） | `@vue/compiler-sfc` | ✅ npm 包，未采用（保真度增量不值新依赖） |
 | Svelte | 正则抠 `<script>` → babel | `svelte/compiler` | ✅ npm 包，冻结（L3-7） |
-| Python | tree-sitter | CPython `ast` | ❌ 要起进程 |
-| Java | javalang（spawn，2020 停更） | JDK compiler API / Eclipse JDT | ❌ 要 JVM |
+| Python | tree-sitter（L3-9 Python 半已收口） | CPython `ast` | ❌ 要起进程 |
+| Java | tree-sitter（L3-9 Java 半已收口，2026-08-05；原 javalang spawn 已删） | JDK compiler API / Eclipse JDT | ❌ 要 JVM |
 | Kotlin | tree-sitter | Kotlin compiler embeddable | ❌ 要 JVM，几百 MB |
 | Go | tree-sitter | `go/ast` 标准库 | ❌ 要 Go 工具链 + 助手二进制 |
 | Rust | tree-sitter | `syn` crate | ❌ 要 Rust 工具链 |
@@ -191,30 +183,9 @@
 
 **触发条件**：新增语言支持、或考虑替换任一语言的解析器时。
 
-### L3-9：~~Python~~ / Java AST 走 spawn Python 进程——部署脆性 + 成本离群，tree-sitter WASM 已在 node_modules 里躺着
+### ~~L3-9：Python / Java AST 走 spawn 进程——部署脆性 + 成本离群~~ ✅（Python 半 2026-08-02、Java 半 2026-08-05 双双迁进程内 tree-sitter WASM，spawn 基建整体删除，史见 CHANGELOG 同日条目）
 
-**状态**：**Python 半 ✅ 已修复（2026-08-02，CACHE_VERSION 34）**——迁进程内 tree-sitter WASM（`parsers/python-ast.js`），parity 对照器 **738 文件零 diff** 后 spawn 路径删除；唯一收窄 `# type:` 注释不可见（CHANGELOG 2026-08-02 条目据实记录）。
-
-**Java 半活跃，且不再是"品味问题"——2026-08-03 实测坐实它是能力缺口**：
-
-| javalang 0.13.0（2020 年最后一版） | tree-sitter-java |
-| --- | --- |
-| ❌ record(16) / sealed(17) / text block(15) / switch expression(14) / instanceof 模式(16) | ✅ 八项全过 |
-| ✅ var(10) / 泛型 / lambda | ✅ |
-
-**装了 javalang 也没用**：拿 `public record Point(int x, int y) {}` 走完整链路实测 `parseMode=regex`——任何用 Java 14+ 语法的文件，今天拿到的都是正则质量数据，而且静默。这条把"缺失时自动回退 regex"（README:34）的适用面从"没装"扩大到"装了但语法超出 Java 8"，后者用户完全无感。
-
-迁移要点不变：**`package` 声明抽取必须与 javalang 逐字段等价**（闸的零名单前缀集合全靠它，L2-11 缺口 C 的地基；Kotlin 半已在此栽过一次，见 CHANGELOG `1176b35`），照 Python 半的 parity 对照器模式复用（`scripts/parser-parity-python.js` 骨架，oracle 从 git 复活做旧边）。**验收根集按语法特性覆盖挑，不按仓库名挑**——Python 半的 437→738 教训，语料里没有的语法证明不了任何事。迁移后 spawn 基建（`spawn-ast.js` 200 行：信号量 / env memo / 临时文件绕 Windows exit-49 / SIGTERM+SIGKILL 双定时器 / venv 解析）+ analyzer env 探测整体删除，L2-20 共享串行锁自然覆盖。
-
-**性能基线（2026-08-03 实测，738 个 .py）**：spawn CPython 串行 85.8 ms/文件，按 `PYTHON_AST_CONCURRENCY: 4` 折算真实墙钟约 21.5 ms/文件；tree-sitter 3.8 ms/文件——**约 5-6x**（不是串行对比的 22.6x，那个数字夸大）。Java 侧可参照，但 JVM 型官方桥另算。
-
-**触发条件**：动 `spawn-ast.js` / `python.js` / `java.js`、或用户报"Java 仓解析质量差 / 现代语法读不出"时。
-
-### L3-10：`hasCpp` 条件疑似不覆盖纯 `.c` 仓——cJSON 的 `languageSupport` 是空表
-
-**状态**：活跃（2026-07-28 九仓实测发现，**未单独验证**）。cJSON（99 个 `.c`/`.h`）冷构建 `languageSupport: []`，但文件照样进图、照样记了 124 条 dropped——说明 parse 走了（扩展名映射层），语言支持声明层却没认这门语言。疑点：`registry.js` 的 cpp 条件 `workspace.hasCpp` 的探测逻辑可能只看 `.cpp`/`.cc`/`.hpp`，纯 `.c` 仓落空。后果待查：`languageSupport` 空会影响哪些消费方（能力声明 / 报告展示）没摸清；124 条 dropped 的构成也没分组（angle include 不解析是设计，但 124 是否全是设计内待验）。先验证条件探测再定改法——可能就一行（`.c` 加进探测列表）。
-
-**触发条件**：纯 C 仓 `languageSupport` 为空、或改动 stack 探测 / registry 条件时。
+### ~~L3-10：`hasCpp` 不覆盖纯 `.c` 仓——cJSON 的 `languageSupport` 是空表~~ ✅（2026-08-28 补 `_hasCppFiles` + `EXT_TO_LANG` C/C++ 映射，探测/注册/解析三处链路闭环，史见 CHANGELOG 同日条目）
 
 ### L3-11：同一行快照有两个 freshness 判据，两个消费方各判各的
 
@@ -265,36 +236,13 @@
 
 **触发条件**：动 `warmCache()` / 测试的容器初始化方式时；或 slow 层墙钟的瓶颈从 CPU 累计项转到最长单条项时（此时本条债升级为唯一出路）。
 
-### L3-14：`tryJava` 逐段剥尾的 probe 放大缺前后对照（测量债，非阻塞）
-
-**状态**：2026-07-31 登记（原挂 L2-10/T6 名下，T6 执行后转独立条目）。
-
-**缺口**：L2-14 的成员导入逐段剥尾把 `tryJava` 的 probe 数从 `roots × 2` 变成 `segments × roots × 2`，depth≥2 下潜又让 roots 变多——miss 路径的 probe 数被两级放大。CHANGELOG 记的全是边数，**没有一次前后对照的冷构建墙钟**。
-
-**已知的**：depth≥2 修复后 HEAD 现状两次独立实测 **186.5s / 177s**（okhttp 2760 边，整脚本墙钟含收集开销）。量级不吓人。
-
-**不知道的**：「不吓人」和「没变慢」是两句话——没有「前」（`053e17a~1`），绝对值回答不了 L2-14 有没有引入回归。取法：在 `053e17a~1` 开 worktree（无 `node_modules`，得挂 junction）单独跑一次。
-
-**为什么不阻塞任何决定**：原登记理由是「T6 一摘 JVM 就只剩 `tryJava` 承重」——T6 判决 **JVM 保留符号表**，前提已消失。剩下的动机只是量化 L2-14 的性能回归本身，有用户感知变慢的迹象时再做。
-
-**触发条件**：收到 JVM 仓构建变慢的报告；或动 `tryJava` probe 路径 / `discoverJavaSourceRoots` 扫描深度时顺手补。
-
+### ~~L3-14：`tryJava` 逐段剥尾的 probe 放大缺前后对照（测量债）~~ ✅（2026-08-05 随 L3-9 Java 半迁移实测销账，史见 CHANGELOG 同日条目）
 
 ### ~~L3-15：Python 标准库判定是手抄的 23 个名字，而进程里就坐着权威来源~~ ✅（2026-08-01，史见 CHANGELOG 同日条目）
 
 > 换源 `sys.stdlib_module_names`（新模块 `resolvers/python-stdlib.js`，spawnSync + 进程 memo），手抄名单降级为 python-missing 兜底；同刀删 `PYTHON_BUILTINS`/`GO_BUILTINS` 死名单与死 `isBuiltIn`。前后对照零 delta（CodeGraphContext 26→26、code-review-graph 6→6）——卫生债，不是正确性债。
 
-### L3-16：`_readTsconfigPaths` 只读仓库根、不跟 `extends`——手写了一个 tsc 的残缺版（2026-08-03 登记）
-
-`resolvers/base.js:604` 手写 tsconfig paths 读取：只看仓库根的 `tsconfig.json` / `jsconfig.json`，用正则剥 JSONC 注释再 `JSON.parse`，取 `compilerOptions.paths` + `baseUrl`。**不跟 `extends` 链**。
-
-后果（推理，未实测）：monorepo 里 `packages/*/tsconfig.json` 继承根 base 的 paths → 看不见；`extends: "@company/tsconfig-base"` → 看不见；project references → 不处理。别名 import 解析不出来就落进 dropped 记账。
-
-官方解法是 `typescript` npm 包的 `ts.readConfigFile` + `ts.parseJsonConfigFileContent`——**进程内**，extends 链 / baseUrl / references 全算好，顺带能删掉那段手写的 JSONC 正则。按上面的决策原则，这是"官方能进程内跑"档里唯一还没采用的一格，且 TS/JS 通常是真实仓文件数最多的语言。`typescript` 当前**不在** `package.json` 里。
-
-**为什么不直接排第一**：回报是推理不是实测。排期前先量——扫真实 monorepo 语料，统计有多少 import 因不跟 `extends` 而落进 dropped。数字不支持就维持 P3。
-
-**触发条件**：动 JS/TS resolver、或用户报"monorepo 里路径别名解析不出来"时。
+### ~~L3-16：`_readTsconfigPaths` 只读仓库根、不跟 `extends`——手写了一个 tsc 的残缺版~~ ✅（2026-08-28 进程内 extends 继承链 + monorepo nearest config 支持，`test/tsconfig-extends-test.js` 锁契约，史见 CHANGELOG 同日条目）
 
 ---
 
@@ -418,4 +366,4 @@
 
 ---
 
-*Last updated: 2026-08-02（活跃债务 **9 项**：L1=0 / **L2=0**（L2-22 判留销记，L2 层清零）/ 架构债务=0 / L3=9（L3-4/7/8/9（剩 Java 半）/10/11/12/13/14）；P4 冻结 4 条。**2026-08-02 续五**：L3-9 Python 半销记——Python AST 迁进程内 tree-sitter WASM（`parsers/python-ast.js`），parity 对照器（`scripts/parser-parity-python.js`，进库存档）在 reference 双仓 + fixtures **437 文件逐字段零 diff** 后删 `scripts/python_ast_parser.py` 与 spawn Python 半；零 diff 前对照器连钓六类 CPython 语义分歧（future_import 独立节点 / typed_default_parameter / end_lineno 尾部注释 / ast.walk BFS 层级 / else-single-if 链合并 / elif 逐级嵌套），全部按 CPython 语义修正；唯一收窄 `# type:` 注释不可见（wave15 用例改锁新契约，437 文件零例命中）；杀变异 M1/M2/M3 初跑全存活暴露守护盲区，补 `testParityGuards` 后三处全 RED；**复审轮探针再钓六类发散**（非字面量 `__all__` 空列表语义 / paramCount `/` 写反 / async for 多计（AsyncFor 非 For 子类）/ 嵌套 decorated def 装饰器表达式泄漏 / 多 `__all__` 最后者胜 / returnType 是 unparse 重打印——token 级 normalize 兜底、极端角落记例外），逐条复现 RED 后修复，探针 11/11 + 437 文件复跑双零 diff，杀变异 M4-M9 验红（`testReviewProbes`）；新增 `python-tree-sitter-path-test.js`（swap 前 RED 验证）；CACHE_VERSION 32→33；test:fast 148/148——史见 CHANGELOG 同日条目。**2026-08-02 续四**：v1 取数复测钓出伞形 groupId 回归并修复（`_matchJvmDeclared` 最长匹配 + reactor 守卫覆盖/细度双要求——catalog 合法裸伞 `com.squareup` 先撞压过真属主 `com.squareup.zstd`，伞下兄弟包 `com.squareup.okhttp3.maventest` 误判源码在场；okhttp 实证 zstd 6 位点全部被闸认领、dropped 254→248、边集零扰动；杀变异 F 初跑存活暴露最长匹配缺独立锁定，补裸伞包角落测试后 F/G 双红；CACHE_VERSION 31→32）。**JVM manifest v2（多模块链）判死冻结**——编制内两 JVM 仓零条剩余泄漏可归因子模块 manifest（okhttp 子模块声明全是根 catalog 重复、spring-petclinic 全根声明），解冻条件：出现「子模块独立声明 + 根 manifest 无证据」泄漏实测。**2026-08-02 续三**：Kotlin `package` 零抽取修复（tree-sitter + regex 双路径补抽，纯 Kotlin 仓 workspacePackages 空集洞根因闭合，kotlin golden +1 行，CACHE_VERSION 29→30）+ JVM manifest v1（`readJvmDeps(root)` 三源手撸合并——pom dependency/parent 块、gradle 字面坐标、libs.versions.toml [libraries]；闸加 manifest 层裁决空集/前缀碰撞两种降级场景，reactor 模块源码优先；`JVM_IMPORT_ALIASES` 四条桥接 groupId↔import 前缀错配；`jdk.*`/`sun.*`/`com.sun.*` 进 registry isBuiltIn 单一归宿；CACHE_VERSION 30→31；`jvm-manifest-deps-test.js` 10 例，杀变异 C/D/E 逐处验红；test:fast 147/147——史见 CHANGELOG 同日条目）。**2026-08-02**：销 L3-5（`lookupUnique` 死方法连 3 个孤儿测试函数删除；前置条件实测不成立——`lookupBestMatch` 侧零路径规范化覆盖，先补 `testLookupBestMatchNormalizesFromFile` 双断言、杀变异验红，再删。CACHE_VERSION 不动；test:fast 146/146——史见 CHANGELOG 同日条目）。2026-08-01 续二：L2-22 判留（ripgrep 第二仓 129 边 / symbol-table 45 条逐人工核对全合法形状——`crate::` 绝对路径 / workspace 跨 crate / `self::`，与 qartez-mcp 互证，L3-4 塌缩终态作废）；修 `cli-error-handling-test.js` 仓库根配置竞态（646 假红根源，改临时 cwd）；补 646/352 守护测试（`analyzer-same-package-guards-test.js` 4 例，杀变异逐例验红——646 的杀伤信号是 sccCount 不是 cycles 列表，`:855` 后过滤会兜底）；删读侧 7 处字符串判据（5 析取半 + 2 换 `tier==='tier3'`，reason 标签语言中立化）；销 L3-15（Python stdlib 换源 `sys.stdlib_module_names`，前后对照零 delta——卫生债；同刀删 PYTHON/GO_BUILTINS 死名单与死 isBuiltIn，CACHE_VERSION 28→29）；hugo 复测 12094 边（go-module 7796 + same-pkg 4298）坐实 279 式展开非 cobra 特例；reference 编制 12→14（ripgrep / hugo）；test:fast 146/146——史见 CHANGELOG 2026-08-01 各条目。2026-08-01 销 L2-21：变异实验收口（② 受控复跑 266/266 全绿——「5/7 字符串判据冗余 + 2/7 tier 等价」升级为已证；四处单点归因——`analyzer.js:1218`/`query.js:76` 各有守护测试坐实，`analyzer.js:646` cycles Rule 5 与 `:352` GraphAnalyzer 版 reason 标签零覆盖坐实、登记测试缺口），Go 写侧修复（go-module 包导入展开到全包非测试文件 + 同包 `go-same-package` tier3 边，`expand-go-packages` 后处理阶段照 Java 同形，CACHE_VERSION 27→28），cobra 12→279（go-same-package 202 + go-module 77，全可解释），全量 267/267——修复即删，史见 CHANGELOG 2026-08-01 条目。依赖准确性缺口排序三项全部销记（Go 首文件绑定 / Python 23/290 / JVM manifest 未读）。）*
+*Last updated: 2026-09-24（**销账清理 + L2-23 收口**：① 四条 ✅ 遗留正文（L3-9 Java 半 / L3-10 / L3-14 / L3-16）按「修复即删」收编、解析器判据表 Java/Vue 行对齐，表文矛盾清零；② L2-23 findWorkspaceRoot 定根语义当日修复销记（攀爬只到 git 根、仓外不爬，方案②用户拍板），**L2 层回零**。**活跃债务 5 项**：L1=0 / L2=0 / 架构债务=0 / L3=5（L3-4 扩展名分支 / L3-8 兜底 / L3-11 双 freshness / L3-12 分层 / L3-13 冷启动）；P4 冻结 3 条（tryCppInclude 加固 / 垃圾目录观察 / Next.js 路由，均带解冻条件）。2026-08-02 及以前的销账流水不再随行携带——历史在 CHANGELOG 与 git。）*

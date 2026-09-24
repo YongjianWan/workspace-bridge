@@ -6,23 +6,27 @@
 
 ---
 
-## 本轮会话 (2026-09-24 三轮，双胞胎就近消歧批 + findWorkspaceRoot 陷阱定位)
+## 本轮会话 (2026-09-24 四轮，TECH_DEBT 销账清理 + L2-23 findWorkspaceRoot 定根语义)
 
-> 背景：上批残余 11 条 dropped 收口。RED→GREEN 落地，详见 CHANGELOG [Unreleased] 同日第三条。**额外代价**：「init 挂死」假象烧掉约两小时，根因 = 测试 fixture 缺工作区根标记 + `findWorkspaceRoot` 上爬命中 `C:\Users\sdses\package.json`（主目录）→ 在索引整个家目录。已入 AGENTS 陷阱表与 TECH_DEBT L2-23。
+> 背景：「本项目还有什么没做」盘点产出两件该动的：四条 ✅ 遗留正文清理 + L2-23 拍板修复（方案②：攀爬只到 git 根，仓外不爬）。RED→GREEN 落地，详见 CHANGELOG [Unreleased] 的「销账清理」与「L2-23」两条。
 
 ### 本轮完成
 
-1. **就近消歧**：`tryPythonModuleIndex` 候选 >1 时按公共路径段数取严格最深者，confidence 0.6（弱于唯一命中 0.8，推断降档显式化）；平手不猜。CACHE 39→40。
-2. **串围标声明欠账**（该仓侧改动，**未在该仓提交**，等用户过目）：`numpy` → 根 `requirements-dev.txt`；`opencv-python` → `pdf-toc-extraction-v2/requirements.txt`。
-3. **前后对照**：串围标 dropped **11 → 1**，残余 = `probe_af_latency.py` 的 `af_client` 等距平手（设计内 honest drop），unresolved 保持 0。
-4. **验证**：nearest 测试 4 例全绿（RED 实测正确失败）；modidx 旧契约全绿；test:fast 175 选 173（对照基线零新增红）。
+1. **TECH_DEBT 销账清理**：L3-9（Java 半）/ L3-10 / L3-14 / L3-16 四条正文收编 ✅ stub（逐条核实 CHANGELOG 有史可查后才删）；解析器判据表 Java/Vue 行对齐现状；尾注重计。
+2. **L2-23 修复（方案②，用户拍板）**：`findWorkspaceRoot` 信任边界显式化——**攀爬最多到自己仓库的 git 根；仓外给什么认什么，不向上爬**。家目录 `package.json` 噪音从此够不着任何工作区。同族防线：`findNestedWorkspaceRoot` 挑战者扫描跳过 `node_modules`。
+3. **有意的行为变化**：仓外**非 git** 项目的子目录不再上爬到带 manifest 的父级（`myapp/sub` 的根就是 `myapp/sub`）；git 仓内子目录上爬到仓根、start 自带标记、`WORKSPACE_ROOT` env / `options.workspaceRoot` 语义均不变。无 CACHE bump（schema 未变，根变化时缓存目录键自动分流）。
+4. **验证**：`find-workspace-root-test.js` 6 例全绿（核心 bug 形状 RED 实测命中 ambient 噪音祖先）；`python-module-index-nearest-test` 回归全绿；test:fast 176 选 174（对照基线零新增红）；全量 runner 结果见 AGENTS 当前核验。
 
 ### 下一轮入口
 
-1. **findWorkspaceRoot 攀爬策略拍板**（TECH_DEBT L2-23，产品行为决策，等用户）：无标记目录上爬命中巨型祖先 → 索引整个家目录。候选：① 上爬边界（N 层封顶 / 只认含 `.git` 的根）；② 无标记回退 cwd；③ 维持现状靠 fixture 规范 + 文档防线。
-2. **串围标仓侧待决**（按其 AGENTS.md §二.15，删除由人发起）：14 个 `data/` 删除残留收口；`nul` 垃圾文件（46B）；`.git` 1.43GB 历史瘦身拍板；本轮两处 requirements 声明待过目提交。
-3. **双胞胎 sys.path 提示求值降级为可选**：残余仅 1 条等距平手案例，不立案不排期——除非 dropped 记账里此类案例再涨。
-4. L3-11 双 freshness 判据 / L3-13 慢层池化（原入口顺延，见 TECH_DEBT）。
+1. **串围标仓侧待决**（按其 AGENTS.md §二.15，删除由人发起）：14 个 `data/` 删除残留；`nul` 垃圾文件（46B）；`.git` 1.43GB 历史瘦身拍板；requirements 两处声明待过目提交。
+2. **双胞胎 sys.path 提示求值**：残余仅 1 条等距平手案例，不立案不排期。
+3. L3-8 兜底接触即修（已点名三处）/ L3-11 双 freshness 分歧 / L3-12·13 测试基建——触发式，见 TECH_DEBT。
+4. 房务：本地领先远端 6 笔未 push（等用户指令）。
+
+---
+
+## 上一轮会话（2026-09-24 三轮，双胞胎就近消歧批）——详见 CHANGELOG [Unreleased] 同日条目
 
 ---
 

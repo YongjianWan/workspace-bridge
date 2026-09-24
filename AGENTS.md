@@ -36,9 +36,9 @@
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
-## 当前核验（2026-09-24，双胞胎就近消歧批后）
+## 当前核验（2026-09-24，销账清理 + L2-23 收口后）
 
-`node cli.js audit-overview --cwd . --json --quiet` 已通过：471 个文件全部解析，`coverageRatio=1.00`，`fallbackFiles=0`，`schemaVersion=1.2.0`，`CACHE_VERSION=40`。`npm run test:fast` 选择 175 个测试，最近一次为 173 通过、2 个子进程以 `3221226505` 异常退出（wave15-ast-rules / wave15-neighbor-aware）；两条单独运行断言全过（32/32、3/3），退出码仅来自收尾的 Windows libuv `UV_HANDLE_CLOSING` 断言。全量 runner（含慢层）2026-09-24 补跑口径：274 选 272 过，仅上述 2 条已知 flaky，warm-cold-parity 通过。因此当前工作区**不能报作全绿**——回归判据口径是「与该已知基线对照无新增红」。
+`node cli.js audit-overview --cwd . --json --quiet` 已通过：472 个文件全部解析，`coverageRatio=1.00`，`fallbackFiles=0`，`schemaVersion=1.2.0`，`CACHE_VERSION=40`。`npm run test:fast` 选择 176 个测试，最近一次为 174 通过、2 个子进程以 `3221226505` 异常退出（wave15-ast-rules / wave15-neighbor-aware，已知 libuv 基线，单独跑断言全过）。全量 runner 277 选 274：除上述 wave15 两条外，`git-environment-probe-test` 以 SIGTERM 触及 180s 单测上限——判定为**超时边缘 flaky**（常态实测 150~180s：本次 180.06s 被杀、同日 09:16 场次 150.5s 险过、2026-08-28 场次已有同款前科；单独复跑全过 136s），判真方式 = 单独复跑。因此当前工作区**不能报作全绿**——回归判据口径是「对照已知基线无新增红」。
 
 ## 工程品味（TASTE）
 
@@ -236,6 +236,7 @@ node cli.js dead-exports --cwd . --json --quiet
 | cache.save() 已改为 async                              | `src/services/cache.js`                              | 调用方必须`await`（container.js、测试均已适配）                                                              |
 | repl-test.js flaky                                     | `test/repl-test.js`                                  | runner.js 串行执行时偶发失败，单独`node test/repl-test.js` 稳定通过；若遇到，先重跑确认                      |
 | audit-file-watch-test.js flaky                         | `test/audit-file-watch-test.js`                      | runner.js 串行执行时 watcher 事件偶发丢失，单独`node test/audit-file-watch-test.js` 稳定通过                 |
+| git-environment-probe-test.js 超时边缘 flaky           | `test/git-environment-probe-test.js`                 | 真 git 仓集成测试（submodule/LFS/shallow）常态 150~180s，骑在 runner 180s 单测上限上，负载抖动即被 SIGTERM（2026-08-28、2026-09-24 两见）；单独复跑 136s 全过。判真方式=单独复跑，别当回归 |
 | `framework-patterns.js` 新增框架时                   | `src/services/dep-graph/framework-patterns.js`       | 路径检测逻辑按语言分块，新增语言需同时更新`isEntry` 标记和测试                                               |
 | `buildFileValidationAdvice` 导出链                   | `validation-advice.js` → `index.js` → `cli.js` | 新增 formatter 函数必须在`src/cli/formatters/index.js` 中显式导出，否则 cli.js 解构为 `undefined`          |
 | `--quiet` 不再 monkey-patch `console.error`        | `cli.js` / `container.js`                          | `quiet` 通过 `ServiceContainer` 传递；错误日志仍用 `console.error`                                       |
@@ -250,7 +251,6 @@ node cli.js dead-exports --cwd . --json --quiet
 | `cycles` 路径数是示例口径，SCC 数才是严重度信号      | `src/services/dep-graph/analyzer.js`                 | 单 SCC 路径上限 `PER_SCC_CYCLE_CAP`(25)；消费方应读 `getCycleMeta()` 的 `sccCount`/`truncated`             |
 | skill 权威副本在项目内                               | `skills/workspace-audit/SKILL.md`                    | user-scope 副本（`~/.agents/skills/`）需手动同步；改 SKILL.md 后记得同步，否则会教出旧命令                 |
 | Vue/Svelte 路由提取设计选择                            | `src/services/dep-graph/framework-patterns.js`       | Nuxt/SvelteKit 路由 query 只处理`.ts` server handler；SFC 本身不提取路由                                     |
-| `findWorkspaceRoot` 无标记目录上爬无边界               | `src/utils/path.js`                                  | marker-less 目录会定根到恰好带标记的巨型祖先（本机 `C:\Users\sdses\package.json` → 工作区=主目录），init 变成索引整个家目录且与挂死无法区分。fixture 必须带根标记（一行 `requirements.txt`）；策略拍板见 TECH_DEBT L2-23 |
 
 ---
 
@@ -307,4 +307,4 @@ THEN 拿到结果后必须执行：
 - Java/Python AST 使用随包提供的 tree-sitter WASM；WASM 不可用或解析失败时进入显式 degraded mode：0-importer 死导出降 `low` confidence、`warnings[]` 在文本输出可见、`regex-fallback` 缓存条目永不命中（工具链恢复后自动升级）。
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-09-24（**双胞胎就近消歧批**：module-index 第三级消歧——候选 >1 按与 fromFile 的公共路径段数取严格最深者（tier2，就近 confidence 0.6 弱于唯一命中 0.8），平手不猜；CACHE_VERSION 39→40；串围标 dropped **11→1**（残余 1 条等距平手 honest drop；numpy/cv2 由串围标仓 requirements 补声明，该仓侧改动未提交）；findWorkspaceRoot 无标记上爬陷阱（测试 fixture 必带根标记）入陷阱表 + TECH_DEBT L2-23；test:fast 175 选 173（对照已知 flaky 基线零新增红）；schemaVersion: 1.2.0；version: 2.1.0）*
+*Last updated: 2026-09-24（**销账清理 + L2-23 收口**：TECH_DEBT 四条 ✅ 遗留正文（L3-9 Java 半/L3-10/L3-14/L3-16）收编、判据表对齐、尾注重计，表文矛盾清零；L2-23 findWorkspaceRoot 定根语义修复——**攀爬只到 git 根、仓外不爬**（方案②，用户拍板），家目录 package.json 噪音够不着工作区，同刀 `findNestedWorkspaceRoot` 跳过 node_modules，L2 层回零、活跃债务 5 项（L3-4/8/11/12/13）；CACHE_VERSION=40；串围标 dropped 11→1（三轮就近消歧 + requirements 补声明）；test:fast 176 选 174、全量 runner 277 选 274（红 = wave15 libuv 基线 ×2 + git-environment-probe 超时边缘 flaky，单独复跑全过）；schemaVersion: 1.2.0；version: 2.1.0）*
