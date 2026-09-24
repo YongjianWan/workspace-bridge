@@ -148,6 +148,9 @@ function findNestedWorkspaceRoot(startPath) {
 
   for (const child of children) {
     if (!child.isDirectory() || child.name.startsWith('.')) continue;
+    // 依赖噪音不是工作区：node_modules 里的包各个带 package.json，
+    // 挑战者扫描不得把根吸进依赖树（L2-23 同族防线）。
+    if (child.name === 'node_modules') continue;
 
     const candidate = path.join(root, child.name);
     const score = scoreDirectory(candidate);
@@ -160,6 +163,17 @@ function findNestedWorkspaceRoot(startPath) {
   return bestPath;
 }
 
+/**
+ * 工作区定根（L2-23 语义）：**攀爬最多到自己仓库的 git 根，仓外不爬**。
+ *
+ * 旧语义逐级上爬直到命中任何 WORKSPACE_MARKERS——家目录/Temp 层恰好躺着一个
+ * 工具残留的 `package.json` 时，任何无标记 scratch 目录都会被吞成主目录级别的
+ * 巨型根（init 变成索引半个硬盘，与挂死无法区分；2026-09-24 实测烧掉两小时）。
+ * 现在信任边界是显式的：git 根是项目边界（`.git` 本身在标记清单里，攀到即命中）；
+ * 完全在 git 仓之外的目录，给什么认什么——「你让我分析这个目录，我就分析这个目录」。
+ * 有意的行为变化：仓外非 git 项目的子目录不再上爬到带 manifest 的父级，
+ * 根就是所给目录（2026-09-24 拍板，方案②）。
+ */
 function findWorkspaceRoot(startPath, options = {}) {
   // 1. 优先使用手动指定的工作区根目录（环境变量）
   const envWorkspaceRoot = process.env.WORKSPACE_ROOT;
@@ -172,10 +186,8 @@ function findWorkspaceRoot(startPath, options = {}) {
     return normalizePath(options.workspaceRoot);
   }
 
-  // 3. 自动检测
-  const originalStart = normalizePath(startPath);
+  // 3. 自动检测：先归一化入口（文件取所在目录；起点不存在退回 cwd）。
   let current = normalizePath(startPath);
-  
   if (!pathExists(current)) {
     current = process.cwd();
   }
@@ -183,20 +195,34 @@ function findWorkspaceRoot(startPath, options = {}) {
     current = path.dirname(current);
   }
 
-  while (true) {
+  // 攀爬天花板 = 最近的含 `.git` 祖先（含自身）。找不到 → 仓外，不爬。
+  let ceiling = null;
+  for (let dir = current; ; dir = path.dirname(dir)) {
+    if (pathExists(path.join(dir, '.git'))) {
+      ceiling = dir;
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+  }
+  if (ceiling === null) {
+    return findNestedWorkspaceRoot(current);
+  }
+
+  // start → git 根之间第一个带标记的目录胜出（`.git` 在 WORKSPACE_MARKERS 里，
+  // git 根必然命中）；findNestedWorkspaceRoot 挑战者语义照旧。
+  for (let dir = current; ; dir = path.dirname(dir)) {
     for (const marker of WORKSPACE_MARKERS) {
-      if (pathExists(path.join(current, marker))) {
-        const nestedCandidate = findNestedWorkspaceRoot(originalStart);
-        return scoreDirectory(nestedCandidate) > scoreDirectory(current) ? nestedCandidate : current;
+      if (pathExists(path.join(dir, marker))) {
+        const nestedCandidate = findNestedWorkspaceRoot(current);
+        return scoreDirectory(nestedCandidate) > scoreDirectory(dir) ? nestedCandidate : dir;
       }
     }
-
-    const parent = path.dirname(current);
-    if (parent === current) {
-      return findNestedWorkspaceRoot(normalizePath(startPath));
-    }
-    current = parent;
+    if (dir === ceiling) break;
   }
+  // 语义兜底（非防御）：范围内无标记目录的唯一形状（仅当 WORKSPACE_MARKERS
+  // 将来不再含 `.git` 时可达）——与仓外分支同语义，认 start 自己。
+  return findNestedWorkspaceRoot(current);
 }
 
 function resolvePythonCommand(root) {
