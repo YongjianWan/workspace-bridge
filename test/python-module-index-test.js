@@ -8,7 +8,8 @@
 //   1. same-dir 优先：fromFile 同目录下的同名模块胜出（入口脚本目录 = sys.path[0]，
 //      实测 15/15 例同目录目标正确，含双胞胎消歧）。
 //   2. 全工作区唯一后缀：`模块名.py` / `模块名/__init__.py` 在图内唯一时解析到它。
-//   3. 歧义不猜：候选 >1 时返回 null，由 droppedImports 如实记账。
+//   3. 歧义不猜：候选 >1 且无最近公共前缀唯一者时返回 null，由 droppedImports
+//      如实记账（就近消歧契约见 python-module-index-nearest-test.js）。
 //   4. 外部闸先行：manifest 声明/stdlib 的名字永不被本地同名文件捕获
 //      （JS `parsers/shared.js` re-export 事故的 Python 版防线）。
 //   5. 索引只含图内已发现文件——reference/generated 角色的文件不在图里，

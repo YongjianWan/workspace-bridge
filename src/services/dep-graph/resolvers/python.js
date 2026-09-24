@@ -154,19 +154,60 @@ function buildPythonModuleIndex(files) {
   };
 }
 
+// Two halves of the tier2 inference class get different confidence: an
+// unambiguous hit is evidence, nearest-twin is a path-proximity judgment
+// (sys.path order could favor the other copy at runtime).
+const MODULE_INDEX_CONFIDENCE = Object.freeze({ EXACT: 0.8, NEAREST: 0.6 });
+
+/**
+ * Path segments for prefix arithmetic: '/'-normalized and case-folded, the
+ * same Windows tolerance base.js applies in normalizePathKey space — callers
+ * hand paths in either casing/separators, and prefix depth must not care.
+ */
+function _pathSegments(p) {
+  return String(p).replace(/\\/g, '/').toLowerCase().split('/').filter(Boolean);
+}
+
+/**
+ * The candidate sharing the most path segments with fromFile — or null when
+ * the deepest prefix is a tie. Pure argmax over prefix depth, order-independent.
+ */
+function _nearestByCommonPrefix(candidates, fromFile) {
+  const fromSegs = _pathSegments(fromFile);
+  let best = null;
+  let bestDepth = -1;
+  let tied = false;
+  for (const cand of candidates) {
+    const segs = _pathSegments(cand);
+    let depth = 0;
+    while (depth < fromSegs.length && depth < segs.length && fromSegs[depth] === segs[depth]) depth += 1;
+    if (depth > bestDepth) {
+      best = cand;
+      bestDepth = depth;
+      tied = false;
+    } else if (depth === bestDepth) {
+      tied = true;
+    }
+  }
+  return tied ? null : best;
+}
+
 /**
  * Last resort for bare/dotted Python imports: name a workspace FILE, not a
- * search root. Two deterministic steps, no name guessing:
+ * search root. Three deterministic steps, no name guessing:
  *   1. same-dir — the importer's own directory (entry-script dir is
  *      sys.path[0] by Python semantics; measured 15/15 correct on the
  *      串围标 dropped cohort, twin disambiguation included);
  *   2. unique module-index hit — exactly one graph .py can satisfy the
- *      specifier's module path.
- * Ambiguous (>1 candidates) returns null and stays in the droppedImports
- * ledger — measured residue: 8 twin pairs (af_client / model_call_audit /
- * deepseek_client 各有两份，跨 skill 靠 sys.path.insert 消歧，静态不可达)。
- * Declared externals never reach either step (ownership first — the JS
- * parsers/shared.js re-export incident's Python counterpart).
+ *      specifier's module path;
+ *   3. nearest-twin — several candidates satisfy it: the one sharing the
+ *      deepest path prefix with fromFile wins when unique (skill 的 tests/
+ *      经 conftest 注入自己 scripts/ 后裸名 import 自己那份拷贝，串围标
+ *      dropped 残留的主形态).
+ * A tie on step 3 returns null and stays in the droppedImports ledger
+ * (neutral importer, statically ambiguous). Declared externals never reach
+ * these steps (ownership first — the JS parsers/shared.js re-export
+ * incident's Python counterpart).
  */
 function tryPythonModuleIndex(importPath, fromFile, ctx) {
   if (importPath.startsWith('.')) return null;
@@ -177,16 +218,25 @@ function tryPythonModuleIndex(importPath, fromFile, ctx) {
   const sameDirBase = path.join(path.dirname(fromFile), modulePath);
   const sameDir = _tryPythonCandidates(sameDirBase, ctx) || _tryNamespaceSubmodule(sameDirBase, ctx);
   const matches = sameDir ? [sameDir] : ctx.pythonModuleIndex.lookup(importPath);
-  if (matches.length !== 1) return null;
+
+  let resolved = null;
+  let nearest = false;
+  if (matches.length === 1) {
+    [resolved] = matches;
+  } else if (matches.length > 1) {
+    resolved = _nearestByCommonPrefix(matches, fromFile);
+    nearest = resolved !== null;
+  }
+  if (!resolved) return null;
 
   if (ctx.outMeta) {
     // Inference class (a bare import naming an off-root workspace file) —
-    // tier2/0.8 alongside symbol-table, not the tier1 path-existence tier.
+    // tier2 alongside symbol-table, not the tier1 path-existence tier.
     ctx.outMeta.method = 'python-module-index';
-    ctx.outMeta.confidence = 0.8;
+    ctx.outMeta.confidence = nearest ? MODULE_INDEX_CONFIDENCE.NEAREST : MODULE_INDEX_CONFIDENCE.EXACT;
     ctx.outMeta.tier = 'tier2';
   }
-  return matches[0];
+  return resolved;
 }
 
 module.exports = {

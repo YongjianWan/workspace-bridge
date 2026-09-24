@@ -139,6 +139,10 @@ const SCHEMA_VERSION = '1.2.0';
 //      ② 外部闸 manifest 链化（importer 目录向根，与 JS packageManifestChain
 //      同语义），子包声明的第三方名从 dropped 转为判外部；③ pymupdf→fitz
 //      别名。旧缓存的边集与 dropped 记账均不可比，作废重建。
-const CACHE_VERSION = 39;
+// v40: Python module-index 多胞胎就近消歧——候选 >1 时按「与 fromFile 的公共
+//      路径段数」取严格最深者（skill 的 tests/ 命中自己 scripts/ 的那份拷贝），
+//      平手仍不猜；就近命中 confidence 0.6（弱于唯一命中的 0.8，推断降档显式化）。
+//      v39 缓存里这些 import 停在 dropped 记账，判决语义已变，作废重建。
+const CACHE_VERSION = 40;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };
