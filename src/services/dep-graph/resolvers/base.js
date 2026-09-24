@@ -237,33 +237,47 @@ function readPackageDeps(root) {
  * @param {string} root
  * @returns {string[]} manifest dirs, nearest first
  */
-function packageManifestChain(fromDir, root) {
+// Shared walk for the manifest-chain gates (JS package.json, Python
+// requirements/pyproject): every dir from fromDir up to root, nearest first,
+// NO marker filter — each caller interprets the chain its own way. Uncached
+// on purpose: the walk is a handful of string ops over stat-cached probes,
+// and the filtered result above keeps its own memo.
+function _dirChainUp(fromDir, root) {
   if (!root) return [];
   // Compare in normalizePathKey space, RETURN platform-native original-case
   // dirs — the same split findCargoCrateRoot makes, for the same reason.
   // Callers hand us paths in either shape and on Windows those differ in case
   // and separators, so raw-string containment would silently truncate the
-  // chain to the root manifest alone; but consumers path.join and cache-key
-  // against file-index paths (native casing), so a normalized return value
-  // breaks their arithmetic the other way.
+  // chain to the root alone; but consumers path.join and cache-key against
+  // file-index paths (native casing), so a normalized return value breaks
+  // their arithmetic the other way.
   const nativeRoot = path.resolve(root);
   const rootNorm = normalizePathKey(nativeRoot);
   const start = fromDir ? path.resolve(fromDir) : nativeRoot;
-  const key = `${normalizePathKey(start)}\n${rootNorm}`;
-  const cached = _packageDirChainCache.get(key);
-  if (cached) return cached;
 
   const chain = [];
   let dir = start;
   for (;;) {
     const dirNorm = normalizePathKey(dir);
     if (dirNorm !== rootNorm && !dirNorm.startsWith(rootNorm + '/')) break;
-    if (cachedExistsSync(path.join(dir, 'package.json'))) chain.push(dir);
+    chain.push(dir);
     if (dirNorm === rootNorm) break;
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
+  return chain;
+}
+
+function packageManifestChain(fromDir, root) {
+  if (!root) return [];
+  const nativeRoot = path.resolve(root);
+  const key = `${normalizePathKey(fromDir ? path.resolve(fromDir) : nativeRoot)}\n${normalizePathKey(nativeRoot)}`;
+  const cached = _packageDirChainCache.get(key);
+  if (cached) return cached;
+
+  const chain = _dirChainUp(fromDir, root)
+    .filter((dir) => cachedExistsSync(path.join(dir, 'package.json')));
   if (chain.length === 0 && cachedExistsSync(path.join(nativeRoot, 'package.json'))) {
     chain.push(nativeRoot);
   }
@@ -406,6 +420,9 @@ const PYTHON_IMPORT_ALIASES = new Map([
   ['beautifulsoup4', 'bs4'],
   ['scikit-learn', 'sklearn'],
   ['opencv-python', 'cv2'],
+  // PyMuPDF 的经典 import 名是 fitz——2026-09-24 串围标实测：pymupdf 声明在
+  // 根 requirements 仍漏判 import fitz，1 条误入 dropped。
+  ['pymupdf', 'fitz'],
 ]);
 
 function _normalizePythonName(name) {
@@ -507,6 +524,28 @@ function readPythonDeps(root) {
 
   _pythonDepsCache.set(root, { names, stamp });
   return names;
+}
+
+/**
+ * Declared third-party names for an importer: merge every manifest from the
+ * file's own directory up to the workspace root (Python parity with the JS
+ * packageManifestChain gate — sub-package manifests count for their own
+ * subtree; 2026-09-24 串围标实测缺口即 skill 的 requirements.txt)。
+ * No fromDir (or outside root) falls back to the root manifest alone — same
+ * degraded shape as packageManifestChain.
+ */
+function readPythonDepsChain(fromDir, root) {
+  if (!root) return null;
+  let chain = _dirChainUp(fromDir, root);
+  if (chain.length === 0) chain = [path.resolve(root)];
+  let merged = null;
+  for (const dir of chain) {
+    const deps = readPythonDeps(dir);
+    if (!deps) continue;
+    if (!merged) merged = new Set();
+    for (const name of deps) merged.add(name);
+  }
+  return merged;
 }
 
 /**
@@ -846,6 +885,7 @@ module.exports = {
   readCargoCrateName,
   readCargoDeps,
   readPythonDeps,
+  readPythonDepsChain,
   readJvmDeps,
   findCargoCrateRoot,
   _readTsconfigPaths,

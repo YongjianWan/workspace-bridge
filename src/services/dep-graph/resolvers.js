@@ -13,11 +13,9 @@ const {
   readCargoCrateName,
   findCargoCrateRoot,
   readCargoDeps,
-  readPythonDeps,
   readJvmDeps,
 } = require('./resolvers/base');
 const { registry } = require('./parsers/registry');
-const { getPythonStdlibNames } = require('./resolvers/python-stdlib');
 
 const {
   tryAlias,
@@ -27,6 +25,9 @@ const {
 const {
   tryPythonRelative,
   tryPythonAbsolute,
+  tryPythonModuleIndex,
+  buildPythonModuleIndex,
+  isExternalPythonImport,
 } = require('./resolvers/python');
 
 const {
@@ -189,25 +190,9 @@ function _isExternalJsPackage(specifier, root, ctx) {
 
 // Python stdlib membership has a single home: resolvers/python-stdlib.js
 // (authoritative sys.stdlib_module_names + degraded-path fallback, L3-15).
-
-/**
- * True when a Python import is rooted at the standard library or at a package
- * the project manifest declares (requirements.txt / pyproject.toml, both
- * formats merged by readPythonDeps). Dotted submodule paths are attributed to
- * their root: `os.path.join` belongs to `os`. Relative imports (leading dot)
- * never reach this function — trySymbolTable already filtered them.
- */
-function _isExternalPythonModule(specifier, root) {
-  const rootSegment = specifier.split('.')[0].trim();
-  if (!rootSegment) return false;
-  if (getPythonStdlibNames(root).has(rootSegment)) return true;
-  if (!root) return false;
-  const declared = readPythonDeps(root);
-  // Import names use underscores where package names use hyphens; the
-  // manifest reader stores PEP 503-normalized names, so normalize the same
-  // way before matching (`tree_sitter` ↔ `tree-sitter`).
-  return Boolean(declared && declared.has(rootSegment.toLowerCase().replace(/[-_.]+/g, '-')));
-}
+// The external gate itself lives in resolvers/python.js
+// (isExternalPythonImport) so the module-index strategy can consult it
+// without a require cycle — its manifest-chain semantics live there too.
 
 /**
  * True when a Go import names anything outside the module's own packages.
@@ -355,7 +340,7 @@ function _isExternalJvmPackage(specifier, root, ctx, fromExt) {
 const EXTERNAL_DEPENDENCY_CHECKS = [
   { matches: (ext) => JS_FAMILY_EXTENSIONS.has(ext), isExternal: _isExternalJsPackage },
   { matches: (ext) => ext === '.rs', isExternal: _isExternalRustCrate },
-  { matches: (ext) => ext === '.py', isExternal: _isExternalPythonModule },
+  { matches: (ext) => ext === '.py', isExternal: isExternalPythonImport },
   { matches: (ext) => ext === '.go', isExternal: _isExternalGoModule },
   { matches: (ext) => CPP_EXTENSIONS.has(ext), isExternal: _isExternalCppHeader },
   { matches: (ext) => ext === '.java' || ext === '.kt', isExternal: _isExternalJvmPackage },
@@ -454,6 +439,9 @@ module.exports = {
   tryRelativeWithExtensions,
   tryPythonRelative,
   tryPythonAbsolute,
+  tryPythonModuleIndex,
+  buildPythonModuleIndex,
+  isExternalPythonImport,
   tryJava,
   tryGoRelative,
   tryGoModule,

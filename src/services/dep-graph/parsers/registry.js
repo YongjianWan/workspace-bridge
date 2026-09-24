@@ -18,7 +18,7 @@ const { parseSvelte } = require('./svelte');
 
 // Import strategies directly from resolvers to populate resolveStrategies
 const { tryAlias, tryRelativeWithExtensions } = require('../resolvers/javascript');
-const { tryPythonRelative, tryPythonAbsolute } = require('../resolvers/python');
+const { tryPythonRelative, tryPythonAbsolute, tryPythonModuleIndex } = require('../resolvers/python');
 const { tryJava } = require('../resolvers/java');
 const { tryGoRelative, tryGoModule } = require('../resolvers/go');
 const { tryRustCrate, tryRustSuper, tryRustScoped } = require('../resolvers/rust');
@@ -90,7 +90,7 @@ registry.register(defineLanguage({
   needsWorkspaceRoot: true,
   filePatterns: ['**/*.py'],
   condition: (workspace) => workspace.hasPythonFiles || workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy,
-  resolveStrategies: [tryPythonRelative, tryPythonAbsolute],
+  resolveStrategies: [tryPythonRelative, tryPythonAbsolute, tryPythonModuleIndex],
   // T6 (2026-07-31): zero true-positive symbol-table edges in two measured
   // Python repos (924 edges total); tryPythonAbsolute already covers the
   // structural cases.

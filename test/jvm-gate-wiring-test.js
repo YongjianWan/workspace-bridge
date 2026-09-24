@@ -4,7 +4,7 @@
 // come from disk — the builder computes the workspace package set and hands it
 // to the resolver through ctx. That makes the wiring, not the rule, the fragile
 // part: `_isExternalJvmPackage` treats an absent set as "unknown" and steps
-// aside, so a resolve path that forgets `_refreshWorkspacePackages()` turns the
+// aside, so a resolve path that forgets `_refreshResolveFacts()` turns the
 // whole gate off with no edge count moving and no warning anywhere.
 //
 // This locks the structural precondition instead: resolving before the package
@@ -48,15 +48,15 @@ function testResolveBeforePackageSetIsComputedThrows() {
 
   assert.throws(
     () => builder.resolveFileOnly(parsed),
-    /workspacePackages/,
-    'resolving before the package set is computed must fail loudly, not silently disable the JVM gate'
+    /_refreshResolveFacts/,
+    'resolving before the resolve facts are computed must fail loudly, not silently disable the JVM gate (or the Python module index)'
   );
 }
 
 function testRefreshMakesResolveLegal() {
   const graph = makeGraph();
   const builder = graph.builder;
-  builder._refreshWorkspacePackages();
+  builder._refreshResolveFacts();
   assert.ok(builder.workspacePackages instanceof Set, 'refresh must produce a set');
 
   const parsed = {

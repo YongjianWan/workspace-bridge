@@ -130,6 +130,15 @@ const SCHEMA_VERSION = '1.2.0';
 //      不可比）；② 无 script 块 SFC parseMode regex→ast 修正；③ importRecords
 //      新增 localBindings 字段；④ builder/file-index 大写扩展名（.JAVA 等）
 //      从 parseMode 'none' 变为正常解析。四类旧缓存条目均作废重建。
-const CACHE_VERSION = 38;
+// v38: Python manifest 声明面补齐——requirements-dev.txt / [dependency-groups]
+//      / poetry dev-dependencies 纳入，[project] 收窄至 dependencies 键。
+//      gate 判决语义变化，旧缓存的 dropped 记账作废重建（2026-09-24 批，
+//      此条为欠账补记）。
+// v39: Python 解析缺口批——① module-index 策略（same-dir 优先 + 图内唯一
+//      后缀）接入 .py 策略链，skill 深处的裸名 import 新增 tier2 边；
+//      ② 外部闸 manifest 链化（importer 目录向根，与 JS packageManifestChain
+//      同语义），子包声明的第三方名从 dropped 转为判外部；③ pymupdf→fitz
+//      别名。旧缓存的边集与 dropped 记账均不可比，作废重建。
+const CACHE_VERSION = 39;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

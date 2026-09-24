@@ -11,6 +11,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { GraphBuilder } = require('../src/services/dep-graph/builder');
+const { buildPythonModuleIndex } = require('../src/services/dep-graph/resolvers/python');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function testUppercaseJavaExtensionResolves() {
@@ -28,6 +29,7 @@ function testUppercaseJavaExtensionResolves() {
   };
   const builder = new GraphBuilder(dg);
   builder.workspacePackages = new Set(['com.example']);
+  builder.pythonModuleIndex = buildPythonModuleIndex([]);
 
   const parsed = {
     filePath: path.join(pkgDir, 'App.JAVA'),

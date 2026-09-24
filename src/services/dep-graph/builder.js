@@ -7,7 +7,7 @@ const path = require('path');
 const { promisify } = require('util');
 const { createImportRecord } = require('./parsers');
 const { registry } = require('./parsers/registry');
-const { resolveImport, clearResolverCaches, isExternalDependency } = require('./resolvers');
+const { resolveImport, clearResolverCaches, isExternalDependency, buildPythonModuleIndex } = require('./resolvers');
 const { detectFrameworkFromContent, extractRoutes } = require('./framework-patterns');
 const {
   scanAndExtractImplicitImports,
@@ -48,6 +48,7 @@ class GraphBuilder {
     // declarations) and the two must not share a value, because the gate reads
     // an absent set as "unknown" and switches itself off.
     this.workspacePackages = null;
+    this.pythonModuleIndex = null;
   }
 
   /**
@@ -206,7 +207,7 @@ class GraphBuilder {
     // L2-11 gap C: the JVM zero-list gate reads this set ("outside every
     // workspace package = external"). All packages are known once the parse
     // phase has run — refresh before the resolve phase consumes it.
-    this._refreshWorkspacePackages();
+    this._refreshResolveFacts();
 
     // Decoupled Phase 2: Link/Resolve Phase (Resolve imports using completed symbol registry)
     for (const parsed of parsedList) {
@@ -421,29 +422,34 @@ class GraphBuilder {
   }
 
   /**
-   * L2-11 gap C: rebuild the workspace package set the JVM zero-list gate
-   * consults ("outside every workspace package = external"). Recomputed at
-   * each resolve batch boundary (full build / incremental / single-file) —
-   * resolutions never add packages, so a per-batch refresh cannot go stale
-   * mid-batch and needs no dirty-flag machinery.
+   * Resolve 批次边界事实（L2-11 gap C 同机制，批次间刷新不会中途过期）：
+   *  - workspace packages —— JVM 零表闸读的包集合；
+   *  - pythonModuleIndex —— Python module-index 策略读的 basename→files
+   *    索引，只含图内文件（reference/generated 角色不可能被 import 捕获）。
+   * 解析只挂边不增文件，图在 resolve 阶段前已全量就位（completed symbol
+   * registry 同款前提），所以两者从图状态派生是安全的。
    */
-  _refreshWorkspacePackages() {
+  _refreshResolveFacts() {
     const pkgs = new Set();
+    const pyFiles = [];
     for (const info of this.dg.graph.values()) {
       if (info.package) pkgs.add(info.package);
+      if (info.originalPath) pyFiles.push(info.originalPath);
     }
     this.workspacePackages = pkgs;
+    this.pythonModuleIndex = buildPythonModuleIndex(pyFiles);
   }
 
   resolveFileOnly(parsed) {
-    // Every resolve batch refreshes the package set first. Reaching here
-    // without it is a wiring bug, and the failure mode is invisible — the JVM
-    // gate would quietly step aside and third-party imports would go back to
-    // being guessed against local class names. Blow up instead.
-    if (this.workspacePackages === null) {
+    // Every resolve batch refreshes the resolve facts first. Reaching here
+    // without them is a wiring bug, and the failure mode is invisible — the
+    // JVM gate would quietly step aside (or the Python module index), and
+    // third-party imports would go back to being guessed against local
+    // names. Blow up instead.
+    if (this.workspacePackages === null || this.pythonModuleIndex === null) {
       throw new Error(
-        '[GraphBuilder] resolveFileOnly called before workspacePackages was computed — ' +
-        'call _refreshWorkspacePackages() at the start of the resolve batch (L2-11 gap C)'
+        '[GraphBuilder] resolveFileOnly called before resolve facts were computed — ' +
+        'call _refreshResolveFacts() at the start of the resolve batch (L2-11 gap C)'
       );
     }
     const { filePath, graphKey, content, imports, exports, importRecords, exportRecords, functionRecords, parseMode, parseModeReason, confidence, package: packageName } = parsed;
@@ -455,7 +461,7 @@ class GraphBuilder {
     const resolvedImportRecords = (importRecords.length > 0 ? importRecords : imports.map((source) => createImportRecord(source)))
       .map((record) => {
         const outMeta = {};
-        const resolved = resolveImport(filePath, record.source, ext, this.dg.root, this.symbolRegistry, outMeta, { isLocal: record.isLocal }, { workspacePackages: this.workspacePackages, imported: record.imported });
+        const resolved = resolveImport(filePath, record.source, ext, this.dg.root, this.symbolRegistry, outMeta, { isLocal: record.isLocal }, { workspacePackages: this.workspacePackages, imported: record.imported, pythonModuleIndex: this.pythonModuleIndex });
         if (!resolved) {
           // Keep wildcard imports even if they don't resolve directly to a file
           if (record.usesAllExports && record.source.endsWith('.*')) {
@@ -544,7 +550,7 @@ class GraphBuilder {
   async analyzeFile(filePath) {
     try {
       const parsed = await this.parseFileOnly(filePath);
-      this._refreshWorkspacePackages();
+      this._refreshResolveFacts();
       this.resolveFileOnly(parsed);
     } catch (e) {
       this._markParseError(this.dg.normalizeFilePath(filePath), filePath, `[DepGraph] Failed to analyze ${filePath}: ${e?.message || e}`);
@@ -1192,7 +1198,7 @@ class GraphBuilder {
 
       // Re-build symbol registry with the newly parsed exports in graph
       this._buildSymbolRegistry();
-      this._refreshWorkspacePackages();
+      this._refreshResolveFacts();
 
       // Link/Resolve Phase
       for (const parsed of parsedList) {

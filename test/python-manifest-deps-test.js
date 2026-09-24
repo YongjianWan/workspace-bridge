@@ -117,11 +117,64 @@ function testMtimeStampCoversDevFile() {
   }
 }
 
+function testManifestChainFromImporterDir() {
+  // 2026-09-24 实测（串围标）：pdf-inspector==1.18.0 只声明在
+  // .agents/skills/pdf-toc-extraction-v2/requirements.txt，gate 只读根 manifest
+  // → 4 条 import pdf_inspector 误入 dropped。JS 闸自 L2-11 gap A 起就有
+  // packageManifestChain，Python 拉平到同一语义：从 importer 目录向根走全链。
+  const dir = makeTempDir('wb-pyreqchain-');
+  try {
+    const skillDir = path.join(dir, 'skills', 'x');
+    const scriptsDir = path.join(skillDir, 'scripts');
+    fs.mkdirSync(scriptsDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'requirements.txt'), 'pdf-inspector==1.18.0\n');
+    const fromFile = path.join(scriptsDir, 'a.py');
+    fs.writeFileSync(fromFile, 'import pdf_inspector\n');
+
+    assert.strictEqual(
+      isExternalDependency('pdf_inspector', '.py', dir, { fromFile }),
+      true,
+      'skill 子包 manifest 声明应对该子包内的 importer 判外部（下划线名按 PEP 503 归一）'
+    );
+    assert.strictEqual(
+      isExternalDependency('pdf_inspector', '.py', dir),
+      false,
+      '无 fromFile 时维持根 manifest 口径（向后兼容，不许放宽）'
+    );
+    assert.strictEqual(
+      isExternalDependency('pdf_inspector', '.py', dir, { fromFile: path.join(dir, 'tests', 'b.py') }),
+      false,
+      '链只覆盖 importer 向根的路径——子包声明不给链外文件背书（与 JS 同语义）'
+    );
+  } finally {
+    cleanupTempDir(dir);
+  }
+}
+
+function testPymupdfFitzAlias() {
+  // PyMuPDF 的 import 名是 fitz，包名归一后对不上 → 实测 1 条误入 dropped。
+  const dir = makeTempDir('wb-pyreqalias-');
+  try {
+    fs.writeFileSync(path.join(dir, 'requirements.txt'), 'pymupdf\n');
+    const names = readPythonDeps(dir);
+    assert(names.has('fitz'), `pymupdf 声明应同时认 import 名 fitz，实际: ${[...names].join(', ')}`);
+    assert.strictEqual(
+      isExternalDependency('fitz', '.py', dir),
+      true,
+      'import fitz 应判外部（PyMuPDF 声明过 pymupdf）'
+    );
+  } finally {
+    cleanupTempDir(dir);
+  }
+}
+
 async function main() {
   testRequirementsDevExtracted();
   testGateSeesDevDeps();
   testDependencyGroupsExtracted();
   testMtimeStampCoversDevFile();
+  testManifestChainFromImporterDir();
+  testPymupdfFitzAlias();
 }
 
 main().catch((err) => {
