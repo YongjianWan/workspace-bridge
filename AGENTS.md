@@ -36,9 +36,9 @@
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
-## 当前核验（2026-09-24）
+## 当前核验（2026-09-24，Python 解析缺口批后）
 
-`node cli.js audit-overview --cwd . --json --quiet` 已通过：469 个文件全部解析，`coverageRatio=1.00`，`fallbackFiles=0`，`schemaVersion=1.2.0`。`npm run test:fast` 选择 175 个测试，最近一次为 173 通过、2 个子进程以 `3221226505` 异常退出（wave15-ast-rules / wave15-neighbor-aware）；两条单独运行断言全过（32/32、3/3），退出码仅来自收尾的 Windows libuv `UV_HANDLE_CLOSING` 断言。因此当前工作区**不能报作全绿**——回归判据口径是「与该已知基线对照无新增红」。
+`node cli.js audit-overview --cwd . --json --quiet` 已通过：470 个文件全部解析，`coverageRatio=1.00`，`fallbackFiles=0`，`schemaVersion=1.2.0`，`CACHE_VERSION=39`。`npm run test:fast` 选择 175 个测试，最近一次为 173 通过、2 个子进程以 `3221226505` 异常退出（wave15-ast-rules / wave15-neighbor-aware）；两条单独运行断言全过（32/32、3/3），退出码仅来自收尾的 Windows libuv `UV_HANDLE_CLOSING` 断言。全量 runner（含慢层）2026-09-24 首次补跑：274 选 272 过，仅上述 2 条已知 flaky，warm-cold-parity 通过。因此当前工作区**不能报作全绿**——回归判据口径是「与该已知基线对照无新增红」。
 
 ## 工程品味（TASTE）
 
@@ -306,4 +306,4 @@ THEN 拿到结果后必须执行：
 - Java/Python AST 使用随包提供的 tree-sitter WASM；WASM 不可用或解析失败时进入显式 degraded mode：0-importer 死导出降 `low` confidence、`warnings[]` 在文本输出可见、`regex-fallback` 缓存条目永不命中（工具链恢复后自动升级）。
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-07-23（**wave8 + query-tools 历史 flaky 彻底根治**：affected-tests 预计算深度常量统一（裸数字 3→CONFIG.DEFAULT_MAX_DEPTH）+ fast path 深度门禁 + savePrecomputed 清场 + analysis_snapshots 逐行版本戳门禁 + precomputed_aggregates 单一写入方（overview 镜像行与兼容回退删除）；CACHE_VERSION 5→6；**全量 runner 251/251 全绿**（首次零失败）；npm run test:fast 137/137 PASS；活跃债务清零；schemaVersion: 1.2.0；version: 2.1.0）*
+*Last updated: 2026-09-24（**Python 解析缺口批**：裸名 module-index（same-dir 优先 + 图内唯一后缀，tier2）接入 .py 策略链 + 外部闸 manifest 链化（`readPythonDepsChain`，拉平 JS `packageManifestChain` 语义）+ `pymupdf→fitz` 别名；builder resolve 批次事实改 `_refreshResolveFacts`（workspacePackages + pythonModuleIndex 同批刷新，`resolveFileOnly` 双事实守卫）；CACHE_VERSION 38→39；串围标 dropped **76→11**；全量 runner 274 选 272、test:fast 175 选 173（对照已知 flaky 基线零新增红）；schemaVersion: 1.2.0；version: 2.1.0）*

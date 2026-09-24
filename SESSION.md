@@ -6,22 +6,26 @@
 
 ---
 
-## 本轮会话 (2026-09-24，混合仓索引批：单趟发现 + gitignore 摄入 + Python manifest 声明面)
+## 本轮会话 (2026-09-24 二轮，Python 解析缺口批：module-index + manifest 链 + fitz 别名)
 
-> 背景：对串围标智能体仓（92,307 文件 / 12GB，代码仅 137 个）的实测评估——分析慢的主因是 FileIndex 发现阶段 O(patterns×树) 重复遍历（20 pattern × 13,335 目录 ≈ 26.7 万次 realpath）、三套排除体系不读 `.gitignore`、Python dev 依赖声明面缺口。三批全部 RED→GREEN 落地，史见 CHANGELOG [Unreleased] 同日三条。
+> 背景：上批留账的串围标 76 条 `unresolved-dropped` 根因定位 + 修复；顺带补上全量 runner 的验证缺口。三件套全部 RED→GREEN 落地，详见 CHANGELOG [Unreleased] 同日第二条。
 
 ### 本轮完成
 
-1. **FileIndex 单趟发现**（O(20×树) → O(树)）：单趟遍历 + ext 集合逐条目匹配；发现侧扩展名大小写归一（`App.TS` 类不再漏）；depth>12 截断显式 `warnings[]: depth-truncated`（L1-4）；链接/junction 才 `realpath`；`indexByPattern` 与 `FILE_INDEX_PATTERN_TIMEOUT_MS` 连删。杀变异锁：readdir 计数测试（110 次 → 11 次）。
-2. **.gitignore 摄入**：`git check-ignore --stdin -z` 单次批量终审，忽略/`!` 回含按 git 语义；git 不可用显式降级警告；`runCommandSecure` 增 `stdinData`。无配置模拟（串围标）：1,449 候选 → kept 191 / dropped 1,258。
-3. **Python manifest 声明面补齐**：`requirements-dev.txt` / `[dependency-groups]` / poetry `dev-dependencies` 全部纳入，`[project]` 收窄至 `dependencies` 键（classifiers 噪音出局）。串围标 `unresolved-dropped` **121 → 76**。CACHE_VERSION 37→38。
-4. **验证**：`npm run test:fast` 175 选 173 过，仅 2 条已知 libuv flaky（wave15 两条单独跑 32/32、3/3 断言全过，退出码只来自收尾 `UV_HANDLE_CLOSING`）；串围标 discovered **137 → 137 零 diff**。
+1. **全量 runner 补验证**（上轮唯一没打勾的格子）：274 选 272 过，仅 2 条已知 wave15 libuv flaky（断言全过，`3221226505` 收尾断言），warm-cold-parity 通过——`initializeDepGraph` warm 路径接线无回归。
+2. **76 条根因定位**（50 条样本直方图）：skill 裸名 import 33（same-dir 15 + 唯一后缀 17 + 图内唯一 1）+ 子包 manifest 链缺口 6（pdf-inspector/rapidocr 只在 skill 的 requirements.txt）+ fitz 别名 1 + 真未声明 2（numpy/cv2）+ 双胞胎歧义 8（af_client/model_call_audit/deepseek_client 两 skill 各一份）。
+3. **三件套修复**：`tryPythonModuleIndex`（same-dir 优先 + 图内唯一后缀 + 歧义不猜 + 外部闸先行）；`readPythonDepsChain`（importer→根 manifest 链，`_dirChainUp` 抽出与 packageManifestChain 共用行走）；`pymupdf→fitz` 别名。builder `_refreshWorkspacePackages` → `_refreshResolveFacts` 同批次刷新两事实，`resolveFileOnly` 守卫扩双事实（L1-4）。CACHE 38→39。
+4. **验证**：串围标同脚本冷构建对照 dropped **76 → 11**（残余 9 双胞胎 + 2 真未声明，形态与设计逐条吻合）；test:fast 175 选 173 过（对照基线零新增红；中途 2 条新红 = 改名打破测试旧契约，按新契约修复复绿）；全量 runner 274 选 272。
 
 ### 下一轮入口
 
-1. **串围标剩余 76 条 dropped**：skill 包内裸名 import（`run_task`/`acceptance`/`criteria_format`）在 `tryPython{Relative,Absolute}` 下解析不到 `.agents/skills/*` 深处——Python 绝对导入解析缺口，与 manifest 闸不同性质。
-2. **串围标仓侧待决**（按其 AGENTS.md §二.15，删除由人发起）：14 个 `data/` 已跟踪文件删除残留收口（清单已出）；`nul` 垃圾文件（46B）；`.git` 1.7GB 历史瘦身拍板。`git gc` 已跑：packs 5→2，garbage 11.7MB→314B。
+1. **双胞胎消歧（sys.path 提示求值）**：9 条残余 dropped 的正解——静态求值 `sys.path.insert(0, <路径表达式>)`（单层 NAME 赋值 + `Path(__file__).parents[N]` 锚定 + `.parent` 链 + 字面 join），把求出的目录当该文件的额外搜索根。`gen.SKILL_SCRIPTS` 形态（importlib 动态加载的跨模块属性）不在求值范围，维持 honest drop。动手前先取 sys.path 表达式分布确认覆盖率，别为 9 条建大炮。
+2. **串围标仓侧待决**（按其 AGENTS.md §二.15，删除由人发起）：14 个 `data/` 删除残留收口；`nul` 垃圾文件（46B）；`.git` 1.43GB 历史瘦身拍板。
 3. L3-11 双 freshness 判据 / L3-13 慢层池化（原入口顺延，见 TECH_DEBT）。
+
+---
+
+## 上一轮会话（2026-09-24，混合仓索引批：单趟发现 + gitignore 摄入 + Python manifest 声明面）——详见 CHANGELOG [Unreleased] 同日三条
 
 ---
 
@@ -43,7 +47,7 @@
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
 node cli.js audit-overview --cwd . --json --quiet
-# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count>=0, summary.unresolved.count=0, summary.cycles.count>=0, summary.analysisCoverage.totalFiles≈434, summary.analysisCoverage.coverageRatio=1
+# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count>=0, summary.unresolved.count=0, summary.cycles.count>=0, summary.analysisCoverage.totalFiles≈470, summary.analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-overview 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
@@ -61,11 +65,11 @@ node cli.js audit-overview --cwd . --json --quiet
 
 ## 基线状态
 
-- 测试：**全量 runner 251/251 全绿**（2026-07-23，wave8/query-tools 历史 flaky 根治后首次零失败）；`npm run test:fast` **175 选 173 过 + 2 已知 libuv flaky**（2026-09-24；wave15 两条单独跑 32/32、3/3 断言全过）。回归判据：与该基线对照无新增红。开发迭代首选 `npm run test:fast`。
+- 测试：**全量 runner 274 选 272 过 + 2 已知 libuv flaky**（2026-09-24 首次补跑慢层；wave15 两条单独跑 32/32、3/3 断言全过，`3221226505` 仅来自收尾 `UV_HANDLE_CLOSING`；warm-cold-parity 通过）；`npm run test:fast` **175 选 173 过 + 2 已知 libuv flaky**（2026-09-24；同两条）。回归判据：与该基线对照无新增红。开发迭代首选 `npm run test:fast`。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.1.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：469 文件（以 `audit-overview` 实测为准，2026-09-24）
+- 自身项目规模：470 文件（以 `audit-overview` 实测为准，2026-09-24）
 - 结构性指标：deadExports=0（原 `shadow-candidates.js` 的 `SHADOW_EXTS` 低置信误报已不再计入），cycles=0，unresolved=0，orphans=2（`.workspace-bridge.json` 作为 config 文件正常，以及 Windows 大小写不敏感路径 `agents.md`/`AGENTS.md` 被重复识别）；overview 维度：hotspots>0，knowledgeRisk 默认 `disabledReason: 'history-not-enabled'`，`--with-history` 启用
 - 架构债务：**活跃债务全部清零**（2026-07-23，L1-3 于本日关闭，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）。
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）

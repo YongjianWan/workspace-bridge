@@ -5,6 +5,19 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### Feature & Fix: Python 解析缺口批——裸名 module-index + manifest 链化 + fitz 别名（2026-09-24）
+
+上一批留账的 76 条 `unresolved-dropped` 根因定位为三机制：skill 包 `sys.path.insert + 裸名 import` 指向 `.agents/skills/*/scripts|tests` 深处（`tryPythonAbsolute` 四个搜索根够不着）、子包 manifest 只声明在 skill 自己的 `requirements.txt`（gate 只读根）、import 名≠包名（`fitz`）。50 条样本直方图：same-dir 15 / 图内唯一后缀 17 / 图内唯一 1（对手在 reference/ 不在图内）/ manifest 链 6 / fitz 别名 1 / 真未声明三方 2 / 双胞胎歧义 8。
+
+* **Added** `resolvers/python.js` `tryPythonModuleIndex`（.py 策略链第三级，兜底 `tryPython{Relative,Absolute}`）+ `buildPythonModuleIndex`：① same-dir 优先（入口脚本目录 = sys.path[0]，实测 15/15 消歧正确）；② 图内唯一后缀命中（`模块名.py` / `模块名/__init__.py`，点号模块按路径后缀）；③ 歧义（>1 候选）不猜，返回 null 落 `droppedImports` 如实记账；④ 外部闸先行——manifest/stdlib 声明的归属是确定性事实，本地同名文件不得制造假边（JS `parsers/shared.js` re-export 事故的 Python 版防线）。tier2/0.8，method `python-module-index`。索引只含图内已发现文件（builder `_refreshResolveFacts` 从 graph 状态构建）——reference/generated 角色的同名文件（实测 `reference/liteparse` 的 `report.py`）不可能被 import 捕获。
+* **Fixed** 外部闸 manifest 链化：`base.js` 抽 `_dirChainUp`（`packageManifestChain` 共用行走，行为不变）+ 新增 `readPythonDepsChain`——从 importer 目录向根逐层合并 `requirements{,-dev}.txt` + `pyproject.toml`，与 JS `packageManifestChain`（L2-11 gap A）同语义。`_isExternalPythonModule` 迁入 `resolvers/python.js` 更名 `isExternalPythonImport`（module-index 策略需复用，避免 require cycle）。
+* **Fixed** `PYTHON_IMPORT_ALIASES` 补 `pymupdf → fitz`（PyMuPDF 经典 import 名）。
+* **Changed** builder `_refreshWorkspacePackages` → `_refreshResolveFacts`（workspace packages + pythonModuleIndex 同批次边界刷新；解析只挂边不增文件，图在 resolve 前全量就位，无中途过期）。`resolveFileOnly` 守卫扩到两事实齐备，缺任一即抛——索引缺失的降级是静默掉边（L1-4），不允许。`jvm-gate-wiring-test` / `builder-ext-case-test` 跟进新契约（错误信息锚点改 `/_refreshResolveFacts/`）。
+* CACHE_VERSION 38→39（边语义变化：skill 深处新边出现、外部闸放宽，旧缓存的边集与 dropped 记账作废重建）。
+* 前后对照（串围标：92k 文件混合仓，同脚本同口径冷构建）：`unresolved-dropped` **76 → 11**（−85.5%）。残余 11 条 = 9 条双胞胎歧义（`af_client` ×5 / `model_call_audit` ×3 / `deepseek_client` ×1——两个 skill 各存一份，真实目标靠运行时 `sys.path.insert` 指路，静态不可达）+ 2 条真未声明三方（`numpy` / `cv2`——诚实信号，留给仓库补声明）。双胞胎消歧的正解是 sys.path 提示求值（单层赋值 + `__file__` 锚定表达式），已立案下一轮。
+* 测试：新增 `test/python-module-index-test.js` 7 例（same-dir 消歧 / 唯一后缀 / 点号模块 / 歧义不猜 / 声明外部不捕获 / root 优先 / graph 级接线），首例对旧实现必红；`python-manifest-deps-test.js` +2 例（子包 manifest 链，含"链外不背书"反向断言 / fitz 别名）。
+* 验证：`npm run test:fast` 175 选 173 过（对照基线零新增红）；全量 runner（含慢层）274 选 272 过，仅 2 条已知 wave15 libuv flaky；warm-cold-parity 通过。多语言等价性：module-index 是 Python sys.path 文件导入语义专属（JS 裸名=包名归 external gate、JVM 全限定名走零表规则、Go/Rust 走模块路径），按 T6 per-language 差异先例记账；manifest 链化反而是向 JS 现有语义的 parity 拉平。
+
 ### Fix: Python manifest 声明面缺口——dev 依赖不再是误报源（2026-09-24）
 
 串围标智能体仓实测 `unresolved-dropped` 121 条（pytest 一族跨 72 文件）：`readPythonDeps` 只读根 `requirements.txt` + `pyproject.toml` 两个文件，**dev 声明面整块缺席**——pytest 写在 `requirements-dev.txt` 的仓全数被当"像本地 import"记入 dropped。
