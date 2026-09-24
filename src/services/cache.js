@@ -778,13 +778,18 @@ class WorkspaceCache {
   getContentSignature() {
     if (!this.fileMetadata || this.fileMetadata.size === 0) return '';
     const hash = crypto.createHash('sha256');
+    // No `?.` on meta: graph-db's deserialize builds every entry as an object
+    // literal and setFileMetadata spreads into one — a null here is an internal
+    // contract violation and must throw, not silently hash as 0 (L3-8). The
+    // `|| 0` stays: sparse legacy entries (object without mtime) are real and
+    // recoverable, they coerce rather than crash.
     for (const key of [...this.fileMetadata.keys()].sort()) {
       const meta = this.fileMetadata.get(key);
       hash.update(key)
         .update('|')
-        .update(String(Math.round(Number(meta?.mtime) || 0)))
+        .update(String(Math.round(Number(meta.mtime) || 0)))
         .update('|')
-        .update(String(Number(meta?.size) || 0))
+        .update(String(Number(meta.size) || 0))
         .update('\n');
     }
     return hash.digest('hex');

@@ -105,7 +105,10 @@ function isSnapshotFresh(snapshot, container, args) {
   //
   // A snapshot written before this column existed carries '' and is treated as
   // unverifiable: recomputing is always safe, serving unvalidated data is not.
-  const currentSignature = container.cache?.getContentSignature?.() || '';
+  // Unconditional on purpose: cache is post-ensureReady and the method is a
+  // class method — `?.` here would read a wiring break as "unsigned" and pay a
+  // cold rebuild to hide it (L3-8: 结构性不该发生的让它炸).
+  const currentSignature = container.cache.getContentSignature() || '';
   const contentMatch = Boolean(snapshot.contentSignature) && snapshot.contentSignature === currentSignature;
 
   return headMatch && countMatch && configMatch && historyMatch && contentMatch;
@@ -308,7 +311,9 @@ async function buildProjectOverview(args, container) {
     // (DELETE all + INSERT) and owned by savePrecomputed — a second writer
     // wipes the aggregate keys here and gets its own row wiped by the next
     // graph:built, so the "mirror" row was unreliable by construction.
-    const contentSignature = container.cache?.getContentSignature?.() || '';
+    // L3-8: unconditional — a throw here is caught below, so the snapshot is
+    // simply not persisted; an unsigned row must never be written on purpose.
+    const contentSignature = container.cache.getContentSignature() || '';
     container.cache?.saveAnalysisSnapshot?.('overview', result, gitHead, fileCount, configHash, contentSignature);
   } catch (_) {
     // Snapshot persistence is best-effort; never block the main flow

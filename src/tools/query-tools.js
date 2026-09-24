@@ -64,7 +64,9 @@ function isSnapshotFresh(snapshot, container) {
  * unverifiable, which is not the same as verified-equal — it reports false.
  */
 function describeReplay(snapshot, container) {
-  const currentSignature = container.cache?.getContentSignature?.() || '';
+  // L3-8: unconditional — cache missing this method is a wiring break; the
+  // caller's catch turns the throw into a recompute, never a fake ''.
+  const currentSignature = container.cache.getContentSignature() || '';
   return {
     computedAt: snapshot.computedAt,
     gitHead: snapshot.version || null,
