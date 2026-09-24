@@ -149,9 +149,9 @@
 
 **判据（新增代码时问一句）**：这个 `?.` / `||` 兜的是**真实可能发生且可恢复**的情况，还是**结构性不该发生**的情况？后者一律让它炸。内部模块之间互相信任，不做防御性检查——只在真正的外部边界（用户输入、文件系统、spawn 子进程）设防。
 
-**建议动作**：不做一次性大扫除（改动面太大、收益不可测）。改为**接触即修**：任何一次触碰到带兜底的调用点，顺手判断一次并处理掉。已处理：`overview-assembler` 的 `getDroppedImports?.()`（`cc82b0d`）；`GraphBuilder.workspacePackages` 的"未计算 = 空集 = 闸自我关闭"（2026-07-30，改为 `null` + `resolveFileOnly` 直抛）。
+**建议动作**：不做一次性大扫除（改动面太大、收益不可测）。改为**接触即修**：任何一次触碰到带兜底的调用点，顺手判断一次并处理掉。已处理：`overview-assembler` 的 `getDroppedImports?.()`（`cc82b0d`）；`GraphBuilder.workspacePackages` 的"未计算 = 空集 = 闸自我关闭"（2026-07-30，改为 `null` + `resolveFileOnly` 直抛）；freshness 链 `getContentSignature?.()` 三处 + 内部 `meta?.`（2026-09-24，史见 CHANGELOG 同日条目）。
 
-**待处理（2026-07-31 评审登记，L2-15 那批新写下的同族实例）**：`container.cache?.getContentSignature?.()` 两处（`overview-tools.js` 的 `isSnapshotFresh`、`query-tools.js` 的 `describeReplay`）+ `getContentSignature()` 内部的 `meta?.mtime` / `meta?.size`（`meta` 取自同一个 Map 的 keys，`undefined` 结构上不可能）。**方向都是 fail-safe** ——方法缺失退回重算/告警，不产出假数据，比 `getDroppedImports?.()` 那次轻一档；但形状一模一样，且是规则写进本文档**之后**新写的。这说明"接触即修"只在改老代码时生效，写新代码时没人想起来。下次碰 freshness 链时一并清掉。
+**待处理**：无点名单——同族 65 处（`?.()` / `|| {}` / `|| []`）按触发条件接触即修，逐处判断「真可恢复 vs 结构性不该发生」，机器干不了。
 
 **同族但形状不同的一个变种（同轮发现）**：不是兜底，是**覆盖**——`cli.js` 出口 `result.warnings = graph.buildWarnings()` 把命令自产的 warnings 整条删掉。兜底把"没有"说成 0，覆盖把"有"说成没有，殊途同归都是让信号到不了人眼前。写任何"统一填充响应字段"的出口逻辑时，先问一句：这个字段命令自己会不会已经填过？
 

@@ -36,9 +36,9 @@
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
-## 当前核验（2026-09-24，销账清理 + L2-23 收口后）
+## 当前核验（2026-09-24，销账清理 + L2-23 + L3-8 点名实例收口后）
 
-`node cli.js audit-overview --cwd . --json --quiet` 已通过：472 个文件全部解析，`coverageRatio=1.00`，`fallbackFiles=0`，`schemaVersion=1.2.0`，`CACHE_VERSION=40`。`npm run test:fast` 选择 176 个测试，最近一次为 174 通过、2 个子进程以 `3221226505` 异常退出（wave15-ast-rules / wave15-neighbor-aware，已知 libuv 基线，单独跑断言全过）。全量 runner 277 选 274：除上述 wave15 两条外，`git-environment-probe-test` 以 SIGTERM 触及 180s 单测上限——判定为**超时边缘 flaky**（常态实测 150~180s：本次 180.06s 被杀、同日 09:16 场次 150.5s 险过、2026-08-28 场次已有同款前科；单独复跑全过 136s），判真方式 = 单独复跑。因此当前工作区**不能报作全绿**——回归判据口径是「对照已知基线无新增红」。
+`node cli.js audit-overview --cwd . --json --quiet` 已通过：472 个文件全部解析，`coverageRatio=1.00`，`fallbackFiles=0`，`schemaVersion=1.2.0`，`CACHE_VERSION=40`。`npm run test:fast` 选择 177 个测试，最近一次为 175 通过、2 个子进程以 `3221226505` 异常退出（wave15-ast-rules / wave15-neighbor-aware，已知 libuv 基线，单独跑断言全过）。全量 runner 277 选 274：除上述 wave15 两条外，`git-environment-probe-test` 以 SIGTERM 触及 180s 单测上限——判定为**超时边缘 flaky**（常态实测 150~180s：本次 180.06s 被杀、同日 09:16 场次 150.5s 险过、2026-08-28 场次已有同款前科；单独复跑全过 136s），判真方式 = 单独复跑。因此当前工作区**不能报作全绿**——回归判据口径是「对照已知基线无新增红」。
 
 ## 工程品味（TASTE）
 
@@ -307,4 +307,4 @@ THEN 拿到结果后必须执行：
 - Java/Python AST 使用随包提供的 tree-sitter WASM；WASM 不可用或解析失败时进入显式 degraded mode：0-importer 死导出降 `low` confidence、`warnings[]` 在文本输出可见、`regex-fallback` 缓存条目永不命中（工具链恢复后自动升级）。
 
 *使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-09-24（**销账清理 + L2-23 收口**：TECH_DEBT 四条 ✅ 遗留正文（L3-9 Java 半/L3-10/L3-14/L3-16）收编、判据表对齐、尾注重计，表文矛盾清零；L2-23 findWorkspaceRoot 定根语义修复——**攀爬只到 git 根、仓外不爬**（方案②，用户拍板），家目录 package.json 噪音够不着工作区，同刀 `findNestedWorkspaceRoot` 跳过 node_modules，L2 层回零、活跃债务 5 项（L3-4/8/11/12/13）；CACHE_VERSION=40；串围标 dropped 11→1（三轮就近消歧 + requirements 补声明）；test:fast 176 选 174、全量 runner 277 选 274（红 = wave15 libuv 基线 ×2 + git-environment-probe 超时边缘 flaky，单独复跑全过）；schemaVersion: 1.2.0；version: 2.1.0）*
+*Last updated: 2026-09-24（**L3-8 点名实例收口**：freshness 链 `getContentSignature?.()` 三处（overview-tools ×2 / query-tools ×1）+ cache 内部 `meta?.` 摘防御改直调——entry 形状由 graph-db deserialize 边界保证，null 属内部契约违约必须炸（旧代码当 0 混进 sha256 产假签名）；`|| ''`/`|| 0` 保留（空索引/稀疏老格式是合法可恢复态）；新增 `test/content-signature-trust-test.js` 5 例（行为 2 + 结构闸 3），test:fast 177 选 175（2 红 = 已知 wave15 基线）；TECH_DEBT L3-8 待处理段销记、纪律本体保持活跃，同族 65 处仍走接触即修。此前同日：销账清理 + L2-23 收口——**攀爬只到 git 根、仓外不爬**（方案②，用户拍板），家目录 package.json 噪音够不着工作区，同刀 `findNestedWorkspaceRoot` 跳过 node_modules，L2 层回零、活跃债务 5 项（L3-4/8/11/12/13）；CACHE_VERSION=40；串围标 dropped 11→1（三轮就近消歧 + requirements 补声明）；schemaVersion: 1.2.0；version: 2.1.0）*

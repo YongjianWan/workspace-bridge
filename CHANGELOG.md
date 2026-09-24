@@ -5,6 +5,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### Fix: L3-8 点名实例收口——freshness 链三处 `getContentSignature?.()` + cache 内部 `meta?.`（2026-09-24）
+
+TECH_DEBT L3-8（2026-07-31 评审登记）点名的同族实例：「接触即修」只在改老代码时生效、写新代码没人想起来的活证据。按口径 1（只清点名的 3+1 处，fail-safe，不大扫除 65 处同族）收口。
+
+* **Fixed** `overview-tools.js` ×2（`isSnapshotFresh` / 快照写盘）+ `query-tools.js` ×1（`describeReplay`）：`container.cache?.getContentSignature?.() || ''` → `container.cache.getContentSignature() || ''`。三处全部在 `ensureReady` 之后 / 快照读路径之内，cache 与方法存在是结构保证；`?.` 会把接线断裂读成「未签名」——前者骗出冷重建，后者（写盘路径）会落一个**永久不可验证的 unsigned 快照行**毒化后续所有消费者。摘掉后接线断裂抛 TypeError，三处现成 catch 各自 fail-safe（快照分支 → 重算；写盘 try → 不落盘；query try → 重算），与用户可见行为零变化。
+* **Fixed** `cache.js` `getContentSignature()` 循环体 `meta?.mtime` / `meta?.size` → 直取。entry 对象形状由边界保证（graph-db `deserialize` 恒产对象字面量、`setFileMetadata` 恒 spread 对象），null entry 属内部契约违约，旧代码当 0 混进 sha256 **产出假签名**——现在炸。`|| 0` 压位保留：稀疏老格式 entry（对象缺 mtime）是真实可恢复边界，与显式零值同摘要，行为不变。
+* 测试：新增 `test/content-signature-trust-test.js` 5 例——行为合同 2 例（null entry 必炸〔RED 驱动，修前实测静默产摘要〕/ 稀疏 entry 不炸且与显式零值同摘要〔防过修 pin〕）+ 结构性合同 3 例（三处调用点无条件直调 + 方法体内无 `meta?.`，`?.` 回潮即红——L3-8 是纪律债，结构闸比行为测试更能防「写新代码时没人想起来」）。
+* 验证：新测试 5/5（修前 1/5 红在点名处）；就近 5 文件（query-replay-provenance / query-staleness / cache-corruption / cache-test / cache-consistency）回归全绿；`npm run test:fast` **177 选 175**，2 红 = 已知 wave15 libuv 基线（`3221226505`），零新增红。
+* 同刀销记 TECH_DEBT L3-8 待处理段（纪律本体——判据 + 触发条件——保持活跃，同族 65 处仍走接触即修、不做大扫除）。
+
 ### Fix: L2-23 findWorkspaceRoot 定根语义——攀爬只到 git 根，仓外不爬（2026-09-24）
 
 无标记目录逐级上爬命中任意 WORKSPACE_MARKERS 祖先即定根——本机 `C:\Users\sdses\package.json`（工具残留）意味着任何 scratch/临时目录最终定根到用户主目录，`container.initialize` 变成索引整个家目录（实测探针 90k+ 文件仍在走树），与 promise 挂死无法区分（同日一次定位耗约两小时，「无 manifest 挂死」「子进程泄漏」「并发锁」三个假设全被对照实验否掉）。

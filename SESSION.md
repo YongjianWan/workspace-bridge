@@ -6,7 +6,28 @@
 
 ---
 
-## 本轮会话 (2026-09-24 四轮，TECH_DEBT 销账清理 + L2-23 findWorkspaceRoot 定根语义)
+## 本轮会话 (2026-09-24 五轮，L3-8 点名实例收口——freshness 链 `getContentSignature?.()` ×3 + cache 内部 `meta?.`)
+
+> 背景：上轮收尾时用户拍板口径 1（只清点名的 3+1 处，fail-safe，不大扫除同族 65 处）。RED→GREEN 落地，详见 CHANGELOG [Unreleased] 同日条目。
+
+### 本轮完成
+
+1. **三处调用点摘 `?.`**：`overview-tools.js`（`isSnapshotFresh` + 快照写盘）+ `query-tools.js`（`describeReplay`）改无条件直调 `container.cache.getContentSignature()`。三处都在 `ensureReady` 之后 / 现成 catch 之内，接线断裂 → TypeError → 各自 fail-safe（重算 / 不落盘），用户可见行为零变化；`|| ''` 保留（空索引 = 合法未签名态，是设计的一部分）。
+2. **cache 内部摘 `meta?.`**：`getContentSignature()` 循环体直取 `meta.mtime/size`。关键核实：entry 对象形状由边界保证（graph-db `deserialize` 恒产对象字面量 + `setFileMetadata` 恒 spread），null entry 只能是内部契约违约——旧代码当 0 混进 sha256 产假签名，现在炸。`|| 0` 保留（稀疏老格式 entry 可恢复，行为不变）。`checkFileChanges` 路径的 4 处同族 `meta?.` **不在点名范围，未动**。
+3. **契约测试** `test/content-signature-trust-test.js` 5 例：行为 2（null 必炸〔RED 驱动〕/ 稀疏不炸防过修）+ 结构 3（调用点无条件直调 + 方法体无 `meta?.`，`?.` 回潮即红——纪律债用结构闸防「写新代码时没人想起来」）。
+4. **验证**：新测试 5/5（修前 1/5 红）；就近 5 文件回归全绿；`npm run test:fast` **177 选 175**，2 红 = 已知 wave15 libuv 基线，零新增红。
+5. **债面销记**：TECH_DEBT L3-8 待处理段清空（纪律本体——判据 + 触发条件——保持活跃，65 处同族仍走接触即修）。
+
+### 下一轮入口
+
+1. **串围标仓侧待决**（按其 AGENTS.md §二.15，删除由人发起）：14 个 `data/` 删除残留；`nul` 垃圾文件（46B）；`.git` 1.43GB 历史瘦身拍板；requirements 两处声明待过目提交。
+2. **双胞胎 sys.path 提示求值**：残余仅 1 条等距平手案例，不立案不排期。
+3. L3-4 扩展名分支 / L3-11 双 freshness 分歧 / L3-12·13 测试基建——触发式，见 TECH_DEBT；L3-8 同族 65 处接触即修。
+4. 房务：本地领先远端 7 笔未 push（等用户指令）。
+
+---
+
+## 上一轮会话（2026-09-24 四轮，TECH_DEBT 销账清理 + L2-23 findWorkspaceRoot 定根语义）
 
 > 背景：「本项目还有什么没做」盘点产出两件该动的：四条 ✅ 遗留正文清理 + L2-23 拍板修复（方案②：攀爬只到 git 根，仓外不爬）。RED→GREEN 落地，详见 CHANGELOG [Unreleased] 的「销账清理」与「L2-23」两条。
 
