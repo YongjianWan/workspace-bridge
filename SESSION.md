@@ -6,12 +6,13 @@
 
 ---
 
-## 本轮会话 (2026-09-24 五轮，L3-8 点名实例收口——freshness 链 `getContentSignature?.()` ×3 + cache 内部 `meta?.`)
+## 本轮会话 (2026-09-24 五轮，L3-8 点名实例收口 + 「修复即删」清理二轮)
 
 > 背景：上轮收尾时用户拍板口径 1（只清点名的 3+1 处，fail-safe，不大扫除同族 65 处）。RED→GREEN 落地，详见 CHANGELOG [Unreleased] 同日条目。
 
 ### 本轮完成
 
+0. **「修复即删」清理二轮**：L2-21 迁移注记段 + L2-22 ripgrep 取证段删除（等价覆盖核实于 CHANGELOG 2026-08-01 条目）；L3-8「覆盖变种」段核实已修（cli.js:378-381 合并 warnings）补记状态；SESSION 检查表/基线状态数字与字段路径按 2026-09-24 实测刷新（473 文件 / fast 177 选 175 / deadExports=4 / orphans=0），「默认动作」债务计数从"全部清零"修正为 5 项。详见 CHANGELOG [Unreleased] 同日「清理二轮」条目。
 1. **三处调用点摘 `?.`**：`overview-tools.js`（`isSnapshotFresh` + 快照写盘）+ `query-tools.js`（`describeReplay`）改无条件直调 `container.cache.getContentSignature()`。三处都在 `ensureReady` 之后 / 现成 catch 之内，接线断裂 → TypeError → 各自 fail-safe（重算 / 不落盘），用户可见行为零变化；`|| ''` 保留（空索引 = 合法未签名态，是设计的一部分）。
 2. **cache 内部摘 `meta?.`**：`getContentSignature()` 循环体直取 `meta.mtime/size`。关键核实：entry 对象形状由边界保证（graph-db `deserialize` 恒产对象字面量 + `setFileMetadata` 恒 spread），null entry 只能是内部契约违约——旧代码当 0 混进 sha256 产假签名，现在炸。`|| 0` 保留（稀疏老格式 entry 可恢复，行为不变）。`checkFileChanges` 路径的 4 处同族 `meta?.` **不在点名范围，未动**。
 3. **契约测试** `test/content-signature-trust-test.js` 5 例：行为 2（null 必炸〔RED 驱动〕/ 稀疏不炸防过修）+ 结构 3（调用点无条件直调 + 方法体无 `meta?.`，`?.` 回潮即红——纪律债用结构闸防「写新代码时没人想起来」）。
@@ -27,23 +28,7 @@
 
 ---
 
-## 上一轮会话（2026-09-24 四轮，TECH_DEBT 销账清理 + L2-23 findWorkspaceRoot 定根语义）
-
-> 背景：「本项目还有什么没做」盘点产出两件该动的：四条 ✅ 遗留正文清理 + L2-23 拍板修复（方案②：攀爬只到 git 根，仓外不爬）。RED→GREEN 落地，详见 CHANGELOG [Unreleased] 的「销账清理」与「L2-23」两条。
-
-### 本轮完成
-
-1. **TECH_DEBT 销账清理**：L3-9（Java 半）/ L3-10 / L3-14 / L3-16 四条正文收编 ✅ stub（逐条核实 CHANGELOG 有史可查后才删）；解析器判据表 Java/Vue 行对齐现状；尾注重计。
-2. **L2-23 修复（方案②，用户拍板）**：`findWorkspaceRoot` 信任边界显式化——**攀爬最多到自己仓库的 git 根；仓外给什么认什么，不向上爬**。家目录 `package.json` 噪音从此够不着任何工作区。同族防线：`findNestedWorkspaceRoot` 挑战者扫描跳过 `node_modules`。
-3. **有意的行为变化**：仓外**非 git** 项目的子目录不再上爬到带 manifest 的父级（`myapp/sub` 的根就是 `myapp/sub`）；git 仓内子目录上爬到仓根、start 自带标记、`WORKSPACE_ROOT` env / `options.workspaceRoot` 语义均不变。无 CACHE bump（schema 未变，根变化时缓存目录键自动分流）。
-4. **验证**：`find-workspace-root-test.js` 6 例全绿（核心 bug 形状 RED 实测命中 ambient 噪音祖先）；`python-module-index-nearest-test` 回归全绿；test:fast 176 选 174（对照基线零新增红）；全量 runner 结果见 AGENTS 当前核验。
-
-### 下一轮入口
-
-1. **串围标仓侧待决**（按其 AGENTS.md §二.15，删除由人发起）：14 个 `data/` 删除残留；`nul` 垃圾文件（46B）；`.git` 1.43GB 历史瘦身拍板；requirements 两处声明待过目提交。
-2. **双胞胎 sys.path 提示求值**：残余仅 1 条等距平手案例，不立案不排期。
-3. L3-8 兜底接触即修（已点名三处）/ L3-11 双 freshness 分歧 / L3-12·13 测试基建——触发式，见 TECH_DEBT。
-4. 房务：本地领先远端 6 笔未 push（等用户指令）。
+## 上一轮会话（2026-09-24 四轮，TECH_DEBT 销账清理 + L2-23 findWorkspaceRoot 定根语义）——详见 CHANGELOG [Unreleased] 同日条目
 
 ---
 
@@ -68,12 +53,12 @@
 >
 > 收工时已跑 `npm run test:fast` 并确认 fast 层全绿，开工无需重跑。全量 runner 状态见下方「基线状态」。直接读取下方「基线状态」确认当前文档记录是否仍成立。
 >
-> 开发迭代推荐 `npm run test:fast`（~18s，126 个 fast 层测试），比全量 runner（~5min）快 16×。
+> 开发迭代推荐 `npm run test:fast`（~20s，177 个 fast 层测试，2026-09-24 实测），比全量 runner（~5min）快 15×。
 
 ```bash
 # 1. 快速自审（1 秒确认，不用等 runner，不读 CHANGELOG）
 node cli.js audit-overview --cwd . --json --quiet
-# 期望: summary.hotspots.length>0, summary.knowledgeRisk.high.length>=0, summary.orphans.length>=0, summary.deadExports.count>=0, summary.unresolved.count=0, summary.cycles.count>=0, summary.analysisCoverage.totalFiles≈470, summary.analysisCoverage.coverageRatio=1
+# 期望（2026-09-24 实测，顶层字段）：hotspots.length>0, knowledgeRisk.disabledReason='history-not-enabled'（默认）, orphans.counts.total>=0, deadExports.deadExportsCount>=0, unresolved.unresolvedCount=0, cycles.cyclesCount>=0, analysisCoverage.totalFiles≈473, analysisCoverage.coverageRatio=1
 ```
 
 **如果 audit-overview 异常 → 再跑 `node test/runner.js` 定位失败测试；否则直接开工。**
@@ -85,18 +70,18 @@ node cli.js audit-overview --cwd . --json --quiet
 ## 新会话默认动作（如果用户未指定方向）
 
 1. **读取基线状态**（30 秒）：确认 `audit-overview` 输出正常（hotspots / knowledgeRisk / deadExports / unresolved / cycles）
-2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（2026-07-23：活跃债务全部清零，L1=0 / L2=0 / L3=0）
+2. **查看当前活跃债务**：[docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（2026-09-24：活跃债务 5 项 = L3-4 / L3-8〔纪律〕/ L3-11 / L3-12 / L3-13；L1=0 / L2=0 / 架构债务=0，明细以 TECH_DEBT 总览表为准）
 
 ---
 
 ## 基线状态
 
-- 测试：**全量 runner 274 选 272 过 + 2 已知 libuv flaky**（2026-09-24 首次补跑慢层；wave15 两条单独跑 32/32、3/3 断言全过，`3221226505` 仅来自收尾 `UV_HANDLE_CLOSING`；warm-cold-parity 通过）；`npm run test:fast` **175 选 173 过 + 2 已知 libuv flaky**（2026-09-24；同两条）。回归判据：与该基线对照无新增红。开发迭代首选 `npm run test:fast`。
+- 测试：**全量 runner 277 选 274**（2026-09-24；红 = wave15 两条已知 libuv 基线 `3221226505`〔单独跑断言全过〕+ `git-environment-probe-test` 超时边缘 flaky〔常态 150~180s 骑 runner 180s 上限，单独复跑 136s 全过，有 2026-08-28 同款前科〕）；`npm run test:fast` **177 选 175 过 + 2 已知 libuv flaky**（2026-09-24；同两条 wave15）。回归判据：与该基线对照无新增红。开发迭代首选 `npm run test:fast`。
 - CI：**GitHub Actions `Test` workflow 在 Node 22/24 矩阵上全部通过**（`test:fast` + `test:smoke`）；新增独立 `coverage` job 跑 `npm run test:coverage:check`（门槛：lines/statements ≥72%，functions ≥70%，branches ≥68%）。
 - 版本：**v2.1.0**（以 `package.json` 为准）
 - 分支：`main`
-- 自身项目规模：470 文件（以 `audit-overview` 实测为准，2026-09-24）
-- 结构性指标：deadExports=0（原 `shadow-candidates.js` 的 `SHADOW_EXTS` 低置信误报已不再计入），cycles=0，unresolved=0，orphans=2（`.workspace-bridge.json` 作为 config 文件正常，以及 Windows 大小写不敏感路径 `agents.md`/`AGENTS.md` 被重复识别）；overview 维度：hotspots>0，knowledgeRisk 默认 `disabledReason: 'history-not-enabled'`，`--with-history` 启用
+- 自身项目规模：473 文件（以 `audit-overview` 实测为准，2026-09-24）
+- 结构性指标（2026-09-24 实测）：deadExports=4，cycles=0，unresolved=0，orphans=0；overview 维度：hotspots=10，knowledgeRisk 默认 `disabledReason: 'history-not-enabled'`，`--with-history` 启用
 - 架构债务：**活跃债务全部清零**（2026-07-23，L1-3 于本日关闭，详见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)）。
 - 语言覆盖：9 种（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue、Svelte）
 - AST 覆盖：**9/9 语言全部 AST**，自身项目 coverageRatio=1.00
@@ -191,7 +176,7 @@ C：符号级调用图	技术攻坚	高	质变（如果成功）
 D：guard 深化	产品聚焦	中	明确卖点
 F：SKILL 自动化	形态转换	中	改变使用方式
 
-## 本轮上下文：参考仓库探索与架构借鉴（活跃）
+## 参考仓库探索与架构借鉴（历史存档，2026-07；Route B 实战结论仍有效）
 
 > **背景**：为验证蓝图的技术可行性和避免闭门造车，对参考仓库进行了主动同步与架构对标。
 
@@ -423,7 +408,7 @@ F：SKILL 自动化	形态转换	中	改变使用方式
 
 ---
 
-*Last updated: 2026-07-23（wave8 + query-tools 两个历史 flaky 彻底根治：affected-tests 深度门禁 + 预计算深度常量统一 + savePrecomputed 清场 + analysis_snapshots 版本门禁 + precomputed_aggregates 单一写入方；CACHE_VERSION 5→6；全量 runner **251/251 全绿**；`npm run test:fast` 137/137 PASS；活跃债务清零；schemaVersion: 1.2.0；version: 2.1.0）*
+*Last updated: 2026-09-24（本轮上下文见文首「本轮会话」；下方为历史存档区，基线状态已按 2026-09-24 实测刷新：473 文件 / test:fast 177 选 175 / 活跃债务 5 项。历史详情在 CHANGELOG 与 git。）*
 
 ---
 

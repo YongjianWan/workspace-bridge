@@ -5,6 +5,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### Docs: 「修复即删」清理二轮——L2-21/22 历史残留删除 + L3-8 覆盖变种状态补记 + SESSION 基线刷新（2026-09-24）
+
+上轮销账清理的漏网之鱼 + 今天 L3-8 收口顺手核实出的账。纯文档变更，逐条核实后才动。
+
+* **Deleted** TECH_DEBT L2-21 迁移注记段（「cobra 12 边诊断……已移入 CHANGELOG」自指句）与 L2-22 ripgrep 取证段（45 边/34.88% 论证）——等价覆盖均已在 CHANGELOG 2026-08-01 条目（`L2-22 判决`条），历史叙述不属于活跃文档。
+* **Fixed** L3-8「覆盖变种」段状态：核实 `cli.js:378-381` 已改合并 warnings（`[...result.warnings, ...graphWarnings]`），原段按活 bug 描述——补记已修、纪律留档。
+* **Fixed** SESSION 启动检查表与基线状态的数字与字段路径漂移（fast 层 126→177 条/`summary.*` 期望路径→实际顶层字段/文件数 470→473/deadExports 0→4、orphans 2→0 实测）；「默认动作」活跃债务计数从 2026-07-23 的"全部清零"修正为当前 5 项——这是新会话最危险的一类 stale；上轮「四轮」正文按规矩降为单行指针；参考仓库探索段「（活跃）」标签改历史存档。
+* AGENTS 当前核验文件数 472→473（今日新增测试文件）。
+* 活跃债务计数不变（5 项）：L3-8 纪律本体保持活跃，点名实例已销。
+
 ### Fix: L3-8 点名实例收口——freshness 链三处 `getContentSignature?.()` + cache 内部 `meta?.`（2026-09-24）
 
 TECH_DEBT L3-8（2026-07-31 评审登记）点名的同族实例：「接触即修」只在改老代码时生效、写新代码没人想起来的活证据。按口径 1（只清点名的 3+1 处，fail-safe，不大扫除 65 处同族）收口。

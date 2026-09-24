@@ -38,7 +38,7 @@
 
 ## 当前核验（2026-09-24，销账清理 + L2-23 + L3-8 点名实例收口后）
 
-`node cli.js audit-overview --cwd . --json --quiet` 已通过：472 个文件全部解析，`coverageRatio=1.00`，`fallbackFiles=0`，`schemaVersion=1.2.0`，`CACHE_VERSION=40`。`npm run test:fast` 选择 177 个测试，最近一次为 175 通过、2 个子进程以 `3221226505` 异常退出（wave15-ast-rules / wave15-neighbor-aware，已知 libuv 基线，单独跑断言全过）。全量 runner 277 选 274：除上述 wave15 两条外，`git-environment-probe-test` 以 SIGTERM 触及 180s 单测上限——判定为**超时边缘 flaky**（常态实测 150~180s：本次 180.06s 被杀、同日 09:16 场次 150.5s 险过、2026-08-28 场次已有同款前科；单独复跑全过 136s），判真方式 = 单独复跑。因此当前工作区**不能报作全绿**——回归判据口径是「对照已知基线无新增红」。
+`node cli.js audit-overview --cwd . --json --quiet` 已通过：473 个文件全部解析，`coverageRatio=1.00`，`fallbackFiles=0`，`schemaVersion=1.2.0`，`CACHE_VERSION=40`。`npm run test:fast` 选择 177 个测试，最近一次为 175 通过、2 个子进程以 `3221226505` 异常退出（wave15-ast-rules / wave15-neighbor-aware，已知 libuv 基线，单独跑断言全过）。全量 runner 277 选 274：除上述 wave15 两条外，`git-environment-probe-test` 以 SIGTERM 触及 180s 单测上限——判定为**超时边缘 flaky**（常态实测 150~180s：本次 180.06s 被杀、同日 09:16 场次 150.5s 险过、2026-08-28 场次已有同款前科；单独复跑全过 136s），判真方式 = 单独复跑。因此当前工作区**不能报作全绿**——回归判据口径是「对照已知基线无新增红」。
 
 ## 工程品味（TASTE）
 
