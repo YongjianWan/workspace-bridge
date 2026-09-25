@@ -5,6 +5,25 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+### Docs: SESSION 历史存档收编进 CHANGELOG + 双仓房务（2026-09-25）
+
+按「活跃文档只存当前状态，历史只进 CHANGELOG」原则清 SESSION.md：2026-07 时代的五个存档块逐块核实等价覆盖后收编/删除（约 250 行），SESSION 只留本轮上下文 + 新会话检查表 + 基线状态 + 框架矩阵（能力快照，非历史）。
+
+* **Archived** 五个历史块，收编前核实去向：
+  - 「路线 A-F 战略讨论」（2026-07）：结论是先打磨（路线 A）后实战验证（路线 B）；Route B 已执行完毕、7 个消费缺口修复见本文件 2026-07 各 Route B 条目；路线 C（符号级调用图）/ D（guard 深化）/ F（SKILL 自动化）当时未采纳、无立案。三条未采纳路线的完整原文存档如下（论证细节保留，供将来重新考虑时查阅）：
+
+    > **路线 C：Stage 4 — 符号级调用图（大工程）**。ROADMAP 写的长期目标：把文件级依赖图升级到符号级 Call DAG。意味着：`impact --file foo.js --symbol handleLogin` 精确到只有 3 个调用者受影响，不是整个文件的 47 个 dependents；affected-tests 从"这个文件被测试 import 了"变成"这个函数被测试调用了"；dead-exports 从启发式猜测变成确定性判断。成本极高（ROADMAP 自己写了"当前不做"）：需要跨文件 receiver-bound 调用解析、重载消解、继承链追踪，Spring DI / Vue 模板 / 动态 require 仍然解不了。但基础设施已在那（functionRecords / symbolRegistry / symbol-impact.js），工程量在于从"文件 A import 了文件 B 的 foo"到"文件 A 的 bar() 调用了文件 B 的 foo()"这一步。**值得做的前提**：认为文件级粒度已经不够用、AI 实际修改代码时需要函数级精度。
+    >
+    > **路线 D：从工具变产品 — guard 命令深化**。guard 命令刚交付时被评为"最有产品直觉的功能"——在 AI 改代码之前拦截它。深化方向：pre-commit hook 集成（`guard --staged --max-transitive 50` 失败阻止提交）；AI agent 自动调用（改任何文件前自动跑 guard，超阈值自动拆分修改计划）；blast radius 可视化（依赖扇出 ASCII 树 / mermaid 图）。卖点从"告诉你项目结构"变成"阻止 AI 搞砸事情"。
+    >
+    > **路线 F：换赛道 — 把 workspace-bridge 变成 SKILL 本身**。当时架构是 CLI 引擎 + SKILL.md 驾驶手册（AI 读 SKILL → 调 CLI → 解析输出 → 做决策）；路线 F 是把能力直接编码进 skill 的决策逻辑——skill 自己判断什么时候该跑什么分析，直接把结论注入 AI 的上下文。"从给你一把锤子变成我帮你钉钉子"。性质对比：A=维护/零风险/递减回报；B=产品发现/低风险/高信息密度（已执行）；C=技术攻坚/高风险/质变；D=产品聚焦/中风险/明确卖点；F=形态转换/中风险/改变使用方式。
+  - 「参考仓库探索四仓摘要」（GitNexus / CodeGraphContext / code-review-graph / qartez-mcp）：P0/P1 借鉴点（1-hop 边界扩展、框架检测 query 化、语言注册表显式契约）全部已交付；P2 edge evidence traces 在 ROADMAP 符号解析置信飞轮条目跟踪；P3 parser golden snapshot 已交付。
+  - 「Route B 实战验证详表」（GitNexus / qartez-mcp / ai_zcypg_backend 三轮）：所有发现对应的修复均有本文件逐条记录（validationAdvice focused 命令、mention 注释剥离、affectedRoutes `source` 标注、Rust 集成测试拆分、`rust-public-api` 死导出降级、`--cwd` 提升定根等）；原始报告在 `scratch/`（不入库，随用随删）。
+  - 「候选方向状态」（2026-07-02）：方向 1-4 已交付；方向 5 剩余项 `--fields` 削减 JSON 体积核实已交付（`validate-args.js:217`）；CLI 端到端 ~1.5s container 初始化制约在 ROADMAP 阶段 3.5 收益量化处记录。
+  - 「架构判断校准记录」（2026-07-02）：五条修正判断的蒸馏版已在 AGENTS.md「当前判断」（dead-exports 只证 precision 不证 recall、resolver 顺序语义契约、WASM 降级显式信号等）；两条补强方向已交付（resolver 冲突矩阵保护 = `resolver-symbol-table-test.js` 20 例、dead-exports ground-truth smoke）。
+* 房务（workspace-bridge 本仓）：`scratch-gitnexus-summary.json` 删除（AGENTS 陷阱表点名的实验脚本残留，orphan 检测会计数）；本地 8 笔未 push 全部推送（`30881ba..7f2fd72`）。
+* 房务（串围标仓 `神思/project/串围标智能体`，按其 AGENTS.md §二.15「确需删除由人发起」，Aiden 拍板）：`nul` 垃圾文件（46B，bash `> nul` 重定向残渣）删除；14 个 `data/` 消失文件 `git checkout -- data/` 还原（只创建不删除，§二.15 对缺口的 prescribed 处置）；`data/_recover-20260915/__pycache__/` 删除。**挂账两笔**：requirements 两处声明（`requirements-dev.txt` +`numpy` 供探针脚本 / pdf-toc-extraction-v2 `requirements.txt` +`opencv-python` 直接声明 cv2 依赖）已过目合理、等提交口令；`.git` 1.6G 历史瘦身（`git filter-repo` 剥 `data/` 运行产物 + 双远端 force push）方案备好但建议暂缓——历史重写不可逆，intranet 远端依赖未确认前不动。
+
 ### Docs: 「修复即删」清理二轮——L2-21/22 历史残留删除 + L3-8 覆盖变种状态补记 + SESSION 基线刷新（2026-09-24）
 
 上轮销账清理的漏网之鱼 + 今天 L3-8 收口顺手核实出的账。纯文档变更，逐条核实后才动。
