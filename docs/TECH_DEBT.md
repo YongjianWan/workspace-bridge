@@ -2,6 +2,12 @@
 
 这里只列仍需处理或明确冻结的债务。修复经过和已关闭条目见 [CHANGELOG.md](../CHANGELOG.md)；外部审查仍开放的问题见 [审查待处理项](./workspace-bridge-审查报告.md)。
 
+## L1：违反铁律，优先修
+
+| ID | 当前问题 | 下一步与验收 |
+|---|---|---|
+| L1-1 | JVM 仓暖启动把第三方 import 计成 dropped，冷暖结果不一致（L1-3 数据一致性、L1-4 静默错误）。spring-petclinic 冷 0 / 暖 316，okhttp 冷 247 / 暖 2053；其余 16 个评测仓冷暖一致。由 CACHE_VERSION 43（unresolved import 以 `resolved:null` 持久化）引入，复现与样本见 [eval/findings.md](../eval/findings.md)。 | 先在 `test/wb-repro.js` 加 JVM 冷暖一致用例并确认 RED，再修持久化或读回口径；验收：`node eval/run.js spring-petclinic okhttp` 的 `health.json` 里 `coldWarmDiff` 为空。 |
+
 ## L3：改动时顺手处理
 
 | ID | 当前问题 | 下一步与验收 |

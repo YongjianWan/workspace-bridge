@@ -27,7 +27,7 @@
 | https://github.com/tiangolo/typer | Python | `a80f6e5ecd` | affected-tests 精确率/召回率、环检测 |
 | https://github.com/django/django | Python | `a013c821ea` | 性能、缓存体积、验证命令 |
 
-建议把这 9 个仓库（钉死上面的版本）做成正式的评测集，放进 slow 层 CI。
+这 9 个仓库已按上表版本收进 [eval/corpus.json](../eval/corpus.json)，另按语言补充了 9 个，共 18 个；接入 nightly CI 尚未做（方案见 eval/README.md「CI 建议」）。
 
 ---
 

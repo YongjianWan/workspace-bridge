@@ -7,6 +7,17 @@
 
 ## [Unreleased]
 
+### Changed: 评测集按语言扩到 18 个仓库 + 健康指标 + 四种故障注入 runner（2026-09-27）
+
+- **语料**：`eval/corpus.json` 从 3 仓扩到 18 仓，覆盖 python / js-ts / vue / svelte / java / kotlin / go / rust / c-cpp。审查报告第 1 节的 9 个固定仓库全部收入，另补 zod、execa、bulletproof-react、vue-realworld-example-app、realworld（SvelteKit）、okhttp、cobra、ripgrep、fmt。clone 放 `eval/truth/repos/<lang>/<name>`（partial clone），输出放 `eval/truth/out/<lang>/<name>`；`lang` 写错直接报错。
+- **health 指标**（每仓都有，无真值）：清空缓存后连跑两次 `audit-overview`，记录冷/暖耗时、缓存体积、覆盖率、fallback、unresolved/dropped、warnings、死导出计数，以及冷暖两次的差异 `coldWarmDiff`。缓存用 `WB_CACHE_DIR` 钉在该仓的输出目录下，体积和 affected-tests 预测都从这里读。
+- **故障注入**：`inject-fault.js` 的 runner 从 maven/vitest 扩到 maven/vitest/go/cargo。未显式列文件时，从排序后的非测试源文件里等距抽取 `sample` 个。go 的测试一 panic 会中止整个测试二进制，所以失败的包按 `_test.go` 逐个重跑；cargo 把 stdout 和 stderr 合进同一个 fd，以保留 `Running <target>` 的段落顺序。
+- **修正**：Java 注入原为 `static { throw ... }`，javac 会以"初始化块无法正常结束"拒绝编译，导致 petclinic 全部注入都挂在编译阶段（旧版没装 mvn，从未真跑过）。改为 `static { if (true) throw ... }`。
+- **结构**：三个脚本的公共部分（corpus、路径、spawn、状态文件、测试文件规则）收进 `eval/lib.js`；`run.js` 单仓失败不再中断其余仓库，最后以 exit 1 汇总。
+- **发现**：暖启动把 JVM 第三方 import 计成 dropped（petclinic 冷 0 / 暖 316，okhttp 冷 247 / 暖 2053），由 CACHE_VERSION 43 引入，登记为 TECH_DEBT L1-1，复现见 `eval/findings.md`。
+- **本轮实测**（2026-09-27，CPU 限频 1200MHz，耗时仅供参考）。affected-tests：typer P 0.60 / R 0.95（n=4997）；spring-petclinic 0.72 / 0.76（n=65）；cobra 0.40 / 0.61（n=88）；zod 0.78 / 0.15（n=890）；hexyl 1.0 / 0.5 与 vitesse 1.0 / 1.0 的样本只有个位数。`baseline.json` 未更新：petclinic dead-code precision 从 0.75 掉到 0，是因为 3 条未标注的发现不再被报告（分母里只剩 1 条已知误报），属于口径问题，不是回归，需人工确认后再写基线。
+- **工具链**：本机通过 scoop 装了 go 1.27.1 与 maven 3.9.16。
+
 ### Changed: 活跃文档清理（2026-09-26）
 
 - 修复完成后的记录统一保存在本文件；AGENTS、SESSION、ROADMAP、TECH_DEBT 与审查报告只保留现状、待办和仍有效的证据。
