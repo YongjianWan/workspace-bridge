@@ -16,6 +16,8 @@ module.exports = [
       'benchmark/results/**',
       'test-temp/**',
       '.playwright-mcp/**',
+      // 评测工作区：钉版本的第三方克隆（各带自己的 lint 配置），不属于本仓库 lint 对象
+      'eval/truth/**',
       // 测试夹具含故意的语法错误/边界语法，不属于 lint 对象
       'test/fixtures/**',
     ],

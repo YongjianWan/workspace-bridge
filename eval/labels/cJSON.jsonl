@@ -1,0 +1,6 @@
+{"repo":"cJSON","file":"fuzzing/fuzz_main.c","symbol":"main","label":"FP","reason":"program-entry"}
+{"repo":"cJSON","file":"fuzzing/afl.c","symbol":"main","label":"FP","reason":"program-entry"}
+{"repo":"cJSON","file":"fuzzing/cjson_read_fuzzer.c","symbol":"LLVMFuzzerTestOneInput","label":"FP","reason":"program-entry"}
+{"repo":"cJSON","file":"cJSON_Utils.c","symbol":"*","label":"FP","reason":"public-api"}
+{"repo":"cJSON","file":"cJSON.h","symbol":"true","label":"FP","reason":"header-macro"}
+{"repo":"cJSON","file":"cJSON.h","symbol":"false","label":"FP","reason":"header-macro"}

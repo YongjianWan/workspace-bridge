@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "description": "Minimal evaluation corpus for workspace-bridge. Repos are cloned at pinned commits into eval/truth/repos/<name> by eval/run.js. heldOut=true repos are never used while tuning (all false in v1). faultInjection.files are the sampled files for eval/inject-fault.js (per report methodology: runtime fault, failing tests = ground truth).",
+  "reasonVocabulary": [
+    "decorator-registered",
+    "glob-loaded",
+    "program-entry",
+    "alembic-migration",
+    "public-api",
+    "auto-import",
+    "config-file",
+    "main-guard",
+    "annotation-registered",
+    "p0-1-artifact",
+    "mod-declaration",
+    "header-macro",
+    "p0-9-artifact"
+  ],
+  "repos": [
+    {
+      "name": "typer",
+      "url": "https://github.com/tiangolo/typer",
+      "commit": "a80f6e5ecd",
+      "languages": ["python"],
+      "shape": "python library",
+      "metrics": ["affected-tests", "dead-code"],
+      "heldOut": false
+    },
+    {
+      "name": "spring-petclinic",
+      "url": "https://github.com/spring-projects/spring-petclinic",
+      "commit": "818c4136ea",
+      "languages": ["java"],
+      "shape": "java web app",
+      "metrics": ["affected-tests", "dead-code"],
+      "heldOut": false,
+      "faultInjection": {
+        "files": [
+          "src/main/java/org/springframework/samples/petclinic/owner/Owner.java",
+          "src/main/java/org/springframework/samples/petclinic/owner/OwnerController.java",
+          "src/main/java/org/springframework/samples/petclinic/owner/Pet.java",
+          "src/main/java/org/springframework/samples/petclinic/owner/PetValidator.java",
+          "src/main/java/org/springframework/samples/petclinic/owner/Visit.java",
+          "src/main/java/org/springframework/samples/petclinic/vet/Vet.java",
+          "src/main/java/org/springframework/samples/petclinic/vet/VetController.java",
+          "src/main/java/org/springframework/samples/petclinic/model/BaseEntity.java",
+          "src/main/java/org/springframework/samples/petclinic/system/WelcomeController.java",
+          "src/main/java/org/springframework/samples/petclinic/PetClinicRuntimeHints.java"
+        ]
+      }
+    },
+    {
+      "name": "vitesse",
+      "url": "https://github.com/antfu-collective/vitesse",
+      "commit": "8a01bc9283",
+      "languages": ["typescript", "vue"],
+      "shape": "ts/vue frontend",
+      "metrics": ["affected-tests", "dead-code"],
+      "heldOut": false,
+      "faultInjection": {
+        "files": [
+          "src/App.vue",
+          "src/stores/user.ts",
+          "src/modules/pinia.ts",
+          "src/modules/i18n.ts",
+          "src/composables/dark.ts",
+          "src/components/TheCounter.vue",
+          "src/components/TheInput.vue",
+          "src/pages/index.vue",
+          "src/layouts/default.vue",
+          "src/main.ts"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{"repo":"vitesse","file":"cypress.config.ts","symbol":"default","label":"FP","reason":"config-file"}
+{"repo":"vitesse","file":"uno.config.ts","symbol":"default","label":"FP","reason":"config-file"}
+{"repo":"vitesse","file":"src/modules/*.ts","symbol":"install","label":"FP","reason":"glob-loaded"}
+{"repo":"vitesse","file":"src/stores/user.ts","symbol":"useUserStore","label":"FP","reason":"auto-import"}

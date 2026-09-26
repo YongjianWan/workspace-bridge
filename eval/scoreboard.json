@@ -1,0 +1,310 @@
+{
+  "generatedAt": "2026-09-25T18:08:21.733Z",
+  "wbVersion": "2.1.0",
+  "repos": {
+    "typer": {
+      "heldOut": false,
+      "dead-code": {
+        "status": "ok",
+        "precision": 0,
+        "precisionHigh": null,
+        "precisionLow": null,
+        "byConfidence": {
+          "medium": {
+            "precision": 0,
+            "n": 2,
+            "tp": 0,
+            "fp": 2
+          }
+        },
+        "n": 2,
+        "counts": {
+          "labeledRows": 3,
+          "labeledReported": 2,
+          "labeledNotReported": 1,
+          "unlabeledFindings": 0,
+          "labeledFindings": 2
+        },
+        "labeledRows": [
+          {
+            "file": "scripts/docs.py",
+            "symbol": "*",
+            "reason": "decorator-registered",
+            "reported": false,
+            "reportedConfidence": null
+          },
+          {
+            "file": "typer/_typing.py",
+            "symbol": "NoneType",
+            "reason": "p0-1-artifact",
+            "reported": true,
+            "reportedConfidence": "medium"
+          },
+          {
+            "file": "typer/rich_utils.py",
+            "symbol": "escape_before_html_export",
+            "reason": "p0-1-artifact",
+            "reported": true,
+            "reportedConfidence": "medium"
+          }
+        ]
+      },
+      "affected-tests": {
+        "status": "ok",
+        "precision": 0.6029,
+        "recall": 0.9496,
+        "n": 4997,
+        "filesScored": 28,
+        "tp": 2919,
+        "fp": 1923,
+        "fn": 155
+      }
+    },
+    "spring-petclinic": {
+      "heldOut": false,
+      "dead-code": {
+        "status": "ok",
+        "precision": 0.75,
+        "precisionHigh": null,
+        "precisionLow": 0.75,
+        "byConfidence": {
+          "low": {
+            "precision": 0.75,
+            "n": 4,
+            "tp": 3,
+            "fp": 1
+          }
+        },
+        "n": 4,
+        "counts": {
+          "labeledRows": 1,
+          "labeledReported": 1,
+          "labeledNotReported": 0,
+          "unlabeledFindings": 3,
+          "labeledFindings": 1
+        },
+        "labeledRows": [
+          {
+            "file": "src/main/java/org/springframework/samples/petclinic/PetClinicRuntimeHints.java",
+            "symbol": "PetClinicRuntimeHints",
+            "reason": "annotation-registered",
+            "reported": true,
+            "reportedConfidence": "low"
+          }
+        ]
+      },
+      "affected-tests": {
+        "status": "pending",
+        "reason": "fault-injection truth not generated; run `node eval/inject-fault.js spring-petclinic` explicitly (expensive)"
+      }
+    },
+    "vitesse": {
+      "heldOut": false,
+      "dead-code": {
+        "status": "ok",
+        "precision": 0.3,
+        "precisionHigh": 0.3333,
+        "precisionLow": null,
+        "byConfidence": {
+          "high": {
+            "precision": 0.3333,
+            "n": 9,
+            "tp": 3,
+            "fp": 6
+          },
+          "medium": {
+            "precision": 0,
+            "n": 1,
+            "tp": 0,
+            "fp": 1
+          }
+        },
+        "n": 10,
+        "counts": {
+          "labeledRows": 4,
+          "labeledReported": 4,
+          "labeledNotReported": 0,
+          "unlabeledFindings": 3,
+          "labeledFindings": 7
+        },
+        "labeledRows": [
+          {
+            "file": "cypress.config.ts",
+            "symbol": "default",
+            "reason": "config-file",
+            "reported": true,
+            "reportedConfidence": "high"
+          },
+          {
+            "file": "uno.config.ts",
+            "symbol": "default",
+            "reason": "config-file",
+            "reported": true,
+            "reportedConfidence": "high"
+          },
+          {
+            "file": "src/modules/*.ts",
+            "symbol": "install",
+            "reason": "glob-loaded",
+            "reported": true,
+            "reportedConfidence": "high"
+          },
+          {
+            "file": "src/stores/user.ts",
+            "symbol": "useUserStore",
+            "reason": "auto-import",
+            "reported": true,
+            "reportedConfidence": "high"
+          }
+        ]
+      },
+      "affected-tests": {
+        "status": "ok",
+        "precision": 1,
+        "recall": 1,
+        "n": 1,
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "perFile": [
+          {
+            "file": "src/App.vue",
+            "real": 0,
+            "pred": 0,
+            "hit": 0
+          },
+          {
+            "file": "src/stores/user.ts",
+            "real": 0,
+            "pred": 0,
+            "hit": 0
+          },
+          {
+            "file": "src/modules/pinia.ts",
+            "real": 0,
+            "pred": 0,
+            "hit": 0
+          },
+          {
+            "file": "src/modules/i18n.ts",
+            "real": 0,
+            "pred": 0,
+            "hit": 0
+          },
+          {
+            "file": "src/composables/dark.ts",
+            "real": 0,
+            "pred": 0,
+            "hit": 0
+          },
+          {
+            "file": "src/components/TheCounter.vue",
+            "real": 1,
+            "pred": 1,
+            "hit": 1
+          },
+          {
+            "file": "src/components/TheInput.vue",
+            "real": 0,
+            "pred": 0,
+            "hit": 0
+          },
+          {
+            "file": "src/pages/index.vue",
+            "real": 0,
+            "pred": 0,
+            "hit": 0
+          },
+          {
+            "file": "src/layouts/default.vue",
+            "error": "no injection point"
+          },
+          {
+            "file": "src/main.ts",
+            "real": 0,
+            "pred": 0,
+            "hit": 0
+          }
+        ]
+      }
+    }
+  },
+  "verdicts": [
+    {
+      "repo": "typer",
+      "metric": "affected-tests.precision",
+      "baseline": 0.6029,
+      "current": 0.6029,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "typer",
+      "metric": "affected-tests.recall",
+      "baseline": 0.9496,
+      "current": 0.9496,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "typer",
+      "metric": "dead-code.precision",
+      "baseline": 0,
+      "current": 0,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "spring-petclinic",
+      "metric": "dead-code.precision",
+      "baseline": 0.75,
+      "current": 0.75,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "spring-petclinic",
+      "metric": "dead-code.precisionLow",
+      "baseline": 0.75,
+      "current": 0.75,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "vitesse",
+      "metric": "affected-tests.precision",
+      "baseline": 1,
+      "current": 1,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "vitesse",
+      "metric": "affected-tests.recall",
+      "baseline": 1,
+      "current": 1,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "vitesse",
+      "metric": "dead-code.precision",
+      "baseline": 0.3,
+      "current": 0.3,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "vitesse",
+      "metric": "dead-code.precisionHigh",
+      "baseline": 0.3333,
+      "current": 0.3333,
+      "delta": 0,
+      "result": "PASS"
+    }
+  ],
+  "summary": {
+    "fail": 0,
+    "pass": 9
+  }
+}

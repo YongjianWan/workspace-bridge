@@ -239,7 +239,7 @@ function validateSlowClassification(files) {
 /* -------------------------------------------------------------------------- */
 let files = fs
   .readdirSync(TEST_DIR)
-  .filter((f) => f.endsWith('.js') && f !== 'runner.js' && f !== 'test-helpers.js')
+  .filter((f) => f.endsWith('.js') && f !== 'runner.js' && f !== 'test-helpers.js' && f !== 'wb-repro.js')
   .sort();
 
 // Apply layer / smoke filtering

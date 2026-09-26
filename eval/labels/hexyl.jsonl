@@ -1,0 +1,3 @@
+{"repo":"hexyl","file":"lib.rs","symbol":"*","label":"FP","reason":"public-api"}
+{"repo":"hexyl","file":"colors.rs","symbol":"*","label":"FP","reason":"mod-declaration"}
+{"repo":"hexyl","file":"input.rs","symbol":"*","label":"FP","reason":"mod-declaration"}

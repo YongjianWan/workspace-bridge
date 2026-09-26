@@ -1,0 +1,5 @@
+{"repo":"full-stack-fastapi-template","file":"backend/app/alembic/versions/1a31ce608336_add_cascade_delete_relationships.py","symbol":"*","label":"FP","reason":"alembic-migration"}
+{"repo":"full-stack-fastapi-template","file":"backend/app/alembic/versions/9c0a54914c78_add_max_length_for_string_varchar_.py","symbol":"*","label":"FP","reason":"alembic-migration"}
+{"repo":"full-stack-fastapi-template","file":"backend/app/alembic/versions/d98dd8ec85a3_edit_replace_id_integers_in_all_models_.py","symbol":"*","label":"FP","reason":"alembic-migration"}
+{"repo":"full-stack-fastapi-template","file":"backend/app/alembic/versions/e2412789c190_initialize_models.py","symbol":"*","label":"FP","reason":"alembic-migration"}
+{"repo":"full-stack-fastapi-template","file":"backend/app/alembic/versions/fe56fa70289e_add_created_at_to_user_and_item.py","symbol":"*","label":"FP","reason":"alembic-migration"}

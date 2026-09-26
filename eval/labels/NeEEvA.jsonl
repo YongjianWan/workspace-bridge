@@ -1,0 +1,3 @@
+{"repo":"NeEEvA","file":"sensevoice_server.py","symbol":"*","label":"FP","reason":"decorator-registered"}
+{"repo":"NeEEvA","file":"seedvc_server.py","symbol":"*","label":"FP","reason":"decorator-registered"}
+{"repo":"NeEEvA","file":"seedvc_server.py","symbol":"main","label":"FP","reason":"main-guard"}

@@ -1,0 +1,3 @@
+{"repo":"typer","file":"scripts/docs.py","symbol":"*","label":"FP","reason":"decorator-registered"}
+{"repo":"typer","file":"typer/_typing.py","symbol":"NoneType","label":"FP","reason":"p0-1-artifact"}
+{"repo":"typer","file":"typer/rich_utils.py","symbol":"escape_before_html_export","label":"FP","reason":"p0-1-artifact"}

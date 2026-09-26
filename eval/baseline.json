@@ -1,0 +1,46 @@
+{
+  "generatedAt": "2026-09-25T18:08:13.099Z",
+  "wbVersion": "2.1.0",
+  "note": "first measured run (2026-09-26). Regenerate from eval/scoreboard.json only after reviewing FAIL lines.",
+  "repos": {
+    "typer": {
+      "affected-tests": {
+        "status": "ok",
+        "precision": 0.6029,
+        "recall": 0.9496,
+        "n": 4997
+      },
+      "dead-code": {
+        "status": "ok",
+        "precision": 0,
+        "precisionHigh": null,
+        "precisionLow": null,
+        "n": 2
+      }
+    },
+    "spring-petclinic": {
+      "dead-code": {
+        "status": "ok",
+        "precision": 0.75,
+        "precisionHigh": null,
+        "precisionLow": 0.75,
+        "n": 4
+      }
+    },
+    "vitesse": {
+      "affected-tests": {
+        "status": "ok",
+        "precision": 1,
+        "recall": 1,
+        "n": 1
+      },
+      "dead-code": {
+        "status": "ok",
+        "precision": 0.3,
+        "precisionHigh": 0.3333,
+        "precisionLow": null,
+        "n": 10
+      }
+    }
+  }
+}
