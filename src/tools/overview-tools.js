@@ -76,43 +76,9 @@ const {
   writeOverviewOutputs,
 } = require('../cli/formatters/dashboard-formatter');
 const { applyBaselineOperations, resolveBaseline } = require('./regression-tools');
-
-function isSnapshotFresh(snapshot, container, args) {
-  if (args?.hotspotData || args?.stabilityTrendData || args?.overviewDashboard) {
-    return false;
-  }
-  const currentHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
-  const currentFileCount =
-    container.snapshot?.graph?.getScopeSummary?.()?.counts?.totalFiles ||
-    container.snapshot?.graph?.getAllFilePaths?.().length ||
-    0;
-  const headMatch = !currentHead || !snapshot.version || snapshot.version === currentHead;
-  const countMatch = !currentFileCount || !snapshot.fileCount || snapshot.fileCount === currentFileCount;
-  const currentConfig = container.projectContext?.config || null;
-  const currentConfigHash = computeConfigHash(currentConfig);
-  const snapshotConfigHash = snapshot.configHash ?? '';
-  const configMatch = snapshotConfigHash === currentConfigHash;
-
-  const snapshotData = snapshot.data;
-  const historyMatch = !args?.withHistory || (snapshotData?.knowledgeRisk && !snapshotData.knowledgeRisk.disabled);
-
-  // L2-15: content changes are the whole point. Git head, file count and config
-  // all stay identical when a file is edited in place — precisely when a
-  // replayed answer lies. The stored signature covers path+mtime+size of every
-  // indexed file, so an edit invalidates the snapshot even though the three
-  // coarse keys above still match. This is what lets reports AND gates share
-  // one snapshot with no special case for either.
-  //
-  // A snapshot written before this column existed carries '' and is treated as
-  // unverifiable: recomputing is always safe, serving unvalidated data is not.
-  // Unconditional on purpose: cache is post-ensureReady and the method is a
-  // class method — `?.` here would read a wiring break as "unsigned" and pay a
-  // cold rebuild to hide it (L3-8: 结构性不该发生的让它炸).
-  const currentSignature = container.cache.getContentSignature() || '';
-  const contentMatch = Boolean(snapshot.contentSignature) && snapshot.contentSignature === currentSignature;
-
-  return headMatch && countMatch && configMatch && historyMatch && contentMatch;
-}
+// L3-11: freshness 判据单一来源。本文件走 strict 全量判据（含内容签名），
+// query-* 走同函数的粗粒度档——字段比较只存在于 snapshot-freshness.js。
+const { isSnapshotFresh } = require('./snapshot-freshness');
 
 async function buildProjectOverview(args, container) {
   await container.ensureReady();
@@ -135,7 +101,7 @@ async function buildProjectOverview(args, container) {
   if (!requestedCategories && !args?.severity) {
     try {
       const snapshot = container.cache?.loadAnalysisSnapshot?.('overview');
-      if (snapshot && isSnapshotFresh(snapshot, container, args)) {
+      if (snapshot && isSnapshotFresh(snapshot, container, { strict: true, args })) {
         // No gate special case: isSnapshotFresh now includes a content check,
         // so reaching this line means the tree has not moved and the replay is
         // what a cold build would have produced. Gates run on it like any
@@ -161,7 +127,34 @@ async function buildProjectOverview(args, container) {
         // the replayed count honestly reads as "from the last cold build".
         if (cloned.droppedImports) {
           const liveGraph = container.snapshot?.graph || container.depGraph;
-          cloned.droppedImports.measured = liveGraph ? liveGraph.getDroppedImports().measured === true : false;
+          if (liveGraph) {
+            const dropped = liveGraph.getDroppedImports();
+            Object.assign(cloned.droppedImports, {
+              droppedCount: dropped.count,
+              filesWithDrops: dropped.files,
+              samples: dropped.samples.slice(0, 10),
+              uncertainCount: dropped.uncertainCount || 0,
+              uncertainFiles: dropped.uncertainFiles || 0,
+              uncertainSamples: (dropped.uncertainSamples || []).slice(0, 10),
+              measured: dropped.measured,
+            });
+          }
+        }
+        // P0-3 same shape: coverageRatio answers "how much of THIS tree was
+        // analyzed". Files dropped at discovery are invisible to the content
+        // signature (they were never indexed), so the snapshot's numbers go
+        // stale the moment one appears — recompute from the live graph like
+        // `measured` above instead of replaying a possibly-stale denominator.
+        if (cloned.analysisCoverage) {
+          const coverageGraph = container.snapshot?.graph || container.depGraph;
+          if (coverageGraph) {
+            const liveStats = coverageGraph.getStats();
+            const liveCoverage = liveStats.filteredAnalysisCoverage !== undefined
+              ? liveStats.filteredAnalysisCoverage
+              : liveStats.analysisCoverage;
+            cloned.analysisCoverage = liveCoverage;
+            if (cloned.summary) cloned.summary.analysisCoverage = liveCoverage;
+          }
         }
         applyBaselineOperations(cloned, args);
         applyOutputLimits(cloned, args);

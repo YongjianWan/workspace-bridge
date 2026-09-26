@@ -33,8 +33,8 @@ async function main() {
 
     // 2. .gitignore created with cache entries
     const gitignore = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
-    assert(gitignore.includes('.workspace-bridge-cache.json'), '.gitignore should cache entries');
-    assert(gitignore.includes('cache.db'), '.gitignore should include cache.db');
+    assert(gitignore.includes('/.workspace-bridge/'), '.gitignore should exclude only the root cache directory');
+    assert(!gitignore.split(/\r?\n/).includes('cache.db'), '.gitignore must not hide user cache.db files');
 
     // 3. Duplicate init fails
     const dup = await runCliInProcessRaw(['init', '--cwd', tmpDir, '--json'], { cwd: tmpDir });
@@ -50,8 +50,30 @@ async function main() {
     const reinitParsed = JSON.parse(reinit.stdout);
     assert.strictEqual(reinitParsed.gitignoreUpdated, false, 'gitignore should not be updated when entries already exist');
     const gitignore2 = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
-    const occurrences = gitignore2.split('\n').filter((line) => line.trim() === '.workspace-bridge-cache.json').length;
-    assert.strictEqual(occurrences, 1, 'cache entry should not be duplicated in .gitignore');
+    const occurrences = gitignore2.split('\n').filter((line) => line.trim() === '/.workspace-bridge-cache.json').length;
+assert.strictEqual(occurrences, 1, 'cache entry should not be duplicated in .gitignore');
+
+    // An existing init block is upgraded without retaining its broad patterns.
+    fs.writeFileSync(path.join(tmpDir, '.gitignore'), [
+      'node_modules/',
+      '# workspace-bridge cache',
+      '.workspace-bridge/',
+      '.tmp-*.json',
+      'cache.db',
+      'cache.db-wal',
+      'cache.db-shm',
+      'data/*.tmp',
+      '',
+    ].join('\n'));
+    fs.unlinkSync(path.join(tmpDir, '.workspace-bridge.json'));
+    const migrated = await runCliInProcessRaw(['init', '--cwd', tmpDir, '--json'], { cwd: tmpDir });
+    assert.strictEqual(migrated.status, 0, migrated.stderr || migrated.stdout);
+    assert.strictEqual(JSON.parse(migrated.stdout).gitignoreUpdated, true);
+    const migratedIgnore = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
+    assert(migratedIgnore.includes('/.workspace-bridge/'));
+    assert(migratedIgnore.includes('data/*.tmp'), 'user rules must be preserved');
+    assert(!migratedIgnore.split('\n').includes('cache.db'));
+    assert(!migratedIgnore.split('\n').includes('.tmp-*.json'));
 
     // 5. Init with invalid option fails
     const invalidOpt = await runCliInProcessRaw(['init', '--cwd', tmpDir, '--invalid-option-xyz', '--json'], { cwd: tmpDir });

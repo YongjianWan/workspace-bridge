@@ -35,8 +35,13 @@ function makeMockContainer(snapshotData, opts = {}) {
         fileCount,
         configHash,
         computedAt: Date.now(),
+        contentSignature: 'mock-signature',
       }),
       getWorkspaceInfo: () => ({ gitHead }),
+      // L2-15 起 cache 契约的一部分：describeReplay 无条件直调（L3-8），
+      // mock 缺这个方法 = 契约违约，被 ensureSnapshotData 的 catch 读成
+      // "快照损坏"而落进 cold rebuild——mock 必须补齐，不是让生产代码回退 ?.。
+      getContentSignature: () => 'mock-signature',
     },
   };
 }

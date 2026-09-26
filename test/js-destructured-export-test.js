@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @semantic
 /**
  * Verify that destructured export bindings are captured as source symbols

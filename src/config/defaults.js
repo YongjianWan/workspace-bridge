@@ -76,6 +76,7 @@ const DEFAULTS = {
   // by itself. These limits keep individual commands well under 2k tokens.
   JSON_OUTPUT_MAX_IMPACT_ITEMS: 50,            // 50 files × ~40 tokens ≈ 2k tokens
   JSON_OUTPUT_MAX_AFFECTED_TESTS_ITEMS: 50,    // same rationale as impact
+  DROPPED_IMPORT_SAMPLE_LIMIT: 50, // diagnostic examples without copying every import
   JSON_OUTPUT_MAX_AFFECTED_ROUTES_ITEMS: 30,   // routes are usually shallower
   JSON_OUTPUT_MAX_COCHANGE_ITEMS: 20,          // co-changes beyond 20 are noise
   JSON_OUTPUT_MAX_ARRAY_ITEMS: 100,            // generic fallback for elideDeep

@@ -150,6 +150,7 @@ function computeDeadExportConfidence(importerCount, parseMode, graphUnreliable, 
 // #20: framework entry-file patterns promoted to module-level constant
 const FRAMEWORK_MANAGED_PATTERNS = [
   /\/migrations\/.*\.py$/,
+  /\/alembic\/versions\/[^/]+\.py$/,
   /\/admin\.py$/,
   /\/apps\.py$/,
   /\/signals\.py$/,

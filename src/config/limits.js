@@ -8,9 +8,9 @@ const LIMITS = {
   TRIM_OUTPUT_DEFAULT_CHARS: 12000,
   SEARCH_MAX_FILE_BYTES: 1024 * 1024,
   // Files larger than this are skipped by the AST parser to avoid OOM.
+  // Entry content detection (entry-detector.readScanContent) deliberately
+  // shares this bound — see the rationale there.
   PARSER_MAX_FILE_BYTES: 1024 * 1024,
-  ENTRY_FILE_MAX_BYTES: 64 * 1024,
-  ENTRY_SCAN_BYTES: 4096,
   RESOLVER_STAT_CACHE_MAX: 2000,
   SCAN_SYMBOL_CONTENT_CACHE_MAX: 2000,
   GIT_STAT_MAX_CHARS: 8000,

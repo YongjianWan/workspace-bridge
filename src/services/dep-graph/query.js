@@ -1,4 +1,10 @@
 const { bfsTraverse, CONFIG } = require('./shared');
+const {
+  isConftestFile,
+  expandConftestAnchors,
+  selfConftestAnchor,
+  conftestAnchorsFromImpactRows,
+} = require('./conftest-implicit');
 
 class GraphNotReadyError extends Error {
   constructor(state) {
@@ -43,57 +49,85 @@ class GraphQuery {
 
     // Fast path: use precomputed impact radius if available and deep enough.
     const precomputed = this.dg.analyzer?.getPrecomputedImpact?.(start);
+    let results;
     if (precomputed?.impactRadius && CONFIG.DEFAULT_MAX_DEPTH >= depth) {
-      const results = precomputed.impactRadius.filter((r) => r.level <= depth);
-      return results.map((r) => ({
-        ...r,
-        file: this.dg._displayPath(r.file),
-        via: r.via ? r.via.map((f) => this.dg._displayPath(f)) : r.via,
-      }));
+      results = precomputed.impactRadius.filter((r) => r.level <= depth);
+    } else {
+      results = bfsTraverse(start, (file) => {
+        // Stop diffusion at entry files: every module eventually converges to
+        // cli.js / app.vue / index.js, which provides zero actionable info.
+        if (file !== start && this.dg.isKnownEntryFile(file)) return [];
+        return this.getDependents(file);
+      }, {
+        maxDepth: depth,
+        onVisit: (file, level, via) => {
+          if (level === 0 || file === start) return undefined;
+          const currentInfo = this.dg.getFileInfo(file);
+
+          let importedSymbols = [];
+          let importedSymbolsAvailable = false;
+          let reason = level === 1 ? 'direct-import' : 'transitive-dependency';
+          if (currentInfo?.importRecords) {
+            const parentFile = via[via.length - 1];
+            const matchingImports = currentInfo.importRecords.filter((r) => r.resolved === parentFile);
+            for (const record of matchingImports) {
+              if (record.imported) importedSymbols.push(...record.imported);
+            }
+            importedSymbolsAvailable = matchingImports.length > 0 && matchingImports.some((r) => r.imported && r.imported.length > 0);
+            if (matchingImports.some((r) => r.tier === 'tier3')) {
+              reason = 'implicit-same-package';
+            }
+          }
+
+          return {
+            file,
+            level,
+            via: [...via],
+            importedSymbols: [...new Set(importedSymbols)],
+            importedSymbolsAvailable,
+            reason,
+          };
+        },
+      });
     }
 
-    const results = bfsTraverse(start, (file) => {
-      // Stop diffusion at entry files: every module eventually converges to
-      // cli.js / app.vue / index.js, which provides zero actionable info.
-      if (file !== start && this.dg.isKnownEntryFile(file)) return [];
-      return this.getDependents(file);
-    }, {
-      maxDepth: depth,
-      onVisit: (file, level, via) => {
-        if (level === 0 || file === start) return undefined;
-        const currentInfo = this.dg.getFileInfo(file);
+    // P0-10: pytest loads conftest.py for every test in its directory and
+    // below — append those tests as implicit dependents (both query branches,
+    // so warm and cold agree). Rows are labeled, not disguised as imports.
+    results = this._appendConftestImplicitRows(start, results, depth);
 
-        let importedSymbols = [];
-        let importedSymbolsAvailable = false;
-        let reason = level === 1 ? 'direct-import' : 'transitive-dependency';
-        if (currentInfo?.importRecords) {
-          const parentFile = via[via.length - 1];
-          const matchingImports = currentInfo.importRecords.filter((r) => r.resolved === parentFile);
-          for (const record of matchingImports) {
-            if (record.imported) importedSymbols.push(...record.imported);
-          }
-          importedSymbolsAvailable = matchingImports.length > 0 && matchingImports.some((r) => r.imported && r.imported.length > 0);
-          if (matchingImports.some((r) => r.tier === 'tier3')) {
-            reason = 'implicit-same-package';
-          }
-        }
-
-        return {
-          file,
-          level,
-          via: [...via],
-          importedSymbols: [...new Set(importedSymbols)],
-          importedSymbolsAvailable,
-          reason,
-        };
-      },
-    });
     // P89: convert internal graph keys back to original-casing paths for output.
     return results.map((r) => ({
       ...r,
       file: this.dg._displayPath(r.file),
       via: r.via ? r.via.map((f) => this.dg._displayPath(f)) : r.via,
     }));
+  }
+
+  /**
+   * P0-10: append conftest → subtree-test rows to an impact-radius result.
+   * Anchors: the queried file itself (if it is a conftest) plus every conftest
+   * already present in the radius. One implicit hop past the conftest,
+   * capped by depth, deduped against real rows (real edges win).
+   */
+  _appendConftestImplicitRows(start, results, depth) {
+    const anchors = [];
+    if (isConftestFile(start)) anchors.push(selfConftestAnchor(start));
+    anchors.push(...conftestAnchorsFromImpactRows(results));
+    if (anchors.length === 0) return results;
+
+    const seen = new Set(results.map((r) => r.file));
+    const extra = expandConftestAnchors(this.dg, anchors, depth)
+      .filter((r) => !seen.has(r.file))
+      .map((r) => ({
+        file: r.file,
+        level: r.distance,
+        via: r.via,
+        importedSymbols: [],
+        importedSymbolsAvailable: false,
+        reason: 'implicit-conftest',
+      }));
+    return [...results, ...extra];
   }
 
   _routeToOutput(file, r, isDirect, hasImplicit) {

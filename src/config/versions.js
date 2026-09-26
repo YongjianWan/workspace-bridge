@@ -143,6 +143,16 @@ const SCHEMA_VERSION = '1.2.0';
 //      路径段数」取严格最深者（skill 的 tests/ 命中自己 scripts/ 的那份拷贝），
 //      平手仍不猜；就近命中 confidence 0.6（弱于唯一命中的 0.8，推断降档显式化）。
 //      v39 缓存里这些 import 停在 dropped 记账，判决语义已变，作废重建。
-const CACHE_VERSION = 40;
+// v41: P0-1 子模块导入——`from X import a` 在 X/a.py 或 X/a/__init__.py 存在时
+//      连子模块文件而不是 X/__init__.py（relative/absolute/module-index 三侧同一
+//      规则；符号、wildcard、纯目录回退行为不变）。v40 缓存里 Python 仓的
+//      from-import 全部指在 __init__.py 上，边集不可比，作废重建。
+// v42: P0-7/P0-8——parse_results 持久化 `package` 字段（JVM 同包展开的 warm
+//      路径靠它重建 packageIndex）+ Java/Kotlin 同包 tier3 边改为「按类型
+//      简名实引」门控（clique 消除，petclinic 17 依赖→1）。v41 及更早缓存
+//      的 parse_results 无 package 列、边集是无门控 clique，均不可比，作废重建。
+// v43: unresolved import records now persist with resolved:null so warm
+// graphs can reproduce cold warnings and distinguish uncertain Python imports.
+const CACHE_VERSION = 43;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

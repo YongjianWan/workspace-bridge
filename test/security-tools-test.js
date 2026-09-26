@@ -141,6 +141,24 @@ async function testAuditSecurityTestDirectoryExclusion() {
   cleanupTempDir(tmpDir);
 }
 
+async function testPythonMethodEval() {
+  const tmpDir = makeTempDir('wb-security-py-method-');
+  try {
+    fs.writeFileSync(path.join(tmpDir, 'train.py'), [
+      'model.eval()',
+      'model . eval()',
+      "eval('1+1')",
+      '',
+    ].join('\n'));
+    const result = await auditSecurity({ cwd: tmpDir, targets: [], builtinOnly: true, language: 'python' }, null);
+    const evalFindings = result.findings.filter((finding) => finding.ruleId === 'py-eval');
+    assert.deepStrictEqual(evalFindings.map((finding) => finding.lineStart), [3],
+      'only the bare builtin call should be reported');
+  } finally {
+    cleanupTempDir(tmpDir);
+  }
+}
+
 async function main() {
   testGroupBySeverity();
   testDedupeWithinTool();
@@ -150,7 +168,8 @@ async function main() {
   await testAuditSecurityAssertDefense();
   await testAuditSecurityAssertDefenseVariants();
   await testAuditSecurityTestFilePlaceholderSecret();
-  await testAuditSecurityLanguageFiltering();
+await testAuditSecurityLanguageFiltering();
+  await testPythonMethodEval();
   await testAuditSecurityTestDirectoryExclusion();
 }
 

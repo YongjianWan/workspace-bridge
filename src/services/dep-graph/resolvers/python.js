@@ -20,8 +20,11 @@ function _tryPythonCandidates(basePath, ctx) {
 // `from PKG import X` on a namespace package binds the submodule PKG/X —
 // that is not a guess, it is the only thing the statement CAN mean (a
 // namespace package has no code of its own, so X is a submodule or an
-// ImportError). Callers must try the plain candidates first, so regular
-// packages keep resolving to __init__.py and this stays a fallback.
+// ImportError). Two roles since P0-1: fallback when no plain candidate
+// exists (this shape), and — inside _tryPackageOrSubmodule / tryPythonAbsolute
+// pass 1 — the submodule that outranks the package's own __init__.py when
+// the X/<name>.py file exists. A directory that is neither (no <name>.py,
+// no <name>/__init__.py) still never fabricates an edge.
 function _tryNamespaceSubmodule(basePath, ctx) {
   if (!ctx.imported || ctx.imported.length === 0) return null;
   for (const name of ctx.imported) {
@@ -30,6 +33,17 @@ function _tryNamespaceSubmodule(basePath, ctx) {
     if (submodule) return submodule;
   }
   return null;
+}
+
+// P0-1 (审查报告 §4): `from X import a` 在 X/a.py 或 X/a/__init__.py 存在时
+// 绑定子模块文件，而不是 X/__init__.py —— 这是文件系统事实（同 tier1
+// path-existence 档），不是名字猜测。只有 plain 命中的是「本包自己的
+// __init__.py」时才让位：X.py 模块文件没有子模块、原样返回；纯目录
+// （无 X.py 也无 X/__init__.py）不凭空造边，由下方 namespace 兜底接管。
+function _tryPackageOrSubmodule(basePath, ctx) {
+  const plain = _tryPythonCandidates(basePath, ctx);
+  if (plain && plain !== path.join(basePath, '__init__.py')) return plain;
+  return _tryNamespaceSubmodule(basePath, ctx) || plain;
 }
 
 function _markResolved(ctx, method) {
@@ -55,9 +69,9 @@ function tryPythonRelative(importPath, fromFile, ctx) {
     ? path.join(currentDir, ...remainder.split('.'))
     : currentDir;
 
-  // Single base path here, so "plain first" needs no second pass — unlike
-  // tryPythonAbsolute, which searches several roots.
-  const resolved = _tryPythonCandidates(basePath, ctx) || _tryNamespaceSubmodule(basePath, ctx);
+  // Single base path here, so the submodule-vs-init decision is one package
+  // deep — unlike tryPythonAbsolute, which searches several roots.
+  const resolved = _tryPackageOrSubmodule(basePath, ctx);
   if (!resolved) return null;
   _markResolved(ctx, 'python-relative');
   return resolved;
@@ -79,11 +93,20 @@ function tryPythonAbsolute(importPath, _fromFile, ctx) {
   // fallback (weak: a directory that merely holds a matching filename) beat a
   // later root's real __init__.py (strong). The fallback is a fallback against
   // ALL roots, which is what "plain candidates always win" has to mean.
+  // P0-1 sits INSIDE pass 1 and only ever re-ranks within the winning
+  // package: a plain hit that is X/__init__.py yields to X/<from-name>.py in
+  // the SAME directory — a later root's strong evidence still beats an earlier
+  // root's namespace dir, because the submodule check never runs for a root
+  // whose plain candidates failed.
   for (const searchRoot of searchRoots) {
-    const resolved = _tryPythonCandidates(path.join(searchRoot, modulePath), ctx);
-    if (resolved) {
+    const pkgBase = path.join(searchRoot, modulePath);
+    const plain = _tryPythonCandidates(pkgBase, ctx);
+    if (plain) {
+      const submodule = plain === path.join(pkgBase, '__init__.py')
+        ? _tryNamespaceSubmodule(pkgBase, ctx)
+        : null;
       _markResolved(ctx, 'python-absolute');
-      return resolved;
+      return submodule || plain;
     }
   }
 
@@ -216,7 +239,7 @@ function tryPythonModuleIndex(importPath, fromFile, ctx) {
 
   const modulePath = importPath.split('.').join(path.sep);
   const sameDirBase = path.join(path.dirname(fromFile), modulePath);
-  const sameDir = _tryPythonCandidates(sameDirBase, ctx) || _tryNamespaceSubmodule(sameDirBase, ctx);
+  const sameDir = _tryPackageOrSubmodule(sameDirBase, ctx);
   const matches = sameDir ? [sameDir] : ctx.pythonModuleIndex.lookup(importPath);
 
   let resolved = null;
@@ -228,6 +251,16 @@ function tryPythonModuleIndex(importPath, fromFile, ctx) {
     nearest = resolved !== null;
   }
   if (!resolved) return null;
+
+  // P0-1 same rule on the lookup path: when the winner is a package
+  // __init__.py, a from-name that IS a submodule of that very package
+  // outranks the init. The package itself came from the index; the sibling
+  // check is path-existence like every other P0-1 decision (same-dir origin
+  // already applied it inside _tryPackageOrSubmodule, so this is a no-op
+  // there).
+  if (path.basename(resolved) === '__init__.py') {
+    resolved = _tryNamespaceSubmodule(path.dirname(resolved), ctx) || resolved;
+  }
 
   if (ctx.outMeta) {
     // Inference class (a bare import naming an off-root workspace file) —

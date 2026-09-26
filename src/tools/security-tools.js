@@ -51,7 +51,7 @@ const DEFAULT_RULES = [
   ]},
   { lang: 'python', ext: /\.py$/, rules: [
     { id: 'py-exec', pattern: /\bexec\s*\(/, severity: 'high', message: 'exec() can execute arbitrary code' },
-    { id: 'py-eval', pattern: /\beval\s*\(/, severity: 'high', message: 'eval() can execute arbitrary code' },
+    { id: 'py-eval', pattern: /(?<!\.\s*)\beval\s*\(/, severity: 'high', message: 'eval() can execute arbitrary code' },
     { id: 'py-shell-true', pattern: /subprocess\.\w+\(.*shell\s*=\s*True/, severity: 'high', message: 'subprocess with shell=True is vulnerable to shell injection' },
     { id: 'py-os-system', pattern: /\bos\.system\s*\(/, severity: 'medium', message: 'os.system() is vulnerable to shell injection' },
     { id: 'py-hardcoded-secret', pattern: /(?:password|secret|token|api_key|apikey|access_key|private_key)\s*=\s*['"][^'"]{8,}['"]/i, severity: 'medium', message: 'Possible hardcoded secret — verify if placeholder or test value' },

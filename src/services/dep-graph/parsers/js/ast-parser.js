@@ -83,9 +83,9 @@ function parseJavaScriptAST(content, filePath = '') {
     const isVueFile = filePath.toLowerCase().endsWith('.vue') || /<\s*script\s+setup\b/i.test(content);
 
     const importExportVisitors = {
-      ImportDeclaration(node) {
-        if (!node.source?.value) return;
-        if (node.importKind === 'type') return;
+    ImportDeclaration(node) {
+      if (!node.source?.value) return;
+      const isTypeOnly = node.importKind === 'type';
         const source = node.source.value;
         imports.push(source);
 
@@ -104,7 +104,7 @@ function parseJavaScriptAST(content, filePath = '') {
             imported.push('default');
             if (spec.local?.name) localBindings[spec.local.name] = 'default';
           } else if (spec.type === 'ImportSpecifier') {
-            if (spec.importKind === 'type') continue;
+          if (spec.importKind === 'type' && !isTypeOnly) continue;
             const name = spec.imported?.name || spec.imported?.value;
             if (name && name !== 'type') {
               imported.push(name);
@@ -113,7 +113,7 @@ function parseJavaScriptAST(content, filePath = '') {
           }
         }
 
-        const record = createImportRecord(source, { imported, usesAllExports });
+      const record = createImportRecord(source, { imported, usesAllExports, isTypeOnly });
         if (Object.keys(localBindings).length > 0) record.localBindings = localBindings;
         importRecords.push(record);
       },

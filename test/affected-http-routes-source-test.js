@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @semantic
 /**
  * Verify that findAffectedHttpRoutes tags each route with source: 'src' | 'test'.

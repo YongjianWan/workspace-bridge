@@ -18,6 +18,7 @@ const { SCHEMA_VERSION, CACHE_VERSION } = require('./versions');
 const STREAMING = require('./streaming');
 const AI_FORMAT = require('./ai-format');
 const EXIT_CODES = require('./exit-codes');
+const { KNOWN_SOURCE_EXTENSIONS } = require('./source-extensions');
 
 module.exports = {
   TIMEOUTS,
@@ -35,4 +36,5 @@ module.exports = {
   STREAMING,
   AI_FORMAT,
   EXIT_CODES,
+  KNOWN_SOURCE_EXTENSIONS,
 };

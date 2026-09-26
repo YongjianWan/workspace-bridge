@@ -411,11 +411,13 @@ function testTryPythonAbsoluteNamespacePackageNoFabrication() {
 
 function testTryPythonAbsoluteRegularPackageStillWinsInit() {
   const dir = makeNamespacePkgCrate('wb-py-ns-init-');
-  // tools/ HAS __init__.py: the plain candidates must win; the imported-name
-  // path is a fallback only, never an override.
+  // tools/ HAS __init__.py. P0-1 lets an imported name that IS a real module
+  // file (tools/<name>.py / tools/<name>/__init__.py) override the init — but
+  // `handlers` here is a directory that is not a module, so there is nothing
+  // to bind: the plain candidate must keep winning and no edge is fabricated.
   const ctx = { root: dir, cachedExistsSync: (p) => fs.existsSync(p), imported: ['handlers'] };
   const r = tryPythonAbsolute('codegraphcontext.tools', path.join(dir, 'tests', 'test_x.py'), ctx);
-  assert(r && r.endsWith(path.join('tools', '__init__.py')), `regular package must keep resolving to __init__.py, got ${r}`);
+  assert(r && r.endsWith(path.join('tools', '__init__.py')), `non-module imported name must keep resolving to __init__.py, got ${r}`);
   cleanupTempDir(dir);
 }
 
@@ -456,6 +458,10 @@ function testTryPythonRelativeNamespacePackageSubmodule() {
 // namespace dir that happens to hold a matching filename) beat a later root's
 // STRONG evidence (a real __init__.py). src-layout repos with a same-named
 // directory left at the root are exactly this shape.
+// P0-1 sharpened the strong side: once the later root's regular package wins,
+// `from mypkg import thing` binds ITS submodule src/mypkg/thing.py (file
+// exists = submodule) — still the real package's file, still never the
+// earlier root's namespace bait.
 function testTryPythonAbsoluteRegularPackageWinsAcrossSearchRoots() {
   const dir = makeTempDir('wb-py-ns-rootorder-');
   // <root>/mypkg/ — namespace dir (no __init__.py) that happens to hold thing.py
@@ -471,8 +477,9 @@ function testTryPythonAbsoluteRegularPackageWinsAcrossSearchRoots() {
   const ctx = { root: dir, cachedExistsSync: (p) => fs.existsSync(p), imported: ['thing'] };
   const r = tryPythonAbsolute('mypkg', path.join(dir, 'tests', 'test_x.py'), ctx);
   assert(
-    r && r.endsWith(path.join('src', 'mypkg', '__init__.py')),
-    `a real __init__.py in a later searchRoot must beat an earlier root's namespace fallback, got ${r}`
+    r && r.endsWith(path.join('src', 'mypkg', 'thing.py')),
+    `a real __init__.py in a later searchRoot must beat an earlier root's namespace fallback, ` +
+    `and its own submodule then wins per P0-1, got ${r}`
   );
 
   cleanupTempDir(dir);
@@ -830,7 +837,7 @@ function testResolverTableDrivenPrecedenceMatrix() {
         fs.writeFileSync(path.join(dir, 'pkg', 'foo', 'foo.go'), 'package foo\n');
         registry.register(path.join(dir, 'other', 'foo.go'), [{ name: 'foo' }]);
       },
-      assertResult: (res, dir) => assert(res && res.includes(path.join('pkg', 'foo', 'foo.go'))),
+      assertResult: (res) => assert(res && res.includes(path.join('pkg', 'foo', 'foo.go'))),
     },
     {
       name: 'Go: Stdlib import fmt blocks Symbol Table fallback',

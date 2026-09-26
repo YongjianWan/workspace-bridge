@@ -12,7 +12,7 @@ const { filterGitIgnored } = require('../utils/gitignore');
 const { loadWorkspaceConfig } = require('../utils/project-context');
 const { EventBus } = require('../utils/event-bus');
 const { registry } = require('./dep-graph/parsers/registry');
-const { DEFAULTS } = require('../config/constants');
+const { DEFAULTS, KNOWN_SOURCE_EXTENSIONS } = require('../config/constants');
 
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
@@ -38,6 +38,10 @@ class FileIndex {
     this.cliExcludeDirs = [...new Set((options.excludeDirs || []).map((d) => d.trim()).filter(Boolean))];
     this.baseExcludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS])];
     this.ignorePaths = [];
+    // Known-source files dropped at discovery because no parser claims their
+    // extension (P0-3). Reset per build(); feeds warnings[] and the coverage
+    // denominator — see src/config/source-extensions.js for the list.
+    this.unsupportedSourceFiles = [];
     this.quiet = options.quiet || false;
     this.bus = new EventBus();
   }
@@ -52,15 +56,17 @@ class FileIndex {
     this.changedFiles.clear();
     this.warnings = [];
     this._depthTruncatedDirs = 0;
+    this.unsupportedSourceFiles = [];
+    this._unsupportedCandidates = [];
     const shouldWatch = options.watch !== false;
     if (Array.isArray(options.excludeDirs)) {
       this.cliExcludeDirs = [...new Set(options.excludeDirs.map((d) => d.trim()).filter(Boolean))];
       this.baseExcludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS])];
     }
     this._applyWorkspaceExcludeDirs();
-    // Active extension universe = the same source of truth discovery always
-    // used (language conditions via getFilePatterns), now consulted per-entry
-    // instead of per-walk.
+    // Active extension universe = every registered language extension
+    // (getFilePatterns is manifest-independent), consulted per-entry instead
+    // of per-walk.
     this._extSet = new Set(this.getFilePatterns().map((p) => p.replace('**/*', '')));
 
     this.pruneExcludedCacheEntries();
@@ -109,6 +115,31 @@ class FileIndex {
       });
     }
 
+    // P0-3: known source extensions no parser claims were dropped by the
+    // extension filter during the walk. Give them the same gitignore
+    // adjudication indexed files get, then surface them — warnings[] for the
+    // report, unsupportedSourceFiles for the coverage denominator (L1-4:
+    // an agent must not believe the whole repo was analyzed).
+    if (this._unsupportedCandidates.length > 0) {
+      const gitFilteredUnsupported = await filterGitIgnored(this.root, this._unsupportedCandidates);
+      // If gitignore adjudication is unavailable, filterGitIgnored keeps all
+      // candidates — the same degradation the indexed set just reported above.
+      this.unsupportedSourceFiles = gitFilteredUnsupported.kept;
+      const byExtension = {};
+      for (const file of this.unsupportedSourceFiles) {
+        const ext = path.extname(file).toLowerCase();
+        byExtension[ext] = (byExtension[ext] || 0) + 1;
+      }
+      const detail = Object.keys(byExtension).sort().map((ext) => `${ext} (${byExtension[ext]})`).join(', ');
+      this.warnings.push({
+        type: 'unsupported-source-files',
+        severity: 'high',
+        files: this.unsupportedSourceFiles.length,
+        extensions: byExtension,
+        message: `${this.unsupportedSourceFiles.length} source file(s) with known extensions but no parser were not indexed: ${detail}; coverage and findings do not include them`,
+      });
+    }
+
     // Early exit for empty directories to avoid unnecessary downstream work.
     // Defensive: some environments hang on processFilesWithLimit or git calls
     // when the file list is empty.
@@ -147,7 +178,7 @@ class FileIndex {
   }
 
   getFilePatterns() {
-    return registry.getFilePatterns(this.workspace);
+    return registry.getFilePatterns();
   }
 
   /**
@@ -223,8 +254,15 @@ class FileIndex {
             // links resolve lazily at pop (real=null → realpath).
             real: isLink ? null : realCurrent + path.sep + entry.name,
           });
-        } else if (!this.shouldExclude(fullPath) && this._extSet.has(path.extname(fullPath).toLowerCase())) {
-          yield fullPath;
+        } else if (!this.shouldExclude(fullPath)) {
+          const ext = path.extname(fullPath).toLowerCase();
+          if (this._extSet.has(ext)) {
+            yield fullPath;
+          } else if (KNOWN_SOURCE_EXTENSIONS.has(ext) && !registry.findByExt(ext)) {
+            // P0-3: known source extension that no parser claims — collect
+            // instead of letting it vanish at the extension filter (L1-4).
+            this._unsupportedCandidates.push(fullPath);
+          }
         }
 
         // Yield to event loop every N entries to prevent blocking

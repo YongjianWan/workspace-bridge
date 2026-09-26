@@ -6,7 +6,9 @@
  */
 
 const { buildProjectOverview } = require('./overview-tools');
-const { computeConfigHash } = require('../utils/project-context');
+// L3-11: freshness 判据单一来源——本模块只消费粗粒度档（strict: false），
+// 字段比较本身在 snapshot-freshness.js，与 audit-overview 共享。
+const { isSnapshotFresh: checkSnapshotFresh } = require('./snapshot-freshness');
 const { SCHEMA_VERSION } = require('../config/constants');
 
 function findSnapshot(container) {
@@ -32,29 +34,7 @@ function findSnapshot(container) {
 }
 
 function isSnapshotFresh(snapshot, container) {
-  const currentHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
-  const currentFileCount =
-    container.snapshot?.graph?.getScopeSummary?.()?.counts?.totalFiles ||
-    container.snapshot?.graph?.getAllFilePaths?.().length ||
-    0;
-  const headMatch = !currentHead || !snapshot.version || snapshot.version === currentHead;
-  const countMatch = !currentFileCount || !snapshot.fileCount || snapshot.fileCount === currentFileCount;
-
-  const currentConfig = container.projectContext?.config || null;
-  const currentConfigHash = computeConfigHash(currentConfig);
-  const snapshotConfigHash = snapshot.configHash ?? '';
-  // Backward-compat: legacy snapshots without configHash are only fresh when
-  // there is no effective config. Once config exists, they must recompute.
-  const configMatch = snapshotConfigHash === currentConfigHash;
-
-  // Intentionally skip content-change checks: query-* commands are designed as
-  // fast cached-aggregate readers. File-level edits that do not change the
-  // commit hash or file count should not trigger a full audit-overview rebuild
-  // (audit-overview itself does compare content since L2-15, so the two
-  // deliberately disagree about "fresh" while reading the same snapshot row).
-  // The cost of that choice is paid by describeReplay(), which tells the
-  // consumer the tree moved instead of letting the staleness go unmentioned.
-  return headMatch && countMatch && configMatch;
+  return checkSnapshotFresh(snapshot, container, { strict: false });
 }
 
 /**

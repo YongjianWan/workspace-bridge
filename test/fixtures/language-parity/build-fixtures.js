@@ -91,7 +91,8 @@ const FIXTURES = [
   },
   {
     language: 'rust',
-    expectedMethods: ['rust-crate', 'rust-super'],
+    // `mod b;` now creates the edge before `use crate::b::helper` reaches it.
+    expectedMethods: ['rust-scoped', 'rust-crate', 'rust-super'],
     files: {
       'Cargo.toml': '[package]\nname = "parity-fixture"\nversion = "0.1.0"\nedition = "2021"\n',
       'src/main.rs': 'mod b;\n\nuse crate::b::helper;\n\nfn main() {\n    helper();\n}\n',

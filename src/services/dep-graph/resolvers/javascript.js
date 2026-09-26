@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const {
   TS_EXTENSIONS,
   JS_IMPORT_EXTENSIONS,
@@ -62,6 +63,70 @@ function tryAlias(importPath, fromFile, ctx) {
     ctx.outMeta.tier = 'tier1';
   }
   return resolved;
+}
+
+function workspacePatterns(root) {
+  let npmPatterns = [];
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    npmPatterns = Array.isArray(manifest.workspaces)
+      ? manifest.workspaces
+      : manifest.workspaces?.packages || [];
+  } catch { /* A pnpm workspace need not have a root package.json. */ }
+
+  let pnpmPatterns = [];
+  try {
+    const yaml = fs.readFileSync(path.join(root, 'pnpm-workspace.yaml'), 'utf8');
+    const packages = yaml.match(/^packages:\s*\r?\n((?:[ \t]+[^\r\n]*\r?\n?)*)/m)?.[1] || '';
+    pnpmPatterns = [...packages.matchAll(/^\s*-\s*['"]?([^'"\s#]+)['"]?/gm)].map((match) => match[1]);
+  } catch { /* npm workspaces need no pnpm file. */ }
+  return [...npmPatterns, ...pnpmPatterns].filter((value) => typeof value === 'string' && !value.startsWith('!'));
+}
+
+function workspaceDirs(root, pattern) {
+  let dirs = [root];
+  for (const part of pattern.replace(/\\/g, '/').split('/').filter(Boolean)) {
+    if (part === '.' || part === '**') continue;
+    const next = [];
+    for (const dir of dirs) {
+      if (part === '*') {
+        try {
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (entry.isDirectory() && entry.name !== 'node_modules') next.push(path.join(dir, entry.name));
+          }
+        } catch { /* Missing optional workspace directory. */ }
+      } else if (part !== '..') {
+        next.push(path.join(dir, part));
+      }
+    }
+    dirs = next;
+  }
+  return dirs;
+}
+
+function tryWorkspacePackage(importPath, fromFile, ctx) {
+  if (!ctx.root || importPath.startsWith('.') || importPath.startsWith('/') || importPath.includes(':')) return null;
+  for (const pattern of workspacePatterns(ctx.root)) {
+    for (const dir of workspaceDirs(ctx.root, pattern)) {
+      let manifest;
+      try { manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')); } catch { continue; }
+      if (!manifest.name || (importPath !== manifest.name && !importPath.startsWith(`${manifest.name}/`))) continue;
+      const subpath = importPath.slice(manifest.name.length).replace(/^\//, '');
+      const entry = subpath || manifest.source || manifest.module || manifest.main || 'index';
+      const entryPath = path.join(dir, entry);
+      const entryStat = ctx.cachedStatSync(entryPath);
+      const resolved = (entryStat?.isFile() ? entryPath : null)
+        || _tryResolveWithExtensions(entryPath);
+      if (!resolved) continue;
+      if (ctx.outMeta) {
+        ctx.outMeta.method = 'workspace-package';
+        ctx.outMeta.confidence = 1.0;
+        ctx.outMeta.tier = 'tier1';
+      }
+      return resolved;
+    }
+  }
+  return null;
 }
 
 function tryRelativeWithExtensions(importPath, fromFile, ctx) {
@@ -131,6 +196,7 @@ function tryRelativeWithExtensions(importPath, fromFile, ctx) {
 
 module.exports = {
   tryAlias,
+  tryWorkspacePackage,
   tryRelativeWithExtensions,
   _resolveAlias,
 };

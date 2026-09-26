@@ -6,7 +6,6 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { normalizeFilePath } = require('../utils/path');
-const { isLfsPointerFile } = require('../utils/git-environment-probe');
 const { GraphDB } = require('./graph-db');
 const { CACHE_VERSION, DEFAULTS } = require('../config/constants');
 
@@ -60,53 +59,50 @@ const METADATA_SCHEMA = {
 };
 
 function computeDefaultCacheDir(workspaceRoot) {
-  const preferredDir = path.join(workspaceRoot, '.workspace-bridge');
   const hash = crypto.createHash('md5').update(workspaceRoot).digest('hex').slice(0, 8);
+  const cacheRoot = process.platform === 'win32'
+    ? (process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'))
+    : (process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'));
+  const preferredDir = path.join(cacheRoot, 'workspace-bridge', hash);
   const fallbackDir = path.join(os.tmpdir(), 'workspace-bridge', hash);
-
-  // Check if preferred is writeable, otherwise fallback
   let cacheDir = preferredDir;
+
   try {
-    if (!fs.existsSync(preferredDir)) {
-      fs.mkdirSync(preferredDir, { recursive: true });
-    }
+    fs.mkdirSync(preferredDir, { recursive: true });
     const testFile = path.join(preferredDir, '.write-test');
     fs.writeFileSync(testFile, 'test');
     fs.unlinkSync(testFile);
   } catch {
     cacheDir = fallbackDir;
+    fs.mkdirSync(cacheDir, { recursive: true });
   }
 
-  // Note: .gitignore management for the cache directory is intentionally
-  // performed only by the explicit `init` command. Auto-appending to a user's
-  // .gitignore on every cache initialization is a surprise side-effect and can
-  // leave dirty git state in CI/read-only environments.
-
-  // Migrate legacy cache.db if new location doesn't have one, but old one does
   const newDbPath = path.join(cacheDir, 'cache.db');
-  const legacyDbPath = path.join(fallbackDir, 'cache.db');
-  const legacyLockPath = legacyDbPath + '.lock';
-
-  let isLegacyLocked = false;
-  if (fs.existsSync(legacyLockPath)) {
-    try {
-      const content = fs.readFileSync(legacyLockPath, 'utf8').trim();
-      const pid = Number.parseInt(content, 10);
-      if (!Number.isNaN(pid)) {
-        try {
-          process.kill(pid, 0);
-          isLegacyLocked = true;
-        } catch (err) {
-          isLegacyLocked = err.code === 'EPERM';
+  const legacyDirs = [path.join(workspaceRoot, '.workspace-bridge'), fallbackDir];
+  for (const legacyDir of legacyDirs) {
+    if (legacyDir === cacheDir || fs.existsSync(newDbPath)) break;
+    const legacyDbPath = path.join(legacyDir, 'cache.db');
+    if (!fs.existsSync(legacyDbPath)) continue;
+    const lockPath = legacyDbPath + '.lock';
+    if (fs.existsSync(lockPath)) {
+      try {
+        const pid = Number.parseInt(fs.readFileSync(lockPath, 'utf8').trim(), 10);
+        if (!Number.isNaN(pid)) {
+          try {
+            process.kill(pid, 0);
+            continue;
+          } catch (err) {
+            if (err.code === 'EPERM') continue;
+          }
         }
-      }
-    } catch {}
-  }
+      } catch {}
+    }
 
-  if (cacheDir === preferredDir && !isLegacyLocked && !fs.existsSync(newDbPath) && fs.existsSync(legacyDbPath)) {
-    // WAL-mode SQLite produces cache.db-wal and cache.db-shm peers. Migrate
-    // them together so uncheckpointed data is not lost.
-    const migrateFile = (src, dst) => {
+    // Move the SQLite database and WAL peers together; keep unknown files.
+    for (const suffix of ['', '-wal', '-shm']) {
+      const src = legacyDbPath + suffix;
+      if (!fs.existsSync(src)) continue;
+      const dst = newDbPath + suffix;
       try {
         fs.renameSync(src, dst);
       } catch {
@@ -115,12 +111,9 @@ function computeDefaultCacheDir(workspaceRoot) {
           fs.unlinkSync(src);
         } catch {}
       }
-    };
-    migrateFile(legacyDbPath, newDbPath);
-    migrateFile(legacyDbPath + '-wal', newDbPath + '-wal');
-    migrateFile(legacyDbPath + '-shm', newDbPath + '-shm');
+    }
     try {
-      fs.rmdirSync(fallbackDir);
+      fs.rmdirSync(legacyDir);
     } catch {}
   }
 
@@ -662,9 +655,8 @@ class WorkspaceCache {
   /**
    * Check whether any cached file has changed on disk since it was indexed.
    *
-   * Fast path: mtime+size unchanged → skip (zero extra I/O).
-   * Slow path: mtime+size changed → SHA-256 content hash to verify
-   * actual change vs git-checkout-style mtime drift.
+   * Compare SHA-256 content even when mtime and size match. Copies and
+   * archive extraction can restore timestamps after changing content.
    *
    * Files that no longer exist are treated as changed.
    *
@@ -684,39 +676,23 @@ class WorkspaceCache {
         const storedMtime = Number(meta?.mtime);
         const storedSize = Number(meta?.size);
         const pathDrifted = filePath !== cachedPath;
-        // LFS pointer files must not use the mtime+size fast path: the pointer
-        // content is stable even when the real binary content changes, so we
-        // force the SHA-256 slow path to avoid a false "unchanged" conclusion.
-        const lfsPointer = isLfsPointerFile(filePath);
-        // Fast path: mtime+size identical → unchanged (unless LFS pointer).
-        // mtime is stored as SQLite INTEGER (whole milliseconds), so compare
-        // at integer precision to tolerate sub-millisecond stat drift.
-        if (!lfsPointer && Math.round(stat.mtimeMs) === Math.round(storedMtime) && stat.size === storedSize) {
-          if (pathDrifted) {
-            this.fileMetadata.set(key, { ...meta, originalPath: filePath });
-            this._fileTracker.mark(key);
-            this.dirty = true;
-          }
+        // mtime and size are only hints. An archive or copy can restore both
+        // after changing content, so trust the stored content hash.
+        const storedHash = meta?.hash;
+        if (!storedHash) {
+          changedFiles.push(filePath);
           continue;
         }
-        // Slow path: mtime/size drifted → verify with SHA-256 content hash
-        const storedHash = meta?.hash;
-        if (storedHash) {
-          const content = fs.readFileSync(filePath, 'utf8');
-          const currentHash = crypto.createHash('sha256').update(content).digest('hex');
-          if (currentHash !== storedHash) {
-            changedFiles.push(filePath);
-          } else {
-            // Content unchanged (e.g. git checkout); update stored mtime/size
-            // so next check stays on the fast path. Round mtime to integer ms
-            // to stay aligned with SQLite INTEGER storage.
-            this.fileMetadata.set(key, { ...meta, originalPath: filePath, mtime: Math.round(stat.mtimeMs), size: stat.size });
-            this._fileTracker.mark(key);
-            this.dirty = true;
-          }
-        } else {
-          // Legacy cache without hash → fall back to mtime+size
+        const currentHash = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+        if (currentHash !== storedHash) {
           changedFiles.push(filePath);
+          continue;
+        }
+        // Keep SQLite metadata aligned without dirtying an unchanged cache.
+        if (pathDrifted || Math.round(stat.mtimeMs) !== Math.round(storedMtime) || stat.size !== storedSize) {
+          this.fileMetadata.set(key, { ...meta, originalPath: filePath, mtime: Math.round(stat.mtimeMs), size: stat.size });
+          this._fileTracker.mark(key);
+          this.dirty = true;
         }
       } catch {
         // File deleted or inaccessible — treat as changed

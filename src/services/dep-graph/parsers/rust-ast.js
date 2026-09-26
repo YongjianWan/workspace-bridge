@@ -13,6 +13,7 @@ const { parseRust: parseRustRegex } = require('./polyglot');
 let rustParseLock = Promise.resolve();
 
 const RUST_QUERY = `
+(mod_item name: (identifier) @import.mod)
 (use_declaration
   argument: [
     (scoped_identifier) @import.source
@@ -300,6 +301,15 @@ async function parseRustImpl(content) {
       for (const capture of match.captures) {
         const name = getNodeText(capture.node);
         const tag = capture.name;
+
+        if (tag === 'import.mod') {
+          // `mod colors;` loads a file; `mod colors { ... }` defines it inline.
+          if (getNodeText(capture.node.parent).trimEnd().endsWith(';')) {
+            imports.push(name);
+            importRecords.push(createImportRecord(name));
+          }
+          continue;
+        }
 
         if (tag === 'import.source') {
           imports.push(name);

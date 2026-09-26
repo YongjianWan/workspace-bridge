@@ -17,6 +17,8 @@ function testFrameworkManagedPattern() {
   const detector = new EntryDetector({ normalizeFilePath: (p) => p });
   // Django manage.py is a framework-managed entry
   assert.strictEqual(detector.isKnownEntryFile('/repo/manage.py'), true);
+  assert.strictEqual(detector.isKnownEntryFile('/repo/app/alembic/versions/0001_init.py'), true);
+  assert.strictEqual(detector.isKnownEntryFile('/repo/app/versions/helper.py'), false);
   // Random util file is not
   assert.strictEqual(detector.isKnownEntryFile('/repo/src/utils/helper.js'), false);
 }
@@ -25,6 +27,16 @@ function testKnownConfigName() {
   const detector = new EntryDetector({ normalizeFilePath: (p) => p });
   assert.strictEqual(detector.isKnownEntryFile('/repo/vite.config.js'), true);
   assert.strictEqual(detector.isKnownEntryFile('/repo/vite.config.ts'), true);
+}
+
+function testCMainSymbolIsEntryRegardlessOfFilename() {
+  const detector = new EntryDetector({
+    normalizeFilePath: (p) => p,
+    getFileInfo: () => ({ exports: ['main'] }),
+  });
+  assert.strictEqual(detector.isKnownEntryFile('/repo/tools/fuzz_main.c'), true);
+  assert.strictEqual(detector.isKnownEntryFile('/repo/tools/worker.cpp'), true);
+  assert.strictEqual(detector.isKnownEntryFile('/repo/tools/helper.c', ['helper']), false);
 }
 
 function testCacheInvalidationViaBus() {
@@ -120,6 +132,7 @@ async function main() {
   testCacheHit();
   testFrameworkManagedPattern();
   testKnownConfigName();
+  testCMainSymbolIsEntryRegardlessOfFilename();
   testCacheInvalidationViaBus();
   testCacheInvalidationManual();
   testGetFrameworkHintPathBased();

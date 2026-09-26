@@ -356,6 +356,18 @@ function _isExternalDependency(specifier, fromExt, root, ctx = null) {
   return Boolean(lang && typeof lang.isBuiltIn === 'function' && lang.isBuiltIn(specifier));
 }
 
+// Symbol-name delimiter set, per language (L3-4): '::' for Rust paths, '/'
+// + '.' for Go package paths ('pkg/sub.Func'). Everything else (JS/TS,
+// Python, Java) keeps '.' only — splitting npm subpath imports
+// ('lodash/merge') would alias them onto same-named local symbols.
+// Same table idiom as EXTERNAL_DEPENDENCY_CHECKS: adding a language means
+// adding a row, not opening the function.
+const SYMBOL_DELIMITER_ROWS = [
+  { matches: (ext) => ext === '.rs', split: /:+/ },
+  { matches: (ext) => ext === '.go', split: /[./]+/ },
+];
+const DEFAULT_SYMBOL_DELIMITER = /\./;
+
 function trySymbolTable(importPath, fromFile, ctx) {
   if (!ctx.symbolRegistry) return null;
   // Relative and absolute filesystem paths are out of scope for symbol lookup.
@@ -367,12 +379,8 @@ function trySymbolTable(importPath, fromFile, ctx) {
   const ext = fromFile ? path.extname(fromFile).toLowerCase() : '';
   if (_isExternalDependency(importPath, ext, ctx.root, { ...ctx, fromFile })) return null;
 
-  // Delimiter set is language-scoped: '::' for Rust paths, '/' + '.' for Go
-  // package paths ('pkg/sub.Func'). Everything else (JS/TS, Python, Java)
-  // keeps '.' only — splitting npm subpath imports ('lodash/merge') would
-  // alias them onto same-named local symbols.
-  const delimiters = ext === '.rs' ? /:+/ : ext === '.go' ? /[./]+/ : /\./;
-  const parts = importPath.split(delimiters).filter(Boolean);
+  const row = SYMBOL_DELIMITER_ROWS.find((r) => r.matches(ext));
+  const parts = importPath.split(row ? row.split : DEFAULT_SYMBOL_DELIMITER).filter(Boolean);
   const symbolName = parts.length > 0 ? parts[parts.length - 1] : importPath;
   if (!symbolName) return null;
 

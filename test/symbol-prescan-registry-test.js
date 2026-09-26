@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @contract
 // SymbolRegistry Stage 4 Step 1 prescan & disambiguation tests
 const assert = require('assert');

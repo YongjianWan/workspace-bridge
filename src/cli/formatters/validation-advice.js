@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const { detectStack, generateCommands, enrichCommandEntry, INFRA_PATTERNS } = require('../../utils/stack-detector');
 const { probePythonTestEnvironment } = require('../../utils/environment-probe');
@@ -46,7 +47,11 @@ function buildValidationAdvice(entries, workspaceRoot) {
   const { phases, smokeTargets, focusedSteps } = buildPhases(metrics, template);
   const summary = buildSummary(metrics);
 
-  const commands = generateCommands(stack, changeType, smokeTargets, focusedSteps, workspaceRoot);
+  // Deleted paths remain in the change report, but cannot be command arguments.
+  const runnableTargets = workspaceRoot
+    ? smokeTargets.filter((file) => fs.existsSync(path.resolve(workspaceRoot, file)))
+    : smokeTargets;
+  const commands = generateCommands(stack, changeType, runnableTargets, focusedSteps, workspaceRoot);
   const environmentNotes = workspaceRoot ? probePythonTestEnvironment(workspaceRoot, stack.python) : [];
 
   const allCommands = [

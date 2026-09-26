@@ -17,6 +17,12 @@ const {
   isTestLikeFile,
 } = require('../../utils/test-detector');
 const { detectScaffold } = require('../../utils/scaffold-detector');
+const {
+  isConftestFile,
+  expandConftestAnchors,
+  selfConftestAnchor,
+  conftestDirPrefix,
+} = require('./conftest-implicit');
 const { DEFAULTS, LIMITS, CONFIDENCE } = require('../../config/constants');
 const { fromNormalizedKey, normalizePathKey } = require('../../utils/path');
 const {
@@ -33,6 +39,13 @@ const {
 // Using an exact directory prefix instead of a broad /queries/ regex avoids
 // accidentally ignoring user source files in a queries/ directory.
 const QUERIES_DIR = normalizePathKey(path.join(__dirname, 'queries'));
+
+// Shared by both dead-export branches where only implicit same-package
+// visibility backs a finding (importers>0 with all-tier3 records, and — since
+// P0-7 reference-gated the same-package edges — importers==0 whose own
+// importRecords still carry tier3 records). One string, one meaning.
+const IMPLICIT_SAME_PACKAGE_REASON =
+  'All importers are same-package implicit edges; no explicit import or scanned usage found, but runtime bindings (e.g. Spring DI) are invisible to static analysis';
 
 // Known registry exports that are intentionally exposed for dynamic/runtime
 // consumption (e.g. consumed via string-based require or external tooling)
@@ -890,7 +903,14 @@ class GraphAnalyzer {
       else if (info.parseMode === 'regex') fallbackFiles++;
     }
     const totalFiles = this.dg.graph.size;
-    const coverageRatio = totalFiles > 0 ? parsedFiles / totalFiles : 0;
+    // P0-3: files dropped at discovery (known source extensions, no parser)
+    // join the coverage denominator — without them a repo with an entire
+    // unsupported language still reports coverageRatio 1 (L1-4). The list
+    // lives on the graph (wired by orchestrator from FileIndex) and is empty
+    // on graphs built without a FileIndex (fromSchema/mocks).
+    const unsupportedSourceFiles = Array.isArray(this.dg._unsupportedSourceFiles) ? this.dg._unsupportedSourceFiles : [];
+    const coverageTotalFiles = totalFiles + unsupportedSourceFiles.length;
+    const coverageRatio = coverageTotalFiles > 0 ? parsedFiles / coverageTotalFiles : 0;
 
     // Compute coverage for the CLI-filtered file set (respects --exclude)
     let filteredParsedFiles = 0;
@@ -902,7 +922,13 @@ class GraphAnalyzer {
       if (info.parseMode === 'ast') filteredParsedFiles++;
       else if (info.parseMode === 'regex') filteredFallbackFiles++;
     }
-    const filteredCoverageRatio = filteredTotalFiles > 0 ? filteredParsedFiles / filteredTotalFiles : 0;
+    let filteredUnsupportedFiles = 0;
+    for (const file of unsupportedSourceFiles) {
+      if (this.dg.shouldExcludeCli(file)) continue;
+      filteredUnsupportedFiles++;
+    }
+    const filteredCoverageTotalFiles = filteredTotalFiles + filteredUnsupportedFiles;
+    const filteredCoverageRatio = filteredCoverageTotalFiles > 0 ? filteredParsedFiles / filteredCoverageTotalFiles : 0;
 
     const result = {
       files: totalFiles,
@@ -911,15 +937,17 @@ class GraphAnalyzer {
       cycles: this._cycleCount,
       totalLines: cacheStats.totalLines || 0,
       analysisCoverage: {
-        totalFiles,
+        totalFiles: coverageTotalFiles,
         parsedFiles,
         fallbackFiles,
+        unsupportedFiles: unsupportedSourceFiles.length,
         coverageRatio: Math.round(coverageRatio * 100) / 100,
       },
       filteredAnalysisCoverage: {
-        totalFiles: filteredTotalFiles,
+        totalFiles: filteredCoverageTotalFiles,
         parsedFiles: filteredParsedFiles,
         fallbackFiles: filteredFallbackFiles,
+        unsupportedFiles: filteredUnsupportedFiles,
         coverageRatio: Math.round(filteredCoverageRatio * 100) / 100,
       },
     };
@@ -1003,13 +1031,9 @@ class GraphAnalyzer {
       });
     }
 
-    // L2-13: imports that looked local but resolved to null were previously
-    // dropped without a trace — an entire language disappeared through that
-    // gap once (L1-4). Cold-build only: the warm path restores edges without
-    // re-resolving, so there is nothing to count (getDroppedImports() → 0).
-    const droppedImports = this.dg._droppedImports;
-    if (droppedImports && droppedImports.count > 0) {
-      const filesWithDrops = droppedImports.files.size;
+    const droppedImports = this.dg.getDroppedImports();
+    if (droppedImports.count > 0) {
+      const filesWithDrops = droppedImports.files;
       const ratio = stats.files > 0 ? filesWithDrops / stats.files : 0;
       const sampleList = droppedImports.samples.slice(0, 3).map((s) => s.specifier).join(', ');
       warnings.push({
@@ -1017,6 +1041,15 @@ class GraphAnalyzer {
         severity: ratio > 0.1 ? 'medium' : 'low',
         files: filesWithDrops,
         message: `${droppedImports.count} import(s) across ${filesWithDrops} file(s) looked local but could not be resolved and were dropped from the graph (e.g. ${sampleList})`,
+      });
+    }
+    if (droppedImports.uncertainCount > 0) {
+      const sampleList = droppedImports.uncertainSamples.slice(0, 3).map((s) => s.specifier).join(', ');
+      warnings.push({
+        type: 'unresolved-import-ownership',
+        severity: 'low',
+        files: droppedImports.uncertainFiles,
+        message: `${droppedImports.uncertainCount} Python import(s) could not be resolved; local or third-party ownership is unknown (e.g. ${sampleList})`,
       });
     }
 
@@ -1283,7 +1316,20 @@ class GraphAnalyzer {
           if (scaffold) continue;
           const filteredExports = info.exports.filter(isConventionallyAliveSymbol);
           if (filteredExports.length === 0) continue;
-          const { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable, info.parseModeReason);
+          let { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable, info.parseModeReason);
+          // P0-7: same-package edges are reference-gated now, so a
+          // runtime-bound class (Spring DI / component scan — its name may
+          // never appear in any source file) legitimately arrives here with
+          // zero edge importers while its own tier3 same-package records
+          // still stand. Mirror the importer>0 path below: never report
+          // above low when only implicit same-package visibility backs the
+          // finding.
+          if ((info.importRecords || []).some((r) => r.tier === 'tier3')) {
+            confidence = 'low';
+            confidenceValue = CONFIDENCE.LOW_VALUE;
+            source = 'implicit-same-package';
+            reason = IMPLICIT_SAME_PACKAGE_REASON;
+          }
           const duplicateOf = this._buildDuplicateOf(filteredExports, filePath);
           deadExports.push({ id: `dead-export:${this.dg._displayPath(filePath)}`, category: 'dead-exports', file: this.dg._displayPath(filePath), exports: filteredExports, confidence, confidenceValue, confidenceSource: source, confidenceReason: reason, importerCount: 0, scaffold, ...(duplicateOf ? { duplicateOf } : {}) });
           continue;
@@ -1318,7 +1364,7 @@ class GraphAnalyzer {
             confidence = 'low';
             confidenceValue = CONFIDENCE.LOW_VALUE;
             source = 'implicit-same-package';
-            reason = 'All importers are same-package implicit edges; no explicit import or scanned usage found, but runtime bindings (e.g. Spring DI) are invisible to static analysis';
+            reason = IMPLICIT_SAME_PACKAGE_REASON;
           }
           const duplicateOf = this._buildDuplicateOf(unused, filePath);
           deadExports.push({
@@ -1528,6 +1574,7 @@ class GraphAnalyzer {
     // warm 16/23). Foreign depths fall through to live computation. At the
     // matching depth no filtering is needed: stored graph rows are all
     // <= maxDepth by construction.
+    let results = null;
     if (
       options?.includeHeuristic !== false &&
       maxDepth === CONFIG.DEFAULT_MAX_DEPTH &&
@@ -1536,14 +1583,14 @@ class GraphAnalyzer {
     ) {
       const cached = this._testMapCache.get(start);
       if (cached.length > 0) {
-        return cached.map((c) => {
+        results = cached.map((c) => {
           if (c.signal !== 'heuristic' && c.signal !== 'mention') {
-            return { file: this.dg._displayPath(c.testFile), distance: c.distance, source: 'graph', via: [] };
+            return { file: c.testFile, distance: c.distance, source: 'graph', via: [] };
           }
           // Terminator rows carry a sentinel distance, not a graph distance:
           // remap to maxDepth+1 and flag, byte-for-byte matching cold-path schema.
           return {
-            file: this.dg._displayPath(c.testFile),
+            file: c.testFile,
             distance: maxDepth + 1,
             source: c.signal,
             via: [c.signal === 'heuristic' ? 'heuristic:naming' : 'mention:stem'],
@@ -1553,17 +1600,83 @@ class GraphAnalyzer {
       }
     }
 
-    const results = this._findAffectedTestsByGraph(start, maxDepth);
-    if (options?.includeHeuristic !== false) {
-      this._findAffectedTestsByHeuristic(start, maxDepth, results);
-      this._findAffectedTestsByMention(start, maxDepth, results);
+    if (results === null) {
+      results = this._findAffectedTestsByGraph(start, maxDepth);
+      if (options?.includeHeuristic !== false) {
+        this._findAffectedTestsByHeuristic(start, maxDepth, results);
+        this._findAffectedTestsByMention(start, maxDepth, results);
+      }
     }
+
+    // P0-10: conftest.py is pytest infrastructure, never an affected test;
+    // conversely every test below a conftest implicitly depends on it. Applied
+    // AFTER both the cached and the live branch so warm and cold agree
+    // byte-for-byte (conftest rows are never persisted — see savePrecomputed).
+    results = this._applyConftestImplicitTests(start, maxDepth, results);
+
     // P89: convert internal graph keys back to original-casing paths for output.
     return results.map((r) => ({
       ...r,
       file: this.dg._displayPath(r.file),
       via: r.via ? r.via.map((f) => this.dg._displayPath(f)) : r.via,
     }));
+  }
+
+  /**
+   * P0-10: drop conftest.py rows (infrastructure, not tests) and append the
+   * implicit conftest → subtree-test rows both directions need:
+   * - queried file IS a conftest → all tests under its directory;
+   * - queried file is imported (directly or transitively) by a conftest →
+   *   all tests under that conftest's directory.
+   * Rows carry source: 'conftest', distance = hops-to-conftest + 1.
+   */
+  _applyConftestImplicitTests(start, maxDepth, results) {
+    const filtered = results.filter((r) => !isConftestFile(r.file));
+
+    const anchors = [];
+    if (isConftestFile(start)) anchors.push(selfConftestAnchor(start));
+    anchors.push(...this._findConftestImportAnchors(start, maxDepth));
+    if (anchors.length === 0) return filtered;
+
+    const seen = new Set(filtered.map((r) => r.file));
+    const injected = expandConftestAnchors(this.dg, anchors, maxDepth)
+      .filter((r) => !seen.has(r.file))
+      .map((r) => ({ ...r, source: 'conftest' }));
+    return [...filtered, ...injected];
+  }
+
+  /**
+   * Direction-2 anchors: BFS over dependents from the queried file (same
+   * traversal as the graph pass); every conftest reached within maxDepth
+   * anchors its directory subtree. No-op when the graph holds no conftest.
+   */
+  _findConftestImportAnchors(start, maxDepth) {
+    let hasConftest = isConftestFile(start);
+    if (!hasConftest) {
+      for (const key of this.dg.graph.keys()) {
+        if (isConftestFile(key)) { hasConftest = true; break; }
+      }
+    }
+    if (!hasConftest) return [];
+
+    const anchors = [];
+    const visited = new Set([start]);
+    const queue = [{ node: start, depth: 0, chain: [start] }];
+    let head = 0;
+    while (head < queue.length) {
+      const { node, depth, chain } = queue[head++];
+      if (depth >= maxDepth) continue;
+      for (const dep of this.dg.getDependents(node)) {
+        if (visited.has(dep)) continue;
+        visited.add(dep);
+        const nextChain = [...chain, dep];
+        if (isConftestFile(dep)) {
+          anchors.push({ dir: conftestDirPrefix(dep), hop: depth + 1, chain: nextChain });
+        }
+        queue.push({ node: dep, depth: depth + 1, chain: nextChain });
+      }
+    }
+    return anchors;
   }
 
   /**

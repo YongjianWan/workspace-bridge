@@ -7,7 +7,7 @@ const path = require('path');
 const { promisify } = require('util');
 const { createImportRecord } = require('./parsers');
 const { registry } = require('./parsers/registry');
-const { resolveImport, clearResolverCaches, isExternalDependency, buildPythonModuleIndex } = require('./resolvers');
+const { resolveImport, clearResolverCaches, buildPythonModuleIndex } = require('./resolvers');
 const { detectFrameworkFromContent, extractRoutes } = require('./framework-patterns');
 const {
   scanAndExtractImplicitImports,
@@ -23,6 +23,20 @@ const { CACHE_VERSION, LIMITS } = require('../../config/constants');
 const readFile = promisify(fs.readFile);
 const stat = promisify(fs.stat);
 const YIELD_INTERVAL = 20; // event loop yield frequency for large repos
+
+// P0-7 reference gate: simple-name tokens of a source file, and the
+// declaration kinds that may justify a same-package edge. Type-level kinds
+// only — Java/Kotlin method and field names ('function'/'variable') collide
+// across package-mates (every package has a `run`/`id`) and would rebuild the
+// clique through the back door. `null`/missing kind (synthetic fixtures,
+// hand-built schemas) is treated as type-level: no evidence to the contrary.
+const REFERENCE_IDENT_RE = /[\p{L}_$][\p{L}\p{N}_$]*/gu;
+const IDENT_LIKE_RE = /^[\p{L}_$][\p{L}\p{N}_$]*$/u;
+const JVM_TYPE_GATE_KINDS = new Set([
+  'class', 'interface', 'enum', 'annotation', 'record',
+  'object', 'data_class', 'type', 'struct', 'trait', 'sealed',
+]);
+
 class GraphBuilder {
   constructor(depGraph) {
     this.dg = depGraph;
@@ -137,12 +151,6 @@ class GraphBuilder {
     this.dg._scanContentCache.clear();
     this.dg._scanPatternCache.clear();
     this._parseCache.clear();
-    // L2-13: drop accounting is per-build; a rebuild starts from zero.
-    // Initialize (not null) so "a cold build ran and measured zero drops" is
-    // distinguishable from "never measured" (warm-only graph) — see
-    // getDroppedImports().measured.
-    this.dg._droppedImports = { count: 0, files: new Set(), samples: [] };
-
     // Get all files from cache, or use the raw file list provided by file-index
     // so that originalPath preserves platform-native casing and separators.
     const candidateFiles = (sourceFiles || Array.from(this.dg.cache.fileMetadata.keys())).filter((file) => {
@@ -463,25 +471,9 @@ class GraphBuilder {
         const outMeta = {};
         const resolved = resolveImport(filePath, record.source, ext, this.dg.root, this.symbolRegistry, outMeta, { isLocal: record.isLocal }, { workspacePackages: this.workspacePackages, imported: record.imported, pythonModuleIndex: this.pythonModuleIndex });
         if (!resolved) {
-          // Keep wildcard imports even if they don't resolve directly to a file
-          if (record.usesAllExports && record.source.endsWith('.*')) {
-            return record;
-          }
-          // L2-13: a failed resolve counts only when the specifier looked like
-          // one of ours. Gate-known externals (node builtins, stdlib, declared
-          // deps) produce no edge *by design* — counting them would cry wolf on
-          // every 'import os'. This accounting is what makes a language-wide
-          // resolution gap (L1-4) visible instead of silent.
-          if (!isExternalDependency(record.source, ext.toLowerCase(), this.dg.root, { importHints: { isLocal: record.isLocal }, fromFile: filePath, workspacePackages: this.workspacePackages })) {
-            if (!this.dg._droppedImports) this.dg._droppedImports = { count: 0, files: new Set(), samples: [] };
-            const dropped = this.dg._droppedImports;
-            dropped.count++;
-            dropped.files.add(graphKey);
-            if (dropped.samples.length < 50) {
-              dropped.samples.push({ file: graphKey, specifier: record.source });
-            }
-          }
-          return null;
+          // Keep unresolved records in the graph/cache. They produce no edge,
+          // but consumers must be able to account for them on warm restores.
+          return { ...record, resolved: null };
         }
         return {
           ...record,
@@ -679,9 +671,33 @@ class GraphBuilder {
       }
       return true;
     });
-    // Remove from imports array
+
+    // 3. Warm-restored graphs carry expansion edges WITHOUT records
+    //    (postProcess injections never reach parse_results, and loader.js
+    //    rebuilds imports from the edges table). A same-package edge with no
+    //    surviving record is a stale expansion leftover — strip it so the
+    //    reference gate in _expandJavaForFile can re-decide it (P0-7/P0-8:
+    //    otherwise a cold build's gated edge set and a warm load's persisted
+    //    set drift apart the moment content changes). Explicit same-package
+    //    imports keep their resolve-phase record and survive.
+    if (info.package && info.imports) {
+      for (const imp of info.imports) {
+        if (toRemove.has(imp)) continue;
+        const target = this.dg.graph.get(imp);
+        if (!target || target.package !== info.package) continue;
+        if (!info.importRecords.some((r) => r.resolved === imp)) {
+          toRemove.add(imp);
+        }
+      }
+    }
+
+    // Remove from imports array — unless a surviving record (e.g. the explicit
+    // import whose tier3/wildcard twin was stripped above) still resolves to
+    // the same target. Mirrors _stripGoExpansions' anchor guard.
     if (toRemove.size > 0 && info.imports) {
-      info.imports = info.imports.filter((imp) => !toRemove.has(imp));
+      info.imports = info.imports.filter(
+        (imp) => !toRemove.has(imp) || info.importRecords.some((r) => r.resolved === imp)
+      );
     }
   }
 
@@ -728,16 +744,28 @@ class GraphBuilder {
       }
     }
 
-    // 2. Same-package implicit references
+    // 2. Same-package implicit references — P0-7: an edge is added only when
+    //    this file actually references the package-mate's type by simple
+    //    name. Java/Kotlin make package-mates visible without an import
+    //    statement, but an unconditional link turns every package into a
+    //    clique and dependents/impact/affected-tests consume the tier3 edge
+    //    as if it were real (petclinic PetValidator: 17 dependents for one
+    //    true user). The tier3 RECORD, by contrast, stays unconditional:
+    //    dead-exports reads it as the "runtime bindings may be invisible"
+    //    signal (implicit-same-package downgrade) and a record alone never
+    //    becomes an edge.
     if (info.package) {
       const pkgFiles = this.packageIndex.get(info.package);
       if (pkgFiles) {
+        const ref = this._readReferenceSource(fileKey);
         for (const targetFile of pkgFiles) {
           if (targetFile === fileKey) continue;
-          if (!info.imports.includes(targetFile)) {
-            info.imports.push(targetFile);
-            edgeCount++;
-            samePackageCount++;
+          if (this._samePackageReferenceJustified(ref, targetFile)) {
+            if (!info.imports.includes(targetFile)) {
+              info.imports.push(targetFile);
+              edgeCount++;
+              samePackageCount++;
+            }
           }
           const implicitSource = `<same-package:${info.package}>`;
           const hasRecord = info.importRecords.some(
@@ -755,6 +783,57 @@ class GraphBuilder {
     }
 
     return { edgeCount, wildcardCount, samePackageCount };
+  }
+
+  /**
+   * P0-7 gate input: the source whose simple-name tokens decide whether a
+   * same-package edge is justified. Returns { content, tokens }, or null when
+   * the file cannot be read — the caller then fails open (keeps the edge):
+   * with no evidence either way the legacy behaviour is the conservative
+   * choice, and in production the file was parsed moments earlier, so an
+   * unreadable path is a transient race, not a different graph semantics.
+   * Callers re-evaluate on every expansion, so the next run self-corrects.
+   */
+  _readReferenceSource(fileKey) {
+    const info = this.dg.graph.get(fileKey);
+    const nativePath = (info && info.originalPath) || fileKey;
+    let content;
+    try {
+      content = fs.readFileSync(nativePath, 'utf8');
+    } catch {
+      return null;
+    }
+    const tokens = new Set();
+    REFERENCE_IDENT_RE.lastIndex = 0;
+    let m;
+    while ((m = REFERENCE_IDENT_RE.exec(content)) !== null) {
+      tokens.add(m[0]);
+    }
+    return { content, tokens };
+  }
+
+  /**
+   * P0-7 gate predicate: may `ref` hold a same-package edge to `targetKey`?
+   * True iff the target declares at least one type-level name that appears as
+   * a simple-name token in the source. A target with no type-level
+   * declarations offers nothing to reference → false (e.g. a Kotlin file with
+   * only top-level functions gets no implicit inbound edges — the documented
+   * trade-off of gating on types).
+   */
+  _samePackageReferenceJustified(ref, targetKey) {
+    if (ref === null) return true; // unreadable source — fail open
+    const target = this.dg.graph.get(targetKey);
+    if (!target) return false;
+    for (const r of target.exportRecords || []) {
+      if (!r || !r.name) continue;
+      if (r.kind != null && !JVM_TYPE_GATE_KINDS.has(r.kind)) continue;
+      if (IDENT_LIKE_RE.test(r.name)) {
+        if (ref.tokens.has(r.name)) return true;
+      } else if (ref.content.includes(r.name)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   async expandJavaPackageImports() {
@@ -1361,45 +1440,13 @@ class GraphBuilder {
       const filteredImports = [];
       for (const imp of info.imports) {
         // Find matching importRecord
-        const record = info.importRecords?.find((r) => r.resolved === imp);
-        if (record) {
-          // Rule 2: Skip if import is explicitly type-only
-          if (record.importKind === 'type' || record.isTypeOnly) {
-            continue;
-          }
-
-          // Rule 3: Skip if the target file only exports types/interfaces/annotations
-          const targetInfo = this.dg.graph.get(imp);
-          if (targetInfo) {
-            const hasExports = targetInfo.exportRecords && targetInfo.exportRecords.length > 0;
-            const allTypeOrInterface = hasExports && targetInfo.exportRecords.every(
-              (r) => r.kind === 'interface' || r.kind === 'type' || r.kind === 'annotation'
-            );
-            if (allTypeOrInterface) {
-              continue;
-            }
-
-            // Check if all imported symbols in this record are types/interfaces/annotations
-            if (record.imported && record.imported.length > 0) {
-              const allImportedAreTypes = record.imported.every((sym) => {
-                const matchedExport = targetInfo.exportRecords?.find((exp) => exp.name === sym);
-                return matchedExport && (
-                  matchedExport.kind === 'interface' ||
-                  matchedExport.kind === 'type' ||
-                  matchedExport.kind === 'annotation'
-                );
-              });
-              if (allImportedAreTypes) {
-                continue;
-              }
-            }
-          }
-        }
+        const extSource = path.extname(fileKey).toLowerCase();
+        const extTarget = path.extname(imp).toLowerCase();
+        // A type-only import is still a compile-time dependency. Keep its
+        // file edge for impact and affected-test queries.
 
         const sourcePathLower = fileKey.toLowerCase();
         const targetPathLower = imp.toLowerCase();
-        const extSource = path.extname(fileKey).toLowerCase();
-        const extTarget = path.extname(imp).toLowerCase();
         const isJavaFamily = ['.java', '.kt'].includes(extSource) || ['.java', '.kt'].includes(extTarget);
 
         if (isJavaFamily) {

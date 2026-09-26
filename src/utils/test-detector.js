@@ -135,10 +135,18 @@ function isTestLikeFile(filePath) {
   return false;
 }
 
+// pytest conftest.py is fixture/hook infrastructure, never a test itself —
+// but path rules above classify a conftest under tests/ as test-like. Every
+// affected-tests consumer must exclude it explicitly (P0-10).
+function isConftestFile(filePath) {
+  return path.basename(filePath) === 'conftest.py';
+}
+
 module.exports = {
   normalizeStem,
   normalizeHeuristicName,
   buildHeuristicSignature,
   getHeuristicLanguageFamily,
   isTestLikeFile,
+  isConftestFile,
 };

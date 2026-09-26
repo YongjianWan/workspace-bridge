@@ -135,6 +135,12 @@ async function initializeDepGraph({
     depGraph._indexWarnings = fileIndex.warnings;
   }
 
+  // P0-3: 发现阶段被丢弃的已知源码扩展文件（无 parser 认领）同上挂图——
+  // analyzer 的 coverage 分母读它，冷热两路都要走这里。
+  if (fileIndex && Array.isArray(fileIndex.unsupportedSourceFiles)) {
+    depGraph._unsupportedSourceFiles = fileIndex.unsupportedSourceFiles;
+  }
+
   // D3: attempt fast-path load from persisted edges; fall back to full build()
   const loaded = depGraph.loadGraph({ skipChangeCheck: true });
   if (!loaded) {
@@ -174,8 +180,12 @@ async function initializeDepGraph({
       }
     }
 
-    // Changed files: files that fileIndex re-indexed (mtime/size mismatch)
-    const changedFiles = fileIndex?.changedFiles || [];
+    // FileIndex uses stat hints. Cache hashes catch same-size edits whose
+    // timestamps were restored by a copy or archive operation.
+    const changedFiles = [
+      ...(fileIndex?.changedFiles || []),
+      ...(cache?.checkFileChanges?.()?.changedFiles || []),
+    ];
     for (const f of changedFiles) {
       filesToUpdate.push(f);
     }

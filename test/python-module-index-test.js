@@ -1,3 +1,4 @@
+// @fast
 // @semantic
 // Python 裸名 import 的 module-index 解析（2026-09-24 实测：串围标仓 76 条 dropped 中
 // 50 条样本里 32 条属"目标在工作区内但不在 root/backend/src/app 搜索根下"——skill 包

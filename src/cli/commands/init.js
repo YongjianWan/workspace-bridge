@@ -43,25 +43,36 @@ async function initCmd(parsed, _container) {
   const gitignorePath = path.join(root, '.gitignore');
   const GITIGNORE_ENTRIES = [
     '# workspace-bridge cache',
-    '.workspace-bridge/',
-    '.workspace-bridge-cache.json',
-    '.workspace-bridge-cache.json.bak',
-    '.tmp-*.json',
-    '.workspace-bridge-cache.json.tmp-*',
-    'cache.db',
-    'cache.db-wal',
-    'cache.db-shm',
+    '/.workspace-bridge/',
+    '/.workspace-bridge-cache.json',
+    '/.workspace-bridge-cache.json.bak',
+    '/.workspace-bridge-cache.json.tmp-*',
   ];
+  const LEGACY_ENTRIES = new Set([
+    '.workspace-bridge/', '.workspace-bridge-cache.json',
+    '.workspace-bridge-cache.json.bak', '.tmp-*.json',
+    '.workspace-bridge-cache.json.tmp-*',
+    'cache.db', 'cache.db-wal', 'cache.db-shm',
+    ...GITIGNORE_ENTRIES.slice(1),
+  ]);
   let gitignoreUpdated = false;
   try {
-    let existing = '';
-    if (fs.existsSync(gitignorePath)) {
-      existing = fs.readFileSync(gitignorePath, 'utf8');
+    const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
+    const newline = existing.includes('\r\n') ? '\r\n' : '\n';
+    const lines = existing.split(/\r?\n/);
+    const marker = lines.indexOf(GITIGNORE_ENTRIES[0]);
+    let updated;
+    if (marker === -1) {
+      updated = existing + (existing && !existing.endsWith('\n') ? newline : '')
+        + GITIGNORE_ENTRIES.join(newline) + newline;
+    } else {
+      let end = marker + 1;
+      while (LEGACY_ENTRIES.has(lines[end])) end++;
+      lines.splice(marker, end - marker, ...GITIGNORE_ENTRIES);
+      updated = lines.join(newline);
     }
-    const missing = GITIGNORE_ENTRIES.filter((line) => !existing.includes(line));
-    if (missing.length > 0) {
-      const append = (existing.endsWith('\n') ? '' : '\n') + missing.join('\n') + '\n';
-      fs.writeFileSync(gitignorePath, existing + append);
+    if (updated !== existing) {
+      fs.writeFileSync(gitignorePath, updated);
       gitignoreUpdated = true;
     }
   } catch { /* ignore gitignore errors */ }

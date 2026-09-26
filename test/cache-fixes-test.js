@@ -6,7 +6,6 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const crypto = require('crypto');
 const { WorkspaceCache, computeDefaultCacheDir } = require('../src/services/cache');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
@@ -76,27 +75,46 @@ async function testMtimePrecisionSurvivesSaveLoadRoundtrip() {
   cleanupTempDir(dir);
 }
 
+function testContentChangeWithRestoredMtime() {
+  const dir = makeTempDir('wb-cache-restored-mtime-');
+  const file = path.join(dir, 'main.js');
+  const oldContent = 'import "./a.js";\n';
+  const newContent = 'import "./b.js";\n';
+  const fixedTime = new Date('2020-01-01T00:00:00Z');
+  try {
+    fs.writeFileSync(file, oldContent);
+    fs.utimesSync(file, fixedTime, fixedTime);
+    const stat = fs.statSync(file);
+    const cache = new WorkspaceCache(dir, { cacheDir: path.join(dir, '.cache') });
+    cache.setFileMetadata(file, { mtime: stat.mtimeMs, size: stat.size, hash: sha256(oldContent) });
+
+    fs.writeFileSync(file, newContent);
+    fs.utimesSync(file, fixedTime, fixedTime);
+    const changes = cache.checkFileChanges();
+    assert(changes.changedFiles.includes(file), 'content change must survive equal size and restored mtime');
+    cache.close();
+  } finally {
+    cleanupTempDir(dir);
+  }
+}
+
 function testWalFilesMigrateWithCacheDb() {
   const root = makeTempDir('wb-cache-wal-migrate-');
-  const hash = crypto.createHash('md5').update(root).digest('hex').slice(0, 8);
-  const legacyDir = path.join(os.tmpdir(), 'workspace-bridge', hash);
+  const legacyDir = path.join(root, '.workspace-bridge');
   fs.mkdirSync(legacyDir, { recursive: true });
-
   fs.writeFileSync(path.join(legacyDir, 'cache.db'), 'main_db');
   fs.writeFileSync(path.join(legacyDir, 'cache.db-wal'), 'wal_data');
   fs.writeFileSync(path.join(legacyDir, 'cache.db-shm'), 'shm_data');
 
   const preferredDir = computeDefaultCacheDir(root);
-  assert.strictEqual(preferredDir, path.join(root, '.workspace-bridge'));
+  assert(!preferredDir.startsWith(root + path.sep), 'default cache must live outside the workspace');
+  assert.strictEqual(fs.readFileSync(path.join(preferredDir, 'cache.db'), 'utf8'), 'main_db');
+  assert.strictEqual(fs.readFileSync(path.join(preferredDir, 'cache.db-wal'), 'utf8'), 'wal_data');
+  assert.strictEqual(fs.readFileSync(path.join(preferredDir, 'cache.db-shm'), 'utf8'), 'shm_data');
+  assert(!fs.existsSync(legacyDir), 'migrated cache directory should no longer dirty the workspace');
 
-  assert.strictEqual(fs.readFileSync(path.join(preferredDir, 'cache.db'), 'utf8'), 'main_db', 'main db should migrate');
-  assert.strictEqual(fs.readFileSync(path.join(preferredDir, 'cache.db-wal'), 'utf8'), 'wal_data', 'WAL file should migrate');
-  assert.strictEqual(fs.readFileSync(path.join(preferredDir, 'cache.db-shm'), 'utf8'), 'shm_data', 'SHM file should migrate');
-
-  assert(!fs.existsSync(path.join(legacyDir, 'cache.db')), 'legacy main db should be removed');
-  assert(!fs.existsSync(path.join(legacyDir, 'cache.db-wal')), 'legacy WAL file should be removed');
-  assert(!fs.existsSync(path.join(legacyDir, 'cache.db-shm')), 'legacy SHM file should be removed');
-
+  for (const suffix of ['', '-wal', '-shm']) fs.unlinkSync(path.join(preferredDir, 'cache.db' + suffix));
+  fs.rmdirSync(preferredDir);
   cleanupTempDir(root);
 }
 
@@ -158,6 +176,7 @@ function testCloseIsExceptionSafe() {
 async function main() {
   testResolveCachedFilePathFallbackReturnsOriginalPath();
   testMtimeFastPathToleratesIntegerStoragePrecision();
+  testContentChangeWithRestoredMtime();
   await testMtimePrecisionSurvivesSaveLoadRoundtrip();
   testWalFilesMigrateWithCacheDb();
   testDeleteFileMetadataCascadesToAllSlots();

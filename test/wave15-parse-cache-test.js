@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @contract — ParseCache 跨调用内存缓存功能校验
 
 const assert = require('assert');

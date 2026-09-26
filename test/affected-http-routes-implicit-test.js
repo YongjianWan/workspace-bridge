@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @semantic
 /**
  * Verify that findAffectedHttpRoutes sorts direct routes first, and tags
@@ -51,6 +52,7 @@ async function main() {
     import org.springframework.web.bind.annotation.RestController;
     @RestController
     public class ControllerB {
+        private ControllerA delegate;
         @GetMapping("/api/b")
         public String getB() { return ""; }
     }

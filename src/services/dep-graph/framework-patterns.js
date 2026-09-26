@@ -6,14 +6,14 @@
  *
  * This module only contains:
  *   1. AST_PATTERNS — content-based framework signatures.
- *   2. detectFrameworkFromContent — lightweight scan of file head bytes.
+ *   2. detectFrameworkFromContent — lightweight scan of full file content
+ *      (callers bound its size; see P0-4/P0-5 — no head-byte windows).
  *
  * Translated from GitNexus framework-detection.ts, trimmed to
  * workspace-bridge's 9 supported languages.
  */
 
 const path = require('path');
-const { LIMITS } = require('../../config/constants');
 const { ENTRY_WEIGHT, detectFrameworkFromPath } = require('../../utils/project-context');
 const { compileQuery, runQuery } = require('./query-compiler');
 const { getParserModule, loadLanguage } = require('./parsers/tree-sitter');
@@ -350,7 +350,11 @@ function detectFrameworkFromContentSync(filePath, content) {
   const configs = AST_PATTERNS[key];
   if (!configs || configs.length === 0) return null;
 
-  const sample = content.slice(0, LIMITS.ENTRY_SCAN_BYTES).toLowerCase();
+  // Scan the whole content, not a head-window: callers already bound its
+  // size (parse stage and entry scan each read at most PARSER_MAX_FILE_BYTES).
+  // The old 4KB slice is what made P0-5 report a FastAPI file whose first
+  // decorator sat at byte 20792 as framework-less.
+  const sample = content.toLowerCase();
   for (const cfg of configs) {
     for (const pat of cfg.patterns) {
       if (sample.includes(pat.toLowerCase())) {
@@ -381,7 +385,9 @@ async function tryDetectFrameworkWithQuery(filePath, content) {
   else if (ext === '.rs') langKey = 'rs';
 
   const configs = AST_PATTERNS[langKey] || [];
-  const sample = content.slice(0, LIMITS.ENTRY_SCAN_BYTES).toLowerCase();
+  // Same full-content rule as the sync scanner above: the query prefilter
+  // must not disagree with the sync fallback about where patterns may appear.
+  const sample = content.toLowerCase();
 
   return runQueryRegistry(filePath, content, FRAMEWORK_QUERY_REGISTRY, async (tree, lang, queryDefs) => {
     const activeQueryDefs = [];
@@ -449,8 +455,12 @@ function extractRoutesWithRegex(filePath, content) {
   const patterns = ROUTE_PATTERNS[key];
   if (!patterns || patterns.length === 0) return [];
 
-  const ROUTE_SCAN_MULTIPLIER = 4;
-  const sample = content.slice(0, LIMITS.ENTRY_SCAN_BYTES * ROUTE_SCAN_MULTIPLIER);
+  // No byte window: route regexes are linear, callers already bound the
+  // content (parse stage ≤ PARSER_MAX_FILE_BYTES; api-contracts reads files
+  // whole), and the tree-sitter query path above scans the full content —
+  // the old 4KB×4 window made the regex fallback silently lose routes the
+  // query path would find (P0-5).
+  const sample = content;
   const routes = [];
   const seen = new Set();
 

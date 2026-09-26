@@ -29,6 +29,7 @@ const { GraphBuilder } = require('./dep-graph/builder');
 const { GraphAnalyzer } = require('./dep-graph/analyzer');
 const { GraphQuery } = require('./dep-graph/query');
 const { EntryDetector } = require('./dep-graph/entry-detector');
+const { collectUnresolvedImports } = require('./dep-graph/unresolved-imports');
 const { loadGraph: loadGraphImpl } = require('./dep-graph/loader');
 const { DG_STATES, GraphStateMachine } = require('./dep-graph/state-machine');
 const { registerGraphBuiltHandler } = require('./dep-graph/persistence');
@@ -51,7 +52,6 @@ class DependencyGraph {
       DependencyGraphClass: DependencyGraph,
     });
   }
-
   constructor(workspaceRoot, cache, options = {}) {
     this.root = workspaceRoot;
     this.normalizeFilePath = (filePath) => normalizeFilePath(filePath, workspaceRoot);
@@ -322,22 +322,24 @@ class DependencyGraph {
   }
 
   /**
-   * L2-13: imports that looked local but resolved to null and were dropped
-   * during the last cold build. Gate-known externals are excluded by
-   * construction (builder.js resolveFileOnly). On the warm path no build ran,
-   * so there is nothing to count — `measured: false` marks that explicitly,
-   * because a warm "0" reads as "no problem" when it really means "not measured".
-   * @returns {{count: number, files: number, samples: Array<{file: string, specifier: string}>, measured: boolean}}
+   * Unresolved imports visible from the current graph, including warm restores.
+   * Bare Python names have uncertain ownership and are reported separately.
    */
   getDroppedImports() {
-    const dropped = this._droppedImports;
-    if (!dropped) return { count: 0, files: 0, samples: [], measured: false };
+    const { local, uncertain } = collectUnresolvedImports(
+      this.graph, this.root, this.builder?.workspacePackages,
+    );
+    const display = (samples) => samples.map((sample) => ({
+      file: this._displayPath(sample.file),
+      specifier: sample.specifier,
+    }));
     return {
-      count: dropped.count,
-      files: dropped.files.size,
-      // Display-path convention (native-cased originalPath), same as the
-      // deadExports / unresolved fields — not the normalized lowercase key.
-      samples: dropped.samples.map((s) => ({ file: this._displayPath(s.file), specifier: s.specifier })),
+      count: local.count,
+      files: local.files.size,
+      samples: display(local.samples),
+      uncertainCount: uncertain.count,
+      uncertainFiles: uncertain.files.size,
+      uncertainSamples: display(uncertain.samples),
       measured: true,
     };
   }

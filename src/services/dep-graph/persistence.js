@@ -144,6 +144,11 @@ async function savePrecomputed(depGraph) {
         if (depGraph.isTestLikeFile(filePath)) continue;
         const tests = depGraph.analyzer.findAffectedTests(filePath, CONFIG.DEFAULT_MAX_DEPTH, { includeHeuristic: true });
         for (const t of tests) {
+          // P0-10: implicit conftest rows have no persisted signal — storing
+          // them as 'import' would make warm serve source 'graph' while cold
+          // recomputes 'conftest'. They are derived from graph structure and
+          // re-added at query time on both paths, so skipping is parity-safe.
+          if (t.source === 'conftest') continue;
           const testFileNormalized = depGraph.normalizeFilePath(t.file);
           let signal = 'import';
           if (t.source === 'heuristic') signal = 'heuristic';

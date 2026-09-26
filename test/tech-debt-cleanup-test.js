@@ -121,45 +121,52 @@ async function testFrameworkDetectionParity() {
 }
 
 async function testCacheDirectoryPrecedenceAndMigration() {
-  console.log('--- Testing Cache Directory Fallback, Gitignore & Migration ---');
+  console.log('--- Testing external cache, fallback and migration ---');
   const root = makeTempDir('wb-cache-debt-');
-
-  // Scenario 1: Writable workspace, should use preferred local dir but NOT auto-append gitignore
-  const gitignorePath = path.join(root, '.gitignore');
-  fs.writeFileSync(gitignorePath, '# existing\n');
-  const dir1 = computeDefaultCacheDir(root);
-  assert.strictEqual(dir1, path.join(root, '.workspace-bridge'), 'Should use preferred workspace-local dir');
-  assert(fs.existsSync(gitignorePath), 'Should keep existing .gitignore');
-  const gitignoreContent = fs.readFileSync(gitignorePath, 'utf8');
-  assert(!gitignoreContent.includes('.workspace-bridge/'), 'Should NOT auto-append cache dir to gitignore; only `init` command should manage gitignore');
-
-  // Scenario 2: Preferred dir not writable, should fallback to tmpdir
-  // Create a file at the preferred path so mkdirSync will fail
   const blockedRoot = makeTempDir('wb-cache-blocked-');
-  fs.writeFileSync(path.join(blockedRoot, '.workspace-bridge'), 'im_a_file_not_a_directory');
-  const dir2 = computeDefaultCacheDir(blockedRoot);
-  assert(dir2.includes(os.tmpdir()), 'Should fallback to tmpdir when preferred dir is blocked');
-
-  // Scenario 3: Cache migration from legacy to preferred
   const migrationRoot = makeTempDir('wb-cache-migrate-');
-  // First compute fallback path to pre-create legacy cache.db
-  const hash = require('crypto').createHash('md5').update(migrationRoot).digest('hex').slice(0, 8);
-  const legacyDir = path.join(os.tmpdir(), 'workspace-bridge', hash);
-  fs.mkdirSync(legacyDir, { recursive: true });
-  fs.writeFileSync(path.join(legacyDir, 'cache.db'), 'legacy_cache_content');
+  const cacheEnv = process.platform === 'win32' ? 'LOCALAPPDATA' : 'XDG_CACHE_HOME';
+  const originalCacheRoot = process.env[cacheEnv];
+  let dir1;
+  let dir2;
+  let preferredDir;
+  try {
+    const gitignorePath = path.join(root, '.gitignore');
+    fs.writeFileSync(gitignorePath, '# existing\n');
+    dir1 = computeDefaultCacheDir(root);
+    assert(!dir1.startsWith(root + path.sep), 'default cache belongs outside the workspace');
+    assert.strictEqual(fs.readFileSync(gitignorePath, 'utf8'), '# existing\n',
+      'ordinary analysis must not edit .gitignore');
 
-  // Now run computeDefaultCacheDir which should migrate it to .workspace-bridge/cache.db
-  const preferredDir = computeDefaultCacheDir(migrationRoot);
-  assert.strictEqual(preferredDir, path.join(migrationRoot, '.workspace-bridge'));
-  const newDbPath = path.join(preferredDir, 'cache.db');
-  assert(fs.existsSync(newDbPath), 'Should migrate cache.db to new path');
-  assert.strictEqual(fs.readFileSync(newDbPath, 'utf8'), 'legacy_cache_content', 'Migrated file content should match');
-  assert(!fs.existsSync(path.join(legacyDir, 'cache.db')), 'Legacy cache.db should be removed');
+    const blockedBase = path.join(blockedRoot, 'blocked-cache-root');
+    fs.writeFileSync(blockedBase, 'not a directory');
+    process.env[cacheEnv] = blockedBase;
+    dir2 = computeDefaultCacheDir(blockedRoot);
+    assert(dir2.startsWith(os.tmpdir() + path.sep), 'unwritable cache root should use temp fallback');
+    if (originalCacheRoot === undefined) delete process.env[cacheEnv];
+    else process.env[cacheEnv] = originalCacheRoot;
 
-  cleanupTempDir(root);
-  cleanupTempDir(blockedRoot);
-  cleanupTempDir(migrationRoot);
-  console.log('✓ Cache directory fallback, gitignore, and migration tests passed.');
+    const hash = require('crypto').createHash('md5').update(migrationRoot).digest('hex').slice(0, 8);
+    const legacyDir = path.join(os.tmpdir(), 'workspace-bridge', hash);
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyDir, 'cache.db'), 'legacy_cache_content');
+    preferredDir = computeDefaultCacheDir(migrationRoot);
+    assert.strictEqual(fs.readFileSync(path.join(preferredDir, 'cache.db'), 'utf8'), 'legacy_cache_content');
+    assert(!fs.existsSync(path.join(legacyDir, 'cache.db')), 'legacy DB should move to the external cache');
+    console.log('✓ external cache, fallback and migration passed');
+  } finally {
+    if (originalCacheRoot === undefined) delete process.env[cacheEnv];
+    else process.env[cacheEnv] = originalCacheRoot;
+    if (dir1) fs.rmdirSync(dir1);
+    if (dir2) fs.rmdirSync(dir2);
+    if (preferredDir) {
+      fs.unlinkSync(path.join(preferredDir, 'cache.db'));
+      fs.rmdirSync(preferredDir);
+    }
+    cleanupTempDir(root);
+    cleanupTempDir(blockedRoot);
+    cleanupTempDir(migrationRoot);
+  }
 }
 
 async function testConfigurationPrecedenceChain() {

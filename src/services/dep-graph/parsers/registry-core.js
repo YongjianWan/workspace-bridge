@@ -22,7 +22,6 @@
  * @param {boolean} [config.async=false]
  * @param {boolean} [config.needsFilePath=false]
  * @param {string[]} [config.filePatterns]
- * @param {Function} [config.condition]
  * @returns {object}
  */
 function defineLanguage(config) {
@@ -47,7 +46,6 @@ function defineLanguage(config) {
     needsFilePath: config.needsFilePath ?? false,
     needsWorkspaceRoot: config.needsWorkspaceRoot ?? false,
     filePatterns: config.filePatterns ?? extensions.map((e) => `**/*${e}`),
-    condition: config.condition ?? (() => true),
   };
 
   // Compatibility getters/setters for L1 back-compat
@@ -103,21 +101,15 @@ class LanguageRegistry {
   }
 
   /**
-   * Generate file-index glob patterns for the given workspace.
-   * Falls back to all registered patterns when no conditions match.
-   * @param {object} workspace
+   * Generate file-index glob patterns: every registered language, always.
+   * Languages are enabled by EXTENSION — a .ts file is indexed whether or
+   * not a package.json exists. Root manifests feed stack-profile detection
+   * (detectWorkspace consumers); they never gate indexing (review P0-2:
+   * one matching language used to switch every other language off).
    * @returns {string[]}
    */
-  getFilePatterns(workspace) {
-    const patterns = [];
-    for (const lang of this.languages) {
-      if (!lang.condition || lang.condition(workspace)) {
-        for (const pat of lang.filePatterns) {
-          patterns.push(pat);
-        }
-      }
-    }
-    return patterns.length > 0 ? patterns : this.languages.flatMap((l) => l.filePatterns);
+  getFilePatterns() {
+    return this.languages.flatMap((l) => l.filePatterns);
   }
 }
 

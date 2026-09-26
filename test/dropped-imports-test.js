@@ -1,3 +1,4 @@
+// @fast
 // @semantic
 // L2-13: resolve failures must not vanish silently.
 //
@@ -86,19 +87,18 @@ async function main() {
 
   await container.shutdown();
 
-  // Warm run: a fresh container over the SAME cache dir restores the graph
-  // without a cold build. The replayed snapshot must keep the cold count but
-  // must NOT stamp measured:true on it — this run measured nothing. A
-  // replayed measured:true answers "was this measured now?" with "yes"
-  // forever, including on runs that never measured.
+  // Warm run measures unresolved records from the restored graph. The count
+  // and warning must agree with cold without depending on a stale snapshot.
   const warm = new ServiceContainer({ quiet: true, cacheDir });
   await warm.initialize(root, 60000, { watch: false });
   const replayed = await buildProjectOverview({}, warm);
   assert.strictEqual(replayed.droppedImports.droppedCount, 1, 'replay keeps the cold measurement');
+  assert(warm.snapshot.graph.buildWarnings().some((warning) => warning.type === 'unresolved-dropped'),
+    'warm graph must still warn about unresolved local imports');
   assert.strictEqual(
     replayed.droppedImports.measured,
-    false,
-    'warm replay must report measured: false — the number is from the last cold build, not this run'
+    true,
+    'warm graph remeasures unresolved records in this run'
   );
   await warm.shutdown();
 

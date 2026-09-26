@@ -111,6 +111,14 @@ async function testFieldsFiltering() {
 }
 
 async function testSqlQueryValidationAndSecurity() {
+  const literalRes = await runCliInProcess([
+    'query', '--sql', "SELECT key FROM analysis_snapshots WHERE key LIKE '%update; union%'",
+    '--json', '--quiet',
+  ]);
+  assert.strictEqual(literalRes.status, 0, literalRes.stdout);
+  assert.strictEqual(JSON.parse(literalRes.stdout).ok, true,
+    'write and set-operation words inside a string must remain data');
+
   // 1. Valid Select Query
   const validRes = await runCliInProcess(['query', '--sql', 'SELECT key, file_count FROM analysis_snapshots', '--json', '--quiet']);
   assert.strictEqual(validRes.status, 0);

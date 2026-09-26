@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // @semantic
-// Unit tests for GraphBuilder._filterNonValueImports edge-level pruning.
-// Directly exercises the private method with synthetic graph state to avoid
-// parser dependency (e.g. 'import type' is not yet supported by the JS parser).
+// Structural edges include compile-time type dependencies; the remaining
+// filter only applies to heuristic Java utility edges.
 
 const assert = require('assert');
 const path = require('path');
@@ -19,7 +18,7 @@ function makeMockDepGraph(entries) {
   };
 }
 
-function testRule2TypeOnlyImportFiltered() {
+function testTypeOnlyImportPreserved() {
   const dg = makeMockDepGraph([
     ['app.ts', {
       imports: ['types.ts'],
@@ -39,12 +38,12 @@ function testRule2TypeOnlyImportFiltered() {
   const appInfo = dg.graph.get('app.ts');
   assert.strictEqual(
     appInfo.imports.includes('types.ts'),
-    false,
-    'Rule 2: importKind === "type" should be pruned'
+    true,
+    'type imports remain structural dependencies'
   );
 }
 
-function testRule2IsTypeOnlyFiltered() {
+function testIsTypeOnlyPreserved() {
   const dg = makeMockDepGraph([
     ['app.ts', {
       imports: ['types.ts'],
@@ -64,12 +63,12 @@ function testRule2IsTypeOnlyFiltered() {
   const appInfo = dg.graph.get('app.ts');
   assert.strictEqual(
     appInfo.imports.includes('types.ts'),
-    false,
-    'Rule 2: isTypeOnly should be pruned'
+    true,
+    'isTypeOnly imports remain structural dependencies'
   );
 }
 
-function testRule3AllExportsAreTypesFiltered() {
+function testAllExportsAreTypesPreserved() {
   const dg = makeMockDepGraph([
     ['app.ts', {
       imports: ['iface.ts'],
@@ -89,12 +88,12 @@ function testRule3AllExportsAreTypesFiltered() {
   const appInfo = dg.graph.get('app.ts');
   assert.strictEqual(
     appInfo.imports.includes('iface.ts'),
-    false,
-    'Rule 3: target with only interface exports should be pruned'
+    true,
+    'interface-only targets remain compile-time dependencies'
   );
 }
 
-function testRule3AllImportedSymbolsAreTypesFiltered() {
+function testAllImportedSymbolsAreTypesPreserved() {
   const dg = makeMockDepGraph([
     ['app.ts', {
       imports: ['iface.ts'],
@@ -118,8 +117,8 @@ function testRule3AllImportedSymbolsAreTypesFiltered() {
   const appInfo = dg.graph.get('app.ts');
   assert.strictEqual(
     appInfo.imports.includes('iface.ts'),
-    false,
-    'Rule 3: all imported symbols are types/interfaces should be pruned'
+    true,
+    'type-only symbol references remain compile-time dependencies'
   );
 }
 
@@ -267,10 +266,10 @@ function testNoImportRecordUsesResolvedMatch() {
 }
 
 function main() {
-  testRule2TypeOnlyImportFiltered();
-  testRule2IsTypeOnlyFiltered();
-  testRule3AllExportsAreTypesFiltered();
-  testRule3AllImportedSymbolsAreTypesFiltered();
+  testTypeOnlyImportPreserved();
+  testIsTypeOnlyPreserved();
+  testAllExportsAreTypesPreserved();
+  testAllImportedSymbolsAreTypesPreserved();
   testRule3MixedExportNotFiltered();
   testRule5JavaUtilityMutualPruned();
   testRule6JavaUtilityToEntityPruned();

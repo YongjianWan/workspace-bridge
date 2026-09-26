@@ -56,8 +56,8 @@ function isInsideSubmodule(root) {
   return r.status === 0 && r.stdout.trim().length > 0;
 }
 
-function hasSubmodules(root) {
-  if (isInsideSubmodule(root)) return true;
+function hasSubmodules(root, insideSubmodule = isInsideSubmodule(root)) {
+  if (insideSubmodule) return true;
   try {
     return fs.existsSync(path.join(root, '.gitmodules'));
   } catch {
@@ -67,21 +67,32 @@ function hasSubmodules(root) {
 
 const LFS_POINTER_HEADER = 'version https://git-lfs.github.com/spec/v1';
 
+function declaresLfsFilter(root) {
+  try {
+    const attrsPath = path.join(root, '.gitattributes');
+    if (!fs.existsSync(attrsPath)) return false;
+    return /\bfilter\s*=\s*lfs\b/.test(fs.readFileSync(attrsPath, 'utf8'));
+  } catch {
+    return false;
+  }
+}
+
 function hasLfsPointers(root) {
+  // Cheap gate first: `git lfs ls-files` costs ~2.6s per invocation on Windows
+  // (2026-09-25 实测, git-lfs 3.7.1, 2 文件仓库) even when the repo has zero
+  // LFS content — it was the single largest item in every CLI run's git probe.
+  // A repo whose .gitattributes declares no filter=lfs cannot have LFS-tracked
+  // files via the standard `git lfs track` path, so skip the spawn entirely.
+  // Accepted blind spot: declarations only in .git/info/attributes (local,
+  // rare) — this is a degradation signal, not a security boundary.
+  if (!declaresLfsFilter(root)) return false;
   // Preferred: ask git-lfs which files it manages.
   const lfs = runGit(root, ['lfs', 'ls-files']);
   if (lfs.status === 0) {
     return lfs.stdout.trim().length > 0;
   }
-  // Fallback: detect .gitattributes filter=lfs declarations.
-  try {
-    const attrsPath = path.join(root, '.gitattributes');
-    if (!fs.existsSync(attrsPath)) return false;
-    const attrs = fs.readFileSync(attrsPath, 'utf8');
-    return /\bfilter\s*=\s*lfs\b/.test(attrs);
-  } catch {
-    return false;
-  }
+  // git-lfs unavailable: the .gitattributes declaration itself is the signal.
+  return true;
 }
 
 /**
@@ -208,7 +219,9 @@ function analyzeGitEnvironment(workspaceRoot) {
   env.isShallow = isShallowClone(workspaceRoot);
   env.isSparseCheckout = isSparseCheckout(workspaceRoot);
   env.isInsideSubmodule = isInsideSubmodule(workspaceRoot);
-  env.hasSubmodules = hasSubmodules(workspaceRoot);
+  // Pass the already-probed value: hasSubmodules' default would re-run the
+  // same `git rev-parse --show-superproject-working-tree` spawn (~350ms).
+  env.hasSubmodules = hasSubmodules(workspaceRoot, env.isInsideSubmodule);
   env.hasLfsPointers = hasLfsPointers(workspaceRoot);
   env.isMonorepoSubpackage = isMonorepoSubpackage(workspaceRoot);
 

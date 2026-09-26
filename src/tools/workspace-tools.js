@@ -53,8 +53,8 @@ function classifyLangByExt(ext) {
  * Counts source files and language distribution without reading file contents,
  * avoiding the full ServiceContainer/FileIndex/DepGraph pipeline.
  */
-function lightweightFileScan(root, workspace, cliExcludeDirs = []) {
-  const patterns = registry.getFilePatterns(workspace);
+function lightweightFileScan(root, cliExcludeDirs = []) {
+  const patterns = registry.getFilePatterns();
   const exts = new Set();
   for (const pat of patterns) {
     // Patterns are '**/*.ext'; strip the glob prefix to obtain the literal extension.
@@ -299,7 +299,7 @@ function workspaceInfo(args, container) {
       langCounts[lang] = (langCounts[lang] || 0) + 1;
     }
   } else {
-    const scan = lightweightFileScan(root, workspace, args?.excludeDirs);
+    const scan = lightweightFileScan(root, args?.excludeDirs);
     fileCount = scan.fileCount;
     langCounts = scan.langCounts;
   }

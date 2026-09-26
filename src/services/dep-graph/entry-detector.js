@@ -17,25 +17,26 @@ const {
   PYTHON_MAIN_PATTERN,
 } = require('./shared');
 
+const C_CPP_ENTRY_EXTENSIONS = new Set(['.c', '.cc', '.cpp', '.cxx']);
+
 /**
- * Read the first N bytes of a file for content-based detection.
- * Returns null if the file is too large or unreadable.
+ * Read a file for content-based entry detection.
+ * Returns null if the file is unreadable or larger than the parser cap.
  * @param {string} filePath
  * @returns {string|null}
  */
 function readScanContent(filePath) {
   try {
     const stats = fs.statSync(filePath);
-    if (stats.size > LIMITS.ENTRY_FILE_MAX_BYTES) return null;
-
-    const fd = fs.openSync(filePath, 'r');
-    try {
-      const buffer = Buffer.alloc(LIMITS.ENTRY_SCAN_BYTES);
-      const bytesRead = fs.readSync(fd, buffer, 0, LIMITS.ENTRY_SCAN_BYTES, 0);
-      return buffer.toString('utf8', 0, bytesRead);
-    } finally {
-      fs.closeSync(fd);
-    }
+    // Scan boundary = parser coverage: files above PARSER_MAX_FILE_BYTES
+    // parse with zero exports, so dead-exports never consults them; orphan
+    // checks keep the same "too big to judge" behavior as before. Within the
+    // cap the FULL file is read — entry signals (a trailing
+    // `if __name__ == "__main__":` guard, framework decorators) can sit
+    // anywhere, and a fixed head-window was the root cause of P0-4/P0-5
+    // false positives. One bounded read per file, memoized by EntryDetector._cache.
+    if (stats.size > LIMITS.PARSER_MAX_FILE_BYTES) return null;
+    return fs.readFileSync(filePath, 'utf8');
   } catch {
     return null;
   }
@@ -59,7 +60,7 @@ class EntryDetector {
    * @param {Array} [exports]
    * @returns {boolean}
    */
-  isKnownEntryFile(filePath, _exports) {
+  isKnownEntryFile(filePath, exports = null) {
     const key = this.normalizeFilePath(filePath);
     if (this._cache.has(key)) {
       return this._cache.get(key);
@@ -67,6 +68,9 @@ class EntryDetector {
 
     let result = false;
     if (this.entryFiles.has(key)) {
+      result = true;
+    } else if (C_CPP_ENTRY_EXTENSIONS.has(path.extname(filePath).toLowerCase())
+      && (exports || this.getFileInfo?.(filePath)?.exports || []).includes('main')) {
       result = true;
     } else {
       const normalized = normalizePathKey(filePath);

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @semantic
 /**
  * Test direct SQLite-backed affected HTTP route query and persistence.

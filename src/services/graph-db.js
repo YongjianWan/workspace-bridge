@@ -9,6 +9,9 @@ const fs = require('fs');
 const path = require('path');
 const { CACHE_VERSION } = require('../config/constants');
 
+// Quoted data and comments must not trigger keyword or statement checks.
+const SQL_NON_CODE = /'(?:''|[^'])*'|"(?:""|[^"])*"|`(?:``|[^`])*`|\[(?:\]\]|[^\]])*\]|--[^\r\n]*|\/\*[\s\S]*?\*\//g;
+
 const CACHE_TABLE_SCHEMA = {
   file_metadata: {
     resultKey: 'fileMetadata',
@@ -41,7 +44,7 @@ const CACHE_TABLE_SCHEMA = {
     resultKey: 'parseResults',
     incrementalKeys: { dirty: 'dirtyParseResults', deleted: 'deletedParseResults' },
     idColumn: 'path',
-    columns: ['path', 'mtime', 'imports', 'exports', 'import_records', 'export_records', 'function_records', 'parse_mode', 'parse_mode_reason', 'confidence', 'framework_hint', 'routes'],
+    columns: ['path', 'mtime', 'imports', 'exports', 'import_records', 'export_records', 'function_records', 'parse_mode', 'parse_mode_reason', 'confidence', 'framework_hint', 'routes', 'package'],
     serialize: (path, result) => [
       path,
       result.mtime ?? 0,
@@ -55,6 +58,11 @@ const CACHE_TABLE_SCHEMA = {
       result.confidence || '',
       result.frameworkHint ? JSON.stringify(result.frameworkHint) : null,
       JSON.stringify(result.routes || []),
+      // P0-8: `package` must survive the SQLite round-trip — the warm paths
+      // rebuild _buildPackageIndex() from parse results, and a dropped field
+      // makes expandJavaPackageImports() silently skip cached JVM files
+      // (warm graph ≠ cold graph for identical code).
+      result.package ?? null,
     ],
     deserialize: (row) => ({
       mtime: Number(row.mtime),
@@ -68,6 +76,7 @@ const CACHE_TABLE_SCHEMA = {
       confidence: row.confidence,
       frameworkHint: row.framework_hint ? JSON.parse(row.framework_hint) : null,
       routes: row.routes ? JSON.parse(row.routes) : [],
+      package: row.package ?? null,
     }),
   },
   symbol_index: {
@@ -124,7 +133,8 @@ const SCHEMA = `
     parse_mode_reason TEXT,
     confidence TEXT,
     framework_hint TEXT,
-    routes TEXT
+    routes TEXT,
+    package TEXT
   );
 
   CREATE TABLE IF NOT EXISTS symbol_index (
@@ -490,6 +500,12 @@ class GraphDB {
       }
       if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'routes')) {
         this.db.prepare('ALTER TABLE parse_results ADD COLUMN routes TEXT').run();
+      }
+      // P0-8: persist `package` — warm paths rebuild the JVM package index
+      // from parse results; without the column expandJavaPackageImports()
+      // silently skips cached files and warm/cold graphs diverge.
+      if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'package')) {
+        this.db.prepare('ALTER TABLE parse_results ADD COLUMN package TEXT').run();
       }
       // Wave B-2: add config_hash column to precomputed_aggregates so query-* snapshots
       // can invalidate when .workspace-bridge.json changes.
@@ -1235,15 +1251,16 @@ class GraphDB {
         // Independent defense layer: reject data-modification keywords
         // and set operations (UNION/INTERSECT/EXCEPT) that can be used to
         // leak schema or cross-table data through an otherwise valid SELECT.
+      const singleStatement = normalized.replace(/;\s*$/, '');
+      const sqlCode = singleStatement.replace(SQL_NON_CODE, ' ');
         const forbidden = /\b(insert|update|delete|drop|create|alter|replace|vacuum|attach|detach|begin|commit|rollback|savepoint|union|intersect|except)\b/i;
-        if (forbidden.test(normalized)) {
+      if (forbidden.test(sqlCode)) {
           return { ok: false, error: 'Database modification or set-operation keywords are not allowed' };
         }
 
         // Strip a single trailing semicolon, then reject any remaining semicolons
         // to prevent multi-statement attacks.
-        const singleStatement = normalized.replace(/;\s*$/, '');
-        if (singleStatement.includes(';')) {
+      if (sqlCode.includes(';')) {
           return { ok: false, error: 'Multiple statements are not allowed' };
         }
 
@@ -1270,4 +1287,3 @@ module.exports = {
   acquireLockSync,
   releaseLockSync,
 };
-

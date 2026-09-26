@@ -72,7 +72,16 @@ function testOverviewToolsCallsUnconditionally() {
   const src = readSrc('tools/overview-tools.js');
   assert.ok(!src.includes('getContentSignature?.'), 'overview-tools 不得对 getContentSignature 打 ?.（L3-8）');
   const calls = src.split('container.cache.getContentSignature()').length - 1;
-  assert.strictEqual(calls, 2, `overview-tools 应恰好 2 处无条件直调（isSnapshotFresh + 快照写盘），实得 ${calls}`);
+  assert.strictEqual(calls, 1, `overview-tools 应恰好 1 处无条件直调（快照写盘），实得 ${calls}`);
+}
+
+function testSnapshotFreshnessCallsUnconditionally() {
+  // L3-11 收口后 strict 档的内容签名比较集中在 snapshot-freshness.js，
+  // overview-tools 的 freshness 调用不再本地直调——闸跟着结构走。
+  const src = readSrc('tools/snapshot-freshness.js');
+  assert.ok(!src.includes('getContentSignature?.'), 'snapshot-freshness 不得对 getContentSignature 打 ?.（L3-8）');
+  const calls = src.split('container.cache.getContentSignature()').length - 1;
+  assert.strictEqual(calls, 1, `snapshot-freshness 应恰好 1 处无条件直调（strict 档 contentMatch），实得 ${calls}`);
 }
 
 function testQueryToolsCallsUnconditionally() {
@@ -96,6 +105,7 @@ function main() {
     testNullEntryThrowsLoudly,
     testSparseEntryKeepsLegacyTolerance,
     testOverviewToolsCallsUnconditionally,
+    testSnapshotFreshnessCallsUnconditionally,
     testQueryToolsCallsUnconditionally,
     testCacheBodyTrustsObjectShape,
   ];

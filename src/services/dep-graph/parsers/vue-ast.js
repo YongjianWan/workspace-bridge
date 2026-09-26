@@ -136,13 +136,13 @@ function extractTemplateComponentNames(rootNode) {
 /**
  * Local import bindings (local name -> { source, importedName }) taken from
  * the importRecords ast-parser already produced — one parse, one judge.
- * Type-only imports are already excluded upstream (ast-parser skips
- * importKind === 'type'), so `import type { Foo }` can never fabricate a
- * template usage edge.
+ * Type-only imports form structural file dependencies, but cannot supply
+ * runtime components to the template.
  */
 function collectLocalImportBindings(importRecords) {
   const bindings = new Map();
   for (const record of importRecords || []) {
+    if (record.isTypeOnly) continue;
     for (const [local, importedName] of Object.entries(record.localBindings || {})) {
       bindings.set(local, { source: record.source, importedName });
     }

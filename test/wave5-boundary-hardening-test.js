@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @contract
 // Wave 5 boundary hardening regression tests.
 

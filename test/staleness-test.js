@@ -113,14 +113,15 @@ function main() {
     }
   }
 
-  // File mtime mismatch → filesChanged
+  // Matching mtime and size cannot hide changed content.
   {
     const dir = makeTempDir('wb-staleness-');
     const file = path.join(dir, 'a.js');
     fs.writeFileSync(file, 'export const a = 1;\n');
 
     const cache = new WorkspaceCache(dir, { cacheDir: path.join(dir, '.cache') });
-    cache.setFileMetadata(file, { mtime: 0, size: fs.statSync(file).size });
+    const stats = fs.statSync(file);
+    cache.setFileMetadata(file, { mtime: stats.mtimeMs, size: stats.size, hash: sha256('export const a = 2;\n') });
 
     const c = new ServiceContainer();
     c.workspaceRoot = dir;
@@ -128,21 +129,21 @@ function main() {
     c.cache = cache;
 
     const s = c.getStaleness();
-    assert.strictEqual(s.filesChanged, true, 'should detect mtime mismatch');
+    assert.strictEqual(s.filesChanged, true, 'should detect content hash mismatch');
     assert.strictEqual(s.isStale, true, 'isStale should be true when files changed');
     assert.ok(s.changedFiles.includes(file), 'changedFiles should include the modified file');
 
     cleanupTempDir(dir);
   }
 
-  // File size mismatch → filesChanged
+  // Size drift with identical content updates metadata without marking stale.
   {
     const dir = makeTempDir('wb-staleness-');
     const file = path.join(dir, 'b.js');
     fs.writeFileSync(file, 'export const b = 1;\n');
 
     const cache = new WorkspaceCache(dir, { cacheDir: path.join(dir, '.cache') });
-    cache.setFileMetadata(file, { mtime: fs.statSync(file).mtimeMs, size: 99999 });
+    cache.setFileMetadata(file, { mtime: fs.statSync(file).mtimeMs, size: 99999, hash: sha256(fs.readFileSync(file)) });
 
     const c = new ServiceContainer();
     c.workspaceRoot = dir;
@@ -150,8 +151,9 @@ function main() {
     c.cache = cache;
 
     const s = c.getStaleness();
-    assert.strictEqual(s.filesChanged, true, 'should detect size mismatch');
-    assert.strictEqual(s.isStale, true, 'isStale should be true when size changed');
+    assert.strictEqual(s.filesChanged, false, 'same content should not be stale after size drift');
+    assert.strictEqual(s.isStale, false, 'isStale should stay false when content matches');
+    assert.strictEqual(cache.getFileMetadata(file).size, fs.statSync(file).size, 'stored size should be repaired');
 
     cleanupTempDir(dir);
   }
@@ -164,7 +166,7 @@ function main() {
     const stats = fs.statSync(file);
 
     const cache = new WorkspaceCache(dir, { cacheDir: path.join(dir, '.cache') });
-    cache.setFileMetadata(file, { mtime: stats.mtimeMs, size: stats.size });
+    cache.setFileMetadata(file, { mtime: stats.mtimeMs, size: stats.size, hash: sha256(fs.readFileSync(file)) });
 
     const c = new ServiceContainer();
     c.workspaceRoot = dir;
@@ -321,7 +323,7 @@ function main() {
     cache.setFileMetadata(docFile, { mtime: statsDoc.mtimeMs, size: statsDoc.size });
     cache.setFileMetadata(styleFile, { mtime: statsStyle.mtimeMs, size: statsStyle.size });
     cache.setFileMetadata(assetFile, { mtime: statsAsset.mtimeMs, size: statsAsset.size });
-    cache.setFileMetadata(codeFile, { mtime: statsCode.mtimeMs, size: statsCode.size });
+    cache.setFileMetadata(codeFile, { mtime: statsCode.mtimeMs, size: statsCode.size, hash: sha256(fs.readFileSync(codeFile)) });
 
     // Now modify the doc, style, and asset files (e.g. mismatch size/mtime)
     cache.setFileMetadata(docFile, { mtime: 0, size: 9999 });

@@ -17,7 +17,7 @@ const { parseCppAst } = require('./cpp-ast');
 const { parseSvelte } = require('./svelte');
 
 // Import strategies directly from resolvers to populate resolveStrategies
-const { tryAlias, tryRelativeWithExtensions } = require('../resolvers/javascript');
+const { tryAlias, tryWorkspacePackage, tryRelativeWithExtensions } = require('../resolvers/javascript');
 const { tryPythonRelative, tryPythonAbsolute, tryPythonModuleIndex } = require('../resolvers/python');
 const { tryJava } = require('../resolvers/java');
 const { tryGoRelative, tryGoModule } = require('../resolvers/go');
@@ -57,9 +57,8 @@ registry.register(defineLanguage({
   async: false,
   needsFilePath: true,
   filePatterns: ['**/*.js', '**/*.ts', '**/*.jsx', '**/*.tsx', '**/*.mjs', '**/*.cjs', '**/*.mts', '**/*.cts'],
-  condition: (workspace) => workspace.hasPackageJson,
   isBuiltIn: (imp) => imp.startsWith('node:') || require('module').builtinModules.includes(imp),
-  resolveStrategies: [tryAlias, tryRelativeWithExtensions],
+  resolveStrategies: [tryAlias, tryWorkspacePackage, tryRelativeWithExtensions],
   // T6 (2026-07-31): zero true-positive symbol-table edges in four measured
   // JS/TS repos (5528 edges total); failure mode is zero-tolerance to export
   // hygiene (one sloppy re-export → 212 fabricated edges).
@@ -89,7 +88,6 @@ registry.register(defineLanguage({
   async: true,
   needsWorkspaceRoot: true,
   filePatterns: ['**/*.py'],
-  condition: (workspace) => workspace.hasPythonFiles || workspace.hasRequirements || workspace.hasPyproject || workspace.hasManagePy,
   resolveStrategies: [tryPythonRelative, tryPythonAbsolute, tryPythonModuleIndex],
   // T6 (2026-07-31): zero true-positive symbol-table edges in two measured
   // Python repos (924 edges total); tryPythonAbsolute already covers the
@@ -117,7 +115,6 @@ registry.register(defineLanguage({
   async: true,
   needsWorkspaceRoot: true,
   filePatterns: ['**/*.java'],
-  condition: (workspace) => workspace.hasJava,
   isBuiltIn: (imp) => isJvmStdlibImport(imp),
   resolveStrategies: [tryJava],
   extractSymbols: (content) => {
@@ -142,7 +139,6 @@ registry.register(defineLanguage({
   parse: parseKotlin,
   async: true,
   filePatterns: ['**/*.kt'],
-  condition: (workspace) => workspace.hasJava,
   isBuiltIn: (imp) => isJvmStdlibImport(imp) || imp.startsWith('kotlin.'),
   resolveStrategies: [tryJava],
   extractSymbols: (content) => {
@@ -167,7 +163,6 @@ registry.register(defineLanguage({
   parse: parseGo,
   async: true,
   filePatterns: ['**/*.go'],
-  condition: (workspace) => workspace.hasGo,
   resolveStrategies: [tryGoRelative, tryGoModule],
   extractSymbols: (content) => {
     const symbols = [];
@@ -190,7 +185,6 @@ registry.register(defineLanguage({
   parse: parseRust,
   async: true,
   filePatterns: ['**/*.rs'],
-  condition: (workspace) => workspace.hasRust,
   isBuiltIn: (imp) => imp === 'std' || imp === 'core' || imp === 'alloc',
   resolveStrategies: [tryRustCrate, tryRustSuper, tryRustScoped],
   extractSymbols: (content) => {
@@ -226,9 +220,8 @@ registry.register(defineLanguage({
   async: true,
   needsFilePath: true,
   filePatterns: ['**/*.vue'],
-  condition: (workspace) => workspace.hasPackageJson,
   isBuiltIn: () => false,
-  resolveStrategies: [tryAlias, tryRelativeWithExtensions],
+  resolveStrategies: [tryAlias, tryWorkspacePackage, tryRelativeWithExtensions],
   // T6: JS family — same gate, same failure mode as javascript (script block
   // IS JS/TS). No direct vue measurement; droppedImports accounting covers.
   symbolTableFallback: false,
@@ -262,7 +255,6 @@ registry.register(defineLanguage({
   async: true,
   needsFilePath: true,
   filePatterns: ['**/*.c', '**/*.cpp', '**/*.cc', '**/*.h', '**/*.hpp'],
-  condition: (workspace) => workspace.hasCpp,
   isBuiltIn: (imp) => CPP_BUILTINS.has(imp),
   // tryCppInclude owns quote-form relative semantics; tryRelativeWithExtensions
   // stays for the rare explicit './x.h'. tryAlias (tsconfig paths) is gone —
@@ -278,9 +270,8 @@ registry.register(defineLanguage({
   async: false,
   needsFilePath: true,
   filePatterns: ['**/*.svelte'],
-  condition: (workspace) => workspace.hasPackageJson,
   isBuiltIn: () => false,
-  resolveStrategies: [tryAlias, tryRelativeWithExtensions],
+  resolveStrategies: [tryAlias, tryWorkspacePackage, tryRelativeWithExtensions],
   // T6: JS family — same gate, same failure mode as javascript (script block
   // IS JS/TS). No direct svelte measurement; droppedImports accounting covers.
   symbolTableFallback: false,

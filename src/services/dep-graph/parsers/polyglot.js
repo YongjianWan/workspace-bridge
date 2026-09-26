@@ -305,6 +305,11 @@ function parseRust(content) {
   while ((match = modRegex.exec(content)) !== null) {
     exportRecords.push(createExportRecord(match[1], { kind: 'module' }));
   }
+  const modFileRegex = /^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*;/gm;
+  while ((match = modFileRegex.exec(content)) !== null) {
+    imports.push(match[1]);
+    importRecords.push(createImportRecord(match[1]));
+  }
   const constRegex = /\bpub\s+const\s+(\w+)/g;
   while ((match = constRegex.exec(content)) !== null) {
     exportRecords.push(createExportRecord(match[1], { kind: 'const' }));

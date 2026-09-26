@@ -692,6 +692,9 @@ async function assembleOverviewData(args, container, historyProvider) {
         droppedCount: dropped.count,
         filesWithDrops: dropped.files,
         samples: dropped.samples.slice(0, 10),
+        uncertainCount: dropped.uncertainCount || 0,
+        uncertainFiles: dropped.uncertainFiles || 0,
+        uncertainSamples: (dropped.uncertainSamples || []).slice(0, 10),
         measured: dropped.measured === true,
       };
     })(),
