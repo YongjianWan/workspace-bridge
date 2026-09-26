@@ -16,6 +16,7 @@
 | 长期路线、成功标准   | [ROADMAP.md](./ROADMAP.md)                                           |
 | 历史变更             | [CHANGELOG.md](./CHANGELOG.md)                                       |
 | 代码审计 skill 用法  | [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md) |
+| 评测集数字与用法     | [eval/README.md](./eval/README.md)                                   |
 
 > **🔴 新会话启动红线：不默认读取 CHANGELOG.md** （如果派遣agent swarm 务必在下达的指令里面也让他们读取agent.md session techdebt 等文档，这个是强制的，不然子代理会产生架构改变或者随意修改导致各种问题）
 >
@@ -31,14 +32,14 @@
 
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
-- **当前债务**：**L1=0**，其余按优先级分层记账（P0 降噪 → P1 结构解析缺口 → P2 符号表判决 → P3 记账不排期 → P4 冻结），**以 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) 的总览表为准**（本行只给形状，别在这里维护第二份清单）。记账口径：债务不会消失，只会转移优先级——已修实例的机制债留在"预防性约束"里。
+- **当前债务**：内部活跃债务见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)；外部审查开放问题见 [docs/workspace-bridge-审查报告.md](./docs/workspace-bridge-审查报告.md)。完成项从活跃文档删除，修复经过只写 CHANGELOG。
 - **语言范围**（2026-07-28）：TS/JS（含 `.jsx`/`.tsx`，React 不是独立语言）、Python、Go、Rust、Java、Vue 在范围内；Kotlin / C·C++ / Svelte 边层通着但债务降 P3/P4。
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
-## 当前核验（2026-09-24，销账清理 + L2-23 + L3-8 点名实例收口后）
+## 当前核验
 
-`node cli.js audit-overview --cwd . --json --quiet` 已通过：473 个文件全部解析，`coverageRatio=1.00`，`fallbackFiles=0`，`schemaVersion=1.2.0`，`CACHE_VERSION=40`。`npm run test:fast` 选择 177 个测试，最近一次为 175 通过、2 个子进程以 `3221226505` 异常退出（wave15-ast-rules / wave15-neighbor-aware，已知 libuv 基线，单独跑断言全过）。全量 runner 277 选 274：除上述 wave15 两条外，`git-environment-probe-test` 以 SIGTERM 触及 180s 单测上限——判定为**超时边缘 flaky**（常态实测 150~180s：本次 180.06s 被杀、同日 09:16 场次 150.5s 险过、2026-08-28 场次已有同款前科；单独复跑全过 136s），判真方式 = 单独复跑。因此当前工作区**不能报作全绿**——回归判据口径是「对照已知基线无新增红」。
+`node test/wb-repro.js cli.js` 应为 24/24 OK、退出码 0；`CACHE_VERSION=43`，`schemaVersion=1.2.0`。`audit-overview` 覆盖率 1、fallback 0。快测基线 196 选 194 过，全量 291 选 289 过，差额仅为 wave15-ast-rules / wave15-neighbor-aware 两条已知 Windows/libuv 异常退出（3221226505）。出现其他失败须调查。
 
 ## 工程品味（TASTE）
 
@@ -61,7 +62,6 @@
    > **触发条件**：改动涉及 cache/graph/状态增删改时适用。
    >
 4. **静默错误必须是显式的** — 任何可能产生过期/不可信数据的代码路径（缓存命中但内容可能过期、增量更新未传播到所有下游、环境降级导致结果不完整）必须通过 `dataQuality: 'degraded'`、`warnings[]` 或 `confidence: 'low'` 等机制向消费者发出信号。**禁止**让 AI agent 在无任何警告的情况下消费到静默过期数据——AI agent 不像人类会怀疑输出，它会直接信。
-   > **案例**：2026-07-03 发现 `builder.js` 增量更新的 fast path 在 SQLite 缓存未 evict 时静默返回旧导出列表，130 个测试全 PASS 但 `updateFiles` 对任何文件修改都返回 stale 数据，无 warning 无 dataQuality 标记。修复后将 cache 失效收敛为单一入口 `_invalidateParseCache()`，并对所有 parse-cache 层统一 evict。
    > **触发条件**：改动涉及缓存读写、增量更新、环境探测、fallback 路径时适用。
    >
 
@@ -105,7 +105,7 @@
 
 1. **Root Cause**：仔细阅读错误信息 → 稳定复现 → git diff 近期变更 → 追踪数据流 → 找正常工作的示例对比差异
 2. **Hypothesis**：提出单一假设，最小化验证
-3. **Fix**：写失败测试 → 修复根因 → 跑 `npm run test:fast` 确认全绿 → 跑全量 runner 确认无回归 → 在 CHANGELOG.md `[Unreleased]` 追加条目 → 若涉及 dogfood 问题则标记为已修复
+3. **Fix**：写失败测试 → 修复根因 → 跑 `npm run test:fast` 和全量 runner，对照已知基线无新增失败 → 在 CHANGELOG.md `[Unreleased]` 追加条目 → 从活跃清单删除已解决项。
 
 **铁律**：跳过任何一步 = 说谎。不做根因调查，不许提修复方案。三次修不好 → 质疑架构。
 
@@ -151,7 +151,7 @@
 | L3 服务组装   | `container.js`, `diagnostics-engine.js`                                                                                                                                                                                                                                      | `ServiceContainer` 组装所有服务 + `DiagnosticsEngine`                                            |
 | L4 工具编排   | `audit-assembler.js`, `dep-tools.js`, `git-tools.js`, `overview-tools.js` + `overview-assembler.js` + `overview-curator.js`, `security-tools.js`, `workspace-tools.js`, `honesty-engine.js`, `incremental-diff.js`, `cochange-tools.js`, `tree-tools.js` | 对外暴露的分析工具函数与 Curation/拼装层                                                             |
 | L5 CLI/格式化 | `cli.js`, `commands/`, `repl.js`, `watch.js`, `formatters/`                                                                                                                                                                                                            | 命令分发、REPL 引擎、文件监听、JSON/文本/Markdown/HTML 输出聚合                                      |
-| L6 外围       | `scripts/`, `test/`, `benchmark/`                                                                                                                                                                                                                                          | 辅助脚本、全覆盖测试、性能基准                                                                       |
+| L6 外围       | `scripts/`, `test/`, `benchmark/`, `eval/`                                                                                                                                                                                                                                          | 辅助脚本、全覆盖测试、性能基准、真实仓库评测集                                                                       |
 
 **高危改动文件**：`path.js` / `constants.js` / `dep-graph.js` / `builder.js` / `analyzer.js` / `cache.js`+`graph-db.js` / `parsers/shared.js` / `resolvers.js` — 改前必须跑 impact + affected-tests。
 
@@ -164,8 +164,8 @@
 | 文档             | 职责                                                         | 不存什么                                      |
 | ---------------- | ------------------------------------------------------------ | --------------------------------------------- |
 | `CHANGELOG.md` | **唯一历史存档**。已修复 bug、新增功能、重构变更       | —                                            |
-| `TECH_DEBT.md` | **当前活跃债务**。只列还在的 L1/L2/P 条目              | 已修复条目的详细背景、修复过程、历史版本      |
-| `SESSION.md`   | **当前会话上下文**。本轮做了什么、下一步方向           | 上一轮详细记录（只保留指向 CHANGELOG 的引用） |
+| `TECH_DEBT.md` | **当前活跃债务**。只列仍开放或明确冻结的条目 | 已修复条目的背景、修复过程、历史版本 |
+| `SESSION.md` | **当前交接**。回归基线、下一步动作 | 本轮与过往轮次的完成记录 |
 | `AGENTS.md`    | **项目状态单一事实源**。功能状态、版本能力、下一步方向 | 历史变更细节                                  |
 
 **清理铁律**：
@@ -181,7 +181,7 @@
 - `dead-exports` 对常见 JS/TS 语法已有基础符号级判断，但不是完整 AST 编译器。
 - `audit-diff` 是当前主战场，改动最好优先补它的测试。
 - 混合仓库必须用 `.workspace-bridge.json` 标注目录角色，否则孤儿检测严重误报。
-- 已知限制与陷阱见 [ROADMAP.md §已知限制](./ROADMAP.md#已知限制当前待处理），已修复历史见 [CHANGELOG.md](./CHANGELOG.md)。
+- 已知限制与陷阱见 [ROADMAP.md §当前已知限制](./ROADMAP.md#当前已知限制)，历史修复见 [CHANGELOG.md](./CHANGELOG.md)。
 - 技术债状态见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（仅活跃条目）。
 
 ### 改前必查推荐用法
@@ -236,15 +236,13 @@ node cli.js dead-exports --cwd . --json --quiet
 | cache.save() 已改为 async                              | `src/services/cache.js`                              | 调用方必须`await`（container.js、测试均已适配）                                                              |
 | repl-test.js flaky                                     | `test/repl-test.js`                                  | runner.js 串行执行时偶发失败，单独`node test/repl-test.js` 稳定通过；若遇到，先重跑确认                      |
 | audit-file-watch-test.js flaky                         | `test/audit-file-watch-test.js`                      | runner.js 串行执行时 watcher 事件偶发丢失，单独`node test/audit-file-watch-test.js` 稳定通过                 |
-| git-environment-probe-test.js 超时边缘 flaky           | `test/git-environment-probe-test.js`                 | 真 git 仓集成测试（submodule/LFS/shallow）常态 150~180s，骑在 runner 180s 单测上限上，负载抖动即被 SIGTERM（2026-08-28、2026-09-24 两见）；单独复跑 136s 全过。判真方式=单独复跑，别当回归 |
 | `framework-patterns.js` 新增框架时                   | `src/services/dep-graph/framework-patterns.js`       | 路径检测逻辑按语言分块，新增语言需同时更新`isEntry` 标记和测试                                               |
 | `buildFileValidationAdvice` 导出链                   | `validation-advice.js` → `index.js` → `cli.js` | 新增 formatter 函数必须在`src/cli/formatters/index.js` 中显式导出，否则 cli.js 解构为 `undefined`          |
 | `--quiet` 不再 monkey-patch `console.error`        | `cli.js` / `container.js`                          | `quiet` 通过 `ServiceContainer` 传递；错误日志仍用 `console.error`                                       |
 | `findDeadExports()` edges/files 降级                 | `src/services/dep-graph.js`                          | 单文件项目（files=1）不受降级影响；多文件项目 edges/files < 0.1 时 confidence 降为 low                         |
-| `.workspace-bridge-cache.json.bak` 泄漏到 git status | `src/tools/git-tools.js`                             | `getChangedFiles()` 已排除 `.bak` 备份文件，防止 audit-diff 误报                                           |
 | 实验脚本残留仓库根被 orphan 检测计数                 | `test/dead-exports-imports-scratch-config-test.js`   | 根目录任何未引用 `.js`（一次性测量/复现脚本）都算 orphan，`orphans.modules` 断言必红。实验脚本用完即删，别留在根目录过全量 runner   |
 | `resolvers.js` 策略链新增策略                        | `src/services/dep-graph/resolvers.js`                | 新增语言需在`registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null` |
-| `checkFileChanges()` 双路径                          | `src/services/cache.js`                              | fast path（mtime+size）+ slow path（SHA-256）。修改 staleness 逻辑时必须保持双路径行为                         |
+| `checkFileChanges()` 内容校验                         | `src/services/cache.js`                              | 每次按 SHA-256 校验内容；缺少哈希的旧元数据必须视为变化，mtime+size 仅用于元数据更新。测试夹具也要提供内容哈希。 |
 | 动态 require 导致死导出误报                            | `src/services/dep-graph/framework-patterns.js`       | `dead-exports` 无法静态分析 `ROUTE_QUERY_REGISTRY` 动态 require，可忽略或加白                              |
 | C/C++`#include` resolver 语义限制                    | `src/services/dep-graph/parsers/registry.js`         | C/C++ 对系统头、`-I` 搜索路径支持较弱，`unresolved` 可能偏高                                               |
 | `regex-fallback` 缓存条目永不命中                    | `src/services/dep-graph/builder.js`                  | tree-sitter WASM 不可用或解析失败时的降级产物每次重解析是**刻意设计**（`_isParseCacheUsable`），不是缓存失效 bug |
@@ -294,7 +292,6 @@ THEN 拿到结果后必须执行：
 
 > 其余检查（裸数字、异常安全、语义同步、重复代码）已由 L1/L2 覆盖，无需单列。
 
-**历史债务状态：** 活跃问题见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)，已修复历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 继续保持 workspace-bridge 的克制哲学：CLI-only，够用就行，拒绝过度工程。
 
@@ -306,5 +303,4 @@ THEN 拿到结果后必须执行：
 - resolver 的关键契约是顺序语义而不是状态漂移，`alias` / `symbol-table` / fallback 的优先级变化必须有冲突矩阵保护。
 - Java/Python AST 使用随包提供的 tree-sitter WASM；WASM 不可用或解析失败时进入显式 degraded mode：0-importer 死导出降 `low` confidence、`warnings[]` 在文本输出可见、`regex-fallback` 缓存条目永不命中（工具链恢复后自动升级）。
 
-*使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；**本轮会话上下文与已完成事项见 [SESSION.md](./SESSION.md)**；未竟事项见 [ROADMAP.md](./ROADMAP.md)；历史版本见 [CHANGELOG.md](./CHANGELOG.md)；历史技术方案见 [ROADMAP.md](./ROADMAP.md) 和 [CHANGELOG.md](./CHANGELOG.md)。*
-*Last updated: 2026-09-24（**L3-8 点名实例收口**：freshness 链 `getContentSignature?.()` 三处（overview-tools ×2 / query-tools ×1）+ cache 内部 `meta?.` 摘防御改直调——entry 形状由 graph-db deserialize 边界保证，null 属内部契约违约必须炸（旧代码当 0 混进 sha256 产假签名）；`|| ''`/`|| 0` 保留（空索引/稀疏老格式是合法可恢复态）；新增 `test/content-signature-trust-test.js` 5 例（行为 2 + 结构闸 3），test:fast 177 选 175（2 红 = 已知 wave15 基线）；TECH_DEBT L3-8 待处理段销记、纪律本体保持活跃，同族 65 处仍走接触即修。此前同日：销账清理 + L2-23 收口——**攀爬只到 git 根、仓外不爬**（方案②，用户拍板），家目录 package.json 噪音够不着工作区，同刀 `findNestedWorkspaceRoot` 跳过 node_modules，L2 层回零、活跃债务 5 项（L3-4/8/11/12/13）；CACHE_VERSION=40；串围标 dropped 11→1（三轮就近消歧 + requirements 补声明）；schemaVersion: 1.2.0；version: 2.1.0）*
+*使用说明见 [README.md](./README.md)；命令契约见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)；当前交接见 [SESSION.md](./SESSION.md)；未来方向见 [ROADMAP.md](./ROADMAP.md)；历史变更见 [CHANGELOG.md](./CHANGELOG.md)。*

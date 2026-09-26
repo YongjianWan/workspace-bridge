@@ -5,6 +5,118 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 **版本导航**：[Unreleased](#unreleased)（当前活跃） · [2.1.0](#210---2026-07-17) · 历史版本（v0.5.0 – v2.0.0）与 ADR 已归档至 [docs/changelog/CHANGELOG-v0.5-v2.0.md](./docs/changelog/CHANGELOG-v0.5-v2.0.md)
 
+## [Unreleased]
+
+### Changed: 活跃文档清理（2026-09-26）
+
+- 修复完成后的记录统一保存在本文件；AGENTS、SESSION、ROADMAP、TECH_DEBT 与审查报告只保留现状、待办和仍有效的证据。
+- 审查清单删去 21 条已完成问题，保留 23 条开放问题；移除旧 `docs/code_review.md`、`docs/dogfood.md` 和已完成重构说明，将仍开放的命令价值问题与数据层冗余项写回活跃清单和 ROADMAP。
+- 外部审查已修复条目：P0-1/2/3/4/5/7/8/9/10/13/15，P1-1/2/3/8/9/10/11/15，P2-1/2。P0-6 只修复了 C `main` 和 Alembic 迁移目录两个实例，整体误报校准仍未完成。
+- 审查过程更正：提交数最初受浅克隆误导，真实审查区间为 2026-03-27 至 2026-09-25；typer 漏报根因是 Python 子模块导入解析；“12 个文本断言测试”只是上限，严格确认 2 个；FastAPI 路由扫描窗口实际为 16KB；复现脚本首版有 3 个假 OK，最终版已纠正。
+- 原审查测量留档：27 条死代码告警逐条核对时 0 条为真；typer 的旧 affected-tests 估计精确率约 0.63、召回率约 0.95；Django 规模下旧缓存体积约 539MB、冷启动约 77 秒。这些是修复前数据，不能作为当前性能或准确率。固定仓库版本作为后续复测输入保留在活跃审查清单第 1 节。
+- 旧 dogfood 记录指出 `diagnostics --mode full` 返回 `checksRun: 0`、`stats --format markdown` 出现 `[object Object]`，`health` 与 `audit-summary.health` 重复且已标记 deprecated。尚未复测的命令价值问题继续留在活跃审查清单 P2-9。
+
+### Review: NeEEvA 评估（2026-09-25）
+
+NeEEvA 是基于 Unity 的 VRM 虚拟角色语音伴侣（角色安托涅瓦，出自《永远的7日之都》），核心在 `Assets/AIChatTookit/Scripts/Chat/ChatSample.cs`，Python 服务端在 `Server/`。这部分只读了代码和提示词，没有实际运行。
+
+**做得好的**：Agent Loop 用 `<next/>`、`<continue/>`、`<silent/>` 等标签让角色自己决定节奏，方向正确；低延迟链路（流式 ASR、句尾预判、边合成边播、打断）做得认真；作者会实测 token 和缓存命中，并据此优化（历史批量裁剪、记忆块移到消息末尾）；仓库里没有泄露密钥。
+
+**问题**：
+1. `ChatSample.cs` 7908 行、201 个方法，是上帝类
+2. 短期记忆只有 15 条消息（约 7 轮，角色的主动发言和内心独白也占位），滚出去的内容没有摘要；21 个种子记忆全是角色自己的设定，没有关于用户的
+3. `persona.txt` 不到 1KB，`behavior.txt` 28KB，其中 37% 在讲唱歌规则；代码里有专门清洗"标签被 TTS 念出来"的逻辑，说明标签协议对本地模型已是负担
+4. 大量用正则猜用户意图（比如从话里抠歌名），而不是让 LLM 输出结构化字段
+5. 截屏同步阻塞主线程 50–150ms；云端后端时整块屏幕发给 DashScope
+6. 部署需要 6 个服务、5 个端口，GPT-SoVITS 约 12GB 未入库
+7. 版权风险：直接提交了角色 VRM 模型和疑似游戏原声的 `41041.wav`（推测，未核实），仓库没有 LICENSE
+8. `Server/SenseVoice` 的 11 个 Python 测试里 1 个失败（汉字转假名，可能是可选依赖缺失但测试没做 skip）；`Server/SVS` 的测试因缺依赖连收集都失败
+
+---
+
+### Fixed: 外部审查复现门禁收口（2026-09-26）
+
+- JS/TS、Vue、Svelte 的 resolver 现在按 npm `workspaces` 或 `pnpm-workspace.yaml` 找到本地包入口；已声明为依赖的 workspace 包也能建立文件边。新增 npm/pnpm 语义测试。
+- Rust 的文件式 `mod x;` 现在记录模块依赖，内联 `mod x {}` 不会被误作文件导入；AST 与正则降级路径一致。
+- Vue 模板绑定跳过 `import type`，同时保留其结构依赖边，修复 `vue-parser-test` 的运行时组件误判。
+- 本轮其余修复覆盖 `init` 忽略规则、删除文件验证建议、缓存污染与内容过期、C 入口、Alembic、未解析导入警告、安全规则及 SQL 只读判断。`test/wb-repro.js` 已由 13 BUG 收敛至 24/24 OK；缓存格式版本为 43。全量测试结果见 SESSION.md。
+
+### Fixed: 外部审查 P0 批——解析层 + 图构建 9 项（2026-09-26）
+
+报告 §8 阶段 2 第一批，复现门禁 `test/wb-repro.js` 基线 **24 → 13 BUG**。每项 TDD（先写失败测试再修），全量 runner 287 选 285（仅已知 wave15×2 基线红），`warm-cold-parity` 通过。
+
+* **P0-1** `resolvers/python.js`：`from X import mod` 的候选排序缺陷——`X/__init__.py` 命中后不再让位于子模块。新增 `_tryPackageOrSubmodule`：init 命中时若 `X/<name>.py` / `X/<name>/__init__.py` 存在则改判子模块（子模块边**替换** init 边，消掉假环枢纽）；`from pkg import symbol`（无同名子模块）行为不变。`CACHE_VERSION` 40→41（v40 缓存带 init 指向边）。typer 的 `rich_utils.py` 受影响测试 1→109 由此恢复。
+* **P0-2** `parsers/registry.js` + `registry-core.js`：语言 `condition` 门控（JS 要 package.json、Go 要根 go.mod……）整体删除——`getFilePatterns()` 改为永远返回全部注册语言的扩展名模式。一个 `.py` 文件不再关掉整个 TS 索引；前后端分仓（清单只在子目录）全语言可见。清单文件仍喂 stack-detector / workspace-info，索引与 manifest 解耦。
+* **P0-3** 新增 `src/config/source-extensions.js`（`KNOWN_SOURCE_EXTENSIONS`，shell/ps1/数据方言刻意排除并注释原因）：发现阶段统计"已知源码扩展名但无 parser"的文件，`file-index` 收集 + `analyzer` 覆盖率分母纳入 → `coverageRatio<1` + high 级 `unsupported-source-files` 警告（含扩展名计数）。`.cs` 等不再静默消失。`analysisCoverage` 新增 `unsupportedFiles` 字段（replay 出口现算，遵循「本轮实测」纪律）。
+* **P0-4** `entry-detector.js`：入口检测从读前 4KB（>64KB 整文件跳过）改为读全文、上限对齐 `PARSER_MAX_FILE_BYTES`（1MB）——扫描边界=解析覆盖边界（超限文件死导出检测本就跳过，扫了白扫）。`limits.js` 删除 `ENTRY_SCAN_BYTES` / `ENTRY_FILE_MAX_BYTES`。
+* **P0-5** `framework-patterns.js`：删掉 4KB 预过滤 / sync 回退窗口 / 16KB 路由扫描窗口三处字节窗（`ROUTE_SCAN_MULTIPLIER` 删除）——解析阶段的 `frameworkHint`（全文计算、已持久化）成为权威记录。首个路由在 16KB 之后的 FastAPI 文件不再整文件误报死代码。冷启动开销 +18ms 实测。
+* **P0-7** `builder.js`：Java/Kotlin 同包 tier3 边从无条件完全图改为**符号引用门控**——源文件内容含目标类型级导出名的 simple-name token 才建边（`_samePackageReferenceJustified`，`JVM_TYPE_GATE_KINDS`）；tier3 记录保留（死导出"运行期绑定不可见"信号），记录 alone 不成边。petclinic `PetValidator` 依赖方 17→1。Kotlin 同路径同修（KT-SAMEPKG-CLIQUE 翻 OK）。源不可读时 fail-open（保持旧行为）。
+* **P0-8** `graph-db.js`：`package` 字段持久化（schema + 迁移）——根因是增量/热路径从 SQLite 恢复的节点缺 package，`_buildPackageIndex` 空转，同包扩展静默跳过（warm≠cold）。`CACHE_VERSION` 41→42（旧缓存无法区分"NULL=默认包"与"列不存在"，整表失效是唯一直接失效）。未引用同包伴生类现在可能浮成 orphan/死导出，保守置信度经 tier3 downgrade 保持（`IMPLICIT_SAME_PACKAGE_REASON`）。
+* **P0-9** `builder.js:1472` `_filterNonValueImports` Rule 3 对 `.go` 豁免——TS 式"type-only 剪边"不该作用于 Go；类型/常量/变量的引用在 Go 里是头等边理由。纯类型文件（types.go/config.go）恢复入边，不再误判孤儿。Go 同包全连本身不在本轮范围。
+* **P0-10** 新增 `src/services/dep-graph/conftest-implicit.js`：conftest 隐式依赖**查询时注入**（不改图）——affected-tests 双分支（warm fast-path / cold 计算）统一后处理：conftest 行从结果过滤、其目录子树测试以 `source:'conftest'` 追加；impact 双分支追加 `implicit-conftest` 行。fixture 方向的启发式 = "conftest（传递）import 了被改文件 → 其子树测试受影响"（over-approximate，上限 maxDepth，文档化）。隐式行不落 `test_map` 持久化（warm/cold parity 由构造保证，无需 bump）。
+* 测试：新增 `test/p0-{1,2,3,4,5,7,8,9,10}-*-test.js`（`// @semantic`）；`resolver-strategy-chain-test` 一条断言更新（旧断言字面锁着 bug 形态）；`affected-http-routes-implicit-test` fixture 补真实引用（原来靠 clique 边凑数）。
+
+### Added: 最小可用评测集 eval/（2026-09-26）
+
+真实仓库 + 独立标准答案 + 打分，回答"输出在真实世界里对不对"（与 wb-repro 的回归门禁互补）：
+
+* `eval/corpus.json`：typer@a80f6e5ecd / spring-petclinic@818c4136ea / vitesse@8a01bc9283，metrics + heldOut + faultInjection 文件清单 + reason 词表。`eval/labels/`：报告 §5.1 全部 27 条死代码误报标注（8 仓库 jsonl）。
+* `eval/run.js`（增量可重跑，repo commit + src mtime 双键缓存）+ `eval/truth/`（gitignored）：typer 用独立 venv + 隔离 coverage rcfile 生成 per-file 测试真值（§5.2 方法，typer 自带 parallel coverage 配置的坑已绕开）；vitesse fault-injection 真值已生成（pnpm 可用）；spring-petclinic fault-injection pending（机器缺 mvn，脚本就绪，显式 `node eval/inject-fault.js <repo>` 触发，不造假数）。
+* `eval/score.js` + `baseline.json` + `scoreboard.json`：affected-tests 精确率/召回率 + 死代码按置信度精确率，对 baseline 下降 >0.05 判 FAIL。首版基线：**typer 0.6029/0.9496**（审查 0.63/0.95 同区间；gt.json 独立验证 rich_utils=109、_types=9 与报告一致）、petclinic 死代码 0.75、vitesse 死代码 0.3（high 档 0.3333——P0-6 置信度重校准的验收标尺）。
+* 已知坑记入 `eval/findings.md`：`test/eval_affected_tests.py` 在 Windows 上 relpath 反斜杠导致恒 0/0（匹配逻辑已移植进 score.js 并归一化分隔符）；vitesse `dark.ts` auto-import 误报不在 27 条标注内。
+* `.gitignore` +1 行（`eval/truth/`）；`eslint.config.js` ignores +`eval/truth/**`（第三方克隆仓自带 config 会 crash eslint，同 `reference/**` 先例）。CI 接入 outline 见 `eval/README.md`。
+
+### Docs: 外部审查报告入库 + P2-1 HEAD 变绿 + 复现门禁 harness 接入（2026-09-26）
+
+外部多轮审查（9 个真实仓库实测，44 项问题分级，报告全文在 `docs/workspace-bridge-审查报告.md`）转入修复流程。本轮为报告 §8 阶段 1（验收：`npm run lint && npm run test:fast` 通过）：
+
+* **Fixed (P2-1)**：`test/resolver-strategy-chain-test.js:833` lint 错误（`assertResult` 回调的 `dir` 参数未使用，去掉）；`dead-export-regex-fallback-confidence-test` 单独跑已绿（工作区 L3-4/L3-11 改动后不再复现）。
+* **Changed (harness)**：`test/wb-repro.js`（24 个自包含复现用例，退出码 = 复现 bug 数）与 `test/eval_affected_tests.py`（affected-tests 精确率/召回率评测，coverage 当标准答案）入库，runner 发现规则显式排除 `wb-repro.js`（它是显式调用的回归门禁，不属于 test:fast 分层——24 个 BUG 全在时它必然"失败"）。当前 HEAD 基线 24/24 复现。
+* **新增计划**：报告 §8 阶段 2 起按 P0 解析层 → 缓存层 → 输出层顺序修复，每修一项跑对应用例 + `test:fast`，修复即把用例搬进 `test/` 正式回归。
+
+### Fixed: L3-11 双 freshness 判据收口（shared strict 档函数）+ query-tools-test mock 补 L2-15 契约（2026-09-25）
+
+* **Added** `src/tools/snapshot-freshness.js`：`analysis_snapshots 'overview'` 行的 freshness 判据单一来源。`isSnapshotFresh(snapshot, container, { strict, args })`——head/count/config 三字段比较两侧共享；`strict: true`（audit-overview）追加 args 预计算失效、historyMatch、内容签名比对，`strict: false`（query-*）保持刻意粗粒度（速度承诺不变，漂移仍由 `describeReplay` 的 contentMatch + warnings 显式报告）。`overview-tools.js` / `query-tools.js` 各自的本地实现删除，改为委托；query-tools 保留同名导出（测试契约）。L3-11 关闭：下一次给任一侧加判据只需改一处，分歧结构消亡。
+* **变异验证双向锁定**：strict 档丢掉 contentMatch → `gate-on-replay-test` RED；粗粒度档泄漏 contentMatch → `query-replay-provenance-test` RED。
+* **Changed** `content-signature-trust-test.js` 源形态闸跟随结构：overview-tools 无条件直调 2→1（快照写盘），新增 snapshot-freshness.js 恰好 1 处（strict 档）断言。
+* **Fixed** `query-tools-test.js` 自 2026-09-24 起潜伏的红（基线漏记）：L3-8 收口把 `describeReplay` 的 `getContentSignature()` 改成无条件直调后，`makeMockContainer` 的 cache mock 缺该方法 → 抛错被 `ensureSnapshotData` 的 catch 读成"快照损坏" → 落进 cold rebuild → mock 无 `ensureReady` 崩。修 mock 补齐契约（`getContentSignature` + 快照行 `contentSignature`），生产代码不动——mock 违约不是生产回退 `?.` 的理由。该测试在 slow 层，2026-09-24 全量基线（"红 = wave15×2 + git-environment-probe flaky"）未覆盖到它。
+
+### Fixed: L3-13 step 1 归因——CLI 每次调用 ~5.5s 固定成本的真凶是 git 环境探测 spawn，不是容器初始化（2026-09-25）
+
+按 L3-13「先测再改」执行：2 文件 fixture 实测 warm 调用 5.5s，容器各阶段合计仅 ~0.5s；CPU profile 显示 ~90% 墙钟在 `spawnSync`；spawn 探针逐条计时抓到真凶——**git 环境探测 9 次串行 spawn 占 4.2s**，其中 `git lfs ls-files` 单项 2.6s（git-lfs 3.7.1 / Windows，零 LFS 内容的仓库也一样慢），且 `--show-superproject-working-tree` 因 `hasSubmodules` 内部重查重复 spawn 一次。修复（`src/utils/git-environment-probe.js`，零语义变化）：
+
+* `hasLfsPointers`：先查 `.gitattributes` 有无 `filter=lfs` 声明（fs 读，~0ms），无声明直接 false 跳过 spawn；有声明才走 `git lfs ls-files`（原精确语义保留）。接受的盲点：仅 `.git/info/attributes` 声明的本地边缘场景——这是降级信号不是安全边界。
+* `hasSubmodules(root, insideSubmodule = isInsideSubmodule(root))`：可选参数接收已探测值，`analyzeGitEnvironment` 传入 `env.isInsideSubmodule` 消掉重复 spawn（导出签名向后兼容）。
+
+效果：warm 调用 5.5s → 2.5s（9→7 spawn）；`data-quality-propagation-test` 153s → 50s；`git-environment-probe-test` 136–180s → 64s（顺带脱离 180s 单测上限的 timeout 边缘）。剩余 ~1.1s spawn（is-inside/shallow/sparse×2/superproject/toplevel）与并行化、跨调用缓存留给后续论证。
+
+### Changed: L3-12 第二批 11 条猜测层测试按实测下放 fast + L3-4 分隔符分支收进表（2026-09-25）
+
+* **L3-12 第二批**：按 2026-09-24 全量 run report 实测（全部 ok 且 <2.7s）下放 11 条：`wave5-boundary-hardening` / `js-destructured-export` / `wave15-parse-cache` / `graph-first-http-routes-db` / `affected-http-routes-implicit` / `cli-config-validation` / `affected-http-routes-source` / `python-module-index` / `dropped-imports` / `symbol-prescan-registry` / `cache-consistency`。逐条单跑复核通过（1.2–1.9s）。猜测层 37→26，fast 层 177→188；`test:fast` 188 选 186 过 + 2 已知 libuv flaky（wave15-ast-rules / wave15-neighbor-aware），墙钟 ~17s 持平。剩余猜测项 2.6s 以上，受机器负载影响大，下放收益递减，暂停于此。
+* **L3-4 关闭**：`trySymbolTable` 的分隔符三元（`.rs` / `.go` / 其余）收进 `SYMBOL_DELIMITER_ROWS` 表——与 `EXTERNAL_DEPENDENCY_CHECKS` 同一表习惯，函数内扩展名分支清零。曾评估债务原案「按语言注册不同策略函数（工厂闭包）」并否决：`resolver-strategy-chain-test` 用函数同一性断言链成员、`resolver-symbol-table-test` 以 `.rs`/`.go` 调用方直调导出的 `trySymbolTable`， per-language 函数对象会破坏这两组契约，而表查找已达到「无分支」终态。高危文件（impact 73 文件 / affected-tests 50）流程照走：resolver 全家 + dep-graph 增量/postprocess/JVM 闸/隐式 import 共 13 个直接相关测试全绿。
+
+### Docs: 「修复即删」口径升级——TECH_DEBT 全部 ✅ 划除残条删除，活跃文档只留现状（2026-09-25）
+
+用户拍板：历史只在 CHANGELOG，其余文档修完即删，不再划 ✅ 占位。TECH_DEBT.md 执行：
+
+* **删除全部 ✅ 划除残条**：L2-22（判留）、L2-23、依赖准确性缺口排序整节（3 项全销）、L3-5、L3-7（Vue 半）、L3-9、L3-10、L3-14、L3-15（含换源记实段）、L3-16、P4 两条（resolveFileOnly ext 大小写 ×2）。逐条核实 CHANGELOG 等价覆盖（2026-07-28 至 2026-09-24 各日条目）后才删。
+* **债务总览表记账口径改写**："已修条目不删、只划 ✅" → "已修条目直接删除、历史只进 CHANGELOG"；P0–P2.5 四层标"（出空）"，尾部 2026-07-28 流水句删除。
+* **L3-7 的 Svelte 冻结半条移入 P4 冻结区**（现状描述：`<script>` 内容走 babel、抠标签和 extractSymbols 是正则、模板不看、tree-sitter-wasms 无 svelte 语法；解冻条件：真实 Svelte 仓报出问题），P4 3 条。
+* **悬空编号引用清理**：指向已删条目的 L3-9/L3-7/L2-9/L2-11/L2-16 引用改为直述或指向 CHANGELOG。
+* **修复叙事清出**：测试覆盖缺口的 2026-08-01 补守护记实、L3-8 的弱断言清理留档与覆盖变种修复细节（保留纪律本体）。
+* 原样保留：全部预防性约束（机制债，含病史——那是规则存在的理由不是占坑历史）、开发纪律案例、验证矩阵。
+
+净效果：TECH_DEBT.md 365 → 320 行；活跃债务 5 项不变（L3-4/8/11/12/13），无误删。AGENTS.md footer 历史叙事同步瘦身，只留当前状态。
+
+### Docs: TECH_DEBT.md 数字/结构 hygiene——L3-12 基数刷新至 runner 权威值 + 雷区地图删行数列 + 垃圾目录观察哨迁入 AGENTS 陷阱表（2026-09-25）
+
+审计发现三处文档与现状漂移，逐条核实后修（纯文档，无代码变更）：
+
+* **L3-12 正文数字过期两代**（正文停在 2026-08-13 基数 41/101/162，总览表已写 35/172）：以 runner `classifyTestDetail` 直出 2026-09-25 权威分类——slow 94（声明 57 = `annotation-slow` 39 + `known-slow-pattern` 18；猜测 37 = `heuristic-runcli` 22 + `heuristic-heavy-api` 15）、fast 177（`default-fast` 153 + `annotation-fast` 24），serial 3 / watch 4 不在分层口径。正文两列"~待测"占位四个月，用 2026-09-24 全量 run report 实测中位耗时填上（声明 ~18.7s / 猜测 ~5.7s——猜测组显著更快，按实测继续下放有空间）。总览表 P3 行同步刷新（41→37、172→177）。
+* **文件级雷区地图行数零命中**（`git-tools.js` ~392→678、`detect.js` ~443→484、`commands.js` ~639→823）：行数列整列删除——行数从写下那天起只会越来越错，且与 L2-8"行数不重要"打架；保留文件 + 风险 + 状态三列。
+* **P4"垃圾目录"名不副实**：原文自述"当前工作区已不存在；如复现……"，是观察哨不是债；从 P4 冻结区删除，迁入 AGENTS.md 已知陷阱表。P4 冻结 3 条 → 2 条（同日 Svelte 半迁入，回到 3 条，见上方「修复即删」口径升级条目），活跃债务仍为 5 项。
+* 顺手：L3-4 正文嵌在活判据中间的 `~~终态路径已写进 L2-22~~` 划除残句删除（git 历史留存原文）。
+
 ### Docs: SESSION 历史存档收编进 CHANGELOG + 双仓房务（2026-09-25）
 
 按「活跃文档只存当前状态，历史只进 CHANGELOG」原则清 SESSION.md：2026-07 时代的五个存档块逐块核实等价覆盖后收编/删除（约 250 行），SESSION 只留本轮上下文 + 新会话检查表 + 基线状态 + 框架矩阵（能力快照，非历史）。
@@ -2171,4 +2283,3 @@ T6 判决材料复测（当日 HEAD 十仓逐仓点名）时挖到的：L2-14 �
   - 防御性检查 `typeof this.projectContext.classifyFile === 'function'`，保持与现有 mock 测试的向后兼容。
 - **测试覆盖** `test/wave14-monorepo-service-test.js`：
   - 6 个测试用例覆盖：无 service 时全 active、service findings 过滤、ProjectContext 角色分类、路径穿越验证、不存在路径验证、优先级排序（cli > config）。
-

@@ -474,7 +474,7 @@
 * 运行专项测试
 * 运行 `npm run test:fast`
 * 必要时运行全量测试
-* 更新 `docs/code_review.md`
+* 更新 `CHANGELOG.md`
 * 更新 `docs/TECH_DEBT.md`
 * 在 `CHANGELOG.md [Unreleased]` 记录已验证变更
 
