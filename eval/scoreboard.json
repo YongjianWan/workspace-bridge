@@ -1,9 +1,42 @@
 {
-  "generatedAt": "2026-09-25T18:08:21.733Z",
+  "generatedAt": "2026-09-26T17:18:59.081Z",
   "wbVersion": "2.1.0",
   "repos": {
     "typer": {
+      "lang": "python",
       "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 22541,
+        "warmMs": 4738,
+        "cacheBytes": 28962816,
+        "totalFiles": 639,
+        "coverageRatio": 1,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 0,
+        "droppedCount": 0,
+        "warnings": 1,
+        "languages": {
+          "python": {
+            "files": 637,
+            "astFiles": 637,
+            "regexFiles": 0
+          },
+          "javascript": {
+            "files": 2,
+            "astFiles": 2,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 2,
+          "byConfidence": {
+            "medium": 2
+          }
+        }
+      },
       "dead-code": {
         "status": "ok",
         "precision": 0,
@@ -54,52 +87,423 @@
         "precision": 0.6029,
         "recall": 0.9496,
         "n": 4997,
-        "filesScored": 28,
         "tp": 2919,
         "fp": 1923,
-        "fn": 155
+        "fn": 155,
+        "filesScored": 28
       }
     },
-    "spring-petclinic": {
+    "full-stack-fastapi-template": {
+      "lang": "python",
       "heldOut": false,
-      "dead-code": {
+      "health": {
         "status": "ok",
-        "precision": 0.75,
-        "precisionHigh": null,
-        "precisionLow": 0.75,
-        "byConfidence": {
-          "low": {
-            "precision": 0.75,
-            "n": 4,
-            "tp": 3,
-            "fp": 1
+        "coldMs": 14620,
+        "warmMs": 3252,
+        "cacheBytes": 2633728,
+        "totalFiles": 152,
+        "coverageRatio": 1,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 35,
+        "droppedCount": 0,
+        "warnings": 1,
+        "languages": {
+          "python": {
+            "files": 43,
+            "astFiles": 43,
+            "regexFiles": 0
+          },
+          "javascript": {
+            "files": 109,
+            "astFiles": 109,
+            "regexFiles": 0
           }
         },
-        "n": 4,
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 91,
+          "byConfidence": {
+            "high": 56,
+            "medium": 35
+          }
+        }
+      },
+      "dead-code": {
+        "status": "ok",
+        "precision": 1,
+        "precisionHigh": 1,
+        "precisionLow": null,
+        "byConfidence": {
+          "high": {
+            "precision": 1,
+            "n": 56,
+            "tp": 56,
+            "fp": 0
+          },
+          "medium": {
+            "precision": 1,
+            "n": 35,
+            "tp": 35,
+            "fp": 0
+          }
+        },
+        "n": 91,
         "counts": {
-          "labeledRows": 1,
-          "labeledReported": 1,
-          "labeledNotReported": 0,
-          "unlabeledFindings": 3,
-          "labeledFindings": 1
+          "labeledRows": 5,
+          "labeledReported": 0,
+          "labeledNotReported": 5,
+          "unlabeledFindings": 91,
+          "labeledFindings": 0
         },
         "labeledRows": [
           {
-            "file": "src/main/java/org/springframework/samples/petclinic/PetClinicRuntimeHints.java",
-            "symbol": "PetClinicRuntimeHints",
-            "reason": "annotation-registered",
-            "reported": true,
-            "reportedConfidence": "low"
+            "file": "backend/app/alembic/versions/1a31ce608336_add_cascade_delete_relationships.py",
+            "symbol": "*",
+            "reason": "alembic-migration",
+            "reported": false,
+            "reportedConfidence": null
+          },
+          {
+            "file": "backend/app/alembic/versions/9c0a54914c78_add_max_length_for_string_varchar_.py",
+            "symbol": "*",
+            "reason": "alembic-migration",
+            "reported": false,
+            "reportedConfidence": null
+          },
+          {
+            "file": "backend/app/alembic/versions/d98dd8ec85a3_edit_replace_id_integers_in_all_models_.py",
+            "symbol": "*",
+            "reason": "alembic-migration",
+            "reported": false,
+            "reportedConfidence": null
+          },
+          {
+            "file": "backend/app/alembic/versions/e2412789c190_initialize_models.py",
+            "symbol": "*",
+            "reason": "alembic-migration",
+            "reported": false,
+            "reportedConfidence": null
+          },
+          {
+            "file": "backend/app/alembic/versions/fe56fa70289e_add_created_at_to_user_and_item.py",
+            "symbol": "*",
+            "reason": "alembic-migration",
+            "reported": false,
+            "reportedConfidence": null
           }
         ]
+      }
+    },
+    "NeEEvA": {
+      "lang": "python",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 7755,
+        "warmMs": 3350,
+        "cacheBytes": 442368,
+        "totalFiles": 803,
+        "coverageRatio": 0.04,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 772,
+        "unresolvedCount": 0,
+        "droppedCount": 0,
+        "warnings": 2,
+        "languages": {
+          "python": {
+            "files": 29,
+            "astFiles": 29,
+            "regexFiles": 0
+          },
+          "javascript": {
+            "files": 2,
+            "astFiles": 2,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 0,
+          "byConfidence": {}
+        }
+      },
+      "dead-code": {
+        "status": "ok",
+        "precision": null,
+        "precisionHigh": null,
+        "precisionLow": null,
+        "byConfidence": {},
+        "n": 0,
+        "counts": {
+          "labeledRows": 3,
+          "labeledReported": 0,
+          "labeledNotReported": 3,
+          "unlabeledFindings": 0,
+          "labeledFindings": 0
+        },
+        "labeledRows": [
+          {
+            "file": "sensevoice_server.py",
+            "symbol": "*",
+            "reason": "decorator-registered",
+            "reported": false,
+            "reportedConfidence": null
+          },
+          {
+            "file": "seedvc_server.py",
+            "symbol": "*",
+            "reason": "decorator-registered",
+            "reported": false,
+            "reportedConfidence": null
+          },
+          {
+            "file": "seedvc_server.py",
+            "symbol": "main",
+            "reason": "main-guard",
+            "reported": false,
+            "reportedConfidence": null
+          }
+        ]
+      }
+    },
+    "django": {
+      "lang": "python",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 148767,
+        "warmMs": 13883,
+        "cacheBytes": 607653888,
+        "totalFiles": 2977,
+        "coverageRatio": 1,
+        "fallbackFiles": 3,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 1,
+        "droppedCount": 4,
+        "warnings": 2,
+        "languages": {
+          "python": {
+            "files": 2932,
+            "astFiles": 2932,
+            "regexFiles": 0
+          },
+          "javascript": {
+            "files": 45,
+            "astFiles": 42,
+            "regexFiles": 3
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 116,
+          "byConfidence": {
+            "medium": 83,
+            "high": 33
+          }
+        }
+      }
+    },
+    "zod": {
+      "lang": "js-ts",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 18270,
+        "warmMs": 2986,
+        "cacheBytes": 7950336,
+        "totalFiles": 409,
+        "coverageRatio": 1,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 1,
+        "droppedCount": 4,
+        "warnings": 1,
+        "languages": {
+          "javascript": {
+            "files": 406,
+            "astFiles": 406,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 54,
+          "byConfidence": {
+            "high": 53,
+            "medium": 1
+          }
+        }
       },
       "affected-tests": {
-        "status": "pending",
-        "reason": "fault-injection truth not generated; run `node eval/inject-fault.js spring-petclinic` explicitly (expensive)"
+        "status": "ok",
+        "precision": 0.7758,
+        "recall": 0.1501,
+        "n": 890,
+        "tp": 128,
+        "fp": 37,
+        "fn": 725,
+        "perFile": [
+          {
+            "file": "packages/zod/src/v4/classic/checks.ts",
+            "real": 86,
+            "pred": 14,
+            "hit": 11
+          },
+          {
+            "file": "packages/zod/src/v4/classic/coerce.ts",
+            "real": 86,
+            "pred": 11,
+            "hit": 9
+          },
+          {
+            "file": "packages/zod/src/v4/classic/compat.ts",
+            "real": 86,
+            "pred": 8,
+            "hit": 8
+          },
+          {
+            "file": "packages/zod/src/v4/classic/errors.ts",
+            "real": 86,
+            "pred": 22,
+            "hit": 17
+          },
+          {
+            "file": "packages/zod/src/v4/classic/external.ts",
+            "real": 86,
+            "pred": 8,
+            "hit": 8
+          },
+          {
+            "file": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "real": 86,
+            "pred": 7,
+            "hit": 7
+          },
+          {
+            "file": "packages/zod/src/v4/classic/index.ts",
+            "real": 79,
+            "pred": 19,
+            "hit": 6
+          },
+          {
+            "file": "packages/zod/src/v4/classic/iso.ts",
+            "real": 86,
+            "pred": 7,
+            "hit": 7
+          },
+          {
+            "file": "packages/zod/src/v4/classic/parse.ts",
+            "real": 86,
+            "pred": 50,
+            "hit": 40
+          },
+          {
+            "file": "packages/zod/src/v4/classic/schemas.ts",
+            "real": 86,
+            "pred": 19,
+            "hit": 15
+          }
+        ]
+      }
+    },
+    "execa": {
+      "lang": "js-ts",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 19066,
+        "warmMs": 3061,
+        "cacheBytes": 22749184,
+        "totalFiles": 438,
+        "coverageRatio": 1,
+        "fallbackFiles": 1,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 103,
+        "droppedCount": 0,
+        "warnings": 0,
+        "languages": {
+          "javascript": {
+            "files": 438,
+            "astFiles": 437,
+            "regexFiles": 1
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 0,
+          "byConfidence": {}
+        }
+      }
+    },
+    "bulletproof-react": {
+      "lang": "js-ts",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 20843,
+        "warmMs": 4455,
+        "cacheBytes": 8880128,
+        "totalFiles": 447,
+        "coverageRatio": 1,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 0,
+        "droppedCount": 0,
+        "warnings": 0,
+        "languages": {
+          "javascript": {
+            "files": 447,
+            "astFiles": 447,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 176,
+          "byConfidence": {
+            "high": 145,
+            "medium": 31
+          }
+        }
       }
     },
     "vitesse": {
+      "lang": "vue",
       "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 5464,
+        "warmMs": 1515,
+        "cacheBytes": 233472,
+        "totalFiles": 29,
+        "coverageRatio": 1,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 0,
+        "droppedCount": 2,
+        "warnings": 1,
+        "languages": {
+          "vue": {
+            "files": 10,
+            "astFiles": 10,
+            "regexFiles": 0
+          },
+          "javascript": {
+            "files": 19,
+            "astFiles": 19,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 10,
+          "byConfidence": {
+            "high": 9,
+            "medium": 1
+          }
+        }
+      },
       "dead-code": {
         "status": "ok",
         "precision": 0.3,
@@ -227,9 +631,729 @@
           }
         ]
       }
+    },
+    "vue-realworld-example-app": {
+      "lang": "vue",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 7125,
+        "warmMs": 1814,
+        "cacheBytes": 565248,
+        "totalFiles": 35,
+        "coverageRatio": 1,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 3,
+        "droppedCount": 0,
+        "warnings": 0,
+        "languages": {
+          "javascript": {
+            "files": 15,
+            "astFiles": 15,
+            "regexFiles": 0
+          },
+          "vue": {
+            "files": 20,
+            "astFiles": 20,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 5,
+          "byConfidence": {
+            "high": 2,
+            "medium": 3
+          }
+        }
+      }
+    },
+    "realworld": {
+      "lang": "svelte",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 8063,
+        "warmMs": 1744,
+        "cacheBytes": 339968,
+        "totalFiles": 42,
+        "coverageRatio": 0.98,
+        "fallbackFiles": 1,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 0,
+        "droppedCount": 36,
+        "warnings": 1,
+        "languages": {
+          "svelte": {
+            "files": 24,
+            "astFiles": 23,
+            "regexFiles": 1
+          },
+          "javascript": {
+            "files": 18,
+            "astFiles": 18,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 23,
+          "byConfidence": {
+            "high": 23
+          }
+        }
+      }
+    },
+    "spring-petclinic": {
+      "lang": "java",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 8743,
+        "warmMs": 3056,
+        "cacheBytes": 954368,
+        "totalFiles": 50,
+        "coverageRatio": 1,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 0,
+        "droppedCount": 316,
+        "warnings": 1,
+        "languages": {
+          "java": {
+            "files": 50,
+            "astFiles": 50,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {
+          "droppedCount": {
+            "cold": 0,
+            "warm": 316
+          },
+          "warnings": {
+            "cold": 0,
+            "warm": 1
+          }
+        },
+        "deadExports": {
+          "symbols": 1,
+          "byConfidence": {
+            "low": 1
+          }
+        }
+      },
+      "dead-code": {
+        "status": "ok",
+        "precision": 0,
+        "precisionHigh": null,
+        "precisionLow": 0,
+        "byConfidence": {
+          "low": {
+            "precision": 0,
+            "n": 1,
+            "tp": 0,
+            "fp": 1
+          }
+        },
+        "n": 1,
+        "counts": {
+          "labeledRows": 1,
+          "labeledReported": 1,
+          "labeledNotReported": 0,
+          "unlabeledFindings": 0,
+          "labeledFindings": 1
+        },
+        "labeledRows": [
+          {
+            "file": "src/main/java/org/springframework/samples/petclinic/PetClinicRuntimeHints.java",
+            "symbol": "PetClinicRuntimeHints",
+            "reason": "annotation-registered",
+            "reported": true,
+            "reportedConfidence": "low"
+          }
+        ]
+      },
+      "affected-tests": {
+        "status": "ok",
+        "precision": 0.717,
+        "recall": 0.76,
+        "n": 65,
+        "tp": 38,
+        "fp": 15,
+        "fn": 12,
+        "perFile": [
+          {
+            "file": "src/main/java/org/springframework/samples/petclinic/owner/Owner.java",
+            "real": 7,
+            "pred": 8,
+            "hit": 6
+          },
+          {
+            "file": "src/main/java/org/springframework/samples/petclinic/owner/OwnerController.java",
+            "real": 3,
+            "pred": 1,
+            "hit": 1
+          },
+          {
+            "file": "src/main/java/org/springframework/samples/petclinic/owner/Pet.java",
+            "real": 8,
+            "pred": 7,
+            "hit": 7
+          },
+          {
+            "file": "src/main/java/org/springframework/samples/petclinic/owner/PetValidator.java",
+            "real": 3,
+            "pred": 2,
+            "hit": 2
+          },
+          {
+            "file": "src/main/java/org/springframework/samples/petclinic/owner/Visit.java",
+            "real": 5,
+            "pred": 7,
+            "hit": 4
+          },
+          {
+            "file": "src/main/java/org/springframework/samples/petclinic/vet/Vet.java",
+            "real": 5,
+            "pred": 7,
+            "hit": 4
+          },
+          {
+            "file": "src/main/java/org/springframework/samples/petclinic/vet/VetController.java",
+            "real": 3,
+            "pred": 1,
+            "hit": 1
+          },
+          {
+            "file": "src/main/java/org/springframework/samples/petclinic/model/BaseEntity.java",
+            "real": 12,
+            "pred": 16,
+            "hit": 12
+          },
+          {
+            "file": "src/main/java/org/springframework/samples/petclinic/system/WelcomeController.java",
+            "real": 4,
+            "pred": 1,
+            "hit": 1
+          },
+          {
+            "file": "src/main/java/org/springframework/samples/petclinic/PetClinicRuntimeHints.java",
+            "real": 0,
+            "pred": 3,
+            "hit": 0
+          }
+        ]
+      }
+    },
+    "okhttp": {
+      "lang": "kotlin",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 378545,
+        "warmMs": 14260,
+        "cacheBytes": 132870144,
+        "totalFiles": 563,
+        "coverageRatio": 1,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 0,
+        "droppedCount": 2053,
+        "warnings": 1,
+        "languages": {
+          "java": {
+            "files": 71,
+            "astFiles": 71,
+            "regexFiles": 0
+          },
+          "kotlin": {
+            "files": 573,
+            "astFiles": 573,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {
+          "droppedCount": {
+            "cold": 247,
+            "warm": 2053
+          }
+        },
+        "deadExports": {
+          "symbols": 636,
+          "byConfidence": {
+            "low": 316,
+            "medium": 307,
+            "high": 13
+          }
+        }
+      }
+    },
+    "glow": {
+      "lang": "go",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 5522,
+        "warmMs": 1840,
+        "cacheBytes": 655360,
+        "totalFiles": 33,
+        "coverageRatio": 1,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 0,
+        "droppedCount": 0,
+        "warnings": 0,
+        "languages": {
+          "go": {
+            "files": 33,
+            "astFiles": 33,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 0,
+          "byConfidence": {}
+        }
+      },
+      "dead-code": {
+        "status": "ok",
+        "precision": null,
+        "precisionHigh": null,
+        "precisionLow": null,
+        "byConfidence": {},
+        "n": 0,
+        "counts": {
+          "labeledRows": 2,
+          "labeledReported": 0,
+          "labeledNotReported": 2,
+          "unlabeledFindings": 0,
+          "labeledFindings": 0
+        },
+        "labeledRows": [
+          {
+            "file": "ui/config.go",
+            "symbol": "Config",
+            "reason": "p0-9-artifact",
+            "reported": false,
+            "reportedConfidence": null
+          },
+          {
+            "file": "ui/styles.go",
+            "symbol": "Styles",
+            "reason": "p0-9-artifact",
+            "reported": false,
+            "reportedConfidence": null
+          }
+        ]
+      }
+    },
+    "cobra": {
+      "lang": "go",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 4855,
+        "warmMs": 2036,
+        "cacheBytes": 1011712,
+        "totalFiles": 36,
+        "coverageRatio": 1,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 0,
+        "droppedCount": 0,
+        "warnings": 0,
+        "languages": {
+          "go": {
+            "files": 36,
+            "astFiles": 36,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 0,
+          "byConfidence": {}
+        }
+      },
+      "affected-tests": {
+        "status": "ok",
+        "precision": 0.4,
+        "recall": 0.6087,
+        "n": 88,
+        "tp": 28,
+        "fp": 42,
+        "fn": 18,
+        "perFile": [
+          {
+            "file": "active_help.go",
+            "real": 7,
+            "pred": 7,
+            "hit": 1
+          },
+          {
+            "file": "args.go",
+            "real": 6,
+            "pred": 14,
+            "hit": 6
+          },
+          {
+            "file": "bash_completionsV2.go",
+            "real": 1,
+            "pred": 7,
+            "hit": 1
+          },
+          {
+            "file": "command.go",
+            "real": 16,
+            "pred": 17,
+            "hit": 16
+          },
+          {
+            "file": "command_win.go",
+            "real": 5,
+            "pred": 6,
+            "hit": 0
+          },
+          {
+            "file": "doc/man_docs.go",
+            "real": 1,
+            "pred": 2,
+            "hit": 1
+          },
+          {
+            "file": "doc/rest_docs.go",
+            "real": 1,
+            "pred": 2,
+            "hit": 1
+          },
+          {
+            "file": "doc/yaml_docs.go",
+            "real": 1,
+            "pred": 2,
+            "hit": 1
+          },
+          {
+            "file": "flag_groups.go",
+            "real": 5,
+            "pred": 7,
+            "hit": 1
+          },
+          {
+            "file": "shell_completions.go",
+            "real": 3,
+            "pred": 6,
+            "hit": 0
+          }
+        ]
+      }
+    },
+    "hexyl": {
+      "lang": "rust",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 2815,
+        "warmMs": 1698,
+        "cacheBytes": 217088,
+        "totalFiles": 6,
+        "coverageRatio": 1,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 0,
+        "droppedCount": 14,
+        "warnings": 1,
+        "languages": {
+          "rust": {
+            "files": 7,
+            "astFiles": 7,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 17,
+          "byConfidence": {
+            "low": 13,
+            "medium": 4
+          }
+        }
+      },
+      "dead-code": {
+        "status": "ok",
+        "precision": 0,
+        "precisionHigh": null,
+        "precisionLow": 0,
+        "byConfidence": {
+          "low": {
+            "precision": 0,
+            "n": 13,
+            "tp": 0,
+            "fp": 13
+          },
+          "medium": {
+            "precision": 0,
+            "n": 4,
+            "tp": 0,
+            "fp": 4
+          }
+        },
+        "n": 17,
+        "counts": {
+          "labeledRows": 3,
+          "labeledReported": 2,
+          "labeledNotReported": 1,
+          "unlabeledFindings": 0,
+          "labeledFindings": 17
+        },
+        "labeledRows": [
+          {
+            "file": "lib.rs",
+            "symbol": "*",
+            "reason": "public-api",
+            "reported": true,
+            "reportedConfidence": "medium"
+          },
+          {
+            "file": "colors.rs",
+            "symbol": "*",
+            "reason": "mod-declaration",
+            "reported": true,
+            "reportedConfidence": "low"
+          },
+          {
+            "file": "input.rs",
+            "symbol": "*",
+            "reason": "mod-declaration",
+            "reported": false,
+            "reportedConfidence": null
+          }
+        ]
+      },
+      "affected-tests": {
+        "status": "ok",
+        "precision": 1,
+        "recall": 0.5,
+        "n": 4,
+        "tp": 2,
+        "fp": 0,
+        "fn": 2,
+        "perFile": [
+          {
+            "file": "src/colors.rs",
+            "real": 1,
+            "pred": 1,
+            "hit": 1
+          },
+          {
+            "file": "src/input.rs",
+            "real": 1,
+            "pred": 1,
+            "hit": 1
+          },
+          {
+            "file": "src/lib.rs",
+            "real": 1,
+            "pred": 0,
+            "hit": 0
+          },
+          {
+            "file": "src/main.rs",
+            "real": 1,
+            "pred": 0,
+            "hit": 0
+          }
+        ]
+      }
+    },
+    "ripgrep": {
+      "lang": "rust",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 12259,
+        "warmMs": 2651,
+        "cacheBytes": 2154496,
+        "totalFiles": 112,
+        "coverageRatio": 0.98,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 2,
+        "unresolvedCount": 0,
+        "droppedCount": 50,
+        "warnings": 2,
+        "languages": {
+          "rust": {
+            "files": 110,
+            "astFiles": 110,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 147,
+          "byConfidence": {
+            "medium": 110,
+            "high": 32,
+            "low": 5
+          }
+        }
+      }
+    },
+    "cJSON": {
+      "lang": "c-cpp",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 9015,
+        "warmMs": 2587,
+        "cacheBytes": 1155072,
+        "totalFiles": 117,
+        "coverageRatio": 0.86,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 16,
+        "unresolvedCount": 0,
+        "droppedCount": 124,
+        "warnings": 3,
+        "languages": {
+          "cpp": {
+            "files": 99,
+            "astFiles": 99,
+            "regexFiles": 0
+          },
+          "python": {
+            "files": 2,
+            "astFiles": 2,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 20,
+          "byConfidence": {
+            "high": 20
+          }
+        }
+      },
+      "dead-code": {
+        "status": "ok",
+        "precision": 0.05,
+        "precisionHigh": 0.05,
+        "precisionLow": null,
+        "byConfidence": {
+          "high": {
+            "precision": 0.05,
+            "n": 20,
+            "tp": 1,
+            "fp": 19
+          }
+        },
+        "n": 20,
+        "counts": {
+          "labeledRows": 6,
+          "labeledReported": 2,
+          "labeledNotReported": 4,
+          "unlabeledFindings": 1,
+          "labeledFindings": 19
+        },
+        "labeledRows": [
+          {
+            "file": "fuzzing/fuzz_main.c",
+            "symbol": "main",
+            "reason": "program-entry",
+            "reported": false,
+            "reportedConfidence": null
+          },
+          {
+            "file": "fuzzing/afl.c",
+            "symbol": "main",
+            "reason": "program-entry",
+            "reported": false,
+            "reportedConfidence": null
+          },
+          {
+            "file": "fuzzing/cjson_read_fuzzer.c",
+            "symbol": "LLVMFuzzerTestOneInput",
+            "reason": "program-entry",
+            "reported": true,
+            "reportedConfidence": "high"
+          },
+          {
+            "file": "cJSON_Utils.c",
+            "symbol": "*",
+            "reason": "public-api",
+            "reported": true,
+            "reportedConfidence": "high"
+          },
+          {
+            "file": "cJSON.h",
+            "symbol": "true",
+            "reason": "header-macro",
+            "reported": false,
+            "reportedConfidence": null
+          },
+          {
+            "file": "cJSON.h",
+            "symbol": "false",
+            "reason": "header-macro",
+            "reported": false,
+            "reportedConfidence": null
+          }
+        ]
+      }
+    },
+    "fmt": {
+      "lang": "c-cpp",
+      "heldOut": false,
+      "health": {
+        "status": "ok",
+        "coldMs": 13311,
+        "warmMs": 2498,
+        "cacheBytes": 2592768,
+        "totalFiles": 77,
+        "coverageRatio": 1,
+        "fallbackFiles": 0,
+        "unsupportedFiles": 0,
+        "unresolvedCount": 0,
+        "droppedCount": 27,
+        "warnings": 2,
+        "languages": {
+          "cpp": {
+            "files": 72,
+            "astFiles": 72,
+            "regexFiles": 0
+          },
+          "python": {
+            "files": 4,
+            "astFiles": 4,
+            "regexFiles": 0
+          },
+          "javascript": {
+            "files": 1,
+            "astFiles": 1,
+            "regexFiles": 0
+          }
+        },
+        "coldWarmDiff": {},
+        "deadExports": {
+          "symbols": 24,
+          "byConfidence": {
+            "high": 24
+          }
+        }
+      }
     }
   },
   "verdicts": [
+    {
+      "repo": "typer",
+      "metric": "dead-code.precision",
+      "baseline": 0,
+      "current": 0,
+      "delta": 0,
+      "result": "PASS"
+    },
     {
       "repo": "typer",
       "metric": "affected-tests.precision",
@@ -243,46 +1367,6 @@
       "metric": "affected-tests.recall",
       "baseline": 0.9496,
       "current": 0.9496,
-      "delta": 0,
-      "result": "PASS"
-    },
-    {
-      "repo": "typer",
-      "metric": "dead-code.precision",
-      "baseline": 0,
-      "current": 0,
-      "delta": 0,
-      "result": "PASS"
-    },
-    {
-      "repo": "spring-petclinic",
-      "metric": "dead-code.precision",
-      "baseline": 0.75,
-      "current": 0.75,
-      "delta": 0,
-      "result": "PASS"
-    },
-    {
-      "repo": "spring-petclinic",
-      "metric": "dead-code.precisionLow",
-      "baseline": 0.75,
-      "current": 0.75,
-      "delta": 0,
-      "result": "PASS"
-    },
-    {
-      "repo": "vitesse",
-      "metric": "affected-tests.precision",
-      "baseline": 1,
-      "current": 1,
-      "delta": 0,
-      "result": "PASS"
-    },
-    {
-      "repo": "vitesse",
-      "metric": "affected-tests.recall",
-      "baseline": 1,
-      "current": 1,
       "delta": 0,
       "result": "PASS"
     },
@@ -301,10 +1385,42 @@
       "current": 0.3333,
       "delta": 0,
       "result": "PASS"
+    },
+    {
+      "repo": "vitesse",
+      "metric": "affected-tests.precision",
+      "baseline": 1,
+      "current": 1,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "vitesse",
+      "metric": "affected-tests.recall",
+      "baseline": 1,
+      "current": 1,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "spring-petclinic",
+      "metric": "dead-code.precision",
+      "baseline": 0.75,
+      "current": 0,
+      "delta": -0.75,
+      "result": "FAIL"
+    },
+    {
+      "repo": "spring-petclinic",
+      "metric": "dead-code.precisionLow",
+      "baseline": 0.75,
+      "current": 0,
+      "delta": -0.75,
+      "result": "FAIL"
     }
   ],
   "summary": {
-    "fail": 0,
-    "pass": 9
+    "fail": 2,
+    "pass": 7
   }
 }

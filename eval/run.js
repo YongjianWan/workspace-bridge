@@ -3,216 +3,222 @@
  * workspace-bridge evaluation runner.
  *
  * Usage:
- *   node eval/run.js [repo ...] [--force]
+ *   node eval/run.js [repo ...] [--lang <lang>] [--force]
  *
  * For each corpus repo (default: all):
- *   1. ensure a clone exists at eval/truth/repos/<name> pinned to corpus commit
- *   2. run the workspace-bridge CLI (repo's own cli.js, absolute path):
- *        dead-exports  -> eval/truth/out/<name>/dead-exports.json
- *        audit-overview -> eval/truth/out/<name>/audit-overview.json
- *      (both steps are cached: skipped when output exists AND target commit +
- *       src mtime are unchanged; --force re-runs)
- *   3. typer only — coverage ground truth (report §5.2 methodology):
- *      isolated venv, independent coverage rcfile (typer's own config is
- *      parallel-mode and conflicts — rcfile is mandatory), then
- *        python -m coverage run --rcfile=... -m pytest -q -p no:cacheprovider -p no:cov tests
- *      inside the clone, then dump per-file -> test-function map to gt.json.
+ *   1. ensure a clone at eval/truth/repos/<lang>/<name> pinned to the corpus
+ *      commit (partial clone, blobs fetched on checkout only)
+ *   2. health: audit-overview twice against an empty cache (cold, then warm),
+ *      timed, with the cache pinned to eval/truth/out/<lang>/<name>/cache via
+ *      WB_CACHE_DIR so size and predictions are read from a known place
+ *        -> audit-overview.json, health.json
+ *   3. dead-exports -> dead-exports.json (scored when labels exist; counts go
+ *      into health.json either way)
+ *   4. affected-tests truth:
+ *        coverage-pytest — isolated venv, independent coverage rcfile (the
+ *          repo's own coverage config may be parallel-mode and conflict), then
+ *          python -m coverage run --rcfile=... -m pytest -q -p no:cacheprovider -p no:cov <tests>
+ *          inside the clone, dumped to a per-file -> test-file map (gt.json)
+ *        fault-injection — generated separately by eval/inject-fault.js
+ *          (expensive); here it only stays pending until that has run
  *
- * Each repo gets eval/truth/out/<name>/status.json recording which metrics
- * have truth (ok) vs pending (with reason). eval/score.js consumes these.
+ * Steps 2–3 are cached: skipped when outputs exist and neither the target
+ * commit nor the newest src/ mtime changed; --force re-runs them.
+ * Each repo's status.json records which metrics are ok vs pending (with
+ * reason); eval/score.js consumes it.
  */
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const lib = require('./lib');
 
-const EVAL_DIR = __dirname;
-const ROOT = path.resolve(EVAL_DIR, '..');
-const CLI = path.join(ROOT, 'cli.js');
-const TRUTH = path.join(EVAL_DIR, 'truth');
-const REPOS_DIR = path.join(TRUTH, 'repos');
-const OUT_DIR = path.join(TRUTH, 'out');
-const corpus = JSON.parse(fs.readFileSync(path.join(EVAL_DIR, 'corpus.json'), 'utf8'));
+const { CLI, ROOT, VENVS_DIR, sh, tail, readJson, writeJson, readMarker, writeMarker, setStatus } = lib;
 
 const argv = process.argv.slice(2);
 const FORCE = argv.includes('--force');
-const names = argv.filter((a) => !a.startsWith('--'));
-const selected = names.length
-  ? names.map((n) => {
-      const entry = corpus.repos.find((r) => r.name === n);
-      if (!entry) {
-        console.error(`[eval] unknown repo "${n}" (corpus has: ${corpus.repos.map((r) => r.name).join(', ')})`);
-        process.exit(2);
-      }
-      return entry;
-    })
-  : corpus.repos;
-
 const log = (msg) => console.log(`[eval] ${msg}`);
-const tail = (s, n = 1200) => String(s || '').slice(-n);
 
-function sh(cmd, args, opts = {}) {
-  const r = spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...opts });
-  if (r.error) {
-    return { status: -1, stdout: '', stderr: r.error.code === 'ENOENT' ? `${cmd}: command not found` : String(r.error.message) };
-  }
-  return r;
+const CLI_TIMEOUT_MS = 30 * 60 * 1000;
+const PYTEST_TIMEOUT_MS = 45 * 60 * 1000;
+
+// Per-repo failure: main() records it and moves on to the next repo.
+function fail(msg, detail = '') {
+  throw new Error(detail ? `${msg}\n${detail}` : msg);
 }
 
 function shOk(cmd, args, opts = {}) {
   const r = sh(cmd, args, opts);
-  if (r.status !== 0) {
-    console.error(`[eval] FAILED: ${cmd} ${args.join(' ')}`);
-    console.error(`[eval] status=${r.status}\n${tail(r.stdout)}\n${tail(r.stderr)}`);
-    process.exit(1);
-  }
+  if (r.status !== 0) fail(`FAILED: ${cmd} ${args.join(' ')} (status ${r.status})`, `${tail(r.stdout)}\n${tail(r.stderr)}`);
   return r;
 }
 
 function findPython() {
   for (const cand of [['python'], ['python3'], ['py', '-3']]) {
-    const r = sh(cand[0], [...cand.slice(1), '--version']);
-    if (r.status === 0) return cand;
+    if (sh(cand[0], [...cand.slice(1), '--version']).status === 0) return cand;
   }
   return null;
 }
 
+function walkFiles(dir, visit) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const e of entries) {
+    if (e.name === 'node_modules' || e.name === '.git') continue;
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) walkFiles(p, visit);
+    else visit(p);
+  }
+}
+
 function newestMtime(dir) {
   let max = 0;
-  const walk = (d) => {
-    let entries;
-    try {
-      entries = fs.readdirSync(d, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      if (e.name === 'node_modules' || e.name === '.git') continue;
-      const p = path.join(d, e.name);
-      if (e.isDirectory()) walk(p);
-      else {
-        try {
-          const st = fs.statSync(p);
-          if (st.mtimeMs > max) max = st.mtimeMs;
-        } catch {}
-      }
-    }
-  };
-  walk(dir);
+  walkFiles(dir, (p) => {
+    max = Math.max(max, fs.statSync(p).mtimeMs);
+  });
   return max;
+}
+
+function dirBytes(dir) {
+  let total = 0;
+  walkFiles(dir, (p) => {
+    total += fs.statSync(p).size;
+  });
+  return total;
 }
 
 // ---------------------------------------------------------------- clone
 
 function ensureRepo(entry) {
-  const dir = path.join(REPOS_DIR, entry.name);
+  const dir = lib.repoDir(entry);
   if (!fs.existsSync(path.join(dir, '.git'))) {
-    fs.mkdirSync(REPOS_DIR, { recursive: true });
+    fs.mkdirSync(path.dirname(dir), { recursive: true });
     fs.rmSync(dir, { recursive: true, force: true });
     log(`${entry.name}: cloning ${entry.url}`);
-    shOk('git', ['clone', entry.url, dir]);
+    shOk('git', ['clone', '--filter=blob:none', '--no-checkout', entry.url, dir]);
   }
-  const git = (...args) => sh('git', args, { cwd: dir });
+  const git = (...args) => sh('git', ['-C', dir, ...args]);
   if (git('cat-file', '-e', `${entry.commit}^{commit}`).status !== 0) {
     log(`${entry.name}: fetching to reach commit ${entry.commit}`);
     shOk('git', ['-C', dir, 'fetch', 'origin']);
   }
   const head = git('rev-parse', 'HEAD').stdout.trim();
-  if (!head.startsWith(entry.commit)) {
+  const dirty = git('status', '--porcelain', '--untracked-files=no').stdout.trim() !== '';
+  if (!head.startsWith(entry.commit) || dirty) {
     log(`${entry.name}: checking out ${entry.commit}`);
-    // -f discards leftover edits (e.g. a previous interrupted fault injection)
+    // -f discards leftover edits (e.g. an interrupted fault injection)
     shOk('git', ['-C', dir, 'checkout', '-f', '--detach', entry.commit]);
   }
   const verify = git('rev-parse', 'HEAD').stdout.trim();
-  if (!verify.startsWith(entry.commit)) {
-    console.error(`[eval] ${entry.name}: HEAD ${verify} does not match pinned ${entry.commit}`);
-    process.exit(1);
-  }
+  if (!verify.startsWith(entry.commit)) fail(`${entry.name}: HEAD ${verify} does not match pinned ${entry.commit}`);
   return dir;
-}
-
-// ---------------------------------------------------------------- status / marker
-
-function outDirFor(name) {
-  const d = path.join(OUT_DIR, name);
-  fs.mkdirSync(d, { recursive: true });
-  return d;
-}
-
-function readJson(file, fallback = null) {
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return fallback;
-  }
-}
-
-function writeJson(file, obj) {
-  fs.writeFileSync(file, `${JSON.stringify(obj, null, 2)}\n`);
-}
-
-function readMarker(outDir) {
-  return readJson(path.join(outDir, 'marker.json'), {});
-}
-
-function writeMarker(outDir, patch) {
-  const m = { ...readMarker(outDir), ...patch };
-  writeJson(path.join(outDir, 'marker.json'), m);
-  return m;
-}
-
-function setStatus(outDir, entry, metric, status, extra = {}) {
-  const file = path.join(outDir, 'status.json');
-  const cur = readJson(file, { repo: entry.name, metrics: {} });
-  cur.repo = entry.name;
-  cur.commit = entry.commit;
-  cur.updatedAt = new Date().toISOString();
-  cur.metrics = cur.metrics || {};
-  cur.metrics[metric] = { status, ...extra };
-  writeJson(file, cur);
-  return cur;
 }
 
 // ---------------------------------------------------------------- CLI steps
 
-function runCliStep(entry, repoDir, srcMtime, command, outFile) {
-  const outDir = outDirFor(entry.name);
-  const marker = readMarker(outDir);
-  if (!FORCE && marker.commit === entry.commit && marker.srcMtimeMs === srcMtime && fs.existsSync(outFile)) {
-    log(`${entry.name}: ${command} cached, skip (use --force to re-run)`);
-    return;
-  }
-  log(`${entry.name}: node cli.js ${command} --cwd <clone> --json --quiet`);
-  const r = spawnSync(process.execPath, [CLI, command, '--cwd', repoDir, '--json', '--quiet'], {
-    encoding: 'utf8',
-    maxBuffer: 512 * 1024 * 1024,
+const cacheDirFor = (entry) => path.join(lib.outDir(entry), 'cache');
+
+function runCli(entry, repoDir, command) {
+  const started = process.hrtime.bigint();
+  const r = sh(process.execPath, [CLI, command, '--cwd', repoDir, '--json', '--quiet'], {
+    env: { ...process.env, WB_CACHE_DIR: cacheDirFor(entry) },
+    timeout: CLI_TIMEOUT_MS,
   });
-  if (r.status !== 0) {
-    console.error(`[eval] ${entry.name}: ${command} failed (status ${r.status})`);
-    console.error(tail(r.stdout));
-    console.error(tail(r.stderr));
-    process.exit(1);
-  }
+  const ms = Number((process.hrtime.bigint() - started) / 1000000n);
+  if (r.status !== 0) fail(`${entry.name}: ${command} failed (status ${r.status})`, `${tail(r.stdout)}\n${tail(r.stderr)}`);
   let parsed;
   try {
     parsed = JSON.parse(r.stdout);
-  } catch (err) {
-    console.error(`[eval] ${entry.name}: ${command} produced unparseable JSON: ${tail(r.stdout, 300)}`);
-    process.exit(1);
+  } catch {
+    fail(`${entry.name}: ${command} produced unparseable JSON`, tail(r.stdout, 300));
   }
-  if (parsed.ok === false) {
-    console.error(`[eval] ${entry.name}: ${command} returned ok=false: ${JSON.stringify(parsed.error || parsed).slice(0, 500)}`);
-    process.exit(1);
-  }
-  writeJson(outFile, parsed);
-  writeMarker(outDir, {
-    commit: entry.commit,
-    srcMtimeMs: srcMtime,
-    steps: { ...(readMarker(outDir).steps || {}), [command]: new Date().toISOString() },
-  });
+  if (parsed.ok === false) fail(`${entry.name}: ${command} returned ok=false`, JSON.stringify(parsed.error || parsed).slice(0, 500));
+  return { parsed, ms };
 }
 
-// ---------------------------------------------------------------- typer coverage truth
+function isCached(entry, srcMtime, files) {
+  const m = readMarker(entry);
+  return !FORCE && m.commit === entry.commit && m.srcMtimeMs === srcMtime && files.every((f) => fs.existsSync(f));
+}
+
+function deadExportCounts(deadExports) {
+  const byConfidence = {};
+  let symbols = 0;
+  for (const item of deadExports.deadExports || []) {
+    const n = (item.exports || []).length;
+    const c = item.confidence || 'unknown';
+    byConfidence[c] = (byConfidence[c] || 0) + n;
+    symbols += n;
+  }
+  return { symbols, byConfidence };
+}
+
+function healthOf(overview, coldMs, warmMs, cacheBytes) {
+  const cov = overview.analysisCoverage || {};
+  const languages = {};
+  for (const [lang, s] of Object.entries(overview.languageSupport || {})) {
+    languages[lang] = { files: s.files, astFiles: s.astFiles, regexFiles: s.regexFiles };
+  }
+  return {
+    coldMs,
+    warmMs,
+    cacheBytes,
+    totalFiles: cov.totalFiles,
+    coverageRatio: cov.coverageRatio,
+    fallbackFiles: cov.fallbackFiles,
+    unsupportedFiles: cov.unsupportedFiles,
+    unresolvedCount: (overview.unresolved || {}).unresolvedCount,
+    droppedCount: (overview.droppedImports || {}).droppedCount,
+    warnings: (overview.warnings || []).length,
+    languages,
+  };
+}
+
+// Cold and warm runs of the same commit must agree; any field that differs is
+// a cache-consistency bug surfacing (the agent only ever sees one of them).
+const COLD_WARM_KEYS = ['totalFiles', 'coverageRatio', 'fallbackFiles', 'unresolvedCount', 'droppedCount', 'warnings'];
+
+function coldWarmDiff(coldOverview, warmOverview) {
+  const cold = healthOf(coldOverview);
+  const warm = healthOf(warmOverview);
+  const diff = {};
+  for (const k of COLD_WARM_KEYS) if (cold[k] !== warm[k]) diff[k] = { cold: cold[k], warm: warm[k] };
+  return diff;
+}
+
+function runCliSteps(entry, repoDir, srcMtime) {
+  const out = lib.outDir(entry);
+  const files = ['audit-overview.json', 'dead-exports.json', 'health.json'].map((f) => path.join(out, f));
+  if (isCached(entry, srcMtime, files)) {
+    log(`${entry.name}: CLI outputs cached, skip (use --force to re-run)`);
+    return;
+  }
+  fs.rmSync(cacheDirFor(entry), { recursive: true, force: true });
+  log(`${entry.name}: audit-overview (cold)`);
+  const cold = runCli(entry, repoDir, 'audit-overview');
+  log(`${entry.name}: audit-overview (warm)`);
+  const warm = runCli(entry, repoDir, 'audit-overview');
+  log(`${entry.name}: dead-exports`);
+  const dead = runCli(entry, repoDir, 'dead-exports');
+
+  writeJson(files[0], warm.parsed);
+  writeJson(files[1], dead.parsed);
+  const health = {
+    ...healthOf(warm.parsed, cold.ms, warm.ms, dirBytes(cacheDirFor(entry))),
+    coldWarmDiff: coldWarmDiff(cold.parsed, warm.parsed),
+    deadExports: deadExportCounts(dead.parsed),
+  };
+  writeJson(files[2], health);
+  writeMarker(entry, { commit: entry.commit, srcMtimeMs: srcMtime, cliRunAt: new Date().toISOString() });
+  log(`${entry.name}: cold ${cold.ms}ms / warm ${warm.ms}ms, coverage ${health.coverageRatio}, unresolved ${health.unresolvedCount}, dropped ${health.droppedCount}`);
+  const mismatch = Object.keys(health.coldWarmDiff);
+  if (mismatch.length) log(`${entry.name}: COLD/WARM MISMATCH on ${mismatch.join(', ')} — ${JSON.stringify(health.coldWarmDiff)}`);
+}
+
+// ---------------------------------------------------------------- coverage-pytest truth
 
 const DUMP_GT_PY = `# generated by eval/run.js — port of test/eval_affected_tests.py ground_truth()
 import collections, json, os, sys
@@ -251,124 +257,125 @@ function venvPython(venvDir) {
   return process.platform === 'win32' ? path.join(venvDir, 'Scripts', 'python.exe') : path.join(venvDir, 'bin', 'python');
 }
 
-function typerCoverage(entry, repoDir, outDir, notes) {
-  const covFile = path.join(outDir, 'typer.cov');
-  const gtFile = path.join(outDir, 'gt.json');
-  const marker = readMarker(outDir);
+function pytestCoverage(entry, repoDir, notes) {
+  const { source, tests } = entry.affectedTests;
+  const out = lib.outDir(entry);
+  const covFile = path.join(out, 'coverage.data');
+  const gtFile = path.join(out, 'gt.json');
+  const logFile = path.join(out, 'pytest.log');
+  const steps = () => readMarker(entry).steps || {};
+  const markStep = (name, value) => writeMarker(entry, { steps: { ...steps(), [name]: value } });
   const pending = (reason) => {
-    setStatus(outDir, entry, 'affected-tests', 'pending', { reason, notes: notes.slice() });
-    log(`typer: affected-tests pending — ${reason}`);
+    setStatus(entry, 'affected-tests', 'pending', { reason });
+    log(`${entry.name}: affected-tests pending — ${reason}`);
   };
 
-  if (marker.steps && marker.steps.coverage === entry.commit && fs.existsSync(covFile) && fs.existsSync(gtFile) && !FORCE) {
-    log('typer: coverage truth cached, skip (use --force to re-run)');
-    setStatus(outDir, entry, 'affected-tests', 'ok', { truth: 'gt.json', coverage: 'typer.cov', cached: true });
+  if (!FORCE && steps().coverage === entry.commit && fs.existsSync(covFile) && fs.existsSync(gtFile)) {
+    log(`${entry.name}: coverage truth cached, skip (use --force to re-run)`);
+    setStatus(entry, 'affected-tests', 'ok', { truth: 'gt.json', cached: true });
     return;
   }
 
   const py = findPython();
   if (!py) return pending('python not found on PATH');
 
-  const venvDir = path.join(TRUTH, 'venv-typer');
+  const venvDir = path.join(VENVS_DIR, entry.name);
   const vpy = venvPython(venvDir);
   if (!fs.existsSync(vpy)) {
-    log(`typer: creating isolated venv at ${venvDir}`);
+    log(`${entry.name}: creating isolated venv at ${venvDir}`);
     const r = sh(py[0], [...py.slice(1), '-m', 'venv', venvDir]);
     if (r.status !== 0) return pending(`venv creation failed: ${tail(r.stderr, 400)}`);
   }
-
-  // pytest + coverage inside the venv; install if missing
   if (sh(vpy, ['-c', 'import pytest, coverage']).status !== 0) {
-    notes.push('typer: pip install pytest coverage (inside eval/truth/venv-typer)');
-    log('typer: pip install pytest coverage');
+    log(`${entry.name}: pip install pytest coverage`);
     const r = sh(vpy, ['-m', 'pip', 'install', '--disable-pip-version-check', '-q', 'pytest', 'coverage']);
     if (r.status !== 0) return pending(`pip install pytest coverage failed: ${tail(r.stderr, 600)}`);
   }
-
-  // typer deps (report §5.2 step 1: pip install -e <typer>) — cached via venv marker
-  if (!(readMarker(outDir).steps || {}).typerDeps) {
-    log('typer: pip install -e <typer-clone> (into venv)');
+  // editable install points at the clone path, so the path is part of the key
+  const depsKey = `${entry.commit}@${repoDir}`;
+  if (steps().deps !== depsKey) {
+    log(`${entry.name}: pip install -e <clone> (into venv)`);
     const r = sh(vpy, ['-m', 'pip', 'install', '--disable-pip-version-check', '-q', '-e', repoDir]);
-    if (r.status !== 0) return pending(`pip install -e typer failed: ${tail(r.stderr, 600)}`);
-    writeMarker(outDir, { steps: { ...(readMarker(outDir).steps || {}), typerDeps: entry.commit } });
-    notes.push('typer: pip install -e <clone> (into eval venv)');
+    if (r.status !== 0) return pending(`pip install -e failed: ${tail(r.stderr, 600)}`);
+    markStep('deps', depsKey);
   }
 
-  // independent rcfile — mandatory: typer's own [tool.coverage.run] is parallel mode
-  const rcfile = path.join(outDir, 'covrc');
-  const logFile = path.join(outDir, 'pytest.log');
-  const stepsNow = () => readMarker(outDir).steps || {};
-
-  // pytest step, cached on its own: status 1 = test failures is a *completed*
-  // run (ground truth comes from coverage data, not from pass/fail)
-  if (stepsNow().pytest === entry.commit && fs.existsSync(covFile) && fs.existsSync(logFile) && !FORCE) {
-    log('typer: pytest run cached, skip');
+  if (!FORCE && steps().pytest === entry.commit && fs.existsSync(covFile) && fs.existsSync(logFile)) {
+    log(`${entry.name}: pytest run cached, skip`);
   } else {
+    const rcfile = path.join(out, 'covrc');
     fs.writeFileSync(
       rcfile,
-      `[run]\nsource = ${path.join(repoDir, 'typer').replace(/\\/g, '/')}\ndynamic_context = test_function\ndata_file = ${covFile.replace(/\\/g, '/')}\n`
+      `[run]\nsource = ${lib.toPosix(path.join(repoDir, source))}\ndynamic_context = test_function\ndata_file = ${lib.toPosix(covFile)}\n`
     );
     fs.rmSync(covFile, { force: true });
-
-    log('typer: coverage + pytest (~20 min on Windows)');
-    const r = sh(
-      vpy,
-      ['-m', 'coverage', 'run', `--rcfile=${rcfile}`, '-m', 'pytest', '-q', '-p', 'no:cacheprovider', '-p', 'no:cov', 'tests'],
-      { cwd: repoDir, timeout: 45 * 60 * 1000 }
-    );
-    fs.writeFileSync(logFile, `$ ${vpy} -m coverage run --rcfile=${rcfile} -m pytest -q -p no:cacheprovider -p no:cov tests\n${r.stdout || ''}\n${r.stderr || ''}`);
+    const args = ['-m', 'coverage', 'run', `--rcfile=${rcfile}`, '-m', 'pytest', '-q', '-p', 'no:cacheprovider', '-p', 'no:cov', tests];
+    log(`${entry.name}: coverage + pytest (typer takes ~20 min on Windows)`);
+    const r = sh(vpy, args, { cwd: repoDir, timeout: PYTEST_TIMEOUT_MS });
+    fs.writeFileSync(logFile, `$ ${vpy} ${args.join(' ')}\n${r.stdout || ''}\n${r.stderr || ''}`);
+    // exit 1 = some tests failed: still a completed run, truth comes from coverage data
     if ((r.status !== 0 && r.status !== 1) || !fs.existsSync(covFile)) {
-      return pending(`coverage/pytest run failed (status ${r.status}); see eval/truth/out/typer/pytest.log`);
+      return pending(`coverage/pytest run failed (status ${r.status}); see ${path.relative(ROOT, logFile)}`);
     }
-    if (r.status === 1) notes.push('typer: pytest exit 1 (some tests failed) — accepted; ground truth = coverage data regardless of pass/fail');
-    writeMarker(outDir, { steps: { ...stepsNow(), pytest: entry.commit } });
+    if (r.status === 1) notes.push(`${entry.name}: pytest exit 1 (some tests failed) — accepted, truth = coverage data`);
+    markStep('pytest', entry.commit);
   }
 
-  // per-file -> test-function map (truth JSON)
-  const dumpScript = path.join(outDir, 'dump_gt.py');
+  const dumpScript = path.join(out, 'dump_gt.py');
   fs.writeFileSync(dumpScript, DUMP_GT_PY);
   const g = sh(vpy, [dumpScript, repoDir, covFile, gtFile]);
-  if (g.status !== 0 || !fs.existsSync(gtFile)) {
-    return pending(`gt dump failed: ${tail(g.stderr, 600)}`);
-  }
+  if (g.status !== 0 || !fs.existsSync(gtFile)) return pending(`gt dump failed: ${tail(g.stderr, 600)}`);
 
-  writeMarker(outDir, { steps: { ...(readMarker(outDir).steps || {}), coverage: entry.commit } });
-  setStatus(outDir, entry, 'affected-tests', 'ok', { truth: 'gt.json', coverage: 'typer.cov' });
-  log('typer: coverage ground truth ready (gt.json)');
+  markStep('coverage', entry.commit);
+  setStatus(entry, 'affected-tests', 'ok', { truth: 'gt.json' });
+  log(`${entry.name}: coverage ground truth ready (gt.json)`);
 }
 
 // ---------------------------------------------------------------- main
 
-function main() {
-  if (!fs.existsSync(CLI)) {
-    console.error(`[eval] cli.js not found: ${CLI}`);
-    process.exit(2);
+function evalRepo(entry, srcMtime, notes) {
+  const repoDir = ensureRepo(entry);
+  runCliSteps(entry, repoDir, srcMtime);
+  setStatus(entry, 'health', 'ok', { truth: 'health.json' });
+  if (entry.metrics.includes('dead-code')) setStatus(entry, 'dead-code', 'ok', { findings: 'dead-exports.json' });
+
+  if (!entry.metrics.includes('affected-tests')) return;
+  if (entry.affectedTests.method === 'coverage-pytest') {
+    pytestCoverage(entry, repoDir, notes);
+    return;
   }
+  const st = (readJson(path.join(lib.outDir(entry), 'status.json'), {}).metrics || {})['affected-tests'];
+  if (!st || st.status !== 'ok') {
+    setStatus(entry, 'affected-tests', 'pending', {
+      reason: `fault-injection truth not generated; run \`node eval/inject-fault.js ${entry.name}\` (expensive)`,
+    });
+  }
+}
+
+function main() {
+  if (!fs.existsSync(CLI)) throw new Error(`cli.js not found: ${CLI}`);
+  const corpus = lib.loadCorpus();
+  const selected = lib.selectRepos(corpus, argv);
   const srcMtime = newestMtime(path.join(ROOT, 'src'));
   const notes = [];
+  const failed = [];
 
   for (const entry of selected) {
-    log(`=== ${entry.name} @ ${entry.commit} (heldOut=${entry.heldOut}) ===`);
-    const repoDir = ensureRepo(entry);
-    const outDir = outDirFor(entry.name);
-
-    runCliStep(entry, repoDir, srcMtime, 'dead-exports', path.join(outDir, 'dead-exports.json'));
-    runCliStep(entry, repoDir, srcMtime, 'audit-overview', path.join(outDir, 'audit-overview.json'));
-    setStatus(outDir, entry, 'dead-code', 'ok', { findings: 'dead-exports.json' });
-
-    if (entry.metrics.includes('affected-tests') && entry.name === 'typer') {
-      typerCoverage(entry, repoDir, outDir, notes);
-    } else if (entry.metrics.includes('affected-tests')) {
-      const cur = readJson(path.join(outDir, 'status.json'), { metrics: {} });
-      if (!cur.metrics || !cur.metrics['affected-tests'] || cur.metrics['affected-tests'].status !== 'ok') {
-        setStatus(outDir, entry, 'affected-tests', 'pending', {
-          reason: `fault-injection truth not generated; run \`node eval/inject-fault.js ${entry.name}\` explicitly (expensive)`,
-        });
-      }
+    log(`=== ${entry.lang}/${entry.name} @ ${entry.commit} (heldOut=${entry.heldOut}) ===`);
+    try {
+      evalRepo(entry, srcMtime, notes);
+    } catch (err) {
+      console.error(`[eval] ${entry.name}: ${err.message}`);
+      setStatus(entry, 'health', 'error', { reason: err.message.split('\n')[0] });
+      failed.push(entry.name);
     }
   }
 
   for (const n of notes) log(`note: ${n}`);
+  if (failed.length) {
+    console.error(`[eval] ${failed.length} repo(s) failed: ${failed.join(', ')}`);
+    process.exit(1);
+  }
   log('done. next: node eval/score.js');
 }
 

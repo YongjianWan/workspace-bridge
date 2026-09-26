@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "description": "Minimal evaluation corpus for workspace-bridge. Repos are cloned at pinned commits into eval/truth/repos/<name> by eval/run.js. heldOut=true repos are never used while tuning (all false in v1). faultInjection.files are the sampled files for eval/inject-fault.js (per report methodology: runtime fault, failing tests = ground truth).",
+  "version": 2,
+  "description": "Evaluation corpus for workspace-bridge. eval/run.js clones each repo at its pinned commit into eval/truth/repos/<lang>/<name> (outputs under eval/truth/out/<lang>/<name>). metrics: health = no-truth run signals (coverage, fallback, unresolved/dropped, warnings, cold/warm time, cache size) collected for every repo; dead-code = scored against eval/labels/<name>.jsonl; affected-tests = scored against independent truth (coverage-pytest via run.js, fault-injection via eval/inject-fault.js). heldOut=true repos are never used while tuning (all false for now).",
   "reasonVocabulary": [
     "decorator-registered",
     "glob-loaded",
@@ -19,22 +19,203 @@
   "repos": [
     {
       "name": "typer",
+      "lang": "python",
       "url": "https://github.com/tiangolo/typer",
       "commit": "a80f6e5ecd",
-      "languages": ["python"],
-      "shape": "python library",
-      "metrics": ["affected-tests", "dead-code"],
+      "languages": [
+        "python"
+      ],
+      "shape": "python cli library",
+      "metrics": [
+        "health",
+        "dead-code",
+        "affected-tests"
+      ],
+      "heldOut": false,
+      "affectedTests": {
+        "method": "coverage-pytest",
+        "source": "typer",
+        "tests": "tests"
+      }
+    },
+    {
+      "name": "full-stack-fastapi-template",
+      "lang": "python",
+      "url": "https://github.com/fastapi/full-stack-fastapi-template",
+      "commit": "cb740b656d",
+      "languages": [
+        "python",
+        "typescript"
+      ],
+      "shape": "fastapi backend + react frontend",
+      "metrics": [
+        "health",
+        "dead-code"
+      ],
+      "heldOut": false
+    },
+    {
+      "name": "NeEEvA",
+      "lang": "python",
+      "url": "https://github.com/Enishiya770/NeEEvA",
+      "commit": "0e2cea7ad2",
+      "languages": [
+        "python",
+        "csharp"
+      ],
+      "shape": "python services + c# (c# unsupported)",
+      "metrics": [
+        "health",
+        "dead-code"
+      ],
+      "heldOut": false
+    },
+    {
+      "name": "django",
+      "lang": "python",
+      "url": "https://github.com/django/django",
+      "commit": "a013c821ea",
+      "languages": [
+        "python"
+      ],
+      "shape": "large python framework (perf / cache size)",
+      "metrics": [
+        "health"
+      ],
+      "heldOut": false
+    },
+    {
+      "name": "zod",
+      "lang": "js-ts",
+      "url": "https://github.com/colinhacks/zod",
+      "commit": "912f0f51b0",
+      "languages": [
+        "typescript"
+      ],
+      "shape": "ts library monorepo (pnpm)",
+      "metrics": [
+        "health",
+        "affected-tests"
+      ],
+      "heldOut": false,
+      "affectedTests": {
+        "method": "fault-injection",
+        "runner": "vitest",
+        "sampleDir": "packages/zod/src/v4/classic",
+        "sample": 10
+      }
+    },
+    {
+      "name": "execa",
+      "lang": "js-ts",
+      "url": "https://github.com/sindresorhus/execa",
+      "commit": "499fe80036",
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "shape": "node esm library",
+      "metrics": [
+        "health"
+      ],
+      "heldOut": false
+    },
+    {
+      "name": "bulletproof-react",
+      "lang": "js-ts",
+      "url": "https://github.com/alan2207/bulletproof-react",
+      "commit": "9506629ed0",
+      "languages": [
+        "typescript",
+        "react"
+      ],
+      "shape": "react apps monorepo (vite / nextjs)",
+      "metrics": [
+        "health"
+      ],
+      "heldOut": false
+    },
+    {
+      "name": "vitesse",
+      "lang": "vue",
+      "url": "https://github.com/antfu-collective/vitesse",
+      "commit": "8a01bc9283",
+      "languages": [
+        "typescript",
+        "vue"
+      ],
+      "shape": "vite + vue frontend",
+      "metrics": [
+        "health",
+        "dead-code",
+        "affected-tests"
+      ],
+      "heldOut": false,
+      "affectedTests": {
+        "method": "fault-injection",
+        "runner": "vitest",
+        "files": [
+          "src/App.vue",
+          "src/stores/user.ts",
+          "src/modules/pinia.ts",
+          "src/modules/i18n.ts",
+          "src/composables/dark.ts",
+          "src/components/TheCounter.vue",
+          "src/components/TheInput.vue",
+          "src/pages/index.vue",
+          "src/layouts/default.vue",
+          "src/main.ts"
+        ]
+      }
+    },
+    {
+      "name": "vue-realworld-example-app",
+      "lang": "vue",
+      "url": "https://github.com/realworld-apps/vue-realworld-example-app",
+      "commit": "f7e48c8178",
+      "languages": [
+        "typescript",
+        "vue"
+      ],
+      "shape": "vue spa",
+      "metrics": [
+        "health"
+      ],
+      "heldOut": false
+    },
+    {
+      "name": "realworld",
+      "lang": "svelte",
+      "url": "https://github.com/sveltejs/realworld",
+      "commit": "ec8552fee0",
+      "languages": [
+        "javascript",
+        "svelte"
+      ],
+      "shape": "sveltekit app",
+      "metrics": [
+        "health"
+      ],
       "heldOut": false
     },
     {
       "name": "spring-petclinic",
+      "lang": "java",
       "url": "https://github.com/spring-projects/spring-petclinic",
       "commit": "818c4136ea",
-      "languages": ["java"],
-      "shape": "java web app",
-      "metrics": ["affected-tests", "dead-code"],
+      "languages": [
+        "java"
+      ],
+      "shape": "spring boot web app",
+      "metrics": [
+        "health",
+        "dead-code",
+        "affected-tests"
+      ],
       "heldOut": false,
-      "faultInjection": {
+      "affectedTests": {
+        "method": "fault-injection",
+        "runner": "maven",
         "files": [
           "src/main/java/org/springframework/samples/petclinic/owner/Owner.java",
           "src/main/java/org/springframework/samples/petclinic/owner/OwnerController.java",
@@ -50,27 +231,118 @@
       }
     },
     {
-      "name": "vitesse",
-      "url": "https://github.com/antfu-collective/vitesse",
-      "commit": "8a01bc9283",
-      "languages": ["typescript", "vue"],
-      "shape": "ts/vue frontend",
-      "metrics": ["affected-tests", "dead-code"],
+      "name": "okhttp",
+      "lang": "kotlin",
+      "url": "https://github.com/square/okhttp",
+      "commit": "40a3b8749d",
+      "languages": [
+        "kotlin",
+        "java"
+      ],
+      "shape": "kotlin library (gradle multi-module)",
+      "metrics": [
+        "health"
+      ],
+      "heldOut": false
+    },
+    {
+      "name": "glow",
+      "lang": "go",
+      "url": "https://github.com/charmbracelet/glow",
+      "commit": "6b365eea95",
+      "languages": [
+        "go"
+      ],
+      "shape": "go cli app",
+      "metrics": [
+        "health",
+        "dead-code"
+      ],
+      "heldOut": false
+    },
+    {
+      "name": "cobra",
+      "lang": "go",
+      "url": "https://github.com/spf13/cobra",
+      "commit": "adbc881390",
+      "languages": [
+        "go"
+      ],
+      "shape": "go library",
+      "metrics": [
+        "health",
+        "affected-tests"
+      ],
       "heldOut": false,
-      "faultInjection": {
-        "files": [
-          "src/App.vue",
-          "src/stores/user.ts",
-          "src/modules/pinia.ts",
-          "src/modules/i18n.ts",
-          "src/composables/dark.ts",
-          "src/components/TheCounter.vue",
-          "src/components/TheInput.vue",
-          "src/pages/index.vue",
-          "src/layouts/default.vue",
-          "src/main.ts"
-        ]
+      "affectedTests": {
+        "method": "fault-injection",
+        "runner": "go",
+        "sample": 10
       }
+    },
+    {
+      "name": "hexyl",
+      "lang": "rust",
+      "url": "https://github.com/sharkdp/hexyl",
+      "commit": "6ecc29b9c8",
+      "languages": [
+        "rust"
+      ],
+      "shape": "rust cli (lib + bin)",
+      "metrics": [
+        "health",
+        "dead-code",
+        "affected-tests"
+      ],
+      "heldOut": false,
+      "affectedTests": {
+        "method": "fault-injection",
+        "runner": "cargo",
+        "sample": 10
+      }
+    },
+    {
+      "name": "ripgrep",
+      "lang": "rust",
+      "url": "https://github.com/BurntSushi/ripgrep",
+      "commit": "435f59fc4b",
+      "languages": [
+        "rust"
+      ],
+      "shape": "rust cargo workspace",
+      "metrics": [
+        "health"
+      ],
+      "heldOut": false
+    },
+    {
+      "name": "cJSON",
+      "lang": "c-cpp",
+      "url": "https://github.com/DaveGamble/cJSON",
+      "commit": "6d9f2443ab",
+      "languages": [
+        "c"
+      ],
+      "shape": "c library",
+      "metrics": [
+        "health",
+        "dead-code"
+      ],
+      "heldOut": false
+    },
+    {
+      "name": "fmt",
+      "lang": "c-cpp",
+      "url": "https://github.com/fmtlib/fmt",
+      "commit": "caf5e48b1c",
+      "languages": [
+        "cpp"
+      ],
+      "shape": "c++ library",
+      "metrics": [
+        "health"
+      ],
+      "heldOut": false
     }
   ]
 }
