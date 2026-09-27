@@ -417,16 +417,29 @@ async function assembleFile(parsed, container) {
   const validationAdvice = buildFileValidationAdvice(resolvedPath, container.workspaceRoot, affectedTests, impact);
 
   // Compact mode: keep counts/summary and the single suggested command, drop
-  // verbose lists so large files do not flood human-readable output.
+  // verbose lists so large files do not flood human-readable output. Each
+  // non-empty list dropped is recorded, so the empty array never reads as
+  // "nothing there".
+  const elided = [];
   if (compact) {
-    impact.impact = [];
-    impact.coChanges = [];
-    impact.affectedRoutes = [];
-    affectedTests.affectedTests = [];
-    validationAdvice.commands = { smoke: [], focused: [], full: [] };
-    validationAdvice.phases = [];
-    validationAdvice.fileSpecificAdvice = [];
-    validationAdvice.environmentNotes = [];
+    const drop = (owner, key, path, flagOwner = owner) => {
+      const total = owner[key]?.length || 0;
+      if (total > 0) {
+        elided.push({ path, kind: 'array', shown: 0, total, reason: 'compact' });
+        flagOwner.truncated = true;
+      }
+      owner[key] = [];
+    };
+    drop(impact, 'impact', 'impact.impact');
+    drop(impact, 'coChanges', 'impact.coChanges');
+    drop(impact, 'affectedRoutes', 'impact.affectedRoutes');
+    drop(affectedTests, 'affectedTests', 'affectedTests.affectedTests');
+    for (const group of ['smoke', 'focused', 'full']) {
+      drop(validationAdvice.commands, group, `validationAdvice.commands.${group}`, validationAdvice);
+    }
+    drop(validationAdvice, 'phases', 'validationAdvice.phases');
+    drop(validationAdvice, 'fileSpecificAdvice', 'validationAdvice.fileSpecificAdvice');
+    drop(validationAdvice, 'environmentNotes', 'validationAdvice.environmentNotes');
   }
 
   const result = {
@@ -441,6 +454,7 @@ async function assembleFile(parsed, container) {
     affectedTests,
     compact,
     autoCompact,
+    ...(elided.length > 0 ? { elided, truncated: true } : {}),
   };
 
   // Calculate hasFindings O(1) return contract

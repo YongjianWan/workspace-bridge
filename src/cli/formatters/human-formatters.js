@@ -1813,6 +1813,27 @@ function buildCommandAiDigest(command, result) {
   return { topRisks: [], actions: [], counts: {} };
 }
 
+/**
+ * The AI digest pairs each sampled list with its total in `counts`
+ * (details.dependencies ↔ counts.dependencies). Any list shorter than its
+ * total is listed in the same `elided` shape the JSON path uses, together
+ * with cuts the producer already recorded (audit-file compact).
+ */
+function collectDigestElisions(output, counts, result) {
+  const elided = [...(result.elided || [])];
+  const note = (path, shown, total) => {
+    if (Number.isFinite(total) && total > shown) elided.push({ path, kind: 'array', shown, total, reason: 'ai-digest' });
+  };
+  for (const [key, list] of Object.entries(output.details || {})) {
+    if (Array.isArray(list)) note(`details.${key}`, list.length, counts?.[key]);
+  }
+  const riskTotals = { impact: result.impact?.impactCount, affectedTests: result.affectedTests?.affectedTestsCount };
+  for (const [key, list] of Object.entries(output.riskFiles || {})) {
+    if (Array.isArray(list)) note(`riskFiles.${key}`, list.length, riskTotals[key]);
+  }
+  return elided;
+}
+
 function formatAi(command, result, options = {}) {
   if (!result || result.ok === false) {
     return JSON.stringify({ ok: false, error: result?.error || 'Command failed' });
@@ -1982,6 +2003,12 @@ function formatAi(command, result, options = {}) {
       if (digest.fullDetails) output.details = digest.fullDetails;
       else if (result.details) output.details = result.details;
     }
+  }
+
+  const elided = collectDigestElisions(output, counts, result);
+  if (elided.length > 0) {
+    output.elided = elided;
+    output.truncated = true;
   }
 
   if (tokenBudget) {

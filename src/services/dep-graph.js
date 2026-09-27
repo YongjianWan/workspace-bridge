@@ -15,7 +15,7 @@
  *    and dead export calculations across the fully resolved graph.
  */
 const path = require('path');
-const { normalizePathKey,  normalizeFilePath } = require('../utils/path');
+const { normalizePathKey, normalizeFilePath, toRelativePosix } = require('../utils/path');
 const { shouldExcludeBase, shouldExcludeCli: _shouldExcludeCli } = require('../utils/exclude-patterns');
 const { isTestLikeFile } = require('../utils/test-detector');
 const {
@@ -355,7 +355,7 @@ class DependencyGraph {
     for (const file of allFiles) {
       if (this.analyzer.hasPairedCHeader(file)) registeredFiles.add(file);
     }
-    return detectOrphans(
+    const orphans = detectOrphans(
       allFiles,
       this.entryFiles,
       this,
@@ -365,6 +365,12 @@ class DependencyGraph {
       this.shouldExcludeCli?.bind(this),
       registeredFiles
     );
+    // Classification runs on graph keys (lower-cased on Windows) so directory
+    // rules match regardless of casing; output goes back to on-disk casing.
+    const toRel = toRelativeFn || toRelativePosix;
+    const onDisk = new Map(allFiles.map((f) => [toRel(this.root, f), toRel(this.root, this._displayPath(f))]));
+    const display = (rel) => onDisk.get(rel) ?? rel;
+    return Object.fromEntries(Object.entries(orphans).map(([group, list]) => [group, list.map(display)]));
   }
 
   _scanSymbolUsageInImporters(...args) {

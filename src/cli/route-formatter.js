@@ -10,7 +10,7 @@ const {
   formatJsonl,
   formatAi,
 } = require('./formatters');
-const { STREAMING, SCHEMA_VERSION, EXIT_CODES } = require('../config/constants');
+const { STREAMING, SCHEMA_VERSION, EXIT_CODES, DEFAULTS } = require('../config/constants');
 const { elideDeep } = require('../utils/truncate');
 
 const ESSENTIAL_FIELDS = ['ok', 'error', 'schemaVersion', 'command', 'hasFindings', 'staleness', 'warnings'];
@@ -121,8 +121,17 @@ function formatCliResult(parsed, result, meta = {}) {
     stdout = formatHuman(parsed.command, result, textOptions);
   } else if (parsed.format === 'json' || parsed.json) {
     // --format json and --json are equivalent for structured output.
-    let output = result && typeof result === 'object' ? elideDeep(result) : result;
+    const elided = [...(result?.elided || [])];
+    // An explicit --max-files is the caller's own budget; the size net must not undercut it.
+    const maxArrayLength = Math.max(DEFAULTS.JSON_OUTPUT_MAX_ARRAY_ITEMS, Number.isFinite(parsed.maxFiles) ? parsed.maxFiles : 0);
+    let output = result && typeof result === 'object' ? elideDeep(result, { elided, maxArrayLength }) : result;
     if (output && typeof output === 'object') {
+      // Every cut — the producer's compact mode or the size net above — is
+      // listed once at the top so a consumer never mistakes a slice for the whole.
+      if (elided.length > 0) {
+        output.elided = elided.filter((e) => e.path !== 'elided' && !e.path.startsWith('elided['));
+        output.truncated = true;
+      }
       output.schemaVersion = schemaVersion;
       if (parsed.command) {
         output.command = parsed.command;
