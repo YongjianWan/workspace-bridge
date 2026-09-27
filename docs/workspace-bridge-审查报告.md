@@ -44,7 +44,7 @@
 | 语言 | 仍需验证或修复的点 |
 |---|---|
 | JS/TS | 无插值模板字符串动态导入（P1-13）；生成客户端的 API 契约识别（P1-14） |
-| Python | affected-tests 精确率、测试文件识别、Django runner（P0-11/12/14） |
+| Python | affected-tests 精确率的剩余噪声是图可达性过度预测：typer 精确率 0.60、召回率 0.98，误报全是真实测试文件，只有符号级映射能再压（未立项） |
 | C/C++ | 头文件与实现文件配对、宏误判为导出（P1-12） |
 | Java、Kotlin、Go、Rust、Vue、Svelte | 本表没有未解决的语言专属复现；仍须用固定仓库复测，不能据此宣称完整语义覆盖 |
 
@@ -53,12 +53,7 @@
 
 ### P0：会让 agent 做出错误动作
 
-| ID | 问题 | 验证 | 根因位置 | 修复方向 |
-|---|---|---|---|---|
-| P0-6 | `dead-exports` 的 high 级误报仍覆盖 `import.meta.glob`、auto-import、配置文件、库公开 API 和 C 宏等形态。 | [手工] 用 `eval/labels/` 的 27 条真值复核各语言告警 | 静态引用模型未覆盖动态注册与公开 API | 按能力覆盖降低置信度；未核准的公开 API 不给 high。 |
-| P0-11 | affected-tests 的测试集仍需用固定仓库真值复测；旧数字不能证明当前精确率或召回率。 | [手工] 按 `eval/README.md` 运行 typer coverage 真值评测 | 当前影响映射的真实误报与漏报分布未测 | 记录精确率、召回率和漏报文件，再决定是否引入符号级映射。 |
-| P0-12 | 受影响测试里混进非测试文件：typer 里 `typer/testing.py`（库代码）、`tests/atomic_write_example.py` 被当成测试；Django 里 `tests/**/models.py` 被放进 pytest 命令 | [手工] 看 typer 上 `affected-tests --file typer/models.py` 的输出 | 测试文件判断太宽：路径里有 test 就算 | 按 runner 的规则识别（pytest 的 `test_*.py` / `*_test.py`，Django 的 `tests.py` 等） |
-| P0-14 | 验证建议给了错误的 runner：Django 仓库建议 `pytest ...`（实际用 `tests/runtests.py`） | [手工] `audit-file --cwd <django> --file django/db/models/query.py --quiet` | `utils/stack-detectors/commands.js` | 识别不出 runner 时不要给具体命令 |
+当前无开放项。
 
 ### P1：可信度和可用性
 
@@ -119,8 +114,7 @@
 
 ## 7. 当前修复顺序和验收
 
-1. 先在固定仓库重跑真值评测，确认 P0-6/P0-11 的误报与受影响测试数字；缺少新测量时不沿用旧分数宣称改善。
-2. 优先处理 P0-6、P0-11/12/14 的错误动作，再处理缓存性能与输出可用性（P1-4/5/6/7/14/16/17）。
-3. 其余开放项按第 4 节逐条复现；每完成一项，就从活跃清单删除，并在 CHANGELOG 记录改动、原因和验证。
+1. 处理缓存性能与输出可用性（P1-4/5/6/7/14/16/17）。
+2. 其余开放项按第 4 节逐条复现；每完成一项，就从活跃清单删除，并在 CHANGELOG 记录改动、原因和验证。
 
 每轮收工执行 `node test/wb-repro.js cli.js`、`npm run test:fast`；涉及真实仓库结果时按 [eval/README.md](../eval/README.md) 复测。

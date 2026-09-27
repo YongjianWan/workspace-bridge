@@ -1,45 +1,118 @@
 {
-  "generatedAt": "2026-09-25T18:08:13.099Z",
+  "generatedAt": "2026-09-27T11:56:13.270Z",
   "wbVersion": "2.1.0",
-  "note": "first measured run (2026-09-26). Regenerate from eval/scoreboard.json only after reviewing FAIL lines.",
+  "note": "2026-09-27 重基线：score.js 全 PASS 后整体取自 scoreboard。相对上一版的变化只有提升——typer affected-tests recall 0.9496->0.9847（rich_utils 缺边修复），cJSON dead-code precisionHigh 0.05->1（P0-6 降档）。Regenerate from eval/scoreboard.json only after reviewing FAIL lines.",
   "repos": {
     "typer": {
-      "affected-tests": {
-        "status": "ok",
-        "precision": 0.6029,
-        "recall": 0.9496,
-        "n": 4997
-      },
       "dead-code": {
         "status": "ok",
         "precision": 0,
         "precisionHigh": null,
         "precisionLow": null,
-        "n": 2
+        "n": 1
+      },
+      "affected-tests": {
+        "status": "ok",
+        "precision": 0.6019,
+        "recall": 0.9847,
+        "n": 5076
       }
     },
-    "spring-petclinic": {
+    "full-stack-fastapi-template": {
       "dead-code": {
         "status": "ok",
-        "precision": 0.75,
+        "precision": 1,
+        "precisionHigh": 1,
+        "precisionLow": null,
+        "n": 91
+      }
+    },
+    "NeEEvA": {
+      "dead-code": {
+        "status": "ok",
+        "precision": null,
         "precisionHigh": null,
-        "precisionLow": 0.75,
-        "n": 4
+        "precisionLow": null,
+        "n": 0
+      }
+    },
+    "zod": {
+      "affected-tests": {
+        "status": "ok",
+        "precision": 0.9541,
+        "recall": 1,
+        "n": 894
       }
     },
     "vitesse": {
+      "dead-code": {
+        "status": "ok",
+        "precision": 0.3,
+        "precisionHigh": null,
+        "precisionLow": 0.3,
+        "n": 10
+      },
       "affected-tests": {
         "status": "ok",
         "precision": 1,
         "recall": 1,
         "n": 1
-      },
+      }
+    },
+    "spring-petclinic": {
       "dead-code": {
         "status": "ok",
-        "precision": 0.3,
-        "precisionHigh": 0.3333,
+        "precision": 0,
+        "precisionHigh": null,
+        "precisionLow": 0,
+        "n": 1
+      },
+      "affected-tests": {
+        "status": "ok",
+        "precision": 0.717,
+        "recall": 0.76,
+        "n": 65
+      }
+    },
+    "glow": {
+      "dead-code": {
+        "status": "ok",
+        "precision": null,
+        "precisionHigh": null,
         "precisionLow": null,
-        "n": 10
+        "n": 0
+      }
+    },
+    "cobra": {
+      "affected-tests": {
+        "status": "ok",
+        "precision": 0.4,
+        "recall": 0.6087,
+        "n": 88
+      }
+    },
+    "hexyl": {
+      "dead-code": {
+        "status": "ok",
+        "precision": 0,
+        "precisionHigh": null,
+        "precisionLow": 0,
+        "n": 17
+      },
+      "affected-tests": {
+        "status": "ok",
+        "precision": 1,
+        "recall": 0.5,
+        "n": 4
+      }
+    },
+    "cJSON": {
+      "dead-code": {
+        "status": "ok",
+        "precision": 0.0526,
+        "precisionHigh": 1,
+        "precisionLow": 0,
+        "n": 19
       }
     }
   }

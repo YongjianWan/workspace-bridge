@@ -7,6 +7,59 @@
 
 ## [Unreleased]
 
+### Changed: eval 基线重生成（2026-09-27）
+
+- `node eval/score.js` 全 PASS（无指标下降）后，`eval/baseline.json` 整体取自 scoreboard。相对上一版只有提升：typer affected-tests recall 0.9496→0.9847（rich_utils 缺边修复），cJSON dead-code precisionHigh 0.05→1（P0-6 降档）。重生成后再跑 score.js，所有 delta=0。
+- 符号级映射（压 typer affected-tests 精确率剩余噪声）定为暂不立项，理由与重启条件见 SESSION.md。
+
+### Fixed: P0-6 dead-exports high 级误报校准——五类工具链消费形态不再给 high（2026-09-27）
+
+- **根因**（审查报告 P0-6）：`findDeadExports` 的置信度只看"有没有 import 边"，而五类形态的消费方根本不经过 import 图——配置文件的导出由同名工具按文件名约定读取（cypress 读 cypress.config.ts）；libFuzzer 入口契约符号由引擎按名链接调用；C 源文件的 API 声明在配对公开头里、消费方在工作区之外；auto-import 目录里的导出被构建工具注入消费方；`import.meta.glob` 装载的模块在运行期被调用其 `install` 等导出。这些形态静态分析必然 0 边 → 一律判 high（`eval/labels/` 27 条真值里 6 条踩中：vitesse 的 cypress/uno 配置、`src/modules/*.ts` 的 install、`src/stores/user.ts` 的 useUserStore，cJSON 的 `cJSON_Utils.c` 与 `cjson_read_fuzzer.c` 的 LLVMFuzzerTestOneInput）。
+- **改动**：① `shared.js` 新增 `CONFIG_FILE_PATTERN`（`*.config.{js,jsx,ts,tsx,mjs,cjs,mts,cts}`）与 `KNOWN_ENGINE_ENTRY_SYMBOLS`（4 个 `LLVMFuzzer*` 符号进 `isConventionallyAliveSymbol` 排除，与 dunder/mockLike 同类"约定存活"——不进报告；`KNOWN_CONFIG_NAMES` 未动）；② `analyzer.js` `findDeadExports` 的 marker 阶段新增 4 个降档函数（`_markConfigFileFalsePositives` / `_markCPairedHeaderFalsePositives` / `_markAutoImportDirFalsePositives` / `_markGlobLoadedFalsePositives`，形状仿 `_markRustPublicApiFalsePositives`：降为 low + `confidenceSource`/`confidenceReason`/`falsePositiveReason`，**绝不删除发现**，已有 `falsePositiveReason` 的 finding 不覆盖）；dirs 证据只认配置文件里实际声明的 `dirs: ['…']` 字符串数组（按工作区根解析，不按目录名猜）；glob 按消费方文件所在目录解析，`*`/`**`/`?` 转 anchored regex（语义与 `eval/score.js` globToRegex 一致）；③ 证据按文件缓存（`_globPatternsByFile`/`_autoImportDirsByFile` + `_invalidateMarkerEvidence` 按 changedFiles 定向失效）——`updateFiles` 会重发 `graph:built`→`precomputeAggregates`→`findDeadExports`，无缓存时每次增量更新都重读整棵 JS 树，`dep-graph-postprocess-incremental-test` 曾因此红（router.js 被多读 1 次），定向失效后修复；④ `honesty-engine.js` 的 `DEAD_EXPORT_FALSE_POSITIVE_REASONS` 收录 4 个新 reason（honesty 分类器保留 marker 原因、发现不再驱动 severity，与 rust-public-api 同等待遇）。**CACHE_VERSION 46→47**：deadExports 聚合是持久化的（`precomputed_aggregates` 的 deadExports 行 + `aggregateSummary` 元数据，暖启动原样发出），v46 缓存仍存旧的 high 判决，作废重建。
+- **验证**：新建 `test/p0-6-dead-exports-recalibration-test.js`（5 形态各 1 fixture 断言 + 普通文件真死导出必须维持 high 的回归守卫；先红后绿，红在 `cypress.config.ts 的配置导出不得是 high`）。27 条 label × dead-exports 对表：**修前 6 条 high → 修后 0 条 high**（vitesse 4 条 label 全部降为 low 且仍可见：config-file-convention×2 / import-meta-glob / auto-import-dirs；cJSON `cJSON_Utils.c` 降 c-paired-header，`cjson_read_fuzzer.c` 的 LLVMFuzzerTestOneInput 不再进报告）。`node eval/score.js` 全 PASS 无 FAIL：vitesse dead-code **precisionHigh 0.3333→null**（high 档已无发现）、precision 0.3 持平、labeledReported 4/4；cJSON dead-code **precisionHigh 0.05→1**、precision 0.05→0.0526、n 20→19；typer dead-code 0→0（本修复无涉，n 2→1 系上一轮 rich_utils 修复后的既有状态）。`test:fast` 197 选 195、全量 294 选 292（294=293+新测试；差额=已知 wave15 两条 3221226505，workspace-info-lightweight 本轮通过）、wb-repro 27/27、`audit-overview --cwd .` 覆盖率 1 / fallback 0 / schema 1.2.0。`eval/baseline.json` 未动。
+
+### Fixed: rich_utils 图缺边——Python importRecords 按 source 去重丢绑定（2026-09-27）
+
+- **归因**（审查报告 §3 Python 待归因项）：非 P0-1 回归、也非漏修相对形态。`parsers/python-ast.js` 的 `uniqueImportRecords` 按 `record.source` 去重，同 source 不同绑定先到先得——typer 模块级 `from . import _click` 先占掉 `"."` 槽位后，core.py 6 处、main.py / cli.py / _completion_classes.py 各 1 处函数内 `from . import rich_utils` 的记录在进 resolver 前就被丢弃（parser 实测 core.py 18 条记录无一 `imported=["rich_utils"]`），P0-1 的 `_tryPackageOrSubmodule` 从未收到这些记录。P0-1 测试夹具每文件只有一条导入、去重不触发，故测试绿而真仓库红。P0-1 条目"1→109 由此恢复"无测量支撑（109 为 gt.json 真值误记为修复后测量，已在该条目加注更正）。
+- **改动**：① 去重键 source → `(source, imported, usesAllExports)` 语句级，真重复语句仍归并（typer 6 处相同语句依旧 1 条记录 1 条边）；② `builder.js` `resolvedImports` 集合化——多记录解析到同一目标只算一条边，防 `_serializeEdges` 把重复目标序列化成多边撑大 edges/files 口径；③ 回归测试 `test/python-import-record-bindings-test.js`（先红后绿，红在 `bindings=["_click"]`，含"重复语句仍去重"保护区）。**CACHE_VERSION 45→46**：v45 缓存里 Python 仓 parse 产物缺同 source 多绑定记录，边集不可比，作废重建。
+- **验证**（修前→修后）：typer `tree --file typer/core.py` 直接边 8→9（`rich_utils.py` 补上）；CLI `affected-tests --file typer/rich_utils.py` 1→100 个测试文件。score.js 实跑：typer affected-tests **P 0.6029→0.6019 / R 0.9496→0.9847 / n 4997→5076，fn 47**（精确率持平，剩余 FP 是图可达性过度预测，符号级映射议题）；**其余 7 仓 delta=0**。test:fast 197 选 195、全量 293 选 291（292→293 为新增本测试；差额=已知 wave15 两条，workspace-info-lightweight 本轮未触发）、wb-repro 27/27。`eval/baseline.json` 未动（recall 提升是好事，重基线待人工确认）。
+
+### Fixed: P0-12 affected-tests 测试文件识别改按 runner 收集规则（2026-09-27）
+
+- **根因**：`src/utils/test-detector.js` 用"路径或文件名含 test"的宽规则判定测试（`/^test.*\.py$/` basename + `/tests/` 路径规则），pytest 不收集的文件被当成受影响测试并进验证命令——typer 的 `typer/testing.py`（库代码）、`tests/atomic_write_example.py`，Django 的 `tests/**/models.py`、`django/test/utils.py` 等（typer 一条 `affected-tests --file typer/models.py` 301 条里 89 条非收集文件；Django `audit-file` 的 pytest 命令把 fixtures/assets 全塞进去）。
+- **改动**：拆成两个谓词、两个问题——`isCollectedTestFile`（runner 会不会执行它；Python 只按 pytest/Django 收集口径认 basename：`test_*.py` / `*_test.py` / `tests.py`）用于 affected-tests 三条通道（graph/heuristic/mention）、conftest 子树展开、function-impact 的测试行；`isTestLikeFile`（测试区域，含 helpers/fixtures/assets）规则不变，死导出/孤儿等"要不要按生产代码分析"的场景零位移。复现用例 `PY-TEST-FILE-RULES`（先红后绿）；`test/test-detector-test.js` 补 `isCollectedTestFile` 断言；`test/p0-10-pytest-conftest-test.js` 的 `tests/helpers.py` 断言翻转（原断言锁的正是本条的过度上报，注释已自证）。**CACHE_VERSION 44→45**：v44 `test_map`/`precomputed_impact` 行含非收集文件，暖路径会按旧语义静默出数，作废重建。
+- **验证数字**（修前→修后）：typer `affected-tests --file typer/models.py` 301→212 条（非收集 89→0）；typer `audit-file` 建议命令 301 参数（含 `typer\testing.py`/`tests\atomic_write_example.py`/`tests\assets\*` 等 89 个非收集文件）→ 212 参数、非收集 0。真值评测 typer 行（`node eval/score.js`）affected-tests **P 0.6029 / R 0.9496 / n 4997，修前=修后逐位不变**：评测计分（score.js 与权威方法 `test/eval_affected_tests.py`）在算 P/R 前就用 `tests/ + test_*` 过滤预测，非测试混入本就不进分母，指标对本修复不敏感——剩余噪声是图可达性过度预测（1923 个 FP 全是真 `tests/test_*.py`，每源预测锥 ~187 vs 真值 1–171），属符号级映射议题。dead-code 修前=修后（precision 0 / n 2）；wb-repro 27/27（25+2 新增）、`test:fast` 197 选 195（差额=已知 wave15 两条）。`eval/baseline.json` 未动。
+
+### Fixed: P0-14 验证建议 runner 误判——Django 被建议 pytest（2026-09-27）
+
+- **根因**：`src/utils/stack-detectors/detect.js` 的 `TEST_RUNNER_FILE_RULES` 把 `pyproject.toml`/`setup.cfg` 的**存在**当 pytest 证据（通用配置格式 ≠ runner 证据），`detectStack` 再用 `detectTestRunner` 兜底 `python.testRunner`——Django 只有 pyproject.toml（无任何 pytest 痕迹，实际用 `tests/runtests.py`）就被判成 pytest，`commands.js` 据此生成 `pytest ...` 具体命令。
+- **改动**：pytest 证据收紧为内容级（`pytest.ini`；`setup.cfg` 含 `[tool:pytest]`；pyproject 提及 pytest——typer 的 `[tool.pytest]`/依赖声明照常命中）；`TEST_RUNNER_FILE_RULES` 删 pytest 行、`detectStack` 删死兜底。`commands.js` 的 Python 测试命令本来就只在 `testRunner === 'pytest'` 时产出，识别不出 runner 即无具体命令，无需改动。复现用例 `PY-RUNNER-NO-GUESS`（先红后绿，双 fixture 锁"删误判不许连带删掉对的"）。
+- **验证数字**（修前→修后）：Django `audit-file --file django/db/models/query.py` 建议 `pytest tests\...`（受影响测试 1350 条大半为 models.py/fixtures）→ **全文 0 处 pytest**、建议命令退到非 pytest 项（受影响测试 814 条全部为收集口径）；typer 同命令 `pytest tests\test_*.py ...`（212 参数）保持不变。wb-repro 27/27、`test:fast` 197 选 195。`eval/baseline.json` 未动。
+
+### Review: 外部审查 P0-11 关闭（2026-09-27）
+
+- affected-tests 真值复测已由评测集承担：8 仓外部真值（coverage-pytest + 四种故障注入 runner），P/R 收录进 `eval/baseline.json`（2026-09-27 人工确认），per-file 漏报在 `eval/scoreboard.json` 可查。当前数字：typer 0.60/0.95（n=4997）、zod 0.95/1.0、spring-petclinic 0.72/0.76、cobra 0.40/0.61；hexyl、vitesse 样本个位数不下结论。是否引入符号级映射待 P0-12 修复后再评估（typer 精确率的主要噪声来自非测试文件混入）。
+
+### Fixed: zod affected-tests 召回 0.15 → 1.0——workspace package resolver 支持 package.json exports（2026-09-27）
+
+- **根因**：zod 测试经包名自引用 workspace 包（`import … from "zod/v4"` 等，classic/tests 下 79 个测试文件 72 个走这条路径），而 `tryWorkspacePackage` 只按 `subpath || main/module` 探测裸路径，不读 `exports` 映射；zod 是源码发布（`exports` 指到 `src/`，fresh clone 无构建产物），全部解析成 `null`，测试→源码的边整条缺失。
+- **修复**（`src/services/dep-graph/resolvers/javascript.js`）：`tryWorkspacePackage` 拆出 `_resolveWorkspaceEntry`，按 node 规则匹配 `exports`（精确键 / 最长前缀通配 `*` 替换 / 条件对象全收集 / `null`=显式封锁），候选按 源码 > 构建产物 > 声明 排序取优，无命中回退原 legacy 探测（never-worse-than-before）。
+- **第二瓶颈**：CLI `affected-tests` 默认只输出 50 条（digest 预算），真值 86/文件，图修好后召回也会被截在 ~0.58。新增 `AFFECTED_TESTS_COMMAND_MAX_ITEMS: 500`（`config/defaults.js`），专用命令"列表即答案"场景用新默认值，`--max-files` 语义不变。
+- **CACHE_VERSION 43→44**：v43 缓存持久化了这些 specifier 的 `resolved:null`，边集不可比，作废重建（与 9dae0fe 改解析层即 bump 的先例一致）。
+- **验证**（score.js 实跑）：zod P 0.7758→0.9541、R 0.1501→1.0（n=894，fn 725→0），10 个注入文件逐条 hit==real；其余 7 个有真值仓全部 delta=0 PASS；`test:fast` 197 选 195（差额为已知 wave15 两条）；wb-repro 25/25。精确率 0.95 的 41 个 FP 来自既有 mention 启发式通道，不在本次范围。
+- **回归测试**：新建 `test/workspace-package-exports-test.js`（zod 形态 fixture 6 断言）；`test/wave12-output-truncation-test.js` 契约断言随新默认值更新。
+
+### Fixed: L1-1 JVM 暖启动 dropped 冷暖不一致（2026-09-27）
+
+- **根因**：暖启动 restore 图后只有 `_buildSymbolRegistry()` 恢复冷启动的等价状态，resolve facts（`workspacePackages` / `pythonModuleIndex`）没人刷新——完全回暖分支（无文件增量）走不到任何 resolve 批次，facts 停在构造器的 `null`。JVM 外部判定 `_isExternalJvmPackage` 对 `!pkgs` 一律返回"非外部"，于是所有未在构建文件声明的第三方 import（junit/assertj 等传递依赖）暖启动被计成 dropped：spring-petclinic 冷 0 / 暖 316，okhttp 冷 247 / 暖 2053。
+- **修复**：`loader.js` 在 graph restore 后追加一次 `_refreshResolveFacts()`，与旁边的 `_buildSymbolRegistry()` 同一理由（warm/cold isomorphic，修在 load 机制里而不是某个 facade）。
+- **回归测试**：`test/wb-repro.js` 新增 `WARN-WARM-JVM`（25 case 之一）。夹具必须带一条真实解析成功的边，否则 `loadEdges()` 为空会退回全量 build，缺陷不显现。
+- **验证**：petclinic 冷 0 / 暖 0、okhttp 冷 247 / 暖 247（247 为真实 dropped，冷暖一致）；wb-repro 25/25 OK；TECH_DEBT L1-1 关闭。
+
+### Changed: eval 基线更新（2026-09-27）
+
+- `eval/baseline.json` 人工确认后覆写：spring-petclinic dead-code precision 0.75 → 0（3 条未标注发现不再报，labeledNotReported，属口径变化非回归）；收录本轮新测的 fault-injection 指标（zod / cobra / hexyl / spring-petclinic affected-tests）与 dead-code 指标（full-stack-fastapi-template / hexyl / cJSON）。覆写后 score.js 23 项 verdict 全 PASS、0 FAIL。
+
 ### Changed: 评测集按语言扩到 18 个仓库 + 健康指标 + 四种故障注入 runner（2026-09-27）
 
 - **语料**：`eval/corpus.json` 从 3 仓扩到 18 仓，覆盖 python / js-ts / vue / svelte / java / kotlin / go / rust / c-cpp。审查报告第 1 节的 9 个固定仓库全部收入，另补 zod、execa、bulletproof-react、vue-realworld-example-app、realworld（SvelteKit）、okhttp、cobra、ripgrep、fmt。clone 放 `eval/truth/repos/<lang>/<name>`（partial clone），输出放 `eval/truth/out/<lang>/<name>`；`lang` 写错直接报错。
@@ -56,7 +109,7 @@ NeEEvA 是基于 Unity 的 VRM 虚拟角色语音伴侣（角色安托涅瓦，�
 
 报告 §8 阶段 2 第一批，复现门禁 `test/wb-repro.js` 基线 **24 → 13 BUG**。每项 TDD（先写失败测试再修），全量 runner 287 选 285（仅已知 wave15×2 基线红），`warm-cold-parity` 通过。
 
-* **P0-1** `resolvers/python.js`：`from X import mod` 的候选排序缺陷——`X/__init__.py` 命中后不再让位于子模块。新增 `_tryPackageOrSubmodule`：init 命中时若 `X/<name>.py` / `X/<name>/__init__.py` 存在则改判子模块（子模块边**替换** init 边，消掉假环枢纽）；`from pkg import symbol`（无同名子模块）行为不变。`CACHE_VERSION` 40→41（v40 缓存带 init 指向边）。typer 的 `rich_utils.py` 受影响测试 1→109 由此恢复。
+* **P0-1** `resolvers/python.js`：`from X import mod` 的候选排序缺陷——`X/__init__.py` 命中后不再让位于子模块。新增 `_tryPackageOrSubmodule`：init 命中时若 `X/<name>.py` / `X/<name>/__init__.py` 存在则改判子模块（子模块边**替换** init 边，消掉假环枢纽）；`from pkg import symbol`（无同名子模块）行为不变。`CACHE_VERSION` 40→41（v40 缓存带 init 指向边）。typer 的 `rich_utils.py` 受影响测试 1→109 由此恢复。（2026-09-27 更正：此数字未经真实 typer 测量，系 gt.json 真值误记为修复后测量；当时 `python-ast.js` 的 importRecords 按 source 去重仍在丢 `from . import rich_utils` 记录，实测一直只有 1。归因与修复见 2026-09-27 条目「rich_utils 图缺边」。）
 * **P0-2** `parsers/registry.js` + `registry-core.js`：语言 `condition` 门控（JS 要 package.json、Go 要根 go.mod……）整体删除——`getFilePatterns()` 改为永远返回全部注册语言的扩展名模式。一个 `.py` 文件不再关掉整个 TS 索引；前后端分仓（清单只在子目录）全语言可见。清单文件仍喂 stack-detector / workspace-info，索引与 manifest 解耦。
 * **P0-3** 新增 `src/config/source-extensions.js`（`KNOWN_SOURCE_EXTENSIONS`，shell/ps1/数据方言刻意排除并注释原因）：发现阶段统计"已知源码扩展名但无 parser"的文件，`file-index` 收集 + `analyzer` 覆盖率分母纳入 → `coverageRatio<1` + high 级 `unsupported-source-files` 警告（含扩展名计数）。`.cs` 等不再静默消失。`analysisCoverage` 新增 `unsupportedFiles` 字段（replay 出口现算，遵循「本轮实测」纪律）。
 * **P0-4** `entry-detector.js`：入口检测从读前 4KB（>64KB 整文件跳过）改为读全文、上限对齐 `PARSER_MAX_FILE_BYTES`（1MB）——扫描边界=解析覆盖边界（超限文件死导出检测本就跳过，扫了白扫）。`limits.js` 删除 `ENTRY_SCAN_BYTES` / `ENTRY_FILE_MAX_BYTES`。

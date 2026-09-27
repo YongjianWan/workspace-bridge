@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-26T17:18:59.081Z",
+  "generatedAt": "2026-09-27T11:58:12.151Z",
   "wbVersion": "2.1.0",
   "repos": {
     "typer": {
@@ -7,9 +7,9 @@
       "heldOut": false,
       "health": {
         "status": "ok",
-        "coldMs": 22541,
-        "warmMs": 4738,
-        "cacheBytes": 28962816,
+        "coldMs": 17688,
+        "warmMs": 3962,
+        "cacheBytes": 25313280,
         "totalFiles": 639,
         "coverageRatio": 1,
         "fallbackFiles": 0,
@@ -31,9 +31,9 @@
         },
         "coldWarmDiff": {},
         "deadExports": {
-          "symbols": 2,
+          "symbols": 1,
           "byConfidence": {
-            "medium": 2
+            "medium": 1
           }
         }
       },
@@ -45,18 +45,18 @@
         "byConfidence": {
           "medium": {
             "precision": 0,
-            "n": 2,
+            "n": 1,
             "tp": 0,
-            "fp": 2
+            "fp": 1
           }
         },
-        "n": 2,
+        "n": 1,
         "counts": {
           "labeledRows": 3,
-          "labeledReported": 2,
-          "labeledNotReported": 1,
+          "labeledReported": 1,
+          "labeledNotReported": 2,
           "unlabeledFindings": 0,
-          "labeledFindings": 2
+          "labeledFindings": 1
         },
         "labeledRows": [
           {
@@ -77,19 +77,19 @@
             "file": "typer/rich_utils.py",
             "symbol": "escape_before_html_export",
             "reason": "p0-1-artifact",
-            "reported": true,
-            "reportedConfidence": "medium"
+            "reported": false,
+            "reportedConfidence": null
           }
         ]
       },
       "affected-tests": {
         "status": "ok",
-        "precision": 0.6029,
-        "recall": 0.9496,
-        "n": 4997,
-        "tp": 2919,
-        "fp": 1923,
-        "fn": 155,
+        "precision": 0.6019,
+        "recall": 0.9847,
+        "n": 5076,
+        "tp": 3027,
+        "fp": 2002,
+        "fn": 47,
         "filesScored": 28
       }
     },
@@ -337,72 +337,72 @@
       },
       "affected-tests": {
         "status": "ok",
-        "precision": 0.7758,
-        "recall": 0.1501,
-        "n": 890,
-        "tp": 128,
-        "fp": 37,
-        "fn": 725,
+        "precision": 0.9541,
+        "recall": 1,
+        "n": 894,
+        "tp": 853,
+        "fp": 41,
+        "fn": 0,
         "perFile": [
           {
             "file": "packages/zod/src/v4/classic/checks.ts",
             "real": 86,
-            "pred": 14,
-            "hit": 11
+            "pred": 89,
+            "hit": 86
           },
           {
             "file": "packages/zod/src/v4/classic/coerce.ts",
             "real": 86,
-            "pred": 11,
-            "hit": 9
+            "pred": 88,
+            "hit": 86
           },
           {
             "file": "packages/zod/src/v4/classic/compat.ts",
             "real": 86,
-            "pred": 8,
-            "hit": 8
+            "pred": 86,
+            "hit": 86
           },
           {
             "file": "packages/zod/src/v4/classic/errors.ts",
             "real": 86,
-            "pred": 22,
-            "hit": 17
+            "pred": 91,
+            "hit": 86
           },
           {
             "file": "packages/zod/src/v4/classic/external.ts",
             "real": 86,
-            "pred": 8,
-            "hit": 8
+            "pred": 86,
+            "hit": 86
           },
           {
             "file": "packages/zod/src/v4/classic/from-json-schema.ts",
             "real": 86,
-            "pred": 7,
-            "hit": 7
+            "pred": 86,
+            "hit": 86
           },
           {
             "file": "packages/zod/src/v4/classic/index.ts",
             "real": 79,
-            "pred": 19,
-            "hit": 6
+            "pred": 92,
+            "hit": 79
           },
           {
             "file": "packages/zod/src/v4/classic/iso.ts",
             "real": 86,
-            "pred": 7,
-            "hit": 7
+            "pred": 86,
+            "hit": 86
           },
           {
             "file": "packages/zod/src/v4/classic/parse.ts",
             "real": 86,
-            "pred": 50,
-            "hit": 40
+            "pred": 100,
+            "hit": 86
           },
           {
             "file": "packages/zod/src/v4/classic/schemas.ts",
             "real": 86,
-            "pred": 19,
-            "hit": 15
+            "pred": 90,
+            "hit": 86
           }
         ]
       }
@@ -473,15 +473,15 @@
       "heldOut": false,
       "health": {
         "status": "ok",
-        "coldMs": 5464,
-        "warmMs": 1515,
-        "cacheBytes": 233472,
+        "coldMs": 5394,
+        "warmMs": 1480,
+        "cacheBytes": 245760,
         "totalFiles": 29,
         "coverageRatio": 1,
         "fallbackFiles": 0,
         "unsupportedFiles": 0,
         "unresolvedCount": 0,
-        "droppedCount": 2,
+        "droppedCount": 1,
         "warnings": 1,
         "languages": {
           "vue": {
@@ -499,28 +499,21 @@
         "deadExports": {
           "symbols": 10,
           "byConfidence": {
-            "high": 9,
-            "medium": 1
+            "low": 10
           }
         }
       },
       "dead-code": {
         "status": "ok",
         "precision": 0.3,
-        "precisionHigh": 0.3333,
-        "precisionLow": null,
+        "precisionHigh": null,
+        "precisionLow": 0.3,
         "byConfidence": {
-          "high": {
-            "precision": 0.3333,
-            "n": 9,
+          "low": {
+            "precision": 0.3,
+            "n": 10,
             "tp": 3,
-            "fp": 6
-          },
-          "medium": {
-            "precision": 0,
-            "n": 1,
-            "tp": 0,
-            "fp": 1
+            "fp": 7
           }
         },
         "n": 10,
@@ -537,28 +530,28 @@
             "symbol": "default",
             "reason": "config-file",
             "reported": true,
-            "reportedConfidence": "high"
+            "reportedConfidence": "low"
           },
           {
             "file": "uno.config.ts",
             "symbol": "default",
             "reason": "config-file",
             "reported": true,
-            "reportedConfidence": "high"
+            "reportedConfidence": "low"
           },
           {
             "file": "src/modules/*.ts",
             "symbol": "install",
             "reason": "glob-loaded",
             "reported": true,
-            "reportedConfidence": "high"
+            "reportedConfidence": "low"
           },
           {
             "file": "src/stores/user.ts",
             "symbol": "useUserStore",
             "reason": "auto-import",
             "reported": true,
-            "reportedConfidence": "high"
+            "reportedConfidence": "low"
           }
         ]
       },
@@ -710,16 +703,16 @@
       "heldOut": false,
       "health": {
         "status": "ok",
-        "coldMs": 8743,
-        "warmMs": 3056,
-        "cacheBytes": 954368,
+        "coldMs": 5954,
+        "warmMs": 1905,
+        "cacheBytes": 937984,
         "totalFiles": 50,
         "coverageRatio": 1,
         "fallbackFiles": 0,
         "unsupportedFiles": 0,
         "unresolvedCount": 0,
-        "droppedCount": 316,
-        "warnings": 1,
+        "droppedCount": 0,
+        "warnings": 0,
         "languages": {
           "java": {
             "files": 50,
@@ -727,16 +720,7 @@
             "regexFiles": 0
           }
         },
-        "coldWarmDiff": {
-          "droppedCount": {
-            "cold": 0,
-            "warm": 316
-          },
-          "warnings": {
-            "cold": 0,
-            "warm": 1
-          }
-        },
+        "coldWarmDiff": {},
         "deadExports": {
           "symbols": 1,
           "byConfidence": {
@@ -852,15 +836,15 @@
       "heldOut": false,
       "health": {
         "status": "ok",
-        "coldMs": 378545,
-        "warmMs": 14260,
-        "cacheBytes": 132870144,
+        "coldMs": 243951,
+        "warmMs": 9550,
+        "cacheBytes": 132681728,
         "totalFiles": 563,
         "coverageRatio": 1,
         "fallbackFiles": 0,
         "unsupportedFiles": 0,
         "unresolvedCount": 0,
-        "droppedCount": 2053,
+        "droppedCount": 247,
         "warnings": 1,
         "languages": {
           "java": {
@@ -874,17 +858,12 @@
             "regexFiles": 0
           }
         },
-        "coldWarmDiff": {
-          "droppedCount": {
-            "cold": 247,
-            "warm": 2053
-          }
-        },
+        "coldWarmDiff": {},
         "deadExports": {
           "symbols": 636,
           "byConfidence": {
-            "low": 316,
             "medium": 307,
+            "low": 316,
             "high": 13
           }
         }
@@ -1206,9 +1185,9 @@
       "heldOut": false,
       "health": {
         "status": "ok",
-        "coldMs": 9015,
-        "warmMs": 2587,
-        "cacheBytes": 1155072,
+        "coldMs": 7559,
+        "warmMs": 2165,
+        "cacheBytes": 1150976,
         "totalFiles": 117,
         "coverageRatio": 0.86,
         "fallbackFiles": 0,
@@ -1230,32 +1209,39 @@
         },
         "coldWarmDiff": {},
         "deadExports": {
-          "symbols": 20,
+          "symbols": 19,
           "byConfidence": {
-            "high": 20
+            "high": 1,
+            "low": 18
           }
         }
       },
       "dead-code": {
         "status": "ok",
-        "precision": 0.05,
-        "precisionHigh": 0.05,
-        "precisionLow": null,
+        "precision": 0.0526,
+        "precisionHigh": 1,
+        "precisionLow": 0,
         "byConfidence": {
           "high": {
-            "precision": 0.05,
-            "n": 20,
+            "precision": 1,
+            "n": 1,
             "tp": 1,
-            "fp": 19
+            "fp": 0
+          },
+          "low": {
+            "precision": 0,
+            "n": 18,
+            "tp": 0,
+            "fp": 18
           }
         },
-        "n": 20,
+        "n": 19,
         "counts": {
           "labeledRows": 6,
-          "labeledReported": 2,
-          "labeledNotReported": 4,
+          "labeledReported": 1,
+          "labeledNotReported": 5,
           "unlabeledFindings": 1,
-          "labeledFindings": 19
+          "labeledFindings": 18
         },
         "labeledRows": [
           {
@@ -1276,15 +1262,15 @@
             "file": "fuzzing/cjson_read_fuzzer.c",
             "symbol": "LLVMFuzzerTestOneInput",
             "reason": "program-entry",
-            "reported": true,
-            "reportedConfidence": "high"
+            "reported": false,
+            "reportedConfidence": null
           },
           {
             "file": "cJSON_Utils.c",
             "symbol": "*",
             "reason": "public-api",
             "reported": true,
-            "reportedConfidence": "high"
+            "reportedConfidence": "low"
           },
           {
             "file": "cJSON.h",
@@ -1357,16 +1343,48 @@
     {
       "repo": "typer",
       "metric": "affected-tests.precision",
-      "baseline": 0.6029,
-      "current": 0.6029,
+      "baseline": 0.6019,
+      "current": 0.6019,
       "delta": 0,
       "result": "PASS"
     },
     {
       "repo": "typer",
       "metric": "affected-tests.recall",
-      "baseline": 0.9496,
-      "current": 0.9496,
+      "baseline": 0.9847,
+      "current": 0.9847,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "full-stack-fastapi-template",
+      "metric": "dead-code.precision",
+      "baseline": 1,
+      "current": 1,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "full-stack-fastapi-template",
+      "metric": "dead-code.precisionHigh",
+      "baseline": 1,
+      "current": 1,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "zod",
+      "metric": "affected-tests.precision",
+      "baseline": 0.9541,
+      "current": 0.9541,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "zod",
+      "metric": "affected-tests.recall",
+      "baseline": 1,
+      "current": 1,
       "delta": 0,
       "result": "PASS"
     },
@@ -1380,9 +1398,9 @@
     },
     {
       "repo": "vitesse",
-      "metric": "dead-code.precisionHigh",
-      "baseline": 0.3333,
-      "current": 0.3333,
+      "metric": "dead-code.precisionLow",
+      "baseline": 0.3,
+      "current": 0.3,
       "delta": 0,
       "result": "PASS"
     },
@@ -1405,22 +1423,110 @@
     {
       "repo": "spring-petclinic",
       "metric": "dead-code.precision",
-      "baseline": 0.75,
+      "baseline": 0,
       "current": 0,
-      "delta": -0.75,
-      "result": "FAIL"
+      "delta": 0,
+      "result": "PASS"
     },
     {
       "repo": "spring-petclinic",
       "metric": "dead-code.precisionLow",
-      "baseline": 0.75,
+      "baseline": 0,
       "current": 0,
-      "delta": -0.75,
-      "result": "FAIL"
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "spring-petclinic",
+      "metric": "affected-tests.precision",
+      "baseline": 0.717,
+      "current": 0.717,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "spring-petclinic",
+      "metric": "affected-tests.recall",
+      "baseline": 0.76,
+      "current": 0.76,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "cobra",
+      "metric": "affected-tests.precision",
+      "baseline": 0.4,
+      "current": 0.4,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "cobra",
+      "metric": "affected-tests.recall",
+      "baseline": 0.6087,
+      "current": 0.6087,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "hexyl",
+      "metric": "dead-code.precision",
+      "baseline": 0,
+      "current": 0,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "hexyl",
+      "metric": "dead-code.precisionLow",
+      "baseline": 0,
+      "current": 0,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "hexyl",
+      "metric": "affected-tests.precision",
+      "baseline": 1,
+      "current": 1,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "hexyl",
+      "metric": "affected-tests.recall",
+      "baseline": 0.5,
+      "current": 0.5,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "cJSON",
+      "metric": "dead-code.precision",
+      "baseline": 0.0526,
+      "current": 0.0526,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "cJSON",
+      "metric": "dead-code.precisionHigh",
+      "baseline": 1,
+      "current": 1,
+      "delta": 0,
+      "result": "PASS"
+    },
+    {
+      "repo": "cJSON",
+      "metric": "dead-code.precisionLow",
+      "baseline": 0,
+      "current": 0,
+      "delta": 0,
+      "result": "PASS"
     }
   ],
   "summary": {
-    "fail": 2,
-    "pass": 7
+    "fail": 0,
+    "pass": 24
   }
 }

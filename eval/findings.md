@@ -78,3 +78,5 @@
 - **疑似关联**：AGENTS L1-3（数据一致性）/ L1-4（静默错误）；`test/wb-repro.js` 的 WARN-WARM 用例没覆盖 JVM。
   全语料 18 仓逐仓对比（`health.json` 的 `coldWarmDiff`）：只有 JVM 仓不一致——spring-petclinic 冷 0 / 暖 316，
   okhttp 冷 247 / 暖 2053；其余 16 仓（含 dropped 较高的 cJSON 124、ripgrep 50、realworld 36）冷暖一致。
+- **状态**：2026-09-27 已修复。根因是暖启动 restore 后 resolve facts 未刷新（`loader.js` 补 `_refreshResolveFacts()`），
+  修复经过见 CHANGELOG「Fixed: L1-1」；`test/wb-repro.js` WARN-WARM-JVM 用例锁回归。
