@@ -7,6 +7,19 @@
 
 ## [Unreleased]
 
+### Fixed: P1-12 C/C++ 编译单元局部声明不再算导出 + 配对头的源文件不再判孤儿（2026-09-28）
+
+- **根因**（审查报告 P1-12）：C/C++ parser 对源文件和头文件一视同仁，`.c` 里的 `#define`、struct、enum、typedef 都进了 exportRecords；可这些只在本编译单元可见，别的文件链接不到，不可能有消费方，于是必然被报死导出（cJSON_Utils.c 的 `true` / `false` / `_CRT_SECURE_NO_DEPRECATE` / `patch_operation`，test.c 的 `struct record`）。孤儿检测只看 import 入边，而实现文件从来不被 include，消费方 include 的是同 stem 的头文件，所以 `cJSON_Utils.c` 被判孤儿。
+- **改动**：`parsers/cpp.js` 新增 `keepLinkageVisibleExports`，源文件（.c/.cc/.cpp/.cxx）只保留 function / constructor 导出，头文件不变；`parseCppAst` 收成单出口，AST 路径和 regex 兜底走同一条规则。`GraphAnalyzer.hasPairedCHeader` 把 P0-6 规则 3 的配对判断抽成方法，`DependencyGraph.findOrphanFiles` 用它把有配对头的源文件放进 registeredFiles（同一语义只在一处实现）。`C_SOURCE_EXTENSIONS` / `C_HEADER_EXTENSIONS` 移到 `parsers/cpp.js`，analyzer 引用。`CACHE_VERSION` 47→48。
+- **验证**：新建 `test/p1-12-c-linkage-pairing-test.js`（两半修前均红：`lib.c 只应导出外部链接函数` / `有配对头的 pair.c 不应是孤儿`；含"无配对头的 lonely.c 仍是孤儿"守卫防全豁免）。cJSON 实跑：孤儿 3→2（剩 test.c 与 fuzzer 入口，属独立程序，不在本项范围），dead-exports 19→14 条且 0 条 high。eval：cJSON dead-code precision 0.0526→0 为口径变化（消失的唯一一条 high 是 test.c 的 struct record，本文件第 140 行即在用，未标注的误报被计成 TP），已人工复核后更新 baseline 该项并在 note 记因；vitesse / fmt 无变化。
+- 同轮发现新问题记为审查报告 P1-18（Windows 上孤儿样本路径被小写化）。
+- 测试随语义更新：`cpp-parser-test` 的宏与类型抽取断言改用 `.h` / `.hpp` 承载，并补"`.c` / `.cpp` 里不导出"的反向断言；`parser-golden` 的 `tricky.cpp` 快照导出变空（命名空间与 class 都定义在 `.cpp` 里）。
+- 仓库自身图文件数到 501，越过 `LARGE_PROJECT_FILE_THRESHOLD`(500)，`audit-file` 自动 compact 把列表和验证命令清空，`audit-file-validation-advice-test` / `format-ai-fields-test` 因此变红。两条测试锁的是非 compact 契约，显式加 `--no-compact`；compact 下列表清空却标 `truncated: false` 的静默截断归 P1-17 处理。
+
+### Changed: 代码注释去历史（2026-09-28）
+
+- `src/` 下注释删除审查/债务编号前缀（P0-x、Pnn、L3-x、wave8、Route A-2）和历史叙述（"since L3-9"、"the old code…"、实测日期与数字），只留做什么、为什么；引用 AGENTS.md 现行铁律的编号（L1-4、L2-6/7）保留。`versions.js` 的 `// vN:` 版本流水整段删除，改为一条"何时必须升 CACHE_VERSION"的规则。AGENTS.md L2-8 补一句：注释不写历史。纯注释改动，无行为变化。
+
 ### Changed: eval 基线重生成（2026-09-27）
 
 - `node eval/score.js` 全 PASS（无指标下降）后，`eval/baseline.json` 整体取自 scoreboard。相对上一版只有提升：typer affected-tests recall 0.9496→0.9847（rich_utils 缺边修复），cJSON dead-code precisionHigh 0.05→1（P0-6 降档）。重生成后再跑 score.js，所有 delta=0。

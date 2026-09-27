@@ -39,7 +39,7 @@
 
 ## 当前核验
 
-`node test/wb-repro.js cli.js` 应为 27/27 OK、退出码 0；`CACHE_VERSION=47`，`schemaVersion=1.2.0`。`audit-overview` 覆盖率 1、fallback 0。快测基线 197 选 195 过，全量 294 选 292 过（2026-09-27 更新：294=293+`p0-6-dead-exports-recalibration-test`）；已知红为 wave15-ast-rules / wave15-neighbor-aware 两条 Windows/libuv 异常退出（3221226505），另有 `workspace-info-lightweight-test.js` 的 2000ms 预算在 runner 满负载下偶发超限（eval/truth 语料膨胀所致，单跑稳过，不计入基线红，见 SESSION.md）。出现其他失败须调查。
+`node test/wb-repro.js cli.js` 应为 27/27 OK、退出码 0；`CACHE_VERSION=48`，`schemaVersion=1.2.0`。`audit-overview` 覆盖率 1、fallback 0。快测基线 197 选 195 过，全量 295 选 293 过（2026-09-28 更新：295=294+`p1-12-c-linkage-pairing-test`）；已知红为 wave15-ast-rules / wave15-neighbor-aware 两条 Windows/libuv 异常退出（3221226505），另有 `workspace-info-lightweight-test.js` 的 2000ms 预算在 runner 满负载下偶发超限（eval/truth 语料膨胀所致，单跑稳过，不计入基线红，见 SESSION.md）。出现其他失败须调查。
 
 ## 工程品味（TASTE）
 
@@ -83,7 +83,7 @@
    跨文件重复：目标层级已有合适宿主模块则提取，否则标记为债务，不强行新建模块。
    > **触发条件**：发现复制粘贴代码、提取公共逻辑时适用。
    >
-8. **内聚优先** — 文件只做一件事，命名口语化（避免教科书式），注释写"为什么"不写"做什么"。行数不重要——`dep-graph.js` ~1685 行仍保持不物理拆分，因为内部已通过 `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` 实现认知拆分。判断标准：修改时通常只需理解一个主契约和它的邻近消费者；如果改动同时穿过写入、分析、查询三层，就不要再把它描述成单概念。
+8. **内聚优先** — 文件只做一件事，命名口语化（避免教科书式），注释写"为什么"不写"做什么"，也不写历史：不留审查/债务编号（P0-x、L3-x、wave8）、版本流水、"以前是这样"，这些只进 CHANGELOG。行数不重要——`dep-graph.js` ~1685 行仍保持不物理拆分，因为内部已通过 `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` 实现认知拆分。判断标准：修改时通常只需理解一个主契约和它的邻近消费者；如果改动同时穿过写入、分析、查询三层，就不要再把它描述成单概念。
    > **触发条件**：新增模块、拆分文件、调整目录结构时适用。
    >
 

@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-09-27T11:56:13.270Z",
   "wbVersion": "2.1.0",
-  "note": "2026-09-27 重基线：score.js 全 PASS 后整体取自 scoreboard。相对上一版的变化只有提升——typer affected-tests recall 0.9496->0.9847（rich_utils 缺边修复），cJSON dead-code precisionHigh 0.05->1（P0-6 降档）。Regenerate from eval/scoreboard.json only after reviewing FAIL lines.",
+  "note": "2026-09-27 重基线：score.js 全 PASS 后整体取自 scoreboard。相对上一版的变化只有提升——typer affected-tests recall 0.9496->0.9847（rich_utils 缺边修复），cJSON dead-code precisionHigh 0.05->1（P0-6 降档）。Regenerate from eval/scoreboard.json only after reviewing FAIL lines. 2026-09-27 P1-12：cJSON dead-code precision 0.0526->0 是口径变化——消失的唯一一条 high 是 test.c 的 struct record（本文件第 140 行即在用，未标注的误报被计成 TP），C 源文件的编译单元局部声明不再算导出；剩余 14 条全是已标注 FP 且全为 low。",
   "repos": {
     "typer": {
       "dead-code": {
@@ -109,10 +109,10 @@
     "cJSON": {
       "dead-code": {
         "status": "ok",
-        "precision": 0.0526,
-        "precisionHigh": 1,
+        "precision": 0,
+        "precisionHigh": null,
         "precisionLow": 0,
-        "n": 19
+        "n": 14
       }
     }
   }

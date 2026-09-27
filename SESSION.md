@@ -5,13 +5,13 @@
 ## 当前交接
 
 - 外部审查的自动复现门禁：`node test/wb-repro.js cli.js` 应为 27/27 OK、退出码 0。它不覆盖全部人工发现；待处理项见 [审查报告](./docs/workspace-bridge-审查报告.md)。
-- 缓存版本 47（v47=P0-6 dead-exports 五类工具链消费形态不再给 high，持久化的 deadExports 判决作废重建）；`audit-overview` 应显示覆盖率 1、fallback 0、schema 1.2.0。若实际输出变化，以新命令结果为准并更新 [AGENTS.md](./AGENTS.md)。
-- 测试回归基线：`npm run test:fast` 197 选 195 过，全量 `node test/runner.js` 294 选 292 过（2026-09-27 更新；294=293+`p0-6-dead-exports-recalibration-test`）。已知红：`wave15-ast-rules-test.js` / `wave15-neighbor-aware-test.js` 两条 Windows/libuv 异常退出（3221226505）；`workspace-info-lightweight-test.js` 的 2000ms wall-clock 预算在 runner 满负载下偶发超限（2026-09-27 归因：`eval/truth` 语料克隆使 `workspace-info --cwd .` 轻量扫描膨胀到 4881 文件、单跑 ~1.7s 贴着预算，非代码回归；单跑稳定通过）。出现其他失败必须查根因。
-- 评测集（`eval/`）现有 8 仓带真值分数，基线 `eval/baseline.json` 于 2026-09-27 重生成（score.js 全 PASS 后取自 scoreboard）。分数含义与解读规则见 [eval/README.md](./eval/README.md)。当前 typer affected-tests P 0.6019 / R 0.9847；27 条 dead-exports 真值 0 条 high。
+- 缓存版本 48（v48=P1-12 C/C++ 源文件只导出外部链接函数、配对头的源文件不判孤儿，C/C++ parse 产物作废重建）；`audit-overview` 应显示覆盖率 1、fallback 0、schema 1.2.0。若实际输出变化，以新命令结果为准并更新 [AGENTS.md](./AGENTS.md)。
+- 测试回归基线：`npm run test:fast` 197 选 195 过，全量 `node test/runner.js` 295 选 293 过（2026-09-28 更新；295=294+`p1-12-c-linkage-pairing-test`）。已知红：`wave15-ast-rules-test.js` / `wave15-neighbor-aware-test.js` 两条 Windows/libuv 异常退出（3221226505）；`workspace-info-lightweight-test.js` 的 2000ms wall-clock 预算在 runner 满负载下偶发超限（2026-09-27 归因：`eval/truth` 语料克隆使 `workspace-info --cwd .` 轻量扫描膨胀到 4881 文件、单跑 ~1.7s 贴着预算，非代码回归；单跑稳定通过）。出现其他失败必须查根因。
+- 评测集（`eval/`）现有 8 仓带真值分数，基线 `eval/baseline.json` 于 2026-09-27 重生成（score.js 全 PASS 后取自 scoreboard）。分数含义与解读规则见 [eval/README.md](./eval/README.md)。当前 typer affected-tests P 0.6019 / R 0.9847；27 条 dead-exports 真值 0 条 high；cJSON 死代码 14 条发现全是已标注误报且全为 low（精确率 0 是口径所致，见 baseline note）。
 
 ## 下一步
 
-1. 处理审查报告中仍开放的其余误报与测试映射问题（P1-4/5/6/7/12/13/14/16/17 优先）。完成一项就从活跃清单删除，并将修复经过写入 CHANGELOG。
+1. 处理审查报告中仍开放的其余误报与测试映射问题（P1-4/5/6/7/13/14/16/17/18 优先）。完成一项就从活跃清单删除，并将修复经过写入 CHANGELOG。
 2. eval 扩充的候选：给 hexyl/vitesse 补更多测试文件样本（当前 n 只有个位数，不下结论）；okhttp 的 247 个真实 dropped 逐类归因（多是 workspace 内部模块引用未解析）。
 3. 符号级映射暂不立项（2026-09-27 定）：affected-tests 多报只是多跑测试，漏报才会让 agent 放过回归；召回率 0.98 已够用。重新考虑的条件：某个评测仓精确率低到让 agent 实际跑不完推荐测试（如 cobra 0.40 的样本扩大后仍偏低）。
 

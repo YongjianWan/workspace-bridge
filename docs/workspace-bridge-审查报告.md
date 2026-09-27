@@ -45,7 +45,7 @@
 |---|---|
 | JS/TS | 无插值模板字符串动态导入（P1-13）；生成客户端的 API 契约识别（P1-14） |
 | Python | affected-tests 精确率的剩余噪声是图可达性过度预测：typer 精确率 0.60、召回率 0.98，误报全是真实测试文件，只有符号级映射能再压（未立项） |
-| C/C++ | 头文件与实现文件配对、宏误判为导出（P1-12） |
+| C/C++ | 孤儿检测里无配对头的独立程序（`test.c` 带 `main`、fuzzer 入口）仍被判孤儿 |
 | Java、Kotlin、Go、Rust、Vue、Svelte | 本表没有未解决的语言专属复现；仍须用固定仓库复测，不能据此宣称完整语义覆盖 |
 
 语言注册与 AST 能力的当前说明见 [AGENTS.md](../AGENTS.md)，真实仓库结果见第 5 节。
@@ -63,11 +63,11 @@
 | P1-5 | Agent 默认 JSON 输出可能过大，且列表截断时需要显式告知；具体体积需在固定仓库重测。 | [手工] 对比 `audit-overview`、`audit-file`、`impact` 的 `--json` 与 `--format ai` 字节数 | 默认输出按 token 预算裁剪，并标明截断数量。 |
 | P1-6 | 大仓库缓存体积和冷启动资源成本可能过高，当前量级需重新测量。 | [手工] 在固定 Django 版本上测缓存 DB 各表、冷暖启动和峰值内存 | 先定位最大表与重复存储，再决定按需计算或路径压缩。 |
 | P1-7 | 图构建之外的冷启动耗时缺 profile，不能直接归因于缓存写入。 | [手工] 固定环境运行 `--cpu-prof` 并拆分阶段耗时 | 先测量，再根据 P1-6 的结果优化。 |
-| P1-12 | C：`.h` 和 `.c` 不配对（cJSON 的 `cJSON_Utils.c` 被判成孤儿）；`#define true` 这类宏被当成导出 | [手工] 在 cJSON 上跑 audit-overview | 同名 `.h`/`.c` 建隐式边；宏不作为导出 |
 | P1-13 | 模板字符串写的动态导入（`` import(`./x`) ``，无插值）识别不了，还被误报死代码 | [手工] 在 TS 文件里写 `` const f = () => import(`./lazy`) `` | 无插值的模板字符串按普通字符串处理 |
 | P1-14 | api-contracts 不认 OpenAPI 生成的客户端（`url: '/api/v1/...'`）。full-stack-fastapi-template 识别到 0 个前端调用，却报"19 个后端路由没人调"并标 `hasFindings: true` | [手工] `api-contracts --cwd fsft --frontend <绝对路径>/frontend --backend <绝对路径>/backend` | 支持 `{ url, method }` 对象；前端调用为 0 时报"没识别到调用"，不报发现 |
 | P1-16 | 热点排序遇到同分时顺序不固定，冷启动时"优先审查的热区文件"建议每次可能不同 | [手工] 删缓存跑两次 typer 的 audit-overview，比较 `summary.recommendations` | 排序加文件路径作第二排序键 |
 | P1-17 | 多处静默截断：死导出的 `exports` 截断在 100 个；affected-tests JSON 截断在 50 个（typer 实际 214 个），截断顺序不明；`cycles` 列 20 个、计数写 26；`query` 会截断长字符串 | [手工] | 截断统一显式标注 `truncated` 和总数，说明排序依据 |
+| P1-18 | Windows 上 `audit-overview` 的 `orphans.samples` 输出小写化路径（cJSON 的 `cJSON_Utils.c` 显示为 `cjson_utils.c`），同一次运行里 dead-exports 的路径大小写正确。大小写敏感的消费方拿这个路径会找不到文件 | [手工] Windows 上对 cJSON 跑 `audit-overview --json`，对比 `orphans.samples` 与磁盘文件名 | 输出层用原始路径而不是规范化后的图键 |
 
 ### P2：工程卫生
 
@@ -114,7 +114,7 @@
 
 ## 7. 当前修复顺序和验收
 
-1. 处理缓存性能与输出可用性（P1-4/5/6/7/14/16/17）。
+1. 处理缓存性能与输出可用性（P1-4/5/6/7/14/16/17/18）。
 2. 其余开放项按第 4 节逐条复现；每完成一项，就从活跃清单删除，并在 CHANGELOG 记录改动、原因和验证。
 
 每轮收工执行 `node test/wb-repro.js cli.js`、`npm run test:fast`；涉及真实仓库结果时按 [eval/README.md](../eval/README.md) 复测。

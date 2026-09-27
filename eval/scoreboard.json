@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-27T11:58:12.151Z",
+  "generatedAt": "2026-09-27T15:59:29.141Z",
   "wbVersion": "2.1.0",
   "repos": {
     "typer": {
@@ -473,8 +473,8 @@
       "heldOut": false,
       "health": {
         "status": "ok",
-        "coldMs": 5394,
-        "warmMs": 1480,
+        "coldMs": 5434,
+        "warmMs": 1566,
         "cacheBytes": 245760,
         "totalFiles": 29,
         "coverageRatio": 1,
@@ -1185,9 +1185,9 @@
       "heldOut": false,
       "health": {
         "status": "ok",
-        "coldMs": 7559,
-        "warmMs": 2165,
-        "cacheBytes": 1150976,
+        "coldMs": 7566,
+        "warmMs": 2111,
+        "cacheBytes": 1138688,
         "totalFiles": 117,
         "coverageRatio": 0.86,
         "fallbackFiles": 0,
@@ -1209,39 +1209,32 @@
         },
         "coldWarmDiff": {},
         "deadExports": {
-          "symbols": 19,
+          "symbols": 14,
           "byConfidence": {
-            "high": 1,
-            "low": 18
+            "low": 14
           }
         }
       },
       "dead-code": {
         "status": "ok",
-        "precision": 0.0526,
-        "precisionHigh": 1,
+        "precision": 0,
+        "precisionHigh": null,
         "precisionLow": 0,
         "byConfidence": {
-          "high": {
-            "precision": 1,
-            "n": 1,
-            "tp": 1,
-            "fp": 0
-          },
           "low": {
             "precision": 0,
-            "n": 18,
+            "n": 14,
             "tp": 0,
-            "fp": 18
+            "fp": 14
           }
         },
-        "n": 19,
+        "n": 14,
         "counts": {
           "labeledRows": 6,
           "labeledReported": 1,
           "labeledNotReported": 5,
-          "unlabeledFindings": 1,
-          "labeledFindings": 18
+          "unlabeledFindings": 0,
+          "labeledFindings": 14
         },
         "labeledRows": [
           {
@@ -1294,9 +1287,9 @@
       "heldOut": false,
       "health": {
         "status": "ok",
-        "coldMs": 13311,
-        "warmMs": 2498,
-        "cacheBytes": 2592768,
+        "coldMs": 11703,
+        "warmMs": 1929,
+        "cacheBytes": 2531328,
         "totalFiles": 77,
         "coverageRatio": 1,
         "fallbackFiles": 0,
@@ -1323,9 +1316,9 @@
         },
         "coldWarmDiff": {},
         "deadExports": {
-          "symbols": 24,
+          "symbols": 17,
           "byConfidence": {
-            "high": 24
+            "high": 17
           }
         }
       }
@@ -1503,16 +1496,8 @@
     {
       "repo": "cJSON",
       "metric": "dead-code.precision",
-      "baseline": 0.0526,
-      "current": 0.0526,
-      "delta": 0,
-      "result": "PASS"
-    },
-    {
-      "repo": "cJSON",
-      "metric": "dead-code.precisionHigh",
-      "baseline": 1,
-      "current": 1,
+      "baseline": 0,
+      "current": 0,
       "delta": 0,
       "result": "PASS"
     },
@@ -1527,6 +1512,6 @@
   ],
   "summary": {
     "fail": 0,
-    "pass": 24
+    "pass": 23
   }
 }
