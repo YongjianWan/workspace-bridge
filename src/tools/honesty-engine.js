@@ -173,6 +173,13 @@ const DEAD_EXPORT_FALSE_POSITIVE_REASONS = new Set([
   'java-constants-warehouse',
   'vendor-copy',
   'rust-public-api',
+  // P0-6: toolchain-consumed forms — same treatment as rust-public-api, so the
+  // classifier preserves the marker's reason instead of overwriting it and the
+  // finding stops driving severity.
+  'config-file-convention',
+  'c-paired-header',
+  'auto-import-dirs',
+  'import-meta-glob',
   `${SCAFFOLD_REASON_PREFIX}ruoyi`,
   `${SCAFFOLD_REASON_PREFIX}vue-admin`,
 ]);

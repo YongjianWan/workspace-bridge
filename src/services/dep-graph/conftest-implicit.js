@@ -1,4 +1,4 @@
-const { isTestLikeFile, isConftestFile } = require('../../utils/test-detector');
+const { isCollectedTestFile, isConftestFile } = require('../../utils/test-detector');
 
 // pytest injects fixtures into tests by parameter name — an import graph has
 // no edge from conftest.py to the tests below it. Instead of fabricating import
@@ -12,9 +12,10 @@ const { isTestLikeFile, isConftestFile } = require('../../utils/test-detector');
 //   the changed file (directly or transitively)". Over-approximates — tests
 //   that never use the fixture are reported too (safe direction: a conftest
 //   change does affect its whole scope).
-// - Scope = conftest directory prefix × isTestLikeFile: non-test files under
-//   tests/ (helpers.py) are reported as well; test-like files outside the
-//   subtree are not.
+// - Scope = conftest directory prefix × isCollectedTestFile: only
+//   runner-collected tests are reported (P0-12: pytest basename rules —
+//   test_*.py / *_test.py / tests.py), so support files under tests/
+//   (helpers.py) stay out; test files outside the subtree are not reported.
 // - Chains longer than maxDepth are missed, same as graph edges.
 // - Fixtures loaded from outside the import graph (plugins / pytest_plugins)
 //   are invisible — structural analysis, not semantic analysis.
@@ -44,7 +45,7 @@ function expandConftestAnchors(dg, anchors, maxDepth) {
   const best = new Map();
   for (const key of dg.graph.keys()) {
     if (isConftestFile(key)) continue;
-    if (!isTestLikeFile(key)) continue;
+    if (!isCollectedTestFile(key)) continue;
     for (const anchor of anchors) {
       if (!key.startsWith(anchor.dir)) continue;
       const distance = anchor.hop + 1;

@@ -112,11 +112,7 @@ function tryWorkspacePackage(importPath, fromFile, ctx) {
       try { manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')); } catch { continue; }
       if (!manifest.name || (importPath !== manifest.name && !importPath.startsWith(`${manifest.name}/`))) continue;
       const subpath = importPath.slice(manifest.name.length).replace(/^\//, '');
-      const entry = subpath || manifest.source || manifest.module || manifest.main || 'index';
-      const entryPath = path.join(dir, entry);
-      const entryStat = ctx.cachedStatSync(entryPath);
-      const resolved = (entryStat?.isFile() ? entryPath : null)
-        || _tryResolveWithExtensions(entryPath);
+      const resolved = _resolveWorkspaceEntry(dir, manifest, subpath, ctx);
       if (!resolved) continue;
       if (ctx.outMeta) {
         ctx.outMeta.method = 'workspace-package';
@@ -127,6 +123,131 @@ function tryWorkspacePackage(importPath, fromFile, ctx) {
     }
   }
   return null;
+}
+
+// Export-target preference: static analysis wants the file a developer edits.
+// Build outputs (dist/, pnpm build never ran on a fresh clone) and .d.ts
+// declarations rank below source; among equal ranks the exports map order
+// wins (conditions are commonly listed types-first). Measured on eval zod:
+// self-references like `import from "zod/v4"` must land on src/v4/index.ts
+// or test→source edges vanish and affected-tests recall collapses.
+const EXPORT_RANK_SOURCE = 0;
+const EXPORT_RANK_OUTPUT = 1;
+const EXPORT_RANK_DECLARATION = 2;
+const JS_BUILD_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.cjs']);
+const DECLARATION_NAME = /\.d\.(ts|mts|cts)$/i;
+
+function _collectExportTargets(value, captured, out) {
+  if (typeof value === 'string') {
+    out.push(captured === null ? value : value.split('*').join(captured));
+  } else if (Array.isArray(value)) {
+    for (const item of value) _collectExportTargets(item, captured, out);
+  } else if (value && typeof value === 'object') {
+    for (const item of Object.values(value)) _collectExportTargets(item, captured, out);
+  }
+  // null is a blocked subpath (node exports semantics): contributes no target.
+}
+
+/**
+ * Targets that `exports` offers for a workspace package subpath ('' = bare
+ * package name). Returns [] both when the map does not cover the subpath and
+ * when it blocks it — the caller falls back to legacy probing either way, so a
+ * never-resolved specifier can never resolve worse than before.
+ */
+function _workspaceExportTargets(exportsField, subpath) {
+  const out = [];
+  if (exportsField == null) return out;
+  const importKey = subpath ? `./${subpath}` : '.';
+  if (typeof exportsField === 'string' || Array.isArray(exportsField)) {
+    if (!subpath) _collectExportTargets(exportsField, null, out);
+    return out;
+  }
+  if (typeof exportsField !== 'object') return out;
+  const keys = Object.keys(exportsField);
+  // Node rejects mixing '.'-prefixed subpath keys with bare condition keys;
+  // when '.'-prefixed keys exist, treat the object as a subpath map.
+  if (!keys.some((key) => key.startsWith('.'))) {
+    if (!subpath) _collectExportTargets(exportsField, null, out);
+    return out;
+  }
+  if (Object.prototype.hasOwnProperty.call(exportsField, importKey)) {
+    _collectExportTargets(exportsField[importKey], null, out);
+    return out;
+  }
+  // Wildcard keys: longest prefix wins (node's specificity rule), and the
+  // captured `*` segment is substituted into the target.
+  let best = null;
+  for (const key of keys) {
+    const star = key.indexOf('*');
+    if (star < 0) continue;
+    const prefix = key.slice(0, star);
+    const suffix = key.slice(star + 1);
+    if (importKey.length < prefix.length + suffix.length) continue;
+    if (!importKey.startsWith(prefix) || !importKey.endsWith(suffix)) continue;
+    if (!best || prefix.length > best.prefix.length) best = { key, prefix, suffix };
+  }
+  if (best) {
+    const captured = importKey.slice(best.prefix.length, importKey.length - best.suffix.length);
+    _collectExportTargets(exportsField[best.key], captured, out);
+  }
+  return out;
+}
+
+function _exportCandidateRank(filePath) {
+  if (DECLARATION_NAME.test(filePath)) return EXPORT_RANK_DECLARATION;
+  const ext = path.extname(filePath).toLowerCase();
+  return TS_EXTENSIONS.includes(ext) ? EXPORT_RANK_SOURCE : EXPORT_RANK_OUTPUT;
+}
+
+/**
+ * Probe candidates for one exports target, source-leaning first:
+ * `./dist/index.js` → dist/index.{ts,tsx,mts,cts} then the literal file;
+ * extensionless targets (`./src/v4/locales/*`) get resolver + index probing;
+ * anything else is tried verbatim. Targets resolving outside the package dir
+ * (a `*` capture like `../evil`) are rejected.
+ */
+function _exportCandidates(dir, target) {
+  if (typeof target !== 'string' || !target.startsWith('./')) return [];
+  const pkgDir = path.resolve(dir);
+  const abs = path.resolve(pkgDir, target.slice(2));
+  if (abs !== pkgDir && !abs.startsWith(pkgDir + path.sep)) return [];
+  const candidates = [];
+  const ext = path.extname(abs).toLowerCase();
+  if (JS_BUILD_EXTENSIONS.has(ext)) {
+    const stem = abs.slice(0, -ext.length);
+    for (const tsExt of TS_EXTENSIONS) candidates.push(`${stem}${tsExt}`);
+    candidates.push(abs);
+  } else if (ext) {
+    candidates.push(abs);
+  } else {
+    for (const resolverExt of RESOLVER_EXTENSIONS) candidates.push(`${abs}${resolverExt}`);
+    for (const indexExt of INDEX_EXTENSIONS) candidates.push(path.join(abs, `index${indexExt}`));
+  }
+  return candidates;
+}
+
+function _resolveWorkspaceEntry(dir, manifest, subpath, ctx) {
+  let best = null;
+  let bestRank = Infinity;
+  for (const target of _workspaceExportTargets(manifest.exports, subpath)) {
+    for (const candidate of _exportCandidates(dir, target)) {
+      const stat = ctx.cachedStatSync(candidate);
+      if (!stat || stat.isDirectory()) continue;
+      const rank = _exportCandidateRank(candidate);
+      if (rank < bestRank) {
+        best = candidate;
+        bestRank = rank;
+      }
+    }
+  }
+  if (best) return best;
+
+  // Legacy probe (pre-exports behavior): entry path straight off the manifest.
+  const entry = subpath || manifest.source || manifest.module || manifest.main || 'index';
+  const entryPath = path.join(dir, entry);
+  const entryStat = ctx.cachedStatSync(entryPath);
+  return (entryStat?.isFile() ? entryPath : null)
+    || _tryResolveWithExtensions(entryPath);
 }
 
 function tryRelativeWithExtensions(importPath, fromFile, ctx) {

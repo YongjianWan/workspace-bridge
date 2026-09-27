@@ -203,12 +203,12 @@ async function testImpactCommandNoTruncation() {
 }
 
 async function testAffectedTestsCommandTruncation() {
-  const container = createMockContainer({ affectedTestsSize: DEFAULTS.JSON_OUTPUT_MAX_AFFECTED_TESTS_ITEMS + 10 });
+  const container = createMockContainer({ affectedTestsSize: DEFAULTS.AFFECTED_TESTS_COMMAND_MAX_ITEMS + 10 });
   const result = await dependencyGraph({ operation: 'affected_tests', file: 'a.js' }, container);
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.truncated, true);
-  assert.strictEqual(result.affectedTestsCount, DEFAULTS.JSON_OUTPUT_MAX_AFFECTED_TESTS_ITEMS + 10);
-  assert.strictEqual(result.affectedTests.length, DEFAULTS.JSON_OUTPUT_MAX_AFFECTED_TESTS_ITEMS);
+  assert.strictEqual(result.affectedTestsCount, DEFAULTS.AFFECTED_TESTS_COMMAND_MAX_ITEMS + 10);
+  assert.strictEqual(result.affectedTests.length, DEFAULTS.AFFECTED_TESTS_COMMAND_MAX_ITEMS);
 }
 
 async function testAffectedRoutesCommandTruncation() {

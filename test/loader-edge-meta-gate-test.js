@@ -18,7 +18,7 @@ function makeDepGraph(edgeMeta) {
     graph: new Map(),
     reverseGraph: new Map(),
     bus: { emit: () => {}, on: () => {} },
-    builder: { _buildSymbolRegistry: () => {} },
+    builder: { _buildSymbolRegistry: () => {}, _refreshResolveFacts: () => {} },
     _finishBuilding: () => {},
     analyzer: {
       injectPrecomputedMetrics: () => {},

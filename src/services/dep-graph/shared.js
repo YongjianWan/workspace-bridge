@@ -194,6 +194,13 @@ const FRAMEWORK_MANAGED_PATTERNS = [
 // #19: known config file names as a Set
 const KNOWN_CONFIG_NAMES = new Set(['vite.config.js', 'vite.config.ts', 'vitest.config.ts', 'eslint.config.js']);
 
+// P0-6: tool-owned config files (*.config.{js,…}). Their default/named exports
+// are read by the matching tool via filename convention (cypress reads
+// cypress.config.ts), never via an import statement — so the import graph can
+// never show a consumer and "no importers" proves nothing. Broader than
+// KNOWN_CONFIG_NAMES (entry detection stays name-list-driven on purpose).
+const CONFIG_FILE_PATTERN = /\.config\.(js|jsx|ts|tsx|mjs|cjs|mts|cts)$/i;
+
 // #21: __main__ regex promoted to module-level constant
 const PYTHON_MAIN_PATTERN = /if\s+__name__\s*==\s*['"]__main__['"]\s*:/;
 
@@ -203,10 +210,23 @@ const DEAD_EXPORT_FILTER_RE = {
   mockLike: /^(mock|stub|spy|fake)[A-Z]/,
 };
 
+// P0-6: libFuzzer engine entry contract. The fuzzer driver calls these by
+// symbol name at runtime (link-time contract of the fuzzing engine), so no
+// source file ever imports them — "zero importers" is guaranteed by design,
+// not evidence of death. Same tier as dunder/mockLike: conventionally alive,
+// never a dead-export candidate (P0-6 rule 2: they must not enter the report).
+const KNOWN_ENGINE_ENTRY_SYMBOLS = new Set([
+  'LLVMFuzzerTestOneInput',
+  'LLVMFuzzerInitialize',
+  'LLVMFuzzerCustomMutator',
+  'LLVMFuzzerCustomCrossOver',
+]);
+
 function isConventionallyAliveSymbol(name) {
   if (name === 'constructor') return false;
   if (DEAD_EXPORT_FILTER_RE.dunder.test(name)) return false;
   if (DEAD_EXPORT_FILTER_RE.mockLike.test(name)) return false;
+  if (KNOWN_ENGINE_ENTRY_SYMBOLS.has(name)) return false;
   return true;
 }
 
@@ -217,6 +237,7 @@ module.exports = {
   computeDeadExportConfidence,
   FRAMEWORK_MANAGED_PATTERNS,
   KNOWN_CONFIG_NAMES,
+  CONFIG_FILE_PATTERN,
   PYTHON_MAIN_PATTERN,
   DEAD_EXPORT_FILTER_RE,
   isConventionallyAliveSymbol,

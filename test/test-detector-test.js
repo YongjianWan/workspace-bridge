@@ -4,6 +4,7 @@
 const assert = require('assert');
 const {
   isTestLikeFile,
+  isCollectedTestFile,
   buildHeuristicSignature,
   getHeuristicLanguageFamily,
   normalizeHeuristicName,
@@ -22,6 +23,27 @@ function testIsTestLikeFile() {
   assert.strictEqual(isTestLikeFile('src/test/java/com/example/FooIT.java'), true);
   assert.strictEqual(isTestLikeFile('src/test/java/com/example/AbstractTest.java'), true);
   assert.strictEqual(isTestLikeFile('src/main/java/com/example/FooService.java'), false);
+}
+
+// P0-12: isCollectedTestFile is what a runner executes — Python follows
+// pytest collection (test_*.py / *_test.py) plus Django's per-app tests.py;
+// a test-ish path or name is not enough. isTestLikeFile keeps the broader
+// test-area answer for dead-exports/orphan scoping.
+function testIsCollectedTestFile() {
+  assert.strictEqual(isCollectedTestFile('tests/test_models.py'), true);
+  assert.strictEqual(isCollectedTestFile('pkg/models_test.py'), true);
+  assert.strictEqual(isCollectedTestFile('app/tests.py'), true);
+  assert.strictEqual(isCollectedTestFile('tests/conftest.py'), false);
+  assert.strictEqual(isCollectedTestFile('pkg/testing.py'), false);
+  assert.strictEqual(isCollectedTestFile('tests/atomic_write_example.py'), false);
+  assert.strictEqual(isCollectedTestFile('tests/models.py'), false);
+  assert.strictEqual(isCollectedTestFile('django/test/utils.py'), false);
+  assert.strictEqual(isCollectedTestFile('tests/helpers.py'), false);
+  // non-Python currently shares the test-area rules
+  assert.strictEqual(isCollectedTestFile('foo.test.js'), true);
+  assert.strictEqual(isCollectedTestFile('src/test/java/com/example/FooTest.java'), true);
+  assert.strictEqual(isCollectedTestFile('tests/unit/baz.rs'), true);
+  assert.strictEqual(isCollectedTestFile('src/main.js'), false);
 }
 
 function testBuildHeuristicSignature() {
@@ -48,6 +70,7 @@ function testNormalizeHeuristicName() {
 
 function main() {
   testIsTestLikeFile();
+  testIsCollectedTestFile();
   testBuildHeuristicSignature();
   testGetHeuristicLanguageFamily();
   testNormalizeHeuristicName();

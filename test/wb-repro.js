@@ -218,6 +218,78 @@ bug('PY-CONFTEST-FIXTURE', 'Code used by a conftest fixture must map to the test
   return { pass: a.includes('test_a.py') && !a.includes('conftest.py'), got: a, want: ['test_a.py'] };
 });
 
+bug('PY-TEST-FILE-RULES', 'Tests must be identified by pytest rules (test_*.py / *_test.py / tests.py), not "path or name contains test"', () => {
+  // Symptoms pinned by the audit report (P0-12): typer's typer/testing.py
+  // (library code) and tests/atomic_write_example.py, and Django's
+  // tests/**/models.py fixtures, all leaked into affected-tests and the
+  // suggested pytest command.
+  const { dir } = repo({
+    'pyproject.toml': '[project]\nname = "demo"\nversion = "0.1.0"\n[tool.pytest]\ntestpaths = ["tests"]\n',
+    'pkg/__init__.py': '',
+    'pkg/models.py': 'class M:\n    pass\n',
+    'pkg/testing.py': 'from pkg.models import M\nclass Runner:\n    def run(self):\n        return M\n',
+    'tests/__init__.py': '',
+    'tests/test_models.py': 'from pkg.models import M\ndef test_m():\n    assert M is not None\n',
+    'tests/atomic_write_example.py': 'from pkg.models import M\nVALUE = M\n',
+    'tests/models.py': 'from pkg.models import M\nMODELS = [M]\n',
+    'app/__init__.py': '',
+    'app/tests.py': 'from pkg.models import M\ndef test_app():\n    assert M is not None\n',
+  });
+  const rel = (f) => path.relative(dir, String(f)).split(path.sep).join('/');
+  const wantIn = ['tests/test_models.py', 'app/tests.py'];
+  const wantOut = ['pkg/testing.py', 'tests/atomic_write_example.py', 'tests/models.py'];
+
+  const at = wb(dir, 'affected-tests', '--file', 'pkg/models.py');
+  const tests = (at.affectedTests || []).map((t) => rel(t.file || t)).sort();
+  const missing = wantIn.filter((f) => !tests.includes(f));
+  const leaked = wantOut.filter((f) => tests.includes(f));
+
+  const audit = wb(dir, 'audit-file', '--file', 'pkg/models.py');
+  // Collect raw command strings (not JSON.stringify — it escapes separators).
+  const va = audit.validationAdvice || {};
+  const cmd = [
+    va.suggestedCommand || '',
+    ...Object.values(va.commands || {}).flat().filter(Boolean)
+      .map((c) => c.cmd || (c.executable ? [c.executable.command, ...(c.executable.args || [])].join(' ') : '')),
+  ].join(' ').split('\\').join('/');
+  const inCommand = cmd.includes('tests/test_models.py') && cmd.includes('app/tests.py');
+  const leakedIntoCommand = wantOut.filter((f) => cmd.includes(f));
+
+  return {
+    pass: missing.length === 0 && leaked.length === 0 && inCommand && leakedIntoCommand.length === 0,
+    got: { tests, missing, leaked, inCommand, leakedIntoCommand },
+    want: 'tests/test_models.py + app/tests.py listed & suggested; pkg/testing.py / tests scripts / tests fixtures never',
+  };
+});
+
+bug('PY-RUNNER-NO-GUESS', 'Without runner evidence (Django runtests.py) do not suggest pytest; pytest-marked projects must keep it', () => {
+  const djangoLike = repo({
+    'manage.py': 'print("manage")\n',
+    'pyproject.toml': '[project]\nname = "d"\nversion = "0.1.0"\n',
+    'app/__init__.py': '',
+    'app/models.py': 'class M:\n    pass\n',
+    'tests/runtests.py': 'print("django test runner")\n',
+    'tests/test_smoke.py': 'from app.models import M\ndef test_m():\n    assert M is not None\n',
+  });
+  const sa = JSON.stringify(wb(djangoLike.dir, 'audit-file', '--file', 'app/models.py').validationAdvice || {});
+  const djangoPytest = sa.includes('pytest');
+
+  const pytestLike = repo({
+    'pyproject.toml': '[project]\nname = "t"\nversion = "0.1.0"\n[tool.pytest]\ntestpaths = ["tests"]\n',
+    'app/__init__.py': '',
+    'app/models.py': 'class M:\n    pass\n',
+    'tests/test_models.py': 'from app.models import M\ndef test_m():\n    assert M is not None\n',
+  });
+  const sb = JSON.stringify(wb(pytestLike.dir, 'audit-file', '--file', 'app/models.py').validationAdvice || {});
+  const pytestSuggests = sb.includes('pytest') && sb.includes('test_models.py');
+
+  return {
+    pass: !djangoPytest && pytestSuggests,
+    got: { django: djangoPytest ? 'pytest suggested' : 'none', pytest: pytestSuggests ? 'pytest suggested' : 'missing' },
+    want: 'django: none, pytest: pytest with the mapped test file',
+  };
+});
+
 bug('PY-UNDECLARED-AS-LOCAL', 'Undeclared third-party imports (typing_extensions) must not be reported as "looked local"', () => {
   const { dir } = repo({
     'requirements.txt': 'requests\n',
@@ -290,6 +362,21 @@ bug('WARN-WARM', 'Warnings (unresolved-dropped) must be identical on cold and wa
   const cold = (overview(dir).warnings || []).map((w) => w.type);
   const warm = (overview(dir).warnings || []).map((w) => w.type);
   return { pass: JSON.stringify(cold) === JSON.stringify(warm), got: { cold, warm }, want: 'cold === warm' };
+});
+
+bug('WARN-WARM-JVM', 'JVM third-party imports must not flip to dropped on warm restore (droppedCount cold === warm)', () => {
+  // org.junit is NOT declared in any build file (transitive in real projects);
+  // with workspace packages known it is external → cold dropped 0. The warm
+  // restore must not lose the workspace-package context and reclassify it.
+  // App→Util is required: with zero resolved edges loadGraph bails out to a
+  // full rebuild (which refreshes the facts) and the warm defect never shows.
+  const { dir } = repo({
+    'src/main/java/com/example/App.java': 'package com.example;\nimport com.example.Util;\nimport org.junit.jupiter.api.Test;\npublic class App { Util u; }\n',
+    'src/main/java/com/example/Util.java': 'package com.example;\npublic class Util {}\n',
+  });
+  const cold = overview(dir).droppedImports?.droppedCount;
+  const warm = overview(dir).droppedImports?.droppedCount;
+  return { pass: cold === warm, got: { cold, warm }, want: 'cold === warm (both 0)' };
 });
 
 // ---------------------------------------------------------------- audit-diff

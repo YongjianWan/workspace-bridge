@@ -211,11 +211,15 @@ function detectNodePackageManager(root) {
   return null;
 }
 
+// pytest deliberately has no marker-file rule here: setup.cfg and
+// pyproject.toml are generic formats shared by every Python tool, so mere
+// existence is not runner evidence (a Django repo with pyproject.toml must
+// not be told to run pytest). Python runner evidence lives in
+// detectPythonTestRunner below.
 const TEST_RUNNER_FILE_RULES = [
   { name: 'jest',    type: 'node',   files: ['jest.config.js', 'jest.config.ts', 'jest.config.mjs'] },
   { name: 'vitest',  type: 'node',   files: ['vitest.config.ts', 'vitest.config.js', 'vitest.config.mjs'] },
   { name: 'mocha',   type: 'node',   files: ['.mocharc.js', '.mocharc.yml', '.mocharc.json'] },
-  { name: 'pytest',  type: 'python', files: ['pytest.ini', 'setup.cfg', 'pyproject.toml'] },
 ];
 
 function detectTestRunner(root) {
@@ -256,8 +260,11 @@ function detectNodeFramework(root) {
 }
 
 function detectPythonTestRunner(root, pyprojectText = '') {
+  // Only content evidence counts: setup.cfg and pyproject.toml are generic
+  // formats — a file's existence proves nothing about the test runner.
   if (pathExists(path.join(root, 'pytest.ini'))) return 'pytest';
-  if (pathExists(path.join(root, 'setup.cfg'))) return 'pytest';
+  const setupCfg = readTextIfExists(path.join(root, 'setup.cfg'));
+  if (setupCfg.includes('[tool:pytest')) return 'pytest';
   if (pyprojectText && (pyprojectText.includes('pytest') || pyprojectText.includes('[tool.pytest'))) {
     return 'pytest';
   }
@@ -441,7 +448,7 @@ function detectStack(root) {
     python: hasPython ? {
       enabled: true,
       packageManager: 'pip',
-      testRunner: pythonTestRunner || (testRunner?.type === 'python' ? testRunner.name : null),
+      testRunner: pythonTestRunner,
       linters: linters.python,
       typeChecker: typeCheckers.python,
       framework: detectPythonFramework(root, pyprojectText),

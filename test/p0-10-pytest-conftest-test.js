@@ -14,8 +14,9 @@
 //   - 不做 fixture 参数名匹配：锚点是「conftest 是否在 import 图里 import 了改动文件」。
 //     因此是过近似：不用该 fixture 的 test_b 也会被报（pytest 语义上 conftest 变更
 //     本就影响其作用域内全部测试，过近似方向安全）。
-//   - 作用域 = conftest 目录前缀 × isTestLikeFile：tests/ 下 pytest 不会执行的
-//     helpers.py 也会被报（路径规则把 /tests/ 下一切都当测试文件）；conftest 目录
+//   - 作用域 = conftest 目录前缀 × isCollectedTestFile：只报 runner 收集的测试
+//     （pytest 口径：test_*.py / *_test.py / tests.py，P0-12），
+//     tests/helpers.py 这类 tests/ 下的非测试文件不再被报；conftest 目录
 //     之外的 test_outside.py 不报。
 //   - 传递链受 maxDepth 限制：改动文件离 conftest 超过 maxDepth 跳 → 漏报。
 //   - 只认 import 图里存在的边：fixture 代码经插件 / pytest_plugins 从图外加载 → 漏报
@@ -58,7 +59,7 @@ function testConftestChangeAffectsSubtree() {
   assert.ok(got.includes(testAKey), `tests/unit/test_a.py must be affected, got ${JSON.stringify(got)}`);
   assert.ok(got.includes(testBKey), `tests/unit/test_b.py must be affected, got ${JSON.stringify(got)}`);
   // 过近似（有意为之）：test_b 不使用 fixture，但 conftest 变更影响整个作用域
-  assert.ok(got.includes(helpersKey), `tests/helpers.py is test-like under tests/ → reported (documented over-approx), got ${JSON.stringify(got)}`);
+  assert.ok(!got.includes(helpersKey), `tests/helpers.py is not a pytest test (runner rules, P0-12) → never listed, got ${JSON.stringify(got)}`);
   assert.ok(!got.includes(conftestKey), `conftest.py itself must never be listed, got ${JSON.stringify(got)}`);
   assert.ok(!got.includes(outsideKey), `test outside the conftest subtree must not be affected, got ${JSON.stringify(got)}`);
 

@@ -136,6 +136,15 @@ function loadGraph(depGraph, options = {}) {
   // loader entry point warm/cold isomorphic instead of patching one facade.
   depGraph.builder._buildSymbolRegistry();
 
+  // Same isomorphic argument for the resolve facts: the fully-warm branch
+  // (no file delta) never reaches a resolve batch, so the facts would stay
+  // at the constructor's null and the JVM external gate would treat every
+  // undeclared third-party import as dropped (L1-1: petclinic warm restore
+  // reported 316 dropped imports vs 0 cold). Facts derive from the restored
+  // graph, so refresh once here — same source build()'s pre-resolve refresh
+  // uses.
+  depGraph.builder._refreshResolveFacts();
+
   // O6: loaded graph is structurally complete — mark ready
   depGraph._finishBuilding();
 

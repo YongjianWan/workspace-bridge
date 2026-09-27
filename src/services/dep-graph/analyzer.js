@@ -14,7 +14,7 @@ const {
   normalizeHeuristicName,
   buildHeuristicSignature,
   getHeuristicLanguageFamily,
-  isTestLikeFile,
+  isCollectedTestFile,
 } = require('../../utils/test-detector');
 const { detectScaffold } = require('../../utils/scaffold-detector');
 const {
@@ -31,6 +31,7 @@ const {
   isLikelyConstantsWarehouse,
   computeDeadExportConfidence,
   isConventionallyAliveSymbol,
+  CONFIG_FILE_PATTERN,
 } = require('./shared');
 
 // Defensive: exclude workspace-bridge's own tree-sitter query registry files
@@ -58,6 +59,61 @@ const KNOWN_REGISTRY_EXPORTS = [
     exports: new Set(['SHADOW_EXTS']),
   },
 ];
+
+// P0-6 rule 3: C/C++ translation units whose API is declared in a paired
+// public header (same stem, both files in the graph). Consumers include that
+// header from outside the workspace, so no in-graph importer can exist.
+const C_SOURCE_EXTENSIONS = new Set(['.c', '.cc', '.cpp', '.cxx']);
+const C_HEADER_EXTENSIONS = ['.h', '.hpp'];
+
+// P0-6 rule 4: evidence shape of unplugin-auto-import / Nuxt `imports.dirs` —
+// a `dirs:` key holding an array inside a tool config file. Only actually
+// declared dirs downgrade findings; directory *names* (composables/, stores/)
+// are never guessed.
+const AUTO_IMPORT_DIRS_RE = /\bdirs\s*:\s*\[([\s\S]*?)\]/g;
+const STRING_LITERAL_RE = /['"]([^'"]+)['"]/g;
+
+// P0-6 rule 5: Vite/Vitest dynamic loading. The pattern is a string literal,
+// optionally preceded by a generic type argument (vitesse: import.meta.glob<{
+// install: UserModule }>('./modules/*.ts', …)) — lazy-skip to the call paren,
+// then take the first string literal argument.
+const IMPORT_META_GLOB_RE = /import\.meta\.glob(?:Eager)?[\s\S]*?\(\s*(['"])([^'"]+)\1/g;
+
+// import.meta.glob is a JS/ESM runtime feature — only JS-family sources can
+// carry a real call, so the content scan stays inside these graph extensions
+// instead of reading every file of every language.
+const GLOB_SCAN_EXTENSIONS = new Set([
+  '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.mts', '.cts', '.vue', '.svelte',
+]);
+
+/**
+ * Convert a POSIX glob pattern to an anchored RegExp. `*` stays within a path
+ * segment, `**` crosses segments (double-star followed by a slash absorbs that
+ * slash), `?` matches a single char — same semantics as eval/score.js
+ * globToRegex so label joins and runtime pattern matching agree.
+ */
+function globToRegExp(glob) {
+  let src = '';
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === '*') {
+      if (glob[i + 1] === '*') {
+        src += '.*';
+        i++;
+        if (glob[i + 1] === '/') i++;
+      } else {
+        src += '[^/]*';
+      }
+    } else if (c === '?') {
+      src += '[^/]';
+    } else if (/[.+^${}()|[\]\\]/.test(c)) {
+      src += `\\${c}`;
+    } else {
+      src += c;
+    }
+  }
+  return new RegExp(`^${src}$`);
+}
 
 /**
  * Strip comments and docstrings from source content before running
@@ -241,9 +297,18 @@ class GraphAnalyzer {
     this._cycleFiles = null;
     this._mentionContentCache = new Map();
 
+    // P0-6: per-file marker evidence (rule 4 auto-import dirs, rule 5 glob
+    // patterns). updateFiles re-emits graph:built → precomputeAggregates →
+    // findDeadExports, so without per-file reuse every incremental save would
+    // re-read the whole JS tree — the I/O contract that
+    // dep-graph-postprocess-incremental-test guards.
+    this._autoImportDirsByFile = new Map();
+    this._globPatternsByFile = new Map();
+
     this.dg.bus.on('graph:updated', (ctx) => {
       this._bumpAggregateCache();
       this._invalidateCycles(ctx);
+      this._invalidateMarkerEvidence(ctx);
       this._scanContentCache.clear();
       this._scanPatternCache.clear();
       this._mentionContentCache.clear();
@@ -288,6 +353,26 @@ class GraphAnalyzer {
     }
     // If no changed file is in any existing cycle, keep the cache.
     // New cycles from new imports are rare in watch-mode incremental edits.
+  }
+
+  /**
+   * Scoped invalidation for the P0-6 marker evidence caches (mirrors
+   * _invalidateCycles): drop only the files the update touched, so unrelated
+   * incremental saves never re-read unchanged JS/config files from disk.
+   * Unknown change scope (bare `{}` from full Java/Go expansion) clears
+   * everything — stale evidence must never silently mark or unmark findings.
+   */
+  _invalidateMarkerEvidence(ctx = {}) {
+    if (ctx.fullRebuild || !ctx.changedFiles || ctx.changedFiles.length === 0) {
+      this._autoImportDirsByFile.clear();
+      this._globPatternsByFile.clear();
+      return;
+    }
+    for (const file of ctx.changedFiles) {
+      const key = this.dg.normalizeFilePath(file);
+      this._autoImportDirsByFile.delete(key);
+      this._globPatternsByFile.delete(key);
+    }
   }
 
   precomputeAggregates() {
@@ -1231,6 +1316,175 @@ class GraphAnalyzer {
     }
   }
 
+  /**
+   * P0-6 rule 1: downgrade findings that live in tool-owned config files
+   * (*.config.{js,…}). The matching tool reads those exports by filename
+   * convention (cypress reads cypress.config.ts), never via an import — an
+   * in-graph consumer cannot exist, so "no importers" proves nothing. Whole
+   * finding downgraded, never deleted (transparency principle).
+   */
+  _markConfigFileFalsePositives(deadExports) {
+    for (const finding of deadExports) {
+      if (finding.falsePositiveReason) continue;
+      const base = path.basename(String(finding.file).replace(/\\/g, '/'));
+      if (!CONFIG_FILE_PATTERN.test(base)) continue;
+      finding.confidence = 'low';
+      finding.confidenceValue = CONFIDENCE.LOW_VALUE;
+      finding.confidenceSource = 'config-file-convention';
+      finding.confidenceReason = 'Config file exports are read by the matching tool (vite/cypress/uno/…) via filename convention, not imported; static analysis cannot see the consumer';
+      finding.falsePositiveReason = 'config-file-convention';
+    }
+  }
+
+  /**
+   * P0-6 rule 3: downgrade findings in C/C++ sources that have a paired public
+   * header with the same stem inside the graph (foo.c ↔ foo.h). The API is
+   * declared in the header; consumers include it from outside the workspace, so
+   * no in-graph importer can exist. Isomorphic to the Rust public-api marker
+   * (cross-boundary consumption is invisible to static analysis).
+   */
+  _markCPairedHeaderFalsePositives(deadExports) {
+    for (const finding of deadExports) {
+      if (finding.falsePositiveReason) continue;
+      const file = String(finding.file).replace(/\\/g, '/');
+      const ext = path.posix.extname(file).toLowerCase();
+      if (!C_SOURCE_EXTENSIONS.has(ext)) continue;
+      const stem = file.slice(0, -ext.length);
+      const hasPairedHeader = C_HEADER_EXTENSIONS.some((h) => this.dg.graph.has(normalizePathKey(stem + h)));
+      if (!hasPairedHeader) continue;
+      finding.confidence = 'low';
+      finding.confidenceValue = CONFIDENCE.LOW_VALUE;
+      finding.confidenceSource = 'c-paired-header';
+      finding.confidenceReason = 'API is declared in the paired public header (same stem, both files in graph); consumers include the header from outside the workspace, which static analysis cannot see';
+      finding.falsePositiveReason = 'c-paired-header';
+    }
+  }
+
+  /**
+   * P0-6 rule 4: downgrade findings under auto-import directories declared by
+   * tool configs (unplugin-auto-import `AutoImport({ dirs })`, Nuxt
+   * `imports.dirs`). Exports in those directories are injected into consumers
+   * at build time — source files carry no import statement for static analysis
+   * to see. Only dirs actually declared as string arrays in a graph config file
+   * count as evidence; directory names are never guessed.
+   */
+  _markAutoImportDirFalsePositives(deadExports) {
+    if (deadExports.length === 0) return;
+    const dirs = this._collectAutoImportDirs();
+    if (dirs.length === 0) return;
+    for (const finding of deadExports) {
+      if (finding.falsePositiveReason) continue;
+      const key = normalizePathKey(finding.file);
+      if (!dirs.some((dir) => key.startsWith(`${dir}/`))) continue;
+      finding.confidence = 'low';
+      finding.confidenceValue = CONFIDENCE.LOW_VALUE;
+      finding.confidenceSource = 'auto-import-dirs';
+      finding.confidenceReason = 'Directory is declared as an auto-import source in a tool config; its exports are injected into consumers at build time, so no import statement exists for static analysis to see';
+      finding.falsePositiveReason = 'auto-import-dirs';
+    }
+  }
+
+  /**
+   * Collect dirs declared as string arrays (`dirs: [...]`) inside tool config
+   * files of the graph, resolved against the workspace root (configs declare
+   * paths relative to the project root they run in). Evidence is cached per
+   * config file and invalidated by _invalidateMarkerEvidence, so incremental
+   * recomputes only re-read changed configs.
+   */
+  _collectAutoImportDirs() {
+    for (const [filePath] of this.dg.graph) {
+      if (!CONFIG_FILE_PATTERN.test(path.basename(filePath))) continue;
+      if (!this._autoImportDirsByFile.has(filePath)) {
+        this._autoImportDirsByFile.set(filePath, this._readAutoImportDirs(filePath));
+      }
+    }
+    const dirs = new Set();
+    for (const declared of this._autoImportDirsByFile.values()) {
+      for (const dir of declared) dirs.add(dir);
+    }
+    return [...dirs];
+  }
+
+  _readAutoImportDirs(filePath) {
+    let content;
+    try {
+      content = fs.readFileSync(fromNormalizedKey(filePath), 'utf8');
+    } catch {
+      // Cache the miss too: an indexed-but-unreadable file must not be
+      // retried on every recompute; its next change re-opens the entry.
+      return [];
+    }
+    const dirs = [];
+    for (const match of content.matchAll(AUTO_IMPORT_DIRS_RE)) {
+      for (const literal of match[1].matchAll(STRING_LITERAL_RE)) {
+        const declared = literal[1].trim();
+        if (!declared) continue;
+        dirs.push(normalizePathKey(path.resolve(this.dg.root, declared)));
+      }
+    }
+    return dirs;
+  }
+
+  /**
+   * P0-6 rule 5: downgrade findings matched by import.meta.glob patterns
+   * declared anywhere in the graph. The globbed modules are loaded dynamically
+   * at runtime and their exports (e.g. `install`) are invoked by the loader —
+   * the static import graph has no edge to see. Each pattern resolves relative
+   * to its consuming file's directory, mirroring the runtime.
+   */
+  _markGlobLoadedFalsePositives(deadExports) {
+    if (deadExports.length === 0) return;
+    const patterns = this._collectImportMetaGlobPatterns();
+    if (patterns.length === 0) return;
+    for (const finding of deadExports) {
+      if (finding.falsePositiveReason) continue;
+      const key = normalizePathKey(finding.file);
+      if (!patterns.some((re) => re.test(key))) continue;
+      finding.confidence = 'low';
+      finding.confidenceValue = CONFIDENCE.LOW_VALUE;
+      finding.confidenceSource = 'import-meta-glob';
+      finding.confidenceReason = 'File is matched by an import.meta.glob pattern; it is loaded dynamically at runtime and its exports are invoked by the loader, invisible to the static import graph';
+      finding.falsePositiveReason = 'import-meta-glob';
+    }
+  }
+
+  /**
+   * Flatten import.meta.glob patterns from every JS-family graph file.
+   * Evidence is cached per file and invalidated by _invalidateMarkerEvidence,
+   * so incremental recomputes only re-read changed files — updateFiles re-runs
+   * precomputeAggregates and must not re-read the whole tree each save.
+   */
+  _collectImportMetaGlobPatterns() {
+    for (const [filePath] of this.dg.graph) {
+      if (!GLOB_SCAN_EXTENSIONS.has(path.posix.extname(filePath).toLowerCase())) continue;
+      if (!this._globPatternsByFile.has(filePath)) {
+        this._globPatternsByFile.set(filePath, this._readImportMetaGlobPatterns(filePath));
+      }
+    }
+    const patterns = [];
+    for (const filePatterns of this._globPatternsByFile.values()) {
+      for (const re of filePatterns) patterns.push(re);
+    }
+    return patterns;
+  }
+
+  _readImportMetaGlobPatterns(filePath) {
+    let content;
+    try {
+      content = fs.readFileSync(fromNormalizedKey(filePath), 'utf8');
+    } catch {
+      // Cache the miss: retried only when the file itself changes.
+      return [];
+    }
+    if (!content.includes('import.meta.glob')) return [];
+    const baseDir = path.dirname(fromNormalizedKey(filePath));
+    const patterns = [];
+    for (const match of content.matchAll(IMPORT_META_GLOB_RE)) {
+      patterns.push(globToRegExp(normalizePathKey(path.resolve(baseDir, match[2]))));
+    }
+    return patterns;
+  }
+
   _collectUsedExports(importers, filePath) {
     let usesAllExports = false;
     let hasExplicitImporter = false;
@@ -1395,6 +1649,15 @@ class GraphAnalyzer {
       // when only the workspace itself is analyzed.
       this._markRustPublicApiFalsePositives(deadExports);
 
+      // P0-6: toolchain-consumed forms static analysis cannot see — config-file
+      // convention, C paired public headers, auto-import dirs, import.meta.glob
+      // loading. Run after the markers above so their explicit reasons win
+      // (findings carrying falsePositiveReason are never re-marked).
+      this._markConfigFileFalsePositives(deadExports);
+      this._markCPairedHeaderFalsePositives(deadExports);
+      this._markAutoImportDirFalsePositives(deadExports);
+      this._markGlobLoadedFalsePositives(deadExports);
+
       // L1: _scanContentCache holds full file contents (up to 50MB). Clear after
       // each findDeadExports call so REPL long sessions don't leak memory when
       // dead-exports is invoked repeatedly without file changes.
@@ -1444,7 +1707,7 @@ class GraphAnalyzer {
   }
 
   _findAffectedTestsByGraph(filePath, maxDepth) {
-    const isTestFile = (f) => isTestLikeFile(f);
+    const isTestFile = (f) => isCollectedTestFile(f);
     return bfsTraverse(filePath, (file) => this.dg.getDependents(file), {
       maxDepth,
       onVisit: (file, distance, via) => {
@@ -1459,7 +1722,7 @@ class GraphAnalyzer {
   }
 
   _findAffectedTestsByHeuristic(filePath, maxDepth, graphResults) {
-    const isTestFile = (f) => isTestLikeFile(f);
+    const isTestFile = (f) => isCollectedTestFile(f);
     const seen = new Set(graphResults.map((entry) => entry.file));
     // Heuristic signatures should be computed from the original-casing path
     // (stored in node.originalPath), not from the normalized graph key, so
@@ -1520,7 +1783,7 @@ class GraphAnalyzer {
   }
 
   _findAffectedTestsByMention(filePath, maxDepth, graphResults) {
-    const isTestFile = (f) => isTestLikeFile(f);
+    const isTestFile = (f) => isCollectedTestFile(f);
     const seen = new Set(graphResults.map((entry) => entry.file));
     const sourceStem = path.basename(filePath, path.extname(filePath));
     // Minimum stem length to avoid false positives on generic names like "a", "x", "index"

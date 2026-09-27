@@ -512,7 +512,10 @@ class GraphBuilder {
       }
     }
 
-    const resolvedImports = resolvedImportRecords.map((record) => record.resolved).filter((imp) => imp && imp !== graphKey);
+    // 图的 import 列表是集合语义：多条记录解析到同一目标（同 source 不同
+    // 绑定、不同 source 撞同一文件）只算一条边，否则 _serializeEdges 会把
+    // 重复目标序列化成多条边，edges/files 之类的口径全被撑大。
+    const resolvedImports = [...new Set(resolvedImportRecords.map((record) => record.resolved).filter((imp) => imp && imp !== graphKey))];
 
     this.dg.graph.set(graphKey, {
       originalPath: filePath,

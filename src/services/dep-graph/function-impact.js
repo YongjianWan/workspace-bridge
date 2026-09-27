@@ -1,5 +1,6 @@
 const path = require('path');
 const { compareFunctionRecords } = require('./function-similarity');
+const { isCollectedTestFile } = require('../../utils/test-detector');
 
 function normalizeLineRanges(lineRanges) {
   if (!Array.isArray(lineRanges)) return [];
@@ -259,7 +260,7 @@ function getFunctionLevelAffectedTests(depGraph, filePath, changedFunctions, opt
     const testMap = new Map();
 
     for (const dependentFile of dependents) {
-      if (depGraph.isTestLikeFile(dependentFile)) {
+      if (isCollectedTestFile(dependentFile)) {
         mergeTestRow(testMap, dependentFile, 1, [`${sourceFile}#${fnName}`, dependentFile], 'function-level');
         continue;
       }

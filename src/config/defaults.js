@@ -76,6 +76,12 @@ const DEFAULTS = {
   // by itself. These limits keep individual commands well under 2k tokens.
   JSON_OUTPUT_MAX_IMPACT_ITEMS: 50,            // 50 files × ~40 tokens ≈ 2k tokens
   JSON_OUTPUT_MAX_AFFECTED_TESTS_ITEMS: 50,    // same rationale as impact
+  // The dedicated `affected-tests` command: the list IS the answer, so the
+  // digest budget above would cut real results (fault-injection truth reaches
+  // 86 failing tests per source file on eval zod; 50 silently halves recall).
+  // 500 keeps worst-case JSON ~10k tokens with --max-files as the explicit
+  // tighter bound; past it `truncated: true` stays honest.
+  AFFECTED_TESTS_COMMAND_MAX_ITEMS: 500,
   DROPPED_IMPORT_SAMPLE_LIMIT: 50, // diagnostic examples without copying every import
   JSON_OUTPUT_MAX_AFFECTED_ROUTES_ITEMS: 30,   // routes are usually shallower
   JSON_OUTPUT_MAX_COCHANGE_ITEMS: 20,          // co-changes beyond 20 are noise

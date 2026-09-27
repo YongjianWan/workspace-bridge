@@ -153,6 +153,28 @@ const SCHEMA_VERSION = '1.2.0';
 //      的 parse_results 无 package 列、边集是无门控 clique，均不可比，作废重建。
 // v43: unresolved import records now persist with resolved:null so warm
 // graphs can reproduce cold warnings and distinguish uncertain Python imports.
-const CACHE_VERSION = 43;
+// v44: workspace package resolver learns the package.json `exports` map
+//      (conditions + wildcard subpaths, source over build output) — self-
+//      references like `import from "zod/v4"` now land on src/ instead of
+//      resolving null. v43 caches persist resolved:null for those specifiers;
+//      edge sets are not comparable, rebuild.
+// v45: affected-tests rows are recorded with isCollectedTestFile (pytest
+//      collection rules for Python) instead of the test-area heuristic —
+//      v44 test_map/precomputed_impact rows still carry non-tests (library
+//      files like typer/testing.py, tests/ helpers and fixtures) as affected
+//      tests; row sets are not comparable, rebuild.
+// v46: Python importRecords 去重键从 source 升为语句级（source+imported+
+//      usesAllExports）——按 source 去重会合并不同绑定，而 P0-1 起解析结果
+//      依赖 imported（typer 实测：模块级 `from . import _click` 先占掉 "."
+//      槽位，函数内 `from . import rich_utils` 的记录被丢，rich_utils.py
+//      入边只剩测试文件 1 条）。v45 缓存里 Python 仓的 parse 产物缺这些
+//      绑定记录、边集不可比，作废重建。
+// v47: P0-6 dead-exports high 级误报校准——config-file / engine-entry /
+//      C 配对公开头 / auto-import dirs / import.meta.glob 五类工具链消费形态
+//      不再产出 high（判决语义变了）。deadExports 聚合是持久化的
+//      （precomputed_aggregates 的 deadExports 行 + aggregateSummary 元数据，
+//      warm 启动经 injectPrecomputedAggregates/restoreAggregateCache 原样
+//      发出），v46 缓存里这些判决仍是旧的 high，作废重建。
+const CACHE_VERSION = 47;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };
