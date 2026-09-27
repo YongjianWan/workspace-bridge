@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### Fixed: P1-17 截断一律显式 + P1-18 孤儿路径保留原始大小写（2026-09-28）
+
+- **根因**（审查报告 P1-17）：`route-formatter` 给所有 `--json` 输出套了通用兜底 `elideDeep`，数组截到 100、字符串截到 500、嵌套超 12 层置 null，且不留任何标记；生产方只按自己的上限（affected-tests 500）设 `truncated`，于是 typer 上 `affectedTestsCount 212` 只列 100 条却标 `truncated: false`。审查报告列的 affected-tests 截断、dead-exports `exports` 截 100、query 截长字符串都是这一处。另外 `--max-files 300` 也被兜底网截回 100；audit-file compact（仓库超 500 文件自动触发）把列表和验证命令整个清空仍标 `truncated: false`；`--format ai` 的 details 抽样不标记。
+- **改动**：`elideDeep` 每处截断记 `{ path, kind, shown, total, reason }`，`route-formatter` 汇总到顶层 `elided[]` 并置 `truncated: true`；兜底上限不低于显式 `--max-files`。audit-file compact 清空的非空列表同样记入 `elided`（reason `compact`），对应列表置 `truncated`。`formatAi` 对照 `counts` 给抽样列表记 `elided`（reason `ai-digest`），并带上生产方已记录的截断。`affected-tests` 截断前按 `distance` 再按路径排序，输出 `orderedBy: 'distance,file'`，截断后留下的是最近的测试，冷暖顺序一致。只加字段不删字段。
+- **P1-18 根因**：孤儿检测直接输出 Windows 上小写规范化的图键（cJSON 的 `cJSON_Utils.c` 曾显示为 `cjson_utils.c`）。**改动**：`DependencyGraph.findOrphanFiles` 分类仍用图键（目录规则不受大小写影响），返回前映射回磁盘原始路径。
+- **验证**：新建 `test/p1-17-explicit-truncation-test.js`（兜底网逐处记录、JSON 顶层汇总、无截断不出现 elided、`--max-files` 优先、排序后截断、audit-file compact 记录、AI 摘要记录；AI 摘要一条做过变异检查：去掉赋值即红）与 `test/p1-18-orphan-path-casing-test.js`（修前红：`native/lonely_utils.c`）。typer 实测：`elided` 给出 `affectedTests shown 100 / total 212`。SKILL.md 补"截断必读"一节并同步 user-scope 副本。
+
 ### Fixed: P1-12 C/C++ 编译单元局部声明不再算导出 + 配对头的源文件不再判孤儿（2026-09-28）
 
 - **根因**（审查报告 P1-12）：C/C++ parser 对源文件和头文件一视同仁，`.c` 里的 `#define`、struct、enum、typedef 都进了 exportRecords；可这些只在本编译单元可见，别的文件链接不到，不可能有消费方，于是必然被报死导出（cJSON_Utils.c 的 `true` / `false` / `_CRT_SECURE_NO_DEPRECATE` / `patch_operation`，test.c 的 `struct record`）。孤儿检测只看 import 入边，而实现文件从来不被 include，消费方 include 的是同 stem 的头文件，所以 `cJSON_Utils.c` 被判孤儿。

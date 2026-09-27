@@ -39,7 +39,7 @@
 
 ## 当前核验
 
-`node test/wb-repro.js cli.js` 应为 27/27 OK、退出码 0；`CACHE_VERSION=48`，`schemaVersion=1.2.0`。`audit-overview` 覆盖率 1、fallback 0。快测基线 197 选 195 过，全量 295 选 293 过（2026-09-28 更新：295=294+`p1-12-c-linkage-pairing-test`）；已知红为 wave15-ast-rules / wave15-neighbor-aware 两条 Windows/libuv 异常退出（3221226505），另有 `workspace-info-lightweight-test.js` 的 2000ms 预算在 runner 满负载下偶发超限（eval/truth 语料膨胀所致，单跑稳过，不计入基线红，见 SESSION.md）。出现其他失败须调查。
+`node test/wb-repro.js cli.js` 应为 27/27 OK、退出码 0；`CACHE_VERSION=48`，`schemaVersion=1.2.0`。`audit-overview` 覆盖率 1、fallback 0。快测基线 197 选 195 过，全量 297 选 295 过（2026-09-28 更新：297=295+`p1-17-explicit-truncation-test`+`p1-18-orphan-path-casing-test`）；已知红为 wave15-ast-rules / wave15-neighbor-aware 两条 Windows/libuv 异常退出（3221226505），另有 `workspace-info-lightweight-test.js` 的 2000ms 预算在 runner 满负载下偶发超限（eval/truth 语料膨胀所致，单跑稳过，不计入基线红，见 SESSION.md）。出现其他失败须调查。
 
 ## 工程品味（TASTE）
 

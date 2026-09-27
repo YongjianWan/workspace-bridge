@@ -55,6 +55,7 @@ workspace-bridge-cli <command> --cwd <project> --json --quiet
   - 注意：与 `--format ai` 同时使用时，输出 `warnings` 会提示 digest 输入被裁剪，避免 AI 拿到被静默降级的风险视图。
 - `--max-files <n>`：限制大部分命令返回的文件/条目数（`audit-overview` / `audit-map` / `audit-file` / `audit-diff` / `query-*` / `impact` / `affected-*` / `dependencies` / `dependents` / `dead-exports` / `unresolved` / `cycles` / `tree` / `guard` / `api-contracts` 均支持）。
 - `--compact`：目录级聚合边 + 精简树 + 列表 capped（`audit-map` / `audit-overview` / `audit-file` / `api-contracts` / `guard` 生效；大项目自动触发；`--no-compact` 关闭）。
+- **截断必读**：顶层 `truncated: true` 时，列表不是全集。读顶层 `elided[]`，每条是 `{ path, kind, shown, total, reason }`（`reason`：`json-size-limit` JSON 体积上限 / `compact` 压缩模式清空 / `ai-digest` AI 摘要抽样）。要全集就加 `--max-files <n>`（JSON 体积上限不会低于它）或 `--no-compact`。`affected-tests` 按 `orderedBy: distance,file` 排序后截断，留下的是距离最近的测试。
 
 ## Exit Code 契约
 
