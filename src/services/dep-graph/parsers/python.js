@@ -66,7 +66,7 @@ function parsePythonWithRegex(content) {
 /**
  * Map raw parser JSON (tree-sitter python-ast.js) onto the parser-contract
  * records. scripts/parser-parity-python.js judges the retired spawn path
- * (scripts/python_ast_parser.py, removed in L3-9) against the tree-sitter
+ * (scripts/python_ast_parser.py) against the tree-sitter
  * path only after this identical normalization.
  */
 function normalizePythonAstResult(astResult) {

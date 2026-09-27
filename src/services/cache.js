@@ -744,7 +744,7 @@ class WorkspaceCache {
    * Fingerprint of the indexed file set: path + mtime + size for every tracked
    * file. Snapshot freshness compares this so that an in-place edit — which
    * moves no git head, no file count and no config — still invalidates a
-   * stored snapshot (L2-15).
+   * stored snapshot.
    *
    * Reads the metadata the index already holds; it does not stat the disk.
    * Callers must therefore compare signatures taken at the same point in the
@@ -756,7 +756,7 @@ class WorkspaceCache {
     const hash = crypto.createHash('sha256');
     // No `?.` on meta: graph-db's deserialize builds every entry as an object
     // literal and setFileMetadata spreads into one — a null here is an internal
-    // contract violation and must throw, not silently hash as 0 (L3-8). The
+    // contract violation and must throw, not silently hash as 0. The
     // `|| 0` stays: sparse legacy entries (object without mtime) are real and
     // recoverable, they coerce rather than crash.
     for (const key of [...this.fileMetadata.keys()].sort()) {

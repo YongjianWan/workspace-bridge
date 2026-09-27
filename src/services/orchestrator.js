@@ -2,8 +2,6 @@
  * GraphOrchestrator - Coordinates DependencyGraph lifecycle, event handling,
  * and precompute persistence so that dep-graph.js stays a thin facade over
  * graph data structures.
- *
- * Extracted from dep-graph.js as Route A-2 ("default host" debt reduction).
  */
 
 const { DG_STATES, GraphStateMachine } = require('./dep-graph/state-machine');
@@ -135,7 +133,7 @@ async function initializeDepGraph({
     depGraph._indexWarnings = fileIndex.warnings;
   }
 
-  // P0-3: 发现阶段被丢弃的已知源码扩展文件（无 parser 认领）同上挂图——
+  // 发现阶段被丢弃的已知源码扩展文件（无 parser 认领）同上挂图——
   // analyzer 的 coverage 分母读它，冷热两路都要走这里。
   if (fileIndex && Array.isArray(fileIndex.unsupportedSourceFiles)) {
     depGraph._unsupportedSourceFiles = fileIndex.unsupportedSourceFiles;
@@ -146,7 +144,7 @@ async function initializeDepGraph({
   if (!loaded) {
     await depGraph.build(fileIndex?._indexedFiles || null);
   } else {
-    // L1-3: persisted parse_results lack postProcess-injected importRecords
+    // Persisted parse_results lack postProcess-injected importRecords
     // (java tier1 wildcard-resolved + tier3 same-package) because
     // setParseResult runs before postProcess. Replay the whole phase list so
     // the warm path is semantically identical to a fresh build. Replaying the

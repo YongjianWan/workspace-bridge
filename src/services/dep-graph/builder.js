@@ -24,7 +24,7 @@ const readFile = promisify(fs.readFile);
 const stat = promisify(fs.stat);
 const YIELD_INTERVAL = 20; // event loop yield frequency for large repos
 
-// P0-7 reference gate: simple-name tokens of a source file, and the
+// Same-package reference gate: simple-name tokens of a source file, and the
 // declaration kinds that may justify a same-package edge. Type-level kinds
 // only — Java/Kotlin method and field names ('function'/'variable') collide
 // across package-mates (every package has a `run`/`id`) and would rebuild the
@@ -43,7 +43,7 @@ class GraphBuilder {
     this.onBuildComplete = null;
     this.onFileUpdated = null;
     this.symbolRegistry = new SymbolRegistry();
-    // P105: soft post-process phase architecture
+    // Soft post-process phase architecture
     this.postProcessPhases = [];
     this.postProcessPhases.push({
       id: 'expand-java-packages',
@@ -57,7 +57,7 @@ class GraphBuilder {
     });
     this._parseCache = new Map();
     this._walCadence = new WalCadence();
-    // L2-11 gap C: the JVM gate's input. null means "not computed yet" — an
+    // The JVM zero-list gate's input. null means "not computed yet" — an
     // empty Set is a legitimate answer (a workspace with no package
     // declarations) and the two must not share a value, because the gate reads
     // an absent set as "unknown" and switches itself off.
@@ -118,7 +118,7 @@ class GraphBuilder {
 
   /**
    * A cache entry produced while the AST path was unavailable (regex-fallback)
-   * is never trusted: since L3-9 that means a tree-sitter WASM load failure,
+   * is never trusted: that means a tree-sitter WASM load failure,
    * which is transient (cold-start race, memory pressure) and invisible to the
    * cache key (mtime/hash). Re-parsing upgrades the entry to AST next run.
    * regex-native languages (C/C++, Svelte — regex IS their parser) are
@@ -156,7 +156,7 @@ class GraphBuilder {
     const candidateFiles = (sourceFiles || Array.from(this.dg.cache.fileMetadata.keys())).filter((file) => {
       if (this.dg.shouldExclude(file)) return false;
       if (this.dg.projectContext && !this.dg.projectContext.isActiveSourceFile(file)) {
-        // L2-12: keep CLI-excluded files in the graph so their imports still
+        // Keep CLI-excluded files in the graph so their imports still
         // protect production code from false positives. They will be filtered
         // out of report output by shouldExcludeCli().
         if (!this.dg.shouldExcludeCli(file)) return false;
@@ -212,7 +212,7 @@ class GraphBuilder {
     // Build the global symbol registry with cached files + newly parsed files' exports
     this._buildSymbolRegistry();
 
-    // L2-11 gap C: the JVM zero-list gate reads this set ("outside every
+    // The JVM zero-list gate reads this set ("outside every
     // workspace package = external"). All packages are known once the parse
     // phase has run — refresh before the resolve phase consumes it.
     this._refreshResolveFacts();
@@ -226,7 +226,7 @@ class GraphBuilder {
       }
     }
 
-    // P105: run post-process phases (framework implicit imports, etc.)
+    // Run post-process phases (framework implicit imports, etc.)
     await this.runPostProcessPhases();
 
     // Filter out non-value imports (type-only, interface, annotation, lazy/dynamic)
@@ -245,7 +245,7 @@ class GraphBuilder {
       console.error('[DepGraph] WARNING: Dependency graph appears empty (0 edges). Results may contain false positives.');
     }
 
-    // P8-1 callback slot
+    // Callback slot for build-complete listeners.
     if (this.onBuildComplete) {
       this.onBuildComplete({ fileCount: this.dg.graph.size, cacheHitRate });
     }
@@ -430,7 +430,7 @@ class GraphBuilder {
   }
 
   /**
-   * Resolve 批次边界事实（L2-11 gap C 同机制，批次间刷新不会中途过期）：
+   * Resolve 批次边界事实（批次开始时刷新，批次中途不会过期）：
    *  - workspace packages —— JVM 零表闸读的包集合；
    *  - pythonModuleIndex —— Python module-index 策略读的 basename→files
    *    索引，只含图内文件（reference/generated 角色不可能被 import 捕获）。
@@ -457,7 +457,7 @@ class GraphBuilder {
     if (this.workspacePackages === null || this.pythonModuleIndex === null) {
       throw new Error(
         '[GraphBuilder] resolveFileOnly called before resolve facts were computed — ' +
-        'call _refreshResolveFacts() at the start of the resolve batch (L2-11 gap C)'
+        'call _refreshResolveFacts() at the start of the resolve batch'
       );
     }
     const { filePath, graphKey, content, imports, exports, importRecords, exportRecords, functionRecords, parseMode, parseModeReason, confidence, package: packageName } = parsed;
@@ -481,7 +481,7 @@ class GraphBuilder {
           tier: outMeta.tier || 'tier1',
           resolutionMethod: outMeta.method || 'import',
           confidence: outMeta.confidence ?? 1.0,
-          // L2-21: go-module package imports carry their package dir so the
+          // Go-module package imports carry their package dir so the
           // expand-go-packages phase can bind every non-test .go file.
           ...(outMeta.goPackageDir ? { goPackageDir: outMeta.goPackageDir } : {}),
         };
@@ -679,8 +679,8 @@ class GraphBuilder {
     //    (postProcess injections never reach parse_results, and loader.js
     //    rebuilds imports from the edges table). A same-package edge with no
     //    surviving record is a stale expansion leftover — strip it so the
-    //    reference gate in _expandJavaForFile can re-decide it (P0-7/P0-8:
-    //    otherwise a cold build's gated edge set and a warm load's persisted
+    //    reference gate in _expandJavaForFile can re-decide it
+    //    (otherwise a cold build's gated edge set and a warm load's persisted
     //    set drift apart the moment content changes). Explicit same-package
     //    imports keep their resolve-phase record and survive.
     if (info.package && info.imports) {
@@ -747,7 +747,7 @@ class GraphBuilder {
       }
     }
 
-    // 2. Same-package implicit references — P0-7: an edge is added only when
+    // 2. Same-package implicit references: an edge is added only when
     //    this file actually references the package-mate's type by simple
     //    name. Java/Kotlin make package-mates visible without an import
     //    statement, but an unconditional link turns every package into a
@@ -789,7 +789,7 @@ class GraphBuilder {
   }
 
   /**
-   * P0-7 gate input: the source whose simple-name tokens decide whether a
+   * Reference-gate input: the source whose simple-name tokens decide whether a
    * same-package edge is justified. Returns { content, tokens }, or null when
    * the file cannot be read — the caller then fails open (keeps the edge):
    * with no evidence either way the legacy behaviour is the conservative
@@ -816,7 +816,7 @@ class GraphBuilder {
   }
 
   /**
-   * P0-7 gate predicate: may `ref` hold a same-package edge to `targetKey`?
+   * Reference-gate predicate: may `ref` hold a same-package edge to `targetKey`?
    * True iff the target declares at least one type-level name that appears as
    * a simple-name token in the source. A target with no type-level
    * declarations offers nothing to reference → false (e.g. a Kotlin file with
@@ -914,7 +914,7 @@ class GraphBuilder {
   }
 
   // ---------------------------------------------------------------------------
-  // L2-21: Go package expansion — mirrors the Java phase above.
+  // Go package expansion — mirrors the Java phase above.
   // A Go package is a directory: files in one dir share package scope without
   // any import statement (implicit tier3 same-package edges), and a go-module
   // import binds EVERY non-test .go file of the target package, not just the
@@ -1162,7 +1162,7 @@ class GraphBuilder {
       for (const key of deletedKeys) {
         this._removeOldReverseEdges(key);
 
-        // P102: Clean incoming edges — remove deleted file from all reverseGraph entries
+        // Clean incoming edges — remove deleted file from all reverseGraph entries
         for (const [dependentKey, dependents] of this.dg.reverseGraph) {
           const idx = dependents.indexOf(key);
           if (idx >= 0) {
@@ -1172,7 +1172,7 @@ class GraphBuilder {
             }
           }
         }
-        // P102: Clean other files' imports / importRecords referencing deleted file
+        // Clean other files' imports / importRecords referencing deleted file
         for (const [, info] of this.dg.graph) {
           const idx = info.imports.indexOf(key);
           if (idx >= 0) {

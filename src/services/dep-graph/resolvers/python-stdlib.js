@@ -1,5 +1,5 @@
 /**
- * Python standard library membership — single home (L3-15).
+ * Python standard library membership — single home.
  *
  * The authoritative source is sys.stdlib_module_names from a local
  * interpreter: version-correct by construction, zero maintenance. Fetched once
@@ -11,10 +11,8 @@
  * sync + memo — one extra interpreter spawn per process, deterministic within
  * the process: every gate call in a run sees the same Set.
  *
- * L3-9 note: this is now the ONLY place workspace-bridge spawns Python at all.
- * Both AST parsers that used to (python_ast_parser.py, java_ast_parser.py) are
- * gone, and with them parsers/spawn-ast.js — so the interpreter resolution that
- * lived there moved here, to its last consumer.
+ * This is the only place workspace-bridge spawns Python, so interpreter
+ * resolution lives here with its only consumer.
  */
 const { spawnSync } = require('child_process');
 const { TIMEOUTS } = require('../../../config/constants');
@@ -35,7 +33,7 @@ function resolveStdlibPython(root) {
 // resolvers.js). Bitten three times as the primary source (v11, v17
 // __future__/tomllib/zoneinfo) — keep it strictly as the degraded-path net.
 const PYTHON_STDLIB_FALLBACK = new Set([
-  '__future__', // L2-11 gap B: `from __future__ import ...` is stdlib, never a workspace file
+  '__future__', // `from __future__ import ...` is stdlib, never a workspace file
   'abc', 'aifc', 'argparse', 'array', 'ast', 'asyncio', 'atexit', 'audioop',
   'base64', 'bdb', 'binascii', 'binhex', 'bisect', 'builtins', 'bz2',
   'calendar', 'cgi', 'cgitb', 'chunk', 'cmath', 'cmd', 'code', 'codecs',
@@ -59,7 +57,7 @@ const PYTHON_STDLIB_FALLBACK = new Set([
   'stringprep', 'struct', 'subprocess', 'sunau', 'symtable', 'sys', 'sysconfig',
   'syslog', 'tabnanny', 'tarfile', 'telnetlib', 'tempfile', 'termios', 'test',
   'textwrap', 'threading', 'time', 'timeit', 'tkinter', 'token', 'tokenize',
-  'tomllib', // 3.11+; measured in CodeGraphContext droppedImports (L2-11 gap B cohort)
+  'tomllib', // 3.11+
   'trace', 'traceback', 'tracemalloc', 'tty', 'turtle', 'types', 'typing',
   'unicodedata', 'unittest', 'urllib', 'uu', 'uuid', 'venv', 'warnings',
   'wave', 'weakref', 'webbrowser', 'winreg', 'winsound', 'wsgiref', 'xdrlib',

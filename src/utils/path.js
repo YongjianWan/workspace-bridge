@@ -149,7 +149,7 @@ function findNestedWorkspaceRoot(startPath) {
   for (const child of children) {
     if (!child.isDirectory() || child.name.startsWith('.')) continue;
     // 依赖噪音不是工作区：node_modules 里的包各个带 package.json，
-    // 挑战者扫描不得把根吸进依赖树（L2-23 同族防线）。
+    // 挑战者扫描不得把根吸进依赖树。
     if (child.name === 'node_modules') continue;
 
     const candidate = path.join(root, child.name);
@@ -164,7 +164,7 @@ function findNestedWorkspaceRoot(startPath) {
 }
 
 /**
- * 工作区定根（L2-23 语义）：**攀爬最多到自己仓库的 git 根，仓外不爬**。
+ * 工作区定根：**攀爬最多到自己仓库的 git 根，仓外不爬**。
  *
  * 旧语义逐级上爬直到命中任何 WORKSPACE_MARKERS——家目录/Temp 层恰好躺着一个
  * 工具残留的 `package.json` 时，任何无标记 scratch 目录都会被吞成主目录级别的
@@ -264,7 +264,7 @@ function isStandaloneEntryPath(relativePath) {
     relativePath.startsWith('scripts/') || relativePath.includes('/scripts/') ||
     relativePath.startsWith('bin/') || relativePath.includes('/bin/') ||
     relativePath.startsWith('benchmark/') || relativePath.includes('/benchmark/') ||
-    // P100: root-level Python files are standalone entry points (not orphans)
+    // Root-level Python files are standalone entry points (not orphans)
     /^[^/]+\.py$/.test(relativePath)
   );
 }

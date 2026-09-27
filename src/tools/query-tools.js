@@ -6,7 +6,7 @@
  */
 
 const { buildProjectOverview } = require('./overview-tools');
-// L3-11: freshness 判据单一来源——本模块只消费粗粒度档（strict: false），
+// Freshness 判据单一来源——本模块只消费粗粒度档（strict: false），
 // 字段比较本身在 snapshot-freshness.js，与 audit-overview 共享。
 const { isSnapshotFresh: checkSnapshotFresh } = require('./snapshot-freshness');
 const { SCHEMA_VERSION } = require('../config/constants');
@@ -40,11 +40,11 @@ function isSnapshotFresh(snapshot, container) {
 /**
  * Provenance of a snapshot-served response. `contentMatch` answers the one
  * question the coarse freshness check refuses to ask: has the tree moved since
- * this snapshot was computed? An unsigned snapshot (pre-L2-15 row, '') is
+ * this snapshot was computed? An unsigned snapshot (legacy row, '') is
  * unverifiable, which is not the same as verified-equal — it reports false.
  */
 function describeReplay(snapshot, container) {
-  // L3-8: unconditional — cache missing this method is a wiring break; the
+  // Unconditional — cache missing this method is a wiring break; the
   // caller's catch turns the throw into a recompute, never a fake ''.
   const currentSignature = container.cache.getContentSignature() || '';
   return {

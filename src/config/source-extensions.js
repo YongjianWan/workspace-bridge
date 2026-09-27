@@ -2,7 +2,7 @@
  * KNOWN_SOURCE_EXTENSIONS — source extensions the tool recognizes as code
  * but that no parser claims (registry has no entry for them).
  *
- * Why this exists (P0-3): discovery filters the tree against the active
+ * Why this exists: discovery filters the tree against the active
  * parser extension set, so a file like `Player.cs` never enters the index —
  * and every downstream count (coverage, warnings) only ever sees indexed
  * files. The observed failure: a Unity repo analyzed at coverageRatio=1 with
@@ -32,7 +32,7 @@
  * we would actually parse if we had a parser for it.
  */
 const KNOWN_SOURCE_EXTENSIONS = new Set([
-  // .NET family (the P0-3 report's example: .cs)
+  // .NET family
   '.cs', '.fs', '.vb',
   // JVM-adjacent: java/.kt are registered, these are not
   '.scala', '.groovy',

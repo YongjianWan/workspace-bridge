@@ -16,11 +16,11 @@ function _tryPythonCandidates(basePath, ctx) {
 }
 
 // PEP 420 namespace package: the specifier names a directory WITHOUT
-// __init__.py (CodeGraphContext tools/handlers, tools/languages — L2-17).
+// __init__.py.
 // `from PKG import X` on a namespace package binds the submodule PKG/X —
 // that is not a guess, it is the only thing the statement CAN mean (a
 // namespace package has no code of its own, so X is a submodule or an
-// ImportError). Two roles since P0-1: fallback when no plain candidate
+// ImportError). Two roles: fallback when no plain candidate
 // exists (this shape), and — inside _tryPackageOrSubmodule / tryPythonAbsolute
 // pass 1 — the submodule that outranks the package's own __init__.py when
 // the X/<name>.py file exists. A directory that is neither (no <name>.py,
@@ -35,7 +35,7 @@ function _tryNamespaceSubmodule(basePath, ctx) {
   return null;
 }
 
-// P0-1 (审查报告 §4): `from X import a` 在 X/a.py 或 X/a/__init__.py 存在时
+// `from X import a` 在 X/a.py 或 X/a/__init__.py 存在时
 // 绑定子模块文件，而不是 X/__init__.py —— 这是文件系统事实（同 tier1
 // path-existence 档），不是名字猜测。只有 plain 命中的是「本包自己的
 // __init__.py」时才让位：X.py 模块文件没有子模块、原样返回；纯目录
@@ -93,7 +93,7 @@ function tryPythonAbsolute(importPath, _fromFile, ctx) {
   // fallback (weak: a directory that merely holds a matching filename) beat a
   // later root's real __init__.py (strong). The fallback is a fallback against
   // ALL roots, which is what "plain candidates always win" has to mean.
-  // P0-1 sits INSIDE pass 1 and only ever re-ranks within the winning
+  // Submodule preference sits INSIDE pass 1 and only ever re-ranks within the winning
   // package: a plain hit that is X/__init__.py yields to X/<from-name>.py in
   // the SAME directory — a later root's strong evidence still beats an earlier
   // root's namespace dir, because the submodule check never runs for a root
@@ -125,9 +125,8 @@ function tryPythonAbsolute(importPath, _fromFile, ctx) {
  * True when a Python import names somebody else's code: standard library, or
  * a package the manifest chain declares. The chain runs from the importer's
  * own directory up to the workspace root (the JS packageManifestChain
- * semantics — L2-11 gap A shape; 2026-09-24 串围标实测：pdf-inspector /
- * rapidocr-onnxruntime 只声明在 skill 的 requirements.txt，根口径漏判
- * 6 条)。Dotted submodule paths are attributed to their root: `os.path.join`
+ * semantics: sub-projects declare their own requirements, so the root
+ * manifest alone misses them).Dotted submodule paths are attributed to their root: `os.path.join`
  * belongs to `os`. Relative imports never reach this function.
  */
 function isExternalPythonImport(specifier, root, ctx = null) {
@@ -252,10 +251,10 @@ function tryPythonModuleIndex(importPath, fromFile, ctx) {
   }
   if (!resolved) return null;
 
-  // P0-1 same rule on the lookup path: when the winner is a package
+  // Same submodule rule on the lookup path: when the winner is a package
   // __init__.py, a from-name that IS a submodule of that very package
   // outranks the init. The package itself came from the index; the sibling
-  // check is path-existence like every other P0-1 decision (same-dir origin
+  // check is path-existence like every other submodule decision (same-dir origin
   // already applied it inside _tryPackageOrSubmodule, so this is a no-op
   // there).
   if (path.basename(resolved) === '__init__.py') {

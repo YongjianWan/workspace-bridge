@@ -144,7 +144,7 @@ function buildFunctionToDependents(sourceInfo, symbolToDependents) {
   if (functionNames.length === 0) return [];
 
   const rowsBySymbol = new Map((symbolToDependents || []).map((row) => [row.symbol, row]));
-  // L2-20: return only { function, dependentsCount } to avoid duplicating the
+  // Return only { function, dependentsCount } to avoid duplicating the
   // dependents array already present in symbolToDependents. Callers that need
   // the actual file list can look it up from symbolToDependents.
   return functionNames.map((name) => {

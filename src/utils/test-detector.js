@@ -12,7 +12,7 @@ const HEURISTIC_ROOT_SEGMENTS = new Set([
 
 // 规则表驱动：所有测试检测规则集中于此，消除 if-else 链
 //
-// 两个谓词，两个问题（P0-12 的错就是把它们混为一谈）：
+// 两个谓词，两个问题，不能混为一谈：
 // - isCollectedTestFile：测试运行器会不会把它当测试执行。affected-tests 和
 //   验证命令这类要点名文件的地方用这个。
 // - isTestLikeFile：看起来属于测试区域的东西（含 helpers/fixtures/assets）。
@@ -157,7 +157,7 @@ function isTestLikeFile(filePath) {
 }
 
 // What a test runner executes as a test. Python follows pytest/Django
-// collection (basename rules only, P0-12); other languages currently share
+// collection (basename rules only); other languages currently share
 // the test-area rules — their per-runner collection patterns live in
 // eval/lib.js TEST_FILE_RULES and get pinned here when a runner needs it.
 function isCollectedTestFile(filePath) {
@@ -170,7 +170,7 @@ function isCollectedTestFile(filePath) {
 
 // pytest conftest.py is fixture/hook infrastructure, never a test itself —
 // but the test-area rules classify a conftest under tests/ as test-like. Every
-// affected-tests consumer must exclude it explicitly (P0-10), including warm
+// affected-tests consumer must exclude it explicitly, including warm
 // caches that carry conftest rows persisted under older rules.
 function isConftestFile(filePath) {
   return path.basename(filePath) === 'conftest.py';

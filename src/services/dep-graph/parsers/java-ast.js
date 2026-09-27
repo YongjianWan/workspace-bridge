@@ -1,5 +1,5 @@
 /**
- * Java parser — tree-sitter WASM in-process path (L3-9 Java half).
+ * Java parser — tree-sitter WASM in-process path.
  *
  * Drop-in replacement for the spawned scripts/java_ast_parser.py (javalang):
  * emits the same raw JSON shape, judged field-by-field by

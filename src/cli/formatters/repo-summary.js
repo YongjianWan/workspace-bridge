@@ -32,7 +32,7 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
     missingHygieneChecks: missingHygieneChecks || 0,
   });
 
-  // P51: escalate severity when analysis coverage is dangerously low to prevent
+  // Escalate severity when analysis coverage is dangerously low to prevent
   // the "all zeros = all good" false-safety illusion.
   let coverageWarning = null;
   if (analysisCoverage && analysisCoverage.coverageRatio < 0.5) {

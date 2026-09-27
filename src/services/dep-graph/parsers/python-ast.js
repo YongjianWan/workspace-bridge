@@ -1,5 +1,5 @@
 /**
- * Python parser — tree-sitter WASM in-process path (L3-9).
+ * Python parser — tree-sitter WASM in-process path.
  *
  * Drop-in replacement for the spawned scripts/python_ast_parser.py: emits the
  * same raw JSON shape, and python.js normalizes both through
@@ -657,11 +657,9 @@ async function parsePythonAst(content) {
 
     const uniqueImports = [...new Set(imports)];
     const uniqueExports = [...new Set(finalExports)];
-    // 语句级去重，键必须含 imported/usesAllExports：P0-1 起解析结果依赖
-    // imported（同 source 不同绑定可能解析到不同文件），按 source 去重会丢
-    // 绑定 —— typer 回归：模块级 `from . import _click` 先占掉 "." 槽位，
-    // 函数内 `from . import rich_utils` 的记录在进 resolver 前就被丢掉，
-    // rich_utils.py 入边只剩测试文件 1 条。
+    // 语句级去重，键必须含 imported/usesAllExports：解析结果依赖 imported
+    // （同 source 不同绑定可能解析到不同文件），按 source 去重会丢绑定——
+    // `from . import a` 和 `from . import b` 共享 source "."。
     const seenRecords = new Set();
     const uniqueImportRecords = importRecords.filter((record) => {
       const key = `${record.source}\u0000${(record.imported || []).join(',')}\u0000${record.usesAllExports ? 1 : 0}`;

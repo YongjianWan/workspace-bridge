@@ -19,7 +19,7 @@ const QUERY = `
 )
 `;
 
-// P102: HTTP verbs supported by Gin's router API.
+// HTTP verbs supported by Gin's router API.
 const VALID_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH']);
 
 function postProcess(matches) {

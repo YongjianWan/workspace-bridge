@@ -669,7 +669,7 @@ async function assembleOverviewData(args, container, historyProvider) {
     unresolved: {
       ok: true,
       unresolvedCount: unresolved.length,
-      // L2-13 alias transition: what this field actually counts is *stale
+      // Alias transition: what this field actually counts is *stale
       // resolved edges* (imports that once resolved to an absolute path whose
       // file is gone), NOT imports that failed to resolve — those are dropped
       // upstream and counted in `droppedImports`. New consumers should read
@@ -679,7 +679,7 @@ async function assembleOverviewData(args, container, historyProvider) {
       unresolved: unresolved,
       possibleFalsePositives: unresolvedFp,
     },
-    // L2-13: imports that looked local but could not be resolved and were
+    // Imports that looked local but could not be resolved and were
     // dropped from the graph. Direct call on purpose: probe failure must
     // throw, not fall back to a silent zero (that fallback is how this
     // section read 0 forever while 261 tests stayed green). `measured`

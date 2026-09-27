@@ -19,7 +19,7 @@ const QUERY = `
 )
 `;
 
-// P102: HTTP verbs exposed by Fiber's App/Router API (Go naming convention: exported).
+// HTTP verbs exposed by Fiber's App/Router API (Go naming convention: exported).
 const VALID_METHODS = new Set(['Get', 'Post', 'Put', 'Delete', 'Patch']);
 
 function postProcess(matches) {

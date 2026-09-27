@@ -91,12 +91,12 @@ class GraphQuery {
       });
     }
 
-    // P0-10: pytest loads conftest.py for every test in its directory and
+    // Pytest loads conftest.py for every test in its directory and
     // below — append those tests as implicit dependents (both query branches,
     // so warm and cold agree). Rows are labeled, not disguised as imports.
     results = this._appendConftestImplicitRows(start, results, depth);
 
-    // P89: convert internal graph keys back to original-casing paths for output.
+    // Convert internal graph keys back to original-casing paths for output.
     return results.map((r) => ({
       ...r,
       file: this.dg._displayPath(r.file),
@@ -105,7 +105,7 @@ class GraphQuery {
   }
 
   /**
-   * P0-10: append conftest → subtree-test rows to an impact-radius result.
+   * Append conftest → subtree-test rows to an impact-radius result.
    * Anchors: the queried file itself (if it is a conftest) plus every conftest
    * already present in the radius. One implicit hop past the conftest,
    * capped by depth, deduped against real rows (real edges win).

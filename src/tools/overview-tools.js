@@ -76,7 +76,7 @@ const {
   writeOverviewOutputs,
 } = require('../cli/formatters/dashboard-formatter');
 const { applyBaselineOperations, resolveBaseline } = require('./regression-tools');
-// L3-11: freshness 判据单一来源。本文件走 strict 全量判据（含内容签名），
+// Freshness 判据单一来源。本文件走 strict 全量判据（含内容签名），
 // query-* 走同函数的粗粒度档——字段比较只存在于 snapshot-freshness.js。
 const { isSnapshotFresh } = require('./snapshot-freshness');
 
@@ -107,7 +107,7 @@ async function buildProjectOverview(args, container) {
         // what a cold build would have produced. Gates run on it like any
         // other consumer.
         const cloned = JSON.parse(JSON.stringify(snapshot.data));
-        // L2-15 动作 1: mark the response as a replay so consumers can tell
+        // Mark the response as a replay so consumers can tell
         // "computed this run" apart from "from an earlier cold build".
         cloned.replayedFrom = {
           computedAt: snapshot.computedAt,
@@ -140,7 +140,7 @@ async function buildProjectOverview(args, container) {
             });
           }
         }
-        // P0-3 same shape: coverageRatio answers "how much of THIS tree was
+        // Same shape as the coverage denominator: coverageRatio answers "how much of THIS tree was
         // analyzed". Files dropped at discovery are invisible to the content
         // signature (they were never indexed), so the snapshot's numbers go
         // stale the moment one appears — recompute from the live graph like
@@ -304,7 +304,7 @@ async function buildProjectOverview(args, container) {
     // (DELETE all + INSERT) and owned by savePrecomputed — a second writer
     // wipes the aggregate keys here and gets its own row wiped by the next
     // graph:built, so the "mirror" row was unreliable by construction.
-    // L3-8: unconditional — a throw here is caught below, so the snapshot is
+    // Unconditional — a throw here is caught below, so the snapshot is
     // simply not persisted; an unsigned row must never be written on purpose.
     const contentSignature = container.cache.getContentSignature() || '';
     container.cache?.saveAnalysisSnapshot?.('overview', result, gitHead, fileCount, configHash, contentSignature);

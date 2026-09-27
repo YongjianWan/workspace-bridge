@@ -1,7 +1,6 @@
 /**
  * EntryDetector — Framework-aware entry file detection and caching.
  *
- * Extracted from dep-graph.js as part of Route A-2 cleanup.
  * Consolidates isKnownEntryFile + getFrameworkHint and eliminates
  * duplicated content-scan logic between the two methods.
  */
@@ -33,8 +32,7 @@ function readScanContent(filePath) {
     // checks keep the same "too big to judge" behavior as before. Within the
     // cap the FULL file is read — entry signals (a trailing
     // `if __name__ == "__main__":` guard, framework decorators) can sit
-    // anywhere, and a fixed head-window was the root cause of P0-4/P0-5
-    // false positives. One bounded read per file, memoized by EntryDetector._cache.
+    // anywhere, so a fixed head-window produces false positives. One bounded read per file, memoized by EntryDetector._cache.
     if (stats.size > LIMITS.PARSER_MAX_FILE_BYTES) return null;
     return fs.readFileSync(filePath, 'utf8');
   } catch {

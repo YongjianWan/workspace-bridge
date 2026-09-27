@@ -232,8 +232,8 @@ function buildProjectMap(depGraph, options = {}) {
   let edges;
   if (compact) {
     // Compact: aggregate directly to module level, skipping file-level edgeMap + rawEdges.
-    // Avoids building intermediate file-level edges and re-export records that are
-    // ultimately discarded by the old aggregate pipeline.
+    // Avoids building intermediate file-level edges and re-export records that
+    // aggregation would discard anyway.
     const modEdgeMap = new Map();
     for (const file of allFiles) {
       const fromRel = toRelativePath(root, file);

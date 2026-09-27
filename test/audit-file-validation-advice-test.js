@@ -5,8 +5,11 @@ const path = require('path');
 const { runCliInProcess, makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { buildFileValidationAdvice } = require('../src/cli/formatters/validation-advice');
 
+// --no-compact: these assertions pin the full-output contract. The repo itself
+// crossed LARGE_PROJECT_FILE_THRESHOLD (500 files), which auto-compacts
+// audit-file and empties the command lists by design.
 async function run(args) {
-  return runCliInProcess([...args, '--json', '--quiet']);
+  return runCliInProcess([...args, '--json', '--quiet', '--no-compact']);
 }
 
 async function testAuditFileHasValidationAdvice() {

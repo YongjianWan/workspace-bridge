@@ -7,7 +7,7 @@
  * This module only contains:
  *   1. AST_PATTERNS — content-based framework signatures.
  *   2. detectFrameworkFromContent — lightweight scan of full file content
- *      (callers bound its size; see P0-4/P0-5 — no head-byte windows).
+ *      (callers bound its size; no head-byte windows).
  *
  * Translated from GitNexus framework-detection.ts, trimmed to
  * workspace-bridge's 9 supported languages.
@@ -34,7 +34,7 @@ const { getParserModule, loadLanguage } = require('./parsers/tree-sitter');
 // AST-BASED FRAMEWORK DETECTION (lightweight — text scan, no full AST)
 // ============================================================================
 
-// P103: Framework → entryPointWeight map for content-based detection
+// Framework → entryPointWeight map for content-based detection
 const FRAMEWORK_WEIGHTS = {
   'nestjs': ENTRY_WEIGHT.HIGH,
   'express': ENTRY_WEIGHT.MEDIUM_HIGH,
@@ -83,7 +83,7 @@ const AST_PATTERNS = {
     // to avoid substring false matches (e.g. @Controller matching inside @ControllerAdvice)
     { framework: 'spring-boot', reason: 'spring-boot-annotation', patterns: ['@SpringBootApplication', '@Configuration', '@ControllerAdvice', '@Component', '@Service', '@Repository', '@EnableAutoConfiguration', '@Aspect'], preFilterRe: /@(SpringBootApplication|Configuration|ControllerAdvice|Component|Service|Repository|EnableAutoConfiguration|Aspect)\b/i },
     { framework: 'spring', reason: 'spring-annotation', patterns: ['@RestController', '@Controller', '@RequestMapping', '@GetMapping', '@PostMapping', '@PutMapping', '@DeleteMapping', '@PatchMapping', '@FeignClient', '@Scheduled', '@Async', '@EventListener', '@KafkaListener', '@RabbitListener', '@JmsListener', '@Retryable'], preFilterRe: /@(RestController|Controller|RequestMapping|GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|FeignClient|Scheduled|Async|EventListener|KafkaListener|RabbitListener|JmsListener|Retryable)\b/i },
-    // P79/P80/P81: runtime-assembly framework components
+    // Runtime-assembly framework components
     { framework: 'spring', reason: 'spring-component', patterns: ['@Component', '@Service', '@Repository', '@Bean', 'FilterRegistrationBean', 'implements Filter', 'extends HttpServletRequestWrapper', 'implements Validator', 'implements HandlerInterceptor', 'implements ApplicationListener'] },
     { framework: 'quartz', reason: 'quartz-job', patterns: ['org.quartz.Job', '@DisallowConcurrentExecution', 'extends AbstractQuartzJob', 'QuartzJobExecution', 'JobInvokeUtil'] },
     { framework: 'mybatis', reason: 'mybatis-typehandler', patterns: ['implements TypeHandler', 'extends BaseTypeHandler', 'TypeHandler<'] },
@@ -352,8 +352,8 @@ function detectFrameworkFromContentSync(filePath, content) {
 
   // Scan the whole content, not a head-window: callers already bound its
   // size (parse stage and entry scan each read at most PARSER_MAX_FILE_BYTES).
-  // The old 4KB slice is what made P0-5 report a FastAPI file whose first
-  // decorator sat at byte 20792 as framework-less.
+  // A byte-prefix slice would miss decorators deep in the file (a FastAPI
+  // file's first decorator can sit past byte 20000).
   const sample = content.toLowerCase();
   for (const cfg of configs) {
     for (const pat of cfg.patterns) {
@@ -458,8 +458,8 @@ function extractRoutesWithRegex(filePath, content) {
   // No byte window: route regexes are linear, callers already bound the
   // content (parse stage ≤ PARSER_MAX_FILE_BYTES; api-contracts reads files
   // whole), and the tree-sitter query path above scans the full content —
-  // the old 4KB×4 window made the regex fallback silently lose routes the
-  // query path would find (P0-5).
+  // a byte window would make the regex fallback silently lose routes the
+  // query path finds.
   const sample = content;
   const routes = [];
   const seen = new Set();

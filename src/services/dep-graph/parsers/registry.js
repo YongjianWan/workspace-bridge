@@ -32,8 +32,8 @@ const registry = new LanguageRegistry();
 // Python and Go have no isBuiltIn declaration: both languages own a structural
 // zero-list gate (sys.stdlib_module_names via resolvers/python-stdlib.js;
 // go.mod module path via _isExternalGoModule), so a hand-copied name list here
-// was dead config — the gated fallback in resolvers.js never reaches gated
-// languages (deleted 2026-08-01, L3-15).
+// would be dead config — the gated fallback in resolvers.js never reaches gated
+// languages.
 
 // CPP_BUILTINS lives in resolvers/cpp.js (single home, imported above) —
 // the resolver gate and this isBuiltIn declaration share the same list.

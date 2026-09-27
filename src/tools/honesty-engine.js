@@ -13,7 +13,7 @@ const { detectScaffold, SCAFFOLD_REASON_PREFIX } = require('../utils/scaffold-de
 // Known alias prefixes that frequently cause unresolved false positives
 const ALIAS_PREFIXES = ['@/', '~/', '@/'];
 
-// P99: Third-party library files copied into src/ (global variable usage, no static imports)
+// Third-party library files copied into src/ (global variable usage, no static imports)
 const VENDOR_COPY_BASENAMES = new Set([
   'jsencrypt.js', 'md5.js', 'crypto-js.js', 'sha256.js', 'aes.js',
   'base64.js', 'uuid.js', 'jwt.js', 'qrcode.js', 'barcode.js',
@@ -111,7 +111,7 @@ function classifyDeadExports(deadExportsArray, depGraph) {
     const importerCount = item.importerCount || 0;
     const confidence = item.confidence || 'medium';
 
-    // P86: sink false-positive reason to individual dead-export record so users
+    // Sink false-positive reason to individual dead-export record so users
     // can locate which items are flagged as false positives.
     // Preserve analyzer-level registry false-positive marks (e.g. SHADOW_EXTS).
     if (DEAD_EXPORT_FALSE_POSITIVE_REASONS.has(item.falsePositiveReason)) {
@@ -134,12 +134,12 @@ function classifyDeadExports(deadExportsArray, depGraph) {
         // No importers at all — likely dead, but still uncertain if graph is thin
         reason = 'likely-dead';
       } else {
-        // P72: Java constants-warehouse pattern (e.g. HttpStatus.java, UserConstants.java)
+        // Java constants-warehouse pattern (e.g. HttpStatus.java, UserConstants.java)
         const base = path.basename(filePath).toLowerCase();
         if (/\.java$/.test(filePath) && /(constants|status|utils)\.java$/.test(base)) {
           reason = 'java-constants-warehouse';
         } else {
-          // P78: Scaffold noise detection (RuoYi, Vue Admin, etc.)
+          // Scaffold noise detection (RuoYi, Vue Admin, etc.)
           const scaffold = detectScaffold(filePath);
           if (scaffold) {
             reason = scaffold.reason;
@@ -154,7 +154,7 @@ function classifyDeadExports(deadExportsArray, depGraph) {
     item.falsePositiveReason = reason;
     classifications.push({ item, reason });
 
-    // Route B: annotate dead exports with explicit safe-to-delete signal.
+    // Annotate dead exports with explicit safe-to-delete signal.
     // A dead export is safe to delete when no files import it AND the
     // confidence is not low (low = dynamic-registry, vendor-copy, etc.).
     if (importerCount === 0 && confidence !== 'low' && reason !== 'graph-unreliable') {
@@ -173,7 +173,7 @@ const DEAD_EXPORT_FALSE_POSITIVE_REASONS = new Set([
   'java-constants-warehouse',
   'vendor-copy',
   'rust-public-api',
-  // P0-6: toolchain-consumed forms — same treatment as rust-public-api, so the
+  // Toolchain-consumed forms — same treatment as rust-public-api, so the
   // classifier preserves the marker's reason instead of overwriting it and the
   // finding stops driving severity.
   'config-file-convention',

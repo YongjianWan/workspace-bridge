@@ -58,7 +58,7 @@ const CACHE_TABLE_SCHEMA = {
       result.confidence || '',
       result.frameworkHint ? JSON.stringify(result.frameworkHint) : null,
       JSON.stringify(result.routes || []),
-      // P0-8: `package` must survive the SQLite round-trip — the warm paths
+      // `package` must survive the SQLite round-trip — the warm paths
       // rebuild _buildPackageIndex() from parse results, and a dropped field
       // makes expandJavaPackageImports() silently skip cached JVM files
       // (warm graph ≠ cold graph for identical code).
@@ -218,7 +218,7 @@ const SCHEMA = `
     config_hash TEXT NOT NULL DEFAULT '',
     computed_at INTEGER NOT NULL DEFAULT 0,
     cache_version INTEGER NOT NULL DEFAULT 0,
-    -- L2-15: fingerprint of the indexed file set (path|mtime|size). Freshness
+    -- Fingerprint of the indexed file set (path|mtime|size). Freshness
     -- needs it because git head, file count and config all survive an in-place
     -- edit. '' means "written before this column existed" → unverifiable →
     -- recompute. _migrate() adds it to pre-existing databases.
@@ -422,12 +422,9 @@ class GraphDB {
   /**
    * The single choke point every table read must pass through.
    *
-   * History: this invariant was patched four times in four places (wave8
-   * precompute pollution → per-row analysis_snapshots stamps → loader.js
-   * edgeMeta gate → savePrecomputed's unconditional test_map rewrite) because
-   * `loadAll()` returned null on a version mismatch **without clearing the
-   * tables**, and every other loadXxx read its table raw. Enforcing it here
-   * means a new loadXxx cannot forget the gate — it inherits it.
+   * A version mismatch does not clear the tables, so any loadXxx reading its
+   * table raw would serve stale rows. Enforcing the gate here means a new
+   * loadXxx cannot forget it — it inherits it.
    *
    * Reads fall back to a miss rather than wiping rows: a concurrent process may
    * be mid-write, and a rebuild re-stamps the version anyway (see saveAll).
@@ -501,7 +498,7 @@ class GraphDB {
       if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'routes')) {
         this.db.prepare('ALTER TABLE parse_results ADD COLUMN routes TEXT').run();
       }
-      // P0-8: persist `package` — warm paths rebuild the JVM package index
+      // Persist `package` — warm paths rebuild the JVM package index
       // from parse results; without the column expandJavaPackageImports()
       // silently skips cached files and warm/cold graphs diverge.
       if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'package')) {
@@ -523,7 +520,7 @@ class GraphDB {
       if (snapshotCols.length > 0 && !snapshotCols.some((c) => c.name === 'cache_version')) {
         this.db.prepare('ALTER TABLE analysis_snapshots ADD COLUMN cache_version INTEGER NOT NULL DEFAULT 0').run();
       }
-      // L2-15: content_signature makes a snapshot invalidate on an in-place
+      // Content_signature makes a snapshot invalidate on an in-place
       // edit, which moves no git head, no file count and no config. Its own
       // column on purpose — folding it into config_hash would also invalidate
       // query-*, which deliberately trades content freshness for speed.

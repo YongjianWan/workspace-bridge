@@ -39,7 +39,7 @@ class FileIndex {
     this.baseExcludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS])];
     this.ignorePaths = [];
     // Known-source files dropped at discovery because no parser claims their
-    // extension (P0-3). Reset per build(); feeds warnings[] and the coverage
+    // extension. Reset per build(); feeds warnings[] and the coverage
     // denominator — see src/config/source-extensions.js for the list.
     this.unsupportedSourceFiles = [];
     this.quiet = options.quiet || false;
@@ -105,7 +105,7 @@ class FileIndex {
     allFiles = gitFiltered.kept;
 
     if (this._depthTruncatedDirs > 0) {
-      // L1-4: an index missing deep subtrees is degraded data — say so via
+      // An index missing deep subtrees is degraded data — say so via
       // warnings[] (consumed by analyzer.buildWarnings), never silently.
       this.warnings.push({
         type: 'depth-truncated',
@@ -115,7 +115,7 @@ class FileIndex {
       });
     }
 
-    // P0-3: known source extensions no parser claims were dropped by the
+    // Known source extensions no parser claims were dropped by the
     // extension filter during the walk. Give them the same gitignore
     // adjudication indexed files get, then surface them — warnings[] for the
     // report, unsupportedSourceFiles for the coverage denominator (L1-4:
@@ -200,7 +200,7 @@ class FileIndex {
       const { path: current, depth, real } = queue.pop();
 
       if (depth > maxDepth) {
-        // L1-4: record and surface via build() warnings[] instead of silently
+        // Record and surface via build() warnings[] instead of silently
         // dropping whole subtrees.
         this._depthTruncatedDirs++;
         continue;
@@ -259,7 +259,7 @@ class FileIndex {
           if (this._extSet.has(ext)) {
             yield fullPath;
           } else if (KNOWN_SOURCE_EXTENSIONS.has(ext) && !registry.findByExt(ext)) {
-            // P0-3: known source extension that no parser claims — collect
+            // Known source extension that no parser claims — collect
             // instead of letting it vanish at the extension filter (L1-4).
             this._unsupportedCandidates.push(fullPath);
           }

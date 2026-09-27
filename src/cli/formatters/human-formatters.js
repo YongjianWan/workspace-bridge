@@ -8,7 +8,7 @@ const { sanitizeForAiOutput } = require('../../utils/sanitize');
 
 /**
  * Recursively format a stats value for human-readable output.
- * Prevents `[object Object]` on nested objects (W3-1).
+ * Prevents `[object Object]` on nested objects.
  */
 function formatStatsValue(val) {
   if (val === null || val === undefined) return '';

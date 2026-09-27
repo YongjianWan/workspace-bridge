@@ -1,4 +1,23 @@
+const path = require('path');
 const { uniqueNames, createExportRecord, createImportRecord } = require('./shared');
+
+const C_SOURCE_EXTENSIONS = new Set(['.c', '.cc', '.cpp', '.cxx']);
+const C_HEADER_EXTENSIONS = ['.h', '.hpp'];
+
+// In a source file only functions have external linkage; macros and type
+// declarations live and die with the translation unit, so no other file can
+// consume them. Headers are the public surface and keep everything.
+const LINKAGE_VISIBLE_KINDS = new Set(['function', 'constructor']);
+
+function isCSourceFile(filePath) {
+  return C_SOURCE_EXTENSIONS.has(path.extname(filePath || '').toLowerCase());
+}
+
+function keepLinkageVisibleExports(result, filePath) {
+  if (!result || !isCSourceFile(filePath)) return result;
+  const exportRecords = result.exportRecords.filter((r) => LINKAGE_VISIBLE_KINDS.has(r.kind));
+  return { ...result, exportRecords, exports: uniqueNames(exportRecords.map((r) => r.name)) };
+}
 
 function parseCpp(content) {
   const imports = [];
@@ -76,4 +95,9 @@ function parseCpp(content) {
   };
 }
 
-module.exports = { parseCpp };
+module.exports = {
+  parseCpp,
+  keepLinkageVisibleExports,
+  C_SOURCE_EXTENSIONS,
+  C_HEADER_EXTENSIONS,
+};

@@ -1,5 +1,5 @@
 /**
- * Vue SFC parser — tree-sitter-vue WASM in-process path (L3-7).
+ * Vue SFC parser — tree-sitter-vue WASM in-process path.
  *
  * Replaces the regex-based script extraction in vue.js. Parses the full SFC
  * AST so that:

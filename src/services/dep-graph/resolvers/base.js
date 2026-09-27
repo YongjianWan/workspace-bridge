@@ -142,7 +142,7 @@ function collectModuleRoots(dir, roots) {
   collectSourceSetRoots(dir, roots);
 }
 
-// L2-14: <base>/src/<sourceSet>/{kotlin,java} — one level deeper than the
+// <base>/src/<sourceSet>/{kotlin,java} — one level deeper than the
 // Maven standard, arbitrary sourceSet name. okhttp's main sources live at
 // okhttp/src/commonJvmAndroid/kotlin, which the standard list cannot see.
 function collectSourceSetRoots(base, roots) {
@@ -230,8 +230,8 @@ function readPackageDeps(root) {
  * workspace root, nearest first — the manifest chain node resolution consults
  * for a file at fromDir. Monorepo sub-packages declare their own deps, so a
  * gate that reads only the root manifest miscounts every sub-package dep as
- * an unclaimed drop (L2-11 gap A: zod's @rollup/plugin-* lived only in
- * packages/treeshake/package.json — 80 false drops across 42 files).
+ * an unclaimed drop (zod's @rollup/plugin-* live only in
+ * packages/treeshake/package.json).
  * A fromDir outside root falls back to the root manifest alone.
  * @param {string|null} fromDir
  * @param {string} root

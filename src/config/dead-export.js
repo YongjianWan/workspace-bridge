@@ -1,6 +1,6 @@
 /**
  * Dead-export confidence thresholds.
- * P87: differentiate explanation when a file has many importers but specific exports are unused.
+ * Differentiate explanation when a file has many importers but specific exports are unused.
  */
 const DEAD_EXPORT = {
   // "Many importers" — specific exports genuinely unused despite file popularity

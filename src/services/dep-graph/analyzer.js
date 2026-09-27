@@ -42,8 +42,8 @@ const {
 const QUERIES_DIR = normalizePathKey(path.join(__dirname, 'queries'));
 
 // Shared by both dead-export branches where only implicit same-package
-// visibility backs a finding (importers>0 with all-tier3 records, and — since
-// P0-7 reference-gated the same-package edges — importers==0 whose own
+// visibility backs a finding (importers>0 with all-tier3 records, and — because
+// same-package edges are reference-gated — importers==0 whose own
 // importRecords still carry tier3 records). One string, one meaning.
 const IMPLICIT_SAME_PACKAGE_REASON =
   'All importers are same-package implicit edges; no explicit import or scanned usage found, but runtime bindings (e.g. Spring DI) are invisible to static analysis';
@@ -60,20 +60,19 @@ const KNOWN_REGISTRY_EXPORTS = [
   },
 ];
 
-// P0-6 rule 3: C/C++ translation units whose API is declared in a paired
+// C/C++ translation units whose API is declared in a paired
 // public header (same stem, both files in the graph). Consumers include that
 // header from outside the workspace, so no in-graph importer can exist.
-const C_SOURCE_EXTENSIONS = new Set(['.c', '.cc', '.cpp', '.cxx']);
-const C_HEADER_EXTENSIONS = ['.h', '.hpp'];
+const { C_SOURCE_EXTENSIONS, C_HEADER_EXTENSIONS } = require('./parsers/cpp');
 
-// P0-6 rule 4: evidence shape of unplugin-auto-import / Nuxt `imports.dirs` —
+// Evidence shape of unplugin-auto-import / Nuxt `imports.dirs` —
 // a `dirs:` key holding an array inside a tool config file. Only actually
 // declared dirs downgrade findings; directory *names* (composables/, stores/)
 // are never guessed.
 const AUTO_IMPORT_DIRS_RE = /\bdirs\s*:\s*\[([\s\S]*?)\]/g;
 const STRING_LITERAL_RE = /['"]([^'"]+)['"]/g;
 
-// P0-6 rule 5: Vite/Vitest dynamic loading. The pattern is a string literal,
+// Vite/Vitest dynamic loading. The pattern is a string literal,
 // optionally preceded by a generic type argument (vitesse: import.meta.glob<{
 // install: UserModule }>('./modules/*.ts', …)) — lazy-skip to the call paren,
 // then take the first string literal argument.
@@ -297,7 +296,7 @@ class GraphAnalyzer {
     this._cycleFiles = null;
     this._mentionContentCache = new Map();
 
-    // P0-6: per-file marker evidence (rule 4 auto-import dirs, rule 5 glob
+    // Per-file marker evidence (auto-import dirs, import.meta.glob
     // patterns). updateFiles re-emits graph:built → precomputeAggregates →
     // findDeadExports, so without per-file reuse every incremental save would
     // re-read the whole JS tree — the I/O contract that
@@ -356,7 +355,7 @@ class GraphAnalyzer {
   }
 
   /**
-   * Scoped invalidation for the P0-6 marker evidence caches (mirrors
+   * Scoped invalidation for the dead-export marker evidence caches (mirrors
    * _invalidateCycles): drop only the files the update touched, so unrelated
    * incremental saves never re-read unchanged JS/config files from disk.
    * Unknown change scope (bare `{}` from full Java/Go expansion) clears
@@ -789,7 +788,7 @@ class GraphAnalyzer {
   }
 
   findCircularDependencies(options = {}) {
-    // P85: return cached filtered cycles so all consumers see the same data.
+    // Return cached filtered cycles so all consumers see the same data.
     if (!options?.skipCache && this._aggregateCache && this._aggregateCache.version === this._aggregateVersion) {
       return this._aggregateCache.cycles;
     }
@@ -847,7 +846,7 @@ class GraphAnalyzer {
     let calls = 0;
     // True when any cap (global / per-SCC / recursion) stopped enumeration:
     // the returned path list is then illustrative, not exhaustive. Consumers
-    // must see this flag (L1-4) — silent truncation once hid 100+ path walls.
+    // must see this flag (L1-4).
     let capHit = false;
     const multiNodeSccCount = sccs.reduce((acc, s) => acc + (s.length > 1 ? 1 : 0), 0);
     // MAX_CYCLE_EDGE_DEPTH limits the Johnson search depth before push.
@@ -951,7 +950,7 @@ class GraphAnalyzer {
       .filter((cycle) => !(cycle.length <= 2 && cycle[0] === cycle[cycle.length - 1]))
       .filter((cycle) => !this._isSamePackageCycle(cycle));
 
-    // P89: convert internal graph keys back to original-casing paths for output.
+    // Convert internal graph keys back to original-casing paths for output.
     const displayFiltered = filtered.map((cycle) => cycle.map((f) => this.dg._displayPath(f)));
     this._cachedCycles = displayFiltered;
     this._cycleMeta = { sccCount: multiNodeSccCount, truncated: capHit };
@@ -976,7 +975,7 @@ class GraphAnalyzer {
     if (!options?.skipCache && this._aggregateCache && this._aggregateCache.version === this._aggregateVersion) {
       return this._aggregateCache.stats;
     }
-    // P85: always use the same filtered cycles array that findCircularDependencies()
+    // Always use the same filtered cycles array that findCircularDependencies()
     // returns, eliminating any stale-cache divergence between the two paths.
     const cycles = this.findCircularDependencies(options);
     this._cycleCount = cycles.length;
@@ -988,7 +987,7 @@ class GraphAnalyzer {
       else if (info.parseMode === 'regex') fallbackFiles++;
     }
     const totalFiles = this.dg.graph.size;
-    // P0-3: files dropped at discovery (known source extensions, no parser)
+    // Files dropped at discovery (known source extensions, no parser)
     // join the coverage denominator — without them a repo with an entire
     // unsupported language still reports coverageRatio 1 (L1-4). The list
     // lives on the graph (wired by orchestrator from FileIndex) and is empty
@@ -1037,7 +1036,7 @@ class GraphAnalyzer {
       },
     };
 
-    // P94: include fileRoles in stats for consistency with audit-summary
+    // Include fileRoles in stats for consistency with audit-summary
     if (this.dg.projectContext) {
       const scope = this.getScopeSummary();
       result.fileRoles = scope.fileRoles;
@@ -1068,10 +1067,9 @@ class GraphAnalyzer {
     }
 
     if (regexFallbackCount > 0) {
-      // L3-9 closed the last spawned parser (Java/javalang), so there is no
-      // per-language environment failure left to name: every AST path is
-      // in-process tree-sitter WASM, and the only two ways to land here are a
-      // WASM load failure or source the grammar could not parse.
+      // Every AST path is in-process tree-sitter WASM, so there is no
+      // per-language environment failure to name: the only two ways to land
+      // here are a WASM load failure or source the grammar could not parse.
       const detail = 'WASM load failure or unparsable source';
       warnings.push({
         type: 'regex-fallback',
@@ -1203,7 +1201,7 @@ class GraphAnalyzer {
         const selfAccessPattern = new RegExp(`\\b${escaped}\\.`);
         // Scan line-by-line and skip declaration/export lines to avoid
         // matching the function definition itself (e.g. "function foo()").
-        // P74: stream-style scan avoids allocating a temporary array for
+        // Stream-style scan avoids allocating a temporary array for
         // large files (content.split('\n') creates ~lineCount strings).
         const scanLine = (line) => {
           if (line.includes('export') && line.includes(symbol)) return false;
@@ -1317,7 +1315,7 @@ class GraphAnalyzer {
   }
 
   /**
-   * P0-6 rule 1: downgrade findings that live in tool-owned config files
+   * Downgrade findings that live in tool-owned config files
    * (*.config.{js,…}). The matching tool reads those exports by filename
    * convention (cypress reads cypress.config.ts), never via an import — an
    * in-graph consumer cannot exist, so "no importers" proves nothing. Whole
@@ -1337,7 +1335,20 @@ class GraphAnalyzer {
   }
 
   /**
-   * P0-6 rule 3: downgrade findings in C/C++ sources that have a paired public
+   * foo.c ↔ foo.h, both in the graph. Shared by the dead-exports downgrade
+   * and orphan detection: consumers include the header
+   * and the implementation file is never included, so it has no importer.
+   */
+  hasPairedCHeader(file) {
+    const posixFile = String(file).replace(/\\/g, '/');
+    const ext = path.posix.extname(posixFile).toLowerCase();
+    if (!C_SOURCE_EXTENSIONS.has(ext)) return false;
+    const stem = posixFile.slice(0, -ext.length);
+    return C_HEADER_EXTENSIONS.some((h) => this.dg.graph.has(normalizePathKey(stem + h)));
+  }
+
+  /**
+   * Downgrade findings in C/C++ sources that have a paired public
    * header with the same stem inside the graph (foo.c ↔ foo.h). The API is
    * declared in the header; consumers include it from outside the workspace, so
    * no in-graph importer can exist. Isomorphic to the Rust public-api marker
@@ -1346,12 +1357,7 @@ class GraphAnalyzer {
   _markCPairedHeaderFalsePositives(deadExports) {
     for (const finding of deadExports) {
       if (finding.falsePositiveReason) continue;
-      const file = String(finding.file).replace(/\\/g, '/');
-      const ext = path.posix.extname(file).toLowerCase();
-      if (!C_SOURCE_EXTENSIONS.has(ext)) continue;
-      const stem = file.slice(0, -ext.length);
-      const hasPairedHeader = C_HEADER_EXTENSIONS.some((h) => this.dg.graph.has(normalizePathKey(stem + h)));
-      if (!hasPairedHeader) continue;
+      if (!this.hasPairedCHeader(finding.file)) continue;
       finding.confidence = 'low';
       finding.confidenceValue = CONFIDENCE.LOW_VALUE;
       finding.confidenceSource = 'c-paired-header';
@@ -1361,7 +1367,7 @@ class GraphAnalyzer {
   }
 
   /**
-   * P0-6 rule 4: downgrade findings under auto-import directories declared by
+   * Downgrade findings under auto-import directories declared by
    * tool configs (unplugin-auto-import `AutoImport({ dirs })`, Nuxt
    * `imports.dirs`). Exports in those directories are injected into consumers
    * at build time — source files carry no import statement for static analysis
@@ -1426,7 +1432,7 @@ class GraphAnalyzer {
   }
 
   /**
-   * P0-6 rule 5: downgrade findings matched by import.meta.glob patterns
+   * Downgrade findings matched by import.meta.glob patterns
    * declared anywhere in the graph. The globbed modules are loaded dynamically
    * at runtime and their exports (e.g. `install`) are invoked by the loader —
    * the static import graph has no edge to see. Each pattern resolves relative
@@ -1500,7 +1506,7 @@ class GraphAnalyzer {
 
       const matchingImports = importerInfo.importRecords.filter((record) => record.resolved === filePath);
       for (const record of matchingImports) {
-        // L1-3: tier3 same-package implicit edges do not count as usage —
+        // Tier3 same-package implicit edges do not count as usage —
         // mirrors cycles Rule 5. Real same-package references are caught by
         // the importer content scan downstream; findings backed only by
         // implicit importers are downgraded to low confidence by the caller.
@@ -1557,7 +1563,7 @@ class GraphAnalyzer {
         if (filePath.endsWith('.d.ts')) continue;
         // Ignore workspace-bridge's own tree-sitter query registry files
         if (filePath.startsWith(QUERIES_DIR)) continue;
-        // P78: Detect scaffold once per file, reuse in both output branches
+        // Detect scaffold once per file, reuse in both output branches
         const scaffold = detectScaffold(filePath) || undefined;
         const importers = this.dg.getDependents(filePath);
         if (importers.length === 0) {
@@ -1571,7 +1577,7 @@ class GraphAnalyzer {
           const filteredExports = info.exports.filter(isConventionallyAliveSymbol);
           if (filteredExports.length === 0) continue;
           let { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable, info.parseModeReason);
-          // P0-7: same-package edges are reference-gated now, so a
+          // Same-package edges are reference-gated, so a
           // runtime-bound class (Spring DI / component scan — its name may
           // never appear in any source file) legitimately arrives here with
           // zero edge importers while its own tier3 same-package records
@@ -1594,13 +1600,13 @@ class GraphAnalyzer {
 
         let unused = info.exports.filter((name) => !usedNames.has(name) && isConventionallyAliveSymbol(name));
 
-        // P1: 轻量扫描 importer 文件中的实际使用点，消除 importRecords 未 capture 的误报
+        // 轻量扫描 importer 文件中的实际使用点，消除 importRecords 未 capture 的误报
         if (unused.length > 0) {
           const scannedUsed = this._scanSymbolUsageInImporters(importers, unused, filePath);
           unused = unused.filter((name) => !scannedUsed.has(name));
         }
 
-        // L3-1: 扫描模块内部使用（同文件内的函数调用/属性访问），消除 barrel/internal-use 误报
+        // 扫描模块内部使用（同文件内的函数调用/属性访问），消除 barrel/internal-use 误报
         if (unused.length > 0) {
           const locallyUsed = this._scanLocalSymbolUsage(filePath, unused);
           unused = unused.filter((name) => !locallyUsed.has(name));
@@ -1610,7 +1616,7 @@ class GraphAnalyzer {
           const isConstantsWarehouse = isLikelyConstantsWarehouse(filePath, info.exportRecords);
           if (isConstantsWarehouse || scaffold) continue;
           let { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(importers.length, info.parseMode, false, info.parseModeReason);
-          // L1-3: every importer is an implicit same-package edge — the class
+          // Every importer is an implicit same-package edge — the class
           // survived the content scan, but runtime bindings (Spring DI,
           // reflection) are invisible to static records. Report, but never
           // with confidence above low.
@@ -1649,7 +1655,7 @@ class GraphAnalyzer {
       // when only the workspace itself is analyzed.
       this._markRustPublicApiFalsePositives(deadExports);
 
-      // P0-6: toolchain-consumed forms static analysis cannot see — config-file
+      // Toolchain-consumed forms static analysis cannot see — config-file
       // convention, C paired public headers, auto-import dirs, import.meta.glob
       // loading. Run after the markers above so their explicit reasons win
       // (findings carrying falsePositiveReason are never re-marked).
@@ -1758,7 +1764,7 @@ class GraphAnalyzer {
           sourceSignature.endsWith(`/${sourceLeaf}`);
       }
 
-      // L2-10: general leaf-name fallback for flat test directories
+      // General leaf-name fallback for flat test directories
       // e.g. src/utils/request.js -> tests/request.test.js
       // Only match when the test has a flat signature (single segment) to avoid
       // cross-module false positives like src/feature.js -> tests/group-b/feature.test.js
@@ -1833,8 +1839,7 @@ class GraphAnalyzer {
     // a depth-parametrized answer: at any other depth both the BFS frontier
     // and the terminator set change (a test reachable at distance 3 is a
     // 'graph' hit at depth 5 but a 'mention' terminator at depth 1), so no
-    // amount of row filtering can reproduce the cold path (wave8: cold 44 vs
-    // warm 16/23). Foreign depths fall through to live computation. At the
+    // amount of row filtering can reproduce the cold path Foreign depths fall through to live computation. At the
     // matching depth no filtering is needed: stored graph rows are all
     // <= maxDepth by construction.
     let results = null;
@@ -1871,13 +1876,13 @@ class GraphAnalyzer {
       }
     }
 
-    // P0-10: conftest.py is pytest infrastructure, never an affected test;
+    // Conftest.py is pytest infrastructure, never an affected test;
     // conversely every test below a conftest implicitly depends on it. Applied
     // AFTER both the cached and the live branch so warm and cold agree
     // byte-for-byte (conftest rows are never persisted — see savePrecomputed).
     results = this._applyConftestImplicitTests(start, maxDepth, results);
 
-    // P89: convert internal graph keys back to original-casing paths for output.
+    // Convert internal graph keys back to original-casing paths for output.
     return results.map((r) => ({
       ...r,
       file: this.dg._displayPath(r.file),
@@ -1886,7 +1891,7 @@ class GraphAnalyzer {
   }
 
   /**
-   * P0-10: drop conftest.py rows (infrastructure, not tests) and append the
+   * Drop conftest.py rows (infrastructure, not tests) and append the
    * implicit conftest → subtree-test rows both directions need:
    * - queried file IS a conftest → all tests under its directory;
    * - queried file is imported (directly or transitively) by a conftest →

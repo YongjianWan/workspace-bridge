@@ -221,7 +221,7 @@ function getPythonCommands(pythonStack, changeType, targets, workspaceRoot = nul
   if (!pythonStack) return { smoke: [], focused: [], full: [] };
   const targetList = Array.isArray(targets) ? targets : [];
 
-  // Route B fix: do not pass source .py files to pytest. Derive the
+  // Do not pass source .py files to pytest. Derive the
   // conventional test file paths and only emit focused tests when at least
   // one corresponding test exists. When no workspaceRoot is provided we
   // keep the legacy behavior for backwards compatibility.
@@ -480,7 +480,7 @@ function addUniqueCommand(commands, phase, entry) {
   if (!exists) commands[phase].push(entry);
 }
 
-// P8-2-1: render a structured executable object back into a human-readable cmd string.
+// Render a structured executable object back into a human-readable cmd string.
 function renderCommandString(executable, platform = process.platform) {
   if (!executable) return '';
   const { command, args, cwd, shell } = executable;
@@ -494,7 +494,7 @@ function renderCommandString(executable, platform = process.platform) {
   return `cd ${cwd} && ${body}`;
 }
 
-// P8-2: parse a raw cmd string into a structured executable object.
+// Parse a raw cmd string into a structured executable object.
 // Best-effort: extracts cd prefixes, detects shell operators, splits args.
 function parseCommandString(cmd) {
   if (!cmd || typeof cmd !== 'string') {

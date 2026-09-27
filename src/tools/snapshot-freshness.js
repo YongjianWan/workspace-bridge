@@ -1,7 +1,7 @@
 /**
  * snapshot-freshness.js — analysis_snapshots 'overview' 行的 freshness 判据
  *
- * L3-11：这一行有两个读者（audit-overview / query-*），曾经各写一份
+ * 这一行有两个读者（audit-overview / query-*），曾经各写一份
  * isSnapshotFresh，字段各自演进、无测试会红。收敛为单一判据函数，
  * 共享全部字段比较，由调用方选严格度：
  *
@@ -11,8 +11,7 @@
  *                     重建（这是 query-* 的速度承诺），漂移由 describeReplay
  *                     的 contentMatch + warnings[] 向消费方显式报告。
  *
- * 新增判据时只改这一处，并决定它属不属于粗粒度那份（TECH_DEBT L3-11
- * 触发条件）。
+ * 新增判据时只改这一处，并决定它属不属于粗粒度那份。
  */
 
 const { computeConfigHash } = require('../utils/project-context');
@@ -56,7 +55,7 @@ function isSnapshotFresh(snapshot, container, options = {}) {
   const snapshotData = snapshot.data;
   const historyMatch = !args?.withHistory || (snapshotData?.knowledgeRisk && !snapshotData.knowledgeRisk.disabled);
 
-  // L2-15: content changes are the whole point. Git head, file count and config
+  // Content changes are the whole point. Git head, file count and config
   // all stay identical when a file is edited in place — precisely when a
   // replayed answer lies. The stored signature covers path+mtime+size of every
   // indexed file, so an edit invalidates the snapshot even though the three
@@ -67,7 +66,7 @@ function isSnapshotFresh(snapshot, container, options = {}) {
   // unverifiable: recomputing is always safe, serving unvalidated data is not.
   // Unconditional on purpose: cache is post-ensureReady and the method is a
   // class method — `?.` here would read a wiring break as "unsigned" and pay a
-  // cold rebuild to hide it (L3-8: 结构性不该发生的让它炸).
+  // cold rebuild to hide it; a structural break should crash.
   const currentSignature = container.cache.getContentSignature() || '';
   const contentMatch = Boolean(snapshot.contentSignature) && snapshot.contentSignature === currentSignature;
 

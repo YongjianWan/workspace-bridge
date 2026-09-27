@@ -69,7 +69,6 @@ function bfsTraverse(startNodes, getNeighbors, options = {}) {
 
 /**
  * Compute confidence level and human-readable reason for dead-export findings.
- * P42/P56: eliminates the previous black-box where 90% of files were 'medium'.
  *
  * Rules:
  * - high: no importers + reliable graph → entire module is unused
@@ -124,7 +123,7 @@ function computeDeadExportConfidence(importerCount, parseMode, graphUnreliable, 
   }
 
   if (parseMode === 'ast') {
-    // P87: differentiate reason by importerCount to avoid templated explanations
+    // Differentiate reason by importerCount to avoid templated explanations
     const base = {
       confidence: 'medium',
       confidenceValue: CONFIDENCE.MEDIUM_VALUE,
@@ -163,7 +162,7 @@ const FRAMEWORK_MANAGED_PATTERNS = [
   /\/manage\.py$/,
   /\/management\/commands\/.*\.py$/,
   /\/tasks\.py$/,
-  // P71: Django configuration-driven entry points
+  // Django configuration-driven entry points
   /\/middleware.*\.py$/,
   /\/database_router\.py$/,
   /\/context_processors\.py$/,
@@ -194,7 +193,7 @@ const FRAMEWORK_MANAGED_PATTERNS = [
 // #19: known config file names as a Set
 const KNOWN_CONFIG_NAMES = new Set(['vite.config.js', 'vite.config.ts', 'vitest.config.ts', 'eslint.config.js']);
 
-// P0-6: tool-owned config files (*.config.{js,…}). Their default/named exports
+// Tool-owned config files (*.config.{js,…}). Their default/named exports
 // are read by the matching tool via filename convention (cypress reads
 // cypress.config.ts), never via an import statement — so the import graph can
 // never show a consumer and "no importers" proves nothing. Broader than
@@ -210,11 +209,11 @@ const DEAD_EXPORT_FILTER_RE = {
   mockLike: /^(mock|stub|spy|fake)[A-Z]/,
 };
 
-// P0-6: libFuzzer engine entry contract. The fuzzer driver calls these by
+// LibFuzzer engine entry contract. The fuzzer driver calls these by
 // symbol name at runtime (link-time contract of the fuzzing engine), so no
 // source file ever imports them — "zero importers" is guaranteed by design,
 // not evidence of death. Same tier as dunder/mockLike: conventionally alive,
-// never a dead-export candidate (P0-6 rule 2: they must not enter the report).
+// never a dead-export candidate (they must not enter the report).
 const KNOWN_ENGINE_ENTRY_SYMBOLS = new Set([
   'LLVMFuzzerTestOneInput',
   'LLVMFuzzerInitialize',

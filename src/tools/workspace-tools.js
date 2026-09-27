@@ -276,7 +276,7 @@ function workspaceInfo(args, container) {
     ? (depGraph.getAllFileValues?.() || []).map((v) => v.originalPath).filter(Boolean)
     : [];
 
-  // P92: unify entryFiles with audit-summary (projectContext.summarizeFiles)
+  // Unify entryFiles with audit-summary (projectContext.summarizeFiles)
   let entryFiles = [];
   if (container?.projectContext && allOriginalPaths.length > 0) {
     const summary = container.projectContext.summarizeFiles(

@@ -1,11 +1,13 @@
 #!/usr/bin/env node
+// --no-compact: pins the full-output contract; this repo is past LARGE_PROJECT_FILE_THRESHOLD and
+// would otherwise auto-compact audit-file's lists away.
 // @contract
 
 const assert = require('assert');
 const { runCliInProcessRaw } = require('./test-helpers');
 
 async function testFormatAiIncludesValidationAdvice() {
-  const result = await runCliInProcessRaw(['audit-file', '--file', 'src/services/container.js', '--format', 'ai', '--json', '--quiet']);
+  const result = await runCliInProcessRaw(['audit-file', '--file', 'src/services/container.js', '--format', 'ai', '--json', '--quiet', '--no-compact']);
   assert.strictEqual(result.status, 0, 'should exit 0');
   const data = JSON.parse(result.stdout);
   assert(data.validationAdvice, 'should include validationAdvice');
@@ -16,7 +18,7 @@ async function testFormatAiIncludesValidationAdvice() {
 }
 
 async function testFormatAiIncludesImpact() {
-  const result = await runCliInProcessRaw(['audit-file', '--file', 'src/services/container.js', '--format', 'ai', '--json', '--quiet']);
+  const result = await runCliInProcessRaw(['audit-file', '--file', 'src/services/container.js', '--format', 'ai', '--json', '--quiet', '--no-compact']);
   assert.strictEqual(result.status, 0, 'should exit 0');
   const data = JSON.parse(result.stdout);
   assert(Array.isArray(data.impact), 'should include impact array');
@@ -25,7 +27,7 @@ async function testFormatAiIncludesImpact() {
 }
 
 async function testFormatAiIncludesAffectedTests() {
-  const result = await runCliInProcessRaw(['audit-file', '--file', 'src/services/container.js', '--format', 'ai', '--json', '--quiet']);
+  const result = await runCliInProcessRaw(['audit-file', '--file', 'src/services/container.js', '--format', 'ai', '--json', '--quiet', '--no-compact']);
   assert.strictEqual(result.status, 0, 'should exit 0');
   const data = JSON.parse(result.stdout);
   assert(Array.isArray(data.affectedTests), 'should include affectedTests array');

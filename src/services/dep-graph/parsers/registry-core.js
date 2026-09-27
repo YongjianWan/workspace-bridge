@@ -40,7 +40,7 @@ function defineLanguage(config) {
     resolveStrategies: config.resolveStrategies ?? [],
     // T6: opt out of the symbol-table fallback on this language's resolver
     // chain. Default true; languages with measured zero-true-positive
-    // contribution (JS family, Python) declare false — TECH_DEBT L2-10.
+    // contribution (JS family, Python) declare false.
     symbolTableFallback: config.symbolTableFallback ?? true,
     async: config.async ?? false,
     needsFilePath: config.needsFilePath ?? false,
@@ -104,8 +104,8 @@ class LanguageRegistry {
    * Generate file-index glob patterns: every registered language, always.
    * Languages are enabled by EXTENSION — a .ts file is indexed whether or
    * not a package.json exists. Root manifests feed stack-profile detection
-   * (detectWorkspace consumers); they never gate indexing (review P0-2:
-   * one matching language used to switch every other language off).
+   * (detectWorkspace consumers); they never gate indexing (one matching
+   * language must not switch every other language off).
    * @returns {string[]}
    */
   getFilePatterns() {

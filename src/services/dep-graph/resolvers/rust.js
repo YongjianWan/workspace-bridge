@@ -52,11 +52,11 @@ function tryRustCrate(importPath, fromFile, ctx) {
   if (importPath.startsWith('crate::')) {
     modulePath = importPath.slice('crate::'.length);
   } else {
-    // L2-16: own-crate-name paths are crate::-rooted with the Cargo-normalized
+    // Own-crate-name paths are crate::-rooted with the Cargo-normalized
     // crate name (`qartez-mcp` → `qartez_mcp`, [lib] name wins when explicit).
     // Integration tests address their crate this way; guessing them against
     // the symbol table was the false "Rust symbol-table 正产出" (TECH_DEBT
-    // L2-16: 152 drops + 167 symbol-table edges, one gap's two sides).
+    // 152 drops + 167 symbol-table edges, one gap's two sides).
     const crateName = readCargoCrateName(crateRoot);
     if (!crateName || !importPath.startsWith(crateName + '::')) return null;
     modulePath = importPath.slice(crateName.length + 2);
@@ -91,9 +91,8 @@ function tryRustSuper(importPath, fromFile, ctx) {
   // belongs to the module whose submodule directory is the file's own
   // directory, so its first `super` refers to that module and costs no climb.
   // A mod.rs file IS the module named by its parent directory, so every
-  // `super` climbs. The old code always climbed once per super, which is why
-  // every super:: path from a non-mod file fell through to the symbol table
-  // (TECH_DEBT L2-12: 127 such edges on qartez-mcp).
+  // `super` climbs. Climbing once per super from a non-mod file would push
+  // every super:: path onto the symbol-table fallback.
   const fromDir = path.dirname(fromFile);
   const isModFile = path.basename(fromFile) === 'mod.rs';
   const effectiveClimbs = isModFile ? climbs : climbs - 1;
@@ -125,7 +124,6 @@ function tryRustSuper(importPath, fromFile, ctx) {
 /**
  * Rust 2018+ bare first segment (`use grounding::FileFacts`) names a
  * submodule of the CURRENT module — verified against rustc on edition 2024
- * (TECH_DEBT L2-19: 12 measured drops on qartez-mcp, all of this shape).
  *
  * Scope rules (2018 path rules): mod.rs/lib.rs/main.rs ARE the module named by
  * their parent (or the crate root), so their submodules live beside them; any

@@ -10,7 +10,7 @@
 // Precompute MUST run at the same depth the query-side fast path is gated on
 // (analyzer.findAffectedTests serves the cached map only when
 // maxDepth === CONFIG.DEFAULT_MAX_DEPTH). A diverging constant here silently
-// poisons every warm affected-tests answer — that was wave8's second root cause.
+// poisons every warm affected-tests answer.
 const { CONFIG } = require('./shared');
 
 /**
@@ -144,7 +144,7 @@ async function savePrecomputed(depGraph) {
         if (depGraph.isTestLikeFile(filePath)) continue;
         const tests = depGraph.analyzer.findAffectedTests(filePath, CONFIG.DEFAULT_MAX_DEPTH, { includeHeuristic: true });
         for (const t of tests) {
-          // P0-10: implicit conftest rows have no persisted signal — storing
+          // Implicit conftest rows have no persisted signal — storing
           // them as 'import' would make warm serve source 'graph' while cold
           // recomputes 'conftest'. They are derived from graph structure and
           // re-added at query time on both paths, so skipping is parity-safe.
@@ -165,7 +165,7 @@ async function savePrecomputed(depGraph) {
       // Always write, even when empty — saveTestMap is DELETE-all + INSERT, so
       // skipping on an empty result leaves the PREVIOUS build's map in the table
       // while memory holds none. The next process would restore that stale map
-      // and serve it as fresh (same disease as wave8). Mirrors saveRoutes above.
+      // and serve it as fresh. Mirrors saveRoutes above.
       depGraph.cache.saveTestMap(testMaps);
       depGraph.analyzer.injectPrecomputedTestMap(testMaps);
     }

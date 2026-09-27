@@ -34,7 +34,7 @@ const LIMITS = {
   PER_SCC_CYCLE_CAP: 25,
   // Output formatter list caps. Centralized so human/markdown/ai formatters
   // do not drift independently and so future --limit wiring has one place to
-  // read from (W3-1 / L2-6).
+  // read from (L2-6).
   OUTPUT_TINY: 2,
   OUTPUT_SHORT: 3,
   OUTPUT_MEDIUM: 5,

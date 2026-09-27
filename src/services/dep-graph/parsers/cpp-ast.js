@@ -7,7 +7,7 @@ const {
   stripQuotes,
 } = require('./tree-sitter');
 const { uniqueNames, createExportRecord, createImportRecord } = require('./shared');
-const { parseCpp: parseCppRegex } = require('./cpp');
+const { parseCpp: parseCppRegex, keepLinkageVisibleExports } = require('./cpp');
 
 // ---------------------------------------------------------------------------
 // Tree-sitter Queries
@@ -282,7 +282,7 @@ function computeBranchMetrics(funcNode) {
 // AST Parser
 // ---------------------------------------------------------------------------
 
-async function parseCppAst(content, filePath) {
+async function parseCppAstOrRegex(content, filePath) {
   let parser;
   let language;
   try {
@@ -407,6 +407,12 @@ async function parseCppAst(content, filePath) {
     functionRecords,
     parseMode: 'ast',
   };
+}
+
+// Single exit for both the AST and the regex-fallback path, so the linkage
+// rule cannot drift between them.
+async function parseCppAst(content, filePath) {
+  return keepLinkageVisibleExports(await parseCppAstOrRegex(content, filePath), filePath);
 }
 
 module.exports = { parseCppAst };

@@ -68,12 +68,16 @@ async function testMacros() {
 #define MAX_SIZE 100
 #define DEBUG
 `;
-  const result = await parseCpp(source, 'test.c');
+  // Header macros are public API; source-file macros die with the translation unit.
+  const result = await parseCpp(source, 'test.h');
   assert(result.exports.includes('MAX_SIZE'));
   assert(result.exports.includes('DEBUG'));
 
   const maxExport = result.exportRecords.find((r) => r.name === 'MAX_SIZE');
   assert.strictEqual(maxExport.kind, 'macro');
+
+  const inSource = await parseCpp(source, 'test.c');
+  assert.deepStrictEqual(inSource.exports, [], 'macros in a .c file are not exports');
 }
 
 async function testPointerReturnFunction() {
@@ -163,7 +167,8 @@ struct Point { int x; };
 enum Color { RED };
 typedef int MyInt;
 `;
-  const cResult = await parseCpp(cSource, 'test.c');
+  // Type declarations are exports only in headers; in a source file they stay local.
+  const cResult = await parseCpp(cSource, 'test.h');
   assert(cResult.exports.includes('Point'));
   assert(cResult.exports.includes('Color'));
   assert(cResult.exports.includes('MyInt'));
@@ -175,11 +180,14 @@ typedef int MyInt;
 class Box {};
 namespace ns {}
 `;
-  const cppResult = await parseCpp(cppSource, 'test.cpp');
+  const cppResult = await parseCpp(cppSource, 'test.hpp');
   assert(cppResult.exports.includes('Box'));
   assert(cppResult.exports.includes('ns'));
   assert(cppResult.exportRecords.some((r) => r.name === 'Box' && r.kind === 'class'));
   assert(cppResult.exportRecords.some((r) => r.name === 'ns' && r.kind === 'namespace'));
+
+  assert.deepStrictEqual((await parseCpp(cSource, 'test.c')).exports, [], 'types in a .c file are not exports');
+  assert.deepStrictEqual((await parseCpp(cppSource, 'test.cpp')).exports, [], 'types in a .cpp file are not exports');
 }
 
 async function testTemplate() {
@@ -192,7 +200,7 @@ T max(T a, T b) {
   return a > b ? a : b;
 }
 `;
-  const result = await parseCpp(source, 'test.cpp');
+  const result = await parseCpp(source, 'test.hpp');
   assert(result.exports.includes('Vector'), 'Should export template class');
   assert(result.exports.includes('max'), 'Should export template function');
   assert(result.exportRecords.some((r) => r.name === 'Vector' && r.kind === 'class'));

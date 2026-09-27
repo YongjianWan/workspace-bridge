@@ -4,7 +4,7 @@
  * Reuses REPL container initialization (watch: true), drops readline,
  * and registers a callback on file changes.
  *
- * P8-1: Closed-loop validation mode (--run-tests).
+ * Closed-loop validation mode (--run-tests).
  *   file save → impact → affected-tests → spawn executable commands →
  *   JSON Lines output with pass/fail + failure details.
  */

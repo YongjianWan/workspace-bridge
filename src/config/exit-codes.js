@@ -8,12 +8,10 @@
  * found". CLI_ERROR (2) is every other runtime failure, including unknown
  * commands; several tests lock that value, so it is not free for reuse.
  *
- * There is deliberately no "gate refused" code. Gates used to refuse to run on
- * replayed snapshot data, but the real defect was the freshness check being
- * too coarse to notice in-place edits (L2-15). Once isSnapshotFresh compares
- * cache.getContentSignature() against the stored content_signature, a replay
- * only survives on an unchanged tree, so there is nothing left for a gate to
- * refuse. (Not checkFileChanges() — that is a different, still-live method;
+ * There is deliberately no "gate refused" code: isSnapshotFresh compares
+ * cache.getContentSignature() against the stored content_signature, so a
+ * replayed snapshot only survives on an unchanged tree and there is nothing
+ * for a gate to refuse. (Not checkFileChanges() — that is a different, still-live method;
  * the signature column is what freshness actually consults.)
  */
 const EXIT_CODES = {

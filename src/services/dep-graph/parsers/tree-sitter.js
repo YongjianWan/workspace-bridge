@@ -1,13 +1,12 @@
 const path = require('path');
 
-// L2-20: both caches hold the IN-FLIGHT PROMISE, not the settled value.
-// Checking the cache synchronously but populating it after an async load let
-// N concurrent first-time callers all see a miss and run N duplicate loads —
-// in the builder that race produced "Incompatible language version 0" objects
-// (19/36 cobra files silently degraded to regex, 2026-07-28). Both loaders
-// catch internally and never reject — they settle null on failure, and a
-// null-settling load is evicted so a later call retries (the toolchain may
-// have been fixed), matching the old no-cache-on-failure behavior.
+// Both caches hold the IN-FLIGHT PROMISE, not the settled value.
+// Populating the cache only after an async load would let N concurrent
+// first-time callers all miss and run N duplicate loads, which produces
+// "Incompatible language version 0" objects and silently degrades files to
+// regex. Both loaders catch internally and never reject — they settle null on
+// failure, and a null-settling load is evicted so a later call retries (the
+// toolchain may have been fixed).
 let parserModulePromise = null;
 const languageCache = new Map();
 const MAX_LANGUAGE_CACHE_SIZE = 12; // defensive cap: 9 langs + headroom

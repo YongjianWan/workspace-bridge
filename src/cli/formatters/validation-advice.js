@@ -9,7 +9,7 @@ const { buildSummary } = require('./validation-advice/summary');
 const { buildTopRiskActions, pickSuggestedCommand } = require('./validation-advice/risk-actions');
 
 function buildValidationAdvice(entries, workspaceRoot) {
-  // L2-7: zero changes should not hallucinate a docs validation plan
+  // Zero changes should not hallucinate a docs validation plan
   if (!entries || entries.length === 0) {
     return {
       changeType: 'none',
@@ -89,7 +89,7 @@ function buildValidationAdvice(entries, workspaceRoot) {
 /**
  * Build file-specific advice with context awareness.
  *
- * Route B fix: suppresses irrelevant advice when the file has 0 downstream
+ * Suppresses irrelevant advice when the file has 0 downstream
  * impact (e.g., a dead file being deleted doesn't need migration warnings).
  *
  * @param {string} ext - file extension
@@ -103,7 +103,7 @@ function buildFileSpecificAdvice(ext, stackProfile, context = {}) {
   const { impactCount = 1, affectedTestsCount = 0, isDeadExport = false } = context;
   const advice = [];
 
-  // Route B: when the file has zero downstream impact (dead code removal),
+  // When the file has zero downstream impact (dead code removal),
   // suppress model/migration/interface advice — it's irrelevant noise.
   const hasNoImpact = impactCount === 0 && affectedTestsCount === 0;
 
@@ -135,7 +135,7 @@ function buildFileValidationAdvice(filePath, workspaceRoot, affectedTests, impac
   else if (/\.(json|yaml|yml|toml)$/.test(ext)) changeType = 'config';
   else if (/\.(sh|ps1|bat)$/.test(ext)) changeType = 'scripts';
 
-  // Route B fix: surface affected tests as direct validation targets so
+  // Surface affected tests as direct validation targets so
   // generateCommands can emit focused test commands (vitest/pytest/go/...).
   const testFiles = (affectedTests?.affectedTests || [])
     .map((entry) => entry?.file)
@@ -147,7 +147,7 @@ function buildFileValidationAdvice(filePath, workspaceRoot, affectedTests, impac
     ? [{ name: 'run-direct-tests', targets: testFiles }]
     : [];
 
-  // Route B: when there are no affected tests, omit focused test commands
+  // When there are no affected tests, omit focused test commands
   // entirely so suggestedCommand doesn't point to a non-existent test file.
   // 例外：编译型语言（Java/Kotlin/Go/Rust/C++）的 compile-check fallback 依赖
   // targets 里出现该语言文件才会生成，且这些命令不引用源文件路径本身，
@@ -178,21 +178,21 @@ function buildFileValidationAdvice(filePath, workspaceRoot, affectedTests, impac
   commands.focused = dedupe(commands.focused);
   commands.full = dedupe(commands.full);
 
-  // Route B fix: when we have graph-derived direct affected tests, suppress
+  // When we have graph-derived direct affected tests, suppress
   // the coarser per-file focused-tests command that would pass the source
   // file itself to the test runner.
   if (steps.length > 0 && commands.focused.some((c) => c.name?.endsWith('-direct-tests'))) {
     commands.focused = commands.focused.filter((c) => !c.name?.endsWith('-focused-tests'));
   }
 
-  // P8-2: enrich each command with structured executable metadata
+  // Enrich each command with structured executable metadata
   for (const group of ['smoke', 'focused', 'full']) {
     for (const cmd of commands[group]) {
       enrichCommandEntry(cmd);
     }
   }
 
-  // Route B: pass impact context so fileSpecificAdvice can suppress irrelevant advice
+  // Pass impact context so fileSpecificAdvice can suppress irrelevant advice
   // impactCount comes from the `impact` parameter, not affectedTests (which is a different operation).
   const impactCount = impact?.impactCount ?? affectedTests?.impactCount ?? 1;
   const affectedTestsCount = affectedTests?.affectedTestsCount ?? 0;

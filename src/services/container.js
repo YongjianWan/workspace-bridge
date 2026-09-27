@@ -531,7 +531,7 @@ class ServiceContainer {
     }
     if (this.cache) {
       try {
-        // P2: persist aggregate summary for O(1) startup on next run
+        // Persist aggregate summary for O(1) startup on next run
         const aggregate = this._depGraph?.analyzer?.getAggregateCache();
         if (aggregate) {
           this.cache.saveAggregateSummary(aggregate);

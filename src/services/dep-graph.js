@@ -351,6 +351,10 @@ class DependencyGraph {
     for (const registeredPath of getRegisteredQueryFiles()) {
       registeredFiles.add(this.normalizeFilePath(registeredPath));
     }
+    // A C/C++ implementation file is reached through its paired header.
+    for (const file of allFiles) {
+      if (this.analyzer.hasPairedCHeader(file)) registeredFiles.add(file);
+    }
     return detectOrphans(
       allFiles,
       this.entryFiles,

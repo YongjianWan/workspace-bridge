@@ -19,7 +19,7 @@ const FRAMEWORK_ENTRY_FILES = new Set([
   'manage.py',
 ]);
 
-// P103: Entry-point weight constants (adapted from GitNexus entryPointMultiplier)
+// Entry-point weight constants (adapted from GitNexus entryPointMultiplier)
 const ENTRY_WEIGHT = {
   HIGH: 3.0,        // page, controller, views, main, application
   MEDIUM_HIGH: 2.5, // layout, routes, URLs, handlers
@@ -254,7 +254,7 @@ const ROLE_RULES = [
     role: 'entry',
     test: (_relPath, base) => {
       if (FRAMEWORK_ENTRY_FILES.has(base)) return true;
-      // P70: Spring Boot application entry classes
+      // Spring Boot application entry classes
       if (/application.*\.java$/i.test(base)) return true;
       if (/.*servletinitializer\.java$/i.test(base)) return true;
       return false;
@@ -292,7 +292,7 @@ const ROLE_RULES = [
         ext === 'ps1' ||
         ext === 'sql'
       ) return true;
-      // P100: root-level Python files are typically standalone scripts
+      // Root-level Python files are typically standalone scripts
       if (ext === 'py') {
         const depth = relPath.split('/').filter(Boolean).length;
         if (depth === 1) return true;
@@ -304,7 +304,7 @@ const ROLE_RULES = [
     role: 'entry',
     test: (relPath, base) => {
       if (!ENTRY_BASE_NAMES.has(base)) return false;
-      // L2-18: index.js/index.ts deep in the tree are typically barrel files, not entries.
+      // Index.js/index.ts deep in the tree are typically barrel files, not entries.
       // Only treat them as entry at root level or directly under src/.
       if (base === 'index.js' || base === 'index.ts') {
         const depth = relPath.split('/').filter(Boolean).length;
@@ -778,12 +778,12 @@ class ProjectContext {
       summary.counts.totalFiles += 1;
       summary.directoryRoles[classification.directoryRole] += 1;
       let fileRole = classification.fileRole;
-      // P41: a file cannot simultaneously be 'library' and 'orphan'
+      // A file cannot simultaneously be 'library' and 'orphan'
       if (fileRole === 'library' && isImportedFn && !isImportedFn(filePath)) {
         fileRole = 'unknown';
       }
       summary.fileRoles[fileRole] += 1;
-      // L2-26: tests and docs are active (still indexed) but not mainline
+      // Tests and docs are active (still indexed) but not mainline
       const isTrulyMainline = classification.isMainline && fileRole !== 'test' && fileRole !== 'docs' && fileRole !== 'style' && fileRole !== 'asset';
       if (isTrulyMainline) {
         summary.counts.mainlineFiles += 1;

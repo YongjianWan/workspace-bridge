@@ -188,7 +188,7 @@ const COUPLING_ADVICE_RULES = [
 function generateCouplingSplitPlan(role, coupling, isSmallProject) {
   const { inDegree, outDegree } = coupling;
 
-  // L3-3: suppress aggressive split advice for small monoliths
+  // Suppress aggressive split advice for small monoliths
   if (isSmallProject && role === 'library') {
     return [
       '项目规模较小，保持内聚优先；高耦合模块建议通过测试覆盖降低修改风险',

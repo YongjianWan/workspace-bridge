@@ -161,11 +161,9 @@ function _isExternalRustCrate(specifier, root, ctx) {
  * True when a bare specifier names something that lives outside the workspace:
  * a node builtin, a declared dependency, or an installed package. Any hit on
  * such a specifier is a fabricated edge, and one sloppy re-export is enough to
- * mass-produce them: `parsers/js/shared.js` used to re-export its own
- * `require('path')`, which made every one of this repo's 212 `require('path')`
- * files resolve to it (measured 2026-07-28; that re-export has since been
- * deleted, so the gate now has nothing to catch here). Names like `debug`,
- * `config`, `glob` and `semver` are the same shape waiting to happen — the gate
+ * mass-produce them: a workspace module re-exporting its own `require('path')`
+ * would make every `require('path')` file resolve to it. Names like `debug`,
+ * `config`, `glob` and `semver` are the same shape — the gate
  * exists so that ownership, a deterministic fact, outranks name guessing.
  */
 function _isExternalJsPackage(specifier, root, ctx) {
@@ -177,8 +175,7 @@ function _isExternalJsPackage(specifier, root, ctx) {
   if (!root) return false;
   // Manifest chain from the importing file up to the workspace root: monorepo
   // sub-packages declare their own deps, so the root manifest alone is not
-  // the whole truth (L2-11 gap A). No fromFile → root manifest only, same as
-  // before.
+  // the whole truth. No fromFile → root manifest only.
   const fromDir = ctx && ctx.fromFile ? path.dirname(ctx.fromFile) : null;
   for (const dir of packageManifestChain(fromDir, root)) {
     const declared = readPackageDeps(dir);
@@ -189,7 +186,7 @@ function _isExternalJsPackage(specifier, root, ctx) {
 }
 
 // Python stdlib membership has a single home: resolvers/python-stdlib.js
-// (authoritative sys.stdlib_module_names + degraded-path fallback, L3-15).
+// (authoritative sys.stdlib_module_names + degraded-path fallback).
 // The external gate itself lives in resolvers/python.js
 // (isExternalPythonImport) so the module-index strategy can consult it
 // without a require cycle — its manifest-chain semantics live there too.
@@ -247,12 +244,12 @@ function _isExternalCppHeader(specifier, root, ctx) {
  * Per-language dispatch for "does this specifier belong to somebody else".
  *
  * One table instead of a chain of extension tests inside trySymbolTable; adding
- * a language means adding a row plus its manifest reader (TECH_DEBT L2-11).
+ * a language means adding a row plus its manifest reader.
  * isExternal receives (specifier, root, ctx); ctx is null-safe for rows that
  * only need the specifier.
  */
 /**
- * JVM zero-list gate (L2-11 gap C) + manifest evidence (v1).
+ * JVM zero-list gate + manifest evidence.
  *
  * Layer 1 — stdlib prefixes (single home: the registry's isBuiltIn).
  * Layer 2 — declared third-party groupIds from the root manifests
@@ -350,13 +347,12 @@ function _isExternalDependency(specifier, fromExt, root, ctx = null) {
   const check = EXTERNAL_DEPENDENCY_CHECKS.find((c) => c.matches(fromExt));
   if (check) return check.isExternal(specifier, root, ctx, fromExt);
   // Languages without a gate row still own a builtin list: the registry's
-  // isBuiltIn declarations. Consulting them here retired L3-6 (the
-  // declarations had zero consumers until this line).
+  // isBuiltIn declarations.
   const lang = registry.findByExt(fromExt);
   return Boolean(lang && typeof lang.isBuiltIn === 'function' && lang.isBuiltIn(specifier));
 }
 
-// Symbol-name delimiter set, per language (L3-4): '::' for Rust paths, '/'
+// Symbol-name delimiter set, per language: '::' for Rust paths, '/'
 // + '.' for Go package paths ('pkg/sub.Func'). Everything else (JS/TS,
 // Python, Java) keeps '.' only — splitting npm subpath imports
 // ('lodash/merge') would alias them onto same-named local symbols.
@@ -407,7 +403,7 @@ function resolveJavaImport(importPath, root) {
 for (const lang of registry.languages) {
   // T6 (2026-07-31): the symbol-table fallback is per-language, declared on
   // the registry entry (symbolTableFallback). Off for JS family + Python
-  // (measured zero true-positive, TECH_DEBT L2-10); on for JVM (its only
+  // (measured zero true-positive); on for JVM (its only
   // legal shape) and Rust/Go/C++ (pending their own measurements).
   const strategies = lang.symbolTableFallback === false
     ? [...lang.resolveStrategies]
@@ -459,6 +455,6 @@ module.exports = {
   tryCppInclude,
   trySymbolTable,
   // Public gate query for "would this specifier be dropped *expectedly*"
-  // (builder's droppedImports accounting, L2-13).
+  // (builder's droppedImports accounting).
   isExternalDependency: _isExternalDependency,
 };

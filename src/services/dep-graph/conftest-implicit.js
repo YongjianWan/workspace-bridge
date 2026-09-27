@@ -5,7 +5,7 @@ const { isCollectedTestFile, isConftestFile } = require('../../utils/test-detect
 // edges (which would pollute dependency listings, dead-export importer counts
 // and cycle detection), affected-tests / impact re-query this relation at
 // query time: conftest.py is modeled as an implicit dependency of every test
-// file in its directory and below (P0-10).
+// file in its directory and below.
 //
 // Known limits (locked by test/p0-10-pytest-conftest-test.js):
 // - No fixture parameter-name matching: an anchor is "a conftest that imports
@@ -13,7 +13,7 @@ const { isCollectedTestFile, isConftestFile } = require('../../utils/test-detect
 //   that never use the fixture are reported too (safe direction: a conftest
 //   change does affect its whole scope).
 // - Scope = conftest directory prefix × isCollectedTestFile: only
-//   runner-collected tests are reported (P0-12: pytest basename rules —
+//   runner-collected tests are reported (pytest basename rules —
 //   test_*.py / *_test.py / tests.py), so support files under tests/
 //   (helpers.py) stay out; test files outside the subtree are not reported.
 // - Chains longer than maxDepth are missed, same as graph edges.

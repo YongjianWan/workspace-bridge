@@ -1,7 +1,6 @@
 /**
  * GraphLoader — Load dependency graph from persisted SQLite edges.
  *
- * Extracted from dep-graph.js as part of Route A-2 cleanup.
  * Encapsulates staleness guard, metadata validation, graph reconstruction,
  * orphan edge handling, and post-load precompute restoration.
  */

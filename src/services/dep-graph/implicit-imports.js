@@ -80,7 +80,7 @@ const FRAMEWORK_USAGE_PATTERNS = [
     },
   },
 
-  // P104: React.lazy(() => import('...'))
+  // React.lazy(() => import('...'))
   {
     id: 'react-lazy',
     frameworks: ['react'],
@@ -98,7 +98,7 @@ const FRAMEWORK_USAGE_PATTERNS = [
     },
   },
 
-  // P104: Next.js dynamic(() => import('...'))
+  // Next.js dynamic(() => import('...'))
   {
     id: 'nextjs-dynamic',
     frameworks: ['nextjs'],
@@ -116,7 +116,7 @@ const FRAMEWORK_USAGE_PATTERNS = [
     },
   },
 
-  // P104: Angular loadChildren: () => import('...')
+  // Angular loadChildren: () => import('...')
   {
     id: 'angular-loadchildren',
     frameworks: ['angular'],

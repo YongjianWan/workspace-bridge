@@ -7,7 +7,7 @@ function parseKotlin(content) {
   const functionRecords = [];
 
   // Same shape as java.js:75, minus the semicolon Kotlin doesn't have.
-  // This is the L2-11 gap C gate's only workspace-side input for .kt files.
+  // This is the JVM zero-list gate's only workspace-side input for .kt files.
   const packageRegex = /^\s*package\s+([A-Za-z_][\w.]*)\s*$/m;
   const packageMatch = packageRegex.exec(content);
   const packageName = packageMatch ? packageMatch[1] : null;
