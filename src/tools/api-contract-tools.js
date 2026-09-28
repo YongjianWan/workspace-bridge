@@ -83,7 +83,11 @@ function buildResult(frontendRoot, backendRoot, clientResult, serverResult, opti
   const matchResult = matchContracts(clientResult.calls, serverResult.routes);
 
   const hasUnmatchedClient = matchResult.unmatchedClient.length > 0;
-  const hasUnmatchedServer = matchResult.unmatchedServer.length > 0;
+  // 前端调用一条都没识别到时，"后端路由没人调"不是发现而是识别失败：
+  // 此时 unmatchedServer 只是没对上的事实，拿它报 findings 会误导 agent
+  // 去删实际有调用的路由（审查报告 P1-14）。
+  const clientCallsRecognized = clientResult.calls.length > 0;
+  const hasUnmatchedServer = clientCallsRecognized && matchResult.unmatchedServer.length > 0;
   const hasFindings = hasUnmatchedClient || hasUnmatchedServer;
 
   const maxFiles = Number.isFinite(options.maxFiles) && options.maxFiles > 0 ? options.maxFiles : null;
@@ -92,6 +96,12 @@ function buildResult(frontendRoot, backendRoot, clientResult, serverResult, opti
   const unmatchedClientTrunc = maxFiles ? truncateArray(matchResult.unmatchedClient, maxFiles) : { items: matchResult.unmatchedClient, truncated: false };
   const unmatchedServerTrunc = maxFiles ? truncateArray(matchResult.unmatchedServer, maxFiles) : { items: matchResult.unmatchedServer, truncated: false };
   const allWarnings = [...clientResult.warnings, ...serverResult.warnings, ...matchResult.warnings];
+  if (!clientCallsRecognized) {
+    allWarnings.push({
+      reason: 'no-client-calls-recognized',
+      message: 'No client HTTP calls recognized in the frontend; unmatched server routes are not findings. The client extractor may not cover this client style.',
+    });
+  }
   const warningsTrunc = maxFiles ? truncateArray(allWarnings, maxFiles) : { items: allWarnings, truncated: false };
 
   return {

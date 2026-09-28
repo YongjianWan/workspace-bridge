@@ -94,14 +94,10 @@ function isFollowedByConcatenation(block, quoteEndIndex) {
   return /^\s*\+/.test(after);
 }
 
-function extractAxiosConfigCalls(content) {
+function extractConfigObjectCalls(content, calleeRe, { requireMethod } = {}) {
   const calls = [];
-  // axios({ url: '/api/x', method: 'post' }) or axios.request({...})
-  // Deliberately narrow: only match the literal identifier "axios" to avoid
-  // false positives on variables like apiConfig or myApi.request.
-  const re = /\baxios\s*(?:\.\s*request)?\s*\(\s*\{/gi;
   let match;
-  while ((match = re.exec(content)) !== null) {
+  while ((match = calleeRe.exec(content)) !== null) {
     const start = match.index + match[0].length - 1; // position of '{'
     let depth = 1;
     let i = start + 1;
@@ -128,10 +124,28 @@ function extractAxiosConfigCalls(content) {
     }
     if (rawPath && isStaticPath(`'${rawPath}'`) && !isFollowedByConcatenation(block, quoteEnd)) {
       const methodMatch = block.match(/method\s*:\s*['"`]([a-zA-Z]+)['"`]/);
+      // 生成客户端（openapi-typescript-codegen 一类）不走 axios；无 method 的
+      // request({url}) 太宽泛，只有 url+method 成对出现才认作 HTTP 调用。
+      if (requireMethod && !methodMatch) continue;
       calls.push({ method: normalizeMethod(methodMatch?.[1]), path: rawPath });
     }
   }
   return calls;
+}
+
+function extractAxiosConfigCalls(content) {
+  // axios({ url: '/api/x', method: 'post' }) or axios.request({...})
+  // Deliberately narrow: only match the literal identifier "axios" to avoid
+  // false positives on variables like apiConfig or myApi.request.
+  return extractConfigObjectCalls(content, /\baxios\s*(?:\.\s*request)?\s*\(\s*\{/gi, { requireMethod: false });
+}
+
+function extractRequestConfigCalls(content) {
+  // Generated API clients (openapi-typescript-codegen style) call a local
+  // request({ url, method }) or this.request({ path, method }) instead of axios.
+  // Only the bare identifier or an explicit `this.` receiver is accepted:
+  // myApi.request({...}) stays unrecognized by contract (narrow-matching test).
+  return extractConfigObjectCalls(content, /(?:\bthis\s*\.\s*request|(?<![\w$.])request)\s*\(\s*\{/gi, { requireMethod: true });
 }
 
 function extractClientCallsFromFile(filePath) {
@@ -174,6 +188,9 @@ function extractClientCallsFromFile(filePath) {
 
   // 3. axios({ url: '/path', method: 'POST' })
   calls.push(...extractAxiosConfigCalls(content));
+
+  // 4. generated clients: request({ url: '/path', method: 'GET' }) / this.request({ path, method })
+  calls.push(...extractRequestConfigCalls(content));
 
   // Deduplicate within file.
   const seen = new Set();
