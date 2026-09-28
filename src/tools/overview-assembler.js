@@ -52,6 +52,17 @@ function computeArchitecturalPageRank(depGraph) {
   return computePageRank(productionFiles, edges);
 }
 
+// 同分时按路径升序，保证冷启动下热点/建议的顺序确定（V8 sort 对同分不保证保序）。
+function byScoreThenPath(a, b) {
+  const diff = (b?.score || 0) - (a?.score || 0);
+  if (diff !== 0) return diff;
+  const af = a?.file || '';
+  const bf = b?.file || '';
+  if (af < bf) return -1;
+  if (af > bf) return 1;
+  return 0;
+}
+
 const HOTSPOT_SCORE_RULES = [
   { field: 'commitCount', alt: 'churn', cap: SCORING.HOTSPOT_COMMIT_COUNT_CAP, weight: SCORING.HOTSPOT_COMMIT_COUNT_WEIGHT },
   { field: 'authorCount', fallback: SCORING.HOTSPOT_AUTHOR_COUNT_FALLBACK, weight: SCORING.HOTSPOT_AUTHOR_COUNT_WEIGHT },
@@ -273,7 +284,7 @@ async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
     candidates.push(...batchResults);
   }
 
-  return candidates.filter(Boolean).sort((a, b) => b.score - a.score);
+  return candidates.filter(Boolean).sort(byScoreThenPath);
 }
 
 function buildStability(root, depGraph, mainlineFiles, projectContext) {
@@ -325,7 +336,7 @@ function aggregateOverviewStats(hotspots, stability) {
 function buildHotspotVisualizationData(root, hotspots, aggregates) {
   const ranked = hotspots
     .slice()
-    .sort((a, b) => (b?.score || 0) - (a?.score || 0))
+    .sort(byScoreThenPath)
     .map((item, index) => ({
       id: item.file,
       file: item.file,

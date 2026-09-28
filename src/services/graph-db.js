@@ -254,6 +254,17 @@ function _withSqliteWarningSuppressed(fn) {
   }
 }
 
+let _sqliteUnavailableWarned = false;
+function _warnSqliteUnavailableOnce() {
+  if (_sqliteUnavailableWarned) return;
+  _sqliteUnavailableWarned = true;
+  console.error(
+    '[workspace-bridge] node:sqlite is not available in this Node.js runtime: ' +
+    'persistent cache disabled, every run is a cold start. ' +
+    'Upgrade to Node.js >= 22.13.0.'
+  );
+}
+
 function acquireLockSync(lockPath, timeoutMs = 5000, retryIntervalMs = 100) {
   const start = Date.now();
   const dir = path.dirname(lockPath);
@@ -383,10 +394,29 @@ class GraphDB {
     }
   }
 
+  /**
+   * node:sqlite became a usable builtin in Node 22.13. On older runtimes the
+   * require throws ERR_UNKNOWN_BUILTIN_MODULE and every read silently degrades
+   * to a cache miss while writes go nowhere: the cache directory stays empty
+   * and every run is a cold start, with no hint why. Surface that once
+   * instead of letting it fail silently.
+   */
+  _loadSqlite() {
+    try {
+      return _withSqliteWarningSuppressed(() => require('node:sqlite'));
+    } catch (err) {
+      const isMissingBuiltin = err && err.code === 'ERR_UNKNOWN_BUILTIN_MODULE' && /node:sqlite/.test(String(err.message));
+      if (isMissingBuiltin) {
+        _warnSqliteUnavailableOnce();
+      }
+      throw err;
+    }
+  }
+
   _ensureOpen() {
     if (this.db) return;
     _runWithReadRetry(() => {
-      const sqlite = _withSqliteWarningSuppressed(() => require('node:sqlite'));
+      const sqlite = this._loadSqlite();
       const dir = path.dirname(this.dbPath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
