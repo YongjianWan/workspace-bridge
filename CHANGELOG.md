@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### Fixed: `api-contracts` 相对目录按 `--cwd` 解析（2026-09-28）
+
+- 修正 `--frontend`/`--backend` 与 `--file` 的路径基准不一致：CLI 把 `--cwd` 传给双工作区分析，两个相对目录都以它为基准；绝对目录保持原行为，直接调用 `runApiContracts` 且未提供 `cwd` 时仍以进程当前目录为基准。
+- 新增从工作区外执行 CLI 的语义测试，验证实际扫描的前后端目录及匹配结果；CLI 帮助文本写明相对路径规则。
+- 验证：lint、`wb-repro` 27/27、原有 `api-contracts` 测试及新语义测试通过；快测 205 选 203 过，全量 305 选 302 过。失败仅为两条已知 Windows/libuv 异常和 `workspace-info-lightweight` 的 2000ms 计时波动（本轮 2222ms，暖缓存单跑两次通过）。
+
 ### Fixed: `audit-diff` 源码目录角色误判（2026-09-28）
 
 - `ProjectContext` 将 `src/tools/` 识别为源码目录，独立 `tools/` 目录仍识别为脚本。此前通用 `/tools/` 规则把源码文件错判为 `script`，导致混合提交被归类为 `changeType: tests`，验证建议偏向测试变更。

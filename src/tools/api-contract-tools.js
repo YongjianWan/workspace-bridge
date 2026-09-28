@@ -127,12 +127,13 @@ function buildResult(frontendRoot, backendRoot, clientResult, serverResult, opti
 
 /**
  * Run API contract discovery between a frontend and backend workspace.
- * @param {{frontend: string, backend: string, quiet?: boolean}} options
+ * @param {{frontend: string, backend: string, cwd?: string, quiet?: boolean}} options
  * @returns {Promise<object>}
  */
 async function runApiContracts(options) {
-  const frontendRoot = path.resolve(options.frontend);
-  const backendRoot = path.resolve(options.backend);
+  const baseDir = options.cwd || process.cwd();
+  const frontendRoot = path.resolve(baseDir, options.frontend);
+  const backendRoot = path.resolve(baseDir, options.backend);
 
   if (!fs.existsSync(frontendRoot) || !fs.statSync(frontendRoot).isDirectory()) {
     return { ok: false, error: `Frontend path is not a directory: ${frontendRoot}`, hasFindings: false };

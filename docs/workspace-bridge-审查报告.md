@@ -64,7 +64,6 @@
 | ID | 问题 | 验证 |
 |---|---|---|
 | P2-3 | 有测试在断言源码文本（比如"不能出现 `?.`"），这其实是 lint 规则。已确认：`test/wave5-boundary-hardening-test.js`、`test/content-signature-trust-test.js`；粗算上限约 12 个 | 打开这两个文件看写法，再全局搜同样模式 |
-| P2-5 | `--frontend`/`--backend` 相对于进程当前目录解析，`--file` 相对于 `--cwd` 解析 | 在仓库外跑 api-contracts |
 | P2-6 | `guard` 检查没通过和运行出错都返回 1，CI 分不清 | 给"没通过"单独一个退出码 |
 | P2-7 | 开发依赖漏洞：`tar`（critical）、`brace-expansion`（high），影响构建和发布流水线 | `npm audit` |
 | P2-8 | 仓库里提交了 `.claude/settings.local.json`；`reference/` 有 430KB zip 和 docx | `git ls-files .claude reference` |

@@ -18,6 +18,7 @@ async function apiContracts(parsed, _container) {
   }
 
   return runApiContracts({
+    cwd: parsed.cwd,
     frontend: parsed.frontend,
     backend: parsed.backend,
     maxFiles: parsed.maxFiles,
