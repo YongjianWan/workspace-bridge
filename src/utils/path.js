@@ -25,15 +25,21 @@ const NORMALIZE_KEY_CACHE_LIMIT = 50000;
 const normalizeKeyCache = new Map();
 
 function normalizePathKey(inputPath) {
-  const cached = normalizeKeyCache.get(inputPath);
-  if (cached !== undefined) {
-    normalizeKeyCache.delete(inputPath);
-    normalizeKeyCache.set(inputPath, cached);
-    return cached;
+  // Relative and empty inputs resolve against process.cwd(), which can change
+  // during a long-lived CLI/REPL process. Only absolute paths are stable keys.
+  const cacheable = typeof inputPath === 'string' && path.isAbsolute(inputPath);
+  if (cacheable) {
+    const cached = normalizeKeyCache.get(inputPath);
+    if (cached !== undefined) {
+      normalizeKeyCache.delete(inputPath);
+      normalizeKeyCache.set(inputPath, cached);
+      return cached;
+    }
   }
   const absolute = normalizePath(inputPath);
   const normalized = toPosixPath(path.normalize(absolute));
   const result = IS_WINDOWS ? normalized.toLocaleLowerCase('en-US') : normalized;
+  if (!cacheable) return result;
   if (normalizeKeyCache.size >= NORMALIZE_KEY_CACHE_LIMIT) {
     normalizeKeyCache.delete(normalizeKeyCache.keys().next().value);
   }

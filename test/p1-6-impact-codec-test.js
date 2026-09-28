@@ -8,11 +8,14 @@
  * 路径换成行内字典索引 + 根前缀剥离，解码时字符串驻留，要求往返无损。
  */
 const assert = require('assert');
+const zlib = require('zlib');
 const {
   createImpactEncoder,
   createImpactDecoder,
   V2_GZIP_PREFIX,
 } = require('../src/services/dep-graph/impact-codec');
+const { restorePrecomputed } = require('../src/services/dep-graph/persistence');
+const { GraphAnalyzer } = require('../src/services/dep-graph/analyzer');
 
 const ROOT_PREFIX = 'c:/proj/';
 
@@ -102,6 +105,56 @@ function testCorruptedGzipReturnsNull() {
   assert.strictEqual(decode(V2_GZIP_PREFIX + '!!!not-base64!!!'), null, 'corrupted blob must decode to null, not throw');
 }
 
+function testDictionaryIsLocalToEachRow() {
+  const encode = createImpactEncoder(ROOT_PREFIX);
+  encode([{ file: ROOT_PREFIX + 'first.py', via: [] }], null);
+  const second = encode([{ file: ROOT_PREFIX + 'second.py', via: [] }], null);
+  const payload = JSON.parse(zlib.gunzipSync(Buffer.from(second.slice(V2_GZIP_PREFIX.length), 'base64')).toString('utf8').slice(3));
+  assert.deepStrictEqual(payload.paths, ['second.py'], 'each row must contain only its own path dictionary');
+}
+
+function testCorruptedJsonReturnsNull() {
+  const decode = createImpactDecoder(ROOT_PREFIX);
+  const malformed = V2_GZIP_PREFIX + zlib.gzipSync('v2:{broken-json').toString('base64');
+  assert.strictEqual(decode(malformed), null, 'valid gzip with invalid JSON must be treated as a corrupt row');
+  const invalidIndex = V2_GZIP_PREFIX + zlib.gzipSync('v2:{"paths":[],"at":[{"file":0,"via":[]}],"ir":null}').toString('base64');
+  assert.strictEqual(decode(invalidIndex), null, 'out-of-range path indices must be treated as a corrupt row');
+}
+
+function testCorruptRowDoesNotAbortRestore() {
+  const encode = createImpactEncoder(ROOT_PREFIX);
+  const good = { file: ROOT_PREFIX + 'good.py', affectedTests: encode([], []), impactRadius: null, version: 1 };
+  const bad = { file: ROOT_PREFIX + 'bad.py', affectedTests: V2_GZIP_PREFIX + zlib.gzipSync('v2:{broken-json').toString('base64'), impactRadius: null, version: 1 };
+  let restoredImpact;
+  let restoredTestMap = false;
+  const graph = {
+    root: ROOT_PREFIX,
+    quiet: true,
+    normalizeFilePath: () => ROOT_PREFIX,
+    graph: new Map([[good.file, {}], [bad.file, {}]]),
+    cache: {
+      loadPrecomputedAggregates: () => [],
+      loadPrecomputedImpact: () => [bad, good],
+      loadMetrics: () => [],
+      loadTestMap: () => [{ file: good.file }],
+    },
+    analyzer: {
+      injectPrecomputedImpact: (rows) => { restoredImpact = rows; return true; },
+      injectPrecomputedTestMap: () => { restoredTestMap = true; return true; },
+    },
+  };
+  restorePrecomputed(graph);
+  assert.deepStrictEqual(restoredImpact.map((row) => row.file), [good.file], 'bad row must not enter the impact cache');
+  assert.strictEqual(restoredTestMap, true, 'bad impact row must not prevent test map restore');
+  assert(graph._precomputedWarnings?.some((warning) => warning.type === 'precomputed-impact-corrupt'), 'corrupt cache must have an explicit warning');
+  graph.getDroppedImports = () => ({ count: 0, uncertainCount: 0 });
+  const visibleWarnings = GraphAnalyzer.prototype.buildWarnings.call({
+    dg: graph,
+    getStats: () => ({ files: 2, totalImports: 1 }),
+  });
+  assert(visibleWarnings.some((warning) => warning.type === 'precomputed-impact-corrupt'), 'warning must reach tool output');
+}
+
 function testNullRadiusSurvives() {
   const { affectedTests } = sampleData();
   const decode = createImpactDecoder(ROOT_PREFIX);
@@ -119,6 +172,9 @@ function main() {
   testSizeReduction();
   testNullRadiusSurvives();
   testCorruptedGzipReturnsNull();
+  testDictionaryIsLocalToEachRow();
+  testCorruptedJsonReturnsNull();
+  testCorruptRowDoesNotAbortRestore();
   console.log('p1-6-impact-codec-test: PASS');
 }
 

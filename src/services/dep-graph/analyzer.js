@@ -1109,6 +1109,9 @@ class GraphAnalyzer {
       }
     }
 
+    if (Array.isArray(this.dg._precomputedWarnings)) {
+      warnings.push(...this.dg._precomputedWarnings);
+    }
     const stats = this.getStats();
     if (stats.files > 0 && stats.totalImports === 0) {
       warnings.push({

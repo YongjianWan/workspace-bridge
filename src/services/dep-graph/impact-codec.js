@@ -25,20 +25,20 @@ const V2_GZIP_PREFIX = 'v2g:';
 const EXTERNAL_MARKER = '=';
 
 function createImpactEncoder(rootPrefix) {
-  const paths = [];
-  const index = new Map();
-  const intern = (p) => {
-    if (typeof p !== 'string' || p.length === 0) return p;
-    const stored = p.startsWith(rootPrefix) ? p.slice(rootPrefix.length) : EXTERNAL_MARKER + p;
-    let i = index.get(stored);
-    if (i === undefined) {
-      i = paths.length;
-      paths.push(stored);
-      index.set(stored, i);
-    }
-    return i;
-  };
   return function encode(affectedTests, impactRadius) {
+    const paths = [];
+    const index = new Map();
+    const intern = (p) => {
+      if (typeof p !== 'string' || p.length === 0) return p;
+      const stored = p.startsWith(rootPrefix) ? p.slice(rootPrefix.length) : EXTERNAL_MARKER + p;
+      let i = index.get(stored);
+      if (i === undefined) {
+        i = paths.length;
+        paths.push(stored);
+        index.set(stored, i);
+      }
+      return i;
+    };
     const at = (affectedTests || []).map((t) => ({
       ...t,
       file: intern(t.file),
@@ -71,24 +71,32 @@ function createImpactDecoder(rootPrefix) {
     }
     return full;
   };
-  const restoreField = (paths, x) => (typeof x === 'number' ? restore(paths[x]) : x);
+  const restoreField = (paths, x) => {
+    if (typeof x !== 'number') return x;
+    if (!Number.isInteger(x) || x < 0 || x >= paths.length || typeof paths[x] !== 'string') {
+      throw new Error('Invalid impact path index');
+    }
+    return restore(paths[x]);
+  };
   const restorePathList = (paths, list) => (Array.isArray(list) ? list.map((x) => restoreField(paths, x)) : list);
 
   return function decode(raw) {
     if (typeof raw !== 'string') return raw;
+    if (!raw.startsWith(V2_GZIP_PREFIX) && !raw.startsWith(V2_PREFIX)) return raw;
     let payload = raw;
-    if (raw.startsWith(V2_GZIP_PREFIX)) {
-      try {
+    try {
+      if (raw.startsWith(V2_GZIP_PREFIX)) {
         payload = zlib.gunzipSync(Buffer.from(raw.slice(V2_GZIP_PREFIX.length), 'base64')).toString('utf8');
-      } catch {
-        return null; // corrupted blob — analyzer falls back to BFS on query
       }
+      if (!payload.startsWith(V2_PREFIX)) return null;
+      const { paths, at, ir } = JSON.parse(payload.slice(V2_PREFIX.length));
+      if (!Array.isArray(paths) || !Array.isArray(at) || (ir !== null && !Array.isArray(ir))) return null;
+      const atOut = at.map((t) => ({ ...t, file: restoreField(paths, t.file), via: restorePathList(paths, t.via) }));
+      const irOut = ir === null ? null : ir.map((e) => ({ ...e, file: restoreField(paths, e.file), via: restorePathList(paths, e.via) }));
+      return { affectedTests: atOut, impactRadius: irOut };
+    } catch {
+      return null; // corrupted cache row; caller recomputes impact on query
     }
-    if (!payload.startsWith(V2_PREFIX)) return raw;
-    const { paths, at, ir } = JSON.parse(payload.slice(V2_PREFIX.length));
-    const atOut = (at || []).map((t) => ({ ...t, file: restoreField(paths, t.file), via: restorePathList(paths, t.via) }));
-    const irOut = ir === null ? null : (ir || []).map((e) => ({ ...e, file: restoreField(paths, e.file), via: restorePathList(paths, e.via) }));
-    return { affectedTests: atOut, impactRadius: irOut };
   };
 }
 

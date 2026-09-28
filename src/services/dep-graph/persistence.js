@@ -190,6 +190,7 @@ async function savePrecomputed(depGraph) {
  */
 function restorePrecomputed(depGraph) {
   if (!depGraph.cache) return;
+  depGraph._precomputedWarnings = [];
   try {
     const aggregateRows = depGraph.cache.loadPrecomputedAggregates();
     if (aggregateRows && aggregateRows.length > 0) {
@@ -203,20 +204,34 @@ function restorePrecomputed(depGraph) {
     const impactRows = depGraph.cache.loadPrecomputedImpact();
     if (impactRows && impactRows.length > 0) {
       const decodeImpact = createImpactDecoder(depGraph.normalizeFilePath(depGraph.root));
+      const validImpactRows = [];
+      let corruptRows = 0;
       for (const row of impactRows) {
         if (isEncodedImpact(row.affectedTests)) {
           const decoded = decodeImpact(row.affectedTests);
-          if (!decoded) continue; // corrupted blob — skip row, BFS fallback covers it
+          if (!decoded) {
+            corruptRows++;
+            continue; // missing entry makes the query recompute impact
+          }
           row.affectedTests = decoded.affectedTests;
           row.impactRadius = decoded.impactRadius;
         }
         // rows without an encoding marker are legacy JSON strings — the
         // analyzer parses them as before.
+        validImpactRows.push(row);
       }
-      const ok = depGraph.analyzer.injectPrecomputedImpact(impactRows, depGraph.graph.size);
+      if (corruptRows > 0) {
+        depGraph._precomputedWarnings.push({
+          type: 'precomputed-impact-corrupt',
+          severity: 'medium',
+          files: corruptRows,
+          message: `${corruptRows} cached impact row(s) were corrupt; impact queries for those files will recompute`,
+        });
+      }
+      const ok = depGraph.analyzer.injectPrecomputedImpact(validImpactRows, depGraph.graph.size);
       if (!depGraph.quiet && ok) {
          
-        console.error('[Persistence] Precomputed impact restored for', impactRows.length, 'files');
+        console.error('[Persistence] Precomputed impact restored for', validImpactRows.length, 'files');
       }
     }
 
@@ -238,6 +253,11 @@ function restorePrecomputed(depGraph) {
       }
     }
   } catch (e) {
+    depGraph._precomputedWarnings.push({
+      type: 'precomputed-restore-failed',
+      severity: 'medium',
+      message: `Precomputed cache restore failed; queries will recompute (${e.message})`,
+    });
     if (process.env.DEBUG) {
        
       console.error('[Persistence] Precomputed load failed:', e.message);
