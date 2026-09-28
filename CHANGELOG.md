@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### Fixed: P1-14 api-contracts 识别生成客户端调用 + 零调用不再报发现（2026-09-28）
+
+- **根因**（审查报告 P1-14）：OpenAPI 生成客户端（openapi-typescript-codegen 一类）不走 axios，而是调本地 `request({ url, method })` 或类里的 `this.request({ path, method })`；提取器只认字面 `axios`，于是前端调用识别为 0。此时 `buildResult` 仍把全部后端路由按"无人调用"报成 `hasFindings: true`——识别失败被包装成确认事实，agent 可能照着删实际有调用的路由。
+- **改动**：`client-call-extractor.js` 把 axios 配置提取泛化为 `extractConfigObjectCalls(calleeRe, { requireMethod })`，新增 `extractRequestConfigCalls` 匹配裸标识符 `request(` 或 `this.request(` 的配置对象，且必须 url/path 与 method 成对出现（无 method 的 `request({url})` 太宽泛，不认）；`myApi.request({...})` 等其他成员调用维持旧的不识别契约（旧 narrow-matching 测试锁定），用 lookbehind 排除。`api-contract-tools.js` 的 `buildResult`：前端调用数为 0 时 `hasFindings` 不再算 unmatchedServer，并在 `warnings[]` 记一条 `no-client-calls-recognized` 显式说明"没识别到调用、未匹配路由不算发现"。unmatchedServer 数据照列，只改判定口径。
+- **验证**：新建 `test/p1-14-api-contracts-test.js`（生成客户端两种调用形式可提取、无 method 不提取、零调用 hasFindings=false 且有警告、有调用时未匹配路由仍是发现；两处独立变异检查均红）。旧 `api-contracts-test` 全程绿。
+
 ### Fixed: P1-13 无插值模板字符串的动态导入/按普通字符串识别（2026-09-28）
 
 - **根因**（审查报告 P1-13）：`` import(`./lazy`) `` 的参数是 TemplateLiteral 节点，`CallExpression` 提取分支只认 `arg.value`（StringLiteral 才有），于是这条静态依赖整条丢失，目标文件被误报死代码。`require(`./x`)` 同一缺口；regex 兜底路径的引号正则也匹配不到反引号。

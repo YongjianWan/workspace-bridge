@@ -62,7 +62,6 @@
 | P1-5 | Agent 默认 JSON 输出可能过大，且列表截断时需要显式告知；具体体积需在固定仓库重测。 | [手工] 对比 `audit-overview`、`audit-file`、`impact` 的 `--json` 与 `--format ai` 字节数 | 默认输出按 token 预算裁剪，并标明截断数量。 |
 | P1-6 | 大仓库缓存体积和冷启动资源成本可能过高，当前量级需重新测量。 | [手工] 在固定 Django 版本上测缓存 DB 各表、冷暖启动和峰值内存 | 先定位最大表与重复存储，再决定按需计算或路径压缩。 |
 | P1-7 | 图构建之外的冷启动耗时缺 profile，不能直接归因于缓存写入。 | [手工] 固定环境运行 `--cpu-prof` 并拆分阶段耗时 | 先测量，再根据 P1-6 的结果优化。 |
-| P1-14 | api-contracts 不认 OpenAPI 生成的客户端（`url: '/api/v1/...'`）。full-stack-fastapi-template 识别到 0 个前端调用，却报"19 个后端路由没人调"并标 `hasFindings: true` | [手工] `api-contracts --cwd fsft --frontend <绝对路径>/frontend --backend <绝对路径>/backend` | 支持 `{ url, method }` 对象；前端调用为 0 时报"没识别到调用"，不报发现 |
 
 ### P2：工程卫生
 
