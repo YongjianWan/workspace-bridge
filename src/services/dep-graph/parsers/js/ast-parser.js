@@ -15,6 +15,17 @@ const {
   pushFunctionRecord,
 } = require('./shared');
 
+// 无插值模板字符串等价于普通字符串：`import(`./lazy`)` 和 import('./lazy')
+// 是同一种静态依赖；带插值的模板无法静态解析，返回 null。
+function staticModuleSource(arg) {
+  if (!arg) return null;
+  if (arg.type === 'StringLiteral') return arg.value;
+  if (arg.type === 'TemplateLiteral' && arg.expressions.length === 0) {
+    return arg.quasis[0]?.value?.cooked ?? null;
+  }
+  return null;
+}
+
 function extractPatternBindingNames(patternNode) {
   const names = [];
   let hasRest = false;
@@ -246,10 +257,10 @@ function parseJavaScriptAST(content, filePath = '') {
       CallExpression(node, parent) {
         if (
           node.callee?.type === 'Identifier' &&
-          node.callee.name === 'require' &&
-          node.arguments?.[0]?.value
+          node.callee.name === 'require'
         ) {
-          const source = node.arguments[0].value;
+          const source = staticModuleSource(node.arguments?.[0]);
+          if (source === null) return;
           imports.push(source);
           let imported = [];
           let usesAllExports = true;
@@ -272,11 +283,9 @@ function parseJavaScriptAST(content, filePath = '') {
           importRecords.push(createImportRecord(source, { imported, usesAllExports }));
           return;
         }
-        if (
-          node.callee?.type === 'Import' &&
-          node.arguments?.[0]?.value
-        ) {
-          const source = node.arguments[0].value;
+        if (node.callee?.type === 'Import') {
+          const source = staticModuleSource(node.arguments?.[0]);
+          if (source === null) return;
           imports.push(source);
           importRecords.push(createImportRecord(source, { usesAllExports: true, isLazy: true }));
         }

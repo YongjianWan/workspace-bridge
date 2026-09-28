@@ -8,6 +8,6 @@ const SCHEMA_VERSION = '1.2.0';
 // Both WorkspaceCache (JSON fallback) and GraphDB (SQLite) must use the same version.
 // Bump whenever persisted parse results, edges or aggregates would differ from
 // what the current code computes — an old cache is otherwise trusted silently.
-const CACHE_VERSION = 48;
+const CACHE_VERSION = 49;
 
 module.exports = { SCHEMA_VERSION, CACHE_VERSION };

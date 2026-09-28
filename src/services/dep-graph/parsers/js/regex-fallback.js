@@ -239,6 +239,23 @@ function extractImportsWithRegex(sanitized) {
     importRecords.push(createImportRecord(source, { usesAllExports: true }));
   }
 
+  // 无插值模板字符串与引号等价：`...` 里不含 ${ 或反引号；带插值的无法静态解析，跳过。
+  const templateDynamicImportRegex = /import\s*\(\s*`([^"`${}]*)`\s*\)/g;
+  while ((match = templateDynamicImportRegex.exec(sanitized)) !== null) {
+    const source = match[1];
+    if (!source) continue;
+    imports.push(source);
+    importRecords.push(createImportRecord(source, { usesAllExports: true }));
+  }
+
+  const templateRequireRegex = /require\s*\(\s*`([^"`${}]*)`\s*\)/g;
+  while ((match = templateRequireRegex.exec(sanitized)) !== null) {
+    const source = match[1];
+    if (!source) continue;
+    imports.push(source);
+    importRecords.push(createImportRecord(source, { usesAllExports: true }));
+  }
+
   return { imports, importRecords };
 }
 
