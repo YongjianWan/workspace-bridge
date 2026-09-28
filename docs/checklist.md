@@ -181,16 +181,13 @@
 
 ### 快照一致性
 
-* aggregates 与 impact 同 generation
-* routes 与 graph 同 generation
-* metrics 与 graph 同 generation
-* test_map 与 graph 同 generation
-* 所有 row version 一致
-* 所有 row fileCount 一致
-* 缺少任一维度时整体降级
-* mixed-generation 数据拒绝加载
+* `parse_results` 只含纯解析输出（原始 import、导出、函数、隐式导入源），不含已解析目标路径
+* `parse_results.hash` 与当前文件内容 SHA-256 一致才复用，否则重新解析
+* 图边、affected-tests、impact 每次按当前文件集合重算，不读持久化表
+* 旧版图级表（edges、precomputed_*、test_map、routes、metrics）迁移时删除
+* overview 快照的 version、fileCount 与当前一致
 * 配置 hash 参与指纹
-* dirty files 参与指纹
+* 文件路径与内容哈希参与指纹（同大小、同 mtime 的内容修改也要使快照失效）
 
 ## B. 增量更新
 

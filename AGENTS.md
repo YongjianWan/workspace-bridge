@@ -39,7 +39,7 @@
 
 ## 当前核验
 
-`node test/wb-repro.js cli.js` 应为 27/27 OK、退出码 0；`CACHE_VERSION=52`，`schemaVersion=1.2.0`。`audit-overview` 覆盖率 1、fallback 0。快测基线 205 选 203 过，全量 305 选 302 过（2026-09-28 独立缓存实测）；已知红为 wave15-ast-rules / wave15-neighbor-aware 两条 Windows/libuv 异常退出（3221226505），以及 `workspace-info-lightweight-test.js` 的 2000ms 预算偶发超限（本轮 2222ms，暖缓存单跑两次通过）。见 SESSION.md；出现其他失败须调查。
+`node test/wb-repro.js cli.js` 当前为 27/27 OK、退出码 0；`CACHE_VERSION=53`，`schemaVersion=1.2.0`。`audit-overview` 在本仓覆盖率 1、fallback 0。快测 199/199；全量 `node test/runner.js` 301/301、退出码 0（2026-09-29，慢测默认并发 2，本机约 29 分钟）。出现任何失败须调查；SIGTERM 超时先对照 SESSION.md 的并发说明。
 
 ## 工程品味（TASTE）
 
@@ -145,7 +145,7 @@
 | 层级          | 代表文件                                                                                                                                                                                                                                                                         | 职责                                                                                                 |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | L0 基础设施   | `path.js`, `constants.js`, `sanitize.js`, `command.js`, `parse-args.js`, `async.js`, `event-bus.js`                                                                                                                                                                | 路径工具、常量、shell 参数与符号名过滤、spawn 安全包装、并发控制、事件总线                           |
-| L1 存储/索引  | `cache.js`, `graph-db.js`, `file-index.js`                                                                                                                                                                                                                                 | SQLite 缓存与持久化图存储（项目隔离：按 workspaceRoot md5 hash 分目录）、文件索引构建                |
+| L1 存储/索引  | `cache.js`, `graph-db.js`, `file-index.js`                                                                                                                                                                                                                                 | SQLite 文件元数据、纯解析结果与分析快照缓存（项目隔离：按 workspaceRoot md5 hash 分目录）、文件索引构建                |
 | L2 核心引擎   | `dep-graph.js`, `builder.js`, `analyzer.js`, `query.js`, `pagerank.js`                                                                                                                                                                                                 | `DependencyGraph` facade + `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` / PageRank        |
 | L2.5 子引擎   | `parsers/*`, `resolvers.js` + `resolvers/*`, `symbol-registry.js`, `symbol-impact.js`, `function-impact.js`, `function-similarity.js`, `framework-patterns.js`, `implicit-imports.js`                                                                          | 多语言 parser、import 解析、全局符号映射、符号级影响、函数相似度、框架模式检测（9 语言 × 20+ 框架） |
 | L3 服务组装   | `container.js`, `diagnostics-engine.js`                                                                                                                                                                                                                                      | `ServiceContainer` 组装所有服务 + `DiagnosticsEngine`                                            |
@@ -243,6 +243,9 @@ node cli.js dead-exports --cwd . --json --quiet
 | 实验脚本残留仓库根被 orphan 检测计数                 | `test/dead-exports-imports-scratch-config-test.js`   | 根目录任何未引用 `.js`（一次性测量/复现脚本）都算 orphan，`orphans.modules` 断言必红。实验脚本用完即删，别留在根目录过全量 runner   |
 | `resolvers.js` 策略链新增策略                        | `src/services/dep-graph/resolvers.js`                | 新增语言需在`registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null` |
 | `checkFileChanges()` 内容校验                         | `src/services/cache.js`                              | 每次按 SHA-256 校验内容；缺少哈希的旧元数据必须视为变化，mtime+size 仅用于元数据更新。测试夹具也要提供内容哈希。 |
+| `parse_results` 只存纯解析输出                        | `src/services/dep-graph/builder.js` / `graph-db.js`   | 缓存按文件路径保存、按内容哈希校验；不得写入已解析的目标路径。每次建图都要根据当前文件集合重新 resolve，新增文件也可能改变未改动文件的依赖边。 |
+| 图级 SQLite 表已废弃                                   | `src/services/graph-db.js`                            | `edges`、`precomputed_impact`、`precomputed_aggregates`、`test_map`、`routes`、`metrics` 不再存在；评测和测试必须查当前图，不可继续读旧表。 |
+| workspace 包清单缓存随 resolver 批次清空               | `src/services/dep-graph/resolvers.js`                 | `clearResolverCaches()` 必须同步清理 workspace 包清单；watch/REPL 中 package.json 变化后不得继续用旧入口。 |
 | 动态 require 导致死导出误报                            | `src/services/dep-graph/framework-patterns.js`       | `dead-exports` 无法静态分析 `ROUTE_QUERY_REGISTRY` 动态 require，可忽略或加白                              |
 | C/C++`#include` resolver 语义限制                    | `src/services/dep-graph/parsers/registry.js`         | C/C++ 对系统头、`-I` 搜索路径支持较弱，`unresolved` 可能偏高                                               |
 | `regex-fallback` 缓存条目永不命中                    | `src/services/dep-graph/builder.js`                  | tree-sitter WASM 不可用或解析失败时的降级产物每次重解析是**刻意设计**（`_isParseCacheUsable`），不是缓存失效 bug |

@@ -18,19 +18,6 @@
 
 ## 观察记录
 
-### `test/eval_affected_tests.py` 在 Windows 上预测恒为 0（路径分隔符）
-
-- **日期**：2026-09-26
-- **仓库/文件**：`test/eval_affected_tests.py`（`predictions()` + `is_test` lambda）
-- **复现**：`eval/truth/venvs/typer/Scripts/python.exe test/eval_affected_tests.py eval/truth/repos/python/typer eval/truth/out/python/typer/coverage.data tests`
-- **现象**：per-file 表全部 `pred=0 hit=0`，`micro precision=0.00 recall=0.00`。
-  `os.path.relpath` 在 Windows 返回 `tests\test_cli.py`（反斜杠），而
-  `is_test = p.startswith(test_dir + '/')` 只认 `tests/` 前缀 → 预测全被过滤；
-  gt 侧的 candidate 是 `'/'.join(...)` 正反斜杠混用，交集也为空。
-- **期望**：两侧 `replace('\\','/')` 归一后再比较；或用 `os.sep` 拼前缀。
-- **疑似关联**：审查未发现（审查环境是 Linux）。**test/ 不许改**——eval/score.js 已按同语义
-  移植成 JS（分隔符归一），python 文件保持原样作为方法论权威。
-
 ### typer 测试套件在 Windows + coverage 下非全绿（21 failed / 16 errors）
 
 - **日期**：2026-09-26

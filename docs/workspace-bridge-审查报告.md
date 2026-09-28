@@ -9,7 +9,7 @@
 ## 0. 使用与验收
 
 - 活跃问题见第 4 节；已完成的修复经过只查 [CHANGELOG.md](../CHANGELOG.md)。
-- `test/wb-repro.js` 是自动复现门禁，`node test/wb-repro.js cli.js [用例ID ...]`；`test/eval_affected_tests.py` 是 affected-tests 真值评测。脚本通过不能替代第 4 节的手工验收。
+- `test/wb-repro.js` 是自动复现门禁，`node test/wb-repro.js cli.js [用例ID ...]`；`node eval/score.js` 使用固定语料和实时查询评测 affected-tests。脚本通过不能替代第 4 节的手工验收。
 - 修问题时先复现，修完跑对应测试、全量复现门禁和项目回归。不要为了通过而改动复现用例的正确行为定义；若定义有争议，先确认。
 ## 1. 固定评测仓库
 
@@ -57,7 +57,9 @@
 
 ### P1：可信度和可用性
 
-当前无开放项。
+| ID | 当前问题 | 下一步验证 |
+|---|---|---|
+| P1-14 | `api-contracts` 对生成客户端代码的 `client.post`、`__request` 等调用模式覆盖不足，可能漏报前后端契约关联。 | 在固定前后端夹具中分别加入两种调用，先复现漏报，再扩充匹配并验证误报。 |
 
 ### P2：工程卫生
 
@@ -65,6 +67,8 @@
 |---|---|---|
 | P2-3 | 有测试在断言源码文本（比如"不能出现 `?.`"），这其实是 lint 规则。已确认：`test/wave5-boundary-hardening-test.js`、`test/content-signature-trust-test.js`；粗算上限约 12 个 | 打开这两个文件看写法，再全局搜同样模式 |
 | P2-6 | `guard` 检查没通过和运行出错都返回 1，CI 分不清 | 给"没通过"单独一个退出码 |
+| R-3 | `gitignore.js` 在子目录分析时的仓库根判定待复核。 | 用子目录作为 `--cwd` 运行 `git rev-parse` 与忽略规则复现，核对输出根目录。 |
+| R-4 | submodule 路径可能让 `git check-ignore` 返回 128，导致忽略判断不完整。 | 在含 submodule 的固定夹具中复现退出码及工具警告，再决定降级或路径处理。 |
 | P2-7 | 开发依赖漏洞：`tar`（critical）、`brace-expansion`（high），影响构建和发布流水线 | `npm audit` |
 | P2-8 | 仓库里提交了 `.claude/settings.local.json`；`reference/` 有 430KB zip 和 docx | `git ls-files .claude reference` |
 | P2-9 | `diagnostics --mode full`、`stats --format markdown` 和已 deprecated 的 `health` 命令价值存疑。 | [手工] 分别执行命令，核对 `checksRun`、Markdown 内容与 `audit-summary.health` 是否重复；空转命令删除或合并，损坏格式修复后再决定保留。 |
@@ -78,7 +82,7 @@
 
 - `dead-exports`：以 [eval/labels/](../eval/labels/) 的人工标注逐条核对 high 级告警，特别检查公开 API、auto-import、宏和动态注册。
 - `affected-tests`：按 [eval/README.md](../eval/README.md) 的 typer coverage 真值计算精确率与召回率，记录漏报文件及其真实测试集。
-- 缓存与启动性能：在第 1 节固定版本的 Django 上分别测冷启动、暖启动、缓存体积和内存峰值，保留命令与机器环境。旧审查数字只在 CHANGELOG 留档。
+- 缓存与启动性能：固定 Django `a013c821ea`、Windows/Node 25.6.0、独立空缓存各跑一次 `node cli.js audit-overview --cwd <django> --cache-dir <temp> --json --quiet`：冷 56.5 秒、暖 19.8 秒，缓存 11.3 MB；两次均为 2977 文件、覆盖率 1、fallback 3、unresolved 1、dropped 4、warnings 2。本轮未测 RSS 峰值，耗时为单次数据，不当作稳定性能结论。
 ## 6. 没有覆盖到的（需要在工作电脑上确认）
 
 **Windows 特有边界（仍需专项验证）**
@@ -102,7 +106,7 @@
 
 ## 7. 当前修复顺序和验收
 
-1. 处理缓存性能与输出可用性（P1-4/5/6/7/14/16）。
+1. 先复现并处理 P1-14 的生成客户端调用漏报，再处理 R-3、R-4 的 gitignore 边界；缓存暖启动成本见 TECH_DEBT.md L3-15。
 2. 其余开放项按第 4 节逐条复现；每完成一项，就从活跃清单删除，并在 CHANGELOG 记录改动、原因和验证。
 
 每轮收工执行 `node test/wb-repro.js cli.js`、`npm run test:fast`；涉及真实仓库结果时按 [eval/README.md](../eval/README.md) 复测。

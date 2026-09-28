@@ -7,6 +7,35 @@
 
 ## [Unreleased]
 
+### Fixed: 解决 Windows 下 `exit 3221226505` libuv 断言崩溃（2026-09-28）
+
+- **根因**：[`wave15-ast-rules-test.js`](test/wave15-ast-rules-test.js) 和 [`wave15-neighbor-aware-test.js`](test/wave15-neighbor-aware-test.js) 在所有断言通过后执行了 `else process.exit(0)`。这两个测试均初始化了 `web-tree-sitter` (WASM) 及异步句柄；当 JS 层硬调用 `process.exit(0)` 时，Node.js 立即执行 Environment teardown 并将所有活跃句柄打上 `UV_HANDLE_CLOSING` 标志。在 Windows 平台（`src\win\async.c:76`），libuv 的 `uv_async_send` 包含断言 `assert(!(handle->flags & UV_HANDLE_CLOSING))`。WASM/异步后台线程在退出清理中触发 send 命中该断言，导致 C Runtime 调用 `abort()`（退出码 `3221226505` / `0xC0000409`）。
+- **修复**：删除两个测试末尾多余粗暴的 `else process.exit(0)`，遵从现代 Node.js 测试规范，成功时允许 Event loop 自然 drain 并平稳释放句柄，仅在 `failed > 0` 时退出码为 1。
+- **验证**：两个测试独立运行均 0 退出码平稳退出；`npm run test:fast` 从 `197 passed, 2 failed` 提升至 **199 passed, 0 failed (100% 全绿)**。
+
+### Fixed: 审查小缺陷收口（模板字面量 $ 路径、pyproject extras 截断、tox.ini pytest 识别、workspace 包解析缓存）（2026-09-28）
+
+- **正则兜底放行 `$` 路径**：[`regex-fallback.js`](src/services/dep-graph/parsers/js/regex-fallback.js) 的无插值模板字符串正则将 `[^"`${}]*` 改为 `(?:[^`$]|\$(?!\{))+`，避免将 `$lib/x`、`$app/stores` 等合法导入误杀排除。
+- **`pyproject.toml` extras 闭合判定修正**：[`base.js`](src/services/dep-graph/resolvers/base.js) 提取依赖时，先去除引号内字符串再检查 `]` 闭合，避免 `fastapi[standard]` 里的 `]` 提前截断整个依赖数组导致后续依赖丢失。
+- **`tox.ini` pytest 识别**：[`detect.js`](src/utils/stack-detectors/detect.js) 补充读取 `tox.ini` 中的 `[pytest]` 配置段，解决未配置 `pytest.ini` 但在 `tox.ini` 中配置 pytest 时测试命令缺失的问题。
+- **workspace 包解析加内存缓存**：[`javascript.js`](src/services/dep-graph/resolvers/javascript.js) 为 `tryWorkspacePackage` 引入按 `root` 维度的包元数据缓存 `_workspacePackagesCache`，消除对同一个 monorepo 每个裸 import 反复读取 `package.json` / `pnpm-workspace.yaml` 及 `readdirSync` 的上千次 I/O 开销。
+- **同进程失效修复**：workspace 包清单缓存接入 `clearResolverCaches()`；watch/REPL 修改或删除包清单后，下一个解析批次不再沿用旧入口。`small-fixes-review-test.js` 先以删除清单场景复现失败，再验证修复。
+- **验证**：`test/small-fixes-review-test.js` 通过；`node test/wb-repro.js cli.js` 27/27 OK；`npm run test:fast` 199/199 通过。
+
+### Changed: 慢测默认并发降为 2，负载敏感测试改串行并隔离缓存（2026-09-29）
+
+- **测试隔离**：`phase35-query-sql`、`query-tools` 改用各自的临时缓存（此前读本机默认缓存库，该库已损坏，快照读不到），`phase35-query-sql` 的 CLI 调用也显式传同一个 `--cache-dir`。`phase35-query-sql` 与 `workspace-info-lightweight` 标 `@serial`，后者的进程启动预算由 2 秒放宽到 3 秒（并发下实测 2.15 秒、单跑通过）。`with-impact` 用 `--files src/utils/path.js` 限定范围，不再随工作区未提交文件数量变慢（约 80 个未提交文件时单跑 165 秒 → 20 秒）。
+- **旧表断言迁移**：`language-parity-edges` 改读运行中的图；`dep-graph-postprocess-incremental` 分别断言缓存里的原始 import 和图里的已解析边。
+- **慢测默认并发 4 → 2**：干净工作区、并发 4 的全量里，`bug-27-28-29-regression`、`cli-error-handling`、`cli-integration-core`、`data-quality-propagation`、`git-environment-probe`、`severity-filter` 六项在 180 秒上限被 SIGTERM。A/B 对照排除了缓存重构：同一暖缓存下，旧代码（390814e）和新代码把其中四项并发 4 同时跑，单项 108–169 秒对 128–172 秒，总计 173 秒对 176 秒；单跑 `cli-integration-core` 为 68 秒对 66 秒；同一棵树上 `audit-overview`、`audit-summary`、`affected-tests`、`audit-diff --files`、`dead-exports` 暖启动差距 ≤1.5 秒。这几项在旧代码下也贴着上限跑，余量已耗尽。并发 2 时同批测试 110–150 秒全部通过，同机全量墙钟时间 1716 秒（并发 4，6 项超时）对 1730 秒（并发 2，301/301）；仍可用 `TEST_SLOW_CONCURRENCY` 覆盖。
+
+### Refactored: 废弃图级持久化与逐文件影响预计算，改由纯解析缓存重建依赖图（2026-09-28）
+
+- **移除图级表与反序列化**：删除 `loader.js`、`persistence.js`、`impact-codec.js`；SQLite 迁移删除 `edges`、`precomputed_impact`、`precomputed_aggregates`、`test_map`、`routes`、`metrics`。保留内容哈希校验的纯解析缓存和带版本戳的 overview 快照。
+- **消除暖冷分叉**：`parse_results` 不再保存已解析目标路径；每次根据当前文件集合 resolve 并重建图，逐文件 affected-tests/impact 按需查询。仍保留 `graph:built` 后的聚合预计算，不能称为完全取消预计算。新增文件使未改动 importer 连上新目标、同大小同 mtime 修改使快照失效，均有语义测试。
+- **评测入口同步**：`eval/score.js` 对 coverage 真值中的源文件在一次建图后调用当前 `findAffectedTests`；移除仍读旧表的 `test/eval_affected_tests.py`。typer 固定提交上，v52 与 v53 的实时查询同为 TP 3045、FP 2512、FN 29；原基线来自 v47 旧表，故仅重校 typer affected-tests 基线为 P 0.5480 / R 0.9906，不把口径差误判成重构回归。
+- **性能实测**：Windows/Node 25.6.0、Django `a013c821ea`、同机独立缓存各跑一次 `audit-overview`：v52 冷/暖 83.7/15.9 秒、缓存 198.4 MB；v53 冷/暖 56.5/19.8 秒、缓存 11.3 MB。单次耗时只用于定位代价，未测 RSS；暖启动优化仍是开放债务。
+- **验证**：`node test/wb-repro.js cli.js` 27/27 OK；`npm run test:fast` 199/199 通过；完整 runner 结果见 SESSION.md。
+
 ### Fixed: `api-contracts` 相对目录按 `--cwd` 解析（2026-09-28）
 
 - 修正 `--frontend`/`--backend` 与 `--file` 的路径基准不一致：CLI 把 `--cwd` 传给双工作区分析，两个相对目录都以它为基准；绝对目录保持原行为，直接调用 `runApiContracts` 且未提供 `cwd` 时仍以进程当前目录为基准。

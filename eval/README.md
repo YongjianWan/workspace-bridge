@@ -117,9 +117,8 @@ unresolvedCount / droppedCount / warnings / languages{files, astFiles, regexFile
 3. 在 clone 里执行 `python -m coverage run --rcfile=... -m pytest -q -p no:cacheprovider -p no:cov <tests>`。
    pytest exit 1（有用例失败）照样接受——真值取自 coverage 数据，与通过与否无关。
 4. `gt.json` = 每个源文件 → 实际执行到它的测试文件。**真值是下限**：子进程里跑的代码 coverage 追不到。
-5. 预测 = 该仓缓存里的 `precomputed_impact`，两侧路径归一成 `/` 后做 micro P/R。
-   方法论以 `test/eval_affected_tests.py` 为准；不直接调用它，因为它在 Windows 上
-   `os.path.relpath` 出反斜杠、预测被全部过滤（见 findings.md），`score.js` 是逐句移植 + 分隔符归一。
+5. `score.js` 初始化该仓依赖图，对 `gt.json` 中每个源文件调用 `findAffectedTests` 取得预测；
+   两侧路径归一成 `/` 后做 micro P/R。一次建图即可评分，预测不依赖持久化的整图分析表。
 
 ### affected-tests：fault-injection
 
