@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### Fixed: P1-4 node:sqlite 不可用时静默冷启动 + P1-16 热点同分排序不固定（2026-09-28）
+
+- **P1-4 根因**：`package.json` 声明 `node >=22.5.0`，但 `node:sqlite` 在 22.13 之前是未知内置模块（22.5.0 / 22.12.0 实测 `ERR_UNKNOWN_BUILTIN_MODULE`）。require 失败被 `_readGuard` 吞成缓存 miss，缓存目录永远是空的、每次都是冷启动，且没有任何提示。
+- **P1-4 改动**：`graph-db.js` 新增 `_loadSqlite()`，捕获 `ERR_UNKNOWN_BUILTIN_MODULE` 时向 stderr 打一次性警告（标明最低版本 22.13.0 与后果），其余错误照原样抛出；`engines` 收紧为 `>=22.13.0`（package.json + package-lock）；CI `test.yml` 矩阵加 `22.13.0` 钉住声明的最低版本。正常路径 stderr 不出现 sqlite 字样（`graph-db-quiet-warning-test` 锁此契约）。
+- **P1-16 根因**：`buildHotspots` 只按 score 排序，V8 sort 对同分元素不保序，冷启动下"优先审查热区文件"建议的顺序随输入批次漂移。
+- **P1-16 改动**：`overview-assembler.js` 提取 `byScoreThenPath`（score 降序、同分按 file 升序），`buildHotspots` 与 `buildHotspotVisualizationData` 共用。只改排序，不动打分与阈值。
+- **验证**：新建 `test/graph-db-sqlite-unavailable-test.js`（Module._load 桩模拟旧 Node：读路径降级为 miss 不崩、stderr 一次性警告含 22.13.0；变异检查：注掉警告分支即红）与 `test/p1-16-hotspot-tie-sort-test.js`（同分按路径升序、不同分时 score 仍优先；修前红：保输入序）。`node test/wb-repro.js cli.js` 27/27。
+
 ### Fixed: P1-17 截断一律显式 + P1-18 孤儿路径保留原始大小写（2026-09-28）
 
 - **根因**（审查报告 P1-17）：`route-formatter` 给所有 `--json` 输出套了通用兜底 `elideDeep`，数组截到 100、字符串截到 500、嵌套超 12 层置 null，且不留任何标记；生产方只按自己的上限（affected-tests 500）设 `truncated`，于是 typer 上 `affectedTestsCount 212` 只列 100 条却标 `truncated: false`。审查报告列的 affected-tests 截断、dead-exports `exports` 截 100、query 截长字符串都是这一处。另外 `--max-files 300` 也被兜底网截回 100；audit-file compact（仓库超 500 文件自动触发）把列表和验证命令整个清空仍标 `truncated: false`；`--format ai` 的 details 抽样不标记。

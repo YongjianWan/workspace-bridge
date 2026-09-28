@@ -59,13 +59,11 @@
 
 | ID | 问题 | 验证 | 修复方向 |
 |---|---|---|---|
-| P1-4 | `package.json` 声明 `node >=22.5.0`，但 `node:sqlite` 在 22.13 之前不能直接用（22.5.0 和 22.12.0 实测 `ERR_UNKNOWN_BUILTIN_MODULE`）。工具不会报错，但缓存目录是空的，每次都是冷启动，没有任何提示。CI 只测最新的 22.x 和 24 | [手工] 下载 Node 22.12.0 跑两次 audit-overview，看 `.workspace-bridge/` 是否为空 | engines 改为 `>=22.13.0`；sqlite 不可用时打警告；CI 加最低版本 |
 | P1-5 | Agent 默认 JSON 输出可能过大，且列表截断时需要显式告知；具体体积需在固定仓库重测。 | [手工] 对比 `audit-overview`、`audit-file`、`impact` 的 `--json` 与 `--format ai` 字节数 | 默认输出按 token 预算裁剪，并标明截断数量。 |
 | P1-6 | 大仓库缓存体积和冷启动资源成本可能过高，当前量级需重新测量。 | [手工] 在固定 Django 版本上测缓存 DB 各表、冷暖启动和峰值内存 | 先定位最大表与重复存储，再决定按需计算或路径压缩。 |
 | P1-7 | 图构建之外的冷启动耗时缺 profile，不能直接归因于缓存写入。 | [手工] 固定环境运行 `--cpu-prof` 并拆分阶段耗时 | 先测量，再根据 P1-6 的结果优化。 |
 | P1-13 | 模板字符串写的动态导入（`` import(`./x`) ``，无插值）识别不了，还被误报死代码 | [手工] 在 TS 文件里写 `` const f = () => import(`./lazy`) `` | 无插值的模板字符串按普通字符串处理 |
 | P1-14 | api-contracts 不认 OpenAPI 生成的客户端（`url: '/api/v1/...'`）。full-stack-fastapi-template 识别到 0 个前端调用，却报"19 个后端路由没人调"并标 `hasFindings: true` | [手工] `api-contracts --cwd fsft --frontend <绝对路径>/frontend --backend <绝对路径>/backend` | 支持 `{ url, method }` 对象；前端调用为 0 时报"没识别到调用"，不报发现 |
-| P1-16 | 热点排序遇到同分时顺序不固定，冷启动时"优先审查的热区文件"建议每次可能不同 | [手工] 删缓存跑两次 typer 的 audit-overview，比较 `summary.recommendations` | 排序加文件路径作第二排序键 |
 
 ### P2：工程卫生
 
