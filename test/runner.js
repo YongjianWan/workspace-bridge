@@ -292,8 +292,8 @@ const FAST_CONCURRENCY = parseInt(process.env.TEST_CONCURRENCY, 10)
 // times. Four of them side by side on an 18-thread laptop take 130–172s each
 // against the 180s per-test timeout, so ordinary background load turns passing
 // tests into SIGTERM failures that read as regressions. At 2 they finish in
-// 110–150s. The suite's wall clock grows (~29 → ~34 min); a false red costs
-// more to investigate than that.
+// 110–150s. Measured full-suite wall clock barely moves (1716s at 4, 1730s at 2)
+// because the serial and fast phases dominate the tail.
 const SLOW_CONCURRENCY = parseInt(process.env.TEST_SLOW_CONCURRENCY, 10)
   || Math.min(2, FAST_CONCURRENCY);
 
