@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-09-27T11:56:13.270Z",
   "wbVersion": "2.1.0",
-  "note": "2026-09-27 重基线：score.js 全 PASS 后整体取自 scoreboard。相对上一版的变化只有提升——typer affected-tests recall 0.9496->0.9847（rich_utils 缺边修复），cJSON dead-code precisionHigh 0.05->1（P0-6 降档）。Regenerate from eval/scoreboard.json only after reviewing FAIL lines. 2026-09-27 P1-12：cJSON dead-code precision 0.0526->0 是口径变化——消失的唯一一条 high 是 test.c 的 struct record（本文件第 140 行即在用，未标注的误报被计成 TP），C 源文件的编译单元局部声明不再算导出；剩余 14 条全是已标注 FP 且全为 low。",
+  "note": "typer affected-tests 使用固定提交 a80f6e5ecd 的 coverage 真值和实时 findAffectedTests 查询作基线；其他指标沿用现有固定语料的评分。",
   "repos": {
     "typer": {
       "dead-code": {
@@ -13,9 +13,9 @@
       },
       "affected-tests": {
         "status": "ok",
-        "precision": 0.6019,
-        "recall": 0.9847,
-        "n": 5076
+        "precision": 0.548,
+        "recall": 0.9906,
+        "n": 5586
       }
     },
     "full-stack-fastapi-template": {

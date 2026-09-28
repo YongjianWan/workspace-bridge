@@ -30,9 +30,7 @@ const { GraphAnalyzer } = require('./dep-graph/analyzer');
 const { GraphQuery } = require('./dep-graph/query');
 const { EntryDetector } = require('./dep-graph/entry-detector');
 const { collectUnresolvedImports } = require('./dep-graph/unresolved-imports');
-const { loadGraph: loadGraphImpl } = require('./dep-graph/loader');
 const { DG_STATES, GraphStateMachine } = require('./dep-graph/state-machine');
-const { registerGraphBuiltHandler } = require('./dep-graph/persistence');
 const { getRegisteredQueryFiles } = require('./dep-graph/framework-patterns');
 class DependencyGraph {
   /**
@@ -75,9 +73,10 @@ class DependencyGraph {
     this.builder = new GraphBuilder(this);
     this.analyzer = new GraphAnalyzer(this);
     this.query = new GraphQuery(this);
-    // A-2: post-build orchestration (precompute + persistence) moved to
-    // orchestrator.js so the facade doesn't carry cross-module coordination.
-    registerGraphBuiltHandler(this);
+    // Aggregates (dead exports, cycles, unresolved, stats) are recomputed on
+    // every build: a stale aggregate would make audit-overview disagree with
+    // the atomic commands for the same graph.
+    this.bus.on('graph:built', () => this.analyzer.precomputeAggregates());
 
     // O6: backward-compatible _updating getter — state managed by _transition()
     Object.defineProperty(this, '_updating', {
@@ -248,15 +247,6 @@ class DependencyGraph {
     return this.builder.buildReverseGraph(...args);
   }
 
-  /**
-   * D3: Load graph + reverseGraph from persisted edges in SQLite.
-   * Skips buildReverseGraph() and post-process if edges are fresh.
-   * Returns true on success, false to fall back to build().
-   */
-  loadGraph(options = {}) {
-    return loadGraphImpl(this, options);
-  }
-
   getDependencies(...args) {
     return this.query.getDependencies(...args);
   }
@@ -322,7 +312,7 @@ class DependencyGraph {
   }
 
   /**
-   * Unresolved imports visible from the current graph, including warm restores.
+   * Unresolved imports visible from the current graph.
    * Bare Python names have uncertain ownership and are reported separately.
    */
   getDroppedImports() {

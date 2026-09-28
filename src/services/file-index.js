@@ -9,6 +9,7 @@ const { promisify } = require('util');
 const { detectWorkspace, normalizePathKey } = require('../utils/path');
 const { DEFAULT_EXCLUDE_DIRS, shouldExcludeBase, shouldExcludeCli: _shouldExcludeCli } = require('../utils/exclude-patterns');
 const { filterGitIgnored } = require('../utils/gitignore');
+const { hashFileContent } = require('./cache');
 const { loadWorkspaceConfig } = require('../utils/project-context');
 const { EventBus } = require('../utils/event-bus');
 const { registry } = require('./dep-graph/parsers/registry');
@@ -312,16 +313,22 @@ class FileIndex {
    * Process a single file (check cache, index if needed)
    */
   async processFile(file) {
-    // Skip if cache has fresh data
     const cached = this.cache.getFileMetadata(file);
     if (cached) {
       try {
         const stats = await stat(file);
-        if (stats.mtimeMs === cached.mtime && stats.size === cached.size) {
-          return; // Use cached data
+        // mtime and size are hints only: a copy or archive extraction can
+        // restore both after changing content. The content hash is the key
+        // every cache layer trusts, so it is verified for every file.
+        const bytes = await readFile(file);
+        const hash = hashFileContent(bytes);
+        if (hash === cached.hash) {
+          if (stats.mtimeMs !== cached.mtime || stats.size !== cached.size) {
+            this.cache.setFileMetadata(file, { ...cached, mtime: stats.mtimeMs, size: stats.size });
+          }
+          return;
         }
-        // Cache stale — reuse the stat we already have to avoid double stat
-        const ok = await this.indexFile(file, stats);
+        const ok = await this.indexFile(file, stats, bytes);
         if (ok) {
           this.indexedCount++;
           this.changedFiles.add(file);
@@ -472,13 +479,14 @@ class FileIndex {
     return prunedFiles;
   }
 
-  async indexFile(filePath, existingStats = null) {
+  async indexFile(filePath, existingStats = null, existingBytes = null) {
     if (!this.active) return false;
     try {
       const fileKey = normalizePathKey(filePath);
       const stats = existingStats || await stat(filePath);
       if (!this.active) return false;
-      const content = await readFile(filePath, 'utf8');
+      const bytes = existingBytes || await readFile(filePath);
+      const content = bytes.toString('utf8');
       if (!this.active) return false;
       const ext = path.extname(filePath).toLowerCase();
 
@@ -497,11 +505,10 @@ class FileIndex {
 
       if (!this.active) return false;
       // Update file metadata cache
-      const { createHash } = require('crypto');
       this.cache.setFileMetadata(filePath, {
         mtime: stats.mtimeMs,
         size: stats.size,
-        hash: createHash('sha256').update(content).digest('hex'),
+        hash: hashFileContent(bytes),
         symbols: symbols.map(s => s.name),
         lineCount: (content.match(/\n/g)?.length || 0) + 1,
         type,

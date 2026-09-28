@@ -299,11 +299,6 @@ async function buildProjectOverview(args, container) {
     const fileCount = result.scope?.counts?.totalFiles || 0;
     const configHash = computeConfigHash(container.projectContext?.config || null);
 
-    // analysis_snapshots is the ONLY home for the overview snapshot.
-    // Never write it into precomputed_aggregates: that table is full-replace
-    // (DELETE all + INSERT) and owned by savePrecomputed — a second writer
-    // wipes the aggregate keys here and gets its own row wiped by the next
-    // graph:built, so the "mirror" row was unreliable by construction.
     // Unconditional — a throw here is caught below, so the snapshot is
     // simply not persisted; an unsigned row must never be written on purpose.
     const contentSignature = container.cache.getContentSignature() || '';

@@ -18,11 +18,14 @@ const { CONFIG } = require('./shared');
 const { SymbolRegistry } = require('./symbol-registry');
 const { shadowCandidatesFor } = require('./shadow-candidates');
 const { WalCadence } = require('./wal-cadence');
-const { CACHE_VERSION, LIMITS } = require('../../config/constants');
+const { LIMITS } = require('../../config/constants');
+const { hashFileContent } = require('../cache');
 
 const readFile = promisify(fs.readFile);
 const stat = promisify(fs.stat);
 const YIELD_INTERVAL = 20; // event loop yield frequency for large repos
+// In-process memo of recent parses; the persistent parse cache is the real store.
+const PARSE_MEMO_LIMIT = 200;
 
 // Same-package reference gate: simple-name tokens of a source file, and the
 // declaration kinds that may justify a same-package edge. Type-level kinds
@@ -68,15 +71,8 @@ class GraphBuilder {
   /**
    * Run every registered post-process phase in registration order.
    *
-   * Single entry point for both graph paths: `build()` calls it after the
-   * resolve phase, and the warm path (orchestrator, after a successful
-   * `loadGraph()`) replays it because postProcess-injected importRecords are
-   * never persisted — `setParseResult` runs before postProcess. Hardcoding one
-   * phase at the warm call site is what let L1-3 happen; anything registered
-   * through `registerPostProcessPhase()` must reach both paths automatically.
-   *
-   * Contract for phase authors: phases must be idempotent (the warm path may
-   * run them over a graph that already contains their output).
+   * Contract for phase authors: phases must be idempotent — updateFiles re-runs
+   * them over a graph that already contains their output.
    */
   async runPostProcessPhases() {
     for (const phase of this.postProcessPhases) {
@@ -97,10 +93,10 @@ class GraphBuilder {
   /**
    * Single-entry invalidation for ALL parse-cache layers (memory + SQLite).
    *
-   * RATIONALE: Multiple caches (in-memory _parseCache, SQLite-backed
-   * cache.parseResults, and cache.parsedHashes) must be evicted together
-   * whenever a file's content changes. Evicting only one layer leaves the
-   * fast-path mtime check vulnerable to stale content with an updated mtime.
+   * RATIONALE: both caches (in-memory _parseCache and the SQLite-backed
+   * cache.parseResults) must be evicted together when a file changes. A watch
+   * event can arrive before FileIndex refreshes the file's content hash, so
+   * the hash check alone cannot be relied on inside updateFiles.
    *
    * DO NOT add per-layer eviction in updateFiles / delete-files paths.
    * Call `this._invalidateParseCache(key)` instead — it is the only
@@ -129,8 +125,44 @@ class GraphBuilder {
   }
 
   _isParseCacheUsable(cached, meta, result = cached) {
-    if (!cached || !meta || cached.mtime !== meta.mtime) return false;
+    if (!cached || !meta || !meta.hash || cached.hash !== meta.hash) return false;
     return !this._isDegradedCacheEntry(result);
+  }
+
+  /**
+   * The content-derived part of a parse, as persisted in parse_results.
+   * Import resolution is left out on purpose: where an import lands depends on
+   * which other files exist, which the content hash cannot see.
+   */
+  _toParseRecord(parsed, hash) {
+    return {
+      hash,
+      imports: parsed.imports,
+      exports: parsed.exports,
+      importRecords: parsed.importRecords,
+      exportRecords: parsed.exportRecords,
+      functionRecords: parsed.functionRecords,
+      parseMode: parsed.parseMode,
+      parseModeReason: parsed.parseModeReason,
+      confidence: parsed.confidence,
+      package: parsed.package,
+      frameworkHint: parsed.frameworkHint || null,
+      routes: parsed.routes || [],
+      implicitSources: parsed.implicitSources || [],
+    };
+  }
+
+  _fromParseRecord(filePath, graphKey, record) {
+    return {
+      ...record,
+      filePath,
+      graphKey,
+      content: null,
+      importRecords: record.importRecords || [],
+      functionRecords: record.functionRecords || [],
+      implicitSources: record.implicitSources || [],
+      fromCache: true,
+    };
   }
 
   async build(sourceFiles = null) {
@@ -153,7 +185,8 @@ class GraphBuilder {
     this._parseCache.clear();
     // Get all files from cache, or use the raw file list provided by file-index
     // so that originalPath preserves platform-native casing and separators.
-    const candidateFiles = (sourceFiles || Array.from(this.dg.cache.fileMetadata.keys())).filter((file) => {
+    const indexedFiles = () => Array.from(this.dg.cache.fileMetadata, ([key, meta]) => meta?.originalPath || key);
+    const candidateFiles = (sourceFiles || indexedFiles()).filter((file) => {
       if (this.dg.shouldExclude(file)) return false;
       if (this.dg.projectContext && !this.dg.projectContext.isActiveSourceFile(file)) {
         // Keep CLI-excluded files in the graph so their imports still
@@ -171,27 +204,13 @@ class GraphBuilder {
       seen.add(key);
       files.push(file);
     }
-    
-    // Split: cache hit vs need analysis
-    const cachedFiles = [];
-    const filesToAnalyze = [];
-    for (const file of files) {
-      const meta = this.dg.cache.getFileMetadata(file);
-      const cached = this.dg.cache.getParseResult(file);
-      if (this._isParseCacheUsable(cached, meta)) {
-        const key = this.dg.normalizeFilePath(file);
-        // Ensure originalPath uses the platform-native path from sourceFiles
-        // even when the cached parse result lacks it (SQLite schema omit).
-        this.dg.graph.set(key, { ...cached, originalPath: meta?.originalPath || file });
-        cachedFiles.push(file);
-      } else {
-        filesToAnalyze.push(file);
-      }
-    }
-    
-    // Decoupled Phase 1: Parse Phase (Extract symbols and imports)
-    const parsedList = await this._parseFilesWithLimit(filesToAnalyze, CONFIG.DEFAULT_CONCURRENCY);
-    
+
+    // Phase 1: parse. Unchanged content comes from the parse cache; every
+    // file — cached or not — then goes through the same resolve phase, so the
+    // graph never depends on which files happened to be cached.
+    const parsedList = await this._parseFilesWithLimit(files, CONFIG.DEFAULT_CONCURRENCY);
+    const cachedCount = parsedList.filter((parsed) => parsed.fromCache).length;
+
     for (const parsed of parsedList) {
       this.dg.graph.set(parsed.graphKey, {
         originalPath: parsed.filePath,
@@ -235,7 +254,7 @@ class GraphBuilder {
     // Build reverse graph
     this.buildReverseGraph();
 
-    const cacheHitRate = files.length > 0 ? Math.round((cachedFiles.length / files.length) * 100) : 0;
+    const cacheHitRate = files.length > 0 ? Math.round((cachedCount / files.length) * 100) : 0;
     if (!this.dg.quiet) {
       console.error(`[DepGraph] Built in ${Date.now() - startTime}ms: ${this.dg.graph.size} files (${cacheHitRate}% cached)`);
     }
@@ -259,9 +278,6 @@ class GraphBuilder {
     // milliseconds. Delete only together with a contract that forbids phases
     // from touching exportRecords.
     this._buildSymbolRegistry();
-
-    // D1-D2: persist edges to SQLite for fast loadGraph() on next startup
-    await this._saveEdges();
 
     // O6: mark graph ready so that listeners can query safely
     this.dg._finishBuilding();
@@ -327,6 +343,12 @@ class GraphBuilder {
     if (this._isParseCacheUsable(cached, meta, cached && cached.result)) {
       return cached.result;
     }
+    if (contentOverride === null) {
+      const record = this.dg.cache ? this.dg.cache.getParseResult(filePath) : null;
+      if (this._isParseCacheUsable(record, meta)) {
+        return this._fromParseRecord(filePath, graphKey, record);
+      }
+    }
 
     let content = contentOverride;
     if (content === null) {
@@ -349,8 +371,13 @@ class GraphBuilder {
           routes: [],
         };
       }
-      content = await readFile(filePath, 'utf8');
     }
+    // The record is keyed on the bytes actually parsed, not on the metadata
+    // hash: a file edited between indexing and parsing must not be cached
+    // under the older content's key.
+    const bytes = content === null ? await readFile(filePath) : Buffer.from(content, 'utf8');
+    if (content === null) content = bytes.toString('utf8');
+    const contentHash = hashFileContent(bytes);
     const ext = path.extname(filePath).toLowerCase();
     
     let imports = [];
@@ -416,14 +443,18 @@ class GraphBuilder {
       package: packageName,
       frameworkHint,
       routes,
+      implicitSources: scanAndExtractImplicitImports(filePath, content),
     };
 
-    if (meta) {
-      this._parseCache.set(graphKey, { mtime: meta.mtime, result: parsed });
-      if (this._parseCache.size > 200) {
-        const oldest = this._parseCache.keys().next().value;
-        this._parseCache.delete(oldest);
-      }
+    this._parseCache.set(graphKey, { hash: contentHash, result: parsed });
+    if (this._parseCache.size > PARSE_MEMO_LIMIT) {
+      const oldest = this._parseCache.keys().next().value;
+      this._parseCache.delete(oldest);
+    }
+    if (this.dg.cache) {
+      // Cloned: the graph node shares these arrays and later phases may
+      // append to them; the cache must hold what the parser produced.
+      this.dg.cache.setParseResult(filePath, structuredClone(this._toParseRecord(parsed, contentHash)));
     }
 
     return parsed;
@@ -460,7 +491,7 @@ class GraphBuilder {
         'call _refreshResolveFacts() at the start of the resolve batch'
       );
     }
-    const { filePath, graphKey, content, imports, exports, importRecords, exportRecords, functionRecords, parseMode, parseModeReason, confidence, package: packageName } = parsed;
+    const { filePath, graphKey, imports, exports, importRecords, exportRecords, functionRecords, parseMode, parseModeReason, confidence, package: packageName } = parsed;
     // Normalize extension case so resolver cache and strategy lookup behave
     // consistently on case-insensitive filesystems (e.g., App.Vue).
     const ext = path.extname(filePath).toLowerCase();
@@ -488,10 +519,11 @@ class GraphBuilder {
       })
       .filter(Boolean);
 
-    // Down-shift framework implicit dependencies scan
+    // Framework implicit dependencies: the sources were extracted from the
+    // content at parse time; only their resolution happens here.
     const implicitExts = ['.js', '.jsx', '.ts', '.tsx', '.vue', '.mjs', '.cjs'];
     if (implicitExts.includes(ext.toLowerCase())) {
-      const implicitSources = scanAndExtractImplicitImports(filePath, content);
+      const implicitSources = parsed.implicitSources || [];
       if (implicitSources.length > 0) {
         const resolvedImps = resolveImplicitImports(filePath, implicitSources, this.dg.root);
         for (const { source, resolved: resolvedPath, patternId } of resolvedImps) {
@@ -513,8 +545,8 @@ class GraphBuilder {
     }
 
     // 图的 import 列表是集合语义：多条记录解析到同一目标（同 source 不同
-    // 绑定、不同 source 撞同一文件）只算一条边，否则 _serializeEdges 会把
-    // 重复目标序列化成多条边，edges/files 之类的口径全被撑大。
+    // 绑定、不同 source 撞同一文件）只算一条边，否则 edges/files 之类的口径
+    // 会被重复目标撑大。
     const resolvedImports = [...new Set(resolvedImportRecords.map((record) => record.resolved).filter((imp) => imp && imp !== graphKey))];
 
     this.dg.graph.set(graphKey, {
@@ -532,14 +564,6 @@ class GraphBuilder {
       routes: parsed.routes || [],
     });
 
-    // Cache parse result for incremental rebuilds
-    const meta = this.dg.cache.getFileMetadata(filePath);
-    if (meta) {
-      this.dg.cache.setParseResult(filePath, {
-        ...this.dg.graph.get(graphKey),
-        mtime: meta.mtime,
-      });
-    }
   }
 
   async analyzeFile(filePath) {
@@ -599,51 +623,6 @@ class GraphBuilder {
     }
   }
 
-  _serializeEdges() {
-    const edges = [];
-    for (const [file, info] of this.dg.graph) {
-      for (const imp of info.imports || []) {
-        const record = info.importRecords?.find((r) => r.resolved === imp);
-        edges.push({
-          source: file,
-          target: imp,
-          edgeType: 'import',
-          confidence: record ? (record.confidence ?? 1.0) : 1.0,
-          tier: record ? (record.tier || 'tier1') : 'tier1',
-          resolutionMethod: record ? (record.resolutionMethod || 'import') : 'import',
-        });
-      }
-      for (const r of info.routes || []) {
-        edges.push({
-          source: file,
-          target: `route:${r.method}:${r.path}`,
-          edgeType: 'handles-route',
-          confidence: 1.0,
-          tier: 'tier1',
-          resolutionMethod: 'handles-route',
-        });
-      }
-    }
-    return edges;
-  }
-
-  async _saveEdges() {
-    if (!this.dg.cache || typeof this.dg.cache.saveEdges !== 'function') return;
-    try {
-      const edges = this._serializeEdges();
-      this.dg.cache.saveEdges(edges, {
-        cacheVersion: CACHE_VERSION,
-        fileMetadataCount: this.dg.cache.fileMetadata.size,
-        parseResultsCount: this.dg.cache.parseResults.size,
-        timestamp: Date.now(),
-      });
-    } catch (e) {
-      if (process.env.DEBUG) {
-        console.error('[GraphBuilder] saveEdges failed:', e.message);
-      }
-    }
-  }
-
   _buildPackageIndex() {
     this.packageIndex = new Map();
     for (const [fileKey, info] of this.dg.graph) {
@@ -674,25 +653,6 @@ class GraphBuilder {
       }
       return true;
     });
-
-    // 3. Warm-restored graphs carry expansion edges WITHOUT records
-    //    (postProcess injections never reach parse_results, and loader.js
-    //    rebuilds imports from the edges table). A same-package edge with no
-    //    surviving record is a stale expansion leftover — strip it so the
-    //    reference gate in _expandJavaForFile can re-decide it
-    //    (otherwise a cold build's gated edge set and a warm load's persisted
-    //    set drift apart the moment content changes). Explicit same-package
-    //    imports keep their resolve-phase record and survive.
-    if (info.package && info.imports) {
-      for (const imp of info.imports) {
-        if (toRemove.has(imp)) continue;
-        const target = this.dg.graph.get(imp);
-        if (!target || target.package !== info.package) continue;
-        if (!info.importRecords.some((r) => r.resolved === imp)) {
-          toRemove.add(imp);
-        }
-      }
-    }
 
     // Remove from imports array — unless a surviving record (e.g. the explicit
     // import whose tier3/wildcard twin was stripped above) still resolves to
@@ -1214,7 +1174,7 @@ class GraphBuilder {
             console.error(`[DepGraph] Failed to parse neighbor ${filePath}:`, e?.message || e);
           }
         } else {
-          // Fast path: file unchanged (graph and cache agree on mtime)
+          // Fast path: content unchanged since the graph node was built.
           const oldInfo = this.dg.graph.get(key);
           const meta = this.dg.cache ? this.dg.cache.getFileMetadata(filePath) : null;
           const cached = this.dg.cache ? this.dg.cache.getParseResult(filePath) : null;
@@ -1223,31 +1183,11 @@ class GraphBuilder {
             continue;
           }
 
-          // L2: SHA-256 哈希二次校验 (排除 mtime 伪阳性)
-          let content = null;
-          const parsedHash = this.dg.cache ? this.dg.cache.parsedHashes?.get(key) : null;
-          if (oldInfo && cached && parsedHash && !this._isDegradedCacheEntry(cached)) {
-            const crypto = require('crypto');
-            try {
-              content = await readFile(filePath, 'utf8');
-              const currentHash = crypto.createHash('sha256').update(content).digest('hex');
-              if (currentHash === parsedHash) {
-                // Update cached mtime to avoid SHA-256 check next time
-                cached.mtime = meta?.mtime || cached.mtime;
-                this.dg.cache.setParseResult(filePath, cached);
-                skipped++;
-                continue;
-              }
-            } catch (err) {
-              // Read failure will be caught or re-read in parseFileOnly
-            }
-          }
-
           this._removeOldReverseEdges(key);
 
           // Re-parse (Parse Phase)
           try {
-            const parsed = await this.parseFileOnly(filePath, content);
+            const parsed = await this.parseFileOnly(filePath);
             if (parsed) {
               parsedList.push(parsed);
               // Temporarily set in graph for symbol registry building
@@ -1404,24 +1344,20 @@ class GraphBuilder {
             }
           }
         }
-        // D1-D2: persist edges after incremental update
-        await this._saveEdges();
-
         // Wave 1: rebuild symbol registry for changed files
         this._buildSymbolRegistry();
-
-        // O4: post-build analysis triggered via event, not direct call.
-        // Persistence listeners run while state is still UPDATING.
-        await this.dg.bus.emitAsync('graph:built');
       } catch (e) {
         if (process.env.DEBUG) {
           console.error('[GraphBuilder] Incremental update cleanup failed:', e.message);
         }
       } finally {
-        // O6: mark graph ready only after persistence completes.
         this.dg._finishUpdating();
       }
     }
+
+    // Post-build analysis reads the graph through the ready-state guard, so it
+    // runs once the update has settled — same order as build().
+    await this.dg.bus.emitAsync('graph:built');
   }
 
   /**

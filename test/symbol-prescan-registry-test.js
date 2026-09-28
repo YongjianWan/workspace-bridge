@@ -43,11 +43,11 @@ async function testWarmColdSymbolRegistryParity() {
   assert.ok(coldSize > 0, 'cold build must populate symbolRegistry');
   await container1.shutdown();
 
-  // 2. Warm start — loadGraph facade must rebuild symbolRegistry
+  // 2. Warm start — the build over cached parse results must rebuild symbolRegistry
   const container2 = new ServiceContainer({ quiet: true });
   await container2.initialize(tmpDir, 60000, { watch: false });
   const warmSize = container2._depGraph.symbolRegistry.exports.size;
-  assert.strictEqual(warmSize, coldSize, 'warm loadGraph must populate identical symbolRegistry as cold build');
+  assert.strictEqual(warmSize, coldSize, 'warm start must populate identical symbolRegistry as cold build');
   await container2.shutdown();
 
   cleanupTempDir(tmpDir);

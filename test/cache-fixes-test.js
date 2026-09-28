@@ -135,7 +135,7 @@ function testDeleteFileMetadataCascadesToAllSlots() {
     functionRecords: [],
     parseMode: 'ast',
     confidence: 'high',
-    mtime: 1,
+    hash,
   });
   cache.setDiagnostics(file, { diagnostics: [{ message: 'demo' }] });
   cache.setSymbols('foo', [{ file, line: 1, type: 'function' }]);
@@ -145,7 +145,6 @@ function testDeleteFileMetadataCascadesToAllSlots() {
   assert.strictEqual(cache.hasParseResult(file), true, 'pre: parseResult should exist');
   assert.strictEqual(cache.getDiagnostics(file).length, 1, 'pre: diagnostics should exist');
   assert.strictEqual(cache.getSymbols('foo').length, 1, 'pre: symbol location should exist');
-  assert.ok(cache.parsedHashes.has(cache.normalizeFilePath(file)), 'pre: parsedHashes should be tracked');
 
   cache.deleteFileMetadata(file);
 
@@ -154,7 +153,6 @@ function testDeleteFileMetadataCascadesToAllSlots() {
   assert.strictEqual(cache.getDiagnostics(file).length, 0, 'post: diagnostics should be cascaded-removed');
   assert.strictEqual(cache.getSymbols('foo').length, 0, 'post: symbol locations for file should be removed');
   assert.strictEqual(cache.getSymbols('bar').length, 1, 'post: symbol locations for other files should remain');
-  assert.strictEqual(cache.parsedHashes.has(cache.normalizeFilePath(file)), false, 'post: parsedHashes should be cascaded-removed');
 
   cleanupTempDir(dir);
 }

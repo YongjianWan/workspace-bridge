@@ -13,7 +13,7 @@
  *     read). This test asserts both.
  *     Since 2026-08-01 tier3 edges exist for Java AND Go — one fixture each.
  *
- *  2. analyzer.js precomputeImpact — files reached via a same-package implicit
+ *  2. query.js getImpactRadius — files reached via a same-package implicit
  *     edge must carry reason 'implicit-same-package' in impactRadius (killing
  *     the check silently downgrades them to 'direct-import'). The criterion is
  *     tier==='tier3' (language-neutral since 2026-08-01), so both a Java and a
@@ -108,7 +108,7 @@ async function testGoSamePackageEdgesFeedNoCycles() {
 }
 
 // Case 3 (Java): files reached via a same-package implicit edge are tagged
-// 'implicit-same-package' in the precomputed impactRadius; files reached via a
+// 'implicit-same-package' in getImpactRadius; files reached via a
 // real import keep 'direct-import'.
 async function testSamePackageReasonTagInImpactRadius() {
   const tmpDir = path.resolve('/tmp/wb-guard-reason-tag');
@@ -140,11 +140,9 @@ async function testSamePackageReasonTagInImpactRadius() {
   const builder = new GraphBuilder(depGraph);
   await builder.expandJavaPackageImports();
 
-  depGraph.analyzer.precomputeImpact();
-  const entry = depGraph.analyzer.getPrecomputedImpact(aPath);
-  assert(entry && Array.isArray(entry.impactRadius), 'precomputed impact for A must carry impactRadius');
+  const impactRadius = depGraph.getImpactRadius(aPath);
 
-  const bEntry = entry.impactRadius.find((r) => r.file === bKey);
+  const bEntry = impactRadius.find((r) => depGraph.normalizeFilePath(r.file) === bKey);
   assert(bEntry, 'B must appear in A\'s impactRadius (same-package dependent)');
   assert.strictEqual(
     bEntry.reason,
@@ -152,7 +150,7 @@ async function testSamePackageReasonTagInImpactRadius() {
     `B reached via same-package edge must be tagged implicit-same-package, got '${bEntry.reason}'`
   );
 
-  const cEntry = entry.impactRadius.find((r) => r.file === cKey);
+  const cEntry = impactRadius.find((r) => depGraph.normalizeFilePath(r.file) === cKey);
   assert(cEntry, 'C must appear in A\'s impactRadius (real importer)');
   assert.strictEqual(
     cEntry.reason,
@@ -175,12 +173,10 @@ async function testGoSamePackageReasonTagInImpactRadius() {
   const builder = new GraphBuilder(depGraph);
   await builder.expandGoPackageImports();
 
-  depGraph.analyzer.precomputeImpact();
-  const entry = depGraph.analyzer.getPrecomputedImpact(aPath);
-  assert(entry && Array.isArray(entry.impactRadius), 'precomputed impact for a.go must carry impactRadius');
+  const impactRadius = depGraph.getImpactRadius(aPath);
 
   const bKey = depGraph.normalizeFilePath(bPath);
-  const bEntry = entry.impactRadius.find((r) => r.file === bKey);
+  const bEntry = impactRadius.find((r) => depGraph.normalizeFilePath(r.file) === bKey);
   assert(bEntry, 'b.go must appear in a.go\'s impactRadius (same-package dependent)');
   assert.strictEqual(
     bEntry.reason,

@@ -1,33 +1,39 @@
 #!/usr/bin/env node
 // @semantic @slow — four ServiceContainer lifecycles (cold / delta-warm / cold / pure-warm)
-// P0-8: incremental (warm) builds must give the same graph as a cold build for
-// identical code. Root cause of the divergence: `package` was never persisted
-// in parse_results (graph-db.js column list), so every warm path that lands in
-// build() — loadGraph rejected because a new file shifted fileMetadataCount —
-// restored package-less nodes, _buildPackageIndex() came up empty/partial and
-// expandJavaPackageImports() silently skipped the cached files. Warm lost the
-// same-package edges cold produced.
+// P0-8: builds served from the parse cache must give the same JVM graph as a
+// cold build for identical code. Same-package expansion reads `package` from
+// every file, so a cached file that lost it would silently drop the edges a
+// cold build produces.
 //
 // Contract under test: the observable graph (dependents of a referenced and an
 // unreferenced package-mate) is identical across
 //   1. cold build,
-//   2. delta-warm start (loadGraph rejected → build() over cache hits),
-//   3. pure-warm start (loadGraph success → postProcess phase replay).
-// The build counter guards the classic vacuity: a "warm" run that silently
-// fell back to cold would compare cold vs cold.
+//   2. delta-warm start (one new file parsed, the rest served from cache),
+//   3. pure-warm start (every file served from cache).
+// The parse counter guards the classic vacuity: a "warm" run that silently
+// re-parsed everything would compare cold vs cold.
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { ServiceContainer } = require('../src/services/container');
-const { DependencyGraph } = require('../src/services/dep-graph');
+const { GraphBuilder } = require('../src/services/dep-graph');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
-let buildCalls = 0;
-const originalBuild = DependencyGraph.prototype.build;
-DependencyGraph.prototype.build = function countedBuild(...args) {
-  buildCalls++;
-  return originalBuild.apply(this, args);
+const parses = { fresh: 0, cached: 0 };
+const originalParse = GraphBuilder.prototype.parseFileOnly;
+GraphBuilder.prototype.parseFileOnly = async function countedParse(...args) {
+  const result = await originalParse.apply(this, args);
+  if (result?.fromCache) parses.cached++;
+  else parses.fresh++;
+  return result;
 };
+
+function takeParses() {
+  const snapshot = { ...parses };
+  parses.fresh = 0;
+  parses.cached = 0;
+  return snapshot;
+}
 
 function write(root, rel, content) {
   const full = path.join(root, rel);
@@ -73,38 +79,29 @@ async function main() {
 
     // 1. cold
     const cold1 = await start(root);
-    assert.strictEqual(buildCalls, 1, 'first start must be a real cold build');
+    assert.deepStrictEqual(takeParses(), { fresh: 3, cached: 0 }, 'first start must parse every file');
     const viewA = observe(cold1, root);
     await cold1.shutdown();
 
-    // 2. delta-warm: new file ⇒ loadGraph rejected on fileMetadataCount ⇒
-    // build() over cached parse results — the path where package must survive
-    // the SQLite round-trip or the expansion silently skips cached files.
+    // 2. delta-warm: one new file, the other three come from the parse cache —
+    // package must survive the SQLite round-trip or the expansion silently
+    // skips cached files.
     write(root, 'src/a/svc/Extra.java', 'package a.svc;\npublic class Extra {}\n');
     const deltaWarm = await start(root);
-    assert.strictEqual(
-      buildCalls,
-      2,
-      'second start must take the loadGraph-rejected → build() path (if loadGraph succeeded the fixture is not exercising P0-8)'
-    );
+    assert.deepStrictEqual(takeParses(), { fresh: 1, cached: 3 }, 'second start must parse only the new file');
     const viewB = observe(deltaWarm, root);
     await deltaWarm.shutdown();
 
     // 3. cold with the same 4 files (fresh cache) — the reference answer
     fs.rmSync(path.join(root, '.cache'), { recursive: true, force: true });
     const cold2 = await start(root);
-    assert.strictEqual(buildCalls, 3, 'third start must be a fresh cold build');
+    assert.deepStrictEqual(takeParses(), { fresh: 4, cached: 0 }, 'third start must be a fresh cold build');
     const viewC = observe(cold2, root);
     await cold2.shutdown();
 
-    // 4. pure-warm: no changes since the last save ⇒ loadGraph success ⇒
-    // postProcess phase replay over restored edges.
+    // 4. pure-warm: no changes since the last save ⇒ every file from cache.
     const pureWarm = await start(root);
-    assert.strictEqual(
-      buildCalls,
-      3,
-      'fourth start must take the loadGraph path — a fallback to build() would make this comparison vacuous'
-    );
+    assert.deepStrictEqual(takeParses(), { fresh: 0, cached: 4 }, 'fourth start must be served entirely from the parse cache');
     const viewD = observe(pureWarm, root);
     await pureWarm.shutdown();
 

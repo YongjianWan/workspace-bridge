@@ -31,7 +31,7 @@ function testRoundTrip() {
     ]),
     parseResults: new Map([
       ['src/index.js', {
-        mtime: 1234567890,
+        hash: 'abc123',
         imports: ['./utils'],
         exports: ['main'],
         importRecords: [{ source: './utils', imported: ['helper'] }],
@@ -41,6 +41,7 @@ function testRoundTrip() {
         parseModeReason: 'tree-sitter',
         confidence: 'high',
         frameworkHint: { framework: 'express', reason: 'express-route', isEntry: true, entryPointWeight: 2.5 },
+        implicitSources: [{ source: './plugin', patternId: 'vite-plugin' }],
       }],
     ]),
     symbolIndex: new Map([['main', [{ file: 'src/index.js', line: 1 }]]]),
@@ -68,6 +69,8 @@ function testRoundTrip() {
   const parseResult = loaded.parseResults.get('src/index.js');
   assert.deepStrictEqual(parseResult.imports, ['./utils'], 'imports should match');
   assert.deepStrictEqual(parseResult.exports, ['main'], 'exports should match');
+  assert.strictEqual(parseResult.hash, 'abc123', 'parse result is keyed by content hash');
+  assert.deepStrictEqual(parseResult.implicitSources, [{ source: './plugin', patternId: 'vite-plugin' }], 'implicit sources should round-trip');
   assert.strictEqual(parseResult.parseMode, 'ast', 'parseMode should match');
   assert.strictEqual(parseResult.confidence, 'high', 'confidence should match');
   assert.deepStrictEqual(parseResult.frameworkHint, { framework: 'express', reason: 'express-route', isEntry: true, entryPointWeight: 2.5 }, 'frameworkHint should match');
@@ -121,62 +124,6 @@ function testWALFileGenerated() {
   db._ensureOpen();
   assert(fs.existsSync(dbPath), 'database file should exist');
   assert(fs.existsSync(dbPath + '-wal') || fs.existsSync(dbPath + '-shm'), 'WAL files should be generated');
-
-  db.close();
-  cleanupTempDir(tmpDir);
-}
-
-function testEdgesRoundTrip() {
-  const tmpDir = makeTempDir('wb-graphdb-');
-  const dbPath = path.join(tmpDir, 'cache.db');
-  const db = new GraphDB(dbPath);
-
-  const edges = [
-    { source: 'src/index.js', target: 'src/utils.js', edgeType: 'import', confidence: 1.0 },
-    { source: 'src/index.js', target: 'src/lib.js', edgeType: 'implicit-framework', confidence: 0.9 },
-    { source: 'src/utils.js', target: 'src/lib.js', edgeType: 'import', confidence: 1.0 },
-  ];
-
-  const meta = { cacheVersion: CACHE_VERSION, fileMetadataCount: 3, parseResultsCount: 3, timestamp: Date.now() };
-
-  const saved = db.saveEdges(edges, meta);
-  assert.strictEqual(saved, true, 'saveEdges should return true');
-
-  const loaded = db.loadEdges();
-  assert(loaded, 'loadEdges should return edges');
-  assert.strictEqual(loaded.length, 3, 'should load 3 edges');
-
-  const sorted = loaded.sort((a, b) => a.source.localeCompare(b.source) || a.target.localeCompare(b.target));
-  assert.strictEqual(sorted[0].source, 'src/index.js');
-  assert.strictEqual(sorted[0].target, 'src/lib.js');
-  assert.strictEqual(sorted[0].edgeType, 'implicit-framework');
-  assert.strictEqual(sorted[0].confidence, 0.9);
-
-  assert.strictEqual(sorted[1].source, 'src/index.js');
-  assert.strictEqual(sorted[1].target, 'src/utils.js');
-  assert.strictEqual(sorted[1].edgeType, 'import');
-
-  assert.strictEqual(sorted[2].source, 'src/utils.js');
-  assert.strictEqual(sorted[2].target, 'src/lib.js');
-
-  // Edge meta persisted
-  const edgeMetaRaw = db.getMetadata('edgeMeta');
-  assert(edgeMetaRaw, 'edgeMeta should be persisted');
-  const edgeMeta = JSON.parse(edgeMetaRaw);
-  assert.strictEqual(edgeMeta.cacheVersion, CACHE_VERSION);
-  assert.strictEqual(edgeMeta.fileMetadataCount, 3);
-
-  db.close();
-  cleanupTempDir(tmpDir);
-}
-
-function testEdgesLoadEmptyReturnsNull() {
-  const tmpDir = makeTempDir('wb-graphdb-');
-  const dbPath = path.join(tmpDir, 'cache.db');
-  const db = new GraphDB(dbPath);
-
-  const loaded = db.loadEdges();
-  assert.deepStrictEqual(loaded, [], 'loadEdges on fresh DB should return empty array');
 
   db.close();
   cleanupTempDir(tmpDir);
@@ -276,8 +223,9 @@ function testTransactionRejectsAsyncFunction() {
 function testMigration() {
   const tmpDir = makeTempDir('wb-graphdb-');
   const dbPath = path.join(tmpDir, 'cache.db');
-  
-  // 1. Manually create an old schema database without framework_hint column
+
+  // An older cache: parse_results keyed by mtime (resolved imports inside)
+  // plus the graph-level tables that are no longer kept.
   const { DatabaseSync } = require('node:sqlite');
   const rawDb = new DatabaseSync(dbPath);
   rawDb.exec(`
@@ -295,22 +243,24 @@ function testMigration() {
     );
     INSERT INTO parse_results (path, mtime, imports, exports, confidence)
     VALUES ('src/index.js', 12345, '[]', '[]', 'high');
+    CREATE TABLE IF NOT EXISTS edges (source TEXT, target TEXT);
+    CREATE TABLE IF NOT EXISTS test_map (source TEXT, test_file TEXT);
   `);
   rawDb.close();
 
-  // 2. Instantiate GraphDB, which will automatically call _ensureOpen() -> _migrate()
   const db = new GraphDB(dbPath);
   db._ensureOpen();
 
-  // 3. Verify that the framework_hint column now exists
-  const cols = db.db.prepare('PRAGMA table_info(parse_results)').all();
-  const hasCol = cols.some((c) => c.name === 'framework_hint');
-  assert.strictEqual(hasCol, true, 'migration should add framework_hint column');
+  const cols = db.db.prepare('PRAGMA table_info(parse_results)').all().map((c) => c.name);
+  assert.ok(cols.includes('hash'), 'parse_results must be keyed by content hash after migration');
+  assert.ok(cols.includes('implicit_sources'), 'parse_results must carry implicit sources after migration');
+  assert.ok(!cols.includes('mtime'), 'the mtime-keyed shape must be gone');
+  const rows = db.db.prepare('SELECT COUNT(*) AS n FROM parse_results').get();
+  assert.strictEqual(rows.n, 0, 'mtime-keyed rows cannot be reinterpreted and must not survive');
 
-  // 4. Verify original data is preserved
-  const row = db.db.prepare("SELECT * FROM parse_results WHERE path = 'src/index.js'").get();
-  assert.strictEqual(row.mtime, 12345, 'mtime should be preserved');
-  assert.strictEqual(row.framework_hint, null, 'framework_hint should default to null for existing rows');
+  const tables = db.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((t) => t.name);
+  assert.ok(!tables.includes('edges'), 'obsolete edges table must be dropped');
+  assert.ok(!tables.includes('test_map'), 'obsolete test_map table must be dropped');
 
   db.close();
   cleanupTempDir(tmpDir);
@@ -322,8 +272,6 @@ function main() {
   testVersionMismatchReturnsNull();
   testCloseIdempotent();
   testWALFileGenerated();
-  testEdgesRoundTrip();
-  testEdgesLoadEmptyReturnsNull();
   testSaveIncrementalMetadataOnly();
   testTransactionRollbackPreservesOriginalError();
   testTransactionRejectsAsyncFunction();

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @fast
-// @contract — Precomputed aggregate cache hit, invalidation, and persistent round-trip behavior
+// @contract — Precomputed aggregate cache hit and invalidation behavior
 
 /**
  * Precomputed aggregate cache tests (P2)
@@ -75,34 +75,9 @@ function testCacheInvalidation() {
   assert.strictEqual(stats.files, 2, 'stats should recompute after invalidation');
 }
 
-function testPersistentRoundTrip() {
-  const root = '/fake/root2';
-  const cache = new WorkspaceCache(root);
-  const dg = DependencyGraph.fromSchema(root, {
-    '/fake/root2/src/x.js': { imports: [], exports: ['x'], importRecords: [], exportRecords: [{ name: 'x' }], parseMode: 'ast' }
-  }, {
-    cache,
-    projectContext: {
-      classifyFile: () => ({ isMainline: true, fileRole: 'library' }),
-      summarizeFiles: () => ({ entryFiles: [] }),
-    }
-  });
-
-  dg.analyzer.precomputeAggregates();
-  const before = dg.analyzer._aggregateCache;
-  assert(before, 'should have aggregate before save');
-
-  cache.saveAggregateSummary(before);
-  const loaded = cache.loadAggregateSummary();
-  assert(loaded, 'should load aggregate from cache');
-  assert.strictEqual(loaded.stats.files, before.stats.files, 'loaded stats should match');
-  assert.strictEqual(loaded.deadExports.length, before.deadExports.length, 'loaded deadExports should match');
-}
-
 function main() {
   testCacheHit();
   testCacheInvalidation();
-  testPersistentRoundTrip();
   console.log('precompute-aggregate-test.js: all passed');
 }
 

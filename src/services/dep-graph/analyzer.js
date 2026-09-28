@@ -282,9 +282,6 @@ class GraphAnalyzer {
     this._pageRanks = null;
     this._aggregateCache = null;
     this._aggregateVersion = 0;
-    this._impactCache = new Map();
-    this._impactVersion = 0;
-    this._testMapCache = new Map();
 
     // Encapsulate caches entirely within analyzer
     this._cachedCycles = null;
@@ -396,163 +393,6 @@ class GraphAnalyzer {
   }
 
   /**
-   * D7: Precompute per-file impact radius (direct/transitive deps & dependents)
-   * and affected tests. Results are stored in _impactCache for O(1) queries.
-   */
-  precomputeImpact() {
-    this._impactCache.clear();
-    this._impactVersion++;
-
-    for (const [filePath] of this.dg.graph) {
-      const directDeps = this.dg.getDependencies(filePath);
-      const directDependents = this.dg.getDependents(filePath);
-
-      // Transitive deps via BFS
-      const transitiveDeps = new Set();
-      bfsTraverse(filePath, (f) => this.dg.getDependencies(f), {
-        maxDepth: CONFIG.DEFAULT_MAX_DEPTH,
-        onVisit: (f) => {
-          if (f !== filePath) transitiveDeps.add(f);
-        },
-      });
-
-      // Transitive dependents via BFS
-      const transitiveDependents = new Set();
-      bfsTraverse(filePath, (f) => this.dg.getDependents(f), {
-        maxDepth: CONFIG.DEFAULT_MAX_DEPTH,
-        onVisit: (f) => {
-          if (f !== filePath) transitiveDependents.add(f);
-        },
-      });
-
-      // Precompute structured impact radius (mirrors GraphQuery.getImpactRadius semantics)
-      const impactRadius = [];
-      bfsTraverse(filePath, (f) => {
-        if (f !== filePath && this.dg.isKnownEntryFile(f)) return [];
-        return this.dg.getDependents(f);
-      }, {
-        maxDepth: CONFIG.DEFAULT_MAX_DEPTH,
-        onVisit: (f, level, via) => {
-          if (level === 0 || f === filePath) return undefined;
-          const currentInfo = this.dg.getFileInfo ? this.dg.getFileInfo(f) : null;
-          let importedSymbols = [];
-          let importedSymbolsAvailable = false;
-          let reason = level === 1 ? 'direct-import' : 'transitive-dependency';
-          if (currentInfo?.importRecords) {
-            const parentFile = via[via.length - 1];
-            const matchingImports = currentInfo.importRecords.filter((r) => r.resolved === parentFile);
-            for (const record of matchingImports) {
-              if (record.imported) importedSymbols.push(...record.imported);
-            }
-            importedSymbolsAvailable = matchingImports.length > 0 && matchingImports.some((r) => r.imported && r.imported.length > 0);
-            if (matchingImports.some((r) => r.tier === 'tier3')) {
-              reason = 'implicit-same-package';
-            }
-          }
-          impactRadius.push({
-            file: f,
-            level,
-            via: [...via],
-            importedSymbols: [...new Set(importedSymbols)],
-            importedSymbolsAvailable,
-            reason,
-          });
-        },
-      });
-
-      // Affected tests (graph-only, without heuristic/mention to keep deterministic)
-      const affectedTests = this._findAffectedTestsByGraph(filePath, CONFIG.DEFAULT_MAX_DEPTH);
-
-      this._impactCache.set(filePath, {
-        directDeps: directDeps.length,
-        transitiveDeps: transitiveDeps.size,
-        directDependents: directDependents.length,
-        transitiveDependents: transitiveDependents.size,
-        impactRadius,
-        affectedTests,
-      });
-    }
-  }
-
-  getPrecomputedImpact(filePath) {
-    const key = this.dg.normalizeFilePath(filePath);
-    return this._impactCache.get(key) || null;
-  }
-
-  /**
-   * D7: Inject precomputed aggregates from SQLite loadGraph fast path.
-   * Only accepts data if version and file_count match current state.
-   */
-  injectPrecomputedAggregates(rows, graphSize) {
-    if (!rows || rows.length === 0) return false;
-    // Verify consistency: all rows should share the same version/fileCount
-    const expectedVersion = rows[0].version;
-    for (const row of rows) {
-      if (row.fileCount !== graphSize) return false;
-      if (row.version !== expectedVersion) return false;
-    }
-
-    const injected = {};
-    for (const row of rows) {
-      try {
-        injected[row.key] = JSON.parse(row.data);
-      } catch {
-        // ignore corrupted row
-      }
-    }
-
-    // Reconstruct _aggregateCache from injected keys
-    const deadExports = injected.deadExports || injected.dead_export || [];
-    const unresolved = injected.unresolved || injected.unresolved_import || [];
-    const cycles = injected.cycles || injected.cycle || [];
-    const stats = injected.stats || {};
-
-    this._aggregateCache = {
-      version: this._aggregateVersion,
-      deadExports,
-      unresolved,
-      cycles,
-      stats,
-      hotspots: injected.hotspots || null,
-      stability: injected.stability || null,
-    };
-    this._syncCycleCache(cycles);
-    return true;
-  }
-
-  _syncCycleCache(cycles) {
-    this._cachedCycles = cycles;
-    this._cycleCount = cycles.length;
-    this._cycleFiles = new Set();
-    for (const cycle of cycles) {
-      for (const file of cycle) {
-        this._cycleFiles.add(this.dg.normalizeFilePath(file));
-      }
-    }
-  }
-
-  /**
-   * Restore aggregate cache from external persisted source (e.g. cache.loadAggregateSummary).
-   * Normalizes input and keeps internal schema invariants. Container must not
-   * touch _aggregateCache directly — this is the only supported entry point.
-   */
-  restoreAggregateCache(data) {
-    if (!data || typeof data !== 'object') return false;
-    this._aggregateVersion = data.version || 0;
-    this._aggregateCache = {
-      version: this._aggregateVersion,
-      deadExports: data.deadExports || data.dead_export || [],
-      unresolved: data.unresolved || data.unresolved_import || [],
-      cycles: data.cycles || data.cycle || [],
-      stats: data.stats || {},
-      hotspots: data.hotspots !== undefined ? data.hotspots : null,
-      stability: data.stability !== undefined ? data.stability : null,
-    };
-    this._syncCycleCache(this._aggregateCache.cycles);
-    return true;
-  }
-
-  /**
    * Set overview-level data (hotspots/stability) without breaking cache invariants.
    * Creates a skeleton cache if none exists yet.
    */
@@ -585,77 +425,6 @@ class GraphAnalyzer {
     this._scanPatternCache.clear();
   }
 
-  injectPrecomputedTestMap(rows) {
-    if (!rows) return false;
-    this._testMapCache.clear();
-    for (const row of rows) {
-      if (!this._testMapCache.has(row.source)) {
-        this._testMapCache.set(row.source, []);
-      }
-      this._testMapCache.get(row.source).push(row);
-    }
-    return true;
-  }
-
-  injectPrecomputedMetrics(rows) {
-    if (!rows) return false;
-    if (!this._pageRanks) this._pageRanks = new Map();
-    for (const row of rows) {
-      if (row.dimension === 'pagerank') {
-        this._pageRanks.set(row.file, row.value);
-      }
-    }
-    return true;
-  }
-
-  /**
-   * D7: Inject precomputed impact from SQLite loadGraph fast path.
-   */
-  injectPrecomputedImpact(rows, graphSize) {
-    if (!rows || rows.length === 0) return false;
-    // Light consistency check: if row count differs significantly from graph size,
-    // the precomputed data is likely stale.
-    if (Math.abs(rows.length - graphSize) > Math.max(1, graphSize * 0.1)) {
-      return false;
-    }
-    // Verify consistency: all rows should share the same version
-    const expectedVersion = rows[0].version;
-    for (const row of rows) {
-      if (row.version !== expectedVersion) return false;
-    }
-
-    this._impactCache.clear();
-    this._impactVersion++;
-    for (const row of rows) {
-      let affectedTests = [];
-      let impactRadius = null;
-      try {
-        if (row.affectedTests) {
-          affectedTests = typeof row.affectedTests === 'string' ? JSON.parse(row.affectedTests) : row.affectedTests;
-        }
-      } catch {
-        // ignore corrupted
-      }
-      try {
-        if (row.impactRadius) {
-          impactRadius = typeof row.impactRadius === 'string' ? JSON.parse(row.impactRadius) : row.impactRadius;
-        }
-      } catch {
-        // ignore corrupted — will fall back to BFS on query
-      }
-      const entry = {
-        directDeps: row.directDeps,
-        transitiveDeps: row.transitiveDeps,
-        directDependents: row.directDependents,
-        transitiveDependents: row.transitiveDependents,
-        affectedTests,
-      };
-      if (impactRadius) entry.impactRadius = impactRadius;
-      this._impactCache.set(row.file, entry);
-    }
-    return true;
-  }
-
   computePageRank() {
     const nodes = [];
     const edges = [];
@@ -667,14 +436,7 @@ class GraphAnalyzer {
         }
       }
     }
-    // Warm-start: reuse previous ranks if available (graph structure changes
-    // are handled gracefully — new nodes get uniform, old nodes keep prev).
-    const prevRanks = this.dg.cache?.pageRanks;
-    this._pageRanks = computePageRank(nodes, edges, undefined, prevRanks);
-    // Persist for next run
-    if (this.dg.cache?.savePageRanks) {
-      this.dg.cache.savePageRanks(this._pageRanks);
-    }
+    this._pageRanks = computePageRank(nodes, edges);
   }
 
   getPageRank(filePath) {
@@ -686,17 +448,6 @@ class GraphAnalyzer {
   }
 
   getImpactStats(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH) {
-    // D7: prefer precomputed impact cache for O(1) queries
-    const cached = this.getPrecomputedImpact(filePath);
-    if (cached) {
-      return {
-        direct: cached.directDeps,
-        transitive: cached.transitiveDeps,
-        dependents: cached.directDependents,
-        transitiveDependents: cached.transitiveDependents,
-      };
-    }
-    // Fallback: compute on demand
     const directDeps = this.dg.getDependencies(filePath);
     const directDependents = this.dg.getDependents(filePath);
     const transitiveDeps = new Set();
@@ -1109,9 +860,6 @@ class GraphAnalyzer {
       }
     }
 
-    if (Array.isArray(this.dg._precomputedWarnings)) {
-      warnings.push(...this.dg._precomputedWarnings);
-    }
     const stats = this.getStats();
     if (stats.files > 0 && stats.totalImports === 0) {
       warnings.push({
@@ -1841,52 +1589,14 @@ class GraphAnalyzer {
   findAffectedTests(filePath, maxDepth = CONFIG.DEFAULT_MAX_DEPTH, options = {}) {
     const start = this.dg.normalizeFilePath(filePath);
 
-    // Fast path: serve the precomputed test map — ONLY for queries at the
-    // exact depth it was computed with (CONFIG.DEFAULT_MAX_DEPTH). The map is
-    // a depth-parametrized answer: at any other depth both the BFS frontier
-    // and the terminator set change (a test reachable at distance 3 is a
-    // 'graph' hit at depth 5 but a 'mention' terminator at depth 1), so no
-    // amount of row filtering can reproduce the cold path Foreign depths fall through to live computation. At the
-    // matching depth no filtering is needed: stored graph rows are all
-    // <= maxDepth by construction.
-    let results = null;
-    if (
-      options?.includeHeuristic !== false &&
-      maxDepth === CONFIG.DEFAULT_MAX_DEPTH &&
-      this._testMapCache &&
-      this._testMapCache.has(start)
-    ) {
-      const cached = this._testMapCache.get(start);
-      if (cached.length > 0) {
-        results = cached.map((c) => {
-          if (c.signal !== 'heuristic' && c.signal !== 'mention') {
-            return { file: c.testFile, distance: c.distance, source: 'graph', via: [] };
-          }
-          // Terminator rows carry a sentinel distance, not a graph distance:
-          // remap to maxDepth+1 and flag, byte-for-byte matching cold-path schema.
-          return {
-            file: c.testFile,
-            distance: maxDepth + 1,
-            source: c.signal,
-            via: [c.signal === 'heuristic' ? 'heuristic:naming' : 'mention:stem'],
-            terminator: true,
-          };
-        });
-      }
-    }
-
-    if (results === null) {
-      results = this._findAffectedTestsByGraph(start, maxDepth);
-      if (options?.includeHeuristic !== false) {
-        this._findAffectedTestsByHeuristic(start, maxDepth, results);
-        this._findAffectedTestsByMention(start, maxDepth, results);
-      }
+    let results = this._findAffectedTestsByGraph(start, maxDepth);
+    if (options?.includeHeuristic !== false) {
+      this._findAffectedTestsByHeuristic(start, maxDepth, results);
+      this._findAffectedTestsByMention(start, maxDepth, results);
     }
 
     // Conftest.py is pytest infrastructure, never an affected test;
-    // conversely every test below a conftest implicitly depends on it. Applied
-    // AFTER both the cached and the live branch so warm and cold agree
-    // byte-for-byte (conftest rows are never persisted — see savePrecomputed).
+    // conversely every test below a conftest implicitly depends on it.
     results = this._applyConftestImplicitTests(start, maxDepth, results);
 
     // Convert internal graph keys back to original-casing paths for output.

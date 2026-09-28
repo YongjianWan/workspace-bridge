@@ -2,7 +2,7 @@ const path = require('path');
 const { isExternalDependency, buildPythonModuleIndex } = require('./resolvers');
 const { DEFAULTS } = require('../../config/constants');
 
-// Derive this from graph records so cold and warm paths share one answer.
+// Derived from graph records, so every consumer reads the same answer.
 function collectUnresolvedImports(graph, root, workspacePackages) {
   const local = { count: 0, files: new Set(), samples: [] };
   const uncertain = { count: 0, files: new Set(), samples: [] };

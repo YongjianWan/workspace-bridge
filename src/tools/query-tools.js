@@ -14,10 +14,7 @@ const { SCHEMA_VERSION } = require('../config/constants');
 function findSnapshot(container) {
   try {
     // analysis_snapshots is the single source of truth (version-gated in
-    // GraphDB.loadAnalysisSnapshot). The old precomputed_aggregates
-    // 'analysis_snapshot' fallback row is gone: it carried no cache_version
-    // stamp (bypassing the version gate) and was wiped by every graph:built
-    // full-replace write anyway.
+    // GraphDB.loadAnalysisSnapshot).
     const snapshot = container.cache?.loadAnalysisSnapshot?.('overview');
     if (!snapshot) return null;
     return {

@@ -39,10 +39,12 @@ async function testFrameworkImplicitDependenciesCacheIntegration() {
     const routerInfo = graph.getFileInfo(routerKey);
     assert(routerInfo.imports.includes(homeKey), 'router should implicitly import Home.vue');
 
-    // Verify it exists in cache database
+    // The parse cache keeps the content-derived source, while the graph keeps
+    // the resolved target. A cached target path would go stale when files move.
     assert(cache.hasParseResult(path.join(root, 'src/router.js')), 'router parse result should be cached');
     const cachedResult = cache.getParseResult(path.join(root, 'src/router.js'));
-    assert(cachedResult.imports.includes(homeKey), 'cached router result should contain Home.vue');
+    assert(cachedResult.imports.some((source) => source.includes('Home.vue')), 'cached router result should retain the import source');
+    assert(!cachedResult.imports.includes(homeKey), 'parse cache must not retain the resolved Home.vue path');
 
     // Spy on fs.readFileSync to ensure router.js is NOT read again during update of other.js
     let routerReadCount = 0;

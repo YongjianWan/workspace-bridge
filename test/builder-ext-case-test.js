@@ -24,7 +24,7 @@ function testUppercaseJavaExtensionResolves() {
     root: tmpDir,
     graph: new Map(),
     normalizeFilePath: (p) => p,
-    cache: { getFileMetadata: () => null },
+    cache: { getFileMetadata: () => null, getParseResult: () => null, setParseResult: () => {} },
     _droppedImports: null,
   };
   const builder = new GraphBuilder(dg);
@@ -72,7 +72,7 @@ async function testUppercaseJavaExtensionParses() {
     root: tmpDir,
     graph: new Map(),
     normalizeFilePath: (p) => p,
-    cache: { getFileMetadata: () => null },
+    cache: { getFileMetadata: () => null, getParseResult: () => null, setParseResult: () => {} },
     _droppedImports: null,
   };
   const builder = new GraphBuilder(dg);

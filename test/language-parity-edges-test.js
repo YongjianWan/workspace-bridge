@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @semantic @slow — ten cold CLI builds, one per language fixture
-// Language parity at the edge layer: every supported language must turn a
+// Language parity at the graph layer: every supported language must turn a
 // minimal "A depends on B" project into at least one edge through its
 // *structural* resolver (path arithmetic, package mapping, module path).
 //
@@ -17,7 +17,7 @@
 const assert = require('assert');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { DatabaseSync } = require('node:sqlite');
+const { ServiceContainer } = require('../src/services/container');
 const { buildFixtures } = require('./fixtures/language-parity/build-fixtures');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
@@ -34,30 +34,32 @@ function buildGraph(dir) {
   return { cacheDir, res };
 }
 
-/** @returns {{total: number, methods: Record<string, number>}} */
-function edgeStats(cacheDir) {
-  const db = new DatabaseSync(path.join(cacheDir, 'cache.db'), { readOnly: true });
+/** @returns {Promise<{total: number, methods: Record<string, number>}>} */
+async function edgeStats(dir, cacheDir) {
+  const container = new ServiceContainer({ quiet: true, cacheDir });
   try {
-    const rows = db
-      .prepare('SELECT resolution_method m, COUNT(*) c FROM edges GROUP BY resolution_method')
-      .all();
+    assert(await container.initialize(dir), `failed to initialize graph for ${dir}`);
     const methods = {};
     let total = 0;
-    for (const row of rows) {
-      methods[row.m || 'unknown'] = row.c;
-      total += row.c;
+    for (const info of container.snapshot.graph.graph.values()) {
+      for (const record of info.importRecords || []) {
+        if (!record.resolved) continue;
+        const method = record.resolutionMethod || 'unknown';
+        methods[method] = (methods[method] || 0) + 1;
+        total++;
+      }
     }
     return { total, methods };
   } finally {
-    db.close();
+    await container.shutdown();
   }
 }
 
-const fixturesRoot = makeTempDir('wb-parity-fixtures-');
-const results = [];
-const failures = [];
-
-try {
+async function main() {
+  const fixturesRoot = makeTempDir('wb-parity-fixtures-');
+  const results = [];
+  const failures = [];
+  try {
   for (const fixture of buildFixtures(fixturesRoot)) {
     const { cacheDir, res } = buildGraph(fixture.dir);
     let line;
@@ -65,7 +67,7 @@ try {
       line = `${fixture.language}: BUILD FAILED (exit ${res.status}) ${(res.stderr || '').slice(0, 200)}`;
       failures.push(line);
     } else {
-      const { total, methods } = edgeStats(cacheDir);
+      const { total, methods } = await edgeStats(fixture.dir, cacheDir);
       const structuralHits = fixture.expectedMethods.reduce((n, m) => n + (methods[m] || 0), 0);
       const methodList = Object.entries(methods).map(([m, c]) => `${m}:${c}`).join(' ') || '(none)';
       line = `${fixture.language}: ${total} edges [${methodList}]`;
@@ -98,15 +100,17 @@ try {
     cleanupTempDir(cacheDir);
     results.push(line);
   }
-} finally {
-  cleanupTempDir(fixturesRoot);
+  } finally {
+    cleanupTempDir(fixturesRoot);
+  }
+
+  console.log('[language-parity] per-language edge production:');
+  for (const line of results) console.log(`  ${line}`);
+
+  assert.strictEqual(failures.length, 0, `language parity failures:\n${failures.join('\n')}`);
 }
 
-console.log('[language-parity] per-language edge production:');
-for (const line of results) console.log(`  ${line}`);
-
-assert.strictEqual(
-  failures.length,
-  0,
-  `language parity failures:\n${failures.join('\n')}`
-);
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

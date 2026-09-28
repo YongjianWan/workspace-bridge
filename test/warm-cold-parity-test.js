@@ -1,28 +1,26 @@
 #!/usr/bin/env node
-// @semantic @slow — two full ServiceContainer lifecycles (cold build + warm load)
+// @semantic @slow — two full ServiceContainer lifecycles (cold start + parse-cache start)
 // warm 与 cold 必须产出逐字节相同的可观察结果。
 //
-// 这条断言存在的理由：build() 的后处理是一串步骤，loadGraph() 只恢复图结构，
-// 两边靠人记得同步。已经出现两例——L1-3（java 同包展开）和符号表重建——每一次
-// 的修法都是"在 warm 分支再补一句"，然后靠一条锁调用顺序的接线测试事后捕捉。
-// 接线测试锁的是症状；这条锁的是契约：不管内部怎么改，两条路径的输出必须一致。
-//
-// 新增任何后处理步骤时，如果它只在 cold 生效，这里会红——不需要为它单独写测试。
+// 这条断言存在的理由：暖启动的答案来自缓存。缓存里存的东西只要有一项依赖了
+// 缓存 key 之外的输入，冷暖就会分叉——这条锁的是契约，不锁内部怎么实现。
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { ServiceContainer } = require('../src/services/container');
-const { DependencyGraph } = require('../src/services/dep-graph');
+const { GraphBuilder } = require('../src/services/dep-graph');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 // Without this counter the whole test degrades into "cold equals cold" the day
-// the warm path silently falls back to build() — it would stay green while the
-// thing it exists to protect is gone.
-let buildCalls = 0;
-const originalBuild = DependencyGraph.prototype.build;
-DependencyGraph.prototype.build = function countedBuild(...args) {
-  buildCalls++;
-  return originalBuild.apply(this, args);
+// the parse cache silently stops being consulted — it would stay green while
+// the thing it exists to protect is gone.
+const parses = { fresh: 0, cached: 0 };
+const originalParse = GraphBuilder.prototype.parseFileOnly;
+GraphBuilder.prototype.parseFileOnly = async function countedParse(...args) {
+  const result = await originalParse.apply(this, args);
+  if (result?.fromCache) parses.cached++;
+  else parses.fresh++;
+  return result;
 };
 
 function writeFixture(root) {
@@ -98,17 +96,18 @@ async function main() {
 
   const cold = new ServiceContainer({ quiet: true, cacheDir });
   await cold.initialize(root, 120000, { watch: false });
-  assert.strictEqual(buildCalls, 1, 'first start must be a real cold build');
+  assert.ok(parses.fresh > 0 && parses.cached === 0, 'first start must parse every file from disk');
   assert.ok(cold._depGraph.getFileCount() > 0, 'cold build must produce a non-empty graph');
   const coldView = observe(cold);
   await cold.shutdown();
 
+  parses.fresh = 0;
+  parses.cached = 0;
   const warm = new ServiceContainer({ quiet: true, cacheDir });
   await warm.initialize(root, 120000, { watch: false });
-  assert.strictEqual(
-    buildCalls,
-    1,
-    'second start must take the warm path — a fallback to build() would make this comparison vacuous'
+  assert.ok(
+    parses.cached > 0 && parses.fresh === 0,
+    `second start must be served from the parse cache — re-parsing would make this comparison vacuous (${JSON.stringify(parses)})`
   );
   const warmView = observe(warm);
   await warm.shutdown();

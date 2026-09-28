@@ -8,7 +8,7 @@
 //   1. 方向一：改 conftest.py → 其目录及子目录下所有测试受影响。
 //   2. 方向二：改 conftest import 的代码（直接或传递）→ 映射到该目录下的测试。
 //   3. conftest.py 不是测试：任何方向的 affected-tests 结果都不许出现它。
-//   4. warm（含旧版缓存可能残留的 conftest 行）与 cold 同答；impact 同步补隐式行。
+//   4. impact 同步补隐式行。
 //
 // 启发式局限（本测试逐条锁住）：
 //   - 不做 fixture 参数名匹配：锚点是「conftest 是否在 import 图里 import 了改动文件」。
@@ -93,31 +93,6 @@ function testDepthCapAppliesToImplicitRows() {
   assert.deepStrictEqual(got, [], `implicit rows respect maxDepth (distance 3 > 2), got ${JSON.stringify(got)}`);
 }
 
-// warm：旧版缓存可能存有 conftest 行（当时它被当测试文件）——fast path 服务后必须
-// ① 滤掉 conftest ② 活补隐式行，与 cold 逐字段一致
-function testWarmOldCacheStillFiltersAndAugments() {
-  const dg = makeGraph();
-  dg.analyzer.injectPrecomputedTestMap([
-    { source: factoryKey, testFile: conftestKey, distance: 2, signal: 'import' },
-  ]);
-  const results = dg.findAffectedTests(factoryKey);
-  const got = names(results).sort();
-
-  assert.ok(!got.includes(conftestKey), `old cached conftest row must be filtered, got ${JSON.stringify(got)}`);
-  assert.ok(got.includes(testAKey), `implicit rows must be added on the warm path too, got ${JSON.stringify(got)}`);
-  const row = results.find((r) => r.file === testAKey);
-  assert.strictEqual(row.source, 'conftest', `warm implicit row must carry source 'conftest', got ${JSON.stringify(row)}`);
-  assert.strictEqual(row.distance, 3, `warm distance must match cold, got ${JSON.stringify(row)}`);
-
-  // 与 cold 逐字段一致（file/distance/source）
-  const cold = makeGraph().findAffectedTests(factoryKey);
-  assert.deepStrictEqual(
-    results.map((r) => `${r.file}@${r.distance}/${r.source}`).sort(),
-    cold.map((r) => `${r.file}@${r.distance}/${r.source}`).sort(),
-    'warm and cold affected-tests must agree'
-  );
-}
-
 // 根 conftest（不在 tests/ 下 → isTestLikeFile 为 false，旧逻辑根本查不到）同样生效，
 // 作用域 = 所在目录（根 = 全仓）
 function testRootConftestNotTestLikeStillAnchors() {
@@ -165,20 +140,12 @@ function testImpactDirection2() {
   assert.strictEqual(implicit.reason, 'implicit-conftest', `got ${JSON.stringify(implicit)}`);
   assert.strictEqual(implicit.level, 3, `factory ←(1) support ←(2) conftest ←(3) test, got ${JSON.stringify(implicit)}`);
 
-  // warm（precompute 注入分支）与 cold 同答
-  const coldFiles = got.slice().sort();
-  dg.analyzer.precomputeImpact();
-  const warmRows = dg.getImpactRadius(factoryKey, 5);
-  assert.deepStrictEqual(names(warmRows).sort(), coldFiles, 'precomputed impact branch must serve the same implicit rows');
-  const warmImplicit = warmRows.find((r) => r.file === testAKey);
-  assert.strictEqual(warmImplicit.reason, 'implicit-conftest', `got ${JSON.stringify(warmImplicit)}`);
 }
 
 function main() {
   testConftestChangeAffectsSubtree();
   testFixtureCodeAffectsSubtreeTestsNotConftest();
   testDepthCapAppliesToImplicitRows();
-  testWarmOldCacheStillFiltersAndAugments();
   testRootConftestNotTestLikeStillAnchors();
   testImpactDirection1();
   testImpactDirection2();

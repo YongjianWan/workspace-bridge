@@ -48,7 +48,7 @@ async function testSaveAndLoadRoundtrip() {
     functionRecords: [],
     parseMode: 'ast',
     confidence: 'high',
-    mtime: 123,
+    hash: 'h123',
   });
   cache.setSymbols('run', [{ file, line: 1, type: 'function' }]);
   cache.setDiagnostics(file, { mtime: 123, diagnostics: [] });
@@ -62,7 +62,7 @@ async function testSaveAndLoadRoundtrip() {
   assert(loaded.getFileMetadata(file), 'file metadata should load');
   assert(loaded.hasParseResult(file), 'parse result should load');
   const loadedParse = loaded.getParseResult(file);
-  assert.strictEqual(loadedParse.mtime, 123, 'parse result mtime should load');
+  assert.strictEqual(loadedParse.hash, 'h123', 'parse result content hash should load');
   assert.strictEqual(loadedParse.parseMode, 'ast', 'parse result parseMode should load');
   assert(Array.isArray(loaded.getSymbols('run')), 'symbols should load');
 
@@ -90,7 +90,7 @@ async function testSaveAfterLoadPersistsNewEntries() {
     functionRecords: [],
     parseMode: 'ast',
     confidence: 'high',
-    mtime: 2,
+    hash: 'h2',
   });
   assert.strictEqual(await loaded.save(), true, 'save after load should persist dirty entries');
   loaded.close();
@@ -120,7 +120,7 @@ function testParseResultGetSetDelete() {
     functionRecords: [],
     parseMode: 'regex',
     confidence: 'medium',
-    mtime: 456,
+    hash: 'h456',
   };
   cache.setParseResult(file, parseResult);
   assert.strictEqual(cache.hasParseResult(file), true, 'should have parse result after set');

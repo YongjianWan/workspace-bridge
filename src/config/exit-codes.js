@@ -11,8 +11,7 @@
  * There is deliberately no "gate refused" code: isSnapshotFresh compares
  * cache.getContentSignature() against the stored content_signature, so a
  * replayed snapshot only survives on an unchanged tree and there is nothing
- * for a gate to refuse. (Not checkFileChanges() — that is a different, still-live method;
- * the signature column is what freshness actually consults.)
+ * for a gate to refuse.
  */
 const EXIT_CODES = {
   OK: 0,

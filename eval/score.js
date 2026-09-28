@@ -15,13 +15,10 @@
  *     unresolved/dropped, warnings, cold/warm ms, cache bytes, dead-export
  *     counts). Only coverageRatio is compared against baseline; the rest is
  *     reported for trend reading (timings swing with machine throttling).
- *   affected-tests, coverage-pytest: micro precision/recall ported from
- *     test/eval_affected_tests.py (truth = gt.json, predictions =
- *     precomputed_impact in the eval-pinned cache.db). The python file stays
- *     authoritative for methodology but is not shelled out: on Windows its
- *     os.path.relpath yields backslashes while its is_test filter checks
- *     `tests/` (see eval/findings.md). The port normalizes separators and
- *     otherwise reproduces its loop exactly.
+ *   affected-tests, coverage-pytest: truth = gt.json; predictions come from
+ *     one initialized graph using the same findAffectedTests query as the CLI.
+ *     Paths are normalized before scoring so Windows separators cannot skew
+ *     test-file filtering.
  *   affected-tests, fault-injection: truth = affected-tests-truth.json from
  *     eval/inject-fault.js; predictions = CLI `affected-tests --file` per
  *     injected file, both sides filtered by lib.TEST_FILE_RULES[runner].
@@ -160,38 +157,39 @@ function scoreDeadCode(entry) {
 
 // ---------------------------------------------------------------- affected-tests
 
-// precomputed_impact: file -> affected tests, from the cache run.js pinned via WB_CACHE_DIR
-function loadPredictions(entry) {
-  const dbPath = path.join(lib.outDir(entry), 'cache', 'cache.db');
-  if (!fs.existsSync(dbPath)) return null;
-  const { DatabaseSync } = require('node:sqlite');
-  const db = new DatabaseSync(dbPath, { readOnly: true });
-  const rows = db.prepare('SELECT file, affected_tests FROM precomputed_impact').all();
-  db.close();
-  const repoDir = lib.repoDir(entry);
+async function loadPredictions(repoDir, cacheDir, sourceFiles) {
+  const { ServiceContainer } = require('../src/services/container');
+  const container = new ServiceContainer({ quiet: true, cacheDir });
   const preds = new Map();
-  for (const r of rows) {
-    const set = preds.get(toRepoRel(repoDir, r.file)) || new Set();
-    for (const t of JSON.parse(r.affected_tests || '[]')) set.add(toRepoRel(repoDir, typeof t === 'string' ? t : t.file));
-    preds.set(toRepoRel(repoDir, r.file), set);
+  try {
+    if (!await container.initialize(repoDir)) {
+      throw container.initError || new Error(`failed to initialize ${repoDir}`);
+    }
+    for (const source of sourceFiles) {
+      const file = path.resolve(repoDir, source);
+      const tests = container.snapshot.graph.findAffectedTests(file);
+      preds.set(toPosix(source), new Set(tests.map((t) => toRepoRel(repoDir, t.file))));
+    }
+  } finally {
+    await container.shutdown();
   }
   return preds;
 }
 
-function scoreCoverageAffected(entry) {
+async function scoreCoverageAffected(entry) {
   const st = statusOf(entry, 'affected-tests');
   if (!st || st.status !== 'ok') return pending((st && st.reason) || `coverage truth not generated; run \`node eval/run.js ${entry.name}\``);
   const gt = readJson(path.join(lib.outDir(entry), 'gt.json'), null);
   if (!gt || !gt.map) return pending(`gt.json missing; run \`node eval/run.js ${entry.name}\``);
-  const preds = loadPredictions(entry);
-  if (!preds) return pending(`cache.db missing; run \`node eval/run.js ${entry.name}\``);
+  const repoDir = lib.repoDir(entry);
+  const preds = await loadPredictions(repoDir, path.join(lib.outDir(entry), 'cache'), Object.keys(gt.map));
 
-  // same is_test rule as test/eval_affected_tests.py: <tests>/ + test_*.py
+  // Coverage truth scores pytest files below the configured test directory.
   const testsDir = `${entry.affectedTests.tests}/`;
   const isTest = (p) => p.startsWith(testsDir) && p.split('/').pop().startsWith('test_');
   const pairs = Object.entries(gt.map).map(([src, real]) => ({
     real: new Set(real),
-    pred: new Set([...(preds.get(src) || [])].filter(isTest)),
+    pred: new Set([...(preds.get(toPosix(src)) || [])].filter(isTest)),
   }));
   return { status: 'ok', ...microPR(pairs), filesScored: pairs.length };
 }
@@ -294,14 +292,14 @@ function describe(metric, m) {
   return `precision=${m.precision} recall=${m.recall} n=${m.n}`;
 }
 
-function main() {
+async function main() {
   const corpus = lib.loadCorpus();
   const pkg = readJson(path.join(ROOT, 'package.json'), {});
   const scoreboard = { generatedAt: new Date().toISOString(), wbVersion: pkg.version, repos: {} };
 
   for (const entry of corpus.repos) {
     const scores = { lang: entry.lang, heldOut: entry.heldOut };
-    for (const metric of entry.metrics) scores[metric] = SCORERS[metric](entry);
+    for (const metric of entry.metrics) scores[metric] = await SCORERS[metric](entry);
     scoreboard.repos[entry.name] = scores;
   }
   scoreboard.verdicts = compareBaseline(scoreboard);
@@ -323,4 +321,11 @@ function main() {
   log('scoreboard written to eval/scoreboard.json (exit 0 — scoring, not gating)');
 }
 
-main();
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { loadPredictions };

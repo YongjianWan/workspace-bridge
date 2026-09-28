@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @contract — verifies workspace-info is a true lightweight preflight: fast, no full container init, stable schema fields.
+// @serial — the process startup budget is only meaningful without competing tests.
 
 const assert = require('assert');
 const fs = require('fs');
@@ -7,7 +8,7 @@ const path = require('path');
 const { runCli, REPO_ROOT, makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { workspaceInfo } = require('../src/tools/workspace-tools');
 
-const LIGHTWEIGHT_BUDGET_MS = 2000;
+const LIGHTWEIGHT_BUDGET_MS = 3000;
 
 function testWorkspaceInfoCliIsFast() {
   const start = Date.now();

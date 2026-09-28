@@ -19,10 +19,9 @@ const DEFAULT_CONFIG = {
  * @param {string[]} nodes - Array of node identifiers (file paths)
  * @param {[string, string][]} edges - Array of [src, dst] tuples
  * @param {{damping?: number, iterations?: number, epsilon?: number}} [options]
- * @param {Map<string, number>} [prevRanks] - Warm-start ranks from previous run
  * @returns {Map<string, number>} Map of node id -> rank (ranks sum to ~1.0)
  */
-function computePageRank(nodes, edges, options, prevRanks) {
+function computePageRank(nodes, edges, options) {
   const config = { ...DEFAULT_CONFIG, ...options };
   const n = nodes.length;
   if (n === 0) {
@@ -58,26 +57,9 @@ function computePageRank(nodes, edges, options, prevRanks) {
 
   const uniform = 1.0 / n;
 
-  // Determine whether we have a usable warm-start.
-  // If prevRanks sum is too low (all zeros or empty), fall back to uniform.
-  let prevSum = 0.0;
-  if (prevRanks && prevRanks.size > 0) {
-    for (const [, rank] of prevRanks) {
-      prevSum += rank;
-    }
-  }
-  const haveWarmStart = prevSum > 0.5;
-
-  let ranks = new Array(n);
-  if (haveWarmStart) {
-    for (let i = 0; i < n; i++) {
-      const nodeId = nodes[i];
-      const prev = prevRanks.get(nodeId);
-      ranks[i] = prev && prev > 0.0 ? prev : uniform;
-    }
-  } else {
-    ranks.fill(uniform);
-  }
+  // Always start from the uniform vector: the result must depend on the
+  // graph alone, never on what an earlier run happened to leave behind.
+  let ranks = new Array(n).fill(uniform);
 
   let newRanks = new Array(n).fill(0.0);
   const base = (1.0 - config.damping) / n;

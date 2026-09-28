@@ -99,40 +99,6 @@ async function main() {
     const idxB = dbRoutes.indexOf(rB);
     assert.ok(idxA < idxB, 'Non-implicit route should sort before implicit route');
 
-    // Test SQLite fast path
-    // clear in-memory routes first
-    const keyA = depGraph.normalizeFilePath(controllerA);
-    const keyB = depGraph.normalizeFilePath(controllerB);
-    const originalARoutes = depGraph.graph.get(keyA).routes;
-    const originalBRoutes = depGraph.graph.get(keyB).routes;
-    depGraph.graph.get(keyA).routes = [];
-    depGraph.graph.get(keyB).routes = [];
-
-    const sqliteRoutes = depGraph.findAffectedHttpRoutes(dbFile, 3);
-    const sA = sqliteRoutes.find((r) => r.path === '/api/a');
-    const sB = sqliteRoutes.find((r) => r.path === '/api/b');
-    assert.ok(sA);
-    assert.ok(sB);
-    assert.strictEqual(sA.hasImplicit, false);
-    assert.strictEqual(sB.hasImplicit, true);
-    assert.ok(sqliteRoutes.indexOf(sA) < sqliteRoutes.indexOf(sB), 'SQLite path should sort non-implicit before implicit');
-
-    depGraph.graph.get(keyA).routes = originalARoutes;
-    depGraph.graph.get(keyB).routes = originalBRoutes;
-
-    // Test Memory BFS fallback
-    const originalCache = depGraph.cache;
-    depGraph.cache = null;
-    const fallbackRoutes = depGraph.findAffectedHttpRoutes(dbFile, 3);
-    const fA = fallbackRoutes.find((r) => r.path === '/api/a');
-    const fB = fallbackRoutes.find((r) => r.path === '/api/b');
-    assert.ok(fA);
-    assert.ok(fB);
-    assert.strictEqual(fA.hasImplicit, false);
-    assert.strictEqual(fB.hasImplicit, true);
-    assert.ok(fallbackRoutes.indexOf(fA) < fallbackRoutes.indexOf(fB), 'Fallback path should sort non-implicit before implicit');
-    depGraph.cache = originalCache;
-
     console.log('PASS: affected-http-routes-implicit-test');
   } finally {
     cleanupTempDir(testDir);

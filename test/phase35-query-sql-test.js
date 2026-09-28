@@ -1,5 +1,5 @@
 // @contract
-// @slow — initializes ServiceContainer and runs CLI commands
+// @serial — initializes ServiceContainer and runs CLI commands against this repo
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
@@ -8,9 +8,10 @@ const { ServiceContainer } = require('../src/services/container');
 const { GraphDB } = require('../src/services/graph-db');
 const { buildProjectOverview } = require('../src/tools/overview-tools');
 const { runCliInProcess } = require('../cli');
+const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-phase35-cache-'));
 
 async function withContainer(fn) {
-  const container = new ServiceContainer();
+  const container = new ServiceContainer({ cacheDir });
   await container.initialize(process.cwd(), 30000, { watch: false });
   try {
     return await fn(container);
@@ -90,7 +91,7 @@ async function testOverviewShortCircuitAndSave() {
 
 async function testFieldsFiltering() {
   // Test fields filtering via in-process CLI execution
-  const res = await runCliInProcess(['audit-overview', '--fields', 'hotspots,cycles', '--json', '--quiet']);
+  const res = await runCliInProcess(['--cache-dir', cacheDir, 'audit-overview', '--fields', 'hotspots,cycles', '--json', '--quiet']);
   assert.strictEqual(res.status, 0);
   const data = JSON.parse(res.stdout);
   assert.strictEqual(data.ok, true);
@@ -111,7 +112,7 @@ async function testFieldsFiltering() {
 }
 
 async function testSqlQueryValidationAndSecurity() {
-  const literalRes = await runCliInProcess([
+  const literalRes = await runCliInProcess(['--cache-dir', cacheDir,
     'query', '--sql', "SELECT key FROM analysis_snapshots WHERE key LIKE '%update; union%'",
     '--json', '--quiet',
   ]);
@@ -120,7 +121,7 @@ async function testSqlQueryValidationAndSecurity() {
     'write and set-operation words inside a string must remain data');
 
   // 1. Valid Select Query
-  const validRes = await runCliInProcess(['query', '--sql', 'SELECT key, file_count FROM analysis_snapshots', '--json', '--quiet']);
+  const validRes = await runCliInProcess(['--cache-dir', cacheDir, 'query', '--sql', 'SELECT key, file_count FROM analysis_snapshots', '--json', '--quiet']);
   assert.strictEqual(validRes.status, 0);
   const data = JSON.parse(validRes.stdout);
   assert.strictEqual(data.ok, true);
@@ -128,13 +129,13 @@ async function testSqlQueryValidationAndSecurity() {
   assert.ok(Array.isArray(data.rows));
 
   // 2. Reject modifying queries
-  const invalidRes1 = await runCliInProcess(['query', '--sql', 'DROP TABLE analysis_snapshots', '--json', '--quiet']);
+  const invalidRes1 = await runCliInProcess(['--cache-dir', cacheDir, 'query', '--sql', 'DROP TABLE analysis_snapshots', '--json', '--quiet']);
   assert.strictEqual(invalidRes1.status, 1);
   const data1 = JSON.parse(invalidRes1.stdout);
   assert.strictEqual(data1.ok, false);
   assert.ok(data1.error.includes('allowed') || data1.error.includes('modification'));
 
-  const invalidRes2 = await runCliInProcess(['query', '--sql', 'INSERT INTO analysis_snapshots VALUES ("a","b","c",1,"d",0)', '--json', '--quiet']);
+  const invalidRes2 = await runCliInProcess(['--cache-dir', cacheDir, 'query', '--sql', 'INSERT INTO analysis_snapshots VALUES ("a","b","c",1,"d",0)', '--json', '--quiet']);
   assert.strictEqual(invalidRes2.status, 1);
   const data2 = JSON.parse(invalidRes2.stdout);
   assert.strictEqual(data2.ok, false);
@@ -142,7 +143,7 @@ async function testSqlQueryValidationAndSecurity() {
                 
   // 3. Reject set-operation attacks (UNION / INTERSECT / EXCEPT) that could leak schema
   for (const setOp of ['UNION', 'INTERSECT', 'EXCEPT']) {
-    const attackRes = await runCliInProcess([
+    const attackRes = await runCliInProcess(['--cache-dir', cacheDir,
       'query', '--sql',
       `SELECT key FROM analysis_snapshots ${setOp} SELECT sql FROM sqlite_master`,
       '--json', '--quiet',
@@ -209,4 +210,4 @@ async function main() {
   }
 }
 
-main();
+main().finally(() => fs.rmSync(cacheDir, { recursive: true, force: true }));

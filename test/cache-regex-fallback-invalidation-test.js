@@ -2,7 +2,7 @@
 // @semantic — 工具链降级（regex-fallback）产生的缓存条目永不信任
 // @fast
 // 复现 2026-07-20 dogfood bug：无 javalang 时 java 文件走 regex fallback，
-// 结果入缓存；装好 javalang 后重跑仍命中旧缓存（key 只看 mtime/hash），
+// 结果入缓存；装好 javalang 后重跑仍命中旧缓存（key 只看内容 hash），
 // 拿到一模一样的垃圾数字。修复后 regex-fallback 条目必须每次重解析。
 const assert = require('assert');
 const fs = require('fs');
@@ -10,7 +10,6 @@ const os = require('os');
 const path = require('path');
 const { DependencyGraph } = require('../src/services/dep-graph');
 const { GraphBuilder } = require('../src/services/dep-graph/builder');
-const { CACHE_VERSION } = require('../src/config/constants');
 
 function makeTmpFile(content) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-cache-degraded-'));
@@ -19,13 +18,15 @@ function makeTmpFile(content) {
   return { tmpDir, filePath };
 }
 
-function stubCache(dg, filePath, mtime) {
+function stubCache(dg, filePath, hash) {
   dg.cache = {
-    getFileMetadata: () => ({ mtime, originalPath: filePath }),
+    getFileMetadata: () => ({ hash, originalPath: filePath }),
+    getParseResult: () => null,
+    setParseResult: () => {},
   };
 }
 
-function seedParseCache(builder, dg, filePath, mtime, parseMode, parseModeReason) {
+function seedParseCache(builder, dg, filePath, hash, parseMode, parseModeReason) {
   const key = dg.normalizeFilePath(filePath);
   const stale = {
     content: 'STALE-CACHED-CONTENT',
@@ -39,7 +40,7 @@ function seedParseCache(builder, dg, filePath, mtime, parseMode, parseModeReason
     parseModeReason,
     confidence: 'medium',
   };
-  builder._parseCache.set(key, { mtime, result: stale });
+  builder._parseCache.set(key, { hash, result: stale });
   return stale;
 }
 
@@ -48,8 +49,8 @@ async function testRegexFallbackEntryNotTrusted() {
   try {
     const dg = DependencyGraph.fromSchema(tmpDir, {});
     const builder = new GraphBuilder(dg);
-    stubCache(dg, filePath, 1000);
-    const stale = seedParseCache(builder, dg, filePath, 1000, 'regex', 'regex-fallback');
+    stubCache(dg, filePath, 'h1');
+    const stale = seedParseCache(builder, dg, filePath, 'h1', 'regex', 'regex-fallback');
 
     const res = await builder.parseFileOnly(filePath);
     assert.notStrictEqual(res, stale, 'regex-fallback cache entry must NOT be trusted');
@@ -64,8 +65,8 @@ async function testRegexNativeEntryStillTrusted() {
   try {
     const dg = DependencyGraph.fromSchema(tmpDir, {});
     const builder = new GraphBuilder(dg);
-    stubCache(dg, filePath, 1000);
-    const stale = seedParseCache(builder, dg, filePath, 1000, 'regex', 'regex-native');
+    stubCache(dg, filePath, 'h1');
+    const stale = seedParseCache(builder, dg, filePath, 'h1', 'regex', 'regex-native');
 
     const res = await builder.parseFileOnly(filePath);
     assert.strictEqual(res, stale, 'regex-native cache entry should still hit (regex is the native parser)');
@@ -79,8 +80,8 @@ async function testAstEntryStillTrusted() {
   try {
     const dg = DependencyGraph.fromSchema(tmpDir, {});
     const builder = new GraphBuilder(dg);
-    stubCache(dg, filePath, 1000);
-    const stale = seedParseCache(builder, dg, filePath, 1000, 'ast', 'ast-success');
+    stubCache(dg, filePath, 'h1');
+    const stale = seedParseCache(builder, dg, filePath, 'h1', 'ast', 'ast-success');
 
     const res = await builder.parseFileOnly(filePath);
     assert.strictEqual(res, stale, 'ast cache entry should still hit');
@@ -89,79 +90,37 @@ async function testAstEntryStillTrusted() {
   }
 }
 
-function testIsParseCacheUsableMatrix() {  const dg = DependencyGraph.fromSchema('/mock', {});
+function testIsParseCacheUsableMatrix() {
+  const dg = DependencyGraph.fromSchema('/mock', {});
   const builder = new GraphBuilder(dg);
-  const meta = { mtime: 1000 };
+  const meta = { hash: 'h1' };
 
   assert.strictEqual(
-    builder._isParseCacheUsable({ mtime: 1000, parseMode: 'regex', parseModeReason: 'regex-fallback' }, meta),
+    builder._isParseCacheUsable({ hash: 'h1', parseMode: 'regex', parseModeReason: 'regex-fallback' }, meta),
     false,
-    'regex-fallback entry unusable even when mtime matches'
+    'regex-fallback entry unusable even when the content hash matches'
   );
   assert.strictEqual(
-    builder._isParseCacheUsable({ mtime: 1000, parseMode: 'regex', parseModeReason: 'regex-native' }, meta),
+    builder._isParseCacheUsable({ hash: 'h1', parseMode: 'regex', parseModeReason: 'regex-native' }, meta),
     true,
     'regex-native entry usable'
   );
   assert.strictEqual(
-    builder._isParseCacheUsable({ mtime: 1000, parseMode: 'ast', parseModeReason: 'ast-success' }, meta),
+    builder._isParseCacheUsable({ hash: 'h1', parseMode: 'ast', parseModeReason: 'ast-success' }, meta),
     true,
     'ast entry usable'
   );
   assert.strictEqual(
-    builder._isParseCacheUsable({ mtime: 999, parseMode: 'ast', parseModeReason: 'ast-success' }, meta),
+    builder._isParseCacheUsable({ hash: 'h0', parseMode: 'ast', parseModeReason: 'ast-success' }, meta),
     false,
-    'mtime mismatch unusable'
+    'content hash mismatch unusable'
   );
   assert.strictEqual(builder._isParseCacheUsable(null, meta), false, 'missing cache unusable');
   assert.strictEqual(
-    builder._isParseCacheUsable({ mtime: 1000, parseMode: 'ast' }, null),
+    builder._isParseCacheUsable({ hash: 'h1', parseMode: 'ast' }, null),
     false,
     'missing metadata unusable'
   );
-}
-
-function stubLoaderCache(dg, parseResults) {
-  const fileMetadata = new Map();
-  dg.cache = {
-    checkFileChanges: () => ({ changed: false, changedFiles: [] }),
-    loadEdges: () => [{ source: 'a.js', target: 'b.js', edgeType: 'import' }],
-    // A valid edgeMeta is required to reach the parseMode branch under test:
-    // loadGraph now rejects edges whose metadata is missing, because edgeMeta
-    // is the only place CACHE_VERSION is enforced on the warm path
-    // (see loader-edge-meta-gate-test.js). This stub previously passed null,
-    // which only worked while that gate was skippable.
-    edgeMeta: {
-      cacheVersion: CACHE_VERSION,
-      fileMetadataCount: fileMetadata.size,
-      parseResultsCount: parseResults.size,
-    },
-    parseResults,
-    fileMetadata,
-    getFileMetadata: () => null,
-  };
-}
-
-function testLoadGraphBailsOnDegradedEntries() {
-  const { loadGraph } = require('../src/services/dep-graph/loader');
-  const dg = DependencyGraph.fromSchema('/mock', {});
-  stubLoaderCache(dg, new Map([
-    ['b.js', { parseMode: 'regex', parseModeReason: 'regex-fallback', imports: [], exports: [] }],
-  ]));
-  assert.strictEqual(
-    loadGraph(dg),
-    false,
-    'loadGraph must refuse to restore regex-fallback parse results (toolchain may have been fixed since)'
-  );
-}
-
-function testLoadGraphAcceptsHealthyEntries() {
-  const { loadGraph } = require('../src/services/dep-graph/loader');
-  const dg = DependencyGraph.fromSchema('/mock', {});
-  stubLoaderCache(dg, new Map([
-    ['b.js', { parseMode: 'ast', parseModeReason: 'ast-success', imports: [], exports: [] }],
-  ]));
-  assert.strictEqual(loadGraph(dg), true, 'loadGraph should accept AST parse results');
 }
 
 async function main() {
@@ -169,8 +128,6 @@ async function main() {
   await testRegexNativeEntryStillTrusted();
   await testAstEntryStillTrusted();
   testIsParseCacheUsableMatrix();
-  testLoadGraphBailsOnDegradedEntries();
-  testLoadGraphAcceptsHealthyEntries();
   console.log('cache-regex-fallback-invalidation-test: all assertions passed');
 }
 

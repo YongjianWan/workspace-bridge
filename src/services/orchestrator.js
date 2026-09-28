@@ -1,15 +1,9 @@
 /**
- * GraphOrchestrator - Coordinates DependencyGraph lifecycle, event handling,
- * and precompute persistence so that dep-graph.js stays a thin facade over
- * graph data structures.
+ * GraphOrchestrator - Coordinates DependencyGraph construction so that
+ * dep-graph.js stays a thin facade over graph data structures.
  */
 
 const { DG_STATES, GraphStateMachine } = require('./dep-graph/state-machine');
-const {
-  registerGraphBuiltHandler,
-  savePrecomputed,
-  restorePrecomputed,
-} = require('./dep-graph/persistence');
 
 /**
  * Bootstrap a DependencyGraph from a serialized schema (tests, mocks).
@@ -128,86 +122,20 @@ async function initializeDepGraph({
 
   // FileIndex 本轮遍历的降级信号（depth-truncated 等）挂到图上，走
   // analyzer.buildWarnings() 的统一出口（_parseErrorFiles 同款形状）。
-  // 冷热两条路都要走这里——FileIndex 的遍历每轮都真实发生。
   if (fileIndex && Array.isArray(fileIndex.warnings)) {
     depGraph._indexWarnings = fileIndex.warnings;
   }
 
   // 发现阶段被丢弃的已知源码扩展文件（无 parser 认领）同上挂图——
-  // analyzer 的 coverage 分母读它，冷热两路都要走这里。
+  // analyzer 的 coverage 分母读它。
   if (fileIndex && Array.isArray(fileIndex.unsupportedSourceFiles)) {
     depGraph._unsupportedSourceFiles = fileIndex.unsupportedSourceFiles;
   }
 
-  // D3: attempt fast-path load from persisted edges; fall back to full build()
-  const loaded = depGraph.loadGraph({ skipChangeCheck: true });
-  if (!loaded) {
-    await depGraph.build(fileIndex?._indexedFiles || null);
-  } else {
-    // Persisted parse_results lack postProcess-injected importRecords
-    // (java tier1 wildcard-resolved + tier3 same-package) because
-    // setParseResult runs before postProcess. Replay the whole phase list so
-    // the warm path is semantically identical to a fresh build. Replaying the
-    // list — not one hardcoded phase — is the point: anything registered via
-    // registerPostProcessPhase() would otherwise be silently skipped here,
-    // which is exactly how L1-3 happened. Phases are idempotent by contract.
-    await depGraph.builder.runPostProcessPhases();
-
-    // Hybrid path: edges loaded — compute delta and incrementally update
-    const indexedFiles = new Set(fileIndex?._indexedFiles || []);
-    const indexedKeys = new Set([...indexedFiles].map((f) => depGraph.normalizeFilePath(f)));
-    const graphFiles = new Set(depGraph.getAllFilePaths());
-    const filesToUpdate = [];
-
-    // New files: in index but not in graph
-    for (const f of indexedFiles) {
-      const key = depGraph.normalizeFilePath(f);
-      if (!graphFiles.has(key)) {
-        if (depGraph.shouldExclude(f)) continue;
-        if (depGraph.projectContext && !depGraph.projectContext.isActiveSourceFile(f)) {
-          if (!depGraph.shouldExcludeCli(f)) continue;
-        }
-        filesToUpdate.push(f);
-      }
-    }
-
-    // Deleted files: in graph but not in index and no metadata
-    for (const f of graphFiles) {
-      if (!indexedKeys.has(f) && !cache.hasFileMetadata(f)) {
-        filesToUpdate.push(f);
-      }
-    }
-
-    // FileIndex uses stat hints. Cache hashes catch same-size edits whose
-    // timestamps were restored by a copy or archive operation.
-    const changedFiles = [
-      ...(fileIndex?.changedFiles || []),
-      ...(cache?.checkFileChanges?.()?.changedFiles || []),
-    ];
-    for (const f of changedFiles) {
-      filesToUpdate.push(f);
-    }
-
-    if (filesToUpdate.length > 0) {
-      const uniqueFiles = [...new Set(filesToUpdate)];
-      const graphSize = depGraph.getFileCount();
-      // Fallback to full build if delta is too large (>50% of graph)
-      if (graphSize > 0 && uniqueFiles.length > graphSize * 0.5) {
-        if (!quiet) {
-           
-          console.error(`[Container] ${uniqueFiles.length} files delta (>50% of ${graphSize}), falling back to full build`);
-        }
-        // Reset state so the full build can transition from IDLE → BUILDING
-        depGraph._resetState();
-        await depGraph.build(fileIndex?._indexedFiles || null);
-      } else {
-        await depGraph.updateFiles(uniqueFiles);
-      }
-    } else {
-      // Fully warm start — no files changed since last edge save
-      depGraph.analyzer.precomputeAggregates();
-    }
-  }
+  // The graph is rebuilt on every initialize. Unchanged files come from the
+  // content-keyed parse cache; resolution and every graph-level result are
+  // recomputed, so a warm run cannot differ from a cold one.
+  await depGraph.build(fileIndex?._indexedFiles || null);
 
   return depGraph;
 }
@@ -215,9 +143,6 @@ async function initializeDepGraph({
 module.exports = {
   DG_STATES,
   GraphStateMachine,
-  registerGraphBuiltHandler,
-  savePrecomputed,
-  restorePrecomputed,
   bootstrapFromSchema,
   initializeDepGraph,
 };

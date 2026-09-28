@@ -7,8 +7,8 @@
 // 恒产对象、setFileMetadata 恒写对象）；内部消费点摘 ?.，让结构性违约炸出来。
 //
 // 结构性合同（源形态回归闸）：三处调用必须无条件直调——`?.` 回潮即红。
-// 行为合同：null entry 必须炸（RED 驱动本批改动）；稀疏老格式 entry
-// （对象缺 mtime）仍是真实可恢复边界，压 0 参与哈希、不炸（防过修）。
+// 行为合同：null entry 和缺内容 hash 的 entry 都必须炸；签名只随内容变，
+// 不随 mtime/size 变（快照新鲜度看的是内容）。
 
 const assert = require('assert');
 const fs = require('fs');
@@ -46,16 +46,30 @@ function testNullEntryThrowsLoudly() {
   }
 }
 
-function testSparseEntryKeepsLegacyTolerance() {
+function testEntryWithoutHashThrows() {
   const { dir, cache } = makeCache();
   try {
-    // 稀疏对象（有 entry、无 mtime 字段）= 老格式/部分写路径的真实产物，
-    // 属可恢复边界：压 0 参与哈希，与显式 {mtime:0,size:0} 同摘要。
-    cache.fileMetadata.set(path.join(dir, 'a.js'), {});
+    // FileIndex 写入的每条 metadata 都带内容 hash；没有 hash 的条目无法担保内容，
+    // 签进快照就等于给一个无法验证的快照盖章。
+    cache.fileMetadata.set(path.join(dir, 'a.js'), { mtime: 1, size: 1 });
+    assert.throws(() => cache.getContentSignature(), /without content hash/);
+  } finally {
+    cache.close();
+    cleanupTempDir(dir);
+  }
+}
+
+function testSignatureTracksContentNotStat() {
+  const { dir, cache } = makeCache();
+  try {
+    const file = path.join(dir, 'a.js');
+    cache.fileMetadata.set(file, { mtime: 1, size: 10, hash: 'aaa' });
     const sig = cache.getContentSignature();
-    assert.ok(/^[0-9a-f]{64}$/.test(sig), '稀疏 entry 不炸，产出正常 sha256 摘要');
-    cache.fileMetadata.set(path.join(dir, 'a.js'), { mtime: 0, size: 0 });
-    assert.strictEqual(cache.getContentSignature(), sig, '稀疏 entry 与显式零值同摘要（|| 0 压位语义保持）');
+    assert.ok(/^[0-9a-f]{64}$/.test(sig), '产出正常 sha256 摘要');
+    cache.fileMetadata.set(file, { mtime: 2, size: 20, hash: 'aaa' });
+    assert.strictEqual(cache.getContentSignature(), sig, '只有 mtime/size 变化时签名不变');
+    cache.fileMetadata.set(file, { mtime: 1, size: 10, hash: 'bbb' });
+    assert.notStrictEqual(cache.getContentSignature(), sig, 'mtime/size 不变但内容变了，签名必须变');
   } finally {
     cache.close();
     cleanupTempDir(dir);
@@ -96,14 +110,14 @@ function testCacheBodyTrustsObjectShape() {
   const start = src.indexOf('getContentSignature() {');
   assert.ok(start >= 0, 'precondition: getContentSignature method exists');
   const body = src.slice(start, src.indexOf('\n  }', start));
-  assert.ok(!body.includes('meta?.mtime'), 'getContentSignature 不得对 meta 打 ?.（entry 形状由边界保证）');
-  assert.ok(!body.includes('meta?.size'), 'getContentSignature 不得对 meta 打 ?.（entry 形状由边界保证）');
+  assert.ok(!body.includes('meta?.'), 'getContentSignature 不得对 meta 打 ?.（entry 形状由边界保证）');
 }
 
 function main() {
   const tests = [
     testNullEntryThrowsLoudly,
-    testSparseEntryKeepsLegacyTolerance,
+    testEntryWithoutHashThrows,
+    testSignatureTracksContentNotStat,
     testOverviewToolsCallsUnconditionally,
     testSnapshotFreshnessCallsUnconditionally,
     testQueryToolsCallsUnconditionally,

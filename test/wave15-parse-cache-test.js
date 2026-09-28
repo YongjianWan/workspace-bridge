@@ -8,6 +8,15 @@ const os = require('os');
 const path = require('path');
 const { DependencyGraph } = require('../src/services/dep-graph');
 const { GraphBuilder } = require('../src/services/dep-graph/builder');
+const { hashFileContent } = require('../src/services/cache');
+
+function stubCache(getFileMetadata) {
+  return { getFileMetadata, getParseResult: () => null, setParseResult: () => {} };
+}
+
+function hashOf(filePath) {
+  return hashFileContent(fs.readFileSync(filePath));
+}
 
 async function testCacheHitOnUnchangedFile() {
   const dg = DependencyGraph.fromSchema('/mock', {});
@@ -16,21 +25,18 @@ async function testCacheHitOnUnchangedFile() {
   const file = '/mock/a.js';
   const key = dg.normalizeFilePath(file);
 
-  // Stub getFileMetadata to return a fixed mtime
-  dg.cache = {
-    getFileMetadata: () => ({ mtime: 1000, originalPath: file }),
-  };
+  dg.cache = stubCache(() => ({ hash: 'h1', originalPath: file }));
 
   // Populate cache with a fake result
   const stubResult = { content: 'cached-content', graphKey: key, imports: [] };
-  builder._parseCache.set(key, { mtime: 1000, result: stubResult });
+  builder._parseCache.set(key, { hash: 'h1', result: stubResult });
 
   // Running parseFileOnly should return stubResult immediately
   const res = await builder.parseFileOnly(file);
   assert.deepStrictEqual(res, stubResult, 'Expected parse cache hit');
 }
 
-async function testCacheMissOnMtimeOrHashChange() {
+async function testCacheMissOnContentChange() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-parse-cache-test-'));
   const filePath = path.join(tmpDir, 'test.js');
   fs.writeFileSync(filePath, 'const a = 1;', 'utf8');
@@ -41,25 +47,20 @@ async function testCacheMissOnMtimeOrHashChange() {
     const key = dg.normalizeFilePath(filePath);
 
     // Initial parse to populate cache
-    const stat = fs.statSync(filePath);
-    dg.cache = {
-      getFileMetadata: () => ({ mtime: stat.mtimeMs, originalPath: filePath }),
-    };
+    dg.cache = stubCache(() => ({ hash: hashOf(filePath), originalPath: filePath }));
 
     const firstResult = await builder.parseFileOnly(filePath);
     assert.strictEqual(firstResult.content, 'const a = 1;');
     assert.ok(builder._parseCache.has(key), 'Cache should be populated');
 
-    // 1. Mtime matches -> Hit
+    // 1. Content unchanged -> Hit
     const secondResult = await builder.parseFileOnly(filePath);
     assert.strictEqual(secondResult, firstResult, 'Expected hit with identical reference');
 
-    // 2. Mtime changes -> Miss
-    dg.cache.getFileMetadata = () => ({ mtime: stat.mtimeMs + 999, originalPath: filePath });
-    // Write new content to disk
+    // 2. Content changes -> Miss (the metadata hash follows the disk)
     fs.writeFileSync(filePath, 'const b = 2;', 'utf8');
     const thirdResult = await builder.parseFileOnly(filePath);
-    assert.strictEqual(thirdResult.content, 'const b = 2;', 'Expected re-read after mtime mismatch');
+    assert.strictEqual(thirdResult.content, 'const b = 2;', 'Expected re-read after content change');
     assert.notStrictEqual(thirdResult, firstResult, 'Result reference should be different');
   } finally {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
@@ -73,10 +74,7 @@ async function testLruEviction() {
     const dg = DependencyGraph.fromSchema(tmpDir, {});
     const builder = new GraphBuilder(dg);
 
-    // Stub getFileMetadata so parseFileOnly will cache every parsed file.
-    dg.cache = {
-      getFileMetadata: (p) => ({ mtime: 100, originalPath: p }),
-    };
+    dg.cache = stubCache((p) => ({ hash: hashOf(p), originalPath: p }));
 
     // Create 202 files and parse them; the cache limit is 200, so the oldest entries should be evicted.
     const filePaths = [];
@@ -166,7 +164,7 @@ async function testCacheLifecycle() {
 /* -------------------------------------------------------------------------- */
 const tests = [
   testCacheHitOnUnchangedFile,
-  testCacheMissOnMtimeOrHashChange,
+  testCacheMissOnContentChange,
   testLruEviction,
   testCacheLifecycle,
 ];

@@ -695,7 +695,7 @@ async function assembleOverviewData(args, container, historyProvider) {
     // throw, not fall back to a silent zero (that fallback is how this
     // section read 0 forever while 261 tests stayed green). `measured`
     // distinguishes "cold build ran and counted N drops" from "nothing was
-    // measured" (warm path) — a bare 0 must not read as "graph is complete".
+    // measured" — a bare 0 must not read as "graph is complete".
     droppedImports: (() => {
       const dropped = depGraph.getDroppedImports();
       return {

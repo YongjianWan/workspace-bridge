@@ -57,7 +57,7 @@ function isSnapshotFresh(snapshot, container, options = {}) {
 
   // Content changes are the whole point. Git head, file count and config
   // all stay identical when a file is edited in place — precisely when a
-  // replayed answer lies. The stored signature covers path+mtime+size of every
+  // replayed answer lies. The stored signature covers path+content hash of every
   // indexed file, so an edit invalidates the snapshot even though the three
   // coarse keys above still match. This is what lets reports AND gates share
   // one snapshot with no special case for either.

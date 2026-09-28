@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const assert = require('assert');
 const { runCliInProcess, cleanupTempDir } = require('./test-helpers');
 const { ServiceContainer } = require('../src/services/container');
+const { hashFileContent } = require('../src/services/cache');
 
 async function main() {
   const testDir = path.join(os.tmpdir(), 'wb-test-gf-routes-' + crypto.randomBytes(4).toString('hex'));
@@ -59,12 +60,6 @@ async function main() {
     assert.strictEqual(routeNode.routes[0].path, '/api/users', 'First route path mismatch');
     assert.strictEqual(routeNode.routes[1].path, '/api/users/create', 'Second route path mismatch');
 
-    // 检查 SQLite 中的 edges 是否存储了 handles-route 关系
-    const edges = container.cache.loadEdges();
-    const handlesRouteEdges = edges.filter(e => e.edgeType === 'handles-route');
-    assert.strictEqual(handlesRouteEdges.length, 2, 'Should serialize 2 handles-route edges');
-    assert.ok(handlesRouteEdges.every(e => e.source === depGraph.normalizeFilePath(routeFile)), 'handles-route edges source mismatch');
-
     // --- 场景 D: 验证 findAffectedHttpRoutes 穿透多层 file 依赖获取到终端的 API 路由 ---
     // 更改 db.js 会影响到 app.js, route.js, service.js, db.js
     // 它应该能通过 BFS 追溯到 route.js 上的路由
@@ -73,8 +68,7 @@ async function main() {
     assert.ok(affectedHttpRoutes.some(r => r.path === '/api/users'), '/api/users route should be affected');
     assert.ok(affectedHttpRoutes.some(r => r.path === '/api/users/create'), '/api/users/create route should be affected');
 
-    // --- 场景 B: 验证冷启动 loadGraph 还原图结构 ---
-    // 重启容器，加载缓存而不重新构建
+    // --- 场景 B: 验证重启后从解析缓存重建的图结构 ---
     const newContainer = new ServiceContainer({ quiet: true });
     await newContainer.initialize(testDir, 30000, { watch: false });
     const loadedGraph = newContainer.snapshot.graph._dg;
@@ -95,8 +89,12 @@ async function main() {
       module.exports = router;
     `);
 
-    // 模拟 mtime 发生变化，防止被 updateFiles 认为是未改变的文件`而跳过
-    newContainer.cache.setFileMetadata(routeFile, { mtime: Date.now(), size: fs.statSync(routeFile).size });
+    // 模拟 watcher 重新索引：metadata 带上新内容的 hash（FileIndex 的写法）
+    newContainer.cache.setFileMetadata(routeFile, {
+      mtime: Date.now(),
+      size: fs.statSync(routeFile).size,
+      hash: hashFileContent(fs.readFileSync(routeFile)),
+    });
 
     // 触发增量更新
     await loadedGraph.updateFiles([routeFile]);
@@ -109,12 +107,6 @@ async function main() {
     const parseResultInDb = newContainer.cache.getParseResult(routeFile);
     assert.strictEqual(parseResultInDb.routes.length, 1, 'Db cache routes size mismatch after incremental update');
     assert.strictEqual(parseResultInDb.routes[0].path, '/api/users/update', 'Db cache route path mismatch after incremental update');
-
-    // 验证 SQL 中的 handles-route 边也被正确增量重写
-    const newEdges = newContainer.cache.loadEdges();
-    const updatedHandlesRouteEdges = newEdges.filter(e => e.edgeType === 'handles-route');
-    assert.strictEqual(updatedHandlesRouteEdges.length, 1, 'Should only have 1 handles-route edge in Db after incremental update');
-    assert.strictEqual(updatedHandlesRouteEdges[0].target, 'route:GET:/api/users/update', 'New handles-route target mismatch');
 
     // --- 场景 E: 验证通过 CLI 调用的 impact 计算受影响路由是否一致 ---
     const cliResult = await runCliInProcess(['impact', '--cwd', testDir, '--file', 'db.js', '--json', '--quiet']);

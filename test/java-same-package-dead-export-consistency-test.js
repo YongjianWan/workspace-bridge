@@ -1,14 +1,10 @@
 #!/usr/bin/env node
 // @fast
 // @contract
-// L1-3: Java same-package 隐式边（tier3）在 build 路径与 loadGraph 路径下的
-// dead-exports 语义必须一致（TECH_DEBT L1-3，2026-07-20 发现）：
+// Java same-package 隐式边（tier3）的 dead-exports 语义：
 // - tier3 same-package 记录不参与「已使用」判定（与 cycles Rule 5 先例一致，analyzer.js:646）
 // - 真实同包引用由 importer 内容扫描兜底（Spring DI 等文本可见引用不误报）
 // - 仅剩隐式 importer 的死导出报出，但 confidence=low + confidenceSource='implicit-same-package'
-// - warm 路径（loadGraph 恢复态：有边、无 tier3/tier1-resolved 记录）重跑
-//   expandJavaPackageImports 后与 cold 路径结果完全一致（orchestrator.js 负责挂钩；
-//   持久化聚合的失效由 CACHE_VERSION bump 保证）
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -52,31 +48,6 @@ async function testColdPathReportsSamePackageDeadClass() {
   const bar = findByFile(dead, 'Bar.java');
   assert(bar, 'same-package dead class must be visible on the build path (was masked by tier3 usesAllExports)');
   assert.strictEqual(bar.confidence, 'low', 'implicit-only importers must downgrade to low confidence');
-  assert.strictEqual(bar.confidenceSource, 'implicit-same-package');
-
-  cleanupTempDir(tmpDir);
-}
-
-// warm 路径恢复态（有同包边、无 tier3 记录）重跑展开后与 cold 一致
-async function testWarmPathMatchesColdAfterReExpansion() {
-  const tmpDir = makeTempDir('wb-l13-warm-');
-  const fooPath = path.join(tmpDir, 'Foo.java');
-  const barPath = path.join(tmpDir, 'Bar.java');
-  fs.writeFileSync(fooPath, 'public class Foo { public void run() {} }\n');
-  fs.writeFileSync(barPath, 'public class Bar { public void idle() {} }\n');
-
-  // 模拟 loadGraph 恢复态：edges 表带回同包边，parse_results 不含 tier3 记录
-  const depGraph = DependencyGraph.fromSchema(tmpDir, {
-    [fooPath]: javaEntry(fooPath, 'Foo', 'com.example', { imports: [barPath] }),
-    [barPath]: javaEntry(barPath, 'Bar', 'com.example', { imports: [fooPath] }),
-  });
-  // orchestrator 在 loadGraph 成功后重跑展开（L1-3 修复挂钩）
-  await depGraph.builder.expandJavaPackageImports();
-
-  const dead = depGraph.findDeadExports();
-  const bar = findByFile(dead, 'Bar.java');
-  assert(bar, 'warm path must report the same dead class as cold path');
-  assert.strictEqual(bar.confidence, 'low');
   assert.strictEqual(bar.confidenceSource, 'implicit-same-package');
 
   cleanupTempDir(tmpDir);
@@ -137,7 +108,6 @@ async function testWildcardSuppressionConsistentAcrossPaths() {
 
 async function main() {
   await testColdPathReportsSamePackageDeadClass();
-  await testWarmPathMatchesColdAfterReExpansion();
   await testRealSamePackageUsageStillSuppressed();
   await testWildcardSuppressionConsistentAcrossPaths();
   console.log('java-same-package-dead-export-consistency-test: all passed');

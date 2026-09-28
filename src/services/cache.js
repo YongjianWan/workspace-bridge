@@ -7,11 +7,21 @@ const os = require('os');
 const crypto = require('crypto');
 const { normalizeFilePath } = require('../utils/path');
 const { GraphDB } = require('./graph-db');
-const { CACHE_VERSION, DEFAULTS } = require('../config/constants');
+const { DEFAULTS } = require('../config/constants');
 
 const CACHE_STALE_MS = DEFAULTS.STALENESS_THRESHOLD_MS;
 const WINDOWS_ABSOLUTE_PATH_RE = /^([A-Za-z]):[\\/](.*)$/;
 const WSL_MOUNT_ROOT = '/mnt';
+
+/**
+ * The one content hash every cache layer keys on. Hashes raw bytes, so a file
+ * that is not valid UTF-8 still gets a stable key.
+ * @param {Buffer} bytes
+ * @returns {string}
+ */
+function hashFileContent(bytes) {
+  return crypto.createHash('sha256').update(bytes).digest('hex');
+}
 
 /**
  * Metadata schema registry — add a new cached field by registering here.
@@ -40,21 +50,6 @@ const METADATA_SCHEMA = {
         remediation: obj.remediation || null,
       };
     },
-  },
-  pageRanks: {
-    default: () => new Map(),
-    serialize: (v) => JSON.stringify(Array.from(v.entries())),
-    deserialize: (raw) => new Map(JSON.parse(raw)),
-  },
-  aggregateSummary: {
-    default: null,
-    serialize: (v) => JSON.stringify(v),
-    deserialize: (raw) => JSON.parse(raw),
-  },
-  edgeMeta: {
-    default: null,
-    serialize: (v) => v ? JSON.stringify(v) : null,
-    deserialize: (raw) => JSON.parse(raw),
   },
 };
 
@@ -200,7 +195,6 @@ class WorkspaceCache {
     this.workspaceInfo = null;
     this.fileMetadata = new Map(); // file -> {mtime, size, hash}
     this.parseResults = new Map(); // file -> {imports, exports, importRecords, exportRecords, functionRecords, parseMode, confidence, mtime}
-    this.parsedHashes = new Map(); // file -> hash at parse time
     this.symbolIndex = new Map();  // symbol -> [{file, line, type}]
     this.diagnostics = new Map();  // file -> [diagnostics]
 
@@ -306,12 +300,6 @@ class WorkspaceCache {
       this.workspaceInfo = data.workspaceInfo;
       this.fileMetadata = data.fileMetadata || new Map();
       this.parseResults = data.parseResults || new Map();
-      this.parsedHashes.clear();
-      for (const [key, meta] of this.fileMetadata.entries()) {
-        if (meta.hash) {
-          this.parsedHashes.set(key, meta.hash);
-        }
-      }
       this.symbolIndex = data.symbolIndex || new Map();
       this.diagnostics = data.diagnostics || new Map();
       this._resetTrackers();
@@ -444,14 +432,8 @@ class WorkspaceCache {
     return this[key];
   }
 
-  // Backwards-compat wrappers around saveMetadata / loadMetadata
-
   saveCoChanges(coChanges) {
     return this.saveMetadata('coChanges', coChanges);
-  }
-
-  savePageRanks(pageRanks) {
-    return this.saveMetadata('pageRanks', pageRanks);
   }
 
   // Workspace info cache
@@ -496,7 +478,6 @@ class WorkspaceCache {
       // Cascade to associated cache slots so deletion leaves no ghost data.
       this.parseResults.delete(candidate);
       this._parseTracker.unmark(candidate);
-      this.parsedHashes.delete(candidate);
       this.diagnostics.delete(candidate);
       this._diagTracker.unmark(candidate);
     }
@@ -528,13 +509,7 @@ class WorkspaceCache {
     if (!key) return;
     this.parseResults.set(key, result);
     this._parseTracker.mark(key);
-    
-    // Also track the parsed content hash in memory
-    const meta = this.getFileMetadata(filePath);
-    if (meta && meta.hash) {
-      this.parsedHashes.set(key, meta.hash);
-    }
-    
+
     this.dirty = true;
   }
 
@@ -550,7 +525,6 @@ class WorkspaceCache {
     for (const candidate of keys) {
       this.parseResults.delete(candidate);
       this._parseTracker.unmark(candidate);
-      this.parsedHashes.delete(candidate);
     }
     this.dirty = true;
   }
@@ -643,15 +617,6 @@ class WorkspaceCache {
     };
   }
 
-  loadAggregateSummary() {
-    // Already loaded by schema-driven load(); return memory value directly
-    return this.aggregateSummary;
-  }
-
-  saveAggregateSummary(summary) {
-    return this.saveMetadata('aggregateSummary', summary);
-  }
-
   /**
    * Check whether any cached file has changed on disk since it was indexed.
    *
@@ -683,7 +648,7 @@ class WorkspaceCache {
           changedFiles.push(filePath);
           continue;
         }
-        const currentHash = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+        const currentHash = hashFileContent(fs.readFileSync(filePath));
         if (currentHash !== storedHash) {
           changedFiles.push(filePath);
           continue;
@@ -702,71 +667,29 @@ class WorkspaceCache {
     return { changed: changedFiles.length > 0, changedFiles };
   }
 
-  /**
-   * Persist dependency edges to SQLite (full replacement).
-   * Called by GraphBuilder after build()/updateFiles() post-process.
-   */
-  saveEdges(edges, meta = null) {
-    const edgeMeta = meta || {
-      cacheVersion: CACHE_VERSION,
-      fileMetadataCount: this.fileMetadata.size,
-      parseResultsCount: this.parseResults.size,
-      timestamp: Date.now(),
-    };
-    const ok = this._graphDb.saveEdges(edges, edgeMeta);
-    if (ok) this.edgeMeta = edgeMeta;
-    return ok;
-  }
-
-  /**
-   * Load dependency edges from SQLite.
-   * @returns {Array<{source:string,target:string,edgeType:string,confidence:number}>|null}
-   */
-  loadEdges() {
-    return this._graphDb.loadEdges();
-  }
-
-  // D7-D8: Precomputed aggregates / impact proxy methods
-
-  savePrecomputedAggregates(rows) {
-    return this._graphDb.savePrecomputedAggregates(rows);
-  }
-
-  loadPrecomputedAggregates() {
-    return this._graphDb.loadPrecomputedAggregates();
-  }
-
   saveAnalysisSnapshot(key, data, version, fileCount, configHash, contentSignature) {
     return this._graphDb.saveAnalysisSnapshot(key, data, version, fileCount, configHash, contentSignature);
   }
 
   /**
-   * Fingerprint of the indexed file set: path + mtime + size for every tracked
-   * file. Snapshot freshness compares this so that an in-place edit — which
-   * moves no git head, no file count and no config — still invalidates a
-   * stored snapshot.
+   * Fingerprint of the indexed file set: path + content hash of every tracked
+   * file. Snapshot freshness compares this, so any content edit invalidates a
+   * stored snapshot — including one that restores mtime and size.
    *
-   * Reads the metadata the index already holds; it does not stat the disk.
-   * Callers must therefore compare signatures taken at the same point in the
-   * lifecycle (both post-initialize), which is what snapshot save/load do.
+   * Reads the metadata the index already holds; FileIndex verifies every hash
+   * against disk during initialize, so signatures taken post-initialize
+   * describe the tree as it is.
    * @returns {string} hex digest, or '' when nothing is indexed
    */
   getContentSignature() {
     if (!this.fileMetadata || this.fileMetadata.size === 0) return '';
     const hash = crypto.createHash('sha256');
-    // No `?.` on meta: graph-db's deserialize builds every entry as an object
-    // literal and setFileMetadata spreads into one — a null here is an internal
-    // contract violation and must throw, not silently hash as 0. The
-    // `|| 0` stays: sparse legacy entries (object without mtime) are real and
-    // recoverable, they coerce rather than crash.
     for (const key of [...this.fileMetadata.keys()].sort()) {
       const meta = this.fileMetadata.get(key);
-      hash.update(key)
-        .update('|')
-        .update(String(Math.round(Number(meta.mtime) || 0)))
-        .update('|')
-        .update(String(Number(meta.size) || 0))
-        .update('\n');
+      // Every indexed entry carries its content hash; one without it cannot
+      // be vouched for, and signing it would make the snapshot unverifiable.
+      if (!meta.hash) throw new Error(`[Cache] file metadata without content hash: ${key}`);
+      hash.update(key).update('|').update(meta.hash).update('\n');
     }
     return hash.digest('hex');
   }
@@ -777,58 +700,6 @@ class WorkspaceCache {
 
   queryReadOnly(sql, options) {
     return this._graphDb.queryReadOnly(sql, options);
-  }
-
-  savePrecomputedImpact(records) {
-    return this._graphDb.savePrecomputedImpact(records);
-  }
-
-  loadPrecomputedImpact() {
-    return this._graphDb.loadPrecomputedImpact();
-  }
-
-  deletePrecomputedImpact(files) {
-    return this._graphDb.deletePrecomputedImpact(files);
-  }
-
-  saveMetrics(metrics) {
-    return this._graphDb.saveMetrics(metrics);
-  }
-
-  loadMetrics() {
-    return this._graphDb.loadMetrics();
-  }
-
-  loadMetricsForFiles(files) {
-    return this._graphDb.loadMetricsForFiles(files);
-  }
-
-  saveTestMap(testMaps) {
-    return this._graphDb.saveTestMap(testMaps);
-  }
-
-  loadTestMap() {
-    return this._graphDb.loadTestMap();
-  }
-
-  loadTestMapForFiles(files) {
-    return this._graphDb.loadTestMapForFiles(files);
-  }
-
-  saveRoutes(routes) {
-    return this._graphDb.saveRoutes(routes);
-  }
-
-  loadRoutes() {
-    return this._graphDb.loadRoutes();
-  }
-
-  loadRoutesForFiles(files) {
-    return this._graphDb.loadRoutesForFiles(files);
-  }
-
-  findAffectedHttpRoutes(filePath, depth) {
-    return this._graphDb.findAffectedHttpRoutes(filePath, depth);
   }
 
   close() {
@@ -855,4 +726,5 @@ class WorkspaceCache {
 module.exports = {
   WorkspaceCache,
   computeDefaultCacheDir,
+  hashFileContent,
 };

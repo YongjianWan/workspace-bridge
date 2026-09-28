@@ -7,7 +7,6 @@ const fs = require('fs');
 const path = require('path');
 const { ServiceContainer, STATES } = require('../src/services/container');
 const { EventBus } = require('../src/utils/event-bus');
-const { registerGraphBuiltHandler } = require('../src/services/dep-graph/persistence');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 async function wait(ms) {
@@ -102,11 +101,11 @@ async function testReadyPromiseAssignedBeforeTransition() {
 }
 
 /**
- * GraphBuilder.updateFiles() must keep the graph in UPDATING state while
- * graph:built listeners (persistence) run, and only transition to READY after
- * persistence completes.
+ * GraphBuilder.updateFiles() fires graph:built only after the update has
+ * settled: the listeners (aggregate precompute) query the graph through the
+ * ready-state guard, exactly as they do after build().
  */
-async function testFinishUpdatingAfterPersistence() {
+async function testGraphBuiltFiresAfterUpdateSettles() {
   const tmpDir = makeTempDir('wb-lifecycle-persist-');
   fs.writeFileSync(path.join(tmpDir, 'package.json'), '{"name":"test"}');
   fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
@@ -136,8 +135,8 @@ async function testFinishUpdatingAfterPersistence() {
   assert.strictEqual(statesDuringBuilt.length, 1, 'graph:built should fire once');
   assert.strictEqual(
     statesDuringBuilt[0],
-    'UPDATING',
-    'graph:built listeners should see UPDATING state because _finishUpdating runs after persistence'
+    'READY',
+    'graph:built listeners must see a READY graph, otherwise every guarded query they make throws'
   );
   assert.strictEqual(depGraph.state, 'READY', 'state should return to READY after update completes');
 
@@ -145,65 +144,10 @@ async function testFinishUpdatingAfterPersistence() {
   cleanupTempDir(tmpDir);
 }
 
-/**
- * The graph:built persistence listener must wrap precomputeAggregates and
- * precomputeImpact in try/catch so that a failure in either does not prevent
- * savePrecomputed from running.
- */
-async function testPersistencePrecomputeTryCatch() {
-  const bus = new EventBus();
-  const saved = [];
-
-  const depGraph = {
-    bus,
-    graph: new Map(),
-    analyzer: {
-      precomputeAggregates() {
-        throw new Error('aggregate precompute boom');
-      },
-      precomputeImpact() {
-        throw new Error('impact precompute boom');
-      },
-      getAggregateCache() {
-        return { stats: { files: 1 }, deadExports: [], unresolved: [], cycles: [] };
-      },
-      getAggregateVersion() {
-        return 1;
-      },
-      _impactCache: new Map(),
-      _impactVersion: 1,
-      _pageRanks: null,
-    },
-    cache: {
-      savePrecomputedAggregates(rows) {
-        saved.push({ type: 'aggregates', count: rows.length });
-      },
-      savePrecomputedImpact() {
-        saved.push({ type: 'impact' });
-      },
-      saveRoutes() {
-        saved.push({ type: 'routes' });
-      },
-      saveMetrics() {
-        saved.push({ type: 'metrics' });
-      },
-      saveTestMap() {
-        saved.push({ type: 'testMap' });
-      },
-    },
-  };
-
-  registerGraphBuiltHandler(depGraph);
-  await bus.emitAsync('graph:built');
-
-  assert(saved.some((s) => s.type === 'aggregates'), 'savePrecomputed should still run despite precompute errors');
-}
-
 async function main() {
   await testPendingProcessedSerialization();
   await testReadyPromiseAssignedBeforeTransition();
-  await testFinishUpdatingAfterPersistence();
-  await testPersistencePrecomputeTryCatch();
+  await testGraphBuiltFiresAfterUpdateSettles();
   console.log('async-lifecycle-fixes-test.js: all passed');
 }
 

@@ -234,17 +234,6 @@ class ServiceContainer {
       this._checkAborted();
     });
 
-    await this._runStage('aggregate', () => {
-      const loadedAggregate = this.cache.loadAggregateSummary();
-      if (loadedAggregate && loadedAggregate.stats?.files === this._depGraph.getFileCount()) {
-        // Only fallback to aggregateSummary if loadGraph didn't already inject
-        // precomputed aggregates (avoids stale overwrite from dual persistence).
-        if (!this._depGraph.analyzer.getAggregateCache()) {
-          this._depGraph.analyzer.restoreAggregateCache(loadedAggregate);
-        }
-      }
-    });
-
     await this._runStage('snapshot', () => {
       this._assembleSnapshot();
     });
@@ -530,15 +519,6 @@ class ServiceContainer {
       }
     }
     if (this.cache) {
-      try {
-        // Persist aggregate summary for O(1) startup on next run
-        const aggregate = this._depGraph?.analyzer?.getAggregateCache();
-        if (aggregate) {
-          this.cache.saveAggregateSummary(aggregate);
-        }
-      } catch (e) {
-        if (process.env.DEBUG) console.error('[Container] cache.saveAggregateSummary failed:', e.message);
-      }
       try {
         await this.cache.save();
       } catch (e) {

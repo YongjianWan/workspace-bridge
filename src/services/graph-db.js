@@ -40,14 +40,17 @@ const CACHE_TABLE_SCHEMA = {
       lang: row.lang || null,
     }),
   },
+  // What a parser extracted from one file's content, before import
+  // resolution. Valid exactly while the content hash matches: resolution
+  // depends on which other files exist, so it is never stored here.
   parse_results: {
     resultKey: 'parseResults',
     incrementalKeys: { dirty: 'dirtyParseResults', deleted: 'deletedParseResults' },
     idColumn: 'path',
-    columns: ['path', 'mtime', 'imports', 'exports', 'import_records', 'export_records', 'function_records', 'parse_mode', 'parse_mode_reason', 'confidence', 'framework_hint', 'routes', 'package'],
+    columns: ['path', 'hash', 'imports', 'exports', 'import_records', 'export_records', 'function_records', 'parse_mode', 'parse_mode_reason', 'confidence', 'framework_hint', 'routes', 'package', 'implicit_sources'],
     serialize: (path, result) => [
       path,
-      result.mtime ?? 0,
+      result.hash || '',
       JSON.stringify(result.imports || []),
       JSON.stringify(result.exports || []),
       JSON.stringify(result.importRecords || []),
@@ -58,14 +61,12 @@ const CACHE_TABLE_SCHEMA = {
       result.confidence || '',
       result.frameworkHint ? JSON.stringify(result.frameworkHint) : null,
       JSON.stringify(result.routes || []),
-      // `package` must survive the SQLite round-trip — the warm paths
-      // rebuild _buildPackageIndex() from parse results, and a dropped field
-      // makes expandJavaPackageImports() silently skip cached JVM files
-      // (warm graph ≠ cold graph for identical code).
       result.package ?? null,
+      JSON.stringify(result.implicitSources || []),
     ],
     deserialize: (row) => ({
-      mtime: Number(row.mtime),
+      hash: row.hash || '',
+      implicitSources: row.implicit_sources ? JSON.parse(row.implicit_sources) : [],
       imports: row.imports ? JSON.parse(row.imports) : [],
       exports: row.exports ? JSON.parse(row.exports) : [],
       importRecords: row.import_records ? JSON.parse(row.import_records) : [],
@@ -123,7 +124,7 @@ const SCHEMA = `
 
   CREATE TABLE IF NOT EXISTS parse_results (
     path TEXT PRIMARY KEY,
-    mtime INTEGER,
+    hash TEXT NOT NULL DEFAULT '',
     imports TEXT,
     exports TEXT,
     import_records TEXT,
@@ -134,7 +135,8 @@ const SCHEMA = `
     confidence TEXT,
     framework_hint TEXT,
     routes TEXT,
-    package TEXT
+    package TEXT,
+    implicit_sources TEXT
   );
 
   CREATE TABLE IF NOT EXISTS symbol_index (
@@ -147,69 +149,6 @@ const SCHEMA = `
     data TEXT
   );
 
-  CREATE TABLE IF NOT EXISTS edges (
-    source TEXT NOT NULL,
-    target TEXT NOT NULL,
-    edge_type TEXT NOT NULL DEFAULT 'import',
-    confidence REAL NOT NULL DEFAULT 1.0,
-    tier TEXT NOT NULL DEFAULT 'tier1',
-    resolution_method TEXT NOT NULL DEFAULT 'import',
-    PRIMARY KEY (source, target, edge_type)
-  );
-  CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source);
-  CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target);
-  CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
-
-  CREATE TABLE IF NOT EXISTS precomputed_aggregates (
-    key TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
-    version INTEGER NOT NULL DEFAULT 0,
-    file_count INTEGER NOT NULL,
-    config_hash TEXT NOT NULL DEFAULT '',
-    computed_at INTEGER NOT NULL DEFAULT 0
-  );
-  CREATE INDEX IF NOT EXISTS idx_precomputed_aggregates_version ON precomputed_aggregates(version);
-
-  CREATE TABLE IF NOT EXISTS precomputed_impact (
-    file TEXT PRIMARY KEY,
-    direct_deps INTEGER NOT NULL DEFAULT 0,
-    transitive_deps INTEGER NOT NULL DEFAULT 0,
-    direct_dependents INTEGER NOT NULL DEFAULT 0,
-    transitive_dependents INTEGER NOT NULL DEFAULT 0,
-    affected_tests TEXT,
-    impact_radius TEXT,
-    version INTEGER NOT NULL DEFAULT 0
-  );
-  CREATE INDEX IF NOT EXISTS idx_precomputed_impact_version ON precomputed_impact(version);
-
-  CREATE TABLE IF NOT EXISTS routes (
-    file TEXT NOT NULL,
-    method TEXT NOT NULL,
-    path TEXT NOT NULL,
-    framework TEXT NOT NULL,
-    handler TEXT,
-    PRIMARY KEY (file, method, path)
-  );
-  CREATE INDEX IF NOT EXISTS idx_routes_file ON routes(file);
-  CREATE INDEX IF NOT EXISTS idx_routes_path ON routes(path);
-
-  CREATE TABLE IF NOT EXISTS metrics (
-    file TEXT NOT NULL,
-    dimension TEXT NOT NULL,
-    value REAL NOT NULL,
-    computed_at INTEGER NOT NULL,
-    PRIMARY KEY (file, dimension)
-  );
-
-  CREATE TABLE IF NOT EXISTS test_map (
-    source TEXT NOT NULL,
-    test_file TEXT NOT NULL,
-    signal TEXT NOT NULL DEFAULT 'import',
-    distance INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY (source, test_file)
-  );
-  CREATE INDEX IF NOT EXISTS idx_test_map_source ON test_map(source);
-
   CREATE TABLE IF NOT EXISTS analysis_snapshots (
     key TEXT PRIMARY KEY,
     data TEXT NOT NULL,
@@ -218,13 +157,15 @@ const SCHEMA = `
     config_hash TEXT NOT NULL DEFAULT '',
     computed_at INTEGER NOT NULL DEFAULT 0,
     cache_version INTEGER NOT NULL DEFAULT 0,
-    -- Fingerprint of the indexed file set (path|mtime|size). Freshness
+    -- Fingerprint of the indexed file set (path|content hash). Freshness
     -- needs it because git head, file count and config all survive an in-place
     -- edit. '' means "written before this column existed" → unverifiable →
     -- recompute. _migrate() adds it to pre-existing databases.
     content_signature TEXT NOT NULL DEFAULT ''
   );
 `;
+
+const OBSOLETE_TABLES = ['edges', 'precomputed_aggregates', 'precomputed_impact', 'routes', 'metrics', 'test_map'];
 
 function _debugError(label, err) {
   if (process.env.DEBUG) {
@@ -372,8 +313,8 @@ class GraphDB {
    *
    * The read gate rejects anything whose stamp is not the current
    * CACHE_VERSION, and "no stamp at all" must not be a way in. A database that
-   * only ever received partial writes (saveEdges / saveRoutes / saveMetrics
-   * without a full saveAll) had no stamp, so without this its own rows would
+   * only ever received partial writes (setMetadata / saveAnalysisSnapshot
+   * without a full save) had no stamp, so without this its own rows would
    * be unreadable by the process that just wrote them.
    *
    * Deliberately *if unset*: a stamp that exists but differs marks a database
@@ -509,36 +450,17 @@ class GraphDB {
         this.db.prepare('ALTER TABLE file_metadata ADD COLUMN role TEXT').run();
         this.db.prepare('ALTER TABLE file_metadata ADD COLUMN lang TEXT').run();
       }
-      // Wave 9-1: add impact_radius column to precomputed_impact
-      const impactCols = this.db.prepare('PRAGMA table_info(precomputed_impact)').all();
-      if (impactCols.length > 0 && !impactCols.some((c) => c.name === 'impact_radius')) {
-        this.db.prepare('ALTER TABLE precomputed_impact ADD COLUMN impact_radius TEXT').run();
+      // Graph-level results are recomputed every run from parse results; the
+      // tables that used to hold them only take disk space in older caches.
+      for (const table of OBSOLETE_TABLES) {
+        this.db.prepare(`DROP TABLE IF EXISTS ${table}`).run();
       }
-      // Wave 10-2: add tier and resolution_method columns to edges
-      const edgeCols = this.db.prepare('PRAGMA table_info(edges)').all();
-      if (edgeCols.length > 0 && !edgeCols.some((c) => c.name === 'tier')) {
-        this.db.prepare("ALTER TABLE edges ADD COLUMN tier TEXT NOT NULL DEFAULT 'tier1'").run();
-        this.db.prepare("ALTER TABLE edges ADD COLUMN resolution_method TEXT NOT NULL DEFAULT 'import'").run();
-      }
-      // Increment schema migration: add framework_hint column to parse_results
+      // A parse_results table without the content-hash key stored resolved
+      // imports keyed by mtime. Its rows cannot be reinterpreted, only redone.
       const parseCols = this.db.prepare('PRAGMA table_info(parse_results)').all();
-      if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'framework_hint')) {
-        this.db.prepare('ALTER TABLE parse_results ADD COLUMN framework_hint TEXT').run();
-      }
-      if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'routes')) {
-        this.db.prepare('ALTER TABLE parse_results ADD COLUMN routes TEXT').run();
-      }
-      // Persist `package` — warm paths rebuild the JVM package index
-      // from parse results; without the column expandJavaPackageImports()
-      // silently skips cached files and warm/cold graphs diverge.
-      if (parseCols.length > 0 && !parseCols.some((c) => c.name === 'package')) {
-        this.db.prepare('ALTER TABLE parse_results ADD COLUMN package TEXT').run();
-      }
-      // Wave B-2: add config_hash column to precomputed_aggregates so query-* snapshots
-      // can invalidate when .workspace-bridge.json changes.
-      const aggregateCols = this.db.prepare('PRAGMA table_info(precomputed_aggregates)').all();
-      if (aggregateCols.length > 0 && !aggregateCols.some((c) => c.name === 'config_hash')) {
-        this.db.prepare("ALTER TABLE precomputed_aggregates ADD COLUMN config_hash TEXT NOT NULL DEFAULT ''").run();
+      if (!parseCols.some((c) => c.name === 'hash') || !parseCols.some((c) => c.name === 'implicit_sources')) {
+        this.db.prepare('DROP TABLE IF EXISTS parse_results').run();
+        this.db.exec(SCHEMA);
       }
       // v6: stamp analysis_snapshots rows with the CACHE_VERSION they were
       // computed under. analysis_snapshots survives the version-mismatch
@@ -779,418 +701,6 @@ class GraphDB {
   }
 
   /**
-   * Save all dependency edges to SQLite in a single transaction.
-   * Edges are stored after post-process so they include implicit/framework edges.
-   * @param {Array<{source:string,target:string,edgeType?:string,confidence?:number}>} edges
-   * @param {{cacheVersion?:number,fileMetadataCount?:number,parseResultsCount?:number,timestamp?:number}} [meta]
-   */
-  saveEdges(edges, meta = {}) {
-    return this._withWriteLock(() => {
-      try {
-        this._ensureOpen();
-
-        this._executeInTransaction(() => {
-          this.db.prepare('DELETE FROM edges').run();
-          const insert = this.db.prepare(
-            'INSERT OR REPLACE INTO edges (source, target, edge_type, confidence, tier, resolution_method) VALUES (?, ?, ?, ?, ?, ?)'
-          );
-          for (const edge of edges) {
-            insert.run(
-              edge.source,
-              edge.target,
-              edge.edgeType || 'import',
-              Number(edge.confidence ?? 1.0),
-              edge.tier || 'tier1',
-              edge.resolutionMethod || 'import'
-            );
-          }
-
-          if (meta && Object.keys(meta).length > 0) {
-            this.db.prepare('INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?, ?)').run(
-              'edgeMeta',
-              JSON.stringify(meta)
-            );
-          }
-        });
-
-        return true;
-      } catch (err) {
-        _debugError('Save edges', err);
-        return false;
-      }
-    });
-  }
-
-  /**
-   * Load all dependency edges from SQLite.
-   * @returns {Array<{source:string,target:string,edgeType:string,confidence:number,tier:string,resolutionMethod:string}>|null}
-   */
-  loadEdges() {
-    return this._readGuard('Load edges', () => {
-      const rows = this.db.prepare(
-        'SELECT source, target, edge_type, confidence, tier, resolution_method FROM edges'
-      ).all();
-      return rows.map((r) => ({
-        source: r.source,
-        target: r.target,
-        edgeType: r.edge_type,
-        confidence: Number(r.confidence),
-        tier: r.tier || 'tier1',
-        resolutionMethod: r.resolution_method || 'import',
-      }));
-    }, null);
-  }
-
-  /**
-   * Save precomputed aggregate summaries to SQLite.
-   * @param {Array<{key:string,data:string,version:number,fileCount:number,configHash?:string}>} rows
-   */
-  savePrecomputedAggregates(rows) {
-    return this._withWriteLock(() => {
-      try {
-        this._ensureOpen();
-        this._executeInTransaction(() => {
-          this.db.prepare('DELETE FROM precomputed_aggregates').run();
-          const insert = this.db.prepare(
-            'INSERT INTO precomputed_aggregates (key, data, version, file_count, config_hash, computed_at) VALUES (?, ?, ?, ?, ?, ?)'
-          );
-          const now = Math.floor(Date.now() / 1000);
-          for (const row of rows) {
-            insert.run(row.key, row.data, row.version ?? 0, row.fileCount ?? 0, row.configHash ?? '', now);
-          }
-        });
-        return true;
-      } catch (err) {
-        _debugError('Save precomputed aggregates', err);
-        return false;
-      }
-    });
-  }
-
-  /**
-   * Load precomputed aggregate summaries from SQLite.
-   * @returns {Array<{key:string,data:string,version:number,fileCount:number,configHash:string,computedAt:number}>|null}
-   */
-  loadPrecomputedAggregates() {
-    return this._readGuard('Load precomputed aggregates', () => {
-      const rows = this.db.prepare(
-        'SELECT key, data, version, file_count, config_hash, computed_at FROM precomputed_aggregates'
-      ).all();
-      return rows.map((r) => ({
-        key: r.key,
-        data: r.data,
-        version: isNaN(Number(r.version)) ? r.version : Number(r.version),
-        fileCount: Number(r.file_count),
-        configHash: r.config_hash ?? '',
-        computedAt: Number(r.computed_at),
-      }));
-    }, null);
-  }
-
-  /**
-   * Save precomputed per-file impact data to SQLite.
-   * @param {Array<{file:string,directDeps:number,transitiveDeps:number,directDependents:number,transitiveDependents:number,affectedTests?:string,impactRadius?:string,version:number}>} records
-   */
-  savePrecomputedImpact(records) {
-    return this._withWriteLock(() => {
-      try {
-        this._ensureOpen();
-        this._executeInTransaction(() => {
-          this.db.prepare('DELETE FROM precomputed_impact').run();
-          const insert = this.db.prepare(
-            'INSERT INTO precomputed_impact (file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, impact_radius, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-          );
-          for (const rec of records) {
-            insert.run(
-              rec.file,
-              rec.directDeps ?? 0,
-              rec.transitiveDeps ?? 0,
-              rec.directDependents ?? 0,
-              rec.transitiveDependents ?? 0,
-              rec.affectedTests || null,
-              rec.impactRadius || null,
-              rec.version ?? 0
-            );
-          }
-        });
-        return true;
-      } catch (err) {
-        _debugError('Save precomputed impact', err);
-        return false;
-      }
-    });
-  }
-
-  /**
-   * Load precomputed per-file impact data from SQLite.
-   * @returns {Array<{file:string,directDeps:number,transitiveDeps:number,directDependents:number,transitiveDependents:number,affectedTests:string|null,impactRadius:string|null,version:number}>|null}
-   */
-  loadPrecomputedImpact() {
-    return this._readGuard('Load precomputed impact', () => {
-      const rows = this.db.prepare(
-        'SELECT file, direct_deps, transitive_deps, direct_dependents, transitive_dependents, affected_tests, impact_radius, version FROM precomputed_impact'
-      ).all();
-      return rows.map((r) => ({
-        file: r.file,
-        directDeps: Number(r.direct_deps),
-        transitiveDeps: Number(r.transitive_deps),
-        directDependents: Number(r.direct_dependents),
-        transitiveDependents: Number(r.transitive_dependents),
-        affectedTests: r.affected_tests,
-        impactRadius: r.impact_radius,
-        version: Number(r.version),
-      }));
-    }, null);
-  }
-
-  /**
-   * Delete specific precomputed impact rows (for incremental updates).
-   * @param {string[]} files
-   */
-  deletePrecomputedImpact(files) {
-    return this._withWriteLock(() => {
-      try {
-        this._ensureOpen();
-        const stmt = this.db.prepare('DELETE FROM precomputed_impact WHERE file = ?');
-        this._executeInTransaction(() => {
-          for (const file of files) {
-            stmt.run(file);
-          }
-        });
-        return true;
-      } catch (err) {
-        _debugError('Delete precomputed impact', err);
-        return false;
-      }
-    });
-  }
-
-  /**
-   * Batch save helper.
-   */
-  _saveBatch(tableName, queryStr, mapperFn, items) {
-    return this._withWriteLock(() => {
-      try {
-        this._ensureOpen();
-        this._executeInTransaction(() => {
-          this.db.prepare(`DELETE FROM ${tableName}`).run();
-          const stmt = this.db.prepare(queryStr);
-          for (const item of items) {
-            stmt.run(...mapperFn(item));
-          }
-        });
-        return true;
-      } catch (err) {
-        _debugError(`Save ${tableName}`, err);
-        return false;
-      }
-    });
-  }
-
-  /**
-   * Load all helper.
-   */
-  _loadAll(tableName, queryStr, mapperFn) {
-    return this._readGuard(`Load ${tableName}`, () => {
-      const rows = this.db.prepare(queryStr).all();
-      return rows.map(mapperFn);
-    }, null);
-  }
-
-  /**
-   * Load helper filtered by files.
-   */
-  _loadForFiles(tableName, queryStrPattern, files, mapperFn) {
-    return this._readGuard(`Load ${tableName} for files`, () => {
-      if (!files || files.length === 0) return [];
-      const placeholders = files.map(() => '?').join(',');
-      const rows = this.db.prepare(
-        queryStrPattern.replace('$PLACEHOLDERS', placeholders)
-      ).all(...files);
-      return rows.map(mapperFn);
-    }, []);
-  }
-
-  /**
-   * Save HTTP route declarations to SQLite.
-   * @param {Array<{file:string,method:string,path:string,framework:string,handler?:string}>} routes
-   */
-  saveRoutes(routes) {
-    return this._saveBatch(
-      'routes',
-      'INSERT OR REPLACE INTO routes (file, method, path, framework, handler) VALUES (?, ?, ?, ?, ?)',
-      (r) => [r.file, r.method, r.path, r.framework, r.handler || null],
-      routes
-    );
-  }
-
-  /**
-   * Load all HTTP route declarations from SQLite.
-   * @returns {Array<{file:string,method:string,path:string,framework:string,handler:string|null}>|null}
-   */
-  loadRoutes() {
-    return this._loadAll(
-      'routes',
-      'SELECT file, method, path, framework, handler FROM routes',
-      (r) => ({
-        file: r.file,
-        method: r.method,
-        path: r.path,
-        framework: r.framework,
-        handler: r.handler,
-      })
-    );
-  }
-
-  /**
-   * Load routes for a specific set of files (for impact-based queries).
-   * @param {string[]} files
-   * @returns {Array<{file:string,method:string,path:string,framework:string,handler:string|null}>}
-   */
-  loadRoutesForFiles(files) {
-    return this._loadForFiles(
-      'routes',
-      'SELECT file, method, path, framework, handler FROM routes WHERE file IN ($PLACEHOLDERS)',
-      files,
-      (r) => ({
-        file: r.file,
-        method: r.method,
-        path: r.path,
-        framework: r.framework,
-        handler: r.handler,
-      })
-    );
-  }
-
-  findAffectedHttpRoutes(filePath, depth = 3) {
-    // Joins edges and routes — both versioned tables — so it needs the same
-    // gate as any loadXxx even though it does not read like one.
-    return this._readGuard('findAffectedHttpRoutes query', () => {
-      {
-        const rows = this.db.prepare(`
-          WITH RECURSIVE dependents(file_path, lvl, has_implicit) AS (
-            SELECT ?, 0, 0
-            UNION
-            SELECT e.source, d.lvl + 1,
-                   CASE WHEN e.confidence < 0.5 OR d.has_implicit = 1 THEN 1 ELSE 0 END
-            FROM edges e
-            JOIN dependents d ON e.target = d.file_path
-            WHERE e.edge_type = 'import' AND d.lvl < ?
-          )
-          SELECT DISTINCT r.file, r.method, r.path, r.framework, r.handler, d.lvl, d.has_implicit
-          FROM routes r
-          JOIN dependents d ON r.file = d.file_path
-        `).all(filePath, depth);
-        return rows.map((r) => ({
-          file: r.file,
-          method: r.method,
-          path: r.path,
-          framework: r.framework,
-          handler: r.handler,
-          lvl: r.lvl,
-          hasImplicit: r.has_implicit === 1,
-        }));
-      }
-    }, null);
-  }
-
-  /**
-   * Save per-file metrics (PageRank, hotspot_score, risk_score, etc.) to SQLite.
-   * @param {Array<{file:string,dimension:string,value:number}>} metrics
-   */
-  saveMetrics(metrics) {
-    const now = Math.floor(Date.now() / 1000);
-    return this._saveBatch(
-      'metrics',
-      'INSERT OR REPLACE INTO metrics (file, dimension, value, computed_at) VALUES (?, ?, ?, ?)',
-      (m) => [m.file, m.dimension, Number(m.value), now],
-      metrics
-    );
-  }
-
-  /**
-   * Load all metrics from SQLite.
-   * @returns {Array<{file:string,dimension:string,value:number,computedAt:number}>|null}
-   */
-  loadMetrics() {
-    return this._loadAll(
-      'metrics',
-      'SELECT file, dimension, value, computed_at FROM metrics',
-      (r) => ({
-        file: r.file,
-        dimension: r.dimension,
-        value: Number(r.value),
-        computedAt: Number(r.computed_at),
-      })
-    );
-  }
-
-  /**
-   * Load metrics for specific files.
-   * @param {string[]} files
-   * @returns {Array<{file:string,dimension:string,value:number,computedAt:number}>}
-   */
-  loadMetricsForFiles(files) {
-    return this._loadForFiles(
-      'metrics',
-      'SELECT file, dimension, value, computed_at FROM metrics WHERE file IN ($PLACEHOLDERS)',
-      files,
-      (r) => ({
-        file: r.file,
-        dimension: r.dimension,
-        value: Number(r.value),
-        computedAt: Number(r.computed_at),
-      })
-    );
-  }
-
-  /**
-   * Save test mappings to SQLite.
-   * @param {Array<{source:string,testFile:string,signal:string,distance:number}>} testMaps
-   */
-  saveTestMap(testMaps) {
-    return this._saveBatch(
-      'test_map',
-      'INSERT OR REPLACE INTO test_map (source, test_file, signal, distance) VALUES (?, ?, ?, ?)',
-      (tm) => [tm.source, tm.testFile, tm.signal || 'import', tm.distance ?? 1],
-      testMaps
-    );
-  }
-
-  /**
-   * Load all test maps.
-   */
-  loadTestMap() {
-    return this._loadAll(
-      'test_map',
-      'SELECT source, test_file, signal, distance FROM test_map',
-      (r) => ({
-        source: r.source,
-        testFile: r.test_file,
-        signal: r.signal,
-        distance: Number(r.distance),
-      })
-    );
-  }
-
-  /**
-   * Load test map for specific source files.
-   */
-  loadTestMapForFiles(files) {
-    return this._loadForFiles(
-      'test_map',
-      'SELECT source, test_file, signal, distance FROM test_map WHERE source IN ($PLACEHOLDERS)',
-      files,
-      (r) => ({
-        source: r.source,
-        testFile: r.test_file,
-        signal: r.signal,
-        distance: Number(r.distance),
-      })
-    );
-  }
-
-  /**
    * Save analysis snapshot to SQLite.
    * @param {string} key
    * @param {object} data
@@ -1247,7 +757,7 @@ class GraphDB {
    * Execute a read-only SQL query against the cache DB.
    * Only SELECT, EXPLAIN SELECT, and PRAGMA table_info are allowed.
    * Multi-statement queries and modification keywords are rejected.
-   * Results are capped to avoid dumping huge tables (e.g. edges).
+   * Results are capped to avoid dumping huge tables (e.g. parse_results).
    *
    * @param {string} sql
    * @param {object} [options]

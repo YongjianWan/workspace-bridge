@@ -368,8 +368,8 @@ bug('WARN-WARM-JVM', 'JVM third-party imports must not flip to dropped on warm r
   // org.junit is NOT declared in any build file (transitive in real projects);
   // with workspace packages known it is external → cold dropped 0. The warm
   // restore must not lose the workspace-package context and reclassify it.
-  // App→Util is required: with zero resolved edges loadGraph bails out to a
-  // full rebuild (which refreshes the facts) and the warm defect never shows.
+  // App→Util keeps a resolved edge in the fixture, so the warm run exercises
+  // resolution against a non-empty graph.
   const { dir } = repo({
     'src/main/java/com/example/App.java': 'package com.example;\nimport com.example.Util;\nimport org.junit.jupiter.api.Test;\npublic class App { Util u; }\n',
     'src/main/java/com/example/Util.java': 'package com.example;\npublic class Util {}\n',
@@ -406,7 +406,7 @@ bug('SEC-MODEL-EVAL', '`model.eval()` (method call) must not be flagged as built
 bug('SQL-FALSE-REJECT', 'Read-only queries containing words like "update" inside literals must be allowed', () => {
   const { dir } = repo({ 'a.py': 'import b\n', 'b.py': 'x = 1\n' });
   overview(dir);
-  const r = wb(dir, 'query', '--sql', "SELECT count(*) AS n FROM edges WHERE source LIKE '%update%'");
+  const r = wb(dir, 'query', '--sql', "SELECT count(*) AS n FROM parse_results WHERE path LIKE '%update%'");
   return { pass: r.ok === true, got: r.ok ? 'ok' : r.error, want: 'ok' };
 });
 

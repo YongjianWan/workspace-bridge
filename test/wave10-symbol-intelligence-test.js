@@ -3,91 +3,12 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { DatabaseSync } = require('node:sqlite');
-const { GraphDB } = require('../src/services/graph-db');
 const { WorkspaceCache } = require('../src/services/cache');
 const { DependencyGraph } = require('../src/services/dep-graph');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { resolveImport } = require('../src/services/dep-graph/resolvers');
 
-// 1. Verify schema migrations and existing data preservation
-function testSchemaMigration() {
-  const tmpDir = makeTempDir('wb-db-migration-');
-  const dbPath = path.join(tmpDir, 'cache.db');
-
-  // Step A: Manually create database with old schema (pre-migration)
-  const tempDb = new DatabaseSync(dbPath);
-  tempDb.exec(`
-    CREATE TABLE edges (
-      source TEXT NOT NULL,
-      target TEXT NOT NULL,
-      edge_type TEXT NOT NULL DEFAULT 'import',
-      confidence REAL NOT NULL DEFAULT 1.0,
-      PRIMARY KEY (source, target, edge_type)
-    );
-  `);
-
-  // Insert mock data into old edges table
-  const insert = tempDb.prepare('INSERT INTO edges (source, target, edge_type, confidence) VALUES (?, ?, ?, ?)');
-  insert.run('src/file1.js', 'src/file2.js', 'import', 1.0);
-  insert.run('src/file2.js', 'src/file3.js', 'implicit-framework', 0.9);
-  tempDb.close();
-
-  // Step B: Initialize GraphDB (should run migration)
-  const db = new GraphDB(dbPath);
-  db._ensureOpen();
-
-  // Step C: Verify new columns exist with defaults and old data is intact
-  const loaded = db.loadEdges();
-  assert.strictEqual(loaded.length, 2, 'Migration should preserve existing 2 edges');
-
-  const edge1 = loaded.find(e => e.source === 'src/file1.js');
-  assert(edge1, 'file1 edge should be found');
-  assert.strictEqual(edge1.tier, 'tier1', 'tier should fall back to default');
-  assert.strictEqual(edge1.resolutionMethod, 'import', 'resolutionMethod should fall back to default');
-  assert.strictEqual(edge1.confidence, 1.0, 'confidence should be preserved');
-
-  const edge2 = loaded.find(e => e.source === 'src/file2.js');
-  assert(edge2, 'file2 edge should be found');
-  assert.strictEqual(edge2.tier, 'tier1', 'tier should fall back to default');
-  assert.strictEqual(edge2.resolutionMethod, 'import', 'resolutionMethod should fall back to default');
-  assert.strictEqual(edge2.confidence, 0.9, 'confidence should be preserved');
-
-  db.close();
-  cleanupTempDir(tmpDir);
-}
-
-// 2. Resolution metadata save/load roundtrip
-function testMetadataPersistenceRoundtrip() {
-  const tmpDir = makeTempDir('wb-db-persistence-');
-  const dbPath = path.join(tmpDir, 'cache.db');
-  const db = new GraphDB(dbPath);
-
-  const edges = [
-    { source: 'src/a.js', target: 'src/b.js', edgeType: 'import', confidence: 0.8, tier: 'tier2', resolutionMethod: 'symbol-table' },
-    { source: 'src/b.js', target: 'src/c.js', edgeType: 'implicit-framework', confidence: 1.0, tier: 'tier1', resolutionMethod: 'implicit-framework' },
-  ];
-
-  db.saveEdges(edges, { cacheVersion: 1 });
-
-  const loaded = db.loadEdges();
-  assert.strictEqual(loaded.length, 2);
-
-  const edgeA = loaded.find(e => e.source === 'src/a.js');
-  assert.strictEqual(edgeA.confidence, 0.8);
-  assert.strictEqual(edgeA.tier, 'tier2');
-  assert.strictEqual(edgeA.resolutionMethod, 'symbol-table');
-
-  const edgeB = loaded.find(e => e.source === 'src/b.js');
-  assert.strictEqual(edgeB.confidence, 1.0);
-  assert.strictEqual(edgeB.tier, 'tier1');
-  assert.strictEqual(edgeB.resolutionMethod, 'implicit-framework');
-
-  db.close();
-  cleanupTempDir(tmpDir);
-}
-
-// 3. Verify trySymbolTable fallback metadata and resolvers outMeta updates
+// Verify trySymbolTable fallback metadata and resolvers outMeta updates
 function testResolverOutMetaUpdates() {
   const { SymbolRegistry } = require('../src/services/dep-graph/symbol-registry');
   const registry = new SymbolRegistry();
@@ -106,7 +27,7 @@ function testResolverOutMetaUpdates() {
   assert.strictEqual(outMeta.confidence, 0.8);
 }
 
-// 4. Two-phase build resolves circular/forward symbol table lookups on cold start
+// Two-phase build resolves circular/forward symbol table lookups on cold start
 async function testTwoPhaseBuildSymbolResolution() {
   const tmpDir = makeTempDir('wb-twophase-');
   fs.writeFileSync(path.join(tmpDir, 'package.json'), '{}', 'utf8');
@@ -181,8 +102,6 @@ async function testTwoPhaseBuildSymbolResolution() {
 }
 
 async function main() {
-  testSchemaMigration();
-  testMetadataPersistenceRoundtrip();
   testResolverOutMetaUpdates();
   await testTwoPhaseBuildSymbolResolution();
   console.log('All Wave 10 tests passed.');

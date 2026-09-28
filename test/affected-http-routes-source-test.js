@@ -3,7 +3,6 @@
 // @semantic
 /**
  * Verify that findAffectedHttpRoutes tags each route with source: 'src' | 'test'.
- * Covers both the SQLite fast path and the in-memory BFS fallback.
  */
 
 const path = require('path');
@@ -59,11 +58,6 @@ async function main() {
     const depGraph = container.snapshot.graph._dg;
     assert.ok(depGraph, 'DependencyGraph should be initialized');
 
-    // Verify persistence picked up both source and test routes.
-    const dbRoutes = container.cache.loadRoutes();
-    assert.ok(dbRoutes, 'loadRoutes should return rows from database');
-    assert.strictEqual(dbRoutes.length, 2, 'Should persist exactly 2 routes');
-
     const allRoutes = depGraph.findAffectedHttpRoutes(dbFile, 3);
     assert.strictEqual(allRoutes.length, 2, 'Should find 2 affected HTTP routes from db.js');
 
@@ -74,31 +68,6 @@ async function main() {
     assert.ok(testRoute, 'Test route /api/test-users should be present');
     assert.strictEqual(srcRoute.source, 'src', 'Production route should be tagged source: src');
     assert.strictEqual(testRoute.source, 'test', 'Test fixture route should be tagged source: test');
-
-    // SQLite fast path: clear in-memory routes so results can only come from the DB.
-    const routeKey = depGraph.normalizeFilePath(routeFile);
-    const routeTestKey = depGraph.normalizeFilePath(routeTestFile);
-    const originalSrcRoutes = depGraph.graph.get(routeKey).routes;
-    const originalTestRoutes = depGraph.graph.get(routeTestKey).routes;
-    depGraph.graph.get(routeKey).routes = [];
-    depGraph.graph.get(routeTestKey).routes = [];
-
-    const sqliteRoutes = depGraph.findAffectedHttpRoutes(dbFile, 3);
-    assert.strictEqual(sqliteRoutes.length, 2, 'SQLite path should return 2 routes');
-    assert.ok(sqliteRoutes.every((r) => r.source === (r.path === '/api/test-users' ? 'test' : 'src')),
-      'SQLite path should tag routes with correct source');
-
-    depGraph.graph.get(routeKey).routes = originalSrcRoutes;
-    depGraph.graph.get(routeTestKey).routes = originalTestRoutes;
-
-    // In-memory BFS fallback: remove cache to force the non-SQLite path.
-    const originalCache = depGraph.cache;
-    depGraph.cache = null;
-    const fallbackRoutes = depGraph.findAffectedHttpRoutes(dbFile, 3);
-    assert.strictEqual(fallbackRoutes.length, 2, 'In-memory fallback should return 2 routes');
-    assert.ok(fallbackRoutes.every((r) => r.source === (r.path === '/api/test-users' ? 'test' : 'src')),
-      'In-memory fallback should tag routes with correct source');
-    depGraph.cache = originalCache;
 
     console.log('PASS: affected-http-routes-source-test');
   } finally {

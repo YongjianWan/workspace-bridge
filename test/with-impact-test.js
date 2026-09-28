@@ -16,7 +16,7 @@ async function testWithImpact() {
   const original = fs.readFileSync(targetFile, 'utf8');
   try {
     fs.writeFileSync(targetFile, original + '\n// temp-change-for-test\n');
-    const result = await run(['audit-diff', '--with-impact']);
+    const result = await run(['audit-diff', '--with-impact', '--files', 'src/utils/path.js']);
     assert.strictEqual(result.status, 0, `Exit code should be 0, got ${result.status}. stderr: ${result.stderr}`);
     const data = JSON.parse(result.stdout);
     assert(Array.isArray(data.impactFiles), 'impactFiles should be an array');
@@ -31,7 +31,7 @@ async function testWithoutImpact() {
   const original = fs.readFileSync(targetFile, 'utf8');
   try {
     fs.writeFileSync(targetFile, original + '\n// temp-change-for-test-no-impact\n');
-    const result = await run(['audit-diff']);
+    const result = await run(['audit-diff', '--files', 'src/utils/path.js']);
     assert.strictEqual(result.status, 0, `Exit code should be 0, got ${result.status}. stderr: ${result.stderr}`);
     const data = JSON.parse(result.stdout);
     assert.strictEqual(data.impactFiles, undefined, 'impactFiles should not exist without --with-impact');

@@ -73,10 +73,7 @@ async function testQueryCommandsE2E() {
 
     // Open and write to the isolated DB
     const db = new GraphDB(dbPath);
-    // analysis_snapshots is the only home for the overview snapshot. The old
-    // precomputed_aggregates 'analysis_snapshot' mirror row was abolished
-    // (two writers on a DELETE-all table wiped each other); don't reseed it here
-    // or this fixture reads as if that path were still supported.
+    // analysis_snapshots is the only home for the overview snapshot.
     db.saveAnalysisSnapshot('overview', mockPayload, gitHead, 2, '');
     db.close();
 
