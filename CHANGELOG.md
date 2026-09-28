@@ -7,6 +7,15 @@
 
 ## [Unreleased]
 
+### Fixed: P1-6 缓存体积压缩 + P1-7 冷启动 profile 归因 + P1-5 输出体积重测（2026-09-28）
+
+- **P1-6 测量**（Django @a013c821ea，Windows，本机）：修复前缓存 DB 413MB，其中 precomputed_impact 194.6MB（每行 affectedTests/impactRadius 里全路径含 via 链反复出现，最大单行 1.5MB）；冷启动 131s / 峰值 952MB；暖启动 13-14s / **峰值 1460MB**（比冷启动还高——瓶颈在缓存加载不在解析）。
+- **P1-6 改动**（审查报告修复方向"路径压缩"）：新增 `src/services/dep-graph/impact-codec.js`——编码时路径转行内字典索引 + 剥 workspaceRoot 前缀，再 gzip+base64（`'v2g:'` 标记，存 affected_tests 列，impact_radius 列留 null）；解码恢复全路径并跨行驻留（同一路径全表共享一个字符串实例）。无标记的旧值原样透传，analyzer 同时兼容字符串与已解析对象。`CACHE_VERSION` 49→50（持久化格式变了，老缓存必须作废）。payload 超出行内字典上限的部分由 gzip 的跨行回指兜住，比跨行字典表简单一个量级。
+- **P1-6 验证**：`test/p1-6-impact-codec-test.js`（往返无损含未知字段、全路径恢复、跨行驻留同一实例、null 半径语义、旧格式透传、损坏 blob 返回 null、压缩率 <30%）。Django 实测复验：precomputed_impact 194.6→27.9MB，DB 413→214MB，暖峰值 1460→635MB，暖启动 14s。
+- **P1-7 测量**：`node --cpu-prof` 冷启动 profile（总 CPU ~72s）显示 **normalizePathKey 一项 22%**（含 node:path 开销、toPosixPath、normalizePath 合计 ~45%）——冷启动大头是路径规范化重复计算，不是缓存写入（graph-db 合计 ~3.8%）。原 suspicion"冷启动慢=写缓存"被测量否定。
+- **P1-7 改动**：`utils/path.js` 的 `normalizePathKey` 加有界 LRU 备忘（上限 50000 条，纯函数输出不变）。Django 冷启动 101s→69s（对原始 131s 累计 -47%）。
+- **P1-5 重测**（typer @a80f6e5ecd）：`audit-overview --json` 96KB / `--format ai` 5.2KB；`audit-file` 160KB / 15KB；`impact` 179KB / 1.2KB。截断显式化已在 P1-17 落地（`elided[]`），`--format ai` 提供 token 预算友好的摘要档；25-45k token 的完整 JSON 在 agent 上下文里可接受。**结论：默认上限不改**，维持现状，仅留档数字。
+
 ### Fixed: P1-14 api-contracts 识别生成客户端调用 + 零调用不再报发现（2026-09-28）
 
 - **根因**（审查报告 P1-14）：OpenAPI 生成客户端（openapi-typescript-codegen 一类）不走 axios，而是调本地 `request({ url, method })` 或类里的 `this.request({ path, method })`；提取器只认字面 `axios`，于是前端调用识别为 0。此时 `buildResult` 仍把全部后端路由按"无人调用"报成 `hasFindings: true`——识别失败被包装成确认事实，agent 可能照着删实际有调用的路由。

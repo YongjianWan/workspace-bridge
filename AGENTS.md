@@ -39,7 +39,7 @@
 
 ## 当前核验
 
-`node test/wb-repro.js cli.js` 应为 27/27 OK、退出码 0；`CACHE_VERSION=49`，`schemaVersion=1.2.0`。`audit-overview` 覆盖率 1、fallback 0。快测基线 201 选 199 过，全量 301 选 299 过（2026-09-28 更新：301=300+`p1-14-api-contracts-test`）；已知红为 wave15-ast-rules / wave15-neighbor-aware 两条 Windows/libuv 异常退出（3221226505），另有 `workspace-info-lightweight-test.js` 的 2000ms 预算偶发超限——runner 满负载或 CACHE_VERSION 刚 bump 的冷缓存都会触发，单跑（暖缓存）稳过，不计入基线红，见 SESSION.md。出现其他失败须调查。
+`node test/wb-repro.js cli.js` 应为 27/27 OK、退出码 0；`CACHE_VERSION=50`，`schemaVersion=1.2.0`。`audit-overview` 覆盖率 1、fallback 0。快测基线 202 选 200 过，全量 302 选 299 过（2026-09-28 更新：302=301+`p1-6-impact-codec-test`）；已知红为 wave15-ast-rules / wave15-neighbor-aware 两条 Windows/libuv 异常退出（3221226505），另有 `workspace-info-lightweight-test.js` 的 2000ms 预算偶发超限——runner 满负载或 CACHE_VERSION 刚 bump 的冷缓存都会触发，单跑（暖缓存）稳过，不计入基线红，见 SESSION.md。出现其他失败须调查。
 
 ## 工程品味（TASTE）
 
