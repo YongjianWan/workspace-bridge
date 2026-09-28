@@ -280,13 +280,14 @@ const ROLE_RULES = [
     role: 'script',
     test: (relPath, base) => {
       const ext = path.extname(base).slice(1);
+      const sourceTools = relPath.startsWith('src/tools/') || relPath.includes('/src/tools/');
       if (
         relPath.startsWith('scripts/') ||
         relPath.startsWith('bin/') ||
         relPath.startsWith('tools/') ||
         relPath.includes('/scripts/') ||
         relPath.includes('/bin/') ||
-        relPath.includes('/tools/') ||
+        (relPath.includes('/tools/') && !sourceTools) ||
         ext === 'sh' ||
         ext === 'bash' ||
         ext === 'ps1' ||

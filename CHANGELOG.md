@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### Fixed: `audit-diff` 源码目录角色误判（2026-09-28）
+
+- `ProjectContext` 将 `src/tools/` 识别为源码目录，独立 `tools/` 目录仍识别为脚本。此前通用 `/tools/` 规则把源码文件错判为 `script`，导致混合提交被归类为 `changeType: tests`，验证建议偏向测试变更。
+- 文件角色写入缓存，`CACHE_VERSION` 51→52，使旧分类自动重建。新增九种语言及混合提交的语义测试；固定提交 `416806e~1..416806e` 冷、暖缓存均得到 29 个变更文件、6 个 `src/tools` 文件为 `library`、`changeType: code`。
+- 验证：lint、`wb-repro`、`audit-overview` 通过；快测 204 选 202 过、全量 304 选 302 过，失败均为已知的两条 Windows/libuv 异常。
+
 ### Fixed: impact 缓存逐行字典与损坏行恢复（2026-09-28）
 
 - `impact-codec` 的路径字典改为每行独立创建。此前编码器在整张表复用时，后面的行会反复携带前面所有行的路径；Django @a013c821ea 同口径重建后，`precomputed_impact` 从 30.5MB 降至 6.6MB，数据库从 214.0MB 降至 189.6MB。
