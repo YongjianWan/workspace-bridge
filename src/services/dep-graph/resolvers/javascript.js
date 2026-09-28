@@ -104,23 +104,47 @@ function workspaceDirs(root, pattern) {
   return dirs;
 }
 
+const _workspacePackagesCache = new Map();
+
+function _clearWorkspacePackagesCache() {
+  _workspacePackagesCache.clear();
+}
+
+function _getWorkspacePackages(root) {
+  if (_workspacePackagesCache.has(root)) {
+    return _workspacePackagesCache.get(root);
+  }
+  const packages = [];
+  for (const pattern of workspacePatterns(root)) {
+    for (const dir of workspaceDirs(root, pattern)) {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        if (manifest && manifest.name) {
+          packages.push({ name: manifest.name, dir, manifest });
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+  _workspacePackagesCache.set(root, packages);
+  return packages;
+}
+
 function tryWorkspacePackage(importPath, fromFile, ctx) {
   if (!ctx.root || importPath.startsWith('.') || importPath.startsWith('/') || importPath.includes(':')) return null;
-  for (const pattern of workspacePatterns(ctx.root)) {
-    for (const dir of workspaceDirs(ctx.root, pattern)) {
-      let manifest;
-      try { manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')); } catch { continue; }
-      if (!manifest.name || (importPath !== manifest.name && !importPath.startsWith(`${manifest.name}/`))) continue;
-      const subpath = importPath.slice(manifest.name.length).replace(/^\//, '');
-      const resolved = _resolveWorkspaceEntry(dir, manifest, subpath, ctx);
-      if (!resolved) continue;
-      if (ctx.outMeta) {
-        ctx.outMeta.method = 'workspace-package';
-        ctx.outMeta.confidence = 1.0;
-        ctx.outMeta.tier = 'tier1';
-      }
-      return resolved;
+  const packages = _getWorkspacePackages(ctx.root);
+  for (const pkg of packages) {
+    if (importPath !== pkg.name && !importPath.startsWith(`${pkg.name}/`)) continue;
+    const subpath = importPath.slice(pkg.name.length).replace(/^\//, '');
+    const resolved = _resolveWorkspaceEntry(pkg.dir, pkg.manifest, subpath, ctx);
+    if (!resolved) continue;
+    if (ctx.outMeta) {
+      ctx.outMeta.method = 'workspace-package';
+      ctx.outMeta.confidence = 1.0;
+      ctx.outMeta.tier = 'tier1';
     }
+    return resolved;
   }
   return null;
 }
@@ -320,4 +344,5 @@ module.exports = {
   tryWorkspacePackage,
   tryRelativeWithExtensions,
   _resolveAlias,
+  _clearWorkspacePackagesCache,
 };

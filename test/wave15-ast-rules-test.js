@@ -696,5 +696,4 @@ const tests = [
   }
   console.log(`\n${passed}/${tests.length} passed`);
   if (failed > 0) process.exit(1);
-  else process.exit(0);
 })();

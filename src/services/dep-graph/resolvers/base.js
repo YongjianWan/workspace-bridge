@@ -508,7 +508,8 @@ function readPythonDeps(root) {
           if (startsArray) collecting = true;
           if (collecting) {
             for (const m of line.matchAll(/["']([^"']+)["']/g)) add(m[1]);
-            if (line.includes(']')) collecting = false;
+            const lineWithoutStrings = line.replace(/["'][^"']*["']/g, '');
+            if (lineWithoutStrings.includes(']')) collecting = false;
             continue;
           }
         }

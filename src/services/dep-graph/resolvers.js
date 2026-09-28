@@ -2,7 +2,7 @@ const path = require('path');
 const { builtinModules } = require('module');
 const {
   _resolverCache,
-  clearResolverCaches,
+  clearResolverCaches: clearBaseResolverCaches,
   cachedExistsSync,
   cachedStatSync,
   discoverJavaSourceRoots,
@@ -20,7 +20,13 @@ const { registry } = require('./parsers/registry');
 const {
   tryAlias,
   tryRelativeWithExtensions,
+  _clearWorkspacePackagesCache,
 } = require('./resolvers/javascript');
+
+function clearResolverCaches() {
+  clearBaseResolverCaches();
+  _clearWorkspacePackagesCache();
+}
 
 const {
   tryPythonRelative,

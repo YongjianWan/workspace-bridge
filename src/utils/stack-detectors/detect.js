@@ -265,6 +265,8 @@ function detectPythonTestRunner(root, pyprojectText = '') {
   if (pathExists(path.join(root, 'pytest.ini'))) return 'pytest';
   const setupCfg = readTextIfExists(path.join(root, 'setup.cfg'));
   if (setupCfg.includes('[tool:pytest')) return 'pytest';
+  const toxIni = readTextIfExists(path.join(root, 'tox.ini'));
+  if (toxIni.includes('[pytest]')) return 'pytest';
   if (pyprojectText && (pyprojectText.includes('pytest') || pyprojectText.includes('[tool.pytest'))) {
     return 'pytest';
   }
