@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### Fixed: impact 缓存逐行字典与损坏行恢复（2026-09-28）
+
+- `impact-codec` 的路径字典改为每行独立创建。此前编码器在整张表复用时，后面的行会反复携带前面所有行的路径；Django @a013c821ea 同口径重建后，`precomputed_impact` 从 30.5MB 降至 6.6MB，数据库从 214.0MB 降至 189.6MB。
+- 对 gzip 内容、JSON 结构和路径索引统一做解码边界检查；损坏行不进入预计算缓存，其查询回退到实时计算，其余缓存仍能恢复。`warnings[]` 显式报告损坏行或恢复失败。
+- `normalizePathKey` 只备忘绝对路径。相对路径和空输入依赖当前工作目录，进程内切换目录后必须重新解析。`CACHE_VERSION` 50→51，使现有 v50 缓存重建并获得逐行字典的体积收益。
+- 同一 Django checkout、同一 Node 进程内 RSS 采样的单次对照：旧版冷/暖 58.6s/11.6s、峰值 1323/523MB；新版 61.8s/11.5s、峰值 1379/548MB。时间和内存没有证实进一步改善；这些峰值与前一轮外部进程采样口径不同，不直接比较。
+- 验证：codec 与路径语义测试、lint、`wb-repro` 27/27 均通过；快测 203 选 201 过，全量在独立临时缓存目录 303 选 300 过，失败仅为两条已知 Windows/libuv 异常和 `workspace-info-lightweight` 的 2000ms 预算波动（暖缓存单跑两次通过）。
+
 ### Fixed: P1-6 缓存体积压缩 + P1-7 冷启动 profile 归因 + P1-5 输出体积重测（2026-09-28）
 
 - **P1-6 测量**（Django @a013c821ea，Windows，本机）：修复前缓存 DB 413MB，其中 precomputed_impact 194.6MB（每行 affectedTests/impactRadius 里全路径含 via 链反复出现，最大单行 1.5MB）；冷启动 131s / 峰值 952MB；暖启动 13-14s / **峰值 1460MB**（比冷启动还高——瓶颈在缓存加载不在解析）。
