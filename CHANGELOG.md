@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### Fixed: P1-13 无插值模板字符串的动态导入/按普通字符串识别（2026-09-28）
+
+- **根因**（审查报告 P1-13）：`` import(`./lazy`) `` 的参数是 TemplateLiteral 节点，`CallExpression` 提取分支只认 `arg.value`（StringLiteral 才有），于是这条静态依赖整条丢失，目标文件被误报死代码。`require(`./x`)` 同一缺口；regex 兜底路径的引号正则也匹配不到反引号。
+- **改动**：`ast-parser.js` 新增 `staticModuleSource`——无插值 TemplateLiteral 按 cooked 文本当普通字符串返回，带插值或非法转义返回 null（照旧跳过）；require 与动态导入两个分支共用。`regex-fallback.js` 补两条兜底正则（`import(`...`)` / `require(`...`)`，字符类排除反引号与 `${`，带插值自然匹配不上）。`CACHE_VERSION` 48→49：存量缓存的 parse 产物缺这类 import 边，必须作废重建，否则老缓存静默沿用误报。
+- **验证**：新建 `test/p1-13-template-literal-import-test.js`（AST 路径与 regex 兜底两侧各一组：无插值模板可提取且 isLazy、带插值不提取、引号形式不回退；变异检查：注释 TemplateLiteral 分支即红）。临时仓库端到端：`` import(`./lazy`) `` 场景下 `lazyFn` 修前被报死、修后 0 条。
+
 ### Fixed: P1-4 node:sqlite 不可用时静默冷启动 + P1-16 热点同分排序不固定（2026-09-28）
 
 - **P1-4 根因**：`package.json` 声明 `node >=22.5.0`，但 `node:sqlite` 在 22.13 之前是未知内置模块（22.5.0 / 22.12.0 实测 `ERR_UNKNOWN_BUILTIN_MODULE`）。require 失败被 `_readGuard` 吞成缓存 miss，缓存目录永远是空的、每次都是冷启动，且没有任何提示。
