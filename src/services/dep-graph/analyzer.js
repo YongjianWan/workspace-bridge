@@ -630,12 +630,16 @@ class GraphAnalyzer {
       let affectedTests = [];
       let impactRadius = null;
       try {
-        if (row.affectedTests) affectedTests = JSON.parse(row.affectedTests);
+        if (row.affectedTests) {
+          affectedTests = typeof row.affectedTests === 'string' ? JSON.parse(row.affectedTests) : row.affectedTests;
+        }
       } catch {
         // ignore corrupted
       }
       try {
-        if (row.impactRadius) impactRadius = JSON.parse(row.impactRadius);
+        if (row.impactRadius) {
+          impactRadius = typeof row.impactRadius === 'string' ? JSON.parse(row.impactRadius) : row.impactRadius;
+        }
       } catch {
         // ignore corrupted — will fall back to BFS on query
       }

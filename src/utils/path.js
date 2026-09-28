@@ -17,10 +17,28 @@ function toPosixPath(inputPath) {
   return String(inputPath || '').replace(/\\/g, '/');
 }
 
+// Cold-start profile (P1-7): path key normalization was ~45% of build CPU on
+// Django (3000 files × dozens of imports each re-resolving the same paths).
+// The function is pure, so memoize with a bounded LRU — identical output,
+// eviction caps memory on pathological input sets.
+const NORMALIZE_KEY_CACHE_LIMIT = 50000;
+const normalizeKeyCache = new Map();
+
 function normalizePathKey(inputPath) {
+  const cached = normalizeKeyCache.get(inputPath);
+  if (cached !== undefined) {
+    normalizeKeyCache.delete(inputPath);
+    normalizeKeyCache.set(inputPath, cached);
+    return cached;
+  }
   const absolute = normalizePath(inputPath);
   const normalized = toPosixPath(path.normalize(absolute));
-  return IS_WINDOWS ? normalized.toLocaleLowerCase('en-US') : normalized;
+  const result = IS_WINDOWS ? normalized.toLocaleLowerCase('en-US') : normalized;
+  if (normalizeKeyCache.size >= NORMALIZE_KEY_CACHE_LIMIT) {
+    normalizeKeyCache.delete(normalizeKeyCache.keys().next().value);
+  }
+  normalizeKeyCache.set(inputPath, result);
+  return result;
 }
 
 /**

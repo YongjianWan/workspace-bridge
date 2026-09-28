@@ -12,6 +12,7 @@
 // maxDepth === CONFIG.DEFAULT_MAX_DEPTH). A diverging constant here silently
 // poisons every warm affected-tests answer.
 const { CONFIG } = require('./shared');
+const { createImpactEncoder, createImpactDecoder, isEncodedImpact } = require('./impact-codec');
 
 /**
  * Register the 'graph:built' event listener that coordinates post-build
@@ -71,7 +72,12 @@ async function savePrecomputed(depGraph) {
       depGraph.cache.savePrecomputedAggregates(aggregateRows);
     }
 
-    // Save impact
+    // Save impact. Path-compressed (P1-6): full paths repeated across entries
+    // and via chains made this table the cache's dominant term (~195MB on
+    // Django). The v2 payload lives in the affected_tests column; the
+    // impact_radius column stays null. See impact-codec.js.
+    const rootPrefix = depGraph.normalizeFilePath(depGraph.root);
+    const encodeImpact = createImpactEncoder(rootPrefix);
     const impactRecords = [];
     for (const [file, data] of analyzer._impactCache) {
       impactRecords.push({
@@ -80,8 +86,8 @@ async function savePrecomputed(depGraph) {
         transitiveDeps: data.transitiveDeps,
         directDependents: data.directDependents,
         transitiveDependents: data.transitiveDependents,
-        affectedTests: JSON.stringify(data.affectedTests),
-        impactRadius: JSON.stringify(data.impactRadius),
+        affectedTests: encodeImpact(data.affectedTests, data.impactRadius),
+        impactRadius: null,
         version: analyzer._impactVersion,
       });
     }
@@ -196,6 +202,17 @@ function restorePrecomputed(depGraph) {
 
     const impactRows = depGraph.cache.loadPrecomputedImpact();
     if (impactRows && impactRows.length > 0) {
+      const decodeImpact = createImpactDecoder(depGraph.normalizeFilePath(depGraph.root));
+      for (const row of impactRows) {
+        if (isEncodedImpact(row.affectedTests)) {
+          const decoded = decodeImpact(row.affectedTests);
+          if (!decoded) continue; // corrupted blob — skip row, BFS fallback covers it
+          row.affectedTests = decoded.affectedTests;
+          row.impactRadius = decoded.impactRadius;
+        }
+        // rows without an encoding marker are legacy JSON strings — the
+        // analyzer parses them as before.
+      }
       const ok = depGraph.analyzer.injectPrecomputedImpact(impactRows, depGraph.graph.size);
       if (!depGraph.quiet && ok) {
          
