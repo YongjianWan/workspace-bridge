@@ -24,6 +24,7 @@ P1 的判据：命令退出码为 0、`ok: true`，但结论残缺或不稳定�
 | H-4 | 分层出现 5 条反向依赖（AGENTS.md「项目骨架」规定依赖只向下）：`src/services/container.js` → `src/tools/overview-tools.js`、`src/tools/cochange-tools.js`；`src/tools/audit-assembler.js` → `src/cli/formatters/index.js`；`src/tools/overview-tools.js` → `src/cli/formatters/dashboard-formatter.js`；`src/services/file-index.js` → `src/services/dep-graph/parsers/registry.js`。项目自身的 `boundaries` 检查为 0 违规，说明规则未覆盖这些边。 | 为这 5 条边补边界规则并消除或明确登记为例外。 |
 | H-5 | `skills/workspace-audit/SKILL.md` 第 82 行称缓存默认在 `os.tmpdir()/workspace-bridge/<hash>/`，实际优先在 `%LOCALAPPDATA%`（Linux 为 `XDG_CACHE_HOME`），tmp 只是回退（`src/services/cache.js` 的 `computeDefaultCacheDir`）。AGENTS.md 原则 8 要求同步适配全部 9 种语言，而「语言范围」一节又把 Kotlin、C/C++、Svelte 降为 P3/P4，两处矛盾。 | 两处文档改为与代码和现行范围一致。 |
 | H-6 | Python 分析依赖本机 Python：标准库名单来自本机解释器的 `sys.stdlib_module_names`，不同机器版本不同则内部/外部导入判定可能不同；无 Python 时退回硬编码名单。 | 输出 `warnings[]` 或字段标明所用来源与解释器版本。 |
+| H-7 | `affected-tests` 的 CLI 输出与评测口径不一致，且被截断的部分选择任意。评测（`eval/score.js`）用进程内完整预测打分，typer 精确率 0.548、召回率 0.991；agent 实际拿到的 CLI JSON 只含前 100 条（`elideDeep` 的 `JSON_OUTPUT_MAX_ARRAY_ITEMS`；`audit-assembler.js` 另有 50 条的 `JSON_OUTPUT_MAX_AFFECTED_TESTS_ITEMS` 限制，两处口径并存），并由 `truncated` 与 `elided[]` 声明；排序是 `distance,file`（距离相同按文件名），不按相关度。复现：`WB_CACHE_DIR=eval/truth/out/python/typer/cache node cli.js affected-tests --cwd <eval/truth/repos/python/typer 绝对路径> --file typer/main.py --json --quiet`，`affectedTestsCount` 212、`truncated: true`、展示 100 条。对 typer 28 个源文件逐个调用 CLI 并与 coverage 真值比对：可见部分精确率 0.572、召回率 0.483（完整预测为 0.548 / 0.991）。误报主因：`typer/testing.py` 被几乎所有测试导入，距离 2 的传递依赖把大半测试都拉进来（`typer/_completion_shared.py` 真值 1 个测试，预测 96 个）。其他语言（fault-injection 真值，2026-09-30 重跑，均与 `eval/baseline.json` 一致）：zod 0.954 / 1.0，spring-petclinic 0.717 / 0.76，cobra 0.40 / 0.609，hexyl 1.0 / 0.5（仅 4 个样本），vitesse 仅 1 个样本无统计意义。cobra 与 petclinic 的漏报和误报出现在同一批文件：Go 同包测试与 Spring `MockMvc` 测试没有 import 边，预测被换成了不相关的测试。 | ① 评测口径改为 CLI 实际输出（或让 CLI 提供不截断的选项）并重记基线；② 截断时按与目标文件的真实关联度排序（直接导入者优先，经 `testing` 这类被广泛导入的枢纽文件产生的间接关系降权）；③ typer 可见部分召回率不低于 0.9。 |
 | V-1 | 待复核：本文件（他人写入）L1-33 称增量模式在"此前没有环"时漏报新环。2026-09-30 实测未复现：无环的三文件项目里让 `c.js` 反向导入 `a.js` 并调用 `updateFiles`，`findCircularDependencies()` 与 `{skipCache:true}` 均报 1 个环；286 个文件的 TS 项目里造环、断环、再造环，环数与冷启动一致。 | L1-33 作者给出复现步骤，或将其关闭。 |
 
 ## U：未验证方向（条目编号 U-n）
@@ -32,7 +33,6 @@ U 表示"还没查过，不知道有没有问题"，不是已确认的债务。�
 
 | ID | 要查什么 | 怎么查 | 验收线 |
 |---|---|---|---|
-| U-1 | `affected-tests` 精确率。SESSION 记录 typer 为 TP 3045、FP 2512、FN 29，约 55% 的建议测试不相关。 | 读 `eval/scoreboard.json` 看其他语言同类数字；统计误报集中在哪类文件。 | 每种语言给出精确率与召回率，并列出误报最多的两类文件。 |
 | U-2 | `dead-exports` 在库项目上的误报：入口文件被判 0 引用即标可删。 | 对 zod、cobra 等库仓库用 `eval/labels` 标注核对。 | 库仓库上公开 API 被标可删的数量与比例。 |
 | U-3 | `honesty-engine` 的 `safeToDelete`（对应本文件 L1-28，未验证）。 | 同一批库仓库运行，统计被标 `safeToDelete: true` 的公开 API。 | L1-28 复现或关闭。 |
 | U-4 | `impact` 漏报：动态 import、反射、框架约定路由不在边图里。 | 故障注入构造"改 A 应影响 B"的用例，统计漏报率。 | 每类边的漏报率；漏报处输出 `warnings[]` 或降低置信度。 |

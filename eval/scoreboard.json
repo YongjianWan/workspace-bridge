@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-27T15:59:29.141Z",
+  "generatedAt": "2026-09-30T08:52:31.650Z",
   "wbVersion": "2.1.0",
   "repos": {
     "typer": {
@@ -84,12 +84,12 @@
       },
       "affected-tests": {
         "status": "ok",
-        "precision": 0.6019,
-        "recall": 0.9847,
-        "n": 5076,
-        "tp": 3027,
-        "fp": 2002,
-        "fn": 47,
+        "precision": 0.548,
+        "recall": 0.9906,
+        "n": 5586,
+        "tp": 3045,
+        "fp": 2512,
+        "fn": 29,
         "filesScored": 28
       }
     },
@@ -1336,16 +1336,16 @@
     {
       "repo": "typer",
       "metric": "affected-tests.precision",
-      "baseline": 0.6019,
-      "current": 0.6019,
+      "baseline": 0.548,
+      "current": 0.548,
       "delta": 0,
       "result": "PASS"
     },
     {
       "repo": "typer",
       "metric": "affected-tests.recall",
-      "baseline": 0.9847,
-      "current": 0.9847,
+      "baseline": 0.9906,
+      "current": 0.9906,
       "delta": 0,
       "result": "PASS"
     },
