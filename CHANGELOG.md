@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### Changed: 暖启动不再对整仓做第二遍内容哈希（2026-09-30）
+
+- **现象**：暖启动里 `FileIndex.build` 已逐文件读取并校验 SHA-256，`getStaleness()` 紧接着又经 `checkFileChanges()` 把全部文件读一遍、哈希一遍。Django 固定提交 `a013c821ea` 上后者单次约 1.3–1.7 秒。
+- **修复**：`FileIndex.build` 成功结束时记录 `cache.contentVerifiedAt`；`getStaleness()` 在 `DEFAULTS.INDEX_VERIFIED_FRESH_MS`（10 秒）内复用这次验证，超过窗口（watch/REPL 长驻进程）仍走磁盘全量校验。`cache.checkFileChanges()` 本身不变。
+- **更正**：此前 TECH_DEBT L3-14 称 `parseFileOnly()` 在暖启动命中解析缓存前也会再算一次哈希，实测不成立：命中判断只比较缓存记录与文件元数据里的哈希，未命中才读文件。暖启动的重复读取实为两次，本次去掉其一。
+- **验证**：新增 `test/staleness-index-verified-test.js`（窗口内不扫描；窗口过期后同大小内容修改被报告）。Django 单次暖 `audit-overview` 旧 15.4–15.8 秒、新 13.2–14.4 秒（同机同缓存副本）；去掉时间字段后新旧 JSON 输出完全一致。`npm run test:fast` 199/199；staleness、cache、query、gate-on-replay 相关慢测全部通过。
+
 ### Fixed: 解决 Windows 下 `exit 3221226505` libuv 断言崩溃（2026-09-28）
 
 - **根因**：[`wave15-ast-rules-test.js`](test/wave15-ast-rules-test.js) 和 [`wave15-neighbor-aware-test.js`](test/wave15-neighbor-aware-test.js) 在所有断言通过后执行了 `else process.exit(0)`。这两个测试均初始化了 `web-tree-sitter` (WASM) 及异步句柄；当 JS 层硬调用 `process.exit(0)` 时，Node.js 立即执行 Environment teardown 并将所有活跃句柄打上 `UV_HANDLE_CLOSING` 标志。在 Windows 平台（`src\win\async.c:76`），libuv 的 `uv_async_send` 包含断言 `assert(!(handle->flags & UV_HANDLE_CLOSING))`。WASM/异步后台线程在退出清理中触发 send 命中该断言，导致 C Runtime 调用 `abort()`（退出码 `3221226505` / `0xC0000409`）。
