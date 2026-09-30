@@ -11,7 +11,9 @@ const LIMITS = {
   // Entry content detection (entry-detector.readScanContent) deliberately
   // shares this bound — see the rationale there.
   PARSER_MAX_FILE_BYTES: 1024 * 1024,
-  RESOLVER_STAT_CACHE_MAX: 2000,
+  // Django (~7k files) makes ~8k distinct existence probes per build; a cap
+  // below that evicts entries before they are re-asked. 20k stays a few MB.
+  RESOLVER_STAT_CACHE_MAX: 20000,
   SCAN_SYMBOL_CONTENT_CACHE_MAX: 2000,
   GIT_STAT_MAX_CHARS: 8000,
   GIT_PATCH_MAX_CHARS: 12000,

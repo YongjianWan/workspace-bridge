@@ -27,6 +27,7 @@ const _packageDirChainCache = new Map(); // fromDir\nroot -> string[] manifest d
 const _cargoDepsCache = new Map(); // root -> { names: Set<string>, mtime }
 const _cargoNameCache = new Map(); // crateRoot -> { crateName, mtime }
 const _pythonDepsCache = new Map(); // root -> { names: Set<string>, stamp }
+const _pythonDepsChainCache = new Map(); // fromDir\0root -> merged Set|null, per batch
 const _jvmDepsCache = new Map(); // root -> { prefixes: Set<string>, stamp }
 const _cargoCrateRootCache = new Map(); // dir -> nearest ancestor dir containing Cargo.toml
 
@@ -43,6 +44,7 @@ function clearResolverCaches() {
   _cargoDepsCache.clear();
   _cargoNameCache.clear();
   _pythonDepsCache.clear();
+  _pythonDepsChainCache.clear();
   _jvmDepsCache.clear();
   _cargoCrateRootCache.clear();
 }
@@ -537,6 +539,11 @@ function readPythonDeps(root) {
  */
 function readPythonDepsChain(fromDir, root) {
   if (!root) return null;
+  // The resolver asks once per import, and every ask would re-stat each
+  // manifest on the whole directory chain. Within a batch (cleared by
+  // clearResolverCaches) the chain answer for a directory does not move.
+  const chainKey = `${fromDir}\0${root}`;
+  if (_pythonDepsChainCache.has(chainKey)) return _pythonDepsChainCache.get(chainKey);
   let chain = _dirChainUp(fromDir, root);
   if (chain.length === 0) chain = [path.resolve(root)];
   let merged = null;
@@ -546,6 +553,7 @@ function readPythonDepsChain(fromDir, root) {
     if (!merged) merged = new Set();
     for (const name of deps) merged.add(name);
   }
+  _pythonDepsChainCache.set(chainKey, merged);
   return merged;
 }
 

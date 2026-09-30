@@ -36,6 +36,9 @@ class FileIndex {
     this.concurrency = options.concurrency || DEFAULT_CONCURRENCY;
     this.indexedCount = 0;
     this.changedFiles = new Set();
+    // Cache keys of files this build read successfully; lets the prune pass skip
+    // them. Only valid within one build(), cleared as soon as pruning is done.
+    this._confirmedKeys = new Set();
     this.cliExcludeDirs = [...new Set((options.excludeDirs || []).map((d) => d.trim()).filter(Boolean))];
     this.baseExcludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS])];
     this.ignorePaths = [];
@@ -161,7 +164,11 @@ class FileIndex {
     // Remove cache entries for files deleted since last build
     // Always run this even when allFiles is empty so stale cache entries
     // from previously-deleted files are properly cleaned up.
-    await this.pruneDeletedCacheEntries();
+    try {
+      await this.pruneDeletedCacheEntries();
+    } finally {
+      this._confirmedKeys.clear();
+    }
 
     // CLI mode does not need long-lived watchers.
     if (shouldWatch) {
@@ -327,12 +334,14 @@ class FileIndex {
           if (stats.mtimeMs !== cached.mtime || stats.size !== cached.size) {
             this.cache.setFileMetadata(file, { ...cached, mtime: stats.mtimeMs, size: stats.size });
           }
+          this._confirmedKeys.add(this.cache.normalizeFilePath(file));
           return;
         }
         const ok = await this.indexFile(file, stats, bytes);
         if (ok) {
           this.indexedCount++;
           this.changedFiles.add(file);
+          this._confirmedKeys.add(this.cache.normalizeFilePath(file));
         }
         return;
       } catch (e) {
@@ -348,6 +357,7 @@ class FileIndex {
     if (ok) {
       this.indexedCount++;
       this.changedFiles.add(file);
+      this._confirmedKeys.add(this.cache.normalizeFilePath(file));
     }
   }
 
@@ -463,7 +473,8 @@ class FileIndex {
       const batch = files.slice(i, i + batchSize);
       for (const filePath of batch) {
         if (!this.active) return prunedFiles;
-        if (fs.existsSync(filePath)) continue;
+        // The build just read this file; nothing to probe.
+        if (this._confirmedKeys.has(filePath) || fs.existsSync(filePath)) continue;
         this._removeCacheEntry(filePath);
         prunedFiles.push(filePath);
       }
