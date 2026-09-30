@@ -176,6 +176,7 @@ class FileIndex {
     // Store the raw discovered file list so dep-graph can use platform-native
     // paths as originalPath instead of normalised cache keys.
     this._indexedFiles = allFiles;
+    this.cache.contentVerifiedAt = Date.now();
   }
 
   getFilePatterns() {

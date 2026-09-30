@@ -65,6 +65,11 @@ const DEFAULTS = {
   FILE_INDEX_BUILD_TIMEOUT_MS: 300000,
   // Staleness threshold: 24 hours suits AI async review workflows.
   STALENESS_THRESHOLD_MS: 24 * 60 * 60 * 1000,
+  // A completed index build has just hashed every file against disk; within
+  // this window getStaleness reuses that instead of re-reading the tree. 10s
+  // covers a one-shot CLI (build, then report) yet is far shorter than any
+  // watch/REPL session, which falls back to the real scan.
+  INDEX_VERIFIED_FRESH_MS: 10 * 1000,
   // Progress report batch size for large repo indexing.
   FILE_INDEX_PROGRESS_BATCH: 100,
   // Diagnostics debounce: 1s balances responsiveness with batching.

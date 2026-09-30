@@ -212,6 +212,8 @@ class WorkspaceCache {
 
     this.lastSaved = 0;
     this.dirty = false;
+    // When FileIndex last confirmed every tracked file's hash against disk (ms since epoch; 0 = never).
+    this.contentVerifiedAt = 0;
   }
 
   _resetTrackers() {

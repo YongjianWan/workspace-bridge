@@ -582,7 +582,9 @@ class ServiceContainer {
 
     let filesChanged = false;
     let changedFiles = [];
-    if (this.cache?.checkFileChanges) {
+    const indexJustVerified = this.cache?.contentVerifiedAt
+      && Date.now() - this.cache.contentVerifiedAt < DEFAULTS.INDEX_VERIFIED_FRESH_MS;
+    if (this.cache?.checkFileChanges && !indexJustVerified) {
       const fileCheck = this.cache.checkFileChanges();
       if (fileCheck.changedFiles && this.projectContext) {
         changedFiles = fileCheck.changedFiles.filter(file => {
