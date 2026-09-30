@@ -12,7 +12,7 @@
 - **现象**：Django 固定提交 `a013c821ea` 单次暖 `audit-overview` 里 `fs.statSync` 约 19000 次、`existsSync` 约 3000 次。归因：`FileIndex.pruneDeletedCacheEntries()` 对刚读过的每个缓存文件再 `existsSync` 一遍（约 3000 次）；Python 清单链 `readPythonDepsChain()` 每条 import 都沿目录链重新 stat 三个清单（约 6400 次，只涉及 342 个不同路径）；resolver 的存在性缓存上限 2000 条，低于一次建图约 8300 个不同探测路径，条目被淘汰后重复询问（约 4000 次）。
 - **修复**：`FileIndex` 记录本次 build 已成功读取的文件，prune 只探测未确认的条目，build 结束（含异常）即清空；`readPythonDepsChain()` 的结果在同一 resolver 批次内按目录缓存，随 `clearResolverCaches()` 清空；`RESOLVER_STAT_CACHE_MAX` 由 2000 提到 20000。`readPythonDeps()` 直接调用时仍每次校验清单 mtime（`python-manifest-deps-test`、`jvm-manifest-deps-test` 的契约）。
 - **验证**：新增 `test/file-index-prune-probes-test.js`、`test/resolver-python-deps-chain-batch-test.js`，撤回修复后均红。Django 单次暖 `audit-overview` 由 13.2–14.4 秒降到约 11.2–12.3 秒，`statSync` 约 13500 次降到约 9700 次，`existsSync` 由约 3000 次降到 21 次；去掉时间字段后输出与改动前完全一致。
-- **未做**：其余约 8000 个不同路径的存在性探测仍逐个 stat，是否改用 FileIndex 文件集合回答见 TECH_DEBT L3-15。
+- **结论**：其余约 8000 个 Python 候选路径存在性探测不是瓶颈。试过「上级目录已知不存在则不再 stat」，`statSync` 由约 9700 次降到约 4900 次，Django 暖启动墙钟仍是 11.2–11.6 秒（此前 11.2–12.3 秒，在噪声内），因此没有合入。分段计时：`FileIndex.build` 约 5.4 秒（其中逐文件校验 0.9 秒）、`Builder.build` 约 6.3 秒（其中 `precomputeAggregates` 2.6 秒，含 `findDeadExports` 2.4 秒）；子进程另有 `git rev-parse HEAD` 两次共 1.1 秒、`git check-ignore` 0.7 秒、`python -c` 取标准库名 0.36 秒。见 TECH_DEBT L3-17。
 
 ### Changed: 暖启动不再对整仓做第二遍内容哈希（2026-09-30）
 
