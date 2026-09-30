@@ -39,7 +39,7 @@
 
 ## 当前核验
 
-`node test/wb-repro.js cli.js` 当前为 27/27 OK、退出码 0；`CACHE_VERSION=53`，`schemaVersion=1.2.0`。`audit-overview` 在本仓覆盖率 1、fallback 0。快测 199/199；全量 `node test/runner.js` 302/302、退出码 0（2026-09-30，慢测默认并发 2，本次约 17 分钟，前次 29 分钟）。出现任何失败须调查；SIGTERM 超时先对照 SESSION.md 的并发说明。
+`node test/wb-repro.js cli.js` 当前为 27/27 OK、退出码 0；`CACHE_VERSION=53`，`schemaVersion=1.2.0`。`audit-overview` 在本仓覆盖率 1、fallback 0。快测 199/199；全量 `node test/runner.js` 304/304、退出码 0（2026-09-30，慢测默认并发 2，本次约 17 分钟，此前 29 分钟）。出现任何失败须调查；SIGTERM 超时先对照 SESSION.md 的并发说明。
 
 ## 工程品味（TASTE）
 
@@ -246,6 +246,7 @@ node cli.js dead-exports --cwd . --json --quiet
 | `parse_results` 只存纯解析输出                        | `src/services/dep-graph/builder.js` / `graph-db.js`   | 缓存按文件路径保存、按内容哈希校验；不得写入已解析的目标路径。每次建图都要根据当前文件集合重新 resolve，新增文件也可能改变未改动文件的依赖边。 |
 | 图级 SQLite 表已废弃                                   | `src/services/graph-db.js`                            | `edges`、`precomputed_impact`、`precomputed_aggregates`、`test_map`、`routes`、`metrics` 不再存在；评测和测试必须查当前图，不可继续读旧表。 |
 | workspace 包清单缓存随 resolver 批次清空               | `src/services/dep-graph/resolvers.js`                 | `clearResolverCaches()` 必须同步清理 workspace 包清单；watch/REPL 中 package.json 变化后不得继续用旧入口。 |
+| Python 清单链缓存随 resolver 批次清空 | `src/services/dep-graph/resolvers/base.js` | `readPythonDepsChain()` 结果按目录缓存于 `_pythonDepsChainCache`，由 `clearResolverCaches()` 清空；`readPythonDeps()` 直接调用仍每次校验清单 mtime（有测试锁定），新增同类缓存必须挂进 `clearResolverCaches()`。 |
 | 动态 require 导致死导出误报                            | `src/services/dep-graph/framework-patterns.js`       | `dead-exports` 无法静态分析 `ROUTE_QUERY_REGISTRY` 动态 require，可忽略或加白                              |
 | C/C++`#include` resolver 语义限制                    | `src/services/dep-graph/parsers/registry.js`         | C/C++ 对系统头、`-I` 搜索路径支持较弱，`unresolved` 可能偏高                                               |
 | `regex-fallback` 缓存条目永不命中                    | `src/services/dep-graph/builder.js`                  | tree-sitter WASM 不可用或解析失败时的降级产物每次重解析是**刻意设计**（`_isParseCacheUsable`），不是缓存失效 bug |
