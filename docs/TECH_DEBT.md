@@ -2,6 +2,30 @@
 
 这里只列仍需处理或明确冻结的债务。修复经过和已关闭条目见 [CHANGELOG.md](../CHANGELOG.md)；外部审查仍开放的问题见 [审查待处理项](./workspace-bridge-审查报告.md)。
 
+## P1：输出看着正常、实际是错的（静默错误）
+
+P1 的判据：命令退出码为 0、`ok: true`，但结论残缺或不稳定，AI agent 会直接采信。下面 S-1 到 S-5 均于 2026-09-30 在 Windows、Node 25.6.0 上实测（S-4 除外，仅读代码）。术语：「图」指 `DependencyGraph.graph`（文件路径到文件信息的 Map）；「主线文件」指 `audit-overview` 里 `skeleton.mainlineFiles` 统计的非测试、非文档、非样式、非资源文件。
+
+| ID | 现象与复现 | 影响 | 验收线 |
+|---|---|---|---|
+| S-1 | 文件发现超时后索引残缺，输出却报告成功。复现：把 `src/config/defaults.js` 的 `DEFAULTS.FILE_INDEX_BUILD_TIMEOUT_MS` 临时改为 30，对 zod 固定提交（`eval/truth/repos/js-ts/zod`，409 个文件）运行 `node cli.js audit-overview --cwd <路径> --json --quiet`：只索引 120 个文件，输出 `ok: true`、`warnings: []`、`analysisCoverage.coverageRatio: 1`、退出码 0，仅 stderr 一行 `Build timed out`。默认超时 300000 毫秒，超大仓库会触发。另：`container.initialize(cwd, _timeoutMs, ...)` 的超时形参从未使用，所有调用方传入的 `INIT_TIMEOUT_MS`（60000）不生效，整条初始化流水线没有总时限。 | 大仓库上 agent 拿到残缺图仍判定"分析完成"；覆盖率分母只含已索引文件，把丢失的文件隐藏了。 | 超时后 `warnings[]` 含高严重度条目（含已索引/已发现文件数），`analysisCoverage` 分母包含未索引文件或标记降级；`initialize` 要么真正执行总时限，要么删除该形参并在 AGENTS.md 写明总时限由哪一层负责。 |
+| S-2 | 图的文件顺序每次冷启动都不同，下游按顺序截断的输出随之不稳定。复现：用不同的 `WB_CACHE_DIR`（覆盖缓存目录的环境变量）对同一仓库做多次冷启动，取 `Array.from(depGraph.graph.keys())` 计算哈希，每次不同（typer、cobra、ripgrep、spring-petclinic、okhttp、cJSON、vitesse、realworld、zod 均出现；边集合哈希则完全一致）。原因：解析任务按异步完成顺序写入图。可见后果：zod 上 `astRules.findings` 共 122 条、按上限只展示 100 条，四次冷启动展示的 100 条不是同一批（并集 101 条）；`deadExports`、`stability` 的顺序每次不同；`hotspots` 在四次里有一次多出 `locales/nl.ts`。暖启动输出稳定，所以平时不易发现。 | 同一份代码两次分析，被截断的列表内容不同；`elided[]` 只声明"展示 100/共 122"，agent 无法知道漏掉的是哪些。 | 图按路径排序的顺序构建（在写入处消除，不在各消费者处补排序）；同一仓库 5 次冷启动的 `audit-overview --json`（去掉时间字段）哈希相同，对 9 种语言的 eval 仓库各验证一次。 |
+| S-3 | 热点与知识风险的候选文件是"图顺序的前 50 个"，不是排名前 50。代码：`src/tools/overview-assembler.js` 的 `buildHotspots` 与 `buildKnowledgeRisk` 均取 `mainlineFiles.slice(0, DEFAULTS.HOTSPOT_CANDIDATE_LIMIT)`。Django 固定提交（`a013c821ea`）有 934 个主线文件，前 50 个候选集中在 `django/views`（23 个）、`django/utils`（11 个）、`docs/_ext`，`django/db/models/query.py`、`django/db/models/base.py`、`django/http/request.py` 均不在其中；报出的 10 个热点全在 `django/views/`。 | 超过 50 个主线文件的仓库，"热点"结论只反映一个任意子集；叠加 S-2 后还随冷启动变化。 | 候选由排名（如 PageRank、被依赖数）决定，与图顺序无关：打乱图顺序后热点列表不变；Django 上候选包含 `django/db/models/` 下高被依赖文件。 |
+| S-4 | git 历史读取失败被静默丢弃（仅读代码，未复现）。`overview-assembler.js` 的 `getHistoryRisk` 在 `result.ok === false` 时返回 null、抛异常时只 `console.error`，热点评分照常继续。并发 1/8/16 调用 `getFileHistoryRisk` 未出现失败，触发条件（git 超时、进程数耗尽）尚未构造。 | 历史缺失的文件被当作"无历史"参与评分，热点随环境变化。 | 历史读取失败时 `warnings[]` 含 `history-unavailable`（含失败文件数）；构造 git 超时用例验证。 |
+| S-5 | 缓存写入失败与缓存损坏都不出声，永久退化为冷启动。① `container.js` 的 `cache.save()` 失败只在设置 `DEBUG` 时打印。② 把 `cache.db` 写成随机字节或截断一半：命令仍成功，但此后每次运行都是冷启动（zod 16 秒，正常暖启动 4.5 秒），文件原样不动，无任何提示。冷启动中强杀进程则可自愈（第三次运行回到暖启动），不受此影响。 | 磁盘满、杀毒软件占用、文件损坏后，工具永久变慢且无人知晓。 | 写入失败输出 `warnings[]`（`cache-write-failed`）；检测到损坏（`file is not a database` 等）时改名为 `cache.db.corrupt-<时间戳>` 并重建、输出告警；对 `cache.db` 写随机字节后运行两次，第二次回到暖启动耗时。 |
+
+## P2：安全、缓存与文档隐患（条目编号 H-n，避免与审查报告的 P2-n 混淆）
+
+| ID | 现象与复现 | 验收线 |
+|---|---|---|
+| H-1 | `--save <路径>` 不限制目录且直接覆盖已有文件，而 `--file` 会拒绝 `../` 与绝对路径。复现：`node cli.js audit-overview --cwd <工作区> --json --quiet --save <工作区外的已有文件>`，该文件被 JSON 覆盖。agent 的参数若被提示注入影响，即成任意文件覆盖点。 | `--save` 目标限定在工作区或显式允许的目录内，且不覆盖非本工具生成的文件（或需 `--force`）。 |
+| H-2 | 缓存有效性靠人工递增 `src/config/versions.js` 的 `CACHE_VERSION`：解析缓存只按文件内容哈希命中，键里没有解析器版本。历史上改过 `parsers/`、`resolvers/` 的提交 83 个，改过版本号的 45 个。忘记递增时，用户拿到旧解析结果。 | 缓存戳纳入解析器与 resolver 源码的指纹（或 tree-sitter WASM 版本），改代码即自动失效。 |
+| H-3 | Windows 盘符大小写分裂缓存（与 L2-24 同一问题，已实测）：对同一目录分别传 `C:\...`、`c:\...`，各建一个缓存目录、各自冷启动（14 秒、17 秒），输出的 `workspaceRoot` 大小写也不一致；`C:/...` 则复用前者。 | 缓存目录哈希前对 `workspaceRoot` 做与图键相同的归一化；三种写法只产生一个缓存目录。 |
+| H-4 | 分层出现 5 条反向依赖（AGENTS.md「项目骨架」规定依赖只向下）：`src/services/container.js` → `src/tools/overview-tools.js`、`src/tools/cochange-tools.js`；`src/tools/audit-assembler.js` → `src/cli/formatters/index.js`；`src/tools/overview-tools.js` → `src/cli/formatters/dashboard-formatter.js`；`src/services/file-index.js` → `src/services/dep-graph/parsers/registry.js`。项目自身的 `boundaries` 检查为 0 违规，说明规则未覆盖这些边。 | 为这 5 条边补边界规则并消除或明确登记为例外。 |
+| H-5 | `skills/workspace-audit/SKILL.md` 第 82 行称缓存默认在 `os.tmpdir()/workspace-bridge/<hash>/`，实际优先在 `%LOCALAPPDATA%`（Linux 为 `XDG_CACHE_HOME`），tmp 只是回退（`src/services/cache.js` 的 `computeDefaultCacheDir`）。AGENTS.md 原则 8 要求同步适配全部 9 种语言，而「语言范围」一节又把 Kotlin、C/C++、Svelte 降为 P3/P4，两处矛盾。 | 两处文档改为与代码和现行范围一致。 |
+| H-6 | Python 分析依赖本机 Python：标准库名单来自本机解释器的 `sys.stdlib_module_names`，不同机器版本不同则内部/外部导入判定可能不同；无 Python 时退回硬编码名单。 | 输出 `warnings[]` 或字段标明所用来源与解释器版本。 |
+| V-1 | 待复核：本文件（他人写入）L1-33 称增量模式在"此前没有环"时漏报新环。2026-09-30 实测未复现：无环的三文件项目里让 `c.js` 反向导入 `a.js` 并调用 `updateFiles`，`findCircularDependencies()` 与 `{skipCache:true}` 均报 1 个环；286 个文件的 TS 项目里造环、断环、再造环，环数与冷启动一致。 | L1-33 作者给出复现步骤，或将其关闭。 |
+
 ## L3：改动时顺手处理
 
 | ID | 当前问题 | 下一步与验收 |

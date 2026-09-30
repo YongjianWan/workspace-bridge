@@ -12,9 +12,11 @@
 
 ## 下一步
 
-1. 审查问题 R-3、R-4：复现 `gitignore.js` 子目录根判定与 submodule 路径的 `git check-ignore` 128 异常。
-2. 审查问题 P1-14：扩充 `api-contracts` 对生成客户端代码的调用匹配模式；P2-6 的 `guard` 退出码区分随后处理。
-3. Django 暖启动（19.8 秒）优化：做 TECH_DEBT.md L3-17：先归因 `FileIndex.build` 文件发现阶段的约 4 秒（重复哈希、重复 stat、resolver 存在性探测均已验证不是主因）；每步用固定 Django 提交的冷/暖 `audit-overview` 复测，冷暖输出计数必须一致。
+1. **P1 静默错误 S-1 到 S-5（见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)「P1」一节）最先处理**：先做 S-2（图按路径排序构建，一处改动同时解决输出顺序不稳与截断内容不稳），再做 S-1（索引超时降级信号与总时限）、S-3（热点候选按排名取）、S-5（缓存写入失败与损坏自愈）、S-4（历史读取失败告警）。每项先写失败测试；S-2 的验收是同一仓库 5 次冷启动输出哈希一致，覆盖 9 种语言的 eval 仓库。
+2. H-1（`--save` 目录限制）随后处理；H-2 到 H-6 与 V-1 按 TECH_DEBT.md 的「P2」一节排期。
+3. 审查问题 R-3、R-4：复现 `gitignore.js` 子目录根判定与 submodule 路径的 `git check-ignore` 128 异常。
+4. 审查问题 P1-14：扩充 `api-contracts` 对生成客户端代码的调用匹配模式；P2-6 的 `guard` 退出码区分随后处理。
+5. Django 暖启动（约 11–12 秒）：先按 TECH_DEBT.md L3-17 归因 `FileIndex.build` 文件发现阶段的约 4 秒；重复哈希、重复 stat、resolver 存在性探测均已验证不是主因。
 
 ## 开工命令
 
