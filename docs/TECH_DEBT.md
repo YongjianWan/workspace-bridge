@@ -4,7 +4,7 @@
 
 ## P1：输出看着正常、实际是错的（静默错误）
 
-P1 的判据：命令退出码为 0、`ok: true`，但结论残缺或不稳定，AI agent 会直接采信。下面 S-1 到 S-5 均于 2026-09-30 在 Windows、Node 25.6.0 上实测（S-4 除外，仅读代码）。术语：「图」指 `DependencyGraph.graph`（文件路径到文件信息的 Map）；「主线文件」指 `audit-overview` 里 `skeleton.mainlineFiles` 统计的非测试、非文档、非样式、非资源文件。
+P1 的判据：命令退出码为 0、`ok: true`，但结论残缺或不稳定，AI agent 会直接采信。下面 S-1 到 S-7 均于 2026-09-30 在 Windows、Node 25.6.0 上实测（S-4 除外，仅读代码）。术语：「图」指 `DependencyGraph.graph`（文件路径到文件信息的 Map）；「主线文件」指 `audit-overview` 里 `skeleton.mainlineFiles` 统计的非测试、非文档、非样式、非资源文件。
 
 | ID | 现象与复现 | 影响 | 验收线 |
 |---|---|---|---|
@@ -13,6 +13,8 @@ P1 的判据：命令退出码为 0、`ok: true`，但结论残缺或不稳定�
 | S-3 | 热点与知识风险的候选文件是"图顺序的前 50 个"，不是排名前 50。代码：`src/tools/overview-assembler.js` 的 `buildHotspots` 与 `buildKnowledgeRisk` 均取 `mainlineFiles.slice(0, DEFAULTS.HOTSPOT_CANDIDATE_LIMIT)`。Django 固定提交（`a013c821ea`）有 934 个主线文件，前 50 个候选集中在 `django/views`（23 个）、`django/utils`（11 个）、`docs/_ext`，`django/db/models/query.py`、`django/db/models/base.py`、`django/http/request.py` 均不在其中；报出的 10 个热点全在 `django/views/`。 | 超过 50 个主线文件的仓库，"热点"结论只反映一个任意子集；叠加 S-2 后还随冷启动变化。 | 候选由排名（如 PageRank、被依赖数）决定，与图顺序无关：打乱图顺序后热点列表不变；Django 上候选包含 `django/db/models/` 下高被依赖文件。 |
 | S-4 | git 历史读取失败被静默丢弃（仅读代码，未复现）。`overview-assembler.js` 的 `getHistoryRisk` 在 `result.ok === false` 时返回 null、抛异常时只 `console.error`，热点评分照常继续。并发 1/8/16 调用 `getFileHistoryRisk` 未出现失败，触发条件（git 超时、进程数耗尽）尚未构造。 | 历史缺失的文件被当作"无历史"参与评分，热点随环境变化。 | 历史读取失败时 `warnings[]` 含 `history-unavailable`（含失败文件数）；构造 git 超时用例验证。 |
 | S-5 | 缓存写入失败与缓存损坏都不出声，永久退化为冷启动。① `container.js` 的 `cache.save()` 失败只在设置 `DEBUG` 时打印。② 把 `cache.db` 写成随机字节或截断一半：命令仍成功，但此后每次运行都是冷启动（zod 16 秒，正常暖启动 4.5 秒），文件原样不动，无任何提示。冷启动中强杀进程则可自愈（第三次运行回到暖启动），不受此影响。 | 磁盘满、杀毒软件占用、文件损坏后，工具永久变慢且无人知晓。 | 写入失败输出 `warnings[]`（`cache-write-failed`）；检测到损坏（`file is not a database` 等）时改名为 `cache.db.corrupt-<时间戳>` 并重建、输出告警；对 `cache.db` 写随机字节后运行两次，第二次回到暖启动耗时。 |
+| S-6 | `dead-exports` 把仍在使用的文件标成 `safeToDelete: true`（`src/tools/honesty-engine.js` `classifyDeadExports`：只要 `importerCount === 0`、置信度非 low、原因不是 graph-unreliable 就标）。2026-09-30 用当前代码在 eval 语料上运行 `node cli.js dead-exports --cwd <仓库> --json --quiet`（各仓库自己的缓存目录），共 77 条 `safeToDelete`：bulletproof-react 43、zod 18、ripgrep 14、fmt 2，其余仓库 0。抽查全部是误标：bulletproof-react 的 `*.stories.tsx`（Storybook 按 glob 自动加载）、`.eslintrc.cjs`、`__mocks__/zustand.ts`、`.storybook/preview.tsx`、Next.js 的 `pages/_app.tsx`；zod 的 `packages/zod/src/v4/core/config.ts`（被 `core.ts` 导入）和 `packages/docs/components/*.tsx`（被 `.mdx` 页面使用，`.mdx` 不在解析范围）；ripgrep `crates/core` 下 14 个文件（`haystack.rs`、`logger.rs` 等被 `mod`/`crate::` 使用，见 S-7）以及 `crates/pcre2/src/lib.rs`（`is_jit_available` 被 `flags/doc/version.rs` 调用）；fmt 的 `src/fmt-c.cc`（公开 C 接口实现）。zod 的 `packages/bench/*`、`packages/treeshake/*` 是否可删未核实。另有一处错位：`falsePositiveReason` 为 `vue-component-implicit` 的条目仍被标 `safeToDelete`（该原因不在 `DEAD_EXPORT_FALSE_POSITIVE_REASONS` 里），且该原因名对 React/Next 文件也在用。本文件 L1-28 所述"库入口导出被标可删"在 zod、cobra、execa、typer 上未复现（这四个库的入口导出没有被标），但同一机制在应用类和 Rust 仓库上大面积误标。 | `safeToDelete` 只在证据充分时给出：排除配置文件、测试与故事文件、框架约定文件、被文档解析范围之外的文件引用的文件，以及 `vue-component-implicit` 等已知误报原因；在上述 eval 仓库上抽查为 0 误标；无法判断时不给该字段并说明原因。 |
+| S-7 | Rust 同 crate 内的模块引用没有建边，`impact` 对这类文件返回 0 且不给警告。复现：`WB_CACHE_DIR=eval/truth/out/rust/ripgrep/cache node cli.js impact --cwd <eval/truth/repos/rust/ripgrep 绝对路径> --file crates/core/haystack.rs --json --quiet`，`impactCount` 为 0、`impact` 为空；实际 `crates/core/main.rs` 有 `mod haystack;`，`crates/core/flags/hiargs.rs` 有 `use crate::haystack::...`。健康指标同时报告 `unresolved` 为 0，因此不会提示缺边。只核对了这一个文件，尚未统计其他 Rust 文件与其他 crate 的情况。 | 上述文件的 `impact` 包含 `main.rs` 与 `hiargs.rs`；对同 crate 的 `mod`/`crate::` 引用在 ripgrep 上的解析比例给出统计，剩余无法解析的输出 `warnings[]`。 |
 
 ## P2：安全、缓存与文档隐患（条目编号 H-n，避免与审查报告的 P2-n 混淆）
 
@@ -34,7 +36,6 @@ U 表示"还没查过，不知道有没有问题"，不是已确认的债务。�
 | ID | 要查什么 | 怎么查 | 验收线 |
 |---|---|---|---|
 | U-2 | `dead-exports` 在库项目上的误报：入口文件被判 0 引用即标可删。 | 对 zod、cobra 等库仓库用 `eval/labels` 标注核对。 | 库仓库上公开 API 被标可删的数量与比例。 |
-| U-3 | `honesty-engine` 的 `safeToDelete`（对应本文件 L1-28，未验证）。 | 同一批库仓库运行，统计被标 `safeToDelete: true` 的公开 API。 | L1-28 复现或关闭。 |
 | U-4 | `impact` 漏报：动态 import、反射、框架约定路由不在边图里。 | 故障注入构造"改 A 应影响 B"的用例，统计漏报率。 | 每类边的漏报率；漏报处输出 `warnings[]` 或降低置信度。 |
 | U-5 | 路径别名与 monorepo 解析：tsconfig `paths`、pnpm/yarn workspaces、Go 多模块、Cargo workspace。 | 在 bulletproof-react、ripgrep 等仓库统计 `unresolved` 中本应能解析的比例。 | 每种机制给出可解析比例。 |
 | U-6 | 输出体积：一次 `audit-overview` 约 145 KB。 | 统计各命令默认输出大小，估算 token 数。 | 各命令默认输出大小表，并判定默认值是否需要缩小。 |
