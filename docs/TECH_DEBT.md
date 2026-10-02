@@ -54,9 +54,9 @@ U 表示"还没查过，不知道有没有问题"，不是已确认的债务。�
 | U-9 | watch 与 REPL 长跑：内存增长、Windows 文件事件丢失、watch 进程与 CLI 同时写缓存。 | 跑 watch 一小时，周期性改文件，监控内存，结束后与冷重建输出对比。 | 内存曲线；增量结果与冷重建一致，或差异被 `warnings[]` 声明。 |
 | U-10 | 超万文件真实内存（他人声称 OOM，本仓只测过合成 9000 文件）。 | 造 3 万个真实形态文件，测峰值内存。 | 峰值内存与失败阈值。 |
 | U-11 | 单个巨大文件、超深目录、大量小文件（只测过 3 MB 二进制和 250 万字符单行）。 | 分别构造并运行。 | 各场景耗时、内存，以及超限时是否有声明。 |
-| U-12 | macOS，以及 WSL 挂载 Windows 盘（`/mnt/c`）时 SQLite WAL 是否可靠、路径大小写。（Linux 已测：WSL2 ext4 与 CI ubuntu 见 H-18；Linux root 用户忽略权限位、overlayfs、只读挂载下的缓存行为仍未测，Windows 上的目录不可写见 S-5 ③。） | macOS 环境运行 `node test/wb-repro.js cli.js` 与快测；在 WSL 的 `/mnt/c` 路径上跑 `node test/cache-concurrency-test.js` 与快测。 | 各平台通过情况。 |
+| U-12 | macOS；Linux 的 root 用户（忽略权限位）、overlayfs、只读挂载下的缓存行为。（已测：Linux 见 H-18；WSL2 访问 Windows 盘 `/mnt/c` 时，4 个并发冷启动加 1 次暖启动的缓存 `integrity_check` 为 ok、329 个文件元数据完整、无 stderr；Windows 目录不可写见 S-5 ③。） | macOS 环境运行 `node test/wb-repro.js cli.js` 与快测；Linux 容器里以 root 与只读挂载分别运行 `audit-overview`。 | 各平台通过情况。 |
 | U-13 | Node 22.13.0 在慢层上的表现。（快层已有 CI 证据：2026-09-28 提交 `025166b`，windows-latest 全绿，ubuntu-latest 198/199，唯一失败是 H-18 所述的 Linux 夹具问题；慢层工作流只用 Node 22，没有 22.13.0。） | 在 `test-slow.yml` 加入 `22.13.0`，或用 22.13.0 本地跑 `npm run test:slow`。 | 通过，或 `engines` 改为实测下限。 |
-| U-15 | 杀毒软件或 EDR 对 WASM 与 SQLite 文件的耗时干扰。 | 对比关闭实时扫描与开启时的冷启动耗时。 | 耗时差值。 |
+| U-15 | 杀毒软件或 EDR 对 WASM 与 SQLite 文件的耗时干扰。本机现状（2026-10-02 只读查询）：Windows Defender 实时保护为关，运行中的第三方防护为"腾讯电脑管家系统防护"与"深信服 aES 防病毒程序"。 | 前置是项目所有者在本机暂停这两个防护的实时扫描（属系统安全设置，agent 不改），做完回报；之后在同一仓库、同一冷缓存条件下各跑 3 次 `audit-overview`，对比开启与暂停时的耗时。 | 耗时差值。 |
 
 ## L3：改动时顺手处理
 
