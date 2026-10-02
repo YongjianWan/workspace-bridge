@@ -9,7 +9,7 @@
 - 缓存契约：`CACHE_VERSION=53`；SQLite 保留文件元数据、纯解析结果和 overview 快照，图边与逐文件影响每次根据当前文件集合在内存中重算。`graph:built` 的聚合预计算仍存在。新增文件与同 stat 内容修改的暖冷一致性测试通过。
 - Django 固定提交 `a013c821ea`：Windows/Node 25.6.0、独立缓存单次冷/暖 `audit-overview` 56.5/19.8 秒，缓存 11.3 MB；覆盖率 1、fallback 3，冷暖输出计数一致。同机 v52 为 83.7/15.9 秒、缓存 198.4 MB，即暖启动慢约 4 秒；RSS 尚未测。去掉 `getStaleness()` 的重复内容哈希后（未提交），同机 Django 暖启动约少 2 秒；再去掉 prune 重复探测、Python 清单链重复 stat、放大 resolver 存在性缓存后（均未提交），约 11–12 秒；其余成本见 TECH_DEBT.md L3-17。
 - CI 状态（2026-10-02，`gh run list`）：`Test` 工作流最近 90 次成功 11 次、最后一次成功 2026-07-02；`Test (slow layer)` 最近 100 次成功 0 次。本机 304/304 只代表 Windows；WSL2 Ubuntu 上快测 199/200、慢测 93/95（见 TECH_DEBT.md H-18）。
-- 未验证方向 U-n 已查 16 项（结果转入 S-6 至 S-10、H-8 至 H-21），仍开放 5 项：U-4、U-5（收窄后）、U-12、U-13、U-15，各自的前置条件写在 TECH_DEBT.md「U」一节。
+- 未验证方向 U-n 已查 18 项（结果转入 S-6 至 S-10、H-8 至 H-21），仍开放 3 项：U-12（macOS、Docker overlayfs）、U-13（Node 22.13 慢测）、U-15（杀软对比），各自的前置条件写在 TECH_DEBT.md「U」一节。
 - typer affected-tests 基线现在用实时查询，固定提交上 v52/v53 同为 TP 3045、FP 2512、FN 29；评测方法见 eval/README.md。
 
 ## 下一步
