@@ -2,6 +2,22 @@
 
 这里只列仍需处理或明确冻结的债务。修复经过和已关闭条目见 [CHANGELOG.md](../CHANGELOG.md)；外部审查仍开放的问题见 [审查待处理项](./workspace-bridge-审查报告.md)。
 
+## 根因归属（修法见 [ROADMAP.md](../ROADMAP.md)「架构修复路线」）
+
+2026-10-02 对下面 S、H 条目按症状归类，同一类症状来自同一个结构性原因；逐条补丁会让同类问题在别处重现。"证据"是实测或读代码得到的事实。
+
+| 根因 | 证据 | 对应条目 |
+|---|---|---|
+| A 没有一次分析的统一记录 | 警告在 7 个文件里分 19 处各自 `push`，类型为自由文本；覆盖率分母只算已索引文件；分析阶段挂在 `graph:built` 监听器上，`src/utils/event-bus.js` 的"错误隔离"只 `console.error` 就继续 | S-1、S-5、S-8、S-10、H-15、H-22 ①，S-9 与 S-11 中"没有警告"的部分 |
+| B 路径没有统一身份 | 路径归一化相关调用 239 处；同一份输出里同时有 `C:\Users\…` 与 `c:/users/…` | H-3、H-18 ①、H-22 ②、L2-24 |
+| C 图的构建依赖到达顺序与事件 | 解析结果按异步完成顺序写入图；聚合在 `graph:built` 事件里预计算；`classifyDirectory` 每次遍历全部规则、不缓存（H-20 剖析，未做修改验证） | S-2、S-3、H-2、H-20、H-21 |
+| D 绝对性结论没有证据门槛 | `safeToDelete` 靠"已知误报原因"名单排除，名单外默认为真（`honesty-engine.js` `classifyDeadExports`） | S-6、S-7、S-9、S-11、H-7 |
+| E 语言能力没有声明与对等契约 | `src/services/dep-graph/resolvers/` 各语言各写各的，没有"哪种 import 机制可解析"的清单 | S-7、S-11、H-13 |
+| 输出没有统一出口（横切） | 规则散在 `elideDeep`、`route-formatter.js`、2027 行的 `human-formatters.js` | H-8、H-11、H-14、H-16、H-22 ③ |
+| 验证体系自身不可信（横切） | CI 近 90 次成功 11 次；核心模块变异捕获率约 65% | H-17、H-18、H-19 |
+
+不归入上述原因、独立处理：H-1、H-4、H-5、H-6、H-9、H-10、H-12。
+
 ## P1：输出看着正常、实际是错的（静默错误）
 
 P1 的判据：命令退出码为 0、`ok: true`，但结论残缺或不稳定，AI agent 会直接采信。下面 S-1 到 S-7 均于 2026-09-30 在 Windows、Node 25.6.0 上实测（S-4 除外，仅读代码）。术语：「图」指 `DependencyGraph.graph`（文件路径到文件信息的 Map）；「主线文件」指 `audit-overview` 里 `skeleton.mainlineFiles` 统计的非测试、非文档、非样式、非资源文件。
@@ -57,6 +73,14 @@ U 表示"还没查过，不知道有没有问题"，不是已确认的债务。�
 | U-12 | macOS；Docker 容器里的 overlayfs。（已测：Linux 见 H-18；Linux root 用户与真实只读挂载见 S-5 ③；WSL2 访问 Windows 盘 `/mnt/c` 时，4 个并发冷启动加 1 次暖启动的缓存 `integrity_check` 为 ok、329 个文件元数据完整、无 stderr；Windows 目录不可写见 S-5 ③。） | macOS 环境运行 `node test/wb-repro.js cli.js` 与快测；在 Docker 容器里运行 `node test/wb-repro.js cli.js` 与快测。 | 各平台通过情况。 |
 | U-13 | Node 22.13.0 在慢层上的表现。（快层已有 CI 证据：2026-09-28 提交 `025166b`，windows-latest 全绿，ubuntu-latest 198/199，唯一失败是 H-18 所述的 Linux 夹具问题；慢层工作流只用 Node 22，没有 22.13.0。） | 在 `test-slow.yml` 加入 `22.13.0`，或用 22.13.0 本地跑 `npm run test:slow`。 | 通过，或 `engines` 改为实测下限。 |
 | U-15 | 杀毒软件或 EDR 对 WASM 与 SQLite 文件的耗时干扰。本机现状（2026-10-02 只读查询）：Windows Defender 实时保护为关，运行中的第三方防护为"腾讯电脑管家系统防护"与"深信服 aES 防病毒程序"。 | 前置是项目所有者在本机暂停这两个防护的实时扫描（属系统安全设置，agent 不改），做完回报；之后在同一仓库、同一冷缓存条件下各跑 3 次 `audit-overview`，对比开启与暂停时的耗时。 | 耗时差值。 |
+| U-22 | 只量了 `dead-exports` 与 `affected-tests` 的准确率；`impact`、`cycles`、热点、知识风险、`unresolved` 没有外部真值。 | 在 `eval/` 为 `impact` 与 `cycles` 建真值（故障注入或人工标注），并为热点给出可核对的判据。 | 各命令的精确率与召回率。 |
+| U-23 | agent 实际使用效果：技能手册是否让 agent 做出正确决定；H-11 的文本是否真会被 agent 照做；有无本工具对比无本工具的差异。 | 固定 5 个真实改动任务，分别在有、无本工具的条件下让 agent 完成并比对结果；构造含注入文本的仓库观察 agent 行为。 | 任务完成正确率差值；注入是否生效。 |
+| U-24 | 工具自身攻击面：`watch --run-tests` 执行从仓库 `package.json` 推断的命令；semgrep 适配器起子进程；`--save` 写文件。 | 构造恶意 `package.json` scripts 与恶意仓库配置，检查是否会在无确认下执行。 | 可被仓库内容触发的执行路径清单。 |
+| U-25 | Windows 与 git 边缘：超过 260 字符的路径、符号链接或 junction 成环、大小写冲突、非 UTF-8 编码、带 BOM 的源文件；git worktree、submodule、detached HEAD、超长历史。 | 逐项构造夹具运行 `audit-overview`、`audit-diff`。 | 各情形的结果与警告。 |
+| U-26 | 缓存生命周期：`CACHE_VERSION` 升级时旧缓存如何处理；各工作区缓存目录是否无限增长、有无清理。 | 升级版本号后运行并检查旧目录；对多个工作区反复运行，统计缓存目录总大小。 | 旧缓存处置方式；缓存目录增长曲线。 |
+| U-27 | 文档冷读：README、SKILL.md、AGENTS.md 之间的矛盾（如 BOM 说法、"schema 已冻结"、304/304 的平台口径）。 | 用只喂单个文件的干净 agent 逐份冷读，列出读不懂或矛盾处。 | 矛盾与歧义清单。 |
+| U-28 | 旧条目复核：L1、L2、L3 与外部审查报告的开放问题是否仍成立。 | 逐条按复现步骤重跑。 | 仍成立、已过期的条目清单；过期的删除。 |
+| U-29 | 单线程：10000 文件冷启动时 `userMs` 约等于墙钟时间，没有并行解析；是否因 WASM 与 SQLite 的限制。 | 读 `builder.js` 的解析调度；试验把解析放到 worker 线程的收益。 | 并行解析的可行性与预期收益。 |
 
 ## L3：改动时顺手处理
 

@@ -13,7 +13,7 @@
 | 项目是什么、怎么用   | [README.md](./README.md)                                             |
 | 当前活跃债务         | [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)                             |
 | 本轮做了什么、下一步 | [SESSION.md](./SESSION.md)                                           |
-| 长期路线、成功标准   | [ROADMAP.md](./ROADMAP.md)                                           |
+| 长期路线、架构修复路线、成功标准 | [ROADMAP.md](./ROADMAP.md)                                       |
 | 历史变更             | [CHANGELOG.md](./CHANGELOG.md)                                       |
 | 代码审计 skill 用法  | [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md) |
 | 评测集数字与用法     | [eval/README.md](./eval/README.md)                                   |
