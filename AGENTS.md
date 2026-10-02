@@ -39,7 +39,7 @@
 
 ## 当前核验
 
-`node test/wb-repro.js cli.js` 当前为 27/27 OK、退出码 0；`CACHE_VERSION=53`，`schemaVersion=1.2.0`。`audit-overview` 在本仓覆盖率 1、fallback 0。快测 199/199；全量 `node test/runner.js` 304/304、退出码 0（2026-09-30，慢测默认并发 2，本次约 17 分钟，此前 29 分钟）。出现任何失败须调查；SIGTERM 超时先对照 SESSION.md 的并发说明。
+`node test/wb-repro.js cli.js` 当前为 27/27 OK、退出码 0；`CACHE_VERSION=53`，`schemaVersion=1.2.0`。`audit-overview` 在本仓覆盖率 1、fallback 0。快测 199/199；全量 `node test/runner.js` 304/304、退出码 0（Windows 本机，2026-09-30，慢测默认并发 2，本次约 17 分钟，此前 29 分钟）。Linux（WSL2 Ubuntu 24.04）快测 199/200、慢测 93/95，CI 近三个月红灯，见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) H-18。出现任何失败须调查；SIGTERM 超时先对照 SESSION.md 的并发说明。
 
 ## 工程品味（TASTE）
 
