@@ -1,0 +1,48 @@
+name: U platform validation
+on:
+  push:
+    branches: [codex/u12-platform-validation-20261003]
+  workflow_dispatch:
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - run: npm ci --ignore-scripts
+      - name: Repro
+        continue-on-error: true
+        run: set -o pipefail; node test/wb-repro.js cli.js 2>&1 | tee repro.log
+      - name: Fast
+        continue-on-error: true
+        run: set -o pipefail; npm run test:fast 2>&1 | tee fast.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-results
+          path: '*.log'
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Actual overlayfs and case-sensitive filesystem
+        run: |
+          mkdir -p results
+          docker run --rm -v "$PWD:/source:ro" -v "$PWD/results:/results" node:22.13.0-bookworm bash -lc '
+            cp -a /source /tmp/workspace && cd /tmp/workspace
+            stat -f -c %T . | tee /results/filesystem.log
+            npm ci --ignore-scripts > /results/install.log 2>&1 || exit 2
+            node test/wb-repro.js cli.js > /results/repro.log 2>&1; echo $? > /results/repro.exit
+            npm run test:fast > /results/fast.log 2>&1; echo $? > /results/fast.exit
+            node eval/verify-u25-matrix.js > /results/u25.log 2>&1; echo $? > /results/u25.exit
+            cp eval/truth/u25-linux.json /results/
+          '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docker-results
+          path: results/
