@@ -9,6 +9,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22.13.0'
@@ -29,11 +31,14 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Actual overlayfs and case-sensitive filesystem
         run: |
           mkdir -p results
           docker run --rm -v "$PWD:/source:ro" -v "$PWD/results:/results" node:22.13.0-bookworm bash -lc '
             cp -a /source /tmp/workspace && cd /tmp/workspace
+            git config --global --add safe.directory /tmp/workspace
             stat -f -c %T . | tee /results/filesystem.log
             npm ci --ignore-scripts > /results/install.log 2>&1 || exit 2
             node test/wb-repro.js cli.js > /results/repro.log 2>&1; echo $? > /results/repro.exit
