@@ -7,6 +7,29 @@
 
 ## [Unreleased]
 
+### 缓存目录身份与 affected-tests 评测口径（2026-10-04）
+
+- `computeDefaultCacheDir` 先经 `normalizePathKey` 再求哈希，盘符大小写、正反斜杠、尾分隔符、含 `..` 的写法落到同一个缓存目录。Windows 上哈希输入变了，旧哈希目录不再被使用，升级后各项目冷启动一次；缓存是可重建数据，不做迁移。回归：`cache-fixes-test` 的写法等价用例，还原哈希行后该用例失败（5 个目录）。
+- `eval/score.js` 的 typer affected-tests 改用 CLI 实际输出打分（与 fault-injection 同口径），基线重记为精确率 0.577、召回率 0.487；进程内完整预测（0.548 / 0.991）保留在 `full` 字段。口径变化本身造成召回率下降，不是代码回归。
+
+### 空告警、循环 guard 与 generated 验证建议（2026-10-04）
+
+- 不支持源码候选经过 gitignore 过滤后为空时不产生 `unsupported-source-files`；真实不支持源码仍按实际数量发出 High 警告，不抑制动态加载和深度截断告警。
+- guard human 的环来自多入口影响树合并后交叉回到入口。树渲染改为迭代遍历，每个入口独立记录访问节点，重复边显示 `[already shown]` 并停止展开；保留无环树的排序和连接符，不改 guard 阈值或退出码规则。
+- `audit-diff` 的变更类型与验证目标共用目录角色排除规则：generated/reference/archive 不参与代码验证分类，也不传入源码校验命令。generated-only 沿用现有非主线 `docs` 审阅模板；generated+docs 按 docs，generated+source 仍按源码验证，全部变更仍保留在审计输出中。
+- 回归覆盖 gitignore 前后候选、真实不支持源码、多入口环、共享子树、深链、无环文本兼容，以及九种语言扩展名的 generated 分类与混合源码命令。三个原始缺陷均已验证红灯后转绿；真实 CLI 自检和 `eval/u23-reachability.js` 已复验。Windows 快层 207/207、lint 退出 0、wb-repro 27/27；WSL Ubuntu 24.04/ext4、Node 22.13.0 最终全量 321/321、退出 0（268988ms）。Windows 首轮全量 319/321：cli-error-handling 的 audit-summary 子进程 status 为 null，git-environment-probe 被 SIGTERM 终止；两者单独复验均退出 0，未放宽预算，最终完整回归 321/321、0 失败、退出码 0（1870740ms），两项首轮失败在最终全量中也均通过。
+
+- WSL 前两轮的 GitNexus 验证失败来自夹具复制时省略嵌套仓库的 `.git`：`git check-ignore -v README.md` 实际命中父目录 `reference/.gitignore` 的 `GitNexus/`，过滤后索引为 0。补齐夹具并恢复独立 Git 边界后，该测试与最终全量均通过；没有改生产过滤规则或测试断言。
+
+### 基线保存边界、安全输出与子进程完整读取（2026-10-04）
+
+- `--save` 在统一写入处校验工作区真实路径，拒绝外部绝对路径、相对路径穿越、目录 symlink/junction 逃逸、文件符号链接与硬链接；已有文件只有符合基线格式才允许更新。正常基线创建、重复更新、BOM 与短内容覆盖保持可用。
+- 内置安全扫描对敏感规则的 `matchedText` 整体脱敏为 `[REDACTED]`；自定义规则支持 `sensitive: true`。真实 CLI 的 json、markdown、ai、human 输出保留命中位置且不包含完整假密钥；通用掩码边界用九种语言扩展名验证，未扩充各语言的内置密钥规则。
+- 子进程读取只在 `close` 后完成，避免 `exit` 先于 pipe 数据读完时返回空或不完整 stdout/stderr。可控 exit→data→close 测试先失败后通过；真实进程的大段输出、非零退出与超时验证通过，Linux `audit-diff` 空 hunk 失败也由此修复。
+- 修正 prune probe 的路径分隔符 regex（消除 lint 错误）；降级置信度夹具改用不命中 Java 框架入口规则的普通工具类，保留 low confidence 断言；cochange 测试回到 `git init` 实际创建的分支。
+- 新增 `baseline-save-boundary-test.js`、`baseline-save-cli-test.js`、`security-output-redaction-test.js`、`command-output-drain-test.js`。Windows Node 25.6.0 快层 205/205、lint 退出 0；WSL Ubuntu 24.04/ext4、Node 22.13.0 全量 317/317、0 失败、退出 0。Windows 最终全量 317/317、0 失败、退出码 0（1670098ms），wb-repro 27/27、退出码 0，GitHub CI、macOS/Docker 与 Windows Node 24 尚未重验。
+- 取证中放在 `.cache` 父目录下的 Linux 副本被现有目录排除规则过滤，索引为 0；该环境下的全量失败不用于验收。最终 Linux 全量使用普通目录，源文件与测试断言未为此放宽。
+
 ### glob 导入增量更新补边（2026-10-04）
 
 - 新增文件满足 `import.meta.glob` 时，未改动的 importer 在 `updateFiles` 后补上依赖边（此前只在 importer 或已匹配文件变化时才补）。测试 `p1-glob-incremental-test.js`；注释掉补边循环后该测试变红。

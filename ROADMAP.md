@@ -22,13 +22,13 @@
 
 | 步骤 | 做什么 | 验收线 | 前置 | 解决的条目 |
 |---|---|---|---|---|
-| 0 CI 变绿（门禁，非架构改动） | 修 H-18 已定位的几处：`test/file-index-prune-probes-test.js` 第 30 行 Lint 错误；`dead-export-regex-fallback-confidence-test.js` 夹具不依赖路径大小写；`cochange-test.js` 用 `git init -b main`；查明 `audit-diff-test.js` 在 Linux 的失败原因 | `Test` 与 `Test (slow layer)` 工作流在 ubuntu 与 windows 上各连续 3 次全绿；合并门禁设为必须通过 CI | 无 | H-18 |
-| 1 分析台账（根因 A） | 容器统一记录发现、解析、建图、分析与缓存的原因码、计数和耗时；将影响结果的阶段改为显式顺序调用，EventBus 保留给旁观者 | 保持现有 P1 语义回归通过；错误信封可操作；未知覆盖率不能变成 100%；迁移不丢 warnings/dataQuality | 步骤 0 | H-15、H-22 ① |
-| 2 路径身份（根因 B） | 文件发现时生成 `FileId`，图、缓存键、测试夹具都用它；大小写策略启动时探测一次；只在边界转换（CLI 入参进、序列化输出出），输出里每个路径只有一种写法；lint 规则禁止路径模块之外对路径用 `toLowerCase`、`path.relative`；先让 `normalizePathKey` 返回 `FileId` 再逐模块收口 | 对同一目录传 `C:\x`、`c:\x`、`C:/x` 只产生一个缓存目录；`impact`、`audit-map`、`--format ai` 里同一文件路径字符串相同；测试夹具经同一工厂生成路径，H-18 ① 的测试在 Linux 通过 | 步骤 1 | H-3、H-18 ①、H-22 ②、L2-24 |
+| 0 CI 变绿（门禁，非架构改动） | 将当前修复送入 GitHub Actions，复验 Node 22/24、ubuntu/windows 矩阵与慢层；重验 Windows Node 24 的既有 libuv 问题，以及 macOS/Docker | `Test` 与 `Test (slow layer)` 工作流在 ubuntu 与 windows 上各连续 3 次全绿；合并门禁设为必须通过 CI | 无 | H-18 |
+| 1 分析台账（根因 A） | 容器统一记录发现、解析、建图、分析与缓存的原因码、计数和耗时；将影响结果的阶段改为显式顺序调用，EventBus 保留给旁观者 | 保持现有 P1 语义回归通过；错误信封可操作；未知覆盖率不能变成 100%；迁移不丢 warnings/dataQuality | 步骤 0 | H-15 |
+| 2 路径身份（根因 B） | 文件发现时生成 `FileId`，图、缓存键、测试夹具都用它；大小写策略启动时探测一次；只在边界转换（CLI 入参进、序列化输出出），输出里每个路径只有一种写法；lint 规则禁止路径模块之外对路径用 `toLowerCase`、`path.relative`；先让 `normalizePathKey` 返回 `FileId` 再逐模块收口 | 对同一目录传 `C:\x`、`c:\x`、`C:/x` 只产生一个缓存目录；`impact`、`audit-map`、`--format ai` 里同一文件路径字符串相同；测试夹具经同一工厂生成路径，同一套路径语义测试在 Windows 与 Linux 通过 | 步骤 1 | H-3、H-22 ②、L2-24 |
 | 3 纯函数建图（根因 C） | 解析结果只取决于（内容哈希，解析器指纹），指纹含解析器与 resolver 源码哈希（或 tree-sitter WASM 版本）并进入缓存键；`buildGraph(解析结果, 文件集合)` 产出不可变快照，反向邻接表与每个目录的角色在建图时一次算好；死导出、环、影响是对快照的纯函数，不再由事件触发预计算；CI 增加规模基准（生成 1000、3000、10000 文件的仓库） | 同一仓库 5 次冷启动 `audit-overview --json`（去时间字段）哈希相同，9 种语言的 eval 仓库各验证一次；改 `parsers/` 或 `resolvers/` 源码不改版本号，旧缓存自动失效；3000 文件暖启动不超过 15 秒、10000 文件不超过 60 秒、两者耗时之比不超过 15 倍；`watch` 增量与冷重建依赖数一致纳入回归 | 步骤 2 | H-2、H-20、H-21 |
 | 4 绝对性结论的证据门槛（根因 D） | 按目标说明完整索引、未解析依赖、语言机制与运行时消费者的证据边界；结构性结果继续不承诺安全删除 | 空影响结果不能推导没有运行时消费者；测试关联明确区分静态依赖与语义相关性 | 步骤 1 | H-7 |
 | 5 语言能力声明与对等契约（根因 E） | 每种语言一个描述：支持的 import 机制（相对、别名、工作区、模块声明、字面量动态加载）、导出模型（含"函数体内局部变量不是导出"）、测试映射策略；一套场景目录对 9 种语言各跑一遍并附预期边清单（链式 import、跨包工作区、字面量动态加载、依赖注入、局部变量、同包隐式引用；2026-10-02 的 Go `go.work`、pnpm、Cargo workspace、Spring 注入、Go 隐式接口、Rust trait 夹具是起点）；未声明支持的机制在台账记 `unsupported-mechanism` | 场景目录在 9 种语言上有通过/不适用/未支持状态表，"未支持"项都有台账记录；Kotlin 局部变量不出现在 exports；Rust/Go 工作区回归仍通过 | 步骤 1；步骤 4 读取其中的能力声明 | H-13，AGENTS.md 开发原则 8 |
-| 6 输出统一出口（横切） | 每个 `--json` 命令一份 JSON Schema，统一信封（`ok`、`command`、`schemaVersion`、`warnings`、`dataQuality`、`truncated`、`elided`）；一个序列化器负责路径写法、来自仓库的自由文本标记（`untrusted`）、疑似密钥掩码、默认体积预算、错误信封；每个命令一份字段集快照测试；`schemaVersion` 升到 1.3.0，旧字段保留一个版本的别名（依据 AGENTS.md「L1 铁律 1」的例外条款，兼容对象只有项目所有者本人） | H-8、H-11、H-14、H-16、H-22 ③ 各自验收线通过；zod 上各命令默认输出不超过 30 KB，或超出时输出里写明如何缩小 | 步骤 1、2 | H-8、H-11、H-14、H-16、H-22 ③ |
+| 6 输出统一出口（横切） | 每个 `--json` 命令一份 JSON Schema，统一信封（`ok`、`command`、`schemaVersion`、`warnings`、`dataQuality`、`truncated`、`elided`）；一个序列化器负责路径写法、来自仓库的自由文本标记（`untrusted`）、疑似密钥掩码、默认体积预算、错误信封；每个命令一份字段集快照测试；`schemaVersion` 升到 1.3.0，旧字段保留一个版本的别名（依据 AGENTS.md「L1 铁律 1」的例外条款，兼容对象只有项目所有者本人） | H-11、H-14、H-16、H-22 ③ 各自验收线通过；zod 上各命令默认输出不超过 30 KB，或超出时输出里写明如何缩小 | 步骤 1、2 | H-11、H-14、H-16、H-22 ③ |
 
 不做：不再新增自由文本类型的警告（新警告先加原因码）；不再往误报名单里加项；不为"拆文件"而拆 `dep-graph.js`、`analyzer.js`，拆分只在上述步骤需要时进行。
 

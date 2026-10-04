@@ -52,7 +52,7 @@
 | 同一语义单点实现（已知：H-26） | `grep -rln "\.kt\b\|'kotlin'" src \| wc -l`，其他语言同法 | 语言专属分支集中在语言注册表 |
 | 缓存失效条件（已知：H-2） | 改一个 parser 或 resolver 源码但不改 `CACHE_VERSION`，暖启动后核对输出是否用了旧解析结果 ※ | 改解析器代码即自动失效 |
 | 缓存只存纯解析输出 | 读 `src/services/dep-graph/builder.js` 与 `graph-db.js`；新增文件后核对未改动文件的依赖边是否更新 | `parse_results` 不含已解析目标路径，边每次重算 |
-| 缓存路径身份（已知：H-3、L2-24） | 对同一目录分别传 `C:\...`、`c:\...`、`C:/...`，数 `WB_CACHE_DIR` 默认位置下生成的缓存目录 | 只产生一个缓存目录 |
+| 缓存路径身份 | 对同一目录分别传 `C:\...`、`c:\...`、`C:/...`，数 `WB_CACHE_DIR` 默认位置下生成的缓存目录 | 只产生一个缓存目录 |
 
 ## 三、异常安全与资源
 
@@ -64,7 +64,7 @@
 | 缓存损坏 | 把 `cache.db` 写成随机字节或截断一半，连续运行两次 | 改名为 `cache.db.corrupt-<时间戳>` 并重建，输出告警，第二次回到暖启动耗时 |
 | 缓存目录不可写 | Windows 用 ACL 拒绝当前用户创建文件；Linux 用 tmpfs 加 `mount -o remount,ro`；`WB_CACHE_DIR` 指向该目录运行 `dead-exports` 与 `query` | `warnings[]` 含 `cache-write-failed`，错误说明是不可写 |
 | 磁盘满 | 用小容量卷作缓存目录，运行 `audit-overview` ※ | 有告警，不静默变慢 |
-| 子进程超时与输出完整（已知：L2-31） | 用输出大、退出快的命令调用 `runCommandSecure`，核对末尾是否被截断 ※ | 输出完整，超时后无残留进程 |
+| 子进程超时与输出完整（已知：L2-31） | 用输出大、退出快的命令验证 `watch.js` 的测试子进程，核对末尾是否被截断 ※ | 输出完整，超时后无残留进程 |
 | SQLite 多进程并发（已知：L1-18） | 同一缓存目录同时启动 4 到 10 个冷启动 `audit-overview`，之后跑 `PRAGMA integrity_check` | 全部退出码 0，无 `SQLITE_BUSY`，完整性 ok |
 | WASM 解析器淘汰（已知：L1-21） | 并发解析超过 12 种语言的文件，观察是否崩溃 ※ | 无 SIGSEGV |
 | watch 与 REPL 行为 | 高频保存、同文件事件合并、多文件事件不丢、删除后重建同名文件、原子保存（临时文件替换）、事件积压时的背压、回调失败后继续、双 Ctrl+C、watch 与普通 CLI 同时运行 ※ | 事件不丢不重，清理不被跳过，失败不停止后续更新 |
@@ -82,7 +82,7 @@
 | 非法或空参数 | `audit-security --language cobol`、`audit-overview --fields nonexist`、`audit-overview --exclude` | 报错并列出合法取值，或声明已忽略 |
 | 监听器失败 | 20000 层 import 链夹具，看 stderr 与输出 | 失败时 `warnings[]` 含 `analysis-stage-failed` |
 | git 历史读取失败 | 构造 git 超时用例，跑带历史的 `audit-overview` ※ | `warnings[]` 含 `history-unavailable` |
-| 空内容告警（已知：H-22、L2-36） | 对本仓运行 `audit-overview`，看 `warnings[]` | 无内容为空的警告 |
+| 空内容告警 | 对本仓运行 `audit-overview`，看 `warnings[]` | 无内容为空的警告 |
 | 路径边界（已知：L2-35、L2-37） | 传入 `/src/index.js` 形式的路径；大小写不同的目录各建一个 ※ | 工作区内路径可解析，遍历无重复 |
 | submodule 与 gitignore（已知：L1-19、H-24） | 含 submodule 的夹具跑 `audit-overview`；用子目录作 `--cwd`，对照 `git rev-parse --show-toplevel` | 只降级 submodule 路径；根目录一致 |
 
@@ -113,7 +113,7 @@
 | `--quiet`（已知：H-22 ③） | 对解压后的发布包、`watch`、超限夹具运行，捕获 stderr | stderr 为空，除非进程失败 |
 | 错误文案（已知：H-15） | 逐个触发 `--cwd` 不存在、`--file` 不存在、路径越界、非法提交范围、`guard` 缺目标，带与不带 `--json` | 每条带下一步，`--json` 下是含 `ok:false`、`error`、`command`、`schemaVersion` 的 JSON |
 | 参数优先级 | 同一选项分别用默认值、配置文件、环境变量（`WB_CWD`、`WB_FORMAT`、`WB_JSON`、`WB_QUIET`、`WB_CACHE_DIR`、`WORKSPACE_ROOT`）、CLI 设置，逐层比对生效值 ※ | CLI 优先于环境变量，环境变量优先于配置文件；布尔可显式覆盖 |
-| 路径参数边界（已知：H-1） | `--file ../x`、绝对路径、目录；`--save` 指向工作区外的已有文件 | 越权与目录被拒绝，不覆盖非本工具文件 |
+| 路径参数边界 | `--file ../x`、绝对路径、目录；`--save` 指向工作区外的已有文件 | 越权与目录被拒绝，不覆盖非本工具文件 |
 | JSON 字段集（已知：H-16） | 对每个命令的 `--json` 输出生成键路径快照并与基线比较 ※ | 删字段或改类型即失败，新增字段需显式更新快照 |
 | 路径写法（已知：H-22 ②） | 在同一份输出里抽取所有路径字段 | 格式统一 |
 | 输出体积（已知：H-14） | zod 固定提交上量各命令默认输出字节数 | 不超过 30 KB，或超出时写明如何缩小 |
@@ -126,7 +126,7 @@
 | 检查面 | 怎么验证 | 通过条件 |
 |---|---|---|
 | 仓库文本进输出（已知：H-11） | 把 `IGNORE PREVIOUS INSTRUCTIONS …` 放进文件名、未解析 import、路由路径、提交者、提交信息，对 `audit-overview`、`audit-map`、`audit-security`、`audit-diff`、`impact`、`tree` 的 json、ai、markdown 输出搜该文本 | 出现处全部带不可信标记 |
-| 密钥进输出（已知：H-8） | 造含假密钥的仓库跑 `audit-security` 的 json、markdown、ai、human | 完整密钥值出现 0 次 |
+| 密钥进输出 | 造含假密钥的仓库跑 `audit-security` 的 json、markdown、ai、human | 完整密钥值出现 0 次 |
 | 密钥进缓存（已知：H-9） | 运行后用 `node:sqlite` 扫描 `cache.db` 全部表全部列 | 完整密钥值出现 0 次 |
 | 密钥规则召回（已知：H-10） | 夹具含 `sk_live_`、`AKIA`、`const pw = "…"`、连接串内嵌密码等 5 种写法 | 5 条全部报出 |
 | 供应链（已知：H-12） | `npm audit`、`npm audit --omit=dev` | 运行依赖 0；开发依赖清零或逐条写明原因 |
@@ -164,7 +164,7 @@
 
 | 检查面 | 怎么验证 | 通过条件 |
 |---|---|---|
-| 盘符大小写、反斜杠、UNC（已知：H-3、U-30） | `--file SRC\Main.py` 与 `src/main.py`；`C:\` 与 `c:\`；UNC 路径 ※ | 认成同一文件 |
+| 盘符大小写、反斜杠、UNC（已知：U-30） | `--file SRC\Main.py` 与 `src/main.py`；`C:\` 与 `c:\`；UNC 路径 ※ | 认成同一文件 |
 | 超长路径、链接成环、编码（已知：U-25） | 逐项构造夹具运行 `audit-overview`、`audit-diff` ※ | 有告警或正确处理 |
 | CRLF（U-30） | `core.autocrlf=true` 的仓库里造至少 2 次共同修改的提交，跑 `impact --file <其中一个文件>` 看 `coChanges`（共现不是独立命令，`minCount` 为 2）；另造含 CRLF 与 BOM 的源文件跑 `audit-overview` | `coChanges` 非空且 `dataQuality` 不是 unavailable，解析结果与 LF 一致 |
 | 中文、空格路径与 shell 差异 | `--cwd` 含中文与空格；Git Bash 路径转换；cmd.exe 与 PowerShell 参数转义；文件被占用；npm 全局 bin shim ※ | 均可运行或错误明确 |
@@ -241,7 +241,7 @@
 | `--max-depth` 透传（已知：L2-44） | `audit-diff --with-impact` 分别用 `--max-depth 2` 与 `4` | 结果随参数变化 |
 | 范围选项 | `--staged`、`--files`、`--commits HEAD~9..HEAD`；无改动、非法范围、detached HEAD、submodule、worktree ※ | 各情形输出明确；非法范围的错误回显传入值（已知：H-15） |
 | `--reuse-hints` | 同一改动分别用 `on`、`off` ※ | 结果一致，只有耗时不同 |
-| 回归基线 | `--save <文件>` 保存后增加死导出，再用 `--check-regression --baseline <文件>`；`--baseline <提交>` 同法 ※ | 计数变多时失败，持平时通过；`--save` 目录限制见 H-1 |
+| 回归基线 | `--save <文件>` 保存后增加死导出，再用 `--check-regression --baseline <文件>`；`--baseline <提交>` 同法 ※ | 计数变多时失败，持平时通过；`--save` 拒绝工作区外、链接逃逸与普通文件覆盖 |
 
 ## 十七、命令与产物覆盖
 
@@ -252,5 +252,5 @@
 | 图查询命令 | `dependencies`、`dependents`、`unresolved`、`stats`、`debug --what symbols`、`debug --what graph` ※ | 数字与 `audit-overview` 一致 |
 | 环境诊断命令（已知：H-25） | `workspace-info`、`diagnostics --mode quick`、`--mode full`、`health` | 空转命令删除或合并，输出格式正确 |
 | 外部扫描器 | `audit-security` 在未安装 Semgrep、`--config` 非法时运行 ※ | 未安装时明确告警，不以空发现冒充通过 |
-| 产物文件 | `--hotspot-data`、`--stability-trend-data`、`--overview-dashboard` 的输出路径与内容 ※ | 路径受限（已知：H-1），HTML 已转义，JSON 可解析 |
+| 产物文件 | `--hotspot-data`、`--stability-trend-data`、`--overview-dashboard` 的输出路径与内容 ※ | 输出路径不越界，HTML 已转义，JSON 可解析 |
 | 输出控制参数 | `--token-budget`、`--depth`、`--compact`、`--no-compact`、`--fields`、`--max-files` ※ | 按设定生效，被截内容有 `elided[]` |

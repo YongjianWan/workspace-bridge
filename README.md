@@ -50,6 +50,10 @@ node cli.js repl --cwd . --eval "impact src/app.js"  # 非交互单命令（AI/C
 
 完整命令列表、参数说明与 `.workspace-bridge.json` 配置见 [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md)。
 
+`--save [file]` 只允许保存到 `--cwd` 工作区内，拒绝目录链接逃逸、文件符号链接和硬链接；已有文件必须符合本工具的基线格式，普通文件不会被覆盖。省略文件名时使用 `.workspace-bridge-baseline.json`。
+
+内置 `audit-security` 的敏感规则将 `matchedText` 整体替换为 `[REDACTED]`，保留规则、文件与行号。自定义安全规则可声明 `sensitive: true`；这不代表扫描已覆盖所有密钥形态，规则召回限制仍见 TECH_DEBT。
+
 Java 与 Python 解析默认走进程内 tree-sitter WASM；如果 WASM 加载或解析失败，才会显式降级为 `regex-fallback`。降级结果可用，但不能当成 AST 级字段或 golden snapshot 的等价结果。
 
 当前结论：

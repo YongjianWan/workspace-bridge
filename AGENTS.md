@@ -39,11 +39,11 @@
 
 ## 当前核验
 
-`node test/wb-repro.js cli.js` 当前为 27/27 OK、退出码 0；`CACHE_VERSION=54`，`schemaVersion=1.2.0`。Windows 本机 Node 25.6.0（2026-10-04）：快测 203/203；全量 `node test/runner.js` 313/313、0 失败、退出码 0，慢测默认并发 2，约 24.0 分钟。索引超时或深度截断时 `discoveryComplete=false`、`coverageRatio=null`，不得按 100% 解读；动态加载及缓存失败通过 `warnings[]` 显式说明。Linux/跨平台 CI 的开放问题见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) H-18。
+`node test/wb-repro.js cli.js` 当前为 27/27 OK、退出码 0；`CACHE_VERSION=54`，`schemaVersion=1.2.0`。Windows 本机 Node 25.6.0（2026-10-04）：快测 207/207、lint 退出码 0；全量 321/321、0 失败、退出码 0（约 31.2 分钟）。慢测默认并发 2。索引超时或深度截断时 `discoveryComplete=false`、`coverageRatio=null`，不得按 100% 解读；动态加载及缓存失败通过 `warnings[]` 显式说明。
 
-Node 22.13.0 的慢层已在 Windows 本机完整运行：`node test/runner.js --layer slow` 95/95、退出码 0（2026-10-03；PATH 中的 Node 22.13.0 同时用于 runner 与子测试）。
+WSL Ubuntu 24.04/ext4、Node 22.13.0（2026-10-04）：全量 `node test/runner.js` 321/321、0 失败、退出码 0，约 269 秒；lint 退出码 0。测试仓库位于普通目录，runner 与子测试使用同一 Node runtime。
 
-macOS 与 Docker overlayfs（GitHub CI 独立验证分支，Node 22.13.0）：`wb-repro` 均 27/27、退出 0；快层均 199/200、退出 1，唯一失败 `dead-export-regex-fallback-confidence-test.js`，见 H-18。平台作业绿色不代表内部测试全部通过。
+GitHub Actions 的 Node 22/24、ubuntu/windows 矩阵与慢层连续绿色尚未核验；Windows Node 22/24、macOS 与 Docker 当前修复待重验。平台作业绿色不代表内部测试全部通过，开放门禁见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) H-18。
 
 ## 工程品味（TASTE）
 
