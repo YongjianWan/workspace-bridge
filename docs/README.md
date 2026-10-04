@@ -6,10 +6,9 @@
 |---|---|
 | [README.md](../README.md) | 安装与使用入口 |
 | [SESSION.md](../SESSION.md) | 当前交接、回归基线和下一步 |
-| [TECH_DEBT.md](./TECH_DEBT.md) | 仍开放或明确冻结的内部债务 |
-| [审查待处理项](./workspace-bridge-审查报告.md) | 外部审查未解决问题、固定评测仓库与验收入口 |
+| [TECH_DEBT.md](./TECH_DEBT.md) | 仍开放或明确冻结的债务（含原外部审查开放项） |
 | [ROADMAP.md](../ROADMAP.md) | 未来方向与当前限制 |
 | [eval/README.md](../eval/README.md) | 真实仓库真值评测 |
-| [checklist.md](./checklist.md) | 专项审计检查项 |
+| [checklist.md](./checklist.md) | 验证清单：可验证的检查面、验证方法、通过条件 |
 
-问题完成后从 TECH_DEBT 或审查待处理项删除，并在 CHANGELOG 记录原因、改动与验证。
+问题完成后从 TECH_DEBT 删除，并在 CHANGELOG 记录原因、改动与验证。

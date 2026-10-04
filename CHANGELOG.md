@@ -7,6 +7,105 @@
 
 ## [Unreleased]
 
+### glob 导入增量更新补边（2026-10-04）
+
+- 新增文件满足 `import.meta.glob` 时，未改动的 importer 在 `updateFiles` 后补上依赖边（此前只在 importer 或已匹配文件变化时才补）。测试 `p1-glob-incremental-test.js`；注释掉补边循环后该测试变红。
+- `eval/verify-old-debts.js` 的 UNC 路径改用当前用户名，不再硬编码。
+- 验证：Windows Node 25.6.0，快测 203/203、慢层 101/101、串行 9 个单跑全过，合计 313/313；全量约 17.6 分钟（全量 312 项那次实测）。
+- 保留的取舍：Java/Kotlin 工具类边不再剪除，循环依赖与 impact 在此类项目上会比之前多报；未做边属性降噪标记。
+
+### P1 静默错误修复（2026-10-04）
+
+- 图按规范路径排序解析和写入，热点候选按结构排名选择；历史读取失败显式告警。删除建议不再把零引用当作安全删除证据。
+- Python 多子模块及字面量动态加载建边；Go workspace/local replace 跨模块建边；Rust 读取 Cargo 自定义源码入口；Java/Kotlin 保留真实编译依赖；audit-map 用规范路径匹配并保留展示路径。
+- 初始化启用总时限与取消检查；索引超时、源码过大/编码不支持、分析监听器失败、缓存读写失败进入 warnings。损坏 SQLite 隔离后重建；缓存版本升至 54。
+- 无效 CLI 参数、未知字段、未索引 impact 目标和 guard 缺失目标显式报错或告警；增量 findings 纳入 audit-diff 退出门禁。
+- 验证：Windows Node 25.6.0，快测 203/203、全量 312/312、wb-repro 27/27，均退出 0；全量约 24.0 分钟。九种语言的固定语料各五次独立冷启动，图顺序与选定结构分析字段哈希一致（45/45；不包含计时与缓存回放来源）。cJSON 本地 include 边 96/96；Rust 冻结 probe 无缺边/多边、影响闭包 4/4；Python 六条命名子模块边齐全，Typer testing.py 四个子模块依赖齐全；原 GBK 探针 2/2；Java/Kotlin DTO 探针影响均 2；Django 候选包含模型核心且与输入顺序无关；四个原误标仓库 safeToDelete:true 均为 0。
+
+深度截断后不额外遍历被截子树，覆盖率显式未知；超大链的阶段错误以注入监听器失败验证，未重跑 20000 文件样本。默认缓存损坏文件曾在 Node 与 PowerShell 重命名时报 Windows 句柄错误；实测复制/删除可行，保留损坏副本后恢复默认库，并补上 EBADF 专用隔离退路及回归。未归因到具体系统组件。lint 仍仅有 H-18 中原有的 test/file-index-prune-probes-test.js:30 no-useless-escape。
+
+### U-22 结论真值收尾（2026-10-03）
+
+- 所有者确认当前无深信服可比较条件、真实同步盘或公司域策略测试环境，要求保留待核；U 表只留 U-15 与 U-30 的这部分范围，不宣称八项全部完成。
+
+- 每个冻结 probe 含 5 条显式本地引用、含分支的三节点 SCC、depth-10 反向闭包；分别注入 execa、zod、Typer、Petclinic、OkHttp、Cobra、cJSON、Vitesse、Svelte realworld、ripgrep 的独立提交副本，记录完整原提交。JS/TS 分别取样，合计 10 样本覆盖项目 9 类语言。9 个非 Rust 样本直接边 precision/recall 均 1、环成员与反向影响集合符合真值；Rust 5 真边全缺、4 错边，precision/recall 0、影响与 probe 环漏检，补入 S-7。整个 50 真边样本为 TP45/FP4/FN5，precision 45/49、recall 45/50；这只是注入 probe 的指标，不是整仓精确率/召回率。脚本 source 首轮 JS/TS 目录名写错，未运行两项；修正为 js-ts 后单独补齐，最终完整证据 u22-fixed-injection-combined.json；不得把首轮 missing 条目当通过。
+- 每语言另设一个缺失本地目标和一个已知 builtin：原始 unresolvedCount 只在 JS、TS、Vue、Svelte 四样本报告缺失；Go/Rust/Java/Kotlin/C++ 报 droppedImports 与 unresolved-dropped，Python 报 uncertain 与 unresolved-import-ownership。联合诊断 10/10 提示缺失方向，builtin 未被当作缺失；不能将 raw unresolved 的 4/10 召回说成各语言统一完整指标。该取证核对了输出契约差异，无新增静默错误结论。证据 eval/truth/unresolved-truth.json。
+- 独立历史夹具实际提交 hot=21/cold=1，hot 进入热点（score38）、长期未改 cold 不在热点；shared 最近多作者修改也进入热点（score35）。git blame 冻结真值 solo 40行/1作者/主作者100%，shared 40行/4作者/各25%，输出份额完全相符，知识风险分别 high/low。结构完全相同的四文件稳定分数都60，符合评分使用结构信号而非 churn 的代码契约。这证明相应代理指标的可核对意义，不证明缺陷/事故预测或人的实际知识留存；不据此推断 agent 成功率提升。证据 eval/truth/history-truth.json。
+- U-22 按冻结样本边界收尾删除。更广泛仓库、不同框架、不同复杂图的全局正确率未被证明，已确认错误保留 S-7、S-12、S-14、S-17；完整样本清单与原始集合供复核，未把“能运行”当作“结论正确”。
+
+
+### 剩余 U 项实际验证（2026-10-03）
+
+- U-12：独立 codex/u12-platform-validation-20261003 分支的真实 GitHub CI（运行 37131594652），Node 22.13.0；macOS 与 Docker overlayfs 的 wb-repro 均 27/27、退出 0，快层均 199/200、退出 1，唯一失败 dead-export-regex-fallback-confidence-test 已归 H-18。首轮 37131280101 的 git-tools-test 假失败来自浅克隆缺 HEAD~1 与容器复制所有权；补全历史、声明该隔离仓库安全后消失。两个作业用 continue-on-error/结果文件取证，作业绿色不等于测试全绿。原始日志 eval/truth/u12-ci-repeat/；U-12 删除，生产基线没有宣称全通过。
+- U-15 腾讯配对：同 Typer a80f6e5ecd、Node 25.6.0、每次全新项目缓存，暂停三次 21655/20565/21313 ms，中位 21313；恢复三次 19630/20605/17996 ms，中位 19630，差 -1683 ms（-7.90%）。各次退出 0、639/639、fallback 0、分析计数一致；不是随机交替，操作系统文件缓存未清，同期负载未控制，不能作因果归因。本样本没显示腾讯开启造成耗时增加。U-15 仅留深信服未隔离范围，agent 未改安全设置。
+- U-25：Windows 普通目录符号链接成环，overview 真值 2 文件、diff 真值 helper.js，均退出 0；Docker 大小写敏感 Foo.js/foo.js 三文件夹具 3/3，两文件各自影响 main.js，diff 仅 Foo.js。1200 次提交夹具实际计数 1200，history overview 与 diff 均符合单文件变更真值。新 submodule 夹具父 gitlink 与子源码变化分别复核，父 diff 不展开 gitlink，子独立 cwd 识别 helper.js；该边界归 L2-45，U-25 删除。证据 eval/verify-u25-matrix.js、eval/truth/u25-win32.json、u12-ci-repeat/docker-results/u25-linux.json。非 UTF-8 已归 S-13，junction、worktree、detached HEAD 证据沿用各自已有明确边界，不冒充本轮重跑。
+- U-26：8 工作区×400 文件，初建缓存按项目线性增长，每项目 434176 字节；4 次全体不变重跑占用稳定，2 次全文件改写后共 3571712 字节且最终重复仍稳定。删除全部工作区后 8 个 cache.db 仍保留且字节数不变，回收问题并入 L3-18。测试有界 churn，不等价于数月 soak；U-26 删除，eval/verify-cache-growth.js 与 eval/truth/cache-growth.json 保存曲线。
+- U-28：旧条目 31 项初审之外，单文件从无环新增环成功检出；Go 无引用文件删除后的 graph 与 packageIndex 均无残留；Go/Java/C++ 符号影响 directCount 均 1。100/250/500 Java 类两轮线性引用图边数 99/249/499 正确，未出现分钟级卡死；耗时不是严格复杂度证明，RSS 是同进程累计样本。实际 runApiContracts 首次清理拒绝后跳过第二容器，加强 L2-32；Windows 实际 CLI SIGTERM 未观测 shutdown，加强 L2-25，不宣称 WAL 已损坏。增量新增环仍返回通过，原 L1-43 转 S-16。Java/Kotlin 的 utility 目录不命中代码规则；改用实际 utils 路径后，两夹具 importRecords 正确 resolved 却失去边，完整 CLI 均真值 2/输出 0、warnings 空、dataQuality certain，原剪枝方向重新确认并登记 S-17。U-28 删除；性能政策与源码契约仍分别作为 L 条目保留，不宣称全部动态验收通过。证据 eval/truth/{old-debt-variants,lifecycle-gates,signal-cleanup}.json。
+- U-29：冷启动完整 audit-overview 三固定语料各 3 组串行/双 worker，包含真实索引、解析、resolve、分析与 SQLite；worker 仅解析、主线程保存纯解析结果与写 SQLite，各组所抽样的计数、覆盖率、热点集合一致。WASM 可在线程内独立初始化，SQLite 无须多线程共享连接。python/typer 串行/worker 中位墙钟 16517/16328 ms、RSS 采样中位 161.0/229.6 MiB；go/cobra 串行/worker 中位墙钟 7572/7936 ms、RSS 采样中位 97.3/146.7 MiB；java/spring-petclinic 串行/worker 中位墙钟 10875/11426 ms、RSS 采样中位 90.6/140.6 MiB。RSS 每 200 ms 采样，主进程 RSS 包含 worker；不能当作精确峰值或所有输出逐字节一致。结果不支持本样本的稳定加速，worker 增加内存；U-29 删除，无生产并行改造。证据 eval/truth/full-parser-workers.json，预加载脚本仅属 eval spike。
+- U-30：实际安装脚本在 Windows 子进程 Restricted、AllSigned 下均退出 1并明确拒绝未签名/禁用脚本；Bypass 下模拟 npm link 退出 23、CLI 退出 24，脚本仍成功提示并退出 0，登记 H-32。模拟的是外部安装失败，实际执行完整 setup-global-cli.ps1，未进行真实全局安装、未改系统策略。U-30 只留真实同步盘与域策略，进程策略不能替代二者。
+
+
+### U 项验证文档收尾（2026-10-03）
+
+- 用真实 Jest 29.7.0 在 Windows 与 WSL2 核对 watch：源变更前后映射测试均通过，watch 却先运行源文件目标并中止；加强 H-28 的真实工具证据。watch 实验在采集事件后主动结束进程，不能把 SIGTERM 当作验收成功码。
+- 真实 Semgrep 1.140.0 在 Linux 的 SemgrepAdapter.scan 本地规则路径命中 1 项；cwd 中的同名程序只有 PATH 显式含 cwd 才执行，wrapper 随后调用真实 Semgrep 并命中。U-24 的执行路径与入口核对收尾删除；不外推为 audit-security 默认 auto 配置或所有平台全量验收，Windows 探测问题 H-29 仍开放。入口 `eval/verify-watch-real.js`、`eval/verify-semgrep-real.js`，报告 `eval/truth/{watch-real.json,wsl-audit/watch-real.json,wsl-audit/semgrep-real.json}`。
+- 旧债 31 项初审取证完成，脚本退出 0；报告区分动态复现、源码检查、性能政策，不能用 unresolved=[] 宣称 31 项均通过。登记 S-15：guard 缺失目标返回成功空集合，夹具仍有 empty-graph 警告；合并原 L2-40，删除重复 L1-28 并归入 S-6。同时改 a/b 新增环的 L1-33 断言过期删除，单文件变种仍留 U-28。修正锁、submodule、目录深度、UNC、大小写遍历条目的过强断言；WASM 淘汰、Go 无重解析删除、多语言符号影响和 Java/Kotlin 剪枝尚无当前充分复现，从 L 表移回 U-28；重复待复核项 V-1 删除。证据 `eval/verify-old-debts.js`、`eval/truth/old-debts-review.{json,log}`。
+- 腾讯暂停、深信服运行条件下，固定 Typer a80f6e5ecd、Node 25.6.0、每次全新项目缓存的 audit-overview 三次为 21655/20565/21313 ms，中位 21313 ms；操作系统文件缓存未清，覆盖率均 1、fallback 均 0。未取得腾讯恢复扫描条件的配对结果，不得归因性能差值；U-15 改为可执行的配对前置，深信服影响仍未隔离。报告 `eval/truth/scanner-overhead/tencent-paused.json`。
+- 按所有者额度限制停止新实验，仅回写审计文档与交接；未修生产代码，未重跑全量生产测试。尚未完成的 U 范围保留，不通过删除条目伪造清零。
+
+
+### U 项结论核对（2026-10-03）
+
+- U-23 完成固定五任务 A/B 实验：无本工具与 CLI+skill 条件分别由独立 agent 在相同源码副本完成同五项改动，冻结验收均 5/5、退出 0，正确率差值 0；每条件一 session 打包五任务、共同项目协议、同模型、小样本，不推断普遍效果或总耗时优势。两条件源码注释哨兵均未执行；实际 CLI 把无害注入文字带入 specifier/warning，B 明确忽略，独立检查六个哨兵路径均不存在。证据 eval/truth/u23-agent-trials/；U-23 删除，H-11 的不可信标注债务仍开放。
+- U-23 五个行为任务的生产可达性裁决：九条真实CLI重放完整退出0；仅多入口 guard 的递归崩溃、generated 改动建议错误已复现，登记 H-30/H-31；Mermaid 重边在真实 guard 上游去重，JSONL 错误在通用入口先处理，audit-diff null/non-array 没有合法生产输入，三项不登记。临时副本补丁未进入生产源码，原文件哈希未变。
+- U-27 完成三份单文件冷读：三个 fork_turns=none 被测 agent 各仅读 README、SKILL 或 AGENTS 的冻结快照，使用同六道题，不读链接、不跑CLI。README 缺的契约未被凭空补齐；SKILL 的 quiet、字段恒保留、schema 冻结、退出码归责有歧义，归入既有 H-15/H-16/H-22。独立 CLI 非法 format 返回1、quiet 仍允许错误stderr，PowerShell 7.6.5 管道无 BOM。证据 eval/truth/u27-coldread/；U-27 删除，三对象小样本不证明整体技能效果。
+- 所有者回报腾讯实时扫描已暂停、深信服保持运行；固定 Typer 与 Node25.6.0 的三个全新项目缓存冷启动为21655/20565/21313ms，中位21313ms、覆盖率均1；未清空操作系统文件缓存。等待所有者恢复腾讯后做同条件三次对照，不把此结果归因于深信服或所有防护。
+- 当前 WSL 软件3.0.1、Ubuntu24.04 为WSL2；准备隔离 Linux Node22.13.0 和当前源码副本，wb-repro 27项全部通过、退出0；快层199/200、退出1，唯一失败 dead-export-regex-fallback-confidence-test.js，归入既有H-18。临时 /tmp 会随该WSL环境重启消失，后续验证移到用户.cache隔离目录；不将WSL软件版本3称为WSL3发行版。
+
+- 继续 U-22 逐边裁决：新增 `node eval/verify-python-import-truth.js`，完整运行退出 0；运行时确认 ns.a/ns.b/pkg.a/pkg.b 全部加载，普通包、namespace 包、相对导入三种 from-import 的 6 条真值仅记录 3 条，三个 b 子模块边缺失；pkg/b.py 真值两个调用者、ns/b.py 真值一个调用者，实际均为空、无警告，登记 P1 S-14。固定 Typer 的 `typer/testing.py` 同时导入四个 `_click` 子模块，图仅记录第一个，缺 formatting/termui/utils 三条边；根因定位为 resolver 首个命中即返回单一路径。未改生产代码。
+- 修正 Python oracle：原逐父目录搜索把标准库 types/enum/datetime/uuid 错认成仓库同名文件，不能把这部分差异算作工具漏报；现在先排除当前解释器标准库。新增直接边集合比对，impact 中 subprocess 推断依赖与 oracle 不覆盖的包初始化仍需分别裁决。修正文档 S-13 行的表格列数。
+- Typer 直接边继续裁决：标准库修正后 oracle 801 条、audit-map 790 条，缺失 11 条、额外 0 条；逐项附源码行号与 from-import 名称列表，全部 11 条均对应非首个子模块，涉及 6 个源文件，归入 S-14。此结论限于这批明确命名子模块的直接边，不代表所有 impact 差异已裁决。
+
+- 收尾反思纠正：U-24 整行删除过早。watch 的真实命令顺序、模拟子进程失败后的中止，以及 Windows semgrep 可用性误判已确认，H-28/H-29 保留；真实 Jest 结果与 semgrep 成功启动后的扫描执行链尚未验收，将这两个范围补回 U-24。
+
+- `node eval/verify-command-truth.js` 完整运行、退出 0：Spring Petclinic `818c4136ea` 的 OwnerRepository/VetRepository 受影响控制器入口分别 3/3、1/1；cJSON 显式禁止边 1/1；6 个手工标注函数的 smells 判定与 arms/CC 一致（4 个阳性、2 个阴性）。U-31 删除。路由口径是入口文件，不是 HTTP 端点数；这是抽样验收，不是九语言全局准确率。
+- `node eval/verify-platform-boundaries.js` 完整运行、退出 0：junction 自环保留 2 个文件，反斜杠 impact 命中 1 个依赖者；detached HEAD、worktree、本机 `\\localhost\C$` UNC 的变更集合与夹具一致。submodule 可解析 3/3 源文件，父仓库 gitlink 变化没有展开为子仓库源码变更，且出现 gitignore-unavailable；范围契约留 U-25。当前进程 Restricted 策略在脚本入口阻止 setup-global-cli.ps1，未修改系统策略或全局安装。
+- 同一平台脚本复现合法 GBK Python：解释器输出 42，两个 import 真值仅识别一个；覆盖率 3/3、fallback 0、无警告，转 S-13。默认缓存三工作区各重复三次，目录数 1→2→3，删除工作区后仍留 3 个 53248 字节数据库，总 159744 字节；正常隔离不等于失控增长，但缺回收入口转 L3-18，大规模长期增长留 U-26。WB_CACHE_DIR 直接覆盖目录，不是自动项目分区。
+- `node eval/verify-execution-paths.js` 完整运行、退出 0：只读 overview 未执行本地 npx.cmd；显式 watch --run-tests 中 stack 探测执行本地 npx.cmd 的 eslint 探测。watch 先运行 `jest src\\helper.js`，再准备映射测试；无害测试探针模拟第一条退出 1 后，源文件轮次 validationComplete 为 false，映射测试未运行，转 H-28。探针不是实际 Jest，先前允许全部退出 0 的对照能运行正确测试，不能写成“测试映射彻底丢失”。修正夹具为等待源文件轮次完成，避免被日志文件的 watch 事件提前结束。
+- 同一执行路径脚本：正常环境 where semgrep 成功，buildSafeEnv 下失败，显式 where semgrep.exe 成功；PATHEXT 缺失导致 builtinOnly:false 仍只运行 builtin，转 H-29。Windows 入口条件已核，U-24 删除；此样本不能证明只读分析可任意执行仓库代码。
+- `node --expose-gc eval/verify-parser-workers.js` 完整运行、退出 0：真实 parseFileOnly 处理 10001 个内存 JS 文件、400040 条函数记录，8694ms，采样 heap 最大 324MiB、RSS 467MiB，当前 heap limit 4288MiB。1500 文件 serial 1262ms、2 workers 1226ms，1.029 倍，记录哈希相同。删除 L1-20 的“一万文件必击穿默认 1.4GB、两份完整 AST”断言；不据此宣称完整 CLI 万文件通过，H-20 保留。JS worker 可行但单样本无明显收益；其余语言与完整流水线留 U-29。
+- `python -X utf8 eval/verify-python-graph.py` 完整运行、退出 0：Typer `a80f6e5ecd`，637 个 tracked Python 文件、813 条独立 AST 本地边，4 个 impact 样本存在集合差异。oracle 的逐父目录搜索近似不能覆盖 sys.path/动态导入，FP/FN 尚未逐边裁决；暂不登记新缺陷、不宣称 precision/recall 已验收，U-22 保留。
+- 文档交叉核对：PowerShell 7.6.5 JSON 管道首字符 123、JSON.parse 成功，删除 AGENTS 的“PowerShell 必 BOM/必崩”泛化；Windows 304/304 已有平台说明，删除 H-18 过期子句。workspace-info 不含 warnings/staleness、非法 max-files 退出 1 与手册矛盾并入 H-16/H-15。现有 agent 读取多份项目契约，不构成单文件干净冷读，U-27 保留该实验范围。
+- 未具备 macOS、运行中的 Docker Linux daemon、同步盘环境及所有者暂停防护前置；U-12/U-15/U-30 保留。U-23 的五任务 agent 有无工具对照与注入行为实验未开展。没有生产代码改动；上述脚本退出 0 表示取证完成，产品缺陷须看报告中的集合差异和事件。
+- 收尾重新运行 command-truth、platform-boundaries、u31-graph 均退出 0，真值结果与缺陷复现保持一致；5 个 JavaScript 评测脚本 eslint 0 errors、退出 0，Python oracle 编译检查通过，git diff --check 退出 0。将三个评测脚本的路径安全检查移到实验开始前，避免 finally 抛异常覆盖原始错误；unknown-command 的本次 CLI 实测退出 1，输出结构化错误。
+
+### Changed: U 表只保留未核方向（2026-10-03）
+
+- 从 U-31 移出已完成的 cJSON `guard`/`tree` 抽样方向与已转 P1 S-12 的 `audit-map` 漏边问题，剩余 `affected-routes`、boundaries、smells；U-22 移出 cJSON 已核样本结果，保留其余语料与复杂图、评分意义的待核范围。抽样通过不表示九语言整体通过。
+- 清掉 U-12、U-24、U-25、U-26、U-30 中的既有验证经过，仅保留剩余待核方向；这些验证记录见本节「U 项开始实测」。从 U-12 迁出的 WSL2 `/mnt/c` 记录：四个并发冷启动加一次暖启动，缓存 `integrity_check` 为 ok、329 个文件元数据完整、无 stderr；Linux与只读环境的确认问题分别归 H-18、S-5。SESSION 中本轮验证经过改为当前核验入口，避免与历史存档重复。
+
+### Changed: U-22 / U-31 结论真值抽样（2026-10-03）
+
+- 新增 `eval/verify-u31-graph.js`，从 cJSON 固定提交的源码独立解析本地 include 边，逐项对比 `impact`、`tree`、`guard`、`cycles`、`audit-map`，并用大小写最小夹具复现差异。96 条真值边中 `audit-map` 仅报 71 条，缺 25 条；四个 `impact` 样本、一个 `tree` 和 `guard` 样本与真值一致。确认漏边转为 S-12；未覆盖的语言与命令仍保留 U 项。
+
+### Changed: U 项开始实测（2026-10-03）
+
+- U-13 已按本机路径验收：Windows 下把 Node 22.13.0 的 `node.exe` 放到 PATH 首位，确认 runner 父进程及 `spawn('node')` 子进程均为 v22.13.0，再完整运行 `node test/runner.js --layer slow`；95/95 通过、0 失败、退出码 0，耗时 1223532 毫秒。该结果只覆盖 Windows，Linux CI 的开放问题仍在 H-18。
+- U-28 复核后删除 L1-29：Windows 临时仓库设置 `core.autocrlf=true` 并两次共同修改 `a.js`、`b.js`，`git log --name-only` 实际输出 LF；`analyzeCoChanges()` 得到 2 个提交、该文件对共现 2 次。`node test/cochange-test.js` 退出码 0。`spawnSync` 超过默认缓冲区返回 `ENOBUFS`，现有代码转为 `dataQuality: unavailable`，原条目所称“必崩”不成立。
+- U-24、U-25、U-26、U-30 的局部实测结果写入 TECH_DEBT，未达完整验收的条目继续开放。U-24 的恶意 `package.json` 探针没有把脚本字符串直接交给 watch 的 focused 命令。U-25 的 329 字符路径 `audit-overview` 覆盖率 1/1；本机 Git 默认设置下 `git add` 报 `Filename too long`，仓库级 `core.longpaths=true` 后 332 字符路径的 `audit-diff` 正确列出改动。U-26 的旧版戳模拟从 52 到 53 后缓存重建，`node test/graph-db-version-gate-test.js` 5/5 通过；U-30 的 BOM/CRLF 源码解析 2/2、fallback 0，文件名/盘符大小写三次 `impact` 均找到同一个调用方，CRLF Git 仓库的 CLI 共现次数也正确。
+
+### Changed: 外部审查报告并入 TECH_DEBT.md（2026-10-02）
+
+- **原因**：审查报告与 TECH_DEBT.md 各存一份开放项，其中 P1-14、R-4、P2-6、P2-7、P2-8 已在 TECH_DEBT.md 以 L2-41、L1-19、L2-40、H-12、L2-42 登记，两处并存会各改各的。
+- **改动**：删除 `docs/workspace-bridge-审查报告.md`。仅审查报告有的条目并入：P2-3 → H-23、R-3 → H-24、P2-9 → H-25、P2-10 → H-26、P2-11 → H-27；Windows 专属边界 → U-30，六个命令的数值核对 → U-31；`--with-history` 评分意义并入 U-22，`workflow-loop.js` 并入 U-24；C/C++ 独立程序孤儿判定并入 P4 冻结项。固定评测仓库清单以 `eval/corpus.json` 为准，Django 性能数字以 L3-17 为准，未并入。AGENTS.md、ROADMAP.md、SESSION.md、docs/README.md、eval/README.md、eval/findings.md 中的引用同步改指 TECH_DEBT.md。
+- **未复核**：H-23 到 H-27 来自原报告，本次只做归并，没有重新复现。
+
+### Changed: `docs/checklist.md` 改为三列验证清单（2026-10-03）
+
+- **原因**：原清单只有"检查 X"，没有验证方法和通过条件，末尾夹着过期的聊天结论（"先修两个 P0：SQLite 并发/快照 generation"），也缺确定性、静默降级、依赖边漏报、密钥、发布一致性、CI 与测试有效性等检查面。
+- **改动**：按"检查面、怎么验证、通过条件"重写，供 AI 选择验证面；已知问题只引用 TECH_DEBT.md 条目编号；取自 TECH_DEBT 复现记录的方法直接写命令，拟定的方法标 ※（未运行过）；删除执行顺序与收工流程（以 SESSION.md、AGENTS.md 为准）。不记录验证结果。
+- **核对后补正**：对照 `node cli.js --help --all` 与仓库脚本，`audit-boundaries`、`audit-smells` 实为 `audit-overview --category` 的类别，共现分析不是独立命令（经 `impact` 的 `coChanges` 输出），仓库没有 H-20 的规模生成器（只有 `scripts/benchmark-perf.js`）；已改正，TECH_DEBT.md U-31 的命令名同步改正。补回配置与项目角色、策展可信度、`audit-diff` 与回归门禁、命令与产物覆盖四节，TECH_DEBT 的 84 个条目编号全部被清单引用。
+
 ### Changed: 暖启动里三处重复的文件系统探测（2026-09-30）
 
 - **现象**：Django 固定提交 `a013c821ea` 单次暖 `audit-overview` 里 `fs.statSync` 约 19000 次、`existsSync` 约 3000 次。归因：`FileIndex.pruneDeletedCacheEntries()` 对刚读过的每个缓存文件再 `existsSync` 一遍（约 3000 次）；Python 清单链 `readPythonDepsChain()` 每条 import 都沿目录链重新 stat 三个清单（约 6400 次，只涉及 342 个不同路径）；resolver 的存在性缓存上限 2000 条，低于一次建图约 8300 个不同探测路径，条目被淘汰后重复询问（约 4000 次）。

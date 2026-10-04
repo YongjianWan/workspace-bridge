@@ -32,14 +32,18 @@
 
 - CLI 是"策展引擎"——预组装、去噪、按优先级排序
 - skill 是"驾驶手册"——50 行足够
-- **当前债务**：内部活跃债务见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)；外部审查开放问题见 [docs/workspace-bridge-审查报告.md](./docs/workspace-bridge-审查报告.md)。完成项从活跃文档删除，修复经过只写 CHANGELOG。
+- **当前债务**：活跃债务（含原外部审查开放项）见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)。完成项从活跃文档删除，修复经过只写 CHANGELOG。
 - **语言范围**（2026-07-28）：TS/JS（含 `.jsx`/`.tsx`，React 不是独立语言）、Python、Go、Rust、Java、Vue 在范围内；Kotlin / C·C++ / Svelte 边层通着但债务降 P3/P4。
 
 > 历史演进见 [CHANGELOG.md](./CHANGELOG.md) 与 [ROADMAP.md](./ROADMAP.md)。
 
 ## 当前核验
 
-`node test/wb-repro.js cli.js` 当前为 27/27 OK、退出码 0；`CACHE_VERSION=53`，`schemaVersion=1.2.0`。`audit-overview` 在本仓覆盖率 1、fallback 0。快测 199/199；全量 `node test/runner.js` 304/304、退出码 0（Windows 本机，2026-09-30，慢测默认并发 2，本次约 17 分钟，此前 29 分钟）。Linux（WSL2 Ubuntu 24.04）快测 199/200、慢测 93/95，CI 近三个月红灯，见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) H-18。出现任何失败须调查；SIGTERM 超时先对照 SESSION.md 的并发说明。
+`node test/wb-repro.js cli.js` 当前为 27/27 OK、退出码 0；`CACHE_VERSION=54`，`schemaVersion=1.2.0`。Windows 本机 Node 25.6.0（2026-10-04）：快测 203/203；全量 `node test/runner.js` 313/313、0 失败、退出码 0，慢测默认并发 2，约 24.0 分钟。索引超时或深度截断时 `discoveryComplete=false`、`coverageRatio=null`，不得按 100% 解读；动态加载及缓存失败通过 `warnings[]` 显式说明。Linux/跨平台 CI 的开放问题见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) H-18。
+
+Node 22.13.0 的慢层已在 Windows 本机完整运行：`node test/runner.js --layer slow` 95/95、退出码 0（2026-10-03；PATH 中的 Node 22.13.0 同时用于 runner 与子测试）。
+
+macOS 与 Docker overlayfs（GitHub CI 独立验证分支，Node 22.13.0）：`wb-repro` 均 27/27、退出 0；快层均 199/200、退出 1，唯一失败 `dead-export-regex-fallback-confidence-test.js`，见 H-18。平台作业绿色不代表内部测试全部通过。
 
 ## 工程品味（TASTE）
 
@@ -232,7 +236,7 @@ node cli.js dead-exports --cwd . --json --quiet
 | `DEFAULT_EXCLUDE_DIRS` 全局污染                      | `src/services/file-index.js`                         | 任何新增排除项必须是通用目录名（如`node_modules`），不能是项目特定名称                                       |
 | orphan 检测不同步                                      | `project-map.js` vs `overview-tools.js`            | 两处 orphan 逻辑必须保持同步（scripts/bin/benchmark 跳过）                                                     |
 | compact 模式只改 project-map.js                        | `cli.js` 也需要同步                                  | human-readable 输出和`countTreeFiles()` 必须兼容 skeleton 模式（`totalFileCount`）                         |
-| Windows PowerShell 管道 BOM                            | 所有`node cli.js ... \| node -e` 命令                 | PowerShell 管道传 JSON 会带 BOM，导致`JSON.parse` 必 crash。当前 workaround：用文件中转（`> file`）再读取  |
+| Windows PowerShell 管道编码 | JSON 管道消费方 | PowerShell 7.6.5 的本机样本首字符为 `{`，不含 BOM；其他版本或重定向方式须实测。读取外部 JSON 可先去 BOM，不应假定 PowerShell 管道必然崩溃。 |
 | cache.save() 已改为 async                              | `src/services/cache.js`                              | 调用方必须`await`（container.js、测试均已适配）                                                              |
 | repl-test.js flaky                                     | `test/repl-test.js`                                  | runner.js 串行执行时偶发失败，单独`node test/repl-test.js` 稳定通过；若遇到，先重跑确认                      |
 | audit-file-watch-test.js flaky                         | `test/audit-file-watch-test.js`                      | runner.js 串行执行时 watcher 事件偶发丢失，单独`node test/audit-file-watch-test.js` 稳定通过                 |

@@ -1,7 +1,7 @@
 # eval/ — workspace-bridge 真实仓库评测集
 
-用钉死版本的真实开源仓库，检验 workspace-bridge 的结论准不准。它回应外部审查
-（`docs/workspace-bridge-审查报告.md`）的核心结论：「没有外部真值，所有验证都是自己验证自己」。
+用钉死版本的真实开源仓库，检验 workspace-bridge 的结论准不准。它回应一次外部审查
+（原报告已并入 `docs/TECH_DEBT.md`）的核心结论：「没有外部真值，所有验证都是自己验证自己」。
 
 和另外两套检查的分工：
 
@@ -20,7 +20,7 @@
 ```
 eval/
 ├── corpus.json          # 仓库清单：lang / url / 钉死 commit / metrics / affectedTests 配置
-├── labels/<name>.jsonl  # dead-code 误报标签（审查报告 §5.1 的 27 条）
+├── labels/<name>.jsonl  # dead-code 误报标签（27 条）
 ├── truth/               # [gitignored] 全部生成物
 │   ├── repos/<lang>/<name>/   # 钉 commit 的 clone（partial clone，只拉检出需要的 blob）
 │   ├── out/<lang>/<name>/     # 每仓输出：
@@ -91,7 +91,10 @@ node eval/run.js --force           # src/ 改动后强制重跑（含 typer 约 
 node eval/inject-fault.js cobra    # 故障注入真值，每仓单独跑（昂贵）
 
 node eval/score.js                 # -> scoreboard.json + 按语言分组的终端摘要，永远 exit 0
+node eval/verify-u31-graph.js     # cJSON 固定提交：独立 include 真值 vs impact/tree/guard/cycles/audit-map
 ```
+
+`verify-u31-graph.js` 要求 `truth/repos/c-cpp/cJSON` 已检出 `corpus.json` 钉定的提交；完整比对写到 gitignored 的 `truth/out/c-cpp/cJSON/u31-graph.json`。它是单仓样本，不能代表九语言整体准确率。
 
 **缓存语义**：CLI 步骤在「目标 commit + `src/` 最新 mtime」都没变且输出齐全时跳过；
 coverage 真值只认 commit。改了 src/ 后不加 `--force` 也会自动重跑 CLI 步骤（mtime 变了）。
@@ -108,7 +111,7 @@ unresolvedCount / droppedCount / warnings / languages{files, astFiles, regexFile
 
 ### affected-tests：coverage-pytest（typer）
 
-按审查报告 §5.2：
+口径：
 
 1. 在 `truth/venvs/<name>` 建隔离 venv，装 `pytest coverage` + `pip install -e <clone>`。
 2. **独立 rcfile 是强制的**：typer 自带的 `[tool.coverage.run]` 是 `parallel = true` + 自定义
@@ -138,7 +141,7 @@ unresolvedCount / droppedCount / warnings / languages{files, astFiles, regexFile
 
 ### dead-code（标签真值）
 
-- 标签 = 审查报告 §5.1 的 **27 条误报**（`labels/*.jsonl`，reason 词表见 `corpus.json.reasonVocabulary`）。
+- 标签 = 原外部审查标出的 **27 条误报**（`labels/*.jsonl`，reason 词表见 `corpus.json.reasonVocabulary`）。
 - 按符号打分：`dead-exports` 的每个 `(file, symbol)` 对上标签（`*`/`**` glob、裸文件名按 basename、
   `symbol:"*"` 匹配任意符号）→ 误报；没对上的 → **默认算对**。
   `precision = 未标注 / (未标注 + 仍被报告的已标注误报)`，按工具自报 confidence 分桶。
@@ -178,6 +181,19 @@ unresolvedCount / droppedCount / warnings / languages{files, astFiles, regexFile
 - typer `scripts/docs.py` 当前构建不再报告（`labeledNotReported` 记 1），标签保留，它是审查时点的真值。
 - full-stack-fastapi-template 的 alembic 路径、cJSON 的 fuzz 路径已按钉死 commit 的文件树核对。
 
+## 专项结论核对入口
+
+| 命令 | 输出（gitignored）与口径 |
+|---|---|
+| `node eval/verify-command-truth.js` | `eval/truth/command-truth.json`：固定 Petclinic/cJSON 的入口、边界、函数异味人工真值；非全语言验收。 |
+| `node eval/verify-platform-boundaries.js` | `eval/truth/platform-boundaries.json`：Windows 路径、编码、Git 形态、默认缓存隔离与删除行为；需 Python、Git、PowerShell、本机 UNC 访问。 |
+| `node eval/verify-execution-paths.js` | `eval/truth/execution-paths.json`：Windows 本地命令探针、semgrep 探测、watch 完整源文件验证事件；需 .NET C# compiler，模拟测试子进程不代表实际 Jest。 |
+| `node --expose-gc eval/verify-parser-workers.js` | `eval/truth/parser-workers.json`：内存 JS 源码的真实解析函数与 worker 对照，不包含磁盘、SQLite 和全图分析。 |
+| `python -X utf8 eval/verify-python-graph.py` | `eval/truth/python-graph-truth.json`：固定 Typer 的静态 import oracle 初筛；集合差异须逐边裁决，不能直接当工具 FP/FN。 |
+| `node eval/verify-python-import-truth.js` | `eval/truth/python-import-truth.json`：Python 运行时确认普通包、namespace 包、相对导入的多个子模块均被加载，再核对 6 条命名子模块边及 impact；不评价 package 初始化边。 |
+
+退出 0 表示脚本完整取证；不表示工具结论通过。核对报告里的真值、实际集合与 watch 事件。当前开放问题只在 TECH_DEBT.md；验证经过只在 CHANGELOG。
+
 ## CI 建议（尚未添加）
 
 评测比 slow 层还慢（clone + coverage + 对方测试套件），建议独立的 nightly workflow，不阻塞 PR：
@@ -191,3 +207,25 @@ unresolvedCount / droppedCount / warnings / languages{files, astFiles, regexFile
 - `eslint.config.js` 的 ignores 有 `eval/truth/**`：clone 里带第三方自己的 lint 配置，会让 `eslint .` 崩溃。
   这是排除第三方代码，`eval/*.js` 本身照常 lint。
 - `.gitignore` 只有目录锚定的 `eval/truth/` 一行（刻意不用裸模式，见审查 P1-15）。
+
+## 执行路径与旧债取证入口
+
+- `node eval/verify-watch-real.js`：需要真实 Jest 29.7.0；核对直接测试与 watch 的实际命令及完成事件。
+- `node eval/verify-semgrep-real.js`：需要真实 Semgrep；本地规则验证 adapter 执行路径与 PATH 中同名程序的入口，不等价于默认 auto 配置验收。
+- `node eval/verify-old-debts.js`：逐项输出旧债证据。退出 0 仅表示取证完成；必须逐项读取 status、scope 和 evidence，源码检查不等价于动态复现，性能政策不等价于新测量。
+- `node eval/measure-scanner-overhead.js <条件标签>`：固定语料、独立项目缓存三次测量；操作系统文件缓存不清，必须记录扫描条件后配对，单组数据不能推断防护开关的影响。
+
+原始报告位于 gitignored 的 `eval/truth/`；真实 Jest、Semgrep 的依赖装在隔离环境，未加入产品依赖。WSL 的本机环境入口见 `eval/truth/wsl-audit/linux-dir.txt`。历史样本、测量与发现只记录在 CHANGELOG，活跃问题与待核范围见 TECH_DEBT。
+
+## 剩余方向的专项入口
+
+- `node eval/verify-cache-growth.js`：多项目缓存增长、内容 churn 与删除后占用。
+- `node eval/verify-u25-matrix.js`：普通 symlink、大小写、1200 提交及 parent/child submodule；大小写敏感样本须在相应文件系统执行。
+- `node eval/verify-u22-graph-matrix.js`：冻结复杂 SCC、反向闭包与直接边的独立标签。`node eval/verify-u22-fixed-injection.js` 把相同标签注入固定仓库的独立副本；只评估 probe，不代表全仓精确率/召回率。
+- `node eval/verify-unresolved-truth.js`：已知 builtin 与缺失本地目标；分别消费 unresolved、droppedImports 和 warnings，不把一个计数当作所有语言的同一语义。
+- `node eval/verify-history-truth.js`：控制 churn 和 blame 份额。知识风险衡量代码归属集中，稳定性评分衡量结构信号；本实验不证明缺陷/事故预测或人的实际知识留存。
+- `node eval/verify-old-debt-variants.js`、`node eval/verify-lifecycle-gates.js`、`node eval/verify-signal-cleanup.js`：旧债变种、实际编排故障注入与实际 CLI 信号路径；逐项读报告，不把脚本退出 0 当作产品无问题。
+- `node eval/verify-full-parser-workers.js`：完整冷 CLI worker spike，索引/resolve/分析/SQLite 仍在主线程；比较结果抽样、时间、CPU 与 200ms RSS 采样。两个 preload 只供实验，产品不加载。
+- `node eval/verify-setup-policy.js`：Windows 进程策略与安装失败控制流，外部 npm/CLI 故障为隔离模拟，不修改系统设置。
+
+跨平台取证工作流在独立 `codex/u12-platform-validation-20261003` 分支；日志含真实失败，作业成功不是测试成功。原始报告仍 gitignored，交接须明确本机证据入口。
