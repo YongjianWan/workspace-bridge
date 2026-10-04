@@ -6,9 +6,10 @@ const { saveBaseline, checkRegression, checkRegressionAgainstCommit, DEFAULT_BAS
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 function testExtractFindings() {
+  const tmpDir = makeTempDir('wb-reg-');
   const result = {
     schemaVersion: '1.2.0',
-    workspaceRoot: '/test',
+    workspaceRoot: tmpDir,
     deadExports: {
       deadExports: [{ file: 'a.js', name: 'unused', confidence: 'high' }],
     },
@@ -26,7 +27,7 @@ function testExtractFindings() {
     },
   };
 
-  const baseline = saveBaseline(result, path.join(makeTempDir('wb-reg-'), 'baseline.json'));
+  const baseline = saveBaseline(result, path.join(tmpDir, 'baseline.json'));
   assert.strictEqual(baseline.ok, true, 'saveBaseline should succeed');
   cleanupTempDir(path.dirname(baseline.filePath));
 }
@@ -37,7 +38,7 @@ function testCheckRegressionFixedAndNew() {
 
   const previous = {
     schemaVersion: '1.2.0',
-    workspaceRoot: '/test',
+    workspaceRoot: tmpDir,
     deadExports: { deadExports: [{ file: 'a.js', name: 'oldFn', confidence: 'high' }] },
     unresolved: { unresolved: [] },
     cycles: { cycles: [] },
@@ -47,7 +48,7 @@ function testCheckRegressionFixedAndNew() {
 
   const current = {
     schemaVersion: '1.2.0',
-    workspaceRoot: '/test',
+    workspaceRoot: tmpDir,
     deadExports: { deadExports: [{ file: 'a.js', name: 'newFn', confidence: 'medium' }] },
     unresolved: { unresolved: [] },
     cycles: { cycles: [] },

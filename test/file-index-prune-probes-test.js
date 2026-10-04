@@ -27,7 +27,7 @@ async function main() {
     fs.unlinkSync(path.join(root, 'f0.js'));
     const realExists = fs.existsSync;
     const probed = [];
-    fs.existsSync = function (p) { if (/[\/]f\d+\.js$/i.test(String(p))) probed.push(String(p)); return realExists.apply(this, arguments); };
+    fs.existsSync = function (p) { if (/[\\/]f\d+\.js$/i.test(String(p))) probed.push(String(p)); return realExists.apply(this, arguments); };
     try {
       await new FileIndex(root, cache, { quiet: true }).build(20000, { watch: false });
     } finally {
@@ -35,6 +35,7 @@ async function main() {
     }
     assert.strictEqual(cache.fileMetadata.size, 19, 'deleted file must leave the cache');
     assert(probed.length <= 1, `warm build re-probed ${probed.length}: ${probed.join(', ')}`);
+    assert.strictEqual(probed.length, 1, 'probe instrumentation must observe the deleted file on either path separator');
   } finally {
     cleanupTempDir(root);
     cleanupTempDir(cacheDir);

@@ -7,6 +7,7 @@ const { execFileSync } = require('child_process');
 
 const DEFAULT_BASELINE_FILE = '.workspace-bridge-baseline.json';
 const { SCHEMA_VERSION } = require('../config/constants');
+const { stripBOM } = require('../utils/sanitize');
 
 function resolveBaseline(args) {
   let baselinePath = null;
@@ -95,15 +96,60 @@ function buildBaselineSnapshot(result) {
   };
 }
 
-function saveBaseline(result, filePath) {
+function isWithinWorkspace(root, target) {
+  const relative = path.relative(root, target);
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+function isGeneratedBaseline(data) {
+  return data && typeof data.schemaVersion === 'string'
+    && typeof data.timestamp === 'string' && Number.isFinite(Date.parse(data.timestamp))
+    && data.findings && ['deadExports', 'unresolved', 'cycles', 'healthGaps']
+      .every((key) => Array.isArray(data.findings[key]));
+}
+
+function saveBaseline(result, filePath, workspaceRoot = result.workspaceRoot || process.cwd()) {
+  const root = fs.realpathSync(workspaceRoot);
+  const target = path.resolve(workspaceRoot, filePath);
+  if (!isWithinWorkspace(path.resolve(workspaceRoot), target)
+    || !isWithinWorkspace(root, fs.realpathSync(path.dirname(target)))) {
+    throw new Error('Baseline save target must stay within the workspace');
+  }
   const snapshot = buildBaselineSnapshot(result);
-  fs.writeFileSync(filePath, JSON.stringify(snapshot, null, 2), 'utf8');
+  let existing;
+  try { existing = fs.lstatSync(target); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (existing && (!existing.isFile() || existing.nlink !== 1)) {
+    throw new Error('Refusing to overwrite a linked or non-file baseline target');
+  }
+  // Exclusive creation and inode checks prevent a replaced target from being overwritten.
+  const flags = existing
+    ? fs.constants.O_RDWR | (fs.constants.O_NOFOLLOW || 0)
+    : fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL;
+  const fd = fs.openSync(target, flags);
+  try {
+    const opened = fs.fstatSync(fd);
+    if (existing && (opened.dev !== existing.dev || opened.ino !== existing.ino || opened.nlink !== 1)) {
+      throw new Error('Baseline save target changed before overwrite');
+    }
+    if (existing) {
+      let data;
+      try { data = JSON.parse(stripBOM(fs.readFileSync(fd, 'utf8'))); }
+      catch (error) { throw new Error('Refusing to overwrite a non-generated baseline file', { cause: error }); }
+      if (!isGeneratedBaseline(data)) throw new Error('Refusing to overwrite a non-generated baseline file');
+    }
+    const buffer = Buffer.from(JSON.stringify(snapshot, null, 2));
+    let offset = 0;
+    while (offset < buffer.length) {
+      offset += fs.writeSync(fd, buffer, offset, buffer.length - offset, offset);
+    }
+    fs.ftruncateSync(fd, buffer.length);
+  } finally { fs.closeSync(fd); }
   return { ok: true, filePath };
 }
 
 function loadBaseline(filePath) {
   try {
-    const { stripBOM } = require('../utils/sanitize');
     const raw = fs.readFileSync(filePath, 'utf8');
     const data = JSON.parse(stripBOM(raw));
     if (!data.findings) return { ok: false, error: 'Invalid baseline file: missing findings' };
@@ -192,7 +238,7 @@ function applyBaselineOperations(result, args) {
   if (args.save) {
     const saveFilename = typeof args.save === 'string' ? args.save : DEFAULT_BASELINE_FILE;
     const savePath = path.resolve(cwd, saveFilename);
-    saveBaseline(result, savePath);
+    saveBaseline(result, savePath, cwd);
     result.baselineSaved = savePath;
   }
 

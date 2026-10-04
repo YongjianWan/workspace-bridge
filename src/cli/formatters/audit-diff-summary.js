@@ -379,6 +379,10 @@ function buildAuditDiffSummary(entries, changeMetrics = null, stackProfile = 'un
   };
 }
 
+function isValidationTarget(entry) {
+  return !['reference', 'archive', 'generated'].includes(entry.classification?.directoryRole);
+}
+
 function classifyChangeType(entries) {
   const types = new Set();
   let docsCount = 0;
@@ -389,12 +393,10 @@ function classifyChangeType(entries) {
 
   for (const entry of entries) {
     const fileRole = entry.classification?.fileRole;
-    const directoryRole = entry.classification?.directoryRole;
     const file = entry.file || '';
     const ext = file.split('.').pop()?.toLowerCase();
 
-    // reference / archive 不参与主线变更类型判断
-    if (directoryRole === 'reference' || directoryRole === 'archive') {
+    if (!isValidationTarget(entry)) {
       continue;
     }
 
@@ -500,6 +502,7 @@ function compactChangedFile(entry) {
 module.exports = {
   buildAuditDiffSummary,
   classifyChangeType,
+  isValidationTarget,
   getValidationTemplate,
   compactChangedFile,
 };

@@ -138,7 +138,7 @@ class FileIndex {
         byExtension[ext] = (byExtension[ext] || 0) + 1;
       }
       const detail = Object.keys(byExtension).sort().map((ext) => `${ext} (${byExtension[ext]})`).join(', ');
-      this.warnings.push({
+      if (this.unsupportedSourceFiles.length > 0) this.warnings.push({
         type: 'unsupported-source-files',
         severity: 'high',
         files: this.unsupportedSourceFiles.length,

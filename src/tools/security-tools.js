@@ -6,6 +6,7 @@ const fs = require('fs');
 const { getAvailableAdapters } = require('../adapters');
 const { normalizePathKey } = require('../utils/path');
 const { sanitizeForAiOutput, stripBOM } = require('../utils/sanitize');
+const SENSITIVE_RULE_ID = /secret|sensitive|credential|password|token|api[-_]?key|private[-_]?key/i;
 
 function groupBySeverity(findings) {
   const map = { high: 0, medium: 0, low: 0, unknown: 0 };
@@ -122,6 +123,7 @@ function loadAndCompileRules(cwd, configFile = null) {
               pattern: new RegExp(rule.pattern, rule.flags || ''),
               severity: rule.severity,
               message: rule.message,
+              sensitive: rule.sensitive,
             };
           }),
         };
@@ -265,7 +267,9 @@ async function runBuiltinSecurityScan(cwd, targets, container, options = {}) {
           const match = lines[i].match(rule.pattern);
           let matchedText = match ? match[0] : null;
           if (matchedText) {
-            matchedText = sanitizeForAiOutput(matchedText, 120);
+            matchedText = rule.sensitive === true || SENSITIVE_RULE_ID.test(rule.id)
+              ? '[REDACTED]'
+              : sanitizeForAiOutput(matchedText, 120);
           }
           findings.push({
             ruleId: rule.id,

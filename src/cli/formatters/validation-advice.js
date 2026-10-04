@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { detectStack, generateCommands, enrichCommandEntry, INFRA_PATTERNS } = require('../../utils/stack-detector');
 const { probePythonTestEnvironment } = require('../../utils/environment-probe');
-const { classifyChangeType, getValidationTemplate } = require('./audit-diff-summary');
+const { classifyChangeType, isValidationTarget, getValidationTemplate } = require('./audit-diff-summary');
 const { collectEntryMetrics } = require('./validation-advice/metrics');
 const { buildPhases } = require('./validation-advice/phases');
 const { buildSummary } = require('./validation-advice/summary');
@@ -38,12 +38,13 @@ function buildValidationAdvice(entries, workspaceRoot) {
   }
 
   const changeType = classifyChangeType(entries);
+  const validationEntries = entries.filter(isValidationTarget);
 
   const stack = detectStack(workspaceRoot);
-  const fileExtensions = Array.from(new Set(entries.map((e) => (e.file || '').split('.').pop()?.toLowerCase()).filter(Boolean)));
+  const fileExtensions = Array.from(new Set(validationEntries.map((e) => (e.file || '').split('.').pop()?.toLowerCase()).filter(Boolean)));
   const template = getValidationTemplate(changeType, stack.profile, fileExtensions);
 
-  const metrics = collectEntryMetrics(entries);
+  const metrics = collectEntryMetrics(validationEntries);
   const { phases, smokeTargets, focusedSteps } = buildPhases(metrics, template);
   const summary = buildSummary(metrics);
 
@@ -60,7 +61,7 @@ function buildValidationAdvice(entries, workspaceRoot) {
     ...(commands.full || []),
   ];
 
-  const topRiskActions = buildTopRiskActions(entries, allCommands);
+  const topRiskActions = buildTopRiskActions(validationEntries, allCommands);
 
   return {
     changeType,

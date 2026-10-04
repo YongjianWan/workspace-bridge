@@ -102,13 +102,15 @@ function testAnalyzeCoChangesMergeCommitsSkipped() {
     writeFile(tempRoot, 'src/base.js', 'export const base = 1;\n');
     commit(tempRoot, 'base');
 
+    const initialBranch = runInDir('git', ['symbolic-ref', '--short', 'HEAD'], tempRoot).trim();
+
     // Create a branch, change a file
     runInDir('git', ['checkout', '-b', 'feature'], tempRoot);
     writeFile(tempRoot, 'src/feature.js', 'export const feat = 1;\n');
     commit(tempRoot, 'feature');
 
-    // Merge back to main
-    runInDir('git', ['checkout', 'main'], tempRoot);
+    // Merge back to the branch actually created by git init.
+    runInDir('git', ['checkout', initialBranch], tempRoot);
     runInDir('git', ['merge', '--no-ff', 'feature', '-m', 'merge feature'], tempRoot);
 
     const result = analyzeCoChanges(tempRoot, { commitLimit: 10 });

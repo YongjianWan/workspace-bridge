@@ -20,25 +20,27 @@ function buildAsciiTree(rootFiles, impactItems) {
   }
 
   const lines = [];
-
-  function walk(node, prefix = '') {
-    const children = childrenMap.get(node) || [];
-    for (let i = 0; i < children.length; i++) {
-      const child = children[i];
-      const isLast = i === children.length - 1;
-      const connector = isLast ? '└── ' : '├── ';
-      lines.push(`${prefix}${connector}${child}`);
-
-      const nextPrefix = prefix + (isLast ? '    ' : '│   ');
-      walk(child, nextPrefix);
+  for (const root of rootFiles) {
+    // Each root keeps its own view; repeated edges stay visible without expansion.
+    const visited = new Set();
+    const pending = [{ node: root, prefix: '', label: `Target: ${root}` }];
+    while (pending.length > 0) {
+      const { node, prefix, label } = pending.pop();
+      const seen = visited.has(node);
+      lines.push(label + (seen ? ' [already shown]' : ''));
+      if (seen) continue;
+      visited.add(node);
+      const children = childrenMap.get(node) || [];
+      for (let i = children.length - 1; i >= 0; i--) {
+        const isLast = i === children.length - 1;
+        pending.push({
+          node: children[i],
+          prefix: prefix + (isLast ? '    ' : '│   '),
+          label: `${prefix}${isLast ? '└── ' : '├── '}${children[i]}`,
+        });
+      }
     }
   }
-
-  for (const root of rootFiles) {
-    lines.push(`Target: ${root}`);
-    walk(root);
-  }
-
   return lines.join('\n');
 }
 

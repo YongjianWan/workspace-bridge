@@ -13,7 +13,8 @@ function n(p) {
 }
 
 function testZeroImporterRegexFallbackDowngraded() {
-  const file = n('/repo/Service.java');
+  // A framework-managed *Service.java would test entry exclusion instead of confidence.
+  const file = n('/repo/PlainUtility.java');
   const dg = createMockDepGraph({
     schema: {
       [file]: {
@@ -28,7 +29,8 @@ function testZeroImporterRegexFallbackDowngraded() {
   });
 
   const dead = dg.findDeadExports();
-  const item = dead.find((d) => d.file === file || d.file.endsWith('Service.java'));
+  assert.strictEqual(dg.isKnownEntryFile(file), false, 'fixture must be a library on every platform');
+  const item = dead.find((d) => d.file === file);
   assert(item, 'should report dead export candidate');
   assert.strictEqual(item.confidence, 'low', 'regex-fallback 0-importer must be low confidence');
   assert.strictEqual(item.confidenceSource, 'regex-fallback', 'source must name the degradation');

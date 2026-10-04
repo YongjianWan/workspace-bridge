@@ -135,7 +135,7 @@ function runCommandSecure(command, args, cwd, timeoutMs = TIMEOUTS.COMMAND_DEFAU
     });
 
     child.on('close', onFinish);
-    child.on('exit', onFinish);
+    // exit can precede the last pipe data; only close guarantees complete output.
 
     child.on('error', (err) => {
       clearTimeout(timer);
