@@ -25,6 +25,7 @@ const {
   getFunctionLevelAffectedTests,
 } = require('./dep-graph/symbol-impact');
 const { EventBus } = require('../utils/event-bus');
+const { Ledger } = require('./ledger');
 const { GraphBuilder } = require('./dep-graph/builder');
 const { GraphAnalyzer } = require('./dep-graph/analyzer');
 const { GraphQuery } = require('./dep-graph/query');
@@ -65,6 +66,7 @@ class DependencyGraph {
     this.quiet = options.quiet || false;
     this._stateMachine = new GraphStateMachine();
     this.bus = new EventBus();
+    this.ledger = options.ledger || new Ledger();
     this.entryDetector = new EntryDetector({
       entryFiles: this.entryFiles,
       normalizeFilePath: this.normalizeFilePath,

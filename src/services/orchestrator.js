@@ -117,6 +117,7 @@ async function initializeDepGraph({
     cliExcludeDirs: fileIndex?.cliExcludeDirs || [],
     projectContext,
     quiet,
+    ledger: fileIndex?.ledger,
     ...options,
   });
 

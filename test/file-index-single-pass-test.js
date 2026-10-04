@@ -160,7 +160,7 @@ async function testDepthTruncationWarns() {
     assert(got.some((f) => f.endsWith('shallow.js')), `depth-12 文件应入索引，实际: ${got.join(', ')}`);
     assert(!got.some((f) => f.endsWith('deep.js')), `depth-13 文件应被截断，实际: ${got.join(', ')}`);
 
-    const warn = (index.warnings || []).find((w) => w.type === 'depth-truncated');
+    const warn = index.ledger.warnings().find((w) => w.type === 'depth-truncated');
     assert(warn, `深度截断必须进 warnings[]（L1-4），实际: ${JSON.stringify(index.warnings)}`);
     assert(warn.files >= 1 && /max depth 12/.test(warn.message),
       `depth-truncated 警告应带截断目录数与深度说明，实际: ${JSON.stringify(warn)}`);

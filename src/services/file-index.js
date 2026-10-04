@@ -12,6 +12,7 @@ const { filterGitIgnored } = require('../utils/gitignore');
 const { hashFileContent } = require('./cache');
 const { loadWorkspaceConfig } = require('../utils/project-context');
 const { EventBus } = require('../utils/event-bus');
+const { Ledger } = require('./ledger');
 const { registry } = require('./dep-graph/parsers/registry');
 const { DEFAULTS, KNOWN_SOURCE_EXTENSIONS } = require('../config/constants');
 
@@ -48,6 +49,7 @@ class FileIndex {
     this.unsupportedSourceFiles = [];
     this.quiet = options.quiet || false;
     this.bus = new EventBus();
+    this.ledger = options.ledger || new Ledger();
   }
 
   /**
@@ -59,6 +61,8 @@ class FileIndex {
     this.processedCount = 0;
     this.changedFiles.clear();
     this.warnings = [];
+    this.ledger.clear('index-timeout');
+    this.ledger.clear('depth-truncated');
     this._depthTruncatedDirs = 0;
     this.unsupportedSourceFiles = [];
     this._unsupportedCandidates = [];
@@ -97,7 +101,7 @@ class FileIndex {
 
     if (signal.aborted) {
       if (options.signal?.aborted) throw options.signal.reason;
-      this.warnings.push({ type: 'index-timeout', severity: 'high', discoveredFiles: allFiles.length,
+      this.ledger.record('index-timeout', { discoveredFiles: allFiles.length,
         message: `File discovery exceeded ${timeoutMs}ms; the indexed set is incomplete and its total size is unknown` });
       console.error(`[FileIndex] Build timed out after ${Date.now() - startTime}ms`);
     }
@@ -114,9 +118,7 @@ class FileIndex {
     if (this._depthTruncatedDirs > 0) {
       // An index missing deep subtrees is degraded data — say so via
       // warnings[] (consumed by analyzer.buildWarnings), never silently.
-      this.warnings.push({
-        type: 'depth-truncated',
-        severity: 'medium',
+      this.ledger.record('depth-truncated', {
         files: this._depthTruncatedDirs,
         message: `${this._depthTruncatedDirs} director(ies) beyond max depth ${DEFAULTS.FILE_INDEX_MAX_DEPTH} were not indexed; coverage for deep subtrees is incomplete`,
       });

@@ -742,7 +742,7 @@ class GraphAnalyzer {
       else if (info.parseMode === 'regex') fallbackFiles++;
     }
     const totalFiles = this.dg.graph.size;
-    const discoveryComplete = !(this.dg._indexWarnings || []).some(warning => ['index-timeout', 'depth-truncated'].includes(warning.type));
+    const discoveryComplete = !this.dg.ledger.has('index-timeout', 'depth-truncated');
     const skippedFiles = [...this.dg.graph.values()].filter(info => info.parseMode === 'none').length;
     // Files dropped at discovery (known source extensions, no parser)
     // join the coverage denominator — without them a repo with an entire
@@ -805,14 +805,29 @@ class GraphAnalyzer {
     return result;
   }
 
+  // Stage failures live on the bus and skipped files on the graph, and both change after a
+  // watch-mode update. They are recomputed into the ledger before it is read, never appended,
+  // so a stage that now succeeds or a file now under the size limit leaves no stale warning.
+  _syncStateLedger() {
+    const ledger = this.dg.ledger;
+    ledger.replace('analysis-stage-failed', (this.dg.bus.errors || []).map((error) => ({
+      stage: error.event,
+      message: `Analysis stage ${error.event} failed: ${error.message}; results are incomplete`,
+    })));
+    for (const reason of ['file-too-large', 'unsupported-source-encoding']) {
+      const files = [...this.dg.graph].filter(([, info]) => info.parseModeReason === reason).map(([file]) => this.dg._displayPath(file));
+      ledger.replace(reason, files.length ? [{
+        files: files.length,
+        message: `${files.length} source file(s) were not parsed (${reason}): ${files.slice(0, LIMITS.OUTPUT_SHORT).join(', ')}`,
+      }] : []);
+    }
+  }
+
   buildWarnings() {
     const warnings = [];
     warnings.push(...(this.dg._historyWarnings || []));
-    for (const error of this.dg.bus.errors || []) {
-      warnings.push({ type: 'analysis-stage-failed', severity: 'high', stage: error.event,
-        message: `Analysis stage ${error.event} failed: ${error.message}; results are incomplete` });
-    }
-    const skippedReasons = ['file-too-large', 'unsupported-source-encoding'];
+    this._syncStateLedger();
+    warnings.push(...this.dg.ledger.warnings());
     const dynamicFiles = [...this.dg.graph].filter(([, info]) => info.importRecords?.some(record => record.importKind === 'dynamic-unresolved')).map(([file]) => this.dg._displayPath(file));
     if (dynamicFiles.length) warnings.push({ type: 'dynamic-load-unresolved', severity: 'medium', files: dynamicFiles.length,
       sampleFiles: dynamicFiles.slice(0, LIMITS.OUTPUT_SHORT),
@@ -821,12 +836,6 @@ class GraphAnalyzer {
     const usesNext = Boolean(this.dg.packageJson?.dependencies?.next || this.dg.packageJson?.devDependencies?.next);
     if (runtimeWired.length || usesNext) warnings.push({ type: 'dynamic-load-unresolved', severity: 'medium', files: runtimeWired.length,
       message: 'Runtime dependency injection or filesystem routing is not a complete file dependency graph; zero impact does not establish absence of runtime consumers' });
-    for (const reason of skippedReasons) {
-      const files = [...this.dg.graph].filter(([, info]) => info.parseModeReason === reason).map(([file]) => this.dg._displayPath(file));
-      if (files.length) warnings.push({ type: reason, severity: 'high', files: files.length,
-        message: `${files.length} source file(s) were not parsed (${reason}): ${files.slice(0, LIMITS.OUTPUT_SHORT).join(', ')}` });
-    }
-
     if (this.dg.projectContext && Array.isArray(this.dg.projectContext.warnings)) {
       for (const msg of this.dg.projectContext.warnings) {
         warnings.push({

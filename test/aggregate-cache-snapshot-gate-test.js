@@ -3,6 +3,7 @@
 const assert = require('assert');
 const { GraphDB } = require('../src/services/graph-db');
 const { GraphAnalyzer } = require('../src/services/dep-graph/analyzer');
+const { Ledger } = require('../src/services/ledger');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -27,6 +28,7 @@ function mockDepGraph(graphData) {
     root: process.cwd(),
     normalizeFilePath: (f) => f,
     bus: { emit: () => {}, on: () => {} },
+    ledger: new Ledger(),
     getDependencies: (f) => graph.get(f)?.imports || [],
     getDependents: (f) => reverseGraph.get(f) || [],
     shouldExcludeCli: () => false,

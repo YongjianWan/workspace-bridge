@@ -21,9 +21,9 @@ async function main() {
       const index = new FileIndex(root, cache, { quiet: true });
       index.findFilesAsync = async function* () { await new Promise(resolve => setTimeout(resolve, 20)); yield path.join(root, 'a.js'); };
       await index.build(1, { watch: false });
-      assert(index.warnings.some(w => w.type === 'index-timeout'));
+      assert(index.ledger.warnings().some(w => w.type === 'index-timeout'));
       const graph = DependencyGraph.fromSchema(root, {});
-      graph._indexWarnings = index.warnings;
+      graph.ledger = index.ledger;
       const coverage = graph.getStats().analysisCoverage;
       assert.strictEqual(coverage.coverageRatio, null);
       const result = { ok: true, summary: { analysisCoverage: coverage }, scope: {} };
