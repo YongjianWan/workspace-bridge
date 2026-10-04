@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { normalizeFilePath } = require('../utils/path');
+const { normalizeFilePath, normalizePathKey } = require('../utils/path');
 const { GraphDB } = require('./graph-db');
 const { DEFAULTS } = require('../config/constants');
 
@@ -65,7 +65,8 @@ const METADATA_SCHEMA = {
 };
 
 function computeDefaultCacheDir(workspaceRoot, warnings = []) {
-  const hash = crypto.createHash('md5').update(workspaceRoot).digest('hex').slice(0, 8);
+  // Hash the same key the graph uses, so `C:\x`, `c:\x` and `C:/x` share one cache dir.
+  const hash = crypto.createHash('md5').update(normalizePathKey(workspaceRoot)).digest('hex').slice(0, 8);
   const cacheRoot = process.platform === 'win32'
     ? (process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'))
     : (process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'));

@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-09-27T11:56:13.270Z",
   "wbVersion": "2.1.0",
-  "note": "typer affected-tests 使用固定提交 a80f6e5ecd 的 coverage 真值和实时 findAffectedTests 查询作基线；其他指标沿用现有固定语料的评分。",
+  "note": "typer affected-tests 使用固定提交 a80f6e5ecd 的 coverage 真值和CLI 实际输出（默认截断）作基线，进程内完整预测记在 full 字段仅供参考；其他指标沿用现有固定语料的评分。",
   "repos": {
     "typer": {
       "dead-code": {
@@ -13,9 +13,14 @@
       },
       "affected-tests": {
         "status": "ok",
-        "precision": 0.548,
-        "recall": 0.9906,
-        "n": 5586
+        "precision": 0.5769,
+        "recall": 0.4867,
+        "n": 4171,
+        "full": {
+          "precision": 0.548,
+          "recall": 0.9906,
+          "n": 5586
+        }
       }
     },
     "full-stack-fastapi-template": {

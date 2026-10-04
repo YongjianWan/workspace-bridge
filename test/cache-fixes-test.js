@@ -118,6 +118,21 @@ function testWalFilesMigrateWithCacheDb() {
   cleanupTempDir(root);
 }
 
+function testCacheDirIdentityIgnoresPathSpelling() {
+  const root = makeTempDir('wb-cache-identity-');
+  const spellings = [root, root + path.sep, path.join(root, 'sub', '..')];
+  if (process.platform === 'win32') {
+    spellings.push(root.toLowerCase(), root.toUpperCase(), root.replace(/\\/g, '/'));
+  }
+  const dirs = new Set(spellings.map((s) => computeDefaultCacheDir(s)));
+  try {
+    assert.strictEqual(dirs.size, 1, `one workspace must map to one cache dir, got ${[...dirs].join(' | ')}`);
+  } finally {
+    for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+    cleanupTempDir(root);
+  }
+}
+
 function testDeleteFileMetadataCascadesToAllSlots() {
   const dir = makeTempDir('wb-cache-cascade-');
   const file = path.join(dir, 'src', 'cascade.js');
@@ -177,6 +192,7 @@ async function main() {
   testContentChangeWithRestoredMtime();
   await testMtimePrecisionSurvivesSaveLoadRoundtrip();
   testWalFilesMigrateWithCacheDb();
+  testCacheDirIdentityIgnoresPathSpelling();
   testDeleteFileMetadataCascadesToAllSlots();
   testCloseIsExceptionSafe();
 }

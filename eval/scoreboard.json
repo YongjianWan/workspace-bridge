@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-30T08:52:31.650Z",
+  "generatedAt": "2026-10-04T15:25:31.250Z",
   "wbVersion": "2.1.0",
   "repos": {
     "typer": {
@@ -84,13 +84,21 @@
       },
       "affected-tests": {
         "status": "ok",
-        "precision": 0.548,
-        "recall": 0.9906,
-        "n": 5586,
-        "tp": 3045,
-        "fp": 2512,
-        "fn": 29,
-        "filesScored": 28
+        "precision": 0.5769,
+        "recall": 0.4867,
+        "n": 4171,
+        "tp": 1496,
+        "fp": 1097,
+        "fn": 1578,
+        "filesScored": 28,
+        "full": {
+          "precision": 0.548,
+          "recall": 0.9906,
+          "n": 5586,
+          "tp": 3045,
+          "fp": 2512,
+          "fn": 29
+        }
       }
     },
     "full-stack-fastapi-template": {
@@ -1337,17 +1345,17 @@
       "repo": "typer",
       "metric": "affected-tests.precision",
       "baseline": 0.548,
-      "current": 0.548,
-      "delta": 0,
+      "current": 0.5769,
+      "delta": 0.0289,
       "result": "PASS"
     },
     {
       "repo": "typer",
       "metric": "affected-tests.recall",
       "baseline": 0.9906,
-      "current": 0.9906,
-      "delta": 0,
-      "result": "PASS"
+      "current": 0.4867,
+      "delta": -0.5039,
+      "result": "FAIL"
     },
     {
       "repo": "full-stack-fastapi-template",
@@ -1511,7 +1519,7 @@
     }
   ],
   "summary": {
-    "fail": 0,
-    "pass": 23
+    "fail": 1,
+    "pass": 22
   }
 }

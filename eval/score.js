@@ -182,16 +182,35 @@ async function scoreCoverageAffected(entry) {
   const gt = readJson(path.join(lib.outDir(entry), 'gt.json'), null);
   if (!gt || !gt.map) return pending(`gt.json missing; run \`node eval/run.js ${entry.name}\``);
   const repoDir = lib.repoDir(entry);
-  const preds = await loadPredictions(repoDir, path.join(lib.outDir(entry), 'cache'), Object.keys(gt.map));
+  const fullPreds = await loadPredictions(repoDir, path.join(lib.outDir(entry), 'cache'), Object.keys(gt.map));
 
   // Coverage truth scores pytest files below the configured test directory.
   const testsDir = `${entry.affectedTests.tests}/`;
   const isTest = (p) => p.startsWith(testsDir) && p.split('/').pop().startsWith('test_');
-  const pairs = Object.entries(gt.map).map(([src, real]) => ({
-    real: new Set(real),
-    pred: new Set([...(preds.get(toPosix(src)) || [])].filter(isTest)),
-  }));
-  return { status: 'ok', ...microPR(pairs), filesScored: pairs.length };
+  const filterTests = (set) => new Set([...set].filter(isTest));
+
+  // Headline numbers use what the agent actually receives from the CLI (truncated, with
+  // elision markers). The in-process full prediction is kept as `full` for reference only.
+  const visiblePairs = [];
+  const fullPairs = [];
+  const failed = [];
+  for (const [src, real] of Object.entries(gt.map)) {
+    const res = cliAffectedTests(entry, src);
+    if (!res || res.ok === false) {
+      failed.push(src);
+      continue;
+    }
+    const visible = new Set((res.affectedTests || []).map((t) => toRepoRel(repoDir, typeof t === 'string' ? t : t.file)).filter(Boolean));
+    visiblePairs.push({ real: new Set(real), pred: filterTests(visible) });
+    fullPairs.push({ real: new Set(real), pred: filterTests(fullPreds.get(toPosix(src)) || []) });
+  }
+  if (failed.length) return pending(`affected-tests CLI failed for ${failed.length} file(s): ${failed.slice(0, 3).join(', ')}`);
+  return {
+    status: 'ok',
+    ...microPR(visiblePairs),
+    filesScored: visiblePairs.length,
+    full: microPR(fullPairs),
+  };
 }
 
 function cliAffectedTests(entry, file) {

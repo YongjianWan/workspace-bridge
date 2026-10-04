@@ -120,8 +120,8 @@ unresolvedCount / droppedCount / warnings / languages{files, astFiles, regexFile
 3. 在 clone 里执行 `python -m coverage run --rcfile=... -m pytest -q -p no:cacheprovider -p no:cov <tests>`。
    pytest exit 1（有用例失败）照样接受——真值取自 coverage 数据，与通过与否无关。
 4. `gt.json` = 每个源文件 → 实际执行到它的测试文件。**真值是下限**：子进程里跑的代码 coverage 追不到。
-5. `score.js` 初始化该仓依赖图，对 `gt.json` 中每个源文件调用 `findAffectedTests` 取得预测；
-   两侧路径归一成 `/` 后做 micro P/R。一次建图即可评分，预测不依赖持久化的整图分析表。
+5. `score.js` 对 `gt.json` 中每个源文件调用 CLI `affected-tests --json`（agent 实际拿到的输出，含截断）取得预测；
+   两侧路径归一成 `/` 后做 micro P/R，这是基线与 FAIL 判定的口径。同时用进程内 `findAffectedTests` 的完整预测算一份 `full` 字段，仅供对照截断损失。
 
 ### affected-tests：fault-injection
 

@@ -5,6 +5,7 @@ const path = require('path');
 const os = require('os');
 const { detectFrameworkFromContent } = require('../src/services/dep-graph/framework-patterns');
 const { computeDefaultCacheDir } = require('../src/services/cache');
+const { normalizePathKey } = require('../src/utils/path');
 const { parseCliArgs } = require('../src/cli/validate-args');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
@@ -146,7 +147,7 @@ async function testCacheDirectoryPrecedenceAndMigration() {
     if (originalCacheRoot === undefined) delete process.env[cacheEnv];
     else process.env[cacheEnv] = originalCacheRoot;
 
-    const hash = require('crypto').createHash('md5').update(migrationRoot).digest('hex').slice(0, 8);
+    const hash = require('crypto').createHash('md5').update(normalizePathKey(migrationRoot)).digest('hex').slice(0, 8);
     const legacyDir = path.join(os.tmpdir(), 'workspace-bridge', hash);
     fs.mkdirSync(legacyDir, { recursive: true });
     fs.writeFileSync(path.join(legacyDir, 'cache.db'), 'legacy_cache_content');
