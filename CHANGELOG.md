@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### 分析台账第一块（2026-10-05）
+
+- 新增 `src/services/ledger.js`：带原因码白名单的台账（`file-too-large`、`unsupported-source-encoding`、`depth-truncated`、`index-timeout`、`analysis-stage-failed`），写入未知原因码抛错；输出的 `warnings[]` 从台账推导。`FileIndex` 的深度截断与索引超时在发生时 `record`；阶段失败（来自 `bus.errors`）和文件未解析（来自图节点）在输出警告前用 `replace` 重新推导，增量更新后不留旧警告。`discoveryComplete` 改读台账。旧的三条产出路径已删除，警告的 `type`/`severity`/字段/文案不变。
+- `FileIndex` 的这两类信号不再出现在 `fileIndex.warnings`，读取处改为 `fileIndex.ledger.warnings()`；`DependencyGraph` 新增 `ledger` 属性，容器流程里与 `FileIndex` 共用同一个台账。
+- 回归：`ledger-test`、`ledger-warnings-test`（旧输出形状、重复调用不重复、增量更新后警告消失）；去掉 `Ledger.replace` 的清除步骤后两条均变红。全量 325/325、0 失败，lint 退出码 0。
+
 ### Windows 短路径工作区与基线保存检查（2026-10-05）
 
 - 工作区以 Windows 8.3 短路径（如 `C:UsersRUNNER~1...`）传入时，git 返回长路径，路径比较对不上，`audit-diff` 以 `ok: true` 静默返回 0 个变更文件。现在 git 边界（`getChangedFiles`、`getDiffNumstat`）把 git 的长路径翻译回调用方传入的拼写，内部路径身份不变；git 环境探测比较时展开短名。仅处理含 `~数字` 短名段的 Windows 路径，其他路径原样返回。回归：`short-path-workspace-test`；把 `TEMP` 设为短路径跑完整套件 323/323。
