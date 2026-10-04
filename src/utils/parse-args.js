@@ -10,7 +10,7 @@
  *   const command = raw._[0];
  *   const maxDepth = raw.maxDepth;
  */
-function parseArgs(argv, handlers) {
+function parseArgs(argv, handlers, options = {}) {
   const args = argv.slice(2);
   const result = { _: [] };
   for (let i = 0; i < args.length; i += 1) {
@@ -27,6 +27,11 @@ function parseArgs(argv, handlers) {
       result[arg] = true;
     } else {
       const nextArg = args[i + 1];
+      if (options.requireValues && !handler.optionalValue && (nextArg === undefined || /^-[a-zA-Z-]/.test(nextArg))) {
+        const error = new Error(`Missing value for ${arg}`);
+        error.code = 'VALIDATION_ERROR';
+        throw error;
+      }
       if (nextArg !== undefined) {
         if (!/^-[a-zA-Z-]/.test(nextArg)) {
           i += 1;

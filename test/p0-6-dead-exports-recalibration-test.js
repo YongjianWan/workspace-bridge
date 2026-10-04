@@ -137,11 +137,7 @@ async function runAssertions(root) {
 
     // 规则5 glob-loaded
     const globItem = find('src/modules/nprogress.ts');
-    assert.ok(globItem, 'glob 装载的模块发现应保留');
-    assert.strictEqual(globItem.confidence, 'low', 'import.meta.glob 装载的模块不得是 high');
-    assert.strictEqual(globItem.confidenceValue, 0.5);
-    assert.strictEqual(globItem.confidenceSource, 'import-meta-glob');
-    assert.strictEqual(globItem.falsePositiveReason, 'import-meta-glob');
+    assert.ok(!globItem, 'glob 装载的模块有真实依赖边，不应报告为死导出');
 
     // 回归守卫：未命中任何规则的普通真死导出必须仍是 high
     const plain = find('lib/utils.ts');

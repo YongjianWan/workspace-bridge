@@ -46,6 +46,7 @@ function makeFileCommand(handler, hasFindingsFn) {
     }
     const result = await handler(parsed, container, filePath);
     if (hasFindingsFn) result.hasFindings = hasFindingsFn(result);
+    if (result.warnings?.some(warning => warning.type === 'target-not-indexed')) result.hasFindings = true;
     return result;
   };
 }

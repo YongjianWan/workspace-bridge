@@ -202,6 +202,8 @@ function buildProjectMap(depGraph, options = {}) {
     allFiles = allFiles.slice(0, maxFiles);
   }
   const allowedFiles = new Set(allFiles.map((f) => toRelativePath(root, f)));
+  const displayPaths = new Map(allFiles.map(file => [depGraph.normalizeFilePath(file), toRelativePath(root, file)]));
+  const selectedRelative = file => displayPaths.get(depGraph.normalizeFilePath(file));
 
   // Flat tree: all files with roles
   const flatTree = allFiles.map((file) => {
@@ -248,7 +250,7 @@ function buildProjectMap(depGraph, options = {}) {
       for (const record of importRecords) {
         const resolved = record.resolved || record.source;
         if (!resolved) continue;
-        const toRel = toRelativePath(root, resolved);
+        const toRel = selectedRelative(resolved);
         if (!allowedFiles.has(toRel)) continue;
         const toDir = getDirectoryOf(toRel);
         if (fromDir === toDir) continue;
@@ -284,7 +286,7 @@ function buildProjectMap(depGraph, options = {}) {
       for (const record of importRecords) {
         const resolved = record.resolved || record.source;
         if (!resolved) continue;
-        const toRel = toRelativePath(root, resolved);
+        const toRel = selectedRelative(resolved);
         if (!allowedFiles.has(toRel)) continue;
         const edgeKey = `${fromRel}|${toRel}`;
         const existing = edgeMap.get(edgeKey);
@@ -359,14 +361,14 @@ function buildProjectMap(depGraph, options = {}) {
 
   const issueOverlay = {
     deadExports: deadExports
-      .filter((item) => allowedFiles.has(toRelativePath(root, item.file)))
+      .filter((item) => allowedFiles.has(selectedRelative(item.file)))
       .map((item) => compact
         ? { file: toRelativePath(root, item.file), confidence: item.confidence || 'medium' }
         : { file: toRelativePath(root, item.file), exports: item.exports, confidence: item.confidence || 'medium' }
       )
       .slice(0, compact ? DEFAULTS.COMPACT_ISSUE_MAX_ITEMS : deadExports.length),
     unresolved: unresolved
-      .filter((item) => allowedFiles.has(toRelativePath(root, item.file)))
+      .filter((item) => allowedFiles.has(selectedRelative(item.file)))
       .map((item) => ({
         file: toRelativePath(root, item.file),
         import: item.import,
@@ -374,7 +376,7 @@ function buildProjectMap(depGraph, options = {}) {
       }))
       .slice(0, compact ? DEFAULTS.COMPACT_ISSUE_MAX_ITEMS : unresolved.length),
     cycles: cycles
-      .filter((cycle) => cycle.every((f) => allowedFiles.has(toRelativePath(root, f))))
+      .filter((cycle) => cycle.every((f) => allowedFiles.has(selectedRelative(f))))
       .map((cycle) => cycle.map((f) => toRelativePath(root, f))),
     orphans: (compact ? orphans.slice(0, DEFAULTS.COMPACT_ORPHAN_MAX_ITEMS) : orphans)
       .filter((item) => allowedFiles.has(typeof item === 'string' ? item : (item.file || ''))),

@@ -297,7 +297,8 @@ function buildDiffResult(safeEntries, finalEntries, changeMetrics, parsed, conta
   }
 
   // Calculate hasFindings O(1) return contract
-  result.hasFindings = result.summary?.counts?.highCompositeRiskFiles > 0 || result.summary?.counts?.affectedTests > 0;
+  result.hasFindings = result.summary?.counts?.highCompositeRiskFiles > 0 || result.summary?.counts?.affectedTests > 0 ||
+    result.incrementalFindings?.cyclesCount > 0 || result.incrementalFindings?.unresolvedCount > 0 || result.incrementalFindings?.deadExportsCount > 0;
 
   return result;
 }

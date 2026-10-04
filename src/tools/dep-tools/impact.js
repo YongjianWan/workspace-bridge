@@ -7,6 +7,7 @@ const { truncateArray } = require('../../utils/truncate');
 async function impact(args, container, filePath) {
   const impact = container.snapshot.graph.getImpactRadius(filePath, args?.maxDepth);
   const symbolImpact = container.snapshot.graph.getSymbolImpact(filePath);
+  const targetNotIndexed = symbolImpact?.reason === 'source-not-indexed';
   let coChangeData = container.cache?.coChanges || null;
   if (!coChangeData && container.ensurePrecomputed) {
     await container.ensurePrecomputed(['cochanges']);
@@ -23,7 +24,7 @@ async function impact(args, container, filePath) {
   // Environment degradation applies to the overall impact result because sparse
   // checkout / submodule / LFS / monorepo root can make the graph incomplete.
   const env = container.gitEnvironment || { dataQuality: DATA_QUALITY.CERTAIN, remediation: null };
-  const dataQuality = env.dataQuality;
+  const dataQuality = targetNotIndexed ? DATA_QUALITY.DEGRADED : env.dataQuality;
   const environmentRemediation = env.remediation;
 
   // Wave 9-2: collect affected routes from impacted files (graph-first!)
@@ -41,6 +42,9 @@ async function impact(args, container, filePath) {
     file: args.file,
     resolvedPath: container.snapshot.graph._displayPath?.(filePath) || filePath,
     impactCount: impact.length,
+    ...(targetNotIndexed ? {
+      warnings: [{ type: 'target-not-indexed', severity: 'high',
+        message: 'Target is not in the source index; zero impact does not establish absence of dependents' }] } : {}),
     impact: impactTrunc.items,
     symbolImpact,
     coChanges: coChangesTrunc.items,

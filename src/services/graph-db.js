@@ -405,12 +405,14 @@ class GraphDB {
    * @param {any} fallback — value meaning "cache miss" for this call site
    */
   _readGuard(label, fn, fallback = null) {
+    this.lastError = null;
     return _runWithReadRetry(() => {
       try {
         this._ensureOpen();
         if (!this._isStoredVersionCurrent()) return fallback;
         return fn();
       } catch (err) {
+        this.lastError = err;
         _debugError(label, err);
         return fallback;
       }

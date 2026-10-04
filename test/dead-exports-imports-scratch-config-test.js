@@ -1,36 +1,25 @@
 #!/usr/bin/env node
-// @contract — project-context 导出面收紧；scratch 目录按 archive 排除后不再被报为 orphan 模块
-
+// @semantic
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const projectContext = require('../src/utils/project-context');
-const { runCliInProcess } = require('./test-helpers');
-
-function testProjectContextExportsAreMinimal() {
-  assert.strictEqual(typeof projectContext.ProjectContext, 'function', 'ProjectContext must remain exported');
-  assert.ok(!('JS_TS_EXTS' in projectContext), 'JS_TS_EXTS should not be exported from project-context (only used internally)');
-  assert.ok(!('normalizeRelativePath' in projectContext), 'normalizeRelativePath should not be exported from project-context (no external importers)');
-}
-
-async function testScratchFilesAreNotOrphanModules() {
-  const result = await runCliInProcess(['--cwd', '.', '--json', '--quiet', 'audit-overview']);
-  assert.ok(result && result.orphans, 'audit-overview should return orphans');
-
-  const moduleSamples = result.orphans.samples?.modules || result.orphans.modules || [];
-  assert.ok(Array.isArray(moduleSamples), 'orphans modules should be an array');
-  const scratchOrphans = moduleSamples.filter((p) => p.startsWith('scratch/'));
-  assert.strictEqual(scratchOrphans.length, 0, `scratch/*.js files should not be reported as orphan modules, got: ${scratchOrphans.join(', ')}`);
-  assert.strictEqual(result.orphans.counts?.modules, 0, 'orphans.modules count should be 0 after scratch is archived');
-}
-
+const { runCliInProcess, makeTempDir, cleanupTempDir } = require('./test-helpers');
 async function main() {
-  testProjectContextExportsAreMinimal();
-  console.log('  PASS testProjectContextExportsAreMinimal');
-  await testScratchFilesAreNotOrphanModules();
-  console.log('  PASS testScratchFilesAreNotOrphanModules');
-  console.log('test/dead-exports-imports-scratch-config-test.js ... PASS');
+  assert.strictEqual(typeof projectContext.ProjectContext, 'function');
+  assert(!('JS_TS_EXTS' in projectContext));
+  assert(!('normalizeRelativePath' in projectContext));
+  const root = makeTempDir('wb-scratch-archive-');
+  try {
+    fs.mkdirSync(path.join(root, 'scratch'));
+    fs.writeFileSync(path.join(root, 'scratch', 'unused.js'), 'module.exports = 1;');
+    fs.writeFileSync(path.join(root, 'main.js'), 'console.log("entry");');
+    fs.writeFileSync(path.join(root, '.workspace-bridge.json'), JSON.stringify({ directories: { archive: ['scratch'] } }));
+    const result = await runCliInProcess(['--cwd', root, '--strict-cwd', '--json', '--quiet', 'audit-overview']);
+    assert(result.ok);
+    assert.strictEqual(result.skeleton.totalFiles, 1, 'archived scratch source must not enter the graph');
+    assert.strictEqual(result.orphans.counts.modules, 0, 'archived scratch files must not become orphan modules');
+    console.log('scratch archive contract: 6/6 passed');
+  } finally { cleanupTempDir(root); }
 }
-
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main().catch(error => { console.error(error); process.exitCode = 1; });

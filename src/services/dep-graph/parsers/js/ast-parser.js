@@ -14,6 +14,7 @@ const {
   buildExportRecordFromValue,
   pushFunctionRecord,
 } = require('./shared');
+const WEBPACK_CONFIG_FILE = /^webpack\.config\.[cm]?[jt]s$/i;
 
 // 无插值模板字符串等价于普通字符串：`import(`./lazy`)` 和 import('./lazy')
 // 是同一种静态依赖；带插值的模板无法静态解析，返回 null。
@@ -260,7 +261,10 @@ function parseJavaScriptAST(content, filePath = '') {
           node.callee.name === 'require'
         ) {
           const source = staticModuleSource(node.arguments?.[0]);
-          if (source === null) return;
+          if (source === null) {
+            importRecords.push(createImportRecord('<dynamic:require>', { importKind: 'dynamic-unresolved' }));
+            return;
+          }
           imports.push(source);
           let imported = [];
           let usesAllExports = true;
@@ -285,9 +289,19 @@ function parseJavaScriptAST(content, filePath = '') {
         }
         if (node.callee?.type === 'Import') {
           const source = staticModuleSource(node.arguments?.[0]);
-          if (source === null) return;
+          if (source === null) {
+            importRecords.push(createImportRecord('<dynamic:import>', { importKind: 'dynamic-unresolved' }));
+            return;
+          }
           imports.push(source);
           importRecords.push(createImportRecord(source, { usesAllExports: true, isLazy: true }));
+        }
+        if (node.callee?.type === 'MemberExpression' && node.callee.object?.type === 'MetaProperty' &&
+          node.callee.object.meta?.name === 'import' && ['glob', 'globEager'].includes(node.callee.property?.name)) {
+          const source = staticModuleSource(node.arguments?.[0]);
+          importRecords.push(createImportRecord(source || '<dynamic:glob>', {
+            usesAllExports: true, importKind: source ? 'glob' : 'dynamic-unresolved',
+          }));
         }
       },
 
@@ -376,6 +390,10 @@ function parseJavaScriptAST(content, filePath = '') {
     };
 
     walkAST(ast, (node, parent) => {
+      // Webpack loads entry strings at runtime; they are not ordinary import declarations.
+      if (node.type === 'ObjectProperty' && getPropertyName(node) === 'entry' && WEBPACK_CONFIG_FILE.test(path.basename(filePath))) {
+        importRecords.push(createImportRecord('<dynamic:webpack-entry>', { importKind: 'dynamic-unresolved' }));
+      }
       const handler = importExportVisitors[node.type];
       if (handler) handler(node, parent);
     });

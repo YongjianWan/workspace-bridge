@@ -27,12 +27,14 @@ function _tryPythonCandidates(basePath, ctx) {
 // no <name>/__init__.py) still never fabricates an edge.
 function _tryNamespaceSubmodule(basePath, ctx) {
   if (!ctx.imported || ctx.imported.length === 0) return null;
+  const targets = [];
   for (const name of ctx.imported) {
     if (!name || name === '*') continue;
     const submodule = _tryPythonCandidates(path.join(basePath, name), ctx);
-    if (submodule) return submodule;
+    if (submodule) targets.push(submodule);
   }
-  return null;
+  if (targets.length && ctx.outMeta) ctx.outMeta.additionalTargets = targets;
+  return targets[0] || null;
 }
 
 // `from X import a` 在 X/a.py 或 X/a/__init__.py 存在时

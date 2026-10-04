@@ -14,6 +14,7 @@ function makeMockContainer(workspaceRoot, captured) {
     ensureReady: async () => {},
     snapshot: {
       graph: {
+        hasFile: () => true,
         getImpactRadius: () => [{ file: path.join(workspaceRoot, 'a.js'), level: 1 }],
         getSymbolImpact: () => ({ mode: 'file-fallback', impactedFiles: [] }),
         findAffectedHttpRoutes: () => [],

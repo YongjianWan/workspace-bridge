@@ -77,6 +77,7 @@ function normalizePythonAstResult(astResult) {
       createImportRecord(record.source, {
         imported: record.imported,
         usesAllExports: record.usesAllExports,
+        importKind: record.importKind,
       })
     ),
     exportRecords: astResult.exportRecords || [],

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // @semantic
 // Structural edges include compile-time type dependencies; the remaining
-// filter only applies to heuristic Java utility edges.
+// normalization preserves Java utility and data structure dependencies.
 
 const assert = require('assert');
 const path = require('path');
@@ -33,7 +33,7 @@ function testTypeOnlyImportPreserved() {
   ]);
 
   const builder = new GraphBuilder(dg);
-  builder._filterNonValueImports();
+  builder._normalizeImportEdges();
 
   const appInfo = dg.graph.get('app.ts');
   assert.strictEqual(
@@ -58,7 +58,7 @@ function testIsTypeOnlyPreserved() {
   ]);
 
   const builder = new GraphBuilder(dg);
-  builder._filterNonValueImports();
+  builder._normalizeImportEdges();
 
   const appInfo = dg.graph.get('app.ts');
   assert.strictEqual(
@@ -83,7 +83,7 @@ function testAllExportsAreTypesPreserved() {
   ]);
 
   const builder = new GraphBuilder(dg);
-  builder._filterNonValueImports();
+  builder._normalizeImportEdges();
 
   const appInfo = dg.graph.get('app.ts');
   assert.strictEqual(
@@ -112,7 +112,7 @@ function testAllImportedSymbolsAreTypesPreserved() {
   ]);
 
   const builder = new GraphBuilder(dg);
-  builder._filterNonValueImports();
+  builder._normalizeImportEdges();
 
   const appInfo = dg.graph.get('app.ts');
   assert.strictEqual(
@@ -140,7 +140,7 @@ function testRule3MixedExportNotFiltered() {
   ]);
 
   const builder = new GraphBuilder(dg);
-  builder._filterNonValueImports();
+  builder._normalizeImportEdges();
 
   const appInfo = dg.graph.get('app.ts');
   assert.strictEqual(
@@ -150,7 +150,7 @@ function testRule3MixedExportNotFiltered() {
   );
 }
 
-function testRule5JavaUtilityMutualPruned() {
+function testRule5JavaUtilityMutualPreserved() {
   const stringUtils = '/project/src/utils/StringUtils.java';
   const dateUtils = '/project/src/utils/DateUtils.java';
 
@@ -168,21 +168,21 @@ function testRule5JavaUtilityMutualPruned() {
   ]);
 
   const builder = new GraphBuilder(dg);
-  builder._filterNonValueImports();
+  builder._normalizeImportEdges();
 
   assert.strictEqual(
     dg.graph.get(stringUtils).imports.includes(dateUtils),
-    false,
-    'Rule 5: Java utility↔utility edge should be pruned'
+    true,
+    'Rule 5: Java utility↔utility edge must remain structural dependencies'
   );
   assert.strictEqual(
     dg.graph.get(dateUtils).imports.includes(stringUtils),
-    false,
+    true,
     'Rule 5: reverse Java utility↔utility edge should also be pruned'
   );
 }
 
-function testRule6JavaUtilityToEntityPruned() {
+function testRule6JavaUtilityToEntityPreserved() {
   const helper = '/project/src/utils/Helper.java';
   const user = '/project/src/model/User.java';
 
@@ -200,12 +200,12 @@ function testRule6JavaUtilityToEntityPruned() {
   ]);
 
   const builder = new GraphBuilder(dg);
-  builder._filterNonValueImports();
+  builder._normalizeImportEdges();
 
   assert.strictEqual(
     dg.graph.get(helper).imports.includes(user),
-    false,
-    'Rule 6: Java utility→entity edge should be pruned'
+    true,
+    'Rule 6: Java utility→entity edge must remain structural dependencies'
   );
 }
 
@@ -227,7 +227,7 @@ function testValueImportPreserved() {
   ]);
 
   const builder = new GraphBuilder(dg);
-  builder._filterNonValueImports();
+  builder._normalizeImportEdges();
 
   assert.strictEqual(
     dg.graph.get(app).imports.includes(lib),
@@ -256,7 +256,7 @@ function testNoImportRecordUsesResolvedMatch() {
   ]);
 
   const builder = new GraphBuilder(dg);
-  builder._filterNonValueImports();
+  builder._normalizeImportEdges();
 
   assert.strictEqual(
     dg.graph.get(app).imports.includes(lib),
@@ -271,8 +271,8 @@ function main() {
   testAllExportsAreTypesPreserved();
   testAllImportedSymbolsAreTypesPreserved();
   testRule3MixedExportNotFiltered();
-  testRule5JavaUtilityMutualPruned();
-  testRule6JavaUtilityToEntityPruned();
+  testRule5JavaUtilityMutualPreserved();
+  testRule6JavaUtilityToEntityPreserved();
   testValueImportPreserved();
   testNoImportRecordUsesResolvedMatch();
   console.log('builder-filter-nonvalue-test.js: all passed');

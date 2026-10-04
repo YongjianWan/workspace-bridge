@@ -122,6 +122,7 @@ class ServiceContainer {
   }
 
   _checkAborted() {
+    if (this._initAbortController?.signal.aborted) throw this._initAbortController.signal.reason;
     if ((this._state !== STATES.INITIALIZING && this._state !== STATES.READY) || this._readyPromise === null) {
       throw new Error('Container shut down during initialization');
     }
@@ -130,7 +131,7 @@ class ServiceContainer {
   /**
    * Initialize all services. Thread-safe with mutex-like behavior.
    */
-  async initialize(cwd, _timeoutMs = TIMEOUTS.INIT_TIMEOUT_MS, options = {}) {
+  async initialize(cwd, timeoutMs = TIMEOUTS.INIT_TIMEOUT_MS, options = {}) {
     if (this._state === STATES.SHUTTING_DOWN) {
       throw new Error('Container is shutting down');
     }
@@ -169,10 +170,20 @@ class ServiceContainer {
 
     this._transition(STATES.INITIALIZING);
     this.initError = null;
+    this._initAbortController = new AbortController();
+    let timer;
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error(`Initialization timeout after ${timeoutMs}ms`);
+        this._initAbortController.abort(error);
+        reject(error);
+      }, timeoutMs);
+    });
 
     try {
       this._phaseTimes = {};
-      await this._runPipeline(cwd, options);
+      this._initializationPipeline = this._runPipeline(cwd, options);
+      await Promise.race([this._initializationPipeline, deadline]);
       this._transition(STATES.READY);
       this.indexBuildTime = Date.now();
 
@@ -193,6 +204,7 @@ class ServiceContainer {
       rejectReady(err);
       return false;
     } finally {
+      clearTimeout(timer);
       if (this._state === STATES.INITIALIZING) {
         this._transition(STATES.ERROR);
       }
@@ -266,7 +278,10 @@ class ServiceContainer {
       console.error(`[Container] Phase: ${name} ...`);
     }
     try {
-      return await fn();
+      this._checkAborted();
+      const result = await fn();
+      this._checkAborted();
+      return result;
     } catch (err) {
       err.message = `[Container] Stage '${name}' failed: ${err.message}`;
       throw err;
@@ -302,6 +317,7 @@ class ServiceContainer {
   _initCache() {
     this.cache = new WorkspaceCache(this.workspaceRoot, {
       cacheDir: this.options.cacheDir,
+      warnings: this.options.cacheWarnings,
     });
     this.cache.load();
     this.cache.setWorkspaceInfo({ root: this.workspaceRoot });
@@ -322,6 +338,7 @@ class ServiceContainer {
       quiet: this.quiet,
     });
     await this.fileIndex.build(DEFAULTS.FILE_INDEX_BUILD_TIMEOUT_MS, {
+      signal: this._initAbortController.signal,
       watch: options.watch !== false,
       excludeDirs: options.excludeDirs || [],
     });
@@ -341,7 +358,7 @@ class ServiceContainer {
       fileIndex: this.fileIndex,
       projectContext: this.projectContext,
       quiet: this.quiet,
-      options,
+      options: { ...options, signal: this._initAbortController.signal },
     });
   }
 
@@ -489,6 +506,9 @@ class ServiceContainer {
 
     // Mark as aborted if we are initializing to prevent background racing
     this._readyPromise = null;
+    if (this._initializationPipeline) {
+      try { await this._initializationPipeline; } catch { /* Initialization reports its own failure. */ }
+    }
 
     // Phase 2: 清理待执行的诊断检查
     if (this.diagnostics) {

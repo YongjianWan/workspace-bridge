@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { readGoWorkspaceModules } = require('./base');
 
 function tryGoRelative(importPath, fromFile, ctx) {
   if (!importPath.startsWith('.')) return null;
@@ -26,18 +27,20 @@ function tryGoRelative(importPath, fromFile, ctx) {
   return null;
 }
 
-function tryGoModule(importPath, _fromFile, ctx) {
+function tryGoModule(importPath, fromFile, ctx) {
   if (importPath.startsWith('.')) return null;
 
-  const modulePath = ctx.readGoMod(ctx.root);
-  if (!modulePath || !importPath.startsWith(modulePath)) {
+  const modules = readGoWorkspaceModules(ctx.root, fromFile);
+  const modulePath = [...modules.keys()].filter(module => importPath === module || importPath.startsWith(module + '/')).sort((a, b) => b.length - a.length)[0];
+  if (!modulePath) {
     return null;
   }
 
   let relPath = importPath.slice(modulePath.length);
   if (relPath.startsWith('/')) relPath = relPath.slice(1);
 
-  const targetDir = relPath ? path.join(ctx.root, relPath) : ctx.root;
+  const moduleRoot = modules.get(modulePath);
+  const targetDir = relPath ? path.join(moduleRoot, relPath) : moduleRoot;
   const targetDirStat = ctx.cachedStatSync(targetDir);
   if (!targetDirStat || !targetDirStat.isDirectory()) return null;
 

@@ -195,7 +195,7 @@ function parseCliArgs(argv) {
       '--incremental': true,
       '--with-impact': true,
       '--with-history': true,
-      '--save': { key: 'save' },
+      '--save': { key: 'save', optionalValue: true },
       '--check-regression': true,
       '--baseline': { key: 'baseline' },
       '--cache-dir': { key: 'cacheDir' },
@@ -216,7 +216,7 @@ function parseCliArgs(argv) {
       '--backend': { key: 'backend' },
       '--fields': { key: 'fields' },
       '--sql': { key: 'sql' },
-    });
+    }, { requireValues: true });
   } catch (err) {
     if (!err.code) {
       err.code = 'VALIDATION_ERROR';
@@ -225,6 +225,10 @@ function parseCliArgs(argv) {
   }
 
   const command = raw._[0] || null;
+  if (raw.language) {
+    const languages = ['javascript', 'typescript', 'js', 'ts', 'python', 'java', 'kotlin', 'go', 'rust', 'c', 'cpp', 'c++', 'vue', 'svelte'];
+    if (!languages.includes(String(raw.language).toLowerCase())) throwValidationError(`Unsupported --language: ${raw.language}. Expected ${languages.join('|')}`);
+  }
   const sources = {};
 
   // First determine cwd so we can look up project config

@@ -78,7 +78,7 @@ class FileIndex {
     // A deadline checked only between patterns cannot stop a single expensive
     // traversal. AbortSignal.timeout keeps the deadline live inside the async
     // generator and the processing phase as well.
-    const signal = AbortSignal.timeout(timeoutMs);
+    const signal = options.signal ? AbortSignal.any([AbortSignal.timeout(timeoutMs), options.signal]) : AbortSignal.timeout(timeoutMs);
     let allFiles = [];
 
     // Single-pass discovery: one walk matches every registered extension
@@ -96,6 +96,9 @@ class FileIndex {
     }
 
     if (signal.aborted) {
+      if (options.signal?.aborted) throw options.signal.reason;
+      this.warnings.push({ type: 'index-timeout', severity: 'high', discoveredFiles: allFiles.length,
+        message: `File discovery exceeded ${timeoutMs}ms; the indexed set is incomplete and its total size is unknown` });
       console.error(`[FileIndex] Build timed out after ${Date.now() - startTime}ms`);
     }
 

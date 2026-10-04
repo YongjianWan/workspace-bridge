@@ -22,6 +22,10 @@ const _statCache = new Map();
 const _tsconfigPathsCache = new Map(); // root -> { paths, mtime }
 const _resolverCache = new Map();
 const _goModCache = new Map(); // root -> { modulePath, mtime }
+const _goWorkspaceCache = new Map();
+const GO_WORK_USE_BLOCK = /\buse\s*\(([\s\S]*?)\)/g;
+const GO_WORK_USE_LINE = /^\s*use\s+([^\s()]+)/gm;
+const GO_LOCAL_REPLACE = /^\s*(?:replace\s+)?([^\s]+)(?:\s+[^\s=]+)?\s*=>\s*([.][^\s]+|[A-Za-z]:[^\s]+|\/[^\s]+)(?:\s|$)/gm;
 const _packageDepsCache = new Map(); // root -> { names: Set<string>, mtime }
 const _packageDirChainCache = new Map(); // fromDir\nroot -> string[] manifest dirs, nearest first
 const _cargoDepsCache = new Map(); // root -> { names: Set<string>, mtime }
@@ -39,6 +43,7 @@ function clearResolverCaches() {
   _javaSourceRootsCache.clear();
   _tsconfigPathsCache.clear();
   _goModCache.clear();
+  _goWorkspaceCache.clear();
   _packageDepsCache.clear();
   _packageDirChainCache.clear();
   _cargoDepsCache.clear();
@@ -877,7 +882,45 @@ function findCargoCrateRoot(fromFile, root) {
   return result;
 }
 
+function readGoWorkspaceModules(root, fromFile) {
+  const key = `${root}\0${fromFile ? path.dirname(fromFile) : root}`;
+  if (_goWorkspaceCache.has(key)) return _goWorkspaceCache.get(key);
+  const modules = new Map();
+  const directories = new Set([root]);
+  let directory = fromFile ? path.dirname(fromFile) : root;
+  const rootKey = normalizePathKey(root);
+  while (normalizePathKey(directory) === rootKey || normalizePathKey(directory).startsWith(rootKey + '/')) {
+    directories.add(directory);
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  for (const dir of directories) {
+    const workPath = path.join(dir, 'go.work');
+    if (!cachedExistsSync(workPath)) continue;
+    const content = fs.readFileSync(workPath, 'utf8').replace(/\/\/[^\n]*/g, '');
+    for (const match of content.matchAll(GO_WORK_USE_BLOCK)) {
+      for (const entry of match[1].split(/\s+/).filter(Boolean)) directories.add(path.resolve(dir, entry.replace(/^"|"$/g, '')));
+    }
+    for (const match of content.matchAll(GO_WORK_USE_LINE)) directories.add(path.resolve(dir, match[1].replace(/^"|"$/g, '')));
+  }
+  for (const dir of directories) {
+    const module = readGoMod(dir);
+    if (module) modules.set(module, dir);
+    const modPath = path.join(dir, 'go.mod');
+    if (!cachedExistsSync(modPath)) continue;
+    const content = fs.readFileSync(modPath, 'utf8');
+    for (const match of content.matchAll(GO_LOCAL_REPLACE)) {
+      const target = path.resolve(dir, match[2]);
+      if (readGoMod(target)) modules.set(match[1], target);
+    }
+  }
+  _goWorkspaceCache.set(key, modules);
+  return modules;
+}
+
 module.exports = {
+  readGoWorkspaceModules,
   RESOLVER_EXTENSIONS,
   TS_EXTENSIONS,
   JS_IMPORT_EXTENSIONS,

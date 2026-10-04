@@ -162,11 +162,24 @@ function effectiveChildren(node) {
   return out;
 }
 
+const PYTHON_DYNAMIC_MODULE_LITERAL = /^["']([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)["']$/;
 function collectImports(rootNode, imports, importRecords) {
   const found = [];
   const queue = [rootNode];
   for (let i = 0; i < queue.length; i++) {
     const node = queue[i];
+    if (node.type === 'call') {
+      const callee = node.childForFieldName('function');
+      const name = callee ? getNodeText(callee) : '';
+      if (['importlib.import_module', 'import_module', '__import__'].includes(name)) {
+        const args = node.childForFieldName('arguments');
+        const argument = args?.namedChildren?.[0];
+        const literal = argument?.type === 'string' ? getNodeText(argument).match(PYTHON_DYNAMIC_MODULE_LITERAL) : null;
+        const source = literal ? literal[1] : `<dynamic:${name}>`;
+        imports.push(source);
+        importRecords.push({ source, imported: [], usesAllExports: true, importKind: literal ? 'dynamic' : 'dynamic-unresolved' });
+      }
+    }
     if (
       node.type === 'import_statement' ||
       node.type === 'import_from_statement' ||

@@ -7,6 +7,7 @@ const {
   cachedStatSync,
   discoverJavaSourceRoots,
   readGoMod,
+  readGoWorkspaceModules,
   readPackageDeps,
   packageManifestChain,
   normalizeCrateName,
@@ -207,10 +208,10 @@ function _isExternalJsPackage(specifier, root, ctx) {
  * against local symbols is pure fabrication risk — the measured symbol-table
  * contribution on Go repos is 0 anyway.
  */
-function _isExternalGoModule(specifier, root) {
+function _isExternalGoModule(specifier, root, ctx = {}) {
   if (root) {
-    const modulePath = readGoMod(root);
-    if (modulePath && (specifier === modulePath || specifier.startsWith(`${modulePath}/`))) {
+    const modules = readGoWorkspaceModules(root, ctx?.fromFile);
+    if ([...modules.keys()].some(modulePath => specifier === modulePath || specifier.startsWith(`${modulePath}/`))) {
       return false;
     }
   }

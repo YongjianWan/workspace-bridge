@@ -335,7 +335,8 @@ async function runCliInProcess(args, opts = {}) {
 
   if (!parsed.cacheDir) {
     const { computeDefaultCacheDir } = require('./src/services/cache');
-    parsed.cacheDir = computeDefaultCacheDir(path.resolve(parsed.cwd || process.cwd()));
+    parsed.cacheWarnings = [];
+    parsed.cacheDir = computeDefaultCacheDir(path.resolve(parsed.cwd || process.cwd()), parsed.cacheWarnings);
   }
 
   // Lightweight preflight path: workspace-info should not pay the cost of a full ServiceContainer init.
@@ -352,7 +353,7 @@ async function runCliInProcess(args, opts = {}) {
   const needsContainer = !SELF_CONTAINER_COMMANDS.has(parsed.command);
   const shouldInit = !container && needsContainer;
   if (!container && needsContainer) {
-    container = new ServiceContainer({ quiet: parsed.quiet, cacheDir: parsed.cacheDir });
+    container = new ServiceContainer({ quiet: parsed.quiet, cacheDir: parsed.cacheDir, cacheWarnings: parsed.cacheWarnings });
   }
 
   try {
@@ -372,13 +373,16 @@ async function runCliInProcess(args, opts = {}) {
 
     if (needsContainer && result && typeof result === 'object' && result.ok !== false && container) {
       result.staleness = container.getStaleness();
+      await container.cache.save();
       // Append, never assign: a command that raised its own warnings (query-*
       // content drift) would otherwise have them deleted here — the graph is
       // one source of warnings, not the only one.
       const graphWarnings = container.snapshot.graph.buildWarnings();
       result.warnings = Array.isArray(result.warnings)
-        ? [...result.warnings, ...graphWarnings]
-        : graphWarnings;
+        ? [...result.warnings, ...graphWarnings, ...container.cache.warnings]
+        : [...graphWarnings, ...container.cache.warnings];
+      result.warnings = [...new Map(result.warnings.map(warning => [JSON.stringify(warning), warning])).values()];
+      if (result.warnings.some(warning => warning?.severity === 'high' || warning?.severity === 'medium')) result.dataQuality = 'degraded';
     }
 
     const stdout = formatCliResult(parsed, result, { schemaVersion: SCHEMA_VERSION });

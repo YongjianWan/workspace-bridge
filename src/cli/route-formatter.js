@@ -13,7 +13,7 @@ const {
 const { STREAMING, SCHEMA_VERSION, EXIT_CODES, DEFAULTS } = require('../config/constants');
 const { elideDeep } = require('../utils/truncate');
 
-const ESSENTIAL_FIELDS = ['ok', 'error', 'schemaVersion', 'command', 'hasFindings', 'staleness', 'warnings'];
+const ESSENTIAL_FIELDS = ['ok', 'error', 'schemaVersion', 'command', 'hasFindings', 'staleness', 'warnings', 'dataQuality'];
 
 /**
  * Prune result keys to the requested field list. Essential envelope keys are
@@ -22,6 +22,11 @@ const ESSENTIAL_FIELDS = ['ok', 'error', 'schemaVersion', 'command', 'hasFinding
 function applyFieldsFilter(result, fields) {
   if (!fields || !result || typeof result !== 'object' || result.ok === false) return;
   const allowed = new Set(fields.split(',').map((f) => f.trim()).filter(Boolean));
+  const unknown = [...allowed].filter(field => !Object.prototype.hasOwnProperty.call(result, field) && !ESSENTIAL_FIELDS.includes(field));
+  if (unknown.length) {
+    if (!Array.isArray(result.warnings)) result.warnings = [];
+    result.warnings.push({ type: 'unknown-fields', severity: 'medium', message: `Unknown output field(s): ${unknown.join(', ')}` });
+  }
   for (const key of Object.keys(result)) {
     if (!ESSENTIAL_FIELDS.includes(key) && !allowed.has(key)) {
       delete result[key];

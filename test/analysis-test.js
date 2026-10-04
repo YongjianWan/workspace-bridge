@@ -104,11 +104,13 @@ async function main() {
     assert(allGraphWithinDepth, 'All graph-sourced affected tests should be within maxDepth');
 
 
-    const impact = await runCliInProcess(['impact', '--cwd', '.', '--file', 'src/services/container.js', '--json', '--quiet']);
+    // Compare graph totals against a complete list, rather than the default 50-item output cap.
+    const impact = await runCliInProcess(['impact', '--cwd', '.', '--file', 'src/services/container.js', '--max-files', '1000', '--json', '--quiet']);
     assert(impact.impactCount >= 0, `impactCount should be >= 0, got ${impact.impactCount}`);
     assert(impact.symbolImpact, 'symbolImpact should exist');
     assert(['symbol', 'file-fallback'].includes(impact.symbolImpact.mode), 'symbolImpact.mode should be valid');
     const transitiveInImpact = (impact.impact || []).filter((e) => e.level >= 2);
+    assert.strictEqual(impact.impact.length, impact.impactCount, 'count comparison requires an untruncated impact list');
     assert.strictEqual(
       impact.symbolImpact.transitiveCount,
       transitiveInImpact.length,

@@ -141,12 +141,16 @@ function identifyCoreModules(graph, files, projectContext, root) {
   return candidates.sort((a, b) => b.dependentsCount - a.dependentsCount).slice(0, SCORING.TOP_N_LIST);
 }
 
-async function getHistoryRisk(root, filePath, historyProvider) {
+async function getHistoryRisk(root, filePath, historyProvider, failures = []) {
   try {
     const result = await historyProvider(root, filePath, { limit: DEFAULTS.HISTORY_LIMIT });
-    if (result?.ok === false) return null;
+    if (result?.ok === false) {
+      failures.push(filePath);
+      return null;
+    }
     return result?.historyRisk || null;
   } catch (e) {
+    failures.push(filePath);
     console.error(`[overview] Failed to get history for ${filePath}:`, e.message);
     return null;
   }
@@ -175,13 +179,20 @@ function buildEmptyKnowledgeRisk(disabledReason) {
   };
 }
 
-async function buildKnowledgeRisk(root, mainlineFiles, gitEnvironment) {
+function rankOverviewCandidates(depGraph, files, pageRanks = computeArchitecturalPageRank(depGraph)) {
+  return [...files].sort((a, b) =>
+    (pageRanks.get(b) || 0) - (pageRanks.get(a) || 0) ||
+    getArchitectureDependents(depGraph, b).length - getArchitectureDependents(depGraph, a).length || a.localeCompare(b)
+  ).slice(0, DEFAULTS.HOTSPOT_CANDIDATE_LIMIT);
+}
+
+async function buildKnowledgeRisk(root, mainlineFiles, gitEnvironment, depGraph = null) {
   const repoAuthors = await getRepoEffectiveAuthorCount(root);
   if (!repoAuthors.ok || repoAuthors.count <= SCORING.KNOWLEDGE_RISK_PERSONAL_REPO_MAX_AUTHORS) {
     return buildEmptyKnowledgeRisk('too-few-authors');
   }
 
-  const files = mainlineFiles.slice(0, DEFAULTS.HOTSPOT_CANDIDATE_LIMIT);
+  const files = depGraph ? rankOverviewCandidates(depGraph, mainlineFiles) : [...mainlineFiles].sort().slice(0, DEFAULTS.HOTSPOT_CANDIDATE_LIMIT);
   const concurrency = LIMITS.GIT_LOG_CONCURRENCY;
   const results = [];
 
@@ -228,11 +239,11 @@ async function buildKnowledgeRisk(root, mainlineFiles, gitEnvironment) {
   };
 }
 
-async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
-  const files = mainlineFiles.slice(0, DEFAULTS.HOTSPOT_CANDIDATE_LIMIT);
+async function buildHotspots(root, depGraph, mainlineFiles, historyProvider, failures = []) {
   const concurrency = LIMITS.GIT_LOG_CONCURRENCY;
   const candidates = [];
   const architecturalPageRanks = computeArchitecturalPageRank(depGraph);
+  const files = rankOverviewCandidates(depGraph, mainlineFiles, architecturalPageRanks);
   const totalFiles = depGraph.getFileCount?.() || 0;
 
   for (let i = 0; i < files.length; i += concurrency) {
@@ -243,7 +254,7 @@ async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
         const relativePath = toRelative(root, displayFile);
         const dependents = getArchitectureDependents(depGraph, file);
         const dependencies = getArchitectureDependencies(depGraph, file);
-        const historyRisk = historyProvider ? await getHistoryRisk(root, displayFile, historyProvider) : null;
+        const historyRisk = historyProvider ? await getHistoryRisk(root, displayFile, historyProvider, failures) : null;
         const classification = depGraph.projectContext?.classifyFile?.(displayFile);
         const fileRole = classification?.fileRole;
         const frameworkHint = depGraph.getFrameworkHint?.(file);
@@ -284,7 +295,14 @@ async function buildHotspots(root, depGraph, mainlineFiles, historyProvider) {
     candidates.push(...batchResults);
   }
 
-  return candidates.filter(Boolean).sort(byScoreThenPath);
+  const result = candidates.filter(Boolean).sort(byScoreThenPath);
+  if (failures.length > 0) {
+    depGraph._historyWarnings = [{ type: 'history-unavailable', severity: 'medium', files: failures.length,
+      message: `History unavailable for ${failures.length} candidate file(s); hotspot scores omit history risk` }];
+  } else {
+    depGraph._historyWarnings = [];
+  }
+  return result;
 }
 
 function buildStability(root, depGraph, mainlineFiles, projectContext) {
@@ -626,7 +644,10 @@ async function assembleOverviewData(args, container, historyProvider) {
 
   const dgStats = depGraph.getStats?.() || {};
   const analysisCoverage = dgStats.filteredAnalysisCoverage !== undefined ? dgStats.filteredAnalysisCoverage : dgStats.analysisCoverage;
-  if (analysisCoverage && analysisCoverage.coverageRatio < 0.5) {
+  if (analysisCoverage && !Number.isFinite(analysisCoverage.coverageRatio)) {
+    summary.severity = 'high';
+    summary.recommendations.unshift('WARNING: Coverage is unknown because file discovery was incomplete.');
+  } else if (analysisCoverage && analysisCoverage.coverageRatio < 0.5) {
     summary.severity = 'high';
     summary.recommendations.unshift(`WARNING: Analysis coverage is low (${Math.round(analysisCoverage.coverageRatio * 100)}%); findings may be incomplete.`);
   }
@@ -648,7 +669,7 @@ async function assembleOverviewData(args, container, historyProvider) {
   // "no risk" and avoid paying the blame cost on the hot path.
   const shouldComputeHistory = Boolean(historyProvider) || args?.withHistory === true;
   const knowledgeRisk = shouldComputeHistory
-    ? await buildKnowledgeRisk(root, mainlineFiles, container.gitEnvironment)
+    ? await buildKnowledgeRisk(root, mainlineFiles, container.gitEnvironment, depGraph)
     : buildEmptyKnowledgeRisk('history-not-enabled');
 
   return {

@@ -13,6 +13,17 @@ const CACHE_STALE_MS = DEFAULTS.STALENESS_THRESHOLD_MS;
 const WINDOWS_ABSOLUTE_PATH_RE = /^([A-Za-z]):[\\/](.*)$/;
 const WSL_MOUNT_ROOT = '/mnt';
 
+function isolateCorruptFile(source, destination) {
+  try {
+    fs.renameSync(source, destination);
+  } catch (error) {
+    // Windows can reject rename with EBADF while copy/delete remain available.
+    if (error.code !== 'EBADF') throw error;
+    fs.copyFileSync(source, destination, fs.constants.COPYFILE_EXCL);
+    fs.unlinkSync(source);
+  }
+}
+
 /**
  * The one content hash every cache layer keys on. Hashes raw bytes, so a file
  * that is not valid UTF-8 still gets a stable key.
@@ -53,7 +64,7 @@ const METADATA_SCHEMA = {
   },
 };
 
-function computeDefaultCacheDir(workspaceRoot) {
+function computeDefaultCacheDir(workspaceRoot, warnings = []) {
   const hash = crypto.createHash('md5').update(workspaceRoot).digest('hex').slice(0, 8);
   const cacheRoot = process.platform === 'win32'
     ? (process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'))
@@ -67,8 +78,10 @@ function computeDefaultCacheDir(workspaceRoot) {
     const testFile = path.join(preferredDir, '.write-test');
     fs.writeFileSync(testFile, 'test');
     fs.unlinkSync(testFile);
-  } catch {
+  } catch (error) {
     cacheDir = fallbackDir;
+    warnings.push({ type: 'cache-directory-fallback', severity: 'medium',
+      message: `Preferred cache directory is not writable (${error.message}); using ${fallbackDir}` });
     fs.mkdirSync(cacheDir, { recursive: true });
   }
 
@@ -185,9 +198,10 @@ class DirtyTracker {
 
 class WorkspaceCache {
   constructor(workspaceRoot, options = {}) {
+    this.warnings = options.warnings || [];
     this.workspaceRoot = workspaceRoot;
     this.normalizeFilePath = (filePath) => normalizeFilePath(filePath, workspaceRoot);
-    this.cacheDir = options.cacheDir || computeDefaultCacheDir(workspaceRoot);
+    this.cacheDir = options.cacheDir || computeDefaultCacheDir(workspaceRoot, this.warnings);
     this.cachePath = path.join(this.cacheDir, 'cache.db');
     this._graphDb = new GraphDB(this.cachePath);
 
@@ -298,7 +312,22 @@ class WorkspaceCache {
       }
 
       const data = this._graphDb.loadAll();
-      if (!data) return false;
+      if (!data) {
+        const error = this._graphDb.lastError;
+        if (error) {
+          this.warnings.push({ type: 'cache-load-failed', severity: 'medium', message: `Cache could not be loaded: ${error.message}; rebuilding from source` });
+          if (/not a database|malformed|corrupt/i.test(error.message)) {
+            this._graphDb._withWriteLock(() => {
+              this._graphDb.close();
+              const suffix = `.corrupt-${Date.now()}`;
+              for (const peer of ['', '-wal', '-shm']) {
+                if (fs.existsSync(this.cachePath + peer)) isolateCorruptFile(this.cachePath + peer, this.cachePath + suffix + peer);
+              }
+            });
+          }
+        }
+        return false;
+      }
       this.workspaceInfo = data.workspaceInfo;
       this.fileMetadata = data.fileMetadata || new Map();
       this.parseResults = data.parseResults || new Map();
@@ -329,6 +358,7 @@ class WorkspaceCache {
 
       return true;
     } catch (err) {
+      this.warnings.push({ type: 'cache-load-failed', severity: 'medium', message: `Cache recovery failed: ${err.message}; rebuilding from source` });
       if (process.env.DEBUG) {
         console.error('[Cache] SQLite load failed:', err.message);
       }
@@ -386,14 +416,23 @@ class WorkspaceCache {
         this._diagTracker.clear();
         this.lastSaved = Date.now();
         this.dirty = false;
+      } else {
+        this._warnWriteFailure('SQLite write failed');
       }
       return ok;
     } catch (err) {
+      this._warnWriteFailure(err.message);
       if (process.env.DEBUG) {
         console.error('[Cache] SQLite save failed:', err.message);
       }
       return false;
     }
+  }
+
+  _warnWriteFailure(message) {
+    this.warnings = this.warnings.filter(warning => warning.type !== 'cache-write-failed');
+    this.warnings.push({ type: 'cache-write-failed', severity: 'medium',
+      message: `Cache could not be saved at ${this.cachePath}: ${message}; the next run will rebuild it` });
   }
 
   /**

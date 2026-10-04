@@ -1,5 +1,26 @@
 const path = require('path');
+const fs = require('fs');
+const { normalizePathKey } = require('../../../utils/path');
 const { cachedExistsSync, findCargoCrateRoot, readCargoCrateName } = require('./base');
+const CARGO_TARGET_SECTION = /^\s*\[{1,2}(lib|bin|test|example|bench)\]{1,2}\s*$([\s\S]*?)(?=^\s*\[|$(?![\s\S]))/gm;
+const CARGO_TARGET_PATH = /^\s*path\s*=\s*["']([^"']+)["']/m;
+
+function rustSourceRoot(fromFile, crateRoot, library = false) {
+  const manifest = path.join(crateRoot, 'Cargo.toml');
+  const roots = [path.join(crateRoot, 'src')];
+  if (cachedExistsSync(manifest)) {
+    const content = fs.readFileSync(manifest, 'utf8');
+    for (const section of content.matchAll(CARGO_TARGET_SECTION)) {
+      if (library && section[1] !== 'lib') continue;
+      const target = section[2].match(CARGO_TARGET_PATH);
+      if (target) roots.push(path.dirname(path.resolve(crateRoot, target[1])));
+    }
+  }
+  if (library) return roots[roots.length - 1];
+  const fileKey = normalizePathKey(fromFile);
+  const matching = roots.filter(root => fileKey.startsWith(normalizePathKey(root) + '/'));
+  return matching.sort((a, b) => b.length - a.length)[0] || path.dirname(fromFile);
+}
 
 function resolveRustModulePath(modulePath, root, baseDir) {
   const segments = modulePath.split('::').filter(Boolean);
@@ -63,7 +84,7 @@ function tryRustCrate(importPath, fromFile, ctx) {
   }
   // crate:: is rooted at the *nearest* Cargo.toml's src — a workspace can hold
   // several crates, each with its own crate root (qartez-mcp/qartez-dashboard).
-  const searchBase = path.join(crateRoot, 'src');
+  const searchBase = rustSourceRoot(fromFile, crateRoot, !importPath.startsWith('crate::'));
   const resolved = resolveRustModulePath(modulePath, crateRoot, searchBase)
     // Single segment that is not a submodule names an item of the crate root
     // (crate::QartezServer → src/lib.rs). Multi-segment failures must not fall
@@ -98,7 +119,7 @@ function tryRustSuper(importPath, fromFile, ctx) {
   const effectiveClimbs = isModFile ? climbs : climbs - 1;
 
   const crateRoot = findCargoCrateRoot(fromFile, ctx.root);
-  const srcRoot = path.join(crateRoot, 'src');
+  const srcRoot = rustSourceRoot(fromFile, crateRoot);
 
   let baseDir = fromDir;
   for (let i = 0; i < effectiveClimbs; i += 1) {
@@ -152,8 +173,10 @@ function tryRustScoped(importPath, fromFile, ctx) {
 
   // A bare segment never names a module outside the current crate's src.
   const crateRoot = findCargoCrateRoot(fromFile, ctx.root);
-  const srcRoot = path.join(crateRoot, 'src');
-  if (baseDir !== srcRoot && !baseDir.startsWith(srcRoot + path.sep)) return null;
+  const srcRoot = rustSourceRoot(fromFile, crateRoot);
+  const baseKey = normalizePathKey(baseDir);
+  const rootKey = normalizePathKey(srcRoot);
+  if (baseKey !== rootKey && !baseKey.startsWith(rootKey + '/')) return null;
 
   const resolved = resolveRustModulePath(importPath, ctx.root, baseDir);
   if (resolved && ctx.outMeta) {

@@ -50,7 +50,16 @@ async function dependencyGraph(args, container) {
     snapshot: { graph: depGraph },
   };
 
-  return handler(args, wrappedContainer, filePath);
+  const result = await handler(args, wrappedContainer, filePath);
+  if (FILE_REQUIRED.has(operation) && !depGraph.hasFile(filePath)) {
+    const warnings = result.warnings || [];
+    if (!warnings.some(warning => warning.type === 'target-not-indexed')) warnings.push({ type: 'target-not-indexed', severity: 'high',
+      message: 'Target is not in the source index; an empty result does not establish absence of dependencies or dependents' });
+    result.warnings = warnings;
+    result.dataQuality = 'degraded';
+    result.hasFindings = true;
+  }
+  return result;
 }
 
 module.exports = {

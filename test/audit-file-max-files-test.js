@@ -12,6 +12,7 @@ function makeMockContainer(workspaceRoot) {
     ensureReady: async () => {},
     snapshot: {
       graph: {
+        hasFile: () => true,
         getImpactRadius: () => [
           { file: path.join(workspaceRoot, 'a.js'), level: 1 },
           { file: path.join(workspaceRoot, 'b.js'), level: 1 },

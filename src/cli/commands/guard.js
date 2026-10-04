@@ -32,13 +32,20 @@ async function guardCmd(parsed, container) {
 
   const resolvedFiles = [];
   const displayFiles = [];
+  const missingTargets = [];
   for (const file of files) {
     const resolved = resolveWorkspaceFilePath(file, container.workspaceRoot);
     if (resolved && fs.existsSync(resolved) && !fs.statSync(resolved).isDirectory()) {
       resolvedFiles.push(resolved);
       displayFiles.push(depGraph._displayPath(resolved));
+    } else {
+      missingTargets.push(file);
     }
   }
+
+  if (missingTargets.length) return { ok: false, passed: false, files: displayFiles, hasFindings: true,
+    error: `Target file(s) not found: ${missingTargets.join(', ')}`,
+    warnings: [{ type: 'missing-target', severity: 'high', message: `Guard did not check missing target(s): ${missingTargets.join(', ')}` }] };
 
   if (resolvedFiles.length === 0) {
     return {

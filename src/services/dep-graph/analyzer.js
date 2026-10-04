@@ -742,6 +742,8 @@ class GraphAnalyzer {
       else if (info.parseMode === 'regex') fallbackFiles++;
     }
     const totalFiles = this.dg.graph.size;
+    const discoveryComplete = !(this.dg._indexWarnings || []).some(warning => ['index-timeout', 'depth-truncated'].includes(warning.type));
+    const skippedFiles = [...this.dg.graph.values()].filter(info => info.parseMode === 'none').length;
     // Files dropped at discovery (known source extensions, no parser)
     // join the coverage denominator — without them a repo with an entire
     // unsupported language still reports coverageRatio 1 (L1-4). The list
@@ -776,18 +778,21 @@ class GraphAnalyzer {
       cycles: this._cycleCount,
       totalLines: cacheStats.totalLines || 0,
       analysisCoverage: {
+        discoveryComplete,
+        skippedFiles,
         totalFiles: coverageTotalFiles,
         parsedFiles,
         fallbackFiles,
         unsupportedFiles: unsupportedSourceFiles.length,
-        coverageRatio: Math.round(coverageRatio * 100) / 100,
+        coverageRatio: discoveryComplete ? Math.round(coverageRatio * 100) / 100 : null,
       },
       filteredAnalysisCoverage: {
+        discoveryComplete,
         totalFiles: filteredCoverageTotalFiles,
         parsedFiles: filteredParsedFiles,
         fallbackFiles: filteredFallbackFiles,
         unsupportedFiles: filteredUnsupportedFiles,
-        coverageRatio: Math.round(filteredCoverageRatio * 100) / 100,
+        coverageRatio: discoveryComplete ? Math.round(filteredCoverageRatio * 100) / 100 : null,
       },
     };
 
@@ -802,6 +807,25 @@ class GraphAnalyzer {
 
   buildWarnings() {
     const warnings = [];
+    warnings.push(...(this.dg._historyWarnings || []));
+    for (const error of this.dg.bus.errors || []) {
+      warnings.push({ type: 'analysis-stage-failed', severity: 'high', stage: error.event,
+        message: `Analysis stage ${error.event} failed: ${error.message}; results are incomplete` });
+    }
+    const skippedReasons = ['file-too-large', 'unsupported-source-encoding'];
+    const dynamicFiles = [...this.dg.graph].filter(([, info]) => info.importRecords?.some(record => record.importKind === 'dynamic-unresolved')).map(([file]) => this.dg._displayPath(file));
+    if (dynamicFiles.length) warnings.push({ type: 'dynamic-load-unresolved', severity: 'medium', files: dynamicFiles.length,
+      sampleFiles: dynamicFiles.slice(0, LIMITS.OUTPUT_SHORT),
+      message: `${dynamicFiles.length} file(s) contain module loads whose runtime targets could not be determined (${dynamicFiles.slice(0, LIMITS.OUTPUT_SHORT).join(', ')}); zero impact does not establish absence of consumers` });
+    const runtimeWired = [...this.dg.graph.values()].filter(info => info.frameworkHint?.framework?.startsWith('spring'));
+    const usesNext = Boolean(this.dg.packageJson?.dependencies?.next || this.dg.packageJson?.devDependencies?.next);
+    if (runtimeWired.length || usesNext) warnings.push({ type: 'dynamic-load-unresolved', severity: 'medium', files: runtimeWired.length,
+      message: 'Runtime dependency injection or filesystem routing is not a complete file dependency graph; zero impact does not establish absence of runtime consumers' });
+    for (const reason of skippedReasons) {
+      const files = [...this.dg.graph].filter(([, info]) => info.parseModeReason === reason).map(([file]) => this.dg._displayPath(file));
+      if (files.length) warnings.push({ type: reason, severity: 'high', files: files.length,
+        message: `${files.length} source file(s) were not parsed (${reason}): ${files.slice(0, LIMITS.OUTPUT_SHORT).join(', ')}` });
+    }
 
     if (this.dg.projectContext && Array.isArray(this.dg.projectContext.warnings)) {
       for (const msg of this.dg.projectContext.warnings) {

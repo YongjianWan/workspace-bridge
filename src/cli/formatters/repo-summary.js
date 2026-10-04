@@ -35,7 +35,10 @@ function buildRepoSummary(health, deadExports, unresolved, cycles, scope, stackP
   // Escalate severity when analysis coverage is dangerously low to prevent
   // the "all zeros = all good" false-safety illusion.
   let coverageWarning = null;
-  if (analysisCoverage && analysisCoverage.coverageRatio < 0.5) {
+  if (analysisCoverage && !Number.isFinite(analysisCoverage.coverageRatio)) {
+    severity = 'high';
+    coverageWarning = 'Coverage is unknown because file discovery was incomplete';
+  } else if (analysisCoverage && analysisCoverage.coverageRatio < 0.5) {
     severity = 'high';
     coverageWarning = `Analysis coverage is low (${Math.round(analysisCoverage.coverageRatio * 100)}%); findings may be incomplete`;
   }

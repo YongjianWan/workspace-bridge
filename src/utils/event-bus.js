@@ -6,6 +6,7 @@
 class EventBus {
   constructor() {
     this._listeners = new Map();
+    this.errors = [];
   }
 
   on(event, listener) {
@@ -34,18 +35,21 @@ class EventBus {
       try {
         listener(...args);
       } catch (e) {
+        this.errors.push({ event, message: e.message });
         console.error(`[EventBus] Listener for "${event}" failed:`, e.message);
       }
     }
   }
 
   async emitAsync(event, ...args) {
+    this.errors = this.errors.filter(error => error.event !== event);
     const list = this._listeners.get(event);
     if (!list || list.length === 0) return;
     for (const listener of list) {
       try {
         await listener(...args);
       } catch (e) {
+        this.errors.push({ event, message: e.message });
         console.error(`[EventBus] Async listener for "${event}" failed:`, e.message);
       }
     }

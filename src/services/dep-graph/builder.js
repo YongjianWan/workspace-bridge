@@ -4,6 +4,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { shouldExcludeCli: matchesFilePatterns } = require('../../utils/exclude-patterns');
 const { promisify } = require('util');
 const { createImportRecord } = require('./parsers');
 const { registry } = require('./parsers/registry');
@@ -23,6 +24,7 @@ const { hashFileContent } = require('../cache');
 
 const readFile = promisify(fs.readFile);
 const stat = promisify(fs.stat);
+const PYTHON_SOURCE_ENCODING = /coding\s*[:=]\s*([-\w.]+)/;
 const YIELD_INTERVAL = 20; // event loop yield frequency for large repos
 // In-process memo of recent parses; the persistent parse cache is the real store.
 const PARSE_MEMO_LIMIT = 200;
@@ -208,7 +210,13 @@ class GraphBuilder {
     // Phase 1: parse. Unchanged content comes from the parse cache; every
     // file — cached or not — then goes through the same resolve phase, so the
     // graph never depends on which files happened to be cached.
+    files.sort((a, b) => {
+      const left = this.dg.normalizeFilePath(a);
+      const right = this.dg.normalizeFilePath(b);
+      return left < right ? -1 : left > right ? 1 : 0;
+    });
     const parsedList = await this._parseFilesWithLimit(files, CONFIG.DEFAULT_CONCURRENCY);
+    parsedList.sort((a, b) => a.graphKey < b.graphKey ? -1 : a.graphKey > b.graphKey ? 1 : 0);
     const cachedCount = parsedList.filter((parsed) => parsed.fromCache).length;
 
     for (const parsed of parsedList) {
@@ -248,8 +256,8 @@ class GraphBuilder {
     // Run post-process phases (framework implicit imports, etc.)
     await this.runPostProcessPhases();
 
-    // Filter out non-value imports (type-only, interface, annotation, lazy/dynamic)
-    this._filterNonValueImports();
+    // Normalize structural dependencies without pruning compile-time edges
+    this._normalizeImportEdges();
 
     // Build reverse graph
     this.buildReverseGraph();
@@ -315,6 +323,10 @@ class GraphBuilder {
     const results = [];
 
     for (let i = 0; i < files.length; i++) {
+      if (this.dg._abortSignal?.aborted) {
+        await Promise.allSettled(executing);
+        throw this.dg._abortSignal.reason;
+      }
       const file = files[i];
       const promise = this.parseFileOnly(file)
         .then((res) => {
@@ -376,7 +388,19 @@ class GraphBuilder {
     // hash: a file edited between indexing and parsing must not be cached
     // under the older content's key.
     const bytes = content === null ? await readFile(filePath) : Buffer.from(content, 'utf8');
-    if (content === null) content = bytes.toString('utf8');
+    try {
+      if (content === null) {
+        const header = path.extname(filePath).toLowerCase() === '.py'
+          ? bytes.toString('latin1').split('\n', LIMITS.PYTHON_ENCODING_HEADER_LINES).join('\n') : '';
+        const encoding = header.match(PYTHON_SOURCE_ENCODING)?.[1] || 'utf-8';
+        content = new TextDecoder(encoding, { fatal: true }).decode(bytes);
+      }
+      if (content.includes('\0')) throw new Error('Source contains NUL bytes');
+    } catch {
+      return { filePath, graphKey, content: '', imports: [], exports: [], importRecords: [], exportRecords: [],
+        functionRecords: [], parseMode: 'none', parseModeReason: 'unsupported-source-encoding', confidence: 'low',
+        package: null, frameworkHint: null, routes: [] };
+    }
     const contentHash = hashFileContent(bytes);
     const ext = path.extname(filePath).toLowerCase();
     
@@ -498,7 +522,14 @@ class GraphBuilder {
 
     // Resolve relative/absolute/symbol imports to absolute paths
     const resolvedImportRecords = (importRecords.length > 0 ? importRecords : imports.map((source) => createImportRecord(source)))
-      .map((record) => {
+      .flatMap((record) => {
+        if (record.importKind === 'dynamic-unresolved') return { ...record, resolved: null };
+        if (record.importKind === 'glob') {
+          const pattern = this._globPatternKey(filePath, record.source);
+          const targets = [...this.dg.graph.keys()].filter(file => matchesFilePatterns(file, [pattern]));
+          if (!targets.length) return { ...record, importKind: 'dynamic-unresolved', resolved: null };
+          return targets.map(target => ({ ...record, resolved: target, tier: 'tier1', resolutionMethod: 'import-meta-glob', confidence: 1.0 }));
+        }
         const outMeta = {};
         const resolved = resolveImport(filePath, record.source, ext, this.dg.root, this.symbolRegistry, outMeta, { isLocal: record.isLocal }, { workspacePackages: this.workspacePackages, imported: record.imported, pythonModuleIndex: this.pythonModuleIndex });
         if (!resolved) {
@@ -506,16 +537,17 @@ class GraphBuilder {
           // but consumers must be able to account for them on warm restores.
           return { ...record, resolved: null };
         }
-        return {
+        const targets = outMeta.additionalTargets || [resolved];
+        return targets.map(target => ({
           ...record,
-          resolved: this.dg.normalizeFilePath(resolved),
+          resolved: this.dg.normalizeFilePath(target),
           tier: outMeta.tier || 'tier1',
           resolutionMethod: outMeta.method || 'import',
           confidence: outMeta.confidence ?? 1.0,
           // Go-module package imports carry their package dir so the
           // expand-go-packages phase can bind every non-test .go file.
           ...(outMeta.goPackageDir ? { goPackageDir: outMeta.goPackageDir } : {}),
-        };
+        }));
       })
       .filter(Boolean);
 
@@ -1086,6 +1118,10 @@ class GraphBuilder {
         // 2. Shadow Candidates
         const oldInfo = this.dg.graph.get(key);
         if (!oldInfo) {
+          // A new file can satisfy a glob import in a file that did not change.
+          for (const importer of this._globImportersOf(key)) {
+            if (!changedKeys.has(importer)) dependentsKeys.add(importer);
+          }
           // It's a new file. Get original path and calculate shadow candidates.
           const originalPath = filePaths.find(p => this.dg.normalizeFilePath(p) === key);
           if (originalPath && fs.existsSync(originalPath)) {
@@ -1326,7 +1362,7 @@ class GraphBuilder {
     } finally {
       try {
         // Filter out non-value imports (type-only, interface, annotation, lazy/dynamic)
-        this._filterNonValueImports();
+        this._normalizeImportEdges();
 
         // Rebuild reverse graph
         this.buildReverseGraph();
@@ -1372,46 +1408,27 @@ class GraphBuilder {
     }
   }
 
-  _filterNonValueImports() {
-    for (const [fileKey, info] of this.dg.graph) {
-      if (!info.imports || info.imports.length === 0) continue;
+  _globPatternKey(fromFile, source) {
+    const pattern = source.startsWith('/') ? path.join(this.dg.root, source) : path.resolve(path.dirname(fromFile), source);
+    return this.dg.normalizeFilePath(pattern);
+  }
 
-      const filteredImports = [];
-      for (const imp of info.imports) {
-        // Find matching importRecord
-        const extSource = path.extname(fileKey).toLowerCase();
-        const extTarget = path.extname(imp).toLowerCase();
-        // A type-only import is still a compile-time dependency. Keep its
-        // file edge for impact and affected-test queries.
+  // Unmatched globs are stored as 'dynamic-unresolved', so both kinds are tested.
+  _globImportersOf(fileKey) {
+    const importers = [];
+    for (const [importer, info] of this.dg.graph) {
+      const hit = (info.importRecords || []).some(record =>
+        (record.importKind === 'glob' || record.importKind === 'dynamic-unresolved') && typeof record.source === 'string' &&
+        matchesFilePatterns(fileKey, [this._globPatternKey(importer, record.source)]));
+      if (hit) importers.push(importer);
+    }
+    return importers;
+  }
 
-        const sourcePathLower = fileKey.toLowerCase();
-        const targetPathLower = imp.toLowerCase();
-        const isJavaFamily = ['.java', '.kt'].includes(extSource) || ['.java', '.kt'].includes(extTarget);
-
-        if (isJavaFamily) {
-          // Rule 5: Stateless Utility Coupling
-          // If both files are stateless utility/helper files, prune the edge between them.
-          const isSourceUtil = /\/(utils|util|common|core|helper|helpers|tools)\//.test(sourcePathLower) ||
-            /(?:utils|formatter|serializer|helper|constants)\./i.test(sourcePathLower);
-          const isTargetUtil = /\/(utils|util|common|core|helper|helpers|tools)\//.test(targetPathLower) ||
-            /(?:utils|formatter|serializer|helper|constants)\./i.test(targetPathLower);
-
-          if (isSourceUtil && isTargetUtil) {
-            continue;
-          }
-
-          // Rule 6: Utility to Data Structure/Entity reference
-          // Utilities should reference logic/services, but reference to a pure data structure (domain, model, entity, POJO, DTO, VO)
-          // is a type/data reference. Prune utility-to-entity edge.
-          const isTargetEntity = /\/(domain|model|entity|po|vo|dto|bo)\//.test(targetPathLower);
-          if (isSourceUtil && isTargetEntity) {
-            continue;
-          }
-        }
-
-        filteredImports.push(imp);
-      }
-      info.imports = filteredImports;
+  _normalizeImportEdges() {
+    // Post-process phases may append the same dependency more than once.
+    for (const info of this.dg.graph.values()) {
+      info.imports = [...new Set(info.imports)];
     }
   }
 

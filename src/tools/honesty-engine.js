@@ -107,9 +107,11 @@ function classifyDeadExports(deadExportsArray, depGraph) {
   const classifications = [];
 
   for (const item of deadExportsArray) {
+    // Structural non-use cannot prove absence of runtime or external consumers.
+    delete item.safeToDelete;
+    item.deletionSafetyReason = 'Structural analysis cannot prove safe deletion; verify runtime and external consumers';
     const filePath = item.file || '';
     const importerCount = item.importerCount || 0;
-    const confidence = item.confidence || 'medium';
 
     // Sink false-positive reason to individual dead-export record so users
     // can locate which items are flagged as false positives.
@@ -154,12 +156,6 @@ function classifyDeadExports(deadExportsArray, depGraph) {
     item.falsePositiveReason = reason;
     classifications.push({ item, reason });
 
-    // Annotate dead exports with explicit safe-to-delete signal.
-    // A dead export is safe to delete when no files import it AND the
-    // confidence is not low (low = dynamic-registry, vendor-copy, etc.).
-    if (importerCount === 0 && confidence !== 'low' && reason !== 'graph-unreliable') {
-      item.safeToDelete = true;
-    }
   }
 
   return classifications;
@@ -169,6 +165,7 @@ function classifyDeadExports(deadExportsArray, depGraph) {
 // These findings are still surfaced for transparency but do not drive
 // repository-level severity or deletion recommendations.
 const DEAD_EXPORT_FALSE_POSITIVE_REASONS = new Set([
+  'vue-component-implicit',
   'dynamic-registry-export',
   'java-constants-warehouse',
   'vendor-copy',

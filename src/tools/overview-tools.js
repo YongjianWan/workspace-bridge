@@ -183,6 +183,7 @@ async function buildProjectOverview(args, container) {
 
   const result = {
     ok: true,
+    warnings: rawData.depGraph.buildWarnings(),
     workspaceRoot: rawData.root,
     stackProfile: rawData.stackProfile,
     options,

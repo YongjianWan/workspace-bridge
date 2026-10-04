@@ -30,6 +30,10 @@ function pushRecord(rec, type, arr) {
 /**
  * Shared audit-summary formatter across text output styles.
  */
+function formatCoverage(coverage) {
+  return Number.isFinite(coverage.coverageRatio) ? `${Math.round(coverage.coverageRatio * 100)}%` : 'unknown: file discovery incomplete';
+}
+
 function formatAuditSummary(result, style, options = {}) {
   switch (style) {
     case 'markdown': {
@@ -43,7 +47,7 @@ function formatAuditSummary(result, style, options = {}) {
       ];
       const cov = result.summary?.analysisCoverage;
       if (cov) {
-        lines.push(`- **Coverage**: ${cov.parsedFiles}/${cov.totalFiles} parsed (${Math.round(cov.coverageRatio * 100)}%)`);
+        lines.push(`- **Coverage**: ${cov.parsedFiles}/${cov.totalFiles} parsed (${formatCoverage(cov)})`);
       }
       if (result.summary?.nextSteps?.length) {
         lines.push('', `## Next Steps`);
@@ -62,7 +66,7 @@ function formatAuditSummary(result, style, options = {}) {
       ];
       const cov = result.summary?.analysisCoverage;
       if (cov) {
-        lines.push(`Coverage: ${cov.parsedFiles}/${cov.totalFiles} parsed (${Math.round(cov.coverageRatio * 100)}%)`);
+        lines.push(`Coverage: ${cov.parsedFiles}/${cov.totalFiles} parsed (${formatCoverage(cov)})`);
       }
       if (result.summary?.nextSteps?.length) {
         lines.push('Next steps:');
@@ -1869,12 +1873,14 @@ function formatAi(command, result, options = {}) {
         actions: [],
         confidence: {
           overall: 1.0,
-          coverageRatio: result.summary?.analysisCoverage?.coverageRatio ?? 1.0,
+          coverageRatio: result.summary?.analysisCoverage ? result.summary.analysisCoverage.coverageRatio : null,
         },
       };
 
       const cov = result.summary?.analysisCoverage;
-      if (cov && cov.coverageRatio < 0.5) {
+      if (cov && !Number.isFinite(cov.coverageRatio)) {
+        output.topRisks.push({ category: 'coverage', severity: 'high', message: 'Coverage is unknown because file discovery was incomplete', confidence: 1.0 });
+      } else if (cov && cov.coverageRatio < 0.5) {
         output.topRisks.push({ category: 'coverage', severity: 'high', message: `Analysis coverage is low (${Math.round(cov.coverageRatio * 100)}%); findings may be incomplete`, confidence: 1.0 });
       }
       if (output.counts.cycles > 0) {

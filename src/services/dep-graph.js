@@ -51,6 +51,7 @@ class DependencyGraph {
     });
   }
   constructor(workspaceRoot, cache, options = {}) {
+    this._abortSignal = options.signal || null;
     this.root = workspaceRoot;
     this.normalizeFilePath = (filePath) => normalizeFilePath(filePath, workspaceRoot);
     this.cache = cache;

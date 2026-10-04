@@ -300,7 +300,9 @@ async function testRuoYiJavaCycleWhitelist() {
     c.some((f) => f.toLowerCase().includes('stringutils')) &&
     c.some((f) => f.toLowerCase().includes('strformatter'))
   );
-  assert.strictEqual(hasRuoYiCycle, false, 'RuoYi StringUtils↔StrFormatter cycle should be filtered by Java utility↔utility edge pruning');
+  assert.strictEqual(hasRuoYiCycle, true, 'explicit Java utility dependencies must remain visible to cycle and impact analysis');
+  assert(dg.getDependencies(stringUtilsPath).includes(dg.normalizeFilePath(strFormatterPath)));
+  assert(dg.getDependents(strFormatterPath).includes(dg.normalizeFilePath(stringUtilsPath)));
 
   cleanupTempDir(dir);
 }
@@ -331,7 +333,8 @@ async function testRuoYiAnnotationSerializerCycleWhitelist() {
     c.some((f) => f.toLowerCase().includes('sensitive.java')) &&
     c.some((f) => f.toLowerCase().includes('sensitivejsonserializer'))
   );
-  assert.strictEqual(hasCycle, false, 'RuoYi Sensitive↔SensitiveJsonSerializer cycle should be filtered by annotation-only target edge pruning');
+  assert.strictEqual(hasCycle, true, 'explicit annotation and serializer dependencies are still compile-time dependencies');
+  assert(dg.getDependents(sensitivePath).includes(dg.normalizeFilePath(serializerPath)));
 
   cleanupTempDir(dir);
 }
