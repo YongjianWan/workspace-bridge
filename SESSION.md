@@ -14,7 +14,7 @@
 
 ## 下一步
 
-1. 将当前修复送入 GitHub Actions，按 H-18 验证 Node 22/24、ubuntu/windows 矩阵与慢层连续全绿，并重验其他平台。
+1. 将当前修复送入 GitHub Actions（上次 `9fd7ba8`：Windows 快测 1 个、慢层 8 个失败，已按 H-18 条目修复待验证），按 H-18 验证 Node 22/24、ubuntu/windows 矩阵与慢层连续全绿，并重验其他平台。
 2. 第 3、4 步已完成；H-20 剩 3000 文件 17.4 秒（验收 15 秒） 大仓分段取证，再迁移统一分析记录与错误信封。H-11 等其余开放项以 TECH_DEBT 为准。
 3. H-24、L1-19：核验 gitignore 子目录根判定与 submodule 的 git check-ignore 异常。
 4. L2-41：补生成客户端代码的 api-contracts 匹配；不要把取证脚本退出 0 当作业务验收。

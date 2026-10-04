@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+### Windows 短路径工作区与基线保存检查（2026-10-05）
+
+- 工作区以 Windows 8.3 短路径（如 `C:UsersRUNNER~1...`）传入时，git 返回长路径，路径比较对不上，`audit-diff` 以 `ok: true` 静默返回 0 个变更文件。现在 git 边界（`getChangedFiles`、`getDiffNumstat`）把 git 的长路径翻译回调用方传入的拼写，内部路径身份不变；git 环境探测比较时展开短名。仅处理含 `~数字` 短名段的 Windows 路径，其他路径原样返回。回归：`short-path-workspace-test`；把 `TEMP` 设为短路径跑完整套件 323/323。
+- `saveBaseline` 的身份检查改为路径前后两次 `lstat` 对比加句柄 `isFile`/`nlink`，不再拿 `lstat` 与 `fstat` 的 `dev/ino` 互比（后者在不同 Node/libuv 版本不一定一致）；报错带上具体字段和值。Windows Node 22.13.0 的失败尚未复现，需 CI 验证。
+
 ### 大仓库暖启动平方级耗时（2026-10-05）
 
 - `findDeadExports` 对每个无人导入的文件都调用一次 `getStats()`，后者遍历全部文件做目录分类，总开销随文件数平方增长。改为一次扫描只计算一次"图是否不可靠"，判定规则和结果不变。回归：`dead-exports-stats-once-test`（修复前 40 个文件调用 40 次，修复后至多 1 次）。
