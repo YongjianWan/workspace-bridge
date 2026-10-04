@@ -43,7 +43,9 @@ workspace-bridge-cli <command> --cwd <project> --json --quiet
 
 **L4 命令仅在需要原始数据或调试时调用**。日常审计优先用 L1（`audit-overview` / `audit-file` / `audit-diff`），数据已被策展去噪。
 
-**避免调用**：`audit-summary`（已废弃，redirect 到 `audit-overview`）、`health`（已废弃）、`stats` / `dependencies` / `dependents`（太 raw）、`impact` / `affected-tests`（已被 `audit-file` 覆盖）、`watch`（交互式，不适合批量调用）。
+**需要完整列表时**：`audit-file` 在大仓库（索引文件数超过 500）自动压缩，每个列表只留前 5 条；半径大的文件要完整影响或测试列表时，改用 `affected-tests`（默认最多 500 条）和 `impact`（默认最多 50 条，`--max-files` 调整），或给 `audit-file` 加 `--no-compact`。
+
+**避免调用**：`audit-summary`（已废弃，redirect 到 `audit-overview`）、`health`（已废弃）、`stats` / `dependencies` / `dependents`（太 raw）、`watch`（交互式，不适合批量调用）。
 
 ## Token 控制（AI 消费必读）
 
@@ -55,7 +57,7 @@ workspace-bridge-cli <command> --cwd <project> --json --quiet
   - 注意：与 `--format ai` 同时使用时，输出 `warnings` 会提示 digest 输入被裁剪，避免 AI 拿到被静默降级的风险视图。
 - `--max-files <n>`：限制大部分命令返回的文件/条目数（`audit-overview` / `audit-map` / `audit-file` / `audit-diff` / `query-*` / `impact` / `affected-*` / `dependencies` / `dependents` / `dead-exports` / `unresolved` / `cycles` / `tree` / `guard` / `api-contracts` 均支持）。
 - `--compact`：目录级聚合边 + 精简树 + 列表 capped（`audit-map` / `audit-overview` / `audit-file` / `api-contracts` / `guard` 生效；大项目自动触发；`--no-compact` 关闭）。
-- **截断必读**：顶层 `truncated: true` 时，列表不是全集。读顶层 `elided[]`，每条是 `{ path, kind, shown, total, reason }`（`reason`：`json-size-limit` JSON 体积上限 / `compact` 压缩模式清空 / `ai-digest` AI 摘要抽样）。要全集就加 `--max-files <n>`（JSON 体积上限不会低于它）或 `--no-compact`。`affected-tests` 按 `orderedBy: distance,file` 排序后截断，留下的是距离最近的测试。
+- **截断必读**：顶层 `truncated: true` 时，列表不是全集。读顶层 `elided[]`，每条是 `{ path, kind, shown, total, reason }`（`reason`：`json-size-limit` JSON 体积上限 / `compact` 压缩模式只保留前几条 / `ai-digest` AI 摘要抽样）。要全集就加 `--max-files <n>`（JSON 体积上限不会低于它）或 `--no-compact`。`affected-tests` 按 `orderedBy: distance,hubFanIn,file` 排序后截断：距离近的在前，同距离时经过依赖者少的中间文件的测试在前，经被几乎所有测试导入的枢纽文件（如 `testing.py`）才关联到的测试排后。
 
 ## Exit Code 契约
 
@@ -91,10 +93,13 @@ workspace-bridge-cli audit-overview --cwd <project> --json --quiet
 5. `analysisCoverage.coverageRatio`
 
 ### audit-file
-1. `severity`
-2. `impact[]`（真实依赖边）
-3. `affectedTests[]`（优先 `source === "graph"`，`mention` 可忽略）
-4. `coChanges[]`（历史上与该文件频繁共变的文件，检查是否遗漏）
+字段是嵌套的，顶层没有这些名字：
+1. `summary.severity`：衡量影响半径（依赖者加受影响测试），不是代码质量；输出里的 `severityNote` 同样说明
+2. `impact.impact[]`（真实依赖边），总数看 `impact.impactCount`
+3. `affectedTests.affectedTests[]`（优先 `source === "graph"`，`mention` 可忽略），总数看 `affectedTests.affectedTestsCount`
+4. `impact.coChanges[]`（历史上与该文件频繁共变的文件，检查是否遗漏）
+
+列表被压缩或截断时顶层 `truncated: true`，`elided[]` 给出每个列表的 `shown` 和 `total`；以计数为准判断影响范围，不要把短列表读成没有影响。
 5. `validationAdvice.commands`
 
 ### audit-diff

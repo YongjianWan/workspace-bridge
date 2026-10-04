@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### affected-tests 截断口径、audit-file 压缩模式与技能手册对齐（2026-10-04）
+
+- `affected-tests --json` 的兜底截断网不再先于命令自己的上限（500 条）生效：typer `typer/main.py` 的 212 条全部返回。其他命令仍受 100 条兜底网约束，截断照常写入 `elided[]`。
+- 命令内排序改为 `distance,hubFanIn,file`：同距离时经依赖者更少的中间文件的测试排在前；`hubFanIn` 取路径中间文件的最大依赖者数，没有阈值。
+- `audit-file` 压缩模式（大于 500 个文件的仓库自动开启）原先把所有列表清空，只剩计数；现在每个列表保留前 5 条（`COMPACT_IMPACT_MAX` / `COMPACT_AFFECTED_TESTS_MAX`），`--max-files` 在压缩模式下作为保留条数，被截短的列表在 `elided[]` 记 `shown` / `total`。与 `audit-diff` 的压缩行为一致。
+- `skills/workspace-audit/SKILL.md`：`impact` / `affected-tests` 从"避免调用"移除并说明何时使用；`audit-file` 字段改为嵌套路径（`summary.severity`、`impact.impact[]`、`affectedTests.affectedTests[]`、`impact.coChanges[]`），写明 severity 衡量影响半径、以计数为准；排序说明同步。用户级副本已同步。
+- 评测（`node eval/score.js`）：typer affected-tests 精确率 0.548 / 召回率 0.991，zod 精确率 0.954 → 0.909（CLI 现在返回更多条）；两者基线按新输出重记。H-7 缩为预测质量两项。
+
 ### 缓存目录身份与 affected-tests 评测口径（2026-10-04）
 
 - `computeDefaultCacheDir` 先经 `normalizePathKey` 再求哈希，盘符大小写、正反斜杠、尾分隔符、含 `..` 的写法落到同一个缓存目录。Windows 上哈希输入变了，旧哈希目录不再被使用，升级后各项目冷启动一次；缓存是可重建数据，不做迁移。回归：`cache-fixes-test` 的写法等价用例，还原哈希行后该用例失败（5 个目录）。
