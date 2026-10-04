@@ -13,10 +13,11 @@
       },
       "affected-tests": {
         "status": "ok",
-        "precision": 0.5769,
-        "recall": 0.4867,
-        "n": 4171,
+        "precision": 0.548,
+        "recall": 0.9906,
+        "n": 5586,
         "full": {
+          "status": "ok",
           "precision": 0.548,
           "recall": 0.9906,
           "n": 5586
@@ -44,9 +45,9 @@
     "zod": {
       "affected-tests": {
         "status": "ok",
-        "precision": 0.9541,
+        "precision": 0.9094,
         "recall": 1,
-        "n": 894
+        "n": 938
       }
     },
     "vitesse": {

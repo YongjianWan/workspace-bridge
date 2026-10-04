@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-04T15:25:31.250Z",
+  "generatedAt": "2026-10-04T15:54:39.987Z",
   "wbVersion": "2.1.0",
   "repos": {
     "typer": {
@@ -84,12 +84,12 @@
       },
       "affected-tests": {
         "status": "ok",
-        "precision": 0.5769,
-        "recall": 0.4867,
-        "n": 4171,
-        "tp": 1496,
-        "fp": 1097,
-        "fn": 1578,
+        "precision": 0.548,
+        "recall": 0.9906,
+        "n": 5586,
+        "tp": 3045,
+        "fp": 2512,
+        "fn": 29,
         "filesScored": 28,
         "full": {
           "precision": 0.548,
@@ -345,11 +345,11 @@
       },
       "affected-tests": {
         "status": "ok",
-        "precision": 0.9541,
+        "precision": 0.9094,
         "recall": 1,
-        "n": 894,
+        "n": 938,
         "tp": 853,
-        "fp": 41,
+        "fp": 85,
         "fn": 0,
         "perFile": [
           {
@@ -403,7 +403,7 @@
           {
             "file": "packages/zod/src/v4/classic/parse.ts",
             "real": 86,
-            "pred": 100,
+            "pred": 144,
             "hit": 86
           },
           {
@@ -1344,18 +1344,18 @@
     {
       "repo": "typer",
       "metric": "affected-tests.precision",
-      "baseline": 0.548,
-      "current": 0.5769,
-      "delta": 0.0289,
+      "baseline": 0.5769,
+      "current": 0.548,
+      "delta": -0.0289,
       "result": "PASS"
     },
     {
       "repo": "typer",
       "metric": "affected-tests.recall",
-      "baseline": 0.9906,
-      "current": 0.4867,
-      "delta": -0.5039,
-      "result": "FAIL"
+      "baseline": 0.4867,
+      "current": 0.9906,
+      "delta": 0.5039,
+      "result": "PASS"
     },
     {
       "repo": "full-stack-fastapi-template",
@@ -1377,8 +1377,8 @@
       "repo": "zod",
       "metric": "affected-tests.precision",
       "baseline": 0.9541,
-      "current": 0.9541,
-      "delta": 0,
+      "current": 0.9094,
+      "delta": -0.0447,
       "result": "PASS"
     },
     {
@@ -1519,7 +1519,7 @@
     }
   ],
   "summary": {
-    "fail": 1,
-    "pass": 22
+    "fail": 0,
+    "pass": 23
   }
 }

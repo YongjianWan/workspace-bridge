@@ -13,7 +13,9 @@ const {
 const { STREAMING, SCHEMA_VERSION, EXIT_CODES, DEFAULTS } = require('../config/constants');
 const { elideDeep } = require('../utils/truncate');
 
-const ESSENTIAL_FIELDS = ['ok', 'error', 'schemaVersion', 'command', 'hasFindings', 'staleness', 'warnings', 'dataQuality'];
+const COMMAND_ARRAY_LIMITS = { 'affected-tests': DEFAULTS.AFFECTED_TESTS_COMMAND_MAX_ITEMS };
+
+const ESSENTIAL_FIELDS =['ok', 'error', 'schemaVersion', 'command', 'hasFindings', 'staleness', 'warnings', 'dataQuality'];
 
 /**
  * Prune result keys to the requested field list. Essential envelope keys are
@@ -128,7 +130,13 @@ function formatCliResult(parsed, result, meta = {}) {
     // --format json and --json are equivalent for structured output.
     const elided = [...(result?.elided || [])];
     // An explicit --max-files is the caller's own budget; the size net must not undercut it.
-    const maxArrayLength = Math.max(DEFAULTS.JSON_OUTPUT_MAX_ARRAY_ITEMS, Number.isFinite(parsed.maxFiles) ? parsed.maxFiles : 0);
+    // A command whose own tool already declares a larger list limit (affected-tests: the list is the
+    // answer) keeps it; otherwise the generic net would silently cut a list the tool chose to return.
+    const maxArrayLength = Math.max(
+      DEFAULTS.JSON_OUTPUT_MAX_ARRAY_ITEMS,
+      COMMAND_ARRAY_LIMITS[parsed.command] || 0,
+      Number.isFinite(parsed.maxFiles) ? parsed.maxFiles : 0
+    );
     let output = result && typeof result === 'object' ? elideDeep(result, { elided, maxArrayLength }) : result;
     if (output && typeof output === 'object') {
       // Every cut — the producer's compact mode or the size net above — is

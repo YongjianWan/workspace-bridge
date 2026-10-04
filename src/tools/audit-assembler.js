@@ -417,30 +417,31 @@ async function assembleFile(parsed, container) {
   const frameworkPattern = container.snapshot.graph.getFrameworkHint(resolvedPath);
   const validationAdvice = buildFileValidationAdvice(resolvedPath, container.workspaceRoot, affectedTests, impact);
 
-  // Compact mode: keep counts/summary and the single suggested command, drop
-  // verbose lists so large files do not flood human-readable output. Each
-  // non-empty list dropped is recorded, so the empty array never reads as
-  // "nothing there".
+  // Compact mode: keep counts/summary and the first few entries of each list
+  // (already ordered nearest/strongest first), drop the rest. An empty list
+  // beside a non-zero count reads as "nothing there", so the head stays and
+  // every cut is recorded in elided[] with shown/total.
   const elided = [];
   if (compact) {
-    const drop = (owner, key, path, flagOwner = owner) => {
+    const keepOf = (limit) => (Number.isFinite(parsed.maxFiles) && parsed.maxFiles > 0 ? parsed.maxFiles : limit);
+    const trim = (owner, key, path, limit, flagOwner = owner) => {
       const total = owner[key]?.length || 0;
-      if (total > 0) {
-        elided.push({ path, kind: 'array', shown: 0, total, reason: 'compact' });
-        flagOwner.truncated = true;
-      }
-      owner[key] = [];
+      const keep = keepOf(limit);
+      if (total <= keep) return;
+      elided.push({ path, kind: 'array', shown: keep, total, reason: 'compact' });
+      flagOwner.truncated = true;
+      owner[key] = owner[key].slice(0, keep);
     };
-    drop(impact, 'impact', 'impact.impact');
-    drop(impact, 'coChanges', 'impact.coChanges');
-    drop(impact, 'affectedRoutes', 'impact.affectedRoutes');
-    drop(affectedTests, 'affectedTests', 'affectedTests.affectedTests');
+    trim(impact, 'impact', 'impact.impact', DEFAULTS.COMPACT_IMPACT_MAX);
+    trim(impact, 'coChanges', 'impact.coChanges', DEFAULTS.COMPACT_IMPACT_MAX);
+    trim(impact, 'affectedRoutes', 'impact.affectedRoutes', DEFAULTS.COMPACT_IMPACT_MAX);
+    trim(affectedTests, 'affectedTests', 'affectedTests.affectedTests', DEFAULTS.COMPACT_AFFECTED_TESTS_MAX);
     for (const group of ['smoke', 'focused', 'full']) {
-      drop(validationAdvice.commands, group, `validationAdvice.commands.${group}`, validationAdvice);
+      trim(validationAdvice.commands, group, `validationAdvice.commands.${group}`, DEFAULTS.COMPACT_AFFECTED_TESTS_MAX, validationAdvice);
     }
-    drop(validationAdvice, 'phases', 'validationAdvice.phases');
-    drop(validationAdvice, 'fileSpecificAdvice', 'validationAdvice.fileSpecificAdvice');
-    drop(validationAdvice, 'environmentNotes', 'validationAdvice.environmentNotes');
+    trim(validationAdvice, 'phases', 'validationAdvice.phases', DEFAULTS.COMPACT_AFFECTED_TESTS_MAX);
+    trim(validationAdvice, 'fileSpecificAdvice', 'validationAdvice.fileSpecificAdvice', DEFAULTS.COMPACT_AFFECTED_TESTS_MAX);
+    trim(validationAdvice, 'environmentNotes', 'validationAdvice.environmentNotes', DEFAULTS.COMPACT_AFFECTED_TESTS_MAX);
   }
 
   const result = {
