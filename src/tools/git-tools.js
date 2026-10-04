@@ -4,7 +4,7 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { resolveWorkspaceFilePath, toRelativePosix, isPathInsideRoot } = require('../utils/path');
+const { resolveWorkspaceFilePath, toRelativePosix, isPathInsideRoot, toCallerSpelling } = require('../utils/path');
 const { runGit } = require('../utils/command');
 const { scoreToLevel } = require('../config/risk-thresholds');
 const { TIMEOUTS, LIMITS } = require('../config/constants');
@@ -182,7 +182,7 @@ async function getChangedFiles(root, options = {}) {
   if (gitCheck) return gitCheck;
 
   const toplevelResult = await runGit(['rev-parse', '--show-toplevel'], root, TIMEOUTS.GIT_SHORT_MS);
-  const gitRoot = toplevelResult.ok ? path.resolve(toplevelResult.stdout.trim()) : root;
+  const gitRoot = toplevelResult.ok ? toCallerSpelling(path.resolve(toplevelResult.stdout.trim()), root) : root;
 
   // Commit range mode: use git diff --name-only for explicit range
   if (commits) {
@@ -444,7 +444,7 @@ async function getDiffNumstat(root, options = {}) {
   }
 
   const toplevelResult = await runGit(['rev-parse', '--show-toplevel'], root, TIMEOUTS.GIT_SHORT_MS);
-  const gitRoot = toplevelResult.ok ? path.resolve(toplevelResult.stdout.trim()) : root;
+  const gitRoot = toplevelResult.ok ? toCallerSpelling(path.resolve(toplevelResult.stdout.trim()), root) : root;
 
   const result = await runGit(args, root, TIMEOUTS.GIT_LONG_MS);
   if (!result.ok) {

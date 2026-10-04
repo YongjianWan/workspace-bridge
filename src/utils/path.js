@@ -13,6 +13,30 @@ function normalizePath(inputPath) {
   return path.resolve(posix);
 }
 
+// A Windows 8.3 segment looks like `RUNNER~1`. git reports workspaces in long form, so a root
+// kept in short form never matches git's paths and diffs silently come back empty. Only paths
+// that contain such a segment are resolved; every other path is returned untouched, so symlinked
+// and junctioned workspaces keep the path the user passed.
+const SHORT_NAME_SEGMENT_RE = /(^|[\\/])[^\\/]{1,8}~\d+(\.[^\\/]{0,3})?([\\/]|$)/;
+
+function expandShortPath(inputPath) {
+  if (!IS_WINDOWS || !SHORT_NAME_SEGMENT_RE.test(inputPath)) return inputPath;
+  try {
+    return fs.realpathSync.native(inputPath);
+  } catch {
+    return inputPath;
+  }
+}
+
+// git prints long-form paths. Everything else in the process keys files by the spelling the caller
+// gave for the workspace root, so a git path is translated back into that spelling: same location,
+// reached from `root` (an ancestor such as the repo toplevel comes out as `root/../..`).
+function toCallerSpelling(absolutePath, root) {
+  const longRoot = expandShortPath(root);
+  if (longRoot === root) return absolutePath;
+  return path.resolve(root, path.relative(longRoot, absolutePath));
+}
+
 function toPosixPath(inputPath) {
   return String(inputPath || '').replace(/\\/g, '/');
 }
@@ -400,6 +424,8 @@ function get2LevelPrefix(relPath) {
 
 module.exports = {
   normalizePath,
+  expandShortPath,
+  toCallerSpelling,
   normalizePathKey,
   normalizeFilePath,
   fromNormalizedKey,

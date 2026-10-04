@@ -128,9 +128,16 @@ function saveBaseline(result, filePath, workspaceRoot = result.workspaceRoot || 
     : fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL;
   const fd = fs.openSync(target, flags);
   try {
-    const opened = fs.fstatSync(fd);
-    if (existing && (opened.dev !== existing.dev || opened.ino !== existing.ino || opened.nlink !== 1)) {
-      throw new Error('Baseline save target changed before overwrite');
+    if (existing) {
+      // The handle must be a plain single-link file, and the path must still name the file that
+      // was inspected. Both identity reads use lstat: lstat and fstat do not report identical
+      // dev/ino on every Node/libuv version, so mixing them gives false "changed" alarms.
+      const opened = fs.fstatSync(fd);
+      const current = fs.lstatSync(target);
+      const moved = current.dev !== existing.dev || current.ino !== existing.ino;
+      if (!opened.isFile() || opened.nlink !== 1 || !current.isFile() || moved) {
+        throw new Error(`Baseline save target changed before overwrite (handle file=${opened.isFile()} nlink=${opened.nlink}; path dev ${existing.dev}->${current.dev} ino ${existing.ino}->${current.ino})`);
+      }
     }
     if (existing) {
       let data;
