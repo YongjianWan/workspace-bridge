@@ -1333,6 +1333,17 @@ class GraphAnalyzer {
     } else {
       deadExports = [];
 
+      // getStats() walks every file; the graph is fixed during this scan, so ask once.
+      let graphUnreliable = null;
+      const isGraphUnreliable = () => {
+        if (graphUnreliable === null) {
+          const stats = this.getStats();
+          const edgeRatio = stats.files > 0 ? stats.totalImports / stats.files : 0;
+          graphUnreliable = stats.files > 1 && edgeRatio < 0.1;
+        }
+        return graphUnreliable;
+      };
+
       for (const [filePath, info] of this.dg.graph) {
         if (this.dg.shouldExcludeCli(filePath)) continue;
         if (info.exports.length === 0) continue;
@@ -1349,13 +1360,10 @@ class GraphAnalyzer {
           // When the dependency graph has many files but suspiciously few edges,
           // the parser may be unavailable or the project uses an unsupported module
           // system. Downgrade confidence to avoid high-confidence false positives.
-          const stats = this.getStats();
-          const edgeRatio = stats.files > 0 ? stats.totalImports / stats.files : 0;
-          const graphUnreliable = stats.files > 1 && edgeRatio < 0.1;
           if (scaffold) continue;
           const filteredExports = info.exports.filter(isConventionallyAliveSymbol);
           if (filteredExports.length === 0) continue;
-          let { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(0, info.parseMode, graphUnreliable, info.parseModeReason);
+          let { confidence, confidenceValue, source, reason } = computeDeadExportConfidence(0, info.parseMode, isGraphUnreliable(), info.parseModeReason);
           // Same-package edges are reference-gated, so a
           // runtime-bound class (Spring DI / component scan — its name may
           // never appear in any source file) legitimately arrives here with
