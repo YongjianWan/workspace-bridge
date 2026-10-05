@@ -14,9 +14,7 @@
 
 ## P1：输出看着正常、实际是错的（静默错误）
 
-| ID | 现象与复现 | 验收线 |
-|---|---|---|
-| H-33 | 升级代码后，`audit-overview` 会继续重放旧代码算出的分析快照。原因：`analysis_snapshots` 每行只校验 `CACHE_VERSION`，而 `CACHE_VERSION` 的引擎指纹只覆盖 `src/services/dep-graph/`（`src/config/versions.js`）；`src/tools/` 里生成 overview 结果的代码不在指纹范围内，`isSnapshotFresh()`（`src/tools/snapshot-freshness.js`）也不比较代码版本。2026-10-05 在 `d57bc11` 的独立 worktree 上复现：两文件夹具，用同一个 `WB_CACHE_DIR` 先跑一次 `audit-overview --json --quiet` 生成快照；给 `src/tools/overview-tools.js` 的结果对象加一个字段 `probe: 1` 后再跑，输出带 `replayedFrom`，没有 `probe`。对照组换一个空缓存目录跑，输出有 `probe: 1`。重放结果只靠 `replayedFrom` 表明来源，未核对其 `warnings[]` 是否提示代码已变。 | 改 `src/tools/` 中参与生成分析快照的代码后，不手动加修订号也不会重放旧快照；有回归测试锁定（改代码指纹后快照失效）。 |
+当前无开放条目。
 
 ## P2：安全、缓存与文档隐患（条目编号 H-n）
 
