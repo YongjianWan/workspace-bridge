@@ -6,7 +6,7 @@
 
 const fs = require('fs');
 const { dependencyGraph } = require('../../tools/dep-tools');
-const { assembleDiff, assembleSecurity,  resolveCompact } = require('../../tools/audit-assembler');
+const { assembleDiff, assembleSecurity, resolveCompact, projectHealth } = require('../../tools/audit-assembler');
 const { filterByCategory } = require('../../tools/category-filter');
 const { runDiagnostics, workspaceInfo } = require('../../tools/workspace-tools');
 const { buildProjectMap } = require('../formatters');
@@ -59,13 +59,9 @@ const COMMANDS = {
     // 只额外注入 deprecated 的 health 字段，避免维护两套不一致的 hasFindings。
     const result = await COMMANDS['audit-overview'](parsed, container);
     if (result.ok !== false) {
-      result.health = {
-        ok: true,
-        healthScore: '5/5',
-        healthScoreNumeric: { passed: 5, total: 5, ratio: 1.0 },
-        checks: {},
-      };
-      // 兼容层：对齐旧版 repoSeverity 的阈值逻辑，缺省 hygiene 检查时评级为 medium，防止破坏 tests 断言
+      result.health = projectHealth({ cwd: parsed.cwd }, container);
+      const { passed, total } = result.health.healthScoreNumeric;
+      // 兼容层：沿用旧版 repoSeverity 的阈值逻辑，缺失的卫生检查数取自真实检查结果
       const unresolvedCount = result.unresolved?.unresolvedCount || 0;
       const cyclesCount = result.cycles?.cyclesCount || 0;
       const severityRelevantDeadExportsCount = (result.deadExports?.deadExports || []).filter(
@@ -77,7 +73,7 @@ const COMMANDS = {
           unresolved: unresolvedCount,
           cycles: cyclesCount,
           deadExports: severityRelevantDeadExportsCount,
-          missingHygieneChecks: 5 // mock missing checks since this is a deprecated layer
+          missingHygieneChecks: total - passed,
         });
         // 兼容层：对齐旧版 nextSteps 属性，注入包含 totalFiles counts 的描述以满足 tests 的断言
         result.summary.nextSteps = [
@@ -198,20 +194,11 @@ const COMMANDS = {
     return result;
   },
   health: async (parsed, container) => {
-    // 兼容层：废弃 health 并重定向到 audit-overview，同时注入兼容性健康指标防止破坏 userspace 接口契约
+    // 兼容层：废弃 health 并重定向到 audit-overview，健康指标取自真实检查（与 audit-summary.health 同源）
     const result = await COMMANDS['audit-overview'](parsed, container);
     if (result.ok !== false) {
-      result.healthScore = '5/5';
-      result.healthScoreNumeric = { passed: 5, total: 5, ratio: 1.0 };
-      result.packageManager = 'npm';
-      result.checks = {
-        readme: { found: true, path: 'README.md' },
-        license: { found: true, path: 'LICENSE' },
-        gitignore: { found: true, path: '.gitignore' },
-        ci: { found: true, frameworks: ['github-actions'] },
-        testConfig: { found: true, frameworks: ['jest'] },
-      };
-      result.fixes = [];
+      const { healthScore, healthScoreNumeric, packageManager, checks, fixes } = projectHealth({ cwd: parsed.cwd }, container);
+      Object.assign(result, { healthScore, healthScoreNumeric, packageManager, checks, fixes });
     }
     return result;
   },

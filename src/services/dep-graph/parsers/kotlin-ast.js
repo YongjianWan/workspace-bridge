@@ -231,6 +231,15 @@ function computeKotlinFunctionFingerprint(funcNode) {
   };
 }
 
+// A declaration nested in a block (function body, lambda, init block, accessor, constructor body)
+// is local to that block. Top-level and class-member declarations never sit under `statements`.
+function isLocalDeclaration(node) {
+  for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
+    if (ancestor.type === 'statements') return true;
+  }
+  return false;
+}
+
 function hasWildcardImport(importHeaderNode) {
   return importHeaderNode.children.some((c) => c.type === 'wildcard_import');
 }
@@ -297,7 +306,7 @@ async function parseKotlin(content) {
         if (parent && parent.type === 'variable_declaration') {
           parent = parent.parent;
         }
-        if (!parent || !isExported(parent)) continue;
+        if (!parent || !isExported(parent) || isLocalDeclaration(capture.node)) continue;
 
         const lineStart = getLineStart(parent);
         const lineEnd = getLineEnd(parent);

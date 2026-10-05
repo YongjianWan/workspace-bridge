@@ -9,6 +9,7 @@ const { runPythonModule, runNpx,  resolvePythonCommand } = require('../utils/com
 const { parseDiagnosticsFromText, uniqueDiagnostics } = require('../utils/diagnostics');
 const { TIMEOUTS, DEFAULTS } = require('../config/constants');
 const { detectEslintConfig } = require('../utils/environment-probe');
+const { diag } = require('../utils/diag');
 
 // 配置常量 - 集中管理可调优参数
 const CONFIG = {
@@ -118,7 +119,7 @@ class DiagnosticsEngine {
   async checkFile(filePath) {
     // Security: validate file is within workspace
     if (!this.isSafePath(filePath)) {
-      console.error(`[Diagnostics] Rejected path outside workspace: ${filePath}`);
+      diag(`[Diagnostics] Rejected path outside workspace: ${filePath}`);
       return [];
     }
 
@@ -129,7 +130,7 @@ class DiagnosticsEngine {
     try {
       stat = fs.statSync(filePath);
     } catch (e) {
-      console.error(`[Diagnostics] Cannot stat file: ${filePath}`);
+      diag(`[Diagnostics] Cannot stat file: ${filePath}`);
       return [];
     }
     
@@ -223,7 +224,7 @@ class DiagnosticsEngine {
         }
       } catch (e) {
         // Parse error, ignore
-        console.error('[Diagnostics] Failed to parse pyright output:', e.message);
+        diag('[Diagnostics] Failed to parse pyright output:', e.message);
       }
     }
 
@@ -374,7 +375,7 @@ class DiagnosticsEngine {
       await this.checkFile(filePath);
     } catch (e) {
       // 后台检查失败不应影响主流程，仅记录日志
-      console.error(`[Diagnostics] Background check failed for ${filePath}:`, e.message);
+      diag(`[Diagnostics] Background check failed for ${filePath}:`, e.message);
     } finally {
       this.runningChecks.delete(filePath);
       this._drainCheckQueue();

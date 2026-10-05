@@ -261,8 +261,11 @@ async function testConcurrentLockingAndReadRetry() {
   acquireLockSync(lockPath, 50, 10);
   releaseLockSync(lockPath);
 
-  // 5. Test empty lock recovery: create an empty lock file manually, then try to acquire lock
+  // 5. Test empty lock recovery: an empty lock file left behind by an owner that died while
+  // creating it (older than the creation grace period) is taken over at once.
   fs.writeFileSync(lockPath, '');
+  const abandoned = new Date(Date.now() - 60 * 1000);
+  fs.utimesSync(lockPath, abandoned, abandoned);
   acquireLockSync(lockPath, 50, 10); // Should succeed immediately by unlinking the empty lock
   releaseLockSync(lockPath);
 

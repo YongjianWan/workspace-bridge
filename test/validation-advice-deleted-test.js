@@ -4,7 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { buildValidationAdvice } = require('../src/cli/formatters/validation-advice');
+const { buildValidationAdvice } = require('../src/tools/summaries/validation-advice');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-validation-deleted-'));
 try {

@@ -83,7 +83,8 @@ function main() {
     assert(json.unresolved, 'should contain unresolved');
     assert(json.cycles, 'should contain cycles');
     assert(json.health, 'should contain backward-compatible health check');
-    assert.strictEqual(json.health.healthScore, '5/5', 'healthScore should be compatible');
+    assert(/^\d+\/\d+$/.test(json.health.healthScore), 'healthScore is a passed/total fraction');
+    assert.strictEqual(json.health.checks.readme.found, true, 'health checks come from the repository (this repo has a README)');
   }
 
   // Test 8: audit-overview must contain all panoramic findings

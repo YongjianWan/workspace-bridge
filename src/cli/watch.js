@@ -17,8 +17,8 @@ const WATCH_MAX_STDOUT_BYTES = LIMITS.WATCH_MAX_STDOUT_BYTES;
 const { detectStack } = require('../utils/stack-detectors/detect');
 const { generateCommands } = require('../utils/stack-detectors/commands');
 const { buildSafeEnv } = require('../utils/command');
-const { buildFileSummary } = require('./formatters/file-summary');
-const { buildFileValidationAdvice } = require('./formatters/validation-advice');
+const { buildFileSummary } = require('../tools/summaries/file-summary');
+const { buildFileValidationAdvice } = require('../tools/summaries/validation-advice');
 const { normalizePathKey } = require('../utils/path');
 const { typedError } = require('../utils/failure');
 

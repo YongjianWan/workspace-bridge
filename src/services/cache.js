@@ -9,6 +9,7 @@ const { normalizeFilePath, normalizePathKey } = require('../utils/path');
 const { GraphDB } = require('./graph-db');
 const { DEFAULTS } = require('../config/constants');
 const { Ledger } = require('./ledger');
+const { diag } = require('../utils/diag');
 
 const CACHE_STALE_MS = DEFAULTS.STALENESS_THRESHOLD_MS;
 const WINDOWS_ABSOLUTE_PATH_RE = /^([A-Za-z]):[\\/](.*)$/;
@@ -372,7 +373,7 @@ class WorkspaceCache {
     } catch (err) {
       this.ledger.record('cache-load-failed', { message: `Cache recovery failed: ${err.message}; rebuilding from source` });
       if (process.env.DEBUG) {
-        console.error('[Cache] SQLite load failed:', err.message);
+        diag('[Cache] SQLite load failed:', err.message);
       }
       return false;
     }
@@ -435,7 +436,7 @@ class WorkspaceCache {
     } catch (err) {
       this._warnWriteFailure(err.message);
       if (process.env.DEBUG) {
-        console.error('[Cache] SQLite save failed:', err.message);
+        diag('[Cache] SQLite save failed:', err.message);
       }
       return false;
     }

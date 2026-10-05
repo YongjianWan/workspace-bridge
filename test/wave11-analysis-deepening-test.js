@@ -21,7 +21,7 @@ const { runGit } = require('../src/utils/command');
 const { checkBoundaries } = require('../src/tools/dep-tools/boundaries');
 const { checkSmells } = require('../src/tools/dep-tools/smells');
 const { getFileComplexityTrend } = require('../src/tools/complexity-tools');
-const { buildCompositeRisk } = require('../src/cli/formatters/composite-risk');
+const { buildCompositeRisk } = require('../src/tools/summaries/composite-risk');
 const { buildFunctionFingerprint } = require('../src/services/dep-graph/parsers/shared');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 

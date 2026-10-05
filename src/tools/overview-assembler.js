@@ -23,6 +23,8 @@ const {
 } = require('./honesty-engine');
 const { computePageRank } = require('../services/dep-graph/pagerank');
 const { failure } = require('../utils/failure');
+const { peekPythonStdlibInfo } = require('../services/dep-graph/resolvers/python-stdlib');
+const { diag } = require('../utils/diag');
 
 function toRelative(root, filePath) {
   return toRelativePosix(root, filePath);
@@ -152,7 +154,7 @@ async function getHistoryRisk(root, filePath, historyProvider, failures = []) {
     return result?.historyRisk || null;
   } catch (e) {
     failures.push(filePath);
-    console.error(`[overview] Failed to get history for ${filePath}:`, e.message);
+    diag(`[overview] Failed to get history for ${filePath}:`, e.message);
     return null;
   }
 }
@@ -475,6 +477,9 @@ function buildLanguageSupportMatrix(depGraph) {
       fallbackReasons: s.fallbackReasons,
     };
   }
+  // Which names told standard-library imports from third-party ones (null until Python was resolved).
+  const stdlib = peekPythonStdlibInfo();
+  if (matrix.python && stdlib) matrix.python.stdlib = { source: stdlib.source, version: stdlib.version };
   return matrix;
 }
 

@@ -4,10 +4,10 @@
 const assert = require('assert');
 const { formatHuman, formatSummary, formatMarkdown, formatJsonl, formatAi } = require('../src/cli/formatters/human-formatters');
 const { LIMITS } = require('../src/config/constants');
-const { buildRepoSummary } = require('../src/cli/formatters/repo-summary');
-const { buildCompositeRisk } = require('../src/cli/formatters/composite-risk');
-const { buildAuditDiffSummary, classifyChangeType } = require('../src/cli/formatters/audit-diff-summary');
-const { buildValidationAdvice, buildFileValidationAdvice } = require('../src/cli/formatters/validation-advice');
+const { buildRepoSummary } = require('../src/tools/summaries/repo-summary');
+const { buildCompositeRisk } = require('../src/tools/summaries/composite-risk');
+const { buildAuditDiffSummary, classifyChangeType } = require('../src/tools/summaries/audit-diff-summary');
+const { buildValidationAdvice, buildFileValidationAdvice } = require('../src/tools/summaries/validation-advice');
 
 // ---------------------------------------------------------------------------
 // formatHuman

@@ -22,6 +22,7 @@ const { WalCadence } = require('./wal-cadence');
 const { goPackageName, goDeclaredNames, goIdentifiers } = require('./go-same-package');
 const { LIMITS } = require('../../config/constants');
 const { hashFileContent } = require('../cache');
+const { diag } = require('../../utils/diag');
 
 const readFile = promisify(fs.readFile);
 const stat = promisify(fs.stat);
@@ -266,12 +267,12 @@ class GraphBuilder {
 
     const cacheHitRate = files.length > 0 ? Math.round((cachedCount / files.length) * 100) : 0;
     if (!this.dg.quiet) {
-      console.error(`[DepGraph] Built in ${Date.now() - startTime}ms: ${this.dg.graph.size} files (${cacheHitRate}% cached)`);
+      diag(`[DepGraph] Built in ${Date.now() - startTime}ms: ${this.dg.graph.size} files (${cacheHitRate}% cached)`);
     }
     // Guard: if graph has files but zero edges, downstream analysis will produce false positives.
     const totalImports = Array.from(this.dg.graph.values()).reduce((sum, i) => sum + i.imports.length, 0);
     if (this.dg.graph.size > 0 && totalImports === 0) {
-      console.error('[DepGraph] WARNING: Dependency graph appears empty (0 edges). Results may contain false positives.');
+      diag('[DepGraph] WARNING: Dependency graph appears empty (0 edges). Results may contain false positives.');
     }
 
     // Callback slot for build-complete listeners.
@@ -445,7 +446,7 @@ class GraphBuilder {
         routes = await extractRoutes(filePath, content);
       } catch (err) {
         if (process.env.DEBUG) {
-          console.error(`[GraphBuilder] extractRoutes failed for ${filePath}:`, err.message);
+          diag(`[GraphBuilder] extractRoutes failed for ${filePath}:`, err.message);
         }
       }
     }
@@ -607,7 +608,7 @@ class GraphBuilder {
   }
 
   _markParseError(fileKey, filePath, errorMsg) {
-    console.error(errorMsg);
+    diag(errorMsg);
     this.dg.graph.delete(fileKey);
     this.dg.cache.deleteParseResult(filePath);
     if (!this.dg._parseErrorFiles) this.dg._parseErrorFiles = new Set();
@@ -859,7 +860,7 @@ class GraphBuilder {
     }
 
     if (!this.dg.quiet && (wildcardCount > 0 || samePackageCount > 0)) {
-      console.error(
+      diag(
         `[DepGraph] Expanded ${wildcardCount} wildcard imports + ${samePackageCount} same-package refs ` +
           `(${edgeCount} edges) in ${Date.now() - startTime}ms`
       );
@@ -898,7 +899,7 @@ class GraphBuilder {
     }
 
     if (!this.dg.quiet && (wildcardCount > 0 || samePackageCount > 0)) {
-      console.error(
+      diag(
         `[DepGraph] Incremental expanded ${wildcardCount} wildcard imports + ${samePackageCount} same-package refs ` +
           `(${edgeCount} edges) for ${affectedFiles.size} affected files`
       );
@@ -1143,7 +1144,7 @@ class GraphBuilder {
     }
 
     if (!this.dg.quiet && (samePackageCount > 0 || expansionCount > 0 || testEdgeCount > 0)) {
-      console.error(
+      diag(
         `[DepGraph] Expanded ${expansionCount} go-module package imports + ${samePackageCount} same-package refs ` +
           `+ ${testEdgeCount} same-package test refs (${edgeCount + testEdgeCount} edges) in ${Date.now() - startTime}ms`
       );
@@ -1303,7 +1304,7 @@ class GraphBuilder {
               parsedList.push(parsed);
             }
           } catch (e) {
-            console.error(`[DepGraph] Failed to parse neighbor ${filePath}:`, e?.message || e);
+            diag(`[DepGraph] Failed to parse neighbor ${filePath}:`, e?.message || e);
           }
         } else {
           // Fast path: content unchanged since the graph node was built.
@@ -1339,7 +1340,7 @@ class GraphBuilder {
               });
             }
           } catch (e) {
-            console.error(`[DepGraph] Failed to parse ${filePath}:`, e?.message || e);
+            diag(`[DepGraph] Failed to parse ${filePath}:`, e?.message || e);
             this.dg.graph.delete(key);
             if (this.dg.cache) {
               this.dg.cache.deleteParseResult(filePath);
@@ -1453,7 +1454,7 @@ class GraphBuilder {
       }
 
       if (!this.dg.quiet && (reParsed > 0 || skipped > 0)) {
-        console.error(`[DepGraph] Incremental update: ${reParsed} re-parsed, ${skipped} skipped in ${Date.now() - startTime}ms`);
+        diag(`[DepGraph] Incremental update: ${reParsed} re-parsed, ${skipped} skipped in ${Date.now() - startTime}ms`);
       }
     } finally {
       try {
@@ -1472,7 +1473,7 @@ class GraphBuilder {
             }
           } catch (e) {
             if (process.env.DEBUG) {
-              console.error('[GraphBuilder] cache.save() failed:', e.message);
+              diag('[GraphBuilder] cache.save() failed:', e.message);
             }
           }
         }
@@ -1480,7 +1481,7 @@ class GraphBuilder {
         this._buildSymbolRegistry();
       } catch (e) {
         if (process.env.DEBUG) {
-          console.error('[GraphBuilder] Incremental update cleanup failed:', e.message);
+          diag('[GraphBuilder] Incremental update cleanup failed:', e.message);
         }
       } finally {
         this.dg._finishUpdating();

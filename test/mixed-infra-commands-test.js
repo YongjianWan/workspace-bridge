@@ -12,7 +12,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { generateCommands, INFRA_PATTERNS } = require('../src/utils/stack-detector');
-const { buildFileValidationAdvice } = require('../src/cli/formatters/validation-advice');
+const { buildFileValidationAdvice } = require('../src/tools/summaries/validation-advice');
 
 function mixedStack(overrides = {}) {
   return {

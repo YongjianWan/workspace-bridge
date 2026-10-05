@@ -17,7 +17,7 @@ const {
   compactChangedFile,
   buildFileSummary,
   buildFileValidationAdvice
-} = require('../cli/formatters');
+} = require('./summaries');
 const { getChangedFiles, getChangedLineRanges, getFileHistoryRisk, getDiffNumstat } = require('./git-tools');
 const { getFileComplexityTrend } = require('./complexity-tools');
 const { resolveWorkspaceFilePath } = require('../utils/path');
@@ -26,8 +26,9 @@ const { DEFAULTS } = require('../config/constants');
 const { DATA_QUALITY } = require('../config/data-quality');
 const { truncateArray } = require('../utils/truncate');
 const { auditSecurity, groupBySeverity } = require('./security-tools');
-const { buildCompositeRisk } = require('../cli/formatters');
+const { buildCompositeRisk } = require('./summaries');
 const { filterByCategory, parseCategories } = require('./category-filter');
+const { diag } = require('../utils/diag');
 
 const SEVERITY_RANK = { high: 3, medium: 2, low: 1 };
 
@@ -185,7 +186,7 @@ async function buildDiffEntry(relativeFile, container, parsed) {
       });
     } catch (e) {
       if (!quiet) {
-        console.error(`[warn] reuse hints failed for ${relativeFile}: ${e?.message || String(e)}`);
+        diag(`[warn] reuse hints failed for ${relativeFile}: ${e?.message || String(e)}`);
       }
       reuseHints = [];
     }
@@ -289,7 +290,7 @@ function buildDiffResult(safeEntries, finalEntries, changeMetrics, parsed, conta
         }
       } catch (err) {
         if (process.env.DEBUG) {
-          console.error(`[CLI] Impact calculation failed for ${entry.resolvedPath}:`, err.message);
+          diag(`[CLI] Impact calculation failed for ${entry.resolvedPath}:`, err.message);
         }
       }
     }

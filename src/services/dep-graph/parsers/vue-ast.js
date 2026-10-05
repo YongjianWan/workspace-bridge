@@ -20,6 +20,7 @@ const {
   getNodeText,
 } = require('./tree-sitter');
 const { createImportRecord } = require('./shared');
+const { diag } = require('../../../utils/diag');
 
 const VUE_BUILT_IN_TAGS = new Set([
   'component',
@@ -173,7 +174,7 @@ async function parseVueAst(content, filePath = '') {
     parser.setLanguage(lang);
   } catch (err) {
     if (process.env.DEBUG) {
-      console.error(`[vue-ast] parser init failed for ${filePath}:`, err.message);
+      diag(`[vue-ast] parser init failed for ${filePath}:`, err.message);
     }
     return null;
   }
@@ -187,7 +188,7 @@ async function parseVueAst(content, filePath = '') {
     tree = parser.parse(content);
   } catch (err) {
     if (process.env.DEBUG) {
-      console.error(`[vue-ast] parse failed for ${filePath}:`, err.message);
+      diag(`[vue-ast] parse failed for ${filePath}:`, err.message);
     }
     try { parser.delete(); } catch {}
     return null;
@@ -254,7 +255,7 @@ async function parseVueAst(content, filePath = '') {
     };
   } catch (err) {
     if (process.env.DEBUG) {
-      console.error(`[vue-ast] parse failed for ${filePath}:`, err.message);
+      diag(`[vue-ast] parse failed for ${filePath}:`, err.message);
     }
     return null;
   } finally {

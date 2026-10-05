@@ -74,7 +74,7 @@ const {
 } = require('./overview-assembler');
 const {
   writeOverviewOutputs,
-} = require('../cli/formatters/dashboard-formatter');
+} = require('./summaries/dashboard-formatter');
 const { applyBaselineOperations, resolveBaseline } = require('./regression-tools');
 // Freshness 判据单一来源。本文件走 strict 全量判据（含内容签名），
 // query-* 走同函数的粗粒度档——字段比较只存在于 snapshot-freshness.js。

@@ -1,6 +1,6 @@
 // @semantic
 const assert = require('assert');
-const { buildFileSummary } = require('../src/cli/formatters/file-summary');
+const { buildFileSummary } = require('../src/tools/summaries/file-summary');
 
 function testHighSeverityWithImpactAndTests() {
   const impact = { impactCount: 10 };

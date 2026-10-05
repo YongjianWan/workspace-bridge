@@ -16,6 +16,7 @@ const { maskStringLiterals } = require('../utils/sanitize');
 const { Ledger } = require('./ledger');
 const { registry } = require('./dep-graph/parsers/registry');
 const { DEFAULTS, KNOWN_SOURCE_EXTENSIONS } = require('../config/constants');
+const { diag } = require('../utils/diag');
 
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
@@ -103,7 +104,7 @@ class FileIndex {
       if (options.signal?.aborted) throw options.signal.reason;
       this.ledger.record('index-timeout', { discoveredFiles: allFiles.length,
         message: `File discovery exceeded ${timeoutMs}ms; the indexed set is incomplete and its total size is unknown` });
-      console.error(`[FileIndex] Build timed out after ${Date.now() - startTime}ms`);
+      diag(`[FileIndex] Build timed out after ${Date.now() - startTime}ms`);
     }
 
     // .gitignore 摄入：忽略/! 回含语义由 git check-ignore 批量终审，只过滤
@@ -153,14 +154,14 @@ class FileIndex {
     // when the file list is empty.
     if (allFiles.length === 0) {
       if (!this.quiet) {
-        console.error(`[FileIndex] No files discovered in ${this.root}`);
+        diag(`[FileIndex] No files discovered in ${this.root}`);
       }
     }
 
     // Phase 2: process with progress
     if (allFiles.length > 0) {
       if (!this.quiet) {
-        console.error(`[FileIndex] Discovered ${allFiles.length} files to index`);
+        diag(`[FileIndex] Discovered ${allFiles.length} files to index`);
       }
       await this.processFilesWithLimit(allFiles, this.concurrency, signal);
     }
@@ -181,7 +182,7 @@ class FileIndex {
 
     if (!this.quiet) {
       const totalFiles = this.getStats().files;
-      console.error(`[FileIndex] Built in ${Date.now() - startTime}ms, ${totalFiles} files indexed`);
+      diag(`[FileIndex] Built in ${Date.now() - startTime}ms, ${totalFiles} files indexed`);
     }
 
     // Store the raw discovered file list so dep-graph can use platform-native
@@ -238,7 +239,7 @@ class FileIndex {
       } catch (e) {
         // Directory read failed (permissions or deleted), skip
         if (process.env.DEBUG) {
-          console.error(`[FileIndex] Cannot read directory ${current}: ${e.message}`);
+          diag(`[FileIndex] Cannot read directory ${current}: ${e.message}`);
         }
         continue;
       }
@@ -309,7 +310,7 @@ class FileIndex {
             percent,
           });
           if (!this.quiet) {
-            console.error(`[FileIndex] ${percent}% (${this.processedCount}/${total} files indexed)`);
+            diag(`[FileIndex] ${percent}% (${this.processedCount}/${total} files indexed)`);
           }
         }
       });
@@ -498,7 +499,7 @@ class FileIndex {
     }
     if (prunedFiles.length > 0 && process.env.DEBUG) {
       if (!this.quiet) {
-        console.error(`[FileIndex] Pruned ${prunedFiles.length} deleted files from cache`);
+        diag(`[FileIndex] Pruned ${prunedFiles.length} deleted files from cache`);
       }
     }
     return prunedFiles;
@@ -559,7 +560,7 @@ class FileIndex {
       return true;
     } catch (e) {
       if (process.env.DEBUG) {
-        console.error(`[FileIndex] Failed to index ${filePath}:`, e.message);
+        diag(`[FileIndex] Failed to index ${filePath}:`, e.message);
       }
       return false;
     }
@@ -578,7 +579,7 @@ class FileIndex {
       // Node <20 on Linux does not support recursive watch
     }
     if (!recursiveSupported) {
-      console.error('[FileIndex] fs.watch recursive is not supported on this platform; watcher disabled');
+      diag('[FileIndex] fs.watch recursive is not supported on this platform; watcher disabled');
       return;
     }
 
@@ -602,7 +603,7 @@ class FileIndex {
         this.updateTimer = setTimeout(() => {
           this.processPending().catch(err => {
             if (process.env.DEBUG) {
-              console.error('[FileIndex] processPending failed:', err.message);
+              diag('[FileIndex] processPending failed:', err.message);
             }
           });
         }, DEFAULTS.WATCH_DEBOUNCE_MS);
@@ -610,13 +611,13 @@ class FileIndex {
 
       watcher.on('error', (e) => {
         if (process.env.DEBUG) {
-          console.error('[FileIndex] Watcher error:', e.message);
+          diag('[FileIndex] Watcher error:', e.message);
         }
       });
       
       this.watchers.push(watcher);
     } catch (e) {
-      console.error('[FileIndex] Watch failed:', e.message);
+      diag('[FileIndex] Watch failed:', e.message);
     }
   }
 
@@ -626,7 +627,7 @@ class FileIndex {
       try {
         await this.bus.emitAsync('pending:processed', pruned);
       } catch (e) {
-        console.error(`[FileIndex] pending:processed failed:`, e.message);
+        diag(`[FileIndex] pending:processed failed:`, e.message);
       }
     }
   }
@@ -663,7 +664,7 @@ class FileIndex {
       try {
         await this.bus.emitAsync('pending:processed', changedFiles);
       } catch (e) {
-        console.error(`[FileIndex] pending:processed failed:`, e.message);
+        diag(`[FileIndex] pending:processed failed:`, e.message);
       }
     }
   }
@@ -711,7 +712,7 @@ class FileIndex {
         this.bus.emit('file:changed', filePath);
       } catch (e) {
         // 回调失败不应影响文件索引流程
-        console.error(`[FileIndex] file:changed emit failed:`, e.message);
+        diag(`[FileIndex] file:changed emit failed:`, e.message);
       }
     }
   }

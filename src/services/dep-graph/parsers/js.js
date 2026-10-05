@@ -13,6 +13,7 @@ const {
   extractExportsWithRegex,
   extractFunctionRecordsWithRegex,
 } = require('./js/regex-fallback');
+const { diag } = require('../../../utils/diag');
 
 function parseJavaScript(content, filePath = '') {
   if (babelParser) {
@@ -24,7 +25,7 @@ function parseJavaScript(content, filePath = '') {
 
   if (!getWarnedMissingParser() && !babelParser) {
     setWarnedMissingParser(true);
-    console.warn('[workspace-bridge] @babel/parser not available. JS/TS files will use regex parsing with reduced accuracy. Run npm install to enable full AST analysis.');
+    diag('[workspace-bridge] @babel/parser not available. JS/TS files will use regex parsing with reduced accuracy. Run npm install to enable full AST analysis.');
   }
 
   const sanitized = sanitizeForRegex(content);

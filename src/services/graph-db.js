@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { CACHE_VERSION } = require('../config/constants');
 const { failure } = require('../utils/failure');
+const TIMEOUTS = require('../config/timeouts');
 
 // Quoted data and comments must not trigger keyword or statement checks.
 const SQL_NON_CODE = /'(?:''|[^'])*'|"(?:""|[^"])*"|`(?:``|[^`])*`|\[(?:\]\]|[^\]])*\]|--[^\r\n]*|\/\*[\s\S]*?\*\//g;
@@ -224,7 +225,11 @@ function acquireLockSync(lockPath, timeoutMs = 5000, retryIntervalMs = 100) {
         try {
           const content = fs.readFileSync(lockPath, 'utf8').trim();
           const pid = Number.parseInt(content, 10);
-          if (Number.isNaN(pid) || content.length === 0) {
+          // The owner creates the file first and writes its pid second, so an empty file
+          // is usually a lock being taken. Treating it as stale lets two processes both
+          // believe they hold the lock.
+          const creatingNow = content.length === 0 && Date.now() - fs.statSync(lockPath).mtimeMs < TIMEOUTS.LOCK_CREATION_GRACE_MS;
+          if (!creatingNow && (Number.isNaN(pid) || content.length === 0)) {
             try {
               fs.unlinkSync(lockPath);
             } catch {}
@@ -236,10 +241,13 @@ function acquireLockSync(lockPath, timeoutMs = 5000, retryIntervalMs = 100) {
           } catch (killErr) {
             processExists = killErr.code === 'EPERM';
           }
-          if (!processExists) {
-            try {
-              fs.unlinkSync(lockPath);
-            } catch {}
+          if (!creatingNow && !processExists) {
+            // Only remove the lock we judged stale: another process may have replaced it since.
+            if (fs.readFileSync(lockPath, 'utf8').trim() === content) {
+              try {
+                fs.unlinkSync(lockPath);
+              } catch {}
+            }
             continue; // retry
           }
         } catch {}
@@ -364,6 +372,7 @@ class GraphDB {
         fs.mkdirSync(dir, { recursive: true });
       }
       this.db = _withSqliteWarningSuppressed(() => new sqlite.DatabaseSync(this.dbPath));
+      this.db.exec(`PRAGMA busy_timeout = ${TIMEOUTS.SQLITE_BUSY_TIMEOUT_MS}`);
       this.db.exec('PRAGMA journal_mode = WAL');
       this.db.exec('PRAGMA journal_size_limit = 67108864'); // 64MB — auto-checkpoint, prevent unbounded WAL growth
       this.db.exec('PRAGMA mmap_size = 268435456');          // 256MB — memory-map hot pages, reduce read syscalls

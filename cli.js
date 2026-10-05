@@ -31,6 +31,7 @@ const { determineExitCode, formatCliResult, buildErrorResponse } = require('./sr
 const { installFatalHandlers } = require('./src/cli/bootstrap');
 const { workspaceInfo } = require('./src/tools/workspace-tools');
 const { typedError } = require('./src/utils/failure');
+const { setDiagQuiet } = require('./src/utils/diag');
 
 // L2-7: shared CLI options table eliminates duplication between short and long help.
 const COMMON_OPTIONS = [
@@ -240,6 +241,8 @@ async function runCliInProcess(args, opts = {}) {
   if (parsed.version) {
     return { status: 0, stdout: `workspace-bridge ${version}\n`, stderr: '' };
   }
+
+  setDiagQuiet(parsed.quiet);
 
   // Precedence Origin Report
   if (!parsed.quiet && parsed._sources) {

@@ -26,6 +26,7 @@ const REASON_CODES = Object.freeze({
   'empty-graph': { severity: 'high' },
   'unresolved-dropped': { severity: 'low' },
   'unresolved-import-ownership': { severity: 'low' },
+  'python-stdlib-fallback': { severity: 'medium' },
   'history-unavailable': { severity: 'medium' },
   'target-not-indexed': { severity: 'high' },
   'unknown-fields': { severity: 'medium' },

@@ -11,7 +11,7 @@ const { sanitizeForAiOutput } = require('../../utils/sanitize');
  * Prevents `[object Object]` on nested objects.
  */
 function formatStatsValue(val) {
-  if (val === null || val === undefined) return '';
+  if (val === null || val === undefined) return 'null';
   if (Array.isArray(val)) return val.map(formatStatsValue).join(', ');
   if (typeof val === 'object') {
     return Object.entries(val).map(([k, v]) => `${k}=${formatStatsValue(v)}`).join(', ');

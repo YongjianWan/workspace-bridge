@@ -21,6 +21,51 @@ function isInsideGitWorkTree(root) {
   }
 }
 
+const GIT_FATAL_EXIT = 128;
+const GITLINK_MODE = '160000';
+
+// 工作区里的 submodule（gitlink 条目）相对 root 的路径。出现在 check-ignore 输入里的 submodule
+// 内文件会让 git 整批报 fatal，所以要先分流。
+async function listSubmodules(root) {
+  const res = await runCommandSecure('git', ['ls-files', '--stage', '-z'], root, CHECK_IGNORE_TIMEOUT_MS);
+  if (res.exitCode !== 0 || res.error) return [];
+  return res.stdout.split('\0').filter(Boolean)
+    .map((record) => record.split('\t'))
+    .filter(([meta]) => meta.startsWith(`${GITLINK_MODE} `))
+    .map(([, relPath]) => relPath);
+}
+
+// 把候选文件按 submodule 分流；没有文件落在 submodule 里则返回 null（失败另有原因）。
+async function splitBySubmodule(root, files) {
+  const submodules = (await listSubmodules(root)).sort((a, b) => b.length - a.length);
+  if (submodules.length === 0) return null;
+  const outer = [];
+  const inner = new Map();
+  for (const file of files) {
+    const rel = path.relative(root, file).replace(/\\/g, '/');
+    const owner = submodules.find((sub) => rel === sub || rel.startsWith(`${sub}/`));
+    if (!owner) {
+      outer.push(file);
+    } else {
+      if (!inner.has(owner)) inner.set(owner, []);
+      inner.get(owner).push(file);
+    }
+  }
+  return inner.size > 0 ? { outer, inner } : null;
+}
+
+// 超级仓库的规则管 submodule 之外的文件，submodule 里的文件由它自己仓库的 .gitignore 裁决。
+async function filterAcrossSubmodules(root, files, split) {
+  const parts = [filterGitIgnored(root, split.outer)];
+  for (const [sub, subFiles] of split.inner) parts.push(filterGitIgnored(path.join(root, sub), subFiles));
+  const results = await Promise.all(parts);
+  const kept = new Set(results.flatMap((r) => r.kept));
+  return {
+    kept: files.filter((f) => kept.has(f)),
+    warning: results.map((r) => r.warning).find(Boolean) || null,
+  };
+}
+
 /**
  * 按 gitignore 语义过滤候选文件（只承担文件级过滤，目录剪枝仍归
  * DEFAULT_EXCLUDE_DIRS / .workspace-bridge.json 配置层）。
@@ -61,6 +106,10 @@ async function filterGitIgnored(root, files) {
 
   if (res.exitCode === 1 && !res.error) {
     return { kept: files, warning: null }; // 无人被忽略
+  }
+  if (res.exitCode === GIT_FATAL_EXIT && !res.error) {
+    const split = await splitBySubmodule(root, files);
+    if (split) return filterAcrossSubmodules(root, files, split);
   }
   if (res.exitCode !== 0) {
     const reason = res.error ? String(res.error.message || res.error) : `exit ${res.exitCode}`;

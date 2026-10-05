@@ -14,6 +14,7 @@ const {
   buildExportRecordFromValue,
   pushFunctionRecord,
 } = require('./shared');
+const { diag } = require('../../../../utils/diag');
 const WEBPACK_CONFIG_FILE = /^webpack\.config\.[cm]?[jt]s$/i;
 
 // 无插值模板字符串等价于普通字符串：`import(`./lazy`)` 和 import('./lazy')
@@ -481,7 +482,7 @@ function parseJavaScriptAST(content, filePath = '') {
     };
   } catch (e) {
     if (process.env.DEBUG) {
-      console.error(`[DepGraph] AST parse failed for ${filePath}:`, e.message);
+      diag(`[DepGraph] AST parse failed for ${filePath}:`, e.message);
     }
     return null;
   }

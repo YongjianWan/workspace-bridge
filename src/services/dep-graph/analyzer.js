@@ -10,6 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const { computePageRank } = require('./pagerank');
+const { peekPythonStdlibInfo } = require('./resolvers/python-stdlib');
 const {
   normalizeHeuristicName,
   buildHeuristicSignature,
@@ -903,6 +904,10 @@ class GraphAnalyzer {
       });
     }
     ledger.replace('unresolved-dropped', dropped);
+    const stdlib = peekPythonStdlibInfo();
+    ledger.replace('python-stdlib-fallback', stdlib && stdlib.source === 'fallback' ? [{
+      message: 'No Python interpreter reported its standard library; the built-in name list was used to tell standard-library imports from third-party ones, so that classification may differ from the one your Python version gives',
+    }] : []);
     ledger.replace('unresolved-import-ownership', droppedImports.uncertainCount > 0 ? [{
       files: droppedImports.uncertainFiles,
       message: `${droppedImports.uncertainCount} Python import(s) could not be resolved; local or third-party ownership is unknown (e.g. ${droppedImports.uncertainSamples.slice(0, 3).map((s) => s.specifier).join(', ')})`,

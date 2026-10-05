@@ -3,6 +3,8 @@
  * Supports multiple listeners per event with error isolation.
  * One listener throwing does not break others.
  */
+const { diag } = require('./diag');
+
 class EventBus {
   constructor() {
     this._listeners = new Map();
@@ -36,7 +38,7 @@ class EventBus {
         listener(...args);
       } catch (e) {
         this.errors.push({ event, message: e.message });
-        console.error(`[EventBus] Listener for "${event}" failed:`, e.message);
+        diag(`[EventBus] Listener for "${event}" failed:`, e.message);
       }
     }
   }
@@ -50,7 +52,7 @@ class EventBus {
         await listener(...args);
       } catch (e) {
         this.errors.push({ event, message: e.message });
-        console.error(`[EventBus] Async listener for "${event}" failed:`, e.message);
+        diag(`[EventBus] Async listener for "${event}" failed:`, e.message);
       }
     }
   }

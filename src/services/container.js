@@ -17,6 +17,7 @@ const {
   computeKnownBlindSpots,
   computeConfidenceByDomain,
 } = require('../models/workspace-snapshot');
+const { diag, setDiagQuiet } = require('../utils/diag');
 
 function formatDuration(ms) {
   if (ms < 1000) return `${ms}ms`;
@@ -47,6 +48,7 @@ class ServiceContainer {
     this.initError = null;
     this.workspaceRoot = null;
     this.quiet = options.quiet || false;
+    if (this.quiet) setDiagQuiet(true);
     this.options = options;
     this.ledger = options.ledger || new Ledger();
 
@@ -192,7 +194,7 @@ class ServiceContainer {
       this._noteSlowRun();
 
       if (!this.quiet) {
-        console.error(`[Container] Ready: ${this.fileIndex.getStats().files} files indexed`);
+        diag(`[Container] Ready: ${this.fileIndex.getStats().files} files indexed`);
       }
 
       resolveReady(true);
@@ -269,7 +271,7 @@ class ServiceContainer {
   async _runStage(name, fn) {
     const t0 = Date.now();
     if (!this.quiet) {
-      console.error(`[Container] Phase: ${name} ...`);
+      diag(`[Container] Phase: ${name} ...`);
     }
     // Written even under --quiet: a long silent run is indistinguishable from a hang.
     const heartbeat = setInterval(() => {
@@ -289,7 +291,7 @@ class ServiceContainer {
       const elapsed = Date.now() - t0;
       this._phaseTimes[name] = elapsed;
       if (!this.quiet) {
-        console.error(`[Container] Phase: ${name} done (${formatDuration(elapsed)})`);
+        diag(`[Container] Phase: ${name} done (${formatDuration(elapsed)})`);
       }
     }
   }
@@ -311,7 +313,7 @@ class ServiceContainer {
       const { normalizePath } = require('../utils/path');
       this.workspaceRoot = normalizePath(cwd);
       if (!this.quiet) {
-        console.error(`[Container] Initializing for ${this.workspaceRoot} (strict-cwd)`);
+        diag(`[Container] Initializing for ${this.workspaceRoot} (strict-cwd)`);
       }
       return;
     }
@@ -322,7 +324,7 @@ class ServiceContainer {
     const envWorkspaceRoot = process.env.WORKSPACE_ROOT;
     const source = envWorkspaceRoot ? 'WORKSPACE_ROOT env' : 'auto-detected';
     if (!this.quiet) {
-      console.error(`[Container] Initializing for ${this.workspaceRoot} (${source})`);
+      diag(`[Container] Initializing for ${this.workspaceRoot} (${source})`);
     }
   }
 
@@ -398,7 +400,7 @@ class ServiceContainer {
         this.snapshot = null;
       }
       if (process.env.DEBUG) {
-        console.error('[Container] Snapshot assembly failed:', e.message);
+        diag('[Container] Snapshot assembly failed:', e.message);
       }
     }
   }
@@ -437,7 +439,7 @@ class ServiceContainer {
           // Hotspot/stability recomputed on next query (precompute-on-demand)
           // Co-change is based on git history, not file changes; skip here
         } catch (e) {
-          console.error('[Container] DepGraph incremental update failed:', e.message);
+          diag('[Container] DepGraph incremental update failed:', e.message);
         }
       }
     } finally {
@@ -453,7 +455,7 @@ class ServiceContainer {
       this._depGraph.analyzer.setOverviewData({ hotspots, stability });
     } catch (e) {
       if (process.env.DEBUG) {
-        console.error('[Container] Precompute overview failed:', e.message);
+        diag('[Container] Precompute overview failed:', e.message);
       }
     }
   }
@@ -467,7 +469,7 @@ class ServiceContainer {
       }
     } catch (e) {
       if (process.env.DEBUG) {
-        console.error('[Container] Precompute co-changes failed:', e.message);
+        diag('[Container] Precompute co-changes failed:', e.message);
       }
     }
   }
@@ -528,7 +530,7 @@ class ServiceContainer {
       try {
         this.diagnostics.clearScheduledChecks();
       } catch (e) {
-        if (process.env.DEBUG) console.error('[Container] clearScheduledChecks failed:', e.message);
+        if (process.env.DEBUG) diag('[Container] clearScheduledChecks failed:', e.message);
       }
     }
 
@@ -537,30 +539,30 @@ class ServiceContainer {
       try {
         await this.fileIndex.processPending();
       } catch (e) {
-        if (process.env.DEBUG) console.error('[Container] processPending failed:', e.message);
+        if (process.env.DEBUG) diag('[Container] processPending failed:', e.message);
       }
       try {
         this.fileIndex.stopWatching();
       } catch (e) {
-        if (process.env.DEBUG) console.error('[Container] stopWatching failed:', e.message);
+        if (process.env.DEBUG) diag('[Container] stopWatching failed:', e.message);
       }
       // Drain any queued incremental updates before cache save/close.
       try {
         await this._drainPendingUpdates();
       } catch (e) {
-        if (process.env.DEBUG) console.error('[Container] drain pending updates failed:', e.message);
+        if (process.env.DEBUG) diag('[Container] drain pending updates failed:', e.message);
       }
     }
     if (this.cache) {
       try {
         await this.cache.save();
       } catch (e) {
-        if (process.env.DEBUG) console.error('[Container] cache.save failed:', e.message);
+        if (process.env.DEBUG) diag('[Container] cache.save failed:', e.message);
       }
       try {
         this.cache.close();
       } catch (e) {
-        if (process.env.DEBUG) console.error('[Container] cache.close failed:', e.message);
+        if (process.env.DEBUG) diag('[Container] cache.close failed:', e.message);
       }
     }
     this.snapshot = null;

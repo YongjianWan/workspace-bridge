@@ -2,7 +2,7 @@
 // @semantic
 
 const assert = require('assert');
-const { classifyChangeType } = require('../src/cli/formatters/audit-diff-summary');
+const { classifyChangeType } = require('../src/tools/summaries/audit-diff-summary');
 
 // 纯 docs → docs
 assert.strictEqual(classifyChangeType([

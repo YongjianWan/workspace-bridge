@@ -1,6 +1,6 @@
 // @semantic
 const assert = require('assert');
-const { buildImpactExplanations } = require('../src/cli/formatters/impact-explanations');
+const { buildImpactExplanations } = require('../src/tools/summaries/impact-explanations');
 
 function testDirectImportExplanation() {
   const entry = {

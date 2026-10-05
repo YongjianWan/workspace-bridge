@@ -13,6 +13,7 @@ const { detectEslintConfig, detectPrettierConfig, detectTscConfig } = require('.
 const { registry } = require('../services/dep-graph/parsers/registry');
 const { DEFAULT_EXCLUDE_DIRS, shouldExcludeBase, shouldExcludeCli } = require('../utils/exclude-patterns');
 const { loadWorkspaceConfig, DEFAULT_DIRECTORY_HINTS } = require('../utils/project-context');
+const { diag } = require('../utils/diag');
 
 /**
  * Detect available Node.js linters/formatters based on config files and package.json.
@@ -457,7 +458,7 @@ async function runDiagnostics(args, container) {
   const rejected = checkResults.filter(r => r.status === 'rejected');
 
   rejected.forEach(r => {
-    console.error('[run_diagnostics] Check failed:', r.reason);
+    diag('[run_diagnostics] Check failed:', r.reason);
   });
 
   const allDiagnostics = fulfilled.flatMap(r => r.parsed);

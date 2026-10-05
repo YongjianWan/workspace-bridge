@@ -6,6 +6,11 @@ const TIMEOUTS = {
   COMMAND_EXISTS_CHECK_MS: 5000,
   GIT_DEFAULT_MS: 30000,
   GIT_SHORT_MS: 15000,
+  // A lock file is created empty and receives its owner's pid a moment later; only an empty
+  // file older than this was abandoned mid-creation.
+  LOCK_CREATION_GRACE_MS: 2000,
+  // How long a connection waits for another writer to finish before reporting the database busy.
+  SQLITE_BUSY_TIMEOUT_MS: 5000,
   GIT_LONG_MS: 30000,
   PYTHON_MODULE_DEFAULT_MS: 30000,
   NPX_DEFAULT_MS: 30000,

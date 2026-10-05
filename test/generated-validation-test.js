@@ -2,8 +2,8 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { buildValidationAdvice } = require('../src/cli/formatters/validation-advice');
-const { classifyChangeType } = require('../src/cli/formatters/audit-diff-summary');
+const { buildValidationAdvice } = require('../src/tools/summaries/validation-advice');
+const { classifyChangeType } = require('../src/tools/summaries/audit-diff-summary');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
 const root = makeTempDir('wb-generated-validation-');

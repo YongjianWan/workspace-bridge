@@ -137,7 +137,7 @@ async function childMain(dir, cacheDir, counted) {
   const files = container.fileIndex?.getStats?.().files ?? null;
   const phases = { ...container._phaseTimes };
   await container.shutdown();
-  process.stdout.write(`\n@@RESULT@@${JSON.stringify({ ok, files, wallMs: Math.round(wallMs), cpuMs: Math.round((cpu.user + cpu.system) / 1000), phases, counters, callers })}\n`);
+  process.stdout.write(`\n@@RESULT@@${JSON.stringify({ ok, files, wallMs: Math.round(wallMs), cpuMs: Math.round((cpu.user + cpu.system) / 1000), maxRssMb: Math.round(process.resourceUsage().maxRSS / 1024), phases, counters, callers })}\n`);
 }
 
 // ---------------------------------------------------------------- parent mode
@@ -187,7 +187,7 @@ function main() {
     const res = measure(count, argv.includes('--keep'));
     results.push(res);
     const w = res.warm;
-    console.log(JSON.stringify({ files: res.files, cliWarmMs: res.cliWarmMs, coldMs: res.cold.wallMs, warmMs: w.wallMs, warmCpuToWall: Math.round((w.cpuMs / w.wallMs) * 100) / 100, warmPhases: w.phases, perFileCalls: res.countedRun.perFile, topCallers: res.countedRun.topCallers }));
+    console.log(JSON.stringify({ files: res.files, cliWarmMs: res.cliWarmMs, coldMs: res.cold.wallMs, warmMs: w.wallMs, warmCpuToWall: Math.round((w.cpuMs / w.wallMs) * 100) / 100, coldMaxRssMb: res.cold.maxRssMb, warmMaxRssMb: w.maxRssMb, warmPhases: w.phases, perFileCalls: res.countedRun.perFile, topCallers: res.countedRun.topCallers }));
   }
   if (results.length > 1) {
     const [first, last] = [results[0], results[results.length - 1]];

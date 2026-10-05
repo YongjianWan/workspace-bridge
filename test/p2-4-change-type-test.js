@@ -4,7 +4,7 @@ const assert = require('assert');
 const os = require('os');
 const path = require('path');
 const { ProjectContext } = require('../src/utils/project-context');
-const { classifyChangeType } = require('../src/cli/formatters/audit-diff-summary');
+const { classifyChangeType } = require('../src/tools/summaries/audit-diff-summary');
 
 const root = path.join(os.tmpdir(), 'wb-p2-4-virtual-workspace');
 const context = new ProjectContext(root);

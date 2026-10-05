@@ -4,7 +4,7 @@
  * Unit tests for audit-diff compact curation logic.
  */
 const assert = require('assert');
-const { compactChangedFile } = require('../src/cli/formatters/audit-diff-summary');
+const { compactChangedFile } = require('../src/tools/summaries/audit-diff-summary');
 
 function makeEntry(overrides = {}) {
   return {

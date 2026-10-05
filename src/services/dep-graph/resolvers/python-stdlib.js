@@ -64,12 +64,13 @@ const PYTHON_STDLIB_FALLBACK = new Set([
   'xml', 'xmlrpc', 'zipapp', 'zipfile', 'zipimport', 'zlib', 'zoneinfo', '_thread',
 ]);
 
-let _stdlibNames = null; // Set — memoized for the process, success or fallback
+let _stdlibInfo = null; // { names: Set, source, version } — memoized for the process, success or fallback
 
-function _fetchStdlibNames(root) {
+// Ask the interpreter for its standard-library module names and its version in one call.
+function _probeInterpreter(root) {
   const res = spawnSync(
     resolveStdlibPython(root),
-    ['-c', 'import sys, json; print(json.dumps(sorted(sys.stdlib_module_names)))'],
+    ['-c', 'import sys, json; print(json.dumps({"version": "%d.%d.%d" % sys.version_info[:3], "names": sorted(sys.stdlib_module_names)}))'],
     {
       encoding: 'utf-8',
       timeout: TIMEOUTS.PYTHON_AST_PARSE_MS,
@@ -79,23 +80,46 @@ function _fetchStdlibNames(root) {
     }
   );
   if (res.error || res.status !== 0 || !res.stdout) return null;
-  const names = JSON.parse(res.stdout);
-  return Array.isArray(names) && names.length > 0 ? new Set(names) : null;
+  const { version, names } = JSON.parse(res.stdout);
+  return Array.isArray(names) && names.length > 0 ? { names: new Set(names), version: String(version) } : null;
+}
+
+/**
+ * The standard-library names used to tell stdlib imports from third-party ones, with where they
+ * came from: 'interpreter' (and its version) or 'fallback' (the built-in list, used when no
+ * interpreter answers: missing, Store stub, old version, bad output).
+ */
+function getPythonStdlibInfo(root, probe = _probeInterpreter) {
+  if (_stdlibInfo) return _stdlibInfo;
+  let probed = null;
+  try {
+    probed = probe(root);
+  } catch (_) {
+    // Interpreter present but unreadable — same degraded path as python-missing.
+  }
+  _stdlibInfo = probed
+    ? { names: probed.names, source: 'interpreter', version: probed.version }
+    : { names: PYTHON_STDLIB_FALLBACK, source: 'fallback', version: null };
+  return _stdlibInfo;
 }
 
 function getPythonStdlibNames(root) {
-  if (_stdlibNames) return _stdlibNames;
-  try {
-    _stdlibNames = _fetchStdlibNames(root) || PYTHON_STDLIB_FALLBACK;
-  } catch (_) {
-    // Interpreter present but unreadable (Store stub, old version, bad JSON) —
-    // the degraded path is the fallback list, same as python-missing.
-    _stdlibNames = PYTHON_STDLIB_FALLBACK;
-  }
-  return _stdlibNames;
+  return getPythonStdlibInfo(root).names;
+}
+
+/** The memoized answer, or null when nothing has asked yet (never starts an interpreter). */
+function peekPythonStdlibInfo() {
+  return _stdlibInfo;
+}
+
+function resetPythonStdlibMemo() {
+  _stdlibInfo = null;
 }
 
 module.exports = {
   getPythonStdlibNames,
+  getPythonStdlibInfo,
+  peekPythonStdlibInfo,
+  resetPythonStdlibMemo,
   PYTHON_STDLIB_FALLBACK,
 };

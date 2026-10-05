@@ -3,7 +3,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { runCliInProcess, makeTempDir, cleanupTempDir } = require('./test-helpers');
-const { buildFileValidationAdvice } = require('../src/cli/formatters/validation-advice');
+const { buildFileValidationAdvice } = require('../src/tools/summaries/validation-advice');
 
 // --no-compact: these assertions pin the full-output contract. The repo itself
 // crossed LARGE_PROJECT_FILE_THRESHOLD (500 files), which auto-compacts

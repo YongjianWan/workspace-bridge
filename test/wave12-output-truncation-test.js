@@ -3,7 +3,7 @@
 const assert = require('assert');
 const { truncateArray, elideString, elideDeep } = require('../src/utils/truncate');
 const { DEFAULTS } = require('../src/config/constants');
-const { compactChangedFile } = require('../src/cli/formatters/audit-diff-summary');
+const { compactChangedFile } = require('../src/tools/summaries/audit-diff-summary');
 const { formatHuman, formatSummary, formatMarkdown } = require('../src/cli/formatters/human-formatters');
 const { dependencyGraph } = require('../src/tools/dep-tools');
 const { makeMockSnapshot } = require('./test-helpers');

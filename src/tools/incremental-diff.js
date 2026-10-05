@@ -8,6 +8,7 @@
  */
 
 const { normalizePathKey } = require('../utils/path');
+const { diag } = require('../utils/diag');
 
 const IMPACT_RADIUS_DEPTH = 2;
 
@@ -23,7 +24,7 @@ function collectRelatedFiles(changedFiles, depGraph) {
       // If the return shape changes, skip impact expansion but keep the changed file itself.
       if (!Array.isArray(impact)) {
         if (process.env.DEBUG) {
-          console.error(`[incremental-diff] getImpactRadius returned non-array for ${file}:`, typeof impact);
+          diag(`[incremental-diff] getImpactRadius returned non-array for ${file}:`, typeof impact);
         }
         continue;
       }
