@@ -254,7 +254,7 @@ const { DEFAULTS } = require('../../config/constants');
 function getSymbolImpact(depGraph, filePath, maxDepth = DEFAULTS.SYMBOL_IMPACT_DEPTH) {
   const sourceFile = depGraph.normalizeFilePath(filePath);
   const sourceInfo = depGraph.getFileInfo(sourceFile);
-  const frameworkHint = depGraph.getFrameworkHint?.(sourceFile);
+  const frameworkHint = depGraph.getFrameworkHint(sourceFile);
   const frameworkName = typeof frameworkHint === 'string'
     ? frameworkHint
     : (frameworkHint && typeof frameworkHint.framework === 'string' ? frameworkHint.framework : '');

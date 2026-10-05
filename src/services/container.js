@@ -392,11 +392,11 @@ class ServiceContainer {
         workspaceRoot: this.workspaceRoot,
         fileIndex: this.fileIndex,
         graph: new DependencyGraphView(this._depGraph),
-        gitStatus: { head: this.cache?.getWorkspaceInfo?.()?.gitHead || null },
+        gitStatus: { head: this.cache?.getWorkspaceInfo()?.gitHead || null },
         projectContext: this._depGraph?.projectContext || null,
         fileIndexVersion: this.indexBuildTime || null,
         cacheStaleness: staleness,
-        gitHead: this.cache?.getWorkspaceInfo?.()?.gitHead || null,
+        gitHead: this.cache?.getWorkspaceInfo()?.gitHead || null,
         knownBlindSpots: computeKnownBlindSpots(this._depGraph?.projectContext || null, this._depGraph),
         confidenceByDomain: computeConfidenceByDomain(this._depGraph?.projectContext || null, this._depGraph),
       });
@@ -439,7 +439,7 @@ class ServiceContainer {
         const batch = this._pendingUpdateQueue.splice(0);
         if (batch.length === 0) continue;
         try {
-          await this._depGraph?.updateFiles?.(batch);
+          await this._depGraph?.updateFiles(batch);
           // L1 data-consistency: re-assemble snapshot so that files (live view)
           // and graph metadata stay in sync after incremental updates.
           this._assembleSnapshot();
@@ -544,7 +544,7 @@ class ServiceContainer {
     // Wait for pending updates before stopping
     if (this.fileIndex) {
       try {
-        await this.fileIndex.processPending?.();
+        await this.fileIndex.processPending();
       } catch (e) {
         if (process.env.DEBUG) console.error('[Container] processPending failed:', e.message);
       }
@@ -605,7 +605,7 @@ class ServiceContainer {
     const ageMs = Date.now() - this.indexBuildTime;
 
     let gitHeadChanged = false;
-    const cachedInfo = this.cache?.getWorkspaceInfo?.();
+    const cachedInfo = this.cache?.getWorkspaceInfo();
     const cachedHead = cachedInfo?.gitHead;
     if (cachedHead && this.workspaceRoot) {
       try {

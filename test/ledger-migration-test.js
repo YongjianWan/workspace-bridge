@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // @semantic — graph-state warnings come from the ledger and follow the graph (no stale entries),
 // the overview history signal reaches the graph through the read-only view, and warnings built
 // outside a run still use whitelisted codes.

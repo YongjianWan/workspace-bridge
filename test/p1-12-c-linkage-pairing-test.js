@@ -1,3 +1,4 @@
+// @fast
 // @semantic
 // C/C++ 两处图模型语义：
 //   1. 源文件（.c/.cc/.cpp/.cxx）里的宏、struct、enum、typedef、class 只在本编译单元

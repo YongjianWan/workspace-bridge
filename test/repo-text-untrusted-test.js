@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // @semantic
 /**
  * Text taken from the analysed repository (file names, import specifiers, route paths, git

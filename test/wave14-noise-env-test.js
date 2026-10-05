@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // @contract — ignore.findings 过滤、ignore.frameworks 过滤、WB_* 环境变量、markFalsePositive
 
 const assert = require('assert');

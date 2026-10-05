@@ -30,10 +30,10 @@ function isSnapshotFresh(snapshot, container, options = {}) {
     return false;
   }
 
-  const currentHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
+  const currentHead = container.cache?.getWorkspaceInfo()?.gitHead || '';
   const currentFileCount =
-    container.snapshot?.graph?.getScopeSummary?.()?.counts?.totalFiles ||
-    container.snapshot?.graph?.getAllFilePaths?.().length ||
+    container.snapshot?.graph?.getScopeSummary()?.counts?.totalFiles ||
+    container.snapshot?.graph?.getAllFilePaths().length ||
     0;
   const headMatch = !currentHead || !snapshot.version || snapshot.version === currentHead;
   const countMatch = !currentFileCount || !snapshot.fileCount || snapshot.fileCount === currentFileCount;

@@ -1,3 +1,4 @@
+// @slow
 // @contract
 // Restart integration tests: a second container start over the same cache
 // must reflect files added, changed or deleted in between.

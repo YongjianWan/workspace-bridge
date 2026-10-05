@@ -23,6 +23,7 @@ function makeMockContainer(workspaceRoot, captured) {
           return [{ file: path.join(workspaceRoot, 't1.js'), distance: 1 }];
         },
         _displayPath: (p) => p,
+        getStats: () => ({ files: 1, totalImports: 0 }),
         getFrameworkHint: () => null,
       },
     },

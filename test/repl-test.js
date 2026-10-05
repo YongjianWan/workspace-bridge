@@ -71,6 +71,7 @@ function makeMockDepGraph() {
       '/project/src/other.js',
     ],
     _displayPath: (f) => f,
+    isTestLikeFile: (f) => /\.test\./.test(f),
     root: '/project',
   };
 }

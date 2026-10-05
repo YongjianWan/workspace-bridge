@@ -26,6 +26,9 @@ async function testHotspotConcurrencyLimit() {
   const mockDepGraph = {
     ledger: new Ledger(),
     _displayPath: (f) => f,
+    getAllFilePaths: () => mainlineFiles,
+    getFileCount: () => mainlineFiles.length,
+    isTestLikeFile: () => false,
     getDependents: () => [],
     getDependencies: () => [],
     getFrameworkHint: () => null,
@@ -59,6 +62,9 @@ async function testHotspotBatchOrdering() {
   const mockDepGraph = {
     ledger: new Ledger(),
     _displayPath: (f) => f,
+    getAllFilePaths: () => mainlineFiles,
+    getFileCount: () => mainlineFiles.length,
+    isTestLikeFile: () => false,
     getDependents: () => [],
     getDependencies: () => [],
     getFrameworkHint: () => null,

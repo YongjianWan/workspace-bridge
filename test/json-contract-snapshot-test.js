@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // @contract
 /**
  * `--json` contract: the set of key paths (with value types) each command emits on a fixed

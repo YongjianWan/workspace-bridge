@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // @semantic
 /**
  * CLI 核心功能可用性测试

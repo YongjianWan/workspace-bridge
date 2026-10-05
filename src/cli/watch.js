@@ -40,7 +40,7 @@ function formatWatchOutput(workspaceRoot, filePath, impact, depGraph, compact) {
   for (const item of impact) {
     if (entrySet.has(item.file)) {
       entries.push(path.relative(workspaceRoot, item.file));
-    } else if (depGraph.isTestLikeFile?.(item.file)) {
+    } else if (depGraph.isTestLikeFile(item.file)) {
       tests.push(path.relative(workspaceRoot, item.file));
     } else {
       otherCount++;

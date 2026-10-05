@@ -12,6 +12,8 @@ async function main() {
   const graph = {
     ledger: new Ledger(),
     getFileCount: () => files.length,
+    _displayPath: (p) => p,
+    getFrameworkHint: () => null,
     isTestLikeFile: () => false,
     getAllFilePaths: () => files,
     getDependencies: file => file === files[59] ? [] : [files[59]],

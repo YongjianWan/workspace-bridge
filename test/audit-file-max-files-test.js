@@ -20,6 +20,7 @@ function makeMockContainer(workspaceRoot, size = 3) {
         findAffectedHttpRoutes: () => [],
         findAffectedTests: () => names('t').map((file) => ({ file, distance: 1 })),
         _displayPath: (p) => p,
+        getStats: () => ({ files: 1, totalImports: 0 }),
         getFrameworkHint: () => null,
       },
     },

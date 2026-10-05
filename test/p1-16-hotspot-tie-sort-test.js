@@ -9,10 +9,13 @@ const assert = require('assert');
 const { buildHotspots } = require('../src/tools/overview-assembler');
 const { Ledger } = require('../src/services/ledger');
 
-function makeDeps() {
+function makeDeps(files = []) {
   return {
     ledger: new Ledger(),
     _displayPath: (f) => f,
+    getAllFilePaths: () => files,
+    getFileCount: () => files.length,
+    isTestLikeFile: () => false,
     getDependents: () => [],
     getDependencies: () => [],
     getFrameworkHint: () => null,
@@ -28,7 +31,7 @@ const evenHistoryProvider = async () => ({
 
 async function testTieBrokenByPath() {
   const mainlineFiles = ['/fake/root/zeta.js', '/fake/root/alpha.js', '/fake/root/mid.js'];
-  const results = await buildHotspots('/fake/root', makeDeps(), mainlineFiles, evenHistoryProvider);
+  const results = await buildHotspots('/fake/root', makeDeps(mainlineFiles), mainlineFiles, evenHistoryProvider);
 
   assert.strictEqual(results.length, 3, 'all candidates should pass the threshold');
   assert.deepStrictEqual(
@@ -47,7 +50,7 @@ async function testScoreStillDominates() {
       : { level: 'high', commitCount: 10, authorCount: 1, signals: ['churn'] },
   });
 
-  const results = await buildHotspots('/fake/root', makeDeps(), mainlineFiles, historyProvider);
+  const results = await buildHotspots('/fake/root', makeDeps(mainlineFiles), mainlineFiles, historyProvider);
   assert.deepStrictEqual(
     results.map((r) => r.file),
     ['zzz.js', 'aaa.js'],

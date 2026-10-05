@@ -52,12 +52,19 @@ function testSlowAnnotationOutranksFastAnnotation() {
 }
 
 function testHeuristicDemotionIsLabelledAsAGuess() {
-  // query-replay-provenance-test.js has no @slow header; it reaches slow only
-  // because its body mentions runCli. That is precisely the demotion phase 1
-  // needs to be able to count.
-  const d = classifyTestDetail('query-replay-provenance-test.js');
+  // A file without a layer header that mentions runCli reaches slow only by guess.
+  const d = classifyTestDetail('synthetic-undeclared.js', 'const { runCli } = require("./helpers");' + String.fromCharCode(10));
   assert.strictEqual(d.layer, 'slow');
   assert.ok(GUESSED.has(d.reason), `expected a heuristic reason, got ${d.reason}`);
+}
+
+function testNoCommittedTestRelyOnAGuess() {
+  // Every layer is a declaration (header tag or the known-slow list) backed by a measured run
+  // time, so adding an undeclared file is what shows up here.
+  const files = fs.readdirSync(TEST_DIR)
+    .filter((f) => f.endsWith('-test.js'));
+  const guessed = files.filter((f) => GUESSED.has(classifyTestDetail(f).reason));
+  assert.deepStrictEqual(guessed, [], `add // @fast or // @slow to the header of: ${guessed.join(', ')}`);
 }
 
 function testPlainUnitTestFallsThroughToFast() {
@@ -75,23 +82,6 @@ function testEveryTestFileGetsAKnownReason() {
     assert.ok(ALL_REASONS.has(d.reason), `${f}: unknown classification reason "${d.reason}"`);
     assert.ok(['fast', 'slow', 'watch', 'serial'].includes(d.layer), `${f}: unknown layer "${d.layer}"`);
   }
-}
-
-function testHeuristicDemotionIsMeasurablyCommon() {
-  // Not an arbitrary threshold — the claim being locked is qualitative: a
-  // large share of the slow layer got there by guess, so "the slow layer is
-  // slow" is an untested assumption. If a future recalibration makes this
-  // number small, this assertion SHOULD fail and be deleted along with the
-  // debt entry.
-  const files = fs.readdirSync(TEST_DIR)
-    .filter((f) => f.endsWith('.js') && f !== 'runner.js' && f !== 'test-helpers.js');
-  const slow = files.map(classifyTestDetail).filter((d) => d.layer === 'slow');
-  const guessed = slow.filter((d) => GUESSED.has(d.reason));
-  assert.ok(
-    guessed.length > 0,
-    'if nothing is heuristic-demoted any more, delete this test and the debt entry it guards'
-  );
-  console.log(`  [info] slow layer: ${slow.length} files, ${guessed.length} demoted by heuristic (unmeasured)`);
 }
 
 function testNeedsCacheDirForHeavyApiAnchor() {
@@ -187,9 +177,9 @@ function main() {
   testFastAnnotationOutranksHeuristics();
   testSlowAnnotationOutranksFastAnnotation();
   testHeuristicDemotionIsLabelledAsAGuess();
+  testNoCommittedTestRelyOnAGuess();
   testPlainUnitTestFallsThroughToFast();
   testEveryTestFileGetsAKnownReason();
-  testHeuristicDemotionIsMeasurablyCommon();
   testNeedsCacheDirForHeavyApiAnchor();
   testNeedsCacheDirFalseForPlainUnitTest();
   testNeedsCacheDirForDeclaredSlowWithoutAnchor();

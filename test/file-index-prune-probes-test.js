@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @semantic
 /**
  * A warm build has already stat/read every discovered file, so pruning must

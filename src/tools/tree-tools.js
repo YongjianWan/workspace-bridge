@@ -12,7 +12,7 @@ function buildTree(rootFile, depGraph, options = {}) {
   const maxFiles = Number.isFinite(options.maxFiles) && options.maxFiles > 0 ? options.maxFiles : null;
 
   function walk(file, depth, dir, pathStack) {
-    const normalized = depGraph.normalizeFilePath?.(file) || file;
+    const normalized = depGraph.normalizeFilePath(file) || file;
 
     // Prevent cycles on the current path (tree view: same file in one branch = loop)
     if (pathStack.has(normalized)) {
@@ -73,7 +73,7 @@ function buildTree(rootFile, depGraph, options = {}) {
     return result;
   }
 
-  const rootNormalized = depGraph.normalizeFilePath?.(rootFile) || rootFile;
+  const rootNormalized = depGraph.normalizeFilePath(rootFile) || rootFile;
   const tree = walk(rootNormalized, 0, direction, new Set());
 
   // Remove depth from root to keep it clean
@@ -96,7 +96,7 @@ function treeQuery({ cwd, file, depth, direction, maxFiles }, container) {
   }
 
   const resolvedFile = path.resolve(cwd || process.cwd(), file);
-  const normalized = depGraph.normalizeFilePath?.(resolvedFile) || resolvedFile;
+  const normalized = depGraph.normalizeFilePath(resolvedFile) || resolvedFile;
 
   if (!depGraph.hasFile(normalized)) {
     return failure('path_error', `File not found in dependency graph: ${file}`, { schemaVersion: SCHEMA_VERSION });

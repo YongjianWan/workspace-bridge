@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // @contract — every error the CLI raises leaves through one envelope (ok:false, error, errorType,
 // suggestion, command, schemaVersion), and failures whose fix is not obvious say what to do next.
 const assert = require('assert');

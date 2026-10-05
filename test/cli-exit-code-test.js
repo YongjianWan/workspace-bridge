@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // @contract
 /**
  * CLI exit-code semantics integration test.

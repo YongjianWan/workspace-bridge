@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // @contract
 /**
  * CLI parameter pipeline integration test.

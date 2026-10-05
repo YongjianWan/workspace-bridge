@@ -273,7 +273,7 @@ function workspaceInfo(args, container) {
   // Try to use depGraph data if container is ready; otherwise fall back to lightweight scan
   const depGraph = container?.snapshot?.graph || container?.depGraph;
   const allOriginalPaths = depGraph
-    ? (depGraph.getAllFileValues?.() || []).map((v) => v.originalPath).filter(Boolean)
+    ? (depGraph.getAllFileValues() || []).map((v) => v.originalPath).filter(Boolean)
     : [];
 
   // Unify entryFiles with audit-summary (projectContext.summarizeFiles)
@@ -285,7 +285,7 @@ function workspaceInfo(args, container) {
     );
     entryFiles = summary.entryFiles;
   } else if (depGraph) {
-    entryFiles = Array.from(depGraph.entryFiles || []).map((f) => toRelativePosix(root, depGraph._displayPath?.(f) || f));
+    entryFiles = Array.from(depGraph.entryFiles || []).map((f) => toRelativePosix(root, depGraph._displayPath(f) || f));
   }
 
   let fileCount;
@@ -322,7 +322,7 @@ function workspaceInfo(args, container) {
     ? checkParserAvailability()
     : { available: true, usedFallbackPath: true };
 
-  const cacheStats = container?.cache?.getStats?.() || {};
+  const cacheStats = container?.cache?.getStats() || {};
   return {
     ok: true,
     cwd: require('../utils/path').normalizePath(target),
@@ -365,9 +365,9 @@ async function runDiagnostics(args, container) {
     if (cached) {
       const hasEntries = typeof container.cache.hasDiagnosticEntries === 'function'
         ? container.cache.hasDiagnosticEntries()
-        : (container.cache.getAllDiagnostics?.() || []).length > 0;
+        : (container.cache.getAllDiagnostics() || []).length > 0;
       if (hasEntries) {
-        const allDiagnostics = container.cache.getAllDiagnostics?.() || [];
+        const allDiagnostics = container.cache.getAllDiagnostics() || [];
         return {
           ok: true,
           workspaceRoot: container.workspaceRoot,

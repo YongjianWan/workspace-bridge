@@ -1,3 +1,4 @@
+// @fast
 // @semantic — 新增文件满足 import.meta.glob 时，未改动的 importer 在增量更新后补上依赖边
 const assert = require('assert');
 const fs = require('fs');

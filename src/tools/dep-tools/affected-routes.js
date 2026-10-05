@@ -9,7 +9,7 @@ function affectedRoutes(args, container, filePath) {
   return {
     ok: true,
     file: args.file,
-    resolvedPath: container.snapshot.graph._displayPath?.(filePath) || filePath,
+    resolvedPath: container.snapshot.graph._displayPath(filePath) || filePath,
     maxDepth: args?.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH,
     routesCount: routes.length,
     routes: trunc.items,

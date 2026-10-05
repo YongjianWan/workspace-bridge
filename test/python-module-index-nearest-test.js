@@ -1,3 +1,4 @@
+// @fast
 // @semantic
 // Python module-index 多胞胎消歧：最近公共前缀唯一者胜出（串围标 dropped 残留
 // 实测：af_client / model_call_audit / deepseek_client 各有两份拷贝，skill 的

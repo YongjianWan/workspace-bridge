@@ -39,7 +39,7 @@ function severityMeetsFilter(itemSeverity, minSeverity) {
 function resolveCompact(parsed, container, _changedFileCount = 0) {
   if (parsed.noCompact) return { compact: false, autoCompact: false };
   if (parsed.compact) return { compact: true, autoCompact: false };
-  const totalFiles = container?.snapshot?.graph?.getStats?.()?.files ?? 0;
+  const totalFiles = container?.snapshot?.graph?.getStats()?.files ?? 0;
   if (totalFiles > DEFAULTS.LARGE_PROJECT_FILE_THRESHOLD) {
     return { compact: true, autoCompact: true };
   }

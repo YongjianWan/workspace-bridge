@@ -29,19 +29,19 @@ function toRelative(root, filePath) {
 }
 
 function getArchitectureDependencies(depGraph, file) {
-  return depGraph.getDependencies?.(file, { architectureOnly: true }) || [];
+  return depGraph.getDependencies(file, { architectureOnly: true }) || [];
 }
 
 function getArchitectureDependents(depGraph, file) {
-  return depGraph.getDependents?.(file, { architectureOnly: true }) || [];
+  return depGraph.getDependents(file, { architectureOnly: true }) || [];
 }
 
 function hasTestDependents(depGraph, file) {
-  return depGraph.getDependents?.(file).some((d) => depGraph.isTestLikeFile(d)) || false;
+  return depGraph.getDependents(file).some((d) => depGraph.isTestLikeFile(d)) || false;
 }
 
 function computeArchitecturalPageRank(depGraph) {
-  const files = depGraph.getAllFilePaths?.() || [];
+  const files = depGraph.getAllFilePaths() || [];
   const edges = [];
   for (const file of files) {
     if (depGraph.isTestLikeFile(file)) continue;
@@ -129,7 +129,7 @@ function identifyCoreModules(graph, files, projectContext, root) {
   for (const file of files) {
     const classification = projectContext?.classifyFile?.(file);
     if (!classification?.isMainline) continue;
-    const dependents = graph.getDependents?.(file, { architectureOnly: true }) || [];
+    const dependents = graph.getDependents(file, { architectureOnly: true }) || [];
     if (dependents.length >= SCORING.CORE_MODULE_MIN_DEPENDENTS && classification.fileRole === 'library') {
       candidates.push({
         file: toRelative(root, file),
@@ -245,20 +245,20 @@ async function buildHotspots(root, depGraph, mainlineFiles, historyProvider, fai
   const candidates = [];
   const architecturalPageRanks = computeArchitecturalPageRank(depGraph);
   const files = rankOverviewCandidates(depGraph, mainlineFiles, architecturalPageRanks);
-  const totalFiles = depGraph.getFileCount?.() || 0;
+  const totalFiles = depGraph.getFileCount() || 0;
 
   for (let i = 0; i < files.length; i += concurrency) {
     const batch = files.slice(i, i + concurrency);
     const batchResults = await Promise.all(
       batch.map(async (file) => {
-        const displayFile = depGraph._displayPath?.(file) || file;
+        const displayFile = depGraph._displayPath(file) || file;
         const relativePath = toRelative(root, displayFile);
         const dependents = getArchitectureDependents(depGraph, file);
         const dependencies = getArchitectureDependencies(depGraph, file);
         const historyRisk = historyProvider ? await getHistoryRisk(root, displayFile, historyProvider, failures) : null;
         const classification = depGraph.projectContext?.classifyFile?.(displayFile);
         const fileRole = classification?.fileRole;
-        const frameworkHint = depGraph.getFrameworkHint?.(file);
+        const frameworkHint = depGraph.getFrameworkHint(file);
         const pageRank = architecturalPageRanks.get(file) || 0;
         const score = calculateHotspotScore(historyRisk, fileRole, frameworkHint?.entryPointWeight, pageRank, totalFiles);
         const coupling = calculateCoupling(dependencies, dependents);
@@ -308,11 +308,11 @@ async function buildHotspots(root, depGraph, mainlineFiles, historyProvider, fai
 
 function buildStability(root, depGraph, mainlineFiles, projectContext) {
   const stability = [];
-  const allCycles = depGraph.findCircularDependencies?.() || [];
+  const allCycles = depGraph.findCircularDependencies() || [];
   const filesInCycle = new Set(allCycles.flat());
 
   for (const file of mainlineFiles) {
-    const displayFile = depGraph._displayPath?.(file) || file;
+    const displayFile = depGraph._displayPath(file) || file;
     const relativePath = toRelative(root, displayFile);
     const classification = projectContext.classifyFile(displayFile);
     const dependents = getArchitectureDependents(depGraph, file);
@@ -451,7 +451,7 @@ const EXT_TO_LANG = {
 function buildLanguageSupportMatrix(depGraph) {
   const matrix = {};
   const stats = {};
-  for (const [filePath, info] of depGraph.getAllFileInfos?.() || []) {
+  for (const [filePath, info] of depGraph.getAllFileInfos() || []) {
     const lang = EXT_TO_LANG[path.extname(filePath).toLowerCase()];
     if (!lang) continue;
     if (!stats[lang]) stats[lang] = { total: 0, ast: 0, regex: 0, fallbackReasons: {} };
@@ -484,7 +484,7 @@ async function precomputeHotspotsAndStability(depGraph) {
   if (!projectContext) return { hotspots: null, stability: null };
 
   const shouldExcludeCli = depGraph.shouldExcludeCli?.bind(depGraph);
-  const allFiles = (depGraph.getAllFilePaths?.() || []).filter((f) => !shouldExcludeCli || !shouldExcludeCli(f));
+  const allFiles = (depGraph.getAllFilePaths() || []).filter((f) => !shouldExcludeCli || !shouldExcludeCli(f));
   const mainlineFiles = allFiles.filter((f) => {
     const c = projectContext.classifyFile(f);
     return c.isMainline && c.fileRole !== 'test' && c.fileRole !== 'docs' && c.fileRole !== 'style' && c.fileRole !== 'asset';
@@ -505,7 +505,7 @@ async function assembleOverviewData(args, container, historyProvider) {
   }
 
   const shouldExcludeCli = depGraph.shouldExcludeCli?.bind(depGraph);
-  const allFiles = (depGraph.getAllFilePaths?.() || []).filter((f) => !shouldExcludeCli || !shouldExcludeCli(f));
+  const allFiles = (depGraph.getAllFilePaths() || []).filter((f) => !shouldExcludeCli || !shouldExcludeCli(f));
   const mainlineFiles = allFiles.filter((f) => {
     const c = projectContext.classifyFile(f);
     return c.isMainline && c.fileRole !== 'test' && c.fileRole !== 'docs' && c.fileRole !== 'style' && c.fileRole !== 'asset';
@@ -530,15 +530,15 @@ async function assembleOverviewData(args, container, historyProvider) {
   hotspots = hotspots || await buildHotspots(root, depGraph, mainlineFiles, historyProvider);
   stability = stability || buildStability(root, depGraph, mainlineFiles, projectContext);
   const orphans = depGraph.findOrphanFiles();
-  const unresolvedRaw = depGraph.findUnresolvedImports?.() || [];
-  const cyclesRaw = depGraph.findCircularDependencies?.() || [];
+  const unresolvedRaw = depGraph.findUnresolvedImports() || [];
+  const cyclesRaw = depGraph.findCircularDependencies() || [];
   // Curated cycle metadata: multi-node SCC count (the severity signal) and
   // whether path enumeration hit a cap. Path count alone misleads — one
   // dense SCC can yield 100+ paths but is a single structural problem.
   const cycleMeta = typeof depGraph.getCycleMeta === 'function'
     ? depGraph.getCycleMeta()
     : { sccCount: null, truncated: false };
-  const deadExportsRaw = depGraph.findDeadExports?.() || [];
+  const deadExportsRaw = depGraph.findDeadExports() || [];
 
   const { checkAllRules } = require('../services/dep-graph/ast-rules');
   let astRulesRaw = [];
@@ -643,7 +643,7 @@ async function assembleOverviewData(args, container, historyProvider) {
   const { summary, orphanCount } = buildOverviewSummary(hotspots, stability, orphans, issueContext, stackProfile, stack, cycleRefactorSuggestions, couplingSplitSuggestions);
   const aggregates = aggregateOverviewStats(hotspots, stability);
 
-  const dgStats = depGraph.getStats?.() || {};
+  const dgStats = depGraph.getStats() || {};
   const analysisCoverage = dgStats.filteredAnalysisCoverage !== undefined ? dgStats.filteredAnalysisCoverage : dgStats.analysisCoverage;
   if (analysisCoverage && !Number.isFinite(analysisCoverage.coverageRatio)) {
     summary.severity = 'high';

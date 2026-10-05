@@ -6,9 +6,9 @@ function dependents(args, container, filePath) {
   return {
     ok: true,
     file: args.file,
-    resolvedPath: container.snapshot.graph._displayPath?.(filePath) || filePath,
+    resolvedPath: container.snapshot.graph._displayPath(filePath) || filePath,
     dependentsCount: dents.length,
-    dependents: trunc.map((d) => container.snapshot.graph._displayPath?.(d) || d),
+    dependents: trunc.map((d) => container.snapshot.graph._displayPath(d) || d),
     truncated: trunc.length < dents.length,
   };
 }

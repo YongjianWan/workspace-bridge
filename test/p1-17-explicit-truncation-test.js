@@ -1,3 +1,4 @@
+// @fast
 // @semantic
 // JSON 输出里任何被截短、清空或置空的地方都必须在顶层 `elided[]` 里有一条记录，
 // 并把顶层 `truncated` 置为 true。agent 不会怀疑输出：看到 100 条就当总共 100 条。
@@ -60,7 +61,7 @@ function testAffectedTestsSortedBeforeCut() {
     { file: '/r/tests/conftest_row.py', distance: 2, source: 'conftest' },
     { file: '/r/tests/a_near.py', distance: 1, source: 'graph' },
   ];
-  const container = { snapshot: { graph: { findAffectedTests: () => rows, getDependents: () => [] } } };
+  const container = { snapshot: { graph: { findAffectedTests: () => rows, getDependents: () => [], _displayPath: (p) => p } } };
   const out = affectedTests({ file: 'x.py', maxFiles: 2 }, container, '/r/x.py');
   assert.deepStrictEqual(out.affectedTests.map((t) => t.file), ['/r/tests/a_near.py', '/r/tests/b_near.py'], '截断必须保留距离最近的测试，同距离按路径');
   assert.strictEqual(out.orderedBy, 'distance,hubFanIn,file');
@@ -77,7 +78,7 @@ function testHubPathTestsRankBelowNarrowPathTests() {
     { file: '/r/tests/m_direct.py', distance: 1, via: ['/r/x.py'] },
   ];
   const getDependents = (file) => Array.from({ length: fanIn[file] || 0 }, (_, i) => `d${i}`);
-  const container = { snapshot: { graph: { findAffectedTests: () => rows, getDependents } } };
+  const container = { snapshot: { graph: { findAffectedTests: () => rows, getDependents, _displayPath: (p) => p } } };
   const out = affectedTests({ file: 'x.py', maxFiles: 2 }, container, '/r/x.py');
   assert.deepStrictEqual(out.affectedTests.map((t) => t.file), ['/r/tests/m_direct.py', '/r/tests/z_via_helper.py'],
     '同距离时经窄中间文件的测试排在经枢纽文件的测试前，截断先丢枢纽路径');

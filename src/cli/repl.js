@@ -256,9 +256,9 @@ async function executeCommand(container, line, options = {}) {
     }
 
     case 'issues': {
-      const deadExports = graph.findDeadExports?.() || [];
-      const unresolved = graph.findUnresolvedImports?.() || [];
-      const cycles = graph.findCircularDependencies?.() || [];
+      const deadExports = graph.findDeadExports() || [];
+      const unresolved = graph.findUnresolvedImports() || [];
+      const cycles = graph.findCircularDependencies() || [];
 
       let severity = 'low';
       if (unresolved.length > 0 || cycles.length > 0) severity = 'high';
@@ -313,13 +313,13 @@ async function executeCommand(container, line, options = {}) {
     }
 
     case 'top': {
-      const allFiles = graph.getAllFilePaths?.() || [];
+      const allFiles = graph.getAllFilePaths() || [];
       const hotspots = [];
       for (const file of allFiles) {
-        if (graph.isTestLikeFile?.(file)) continue;
-        const dependents = graph.getDependents?.(file, { architectureOnly: true }) || [];
+        if (graph.isTestLikeFile(file)) continue;
+        const dependents = graph.getDependents(file, { architectureOnly: true }) || [];
         if (dependents.length >= SCORING.HOTSPOT_MIN_DEPENDENTS) {
-          hotspots.push({ file: graph._displayPath?.(file) || file, dependentsCount: dependents.length });
+          hotspots.push({ file: graph._displayPath(file) || file, dependentsCount: dependents.length });
         }
       }
       hotspots.sort((a, b) => b.dependentsCount - a.dependentsCount);

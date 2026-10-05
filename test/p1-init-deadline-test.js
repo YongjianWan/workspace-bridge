@@ -1,3 +1,4 @@
+// @fast
 // @semantic
 const assert = require('assert');
 const { ServiceContainer } = require('../src/services/container');

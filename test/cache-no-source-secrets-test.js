@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @semantic
 /**
  * The cache must not keep string-literal contents of the analysed source. A symbol signature is

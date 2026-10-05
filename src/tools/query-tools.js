@@ -16,7 +16,7 @@ function findSnapshot(container) {
   try {
     // analysis_snapshots is the single source of truth (version-gated in
     // GraphDB.loadAnalysisSnapshot).
-    const snapshot = container.cache?.loadAnalysisSnapshot?.('overview');
+    const snapshot = container.cache?.loadAnalysisSnapshot('overview');
     if (!snapshot) return null;
     return {
       data: JSON.stringify(snapshot.data),

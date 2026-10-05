@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // --no-compact: pins the full-output contract; this repo is past LARGE_PROJECT_FILE_THRESHOLD and
 // would otherwise auto-compact audit-file's lists away.
 // @contract

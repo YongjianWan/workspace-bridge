@@ -1,3 +1,4 @@
+// @slow
 // @contract + @semantic — Wave 12-3: --category filtering and finding categories
 
 const assert = require('assert');

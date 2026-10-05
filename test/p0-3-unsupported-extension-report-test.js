@@ -1,3 +1,4 @@
+// @fast
 // @semantic
 // P0-3: known source extensions that no parser claims must not be silently
 // dropped at discovery (external review §4 P0-3 / repro UNSUPPORTED-SILENT).

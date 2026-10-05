@@ -41,7 +41,7 @@ async function impact(args, container, filePath) {
   return {
     ok: true,
     file: args.file,
-    resolvedPath: container.snapshot.graph._displayPath?.(filePath) || filePath,
+    resolvedPath: container.snapshot.graph._displayPath(filePath) || filePath,
     impactCount: impact.length,
     ...(targetNotIndexed ? {
       warnings: [warningOf('target-not-indexed', {

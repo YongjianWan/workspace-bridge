@@ -14,6 +14,7 @@ function makeContainer({ gitHead = 'abc', fileCount = 10, changed = false, confi
     snapshot: {
       graph: {
         getAllFilePaths: () => Array(fileCount).fill('file.js'),
+        getScopeSummary: () => ({}),
       },
     },
     projectContext: { config },

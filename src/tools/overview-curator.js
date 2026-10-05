@@ -133,8 +133,8 @@ function pickBreakEdge(depGraph, cycleFiles) {
   for (let i = 0; i < cycleFiles.length; i += 1) {
     const from = cycleFiles[i];
     const to = cycleFiles[(i + 1) % cycleFiles.length];
-    const fromDependents = depGraph.getDependents?.(from, { architectureOnly: true }) || [];
-    const fromDependencies = depGraph.getDependencies?.(from, { architectureOnly: true }) || [];
+    const fromDependents = depGraph.getDependents(from, { architectureOnly: true }) || [];
+    const fromDependencies = depGraph.getDependencies(from, { architectureOnly: true }) || [];
     const score = (fromDependents.length * SCORING.BREAK_EDGE_DEPENDENT_WEIGHT) + fromDependencies.length;
     edges.push({ from, to, score, fromDependents: fromDependents.length, fromDependencies: fromDependencies.length });
   }
@@ -143,7 +143,7 @@ function pickBreakEdge(depGraph, cycleFiles) {
 }
 
 function buildCycleRefactorSuggestions(root, depGraph, projectContext) {
-  const cycles = depGraph.findCircularDependencies?.() || [];
+  const cycles = depGraph.findCircularDependencies() || [];
   const normalized = cycles.map(normalizeCycle).filter((cycle) => cycle.length >= 2);
   const suggestions = [];
 
@@ -240,8 +240,8 @@ function buildCouplingSplitSuggestions(root, depGraph, mainlineFiles, projectCon
   const isSmallProject = mainlineFiles.length < 200;
   const candidates = [];
   for (const file of mainlineFiles) {
-    const dependents = depGraph.getDependents?.(file, { architectureOnly: true }) || [];
-    const dependencies = depGraph.getDependencies?.(file, { architectureOnly: true }) || [];
+    const dependents = depGraph.getDependents(file, { architectureOnly: true }) || [];
+    const dependencies = depGraph.getDependencies(file, { architectureOnly: true }) || [];
     const coupling = calculateCoupling(dependencies, dependents);
     const classification = projectContext?.classifyFile?.(file);
     if (!classification?.isMainline) continue;

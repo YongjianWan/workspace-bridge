@@ -1,3 +1,4 @@
+// @fast
 // @semantic
 // P0-6（外部审查）：dead-exports 的 5 类“工具链消费、静态分析不可见”形态
 // 不得给出 confidence high；普通文件里的真死导出必须维持 high（防“全部降档”的假修复）。

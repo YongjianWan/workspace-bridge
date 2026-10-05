@@ -196,7 +196,7 @@ function buildProjectMap(depGraph, options = {}) {
     : null;
   const root = depGraph.root || depGraph.workspaceRoot || '';
   const projectContext = depGraph.projectContext || null;
-  let allFiles = (depGraph.getAllFilePaths?.() || []).map((k) => depGraph._displayPath?.(k) || k);
+  let allFiles = (depGraph.getAllFilePaths() || []).map((k) => depGraph._displayPath(k) || k);
   allFiles.sort((a, b) => toRelativePath(root, a).localeCompare(toRelativePath(root, b)));
   if (maxFiles && allFiles.length > maxFiles) {
     allFiles = allFiles.slice(0, maxFiles);
@@ -337,9 +337,9 @@ function buildProjectMap(depGraph, options = {}) {
   }
 
   // IssueOverlay
-  const deadExports = depGraph.findDeadExports?.() || [];
-  const unresolved = depGraph.findUnresolvedImports?.() || [];
-  const cycles = depGraph.findCircularDependencies?.() || [];
+  const deadExports = depGraph.findDeadExports() || [];
+  const unresolved = depGraph.findUnresolvedImports() || [];
+  const cycles = depGraph.findCircularDependencies() || [];
 
   const entrySet = depGraph.entryFiles || new Set();
   const orphanResult = depGraph.findOrphanFiles(toRelativePath);
@@ -348,7 +348,7 @@ function buildProjectMap(depGraph, options = {}) {
   // Hotspots: files with high dependent count (dependency centrality)
   const hotspots = [];
   for (const file of allFiles) {
-    const dependents = depGraph.getDependents?.(file) || [];
+    const dependents = depGraph.getDependents(file) || [];
     if (dependents.length >= SCORING.HOTSPOT_MIN_DEPENDENTS) {
       hotspots.push({
         file: toRelativePath(root, file),

@@ -1,3 +1,4 @@
+// @slow
 // @semantic
 //
 // query-* deliberately keeps a coarse freshness check (gitHead + fileCount +

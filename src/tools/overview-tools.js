@@ -100,7 +100,7 @@ async function buildProjectOverview(args, container) {
 
   if (!requestedCategories && !args?.severity) {
     try {
-      const snapshot = container.cache?.loadAnalysisSnapshot?.('overview');
+      const snapshot = container.cache?.loadAnalysisSnapshot('overview');
       if (snapshot && isSnapshotFresh(snapshot, container, { strict: true, args })) {
         // No gate special case: isSnapshotFresh now includes a content check,
         // so reaching this line means the tree has not moved and the replay is
@@ -296,14 +296,14 @@ async function buildProjectOverview(args, container) {
   // 仅全量运行可写快照；category / severity / maxFiles / compact 过滤后的子集写入会毒化所有后续消费者
   if (requestedCategories || args?.severity || args?.maxFiles || args?.compact) return result;
   try {
-    const gitHead = container.cache?.getWorkspaceInfo?.()?.gitHead || '';
+    const gitHead = container.cache?.getWorkspaceInfo()?.gitHead || '';
     const fileCount = result.scope?.counts?.totalFiles || 0;
     const configHash = computeConfigHash(container.projectContext?.config || null);
 
     // Unconditional — a throw here is caught below, so the snapshot is
     // simply not persisted; an unsigned row must never be written on purpose.
     const contentSignature = container.cache.getContentSignature() || '';
-    container.cache?.saveAnalysisSnapshot?.('overview', result, gitHead, fileCount, configHash, contentSignature);
+    container.cache?.saveAnalysisSnapshot('overview', result, gitHead, fileCount, configHash, contentSignature);
   } catch (_) {
     // Snapshot persistence is best-effort; never block the main flow
   }

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // @contract
 /**
  * Test that --exclude handles Windows backslash separators correctly.

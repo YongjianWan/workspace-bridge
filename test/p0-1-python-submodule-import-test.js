@@ -1,3 +1,4 @@
+// @fast
 // @semantic
 // P0-1（审查报告 §4）：`from . import mod` / `from pkg import mod` 必须连到
 // pkg/mod.py，而不是 pkg/__init__.py。

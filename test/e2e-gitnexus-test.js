@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // @semantic
 /**
  * E2E smoke test on reference/GitNexus — a real third-party project (1329 files).

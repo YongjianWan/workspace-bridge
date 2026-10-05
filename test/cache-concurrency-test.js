@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // @semantic
 /**
  * Cache concurrency stress test: verify SQLite WAL mode handles parallel reads safely.

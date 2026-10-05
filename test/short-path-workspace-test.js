@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // @semantic — a workspace passed as a Windows 8.3 short path (C:\Users\RUNNER~1\...) must give
 // the same results as its long path. GitHub's Windows runners hand out short temp paths, and
 // git reports the long form, so a mismatch silently produced "0 changed files".

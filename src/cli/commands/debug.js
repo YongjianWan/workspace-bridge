@@ -35,14 +35,14 @@ async function debugCmd(parsed, container) {
     if (!graph) {
       return failure('init_error', 'Dependency graph not available');
     }
-    const files = graph.getAllFilePaths?.() || [];
+    const files = graph.getAllFilePaths() || [];
     const MAX_DEBUG_GRAPH_FILES = 5000;
     const MAX_DEBUG_GRAPH_EDGES = 50000;
     let edgeCount = 0;
     let truncated = false;
     const filesToScan = files.length > MAX_DEBUG_GRAPH_FILES ? files.slice(0, MAX_DEBUG_GRAPH_FILES) : files;
     for (const file of filesToScan) {
-      edgeCount += (graph.getDependencies?.(file) || []).length;
+      edgeCount += (graph.getDependencies(file) || []).length;
       if (edgeCount > MAX_DEBUG_GRAPH_EDGES) {
         truncated = true;
         break;

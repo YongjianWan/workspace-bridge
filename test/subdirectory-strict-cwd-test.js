@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @slow
 // @semantic
 /**
  * Verify that --cwd subdirectory restricted analysis works:

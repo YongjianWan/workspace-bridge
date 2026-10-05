@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @semantic
 /**
  * P0-2: language enablement is by extension, never by root manifest.

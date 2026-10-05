@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @fast
 // @semantic — importRecords 按语句去重，同 source 不同绑定不许合并
 //
 // 背景（typer 回归归因）：`from . import _click` 与 `from . import rich_utils`
