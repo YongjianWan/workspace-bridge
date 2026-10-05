@@ -21,6 +21,13 @@ const { applyPathSpelling } = require('../src/cli/path-spelling');
   assert.strictEqual(applyPathSpelling(same, new Map()), same);
 }
 
+// Graph keys fold case only on Windows; elsewhere `src/main.js` and `Src/Main.js` are different
+// files, so a lowercase string in a result is not a respelling candidate.
+if (process.platform !== 'win32') {
+  console.log('skipped end-to-end part: case folding is a Windows behaviour');
+  process.exit(0);
+}
+
 const root = makeTempDir('wb-spelling-');
 try {
   fs.mkdirSync(path.join(root, 'Src', 'Core'), { recursive: true });
