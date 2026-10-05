@@ -142,7 +142,7 @@ async function testDepthTruncationWarns() {
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 't' }));
   // 13 层嵌套：目录深度 13 > FILE_INDEX_MAX_DEPTH(12)，必须显式警告（L1-4），
   // 不许静默丢子树。旧实现这里 `if (depth > maxDepth) continue` 是纯静默——
-  // 本测试对旧实现必红（index.warnings 不存在）。
+  // 本测试对旧实现必红（index.ledger.warnings() 不存在）。
   let cur = root;
   for (let i = 1; i <= 13; i++) {
     cur = path.join(cur, `l${i}`);
@@ -161,7 +161,7 @@ async function testDepthTruncationWarns() {
     assert(!got.some((f) => f.endsWith('deep.js')), `depth-13 文件应被截断，实际: ${got.join(', ')}`);
 
     const warn = index.ledger.warnings().find((w) => w.type === 'depth-truncated');
-    assert(warn, `深度截断必须进 warnings[]（L1-4），实际: ${JSON.stringify(index.warnings)}`);
+    assert(warn, `深度截断必须进 warnings[]（L1-4），实际: ${JSON.stringify(index.ledger.warnings())}`);
     assert(warn.files >= 1 && /max depth 12/.test(warn.message),
       `depth-truncated 警告应带截断目录数与深度说明，实际: ${JSON.stringify(warn)}`);
   } finally {

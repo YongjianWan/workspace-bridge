@@ -327,6 +327,7 @@ function cleanupTempDir(dir) {
 /* -------------------------------------------------------------------------- */
 
 const { WorkspaceSnapshot, DependencyGraphView } = require('../src/models/workspace-snapshot');
+const { Ledger } = require('../src/services/ledger');
 
 /**
  * Build a mock WorkspaceSnapshot for unit tests.
@@ -456,6 +457,7 @@ function _createStubDepGraph(opts = {}) {
 
   const baseData = {
     root,
+    ledger: new Ledger(),
     graph: graphMap,
     reverseGraph,
     entryFiles,

@@ -1,6 +1,7 @@
 const path = require('path');
 const { DEFAULTS } = require('../../config/constants');
 const { DATA_QUALITY } = require('../../config/data-quality');
+const { warningOf } = require('../../services/ledger');
 const { getCoChangePartners } = require('../cochange-tools');
 const { truncateArray } = require('../../utils/truncate');
 
@@ -43,8 +44,8 @@ async function impact(args, container, filePath) {
     resolvedPath: container.snapshot.graph._displayPath?.(filePath) || filePath,
     impactCount: impact.length,
     ...(targetNotIndexed ? {
-      warnings: [{ type: 'target-not-indexed', severity: 'high',
-        message: 'Target is not in the source index; zero impact does not establish absence of dependents' }] } : {}),
+      warnings: [warningOf('target-not-indexed', {
+        message: 'Target is not in the source index; zero impact does not establish absence of dependents' })] } : {}),
     impact: impactTrunc.items,
     symbolImpact,
     coChanges: coChangesTrunc.items,

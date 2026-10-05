@@ -60,9 +60,7 @@ class FileIndex {
     this.indexedCount = 0;
     this.processedCount = 0;
     this.changedFiles.clear();
-    this.warnings = [];
-    this.ledger.clear('index-timeout');
-    this.ledger.clear('depth-truncated');
+    for (const code of ['index-timeout', 'depth-truncated', 'gitignore-unavailable', 'unsupported-source-files']) this.ledger.clear(code);
     this._depthTruncatedDirs = 0;
     this.unsupportedSourceFiles = [];
     this._unsupportedCandidates = [];
@@ -111,7 +109,8 @@ class FileIndex {
     // filterGitIgnored 自带显式降级警告。
     const gitFiltered = await filterGitIgnored(this.root, allFiles);
     if (gitFiltered.warning) {
-      this.warnings.push(gitFiltered.warning);
+      const { type, ...fields } = gitFiltered.warning;
+      this.ledger.record(type, fields);
     }
     allFiles = gitFiltered.kept;
 
@@ -140,9 +139,7 @@ class FileIndex {
         byExtension[ext] = (byExtension[ext] || 0) + 1;
       }
       const detail = Object.keys(byExtension).sort().map((ext) => `${ext} (${byExtension[ext]})`).join(', ');
-      if (this.unsupportedSourceFiles.length > 0) this.warnings.push({
-        type: 'unsupported-source-files',
-        severity: 'high',
+      if (this.unsupportedSourceFiles.length > 0) this.ledger.record('unsupported-source-files', {
         files: this.unsupportedSourceFiles.length,
         extensions: byExtension,
         message: `${this.unsupportedSourceFiles.length} source file(s) with known extensions but no parser were not indexed: ${detail}; coverage and findings do not include them`,

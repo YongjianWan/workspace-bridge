@@ -12,6 +12,7 @@ const {
 } = require('./formatters');
 const { STREAMING, SCHEMA_VERSION, EXIT_CODES, DEFAULTS } = require('../config/constants');
 const { elideDeep } = require('../utils/truncate');
+const { warningOf } = require('../services/ledger');
 
 const COMMAND_ARRAY_LIMITS = { 'affected-tests': DEFAULTS.AFFECTED_TESTS_COMMAND_MAX_ITEMS };
 
@@ -27,7 +28,7 @@ function applyFieldsFilter(result, fields) {
   const unknown = [...allowed].filter(field => !Object.prototype.hasOwnProperty.call(result, field) && !ESSENTIAL_FIELDS.includes(field));
   if (unknown.length) {
     if (!Array.isArray(result.warnings)) result.warnings = [];
-    result.warnings.push({ type: 'unknown-fields', severity: 'medium', message: `Unknown output field(s): ${unknown.join(', ')}` });
+    result.warnings.push(warningOf('unknown-fields', { message: `Unknown output field(s): ${unknown.join(', ')}` }));
   }
   for (const key of Object.keys(result)) {
     if (!ESSENTIAL_FIELDS.includes(key) && !allowed.has(key)) {
@@ -39,7 +40,7 @@ function applyFieldsFilter(result, fields) {
 function appendWarning(result, message) {
   if (!result || typeof result !== 'object' || result.ok === false) return;
   if (!Array.isArray(result.warnings)) result.warnings = [];
-  if (!result.warnings.includes(message)) result.warnings.push(message);
+  if (!result.warnings.some((warning) => warning.message === message)) result.warnings.push(warningOf('ignored-option', { message }));
 }
 
 function maybeWarnIgnoredOptions(parsed, result) {

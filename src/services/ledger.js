@@ -12,14 +12,42 @@ const REASON_CODES = Object.freeze({
   'depth-truncated': { severity: 'medium' },
   'index-timeout': { severity: 'high' },
   'analysis-stage-failed': { severity: 'high' },
+  'cache-directory-fallback': { severity: 'medium' },
+  'cache-load-failed': { severity: 'medium' },
+  'cache-write-failed': { severity: 'medium' },
+  'gitignore-unavailable': { severity: 'low' },
+  'unsupported-source-files': { severity: 'high' },
+  'dynamic-load-unresolved': { severity: 'medium' },
+  'config-warning': { severity: 'medium' },
+  'regex-fallback': { severity: 'medium' },
+  'unsupported-extension': { severity: 'low' },
+  'parser-error': { severity: 'medium' },
+  'empty-graph': { severity: 'high' },
+  'unresolved-dropped': { severity: 'low' },
+  'unresolved-import-ownership': { severity: 'low' },
+  'history-unavailable': { severity: 'medium' },
+  'target-not-indexed': { severity: 'high' },
+  'unknown-fields': { severity: 'medium' },
+  'missing-target': { severity: 'high' },
+  'ignored-option': { severity: 'low' },
+  'api-contract-read-error': { severity: 'medium' },
+  'api-contract-dynamic-url-skipped': { severity: 'low' },
+  'api-contract-path-normalization': { severity: 'low' },
 });
+
+/** One warning in the `warnings[]` shape, for producers that sit outside a run's ledger. */
+function warningOf(code, fields = {}) {
+  const meta = REASON_CODES[code];
+  if (!meta) throw new Error(`Unknown ledger reason code: ${code}`);
+  return { type: code, severity: meta.severity, ...fields };
+}
 
 class Ledger {
   constructor() {
     this._entries = [];
   }
 
-  /** Append an entry. `fields` are copied into the warning as-is (message, files, stage, ...). */
+  /** Append an entry. `fields` are copied into the warning as-is (message, files, stage, ...); a `severity` field overrides the code's default. */
   record(code, fields = {}) {
     const meta = REASON_CODES[code];
     if (!meta) throw new Error(`Unknown ledger reason code: ${code}`);
@@ -48,4 +76,4 @@ class Ledger {
   }
 }
 
-module.exports = { Ledger, REASON_CODES };
+module.exports = { Ledger, REASON_CODES, warningOf };

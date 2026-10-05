@@ -6,6 +6,8 @@
  * `/users/:id` matches `/users/{id}` and `/users/123`.
  */
 
+const { warningOf } = require('../../ledger');
+
 const VARIABLE_SEGMENT_RE = /\{[^/]+\}|:[^/]+/g;
 
 function normalizePath(rawPath) {
@@ -107,10 +109,10 @@ function matchContracts(clientCalls, serverRoutes) {
   // Warn if normalization collapsed distinct variable names (e.g. /users/:id vs /users/:name).
   // This is a limitation of MVP string matching.
   if (clientMap.size > 0 && serverMap.size > 0) {
-    warnings.push({
+    warnings.push(warningOf('api-contract-path-normalization', {
       reason: 'path-variable-normalization',
       message: 'Path variable segments are normalized to {}; distinct variable names on the same segment may be treated as equal.',
-    });
+    }));
   }
 
   const serverCount = serverMap.size;

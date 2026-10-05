@@ -2,6 +2,7 @@
 const assert = require('assert');
 const { classifyDeadExports } = require('../src/tools/honesty-engine');
 const { buildHotspots } = require('../src/tools/overview-assembler');
+const { Ledger } = require('../src/services/ledger');
 
 async function main() {
   const items = ['src/component.js', 'src/App.stories.tsx', '.storybook/preview.tsx'].map(file => ({ file, importerCount: 0, confidence: 'high' }));
@@ -9,6 +10,7 @@ async function main() {
   assert(items.every(item => item.safeToDelete !== true), 'zero importers is not proof of safe deletion');
   const files = Array.from({ length: 60 }, (_, i) => `/repo/f${i}.js`);
   const graph = {
+    ledger: new Ledger(),
     getFileCount: () => files.length,
     isTestLikeFile: () => false,
     getAllFilePaths: () => files,

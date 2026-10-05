@@ -27,6 +27,7 @@ class DependencyGraphView {
   get reverseGraph() { return this._dg.reverseGraph; }
   get entryFiles() { return this._dg.entryFiles; }
   get projectContext() { return this._dg.projectContext; }
+  get ledger() { return this._dg.ledger; }
   get packageJson() { return this._dg.packageJson; }
   get excludeDirs() { return this._dg.excludeDirs; }
   get cliExcludeDirs() { return this._dg.cliExcludeDirs; }

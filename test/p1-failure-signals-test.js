@@ -35,7 +35,7 @@ async function main() {
       cache._graphDb.saveIncremental = () => { throw Error('disk full'); };
       cache.dirty = true;
       assert.strictEqual(await cache.save(), false);
-      assert(cache.warnings.some(w => w.type === 'cache-write-failed'));
+      assert(cache.ledger.warnings().some(w => w.type === 'cache-write-failed'));
     });
     await check('oversize and unsupported encoding have warnings', async () => {
       fs.writeFileSync(path.join(root, 'large.js'), ' '.repeat(1024 * 1024 + 1));

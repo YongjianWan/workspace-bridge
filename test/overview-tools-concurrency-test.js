@@ -3,6 +3,7 @@
 
 const assert = require('assert');
 const { buildHotspots } = require('../src/tools/overview-assembler');
+const { Ledger } = require('../src/services/ledger');
 
 async function testHotspotConcurrencyLimit() {
   let maxConcurrent = 0;
@@ -23,6 +24,7 @@ async function testHotspotConcurrencyLimit() {
   const mainlineFiles = Array.from({ length: 20 }, (_, i) => `/fake/path/file${i}.js`);
 
   const mockDepGraph = {
+    ledger: new Ledger(),
     _displayPath: (f) => f,
     getDependents: () => [],
     getDependencies: () => [],
@@ -55,6 +57,7 @@ async function testHotspotBatchOrdering() {
 
   const mainlineFiles = ['/a.js', '/b.js', '/c.js'];
   const mockDepGraph = {
+    ledger: new Ledger(),
     _displayPath: (f) => f,
     getDependents: () => [],
     getDependencies: () => [],

@@ -21,12 +21,12 @@ async function main() {
     await index.build(30000, { watch: false });
     assert.strictEqual(index._unsupportedCandidates.length, 1, 'discovery must see the unsupported candidate before gitignore filtering');
     assert.deepStrictEqual(index.unsupportedSourceFiles, []);
-    assert(!index.warnings.some((w) => w.type === 'unsupported-source-files'), 'ignored unsupported files must not produce an empty high warning');
+    assert(!index.ledger.warnings().some((w) => w.type === 'unsupported-source-files'), 'ignored unsupported files must not produce an empty high warning');
 
     fs.writeFileSync(path.join(root, '.gitignore'), 'Ignored.cs\n');
     fs.writeFileSync(path.join(root, 'Visible.cs'), 'class Visible {}');
     await index.build(30000, { watch: false });
-    const warning = index.warnings.find((w) => w.type === 'unsupported-source-files');
+    const warning = index.ledger.warnings().find((w) => w.type === 'unsupported-source-files');
     assert(warning, 'real unsupported source must still warn');
     assert.strictEqual(warning.files, 1);
     assert.deepStrictEqual(warning.extensions, { '.cs': 1 });

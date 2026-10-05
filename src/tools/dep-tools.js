@@ -3,6 +3,7 @@
  * Add new operations by creating a file in ./dep-tools/ and registering below.
  */
 const { resolveWorkspaceFilePath, normalizePathKey } = require('../utils/path');
+const { warningOf } = require('../services/ledger');
 
 // Operation registry — thin mapping, handlers live in ./dep-tools/
 const OPERATIONS = {
@@ -53,8 +54,8 @@ async function dependencyGraph(args, container) {
   const result = await handler(args, wrappedContainer, filePath);
   if (FILE_REQUIRED.has(operation) && !depGraph.hasFile(filePath)) {
     const warnings = result.warnings || [];
-    if (!warnings.some(warning => warning.type === 'target-not-indexed')) warnings.push({ type: 'target-not-indexed', severity: 'high',
-      message: 'Target is not in the source index; an empty result does not establish absence of dependencies or dependents' });
+    if (!warnings.some(warning => warning.type === 'target-not-indexed')) warnings.push(warningOf('target-not-indexed', {
+      message: 'Target is not in the source index; an empty result does not establish absence of dependencies or dependents' }));
     result.warnings = warnings;
     result.dataQuality = 'degraded';
     result.hasFindings = true;

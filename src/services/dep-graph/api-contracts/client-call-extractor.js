@@ -8,6 +8,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { warningOf } = require('../../ledger');
 
 const CLIENT_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.vue', '.svelte', '.mjs', '.cjs']);
 const VALID_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch', 'head', 'options']);
@@ -205,7 +206,7 @@ function extractClientCallsFromFile(filePath) {
   // Warn on template-literal URLs that we intentionally skip.
   const templateUrlRe = /(?:axios\s*\.\s*(?:get|post|put|delete|patch|head|options)|fetch)\s*\(\s*`[^`]*\$\{/g;
   if (templateUrlRe.test(content)) {
-    warnings.push({ file: filePath, reason: 'dynamic-url-skipped', message: 'Template-literal URLs with interpolation are not statically extractable' });
+    warnings.push(warningOf('api-contract-dynamic-url-skipped', { file: filePath, reason: 'dynamic-url-skipped', message: 'Template-literal URLs with interpolation are not statically extractable' }));
   }
 
   return { calls: deduped, warnings };

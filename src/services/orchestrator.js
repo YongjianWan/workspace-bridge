@@ -121,12 +121,6 @@ async function initializeDepGraph({
     ...options,
   });
 
-  // FileIndex 本轮遍历的降级信号（depth-truncated 等）挂到图上，走
-  // analyzer.buildWarnings() 的统一出口（_parseErrorFiles 同款形状）。
-  if (fileIndex && Array.isArray(fileIndex.warnings)) {
-    depGraph._indexWarnings = fileIndex.warnings;
-  }
-
   // 发现阶段被丢弃的已知源码扩展文件（无 parser 认领）同上挂图——
   // analyzer 的 coverage 分母读它。
   if (fileIndex && Array.isArray(fileIndex.unsupportedSourceFiles)) {

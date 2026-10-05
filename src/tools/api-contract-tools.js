@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const { ServiceContainer } = require('../services/container');
+const { warningOf } = require('../services/ledger');
 const { TIMEOUTS } = require('../config/constants');
 const { extractRoutes } = require('../services/dep-graph/framework-patterns');
 const { extractClientCalls } = require('../services/dep-graph/api-contracts/client-call-extractor');
@@ -43,7 +44,7 @@ async function collectServerRoutes(container) {
     try {
       content = fs.readFileSync(filePath, 'utf8');
     } catch (err) {
-      warnings.push({ file: filePath, reason: 'read-error', message: err.message });
+      warnings.push(warningOf('api-contract-read-error', { file: filePath, reason: 'read-error', message: err.message }));
       continue;
     }
 

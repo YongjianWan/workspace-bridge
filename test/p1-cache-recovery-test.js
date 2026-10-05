@@ -15,7 +15,7 @@ async function main() {
   try {
     assert.strictEqual(cache.load(), false);
     fs.renameSync = rename;
-    assert(cache.warnings.some(w => w.type === 'cache-load-failed'));
+    assert(cache.ledger.warnings().some(w => w.type === 'cache-load-failed'));
     assert(fs.readdirSync(cacheDir).some(name => name.startsWith('cache.db.corrupt-')), 'corrupt input must be preserved for diagnosis');
     cache.setWorkspaceInfo({ root });
     const file = path.join(root, 'a.js');

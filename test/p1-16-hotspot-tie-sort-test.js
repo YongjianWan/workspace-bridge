@@ -7,9 +7,11 @@
  */
 const assert = require('assert');
 const { buildHotspots } = require('../src/tools/overview-assembler');
+const { Ledger } = require('../src/services/ledger');
 
 function makeDeps() {
   return {
+    ledger: new Ledger(),
     _displayPath: (f) => f,
     getDependents: () => [],
     getDependencies: () => [],

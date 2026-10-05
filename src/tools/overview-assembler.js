@@ -297,10 +297,10 @@ async function buildHotspots(root, depGraph, mainlineFiles, historyProvider, fai
 
   const result = candidates.filter(Boolean).sort(byScoreThenPath);
   if (failures.length > 0) {
-    depGraph._historyWarnings = [{ type: 'history-unavailable', severity: 'medium', files: failures.length,
-      message: `History unavailable for ${failures.length} candidate file(s); hotspot scores omit history risk` }];
+    depGraph.ledger.replace('history-unavailable', [{ files: failures.length,
+      message: `History unavailable for ${failures.length} candidate file(s); hotspot scores omit history risk` }]);
   } else {
-    depGraph._historyWarnings = [];
+    depGraph.ledger.replace('history-unavailable', []);
   }
   return result;
 }

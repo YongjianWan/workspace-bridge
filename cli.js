@@ -335,8 +335,9 @@ async function runCliInProcess(args, opts = {}) {
 
   if (!parsed.cacheDir) {
     const { computeDefaultCacheDir } = require('./src/services/cache');
-    parsed.cacheWarnings = [];
-    parsed.cacheDir = computeDefaultCacheDir(path.resolve(parsed.cwd || process.cwd()), parsed.cacheWarnings);
+    const { Ledger } = require('./src/services/ledger');
+    parsed.ledger = new Ledger();
+    parsed.cacheDir = computeDefaultCacheDir(path.resolve(parsed.cwd || process.cwd()), parsed.ledger);
   }
 
   // Lightweight preflight path: workspace-info should not pay the cost of a full ServiceContainer init.
@@ -353,7 +354,7 @@ async function runCliInProcess(args, opts = {}) {
   const needsContainer = !SELF_CONTAINER_COMMANDS.has(parsed.command);
   const shouldInit = !container && needsContainer;
   if (!container && needsContainer) {
-    container = new ServiceContainer({ quiet: parsed.quiet, cacheDir: parsed.cacheDir, cacheWarnings: parsed.cacheWarnings });
+    container = new ServiceContainer({ quiet: parsed.quiet, cacheDir: parsed.cacheDir, ledger: parsed.ledger });
   }
 
   try {
@@ -379,8 +380,8 @@ async function runCliInProcess(args, opts = {}) {
       // one source of warnings, not the only one.
       const graphWarnings = container.snapshot.graph.buildWarnings();
       result.warnings = Array.isArray(result.warnings)
-        ? [...result.warnings, ...graphWarnings, ...container.cache.warnings]
-        : [...graphWarnings, ...container.cache.warnings];
+        ? [...result.warnings, ...graphWarnings]
+        : graphWarnings;
       result.warnings = [...new Map(result.warnings.map(warning => [JSON.stringify(warning), warning])).values()];
       if (result.warnings.some(warning => warning?.severity === 'high' || warning?.severity === 'medium')) result.dataQuality = 'degraded';
     }

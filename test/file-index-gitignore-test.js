@@ -59,8 +59,8 @@ async function testGitUnavailableWarnsAndKeeps() {
     const got = index._indexedFiles.map((f) => path.relative(root, f).replace(/\\/g, '/')).sort();
     assert.deepStrictEqual(got, ['main.py'],
       `git 不可用时应照常索引（过滤显式降级），实际: ${got.join(', ')}`);
-    const warn = (index.warnings || []).find((w) => w.type === 'gitignore-unavailable');
-    assert(warn, `gitignore 过滤不可用必须进 warnings[]（L1-4），实际: ${JSON.stringify(index.warnings)}`);
+    const warn = index.ledger.warnings().find((w) => w.type === 'gitignore-unavailable');
+    assert(warn, `gitignore 过滤不可用必须进 warnings[]（L1-4），实际: ${JSON.stringify(index.ledger.warnings())}`);
   } finally {
     cleanupTempDir(root);
   }
@@ -79,8 +79,8 @@ async function testNoGitignoreNoWarning() {
 
     const got = index._indexedFiles.map((f) => path.relative(root, f).replace(/\\/g, '/')).sort();
     assert.deepStrictEqual(got, ['main.py'], `无 gitignore 时正常索引，实际: ${got.join(', ')}`);
-    assert.strictEqual((index.warnings || []).length, 0,
-      `无承诺时不应有警告，实际: ${JSON.stringify(index.warnings)}`);
+    assert.strictEqual(index.ledger.warnings().length, 0,
+      `无承诺时不应有警告，实际: ${JSON.stringify(index.ledger.warnings())}`);
   } finally {
     cleanupTempDir(root);
   }

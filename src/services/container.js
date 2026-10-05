@@ -4,6 +4,7 @@
  */
 const { WorkspaceCache } = require('./cache');
 const { FileIndex } = require('./file-index');
+const { Ledger } = require('./ledger');
 const { DiagnosticsEngine } = require('./diagnostics-engine');
 const { DependencyGraph } = require('./dep-graph');
 const { initializeDepGraph } = require('./orchestrator');
@@ -46,7 +47,8 @@ class ServiceContainer {
     this.workspaceRoot = null;
     this.quiet = options.quiet || false;
     this.options = options;
-    
+    this.ledger = options.ledger || new Ledger();
+
     // Services
     this.cache = null;
     this.fileIndex = null;
@@ -317,7 +319,7 @@ class ServiceContainer {
   _initCache() {
     this.cache = new WorkspaceCache(this.workspaceRoot, {
       cacheDir: this.options.cacheDir,
-      warnings: this.options.cacheWarnings,
+      ledger: this.ledger,
     });
     this.cache.load();
     this.cache.setWorkspaceInfo({ root: this.workspaceRoot });
@@ -336,6 +338,7 @@ class ServiceContainer {
       excludeDirs: options.excludeDirs || [],
       projectContext: this.projectContext,
       quiet: this.quiet,
+      ledger: this.ledger,
     });
     await this.fileIndex.build(DEFAULTS.FILE_INDEX_BUILD_TIMEOUT_MS, {
       signal: this._initAbortController.signal,

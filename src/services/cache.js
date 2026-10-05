@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const { normalizeFilePath, normalizePathKey } = require('../utils/path');
 const { GraphDB } = require('./graph-db');
 const { DEFAULTS } = require('../config/constants');
+const { Ledger } = require('./ledger');
 
 const CACHE_STALE_MS = DEFAULTS.STALENESS_THRESHOLD_MS;
 const WINDOWS_ABSOLUTE_PATH_RE = /^([A-Za-z]):[\\/](.*)$/;
@@ -64,7 +65,7 @@ const METADATA_SCHEMA = {
   },
 };
 
-function computeDefaultCacheDir(workspaceRoot, warnings = []) {
+function computeDefaultCacheDir(workspaceRoot, ledger = new Ledger()) {
   // Hash the same key the graph uses, so `C:\x`, `c:\x` and `C:/x` share one cache dir.
   const hash = crypto.createHash('md5').update(normalizePathKey(workspaceRoot)).digest('hex').slice(0, 8);
   const cacheRoot = process.platform === 'win32'
@@ -81,7 +82,7 @@ function computeDefaultCacheDir(workspaceRoot, warnings = []) {
     fs.unlinkSync(testFile);
   } catch (error) {
     cacheDir = fallbackDir;
-    warnings.push({ type: 'cache-directory-fallback', severity: 'medium',
+    ledger.record('cache-directory-fallback', {
       message: `Preferred cache directory is not writable (${error.message}); using ${fallbackDir}` });
     fs.mkdirSync(cacheDir, { recursive: true });
   }
@@ -199,10 +200,10 @@ class DirtyTracker {
 
 class WorkspaceCache {
   constructor(workspaceRoot, options = {}) {
-    this.warnings = options.warnings || [];
+    this.ledger = options.ledger || new Ledger();
     this.workspaceRoot = workspaceRoot;
     this.normalizeFilePath = (filePath) => normalizeFilePath(filePath, workspaceRoot);
-    this.cacheDir = options.cacheDir || computeDefaultCacheDir(workspaceRoot, this.warnings);
+    this.cacheDir = options.cacheDir || computeDefaultCacheDir(workspaceRoot, this.ledger);
     this.cachePath = path.join(this.cacheDir, 'cache.db');
     this._graphDb = new GraphDB(this.cachePath);
 
@@ -316,7 +317,7 @@ class WorkspaceCache {
       if (!data) {
         const error = this._graphDb.lastError;
         if (error) {
-          this.warnings.push({ type: 'cache-load-failed', severity: 'medium', message: `Cache could not be loaded: ${error.message}; rebuilding from source` });
+          this.ledger.record('cache-load-failed', { message: `Cache could not be loaded: ${error.message}; rebuilding from source` });
           if (/not a database|malformed|corrupt/i.test(error.message)) {
             this._graphDb._withWriteLock(() => {
               this._graphDb.close();
@@ -359,7 +360,7 @@ class WorkspaceCache {
 
       return true;
     } catch (err) {
-      this.warnings.push({ type: 'cache-load-failed', severity: 'medium', message: `Cache recovery failed: ${err.message}; rebuilding from source` });
+      this.ledger.record('cache-load-failed', { message: `Cache recovery failed: ${err.message}; rebuilding from source` });
       if (process.env.DEBUG) {
         console.error('[Cache] SQLite load failed:', err.message);
       }
@@ -431,9 +432,8 @@ class WorkspaceCache {
   }
 
   _warnWriteFailure(message) {
-    this.warnings = this.warnings.filter(warning => warning.type !== 'cache-write-failed');
-    this.warnings.push({ type: 'cache-write-failed', severity: 'medium',
-      message: `Cache could not be saved at ${this.cachePath}: ${message}; the next run will rebuild it` });
+    this.ledger.replace('cache-write-failed', [{
+      message: `Cache could not be saved at ${this.cachePath}: ${message}; the next run will rebuild it` }]);
   }
 
   /**

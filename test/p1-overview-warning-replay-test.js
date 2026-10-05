@@ -14,10 +14,10 @@ async function main() {
   try {
     assert(await container.initialize(root, 60000, { watch: false, strictCwd: true }));
     await container.ensurePrecomputed(['overview']);
-    container._depGraph._historyWarnings = [{ type: 'history-unavailable', severity: 'medium', files: 1, message: 'Injected history failure' }];
+    container._depGraph.ledger.replace('history-unavailable', [{ files: 1, message: 'Injected history failure' }]);
     const first = await buildProjectOverview({}, container);
     assert(first.warnings.some(w => w.type === 'history-unavailable'), 'computed results must carry history quality');
-    container._depGraph._historyWarnings = [];
+    container._depGraph.ledger.replace('history-unavailable', []);
     const second = await buildProjectOverview({}, container);
     assert(second.replayedFrom, 'fixture must exercise snapshot replay');
     assert(second.warnings.some(w => w.type === 'history-unavailable'), 'replayed scores must retain their original history quality');

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const { resolveWorkspaceFilePath } = require('../../utils/path');
+const { warningOf } = require('../../services/ledger');
 
 async function guardCmd(parsed, container) {
   await container.ensureReady();
@@ -45,7 +46,7 @@ async function guardCmd(parsed, container) {
 
   if (missingTargets.length) return { ok: false, passed: false, files: displayFiles, hasFindings: true,
     error: `Target file(s) not found: ${missingTargets.join(', ')}`,
-    warnings: [{ type: 'missing-target', severity: 'high', message: `Guard did not check missing target(s): ${missingTargets.join(', ')}` }] };
+    warnings: [warningOf('missing-target', { message: `Guard did not check missing target(s): ${missingTargets.join(', ')}` })] };
 
   if (resolvedFiles.length === 0) {
     return {

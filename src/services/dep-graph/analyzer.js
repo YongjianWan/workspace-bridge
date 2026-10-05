@@ -805,9 +805,11 @@ class GraphAnalyzer {
     return result;
   }
 
-  // Stage failures live on the bus and skipped files on the graph, and both change after a
-  // watch-mode update. They are recomputed into the ledger before it is read, never appended,
-  // so a stage that now succeeds or a file now under the size limit leaves no stale warning.
+  // Everything below is a fact about the graph as it is now, and the graph changes after a
+  // watch-mode update. It is recomputed into the ledger before the ledger is read, never
+  // appended, so a stage that now succeeds or a file now under the size limit leaves no
+  // stale warning. Event-style entries (index timeout, cache failures) are recorded where
+  // they happen and are not touched here.
   _syncStateLedger() {
     const ledger = this.dg.ledger;
     ledger.replace('analysis-stage-failed', (this.dg.bus.errors || []).map((error) => ({
@@ -821,110 +823,72 @@ class GraphAnalyzer {
         message: `${files.length} source file(s) were not parsed (${reason}): ${files.slice(0, LIMITS.OUTPUT_SHORT).join(', ')}`,
       }] : []);
     }
-  }
 
-  buildWarnings() {
-    const warnings = [];
-    warnings.push(...(this.dg._historyWarnings || []));
-    this._syncStateLedger();
-    warnings.push(...this.dg.ledger.warnings());
     const dynamicFiles = [...this.dg.graph].filter(([, info]) => info.importRecords?.some(record => record.importKind === 'dynamic-unresolved')).map(([file]) => this.dg._displayPath(file));
-    if (dynamicFiles.length) warnings.push({ type: 'dynamic-load-unresolved', severity: 'medium', files: dynamicFiles.length,
+    const dynamicLoads = [];
+    if (dynamicFiles.length) dynamicLoads.push({ files: dynamicFiles.length,
       sampleFiles: dynamicFiles.slice(0, LIMITS.OUTPUT_SHORT),
       message: `${dynamicFiles.length} file(s) contain module loads whose runtime targets could not be determined (${dynamicFiles.slice(0, LIMITS.OUTPUT_SHORT).join(', ')}); zero impact does not establish absence of consumers` });
     const runtimeWired = [...this.dg.graph.values()].filter(info => info.frameworkHint?.framework?.startsWith('spring'));
     const usesNext = Boolean(this.dg.packageJson?.dependencies?.next || this.dg.packageJson?.devDependencies?.next);
-    if (runtimeWired.length || usesNext) warnings.push({ type: 'dynamic-load-unresolved', severity: 'medium', files: runtimeWired.length,
+    if (runtimeWired.length || usesNext) dynamicLoads.push({ files: runtimeWired.length,
       message: 'Runtime dependency injection or filesystem routing is not a complete file dependency graph; zero impact does not establish absence of runtime consumers' });
-    if (this.dg.projectContext && Array.isArray(this.dg.projectContext.warnings)) {
-      for (const msg of this.dg.projectContext.warnings) {
-        warnings.push({
-          type: 'config-warning',
-          severity: 'medium',
-          message: msg,
-        });
-      }
-    }
+    ledger.replace('dynamic-load-unresolved', dynamicLoads);
+
+    const configMessages = Array.isArray(this.dg.projectContext?.warnings) ? this.dg.projectContext.warnings : [];
+    ledger.replace('config-warning', configMessages.map((message) => ({ message })));
 
     let regexFallbackCount = 0;
     let unsupportedCount = 0;
-
     for (const [, info] of this.dg.graph) {
       if (info.parseModeReason === 'regex-fallback') regexFallbackCount++;
       else if (info.parseModeReason === 'unsupported-extension') unsupportedCount++;
     }
+    // Every AST path is in-process tree-sitter WASM, so there is no per-language environment
+    // failure to name: the only two ways to land in regex-fallback are a WASM load failure or
+    // source the grammar could not parse.
+    ledger.replace('regex-fallback', regexFallbackCount > 0 ? [{
+      files: regexFallbackCount,
+      message: `${regexFallbackCount} file(s) fell back from AST to regex parsing (WASM load failure or unparsable source); structural findings for these files are low-confidence`,
+    }] : []);
+    ledger.replace('unsupported-extension', unsupportedCount > 0 ? [{
+      files: unsupportedCount,
+      message: `${unsupportedCount} file(s) have unsupported extensions and were not parsed`,
+    }] : []);
 
-    if (regexFallbackCount > 0) {
-      // Every AST path is in-process tree-sitter WASM, so there is no
-      // per-language environment failure to name: the only two ways to land
-      // here are a WASM load failure or source the grammar could not parse.
-      const detail = 'WASM load failure or unparsable source';
-      warnings.push({
-        type: 'regex-fallback',
-        severity: 'medium',
-        files: regexFallbackCount,
-        message: `${regexFallbackCount} file(s) fell back from AST to regex parsing (${detail}); structural findings for these files are low-confidence`,
-      });
-    }
-    if (unsupportedCount > 0) {
-      warnings.push({
-        type: 'unsupported-extension',
-        severity: 'low',
-        files: unsupportedCount,
-        message: `${unsupportedCount} file(s) have unsupported extensions and were not parsed`,
-      });
-    }
-
-    if (this.dg._parseErrorFiles && this.dg._parseErrorFiles.size > 0) {
-      warnings.push({
-        type: 'parser-error',
-        severity: 'medium',
-        files: this.dg._parseErrorFiles.size,
-        message: `${this.dg._parseErrorFiles.size} file(s) could not be parsed due to errors and were skipped`,
-      });
-    }
-
-    if (Array.isArray(this.dg._indexWarnings) && this.dg._indexWarnings.length > 0) {
-      // FileIndex 本轮遍历的降级信号（如 depth-truncated）。与
-      // projectContext.warnings 的 config-warning 同形注入，但保留自己的
-      // type——描述的是索引完整性，不是配置问题。
-      for (const w of this.dg._indexWarnings) {
-        warnings.push(w);
-      }
-    }
+    const parseErrorCount = this.dg._parseErrorFiles ? this.dg._parseErrorFiles.size : 0;
+    ledger.replace('parser-error', parseErrorCount > 0 ? [{
+      files: parseErrorCount,
+      message: `${parseErrorCount} file(s) could not be parsed due to errors and were skipped`,
+    }] : []);
 
     const stats = this.getStats();
-    if (stats.files > 0 && stats.totalImports === 0) {
-      warnings.push({
-        type: 'empty-graph',
-        severity: 'high',
-        message: 'Dependency graph has 0 edges; findings may contain false positives',
-      });
-    }
+    ledger.replace('empty-graph', stats.files > 0 && stats.totalImports === 0 ? [{
+      message: 'Dependency graph has 0 edges; findings may contain false positives',
+    }] : []);
 
     const droppedImports = this.dg.getDroppedImports();
+    const dropped = [];
     if (droppedImports.count > 0) {
       const filesWithDrops = droppedImports.files;
       const ratio = stats.files > 0 ? filesWithDrops / stats.files : 0;
       const sampleList = droppedImports.samples.slice(0, 3).map((s) => s.specifier).join(', ');
-      warnings.push({
-        type: 'unresolved-dropped',
+      dropped.push({
         severity: ratio > 0.1 ? 'medium' : 'low',
         files: filesWithDrops,
         message: `${droppedImports.count} import(s) across ${filesWithDrops} file(s) looked local but could not be resolved and were dropped from the graph (e.g. ${sampleList})`,
       });
     }
-    if (droppedImports.uncertainCount > 0) {
-      const sampleList = droppedImports.uncertainSamples.slice(0, 3).map((s) => s.specifier).join(', ');
-      warnings.push({
-        type: 'unresolved-import-ownership',
-        severity: 'low',
-        files: droppedImports.uncertainFiles,
-        message: `${droppedImports.uncertainCount} Python import(s) could not be resolved; local or third-party ownership is unknown (e.g. ${sampleList})`,
-      });
-    }
+    ledger.replace('unresolved-dropped', dropped);
+    ledger.replace('unresolved-import-ownership', droppedImports.uncertainCount > 0 ? [{
+      files: droppedImports.uncertainFiles,
+      message: `${droppedImports.uncertainCount} Python import(s) could not be resolved; local or third-party ownership is unknown (e.g. ${droppedImports.uncertainSamples.slice(0, 3).map((s) => s.specifier).join(', ')})`,
+    }] : []);
+  }
 
-    return warnings;
+  buildWarnings() {
+    this._syncStateLedger();
+    return this.dg.ledger.warnings();
   }
 
   _scanSymbolUsageInImporters(importerPaths, symbols, sourceFilePath) {
