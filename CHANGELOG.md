@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### 技术债清零第 4 批（2026-10-05，性能与缓存清理 4 条）
+
+- **L3-17 / L3-16 / H-20（暖启动少做重复工作）** 在 Django 固定提交（2977 个文件，Windows，Node 25.6.0，`audit-overview --format ai`，缓存暖）上量到的三处重复成本，各自改掉：① 目录排除模式每个文件重新归一化，改为一个模式列表只编译一次（`compilePathFragmentMatcher`，行为不变，测试 `exclude-base-matcher-test` 对比旧实现）；② `git rev-parse HEAD` 在容器初始化和过期检查里各起一个子进程（各约 0.5 秒），改读 `.git/HEAD` 和它指向的 ref（含 packed-refs、分离 HEAD、子目录工作区），链接工作树、子模块、`GIT_DIR` 覆盖等文件布局描述不了的情形回退到 git（`src/utils/git-head.js`，测试 `git-head-test` 对每种仓库形态比对 `git rev-parse HEAD`）；③ Python 候选路径探测每个 import 做若干次 `stat`（9707 次、共 2.1 秒），改为建图批次内对工作区根下的目录各读一次目录列表，列表里没有的路径直接判不存在，列表里有的仍用 `stat` 确认；批次之外（直接调用解析器、工作区根之外）仍逐个 `stat`（测试 `resolver-exists-listing-test`）。`statSync` 9707 → 2168 次，`readdirSync` 4240 → 366 次，git 子进程 2 → 0。暖启动整条 `audit-overview` 9.8–10.1 秒 → 6.8–8.3 秒（本机 `node -e 1` 单次启动就在 0.1–1.0 秒间波动，所以给区间）；与改前同一提交的输出逐行比对，除冷启动那一次带有 `slow-run` 警告外内容一致。**L3-16 不修**：`readScanContent` 整个函数（含读文件）约 0.10 秒，`resolveCachedFilePath` 的 stat 在采样里看不到，合计约 1%，改元数据 size 省不到 0.03 秒。**L3-17 剩余**：Python 标准库名子进程约 0.35 秒（结果随解释器版本变化，内置名单不等价，保留）、死导出预计算约 1.2 秒（`audit-overview` 输出需要它），写入 TECH_DEBT 冻结区并给出重开条件。
+- **H-20（规模复测）** `node eval/verify-h20-phases.js --sizes 1000,3000,10000,30000`（生成仓库，TS 55%、Python 27%、JS 9%、Java 9%）整条 CLI 暖启动：1020 文件 8.7 秒、3060 文件 14.1 秒、10200 文件 29.4 秒、30600 文件 66.2 秒（读取合并改动前同口径 3 万文件 110 秒）；文件数 ×30 对应暖启动时间 ×16，没有超线性增长。README 规模表更新为这些数字。
+- **L3-18（废弃缓存回收）** 新增 `scripts/prune-cache.js`（`npm run cache:prune`）：读每个缓存库里记录的 `workspaceRoot`，默认只列出"所属工作区已不存在"的缓存和占用，`--apply` 才删除。判定保守：记录的根目录不存在且它所在磁盘或挂载点可访问、`cache.db.lock` 没有存活进程持有，才算废弃；读不出所属工作区、位于未挂载磁盘、被占用、目录名不是 8 位十六进制或没有 `cache.db` 的一律不动（测试 `cache-prune-test`，覆盖活跃、废弃、占用、无记录、损坏、非缓存目录、未挂载磁盘）。本机 `%LOCALAPPDATA%\workspace-bridge` 下 3860 个缓存目录里 2331 个废弃、共 201 MB（只列出，未删除）。`cacheBaseDirs()` 从 `computeDefaultCacheDir` 里拆出，供缓存位置只写一处。
+
 ### 技术债清零第 3 批（2026-10-05，测试质量 4 条）
 
 - **H-17** 删除零断言的 `tmp-path-test.js`，`analysis-coverage-test.js` 补 `@semantic`。新增 `path-honesty-boundaries-test`，锁定 `honesty-engine` 的"单文件图不降级、边/文件比恰为 0.1 不降级"、`normalizeFilePath` 无根时用 cwd、`node_modules` 不参与语言/工作区识别、Java 三种构建文件与 C++ 构建文件检测。复测：对 `path.js`、`honesty-engine.js`、`pagerank.js`、`parse-args.js` 按 `===`、`!==`、`&&`、`||`、`>=`、`<=`、`>`、`<` 均匀抽样 34 个变异体（10/10/8/6），整个快层跑，被捕获 28 个（82%）；存活 6 个：`pagerank.js` 两处（`length > 1` 去重、`delta < epsilon` 收敛）是等价变异；`path.js` 两处（Java/C++ 构建文件）和 `honesty-engine.js` 的 `files > 0` 随后由新测试杀掉或属等价；`honesty-engine.js` 的 tsconfig 两处 `&&`、`>` 被 `_readTsconfigPaths` 的返回值遮住，是冗余防御，不是缺测试。
