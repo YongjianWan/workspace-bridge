@@ -13,10 +13,11 @@ description: Use this skill when the goal is to audit a local codebase with work
 ## 默认参数
 
 ```bash
-workspace-bridge-cli <command> --cwd <project> --json --quiet
+workspace-bridge-cli <command> --cwd <project> --format ai --quiet
 ```
 
-- `--json`：结构化输出，`schemaVersion: "1.2.0"` 已冻结。
+- `--format ai`：首选，AI 预消化的摘要（通常几 KB）。需要完整结构时改用 `--json`：中型仓库单次可达 100–400 KB，超过 100 KB 时输出里带 `sizeHint`，可用 `--fields <list>` 只取需要的字段。
+- `--json`：结构化输出，`schemaVersion: "1.2.0"`；契约只增不删：已有字段不删除、不改类型，新增字段不升版本（`test/json-contract-snapshot-test.js` 对 9 个常用命令锁定字段集）。例外：`workspace-info` 不含 `staleness` 与 `warnings`。
 - `--quiet`：消除 stderr 日志污染。
 - 人类可读时用 `--format markdown`；AI 预消化时用 `--format ai`（`audit-overview` / `audit-file` / `audit-diff` / `guard` / `api-contracts` / `query-*` / `stats` / `workspace-info` / `dependencies` / `dependents` / `audit-map` / `diagnostics` / `health` / `tree` / `query` 已适配；未列出的命令走通用路径）。
 
@@ -78,7 +79,7 @@ workspace-bridge-cli <command> --cwd <project> --json --quiet
 workspace-bridge-cli workspace-info --cwd <project> --quiet
 
 # Step 2: 缓存已热，执行重命令
-workspace-bridge-cli audit-overview --cwd <project> --json --quiet
+workspace-bridge-cli audit-overview --cwd <project> --format ai --quiet
 ```
 
 若 `workspace-info` 返回 `fileCount: 0`，停止后续命令，报告"未找到可解析源文件"。

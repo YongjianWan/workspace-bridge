@@ -7,6 +7,9 @@ const { getAvailableAdapters, getAllAdapters } = require('../adapters');
 const { warningOf } = require('../services/ledger');
 const { normalizePathKey } = require('../utils/path');
 const { sanitizeForAiOutput, stripBOM } = require('../utils/sanitize');
+// A rule group with this lang applies to every scanned file type it lists, whatever --language says.
+const CROSS_LANGUAGE_GROUP = 'any';
+const COVERAGE_NOTE = 'Pattern rules only (known provider key prefixes, private key headers, connection-string credentials, secret-like variable names). No findings does not mean no secrets.';
 const SENSITIVE_RULE_ID = /secret|sensitive|credential|password|token|api[-_]?key|private[-_]?key/i;
 
 function groupBySeverity(findings) {
@@ -36,123 +39,53 @@ function dedupeWithinTool(findings) {
   return out;
 }
 
-/**
- * Allowlist dispatch table — each entry is an independent predicate.
- * New rules can add their own allowlist entries without touching the core scan loop.
- */
-const DEFAULT_RULES = [
-  { lang: 'javascript', ext: /\.(js|jsx|ts|tsx|mjs|cjs|vue|svelte)$/, rules: [
-    { id: 'js-eval', pattern: /\beval\s*\(/, severity: 'high', message: 'Use of eval() can lead to code injection' },
-    { id: 'js-innerHTML', pattern: /\.innerHTML\s*=/, severity: 'medium', message: 'Assignment to innerHTML can lead to XSS' },
-    { id: 'js-document-write', pattern: /\bdocument\.write\s*\(/, severity: 'medium', message: 'document.write() is unsafe and blocks rendering' },
-    { id: 'js-new-function', pattern: /\bnew\s+Function\s*\(/, severity: 'high', message: 'new Function() is equivalent to eval()' },
-    { id: 'js-dangerous-timeout', pattern: /\bsetTimeout\s*\(\s*['"`]/, severity: 'medium', message: 'setTimeout with string argument is like eval()' },
-    { id: 'js-dangerous-interval', pattern: /\bsetInterval\s*\(\s*['"`]/, severity: 'medium', message: 'setInterval with string argument is like eval()' },
-    { id: 'js-hardcoded-secret', pattern: /(?:password|secret|token|api_key|apikey|access_key|private_key)\s*[:=]\s*['"][^'"]{8,}['"]/i, severity: 'medium', message: 'Possible hardcoded secret — verify if placeholder or test value' },
-    { id: 'js-log-sensitive', pattern: /console\.(log|warn|error|info)\s*\([^)]*(?:password|secret|token|credential)/i, severity: 'low', message: 'Potential sensitive data in log statement' },
-  ]},
-  { lang: 'python', ext: /\.py$/, rules: [
-    { id: 'py-exec', pattern: /\bexec\s*\(/, severity: 'high', message: 'exec() can execute arbitrary code' },
-    { id: 'py-eval', pattern: /(?<!\.\s*)\beval\s*\(/, severity: 'high', message: 'eval() can execute arbitrary code' },
-    { id: 'py-shell-true', pattern: /subprocess\.\w+\(.*shell\s*=\s*True/, severity: 'high', message: 'subprocess with shell=True is vulnerable to shell injection' },
-    { id: 'py-os-system', pattern: /\bos\.system\s*\(/, severity: 'medium', message: 'os.system() is vulnerable to shell injection' },
-    { id: 'py-hardcoded-secret', pattern: /(?:password|secret|token|api_key|apikey|access_key|private_key)\s*=\s*['"][^'"]{8,}['"]/i, severity: 'medium', message: 'Possible hardcoded secret — verify if placeholder or test value' },
-    { id: 'py-log-sensitive', pattern: /(?:print|logger\.(?:debug|info|warning|error))\s*\([^)]*(?:password|secret|token|credential)/i, severity: 'low', message: 'Potential sensitive data in log statement' },
-  ]},
-  { lang: 'java', ext: /\.java$/, rules: [
-    { id: 'java-runtime-exec', pattern: /Runtime\.getRuntime\(\)\.exec\s*\(/, severity: 'medium', message: 'Runtime.exec() can be vulnerable to command injection' },
-    { id: 'java-process-builder', pattern: /new\s+ProcessBuilder\s*\(/, severity: 'low', message: 'Review ProcessBuilder for command injection risks' },
-    { id: 'java-file-upload', pattern: /MultipartFile|\.getOriginalFilename\s*\(\)|\.transferTo\s*\(/, severity: 'low', message: 'File upload detected — verify path traversal protection' },
-    { id: 'java-hardcoded-secret', pattern: /(?:password|secret|token|apiKey|accessKey|privateKey)\s*[=:]\s*["'][^"']{8,}["']/i, severity: 'medium', message: 'Possible hardcoded secret — verify if placeholder or test value' },
-    { id: 'java-log-sensitive', pattern: /(?:System\.out\.print|log\.(?:debug|info|warn|error))\s*\([^)]*(?:password|secret|token|credential)/i, severity: 'low', message: 'Potential sensitive data in log statement' },
-  ]}
-];
-
-const DEFAULT_ALLOWLIST = [
-  {
-    id: 'assert-defense',
-    ruleIdContains: ['eval', 'exec', 'innerHTML', 'new-function', 'dangerous'],
-    pattern: /\bexpect\b.*\btoThrow\b|\bexpect\b.*\bto\.throw\b|\bexpect\b.*\brejects\b|\bassert\.throws?\b|\bassert\.rejects?\b|\.unwrap_err\s*\(/i
-  },
-  {
-    id: 'test-placeholder-secrets',
-    ruleIdContains: ['hardcoded-secret'],
-    filePathPattern: /[\\/](test|spec|__tests__)[\\/]/i,
-    pattern: /(?:\b|_)(test|dummy|placeholder|example|mock|fake)(?:\b|_)/i
-  }
-];
-
+// The bundled rule file is the only built-in rule source: if it cannot be loaded or compiled the
+// scan must fail loudly, because a silent fallback would report "no findings" for a smaller rule set.
 function loadAndCompileRules(cwd, configFile = null) {
-  let loadedConfig = null;
-  let isCustom = false;
-
-  if (configFile && typeof configFile === 'string') {
-    const resolvedPath = path.resolve(cwd, configFile);
-    if (!fs.existsSync(resolvedPath)) {
-      throw new Error(`Security rules config not found: ${resolvedPath}`);
-    }
-    isCustom = true;
-    try {
-      const fileContent = fs.readFileSync(resolvedPath, 'utf8');
-      loadedConfig = JSON.parse(stripBOM(fileContent));
-    } catch (err) {
-      throw new Error(`Failed to parse custom security rules config: ${err.message}`, { cause: err });
+  const isCustom = Boolean(configFile && typeof configFile === 'string');
+  let rulesPath = path.join(__dirname, '..', 'config', 'security-rules.json');
+  if (isCustom) {
+    rulesPath = path.resolve(cwd, configFile);
+    if (!fs.existsSync(rulesPath)) {
+      throw new Error(`Security rules config not found: ${rulesPath}`);
     }
   }
+  const label = isCustom ? 'custom security rules config' : 'bundled security rules';
 
-  if (!loadedConfig) {
-    const defaultPath = path.join(__dirname, '..', 'config', 'security-rules.json');
-    if (fs.existsSync(defaultPath)) {
-      try {
-        const fileContent = fs.readFileSync(defaultPath, 'utf8');
-        loadedConfig = JSON.parse(stripBOM(fileContent));
-      } catch (err) {
-        // Fallback silently to hardcoded defaults
-      }
-    }
+  let loadedConfig;
+  try {
+    loadedConfig = JSON.parse(stripBOM(fs.readFileSync(rulesPath, 'utf8')));
+  } catch (err) {
+    throw new Error(`Failed to parse ${label}: ${err.message}`, { cause: err });
   }
 
-  if (loadedConfig) {
-    try {
-      const patterns = (loadedConfig.rules || []).map((group) => {
-        return {
-          lang: group.lang,
-          ext: new RegExp(group.ext),
-          rules: (group.rules || []).map((rule) => {
-            return {
-              id: rule.id,
-              pattern: new RegExp(rule.pattern, rule.flags || ''),
-              severity: rule.severity,
-              message: rule.message,
-              sensitive: rule.sensitive,
-            };
-          }),
-        };
-      });
+  try {
+    const patterns = (loadedConfig.rules || []).map((group) => ({
+      lang: group.lang,
+      ext: new RegExp(group.ext),
+      rules: (group.rules || []).map((rule) => ({
+        id: rule.id,
+        pattern: new RegExp(rule.pattern, rule.flags || ''),
+        severity: rule.severity,
+        message: rule.message,
+        sensitive: rule.sensitive,
+      })),
+    }));
 
-      const allowlist = (loadedConfig.allowlist || []).map((item) => {
-        return {
-          id: item.id,
-          ruleIdContains: item.ruleIdContains || [],
-          filePathPattern: item.filePathPattern ? new RegExp(item.filePathPattern, 'i') : null,
-          pattern: new RegExp(item.pattern, 'i'),
-        };
-      });
+    const allowlist = (loadedConfig.allowlist || []).map((item) => ({
+      id: item.id,
+      ruleIdContains: item.ruleIdContains || [],
+      filePathPattern: item.filePathPattern ? new RegExp(item.filePathPattern, 'i') : null,
+      pattern: new RegExp(item.pattern, 'i'),
+    }));
 
-      return { patterns, allowlist };
-    } catch (err) {
-      if (isCustom) {
-        throw new Error(`Config regex compilation failed: ${err.message}`, { cause: err });
-      }
-      console.error(`[Security Scan] Default config regex compilation failed: ${err.message}. Falling back to default rules.`);
-    }
+    return { patterns, allowlist };
+  } catch (err) {
+    throw new Error(`Config regex compilation failed (${label}): ${err.message}`, { cause: err });
   }
-
-  return { patterns: DEFAULT_RULES, allowlist: DEFAULT_ALLOWLIST };
 }
 
-function isMatchAllowlisted(ruleId, filePath, line, compiledAllowlist) {
-  const list = compiledAllowlist || DEFAULT_ALLOWLIST;
+function isMatchAllowlisted(ruleId, filePath, line, list) {
   return list.some((item) => {
     if (item.ruleIdContains && item.ruleIdContains.length > 0) {
       if (!item.ruleIdContains.some((k) => ruleId.includes(k))) return false;
@@ -193,7 +126,7 @@ async function runBuiltinSecurityScan(cwd, targets, container, options = {}) {
 
   if (language) {
     const targetLang = language.toLowerCase();
-    activePatterns = activePatterns.filter((p) => p.lang === targetLang);
+    activePatterns = activePatterns.filter((p) => p.lang === targetLang || p.lang === CROSS_LANGUAGE_GROUP);
   }
 
   const depGraph = container?.snapshot?.graph || container?.depGraph;
@@ -254,8 +187,8 @@ async function runBuiltinSecurityScan(cwd, targets, container, options = {}) {
       : isTestPath(file);
     if (isTest) continue;
 
-    const group = activePatterns.find((g) => g.ext.test(file));
-    if (!group) continue;
+    const rules = activePatterns.filter((g) => g.ext.test(file)).flatMap((g) => g.rules);
+    if (rules.length === 0) continue;
     let content;
     try {
       content = fs.readFileSync(file, 'utf8');
@@ -263,7 +196,7 @@ async function runBuiltinSecurityScan(cwd, targets, container, options = {}) {
     const lines = content.split(/\r?\n/);
     const ignorePattern = /\/\/\s*security-scan-ignore\b|\/\*\s*security-scan-ignore\b/;
     for (let i = 0; i < lines.length; i++) {
-      for (const rule of group.rules) {
+      for (const rule of rules) {
         if (rule.pattern.test(lines[i]) && !ignorePattern.test(lines[i]) && !isMatchAllowlisted(rule.id, file, lines[i], allowlist)) {
           const match = lines[i].match(rule.pattern);
           let matchedText = match ? match[0] : null;
@@ -289,7 +222,11 @@ async function runBuiltinSecurityScan(cwd, targets, container, options = {}) {
     }
   }
 
-  return { findings, summary: { total: findings.length, scanned: files.length, config: config || 'builtin', error: null } };
+  const coverage = {
+    ruleIds: activePatterns.flatMap((g) => g.rules.map((r) => r.id)),
+    note: COVERAGE_NOTE,
+  };
+  return { findings, summary: { total: findings.length, scanned: files.length, config: config || 'builtin', error: null, coverage } };
 }
 
 const { loadWorkspaceConfig } = require('../utils/project-context');

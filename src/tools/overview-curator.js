@@ -78,28 +78,28 @@ function buildOverviewSummary(
   if (deadExportRec) summary.recommendations.push(deadExportRec);
   if (hotspots.length > 0) {
     summary.recommendations.push(
-      `优先审查热区文件: ${hotspots.slice(0, SCORING.TOP_N_RECOMMENDATIONS).map((h) => h.file).join(', ')}`
+      `优先审查热区文件（见 hotspots 字段，前 ${Math.min(hotspots.length, SCORING.TOP_N_RECOMMENDATIONS)} 个，共 ${hotspots.length} 个）`
     );
   }
   if (fragileModules.length > 0) {
     summary.recommendations.push(
-      `为脆弱模块添加测试: ${fragileModules.slice(0, SCORING.TOP_N_RECOMMENDATIONS).map((s) => s.file).join(', ')}`
+      `为脆弱模块添加测试（见 stability 字段中 assessment 为 fragile 的条目，共 ${fragileModules.length} 个）`
     );
   }
   if (orphans.modules.length > 0) {
     summary.recommendations.push(
-      `审查孤儿模块是否可删除: ${orphans.modules.slice(0, SCORING.TOP_N_RECOMMENDATIONS).join(', ')}`
+      `审查孤儿模块是否可删除（见 orphans.modules 字段，共 ${orphans.modules.length} 个）`
     );
   }
 
   if (cycleRefactorSuggestions.length > 0) {
     summary.recommendations.push(
-      `先处理循环依赖: ${cycleRefactorSuggestions.slice(0, 2).map((item) => item.breakCandidate.from).join(', ')}`
+      `先处理循环依赖（见 architectureAdvice.cycleRefactorSuggestions 前 ${Math.min(cycleRefactorSuggestions.length, 2)} 项的 breakCandidate）`
     );
   }
   if (couplingSplitSuggestions.length > 0) {
     summary.recommendations.push(
-      `高耦合模块拆分优先级: ${couplingSplitSuggestions.slice(0, 2).map((item) => item.file).join(', ')}`
+      `高耦合模块拆分优先级（见 architectureAdvice.couplingSplitSuggestions 前 ${Math.min(couplingSplitSuggestions.length, 2)} 项）`
     );
   }
 
@@ -163,7 +163,7 @@ function buildCycleRefactorSuggestions(root, depGraph, projectContext) {
         reason: `优先切断低影响边（from dependents=${edge.fromDependents}, dependencies=${edge.fromDependencies}, role=${fromRole}）`,
       },
       actions: [
-        `将 ${toRelative(root, edge.from)} 对 ${toRelative(root, edge.to)} 的直接依赖改为接口/回调注入`,
+        '将 breakCandidate.from 对 breakCandidate.to 的直接依赖改为接口/回调注入',
         `把共享常量或类型下沉到独立模块，避免双向 import`,
       ],
       validation: {

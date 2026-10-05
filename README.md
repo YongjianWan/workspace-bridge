@@ -100,6 +100,11 @@ Java 与 Python 解析默认走进程内 tree-sitter WASM；如果 WASM 加载�
 - [CHANGELOG.md](./CHANGELOG.md) — 版本变更历史
 - [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md) — 完整命令契约与使用指南
 
+## 依赖与供应链
+
+- 运行依赖 7 个，`package-lock.json` 全部从 `registry.npmjs.org` 解析并带 `integrity` 哈希；CI 用 `npm ci` 按锁文件安装，并在每个矩阵作业里运行 `npm audit --omit=dev --audit-level=high`（运行依赖出现 high 及以上即失败）。
+- `tree-sitter-wasms@0.1.13`（Unlicense，仓库 `Gregoor/tree-sitter-wasms`）提供第三方预编译的 tree-sitter WASM 解析器，版本由锁文件固定；其构建过程没有逐文件复核，不可用时 CLI 按 `regex-fallback` 降级并在 `warnings[]` 里说明。
+
 ## 许可证
 
 MIT

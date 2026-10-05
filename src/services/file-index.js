@@ -12,6 +12,7 @@ const { filterGitIgnored } = require('../utils/gitignore');
 const { hashFileContent } = require('./cache');
 const { loadWorkspaceConfig } = require('../utils/project-context');
 const { EventBus } = require('../utils/event-bus');
+const { maskStringLiterals } = require('../utils/sanitize');
 const { Ledger } = require('./ledger');
 const { registry } = require('./dep-graph/parsers/registry');
 const { DEFAULTS, KNOWN_SOURCE_EXTENSIONS } = require('../config/constants');
@@ -550,7 +551,7 @@ class FileIndex {
           file: fileKey,
           line: symbol.line,
           type: symbol.type,
-          signature: symbol.signature,
+          signature: maskStringLiterals(symbol.signature),
         });
         this.cache.setSymbols(symbol.name, filtered);
       }

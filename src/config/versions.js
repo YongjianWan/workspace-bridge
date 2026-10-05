@@ -1,13 +1,83 @@
 /**
  * Schema and cache version constants.
  */
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+
 // CLI/API schema version. Increment when JSON output structure changes.
 const SCHEMA_VERSION = '1.2.0';
 
-// Cache schema version. Increment when persistent cache structure changes.
-// Both WorkspaceCache (JSON fallback) and GraphDB (SQLite) must use the same version.
-// Bump whenever persisted parse results, edges or aggregates would differ from
-// what the current code computes — an old cache is otherwise trusted silently.
-const CACHE_VERSION = 55;
+// Cache layout revision. Increment when the persistent cache *structure* changes (tables, columns,
+// key formats). A change to what the parsers/resolvers compute does not need a bump: the
+// fingerprint below covers it.
+const CACHE_SCHEMA_REVISION = 55;
 
-module.exports = { SCHEMA_VERSION, CACHE_VERSION };
+// Persisted parse results, edges and aggregates are a function of the code under
+// src/services/dep-graph (parsers, resolvers, builder, analysis) and of the tree-sitter packages.
+// Their fingerprint is part of CACHE_VERSION so an edit to that code invalidates old caches by itself,
+// instead of relying on someone remembering to bump a number.
+const FINGERPRINT_BITS = 31;
+const FINGERPRINT_SPAN = 2 ** FINGERPRINT_BITS;
+const FINGERPRINTED_EXTENSIONS = new Set(['.js', '.scm', '.json']);
+const FINGERPRINTED_PACKAGES = ['web-tree-sitter', 'tree-sitter-wasms', '@babel/parser'];
+
+function listFingerprintedFiles(dir) {
+  const files = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...listFingerprintedFiles(full));
+    else if (FINGERPRINTED_EXTENSIONS.has(path.extname(entry.name))) files.push(full);
+  }
+  return files;
+}
+
+function readManifestVersion(manifest, name) {
+  if (!fs.existsSync(manifest)) return null;
+  const pkg = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+  return pkg.name === name ? pkg.version : null;
+}
+
+// Some packages hide package.json behind an "exports" map and some have no loadable entry point,
+// so try the manifest directly and then walk up from the entry point.
+function packageVersion(name) {
+  try {
+    return require(`${name}/package.json`).version;
+  } catch {
+    // not exported: look for the manifest next to the entry point
+  }
+  try {
+    let dir = path.dirname(require.resolve(name));
+    while (dir !== path.dirname(dir)) {
+      const version = readManifestVersion(path.join(dir, 'package.json'), name);
+      if (version) return version;
+      dir = path.dirname(dir);
+    }
+  } catch {
+    // fall through: an unresolvable package is recorded as such
+  }
+  return 'unresolved';
+}
+
+/**
+ * Hash of the engine sources and tree-sitter package versions, line endings normalised so a
+ * Windows and a Linux checkout of the same commit agree. If the sources cannot be read the
+ * provenance is unknown, so the result is random: no cache written by another process is trusted.
+ */
+function computeEngineFingerprint(engineDir = path.join(__dirname, '..', 'services', 'dep-graph')) {
+  const hash = crypto.createHash('sha256');
+  try {
+    for (const file of listFingerprintedFiles(engineDir).sort()) {
+      hash.update(path.relative(engineDir, file).split(path.sep).join('/'));
+      hash.update(fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n'));
+    }
+    for (const name of FINGERPRINTED_PACKAGES) hash.update(`${name}@${packageVersion(name)}`);
+  } catch {
+    hash.update(crypto.randomBytes(16));
+  }
+  return hash.digest().readUInt32BE(0) % FINGERPRINT_SPAN;
+}
+
+const CACHE_VERSION = CACHE_SCHEMA_REVISION * FINGERPRINT_SPAN + computeEngineFingerprint();
+
+module.exports = { SCHEMA_VERSION, CACHE_VERSION, CACHE_SCHEMA_REVISION, FINGERPRINT_SPAN, computeEngineFingerprint };

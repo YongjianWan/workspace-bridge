@@ -51,6 +51,12 @@ const LIMITS = {
   OUTPUT_LONG: 10,
   OUTPUT_EXTRA_LONG: 20,
   STRING_SNIPPET_MAX_CHARS: 120,
+  // Text tree output cap: ~250 lines of <=120 characters stays near 30 KB (about 7k tokens), the size
+  // past which one command's output crowds an agent's context. --max-files raises it.
+  TREE_TEXT_MAX_LINES: 250,
+  // A --json document past this many bytes (about 25k tokens) carries a sizeHint naming the smaller
+  // alternatives, so a consumer that did not expect a large payload learns how to shrink it.
+  JSON_SIZE_HINT_BYTES: 100000,
 };
 
 module.exports = LIMITS;

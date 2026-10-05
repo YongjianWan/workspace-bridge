@@ -37,6 +37,19 @@
         { "id": "java-hardcoded-secret", "pattern": "(?:password|secret|token|apiKey|accessKey|privateKey)\\s*[=:]\\s*[\"'][^\"']{8,}[\"']", "flags": "i", "severity": "medium", "message": "Possible hardcoded secret — verify if placeholder or test value" },
         { "id": "java-log-sensitive", "pattern": "(?:System\\.out\\.print|log\\.(?:debug|info|warn|error))\\s*\\([^)]*(?:password|secret|token|credential)", "flags": "i", "severity": "low", "message": "Potential sensitive data in log statement" }
       ]
+    },
+    {
+      "lang": "any",
+      "ext": "\\.(js|jsx|ts|tsx|mjs|cjs|vue|svelte|py|java|kt|go|rs|rb|php|cs|json|ya?ml|toml|ini|cfg|conf|properties|env|sh|ps1)$",
+      "rules": [
+        { "id": "secret-stripe-live-key", "pattern": "\\b[sr]k_live_[0-9A-Za-z]{10,}", "severity": "high", "sensitive": true, "message": "Stripe live API key" },
+        { "id": "secret-aws-access-key", "pattern": "\\b(?:AKIA|ASIA)[0-9A-Z]{16}\\b", "severity": "high", "sensitive": true, "message": "AWS access key ID" },
+        { "id": "secret-github-token", "pattern": "\\bgh[pousr]_[0-9A-Za-z]{30,}", "severity": "high", "sensitive": true, "message": "GitHub token" },
+        { "id": "secret-slack-token", "pattern": "\\bxox[abprs]-[0-9A-Za-z-]{10,}", "severity": "high", "sensitive": true, "message": "Slack token" },
+        { "id": "secret-private-key-block", "pattern": "-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----", "severity": "high", "sensitive": true, "message": "Private key material" },
+        { "id": "secret-connection-string-credentials", "pattern": "\\b[a-z][a-z0-9+.-]*://[^\\s:/@'\"`]+:[^\\s@'\"`/]+@", "flags": "i", "severity": "high", "sensitive": true, "message": "Credentials embedded in a connection string" },
+        { "id": "secret-short-password-name", "pattern": "\\b(?:pw|pwd|passwd|passphrase)\\s*[:=]\\s*['\"][^'\"]{8,}['\"]", "flags": "i", "severity": "medium", "sensitive": true, "message": "Possible hardcoded password — verify if placeholder or test value" }
+      ]
     }
   ],
   "allowlist": [

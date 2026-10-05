@@ -50,7 +50,19 @@ function stripBOM(str) {
   return str.charCodeAt(0) === 0xFEFF ? str.slice(1) : str;
 }
 
+const STRING_LITERAL = /(["'`])(?:\\.|(?!\1)[^\\])*\1/g;
+
+/**
+ * Replace the contents of every string literal with an ellipsis. Used before source text is
+ * persisted (cache) so a declaration line such as `const pw = "..."` cannot leave a secret on disk.
+ */
+function maskStringLiterals(text) {
+  if (typeof text !== 'string') return text;
+  return text.replace(STRING_LITERAL, '$1…$1');
+}
+
 module.exports = {
+  maskStringLiterals,
   sanitizeShellArg,
   sanitizeSymbolName,
   sanitizeForAiOutput,

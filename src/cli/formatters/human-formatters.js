@@ -142,6 +142,38 @@ function buildSecurityLines(result, style, options = {}) {
 // ---------------------------------------------------------------------------
 // FORMATTER REGISTRY — command × style lookup table
 // ---------------------------------------------------------------------------
+/**
+ * Render a dependency tree as indented lines. A file reachable through several paths is expanded
+ * once per direction; later occurrences say "(see above)" instead of repeating its subtree, so the
+ * output grows with the number of files rather than the number of paths.
+ * @param {object} root
+ * Output past `maxLines` is cut with a line saying how to see more.
+ * @param {string} bullet - text before the arrow ('' for plain, '- ' for markdown lists)
+ * @param {number} maxLines
+ */
+function renderDependencyTree(root, bullet, maxLines) {
+  const lines = [];
+  const expanded = { imports: new Set(), dependents: new Set() };
+  function walk(node, indent) {
+    for (const [direction, arrow] of [['imports', '→'], ['dependents', '←']]) {
+      for (const child of node[direction] || []) {
+        const circular = child.circular ? ' [circular]' : '';
+        const tag = direction === 'imports' && child.external ? ' [external]' : circular;
+        const hasChildren = Boolean(child.imports || child.dependents);
+        const seen = hasChildren && expanded[direction].has(child.file);
+        lines.push(`${indent}${bullet}${arrow} ${child.file}${tag}${seen ? ' (see above)' : ''}`);
+        if (hasChildren && !seen) {
+          expanded[direction].add(child.file);
+          walk(child, indent + '  ');
+        }
+      }
+    }
+  }
+  walk(root, '');
+  if (lines.length <= maxLines) return lines;
+  return [...lines.slice(0, maxLines), `... ${lines.length - maxLines} more lines not shown; narrow with --max-depth or raise the cap with --max-files <n> (or use --format ai / --json)`];
+}
+
 const FORMATTERS = {
   'audit-summary': {
     human: (r, _options = {}) => formatAuditSummary(r, 'human', _options),
@@ -1033,23 +1065,7 @@ const FORMATTERS = {
   'tree': {
     human: (r, _options = {}) => {
       const lines = [`file: ${r.file}`];
-      function render(node, prefix = '') {
-        if (node.imports) {
-          for (const imp of node.imports) {
-            const tag = imp.external ? ' [external]' : (imp.circular ? ' [circular]' : '');
-            lines.push(`${prefix}→ ${imp.file}${tag}`);
-            if (imp.imports || imp.dependents) render(imp, prefix + '  ');
-          }
-        }
-        if (node.dependents) {
-          for (const dep of node.dependents) {
-            const tag = dep.circular ? ' [circular]' : '';
-            lines.push(`${prefix}← ${dep.file}${tag}`);
-            if (dep.imports || dep.dependents) render(dep, prefix + '  ');
-          }
-        }
-      }
-      if (r.tree) render(r.tree);
+      if (r.tree) lines.push(...renderDependencyTree(r.tree, '', resolveOutputLimit(LIMITS.TREE_TEXT_MAX_LINES, _options)));
       return lines.join('\n');
     },
     summary: (r, _options = {}) => {
@@ -1060,23 +1076,7 @@ const FORMATTERS = {
     },
     markdown: (r, _options = {}) => {
       const lines = [`# Dependency Tree: ${r.file}`, ``];
-      function render(node, prefix = '') {
-        if (node.imports) {
-          for (const imp of node.imports) {
-            const tag = imp.external ? ' [external]' : (imp.circular ? ' [circular]' : '');
-            lines.push(`${prefix}- → ${imp.file}${tag}`);
-            if (imp.imports || imp.dependents) render(imp, prefix + '  ');
-          }
-        }
-        if (node.dependents) {
-          for (const dep of node.dependents) {
-            const tag = dep.circular ? ' [circular]' : '';
-            lines.push(`${prefix}- ← ${dep.file}${tag}`);
-            if (dep.imports || dep.dependents) render(dep, prefix + '  ');
-          }
-        }
-      }
-      if (r.tree) render(r.tree);
+      if (r.tree) lines.push(...renderDependencyTree(r.tree, '- ', resolveOutputLimit(LIMITS.TREE_TEXT_MAX_LINES, _options)));
       return lines.join('\n');
     },
     jsonl: (r) => JSON.stringify({ _type: 'tree', ...r }),

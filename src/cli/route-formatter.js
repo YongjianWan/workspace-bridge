@@ -10,10 +10,11 @@ const {
   formatJsonl,
   formatAi,
 } = require('./formatters');
-const { STREAMING, SCHEMA_VERSION, EXIT_CODES, DEFAULTS } = require('../config/constants');
+const { STREAMING, SCHEMA_VERSION, EXIT_CODES, DEFAULTS, LIMITS } = require('../config/constants');
 const { elideDeep } = require('../utils/truncate');
 const { warningOf } = require('../services/ledger');
 const { buildCliError } = require('./error-envelope');
+const { sanitizeRepositoryText, attachMarker } = require('./untrusted-text');
 
 const COMMAND_ARRAY_LIMITS = { 'affected-tests': DEFAULTS.AFFECTED_TESTS_COMMAND_MAX_ITEMS };
 
@@ -104,6 +105,7 @@ function formatCliResult(parsed, result, meta = {}) {
     parsed.format === 'jsonl' ||
     parsed.format === 'json';
 
+  let marker = null;
   if (result && typeof result === 'object' && result.ok !== false) {
     if (isStructuredOutput) {
       applyFieldsFilter(result, parsed.fields);
@@ -112,6 +114,7 @@ function formatCliResult(parsed, result, meta = {}) {
       appendWarning(result, '--fields reduced AI digest input; counts and topRisks may be incomplete');
     }
     maybeWarnIgnoredOptions(parsed, result);
+    ({ result, marker } = sanitizeRepositoryText(result));
   }
 
   let stdout;
@@ -148,16 +151,23 @@ function formatCliResult(parsed, result, meta = {}) {
         output.truncated = true;
       }
       output.schemaVersion = schemaVersion;
+      if (marker && marker.fields.length > 0) output.untrusted = marker;
       if (parsed.command) {
         output.command = parsed.command;
       }
     }
     stdout = JSON.stringify(output, null, 2);
+    if (output && typeof output === 'object' && stdout.length > LIMITS.JSON_SIZE_HINT_BYTES) {
+      output.sizeHint = `This output is ${Math.round(stdout.length / 1024)} KB (about ${Math.round(stdout.length / 4000)}k tokens). Use --format ai for a digest, or --fields <list> to keep only the fields you need.`;
+      stdout = JSON.stringify(output, null, 2);
+    }
   } else {
     // Default and explicit --format markdown
     stdout = formatMarkdown(parsed.command, result, textOptions);
   }
-  return stdout;
+  const textFormat = parsed.format === 'ai' || parsed.format === 'jsonl' ? parsed.format
+    : (parsed.format === 'summary' || parsed.format === 'human' || parsed.format === 'json' || parsed.json ? null : 'markdown');
+  return marker && textFormat ? attachMarker(stdout, textFormat, marker) : stdout;
 }
 
 /**

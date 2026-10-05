@@ -111,7 +111,7 @@ async function testQueryCommandsE2E() {
     assert.ok(hsMarkdown.includes('| src/index.js | 95.50 |'));
 
     const hsJsonl = await runCliInProcessText(['query-hotspots', '--cwd', tempRoot, '--format', 'jsonl']);
-    const hsJsonlLines = hsJsonl.trim().split('\n');
+    const hsJsonlLines = hsJsonl.trim().split('\n').filter((line) => JSON.parse(line)._type !== 'untrusted');
     assert.strictEqual(hsJsonlLines.length, 3);
     const hsJsonlFirst = JSON.parse(hsJsonlLines[0]);
     assert.strictEqual(hsJsonlFirst._type, 'summary');
@@ -165,7 +165,7 @@ async function testQueryCommandsE2E() {
     assert.ok(krMarkdown.includes('# Query Knowledge Risk'));
 
     const krJsonl = await runCliInProcessText(['query-knowledge-risk', '--cwd', tempRoot, '--level', 'high', '--format', 'jsonl']);
-    const krJsonlLines = krJsonl.trim().split('\n');
+    const krJsonlLines = krJsonl.trim().split('\n').filter((line) => JSON.parse(line)._type !== 'untrusted');
     assert.strictEqual(krJsonlLines.length, 2);
     const krJsonlFirst = JSON.parse(krJsonlLines[0]);
     assert.strictEqual(krJsonlFirst._type, 'summary');
@@ -208,7 +208,7 @@ async function testQueryCommandsE2E() {
     assert.ok(stMarkdown.includes('# Query Stability'));
 
     const stJsonl = await runCliInProcessText(['query-stability', '--cwd', tempRoot, '--format', 'jsonl']);
-    const stJsonlLines = stJsonl.trim().split('\n');
+    const stJsonlLines = stJsonl.trim().split('\n').filter((line) => JSON.parse(line)._type !== 'untrusted');
     assert.strictEqual(stJsonlLines.length, 3);
     const stJsonlFirst = JSON.parse(stJsonlLines[0]);
     assert.strictEqual(stJsonlFirst._type, 'summary');
