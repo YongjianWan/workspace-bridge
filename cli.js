@@ -21,10 +21,11 @@ const { stripBOM } = require('./src/utils/sanitize');
 
 const { ServiceContainer } = require('./src/services/container');
 const { findWorkspaceRoot, normalizePath } = require('./src/utils/path');
-const { TIMEOUTS, SCHEMA_VERSION } = require('./src/config/constants');
+const { TIMEOUTS, SCHEMA_VERSION, EXIT_CODES } = require('./src/config/constants');
 const { COMMANDS, SELF_MANAGED_COMMANDS, SELF_CONTAINER_COMMANDS } = require('./src/cli/commands');
-const { validateCwd } = require('./src/cli/commands/_utils');
-const { parseCliArgs, sanitizeCliPaths } = require('./src/cli/validate-args');
+const { checkCwd } = require('./src/cli/commands/_utils');
+const { parseCliArgs, sanitizeCliPaths, classifyError } = require('./src/cli/validate-args');
+const { buildCliError, wantsJson, guessCommand } = require('./src/cli/error-envelope');
 const { determineExitCode, formatCliResult, buildErrorResponse } = require('./src/cli/route-formatter');
 const { installFatalHandlers } = require('./src/cli/bootstrap');
 const { workspaceInfo } = require('./src/tools/workspace-tools');
@@ -212,21 +213,23 @@ async function runCommand(parsed, container) {
  * Note: self-managed commands (init, watch, audit-file --watch) are handled
  * by main() directly. Do not call this function with those commands.
  */
+/**
+ * Argument parsing failed, so there is no `parsed` yet: decide JSON vs text from the raw argv.
+ * Text keeps the bare message (the usage hint follows in main()); JSON carries the full envelope.
+ */
+function parseFailureResponse(args, err) {
+  const status = err.code === 'VALIDATION_ERROR' ? EXIT_CODES.FINDINGS : EXIT_CODES.CLI_ERROR;
+  if (!wantsJson(args)) return { status, stdout: '', stderr: err.message };
+  const { type, suggestion } = classifyError(err);
+  return buildCliError({ json: true, type, message: err.message || String(err), suggestion, status, command: guessCommand(args) });
+}
+
 async function runCliInProcess(args, opts = {}) {
   let parsed;
   try {
     parsed = parseCliArgs(['node', 'cli.js', ...args]);
   } catch (err) {
-    const isJsonRequested = args.includes('--json') ||
-                            args.includes('--format=json') ||
-                            (args.indexOf('--format') >= 0 && args[args.indexOf('--format') + 1] === 'json') ||
-                            ['1', 'true', 'yes', 'on'].includes(String(process.env.WB_JSON).toLowerCase()) ||
-                            String(process.env.WB_FORMAT).toLowerCase() === 'json';
-    if (isJsonRequested) {
-      const stdout = JSON.stringify({ ok: false, error: err.message || String(err), schemaVersion: SCHEMA_VERSION });
-      return { status: err.code === 'VALIDATION_ERROR' ? 1 : 2, stdout, stderr: '' };
-    }
-    return { status: err.code === 'VALIDATION_ERROR' ? 1 : 2, stdout: '', stderr: err.message };
+    return parseFailureResponse(args, err);
   }
 
   if (parsed.version) {
@@ -313,24 +316,27 @@ async function runCliInProcess(args, opts = {}) {
   // Guard: self-managed commands must be handled by main() to preserve their own exit codes
   const isSelfManaged = SELF_MANAGED_COMMANDS.has(parsed.command) || (parsed.command === 'audit-file' && parsed.watch);
   if (isSelfManaged) {
-    return { status: 2, stdout: '', stderr: `In-process runner does not support self-managed command: ${parsed.command}. Use spawn-based runner instead.` };
+    return buildCliError({
+      json: parsed.json, command: parsed.command, type: 'unexpected_error', status: EXIT_CODES.CLI_ERROR,
+      message: `In-process runner does not support self-managed command: ${parsed.command}`,
+      suggestion: 'Run this command through the spawn-based runner (node cli.js ...).',
+    });
   }
 
-  const invalidCwd = validateCwd(parsed);
+  const invalidCwd = checkCwd(parsed);
   if (invalidCwd) {
-    return { status: 1, stdout: '', stderr: invalidCwd.error };
+    return buildCliError({
+      json: parsed.json, command: parsed.command, type: 'path_error', status: EXIT_CODES.FINDINGS,
+      message: invalidCwd.error, suggestion: invalidCwd.suggestion,
+    });
   }
 
   const invalidPaths = sanitizeCliPaths(parsed);
   if (invalidPaths) {
-    let stdout = '';
-    let stderr = '';
-    if (parsed.json) {
-      stdout = JSON.stringify({ ok: false, error: invalidPaths.error, schemaVersion: SCHEMA_VERSION });
-    } else {
-      stderr = `[path_error] ${invalidPaths.error}\n→ Check if --cwd or --file paths exist and are accessible.`;
-    }
-    return { status: 1, stdout, stderr };
+    return buildCliError({
+      json: parsed.json, command: parsed.command, type: 'path_error', status: EXIT_CODES.FINDINGS,
+      message: invalidPaths.error, suggestion: invalidPaths.suggestion,
+    });
   }
 
   if (!parsed.cacheDir) {
@@ -390,7 +396,7 @@ async function runCliInProcess(args, opts = {}) {
     const status = determineExitCode(parsed.command, result, parsed.failOnFindings);
     return { status, stdout, stderr: '' };
   } catch (err) {
-    return buildErrorResponse(parsed, err, SCHEMA_VERSION);
+    return buildErrorResponse(parsed, err);
   } finally {
     if (shouldInit) await container.shutdown();
   }
@@ -401,19 +407,16 @@ async function main() {
   try {
     parsed = parseCliArgs(process.argv);
   } catch (err) {
-    const args = process.argv;
-    const isJsonRequested = args.includes('--json') ||
-                            args.includes('--format=json') ||
-                            (args.indexOf('--format') >= 0 && args[args.indexOf('--format') + 1] === 'json');
-    if (isJsonRequested) {
-      console.log(JSON.stringify({ ok: false, error: err.message || String(err), schemaVersion: SCHEMA_VERSION }));
+    const response = parseFailureResponse(process.argv.slice(2), err);
+    if (response.stdout) {
+      console.log(response.stdout);
     } else {
-      console.error(err.message);
+      console.error(response.stderr);
       if (err.code !== 'VALIDATION_ERROR') {
         printUsage();
       }
     }
-    process.exit(err.code === 'VALIDATION_ERROR' ? 1 : 2);
+    process.exit(response.status);
   }
 
   if (parsed.version) {

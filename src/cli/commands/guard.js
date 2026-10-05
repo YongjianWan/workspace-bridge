@@ -23,7 +23,7 @@ async function guardCmd(parsed, container) {
     }
     files.push(...changed.changedFiles);
   } else {
-    return { ok: false, error: 'Target file(s) must be specified via --file, --files, or --staged', hasFindings: false };
+    return { ok: false, error: 'Target file(s) must be specified via --file, --files, or --staged', suggestion: '--file takes one path, --files a comma-separated list, --staged every staged file in git.', hasFindings: false };
   }
 
   const maxDependentsLimit = parsed.maxDependents ?? 50;

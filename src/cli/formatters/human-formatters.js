@@ -1775,9 +1775,18 @@ function appendWarnings(lines, warnings, limit = LIMITS.OUTPUT_MEDIUM) {
 // ---------------------------------------------------------------------------
 // Dispatch functions — pure registry lookup, zero switch-case
 // ---------------------------------------------------------------------------
+// A failed result may say what to do next; every format shows it next to the error.
+function suggestionLine(result) {
+  return result?.suggestion ? `\n→ ${result.suggestion}` : '';
+}
+
+function suggestionField(result) {
+  return result?.suggestion ? { suggestion: result.suggestion } : {};
+}
+
 function formatHuman(command, result, options = {}) {
   if (!result || result.ok === false) {
-    return `Error: ${result?.error || 'Command failed'}`;
+    return `Error: ${result?.error || 'Command failed'}${suggestionLine(result)}`;
   }
   const fn = FORMATTERS[command]?.human;
   if (fn) return fn(result, options);
@@ -1786,7 +1795,7 @@ function formatHuman(command, result, options = {}) {
 
 function formatSummary(command, result, options = {}) {
   if (!result || result.ok === false) {
-    return `Error: ${result?.error || 'Command failed'}`;
+    return `Error: ${result?.error || 'Command failed'}${suggestionLine(result)}`;
   }
   const fn = FORMATTERS[command]?.summary;
   if (fn) return fn(result, options);
@@ -1795,7 +1804,7 @@ function formatSummary(command, result, options = {}) {
 
 function formatMarkdown(command, result, options = {}) {
   if (!result || result.ok === false) {
-    return `## Error\n\n${result?.error || 'Command failed'}`;
+    return `## Error\n\n${result?.error || 'Command failed'}${suggestionLine(result)}`;
   }
   const fn = FORMATTERS[command]?.markdown;
   if (fn) return fn(result, options);
@@ -1804,7 +1813,7 @@ function formatMarkdown(command, result, options = {}) {
 
 function formatJsonl(command, result) {
   if (!result || result.ok === false) {
-    return JSON.stringify({ _type: 'error', error: result?.error || 'Command failed' });
+    return JSON.stringify({ _type: 'error', error: result?.error || 'Command failed', ...suggestionField(result) });
   }
   const fn = FORMATTERS[command]?.jsonl;
   if (fn) return fn(result);
@@ -1840,7 +1849,7 @@ function collectDigestElisions(output, counts, result) {
 
 function formatAi(command, result, options = {}) {
   if (!result || result.ok === false) {
-    return JSON.stringify({ ok: false, error: result?.error || 'Command failed' });
+    return JSON.stringify({ ok: false, error: result?.error || 'Command failed', ...suggestionField(result) });
   }
 
   const depth = options.depth || 'detail';

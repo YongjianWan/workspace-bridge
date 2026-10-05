@@ -8,7 +8,7 @@ async function auditFileCmd(parsed, container) {
   if (container) {
     const filePath = resolveWorkspaceFilePath(parsed.file, container.workspaceRoot);
     if (!filePath || !fs.existsSync(filePath)) {
-      return { ok: false, error: `File not found: ${parsed.file}`, inProject: false, hasFindings: false };
+      return { ok: false, error: `File not found: ${parsed.file}`, suggestion: '--file is resolved relative to --cwd; check the path, or pass --cwd for the workspace that contains it.', inProject: false, hasFindings: false };
     }
     if (fs.statSync(filePath).isDirectory()) {
       return { ok: false, error: `Path is a directory, not a file: ${parsed.file}`, inProject: true, hasFindings: false };

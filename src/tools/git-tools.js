@@ -14,15 +14,23 @@ function parseIsoDate(value) {
   return date && !Number.isNaN(date.getTime()) ? date : null;
 }
 
+const BAD_REVISION_RE = /ambiguous argument|unknown revision|bad revision/i;
+
 function cleanGitError(stderr, fallback) {
   if (!stderr) return fallback;
-  if (/ambiguous argument|unknown revision|bad revision/i.test(stderr)) {
+  if (BAD_REVISION_RE.test(stderr)) {
     return 'Invalid git commit range or revision';
   }
   if (/not a git repository/i.test(stderr)) {
     return 'Not a git repository';
   }
   return fallback;
+}
+
+/** The next step when git could not resolve the revision the caller passed (empty for other failures). */
+function revisionSuggestion(stderr, value) {
+  if (!BAD_REVISION_RE.test(stderr || '')) return {};
+  return { suggestion: `Git could not resolve "${value}"; use a range such as HEAD~9..HEAD, or a branch, tag or commit that exists in this repository.` };
 }
 
 function diffDays(from, to) {
@@ -188,7 +196,7 @@ async function getChangedFiles(root, options = {}) {
   if (commits) {
     const result = await runGit(['diff', '--name-only', commits], root, TIMEOUTS.GIT_LONG_MS);
     if (!result.ok) {
-      return { ok: false, error: cleanGitError(result.stderr, `Failed to read git diff for ${commits}`), workspaceRoot: root };
+      return { ok: false, error: cleanGitError(result.stderr, `Failed to read git diff for ${commits}`), ...revisionSuggestion(result.stderr, commits), workspaceRoot: root };
     }
     const files = new Set();
     for (const line of (result.stdout || '').split(/\r?\n/)) {
@@ -213,7 +221,7 @@ async function getChangedFiles(root, options = {}) {
   if (since) {
     const result = await runGit(['diff', '--name-only', `${since}...HEAD`], root, TIMEOUTS.GIT_LONG_MS);
     if (!result.ok) {
-      return { ok: false, error: cleanGitError(result.stderr, `Failed to read git diff since ${since}`), workspaceRoot: root };
+      return { ok: false, error: cleanGitError(result.stderr, `Failed to read git diff since ${since}`), ...revisionSuggestion(result.stderr, since), workspaceRoot: root };
     }
     const files = new Set();
     for (const line of (result.stdout || '').split(/\r?\n/)) {

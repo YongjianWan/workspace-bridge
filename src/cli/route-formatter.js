@@ -13,6 +13,7 @@ const {
 const { STREAMING, SCHEMA_VERSION, EXIT_CODES, DEFAULTS } = require('../config/constants');
 const { elideDeep } = require('../utils/truncate');
 const { warningOf } = require('../services/ledger');
+const { buildCliError } = require('./error-envelope');
 
 const COMMAND_ARRAY_LIMITS = { 'affected-tests': DEFAULTS.AFFECTED_TESTS_COMMAND_MAX_ITEMS };
 
@@ -163,23 +164,18 @@ function formatCliResult(parsed, result, meta = {}) {
  * Build a CLI error response object.
  * @param {object} parsed
  * @param {Error} err
- * @param {string} [schemaVersion]
  * @returns {{status: number, stdout: string, stderr: string}}
  */
-function buildErrorResponse(parsed, err, schemaVersion = SCHEMA_VERSION) {
+function buildErrorResponse(parsed, err) {
   const { classifyError } = require('./validate-args');
   const classified = classifyError(err);
-  let stdout = '';
-  let stderr = '';
-  if (parsed.json) {
-    stdout = JSON.stringify({ ok: false, error: err.message || String(err), schemaVersion });
-  } else {
-    stderr = `[${classified.type}] ${err.message || String(err)}\n→ ${classified.suggestion}`;
-  }
   const status = (classified.type === 'config_error' || classified.type === 'validation_error')
     ? EXIT_CODES.FINDINGS
     : EXIT_CODES.CLI_ERROR;
-  return { status, stdout, stderr };
+  return buildCliError({
+    json: parsed.json, command: parsed.command, type: classified.type,
+    message: err.message || String(err), suggestion: classified.suggestion, status,
+  });
 }
 
 module.exports = {

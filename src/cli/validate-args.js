@@ -528,13 +528,16 @@ function parseCliArgs(argv) {
   };
 }
 
+const PATH_ESCAPE_SUGGESTION = 'Pass a path inside the workspace, relative to --cwd (for example src/index.js).';
+const SERVICE_DIR_SUGGESTION = 'Pass --service as an existing directory inside the workspace.';
+
 function sanitizeCliPaths(parsed) {
   const root = path.resolve(parsed.cwd || process.cwd());
 
   if (parsed.file) {
     const safe = resolveWorkspaceFilePath(parsed.file, root);
     if (!safe) {
-      return { ok: false, error: `Invalid --file path: path traversal or escape detected: ${parsed.file}` };
+      return { ok: false, error: `Invalid --file path: path traversal or escape detected: ${parsed.file}`, suggestion: PATH_ESCAPE_SUGGESTION };
     }
     parsed._rawFile = parsed.file;
     parsed.file = safe;
@@ -546,7 +549,7 @@ function sanitizeCliPaths(parsed) {
     for (const part of parts) {
       const safe = resolveWorkspaceFilePath(part, root);
       if (!safe) {
-        return { ok: false, error: `Invalid --files path: path traversal or escape detected: ${part}` };
+        return { ok: false, error: `Invalid --files path: path traversal or escape detected: ${part}`, suggestion: PATH_ESCAPE_SUGGESTION };
       }
       safeParts.push(safe);
     }
@@ -556,14 +559,14 @@ function sanitizeCliPaths(parsed) {
   if (parsed.service) {
     const safe = resolveWorkspaceFilePath(parsed.service, root);
     if (!safe) {
-      return { ok: false, error: `Invalid --service path: path traversal or escape detected: ${parsed.service}` };
+      return { ok: false, error: `Invalid --service path: path traversal or escape detected: ${parsed.service}`, suggestion: PATH_ESCAPE_SUGGESTION };
     }
     try {
       if (!fs.statSync(safe).isDirectory()) {
-        return { ok: false, error: `Invalid --service path: not a directory: ${parsed.service}` };
+        return { ok: false, error: `Invalid --service path: not a directory: ${parsed.service}`, suggestion: SERVICE_DIR_SUGGESTION };
       }
     } catch (err) {
-      return { ok: false, error: `Invalid --service path: does not exist or inaccessible: ${parsed.service}` };
+      return { ok: false, error: `Invalid --service path: does not exist or inaccessible: ${parsed.service}`, suggestion: SERVICE_DIR_SUGGESTION };
     }
     parsed.service = toRelativePosix(root, safe);
   }

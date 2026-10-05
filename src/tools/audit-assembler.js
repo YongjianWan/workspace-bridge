@@ -394,7 +394,7 @@ async function assembleDiff(parsed, container) {
 async function assembleFile(parsed, container) {
   const resolvedPath = resolveWorkspaceFilePath(parsed.file, container.workspaceRoot);
   if (!resolvedPath || !fs.existsSync(resolvedPath)) {
-    return { ok: false, error: `File not found: ${parsed.file}`, inProject: false, hasFindings: false };
+    return { ok: false, error: `File not found: ${parsed.file}`, suggestion: '--file is resolved relative to --cwd; check the path, or pass --cwd for the workspace that contains it.', inProject: false, hasFindings: false };
   }
   // --max-depth 是 affected-tests 遍历深度的唯一控制；--depth 只做输出塑形
   // （--format ai 深度 / 文本截断级别），不允许静默改变分析结果（L1-4）。
