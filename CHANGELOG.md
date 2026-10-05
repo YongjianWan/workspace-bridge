@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### 开发计划重写与 CI 矩阵调整（2026-10-06）
+
+- ROADMAP.md 重写为可公开、可交接执行的开发计划：现状评估、三个阶段（测量、补缺口、真人真用）的任务与验收、回放口径 v1、执行规则、冻结区与决策记录。私有目标仓库只以代号 J1、F1、P1 出现。
+- AGENTS.md 开工红线新增三条：单会话改代码（持有人登记在 SESSION.md）、实施与验收分离、范围以 ROADMAP 当前阶段为准。
+- `.github/workflows/test.yml` 移除 macOS 作业（项目所有者决定，ROADMAP 小修 S3）；macOS 不在合并必需检查中，分支保护未改。
+- 清理测试残留缓存（ROADMAP 小修 S5）：`node scripts/prune-cache.js --apply` 删除 2,787 个所属工作区已不存在的缓存，另删除 1,748 个没有记录所属工作区、且记录的文件路径已不存在的缓存和约 2,400 个空目录；用户缓存目录从 405 MB、9,860 个目录降到 34 MB、232 个目录。
+
 ### H-33：改工具层代码后不再重放旧分析快照（2026-10-06）
 
 - `analysis_snapshots` 每行只校验 `CACHE_VERSION`，其指纹只覆盖 `src/services/dep-graph/`；改 `src/tools/` 生成 overview 的代码后，旧快照仍被 `audit-overview` 重放（输出带 `replayedFrom`，没有新字段）。新增 `SNAPSHOT_VERSION`（`src/config/versions.js`），指纹覆盖 `src/` 下除 `cli/` 以外的全部源码，快照写入与读取都用它；解析结果缓存仍用只含引擎的 `CACHE_VERSION`，改工具层不会丢解析成果。

@@ -97,7 +97,7 @@ Java 与 Python 解析默认走进程内 tree-sitter WASM；如果 WASM 加载�
 ## 相关文档
 
 - [AGENTS.md](./AGENTS.md) — 开发原则、架构决策、当前状态
-- [ROADMAP.md](./ROADMAP.md) — 长期路线与未竟事项
+- [ROADMAP.md](./ROADMAP.md) — 开发计划：现状评估、分阶段任务与验收
 - [CHANGELOG.md](./CHANGELOG.md) — 版本变更历史
 - [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md) — 完整命令契约与使用指南
 
