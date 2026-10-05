@@ -7,14 +7,13 @@
 - Windows 本机 Node 25.6.0（2026-10-05）：快测 210/210、lint 退出码 0；全量 327/327、0 失败、退出码 0（约 19.2 分钟）。wb-repro 27/27、退出码 0。平台结果分别记录，不能外推。
 - 缓存契约：CACHE_VERSION=54，schemaVersion=1.2.0；parse_results 仍只保存纯解析输出。索引不完整时覆盖率为 null，消费者必须保留 warnings 与 degraded 状态。
 - 缓存损坏隔离优先重命名；Windows 的 EBADF 路径退回独占备份后删除。备份失败时保留原文件并显式告警，不能吞掉读写失败。不要据此关闭尚未具备真实条件的环境项。
-- WSL Ubuntu 24.04/ext4、Node 22.13.0：全量 321/321、0 失败、退出码 0；lint 退出码 0。GitHub Actions 的 ubuntu/windows 矩阵与慢层已连续 3 次全绿；macOS/Docker 重验与合并门禁见 H-18。
+- WSL Ubuntu 24.04/ext4、Node 22.13.0：全量 321/321、0 失败、退出码 0；lint 退出码 0。GitHub Actions 的 ubuntu/windows 矩阵与慢层已连续 3 次全绿，macOS 快层通过；Docker（node:22、Linux 容器）全量 327/327；`main` 已设合并门禁。
 - affected-tests 真值基线 TP 3045、FP 2512、FN 29；评测方法见 eval/README.md，不能把冻结 probe 外推为全语料准确率。
 - U-15/U-30 仍需深信服隔离、真实同步盘与域策略条件；当前无这些条件，保留待核。深信服 aES 为公司管理，保持运行；不要求卸载。
 - 重点开放问题：H-28（watch 测试顺序）、H-29（Windows 外部工具探测）、H-32 与 L2-45、L3-18（缓存回收）；证据和验收线以 TECH_DEBT 为准。
 
 ## 下一步
 
-1. CI 在 ubuntu/windows 上已连续 3 次全绿；剩 macOS/Docker 重验与合并门禁，见 H-18。
 2. 第 3、4 步已完成；第 5 步台账的警告部分已完成（约 22 个原因码，提交 8e0cc92）；错误信封已完成（CLI 层 f10ab7c，工具层失败结果见 CHANGELOG），H-15 只剩 REPL 错误形状；下一步：macOS/Docker 重验（H-18）、H-20、H-7；H-20 剩 3000 文件 17.4 秒（验收 15 秒） 大仓分段取证，再迁移统一分析记录与错误信封。H-11 等其余开放项以 TECH_DEBT 为准。
 3. H-24、L1-19：核验 gitignore 子目录根判定与 submodule 的 git check-ignore 异常。
 4. L2-41：补生成客户端代码的 api-contracts 匹配；不要把取证脚本退出 0 当作业务验收。

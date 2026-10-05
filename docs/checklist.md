@@ -35,7 +35,7 @@
 
 | 检查面 | 怎么验证 | 通过条件 |
 |---|---|---|
-| 基线数字（已知：H-18、U-27） | 运行 `node cli.js audit-overview --cwd . --json --quiet`、`node test/wb-repro.js cli.js`、`npm run test:fast`；对照 AGENTS.md「当前核验」与 README 里的数字 | 文档数字与实跑一致，且标明平台 |
+| 基线数字（已知：U-27） | 运行 `node cli.js audit-overview --cwd . --json --quiet`、`node test/wb-repro.js cli.js`、`npm run test:fast`；对照 AGENTS.md「当前核验」与 README 里的数字 | 文档数字与实跑一致，且标明平台 |
 | 文档互不矛盾（已知：H-5、H-16、U-27） | 用只读单个文件的干净 agent 逐份冷读 README、SKILL.md、AGENTS.md，列出矛盾与读不懂处 | 矛盾清单为空 |
 | 文档只存当前 | 逐份检查 AGENTS、SESSION、TECH_DEBT：无历史流水、无已修复项 ※ | 活跃文档里没有已完成条目 |
 | 文档命令可运行 | 把 README 与 SKILL.md 里的命令逐条在本仓和固定评测仓库上执行 ※ | 每条命令退出码与描述一致 |
@@ -140,8 +140,8 @@
 
 | 检查面 | 怎么验证 | 通过条件 |
 |---|---|---|
-| CI 状态（已知：H-18） | `gh run list --workflow Test` 与 `--workflow "Test (slow layer)"` | 两条在 ubuntu 与 windows 上全绿并保持 |
-| 平台基线（已知：H-18） | 在 Windows 与 Linux（含 WSL）各跑快层与慢层 | AGENTS.md 按平台分别记基线 |
+| CI 状态 | `gh run list --workflow Test` 与 `--workflow "Test (slow layer)"` | 两条在 ubuntu 与 windows 上全绿并保持 |
+| 平台基线 | 在 Windows 与 Linux（含 WSL）各跑快层与慢层 | AGENTS.md 按平台分别记基线 |
 | 断言有效性（已知：H-17） | 对核心模块逐处替换 `===`、`&&`、`>=` 等运算符，只跑快层 | 捕获率不低于 90%，等价变异逐个注明 |
 | 测试只测行为（已知：H-23、H-17） | 全局搜断言源码文本的测试；检查零断言文件与 `@contract`/`@semantic` 标注 | 无源码文本断言，无零断言测试，标注齐全 |
 | 测试不改仓库身份（已知：H-27） | 跑测试前后 `git config --local --get user.name` 与 `user.email` | 前后一致 |

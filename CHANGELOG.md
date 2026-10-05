@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### H-18 关闭：合并门禁、macOS 与 Docker（2026-10-05）
+
+- `main` 设置分支保护：`Test` 的 6 个矩阵任务、`coverage`、`Test (slow layer)` 的 ubuntu 与 windows 两个任务共 9 个检查必须通过；`enforce_admins` 为 false，仓库所有者直接推送不受限。
+- `Test` 工作流新增 `macos-latest`、Node 22 任务（lint、快测、smoke），在 `7b34cf6` 上通过；暂不列入必需检查，也未跑慢层。
+- Docker：`node:22`（Linux 容器）从干净克隆 `npm ci`、lint、完整套件，327/327、0 失败，约 176 秒。
+
 ### 错误信封第二块（2026-10-05）
 
 - 新增 `src/utils/failure.js`：`failure(type, message, extra)` 统一工具层失败结果为 `{ok:false, errorType, error, suggestion, ...extra}`，每种类型有默认建议，调用处可用 `extra.suggestion` 覆盖；`typedError(type, message)` 让抛错处带类型。类型：`validation_error`、`path_error`、`git_error`、`init_error`、`query_error`、`config_error`、`permission_error`、`timeout_error`、`unknown_command`、`unexpected_error`，写入未知类型直接抛错。
