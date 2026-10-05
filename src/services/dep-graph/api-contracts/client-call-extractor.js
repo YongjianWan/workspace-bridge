@@ -95,7 +95,8 @@ function isFollowedByConcatenation(block, quoteEndIndex) {
   return /^\s*\+/.test(after);
 }
 
-function extractConfigObjectCalls(content, calleeRe, { requireMethod } = {}) {
+// `verbInCallee`: the HTTP verb is the callee's first capture group (client.get({ url })).
+function extractConfigObjectCalls(content, calleeRe, { requireMethod, verbInCallee } = {}) {
   const calls = [];
   let match;
   while ((match = calleeRe.exec(content)) !== null) {
@@ -124,7 +125,7 @@ function extractConfigObjectCalls(content, calleeRe, { requireMethod } = {}) {
       quoteEnd = pathMatch.index + pathMatch[0].length;
     }
     if (rawPath && isStaticPath(`'${rawPath}'`) && !isFollowedByConcatenation(block, quoteEnd)) {
-      const methodMatch = block.match(/method\s*:\s*['"`]([a-zA-Z]+)['"`]/);
+      const methodMatch = verbInCallee ? [null, match[1]] : block.match(/method\s*:\s*['"`]([a-zA-Z]+)['"`]/);
       // 生成客户端（openapi-typescript-codegen 一类）不走 axios；无 method 的
       // request({url}) 太宽泛，只有 url+method 成对出现才认作 HTTP 调用。
       if (requireMethod && !methodMatch) continue;
@@ -147,6 +148,17 @@ function extractRequestConfigCalls(content) {
   // Only the bare identifier or an explicit `this.` receiver is accepted:
   // myApi.request({...}) stays unrecognized by contract (narrow-matching test).
   return extractConfigObjectCalls(content, /(?:\bthis\s*\.\s*request|(?<![\w$.])request)\s*\(\s*\{/gi, { requireMethod: true });
+}
+
+function extractGeneratedClientCalls(content) {
+  // openapi-typescript-codegen: __request(OpenAPI, { method, url }) — url and method together,
+  // the first argument is the client configuration.
+  const codegen = extractConfigObjectCalls(content, /\b__request\s*\(\s*[\w$.]+\s*,\s*\{/g, { requireMethod: true });
+  // hey-api: client.get({ url }) with the verb in the callee, or client.request({ url, method }).
+  // Only the identifier `client`: otherClient.get(...) stays unrecognized by contract.
+  const verbCalls = extractConfigObjectCalls(content, /(?<![\w$.])client\s*\.\s*(get|post|put|delete|patch|head|options)\s*\(\s*\{/gi, { verbInCallee: true });
+  const requestCalls = extractConfigObjectCalls(content, /(?<![\w$.])client\s*\.\s*request\s*\(\s*\{/gi, { requireMethod: true });
+  return [...codegen, ...verbCalls, ...requestCalls];
 }
 
 function extractClientCallsFromFile(filePath) {
@@ -192,6 +204,7 @@ function extractClientCallsFromFile(filePath) {
 
   // 4. generated clients: request({ url: '/path', method: 'GET' }) / this.request({ path, method })
   calls.push(...extractRequestConfigCalls(content));
+  calls.push(...extractGeneratedClientCalls(content));
 
   // Deduplicate within file.
   const seen = new Set();

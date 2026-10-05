@@ -179,7 +179,7 @@ function parsePorcelainV1Line(line) {
   };
 }
 
-async function getChangedFiles(root, options = {}) {
+async function collectChangedFiles(root, options = {}) {
   const staged = options.staged === true;
   const includeUntracked = options.includeUntracked !== false;
   const since = options.since || null;
@@ -281,7 +281,7 @@ async function getChangedFiles(root, options = {}) {
 
     if (parsed.isUntracked || parsed.isStaged || parsed.isUnstaged) {
       try {
-        if (fs.existsSync(absolute) && fs.statSync(absolute).isDirectory()) {
+        if (fs.existsSync(absolute) && fs.statSync(absolute).isDirectory() && !isSubmoduleDirectory(absolute)) {
           continue;
         }
       } catch {
@@ -298,6 +298,27 @@ async function getChangedFiles(root, options = {}) {
     staged,
     changedFiles: Array.from(files),
   };
+}
+
+// A gitlink: the parent records a commit of another repository, not source files.
+function isSubmoduleDirectory(absolutePath) {
+  return fs.existsSync(path.join(absolutePath, '.git'));
+}
+
+/**
+ * Changed files of the workspace's repository. Entries that are submodules are not files the
+ * parent can analyse (its diff holds only the moved commit), so they are returned separately in
+ * `changedSubmodules` for the caller to report.
+ */
+async function getChangedFiles(root, options = {}) {
+  const result = await collectChangedFiles(root, options);
+  if (!result.ok) return result;
+  const changedFiles = [];
+  const changedSubmodules = [];
+  for (const file of result.changedFiles) {
+    (isSubmoduleDirectory(path.resolve(root, file)) ? changedSubmodules : changedFiles).push(file);
+  }
+  return { ...result, changedFiles, changedSubmodules };
 }
 
 function parseUnifiedDiffLineRanges(diffText) {

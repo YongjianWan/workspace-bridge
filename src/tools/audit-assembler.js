@@ -28,6 +28,7 @@ const { truncateArray } = require('../utils/truncate');
 const { auditSecurity, groupBySeverity } = require('./security-tools');
 const { buildCompositeRisk } = require('./summaries');
 const { filterByCategory, parseCategories } = require('./category-filter');
+const { warningOf } = require('../services/ledger');
 const { diag } = require('../utils/diag');
 
 const SEVERITY_RANK = { high: 3, medium: 2, low: 1 };
@@ -381,6 +382,12 @@ async function assembleDiff(parsed, container) {
     : safeEntries;
 
   const result = buildDiffResult(safeEntries, finalEntries, changeMetrics, parsed, container);
+  if (changed.changedSubmodules?.length > 0) {
+    result.warnings = [...(result.warnings || []), warningOf('submodule-not-expanded', {
+      submodules: changed.changedSubmodules,
+      message: `${changed.changedSubmodules.length} submodule(s) changed (${changed.changedSubmodules.join(', ')}); the parent diff records only the moved commit, so their source changes are not analysed here. Run audit-diff with --cwd <submodule> for each`,
+    })];
+  }
   result.options.compact = compact;
   result.options.autoCompact = autoCompact;
   if (parsed.maxFiles) {

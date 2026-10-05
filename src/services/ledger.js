@@ -27,6 +27,7 @@ const REASON_CODES = Object.freeze({
   'unresolved-dropped': { severity: 'low' },
   'unresolved-import-ownership': { severity: 'low' },
   'python-stdlib-fallback': { severity: 'medium' },
+  'submodule-not-expanded': { severity: 'medium' },
   'history-unavailable': { severity: 'medium' },
   'target-not-indexed': { severity: 'high' },
   'unknown-fields': { severity: 'medium' },
