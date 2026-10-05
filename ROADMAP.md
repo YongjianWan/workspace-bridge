@@ -42,7 +42,7 @@
 - 跨仓库 `api-contracts` 只适合路径级检查，字段级契约和 OpenAPI 生成客户端仍待验证。
 - `--check-regression` 比较结构计数，不能代替内容级代码审查。
 - 静态图不能可靠覆盖运行时注册、动态 `require`、依赖注入及 Vue kebab-case 组件绑定。此类结果必须保守标置信度。
-- 大仓库：2026-10-05 生成仓库整条 `audit-overview` 暖启动 1 万文件 39.3 秒、3 万文件 110 秒；3000 文件 17.4 秒未达 15 秒目标（见 TECH_DEBT.md H-20）；Windows 特有路径与打包行为仍缺系统评测。开放项见 [TECH_DEBT.md](./docs/TECH_DEBT.md) 的 U-25、U-30。
+- 大仓库：2026-10-05 生成仓库整条 `audit-overview` 暖启动 1 万文件 39.3 秒、3 万文件 110 秒；3000 文件 13.7 秒（中位）已达 15 秒目标，1 万文件 27.5 秒（见 TECH_DEBT.md H-20）；Windows 特有路径与打包行为仍缺系统评测。开放项见 [TECH_DEBT.md](./docs/TECH_DEBT.md) 的 U-25、U-30。
 
 ## 长期方向（先验证收益）
 
