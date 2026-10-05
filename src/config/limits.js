@@ -20,6 +20,9 @@ const LIMITS = {
   // entry detection, the glob scan and the symbol scans read each file once. Characters, not
   // bytes: JS holds ASCII at one byte each, so this stays within ~32 MB for typical code.
   SCAN_CONTENT_CACHE_MAX_CHARS: 32 * 1024 * 1024,
+  // Go same-package test edges ignore declared names shorter than this: "args", "ok" and the like
+  // occur in nearly every test file and would link it to unrelated sources.
+  GO_SAME_PACKAGE_MIN_IDENTIFIER_LENGTH: 4,
   GIT_STAT_MAX_CHARS: 8000,
   GIT_PATCH_MAX_CHARS: 12000,
   GIT_FILE_LIST_MAX: 500,

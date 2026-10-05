@@ -19,6 +19,7 @@ const { CONFIG } = require('./shared');
 const { SymbolRegistry } = require('./symbol-registry');
 const { shadowCandidatesFor } = require('./shadow-candidates');
 const { WalCadence } = require('./wal-cadence');
+const { goPackageName, goDeclaredNames, goIdentifiers } = require('./go-same-package');
 const { LIMITS } = require('../../config/constants');
 const { hashFileContent } = require('../cache');
 
@@ -41,6 +42,8 @@ const JVM_TYPE_GATE_KINDS = new Set([
   'class', 'interface', 'enum', 'annotation', 'record',
   'object', 'data_class', 'type', 'struct', 'trait', 'sealed',
 ]);
+
+const GO_SAME_PACKAGE_TEST_PATTERN = 'go-same-package-test';
 
 class GraphBuilder {
   constructor(depGraph) {
@@ -929,7 +932,7 @@ class GraphBuilder {
     const toRemove = new Set();
     info.importRecords = info.importRecords.filter((r) => {
       // 1. Same-package implicit records
-      if (r.isImplicit && r.patternId === 'go-same-package') {
+      if (r.isImplicit && (r.patternId === 'go-same-package' || r.patternId === GO_SAME_PACKAGE_TEST_PATTERN)) {
         toRemove.add(r.resolved);
         return false;
       }
@@ -951,7 +954,7 @@ class GraphBuilder {
     }
   }
 
-  _expandGoForFile(fileKey, info) {
+  _expandGoForFile(fileKey, info, textIndex) {
     let edgeCount = 0;
     let samePackageCount = 0;
     let expansionCount = 0;
@@ -973,6 +976,7 @@ class GraphBuilder {
       const implicitSource = `<same-package:${dir}>`;
       for (const targetFile of pkgFiles) {
         if (targetFile === fileKey) continue;
+        if (!this._goFileMentions(textIndex, fileKey, targetFile)) continue;
         if (!info.imports.includes(targetFile)) {
           info.imports.push(targetFile);
           edgeCount++;
@@ -1022,6 +1026,88 @@ class GraphBuilder {
     return { edgeCount, samePackageCount, expansionCount };
   }
 
+  _readGoSource(fileKey) {
+    try {
+      return this.dg.analyzer._readSource(fileKey);
+    } catch {
+      return null;
+    }
+  }
+
+  // Declared names and used identifiers per Go file, computed once per expansion phase. A file that
+  // cannot be read yields null, and the callers then keep the edge rather than lose it.
+  _newGoTextIndex() {
+    const names = new Map();
+    const identifiers = new Map();
+    const textOf = (fileKey) => this._readGoSource(fileKey);
+    return {
+      package: (fileKey) => {
+        const text = textOf(fileKey);
+        return text ? goPackageName(text) : null;
+      },
+      names: (fileKey) => {
+        if (!names.has(fileKey)) {
+          const text = textOf(fileKey);
+          names.set(fileKey, text ? goDeclaredNames(text) : null);
+        }
+        return names.get(fileKey);
+      },
+      identifiers: (fileKey) => {
+        if (!identifiers.has(fileKey)) {
+          const text = textOf(fileKey);
+          identifiers.set(fileKey, text ? goIdentifiers(text) : null);
+        }
+        return identifiers.get(fileKey);
+      },
+    };
+  }
+
+  // Does `fileKey` use any name `targetFile` declares? Unknown (unreadable) counts as yes.
+  _goFileMentions(textIndex, fileKey, targetFile) {
+    const used = textIndex.identifiers(fileKey);
+    const declared = textIndex.names(targetFile);
+    if (!used || !declared) return true;
+    for (const name of declared) {
+      if (used.has(name)) return true;
+    }
+    return false;
+  }
+
+  // A same-package `_test.go` file uses the package's code with no import, so it gets an edge to
+  // each source file whose declared names it mentions. External test packages (`package x_test`)
+  // import the package explicitly and are resolved the normal way. The record carries no imported
+  // symbols: the edge says "this test touches that file", it does not mark exports as used.
+  _expandGoTestForFile(fileKey, info, textIndex) {
+    const dir = fileKey.slice(0, fileKey.lastIndexOf('/'));
+    const pkgFiles = this.goPackageIndex.get(dir);
+    if (!pkgFiles) return 0;
+    const pkg = textIndex.package(fileKey);
+    if (!pkg || pkg.endsWith('_test')) return 0;
+    const implicitSource = `<same-package-test:${dir}>`;
+    let edgeCount = 0;
+    // Defensive copy: cached parse results share these arrays.
+    if (!info._implicitMutated) {
+      info.imports = info.imports.slice();
+      info.importRecords = info.importRecords.slice();
+      info._implicitMutated = true;
+      this.dg.graph.set(fileKey, info);
+    }
+    for (const targetFile of pkgFiles) {
+      if (textIndex.package(targetFile) !== pkg || !this._goFileMentions(textIndex, fileKey, targetFile)) continue;
+      if (!info.imports.includes(targetFile)) {
+        info.imports.push(targetFile);
+        edgeCount++;
+      }
+      const rec = buildImplicitImportRecord(implicitSource, targetFile, GO_SAME_PACKAGE_TEST_PATTERN);
+      rec.usesAllExports = false;
+      rec.tier = 'tier3';
+      rec.resolutionMethod = GO_SAME_PACKAGE_TEST_PATTERN;
+      rec.confidence = 0.3;
+      info.importRecords.push(rec);
+    }
+    return edgeCount;
+  }
+
   async expandGoPackageImports() {
     const startTime = Date.now();
     this._buildGoPackageIndex();
@@ -1030,6 +1116,7 @@ class GraphBuilder {
     let edgeCount = 0;
     let samePackageCount = 0;
     let expansionCount = 0;
+    const textIndex = this._newGoTextIndex();
 
     for (const [fileKey, info] of this.dg.graph) {
       if (!fileKey.endsWith('.go') || fileKey.endsWith('_test.go')) continue;
@@ -1037,7 +1124,7 @@ class GraphBuilder {
       this._removeOldReverseEdges(fileKey);
       this._stripGoExpansions(info);
 
-      const expanded = this._expandGoForFile(fileKey, info);
+      const expanded = this._expandGoForFile(fileKey, info, textIndex);
       this._addReverseEdges(fileKey, info.imports, { skipExisting: true });
 
       edgeCount += expanded.edgeCount;
@@ -1045,10 +1132,19 @@ class GraphBuilder {
       expansionCount += expanded.expansionCount;
     }
 
-    if (!this.dg.quiet && (samePackageCount > 0 || expansionCount > 0)) {
+    let testEdgeCount = 0;
+    for (const [fileKey, info] of this.dg.graph) {
+      if (!fileKey.endsWith('_test.go')) continue;
+      this._removeOldReverseEdges(fileKey);
+      this._stripGoExpansions(info);
+      testEdgeCount += this._expandGoTestForFile(fileKey, info, textIndex);
+      this._addReverseEdges(fileKey, info.imports, { skipExisting: true });
+    }
+
+    if (!this.dg.quiet && (samePackageCount > 0 || expansionCount > 0 || testEdgeCount > 0)) {
       console.error(
         `[DepGraph] Expanded ${expansionCount} go-module package imports + ${samePackageCount} same-package refs ` +
-          `(${edgeCount} edges) in ${Date.now() - startTime}ms`
+          `+ ${testEdgeCount} same-package test refs (${edgeCount + testEdgeCount} edges) in ${Date.now() - startTime}ms`
       );
     }
     // Emit graph:updated whenever the graph structure may have changed,
