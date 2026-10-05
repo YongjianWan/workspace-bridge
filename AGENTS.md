@@ -43,7 +43,7 @@
 
 WSL Ubuntu 24.04/ext4、Node 22.13.0（2026-10-04）：全量 `node test/runner.js` 321/321、0 失败、退出码 0，约 269 秒；lint 退出码 0。测试仓库位于普通目录，runner 与子测试使用同一 Node runtime。
 
-GitHub Actions 的 Node 22/24、ubuntu/windows 矩阵与慢层连续绿色尚未核验；Windows Node 22/24、macOS 与 Docker 当前修复待重验。平台作业绿色不代表内部测试全部通过，开放门禁见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) H-18。
+GitHub Actions 的 Node 22/22.13.0/24、ubuntu/windows 矩阵与慢层已在 `2d8403f`、`10d7876`、`027c7ab` 连续 3 次全绿（2026-10-05 逐 job 核对）；macOS 与 Docker 待重验，合并门禁未设置。平台作业绿色不代表内部测试全部通过，开放门禁见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) H-18。
 
 ## 工程品味（TASTE）
 

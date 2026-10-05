@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### H-18 缩小范围（2026-10-05）
+
+- GitHub Actions 的 `Test`（7 个矩阵任务加 coverage）与 `Test (slow layer)`（ubuntu、windows）在 `2d8403f`、`10d7876`、`027c7ab` 上连续 3 次全绿，逐 job 核对。H-18 缩为两项：macOS/Docker 重验、合并门禁。
+
 ### 分析台账第二块（2026-10-05）
 
 - 台账原因码从 5 个扩到约 22 个：缓存（`cache-directory-fallback`、`cache-load-failed`、`cache-write-failed`）、文件索引（`gitignore-unavailable`、`unsupported-source-files`）、依赖图状态（`dynamic-load-unresolved`、`config-warning`、`regex-fallback`、`unsupported-extension`、`parser-error`、`empty-graph`、`unresolved-dropped`、`unresolved-import-ownership`）、概览（`history-unavailable`）、工具与输出层（`target-not-indexed`、`unknown-fields`、`missing-target`、`ignored-option`、`api-contract-*`）。
