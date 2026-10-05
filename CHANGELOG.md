@@ -7,6 +7,15 @@
 
 ## [Unreleased]
 
+### 分析台账第二块（2026-10-05）
+
+- 台账原因码从 5 个扩到约 22 个：缓存（`cache-directory-fallback`、`cache-load-failed`、`cache-write-failed`）、文件索引（`gitignore-unavailable`、`unsupported-source-files`）、依赖图状态（`dynamic-load-unresolved`、`config-warning`、`regex-fallback`、`unsupported-extension`、`parser-error`、`empty-graph`、`unresolved-dropped`、`unresolved-import-ownership`）、概览（`history-unavailable`）、工具与输出层（`target-not-indexed`、`unknown-fields`、`missing-target`、`ignored-option`、`api-contract-*`）。
+- `ServiceContainer` 持有一个台账，缓存、`FileIndex`、`DependencyGraph` 共用；`cli.js` 在容器创建前就建好台账，缓存目录回退警告也记进去。`cache.warnings`、`fileIndex.warnings`、`dg._indexWarnings`、`dg._historyWarnings` 已移除，读取处改为 `ledger.warnings()`。
+- 分析器里依赖图的状态类警告每次输出前用 `replace` 重新推导，增量更新后不留旧警告；`buildWarnings()` 只做同步并返回台账内容。工具层、输出层没有台账的地方用 `warningOf(code, fields)` 生成，同样校验原因码。
+- 输出变化：被忽略的选项警告（如 `--token-budget`）由字符串改为 `{type: 'ignored-option', severity: 'low', message}`，此前人类可读输出会把它打印成 `[undefined] undefined`；api-contracts 的警告新增 `type`、`severity`，保留 `reason`、`file`；`api-contract-read-error` 为 medium，会让 `dataQuality` 变为 degraded。
+- 修复：`history-unavailable` 之前挂在只读视图上，而 `buildWarnings` 读真实图，生产路径上这条警告一直丢失；视图补了 `ledger` 属性。
+- 回归：`ledger-migration-test`（图状态警告随图变化、历史信号经视图到达图、选项警告为对象）；去掉视图的 `ledger` 属性或把 `replace` 换成 `record` 后均变红。全量 326/326，快测 210/210，lint 通过。
+
 ### 分析台账第一块（2026-10-05）
 
 - 新增 `src/services/ledger.js`：带原因码白名单的台账（`file-too-large`、`unsupported-source-encoding`、`depth-truncated`、`index-timeout`、`analysis-stage-failed`），写入未知原因码抛错；输出的 `warnings[]` 从台账推导。`FileIndex` 的深度截断与索引超时在发生时 `record`；阶段失败（来自 `bus.errors`）和文件未解析（来自图节点）在输出警告前用 `replace` 重新推导，增量更新后不留旧警告。`discoveryComplete` 改读台账。旧的三条产出路径已删除，警告的 `type`/`severity`/字段/文案不变。
