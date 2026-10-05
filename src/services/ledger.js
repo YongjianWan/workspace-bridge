@@ -11,6 +11,7 @@ const REASON_CODES = Object.freeze({
   'unsupported-source-encoding': { severity: 'high' },
   'depth-truncated': { severity: 'medium' },
   'index-timeout': { severity: 'high' },
+  'slow-run': { severity: 'low' },
   'analysis-stage-failed': { severity: 'high' },
   'cache-directory-fallback': { severity: 'medium' },
   'cache-load-failed': { severity: 'medium' },

@@ -188,6 +188,7 @@ class ServiceContainer {
       await Promise.race([this._initializationPipeline, deadline]);
       this._transition(STATES.READY);
       this.indexBuildTime = Date.now();
+      this._noteSlowRun();
 
       if (!this.quiet) {
         console.error(`[Container] Ready: ${this.fileIndex.getStats().files} files indexed`);
@@ -279,6 +280,11 @@ class ServiceContainer {
     if (!this.quiet) {
       console.error(`[Container] Phase: ${name} ...`);
     }
+    // Written even under --quiet: a long silent run is indistinguishable from a hang.
+    const heartbeat = setInterval(() => {
+      console.error(`[Container] still running: ${name} (${formatDuration(Date.now() - t0)} elapsed)`);
+    }, TIMEOUTS.INIT_HEARTBEAT_MS);
+    heartbeat.unref();
     try {
       this._checkAborted();
       const result = await fn();
@@ -288,12 +294,25 @@ class ServiceContainer {
       err.message = `[Container] Stage '${name}' failed: ${err.message}`;
       throw err;
     } finally {
+      clearInterval(heartbeat);
       const elapsed = Date.now() - t0;
       this._phaseTimes[name] = elapsed;
       if (!this.quiet) {
         console.error(`[Container] Phase: ${name} done (${formatDuration(elapsed)})`);
       }
     }
+  }
+
+  _noteSlowRun() {
+    const totalMs = Object.values(this._phaseTimes).reduce((sum, ms) => sum + ms, 0);
+    if (totalMs <= TIMEOUTS.INIT_HEARTBEAT_MS) return;
+    const files = this.fileIndex.getStats().files;
+    this.ledger.record('slow-run', {
+      files,
+      totalMs,
+      phaseTimes: { ...this._phaseTimes },
+      message: `Indexing ${files} files took ${formatDuration(totalMs)}; narrow the run with --exclude <dir> or a subdirectory --cwd to shorten it`,
+    });
   }
 
   _findWorkspaceRoot(cwd, options = {}) {
