@@ -56,3 +56,6 @@ workspace-bridge-macos
 # Eval workspace: cloned pinned repos + generated ground truth (regenerated
 # by eval/run.js). Directory-anchored on purpose — no bare patterns (P1-15).
 eval/truth/
+
+# 本地私有配置不进 git
+.claude/settings.local.json
