@@ -4,7 +4,7 @@
 
 ## 当前交接
 
-- Windows 本机 Node 25.6.0（2026-10-05）：快测 210/210、lint 退出码 0；全量 327/327、0 失败、退出码 0（约 19.2 分钟）。wb-repro 27/27、退出码 0。平台结果分别记录，不能外推。
+- Windows 本机 Node 25.6.0（2026-10-05）：快测 256/256、lint 退出码 0；全量 355/355、0 失败、退出码 0（约 26.4 分钟；之后改动的 17 处内部调用已重跑快层 256/256，慢层仅 `repl-test.js` 因 mock 缺方法失败，已修并单独通过）。wb-repro 27/27、退出码 0。平台结果分别记录，不能外推。
 - 缓存契约：缓存布局修订号 CACHE_SCHEMA_REVISION=55（CACHE_VERSION 另含引擎源码指纹），schemaVersion=1.2.0；parse_results 仍只保存纯解析输出。索引不完整时覆盖率为 null，消费者必须保留 warnings 与 degraded 状态。
 - 缓存损坏隔离优先重命名；Windows 的 EBADF 路径退回独占备份后删除。备份失败时保留原文件并显式告警，不能吞掉读写失败。不要据此关闭尚未具备真实条件的环境项。
 - WSL Ubuntu 24.04/ext4、Node 22.13.0：全量 321/321、0 失败、退出码 0；lint 退出码 0。GitHub Actions 的 ubuntu/windows 矩阵与慢层已连续 3 次全绿，macOS 快层通过；Docker（node:22、Linux 容器）全量 327/327；`main` 已设合并门禁。

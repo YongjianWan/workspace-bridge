@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### 技术债清零第 3 批（2026-10-05，测试质量 4 条）
+
+- **H-17** 删除零断言的 `tmp-path-test.js`，`analysis-coverage-test.js` 补 `@semantic`。新增 `path-honesty-boundaries-test`，锁定 `honesty-engine` 的"单文件图不降级、边/文件比恰为 0.1 不降级"、`normalizeFilePath` 无根时用 cwd、`node_modules` 不参与语言/工作区识别、Java 三种构建文件与 C++ 构建文件检测。复测：对 `path.js`、`honesty-engine.js`、`pagerank.js`、`parse-args.js` 按 `===`、`!==`、`&&`、`||`、`>=`、`<=`、`>`、`<` 均匀抽样 34 个变异体（10/10/8/6），整个快层跑，被捕获 28 个（82%）；存活 6 个：`pagerank.js` 两处（`length > 1` 去重、`delta < epsilon` 收敛）是等价变异；`path.js` 两处（Java/C++ 构建文件）和 `honesty-engine.js` 的 `files > 0` 随后由新测试杀掉或属等价；`honesty-engine.js` 的 tsconfig 两处 `&&`、`>` 被 `_readTsconfigPaths` 的返回值遮住，是冗余防御，不是缺测试。
+- **L3-8** 内部依赖图的方法不再用 `?.()` 兜底：`getDependents`、`getDependencies`、`getAllFilePaths`、`getFileCount`、`_displayPath`、`getFrameworkHint`、`findCircularDependencies`、`findDeadExports`、`findUnresolvedImports`、`getStats`、`normalizeFilePath`、`isTestLikeFile`、缓存的 `getWorkspaceInfo`/`loadAnalysisSnapshot`/`saveAnalysisSnapshot`/`getAllDiagnostics` 等 69 处，缺方法会在原地抛 `TypeError`，不再变成空数组/空对象被当成"没有发现"。保留的 17 处是真实可选边界：`cache` 可能不存在、`shouldExclude`/`registeredFiles` 等可选回调、`entryFiles` 可能是 Set 或数组。测试 `internal-contract-fails-loudly-test`（旧代码不抛，红）；7 个测试的 mock 图补全方法。
+- **L3-12** 45 个靠源码启发式猜层级的测试文件改为显式 `@fast`/`@slow` 标注，依据是 run report 的实测耗时（< 5 秒 `@fast`，其余 `@slow`；原 18 个 `heuristic-heavy-api` 都在 0.5–6.4 秒，中位 1.6 秒，被猜进慢层是误判）。快层从 233 项增至 256 项，墙钟 35 秒 → 43 秒。`runner-classification-test` 新增断言：已提交的测试文件里没有任何一个靠猜测分层，新文件不写标注会红；删除"启发式降级仍很常见"的断言（它自己写明"归零就删"）。
+- **L3-13** 归因（run report `run-2026-10-05T13-29-29`，全量 355 项 1581 秒）：快层 233 项墙钟 35 秒；慢层 111 项总耗时 2037 秒、并发 2、实际 1036 秒，池利用率 98%；串行层 10 项 283 秒。结论：慢层瓶颈是工作量而不是调度。本机 `node -e 1` 启动 0.47–1.0 秒，`cli.js --help` 总计约 1.2 秒（其中 CLI 自身约 0.25–0.3 秒），一次小夹具 `audit-overview` 约 1.7 秒。并发 4 曾出现单项 130–172 秒、贴近 180 秒超时，因此不改并发。条目移到 TECH_DEBT 的冻结区并写明重开条件。
+
 ### 技术债清零第 2 批（2026-10-05，7 条：安全与缓存）
 
 - **H-10** 硬编码密钥规则按值的形状识别：新增跨语言规则组（`lang: any`，覆盖 js/py/java/kt/go/rs/rb/php/cs/json/yaml/toml/ini/properties/env/sh/ps1 等扩展名）——Stripe live key、AWS 访问密钥 ID、GitHub token、Slack token、私钥头、连接串内嵌口令、`pw`/`pwd`/`passwd`/`passphrase` 变量。匹配文本一律 `[REDACTED]`。`scanMeta[].summary.coverage` 列出实际运行的规则 ID 并写明"无发现不等于无密钥"。同时删除 `security-tools.js` 里与 `config/security-rules.json` 重复的内置规则副本：随包规则文件读不出或编译失败时直接报错，不再静默退回另一份规则。多个规则组匹配同一扩展名时全部生效（原先只取第一个）。测试 `security-secret-value-rules-test`（5 种写法 + 连接串 + PEM，旧代码 0 条命中）。
