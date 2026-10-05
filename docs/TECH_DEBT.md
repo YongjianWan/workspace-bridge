@@ -8,8 +8,7 @@
 
 | 根因 | 证据 | 对应条目 |
 |---|---|---|
-| B 路径没有统一身份 | 路径归一化散布于调用方，显示路径与缓存键仍有多种写法 | H-22 ② |
-| 输出没有统一出口（横切） | 规则散在 `elideDeep`、`route-formatter.js`、两千行量级的 `human-formatters.js` | H-22 ③ |
+| 输出没有统一出口（横切） | 规则散在 `elideDeep`、`route-formatter.js`、两千行量级的 `human-formatters.js` | 冻结（见 P4） |
 
 不归入上述原因、独立处理：H-19。
 
@@ -24,7 +23,6 @@
 | ID | 现象与复现 | 验收线 |
 |---|---|---|
 | H-19 | 发布流程半手动且已多次中断，版本号与发布物脱节。2026-10-02 实测：① 发布只由推送 `v*` 标签触发（`.github/workflows/release.yml`：`npm ci` → 快层测试 → 冒烟 → `npm pack` → GitHub Release → `npm publish --provenance`）；版本号与 CHANGELOG 靠手工提交（如 `ad84bd1` "切版 2.1.0"），仓库里没有自动化脚本。② `package.json` 为 2.1.0（2026-07-17）、CHANGELOG 有 `[2.1.0]`，但最新标签与 GitHub Release 是 `v1.2.1`（2026-05-28），此后 271 个提交，2.0.0、2.1.0 从未打标签。③ 发布工作流最近 3 次（v1.1.0、v1.1.1、v1.2.1）都失败在 "Publish to npm"，v1.0.2、v1.0.3 成功；现查 `npm view workspace-bridge` 返回 404（包不在 npm 上）。④ 冒烟步骤只检查 `--version` 与 `workspace-info`：本机按同样步骤解压 `npm pack` 产物（192 个文件，约 550 KB，不含 `eval/`、`test/`、`docs/`）到没有 `node_modules` 的目录，二者都通过，而 `audit-overview` 在该目录退化为 regex 解析（提示 `@babel/parser not available`）；所以产物缺运行依赖时冒烟仍会绿。⑤ 打包：`npx pkg . --targets node22-win-x64` 离线构建成功（20 秒，使用缓存的 v22.22.3 基础二进制；`pkg` 对 `tree-sitter-wasms` 动态 require 给出一条警告），产物 121 MB，`--version` 为 2.1.0，在 typer 上 `audit-overview` 解析 639/639 个文件，覆盖率与警告和 `node cli.js` 一致。仓库根的 `workspace-bridge-win.exe`（114 MB，已被 `.gitignore` 忽略）仍可运行，但版本是 2.0.0，落后 274 个提交。 | 先查明 npm 发布失败的原因（令牌或包名权限），再决定是否发布；补打 2.0.0/2.1.0 对应标签或在 README 说明版本从 2.x 起不再发布；冒烟增加一条需要运行依赖的分析命令（如对解压目录自身 `audit-overview` 并检查 `parsedFiles` 大于 0 且无 `@babel/parser not available`）；旧 `workspace-bridge-win.exe` 是删除还是用新构建替换，由项目所有者决定。
-| H-22 | 同一结果的路径包含原大小写反斜杠、全小写正斜杠与混合 id，消费者必须自行归一化（ROADMAP「路径身份」，改动落在 `path.js`、`dep-graph.js` 等高危文件）。 | 同一结果的路径统一写法并声明大小写策略。 |
 
 ## U：未验证方向（条目编号 U-n）
 
@@ -64,3 +62,4 @@ U 表示"还没查过，不知道有没有问题"，不是已确认的债务。�
 - 语言处理分散：提到 Kotlin 的源文件 23 个、Rust 24 个、Go 25 个，每门语言都是同一量级。当前没有新增语言的计划；决定新增第 10 门语言之前，先把语言专属分支收进语言注册表。
 - 超大仓库内存：生成仓库实测 3060 文件暖启动峰值 184 MB、30600 文件 1508 MB（每文件约 0.13 MB，线性）；外推 10 万文件约 4.5 GB，接近 Node 默认堆上限。重新处理的条件：出现 5 万文件以上的真实仓库，或有人报告 OOM。
 - `affected-tests` 精确率：typer 0.548（召回率 0.991），cobra 0.374，spring-petclinic 0.563。`node eval/verify-h7-tradeoff.js` 实测任何截取规则都满足不了召回率 0.9（距离 ≤ 1 时精确率 0.947、召回率 0.063），原因是真值里的测试确实经共享入口执行到几乎所有源文件；输出已按距离、枢纽扇入排序并带 `distance`/`via`。重新处理的条件：有了运行时覆盖信息可作为边的权重。
+- 输出没有统一出口：路径写法已在 `src/cli/path-spelling.js` 统一，但 `elideDeep`、`route-formatter.js`、`human-formatters.js` 各自处理截断、掩码与格式，没有一份按命令的 JSON Schema。当前没有因此产生的错误输出；出现第二类跨命令输出不一致时，再收口为单一序列化器（ROADMAP 步骤 6）。
