@@ -13,14 +13,15 @@ function normalizePath(inputPath) {
   return path.resolve(posix);
 }
 
-// A Windows 8.3 segment looks like `RUNNER~1`. git reports workspaces in long form, so a root
-// kept in short form never matches git's paths and diffs silently come back empty. Only paths
-// that contain such a segment are resolved; every other path is returned untouched, so symlinked
-// and junctioned workspaces keep the path the user passed.
+// git reports a workspace by its real location. A root the caller spelled differently never
+// matches git's paths, so every changed file is dropped and diffs silently come back empty:
+// on Windows the difference is an 8.3 segment such as `RUNNER~1`; elsewhere it is a symlinked
+// ancestor (macOS keeps temp dirs under `/var` -> `/private/var`). Windows paths without a
+// short segment are left alone, so junctioned workspaces keep the path the user passed.
 const SHORT_NAME_SEGMENT_RE = /(^|[\\/])[^\\/]{1,8}~\d+(\.[^\\/]{0,3})?([\\/]|$)/;
 
-function expandShortPath(inputPath) {
-  if (!IS_WINDOWS || !SHORT_NAME_SEGMENT_RE.test(inputPath)) return inputPath;
+function toGitSpelling(inputPath) {
+  if (IS_WINDOWS && !SHORT_NAME_SEGMENT_RE.test(inputPath)) return inputPath;
   try {
     return fs.realpathSync.native(inputPath);
   } catch {
@@ -28,13 +29,13 @@ function expandShortPath(inputPath) {
   }
 }
 
-// git prints long-form paths. Everything else in the process keys files by the spelling the caller
-// gave for the workspace root, so a git path is translated back into that spelling: same location,
-// reached from `root` (an ancestor such as the repo toplevel comes out as `root/../..`).
+// Everything else in the process keys files by the spelling the caller gave for the workspace
+// root, so a git path is translated back into that spelling: same location, reached from `root`
+// (an ancestor such as the repo toplevel comes out as `root/../..`).
 function toCallerSpelling(absolutePath, root) {
-  const longRoot = expandShortPath(root);
-  if (longRoot === root) return absolutePath;
-  return path.resolve(root, path.relative(longRoot, absolutePath));
+  const gitRoot = toGitSpelling(root);
+  if (gitRoot === root) return absolutePath;
+  return path.resolve(root, path.relative(gitRoot, absolutePath));
 }
 
 function toPosixPath(inputPath) {
@@ -453,7 +454,7 @@ function get2LevelPrefix(relPath) {
 
 module.exports = {
   normalizePath,
-  expandShortPath,
+  toGitSpelling,
   toCallerSpelling,
   normalizePathKey,
   normalizeFilePath,

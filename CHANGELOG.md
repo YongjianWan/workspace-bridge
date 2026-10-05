@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+### 修复 macOS CI（2026-10-06，H-22 ② 的子问题）
+
+- **符号链接的工作区根下，`audit-diff` 等把所有变更文件丢掉**：git 输出真实路径（macOS 临时目录 `/var` → `/private/var`），调用方传入的写法不同，变更文件被当作"在根之外"静默丢弃，结果为空。原先只对 Windows 8.3 短路径做了转换；现在 `toGitSpelling`（原 `expandShortPath`）在非 Windows 上取真实路径，`toCallerSpelling` 把 git 的路径翻译回调用方写法。`isMonorepoSubpackage` 同样受益。Windows 仍只处理 8.3 段，junction 保持用户传入的写法。
+- 此前 macOS 作业从第 3 批起一直是红的（`audit-assembler-test`、`audit-diff-submodule-test` 空结果），之前误记为绿。新增 `symlinked-workspace-diff-test`（POSIX 专用，Windows 跳过）。
+
 ### 技术债清零第 6 批（2026-10-06，3 条：affected-tests 精度、生成客户端、submodule diff）
 
 - **H-7 不修，附评测曲线**：`node eval/verify-h7-tradeoff.js`（新增）在 typer 的覆盖率真值上比较各种截取规则，真值是"哪些测试运行时真的执行了这个源文件"。现状（返回全部）精确率 0.548、召回率 0.991；"距离 ≥ 2 且经过扇入 ≥ N 的枢纽文件"这类规则，N 取 5 到 80 召回率只剩 0.07–0.15（精确率 0.73–0.91）；只留距离 ≤ 1 精确率 0.947、召回率 0.063；距离 ≤ 2 精确率 0.673、召回率 0.305。没有任何截取规则满足"召回率不低于 0.9"：typer 的测试确实都经 `typer.testing` 之类的共享入口运行到几乎所有源文件，静态依赖路径分不出"经枢纽但真会执行"和"经枢纽且不会执行"。cobra、petclinic 同因（TECH_DEBT 原行已记）。所以不加过滤；输出已按"距离、枢纽扇入、路径"排序并带 `distance` 与 `via`，调用方要精确就取前面距离小的。写入 TECH_DEBT 冻结区。

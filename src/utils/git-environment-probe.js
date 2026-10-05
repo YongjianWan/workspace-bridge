@@ -12,7 +12,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { DATA_QUALITY, REMEDIATION } = require('../config/data-quality');
 const { TIMEOUTS } = require('../config/constants');
-const { expandShortPath } = require('./path');
+const { toGitSpelling } = require('./path');
 
 const PROJECT_MARKERS = [
   'package.json',
@@ -178,7 +178,7 @@ function hasMonorepoMarkers(root) {
 
 function isMonorepoSubpackage(root) {
   const toplevel = getGitToplevel(root);
-  if (!toplevel || path.normalize(expandShortPath(root)) === toplevel) return false;
+  if (!toplevel || path.normalize(toGitSpelling(root)) === toplevel) return false;
   return hasMonorepoMarkers(toplevel);
 }
 
