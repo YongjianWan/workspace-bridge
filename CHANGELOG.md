@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### 长时间初始化可见（2026-10-05）
+
+- 初始化的单个阶段运行超过 30 秒（`TIMEOUTS.INIT_HEARTBEAT_MS`，约为 3000 文件暖启动 13.7 秒的两倍）后，每 30 秒向 stderr 写一行 `[Container] still running: <阶段> (<已用时间>)`，`--quiet` 下也写；agent 据此区分"在跑"与"卡死"。小仓库的 `--quiet` 运行 stderr 仍为空。
+- 初始化总耗时超过 30 秒时，台账多一条 `slow-run`（severity low，进入 `warnings[]`），含文件数、总耗时、各阶段耗时和缩小范围的建议（`--exclude <dir>` 或子目录 `--cwd`）。本仓库把阈值临时压到 200 毫秒的实测：stderr 出现心跳，JSON 的 `warnings[]` 出现该条。原验收线里的"`--max-files` 缩小"未做：`--max-files` 只截断输出，不限制索引范围。H-20③ 关闭；H-22③ 记录了这条 stderr 例外。
+- 回归：`container-slow-run-test`（快阶段静默、慢阶段有心跳、慢总耗时有 `slow-run`、快运行没有）；把心跳间隔改成一小时时变红。
+
 ### REPL 错误形状、watch 目录事件、安装脚本退出码（2026-10-05）
 
 - REPL 的失败结果与 CLI 同形：`{ok:false, errorType, error, suggestion}`。未知命令为 `unknown_command`，缺参数为 `validation_error`（两者退出码 2），图里没有该文件为 `path_error`，依赖图不可用为 `init_error`（退出码 1）；`--eval` 多条命令时，失败的那条在 `results[]` 里是同样的字段加 `command`。退出码判定改为优先看 `errorType`，原先的消息子串匹配只作兜底。回归：`repl-json-test` 的 `testReplFailureShapeMatchesCli`；把 `src/cli/repl.js` 还原成旧版时该测试变红。H-15 关闭。
