@@ -182,8 +182,7 @@ class GraphBuilder {
     this.dg.graph.clear();
     this.dg.bus.emit('graph:updated', { fullRebuild: true });
     // Clear per-build caches to avoid stale content after rebuild
-    this.dg._scanContentCache.clear();
-    this.dg._scanPatternCache.clear();
+    this.dg.analyzer.clearScanCaches();
     this._parseCache.clear();
     // Get all files from cache, or use the raw file list provided by file-index
     // so that originalPath preserves platform-native casing and separators.

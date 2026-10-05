@@ -25,6 +25,7 @@ const {
 } = require('./conftest-implicit');
 const { DEFAULTS, LIMITS, CONFIDENCE } = require('../../config/constants');
 const { fromNormalizedKey, normalizePathKey } = require('../../utils/path');
+const { readTextWithin } = require('../../utils/file-read');
 const {
   CONFIG,
   bfsTraverse,
@@ -288,6 +289,7 @@ class GraphAnalyzer {
     this._cycleCount = undefined;
     this._cycleMeta = null;
     this._scanContentCache = new Map();
+    this._scanContentChars = 0;
     this._scanPatternCache = new Map();
 
     this._cycleFiles = null;
@@ -305,8 +307,7 @@ class GraphAnalyzer {
       this._bumpAggregateCache();
       this._invalidateCycles(ctx);
       this._invalidateMarkerEvidence(ctx);
-      this._scanContentCache.clear();
-      this._scanPatternCache.clear();
+      this.clearScanCaches();
       this._mentionContentCache.clear();
     });
   }
@@ -422,7 +423,26 @@ class GraphAnalyzer {
 
   clearScanCaches() {
     this._scanContentCache.clear();
+    this._scanContentChars = 0;
     this._scanPatternCache.clear();
+  }
+
+  /**
+   * Source text of a file, read once per pass. Entry detection, the import.meta.glob scan and the
+   * symbol-usage scans all come here, so a file costs one open however many of them need it.
+   * @param {string} filePath
+   * @param {number} [maxBytes] larger files return null (the parser coverage bound entry detection uses)
+   * @returns {string|null} read errors throw
+   */
+  _readSource(filePath, maxBytes = Infinity) {
+    const cached = this._scanContentCache.get(filePath);
+    if (cached !== undefined) return Buffer.byteLength(cached) > maxBytes ? null : cached;
+    const content = readTextWithin(filePath, maxBytes);
+    if (content !== null && this._scanContentChars + content.length <= LIMITS.SCAN_CONTENT_CACHE_MAX_CHARS) {
+      this._scanContentCache.set(filePath, content);
+      this._scanContentChars += content.length;
+    }
+    return content;
   }
 
   computePageRank() {
@@ -901,14 +921,7 @@ class GraphAnalyzer {
 
     for (const importerPath of importerPaths) {
       try {
-        let content = this._scanContentCache.get(importerPath);
-        if (content === undefined) {
-          content = fs.readFileSync(importerPath, 'utf-8');
-          // Defensive cap: prevent unbounded growth in long-lived REPL sessions
-          if (this._scanContentCache.size < LIMITS.SCAN_SYMBOL_CONTENT_CACHE_MAX) {
-            this._scanContentCache.set(importerPath, content);
-          }
-        }
+        const content = this._readSource(importerPath);
 
         for (const symbol of symbols) {
           if (used.has(symbol)) continue;
@@ -939,13 +952,7 @@ class GraphAnalyzer {
     const used = new Set();
     if (!symbols || symbols.length === 0) return used;
     try {
-      let content = this._scanContentCache.get(filePath);
-      if (content === undefined) {
-        content = fs.readFileSync(filePath, 'utf-8');
-        if (this._scanContentCache.size < LIMITS.SCAN_SYMBOL_CONTENT_CACHE_MAX) {
-          this._scanContentCache.set(filePath, content);
-        }
-      }
+      const content = this._readSource(filePath);
       for (const symbol of symbols) {
         if (used.has(symbol)) continue;
         const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1229,7 +1236,7 @@ class GraphAnalyzer {
   _readImportMetaGlobPatterns(filePath) {
     let content;
     try {
-      content = fs.readFileSync(fromNormalizedKey(filePath), 'utf8');
+      content = this._readSource(filePath);
     } catch {
       // Cache the miss: retried only when the file itself changes.
       return [];
@@ -1428,6 +1435,7 @@ class GraphAnalyzer {
       // each findDeadExports call so REPL long sessions don't leak memory when
       // dead-exports is invoked repeatedly without file changes.
       this._scanContentCache.clear();
+      this._scanContentChars = 0;
     }
 
     if (options?.raw) {

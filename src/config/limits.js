@@ -16,7 +16,10 @@ const LIMITS = {
   // Django (~7k files) makes ~8k distinct existence probes per build; a cap
   // below that evicts entries before they are re-asked. 20k stays a few MB.
   RESOLVER_STAT_CACHE_MAX: 20000,
-  SCAN_SYMBOL_CONTENT_CACHE_MAX: 2000,
+  // Source text the analyzer keeps between a graph update and the end of one dead-exports pass, so
+  // entry detection, the glob scan and the symbol scans read each file once. Characters, not
+  // bytes: JS holds ASCII at one byte each, so this stays within ~32 MB for typical code.
+  SCAN_CONTENT_CACHE_MAX_CHARS: 32 * 1024 * 1024,
   GIT_STAT_MAX_CHARS: 8000,
   GIT_PATCH_MAX_CHARS: 12000,
   GIT_FILE_LIST_MAX: 500,

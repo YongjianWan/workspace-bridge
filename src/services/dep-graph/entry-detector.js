@@ -4,12 +4,12 @@
  * Consolidates isKnownEntryFile + getFrameworkHint and eliminates
  * duplicated content-scan logic between the two methods.
  */
-const fs = require('fs');
 const path = require('path');
 const { normalizePathKey } = require('../../utils/path');
 const { ENTRY_BASE_NAMES } = require('../../utils/project-context');
 const { detectFrameworkFromPath, detectFrameworkFromContentSync } = require('./framework-patterns');
 const { LIMITS } = require('../../config/constants');
+const { readTextWithin } = require('../../utils/file-read');
 const {
   FRAMEWORK_MANAGED_PATTERNS,
   KNOWN_CONFIG_NAMES,
@@ -22,29 +22,29 @@ const C_CPP_ENTRY_EXTENSIONS = new Set(['.c', '.cc', '.cpp', '.cxx']);
  * Read a file for content-based entry detection.
  * Returns null if the file is unreadable or larger than the parser cap.
  * @param {string} filePath
+ * @param {(filePath: string, maxBytes: number) => string|null} readSource
  * @returns {string|null}
  */
-function readScanContent(filePath) {
+function readScanContent(filePath, readSource = readTextWithin) {
   try {
-    const stats = fs.statSync(filePath);
     // Scan boundary = parser coverage: files above PARSER_MAX_FILE_BYTES
     // parse with zero exports, so dead-exports never consults them; orphan
     // checks keep the same "too big to judge" behavior as before. Within the
     // cap the FULL file is read — entry signals (a trailing
     // `if __name__ == "__main__":` guard, framework decorators) can sit
-    // anywhere, so a fixed head-window produces false positives. One bounded read per file, memoized by EntryDetector._cache.
-    if (stats.size > LIMITS.PARSER_MAX_FILE_BYTES) return null;
-    return fs.readFileSync(filePath, 'utf8');
+    // anywhere, so a fixed head-window produces false positives.
+    return readSource(filePath, LIMITS.PARSER_MAX_FILE_BYTES);
   } catch {
     return null;
   }
 }
 
 class EntryDetector {
-  constructor({ entryFiles, normalizeFilePath, bus, getFileInfo } = {}) {
+  constructor({ entryFiles, normalizeFilePath, bus, getFileInfo, readSource } = {}) {
     this.entryFiles = entryFiles || new Set();
     this.normalizeFilePath = normalizeFilePath || ((p) => p);
     this.getFileInfo = getFileInfo || null;
+    this.readSource = readSource || readTextWithin;
     this._cache = new Map();
 
     if (bus) {
@@ -90,7 +90,7 @@ class EntryDetector {
           if (pathHint && pathHint.isEntry) {
             result = true;
           } else {
-            const content = readScanContent(filePath);
+            const content = readScanContent(filePath, this.readSource);
             if (content) {
               const contentHint = detectFrameworkFromContentSync(filePath, content);
               if (contentHint && contentHint.isEntry) {
@@ -122,7 +122,7 @@ class EntryDetector {
     const pathHint = detectFrameworkFromPath(filePath);
     if (pathHint) return pathHint;
 
-    const content = readScanContent(filePath);
+    const content = readScanContent(filePath, this.readSource);
     if (content) {
       return detectFrameworkFromContentSync(filePath, content);
     }
