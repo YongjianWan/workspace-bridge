@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { pathExists, toPosixPath, toRelativePosix, WORKSPACE_MARKERS, BACKSLASH_RE } = require('./path');
 const { typedError } = require('./failure');
+const { DEFAULTS } = require('../config/constants');
 
 const ROLE_PRIORITY = ['generated', 'archive', 'reference', 'active'];
 const DEFAULT_DIRECTORY_HINTS = {
@@ -402,12 +403,17 @@ function validateWorkspaceConfig(config, configPath, warnings = null) {
     'cwd', 'exclude', 'mode', 'format', 'json', 'quiet', 'cacheDir', 'limit',
     'severity', 'category', 'compact', 'maxFiles', 'failOnFindings', 'staged',
     'runTests', 'withImpact', 'withHistory', 'incremental', 'checkRegression',
-    'service', 'builtinOnly', 'watch', 'strictCwd', 'maxDepth'
+    'service', 'builtinOnly', 'watch', 'strictCwd', 'maxDepth', 'maxIndexDepth'
   ]);
   for (const key of Object.keys(config)) {
     if (!validTopKeys.has(key)) {
       addError(`Unknown top-level key "${key}" in config file ${configPath}`);
     }
+  }
+
+  if (config.maxIndexDepth !== undefined
+    && !(Number.isInteger(config.maxIndexDepth) && config.maxIndexDepth >= 1 && config.maxIndexDepth <= DEFAULTS.FILE_INDEX_MAX_DEPTH_CEILING)) {
+    addError(`"maxIndexDepth" must be an integer from 1 to ${DEFAULTS.FILE_INDEX_MAX_DEPTH_CEILING} in config file ${configPath}`);
   }
 
   const dirs = config.directories;
@@ -536,6 +542,7 @@ function loadWorkspaceConfig(root, options = {}) {
   return {
     directories,
     ignore: config.ignore,
+    maxIndexDepth: config.maxIndexDepth,
   };
 }
 

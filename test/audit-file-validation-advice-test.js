@@ -87,7 +87,8 @@ async function testAuditFileGeneratesFocusedTestCommands() {
     assert.ok(directTestCmd.executable, 'command should have executable metadata');
     assert.strictEqual(directTestCmd.executable.command, 'npx', 'vitest command should use npx');
     assert.ok(directTestCmd.executable.args.includes('vitest'), 'args should include vitest');
-    assert.ok(directTestCmd.executable.args.includes('run'), 'args should include run');
+    assert.ok(directTestCmd.executable.args.includes('related'), 'args should use vitest related');
+    assert.ok(directTestCmd.executable.args.includes('--run'), 'args should include --run');
     const relativeTestFile = path.relative(tmpDir, testFile);
     assert.ok(
       directTestCmd.executable.args.some((arg) => arg.replace(/\\/g, '/') === relativeTestFile.replace(/\\/g, '/')),

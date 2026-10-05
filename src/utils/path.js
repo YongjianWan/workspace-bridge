@@ -291,12 +291,18 @@ function resolvePythonCommand(root) {
   return 'python';
 }
 
+// A leading slash that is not the start of a UNC prefix (two slashes, then a server name).
+const UNRESOLVABLE_LEADING_SLASH = /^[\\/](?![\\/][^\\/])/;
+
 function resolveWorkspaceFilePath(filePath, root) {
   if (!filePath || typeof filePath !== 'string') return null;
-  const trimmed = filePath.trim().replace(/\\/g, '/');
-  // On Windows, a leading slash looks relative to path.join but actually
+  const original = filePath.trim();
+  const trimmed = original.replace(/\\/g, '/');
+  // On Windows, a single leading slash looks relative to path.join but actually
   // denotes an absolute POSIX-style path — treat it as an escape attempt.
-  if (IS_WINDOWS && /^[\\/]/.test(trimmed)) return null;
+  // Two leading slashes are a UNC path to a server share: a legitimate absolute
+  // path, whose containment isPathInsideRoot checks below.
+  if (IS_WINDOWS && UNRESOLVABLE_LEADING_SLASH.test(original)) return null;
   const resolved = path.isAbsolute(trimmed)
     ? normalizePath(trimmed)
     : normalizePath(path.join(root, trimmed));

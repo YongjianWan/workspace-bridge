@@ -62,6 +62,7 @@ class FileIndex {
     this.changedFiles.clear();
     for (const code of ['index-timeout', 'depth-truncated', 'gitignore-unavailable', 'unsupported-source-files']) this.ledger.clear(code);
     this._depthTruncatedDirs = 0;
+    this.maxDepth = DEFAULTS.FILE_INDEX_MAX_DEPTH;
     this.unsupportedSourceFiles = [];
     this._unsupportedCandidates = [];
     const shouldWatch = options.watch !== false;
@@ -88,7 +89,7 @@ class FileIndex {
     // pattern (O(patterns × tree)) and paid a per-dir realpath each pass —
     // 20 patterns × 13k dirs ≈ 267k syscalls on a data-heavy repo.
     try {
-      for await (const file of this.findFilesAsync(this.root, DEFAULTS.FILE_INDEX_MAX_DEPTH, signal)) {
+      for await (const file of this.findFilesAsync(this.root, this.maxDepth, signal)) {
         allFiles.push(file);
       }
     } catch (e) {
@@ -119,7 +120,7 @@ class FileIndex {
       // warnings[] (consumed by analyzer.buildWarnings), never silently.
       this.ledger.record('depth-truncated', {
         files: this._depthTruncatedDirs,
-        message: `${this._depthTruncatedDirs} director(ies) beyond max depth ${DEFAULTS.FILE_INDEX_MAX_DEPTH} were not indexed; coverage for deep subtrees is incomplete`,
+        message: `${this._depthTruncatedDirs} director(ies) beyond max depth ${this.maxDepth} were not indexed; coverage for deep subtrees is incomplete (raise "maxIndexDepth" in .workspace-bridge.json to include them)`,
       });
     }
 
@@ -225,8 +226,10 @@ class FileIndex {
           realCurrent = current;
         }
       }
-      if (visitedRealPaths.has(realCurrent)) continue;
-      visitedRealPaths.add(realCurrent);
+      // realpath keeps the case it was given; two spellings of one directory must collide here.
+      const visitedKey = normalizePathKey(realCurrent);
+      if (visitedRealPaths.has(visitedKey)) continue;
+      visitedRealPaths.add(visitedKey);
 
       let entries;
       try {
@@ -366,17 +369,24 @@ class FileIndex {
   _applyWorkspaceExcludeDirs() {
     let directories = null;
     let ignorePaths = null;
+    let maxIndexDepth;
 
     if (this.projectContext) {
       const config = this.projectContext.config;
       directories = config?.directories;
       ignorePaths = config?.ignore?.paths;
+      maxIndexDepth = config?.maxIndexDepth;
     } else {
       const parsed = loadWorkspaceConfig(this.root, { quiet: this.quiet });
       if (parsed) {
         directories = parsed.directories;
         ignorePaths = parsed.ignore?.paths;
+        maxIndexDepth = parsed.maxIndexDepth;
       }
+    }
+
+    if (Number.isInteger(maxIndexDepth) && maxIndexDepth >= 1 && maxIndexDepth <= DEFAULTS.FILE_INDEX_MAX_DEPTH_CEILING) {
+      this.maxDepth = maxIndexDepth;
     }
 
     if (ignorePaths) {

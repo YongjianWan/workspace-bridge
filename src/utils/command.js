@@ -225,6 +225,9 @@ function trimOutput(value, limit = LIMITS.TRIM_OUTPUT_DEFAULT_CHARS) {
 function buildSafeEnv(extraEnv = {}) {
   const allowed = {
     PATH: process.env.PATH,
+    // Windows resolves `tool` to tool.exe/.cmd through PATHEXT (and runs shells through COMSPEC).
+    PATHEXT: process.env.PATHEXT,
+    COMSPEC: process.env.COMSPEC,
     HOME: process.env.HOME,
     USERPROFILE: process.env.USERPROFILE,
     APPDATA: process.env.APPDATA,

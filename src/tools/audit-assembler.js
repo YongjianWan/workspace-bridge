@@ -22,8 +22,8 @@ const { getChangedFiles, getChangedLineRanges, getFileHistoryRisk, getDiffNumsta
 const { getFileComplexityTrend } = require('./complexity-tools');
 const { resolveWorkspaceFilePath } = require('../utils/path');
 const { mapWithConcurrency } = require('../utils/async');
-const { DATA_QUALITY } = require('../config/data-quality');
 const { DEFAULTS } = require('../config/constants');
+const { DATA_QUALITY } = require('../config/data-quality');
 const { truncateArray } = require('../utils/truncate');
 const { auditSecurity, groupBySeverity } = require('./security-tools');
 const { buildCompositeRisk } = require('../cli/formatters');
@@ -281,7 +281,7 @@ function buildDiffResult(safeEntries, finalEntries, changeMetrics, parsed, conta
     for (const entry of safeEntries) {
       if (!entry.resolvedPath) continue;
       try {
-        const impact = container.snapshot.graph.getImpactRadius(entry.resolvedPath, 2);
+        const impact = container.snapshot.graph.getImpactRadius(entry.resolvedPath, parsed.maxDepth ?? DEFAULTS.DIFF_IMPACT_DEPTH);
         for (const i of impact) {
           if (i.file && i.file !== entry.resolvedPath) {
             impactFiles.add(i.file);

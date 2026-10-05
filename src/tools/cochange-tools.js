@@ -4,6 +4,7 @@
  */
 const { spawnSync } = require('child_process');
 const { DATA_QUALITY } = require('../config/data-quality');
+const { TIMEOUTS } = require('../config/constants');
 const { analyzeGitEnvironment } = require('../utils/git-environment-probe');
 
 const DEFAULT_CONFIG = {
@@ -32,7 +33,7 @@ function analyzeCoChanges(workspaceRoot, options = {}) {
   const result = spawnSync(
     'git',
     ['-C', workspaceRoot, 'log', '--format=%H', '--name-only', '--no-merges', '-n', String(config.commitLimit)],
-    { encoding: 'utf8' }
+    { encoding: 'utf8', timeout: TIMEOUTS.GIT_LONG_MS }
   );
 
   if (result.error || result.status !== 0) {

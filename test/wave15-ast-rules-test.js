@@ -4,65 +4,27 @@
 const assert = require('assert');
 const path = require('path');
 const { checkFileRules, checkAllRules,  EXT_TO_LANGUAGE } = require('../src/services/dep-graph/ast-rules');
-const { parseJava } = require('../src/services/dep-graph/parsers');
-const { parseKotlin } = require('../src/services/dep-graph/parsers/kotlin-ast');
 const { parseJavaScript } = require('../src/services/dep-graph/parsers/js.js');
 const { parsePython } = require('../src/services/dep-graph/parsers/python.js');
 const { parseGo } = require('../src/services/dep-graph/parsers/go-ast.js');
 const { parseRust } = require('../src/services/dep-graph/parsers/rust-ast.js');
 const { parseCppAst } = require('../src/services/dep-graph/parsers/cpp-ast.js');
 
-function testBatchNoTransactionalFires() {
-  const info = {
-    originalPath: 'src/main/java/com/example/MyService.java',
-    functionRecords: [
-      {
-        name: 'batchUpdateUser',
-        decorators: [], // No @Transactional decorator
-      }
-    ]
-  };
-
-  const findings = checkFileRules('MyService.java', info);
-  assert.strictEqual(findings.length, 1, 'Expected 1 finding for batch method lacking @Transactional');
-  assert.strictEqual(findings[0].symbol, 'batchUpdateUser');
-  assert.strictEqual(findings[0].severity, 'medium');
-  assert.ok(findings[0].message.includes('lacks @Transactional'));
-}
-
-function testBatchWithTransactionalSkipped() {
-  const info = {
-    originalPath: 'src/main/java/com/example/MyService.java',
-    functionRecords: [
-      {
-        name: 'batchUpdateUser',
-        decorators: ['Transactional'], // With @Transactional decorator
-      },
-      {
-        name: 'batchDeleteUser',
-        decorators: ['@Transactional(readOnly = false)'],
-      }
-    ]
-  };
-
-  const findings = checkFileRules('MyService.java', info);
-  assert.strictEqual(findings.length, 0, 'Expected 0 findings for batch methods with @Transactional');
-}
-
 function testRuleLanguageFilter() {
-  // Java rule should not apply to Python file
+  // The JS/TS return-type rule must not apply to a Python file.
   const info = {
     originalPath: 'src/main/python/my_script.py',
     functionRecords: [
       {
-        name: 'batch_update',
-        decorators: [],
+        name: 'run',
+        isExported: true,
+        kind: 'function',
       }
     ]
   };
 
   const findings = checkFileRules('my_script.py', info);
-  assert.strictEqual(findings.length, 0, 'Java rule should not fire on python file');
+  assert.strictEqual(findings.length, 0, 'JS/TS rule should not fire on python file');
 }
 
 function testCustomRuleViaConfig() {
@@ -168,11 +130,11 @@ function testNewLanguageMappingsFireCustomRules() {
 function testCheckAllRules() {
   const graph = new Map([
     [
-      'file1.java',
+      'file1.ts',
       {
-        originalPath: 'file1.java',
+        originalPath: 'file1.ts',
         functionRecords: [
-          { name: 'batchRun', decorators: [] }
+          { name: 'batchRun', isExported: true, kind: 'function' }
         ]
       }
     ],
@@ -367,13 +329,6 @@ function testCppNoReturnTypeSkippedWhenPresent() {
 function testMultiLanguageCheckAllRulesFindsThreeLanguages() {
   const graph = new Map([
     [
-      'service.java',
-      {
-        originalPath: 'service.java',
-        functionRecords: [{ name: 'batchRun', decorators: [] }],
-      }
-    ],
-    [
       'service.go',
       {
         originalPath: 'service.go',
@@ -410,55 +365,12 @@ function testMultiLanguageCheckAllRulesFindsThreeLanguages() {
   const ruleIds = new Set(findings.map((f) => f.id.split(':')[1]));
   const languages = new Set(findings.map((f) => EXT_TO_LANGUAGE[path.extname(f.file)]));
   assert.ok(languages.size >= 3, `Expected findings from >=3 languages, got ${[...languages].join(', ')}`);
-  assert.ok(ruleIds.has('batch-no-transactional'));
   assert.ok(ruleIds.has('exported-function-missing-error-return'));
 }
 
 /* -------------------------------------------------------------------------- */
 // E2E tests via real parsers
 /* -------------------------------------------------------------------------- */
-
-async function testJavaBatchNoTransactionalE2E() {
-  const source = `
-public class MyService {
-    @Transactional
-    public void batchUpdateUser() {}
-
-    public void batchDeleteUser() {}
-}
-`;
-  const parsed = await parseJava(source);
-  const info = {
-    originalPath: 'src/main/java/com/example/MyService.java',
-    functionRecords: parsed.functionRecords,
-  };
-
-  const findings = checkFileRules('MyService.java', info);
-  assert.strictEqual(findings.length, 1, 'Expected 1 finding for un-annotated batch method');
-  assert.strictEqual(findings[0].symbol, 'batchDeleteUser');
-  assert.ok(findings[0].message.includes('lacks @Transactional'));
-}
-
-async function testKotlinBatchNoTransactionalE2E() {
-  const source = `
-class MyService {
-    @Transactional
-    fun batchUpdateUser() {}
-
-    fun batchDeleteUser() {}
-}
-`;
-  const parsed = await parseKotlin(source);
-  const info = {
-    originalPath: 'src/main/kotlin/com/example/MyService.kt',
-    functionRecords: parsed.functionRecords,
-  };
-
-  const findings = checkFileRules('MyService.kt', info);
-  assert.strictEqual(findings.length, 1, 'Expected 1 finding for un-annotated Kotlin batch method');
-  assert.strictEqual(findings[0].symbol, 'batchDeleteUser');
-  assert.ok(findings[0].message.includes('lacks @Transactional'));
-}
 
 function testTypeScriptPublicMethodNoReturnTypeE2E() {
   const source = `
@@ -647,8 +559,6 @@ static void internalFunc() {}
 // Runner
 /* -------------------------------------------------------------------------- */
 const tests = [
-  testBatchNoTransactionalFires,
-  testBatchWithTransactionalSkipped,
   testRuleLanguageFilter,
   testCustomRuleViaConfig,
   testExtensionToLanguageConfigTable,
@@ -667,8 +577,6 @@ const tests = [
   testCppNoReturnTypeFires,
   testCppNoReturnTypeSkippedWhenPresent,
   testMultiLanguageCheckAllRulesFindsThreeLanguages,
-  testJavaBatchNoTransactionalE2E,
-  testKotlinBatchNoTransactionalE2E,
   testTypeScriptPublicMethodNoReturnTypeE2E,
   testJavaScriptNoReturnTypeSkippedInPlainJsE2E,
   testJavaScriptParameterTypeOnlyTriggersE2E,

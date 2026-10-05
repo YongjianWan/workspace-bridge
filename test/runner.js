@@ -590,7 +590,20 @@ function warmCache() {
   }
 }
 
+// Tests run git in temp repositories; none may rewrite this repository's own commit identity.
+function readRepoIdentity() {
+  const read = (key) => spawnSync('git', ['config', '--local', '--get', key], { cwd: REPO_ROOT, encoding: 'utf8' }).stdout.trim();
+  return { name: read('user.name'), email: read('user.email') };
+}
+
+function describeIdentityChange(before, after) {
+  if (before.name === after.name && before.email === after.email) return null;
+  return `repository git identity changed during the run: ${before.name} <${before.email}> -> ${after.name} <${after.email}>`;
+}
+
 async function main() {
+  const identityBefore = readRepoIdentity();
+
   // Self-check: warn about tests that look slow but are classified as fast.
   const validationWarnings = validateSlowClassification(files);
   if (validationWarnings.length > 0) {
@@ -614,6 +627,12 @@ async function main() {
   if (serialFiles.length > 0) {
     console.log('\n[Serial]', serialFiles.length, 'tests');
     await runSerial(serialFiles);
+  }
+
+  const identityChange = describeIdentityChange(identityBefore, readRepoIdentity());
+  if (identityChange) {
+    failed++;
+    failures.push({ file: `(runner) ${identityChange}`, status: 1 });
   }
 
   const elapsed = Date.now() - start;
@@ -653,4 +672,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { classifyTest, classifyTestDetail, needsCacheDir, validateSlowClassification, isKnownSlowPatternConflict };
+module.exports = { describeIdentityChange, classifyTest, classifyTestDetail, needsCacheDir, validateSlowClassification, isKnownSlowPatternConflict };

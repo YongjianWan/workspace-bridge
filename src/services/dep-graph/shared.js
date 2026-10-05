@@ -203,6 +203,10 @@ const CONFIG_FILE_PATTERN = /\.config\.(js|jsx|ts|tsx|mjs|cjs|mts|cts)$/i;
 // #21: __main__ regex promoted to module-level constant
 const PYTHON_MAIN_PATTERN = /if\s+__name__\s*==\s*['"]__main__['"]\s*:/;
 
+// Java `public static void main(`, Kotlin top-level `fun main(`: an executable entry point whatever the file is called.
+const JVM_MAIN_PATTERN = /\bpublic\s+static\s+void\s+main\s*\(|^\s*(?:public\s+)?fun\s+main\s*\(/m;
+const JVM_ENTRY_EXTENSIONS = new Set(['.java', '.kt']);
+
 // CRG-inspired dead-code filter chain: symbols conventionally not considered dead
 const DEAD_EXPORT_FILTER_RE = {
   dunder: /^__.*__$/,
@@ -238,6 +242,8 @@ module.exports = {
   KNOWN_CONFIG_NAMES,
   CONFIG_FILE_PATTERN,
   PYTHON_MAIN_PATTERN,
+  JVM_MAIN_PATTERN,
+  JVM_ENTRY_EXTENSIONS,
   DEAD_EXPORT_FILTER_RE,
   isConventionallyAliveSymbol,
 };

@@ -146,6 +146,7 @@ async function runApiContracts(options) {
 
   let frontendContainer = null;
   let backendContainer = null;
+  let outcome;
 
   try {
     // Initialize sequentially to avoid global parser/cache contention.
@@ -155,13 +156,24 @@ async function runApiContracts(options) {
     const clientResult = await collectClientCalls(frontendContainer);
     const serverResult = await collectServerRoutes(backendContainer);
 
-    return buildResult(frontendRoot, backendRoot, clientResult, serverResult, options);
+    outcome = buildResult(frontendRoot, backendRoot, clientResult, serverResult, options);
   } catch (err) {
-    return { ok: false, error: err.message || String(err), hasFindings: false };
-  } finally {
-    if (frontendContainer) await frontendContainer.shutdown();
-    if (backendContainer) await backendContainer.shutdown();
+    outcome = failure('unexpected_error', err.message || String(err), { hasFindings: false });
   }
+
+  // Each container is released on its own: one failing shutdown must not leave the other open,
+  // and the failure is reported, not swallowed.
+  const shutdownWarnings = [];
+  for (const [role, container] of [['frontend', frontendContainer], ['backend', backendContainer]]) {
+    if (!container) continue;
+    try {
+      await container.shutdown();
+    } catch (err) {
+      shutdownWarnings.push(warningOf('container-shutdown-failed', { role, message: err.message || String(err) }));
+    }
+  }
+  if (shutdownWarnings.length > 0) outcome.warnings = [...(outcome.warnings || []), ...shutdownWarnings];
+  return outcome;
 }
 
 module.exports = {

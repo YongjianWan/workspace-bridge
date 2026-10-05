@@ -6,17 +6,14 @@
 // 是纪律写进文档之后新写的同族实例。防线只设在外部边界（graph-db deserialize
 // 恒产对象、setFileMetadata 恒写对象）；内部消费点摘 ?.，让结构性违约炸出来。
 //
-// 结构性合同（源形态回归闸）：三处调用必须无条件直调——`?.` 回潮即红。
+// 源形态约束（调用点不得打 `?.`）由 eslint.config.js 的 no-restricted-syntax 承担。
 // 行为合同：null entry 和缺内容 hash 的 entry 都必须炸；签名只随内容变，
 // 不随 mtime/size 变（快照新鲜度看的是内容）。
 
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
 const { WorkspaceCache } = require('../src/services/cache');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
-
-const SRC = path.join(__dirname, '..', 'src');
 
 // --- cache 内部合同 ---
 
@@ -76,52 +73,11 @@ function testSignatureTracksContentNotStat() {
   }
 }
 
-// --- 调用点结构性合同（纪律回归闸：?. 回潮即红） ---
-
-function readSrc(rel) {
-  return fs.readFileSync(path.join(SRC, rel), 'utf8');
-}
-
-function testOverviewToolsCallsUnconditionally() {
-  const src = readSrc('tools/overview-tools.js');
-  assert.ok(!src.includes('getContentSignature?.'), 'overview-tools 不得对 getContentSignature 打 ?.（L3-8）');
-  const calls = src.split('container.cache.getContentSignature()').length - 1;
-  assert.strictEqual(calls, 1, `overview-tools 应恰好 1 处无条件直调（快照写盘），实得 ${calls}`);
-}
-
-function testSnapshotFreshnessCallsUnconditionally() {
-  // L3-11 收口后 strict 档的内容签名比较集中在 snapshot-freshness.js，
-  // overview-tools 的 freshness 调用不再本地直调——闸跟着结构走。
-  const src = readSrc('tools/snapshot-freshness.js');
-  assert.ok(!src.includes('getContentSignature?.'), 'snapshot-freshness 不得对 getContentSignature 打 ?.（L3-8）');
-  const calls = src.split('container.cache.getContentSignature()').length - 1;
-  assert.strictEqual(calls, 1, `snapshot-freshness 应恰好 1 处无条件直调（strict 档 contentMatch），实得 ${calls}`);
-}
-
-function testQueryToolsCallsUnconditionally() {
-  const src = readSrc('tools/query-tools.js');
-  assert.ok(!src.includes('getContentSignature?.'), 'query-tools 不得对 getContentSignature 打 ?.（L3-8）');
-  const calls = src.split('container.cache.getContentSignature()').length - 1;
-  assert.strictEqual(calls, 1, `query-tools 应恰好 1 处无条件直调（describeReplay），实得 ${calls}`);
-}
-
-function testCacheBodyTrustsObjectShape() {
-  const src = readSrc('services/cache.js');
-  const start = src.indexOf('getContentSignature() {');
-  assert.ok(start >= 0, 'precondition: getContentSignature method exists');
-  const body = src.slice(start, src.indexOf('\n  }', start));
-  assert.ok(!body.includes('meta?.'), 'getContentSignature 不得对 meta 打 ?.（entry 形状由边界保证）');
-}
-
 function main() {
   const tests = [
     testNullEntryThrowsLoudly,
     testEntryWithoutHashThrows,
     testSignatureTracksContentNotStat,
-    testOverviewToolsCallsUnconditionally,
-    testSnapshotFreshnessCallsUnconditionally,
-    testQueryToolsCallsUnconditionally,
-    testCacheBodyTrustsObjectShape,
   ];
   let passed = 0;
   let failed = 0;

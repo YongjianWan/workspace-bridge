@@ -17,6 +17,8 @@ function parseSvelte(content, filePath = '') {
       exportRecords: [],
       functionRecords: [],
       parseMode: 'regex',
+      // No script block: nothing for an AST to parse, so this is not a degraded parse.
+      parseModeReason: 'regex-native',
     };
   }
 

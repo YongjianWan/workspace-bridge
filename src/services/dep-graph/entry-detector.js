@@ -14,6 +14,8 @@ const {
   FRAMEWORK_MANAGED_PATTERNS,
   KNOWN_CONFIG_NAMES,
   PYTHON_MAIN_PATTERN,
+  JVM_MAIN_PATTERN,
+  JVM_ENTRY_EXTENSIONS,
 } = require('./shared');
 
 const C_CPP_ENTRY_EXTENSIONS = new Set(['.c', '.cc', '.cpp', '.cxx']);
@@ -98,6 +100,8 @@ class EntryDetector {
               } else if (content.startsWith('#!')) {
                 result = true;
               } else if (PYTHON_MAIN_PATTERN.test(content)) {
+                result = true;
+              } else if (JVM_ENTRY_EXTENSIONS.has(path.extname(filePath).toLowerCase()) && JVM_MAIN_PATTERN.test(content)) {
                 result = true;
               }
             }

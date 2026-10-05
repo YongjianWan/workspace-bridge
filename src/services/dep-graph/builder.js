@@ -415,10 +415,11 @@ class GraphBuilder {
     let packageName = null;
 
     const entry = registry.findByExt(ext);
+    let result = null;
     if (entry) {
       const args = entry.needsFilePath ? [content, filePath] : [content];
       if (entry.needsWorkspaceRoot) args.push(this.dg.root);
-      const result = entry.async ? await entry.parse(...args) : entry.parse(...args);
+      result = entry.async ? await entry.parse(...args) : entry.parse(...args);
       if (result) {
         imports = result.imports;
         exports = result.exports;
@@ -432,13 +433,8 @@ class GraphBuilder {
 
     let parseModeReason = 'unsupported-extension';
     if (entry) {
-      if (parseMode === 'ast') {
-        parseModeReason = 'ast-success';
-      } else if (entry.async) {
-        parseModeReason = 'regex-fallback';
-      } else {
-        parseModeReason = 'regex-native';
-      }
+      // A regex result is untrusted unless its parser says regex is its designed path.
+      parseModeReason = parseMode === 'ast' ? 'ast-success' : (result?.parseModeReason || 'regex-fallback');
     }
 
     const frameworkHint = await detectFrameworkFromContent(filePath, content);
@@ -711,6 +707,13 @@ class GraphBuilder {
       this.dg.graph.set(fileKey, info);
     }
 
+    // Membership indexes for the loops below: a package of N files makes N*N membership
+    // checks per run, which as array scans over imports/importRecords is what made
+    // thousand-class packages slow.
+    const importedFiles = new Set(info.imports);
+    const recordKey = (resolved, source) => JSON.stringify([resolved, source]);
+    const knownRecords = new Set(info.importRecords.map((r) => recordKey(r.resolved, r.source)));
+
     // 1. Expand wildcard imports
     for (const record of info.importRecords || []) {
       if (record.usesAllExports && !record.resolved) {
@@ -719,14 +722,13 @@ class GraphBuilder {
         if (pkgFiles) {
           for (const targetFile of pkgFiles) {
             if (targetFile === fileKey) continue;
-            if (!info.imports.includes(targetFile)) {
+            if (!importedFiles.has(targetFile)) {
+              importedFiles.add(targetFile);
               info.imports.push(targetFile);
               edgeCount++;
             }
-            const hasRecord = info.importRecords.some(
-              (r) => r.resolved === targetFile && r.source === record.source
-            );
-            if (!hasRecord) {
+            if (!knownRecords.has(recordKey(targetFile, record.source))) {
+              knownRecords.add(recordKey(targetFile, record.source));
               info.importRecords.push({
                 ...record,
                 resolved: targetFile,
@@ -755,20 +757,19 @@ class GraphBuilder {
       const pkgFiles = this.packageIndex.get(info.package);
       if (pkgFiles) {
         const ref = this._readReferenceSource(fileKey);
+        const implicitSource = `<same-package:${info.package}>`;
         for (const targetFile of pkgFiles) {
           if (targetFile === fileKey) continue;
           if (this._samePackageReferenceJustified(ref, targetFile)) {
-            if (!info.imports.includes(targetFile)) {
+            if (!importedFiles.has(targetFile)) {
+              importedFiles.add(targetFile);
               info.imports.push(targetFile);
               edgeCount++;
               samePackageCount++;
             }
           }
-          const implicitSource = `<same-package:${info.package}>`;
-          const hasRecord = info.importRecords.some(
-            (r) => r.resolved === targetFile && r.source === implicitSource
-          );
-          if (!hasRecord) {
+          if (!knownRecords.has(recordKey(targetFile, implicitSource))) {
+            knownRecords.add(recordKey(targetFile, implicitSource));
             const rec = buildImplicitImportRecord(implicitSource, targetFile, 'java-same-package');
             rec.tier = 'tier3';
             rec.resolutionMethod = 'java-same-package';

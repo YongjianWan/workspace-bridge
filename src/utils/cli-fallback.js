@@ -9,6 +9,8 @@ function isMissingCommand(result) {
 }
 
 function runCommand(command, args, options = {}) {
+  // Runs the CLI itself with inherited stdio; its own timeouts apply, a wall-clock cap here would cut a legitimate long run.
+  // eslint-disable-next-line no-restricted-syntax
   return spawnSync(command, args, {
     stdio: options.stdio || 'inherit',
     cwd: options.cwd || process.cwd(),

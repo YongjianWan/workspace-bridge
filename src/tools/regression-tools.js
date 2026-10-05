@@ -6,7 +6,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const DEFAULT_BASELINE_FILE = '.workspace-bridge-baseline.json';
-const { SCHEMA_VERSION } = require('../config/constants');
+const { SCHEMA_VERSION, TIMEOUTS } = require('../config/constants');
 const { stripBOM } = require('../utils/sanitize');
 const { failure } = require('../utils/failure');
 
@@ -21,7 +21,7 @@ function resolveBaseline(args) {
     } else {
       let isValidCommit = false;
       try {
-        execFileSync('git', ['rev-parse', '--verify', args.baseline], { cwd, stdio: 'pipe' });
+        execFileSync('git', ['rev-parse', '--verify', args.baseline], { cwd, stdio: 'pipe', timeout: TIMEOUTS.GIT_SHORT_MS });
         isValidCommit = true;
       } catch (_) {}
       if (isValidCommit) {
@@ -203,13 +203,13 @@ function checkRegression(currentResult, baselineFilePath) {
 
 function checkRegressionAgainstCommit(currentResult, commit, cwd) {
   try {
-    execFileSync('git', ['rev-parse', '--verify', commit], { cwd, stdio: 'pipe' });
+    execFileSync('git', ['rev-parse', '--verify', commit], { cwd, stdio: 'pipe', timeout: TIMEOUTS.GIT_SHORT_MS });
   } catch {
     return failure('git_error', `Invalid commit: ${commit}`);
   }
   let stdout;
   try {
-    stdout = execFileSync('git', ['diff', '--name-only', `${commit}...HEAD`], { cwd, encoding: 'utf8', stdio: 'pipe' });
+    stdout = execFileSync('git', ['diff', '--name-only', `${commit}...HEAD`], { cwd, encoding: 'utf8', stdio: 'pipe', timeout: TIMEOUTS.GIT_DEFAULT_MS });
   } catch {
     return failure('git_error', `Failed to get diff for commit: ${commit}`);
   }

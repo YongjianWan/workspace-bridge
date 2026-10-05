@@ -41,4 +41,27 @@ module.exports = [
       'no-empty': ['error', { allowEmptyCatch: true }],
     },
   },
+  {
+    // 源码形态约束：以前靠测试读源码文本断言，现在由 lint 拦截。
+    files: ['src/**/*.js'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          // 同步子进程调用没有 timeout 会在 git/外部工具卡住时挂住整个 CLI。
+          selector: "CallExpression[callee.name=/^(execSync|execFileSync|spawnSync)$/]:not(:has(ObjectExpression > Property[key.name='timeout']))",
+          message: 'execSync/execFileSync/spawnSync must pass a timeout option.',
+        },
+        {
+          // 内容签名是内部合同：缺失应当炸出来，不用 ?. 吞掉。
+          selector: "CallExpression[optional=true][callee.property.name='getContentSignature']",
+          message: 'getContentSignature is an internal contract; call it directly, do not guard it with ?.',
+        },
+        {
+          selector: "MethodDefinition[key.name='getContentSignature'] MemberExpression[optional=true][object.name='meta']",
+          message: 'getContentSignature trusts the cache entry shape; do not guard meta with ?.',
+        },
+      ],
+    },
+  },
 ];

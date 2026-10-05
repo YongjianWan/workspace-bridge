@@ -71,8 +71,11 @@ function findExistingTestFiles(workspaceRoot, sourceFiles) {
 
 function buildNodeTestCommand(runner, files, execConfig) {
   const { command, args } = splitCommand(execConfig.exec);
-  if (runner === 'vitest') return { command, args: [...args, 'vitest', 'run', ...files] };
-  if (runner === 'jest') return { command, args: [...args, 'jest', ...files] };
+  // The targets are changed files, usually sources: a bare path would be read as a test-name
+  // pattern and match nothing. Both runners resolve "tests related to these files" themselves
+  // (a test file is related to itself).
+  if (runner === 'vitest') return { command, args: [...args, 'vitest', 'related', '--run', ...files] };
+  if (runner === 'jest') return { command, args: [...args, 'jest', '--passWithNoTests', '--findRelatedTests', ...files] };
   if (runner === 'mocha') return { command, args: [...args, 'mocha', ...files] };
   // Custom/unknown runner: cannot reliably run focused tests per-file
   if (runner === 'custom') return null;

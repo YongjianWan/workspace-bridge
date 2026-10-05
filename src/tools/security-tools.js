@@ -3,7 +3,8 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { getAvailableAdapters } = require('../adapters');
+const { getAvailableAdapters, getAllAdapters } = require('../adapters');
+const { warningOf } = require('../services/ledger');
 const { normalizePathKey } = require('../utils/path');
 const { sanitizeForAiOutput, stripBOM } = require('../utils/sanitize');
 const SENSITIVE_RULE_ID = /secret|sensitive|credential|password|token|api[-_]?key|private[-_]?key/i;
@@ -319,9 +320,18 @@ async function auditSecurity({ cwd, targets, config, language, builtinOnly }, co
     });
     const filtered = findingsWithId.filter((f) => !ignoredFindings.has(f.id));
     const bySeverity = groupBySeverity(filtered);
+    // Only the built-in rules ran. If that is because an external tool is missing (not because
+    // the caller asked for --builtin-only or a local rule file), say which one.
+    const warnings = builtinOnly || isLocalConfigFile
+      ? []
+      : getAllAdapters().map((adapter) => warningOf('external-tool-unavailable', {
+        tool: adapter.name,
+        message: `${adapter.name} was not found on PATH; only the built-in rules ran, so "no findings" covers fewer checks`,
+      }));
     return {
       ok: true,
       adapters: ['builtin'],
+      warnings,
       findings: filtered,
       scanMeta: [{ name: 'builtin', summary: { ...builtin.summary, total: filtered.length } }],
       summary: {

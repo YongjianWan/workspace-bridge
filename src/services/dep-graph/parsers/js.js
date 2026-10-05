@@ -52,6 +52,8 @@ function parseJavaScript(content, filePath = '') {
     exportRecords,
     functionRecords,
     parseMode: 'regex',
+    // The AST path exists for JS/TS, so reaching here means it was unavailable or failed.
+    parseModeReason: 'regex-fallback',
   };
 }
 

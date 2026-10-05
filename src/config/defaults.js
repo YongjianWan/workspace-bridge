@@ -5,6 +5,8 @@ const DEFAULTS = {
   // affected_tests / impact radius: depth 5 balances coverage vs. explosion.
   // Most real-world test-to-code mappings sit within 1-3 hops.
   AFFECTED_TEST_DEPTH: 5,
+  // Reach of audit-diff --with-impact when --max-depth is not given.
+  DIFF_IMPACT_DEPTH: 2,
   // Symbol-level impact uses 4 because it traverses one fewer hop
   // than file-level (symbol -> file -> test instead of file -> file -> test).
   SYMBOL_IMPACT_DEPTH: 4,
@@ -12,6 +14,8 @@ const DEFAULTS = {
   // projects (src/main/java/com/company/...) while still bounding descent.
   // Dependency directories (node_modules, target, etc.) are excluded separately.
   FILE_INDEX_MAX_DEPTH: 12,
+  // Ceiling for the maxIndexDepth config key; keeps the recursive walk bounded on cyclic or runaway trees.
+  FILE_INDEX_MAX_DEPTH_CEILING: 64,
   // Hotspot analysis budget: limit history queries to avoid Git churn
   // on monorepos with thousands of mainline files.
   HOTSPOT_CANDIDATE_LIMIT: 50,

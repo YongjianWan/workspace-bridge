@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { DATA_QUALITY, REMEDIATION } = require('../config/data-quality');
+const { TIMEOUTS } = require('../config/constants');
 const { expandShortPath } = require('./path');
 
 const PROJECT_MARKERS = [
@@ -26,7 +27,7 @@ const PROJECT_MARKERS = [
 ];
 
 function runGit(root, args) {
-  return spawnSync('git', ['-C', root, ...args], { encoding: 'utf8' });
+  return spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: TIMEOUTS.GIT_SHORT_MS });
 }
 
 function isGitRepo(root) {

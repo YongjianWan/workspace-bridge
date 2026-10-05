@@ -42,6 +42,9 @@ const TIMEOUTS = {
   // about twice the warm 3000-file run (13.7 s), so only large repositories trigger it.
   INIT_HEARTBEAT_MS: 30000,
 
+  // How long watch waits for a command's output pipes to close after its process exited.
+  WATCH_STDIO_GRACE_MS: 1000,
+
   // Total budget for runDiagnostics; must exceed sum of individual check timeouts.
   DIAGNOSTICS_TOTAL_MS: 120000,
 

@@ -142,8 +142,15 @@ function executeWatchCommand(entry, workspaceRoot, timeoutMs = WATCH_COMMAND_TIM
       child.kill();
     }, timeoutMs);
 
-    child.on('exit', (code) => {
+    // 'exit' can fire while the pipes still hold output (a child of the command may
+    // outlive it), so wait for 'close'; the grace timer bounds a child that never closes them.
+    let settled = false;
+    let graceTimer = null;
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      clearTimeout(graceTimer);
       const durationMs = Date.now() - startTime;
       const expected = typeof exec.expectedExitCode === 'number' ? exec.expectedExitCode : 0;
       resolve({
@@ -156,10 +163,19 @@ function executeWatchCommand(entry, workspaceRoot, timeoutMs = WATCH_COMMAND_TIM
         truncated: stdoutTruncated || stderrTruncated || undefined,
         durationMs,
       });
+    };
+
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      graceTimer = setTimeout(() => finish(code), TIMEOUTS.WATCH_STDIO_GRACE_MS);
     });
+    child.on('close', (code) => finish(code));
 
     child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      clearTimeout(graceTimer);
       resolve({
         name: entry.name,
         ok: false,
@@ -423,6 +439,7 @@ async function startAuditFileWatch(options) {
 }
 
 module.exports = {
+  executeWatchCommand,
   startWatch,
   startAuditFileWatch,
   formatWatchOutput,

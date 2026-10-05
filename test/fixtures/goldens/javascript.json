@@ -42,5 +42,6 @@
     "./legacy",
     "./user-service"
   ],
-  "parseMode": "regex"
+  "parseMode": "regex",
+  "parseModeReason": "regex-fallback"
 }

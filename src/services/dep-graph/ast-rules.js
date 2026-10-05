@@ -52,13 +52,6 @@ function fileUsesTypeScriptSyntax(functionRecords) {
 
 const RULES = [
   {
-    id: 'batch-no-transactional',
-    language: ['java', 'kotlin'],
-    match: (fn) => /^batch/i.test(fn.name) && !fn.decorators?.some(d => /Transactional/i.test(d)),
-    severity: 'medium',
-    message: (fn) => `${fn.name} lacks @Transactional annotation`,
-  },
-  {
     id: 'exported-function-no-return-type',
     language: ['typescript', 'javascript', 'vue', 'svelte'],
     match: (fn, ctx) => {

@@ -1,7 +1,6 @@
 // @contract
 const assert = require('assert');
 const { parseKotlin } = require('../src/services/dep-graph/parsers/kotlin-ast');
-const { checkFileRules } = require('../src/services/dep-graph/ast-rules');
 
 const KOTLIN_SOURCE = `
 package com.example
@@ -158,17 +157,6 @@ async function testKotlinAstSchema() {
   assert(dispatchRec.fingerprint, 'dispatch should have fingerprint');
   assert.strictEqual(dispatchRec.fingerprint.branchCount, 3);
   assert.strictEqual(dispatchRec.fingerprint.maxArms, 4);
-
-  // AST rule integration: batch-no-transactional should fire on Kotlin functions
-  const findings = checkFileRules('MyService.kt', {
-    originalPath: 'src/main/kotlin/com/example/MyService.kt',
-    functionRecords: result.functionRecords,
-  });
-  const batchInsertFinding = findings.find((f) => f.symbol === 'batchInsertUsers');
-  assert(batchInsertFinding, 'batchInsertUsers should trigger batch-no-transactional');
-  assert.strictEqual(batchInsertFinding.severity, 'medium');
-  assert.ok(batchInsertFinding.message.includes('lacks @Transactional'));
-  assert(!findings.some((f) => f.symbol === 'batchUpdateUsers'), 'batchUpdateUsers has @Transactional, should not fire');
 }
 
 async function main() {

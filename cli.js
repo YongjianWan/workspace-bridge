@@ -20,6 +20,7 @@ const { version } = require('./package.json');
 const { stripBOM } = require('./src/utils/sanitize');
 
 const { ServiceContainer } = require('./src/services/container');
+const { installSignalCleanup } = require('./src/cli/signal-cleanup');
 const { findWorkspaceRoot, normalizePath } = require('./src/utils/path');
 const { TIMEOUTS, SCHEMA_VERSION, EXIT_CODES } = require('./src/config/constants');
 const { COMMANDS, SELF_MANAGED_COMMANDS, SELF_CONTAINER_COMMANDS } = require('./src/cli/commands');
@@ -225,6 +226,9 @@ function parseFailureResponse(args, err) {
   return buildCliError({ json: true, type, message: err.message || String(err), suggestion, status, command: guessCommand(args) });
 }
 
+// The container this process created for the current one-shot command; the signal handler shuts it down.
+let ownedContainer = null;
+
 async function runCliInProcess(args, opts = {}) {
   let parsed;
   try {
@@ -362,6 +366,7 @@ async function runCliInProcess(args, opts = {}) {
   const shouldInit = !container && needsContainer;
   if (!container && needsContainer) {
     container = new ServiceContainer({ quiet: parsed.quiet, cacheDir: parsed.cacheDir, ledger: parsed.ledger });
+    ownedContainer = container;
   }
 
   try {
@@ -400,6 +405,7 @@ async function runCliInProcess(args, opts = {}) {
     return buildErrorResponse(parsed, err);
   } finally {
     if (shouldInit) await container.shutdown();
+    if (ownedContainer === container) ownedContainer = null;
   }
 }
 
@@ -445,6 +451,7 @@ async function main() {
     return;
   }
 
+  installSignalCleanup({ getContainer: () => ownedContainer });
   const result = await runCliInProcess(process.argv.slice(2));
   if (result.stdout) {
     process.stdout.write(result.stdout + (result.stdout.endsWith('\n') ? '' : '\n'));

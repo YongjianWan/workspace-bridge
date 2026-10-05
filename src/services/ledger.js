@@ -31,6 +31,8 @@ const REASON_CODES = Object.freeze({
   'unknown-fields': { severity: 'medium' },
   'missing-target': { severity: 'high' },
   'ignored-option': { severity: 'low' },
+  'external-tool-unavailable': { severity: 'medium' },
+  'container-shutdown-failed': { severity: 'medium' },
   'api-contract-read-error': { severity: 'medium' },
   'api-contract-dynamic-url-skipped': { severity: 'low' },
   'api-contract-path-normalization': { severity: 'low' },

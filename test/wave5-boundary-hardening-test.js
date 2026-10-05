@@ -67,35 +67,9 @@ function testAnalyzeFileSwallowsStringRejection() {
   }
 }
 
-/* --------------------------------------------------------------------------
- * #17: container execSync calls include timeout option.
- * -------------------------------------------------------------------------- */
-function testContainerGitTimeout() {
-  const containerSrc = fs.readFileSync(path.join(__dirname, '../src/services/container.js'), 'utf8');
-  const matches = containerSrc.match(/execSync\('git rev-parse HEAD'/g);
-  assert(matches && matches.length >= 2, 'container.js should have at least 2 git rev-parse HEAD calls');
-
-  const timeoutMatches = containerSrc.match(/timeout:\s*TIMEOUTS\.GIT_SHORT_MS/g);
-  assert(timeoutMatches && timeoutMatches.length >= 2, 'each git rev-parse HEAD call should have timeout option');
-}
-
-/* --------------------------------------------------------------------------
- * #13: diagnostics build checks include explicit timeout.
- * -------------------------------------------------------------------------- */
-function testDiagnosticsBuildChecksTimeout() {
-  const toolsSrc = fs.readFileSync(path.join(__dirname, '../src/tools/workspace-tools.js'), 'utf8');
-  assert(toolsSrc.includes("timeout: TIMEOUTS.DIAGNOSTICS_LONG_MS"), 'node:build/node:test/pytest checks should have timeout');
-  assert(toolsSrc.includes('buildChecks timeout'), 'runDiagnostics should guard buildChecks with a timeout');
-  // Wave 8: ensure all checks have explicit timeout so no check falls back to the 120s default.
-  assert(toolsSrc.includes("timeout: TIMEOUTS.DIAGNOSTICS_CHECK_MS"), 'node:tsc/node:lint/node:eslint checks should have timeout');
-  assert(toolsSrc.includes("timeout: TIMEOUTS.DIAGNOSTICS_MEDIUM_MS"), 'django:check/python:compileall checks should have timeout');
-}
-
 async function main() {
   await testEmptyDirectoryPrunesStaleCache();
   testAnalyzeFileSwallowsStringRejection();
-  testContainerGitTimeout();
-  testDiagnosticsBuildChecksTimeout();
   console.log('wave5-boundary-hardening-test.js: all passed');
 }
 
