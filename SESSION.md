@@ -10,11 +10,11 @@
 - WSL Ubuntu 24.04/ext4、Node 22.13.0：全量 321/321、0 失败、退出码 0；lint 退出码 0。GitHub Actions 的 ubuntu/windows 矩阵与慢层已连续 3 次全绿，macOS 快层通过；Docker（node:22、Linux 容器）全量 327/327；`main` 已设合并门禁。
 - affected-tests 真值基线 TP 3045、FP 2512、FN 29；评测方法见 eval/README.md，不能把冻结 probe 外推为全语料准确率。
 - U-15/U-30 仍需深信服隔离、真实同步盘与域策略条件；当前无这些条件，保留待核。深信服 aES 为公司管理，保持运行；不要求卸载。
-- 重点开放问题：H-28（watch 测试顺序）、H-29（Windows 外部工具探测）、H-32 与 L2-45、L3-18（缓存回收）；证据和验收线以 TECH_DEBT 为准。
+- 重点开放问题：H-28（watch 测试顺序）、H-29（Windows 外部工具探测）、L2-45、L3-18（缓存回收）；证据和验收线以 TECH_DEBT 为准。
 
 ## 下一步
 
-2. 第 3、4 步已完成；第 5 步台账的警告部分已完成（约 22 个原因码，提交 8e0cc92）；错误信封已完成（CLI 层 f10ab7c，工具层失败结果见 CHANGELOG），H-15 只剩 REPL 错误形状；下一步：H-20 剩 `--quiet` 长时间无输出与 3 万文件复测、H-7 剩 typer、cobra、petclinic 的精确率（召回率已高）。H-11 等其余开放项以 TECH_DEBT 为准。
+2. 第 3、4 步已完成；第 5 步台账的警告部分已完成（约 22 个原因码，提交 8e0cc92）；错误信封已完成（CLI 层 f10ab7c，工具层失败结果与 REPL 见 CHANGELOG）；下一步：H-20 剩 `--quiet` 长时间无输出与 3 万文件复测、H-7 剩 typer、cobra、petclinic 的精确率（召回率已高）。H-11 等其余开放项以 TECH_DEBT 为准。
 3. H-24、L1-19：核验 gitignore 子目录根判定与 submodule 的 git check-ignore 异常。
 4. L2-41：补生成客户端代码的 api-contracts 匹配；不要把取证脚本退出 0 当作业务验收。
 5. L3-17/H-20：隔离文件发现成本；3 万文件在读取合并后复测；已有真实指标不能由小夹具替代。

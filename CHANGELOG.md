@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### REPL 错误形状、watch 目录事件、安装脚本退出码（2026-10-05）
+
+- REPL 的失败结果与 CLI 同形：`{ok:false, errorType, error, suggestion}`。未知命令为 `unknown_command`，缺参数为 `validation_error`（两者退出码 2），图里没有该文件为 `path_error`，依赖图不可用为 `init_error`（退出码 1）；`--eval` 多条命令时，失败的那条在 `results[]` 里是同样的字段加 `command`。退出码判定改为优先看 `errorType`，原先的消息子串匹配只作兜底。回归：`repl-json-test` 的 `testReplFailureShapeMatchesCli`；把 `src/cli/repl.js` 还原成旧版时该测试变红。H-15 关闭。
+- `watch` 不再把目录事件交给增量建图：`fs.watch` 会上报目录，旧代码把它当源文件读，stderr 出现 `[DepGraph] Failed to parse ...: EISDIR`。`FileIndex.handleFileChange` 对目录返回 `false`，不发 `file:changed`，`processPending` 的 `pending:processed` 只含文件。回归：`file-index-directory-event-test`（改前红）。H-21 关闭；原验收线是 60 分钟同脚本 stderr 里 `EISDIR` 为 0 次，这次只用单元测试覆盖，未重跑 60 分钟。
+- `setup-global-cli.ps1` 逐步检查结果：`npm link` 失败、`audit-summary` 验证失败都停止并返回 1，只有全部成功才显示 "Setup complete"（原先固定显示完成并返回 0）；提示符号换成 ASCII，避免无 BOM 的 UTF-8 在 Windows PowerShell 5.1 里乱码。回归：`setup-global-cli-test`（成功、`npm link` 失败、CLI 失败三种情形；仅 Windows 运行；还原旧脚本时变红）。H-32 关闭。快测 215/215、lint 退出码 0。
+
 ### 整应用上下文测试（2026-10-05）
 
 - 带 `@SpringBootTest` 的 JVM 测试启动整个应用，主代码任何改动都可能让它失败，图里没有对应的边。`affected-tests` 新增一层：查询的是 Java 或 Kotlin 源文件时，同模块（`src/` 的上级目录）里所有带 `@SpringBootTest` 的测试以 `source: "framework"`、`via: ["@SpringBootTest"]`、距离 `maxDepth + 1` 返回，排在所有图推导结果之后。别的模块、非 JVM 源文件、测试文件本身不触发。新增 `src/services/dep-graph/context-tests.js`；扫描结果按图版本缓存，`graph:updated` 时丢弃。
