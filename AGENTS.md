@@ -39,7 +39,7 @@
 
 ## 当前核验
 
-`node test/wb-repro.js cli.js` 当前为 27/27 OK、退出码 0；`CACHE_VERSION=54`，`schemaVersion=1.2.0`。Windows 本机 Node 25.6.0（2026-10-05）：快测 210/210、lint 退出码 0；全量 326/326、0 失败、退出码 0（约 18.8 分钟）。慢测默认并发 2。索引超时或深度截断时 `discoveryComplete=false`、`coverageRatio=null`，不得按 100% 解读；动态加载及缓存失败通过 `warnings[]` 显式说明。
+`node test/wb-repro.js cli.js` 当前为 27/27 OK、退出码 0；`CACHE_VERSION=54`，`schemaVersion=1.2.0`。Windows 本机 Node 25.6.0（2026-10-05）：快测 210/210、lint 退出码 0；全量 327/327、0 失败、退出码 0（约 19.2 分钟）。慢测默认并发 2。索引超时或深度截断时 `discoveryComplete=false`、`coverageRatio=null`，不得按 100% 解读；动态加载及缓存失败通过 `warnings[]` 显式说明。
 
 WSL Ubuntu 24.04/ext4、Node 22.13.0（2026-10-04）：全量 `node test/runner.js` 321/321、0 失败、退出码 0，约 269 秒；lint 退出码 0。测试仓库位于普通目录，runner 与子测试使用同一 Node runtime。
 
@@ -134,7 +134,7 @@ GitHub Actions 的 Node 22/22.13.0/24、ubuntu/windows 矩阵与慢层已在 `2d
 
 **核心服务**：`ServiceContainer` / `FileIndex` / `DependencyGraph` / `DiagnosticsEngine` / `ProjectContext` / `stack-detector`
 
-**关键特性**：`--severity` 过滤 / `--with-impact` / `--staged` / `--files` / `--save` / `--check-regression` / `warnings[]` / exit code 语义（0=成功，1=业务失败，2=崩溃）
+**关键特性**：`--severity` 过滤 / `--with-impact` / `--staged` / `--files` / `--save` / `--check-regression` / `warnings[]` / exit code 语义（0=成功，1=业务失败或参数/路径/配置错误，2=未知命令或崩溃）
 
 > 命令列表见 `node cli.js --help` 和 [SKILL.md](./skills/workspace-audit/SKILL.md)。
 

@@ -64,8 +64,10 @@ workspace-bridge-cli <command> --cwd <project> --json --quiet
 | 退出码 | 语义 | 处理 |
 |-------|------|------|
 | 0 | 成功（含"无 findings"） | 正常消费 JSON |
-| 1 | 业务失败（文件未找到 / `--fail-on-findings` 命中 / guard 超限 / 路径越权） | 读 `error` 字段，不要重试同一命令 |
-| 2 | 参数错误或未捕获异常 | 检查命令拼写与参数，属调用方错误 |
+| 1 | 业务失败或参数/路径/配置错误（文件未找到 / `--fail-on-findings` 命中 / guard 超限 / 路径越权 / 非法取值 / `--cwd` 不存在） | 读 `error` 与 `suggestion`，不要重试同一命令 |
+| 2 | 未知命令、参数无法解析或未捕获异常 | 检查命令拼写，属调用方错误或工具崩溃 |
+
+失败时 `--json` 输出统一带 `ok:false`、`error`、`command`、`schemaVersion`；CLI 层错误另有 `errorType`（`validation_error` / `path_error` / `config_error` 等）和 `suggestion`（下一步该做什么）。
 
 ## 预热工作流
 

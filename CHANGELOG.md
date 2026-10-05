@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### 错误信封第一块（2026-10-05）
+
+- 新增 `src/cli/error-envelope.js`：CLI 层错误（参数解析失败、`--cwd` 不存在、路径越权、命令崩溃、in-process 不支持的命令）统一从 `buildCliError` 输出。JSON 固定含 `ok:false`、`error`、`errorType`、`suggestion`、`command`、`schemaVersion`；`errorType` 限于 `validation_error`、`path_error`、`permission_error`、`timeout_error`、`init_error`、`config_error`、`unexpected_error`，写入未知类型直接抛错。参数解析失败时 `command` 取第一个非选项参数。
+- `validateCwd` 拆成纯检查 `checkCwd` 和给自管命令（init/repl/watch）用的 `validateCwd`。此前 in-process 运行器遇到不存在的 `--cwd` 会直接 `console.log` 并设置 `process.exitCode`，且 `Directory not found` 在 stdout 与 stderr 各出现一次；现在运行器只返回响应，只出现一次。
+- H-15 的 ①–⑤ 补了下一步：`--cwd` 不存在、`File not found`（`--file` 相对 `--cwd` 解析）、路径越权（传工作区内相对路径）、非法 git 范围（回显传入值并给 `HEAD~9..HEAD` 例子）、`guard` 缺目标（说明 `--file`/`--files`/`--staged` 的区别）。human/summary/markdown/jsonl/ai 五种格式在错误下显示 `suggestion`。
+- 退出码契约以实际行为为准并改文档：1 = 业务失败或参数/路径/配置错误，2 = 未知命令、参数无法解析或崩溃（`src/config/exit-codes.js` 与测试锁定未知命令为 2）。SKILL.md、AGENTS.md 已改，`~/.agents/skills/workspace-audit/SKILL.md` 已同步。
+- 回归：`error-envelope-test`（信封形状、in-process 无副作用、解析失败带 command 与类型、未知命令退出 2、工具层建议）；把 `checkCwd` 换回有副作用的旧版、让 git 建议恒为空，各自变红。全量 327/327，快测 210/210，lint 通过。
+
 ### H-18 缩小范围（2026-10-05）
 
 - GitHub Actions 的 `Test`（7 个矩阵任务加 coverage）与 `Test (slow layer)`（ubuntu、windows）在 `2d8403f`、`10d7876`、`027c7ab` 上连续 3 次全绿，逐 job 核对。H-18 缩为两项：macOS/Docker 重验、合并门禁。
