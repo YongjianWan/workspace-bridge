@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### H-33：改工具层代码后不再重放旧分析快照（2026-10-06）
+
+- `analysis_snapshots` 每行只校验 `CACHE_VERSION`，其指纹只覆盖 `src/services/dep-graph/`；改 `src/tools/` 生成 overview 的代码后，旧快照仍被 `audit-overview` 重放（输出带 `replayedFrom`，没有新字段）。新增 `SNAPSHOT_VERSION`（`src/config/versions.js`），指纹覆盖 `src/` 下除 `cli/` 以外的全部源码，快照写入与读取都用它；解析结果缓存仍用只含引擎的 `CACHE_VERSION`，改工具层不会丢解析成果。
+- `test/cache-version-fingerprint-test.js` 锁定"改工具文件指纹变、改 `cli/` 指纹不变"，`test/aggregate-cache-snapshot-gate-test.js` 锁定"用旧的仅引擎版本盖章的快照不被读出"。
+- 同批：`audit-diff-submodule-test`、`gitignore-submodule-test` 的 git 超时由 30 秒放宽到 120 秒（全量并发下 `git submodule add` 实测约 38 秒，此前连续两次全量失败，单独运行通过）。
+
 ### H-22 ②：输出路径统一写法（2026-10-06）
 
 - 同一结果里，`impact` 的 `symbolImpact`、`audit-overview` 的入口文件与边界违规等字段原先输出 Windows 上折成小写的内部键（`c:/users/.../src/main.js`），其余字段是磁盘真实写法（`C:\Users\...\Src\Main.js`），消费者要自己归一化。现在 `formatCliResult` 在序列化前经 `src/cli/path-spelling.js` 把"恰好等于图中某个文件或目录键"的字符串（含对象键）换成磁盘真实写法，保持原字段风格（绝对仍绝对，相对仍相对用 `/`）。大小写敏感的文件系统上键与真实写法相同，索引为空，零开销。

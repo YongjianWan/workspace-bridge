@@ -35,3 +35,29 @@ try {
 } finally {
   cleanupTempDir(dir);
 }
+
+// Analysis snapshots hold what the tools layer computed, so their stamp also covers every source
+// outside the CLI formatting layer: editing a tool must not replay a snapshot made by the old code.
+{
+  const { SNAPSHOT_VERSION, computeSnapshotFingerprint } = require('../src/config/versions');
+  assert.strictEqual(Math.floor(SNAPSHOT_VERSION / FINGERPRINT_SPAN), CACHE_SCHEMA_REVISION, 'the manual revision stays readable inside SNAPSHOT_VERSION');
+
+  const src = makeTempDir('wb-snapshot-fingerprint-');
+  try {
+    fs.mkdirSync(path.join(src, 'tools'));
+    fs.mkdirSync(path.join(src, 'cli'));
+    const tool = path.join(src, 'tools', 'overview.js');
+    fs.writeFileSync(tool, 'module.exports = { a: 1 };\n');
+    fs.writeFileSync(path.join(src, 'cli', 'format.js'), 'module.exports = 1;\n');
+    const before = computeSnapshotFingerprint(src);
+
+    fs.writeFileSync(tool, 'module.exports = { a: 1, probe: 1 };\n');
+    assert.notStrictEqual(computeSnapshotFingerprint(src), before, 'editing a tool changes the snapshot fingerprint');
+
+    fs.writeFileSync(tool, 'module.exports = { a: 1 };\n');
+    fs.writeFileSync(path.join(src, 'cli', 'format.js'), 'module.exports = 2;\n');
+    assert.strictEqual(computeSnapshotFingerprint(src), before, 'output formatting is applied after the snapshot is replayed, so it is not part of the stamp');
+  } finally {
+    cleanupTempDir(src);
+  }
+}

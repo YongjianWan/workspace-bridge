@@ -109,7 +109,7 @@ cli.js main()
 关键契约：
 
 - **`parse_results` 只存解析结果，不存定位结果。** 定位依赖整个文件集合，内容哈希反映不出这种变化。见 `GraphBuilder._toParseRecord()` 及其注释。
-- **版本闸门。** `CACHE_VERSION` 定义在 `src/config/versions.js`，算法是 `CACHE_SCHEMA_REVISION × 2^31 + 引擎指纹`。引擎指纹是 31 位整数，由 `src/services/dep-graph/` 下所有 `.js`、`.scm`、`.json` 文件的内容，加上 `web-tree-sitter`、`tree-sitter-wasms`、`@babel/parser` 三个 npm 包的版本号一起算出来。这个目录里的代码一改，旧缓存自动作废。这个目录以外的代码不在指纹范围内，例如 `src/utils/path.js` 的图键规则、`graph-db.js` 的表结构。改这些代码时，只要会影响缓存内容，就必须手动把 `CACHE_SCHEMA_REVISION` 加 1。另外，`src/tools/` 里生成 `audit-overview` 结果的代码同样不在指纹范围内，而这份结果会存进分析快照。实测确认：只改这部分代码、不加修订号，旧分析快照会被继续重放（见 TECH_DEBT H-33）。这个问题修复之前，改这部分代码时也要把修订号加 1。`GraphDb` 读取时发现版本对不上，就当作没有缓存；`analysis_snapshots` 的每一行还会单独校验 `cache_version`。
+- **版本闸门。** `CACHE_VERSION` 定义在 `src/config/versions.js`，算法是 `CACHE_SCHEMA_REVISION × 2^31 + 引擎指纹`。引擎指纹是 31 位整数，由 `src/services/dep-graph/` 下所有 `.js`、`.scm`、`.json` 文件的内容，加上 `web-tree-sitter`、`tree-sitter-wasms`、`@babel/parser` 三个 npm 包的版本号一起算出来。这个目录里的代码一改，旧缓存自动作废。这个目录以外的代码不在这个指纹范围内，例如 `src/utils/path.js` 的图键规则、`graph-db.js` 的表结构；改这些代码时，只要会影响缓存内容，就必须手动把 `CACHE_SCHEMA_REVISION` 加 1。分析快照另有一个版本 `SNAPSHOT_VERSION`，算法相同，指纹范围是 `src/` 下除 `cli/` 以外的全部源码（工具层决定快照里有什么，`cli/` 只在快照重放之后做格式化），所以改工具层代码时快照自动作废，解析结果缓存不受影响。`GraphDb` 读取时发现版本对不上，就当作没有缓存；`analysis_snapshots` 的每一行还会单独校验 `cache_version` 是否等于 `SNAPSHOT_VERSION`。
 - **增量写。** `file_metadata`、`parse_results`、`symbol_index`、`diagnostics` 四类数据在内存里各有一个 dirty tracker，`save()` 只写有变化的行。`load()` 之后如果整体替换了内存里的 Map，必须同步重置 tracker（`_resetTrackers()`）。
 - **损坏隔离。** 加载时如果发现库文件损坏，就把它连同 SQLite 的 WAL 预写日志文件一起改名为 `.corrupt-<时间戳>`，记一条 `cache-load-failed`，然后按冷启动重建。
 

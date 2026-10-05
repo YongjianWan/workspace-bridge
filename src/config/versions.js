@@ -22,11 +22,13 @@ const FINGERPRINT_SPAN = 2 ** FINGERPRINT_BITS;
 const FINGERPRINTED_EXTENSIONS = new Set(['.js', '.scm', '.json']);
 const FINGERPRINTED_PACKAGES = ['web-tree-sitter', 'tree-sitter-wasms', '@babel/parser'];
 
-function listFingerprintedFiles(dir) {
+function listFingerprintedFiles(dir, skipDirs = new Set()) {
   const files = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) files.push(...listFingerprintedFiles(full));
+    if (entry.isDirectory()) {
+      if (!skipDirs.has(entry.name)) files.push(...listFingerprintedFiles(full, skipDirs));
+    }
     else if (FINGERPRINTED_EXTENSIONS.has(path.extname(entry.name))) files.push(full);
   }
   return files;
@@ -64,11 +66,11 @@ function packageVersion(name) {
  * Windows and a Linux checkout of the same commit agree. If the sources cannot be read the
  * provenance is unknown, so the result is random: no cache written by another process is trusted.
  */
-function computeEngineFingerprint(engineDir = path.join(__dirname, '..', 'services', 'dep-graph')) {
+function computeSourceFingerprint(rootDir, skipDirs) {
   const hash = crypto.createHash('sha256');
   try {
-    for (const file of listFingerprintedFiles(engineDir).sort()) {
-      hash.update(path.relative(engineDir, file).split(path.sep).join('/'));
+    for (const file of listFingerprintedFiles(rootDir, skipDirs).sort()) {
+      hash.update(path.relative(rootDir, file).split(path.sep).join('/'));
       hash.update(fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n'));
     }
     for (const name of FINGERPRINTED_PACKAGES) hash.update(`${name}@${packageVersion(name)}`);
@@ -78,6 +80,23 @@ function computeEngineFingerprint(engineDir = path.join(__dirname, '..', 'servic
   return hash.digest().readUInt32BE(0) % FINGERPRINT_SPAN;
 }
 
-const CACHE_VERSION = CACHE_SCHEMA_REVISION * FINGERPRINT_SPAN + computeEngineFingerprint();
+function computeEngineFingerprint(engineDir = path.join(__dirname, '..', 'services', 'dep-graph')) {
+  return computeSourceFingerprint(engineDir);
+}
 
-module.exports = { SCHEMA_VERSION, CACHE_VERSION, CACHE_SCHEMA_REVISION, FINGERPRINT_SPAN, computeEngineFingerprint };
+// Analysis snapshots hold what the tools layer computed from the graph, so they depend on all of
+// src/ except the CLI layer, which only formats a snapshot after it has been replayed. Parse results
+// keep the narrower engine stamp: editing a tool must not throw away parsing work.
+const SNAPSHOT_EXCLUDED_DIRS = new Set(['cli']);
+
+function computeSnapshotFingerprint(srcDir = path.join(__dirname, '..')) {
+  return computeSourceFingerprint(srcDir, SNAPSHOT_EXCLUDED_DIRS);
+}
+
+const CACHE_VERSION = CACHE_SCHEMA_REVISION * FINGERPRINT_SPAN + computeEngineFingerprint();
+const SNAPSHOT_VERSION = CACHE_SCHEMA_REVISION * FINGERPRINT_SPAN + computeSnapshotFingerprint();
+
+module.exports = {
+  SCHEMA_VERSION, CACHE_VERSION, SNAPSHOT_VERSION, CACHE_SCHEMA_REVISION, FINGERPRINT_SPAN,
+  computeEngineFingerprint, computeSnapshotFingerprint,
+};

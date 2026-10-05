@@ -97,6 +97,16 @@ function testGraphDBAnalysisSnapshotVersionGate() {
   db = new GraphDB(dbPath);
   assert.strictEqual(db.loadAnalysisSnapshot('overview'), null, 'stale-version snapshot must NOT be served');
   db.close();
+
+  // A snapshot stamped with the engine-only version (what it carried before tools code was covered)
+  // is stale too: tools code decides what an overview contains.
+  const { CACHE_VERSION } = require('../src/config/constants');
+  const raw2 = new DatabaseSync(dbPath);
+  raw2.prepare('UPDATE analysis_snapshots SET cache_version = ?').run(CACHE_VERSION);
+  raw2.close();
+  db = new GraphDB(dbPath);
+  assert.strictEqual(db.loadAnalysisSnapshot('overview'), null, 'a snapshot stamped with the engine-only version must NOT be served');
+  db.close();
   fs.unlinkSync(dbPath);
 }
 

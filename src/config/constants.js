@@ -14,7 +14,7 @@ const SCORING = require('./scoring');
 const { DEAD_EXPORT, CONFIDENCE } = require('./dead-export');
 const { DATA_QUALITY, REMEDIATION } = require('./data-quality');
 const PROBE = require('./probe');
-const { SCHEMA_VERSION, CACHE_VERSION } = require('./versions');
+const { SCHEMA_VERSION, CACHE_VERSION, SNAPSHOT_VERSION } = require('./versions');
 const STREAMING = require('./streaming');
 const AI_FORMAT = require('./ai-format');
 const EXIT_CODES = require('./exit-codes');
@@ -32,6 +32,7 @@ module.exports = {
   DATA_QUALITY,
   REMEDIATION,
   CACHE_VERSION,
+  SNAPSHOT_VERSION,
   SCHEMA_VERSION,
   STREAMING,
   AI_FORMAT,

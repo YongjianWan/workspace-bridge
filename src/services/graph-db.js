@@ -7,7 +7,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { CACHE_VERSION } = require('../config/constants');
+const { CACHE_VERSION, SNAPSHOT_VERSION } = require('../config/constants');
 const { failure } = require('../utils/failure');
 const TIMEOUTS = require('../config/timeouts');
 
@@ -729,7 +729,7 @@ class GraphDB {
           'INSERT OR REPLACE INTO analysis_snapshots (key, data, version, file_count, config_hash, computed_at, cache_version, content_signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         const now = Math.floor(Date.now() / 1000);
-        stmt.run(key, JSON.stringify(data), version || '', fileCount ?? 0, configHash || '', now, CACHE_VERSION, contentSignature || '');
+        stmt.run(key, JSON.stringify(data), version || '', fileCount ?? 0, configHash || '', now, SNAPSHOT_VERSION, contentSignature || '');
         return true;
       } catch (err) {
         _debugError('Save analysis snapshot', err);
@@ -753,7 +753,7 @@ class GraphDB {
       // table), so a row can carry an obsolete stamp inside an otherwise
       // current database. Consumers (buildProjectOverview short-circuit,
       // query-*) treat null as a cache miss and recompute.
-      if (Number(row.cache_version) !== CACHE_VERSION) return null;
+      if (Number(row.cache_version) !== SNAPSHOT_VERSION) return null;
       return {
         data: JSON.parse(row.data),
         version: row.version,
