@@ -98,7 +98,7 @@ workspace-bridge-cli audit-overview --cwd <project> --json --quiet
 字段是嵌套的，顶层没有这些名字：
 1. `summary.severity`：衡量影响半径（依赖者加受影响测试），不是代码质量；输出里的 `severityNote` 同样说明
 2. `impact.impact[]`（真实依赖边），总数看 `impact.impactCount`
-3. `affectedTests.affectedTests[]`（优先 `source === "graph"`，`mention` 可忽略），总数看 `affectedTests.affectedTestsCount`
+3. `affectedTests.affectedTests[]`（优先 `source === "graph"`，`mention` 可忽略；`framework` 是 `@SpringBootTest` 启动整个应用的测试，改 JVM 源码前该跑，它们排在最后），总数看 `affectedTests.affectedTestsCount`
 4. `impact.coChanges[]`（历史上与该文件频繁共变的文件，检查是否遗漏）
 
 列表被压缩或截断时顶层 `truncated: true`，`elided[]` 给出每个列表的 `shown` 和 `total`；以计数为准判断影响范围，不要把短列表读成没有影响。

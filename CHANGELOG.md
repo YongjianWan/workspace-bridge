@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### 整应用上下文测试（2026-10-05）
+
+- 带 `@SpringBootTest` 的 JVM 测试启动整个应用，主代码任何改动都可能让它失败，图里没有对应的边。`affected-tests` 新增一层：查询的是 Java 或 Kotlin 源文件时，同模块（`src/` 的上级目录）里所有带 `@SpringBootTest` 的测试以 `source: "framework"`、`via: ["@SpringBootTest"]`、距离 `maxDepth + 1` 返回，排在所有图推导结果之后。别的模块、非 JVM 源文件、测试文件本身不触发。新增 `src/services/dep-graph/context-tests.js`；扫描结果按图版本缓存，`graph:updated` 时丢弃。
+- spring-petclinic（fault-injection 真值，10 个源文件）：召回率 0.76 → 0.98，精确率 0.717 → 0.563（F1 0.738 → 0.715）。精确率下降超过评分容差 0.05，是有意的取舍：测试选择里漏掉会失败的测试比多跑几个测试代价高；需要 Docker 的集成测试在真值运行里没有执行，被算作误报。`eval/baseline.json` 已按此更新，`node eval/score.js` 的其余仓库数字不变。SKILL.md 说明 `framework` 行。
+- 回归：`context-tests-affected-test`（同模块 Java 与 Kotlin 测试都列出、另一模块不列、普通测试不列、非 JVM 源文件与测试文件本身不触发、去掉注解后行消失）。全量 330/330，快测 213/213，lint 通过；去掉这一层、去掉同模块判断、去掉缓存失效各自变红。
+
 ### Go 同包测试关联（2026-10-05）
 
 - Go 同包的 `_test.go` 文件不 import 就能用包里的代码，图里没有这条边，`affected-tests` 只能靠文件名启发式撞上。现在构建的 Go 包展开阶段给同包测试补边：测试文件用到了某个源文件声明的名字（函数、方法、类型、变量、常量，含未导出，长度至少 `LIMITS.GO_SAME_PACKAGE_MIN_IDENTIFIER_LENGTH`=4）就连到该文件。外部测试包（`package x_test`）仍按 import 解析。边为隐式 tier3 记录，不标记"使用了全部导出"，死导出结果不变。新增 `src/services/dep-graph/go-same-package.js`。
