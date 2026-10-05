@@ -16,6 +16,7 @@ const { matchContracts } = require('../services/dep-graph/api-contracts/contract
 const { toRelativePosix } = require('../utils/path');
 const { isTestLikeFile } = require('../utils/project-context');
 const { truncateArray } = require('../utils/truncate');
+const { failure, typedError } = require('../utils/failure');
 
 async function initContainer(cwd, options = {}) {
   const container = new ServiceContainer({ quiet: true, cacheDir: options.cacheDir });
@@ -24,7 +25,7 @@ async function initContainer(cwd, options = {}) {
     strictCwd: options.strictCwd ?? true,
   });
   if (!initialized) {
-    const err = container.initError || new Error(`Failed to initialize workspace container for ${cwd}`);
+    const err = container.initError || typedError('init_error', `Failed to initialize workspace container for ${cwd}`);
     await container.shutdown();
     throw err;
   }
@@ -137,10 +138,10 @@ async function runApiContracts(options) {
   const backendRoot = path.resolve(baseDir, options.backend);
 
   if (!fs.existsSync(frontendRoot) || !fs.statSync(frontendRoot).isDirectory()) {
-    return { ok: false, error: `Frontend path is not a directory: ${frontendRoot}`, hasFindings: false };
+    return failure('path_error', `Frontend path is not a directory: ${frontendRoot}`, { hasFindings: false });
   }
   if (!fs.existsSync(backendRoot) || !fs.statSync(backendRoot).isDirectory()) {
-    return { ok: false, error: `Backend path is not a directory: ${backendRoot}`, hasFindings: false };
+    return failure('path_error', `Backend path is not a directory: ${backendRoot}`, { hasFindings: false });
   }
 
   let frontendContainer = null;

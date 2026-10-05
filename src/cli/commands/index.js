@@ -26,6 +26,7 @@ const init = require('./init');
 const repl = require('./repl');
 const watch = require('./watch');
 const guard = require('./guard');
+const { failure } = require('../../utils/failure');
 
 /**
  * Factory for file-scoped commands that share the boilerplate:
@@ -39,10 +40,10 @@ function makeFileCommand(handler, hasFindingsFn) {
     requireFile(parsed, parsed.command);
     const filePath = resolveWorkspaceFilePath(parsed.file, container.workspaceRoot);
     if (!filePath || !fs.existsSync(filePath)) {
-      return { ok: false, error: `File not found: ${parsed.file}`, suggestion: '--file is resolved relative to --cwd; check the path, or pass --cwd for the workspace that contains it.', inProject: false, hasFindings: false };
+      return failure('path_error', `File not found: ${parsed.file}`, { suggestion: '--file is resolved relative to --cwd; check the path, or pass --cwd for the workspace that contains it.', inProject: false, hasFindings: false });
     }
     if (fs.statSync(filePath).isDirectory()) {
-      return { ok: false, error: `Path is a directory, not a file: ${parsed.file}`, inProject: true, hasFindings: false };
+      return failure('path_error', `Path is a directory, not a file: ${parsed.file}`, { inProject: true, hasFindings: false });
     }
     const result = await handler(parsed, container, filePath);
     if (hasFindingsFn) result.hasFindings = hasFindingsFn(result);
@@ -244,13 +245,13 @@ const COMMANDS = {
   'query-stability': async (parsed, container) => queryStability(parsed, container),
   'query': async (parsed, container) => {
     if (!parsed.sql) {
-      return { ok: false, error: 'Missing --sql query string' };
+      return failure('validation_error', 'Missing --sql query string');
     }
     try {
       await container.ensureReady();
       const queryResult = container.cache?.queryReadOnly?.(parsed.sql, { maxRows: 1000 });
       if (!queryResult) {
-        return { ok: false, error: 'Database not initialized' };
+        return failure('init_error', 'Database not initialized');
       }
       if (!queryResult.ok) {
         return queryResult;
@@ -265,7 +266,7 @@ const COMMANDS = {
         truncated: queryResult.truncated || false,
       };
     } catch (err) {
-      return { ok: false, error: err.message || String(err) };
+      return failure('query_error', err.message || String(err));
     }
   },
 

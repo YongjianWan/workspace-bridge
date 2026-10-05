@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { pathExists, toPosixPath, toRelativePosix, WORKSPACE_MARKERS, BACKSLASH_RE } = require('./path');
+const { typedError } = require('./failure');
 
 const ROLE_PRIORITY = ['generated', 'archive', 'reference', 'active'];
 const DEFAULT_DIRECTORY_HINTS = {
@@ -509,7 +510,7 @@ function loadWorkspaceConfig(root, options = {}) {
     const { stripBOM } = require('./sanitize');
     config = JSON.parse(stripBOM(fs.readFileSync(configPath, 'utf8')));
   } catch (err) {
-    throw new Error(`Invalid JSON in config file ${configPath}: ${err.message}`, { cause: err });
+    throw typedError('config_error', `Invalid JSON in config file ${configPath}: ${err.message}`, { cause: err });
   }
 
   const configValid = validateWorkspaceConfig(config, configPath, options.warnings);
@@ -586,7 +587,7 @@ class ProjectContext {
         const { stripBOM } = require('./sanitize');
         this.config = JSON.parse(stripBOM(fs.readFileSync(this.configPath, 'utf8'))) || {};
       } catch (err) {
-        throw new Error(`Invalid JSON in config file ${this.configPath}: ${err.message}`, { cause: err });
+        throw typedError('config_error', `Invalid JSON in config file ${this.configPath}: ${err.message}`, { cause: err });
       }
       const configValid = validateWorkspaceConfig(this.config, this.configPath, options.warnings || null);
       if (this.warnings && !configValid) {

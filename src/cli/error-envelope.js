@@ -4,21 +4,12 @@
  * Every error the CLI itself raises (bad arguments, missing --cwd, unsafe paths, a crash in a
  * command) leaves through buildCliError, so JSON consumers always get the same fields:
  * `ok:false`, `error`, `errorType`, `suggestion`, `command`, `schemaVersion`. Tool-level
- * failures (`{ok:false, error}` results from a command handler) keep their own shape and add
- * `suggestion` where the fix is not obvious from the message.
+ * failures are built with `failure()` in utils/failure.js and carry the same
+ * `errorType` and `suggestion`.
  */
 
 const { SCHEMA_VERSION } = require('../config/constants');
-
-const ERROR_TYPES = Object.freeze([
-  'validation_error',
-  'path_error',
-  'permission_error',
-  'timeout_error',
-  'init_error',
-  'config_error',
-  'unexpected_error',
-]);
+const { ERROR_TYPES } = require('../utils/failure');
 
 const JSON_ENV_VALUES = ['1', 'true', 'yes', 'on'];
 

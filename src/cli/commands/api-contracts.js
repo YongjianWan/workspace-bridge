@@ -6,15 +6,16 @@
  */
 
 const { runApiContracts } = require('../../tools/api-contract-tools');
+const { failure } = require('../../utils/failure');
 
 async function apiContracts(parsed, _container) {
   // This command owns its container lifecycle because it needs two workspaces.
   // The parent CLI-provided container (if any) is ignored.
   if (!parsed.frontend) {
-    return { ok: false, error: 'Missing required --frontend <dir>', hasFindings: false };
+    return failure('validation_error', 'Missing required --frontend <dir>', { hasFindings: false });
   }
   if (!parsed.backend) {
-    return { ok: false, error: 'Missing required --backend <dir>', hasFindings: false };
+    return failure('validation_error', 'Missing required --backend <dir>', { hasFindings: false });
   }
 
   return runApiContracts({

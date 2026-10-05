@@ -1,13 +1,14 @@
 const fs = require('fs');
 const { resolveWorkspaceFilePath } = require('../../utils/path');
 const { warningOf } = require('../../services/ledger');
+const { failure } = require('../../utils/failure');
 
 async function guardCmd(parsed, container) {
   await container.ensureReady();
 
   const depGraph = container.snapshot?.graph || container.depGraph;
   if (!depGraph) {
-    return { ok: false, error: 'Dependency graph not available', hasFindings: false };
+    return failure('init_error', 'Dependency graph not available', { hasFindings: false });
   }
 
   let files = [];
@@ -19,11 +20,11 @@ async function guardCmd(parsed, container) {
     const gitTools = require('../../tools/git-tools');
     const changed = await gitTools.getChangedFiles(container.workspaceRoot, { staged: true });
     if (changed.ok === false) {
-      return { ok: false, error: changed.error || 'Failed to get staged files', hasFindings: false };
+      return failure('git_error', changed.error || 'Failed to get staged files', { hasFindings: false });
     }
     files.push(...changed.changedFiles);
   } else {
-    return { ok: false, error: 'Target file(s) must be specified via --file, --files, or --staged', suggestion: '--file takes one path, --files a comma-separated list, --staged every staged file in git.', hasFindings: false };
+    return failure('validation_error', 'Target file(s) must be specified via --file, --files, or --staged', { suggestion: '--file takes one path, --files a comma-separated list, --staged every staged file in git.', hasFindings: false });
   }
 
   const maxDependentsLimit = parsed.maxDependents ?? 50;
@@ -44,9 +45,7 @@ async function guardCmd(parsed, container) {
     }
   }
 
-  if (missingTargets.length) return { ok: false, passed: false, files: displayFiles, hasFindings: true,
-    error: `Target file(s) not found: ${missingTargets.join(', ')}`,
-    warnings: [warningOf('missing-target', { message: `Guard did not check missing target(s): ${missingTargets.join(', ')}` })] };
+  if (missingTargets.length) return failure('path_error', `Target file(s) not found: ${missingTargets.join(', ')}`, { passed: false, files: displayFiles, hasFindings: true, warnings: [warningOf('missing-target', { message: `Guard did not check missing target(s): ${missingTargets.join(', ')}` })] });
 
   if (resolvedFiles.length === 0) {
     return {

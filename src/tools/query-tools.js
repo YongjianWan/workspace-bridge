@@ -10,6 +10,7 @@ const { buildProjectOverview } = require('./overview-tools');
 // 字段比较本身在 snapshot-freshness.js，与 audit-overview 共享。
 const { isSnapshotFresh: checkSnapshotFresh } = require('./snapshot-freshness');
 const { SCHEMA_VERSION } = require('../config/constants');
+const { failure } = require('../utils/failure');
 
 function findSnapshot(container) {
   try {
@@ -121,7 +122,7 @@ async function ensureSnapshotData(parsed, container) {
 
 async function queryHotspots(parsed, container) {
   const loaded = await ensureSnapshotData(parsed, container);
-  if (!loaded) return { ok: false, error: 'Failed to load overview data' };
+  if (!loaded) return failure('init_error', 'Failed to load overview data');
   const data = loaded.data;
 
   let hotspots = data.hotspots || [];
@@ -148,7 +149,7 @@ async function queryKnowledgeRisk(parsed, container) {
   // query-knowledge-risk explicitly requests blame-based data; ensure the
   // snapshot is computed with history enabled when it falls back to a full build.
   const loaded = await ensureSnapshotData({ ...parsed, withHistory: true }, container);
-  if (!loaded) return { ok: false, error: 'Failed to load overview data' };
+  if (!loaded) return failure('init_error', 'Failed to load overview data');
   const data = loaded.data;
 
   const level = parsed.level || 'high';
@@ -172,7 +173,7 @@ async function queryKnowledgeRisk(parsed, container) {
 
 async function queryStability(parsed, container) {
   const loaded = await ensureSnapshotData(parsed, container);
-  if (!loaded) return { ok: false, error: 'Failed to load overview data' };
+  if (!loaded) return failure('init_error', 'Failed to load overview data');
   const data = loaded.data;
 
   let items = data.stability || [];

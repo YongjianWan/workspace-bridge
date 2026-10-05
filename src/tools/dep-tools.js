@@ -4,6 +4,7 @@
  */
 const { resolveWorkspaceFilePath, normalizePathKey } = require('../utils/path');
 const { warningOf } = require('../services/ledger');
+const { failure } = require('../utils/failure');
 
 // Operation registry — thin mapping, handlers live in ./dep-tools/
 const OPERATIONS = {
@@ -30,20 +31,20 @@ async function dependencyGraph(args, container) {
 
   const depGraph = container.snapshot?.graph || container.depGraph;
   if (!depGraph) {
-    return { ok: false, error: 'Dependency graph not available' };
+    return failure('init_error', 'Dependency graph not available');
   }
 
   const operation = args?.operation || 'stats';
   const handler = OPERATIONS[operation];
   if (!handler) {
-    return { ok: false, error: `Unknown operation: ${operation}` };
+    return failure('validation_error', `Unknown operation: ${operation}`);
   }
 
   const root = container.workspaceRoot;
   const filePath = args?.file ? normalizePathKey(resolveWorkspaceFilePath(args.file, root)) : null;
 
   if (FILE_REQUIRED.has(operation) && !filePath) {
-    return { ok: false, error: `file is required for ${operation}` };
+    return failure('validation_error', `file is required for ${operation}`);
   }
 
   const wrappedContainer = container.snapshot ? container : {

@@ -4,6 +4,10 @@
 const assert = require('assert');
 const path = require('path');
 const { buildCliError } = require('../src/cli/error-envelope');
+const { failure, typedError, ERROR_TYPES, SUGGESTIONS } = require('../src/utils/failure');
+const { classifyError } = require('../src/cli/validate-args');
+const fs = require('fs');
+const { makeTempDir, cleanupTempDir, runCliRaw } = require('./test-helpers');
 const { runCliInProcess } = require('../cli');
 const { runCliInProcessRaw } = require('./test-helpers');
 
@@ -87,7 +91,59 @@ async function testToolLevelFailuresSayWhatToDoNext() {
   assert.ok(human.stdout.includes('\n→ '), 'text formats show the suggestion under the error');
 }
 
+function testFailureShapeAndTypes() {
+  assert.deepStrictEqual(failure('path_error', 'm'), { ok: false, errorType: 'path_error', error: 'm', suggestion: SUGGESTIONS.path_error });
+  assert.strictEqual(failure('git_error', 'm', { suggestion: 'own', file: 'a' }).suggestion, 'own', 'a site can replace the default suggestion');
+  assert.strictEqual(failure('git_error', 'm', { file: 'a' }).file, 'a');
+  assert.throws(() => failure('path_eror', 'm'), /Unknown error type/);
+  assert.ok(ERROR_TYPES.every((type) => SUGGESTIONS[type].length > 10), 'every type has a real suggestion');
+}
+
+function testClassifyErrorTrustsTypesNotWords() {
+  assert.strictEqual(classifyError(typedError('config_error', 'x')).type, 'config_error');
+  assert.strictEqual(classifyError(Object.assign(new Error('x'), { code: 'ENOENT' })).type, 'path_error');
+  assert.strictEqual(classifyError(Object.assign(new Error('x'), { code: 'EACCES' })).type, 'permission_error');
+  assert.strictEqual(classifyError(new Error("Cannot read properties of undefined (reading 'initialize')")).type, 'unexpected_error',
+    'a message that merely contains "init" is not an init failure');
+  assert.strictEqual(classifyError(new Error('thing not found in table')).type, 'unexpected_error', '"not found" alone is not a path error');
+  assert.throws(() => typedError('nope', 'x'), /Unknown error type/);
+}
+
+async function testToolFailuresCarryTheirType() {
+  const check = async (args, type) => {
+    const body = parseJson(await runCliInProcessRaw([...args, '--json', '--quiet']));
+    assert.strictEqual(body.ok, false, args.join(' '));
+    assert.strictEqual(body.errorType, type, `${args.join(' ')} -> ${body.errorType}`);
+    assert.ok(body.suggestion, 'every typed failure says what to do next');
+  };
+  await check(['impact', '--cwd', REPO_ROOT, '--file', 'no-such-file.js'], 'path_error');
+  await check(['guard', '--cwd', REPO_ROOT], 'validation_error');
+  await check(['audit-diff', '--cwd', REPO_ROOT, '--staged', '--commits', 'HEAD~1..HEAD'], 'validation_error');
+  await check(['audit-diff', '--cwd', REPO_ROOT, '--commits', 'no-such-rev..HEAD'], 'git_error');
+  await check(['query', '--cwd', REPO_ROOT, '--sql', 'DELETE FROM files'], 'query_error');
+  await check(['api-contracts', '--cwd', REPO_ROOT], 'validation_error');
+}
+
+async function testBrokenConfigIsAConfigError() {
+  const dir = makeTempDir('wb-envelope-config-');
+  try {
+    fs.writeFileSync(path.join(dir, '.workspace-bridge.json'), '{ not json');
+    fs.writeFileSync(path.join(dir, 'a.js'), 'module.exports = 1;\n');
+    const result = await runCliRaw(['audit-overview', '--cwd', dir, '--json', '--quiet'], { cwd: dir });
+    assert.strictEqual(result.status, 1, 'config errors exit 1');
+    const body = JSON.parse(result.stdout);
+    assert.strictEqual(body.errorType, 'config_error');
+    assert.ok(body.suggestion.includes('.workspace-bridge.json'), body.suggestion);
+  } finally {
+    cleanupTempDir(dir);
+  }
+}
+
 (async () => {
+  testFailureShapeAndTypes();
+  testClassifyErrorTrustsTypesNotWords();
+  await testToolFailuresCarryTheirType();
+  await testBrokenConfigIsAConfigError();
   testBuildCliErrorShapes();
   await testMissingCwdIsAnEnvelopeAndHasNoSideEffects();
   await testPathEscapeSaysWhatToPass();

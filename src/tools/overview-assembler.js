@@ -22,6 +22,7 @@ const {
   DEAD_EXPORT_FALSE_POSITIVE_REASONS,
 } = require('./honesty-engine');
 const { computePageRank } = require('../services/dep-graph/pagerank');
+const { failure } = require('../utils/failure');
 
 function toRelative(root, filePath) {
   return toRelativePosix(root, filePath);
@@ -500,7 +501,7 @@ async function assembleOverviewData(args, container, historyProvider) {
   const projectContext = depGraph?.projectContext;
 
   if (!depGraph || !projectContext) {
-    return { ok: false, error: 'Dependency graph not initialized' };
+    return failure('init_error', 'Dependency graph not initialized');
   }
 
   const shouldExcludeCli = depGraph.shouldExcludeCli?.bind(depGraph);

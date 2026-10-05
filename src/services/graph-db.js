@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const { CACHE_VERSION } = require('../config/constants');
+const { failure } = require('../utils/failure');
 
 // Quoted data and comments must not trigger keyword or statement checks.
 const SQL_NON_CODE = /'(?:''|[^'])*'|"(?:""|[^"])*"|`(?:``|[^`])*`|\[(?:\]\]|[^\]])*\]|--[^\r\n]*|\/\*[\s\S]*?\*\//g;
@@ -776,7 +777,7 @@ class GraphDB {
         this._ensureOpen();
         const normalized = String(sql || '').trim();
         if (!normalized) {
-          return { ok: false, error: 'Empty SQL query' };
+          return failure('query_error', 'Empty SQL query');
         }
 
         const lower = normalized.toLowerCase();
@@ -784,7 +785,7 @@ class GraphDB {
         const isExplainSelect = lower.startsWith('explain ') && lower.includes('select');
         const isPragmaTableInfo = /^pragma\s+table_info\s*\(/i.test(normalized);
         if (!isSelect && !isExplainSelect && !isPragmaTableInfo) {
-          return { ok: false, error: 'Only SELECT, EXPLAIN SELECT, or PRAGMA table_info are allowed' };
+          return failure('query_error', 'Only SELECT, EXPLAIN SELECT, or PRAGMA table_info are allowed');
         }
 
         // Independent defense layer: reject data-modification keywords
@@ -794,13 +795,13 @@ class GraphDB {
       const sqlCode = singleStatement.replace(SQL_NON_CODE, ' ');
         const forbidden = /\b(insert|update|delete|drop|create|alter|replace|vacuum|attach|detach|begin|commit|rollback|savepoint|union|intersect|except)\b/i;
       if (forbidden.test(sqlCode)) {
-          return { ok: false, error: 'Database modification or set-operation keywords are not allowed' };
+          return failure('query_error', 'Database modification or set-operation keywords are not allowed');
         }
 
         // Strip a single trailing semicolon, then reject any remaining semicolons
         // to prevent multi-statement attacks.
       if (sqlCode.includes(';')) {
-          return { ok: false, error: 'Multiple statements are not allowed' };
+          return failure('query_error', 'Multiple statements are not allowed');
         }
 
         const maxRows = options.maxRows ?? 1000;
@@ -815,7 +816,7 @@ class GraphDB {
         };
       } catch (err) {
         _debugError('Read-only query', err);
-        return { ok: false, error: err.message || String(err) };
+        return failure('query_error', err.message || String(err));
       }
     });
   }

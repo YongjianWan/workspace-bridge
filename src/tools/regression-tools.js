@@ -8,6 +8,7 @@ const { execFileSync } = require('child_process');
 const DEFAULT_BASELINE_FILE = '.workspace-bridge-baseline.json';
 const { SCHEMA_VERSION } = require('../config/constants');
 const { stripBOM } = require('../utils/sanitize');
+const { failure } = require('../utils/failure');
 
 function resolveBaseline(args) {
   let baselinePath = null;
@@ -159,10 +160,10 @@ function loadBaseline(filePath) {
   try {
     const raw = fs.readFileSync(filePath, 'utf8');
     const data = JSON.parse(stripBOM(raw));
-    if (!data.findings) return { ok: false, error: 'Invalid baseline file: missing findings' };
+    if (!data.findings) return failure('validation_error', 'Invalid baseline file: missing findings');
     return { ok: true, data };
   } catch (err) {
-    return { ok: false, error: `Failed to load baseline: ${err.message}` };
+    return failure('path_error', `Failed to load baseline: ${err.message}`);
   }
 }
 
@@ -204,13 +205,13 @@ function checkRegressionAgainstCommit(currentResult, commit, cwd) {
   try {
     execFileSync('git', ['rev-parse', '--verify', commit], { cwd, stdio: 'pipe' });
   } catch {
-    return { ok: false, error: `Invalid commit: ${commit}` };
+    return failure('git_error', `Invalid commit: ${commit}`);
   }
   let stdout;
   try {
     stdout = execFileSync('git', ['diff', '--name-only', `${commit}...HEAD`], { cwd, encoding: 'utf8', stdio: 'pipe' });
   } catch {
-    return { ok: false, error: `Failed to get diff for commit: ${commit}` };
+    return failure('git_error', `Failed to get diff for commit: ${commit}`);
   }
   const changed = new Set(stdout.trim().split(/\r?\n/).filter(Boolean));
   const current = extractFindings(currentResult);

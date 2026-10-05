@@ -8,6 +8,7 @@ const os = require('os');
 const { toPosixPath, resolveWorkspaceFilePath, toRelativePosix } = require('../utils/path');
 const { parseArgs } = require('../utils/parse-args');
 const { DEFAULTS } = require('../config/constants');
+const { SUGGESTIONS } = require('../utils/failure');
 const { validateCategories } = require('../tools/category-filter');
 
 function parseTomlContent(content) {
@@ -574,27 +575,26 @@ function sanitizeCliPaths(parsed) {
   return null;
 }
 
+const NODE_ERROR_TYPES = {
+  ENOENT: 'path_error',
+  ENOTDIR: 'path_error',
+  EACCES: 'permission_error',
+  EPERM: 'permission_error',
+  ETIMEDOUT: 'timeout_error',
+};
+
+// Our own thrown errors carry `errorType` (see typedError); `code` covers Node's fs/net errors and
+// the argument parser. The message fallback matches only phrases this CLI itself writes.
 function classifyError(err) {
   const msg = (err.message || String(err)).toLowerCase();
-  if (err.code === 'VALIDATION_ERROR' || msg.includes('requires --') || msg.includes('invalid --')) {
-    return { type: 'validation_error', suggestion: 'Please verify the command arguments.' };
-  }
-  if (msg.includes('enoent') || msg.includes('no such file') || msg.includes('not found')) {
-    return { type: 'path_error', suggestion: 'Check if --cwd or --file paths exist and are accessible.' };
-  }
-  if (msg.includes('eacces') || msg.includes('permission denied')) {
-    return { type: 'permission_error', suggestion: 'Check file/directory permissions.' };
-  }
-  if (msg.includes('timeout') || msg.includes('timed out')) {
-    return { type: 'timeout_error', suggestion: 'Try increasing timeout or use --compact for large projects.' };
-  }
-  if (msg.includes('initialize') || msg.includes('init') || msg.includes('failed to initialize')) {
-    return { type: 'init_error', suggestion: 'Try clearing the cache directory (--cache-dir) and retrying.' };
-  }
-  if (msg.includes('invalid json in config file') || msg.includes('workspace-bridge.json')) {
-    return { type: 'config_error', suggestion: 'Please fix the syntax error in your .workspace-bridge.json configuration file.' };
-  }
-  return { type: 'unexpected_error', suggestion: 'Run "node cli.js --help" for usage.' };
+  let type = 'unexpected_error';
+  if (SUGGESTIONS[err.errorType]) type = err.errorType;
+  else if (err.code === 'VALIDATION_ERROR' || msg.includes('requires --') || msg.includes('invalid --')) type = 'validation_error';
+  else if (NODE_ERROR_TYPES[err.code]) type = NODE_ERROR_TYPES[err.code];
+  else if (msg.includes('timed out')) type = 'timeout_error';
+  else if (msg.includes('failed to initialize')) type = 'init_error';
+  else if (msg.includes('invalid json in config file')) type = 'config_error';
+  return { type, suggestion: SUGGESTIONS[type] };
 }
 
 module.exports = {

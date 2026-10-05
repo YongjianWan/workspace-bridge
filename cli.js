@@ -29,6 +29,7 @@ const { buildCliError, wantsJson, guessCommand } = require('./src/cli/error-enve
 const { determineExitCode, formatCliResult, buildErrorResponse } = require('./src/cli/route-formatter');
 const { installFatalHandlers } = require('./src/cli/bootstrap');
 const { workspaceInfo } = require('./src/tools/workspace-tools');
+const { typedError } = require('./src/utils/failure');
 
 // L2-7: shared CLI options table eliminates duplication between short and long help.
 const COMMON_OPTIONS = [
@@ -203,7 +204,7 @@ ${COMMON_OPTIONS.join('\n')}
 async function runCommand(parsed, container) {
   const handler = COMMANDS[parsed.command];
   if (!handler) {
-    throw new Error(`Unknown command: ${parsed.command}. Run "workspace-bridge-cli --help" for available commands.`);
+    throw typedError('unknown_command', `Unknown command: ${parsed.command}. Run "workspace-bridge-cli --help" for available commands.`);
   }
   return handler(parsed, container);
 }
@@ -372,7 +373,7 @@ async function runCliInProcess(args, opts = {}) {
         service: parsed.service,
       });
       if (!initialized) {
-        throw container.initError || new Error('Failed to initialize workspace container');
+        throw container.initError || typedError('init_error', 'Failed to initialize workspace container');
       }
     }
 

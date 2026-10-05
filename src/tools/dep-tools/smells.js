@@ -1,11 +1,12 @@
 const path = require('path');
+const { failure } = require('../../utils/failure');
 
 function checkSmells(args, container) {
   const graph = container.snapshot?.graph || container.depGraph;
   const workspaceRoot = container.workspaceRoot;
 
   if (!graph) {
-    return { ok: false, error: 'Dependency graph not available' };
+    return failure('init_error', 'Dependency graph not available');
   }
 
   const files = graph.getAllFilePaths() || [];

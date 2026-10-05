@@ -1,3 +1,4 @@
+const { failure } = require('../../utils/failure');
 /**
  * debug — internal diagnostic commands for development and verification.
  */
@@ -12,7 +13,7 @@ async function debugCmd(parsed, container) {
   if (what === 'symbols') {
     const registry = container.snapshot?.graph?.symbolRegistry;
     if (!registry) {
-      return { ok: false, error: 'Symbol registry not available' };
+      return failure('init_error', 'Symbol registry not available');
     }
     const stats = registry.getRegistryStats();
     // Registry owns the definition of "duplicate" (exported-from-2+-files);
@@ -32,7 +33,7 @@ async function debugCmd(parsed, container) {
   if (what === 'graph') {
     const graph = container.snapshot?.graph;
     if (!graph) {
-      return { ok: false, error: 'Dependency graph not available' };
+      return failure('init_error', 'Dependency graph not available');
     }
     const files = graph.getAllFilePaths?.() || [];
     const MAX_DEBUG_GRAPH_FILES = 5000;
@@ -57,7 +58,7 @@ async function debugCmd(parsed, container) {
     };
   }
 
-  return { ok: false, error: `Unknown debug target: ${what}. Supported: symbols, graph` };
+  return failure('validation_error', `Unknown debug target: ${what}. Supported: symbols, graph`);
 }
 
 module.exports = debugCmd;

@@ -17,6 +17,7 @@ const { buildProjectMap, countTreeFiles } = require('./formatters/project-map');
 const { parseArgs } = require('../utils/parse-args');
 const { resolveWorkspaceFilePath } = require('../utils/path');
 const { buildTree } = require('../tools/tree-tools');
+const { typedError } = require('../utils/failure');
 
 function formatImpact(result) {
   const lines = [`impactCount: ${result.length}`];
@@ -393,7 +394,7 @@ async function startRepl(options) {
       excludeDirs: options.exclude || [],
     });
     if (!initialized) {
-      throw container.initError || new Error('Failed to initialize workspace container');
+      throw container.initError || typedError('init_error', 'Failed to initialize workspace container');
     }
 
     if (evalMode) {

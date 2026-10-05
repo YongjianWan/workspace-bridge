@@ -20,6 +20,7 @@ const { buildSafeEnv } = require('../utils/command');
 const { buildFileSummary } = require('./formatters/file-summary');
 const { buildFileValidationAdvice } = require('./formatters/validation-advice');
 const { normalizePathKey } = require('../utils/path');
+const { typedError } = require('../utils/failure');
 
 function formatWatchOutput(workspaceRoot, filePath, impact, depGraph, compact) {
   const relativeFile = path.relative(workspaceRoot, filePath);
@@ -288,7 +289,7 @@ async function startWatch(options) {
       excludeDirs: options.exclude || [],
     });
     if (!initialized) {
-      throw container.initError || new Error('Failed to initialize workspace container');
+      throw container.initError || typedError('init_error', 'Failed to initialize workspace container');
     }
 
     console.error(`workspace-bridge watch — ${container.workspaceRoot}`);
@@ -388,14 +389,14 @@ async function startAuditFileWatch(options) {
       excludeDirs: options.exclude || [],
     });
     if (!initialized) {
-      throw container.initError || new Error('Failed to initialize workspace container');
+      throw container.initError || typedError('init_error', 'Failed to initialize workspace container');
     }
 
     const targetFile = options.targetFile
       ? path.resolve(container.workspaceRoot, options.targetFile)
       : null;
     if (targetFile && !require('fs').existsSync(targetFile)) {
-      throw new Error(`File not found: ${options.targetFile}`);
+      throw typedError('path_error', `File not found: ${options.targetFile}`);
     }
 
     console.error(`workspace-bridge audit-file --watch — ${container.workspaceRoot}`);

@@ -8,6 +8,7 @@ const { resolveWorkspaceFilePath, toRelativePosix, isPathInsideRoot, toCallerSpe
 const { runGit } = require('../utils/command');
 const { scoreToLevel } = require('../config/risk-thresholds');
 const { TIMEOUTS, LIMITS } = require('../config/constants');
+const { failure } = require('../utils/failure');
 
 function parseIsoDate(value) {
   const date = value ? new Date(value) : null;
@@ -122,7 +123,7 @@ function computeHistoryRisk(commits) {
 async function ensureGitRepo(root) {
   const result = await runGit(['rev-parse', '--show-toplevel'], root, TIMEOUTS.GIT_SHORT_MS);
   if (!result.ok) {
-    return { ok: false, error: 'Not a git repository', workspaceRoot: root };
+    return failure('git_error', 'Not a git repository', { workspaceRoot: root });
   }
   return null;
 }
@@ -184,7 +185,7 @@ async function getChangedFiles(root, options = {}) {
   const since = options.since || null;
   const commits = options.commits || null;
   if (commits && staged) {
-    return { ok: false, error: 'Cannot use --staged and --commits together; they specify different change sources', workspaceRoot: root };
+    return failure('validation_error', 'Cannot use --staged and --commits together; they specify different change sources', { workspaceRoot: root });
   }
   const gitCheck = await ensureGitRepo(root);
   if (gitCheck) return gitCheck;
@@ -196,7 +197,7 @@ async function getChangedFiles(root, options = {}) {
   if (commits) {
     const result = await runGit(['diff', '--name-only', commits], root, TIMEOUTS.GIT_LONG_MS);
     if (!result.ok) {
-      return { ok: false, error: cleanGitError(result.stderr, `Failed to read git diff for ${commits}`), ...revisionSuggestion(result.stderr, commits), workspaceRoot: root };
+      return failure('git_error', cleanGitError(result.stderr, `Failed to read git diff for ${commits}`), { ...revisionSuggestion(result.stderr, commits), workspaceRoot: root });
     }
     const files = new Set();
     for (const line of (result.stdout || '').split(/\r?\n/)) {
@@ -221,7 +222,7 @@ async function getChangedFiles(root, options = {}) {
   if (since) {
     const result = await runGit(['diff', '--name-only', `${since}...HEAD`], root, TIMEOUTS.GIT_LONG_MS);
     if (!result.ok) {
-      return { ok: false, error: cleanGitError(result.stderr, `Failed to read git diff since ${since}`), ...revisionSuggestion(result.stderr, since), workspaceRoot: root };
+      return failure('git_error', cleanGitError(result.stderr, `Failed to read git diff since ${since}`), { ...revisionSuggestion(result.stderr, since), workspaceRoot: root });
     }
     const files = new Set();
     for (const line of (result.stdout || '').split(/\r?\n/)) {
@@ -246,7 +247,7 @@ async function getChangedFiles(root, options = {}) {
 
   const result = await runGit(args, root, TIMEOUTS.GIT_LONG_MS);
   if (!result.ok) {
-    return { ok: false, error: cleanGitError(result.stderr, 'Failed to read git status'), workspaceRoot: root };
+    return failure('git_error', cleanGitError(result.stderr, 'Failed to read git status'), { workspaceRoot: root });
   }
 
   const files = new Set();
@@ -326,7 +327,7 @@ async function getChangedLineRanges(root, file, options = {}) {
 
   const filePath = resolveWorkspaceFilePath(file, root);
   if (!filePath) {
-    return { ok: false, error: 'Invalid file path or path outside workspace', workspaceRoot: root, file };
+    return failure('path_error', 'Invalid file path or path outside workspace', { workspaceRoot: root, file });
   }
 
   const staged = options.staged === true;
@@ -400,14 +401,14 @@ async function getFileHistoryRisk(root, file, options = {}) {
 
   const filePath = resolveWorkspaceFilePath(file, root);
   if (!filePath) {
-    return { ok: false, error: 'Invalid file path or path outside workspace', workspaceRoot: root };
+    return failure('path_error', 'Invalid file path or path outside workspace', { workspaceRoot: root });
   }
 
   const limit = Number.isFinite(options.limit) ? Math.min(Math.max(options.limit, 1), LIMITS.GIT_COMMIT_MAX) : 25;
   const fmt = '--format=%x00%H%n%an%n%ae%n%ai%n%s';
   const result = await runGit(['log', '--follow', `-${limit}`, fmt, '--', filePath], root, TIMEOUTS.GIT_LONG_MS);
   if (!result.ok && !result.stdout) {
-    return { ok: false, error: cleanGitError(result.stderr, 'Failed to read git history'), workspaceRoot: root, file };
+    return failure('git_error', cleanGitError(result.stderr, 'Failed to read git history'), { workspaceRoot: root, file });
   }
 
   const commits = [];
@@ -456,7 +457,7 @@ async function getDiffNumstat(root, options = {}) {
 
   const result = await runGit(args, root, TIMEOUTS.GIT_LONG_MS);
   if (!result.ok) {
-    return { ok: false, error: cleanGitError(result.stderr, 'Failed to read diff numstat'), workspaceRoot: root };
+    return failure('git_error', cleanGitError(result.stderr, 'Failed to read diff numstat'), { workspaceRoot: root });
   }
 
   const files = [];
@@ -596,12 +597,12 @@ function computeKnowledgeRisk(metrics) {
 async function getRepoEffectiveAuthorCount(root) {
   const gitCheck = await ensureGitRepo(root);
   if (gitCheck) {
-    return { ok: false, error: gitCheck.error, count: 0 };
+    return failure('git_error', gitCheck.error, { count: 0 });
   }
 
   const result = await runGit(['log', '--format=%aE'], root, TIMEOUTS.GIT_LONG_MS);
   if (!result.ok && !result.stdout) {
-    return { ok: false, error: cleanGitError(result.stderr, 'Failed to read git log'), count: 0 };
+    return failure('git_error', cleanGitError(result.stderr, 'Failed to read git log'), { count: 0 });
   }
 
   const emails = new Set();
@@ -621,13 +622,13 @@ async function getFileKnowledgeRisk(root, file, _options = {}) {
 
   const filePath = resolveWorkspaceFilePath(file, root);
   if (!filePath) {
-    return { ok: false, error: 'Invalid file path or path outside workspace', workspaceRoot: root };
+    return failure('path_error', 'Invalid file path or path outside workspace', { workspaceRoot: root });
   }
 
   const mailmap = await loadMailmap(root);
   const result = await runGit(['blame', '--porcelain', '--', filePath], root, TIMEOUTS.GIT_LONG_MS);
   if (!result.ok && !result.stdout) {
-    return { ok: false, error: cleanGitError(result.stderr, 'Failed to read git blame'), workspaceRoot: root, file };
+    return failure('git_error', cleanGitError(result.stderr, 'Failed to read git blame'), { workspaceRoot: root, file });
   }
 
   const authors = parseBlamePorcelain(result.stdout);
