@@ -24,8 +24,9 @@ const {
   conftestDirPrefix,
 } = require('./conftest-implicit');
 const { DEFAULTS, LIMITS, CONFIDENCE } = require('../../config/constants');
-const { fromNormalizedKey, normalizePathKey } = require('../../utils/path');
+const { fromNormalizedKey, normalizePathKey, toRelativePosix } = require('../../utils/path');
 const { readTextWithin } = require('../../utils/file-read');
+const { isJvmFile, moduleRootOf, isWholeAppTest } = require('./context-tests');
 const {
   CONFIG,
   bfsTraverse,
@@ -294,6 +295,7 @@ class GraphAnalyzer {
 
     this._cycleFiles = null;
     this._mentionContentCache = new Map();
+    this._wholeAppTests = null;
 
     // Per-file marker evidence (auto-import dirs, import.meta.glob
     // patterns). updateFiles re-emits graph:built → precomputeAggregates →
@@ -309,6 +311,7 @@ class GraphAnalyzer {
       this._invalidateMarkerEvidence(ctx);
       this.clearScanCaches();
       this._mentionContentCache.clear();
+      this._wholeAppTests = null;
     });
   }
 
@@ -1611,6 +1614,7 @@ class GraphAnalyzer {
     // Conftest.py is pytest infrastructure, never an affected test;
     // conversely every test below a conftest implicitly depends on it.
     results = this._applyConftestImplicitTests(start, maxDepth, results);
+    this._applyWholeAppTests(start, maxDepth, results);
 
     // Convert internal graph keys back to original-casing paths for output.
     return results.map((r) => ({
@@ -1618,6 +1622,34 @@ class GraphAnalyzer {
       file: this.dg._displayPath(r.file),
       via: r.via ? r.via.map((f) => this.dg._displayPath(f)) : r.via,
     }));
+  }
+
+  // Tests annotated @SpringBootTest of the queried JVM source's module: the whole application
+  // starts in them, so the import graph has no edge to explain why they fail. Ranked after every
+  // graph-derived row (distance maxDepth + 1), like the other name- and text-based rows.
+  _applyWholeAppTests(start, maxDepth, results) {
+    if (!isJvmFile(start) || isCollectedTestFile(start)) return;
+    const module = moduleRootOf(toRelativePosix(this.dg.root, start));
+    const seen = new Set(results.map((r) => r.file));
+    for (const test of this._findWholeAppTests()) {
+      if (seen.has(test) || moduleRootOf(toRelativePosix(this.dg.root, test)) !== module) continue;
+      results.push({ file: test, distance: maxDepth + 1, source: 'framework', via: ['@SpringBootTest'], terminator: true });
+    }
+  }
+
+  // Memoized per graph version; the graph:updated listener drops it.
+  _findWholeAppTests() {
+    if (this._wholeAppTests) return this._wholeAppTests;
+    this._wholeAppTests = [];
+    for (const file of this.dg.graph.keys()) {
+      if (!isJvmFile(file) || !isCollectedTestFile(file)) continue;
+      try {
+        if (isWholeAppTest(this._readSource(file))) this._wholeAppTests.push(file);
+      } catch {
+        // An unreadable test cannot be classified; it keeps only its graph and name rows.
+      }
+    }
+    return this._wholeAppTests;
   }
 
   /**
