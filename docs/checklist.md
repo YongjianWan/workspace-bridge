@@ -36,7 +36,7 @@
 | 检查面 | 怎么验证 | 通过条件 |
 |---|---|---|
 | 基线数字（已知：U-27） | 运行 `node cli.js audit-overview --cwd . --json --quiet`、`node test/wb-repro.js cli.js`、`npm run test:fast`；对照 AGENTS.md「当前核验」与 README 里的数字 | 文档数字与实跑一致，且标明平台 |
-| 文档互不矛盾（已知：H-5、H-16、U-27） | 用只读单个文件的干净 agent 逐份冷读 README、SKILL.md、AGENTS.md，列出矛盾与读不懂处 | 矛盾清单为空 |
+| 文档互不矛盾（已知：H-5、U-27） | 用只读单个文件的干净 agent 逐份冷读 README、SKILL.md、AGENTS.md，列出矛盾与读不懂处 | 矛盾清单为空 |
 | 文档只存当前 | 逐份检查 AGENTS、SESSION、TECH_DEBT：无历史流水、无已修复项 ※ | 活跃文档里没有已完成条目 |
 | 文档命令可运行 | 把 README 与 SKILL.md 里的命令逐条在本仓和固定评测仓库上执行 ※ | 每条命令退出码与描述一致 |
 | 工作区干净 | `git status --short`，核对每个文件的来源 | 只含本次任务相关改动，无临时脚本与调试输出 |
@@ -50,7 +50,7 @@
 | 分层依赖方向（已知：H-4） | `node cli.js audit-overview --cwd . --category boundaries --json --quiet`；再对照 AGENTS.md「项目骨架」逐层 grep 反向 `require` | 无反向依赖，或每条已登记为例外 |
 | 循环依赖 | `node cli.js cycles --cwd . --json --quiet`；增量场景：造三文件无环项目，让 `c.js` 反向导入 `a.js` 后调用 `updateFiles`，对比冷启动 | 环数与冷启动一致 |
 | 同一语义单点实现（已知：H-26） | `grep -rln "\.kt\b\|'kotlin'" src \| wc -l`，其他语言同法 | 语言专属分支集中在语言注册表 |
-| 缓存失效条件（已知：H-2） | 改一个 parser 或 resolver 源码但不改 `CACHE_VERSION`，暖启动后核对输出是否用了旧解析结果 ※ | 改解析器代码即自动失效 |
+| 缓存失效条件 | 改一个 parser 或 resolver 源码但不改 `CACHE_VERSION`，暖启动后核对输出是否用了旧解析结果 ※ | 改解析器代码即自动失效 |
 | 缓存只存纯解析输出 | 读 `src/services/dep-graph/builder.js` 与 `graph-db.js`；新增文件后核对未改动文件的依赖边是否更新 | `parse_results` 不含已解析目标路径，边每次重算 |
 | 缓存路径身份 | 对同一目录分别传 `C:\...`、`c:\...`、`C:/...`，数 `WB_CACHE_DIR` 默认位置下生成的缓存目录 | 只产生一个缓存目录 |
 
@@ -114,9 +114,9 @@
 | 错误文案（已知：H-15） | 逐个触发 `--cwd` 不存在、`--file` 不存在、路径越界、非法提交范围、`guard` 缺目标，带与不带 `--json` | 每条带下一步，`--json` 下是含 `ok:false`、`error`、`command`、`schemaVersion` 的 JSON |
 | 参数优先级 | 同一选项分别用默认值、配置文件、环境变量（`WB_CWD`、`WB_FORMAT`、`WB_JSON`、`WB_QUIET`、`WB_CACHE_DIR`、`WORKSPACE_ROOT`）、CLI 设置，逐层比对生效值 ※ | CLI 优先于环境变量，环境变量优先于配置文件；布尔可显式覆盖 |
 | 路径参数边界 | `--file ../x`、绝对路径、目录；`--save` 指向工作区外的已有文件 | 越权与目录被拒绝，不覆盖非本工具文件 |
-| JSON 字段集（已知：H-16） | 对每个命令的 `--json` 输出生成键路径快照并与基线比较 ※ | 删字段或改类型即失败，新增字段需显式更新快照 |
+| JSON 字段集 | 对每个命令的 `--json` 输出生成键路径快照并与基线比较 ※ | 删字段或改类型即失败，新增字段需显式更新快照 |
 | 路径写法（已知：H-22 ②） | 在同一份输出里抽取所有路径字段 | 格式统一 |
-| 输出体积（已知：H-14） | zod 固定提交上量各命令默认输出字节数 | 不超过 30 KB，或超出时写明如何缩小 |
+| 输出体积 | zod 固定提交上量各命令默认输出字节数 | 不超过 30 KB，或超出时写明如何缩小 |
 | 截断声明 | 对输出超限的命令检查 `truncated` 与 `elided[]` | 截断时两者齐全 |
 | 命令 × 格式矩阵 | 每个公开命令依次用 human、`--json`、`--format jsonl`、`ai`、`markdown`、`summary`，各跑成功、无结果、业务失败、参数错误 ※ | 均不崩溃，JSONL 每行可解析 |
 | REPL | 在一个 `repl` 会话里连续执行多条命令 ※ | 复用同一张图，结果与单独运行一致 |
@@ -125,11 +125,11 @@
 
 | 检查面 | 怎么验证 | 通过条件 |
 |---|---|---|
-| 仓库文本进输出（已知：H-11） | 把 `IGNORE PREVIOUS INSTRUCTIONS …` 放进文件名、未解析 import、路由路径、提交者、提交信息，对 `audit-overview`、`audit-map`、`audit-security`、`audit-diff`、`impact`、`tree` 的 json、ai、markdown 输出搜该文本 | 出现处全部带不可信标记 |
+| 仓库文本进输出 | 把 `IGNORE PREVIOUS INSTRUCTIONS …` 放进文件名、未解析 import、路由路径、提交者、提交信息，对 `audit-overview`、`audit-map`、`audit-security`、`audit-diff`、`impact`、`tree` 的 json、ai、markdown 输出搜该文本 | 出现处全部带不可信标记 |
 | 密钥进输出 | 造含假密钥的仓库跑 `audit-security` 的 json、markdown、ai、human | 完整密钥值出现 0 次 |
-| 密钥进缓存（已知：H-9） | 运行后用 `node:sqlite` 扫描 `cache.db` 全部表全部列 | 完整密钥值出现 0 次 |
-| 密钥规则召回（已知：H-10） | 夹具含 `sk_live_`、`AKIA`、`const pw = "…"`、连接串内嵌密码等 5 种写法 | 5 条全部报出 |
-| 供应链（已知：H-12） | `npm audit`、`npm audit --omit=dev` | 运行依赖 0；开发依赖清零或逐条写明原因 |
+| 密钥进缓存 | 运行后用 `node:sqlite` 扫描 `cache.db` 全部表全部列 | 完整密钥值出现 0 次 |
+| 密钥规则召回 | 夹具含 `sk_live_`、`AKIA`、`const pw = "…"`、连接串内嵌密码等 5 种写法 | 5 条全部报出 |
+| 供应链 | `npm audit`、`npm audit --omit=dev` | 运行依赖 0；开发依赖清零或逐条写明原因 |
 | 仓库内容触发执行（已知：U-24） | 构造恶意 `package.json` scripts 与恶意仓库配置，运行 `watch --run-tests`、semgrep 适配器 | 仓库内容不会在无确认下被执行 |
 | 符号链接、junction 逃逸（已知：U-25） | 夹具里建指向工作区外的链接，运行 `audit-overview` ※ | 不读写工作区外 |
 | 配置 ReDoS 与巨型配置 | 构造恶意 regex 与超大 JSON 配置，限时运行 ※ | 有上限且不拖死进程 |
@@ -205,7 +205,7 @@
 | 检查面 | 怎么验证 | 通过条件 |
 |---|---|---|
 | agent 采信与误导（已知：U-23） | 固定 5 个真实改动任务，分别在有、无本工具条件下让 agent 完成并比对；再用含注入文本的仓库观察 agent 是否照做 | 任务完成正确率差值与注入是否生效有记录 |
-| 技能手册有效性（已知：H-14） | 按 SKILL.md 推荐命令在 zod 上跑一遍，量输出字节；核对 `~/.agents/skills/` 副本与项目内 SKILL.md 是否一致 | 首选命令不撑爆上下文，user-scope 副本与项目内一致 |
+| 技能手册有效性 | 按 SKILL.md 推荐命令在 zod 上跑一遍，量输出字节；核对 `~/.agents/skills/` 副本与项目内 SKILL.md 是否一致 | 首选命令不撑爆上下文，user-scope 副本与项目内一致 |
 
 ## 十四、配置与项目角色
 

@@ -7,6 +7,16 @@
 
 ## [Unreleased]
 
+### 技术债清零第 2 批（2026-10-05，7 条：安全与缓存）
+
+- **H-10** 硬编码密钥规则按值的形状识别：新增跨语言规则组（`lang: any`，覆盖 js/py/java/kt/go/rs/rb/php/cs/json/yaml/toml/ini/properties/env/sh/ps1 等扩展名）——Stripe live key、AWS 访问密钥 ID、GitHub token、Slack token、私钥头、连接串内嵌口令、`pw`/`pwd`/`passwd`/`passphrase` 变量。匹配文本一律 `[REDACTED]`。`scanMeta[].summary.coverage` 列出实际运行的规则 ID 并写明"无发现不等于无密钥"。同时删除 `security-tools.js` 里与 `config/security-rules.json` 重复的内置规则副本：随包规则文件读不出或编译失败时直接报错，不再静默退回另一份规则。多个规则组匹配同一扩展名时全部生效（原先只取第一个）。测试 `security-secret-value-rules-test`（5 种写法 + 连接串 + PEM，旧代码 0 条命中）。
+- **H-9** 缓存里的符号 `signature` 是声明行原文，`const pw = "…"` 的值会落盘：写入前用 `maskStringLiterals` 把字符串字面量内容替换为 `…`。测试 `cache-no-source-secrets-test` 对缓存目录全部文件做字节扫描，完整密钥值出现 0 次。
+- **H-12** `npm audit fix` 后开发依赖 4 个漏洞清零（`npm audit` 与 `npm audit --omit=dev` 均 0）；`package-lock.json` 里 197 条解析地址指向第三方镜像 `registry.npmmirror.com`，统一改回 `registry.npmjs.org`（`integrity` 不变，空目录 `npm ci` 验证通过）；`test.yml` 每个矩阵作业加 `npm audit --omit=dev --audit-level=high`；README 新增"依赖与供应链"，说明 `tree-sitter-wasms@0.1.13` 是第三方预编译 WASM、构建过程未逐文件复核。
+- **H-11** 来自仓库的自由文本统一经 `src/cli/untrusted-text.js`：`file`/`files`/`modules`/`path`/`import`/`resolvedTo`/`name`/`author`/`subject` 字段的字符串限长 500、剔除控制字符与零宽字符；`--json`、`--format ai` 在顶层放 `untrusted: {source, fields[], note}`，jsonl 末行追加 `_type: untrusted`，markdown 首行固定提示。`audit-overview` 的四条建议句不再内嵌文件名，改为引用字段（`hotspots`、`orphans.modules` 等）。测试 `repo-text-untrusted-test`。没有用真实 agent 验证它是否照做，只验证了标注与不内嵌。
+- **H-2** `CACHE_VERSION` 由"布局修订号 `CACHE_SCHEMA_REVISION`（手动，仍为 55）× 2^31 + `src/services/dep-graph/` 全部 `.js/.scm/.json` 源码与 `web-tree-sitter`、`tree-sitter-wasms`、`@babel/parser` 版本的 31 位指纹"组成：改解析器/resolver/建图代码即自动使旧缓存失效，换行符归一化，源码读不出来时指纹随机（宁可不命中）。表结构变化才需要手动递增修订号。测试 `cache-version-fingerprint-test`。
+- **H-16** 契约改为"只增不删：已有字段不删除、不改类型，新增字段不升版本"；9 个命令（audit-overview、audit-map、impact、affected-tests、audit-diff、cycles、dead-exports、audit-security、workspace-info）在固定夹具上的键路径与类型快照在 `test/fixtures/json-contract.json`，删字段或改类型即红，新增字段要 `UPDATE_GOLDENS=1` 显式记录。测试 `json-contract-snapshot-test`（变异检查：改快照后红）。
+- **H-14** 手册首选命令改为 `--format ai --quiet`；`--json` 输出超过 `LIMITS.JSON_SIZE_HINT_BYTES`（100 KB）时顶层加 `sizeHint` 说明用 `--format ai` 或 `--fields`；`tree` 文本输出同一文件只展开一次（再出现写 `(see above)`），超过 `LIMITS.TREE_TEXT_MAX_LINES`（250 行）截断并写明怎么放开：本仓库同一目标文件默认输出 96 KB → 26 KB。测试 `tree-text-output-size-test`、`json-size-hint-test`。未复测 zod（当时的固定提交目录已不在本机，只剩缓存）；`audit-file --format ai` 在 zod 上的 97 KB 没有在本仓库复现（7.7 KB），未单独处理。
+
 ### 技术债清零第 1 批（2026-10-05，18 条）
 
 每条先写会失败的测试，修复后变绿；能还原旧代码的都做了变异检查。
