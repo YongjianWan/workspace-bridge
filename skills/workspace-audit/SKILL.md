@@ -83,7 +83,7 @@ workspace-bridge-cli audit-overview --cwd <project> --json --quiet
 
 若 `workspace-info` 返回 `fileCount: 0`，停止后续命令，报告"未找到可解析源文件"。
 
-缓存位置：默认 SQLite（`os.tmpdir()/workspace-bridge/<hash>/cache.db`），可通过 `--cache-dir <path>` 覆盖。
+缓存位置：默认 SQLite，优先在 Windows 的 `%LOCALAPPDATA%\workspace-bridge\<hash>\cache.db`、Linux/macOS 的 `$XDG_CACHE_HOME`（未设置时 `~/.cache`）`/workspace-bridge/<hash>/cache.db`；该目录不可写时回退到 `os.tmpdir()/workspace-bridge/<hash>/` 并在 `warnings[]` 给出 `cache-directory-fallback`。可通过 `--cache-dir <path>` 覆盖。
 
 ## 关键读取优先级
 
@@ -131,6 +131,8 @@ CLI 只给结构线索，安全判断必须 AI 手动执行。
   }
 }
 ```
+
+源码目录嵌套深于默认的 12 层时，输出会有 `depth-truncated` 警告；在同一个文件里加 `"maxIndexDepth": 20`（1 到 64 的整数）即可纳入更深的目录。
 
 ## Troubleshooting
 

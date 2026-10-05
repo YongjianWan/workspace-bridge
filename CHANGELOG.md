@@ -7,6 +7,29 @@
 
 ## [Unreleased]
 
+### 技术债清零第 1 批（2026-10-05，18 条）
+
+每条先写会失败的测试，修复后变绿；能还原旧代码的都做了变异检查。
+
+- **L2-44** `audit-diff --with-impact` 把 `--max-depth` 静默丢弃：现在透传，默认深度 `DEFAULTS.DIFF_IMPACT_DEPTH`=2。测试 `audit-diff-impact-depth-test`。
+- **L2-22** JS 解析退到 regex 时被标成 `regex-native`，缓存永久命中降级结果：解析器自己声明 `parseModeReason`（JS 的 regex 路径是 `regex-fallback`，没有脚本块的 Svelte 是 `regex-native`），builder 不再按 `entry.async` 猜；未声明的 regex 结果默认按不可信处理。`CACHE_VERSION` 54→55，旧缓存里的错误标签作废一次。测试 `js-parse-mode-reason-test`。
+- **L2-31** `watch` 的测试子进程在 `exit` 时就返回，丢结尾输出：改为等 `close`，`exit` 后最多再等 `TIMEOUTS.WATCH_STDIO_GRACE_MS`=1 秒（子进程不关管道时不挂死）。测试 `watch-command-output-test`（还原旧代码变红）。
+- **L2-32** `runApiContracts` 前端容器 `shutdown` 失败会跳过后端：两个容器各自独立释放，失败记为 `container-shutdown-failed` 警告而不吞掉；分析抛错改走 `failure('unexpected_error')`。测试 `api-contracts-shutdown-test`。
+- **L2-38** 删除 `ast-rules` 里按函数名猜事务的 `batch-no-transactional`（违背"结构分析不是语义分析"），Java/Kotlin 现在没有内置 AST 规则。同时改写依赖它的测试。
+- **L2-42** 把 `.claude/settings.local.json` 和 `reference/` 下的 docx、zip 移出 git 跟踪（文件留在本地），`.gitignore` 补上 `.claude/settings.local.json`。
+- **H-5** `skills/workspace-audit/SKILL.md` 的缓存位置改为实际行为（优先 `%LOCALAPPDATA%` / `XDG_CACHE_HOME`，不可写才回退到临时目录并带警告）；`AGENTS.md` 原则 8 的语言范围与"语言范围"一节对齐（6 种范围内语言必须对等，Kotlin、C/C++、Svelte 只要求不退化）。
+- **H-24** 复现并修复：`--cwd` 指向仓库子目录时，根目录没有 `.git` 和 `.gitignore`，过滤器直接跳过，被忽略的文件照样进索引（同一仓库根目录 2 个文件，`--cwd sub` 4 个）。现在向上找祖先目录的 `.git`（目录或文件），找到就交给 `git check-ignore`；纯文件系统检查，不起进程。测试 `gitignore-subdirectory-test`。
+- **H-27** `test/runner.js` 在全量前后对比本仓库 `git config --local` 的 `user.name`/`user.email`，变了就记一个失败。三次全量未复现身份被改，守卫防止再发生。测试 `runner-identity-guard-test`。
+- **L2-25** 一次性 CLI 命令收到 SIGINT/SIGTERM 时先 `container.shutdown()` 再以 128+信号号退出（`src/cli/signal-cleanup.js`）。测试用 `process.emit` 投递，Windows 上也能跑。
+- **L2-30** 入口基名：`main.go`、`main.rs`、`main.py` 本来就识别；复现出的真缺口是 Java/Kotlin：带 `public static void main(` 或顶层 `fun main(` 的 `.java`/`.kt` 按内容识别为入口，不再误报孤儿，与文件名无关。测试 `jvm-main-entry-test`。
+- **H-28** `watch --run-tests` 对 jest 传了源文件路径当测试名模式，匹配 0 个、退出 1。改为 `jest --passWithNoTests --findRelatedTests <文件>`，vitest 为 `vitest related --run <文件>`。`node eval/verify-watch-real.js`：`passed:true`，两条命令都执行。测试 `node-focused-tests-command-test`。
+- **H-29** `buildSafeEnv` 保留 `PATHEXT`、`COMSPEC`（Windows 上 `where semgrep` 靠它找到 `semgrep.exe`）；只剩内置规则是因为外部工具缺失时，`audit-security` 的 `warnings[]` 给出 `external-tool-unavailable`（`--builtin-only` 是主动选择，不报）。测试 `external-tool-availability-test`。
+- **L2-27** 新增 `.workspace-bridge.json` 的 `maxIndexDepth`（1 到 64 的整数，默认 12）；`depth-truncated` 警告说明怎么调高。测试 `index-depth-config-test`。
+- **L2-35** Windows 工作区内的合法 UNC 绝对路径被当成 POSIX 根路径拒绝：现在只拒绝单个前导斜杠，以两个反斜杠开头的 `\\server\share\...` 交给越界检查。测试 `unc-workspace-path-test`。
+- **L2-37** 两个只在大小写上不同的 junction 指向同一目录时，遍历把同一个文件列两次：`visitedRealPaths` 改用大小写归一后的键。测试 `walk-case-alias-test`（改前列出 2 条路径）。
+- **H-23** 两个读 `src/` 源码文本的测试迁到 ESLint `no-restricted-syntax`：同步子进程调用必须带 `timeout`，`getContentSignature` 不得用 `?.` 守卫；其余读源码的断言删除，行为测试保留。新规则当场查出 `cochange-tools`、`regression-tools`、`git-environment-probe` 里 6 处没有 `timeout` 的 git 同步调用，已补上；`cli-fallback` 启动 CLI 本身，带理由豁免。全局再无读源码文本的测试。
+- **L2-26** Java 同包展开对每个目标线性扫描 `imports`、`importRecords`。改用 `Set` 做成员判断，边集合不变。单包 1600 个类的 `audit-overview` 23.7 → 13.0 秒（800 个类 9.2 → 7.9 秒；同一台机器同一脚本）。测试 `java-package-expansion-idempotent-test`（重复展开不产生重复边和记录，改坏时变红）。
+
 ### 长时间初始化可见（2026-10-05）
 
 - 初始化的单个阶段运行超过 30 秒（`TIMEOUTS.INIT_HEARTBEAT_MS`，约为 3000 文件暖启动 13.7 秒的两倍）后，每 30 秒向 stderr 写一行 `[Container] still running: <阶段> (<已用时间>)`，`--quiet` 下也写；agent 据此区分"在跑"与"卡死"。小仓库的 `--quiet` 运行 stderr 仍为空。

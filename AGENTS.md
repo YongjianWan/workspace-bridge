@@ -39,7 +39,7 @@
 
 ## 当前核验
 
-`node test/wb-repro.js cli.js` 当前为 27/27 OK、退出码 0；`CACHE_VERSION=54`，`schemaVersion=1.2.0`。Windows 本机 Node 25.6.0（2026-10-05）：快测 210/210、lint 退出码 0；全量 330/330、0 失败、退出码 0（约 20.4 分钟）。慢测默认并发 2。索引超时或深度截断时 `discoveryComplete=false`、`coverageRatio=null`，不得按 100% 解读；动态加载及缓存失败通过 `warnings[]` 显式说明。
+`node test/wb-repro.js cli.js` 当前为 27/27 OK、退出码 0；`CACHE_VERSION=55`，`schemaVersion=1.2.0`。Windows 本机 Node 25.6.0（2026-10-05）：快测 210/210、lint 退出码 0；全量 330/330、0 失败、退出码 0（约 20.4 分钟）。慢测默认并发 2。索引超时或深度截断时 `discoveryComplete=false`、`coverageRatio=null`，不得按 100% 解读；动态加载及缓存失败通过 `warnings[]` 显式说明。
 
 WSL Ubuntu 24.04/ext4、Node 22.13.0（2026-10-04）：全量 `node test/runner.js` 321/321、0 失败、退出码 0，约 269 秒；lint 退出码 0。测试仓库位于普通目录，runner 与子测试使用同一 Node runtime。
 
@@ -124,7 +124,7 @@ GitHub Actions 的 Node 22/22.13.0/24、ubuntu/windows 矩阵与慢层已在 `2d
 5. **保守判断** — `dead-exports`、`historyRisk`、测试映射这些东西，一旦不确定就降级，不要自信胡说。
 6. **结构分析 ≠ 语义分析** — workspace-bridge 回答"谁依赖谁、改了什么"，不回答"有没有 XSS、N+1 查询、事务缺失"。后者是大模型的语义判断能力圈，工具越界只会增加误报和依赖重量。拒绝把 workspace-bridge 变成 SonarQube 替代品。
 7. **暴露冲突，不要折中** — 当发现架构冲突、职责不清、接口矛盾时，不允许用"两边都照顾一点"的妥协方案掩盖问题。折中只会在未来产生更复杂的 if-else 和隐性耦合。正确做法：暴露冲突，明确选择一方（哪怕暂时不舒服），或重构以彻底消除冲突。这条与 L2-4 "边界消除 > if" 互补：if 是代码层面的掩盖，折中是架构层面的掩盖。
-8. **多语言等价性 (Language Parity First)** — 不管开发、修改或演进何种功能特性（如 AST 规则、代码异味、路由提取、增量更新等），必须同步对已设计的所有 9 种语言（JS/TS、Python、Java、Kotlin、Go、Rust、C/C++、Vue SFC、Svelte）进行适配与测试更新，严禁产生语言特性偏斜与技术债漏水。
+8. **多语言等价性 (Language Parity First)** — 不管开发、修改或演进何种功能特性（如 AST 规则、代码异味、路由提取、增量更新等），必须同步对「语言范围」内的 6 种语言（JS/TS、Python、Java、Go、Rust、Vue SFC）进行适配与测试更新，严禁产生语言特性偏斜与技术债漏水。Kotlin、C/C++、Svelte 只要求既有解析与测试不退化，新功能的对等适配等有真实用例再做。
 
 ---
 
