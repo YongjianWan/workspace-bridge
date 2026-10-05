@@ -13,8 +13,11 @@ const { spawnSync } = require('child_process');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { filterGitIgnored } = require('../src/utils/gitignore');
 
+// A submodule clone is slow when the whole suite runs 12 tests at once on a cold cache.
+const GIT_TIMEOUT_MS = 120000;
+
 function git(cwd, args) {
-  const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'protocol.file.allow=always', '-c', 'core.autocrlf=false', ...args], { cwd, encoding: 'utf8', timeout: 30000 });
+  const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'protocol.file.allow=always', '-c', 'core.autocrlf=false', ...args], { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS });
   assert.strictEqual(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
 }
 

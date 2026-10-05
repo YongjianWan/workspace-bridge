@@ -15,6 +15,7 @@ const { elideDeep } = require('../utils/truncate');
 const { warningOf } = require('../services/ledger');
 const { buildCliError } = require('./error-envelope');
 const { sanitizeRepositoryText, attachMarker } = require('./untrusted-text');
+const { applyPathSpelling } = require('./path-spelling');
 
 const COMMAND_ARRAY_LIMITS = { 'affected-tests': DEFAULTS.AFFECTED_TESTS_COMMAND_MAX_ITEMS };
 
@@ -114,7 +115,7 @@ function formatCliResult(parsed, result, meta = {}) {
       appendWarning(result, '--fields reduced AI digest input; counts and topRisks may be incomplete');
     }
     maybeWarnIgnoredOptions(parsed, result);
-    ({ result, marker } = sanitizeRepositoryText(result));
+    ({ result, marker } = sanitizeRepositoryText(applyPathSpelling(result, meta.pathSpelling)));
   }
 
   let stdout;

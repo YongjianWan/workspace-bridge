@@ -28,6 +28,7 @@ const { checkCwd } = require('./src/cli/commands/_utils');
 const { parseCliArgs, sanitizeCliPaths, classifyError } = require('./src/cli/validate-args');
 const { buildCliError, wantsJson, guessCommand } = require('./src/cli/error-envelope');
 const { determineExitCode, formatCliResult, buildErrorResponse } = require('./src/cli/route-formatter');
+const { buildSpellingIndex } = require('./src/cli/path-spelling');
 const { installFatalHandlers } = require('./src/cli/bootstrap');
 const { workspaceInfo } = require('./src/tools/workspace-tools');
 const { typedError } = require('./src/utils/failure');
@@ -401,7 +402,8 @@ async function runCliInProcess(args, opts = {}) {
       if (result.warnings.some(warning => warning?.severity === 'high' || warning?.severity === 'medium')) result.dataQuality = 'degraded';
     }
 
-    const stdout = formatCliResult(parsed, result, { schemaVersion: SCHEMA_VERSION });
+    const pathSpelling = container?.snapshot ? buildSpellingIndex(container.snapshot.graph, container.workspaceRoot) : null;
+    const stdout = formatCliResult(parsed, result, { schemaVersion: SCHEMA_VERSION, pathSpelling });
     const status = determineExitCode(parsed.command, result, parsed.failOnFindings);
     return { status, stdout, stderr: '' };
   } catch (err) {
