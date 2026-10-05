@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### 技术债清零第 6 批（2026-10-06，3 条：affected-tests 精度、生成客户端、submodule diff）
+
+- **H-7 不修，附评测曲线**：`node eval/verify-h7-tradeoff.js`（新增）在 typer 的覆盖率真值上比较各种截取规则，真值是"哪些测试运行时真的执行了这个源文件"。现状（返回全部）精确率 0.548、召回率 0.991；"距离 ≥ 2 且经过扇入 ≥ N 的枢纽文件"这类规则，N 取 5 到 80 召回率只剩 0.07–0.15（精确率 0.73–0.91）；只留距离 ≤ 1 精确率 0.947、召回率 0.063；距离 ≤ 2 精确率 0.673、召回率 0.305。没有任何截取规则满足"召回率不低于 0.9"：typer 的测试确实都经 `typer.testing` 之类的共享入口运行到几乎所有源文件，静态依赖路径分不出"经枢纽但真会执行"和"经枢纽且不会执行"。cobra、petclinic 同因（TECH_DEBT 原行已记）。所以不加过滤；输出已按"距离、枢纽扇入、路径"排序并带 `distance` 与 `via`，调用方要精确就取前面距离小的。写入 TECH_DEBT 冻结区。
+- **L2-41** 生成客户端的调用模式：`__request(OpenAPI, { method, url })`（openapi-typescript-codegen，FastAPI 模板用的就是它）、`client.get/post/put/delete/patch/head/options({ url })` 和 `client.request({ method, url })`（hey-api）被抽取；只认标识符 `client`，`otherClient.get(...)`、缺 method 的 `__request`、带插值的模板 URL 仍不认。测试 `api-contracts-generated-client-test`。
+- **L2-45** 父仓库里 submodule 移动了提交时，`git status` 里只有一条 gitlink 目录，旧代码把目录当"目录"直接丢掉，`audit-diff` 的变更文件为空且没有任何说明。现在 `getChangedFiles` 把 submodule 目录单独返回为 `changedSubmodules`（不再混进 `changedFiles`），`audit-diff` 在 `warnings[]` 给出 `submodule-not-expanded`（新原因码，共 31 个），写明路径和"对每个 submodule 单独用 `--cwd` 运行"。没有做展开：父仓库 diff 里只有被移动的提交号，要展开得在子仓库里再取一次 diff，那是另一个 git 上下文。测试 `audit-diff-submodule-test`。
+
 ### 技术债清零第 5 批（2026-10-06，10 条：并发、静默错误、分层、语言）
 
 - **L1-18** SQLite 锁文件先创建为空、随后才写入持有者 pid，旧逻辑把"空文件"当作残留锁直接删除重建，两个进程会同时认为自己持锁。现在 2 秒内的空锁视为"正在创建"，等待而不接管；确认接管死进程的锁前重读内容，只删自己判定过的那把。连接新增 `PRAGMA busy_timeout = 5000`（原为 0，写冲突立刻报 BUSY）。测试 `graph-db-lock-test`：年轻空锁不被接管、过期空锁被接管、死进程锁被接管，第二个进程在第一个持写锁 700 ms 时等待而不失败（去掉 pragma 后变红）。`tech-debt-cleanup-test` 里"刚创建的空锁立刻被接管"的旧断言改为"遗弃的空锁被接管"。

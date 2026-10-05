@@ -4,12 +4,11 @@
 
 ## 根因归属（修法见 [ROADMAP.md](../ROADMAP.md)「架构修复路线」）
 
-以下归类只对应当前开放条目；结构性方案见 ROADMAP。根因 C（建图与分析存在重复工作）和根因 E（语言能力缺少统一声明）目前没有开放条目，所以表中没有它们。
+以下归类只对应当前开放条目；结构性方案见 ROADMAP。根因 C（建图与分析存在重复工作）、根因 D（结论缺少按目标说明的证据边界）和根因 E（语言能力缺少统一声明）目前没有开放条目，所以表中没有它们。
 
 | 根因 | 证据 | 对应条目 |
 |---|---|---|
 | B 路径没有统一身份 | 路径归一化散布于调用方，显示路径与缓存键仍有多种写法 | H-22 ② |
-| D 结论缺少按目标说明的证据边界 | 结构性影响与语义测试关联的能力边界仍需明确，不能从空结果推出无风险 | H-7 |
 | 输出没有统一出口（横切） | 规则散在 `elideDeep`、`route-formatter.js`、2027 行的 `human-formatters.js` | H-22 ③ |
 | 验证体系自身不可信（横切） | CI 近 90 次成功 11 次；核心模块变异捕获率约 65% | H-17、H-19 |
 
@@ -23,7 +22,6 @@
 
 | ID | 现象与复现 | 验收线 |
 |---|---|---|
-| H-7 | `affected-tests` 的预测质量：typer 精确率 0.548（召回率 0.991，CLI 输出与评测同口径）。`typer/testing.py` 被几乎所有测试导入，距离 2 的传递依赖把大半测试拉进来（`typer/_completion_shared.py` 真值 1 个测试，预测 96 个）；当前只在截断时把经枢纽文件的测试排后（`orderedBy: distance,hubFanIn,file`），列表不超过 500 条时它们仍全部返回。静态传递的上限同样出现在 cobra（召回率 1.0、精确率 0.374：根包源文件互相引用，经传递把 17 个测试都拉进每个文件的预测，真值每个文件平均 4.6 个）和 spring-petclinic（召回率 0.98、精确率 0.563：`@SpringBootTest` 测试对同模块所有 JVM 源码都列出，其中需要 Docker 的集成测试在真值运行里没有执行，被算作误报）。hexyl 1.0 / 0.5 仅 4 个样本，vitesse 仅 1 个样本，无统计意义。复现：`node eval/score.js`。 | typer 精确率有可验证的提升方案（枢纽路径降级为"弱关联"标记或默认不返回），且召回率不低于 0.9；cobra、petclinic 在不降低召回率的前提下提升精确率（例如按距离或证据强度分档返回）。 |
 | H-19 | 发布流程半手动且已多次中断，版本号与发布物脱节。2026-10-02 实测：① 发布只由推送 `v*` 标签触发（`.github/workflows/release.yml`：`npm ci` → 快层测试 → 冒烟 → `npm pack` → GitHub Release → `npm publish --provenance`）；版本号与 CHANGELOG 靠手工提交（如 `ad84bd1` "切版 2.1.0"），仓库里没有自动化脚本。② `package.json` 为 2.1.0（2026-07-17）、CHANGELOG 有 `[2.1.0]`，但最新标签与 GitHub Release 是 `v1.2.1`（2026-05-28），此后 271 个提交，2.0.0、2.1.0 从未打标签。③ 发布工作流最近 3 次（v1.1.0、v1.1.1、v1.2.1）都失败在 "Publish to npm"，v1.0.2、v1.0.3 成功；现查 `npm view workspace-bridge` 返回 404（包不在 npm 上）。④ 冒烟步骤只检查 `--version` 与 `workspace-info`：本机按同样步骤解压 `npm pack` 产物（192 个文件，约 550 KB，不含 `eval/`、`test/`、`docs/`）到没有 `node_modules` 的目录，二者都通过，而 `audit-overview` 在该目录退化为 regex 解析（提示 `@babel/parser not available`）；所以产物缺运行依赖时冒烟仍会绿。⑤ 打包：`npx pkg . --targets node22-win-x64` 离线构建成功（20 秒，使用缓存的 v22.22.3 基础二进制；`pkg` 对 `tree-sitter-wasms` 动态 require 给出一条警告），产物 121 MB，`--version` 为 2.1.0，在 typer 上 `audit-overview` 解析 639/639 个文件，覆盖率与警告和 `node cli.js` 一致。仓库根的 `workspace-bridge-win.exe`（114 MB，已被 `.gitignore` 忽略）仍可运行，但版本是 2.0.0，落后 274 个提交。 | 先查明 npm 发布失败的原因（令牌或包名权限），再决定是否发布；补打 2.0.0/2.1.0 对应标签或在 README 说明版本从 2.x 起不再发布；冒烟增加一条需要运行依赖的分析命令（如对解压目录自身 `audit-overview` 并检查 `parsedFiles` 大于 0 且无 `@babel/parser not available`）；旧 `workspace-bridge-win.exe` 是删除还是用新构建替换，由项目所有者决定。
 | H-22 | 同一结果的路径包含原大小写反斜杠、全小写正斜杠与混合 id，消费者必须自行归一化（ROADMAP「路径身份」，改动落在 `path.js`、`dep-graph.js` 等高危文件）。 | 同一结果的路径统一写法并声明大小写策略。 |
 
@@ -48,8 +46,6 @@ U 表示"还没查过，不知道有没有问题"，不是已确认的债务。�
 | ID | 当前问题 | 根因与风险 | 下一步与验收 |
 |---|---|---|---|
 
-| L2-41 | api-contracts 缺少生成客户端主流调用模式支持 (P1-14) | `client-call-extractor.js` 仅支持 axios/fetch 与局部 request。现代前后端（FastAPI 模板、OpenAPI 生成代码）中常见的 `client.<method>`、`client.request`、`__request` 全被忽略，导致生成客户端项目的前端调用数为 0。 | 扩展客户端匹配规则覆盖常见生成代码模式并在固定前后端夹具中验证。 |
-| L2-45 | 父仓库的 submodule gitlink 变更不展开到源码级 audit-diff | 父 git diff 有 sub/child，父 audit-diff changedFiles 为空；子仓库独立 --cwd 则报告 helper.js。父 overview 同时索引子仓库源码，父 diff 不能据此外推对子仓库改动已完成影响分析；目前没有针对 gitlink 省略的明确说明。 | 明确父/子分析边界并提示对子仓库独立运行；若支持展开，核对两个 git 上下文而非把 gitlink 当普通文件。 |
 
 ## L3：改动时顺手处理
 
@@ -66,3 +62,4 @@ U 表示"还没查过，不知道有没有问题"，不是已确认的债务。�
 - 暖启动剩余固定成本（Django 固定提交 `a013c821ea` 暖启动约 7–8 秒）：Python 标准库名查询的子进程约 0.35 秒，结果随解释器版本变化、内置名单不等价，所以保留；死导出预计算约 1.2 秒，`audit-overview` 输出需要它。重新处理的条件：该提交暖启动超过 10 秒。
 - 语言处理分散：提到 Kotlin 的源文件 23 个、Rust 24 个、Go 25 个，每门语言都是同一量级。当前没有新增语言的计划；决定新增第 10 门语言之前，先把语言专属分支收进语言注册表。
 - 超大仓库内存：生成仓库实测 3060 文件暖启动峰值 184 MB、30600 文件 1508 MB（每文件约 0.13 MB，线性）；外推 10 万文件约 4.5 GB，接近 Node 默认堆上限。重新处理的条件：出现 5 万文件以上的真实仓库，或有人报告 OOM。
+- `affected-tests` 精确率：typer 0.548（召回率 0.991），cobra 0.374，spring-petclinic 0.563。`node eval/verify-h7-tradeoff.js` 实测任何截取规则都满足不了召回率 0.9（距离 ≤ 1 时精确率 0.947、召回率 0.063），原因是真值里的测试确实经共享入口执行到几乎所有源文件；输出已按距离、枢纽扇入排序并带 `distance`/`via`。重新处理的条件：有了运行时覆盖信息可作为边的权重。
