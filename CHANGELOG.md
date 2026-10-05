@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### Go 同包测试关联（2026-10-05）
+
+- Go 同包的 `_test.go` 文件不 import 就能用包里的代码，图里没有这条边，`affected-tests` 只能靠文件名启发式撞上。现在构建的 Go 包展开阶段给同包测试补边：测试文件用到了某个源文件声明的名字（函数、方法、类型、变量、常量，含未导出，长度至少 `LIMITS.GO_SAME_PACKAGE_MIN_IDENTIFIER_LENGTH`=4）就连到该文件。外部测试包（`package x_test`）仍按 import 解析。边为隐式 tier3 记录，不标记"使用了全部导出"，死导出结果不变。新增 `src/services/dep-graph/go-same-package.js`。
+- 同包非测试源文件之间原来无条件两两连边，现在用同一条规则门控（引用了对方声明的名字才连），与 Java 同包展开一致；文件读不出时保留边。
+- cobra（fault-injection 真值，10 个源文件）：召回率 0.609 → 1.0，精确率 0.40 → 0.374。其余仓库的评分数字不变，`node eval/score.js` 无 FAIL。`eval/baseline.json` 已更新 cobra。
+- 回归：`go-same-package-test-edges-test`（调用才连边、未导出名也连、外部测试包不连、短名不连、不标记导出已用、测试改动后无残留边）；不加测试边、让边标记全部导出已用，各自变红。全量 329/329，快测 212/212，lint 通过。
+
 ### 大仓库源文件重复读取（2026-10-05）
 
 - 对 3060 文件生成仓库的整条 `audit-overview` 暖启动做读取计数：每个源文件平均被读 3.3 次（最多 6 次），源文件被 `stat` 6778 次。来源：符号扫描（导入方）3540 次、入口检测 3000 次加 3000 次 `stat`、`import.meta.glob` 扫描 1992 次、本文件符号扫描 1237 次。

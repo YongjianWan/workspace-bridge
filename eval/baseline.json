@@ -92,9 +92,9 @@
     "cobra": {
       "affected-tests": {
         "status": "ok",
-        "precision": 0.4,
-        "recall": 0.6087,
-        "n": 88
+        "precision": 0.374,
+        "recall": 1,
+        "n": 123
       }
     },
     "hexyl": {
