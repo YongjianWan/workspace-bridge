@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### 错误信封第二块（2026-10-05）
+
+- 新增 `src/utils/failure.js`：`failure(type, message, extra)` 统一工具层失败结果为 `{ok:false, errorType, error, suggestion, ...extra}`，每种类型有默认建议，调用处可用 `extra.suggestion` 覆盖；`typedError(type, message)` 让抛错处带类型。类型：`validation_error`、`path_error`、`git_error`、`init_error`、`query_error`、`config_error`、`permission_error`、`timeout_error`、`unknown_command`、`unexpected_error`，写入未知类型直接抛错。
+- 49 处 `{ok:false, error}` 迁入 `failure()`：参数缺失与冲突（validation_error）、文件或路径问题（path_error）、git 失败（git_error）、图或数据库未就绪（init_error）、`query` 的 SQL 被拒（query_error）。输出新增 `errorType`，原来没有建议的失败现在都有默认建议。
+- `classifyError` 先认抛错处的 `errorType`，再认 Node 错误码（`ENOENT`/`ENOTDIR`→path、`EACCES`/`EPERM`→permission、`ETIMEDOUT`→timeout），消息回退只匹配本 CLI 自己写的短语（`requires --`、`invalid --`、`timed out`、`failed to initialize`、`invalid json in config file`）；删掉 `init`、`initialize`、`not found`、`workspace-bridge.json` 这类宽泛匹配，此前任何含 `init` 的消息都会被归为 `init_error`。`.workspace-bridge.json` 解析失败、init 失败、`watch` 的目标文件缺失、未知命令的抛错处已带类型；未知命令退出码仍为 2。
+- 回归：`error-envelope-test` 扩展（失败形状、类型不靠词猜、六个命令的失败都带类型、损坏配置为 `config_error` 且退出 1）；让 `failure` 恒返回 `unexpected_error`、把 `init` 子串匹配加回，各自变红。全量 327/327，快测 210/210，lint 通过。
+
 ### 错误信封第一块（2026-10-05）
 
 - 新增 `src/cli/error-envelope.js`：CLI 层错误（参数解析失败、`--cwd` 不存在、路径越权、命令崩溃、in-process 不支持的命令）统一从 `buildCliError` 输出。JSON 固定含 `ok:false`、`error`、`errorType`、`suggestion`、`command`、`schemaVersion`；`errorType` 限于 `validation_error`、`path_error`、`permission_error`、`timeout_error`、`init_error`、`config_error`、`unexpected_error`，写入未知类型直接抛错。参数解析失败时 `command` 取第一个非选项参数。
