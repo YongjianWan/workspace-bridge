@@ -32,6 +32,7 @@
     "workflow:run": "node scripts/workflow-loop.js --task .workflow-task.json",
     "workflow:dry-run": "node scripts/workflow-loop.js --task .workflow-task.json --dry-run",
     "cli:fallback": "node scripts/cli-fallback.js",
+    "cache:prune": "node scripts/prune-cache.js",
     "self-audit": "node scripts/self-audit.js",
     "debug": "DEBUG=1 node cli.js audit-summary --cwd . --json"
   },
@@ -72,6 +73,7 @@
     "src/**",
     "skills/**",
     "scripts/cli-fallback.js",
+    "scripts/prune-cache.js",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"

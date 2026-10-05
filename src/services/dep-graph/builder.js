@@ -8,7 +8,7 @@ const { shouldExcludeCli: matchesFilePatterns } = require('../../utils/exclude-p
 const { promisify } = require('util');
 const { createImportRecord } = require('./parsers');
 const { registry } = require('./parsers/registry');
-const { resolveImport, clearResolverCaches, buildPythonModuleIndex } = require('./resolvers');
+const { resolveImport, beginResolverBatch, buildPythonModuleIndex } = require('./resolvers');
 const { detectFrameworkFromContent, extractRoutes } = require('./framework-patterns');
 const {
   scanAndExtractImplicitImports,
@@ -179,7 +179,7 @@ class GraphBuilder {
     this.dg._startBuilding();
 
     // Refresh resolver FS caches for each build to avoid stale paths
-    clearResolverCaches();
+    beginResolverBatch(this.dg.root);
 
     // Reset graph to prevent ghost data from deleted/renamed files
     this.dg.graph.clear();
@@ -1161,7 +1161,7 @@ class GraphBuilder {
     this.dg._startUpdating();
 
     // Refresh resolver FS caches for incremental updates to avoid stale paths
-    clearResolverCaches();
+    beginResolverBatch(this.dg.root);
 
     const startTime = Date.now();
     let reParsed = 0;

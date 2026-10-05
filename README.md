@@ -90,7 +90,8 @@ Java 与 Python 解析默认走进程内 tree-sitter WASM；如果 WASM 加载�
 | ------------------- | ----------- | ------------------------------------------- |
 | 小型（<100文件）    | ✅ 推荐     | 直接使用                                    |
 | 中型（100-500文件） | ✅ 可用     | 使用`--exclude` 过滤参考目录              |
-| 大型（>500文件）    | ⚠️ 谨慎   | 首次索引较慢，建议定期清理缓存              |
+| 大型（500–1万文件） | ✅ 可用     | 首次冷启动较慢，之后靠缓存；运行超过 30 秒时 `warnings[]` 会给出缩小范围的建议 |
+| 超大（>1万文件）    | ⚠️ 谨慎   | 生成仓库实测（Windows，`audit-overview` 暖启动）：1 万文件约 29 秒，3 万文件约 66 秒；耗时随文件数线性增长，建议用 `--exclude` 或子目录 `--cwd` 缩小范围 |
 | 混合仓库            | ⚠️ 需配置 | 创建`.workspace-bridge.json` 标注目录角色 |
 
 ## 相关文档
@@ -104,6 +105,10 @@ Java 与 Python 解析默认走进程内 tree-sitter WASM；如果 WASM 加载�
 
 - 运行依赖 7 个，`package-lock.json` 全部从 `registry.npmjs.org` 解析并带 `integrity` 哈希；CI 用 `npm ci` 按锁文件安装，并在每个矩阵作业里运行 `npm audit --omit=dev --audit-level=high`（运行依赖出现 high 及以上即失败）。
 - `tree-sitter-wasms@0.1.13`（Unlicense，仓库 `Gregoor/tree-sitter-wasms`）提供第三方预编译的 tree-sitter WASM 解析器，版本由锁文件固定；其构建过程没有逐文件复核，不可用时 CLI 按 `regex-fallback` 降级并在 `warnings[]` 里说明。
+
+## 缓存清理
+
+每个工作区的分析缓存按路径哈希存放在用户缓存目录（Windows 为 `%LOCALAPPDATA%\workspace-bridge`，Linux/macOS 为 `$XDG_CACHE_HOME` 或 `~/.cache` 下的 `workspace-bridge`；该目录不可写时用系统临时目录），工作区删除后缓存不会自动消失。`npm run cache:prune` 列出"所属工作区已不存在"的缓存及占用空间，什么都不删；确认后加 `--apply` 才删除（`node scripts/prune-cache.js --apply`）。只删记录的工作区根目录已不存在、且所在磁盘仍可访问、且没有进程占用的缓存；读不出所属工作区的缓存、位于未挂载磁盘上的工作区、非缓存目录一律保留。
 
 ## 许可证
 

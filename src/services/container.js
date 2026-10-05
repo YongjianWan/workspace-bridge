@@ -10,6 +10,7 @@ const { DependencyGraph } = require('./dep-graph');
 const { initializeDepGraph } = require('./orchestrator');
 const { ProjectContext } = require('../utils/project-context');
 const { TIMEOUTS, DEFAULTS } = require('../config/constants');
+const { readGitHead } = require('../utils/git-head');
 const {
   WorkspaceSnapshot,
   DependencyGraphView,
@@ -258,18 +259,8 @@ class ServiceContainer {
     });
 
     await this._runStage('gitHead', () => {
-      let gitHead = null;
-      try {
-        const { execSync } = require('child_process');
-        gitHead = execSync('git rev-parse HEAD', {
-          cwd: this.workspaceRoot,
-          encoding: 'utf8',
-          timeout: TIMEOUTS.GIT_SHORT_MS,
-          stdio: ['ignore', 'pipe', 'ignore'],
-        }).trim();
-      } catch {
-        // Not a git repo or git not available — stale detection falls back to time-based only
-      }
+      // null when not a git repo or git is unavailable: stale detection falls back to time-based only
+      const gitHead = readGitHead(this.workspaceRoot);
       this._checkAborted();
       this.cache.setWorkspaceInfo({ ...this.cache.getWorkspaceInfo(), gitHead });
     });
@@ -608,18 +599,9 @@ class ServiceContainer {
     const cachedInfo = this.cache?.getWorkspaceInfo();
     const cachedHead = cachedInfo?.gitHead;
     if (cachedHead && this.workspaceRoot) {
-      try {
-        const { execSync } = require('child_process');
-        const currentHead = execSync('git rev-parse HEAD', {
-          cwd: this.workspaceRoot,
-          encoding: 'utf8',
-          timeout: TIMEOUTS.GIT_SHORT_MS,
-          stdio: ['ignore', 'pipe', 'ignore'],
-        }).trim();
-        gitHeadChanged = currentHead !== cachedHead;
-      } catch {
-        // Non-git repo or git unavailable — keep gitHeadChanged false
-      }
+      // No readable HEAD (non-git repo or git unavailable) keeps gitHeadChanged false.
+      const currentHead = readGitHead(this.workspaceRoot);
+      if (currentHead) gitHeadChanged = currentHead !== cachedHead;
     }
 
     let filesChanged = false;

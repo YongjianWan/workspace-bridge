@@ -123,7 +123,14 @@ function isPathInsideRoot(rootPath, targetPath) {
   return !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
-function matchesPathFragment(targetPath, fragment) {
+// A fragment becomes the lower-cased (on Windows) posix key that is searched for between slashes.
+function fragmentKey(fragment) {
+  const normalizedFragment = toPosixPath(String(fragment || '')).replace(/^\.?\//, '').replace(/\/+$/, '');
+  if (!normalizedFragment) return null;
+  return IS_WINDOWS ? normalizedFragment.toLocaleLowerCase('en-US') : normalizedFragment;
+}
+
+function fragmentSearchPath(targetPath) {
   let normalizedPath = String(targetPath || '');
   if (normalizedPath.includes('\\')) {
     normalizedPath = normalizedPath.replace(/\\/g, '/');
@@ -131,13 +138,29 @@ function matchesPathFragment(targetPath, fragment) {
   if (!normalizedPath.startsWith('/')) {
     normalizedPath = '/' + normalizedPath;
   }
-  if (IS_WINDOWS) {
-    normalizedPath = normalizedPath.toLocaleLowerCase('en-US');
-  }
-  const normalizedFragment = toPosixPath(String(fragment || '')).replace(/^\.?\//, '').replace(/\/+$/, '');
-  if (!normalizedFragment) return false;
-  const key = IS_WINDOWS ? normalizedFragment.toLocaleLowerCase('en-US') : normalizedFragment;
-  return normalizedPath.includes(`/${key}/`) || normalizedPath.endsWith(`/${key}`);
+  return IS_WINDOWS ? normalizedPath.toLocaleLowerCase('en-US') : normalizedPath;
+}
+
+function pathContainsKey(searchPath, key) {
+  return searchPath.includes(`/${key}/`) || searchPath.endsWith(`/${key}`);
+}
+
+function matchesPathFragment(targetPath, fragment) {
+  const key = fragmentKey(fragment);
+  return key !== null && pathContainsKey(fragmentSearchPath(targetPath), key);
+}
+
+/**
+ * Prepare a fragment list once for repeated matching: a per-file exclude check otherwise
+ * re-normalizes every pattern for every file.
+ * @returns {(targetPath: string) => boolean} true when the path contains any fragment
+ */
+function compilePathFragmentMatcher(fragments) {
+  const keys = (fragments || []).map(fragmentKey).filter((key) => key !== null);
+  return (targetPath) => {
+    const searchPath = fragmentSearchPath(targetPath);
+    return keys.some((key) => pathContainsKey(searchPath, key));
+  };
 }
 
 function pathExists(targetPath) {
@@ -440,6 +463,7 @@ module.exports = {
   toRelativePosix,
   isPathInsideRoot,
   matchesPathFragment,
+  compilePathFragmentMatcher,
   pathExists,
   readJsonSafe,
   scoreDirectory,

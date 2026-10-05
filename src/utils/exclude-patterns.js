@@ -3,9 +3,21 @@
  * Eliminates copy-paste of shouldExcludeCli logic.
  */
 const path = require('path');
-const { normalizePathKey, matchesPathFragment } = require('./path');
+const { normalizePathKey, matchesPathFragment, compilePathFragmentMatcher } = require('./path');
 
 const DEFAULT_EXCLUDE_DIRS = ['node_modules', '__pycache__', '.venv', 'venv', '.git', 'dist', 'build', 'target', 'bin', 'obj', '.next', '.nuxt', '.svelte-kit', 'out', '.turbo', 'coverage', '.cache', '.idea', '.vscode', 'vendor', 'generated', '.workspace-bridge', 'test/fixtures'];
+
+// Pattern lists are replaced, not edited, when configuration changes, so the array identity
+// (plus its length, for in-place growth) identifies one compiled matcher.
+const compiledBaseMatchers = new WeakMap();
+
+function baseMatcherFor(dirs) {
+  const cached = compiledBaseMatchers.get(dirs);
+  if (cached && cached.length === dirs.length) return cached.matches;
+  const matches = compilePathFragmentMatcher(dirs);
+  compiledBaseMatchers.set(dirs, { length: dirs.length, matches });
+  return matches;
+}
 
 /**
  * Base exclusion check used by both FileIndex and DependencyGraph.
@@ -18,10 +30,7 @@ function shouldExcludeBase(filePath, baseExcludeDirs) {
   if (base === 'cache.db' || base === 'cache.db-wal' || base === 'cache.db-shm') return true;
 
   const normalized = normalizePathKey(filePath);
-  if (baseExcludeDirs && baseExcludeDirs.some((dir) => matchesPathFragment(normalized, dir))) {
-    return true;
-  }
-  return false;
+  return Boolean(baseExcludeDirs) && baseMatcherFor(baseExcludeDirs)(normalized);
 }
 
 /**

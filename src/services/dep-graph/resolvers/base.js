@@ -39,6 +39,8 @@ const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies'
 
 function clearResolverCaches() {
   _statCache.clear();
+  _dirListingCache.clear();
+  _listingRoot = null;
   _resolverCache.clear();
   _javaSourceRootsCache.clear();
   _tsconfigPathsCache.clear();
@@ -89,7 +91,63 @@ function cachedStatSync(filePath) {
   return stat;
 }
 
+// Import resolution probes thousands of candidate paths that mostly do not exist; a stat per
+// probe costs ~0.1 ms each on Windows. During one graph build the workspace is a snapshot, so a
+// single listing per directory answers every probe in it. Outside a build (direct resolver
+// calls, anything outside the workspace root) every probe is a stat, as the files may change
+// between calls. File systems that ignore case (Windows, macOS) list names lower-cased, and a
+// name that is listed is still confirmed by stat, so a listing can only rule paths out.
+const CASE_INSENSITIVE_FS = process.platform === 'win32' || process.platform === 'darwin';
+const _dirListingCache = new Map();
+let _listingRoot = null;
+
+function _listingKey(name) {
+  return CASE_INSENSITIVE_FS ? name.normalize('NFC').toLowerCase() : name;
+}
+
+function _isInsideListingRoot(dir) {
+  return _listingRoot !== null && (dir === _listingRoot || dir.startsWith(_listingRoot + path.sep));
+}
+
+// Set of names in `dir`; null when the directory does not exist or is not one; undefined when
+// it cannot be listed for another reason (permissions), in which case stat decides.
+function _directoryNames(dir) {
+  if (_dirListingCache.has(dir)) return _dirListingCache.get(dir);
+  // Candidate paths often run through directories that do not exist; the parent's listing
+  // rules those out without a failing readdir (which costs as much as a successful one).
+  const siblings = dir === _listingRoot ? undefined : _directoryNames(path.dirname(dir));
+  let names;
+  if (siblings === null || (siblings && !siblings.has(_listingKey(path.basename(dir))))) {
+    names = null;
+  } else {
+    try {
+      names = new Set(fs.readdirSync(dir).map(_listingKey));
+    } catch (err) {
+      names = err.code === 'ENOENT' || err.code === 'ENOTDIR' ? null : undefined;
+    }
+  }
+  _dirListingCache.set(dir, names);
+  _trimCache(_dirListingCache, LIMITS.RESOLVER_STAT_CACHE_MAX);
+  return names;
+}
+
+/**
+ * Start a resolution batch for `root`: empty every resolver cache and allow directory listings
+ * for paths under `root` until the next clearResolverCaches().
+ */
+function beginResolverBatch(root) {
+  clearResolverCaches();
+  _listingRoot = path.resolve(root);
+}
+
 function cachedExistsSync(filePath) {
+  if (!_statCache.has(filePath)) {
+    const dir = path.dirname(filePath);
+    const name = path.basename(filePath);
+    const names = name && _isInsideListingRoot(dir) ? _directoryNames(dir) : undefined;
+    if (names === null) return false;
+    if (names && !names.has(_listingKey(name))) return false;
+  }
   return cachedStatSync(filePath) !== null;
 }
 
@@ -927,6 +985,7 @@ module.exports = {
   INDEX_EXTENSIONS,
   _resolverCache,
   clearResolverCaches,
+  beginResolverBatch,
   cachedStatSync,
   cachedExistsSync,
   discoverJavaSourceRoots,

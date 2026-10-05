@@ -3,6 +3,7 @@ const { builtinModules } = require('module');
 const {
   _resolverCache,
   clearResolverCaches: clearBaseResolverCaches,
+  beginResolverBatch: beginBaseResolverBatch,
   cachedExistsSync,
   cachedStatSync,
   discoverJavaSourceRoots,
@@ -26,6 +27,11 @@ const {
 
 function clearResolverCaches() {
   clearBaseResolverCaches();
+  _clearWorkspacePackagesCache();
+}
+
+function beginResolverBatch(root) {
+  beginBaseResolverBatch(root);
   _clearWorkspacePackagesCache();
 }
 
@@ -441,6 +447,7 @@ module.exports = {
   resolveImport,
   resolveJavaImport,
   clearResolverCaches,
+  beginResolverBatch,
   cachedExistsSync,
   // Expose strategy internals for testing and future extension
   createResolver,

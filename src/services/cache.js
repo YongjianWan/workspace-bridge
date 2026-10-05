@@ -65,14 +65,24 @@ const METADATA_SCHEMA = {
   },
 };
 
-function computeDefaultCacheDir(workspaceRoot, ledger = new Ledger()) {
-  // Hash the same key the graph uses, so `C:\x`, `c:\x` and `C:/x` share one cache dir.
-  const hash = crypto.createHash('md5').update(normalizePathKey(workspaceRoot)).digest('hex').slice(0, 8);
+// Directories that hold one project-isolated cache per workspace: the per-user cache location,
+// and the temp directory used when that one is not writable.
+function cacheBaseDirs() {
   const cacheRoot = process.platform === 'win32'
     ? (process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'))
     : (process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'));
-  const preferredDir = path.join(cacheRoot, 'workspace-bridge', hash);
-  const fallbackDir = path.join(os.tmpdir(), 'workspace-bridge', hash);
+  return {
+    preferred: path.join(cacheRoot, 'workspace-bridge'),
+    fallback: path.join(os.tmpdir(), 'workspace-bridge'),
+  };
+}
+
+function computeDefaultCacheDir(workspaceRoot, ledger = new Ledger()) {
+  // Hash the same key the graph uses, so `C:\x`, `c:\x` and `C:/x` share one cache dir.
+  const hash = crypto.createHash('md5').update(normalizePathKey(workspaceRoot)).digest('hex').slice(0, 8);
+  const bases = cacheBaseDirs();
+  const preferredDir = path.join(bases.preferred, hash);
+  const fallbackDir = path.join(bases.fallback, hash);
   let cacheDir = preferredDir;
 
   try {
@@ -768,5 +778,6 @@ class WorkspaceCache {
 module.exports = {
   WorkspaceCache,
   computeDefaultCacheDir,
+  cacheBaseDirs,
   hashFileContent,
 };
