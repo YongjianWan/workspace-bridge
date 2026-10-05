@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### 文档：架构文档、产品化路线、漂移修正（2026-10-06，无代码改动）
+
+- 新增 `docs/ARCHITECTURE.md`：入口、容器流水线、文件发现、缓存、建图、分析与命令、输出、增量路径、横切契约、扩展接入点。尚未做逐句对照代码的第二轮核查。
+- 登记 TECH_DEBT H-33：只改 `src/tools/` 里生成 overview 结果的代码，`audit-overview` 仍会重放旧分析快照。复现在 `d57bc11` 的独立 worktree 上完成（改后输出无新增字段，空缓存对照有），代码未修。
+- ROADMAP 新增"产品化路线"：以目标仓库的 git 提交历史回放 `impact`，对照"笨基线"，分阶段 0 至 3，附止损条件；通过线与语言范围收窄为提议，待项目所有者决定。SESSION 下一步改为阶段 0 优先。
+- 修正文档漂移：SESSION、AGENTS、ROADMAP、docs/checklist.md 里已关闭的条目编号、过时的行数与规模数字，AGENTS 速查表加入 ARCHITECTURE 与产品化路线。
+
 ### 修复 macOS CI（2026-10-06，H-22 ② 的子问题）
 
 - **符号链接的工作区根下，`audit-diff` 等把所有变更文件丢掉**：git 输出真实路径（macOS 临时目录 `/var` → `/private/var`），调用方传入的写法不同，变更文件被当作"在根之外"静默丢弃，结果为空。原先只对 Windows 8.3 短路径做了转换；现在 `toGitSpelling`（原 `expandShortPath`）在非 Windows 上取真实路径，`toCallerSpelling` 把 git 的路径翻译回调用方写法。`isMonorepoSubpackage` 同样受益。Windows 仍只处理 8.3 段，junction 保持用户传入的写法。

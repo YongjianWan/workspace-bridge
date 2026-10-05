@@ -6,6 +6,7 @@
 |---|---|
 | [README.md](../README.md) | 安装与使用入口 |
 | [SESSION.md](../SESSION.md) | 当前交接、回归基线和下一步 |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | 架构与数据流：一条命令经过哪些模块、模块间的契约、常见扩展的接入点 |
 | [TECH_DEBT.md](./TECH_DEBT.md) | 仍开放或明确冻结的债务（含原外部审查开放项） |
 | [ROADMAP.md](../ROADMAP.md) | 未来方向与当前限制 |
 | [eval/README.md](../eval/README.md) | 真实仓库真值评测 |

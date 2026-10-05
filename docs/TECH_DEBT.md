@@ -4,19 +4,20 @@
 
 ## 根因归属（修法见 [ROADMAP.md](../ROADMAP.md)「架构修复路线」）
 
-以下归类只对应当前开放条目；结构性方案见 ROADMAP。根因 C（建图与分析存在重复工作）、根因 D（结论缺少按目标说明的证据边界）和根因 E（语言能力缺少统一声明）目前没有开放条目，所以表中没有它们。
+以下归类只对应当前开放条目；结构性方案见 ROADMAP。根因 A（缺少统一的分析台账）、根因 C（建图与分析存在重复工作）、根因 D（结论缺少按目标说明的证据边界）和根因 E（语言能力缺少统一声明）目前没有开放条目，所以表中没有它们。
 
 | 根因 | 证据 | 对应条目 |
 |---|---|---|
 | B 路径没有统一身份 | 路径归一化散布于调用方，显示路径与缓存键仍有多种写法 | H-22 ② |
-| 输出没有统一出口（横切） | 规则散在 `elideDeep`、`route-formatter.js`、2027 行的 `human-formatters.js` | H-22 ③ |
-| 验证体系自身不可信（横切） | CI 近 90 次成功 11 次；核心模块变异捕获率约 65% | H-17、H-19 |
+| 输出没有统一出口（横切） | 规则散在 `elideDeep`、`route-formatter.js`、两千行量级的 `human-formatters.js` | H-22 ③ |
 
 不归入上述原因、独立处理：H-19。
 
 ## P1：输出看着正常、实际是错的（静默错误）
 
-当前无开放项。
+| ID | 现象与复现 | 验收线 |
+|---|---|---|
+| H-33 | 升级代码后，`audit-overview` 会继续重放旧代码算出的分析快照。原因：`analysis_snapshots` 每行只校验 `CACHE_VERSION`，而 `CACHE_VERSION` 的引擎指纹只覆盖 `src/services/dep-graph/`（`src/config/versions.js`）；`src/tools/` 里生成 overview 结果的代码不在指纹范围内，`isSnapshotFresh()`（`src/tools/snapshot-freshness.js`）也不比较代码版本。2026-10-05 在 `d57bc11` 的独立 worktree 上复现：两文件夹具，用同一个 `WB_CACHE_DIR` 先跑一次 `audit-overview --json --quiet` 生成快照；给 `src/tools/overview-tools.js` 的结果对象加一个字段 `probe: 1` 后再跑，输出带 `replayedFrom`，没有 `probe`。对照组换一个空缓存目录跑，输出有 `probe: 1`。重放结果只靠 `replayedFrom` 表明来源，未核对其 `warnings[]` 是否提示代码已变。 | 改 `src/tools/` 中参与生成分析快照的代码后，不手动加修订号也不会重放旧快照；有回归测试锁定（改代码指纹后快照失效）。 |
 
 ## P2：安全、缓存与文档隐患（条目编号 H-n）
 

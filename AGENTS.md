@@ -12,8 +12,9 @@
 | -------------------- | ------------------------------------------------------------------- |
 | 项目是什么、怎么用   | [README.md](./README.md)                                             |
 | 当前活跃债务         | [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)                             |
-| 本轮做了什么、下一步 | [SESSION.md](./SESSION.md)                                           |
-| 长期路线、架构修复路线、成功标准 | [ROADMAP.md](./ROADMAP.md)                                       |
+| 测试基线、下一步     | [SESSION.md](./SESSION.md)                                           |
+| 代码怎么串起来、模块契约、扩展接入点 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)               |
+| 产品化路线（优先）、架构修复路线、成功标准 | [ROADMAP.md](./ROADMAP.md)                                       |
 | 历史变更             | [CHANGELOG.md](./CHANGELOG.md)                                       |
 | 代码审计 skill 用法  | [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md) |
 | 评测集数字与用法     | [eval/README.md](./eval/README.md)                                   |
@@ -39,11 +40,7 @@
 
 ## 当前核验
 
-`node test/wb-repro.js cli.js` 当前为 27/27 OK、退出码 0；缓存布局修订号 `CACHE_SCHEMA_REVISION=55`（`CACHE_VERSION` 另含引擎源码指纹，改解析器代码自动使缓存失效），`schemaVersion=1.2.0`。Windows 本机 Node 25.6.0（2026-10-05）：快测 256/256、lint 退出码 0；全量 355/355、0 失败、退出码 0（约 26.4 分钟；此后又改动 17 处内部调用，慢层重跑时 `repl-test.js` 的 mock 缺方法已修复并单独通过，快层重跑 256/256）。慢测默认并发 2。索引超时或深度截断时 `discoveryComplete=false`、`coverageRatio=null`，不得按 100% 解读；动态加载及缓存失败通过 `warnings[]` 显式说明。
-
-WSL Ubuntu 24.04/ext4、Node 22.13.0（2026-10-04）：全量 `node test/runner.js` 321/321、0 失败、退出码 0，约 269 秒；lint 退出码 0。测试仓库位于普通目录，runner 与子测试使用同一 Node runtime。
-
-GitHub Actions 的 Node 22/22.13.0/24、ubuntu/windows 矩阵与慢层已在 `2d8403f`、`10d7876`、`027c7ab` 连续 3 次全绿（2026-10-05 逐 job 核对）；macOS 在 CI 里只跑快层与 smoke（通过），未跑慢层；Docker（`node:22` Linux 容器，Docker Desktop）全量 327/327、0 失败，约 176 秒；`main` 已设合并门禁（9 个检查必须通过，管理员可绕过）。平台作业绿色不代表内部测试全部通过。
+测试基线、缓存与 schema 版本号、各平台与 CI 的核验结果只记录在 [SESSION.md](./SESSION.md)「当前交接」，这里不重复，避免两处数字不一致。读这些结果时的约束：索引超时或深度截断时 `discoveryComplete=false`、`coverageRatio=null`，不得按 100% 解读；动态加载及缓存失败通过 `warnings[]` 显式说明；平台作业绿色不代表内部测试全部通过。
 
 ## 工程品味（TASTE）
 
@@ -87,7 +84,7 @@ GitHub Actions 的 Node 22/22.13.0/24、ubuntu/windows 矩阵与慢层已在 `2d
    跨文件重复：目标层级已有合适宿主模块则提取，否则标记为债务，不强行新建模块。
    > **触发条件**：发现复制粘贴代码、提取公共逻辑时适用。
    >
-8. **内聚优先** — 文件只做一件事，命名口语化（避免教科书式），注释写"为什么"不写"做什么"，也不写历史：不留审查/债务编号（P0-x、L3-x、wave8）、版本流水、"以前是这样"，这些只进 CHANGELOG。行数不重要——`dep-graph.js` ~1685 行仍保持不物理拆分，因为内部已通过 `GraphBuilder` / `GraphAnalyzer` / `GraphQuery` 实现认知拆分。判断标准：修改时通常只需理解一个主契约和它的邻近消费者；如果改动同时穿过写入、分析、查询三层，就不要再把它描述成单概念。
+8. **内聚优先** — 文件只做一件事，命名口语化（避免教科书式），注释写"为什么"不写"做什么"，也不写历史：不留审查/债务编号（P0-x、L3-x、wave8）、版本流水、"以前是这样"，这些只进 CHANGELOG。行数不重要——`analyzer.js`、`builder.js` 都超过千行，仍不为拆而拆；`dep-graph.js` 只是门面，写入、分析、查询分别在 `GraphBuilder` / `GraphAnalyzer` / `GraphQuery`。判断标准：修改时通常只需理解一个主契约和它的邻近消费者；如果改动同时穿过写入、分析、查询三层，就不要再把它描述成单概念。
    > **触发条件**：新增模块、拆分文件、调整目录结构时适用。
    >
 
@@ -241,11 +238,11 @@ node cli.js dead-exports --cwd . --json --quiet
 | repl-test.js flaky                                     | `test/repl-test.js`                                  | runner.js 串行执行时偶发失败，单独`node test/repl-test.js` 稳定通过；若遇到，先重跑确认                      |
 | audit-file-watch-test.js flaky                         | `test/audit-file-watch-test.js`                      | runner.js 串行执行时 watcher 事件偶发丢失，单独`node test/audit-file-watch-test.js` 稳定通过                 |
 | `framework-patterns.js` 新增框架时                   | `src/services/dep-graph/framework-patterns.js`       | 路径检测逻辑按语言分块，新增语言需同时更新`isEntry` 标记和测试                                               |
-| `buildFileValidationAdvice` 导出链                   | `validation-advice.js` → `index.js` → `cli.js` | 新增 formatter 函数必须在`src/cli/formatters/index.js` 中显式导出，否则 cli.js 解构为 `undefined`          |
+| `buildFileValidationAdvice` 导出链                   | `src/tools/summaries/validation-advice.js` → `src/tools/summaries/index.js` → `src/cli/formatters/index.js` → `cli.js` | 新增 formatter 函数必须在`src/cli/formatters/index.js` 中显式导出，否则 cli.js 解构为 `undefined`          |
 | `--quiet` 不再 monkey-patch `console.error`        | `cli.js` / `container.js`                          | `quiet` 通过 `ServiceContainer` 传递；错误日志仍用 `console.error`                                       |
 | `findDeadExports()` edges/files 降级                 | `src/services/dep-graph.js`                          | 单文件项目（files=1）不受降级影响；多文件项目 edges/files < 0.1 时 confidence 降为 low                         |
 | 实验脚本残留仓库根被 orphan 检测计数                 | `test/dead-exports-imports-scratch-config-test.js`   | 根目录任何未引用 `.js`（一次性测量/复现脚本）都算 orphan，`orphans.modules` 断言必红。实验脚本用完即删，别留在根目录过全量 runner   |
-| `resolvers.js` 策略链新增策略                        | `src/services/dep-graph/resolvers.js`                | 新增语言需在`registerResolverConfig()` 中加一行，策略函数签名 `(importPath, fromFile, ctx) => string\|null` |
+| `resolvers.js` 策略链新增策略                        | `src/services/dep-graph/resolvers.js`                | 策略链由 `parsers/registry.js` 各语言的 `resolveStrategies` 自动注册，新增策略写进那里，不要直接调 `registerResolverConfig()`；策略函数签名 `(importPath, fromFile, ctx) => string\|null`，顺序即优先级 |
 | `checkFileChanges()` 内容校验                         | `src/services/cache.js`                              | 每次按 SHA-256 校验内容；缺少哈希的旧元数据必须视为变化，mtime+size 仅用于元数据更新。测试夹具也要提供内容哈希。 |
 | `parse_results` 只存纯解析输出                        | `src/services/dep-graph/builder.js` / `graph-db.js`   | 缓存按文件路径保存、按内容哈希校验；不得写入已解析的目标路径。每次建图都要根据当前文件集合重新 resolve，新增文件也可能改变未改动文件的依赖边。 |
 | 图级 SQLite 表已废弃                                   | `src/services/graph-db.js`                            | `edges`、`precomputed_impact`、`precomputed_aggregates`、`test_map`、`routes`、`metrics` 不再存在；评测和测试必须查当前图，不可继续读旧表。 |
