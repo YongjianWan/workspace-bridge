@@ -632,9 +632,12 @@ class FileIndex {
     // not serializing independent file operations.
     const CONCURRENCY = 5;
     const executing = new Set();
+    const directories = new Set();
     for (const file of files) {
       if (!this.active) break;
-      const promise = this.handleFileChange(file).finally(() => executing.delete(promise));
+      const promise = this.handleFileChange(file)
+        .then((isFile) => { if (isFile === false) directories.add(file); })
+        .finally(() => executing.delete(promise));
       executing.add(promise);
       if (executing.size >= CONCURRENCY) {
         await Promise.race(executing);
@@ -644,21 +647,25 @@ class FileIndex {
     await Promise.all(executing);
 
     // Phase 3: 批量通知下游服务（如 dep-graph 增量更新）
-    if (this.active && files.length > 0) {
+    const changedFiles = files.filter((f) => !directories.has(f));
+    if (this.active && changedFiles.length > 0) {
       try {
-        await this.bus.emitAsync('pending:processed', files);
+        await this.bus.emitAsync('pending:processed', changedFiles);
       } catch (e) {
         console.error(`[FileIndex] pending:processed failed:`, e.message);
       }
     }
   }
 
+  // Returns false when the path is a directory: fs.watch reports those too,
+  // and they must not be handed to the parser as source files.
   async handleFileChange(filePath) {
-    if (!this.active) return;
+    if (!this.active) return true;
     try {
       const fileKey = normalizePathKey(filePath);
       const stats = await stat(filePath);
-      if (!this.active) return;
+      if (!this.active) return true;
+      if (stats.isDirectory()) return false;
       const cached = this.cache.getFileMetadata(filePath);
       
       if (!cached || stats.mtimeMs !== cached.mtime || stats.size !== cached.size) {

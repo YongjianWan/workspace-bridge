@@ -17,7 +17,7 @@ const { buildProjectMap, countTreeFiles } = require('./formatters/project-map');
 const { parseArgs } = require('../utils/parse-args');
 const { resolveWorkspaceFilePath } = require('../utils/path');
 const { buildTree } = require('../tools/tree-tools');
-const { typedError } = require('../utils/failure');
+const { typedError, failure } = require('../utils/failure');
 
 function formatImpact(result) {
   const lines = [`impactCount: ${result.length}`];
@@ -156,8 +156,10 @@ async function executeCommand(container, line, options = {}) {
   if (tokens.length === 0) return null;
 
   const [cmd, ...args] = tokens;
+  // Structured callers get the same failure shape as the CLI; text callers get the plain line.
+  const fail = (type, message, text = `Error: ${message}`) => (options.structured ? failure(type, message) : text);
   const graph = container.snapshot?.graph || container.depGraph || null;
-  if (!graph) return options.structured ? { error: 'dependency graph not available' } : 'Error: dependency graph not available';
+  if (!graph) return fail('init_error', 'dependency graph not available');
 
   switch (cmd) {
     case 'help':
@@ -184,8 +186,8 @@ async function executeCommand(container, line, options = {}) {
         '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
       });
       const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
-      if (!file) return options.structured ? { error: 'Usage: impact <file>' } : 'Usage: impact <file>';
-      if (!graph.hasFile(file)) return options.structured ? { error: `File not found in graph: ${parsed._[0]}` } : `Error: File not found in graph: ${parsed._[0]}`;
+      if (!file) return fail('validation_error', 'Usage: impact <file>', 'Usage: impact <file>');
+      if (!graph.hasFile(file)) return fail('path_error', `File not found in graph: ${parsed._[0]}`);
       const maxDepth = parsed.maxDepth ?? DEFAULTS.WATCH_IMPACT_DEPTH;
       const result = graph.getImpactRadius(file, maxDepth);
       return options.structured ? { impactCount: result.length, impact: result } : formatImpact(result);
@@ -197,8 +199,8 @@ async function executeCommand(container, line, options = {}) {
         '--max-files': { key: 'maxFiles', transform: (v) => Number.parseInt(v, 10) },
       });
       const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
-      if (!file) return options.structured ? { error: 'Usage: affected-tests <file>' } : 'Usage: affected-tests <file>';
-      if (!graph.hasFile(file)) return options.structured ? { error: `File not found in graph: ${parsed._[0]}` } : `Error: File not found in graph: ${parsed._[0]}`;
+      if (!file) return fail('validation_error', 'Usage: affected-tests <file>', 'Usage: affected-tests <file>');
+      if (!graph.hasFile(file)) return fail('path_error', `File not found in graph: ${parsed._[0]}`);
       const maxDepth = parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH;
       const maxFiles = Number.isFinite(parsed.maxFiles) && parsed.maxFiles > 0 ? parsed.maxFiles : null;
       const raw = graph.findAffectedTests(file, maxDepth);
@@ -226,16 +228,16 @@ async function executeCommand(container, line, options = {}) {
 
     case 'dependents': {
       const file = resolveWorkspaceFilePath(args[0], container.workspaceRoot || graph?.root);
-      if (!file) return options.structured ? { error: 'Usage: dependents <file>' } : 'Usage: dependents <file>';
-      if (!graph.hasFile(file)) return options.structured ? { error: `File not found in graph: ${args[0]}` } : `Error: File not found in graph: ${args[0]}`;
+      if (!file) return fail('validation_error', 'Usage: dependents <file>', 'Usage: dependents <file>');
+      if (!graph.hasFile(file)) return fail('path_error', `File not found in graph: ${args[0]}`);
       const result = graph.getDependents(file);
       return options.structured ? { dependentsCount: result.length, dependents: result } : formatDependents(result);
     }
 
     case 'dependencies': {
       const file = resolveWorkspaceFilePath(args[0], container.workspaceRoot || graph?.root);
-      if (!file) return options.structured ? { error: 'Usage: dependencies <file>' } : 'Usage: dependencies <file>';
-      if (!graph.hasFile(file)) return options.structured ? { error: `File not found in graph: ${args[0]}` } : `Error: File not found in graph: ${args[0]}`;
+      if (!file) return fail('validation_error', 'Usage: dependencies <file>', 'Usage: dependencies <file>');
+      if (!graph.hasFile(file)) return fail('path_error', `File not found in graph: ${args[0]}`);
       const result = graph.getDependencies(file);
       return options.structured ? { dependenciesCount: result.length, dependencies: result } : formatDependencies(result);
     }
@@ -249,7 +251,7 @@ async function executeCommand(container, line, options = {}) {
       const parsed = parseArgs(['node', 'repl', ...args], { '--compact': true });
       const compact = Boolean(parsed['--compact']);
       const result = buildProjectMap(graph, { compact });
-      if (!result.ok) return options.structured ? { error: result.error } : `Error: ${result.error}`;
+      if (!result.ok) return options.structured ? result : `Error: ${result.error}`;
       return options.structured ? result : formatProjectMap(result, compact);
     }
 
@@ -303,8 +305,8 @@ async function executeCommand(container, line, options = {}) {
         '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
       });
       const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
-      if (!file) return options.structured ? { error: 'Usage: tree <file> [--max-depth <n>]' } : 'Usage: tree <file> [--max-depth <n>]';
-      if (!graph.hasFile(file)) return options.structured ? { error: `File not found in graph: ${parsed._[0]}` } : `Error: File not found in graph: ${parsed._[0]}`;
+      if (!file) return fail('validation_error', 'Usage: tree <file> [--max-depth <n>]', 'Usage: tree <file> [--max-depth <n>]');
+      if (!graph.hasFile(file)) return fail('path_error', `File not found in graph: ${parsed._[0]}`);
       const maxDepth = parsed.maxDepth ?? 3;
       const tree = buildTree(file, graph, { maxDepth, direction: 'both' });
       return options.structured ? { file, tree } : formatTree(tree);
@@ -347,13 +349,18 @@ async function executeCommand(container, line, options = {}) {
         : null;
 
     default:
-      return options.structured
-        ? { error: `Unknown command: ${cmd}. Type "help" for available commands.` }
-        : `Unknown command: ${cmd}. Type "help" for available commands.`;
+      return fail(
+        'unknown_command',
+        `Unknown command: ${cmd}. Type "help" for available commands.`,
+        `Unknown command: ${cmd}. Type "help" for available commands.`
+      );
   }
 }
 
-function determineReplExitCode(error, output) {
+const USAGE_ERROR_TYPES = new Set(['unknown_command', 'validation_error']);
+
+function determineReplExitCode(error, output, errorType) {
+  if (USAGE_ERROR_TYPES.has(errorType)) return 2;
   const errStr = String(error || '');
   if (errStr.includes('Unknown command') || errStr.includes('Usage:')) return 2;
   if (typeof output === 'string') {
@@ -411,36 +418,41 @@ async function startRepl(options) {
             hasError = true;
           }
         } catch (e) {
-          results.push({ command: cmdLine, error: e.message });
+          results.push({
+            command: cmdLine,
+            error: e.message,
+            failure: failure(e.errorType || 'unexpected_error', e.message),
+          });
           hasError = true;
         }
       }
 
       if (options.json) {
+        const failureOf = (r) => r.failure || (r.output && r.output.error ? r.output : null);
+        const exitCodeOf = (r, f) => determineReplExitCode(
+          f.error,
+          typeof r.output === 'string' ? r.output : null,
+          f.errorType
+        );
         if (commands.length === 1) {
-          const single = results[0];
-          if (single.error || (single.output && single.output.error)) {
-            console.log(JSON.stringify({ ok: false, error: single.error || single.output.error }));
-            process.exitCode = determineReplExitCode(
-              single.error || (single.output && single.output.error),
-              typeof single.output === 'string' ? single.output : null
-            );
+          const failed = failureOf(results[0]);
+          if (failed) {
+            console.log(JSON.stringify(failed));
+            process.exitCode = exitCodeOf(results[0], failed);
           } else {
-            console.log(JSON.stringify({ ok: true, result: single.output }));
+            console.log(JSON.stringify({ ok: true, result: results[0].output }));
           }
         } else {
           const formattedResults = results.map((r) => {
-            if (r.error || (r.output && r.output.error)) {
-              return { command: r.command, ok: false, error: r.error || r.output.error };
-            }
-            return { command: r.command, ok: true, result: r.output };
+            const failed = failureOf(r);
+            return failed ? { command: r.command, ...failed } : { command: r.command, ok: true, result: r.output };
           });
           console.log(JSON.stringify({ ok: !hasError, results: formattedResults }));
           if (hasError) {
-            process.exitCode = results.some((r) => determineReplExitCode(
-              r.error || (r.output && r.output.error),
-              typeof r.output === 'string' ? r.output : null
-            ) === 2) ? 2 : 1;
+            process.exitCode = results.some((r) => {
+              const failed = failureOf(r);
+              return failed && exitCodeOf(r, failed) === 2;
+            }) ? 2 : 1;
           }
         }
       } else {
