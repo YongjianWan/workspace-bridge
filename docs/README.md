@@ -8,7 +8,7 @@
 | [SESSION.md](../SESSION.md) | 当前交接、回归基线和下一步 |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 架构与数据流：一条命令经过哪些模块、模块间的契约、常见扩展的接入点 |
 | [TECH_DEBT.md](./TECH_DEBT.md) | 仍开放或明确冻结的债务（含原外部审查开放项） |
-| [ROADMAP.md](../ROADMAP.md) | 未来方向与当前限制 |
+| [ROADMAP.md](../ROADMAP.md) | 开发计划：现状评估、分阶段任务与验收、冻结区、当前限制 |
 | [eval/README.md](../eval/README.md) | 真实仓库真值评测 |
 | [checklist.md](./checklist.md) | 验证清单：可验证的检查面、验证方法、通过条件 |
 

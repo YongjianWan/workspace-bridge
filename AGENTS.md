@@ -14,7 +14,7 @@
 | 当前活跃债务         | [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)                             |
 | 测试基线、下一步     | [SESSION.md](./SESSION.md)                                           |
 | 代码怎么串起来、模块契约、扩展接入点 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)               |
-| 产品化路线（优先）、架构修复路线、成功标准 | [ROADMAP.md](./ROADMAP.md)                                       |
+| 开发计划：现状评估、分阶段任务与验收、冻结区 | [ROADMAP.md](./ROADMAP.md)                                       |
 | 历史变更             | [CHANGELOG.md](./CHANGELOG.md)                                       |
 | 代码审计 skill 用法  | [skills/workspace-audit/SKILL.md](./skills/workspace-audit/SKILL.md) |
 | 评测集数字与用法     | [eval/README.md](./eval/README.md)                                   |
@@ -182,7 +182,7 @@
 - `dead-exports` 对常见 JS/TS 语法已有基础符号级判断，但不是完整 AST 编译器。
 - `audit-diff` 是当前主战场，改动最好优先补它的测试。
 - 混合仓库必须用 `.workspace-bridge.json` 标注目录角色，否则孤儿检测严重误报。
-- 已知限制与陷阱见 [ROADMAP.md §当前已知限制](./ROADMAP.md#当前已知限制)，历史修复见 [CHANGELOG.md](./CHANGELOG.md)。
+- 已知限制与陷阱见 [ROADMAP.md「当前已知限制」](./ROADMAP.md#11-当前已知限制)，历史修复见 [CHANGELOG.md](./CHANGELOG.md)。
 - 技术债状态见 [docs/TECH_DEBT.md](./docs/TECH_DEBT.md)（仅活跃条目）。
 
 ### 改前必查推荐用法
