@@ -7,7 +7,13 @@
 
 ## [Unreleased]
 
-### 开发计划重写与 CI 矩阵调整（2026-10-06）
+### 阶段 0 T0.1：回放脚本与测试（2026-10-08）
+
+- 新增 `eval/replay-impact.js`：按 ROADMAP 5.2 回放口径 v1 实现 `impact` 召回率测量。四个被比较列表（工具输出、笨基线、合并列表、结构上限）、两级平均、边类型、留出任务池、抽样公式 `⌊i×N÷K⌋+1`；CLI 支持 `--repo/--name`、`--target`（读 `eval/truth/targets.json`）、`--holdout`、`--impact-option`、`--max-commits`、`--sample`；产出 `runs.jsonl`/`summary.json`/`summary.md`/`sample.json`（sample.json 已存在时沿用提交列表不重选）。每提交一个独立子进程建图（避免模块级缓存跨提交残留），同回放共用临时缓存目录走增量；临时克隆与缓存跑完清理。
+- 新增 `test/replay-impact-test.js`（`// @semantic` + `@slow`）：临时 git 仓库夹具（4 提交，含新增/删除/重命名/后置共改）锁死十项口径断言；验收②的进程内工具输出 vs 裸 CLI `impact[].file` 对照在同一测试内执行。实现中修正一处测试手算笔误：`buildMergedList(['a','b'],['c'],5)` 按 5.2"交替取"应为 `['a','c','b']`（原期望 `['a','b','c']`），验收方已独立核实。
+- T0.1 验收（另一模型独立重跑）：测试全绿；自回放本仓库最近 20 个可用提交（102 输入，0 错误 0 范围外）退出码 0，工具/笨基线（对齐）/合并/结构上限召回 = 0.2524/0.3567/0.4176/0.6616；`npm run test:fast` 271/271 无回归。
+- 发现并上报口径冲突：ROADMAP 5.2 描述默认"深度 3"，但 CLI `impact` 不传 `--max-depth` 时实际用 5（`src/config/defaults.js:7` `AFFECTED_TEST_DEPTH: 5`，由 `src/cli/commands/index.js:151` 注入）；`getImpactRadius` 签名默认 3、REPL/watch 用 3。实现按验收②"与裸 CLI 一致"跟随实际默认 5。影响 5.2 的行为描述和 T0.5 归因 ④⑤⑥ 的"3 步"边界。2026-10-08 项目所有者裁决选①：5.2 默认行为描述改为深度 5（注明与结构上限 3 步是两个不同的定义，且 REPL 的 `impact` 默认 3 与 CLI 不一致、以 CLI 为准），T0.5 归因④⑤⑥沿引用方向的步数边界改为 5。
+- 补 `--target` 模式测试覆盖（T0.2 起 J1/F1/P1 的入口，此前是盲区）：三态错误（缺 targets.json、坏 JSON、未知代号）、正常路径的 cutoff 首写与二跑沿用（整文件比较）、四件套产出、卫生断言（真实 `eval/truth/targets.json` 存在状态与哈希全程不变）。为隔离私有区新增测试缝：环境变量 `WB_REPLAY_TRUTH` 可覆盖 `--target` 模式的目标文件与产出根目录，不设时行为不变。
 
 - ROADMAP.md 重写为可公开、可交接执行的开发计划：现状评估、三个阶段（测量、补缺口、真人真用）的任务与验收、回放口径 v1、执行规则、冻结区与决策记录。私有目标仓库只以代号 J1、F1、P1 出现。
 - AGENTS.md 开工红线新增三条：单会话改代码（持有人登记在 SESSION.md）、实施与验收分离、范围以 ROADMAP 当前阶段为准。
