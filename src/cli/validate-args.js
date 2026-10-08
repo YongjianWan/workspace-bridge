@@ -203,6 +203,13 @@ function parseCliArgs(argv) {
       '--direction': { key: 'direction' },
       '--eval': { key: 'eval' },
       '--what': { key: 'what' },
+      '--line': { key: 'line', transform: (v) => {
+        const n = Number.parseInt(v, 10);
+        if (Number.isNaN(n)) throwValidationError(`Invalid --line value: ${v}. Expected a positive integer`);
+        return n;
+      } },
+      '--marker': { key: 'marker' },
+      '--note': { key: 'note' },
       '--fail-on-findings': true,
       '--run-tests': true,
       '--version': true,
@@ -525,6 +532,9 @@ function parseCliArgs(argv) {
     backend: raw.backend || null,
     fields,
     sql,
+    line: Number.isFinite(raw.line) ? raw.line : null,
+    marker: raw.marker || null,
+    note: raw.note || null,
     _sources: sources,
   };
 }
@@ -533,6 +543,9 @@ const PATH_ESCAPE_SUGGESTION = 'Pass a path inside the workspace, relative to --
 const SERVICE_DIR_SUGGESTION = 'Pass --service as an existing directory inside the workspace.';
 
 function sanitizeCliPaths(parsed) {
+  // `usage-log mark --file` addresses a usage log that intentionally lives
+  // outside the workspace (WB_USAGE_LOG is an arbitrary path) — skip containment.
+  if (parsed.command === 'usage-log') return null;
   const root = path.resolve(parsed.cwd || process.cwd());
 
   if (parsed.file) {

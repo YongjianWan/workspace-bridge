@@ -32,7 +32,48 @@ const { buildSpellingIndex } = require('./src/cli/path-spelling');
 const { installFatalHandlers } = require('./src/cli/bootstrap');
 const { workspaceInfo } = require('./src/tools/workspace-tools');
 const { typedError } = require('./src/utils/failure');
-const { setDiagQuiet } = require('./src/utils/diag');
+const { setDiagQuiet, diag } = require('./src/utils/diag');
+const { appendUsageLine, hashWorkspace, countOutputFiles } = require('./src/utils/usage-log');
+
+// T2.0 local usage log: one JSON line per CLI run when WB_USAGE_LOG points at a
+// file; unset → no hook, no file, zero extra behavior. The write happens in the
+// process 'exit' handler so every exit path (process.exit, process.exitCode,
+// signals, crashes) logs the real process exit code without touching any exit
+// semantics. A failed append is reported via diag() and never alters the exit
+// code (L1: silent errors must stay explicit).
+let usageRun = null;
+
+function installUsageLog() {
+  const file = process.env.WB_USAGE_LOG;
+  if (!file || usageRun) return;
+  usageRun = {
+    file,
+    startedAt: Date.now(),
+    command: guessCommand(process.argv.slice(2)) || 'help',
+    workspaceRoot: null,
+    outputFiles: 0,
+  };
+  process.on('exit', (code) => {
+    try {
+      appendUsageLine(usageRun.file, {
+        time: new Date().toISOString(),
+        command: usageRun.command || 'help',
+        workspaceHash: hashWorkspace(usageRun.workspaceRoot || process.cwd()),
+        outputFiles: usageRun.outputFiles || 0,
+        durationMs: Math.max(0, Date.now() - usageRun.startedAt),
+        exitCode: code,
+      });
+    } catch (err) {
+      try {
+        diag(`[usage-log] failed to append usage log: ${err.message}`);
+      } catch { /* stderr is gone too; nothing left to report to */ }
+    }
+  });
+}
+
+function noteUsage(partial) {
+  if (usageRun) Object.assign(usageRun, partial);
+}
 
 // L2-7: shared CLI options table eliminates duplication between short and long help.
 const COMMON_OPTIONS = [
@@ -198,6 +239,9 @@ Commands:
     init                    Create default .workspace-bridge.json in cwd
     repl [--eval <cmd>]     Start interactive REPL shell, or run one command non-interactively
     watch                   Watch files and print impact on save
+    usage-log mark --file <log> --line <n> --marker <helped|missed|noisy|unused> [--note <text>]
+                            Mark one local usage-log line (WB_USAGE_LOG) with the run outcome
+                            (helped=帮上了, missed=漏了, noisy=噪声多, unused=没用上)
 
 Options:
 ${COMMON_OPTIONS.join('\n')}
@@ -360,6 +404,7 @@ async function runCliInProcess(args, opts = {}) {
     const targetRoot = parsed.strictCwd ? normalizePath(parsed.cwd) : findWorkspaceRoot(parsed.cwd);
     const result = workspaceInfo({ cwd: parsed.cwd, excludeDirs: parsed.exclude }, { workspaceRoot: targetRoot });
     result.hasFindings = false;
+    noteUsage({ workspaceRoot: targetRoot, outputFiles: countOutputFiles(result) });
     const stdout = formatCliResult(parsed, result, { schemaVersion: SCHEMA_VERSION });
     const status = determineExitCode(parsed.command, result, parsed.failOnFindings);
     return { status, stdout, stderr: '' };
@@ -402,6 +447,7 @@ async function runCliInProcess(args, opts = {}) {
       if (result.warnings.some(warning => warning?.severity === 'high' || warning?.severity === 'medium')) result.dataQuality = 'degraded';
     }
 
+    noteUsage({ workspaceRoot: container?.workspaceRoot || parsed.cwd, outputFiles: countOutputFiles(result) });
     const pathSpelling = container?.snapshot ? buildSpellingIndex(container.snapshot.graph, container.workspaceRoot) : null;
     const stdout = formatCliResult(parsed, result, { schemaVersion: SCHEMA_VERSION, pathSpelling });
     const status = determineExitCode(parsed.command, result, parsed.failOnFindings);
@@ -430,6 +476,8 @@ async function main() {
     }
     process.exit(response.status);
   }
+
+  noteUsage({ command: parsed.command || 'help', workspaceRoot: parsed.cwd });
 
   if (parsed.version) {
     console.log(`workspace-bridge ${version}`);
@@ -471,6 +519,7 @@ module.exports = { runCliInProcess, COMMON_OPTIONS, printUsage };
 
 if (require.main === module) {
   installFatalHandlers();
+  installUsageLog();
   main().catch((err) => {
     console.error('Fatal error:', err.message || String(err));
     if (err.stack) console.error(err.stack);

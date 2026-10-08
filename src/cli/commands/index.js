@@ -26,6 +26,7 @@ const init = require('./init');
 const repl = require('./repl');
 const watch = require('./watch');
 const guard = require('./guard');
+const usageLog = require('./usage-log');
 const { failure } = require('../../utils/failure');
 
 /**
@@ -257,6 +258,8 @@ const COMMANDS = {
     }
   },
 
+  'usage-log': usageLog,
+
   // Self-managed (lifecycle handled internally)
   repl,
   watch,
@@ -268,8 +271,9 @@ const COMMANDS = {
 const SELF_MANAGED_COMMANDS = new Set(['repl', 'watch', 'init']);
 
 // Commands that manage their own ServiceContainer lifecycle and do not need
-// the CLI orchestration layer to provide a default container.
-const SELF_CONTAINER_COMMANDS = new Set(['api-contracts']);
+// the CLI orchestration layer to provide a default container. `usage-log`
+// touches only its log file and never needs a graph.
+const SELF_CONTAINER_COMMANDS = new Set(['api-contracts', 'usage-log']);
 
 const COMMAND_GUIDES = {
   'workspace-info': {
@@ -401,6 +405,11 @@ const COMMAND_GUIDES = {
   query: {
     desc: 'Execute read-only SQL query against the cache DB',
     when: 'Need fine-grained querying of database tables like analysis_snapshots or file_metadata.',
+    after: 'None.',
+  },
+  'usage-log': {
+    desc: 'Mark one line of the local usage log (WB_USAGE_LOG) with the outcome of that run',
+    when: 'After a run, record what it was worth. --marker values: helped=帮上了, missed=漏了, noisy=噪声多, unused=没用上. --note is a free-form remark (example: "漏了后端" when a backend endpoint was missed).',
     after: 'None.',
   },
 };
