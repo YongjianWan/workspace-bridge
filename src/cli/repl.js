@@ -188,7 +188,7 @@ async function executeCommand(container, line, options = {}) {
       const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
       if (!file) return fail('validation_error', 'Usage: impact <file>', 'Usage: impact <file>');
       if (!graph.hasFile(file)) return fail('path_error', `File not found in graph: ${parsed._[0]}`);
-      const maxDepth = parsed.maxDepth ?? DEFAULTS.WATCH_IMPACT_DEPTH;
+      const maxDepth = parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH;
       const result = graph.getImpactRadius(file, maxDepth);
       return options.structured ? { impactCount: result.length, impact: result } : formatImpact(result);
     }
