@@ -16,7 +16,7 @@
 
 ## 下一步
 
-1. **T0.2 就绪**：`eval/truth/targets.json` 已写入（2026-10-08，项目所有者提供项目根目录，按 ROADMAP 5.1 画像与提交数精确匹配认领 J1/F1/P1，映射已回报；`cutoff` 留空，首跑自动记录并回写）。按 T0.2→T0.3→T0.4 顺序跑回放。T0.2 内容：J1 试跑 5 个提交（时间正序最早的 5 个）、人工抽 2 个提交 `git show --name-status` 核对真值、确定性检查（每提交换新空缓存目录重跑，除耗时外与增量 runs.jsonl 完全一致）、按每提交耗时预估全量是否超 3 小时。
+1. **T0.2 完成（2026-10-08，待验收）**：J1 时间正序最早 5 个提交试跑，三项验收自测通过（② 真值核对抽 `da5ffb4`、`f19a17c` 对 `git show --name-status` 一致；③ 每提交新空缓存单独重跑与增量 `runs.jsonl` 除 `durationMs` 外完全一致；① 全量 88 提交预估约 12 分钟，远低于 3 小时，T0.3 全量不抽样）。cutoff 已写入 `targets.json`（`7db23827a3af`）。**注意**：脚本口径可用提交 108 个，ROADMAP 5.1 表的 112 差 4 个，T0.6 填表时更正；试跑产物归档在 `eval/truth/replay/J1-t02-trial/`（`sample.json` 随之归档，防冻结试跑列表）。**T0.3（J1 全量，`--holdout 20`）已开跑**；完成后 T0.4（F1 `--holdout 20`、P1 `--holdout 0`），然后 T0.5 归因、T0.6 填 5.6 三表。
 2. **S6、T2.0 待验收**：由另一会话重跑 `node test/repl-cli-impact-depth-test.js`、`node test/usage-log-test.js`、`npm run test:fast`（273/273），全过后把 ROADMAP 第 8 节 S6 行与阶段 2 T2.0 行改为"完成"。
 3. **排队，待拍板**："无工具 agent 漏改"基线试点（建议放 `eval/` 开源语料 typer、cobra 上，只回答"没有工具时 agent 漏改多少"的量级，不用于验收、口径从宽；J1/F1 留出任务池的正式口径不变）。
 4. ROADMAP 第 8 节小修 S1（测试残留）、S2（未知错误输出调用栈），可与阶段 0 并行，同样遵守单会话改代码规则。
