@@ -268,6 +268,7 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 | S3 | macOS 作业移出 CI 测试矩阵（`.github/workflows/test.yml`）。macOS 不在合并必需检查里，分支保护无需调整 | 下一次推送后 Test 工作流中没有 macOS 作业，其余作业全部通过 | 待验收 |
 | S4 | 改了工具层代码后，`audit-overview` 不再重放旧代码算出的分析快照（原 TECH_DEBT H-33，修复记录见 CHANGELOG `[Unreleased]`）。分析快照的版本指纹改为覆盖 `src/` 下除 `cli/` 以外的全部源码 | 端到端复现：生成快照后，给 `src/tools/overview-tools.js` 的输出加一个字段，再运行时输出带上新字段；不带修复的对照组仍然重放旧快照。2026-10-06 已由另一会话验证 | 完成 |
 | S5 | 清理测试残留的缓存：先运行 `node scripts/prune-cache.js --apply`，删掉所属工作区已不存在的缓存；再删除没有记录所属工作区、且记录的文件路径已不存在的缓存，以及空目录 | 2026-10-06 执行：用户缓存目录从 405 MB、9,860 个目录降到 34 MB、232 个目录 | 完成 |
+| S6 | REPL 的 `impact` 默认深度与 CLI 对齐：`src/cli/repl.js` 的 `impact` 分支现在取 `WATCH_IMPACT_DEPTH`（3），CLI `impact` 取 `DEFAULTS.AFFECTED_TEST_DEPTH`（5），同一命令名两个默认值是静默漂移；改为 `DEFAULTS.AFFECTED_TEST_DEPTH`。属改 `src/`，开工前先在 SESSION.md 登记代码修改权 | 新增一条测试锁定 REPL 与 CLI 对同一文件的 `impact` 默认输出一致（含默认深度）；如有按深度 3 断言的既有测试同步更新；`npm run test:fast` 无回归 | 未开始（待项目所有者批准开工） |
 
 ## 9. 冻结区
 

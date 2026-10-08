@@ -17,8 +17,8 @@
 ## 下一步
 
 1. **T0.2 起被 targets.json 挡住**：`eval/truth/targets.json` 不存在，需要项目所有者提供 J1、F1、P1 的本机路径（格式见 ROADMAP 5.1：`{"J1": {"path": "<本机绝对路径>", "type": "java-mybatis", "cutoff": "<截止提交哈希>"}, ...}`；`cutoff` 首次运行时记录，可先不填）。文件放 gitignored 的 `eval/truth/` 下。拿到后按 T0.2→T0.3→T0.4 顺序跑回放。
-2. **待项目所有者决定**：REPL `impact` 默认深度 3（`src/cli/repl.js:191`，`WATCH_IMPACT_DEPTH`）与 CLI `impact` 的 5 不一致（`repl.js:204` 的 `affected-tests` 才是 5）。要么改 `src/cli/repl.js` 对齐 CLI，要么记 TECH_DEBT 冻结；动 src/ 需单独立项，等拍板。
-3. **排队，未开工**：T2.0 使用日志（要动 src/，超出阶段 0 范围）；"无工具 agent 漏改"基线实验（按 ROADMAP 5.2，留出任务池是 J1、F1 各自最新 20 个可用提交，仍然依赖私有路径；要换池子先定口径）。两项都等项目所有者点头。
+2. **S6 待批准开工**：REPL `impact` 默认深度 3 与 CLI `impact` 的 5 不一致，方向已定（2026-10-08，项目所有者：修，不冻结），登记为 ROADMAP 第 8 节小修 S6——`src/cli/repl.js` 的 `impact` 分支改用 `DEFAULTS.AFFECTED_TEST_DEPTH`，加一条测试锁定 REPL 与 CLI 对同一文件的 `impact` 默认输出一致。改 `src/`，开工前先在上面"代码修改权"一行登记。
+3. **排队，待拍板**：T2.0 使用日志（动 `src/`，单独立项；建议尽早做，理由是现在"改代码时用 `impact`"的记录是零）；"无工具 agent 漏改"基线试点（建议放 `eval/` 开源语料 typer、cobra 上，只回答"没有工具时 agent 漏改多少"的量级，不用于验收、口径从宽；J1/F1 留出任务池的正式口径不变）。
 4. ROADMAP 第 8 节小修 S1（测试残留）、S2（未知错误输出调用栈），可与阶段 0 并行，同样遵守单会话改代码规则。
 5. 小修 S3（macOS 移出 CI 矩阵）待验收：由另一个会话确认下一次推送后 Test 工作流没有 macOS 作业且其余作业通过，然后在 ROADMAP 第 8 节改为"完成"。
 
