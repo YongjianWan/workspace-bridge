@@ -4,7 +4,7 @@
 
 ## 当前交接
 
-- Windows 本机 Node 25.6.0：快测 271/271（2026-10-08，+1 为 2026-10-06 `62f9072` 新增 `cache-version-fingerprint-test.js`）；全量 369 项通过 368 项（2026-10-05，约 19 分钟）：`workspace-info-lightweight-test` 在整套并发下耗时 3039 ms，超过它自己 3000 ms 的墙钟阈值，单独连跑 4 次都通过（本机 `node -e 1` 启动耗时在 0.1–1 秒间波动）。wb-repro 27/27、退出码 0。平台结果分别记录，不能外推。
+- Windows 本机 Node 25.6.0：快测 273/273（2026-10-08：271 基线上 +S6 的 `repl-cli-impact-depth-test`、+T2.0 的 `usage-log-test`；此前 271=270+2026-10-06 `62f9072` 新增的 `cache-version-fingerprint-test.js`）；全量 369 项通过 368 项（2026-10-05，约 19 分钟）：`workspace-info-lightweight-test` 在整套并发下耗时 3039 ms，超过它自己 3000 ms 的墙钟阈值，单独连跑 4 次都通过（本机 `node -e 1` 启动耗时在 0.1–1 秒间波动）。wb-repro 27/27、退出码 0。平台结果分别记录，不能外推。
 - ROADMAP T0.1 已完成（2026-10-08，另一模型独立验收）：`eval/replay-impact.js` + `test/replay-impact-test.js` 交付，自回放本仓库 20 提交退出码 0；`--target` 模式（J1/F1/P1 回放入口）已补测试覆盖，测试缝为环境变量 `WB_REPLAY_TRUTH`。深度口径已裁决（2026-10-08，项目所有者选①）：ROADMAP 5.2 工具输出描述与 T0.5 归因④⑤⑥的沿引用方向步数边界已改为 5（`impact` 默认深度，`src/config/defaults.js:7` + `src/cli/commands/index.js:151`），结构上限仍 3 步，两个数定义不同、文档已注明。注意：REPL 的 `impact` 命令默认深度是 3（`src/cli/repl.js:191` 用 `WATCH_IMPACT_DEPTH`；`repl.js:204` 的 `affected-tests` 才是 5），与 CLI 不一致，测量以 CLI 为准，不影响 T0.2 起的回放。
 - 缓存契约：缓存布局修订号 CACHE_SCHEMA_REVISION=55（CACHE_VERSION 另含引擎源码指纹），schemaVersion=1.2.0；parse_results 仍只保存纯解析输出。索引不完整时覆盖率为 null，消费者必须保留 warnings 与 degraded 状态。
 - 缓存损坏隔离优先重命名；Windows 的 EBADF 路径退回独占备份后删除。备份失败时保留原文件并显式告警，不能吞掉读写失败。不要据此关闭尚未具备真实条件的环境项。
@@ -12,13 +12,13 @@
 - affected-tests 真值基线 TP 3045、FP 2512、FN 29；评测方法见 eval/README.md，不能把冻结 probe 外推为全语料准确率。
 - U-15/U-30 仍需深信服隔离、真实同步盘与域策略条件；当前无这些条件，保留待核。深信服 aES 为公司管理，保持运行；不要求卸载。
 - 开发计划以 ROADMAP 为准：当前阶段是阶段 0（测量）；执行规则见 ROADMAP 第 3 节，冻结项见第 9 节。
-- 代码修改权（ROADMAP 第 3 节第 1 条）：无。T0.1 代码已完成并验收，下一个要改代码或测试的会话，先在这一行写上自己的标识和开始时间，做完后改回"无"。
+- 代码修改权（ROADMAP 第 3 节第 1 条）：无。T0.1、S6、T2.0 代码已完成（S6、T2.0 待验收），下一个要改代码或测试的会话，先在这一行写上自己的标识和开始时间，做完后改回"无"。
 
 ## 下一步
 
-1. **T0.2 起被 targets.json 挡住**：`eval/truth/targets.json` 不存在，需要项目所有者提供 J1、F1、P1 的本机路径（格式见 ROADMAP 5.1：`{"J1": {"path": "<本机绝对路径>", "type": "java-mybatis", "cutoff": "<截止提交哈希>"}, ...}`；`cutoff` 首次运行时记录，可先不填）。文件放 gitignored 的 `eval/truth/` 下。拿到后按 T0.2→T0.3→T0.4 顺序跑回放。
-2. **S6 待批准开工**：REPL `impact` 默认深度 3 与 CLI `impact` 的 5 不一致，方向已定（2026-10-08，项目所有者：修，不冻结），登记为 ROADMAP 第 8 节小修 S6——`src/cli/repl.js` 的 `impact` 分支改用 `DEFAULTS.AFFECTED_TEST_DEPTH`，加一条测试锁定 REPL 与 CLI 对同一文件的 `impact` 默认输出一致。改 `src/`，开工前先在上面"代码修改权"一行登记。
-3. **排队，待拍板**：T2.0 使用日志（动 `src/`，单独立项；建议尽早做，理由是现在"改代码时用 `impact`"的记录是零）；"无工具 agent 漏改"基线试点（建议放 `eval/` 开源语料 typer、cobra 上，只回答"没有工具时 agent 漏改多少"的量级，不用于验收、口径从宽；J1/F1 留出任务池的正式口径不变）。
+1. **T0.2 就绪**：`eval/truth/targets.json` 已写入（2026-10-08，项目所有者提供项目根目录，按 ROADMAP 5.1 画像与提交数精确匹配认领 J1/F1/P1，映射已回报；`cutoff` 留空，首跑自动记录并回写）。按 T0.2→T0.3→T0.4 顺序跑回放。T0.2 内容：J1 试跑 5 个提交（时间正序最早的 5 个）、人工抽 2 个提交 `git show --name-status` 核对真值、确定性检查（每提交换新空缓存目录重跑，除耗时外与增量 runs.jsonl 完全一致）、按每提交耗时预估全量是否超 3 小时。
+2. **S6、T2.0 待验收**：由另一会话重跑 `node test/repl-cli-impact-depth-test.js`、`node test/usage-log-test.js`、`npm run test:fast`（273/273），全过后把 ROADMAP 第 8 节 S6 行与阶段 2 T2.0 行改为"完成"。
+3. **排队，待拍板**："无工具 agent 漏改"基线试点（建议放 `eval/` 开源语料 typer、cobra 上，只回答"没有工具时 agent 漏改多少"的量级，不用于验收、口径从宽；J1/F1 留出任务池的正式口径不变）。
 4. ROADMAP 第 8 节小修 S1（测试残留）、S2（未知错误输出调用栈），可与阶段 0 并行，同样遵守单会话改代码规则。
 5. 小修 S3（macOS 移出 CI 矩阵）待验收：由另一个会话确认下一次推送后 Test 工作流没有 macOS 作业且其余作业通过，然后在 ROADMAP 第 8 节改为"完成"。
 

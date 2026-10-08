@@ -7,6 +7,18 @@
 
 ## [Unreleased]
 
+### 小修 S6：REPL 的 impact 默认深度与 CLI 对齐（2026-10-08）
+
+- `src/cli/repl.js` 的 `impact` 命令原先取 `WATCH_IMPACT_DEPTH`（3），而 CLI `impact` 取 `AFFECTED_TEST_DEPTH`（5）：同一命令名两个默认值，REPL 里试出来的结果和 CLI 对不上且无任何提示，是静默漂移。现在 REPL 跟随 `DEFAULTS.AFFECTED_TEST_DEPTH`；`watch` 的 `WATCH_IMPACT_DEPTH`（3）不变。
+- 新增 `test/repl-cli-impact-depth-test.js`：6 文件链式夹具上对照 REPL `executeCommand` 与裸 CLI `impact --json` 的默认输出（按 文件@level 比较），并锚定默认深度 5（口径 v1，ROADMAP 5.2）。修复前红（REPL 3 层 vs CLI 5 层），修复后绿。test/ 下原本没有任何断言锁深度 3（`index-depth-config-test` 锁的是索引深度 12，无关）。
+
+### T2.0：本机使用日志（2026-10-08，提前于阶段 2 开工，项目所有者批准）
+
+- 设置 `WB_USAGE_LOG=<文件路径>` 后，CLI 每次运行结束在进程 `exit` 事件里追加一行 JSON：`time`、`command`、`workspaceHash`（sha256 hex，工作区路径不落明文）、`outputFiles`、`durationMs`、`exitCode`（取进程真实退出码，现有退出路径零改动）。未设置时不装钩子、零额外行为。写失败 `diag()` 告警，不影响退出码（异常安全 + 静默错误显式化）。
+- 新命令 `usage-log mark --file <日志> --line <n> --marker <helped|missed|noisy|unused> [--note <文本>]`：原地给指定行补 `marker`/`note`，其余行字节不动；参数错误（marker 非法、行号越界、行不是 JSON、日志文件不存在）退 1，意外错误退 2。marker 中文对照（帮上了/漏了/噪声多/没用上）写进 `--help`。`usage-log` 命令自身运行照常记一行（口径"每次运行都写"）。
+- `outputFiles` 计数口径表驱动：结果计数字段（`impactCount`/`affectedTestsCount`/`affectedRoutesCount`/`routesCount`，最后一个才是 `affected-routes` 的真实字段名），其次 `files` 数组长度，都没有记 0。
+- 测试 `test/usage-log-test.js`（`@fast`+`@contract`，4 用例）对齐 T2.0 验收三条，并锁"mark 自身也写"。
+
 ### 阶段 0 T0.1：回放脚本与测试（2026-10-08）
 
 - 新增 `eval/replay-impact.js`：按 ROADMAP 5.2 回放口径 v1 实现 `impact` 召回率测量。四个被比较列表（工具输出、笨基线、合并列表、结构上限）、两级平均、边类型、留出任务池、抽样公式 `⌊i×N÷K⌋+1`；CLI 支持 `--repo/--name`、`--target`（读 `eval/truth/targets.json`）、`--holdout`、`--impact-option`、`--max-commits`、`--sample`；产出 `runs.jsonl`/`summary.json`/`summary.md`/`sample.json`（sample.json 已存在时沿用提交列表不重选）。每提交一个独立子进程建图（避免模块级缓存跨提交残留），同回放共用临时缓存目录走增量；临时克隆与缓存跑完清理。
