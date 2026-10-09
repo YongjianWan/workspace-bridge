@@ -9,6 +9,7 @@ const { parseVue } = require('./vue');
 const { parseVueAst } = require('./vue-ast');
 const { parseCppAst } = require('./cpp-ast');
 const { parseSvelte } = require('./svelte');
+const { parseMybatisXml, isMybatisMapperXmlPath } = require('./mybatis-xml');
 const { registry, defineLanguage, LanguageRegistry } = require('./registry');
 
 module.exports = {
@@ -23,6 +24,8 @@ module.exports = {
   parseVueAst,
   parseCpp: parseCppAst,
   parseSvelte,
+  parseMybatisXml,
+  isMybatisMapperXmlPath,
   registry,
   defineLanguage,
   LanguageRegistry,

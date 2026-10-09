@@ -15,6 +15,7 @@ const { parseVue } = require('./vue');
 const { parseVueAst } = require('./vue-ast');
 const { parseCppAst } = require('./cpp-ast');
 const { parseSvelte } = require('./svelte');
+const { parseMybatisXml } = require('./mybatis-xml');
 
 // Import strategies directly from resolvers to populate resolveStrategies
 const { tryAlias, tryWorkspacePackage, tryRelativeWithExtensions } = require('../resolvers/javascript');
@@ -295,6 +296,23 @@ registry.register(defineLanguage({
     }
     return symbols;
   }
+}));
+
+// MyBatis mapper XML: namespace/type references are JVM class names, so the
+// chain is tryJava (FQCN → source root) plus the default symbol-table
+// fallback (short class names). The registry is extension-keyed and cannot
+// path-filter — only mapper XML enters the index (file-index + the
+// isMybatisMapperXmlPath口径); pom.xml and friends are never handed here.
+registry.register(defineLanguage({
+  language: 'mybatis-xml',
+  extensions: ['.xml'],
+  parse: parseMybatisXml,
+  async: false,
+  needsFilePath: true,
+  filePatterns: ['**/*.xml'],
+  isBuiltIn: () => false,
+  resolveStrategies: [tryJava],
+  extractSymbols: () => []
 }));
 
 module.exports = { registry, defineLanguage, LanguageRegistry };

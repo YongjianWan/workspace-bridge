@@ -46,6 +46,10 @@ const JVM_TYPE_GATE_KINDS = new Set([
 
 const GO_SAME_PACKAGE_TEST_PATTERN = 'go-same-package-test';
 
+// MyBatis namespace binding: importKind of the XML→interface record and
+// patternId of the derived interface→XML record are the same signal.
+const MYBATIS_NAMESPACE = 'mybatis-namespace';
+
 class GraphBuilder {
   constructor(depGraph) {
     this.dg = depGraph;
@@ -63,6 +67,13 @@ class GraphBuilder {
       id: 'expand-go-packages',
       fn: () => this.expandGoPackageImports(),
       triggers: ['.go'],
+    });
+    this.postProcessPhases.push({
+      id: 'derive-mybatis-reverse-edges',
+      fn: () => this.deriveMybatisReverseEdges(),
+      // A re-resolved node is rebuilt from pure parse output and loses its
+      // derived records, so both sides of the binding must re-trigger.
+      triggers: ['.xml', '.java', '.kt'],
     });
     this._parseCache = new Map();
     this._walCadence = new WalCadence();
@@ -1151,6 +1162,86 @@ class GraphBuilder {
     }
     // Emit graph:updated whenever the graph structure may have changed,
     // even if edgeCount is 0 (edges may have been removed by _stripGoExpansions).
+    this.dg.bus.emit('graph:updated', {});
+  }
+
+  // ---------------------------------------------------------------------------
+  // MyBatis reverse edges — a Mapper XML's resolved `mybatis-namespace` record
+  // binds the XML to its Mapper interface, and the interface depends on that
+  // XML at runtime (statement binding), so the derived edge goes interface →
+  // XML. Derived here only: parse_results stores pure parse output, so the
+  // reverse record must never enter it. `mybatis-type` records stay one-way
+  // XML → entity — no reverse edge.
+  // ---------------------------------------------------------------------------
+
+  _stripMybatisReverseEdges(info) {
+    if (!info || !info.importRecords) return;
+    const toRemove = new Set();
+    // filter() yields fresh arrays: later pushes must not land on arrays a
+    // parse-result record may still share.
+    const kept = info.importRecords.filter((r) => {
+      if (r.isImplicit && r.patternId === MYBATIS_NAMESPACE) {
+        if (r.resolved) toRemove.add(r.resolved);
+        return false;
+      }
+      return true;
+    });
+    info.importRecords = kept;
+    // Keep an import entry when a surviving record still resolves to the same
+    // target (same anchor rule as _stripJavaExpansions).
+    info.imports = (info.imports || []).filter(
+      (imp) => !toRemove.has(imp) || kept.some((r) => r.resolved === imp)
+    );
+  }
+
+  deriveMybatisReverseEdges() {
+    const startTime = Date.now();
+
+    // interface → [{ xmlKey, namespace }] from mapper XML nodes' namespace records.
+    const xmlsByTarget = new Map();
+    for (const [fileKey, info] of this.dg.graph) {
+      for (const record of info.importRecords || []) {
+        if (record.isImplicit || record.importKind !== MYBATIS_NAMESPACE) continue;
+        if (!record.resolved || record.resolved === fileKey) continue;
+        if (!this.dg.graph.has(record.resolved)) continue;
+        let entries = xmlsByTarget.get(record.resolved);
+        if (!entries) {
+          entries = [];
+          xmlsByTarget.set(record.resolved, entries);
+        }
+        if (!entries.some((e) => e.xmlKey === fileKey)) {
+          entries.push({ xmlKey: fileKey, namespace: record.source });
+        }
+      }
+    }
+
+    // Strip then re-derive on every run: a re-resolved target node has lost its
+    // derived records, while a namespace that moved to another interface has
+    // left a stale one behind. Both must converge to the current binding set.
+    let edgeCount = 0;
+    for (const [fileKey, info] of this.dg.graph) {
+      this._stripMybatisReverseEdges(info);
+      const xmls = xmlsByTarget.get(fileKey);
+      if (!xmls) continue;
+
+      for (const { xmlKey, namespace } of xmls) {
+        const implicitSource = `<${MYBATIS_NAMESPACE}:${namespace}>`;
+        const rec = buildImplicitImportRecord(implicitSource, xmlKey, MYBATIS_NAMESPACE);
+        rec.tier = 'tier1';
+        rec.resolutionMethod = 'implicit-framework';
+        rec.confidence = 1.0;
+        info.importRecords.push(rec);
+        if (!info.imports.includes(xmlKey)) {
+          info.imports.push(xmlKey);
+          edgeCount++;
+        }
+      }
+    }
+
+    if (!this.dg.quiet && edgeCount > 0) {
+      diag(`[DepGraph] Derived ${edgeCount} mybatis namespace reverse edges in ${Date.now() - startTime}ms`);
+    }
+    // Derived records may also disappear (namespace moved), so always emit.
     this.dg.bus.emit('graph:updated', {});
   }
 

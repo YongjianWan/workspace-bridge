@@ -166,7 +166,32 @@ function buildFrameworkRules() {
         [() => true, { framework: 'svelte', reason: 'svelte-component', isEntry: false }],
       ],
     },
+    {
+      exts: ['.xml'],
+      rules: [
+        // Mapper XML is statement config bound to its Mapper interface, not a
+        // program start — never isEntry even under /mapper/ (the /mapper/ Java
+        // rule above keeps isEntry: true; 入口停止规则归 T1.2). The p/basename
+        // args arrive lowercased, so the rule hands the original filePath to
+        // the shared口径 predicate below.
+        [(_p, _ext, _basename, filePath) => isMybatisMapperXmlPath(filePath), { framework: 'mybatis', reason: 'mybatis-mapper-xml', isEntry: false }],
+      ],
+    },
   ];
+}
+
+/**
+ * MyBatis mapper XML discovery口径 (T1.1): a .xml file is a mapper XML only
+ * when its path has a `/mapper/` segment (Windows `\` equivalent) or its
+ * basename ends in `Mapper.xml`. Literal match (contract text) — case matters.
+ * Every other XML (pom.xml, logback.xml, ...) is somebody else's config —
+ * never indexed, never parsed. Single home: file-index discovery, the
+ * mybatis-xml parser and the framework rule above all consume this.
+ */
+function isMybatisMapperXmlPath(filePath) {
+  const normalized = String(filePath || '').replace(BACKSLASH_RE, '/');
+  const base = normalized.slice(normalized.lastIndexOf('/') + 1);
+  return normalized.includes('/mapper/') || base.endsWith('Mapper.xml');
 }
 
 /**
@@ -815,6 +840,7 @@ module.exports = {
   loadWorkspaceConfig,
   computeConfigHash,
   isTestLikeFile,
+  isMybatisMapperXmlPath,
   ENTRY_BASE_NAMES,
   ENTRY_WEIGHT,
   detectFrameworkFromPath,

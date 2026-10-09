@@ -15,6 +15,7 @@ const { EventBus } = require('../utils/event-bus');
 const { maskStringLiterals } = require('../utils/sanitize');
 const { Ledger } = require('./ledger');
 const { registry } = require('./dep-graph/parsers/registry');
+const { isMybatisMapperXmlPath } = require('../utils/project-context');
 const { DEFAULTS, KNOWN_SOURCE_EXTENSIONS } = require('../config/constants');
 const { diag } = require('../utils/diag');
 
@@ -196,6 +197,16 @@ class FileIndex {
   }
 
   /**
+   * Registry extensions are name-blind; MyBatis mapper XML is the one
+   * dialect admitted by PATH (…/mapper/… or *Mapper.xml). pom.xml and every
+   * other XML never enter the index — not parsed, not orphan-counted.
+   * 口径 single home: utils/project-context.js isMybatisMapperXmlPath.
+   */
+  _admitsSourcePath(filePath, ext) {
+    return ext !== '.xml' || isMybatisMapperXmlPath(filePath);
+  }
+
+  /**
    * Async generator for finding source files in ONE pass (non-blocking for
    * large repos). Extension matching is per-entry via the active ext set —
    * one walk serves every language.
@@ -272,7 +283,7 @@ class FileIndex {
           });
         } else if (!this.shouldExclude(fullPath)) {
           const ext = path.extname(fullPath).toLowerCase();
-          if (this._extSet.has(ext)) {
+          if (this._extSet.has(ext) && this._admitsSourcePath(fullPath, ext)) {
             yield fullPath;
           } else if (KNOWN_SOURCE_EXTENSIONS.has(ext) && !registry.findByExt(ext)) {
             // Known source extension that no parser claims — collect
@@ -673,6 +684,11 @@ class FileIndex {
   // and they must not be handed to the parser as source files.
   async handleFileChange(filePath) {
     if (!this.active) return true;
+    // Watch sees every file; non-mapper XML must stay out of the index even
+    // here (same discovery contract as the walk).
+    if (!this._admitsSourcePath(filePath, path.extname(filePath).toLowerCase())) {
+      return true;
+    }
     try {
       const fileKey = normalizePathKey(filePath);
       const stats = await stat(filePath);
