@@ -7,6 +7,15 @@
 
 ## [Unreleased]
 
+### T1.1：MyBatis Mapper XML 纳入分析（2026-10-09，待验收）
+
+- 发现：`.xml` 仅在路径含 `/mapper/`（`\` 等价）或 basename 以 `Mapper.xml` 结尾时进索引（`utils/project-context.js isMybatisMapperXmlPath` 单一事实源，file-index 发现/解析器/框架规则三方共用）。其余 XML（pom.xml、logback.xml 等）不进索引、不产生孤儿。分层：谓词原实现放 `parsers/mybatis-xml.js` 导致 `file-index → parsers` 向上依赖被 layering-test 拦下，下沉到 utils 层后三处消费全部向下。
+- 解析：`parsers/mybatis-xml.js` regex 设计路径（`parseMode 'regex'` + `parseModeReason 'regex-designed'`，避开 `regex-fallback` 缓存永不命中陷阱）；`<mapper namespace>` 记 `importKind 'mybatis-namespace'`，`resultType`/`parameterType`/`<resultMap type>` 记 `importKind 'mybatis-type'`，走 tryJava + 符号表兜底，未解析不猜。
+- 建图：builder.js 新增 post-process phase `derive-mybatis-reverse-edges`——namespace 绑定解析成功后在 Mapper 接口节点派生指向 XML 的隐式 import 记录（Java→XML 边）；幂等 strip/re-derive（namespace 改绑自动收敛）；派生数据不进解析缓存；类型边保持单向 XML→实体。
+- 入口：mapper XML 结构性 `isEntry: false`（不是程序启动点）；`/mapper/` Java 的入口标记未动（归 T1.2）。
+- 回放验收（J1，`eval/truth/replay/J1`，前基线存档 `J1-pre-t11`）：Java→Mapper XML 0.0000→0.2504（上限 0→0.7470）、Mapper XML→Java 0.0000→0.0841（上限 0→0.7470）；Java→Java 0.2263→0.2263、实体→VO/DTO 0.0755→0.0755 不动；输出中位 2→3；范围外 86→1（logback.xml，设计内）；0 错误。慢层 91/91 通过（builder 高危改动收工门禁）。
+- 新测试：`test/mybatis-mapper-xml-test.js`（`@fast`+`@semantic`，19 项断言：发现口径、双向边、单向类型边、入口、短类名不误连、非 mapper XML 空结果、解析契约守卫）。快层 274/274。
+
 ### 阶段 0 测量完成：T0.2–T0.6（2026-10-08，J1/F1/P1 全量回放与归因）
 
 - 三个私有目标仓库全量回放（临时克隆，原仓库只读；数据只进 gitignored 的 `eval/truth/`）：留出后 J1 88 提交 / 458 输入、F1 144 / 848、P1 75 / 325，全部 0 错误。两级平均召回（工具 / 笨基线篇幅对齐 / 合并列表 / 结构上限）：J1 0.1397 / 0.3731 / 0.4370 / 0.5309，F1 0.1909 / 0.2958 / 0.3181 / 0.8178，P1 0.1800 / 0.1865 / 0.2693 / 0.5860。
