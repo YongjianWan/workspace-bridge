@@ -11,7 +11,7 @@
 
 - T1.2 提交 `ab4241f` 在 `src/cli/validate-args.js:147` 新增 `--direction` 旗标时，未注意到 `:205` 已存在同键，对象字面量重复键被 eslint `no-dupe-keys` 拦下，导致 T1.2/T1.3 两次推送的 CI `Test` 作业全矩阵 lint 红。两键值完全相同（运行时行为无差异），删除 205 行重复项，147 行保留。本地 `npm run lint` 退出码 0。
 
-### T1.3：impact 输出截断（BFS 序保留）与默认方向翻为 all（2026-10-10，待验收）
+### T1.3：impact 输出截断（BFS 序保留）与默认方向翻为 all（2026-10-10 实施，2026-10-11 Vivian 验收会话重跑通过）
 
 - `src/tools/dep-tools/impact.js`：默认截断上限 50→`DEFAULTS.IMPACT_RELEVANCE_LIMIT`（15，对应 ROADMAP 5.5 输出中位 ≤15 线）；`--max-files` 覆盖语义不变；`impactCount` 仍报截断前总数，`truncated` 如实标注；行保持 BFS 顺序原样穿过工具层（`test/impact-truncation-test.js` 5 组锁定"不重排"）。原 `JSON_OUTPUT_MAX_IMPACT_ITEMS`（50）无剩余调用方，删。
 - 排序试验与定案：自定义相关性排序（level → reason 优先级 → 同目录 → 路径字母序）做过两轮 J1 回放，对"任务开始前输出取前 15"不稳定占优（v1 全类型落败；v2 互有 ±1–4pp 胜负），按"暴露冲突不折中"定案**不重排、只截断**；排序试验代码与存档（`J1-t13-ranked-*`）留作证据。
@@ -19,8 +19,9 @@
 - 默认翻转（ROADMAP T1.2 行"扩展设默认"流程）：`DEFAULTS.IMPACT_DEFAULT_DIRECTION: 'all'`，工具层与 REPL 同改（`test/repl-cli-impact-depth-test.js` 夹具加 `g.js` 锁 REPL/CLI 方向一致）；`stopAtEntry` 仍默认 true；`getImpactRadius` 内部缺省仍是 dependents，watch/audit-assembler/symbol-impact 等直连调用方不受影响。
 - 回放验证（J1，88 提交/458 输入/0 错误，存档 gitignored `eval/truth/replay/`）：地板用独立 worktree 钉在 T1.2 提交 `373a4b8` 跑（回放子进程 require **工作区**代码，直接跑会被未提交改动污染——本会话首批地板因此报废），复现 T1.2 数字 all+nostop 0.6122 / all+stop 0.5734（dirty=false）；前 15 截断后各边类型召回与地板前 15 逐格 0.00pp 一致（`t13-simulate.js` 仿真 + `J1-t13-default` 实跑双重验证），输出中位 50→15；翻默认后默认配置总召回 0.1866→0.4216（Java→Java 0.4957、Java→XML 0.3748、XML→Java 0.5163、实体→VO/DTO 0.2105；笨基线 0.4801、合并列表 0.5539）——阶段 1 的 70%/+15pp 线未到，完成判定依赖 T1.4。
 - 快层 276/276、慢层 91/91（翻默认连带两个慢层测试按新语义重算期望：`analysis-test` 显式钉 `--direction dependents` 锁 symbol-impact 契约；`replay-impact-test` 的 EXPECT_LINES/EXPECT_TOOL/笨基线 k 值按 all 方向重算，均经真实 CLI 核对）、`eval/run`+`eval/score` 23 项零 FAIL。统一验收第 4 条（六语言夹具）豁免：截断与语言无关，同 T1.1/T1.2 逻辑。
+- 验收（2026-10-11，Vivian 会话）：J1 默认配置重跑与存档 `J1-t13-default` 逐格一致（0.4216/中位 15/0 错误）；all+nostop 重跑 458 输入与地板前 15 逐格一致；F1 0.1909→0.4668、P1 0.1800→0.3660 均受益；验收产物 `J1-accept-t13-default/`、`J1-accept-t13-nostop/`、`F1-accept-t13/`、`P1-accept-t13/`。
 
-### T1.2：impact 方向扩展与入口停止/深度可选参数（2026-10-10，待验收）
+### T1.2：impact 方向扩展与入口停止/深度可选参数（2026-10-10 实施，2026-10-11 Vivian 验收会话重跑通过）
 
 - `GraphQuery.getImpactRadius(filePath, depth, options)` 新增 `options.direction`（`dependents` 默认，原行为不动；`dependencies` 输入自己引用的文件；`neighbors` 同层邻居——和输入被同一个文件直接引用的文件，`reason: 'same-importer'`；`all` 双向 BFS + 同层邻居）和 `options.stopAtEntry`（默认 `true` 保持原规则；`false` 时入口文件照常扩散，入口行本身仍列出）。正向边行 `reason` 标 `direct-reference`/`transitive-reference`，`implicit-same-package` 优先级不变。同层邻居由 `_sameImporterRows` 实现：直接 dependents 的依赖集去重（真实边优先），入口 importer 默认跳过；不继续扩散。
 - CLI：`impact` 新增 `--direction <dependents|dependencies|neighbors|all>` 与 `--no-stop-at-entry`。`--direction` 与 `tree` 命令共用旗标，词表按命令分（tree 仍是 `imports|dependents|both`），`validate-args.js` 集中校验。REPL `impact` 同步两个参数（防 REPL/CLI 静默漂移）。`dep-tools/impact.js` 对回放通道（`--impact-option`）直接生效的参数做同一词表校验。
@@ -28,6 +29,7 @@
 - 评测语料不退化：`eval/run`+`eval/score` 23 项全 PASS 无 FAIL；快层 275/275（+新测试）。记分板刷新仅耗时/缓存字节/高负载下 okhttp warnings 计数波动，指标值无变化。
 - 新测试：`test/impact-direction-options-test.js`（`@semantic`，5 组：默认与显式 dependents 逐格一致、dependencies 方向 reason/via、stopAtEntry=false 扩散、neighbors 集合与入口跳过、all 双向 + 邻居去重）。统一验收第 4 条（六语言夹具）不适用：改动在图遍历层、不碰 parser/resolver，方向语义与语言无关，同 T1.1 豁免逻辑，记于 ROADMAP 该行。
 - help/文档：`cli.js --help` 与 `skills/workspace-audit/SKILL.md`（权威副本，user-scope 副本需手动同步）补新参数说明。
+- 验收（2026-10-11，与 T1.3 合并，Vivian 会话）：方向扩展经 T1.3 截断后默认生效，all+nostop 重跑与地板前 15 逐格一致；`--direction` 词表按命令分抽查通过；慢层 bug-27-28-29 flake 单独两次 + CI 绿。
 
 ### T1.1：MyBatis Mapper XML 纳入分析（2026-10-09 实施，2026-10-09 Vivian 验收会话重跑通过）
 

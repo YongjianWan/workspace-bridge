@@ -243,6 +243,8 @@ node cli.js dead-exports --cwd . --json --quiet
 | cache.save() 已改为 async                              | `src/services/cache.js`                              | 调用方必须`await`（container.js、测试均已适配）                                                              |
 | repl-test.js flaky                                     | `test/repl-test.js`                                  | runner.js 串行执行时偶发失败，单独`node test/repl-test.js` 稳定通过；若遇到，先重跑确认                      |
 | audit-file-watch-test.js flaky                         | `test/audit-file-watch-test.js`                      | runner.js 串行执行时 watcher 事件偶发丢失，单独`node test/audit-file-watch-test.js` 稳定通过                 |
+| bug-27-28-29-regression-test.js flaky                | `test/bug-27-28-29-regression-test.js`               | runner.js 串行执行且机器高负载时偶发（2026-10-11 复现一次：repl eval 退出码断言），单独跑稳定通过；若遇到，先重跑确认 |
+| 回放 `--target` 静默忽略 `--name`                    | `eval/replay-impact.js`                              | `--target` 模式输出目录恒为 `replay/<代号>`，跑完覆盖基线目录、并发同代号互踩；独立命名存档必须 `--repo <路径> --name <名>` |
 | `framework-patterns.js` 新增框架时                   | `src/services/dep-graph/framework-patterns.js`       | 路径检测逻辑按语言分块，新增语言需同时更新`isEntry` 标记和测试                                               |
 | `buildFileValidationAdvice` 导出链                   | `src/tools/summaries/validation-advice.js` → `src/tools/summaries/index.js` → `src/cli/formatters/index.js` → `cli.js` | 新增 formatter 函数必须在`src/cli/formatters/index.js` 中显式导出，否则 cli.js 解构为 `undefined`          |
 | `--quiet` 不再 monkey-patch `console.error`        | `cli.js` / `container.js`                          | `quiet` 通过 `ServiceContainer` 传递；错误日志仍用 `console.error`                                       |
