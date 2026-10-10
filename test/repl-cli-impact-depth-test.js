@@ -33,8 +33,10 @@ async function main() {
   const root = makeTempDir('wb-repl-cli-depth-');
   const container = new ServiceContainer();
   try {
-    // 链：a 引用 b 引用 c 引用 d 引用 e 引用 f。impact f.js 应沿引用者方向列出 e..a，共 5 个。
-    fs.writeFileSync(path.join(root, 'f.js'), 'module.exports = 1;\n');
+    // 链：a 引用 b 引用 c 引用 d 引用 e 引用 f；f 另引用 g。impact f.js 应沿引用者方向列出 e..a，
+    // 另含 f 自己引用的 g（默认方向 all 的 dependencies 侧，T1.3 翻默认后）。
+    fs.writeFileSync(path.join(root, 'f.js'), "require('./e');\nrequire('./g');\n");
+    fs.writeFileSync(path.join(root, 'g.js'), 'module.exports = 2;\n');
     for (const [name, req] of [['e.js', 'f'], ['d.js', 'e'], ['c.js', 'd'], ['b.js', 'c'], ['a.js', 'b']]) {
       fs.writeFileSync(path.join(root, name), `require('./${req}');\n`);
     }
@@ -50,10 +52,11 @@ async function main() {
     );
     assert.deepStrictEqual(
       shape(viaCli),
-      ['a.js@5', 'b.js@4', 'c.js@3', 'd.js@2', 'e.js@1'],
-      '默认深度应为 5：链上 5 个引用者全部列出且 level 为 1..5'
+      ['a.js@5', 'b.js@4', 'c.js@3', 'd.js@2', 'e.js@1', 'g.js@1'],
+      '默认深度应为 5、默认方向 all：链上 5 个引用者全部列出且 level 为 1..5，f 引用的 g 在列'
     );
     assert.strictEqual(DEFAULTS.AFFECTED_TEST_DEPTH, 5, '口径 v1 锚点：impact 默认深度 5（ROADMAP 5.2）');
+    assert.strictEqual(DEFAULTS.IMPACT_DEFAULT_DIRECTION, 'all', 'T1.3：impact 默认方向 all（ROADMAP T1.2 行流程，扩展已设默认）');
   } finally {
     await container.shutdown();
     cleanupTempDir(root);

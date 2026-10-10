@@ -194,7 +194,7 @@ async function executeCommand(container, line, options = {}) {
         return fail('validation_error', `Invalid --direction: ${parsed.direction}`, 'Expected one of: dependents, dependencies, neighbors, all');
       }
       const maxDepth = parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH;
-      const result = graph.getImpactRadius(file, maxDepth, { direction: parsed.direction, stopAtEntry: parsed.stopAtEntry });
+      const result = graph.getImpactRadius(file, maxDepth, { direction: parsed.direction || DEFAULTS.IMPACT_DEFAULT_DIRECTION, stopAtEntry: parsed.stopAtEntry });
       return options.structured ? { impactCount: result.length, impact: result } : formatImpact(result);
     }
 

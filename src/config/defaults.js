@@ -86,9 +86,14 @@ const DEFAULTS = {
   // T1.3: impact 的默认上限改为相关性排序后的 IMPACT_RELEVANCE_LIMIT（15），
   // 原 JSON_OUTPUT_MAX_IMPACT_ITEMS（50）无剩余调用方，已删。
   // T1.3: relevance-ranked impact cap. The agent reads ~15 files per query
-  // (ROADMAP 5.5 pass line: output median ≤ 15); rankImpactRows decides which
+  // (ROADMAP 5.5 pass line: output median ≤ 15); the BFS order decides which
   // files keep the slots. --max-files overrides this bound.
   IMPACT_RELEVANCE_LIMIT: 15,
+  // T1.3: `impact` 命令（工具层 + REPL）的默认查找方向。ROADMAP T1.2 行流程：
+  // 扩展召回验证通过后设为默认（all = 双向 BFS + 同层邻居，stopAtEntry 仍默认
+  // true）。getImpactRadius 自身的缺省仍是 dependents——直连调用方
+  // （watch/audit-assembler/symbol-impact 等）保持原语义不受影响。
+  IMPACT_DEFAULT_DIRECTION: 'all',
   JSON_OUTPUT_MAX_AFFECTED_TESTS_ITEMS: 50,    // same rationale as impact
   // The dedicated `affected-tests` command: the list IS the answer, so the
   // digest budget above would cut real results (fault-injection truth reaches
