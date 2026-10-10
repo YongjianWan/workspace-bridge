@@ -44,7 +44,7 @@ workspace-bridge-cli <command> --cwd <project> --format ai --quiet
 
 **L4 命令仅在需要原始数据或调试时调用**。日常审计优先用 L1（`audit-overview` / `audit-file` / `audit-diff`），数据已被策展去噪。
 
-**需要完整列表时**：`audit-file` 在大仓库（索引文件数超过 500）自动压缩，每个列表只留前 5 条；半径大的文件要完整影响或测试列表时，改用 `affected-tests`（默认最多 500 条）和 `impact`（默认最多 50 条，`--max-files` 调整），或给 `audit-file` 加 `--no-compact`。
+**需要完整列表时**：`audit-file` 在大仓库（索引文件数超过 500）自动压缩，每个列表只留前 5 条；半径大的文件要完整影响或测试列表时，改用 `affected-tests`（默认最多 500 条）和 `impact`（默认最多 15 条，相关性截断后剩余总数看 `impactCount`，`--max-files` 调整），或给 `audit-file` 加 `--no-compact`。
 
 **避免调用**：`audit-summary`（已废弃，redirect 到 `audit-overview`）、`health`（已废弃）、`stats` / `dependencies` / `dependents`（太 raw）、`watch`（交互式，不适合批量调用）。
 
@@ -57,7 +57,7 @@ workspace-bridge-cli <command> --cwd <project> --format ai --quiet
 - `--fields <list>`：结构化输出（`--json` / `--format ai` / `--format jsonl`）的白名单字段（`ok/error/schemaVersion/command/hasFindings/staleness/warnings` 恒保留），如 `--fields summary,hotspots`。
   - 注意：与 `--format ai` 同时使用时，输出 `warnings` 会提示 digest 输入被裁剪，避免 AI 拿到被静默降级的风险视图。
 - `--max-files <n>`：限制大部分命令返回的文件/条目数（`audit-overview` / `audit-map` / `audit-file` / `audit-diff` / `query-*` / `impact` / `affected-*` / `dependencies` / `dependents` / `dead-exports` / `unresolved` / `cycles` / `tree` / `guard` / `api-contracts` 均支持）。
-- `impact` 专用（T1.2 起）：`--direction <dependents|dependencies|neighbors|all>` 扩展查找方向（默认 `dependents` 只找谁引用了输入；`dependencies` 找输入自己引用的文件；`neighbors` 找同层邻居——和输入被同一个文件直接引用的文件；`all` 双向 + 同层邻居）；`--no-stop-at-entry` 关掉"遇到入口文件停止扩散"（默认开，入口文件本身仍会列出）。
+- `impact` 专用（T1.2 起，T1.3 翻默认）：`--direction <dependents|dependencies|neighbors|all>` 查找方向（**默认 `all`** 双向 + 同层邻居；`dependents` 只找谁引用了输入；`dependencies` 找输入自己引用的文件；`neighbors` 找同层邻居——和输入被同一个文件直接引用的文件）；`--no-stop-at-entry` 关掉"遇到入口文件停止扩散"（默认开，入口文件本身仍会列出）。
 - `--compact`：目录级聚合边 + 精简树 + 列表 capped（`audit-map` / `audit-overview` / `audit-file` / `api-contracts` / `guard` 生效；大项目自动触发；`--no-compact` 关闭）。
 - **截断必读**：顶层 `truncated: true` 时，列表不是全集。读顶层 `elided[]`，每条是 `{ path, kind, shown, total, reason }`（`reason`：`json-size-limit` JSON 体积上限 / `compact` 压缩模式只保留前几条 / `ai-digest` AI 摘要抽样）。要全集就加 `--max-files <n>`（JSON 体积上限不会低于它）或 `--no-compact`。`affected-tests` 按 `orderedBy: distance,hubFanIn,file` 排序后截断：距离近的在前，同距离时经过依赖者少的中间文件的测试在前，经被几乎所有测试导入的枢纽文件（如 `testing.py`）才关联到的测试排后。
 - **路径写法**：输出里文件和目录写成磁盘上的真实大小写，不是 Windows 上被折成小写的内部键；绝对路径保持绝对（Windows 用 `` 分隔），相对路径相对工作区根并用 `/`。路径比较在 Windows 上不分大小写，在 Linux 上分；同一个文件在结果里只有一种写法，可直接做字符串比较。

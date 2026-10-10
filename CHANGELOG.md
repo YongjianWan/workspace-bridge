@@ -7,12 +7,14 @@
 
 ## [Unreleased]
 
-### T1.3：impact 输出相关性排序与截断（2026-10-10，待验收）
+### T1.3：impact 输出截断（BFS 序保留）与默认方向翻为 all（2026-10-10，待验收）
 
-- `src/tools/dep-tools/impact.js`：impact 行在截断前按相关性排序——level 升序 → reason 优先级（`direct-import` > `direct-reference` > `same-importer` > `implicit-same-package` > `transitive-dependency` > `transitive-reference` > `implicit-conftest`，未知 reason 垫后）→ 与输入同目录优先 → 路径字母序（末键保证确定性，回放可复现）。默认截断上限 50→`DEFAULTS.IMPACT_RELEVANCE_LIMIT`（15，对应 ROADMAP 5.5 输出中位 ≤15 线）；`--max-files` 覆盖语义不变；`impactCount` 仍报截断前总数，`truncated` 如实标注。原 `JSON_OUTPUT_MAX_IMPACT_ITEMS`（50）无剩余调用方，删。
-- 只动工具层：`getImpactRadius`（query.js）遍历语义不变；watch/audit-assembler/symbol-impact 等直连 `getImpactRadius` 的调用方不受影响；REPL `impact` 走 graph 直连，显示原始 BFS 全集（交互用途，工具层排序只作用于 CLI/回放通道）。
-- 新测试：`test/impact-ranking-test.js`（`@semantic`，5 组：全 reason 排序序、默认截断 15 且 impactCount 报总数、`--max-files` 覆盖、小结果不截断但排序、两次调用顺序一致）；`test/wave12-output-truncation-test.js` 的 impact 截断断言迁移到新常量。统一验收第 4 条（六语言夹具）豁免：排序键全部来自遍历行元数据（level/reason/路径），与语言无关，同 T1.1/T1.2 豁免逻辑。
-- 回放验证（J1，进行中，结果写入后补）：地板 = 任务开始前（T1.2 顺序 50 帽）输出取前 15 的各边类型召回；验收 = 排序截断后输出中位 ≤15 且各边类型召回 ≥ 地板。注意：回放子进程 require 的是**工作区** `src/`，地板跑批必须用独立 worktree 钉在 T1.2 提交上跑（本会话首次地板跑批因工作区已含 T1.3 改动整批报废，已重跑）。
+- `src/tools/dep-tools/impact.js`：默认截断上限 50→`DEFAULTS.IMPACT_RELEVANCE_LIMIT`（15，对应 ROADMAP 5.5 输出中位 ≤15 线）；`--max-files` 覆盖语义不变；`impactCount` 仍报截断前总数，`truncated` 如实标注；行保持 BFS 顺序原样穿过工具层（`test/impact-truncation-test.js` 5 组锁定"不重排"）。原 `JSON_OUTPUT_MAX_IMPACT_ITEMS`（50）无剩余调用方，删。
+- 排序试验与定案：自定义相关性排序（level → reason 优先级 → 同目录 → 路径字母序）做过两轮 J1 回放，对"任务开始前输出取前 15"不稳定占优（v1 全类型落败；v2 互有 ±1–4pp 胜负），按"暴露冲突不折中"定案**不重排、只截断**；排序试验代码与存档（`J1-t13-ranked-*`）留作证据。
+- 顺带修 `query.js` 真 bug：`_sameImporterRows` 的 seen 缺 start，输入经循环边会作为自己的同层邻居漏进结果（`direction=all` 时白占输出名额）。`test/impact-direction-options-test.js` 加杀变异测试（变异体下红）。
+- 默认翻转（ROADMAP T1.2 行"扩展设默认"流程）：`DEFAULTS.IMPACT_DEFAULT_DIRECTION: 'all'`，工具层与 REPL 同改（`test/repl-cli-impact-depth-test.js` 夹具加 `g.js` 锁 REPL/CLI 方向一致）；`stopAtEntry` 仍默认 true；`getImpactRadius` 内部缺省仍是 dependents，watch/audit-assembler/symbol-impact 等直连调用方不受影响。
+- 回放验证（J1，88 提交/458 输入/0 错误，存档 gitignored `eval/truth/replay/`）：地板用独立 worktree 钉在 T1.2 提交 `373a4b8` 跑（回放子进程 require **工作区**代码，直接跑会被未提交改动污染——本会话首批地板因此报废），复现 T1.2 数字 all+nostop 0.6122 / all+stop 0.5734（dirty=false）；前 15 截断后各边类型召回与地板前 15 逐格 0.00pp 一致（`t13-simulate.js` 仿真 + `J1-t13-default` 实跑双重验证），输出中位 50→15；翻默认后默认配置总召回 0.1866→0.4216（Java→Java 0.4957、Java→XML 0.3748、XML→Java 0.5163、实体→VO/DTO 0.2105；笨基线 0.4801、合并列表 0.5539）——阶段 1 的 70%/+15pp 线未到，完成判定依赖 T1.4。
+- 快层 276/276、慢层 91/91（翻默认连带两个慢层测试按新语义重算期望：`analysis-test` 显式钉 `--direction dependents` 锁 symbol-impact 契约；`replay-impact-test` 的 EXPECT_LINES/EXPECT_TOOL/笨基线 k 值按 all 方向重算，均经真实 CLI 核对）、`eval/run`+`eval/score` 23 项零 FAIL。统一验收第 4 条（六语言夹具）豁免：截断与语言无关，同 T1.1/T1.2 逻辑。
 
 ### T1.2：impact 方向扩展与入口停止/深度可选参数（2026-10-10，待验收）
 
