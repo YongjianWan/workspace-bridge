@@ -202,7 +202,6 @@ function parseCliArgs(argv) {
       '--check-regression': true,
       '--baseline': { key: 'baseline' },
       '--cache-dir': { key: 'cacheDir' },
-      '--direction': { key: 'direction' },
       '--eval': { key: 'eval' },
       '--what': { key: 'what' },
       '--line': { key: 'line', transform: (v) => {

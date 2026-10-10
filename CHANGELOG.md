@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### 验收修复：删除 `validate-args.js` 重复 `--direction` 键（2026-10-10，验收会话）
+
+- T1.2 提交 `ab4241f` 在 `src/cli/validate-args.js:147` 新增 `--direction` 旗标时，未注意到 `:205` 已存在同键，对象字面量重复键被 eslint `no-dupe-keys` 拦下，导致 T1.2/T1.3 两次推送的 CI `Test` 作业全矩阵 lint 红。两键值完全相同（运行时行为无差异），删除 205 行重复项，147 行保留。本地 `npm run lint` 退出码 0。
+
 ### T1.3：impact 输出截断（BFS 序保留）与默认方向翻为 all（2026-10-10，待验收）
 
 - `src/tools/dep-tools/impact.js`：默认截断上限 50→`DEFAULTS.IMPACT_RELEVANCE_LIMIT`（15，对应 ROADMAP 5.5 输出中位 ≤15 线）；`--max-files` 覆盖语义不变；`impactCount` 仍报截断前总数，`truncated` 如实标注；行保持 BFS 顺序原样穿过工具层（`test/impact-truncation-test.js` 5 组锁定"不重排"）。原 `JSON_OUTPUT_MAX_IMPACT_ITEMS`（50）无剩余调用方，删。
