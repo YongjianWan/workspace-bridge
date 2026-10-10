@@ -144,6 +144,8 @@ function parseCliArgs(argv) {
         if (Number.isNaN(n)) throwValidationError(`Invalid --max-depth value: ${v}. Expected a positive integer`);
         return n;
       } },
+      '--direction': { key: 'direction' },
+      '--no-stop-at-entry': { key: 'stopAtEntry', transform: () => false },
       '--reuse-hints': { key: 'reuseHints' },
       '--hotspot-data': { key: 'hotspotData' },
       '--stability-trend-data': { key: 'stabilityTrendData' },
@@ -463,8 +465,15 @@ function parseCliArgs(argv) {
   if (format && !['summary', 'markdown', 'jsonl', 'ai', 'human', 'json'].includes(format)) {
     throwValidationError(`Invalid --format value: ${format}. Expected summary|markdown|jsonl|ai|human|json`);
   }
-  if (direction && !['imports', 'dependents', 'both'].includes(direction)) {
-    throwValidationError(`Invalid --direction value: ${direction}. Expected imports|dependents|both`);
+  if (direction) {
+    // tree 与 impact 共用 --direction，词表按命令分：tree 保持原样，
+    // impact 的方向扩展见 T1.2（ROADMAP）。
+    const allowedDirections = command === 'impact'
+      ? ['dependents', 'dependencies', 'neighbors', 'all']
+      : ['imports', 'dependents', 'both'];
+    if (!allowedDirections.includes(direction)) {
+      throwValidationError(`Invalid --direction value: ${direction}. Expected ${allowedDirections.join('|')}`);
+    }
   }
   if (mode && !['quick', 'full'].includes(mode)) {
     throwValidationError(`Invalid --mode value: ${mode}. Expected quick|full`);

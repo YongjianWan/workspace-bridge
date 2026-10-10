@@ -43,46 +43,81 @@ class GraphQuery {
     return dependents;
   }
 
-  getImpactRadius(filePath, depth = 3) {
+  /**
+   * Impact radius around a file.
+   * @param {Object} [options]
+   * @param {string} [options.direction='dependents'] - dependents | dependencies
+   *   | neighbors | all. dependents = 谁引用了输入（原行为）；dependencies = 输入
+   *   自己引用的文件；neighbors = 同层邻居（和输入被同一文件直接引用）；
+   *   all = 双向 BFS + 同层邻居。
+   * @param {boolean} [options.stopAtEntry=true] - 遇到入口文件停止扩散
+   *   （入口文件本身仍作为一行出现）。
+   */
+  getImpactRadius(filePath, depth = 3, options = {}) {
     this._ensureReady();
     const start = this.dg.normalizeFilePath(filePath);
+    const direction = options.direction || 'dependents';
+    const stopAtEntry = options.stopAtEntry !== false;
+    // dependencies 只沿正向走；all 双向；其余（含缺省）保持原 dependents 语义
+    const includeDeps = direction === 'dependencies' || direction === 'all';
+    const includeDependents = direction !== 'dependencies';
 
-    let results = bfsTraverse(start, (file) => {
-      // Stop diffusion at entry files: every module eventually converges to
-      // cli.js / app.vue / index.js, which provides zero actionable info.
-      if (file !== start && this.dg.isKnownEntryFile(file)) return [];
-      return this.getDependents(file);
-    }, {
-      maxDepth: depth,
-      onVisit: (file, level, via) => {
-        if (level === 0 || file === start) return undefined;
-        const currentInfo = this.dg.getFileInfo(file);
-
-        let importedSymbols = [];
-        let importedSymbolsAvailable = false;
-        let reason = level === 1 ? 'direct-import' : 'transitive-dependency';
-        if (currentInfo?.importRecords) {
+    let results;
+    if (direction === 'neighbors') {
+      results = this._sameImporterRows(start, stopAtEntry, null);
+    } else {
+      results = bfsTraverse(start, (file) => {
+        // Stop diffusion at entry files: every module eventually converges to
+        // cli.js / app.vue / index.js, which provides zero actionable info.
+        if (stopAtEntry && file !== start && this.dg.isKnownEntryFile(file)) return [];
+        const neighbors = [];
+        if (includeDependents) neighbors.push(...this.getDependents(file));
+        if (includeDeps) neighbors.push(...this.getDependencies(file));
+        return neighbors;
+      }, {
+        maxDepth: depth,
+        onVisit: (file, level, via) => {
+          if (level === 0 || file === start) return undefined;
+          const currentInfo = this.dg.getFileInfo(file);
           const parentFile = via[via.length - 1];
-          const matchingImports = currentInfo.importRecords.filter((r) => r.resolved === parentFile);
-          for (const record of matchingImports) {
-            if (record.imported) importedSymbols.push(...record.imported);
-          }
-          importedSymbolsAvailable = matchingImports.length > 0 && matchingImports.some((r) => r.imported && r.imported.length > 0);
-          if (matchingImports.some((r) => r.tier === 'tier3')) {
-            reason = 'implicit-same-package';
-          }
-        }
 
-        return {
-          file,
-          level,
-          via: [...via],
-          importedSymbols: [...new Set(importedSymbols)],
-          importedSymbolsAvailable,
-          reason,
-        };
-      },
-    });
+          let importedSymbols = [];
+          let importedSymbolsAvailable = false;
+          let reason = level === 1 ? 'direct-import' : 'transitive-dependency';
+          if (currentInfo?.importRecords) {
+            const matchingImports = currentInfo.importRecords.filter((r) => r.resolved === parentFile);
+            for (const record of matchingImports) {
+              if (record.imported) importedSymbols.push(...record.imported);
+            }
+            importedSymbolsAvailable = matchingImports.length > 0 && matchingImports.some((r) => r.imported && r.imported.length > 0);
+            if (matchingImports.some((r) => r.tier === 'tier3')) {
+              reason = 'implicit-same-package';
+            }
+          }
+          // 正向边（父节点 import 当前节点）没有 import 符号可展示——符号挂在
+          // 父节点的 importRecords 上——但 reason 要如实标注方向。
+          if (includeDeps && reason !== 'implicit-same-package') {
+            const parentInfo = this.dg.getFileInfo(parentFile);
+            const forwardEdge = parentInfo?.importRecords?.some((r) => r.resolved === file);
+            if (forwardEdge) {
+              reason = level === 1 ? 'direct-reference' : 'transitive-reference';
+            }
+          }
+
+          return {
+            file,
+            level,
+            via: [...via],
+            importedSymbols: [...new Set(importedSymbols)],
+            importedSymbolsAvailable,
+            reason,
+          };
+        },
+      });
+      if (direction === 'all') {
+        results = [...results, ...this._sameImporterRows(start, stopAtEntry, results)];
+      }
+    }
 
     // Pytest loads conftest.py for every test in its directory and
     // below — append those tests as implicit dependents. Rows are labeled, not
@@ -95,6 +130,31 @@ class GraphQuery {
       file: this.dg._displayPath(r.file),
       via: r.via ? r.via.map((f) => this.dg._displayPath(f)) : r.via,
     }));
+  }
+
+  /**
+   * 同层邻居行：和 start 被同一个文件直接引用的文件（via = 共同 importer）。
+   * 不沿任何方向继续扩散。已有行（真实边）优先，existing 为 null 时返回全集。
+   */
+  _sameImporterRows(start, stopAtEntry, existing) {
+    const seen = new Set(existing ? existing.map((r) => r.file) : [start]);
+    const rows = [];
+    for (const importer of this.getDependents(start)) {
+      if (stopAtEntry && importer !== start && this.dg.isKnownEntryFile(importer)) continue;
+      for (const sibling of this.getDependencies(importer)) {
+        if (seen.has(sibling)) continue;
+        seen.add(sibling);
+        rows.push({
+          file: sibling,
+          level: 1,
+          via: [importer],
+          importedSymbols: [],
+          importedSymbolsAvailable: false,
+          reason: 'same-importer',
+        });
+      }
+    }
+    return rows;
   }
 
   /**

@@ -5,8 +5,18 @@ const { warningOf } = require('../../services/ledger');
 const { getCoChangePartners } = require('../cochange-tools');
 const { truncateArray } = require('../../utils/truncate');
 
+const { failure } = require('../../utils/failure');
+
+const IMPACT_DIRECTIONS = new Set(['dependents', 'dependencies', 'neighbors', 'all']);
+
 async function impact(args, container, filePath) {
-  const impact = container.snapshot.graph.getImpactRadius(filePath, args?.maxDepth);
+  if (args?.direction != null && !IMPACT_DIRECTIONS.has(args.direction)) {
+    return failure('validation_error', `Invalid direction: ${args.direction}. Expected one of: ${[...IMPACT_DIRECTIONS].join(', ')}`);
+  }
+  const impact = container.snapshot.graph.getImpactRadius(filePath, args?.maxDepth, {
+    direction: args?.direction,
+    stopAtEntry: args?.stopAtEntry,
+  });
   const symbolImpact = container.snapshot.graph.getSymbolImpact(filePath);
   const targetNotIndexed = symbolImpact?.reason === 'source-not-indexed';
   let coChangeData = container.cache?.coChanges || null;

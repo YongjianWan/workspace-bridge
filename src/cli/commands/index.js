@@ -149,7 +149,7 @@ const COMMANDS = {
   // L2 — Targeted analysis
   'api-contracts': apiContracts,
   impact: makeFileCommand(
-    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'impact', file: parsed.file, maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH, maxFiles: parsed.maxFiles }, container),
+    (parsed, container) => dependencyGraph({ cwd: parsed.cwd, operation: 'impact', file: parsed.file, maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH, maxFiles: parsed.maxFiles, direction: parsed.direction, stopAtEntry: parsed.stopAtEntry }, container),
     (r) => (r.impactCount || 0) > 0
   ),
   'affected-tests': makeFileCommand(

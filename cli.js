@@ -167,7 +167,9 @@ Curated Commands (Tier 1 — start here):
   query-hotspots [--risk <high|medium|low>] [--limit <n>]
                             Query cached hotspots (fast slice, no full rebuild)
   query --sql <query>     Execute read-only SQL query against the cache DB
-  impact --file <path>    Find impact radius for a file
+  impact --file <path> [--direction <dependents|dependencies|neighbors|all>]
+                            [--no-stop-at-entry] [--max-depth <n>]
+                            Find impact radius for a file (default: dependents)
   affected-tests --file <path> [--max-depth <n>]
                             Find tests related to a file
   affected-routes --file <path> [--max-depth <n>]
@@ -204,7 +206,9 @@ Commands:
   L2 专项工具 (Targeted analysis):
     api-contracts --frontend <dir> --backend <dir>
                             Align frontend HTTP calls with backend routes
-    impact --file <path>    Find impact radius for a file
+    impact --file <path> [--direction <dependents|dependencies|neighbors|all>]
+                            [--no-stop-at-entry] [--max-depth <n>]
+                            Find impact radius for a file (default: dependents)
     affected-tests --file <path> [--max-depth <n>]
                             Find tests related to a file
     guard                   Check blast radius and dependents limits before editing
