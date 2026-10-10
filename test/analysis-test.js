@@ -104,8 +104,10 @@ async function main() {
     assert(allGraphWithinDepth, 'All graph-sourced affected tests should be within maxDepth');
 
 
-    // Compare graph totals against a complete list, rather than the default 50-item output cap.
-    const impact = await runCliInProcess(['impact', '--cwd', '.', '--file', 'src/services/container.js', '--max-files', '1000', '--json', '--quiet']);
+    // Compare graph totals against a complete list, rather than the default output cap.
+    // symbolImpact 的内部遍历只沿 dependents 方向（getImpactRadius 缺省），与 CLI 默认方向
+    // （T1.3 起 all）不同；这里显式钉 dependents 来锁 symbol-impact 契约本身。
+    const impact = await runCliInProcess(['impact', '--cwd', '.', '--file', 'src/services/container.js', '--max-files', '1000', '--direction', 'dependents', '--json', '--quiet']);
     assert(impact.impactCount >= 0, `impactCount should be >= 0, got ${impact.impactCount}`);
     assert(impact.symbolImpact, 'symbolImpact should exist');
     assert(['symbol', 'file-fallback'].includes(impact.symbolImpact.mode), 'symbolImpact.mode should be valid');

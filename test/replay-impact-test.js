@@ -554,28 +554,30 @@ function testBaselineHistoryCutoff(fixture) {
 
 // 每行期望：ci = fixture.commits 下标；truth 用集合比较；tool/base/merged 按序比较；
 // ceil 用集合比较（reach 顺序不构成口径）。tool/impactCount 已用真实 CLI 在 P 上核对。
+// T1.3 翻默认后工具默认 direction=all（双向 BFS + 同层邻居，stopAtEntry 仍开），
+// tool/impactCount/merged（merged 的 k = tool 长度）已按新默认重算。
 const EXPECT_LINES = [
   // —— c2（P = c1）——
   {
     ci: 1, input: 'src/api.js',
     truth: ['src/legacy.js', 'src/util.js'], added: 1,
-    tool: [], impactCount: 0,
-    base: ['src/legacy.js', 'src/orphan.js', 'src/user.js', 'src/util.js'],
-    merged: ['src/legacy.js', 'src/orphan.js', 'src/user.js', 'src/util.js'],
+    tool: ['src/util.js', 'src/legacy.js'], impactCount: 2,
+    base: ['src/legacy.js', 'src/orphan.js'],
+    merged: ['src/util.js', 'src/legacy.js'],
     ceil: ['src/legacy.js', 'src/util.js'],
   },
   {
     ci: 1, input: 'src/legacy.js',
     truth: ['src/api.js', 'src/util.js'], added: 1,
-    tool: ['src/api.js'], impactCount: 1,
-    base: ['src/api.js'], merged: ['src/api.js'],
+    tool: ['src/api.js', 'src/util.js'], impactCount: 2,
+    base: ['src/api.js', 'src/orphan.js'], merged: ['src/api.js', 'src/util.js'],
     ceil: ['src/api.js', 'src/util.js'],
   },
   {
     ci: 1, input: 'src/util.js',
     truth: ['src/api.js', 'src/legacy.js'], added: 1,
-    tool: ['src/api.js'], impactCount: 1,
-    base: ['src/api.js'], merged: ['src/api.js'],
+    tool: ['src/api.js', 'src/legacy.js'], impactCount: 2,
+    base: ['src/api.js', 'src/legacy.js'], merged: ['src/api.js', 'src/legacy.js'],
     ceil: ['src/api.js', 'src/legacy.js'],
   },
   // —— c3（P = c2）——
@@ -590,8 +592,8 @@ const EXPECT_LINES = [
   {
     ci: 2, input: 'src/extra.js',
     truth: ['src/orphan.js', 'src/user.js'], added: 0,
-    tool: ['src/api.js'], impactCount: 1,
-    base: ['src/api.js'], merged: ['src/api.js'],
+    tool: ['src/api.js', 'src/util.js', 'src/legacy.js'], impactCount: 3,
+    base: ['src/api.js', 'src/legacy.js', 'src/util.js'], merged: ['src/api.js', 'src/util.js', 'src/legacy.js'],
     ceil: ['src/api.js', 'src/legacy.js', 'src/util.js'],
   },
   {
@@ -606,16 +608,16 @@ const EXPECT_LINES = [
   {
     ci: 3, input: 'src/api.js',
     truth: ['src/util.js'], added: 1,
-    tool: [], impactCount: 0,
-    base: ['src/legacy.js', 'src/util.js', 'src/extra.js', 'src/user.js'],
-    merged: ['src/legacy.js', 'src/util.js', 'src/extra.js', 'src/user.js'],
+    tool: ['src/util.js', 'src/legacy.js', 'src/extra.js'], impactCount: 3,
+    base: ['src/legacy.js', 'src/util.js', 'src/extra.js'],
+    merged: ['src/util.js', 'src/legacy.js', 'src/extra.js'],
     ceil: ['src/extra.js', 'src/legacy.js', 'src/util.js'],
   },
   {
     ci: 3, input: 'src/util.js',
     truth: ['src/api.js'], added: 1,
-    tool: ['src/api.js'], impactCount: 1,
-    base: ['src/api.js'], merged: ['src/api.js'],
+    tool: ['src/api.js', 'src/legacy.js', 'src/extra.js'], impactCount: 3,
+    base: ['src/api.js', 'src/legacy.js', 'src/extra.js'], merged: ['src/api.js', 'src/legacy.js', 'src/extra.js'],
     ceil: ['src/api.js', 'src/extra.js', 'src/legacy.js'],
   },
 ];
@@ -790,11 +792,12 @@ async function testToolVsCliParity(fixture, pDir, root) {
   const inProcess = inProcessRaw && typeof inProcessRaw.then === 'function' ? await inProcessRaw : inProcessRaw;
   assert.ok(inProcess && typeof inProcess === 'object', 'computeToolOutputs 应返回 { input: string[] }');
 
-  // 真值：用真实 CLI 在同一目录逐个核对（相对路径统一后比较）
+  // 真值：用真实 CLI 在同一目录逐个核对（相对路径统一后比较）。
+  // T1.3 翻默认后 CLI impact 默认 direction=all（双向 + 同层邻居），期望值按夹具依赖结构重算。
   const EXPECT_TOOL = {
-    'src/api.js': [], // c1 里没有文件引用 api.js
-    'src/legacy.js': ['src/api.js'],
-    'src/util.js': ['src/api.js'],
+    'src/api.js': ['src/util.js', 'src/legacy.js'], // api 的 dependencies（c1 里没人引用 api）
+    'src/legacy.js': ['src/api.js', 'src/util.js'], // dependent api + 经 api 的同层邻居 util
+    'src/util.js': ['src/api.js', 'src/legacy.js'], // dependent api + 经 api 的同层邻居 legacy
   };
   for (const input of inputs) {
     const res = runCli(['impact', '--cwd', pDir, '--file', input, '--json', '--quiet']);
