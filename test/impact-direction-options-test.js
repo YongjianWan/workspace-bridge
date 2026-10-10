@@ -106,12 +106,36 @@ function testAllDirection() {
   assert(!rows.has(I), 'all 默认跳过入口 importer 的邻居');
 }
 
+function testSelfRowExcludedFromSameImporter() {
+  // x↔y 循环边：y 是 x 的 importer，y 的依赖集含 x 自己。T1.3 修复前
+  // _sameImporterRows 的 seen 不含 start，x 会作为自己的同层邻居漏进结果。
+  const X = n('/repo/src/x.js');
+  const Y = n('/repo/src/y.js');
+  const Z = n('/repo/src/z.js');
+  const rec = (source, resolved) => [{ source, resolved, imported: [], usesAllExports: true }];
+  const g = createMockDepGraph({
+    root: '/repo',
+    entryFiles: new Set(),
+    schema: {
+      [X]: { imports: [Y], importRecords: rec('./y', Y) },
+      [Y]: { imports: [X], importRecords: rec('./x', X) },
+      [Z]: { imports: [X], importRecords: rec('./x', X) },
+    },
+  });
+  const rowsAll = byFile(g.getImpactRadius(X, 5, { direction: 'all' }));
+  assert(rowsAll.has(Y) && rowsAll.has(Z), 'x 的 dependents 仍正常列出');
+  assert(!rowsAll.has(X), 'all 方向：同层邻居不得含 start 自己（循环边）');
+  const rowsN = byFile(g.getImpactRadius(X, 5, { direction: 'neighbors' }));
+  assert(!rowsN.has(X), 'neighbors 方向同样排除 start');
+}
+
 const tests = [
   testDefaultUnchanged,
   testDependenciesDirection,
   testStopAtEntryFalse,
   testNeighborsDirection,
   testAllDirection,
+  testSelfRowExcludedFromSameImporter,
 ];
 
 let failed = 0;

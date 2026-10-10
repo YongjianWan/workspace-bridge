@@ -9,15 +9,17 @@ const { failure } = require('../../utils/failure');
 
 const IMPACT_DIRECTIONS = new Set(['dependents', 'dependencies', 'neighbors', 'all']);
 
-// T1.3: 相关性排序的 reason 优先级。直接边 > 邻居 > 隐式边 > 传递边 > 测试
-// 基建；未来新增的 reason 不在表内时垫后（__fallback），保证排序确定性。
+// T1.3: 相关性排序的 reason 优先级。直接边 > 邻居 > 传递边 > 弱隐式边 >
+// 测试基建；implicit-same-package 是低置信兜底推断，排在传递边之后
+// （J1 回放证据：它会在同包实体上成批挤占前 15 名额）。
+// 未来新增的 reason 不在表内时垫后（__fallback），保证排序确定性。
 const IMPACT_REASON_RANK = {
   'direct-import': 0,
   'direct-reference': 1,
   'same-importer': 2,
-  'implicit-same-package': 3,
-  'transitive-dependency': 4,
-  'transitive-reference': 5,
+  'transitive-dependency': 3,
+  'transitive-reference': 4,
+  'implicit-same-package': 5,
   'implicit-conftest': 6,
   __fallback: 7,
 };

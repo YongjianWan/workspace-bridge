@@ -137,7 +137,9 @@ class GraphQuery {
    * 不沿任何方向继续扩散。已有行（真实边）优先，existing 为 null 时返回全集。
    */
   _sameImporterRows(start, stopAtEntry, existing) {
-    const seen = new Set(existing ? existing.map((r) => r.file) : [start]);
+    // start 必须始终在 seen 里：existing（BFS 行）已滤掉 level-0 的 start，
+    // 不补上的话，start 经循环边会作为自己的同层邻居漏进结果，白占一个输出名额。
+    const seen = new Set(existing ? [...existing.map((r) => r.file), start] : [start]);
     const rows = [];
     for (const importer of this.getDependents(start)) {
       if (stopAtEntry && importer !== start && this.dg.isKnownEntryFile(importer)) continue;

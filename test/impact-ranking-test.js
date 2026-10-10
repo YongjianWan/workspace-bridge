@@ -22,6 +22,7 @@ function unsortedRows() {
     { file: '/repo/src/util/IdGen.java', level: 1, reason: 'direct-reference' },
     { file: '/repo/src/entity/BaseEntity.java', level: 1, reason: 'implicit-same-package' },
     { file: '/repo/src/mapper/UserMapper.java', level: 1, reason: 'direct-import' },
+    { file: '/repo/src/mapper/SysDictMapper.java', level: 1, reason: 'transitive-dependency' },
     { file: '/repo/src/vo/ExtVO.java', level: 1, reason: 'same-importer' },
     { file: '/repo/src/entity/UserAo.java', level: 1, reason: 'same-importer' },
     { file: '/repo/src/web/UserController.java', level: 2, reason: 'direct-import' },
@@ -57,7 +58,8 @@ async function testRankingOrder() {
     '/repo/src/entity/UserAo.java',           // same-importer，同目录
     '/repo/src/entity/UserVO.java',           // same-importer，同目录
     '/repo/src/vo/ExtVO.java',                // same-importer，异目录
-    '/repo/src/entity/BaseEntity.java',       // implicit-same-package
+    '/repo/src/mapper/SysDictMapper.java',    // transitive-dependency
+    '/repo/src/entity/BaseEntity.java',       // implicit-same-package（弱隐式边，排在传递边后）
     '/repo/src/conftest.py',                  // implicit-conftest
     '/repo/src/legacy/Legacy.java',           // 未知 reason 垫后
     // level 2 全部排在 level 1 之后，组内同样按 reason 优先级
