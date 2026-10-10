@@ -9,6 +9,48 @@ const { failure } = require('../../utils/failure');
 
 const IMPACT_DIRECTIONS = new Set(['dependents', 'dependencies', 'neighbors', 'all']);
 
+// T1.3: 相关性排序的 reason 优先级。直接边 > 邻居 > 隐式边 > 传递边 > 测试
+// 基建；未来新增的 reason 不在表内时垫后（__fallback），保证排序确定性。
+const IMPACT_REASON_RANK = {
+  'direct-import': 0,
+  'direct-reference': 1,
+  'same-importer': 2,
+  'implicit-same-package': 3,
+  'transitive-dependency': 4,
+  'transitive-reference': 5,
+  'implicit-conftest': 6,
+  __fallback: 7,
+};
+
+/**
+ * 按相关性排序 impact 行：level 升序 → reason 优先级 → 与输入同目录优先 →
+ * 路径字母序。路径唯一，最后一键保证确定性（回放可复现）。
+ */
+function rankImpactRows(rows, workspaceRoot, inputFile) {
+  const root = String(workspaceRoot || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  const relPosix = (f) => {
+    const norm = String(f).replace(/\\/g, '/');
+    return norm.startsWith(root + '/') ? norm.slice(root.length + 1) : norm;
+  };
+  const dirOf = (rel) => {
+    const i = rel.lastIndexOf('/');
+    return i < 0 ? '' : rel.slice(0, i);
+  };
+  const inputDir = dirOf(relPosix(inputFile));
+
+  return [...rows].sort((a, b) => {
+    if (a.level !== b.level) return a.level - b.level;
+    const reasonDelta = (IMPACT_REASON_RANK[a.reason] ?? IMPACT_REASON_RANK.__fallback)
+      - (IMPACT_REASON_RANK[b.reason] ?? IMPACT_REASON_RANK.__fallback);
+    if (reasonDelta !== 0) return reasonDelta;
+    const dirDelta = (dirOf(relPosix(a.file)) === inputDir ? 0 : 1)
+      - (dirOf(relPosix(b.file)) === inputDir ? 0 : 1);
+    if (dirDelta !== 0) return dirDelta;
+    if (a.file === b.file) return 0;
+    return a.file < b.file ? -1 : 1;
+  });
+}
+
 async function impact(args, container, filePath) {
   if (args?.direction != null && !IMPACT_DIRECTIONS.has(args.direction)) {
     return failure('validation_error', `Invalid direction: ${args.direction}. Expected one of: ${[...IMPACT_DIRECTIONS].join(', ')}`);
@@ -41,10 +83,12 @@ async function impact(args, container, filePath) {
   // Wave 9-2: collect affected routes from impacted files (graph-first!)
   const affectedRoutes = container.snapshot.graph.findAffectedHttpRoutes(filePath, args?.maxDepth);
 
-  // Wave 12-1/12-5: honest truncation. --max-files overrides the default
-  // JSON cap so users can explicitly request a tighter bound.
-  const impactLimit = Number.isFinite(args?.maxFiles) ? args.maxFiles : DEFAULTS.JSON_OUTPUT_MAX_IMPACT_ITEMS;
-  const impactTrunc = truncateArray(impact, impactLimit);
+  // Wave 12-1/12-5: honest truncation. T1.3: rows are relevance-ranked first
+  // (closest + most-direct edges keep the slots), then --max-files overrides
+  // the default relevance cap so users can explicitly request a tighter bound.
+  const rankedImpact = rankImpactRows(impact, container.workspaceRoot, filePath);
+  const impactLimit = Number.isFinite(args?.maxFiles) ? args.maxFiles : DEFAULTS.IMPACT_RELEVANCE_LIMIT;
+  const impactTrunc = truncateArray(rankedImpact, impactLimit);
   const coChangesTrunc = truncateArray(coChanges, DEFAULTS.JSON_OUTPUT_MAX_COCHANGE_ITEMS);
   const affectedRoutesTrunc = truncateArray(affectedRoutes, DEFAULTS.JSON_OUTPUT_MAX_AFFECTED_ROUTES_ITEMS);
 

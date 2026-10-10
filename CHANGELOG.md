@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### T1.3：impact 输出相关性排序与截断（2026-10-10，待验收）
+
+- `src/tools/dep-tools/impact.js`：impact 行在截断前按相关性排序——level 升序 → reason 优先级（`direct-import` > `direct-reference` > `same-importer` > `implicit-same-package` > `transitive-dependency` > `transitive-reference` > `implicit-conftest`，未知 reason 垫后）→ 与输入同目录优先 → 路径字母序（末键保证确定性，回放可复现）。默认截断上限 50→`DEFAULTS.IMPACT_RELEVANCE_LIMIT`（15，对应 ROADMAP 5.5 输出中位 ≤15 线）；`--max-files` 覆盖语义不变；`impactCount` 仍报截断前总数，`truncated` 如实标注。原 `JSON_OUTPUT_MAX_IMPACT_ITEMS`（50）无剩余调用方，删。
+- 只动工具层：`getImpactRadius`（query.js）遍历语义不变；watch/audit-assembler/symbol-impact 等直连 `getImpactRadius` 的调用方不受影响；REPL `impact` 走 graph 直连，显示原始 BFS 全集（交互用途，工具层排序只作用于 CLI/回放通道）。
+- 新测试：`test/impact-ranking-test.js`（`@semantic`，5 组：全 reason 排序序、默认截断 15 且 impactCount 报总数、`--max-files` 覆盖、小结果不截断但排序、两次调用顺序一致）；`test/wave12-output-truncation-test.js` 的 impact 截断断言迁移到新常量。统一验收第 4 条（六语言夹具）豁免：排序键全部来自遍历行元数据（level/reason/路径），与语言无关，同 T1.1/T1.2 豁免逻辑。
+- 回放验证（J1，进行中，结果写入后补）：地板 = 任务开始前（T1.2 顺序 50 帽）输出取前 15 的各边类型召回；验收 = 排序截断后输出中位 ≤15 且各边类型召回 ≥ 地板。注意：回放子进程 require 的是**工作区** `src/`，地板跑批必须用独立 worktree 钉在 T1.2 提交上跑（本会话首次地板跑批因工作区已含 T1.3 改动整批报废，已重跑）。
+
 ### T1.2：impact 方向扩展与入口停止/深度可选参数（2026-10-10，待验收）
 
 - `GraphQuery.getImpactRadius(filePath, depth, options)` 新增 `options.direction`（`dependents` 默认，原行为不动；`dependencies` 输入自己引用的文件；`neighbors` 同层邻居——和输入被同一个文件直接引用的文件，`reason: 'same-importer'`；`all` 双向 BFS + 同层邻居）和 `options.stopAtEntry`（默认 `true` 保持原规则；`false` 时入口文件照常扩散，入口行本身仍列出）。正向边行 `reason` 标 `direct-reference`/`transitive-reference`，`implicit-same-package` 优先级不变。同层邻居由 `_sameImporterRows` 实现：直接 dependents 的依赖集去重（真实边优先），入口 importer 默认跳过；不继续扩散。

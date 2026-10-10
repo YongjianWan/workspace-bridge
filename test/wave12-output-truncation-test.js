@@ -186,12 +186,12 @@ function testFormatterAffectedRoutesMarkdownNotice() {
 }
 
 async function testImpactCommandTruncation() {
-  const container = createMockContainer({ impactSize: DEFAULTS.JSON_OUTPUT_MAX_IMPACT_ITEMS + 10 });
+  const container = createMockContainer({ impactSize: DEFAULTS.IMPACT_RELEVANCE_LIMIT + 10 });
   const result = await dependencyGraph({ operation: 'impact', file: 'a.js' }, container);
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.truncated, true);
-  assert.strictEqual(result.impactCount, DEFAULTS.JSON_OUTPUT_MAX_IMPACT_ITEMS + 10);
-  assert.strictEqual(result.impact.length, DEFAULTS.JSON_OUTPUT_MAX_IMPACT_ITEMS);
+  assert.strictEqual(result.impactCount, DEFAULTS.IMPACT_RELEVANCE_LIMIT + 10);
+  assert.strictEqual(result.impact.length, DEFAULTS.IMPACT_RELEVANCE_LIMIT);
 }
 
 async function testImpactCommandNoTruncation() {

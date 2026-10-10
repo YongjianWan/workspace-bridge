@@ -83,7 +83,12 @@ const DEFAULTS = {
   // Rationale: AI context windows are typically 8k-128k tokens. A single
   // large-array field (e.g. impact[] with 500 files) can consume >10k tokens
   // by itself. These limits keep individual commands well under 2k tokens.
-  JSON_OUTPUT_MAX_IMPACT_ITEMS: 50,            // 50 files × ~40 tokens ≈ 2k tokens
+  // T1.3: impact 的默认上限改为相关性排序后的 IMPACT_RELEVANCE_LIMIT（15），
+  // 原 JSON_OUTPUT_MAX_IMPACT_ITEMS（50）无剩余调用方，已删。
+  // T1.3: relevance-ranked impact cap. The agent reads ~15 files per query
+  // (ROADMAP 5.5 pass line: output median ≤ 15); rankImpactRows decides which
+  // files keep the slots. --max-files overrides this bound.
+  IMPACT_RELEVANCE_LIMIT: 15,
   JSON_OUTPUT_MAX_AFFECTED_TESTS_ITEMS: 50,    // same rationale as impact
   // The dedicated `affected-tests` command: the list IS the answer, so the
   // digest budget above would cut real results (fault-injection truth reaches
