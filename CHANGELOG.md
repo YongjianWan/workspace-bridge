@@ -7,7 +7,16 @@
 
 ## [Unreleased]
 
-### T1.1：MyBatis Mapper XML 纳入分析（2026-10-09，待验收）
+### T1.2：impact 方向扩展与入口停止/深度可选参数（2026-10-10，待验收）
+
+- `GraphQuery.getImpactRadius(filePath, depth, options)` 新增 `options.direction`（`dependents` 默认，原行为不动；`dependencies` 输入自己引用的文件；`neighbors` 同层邻居——和输入被同一个文件直接引用的文件，`reason: 'same-importer'`；`all` 双向 BFS + 同层邻居）和 `options.stopAtEntry`（默认 `true` 保持原规则；`false` 时入口文件照常扩散，入口行本身仍列出）。正向边行 `reason` 标 `direct-reference`/`transitive-reference`，`implicit-same-package` 优先级不变。同层邻居由 `_sameImporterRows` 实现：直接 dependents 的依赖集去重（真实边优先），入口 importer 默认跳过；不继续扩散。
+- CLI：`impact` 新增 `--direction <dependents|dependencies|neighbors|all>` 与 `--no-stop-at-entry`。`--direction` 与 `tree` 命令共用旗标，词表按命令分（tree 仍是 `imports|dependents|both`），`validate-args.js` 集中校验。REPL `impact` 同步两个参数（防 REPL/CLI 静默漂移）。`dep-tools/impact.js` 对回放通道（`--impact-option`）直接生效的参数做同一词表校验。
+- 回放验证（J1，gitignored `eval/truth/replay/`）：默认配置重跑输出与 T1.1 基线逐字节一致（dirty=false，默认行为零漂移）；`direction=all + stop-at-entry=false` 时工具总召回 0.1866→0.6122（上限 0.7326），分边类型 Java→Java 0.2263→0.7130、Java→Mapper XML 0.2504→0.5545、Mapper XML→Java 0.0841→0.7331、实体→VO/DTO 0.0755→0.7534——XML 两方向与实体→VO/DTO 越过 70% 线；但输出文件数中位 50（JSON 上限顶满）>15，按 ROADMAP T1.2 行触发 T1.3，扩展暂不设为默认。存档 `J1-t12-all-nostop/`。分解对照 `direction=all`（入口停止保持开）总召回 0.5734、输出中位仍 50/25（存档 `J1-t12-all-stop/`）——膨胀主因是双向 BFS 宽度，入口停止贡献仅约 0.04，T1.3 的截断排序要压的是方向扩展的宽度。
+- 评测语料不退化：`eval/run`+`eval/score` 23 项全 PASS 无 FAIL；快层 275/275（+新测试）。记分板刷新仅耗时/缓存字节/高负载下 okhttp warnings 计数波动，指标值无变化。
+- 新测试：`test/impact-direction-options-test.js`（`@semantic`，5 组：默认与显式 dependents 逐格一致、dependencies 方向 reason/via、stopAtEntry=false 扩散、neighbors 集合与入口跳过、all 双向 + 邻居去重）。统一验收第 4 条（六语言夹具）不适用：改动在图遍历层、不碰 parser/resolver，方向语义与语言无关，同 T1.1 豁免逻辑，记于 ROADMAP 该行。
+- help/文档：`cli.js --help` 与 `skills/workspace-audit/SKILL.md`（权威副本，user-scope 副本需手动同步）补新参数说明。
+
+### T1.1：MyBatis Mapper XML 纳入分析（2026-10-09 实施，2026-10-09 Vivian 验收会话重跑通过）
 
 - 发现：`.xml` 仅在路径含 `/mapper/`（`\` 等价）或 basename 以 `Mapper.xml` 结尾时进索引（`utils/project-context.js isMybatisMapperXmlPath` 单一事实源，file-index 发现/解析器/框架规则三方共用）。其余 XML（pom.xml、logback.xml 等）不进索引、不产生孤儿。分层：谓词原实现放 `parsers/mybatis-xml.js` 导致 `file-index → parsers` 向上依赖被 layering-test 拦下，下沉到 utils 层后三处消费全部向下。
 - 解析：`parsers/mybatis-xml.js` regex 设计路径（`parseMode 'regex'` + `parseModeReason 'regex-designed'`，避开 `regex-fallback` 缓存永不命中陷阱）；`<mapper namespace>` 记 `importKind 'mybatis-namespace'`，`resultType`/`parameterType`/`<resultMap type>` 记 `importKind 'mybatis-type'`，走 tryJava + 符号表兜底，未解析不猜。
