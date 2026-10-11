@@ -20,7 +20,7 @@
 ## 下一步
 
 1. 阶段 1 已止损（2026-10-11 项目所有者确认），阶段 2 冻结；止损后维护的命令范围待项目所有者指定（ROADMAP 第 10 节）。
-2. 进行中：H-34。改法是影响分析只在"入口且仓库内无人 import"的文件处停，死代码豁免语义不变；测试 `test/impact-entry-stop-test.js`（六语言）已写、当前为红。完成后重放 J1/F1/P1 并跑完整 runner 与 eval，状态改为待验收。
+2. 进行中：H-34 已实施（`1a3d25b`、`c94532e`），快层 279/279、lint 0、六语言新测试通过。正在依次回放 J1/F1/P1（`--name <代号>-h34-impl`），之后跑完整 runner 与 eval；结果写入本节后状态改为待验收。验收线见 TECH_DEBT H-34。H-35（路由标签）已登记，未开工。
 3. 待独立验收：评审修复批次（见上方当前交接）。验收命令：`node test/replay-impact-test.js`、`node test/index-depth-config-test.js`、`npm run lint`、`npm test`、`node eval/run.js && node eval/score.js`，以及 `node cli.js audit-overview --cwd . --json --quiet` 的 `analysisCoverage.discoveryComplete` 为 true。
 
 ## 开工命令

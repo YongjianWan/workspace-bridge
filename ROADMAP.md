@@ -27,7 +27,7 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 | 笨基线 | 一种不分析代码的对照办法：只看 git 历史里哪些文件常在同一个提交里一起改，再加上文件名相似度。`impact` 必须明显好于它，才说明静态分析有额外价值。 |
 | 结构上限 | 真值文件中，在依赖图上（不分方向、3 步以内、不经过被大量文件引用的公共文件中转）能和输入文件连通的比例。这是"沿依赖图找文件"这类方法能达到的最高召回率，精确定义见 5.2。 |
 | 边类型 | 输入文件和真值文件之间关系的分类，如 Java→Java、Java→Mapper XML，定义见 5.2。 |
-| 入口文件 | 程序或框架的启动点，如带 `main` 的类、Controller、`cli.js`，由 `src/utils/project-context.js` 识别。`impact` 查找到入口文件就停，因为几乎所有文件最终都会汇聚到入口，继续往上找没有信息量。 |
+| 入口文件 | 程序或框架的启动点，如带 `main` 的类、Controller、`cli.js`，由 `src/utils/project-context.js` 识别。`impact` 只在生产代码无人引用的入口（顶层入口，只被测试引用也算）处停止展开，因为几乎所有文件最终都会汇聚到这里，继续展开没有信息量；被其他文件引用的入口（如 MyBatis Mapper 接口、barrel `index`）照常穿过（H-34）。 |
 | 快层、慢层、全量 | 测试分两层：快层是日常必跑的轻量测试（`npm run test:fast`），慢层是耗时较长、会启动子进程的测试（`npm run test:slow`），全量是两层合计（`npm test`）。 |
 | 评测语料 | `eval/` 下固定版本的开源仓库（如 typer、cobra、spring-petclinic、zod），用来回归检查准确率，说明见 [eval/README.md](./eval/README.md)。 |
 | H-n、U-n、P4 | [docs/TECH_DEBT.md](./docs/TECH_DEBT.md) 中的缺陷编号（H）、待验证方向编号（U）和冻结项小节（P4）。已关闭条目的修复记录在 CHANGELOG。 |

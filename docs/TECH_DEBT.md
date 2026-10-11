@@ -10,7 +10,7 @@
 |---|---|---|
 | 输出没有统一出口（横切） | 规则散在 `elideDeep`、`route-formatter.js`、两千行量级的 `human-formatters.js` | 冻结（见 P4） |
 
-不归入上述原因、独立处理：H-19、H-34。
+不归入上述原因、独立处理：H-19、H-34、H-35。
 
 ## P1：输出看着正常、实际是错的（静默错误）
 
@@ -21,7 +21,8 @@
 | ID | 现象与复现 | 验收线 |
 |---|---|---|
 | H-19 | 发布流程半手动且已多次中断，版本号与发布物脱节。2026-10-02 实测：① 发布只由推送 `v*` 标签触发（`.github/workflows/release.yml`：`npm ci` → 快层测试 → 冒烟 → `npm pack` → GitHub Release → `npm publish --provenance`）；版本号与 CHANGELOG 靠手工提交（如 `ad84bd1` "切版 2.1.0"），仓库里没有自动化脚本。② `package.json` 为 2.1.0（2026-07-17）、CHANGELOG 有 `[2.1.0]`，但最新标签与 GitHub Release 是 `v1.2.1`（2026-05-28），此后 271 个提交，2.0.0、2.1.0 从未打标签。③ 发布工作流最近 3 次（v1.1.0、v1.1.1、v1.2.1）都失败在 "Publish to npm"，v1.0.2、v1.0.3 成功；现查 `npm view workspace-bridge` 返回 404（包不在 npm 上）。④ 冒烟步骤只检查 `--version` 与 `workspace-info`：本机按同样步骤解压 `npm pack` 产物（192 个文件，约 550 KB，不含 `eval/`、`test/`、`docs/`）到没有 `node_modules` 的目录，二者都通过，而 `audit-overview` 在该目录退化为 regex 解析（提示 `@babel/parser not available`）；所以产物缺运行依赖时冒烟仍会绿。⑤ 打包：`npx pkg . --targets node22-win-x64` 离线构建成功（20 秒，使用缓存的 v22.22.3 基础二进制；`pkg` 对 `tree-sitter-wasms` 动态 require 给出一条警告），产物 121 MB，`--version` 为 2.1.0，在 typer 上 `audit-overview` 解析 639/639 个文件，覆盖率与警告和 `node cli.js` 一致。仓库根的 `workspace-bridge-win.exe`（114 MB，已被 `.gitignore` 忽略）仍可运行，但版本是 2.0.0，落后 274 个提交。 | 先查明 npm 发布失败的原因（令牌或包名权限），再决定是否发布；补打 2.0.0/2.1.0 对应标签或在 README 说明版本从 2.x 起不再发布；冒烟增加一条需要运行依赖的分析命令（如对解压目录自身 `audit-overview` 并检查 `parsedFiles` 大于 0 且无 `@babel/parser not available`）；旧 `workspace-bridge-win.exe` 是删除还是用新构建替换，由项目所有者决定。
-| H-34 | 入口标记一词两义：`src/utils/project-context.js` 的 `isEntry` 既表示"运行时由框架调用，不报孤儿 / 死导出"（`src/utils/orphan-detector.js`、`src/services/dep-graph/analyzer.js`），又被 `src/services/dep-graph/query.js` 的 `getImpactRadius` 当作"遇到即停"。`/mapper/`、`/repository/`、`/config/`、`/task/` 目录和文件名含 `filter|wrapper|validator|serializer` 的 Java 文件因此成为影响分析的终点。J1 回放（截 15、关入口停止对开入口停止）：Java→Java 0.496→0.526、实体→VO/DTO 0.211→0.350、Mapper XML→Java 0.516→0.629，复跑 `node eval/truth/phase1-info-probe.js`（本机）。 | 两种语义分成两个判断：孤儿 / 死导出豁免保持现状；影响停止只认真正的汇聚点（Controller、`main`、框架启动类）。J1 默认配置回放各边类型不低于现状，实体→VO/DTO 与 Mapper XML→Java 提高；孤儿与死导出数在评测语料上不变（`node eval/run.js && node eval/score.js` 零 FAIL）。是否开工取决于 ROADMAP 第 10 节的止损决定。 |
+| H-34 | 入口标记一词两义：`src/utils/project-context.js` 的 `isEntry` 既表示"运行时由框架调用，不报孤儿 / 死导出"（`src/utils/orphan-detector.js`、`src/services/dep-graph/analyzer.js`），又被 `src/services/dep-graph/query.js` 的 `getImpactRadius` 当作"遇到即停"。`/mapper/`、`/repository/`、`/config/`、`/task/` 目录和文件名含 `filter|wrapper|validator|serializer` 的 Java 文件因此成为影响分析的终点。J1 回放（截 15、关入口停止对开入口停止）：Java→Java 0.496→0.526、实体→VO/DTO 0.211→0.350、Mapper XML→Java 0.516→0.629，复跑 `node eval/truth/phase1-info-probe.js`（本机）。 | 两种语义分成两个判断：孤儿 / 死导出豁免保持现状；影响停止只认真正的汇聚点（Controller、`main`、框架启动类）。J1 默认配置回放各边类型不低于现状，实体→VO/DTO 与 Mapper XML→Java 提高；孤儿与死导出数在评测语料上不变（`node eval/run.js && node eval/score.js` 零 FAIL）。2026-10-11 已实施（`1a3d25b`、`c94532e`）：影响停止改为"入口且所有引用方都是测试"，`test/impact-entry-stop-test.js` 六语言夹具锁定；J1/F1/P1 回放与完整门禁结果见 SESSION.md，待另一会话独立验收，通过后删除本行。 |
+| H-35 | `src/services/dep-graph/analyzer.js` 的 `findAffectedRoutes` 把所有 `isKnownEntryFile` 为真的文件记成"受影响路由"的终点，MyBatis Mapper 接口、barrel `index` 这类被生产代码引用的入口会被当成请求处理器列进 `impact` 的 `affectedRoutes`。只影响标签，不截断遍历；与 H-34 同属入口标记一词两义。 | 路由终点只认请求处理器（Controller、路由文件、框架页面）；在含 MyBatis Mapper 的夹具上 `affectedRoutes` 不出现 Mapper 接口，Controller 仍出现。 |
 
 ## U：未验证方向（条目编号 U-n）
 

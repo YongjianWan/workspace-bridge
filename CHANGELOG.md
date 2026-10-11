@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### H-34：impact 只在顶层入口处停止展开（2026-10-11，实施完成，待独立验收）
+
+- 原先 `isEntry` 同时表示"框架运行时调用、不报死代码"和"影响分析遇到即停"，MyBatis Mapper 接口、barrel `index`、`App.vue`、Django forms、Go/Rust handlers 等被生产代码引用的入口截断了遍历。现在 `src/services/dep-graph/query.js` 的 `_isConvergencePoint` 只在"入口且所有引用方都是测试"的文件处停止；死代码与孤儿豁免不变。
+- 行为变化不限于 `impact` 命令：`getImpactRadius` 的所有调用方（watch、audit-file、audit-diff、guard、symbol-impact、incremental-diff）在 `dependents` 方向也会穿过这类入口，影响列表变长，audit-diff 按影响文件数判定的风险等级可能升高。
+- 测试：新增 `test/impact-entry-stop-test.js`（六语言真实解析夹具，含"只被测试引用的顶层入口仍停止"）；`test/impact-direction-options-test.js`、`test/p3-impact-explanation-test.js` 原按旧语义断言，改为新契约。三者均做过 mutation check（退回旧判定即变红）。
+- 实施中补漏：首版条件是"无人引用"，测试文件 import Controller / main 会让它失去顶层身份并向下展开，第二个提交改为只数生产引用方。
+- 文档：SKILL.md 与 ROADMAP 术语表改为新语义（user-scope 副本已同步）；TECH_DEBT 新增 H-35（`findAffectedRoutes` 把被引用的入口标成路由终点）。
+
 ### 评审修复：评测口径解耦、方向词表单点、超深 gitignore 目录不再误报（2026-10-11）
 
 - `eval/replay-impact.js` 恢复自持的 5.2 v1 主干名规则冻结副本，不再引用产品的 `src/tools/impact-ranking.js`；产品规则演进时笨基线口径保持不变。`test/replay-impact-test.js` 断言两者不是同一函数（还原为 import 时测试变红）。
