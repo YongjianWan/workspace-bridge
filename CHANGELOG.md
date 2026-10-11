@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### T1.2/T1.3 验收遗漏修复（2026-10-11，待独立验收）
+
+- 实施验证：lint 退出码 0，快层 276/276、完整 runner 378/378（0 失败，退出码 0），`eval/run` 与 `eval/score` 23 项 PASS、0 FAIL；独立只读审查无新增问题。完整报告 `test/.reports/run-2026-10-11T02-47-04-364Z.json`，补修仍待另一会话独立重跑验收。
+- `getImpactRadius` 只在 `dependents`/`all` 追加 pytest conftest 隐式依赖者，避免 `dependencies`/`neighbors` 输出反向关系；原缺省 dependents 和 all 的隐式行保留。补 conftest 方向回归及 JS/TS、Python、Java、Go、Rust、Vue 真实解析夹具，覆盖四种方向。
+- REPL `impact` 按 CLI 相同默认上限截断，支持 `--max-files` 覆盖；结构化输出保留截断前 `impactCount` 并提供 `truncated`，文本展示总数和省略数量。补超过默认上限、显式缩小/放大、不合法上限及有序前缀一致性测试。
+- CLI 两种帮助文案读取实际默认方向，避免再次漂移。修正 SESSION/ROADMAP 的统计口径：Java→Java 工具 0.4957、笨基线 0.4229（+7.3pp）、合并列表 0.5708（比工具 +7.5pp）；总召回的 -5.8pp 和合并增益 +13.2pp 单独注明。T1.4 仍触发。
+- 原缺陷的 conftest、REPL 截断及帮助文案测试均先失败后通过；完整门禁与独立验收命令见 SESSION。
+
 ### 验收修复：删除 `validate-args.js` 重复 `--direction` 键（2026-10-10，验收会话）
 
 - T1.2 提交 `ab4241f` 在 `src/cli/validate-args.js:147` 新增 `--direction` 旗标时，未注意到 `:205` 已存在同键，对象字面量重复键被 eslint `no-dupe-keys` 拦下，导致 T1.2/T1.3 两次推送的 CI `Test` 作业全矩阵 lint 红。两键值完全相同（运行时行为无差异），删除 205 行重复项，147 行保留。本地 `npm run lint` 退出码 0。
