@@ -82,10 +82,12 @@ function testBuildImpactExplanations() {
 
 }
 
-function testGetImpactRadiusTruncatesAtEntryFiles() {
+// cli.js 是入口但被 index.js 引用：遍历穿过它。index.js 是无人引用的入口：all 方向不展开它的其他依赖。
+function testGetImpactRadiusStopsOnlyAtTopLevelEntries() {
   const utilPath = n('/repo/src/utils/path.js');
   const cliPath = n('/repo/cli.js');
   const indexPath = n('/repo/src/index.js');
+  const otherPath = n('/repo/src/other.js');
 
   const depGraph = createMockDepGraph({
     schema: {
@@ -97,11 +99,15 @@ function testGetImpactRadiusTruncatesAtEntryFiles() {
         parseMode: 'ast',
       },
       [indexPath]: {
-        imports: [cliPath],
+        imports: [cliPath, otherPath],
         exports: [],
-        importRecords: [{ source: '../cli', resolved: cliPath, imported: [], usesAllExports: false }],
+        importRecords: [
+          { source: '../cli', resolved: cliPath, imported: [], usesAllExports: false },
+          { source: './other', resolved: otherPath, imported: [], usesAllExports: false },
+        ],
         parseMode: 'ast',
       },
+      [otherPath]: { imports: [], exports: [], importRecords: [], parseMode: 'ast' },
     }
   });
 
@@ -112,7 +118,12 @@ function testGetImpactRadiusTruncatesAtEntryFiles() {
   assert.strictEqual(cliImpact.level, 1);
 
   const indexImpact = impact.find((i) => i.file === indexPath);
-  assert(!indexImpact, 'index.js should NOT be in impact radius because cli.js is an entry file');
+  assert(indexImpact, 'index.js imports cli.js, so cli.js is a pass-through entry and index.js is reached');
+  assert.strictEqual(indexImpact.level, 2);
+
+  const all = depGraph.getImpactRadius(utilPath, 5, { direction: 'all' });
+  assert(all.some((i) => i.file === indexPath), 'all still lists the top-level entry');
+  assert(!all.some((i) => i.file === otherPath), 'index.js has no importer, so all does not fan out to other.js');
 
 }
 
@@ -143,7 +154,7 @@ function testGetImpactRadiusDoesNotTruncateStartNode() {
 function main() {
   testGetImpactRadiusWithExplanations();
   testBuildImpactExplanations();
-  testGetImpactRadiusTruncatesAtEntryFiles();
+  testGetImpactRadiusStopsOnlyAtTopLevelEntries();
   testGetImpactRadiusDoesNotTruncateStartNode();
 }
 

@@ -67,9 +67,7 @@ class GraphQuery {
       results = this._sameImporterRows(start, stopAtEntry, null);
     } else {
       results = bfsTraverse(start, (file) => {
-        // Stop diffusion at entry files: every module eventually converges to
-        // cli.js / app.vue / index.js, which provides zero actionable info.
-        if (stopAtEntry && file !== start && this.dg.isKnownEntryFile(file)) return [];
+        if (stopAtEntry && file !== start && this._isConvergencePoint(file)) return [];
         const neighbors = [];
         if (includeDependents) neighbors.push(...this.getDependents(file));
         if (includeDeps) neighbors.push(...this.getDependencies(file));
@@ -135,6 +133,17 @@ class GraphQuery {
   }
 
   /**
+   * Impact stops at a top-level entry: one the framework invokes and nothing in
+   * the repo imports (controller, main, cli.js). Its fan-out reaches most of the
+   * codebase and says nothing about this change. An entry other files import
+   * (MyBatis mapper, barrel index, App.vue, handlers) is an ordinary link in the
+   * chain — isKnownEntryFile alone means "do not report as dead code".
+   */
+  _isConvergencePoint(file) {
+    return this.dg.isKnownEntryFile(file) && this.getDependents(file).length === 0;
+  }
+
+  /**
    * 同层邻居行：和 start 被同一个文件直接引用的文件（via = 共同 importer）。
    * 不沿任何方向继续扩散。已有行（真实边）优先，existing 为 null 时返回全集。
    */
@@ -144,7 +153,7 @@ class GraphQuery {
     const seen = new Set(existing ? [...existing.map((r) => r.file), start] : [start]);
     const rows = [];
     for (const importer of this.getDependents(start)) {
-      if (stopAtEntry && importer !== start && this.dg.isKnownEntryFile(importer)) continue;
+      if (stopAtEntry && importer !== start && this._isConvergencePoint(importer)) continue;
       for (const sibling of this.getDependencies(importer)) {
         if (seen.has(sibling)) continue;
         seen.add(sibling);
