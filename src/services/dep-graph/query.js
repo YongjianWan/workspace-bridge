@@ -133,14 +133,16 @@ class GraphQuery {
   }
 
   /**
-   * Impact stops at a top-level entry: one the framework invokes and nothing in
-   * the repo imports (controller, main, cli.js). Its fan-out reaches most of the
-   * codebase and says nothing about this change. An entry other files import
-   * (MyBatis mapper, barrel index, App.vue, handlers) is an ordinary link in the
-   * chain — isKnownEntryFile alone means "do not report as dead code".
+   * Impact stops at a top-level entry: one the framework invokes and no
+   * production file imports (controller, main, cli.js). Its fan-out reaches most
+   * of the codebase and says nothing about this change. A test importing it does
+   * not make it part of a chain. An entry production code imports (MyBatis
+   * mapper, barrel index, App.vue, handlers) is an ordinary link — isKnownEntryFile
+   * alone means "do not report as dead code".
    */
   _isConvergencePoint(file) {
-    return this.dg.isKnownEntryFile(file) && this.getDependents(file).length === 0;
+    return this.dg.isKnownEntryFile(file)
+      && this.getDependents(file).every((importer) => this.dg.isTestLikeFile(importer));
   }
 
   /**

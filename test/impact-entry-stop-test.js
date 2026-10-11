@@ -3,14 +3,15 @@
 // Entry stop in impact traversal: a file the framework invokes but other files
 // still import (MyBatis mapper, JS barrel, Django forms, Go/Rust handlers, App.vue)
 // is a pass-through node, not a convergence point. Only a top-level entry that
-// nothing imports stops the fan-out. Dead-code exemption keeps treating both as entries.
+// no production file imports stops the fan-out — a test importing it does not
+// make it part of a chain (Go/Rust tests cannot import main, so they have no such case). Dead-code exemption keeps treating both as entries.
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { ServiceContainer } = require('../src/services/container');
 const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 
-// input ← mid（被 import 的入口）← consumer ← root（无人 import 的入口）→ extra
+// input ← mid（被 import 的入口）← consumer ← root（只被测试 import 的入口）→ extra
 const fixtures = [
   {
     language: 'JS/TS', input: 'c.ts', mid: 'lib/index.ts', consumer: 'consumer.ts', root: 'main.ts', extra: 'extra.ts',
@@ -20,7 +21,9 @@ const fixtures = [
       'consumer.ts': "import { C } from './lib'; export const value = new C();",
       'main.ts': "import { value } from './consumer'; import { extra } from './extra'; console.log(value, extra);",
       'extra.ts': 'export const extra = 1;',
+      'main.test.ts': "import './main';",
     },
+    testImporter: 'main.test.ts',
   },
   {
     language: 'Python', input: 'c.py', mid: 'forms.py', consumer: 'consumer.py', root: 'manage.py', extra: 'extra.py',
@@ -30,7 +33,9 @@ const fixtures = [
       'consumer.py': 'from forms import Form\nvalue = Form()\n',
       'manage.py': 'from consumer import value\nfrom extra import EXTRA\nprint(value, EXTRA)\n',
       'extra.py': 'EXTRA = 1\n',
+      'test_manage.py': 'import manage\n',
     },
+    testImporter: 'test_manage.py',
   },
   {
     language: 'Java', input: 'domain/User.java', mid: 'mapper/UserMapper.java', consumer: 'service/UserService.java',
@@ -41,7 +46,9 @@ const fixtures = [
       'service/UserService.java': 'package service; import mapper.UserMapper; public class UserService { UserMapper mapper; }',
       'controller/UserController.java': 'package controller; import service.UserService; import util.Extra; public class UserController { UserService s; Extra e; }',
       'util/Extra.java': 'package util; public class Extra {}',
+      'src/test/java/ctest/UserControllerTest.java': 'package ctest; import controller.UserController; public class UserControllerTest { UserController c; }',
     },
+    testImporter: 'src/test/java/ctest/UserControllerTest.java',
   },
   {
     language: 'Go', input: 'c/c.go', mid: 'handlers/h.go', consumer: 'consumer/consumer.go', root: 'main.go', extra: 'extra/extra.go',
@@ -72,7 +79,9 @@ const fixtures = [
       'App.vue': '<script>import C from "./C.vue"; export default { components: { C } };</script><template><C /></template>',
       'main.ts': "import App from './App.vue'; import { extra } from './extra'; console.log(App, extra);",
       'extra.ts': 'export const extra = 1;',
+      'main.test.ts': "import './main';",
     },
+    testImporter: 'main.test.ts',
   },
 ];
 
@@ -96,7 +105,11 @@ async function verifyFixture(fixture) {
     assert(graph.isKnownEntryFile(mid), `${fixture.language}: ${fixture.mid} must be an entry`);
     assert(graph.isKnownEntryFile(top), `${fixture.language}: ${fixture.root} must be an entry`);
     assert(graph.getDependents(mid).length > 0, `${fixture.language}: ${fixture.mid} must be imported`);
-    assert.strictEqual(graph.getDependents(top).length, 0, `${fixture.language}: ${fixture.root} must have no importer`);
+    const topImporters = graph.getDependents(top);
+    assert(topImporters.every((f) => graph.isTestLikeFile(f)), `${fixture.language}: only tests may import ${fixture.root}`);
+    if (fixture.testImporter) {
+      assert.deepStrictEqual(topImporters, [file(fixture.testImporter)], `${fixture.language}: ${fixture.testImporter} must import ${fixture.root}`);
+    }
 
     // An imported entry is a pass-through node, in either direction.
     for (const direction of ['dependents', 'all']) {
