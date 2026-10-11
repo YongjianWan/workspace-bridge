@@ -142,6 +142,26 @@ function testImpactDirection2() {
 
 }
 
+function testImpactHonorsRequestedDirection() {
+  // 隐式 conftest 关系只属于依赖者方向，不能污染正向引用或同层邻居。
+  for (const direction of ['dependencies', 'neighbors']) {
+    const dg = makeGraph();
+    const rows = dg.getImpactRadius(conftestKey, 5, { direction });
+    assert.ok(!rows.some((r) => r.reason === 'implicit-conftest'), `${direction} must not append conftest dependents`);
+    if (direction === 'dependencies') {
+      assert.ok(names(rows).includes(supportKey), 'conftest dependencies must retain its real imports');
+      assert.ok(names(rows).includes(factoryKey), 'conftest dependencies must retain transitive imports');
+    } else {
+      assert.deepStrictEqual(rows, [], 'conftest without an importer has no same-importer neighbors');
+    }
+  }
+  const dg = makeGraph();
+  const rows = dg.getImpactRadius(conftestKey, 5, { direction: 'all' });
+  assert.ok(names(rows).includes(testAKey), 'all must retain conftest dependents');
+  assert.ok(names(rows).includes(supportKey), 'all must retain conftest dependencies');
+  assert.ok(!names(dg.getImpactRadius(conftestKey, 0, { direction: 'all' })).includes(testAKey), 'implicit dependents still respect depth');
+}
+
 function main() {
   testConftestChangeAffectsSubtree();
   testFixtureCodeAffectsSubtreeTestsNotConftest();
@@ -149,6 +169,7 @@ function main() {
   testRootConftestNotTestLikeStillAnchors();
   testImpactDirection1();
   testImpactDirection2();
+  testImpactHonorsRequestedDirection();
   console.log('p0-10-pytest-conftest-test: all passed');
 }
 

@@ -41,6 +41,10 @@ function testHelpOptionsAreShared() {
 
 function main() {
   testHelpOptionsAreShared();
+  const { DEFAULTS } = require('../src/config/defaults');
+  for (const showAll of [false, true]) {
+    assert(capturePrintUsage(showAll).includes(`Find impact radius for a file (default: ${DEFAULTS.IMPACT_DEFAULT_DIRECTION})`), 'impact help must describe the actual default direction');
+  }
   console.log('cli-help-dry-test.js: all passed');
 }
 

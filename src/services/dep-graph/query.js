@@ -122,7 +122,9 @@ class GraphQuery {
     // Pytest loads conftest.py for every test in its directory and
     // below — append those tests as implicit dependents. Rows are labeled, not
     // disguised as imports.
-    results = this._appendConftestImplicitRows(start, results, depth);
+    if (direction === 'dependents' || direction === 'all') {
+      results = this._appendConftestImplicitRows(start, results, depth);
+    }
 
     // Convert internal graph keys back to original-casing paths for output.
     return results.map((r) => ({

@@ -22,7 +22,7 @@ const { stripBOM } = require('./src/utils/sanitize');
 const { ServiceContainer } = require('./src/services/container');
 const { installSignalCleanup } = require('./src/cli/signal-cleanup');
 const { findWorkspaceRoot, normalizePath } = require('./src/utils/path');
-const { TIMEOUTS, SCHEMA_VERSION, EXIT_CODES } = require('./src/config/constants');
+const { TIMEOUTS, SCHEMA_VERSION, EXIT_CODES, DEFAULTS } = require('./src/config/constants');
 const { COMMANDS, SELF_MANAGED_COMMANDS, SELF_CONTAINER_COMMANDS } = require('./src/cli/commands');
 const { checkCwd } = require('./src/cli/commands/_utils');
 const { parseCliArgs, sanitizeCliPaths, classifyError } = require('./src/cli/validate-args');
@@ -169,7 +169,7 @@ Curated Commands (Tier 1 — start here):
   query --sql <query>     Execute read-only SQL query against the cache DB
   impact --file <path> [--direction <dependents|dependencies|neighbors|all>]
                             [--no-stop-at-entry] [--max-depth <n>]
-                            Find impact radius for a file (default: dependents)
+                            Find impact radius for a file (default: ${DEFAULTS.IMPACT_DEFAULT_DIRECTION})
   affected-tests --file <path> [--max-depth <n>]
                             Find tests related to a file
   affected-routes --file <path> [--max-depth <n>]
@@ -208,7 +208,7 @@ Commands:
                             Align frontend HTTP calls with backend routes
     impact --file <path> [--direction <dependents|dependencies|neighbors|all>]
                             [--no-stop-at-entry] [--max-depth <n>]
-                            Find impact radius for a file (default: dependents)
+                            Find impact radius for a file (default: ${DEFAULTS.IMPACT_DEFAULT_DIRECTION})
     affected-tests --file <path> [--max-depth <n>]
                             Find tests related to a file
     guard                   Check blast radius and dependents limits before editing

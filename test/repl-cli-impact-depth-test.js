@@ -10,7 +10,8 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { runCliRaw, makeTempDir, cleanupTempDir } = require('./test-helpers');
+const { runCliRaw, makeTempDir, cleanupTempDir, createMockDepGraph } = require('./test-helpers');
+const { dependencyGraph } = require('../src/tools/dep-tools');
 const { executeCommand } = require('../src/cli/repl');
 const { ServiceContainer } = require('../src/services/container');
 const { DEFAULTS } = require('../src/config/defaults');
@@ -63,7 +64,33 @@ async function main() {
   }
 }
 
-main().then(() => {
+async function testTruncationParity() {
+  const input = '/repo/input.js';
+  const deps = Array.from({ length: DEFAULTS.IMPACT_RELEVANCE_LIMIT + 5 }, (_, i) => `/repo/f${i}.js`);
+  const schema = { [input]: { imports: deps, importRecords: deps.map((resolved) => ({ resolved, imported: [] })) } };
+  for (const file of deps) schema[file] = { imports: [] };
+  const graph = createMockDepGraph({ root: '/repo', schema });
+  const container = { workspaceRoot: '/repo', snapshot: { graph }, ensureReady: async () => {} };
+  for (const limit of [undefined, 3, deps.length]) {
+    const cli = await dependencyGraph({ operation: 'impact', file: 'input.js', maxDepth: DEFAULTS.AFFECTED_TEST_DEPTH, maxFiles: limit }, container);
+    const command = `impact input.js${limit == null ? '' : ` --max-files ${limit}`}`;
+    const repl = await executeCommand(container, command, { structured: true });
+    assert.deepStrictEqual(repl.impact, cli.impact, 'REPL must preserve the same ordered prefix as CLI');
+    assert.strictEqual(repl.impactCount, deps.length, 'count must include rows omitted by truncation');
+    assert.strictEqual(repl.truncated, cli.truncated, 'REPL must expose truncation');
+    const text = await executeCommand(container, command);
+    assert(text.includes(`impactCount: ${deps.length}`), 'text count must describe the full result');
+    assert.strictEqual(text.split('\n').filter((line) => line.startsWith('  level-')).length, cli.impact.length, 'text output must use the same bound');
+    if (cli.truncated) assert(text.includes(`${deps.length - cli.impact.length} more`), 'text must expose omitted rows');
+  }
+  for (const limit of ['0', '-1', 'invalid']) {
+    const result = await executeCommand(container, `impact input.js --max-files ${limit}`, { structured: true });
+    assert.strictEqual(result.ok, false, 'invalid bounds must fail explicitly');
+    assert.strictEqual(result.errorType, 'validation_error');
+  }
+}
+
+main().then(testTruncationParity).then(() => {
   console.log('repl-cli-impact-depth-test.js: all passed');
 }).catch((err) => {
   console.error(err);

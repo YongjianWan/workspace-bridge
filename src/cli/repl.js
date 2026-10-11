@@ -18,12 +18,14 @@ const { parseArgs } = require('../utils/parse-args');
 const { resolveWorkspaceFilePath } = require('../utils/path');
 const { buildTree } = require('../tools/tree-tools');
 const { typedError, failure } = require('../utils/failure');
+const { truncateArray } = require('../utils/truncate');
 
-function formatImpact(result) {
-  const lines = [`impactCount: ${result.length}`];
+function formatImpact(result, total) {
+  const lines = [`impactCount: ${total}`];
   for (const entry of result) {
     lines.push(`  level-${entry.level}: ${entry.file}`);
   }
+  if (result.length < total) lines.push(`... ${total - result.length} more (use --max-files to expand)`);
   return lines.join('\n');
 }
 
@@ -166,7 +168,7 @@ async function executeCommand(container, line, options = {}) {
       return options.structured
         ? { commands: ['impact', 'affected-tests', 'tree', 'audit-map', 'issues', 'top', 'dead-exports', 'unresolved', 'cycles', 'dependents', 'dependencies', 'stats', 'help', 'exit / quit'] }
         : `Commands:
-  impact <file> [--max-depth <n>]
+  impact <file> [--max-depth <n>] [--max-files <n>] [--direction <dependents|dependencies|neighbors|all>] [--no-stop-at-entry]
   affected-tests <file> [--max-depth <n>]
   tree <file> [--max-depth <n>]
   audit-map [--compact]
@@ -184,6 +186,7 @@ async function executeCommand(container, line, options = {}) {
     case 'impact': {
       const parsed = parseArgs(['node', 'repl', ...args], {
         '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
+        '--max-files': { key: 'maxFiles', transform: (v) => Number.parseInt(v, 10) },
         '--direction': { key: 'direction' },
         '--no-stop-at-entry': { key: 'stopAtEntry', transform: () => false },
       });
@@ -193,9 +196,14 @@ async function executeCommand(container, line, options = {}) {
       if (parsed.direction != null && !['dependents', 'dependencies', 'neighbors', 'all'].includes(parsed.direction)) {
         return fail('validation_error', `Invalid --direction: ${parsed.direction}`, 'Expected one of: dependents, dependencies, neighbors, all');
       }
+      if (parsed.maxFiles != null && (!Number.isInteger(parsed.maxFiles) || parsed.maxFiles <= 0)) {
+        return fail('validation_error', `Invalid --max-files: ${parsed.maxFiles}`, 'Expected a positive integer');
+      }
       const maxDepth = parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH;
       const result = graph.getImpactRadius(file, maxDepth, { direction: parsed.direction || DEFAULTS.IMPACT_DEFAULT_DIRECTION, stopAtEntry: parsed.stopAtEntry });
-      return options.structured ? { impactCount: result.length, impact: result } : formatImpact(result);
+      const limit = parsed.maxFiles ?? DEFAULTS.IMPACT_RELEVANCE_LIMIT;
+      const { items, truncated, total } = truncateArray(result, limit);
+      return options.structured ? { impactCount: total, impact: items, truncated } : formatImpact(items, total);
     }
 
     case 'affected-tests': {
