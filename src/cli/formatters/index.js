@@ -11,7 +11,7 @@ const {
   buildImpactExplanations,
 } = require('../../tools/summaries');
 const { buildProjectMap, buildDirectoryTree, toRelativePath, countTreeFiles } = require('./project-map');
-const { formatHuman, formatSummary, formatMarkdown, formatJsonl, formatAi } = require('./human-formatters');
+const { formatHuman, formatSummary, formatMarkdown, formatJsonl, formatAi, formatImpactEntry } = require('./human-formatters');
 
 module.exports = {
   buildCompositeRisk,
@@ -29,6 +29,7 @@ module.exports = {
   countTreeFiles,
   buildImpactExplanations,
   formatHuman,
+  formatImpactEntry,
   formatSummary,
   formatMarkdown, 
   formatJsonl,

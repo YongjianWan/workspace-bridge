@@ -124,14 +124,18 @@ async function testImpactDepth() {
     writeFile(tempRoot, 'src/d.js', 'export function d() { return 1; }\n');
     initGit(tempRoot);
 
-    const d1 = await runCliInProcess(['impact', '--cwd', tempRoot, '--file', 'src/d.js', '--max-depth', '1', '--json', '--quiet']);
+    const d1 = await runCliInProcess(['impact', '--cwd', tempRoot, '--file', 'src/d.js', '--direction', 'dependents', '--max-depth', '1', '--json', '--quiet']);
     assert.strictEqual(d1.impactCount, 1, 'depth 1 should show only direct dependent (c)');
 
-    const d2 = await runCliInProcess(['impact', '--cwd', tempRoot, '--file', 'src/d.js', '--max-depth', '2', '--json', '--quiet']);
+    const d2 = await runCliInProcess(['impact', '--cwd', tempRoot, '--file', 'src/d.js', '--direction', 'dependents', '--max-depth', '2', '--json', '--quiet']);
     assert.strictEqual(d2.impactCount, 2, 'depth 2 should show c and b');
 
-    const d3 = await runCliInProcess(['impact', '--cwd', tempRoot, '--file', 'src/d.js', '--max-depth', '3', '--json', '--quiet']);
+    const d3 = await runCliInProcess(['impact', '--cwd', tempRoot, '--file', 'src/d.js', '--direction', 'dependents', '--max-depth', '3', '--json', '--quiet']);
     assert.strictEqual(d3.impactCount, 3, 'depth 3 should show c, b, and a');
+    const merged = await runCliInProcess(['impact', '--cwd', tempRoot, '--file', 'src/d.js', '--max-depth', '1', '--json', '--quiet']);
+    assert.strictEqual(merged.graphImpactCount, 1, 'default all keeps one graph row at depth 1');
+    assert.strictEqual(merged.impactCount, 3, 'default all adds the other two indexed co-change candidates');
+    assert.strictEqual(merged.impact.filter(row => row.source === 'cochange' && row.confidence === 'low').length, 2);
   } finally {
     cleanupTempDir(tempRoot);
   }

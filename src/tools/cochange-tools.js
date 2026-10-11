@@ -32,7 +32,7 @@ function analyzeCoChanges(workspaceRoot, options = {}) {
 
   const result = spawnSync(
     'git',
-    ['-C', workspaceRoot, 'log', '--format=%H', '--name-only', '--no-merges', '-n', String(config.commitLimit)],
+    ['-C', workspaceRoot, 'log', '--format=%H', '--name-only', '-z', '--no-merges', '-n', String(config.commitLimit), ...(config.revision ? [config.revision] : [])],
     { encoding: 'utf8', timeout: TIMEOUTS.GIT_LONG_MS }
   );
 
@@ -55,9 +55,11 @@ function analyzeCoChanges(workspaceRoot, options = {}) {
   let commitCount = 0;
   let currentFiles = [];
 
-  // Parse line-by-line: 40-char hex = new commit; non-empty line = file; empty = separator
-  const lines = result.stdout.split('\n');
-  for (const line of lines) {
+  // NUL-separated paths avoid Git quoting Unicode, spaces and control characters.
+  // Git inserts one newline between each commit header and its first path.
+  const records = result.stdout.split('\0');
+  for (const record of records) {
+    const line = record.startsWith('\n') ? record.slice(1) : record;
     if (/^[a-f0-9]{40}$/i.test(line)) {
       // New commit encountered — finalize previous batch
       if (currentFiles.length > 0) {

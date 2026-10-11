@@ -45,11 +45,7 @@ const STAT_EXTENSIONS = new Set(['.java', '.xml', '.vue', '.js', '.ts', '.jsx', 
 const EXCLUDED_DIRS = new Set(['node_modules', 'dist', 'target', 'build']);
 const EXCLUDED_FILES = new Set(['pom.xml', 'package.json', 'package-lock.json']);
 
-const STEM_SUFFIXES = [
-  'ServiceImpl', 'Service', 'Impl', 'Mapper', 'Controller',
-  'VO', 'Vo', 'DTO', 'Dto', 'PO', 'Entity',
-  'Request', 'Req', 'Response', 'Resp', 'Query', 'Form', 'Api',
-];
+const { stemName } = require('../src/tools/impact-ranking');
 
 const EDGE_TYPES = ['Java→Java', 'Java→Mapper XML', 'Mapper XML→Java', '实体→VO/DTO', '前端内部', 'Python→Python'];
 const FRONT_EXTENSIONS = new Set(['.vue', '.js', '.ts', '.jsx', '.tsx']);
@@ -139,25 +135,6 @@ function isStatFile(filePath) {
   const dot = base.lastIndexOf('.');
   if (dot <= 0) return false;
   return STAT_EXTENSIONS.has(base.slice(dot));
-}
-
-function stemName(filePath) {
-  const s = String(filePath).replace(/\\/g, '/');
-  const base = s.slice(s.lastIndexOf('/') + 1);
-  const dot = base.lastIndexOf('.');
-  const name = dot > 0 ? base.slice(0, dot) : base;
-  let cur = name;
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const suffix of STEM_SUFFIXES) {
-      if (cur.endsWith(suffix)) {
-        cur = cur.slice(0, cur.length - suffix.length);
-        changed = true;
-      }
-    }
-  }
-  return cur.length > 0 ? cur : name;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -958,7 +935,7 @@ function printUsage() {
   console.error([
     '用法:',
     '  node eval/replay-impact.js --repo <仓库路径> --name <名字> [选项]',
-    '  node eval/replay-impact.js --target <代号> [选项]',
+    '  node eval/replay-impact.js --target <代号> [--name <独立输出名>] [选项]',
     '选项:',
     '  --holdout <n>            留出任务池大小（默认 0）',
     '  --impact-option <名=值>  传给 impact 的可选参数，可重复（如 max-depth=3）',
@@ -1001,13 +978,13 @@ async function main(argv) {
       throw new UsageError(`targets.json 中没有代号 "${args.target}"（已有: ${Object.keys(targets).join(', ') || '无'}）`);
     }
     repoPath = path.resolve(entry.path);
-    name = args.target;
+    name = args.name ?? args.target;
     assertGitRepo(repoPath);
     if (!entry.cutoff) {
       // 5.3 第 1 条：第一次运行时把当时的 HEAD 记为 cutoff，此后所有运行截到它。
       entry.cutoff = gitRun(repoPath, ['rev-parse', 'HEAD']).trim();
       fs.writeFileSync(targetsFile, JSON.stringify(targets, null, 2) + '\n');
-      console.error(`targets.json 已记录 ${name} cutoff=${entry.cutoff.slice(0, 12)}`);
+      console.error(`targets.json 已记录 ${args.target} cutoff=${entry.cutoff.slice(0, 12)}`);
     }
     cutoff = entry.cutoff;
   } else {

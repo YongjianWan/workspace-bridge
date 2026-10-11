@@ -556,69 +556,55 @@ function testBaselineHistoryCutoff(fixture) {
 // ceil 用集合比较（reach 顺序不构成口径）。tool/impactCount 已用真实 CLI 在 P 上核对。
 // T1.3 翻默认后工具默认 direction=all（双向 BFS + 同层邻居，stopAtEntry 仍开），
 // tool/impactCount/merged（merged 的 k = tool 长度）已按新默认重算。
+// Expected independently from the four fixture commits: graph/history alternate, duplicate turns consumed.
 const EXPECT_LINES = [
-  // —— c2（P = c1）——
   {
-    ci: 1, input: 'src/api.js',
-    truth: ['src/legacy.js', 'src/util.js'], added: 1,
-    tool: ['src/util.js', 'src/legacy.js'], impactCount: 2,
-    base: ['src/legacy.js', 'src/orphan.js'],
-    merged: ['src/util.js', 'src/legacy.js'],
-    ceil: ['src/legacy.js', 'src/util.js'],
+    ci: 1, input: 'src/api.js', truth: ['src/legacy.js','src/util.js'], added: 1,
+    tool: ['src/util.js','src/legacy.js','src/orphan.js','src/user.js'], impactCount: 4,
+    base: ['src/legacy.js','src/orphan.js','src/user.js','src/util.js'],
+    merged: ['src/util.js','src/legacy.js','src/orphan.js','src/user.js'], ceil: ['src/legacy.js','src/util.js'],
   },
   {
-    ci: 1, input: 'src/legacy.js',
-    truth: ['src/api.js', 'src/util.js'], added: 1,
-    tool: ['src/api.js', 'src/util.js'], impactCount: 2,
-    base: ['src/api.js', 'src/orphan.js'], merged: ['src/api.js', 'src/util.js'],
-    ceil: ['src/api.js', 'src/util.js'],
+    ci: 1, input: 'src/legacy.js', truth: ['src/api.js','src/util.js'], added: 1,
+    tool: ['src/api.js','src/util.js','src/orphan.js','src/user.js'], impactCount: 4,
+    base: ['src/api.js','src/orphan.js','src/user.js','src/util.js'],
+    merged: ['src/api.js','src/util.js','src/orphan.js','src/user.js'], ceil: ['src/api.js','src/util.js'],
   },
   {
-    ci: 1, input: 'src/util.js',
-    truth: ['src/api.js', 'src/legacy.js'], added: 1,
-    tool: ['src/api.js', 'src/legacy.js'], impactCount: 2,
-    base: ['src/api.js', 'src/legacy.js'], merged: ['src/api.js', 'src/legacy.js'],
-    ceil: ['src/api.js', 'src/legacy.js'],
-  },
-  // —— c3（P = c2）——
-  {
-    ci: 2, input: 'src/user.js',
-    truth: ['src/extra.js', 'src/orphan.js'], added: 0,
-    tool: [], impactCount: 0,
-    base: ['src/api.js', 'src/legacy.js', 'src/orphan.js', 'src/util.js'],
-    merged: ['src/api.js', 'src/legacy.js', 'src/orphan.js', 'src/util.js'],
-    ceil: [],
+    ci: 1, input: 'src/util.js', truth: ['src/api.js','src/legacy.js'], added: 1,
+    tool: ['src/api.js','src/legacy.js','src/orphan.js','src/user.js'], impactCount: 4,
+    base: ['src/api.js','src/legacy.js','src/orphan.js','src/user.js'],
+    merged: ['src/api.js','src/legacy.js','src/orphan.js','src/user.js'], ceil: ['src/api.js','src/legacy.js'],
   },
   {
-    ci: 2, input: 'src/extra.js',
-    truth: ['src/orphan.js', 'src/user.js'], added: 0,
-    tool: ['src/api.js', 'src/util.js', 'src/legacy.js'], impactCount: 3,
-    base: ['src/api.js', 'src/legacy.js', 'src/util.js'], merged: ['src/api.js', 'src/util.js', 'src/legacy.js'],
-    ceil: ['src/api.js', 'src/legacy.js', 'src/util.js'],
+    ci: 2, input: 'src/user.js', truth: ['src/extra.js','src/orphan.js'], added: 0,
+    tool: ['src/api.js','src/legacy.js','src/orphan.js','src/util.js'], impactCount: 4,
+    base: ['src/api.js','src/legacy.js','src/orphan.js','src/util.js'],
+    merged: ['src/api.js','src/legacy.js','src/orphan.js','src/util.js'], ceil: [],
   },
   {
-    ci: 2, input: 'src/orphan.js',
-    truth: ['src/extra.js', 'src/user.js'], added: 0,
-    tool: [], impactCount: 0,
-    base: ['src/api.js', 'src/legacy.js', 'src/user.js', 'src/util.js'],
-    merged: ['src/api.js', 'src/legacy.js', 'src/user.js', 'src/util.js'],
-    ceil: [],
-  },
-  // —— c4（P = c3，重命名提交）——
-  {
-    ci: 3, input: 'src/api.js',
-    truth: ['src/util.js'], added: 1,
-    tool: ['src/util.js', 'src/legacy.js', 'src/extra.js'], impactCount: 3,
-    base: ['src/legacy.js', 'src/util.js', 'src/extra.js'],
-    merged: ['src/util.js', 'src/legacy.js', 'src/extra.js'],
-    ceil: ['src/extra.js', 'src/legacy.js', 'src/util.js'],
+    ci: 2, input: 'src/extra.js', truth: ['src/orphan.js','src/user.js'], added: 0,
+    tool: ['src/api.js','src/util.js','src/legacy.js'], impactCount: 3,
+    base: ['src/api.js','src/legacy.js','src/util.js'],
+    merged: ['src/api.js','src/util.js','src/legacy.js'], ceil: ['src/api.js','src/legacy.js','src/util.js'],
   },
   {
-    ci: 3, input: 'src/util.js',
-    truth: ['src/api.js'], added: 1,
-    tool: ['src/api.js', 'src/legacy.js', 'src/extra.js'], impactCount: 3,
-    base: ['src/api.js', 'src/legacy.js', 'src/extra.js'], merged: ['src/api.js', 'src/legacy.js', 'src/extra.js'],
-    ceil: ['src/api.js', 'src/extra.js', 'src/legacy.js'],
+    ci: 2, input: 'src/orphan.js', truth: ['src/extra.js','src/user.js'], added: 0,
+    tool: ['src/api.js','src/legacy.js','src/user.js','src/util.js'], impactCount: 4,
+    base: ['src/api.js','src/legacy.js','src/user.js','src/util.js'],
+    merged: ['src/api.js','src/legacy.js','src/user.js','src/util.js'], ceil: [],
+  },
+  {
+    ci: 3, input: 'src/api.js', truth: ['src/util.js'], added: 1,
+    tool: ['src/util.js','src/legacy.js','src/extra.js','src/user.js'], impactCount: 4,
+    base: ['src/legacy.js','src/util.js','src/extra.js','src/user.js'],
+    merged: ['src/util.js','src/legacy.js','src/extra.js','src/user.js'], ceil: ['src/extra.js','src/legacy.js','src/util.js'],
+  },
+  {
+    ci: 3, input: 'src/util.js', truth: ['src/api.js'], added: 1,
+    tool: ['src/api.js','src/legacy.js','src/extra.js','src/user.js'], impactCount: 4,
+    base: ['src/api.js','src/legacy.js','src/extra.js','src/user.js'],
+    merged: ['src/api.js','src/legacy.js','src/extra.js','src/user.js'], ceil: ['src/api.js','src/extra.js','src/legacy.js'],
   },
 ];
 
@@ -795,10 +781,25 @@ async function testToolVsCliParity(fixture, pDir, root) {
   // 真值：用真实 CLI 在同一目录逐个核对（相对路径统一后比较）。
   // T1.3 翻默认后 CLI impact 默认 direction=all（双向 + 同层邻居），期望值按夹具依赖结构重算。
   const EXPECT_TOOL = {
-    'src/api.js': ['src/util.js', 'src/legacy.js'], // api 的 dependencies（c1 里没人引用 api）
-    'src/legacy.js': ['src/api.js', 'src/util.js'], // dependent api + 经 api 的同层邻居 util
-    'src/util.js': ['src/api.js', 'src/legacy.js'], // dependent api + 经 api 的同层邻居 legacy
-  };
+  "src/api.js": [
+    "src/util.js",
+    "src/legacy.js",
+    "src/orphan.js",
+    "src/user.js"
+  ],
+  "src/legacy.js": [
+    "src/api.js",
+    "src/util.js",
+    "src/orphan.js",
+    "src/user.js"
+  ],
+  "src/util.js": [
+    "src/api.js",
+    "src/legacy.js",
+    "src/orphan.js",
+    "src/user.js"
+  ]
+};
   for (const input of inputs) {
     const res = runCli(['impact', '--cwd', pDir, '--file', input, '--json', '--quiet']);
     const cliList = (res.impact || []).map((i) => toRel(pDir, i.file));
@@ -903,15 +904,23 @@ function testTargetMode(fixture, root) {
   assert.strictEqual(summaryJson.totals.commits, 1, 'summary 应只统计 1 个提交');
   assert.strictEqual(summaryJson.totals.errors, 0, 'summary 不应有出错输入');
 
-  // 5) 同命令再跑一次 → cutoff 沿用不重写（整文件字节比较）
-  console.log('[run] --target 二跑（cutoff 沿用）…');
-  res = runReplayTarget(truthDir, ['--target', 'FX1', '--max-commits', '1']);
+  // 5) 独立命名二跑同时验证 cutoff 沿用与默认存档保护，避免重复创建第三个克隆。
+  const baselineBytes = new Map(['runs.jsonl', 'summary.json', 'summary.md', 'sample.json'].map(f => [f, fs.readFileSync(path.join(outDir, f))]));
+  console.log('[run] --target 独立命名二跑（cutoff 沿用）…');
+  res = runReplayTarget(truthDir, ['--target', 'FX1', '--name', 'FX1-independent', '--max-commits', '1']);
   assert.strictEqual(res.status, 0, `--target 二跑应退出 0，实际 ${res.status}\nstderr: ${res.stderr}`);
   assert.ok(!String(res.stderr).includes('已记录'), 'cutoff 已存在时不应再次记录');
   const targetsAfterSecond = fs.readFileSync(targetsFile, 'utf8');
   assert.strictEqual(targetsAfterSecond, targetsAfterFirst, '二跑不得改写 targets.json（cutoff 沿用不重写）');
 
-  console.log('[ok] --target 模式：三态错误、cutoff 首写与沿用、四件套产出');
+    const namedDir = path.join(truthDir, 'replay', 'FX1-independent');
+    assert.ok(fs.existsSync(path.join(namedDir, 'summary.json')), '--target must honor explicit --name');
+    const namedSummary = JSON.parse(fs.readFileSync(path.join(namedDir, 'summary.json'), 'utf8'));
+    assert.strictEqual(namedSummary.name, 'FX1-independent');
+    assert.strictEqual(namedSummary.cutoff, head);
+    assert.strictEqual(fs.readFileSync(targetsFile, 'utf8'), targetsAfterFirst, 'custom name must not rename or rewrite target entry');
+    for (const [f, bytes] of baselineBytes) assert.deepStrictEqual(fs.readFileSync(path.join(outDir, f)), bytes, 'named replay must preserve baseline bytes');
+    console.log('[ok] --target 模式：三态错误、cutoff 冻结、独立命名与基线保护');
 }
 
 /* -------------------------------------------------------------------------- */

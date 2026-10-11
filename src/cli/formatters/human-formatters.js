@@ -3,7 +3,7 @@
  * Registry-based dispatch — no more switch-case chains.
  */
 const { countTreeFiles } = require('./project-map');
-const { AI_FORMAT, SCHEMA_VERSION, LIMITS } = require('../../config/constants');
+const { AI_FORMAT, SCHEMA_VERSION, LIMITS, CONFIDENCE } = require('../../config/constants');
 const { sanitizeForAiOutput } = require('../../utils/sanitize');
 
 /**
@@ -730,17 +730,17 @@ const FORMATTERS = {
     human: (r, _options = {}) => {
       const limit = resolveOutputLimit(Infinity, _options);
       const shown = r.impact.slice(0, limit);
-      const lines = [`impactCount: ${r.impactCount}`, ...shown.map((e) => { const via = e.via && e.via.length > 1 ? ` via ${e.via.slice(1).join(' -> ')}` : ''; return `${e.level}: ${e.file}${via}`; })];
+      const lines = [`impactCount: ${r.impactCount}`, ...shown.map((e) => formatImpactEntry(e))];
       if (r.truncated || r.impact.length > limit) lines.push(`... truncated (showing ${shown.length} of ${r.impactCount})`);
       return lines.join('\n');
     },
     summary: (r, _options = {}) => {
-      const lines = [`Impact radius: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((e) => `  ${e.level}: ${e.file}`) || []];
+      const lines = [`Impact radius: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((e) => `  ${formatImpactEntry(e)}`) || []];
       if (r.truncated) lines.push(`  ... truncated (showing ${r.impact.length} of ${r.impactCount})`);
       return lines.join('\n');
     },
     markdown: (r, _options = {}) => {
-      const lines = [`# Impact Radius`, ``, `- **Total**: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options)).map((e) => `- ${e.level}: ${e.file}`) || []];
+      const lines = [`# Impact Radius`, ``, `- **Total**: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options)).map((e) => `- ${formatImpactEntry(e)}`) || []];
       if (r.truncated) lines.push(`- *... truncated (showing ${r.impact.length} of ${r.impactCount})*`);
       return lines.join('\n');
     },
@@ -1458,7 +1458,7 @@ const AI_DIGEST = {
     const counts = {};
     if (r.impactCount > 0) {
       counts.impact = r.impactCount;
-      topRisks.push({ category: 'impact', severity: r.impactCount > 20 ? 'high' : 'medium', count: r.impactCount, message: `Change would affect ${r.impactCount} file(s)`, confidence: 0.9 });
+      topRisks.push(...buildImpactRisks(r, counts));
       actions.push({ priority: 'P0', action: 'Run affected-tests to identify tests to update' });
     }
     return { topRisks, actions, counts };
@@ -1541,11 +1541,7 @@ const AI_DIGEST = {
     if (r.impact?.impactCount > 0 || r.affectedTests?.affectedTestsCount > 0) {
       counts.impact = r.impact?.impactCount || 0;
       counts.affectedTests = r.affectedTests?.affectedTestsCount || 0;
-      if (counts.impact > 20) {
-        topRisks.push({ category: 'impact', severity: 'high', count: counts.impact, message: `Editing this file would transitively impact ${counts.impact} file(s)`, confidence: 0.9 });
-      } else if (counts.impact > 0) {
-        topRisks.push({ category: 'impact', severity: 'medium', count: counts.impact, message: `Editing this file would transitively impact ${counts.impact} file(s)`, confidence: 0.9 });
-      }
+      topRisks.push(...buildImpactRisks(r.impact, counts));
       if (counts.affectedTests > 0) {
         topRisks.push({ category: 'tests', severity: 'medium', count: counts.affectedTests, message: `${counts.affectedTests} test(s) affected`, confidence: 0.9 });
         actions.push({ priority: 'P0', action: `Run ${counts.affectedTests} affected test(s)` });
@@ -1990,7 +1986,7 @@ function formatAi(command, result, options = {}) {
     severity,
     counts,
     summary: formatSummary(command, result),
-    confidence: { overall: 1.0 },
+    confidence: { overall: counts.impactCandidates > 0 ? CONFIDENCE.LOW_VALUE : 1.0 },
   };
   if (topRisks.length > 0) output.topRisks = topRisks;
   if (actions.length > 0) output.actions = actions;
@@ -2001,7 +1997,7 @@ function formatAi(command, result, options = {}) {
     }
     if (depth === 'detail' || depth === 'full') {
       output.riskFiles = {};
-      if (result.impact?.impact?.length > 0) output.riskFiles.impact = result.impact.impact.slice(0, LIMITS.OUTPUT_SHORT).map((i) => ({ file: i.file, level: i.level }));
+    if (result.impact?.impact?.length > 0) output.riskFiles.impact = result.impact.impact.slice(0, LIMITS.OUTPUT_SHORT).map((i) => ({ file: i.file, level: i.level, ...(i.source ? { source: i.source, confidence: i.confidence } : {}) }));
       if (result.affectedTests?.affectedTests?.length > 0) output.riskFiles.affectedTests = result.affectedTests.affectedTests.slice(0, LIMITS.OUTPUT_SHORT).map((t) => ({ file: t.file, distance: t.distance }));
       if (Object.keys(output.riskFiles).length === 0) delete output.riskFiles;
     }
@@ -2039,4 +2035,23 @@ function formatAi(command, result, options = {}) {
   return JSON.stringify(output, null, 2);
 }
 
-module.exports = { formatHuman, formatSummary, formatMarkdown, formatJsonl, formatAi, formatAuditSummary };
+function formatImpactEntry(entry, levelPrefix = '') {
+  const label = entry.source ? `${entry.source} (${entry.confidence})` : `${levelPrefix}${entry.level}`;
+  const via = entry.via?.length > 1 ? ` via ${entry.via.slice(1).join(' -> ')}` : '';
+  return `${label}: ${entry.file}${via}`;
+}
+
+function buildImpactRisks(result, counts) {
+  const graphCount = result?.graphImpactCount ?? result?.impactCount ?? 0;
+  const candidateCount = (result?.impactCount ?? 0) - graphCount;
+  const risks = [];
+  if (graphCount > 0) risks.push({ category: 'impact', severity: graphCount > 20 ? 'high' : 'medium', count: graphCount, message: `Change would affect ${graphCount} file(s)`, confidence: CONFIDENCE.MEDIUM_VALUE });
+  if (candidateCount > 0) {
+    counts.graphImpact = graphCount;
+    counts.impactCandidates = candidateCount;
+    risks.push({ category: 'impact-candidates', severity: 'low', count: candidateCount, message: `${candidateCount} additional related file candidate(s) to review`, confidence: CONFIDENCE.LOW_VALUE });
+  }
+  return risks;
+}
+
+module.exports = { formatHuman, formatSummary, formatMarkdown, formatJsonl, formatAi, formatAuditSummary, formatImpactEntry };

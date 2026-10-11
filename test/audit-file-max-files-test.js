@@ -2,10 +2,15 @@
 // Verifies that audit-file honors --max-files for impact and affected-tests.
 const assert = require('assert');
 const path = require('path');
+const fs = require('fs');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { assembleFile } = require('../src/tools/audit-assembler');
 const { DEFAULTS } = require('../src/config/constants');
 
 const TEST_FILE = 'src/tools/audit-assembler.js';
+const fixtureRoot = makeTempDir('wb-audit-file-limits-');
+fs.mkdirSync(path.dirname(path.join(fixtureRoot, TEST_FILE)), { recursive: true });
+fs.writeFileSync(path.join(fixtureRoot, TEST_FILE), 'module.exports = {};\n');
 
 function makeMockContainer(workspaceRoot, size = 3) {
   const names = (prefix) => Array.from({ length: size }, (_, i) => path.join(workspaceRoot, `${prefix}${i + 1}.js`));
@@ -15,6 +20,7 @@ function makeMockContainer(workspaceRoot, size = 3) {
     snapshot: {
       graph: {
         hasFile: () => true,
+        getAllFilePaths: () => [path.join(workspaceRoot, TEST_FILE), ...names('a')],
         getImpactRadius: () => names('a').map((file) => ({ file, level: 1 })),
         getSymbolImpact: () => ({ mode: 'file-fallback', impactedFiles: [] }),
         findAffectedHttpRoutes: () => [],
@@ -30,7 +36,7 @@ function makeMockContainer(workspaceRoot, size = 3) {
 }
 
 async function testAuditFileMaxFiles() {
-  const workspaceRoot = process.cwd();
+  const workspaceRoot = fixtureRoot;
   const container = makeMockContainer(workspaceRoot);
   const result = await assembleFile({ file: TEST_FILE, cwd: workspaceRoot, maxFiles: 2 }, container);
   assert.strictEqual(result.ok, true);
@@ -41,7 +47,7 @@ async function testAuditFileMaxFiles() {
 }
 
 async function testAuditFileNoMaxFiles() {
-  const workspaceRoot = process.cwd();
+  const workspaceRoot = fixtureRoot;
   const container = makeMockContainer(workspaceRoot);
   const result = await assembleFile({ file: TEST_FILE, cwd: workspaceRoot }, container);
   assert.strictEqual(result.ok, true);
@@ -50,7 +56,7 @@ async function testAuditFileNoMaxFiles() {
 }
 
 async function testAuditFileCompact() {
-  const workspaceRoot = process.cwd();
+  const workspaceRoot = fixtureRoot;
   const container = makeMockContainer(workspaceRoot, 12);
   const result = await assembleFile({ file: TEST_FILE, cwd: workspaceRoot, compact: true }, container);
   assert.strictEqual(result.ok, true);
@@ -68,7 +74,7 @@ async function testAuditFileCompact() {
 }
 
 async function testAuditFileCompactHonorsMaxFiles() {
-  const workspaceRoot = process.cwd();
+  const workspaceRoot = fixtureRoot;
   const container = makeMockContainer(workspaceRoot, 12);
   const result = await assembleFile({ file: TEST_FILE, cwd: workspaceRoot, compact: true, maxFiles: 8 }, container);
   assert.strictEqual(result.impact.impact.length, 8, '--max-files is the caller budget in compact mode too');
@@ -76,7 +82,7 @@ async function testAuditFileCompactHonorsMaxFiles() {
 }
 
 async function testAuditFileCompactSmallListUntouched() {
-  const workspaceRoot = process.cwd();
+  const workspaceRoot = fixtureRoot;
   const container = makeMockContainer(workspaceRoot, 3);
   const result = await assembleFile({ file: TEST_FILE, cwd: workspaceRoot, compact: true }, container);
   assert.strictEqual(result.impact.impact.length, 3);
@@ -92,4 +98,4 @@ async function main() {
   console.log('audit-file-max-files-test: all passed');
 }
 
-main();
+main().finally(() => cleanupTempDir(fixtureRoot));

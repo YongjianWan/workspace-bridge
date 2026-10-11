@@ -3,10 +3,15 @@
 // 控制；--depth 仅用于 --format ai 输出深度与文本截断，不得静默改变分析结果（L1-4）。
 const assert = require('assert');
 const path = require('path');
+const fs = require('fs');
+const { makeTempDir, cleanupTempDir } = require('./test-helpers');
 const { assembleFile } = require('../src/tools/audit-assembler');
 const { DEFAULTS } = require('../src/config/defaults');
 
 const TEST_FILE = 'src/tools/audit-assembler.js';
+const fixtureRoot = makeTempDir('wb-audit-file-depth-');
+fs.mkdirSync(path.dirname(path.join(fixtureRoot, TEST_FILE)), { recursive: true });
+fs.writeFileSync(path.join(fixtureRoot, TEST_FILE), 'module.exports = {};\n');
 
 function makeMockContainer(workspaceRoot, captured) {
   return {
@@ -15,6 +20,7 @@ function makeMockContainer(workspaceRoot, captured) {
     snapshot: {
       graph: {
         hasFile: () => true,
+        getAllFilePaths: () => [path.join(workspaceRoot, TEST_FILE), path.join(workspaceRoot, 'a.js')],
         getImpactRadius: () => [{ file: path.join(workspaceRoot, 'a.js'), level: 1 }],
         getSymbolImpact: () => ({ mode: 'file-fallback', impactedFiles: [] }),
         findAffectedHttpRoutes: () => [],
@@ -33,7 +39,7 @@ function makeMockContainer(workspaceRoot, captured) {
 }
 
 async function capturedDepthFor(parsed) {
-  const workspaceRoot = process.cwd();
+  const workspaceRoot = fixtureRoot;
   const captured = {};
   const result = await assembleFile({ file: TEST_FILE, cwd: workspaceRoot, ...parsed }, makeMockContainer(workspaceRoot, captured));
   assert.strictEqual(result.ok, true);
@@ -69,4 +75,4 @@ async function main() {
   console.log('audit-file-depth-decoupling-test: all passed');
 }
 
-main();
+main().finally(() => cleanupTempDir(fixtureRoot));

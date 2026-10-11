@@ -3,6 +3,7 @@ const { DEFAULTS } = require('../../config/constants');
 const { DATA_QUALITY } = require('../../config/data-quality');
 const { warningOf } = require('../../services/ledger');
 const { getCoChangePartners } = require('../cochange-tools');
+const { readImpactHistory, curateImpact } = require('../impact-ranking');
 const { truncateArray } = require('../../utils/truncate');
 
 const { failure } = require('../../utils/failure');
@@ -19,11 +20,7 @@ async function impact(args, container, filePath) {
   });
   const symbolImpact = container.snapshot.graph.getSymbolImpact(filePath);
   const targetNotIndexed = symbolImpact?.reason === 'source-not-indexed';
-  let coChangeData = container.cache?.coChanges || null;
-  if (!coChangeData && container.ensurePrecomputed) {
-    await container.ensurePrecomputed(['cochanges']);
-    coChangeData = container.cache?.coChanges || null;
-  }
+  const coChangeData = readImpactHistory(container);
   const relativeFile = path.relative(container.workspaceRoot, filePath).replace(/\\/g, '/');
   const coChanges = coChangeData ? getCoChangePartners(relativeFile, coChangeData, { minCount: 2, partnerLimit: 10 }) : [];
 
@@ -41,16 +38,10 @@ async function impact(args, container, filePath) {
   // Wave 9-2: collect affected routes from impacted files (graph-first!)
   const affectedRoutes = container.snapshot.graph.findAffectedHttpRoutes(filePath, args?.maxDepth);
 
-  // Wave 12-1/12-5 + T1.3: honest truncation. Rows stay in BFS order
-  // (level asc, dependents → dependencies → neighbors, discovery order) —
-  // two J1 replay rounds showed handcrafted relevance keys (level/reason/dir)
-  // swing ±1–4pp per edge type against that order without dominating it, so
-  // the shipped contract keeps BFS order and only caps the length. The one
-  // ordering-adjacent change lives in query.js: the input itself no longer
-  // leaks into its own same-importer rows, freeing a slot.
-  // --max-files overrides the default relevance cap.
+  // Curate before truncating so sparse graphs can use the remaining candidate slots.
   const impactLimit = Number.isFinite(args?.maxFiles) ? args.maxFiles : DEFAULTS.IMPACT_RELEVANCE_LIMIT;
-  const impactTrunc = truncateArray(impact, impactLimit);
+  const rankedImpact = curateImpact(container, filePath, impact, args?.direction || DEFAULTS.IMPACT_DEFAULT_DIRECTION, coChangeData);
+  const impactTrunc = truncateArray(rankedImpact, impactLimit);
   const coChangesTrunc = truncateArray(coChanges, DEFAULTS.JSON_OUTPUT_MAX_COCHANGE_ITEMS);
   const affectedRoutesTrunc = truncateArray(affectedRoutes, DEFAULTS.JSON_OUTPUT_MAX_AFFECTED_ROUTES_ITEMS);
 
@@ -58,7 +49,8 @@ async function impact(args, container, filePath) {
     ok: true,
     file: args.file,
     resolvedPath: container.snapshot.graph._displayPath(filePath) || filePath,
-    impactCount: impact.length,
+    impactCount: rankedImpact.length,
+    ...(rankedImpact.length !== impact.length ? { graphImpactCount: impact.length } : {}),
     ...(targetNotIndexed ? {
       warnings: [warningOf('target-not-indexed', {
         message: 'Target is not in the source index; zero impact does not establish absence of dependents' })] } : {}),

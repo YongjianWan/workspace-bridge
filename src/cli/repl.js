@@ -19,11 +19,13 @@ const { resolveWorkspaceFilePath } = require('../utils/path');
 const { buildTree } = require('../tools/tree-tools');
 const { typedError, failure } = require('../utils/failure');
 const { truncateArray } = require('../utils/truncate');
+const { curateImpact } = require('../tools/impact-ranking');
+const { formatImpactEntry } = require('./formatters');
 
 function formatImpact(result, total) {
   const lines = [`impactCount: ${total}`];
   for (const entry of result) {
-    lines.push(`  level-${entry.level}: ${entry.file}`);
+    lines.push(`  ${formatImpactEntry(entry, 'level-')}`);
   }
   if (result.length < total) lines.push(`... ${total - result.length} more (use --max-files to expand)`);
   return lines.join('\n');
@@ -202,7 +204,8 @@ async function executeCommand(container, line, options = {}) {
       const maxDepth = parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH;
       const result = graph.getImpactRadius(file, maxDepth, { direction: parsed.direction || DEFAULTS.IMPACT_DEFAULT_DIRECTION, stopAtEntry: parsed.stopAtEntry });
       const limit = parsed.maxFiles ?? DEFAULTS.IMPACT_RELEVANCE_LIMIT;
-      const { items, truncated, total } = truncateArray(result, limit);
+      const ranked = curateImpact(container, file, result, parsed.direction || DEFAULTS.IMPACT_DEFAULT_DIRECTION);
+      const { items, truncated, total } = truncateArray(ranked, limit);
       return options.structured ? { impactCount: total, impact: items, truncated } : formatImpact(items, total);
     }
 

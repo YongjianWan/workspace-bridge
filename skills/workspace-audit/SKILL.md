@@ -57,7 +57,7 @@ workspace-bridge-cli <command> --cwd <project> --format ai --quiet
 - `--fields <list>`：结构化输出（`--json` / `--format ai` / `--format jsonl`）的白名单字段（`ok/error/schemaVersion/command/hasFindings/staleness/warnings` 恒保留），如 `--fields summary,hotspots`。
   - 注意：与 `--format ai` 同时使用时，输出 `warnings` 会提示 digest 输入被裁剪，避免 AI 拿到被静默降级的风险视图。
 - `--max-files <n>`：限制大部分命令返回的文件/条目数（`audit-overview` / `audit-map` / `audit-file` / `audit-diff` / `query-*` / `impact` / `affected-*` / `dependencies` / `dependents` / `dead-exports` / `unresolved` / `cycles` / `tree` / `guard` / `api-contracts` 均支持）。
-- `impact` 专用（T1.2 起，T1.3 翻默认）：`--direction <dependents|dependencies|neighbors|all>` 查找方向（**默认 `all`** 双向 + 同层邻居；`dependents` 只找谁引用了输入；`dependencies` 找输入自己引用的文件；`neighbors` 找同层邻居——和输入被同一个文件直接引用的文件）；`--no-stop-at-entry` 关掉"遇到入口文件停止扩散"（默认开，入口文件本身仍会列出）。
+- `impact` 专用（T1.2 起，T1.3 翻默认）：`--direction <dependents|dependencies|neighbors|all>` 查找方向（**默认 `all`** 双向 + 同层邻居，并交替合入同主干名或当前 HEAD 最近 300 个非合并提交的共改候选（每提交 2–20 文件、至少共改一次，候选仅当前索引）；`dependents` 只找谁引用了输入；`dependencies` 找输入自己引用的文件；`neighbors` 找同层邻居——和输入被同一个文件直接引用的文件）；`--no-stop-at-entry` 关掉"遇到入口文件停止扩散"（默认开，入口文件本身仍会列出）。
 - `--compact`：目录级聚合边 + 精简树 + 列表 capped（`audit-map` / `audit-overview` / `audit-file` / `api-contracts` / `guard` 生效；大项目自动触发；`--no-compact` 关闭）。
 - **截断必读**：顶层 `truncated: true` 时，列表不是全集。读顶层 `elided[]`，每条是 `{ path, kind, shown, total, reason }`（`reason`：`json-size-limit` JSON 体积上限 / `compact` 压缩模式只保留前几条 / `ai-digest` AI 摘要抽样）。要全集就加 `--max-files <n>`（JSON 体积上限不会低于它）或 `--no-compact`。`affected-tests` 按 `orderedBy: distance,hubFanIn,file` 排序后截断：距离近的在前，同距离时经过依赖者少的中间文件的测试在前，经被几乎所有测试导入的枢纽文件（如 `testing.py`）才关联到的测试排后。
 - **路径写法**：输出里文件和目录写成磁盘上的真实大小写，不是 Windows 上被折成小写的内部键；绝对路径保持绝对（Windows 用 `` 分隔），相对路径相对工作区根并用 `/`。路径比较在 Windows 上不分大小写，在 Linux 上分；同一个文件在结果里只有一种写法，可直接做字符串比较。
@@ -100,7 +100,7 @@ workspace-bridge-cli audit-overview --cwd <project> --format ai --quiet
 ### audit-file
 字段是嵌套的，顶层没有这些名字：
 1. `summary.severity`：衡量影响半径（依赖者加受影响测试），不是代码质量；输出里的 `severityNote` 同样说明
-2. `impact.impact[]`（真实依赖边），总数看 `impact.impactCount`
+2. `impact.impact[]`（图影响与低置信度候选交替合并），总数看 `impact.impactCount`；有 `level` 的行保留图证据，`source: cochange|same-stem` 的行只有低置信度相关性，不表示真实依赖
 3. `affectedTests.affectedTests[]`（优先 `source === "graph"`，`mention` 可忽略；`framework` 是 `@SpringBootTest` 启动整个应用的测试，改 JVM 源码前该跑，它们排在最后），总数看 `affectedTests.affectedTestsCount`
 4. `impact.coChanges[]`（历史上与该文件频繁共变的文件，检查是否遗漏）
 
