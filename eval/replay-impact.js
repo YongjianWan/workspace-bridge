@@ -45,7 +45,13 @@ const STAT_EXTENSIONS = new Set(['.java', '.xml', '.vue', '.js', '.ts', '.jsx', 
 const EXCLUDED_DIRS = new Set(['node_modules', 'dist', 'target', 'build']);
 const EXCLUDED_FILES = new Set(['pom.xml', 'package.json', 'package-lock.json']);
 
-const { stemName } = require('../src/tools/impact-ranking');
+// 5.2 口径 v1 的主干名规则。评测必须持有自己的冻结副本：产品里的同名规则
+// （src/tools/impact-ranking.js）会随产品演进，口径不能跟着悄悄变。
+const STEM_SUFFIXES = [
+  'ServiceImpl', 'Service', 'Impl', 'Mapper', 'Controller',
+  'VO', 'Vo', 'DTO', 'Dto', 'PO', 'Entity',
+  'Request', 'Req', 'Response', 'Resp', 'Query', 'Form', 'Api',
+];
 
 const EDGE_TYPES = ['Java→Java', 'Java→Mapper XML', 'Mapper XML→Java', '实体→VO/DTO', '前端内部', 'Python→Python'];
 const FRONT_EXTENSIONS = new Set(['.vue', '.js', '.ts', '.jsx', '.tsx']);
@@ -135,6 +141,25 @@ function isStatFile(filePath) {
   const dot = base.lastIndexOf('.');
   if (dot <= 0) return false;
   return STAT_EXTENSIONS.has(base.slice(dot));
+}
+
+function stemName(filePath) {
+  const s = String(filePath).replace(/\\/g, '/');
+  const base = s.slice(s.lastIndexOf('/') + 1);
+  const dot = base.lastIndexOf('.');
+  const name = dot > 0 ? base.slice(0, dot) : base;
+  let cur = name;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const suffix of STEM_SUFFIXES) {
+      if (cur.endsWith(suffix)) {
+        cur = cur.slice(0, cur.length - suffix.length);
+        changed = true;
+      }
+    }
+  }
+  return cur.length > 0 ? cur : name;
 }
 
 /* -------------------------------------------------------------------------- */

@@ -8,14 +8,13 @@ const { truncateArray } = require('../../utils/truncate');
 
 const { failure } = require('../../utils/failure');
 
-const IMPACT_DIRECTIONS = new Set(['dependents', 'dependencies', 'neighbors', 'all']);
-
 async function impact(args, container, filePath) {
-  if (args?.direction != null && !IMPACT_DIRECTIONS.has(args.direction)) {
-    return failure('validation_error', `Invalid direction: ${args.direction}. Expected one of: ${[...IMPACT_DIRECTIONS].join(', ')}`);
+  if (args?.direction != null && !DEFAULTS.IMPACT_DIRECTIONS.includes(args.direction)) {
+    return failure('validation_error', `Invalid direction: ${args.direction}. Expected one of: ${DEFAULTS.IMPACT_DIRECTIONS.join(', ')}`);
   }
+  const direction = args?.direction || DEFAULTS.IMPACT_DEFAULT_DIRECTION;
   const impact = container.snapshot.graph.getImpactRadius(filePath, args?.maxDepth, {
-    direction: args?.direction || DEFAULTS.IMPACT_DEFAULT_DIRECTION,
+    direction,
     stopAtEntry: args?.stopAtEntry,
   });
   const symbolImpact = container.snapshot.graph.getSymbolImpact(filePath);
@@ -35,12 +34,12 @@ async function impact(args, container, filePath) {
   const dataQuality = targetNotIndexed ? DATA_QUALITY.DEGRADED : env.dataQuality;
   const environmentRemediation = env.remediation;
 
-  // Wave 9-2: collect affected routes from impacted files (graph-first!)
+  // Collect affected routes from impacted files (graph-first).
   const affectedRoutes = container.snapshot.graph.findAffectedHttpRoutes(filePath, args?.maxDepth);
 
   // Curate before truncating so sparse graphs can use the remaining candidate slots.
   const impactLimit = Number.isFinite(args?.maxFiles) ? args.maxFiles : DEFAULTS.IMPACT_RELEVANCE_LIMIT;
-  const rankedImpact = curateImpact(container, filePath, impact, args?.direction || DEFAULTS.IMPACT_DEFAULT_DIRECTION, coChangeData);
+  const rankedImpact = curateImpact(container, filePath, impact, direction, coChangeData);
   const impactTrunc = truncateArray(rankedImpact, impactLimit);
   const coChangesTrunc = truncateArray(coChanges, DEFAULTS.JSON_OUTPUT_MAX_COCHANGE_ITEMS);
   const affectedRoutesTrunc = truncateArray(affectedRoutes, DEFAULTS.JSON_OUTPUT_MAX_AFFECTED_ROUTES_ITEMS);

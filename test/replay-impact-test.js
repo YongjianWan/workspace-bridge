@@ -242,6 +242,9 @@ function testStemName() {
   // 扩展名按最后一个点切；无扩展名原样返回
   assert.strictEqual(stemName('src/a.b.js'), 'a.b');
   assert.strictEqual(stemName('Makefile'), 'Makefile');
+  // 口径冻结：产品的主干名规则会演进，评测不得共用同一个函数
+  const productStemName = require('../src/tools/impact-ranking').stemName;
+  assert.notStrictEqual(stemName, productStemName, '评测笨基线必须持有冻结的主干名规则副本');
   console.log('[ok] stemName 主干名规则');
 }
 

@@ -195,16 +195,17 @@ async function executeCommand(container, line, options = {}) {
       const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
       if (!file) return fail('validation_error', 'Usage: impact <file>', 'Usage: impact <file>');
       if (!graph.hasFile(file)) return fail('path_error', `File not found in graph: ${parsed._[0]}`);
-      if (parsed.direction != null && !['dependents', 'dependencies', 'neighbors', 'all'].includes(parsed.direction)) {
-        return fail('validation_error', `Invalid --direction: ${parsed.direction}`, 'Expected one of: dependents, dependencies, neighbors, all');
+      if (parsed.direction != null && !DEFAULTS.IMPACT_DIRECTIONS.includes(parsed.direction)) {
+        return fail('validation_error', `Invalid --direction: ${parsed.direction}`, `Expected one of: ${DEFAULTS.IMPACT_DIRECTIONS.join(', ')}`);
       }
       if (parsed.maxFiles != null && (!Number.isInteger(parsed.maxFiles) || parsed.maxFiles <= 0)) {
         return fail('validation_error', `Invalid --max-files: ${parsed.maxFiles}`, 'Expected a positive integer');
       }
       const maxDepth = parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH;
-      const result = graph.getImpactRadius(file, maxDepth, { direction: parsed.direction || DEFAULTS.IMPACT_DEFAULT_DIRECTION, stopAtEntry: parsed.stopAtEntry });
+      const direction = parsed.direction || DEFAULTS.IMPACT_DEFAULT_DIRECTION;
+      const result = graph.getImpactRadius(file, maxDepth, { direction, stopAtEntry: parsed.stopAtEntry });
       const limit = parsed.maxFiles ?? DEFAULTS.IMPACT_RELEVANCE_LIMIT;
-      const ranked = curateImpact(container, file, result, parsed.direction || DEFAULTS.IMPACT_DEFAULT_DIRECTION);
+      const ranked = curateImpact(container, file, result, direction);
       const { items, truncated, total } = truncateArray(ranked, limit);
       return options.structured ? { impactCount: total, impact: items, truncated } : formatImpact(items, total);
     }

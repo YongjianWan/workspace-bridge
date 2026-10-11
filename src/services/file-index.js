@@ -64,7 +64,7 @@ class FileIndex {
     this.processedCount = 0;
     this.changedFiles.clear();
     for (const code of ['index-timeout', 'depth-truncated', 'gitignore-unavailable', 'unsupported-source-files']) this.ledger.clear(code);
-    this._depthTruncatedDirs = 0;
+    this._depthTruncatedDirs = [];
     this.maxDepth = DEFAULTS.FILE_INDEX_MAX_DEPTH;
     this.unsupportedSourceFiles = [];
     this._unsupportedCandidates = [];
@@ -118,12 +118,17 @@ class FileIndex {
     }
     allFiles = gitFiltered.kept;
 
-    if (this._depthTruncatedDirs > 0) {
-      // An index missing deep subtrees is degraded data — say so via
-      // warnings[] (consumed by analyzer.buildWarnings), never silently.
+    // An index missing deep subtrees is degraded data — say so via
+    // warnings[] (consumed by analyzer.buildWarnings), never silently. A cut
+    // subtree that gitignore drops anyway costs no coverage, so it gets the
+    // same adjudication as the indexed files before it counts.
+    const lostDeepDirs = this._depthTruncatedDirs.length > 0
+      ? (await filterGitIgnored(this.root, this._depthTruncatedDirs)).kept
+      : [];
+    if (lostDeepDirs.length > 0) {
       this.ledger.record('depth-truncated', {
-        files: this._depthTruncatedDirs,
-        message: `${this._depthTruncatedDirs} director(ies) beyond max depth ${this.maxDepth} were not indexed; coverage for deep subtrees is incomplete (raise "maxIndexDepth" in .workspace-bridge.json to include them)`,
+        files: lostDeepDirs.length,
+        message: `${lostDeepDirs.length} director(ies) beyond max depth ${this.maxDepth} were not indexed; coverage for deep subtrees is incomplete (raise "maxIndexDepth" in .workspace-bridge.json to include them)`,
       });
     }
 
@@ -227,7 +232,7 @@ class FileIndex {
       if (depth > maxDepth) {
         // Record and surface via build() warnings[] instead of silently
         // dropping whole subtrees.
-        this._depthTruncatedDirs++;
+        this._depthTruncatedDirs.push(current);
         continue;
       }
 

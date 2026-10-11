@@ -465,10 +465,9 @@ function parseCliArgs(argv) {
     throwValidationError(`Invalid --format value: ${format}. Expected summary|markdown|jsonl|ai|human|json`);
   }
   if (direction) {
-    // tree 与 impact 共用 --direction，词表按命令分：tree 保持原样，
-    // impact 的方向扩展见 T1.2（ROADMAP）。
+    // tree 与 impact 共用 --direction，词表按命令分。
     const allowedDirections = command === 'impact'
-      ? ['dependents', 'dependencies', 'neighbors', 'all']
+      ? DEFAULTS.IMPACT_DIRECTIONS
       : ['imports', 'dependents', 'both'];
     if (!allowedDirections.includes(direction)) {
       throwValidationError(`Invalid --direction value: ${direction}. Expected ${allowedDirections.join('|')}`);
