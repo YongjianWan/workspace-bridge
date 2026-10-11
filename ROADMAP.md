@@ -9,8 +9,8 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 | 阶段 | 要回答的问题 | 开始条件 | 时间框 | 状态 |
 |---|---|---|---|---|
 | 0 测量 | 在真实业务仓库的提交历史上，`impact` 能找回多少该一起改的文件？比简单办法强多少？ | 无 | 4 个工作日（不含程序运行时间） | 完成（2026-10-09） |
-| 1 补缺口 | 按阶段 0 找到的漏报原因补齐，召回率能否达到通过线？ | 阶段 0 完成 | 10 个工作日 | 任务已完成，阶段未过线（2026-10-11）；止损待项目所有者确认 |
-| 2 真人真用 | 日常改代码时用它，漏改是否变少？ | 阶段 1 完成 | 4 周（日历时间，含 T2.1 的连续 2 周） | 未开始 |
+| 1 补缺口 | 按阶段 0 找到的漏报原因补齐，召回率能否达到通过线？ | 阶段 0 完成 | 10 个工作日 | 未过线，止损（2026-10-11 项目所有者确认） |
+| 2 真人真用 | 日常改代码时用它，漏改是否变少？ | 阶段 1 完成 | 4 周（日历时间，含 T2.1 的连续 2 周） | 冻结（阶段 1 止损，重启条件见第 9 节） |
 
 超出时间框时，停下来在对应阶段末尾写一段状态说明（做到哪、卡在哪、还要多久），由项目所有者决定继续、调整还是止损。并行小修见[第 8 节](#8-并行小修)，已做出的决定见[第 10 节](#10-决策记录)。
 
@@ -34,6 +34,8 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 | T*n*.*m*、S*n* | 本文件的任务编号：T 开头是阶段任务，S 开头是并行小修。 |
 
 ## 2. 现状评估（2026-10-06）
+
+本节是制定计划时的快照，用来说明为什么这样排阶段。当前测试数、CI 作业与核验结果以 [SESSION.md](./SESSION.md) 为准。
 
 ### 2.1 规模
 
@@ -59,7 +61,7 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 
 项目所有者的主要场景是 Java + MyBatis 后端加 Vue 前端。对这个场景，`impact` 有三处设计上的缺口：
 
-1. **Mapper XML 在分析范围之外。** 文件发现只收已注册语言的扩展名（`src/services/dep-graph/parsers/registry.js` 的扩展名表），`.xml` 不在其中，所以 Java 与 Mapper XML 之间的召回率目前必然为 0。在主测仓库 J1 中，112 个可用提交里有 61 个同时改了 Java 和 Mapper XML。
+1. **Mapper XML 在分析范围之外。** 文件发现只收已注册语言的扩展名（`src/services/dep-graph/parsers/registry.js` 的扩展名表），`.xml` 不在其中，所以 Java 与 Mapper XML 之间的召回率目前必然为 0。在主测仓库 J1 中，留出后的 88 个可用提交里有 47 个同时改了 Java 和 Mapper XML（见 5.6）。
 2. **`impact` 只沿一个方向查找。** 它从输入文件出发，只找"引用了输入文件的文件"，最多找 3 层，遇到入口文件就停，最多输出 50 个（`src/services/dep-graph/query.js` 的 `getImpactRadius`，`src/tools/dep-tools/impact.js`）。其余方向的关联文件都在结果之外，例如输入文件自己引用的类，或者和输入文件一起被某个 Service 使用、彼此之间没有引用的 VO。
 3. **前端调用和后端接口分属两个命令。** `impact` 每次只分析一个仓库。前端调用和后端 Controller 的路径匹配由另一个命令 `api-contracts` 完成，结果没有接入 `impact`。
 
@@ -107,7 +109,7 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 
 ### 5.1 目标仓库
 
-下表中的可用提交数是脚本口径（2026-10-08 回放脚本按 5.2 的规则实测；原手数 112 / 166 / 77 有 1–4 个出入，已更正为 108 / 164 / 75。留出后为 88 / 144 / 75，见 5.6 运行概况表）。
+下表中的可用提交数是回放脚本按 5.2 规则实测的数；留出后为 88 / 144 / 75，见 5.6 运行概况表。
 
 | 代号 | 类型 | 非合并提交数 | 可用提交数 | 输入次数 | 用途 |
 |---|---|---|---|---|---|
@@ -142,7 +144,7 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
   - 主干名：去掉扩展名后，按顺序反复尝试去掉结尾的 `ServiceImpl`、`Service`、`Impl`、`Mapper`、`Controller`、`VO`、`Vo`、`DTO`、`Dto`、`PO`、`Entity`、`Request`、`Req`、`Response`、`Resp`、`Query`、`Form`、`Api`（区分大小写），直到去不掉为止；去完为空时，用去掉扩展名后的原名。例如 `UserServiceImpl.java` 和 `UserMapper.xml` 的主干名都是 `User`。
   - 排序：主干名相同的整体排在前面；每组内部按一起改的次数从多到少，次数相同按路径字母序。
   - 推荐个数：等于该次工具输出的个数（篇幅对齐），这样比较的是"读同样多的文件，谁找回得多"。工具输出为空时，笨基线取 15 个：这正是工具帮不上忙的地方，笨基线在这里能找回多少，应当计入对比。另外报告"固定推荐 15 个"时笨基线的召回率，作为参考。
-- **合并列表**：工具输出和笨基线的完整排序（不做篇幅对齐）交替取：工具第 1 个、笨基线第 1 个、工具第 2 个、笨基线第 2 个……已出现过的跳过，取满与笨基线相同的个数（工具输出非空时等于工具输出个数，为空时 15 个）或两边都取完为止。用来判断两者是否互补；如果合并后明显更好，阶段 1 就考虑把两者合并后排序输出。
+- **合并列表**：工具输出和笨基线的完整排序（不做篇幅对齐）交替取：工具第 1 个、笨基线第 1 个、工具第 2 个、笨基线第 2 个……已出现过的跳过，取满与笨基线相同的个数（工具输出非空时等于工具输出个数，为空时 15 个）或两边都取完为止。用来判断两者是否互补；如果合并后明显更好，阶段 1 就考虑把两者合并后排序输出。T1.4 之后工具默认输出本身已是图与历史候选的合并，再与笨基线合并基本等于工具输出（J1 Java→Java 0.5856 对 0.5879），这一列不再提供互补信号，只作口径延续保留。
 - **结构上限**：在 P 的依赖图上，把每条依赖边当作无方向，从输入出发 3 步以内能走到的文件集合。真值文件落在这个集合里的比例，就是结构上限。它不受 50 个的输出上限限制。被 50 个及以上文件引用的公共文件（如统一返回类、工具类）可以作为终点，但不作为中转点；否则经过它们，几乎整个仓库都能连通，上限就失去了意义。同时报告每次输入可达文件数的中位数。
 
 **计算**
@@ -157,7 +159,7 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
   - 前端内部：两边都是 `.vue`、`.js`、`.ts`、`.jsx` 或 `.tsx`。
   - Python→Python：两边都是 `.py`。
 - **输出文件数**：工具输出个数（截断后）的中位数。统计范围：某个边类型用至少有一个该类型配对的输入；"全部类型"用全部输入。中位数只统计输出非空的输入，空输出的输入占比单独报告，这样空输出不会把中位数拉低。通过线"≤ 15"用的是 J1 Java→Java 的这个数。另外报告 `impactCount`（截断前）的中位数。
-- **明显好于笨基线**：同一批样本、同一口径下，工具的汇总召回率比笨基线（篇幅对齐）高 15 个百分点及以上。
+- **明显好于笨基线**：同一批样本、同一口径下，工具的汇总召回率比笨基线（篇幅对齐）高 15 个百分点及以上。T1.4 之后工具含历史共改与主干名候选，这条线比较的是"依赖图加历史"对"只用历史"，篇幅相同，多出的召回来自依赖图。笨基线的规则由 `eval/replay-impact.js` 自持冻结副本，不引用产品代码，口径不随产品演进漂移（`test/replay-impact-test.js` 锁定）。
 
 ### 5.3 运行方式
 
@@ -178,12 +180,12 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 
 | 编号 | 做什么 | 验收 | 预估 | 状态 |
 |---|---|---|---|---|
-| T0.1 | 写 `eval/replay-impact.js`，实现 5.2 的全部口径。再写 `// @semantic` 测试 `test/replay-impact-test.js`：在临时目录用脚本生成一个小 git 仓库，有 3 到 4 个提交，包含新增、删除、重命名，以及只在后来的提交里才出现的共改关系；对这个仓库断言各项计算结果 | ① 测试通过，以下各项都有断言：单次召回率、两级平均、新增文件排除、留出任务池、笨基线和工具都只用 P 及更早的历史、笨基线篇幅对齐、主干名规则、合并列表、结构上限、抽样公式。② 进程内算出的工具输出，和单独运行 `node cli.js impact --cwd <目录> --file <文件> --json` 的 `impact[].file` 列表一致：取第一个提交的前 3 个输入核对，路径统一成相对路径后比较。③ 在本仓库自身最近 20 个可用提交上跑通，退出码 0 | 1 天 | 完成（2026-10-08 验收通过：①测试退出码 0，十项口径均有真实断言，验收②的 CLI 对照真实运行并通过；③自回放 20 提交 102 输入 0 错误 0 范围外，耗时 108s，工具/笨基线（对齐）/合并/结构上限=0.2524/0.3567/0.4176/0.6616；`npm run test:fast` 271/271 无回归） |
-| T0.2 | J1 试跑：按时间顺序跑前 5 个可用提交 | ① 记录每个提交的耗时，算出全量的预估耗时。② 人工抽 2 个提交，用 `git show --name-status <提交>` 核对真值列表，结果一致。③ 确定性检查：同样 5 个提交，每个提交都用一个新的空缓存目录单独再跑一遍，结果与按顺序增量运行的 `runs.jsonl` 比较，除耗时字段外完全一致（证明结果不受前面提交的缓存影响） | 0.5 天 | 完成（2026-10-09 验收通过：①重跑 5 提交 26 输入 0 错误 8 范围外，墙钟约 51s，全量预估仍远低于 3 小时，不抽样；②另抽 `15a97324`、`ed576ba9` 对 `git show --name-status --no-renames` 核对，输入集、真值集、addedCount 全一致；③5 提交各用全新空缓存单独重跑，与增量 `runs.jsonl` 除 `durationMs` 外逐行一致。验收命令注意：`--target J1 --holdout 103 --max-commits 5` 须走 `WB_REPLAY_TRUTH` 沙箱加独立目标名——直接 `--target J1` 会与 `replay/J1/sample.json` 冻结列表冲突报错。实施自测见 2026-10-08 记录；试跑产物在 `eval/truth/replay/J1-t02-trial/`） |
-| T0.3 | J1 全量回放（预估超过 3 小时的，按 5.3 第 6 条抽样） | 产出 summary.json 和 summary.md；运行出错的输入不超过 5%，超过就先查原因、修好后重跑。不在分析范围内的输入（如 XML，工具返回 `target-not-indexed` 警告和空列表）单独计数，召回率按 0 计，不算出错 | 0.5 天加运行时间 | 完成（2026-10-09 验收通过：`node eval/replay-impact.js --target J1 --holdout 20` 重跑 88 提交 / 458 输入 / 0 错误 / 86 范围外，`summary.json` 除 wallMs/时间戳/出处字段外与原件全等、与 5.6 表逐格一致，`runs.jsonl` 458 行除 `durationMs` 外逐行一致；`sample.json` 冻结 mode=all 沿用。实施记录 2026-10-08 同数字） |
-| T0.4 | F1、P1 回放 | 同 T0.3 | 0.5 天加运行时间 | 完成（2026-10-09 验收通过：`--target F1 --holdout 20` 与 `--target P1 --holdout 0` 重跑，F1 144 提交 / 848 输入、P1 75 提交 / 325 输入，均 0 错误；summary 与 runs.jsonl 同 T0.3 口径与原件逐行一致。注：F1 的 cutoff 原只记录在 summary（`f9d46d65`），已补写 `targets.json` 冻结） |
-| T0.5 | 漏报归因（只看 Java→Java 配对；XML 的漏报由 2.4 第 1 条已知是范围外）：J1 中 Java→Java 单次召回率低于 50% 的输入，按（提交时间正序，输入路径字母序）排列并编号为 1 到 N，取编号为 ⌊i × N ÷ 20⌋ + 1 的输入，i 从 0 到 19，共 20 次（N 小于 20 时全取；N 为 0 时记"无样本"，5.5 第三行交项目所有者决定）；对其中每个漏报的 `.java` 真值文件判定原因 | 归因表写进 5.6，计数单位是漏报的真值文件。每个文件按以下顺序检查，归入第一个成立的原因：① 文件在分析范围外；② 解析失败（输入、真值或路径上的文件没有被成功解析）；③ import 未解析（相关 import 没有解析出目标文件）；④ 方向（在 5.2 结构上限定义的可达集合内，即不分方向、3 步以内、公共文件不作中转；但沿引用方向无任何有向路径）；⑤ 入口截断（沿引用方向 5 步以内可达，但路径经过入口文件被停止）；⑥ 超过深度（沿引用方向可达，但最短路径超过 5 步，5 步是 `impact` 的默认深度，见 5.2）；⑦ 被 50 个上限截断；⑧ 真值噪声（以上都不成立：不在结构上限的可达集合内，沿引用方向也不可达）。④⑤⑥互斥：④=无任何有向路径，⑤=5 步内可达但被入口停扩挡住，⑥=有向路径但最短超过 5 步（原④表述"沿引用方向 5 步以内不可达"按字面会吞掉⑤⑥，2026-10-09 修订）。计数并列时，排序取编号小的原因 | 0.5 天 | 完成（2026-10-09 验收通过：`node eval/truth/t05-attribute-scratch.js` 重跑，counts ④方向 69 / ⑤入口截断 4 / ⑧真值噪声 37、其余 0、unexplained 0，合计 110，与 5.6 归因表全等。实施记录 2026-10-08：N=286、按公式抽 20 个输入） |
-| T0.6 | 把结果填进 5.6，按 5.5 定下一步 | 5.6 填完；SESSION.md 的"下一步"已更新 | 0.5 小时 | 完成（2026-10-09 验收通过：5.6 三表逐格核对三个 `summary.json` 全对，T0.3/T0.4 重跑后再核一致；判定结论"进入阶段 1"成立；SESSION 下一步已随验收重写） |
+| T0.1 | 写 `eval/replay-impact.js`，实现 5.2 的全部口径。再写 `// @semantic` 测试 `test/replay-impact-test.js`：在临时目录用脚本生成一个小 git 仓库，有 3 到 4 个提交，包含新增、删除、重命名，以及只在后来的提交里才出现的共改关系；对这个仓库断言各项计算结果 | ① 测试通过，以下各项都有断言：单次召回率、两级平均、新增文件排除、留出任务池、笨基线和工具都只用 P 及更早的历史、笨基线篇幅对齐、主干名规则、合并列表、结构上限、抽样公式。② 进程内算出的工具输出，和单独运行 `node cli.js impact --cwd <目录> --file <文件> --json` 的 `impact[].file` 列表一致：取第一个提交的前 3 个输入核对，路径统一成相对路径后比较。③ 在本仓库自身最近 20 个可用提交上跑通，退出码 0 | 1 天 | 完成（2026-10-08 独立验收）：十项口径都有断言，进程内输出与 CLI `impact` 一致；本仓库自回放 20 提交 / 102 输入 / 0 错误。复跑：`node test/replay-impact-test.js` |
+| T0.2 | J1 试跑：按时间顺序跑前 5 个可用提交 | ① 记录每个提交的耗时，算出全量的预估耗时。② 人工抽 2 个提交，用 `git show --name-status <提交>` 核对真值列表，结果一致。③ 确定性检查：同样 5 个提交，每个提交都用一个新的空缓存目录单独再跑一遍，结果与按顺序增量运行的 `runs.jsonl` 比较，除耗时字段外完全一致（证明结果不受前面提交的缓存影响） | 0.5 天 | 完成（2026-10-09 验收）：5 提交 / 26 输入 / 0 错误，全量预估远低于 3 小时，不抽样；真值人工核对与空缓存确定性检查均一致。复跑须用 `WB_REPLAY_TRUTH` 沙箱加独立名字，直接 `--target J1` 会与已冻结的 `sample.json` 冲突 |
+| T0.3 | J1 全量回放（预估超过 3 小时的，按 5.3 第 6 条抽样） | 产出 summary.json 和 summary.md；运行出错的输入不超过 5%，超过就先查原因、修好后重跑。不在分析范围内的输入（如 XML，工具返回 `target-not-indexed` 警告和空列表）单独计数，召回率按 0 计，不算出错 | 0.5 天加运行时间 | 完成（2026-10-09 验收）：88 提交 / 458 输入 / 0 错误 / 86 范围外，数字见 5.6。复跑：`node eval/replay-impact.js --target J1 --name <新名字> --holdout 20` |
+| T0.4 | F1、P1 回放 | 同 T0.3 | 0.5 天加运行时间 | 完成（2026-10-09 验收）：F1 144 提交 / 848 输入、P1 75 / 325，均 0 错误。复跑：`--target F1 --holdout 20`、`--target P1 --holdout 0`，各加 `--name <新名字>` |
+| T0.5 | 漏报归因（只看 Java→Java 配对；XML 的漏报由 2.4 第 1 条已知是范围外）：J1 中 Java→Java 单次召回率低于 50% 的输入，按（提交时间正序，输入路径字母序）排列并编号为 1 到 N，取编号为 ⌊i × N ÷ 20⌋ + 1 的输入，i 从 0 到 19，共 20 次（N 小于 20 时全取；N 为 0 时记"无样本"，5.5 第三行交项目所有者决定）；对其中每个漏报的 `.java` 真值文件判定原因 | 归因表写进 5.6，计数单位是漏报的真值文件。每个文件按以下顺序检查，归入第一个成立的原因：① 文件在分析范围外；② 解析失败（输入、真值或路径上的文件没有被成功解析）；③ import 未解析（相关 import 没有解析出目标文件）；④ 方向（在 5.2 结构上限定义的可达集合内，即不分方向、3 步以内、公共文件不作中转；但沿引用方向无任何有向路径）；⑤ 入口截断（沿引用方向 5 步以内可达，但路径经过入口文件被停止）；⑥ 超过深度（沿引用方向可达，但最短路径超过 5 步，5 步是 `impact` 的默认深度，见 5.2）；⑦ 被 50 个上限截断；⑧ 真值噪声（以上都不成立：不在结构上限的可达集合内，沿引用方向也不可达）。④⑤⑥互斥：④=无任何有向路径，⑤=5 步内可达但被入口停扩挡住，⑥=有向路径但最短超过 5 步。计数并列时，排序取编号小的原因 | 0.5 天 | 完成（2026-10-09 验收）：④ 方向 69、⑤ 入口截断 4、⑧ 真值噪声 37，其余 0，合计 110，见 5.6。复跑：`node eval/truth/t05-attribute-scratch.js`（脚本只在项目所有者本机） |
+| T0.6 | 把结果填进 5.6，按 5.5 定下一步 | 5.6 填完；SESSION.md 的"下一步"已更新 | 0.5 小时 | 完成（2026-10-09 验收）：5.6 已填，判定进入阶段 1 |
 
 **事先预测**（读代码得出，写在跑数据之前，T0.6 时对照）：Java→Mapper XML 和 Mapper XML→Java 的工具召回率和结构上限都接近 0，因为 XML 不在依赖图里；实体→VO/DTO 的工具召回率很低，结构上限明显更高；Java→Java 的结果无法预判。
 
@@ -248,11 +250,9 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 注记：
 
 - 预测对照（5.4 的事先预测，三条全中）：Java→Mapper XML 与 Mapper XML→Java 的工具和结构上限双双 0.0000；实体→VO/DTO 工具 0.0755 显著低于结构上限 0.7823；Java→Java 原文无预测。
-- 5.1 可用提交数更正为脚本口径：J1 108（原 112）、F1 164（原 166）、P1 75（原 77）；留出后为 88/144/75，与运行概况表一致。
-- 归因④的文字歧义：原文"沿引用方向 5 步以内不可达"按字面会吞掉⑥（排在它后面的⑤⑥成死类别）。执行口径取 ④ = 无任何有向路径、⑤ = 5 步内可达但被入口停扩挡住、⑥ = 有向路径但最短超过 5 步，四类互斥。文字已修订（2026-10-09，T0.5 行定义已同步）。
 - 归因实现注：目标仓库无 package.json，`graph.entryFiles` 为空集，入口判定改用 `getImpactRadius` 实际停扩的入口规则；类名互提用标识符边界匹配。抽验：④全部在 ceilingList 内、⑧全部在外、无 unexplained。
 
-## 6. 阶段 1：补缺口（状态：任务已完成，阶段未过线；止损待项目所有者确认）
+## 6. 阶段 1：补缺口（状态：未过线，2026-10-11 项目所有者确认止损）
 
 **每项任务的统一验收条件**（写进每项任务的验收列，五条都要满足）：
 
@@ -266,13 +266,11 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 
 | 编号 | 做什么 | 代码入口 | 额外验收 | 状态 |
 |---|---|---|---|---|
-| T1.1 | （必做）把 MyBatis Mapper XML 纳入分析：发现 `mapper` 目录下或以 `Mapper.xml` 结尾的 `.xml` 文件；读 `<mapper namespace="...">`，建立 XML 和 Mapper 接口之间的双向边；读 `resultType`、`parameterType` 和 `<resultMap type="...">`，建立 XML 到实体类的边。这是框架支持，开发原则第 8 条的多语言对等要求不适用，统一验收第 4 条换成 MyBatis 夹具测试 | `src/services/dep-graph/parsers/registry.js`（注册一个轻量 XML 解析器）、`src/services/file-index.js`、`src/utils/project-context.js`（目前只把 `/mapper/` 目录标成入口） | Mapper XML→Java 和 Java→Mapper XML 的召回率都提高。70% 的 XML 召回率线在 T1.2 完成后检查，因为 Service 等文件到 XML 的关联需要 T1.2 补的正向查找 | 完成（2026-10-09 实施 `7a2847f`，同日 Vivian 验收会话重跑通过：J1 回放输出与 `a006847` 记录逐格一致（dirty=false），XML 两方向非 0、各边类型降幅 ≤1pp，快层 274/274、慢层 91/91、eval/run+eval/score 零 FAIL、MyBatis 夹具 19/19）。实施要点：发现口径单一事实源 `utils/project-context.js isMybatisMapperXmlPath`（file-index/解析器/框架规则共用，分层全向下）；解析器 `parsers/mybatis-xml.js`（regex 设计路径）；namespace 双向边由 builder 后处理阶段 `derive-mybatis-reverse-edges` 派生（幂等 strip/re-derive，不进解析缓存）；类型边单向；mapper XML 结构性不标入口。验收证据（`eval/truth/replay/J1`，T1.1 前基线存档 `J1-pre-t11`，出处 a006847、dirty=false）：Java→Mapper XML 0.0000→0.2504（上限 0→0.7470）、Mapper XML→Java 0.0000→0.0841（上限 0→0.7470，仅 Mapper 接口经反向边找回，实体/Service 归 T1.2）；Java→Java 0.2263→0.2263、实体→VO/DTO 0.0755→0.0755 均不动；输出中位 2→3 ≤15；范围外 86→1（剩 1 个 logback.xml，设计内）；0 错误；快层 274/274、慢层 91/91、`eval/run`+`eval/score` 零 FAIL；F1/P1 无 mapper XML 路径不受影响（已查）。笨基线 Mapper XML→Java 0.5971→0.1153 是篇幅对齐规则生效（工具空输出时基线取 15 个），非退化。验收命令：`node eval/replay-impact.js --target J1 --holdout 20` 重跑核对两个 XML 边类型非 0 且不降、各边类型降幅 ≤1pp；`npm run test:fast` + `npm run test:slow` 无回归；`node test/mybatis-mapper-xml-test.js` 19 项断言） |
-| T1.2 | （必做）补齐另外两个方向：输入文件自己引用的文件，以及"同层邻居"（和输入文件一起被同一个文件直接引用的文件）；同时把"遇到入口文件停止"和深度做成可选参数一起评估。作为可选扩展实现。T1.2 的验收按开启扩展后的输出测；开启后 J1 Java→Java 的输出文件数中位数 ≤ 15 时直接设为默认，超过 15 时触发 T1.3，T1.3 完成后再设为默认。阶段 1 的完成判定一律用默认输出 | `src/services/dep-graph/query.js` 的 `getImpactRadius` | 归为④⑤⑥的那类漏报对应的边类型召回率提高（至少包括实体→VO/DTO） | 完成（2026-10-11 Vivian 验收会话重跑通过：all+nostop 重跑 458 输入与地板前 15 逐格一致（截断契约成立）；`--direction dependencies` CLI 抽查输出正确；慢层除 bug-27-28-29 flake（单独两次+CI 绿）外全过。实施记录：2026-10-10 实施完成：query.js 加 `options.direction`（dependents 默认不动 / dependencies / neighbors / all）与 `options.stopAtEntry`（默认 true 不动）；CLI `impact` 加 `--direction`、`--no-stop-at-entry`（与 tree 共用旗标、词表按命令分）；REPL 同步；`--impact-option` 回放通道免费可用。新测试 `test/impact-direction-options-test.js` 5 组。方向语义在图遍历层，六种主语言的真实解析夹具补验命令为 `node test/impact-language-directions-test.js`（补修已独立验收通过，见下文）。验收证据（J1，存档 `J1-t12-all-nostop/`、`J1-t12-all-stop/`，gitignored）：①默认配置重跑与 T1.1 基线逐字节一致（dirty=false，默认零漂移）；②`direction=all+stop-at-entry=false` 工具总召回 0.1866→0.6122（上限 0.7326），Java→Java 0.2263→0.7130、Java→Mapper XML 0.2504→0.5545、Mapper XML→Java 0.0841→0.7331、实体→VO/DTO 0.0755→0.7534（XML 两方向与实体→VO/DTO 过 70% 线），但输出中位 50（JSON 上限顶满）>15；③分解 `direction=all`（入口停止开）0.5734、中位仍 50/25 → 膨胀主因是双向 BFS 宽度而非入口停止（后者仅 ~0.04）。**结论：召回目标全达成，中位 >15 按本行规则触发 T1.3（截断/排序），扩展暂不设默认（T1.3 完成后已翻默认 direction=all，见 T1.3 行）**。快层 275/275、eval/run+score 23 项零 FAIL。验收命令：`node eval/replay-impact.js --target J1 --holdout 20 --impact-option direction=all --impact-option stop-at-entry=false` 重跑核对召回非降；`npm run test:fast` 无回归；`node test/impact-direction-options-test.js` 5 组；CLI 层 `node cli.js impact --cwd . --file src/services/dep-graph/query.js --direction dependencies --json --quiet` 抽查） |
-| T1.3 | 排序与截断：按依赖层级和来源排序，让最相关的文件排进前 15 个。在以下任一情况下做：默认输出的中位数超过 15；⑦被截断位列 T0.5 归因计数前两位；T1.2 开启扩展后中位数超过 15 | `src/tools/dep-tools/impact.js` | 输出中位数 ≤ 15；各边类型的召回率，不低于任务开始前的输出只取前 15 个时的召回率 | 完成（2026-10-11 Vivian 验收会话重跑通过：J1 默认配置重跑与实施存档 `J1-t13-default` 逐格一致（总召回 0.4216、中位 15、0 错误、四条边类型逐项相等）；F1 0.1909→0.4668、P1 0.1800→0.3660 均翻默认受益（0 错误、中位 15）；快层 276/276、eval 23 项零 FAIL、专项测试 11 组全过；验收中修 CI lint 红 `validate-args.js` 重复 `--direction` 键（`e135bbe`，T1.2 引入）。实施记录：2026-10-10 实施完成。**定案：截断到 15，顺序保持 BFS 不动**。自定义相关性排序（level → reason 优先级 → 同目录 → 路径）做过两轮，对"地板前 15"不稳定占优——v1 全类型落败（归因出两个真 bug：① `_sameImporterRows` 的 seen 缺 start，输入经循环边作为自己的同层邻居漏进结果，已修并加杀变异测试；② implicit-same-package 曾被排太高挤占名额），v2 修复后仍互有 ±1–4pp 胜负、无稳定占优——按"暴露冲突不折中"选 BFS 序（它本身已按依赖层级与来源排序），只截断：`DEFAULTS.IMPACT_RELEVANCE_LIMIT: 15` 替换原 JSON 上限 50，`--max-files` 覆盖语义不变，`impactCount` 仍报截断前总数。工具层不碰 `getImpactRadius` 遍历语义。**按 T1.2 行流程翻默认**：`DEFAULTS.IMPACT_DEFAULT_DIRECTION: 'all'`，工具层与 REPL 同改（S6 夹具加 `g.js` 锁 REPL/CLI 方向一致），`stopAtEntry` 仍默认 true；`getImpactRadius` 内部缺省仍是 dependents，watch/audit-assembler/symbol-impact 等直连调用方不受影响。验收证据（J1，88 提交/458 输入/0 错误/范围外 1=logback.xml）：①地板 = T1.2 提交（`373a4b8`）经独立 worktree 跑（回放子进程 require 工作区代码，直接跑会被未提交改动污染——本会话首批地板因此报废重跑），复现 T1.2 存档数字 all+nostop 0.6122 / all+stop 0.5734、中位 50，dirty=false；②前 15 截断的各边类型召回与地板前 15 **逐格 0.00pp 一致**（离线仿真 `eval/truth/t13-simulate.js` 与实跑 `J1-t13-default` 双重验证），输出中位 50→15；③翻默认后默认配置重跑（`J1-t13-default`，即 all+stop+截 15）：工具总召回 0.1866→0.4216，分边类型 Java→Java 0.2263→0.4957、Java→Mapper XML 0.2504→0.3748、Mapper XML→Java 0.0841→0.5163、实体→VO/DTO 0.0755→0.2105；总召回的笨基线 0.4801（工具 -5.8pp）、合并列表 0.5539（比工具 +13.2pp）；Java→Java 的笨基线 0.4229（工具 +7.3pp）、合并列表 0.5708（比工具 +7.5pp）——**阶段 1 通过线现状：Java→Java 0.4957 距 70% 线与"比笨基线高 15pp"线都未到，完成判定依赖 T1.4（合并排序，Java→Java 合并列表已比工具高 7.5pp，超过 5pp 触发线）**；中位 15 压线达标。快层 276/276（`test/impact-truncation-test.js` 5 组锁定"不重排+截断"契约、`impact-direction-options-test.js` 6 组含自行排除）、慢层 91/91、`eval/run`+`eval/score` 23 项零 FAIL（eval 记分板已随提交刷新）。截断跨入口补验命令为 `node test/repl-cli-impact-depth-test.js`，六种主语言方向补验见 T1.2 行（补修已独立验收通过，见下文）。存档（gitignored `eval/truth/replay/`）：地板 `J1-t13-baseline-nostop/`、`J1-t13-baseline-stop/`；排序试验 `J1-t13-ranked-nostop/`、`J1-t13-ranked-stop/`（定案弃用，留作证据）；定案 `J1-t13-default/`；对比脚本 `eval/truth/t13-scratch.js`（地板 vs 实跑）、`t13-simulate.js`（地板 → 方案A 仿真）、`t13-diff.js`（逐输入归因）。验收命令：`node eval/replay-impact.js --repo <J1 本机路径> --name <独立名> --holdout 20` 重跑默认配置核对 0.4216/中位 15/各边类型不降；显式 `--impact-option direction=all [--impact-option stop-at-entry=false]` 复跑应对齐 `J1-t13-default` / 仿真；`npm run test:fast` + `npm run test:slow`；`node eval/run.js && node eval/score.js`；`node test/impact-truncation-test.js`；CLI 抽查 `node cli.js impact --cwd . --file src/services/dep-graph/query.js --json --quiet`（默认方向 all、输出 ≤15）） |
-| T1.4 | 合并排序：把 `coChanges`（历史共改）和依赖图结果合并后排序输出。触发条件：5.6 中 J1 Java→Java 的合并列表召回率比工具单独高 5 个百分点及以上，不论 5.5 判定表落在哪一行 | `src/tools/dep-tools/impact.js`、`src/tools/cochange-tools.js` | J1 汇总召回率达到 5.6 合并列表的水平 | 完成（2026-10-11，独立验收通过：J1/F1/P1 原冻结范围回放、九项专项、lint、快层 279/279、完整 382/382、eval 23 PASS/0 FAIL；源码 CI 9 作业全绿；默认最多 15 个。任务完成不代表阶段通过，详见下文） |
+| T1.1 | （必做）把 MyBatis Mapper XML 纳入分析：发现 `mapper` 目录下或以 `Mapper.xml` 结尾的 `.xml` 文件；读 `<mapper namespace="...">`，建立 XML 和 Mapper 接口之间的双向边；读 `resultType`、`parameterType` 和 `<resultMap type="...">`，建立 XML 到实体类的边。这是框架支持，开发原则第 8 条的多语言对等要求不适用，统一验收第 4 条换成 MyBatis 夹具测试 | `src/services/dep-graph/parsers/registry.js`（注册一个轻量 XML 解析器）、`src/services/file-index.js`、`src/utils/project-context.js`（目前只把 `/mapper/` 目录标成入口） | Mapper XML→Java 和 Java→Mapper XML 的召回率都提高。70% 的 XML 召回率线在 T1.2 完成后检查，因为 Service 等文件到 XML 的关联需要 T1.2 补的正向查找 | 完成（2026-10-09 实施 `7a2847f`，同日独立验收）：Java→Mapper XML 0.0000→0.2504、Mapper XML→Java 0.0000→0.0841，其余边类型不变；范围外输入 86→1（剩 `logback.xml`，设计内）。复跑：`node test/mybatis-mapper-xml-test.js`；回放命令同 T0.3 |
+| T1.2 | （必做）补齐另外两个方向：输入文件自己引用的文件，以及"同层邻居"（和输入文件一起被同一个文件直接引用的文件）；同时把"遇到入口文件停止"和深度做成可选参数一起评估。作为可选扩展实现。T1.2 的验收按开启扩展后的输出测；开启后 J1 Java→Java 的输出文件数中位数 ≤ 15 时直接设为默认，超过 15 时触发 T1.3，T1.3 完成后再设为默认。阶段 1 的完成判定一律用默认输出 | `src/services/dep-graph/query.js` 的 `getImpactRadius` | 归为④⑤⑥的那类漏报对应的边类型召回率提高（至少包括实体→VO/DTO） | 完成（2026-10-11 独立验收）：`direction=all` 加 `stop-at-entry=false`、不截断时，Java→Java 0.2263→0.7130，Mapper XML→Java 0.7331、实体→VO/DTO 0.7534 过 0.70，Java→Mapper XML 0.5545 未过，输出中位数 50，按本行规则触发 T1.3。复跑：`node eval/replay-impact.js --target J1 --name <新名字> --holdout 20 --impact-option direction=all --impact-option stop-at-entry=false`；`node test/impact-direction-options-test.js`；`node test/impact-language-directions-test.js` |
+| T1.3 | 排序与截断：按依赖层级和来源排序，让最相关的文件排进前 15 个。在以下任一情况下做：默认输出的中位数超过 15；⑦被截断位列 T0.5 归因计数前两位；T1.2 开启扩展后中位数超过 15 | `src/tools/dep-tools/impact.js` | 输出中位数 ≤ 15；各边类型的召回率，不低于任务开始前的输出只取前 15 个时的召回率 | 完成（2026-10-11 独立验收）：截断到 15 个、保留 BFS 顺序（两轮自定义排序都没有稳定优势，未采用）；默认方向改为 `all`，入口停止仍默认开。J1 总召回 0.1866→0.4216，Java→Java 0.4957，输出中位数 15；F1 0.1909→0.4668，P1 0.1800→0.3660。复跑：默认配置回放同 T0.3；`node test/impact-truncation-test.js`；`node test/repl-cli-impact-depth-test.js` |
+| T1.4 | 合并排序：把 `coChanges`（历史共改）和依赖图结果合并后排序输出。触发条件：5.6 中 J1 Java→Java 的合并列表召回率比工具单独高 5 个百分点及以上，不论 5.5 判定表落在哪一行 | `src/tools/dep-tools/impact.js`、`src/tools/cochange-tools.js` | J1 的 Java→Java 与全部类型召回率，分别达到 T1.3 默认配置下合并列表的水平（0.5708 / 0.5539；5.6 表的合并列表是阶段 0 旧工具的数，不作对照） | 完成（2026-10-11，独立验收通过；按本列核对：Java→Java 0.5856 ≥ 0.5708，全部类型 0.5661 ≥ 0.5539：J1/F1/P1 原冻结范围回放、九项专项、lint、快层 279/279、完整 382/382、eval 23 PASS/0 FAIL；源码 CI 9 作业全绿；默认最多 15 个。任务完成不代表阶段通过，详见下文） |
 | T1.5 | 修解析与依赖解析：对 T0.5 中归为②解析失败、③ import 未解析的文件，逐个找出原因并修复对应语言的解析器或依赖解析规则。只在②或③位列归因计数前两位时做 | `src/services/dep-graph/parsers/`、`src/services/dep-graph/resolvers/` | T0.5 抽样中归为②③的文件，修复后都能被解析并连上边 | 未开始 |
-
-**T1.4 实施约束（2026-10-11，实验前冻结）**：默认输出仍最多 15 个，先比较 A（依赖 BFS 与现有历史共改候选交替合并、重复跳过）及 B（增加既定笨基线的主干名分组与单次共改候选，不改评测口径）。只读冻结存档与 P 及更早的 git 历史，不查看留出任务池；同一规则同时核对 J1/F1/P1。候选不得使用当前提交真值排序；J1 各边类型不得较 T1.3 默认降低超过 1pp。选定规则后补真实 CLI/REPL 一致性、六语言与历史边界测试，再重跑完整回放和门禁。若两种规则均不满足约束，记录冲突，不调整阈值或继续盲调排序。
 
 **T1.4 选定规则（2026-10-11，独立验收通过）**：采用 B，历史窗口为当前 HEAD 及更早的最近 300 个非合并提交、每提交 2–20 个文件；候选只取当前索引内与输入主干名相同或至少共改一次的文件。同主干组优先，组内按共改次数降序、路径字典序，与依赖 BFS 交替去重，最多 15 个。仅 `all` 合并，其他显式方向保持图查询语义；纯历史／同主干候选标低置信和来源，不伪造图层级。历史缓存按 HEAD 校验，失败后允许下次重试。
 
@@ -284,21 +282,29 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 | F1 | 20 | 144 / 848 | 0.4668 | 0.5247 |
 | P1 | 0 | 75 / 325 | 0.3660 | 0.5175 |
 
-复核存档（本机 gitignored）：`eval/truth/t14-independent-final.json`；回放目录为 `eval/truth/replay/J1-t14-independent-final/`、`F1-t14-independent-final/`、`P1-t14-independent-final/`。复现命令分别为 `node eval/replay-impact.js --target J1 --name J1-t14-independent-final --holdout 20`、`--target F1 --name F1-t14-independent-final --holdout 20`、`--target P1 --name P1-t14-independent-final --holdout 0`；独立重跑应使用新的 `--name`。
-
-**验收遗漏补修（2026-10-11，独立验收通过）**：Python 显式方向过滤、REPL 截断与 CLI 对齐、CLI 帮助默认值和通过线口径。验收方重跑 `node test/p0-10-pytest-conftest-test.js`、`node test/repl-cli-impact-depth-test.js`、`node test/impact-language-directions-test.js`、`node test/cli-help-dry-test.js`、`npm run lint`、`npm test`、`node eval/run.js` 与 `node eval/score.js`（23 项零 FAIL）；指标核对 `J1-accept-t13-default/summary.json` 的 `byEdgeType["Java→Java"]`，不得用 `overall` 的差值替代。实施结果见 SESSION。 独立重跑：四专项、lint、快层276/276、完整378/378、eval23 PASS/0 FAIL；完整报告 `test/.reports/run-2026-10-11T03-42-26-349Z.json`。
+复核存档（本机 gitignored；`eval/truth/` 下的归因、仿真、对比脚本同样只在项目所有者本机，其他机器只能复跑 `eval/replay-impact.js`，不能复跑这些派生计算）：`eval/truth/t14-independent-final.json`；回放目录为 `eval/truth/replay/J1-t14-independent-final/`、`F1-t14-independent-final/`、`P1-t14-independent-final/`。复现命令分别为 `node eval/replay-impact.js --target J1 --name J1-t14-independent-final --holdout 20`、`--target F1 --name F1-t14-independent-final --holdout 20`、`--target P1 --name P1-t14-independent-final --holdout 0`；独立重跑应使用新的 `--name`。
 
 **阶段 1 完成条件**：T1.1、T1.2 完成；T0.5 归因计数前两位中有对应任务的原因都已处理；J1 满足 5.5 定义的通过线；J1 的 Java→Mapper XML 和 Mapper XML→Java 召回率都 ≥ 70%。两条线如经项目所有者复核调整，以调整后的数为准。
 
-**阶段 1 结论（2026-10-11）**：所有已触发任务 T1.1–T1.4 完成，T1.5 不触发，但阶段未通过。J1 Java→Java 工具召回 58.56%（要求 ≥70%）、当期笨基线 43.98%、合并列表 58.79%；工具与合并列表相对当期笨基线的增益为 14.58pp / 14.81pp，均未达到 15pp。输出中位数 15 达标；Java→Mapper XML / Mapper XML→Java 为 59.62% / 62.08%，也未到 70%。第 4 节止损触发条件已成立，须由项目所有者确认；不借用旧笨基线抬高增益，不调整通过线，不自动进入阶段 2。
+**阶段 1 结论（2026-10-11）**：所有已触发任务 T1.1–T1.4 完成，T1.5 不触发，但阶段未通过。J1 Java→Java 工具召回 58.56%（要求 ≥70%）、当期笨基线 43.98%、合并列表 58.79%；工具与合并列表相对当期笨基线的增益为 14.58pp / 14.81pp，均未达到 15pp。输出中位数 15 达标；Java→Mapper XML / Mapper XML→Java 为 59.62% / 62.08%，也未到 70%。第 4 节止损触发条件成立，项目所有者已于 2026-10-11 确认止损；不借用旧笨基线抬高增益，不调整通过线，不自动进入阶段 2。T1.3、T1.4 的规则是在同一批 J1 回放提交上比较选出的，判分也用这批提交，所以上述数字是调参样本内的值；选择偏差让样本内数字偏乐观，换到未参与选择的提交上，增益的预期值更低，因此不支持"换样本后能过线"；这是推断，没有用独立样本验证。
 
-## 7. 阶段 2：真人真用（状态：未开始；开始条件：阶段 1 完成）
+**未过线原因诊断（2026-10-11，供止损决定参考）**：以 J1 Java→Java、前 15 个、两级平均计。
+
+1. 真值大多就在候选里，缺的是排序：结构上限 0.863，图遍历前 50 个含真值 0.713，候选完美排序后的前 15 个可达 0.889；每个输入的真值中位数 5 个、无一超过 15。70% 不是硬上限，难点是从 60–80 个结构邻居里挑出这次一起改的约 5 个。
+2. 结构特征分不出这 5 个：8 种不读真值、不调参的排序（BFS、公共文件不中转的遍历、同目录优先、枢纽度升序、已知第二个改动文件取交集，各自单用或与历史交替）全部落在 0.38–0.60，最高是现行的 BFS 与历史交替（约 0.60）；T1.3 的两轮层级 / 来源 / 目录排序结论相同。同一个输入文件，改不同功能时一起改的文件不同，只给文件名，工具拿不到区分信息（这是从数据推出的判断，不是证明）。
+3. 一处可修的算法缺陷：入口标记 `isEntry` 同时用于"运行时由框架调用、不报死代码"（`src/utils/orphan-detector.js`、`analyzer.js` 死导出）和"影响分析遇到即停"（`src/services/dep-graph/query.js`）。`/mapper/`、`/repository/`、`/config/`、`/task/` 及文件名含 `filter|wrapper|validator|serializer` 的文件都被当作终点，遍历在 Mapper 接口处中断。截 15 个时关闭入口停止：Java→Java 0.496→0.526、实体→VO/DTO 0.211→0.350、Mapper XML→Java 0.516→0.629；在 T1.4 合并形态下 Java→Java 约 +1.2pp。修法是拆开两种语义（Controller、`main` 这类真汇聚点仍停），不是全局关闭；修后 Java→Java 推测约 0.60，仍低于 0.70。
+4. 约 14% 的真值在结构上限之外（配置、SQL、约定关联等），沿依赖图的方法都拿不到。
+5. 未测过的方向：把"改了什么"交给工具。用已有的符号级影响（`getSymbolImpact` / `getChangedFunctionImpact`）只追引用了被改方法或字段的文件；回放时可用真实提交里输入文件的 diff 作为输入。这把题目从"改之前会影响哪些"换成"改完一个文件还要改哪些"（`audit-diff` 的场景），属于新的一轮投入。
+
+复跑（脚本与数据都只在项目所有者本机）：`node eval/truth/phase1-miss-buckets.js "Java→Java"`（真值去向与完美排序上限）、`node eval/truth/phase1-rank-probe.js`（各排序对比）、`node eval/truth/phase1-info-probe.js`（入口停止代价与第二个已知文件）。
+
+## 7. 阶段 2：真人真用（状态：冻结；阶段 1 已止损，重启条件见第 9 节）
 
 | 编号 | 做什么 | 验收 | 状态 |
 |---|---|---|---|
 | T2.0 | 本机使用日志：设置环境变量 `WB_USAGE_LOG=<文件路径>` 后，CLI 每次运行都往这个文件追加一行 JSON。字段有时间、命令、工作区路径的哈希、输出文件数、耗时（毫秒）、退出码。另提供一条命令，给某一行补上结果标记（帮上了、漏了、噪声多、没用上）和一句备注；漏掉的是后端接口时，备注写"漏了后端"。未设置这个变量时不写日志 | 测试锁定：设置变量时写入一行、字段齐全；未设置时不写；标记命令能改指定的行 | 完成（2026-10-09 验收通过：`node test/usage-log-test.js` 退出码 0、`npm run test:fast` 273/273 退出码 0。提前开工经项目所有者批准） |
 | T2.1 | 项目所有者把"改代码前先跑 `impact`"写进 J1、F1 的 agent 说明文件，并开启使用日志 | 连续 2 周，日志里 `impact` 记录不少于 20 条，其中至少一半补了结果标记 | 未开始 |
-| T2.2 | 对照实验：从 5.2 的留出任务池里挑至少 10 个改了 3 个及以上统计文件的提交当任务（跨文件改动才能体现工具的作用），由项目所有者为每个任务写一段任务描述（提交说明通常过短，单独不足以当任务描述）。每个任务在两种条件下（带工具、不带工具）各跑 3 次，使用同一个模型，取每组 3 次的平均值。任务目录的做法：克隆后执行 `git reset --hard <父提交>` 和 `git remote remove origin`，删除标签和其他分支，再执行 `git reflog expire --expire=now --all` 和 `git gc --prune=now`。这样父提交及更早的历史保留（共改信号照常可用），更晚的提交不可达，agent 看不到答案。不带工具的一组使用不加载 workspace-audit skill、PATH 中没有 workspace-bridge-cli 的 agent 环境，任务描述里也不提本工具 | 指标有两个：漏改数（真实提交里修改过的统计文件中，agent 没改到的个数）和多改数（agent 改了、真实提交没改的文件个数），逐个任务列出两种条件的差值。通过条件：带工具一组的漏改总数（每个任务取 3 次平均后求和）比不带的一组至少少 2 个，且多改总数比不带的一组多出的个数不超过 3 个与不带组多改总数 20% 中的较大者。结果和任务清单存放在 `eval/truth/ab/` | 未开始 |
+| T2.2 | 对照实验：从 5.2 的留出任务池里挑至少 10 个改了 3 个及以上统计文件的提交当任务（跨文件改动才能体现工具的作用），由项目所有者为每个任务写一段任务描述（提交说明通常过短，单独不足以当任务描述）。任务描述只写要实现的行为，不出现真实提交改动的文件名、类名或目录名，因为写描述的人看过真值，描述里的线索会同时帮到两组、压小差值。正式实验前，先用不带工具的条件对 3 个任务各跑 3 次，记录漏改数的极差；极差大于 2 个文件时，"至少少 2 个"的通过条件交项目所有者复核后再开跑。每个任务在两种条件下（带工具、不带工具）各跑 3 次，使用同一个模型，取每组 3 次的平均值。任务目录的做法：克隆后执行 `git reset --hard <父提交>` 和 `git remote remove origin`，删除标签和其他分支，再执行 `git reflog expire --expire=now --all` 和 `git gc --prune=now`。这样父提交及更早的历史保留（共改信号照常可用），更晚的提交不可达，agent 看不到答案。不带工具的一组使用不加载 workspace-audit skill、PATH 中没有 workspace-bridge-cli 的 agent 环境，任务描述里也不提本工具 | 指标有两个：漏改数（真实提交里修改过的统计文件中，agent 没改到的个数）和多改数（agent 改了、真实提交没改的文件个数），逐个任务列出两种条件的差值。通过条件：带工具一组的漏改总数（每个任务取 3 次平均后求和）比不带的一组至少少 2 个，且多改总数比不带的一组多出的个数不超过 3 个与不带组多改总数 20% 中的较大者。结果和任务清单存放在 `eval/truth/ab/` | 未开始 |
 | T2.3 | 前端接口调用到后端 Controller：把 `api-contracts` 的路径匹配接入 `impact`，需要同时给出前后端两个目录。只在 T2.1 的日志里出现 3 条及以上"漏了后端"时做。前后端是两个 git 仓库，单仓库回放测不到这类边，验收改为人工抽查 | F1 的前端接口调用按（文件路径字母序，文件内出现顺序）编号为 1 到 N，用 5.3 第 6 条的公式取 30 个，人工核对匹配到的 Controller，正确率 ≥ 80%；代码入口 `src/tools/api-contract-tools.js` | 未开始 |
 
 **阶段 2 完成条件**：T2.1、T2.2 都通过（T2.3 只在触发时做，不影响完成判定）。这时项目达到第 4 节的完成标准。
@@ -313,7 +319,7 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 |---|---|---|---|
 | S1 | 测试运行后不留残留：测试运行器给所有测试进程都设置独立的缓存目录（目前只给一部分测试设置，见 `test/runner.js` 的 `needsCacheDir`）；创建临时夹具目录的测试，结束时删除目录 | 统计用户缓存目录下的目录数（Windows 为 `%LOCALAPPDATA%\workspace-bridge`，Linux/macOS 为 `$XDG_CACHE_HOME/workspace-bridge`，未设置时为 `~/.cache/workspace-bridge`）和系统临时目录（Node 的 `os.tmpdir()`）下的 `wb-*` 目录数，跑一遍 `npm run test:fast` 后再统计，两个数都不增加 | 未开始 |
 | S2 | 出现未知错误（`errorType` 为 `unexpected_error`）时，把调用栈输出到标准错误流，加 `--quiet` 时也照样输出 | 测试构造一个内部抛错，断言标准错误流里有调用栈，标准输出的 JSON 错误信封保持不变 | 未开始 |
-| S3 | macOS 作业移出 CI 测试矩阵（`.github/workflows/test.yml`）。macOS 不在合并必需检查里，分支保护无需调整 | 下一次推送后 Test 工作流中没有 macOS 作业，其余作业全部通过 | 待验收 |
+| S3 | macOS 作业移出 CI 测试矩阵（`.github/workflows/test.yml`）。macOS 不在合并必需检查里，分支保护无需调整 | 下一次推送后 Test 工作流中没有 macOS 作业，其余作业全部通过 | 完成（2026-10-11 核对：`75253fe` 的 Test 运行 `38116087949` 共 7 个作业，无 macOS，全部通过） |
 | S4 | 改了工具层代码后，`audit-overview` 不再重放旧代码算出的分析快照（原 TECH_DEBT H-33，修复记录见 CHANGELOG `[Unreleased]`）。分析快照的版本指纹改为覆盖 `src/` 下除 `cli/` 以外的全部源码 | 端到端复现：生成快照后，给 `src/tools/overview-tools.js` 的输出加一个字段，再运行时输出带上新字段；不带修复的对照组仍然重放旧快照。2026-10-06 已由另一会话验证 | 完成 |
 | S5 | 清理测试残留的缓存：先运行 `node scripts/prune-cache.js --apply`，删掉所属工作区已不存在的缓存；再删除没有记录所属工作区、且记录的文件路径已不存在的缓存，以及空目录 | 2026-10-06 执行：用户缓存目录从 405 MB、9,860 个目录降到 34 MB、232 个目录 | 完成 |
 | S6 | REPL 的 `impact` 默认深度与 CLI 对齐：`src/cli/repl.js` 的 `impact` 分支现在取 `WATCH_IMPACT_DEPTH`（3），CLI `impact` 取 `DEFAULTS.AFFECTED_TEST_DEPTH`（5），同一命令名两个默认值是静默漂移；改为 `DEFAULTS.AFFECTED_TEST_DEPTH`。属改 `src/`，开工前先在 SESSION.md 登记代码修改权 | 新增一条测试锁定 REPL 与 CLI 对同一文件的 `impact` 默认输出一致（含默认深度）；如有按深度 3 断言的既有测试同步更新；`npm run test:fast` 无回归 | 完成（2026-10-09 验收通过：`node test/repl-cli-impact-depth-test.js` 退出码 0、`npm run test:fast` 273/273 退出码 0） |
@@ -327,6 +333,7 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 | TECH_DEBT 中的 H-19（发布流程） | 项目定位从"个人工具"改为"产品"，或者有第二个人需要安装使用 |
 | TECH_DEBT 中的 U-15、U-30（特定企业环境下的性能与安装行为） | 具备对应的测试环境 |
 | TECH_DEBT 中的 P4 冻结项 | 各条目自带重启条件 |
+| 阶段 2（真人真用）及产品化投入 | 项目所有者决定重开；前提是某个新方向（例如第 6 节诊断第 5 条"把改动内容交给工具"）在 J1 回放的未参与选规则的提交上，Java→Java 前 15 召回达到 70% 且比笨基线高 15pp |
 | 文档瘦身（CHANGELOG 等） | agent 读文档开始挤占上下文，或项目所有者要求 |
 | 下方的架构修复路线 | 阶段数据证明某一步影响召回率或使用体验。例如 T0.5 归因中"解析失败"或"import 未解析"居计数前两位，就重启步骤 5 |
 
@@ -357,8 +364,10 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 | 2026-10-06 | 语言范围保持 6 种主语言加 3 种降级维护语言，开发原则第 8 条不变 | 阶段 1 统一验收第 4 条 |
 | 2026-10-06 | macOS 作业移出 CI 测试矩阵 | 小修 S3 |
 | 2026-10-06 | 清理测试残留缓存 | 小修 S5 |
+| 2026-10-11 | 确认第 4 节止损：阶段 1 未过线（J1 Java→Java 工具 0.5856，比当期笨基线高 14.58pp，线为 70% 与 15pp） | 停止产品化投入，项目转为实验项目；阶段 2 冻结；只维护项目所有者在用的命令，范围由项目所有者指定 |
+| 2026-10-11 | 止损后先修 TECH_DEBT H-34（入口标记一词两义） | 作为在用命令 `impact` 的维护修复，按第 3 节规则实施与验收；不重开通过线 |
 
-**待项目所有者决定：确认第 4 节止损。** 阶段 1 的任务已全部做完，但 Java→Java 工具与合并列表相对当期笨基线均不到 +15pp，且未满足阶段完成条件。经所有者确认后，停止产品化投入，转为实验项目，仅维护所有者在用的命令；尚未确认前保留冻结状态，阶段 2 未开始。
+**待项目所有者指定：止损后维护的命令范围。** 第 4 节规定没有 T2.1 使用日志时由项目所有者指定；T2.1 未开始，目前没有日志。
 
 ## 11. 当前已知限制
 

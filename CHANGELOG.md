@@ -7,6 +7,16 @@
 
 ## [Unreleased]
 
+### 评审修复：评测口径解耦、方向词表单点、超深 gitignore 目录不再误报（2026-10-11）
+
+- `eval/replay-impact.js` 恢复自持的 5.2 v1 主干名规则冻结副本，不再引用产品的 `src/tools/impact-ranking.js`；产品规则演进时笨基线口径保持不变。`test/replay-impact-test.js` 断言两者不是同一函数（还原为 import 时测试变红）。
+- `impact` 方向词表收为 `DEFAULTS.IMPACT_DIRECTIONS` 一处，工具层、REPL、参数校验共用；工具层与 REPL 的默认方向各自只回填一次。输出不变。
+- 文件发现中超过 `maxIndexDepth` 的目录先经 gitignore 裁决再计入 `depth-truncated`：被忽略的超深目录即使不截断也不会被索引，不构成覆盖缺口。本仓库自检 `discoveryComplete` 由 false 变为 true、`coverageRatio` 由 null 变为 1（此前 47 个误报目录全在 gitignore 的 `eval/truth/` 下）。`test/index-depth-config-test.js` 覆盖"仅忽略目录超深不报警、未忽略目录超深仍计 1"。
+- ROADMAP：T1.4 验收列改为对照 T1.3 默认下的合并列表（原对照的 5.6 数字来自阶段 0 旧工具），按新列核对仍通过；5.2 写明 T1.4 后合并列表与工具输出近乎重合、"高 15pp"比较的是依赖图加历史对只用历史；阶段 1 结论注明数字为调参样本内值；T2.2 增加任务描述不含真值文件名、开跑前先测运行间极差两条约束；注明 `eval/truth/` 派生脚本只在本机。
+- SESSION：恢复上一轮误删的其他平台核验与 affected-tests 真值基线两行当前状态。
+- 文档：ROADMAP 各任务状态格压缩为结论、关键数字和复跑命令，实施经过以本文件对应条目为准；删去已在本文件记录的修订史段落；第 2 节标明为计划制定时的快照；S3 按 `75253fe` 的 Test 运行（7 作业、无 macOS、全过）核对为完成。更正 T1.2 记录中"XML 两方向越过 70% 线"的错误：Java→Mapper XML 当时为 0.5545，未过线。
+- 阶段 1 未过线原因诊断写入 ROADMAP 第 6 节：J1 Java→Java 候选完美排序上限 0.889，8 种不读真值的排序都在 0.38–0.60；登记 TECH_DEBT H-34（`isEntry` 同时用于死代码豁免与影响停止，截 15 时实体→VO/DTO 少 14pp）。诊断脚本 `eval/truth/phase1-*.js` 只在本机。
+
 ### T1.4 合并排序与回放独立命名（2026-10-11，独立验收通过）
 
 - `impact` 的 `all` 方向将 BFS 图流与同主干名／至少共改一次的候选交替去重，候选按同主干优先、共改次数降序、路径字典序排序，默认最多 15；显式其他方向保留原图查询。候选只取当前索引，低置信度行不伪造图层级，与图重合时完整保留图证据。
@@ -44,7 +54,7 @@
 
 - `GraphQuery.getImpactRadius(filePath, depth, options)` 新增 `options.direction`（`dependents` 默认，原行为不动；`dependencies` 输入自己引用的文件；`neighbors` 同层邻居——和输入被同一个文件直接引用的文件，`reason: 'same-importer'`；`all` 双向 BFS + 同层邻居）和 `options.stopAtEntry`（默认 `true` 保持原规则；`false` 时入口文件照常扩散，入口行本身仍列出）。正向边行 `reason` 标 `direct-reference`/`transitive-reference`，`implicit-same-package` 优先级不变。同层邻居由 `_sameImporterRows` 实现：直接 dependents 的依赖集去重（真实边优先），入口 importer 默认跳过；不继续扩散。
 - CLI：`impact` 新增 `--direction <dependents|dependencies|neighbors|all>` 与 `--no-stop-at-entry`。`--direction` 与 `tree` 命令共用旗标，词表按命令分（tree 仍是 `imports|dependents|both`），`validate-args.js` 集中校验。REPL `impact` 同步两个参数（防 REPL/CLI 静默漂移）。`dep-tools/impact.js` 对回放通道（`--impact-option`）直接生效的参数做同一词表校验。
-- 回放验证（J1，gitignored `eval/truth/replay/`）：默认配置重跑输出与 T1.1 基线逐字节一致（dirty=false，默认行为零漂移）；`direction=all + stop-at-entry=false` 时工具总召回 0.1866→0.6122（上限 0.7326），分边类型 Java→Java 0.2263→0.7130、Java→Mapper XML 0.2504→0.5545、Mapper XML→Java 0.0841→0.7331、实体→VO/DTO 0.0755→0.7534——XML 两方向与实体→VO/DTO 越过 70% 线；但输出文件数中位 50（JSON 上限顶满）>15，按 ROADMAP T1.2 行触发 T1.3，扩展暂不设为默认。存档 `J1-t12-all-nostop/`。分解对照 `direction=all`（入口停止保持开）总召回 0.5734、输出中位仍 50/25（存档 `J1-t12-all-stop/`）——膨胀主因是双向 BFS 宽度，入口停止贡献仅约 0.04，T1.3 的截断排序要压的是方向扩展的宽度。
+- 回放验证（J1，gitignored `eval/truth/replay/`）：默认配置重跑输出与 T1.1 基线逐字节一致（dirty=false，默认行为零漂移）；`direction=all + stop-at-entry=false` 时工具总召回 0.1866→0.6122（上限 0.7326），分边类型 Java→Java 0.2263→0.7130、Java→Mapper XML 0.2504→0.5545、Mapper XML→Java 0.0841→0.7331、实体→VO/DTO 0.0755→0.7534——Mapper XML→Java 与实体→VO/DTO 越过 70% 线，Java→Mapper XML 0.5545 未过；但输出文件数中位 50（JSON 上限顶满）>15，按 ROADMAP T1.2 行触发 T1.3，扩展暂不设为默认。存档 `J1-t12-all-nostop/`。分解对照 `direction=all`（入口停止保持开）总召回 0.5734、输出中位仍 50/25（存档 `J1-t12-all-stop/`）——膨胀主因是双向 BFS 宽度，入口停止贡献仅约 0.04，T1.3 的截断排序要压的是方向扩展的宽度。
 - 评测语料不退化：`eval/run`+`eval/score` 23 项全 PASS 无 FAIL；快层 275/275（+新测试）。记分板刷新仅耗时/缓存字节/高负载下 okhttp warnings 计数波动，指标值无变化。
 - 新测试：`test/impact-direction-options-test.js`（`@semantic`，5 组：默认与显式 dependents 逐格一致、dependencies 方向 reason/via、stopAtEntry=false 扩散、neighbors 集合与入口跳过、all 双向 + 邻居去重）。统一验收第 4 条（六语言夹具）不适用：改动在图遍历层、不碰 parser/resolver，方向语义与语言无关，同 T1.1 豁免逻辑，记于 ROADMAP 该行。
 - help/文档：`cli.js --help` 与 `skills/workspace-audit/SKILL.md`（权威副本，user-scope 副本需手动同步）补新参数说明。
