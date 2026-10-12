@@ -14,6 +14,7 @@
 - 测试：新增 `test/impact-entry-stop-test.js`（六语言真实解析夹具，含"只被测试引用的顶层入口仍停止"）；`test/impact-direction-options-test.js`、`test/p3-impact-explanation-test.js` 原按旧语义断言，改为新契约。三者均做过 mutation check（退回旧判定即变红）。
 - 实施中补漏：首版条件是"无人引用"，测试文件 import Controller / main 会让它失去顶层身份并向下展开，第二个提交改为只数生产引用方。
 - 文档：SKILL.md 与 ROADMAP 术语表改为新语义（user-scope 副本已同步）；TECH_DEBT 新增 H-35（`findAffectedRoutes` 把被引用的入口标成路由终点）。
+- 回放与门禁（`0a5a1a4`，0 错误，中位 15）：J1 全部类型 0.5661→0.5735，Java→Java 0.5856→0.5897，Mapper XML→Java 0.6208→0.6433，实体→VO/DTO 0.4245→0.3854（2 个文件）；F1 0.5247→0.5302；P1 0.5175→0.5533（首轮有一个提交子进程超时，单独复现正常，整轮重跑 0 错误）。完整 runner 383/383，eval 23 PASS / 0 FAIL，死导出与孤儿数不变，CI 9/9。
 
 ### 评审修复：评测口径解耦、方向词表单点、超深 gitignore 目录不再误报（2026-10-11）
 

@@ -292,7 +292,7 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 
 1. 真值大多就在候选里，缺的是排序：结构上限 0.863，图遍历前 50 个含真值 0.713，候选完美排序后的前 15 个可达 0.889；每个输入的真值中位数 5 个、无一超过 15。70% 不是硬上限，难点是从 60–80 个结构邻居里挑出这次一起改的约 5 个。
 2. 结构特征分不出这 5 个：8 种不读真值、不调参的排序（BFS、公共文件不中转的遍历、同目录优先、枢纽度升序、已知第二个改动文件取交集，各自单用或与历史交替）全部落在 0.38–0.60，最高是现行的 BFS 与历史交替（约 0.60）；T1.3 的两轮层级 / 来源 / 目录排序结论相同。同一个输入文件，改不同功能时一起改的文件不同，只给文件名，工具拿不到区分信息（这是从数据推出的判断，不是证明）。
-3. 一处可修的算法缺陷：入口标记 `isEntry` 同时用于"运行时由框架调用、不报死代码"（`src/utils/orphan-detector.js`、`analyzer.js` 死导出）和"影响分析遇到即停"（`src/services/dep-graph/query.js`）。`/mapper/`、`/repository/`、`/config/`、`/task/` 及文件名含 `filter|wrapper|validator|serializer` 的文件都被当作终点，遍历在 Mapper 接口处中断。截 15 个时关闭入口停止：Java→Java 0.496→0.526、实体→VO/DTO 0.211→0.350、Mapper XML→Java 0.516→0.629；在 T1.4 合并形态下 Java→Java 约 +1.2pp。修法是拆开两种语义（Controller、`main` 这类真汇聚点仍停），不是全局关闭；修后 Java→Java 推测约 0.60，仍低于 0.70。
+3. 一处可修的算法缺陷：入口标记 `isEntry` 同时用于"运行时由框架调用、不报死代码"（`src/utils/orphan-detector.js`、`analyzer.js` 死导出）和"影响分析遇到即停"（`src/services/dep-graph/query.js`）。`/mapper/`、`/repository/`、`/config/`、`/task/` 及文件名含 `filter|wrapper|validator|serializer` 的文件都被当作终点，遍历在 Mapper 接口处中断。截 15 个时关闭入口停止：Java→Java 0.496→0.526、实体→VO/DTO 0.211→0.350、Mapper XML→Java 0.516→0.629；在 T1.4 合并形态下 Java→Java 约 +1.2pp。修法是拆开两种语义（Controller、`main` 这类真汇聚点仍停），不是全局关闭；按 H-34 修复（只在生产代码无人引用的入口处停止）后实测：J1 Java→Java 0.5856→0.5897、Mapper XML→Java 0.6208→0.6433，实体→VO/DTO 0.4245→0.3854（2 个文件被新增的图行挤出前 15）；上面"关闭入口停止"的增益主要来自穿过 Controller 等真正的顶层入口，H-34 不穿过它们，所以实体→VO/DTO 没有得到这部分增益（推断，未逐条验证）。
 4. 约 14% 的真值在结构上限之外（配置、SQL、约定关联等），沿依赖图的方法都拿不到。
 5. 未测过的方向：把"改了什么"交给工具。用已有的符号级影响（`getSymbolImpact` / `getChangedFunctionImpact`）只追引用了被改方法或字段的文件；回放时可用真实提交里输入文件的 diff 作为输入。这把题目从"改之前会影响哪些"换成"改完一个文件还要改哪些"（`audit-diff` 的场景），属于新的一轮投入。
 

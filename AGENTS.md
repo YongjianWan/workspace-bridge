@@ -244,6 +244,7 @@ node cli.js dead-exports --cwd . --json --quiet
 | repl-test.js flaky                                     | `test/repl-test.js`                                  | runner.js 串行执行时偶发失败，单独`node test/repl-test.js` 稳定通过；若遇到，先重跑确认                      |
 | audit-file-watch-test.js flaky                         | `test/audit-file-watch-test.js`                      | runner.js 串行执行时 watcher 事件偶发丢失，单独`node test/audit-file-watch-test.js` 稳定通过                 |
 | bug-27-28-29-regression-test.js flaky                | `test/bug-27-28-29-regression-test.js`               | runner.js 串行执行且机器高负载时偶发（2026-10-11 复现一次：repl eval 退出码断言），单独跑稳定通过；若遇到，先重跑确认 |
+| 回放子进程偶发超时 | `eval/replay-impact.js` | 2026-10-11 两次出现、原因未查明：T1.4 首次独立回放 `spawnSync git ETIMEDOUT`；H-34 的 P1 回放中提交 `251b502` 的子进程超过 600 秒，单独复现每个输入 7–9 秒。summary 的错误数非 0 时先用新 `--name` 整轮重跑，不要把带错误的结果当证据 |
 | 同名回放并发覆盖 | `eval/replay-impact.js` | `--target <代号>` 默认输出 `replay/<代号>`；独立运行用 `--name <独立名>`（target/repo 模式均支持），并发任务必须使用不同名字。 |
 | `framework-patterns.js` 新增框架时                   | `src/services/dep-graph/framework-patterns.js`       | 路径检测逻辑按语言分块，新增语言需同时更新`isEntry` 标记和测试                                               |
 | `buildFileValidationAdvice` 导出链                   | `src/tools/summaries/validation-advice.js` → `src/tools/summaries/index.js` → `src/cli/formatters/index.js` → `cli.js` | 新增 formatter 函数必须在`src/cli/formatters/index.js` 中显式导出，否则 cli.js 解构为 `undefined`          |
