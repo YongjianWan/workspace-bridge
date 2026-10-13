@@ -48,7 +48,7 @@ function analyzeCoChanges(workspaceRoot, options = {}) {
 
   // Detect environmental degradations once. Git-derived signals inherit the
   // worst applicable dataQuality; AST-derived signals remain CERTAIN.
-  const env = analyzeGitEnvironment(workspaceRoot);
+  const env = options.gitEnvironment ?? analyzeGitEnvironment(workspaceRoot);
 
   const pairCounts = new Map();       // "a|b" -> count
   const fileChangeCounts = new Map(); // file -> count

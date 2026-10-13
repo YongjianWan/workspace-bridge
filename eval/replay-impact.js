@@ -8,6 +8,7 @@
  * 选项：
  *   --holdout <n>            留出任务池大小（默认 0，J1/F1 运行时设 20）
  *   --impact-option <名=值>  原样传给 impact（可重复，如 max-depth=3）
+ *   --diff-context          把 P→C 的真实 diff 作为 diffText 传给 impact（diff 上下文评测口径）
  *   --max-commits <n>        只回放时间上最新的 n 个可用提交（按时间正序处理）
  *   --sample <n|all>         抽样决策（默认 all；sample.json 已存在时沿用不重选）
  *
@@ -458,7 +459,7 @@ async function computeToolOutputs(repoDir, inputs) {
 
 async function childMain(payloadFile) {
   const payload = JSON.parse(fs.readFileSync(payloadFile, 'utf8'));
-  const { cloneDir, parentHash, cacheDir, inputs, impactOptions } = payload;
+  const { cloneDir, parentHash, commitHash, diffContext, cacheDir, inputs, impactOptions } = payload;
   const root = path.resolve(cloneDir);
   let runs;
   try {
@@ -477,7 +478,14 @@ async function childMain(payloadFile) {
         const t0 = Date.now();
         let rec;
         try {
-          rec = await impactOne(container, root, spelling, input, impactOptions || {});
+          const opts = { ...impactOptions, historyRevision: parentHash };
+          if (diffContext) {
+            // 通道 9 评测口径：P→C 的真实 diff 作为 diffText；空 diff（纯格式化/
+            // 新增文件）传 ''，明确禁用工作区回退（工作区属于另一个 revision）。
+            try { opts.diffText = gitRun(root, ['diff', parentHash, commitHash, '--', input]); }
+            catch { opts.diffText = ''; }
+          }
+          rec = await impactOne(container, root, spelling, input, opts);
         } catch (e) {
           rec = { files: [], impactCount: 0, warnings: [], outOfScope: false, error: e.message || String(e) };
         }
@@ -663,6 +671,8 @@ async function runReplay(options = {}) {
       fs.writeFileSync(payloadFile, JSON.stringify({
         cloneDir,
         parentHash: c.parentHash,
+        commitHash: c.hash,
+        diffContext: !!options.diffContext,
         cacheDir,
         inputs,
         impactOptions: impactOpt,
@@ -751,6 +761,7 @@ async function runReplay(options = {}) {
     maxCommits,
     processedCommits: selected.length,
     impactOptionRaw,
+    diffContext: !!options.diffContext,
     runs,
     startedAt,
     wallMs: Date.now() - tStart,
@@ -867,6 +878,7 @@ function buildSummary(ctx) {
     sample: { mode: ctx.sampleInfo.mode, commits: (ctx.sampleInfo.commits || []).length },
     maxCommits: ctx.maxCommits,
     impactOptions: ctx.impactOptionRaw,
+    diffContext: !!ctx.diffContext,
     toolRepo: { commit: toolRepoHead, dirty: toolRepoDirty },
     startedAt: ctx.startedAt,
     finishedAt: new Date().toISOString(),
@@ -929,6 +941,7 @@ function parseArgs(argv) {
       case '--name': o.name = need(a, i); i++; break;
       case '--target': o.target = need(a, i); i++; break;
       case '--impact-option': o.impactOptions.push(need(a, i)); i++; break;
+      case '--diff-context': o.diffContext = true; break;
       case '--holdout': {
         const v = Number(need(a, i)); i++;
         if (!Number.isInteger(v) || v < 0) throw new UsageError(`--holdout 必须是非负整数，收到: ${argv[i]}`);
@@ -964,6 +977,7 @@ function printUsage() {
     '选项:',
     '  --holdout <n>            留出任务池大小（默认 0）',
     '  --impact-option <名=值>  传给 impact 的可选参数，可重复（如 max-depth=3）',
+    '  --diff-context          把 P→C 真实 diff 传给 impact（diff 上下文评测口径）',
     '  --max-commits <n>        只回放时间上最新的 n 个可用提交',
     '  --sample <n|all>         抽样（默认 all；sample.json 已存在时沿用）',
   ].join('\n'));
@@ -1034,6 +1048,7 @@ async function main(argv) {
     sample: args.sample,
     maxCommits: args.maxCommits,
     impactOptions: args.impactOptions,
+    diffContext: args.diffContext,
   });
   const t = summary.totals;
   console.log(`replay ${name}: commits=${t.commits} inputs=${t.inputs} errors=${t.errors} outOfScope=${t.outOfScope}`);

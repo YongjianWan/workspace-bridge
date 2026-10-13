@@ -4,6 +4,7 @@ const { TIMEOUTS, DEFAULTS } = require('../config/constants');
 const { DATA_QUALITY } = require('../config/data-quality');
 const { normalizePathKey } = require('../utils/path');
 const { analyzeCoChanges } = require('./cochange-tools');
+const { rankDiffContextRows, readWorkingTreeDiff, interleaveDiffFirst } = require('./dep-tools/diff-context');
 
 const histories = new WeakMap();
 const STEM_SUFFIXES = [
@@ -30,26 +31,33 @@ function stemName(filePath) {
   return stem || name;
 }
 
-function readImpactHistory(container) {
+function readImpactHistory(container, fixedRevision) {
   const root = container.workspaceRoot;
-  const revision = spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], {
-    encoding: 'utf8', timeout: TIMEOUTS.GIT_LONG_MS,
-  });
-  if (revision.error || revision.status !== 0) {
-    histories.delete(container);
-    return { pairCounts: new Map(), dataQuality: DATA_QUALITY.UNAVAILABLE, remediation: null };
+  let head = fixedRevision;
+  if (!head) {
+    const revision = spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8', timeout: TIMEOUTS.GIT_LONG_MS,
+    });
+    if (revision.error || revision.status !== 0) {
+      histories.delete(container);
+      return { pairCounts: new Map(), dataQuality: DATA_QUALITY.UNAVAILABLE, remediation: null };
+    }
+    head = revision.stdout.trim();
   }
-  const head = revision.stdout.trim();
   const cached = histories.get(container);
   if (cached?.root === root && cached.head === head) return cached.data;
   // Pin the log to the checked HEAD; unstamped disk caches may contain future commits.
-  const data = analyzeCoChanges(root, { revision: head });
+  // Only an immutable replay checkout can reuse the container's environment.
+  const data = analyzeCoChanges(root, {
+    revision: head,
+    gitEnvironment: fixedRevision ? container.gitEnvironment : undefined,
+  });
   if (data.dataQuality !== DATA_QUALITY.UNAVAILABLE) histories.set(container, { root, head, data });
   else histories.delete(container);
   return data;
 }
 
-function curateImpact(container, file, graphRows, direction = DEFAULTS.IMPACT_DEFAULT_DIRECTION, history) {
+function curateImpact(container, file, graphRows, direction = DEFAULTS.IMPACT_DEFAULT_DIRECTION, history, diffText) {
   const graph = container.snapshot?.graph || container.depGraph;
   if (direction !== 'all' || !graph.hasFile(file)) return graphRows;
   const data = history || readImpactHistory(container);
@@ -93,6 +101,18 @@ function curateImpact(container, file, graphRows, direction = DEFAULTS.IMPACT_DE
         merged.push(entry);
       } else merged.push(row);
     }
+  }
+  // Diff context: only meaningful for the committed-state query path. A fixed
+  // revision (replay) passes its diff explicitly — possibly '' — and '' must
+  // not fall back to the working tree, whose diff belongs to another revision.
+  let diff = diffText;
+  if (diff == null) diff = readWorkingTreeDiff(container, file);
+  if (typeof diff === 'string' && diff.length > 0) {
+    // No seen-filter here: a file already in the merged list is exactly what
+    // diff context should *promote* — the interleave dedupes, and the diff
+    // slot wins over the later merged slot.
+    const diffRows = rankDiffContextRows(container, file, diff);
+    if (diffRows.length) return interleaveDiffFirst(diffRows, merged);
   }
   return merged;
 }

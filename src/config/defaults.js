@@ -92,6 +92,16 @@ const DEFAULTS = {
   // （watch/audit-assembler/symbol-impact 等）走的是那条语义。
   IMPACT_DIRECTIONS: Object.freeze(['dependents', 'dependencies', 'neighbors', 'all']),
   IMPACT_DEFAULT_DIRECTION: 'all',
+  // Diff-context ranking caps. Beyond the char cap the diff is treated as
+  // unavailable (bulk reformats carry no pointing signal); beyond the symbol
+  // cap only the earliest identifiers are scored (FIFO, deterministic).
+  DIFF_CONTEXT_MAX_DIFF_CHARS: 200000,
+  DIFF_CONTEXT_MAX_SYMBOLS: 200,
+  // A diff-context row must score ≥ 0.5 = at least one matched identifier
+  // occurring in ≤ 2 indexed files (near-unique pointer). Single matches on
+  // ubiquitous identifiers are the noise that displaced useful graph rows on
+  // the holdout replay; they cannot clear this bar.
+  DIFF_CONTEXT_MIN_REFS: 0.5,
   JSON_OUTPUT_MAX_AFFECTED_TESTS_ITEMS: 50,    // same rationale as impact
   // The dedicated `affected-tests` command: the list IS the answer, so the
   // digest budget above would cut real results (fault-injection truth reaches

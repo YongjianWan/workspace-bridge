@@ -19,7 +19,7 @@ async function impact(args, container, filePath) {
   });
   const symbolImpact = container.snapshot.graph.getSymbolImpact(filePath);
   const targetNotIndexed = symbolImpact?.reason === 'source-not-indexed';
-  const coChangeData = readImpactHistory(container);
+  const coChangeData = readImpactHistory(container, args?.historyRevision);
   const relativeFile = path.relative(container.workspaceRoot, filePath).replace(/\\/g, '/');
   const coChanges = coChangeData ? getCoChangePartners(relativeFile, coChangeData, { minCount: 2, partnerLimit: 10 }) : [];
 
@@ -39,7 +39,7 @@ async function impact(args, container, filePath) {
 
   // Curate before truncating so sparse graphs can use the remaining candidate slots.
   const impactLimit = Number.isFinite(args?.maxFiles) ? args.maxFiles : DEFAULTS.IMPACT_RELEVANCE_LIMIT;
-  const rankedImpact = curateImpact(container, filePath, impact, direction, coChangeData);
+  const rankedImpact = curateImpact(container, filePath, impact, direction, coChangeData, args?.diffText);
   const impactTrunc = truncateArray(rankedImpact, impactLimit);
   const coChangesTrunc = truncateArray(coChanges, DEFAULTS.JSON_OUTPUT_MAX_COCHANGE_ITEMS);
   const affectedRoutesTrunc = truncateArray(affectedRoutes, DEFAULTS.JSON_OUTPUT_MAX_AFFECTED_ROUTES_ITEMS);
