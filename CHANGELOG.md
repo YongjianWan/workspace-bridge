@@ -7,7 +7,28 @@
 
 ## [Unreleased]
 
-### H-34：impact 只在顶层入口处停止展开（2026-10-11，实施完成，待独立验收）
+### impact diff 上下文排序（2026-10-13 实施，待独立验收）
+
+- 输入文件有未提交改动时（`git diff HEAD` 非空），`impact` 从 diff 增删行抽取改动标识符（Java 成员定义行优先、XML 取 MyBatis statement id、关键字过滤），用全量标识符出现倒排索引（懒构建、随图快照失效、仅内存）按 IDF 加权（1/出现文件数，无自由参数）找出引用这些标识符的文件，以 `source: 'diff-context'` 排在图+历史合并列表前面交替输出。回放用 `--diff-context` 把 P→C 真实 diff 显式传入（空 diff 传 `''`，禁止回退到工作区）。
+- AST 层（第二轮实施，**已评估并放弃**）：试过 `getChangedFunctionImpact` + `getSymbolImpact` 的调用边行（导出函数粒度，置信 `medium`）+ diff 优先交织，留出回放 v3 实测全面差于 v2——Java→Java 0.6252（-0.7pp 对无 diff 基线）、Java→XML +7.3pp、XML→Java +1.0pp、全部 0.5965（v2 为 0.6099）。两个教训写入代码注释：①diff 行必须限占槽位（先到先得的交替里 merged 先行占槽、diff 重复行被丢是**刻意的限流**，diff 优先全占偶数槽会把图行挤出去）；②AST 调用边行与图 dependents 高度重合（函数依赖方≈importers），多导出文件的符号粒度增量在 J1 语料上不值钱。AST 层代码已删，最终配置 = v2（标识符行 + 先到先得交替）。
+- 动机与证据：`eval/truth/phase4-diff-probe.js` 在 J1 留出提交（20 提交/110 输入）上实测，Java→XML 边 +6.0pp（0.3947→0.4549）；XML→Java 边的探针 +5pp 来自通用标识符（SQL 表名），初版只抽 statement id 未复现，已改为统一通用抽取；Java→Java 因噪声行挤占槽位 -1.2pp，加"近唯一指针"硬规则（diffRefs ≥ 0.5，即至少匹配 1 个出现文件数 ≤2 的标识符，`DEFAULTS.DIFF_CONTEXT_MIN_REFS`）后复测。该边不因本特性变化的重启判定不受影响。
+- 修正实施中发现的真 bug：同一 diff 行多个成员定义只取第一个（`matchAll` 修复）；调用方传入大小写规范化路径（Windows）时 git pathspec 与索引比较失效（统一走 `graph._displayPath` 取磁盘真实写法）。
+- 契约：`curateImpact` 新增可选 `diffText` 参数（回放显式传），为 `undefined` 时自动读工作区 diff；REPL 与 CLI 共用 `curateImpact`，无默认值漂移。diff 上下文是纯排序提示，失败静默降级不影响 dataQuality。
+- 测试：`test/impact-diff-context-test.js`（`@semantic`，六语言 git 夹具：未提交改动把唯一引用方从 15 名外提升到第 1 位）+ 抽取单元断言（Java 定义行、XML statement id、关键字过滤、体积上限）。
+
+### 已有 diff 漏改检查的离线探针与 H-34 取舍（2026-10-12）
+
+- 项目所有者明确保留 H-34 入口停止语义修复，接受前 15 项中实体→VO/DTO 少找 2 个文件的代价（42.45%→38.54%）；原阶段召回门禁继续未通过，不改通过线，不自动重启阶段 2。
+- 在预先冻结的 J1 十提交探针中，排除两个已知文件后，单输入 TP/FP/FN 为 14/130/31，双输入交替合并与支持数排序均为 19/128/26；召回率 31.11%→42.22%、精确率 9.72%→12.93%。逐提交为 2 改善、1 退化、7 不变，新排序没有显示额外收益，因此本轮不改正式引擎。
+- 方法与边界见 `docs/experiments/diff-context-probe.md`。本次复用旧样本，不证明实际 agent 的漏改率或耗时改善；现有 `audit-diff` 使用不同的图汇总路径，也未由该探针验收。
+
+### 回放固定提交复用 Git 历史与环境探测（2026-10-12，2026-10-13 Vivian 独立验收通过）
+
+`eval/replay-impact.js` 将已经 checkout 的父提交传给 impact 历史读取，同一提交的后续输入直接复用按仓库和 revision 标记的历史。共改分析复用该固定 checkout 的容器环境探测，避免首输入重复探测。每提交独立进程、建图、历史排序、路由、基线和结构上限保持原行为；普通 CLI、watch、REPL 仍查询 HEAD，切换提交时失效，不复用固定回放的环境。
+
+`test/replay-history-cache-test.js` 覆盖固定提交零重复 Git 调用、六语言文件对、动态 HEAD 与回退提交失效、降级信息保留及不可用历史不缓存。性能前后对照与完整回归结果待补充。
+
+### H-34：impact 只在顶层入口处停止展开（2026-10-11 实施完成，2026-10-13 Vivian 独立验收通过）
 
 - 原先 `isEntry` 同时表示"框架运行时调用、不报死代码"和"影响分析遇到即停"，MyBatis Mapper 接口、barrel `index`、`App.vue`、Django forms、Go/Rust handlers 等被生产代码引用的入口截断了遍历。现在 `src/services/dep-graph/query.js` 的 `_isConvergencePoint` 只在"入口且所有引用方都是测试"的文件处停止；死代码与孤儿豁免不变。
 - 行为变化不限于 `impact` 命令：`getImpactRadius` 的所有调用方（watch、audit-file、audit-diff、guard、symbol-impact、incremental-diff）在 `dependents` 方向也会穿过这类入口，影响列表变长，audit-diff 按影响文件数判定的风险等级可能升高。
