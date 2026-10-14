@@ -96,6 +96,50 @@ const fixtures = [
   },
 ];
 
+// A4 workspace conditioning: a *different* dirty file's new identifier must
+// surface its consumer when querying the (clean) input file. Mechanism is
+// git-diff level and language-agnostic; the six fixtures exercise it per
+// language anyway (AGENTS 开发原则第 8 条).
+const WS = 'workspaceHook';
+const workspaceFixtures = [
+  {
+    language: 'JS/TS', dirty: 'src/w.ts', consumer: 'src/c2.ts',
+    dirtyBase: 'export const wBase = 1;\n',
+    dirtyEdit: (c) => c + `export function ${WS}(v: number): number { return v; }\n`,
+    consumerContent: `export const vc2 = ${WS}(3);\n`,
+  },
+  {
+    language: 'Python', dirty: 'w.py', consumer: 'c2.py',
+    dirtyBase: 'W_BASE = 1\n',
+    dirtyEdit: (c) => c + `def ${WS}(v):\n    return v\n`,
+    consumerContent: `vc2 = ${WS}(3)\n`,
+  },
+  {
+    language: 'Java', dirty: 'src/r/W.java', consumer: 'src/s/C2.java',
+    dirtyBase: 'package r; public class W { public int wBase() { return 1; } }',
+    dirtyEdit: (c) => c.replace(' }', ` public static int ${WS}(int v) { return v; } }`),
+    consumerContent: `package s; public class C2 { int t = W.${WS}(3); }`,
+  },
+  {
+    language: 'Go', dirty: 'c/c.go', consumer: 'd/d.go',
+    dirtyBase: 'package c\n\nfunc WBase() int { return 1 }\n',
+    dirtyEdit: (c) => c + `func ${WS}(v int) int { return v }\n`,
+    consumerContent: `package d\n\nvar Vc2 = ${WS}(3)\n`,
+  },
+  {
+    language: 'Rust', dirty: 'src/w.rs', consumer: 'src/c2.rs', mainFile: 'src/main.rs',
+    dirtyBase: 'pub fn w_base() -> i32 { 1 }\n',
+    dirtyEdit: (c) => c + `pub fn ${WS}(v: i32) -> i32 { v }\n`,
+    consumerContent: `pub static VC2: i32 = ${WS}(3);\n`,
+  },
+  {
+    language: 'Vue', dirty: 'src/w.vue', consumer: 'src/c2.vue',
+    dirtyBase: `<script lang="ts">\nexport const wBase = 1;\n</script>\n`,
+    dirtyEdit: (c) => c.replace('</script>', `export function ${WS}(v: number): number { return v; }\n</script>`),
+    consumerContent: `<script lang="ts">\nexport const vc2 = ${WS}(3);\n</script>\n`,
+  },
+];
+
 function git(root, args) {
   execSync(`git -C "${root}" ${args}`, { stdio: 'pipe' });
 }
@@ -145,8 +189,55 @@ async function verifyFixture(fixture) {
   }
 }
 
-function verifyExtraction() {
-  const javaDiff = [
+async function verifyWorkspaceDiff(wf) {
+  const root = makeTempDir('wb-diff-context-ws-');
+  const container = new ServiceContainer({ quiet: true, cacheDir: path.join(root, '.cache') });
+  try {
+    const files = fixtures.find((f) => f.language === wf.language).files(4);
+    files[wf.dirty] = wf.dirtyBase;
+    files[wf.consumer] = wf.consumerContent;
+    for (const [file, content] of Object.entries(files)) {
+      const target = path.join(root, file);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, content);
+    }
+    if (wf.mainFile) {
+      const mainPath = path.join(root, wf.mainFile);
+      fs.writeFileSync(mainPath, fs.readFileSync(mainPath, 'utf8')
+        + `\nmod ${path.basename(wf.dirty).replace(/\.rs$/, '')};\nmod ${path.basename(wf.consumer).replace(/\.rs$/, '')};\n`);
+    }
+    git(root, 'init -q');
+    git(root, 'add -A');
+    git(root, '-c user.email=t@t -c user.name=t commit -qm init');
+
+    await container.initialize(root, 30000, { watch: false, quiet: true });
+    const graph = container.snapshot.graph;
+    const inputAbs = graph.normalizeFilePath(path.join(root, fixtures.find((f) => f.language === wf.language).input));
+    const consumerRel = wf.consumer.replace(/\\/g, '/');
+    const run = () => impact({ file: fixtures.find((f) => f.language === wf.language).input, maxDepth: 5 }, container, inputAbs);
+    const posOf = (res, rel) => res.impact.findIndex((r) => r.file.replace(/\\/g, '/').endsWith(rel));
+
+    const before = await run();
+    assert(posOf(before, consumerRel) < 0 || before.impact[posOf(before, consumerRel)].source !== 'diff-context',
+      `${wf.language}: clean workspace must not promote the cross-file consumer`);
+
+    // Dirty a *different* file; the queried input itself stays clean.
+    const dirtyPath = path.join(root, wf.dirty);
+    fs.writeFileSync(dirtyPath, wf.dirtyEdit(fs.readFileSync(dirtyPath, 'utf8')));
+
+    const after = await run();
+    const posAfter = posOf(after, consumerRel);
+    assert(posAfter >= 0, `${wf.language}: cross-file consumer must be reported after the sibling edit`);
+    assert(posAfter < 15, `${wf.language}: cross-file consumer must enter the top 15, got position ${posAfter + 1}`);
+    assert(after.impact[posAfter].source === 'diff-context',
+      `${wf.language}: cross-file consumer row must carry source diff-context, got ${after.impact[posAfter].source}`);
+    console.log(`PASS ${wf.language}: workspace diff promotes the cross-file consumer (pos ${posOf(before, consumerRel)} → ${posAfter})`);
+  } finally {
+    try { await container.shutdown(); } finally { cleanupTempDir(root); }
+  }
+}
+
+function verifyExtraction() {  const javaDiff = [
     '--- a/src/p/A.java',
     '+++ b/src/p/A.java',
     '@@ -1,1 +1,1 @@',
@@ -179,4 +270,5 @@ function verifyExtraction() {
   verifyExtraction();
   console.log('PASS extraction: java def line, xml statement id, stopwords, caps');
   for (const fixture of fixtures) await verifyFixture(fixture);
+  for (const wf of workspaceFixtures) await verifyWorkspaceDiff(wf);
 })().catch((err) => { console.error(err); process.exitCode = 1; });

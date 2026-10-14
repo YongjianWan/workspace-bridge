@@ -130,6 +130,21 @@ function readWorkingTreeDiff(container, filePath) {
   return res.stdout;
 }
 
+// Workspace-wide changes vs HEAD: the everyday source of diff context when the
+// developer has more than one dirty file. Querying file A also surfaces files
+// referencing identifiers changed in *other* dirty files — the second known
+// file is a strong ranking condition (ROADMAP 诊断第 2 条) and this is its
+// free generalization. Single-dirty-file workspaces yield exactly the queried
+// file's diff, so solo behavior is unchanged. Same failure contract as
+// readWorkingTreeDiff: null when unavailable, never a hard dependency.
+function readWorkspaceDiff(container) {
+  const res = spawnSync('git', ['-C', container.workspaceRoot, 'diff', 'HEAD'], {
+    encoding: 'utf8', timeout: TIMEOUTS.GIT_LONG_MS, maxBuffer: DEFAULTS.DIFF_CONTEXT_MAX_DIFF_CHARS * 2,
+  });
+  if (res.error || res.status !== 0) return null;
+  return res.stdout;
+}
+
 function sameFile(a, b) {
   return String(a).replace(/\\/g, '/') === String(b).replace(/\\/g, '/');
 }
@@ -156,4 +171,4 @@ function interleaveDiffFirst(diffRows, mergedRows) {
   return out;
 }
 
-module.exports = { extractDiffSymbols, rankDiffContextRows, readWorkingTreeDiff, interleaveDiffFirst, occurrenceIndex };
+module.exports = { extractDiffSymbols, rankDiffContextRows, readWorkingTreeDiff, readWorkspaceDiff, interleaveDiffFirst, occurrenceIndex };

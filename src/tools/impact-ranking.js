@@ -4,7 +4,7 @@ const { TIMEOUTS, DEFAULTS } = require('../config/constants');
 const { DATA_QUALITY } = require('../config/data-quality');
 const { normalizePathKey } = require('../utils/path');
 const { analyzeCoChanges } = require('./cochange-tools');
-const { rankDiffContextRows, readWorkingTreeDiff, interleaveDiffFirst } = require('./dep-tools/diff-context');
+const { rankDiffContextRows, readWorkspaceDiff, interleaveDiffFirst } = require('./dep-tools/diff-context');
 
 const histories = new WeakMap();
 const STEM_SUFFIXES = [
@@ -105,8 +105,11 @@ function curateImpact(container, file, graphRows, direction = DEFAULTS.IMPACT_DE
   // Diff context: only meaningful for the committed-state query path. A fixed
   // revision (replay) passes its diff explicitly — possibly '' — and '' must
   // not fall back to the working tree, whose diff belongs to another revision.
+  // Working-tree queries read the whole workspace diff: with several dirty
+  // files, identifiers changed in the *other* files are legitimate ranking
+  // evidence for this query too (second-known-file conditioning, A4).
   let diff = diffText;
-  if (diff == null) diff = readWorkingTreeDiff(container, file);
+  if (diff == null) diff = readWorkspaceDiff(container);
   if (typeof diff === 'string' && diff.length > 0) {
     // No seen-filter here: a file already in the merged list is exactly what
     // diff context should *promote* — the interleave dedupes, and the diff
