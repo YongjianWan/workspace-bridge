@@ -243,6 +243,7 @@ node cli.js dead-exports --cwd . --json --quiet
 | cache.save() 已改为 async                              | `src/services/cache.js`                              | 调用方必须`await`（container.js、测试均已适配）                                                              |
 | repl-test.js flaky                                     | `test/repl-test.js`                                  | runner.js 串行执行时偶发失败，单独`node test/repl-test.js` 稳定通过；若遇到，先重跑确认                      |
 | audit-file-watch-test.js flaky                         | `test/audit-file-watch-test.js`                      | runner.js 串行执行时 watcher 事件偶发丢失，单独`node test/audit-file-watch-test.js` 稳定通过                 |
+| audit-assembler-test.js flaky（2026-10-14 CI 记录） | `test/audit-assembler-test.js` | runner 串行高负载时改写文件后立即查询会撞上容器异步建图（`GraphNotReadyError: state: UPDATING`），与 audit-file-watch 同族；首次红、原样重跑即绿。遇到先重跑确认，再按真回归处理 |
 | bug-27-28-29-regression-test.js flaky                | `test/bug-27-28-29-regression-test.js`               | runner.js 串行执行且机器高负载时偶发（2026-10-11 复现一次：repl eval 退出码断言），单独跑稳定通过；若遇到，先重跑确认 |
 | 全量 runner 高负载偶发失败（2026-10-13 记录） | `npm test` 慢层 | 高负载全量运行中 8 项偶发失败（audit-diff-submodule、git-head、impact-ranking 退出码 1；jvm-gate-wiring、kotlin-ast-parser、json-size-hint、kotlin-local-declarations、jvm-main-entry 退出码 3221225477 访问冲突），单独重跑 8/8 全过，低负载复跑 384/384 全绿；若遇到，先单独重跑再判断是否真回归 |
 | 回放子进程偶发超时 | `eval/replay-impact.js` | 2026-10-11 两次出现、原因未查明：T1.4 首次独立回放 `spawnSync git ETIMEDOUT`；H-34 的 P1 回放中提交 `251b502` 的子进程超过 600 秒，单独复现每个输入 7–9 秒。summary 的错误数非 0 时先用新 `--name` 整轮重跑，不要把带错误的结果当证据 |
