@@ -58,11 +58,7 @@ node cli.js repl --cwd . --eval "impact src/app.js"  # 非交互单命令（AI/C
 
 Java 与 Python 解析默认走进程内 tree-sitter WASM；如果 WASM 加载或解析失败，才会显式降级为 `regex-fallback`。降级结果可用，但不能当成 AST 级字段或 golden snapshot 的等价结果。
 
-当前结论：
-
-- `dead-exports` 已有最小 ground-truth smoke，但它证明的是 corpus-level 的 precision/recall，而不是全局召回率。
-- resolver 的真实风险是顺序语义；`alias`、`symbol-table`、fallback 的优先级变化必须用冲突矩阵锁住。
-- Java/Python AST 的前提是随包提供的 tree-sitter WASM；出现 `regex-fallback` 时按 degraded mode 读结果，不要把 fallback 当成 AST 回归或等价结果。
+当前结论见 [AGENTS.md](./AGENTS.md) 末尾「当前判断」（同一事实只维护一份，不在 README 重复）。
 
 ## 配置
 
