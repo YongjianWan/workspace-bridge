@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### diff-context 跨仓库对照回放：F1/P1 无退化（2026-10-16，行动清单第 3 项）
+
+- 同一版本（含 H-34 修复与 A4）在 F1（前端 JS/TS，holdout 20、144 提交 / 848 输入）与 P1（Python，holdout 0、75 提交 / 325 输入）上分别跑默认配置与 `--diff-context` 回放，0 错误。
+- 结果：F1 默认 0.5302 → diff-context 0.5893（+5.9pp）；P1 默认 0.5533 → 0.5813（+2.8pp，Python→Python 边 0.5541→0.5824）。J1 对照 +2.2pp（0.6325→0.6545）。三仓全部正增益，非 Java 语言同样有效——diff-context 不是 J1 单仓库的过拟合产物。
+- P1 ceiling 仅 0.5860、tool 0.5813 已达 ceiling 的 99%，该语料信号榨干；F1 ceiling 0.8178、tool 达 72%，剩余空间是已诊断的排序信号瓶颈。回放目录 `eval/truth/replay/{F1,P1}-holdout-v5-base` 与 `{F1,P1}-holdout-diffctx-v1`；完整对照表写入 ROADMAP 第 6 节。
+
 ### 小修：diff-context 死参数删除、文档口径对齐（2026-10-16）
 
 - `extractDiffSymbols(diffText, _fileName)` 的 `_fileName` 参数从签名到调用方、测试全部删除（函数体从未使用；`rankDiffContextRows` 里为它计算的 `relative` 一并删除）。行为不变。

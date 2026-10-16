@@ -282,6 +282,16 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 | F1 | 20 | 144 / 848 | 0.4668 | 0.5247 |
 | P1 | 0 | 75 / 325 | 0.3660 | 0.5175 |
 
+**diff-context 跨仓库对照（2026-10-16，行动清单第 3 项）**：同一版本（含 H-34 修复与 A4）分别在 J1/F1/P1 的留出口径上跑默认配置与 `--diff-context` 回放，0 错误。三仓全部正增益，非 Java 语言同样有效——diff-context 不是 J1 单仓库调出来的过拟合特性。
+
+| 仓库 | 边类型 | 默认配置召回 | +diff-context | 增益 |
+|---|---|---:|---:|---:|
+| J1 | Java→Java | 0.6325 | 0.6545 | +2.2pp |
+| F1 | 前端内部（JS/TS） | 0.5302 | 0.5893 | +5.9pp |
+| P1 | Python→Python | 0.5541 | 0.5824 | +2.8pp |
+
+F1 ceiling 0.8178、diff-context 后 tool 达 ceiling 的 72%（剩余空间是已诊断的排序信号瓶颈）；P1 ceiling 仅 0.5860、tool 0.5813 已到 ceiling 的 99%，该语料上信号确实榨干。回放目录 `eval/truth/replay/{F1,P1}-holdout-v5-base`（默认）与 `{F1,P1}-holdout-diffctx-v1`（diff-context），复现命令同 T1.4 格式加/去 `--diff-context`；J1 侧对照为 `J1-holdout-v1` 对 `J1-holdout-diffctx-v4`。
+
 复核存档（本机 gitignored；`eval/truth/` 下的归因、仿真、对比脚本同样只在项目所有者本机，其他机器只能复跑 `eval/replay-impact.js`，不能复跑这些派生计算）：`eval/truth/t14-independent-final.json`；回放目录为 `eval/truth/replay/J1-t14-independent-final/`、`F1-t14-independent-final/`、`P1-t14-independent-final/`。复现命令分别为 `node eval/replay-impact.js --target J1 --name J1-t14-independent-final --holdout 20`、`--target F1 --name F1-t14-independent-final --holdout 20`、`--target P1 --name P1-t14-independent-final --holdout 0`；独立重跑应使用新的 `--name`。
 
 **阶段 1 完成条件**：T1.1、T1.2 完成；T0.5 归因计数前两位中有对应任务的原因都已处理；J1 满足 5.5 定义的通过线；J1 的 Java→Mapper XML 和 Mapper XML→Java 召回率都 ≥ 70%。两条线如经项目所有者复核调整，以调整后的数为准。
