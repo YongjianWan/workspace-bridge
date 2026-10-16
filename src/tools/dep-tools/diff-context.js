@@ -58,7 +58,7 @@ function diffTooBig(diffText) {
   return diffText.length > DEFAULTS.DIFF_CONTEXT_MAX_DIFF_CHARS;
 }
 
-function extractDiffSymbols(diffText, _fileName) {
+function extractDiffSymbols(diffText) {
   if (!diffText || diffTooBig(diffText)) return [];
   const out = new Set();
   for (const line of diffText.split('\n')) {
@@ -81,9 +81,8 @@ function extractDiffSymbols(diffText, _fileName) {
 // containing that identifier; score = Σ 1/DF.
 function rankDiffContextRows(container, filePath, diffText) {
   const graph = container.snapshot?.graph || container.depGraph;
-  const relative = path.relative(container.workspaceRoot, filePath).replace(/\\/g, '/');
   const inputDisplay = String((graph?._displayPath?.(filePath)) || filePath).replace(/\\/g, '/');
-  const symbols = extractDiffSymbols(diffText, relative);
+  const symbols = extractDiffSymbols(diffText);
   if (!symbols.length) return [];
   const index = occurrenceIndex(container);
   const scores = new Map();

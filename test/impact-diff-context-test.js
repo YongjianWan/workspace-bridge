@@ -244,7 +244,7 @@ function verifyExtraction() {  const javaDiff = [
     '-  public int computeTotal(int x) { return x; }',
     '+  public int computeTotal(final int x) { return x; }',
   ].join('\n');
-  assert(extractDiffSymbols(javaDiff, 'src/p/A.java').includes('computeTotal'), 'java def-line ident extracted');
+  assert(extractDiffSymbols(javaDiff).includes('computeTotal'), 'java def-line ident extracted');
 
   const xmlDiff = [
     '--- a/m/UserMapper.xml',
@@ -253,17 +253,17 @@ function verifyExtraction() {  const javaDiff = [
     '-  <select id="findByUser" resultType="User">',
     '+  <select id="findByUser" resultType="UserVO">',
   ].join('\n');
-  const xmlGot = extractDiffSymbols(xmlDiff, 'm/UserMapper.xml');
+  const xmlGot = extractDiffSymbols(xmlDiff);
   assert(xmlGot.includes('findByUser'), `xml statement id extracted, got ${JSON.stringify(xmlGot)}`);
 
   const noisy = '+  public int status = getName();\n';
-  const got = extractDiffSymbols(noisy, 'a.java');
+  const got = extractDiffSymbols(noisy);
   assert(!got.includes('public') && !got.includes('int'), `keywords filtered, got ${JSON.stringify(got)}`);
   // status/getName stay in: generic names are down-weighted at ranking time
   // by IDF (1/filesContaining), not dropped at extraction.
 
-  assert.deepStrictEqual(extractDiffSymbols('x'.repeat(300000), 'a.java'), [], 'oversize diff treated as unavailable');
-  assert.deepStrictEqual(extractDiffSymbols('', 'a.java'), [], 'empty diff yields no symbols');
+  assert.deepStrictEqual(extractDiffSymbols('x'.repeat(300000)), [], 'oversize diff treated as unavailable');
+  assert.deepStrictEqual(extractDiffSymbols(''), [], 'empty diff yields no symbols');
 }
 
 (async () => {
