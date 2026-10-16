@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### 小修：diff-context 死参数删除、文档口径对齐（2026-10-16）
+
+- `extractDiffSymbols(diffText, _fileName)` 的 `_fileName` 参数从签名到调用方、测试全部删除（函数体从未使用；`rankDiffContextRows` 里为它计算的 `relative` 一并删除）。行为不变。
+- AGENTS 层次表注明 container.js 在函数内延迟 require L4 `overview-tools`/`cochange-tools` 的两处向上依赖；开发原则第 8 条补例外说明：`impact` 的 diff 上下文排序当前只对 Java + MyBatis 调优，是阶段 1 主场景的有意取舍。
+- TECH_DEBT 删除 L1/L2/L3 三张空表和 U 表头后的断行，空状态改为文字「当前无开放条目」。
+
 ### 文档清理：SESSION 交接去重、flaky 记录归位（2026-10-16，纯文档）
 
 - SESSION「当前交接」删除已被 2026-10-14 终审取代的条目：diff 上下文实施记录（2026-10-13）、评审修复批次验证记录、`75253fe` 验证记录与 CI 链接、T1.4 独立回放汇总（ROADMAP 第 6 节已存档）、2026-10-13 验收会话行；「下一步」删除已完成的独立验收条目（原第 3 条）；通道 9 行更新为「已实施并终审」（AST 层 v3 关门）。终审行补一句：15 个排序变体全部在同一个 J1 留出集（20 提交）上裁决，数字只在 J1 上成立，F1/P1 未复跑。
