@@ -7,9 +7,15 @@
 
 ## [Unreleased]
 
+### 文档：登记 2026-10-22 审计发现，改正 diff-context 对照与 SKILL 的错误表述（纯文档）
+
+- TECH_DEBT 新增 H-36（P1，diff 上下文降级不可见）、H-37（P2，`impactCount` 对不同输入几乎是常数，SKILL 却让 agent 据此判断影响范围）、H-38（P2，回放口径 v1 的笨基线补位、两级平均权重、缺区间三处偏差）、L3-19（`impact` 行内缺入选证据）、U-32（同主干规则跨目录取候选）、U-33（`audit-file` 配置、A4、300 提交窗口三条使用路径没被回放过）；根因 D 归属 H-36、L3-19；删掉 U-15 与 U-30 之间断开 U 表的空行。
+- ROADMAP 第 6 节 diff-context 跨仓库对照改正"同一版本（含 H-34 修复与 A4）"：J1 跑在 `37b078e` 加未提交改动上（`git merge-base --is-ancestor 446d039 37b078e` 返回 1），F1/P1 跑在干净的 `247f54d`；F1/P1 是阶段 1 用过的样本，不是留出样本；A4 路径在回放里不触发。补按提交配对 bootstrap 区间：F1 [+3.5, +8.5]pp、J1 [+0.3, +4.6]pp、P1 [−0.2, +5.9]pp，P1 增益还不能和 0 区分。P1 ceiling 一句注明全部类型口径。2026-10-16 条目里同一句版本说明一并改正。
+- `skills/workspace-audit/SKILL.md` 的 `impact` 说明删除"回放口径 `--diff-context`"（CLI 不认这个参数，实测退出码 1），改写为全工作区 diff 口径并指向 H-36；user-scope 副本 `~/.agents/skills/workspace-audit/SKILL.md` 同步。
+
 ### diff-context 跨仓库对照回放：F1/P1 无退化（2026-10-16，行动清单第 3 项）
 
-- 同一版本（含 H-34 修复与 A4）在 F1（前端 JS/TS，holdout 20、144 提交 / 848 输入）与 P1（Python，holdout 0、75 提交 / 325 输入）上分别跑默认配置与 `--diff-context` 回放，0 错误。
+- 干净的 `247f54d`（含 H-34 修复与 A4）在 F1（前端 JS/TS，holdout 20、144 提交 / 848 输入）与 P1（Python，holdout 0、75 提交 / 325 输入）上分别跑默认配置与 `--diff-context` 回放，0 错误；J1 对照沿用 `37b078e` 加未提交改动上的回放（早于 A4）。
 - 结果：F1 默认 0.5302 → diff-context 0.5893（+5.9pp）；P1 默认 0.5533 → 0.5813（+2.8pp，Python→Python 边 0.5541→0.5824）。J1 对照 +2.2pp（0.6325→0.6545）。三仓全部正增益，非 Java 语言同样有效——diff-context 不是 J1 单仓库的过拟合产物。
 - P1 ceiling 仅 0.5860、tool 0.5813 已达 ceiling 的 99%，该语料信号榨干；F1 ceiling 0.8178、tool 达 72%，剩余空间是已诊断的排序信号瓶颈。回放目录 `eval/truth/replay/{F1,P1}-holdout-v5-base` 与 `{F1,P1}-holdout-diffctx-v1`；完整对照表写入 ROADMAP 第 6 节。
 

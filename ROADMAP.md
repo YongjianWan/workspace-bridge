@@ -282,7 +282,7 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 | F1 | 20 | 144 / 848 | 0.4668 | 0.5247 |
 | P1 | 0 | 75 / 325 | 0.3660 | 0.5175 |
 
-**diff-context 跨仓库对照（2026-10-16，行动清单第 3 项）**：同一版本（含 H-34 修复与 A4）分别在 J1/F1/P1 的留出口径上跑默认配置与 `--diff-context` 回放，0 错误。三仓全部正增益，非 Java 语言同样有效——diff-context 不是 J1 单仓库调出来的过拟合特性。
+**diff-context 跨仓库对照（2026-10-16，行动清单第 3 项）**：三个仓库各跑一次默认配置与 `--diff-context` 回放，0 错误，代码版本和样本各不相同。J1 跑在 `37b078e` 加未提交改动上（含 H-34 修复，早于 A4 的 `446d039`），样本是 20 个留出提交；F1、P1 跑在干净的 `247f54d` 上，F1 是去掉留出池后的 144 个提交，P1 是全部 75 个提交（`--holdout 0`），两者都是阶段 1 开发时用过的样本。回放给工具的是输入文件自己在该提交里的最终 diff，A4 的全工作区 diff 路径在三个仓库的回放里都不会触发。三仓点估计都是正增益；2026-10-22 对 `runs.jsonl` 按提交配对有放回抽样 10000 次，稳健程度不同：F1 +5.9pp，95% 区间 [+3.5, +8.5]，73 个提交变好、16 个变差；J1 +2.2pp，区间 [+0.3, +4.6]，5 个变好、2 个变差、13 个不变；P1 Python→Python +2.8pp，区间 [−0.2, +5.9]，跨 0。diff-context 是在 J1 上调出来的，F1 对它是样本外，所以"diff-context 不是 J1 单仓库的过拟合"有 F1 支持；P1 的增益还不能和 0 区分。
 
 | 仓库 | 边类型 | 默认配置召回 | +diff-context | 增益 |
 |---|---|---:|---:|---:|
@@ -290,7 +290,7 @@ workspace-bridge 是一个本地命令行工具，供 AI 编程助手（下称 a
 | F1 | 前端内部（JS/TS） | 0.5302 | 0.5893 | +5.9pp |
 | P1 | Python→Python | 0.5541 | 0.5824 | +2.8pp |
 
-F1 ceiling 0.8178、diff-context 后 tool 达 ceiling 的 72%（剩余空间是已诊断的排序信号瓶颈）；P1 ceiling 仅 0.5860、tool 0.5813 已到 ceiling 的 99%，该语料上信号确实榨干。回放目录 `eval/truth/replay/{F1,P1}-holdout-v5-base`（默认）与 `{F1,P1}-holdout-diffctx-v1`（diff-context），复现命令同 T1.4 格式加/去 `--diff-context`；J1 侧对照为 `J1-holdout-v1` 对 `J1-holdout-diffctx-v4`。
+F1 ceiling 0.8178、diff-context 后 tool 达 ceiling 的 72%（剩余空间是已诊断的排序信号瓶颈）；P1 全部类型口径下 ceiling 仅 0.5860、tool 0.5813，已到 ceiling 的 99%（Python→Python 口径为 0.5824 对 0.5939，98%），该语料上信号确实榨干。回放目录 `eval/truth/replay/{F1,P1}-holdout-v5-base`（默认）与 `{F1,P1}-holdout-diffctx-v1`（diff-context），复现命令同 T1.4 格式加/去 `--diff-context`；J1 侧对照为 `J1-holdout-v1` 对 `J1-holdout-diffctx-v4`。
 
 复核存档（本机 gitignored；`eval/truth/` 下的归因、仿真、对比脚本同样只在项目所有者本机，其他机器只能复跑 `eval/replay-impact.js`，不能复跑这些派生计算）：`eval/truth/t14-independent-final.json`；回放目录为 `eval/truth/replay/J1-t14-independent-final/`、`F1-t14-independent-final/`、`P1-t14-independent-final/`。复现命令分别为 `node eval/replay-impact.js --target J1 --name J1-t14-independent-final --holdout 20`、`--target F1 --name F1-t14-independent-final --holdout 20`、`--target P1 --name P1-t14-independent-final --holdout 0`；独立重跑应使用新的 `--name`。
 
