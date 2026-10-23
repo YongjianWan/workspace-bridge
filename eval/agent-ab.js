@@ -389,18 +389,20 @@ const samePrefix = (child, parent) => {
   const root = norm(parent);
   return c === root || c.startsWith(root + path.sep);
 };
-// Bash 命令里的绝对路径：Windows 盘符写法和 git-bash 的 /c/ 写法；非 Windows 取 / 开头的词。
-const ABS_IN_COMMAND = process.platform === 'win32'
-  ? /(?:[A-Za-z]:[\\/]|\/[A-Za-z]\/)[^\s'"|;&<>()]*/g
-  : /(?:^|\s)(\/[^\s'"|;&<>()]+)/g;
+// Bash 命令里的绝对路径，只认词首（行首、空白、引号、= 之后），免得把 src/a/b.js 里的 /a/ 当成盘符。
+// Windows 认盘符写法和 git-bash 的 /c/ 写法；其他平台认 / 开头的词。
+const ABS_IN_COMMAND = {
+  win32: /(?:^|[\s'"=(])((?:[A-Za-z]:[\\/]|\/[A-Za-z]\/)[^\s'"|;&<>()]*)/g,
+  posix: /(?:^|[\s'"=(])(\/[^\s'"|;&<>()]+)/g,
+};
 const IGNORED_ABS = new Set(['/dev/null']);
 
-function absPathsInCommand(command) {
+function absPathsInCommand(command, platform = process.platform) {
   const found = [];
-  for (const m of String(command).matchAll(ABS_IN_COMMAND)) {
-    const raw = (m[1] || m[0]).trim();
+  for (const m of String(command).matchAll(platform === 'win32' ? ABS_IN_COMMAND.win32 : ABS_IN_COMMAND.posix)) {
+    const raw = m[1];
     if (IGNORED_ABS.has(raw)) continue;
-    found.push(/^\/[A-Za-z]\//.test(raw) ? `${raw[1]}:${raw.slice(2)}` : raw);
+    found.push(platform === 'win32' && /^\/[A-Za-z]\//.test(raw) ? `${raw[1]}:${raw.slice(2)}` : raw);
   }
   return found;
 }
@@ -856,6 +858,7 @@ module.exports = {
   buildPrompts,
   buildAgentArgs,
   extractFilesJson,
+  absPathsInCommand,
   outsideAccesses,
   scoreList,
   conditionOrder,

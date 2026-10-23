@@ -14,6 +14,7 @@
 - 测试 `test/agent-ab-test.js`（`@semantic`、`@slow`）：输入排序、路径归一与打分、JSON 抽取、越界访问（含 Bash 命令里的绝对路径、被拒调用不算）、bootstrap、样本量、判定；临时 git 仓库上用桩 agent 跑通 plan → prepare → run → score，核对历史截断、工作区不变、B 组提示词带 `impact` 原样输出、无效重跑、续跑、预算停止与两级平均。本机通过，约 90 秒。
 - 不花钱的实测：没有凭据时按 harness 参数起 `claude -p`，参数全部被接受（`--max-turns` 未列在 `--help` 但可用），停在认证失败、`total_cost_usd` 为 0；`--bare` 下 agent 只有 Bash 和 Read，所以 `grep`、`rg`、`find`、`ls` 进了放行清单。J1 在 cutoff 提交上 `mvn -o -q -DskipTests compile` 退出码 0、冷编译 208 秒。
 - dry run（`--name pilot-dryrun`，桩 agent `test/fixtures/agent-ab-dry-stub.js`，不调用模型）：`plan` 选出的 4 个提交、8 个输入与此前独立算出的清单一致；`prepare` 717 秒，工作区只有输入文件一处改动、C 不可达，J1 两次离线编译 154 秒、166 秒均通过，8 次 `impact` 退出码 0；`run` 16 次全部有效，B 的召回逐个等于 `impact` 列表单独的召回；`score` 正常出表。工作区 431 MB，用完已删。
+- 越界检测的 Bash 绝对路径只认词首（行首、空白、引号、= 之后）：非 Windows 平台原来漏掉加引号的路径，Windows 平台原来会把 `src/a/b.js` 里的 `/a/` 当成 git-bash 盘符；两种平台的写法都加了断言，在任何系统上都测。
 - 预实验未跑：等项目所有者答复凭据与预算。代码修改权已释放回「无」。
 
 ### 文档：登记 2026-10-22 审计发现，改正 diff-context 对照与 SKILL 的错误表述（纯文档）

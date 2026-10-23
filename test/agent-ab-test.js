@@ -122,6 +122,12 @@ function testOutsideAccesses() {
   ];
   assert.deepStrictEqual(ab.outsideAccesses(events, ws), [`Read:${outside}`, 'Glob:..', `Bash:${path.dirname(outside)}`],
     '只记成功读到工作区外的调用，Bash 命令里的绝对路径也查');
+
+  // 两种平台的写法在任何系统上都测，CI 的 ubuntu 和 windows 走的是不同分支。
+  assert.deepStrictEqual(ab.absPathsInCommand('grep -rn x "C:\\other\\dir" && ls /c/Users/x', 'win32'), ['C:\\other\\dir', 'c:/Users/x']);
+  assert.deepStrictEqual(ab.absPathsInCommand('grep -rn x src/a/b.js > /dev/null', 'win32'), [], '相对路径里的 /a/ 不是盘符');
+  assert.deepStrictEqual(ab.absPathsInCommand('grep -rn Foo "/tmp/other" --include=/opt/x', 'linux'), ['/tmp/other', '/opt/x'], '引号和 = 后的绝对路径也认');
+  assert.deepStrictEqual(ab.absPathsInCommand('ls src/a/b; cat /dev/null', 'linux'), []);
   console.log('[ok] outsideAccesses');
 }
 
