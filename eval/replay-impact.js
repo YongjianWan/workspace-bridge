@@ -1083,6 +1083,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  listCommits,
   isStatFile,
   stemName,
   selectSamples,
