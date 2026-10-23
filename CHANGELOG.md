@@ -7,6 +7,15 @@
 
 ## [Unreleased]
 
+### agent-ab：agent 参与的离线对照回放 harness（2026-10-23，T2.2 的低成本前置）
+
+- 新增 `eval/agent-ab.js`，设计与口径 v1 在 `docs/experiments/agent-offline-ab.md`。四个子命令：`plan` 按文档第 3 节冻结样本（预实验用已回放过的 J1/F1 提交，正式实验只用新鲜提交，`--include-holdout` 点名留出池），同名再跑拒绝覆盖；`prepare` 按 T2.2 的做法建截断历史的工作区（C 及之后的提交不可达，带 `core.longpaths`），写入输入文件在 C 里的内容，J1 先离线编译，B 组的 `impact` 在这个有未提交改动的工作区里跑（走 A4 的全工作区 diff 路径）并原样接进提示词；`run` 调 `claude -p --bare`（`claude-opus-5-5` medium、只读 Bash 放行清单、`--permission-prompts none`、去掉指向 Headroom 的 `ANTHROPIC_BASE_URL`），无效运行原样存档并重跑一次，断点续跑，`--max-total-usd` 到线即停，每次轨迹存进 `transcripts/`；`score` 做两级平均、按提交配对 bootstrap（种子 20261022，10,000 次）、σ_run 与样本量推算，并按文档第 5 节判定。
+- `eval/replay-impact.js` 导出 `listCommits`，行为不变（`node test/replay-impact-test.js` 本机通过）。
+- 测试 `test/agent-ab-test.js`（`@semantic`、`@slow`）：输入排序、路径归一与打分、JSON 抽取、越界访问（含 Bash 命令里的绝对路径、被拒调用不算）、bootstrap、样本量、判定；临时 git 仓库上用桩 agent 跑通 plan → prepare → run → score，核对历史截断、工作区不变、B 组提示词带 `impact` 原样输出、无效重跑、续跑、预算停止与两级平均。本机通过，约 90 秒。
+- 不花钱的实测：没有凭据时按 harness 参数起 `claude -p`，参数全部被接受（`--max-turns` 未列在 `--help` 但可用），停在认证失败、`total_cost_usd` 为 0；`--bare` 下 agent 只有 Bash 和 Read，所以 `grep`、`rg`、`find`、`ls` 进了放行清单。J1 在 cutoff 提交上 `mvn -o -q -DskipTests compile` 退出码 0、冷编译 208 秒。
+- dry run（`--name pilot-dryrun`，桩 agent `test/fixtures/agent-ab-dry-stub.js`，不调用模型）：`plan` 选出的 4 个提交、8 个输入与此前独立算出的清单一致；`prepare` 717 秒，工作区只有输入文件一处改动、C 不可达，J1 两次离线编译 154 秒、166 秒均通过，8 次 `impact` 退出码 0；`run` 16 次全部有效，B 的召回逐个等于 `impact` 列表单独的召回；`score` 正常出表。工作区 431 MB，用完已删。
+- 预实验未跑：等项目所有者答复凭据与预算。代码修改权已释放回「无」。
+
 ### 文档：登记 2026-10-22 审计发现，改正 diff-context 对照与 SKILL 的错误表述（纯文档）
 
 - TECH_DEBT 新增 H-36（P1，diff 上下文降级不可见）、H-37（P2，`impactCount` 对不同输入几乎是常数，SKILL 却让 agent 据此判断影响范围）、H-38（P2，回放口径 v1 的笨基线补位、两级平均权重、缺区间三处偏差）、L3-19（`impact` 行内缺入选证据）、U-32（同主干规则跨目录取候选）、U-33（`audit-file` 配置、A4、300 提交窗口三条使用路径没被回放过）；根因 D 归属 H-36、L3-19；删掉 U-15 与 U-30 之间断开 U 表的空行。
