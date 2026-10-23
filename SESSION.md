@@ -6,7 +6,7 @@
 
 ## 当前交接
 
-- 代码修改权（ROADMAP 第 3 节规则 1）：**Vivian（Kimi）2026-10-14 会话持有**。
+- 代码修改权（ROADMAP 第 3 节规则 1）：**实验 B 会话 `local_9f146354`（Claude，2026-10-23 起）持有**，范围是新建 `eval/agent-ab.js` 及其测试，设计见 `docs/experiments/agent-offline-ab.md`。2026-10-14 Kimi 会话的登记由项目所有者 2026-10-23 清除。
 - 过线任务终审（2026-10-14，Vivian 实施）：**算法排序通道全部关闭，未过线**。基线复现 `J1-holdout-v5-base` 与 v4 逐项一致（全类型 0.6099、ceiling 0.8165、110 输入 0 错误）；Java→Java +15pp 条件已满足（0.6545−0.5034=+15.1pp），唯一缺口是召回 0.6545<0.70。15 个排序变体（B1 五变体 pairwise 0.6532 / pointwise 0.6393 / +交互 0.6332 / J→J 专项 0.6522 / +元特征 0.6532、GBDT 0.6106、并集补位 0.6545、A3 提交说明 TF-IDF 0.6393 等）全部 ≤ 产品 0.6545。候选池 92.8% 含真值、完美排序 0.9642——瓶颈是排序信号，静态+diff+任务模板特征已全部榨干。15 个排序变体全部在同一个 J1 留出集（20 提交）上裁决，数字只在 J1 上成立；但 diff-context 特性本身已跨仓库验证（2026-10-16，ROADMAP 第 6 节对照表）：F1 +5.9pp（0.5302→0.5893）、P1 +2.8pp（0.5533→0.5813），非 Java 语言同样正增益，无退化。证据产物（本机 gitignored）：`eval/truth/phase6-feature-dump.js`、`eval/truth/phase6-ranker*.js` / `phase6-a3-probe.js`、`eval/truth/replay/p6-dump-j1/`。剩余 C1 归项目所有者决策；A2 跨仓库只对"漏了后端"有效。
 - A4 全工作区 diff 条件化（2026-10-14 实施并推送）：工作区查询读全量 `git diff HEAD`，其他脏文件改动里的新标识符也能把引用方 promote 进前列；单脏文件行为不变，回放显式 diffText 路径不受影响（留出数字不动）。提交 `446d039` + 文档 `6d59005`/`61285a2`，CI 双工作流全绿。当前基线：快层 280/280、lint 退出码 0（2026-10-14）。
 - 缓存契约：CACHE_SCHEMA_REVISION=55（CACHE_VERSION 另含引擎源码指纹），schemaVersion=1.2.0；parse_results 只存纯解析输出。索引不完整时 `discoveryComplete=false`、`coverageRatio=null`，消费者必须保留 warnings 与 degraded 状态，不按 100% 覆盖解读。
