@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### 文档：登记 2026-10-23 架构审查的结论（纯文档）
+
+- `docs/TECH_DEBT.md`「根因归属」新增五个结构性根因：进程模型（每条命令冷启动、全量重建）、两套命令层（REPL 平行实现）、增量失效与冷启动不等价、文件角色没有唯一拥有者、影响请求的缺省参数；"输出没有统一出口"改为对应开放条目，根因 E 有了开放条目。依据是五个维度各查一遍、逐条反方核查再加总审的结果；关键证据另由本会话复现：ai 格式与 REPL 丢降级信号，增量更新与冷启动结果不一致，孤儿分类漏扩展名，`impact` 与 `audit-file` 对同一文件的计数是 537 对 427。
+- 新增条目：P1 的 H-39（非 JSON 格式丢降级信号）、H-40（REPL 的 `impact` 缺降级信号）、H-41（影响深度的缺省值，`--max-depth` 静默不生效）、H-42（孤儿分类漏扩展名）、H-43（`workspace-info` 文件数与索引不一致）；P2 的 H-44（两套文件角色分类器）、H-45（改入口规则不作废解析缓存）、H-46（合并门禁配置自相矛盾）、H-47（AGENTS 两处与代码不符）；新设 P3 节，登记 H-48（每次调用的三处固定开销）；L2-46（增量更新不补边）；L3-20（`_precomputeCoChanges` 死代码）；U-34（定位策略的返回契约）；U-33 增加第 ④ 条（ai 格式只给 5 行，没有召回数字）。
+- 改正：H-35 的位置写错了，受影响的是 `affected-routes` 命令和 `audit-diff` 文件条目，`impact` 不经过 `findAffectedRoutes`；H-37 补上计数近似常数的原因；P4 的"输出没有统一出口"一条删除，它"当前没有因此产生的错误输出"的前提被 H-39 推翻；P4 的暖启动一条注明 Django 门槛照不到 JVM 仓库的热点。
+- 本次没有改代码、AGENTS、ROADMAP 和 SKILL；AGENTS 的两处错误登记为 H-47。
+
 ### agent-ab：agent 参与的离线对照回放 harness（2026-10-23，T2.2 的低成本前置）
 
 - 新增 `eval/agent-ab.js`，设计与口径 v1 在 `docs/experiments/agent-offline-ab.md`。四个子命令：`plan` 按文档第 3 节冻结样本（预实验用已回放过的 J1/F1 提交，正式实验只用新鲜提交，`--include-holdout` 点名留出池），同名再跑拒绝覆盖；`prepare` 按 T2.2 的做法建截断历史的工作区（C 及之后的提交不可达，带 `core.longpaths`），写入输入文件在 C 里的内容，J1 先离线编译，B 组的 `impact` 在这个有未提交改动的工作区里跑（走 A4 的全工作区 diff 路径）并原样接进提示词；`run` 调 `claude -p --bare`（`claude-opus-5-5` medium、只读 Bash 放行清单、`--permission-prompts none`、去掉指向 Headroom 的 `ANTHROPIC_BASE_URL`），无效运行原样存档并重跑一次，断点续跑，`--max-total-usd` 到线即停，每次轨迹存进 `transcripts/`；`score` 做两级平均、按提交配对 bootstrap（种子 20261022，10,000 次）、σ_run 与样本量推算，并按文档第 5 节判定。
