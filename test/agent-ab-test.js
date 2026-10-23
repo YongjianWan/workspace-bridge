@@ -131,6 +131,16 @@ function testOutsideAccesses() {
   console.log('[ok] outsideAccesses');
 }
 
+function testInfraFailure() {
+  assert.strictEqual(ab.infraFailure({ error: { code: 'ENOENT' } }, null), 'spawn-ENOENT', '找不到 claude');
+  assert.strictEqual(ab.infraFailure({ status: 1 }, null), 'no-result-exit-1', '没有结果事件');
+  assert.strictEqual(ab.infraFailure({ status: 1 }, { is_error: true, total_cost_usd: 0, terminal_reason: 'api_error' }), 'api-error-api_error', '没登录：出错且没花钱');
+  assert.strictEqual(ab.infraFailure({ status: 1 }, { is_error: true, total_cost_usd: 0.4 }), null, '花了钱再出错，按无效运行计');
+  assert.strictEqual(ab.infraFailure({ error: { code: 'ETIMEDOUT' }, status: null }, null), null, '超时按无效运行计');
+  assert.strictEqual(ab.infraFailure({ status: 0 }, { is_error: false, total_cost_usd: 0 }), null, '桩 agent 不花钱但成功');
+  console.log('[ok] infraFailure');
+}
+
 function testAgentArgsAndOrder() {
   const base = ab.buildAgentArgs({ compile: { allowed: false } }, {});
   assert.ok(base.includes('--bare'), '默认 --bare，不加载用户 CLAUDE.md、记忆与 skill');
@@ -263,6 +273,13 @@ if (prompt.includes(marker)) {
 }
 `;
 
+// 2026-10-23 实测没凭据时 claude -p 的结果事件：exit 1、is_error、花费 0。
+const NOT_LOGGED_IN_STUB = `
+console.log(JSON.stringify({ type: 'system', subtype: 'init', apiKeySource: 'none' }));
+console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: true, num_turns: 1, total_cost_usd: 0, terminal_reason: 'api_error', result: 'Not logged in · Please run /login' }));
+process.exit(1);
+`;
+
 function withEnv(vars, fn) {
   const saved = {};
   for (const k of Object.keys(vars)) { saved[k] = process.env[k]; process.env[k] = vars[k]; }
@@ -359,6 +376,13 @@ function testPipeline(fx, root) {
     ab.main(['run', '--name', name, '--runs', '3', '--agent-cmd', path.join(stubDir, 'agent.js'), '--max-total-usd', '0.17']);
     assert.strictEqual(fs.readFileSync(runsFile, 'utf8').split('\n').filter(Boolean).length, 17, '已花费达到预算时不再运行');
 
+    fs.writeFileSync(path.join(stubDir, 'not-logged-in.js'), NOT_LOGGED_IN_STUB);
+    assert.throws(() => ab.main(['run', '--name', name, '--runs', '3', '--agent-cmd', path.join(stubDir, 'not-logged-in.js')]), /环境问题/);
+    assert.strictEqual(fs.readFileSync(runsFile, 'utf8').split('\n').filter(Boolean).length, 17, '环境问题不写 runs.jsonl、不占试次');
+    const infra = fs.readFileSync(path.join(out, 'infra-errors.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.strictEqual(infra.length, 1, '第一次环境问题就停，不往下跑');
+    assert.strictEqual(infra[0].reason, 'api-error-api_error');
+
     ab.main(['score', '--name', name]);
     const summary = JSON.parse(fs.readFileSync(path.join(out, 'summary.json'), 'utf8'));
     assert.strictEqual(summary.commits, 2);
@@ -400,6 +424,7 @@ function main() {
   testScoreList();
   testExtractFilesJson();
   testOutsideAccesses();
+  testInfraFailure();
   testAgentArgsAndOrder();
   testStatistics();
 

@@ -471,6 +471,17 @@ function scoreList(rawFiles, ctx) {
   };
 }
 
+/**
+ * 环境问题不是 agent 的表现：起不来、没有结果事件、或者出错且一分钱没花（模型没跑，比如没登录、断网）。
+ * 超时不算：agent 已经跑了、花了钱，按无效运行计。2026-10-23 实测没凭据时 is_error=true、total_cost_usd=0。
+ */
+function infraFailure(res, result) {
+  if (res.error && res.error.code !== 'ETIMEDOUT') return `spawn-${res.error.code || 'error'}`;
+  if (!res.error && !result) return `no-result-exit-${res.status}`;
+  if (result && result.is_error && !(result.total_cost_usd > 0)) return `api-error-${result.terminal_reason || 'unknown'}`;
+  return null;
+}
+
 function conditionOrder(trialId, r) {
   return parseInt(sha256(`${trialId}:${r}`).slice(0, 8), 16) % 2 === 0 ? ['A', 'B'] : ['B', 'A'];
 }
@@ -501,6 +512,13 @@ function runOnce(trial, cond, r, attempt, ctx) {
   if (modified) {
     git(trial.workspace, ['checkout', '--', '.']);
     writeInputChange(trial.workspace, trial.input, trial.afterFile);
+  }
+  // 环境问题不占试次：不写 runs.jsonl，记进 infra-errors.jsonl 后整轮停下，否则一个没设好的 key 会把全部试次记成无效。
+  const infra = infraFailure(res, result);
+  if (infra) {
+    const message = result ? String(result.result || '') : String(res.stderr || (res.error && res.error.message) || '');
+    fs.appendFileSync(path.join(ctx.out, 'infra-errors.jsonl'), `${JSON.stringify({ trial: trial.id, condition: cond, run: r, attempt, startedAt, exit: res.status, reason: infra, message: message.slice(0, 300), transcript: path.join('transcripts', `${base}.jsonl`) })}\n`);
+    throw new AbError(`${trial.id} ${cond} r${r}：环境问题（${infra}：${message.slice(0, 120)}），这次没有记进 runs.jsonl。修好后用同样的命令重跑，会从这里接着跑。`);
   }
   const files = result && typeof result.result === 'string' ? extractFilesJson(result.result) : null;
   let invalidReason = null;
@@ -860,6 +878,7 @@ module.exports = {
   extractFilesJson,
   absPathsInCommand,
   outsideAccesses,
+  infraFailure,
   scoreList,
   conditionOrder,
   bootstrapCI,
