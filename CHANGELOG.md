@@ -15,7 +15,8 @@
 - 不花钱的实测：没有凭据时按 harness 参数起 `claude -p`，参数全部被接受（`--max-turns` 未列在 `--help` 但可用），停在认证失败、`total_cost_usd` 为 0；`--bare` 下 agent 只有 Bash 和 Read，所以 `grep`、`rg`、`find`、`ls` 进了放行清单。J1 在 cutoff 提交上 `mvn -o -q -DskipTests compile` 退出码 0、冷编译 208 秒。
 - dry run（`--name pilot-dryrun`，桩 agent `test/fixtures/agent-ab-dry-stub.js`，不调用模型）：`plan` 选出的 4 个提交、8 个输入与此前独立算出的清单一致；`prepare` 717 秒，工作区只有输入文件一处改动、C 不可达，J1 两次离线编译 154 秒、166 秒均通过，8 次 `impact` 退出码 0；`run` 16 次全部有效，B 的召回逐个等于 `impact` 列表单独的召回；`score` 正常出表。工作区 431 MB，用完已删。
 - 越界检测的 Bash 绝对路径只认词首（行首、空白、引号、= 之后）：非 Windows 平台原来漏掉加引号的路径，Windows 平台原来会把 `src/a/b.js` 里的 `/a/` 当成 git-bash 盘符；两种平台的写法都加了断言，在任何系统上都测。
-- 预实验未跑：等项目所有者答复凭据与预算。代码修改权已释放回「无」。
+- 环境问题不占试次：进程起不来、没有结果事件、或者出错且花费为 0（实测没凭据时 `is_error=true`、`total_cost_usd=0`、`terminal_reason=api_error`）时，`run` 不写 `runs.jsonl`，记进 `infra-errors.jsonl` 后以退出码 1 停下，修好后同样命令接着跑；超时仍按无效运行计。原来一个没设好的 key 会把全部试次记成「无效两次」，样本作废。
+- 预实验：项目所有者 2026-10-23 批准约 34 美元预算，用 `--bare` 加 `ANTHROPIC_API_KEY`，`run` 由项目所有者在设好 key 的终端里自己执行。代码修改权已释放回「无」。
 
 ### 文档：登记 2026-10-22 审计发现，改正 diff-context 对照与 SKILL 的错误表述（纯文档）
 
