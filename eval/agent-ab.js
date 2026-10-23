@@ -495,16 +495,29 @@ function runOnce(trial, cond, r, attempt, ctx) {
   const prompt = fs.readFileSync(path.join(ctx.out, 'prompts', `${trial.id}.${cond}.txt`), 'utf8');
   const args = buildAgentArgs(trial, ctx.opts);
   const [cmd, argv] = /\.js$/i.test(ctx.opts.agentCmd) ? [process.execPath, [ctx.opts.agentCmd, ...args]] : [ctx.opts.agentCmd, args];
+  const base = `${trial.id}.${cond}.r${r}.a${attempt}`;
+  const transcriptFile = path.join(ctx.out, 'transcripts', `${base}.jsonl`);
+  const stderrFile = path.join(ctx.out, 'transcripts', `${base}.stderr.txt`);
+  fs.mkdirSync(path.dirname(transcriptFile), { recursive: true });
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
-  const res = run(cmd, argv, { cwd: trial.workspace, input: prompt, env: agentEnv(ctx.opts), timeout: AGENT_TIMEOUT_MS, allowFail: true });
+  // agent 输出直接写进轨迹文件：一次运行要几分钟，中途被打断也留得下已经发生的部分和已花的 token。
+  const outFd = fs.openSync(transcriptFile, 'w');
+  const errFd = fs.openSync(stderrFile, 'w');
+  let res;
+  try {
+    res = spawnSync(cmd, argv, {
+      cwd: trial.workspace, input: prompt, env: agentEnv(ctx.opts), timeout: AGENT_TIMEOUT_MS, stdio: ['pipe', outFd, errFd],
+    });
+  } finally {
+    fs.closeSync(outFd);
+    fs.closeSync(errFd);
+  }
   const durationMs = Date.now() - t0;
-  const base = `${trial.id}.${cond}.r${r}.a${attempt}`;
-  fs.mkdirSync(path.join(ctx.out, 'transcripts'), { recursive: true });
-  fs.writeFileSync(path.join(ctx.out, 'transcripts', `${base}.jsonl`), String(res.stdout || ''));
-  fs.writeFileSync(path.join(ctx.out, 'transcripts', `${base}.stderr.txt`), String(res.stderr || '') + (res.error ? `\n${res.error.message}` : ''));
+  if (res.error) fs.appendFileSync(stderrFile, `\n${res.error.message}`);
+  const stderr = fs.readFileSync(stderrFile, 'utf8');
 
-  const { events, result } = parseStream(res.stdout);
+  const { events, result } = parseStream(fs.readFileSync(transcriptFile, 'utf8'));
   const init = events.find((e) => e && e.type === 'system' && e.subtype === 'init') || {};
   const outside = outsideAccesses(events, trial.workspace);
   const statusAfter = trackedStatus(trial.workspace);
@@ -516,7 +529,7 @@ function runOnce(trial, cond, r, attempt, ctx) {
   // 环境问题不占试次：不写 runs.jsonl，记进 infra-errors.jsonl 后整轮停下，否则一个没设好的 key 会把全部试次记成无效。
   const infra = infraFailure(res, result);
   if (infra) {
-    const message = result ? String(result.result || '') : String(res.stderr || (res.error && res.error.message) || '');
+    const message = result ? String(result.result || '') : stderr;
     fs.appendFileSync(path.join(ctx.out, 'infra-errors.jsonl'), `${JSON.stringify({ trial: trial.id, condition: cond, run: r, attempt, startedAt, exit: res.status, reason: infra, message: message.slice(0, 300), transcript: path.join('transcripts', `${base}.jsonl`) })}\n`);
     throw new AbError(`${trial.id} ${cond} r${r}：环境问题（${infra}：${message.slice(0, 120)}），这次没有记进 runs.jsonl。修好后用同样的命令重跑，会从这里接着跑。`);
   }
@@ -532,6 +545,7 @@ function runOnce(trial, cond, r, attempt, ctx) {
   const record = {
     trial: trial.id, code: trial.code, commit: trial.commit, input: trial.input, condition: cond, run: r, attempt,
     startedAt, durationMs, exit: res.status,
+    harness: ctx.harness,
     session: { model: init.model || null, tools: init.tools || null, apiKeySource: init.apiKeySource || null, baseUrl: ctx.opts.keepBaseUrl ? 'kept' : 'direct' },
     numTurns: result ? result.num_turns : null,
     costUsd: result && typeof result.total_cost_usd === 'number' ? result.total_cost_usd : null,
@@ -554,6 +568,11 @@ function cmdRun(opts) {
   const trackedCache = new Map();
   const ctx = {
     out, runsFile, opts,
+    // 运行可能跨好几次启动、中间 harness 有修正，每条记录带上当次运行的版本，tasks.json 里只有准备时的版本。
+    harness: {
+      commit: git(ROOT, ['rev-parse', 'HEAD']).stdout.trim(),
+      dirty: git(ROOT, ['status', '--porcelain']).stdout.trim() !== '',
+    },
     trackedOf: (t) => {
       if (!trackedCache.has(t.id)) trackedCache.set(t.id, new Set(git(t.workspace, ['ls-files']).stdout.split('\n').filter(Boolean)));
       return trackedCache.get(t.id);
@@ -572,6 +591,8 @@ function cmdRun(opts) {
             console.log(`已花 ${spent.toFixed(2)} 美元，达到 --max-total-usd ${opts.maxTotalUsd}，停止`);
             return { executed, spent, stopped: true };
           }
+          // 一次运行要几分钟才有结果行，先打一行，免得看起来像卡住或已经结束。
+          console.log(`开始 ${trial.id} ${cond} r${r} a${attempt}（已花 $${spent.toFixed(2)}）…`);
           const rec = runOnce(trial, cond, r, attempt, ctx);
           records.push(rec);
           spent += rec.costUsd || 0;

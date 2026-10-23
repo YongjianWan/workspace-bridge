@@ -342,6 +342,9 @@ function testPipeline(fx, root) {
     assert.strictEqual(records[1].trial, records[0].trial);
     assert.strictEqual(records[1].invalid, false);
     assert.ok(fs.existsSync(path.join(out, records[0].transcript)), '保留完整轨迹');
+    assert.ok(fs.readFileSync(path.join(out, records[1].transcript), 'utf8').includes('"type":"result"'), '轨迹文件就是 agent 的原始输出');
+    const headCommit = git(REPO_ROOT, ['rev-parse', 'HEAD']).trim();
+    assert.ok(records.every((x) => x.harness && x.harness.commit === headCommit), '每条记录带运行时的 harness 版本');
 
     const calls = fs.readFileSync(path.join(stubDir, 'calls.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
     assert.strictEqual(calls.length, 17);
@@ -382,6 +385,7 @@ function testPipeline(fx, root) {
     const infra = fs.readFileSync(path.join(out, 'infra-errors.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
     assert.strictEqual(infra.length, 1, '第一次环境问题就停，不往下跑');
     assert.strictEqual(infra[0].reason, 'api-error-api_error');
+    assert.ok(fs.readFileSync(path.join(out, infra[0].transcript), 'utf8').includes('Not logged in'), '环境问题那次的轨迹也落盘，能看到原因');
 
     ab.main(['score', '--name', name]);
     const summary = JSON.parse(fs.readFileSync(path.join(out, 'summary.json'), 'utf8'));
