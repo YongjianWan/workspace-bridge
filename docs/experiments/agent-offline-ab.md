@@ -202,7 +202,7 @@ node eval/agent-ab.js score --name pilot-v1
 
 - `plan` 冻结样本，写 `plan.json`，同名再跑会拒绝。正式实验用 `--phase formal --m 3`；F1 留出池给本实验时加 `--include-holdout F1`。
 - `prepare` 在系统临时目录 `wb-agent-ab/<名字>/` 建工作区，J1 先离线编译，再算 B 组的 `impact` 输出、写两份提示词（`prompts/`、`impact/`），清单写进 `tasks.json`。
-- `run` 逐次调用 agent，轨迹存进 `transcripts/`，每次一行记进 `runs.jsonl`。中断后用同样的命令重跑，会跳过已完成的试次；遇到环境问题（第 8 节第 7 条）立即停下，不占试次；`--max-total-usd` 在每次运行前检查累计花费，到线就停，单次最多再花 `--max-budget-usd` 的 3 美元，所以总花费上限是这个值加 3；`--agent-cmd <脚本.js>` 换成桩 agent，不花钱跑通流程。
+- `run` 逐次调用 agent，每次开始前先打印一行「开始 …」；一次运行要几分钟才出结果行。agent 输出边跑边写进 `transcripts/`，跑完的一次记一行进 `runs.jsonl`，记录里带当次运行的 harness 版本。中途被打断的那一次不记进 `runs.jsonl`，但轨迹文件留着，能看到已经花掉的 token。中断后用同样的命令重跑，会跳过已完成的试次；遇到环境问题（第 8 节第 7 条）立即停下，不占试次；`--max-total-usd` 在每次运行前检查累计花费，到线就停，单次最多再花 `--max-budget-usd` 的 3 美元，所以总花费上限是这个值加 3；`--agent-cmd <脚本.js>` 换成桩 agent，不花钱跑通流程。
 - `score` 写 `summary.json` 和 `summary.md`：预实验给有效率、单次成本、σ_run，以及按第 6 节算出的 k 和 n；正式实验给 d、95% 区间和第 5 节的判定。
 - 实验结束、结果确认后，手动删除 `wb-agent-ab/<名字>/`：工作区是私有仓库的完整副本。
 
