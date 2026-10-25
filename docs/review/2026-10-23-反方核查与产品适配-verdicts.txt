@@ -1,0 +1,166 @@
+
+######## key v2:94439ae8617 fields: verdicts,missing,notProblemsCritique
+{
+ "verdicts": [
+  {
+   "id": "A1",
+   "factual": "corrected",
+   "structuralVerdict": "structural",
+   "correctedClaim": "每次 CLI 调用都完整重建，主线一次调用实测 14.6–18 秒（暖缓存）。原审查说主要成本是\"每次重新哈希全部文件\"，这一点不成立：自写脚本对 720 个已跟踪文件做读取加 SHA-256 只要 439 ms（实测）。fileIndex 阶段 7.65 秒里，大头是目录发现遍历了被 gitignore 的 eval/truth。遍历 34,664 个文件用 5.7 秒，跳过 eval/truth 后 13,615 个文件用 2.1 秒（实测），因为 gitignore 只在发现之后才过滤（file-index.js 注释\"目录剪枝仍归 defaults/config 层\"）。readImpactHistory 实测 4.1 秒，其中原生 git log -n 300 只占 1.34 秒（实测），其余是 rev-parse、环境探测和解析。",
+   "note": "我用自己的 --cache-dir 独立跑了几次：impact --json 冷启动 27,184 ms、暖缓存 17,310 ms；--format ai 17,958 ms；--direction dependents 14,557 ms（均实测）。在 scratchpad 另写脚本打点 container._phaseTimes：fileIndex 7,650、depGraph 2,256、其余都不到 100 ms；getImpactRadius(深度5, all) 298 ms；readImpactHistory 4,094 ms，再读一次走容器缓存仍要 424 ms（rev-parse 子进程）；curateImpact 1,214 ms；readWorkspaceDiff 705 ms（均实测）。按判据：①根子在进程模型和缓存契约，每条命令新建 ServiceContainer（cli.js:419-433），ARCHITECTURE 写明 import 定位每次重做；②有可量化的使用成本；③成本分散在发现、建图、历史、diff 四个阶段。所以维持结构性的判定。但要注意，本机绝对值里最大的一块（发现阶段遍历被忽略目录，约 3.6 秒，由 5.7−2.1 推算）是 file-index 里的局部缺陷，修了它就能先省下一部分；P4 引用的 Django 暖启动约 7–8 秒，是不带这项放大时的量级。"
+  },
+  {
+   "id": "A2",
+   "factual": "corrected",
+   "structuralVerdict": "local",
+   "correctedClaim": "getImpactRadius 的直接调用点核对属实：audit-assembler 148/286、watch 263/335、guard 85、incremental-diff 22、symbol-impact 264/285/314、impact.js 16、repl 206。深度缺省值有 2/3/4/5 四种（defaults.js:7,9,12,30；incremental-diff.js:13；query.js:56）。但\"只有 impact CLI 和 REPL 用上排序\"是错的：audit-file 在 audit-assembler.js:418 调的是 dependencyGraph({operation:'impact'})，走的就是 impact.js，进而走 curateImpact。它的方向用默认的 all，只是不传深度，所以落到深度 3。U-33 记录的也是这一点。真正没有走产品排序的是 audit-diff 逐文件那条（148 行，依赖方方向、深度 3）和 --with-impact（286 行，深度 2）。",
+   "note": "实测 audit-file --file src/tools/impact-ranking.js --json：impact.impactCount=418（direction all、深度 3），compact 模式下只列 5 行，确实经过排序工具层。把它判成局部的理由：入口不一致的根子是各调用点各自选了原语和缺省值，修法就是让 audit-diff 等几个入口改调 impact 工具函数，不需要改数据模型或进程边界；代价证据也只有 U-33 的\"没有数字\"，没有量化损失；H-34/H-35 是入口语义问题，不能算进这一条的反复出现。不满足判据②。"
+  },
+  {
+   "id": "A3",
+   "factual": "corrected",
+   "structuralVerdict": "structural",
+   "correctedClaim": "同一次结果实测：--json 给出 dataQuality=degraded，带 1 条 dynamic-load-unresolved 警告。--format ai 没有 warnings 和 dataQuality，confidence.overall=1，topRisks 写着 \"Change would affect 535 file(s)\"，severity high。jsonl 的 _type 计数是 summary 1、impact 15、untrusted 1，没有 warnings。另外：通用 formatAi 路径只在 audit-summary 分支复制 result.warnings（human-formatters.js:1922），api-contracts 的 digest 自己处理（1719-1735），所以凡是走通用路径的命令都会丢降级信号，不只是 impact。几个数字要改：symbolImpact 占字节 60.7%，不是 77.0%；排序后的行占 7.4%，不是 10.2%（实测 67,401 字节，仓库状态在变）。summary/markdown 里的 \"showing ${r.impact.length} of ${impactCount}\" 是分子写错了，不是分母。CHANGELOG 里 'jsonl' 的命中数是 20，不是 26；'format ai' 是 18，'formatter' 是 52（Grep -c 实测）。",
+   "note": "读了 human-formatters.js:1846-2036 的通用路径：output 只含 ok/schemaVersion/command/severity/counts/summary/confidence/topRisks/actions，confidence 在 1989 行写死为 1.0。SKILL.md:16 把 ai 列为首选，22 行的已适配列表里没有 impact。同类问题在 CHANGELOG 里有先例：1503（ai 降级后仍是可信外观）、1579-1580（ai digest 被静默降级）、1618（api-contracts 各格式不显示 warnings）。TECH_DEBT P4 写的是\"当前没有因此产生的错误输出\"，这个前提已经被本次实测推翻，并且违反 AGENTS L1-4。①输出契约分散在各命令的格式化函数里；②同类问题反复出现，本次又复现一例；③影响所有走通用路径的命令。三条都成立。"
+  },
+  {
+   "id": "A4",
+   "factual": "confirmed",
+   "structuralVerdict": "local",
+   "note": "query.js:69-73：includeDependents 和 includeDeps 同时为真时，每个节点都两个方向一起扩展，all 的结果后面还会再拼上 _sameImporterRows（114-116）。实测本仓库 impact.js：all 方向深度 5 得到 535 行，dependents 方向得到 80 行。repl.js 的 via 是 impact.js>constants.js，reason 被标成 transitive-dependency，可它其实是兄弟节点。前 15 行里 direct-reference 6 行、direct-import 2 行，和原审查一致。代码注释写着 all=双向 BFS，所以混走本身是有意的设计；标错的是 reason：onVisit 只看父子之间有没有正向边，路径上方向发生翻转时就会标错。根子在一个函数，加一个计数口径（H-37），不满足判据③。冻结的交替契约会让改动需要重跑回放，但这是验证成本，不是架构边界的问题。"
+  },
+  {
+   "id": "A5",
+   "factual": "unverifiable",
+   "structuralVerdict": "not-a-problem",
+   "correctedClaim": "代码事实属实：diff-context.js:33-49 对图内全部文件用 fs.readFileSync 加正则 IDENT 建倒排索引，不用 parse_results；JAVA_MEMBER_DEF（18 行）只针对 Java；interleaveDiffFirst（158-171）的去重键是\"反斜杠转正斜杠\"，curateImpact 用的是 normalizePathKey。1,905 / 11,869 / 21,046 行这组按命令族的归类数字，是靠手工归类得出的，我没有重算，判为无法核实。",
+   "note": "投入比例偏向审计，这本身不构成缺陷。原审查自己也写了主线提交只改 1–6 个 src 文件，没有改动成本。两套去重键在本次输出里没有发现造成重复或丢行，因为显示路径的大小写都来自 graph._displayPath，是一致的。证据被覆盖的问题是 L3-19，属于 impact-ranking.js 的局部合并逻辑。判据②没有证据，不算结构性问题。"
+  },
+  {
+   "id": "A6",
+   "factual": "confirmed",
+   "structuralVerdict": "not-a-problem",
+   "note": "实测 symbolImpact：sourceSymbols=[]，functionToDependents=[{impact,0}]，directCount=2。symbol-impact.js:305 用 exports（为空）建 symbolToDependents；buildFunctionToDependents（133-156）用 exportRecords 的名字取函数名，但没有过滤 isExported，于是在空表里查不到，返回 0。这个矛盾是单个文件里的局部缺陷。符号级调用边是数据模型层面的缺口，这一点属实，但 CHANGELOG:51 写了 v3 AST 调用边实测全面差于 v2，ROADMAP 第 12 节也把完整调用图划在范围外，SESSION 记录候选池 92.8% 已含真值。所以它不是当前主线的约束，按当前目标不算问题。"
+  },
+  {
+   "id": "A7",
+   "factual": "corrected",
+   "structuralVerdict": "local",
+   "correctedClaim": "isEntry/isKnownEntryFile/_isConvergencePoint 确实出现在 27 个 src 文件里，project-context.js 有 72 处，但这个数被泛用的 isEntry 属性（框架模式标记）撑大了。真正消费 isKnownEntryFile 或 _isConvergencePoint 的只有 6 个文件：workspace-snapshot、analyzer、entry-detector、query、dep-graph、orphan-detector。H-34 的两次提交 1a3d25b 和 c94532e 都只改了 src/services/dep-graph/query.js 一个源文件（git show --stat 实测）。",
+   "note": "一个标记同时服务两个消费者，这个说法属实。但修复都落在消费端的单个函数里：H-34 改的是 query.js 的 _isConvergencePoint，H-35 要改的是 analyzer.js:1728 findAffectedRoutes 的终点判定。这些修复不需要穿层改边界。实体→VO/DTO 召回下降 3.9pp 是语义修复的取舍，不是架构造成的反复成本。判据①③都不成立。"
+  },
+  {
+   "id": "A8",
+   "factual": "corrected",
+   "structuralVerdict": "not-a-problem",
+   "correctedClaim": "重启条件原文在 ROADMAP.md:350，不在 143 行：\"阶段数据证明某一步影响召回率或使用体验\"。步骤 4 和步骤 6 的内容与原审查描述一致（ROADMAP:356-363）。C1 在 SESSION.md:55 写作\"产品正解候选\"，在 21 行列为项目所有者的待决策项。",
+   "note": "这一条是计划层面的建议，不是代码缺陷，不进入结构性判定。A3 的实测确实可以算作步骤 6 重启条件里的\"使用体验\"证据，所以\"步骤 6 的重启条件已满足\"站得住。\"步骤 4 已满足\"依赖 H-36/L3-19，这两条是已登记的缺陷，但没有召回数据证明它们影响召回，只能算部分满足。要不要重启由项目所有者决定，不由审查定性。"
+  }
+ ],
+ "missing": [
+  "评测口径和 agent 实际消费的口径是分开的（属于接口契约问题，可以和 A3 并列，但两者独立）。回放用 dependencyGraph 的结果，即 --json 的 impact[].file（eval/replay-impact.js:376,423），评的是前 15 的召回；SKILL.md:16 却让 agent 首选 --format ai。实测 impact --format ai 全部输出只有 1,432 字节，键只有 ok/schemaVersion/command/severity/counts/summary/confidence/topRisks/actions/untrusted，排序行只以 5 行文本塞在 summary 字符串里（OUTPUT_MEDIUM=5），没有 source、reason、coChange。所以 0.6545 这个数（前 15 召回）度量的不是 agent 拿到的东西，agent 首选格式下只能看到 5 行，这 5 行的召回没有任何回放数字。这一条满足判据①（输出契约和评测契约分离）、③（通用 formatAi 路径对所有未适配命令都这样）；判据②的可量化部分是 5 对 15 行（实测），召回损失是多少还没测。另外，它也会影响\"改代码时 agent 调用 impact 的记录为零\"这件事的解读。"
+ ],
+ "notProblemsCritique": "大部分站得住，有三处要修正。(1)\\\"审计功能拖慢主线\\\"不成立，这个结论对；但原审查把慢归因于\\\"文件哈希\\\"是错的。读取加哈希全部文件实测 0.44 秒，真正的大头是发现阶段遍历被 gitignore 的目录（5.7 秒对 2.1 秒，实测），这一项是 file-index 的局部缺陷，应该写进 notProblems，作为\\\"放大 A1、但本身不需要改边界\\\"的例子。(2)\\\"共改历史每次重跑 git log 3.0 秒\\\"这条，实测 readImpactHistory 是 4.1 秒，其中原生 git log 只有 1.34 秒，其余是 rev-parse、环境探测和解析，局部问题的定性不变。(3)\\\"C1 不需要重构，只改 L4/L5 约 5–7 个文件\\\"这条，要补一个前提：agent 首选的 --format ai 现在根本不输出行级字段（见 missing），C1 必须同时改 ai 通用路径，否则加的证据字段 agent 看不到；所以它和 A3 是绑在一起的，不是单纯在 L4 加字段就能完成。其余几条（文件长度、主线改动只涉及 1–6 个文件、符号调用边不是当前瓶颈、dependentsCount=0 是局部缺陷）核对成立。"
+}
+
+######## key v2:9728c19498a fields: structural,notStructural,contradictions,verdict
+{
+ "structural": [
+  {
+   "rank": 1,
+   "title": "进程模型：每条命令冷启动、全量重建，固定成本和命令要做的事无关",
+   "rootCause": "CLI 每次调用都是一个新进程。容器流水线把 9 个阶段按顺序写死（src/services/container.js:225-268），initialize 不知道接下来跑哪条命令。parse_results 按设计只存解析结果、不存定位结果，所以每次调用都要重做 import 定位、聚合预计算和收尾的全图扫描（cli.js:440-447）。ARCHITECTURE 写明每条命令都会完整重建一次图。",
+   "evidence": "R1、A1（两份核查都判 corrected/structural）。J1 暖缓存：impact 30.8–37.3 s，dependents 27.0–27.7 s（实测，两轮独立测量）；在进程内复用容器时，dependents 的查询本身只要 0–19 ms（实测）。J1 init 14.5–22.3 s，其中 depGraph 12.8–20.1 s（实测）。本仓库暖缓存：impact 17.3–18.9 s，dependents 14.6–15.5 s（实测）。真正做查询的部分（getImpactRadius 2–298 ms，curateImpact 0.3–1.2 s）在 J1 上不到端到端的 2%（推算）。",
+   "cost": "单次调用的端到端时间里，有一大块来自几个局部缺陷：R2 的 JVM 清单 stat 约 5.7 s，R5 的收尾重扫 4.4–5.7 s，以及本仓库文件发现时遍历被 gitignore 的 eval/truth 约 3.6 s（均为实测或推算）。把这些扣掉，J1 每次调用仍要约 9–10 s 的 init（推算），这部分才是进程模型本身的代价。背景里说\"agent 改代码时调用 impact 的次数为零\"，但它和延迟之间没有因果证据，不能当成本用。",
+   "fixShape": "分两步走。第一步先局部止血，不改边界，J1 上大约能省掉一半时间（推算）：readJvmDeps 等清单读取改成一个批次内只 stat 一次；getDroppedImports 按 _aggregateVersion 做 memo；新鲜度窗口从 init 结束时开始算；文件发现时剪掉被忽略的目录。第二步再决定要不要做常驻进程，它的前置是第 3 条（REPL 复用 COMMANDS）和第 4 条（增量结果和冷启动等价）。不满足这两条就上常驻进程，只会把错图或第二套契约变成默认路径。",
+   "roadmapStep": "第 9 节没有直接对应的步骤。步骤 3（纯函数建图、不可变快照）是常驻进程正确性的前置，但它的验收线只要求确定性，性能只要求\"保持 10-05 水平\"，不管单次调用延迟。",
+   "severity": "high"
+  },
+  {
+   "rank": 2,
+   "title": "输出契约分散：agent 首选的格式丢掉降级信号，评测口径和 agent 实际拿到的东西不是同一份",
+   "rootCause": "每个命令在每种格式下各有一个 formatter，由它自己决定透传哪些字段。通用的 formatAi 路径只在 audit-summary 分支复制 warnings（human-formatters.js:1922），confidence 写死为 1.0（:1989），风险描述用 impactCount 生成（:1455-1465、:2044-2055）。回放评的是 --json 的 impact[].file 前 15 行（eval/replay-impact.js:376,423）；SKILL.md:16 却让 agent 首选 --format ai，这个格式只把 5 行排序结果塞进 summary 字符串（OUTPUT_MEDIUM=5）。",
+   "evidence": "A3（corrected/structural），以及产品维度核查补的 missing 项。实测同一输入：--json 是 dataQuality=degraded，带 1 条 dynamic-load-unresolved 警告；--format ai 没有 warnings 和 dataQuality，confidence.overall=1，topRisks 写着 \"Change would affect 535 file(s)\"；jsonl 的 _type 只有 summary 1、impact 15、untrusted 1；ai 格式全部输出 1,432 字节，没有 source、reason、coChange。CHANGELOG 里同类修复有 :570、:1503、:1579-1580、:1618、:2600-2605、:2901（Grep 后逐条读）。关键词计数：'format ai' 18、'jsonl' 20、'formatter' 52（实测 Grep -c）。",
+   "cost": "这直接违反 AGENTS L1-4：降级结果在 agent 首选格式里显示为满分置信。产品主线指标 0.6545 衡量的是 JSON 前 15 行，agent 在首选格式下只能看到 5 行，这 5 行的召回没有任何回放数字。TECH_DEBT P4 写的\"当前没有因此产生的错误输出\"这个前提已经被推翻。C1（给证据）要是只在 L4 加字段，agent 在首选格式里也看不到。",
+   "fixShape": "建一个序列化出口，统一处理 warnings、dataQuality 的透传和截断标记，confidence 从 dataQuality 推导；formatter 只负责排版。最小的先行版本改 1–2 个文件：formatAi 和 formatJsonl 的通用路径强制带上 warnings 和 dataQuality，再加一个跨格式一致性测试。同时二选一：SKILL 里 impact 的首选格式改成带行级字段的格式，或者 ai 摘要补上行级字段；回放要评 agent 实际消费的那份输出。",
+   "roadmapStep": "对应步骤 6（输出统一出口），但步骤 6 的剩余项写的是\"每个 --json 命令一份 JSON Schema、30 KB 体积预算\"，没有覆盖非 JSON 格式丢字段，需要扩充范围。重启条件里\"影响使用体验\"这一项，A3 的实测已经构成证据。",
+   "severity": "high"
+  },
+  {
+   "rank": 3,
+   "title": "两套命令层：REPL 是平行实现，而它正是推荐给 agent 的快路径",
+   "rootCause": "为了绕开第 1 条的冷启动，项目做了 REPL 当热路径。但 REPL 不走 COMMANDS 和 runCliInProcess，而是自己解析参数、取默认值、组装结果，再直接调 L2 的图方法（src/cli/repl.js:169-363、:188-211）。impact 子命令只返回 {impactCount, impact, truncated}（repl.js:210）。SKILL.md:38 和 commands/index.js:326 让 agent 批量查询时走 repl --eval。",
+   "evidence": "LAYER-5、R4（两份都判 confirmed/structural）。在 repl.js 里 grep warnings|dataQuality|staleness|untrusted|COMMANDS|runCliInProcess，0 处命中（实测）。CLI impact 有 17 个顶层字段（实测）。REPL 与 CLI 对齐的修复提交有 5 个：ff65d3a、c31e83a、6b0b426、61e3223、6eeee8f（实测）。repl.js 的 33 次提交里有 19 次同时改了 commands/index.js、cli.js 或 validate-args.js（实测）。CHANGELOG 里提到 REPL 对齐、不一致的有 18–19 行（Grep）。",
+   "cost": "性能最好的路径和契约最完整的路径分成了两条：agent 走快路径，就拿不到 L1-4 要求的降级信号和 untrusted 标注。每改一次 CLI 契约，都要在 REPL 里再改一遍。",
+   "fixShape": "REPL 的 executeCommand 改调 runCliInProcess(args, { container })。cli.js:419-461 已经支持注入容器，REPL 自己只保留读行和展示。json-contract 快照测试同时覆盖两个入口。估算 1 天。这一步是第 1 条常驻进程方案的前置。",
+   "roadmapStep": "第 9 节没有对应的步骤。步骤 1 已经统一了错误信封，这里是把同样的统一延伸到成功结果。",
+   "severity": "medium"
+  },
+  {
+   "rank": 4,
+   "title": "增量失效和冷启动不等价：新增文件满足之前没定位上的 import 时，增量不补边",
+   "rootCause": "ARCHITECTURE 的术语表写明\"定位结果取决于整个文件集合\"，但增量路径按\"已有的边\"加手写的候选枚举来算失效范围（builder.js:1296-1326、shadowCandidatesFor）。每多一种定位规则（glob、shadow、tsconfig paths、Python 包回退……），就要多配一条手写的失效规则。",
+   "evidence": "R3（corrected/structural）。两次独立复现：JS、Java、Python 一次，JS、TS、Python 一次。增量后 getDependents(新文件) 都是 []，冷启动则有边（实测）。核查纠正了机制：JS/TS 会留一条指向不带扩展名幽灵路径的边，而候选枚举里没有这个键；Python 是退回到了 pkg/__init__.py。这是两种不同的缺口。同类补丁有 20fd660、8cdea38、d9fa0ba、7180c9a（实测 git）；CHANGELOG 里提到增量、incremental、updateFiles 的有 58 行（Grep）。ARCHITECTURE.md:216 自己写着\"目前没有核实\"。",
+   "cost": "常驻进程是唯一能消掉第 1 条的路，而它会给出和冷启动不同的图，还没有任何信号，违反 L1-4。agent 边写新文件边查询正是常见场景。目前 watch 和 REPL 的实际使用量没有证据，所以这个代价还是潜在的。",
+   "fixShape": "增量只做到解析层：改动的文件重新解析，然后对内存里全部解析记录重跑一遍完整的定位阶段（本仓库 1.1–1.5 s，J1 10.7–11.5 s，均实测；修完 R2 后 J1 约 5 s，推算），删掉 glob、shadow 这些手写的失效规则。再用 warm-cold-parity 测试锁定\"新增文件满足原先未定位的 import\"这个场景，JS、Java、Python 各一个夹具。",
+   "roadmapStep": "步骤 3（buildGraph(解析结果, 文件集合) 产出不可变快照）的形状和这条修法一致。",
+   "severity": "medium"
+  },
+  {
+   "rank": 5,
+   "title": "文件角色（入口、测试）没有唯一拥有者，消费方只拿到一个布尔值",
+   "rootCause": "入口和测试的判定分散在几处：utils/project-context.js 里的 FRAMEWORK_RULES、ENTRY_BASE_NAMES、ENTRY_WEIGHT、ROLE_RULES，entry-detector.js，framework-patterns.js，17 个 framework-detection 查询（其中 12 个从 utils 引入 ENTRY_WEIGHT）。测试谓词另有 test-detector.js 和 security-tools.js:110 的 isTestPath。isKnownEntryFile 只返回布尔值，规则里本来带着的 reason（spring-controller、mybatis-mapper 等）在 entry-detector.js:85-98 被丢掉。结果是\"遍历汇聚点\"\"死导出豁免\"\"路由终点\"\"孤儿豁免\"这几类消费方拿不到入口种类。",
+   "evidence": "LAYER-2、C2（corrected/structural），C3 并入作为代价证据。实测探针：7 个生产路径里 6 个在两套分类器下判断不同，例如 UserController.java 一边是 library、一边是入口；测试判定有 5–6 处不同（两份独立探针）。同一份 audit-overview 输出里，fileRoles.unknown=54，orphans total=29（实测），这是两套定义各自算出的数。4 组定义文件 50 次提交中有 18 次跨 2 组以上（实测）；仓库里批量提交多，这个数只算弱证据。H-34（已修，实体→VO/DTO 召回 0.4245→0.3854，引用 TECH_DEBT）和 H-35（仍开着）出自同一个根。",
+   "cost": "有召回代价：-3.9pp 是项目所有者接受的语义取舍（引用）。H-35 在 TECH_DEBT 里登记的位置写错了：写成\"impact 的 affectedRoutes\"，实际问题在 analyzer.findAffectedRoutes，影响的是 affected-routes 命令和 audit-diff 文件条目（核查已确认）。按登记去修的人会改错文件。同一份输出里还会出现两套互相矛盾的数。",
+   "fixShape": "在图侧设唯一的拥有者 EntryDetector.classifyEntry(file)，返回 {kind: program-main|request-handler|framework-component|config|barrel|null, reason}。isKnownEntryFile 保留为 kind!==null，保持兼容。影响停止和路由终点只认 program-main 和 request-handler；孤儿和死导出继续认全部种类。ProjectContext 只保留目录角色和配置。规则表搬进 services/dep-graph/，顺带纳入引擎指纹，这样 LAYER-4 也一起解决。估算 1–2 天，另需 J1 回放加评测语料零 FAIL。现在就可以先改正 H-35 的位置描述。",
+   "roadmapStep": "步骤 5（语言能力声明）只能承接其中\"哪些文件是按语言给出的请求处理器\"这部分事实。\"文件角色归谁所有\"这件事本身，第 9 节没有对应的步骤。",
+   "severity": "medium"
+  },
+  {
+   "rank": 6,
+   "title": "影响请求契约：遍历原语带缺省参数，深度和方向由各入口私下决定",
+   "rootCause": "getImpactRadius(filePath, depth=3) 的 direction 缺省为 dependents（query.js:56-59），findAffectedHttpRoutes 缺省深度也是 3（query.js:232）。产品默认值是深度 5、双向（defaults.js:7、:94），靠各调用方自己注入。漏传参数的调用方会静默拿到另一种\"影响\"定义，而输出里用的是同一个字段名 impactCount。",
+   "evidence": "C1（confirmed/structural）。实测 src/utils/truncate.js：impact 命令的 impactCount=532，audit-file 的 impact.impactCount=424（两次独立测量一致）。audit-file 不传 maxDepth，落到深度 3（audit-assembler.js:411-418，对应 U-33）。audit-diff 的文件条目在 :148 只查依赖方、深度 3、不经排序，而 :144 解构了 maxDepth 却没传；--with-impact 在 :286 用深度 2。CHANGELOG 里同类修复有 :148、:165、:242、:1461、:1526，加上提交 e3e42af，共 6 次（实测）。cli.js:85 的帮助文字把 --max-depth 只写成 affected-tests 的参数。",
+   "cost": "同类问题修过 6 次。三条\"影响\"入口里只有 CLI impact 有回放数字（引用 U-33）。",
+   "fixShape": "原语去掉缺省的深度和方向，要求调用方显式传值；ImpactRequest 的默认值只在 defaults.js 定义一次。audit-file 和 audit-diff 的文件条目改调 impact 工具函数，或者在输出里写明所用深度。按\"只增不删\"新增带口径的计数字段。估算 0.5–1 天，另加一次 U-33 回放。这是接口签名层面的契约修改，不用重划模块边界，修复面在 6 条里最小。",
+   "roadmapStep": "最接近步骤 1 的剩余项\"把影响结果的阶段改为显式顺序调用\"，但不完全覆盖。",
+   "severity": "medium"
+  }
+ ],
+ "notStructural": [
+  "LAYER-1 / A2（impact 没有唯一入口）判为局部：src/tools/dep-tools/impact.js 加 impact-ranking.js 的 curateImpact 已经是事实上的唯一组装入口，CLI impact 和 audit-file（audit-assembler.js:417）都走它。偏离的只有 REPL（已归入第 3 条）、audit-file 少传一个深度参数、audit-diff 直接调原语（已归入第 6 条）。watch、guard、symbol-impact、incremental-diff 是各自独立的功能，用不同深度是有理由的取舍（defaults.js 里写了 rationale）。H-36、H-37、L3-19 都能在单个文件里修掉，不能当\"入口不唯一\"的代价证据。",
+  "LAYER-4（utils 里的框架规则写进持久化的 frameworkHint，但引擎指纹只覆盖 services/dep-graph/）判为局部，但应该修：机制成立（versions.js:83；framework-patterns.js:373 → graph-db.js:64 → entry-detector.js:86-88），是潜在的 L1-4 静默过期问题。\"41 次提交里 5 次手动改 versions.js\"这个证据被推翻了，因为那 5 次都早于指纹机制引入（703c8c1，10-05）。修法是把 project-context.js 加进指纹文件清单，一处改动。test-detector 不进解析结果，不属于这一类。",
+  "LAYER-3（两个同名 isTestLikeFile，样例里 4–6 个判定不同）判为局部：让一边委托另一边就能修掉，也没有登记过由此产生的错误输出。按根因可以并进第 5 条一起做。",
+  "LAYER-6（container._precomputeCoChanges 自 75253fe 起没有生产调用方，coChanges 元数据只写不读）不算问题：属于死代码，按第 8 节小修删掉即可。删掉后，AGENTS 里 L3→L4 的例外只剩 overview 一处。",
+  "LAYER-7（AGENTS 分层表和实际 require 方向有三处对不上）不算问题：纯文档标签问题。独立扫描 203 个文件、545 条边，没有环（实测），向上的边只有 container.js:453/465 和 file-index.js:17。",
+  "C4（orphan-detector.js:49 写死 12 个扩展名，.tsx/.jsx/.mjs/.cjs/.mts/.cts/.cc/.hpp 的孤儿文件进不了 orphans.modules）判为局部，但它是真实的静默错误：React/TS 项目的孤儿组件不会出现在清理建议里。改成读 registry 的扩展名表就能修，应该登记为 P1 或 L 条目。\"语言知识没有声明点\"这个更大的命题已经冻结在步骤 5，这条没有提供新的反复代价证据；28 处扩展名字面量里有相当一部分是 resolver 和 parser 内部本来就该按语言写的解析顺序。",
+  "C5（GraphAnalyzer.findAffectedRoutes 和 GraphQuery.findAffectedHttpRoutes 同名不同义）、C6（框架识别规则分在三处，另有 3 处裸数字 2.5）、C7（严重度阈值写在 formatter 里）判为局部：拿来当证据的共改率 13/20、13/24、32/41，在这个以批量提交为主的仓库里基础比例本来就高（framework-patterns 相关提交的 src 文件数中位数是 15，实测），不能证明耦合；也没有用户可见的错误。",
+  "R2（readJvmDeps 每次调用都 stat 4 个清单，J1 上 init 里约 16.7k 次 stat、5.7 s）和 R5（收尾时 getDroppedImports 不缓存，4.4–5.7 s；新鲜度窗口 10 s 比 J1 的 init 还短，导致重哈希 1.1–1.5 s）判为局部：beginResolverBatch 和 _aggregateVersion 已经提供了需要的生命周期，挂进去就行，不用改边界。但它们大约占了 J1 单次调用的三分之一（推算），应该排在任何结构性修复之前。另外，TECH_DEBT P4 的性能门槛只用 Django，照不到这个 JVM 热点。",
+  "核查补充的候选：定位策略的返回契约 (importPath, fromFile, ctx) => string|null，把\"外部依赖\"和\"本地没找到\"压成同一个 null，于是收尾时要把同一批 record 再判一遍外部依赖（四个 JVM 清单在 init 里各被 stat 3397 次，在 getDroppedImports 里各 3385 次，实测）。核查者认为它接近结构性，但这一条只在核查阶段提出，没有经过\"审查加反方核查\"两步，本次不采用，留作待核实候选。",
+  "R6（graph:built 时立即预计算死导出、环、统计，J1 上 1.9–2.0 s；共改历史每个进程重跑一次 git log，实测 readImpactHistory 3.0–4.1 s，其中原生 git log 1.34 s）判为局部：改成按版本惰性计算、按 HEAD 落盘缓存就行。审计预计算只占 impact 端到端约 3%（推算），所以\"审计功能拖慢主线\"不成立。",
+  "本仓库文件发现 7–9 s 判为局部：FileIndex 先遍历后过滤，会走进被 gitignore 的 eval/truth（2.9 GB）。遍历 34,664 个文件用 5.7 s，跳过它以后 13,615 个文件用 2.1 s（实测）。剪掉被忽略的目录就能修。这也说明\"17 秒是重建图\"这个归因不准。",
+  "workspace-info 另写了一套文件发现（workspace-tools.js:57 lightweightFileScan，MAX_DEPTH=8，不读 .gitignore）：本仓库报 fileCount=5077，实际索引 639（约 7.9 倍，推算），entryFiles=[]，而且没有任何 warning。这是 L1-4 静默错误，应该单独登记。至于它是否构成\"文件集合没有唯一来源\"的结构性问题，要看还有没有别的命令绕过 FileIndex，这一点没查，不确定。",
+  "A4（direction=all 的 BFS 每层同时走正反两个方向，导致 impactCount 近似常数 530–535，reason 标签在方向翻转时标错）判为局部：根在 getImpactRadius 一个函数加一个计数口径（H-37）。冻结的逐槽交替契约只是让改动需要重跑回放，属于验证成本，不是边界问题。",
+  "A5（审计专属代码约是主线专属代码的 6 倍；diff-context 自己重读全部文件、用正则建索引）不算问题：投入比例偏向审计不等于缺陷。10 月以来主线提交各只改 1–6 个 src 文件（实测），没有改动成本。代码量那组数字是手工归类的，核查无法复核。",
+  "A6（符号层是名字清单，没有调用、重写、字段边；symbolImpact 对 impact.js 给出 dependentsCount=0、directCount=2）不算当前问题：候选池 92.8% 已含真值（引用 SESSION），v3 AST 调用边实测全面更差（CHANGELOG:51），ROADMAP 第 12 节也把完整调用图划在范围外。dependentsCount=0 是 symbol-impact.js 单文件的口径缺陷。",
+  "A7（isEntry 同时服务审计豁免和主线遍历）判为局部，根因并进第 5 条：真正消费 isKnownEntryFile 或 _isConvergencePoint 的只有 6 个文件，27 个文件这个数被泛用的 isEntry 属性撑大了。H-34 的两次提交都只改了 query.js。",
+  "VS-1（必需检查里包含不在 PR 上触发的慢层；全部直接推 main；perf-guardrail 从没运行；09-24 到 10-04 连续 42 次推送全红）判为局部，但优先级高：根子在一份 workflow YAML 和一项分支保护设置，以及开发纪律，不在代码架构里。需要按原则 7 二选一：要么改走 PR，要么承认是合并后检查、把 slow 移出必需检查。",
+  "VS-2（314/383 个测试文件 require src 内部模块）判为证据不足：核心证据 f83fc27 删掉的约 1400 行，是被删功能自己的测试，不能证明\"缺稳定接缝让测试改写成本成倍放大\"。VS-3（慢层 1618 s；退回子进程的原因其实写在 test-helpers.js:193-195 的 JSDoc 里）、VS-4（分层不读实测耗时，flaky 登记不分成因）、VS-5（缺跨版本逐字比对脚本）、VS-6（41 份回放里 21 份 dirty，包括终审基线 J1-holdout-v5-base）都判为局部。VS-5 和 VS-6 应该作为步骤 3、6 的验收前置工具一起补上。",
+  "大文件本身不算问题（human-formatters.js 2057 行、analyzer.js 1838 行等），依据是 AGENTS 原则 8。依赖方向整体成立，没有环。孤儿检测的两处手工同步已经收口到 depGraph.findOrphanFiles，AGENTS.md:240 那行陷阱已经过时，属于文档问题。"
+ ],
+ "contradictions": [
+  "impact 语义的定性有冲突：C1 的核查判 structural，理由是原语的缺省参数契约，加上 6 次同类修复；LAYER-1 和 A2 的核查判 local，理由是 impact.js 已经是唯一组装入口。三份核查认定的事实一致，分歧只在\"去掉原语缺省参数算不算改契约\"。本次总审按规则采用 C1，但把问题收窄为\"原语带缺省值、各入口私自决定深度\"，排在最后一位；\"impact 没有入口\"这个说法不成立。",
+  "冷启动成本的归因有冲突：背景材料说约 17 秒是每次重建或加载图。runtime 维度实测，本仓库暖建图只有 1.8 s，大头是文件发现遍历被忽略目录（7–9 s）。A1 的原审查归因于\"重新哈希全部文件\"，核查实测读取加哈希只要 0.44 s，推翻了这一点。J1 上的大头是定位（10.7–11.5 s，其中 JVM 清单 stat 约 5.7 s）。成本构成随仓库变化，\"17 秒等于建图\"不成立。",
+  "impact 和 dependents 的端到端差距：R1 原审查测到 3.8 s，核查测到 9.5 s（37.3 对 27.7 s）。数字随机器负载浮动，原文\"只差 3.8 秒\"这个结论不稳。",
+  "验证体系维度：原审查判有两处结构性问题（VS-1、VS-2），核查判一条也没有，VS-1 是 CI 配置矛盾，VS-2 证据不足。本次采用核查结论。连续红推送的区间也有出入：原文写 09-24 到 10-02，核查实测是到 10-04；\"10-10 起全绿\"核查实测是 10-11 起。",
+  "LAYER-4 的代价证据：原审查用\"41 次里 5 次手动改 versions.js\"，核查指出这 5 次都早于指纹机制，不能作为这个缺口的代价。",
+  "入口消费方的数量各维度说法不一：LAYER-2 说 5 类，C3 说 6 类，A7 说 27 个文件。A7 的核查实测，真正消费 isKnownEntryFile 或 _isConvergencePoint 的只有 6 个文件，27 被泛用的 isEntry 属性撑大了；引入 ENTRY_WEIGHT 的是 12 个，不是 15 个。",
+  "C2 里的数字口径：54 对 29 是两套定义各自算出的数，不是同一个量算出两个值；5077 对 639 是第二套文件发现的问题，和角色分类无关，应该拆开。",
+  "R3 的机制：原审查说\"未定位的 import 不产生边\"，核查发现 JS/TS 会留一条指向不带扩展名幽灵路径的边，Python 会退回 __init__.py，是两种不同的候选枚举缺口。增量结果和冷启动不一致这个结论不变。",
+  "ROADMAP 步骤 3 的作用说法不一：A1 说步骤 3 只管确定性、不管延迟；R1 和 R3 说步骤 3 就是修法的形状。两种说法都对：步骤 3 能让增量结果等价，是常驻进程的前置，但它的验收线不要求降低单次调用延迟。",
+  "A3 的若干数字：symbolImpact 占字节 77.0%，核查实测是 60.7%；排序行占 10.2%，核查是 7.4%；jsonl 关键词命中 26，核查是 20；markdown 的 \"showing X of Y\" 是分子写错了，不是分母。impactCount 在不同时间测出 530、532、535，因为另一个会话在改仓库，仓库状态在变。",
+  "C4 的漏报数：原文一处说\"7 个里漏 6 个\"，另一处说\"6 个里漏 5 个\"，前后不一致。核查实测：registry 里有、硬编码列表里没有的 8 个扩展名全部漏掉；扩展名字面量分布在 20 个文件，不是 19 个。",
+  "ROADMAP 第 9 节重启条件的行号：A8 引用为第 143 行，实际在第 350 行。"
+ ],
+ "verdict": "结论：有结构性问题，但不在分层和依赖方向上。依赖图无环，向上的引用只有 3 条，这部分是健康的。问题集中在三处：进程模型、输出与命令契约、语义归属。\n\n最根本的有两个。\n\n第一个是进程模型。每条命令都冷启动并全量重建（J1 每次 27–37 s，实测；扣掉局部缺陷后约 9–10 s，推算）。唯一能绕开冷启动的热路径 REPL 偏偏是第二套命令实现：输出缺降级信号，增量结果和冷启动也不等价。这对应第 1、3、4 条。结果是快的路径和契约完整的路径分成了两条。\n\n第二个是输出契约。agent 首选的 --format ai 丢掉 warnings 和 dataQuality，置信度写死为 1，只给 5 行；回放评的却是 JSON 的前 15 行。所以 0.6545 衡量的不是 agent 实际拿到的东西，这条直接违反 L1-4（第 2 条）。\n\n其次是文件角色没有唯一拥有者（第 5 条），它带来了 H-34 的召回代价和仍开着的 H-35。最轻的是影响请求的缺省参数契约（第 6 条）。\n\nROADMAP 第 9 节冻结路线只抓对了一部分。步骤 3（纯函数建图）的形状正好能修增量不等价，是常驻进程的前置；但它的验收线只管确定性和\\\"性能保持\\\"，不管单次延迟。步骤 6 的方向对，但剩余项写的是 JSON Schema 和 30 KB 预算，没有覆盖非 JSON 格式丢字段；A3 的实测已经满足它\\\"影响使用体验\\\"的重启条件。步骤 2（FileId）和步骤 4 对应的问题，这次都判成了局部。第 9 节没覆盖的结构性问题有四个：进程模型和常驻路径、REPL 第二套命令层、入口和测试的文件角色数据模型、评测口径和消费口径分离。\n\n建议的顺序：\n1. 先做不改边界的止血：R2 改成批次内 stat 一次，R5 做 memo，文件发现剪掉被忽略的目录，C4 补扩展名，改正 H-35 的位置描述。J1 单次调用大约能省一半时间（推算）。\n2. 然后做步骤 6 的最小版，让 ai 和 jsonl 透传降级信号；同时把 REPL 改成复用 COMMANDS。\n3. 最后按步骤 3 把增量做成只到解析层，再决定要不要上常驻进程。"
+}

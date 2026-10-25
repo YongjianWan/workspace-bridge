@@ -1,0 +1,390 @@
+{
+  "summary": "workspace-bridge 架构结构性问题审查：五个维度找问题，逐条反方核查，完整性审查",
+  "agentCount": 8,
+  "logs": [
+    "[verify:cohesion] failed: You've hit your session limit · resets 11:50pm (Asia/Shanghai)",
+    "[find:product-fit] failed: You've hit your session limit · resets 11:50pm (Asia/Shanghai)",
+    "[find:runtime] failed: You've hit your session limit · resets 11:50pm (Asia/Shanghai)",
+    "[find:verification] failed: You've hit your session limit · resets 11:50pm (Asia/Shanghai)",
+    "[verify:layering] failed: You've hit your session limit · resets 11:50pm (Asia/Shanghai)",
+    "[critic] failed: You've hit your session limit · resets 11:50pm (Asia/Shanghai)"
+  ],
+  "result": {
+    "results": [
+      {
+        "dim": "layering",
+        "title": "分层与依赖方向",
+        "find": {
+          "summary": "结论：依赖方向这一层面基本成立，结构性问题出在\"概念归属\"上，层号本身没有乱。实测扫描 src/ 加 cli.js 共 203 个文件、546 条 require 边，其中函数体内的延迟 require 57 条。自写的 Tarjan 算法查出 0 个环，用本工具 cycles 命令复核也是 0。真正低层引用高层的边只有 container.js:453/465 两条，自 2026-05-18（854460b）起没有增加，而且其中一条从 75253fe 起已经是死路径。\n\n结构性问题有三处，都是\"一个业务概念没有唯一的拥有者\"，分散在多层和多个文件里。\n① impact 的语义没有唯一入口。深度、方向、合并、截断、输出组装分别在 L0、L2、L4、L5 决定。getImpactRadius 有 8 类调用点，深度取 2、3、4、5 四种值，只有 2 处经过 curateImpact，CLI 和 REPL 各组装一份。git 里有 5 次 REPL 与 CLI 对齐的修复提交；H-36、H-37、L3-19、U-33 都落在这条链上。\n② 入口语义有 4 个定义点，5 类消费者共用一个布尔值，规则表放在标为 L0 的 utils/project-context.js 里。H-34、H-35 同出这个根；53 次相关提交中有 18 次同时改了 2 个以上定义点。\n③ src/utils 标成\"基础设施\"，实际装着进入持久化解析结果的分析语义（框架入口规则、测试判定），但引擎指纹只覆盖 services/dep-graph/，改这些规则不会自动作废缓存，靠人手动加版本号。在改过这两个文件的 41 次提交里，有 5 次手动改了 versions.js。\n\n次要问题：同名的 isTestLikeFile 有两套规则，18 个样例路径里 4 个判定不同（实测）；REPL 是第二套命令层，impact 输出缺 dataQuality 和 warnings。\n\n修法方向：impact 收成一个 runImpact 入口，对应 ROADMAP 第 9 节步骤 1 剩余项与步骤 4；入口和测试的\"文件角色\"收归 EntryDetector 一处，输出角色而不是布尔值，对应步骤 5；会进入解析结果的语义模块搬进引擎指纹范围。impact-ranking 放在 L4 本身没错，挪层修不好 ①。",
+          "findings": [
+            {
+              "id": "LAYER-1",
+              "claim": "impact 命令的语义没有唯一拥有者：遍历深度、方向、候选合并、截断和输出字段分别在 L0/L2/L4/L5 决定；getImpactRadius 的 8 类调用点用了 2/3/4/5 四种深度，只有 2 处经过 curateImpact，CLI 和 REPL 各组装一份结果",
+              "evidence": "读代码：query.js:56 缺省 depth=3、direction=dependents；commands/index.js:152 借用 AFFECTED_TEST_DEPTH(=5, defaults.js:7) 作为 impact 深度；repl.js:204-210 自己再解析一遍默认值并组装 {impactCount, impact, truncated}；dep-tools/impact.js:11-65 组装完整字段；audit-assembler.js:148 getImpactRadius(resolvedPath) 不传深度(=3)也不经过排序；audit-assembler.js:286 DIFF_IMPACT_DEPTH=2；incremental-diff.js:13 局部常量 IMPACT_RADIUS_DEPTH=2；watch.js:263/335 WATCH_IMPACT_DEPTH=3；guard.js:85 parsed.maxDepth(缺省落 3)；symbol-impact.js:264/285/314 另有 SYMBOL_IMPACT_DEPTH=4。经过 curateImpact 的只有 dep-tools/impact.js:42 和 repl.js:208，而且 REPL 不传 history/diffText",
+              "structural": "① 是：getImpactRadius 是 L2 的遍历原语，但“impact 命令的语义”（默认深度、方向、合并、截断、证据字段）没有一个函数或模块拥有它，各调用点自定默认值，不改接口契约就只能逐处对齐；② 是：见代价；③ 是：牵涉 10 个以上文件、4 层",
+              "cost": "实测 git（≤8 个源文件的小提交）：动 impact-ranking/diff-context/dep-tools/impact.js 的 11 次提交中 9 次同时改了其他层，5 次改了 repl.js；明确的 REPL 与 CLI 对齐修复提交 5 个（ff65d3a 深度、c31e83a 方向、6b0b426 输出契约、61e3223 失败结果、6eeee8f maxDepth 双重解析）；当前开放的 H-36、H-37、L3-19、U-33（audit-file 走深度 3）都落在这条链上",
+              "fixShape": "新增一个 runImpact(graph, history, diff, opts) 作为唯一入口：解析默认值、遍历、合并、截断，并给每行附上入选证据；CLI 工具、REPL、audit-file 都调它，L2 的 getImpactRadius 只保留遍历原语。排序留在 L4 即可（它依赖 git 历史），要修的是入口不唯一，挪层修不好。对应 ROADMAP 第 9 节步骤 1 剩余项（把影响结果的阶段改为显式顺序调用）和步骤 4；L3-19、H-37 的新字段在同一处补。成本估算 1–2 天，另加 J1 回放确认召回不变",
+              "severity": "high",
+              "confidence": "high"
+            },
+            {
+              "id": "LAYER-2",
+              "claim": "入口语义有 4 个定义点，5 类消费者共用一个布尔值 isEntry/isKnownEntryFile，规则表和权重常量放在标为 L0 的 src/utils/project-context.js 里",
+              "evidence": "定义点：project-context.js:38-190 FRAMEWORK_RULES（按路径判入口，覆盖 9 种语言）、:244 ENTRY_BASE_NAMES、:25 ENTRY_WEIGHT；entry-detector.js:63-112（FRAMEWORK_MANAGED_PATTERNS、KNOWN_CONFIG_NAMES、shebang、Python/JVM main 正则）；framework-patterns.js:361/373；queries/framework-detection/ 下 17 个文件的 postProcess 返回 isEntry，其中 15 个从 utils 引入 ENTRY_WEIGHT。消费者：query.js:143 _isConvergencePoint（停止遍历）、analyzer.js:1339（死导出豁免）、analyzer.js:1743（受影响路由的终点，即 H-35）、orphan-detector.js:34（孤儿豁免）、composite-risk.js:13 与 overview-assembler（热点权重）。实测 require 扫描：project-context.js 扇入 23，在全仓排第 3，其中 15 处来自 L2.5",
+              "structural": "① 是：入口是图层的分析概念，却由 utils 和 dep-graph 两层四处共同定义，消费者拿到的只是一个布尔值，没法区分“框架调用（不报死代码）”“遍历汇聚点”“请求处理器”，不改数据模型就只能在每个消费者里打补丁（H-34 就是在 query.js 里补出来的）；② 是：见代价；③ 是：牵涉 20 多个文件",
+              "cost": "实测 git：触及入口定义或消费文件的提交 53 个，其中 18 个同时改了 2 个以上定义点，21 个同时改了消费者；≤8 文件的小提交 20 个中 17 个跨层。已登记债务 H-34（已修，代价是实体→VO/DTO 召回 0.4245→0.3854，引用 TECH_DEBT）和 H-35（开放）同出这个根",
+              "fixShape": "让 EntryDetector 成为唯一拥有者，输出角色而不是布尔值（frameworkManaged / processMain / requestHandler / config），消费者各自取需要的谓词；FRAMEWORK_RULES、ENTRY_BASE_NAMES、ENTRY_WEIGHT 搬进 services/dep-graph/（顺带进入引擎指纹，见 LAYER-4）。ROADMAP 第 9 节步骤 5（语言能力声明）可以承接；H-35 是第一个落点。成本估算 1–2 天，另加评测语料零 FAIL 和 J1 回放",
+              "severity": "high",
+              "confidence": "high"
+            },
+            {
+              "id": "LAYER-3",
+              "claim": "src/utils 下有两个同名的 isTestLikeFile，规则不同：图层（impact 停止、测试边过滤、死导出跳过）用 test-detector 的一套，ProjectContext 的文件角色和 api-contracts 用 project-context 的一套，18 个样例路径里 4 个判定不同",
+              "evidence": "test-detector.js:155（TEST_DETECTION_RULES），经 dep-graph.js:20/210 用于 query.js:32/41/143、analyzer.js:1338；project-context.js:605（ROLE_RULES 中的 test 角色），由 api-contract-tools.js:17 和 ProjectContext.classifyFile 使用。实测 node -e 对比两个函数（左为 test-detector，右为 project-context）：spec/a_spec.rb true/false，src/fixtures/a.js false/true，src/mocks/x.ts false/true，benchmark/x.js false/true",
+              "structural": "① 部分是：根子和 LAYER-2 相同，即“文件角色”没有单一拥有者，违反 AGENTS L1-3“同一业务语义必须在单一模块实现”；② 弱：test-detector 的 7 次提交中 3 次同时改了 project-context，尚未登记过因此产生的错误输出；③ 是：两个模块。按判据属边界层面的问题，代价证据不足，归为中等",
+              "cost": "实测 git：test-detector.js 7 次提交中 3 次同时改 project-context.js；没有已知的错误输出",
+              "fixShape": "让一边委托另一边，只保留一套规则，并加一个夹具测试锁定两处判定一致。成本估算半天；最好和 LAYER-2 的“文件角色归属”一起做",
+              "severity": "medium",
+              "confidence": "medium"
+            },
+            {
+              "id": "LAYER-4",
+              "claim": "AGENTS 把 src/utils 标为 L0 基础设施，但其中的框架入口规则会经由 frameworkHint 写进持久化的解析结果，而解析缓存的引擎指纹只覆盖 src/services/dep-graph/；改 project-context.js 的规则不会自动作废缓存，靠人手动加 CACHE_SCHEMA_REVISION",
+              "evidence": "读代码：versions.js:83 computeEngineFingerprint(engineDir = services/dep-graph)；builder.js:452 detectFrameworkFromContent → framework-patterns.js:373 detectFrameworkFromPath（来自 utils/project-context）→ frameworkHint 写入 graph-db.js:64，并在 builder.js:248 从缓存复用 → entry-detector.js:86-88 优先读取缓存里的 cachedHint.isEntry。ARCHITECTURE.md:112 明写目录以外的代码改动“必须手动把 CACHE_SCHEMA_REVISION 加 1”。project-context.js 共 850 行，至少承担 5 类职责：workspace 配置加载与校验（409-570）、目录角色 ROLE_RULES（250）、9 种语言的框架入口表（38-190）、测试判定（605）、项目边界探测（ProjectContext 类）。实测 grep：utils 下 6 个文件含 .java/.py/.go/.rs/.kt/.vue 扩展名字面量",
+              "structural": "① 是：模块放在哪个目录，决定了缓存失效范围，不移边界（或不改指纹清单）就只能靠人记得加版本号；② 是：见代价；③ 是：牵涉多个模块和缓存契约",
+              "cost": "实测 git：改过 project-context.js 或 test-detector.js 的 41 次提交中，5 次同时手动改了 config/versions.js；project-context.js 的 37 次提交全部同时改了其他层文件。没有复现过一次真实的过期缓存（未验证，只读代码推断出机制）",
+              "fixShape": "把会进入解析结果的语义（FRAMEWORK_RULES、ENTRY_*、test-detector）搬进 services/dep-graph/，或把这些文件加进指纹文件清单；utils 只留无业务语义的工具。成本估算半天到 1 天。属于 ROADMAP 第 9 节步骤 3（源码指纹已完成部分）的延伸",
+              "severity": "medium",
+              "confidence": "medium"
+            },
+            {
+              "id": "LAYER-5",
+              "claim": "REPL 是第二套命令层：它不走 commands/index → tools，自己解析参数、校验、取默认值、组装结果，直接调用 L2 图方法；impact 子命令的输出缺 dataQuality、warnings、symbolImpact、coChanges、affectedRoutes",
+              "evidence": "repl.js:169-363 的 switch 里有 13 个子命令；repl.js:14/19/22 直接 require container、tools/tree-tools、tools/impact-ranking；repl.js:210 只返回 3 个字段，对照 dep-tools/impact.js:47-65；repl.js:327 tree 深度写死 ?? 3。watch.js:263/335 和 guard.js:85 同样直接调 getImpactRadius",
+              "structural": "① 是：同一份命令契约有两个实现（接口契约问题），REPL 的 --eval 模式供 agent 非交互调用时拿不到降级信号，与 AGENTS L1-4 冲突；② 是：见代价；③ 是：跨 repl.js、commands/index.js、validate-args.js、tools 多个文件",
+              "cost": "实测 git：repl.js 的 33 次提交中 19 次同时改了 commands/index.js、cli.js 或 validate-args.js；对齐修复提交 5 个（与 LAYER-1 重叠）；CHANGELOG 中 REPL 命中 35 次（实测 grep -c，含无关条目）",
+              "fixShape": "REPL 解析一行输入后调用 COMMANDS 表里的同一个 handler（复用已有容器），格式化走同一套 formatter；或者删掉与 CLI 重复的子命令。成本估算 1 天。ROADMAP 第 9 节没有对应步骤（步骤 6 只管序列化）",
+              "severity": "medium",
+              "confidence": "high"
+            },
+            {
+              "id": "LAYER-6",
+              "claim": "container.js 两处向上的延迟 require 之一已成死路径：_precomputeCoChanges 自 75253fe 起没有调用方，cache 里的 coChanges 元数据只写不读；共改历史现在由 L4 的 impact-ranking 每个进程重新跑 git log 获得",
+              "evidence": "container.js:463-475 _precomputeCoChanges 只能经由 ensurePrecomputed(['cochanges']) 触发（container.js:486）；全仓 grep 只剩 overview-assembler.js:528 调用 ensurePrecomputed(['overview'])；git show 75253fe 删掉了 container.cache?.coChanges 和 ensurePrecomputed(['cochanges']) 的唯一调用；cache.js:44 METADATA_SCHEMA.coChanges 与 cache.js:488 saveCoChanges 没有读者；impact-ranking.js:34-58 readImpactHistory 每个进程调一次 analyzeCoChanges",
+              "structural": "否：一处死代码和一份重复的数据源，删掉即可，不需要改边界",
+              "cost": "死代码，没有运行代价；它让 AGENTS 声明的 L3→L4 例外数量看起来比实际需要的多一处",
+              "fixShape": "删掉 _precomputeCoChanges、cochanges 分支和 METADATA_SCHEMA.coChanges（L1-1 下要先确认没有外部调用方）；顺带让 AGENTS 层次表的例外只剩 overview 一处。属 ROADMAP 第 8 节小修的量级",
+              "severity": "low",
+              "confidence": "high"
+            },
+            {
+              "id": "LAYER-7",
+              "claim": "AGENTS 的分层表与实际 require 关系有三处对不上：L2.5 实际在 L2 之下，L1 的 file-index 依赖 L2.5 的 parsers/registry，L0 的 utils 被 L2.5 当业务常量来源",
+              "evidence": "实测 require 扫描：L2→L2.5 有 21 条边，L2.5→L2 为 0；file-index.js:17 → dep-graph/parsers/registry.js（L1→L2.5）；project-context.js 有 15 个 L2.5 引用方（框架检测查询取 ENTRY_WEIGHT）",
+              "structural": "否：这是文档标签问题，代码方向自洽；其中真正的结构部分已归入 LAYER-2 和 LAYER-4",
+              "cost": "新会话的 agent 按表判断“高层/低层”时会被误导；没有登记过的事故",
+              "fixShape": "改 AGENTS 层次表：把 dep-graph 子引擎写成 L2 的下层，注明 file-index 依赖语言注册表；LAYER-4 修完后再给 utils 重新定义。纯文档改动",
+              "severity": "low",
+              "confidence": "high"
+            }
+          ],
+          "notProblems": [
+            "依赖方向总体成立：546 条 require 边（实测，含 57 条函数内延迟 require）里没有环（自写 Tarjan 与本工具 cycles 命令都是 0），真正低层引用高层的只有 container.js:453/465 两条",
+            "container.js 的 L3→L4 延迟 require 例外：一共 2 处，自 2026-05-18（854460b）起没有增加，不在扩散；其中一处已死（见 LAYER-6），另一处是 overview 预计算",
+            "L4 tools 直接引用 dep-graph 内部模块的 9 条边（ast-rules、pagerank、parsers/registry、api-contracts 抽取器、python-stdlib）：被引用的都是无状态纯函数或只读注册表，不持有图状态，不破坏门面的数据一致性；唯一瑕疵是 honesty-engine.js:40 取了下划线私有函数 _readTsconfigPaths，属局部问题",
+            "impact-ranking.js 和 diff-context.js 放在 L4：排序依赖 git 共改历史（cochange-tools），放 L4 合理；真正的问题是 impact 没有唯一入口（LAYER-1），只把文件挪到 L2 修不好",
+            "container 把 L4 算出的 hotspots/stability 塞进 L2 analyzer._aggregateCache（analyzer.js:404）：L4→L3→L4→L2→L4 的往返写法别扭，但只是进程内的备忘，没有正确性后果，也没有反复修改的记录",
+            "扇出最高的 commands/index.js（22）、audit-assembler.js（19）、cli.js（19）：编排层扇出高是职责所在，不算问题",
+            "cli.js:400 直接 require services/cache 取 computeDefaultCacheDir（L5→L1 捷径）：只取一个纯工具函数，无状态，无害",
+            "跨层提交多（374 次源码提交中 138 次跨 3 层以上，实测）：其中大量是“第 N 批技术债”这类批量提交；限定 ≤8 个源文件后为 296 次中 67 次，单凭这个数字不能证明有结构性问题，要结合具体概念（LAYER-1、LAYER-2）看",
+            "大文件（human-formatters.js 2057 行、analyzer.js 1838 行等）：按 AGENTS 原则 8，行数不作为判据"
+          ]
+        },
+        "verify": null
+      },
+      {
+        "dim": "cohesion",
+        "title": "内聚与语义重复",
+        "find": {
+          "summary": "结论：在“内聚与语义重复”这个维度上，AGENTS L1-3 说“同一业务语义只在一个模块实现”，代码里这条不成立。按三条判据，结构性问题有 4 条，按严重度排：\n① 影响查询没有统一的请求契约。默认深度和方向分散在 9 处以上：图原语 getImpactRadius 默认深度 3、只查依赖方，CLI 默认深度 5、双向。实测同一文件 truncate.js：impact 命令的 impactCount 是 532，audit-file 是 424。CHANGELOG 里修过的同类问题至少 6 次（实测 grep）。\n② “入口”这个概念由两套互不相知的分类器各自定义：ProjectContext.ROLE_RULES 和图侧 EntryDetector。拿 7 个生产路径样本试，6 个两边判断不一致（实测）。同一份 audit-overview 输出里，“没人引用的文件”同时出现 54 和 29 两个数（实测）。\n③ isKnownEntryFile 只返回布尔值，丢掉了框架提示里本来带着的 reason。结果至少 6 类消费方各自重新推导自己要的语义。H-34 和 H-35 是同一个根因复发：H-34 只在 query.js 打了局部补丁，H-35 仍开着。另外，H-35 把出问题的位置写成了 impact，这个写错了。\n④ 语言知识没有声明点。注册表之外有 19 个文件写了 28 处扩展名字面量（实测）。已经造成在范围内的错误：.tsx/.jsx/.mjs/.cjs/.cc/.hpp 的孤儿文件进不了 orphans.modules（实测探针，7 个里 6 个漏掉）。\n另有两条是轻度结构性问题：框架识别分在三处；GraphAnalyzer 和 GraphQuery 各有一个“受影响路由”实现。formatter 自己写死严重度阈值，代价证据弱，算低优先级。大文件本身不算问题：analyzer、resolvers/base 的各段可以独立修改。孤儿检测原来要两处手工同步的问题已经收口，AGENTS 陷阱表那一行过时了。修法大多对应 ROADMAP 第 9 节步骤 1 和步骤 5；入口分类和影响请求契约这两件，第 9 节里没有对应步骤。",
+          "findings": [
+            {
+              "id": "C1",
+              "claim": "“影响半径”没有统一的请求契约：深度和方向的默认值由各调用方各自给，图原语自带的默认值（深度 3、只查依赖方）和产品默认值（深度 5、双向）不一样。所以同一个文件走不同命令，得到的影响集合不同，而且两个输出用同一个字段名 impactCount。",
+              "evidence": "默认值位置（读代码）：query.js:56 getImpactRadius(depth=3)，direction 缺省为 dependents（query.js:59）；query.js:232 findAffectedHttpRoutes(depth=3)；defaults.js:7 AFFECTED_TEST_DEPTH=5 由 cli/commands/index.js:152,156,160 和 repl.js:204 注入；defaults.js:9 DIFF_IMPACT_DEPTH=2；incremental-diff.js:13 裸数字 2；defaults.js:12 SYMBOL_IMPACT_DEPTH=4，dep-graph.js:222 另写裸数字 4；WATCH_IMPACT_DEPTH=3；tree 默认 3 在 commands/index.js:172、repl.js:327、tree-tools.js:10 写了三次；defaults.js:94 IMPACT_DEFAULT_DIRECTION='all'。不传深度的调用方：audit-assembler.js:148（audit-diff 每个文件）、guard.js:85、audit-file 经 dependencyGraph 进入 impact.js:16 和 :38。同名字段语义不同：impact.js:51 的 impactCount 是合并排序后的行数（双向、深度 5、含共改候选），audit-assembler.js:235 的 impactCount 是 getImpactRadius 默认深度 3 只查依赖方的长度。实测（本仓库，独立缓存目录）：`impact --file src/utils/truncate.js` 的 impactCount=532，`audit-file --file src/utils/truncate.js` 的 impact.impactCount=424。cli.js:85 的帮助文字把 --max-depth 写成“Max depth for affected-tests (default: 5)”，但它同时控制 impact。",
+              "structural": "①符合：根子在接口契约。getImpactRadius 带缺省参数，每个新调用方忘传参数就静默拿到另一种“影响”定义；不收口成一个 ImpactRequest 默认值，改不干净。②符合：同类问题修过多次（见 cost），TECH_DEBT 里有 U-33（引用：audit-file 路径没有召回数字）和 H-37（引用：impactCount 没有区分度）。③符合：横跨 tools、cli、repl、watch、graph 共 9 处以上调用点，不是单个函数的缺陷。",
+              "cost": "CHANGELOG 按关键词数出的同类修复（实测 grep 后逐条读）：S6“REPL 的 impact 默认深度与 CLI 对齐”（CHANGELOG:148）；ROADMAP 写深度 3、实际是 5 的口径冲突（CHANGELOG:165）；L2-44 audit-diff --with-impact 静默丢弃 --max-depth（CHANGELOG:242）；test_map 预计算深度用裸数字 3、查询默认是 5，导致计数分歧（CHANGELOG:1461）；affected-tests 深度改由 --max-depth 唯一控制（CHANGELOG:1526）；提交 e3e42af“透传 max-depth”。共 6 次，而 audit-file 的 impact 仍走默认 3（U-33，引用）。",
+              "fixShape": "在 tools 层定一个影响请求对象：{depth, direction, stopAtEntry, limit}，默认值只在 defaults.js 定义一次。getImpactRadius 和 findAffectedHttpRoutes 改成必须显式传深度，不再给缺省参数。audit-file 和 audit-diff 的文件条目改为调用同一个 impact 工具函数，或者在输出里写明所用深度。audit-diff 文件条目的 impactCount 按“只增不删”的规则新增一个带口径的字段名。ROADMAP 第 9 节没有对应步骤，最近的是步骤 1 的“把影响结果的阶段改为显式顺序调用”。成本约 0.5–1 天（估算），另加一次 U-33 回放。",
+              "severity": "high",
+              "confidence": "high"
+            },
+            {
+              "id": "C2",
+              "claim": "“文件角色”（入口、测试、未被引用）由两套互不相知的分类器各自定义：一套是 utils 层的 ProjectContext.ROLE_RULES，用于 workspace-info、scope 计数、api-contracts、security；另一套是图侧的 EntryDetector 加 test-detector，用于孤儿、死导出、impact、路由。同一个仓库、同一份输出里，会出现互相矛盾的数。",
+              "evidence": "入口：project-context.js:281-289 和 :332-343（ROLE_RULES 'entry'，Spring 只认 /application.*\\.java$/i；index.js 只有深度 ≤2 才算入口）。entry-detector.js:63-115（isKnownEntryFile，ENTRY_BASE_NAMES 不看深度，见 :82；另有 /mapper/、/config/、Controller 等框架规则）。测试：project-context.js:250-276 和 :605-610，后者的注释（:601）自称“canonical definition”；test-detector.js:31-56 和 :155；security-tools.js:110 isTestPath 是第三套。实测探针（直接调用三个函数，16 个样本路径）：7 个生产路径里 6 个在 workspace-info 角色和 isKnownEntryFile 之间不一致，例如 UserController.java 一边是 library、一边是入口；ApplicationUtils.java 一边是 entry、一边不是入口。测试判定有 5 个不一致：benchmark/、fixtures/、mocks/ 下的文件 ProjectContext 判为测试、图侧不判；FooTests.kt 和 typer/testing.py 正好相反。实测本仓库 `audit-overview --json`：scope.fileRoles.unknown=54（library 且没人引用），orphans.counts.total=29，两个“没人引用”的数在同一份 JSON 里。实测 workspace-info：entryFiles=[]、fileCount=5077（走 workspace-tools.js:57 lightweightFileScan，第二套文件发现，MAX_DEPTH 写死 8，不读 .gitignore）；audit-overview 给的是 entryFiles=[\"cli.js\"]，索引 639 个文件。",
+              "structural": "①符合：根子在模块边界。utils/project-context 和 dep-graph 各自拥有“文件是什么”的定义，没有一个所有者；局部修一个谓词，另一套照旧。②符合：同一份输出里的矛盾实测可见（54 对 29、[] 对 [cli.js]、5077 对 639）；git 实测：碰过 entry-detector、project-context、framework-patterns、orphan-detector、shared、test-detector 这 6 个文件的 60 个提交里，有 20 个同时改了其中 2 个以上。③符合：涉及 6 个以上文件、至少 4 个谓词。",
+              "cost": "实测矛盾见 evidence。workspace-info 是 SKILL 推荐的预检命令，它报的文件数是实际索引的约 7.9 倍（推算：5077/639）。",
+              "fixShape": "指定一个文件角色的所有者，例如在图侧建一个 FileRoleClassifier，返回 {role, entryKind, testKind, reason}。ProjectContext 只负责目录角色（active、reference、archive、generated）和配置。workspace-info 在没有建图时，要在输出里注明“未建图、角色和计数为粗估”，不能静默给另一套口径。ROADMAP 第 9 节步骤 5（语言能力声明）只覆盖其中的语言部分。成本 1–2 天（估算），需要对 eval 语料跑孤儿和死导出零 FAIL 回归。",
+              "severity": "medium",
+              "confidence": "high"
+            },
+            {
+              "id": "C3",
+              "claim": "isKnownEntryFile 和 frameworkHint.isEntry 把“入口”压成一个布尔值，但消费方要的语义至少有 6 种。H-34 和 H-35 是同一个根因复发：H-34 只用拓扑条件做了局部绕开，H-35 仍开着；TECH_DEBT 对 H-35 位置的描述还写错了。",
+              "evidence": "消费方及其语义（读代码）：①孤儿豁免，orphan-detector.js:34-41，在 isKnownEntryFile 之外又叠了 ENTRY_BASE_NAMES 和 isStandaloneEntryPath；②死导出豁免，analyzer.js:1339；③影响停止，query.js:143-146 的 _isConvergencePoint 等于 isKnownEntryFile 且所有引用方都是测试；④路由终点，analyzer.js:1743；⑤热点权重，overview-assembler.js:265 读 frameworkHint.entryPointWeight；⑥概览角色，overview-curator.js:252 role==='entry'；另有 composite-risk.js:13 和 watch.js:35 读 depGraph.entryFiles（package.json 的 main/bin，dep-graph.js:187-208）。数据里本来有区分：project-context.js:98-113 的 reason 有 spring-controller、mybatis-mapper、spring-boot-config 等，但 entry-detector.js:87-98 只取 .isEntry，把 reason 丢了。H-34 的修复提交 1a3d25b 和 c94532e 只改了 query.js，没有改判定本身。H-35 的 TECH_DEBT 原文说 Mapper 被列进 impact 的 affectedRoutes，但 impact.js:38 调的是 findAffectedHttpRoutes（query.js:232，读 info.routes），不是 analyzer.findAffectedRoutes。后者实际影响的是 affected-routes 命令（affected-routes.js:5）和 audit-diff 文件条目（audit-assembler.js:216）。",
+              "structural": "①符合：根子在数据模型和接口，布尔契约丢失了入口种类，不改返回类型，每个新消费方都要自己再推一次。②符合：H-34 和 H-35 同根（引用 TECH_DEBT）；CHANGELOG 里与入口或孤儿判定有关的修复至少还有 mapper XML isEntry:false（:136）、L2-30 JVM main 入口（:252）、C 配对头不判孤儿（:575）、动态 query registry 被误判孤儿（:2129/:2246）、entry-detector 原始路径未命中（:2031）（实测 grep 后逐条读）。③符合：横跨 query、analyzer、orphan-detector、overview 共 4 层以上。",
+              "cost": "H-34 回放代价（引用 TECH_DEBT）：实体→VO/DTO 0.4245→0.3854；项目所有者接受了这个代价。H-35 未修，而且登记的位置写错，下一个按 TECH_DEBT 去修的人会去改 impact.js（读代码确认）。",
+              "fixShape": "EntryDetector 增加 classifyEntry(file)，返回 {kind: 'program-main'|'request-handler'|'framework-component'|'config'|'barrel'|null, reason}；isKnownEntryFile 保留为 kind!==null，保持兼容。影响停止和路由终点只认 program-main 和 request-handler，孤儿和死导出继续认全部种类。顺手更正 H-35 的位置描述。ROADMAP 第 9 节没有对应步骤。成本约 1 天（估算），需要用 J1 回放确认 H-34 的数字不回退。",
+              "severity": "medium",
+              "confidence": "high"
+            },
+            {
+              "id": "C4",
+              "claim": "语言知识没有统一声明点：parsers/registry.js 已经有每种语言的扩展名表，但孤儿分类、语言计数、测试规则、入口扩展名等消费方各自写死扩展名。这已经在范围内的 TS/JS 上造成错误：.tsx/.jsx/.mjs/.cjs 和 .cc/.hpp 的孤儿文件进不了 orphans.modules。",
+              "evidence": "orphan-detector.js:49 写死 ['.js','.ts','.py','.go','.rs','.java','.kt','.cpp','.c','.h','.vue','.svelte']。实测探针：7 个没人引用的文件（Widget.tsx、Form.jsx、util.mjs、lib.cc、x.hpp、build.kts、Plain.ts），all=7，modules 只有 Plain.ts；其中 .kts 本来不在索引里，排除后是 6 个里漏 5 个。overview-curator.js:89-91 只按 orphans.modules 给清理建议。workspace-tools.js:35-46 LANG_EXT_MAP 是另一份语言表。实测 grep：registry 之外有 19 个文件、28 处“3 个以上扩展名”的列表字面量。Kotlin、Rust、Go、Java、Python、Vue 各自在 parsers、queries、resolvers、stack-detectors 之外出现在 16–18 个文件（实测，带词边界的 grep），例如 analyzer.js:927 isJavaFamily、validation-advice.js:111-123 按扩展名分支。",
+              "structural": "①符合：根子在缺少语言能力契约，ROADMAP 第 9 节根因 E 和步骤 5 写的就是这件事；registry 只管解析和定位，不管角色和计数。②符合：.tsx 孤儿漏分类是实测的现存错误；CHANGELOG 里提到六语言、等价、parity 的行有 46 条（实测 grep）；TECH_DEBT 把它登记为 P4。③符合：涉及 19 个文件。",
+              "cost": "现存错误：React 和 TS 项目的孤儿组件不会进入 orphans.modules，也就不会进入清理建议（实测探针加读代码；没有在真实前端仓库上测数量）。",
+              "fixShape": "registry 导出 extension→language 映射和 isSourceExtension；orphan-detector、workspace-tools 等纯表消费方改读它。这是小改，约 0.5 天（估算），可以按 ROADMAP 第 8 节小修处理。完整修法是 ROADMAP 第 9 节步骤 5（语言能力声明），按现有冻结条件等第 10 门语言时再做。",
+              "severity": "medium",
+              "confidence": "high"
+            },
+            {
+              "id": "C5",
+              "claim": "GraphAnalyzer 和 GraphQuery 的分界不是按契约划分的：“从一个文件沿依赖方向往上找”的遍历在两个类里都有，“受影响路由”有两套同名不同义的实现，默认深度也不同。",
+              "evidence": "analyzer.js:1728 findAffectedRoutes：DFS，终点是 isKnownEntryFile，默认深度 5；query.js:232 findAffectedHttpRoutes：BFS，读 info.routes，默认深度 3。两者输出都叫 affectedRoutes 或 routes：impact.js:38 用后者，audit-assembler.js:216 和 affected-routes.js:5 用前者。依赖方向的遍历：analyzer.js:474-490 getImpactStats、:1491 _findAffectedTestsByGraph、:1728；query.js:69 getImpactRadius。git 实测：query.js 的 20 个提交里有 13 个同时改了 analyzer.js。",
+              "structural": "①符合：AGENTS 原则 8 自己说，改动同时穿过分析和查询层，就不能再叫单一概念；“影响”现在就是这样，入口停止在 query，路由终点在 analyzer。②部分符合：共改 13/20 是实测；维护者在 H-35 里把两个函数弄混，算是理解成本的直接证据。③符合：两个类之间的问题。",
+              "cost": "同时改两层的提交 13 次（实测）；H-35 登记位置写错（读代码确认）。",
+              "fixShape": "把“影响类遍历”（半径、路由、受影响测试的图通道）收到一个模块，GraphAnalyzer 只留全图聚合（环、死导出、统计）。两个路由函数改名区分（入口可达链 vs HTTP 路由元数据）。可以跟 C1、C3 一起做。ROADMAP 第 9 节步骤 3（纯函数建图）里提到“影响改为对快照的纯函数”，方向一致。成本约 1 天（估算）。",
+              "severity": "low",
+              "confidence": "medium"
+            },
+            {
+              "id": "C6",
+              "claim": "框架识别知识分散在三个模块：路径规则放在 utils 层的 project-context.js，内容规则放在 17 个 query 文件，分发和缓存在 framework-patterns.js 和 entry-detector.js，另有 FRAMEWORK_MANAGED_PATTERNS 在 dep-graph/shared.js。",
+              "evidence": "project-context.js:40-180 FRAMEWORK_RULES（按语言分组的路径规则）和 :203 detectFrameworkFromPath；framework-patterns.js:17 从 utils 层反向引入这两者；queries/framework-detection/*.js 共 17 个文件各自返回 isEntry 和 entryPointWeight，其中 go-fiber.js:24、go-gin.js:24、js-express.js:38 写裸数字 2.5，其余用 ENTRY_WEIGHT；entry-detector.js:14-19 另读 shared.js 的 FRAMEWORK_MANAGED_PATTERNS 和 KNOWN_CONFIG_NAMES。git 实测：framework-patterns.js 的 24 个提交里有 13 个同时改了 project-context.js。",
+              "structural": "①符合：根子在模块边界，L0/utils 层持有 L2.5 的框架语义。②部分符合：共改 13/24 是实测，没有找到因分散直接造成的错误输出。③符合。",
+              "cost": "共改 13/24（实测）；新增一个框架至少要动 project-context、query 文件、framework-patterns 三处（读代码推断）。",
+              "fixShape": "把 FRAMEWORK_RULES 移到 dep-graph/framework-patterns.js 或按语言放进 registry；project-context 只留目录角色和配置。可以和 C2、C3 一起做，单做约 0.5 天（估算）。",
+              "severity": "low",
+              "confidence": "medium"
+            },
+            {
+              "id": "C7",
+              "claim": "“严重度”和“置信度”的判定散在 L5 formatter 和多处 assembler，同一类结论在不同命令里阈值不同。",
+              "evidence": "project-map.js:163-166：孤儿数 >0 就是 medium，还有 'none' 档；risk-thresholds.js:116-124 overviewSeverity：孤儿数 ≥5 才是 medium。human-formatters.js:1390-1440 在 formatter 里写死 confidence 0.85、0.9、0.95 和 dead-exports >10 判 high；:2047 buildImpactRisks 写死 graphCount>20 判 high。git 实测：human-formatters.js 的 41 个提交里有 32 个同时改了 src/tools/。",
+              "structural": "①符合：根子在输出没有统一出口，TECH_DEBT P4 和 ROADMAP 步骤 6 已登记。②弱：只有共改数，没有找到用户可见的错误案例。③符合。按判据算边缘结构性，排最后。",
+              "cost": "共改 32/41（实测）；没有观察到错误输出。",
+              "fixShape": "严重度和置信度只由 assembler 产出，formatter 只负责渲染。对应 ROADMAP 第 9 节步骤 6（输出统一出口），保持冻结，按 P4 的重启条件来。",
+              "severity": "low",
+              "confidence": "medium"
+            }
+          ],
+          "notProblems": [
+            "孤儿检测两处手工同步：AGENTS 陷阱表（AGENTS.md:240）还说 project-map.js 和 overview-tools.js 要手工同步，但现在两边都调 depGraph.findOrphanFiles（dep-graph.js:341 → utils/orphan-detector.js；调用点 project-map.js:345、overview-assembler.js:537），已经收口。这是文档过时，不是代码问题。orphan-detector.js:40 在 isKnownEntryFile 之外又查一次 ENTRY_BASE_NAMES，属于冗余，是单处局部问题。",
+            "同主干规则的副本：src/tools/impact-ranking.js:10 和 eval/replay-impact.js:51 各有一份 STEM_SUFFIXES。回放需要冻结口径，所以这份副本是有意的，不算语义重复。test-detector.js:59 的 normalizeStem 用于测试配对，是另一个语义。",
+            "test-detector.js 里 isTestLikeFile 和 isCollectedTestFile 两个谓词：注释（test-detector.js:14-23）写明是两个不同的问题，“像测试区域”和“会被 runner 执行”，属于有意拆分。真正的重复是 C2 里 ProjectContext 那套和 security-tools 的 isTestPath。",
+            "大文件本身：analyzer.js 1838 行，按段落分成聚合缓存、环、统计和告警、死导出及各语言误报标记、未解析、受影响测试、路由，各段只共享 _aggregateCache，改死导出不用理解环。human-formatters.js 2057 行是“按命令渲染”这一个契约下的两张表。resolvers/base.js 是“读各生态清单”这一个契约，缓存由 clearResolverCaches 统一清。按 AGENTS 原则 8，这些都不算结构性问题；analyzer 里唯一跨契约的部分已经归进 C5。",
+            "builder.js 里 Java、Go、MyBatis 的后处理（builder.js:60-77, 682-1248）：它们走 postProcessPhases 注册表，增量路径按 triggers 复用（builder.js:1530-1545），是一个已声明的扩展点，不是零散分支。",
+            "TECH_DEBT P4 写“提到 Kotlin/Rust/Go 的源文件各 23–25 个”：其中约 9–12 个是 parsers、queries、resolvers、stack-detectors 这些本来就该按语言分的模块（实测）。真正散在别处的是每种语言 16–18 个文件，这部分已经归进 C4。",
+            "watch.js:35-44 用 depGraph.entryFiles（规范化的图键）去匹配 impact 行的 file（显示路径），在 Windows 上可能永远匹配不上。这是单处的实现问题，不是结构性问题；我没有运行验证，是推测。"
+          ]
+        },
+        "verify": null
+      }
+    ],
+    "critic": null
+  },
+  "workflowProgress": [
+    {
+      "type": "workflow_phase",
+      "index": 1,
+      "title": "Find"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 2,
+      "title": "Verify"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 3,
+      "title": "Critic"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 1,
+      "label": "find:layering",
+      "phaseIndex": 1,
+      "phaseTitle": "Find",
+      "agentId": "a0268ce986973a5cd",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1792667787185,
+      "queuedAt": 1792667787119,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "结论：依赖方向这一层面基本成立，结构性问题出在\"概念归属\"上…",
+      "promptPreview": "【问题】用户问：workspace-bridge 的架构是否存在结构性问题？\n【项目】仓库根 C:/Users/sdses/Desktop/随机小项目/workspace-bridge。本地 Node CLI，给 AI coding agent 补\"跨文件视角\"：多语言 AST 依赖图 + git 历史，命令包括 audit-overview、audit-file、audit-diff、impact、affected-tests、dead-exports、cycles、api-contracts 等。src/ 约 196 个 JS 文件、41,240 行（实测 git ls-files + wc）；最大文件：src/cli/formatters/human-formatters.js 2057 行、src/services/dep-graph/analyzer.js 1838、builde…",
+      "promptFramed": true,
+      "lastProgressAt": 1792674488837,
+      "tokens": 194900,
+      "toolCalls": 51,
+      "durationMs": 6701650,
+      "resultPreview": "{\"summary\":\"结论：依赖方向这一层面基本成立，结构性问题出在\\\"概念归属\\\"上，层号本身没有乱。实测扫描 src/ 加 cli.js 共 203 个文件、546 条 require 边，其中函数体内的延迟 require 57 条。自写的 Tarjan 算法查出 0 个环，用本工具 cycles 命令复核也是 0。真正低层引用高层的边只有 container.js:453/465 两条，自 2026-05-18（854460b）起没有增加，而且其中一条从 75253fe 起已经是死路径。\\n\\n结构性问题有三处，都是\\\"一个业务概念没有唯一的拥有者\\\"，分散在多层和多个文件里。\\n① impact 的语义没有唯一入口。深度、方向、合并、截断、输出组装分别在 L0、L2、L4、L5 决定。getImpactRadius 有 8 类调用点，深度取 2、3、4、5 四种值，只有 2 处…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 2,
+      "label": "find:cohesion",
+      "phaseIndex": 1,
+      "phaseTitle": "Find",
+      "agentId": "a12a9d441642132de",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1792667787185,
+      "queuedAt": 1792667787119,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "结论：在“内聚与语义重复”这个维度上，AGENTS L1-3 说“同一业务…",
+      "promptPreview": "【问题】用户问：workspace-bridge 的架构是否存在结构性问题？\n【项目】仓库根 C:/Users/sdses/Desktop/随机小项目/workspace-bridge。本地 Node CLI，给 AI coding agent 补\"跨文件视角\"：多语言 AST 依赖图 + git 历史，命令包括 audit-overview、audit-file、audit-diff、impact、affected-tests、dead-exports、cycles、api-contracts 等。src/ 约 196 个 JS 文件、41,240 行（实测 git ls-files + wc）；最大文件：src/cli/formatters/human-formatters.js 2057 行、src/services/dep-graph/analyzer.js 1838、builde…",
+      "promptFramed": true,
+      "lastProgressAt": 1792674617033,
+      "tokens": 214008,
+      "toolCalls": 60,
+      "durationMs": 6827367,
+      "resultPreview": "{\"summary\":\"结论：在“内聚与语义重复”这个维度上，AGENTS L1-3 说“同一业务语义只在一个模块实现”，代码里这条不成立。按三条判据，结构性问题有 4 条，按严重度排：\\n① 影响查询没有统一的请求契约。默认深度和方向分散在 9 处以上：图原语 getImpactRadius 默认深度 3、只查依赖方，CLI 默认深度 5、双向。实测同一文件 truncate.js：impact 命令的 impactCount 是 532，audit-file 是 424。CHANGELOG 里修过的同类问题至少 6 次（实测 grep）。\\n② “入口”这个概念由两套互不相知的分类器各自定义：ProjectContext.ROLE_RULES 和图侧 EntryDetector。拿 7 个生产路径样本试，6 个两边判断不一致（实测）。同一份 audit-overview 输出里，“没人…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 3,
+      "label": "find:runtime",
+      "phaseIndex": 1,
+      "phaseTitle": "Find",
+      "agentId": "a9deeb19adce52eb4",
+      "model": "claude-opus-5-5",
+      "state": "error",
+      "startedAt": 1792667787186,
+      "queuedAt": 1792667787119,
+      "attempt": 1,
+      "lastToolName": "Bash",
+      "lastToolSummary": "cd \"C:/Users/sdses/Desktop/随机小项目/workspace-bridge\" && …",
+      "promptPreview": "【问题】用户问：workspace-bridge 的架构是否存在结构性问题？\n【项目】仓库根 C:/Users/sdses/Desktop/随机小项目/workspace-bridge。本地 Node CLI，给 AI coding agent 补\"跨文件视角\"：多语言 AST 依赖图 + git 历史，命令包括 audit-overview、audit-file、audit-diff、impact、affected-tests、dead-exports、cycles、api-contracts 等。src/ 约 196 个 JS 文件、41,240 行（实测 git ls-files + wc）；最大文件：src/cli/formatters/human-formatters.js 2057 行、src/services/dep-graph/analyzer.js 1838、builde…",
+      "promptFramed": true,
+      "lastProgressAt": 1792674785881,
+      "error": "You've hit your session limit · resets 11:50pm (Asia/Shanghai)",
+      "tokens": 211859,
+      "toolCalls": 61,
+      "durationMs": 6996214
+    },
+    {
+      "type": "workflow_agent",
+      "index": 4,
+      "label": "find:product-fit",
+      "phaseIndex": 1,
+      "phaseTitle": "Find",
+      "agentId": "ae5378f40c423b37f",
+      "model": "claude-opus-5-5",
+      "state": "error",
+      "startedAt": 1792667787186,
+      "queuedAt": 1792667787119,
+      "attempt": 1,
+      "lastToolName": "Bash",
+      "lastToolSummary": "cd \"C:/Users/sdses/Desktop/随机小项目/workspace-bridge\" && …",
+      "promptPreview": "【问题】用户问：workspace-bridge 的架构是否存在结构性问题？\n【项目】仓库根 C:/Users/sdses/Desktop/随机小项目/workspace-bridge。本地 Node CLI，给 AI coding agent 补\"跨文件视角\"：多语言 AST 依赖图 + git 历史，命令包括 audit-overview、audit-file、audit-diff、impact、affected-tests、dead-exports、cycles、api-contracts 等。src/ 约 196 个 JS 文件、41,240 行（实测 git ls-files + wc）；最大文件：src/cli/formatters/human-formatters.js 2057 行、src/services/dep-graph/analyzer.js 1838、builde…",
+      "promptFramed": true,
+      "lastProgressAt": 1792674785257,
+      "error": "You've hit your session limit · resets 11:50pm (Asia/Shanghai)",
+      "tokens": 223490,
+      "toolCalls": 52,
+      "durationMs": 6995589
+    },
+    {
+      "type": "workflow_agent",
+      "index": 5,
+      "label": "find:verification",
+      "phaseIndex": 1,
+      "phaseTitle": "Find",
+      "agentId": "a552a375fd73d654d",
+      "model": "claude-opus-5-5",
+      "state": "error",
+      "startedAt": 1792667787186,
+      "queuedAt": 1792667787120,
+      "attempt": 1,
+      "lastToolName": "Bash",
+      "lastToolSummary": "cd \"C:/Users/sdses/Desktop/随机小项目/workspace-bridge\" && …",
+      "promptPreview": "【问题】用户问：workspace-bridge 的架构是否存在结构性问题？\n【项目】仓库根 C:/Users/sdses/Desktop/随机小项目/workspace-bridge。本地 Node CLI，给 AI coding agent 补\"跨文件视角\"：多语言 AST 依赖图 + git 历史，命令包括 audit-overview、audit-file、audit-diff、impact、affected-tests、dead-exports、cycles、api-contracts 等。src/ 约 196 个 JS 文件、41,240 行（实测 git ls-files + wc）；最大文件：src/cli/formatters/human-formatters.js 2057 行、src/services/dep-graph/analyzer.js 1838、builde…",
+      "promptFramed": true,
+      "lastProgressAt": 1792674791054,
+      "error": "You've hit your session limit · resets 11:50pm (Asia/Shanghai)",
+      "tokens": 191519,
+      "toolCalls": 56,
+      "durationMs": 7001385
+    },
+    {
+      "type": "workflow_agent",
+      "index": 6,
+      "label": "verify:layering",
+      "phaseIndex": 2,
+      "phaseTitle": "Verify",
+      "agentId": "a4f5ed4a4b0e954bf",
+      "model": "claude-opus-5-5",
+      "state": "error",
+      "startedAt": 1792674488883,
+      "queuedAt": 1792674488845,
+      "attempt": 1,
+      "lastToolName": "Bash",
+      "lastToolSummary": "cd \"C:/Users/sdses/Desktop/随机小项目/workspace-bridge\"; fo…",
+      "promptPreview": "你是反方核查员。下面是\"分层与依赖方向\"维度的审查结果（JSON）。逐条核查：\n1. 事实：重新读对应文件和行号，必要时独立重跑命令或在 scratchpad 独立写脚本重算（不要复用原审查的脚本），判 confirmed / corrected / refuted / unverifiable。\n2. 定性：按判据（①根子在边界/数据模型/进程模型/契约；②有反复出现或可量化的代价证据；③不是单点实现缺陷）判 structural / local / not-a-problem / unclear。默认怀疑：证据不足以证明三条同时成立的，不要判 structural。\n3. 检查 notProblems 是否站得住；在 missing 里列出这个维度漏掉的、按判据算结构性的问题（要有证据）。\n\n【问题】用户问：workspace-bridge 的架构是否存在结构性问题？\n【项目】仓库根 …",
+      "promptFramed": true,
+      "lastProgressAt": 1792674805293,
+      "error": "You've hit your session limit · resets 11:50pm (Asia/Shanghai)",
+      "tokens": 107600,
+      "toolCalls": 11,
+      "durationMs": 316409
+    },
+    {
+      "type": "workflow_agent",
+      "index": 7,
+      "label": "verify:cohesion",
+      "phaseIndex": 2,
+      "phaseTitle": "Verify",
+      "agentId": "a7252379f77686341",
+      "model": "claude-opus-5-5",
+      "state": "error",
+      "startedAt": 1792674617072,
+      "queuedAt": 1792674617053,
+      "attempt": 1,
+      "lastToolName": "Bash",
+      "lastToolSummary": "cd \"C:/Users/sdses/AppData/Local/Temp/claude/C--Users-sdses…",
+      "promptPreview": "你是反方核查员。下面是\"内聚与语义重复\"维度的审查结果（JSON）。逐条核查：\n1. 事实：重新读对应文件和行号，必要时独立重跑命令或在 scratchpad 独立写脚本重算（不要复用原审查的脚本），判 confirmed / corrected / refuted / unverifiable。\n2. 定性：按判据（①根子在边界/数据模型/进程模型/契约；②有反复出现或可量化的代价证据；③不是单点实现缺陷）判 structural / local / not-a-problem / unclear。默认怀疑：证据不足以证明三条同时成立的，不要判 structural。\n3. 检查 notProblems 是否站得住；在 missing 里列出这个维度漏掉的、按判据算结构性的问题（要有证据）。\n\n【问题】用户问：workspace-bridge 的架构是否存在结构性问题？\n【项目】仓库根 …",
+      "promptFramed": true,
+      "lastProgressAt": 1792674784360,
+      "error": "You've hit your session limit · resets 11:50pm (Asia/Shanghai)",
+      "tokens": 105764,
+      "toolCalls": 7,
+      "durationMs": 167286
+    },
+    {
+      "type": "workflow_agent",
+      "index": 8,
+      "label": "critic",
+      "phaseIndex": 3,
+      "phaseTitle": "Critic",
+      "agentId": "a2492e8878a81b28f",
+      "model": "claude-opus-5-5",
+      "state": "error",
+      "startedAt": 1792674805328,
+      "queuedAt": 1792674805297,
+      "attempt": 1,
+      "promptPreview": "【问题】用户问：workspace-bridge 的架构是否存在结构性问题？\n【项目】仓库根 C:/Users/sdses/Desktop/随机小项目/workspace-bridge。本地 Node CLI，给 AI coding agent 补\"跨文件视角\"：多语言 AST 依赖图 + git 历史，命令包括 audit-overview、audit-file、audit-diff、impact、affected-tests、dead-exports、cycles、api-contracts 等。src/ 约 196 个 JS 文件、41,240 行（实测 git ls-files + wc）；最大文件：src/cli/formatters/human-formatters.js 2057 行、src/services/dep-graph/analyzer.js 1838、builde…",
+      "promptFramed": true,
+      "lastProgressAt": 1792674806914,
+      "error": "You've hit your session limit · resets 11:50pm (Asia/Shanghai)",
+      "tokens": 0,
+      "toolCalls": 0,
+      "durationMs": 1585
+    }
+  ],
+  "totalTokens": 1249140,
+  "totalToolCalls": 298
+}

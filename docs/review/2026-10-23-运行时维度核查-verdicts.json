@@ -1,0 +1,46 @@
+{
+ "verdicts": [
+  {
+   "id": "R1",
+   "factual": "corrected",
+   "structuralVerdict": "structural",
+   "correctedClaim": "一次性 CLI 进程模型让每次调用都付全量固定成本，这笔成本和命令本身要做的事无关：在 J1 上，dependents 的查询本身 0ms，端到端仍要 27.7 秒（实测）。impact 和 dependents 的端到端差距随负载浮动，原文写 3.8 秒，我这次测到 9.5 秒（实测：37.3 秒对 27.7 秒）。固定成本里有很大一块（init 中 stat 约 5.7 秒，收尾里 getDroppedImports 4.4–5.1 秒，getStaleness 1.1–1.5 秒，均为实测）来自 R2 和 R5 这两个局部缺陷，不来自进程模型本身。把它们扣掉以后，J1 每次调用仍要约 9–10 秒的 init（推算：14.5 秒减 5.7 秒），这部分才是进程模型的代价。“agent 调用 impact 的次数为零”和延迟之间没有证据证明因果关系，不能当成本证据用。",
+   "note": "核对了 container.js:225-268：9 个阶段按顺序写死在 _runPipeline 里。cli.js:419-461 核对到三点：opts.container 可以注入；命令跑完后无条件调 getStaleness、cache.save 和 buildWarnings；shouldInit 时调 shutdown。我用独立脚本在 J1 上测了两轮，--cache-dir 指向我自己的 scratchpad。init 22329ms（第一轮）和 14514ms（第二轮），其中 depGraph 20074/12813ms，fileIndex 2120/1555ms。再用 CLI 端到端测：impact 37253ms，dependents 27735ms，node -e 1 用了 1943ms。数字和原文同一量级，“只差 3.8 秒”这条不稳。判 structural 的理由：ARCHITECTURE 写明每条命令都完整重建一次图，进程模型不改，就消不掉每次重做定位；扣掉局部缺陷以后，剩下约 9–10 秒/次（推算）仍然可以量化，也不是某一个函数的问题。不过原文把 R2 和 R5 的局部开销算进了进程模型的账，量级被夸大了一倍左右（推算）。"
+  },
+  {
+   "id": "R2",
+   "factual": "confirmed",
+   "structuralVerdict": "local",
+   "note": "我用独立脚本 monkey-patch 了 fs.statSync 计数，结果和原文几乎一致。J1 的 init 里 stat 共 16677 和 16678 次，耗时 5796ms 和 5668ms（两轮）；pom.xml、build.gradle、build.gradle.kts、libs.versions.toml 各 3397 次。getDroppedImports 每次调用 stat 13612–13613 次，四个清单各 3385 次，耗时 4352–5700ms（实测）。代码核对：resolvers/base.js:651-669 的 readJvmDeps 每次调用都先 stat 4 个文件拼 stamp，再查缓存。同样“每调用一次 stat 一次”的模式还出现在 readGoMod（237）、readPackageDeps（265）、readCargoName/readCargoDeps（373/419）和 readPythonDeps（502）里，可见这是一种重复出现的模式。但修法在现有契约里就能做：beginResolverBatch/clearResolverCaches 已经提供按批次的生命周期，把 stamp 改成按批次缓存就能拿回定位阶段的约 5.7 秒；收尾那 4.4–5.7 秒走的是 R5 的按图版本 memo。两处都不用改模块边界。真正碰到契约的是另一件事：定位时算出的“外部依赖”结论没有被保存下来（见 missing），这一条本身按局部问题算。"
+  },
+  {
+   "id": "R3",
+   "factual": "corrected",
+   "structuralVerdict": "structural",
+   "correctedClaim": "增量路径和冷启动不一致：新增一个文件、正好满足之前没定位上的 import 时，增量更新不会补上这条边。我独立复现了 JS、TS、Python 三种语言。原文给的机制有一半不对：JS/TS 里没定位上的 import 其实会留下一条指向不带扩展名的幽灵路径（.../src/helper）的边，增量漏掉它，是因为 shadowCandidatesFor 列出的 15 个候选里没有这个不带扩展名的键。Python 里那条 import 冷启动时退回到了 pkg/__init__.py，而 pkg/helper.py 的候选只有 helper.pyi。这是两种不同的候选枚举缺口，说明每多一种定位规则，就要多一条手写的失效规则。",
+   "note": "我写了独立夹具，流程是：初始化，写入新文件，调 fileIndex.indexFile，再调 _depGraph.updateFiles。结果：js 增量 [] / 冷启动 [main.js]；ts 增量 [] / 冷启动 [a.ts]；py 增量 [] / 冷启动 [main.py]。增量后 main.js 的 imports 是 [.../src/helper]（不带扩展名），pkg/main.py 的 imports 是 [pkg/__init__.py]。直接调 shadowCandidatesFor 看候选：helper.js 得到 helper.d.ts/tsx/ts/jsx/mjs/cjs、index.*、helper.vue/svelte，没有不带扩展名的 helper；pkg/helper.py 只得到 helper.pyi。builder.js:1296-1326 的失效集合和原文描述一致。ARCHITECTURE.md:216 自己写着“目前没有核实”。git 历史里能数到同类补丁：20fd660（glob 增量补边，10-04）、8cdea38 和 d9fa0ba（两次扩展 shadow candidates）、7180c9a（增量缓存失效修复，07-03）。CHANGELOG 里 增量/incremental/updateFiles 共 58 行（Grep）。单个缺口能局部打补丁，但失效规则得和每条定位规则一一对应（alias、symbol-table、tsconfig paths、Python 包回退……），不改契约就修不干净，所以判 structural。要注意的是：用户侧的代价是潜在的，watch 和 REPL 的实际使用量没有证据。"
+  },
+  {
+   "id": "R4",
+   "factual": "confirmed",
+   "structuralVerdict": "structural",
+   "note": "代码核对：repl.js:188-211 自己 parseArgs，再调 getImpactRadius 和 curateImpact，返回 { impactCount, impact, truncated } 共 3 个字段。在 repl.js 里 grep warnings|dataQuality|staleness|untrusted|COMMANDS|runCliInProcess，0 处命中；case 分支有 15 个。repl.js:416 是 watch: !evalMode，所以 --eval 是一次性进程，只有分号分隔的命令能共用一次 init。SKILL.md:38 推荐用 repl --eval 来“复用内存图，避免每次冷启动”。四个对齐提交都在：61e3223（10-05）、ff65d3a（10-08）、c31e83a（10-10）、6b0b426（10-11）。CHANGELOG 里提到 REPL、同时带 对齐/一致/同形/不一致/分叉 的有 19 行（我的 Grep，原文写 18，差不多）。对照 CLI：我在 J1 上跑 impact 拿到 17 个顶层字段，dataQuality=degraded。REPL 那一侧我没有重跑，3 个字段的结论来自读代码。三条判据都成立：两张命令表让接口契约分叉，一周内修了 4 次对齐，15 个分支都是平行实现。"
+  },
+  {
+   "id": "R5",
+   "factual": "confirmed",
+   "structuralVerdict": "local",
+   "note": "实测 J1，同一个容器：getDroppedImports 连调两次，4843/4352ms 和 5259/5700ms，没有缓存；buildWarnings 4482/5111ms；getStaleness 1130/1456ms，原因是 init 用了 14.5–22.3 秒，超过 10 秒的窗口，于是又全量重哈希一次。代码核对：defaults.js:76 INDEX_VERIFIED_FRESH_MS=10*1000；container.js:609-614；analyzer.js:894 每次 _syncStateLedger 都调 getDroppedImports；unresolved-imports.js:6-34 对每条未定位的 record 调 isExternalDependency，还每次重建 buildPythonModuleIndex。analyzer 里已经有 _aggregateVersion 和 _aggregateCache 的 memo 机制（analyzer.js:571/754/1319/1463），把 droppedImports 纳进来就行，不用改边界。我同意原文的定性：局部问题，是 R1 的放大器。"
+  },
+  {
+   "id": "R6",
+   "factual": "confirmed",
+   "structuralVerdict": "local",
+   "note": "代码核对：dep-graph.js:83 写的是 bus.on('graph:built', () => this.analyzer.precomputeAggregates())；analyzer.js:379-398 用 skipCache:true 无条件重算死导出、未定位 import、环和统计，注释给的理由是让 audit-overview 和单独命令给出一致的数；container.js:463-468 有 saveCoChanges 持久化路径。precomputeAggregates 和 analyzeCoChanges 的耗时我没有独立重测，这部分数字来自原文，未复核。我同意定性：两处实现选择，改成按版本惰性计算不用动边界，不构成结构性问题。"
+  }
+ ],
+ "missing": [
+  "定位策略的契约 `(importPath, fromFile, ctx) => string|null`（AGENTS 陷阱表、resolvers.js:389）把“这是外部依赖”和“没找到本地文件”都压成同一个 null，结果是 importRecord 上只剩 resolved=null，定位时算出的外部依赖结论被扔掉了。于是查询时的 collectUnresolvedImports（unresolved-imports.js:15）只能对每条 record 再调一次 isExternalDependency，把同一批判定重做一遍。证据：J1 上 init 里四个 JVM 清单各被 stat 3397 次，getDroppedImports 里各 3385 次，几乎是同一批 record 被判了两次（实测）。这一步每次 CLI 调用要多付 4.4–5.7 秒（实测）。仓库里也因此有两套“未定位 import”实现：findUnresolvedImports 看的是指向不存在路径的边，collectUnresolvedImports 看的是 resolved 为空的 record。这正是原审查 notProblems 最后一条里“没核实是不是同一业务语义”的根子。按判据：①根子在策略函数的返回契约和 importRecord 数据模型上；②有可量化的每次调用成本，CHANGELOG 里 dropped/外部判定相关的有 49 行、git log 里有 19 个提交提到 external/外部/dropped（Grep 粗计数，并非全是同一个问题）；③涉及定位策略、unresolved-imports 和 analyzer 台账三处。我的判断是接近结构性，证据中等。R2 和 R5 的收尾成本，比起“缓存生命周期”，更该归到这里。"
+ ],
+ "notProblemsCritique": "大部分站得住，我核对的情况如下。(1) CACHE_SCHEMA_REVISION：src/config/versions.js:14 现在是 55；用 git log -G 查 10-06 之后，只有 1f3f622 命中，而且改的是文档里的引用，不是代码，所以“10-05 后没再手工加修订号”成立。但“83 个提交”这个数我复核不出来：703c8c1..HEAD 是 65 个，从 10-05 12:00 算起是 73 个（实测）。(2) 文件发现慢：eval/truth 被 .gitignore:58 忽略，du 得到 2.9G（实测）；file-index.js:95-118 确实是先遍历、后用 git check-ignore 过滤，定性为局部问题成立。不过它在本仓库每次调用都要多付 7–9 秒，把它和 J1 的数字放在同一张成本表里时要分开说。(3) Node 启动：我测到 node -e 1 为 1943ms，同意归为平台开销。(4) 最后一条“两个未定位 import 实现”不该只放在 notProblems：这两套实现之所以并存，是因为定位策略的契约丢掉了外部依赖的结论，根子是契约问题，我已经放进 missing。(5) 解析缓存、SQLite 写入、内存这三条我没有独立复测，按原文实测数字保留，未复核。"
+}

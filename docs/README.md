@@ -11,5 +11,6 @@
 | [ROADMAP.md](../ROADMAP.md) | 开发计划：现状评估、分阶段任务与验收、冻结区、当前限制 |
 | [eval/README.md](../eval/README.md) | 真实仓库真值评测 |
 | [checklist.md](./checklist.md) | 验证清单：可验证的检查面、验证方法、通过条件 |
+| [review/README.md](./review/README.md) | 2026-10-22/23 Claude Code 架构审查的原始报告存档（结论以 [TECH_DEBT.md](./TECH_DEBT.md) 为准） |
 
 问题完成后从 TECH_DEBT 删除，并在 CHANGELOG 记录原因、改动与验证。
