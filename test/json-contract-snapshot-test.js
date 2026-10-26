@@ -81,6 +81,25 @@ const COMMANDS = [
   ['workspace-info', []],
 ];
 
+// H-40: repl --eval --json must return the same result field set as the CLI
+// for the same input — the REPL dispatches through the CLI's own handlers.
+// File commands take the target positionally in the REPL.
+const REPL_PARITY = [
+  ['impact', 'src/a.js'],
+  ['affected-tests', 'src/a.js'],
+  ['dependents', 'src/a.js'],
+  ['dependencies', 'src/a.js'],
+  ['cycles', null],
+  ['dead-exports', null],
+  ['unresolved', null],
+  ['stats', null],
+  ['audit-map', null],
+];
+
+// Fields the CLI's JSON formatter adds on top of the raw result; the REPL
+// envelope ({ ok, result }) never had them, so they can't be part of parity.
+const FORMAT_LAYER_KEYS = new Set(['schemaVersion', 'command', 'elided', 'untrusted', 'sizeHint']);
+
 const root = makeTempDir('wb-json-contract-');
 try {
   buildFixture(root);
@@ -106,6 +125,25 @@ try {
       assert.deepStrictEqual(added, [], `${command}: new keys not in the snapshot; record them with UPDATE_GOLDENS=1: ${added.join(', ')}`);
     }
   }
+
+  // CLI ↔ REPL parity: same input, same result field set.
+  for (const [command, fileArg] of REPL_PARITY) {
+    const cliArgs = fileArg
+      ? [command, '--file', fileArg]
+      : [command];
+    const cliOut = runCli([...cliArgs, '--cwd', root, '--cache-dir', path.join(root, '.cache-out'), '--json', '--quiet']);
+    for (const key of FORMAT_LAYER_KEYS) delete cliOut[key];
+    const evalLine = fileArg ? `${command} ${fileArg}` : command;
+    const replOut = runCli(['repl', '--cwd', root, '--cache-dir', path.join(root, '.cache-out'), '--eval', evalLine, '--json', '--quiet']);
+    assert.strictEqual(replOut.ok, true, `repl --eval "${evalLine}" should succeed`);
+    const cliPaths = keyPaths(cliOut);
+    const replPaths = keyPaths(replOut.result);
+    const onlyCli = cliPaths.filter((p) => !replPaths.includes(p));
+    const onlyRepl = replPaths.filter((p) => !cliPaths.includes(p));
+    assert.deepStrictEqual(onlyCli, [], `${command}: CLI result fields missing from repl --eval --json: ${onlyCli.join(', ')}`);
+    assert.deepStrictEqual(onlyRepl, [], `${command}: repl --eval --json fields the CLI result lacks: ${onlyRepl.join(', ')}`);
+  }
+  console.log('CLI ↔ REPL field parity: OK');
 } finally {
   cleanupTempDir(root);
 }

@@ -3,7 +3,7 @@
  * Registry-based dispatch — no more switch-case chains.
  */
 const { countTreeFiles } = require('./project-map');
-const { AI_FORMAT, SCHEMA_VERSION, LIMITS, CONFIDENCE } = require('../../config/constants');
+const { AI_FORMAT, SCHEMA_VERSION, LIMITS, CONFIDENCE, DATA_QUALITY } = require('../../config/constants');
 const { sanitizeForAiOutput } = require('../../utils/sanitize');
 
 /**
@@ -361,7 +361,8 @@ const FORMATTERS = {
         }
       }
       if (r.summary?.recommendations?.length) { lines.push(``, `## Recommendations`); for (const rec of r.summary.recommendations.slice(0, resolveOutputLimit(LIMITS.OUTPUT_SHORT, _options))) lines.push(`- ${rec}`); }
-      appendWarnings(lines, r.warnings, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options));
+      // Warnings render in the markdown dispatcher (markdownDegradationSection),
+      // the single exit for this format — don't duplicate them per command.
       return lines.join('\n');
     },
     jsonl: (r) => {
@@ -690,13 +691,6 @@ const FORMATTERS = {
           lines.push(`- \`${u.method}\` \`${u.path}\``);
         }
       }
-      if (r.warnings?.length) {
-        lines.push('', `## Warnings`);
-        for (const w of r.warnings.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options))) {
-          const prefix = w.file ? `${w.file}: ` : '';
-          lines.push(`- **[${w.reason}]** ${prefix}${w.message}`);
-        }
-      }
       if (r.compact) lines.push('', '> Compact mode: detailed contract lists omitted.');
       else if (r.truncated) lines.push('', '> Output truncated; use `--max-files <n>` to see more or `--json` for full data.');
       return lines.join('\n');
@@ -707,7 +701,6 @@ const FORMATTERS = {
       pushRecord(rec, 'matched', r.matched);
       pushRecord(rec, 'unmatched-client', r.unmatchedClient);
       pushRecord(rec, 'unmatched-server', r.unmatchedServer);
-      pushRecord(rec, 'warning', r.warnings);
       return rec.map(JSON.stringify).join('\n');
     },
   },
@@ -735,13 +728,15 @@ const FORMATTERS = {
       return lines.join('\n');
     },
     summary: (r, _options = {}) => {
-      const lines = [`Impact radius: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((e) => `  ${formatImpactEntry(e)}`) || []];
-      if (r.truncated) lines.push(`  ... truncated (showing ${r.impact.length} of ${r.impactCount})`);
+      const shown = r.impact?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)) || [];
+      const lines = [`Impact radius: ${r.impactCount ?? 0}`, ...shown.map((e) => `  ${formatImpactEntry(e)}`)];
+      if (r.truncated) lines.push(`  ... truncated (showing ${shown.length} of ${r.impactCount})`);
       return lines.join('\n');
     },
     markdown: (r, _options = {}) => {
-      const lines = [`# Impact Radius`, ``, `- **Total**: ${r.impactCount ?? 0}`, ...r.impact?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options)).map((e) => `- ${formatImpactEntry(e)}`) || []];
-      if (r.truncated) lines.push(`- *... truncated (showing ${r.impact.length} of ${r.impactCount})*`);
+      const shown = r.impact?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options)) || [];
+      const lines = [`# Impact Radius`, ``, `- **Total**: ${r.impactCount ?? 0}`, ...shown.map((e) => `- ${formatImpactEntry(e)}`)];
+      if (r.truncated) lines.push(`- *... truncated (showing ${shown.length} of ${r.impactCount})*`);
       return lines.join('\n');
     },
     jsonl: (r) => {
@@ -760,13 +755,15 @@ const FORMATTERS = {
       return lines.join('\n');
     },
     summary: (r, _options = {}) => {
-      const lines = [`Affected tests: ${r.affectedTestsCount ?? 0}`, ...r.affectedTests?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((e) => `  ${e.distance}: ${e.file}`) || []];
-      if (r.truncated) lines.push(`  ... truncated (showing ${r.affectedTests.length} of ${r.affectedTestsCount})`);
+      const shown = r.affectedTests?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)) || [];
+      const lines = [`Affected tests: ${r.affectedTestsCount ?? 0}`, ...shown.map((e) => `  ${e.distance}: ${e.file}`)];
+      if (r.truncated) lines.push(`  ... truncated (showing ${shown.length} of ${r.affectedTestsCount})`);
       return lines.join('\n');
     },
     markdown: (r, _options = {}) => {
-      const lines = [`# Affected Tests`, ``, `- **Total**: ${r.affectedTestsCount ?? 0}`, ...r.affectedTests?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options)).map((e) => `- ${e.distance}: ${e.file}`) || []];
-      if (r.truncated) lines.push(`- *... truncated (showing ${r.affectedTests.length} of ${r.affectedTestsCount})*`);
+      const shown = r.affectedTests?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options)) || [];
+      const lines = [`# Affected Tests`, ``, `- **Total**: ${r.affectedTestsCount ?? 0}`, ...shown.map((e) => `- ${e.distance}: ${e.file}`)];
+      if (r.truncated) lines.push(`- *... truncated (showing ${shown.length} of ${r.affectedTestsCount})*`);
       return lines.join('\n');
     },
     jsonl: (r) => {
@@ -785,13 +782,15 @@ const FORMATTERS = {
       return lines.join('\n');
     },
     summary: (r, _options = {}) => {
-      const lines = [`Routes: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)).map((e) => `  ${e.entry}${e.hasImplicit ? ' (implicit)' : ''}: ${e.path.join(' -> ')}`) || []];
-      if (r.truncated) lines.push(`  ... truncated (showing ${r.routes.length} of ${r.routesCount})`);
+      const shown = r.routes?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_MEDIUM, _options)) || [];
+      const lines = [`Routes: ${r.routesCount ?? 0}`, ...shown.map((e) => `  ${e.entry}${e.hasImplicit ? ' (implicit)' : ''}: ${e.path.join(' -> ')}`)];
+      if (r.truncated) lines.push(`  ... truncated (showing ${shown.length} of ${r.routesCount})`);
       return lines.join('\n');
     },
     markdown: (r, _options = {}) => {
-      const lines = [`# Affected Routes`, ``, `- **Total**: ${r.routesCount ?? 0}`, ...r.routes?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options)).map((e) => `- \`${e.entry}\`${e.hasImplicit ? ' (implicit)' : ''}: ${e.path.join(' -> ')}`) || []];
-      if (r.truncated) lines.push(`- *... truncated (showing ${r.routes.length} of ${r.routesCount})*`);
+      const shown = r.routes?.slice(0, resolveOutputLimit(LIMITS.OUTPUT_LONG, _options)) || [];
+      const lines = [`# Affected Routes`, ``, `- **Total**: ${r.routesCount ?? 0}`, ...shown.map((e) => `- \`${e.entry}\`${e.hasImplicit ? ' (implicit)' : ''}: ${e.path.join(' -> ')}`)];
+      if (r.truncated) lines.push(`- *... truncated (showing ${shown.length} of ${r.routesCount})*`);
       return lines.join('\n');
     },
     jsonl: (r) => {
@@ -1768,6 +1767,61 @@ function appendWarnings(lines, warnings, limit = LIMITS.OUTPUT_MEDIUM) {
   return lines;
 }
 
+// Degradation signals (warnings + dataQuality) must survive every output
+// format, not just --json: the AI digest and the line formats are the
+// agent-facing paths, and an agent that reads degraded data as fully
+// confident is the exact silent-degradation failure mode L1-4 forbids (H-39).
+// These helpers are the single emission point for the ai/jsonl/markdown
+// dispatchers; per-command formatters must not render warnings themselves.
+function degradationSignals(result) {
+  if (!result || typeof result !== 'object') return { warnings: [], dataQuality: null };
+  return {
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
+    dataQuality: typeof result.dataQuality === 'string' ? result.dataQuality : null,
+  };
+}
+
+function formatWarningLine(w) {
+  const type = w?.type || w?.reason || 'warning';
+  const file = w?.file ? `${w.file}: ` : '';
+  const message = w?.message || w?.reason || String(w);
+  return `- **[${type}]** ${file}${message}`;
+}
+
+function markdownDegradationSection(result) {
+  const { warnings, dataQuality } = degradationSignals(result);
+  // 'certain' is the default assumption, not a signal — only surface it when
+  // it actually carries information (degraded/unavailable).
+  const signalQuality = dataQuality !== null && dataQuality !== DATA_QUALITY.CERTAIN ? dataQuality : null;
+  if (warnings.length === 0 && signalQuality === null) return '';
+  const sections = [];
+  if (signalQuality !== null) {
+    sections.push(['## Data Quality', '', `- **dataQuality**: ${signalQuality}`].join('\n'));
+  }
+  if (warnings.length > 0) {
+    sections.push([`## Warnings (${warnings.length})`, '', ...warnings.slice(0, LIMITS.OUTPUT_MEDIUM).map(formatWarningLine)].join('\n'));
+  }
+  return `\n\n${sections.join('\n\n')}`;
+}
+
+function jsonlDegradationRecords(result) {
+  const { warnings, dataQuality } = degradationSignals(result);
+  const records = [];
+  for (const w of warnings) {
+    records.push(JSON.stringify({ _type: 'warning', ...(w && typeof w === 'object' ? w : { value: w }) }));
+  }
+  if (dataQuality !== null && dataQuality !== DATA_QUALITY.CERTAIN) {
+    records.push(JSON.stringify({ _type: 'data-quality', dataQuality }));
+  }
+  return records;
+}
+
+// A DEGRADED (or UNAVAILABLE) dataQuality value lowers AI-format confidence:
+// the consumer is explicitly told the numbers may not be complete.
+function loweredConfidence(dataQuality) {
+  return dataQuality === 'degraded' || dataQuality === 'unavailable';
+}
+
 // ---------------------------------------------------------------------------
 // Dispatch functions — pure registry lookup, zero switch-case
 // ---------------------------------------------------------------------------
@@ -1803,8 +1857,8 @@ function formatMarkdown(command, result, options = {}) {
     return `## Error\n\n${result?.error || 'Command failed'}${suggestionLine(result)}`;
   }
   const fn = FORMATTERS[command]?.markdown;
-  if (fn) return fn(result, options);
-  return formatHuman(command, result, options);
+  const body = fn ? fn(result, options) : formatHuman(command, result, options);
+  return body + markdownDegradationSection(result);
 }
 
 function formatJsonl(command, result) {
@@ -1812,7 +1866,14 @@ function formatJsonl(command, result) {
     return JSON.stringify({ _type: 'error', error: result?.error || 'Command failed', ...suggestionField(result) });
   }
   const fn = FORMATTERS[command]?.jsonl;
-  if (fn) return fn(result);
+  if (fn) {
+    const body = fn(result);
+    // The fallback spread below already carries warnings/dataQuality verbatim;
+    // the per-command builders don't, so append them uniformly here.
+    const extra = jsonlDegradationRecords(result);
+    if (extra.length === 0) return body;
+    return body ? `${body}\n${extra.join('\n')}` : extra.join('\n');
+  }
   return JSON.stringify({ _type: command, ...result });
 }
 
@@ -1858,6 +1919,7 @@ function formatAi(command, result, options = {}) {
 
   if (command === 'audit-summary') {
     function buildOutput(currentDepth) {
+      const signals = degradationSignals(result);
       const output = {
         ok: true,
         schemaVersion,
@@ -1877,7 +1939,7 @@ function formatAi(command, result, options = {}) {
         topRisks: [],
         actions: [],
         confidence: {
-          overall: 1.0,
+          overall: loweredConfidence(signals.dataQuality) ? CONFIDENCE.LOW_VALUE : 1.0,
           coverageRatio: result.summary?.analysisCoverage ? result.summary.analysisCoverage.coverageRatio : null,
         },
       };
@@ -1920,6 +1982,7 @@ function formatAi(command, result, options = {}) {
       output.actions = actions.slice(0, LIMITS.OUTPUT_SHORT);
 
       if (result.warnings && result.warnings.length > 0) output.warnings = result.warnings;
+      if (signals.dataQuality !== null) output.dataQuality = signals.dataQuality;
 
       // Risk-tiered compression: high = full, medium = slim, low = minimal
       output.topRisks = output.topRisks.map((risk) => {
@@ -1974,11 +2037,15 @@ function formatAi(command, result, options = {}) {
 
   if (depth === 'surface') {
     const surface = { ok: true, schemaVersion, command, severity, counts };
+    const surfaceSignals = degradationSignals(result);
+    if (surfaceSignals.warnings.length > 0) surface.warnings = surfaceSignals.warnings;
+    if (surfaceSignals.dataQuality !== null) surface.dataQuality = surfaceSignals.dataQuality;
     if (topRisks.length > 0) surface.topRisks = topRisks.slice(0, LIMITS.OUTPUT_SHORT).map((rr) => ({ category: rr.category, severity: rr.severity, ...(rr.count !== undefined ? { count: rr.count } : {}) }));
     if (actions.length > 0) surface.actions = actions.slice(0, LIMITS.OUTPUT_SHORT);
     return JSON.stringify(surface);
   }
 
+  const signals = degradationSignals(result);
   const output = {
     ok: true,
     schemaVersion,
@@ -1986,8 +2053,12 @@ function formatAi(command, result, options = {}) {
     severity,
     counts,
     summary: formatSummary(command, result),
-    confidence: { overall: counts.impactCandidates > 0 ? CONFIDENCE.LOW_VALUE : 1.0 },
+    confidence: {
+      overall: (counts.impactCandidates > 0 || loweredConfidence(signals.dataQuality)) ? CONFIDENCE.LOW_VALUE : 1.0,
+    },
   };
+  if (signals.warnings.length > 0) output.warnings = signals.warnings;
+  if (signals.dataQuality !== null) output.dataQuality = signals.dataQuality;
   if (topRisks.length > 0) output.topRisks = topRisks;
   if (actions.length > 0) output.actions = actions;
 

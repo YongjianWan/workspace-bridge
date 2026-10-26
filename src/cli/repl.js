@@ -13,14 +13,23 @@ const readline = require('readline');
 const path = require('path');
 const { ServiceContainer } = require('../services/container');
 const { TIMEOUTS, DEFAULTS, SCORING } = require('../config/constants');
-const { buildProjectMap, countTreeFiles } = require('./formatters/project-map');
+const { countTreeFiles } = require('./formatters/project-map');
 const { parseArgs } = require('../utils/parse-args');
 const { resolveWorkspaceFilePath } = require('../utils/path');
 const { buildTree } = require('../tools/tree-tools');
 const { typedError, failure } = require('../utils/failure');
-const { truncateArray } = require('../utils/truncate');
-const { curateImpact } = require('../tools/impact-ranking');
 const { formatImpactEntry } = require('./formatters');
+const { finalizeCommandResult } = require('./finalize-result');
+
+// The REPL is a second front-end over the same command handlers as the CLI
+// (H-40): every shared command dispatches through the COMMANDS table plus the
+// shared finalize, so both entries produce the same result envelope —
+// including degradation signals the old parallel implementation dropped.
+// Loaded lazily: commands/index.js loads commands/repl.js, which loads this
+// module, so a top-level require here would be a require cycle.
+function cliCommands() {
+  return require('./commands').COMMANDS;
+}
 
 function formatImpact(result, total) {
   const lines = [`impactCount: ${total}`];
@@ -31,11 +40,12 @@ function formatImpact(result, total) {
   return lines.join('\n');
 }
 
-function formatAffectedTests(result) {
-  const lines = [`affectedTestsCount: ${result.length}`];
+function formatAffectedTests(result, total, truncated) {
+  const lines = [`affectedTestsCount: ${total}`];
   for (const entry of result) {
     lines.push(`  distance-${entry.distance}: ${entry.file}`);
   }
+  if (truncated) lines.push(`... more (use --max-files to expand)`);
   return lines.join('\n');
 }
 
@@ -165,6 +175,23 @@ async function executeCommand(container, line, options = {}) {
   const graph = container.snapshot?.graph || container.depGraph || null;
   if (!graph) return fail('init_error', 'dependency graph not available');
 
+  // Shared commands run through the CLI's own handlers (see cliCommands above);
+  // the REPL only parses its lighter syntax and renders the outcome, so a
+  // command can never diverge from its CLI twin again (H-40).
+  const runShared = async (parsed, render) => {
+    let result;
+    try {
+      result = await cliCommands()[parsed.command](parsed, container);
+    } catch (e) {
+      return fail(e.errorType || 'unexpected_error', e.message);
+    }
+    if (result && result.ok === false) {
+      return fail(result.errorType || 'unexpected_error', result.error, `Error: ${result.error}`);
+    }
+    await finalizeCommandResult(container, result, { saveCache: false });
+    return render(result);
+  };
+
   switch (cmd) {
     case 'help':
       return options.structured
@@ -192,22 +219,22 @@ async function executeCommand(container, line, options = {}) {
         '--direction': { key: 'direction' },
         '--no-stop-at-entry': { key: 'stopAtEntry', transform: () => false },
       });
-      const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
-      if (!file) return fail('validation_error', 'Usage: impact <file>', 'Usage: impact <file>');
-      if (!graph.hasFile(file)) return fail('path_error', `File not found in graph: ${parsed._[0]}`);
+      if (!parsed._[0]) return fail('validation_error', 'Usage: impact <file>', 'Usage: impact <file>');
       if (parsed.direction != null && !DEFAULTS.IMPACT_DIRECTIONS.includes(parsed.direction)) {
         return fail('validation_error', `Invalid --direction: ${parsed.direction}`, `Expected one of: ${DEFAULTS.IMPACT_DIRECTIONS.join(', ')}`);
       }
       if (parsed.maxFiles != null && (!Number.isInteger(parsed.maxFiles) || parsed.maxFiles <= 0)) {
         return fail('validation_error', `Invalid --max-files: ${parsed.maxFiles}`, 'Expected a positive integer');
       }
-      const maxDepth = parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH;
-      const direction = parsed.direction || DEFAULTS.IMPACT_DEFAULT_DIRECTION;
-      const result = graph.getImpactRadius(file, maxDepth, { direction, stopAtEntry: parsed.stopAtEntry });
-      const limit = parsed.maxFiles ?? DEFAULTS.IMPACT_RELEVANCE_LIMIT;
-      const ranked = curateImpact(container, file, result, direction);
-      const { items, truncated, total } = truncateArray(ranked, limit);
-      return options.structured ? { impactCount: total, impact: items, truncated } : formatImpact(items, total);
+      return runShared({
+        command: 'impact',
+        cwd: container.workspaceRoot,
+        file: parsed._[0],
+        maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH,
+        maxFiles: parsed.maxFiles,
+        direction: parsed.direction || DEFAULTS.IMPACT_DEFAULT_DIRECTION,
+        stopAtEntry: parsed.stopAtEntry,
+      }, (r) => (options.structured ? r : formatImpact(r.impact, r.impactCount)));
     }
 
     case 'affected-tests': {
@@ -215,61 +242,53 @@ async function executeCommand(container, line, options = {}) {
         '--max-depth': { key: 'maxDepth', transform: (v) => Number.parseInt(v, 10) },
         '--max-files': { key: 'maxFiles', transform: (v) => Number.parseInt(v, 10) },
       });
-      const file = resolveWorkspaceFilePath(parsed._[0], container.workspaceRoot || graph?.root);
-      if (!file) return fail('validation_error', 'Usage: affected-tests <file>', 'Usage: affected-tests <file>');
-      if (!graph.hasFile(file)) return fail('path_error', `File not found in graph: ${parsed._[0]}`);
-      const maxDepth = parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH;
-      const maxFiles = Number.isFinite(parsed.maxFiles) && parsed.maxFiles > 0 ? parsed.maxFiles : null;
-      const raw = graph.findAffectedTests(file, maxDepth);
-      const result = maxFiles != null ? raw.slice(0, maxFiles) : raw;
-      const truncated = maxFiles != null && raw.length > maxFiles;
-      return options.structured
-        ? { affectedTestsCount: raw.length, affectedTests: result, truncated }
-        : formatAffectedTests(result) + (truncated ? `\n... ${raw.length - maxFiles} more` : '');
+      if (!parsed._[0]) return fail('validation_error', 'Usage: affected-tests <file>', 'Usage: affected-tests <file>');
+      return runShared({
+        command: 'affected-tests',
+        cwd: container.workspaceRoot,
+        file: parsed._[0],
+        maxDepth: parsed.maxDepth ?? DEFAULTS.AFFECTED_TEST_DEPTH,
+        maxFiles: Number.isFinite(parsed.maxFiles) && parsed.maxFiles > 0 ? parsed.maxFiles : undefined,
+      }, (r) => (options.structured ? r : formatAffectedTests(r.affectedTests, r.affectedTestsCount, r.truncated)));
     }
 
     case 'dead-exports': {
-      const result = graph.findDeadExports();
-      return options.structured ? { deadExportsCount: result.length, deadExports: result } : formatDeadExports(result);
+      return runShared({ command: 'dead-exports', cwd: container.workspaceRoot },
+        (r) => (options.structured ? r : formatDeadExports(r.deadExports)));
     }
 
     case 'unresolved': {
-      const result = graph.findUnresolvedImports();
-      return options.structured ? { unresolvedCount: result.length, unresolved: result } : formatUnresolved(result);
+      return runShared({ command: 'unresolved', cwd: container.workspaceRoot },
+        (r) => (options.structured ? r : formatUnresolved(r.unresolved)));
     }
 
     case 'cycles': {
-      const result = graph.findCircularDependencies();
-      return options.structured ? { cyclesCount: result.length, cycles: result } : formatCycles(result);
+      return runShared({ command: 'cycles', cwd: container.workspaceRoot },
+        (r) => (options.structured ? r : formatCycles(r.cycles)));
     }
 
     case 'dependents': {
-      const file = resolveWorkspaceFilePath(args[0], container.workspaceRoot || graph?.root);
-      if (!file) return fail('validation_error', 'Usage: dependents <file>', 'Usage: dependents <file>');
-      if (!graph.hasFile(file)) return fail('path_error', `File not found in graph: ${args[0]}`);
-      const result = graph.getDependents(file);
-      return options.structured ? { dependentsCount: result.length, dependents: result } : formatDependents(result);
+      if (!args[0]) return fail('validation_error', 'Usage: dependents <file>', 'Usage: dependents <file>');
+      return runShared({ command: 'dependents', cwd: container.workspaceRoot, file: args[0] },
+        (r) => (options.structured ? r : formatDependents(r.dependents)));
     }
 
     case 'dependencies': {
-      const file = resolveWorkspaceFilePath(args[0], container.workspaceRoot || graph?.root);
-      if (!file) return fail('validation_error', 'Usage: dependencies <file>', 'Usage: dependencies <file>');
-      if (!graph.hasFile(file)) return fail('path_error', `File not found in graph: ${args[0]}`);
-      const result = graph.getDependencies(file);
-      return options.structured ? { dependenciesCount: result.length, dependencies: result } : formatDependencies(result);
+      if (!args[0]) return fail('validation_error', 'Usage: dependencies <file>', 'Usage: dependencies <file>');
+      return runShared({ command: 'dependencies', cwd: container.workspaceRoot, file: args[0] },
+        (r) => (options.structured ? r : formatDependencies(r.dependencies)));
     }
 
     case 'stats': {
-      const result = graph.getStats();
-      return options.structured ? result : formatStats(result);
+      return runShared({ command: 'stats', cwd: container.workspaceRoot },
+        (r) => (options.structured ? r : formatStats(r.stats)));
     }
 
     case 'audit-map': {
       const parsed = parseArgs(['node', 'repl', ...args], { '--compact': true });
       const compact = Boolean(parsed['--compact']);
-      const result = buildProjectMap(graph, { compact });
-      if (!result.ok) return options.structured ? result : `Error: ${result.error}`;
-      return options.structured ? result : formatProjectMap(result, compact);
+      return runShared({ command: 'audit-map', cwd: container.workspaceRoot, compact, maxFiles: null },
+        (r) => (options.structured ? r : formatProjectMap(r, compact)));
     }
 
     case 'issues': {

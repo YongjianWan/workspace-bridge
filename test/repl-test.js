@@ -2,37 +2,44 @@
 // @semantic
 /**
  * REPL command parsing and formatting tests.
- * Tests executeCommand with a mock container — no real dep-graph needed.
+ *
+ * H-40: the REPL runs the real CLI command handlers, so the mock must sit on
+ * a real temporary directory (the handlers fs-check --file targets) and model
+ * the ServiceContainer surface those handlers touch (ensureReady/snapshot/
+ * gitEnvironment, plus getStaleness and graph.buildWarnings for the shared
+ * finalize).
  */
 const assert = require('assert');
+const fs = require('fs');
 const path = require('path');
 const { executeCommand } = require('../src/cli/repl');
-const { buildMockDepGraph, getCanonicalKey } = require('./test-helpers');
+const { normalizePathKey } = require('../src/utils/path');
+const { buildMockDepGraph, getCanonicalKey, makeTempDir, cleanupTempDir } = require('./test-helpers');
 
-function makeMockDepGraph() {
-  return {
-    workspaceRoot: '/project',
-    graph: buildMockDepGraph({
-      '/project/src/utils/path.js': {},
-      '/project/src/app.js': {},
-      '/project/src/services/core.js': {},
-      '/project/test/app.test.js': {},
-      '/project/cli.js': {},
-      '/project/src/other.js': {},
-    }),
-    entryFiles: new Set(['/project/cli.js']),
-    hasFile: (file) => {
-      const keys = [
-        '/project/src/utils/path.js',
-        '/project/src/app.js',
-        '/project/src/services/core.js',
-        '/project/test/app.test.js',
-        '/project/cli.js',
-        '/project/src/other.js',
-      ];
-      const canonical = getCanonicalKey(file, keys);
-      return keys.includes(canonical);
-    },
+const MOCK_FILES = [
+  'src/utils/path.js',
+  'src/app.js',
+  'src/services/core.js',
+  'test/app.test.js',
+  'cli.js',
+  'src/other.js',
+];
+const mockRoots = [];
+
+function makeMockContainer(graphOverrides = {}) {
+  const root = makeTempDir('wb-repl-mock-');
+  mockRoots.push(root);
+  for (const f of MOCK_FILES) {
+    fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true });
+    fs.writeFileSync(path.join(root, f), 'module.exports = {};\n');
+  }
+  const keys = MOCK_FILES.map((f) => normalizePathKey(path.join(root, f)));
+  const [pathKey, appKey] = [keys[0], keys[1]];
+  const graph = {
+    workspaceRoot: root,
+    graph: buildMockDepGraph(Object.fromEntries(keys.map((k) => [k, {}]))),
+    entryFiles: new Set([keys[4]]),
+    hasFile: (file) => keys.includes(getCanonicalKey(file, keys)),
     getImpactRadius: (file, _maxDepth) => [
       { level: 1, file: `dep-${file}` },
       { level: 2, file: 'dep-level2.js' },
@@ -50,8 +57,8 @@ function makeMockDepGraph() {
       ['c.js', 'd.js', 'c.js'],
     ],
     getDependents: (file) => {
-      if (file === '/project/src/utils/path.js') {
-        return ['/project/src/app.js', '/project/src/services/core.js', '/project/test/app.test.js', '/project/cli.js', '/project/src/other.js'];
+      if (file === pathKey) {
+        return [keys[1], keys[2], keys[3], keys[4], keys[5]];
       }
       return [`dependent-of-${file}`];
     },
@@ -62,24 +69,32 @@ function makeMockDepGraph() {
       totalExports: 80,
       cycles: 2,
     }),
-    getAllFilePaths: () => [
-      '/project/src/utils/path.js',
-      '/project/src/app.js',
-      '/project/src/services/core.js',
-      '/project/test/app.test.js',
-      '/project/cli.js',
-      '/project/src/other.js',
-    ],
+    getAllFilePaths: () => keys.slice(),
     _displayPath: (f) => f,
     isTestLikeFile: (f) => /\.test\./.test(f),
-    root: '/project',
+    root,
+    getSymbolImpact: () => ({ directCount: 0, transitive: [] }),
+    findAffectedHttpRoutes: () => [],
+    buildWarnings: () => [],
+    ...graphOverrides,
+  };
+  return {
+    workspaceRoot: root,
+    depGraph: graph,
+    snapshot: { graph },
+    ensureReady: async () => {},
+    gitEnvironment: { dataQuality: 'certain', remediation: null },
+    getStaleness: () => ({ fresh: true, ageMs: 0 }),
   };
 }
 
 async function testExecuteCommand() {
 
 
-  const container = { workspaceRoot: '/project', depGraph: makeMockDepGraph() };
+  const container = makeMockContainer();
+  // Handlers resolve the target through normalizePathKey (posix, lowercased on
+  // Windows); build expected keys the same way instead of raw path.resolve.
+  const appKey = normalizePathKey(path.join(container.workspaceRoot, 'src/app.js'));
 
   // help
   const help = await executeCommand(container, 'help');
@@ -89,7 +104,7 @@ async function testExecuteCommand() {
   // impact
   const impact = await executeCommand(container, 'impact src/app.js');
   assert(impact.includes('impactCount: 2'), 'impact should count results');
-  assert(impact.includes('dep-' + path.resolve('/project', 'src/app.js')), 'impact should list files');
+  assert(impact.includes('dep-' + appKey), 'impact should list files');
 
 
   // impact with max-depth
@@ -100,7 +115,7 @@ async function testExecuteCommand() {
   // affected-tests
   const tests = await executeCommand(container, 'affected-tests src/app.js');
   assert(tests.includes('affectedTestsCount: 1'), 'affected-tests should count');
-  assert(tests.includes('test-' + path.resolve('/project', 'src/app.js')), 'affected-tests should list files');
+  assert(tests.includes('test-' + appKey), 'affected-tests should list files');
 
 
   // dead-exports
@@ -124,13 +139,13 @@ async function testExecuteCommand() {
   // dependents
   const dependents = await executeCommand(container, 'dependents src/app.js');
   assert(dependents.includes('dependentsCount: 1'), 'dependents should count');
-  assert(dependents.includes('dependent-of-' + path.resolve('/project', 'src/app.js')), 'dependents should list files');
+  assert(dependents.includes('dependent-of-' + appKey), 'dependents should list files');
 
 
   // dependencies
   const dependencies = await executeCommand(container, 'dependencies src/app.js');
   assert(dependencies.includes('dependenciesCount: 1'), 'dependencies should count');
-  assert(dependencies.includes('dependency-of-' + path.resolve('/project', 'src/app.js')), 'dependencies should list files');
+  assert(dependencies.includes('dependency-of-' + appKey), 'dependencies should list files');
 
 
   // stats
@@ -183,12 +198,12 @@ async function testExecuteCommand() {
   // top
   const top = await executeCommand(container, 'top');
   assert(top.includes('hotspot-1:'), 'top should list hotspot-1');
-  assert(top.includes(path.relative('/project', '/project/src/utils/path.js')), 'top should include path.js');
+  assert(top.includes(path.relative(container.workspaceRoot, normalizePathKey(path.join(container.workspaceRoot, 'src/utils/path.js')))), 'top should include path.js');
   assert(top.includes('5 dependents'), 'top should show dependent count');
 
 
   // top with no hotspots (threshold not met)
-  const noHotContainer = { depGraph: { ...container.depGraph, getDependents: () => [] } };
+  const noHotContainer = makeMockContainer({ getDependents: () => [] });
   const topNone = await executeCommand(noHotContainer, 'top');
   assert(topNone.includes('No hotspots detected'), 'top should handle no hotspots');
 
@@ -238,7 +253,7 @@ async function testEvalModeJson() {
   const parsed = JSON.parse(output);
   assert.strictEqual(parsed.ok, true, 'json eval should return ok: true');
   assert(typeof parsed.result === 'object', 'json eval should have structured result');
-  assert(typeof parsed.result.files === 'number', 'json eval result should contain files count');
+  assert(typeof parsed.result.stats.files === 'number', 'json eval result should contain stats files count');
 
 }
 
@@ -255,10 +270,14 @@ async function testEvalModeInvalidCwd() {
 }
 
 async function main() {
-  await testExecuteCommand();
-  await testEvalMode();
-  await testEvalModeJson();
-  await testEvalModeInvalidCwd();
+  try {
+    await testExecuteCommand();
+    await testEvalMode();
+    await testEvalModeJson();
+    await testEvalModeInvalidCwd();
+  } finally {
+    for (const root of mockRoots) cleanupTempDir(root);
+  }
 
 }
 

@@ -65,12 +65,25 @@ async function main() {
 }
 
 async function testTruncationParity() {
-  const input = '/repo/input.js';
-  const deps = Array.from({ length: DEFAULTS.IMPACT_RELEVANCE_LIMIT + 5 }, (_, i) => `/repo/f${i}.js`);
+  // H-40: the REPL runs the real CLI handler, whose makeFileCommand wrapper
+  // fs-checks the target — so the fixture lives on a real temp directory and
+  // the graph schema is keyed by that same root (resolution must land in-graph
+  // for both the CLI-comparison call and the REPL call).
+  const root = makeTempDir('wb-repl-trunc-');
+  const input = path.join(root, 'input.js');
+  const deps = Array.from({ length: DEFAULTS.IMPACT_RELEVANCE_LIMIT + 5 }, (_, i) => path.join(root, `f${i}.js`));
   const schema = { [input]: { imports: deps, importRecords: deps.map((resolved) => ({ resolved, imported: [] })) } };
   for (const file of deps) schema[file] = { imports: [] };
-  const graph = createMockDepGraph({ root: '/repo', schema });
-  const container = { workspaceRoot: '/repo', snapshot: { graph }, ensureReady: async () => {} };
+  const graph = createMockDepGraph({ root, schema });
+  fs.writeFileSync(input, 'module.exports = 1;\n');
+  const container = {
+    workspaceRoot: root,
+    snapshot: { graph },
+    ensureReady: async () => {},
+    gitEnvironment: { dataQuality: 'certain', remediation: null },
+    getStaleness: () => ({ fresh: true, ageMs: 0 }),
+  };
+  try {
   for (const limit of [undefined, 3, deps.length]) {
     const cli = await dependencyGraph({ operation: 'impact', file: 'input.js', maxDepth: DEFAULTS.AFFECTED_TEST_DEPTH, maxFiles: limit }, container);
     const command = `impact input.js${limit == null ? '' : ` --max-files ${limit}`}`;
@@ -87,6 +100,9 @@ async function testTruncationParity() {
     const result = await executeCommand(container, `impact input.js --max-files ${limit}`, { structured: true });
     assert.strictEqual(result.ok, false, 'invalid bounds must fail explicitly');
     assert.strictEqual(result.errorType, 'validation_error');
+  }
+  } finally {
+    cleanupTempDir(root);
   }
 }
 

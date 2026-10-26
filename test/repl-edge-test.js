@@ -36,6 +36,21 @@ function makeMockDepGraph(opts = {}) {
     getAllFilePaths: () => Array.from(graph.keys()),
     isTestLikeFile: (file) => file.includes('/test/') || path.basename(file).includes('.test.'),
     _displayPath: (f) => f,
+    buildWarnings: () => [],
+  };
+}
+
+// H-40: audit-map runs through the CLI handler + shared finalize, so the
+// mock must model the container surface those touch (top/issues stay
+// REPL-native and only need depGraph).
+function makeContainer(depGraph) {
+  return {
+    workspaceRoot: '/project',
+    depGraph,
+    snapshot: { graph: depGraph },
+    ensureReady: async () => {},
+    gitEnvironment: { dataQuality: 'certain', remediation: null },
+    getStaleness: () => ({ fresh: true, ageMs: 0 }),
   };
 }
 
@@ -55,7 +70,7 @@ async function main() {
     const originalThreshold = constants.SCORING.HOTSPOT_MIN_DEPENDENTS;
     constants.SCORING.HOTSPOT_MIN_DEPENDENTS = threshold;
 
-    const container = { depGraph };
+    const container = makeContainer(depGraph);
     const out = await executeCommand(container, 'top');
     assert(out.includes('hotspot-1:'), `exact threshold should be hotspot, got: ${out}`);
     assert(out.includes(`${threshold} dependents`), `should show ${threshold} dependents, got: ${out}`);
@@ -76,7 +91,7 @@ async function main() {
     const originalThreshold = constants.SCORING.HOTSPOT_MIN_DEPENDENTS;
     constants.SCORING.HOTSPOT_MIN_DEPENDENTS = threshold;
 
-    const container = { depGraph };
+    const container = makeContainer(depGraph);
     const out = await executeCommand(container, 'top');
     assert(out.includes('No hotspots detected'), `below threshold should show no hotspots, got: ${out}`);
 
@@ -96,7 +111,7 @@ async function main() {
     const originalThreshold = constants.SCORING.HOTSPOT_MIN_DEPENDENTS;
     constants.SCORING.HOTSPOT_MIN_DEPENDENTS = threshold;
 
-    const container = { depGraph };
+    const container = makeContainer(depGraph);
     const out = await executeCommand(container, 'top');
     assert(out.includes('No hotspots detected'), `test-only dependents should not create hotspot, got: ${out}`);
 
@@ -106,7 +121,7 @@ async function main() {
   // issues: no structural issues
   {
     const depGraph = makeMockDepGraph();
-    const container = { depGraph };
+    const container = makeContainer(depGraph);
     const out = await executeCommand(container, 'issues');
     assert(out.includes('severity: low'), `no issues should be low severity, got: ${out}`);
     assert(out.includes('deadExports: 0'), `should show 0 dead exports, got: ${out}`);
@@ -118,7 +133,7 @@ async function main() {
   // audit-map compact output
   {
     const depGraph = makeMockDepGraph();
-    const container = { depGraph };
+    const container = makeContainer(depGraph);
     const out = await executeCommand(container, 'audit-map --compact');
     assert(out.includes('directories:'), `compact audit-map should include directories, got: ${out}`);
     assert(out.includes('files:'), `compact audit-map should include files, got: ${out}`);
@@ -129,7 +144,7 @@ async function main() {
   // audit-map non-compact output
   {
     const depGraph = makeMockDepGraph();
-    const container = { depGraph };
+    const container = makeContainer(depGraph);
     const out = await executeCommand(container, 'audit-map');
     assert(out.includes('workspaceRoot:'), `non-compact audit-map should include workspaceRoot, got: ${out}`);
     assert(out.includes('files:'), `non-compact audit-map should include files, got: ${out}`);
@@ -138,7 +153,7 @@ async function main() {
   // Unknown command edge case
   {
     const depGraph = makeMockDepGraph();
-    const container = { depGraph };
+    const container = makeContainer(depGraph);
     const out = await executeCommand(container, 'unknown-xyz');
     assert.strictEqual(out, 'Unknown command: unknown-xyz. Type "help" for available commands.');
   }

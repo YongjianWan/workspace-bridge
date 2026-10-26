@@ -24,6 +24,7 @@ const { installSignalCleanup } = require('./src/cli/signal-cleanup');
 const { findWorkspaceRoot, normalizePath } = require('./src/utils/path');
 const { TIMEOUTS, SCHEMA_VERSION, EXIT_CODES, DEFAULTS } = require('./src/config/constants');
 const { COMMANDS, SELF_MANAGED_COMMANDS, SELF_CONTAINER_COMMANDS } = require('./src/cli/commands');
+const { finalizeCommandResult } = require('./src/cli/finalize-result');
 const { checkCwd } = require('./src/cli/commands/_utils');
 const { parseCliArgs, sanitizeCliPaths, classifyError } = require('./src/cli/validate-args');
 const { buildCliError, wantsJson, guessCommand } = require('./src/cli/error-envelope');
@@ -438,17 +439,7 @@ async function runCliInProcess(args, opts = {}) {
     const result = await runCommand(parsed, container);
 
     if (needsContainer && result && typeof result === 'object' && result.ok !== false && container) {
-      result.staleness = container.getStaleness();
-      await container.cache.save();
-      // Append, never assign: a command that raised its own warnings (query-*
-      // content drift) would otherwise have them deleted here — the graph is
-      // one source of warnings, not the only one.
-      const graphWarnings = container.snapshot.graph.buildWarnings();
-      result.warnings = Array.isArray(result.warnings)
-        ? [...result.warnings, ...graphWarnings]
-        : graphWarnings;
-      result.warnings = [...new Map(result.warnings.map(warning => [JSON.stringify(warning), warning])).values()];
-      if (result.warnings.some(warning => warning?.severity === 'high' || warning?.severity === 'medium')) result.dataQuality = 'degraded';
+      await finalizeCommandResult(container, result, { saveCache: true });
     }
 
     noteUsage({ workspaceRoot: container?.workspaceRoot || parsed.cwd, outputFiles: countOutputFiles(result) });

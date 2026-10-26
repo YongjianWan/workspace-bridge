@@ -44,7 +44,7 @@ function testReplMultiCommandJson() {
   
   assert.strictEqual(data.results[0].command, 'stats');
   assert.strictEqual(data.results[0].ok, true);
-  assert(data.results[0].result.files > 0);
+  assert(data.results[0].result.stats.files > 0, 'stats result nests graph stats under result.stats');
   
   assert.strictEqual(data.results[1].command, 'issues');
   assert.strictEqual(data.results[1].ok, true);
