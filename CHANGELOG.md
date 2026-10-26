@@ -7,6 +7,22 @@
 
 ## [Unreleased]
 
+### fix：REPL 收口到 CLI 同一命令处理函数，双入口结果一致（H-40，2026-10-26 实施，待验收）
+
+- 现象（2026-10-23 登记）：REPL 的 `impact` 自己调 `getImpactRadius`+`curateImpact` 拼结果，只返回 `impactCount/impact/truncated` 三个字段；CLI `--json` 同输入带 `dataQuality/warnings/symbolImpact/coChanges/affectedRoutes/untrusted`。SKILL.md 推荐 agent 批量查询走 `repl --eval`，快路径恰好拿不到降级信号。
+- 修法：新增 `src/cli/finalize-result.js`（`finalizeCommandResult`）承载收尾三步——staleness、graph warnings 合并去重、按 warning 严重度降级 `dataQuality`——cli.js 与 REPL 共用；REPL 侧缓存不落盘（热循环里 watch 模式本就负责持久化，查询也不弄脏缓存）。REPL 的 impact/affected-tests/dead-exports/unresolved/cycles/dependents/dependencies/stats/audit-map 九个命令改为经 `COMMANDS` 表分发（懒加载避免 require 环），REPL 只保留参数解析与文本渲染；tree/issues/top 仍 REPL 独有，实现不动。
+- 行为变化（收敛的代价，测试已同步）：REPL 对不存在文件从 "File not found in graph:" 改为与 CLI 一致的 "File not found:"（先查文件系统再查索引）；对存在但未索引的文件从报错改为带 `target-not-indexed` 警告的降级结果（与 CLI 一致）。REPL 结构化输出从精简子集变为与 CLI 相同完整结果集（契约只增不删）。
+- 本机实测（修复后）：`repl --eval "impact src/tools/dep-tools/impact.js" --json` 返回 16 个字段，含 `dataQuality: "degraded"` 与 `warnings`。
+- 测试：`test/json-contract-snapshot-test.js` 增加 CLI ↔ REPL 字段一致性（9 条共享命令同一输入两边 key-path 集合相等，剥掉 format 层字段）；`test/repl-test.js`、`test/repl-edge-test.js`、`test/repl-cli-impact-depth-test.js` 的 mock 容器升级为真实临时目录 + 完整容器表面（真实 handler 会 fs 检查目标文件）；`test/bug-7-repl-nonexistent-test.js`、`test/repl-json-test.js` 断言更新为新行为。快层 281/281 通过。
+- 已知边界：`guard` 的 ai 格式是独立模块且输出纯文本句子（非结构化信封），不携带 warnings/dataQuality 字段；其 markdown/jsonl 已随 dispatch 统一出口自动带上。guard 的缺失目标是硬失败，错误文本可见。
+
+### fix：非 JSON 格式透传降级信号，截断说明写实际行数（H-39，2026-10-26 实施，待验收）
+
+- 现象（2026-10-23 登记）：同一份降级输入 `--json` 带 `dataQuality: "degraded"` 与 `warnings[]`，`--format ai` 没有这两样且 `confidence.overall` 为 1；`jsonl`/`markdown` 同样丢失；agent 首选 ai 格式（SKILL.md），会把降级结果读成满分置信。另有截断说明 bug：summary 实际列 5 行写 "showing 15 of 535"，markdown 列 10 行也写 15。
+- 修法：`human-formatters.js` 的 ai/jsonl/markdown 三个 dispatch 增加统一出口——`degradationSignals`/`markdownDegradationSection`/`jsonlDegradationRecords`/`loweredConfidence` 一组纯函数；ai 全深度（detail/surface/audit-summary）透传 `warnings`+`dataQuality`，`degraded`/`unavailable` 把 `confidence.overall` 压到 `CONFIDENCE.LOW_VALUE`；jsonl 追加 `_type: "warning"` 与 `_type: "data-quality"` 独立记录（`certain` 不出记录）；markdown 追加 `## Data Quality`/`## Warnings` 段。删掉 `api-contracts` 与 `audit-overview` 的 markdown/jsonl 里各自渲染 warnings 的重复代码，warnings 只从 dispatch 一处发出。截断文案统一为实际列出的行数（impact/affected-tests/affected-routes 的 summary+markdown 六处）。
+- 本机实测（修复后）：`impact src/tools/dep-tools/impact.js --format ai` 输出 `dataQuality: "degraded"`、1 条 warning、`confidence.overall: 0.5`、截断行 "showing 5 of 539"。
+- 新增 `test/cross-format-degradation-test.js`（`@contract`、`@fast`）：同一份降级输入在 ai/jsonl/markdown 都能读到信号与同一个总数；干净输入三种格式不产生噪音；无 `dataQuality` 字段时不虚构 `certain`；api-contracts 的 warning 只发一次；audit-summary ai 的 degraded 压低置信。快层 281/281 通过。
+
 ### 文档：登记 2026-10-23 架构审查的结论（纯文档）
 
 - `docs/TECH_DEBT.md`「根因归属」新增五个结构性根因：进程模型（每条命令冷启动、全量重建）、两套命令层（REPL 平行实现）、增量失效与冷启动不等价、文件角色没有唯一拥有者、影响请求的缺省参数；"输出没有统一出口"改为对应开放条目，根因 E 有了开放条目。依据是五个维度各查一遍、逐条反方核查再加总审的结果；关键证据另由本会话复现：ai 格式与 REPL 丢降级信号，增量更新与冷启动结果不一致，孤儿分类漏扩展名，`impact` 与 `audit-file` 对同一文件的计数是 537 对 427。
