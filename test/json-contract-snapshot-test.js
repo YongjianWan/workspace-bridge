@@ -98,7 +98,7 @@ const REPL_PARITY = [
 
 // Fields the CLI's JSON formatter adds on top of the raw result; the REPL
 // envelope ({ ok, result }) never had them, so they can't be part of parity.
-const FORMAT_LAYER_KEYS = new Set(['schemaVersion', 'command', 'elided', 'untrusted', 'sizeHint']);
+const FORMAT_LAYER_KEYS = new Set(['schemaVersion', 'command', 'elided', 'sizeHint']);
 
 const root = makeTempDir('wb-json-contract-');
 try {

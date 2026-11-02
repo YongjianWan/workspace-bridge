@@ -20,6 +20,7 @@ const { buildTree } = require('../tools/tree-tools');
 const { typedError, failure } = require('../utils/failure');
 const { formatImpactEntry } = require('./formatters');
 const { finalizeCommandResult } = require('./finalize-result');
+const { sanitizeRepositoryText } = require('./untrusted-text');
 
 // The REPL is a second front-end over the same command handlers as the CLI
 // (H-40): every shared command dispatches through the COMMANDS table plus the
@@ -189,7 +190,11 @@ async function executeCommand(container, line, options = {}) {
       return fail(result.errorType || 'unexpected_error', result.error, `Error: ${result.error}`);
     }
     await finalizeCommandResult(container, result, { saveCache: false });
-    return render(result);
+    if (!options.structured) return render(result);
+    // Repository text reaches the agent through this path exactly as through the CLI's --json,
+    // so it gets the same cleaning and the same untrusted marker.
+    const { result: clean, marker } = sanitizeRepositoryText(render(result));
+    return marker.fields.length > 0 ? { ...clean, untrusted: marker } : clean;
   };
 
   switch (cmd) {

@@ -837,7 +837,7 @@ function parseArgs(argv) {
       case '--include-holdout': o.includeHoldout = need(a, i).split(',').map((s) => s.trim()).filter(Boolean); i++; break;
       case '--no-compile': o.noCompile = true; break;
       case '--runs': o.runs = positiveInt(a, need(a, i)); i++; break;
-      case '--agent-cmd': o.agentCmd = need(a, i); i++; break;
+      case '--agent-cmd': o.agentCmd = /\.js$/i.test(need(a, i)) ? path.resolve(need(a, i)) : need(a, i); i++; break;
       case '--no-bare': o.noBare = true; break;
       case '--keep-base-url': o.keepBaseUrl = true; break;
       case '--max-total-usd': o.maxTotalUsd = positiveNumber(a, need(a, i)); i++; break;
@@ -906,5 +906,6 @@ module.exports = {
   sampleSizeFor,
   decide,
   summarize,
+  parseArgs,
   main,
 };

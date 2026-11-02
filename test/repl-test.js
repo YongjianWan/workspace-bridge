@@ -34,7 +34,7 @@ function makeMockContainer(graphOverrides = {}) {
     fs.writeFileSync(path.join(root, f), 'module.exports = {};\n');
   }
   const keys = MOCK_FILES.map((f) => normalizePathKey(path.join(root, f)));
-  const [pathKey, appKey] = [keys[0], keys[1]];
+  const pathKey = keys[0];
   const graph = {
     workspaceRoot: root,
     graph: buildMockDepGraph(Object.fromEntries(keys.map((k) => [k, {}]))),

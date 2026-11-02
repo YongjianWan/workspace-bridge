@@ -159,6 +159,15 @@ function testAgentArgsAndOrder() {
   console.log('[ok] buildAgentArgs / conditionOrder');
 }
 
+function testAgentCmdResolution() {
+  // agent 在工作区目录里启动，相对的 .js 路径要在解析参数时固定成绝对路径
+  const rel = ab.parseArgs(['run', '--name', 'x', '--agent-cmd', 'test/fixtures/agent-ab-dry-stub.js']);
+  assert.ok(path.isAbsolute(rel.agentCmd), '.js 桩 agent 路径转绝对路径: ' + rel.agentCmd);
+  assert.strictEqual(rel.agentCmd, path.resolve('test/fixtures/agent-ab-dry-stub.js'));
+  assert.strictEqual(ab.parseArgs(['run', '--name', 'x']).agentCmd, 'claude', '默认程序名交给 PATH 解析');
+  console.log('[ok] --agent-cmd 相对路径');
+}
+
 function testStatistics() {
   const ci = ab.bootstrapCI([0.1, 0.2, 0.3, 0.4]);
   assert.deepStrictEqual(ab.bootstrapCI([0.1, 0.2, 0.3, 0.4]), ci, '固定种子，可复现');
@@ -430,6 +439,7 @@ function main() {
   testOutsideAccesses();
   testInfraFailure();
   testAgentArgsAndOrder();
+  testAgentCmdResolution();
   testStatistics();
 
   const realOut = path.join(REPO_ROOT, 'eval', 'truth', 'agent-ab', 'fixture');
