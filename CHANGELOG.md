@@ -15,6 +15,8 @@
 
 ### fix：agent-ab 的 `--agent-cmd` 相对路径在工作区目录里找不到脚本（2026-11-03）
 
+- 验收（2026-11-03，实测）：`node test/agent-ab-test.js` 通过；桩 agent dry run（`--name pilot-dryrun-accept2`，工具提交 `af76c36`）四步退出码 0，4 个提交、8 个输入、16 个试次全部有效，B 组召回逐个等于 `impact` 列表单独召回（两级平均 50.5%）。桩 agent 的数只说明流程跑通，不是增量证据。
+
 - 现象：按设计文档第 10 节的复跑命令用相对路径 `test/fixtures/agent-ab-dry-stub.js` 跑桩 dry run，`run` 在第一次试次报 `Cannot find module`，因为 agent 在工作区临时目录里启动。
 - 修法：`eval/agent-ab.js` 的参数解析把 `.js` 结尾的 `--agent-cmd` 转成绝对路径，导出 `parseArgs`；`test/agent-ab-test.js` 增加 `testAgentCmdResolution`。
 
