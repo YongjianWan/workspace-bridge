@@ -7,8 +7,25 @@
 
 ## [Unreleased]
 
-### fix：REPL 收口到 CLI 同一命令处理函数，双入口结果一致（H-40，2026-10-26 实施，待验收）
+### fix：REPL 结构化输出补上 `untrusted` 防注入标注（H-40 验收缺口，2026-11-02 修复，待验收）
 
+- 现象：`repl --eval --json` 的结果不带 `untrusted` 标注，CLI `--json` 带；CLI 18 个字段、REPL 14 个。`json-contract-snapshot-test` 把 `untrusted` 当格式层字段剥掉，没抓到。
+- 修法：`src/cli/repl.js` 的 `runShared` 在结构化模式下对结果调用 `sanitizeRepositoryText`，有仓库文本字段时附上 `untrusted`。测试从剥离集合里去掉 `untrusted`，先变红再转绿。
+- 验证（2026-11-03，实测）：`npm run test:fast` 281/281；`json-contract-snapshot-test`、`cross-format-degradation-test`、`bug-7-repl-nonexistent-test` 通过；`repl-json-test` 空闲机器上单独通过（3 分 12 秒；机器被占满时因 60 秒固定超时返回 `status null`）。
+
+### fix：agent-ab 的 `--agent-cmd` 相对路径在工作区目录里找不到脚本（2026-11-03）
+
+- 现象：按设计文档第 10 节的复跑命令用相对路径 `test/fixtures/agent-ab-dry-stub.js` 跑桩 dry run，`run` 在第一次试次报 `Cannot find module`，因为 agent 在工作区临时目录里启动。
+- 修法：`eval/agent-ab.js` 的参数解析把 `.js` 结尾的 `--agent-cmd` 转成绝对路径，导出 `parseArgs`；`test/agent-ab-test.js` 增加 `testAgentCmdResolution`。
+
+### 文档：2026 年 11 月项目审计（纯文档）
+
+- 新增 `docs/audit-2026-11/`：综合结论 `README.md`，加提交史与流程、测试、架构、运行时成本与重复验证、产品价值五份证据。结论：分层健康，问题在横切状态没有拥有者、本机进程启动成本放大了所有重复、核心假设从未被检验、审查产生债务的流程回路；给出分步路线，第 0 步是 agent-ab 预实验闸门。
+- H-39 验收通过（2026-11-02），从 TECH_DEBT 移除；H-40 见上，缺口已修，待验收。
+
+### fix：REPL 收口到 CLI 同一命令处理函数，双入口结果一致（H-40，2026-10-26 实施）
+
+- 验收（2026-11-02，Claude Sonnet 5.5 独立会话，Windows、Node 25.6.0，实测）：`npm run test:fast` 281/281，相关专项测试退出码均为 0，降级信号与警告在 REPL 结果里齐全；**但 `repl --eval --json` 结果没有 `untrusted` 防注入标注（CLI 有）**，CLI 18 个字段、REPL 14 个，缺 `untrusted`、`schemaVersion`、`command`、`graphImpactCount`。契约快照测试没抓到，因为它比的是剥掉格式层字段后的集合。H-40 保留在 TECH_DEBT，不算验收通过。
 - 现象（2026-10-23 登记）：REPL 的 `impact` 自己调 `getImpactRadius`+`curateImpact` 拼结果，只返回 `impactCount/impact/truncated` 三个字段；CLI `--json` 同输入带 `dataQuality/warnings/symbolImpact/coChanges/affectedRoutes/untrusted`。SKILL.md 推荐 agent 批量查询走 `repl --eval`，快路径恰好拿不到降级信号。
 - 修法：新增 `src/cli/finalize-result.js`（`finalizeCommandResult`）承载收尾三步——staleness、graph warnings 合并去重、按 warning 严重度降级 `dataQuality`——cli.js 与 REPL 共用；REPL 侧缓存不落盘（热循环里 watch 模式本就负责持久化，查询也不弄脏缓存）。REPL 的 impact/affected-tests/dead-exports/unresolved/cycles/dependents/dependencies/stats/audit-map 九个命令改为经 `COMMANDS` 表分发（懒加载避免 require 环），REPL 只保留参数解析与文本渲染；tree/issues/top 仍 REPL 独有，实现不动。
 - 行为变化（收敛的代价，测试已同步）：REPL 对不存在文件从 "File not found in graph:" 改为与 CLI 一致的 "File not found:"（先查文件系统再查索引）；对存在但未索引的文件从报错改为带 `target-not-indexed` 警告的降级结果（与 CLI 一致）。REPL 结构化输出从精简子集变为与 CLI 相同完整结果集（契约只增不删）。
@@ -16,8 +33,9 @@
 - 测试：`test/json-contract-snapshot-test.js` 增加 CLI ↔ REPL 字段一致性（9 条共享命令同一输入两边 key-path 集合相等，剥掉 format 层字段）；`test/repl-test.js`、`test/repl-edge-test.js`、`test/repl-cli-impact-depth-test.js` 的 mock 容器升级为真实临时目录 + 完整容器表面（真实 handler 会 fs 检查目标文件）；`test/bug-7-repl-nonexistent-test.js`、`test/repl-json-test.js` 断言更新为新行为。快层 281/281 通过。
 - 已知边界：`guard` 的 ai 格式是独立模块且输出纯文本句子（非结构化信封），不携带 warnings/dataQuality 字段；其 markdown/jsonl 已随 dispatch 统一出口自动带上。guard 的缺失目标是硬失败，错误文本可见。
 
-### fix：非 JSON 格式透传降级信号，截断说明写实际行数（H-39，2026-10-26 实施，待验收）
+### fix：非 JSON 格式透传降级信号，截断说明写实际行数（H-39，2026-10-26 实施，2026-11-02 已验收）
 
+- 验收（同上，实测）：`cross-format-degradation-test` 退出码 0；`impact src/tools/dep-tools/impact.js --format ai --quiet` 含 `dataQuality: "degraded"`、`warnings`、`confidence.overall: 0.5`，摘要写 "showing 5 of 537"。
 - 现象（2026-10-23 登记）：同一份降级输入 `--json` 带 `dataQuality: "degraded"` 与 `warnings[]`，`--format ai` 没有这两样且 `confidence.overall` 为 1；`jsonl`/`markdown` 同样丢失；agent 首选 ai 格式（SKILL.md），会把降级结果读成满分置信。另有截断说明 bug：summary 实际列 5 行写 "showing 15 of 535"，markdown 列 10 行也写 15。
 - 修法：`human-formatters.js` 的 ai/jsonl/markdown 三个 dispatch 增加统一出口——`degradationSignals`/`markdownDegradationSection`/`jsonlDegradationRecords`/`loweredConfidence` 一组纯函数；ai 全深度（detail/surface/audit-summary）透传 `warnings`+`dataQuality`，`degraded`/`unavailable` 把 `confidence.overall` 压到 `CONFIDENCE.LOW_VALUE`；jsonl 追加 `_type: "warning"` 与 `_type: "data-quality"` 独立记录（`certain` 不出记录）；markdown 追加 `## Data Quality`/`## Warnings` 段。删掉 `api-contracts` 与 `audit-overview` 的 markdown/jsonl 里各自渲染 warnings 的重复代码，warnings 只从 dispatch 一处发出。截断文案统一为实际列出的行数（impact/affected-tests/affected-routes 的 summary+markdown 六处）。
 - 本机实测（修复后）：`impact src/tools/dep-tools/impact.js --format ai` 输出 `dataQuality: "degraded"`、1 条 warning、`confidence.overall: 0.5`、截断行 "showing 5 of 539"。

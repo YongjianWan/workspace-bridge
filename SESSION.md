@@ -6,7 +6,7 @@
 
 ## 当前交接
 
-- 代码修改权（ROADMAP 第 3 节规则 1）：**无**。Vivian（DSH 会话）2026-10-26 13:30 实施完 H-39、H-40 后释放（见 CHANGELOG [Unreleased] 两条 fix 条目，状态"待验收"，验收命令见「下一步」第 4 条）。此前：实验 B 会话 `local_9f146354`（Claude）2026-10-23 写完 `eval/agent-ab.js` 及其测试后释放；跑预实验或正式实验时发现 harness 要改，按规则 1 重新登记。
+- 代码修改权（ROADMAP 第 3 节规则 1）：**Claude 会话（Sonnet 5.5，2026-11-02 起）**，项目所有者当日明确放行，当前为唯一会话。H-39/H-40 已由本会话验收通过（见 CHANGELOG）。跑预实验或正式实验时发现 harness 要改，在此重新登记。
 - 过线任务终审（2026-10-14，Vivian 实施）：**算法排序通道全部关闭，未过线**。基线复现 `J1-holdout-v5-base` 与 v4 逐项一致（全类型 0.6099、ceiling 0.8165、110 输入 0 错误）；Java→Java +15pp 条件已满足（0.6545−0.5034=+15.1pp），唯一缺口是召回 0.6545<0.70。15 个排序变体（B1 五变体 pairwise 0.6532 / pointwise 0.6393 / +交互 0.6332 / J→J 专项 0.6522 / +元特征 0.6532、GBDT 0.6106、并集补位 0.6545、A3 提交说明 TF-IDF 0.6393 等）全部 ≤ 产品 0.6545。候选池 92.8% 含真值、完美排序 0.9642——瓶颈是排序信号，静态+diff+任务模板特征已全部榨干。15 个排序变体全部在同一个 J1 留出集（20 提交）上裁决，数字只在 J1 上成立；但 diff-context 特性本身已跨仓库验证（2026-10-16，ROADMAP 第 6 节对照表）：F1 +5.9pp（0.5302→0.5893）、P1 +2.8pp（0.5533→0.5813），非 Java 语言同样正增益，无退化。证据产物（本机 gitignored）：`eval/truth/phase6-feature-dump.js`、`eval/truth/phase6-ranker*.js` / `phase6-a3-probe.js`、`eval/truth/replay/p6-dump-j1/`。剩余 C1 归项目所有者决策；A2 跨仓库只对"漏了后端"有效。
 - A4 全工作区 diff 条件化（2026-10-14 实施并推送）：工作区查询读全量 `git diff HEAD`，其他脏文件改动里的新标识符也能把引用方 promote 进前列；单脏文件行为不变，回放显式 diffText 路径不受影响（留出数字不动）。提交 `446d039` + 文档 `6d59005`/`61285a2`，CI 双工作流全绿。当前基线：快层 280/280、lint 退出码 0（2026-10-14）。
 - 缓存契约：CACHE_SCHEMA_REVISION=55（CACHE_VERSION 另含引擎源码指纹），schemaVersion=1.2.0；parse_results 只存纯解析输出。索引不完整时 `discoveryComplete=false`、`coverageRatio=null`，消费者必须保留 warnings 与 degraded 状态，不按 100% 覆盖解读。
@@ -17,7 +17,7 @@
 
 ## 下一步
 
-0. **待验收（2026-10-26 Vivian 实施，ROADMAP 第 3 节规则 2）**：H-39（非 JSON 格式透传降级信号 + 截断文案修正）与 H-40（REPL 收口到 CLI 同一命令处理函数）。验收命令（优先另一个模型/会话重跑）：`npm run test:fast`（当前 281/281 通过）+ `node test/cross-format-degradation-test.js` + `node test/json-contract-snapshot-test.js`（含 CLI ↔ REPL 字段一致性）+ `node test/repl-json-test.js` + `node test/bug-7-repl-nonexistent-test.js`；另抽查 H-39 实测口径：`node cli.js impact --cwd . --file src/tools/dep-tools/impact.js --format ai --quiet` 应含 `dataQuality: "degraded"`、`warnings`、`confidence.overall: 0.5`；`node cli.js repl --cwd . --eval "impact src/tools/dep-tools/impact.js" --json --quiet` 的 `result` 应含 `dataQuality`/`warnings`/`symbolImpact` 等完整字段。验收通过后：TECH_DEBT 删两条目、本文档删本段、CHANGELOG 条目状态改"已验收"。
+0. **审计结论与路线（2026-11-03）**：见 [docs/audit-2026-11/README.md](./docs/audit-2026-11/README.md)。第 0 步闸门是 agent-ab 预实验，由项目所有者在设好 `ANTHROPIC_API_KEY` 的终端里执行（命令见 audit README 第四节）。H-40 缺口已修（`untrusted` 标注），待验收：`npm run test:fast`、`node test/json-contract-snapshot-test.js`、`node test/repl-json-test.js`（本机单次约 3 分钟，机器空闲时跑）。H-39 已验收。
 1. 本地工作流（2026-10-13 项目所有者决定）：**本地不再跑全量慢层**，日常迭代只跑 `npm run test:fast`（约 90 秒）+ 被改动波及的专项慢测；全量慢层交给 GitHub（main 推送 + 每日定时，`.github/workflows/test-slow.yml`）。例外不变：改 AGENTS 高危文件仍按规则 2 先跑 impact/affected-tests，且提交前须确认快层与相关专项绿。慢层提速（削进程税/重测试工作量）保持 P4 冻结，重启条件仍按 TECH_DEBT。
 1. **过线任务状态（2026-10-14）：算法通道全部关闭，优化转向产品侧**。召回缺口只剩 Java→Java 0.6545<0.70（+15pp 条件已满足 15.1pp）；回放可裁决通道（1–6、9、A1、B1 五变体、A3）终审全部 ≤ 产品现状，候选池 92.8% 含真值、oracle 0.9642，静态+diff+任务模板信号已榨干。项目所有者指示"不以过线为满足、继续优化"：A4 全工作区 diff 条件化已落地（`446d039`，六语言夹具、快层 280/280）。剩余归项目所有者的决策：①是否接受 0.6545 为过线任务的终审结论；②C1 给证据不排序（改输出契约）；③是否直接走 T2.2 真人真用对照验证工具增量价值。F1/P1 复跑 diff-context 已完成（2026-10-16，见当前交接终审行与 ROADMAP 第 6 节对照表，无退化）。文档：SESSION「当前交接」终审行 + 前沿方法表；产物 `eval/truth/phase6-*`（本机）。
 2. H-34：项目所有者已于 2026-10-12 选择保留语义修复并接受实体→VO/DTO 少找 2 个文件的代价（42.45%→38.54%）；旧召回门禁仍未通过。语义与通用回归 2026-10-13 由 Vivian（Kimi 会话）独立验收通过。H-35 已登记，未开工。
